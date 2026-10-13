@@ -13,9 +13,9 @@ ARGS   = +ops=$(OPS)
 include ../common/unit.mk
 
 short:
-	@for s in 1 2 3; do $(MAKE) --no-print-directory run NA=1 SEED=$$s OPS=20000 | tail -2 | grep -q "TEST PASSED" || { echo "FAIL seed $$s"; exit 1; }; echo "l2 NA=1 seed $$s: PASS"; done
+	@for s in 1 2 3; do $(MAKE) --no-print-directory run NA=1 SEED=$$s OPS=20000 | grep -q "TEST PASSED" || { echo "FAIL seed $$s"; exit 1; }; echo "l2 NA=1 seed $$s: PASS"; done
 
 long:
 	@for na in 1 2 4; do for s in 1 2 3 4 5 6 7 8 9 10; do \
-	  $(MAKE) --no-print-directory run NA=$$na SEED=$$s OPS=100000 | tail -2 | grep -q "TEST PASSED" || { echo "FAIL NA=$$na seed $$s"; exit 1; }; \
+	  $(MAKE) --no-print-directory run NA=$$na SEED=$$s OPS=100000 | grep -q "TEST PASSED" || { echo "FAIL NA=$$na seed $$s"; exit 1; }; \
 	  echo "l2 NA=$$na seed $$s: PASS"; done; done
