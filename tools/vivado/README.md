@@ -21,9 +21,10 @@
    ```
 4. **(you)** Install. The `-a` flag accepts the AMD EULAs. This downloads and installs about 20–30 GB and takes roughly 20–40 minutes, so run it in the background with a log:
    ```bash
-   cd ~/xinstall-tmp && nohup ./xsetup -a XilinxEULA,3rdPartyEULA -b Install \
-       -c ~/.Xilinx/install_config.txt > ~/vivado_install.log 2>&1 &
+   cd ~/xinstall-tmp; nohup ./xsetup -a XilinxEULA,3rdPartyEULA -b Install \
+       -c ~/.Xilinx/install_config.txt > ~/vivado_install.log 2>&1 < /dev/null &
    ```
+   Use `;` after `cd`, not `&&`. With `&&`, the whole `cd ... && nohup ...` list runs as a background subshell that keeps the terminal's (or SSH session's) output open. An `ssh host '...'` call then does not return until the install ends. The install itself is unaffected, and Ctrl+C on such an ssh call is safe: no terminal is attached and nohup ignores hang-ups.
 5. Check and clean up:
    ```bash
    tail -3 ~/vivado_install.log
