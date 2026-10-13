@@ -1,6 +1,7 @@
 # Simulation tests of the spike RTL (fpga/spikes/rtl).
 #   make -C fpga/spikes/sim iq                 tg_iq + tg_wake, every variant, smt2 and smt2_w3
 #   make -C fpga/spikes/sim iq SEED=5 CYCLES=100000
+#   make -C fpga/spikes/sim -j8 all          every spike test: iq, alu, fetch, dtlb, s1
 ROOT   := $(abspath ../../..)
 SEED   ?= 1
 CYCLES ?= 20000
@@ -61,3 +62,17 @@ dtlb-%:
 	  $(COMMON) $(ROOT)/fpga/spikes/rtl/tg_dtlb.sv tb_dtlb.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
 	$$d/Vtb_dtlb +seed=$(SEED) > $$d/run.log; echo "$*: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
 	grep -q '^PASS' $$d/run.log || { grep ERROR $$d/run.log | head; exit 1; }
+
+# S1 PL logic against AXI memory models
+.PHONY: s1
+s1:
+	@d=$(OBJ)/s1; mkdir -p $$d; \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_s1 $(ROOT)/rtl/common/prim/tg_ram_sdp.sv \
+	  $(ROOT)/fpga/spikes/s1/rtl/tg_s1_engine.sv $(ROOT)/fpga/spikes/s1/rtl/tg_s1_top.sv \
+	  $(ROOT)/fpga/spikes/s1/sim/tb_s1.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
+	$$d/Vtb_s1 +seed=$(SEED) > $$d/run.log; echo "s1: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
+	grep -q '^PASS' $$d/run.log || { grep ERROR $$d/run.log | head; exit 1; }
+
+# Everything (about 5 minutes with -j8)
+.PHONY: all
+all: iq alu fetch dtlb s1
