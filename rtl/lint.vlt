@@ -1,0 +1,7 @@
+`verilator_config
+// Lint waivers for `make lint` (docs/spec/conventions.md §8). Keep each one justified.
+
+// Package constants need not be used by every configuration.
+lint_off -rule UNUSEDPARAM -file "*rtl/common/tg_*pkg.sv"
+// PRIM selects the XPM primitive and is used only under SYNTHESIS.
+lint_off -rule UNUSEDPARAM -file "*rtl/common/prim/tg_ram_*.sv" -match "*PRIM*"
