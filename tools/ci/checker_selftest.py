@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--tests-dir", default=os.path.join(os.environ.get("RISCV_TESTS", ""), "isa"))
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--logdir", default=None)
+    ap.add_argument("--directed", default=None, help="directory with the built directed tests (tests/isa)")
     a = ap.parse_args()
     logdir = a.logdir or os.path.join(os.environ.get("TANAGER_BUILD", os.path.expanduser("~/tanager-build")),
                                       "checker-selftest")
@@ -57,20 +58,38 @@ def main():
             ok = False
             print("\n".join("    " + l for l in p.stdout.splitlines() if l.startswith("  ")))
 
+    if a.directed:
+        print("== Interrupts (directed tests with random interrupt injection)")
+        for t in sorted(f for f in os.listdir(a.directed) if f.startswith("tanager-p-irq")):
+            for seed in (1, 2, 3):
+                p = subprocess.run([a.replay, "--quiet", "--irq=30", "--defer=50", f"--seed={seed}",
+                                    os.path.join(a.directed, t)], capture_output=True, text=True)
+                line = next((l for l in p.stdout.splitlines() if l.startswith("TG-REPLAY")), "no result")
+                if "status=PASS" not in line:
+                    ok = False
+                    print(f"  FAIL {t} seed {seed}: {line}")
+        print("  done")
+
     print("== Fault injection")
     jobs = []
     for f in FAULTS:
         for t in FAULT_TESTS:
             for seed in (1, 2):
                 jobs.append((f, t, seed))
+    if a.directed:
+        for seed in (1, 2, 3, 4):
+            jobs.append(("irq-cause", "tanager-p-irq_ext", seed))
 
     def one(job):
         f, t, seed = job
         args = [a.replay, "--quiet", f"--seed={seed}", "--defer=70", f"--inject={f}",
-                f"--inject-at={(seed * 37) % 60}"]
+                f"--inject-at={(seed * 37) % 60 + (100 if t.startswith('tanager') else 0)}"]
         if "-v-" in t:
             args.append("--tohost-va=0xffffffffffe01000")
-        args.append(os.path.join(a.tests_dir, t))
+        if t.startswith("tanager"):
+            args += ["--irq=30", os.path.join(a.directed, t)]
+        else:
+            args.append(os.path.join(a.tests_dir, t))
         p = subprocess.run(args, capture_output=True, text=True)
         line = next((l for l in p.stdout.splitlines() if l.startswith("TG-REPLAY")), "")
         status = "PASS" if "status=PASS" in line else "NA" if "status=NA" in line else "MISSED"

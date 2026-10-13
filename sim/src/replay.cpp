@@ -97,7 +97,7 @@ const char* expected_phrase(const std::string& k) {
       {"nostore", "store:"}, {"cause", "trap cause:"}, {"tval", "trap tval:"},
       {"trap-as-retire", "Spike trapped"}, {"retire-as-trap", "Spike retired"}, {"wb-value", "deferred"},
       {"wb-missing", "never arrived|reused while"}, {"wb-extra", "not pending"}, {"tag-reuse", "reused"},
-      {"nondet-bad", "nondet on an instruction"}, {"irq-cause", "interrupt cause:"},
+      {"nondet-bad", "nondet on an instruction"}, {"irq-cause", "interrupt cause:|not enabled in Spike"},
   };
   for (auto& [kind, phrase] : t)
     if (k == kind) return phrase;

@@ -286,7 +286,8 @@ Two independent ways, both in `make regress`:
 
 **Results on 2026-10-13** (`tools/ci/checker_selftest.py`, 9 s):
 - 326 riscv-tests (all `-p` and `-v` suites of ui, um, ua, uc, uf, ud, mi, si, zba, zbb, zbs, zicond; `ma_data` excluded, §4.1) pass Spike against Spike, plain and under four perturbation sets (deferral up to 90% of results, nondet values, 2 and 4 harts, 3- and 4-record cycles);
-- 19 fault kinds × 7 programs × 2 seeds: every applicable injection is reported with the expected diagnosis (266 runs; a dropped writeback is reported either at the end or as the tag reuse it causes, whichever comes first).
+- 19 fault kinds × 7 programs × 2 seeds, plus a wrong interrupt cause on the interrupt test: every applicable injection is reported with the expected diagnosis (270 runs; a dropped writeback is reported either at the end or as the tag reuse it causes, whichever comes first);
+- the directed interrupt tests pass with random interrupts injected at enabled boundaries.
 
 The checker found its first real bug the same day: the test core lost deferred writebacks when two deferred records left its trace queue in one cycle.
 
@@ -307,6 +308,7 @@ The checker found its first real bug the same day: the test core lost deferred w
 - **Known exclusions** go in `tests/isa/exclude/<cfg>.txt` with a reason per line (for example, `rv64mi-p-breakpoint` until Sdtrig exists).
 - **Command:** `make -C tests/isa CFG=<cfg> [CORE=...] [SUITES=...] [LAT=...] [SIMARGS=...]` runs each test with lockstep, at most 8 at a time, and prints a table and `N passed, M failed`; logs of failing tests stay in the log directory and passing ones are deleted. `make -C tests/isa replay SUITES=all` runs the same suites Spike against Spike. Underneath is `tests/isa/run_isa.py`, which takes any tg_vsim or tg_replay binary and arguments.
 - **`-v` tests:** the runner passes the kernel alias of `tohost` (§2.6).
+- **Directed tests** (ours, `tests/isa/directed/*.S`, built to `tanager-p-*`): `irq_timer` (CLINT timer and software interrupts, WFI, `mip` reads) and `irq_ext` (external interrupts from `--irq-rand` pulses). `make -C tests/isa directed CFG=<cfg>` runs them with lockstep and random external-interrupt pulses; the checker self-test runs them Spike against Spike with injected interrupts. riscv-tests never enable interrupts, so these are what exercise `TR_IRQ`.
 - **Exclusions:** `exclude/tanager.txt` for every configuration (`rv64ui-*-ma_data`: needs hardware misaligned access, which Tanager traps); `exclude/tcore.txt` for the test core (`rv64mi-p-pmpaddr`: needs PMP); `exclude/<cfg>.txt` if a configuration needs one.
 
 ### 4.2 Benchmarks
@@ -324,9 +326,10 @@ The checker found its first real bug the same day: the test core lost deferred w
 `make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options):
 1. builds `tg_vsim` for the configuration and `tg_replay`;
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
-3. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
-4. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
-5. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+3. runs the directed tests with lockstep (§4.1);
+4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
+5. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+6. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -345,7 +348,7 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
   - `mmio_ld` on device and ROM loads, `nondet` on counter, `mip` and `marchid` reads, `TR_TRAP`, `TR_IRQ`.
 - **CSRs:** exactly Spike's set for an M+U RV64IM hart without PMP or triggers (the checker found the differences).
 - **Speed:** about 1.7–2.3 MHz of simulated cycles at an IPC of 0.1 (it is a multi-cycle machine), so CoreMark's two iterations take 3–12 s.
-- **Results:** `rv64ui-p`, `rv64um-p` and `rv64mi-p` (82 tests) and CoreMark A/B and Dhrystone pass in lockstep at 30, 120 and 250 cycles, also with jitter, backpressure, D-channel gaps, `toB` grants, random probes (CoreMark: about 100 K Acquires, 5 K Releases with data, 280 K probes), deferral and multi-slot trace.
+- **Results:** `rv64ui-p`, `rv64um-p` and `rv64mi-p` (82 tests), the directed interrupt tests (2,000+ interrupts per run) and CoreMark A/B and Dhrystone pass in lockstep at 30, 120 and 250 cycles, also with jitter, backpressure, D-channel gaps, `toB` grants, random probes (CoreMark: about 100 K Acquires, 5 K Releases with data, 280 K probes), deferral and multi-slot trace.
 
 ## 6. M3 items
 
