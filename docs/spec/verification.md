@@ -15,7 +15,7 @@ What the verification track gives the other tracks:
 | `make regress CFG=...` | `tools/ci/` | M2 |
 | riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3 |
 | Constrained-random instruction generator | `tests/random/` | M3 |
-| Fork-based snapshots | `sim/` | M3 |
+| Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
 
 ## 1. Quick start
 
@@ -172,11 +172,14 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 TG-RESULT status=PASS code=0 cycles=123456 instret=98765 ipc=0.800 khz=21.3 region_cycles=... region_instret=...
 ```
 
-### 2.8 Fork-based snapshots (M3)
+### 2.8 Fork-based snapshots
 
-- `--snap-every=N` forks the process every N cycles. The child is a frozen copy of the whole simulation (model, memories, Spike) and waits on a pipe; the parent keeps the newest `--snap-keep` (default 2) and kills older ones.
-- On a failure, the parent wakes the newest snapshot taken before the failure cycle. It re-runs from there with `--fst` enabled up to the failure cycle and writes `<run>/snap_<cycle>.fst`. The waveform covers only the window that matters, so a multi-hour run does not need a multi-gigabyte FST.
-- **Limits:** fork copies are copy-on-write, so memory grows only with what changes; the snapshot count is bounded for that reason. Open files (logs) are reopened by the child.
+`--snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=M]` (implemented 2026-10-13):
+- **Taking:** every N cycles the run forks. The child is a frozen copy of the whole simulation (model, harness memories and models, the checker's Spike, every random generator) blocked on a pipe. The newest K (default 2) are kept; older ones are discarded by closing their pipe, and they exit.
+- **Using:** when the run fails (any non-pass status), the newest snapshot is woken with the failure cycle. It replays from its own cycle with the waveform on, writes `FILE` (default `snap.fst`) up to M cycles (default 16) past the failure, and logs its run to `FILE.log`; the replay is deterministic, so it fails at the same cycle with the same report. The parent waits for it and prints where the waveform is.
+- **So** a long run (a Linux boot) needs no multi-gigabyte waveform: rerun it with `--snap-every` and get just the last window. Choose N so that a window of N cycles is a reasonable FST (about 20 KB per 1,000 cycles with the test core).
+- **Cost:** a fork copies page tables only; pages are copied when written. A CoreMark run with 34 snapshots ran 1% slower and stayed at 10 MB resident.
+- **Details:** the Verilated context runs with one thread (`threads(1)`): only the forking thread survives a fork, and a trace thread pool would hang the replay. Snapshots die with the run (`PR_SET_PDEATHSIG`). `--snap-every` and `--fst` are exclusive.
 
 ## 3. Lockstep checker
 
