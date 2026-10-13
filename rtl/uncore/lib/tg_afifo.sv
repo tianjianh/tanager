@@ -1,6 +1,7 @@
 // Asynchronous FIFO between two clock domains with valid/ready on both sides (docs/spec/host.md).
 // First-word fall-through: out_data is valid whenever out_valid. rd_level counts entries visible
-// on the read side (it lags writes by the pointer synchronizers). DEPTH: power of two, >= 16.
+// on the read side, wr_level the entries the write side sees in use (each lags the other side's
+// pointer through its synchronizer). DEPTH: power of two, >= 16.
 // The reset is synchronous to wr_clk, as xpm_fifo_async requires; the read side follows it.
 // xpm_fifo_async under SYNTHESIS; a Gray-code pointer FIFO with the same contract in simulation.
 module tg_afifo #(
@@ -13,6 +14,7 @@ module tg_afifo #(
   input  logic         in_valid,
   output logic         in_ready,
   input  logic [W-1:0] in_data,
+  output logic [AW:0]  wr_level,
   input  logic         rd_clk,
   output logic         out_valid,
   input  logic         out_ready,
@@ -36,7 +38,7 @@ module tg_afifo #(
     .READ_MODE           ("fwft"),
     .RELATED_CLOCKS      (0),
     .SIM_ASSERT_CHK      (0),
-    .USE_ADV_FEATURES    ("0400"),   // rd_data_count
+    .USE_ADV_FEATURES    ("0404"),   // rd_data_count, wr_data_count
     .WAKEUP_TIME         (0),
     .WRITE_DATA_WIDTH    (W),
     .WR_DATA_COUNT_WIDTH (AW + 1)
@@ -56,7 +58,8 @@ module tg_afifo #(
     .sleep         (1'b0),
     .injectsbiterr (1'b0),
     .injectdbiterr (1'b0),
-    .prog_full     (), .wr_data_count (), .overflow (), .wr_ack (), .almost_full (),
+    .wr_data_count (wr_level),
+    .prog_full     (), .overflow (), .wr_ack (), .almost_full (),
     .prog_empty    (), .underflow (), .data_valid (), .almost_empty (), .sbiterr (), .dbiterr ()
   );
   assign in_ready  = !full && !wr_busy;
@@ -78,7 +81,8 @@ module tg_afifo #(
   endfunction
 
   wire [AW:0] rbin_w = gray2bin(rgray_w2);
-  assign in_ready = (wbin_q - rbin_w) != (AW+1)'(DEPTH);
+  assign wr_level = wbin_q - rbin_w;
+  assign in_ready = wr_level != (AW+1)'(DEPTH);
   always_ff @(posedge wr_clk) begin
     if (wr_rst) begin
       wbin_q   <= '0;

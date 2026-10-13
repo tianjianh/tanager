@@ -56,6 +56,13 @@ The PL side of that is the **host bridge**:
 | `0x080` | `IRQ_STATUS` | RO | | `[0]` console bytes waiting, `[1]` `MBOX_IN`, `[2]` power request, `[3]` `TOHOST` written |
 | `0x084` | `IRQ_ENABLE` | RW | 0 | mask for `host_irq_o` |
 | `0x088` | `TOHOST_SEQ` | RO | 0 | count of `TOHOST` writes (wraps) |
+| `0x0C0` | `TG_CTRL` | RW | 0 | `[0]` run the traffic generators (bring-up builds, [soc.md](soc.md) §2.3) |
+| `0x0C4` | `TG_BASE` | RW | `0x200_0000` | first line of the test region (physical address ÷ 64); core c uses the c-th region of `TG_LINES` lines |
+| `0x0C8` | `TG_LINES` | RW | 16384 | lines per generator (1 MiB, twice the L2) |
+| `0x0D0` | `TG_OPS` | RO | | lines checked, all generators |
+| `0x0D4` | `TG_ERRS` | RO | | mismatches, all generators |
+| `0x0D8` | `TG_ERR_LINE` | RO | | line of the most recent mismatch |
+| `0x0DC` | `TG_PASS` | RO | | completed passes of generator 0 |
 | `0x100` | `UART_TX` | RO | | pop one console byte: `[8]` valid, `[7:0]` byte |
 | `0x104` | `UART_TX_LEVEL` | RO | | bytes waiting (FIFO of 2048) |
 | `0x108` | `UART_RX` | WO | | push one byte to the console input |

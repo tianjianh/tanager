@@ -7,3 +7,5 @@ lint_off -rule UNUSEDPARAM -file "*rtl/common/tg_*pkg.sv"
 lint_off -rule UNUSEDPARAM -file "*rtl/common/prim/tg_ram_*.sv" -match "*PRIM*"
 // Uncore package constants need not be used by every module (SoC track).
 lint_off -rule UNUSEDPARAM -file "*rtl/uncore/tg_uncore_pkg.sv"
+// Arbiters' grant-index outputs are left open where only the granted data is needed (SoC track).
+lint_off -rule PINCONNECTEMPTY -file "*rtl/uncore/*" -match "*'out_idx'*"
