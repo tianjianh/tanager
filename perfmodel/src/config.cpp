@@ -1,0 +1,84 @@
+// tgsim: parameter handling and presets.
+#include "config.h"
+
+#include <cstdlib>
+#include <sstream>
+
+namespace tg {
+
+bool Config::set(const std::string& name, const std::string& value) {
+  char* end = nullptr;
+  const long long v = std::strtoll(value.c_str(), &end, 0);
+  if (end == value.c_str() || *end != '\0') return false;
+#define TG_SET(n, d, s) if (name == #n) { n = v; return true; }
+  TG_PARAMS(TG_SET)
+#undef TG_SET
+  return false;
+}
+
+// Presets. "tanager_v1" is the plan's v1 baseline (all defaults). The NaxRiscv presets follow its
+// documentation (research_notes/.../naxriscv_family.md and the NaxRiscv RTD pages): 64-bit fetch, a
+// 512-entry direct-mapped BTB per fetch word in LUTRAM (zero-bubble taken branches) with GShare, returns
+// predicted from the BTB at fetch and corrected by the RAS at decode, one unified 32-slot IQ filled by
+// rows, 3 issue ports with one shared LSU/MUL/DIV pipe, recovery at commit, hit prediction with a full
+// flush on a wrong guess, same-size forwarding only, 16 KB L1s with 2 refill slots, no prefetcher.
+// Calibrated against NaxRiscv's published RV32 IPCs (scripts/calib.py, results/calibration.json):
+// Dhrystone +0.2%, CoreMark +8.9%, Embench -5.7%.
+bool Config::apply_preset(const std::string& name) {
+  *this = Config{};
+  preset = name;
+  if (name == "tanager_v1") return true;
+  if (name == "v1_freeze") {
+    // The approved M1 freeze (docs/perf/feature_ledger.md, 2026-10-13; "final C" in results/freeze_rv64gc.json):
+    // the greedy acceptance-rule result plus exceptions E1-E5 and the Goldschmidt divide/sqrt unit.
+    ubtb = 64; tage_log = 12;
+    fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;
+    l1i_mshr = 4;
+    rob = 48; iq_a0 = 10; iq_a1 = 10; iq_ld = 6; iq_fp = 10; iq_sta = 4;
+    lq = 16; sq = 12; lqcb = 8; llt = 16; l1d_mshr = 16; ckpt = 4;
+    l2_mshr = 48; pf_stream_dist = 16; pf_stream_deg = 4;
+    lat_fdiv_s = 18; lat_fdiv_d = 23; lat_fsqrt_s = 20; lat_fsqrt_d = 26; fdiv_ii = 4;
+    return true;
+  }
+  if (name == "nax" || name == "nax_cal") {
+    fetch_bytes = 8; fetchq = 8; if_stages = 3; decode_width = 2; dec_to_disp = 2;
+    ubtb = 0; btb_block = 1; btb_sets = 512; btb_ways = 1; btb_slots = 1;
+    taken_bubble = 0; predecode_bubble = 3;
+    dirpred = 1; gshare_log = 14; gshare_hist = 14; ras = 32; ras_at_decode = 1;
+    fdip = 0; pf_i_nextline = 0; fusion = 0; sfb = 0; fold = 0;
+    rob = 64; commit_width = 2;
+    iq_unified = 1; iq_size = 32; iq_rows = 1;
+    prf_banked = 0; prf_int = 64; prf_fp = 64;
+    ckpt = 0; llt = 0; br_first = 0;
+    spec_wakeup = 1; hit_pred = 1; hitmiss_flush = 1; shadow = 0;
+    lat_mul = 3; div_base = 2; div_bits_per_cycle = 1; lat_fma = 7;
+    lq = 16; lqcb = 0; sq = 16; early_retire = 0; mdp = 1; fwd_strict = 1; sta_split = 0; rfo_pf = 0;
+    l1i_kb = 16; l1i_ways = 4; l1i_mshr = 1; l1d_kb = 16; l1d_ways = 4; l1d_mshr = 2;
+    pf_stride = 0;
+    if (name == "nax_cal") {  // calibration against NaxRiscv's published numbers: plain memory, no L2
+      l2_kb = 0; pf_stream = 0; dram_lat = 30;
+    }
+    return true;
+  }
+  return false;
+}
+
+std::string Config::to_json() const {
+  std::ostringstream o;
+  o << "{\"preset\":\"" << preset << "\"";
+#define TG_JSON(n, d, s) o << ",\"" #n "\":" << n;
+  TG_PARAMS(TG_JSON)
+#undef TG_JSON
+  o << "}";
+  return o.str();
+}
+
+std::string Config::help() {
+  std::ostringstream o;
+#define TG_HELP(n, d, s) o << "  " #n " (default " << d << "): " << s << "\n";
+  TG_PARAMS(TG_HELP)
+#undef TG_HELP
+  return o.str();
+}
+
+}  // namespace tg

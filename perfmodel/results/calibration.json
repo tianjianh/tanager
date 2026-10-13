@@ -1,0 +1,96 @@
+{
+ "published": {
+  "dhrystone_ipc": 1.65,
+  "coremark_ipc": 1.28,
+  "embench_ipc": 1.42
+ },
+ "variants": {
+  "per_instr_btb+bubble1": {
+   "btb_block": 0,
+   "btb_sets": 512,
+   "btb_ways": 1,
+   "btb_slots": 1,
+   "taken_bubble": 1,
+   "ras_at_decode": 0
+  },
+  "btb_word+bubble1": {
+   "btb_block": 1,
+   "btb_sets": 512,
+   "btb_ways": 1,
+   "btb_slots": 1,
+   "taken_bubble": 1,
+   "ras_at_decode": 0
+  },
+  "btb_word+bubble0": {
+   "btb_block": 1,
+   "btb_sets": 512,
+   "btb_ways": 1,
+   "btb_slots": 1,
+   "taken_bubble": 0,
+   "ras_at_decode": 0
+  },
+  "btb_word+bubble0+ras_at_decode (preset)": {}
+ },
+ "results": {
+  "per_instr_btb+bubble1": {
+   "dhrystone_ipc": 1.455838446978379,
+   "coremark_ipc": 1.2955029421590842,
+   "embench_ipc": 1.2123000372852308,
+   "embench_ipc_total": 1.1881399177743839,
+   "dmips_mhz": 2.6221174536605716,
+   "coremark_mhz": 4.572832512684558,
+   "embench_score": 1.5692446554943105,
+   "err": {
+    "dhrystone_ipc": -0.11767366849795213,
+    "coremark_ipc": 0.012111673561784553,
+    "embench_ipc": -0.14626757937659796
+   },
+   "max_abs_err": 0.14626757937659796
+  },
+  "btb_word+bubble1": {
+   "dhrystone_ipc": 1.5112159392302975,
+   "coremark_ipc": 1.2920837051822303,
+   "embench_ipc": 1.2182841018536408,
+   "embench_ipc_total": 1.1992658407504921,
+   "dmips_mhz": 2.7218581146350687,
+   "coremark_mhz": 4.56064053720157,
+   "embench_score": 1.5769906433300767,
+   "err": {
+    "dhrystone_ipc": -0.08411155198163778,
+    "coremark_ipc": 0.009440394673617458,
+    "embench_ipc": -0.14205344939884446
+   },
+   "max_abs_err": 0.14205344939884446
+  },
+  "btb_word+bubble0": {
+   "dhrystone_ipc": 1.8253000321736383,
+   "coremark_ipc": 1.3968842862148438,
+   "embench_ipc": 1.3478734333464861,
+   "embench_ipc_total": 1.3207441390133066,
+   "dmips_mhz": 3.287556447257901,
+   "coremark_mhz": 4.930374241847376,
+   "embench_score": 1.7447357226007307,
+   "err": {
+    "dhrystone_ipc": 0.10624244374159897,
+    "coremark_ipc": 0.0913158486053467,
+    "embench_ipc": -0.050793356798249145
+   },
+   "max_abs_err": 0.10624244374159897
+  },
+  "btb_word+bubble0+ras_at_decode (preset)": {
+   "dhrystone_ipc": 1.6535292860269373,
+   "coremark_ipc": 1.393960564414335,
+   "embench_ipc": 1.3386097997481314,
+   "embench_ipc_total": 1.3099111294357282,
+   "dmips_mhz": 2.9781793508950565,
+   "coremark_mhz": 4.920098746655565,
+   "embench_score": 1.7327445429689716,
+   "err": {
+    "dhrystone_ipc": 0.002138961228446812,
+    "coremark_ipc": 0.08903169094869923,
+    "embench_ipc": -0.057317042430893306
+   },
+   "max_abs_err": 0.08903169094869923
+  }
+ }
+}

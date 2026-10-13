@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="Helvetica, Arial, sans-serif" font-size="12">
+<rect width="720" height="420" fill="#ffffff"/>
+<text x="64" y="22" font-size="15" font-weight="bold" fill="#222">IPC ratio to the NaxRiscv-like control (rv64gcb)</text>
+<line x1="64" x2="510" y1="368.0" y2="368.0" stroke="#e5e5e5"/>
+<text x="56" y="372.0" text-anchor="end" fill="#555">1.00</text>
+<line x1="64" x2="510" y1="327.0" y2="327.0" stroke="#e5e5e5"/>
+<text x="56" y="331.0" text-anchor="end" fill="#555">1.10</text>
+<line x1="64" x2="510" y1="286.0" y2="286.0" stroke="#e5e5e5"/>
+<text x="56" y="290.0" text-anchor="end" fill="#555">1.20</text>
+<line x1="64" x2="510" y1="245.0" y2="245.0" stroke="#e5e5e5"/>
+<text x="56" y="249.0" text-anchor="end" fill="#555">1.30</text>
+<line x1="64" x2="510" y1="204.0" y2="204.0" stroke="#e5e5e5"/>
+<text x="56" y="208.0" text-anchor="end" fill="#555">1.40</text>
+<line x1="64" x2="510" y1="163.0" y2="163.0" stroke="#e5e5e5"/>
+<text x="56" y="167.0" text-anchor="end" fill="#555">1.50</text>
+<line x1="64" x2="510" y1="122.0" y2="122.0" stroke="#e5e5e5"/>
+<text x="56" y="126.0" text-anchor="end" fill="#555">1.60</text>
+<line x1="64" x2="510" y1="81.0" y2="81.0" stroke="#e5e5e5"/>
+<text x="56" y="85.0" text-anchor="end" fill="#555">1.70</text>
+<line x1="64" x2="510" y1="40.0" y2="40.0" stroke="#e5e5e5"/>
+<text x="56" y="44.0" text-anchor="end" fill="#555">1.80</text>
+<line x1="64.0" x2="64.0" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="64.0" y="386" text-anchor="middle" fill="#555">30</text>
+<line x1="124.8" x2="124.8" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="124.8" y="386" text-anchor="middle" fill="#555">60</text>
+<line x1="185.6" x2="185.6" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="185.6" y="386" text-anchor="middle" fill="#555">90</text>
+<line x1="246.5" x2="246.5" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="246.5" y="386" text-anchor="middle" fill="#555">120</text>
+<line x1="510.0" x2="510.0" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="510.0" y="386" text-anchor="middle" fill="#555">250</text>
+<rect x="64" y="40" width="446" height="328" fill="none" stroke="#999"/>
+<text x="287.0" y="408" text-anchor="middle" fill="#333">L2-miss round trip to DRAM (core cycles)</text>
+<text transform="translate(16,204.0) rotate(-90)" text-anchor="middle" fill="#333">suite IPC ratio</text>
+<line x1="64" x2="510" y1="306.5" y2="306.5" stroke="#c0392b" stroke-dasharray="2 4"/>
+<text x="506" y="320.5" text-anchor="end" fill="#c0392b">1.15 (section 0 target)</text>
+<line x1="64" x2="510" y1="286.0" y2="286.0" stroke="#c0392b" stroke-dasharray="2 4"/>
+<text x="506" y="281.0" text-anchor="end" fill="#c0392b">1.2 (M1 exit)</text>
+<polyline points="64.0,122.8 124.8,105.3 185.6,102.6 246.5,103.0 510.0,113.6" fill="none" stroke="#7f7f7f" stroke-width="2.2" stroke-dasharray="7 4"/>
+<circle cx="64.0" cy="122.8" r="3" fill="#7f7f7f"/>
+<circle cx="124.8" cy="105.3" r="3" fill="#7f7f7f"/>
+<circle cx="185.6" cy="102.6" r="3" fill="#7f7f7f"/>
+<circle cx="246.5" cy="103.0" r="3" fill="#7f7f7f"/>
+<circle cx="510.0" cy="113.6" r="3" fill="#7f7f7f"/>
+<line x1="524" x2="554" y1="54" y2="54" stroke="#7f7f7f" stroke-width="2.2" stroke-dasharray="7 4"/>
+<text x="560" y="58" fill="#222">v1 (draft 0.3)</text>
+<polyline points="64.0,120.6 124.8,98.3 185.6,94.6 246.5,92.6 510.0,101.8" fill="none" stroke="#2ca02c" stroke-width="2.2" stroke-dasharray="2 3"/>
+<circle cx="64.0" cy="120.6" r="3" fill="#2ca02c"/>
+<circle cx="124.8" cy="98.3" r="3" fill="#2ca02c"/>
+<circle cx="185.6" cy="94.6" r="3" fill="#2ca02c"/>
+<circle cx="246.5" cy="92.6" r="3" fill="#2ca02c"/>
+<circle cx="510.0" cy="101.8" r="3" fill="#2ca02c"/>
+<line x1="524" x2="554" y1="74" y2="74" stroke="#2ca02c" stroke-width="2.2" stroke-dasharray="2 3"/>
+<text x="560" y="78" fill="#222">greedy, rule only</text>
+<polyline points="64.0,101.5 124.8,78.7 185.6,75.1 246.5,73.0 510.0,69.6" fill="none" stroke="#1f77b4" stroke-width="2.2"/>
+<circle cx="64.0" cy="101.5" r="3" fill="#1f77b4"/>
+<circle cx="124.8" cy="78.7" r="3" fill="#1f77b4"/>
+<circle cx="185.6" cy="75.1" r="3" fill="#1f77b4"/>
+<circle cx="246.5" cy="73.0" r="3" fill="#1f77b4"/>
+<circle cx="510.0" cy="69.6" r="3" fill="#1f77b4"/>
+<line x1="524" x2="554" y1="94" y2="94" stroke="#1f77b4" stroke-width="2.2"/>
+<text x="560" y="98" fill="#222">proposed v1 freeze</text>
+</svg>

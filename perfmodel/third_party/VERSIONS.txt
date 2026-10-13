@@ -1,0 +1,4 @@
+coremark    1f483d5b8316753a742cbf5590caf5bd0a4e4777
+embench-iot 0466a18e4f6b47e19598d7c6ba72916d54b68f65 (tag embench-1.0)
+dhrystone   netlib dhry-c sha256 038a7e9169787125c3451a6c941f3aca5db2d2f3863871afcdce154ef17f4e3e
+toolchain   xpack-riscv-none-elf-gcc-15.2.0-1

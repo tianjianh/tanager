@@ -1,0 +1,271 @@
+// tgsim: cycle-level out-of-order core timing model, driven by the functional simulator (correct
+// path only: wrong-path instructions are not simulated; a mispredicted branch stalls fetch until it
+// resolves, which charges the full redirect penalty).
+//
+// Multithreading (threads = 2, plan section 6): each hardware thread runs its own program on its own
+// functional simulator. Per thread: instruction stream, fetch state and instruction queue, global history,
+// RAS, rename map, checkpoints, ROB/LQ/SQ/completion-buffer share, commit order, store drain, flushes and
+// statistics. Shared: fetch (one thread per cycle), decode/rename/commit slots, issue queues (optional
+// per-thread caps), physical register banks, long-latency tags, execution units, caches, MSHRs, prefetchers
+// and predictor tables (optionally hashed with the thread ID).
+#pragma once
+#include <array>
+#include <cstdint>
+#include <deque>
+#include <memory>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "bpred.h"
+#include "cache.h"
+#include "config.h"
+#include "iss.h"
+
+namespace tg {
+
+enum Queue : uint8_t { Q_A0, Q_A1, Q_LD, Q_STA, Q_FP, Q_UNI, Q_SERIAL, Q_ALU_ANY, Q_A2, NQ };
+constexpr uint64_t NEVER = ~0ull;
+// Micro-op ids carry the hardware thread in their top bits: unique across threads, and thread 0's ids are
+// exactly the single-thread ones.
+constexpr int TID_SHIFT = 48;
+
+struct RasUndo { bool op = false; int sp = 0; int slot = -1; uint64_t val = 0; };
+
+struct FetchRec {
+  uint64_t seq = 0;              // dynamic instruction number (synthetic shadow: branch seq)
+  const DynInst* di = nullptr;
+  uint64_t avail = 0;            // first cycle it can be decoded
+  bool mispred = false;
+  bool sfb = false;              // predicated short forward branch
+  bool synthetic = false;        // shadow instruction of a taken predicated branch (not executed)
+  uint8_t mp_kind = 0;           // 1 direction, 2 target, 3 return, 4 cold (no BTB entry)
+  Hist hist;                     // global history before this instruction
+  RasUndo ras;
+};
+
+struct Uop {
+  uint64_t id = 0;
+  uint64_t age = 0;                   // dispatch order across threads (issue-queue age)
+  uint8_t tid = 0;
+  uint64_t seq = 0, seq_next = 0;
+  const DynInst* di = nullptr;   // instruction that defines the timing class / memory / control
+  Cls cls = Cls::ALU;
+  uint8_t q = Q_SERIAL;
+  uint8_t n_instr = 1;
+  bool serial = false, mmio = false;
+  uint8_t nsrc = 0;
+  std::array<int, 3> src_arch{};      // 0..63 (FP = 32 + reg), -2 = SFB temp
+  std::array<uint64_t, 3> src_prod{};
+  int dst_arch = -1;                  // -1 none, -2 SFB temp
+  int dst_bank = -1;
+  int data_arch = -1;                 // store data source (split store)
+  uint64_t data_prod = 0;
+  uint64_t sfb_temp_of = 0;           // select uop: id of its compare uop (temp register owner)
+  int sfb_temp_bank = -1;
+  uint8_t state = 0;                  // 0 decoded, 1 dispatched (waiting), 2 issued
+  uint64_t t_disp_ok = 0, t_eligible = 0, t_issue = NEVER, t_ready = NEVER, t_done = NEVER, t_ag = NEVER;
+  bool is_ctrl = false, mispred = false, resolved = false, has_ckpt = false, sfb_cmp = false, sfb_sel = false;
+  bool fused_br = false;
+  uint8_t mp_kind = 0;
+  Hist hist;
+  RasUndo ras;
+  bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
+  bool retired_early = false;
+  int row = -1;
+  uint64_t addr = 0;
+  uint8_t size = 0;
+};
+
+struct SqEntry {
+  uint64_t id = 0, addr = 0;
+  uint8_t size = 0;
+  bool mmio = false, committed = false, rfo = false;
+  uint64_t t_addr = NEVER;
+  uint64_t data_prod = 0;
+  bool data_now = false;  // data captured at issue (non-split stores)
+};
+
+#define TG_STATS(X)                                                                                \
+  X(cycles) X(instr) X(uops)                                                                       \
+  X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
+  X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
+  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong)                                            \
+  X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
+  X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
+  X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
+  X(disp_stall_llt) X(disp_stall_empty) X(ckpt_none)                                               \
+  X(loads) X(stores) X(ld_fwd) X(ld_fwd_wait) X(ld_partial) X(ld_l1_hit) X(ld_l1_miss) X(ld_no_mshr) \
+  X(hitpred_wrong) X(shadow_cancels) X(cancelled_issues) X(hitmiss_flushes)                        \
+  X(violations) X(violation_flushes) X(mdp_waits) X(early_retired) X(commit_stall_cycles)          \
+  X(mlp_sum) X(mlp_cycles_nz) X(mlp_max)
+
+// Multithreading only (reported per thread when threads > 1).
+#define TG_SMT_STATS(X) X(fetch_cycles) X(fetch_lost_smt) X(decode_slots) X(dispatch_slots)
+
+struct Stats {
+#define TG_SDECL(n) uint64_t n = 0;
+  TG_STATS(TG_SDECL)
+  TG_SMT_STATS(TG_SDECL)
+#undef TG_SDECL
+};
+
+// One hardware thread's program. The core restarts a program that ends before the other thread's first
+// run is complete, so both threads stay active while every first run is measured.
+struct ThreadSpec {
+  Iss* iss = nullptr;            // initial functional simulator, with the program loaded (owned by the caller)
+  std::string elf, stdin_text, bench;
+  bool ff = false;               // fast-forward to the region start marker
+  uint64_t ram_base = 0, ram_size = 0;
+};
+
+class Core {
+ public:
+  Core(const Config& c, const std::vector<ThreadSpec>& specs);
+  // Runs to completion. Returns false on simulation error (deadlock, ISS fault).
+  bool run();
+  std::string result_json(const std::string& bench) const;
+
+ private:
+  struct PendingFlush { bool v = false; uint64_t at = 0, from_id = 0, resume = 0; };
+  struct Thread {
+    explicit Thread(int ras_entries) : ras(ras_entries) {}
+    int tid = 0;
+    ThreadSpec spec;
+    Iss* iss = nullptr;
+    std::unique_ptr<Iss> owned;    // functional simulator of a restarted run
+    uint64_t salt = 0;             // XORed into PCs that index shared predictor tables (TID hashing)
+    uint64_t pa_off = 0;           // physical-address offset: each thread has its own address space
+    // stream
+    std::deque<DynInst> stream;
+    uint64_t stream_base = 0;
+    bool iss_done = false;
+    std::vector<DynInst> synth;    // ring of synthetic shadow instructions
+    size_t synth_pos = 0;
+    // front end
+    uint64_t fetch_seq = 0, fe_resume = 0;
+    bool fe_blocked = false;
+    std::deque<FetchRec> fetchq;
+    Ras ras;
+    Hist ghr;
+    // window (program order): decoded but not yet committed uops
+    std::deque<Uop> win;
+    uint64_t win_base = 1, next_id = 1, disp_next = 1;
+    uint64_t rob_count = 0;
+    // rename
+    std::array<uint64_t, 64> rat{};
+    std::array<int, 64> arch_bank{};
+    std::array<uint64_t, 64> arch_prod{};
+    int ckpt_used = 0;
+    // memory
+    uint64_t lq_count = 0;
+    std::deque<SqEntry> sq;
+    std::deque<uint64_t> lqcb_done;  // completion times of retired loads in the completion buffer
+    PendingFlush pflush;
+    // region of interest (markers) of the first run
+    bool in_region = false, region_seen = false;
+    uint64_t r_start_cycle = 0, r_end_cycle = 0;
+    Stats st, st_start, st_end;
+    MemStats ms_start, ms_end;
+    uint64_t last_commit_t = 0;
+    // multithreaded runs
+    int lap = 0;                   // completed runs of the program
+    bool first_done = false;
+    int first_exit = 0;
+    std::string first_stdout;
+    uint64_t first_cycles = 0, first_instr = 0;
+  };
+
+  Thread& th(const Uop& u) { return *th_[u.tid]; }
+  // stream of correct-path instructions from the ISS
+  const DynInst* get(Thread& T, uint64_t seq);
+  bool stream_has(Thread& T, uint64_t seq);
+  void prune_stream(Thread& T);
+  // pipeline stages
+  void fetch();
+  void fetch_thread(Thread& T);
+  void decode();
+  int decode_thread(Thread& T, int slots);
+  void dispatch();
+  void dispatch_thread(Thread& T, int& n, int& row);
+  void issue();
+  void commit();
+  int commit_thread(Thread& T, int width);
+  void drain_stores();
+  bool drain_thread(Thread& T);
+  // helpers
+  bool predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t block_start, bool ubtb_hit,
+                    uint64_t ubtb_tgt, int& bubble);
+  bool sfb_shape(Thread& T, const DynInst& di, const Decoded** shadow);
+  Uop& new_uop(Thread& T, const FetchRec& r);
+  void add_srcs(Uop& u, const Decoded& d, bool skip_store_data);
+  bool src_ready(uint64_t prod, uint64_t t) const;
+  uint64_t prod_ready_time(uint64_t prod) const;
+  bool fusible(const FetchRec& a, const FetchRec& b) const;
+  int bank_for(const Uop& u, uint8_t q) const;
+  int free_regs(int bank);
+  bool can_issue(Uop& u);
+  void do_issue(Uop& u, int port);
+  void exec_load(Uop& u);
+  void exec_store(Uop& u);
+  void resolve_branch(Uop& u, uint64_t when);
+  bool early_retire_ok(Uop& u);
+  void retire(Uop& u, bool early);
+  void flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq);
+  void iq_remove(Uop& u);
+  void iq_reinsert(Uop& u);
+  Uop* find(uint64_t id);
+  const Uop* find(uint64_t id) const;
+  void train_predictors(const Uop& u);
+  void sample_mlp();
+  // multithreading
+  void order(int* o, bool fetch_stage) const;  // thread priority this cycle (ICOUNT or round robin)
+  uint64_t icount(const Thread& T) const;
+  int64_t iq_cap(uint8_t q) const;
+  int64_t iq_free(uint8_t q, int tid) const;  // entries thread tid may still take in queue q
+  int iq_occ(uint8_t q, int tid) const;     // entries of queue q held by thread tid
+  int64_t share(int64_t size, int tid) const;  // per-thread limit of a ROB/LQ/SQ/CB-like structure
+  bool window_full(int64_t size, uint64_t own, uint64_t total, int tid) const;
+  bool fast_forward(Thread& T);
+  bool finished(Thread& T);
+  void restart(Thread& T);
+  void end_first_region(Thread& T);
+  void region_event(Thread& T, bool start);
+  void overlap_check_start();
+  std::string region_json(const Thread& T) const;
+  uint64_t pa(const Thread& T, uint64_t a) const { return a + T.pa_off; }
+
+  const Config& c_;
+  const int nthr_;
+  std::vector<std::unique_ptr<Thread>> th_;
+  MemSys mem_;
+  std::unique_ptr<DirPred> dir_;
+  Btb btb_;
+  MicroBtb ubtb_;
+  PcCounters sfb_tab_;
+  PcTable hitpred_, waittab_;
+
+  uint64_t t_ = 0;
+  uint64_t age_next_ = 1;
+  // rename (shared register banks)
+  std::vector<int64_t> bank_size_, bank_committed_, bank_inflight_;
+  std::deque<std::pair<uint64_t, int>> deferred_free_;  // (cycle, bank)
+  // issue
+  std::array<std::vector<uint64_t>, NQ> iq_;
+  int rows_used_ = 0;
+  std::unordered_map<int, int> row_left_;
+  int next_row_ = 0;
+  uint64_t cancel_from_ = NEVER, cancel_to_ = 0;
+  int cancel_tid_ = 0;
+  uint64_t div_busy_ = 0, fdiv_busy_ = 0;
+  std::array<uint64_t, 128> wb_b1_{};
+  // early-retired uop id -> t_ready
+  std::unordered_map<uint64_t, uint64_t> pending_;
+  // overlap window of the threads' first regions (threads > 1)
+  bool ov_started_ = false, ov_ended_ = false;
+  uint64_t ov_start_ = 0, ov_end_ = 0;
+  std::array<uint64_t, MAX_THREADS> ov_i0_{}, ov_i1_{}, ov_r0_{};
+  std::string err_;
+};
+
+}  // namespace tg

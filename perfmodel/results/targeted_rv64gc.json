@@ -1,0 +1,2511 @@
+{
+ "isa": "rv64gc",
+ "configs": {
+  "v1": {
+   "preset": "tanager_v1",
+   "sets": {},
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7527891050448907,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22507,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3465090,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626427416000965,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649985,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794071941432578,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135785,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.750964914809583,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 23082,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3468700,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525044890556975,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097526110672477,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11830996,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9695955032358163,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1141443,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7481914557094103,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 24648,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3474203,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378286564496577,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103511968479797,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103216,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9529412071297463,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1151177,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "NaxRiscv-like": {
+   "preset": "nax",
+   "sets": {},
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.1882710904613103,
+      "mpki": 10.019309888810078,
+      "l1d_mpki": 0.0027990118500282866,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 66,
+      "mdp_waits": 5938,
+      "mp_resolved_commit": 60853,
+      "fetch_stall_icache": 123,
+      "cycles": 5111268,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.332978237904615,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.0005612122183918,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 25,
+      "mdp_waits": 6663529,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1573286,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.6938802406934622,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0009044649818292985,
+      "mlp": 1.0,
+      "l1i_mpki": 62.59802139240575,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 69210,
+      "cycles": 1593396,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.5424787861505399,
+      "mpki": 47.89917533897995,
+      "l1d_mpki": 60.24681020620023,
+      "mlp": 1.2264802496948215,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 369771,
+      "fetch_stall_icache": 5,
+      "cycles": 14230562,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.1111709157624303,
+      "mpki": 0.9745656599713279,
+      "l1d_mpki": 3.686091110991508,
+      "mlp": 1.281290991733016,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 2191,
+      "fetch_stall_icache": 9,
+      "cycles": 2023254,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.1866960320059272,
+      "mpki": 10.019309888810078,
+      "l1d_mpki": 0.0027990118500282866,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 68,
+      "mdp_waits": 5932,
+      "mp_resolved_commit": 60853,
+      "fetch_stall_icache": 123,
+      "cycles": 5118052,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.3309800158411016,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.0017067494181535,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 25,
+      "mdp_waits": 6670049,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1575648,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.6483609859593505,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0009044649818292985,
+      "mlp": 1.0,
+      "l1i_mpki": 62.59802139240575,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 69210,
+      "cycles": 1705263,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.5347209417565478,
+      "mpki": 47.89917533897995,
+      "l1d_mpki": 60.24681020620023,
+      "mlp": 1.2254746873465914,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 369771,
+      "fetch_stall_icache": 5,
+      "cycles": 14437022,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.105867463010777,
+      "mpki": 0.9745656599713279,
+      "l1d_mpki": 3.686091110991508,
+      "mlp": 1.3363439472835352,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 2191,
+      "fetch_stall_icache": 9,
+      "cycles": 2032957,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.1844105455458813,
+      "mpki": 10.019309888810078,
+      "l1d_mpki": 0.0027990118500282866,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 64,
+      "mdp_waits": 5944,
+      "mp_resolved_commit": 60853,
+      "fetch_stall_icache": 123,
+      "cycles": 5127928,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.3284287953054272,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.00355871886121,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 25,
+      "mdp_waits": 6674500,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1578674,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.5922180013755246,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0009044649818292985,
+      "mlp": 1.0,
+      "l1i_mpki": 62.59802139240575,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 69210,
+      "cycles": 1866924,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.5238989627723794,
+      "mpki": 47.89917533897995,
+      "l1d_mpki": 60.24681020620023,
+      "mlp": 1.2241418050588677,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 369771,
+      "fetch_stall_icache": 5,
+      "cycles": 14735242,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.0975854575776853,
+      "mpki": 0.9745656599713279,
+      "l1d_mpki": 3.686091110991508,
+      "mlp": 1.4017614351231786,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 2191,
+      "fetch_stall_icache": 9,
+      "cycles": 2048297,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "I-side prefetch off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "fdip": 0,
+    "pf_i_nextline": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7519851846723666,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 35,
+      "mdp_waits": 23263,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 123,
+      "cycles": 3466680,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.8560869322827622,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 60.0772774880475,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 66423,
+      "cycles": 1291488,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626404664367673,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.309249915055066,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 5,
+      "cycles": 11650025,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.97915452536688,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.7222523010286952,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 9,
+      "cycles": 1135930,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.748699324022787,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 35,
+      "mdp_waits": 24252,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 123,
+      "cycles": 3473194,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.7876422296247959,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 60.0772774880475,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 66423,
+      "cycles": 1403716,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.652497319359121,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097187429165242,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 5,
+      "cycles": 11831126,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9687244953360399,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6678141135972462,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 9,
+      "cycles": 1141948,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7438691816444978,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.020251673973734074,
+      "violation_flushes": 35,
+      "mdp_waits": 23659,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 123,
+      "cycles": 3482814,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.7060502665826272,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 60.0772774880475,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 66423,
+      "cycles": 1565931,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378149549765704,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.31028310751224,
+      "l1i_mpki": 0.0006476870189790433,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 5,
+      "cycles": 12103476,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.951203868766067,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.622083822553474,
+      "l1i_mpki": 0.004003236394222708,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 9,
+      "cycles": 1152202,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "next-line I-prefetch only": {
+   "preset": "tanager_v1",
+   "sets": {
+    "fdip": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7527567317354438,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22436,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3465154,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1181063025490525,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.797481245918604,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38751,
+      "cycles": 988838,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626427416000965,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649985,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794071941432578,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135785,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.7508876853530548,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 23036,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3468853,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0499562686784025,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.81376161559153,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38766,
+      "cycles": 1053021,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525044890556975,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097526110672477,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11830996,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9695955032358163,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1141443,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7480480577282178,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 24558,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3474488,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9654343173441401,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.82371073039165,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38775,
+      "cycles": 1145211,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378286564496577,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103511968479797,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103216,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9529412071297463,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1151177,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "L1I MSHRs 2 -> 4": {
+   "preset": "tanager_v1",
+   "sets": {
+    "l1i_mshr": 4
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7530835547211898,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.006421262479476658,
+      "violation_flushes": 35,
+      "mdp_waits": 22957,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 56,
+      "cycles": 3464508,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.4585729381453498,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0009044649818292985,
+      "mlp": 1.0,
+      "l1i_mpki": 16.351822406491888,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 18846,
+      "cycles": 758019,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626441067055933,
+      "mpki": 46.8810113451449,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092616437053917,
+      "l1i_mpki": 0.0003886122113874259,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 3,
+      "cycles": 11649961,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794681928241251,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.7407815079801872,
+      "l1i_mpki": 0.0013344121314075692,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 8,
+      "cycles": 1135750,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.751633511912178,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.006421262479476658,
+      "violation_flushes": 35,
+      "mdp_waits": 22477,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 58,
+      "cycles": 3467376,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.3765366773158165,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 16.332828641873473,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 18894,
+      "cycles": 803194,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525108867641292,
+      "mpki": 46.88204764437526,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097841419260752,
+      "l1i_mpki": 0.0003886122113874259,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 3,
+      "cycles": 11830880,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9698112182581893,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.7061326138839887,
+      "l1i_mpki": 0.0013344121314075692,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 8,
+      "cycles": 1141318,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7494785616164317,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.006421262479476658,
+      "violation_flushes": 36,
+      "mdp_waits": 23061,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 58,
+      "cycles": 3471647,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.2723525309507204,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 16.332828641873473,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 18894,
+      "cycles": 868962,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378416206931026,
+      "mpki": 46.88204764437526,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3104170895369645,
+      "l1i_mpki": 0.0003886122113874259,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 3,
+      "cycles": 12102970,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9533739037050295,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.662947247105663,
+      "l1i_mpki": 0.0013344121314075692,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 8,
+      "cycles": 1150922,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "L1I 16 KiB": {
+   "preset": "tanager_v1",
+   "sets": {
+    "l1i_kb": 16,
+    "l1i_ways": 4
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7527891050448907,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22507,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3465090,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1005195891065456,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 36.14242067389877,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 40268,
+      "cycles": 1004640,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626427416000965,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649985,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794071941432578,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135785,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.750964914809583,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 23082,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3468700,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0335290785392584,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 36.15779657858987,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 40278,
+      "cycles": 1069758,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525044890556975,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097526110672477,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11830996,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9695955032358163,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1141443,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7481914557094103,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 24648,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3474203,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.950325678303069,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 36.16231890349901,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 40282,
+      "cycles": 1163418,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378286564496577,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103511968479797,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103216,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9529412071297463,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1151177,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "stride prefetcher off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "pf_stride": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7527663424368747,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.001317182047072135,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22417,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3465135,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9989610369804112,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.0012192969790312,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1049123,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626427416000965,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649985,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9726457824052057,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.17080475282016883,
+      "mlp": 1.4329202262062326,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1139678,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.750894247068184,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.001317182047072135,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22761,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3468840,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9950228026415675,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.0053179082894061,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1051194,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525044890556975,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097526110672477,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11830996,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9488223923162942,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.17080475282016883,
+      "mlp": 1.4188263059955522,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1153610,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7480520826138013,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.001317182047072135,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 24030,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3474480,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9893661726664156,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 1.9607506546961695,
+      "mlp": 1.0108975599589107,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1054183,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378286564496577,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103511968479797,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103216,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9143034982612575,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.17080475282016883,
+      "mlp": 1.419141370133999,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1174412,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "wait table off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "mdp": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7520832335685186,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 54,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3466486,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626427416000965,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649985,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794071941432578,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135785,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.7502443713891822,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 54,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3470128,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525044890556975,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097526110672477,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11830996,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9695955032358163,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1141443,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7474294519866111,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 54,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3475718,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378286564496577,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103511968479797,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103216,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9529412071297463,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1151177,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "checkpoints off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "ckpt": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7302948574371884,
+      "mpki": 1.2445723867272833,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 23731,
+      "mp_resolved_commit": 7559,
+      "fetch_stall_icache": 75,
+      "cycles": 3510137,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9991878009998054,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1049004,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271603994311317,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 38100,
+      "cycles": 980895,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6263007472339752,
+      "mpki": 46.87971597110694,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3091398462948303,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 361901,
+      "fetch_stall_icache": 4,
+      "cycles": 12325992,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9742654839590672,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 274,
+      "fetch_stall_icache": 7,
+      "cycles": 1138743,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.7284109138314774,
+      "mpki": 1.2445723867272833,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 21643,
+      "mp_resolved_commit": 7559,
+      "fetch_stall_icache": 76,
+      "cycles": 3513963,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962742792957875,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1050535,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585521843614465,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044470,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6167847619741579,
+      "mpki": 46.87971597110694,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3091278022941963,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 361901,
+      "fetch_stall_icache": 4,
+      "cycles": 12516162,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.964497708416164,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 274,
+      "fetch_stall_icache": 7,
+      "cycles": 1144405,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.725681911169705,
+      "mpki": 1.2445723867272833,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 24577,
+      "mp_resolved_commit": 7559,
+      "fetch_stall_icache": 77,
+      "cycles": 3519520,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920854452744448,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 1,
+      "cycles": 1052744,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735579907630398,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135655,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6035389980276529,
+      "mpki": 46.87971597110694,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3091121190557748,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 361901,
+      "fetch_stall_icache": 4,
+      "cycles": 12790852,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9479291489153385,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 274,
+      "fetch_stall_icache": 7,
+      "cycles": 1154139,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "checkpoints 4": {
+   "preset": "tanager_v1",
+   "sets": {
+    "ckpt": 4
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7513764153078895,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 21359,
+      "mp_resolved_commit": 284,
+      "fetch_stall_icache": 75,
+      "cycles": 3467885,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992011416619877,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048997,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6618325212077556,
+      "mpki": 46.88152949476008,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092411558221475,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 3404,
+      "fetch_stall_icache": 4,
+      "cycles": 11664247,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9794071941432578,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.752339020363236,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135785,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.749558690682497,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 22007,
+      "mp_resolved_commit": 285,
+      "fetch_stall_icache": 76,
+      "cycles": 3471488,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962875811020744,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050528,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6516946489772067,
+      "mpki": 46.882565793990445,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097355581282268,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 3406,
+      "fetch_stall_icache": 4,
+      "cycles": 11845698,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9695955032358163,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.709971982982256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1141443,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.746743965198405,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 16,
+      "mdp_waits": 21773,
+      "mp_resolved_commit": 285,
+      "fetch_stall_icache": 77,
+      "cycles": 3477082,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920986913160648,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052737,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6370479800047004,
+      "mpki": 46.882565793990445,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103351200970152,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 3406,
+      "fetch_stall_icache": 4,
+      "cycles": 12118048,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9529412071297463,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.6648855361726649,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1151177,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "early retirement off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "early_retire": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.7527880933608688,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 22504,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 75,
+      "cycles": 3465092,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9992049533124563,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0408163265306123,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1048995,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6626430259966112,
+      "mpki": 46.880752270337304,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3092575441410255,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11649980,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9791388446034515,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.712972972972973,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1135939,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.7509634004410295,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 23065,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 76,
+      "cycles": 3468703,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.996291381650716,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0533333333333332,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050526,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6525038272309511,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3097504594936906,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11831008,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9683573506712275,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.611247907022555,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1142161,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.7481879333719033,
+      "mpki": 1.2462188642861236,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 35,
+      "mdp_waits": 24555,
+      "mp_resolved_commit": 25,
+      "fetch_stall_icache": 77,
+      "cycles": 3474210,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9921024759317396,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.009059888725493001,
+      "mlp": 1.0578143360752057,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052735,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6378280240610191,
+      "mpki": 46.881788569567675,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3103491689289906,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12103228,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9505622598324976,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.5567020488768206,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1152581,
+      "instr": 2248181
+     }
+    }
+   }
+  },
+  "speculative wakeup off": {
+   "preset": "tanager_v1",
+   "sets": {
+    "spec_wakeup": 0
+   },
+   "by_lat": {
+    "30": {
+     "coremark_N": {
+      "ipc": 1.5470391369389136,
+      "mpki": 1.2463835120420075,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 56,
+      "mdp_waits": 60066,
+      "mp_resolved_commit": 51,
+      "fetch_stall_icache": 75,
+      "cycles": 3925933,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.999178272064396,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.008583052476782843,
+      "mlp": 1.0409276944065484,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1049009,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.1271661450315529,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.201438822893095,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38100,
+      "cycles": 980890,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.657122902115239,
+      "mpki": 46.88023412072212,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3299590567583846,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11747845,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.9770537762820135,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 2.0189147286821707,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1137137,
+      "instr": 2248181
+     }
+    },
+    "120": {
+     "coremark_N": {
+      "ipc": 1.5457245006199622,
+      "mpki": 1.2463835120420075,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 46,
+      "mdp_waits": 61434,
+      "mp_resolved_commit": 51,
+      "fetch_stall_icache": 76,
+      "cycles": 3929272,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9962666783432124,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.008583052476782843,
+      "mlp": 1.0538426138978372,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1050539,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 1.0585572517987678,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.214101332638705,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38110,
+      "cycles": 1044465,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6471838059895063,
+      "mpki": 46.8810113451449,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3295531742605053,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 11928262,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.967010603328425,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.7925016160310279,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1142943,
+      "instr": 2248181
+     }
+    },
+    "250": {
+     "coremark_N": {
+      "ipc": 1.5435956724428932,
+      "mpki": 1.2463835120420075,
+      "l1d_mpki": 0.0011525342911881179,
+      "mlp": 1.0,
+      "l1i_mpki": 0.01103139964422913,
+      "violation_flushes": 39,
+      "mdp_waits": 58743,
+      "mp_resolved_commit": 51,
+      "fetch_stall_icache": 77,
+      "cycles": 3934691,
+      "instr": 6073572
+     },
+     "tk_histo": {
+      "ipc": 1.9920759839239932,
+      "mpki": 0.00047683624871015795,
+      "l1d_mpki": 0.008583052476782843,
+      "mlp": 1.0580766517752176,
+      "l1i_mpki": 0.00047683624871015795,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 1,
+      "cycles": 1052749,
+      "instr": 2097156
+     },
+     "tk_bigcode": {
+      "ipc": 0.9735622771100251,
+      "mpki": 0.0009044649818292985,
+      "l1d_mpki": 0.0,
+      "mlp": 1.0,
+      "l1i_mpki": 34.22495491242066,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 38118,
+      "cycles": 1135650,
+      "instr": 1105626
+     },
+     "tk_bsearch_l2": {
+      "ipc": 0.6327436899624129,
+      "mpki": 46.8810113451449,
+      "l1d_mpki": 48.01925651229867,
+      "mlp": 1.3290000023693922,
+      "l1i_mpki": 0.0005181496151832345,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 1,
+      "fetch_stall_icache": 4,
+      "cycles": 12200482,
+      "instr": 7719778
+     },
+     "tk_dgemm": {
+      "ipc": 1.950409960864809,
+      "mpki": 0.12187630800189131,
+      "l1d_mpki": 0.09251924111092479,
+      "mlp": 1.7051104235570256,
+      "l1i_mpki": 0.002224020219012615,
+      "violation_flushes": 0,
+      "mdp_waits": 0,
+      "mp_resolved_commit": 0,
+      "fetch_stall_icache": 7,
+      "cycles": 1152671,
+      "instr": 2248181
+     }
+    }
+   }
+  }
+ }
+}

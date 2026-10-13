@@ -1,0 +1,18 @@
+# Build trees (RTL builds go to $TANAGER_BUILD in the Linux filesystem; see tools/env.sh)
+build/
+obj_dir/
+__pycache__/
+*.pyc
+
+# perfmodel: fetched sources and run caches (regenerable; summaries in results/*.json are kept)
+perfmodel/build/
+perfmodel/third_party/*/
+perfmodel/results/dse/
+perfmodel/results/smt/
+
+# Simulation and Vivado by-products
+*.vcd
+*.fst
+*.jou
+vivado*.str
+.Xil/

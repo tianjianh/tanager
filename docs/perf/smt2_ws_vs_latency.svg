@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 420" font-family="Helvetica, Arial, sans-serif" font-size="12">
+<rect width="720" height="420" fill="#ffffff"/>
+<text x="64" y="22" font-size="15" font-weight="bold" fill="#222">Throughput vs DRAM latency (rv64gc, 42 thread pairs)</text>
+<line x1="64" x2="510" y1="368.0" y2="368.0" stroke="#e5e5e5"/>
+<text x="56" y="372.0" text-anchor="end" fill="#555">0.80</text>
+<line x1="64" x2="510" y1="302.4" y2="302.4" stroke="#e5e5e5"/>
+<text x="56" y="306.4" text-anchor="end" fill="#555">1.00</text>
+<line x1="64" x2="510" y1="236.8" y2="236.8" stroke="#e5e5e5"/>
+<text x="56" y="240.8" text-anchor="end" fill="#555">1.20</text>
+<line x1="64" x2="510" y1="171.2" y2="171.2" stroke="#e5e5e5"/>
+<text x="56" y="175.2" text-anchor="end" fill="#555">1.40</text>
+<line x1="64" x2="510" y1="105.6" y2="105.6" stroke="#e5e5e5"/>
+<text x="56" y="109.6" text-anchor="end" fill="#555">1.60</text>
+<line x1="64" x2="510" y1="40.0" y2="40.0" stroke="#e5e5e5"/>
+<text x="56" y="44.0" text-anchor="end" fill="#555">1.80</text>
+<line x1="64.0" x2="64.0" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="64.0" y="386" text-anchor="middle" fill="#555">30</text>
+<line x1="246.5" x2="246.5" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="246.5" y="386" text-anchor="middle" fill="#555">120</text>
+<line x1="510.0" x2="510.0" y1="40" y2="368" stroke="#eeeeee"/>
+<text x="510.0" y="386" text-anchor="middle" fill="#555">250</text>
+<rect x="64" y="40" width="446" height="328" fill="none" stroke="#999"/>
+<text x="287.0" y="408" text-anchor="middle" fill="#333">L2-miss round trip to DRAM (core cycles)</text>
+<text transform="translate(16,204.0) rotate(-90)" text-anchor="middle" fill="#333">weighted speedup vs v1 (WS_ref)</text>
+<polyline points="64.0,302.4 246.5,302.4 510.0,302.4" fill="none" stroke="#7f7f7f" stroke-width="2.2" stroke-dasharray="7 4"/>
+<circle cx="64.0" cy="302.4" r="3" fill="#7f7f7f"/>
+<circle cx="246.5" cy="302.4" r="3" fill="#7f7f7f"/>
+<circle cx="510.0" cy="302.4" r="3" fill="#7f7f7f"/>
+<line x1="524" x2="554" y1="54" y2="54" stroke="#7f7f7f" stroke-width="2.2" stroke-dasharray="7 4"/>
+<text x="560" y="58" fill="#222">v1 (2-wide), one at a time</text>
+<polyline points="64.0,266.3 246.5,266.0 510.0,266.0" fill="none" stroke="#e67e22" stroke-width="2.2" stroke-dasharray="7 4"/>
+<circle cx="64.0" cy="266.3" r="3" fill="#e67e22"/>
+<circle cx="246.5" cy="266.0" r="3" fill="#e67e22"/>
+<circle cx="510.0" cy="266.0" r="3" fill="#e67e22"/>
+<line x1="524" x2="554" y1="74" y2="74" stroke="#e67e22" stroke-width="2.2" stroke-dasharray="7 4"/>
+<text x="560" y="78" fill="#222">3-wide, one at a time</text>
+<polyline points="64.0,205.0 246.5,192.7 510.0,189.9" fill="none" stroke="#9ecae1" stroke-width="2.2"/>
+<circle cx="64.0" cy="205.0" r="3" fill="#9ecae1"/>
+<circle cx="246.5" cy="192.7" r="3" fill="#9ecae1"/>
+<circle cx="510.0" cy="189.9" r="3" fill="#9ecae1"/>
+<line x1="524" x2="554" y1="94" y2="94" stroke="#9ecae1" stroke-width="2.2"/>
+<text x="560" y="98" fill="#222">SMT2 2-wide, v1 sizes</text>
+<polyline points="64.0,184.8 246.5,162.1 510.0,156.1" fill="none" stroke="#1f77b4" stroke-width="2.2"/>
+<circle cx="64.0" cy="184.8" r="3" fill="#1f77b4"/>
+<circle cx="246.5" cy="162.1" r="3" fill="#1f77b4"/>
+<circle cx="510.0" cy="156.1" r="3" fill="#1f77b4"/>
+<line x1="524" x2="554" y1="114" y2="114" stroke="#1f77b4" stroke-width="2.2"/>
+<text x="560" y="118" fill="#222">SMT2 2-wide, sized (v2)</text>
+<polyline points="64.0,130.9 246.5,121.2 510.0,120.1" fill="none" stroke="#fc9272" stroke-width="2.2"/>
+<circle cx="64.0" cy="130.9" r="3" fill="#fc9272"/>
+<circle cx="246.5" cy="121.2" r="3" fill="#fc9272"/>
+<circle cx="510.0" cy="120.1" r="3" fill="#fc9272"/>
+<line x1="524" x2="554" y1="134" y2="134" stroke="#fc9272" stroke-width="2.2"/>
+<text x="560" y="138" fill="#222">SMT2 3-wide, v1 sizes</text>
+<polyline points="64.0,83.2 246.5,59.9 510.0,57.7" fill="none" stroke="#d62728" stroke-width="2.2"/>
+<circle cx="64.0" cy="83.2" r="3" fill="#d62728"/>
+<circle cx="246.5" cy="59.9" r="3" fill="#d62728"/>
+<circle cx="510.0" cy="57.7" r="3" fill="#d62728"/>
+<line x1="524" x2="554" y1="154" y2="154" stroke="#d62728" stroke-width="2.2"/>
+<text x="560" y="158" fill="#222">SMT2 3-wide, sized</text>
+</svg>
