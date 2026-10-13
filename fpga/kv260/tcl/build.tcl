@@ -37,11 +37,14 @@ synth_design -top kv260_top -part $part \
 report_utilization -file $rep/synth_utilization.rpt
 report_utilization -hierarchical -hierarchical_depth 4 -file $rep/synth_utilization_hier.rpt
 report_timing_summary -max_paths 10 -file $rep/synth_timing_summary.rpt
+source [file join $root tools tcl tg_prim_check.tcl]
+tg_prim_check -file $rep/prim_check_synth.txt -fail 0
 if {$stop eq "synth"} { stamp "done (synth)"; exit 0 }
 
 # ---- implementation ----
 stamp "opt_design"
 opt_design
+tg_prim_check -file $rep/prim_check_opt.txt -fail 0
 stamp "place_design"
 place_design
 stamp "phys_opt_design"
