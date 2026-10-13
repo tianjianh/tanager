@@ -294,6 +294,7 @@ static int run_tf(Tb &tb, const char *fname, int rm, long limit) {
     if (tb.cycle > 4000000000ull) break;
   }
   printf("tf %s rm=%d: %ld vectors, %ld results checked, %ld errors\n", fname, rm, n, tb.checked, tb.errors);
+  if (n == 0) { printf("FAIL no vectors read\n"); return 1; }
   return tb.errors ? 1 : 0;
 }
 
