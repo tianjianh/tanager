@@ -5,3 +5,5 @@
 lint_off -rule UNUSEDPARAM -file "*rtl/common/tg_*pkg.sv"
 // PRIM selects the XPM primitive and is used only under SYNTHESIS.
 lint_off -rule UNUSEDPARAM -file "*rtl/common/prim/tg_ram_*.sv" -match "*PRIM*"
+// Uncore package constants need not be used by every module (SoC track).
+lint_off -rule UNUSEDPARAM -file "*rtl/uncore/tg_uncore_pkg.sv"
