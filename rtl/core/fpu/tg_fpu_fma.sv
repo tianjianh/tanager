@@ -12,7 +12,11 @@ module tg_fpu_fma
   import tg_pkg::*;
   import tg_fpu_pkg::*;
   import tg_fpu_util_pkg::*;
-(
+#(
+  // 5: E0..E4 as specified. 4: the E3/E4 boundary is removed (the plan's 4-cycle option,
+  // kept for timing experiments; the core's FMA_LAT must match).
+  parameter int STAGES = FMA_LAT
+) (
   input  logic       clk,
   input  logic       rst,
   input  logic       valid_i,
@@ -247,23 +251,25 @@ module tg_fpu_fma
   logic        nst;
   tg_fpu_fma_norm #(.W(VW), .K(55)) u_norm (.x(mag_q), .marker(marker_q), .lz, .n(nrm), .st(nst));
 
-  logic [54:0] n_q;
-  logic        st_q, zero_q;
-  logic [13:0] eres_q;           // signed, double bias
+  logic [54:0] n_d, n_q;
+  logic        st_d, st_q, zero_d, zero_q;
+  logic [13:0] eres_d, eres_q;   // signed, double bias
   ctl_t        c4_q;
   logic        rsign4_q;
-  always_ff @(posedge clk) begin
-    if (below_q) begin
-      n_q  <= '0;
-      st_q <= mag_q != '0;
-    end else begin
-      n_q  <= nrm;
-      st_q <= nst;
+  always_comb begin
+    n_d    = below_q ? '0 : nrm;
+    st_d   = below_q ? (mag_q != '0) : nst;
+    zero_d = mag_q == '0;
+    eres_d = below_q ? (c3_q.dbl ? 14'sd1 : 14'sd897) : 14'($signed(c3_q.e_top) - $signed({6'b0, lz}));
+  end
+  if (STAGES == 5) begin : g_e3_reg
+    always_ff @(posedge clk) begin
+      n_q <= n_d; st_q <= st_d; zero_q <= zero_d; eres_q <= eres_d;
+      c4_q <= c3_q; rsign4_q <= rsign_q;
     end
-    zero_q   <= mag_q == '0;
-    eres_q   <= below_q ? (c3_q.dbl ? 14'sd1 : 14'sd897) : 14'($signed(c3_q.e_top) - $signed({6'b0, lz}));
-    c4_q     <= c3_q;
-    rsign4_q <= rsign_q;
+  end else begin : g_e3_comb
+    assign n_q = n_d; assign st_q = st_d; assign zero_q = zero_d; assign eres_q = eres_d;
+    assign c4_q = c3_q; assign rsign4_q = rsign_q;
   end
 
   // ------------------------------------------------------------------------------------------
@@ -323,7 +329,8 @@ module tg_fpu_fma
     if (rst) begin
       v1_q <= 1'b0; v2_q <= 1'b0; v3_q <= 1'b0; v4_q <= 1'b0; valid_o <= 1'b0;
     end else begin
-      v1_q <= valid_i; v2_q <= v1_q; v3_q <= v2_q; v4_q <= v3_q; valid_o <= v4_q;
+      v1_q <= valid_i; v2_q <= v1_q; v3_q <= v2_q; v4_q <= v3_q;
+      valid_o <= (STAGES == 5) ? v4_q : v3_q;
     end
     resp_q <= r;
   end
@@ -336,6 +343,10 @@ module tg_fpu_fma
                     c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,
                     c3_q.ec, c2_q.prod_zero, c2_q.c_zero, c2_q.ep, c2_q.shr, c2_q.ec, c2_q.lim,
                     c2_q.e_top, c3_q.sp, c3_q.sc, c3_q.eff_sub, c3_q.prod_sticky, uc.exp};
+
+  if (STAGES != 4 && STAGES != 5) begin : g_bad_stages
+    $error("tg_fpu_fma: STAGES must be 4 or 5");
+  end
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
