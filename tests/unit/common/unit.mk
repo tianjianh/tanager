@@ -15,7 +15,7 @@ ARGS      ?=
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f -F $(REPO)/rtl/uncore/uncore.f
 TB_COMMON := $(REPO)/tests/unit/common/tb_axi_mem_pkg.sv $(REPO)/tests/unit/common/tb_axi_mem.sv
 
-VFLAGS := --binary --timing --assert -j $(JOBS) -Wno-fatal -Wno-lint -Wno-style -Wno-MULTITOP \
+VFLAGS := --binary --timing --timescale 1ns/1ps --assert -j $(JOBS) -Wno-fatal -Wno-lint -Wno-style -Wno-MULTITOP \
           -I$(REPO)/rtl/common --top-module $(TOP) -o $(TOP) --Mdir $(OUTDIR) \
           -CFLAGS -O1 $(PARAMS) $(EXTRA_VFLAGS)
 

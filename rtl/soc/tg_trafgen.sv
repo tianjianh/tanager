@@ -131,7 +131,7 @@ module tg_trafgen
     l1d_c_o.size    = 3'd6;
     if (c_rel) begin
       l1d_c_o.opcode  = wpass_q ? C_RELEASE_DATA : C_RELEASE;
-      l1d_c_o.param   = wpass_q ? TL_SHRINK_T_TO_N : TL_SHRINK_B_TO_N;
+      l1d_c_o.param   = held_t_q ? TL_SHRINK_T_TO_N : TL_SHRINK_B_TO_N;   // a NtoB may be granted T
       l1d_c_o.source  = TL_SRC_W'(6'd2);
       l1d_c_o.address = {line_q, 6'd0};
       l1d_c_o.data    = buf_q[128*c_beat_q +: 128];

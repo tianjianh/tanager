@@ -503,6 +503,7 @@ module tg_l2_bank
               TL_SHRINK_B_TO_N, TL_REPORT_N_TO_N: e.pres = e.pres & ~onehot_ag(cin_ag);
               default: ;   // TtoT, BtoB reports: unchanged
             endcase
+            if (e.pres == '0) e.tip = 1'b0;   // no holder left: no owner either
             if (cin_data) e.dirty = 1'b1;
             nr.way[hw2] = e;
             dir_we = 1'b1;
