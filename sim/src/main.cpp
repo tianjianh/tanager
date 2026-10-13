@@ -24,6 +24,9 @@
 #ifndef TG_DEFAULT_PRIV
 #define TG_DEFAULT_PRIV "M"
 #endif
+#ifndef TG_DEFAULT_PMP
+#define TG_DEFAULT_PMP 16
+#endif
 #ifndef TG_CORE_NAME
 #define TG_CORE_NAME "tg_core"
 #endif
@@ -42,7 +45,7 @@ struct opts_t {
   std::string isa = TG_DEFAULT_ISA, priv = TG_DEFAULT_PRIV;
   uint64_t seed = 1;
   unsigned history = 32;
-  unsigned pmp = 16, pmp_g = 4;
+  unsigned pmp = TG_DEFAULT_PMP, pmp_g = 4;
   bool pmp_reset_off = false;
   int harts = -1;
   uint64_t mem_mb = 2048;
@@ -61,7 +64,8 @@ void usage() {
           "               --probe-rate=PERMILLE --mmio-lat=N --d-stall-max=N --mem-mb=N --rom=FILE\n"
           "               --deny=ADDR[:LEN] --boot=ADDR --tohost-va=ADDR\n"
           "  devices:     --mtime-div=N --irq-rand=PERMILLE\n"
-          "  RTL:         --rand-reset\n"
+          "  RTL:         --rand-reset; +plusargs are passed to the model (tg_tcore: +tcore_defer=PCT\n"
+          "               +tcore_spread=1 +tcore_seed=N)\n"
           "built for %s, configuration from the RTL, default ISA %s, privilege %s\n",
           TG_CORE_NAME, TG_DEFAULT_ISA, TG_DEFAULT_PRIV);
   exit(EXIT_HARNESS);
@@ -79,7 +83,7 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
   opts_t o;
   for (int i = 1; i < argc; i++) {
     std::string a = argv[i];
-    if (a.rfind("+verilator", 0) == 0) continue;
+    if (a.rfind("+", 0) == 0) continue;  // plusargs belong to the model
     if (a.rfind("--", 0) != 0) {
       if (!o.elf.empty()) fatal("more than one program given ('%s' and '%s')", o.elf.c_str(), a.c_str());
       o.elf = a;
@@ -187,6 +191,7 @@ int main(int argc, char** argv) {
 
   // ---- Verilated model ----
   auto vctx = std::make_unique<VerilatedContext>();
+  vctx->commandArgs(argc, argv);  // +plusargs for the RTL (for example +tcore_defer=50)
   vctx->randReset(o.rand_reset ? 2 : 0);
   vctx->randSeed(int(o.seed & 0x7fffffff));
   if (!o.fst.empty()) vctx->traceEverOn(true);

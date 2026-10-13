@@ -6,3 +6,5 @@
 lint_off -rule BLKSEQ -file "*sim/tb/tg_tb_top.sv"
 // DPI hands TileLink fields over as 32-bit ints; mk_d keeps only the bits each field has.
 lint_off -rule UNUSEDSIGNAL -file "*sim/tb/tg_tb_top.sv" -match "*function variable*"
+// The same for the DPI output carriers (*_n): each register keeps only its field's bits.
+lint_off -rule UNUSEDSIGNAL -file "*sim/tb/tg_tb_top.sv" -match "*_n'*"

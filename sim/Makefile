@@ -26,12 +26,14 @@ SPIKE_ROOT ?= $(HOME)/opt/tanager/spike
 ifeq ($(CORE),tcore)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= MU
+  PMP  ?= 0
   CORE_TOP := tg_tcore
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
 else ifeq ($(CORE),core)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= M
+  PMP  ?= 16
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
   CORE_DEF :=
@@ -49,12 +51,12 @@ SV      := $(shell find $(ROOT)/rtl $(ROOT)/sim -name '*.sv' -o -name '*.f')
 LZ4_COMPAT := $(if $(wildcard /usr/include/lz4.h),,1)
 COMPAT_LIB := $(BUILD_ROOT)/compat/lib
 CXXFLAGS_TB := -std=c++20 -O2 -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include $(if $(LZ4_COMPAT),-I$(ROOT)/sim/src/compat) \
-               -DTG_DEFAULT_ISA=\\\"$(ISA)\\\" -DTG_DEFAULT_PRIV=\\\"$(PRIV)\\\" -DTG_CORE_NAME=\\\"$(CORE_TOP)\\\"
+               -DTG_DEFAULT_ISA=\\\"$(ISA)\\\" -DTG_DEFAULT_PRIV=\\\"$(PRIV)\\\" -DTG_DEFAULT_PMP=$(PMP) -DTG_CORE_NAME=\\\"$(CORE_TOP)\\\"
 LDFLAGS_TB  := -L$(SPIKE_ROOT)/lib -Wl,-rpath,$(SPIKE_ROOT)/lib -lriscv $(if $(LZ4_COMPAT),-L$(COMPAT_LIB))
 
 VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           --x-assign unique --x-initial unique --trace-fst --trace-structs \
-          -Wall -Wno-fatal -Wno-MULTITOP -Wno-DECLFILENAME $(ROOT)/sim/tb/tb.vlt $(ROOT)/rtl/lint.vlt \
+          -Wall -Wno-fatal -Wno-MULTITOP -Wno-DECLFILENAME $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
           -I$(ROOT)/rtl/common $(CORE_DEF) \
           -MAKEFLAGS "OPT_FAST=-O2 OPT_SLOW=-O1 OPT_GLOBAL=-O2" \
           -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)"
@@ -77,7 +79,7 @@ endif
 	@echo "built $@"
 
 lint:
-	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/rtl/lint.vlt \
+	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
 	  -I$(ROOT)/rtl/common $(CORE_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
 	@echo "sim lint OK: $(CFG) $(CORE)"
 
