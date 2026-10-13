@@ -75,4 +75,14 @@ s1:
 
 # Everything (about 5 minutes with -j8)
 .PHONY: all
-all: iq alu fetch dtlb s1
+all: iq alu fetch dtlb ubtb s1
+
+# tg_ubtb against a reference model, both organisations, st and smt2
+.PHONY: ubtb
+ubtb: ubtb-st-0 ubtb-st-1 ubtb-smt2-0 ubtb-smt2-1
+ubtb-%:
+	@v=$*; cfg=$${v%-*}; fa=$${v##*-}; d=$(OBJ)/ubtb_$$v; mkdir -p $$d; \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_ubtb -GFA=$$fa $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv \
+	  $(COMMON) $(ROOT)/fpga/spikes/rtl/tg_ubtb.sv tb_ubtb.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
+	$$d/Vtb_ubtb +seed=$(SEED) > $$d/run.log; echo "$$v: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
+	grep -q '^PASS' $$d/run.log || { grep ERROR $$d/run.log | head; exit 1; }
