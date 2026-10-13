@@ -9,41 +9,66 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 source "$HERE/versions.sh"
 SRC="$HOME/src/tanager"
 OPT="$HOME/opt/tanager"
-JOBS="$(nproc)"
+JOBS="${JOBS:-$(nproc)}"
 XPACK="$HOME/opt/xpack-riscv-none-elf-gcc-15.2.0-1/bin"
 mkdir -p "$SRC" "$OPT"
 
-# fetch <dir> <url> <sha>: shallow checkout of one pinned commit into its own directory.
+# GCC 15 for every host build (user decision). Some Makefiles call plain gcc/g++, so a shim
+# directory first on PATH points those names at gcc-15/g++-15 for the duration of this script.
+command -v gcc-15 >/dev/null && command -v g++-15 >/dev/null || \
+  { echo "gcc-15/g++-15 not found: run tools/setup_root.sh as root first" >&2; exit 1; }
+SHIM="$SRC/.gcc15-shim"
+mkdir -p "$SHIM"
+ln -sf "$(command -v gcc-15)" "$SHIM/gcc";  ln -sf "$(command -v gcc-15)" "$SHIM/cc"
+ln -sf "$(command -v g++-15)" "$SHIM/g++";  ln -sf "$(command -v g++-15)" "$SHIM/c++"
+export PATH="$SHIM:$PATH" CC=gcc-15 CXX=g++-15
+CC_ID="$(g++-15 --version | head -1)"
+
+# fetch <dir> <url> <sha>: shallow checkout of one pinned commit into its own directory, cleaned
+# of any previous build products.
 fetch() {
   local d="$SRC/$1"
-  if [ -d "$d/.git" ] && [ "$(git -C "$d" rev-parse HEAD)" = "$3" ]; then return; fi
+  if [ -d "$d/.git" ] && [ "$(git -C "$d" rev-parse HEAD)" = "$3" ]; then
+    git -C "$d" clean -fdxq
+    git -C "$d" submodule -q foreach --recursive git clean -fdxq 2>/dev/null || true
+    return
+  fi
   rm -rf "$d"; mkdir -p "$d"
   git -C "$d" init -q
   git -C "$d" fetch -q --depth 1 "$2" "$3"
   git -C "$d" checkout -q FETCH_HEAD
 }
 
+# up_to_date <install dir> <sha>: installed from this commit with this compiler.
+up_to_date() {
+  [ "$(cat "$1/SHA" 2>/dev/null)" = "$2" ] && [ "$(cat "$1/BUILT_WITH" 2>/dev/null)" = "$CC_ID" ]
+}
+stamp() { echo "$2" > "$1/SHA"; echo "$CC_ID" > "$1/BUILT_WITH"; }
+
 build_verilator() {
   local p="$OPT/verilator-$VERILATOR_TAG"
-  [ -x "$p/bin/verilator" ] && return
+  up_to_date "$p" "$VERILATOR_SHA" && return
   fetch verilator https://github.com/verilator/verilator.git "$VERILATOR_SHA"
   cd "$SRC/verilator"
   autoconf
-  ./configure --prefix="$p"
+  rm -rf "$p"
+  ./configure --prefix="$p"      # bakes CXX=g++-15 into verilated.mk for every model build
   make -j"$JOBS"
   make install
+  stamp "$p" "$VERILATOR_SHA"
 }
 
 build_spike() {
   local p="$OPT/spike"
-  [ -x "$p/bin/spike" ] && [ "$(cat "$p/SHA" 2>/dev/null)" = "$SPIKE_SHA" ] && return
+  up_to_date "$p" "$SPIKE_SHA" && return
   fetch riscv-isa-sim https://github.com/riscv-software-src/riscv-isa-sim.git "$SPIKE_SHA"
   mkdir -p "$SRC/riscv-isa-sim/build"
   cd "$SRC/riscv-isa-sim/build"
+  rm -rf "$p"
   ../configure --prefix="$p"
   make -j"$JOBS"
   make install
-  echo "$SPIKE_SHA" > "$p/SHA"
+  stamp "$p" "$SPIKE_SHA"
 }
 
 # riscv-tests: the ISA tests are built with GCC 15 (xPack) for RV64.
@@ -70,15 +95,15 @@ build_arch_test() {
 # SoftFloat and TestFloat with the RISC-V NaN specialization, for FPU test vectors.
 build_testfloat() {
   local p="$OPT/testfloat"
-  [ -x "$p/bin/testfloat_gen" ] && [ "$(cat "$p/SHA" 2>/dev/null)" = "$TESTFLOAT_SHA" ] && return
+  up_to_date "$p" "$TESTFLOAT_SHA" && return
   fetch berkeley-softfloat-3 https://github.com/ucb-bar/berkeley-softfloat-3.git "$SOFTFLOAT_SHA"
   fetch berkeley-testfloat-3 https://github.com/ucb-bar/berkeley-testfloat-3.git "$TESTFLOAT_SHA"
   make -C "$SRC/berkeley-softfloat-3/build/Linux-x86_64-GCC" -j"$JOBS" SPECIALIZE_TYPE=RISCV
   make -C "$SRC/berkeley-testfloat-3/build/Linux-x86_64-GCC" -j"$JOBS" SPECIALIZE_TYPE=RISCV \
     SOFTFLOAT_DIR="$SRC/berkeley-softfloat-3"
-  mkdir -p "$p/bin"
+  rm -rf "$p"; mkdir -p "$p/bin"
   cp "$SRC/berkeley-testfloat-3/build/Linux-x86_64-GCC"/{testfloat_gen,testfloat_ver,testfloat,testsoftfloat,timesoftfloat} "$p/bin/"
-  echo "$TESTFLOAT_SHA" > "$p/SHA"
+  stamp "$p" "$TESTFLOAT_SHA"
 }
 
 steps=("$@")

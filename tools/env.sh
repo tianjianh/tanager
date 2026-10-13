@@ -9,6 +9,9 @@ export SPIKE_ROOT="$TANAGER_OPT/spike"
 export RISCV_TESTS="$TANAGER_OPT/riscv-tests"
 export PATH="$TANAGER_OPT/verilator-$VERILATOR_TAG/bin:$SPIKE_ROOT/bin:$TANAGER_OPT/testfloat/bin:$HOME/opt/xpack-riscv-none-elf-gcc-15.2.0-1/bin:$PATH"
 export LD_LIBRARY_PATH="$SPIKE_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+# GCC 15 for host C/C++ (harnesses, checkers). Verilator models use the g++-15 baked into
+# verilated.mk when Verilator was built (tools/setup_tools.sh).
+export CC=gcc-15 CXX=g++-15
 # Vivado is sourced on demand by the FPGA scripts (fpga/), not here, because its settings
 # script puts an older bundled toolchain on PATH.
 export TANAGER_VIVADO_SETTINGS="$HOME/Xilinx/2025.2/Vivado/settings64.sh"
