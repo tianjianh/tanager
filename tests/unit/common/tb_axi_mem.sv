@@ -191,6 +191,14 @@ module tb_axi_mem
     end
   end
 
+  // Backdoor write of one byte (program loading in tests).
+  function automatic void preload_byte(input longint unsigned addr, input logic [7:0] b);
+    logic [127:0] v;
+    v = rd_beat(addr >> 4);
+    v[8 * (addr & 15) +: 8] = b;
+    mem[addr >> 4] = v;
+  endfunction
+
   function automatic int outstanding();
     return rq.size() + int'(cur_v) + wq.size() + bq.size() + int'(b_valid_o);
   endfunction

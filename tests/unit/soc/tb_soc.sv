@@ -9,7 +9,8 @@
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
-  parameter string KIND = "core";
+  parameter string KIND = "core";       // "core" (stub cores), "trafgen", or "tcore" (tg_core is the
+                                        // test core: tests/unit/soc/tcore_as_core.sv)
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
@@ -39,7 +40,7 @@ module tb_soc;
 
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND (KIND)
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core")
   ) dut (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr (awaddr), .s_axil_awvalid (awvalid), .s_axil_awready (awready),
@@ -154,6 +155,25 @@ module tb_soc;
     hw(16'h010, 32'h1);                         // release the uncore
     wait_status(1, 1'b0, 5);
     wait_status(2, 1'b1, 50);                   // L2 initialised
+    if (KIND == "tcore") begin
+      // load the test program at the start of the carve-out (RISC-V 0x8000_0000), backdoor
+      int fd, c;
+      longint unsigned a;
+      string path;
+      if (!$value$plusargs("prog=%s", path)) path = "soc_test.bin";
+      fd = $fopen(path, "rb");
+      if (fd == 0) begin fail($sformatf("cannot open %s", path)); $finish; end
+      a = 0;
+      while (1) begin
+        c = $fgetc(fd);
+        if (c < 0) break;
+        if (((CO_BASE + a) >> 6) & 1) g_mem[1].u_mem.preload_byte(CO_BASE + a, 8'(c));
+        else                          g_mem[0].u_mem.preload_byte(CO_BASE + a, 8'(c));
+        a++;
+      end
+      $fclose(fd);
+      $display("loaded %0d bytes of %s", a, path);
+    end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -169,6 +189,30 @@ module tb_soc;
     hw(16'h108, 32'h41);
     repeat (40) @(posedge clk);
     if (dut.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
+
+    if (KIND == "tcore") begin
+      // run until the program reports through TOHOST, echoing the console
+      int t;
+      logic [31:0] seq, lo;
+      t = 0;
+      do begin
+        repeat (500) @(posedge clk);
+        drain_console();
+        hr(16'h088, seq);
+        t++;
+      end while (seq == 0 && t < 4000);
+      drain_console();
+      $display("console:\n%s", console);
+      hr(16'h060, lo);
+      if (seq == 0) fail("the program never wrote TOHOST");
+      else if (lo != 32'h1) fail($sformatf("program reported failure: TOHOST %h", lo));
+      begin
+        bit found;
+        found = 0;
+        for (int i = 0; i + 4 <= console.len(); i++) if (console.substr(i, i + 3) == "PASS") found = 1;
+        if (!found) fail("no PASS on the console");
+      end
+    end
 
     if (KIND == "trafgen") begin
       int passes;
