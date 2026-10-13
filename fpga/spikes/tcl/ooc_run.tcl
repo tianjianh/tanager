@@ -102,6 +102,7 @@ if {$do_impl} {
   report_utilization -file util.rpt
   report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
   report_timing -max_paths 20 -nworst 1 -unique_pins -input_pins -sort_by slack -file timing.rpt
+  report_timing -max_paths 1 -input_pins -file timing_worst.rpt
   report_timing_summary -max_paths 5 -file timing_summary.rpt
   report_design_analysis -logic_level_distribution -logic_level_dist_paths 2000 -file levels.rpt
   report_design_analysis -timing -max_paths 20 -file analysis.rpt
@@ -119,7 +120,10 @@ if {$do_impl} {
 
   # Named paths
   set tg_paths {}
-  if {$paths_file ne ""} { source $paths_file }
+  if {$paths_file ne ""} {
+    if {[file pathtype $paths_file] ne "absolute"} { set paths_file [file join $root $paths_file] }
+    source $paths_file
+  }
   set pf [open paths.txt w]
   foreach g $tg_paths {
     lassign $g name to from
