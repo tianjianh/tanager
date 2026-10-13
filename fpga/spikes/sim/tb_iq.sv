@@ -11,7 +11,9 @@ module tb_iq
   import tg_pkg::*;
 #(
   parameter int STALE    = 0,
-  parameter int WAKE_ENC = 0
+  parameter int WAKE_ENC = 0,
+  parameter bit DUP_SEL  = 1'b0,
+  parameter int EARLY_W  = 32
 );
   localparam int ROWS  = 10;
   localparam int DW    = DISPATCH_WIDTH;
@@ -42,10 +44,11 @@ module tb_iq
   logic [PW-1:0] iss_payload_q;
 
   tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
-          .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW)) u_iq (
+          .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
+          .EARLY_W(EARLY_W)) u_iq (
     .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph, .disp_wake_oh, .disp_rob,
     .disp_payload, .bank_free_q, .room_q, .w(w_q), .w1(w1_q), .col_clr, .cancel, .wake_now,
-    .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload_q);
+    .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload(iss_payload_q));
   tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE)) u_wake (
     .clk, .rst, .wake_now, .wake_reg, .alloc, .cancel, .cancel_ids, .w_q, .w1_q, .phase_q);
 
@@ -71,6 +74,7 @@ module tb_iq
   int disp_seq [DW];
   int seq = 0, cyc = 0, errors = 0, nsel = 0, ncancel = 0, nflush = 0, nreuse = 0;
   int seed = 1, cycles = 20000;
+  int last_sel = -1;           // op selected in the previous cycle (its payload is out now)
   int rob_next [NUM_THREADS];
   bit draining = 1'b0;
 
@@ -251,7 +255,10 @@ module tb_iq
         for (int r = 0; r < ROWS; r++) if (u_iq.valid_q[r] && int'(u_iq.tid_q[r]) == t) n++;
         if (n > CAP) fail($sformatf("thread %0d holds %0d rows, cap %0d", t, n, CAP));
       end
-      if (iss_valid_q && int'(iss_payload_q) >= nops) fail("issue of an unknown op");
+      if (iss_valid_q && int'(iss_payload_q) != last_sel)
+        fail($sformatf("issue payload %0d, selected op %0d", iss_payload_q, last_sel));
+      last_sel = -1;
+      for (int r = 0; r < ROWS; r++) if (u_iq.grant[r] && !cancel) last_sel = row_op[r];
       cyc++;
     end
   end

@@ -1,0 +1,4 @@
+PRIM_OK u_irf/g_bank[0].u_ram tg_ram_lut {2^6 x 64, 7 read} expected {RAM64M8 64} found {RAM64M8 64}
+PRIM_OK u_irf/g_bank[1].u_ram tg_ram_lut {2^6 x 64, 7 read} expected {RAM64M8 64} found {RAM64M8 64}
+PRIM_OK u_irf/g_bank[2].u_ram tg_ram_lut {2^6 x 64, 7 read} expected {RAM64M8 64} found {RAM64M8 64}
+PRIM_SUMMARY instances 3 fail 0 warn 0 stray 0

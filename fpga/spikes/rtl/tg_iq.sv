@@ -30,6 +30,14 @@
 //   2 clear:  col_clr[c] (registered, when the producer holding c is freed: retire or LLT
 //             release) clears column c in every row; the producer is complete by then
 //
+// Timing options (spike S2):
+//   DUP_SEL = 1: the select is computed twice; one copy drives only the wakeup broadcast,
+//                so the grant net on the protected loop has a small fanout.
+//   EARLY_W < PAYLOAD_W: only payload bits [EARLY_W-1:0] (the source tags the RF stage needs
+//                first) sit in flip-flops and leave through the grant's AND-OR mux; the rest
+//                is in one LUTRAM per bank, read in the next cycle with the registered grant.
+//   Either way iss_payload is valid in the cycle after the select (the RF stage).
+//
 // SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
 // Kill: flush_valid with flush_tid kills that thread's rows younger than flush_rob (index
@@ -46,6 +54,8 @@ module tg_iq
   parameter bit WAKE_NOW  = 1'b1,   // queue has 1-cycle ops that wake at select
   parameter int WAKE_ENC  = 0,      // 0: one-hot wakeup ID per row; 1: predecoded {hi, lo}
   parameter int ROBW      = ROB_IDX_W + 1,   // ROB index plus wrap bit
+  parameter bit DUP_SEL   = 1'b0,
+  parameter int EARLY_W   = PAYLOAD_W,
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -73,9 +83,9 @@ module tg_iq
   input  tid_t                          flush_tid,
   input  logic                          flush_all,
   input  logic [ROBW-1:0]               flush_rob,
-  // Issue (registered)
+  // Issue, in the cycle after the select
   output logic                          iss_valid_q,
-  output logic [PAYLOAD_W-1:0]          iss_payload_q
+  output logic [PAYLOAD_W-1:0]          iss_payload
 );
   localparam int BANK_ROWS = (ROWS + DW - 1) / DW;
 
@@ -88,7 +98,7 @@ module tg_iq
   logic [ROWS-1:0][1:0]       age_q;      // 0 waiting, 1/2 cycles since issue
   tid_t [ROWS-1:0]            tid_q;
   logic [ROWS-1:0][ROBW-1:0]  rob_q;
-  logic [ROWS-1:0][PAYLOAD_W-1:0] payload_q;
+  logic [ROWS-1:0][EARLY_W-1:0] payload_q;
   logic [ROWS-1:0][NCOL-1:0]  dep_q;      // STALE 0/2: dep; STALE 1: waits on phase 0
   logic [ROWS-1:0][NCOL-1:0]  dep1_q;     // STALE 1: waits on phase 1
 
@@ -148,21 +158,73 @@ module tg_iq
     assign grant[r] = ready[r] && !(|older_ready);
   end
 
-  // ---- Issue output: one-hot AND-OR mux of the payload ----
-  logic [PAYLOAD_W-1:0] payload_sel;
+  // The wakeup broadcast's own copy of the select
+  logic [ROWS-1:0] grant_w;
+  if (DUP_SEL) begin : g_dup
+    for (genvar r = 0; r < ROWS; r++) begin : g_r
+      logic [ROWS-1:0] older_ready;
+      for (genvar j = 0; j < ROWS; j++) begin : g_j
+        assign older_ready[j] = ready[j] && older[j][r];
+      end
+      (* dont_touch = "true" *) logic gw;
+      assign gw = ready[r] && !(|older_ready);
+      assign grant_w[r] = gw;
+    end
+  end else begin : g_nodup
+    assign grant_w = grant;
+  end
+
+  // ---- Issue output: one-hot AND-OR mux of the early payload, LUTRAM for the rest ----
+  logic [EARLY_W-1:0] payload_sel, early_q;
   always_comb begin
     payload_sel = '0;
-    for (int r = 0; r < ROWS; r++) payload_sel |= {PAYLOAD_W{grant[r]}} & payload_q[r];
+    for (int r = 0; r < ROWS; r++) payload_sel |= {EARLY_W{grant[r]}} & payload_q[r];
   end
   always_ff @(posedge clk) begin
     if (rst) iss_valid_q <= 1'b0;
     else     iss_valid_q <= (|grant) && !cancel;
-    iss_payload_q <= payload_sel;
+    early_q <= payload_sel;
+  end
+  assign iss_payload[EARLY_W-1:0] = early_q;
+
+  if (EARLY_W < PAYLOAD_W) begin : g_late
+    localparam int LW = PAYLOAD_W - EARLY_W;
+    localparam int BRW = idx_w(BANK_ROWS);
+    logic [ROWS-1:0] grant_q;
+    always_ff @(posedge clk) grant_q <= grant;
+    logic [DW-1:0][LW-1:0] brd;
+    logic [DW-1:0]         bsel;
+    for (genvar k = 0; k < DW; k++) begin : g_bank
+      localparam int R0 = k * BANK_ROWS;
+      localparam int NRK = (ROWS - R0 < BANK_ROWS) ? ROWS - R0 : BANK_ROWS;
+      logic [BRW-1:0] wa;
+      logic [0:0][BRW-1:0] ra;
+      logic [0:0][LW-1:0] rd;
+      always_comb begin
+        wa = '0;
+        ra[0] = '0;
+        for (int i = 0; i < NRK; i++) begin
+          if (alloc_oh_q[k][R0 + i]) wa = BRW'(i);
+          if (grant_q[R0 + i])       ra[0] = BRW'(i);
+        end
+      end
+      assign bsel[k] = |grant_q[R0 +: NRK];
+      tg_ram_lut #(.DEPTH(BANK_ROWS), .WIDTH(LW), .NR(1)) u_ram (
+        .clk, .we(disp_valid[k] && |alloc_oh_q[k]), .waddr(wa),
+        .wdata(disp_payload[k][PAYLOAD_W-1:EARLY_W]), .raddr(ra), .rdata(rd));
+      assign brd[k] = rd[0];
+    end
+    always_comb begin
+      iss_payload[PAYLOAD_W-1:EARLY_W] = '0;
+      for (int k = 0; k < DW; k++) if (bsel[k]) iss_payload[PAYLOAD_W-1:EARLY_W] = brd[k];
+    end
   end
 
   // ---- Wakeup at select ----
   if (!WAKE_NOW) begin : g_nowake
     assign wake_now = '0;
+    logic unused_gw;
+    assign unused_gw = ^grant_w;
   end else if (WAKE_ENC == 0) begin : g_wake_oh
     logic [ROWS-1:0][NCOL-1:0] wid_q;   // one-hot wakeup ID, zero if the op does not wake at select
     always_ff @(posedge clk) begin
@@ -170,7 +232,7 @@ module tg_iq
     end
     always_comb begin
       wake_now = '0;
-      for (int r = 0; r < ROWS; r++) wake_now |= {NCOL{grant[r]}} & wid_q[r];
+      for (int r = 0; r < ROWS; r++) wake_now |= {NCOL{grant_w[r]}} & wid_q[r];
     end
   end else begin : g_wake_hl
     // Predecoded ID: hi = ID / 8 one-hot, lo = ID % 8 one-hot (21 bits per row at 104 IDs)
@@ -202,8 +264,8 @@ module tg_iq
       sel_hi = '0;
       sel_lo = '0;
       for (int r = 0; r < ROWS; r++) begin
-        sel_hi |= {NHI{grant[r]}} & hi_q[r];
-        sel_lo |= {8{grant[r]}} & lo_q[r];
+        sel_hi |= {NHI{grant_w[r]}} & hi_q[r];
+        sel_lo |= {8{grant_w[r]}} & lo_q[r];
       end
       for (int c = 0; c < NCOL; c++) wake_now[c] = sel_hi[c / 8] && sel_lo[c % 8];
     end
@@ -249,7 +311,7 @@ module tg_iq
       if (we[r]) begin
         tid_q[r]     <= disp_tid[bank_of(r)];
         rob_q[r]     <= disp_rob[bank_of(r)];
-        payload_q[r] <= disp_payload[bank_of(r)];
+        payload_q[r] <= disp_payload[bank_of(r)][EARLY_W-1:0];
       end
     end
   end

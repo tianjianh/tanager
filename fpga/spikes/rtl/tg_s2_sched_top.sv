@@ -10,6 +10,8 @@ module tg_s2_sched_top
 #(
   parameter int STALE    = 0,
   parameter int WAKE_ENC = 0,
+  parameter bit DUP_SEL  = 1'b0,
+  parameter int EARLY_W  = 64,       // payload bits in flip-flops (the rest in LUTRAM)
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -105,7 +107,8 @@ module tg_s2_sched_top
     end
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
-      .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW)
+      .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
+      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W)
     ) u_iq (
       .clk, .rst,
       .disp_valid(dv), .disp_tid(disp_tid_q), .disp_dep(disp_dep_q),
@@ -116,7 +119,7 @@ module tg_s2_sched_top
       .busy(busy[q]),
       .flush_valid(flush_valid_q), .flush_tid(flush_tid_q), .flush_all(flush_all_q),
       .flush_rob(flush_rob_q),
-      .iss_valid_q(iss_valid_q[q]), .iss_payload_q(iss_payload_q[q])
+      .iss_valid_q(iss_valid_q[q]), .iss_payload(iss_payload_q[q])
     );
     if (q < N_ALU) begin : g_now
       assign wake_now[q] = wn;
