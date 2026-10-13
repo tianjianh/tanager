@@ -51,3 +51,13 @@ fetch-%:
 	$$d/Vtb_fetch +seed=$(SEED) > $$d/run.log; \
 	echo "$$v: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
 	grep -q '^PASS' $$d/run.log || { grep -E 'ERROR' $$d/run.log | head; exit 1; }
+
+# tg_dtlb against a reference model, single-thread and SMT2 configurations
+.PHONY: dtlb
+dtlb: dtlb-st dtlb-smt2
+dtlb-%:
+	@d=$(OBJ)/dtlb_$*; mkdir -p $$d; \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_dtlb $(ROOT)/rtl/common/cfg/tg_cfg_$*.sv \
+	  $(COMMON) $(ROOT)/fpga/spikes/rtl/tg_dtlb.sv tb_dtlb.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
+	$$d/Vtb_dtlb +seed=$(SEED) > $$d/run.log; echo "$*: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
+	grep -q '^PASS' $$d/run.log || { grep ERROR $$d/run.log | head; exit 1; }

@@ -89,6 +89,21 @@ report_utilization -file util.rpt
 report_timing_summary -max_paths 10 -file timing_summary.rpt
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
 puts "S1_WNS $wns"
+
+# Where the PS-PL interface sits (for the S6 floorplan): clock regions of the PL cells
+# wired straight to the PS block.
+set fh [open ps_location.txt w]
+set ps [get_cells -hier -filter {REF_NAME == PS8}]
+puts $fh "PS8 cell $ps site [get_property LOC $ps]"
+set regions [dict create]
+foreach n [get_nets -of_objects [get_pins -of_objects $ps]] {
+  foreach c [get_cells -quiet -of_objects $n -filter {REF_NAME != PS8 && IS_PRIMITIVE}] {
+    set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+    if {$cr ne ""} { dict incr regions $cr }
+  }
+}
+dict for {k v} $regions { puts $fh "PL cells next to the PS in $k: $v" }
+close $fh
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 write_bitstream -force tg_s1.bit
 
