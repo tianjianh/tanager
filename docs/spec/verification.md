@@ -13,7 +13,7 @@ What the verification track gives the other tracks:
 | riscv-tests runner | `tests/isa/` | M2 |
 | CoreMark and Dhrystone for the simulation platform | `tests/bench/` | M2 |
 | `make regress CFG=...` | `tools/ci/` | M2 |
-| riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3 |
+| riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3: Sail installed, framework dependencies requested |
 | Constrained-random instruction generator | `tests/random/` | M3, done |
 | Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
 
@@ -358,8 +358,14 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ### 6.1 riscv-arch-test (ACT4) with Sail
 
-- **Flow:** `tests/arch/` builds the ACT4 tests from `~/src/tanager/riscv-arch-test` (act4 branch, pinned) for a Tanager DUT configuration, with Sail as the reference model. Each test runs in `tg_vsim` with lockstep. The signature region is then dumped from the harness's view of memory, after the run's final cache flush (a probe sweep of the l1d), and compared with Sail's signature.
-- **Sail:** the prebuilt release of the RISC-V Sail model (`sail_riscv_sim`), installed under `$TANAGER_OPT/sail` with its version recorded in `tools/versions.sh` (reported to the coordinator when downloaded).
+**Status (2026-10-13):** Sail is installed; the framework waits for its dependencies.
+- **How ACT4 works** (act4 branch, pinned in `tools/versions.sh`): the framework selects the tests that apply to a DUT from its UDB configuration, compiles them, runs them on Sail to compute the expected results, and compiles those results into self-checking ELFs. The DUT only has to run each ELF; the test prints `RVCP-SUMMARY: TEST PASSED|FAILED` and halts through `RVMODEL_HALT_PASS|FAIL`.
+- **Sail:** sail-riscv 0.15 (the version act4 requires), prebuilt release `sail-riscv-Linux-x86_64.tar.gz`, sha256 `8bb3626a…2e143`, at `$TANAGER_OPT/sail-0.15` (11 MB).
+- **Missing on the build host** (requested from the coordinator): Ruby ≥ 3.2 with Bundler and the UDB gems of ACT4's `Gemfile.lock` (the framework uses them to expand the configuration and generate `rvtest_config.h`), and the framework's Python packages (pydantic, pyjson5, ruamel.yaml, typer) in a venv.
+- **Plan once they are installed:**
+  - DUT configurations in `tests/arch/config/` for the test core (RV64IM, M and U), the M2 core (RV64IM, M) and the M3 core (the plan §4.1 ISA with S, Sv39 and 16 PMP regions): `test_config.yaml`, the UDB file, `sail.json`, `link.ld` (our map: RAM at `0x8000_0000`), and `rvmodel_macros.h` (halt through `tohost`, console on the 16550 at `UART_BASE`, CLINT `msip`/`mtime`/`mtimecmp`, access faults below the boot ROM);
+  - a runner, `make -C tests/arch CFG=... CORE=...`, that builds the ELFs into the build tree and runs each one in `tg_vsim` with lockstep: a pass needs both the self-check and lockstep;
+  - external-interrupt tests need a software-triggerable source: a minimal PLIC model in the harness with the 16550's transmit interrupt as a source, as other DUT configurations do.
 
 ### 6.2 Constrained-random instruction generator
 
