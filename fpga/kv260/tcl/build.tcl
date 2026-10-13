@@ -70,5 +70,10 @@ if {$stop eq "impl"} { stamp "done (impl)"; exit 0 }
 
 # ---- bitstream ----
 stamp "write_bitstream"
-write_bitstream -force -bin_file ./tanager.bit
+write_bitstream -force ./tanager.bit
+# .bit.bin for the Linux FPGA manager (fpgautil / xmutil), made by bootgen
+set fh [open ./tanager.bif w]
+puts $fh "all: { [file normalize ./tanager.bit] }"
+close $fh
+exec bootgen -arch zynqmp -image ./tanager.bif -process_bitstream bin -w on
 stamp "done"
