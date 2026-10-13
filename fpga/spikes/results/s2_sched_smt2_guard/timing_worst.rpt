@@ -1,0 +1,101 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Tue Oct 13 15:55:33 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -max_paths 1 -input_pins -file timing_worst.rpt
+| Design            : tg_s2_sched_top
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Physopt postRoute
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -0.101ns  (required time - arrival time)
+  Source:                 u_wake/g_one.w_q_reg[5]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            u_wake/g_one.w_q_reg[51]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        4.857ns  (logic 1.250ns (25.736%)  route 3.607ns (74.264%))
+  Logic Levels:           9  (LUT4=4 LUT6=5)
+  Clock Path Skew:        -0.253ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.391ns = ( 6.391 - 5.000 ) 
+    Source Clock Delay      (SCD):    1.662ns
+    Clock Pessimism Removal (CPR):    0.018ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=10147, unset)        1.662     1.662    u_wake/clk
+    SLICE_X57Y197        FDRE                                         r  u_wake/g_one.w_q_reg[5]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X57Y197        FDRE (Prop_BFF_SLICEL_C_Q)
+                                                      0.113     1.775 r  u_wake/g_one.w_q_reg[5]/Q
+                         net (fo=42, routed)          0.660     2.434    u_wake/w_q[5]
+    SLICE_X48Y194                                                     r  u_wake/iss_valid_q_i_346__0/I0
+    SLICE_X48Y194        LUT4 (Prop_F6LUT_SLICEL_I0_O)
+                                                      0.224     2.658 f  u_wake/iss_valid_q_i_346__0/O
+                         net (fo=1, routed)           0.558     3.216    u_wake/iss_valid_q_i_346__0_n_0
+    SLICE_X51Y182                                                     f  u_wake/iss_valid_q_i_113__0/I3
+    SLICE_X51Y182        LUT4 (Prop_A6LUT_SLICEL_I3_O)
+                                                      0.058     3.274 f  u_wake/iss_valid_q_i_113__0/O
+                         net (fo=1, routed)           0.150     3.424    u_wake/iss_valid_q_i_113__0_n_0
+    SLICE_X52Y182                                                     f  u_wake/iss_valid_q_i_41__0/I5
+    SLICE_X52Y182        LUT6 (Prop_B6LUT_SLICEL_I5_O)
+                                                      0.058     3.482 f  u_wake/iss_valid_q_i_41__0/O
+                         net (fo=7, routed)           0.392     3.874    u_wake/iss_valid_q_i_41__0_n_0
+    SLICE_X52Y173                                                     f  u_wake/iss_valid_q_i_27__0/I4
+    SLICE_X52Y173        LUT6 (Prop_E6LUT_SLICEL_I4_O)
+                                                      0.083     3.957 f  u_wake/iss_valid_q_i_27__0/O
+                         net (fo=14, routed)          0.417     4.374    u_wake/iss_valid_q_i_27__0_n_0
+    SLICE_X55Y167                                                     f  u_wake/hist_q[0][103]_i_54/I1
+    SLICE_X55Y167        LUT6 (Prop_G6LUT_SLICEL_I1_O)
+                                                      0.186     4.560 f  u_wake/hist_q[0][103]_i_54/O
+                         net (fo=5, routed)           0.200     4.760    u_wake/hist_q[0][103]_i_54_n_0
+    SLICE_X55Y164                                                     f  u_wake/hist_q[0][55]_i_13/I1
+    SLICE_X55Y164        LUT6 (Prop_G6LUT_SLICEL_I1_O)
+                                                      0.186     4.946 r  u_wake/hist_q[0][55]_i_13/O
+                         net (fo=1, routed)           0.369     5.315    u_wake/hist_q[0][55]_i_13_n_0
+    SLICE_X53Y169                                                     r  u_wake/hist_q[0][55]_i_3/I3
+    SLICE_X53Y169        LUT6 (Prop_F6LUT_SLICEM_I3_O)
+                                                      0.135     5.450 f  u_wake/hist_q[0][55]_i_3/O
+                         net (fo=8, routed)           0.275     5.726    u_wake/hist_q[0][55]_i_3_n_0
+    SLICE_X51Y172                                                     f  u_wake/hist_q[0][51]_i_1/I2
+    SLICE_X51Y172        LUT4 (Prop_C6LUT_SLICEL_I2_O)
+                                                      0.150     5.876 r  u_wake/hist_q[0][51]_i_1/O
+                         net (fo=2, routed)           0.519     6.395    u_wake/set_now[51]
+    SLICE_X48Y176                                                     r  u_wake/g_one.w_q[51]_i_1/I2
+    SLICE_X48Y176        LUT4 (Prop_D6LUT_SLICEL_I2_O)
+                                                      0.057     6.452 r  u_wake/g_one.w_q[51]_i_1/O
+                         net (fo=1, routed)           0.067     6.519    u_wake/w_q0[51]
+    SLICE_X48Y176        FDRE                                         r  u_wake/g_one.w_q_reg[51]/D
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        5.000     5.000 r  
+                                                      0.000     5.000 r  clk (IN)
+                         net (fo=10147, unset)        1.391     6.391    u_wake/clk
+    SLICE_X48Y176        FDRE                                         r  u_wake/g_one.w_q_reg[51]/C
+                         clock pessimism              0.018     6.409    
+                         clock uncertainty           -0.035     6.374    
+    SLICE_X48Y176        FDRE (Setup_DFF_SLICEL_C_D)
+                                                      0.044     6.418    u_wake/g_one.w_q_reg[51]
+  -------------------------------------------------------------------
+                         required time                          6.418    
+                         arrival time                          -6.519    
+  -------------------------------------------------------------------
+                         slack                                 -0.101    
+
+
+
+

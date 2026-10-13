@@ -1,0 +1,4 @@
+`verilator_config
+// Lint waivers for the spike RTL (fpga/spikes), on top of rtl/lint.vlt.
+// Package constants need not be used by every spike top.
+lint_off -rule UNUSEDPARAM -file "*tg_alu_pkg.sv"

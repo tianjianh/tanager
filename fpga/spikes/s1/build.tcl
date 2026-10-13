@@ -1,0 +1,102 @@
+# Spike S1: the KV260 bitstream for the PL -> PS DDR latency and bandwidth measurement.
+#   tools/vivado_run.sh <run-dir> fpga/spikes/s1/build.tcl <repo-root>
+# Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (100 MHz) -> MMCM ->
+# clk_core 200 MHz, which clocks M_AXI_HPM0_FPD (128-bit, SmartConnect to AXI4-Lite),
+# S_AXI_HP1_FPD and S_AXI_HP2_FPD (128-bit) and the engines (tg_s1_bd). The fan enable
+# (package pin A12) is held on. Outputs in the run directory: tg_s1.bit, tg_s1.bit.bin
+# (for the Linux FPGA manager), tg_s1.dtbo, shell.json, reports.
+set root [lindex $argv 0]
+set part xck26-sfvc784-2LV-c
+set here [file join $root fpga spikes s1]
+set_param general.maxThreads 8
+
+create_project -in_memory -part $part
+set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
+set_property target_language Verilog [current_project]
+add_files -norecurse [list \
+  [file join $root rtl common prim tg_ram_sdp.sv] \
+  [file join $here rtl tg_s1_engine.sv] \
+  [file join $here rtl tg_s1_top.sv] \
+  [file join $here rtl tg_s1_bd.v]]
+set_property file_type SystemVerilog [get_files *.sv]
+update_compile_order -fileset sources_1
+
+create_bd_design s1
+set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e ps]
+apply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset "1"} $ps
+set_property -dict [list \
+  CONFIG.PSU__USE__M_AXI_GP0 {1} CONFIG.PSU__MAXIGP0__DATA_WIDTH {128} \
+  CONFIG.PSU__USE__M_AXI_GP1 {0} CONFIG.PSU__USE__M_AXI_GP2 {0} \
+  CONFIG.PSU__USE__S_AXI_GP3 {1} CONFIG.PSU__SAXIGP3__DATA_WIDTH {128} \
+  CONFIG.PSU__USE__S_AXI_GP4 {1} CONFIG.PSU__SAXIGP4__DATA_WIDTH {128} \
+  CONFIG.PSU__FPGA_PL0_ENABLE {1} CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
+  CONFIG.PSU__USE__FABRIC__RST {1} CONFIG.PSU__NUM_FABRIC_RESETS {1} \
+] $ps
+
+set clk [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz clk_core]
+set_property -dict [list CONFIG.PRIM_IN_FREQ {100} CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
+  CONFIG.USE_LOCKED {true} CONFIG.USE_RESET {true} CONFIG.RESET_TYPE {ACTIVE_LOW} \
+  CONFIG.RESET_PORT {resetn}] $clk
+set rst [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset rst_core]
+set sc [create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect sc]
+set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] $sc
+set eng [create_bd_cell -type module -reference tg_s1_bd s1]
+
+connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins clk_core/clk_in1]
+connect_bd_net [get_bd_pins ps/pl_resetn0] [get_bd_pins clk_core/resetn] \
+  [get_bd_pins rst_core/ext_reset_in]
+connect_bd_net [get_bd_pins clk_core/locked] [get_bd_pins rst_core/dcm_locked]
+connect_bd_net [get_bd_pins clk_core/clk_out1] [get_bd_pins rst_core/slowest_sync_clk] \
+  [get_bd_pins ps/maxihpm0_fpd_aclk] [get_bd_pins ps/saxihp1_fpd_aclk] \
+  [get_bd_pins ps/saxihp2_fpd_aclk] [get_bd_pins sc/aclk] [get_bd_pins s1/clk]
+connect_bd_net [get_bd_pins rst_core/peripheral_aresetn] [get_bd_pins sc/aresetn] \
+  [get_bd_pins s1/rstn]
+connect_bd_intf_net [get_bd_intf_pins ps/M_AXI_HPM0_FPD] [get_bd_intf_pins sc/S00_AXI]
+connect_bd_intf_net [get_bd_intf_pins sc/M00_AXI] [get_bd_intf_pins s1/s_axi]
+connect_bd_intf_net [get_bd_intf_pins s1/m0_axi] [get_bd_intf_pins ps/S_AXI_HP1_FPD]
+connect_bd_intf_net [get_bd_intf_pins s1/m1_axi] [get_bd_intf_pins ps/S_AXI_HP2_FPD]
+create_bd_port -dir O fan_en_b
+connect_bd_net [get_bd_pins s1/fan_en_b] [get_bd_ports fan_en_b]
+
+assign_bd_address
+set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces ps/Data] -filter {NAME =~ *s1*}]
+set_property offset 0xA0000000 $seg
+set_property range 4K $seg
+validate_bd_design
+save_bd_design
+
+set bd [get_files s1.bd]
+generate_target all $bd
+set wrapper [make_wrapper -files $bd -top]
+add_files -norecurse $wrapper
+set_property top s1_wrapper [current_fileset]
+update_compile_order -fileset sources_1
+
+# Address map, for the A53 program and the report
+set fh [open address_map.txt w]
+foreach s [get_bd_addr_segs -excluded false -of_objects [get_bd_addr_spaces -of_objects [get_bd_cells *]]] {
+  puts $fh [format "%-40s %s %s" [get_property NAME $s] [get_property OFFSET $s] [get_property RANGE $s]]
+}
+close $fh
+
+synth_design -top s1_wrapper -part $part
+read_xdc [file join $here tg_s1.xdc]
+opt_design
+place_design
+phys_opt_design
+route_design
+report_utilization -file util.rpt
+report_timing_summary -max_paths 10 -file timing_summary.rpt
+set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
+puts "S1_WNS $wns"
+set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
+write_bitstream -force tg_s1.bit
+
+# .bit.bin for the Linux FPGA manager
+set bif [open tg_s1.bif w]
+puts $bif "all: { tg_s1.bit }"
+close $bif
+exec bootgen -arch zynqmp -image tg_s1.bif -process_bitstream bin -w on
+file copy -force [file join $here overlay shell.json] shell.json
+exec dtc -@ -O dtb -o tg_s1.dtbo [file join $here overlay tg_s1.dtso]
+puts "S1_BUILD_DONE wns=$wns"
