@@ -112,11 +112,22 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - Use out-of-context runs per unit wherever possible. A full-device run takes hours, so say so in your status.
 - **Builds:** at most `-j8` per track on the build host (`-j4` on the laptop).
 - **Long jobs:** run in the background with a log in your build tree. Never poll in a tight loop.
-- **Disk:** a hard budget, because the whole host has about 100 GB.
-  - Each track's build tree stays under 10 GB. The SoC track gets 25 GB, including Buildroot and Linux; share one Buildroot download directory.
+- **Disk:** a hard budget. The WSL virtual disk never gives space back to Windows, so what counts is total WSL usage.
+  - **Totals:** WSL usage (`df -h /`, Used) must stay at or under **95 GB**, and the host drive at or over **15 GB free**. On 2026-10-13, with Vivado (47 GB) and the tools installed, usage was 64 GB and the host had 34 GB free.
+  - **Per-track build trees:**
+
+    | Track | Budget |
+    |---|---|
+    | core | 4 GB |
+    | fpu | 3 GB |
+    | verif | 5 GB |
+    | spikes | 8 GB |
+    | soc | 15 GB |
+
+    The SoC budget covers Buildroot and Linux: use an external toolchain and one shared download directory.
   - After a Vivado run, keep the reports you need and delete checkpoints (`.dcp`), run directories and logs.
   - Delete waveforms once a bug is understood.
-  - `tools/disk_report.sh` shows usage per tree and the host's free space. If free space is under 25 GB, clean up before starting anything new, and tell the coordinator.
+  - `tools/disk_report.sh` shows usage per tree, WSL usage and the host's free space. When a total limit is near, clean up before starting anything new, and tell the coordinator.
 
 ## 10. Git and tracks
 

@@ -16,3 +16,6 @@ perfmodel/results/smt/
 *.jou
 vivado*.str
 .Xil/
+
+# Session worktrees created by Claude Desktop
+.claude/worktrees/
