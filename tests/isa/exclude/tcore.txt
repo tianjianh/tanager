@@ -1,0 +1,2 @@
+# Tests the test core (sim/tcore, verification.md §5) cannot run: features it does not have.
+rv64mi-p-pmpaddr  # needs PMP; the test core has none
