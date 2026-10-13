@@ -2,12 +2,15 @@
 # docs/perf/spikes.md quotes. Run it only through tools/vivado_run.sh (conventions §9):
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/ooc_run.tcl <repo-root> <cfg> <top> \
 #       <period-ns> [-g NAME=VALUE]... [-paths <file.tcl>] [-impl 0|1] [-dcp 0|1]
-#       [-place <directive>] [-route <directive>]
+#       [-place <directive>] [-route <directive>] [-lut_target N [-lut_tol F]] [-extra 1]
 #   -g      a top-level generic (repeatable)
 #   -paths  a Tcl file that sets tg_paths: a list of {name to-glob ?from-glob?}; the worst
 #           path ending at (and starting from) matching cells is reported per name
 #   -impl 0 stops after synthesis (utilisation only)
 #   -dcp 1  keeps a routed checkpoint (default 0: delete-after-report is the disk rule)
+#   -lut_target N  after synthesis, stop (exit 3) unless CLB LUTs are within lut_tol
+#           (default 0.025) of N: the S6 fill test must hit its utilisation
+#   -extra 1  congestion and control-set reports (full-device runs)
 # Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
 # util.rpt, util_hier.rpt, timing.rpt (worst 20 paths), levels.rpt, paths.txt.
 
@@ -21,6 +24,9 @@ set do_impl 1
 set keep_dcp 0
 set place_dir Default
 set route_dir Default
+set lut_target 0
+set lut_tol 0.025
+set extra 0
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -31,6 +37,9 @@ while {[llength $rest]} {
     -dcp    { set keep_dcp $v }
     -place  { set place_dir $v }
     -route  { set route_dir $v }
+    -lut_target { set lut_target $v }
+    -lut_tol    { set lut_tol $v }
+    -extra      { set extra $v }
     default { error "ooc_run.tcl: unknown option $k" }
   }
 }
@@ -83,14 +92,29 @@ proc tg_util {fh tag} {
   }
 }
 tg_util $fh synth
+if {$lut_target > 0} {
+  set r [report_utilization -return_string]
+  regexp {\|\s*CLB LUTs\*?\s*\|\s*([0-9]+)} $r -> luts
+  tg_kv $fh lut_target $lut_target
+  if {abs($luts - $lut_target) > $lut_tol * $lut_target} {
+    tg_kv $fh lut_target_miss $luts
+    close $fh
+    puts "LUT_TARGET_MISS $luts vs $lut_target"
+    exit 3
+  }
+}
 
 if {$do_impl} {
+  set t1 [clock seconds]
   opt_design
   set nfail [tg_prim_check -file prim_opt.txt -fail 0]
   tg_kv $fh prim_fail_opt $nfail
   place_design -directive $place_dir
+  tg_kv $fh place_s [expr {[clock seconds] - $t1}]
   phys_opt_design
+  set t2 [clock seconds]
   route_design -directive $route_dir
+  tg_kv $fh route_s [expr {[clock seconds] - $t2}]
   set wns_route [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
   if {$wns_route ne "" && $wns_route < 0} {
     phys_opt_design
@@ -106,6 +130,11 @@ if {$do_impl} {
   report_timing_summary -max_paths 5 -file timing_summary.rpt
   report_design_analysis -logic_level_distribution -logic_level_dist_paths 2000 -file levels.rpt
   report_design_analysis -timing -max_paths 20 -file analysis.rpt
+  if {$extra} {
+    report_design_analysis -congestion -file congestion.rpt
+    report_control_sets -verbose -file control_sets.rpt
+    report_utilization -hierarchical -hierarchical_depth 2 -file util_hier2.rpt
+  }
 
   set p [get_timing_paths -max_paths 1 -nworst 1 -setup]
   tg_kv $fh wns_ns [format %.3f [get_property SLACK $p]]

@@ -23,7 +23,6 @@ module tb_iq
   localparam int ROBW  = 7;
   localparam int RMW   = idx_w(DW + 1);
   localparam int MAXOP = 1 << 17;
-  localparam int BANK_ROWS = (ROWS + DW - 1) / DW;
 
   logic clk = 1'b0, rst = 1'b1;
   always #5 clk = ~clk;
@@ -245,8 +244,8 @@ module tb_iq
       // Rows written this cycle
       for (int r = 0; r < ROWS; r++) begin
         if (u_iq.we[r]) begin
-          row_op[r] = disp_op[r / BANK_ROWS];
-          row_seq[r] = disp_seq[r / BANK_ROWS];
+          row_op[r] = disp_op[r % DW];
+          row_seq[r] = disp_seq[r % DW];
         end
       end
       // Occupancy caps (state after the previous edge)

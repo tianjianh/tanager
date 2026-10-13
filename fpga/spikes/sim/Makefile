@@ -33,3 +33,17 @@ alu:
 	verilator $(VFLAGS) --Mdir $$d --top-module tb_alu $(ROOT)/fpga/spikes/rtl/tg_alu_pkg.sv \
 	  $(ROOT)/fpga/spikes/rtl/tg_alu.sv tb_alu.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
 	$$d/Vtb_alu +seed=$(SEED) > $$d/run.log; cat $$d/run.log | grep -vE '^-' | head -12; grep -q '^PASS' $$d/run.log
+
+# S5 IF2/IF3: tg_predecode + tg_fetch_compact, write widths 4 and 8, decode widths 2 and 3
+FETCH_VARIANTS := st_wr4 st_wr8 st_w3_wr4 st_w3_wr8
+.PHONY: fetch
+fetch: $(addprefix fetch-,$(FETCH_VARIANTS))
+fetch-%:
+	@set -e; v=$*; cfg=$${v%_wr*}; wr=$${v##*_wr}; d=$(OBJ)/fetch_$$v; mkdir -p $$d; \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_fetch -GWR=$$wr \
+	  $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv $(COMMON) $(ROOT)/fpga/spikes/rtl/tg_predecode.sv \
+	  $(ROOT)/fpga/spikes/rtl/tg_fetch_compact.sv tb_fetch.sv > $$d/build.log 2>&1 || \
+	  { tail -20 $$d/build.log; exit 1; }; \
+	$$d/Vtb_fetch +seed=$(SEED) > $$d/run.log; \
+	echo "$$v: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
+	grep -q '^PASS' $$d/run.log || { grep -E 'ERROR' $$d/run.log | head; exit 1; }

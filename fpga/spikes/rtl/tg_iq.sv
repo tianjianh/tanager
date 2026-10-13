@@ -2,7 +2,8 @@
 // written to production intent for the core track to adopt.
 //
 // Rows. ROWS entries, banked by dispatch port (plan §4.15): port k writes only rows of
-// bank k, so a row has one write source and the age matrix one writer per bank.
+// bank k (rows r with r mod DW = k, interleaved so every port has rows even when ROWS is
+// small), so a row has one write source and the age matrix one writer per bank.
 //
 // Readiness. A row waits on wakeup IDs: NCOL columns, the ROB entries then the long-
 // latency tags (LLTs). Its dependency vector is written once, at dispatch. With the shared
@@ -87,10 +88,10 @@ module tg_iq
   output logic                          iss_valid_q,
   output logic [PAYLOAD_W-1:0]          iss_payload
 );
-  localparam int BANK_ROWS = (ROWS + DW - 1) / DW;
+  localparam int BANK_ROWS = (ROWS + DW - 1) / DW;   // rows of the fullest bank
 
   function automatic int bank_of(input int r);
-    return r / BANK_ROWS;
+    return r % DW;
   endfunction
 
   // ---- Row state ----
@@ -195,8 +196,7 @@ module tg_iq
     logic [DW-1:0][LW-1:0] brd;
     logic [DW-1:0]         bsel;
     for (genvar k = 0; k < DW; k++) begin : g_bank
-      localparam int R0 = k * BANK_ROWS;
-      localparam int NRK = (ROWS - R0 < BANK_ROWS) ? ROWS - R0 : BANK_ROWS;
+      localparam int NRK = (ROWS - k + DW - 1) / DW;   // rows k, k + DW, ...
       logic [BRW-1:0] wa;
       logic [0:0][BRW-1:0] ra;
       logic [0:0][LW-1:0] rd;
@@ -204,11 +204,14 @@ module tg_iq
         wa = '0;
         ra[0] = '0;
         for (int i = 0; i < NRK; i++) begin
-          if (alloc_oh_q[k][R0 + i]) wa = BRW'(i);
-          if (grant_q[R0 + i])       ra[0] = BRW'(i);
+          if (alloc_oh_q[k][k + i * DW]) wa = BRW'(i);
+          if (grant_q[k + i * DW])       ra[0] = BRW'(i);
         end
       end
-      assign bsel[k] = |grant_q[R0 +: NRK];
+      always_comb begin
+        bsel[k] = 1'b0;
+        for (int i = 0; i < NRK; i++) bsel[k] |= grant_q[k + i * DW];
+      end
       tg_ram_lut #(.DEPTH(BANK_ROWS), .WIDTH(LW), .NR(1)) u_ram (
         .clk, .we(disp_valid[k] && |alloc_oh_q[k]), .waddr(wa),
         .wdata(disp_payload[k][PAYLOAD_W-1:EARLY_W]), .raddr(ra), .rdata(rd));
