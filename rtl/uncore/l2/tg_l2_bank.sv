@@ -416,13 +416,15 @@ module tg_l2_bank
   end
 
   // Requester's final directory entry for an Acquire (spec §Transactions).
-  function automatic way_t acq_final(input way_t e, input logic [AGENT_W-1:0] a, input logic grow_t);
+  function automatic way_t acq_final(input way_t e_in, input logic [AGENT_W-1:0] a, input logic grow_t);
+    way_t                r;
     logic [N_AGENTS-1:0] me, others;
+    r      = e_in;
     me     = N_AGENTS'(1) << a;
-    others = e.pres & ~me;
-    e.pres = e.pres | me;
-    e.tip  = grow_t || (others == '0);
-    return e;
+    others = r.pres & ~me;
+    r.pres = r.pres | me;
+    r.tip  = grow_t || (others == '0);
+    return r;
   endfunction
 
   wire [AGENT_W-1:0] a2_ag    = agent_of(p2_q.a_src);

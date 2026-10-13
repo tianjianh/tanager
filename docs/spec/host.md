@@ -67,7 +67,15 @@ The PL side of that is the **host bridge**:
 | `0x104` | `UART_TX_LEVEL` | RO | | bytes waiting (FIFO of 2048) |
 | `0x108` | `UART_RX` | WO | | push one byte to the console input |
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
-| `0x1000`–`0x1FFF` | trace | | | trace ring control and window (M4, with the core) |
+| `0x1000` | `TRACE_CTRL` | RW | 0 | `[0]` capture (0 → 1 clears the ring and starts), `[5:4]` core, `[8]` trigger armed |
+| `0x1008`/`0x100C` | `TRACE_TRIG_PC` lo/hi | RW | 0 | trigger pc (a retire, trap or interrupt record) |
+| `0x1010` | `TRACE_POST` | RW | 0 | records kept after the trigger record, then the ring freezes |
+| `0x1014` | `TRACE_COUNT` | RO | | records written since capture started |
+| `0x1018` | `TRACE_LOST` | RO | | records dropped (more than `COMMIT_WIDTH` in a cycle) |
+| `0x101C` | `TRACE_STATUS` | RO | | `[0]` frozen by the trigger, `[31:16]` ring depth in records |
+| `0x1020` | `TRACE_IDX` | RW | 0 | record to read (`count − 1` is the newest; index modulo depth) |
+| `0x1024` | `TRACE_IDX_SHOWN` | RO | | index of the record in `TRACE_REC`; read it after it equals `TRACE_IDX` |
+| `0x1040`–`0x1064` | `TRACE_REC[0..9]` | RO | | the 320-bit record, low word first (format in §Trace ring) |
 
 A 64-bit pair is written low half first. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
@@ -83,6 +91,16 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 | `0x030` | `FROMHOST` | RO | 64-bit, from the host |
 | `0x038` | `DOORBELL` | WO | any write rings the host (`MBOX_IN`) |
 | `0x040` | `MBOX_PENDING` | RO, W1C | `[0]` the host rang (drives PLIC source 11); write 1 to clear |
+
+## Trace ring
+
+`tg_trace_ring` (core domain) keeps the last `512 × COMMIT_WIDTH` commit records of the selected core (interfaces.md §5) in block RAM, for post-mortem debugging on the board.
+- **Capture:** up to `COMMIT_WIDTH` records per cycle. Retire records come first, then deferred writebacks fill the free slots. Anything more in a cycle is counted in `TRACE_LOST`.
+- **Trigger:** with the trigger armed, capture freezes `TRACE_POST` records after the first record whose pc equals `TRACE_TRIG_PC`.
+- **Record format** (320 bits): `[31:0]` header, `[63:32]` insn, `[127:64]` pc, `[191:128]` value (rd value; the cause for traps and interrupts; the value of a writeback), `[255:192]` address (store vaddr; tval for traps), `[319:256]` store data.
+  - **Header fields:** `[1:0]` kind (0 retire, 1 trap, 2 interrupt, 3 deferred writeback), `[3:2]` hart, `[5:4]` priv, `[6]` rvc, `[7]` rd_we, `[8]` rd_fp, `[13:9]` rd, `[14]` rd_deferred, `[19:15]` wb_tag, `[20]` mem_st, `[22:21]` mem_size, `[23]` mmio_ld, `[24]` nondet.
+- **Reading:** the host writes `TRACE_IDX` and waits until `TRACE_IDX_SHOWN` matches; the record crosses with the status vector.
+- **Streaming:** full-rate streaming into DDR for FPGA lockstep (plan §7.4) is the next step. It needs commit back-pressure from the core: `trace_stall_i`, proposed to the coordinator.
 
 ## Behaviour
 

@@ -337,6 +337,22 @@ module tanager_soc
     end
   end
 
+  // Commit-trace ring
+  logic         tr_en, tr_arm, tr_frozen;
+  logic [1:0]   tr_core;
+  logic [63:0]  tr_pc;
+  logic [15:0]  tr_post, tr_idx, tr_idx_shown;
+  logic [31:0]  tr_count, tr_lost;
+  logic [319:0] tr_rec;
+  localparam int TRACE_DEPTH = 512 * COMMIT_WIDTH;
+  tg_trace_ring #(.N_CORES (N_CORES), .BANK_DEPTH (512)) u_trace (
+    .clk, .rst (uncore_rst),
+    .trace_i (trace_o), .trace_valid_i (trace_valid_o), .trace_wb_i (trace_wb_o), .trace_wb_valid_i (trace_wb_valid_o),
+    .enable_i (tr_en), .core_sel_i (tr_core), .trig_arm_i (tr_arm), .trig_pc_i (tr_pc), .post_i (tr_post),
+    .rd_idx_i (tr_idx), .count_o (tr_count), .lost_o (tr_lost), .frozen_o (tr_frozen),
+    .rd_idx_o (tr_idx_shown), .rd_rec_o (tr_rec)
+  );
+
   localparam logic [7:0] CFG_CODE = (CFG_NAME == "smt2") ? 8'd1 : (CFG_NAME == "st_w3") ? 8'd2 :
                                     (CFG_NAME == "smt2_w3") ? 8'd3 : 8'd0;
   tg_host_bridge #(
@@ -360,6 +376,9 @@ module tanager_soc
     .inj_rd_count_i (inj_cnt_all), .inj_lat_sum_i (inj_sum_all), .inj_lat_max_i (inj_max_all),
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops_all), .tg_errs_i (tg_errs_all), .tg_err_line_i (tg_err_line_any), .tg_pass_i (tg_pass[0]),
+    .tr_enable_o (tr_en), .tr_core_o (tr_core), .tr_arm_o (tr_arm), .tr_pc_o (tr_pc), .tr_post_o (tr_post),
+    .tr_idx_o (tr_idx), .tr_count_i (tr_count), .tr_lost_i (tr_lost), .tr_frozen_i (tr_frozen),
+    .tr_idx_i (tr_idx_shown), .tr_rec_i (tr_rec), .tr_depth_i (16'(TRACE_DEPTH)),
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );

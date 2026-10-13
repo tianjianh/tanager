@@ -63,6 +63,19 @@ module tg_host_bridge
   input  logic [15:0] tg_errs_i,
   input  logic [27:0] tg_err_line_i,
   input  logic [15:0] tg_pass_i,
+  // commit-trace ring (tg_trace_ring in the core domain)
+  output logic        tr_enable_o,
+  output logic [1:0]  tr_core_o,
+  output logic        tr_arm_o,
+  output logic [63:0] tr_pc_o,
+  output logic [15:0] tr_post_o,
+  output logic [15:0] tr_idx_o,
+  input  logic [31:0] tr_count_i,
+  input  logic [31:0] tr_lost_i,
+  input  logic        tr_frozen_i,
+  input  logic [15:0] tr_idx_i,
+  input  logic [319:0] tr_rec_i,
+  input  logic [15:0] tr_depth_i,
   // console streams (tg_uart side)
   input  logic        con_tx_valid_i,
   output logic        con_tx_ready_o,
@@ -88,6 +101,9 @@ module tg_host_bridge
   logic        tg_en_q;
   logic [27:0] tg_base_q;
   logic [23:0] tg_lines_q;
+  logic [8:0]  tr_ctrl_q;                       // [0] enable, [5:4] core, [8] trigger armed
+  logic [63:0] tr_pc_q;
+  logic [15:0] tr_post_q, tr_idx_q;
   logic        pwr_pend_q, mbox_in_q, tohost_new_q;
 
   // status mirrored from the core domain
@@ -105,6 +121,12 @@ module tg_host_bridge
     logic [15:0] tg_errs;
     logic [27:0] tg_err_line;
     logic [15:0] tg_pass;
+    logic [31:0] tr_count;
+    logic [31:0] tr_lost;
+    logic        tr_frozen;
+    logic [15:0] tr_idx;
+    logic [319:0] tr_rec;
+    logic [15:0] tr_depth;
   } status_t;
   status_t st_h;
 
@@ -146,7 +168,7 @@ module tg_host_bridge
       16'h000: rd_mux = ID;
       16'h004: rd_mux = {VER_MAJ, VER_MIN, 4'(N_CORES_SOC), 4'(1 << TID_W), CFG_CODE};
       16'h008: rd_mux = 32'(CLK_HZ);
-      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), 4'b0011};    // [0] L2, [1] injector
+      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), 4'b0111};    // [0] L2, [1] injector, [2] trace ring
       16'h010: rd_mux = {29'd0, ctrl_q};
       16'h014: rd_mux = {28'd0, pwr_pend_q, st_h.l2_init, st_h.uncore_rst, st_h.cores_rst};
       16'h018: rd_mux = {pwr_pend_q, 15'd0, st_h.power_val};
@@ -179,6 +201,17 @@ module tg_host_bridge
       16'h0D4: rd_mux = {16'd0, st_h.tg_errs};
       16'h0D8: rd_mux = {4'd0, st_h.tg_err_line};
       16'h0DC: rd_mux = {16'd0, st_h.tg_pass};
+      16'h1000: rd_mux = {23'd0, tr_ctrl_q};
+      16'h1008: rd_mux = tr_pc_q[31:0];
+      16'h100C: rd_mux = tr_pc_q[63:32];
+      16'h1010: rd_mux = {16'd0, tr_post_q};
+      16'h1014: rd_mux = st_h.tr_count;
+      16'h1018: rd_mux = st_h.tr_lost;
+      16'h101C: rd_mux = {st_h.tr_depth, 15'd0, st_h.tr_frozen};
+      16'h1020: rd_mux = {16'd0, tr_idx_q};
+      16'h1024: rd_mux = {16'd0, st_h.tr_idx};
+      16'h1040, 16'h1044, 16'h1048, 16'h104C, 16'h1050, 16'h1054, 16'h1058, 16'h105C, 16'h1060, 16'h1064:
+               rd_mux = st_h.tr_rec[32 * ((int'(ra) - 'h1040) / 4) +: 32];
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
       16'h104: rd_mux = {20'd0, txh_level};
       16'h10C: rd_mux = 32'(512) - 32'(rxh_wlevel);
@@ -211,6 +244,10 @@ module tg_host_bridge
       tg_en_q      <= 1'b0;
       tg_base_q    <= 28'(DRAM_BASE >> 6);
       tg_lines_q   <= 24'd16384;          // 1 MiB per generator: twice the L2
+      tr_ctrl_q    <= '0;
+      tr_pc_q      <= '0;
+      tr_post_q    <= '0;
+      tr_idx_q     <= '0;
       pwr_pend_q   <= 1'b0;
       mbox_in_q    <= 1'b0;
       tohost_new_q <= 1'b0;
@@ -237,6 +274,11 @@ module tg_host_bridge
           16'h0C0: tg_en_q <= wd[0];
           16'h0C4: tg_base_q <= wd[27:0];
           16'h0C8: tg_lines_q <= wd[23:0];
+          16'h1000: tr_ctrl_q <= wd[8:0];
+          16'h1008: lo_shadow_q <= wd;
+          16'h100C: tr_pc_q   <= {wd, lo_shadow_q};
+          16'h1010: tr_post_q <= wd[15:0];
+          16'h1020: tr_idx_q  <= wd[15:0];
           default: ;
         endcase
       end else if (s_bvalid && s_bready) begin
@@ -274,12 +316,17 @@ module tg_host_bridge
     logic        tg_en;
     logic [27:0] tg_base;
     logic [23:0] tg_lines;
+    logic [8:0]  tr_ctrl;
+    logic [63:0] tr_pc;
+    logic [15:0] tr_post;
+    logic [15:0] tr_idx;
   } cfg_t;
   cfg_t cfg_h, cfg_c;
   localparam cfg_t CFG_INIT = '{dram_base: DRAM_BASE_INIT, dram_size: DRAM_SIZE_INIT, entry: 64'(DRAM_BASE),
                                 dtb: 64'(DRAM_BASE) + 64'h220_0000, fromhost: '0, inj_rd: '0, inj_wr: '0,
                                 inj_mode: 1'b0, inj_bw: '0, lossless: 1'b0, tg_en: 1'b0,
-                                tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384};
+                                tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384,
+                                tr_ctrl: '0, tr_pc: '0, tr_post: '0, tr_idx: '0};
   always_comb begin
     cfg_h.dram_base = dram_base_q[39:0];
     cfg_h.dram_size = dram_size_q[39:0];
@@ -294,6 +341,10 @@ module tg_host_bridge
     cfg_h.tg_en     = tg_en_q;
     cfg_h.tg_base   = tg_base_q;
     cfg_h.tg_lines  = tg_lines_q;
+    cfg_h.tr_ctrl   = tr_ctrl_q;
+    cfg_h.tr_pc     = tr_pc_q;
+    cfg_h.tr_post   = tr_post_q;
+    cfg_h.tr_idx    = tr_idx_q;
   end
   tg_cdc_mirror #(.W ($bits(cfg_t)), .INIT (CFG_INIT)) u_cfg (
     .src_clk (clk_host), .src_rst (rst_host), .src_in (cfg_h),
@@ -407,6 +458,12 @@ module tg_host_bridge
     st_c.tg_errs    = tg_errs_i;
     st_c.tg_err_line = tg_err_line_i;
     st_c.tg_pass    = tg_pass_i;
+    st_c.tr_count   = tr_count_i;
+    st_c.tr_lost    = tr_lost_i;
+    st_c.tr_frozen  = tr_frozen_i;
+    st_c.tr_idx     = tr_idx_i;
+    st_c.tr_rec     = tr_rec_i;
+    st_c.tr_depth   = tr_depth_i;
   end
   tg_cdc_mirror #(.W ($bits(status_t))) u_status (
     .src_clk (clk), .src_rst (rst), .src_in (st_c),
@@ -441,7 +498,13 @@ module tg_host_bridge
   assign tg_en_o        = cfg_c.tg_en;
   assign tg_base_o      = cfg_c.tg_base;
   assign tg_lines_o     = cfg_c.tg_lines;
+  assign tr_enable_o    = cfg_c.tr_ctrl[0];
+  assign tr_core_o      = cfg_c.tr_ctrl[5:4];
+  assign tr_arm_o       = cfg_c.tr_ctrl[8];
+  assign tr_pc_o        = cfg_c.tr_pc;
+  assign tr_post_o      = cfg_c.tr_post;
+  assign tr_idx_o       = cfg_c.tr_idx;
 
   wire unused = ^{s_awaddr[1:0], s_araddr[1:0], s_wstrb[2:1], rxh_ready, req_i.addr[PA_W-1:12], req_i.size, off[2:0],
-                  txc_level, rxc_level};
+                  txc_level, rxc_level, cfg_c.tr_ctrl[7:6], cfg_c.tr_ctrl[3:1]};
 endmodule
