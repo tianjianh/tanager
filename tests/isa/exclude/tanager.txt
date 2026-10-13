@@ -1,0 +1,4 @@
+# riscv-tests that do not apply to Tanager in any configuration (verification.md §4.1).
+# One test per line, with the reason after '#'.
+rv64ui-p-ma_data  # needs hardware misaligned loads/stores; Tanager traps them (plan §4.1, emulated by OpenSBI)
+rv64ui-v-ma_data  # same
