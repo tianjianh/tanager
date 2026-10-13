@@ -9,13 +9,17 @@ NAME   := l2_na$(NA)_m$(MSHR)
 TB     := $(CURDIR)/tb_l2.sv
 PARAMS := -GNA=$(NA) -GN_MSHR=$(MSHR)
 OPS    ?= 20000
-ARGS   = +ops=$(OPS)
+EXTRA_ARGS ?=
+ARGS   = +ops=$(OPS) $(EXTRA_ARGS)
 include ../common/unit.mk
 
 short:
 	@for s in 1 2 3; do $(MAKE) --no-print-directory run NA=1 SEED=$$s OPS=20000 | grep -q "TEST PASSED" || { echo "FAIL seed $$s"; exit 1; }; echo "l2 NA=1 seed $$s: PASS"; done
+	@$(MAKE) --no-print-directory run NA=1 SEED=4 OPS=20000 EXTRA_ARGS=+errlines | grep -q "TEST PASSED" || { echo "FAIL errlines"; exit 1; }; echo "l2 NA=1 AXI errors: PASS"
 
 long:
 	@for na in 1 2 4; do for s in 1 2 3 4 5 6 7 8 9 10; do \
 	  $(MAKE) --no-print-directory run NA=$$na SEED=$$s OPS=100000 | grep -q "TEST PASSED" || { echo "FAIL NA=$$na seed $$s"; exit 1; }; \
-	  echo "l2 NA=$$na seed $$s: PASS"; done; done
+	  echo "l2 NA=$$na seed $$s: PASS"; done; \
+	  $(MAKE) --no-print-directory run NA=$$na SEED=99 OPS=50000 EXTRA_ARGS=+errlines | grep -q "TEST PASSED" || { echo "FAIL NA=$$na errlines"; exit 1; }; \
+	  echo "l2 NA=$$na AXI errors: PASS"; done

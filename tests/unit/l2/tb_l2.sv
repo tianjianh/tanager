@@ -50,7 +50,9 @@ module tb_l2;
     .ev_probe_o (ev_probe), .ev_err_o (ev_err)
   );
 
-  tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(60), .READY_PCT(75), .OOO(1'b1), .NAME("l2mem")) mem (
+  // Lines at or above ERR_BASE answer SLVERR (the +errlines mode puts some pool lines there).
+  localparam longint unsigned ERR_BASE = 64'h3_0000_0000;
+  tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(60), .READY_PCT(75), .OOO(1'b1), .ERR_BASE(ERR_BASE), .NAME("l2mem")) mem (
     .clk, .rst,
     .ar_i (ar), .ar_valid_i (ar_valid), .ar_ready_o (ar_ready),
     .r_o (r), .r_valid_o (r_valid), .r_ready_i (r_ready),
@@ -109,8 +111,12 @@ module tb_l2;
 
   // ---- Bookkeeping ----
   int unsigned seed;
+  bit errlines;
+  function automatic bit is_err(input longint unsigned l);
+    return (l << 6) >= ERR_BASE;
+  endfunction
   int  ops, ops_target, errors, checks;
-  int  n_probe, n_pack_data, n_grant_b, n_grant_t, n_upgrade, n_perm, n_rel_data, n_put, n_get_ul;
+  int  n_probe, n_pack_data, n_grant_b, n_grant_t, n_upgrade, n_perm, n_rel_data, n_put, n_get_ul, n_denied;
   longint unsigned cyc, last_progress;
   bit  draining, final_phase, done;
   int  final_idx;
@@ -134,6 +140,7 @@ module tb_l2;
   initial begin
     if (!$value$plusargs("seed=%d", seed)) seed = 1;
     if (!$value$plusargs("ops=%d", ops_target)) ops_target = 20000;
+    errlines = $test$plusargs("errlines");
     void'($urandom(seed));
     $display("tb_l2: NA=%0d SETS=%0d N_MSHR=%0d seed=%0d ops=%0d", NA, SETS, N_MSHR, seed, ops_target);
     for (int i = 0; i < NLINES; i++) begin
@@ -142,6 +149,8 @@ module tb_l2;
       t = i / NSETS_USED;
       // bank 0 lines (line bit 0 = 0) inside the DRAM window, spread over the tag range
       pool[i] = (64'h8000_0000 >> 6) + (longint'(t * 37 + 5) << (1 + SET_W)) + (longint'(s * 3 % SETS) << 1);
+      if (errlines && t >= NTAGS - 2)       // the last two tags of every set fault
+        pool[i] = (ERR_BASE >> 6) + (longint'(t) << (1 + SET_W)) + (longint'(s * 3 % SETS) << 1);
     end
   end
 
@@ -191,12 +200,18 @@ module tb_l2;
             longint unsigned l;
             l = acq_line[ag];
             if (!acq_busy[ag]) fail($sformatf("agent %0d: unexpected Grant", ag));
-            if (d.denied) fail($sformatf("agent %0d: denied Grant for line %h", ag, l));
+            if (d.denied != is_err(l)) fail($sformatf("agent %0d: Grant for line %h denied=%0d", ag, l, d.denied));
             if (d.opcode == D_GRANT_DATA) begin
               acq_buf[ag][128*acq_beats[ag] +: 128] = d.data;
               acq_beats[ag]++;
             end
-            if (d.opcode == D_GRANT || acq_beats[ag] == 4) begin
+            if ((d.opcode == D_GRANT || acq_beats[ag] == 4) && d.denied) begin
+              tl_e_t ge;
+              n_denied++;
+              acq_busy[ag] = 1'b0;          // the line is not granted; GrantAck still goes back
+              ge.sink = d.sink;
+              eq.push_back(ge);
+            end else if (d.opcode == D_GRANT || acq_beats[ag] == 4) begin
               tl_e_t ge;
               bit want_t;
               want_t = acq_param[ag] != TL_GROW_N_TO_B;
@@ -228,12 +243,12 @@ module tb_l2;
         end else if (hi == SRC_L1I0) begin : l1i_d
           int id;
           id = int'(d.source[0]);
-          if (!ic_busy[id] || d.opcode != D_ACCESS_ACK_DATA || d.denied) fail($sformatf("l1i: unexpected D %p", d));
+          if (!ic_busy[id] || d.opcode != D_ACCESS_ACK_DATA || d.denied != is_err(ic_line[id])) fail($sformatf("l1i: unexpected D %p", d));
           ic_buf[id][128*ic_beats[id] +: 128] = d.data;
           ic_beats[id]++;
           if (ic_beats[id] == 4) begin
             checks++;
-            if (ic_buf[id] !== ref_get(ic_line[id]))
+            if (!is_err(ic_line[id]) && ic_buf[id] !== ref_get(ic_line[id]))
               fail($sformatf("l1i: Get of line %h\n  got  %h\n  want %h", ic_line[id], ic_buf[id], ref_get(ic_line[id])));
             ic_busy[id] = 1'b0;
             if (final_phase) final_idx++;
@@ -241,7 +256,8 @@ module tb_l2;
         end else if (hi == SRC_MMIO0) begin : mmio_d
           longint unsigned l;
           l  = mc_req.hdr.address >> 6;
-          if (!mc_busy || d.denied) fail($sformatf("mmio: unexpected D %p", d));
+          if (!mc_busy || d.denied != (is_err(l) && !(mc_req.hdr.opcode == A_PUT_FULL && mc_req.hdr.size == 3'd6)))
+            fail($sformatf("mmio: D denied=%0d for line %h op %0d", d.denied, l, mc_req.hdr.opcode));
           if (mc_req.hdr.opcode == A_GET) begin
             int first;
             first = int'(mc_req.hdr.address[5:4]) & ~((mc_req.hdr.size == 3'd5) ? 1 : (mc_req.hdr.size == 3'd6) ? 3 : 0);
@@ -255,7 +271,7 @@ module tb_l2;
               nbytes = 1 << mc_req.hdr.size;
               base   = int'(mc_req.hdr.address[5:0]);
               checks++;
-              for (int k = 0; k < nbytes; k++)
+              if (!d.denied) for (int k = 0; k < nbytes; k++)
                 if (mc_buf[8*(base+k) +: 8] !== want[8*(base+k) +: 8])
                   fail($sformatf("mmio: Get size %0d at %h byte %0d got %h want %h", mc_req.hdr.size,
                                  mc_req.hdr.address, k, mc_buf[8*(base+k) +: 8], want[8*(base+k) +: 8]));
@@ -265,7 +281,7 @@ module tb_l2;
             logic [511:0] v;
             if (d.opcode != D_ACCESS_ACK) fail("mmio: Put answered with data");
             v = ref_get(l);
-            for (int bt = 0; bt < 4; bt++)
+            if (!d.denied) for (int bt = 0; bt < 4; bt++)
               for (int k = 0; k < 16; k++)
                 if (mc_req.mask[bt][k]) v[128*bt + 8*k +: 8] = mc_req.data[bt][8*k +: 8];
             refm[l] = v;
@@ -445,6 +461,9 @@ module tb_l2;
           sz   = 3'($urandom_range(6));
           off  = 6'($urandom_range(63)) & ~6'((1 << sz) - 1);
           kind = int'($urandom_range(2));     // 0 Get, 1 PutFull, 2 PutPartial
+          // A whole-line PutFull needs no fill, so on an error line it would succeed into the L2
+          // (only its write-back fails); keep that case out of the error-line checks.
+          if (is_err(l) && kind == 1 && sz == 3'd6) kind = 2;
           nb   = (sz <= 3'd4) ? 1 : (sz == 3'd5) ? 2 : 4;
           first = int'(off[5:4]);
           m.hdr = '0;
@@ -505,8 +524,8 @@ module tb_l2;
           done = 1'b1;
           $display("tb_l2: %0d ops, %0d data checks, %0d memory reads, %0d writes, %0d errors",
                    ops, checks, mem.n_reads, mem.n_writes, errors);
-          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData",
-                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data);
+          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData, %0d denied",
+                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data, n_denied);
           if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
           else             $display("TEST FAILED (seed %0d)", seed);
           $finish;
@@ -546,7 +565,7 @@ module tb_l2;
         $display("TEST FAILED (seed %0d)", seed);
         $finish;
       end
-      if (ev_err) fail("L2 reported a protocol or AXI error");
+      if (ev_err && !errlines) fail("L2 reported a protocol or AXI error");
 
       // ======== 5. Drive the DUT's inputs ========
       if (aq.size() > 0) begin
@@ -597,7 +616,7 @@ module tb_l2;
 
   initial begin
     cyc = 0; last_progress = 0; errors = 0; checks = 0; ops = 0;
-    n_probe = 0; n_pack_data = 0; n_grant_b = 0; n_grant_t = 0; n_upgrade = 0; n_perm = 0; n_rel_data = 0;
+    n_probe = 0; n_pack_data = 0; n_grant_b = 0; n_grant_t = 0; n_upgrade = 0; n_perm = 0; n_rel_data = 0; n_denied = 0;
     draining = 0; final_phase = 0; done = 0;
     for (int ag = 0; ag < NA; ag++) begin acq_busy[ag] = 0; rel_busy[ag] = 0; end
     ic_busy[0] = 0; ic_busy[1] = 0; mc_busy = 0;

@@ -1179,7 +1179,8 @@ module tg_l2_bank
         m_st[pw_cur_q]          <= MS_RESP;
         pb_free_q[m_pb[pw_cur_q]] <= 1'b1;
       end
-      // Response issued in full
+      // Response issued in full (a Put whose fill failed never reached MS_PUTW: free its buffer here)
+      if (rs_done && m_kind[rs_cur_q] == K_PUT && m_ferr[rs_cur_q]) pb_free_q[m_pb[rs_cur_q]] <= 1'b1;
       if (rs_done) begin
         if (m_kind[rs_cur_q] == K_ACQ)               m_st[rs_cur_q] <= MS_ACK;
         else if (m_need_wb[rs_cur_q] && !m_wb_done[rs_cur_q]) m_st[rs_cur_q] <= MS_WBWAIT;
