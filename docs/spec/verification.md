@@ -14,7 +14,7 @@ What the verification track gives the other tracks:
 | CoreMark and Dhrystone for the simulation platform | `tests/bench/` | M2 |
 | `make regress CFG=...` | `tools/ci/` | M2 |
 | riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3 |
-| Constrained-random instruction generator | `tests/random/` | M3 |
+| Constrained-random instruction generator | `tests/random/` | M3, done |
 | Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
 
 ## 1. Quick start
@@ -331,8 +331,9 @@ The checker found its first real bug the same day: the test core lost deferred w
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
 4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
-5. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
-6. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
+6. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+7. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -362,15 +363,21 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ### 6.2 Constrained-random instruction generator
 
-`tests/random/` (plan §9, §4.15). A Python generator writes assembly programs that run in the bare-metal environment and in lockstep:
-- **Seeded:** every program prints its seed and is reproducible from it (conventions §6).
-- **Templates:** weighted streams of instruction classes, aimed at the plan's risk areas:
-  - LSU: same-line and same-address load and store mixes; partial overlaps for forwarding; aliasing across pages; misaligned accesses that must trap;
-  - ordering: loads that pass older stores to the same address; FENCE variants; LR/SC loops; AMOs;
-  - early retirement: long-latency loads (cache-missing strides) and DIV/REM followed by branch mispredictions, traps and interrupts while they are pending ("flush storms over pending retired loads");
-  - width 3: groups of 3 instructions with intra-group dependencies (RAW, WAW, WAR) and two branches per group, aligned to 16-byte fetch blocks so they decode in one cycle.
-- **Shape:** a memory region of a few pages per program, so misses and evictions happen at small size; traps return through a handler that skips the faulting instruction.
-- **Driver:** `make -C tests/random CFG=... N=100 SEED=...` generates, builds and runs N programs, keeping only the failures.
+`tests/random/tg_rand.py` (implemented 2026-10-13; plan §9, §4.15) writes assembly programs that run bare-metal in M-mode and in lockstep. Spike checks every instruction, so the generator never predicts results.
+- **Seeded:** a program is reproducible from its seed and options; failures print a one-line reproduction command (conventions §6).
+- **Safe by construction:** x2–x4 (stack, data base, alias base) and x30/x31 (trap scratch) are never written; every address is masked into its region; branches go forward and loops have fixed counts (an LR/SC loop is bounded, so a core that keeps failing SC still ends).
+- **Templates** (weighted), aimed at the plan's risk areas:
+  - LSU: a store followed by loads of the same, contained or partially overlapping bytes, through the same or the other base; the same page offset on two pages (`gp`/`tp`, 16 KiB apart); a store whose address comes from a slow load (or a divide) while younger loads hit or miss it (ordering violations);
+  - cache-miss streams over a 64 KiB region (larger than a 32 KiB L1), with stores in them, so lines are evicted dirty;
+  - early retirement: a divide or a missing load, its consumers, then a data-dependent branch and sometimes a trap right behind it ("flush storms over pending retired loads");
+  - traps the handler skips: misaligned loads and stores, `unimp`, `ecall`, `ebreak`, access faults (addresses below the boot ROM);
+  - **width 3:** groups of three instructions in one 16-byte fetch block with RAW, WAW or WAR dependencies, two branches, or a load-use and a store (plan §4.15);
+  - CSR reads (counters, `mstatus`, `mscratch`), fences, `fence.i`, calls and returns, and LR/SC and AMOs when A is in the ISA;
+  - `--irq=<ticks>`: CLINT timer interrupts during all of it; the handler re-arms the timer.
+- **ISAs:** `rv64i`, `rv64im` (M2 and the test core), `rv64ima`, `rv64imac`, `rv64gc` (no FP templates yet; they come with the FPU in M5).
+- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1]`. Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes). Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
+- **Results on 2026-10-13 with the test core:** 1,000 seeds with memory stress, and 300 with timer interrupts, deferred writebacks and multi-slot trace, in both `st` and `st_w3`, all pass (about 60 programs per second).
+- **Does it find bugs?** Two bugs planted in the test core: an SRAIW that ignores shift-amount bit 4 failed 199 of 200 programs (riscv-tests: one test); a dirty eviction that sends the wrong data in its last beat failed all 200 programs, and every riscv-test still passed.
 
 ### 6.3 Snapshots
 
