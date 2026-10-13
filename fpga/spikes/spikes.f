@@ -9,3 +9,9 @@ rtl/tg_alu_pkg.sv
 rtl/tg_alu.sv
 rtl/tg_irf.sv
 rtl/tg_s3_top.sv
+rtl/tg_dtlb.sv
+rtl/tg_s4_top.sv
+rtl/tg_ubtb.sv
+rtl/tg_predecode.sv
+rtl/tg_fetch_compact.sv
+rtl/tg_s5_top.sv

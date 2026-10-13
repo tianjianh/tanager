@@ -1,0 +1,23 @@
+# Spike RTL lint (fpga/spikes). Vivado runs: fpga/spikes/scripts/run_ooc.sh; see
+# docs/perf/spikes.md. Simulation tests: make -C fpga/spikes/sim.
+#   make -C fpga/spikes lint
+ROOT := $(abspath ../..)
+VERILATOR ?= verilator
+LINT := $(VERILATOR) --lint-only -Wall -Wno-MULTITOP -I$(ROOT)/rtl/common $(ROOT)/rtl/lint.vlt lint.vlt
+
+# top:cfg:generics
+CHECKS := \
+  tg_s0_lutram_top:st: \
+  $(foreach c,st smt2 smt2_w3,$(foreach s,0 1 2,$(foreach w,0 1,tg_s2_iq_top:$(c):-GSTALE=$(s)+-GWAKE_ENC=$(w) tg_s2_sched_top:$(c):-GSTALE=$(s)+-GWAKE_ENC=$(w)))) \
+  $(foreach c,st smt2 st_w3 smt2_w3,$(foreach b,0 1,$(foreach r,0 1,$(foreach o,0 1,tg_s3_top:$(c):-GBYPASS=$(b)+-GRF3=$(r)+-GSEL_OH=$(o))))) \
+  $(foreach c,st smt2,$(foreach a,0 1,tg_s4_top:$(c):-GALIGN_M1=$(a))) \
+  $(foreach c,st smt2 st_w3 smt2_w3,$(foreach f,0 1,$(foreach w,4 8,tg_s5_top:$(c):-GFA=$(f)+-GWR=$(w))))
+
+.PHONY: lint
+lint:
+	@set -e; for ck in $(CHECKS); do \
+	  top=$${ck%%:*}; rest=$${ck#*:}; cfg=$${rest%%:*}; g=$$(echo $${rest#*:} | tr '+' ' '); \
+	  out=$$($(LINT) $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv -F $(ROOT)/rtl/common/common.f \
+	        -F spikes.f --top-module $$top $$g 2>&1 | grep -E '^%' || true); \
+	  if [ -n "$$out" ]; then echo "== $$top $$cfg $$g"; echo "$$out"; exit 1; fi; \
+	done; echo "spike lint OK ($(words $(CHECKS)) checks)"
