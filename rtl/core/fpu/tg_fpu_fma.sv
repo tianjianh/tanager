@@ -84,40 +84,26 @@ module tg_fpu_fma
     end
   end
 
-  // Exponents (double bias). The window's bit 160 has weight 2^(Ep + 56) unless the addend
-  // dominates (sh < 0), when it has the addend's weight.
-  logic signed [13:0] ep, sh_raw, e_top, lim;
-  logic [7:0] sh;
-  logic prod_sticky;            // the product only contributes a sticky bit
+  // Exponents. E0 only forms the sums, straight from the encoding fields (a subnormal field reads
+  // 1) with the format's bias folded into constants; E1 clamps and selects (double bias):
+  //   ep  = ea + eb - bias        product exponent      (S: + 896 to reach double bias)
+  //   shr = ep - ec + 56          right shift of the addend, from V[164:112]
+  logic [10:0] fa_e, fb_e, fc_e;
+  // (an improperly boxed S operand is a NaN, whose result ignores these exponents)
   always_comb begin
-    ep     = $signed({3'b0, ua.exp}) + $signed({3'b0, ub.exp}) - 14'sd1023;
-    sh_raw = ep - $signed({3'b0, uc.exp}) + 14'sd56;
-    prod_sticky = 1'b0;
-    if (prod_zero) begin           // a zero product: the addend anchors the window
-      sh    = 8'd0;
-      e_top = $signed({3'b0, uc.exp});
-    end else if (c_zero) begin     // no addend: the product anchors
-      sh    = 8'(SH_MAX);
-      e_top = ep + 14'sd56;
-    end else if (sh_raw < 0) begin
-      sh    = 8'd0;
-      e_top = $signed({3'b0, uc.exp});
-      prod_sticky = 1'b1;
-    end else begin
-      sh    = (sh_raw > 14'(SH_MAX)) ? 8'(SH_MAX) : sh_raw[7:0];
-      e_top = ep + 14'sd56;
-    end
-    // normalising may not take the exponent below emin (double bias: 1 for D, 897 for S)
-    lim = e_top - (dbl ? 14'sd1 : 14'sd897);
+    logic [10:0] ra, rb, rc;
+    ra = dbl ? q.a[62:52] : {3'b0, q.a[30:23]};
+    rb = is_add ? (dbl ? 11'd1023 : 11'd127) : (dbl ? q.b[62:52] : {3'b0, q.b[30:23]});
+    rc = is_add ? (dbl ? q.b[62:52] : {3'b0, q.b[30:23]}) : (dbl ? q.c[62:52] : {3'b0, q.c[30:23]});
+    fa_e = (ra == '0) ? 11'd1 : ra;
+    fb_e = (rb == '0) ? 11'd1 : rb;
+    fc_e = (rc == '0) ? 11'd1 : rc;
   end
-
-  // Trailing zeros of the addend significand (sticky of the alignment shift).
-  logic [5:0] tz_c;
-  always_comb begin
-    tz_c = 6'd53;
-    for (int i = 52; i >= 0; i--)
-      if (uc.sig[i]) tz_c = 6'(i);
-  end
+  logic signed [13:0] ep0, shr0, ec0;
+  assign ep0  = $signed({3'b0, fa_e}) + $signed({3'b0, fb_e}) + (dbl ? -14'sd1023 : 14'sd769);
+  assign shr0 = $signed({3'b0, fa_e}) + $signed({3'b0, fb_e}) - $signed({3'b0, fc_e})
+              + (dbl ? -14'sd967 : -14'sd71);
+  assign ec0  = $signed({3'b0, fc_e}) + (dbl ? 14'sd0 : 14'sd896);
 
   // ---- E0 -> E1 registers ----
   typedef struct packed {
@@ -127,7 +113,9 @@ module tg_fpu_fma
     logic        spec, spec_nv;
     logic [63:0] spec_res;
     logic        sp, sc, eff_sub, prod_sticky;
-    logic [13:0] e_top, lim;    // signed
+    logic        prod_zero, c_zero;
+    logic [13:0] ep, shr, ec;   // signed (E0 -> E1)
+    logic [13:0] e_top, lim;    // signed (from E1)
   } ctl_t;
 
   ctl_t c0, c1_q, c2_q, c3_q;
@@ -135,8 +123,10 @@ module tg_fpu_fma
   always_comb begin
     c0.dbl = dbl; c0.rm = q.rm; c0.tag = q.tag;
     c0.spec = spec; c0.spec_nv = spec_nv; c0.spec_res = spec_res;
-    c0.sp = sp; c0.sc = sc; c0.eff_sub = eff_sub; c0.prod_sticky = prod_sticky;
-    c0.e_top = e_top; c0.lim = lim;
+    c0.sp = sp; c0.sc = sc; c0.eff_sub = eff_sub; c0.prod_sticky = 1'b0;
+    c0.prod_zero = prod_zero; c0.c_zero = c_zero;
+    c0.ep = ep0; c0.shr = shr0; c0.ec = ec0;
+    c0.e_top = '0; c0.lim = '0;
   end
 
   // Multiplier operands: fa = ma[51:0] in two 26-bit chunks (27-bit DSP port), fb[50:0] in
@@ -147,8 +137,6 @@ module tg_fpu_fma
   logic [51:0] fa_q, fb_q;
   logic        ha_q, hb_q;
   logic [52:0] mc_q;
-  logic [7:0]  sh_q;
-  logic [5:0]  tzc_q;
   always_ff @(posedge clk) begin
     a0_q <= ua.sig[25:0];
     a1_q <= ua.sig[51:26];
@@ -160,8 +148,6 @@ module tg_fpu_fma
     ha_q <= ua.sig[52];
     hb_q <= ub.sig[52];
     mc_q <= c_zero ? '0 : uc.sig;     // FMUL has no addend
-    sh_q <= sh;
-    tzc_q <= tz_c;
     c1_q <= c0;
   end
 
@@ -187,18 +173,48 @@ module tg_fpu_fma
     t12_q <= 47'(a1_q) * 47'(b2_q) + {1'b0, rows[54:9]};         // frame 60: rows bits 105:60
   end
 
+  // Window placement: the window's bit 160 has weight 2^(ep + 56) unless the addend dominates
+  // (shr < 0), when it has the addend's weight and the product only contributes a sticky.
+  logic [7:0] sh;
+  ctl_t       c1x;
+  always_comb begin
+    c1x = c1_q;
+    if (c1_q.prod_zero) begin             // a zero product: the addend anchors the window
+      sh = 8'd0;
+      c1x.e_top = c1_q.ec;
+    end else if (c1_q.c_zero) begin       // no addend: the product anchors
+      sh = 8'(SH_MAX);
+      c1x.e_top = 14'($signed(c1_q.ep) + 14'sd56);
+    end else if ($signed(c1_q.shr) < 0) begin
+      sh = 8'd0;
+      c1x.e_top = c1_q.ec;
+      c1x.prod_sticky = 1'b1;
+    end else begin
+      sh = ($signed(c1_q.shr) > 14'(SH_MAX)) ? 8'(SH_MAX) : c1_q.shr[7:0];
+      c1x.e_top = 14'($signed(c1_q.ep) + 14'sd56);
+    end
+    // normalising may not take the exponent below emin (double bias: 1 for D, 897 for S)
+    c1x.lim = 14'($signed(c1x.e_top) - (c1_q.dbl ? 14'sd1 : 14'sd897));
+  end
+
   // Addend: mc at V[164:112], shifted right by sh; V[0] collects every bit at or below it.
+  logic [5:0] tz_c;
+  always_comb begin
+    tz_c = 6'd53;
+    for (int i = 52; i >= 0; i--)
+      if (mc_q[i]) tz_c = 6'(i);
+  end
   logic [VW-1:0] cal;
   always_comb begin
     logic [VW-1:0] x;
-    x   = {mc_q, 112'b0} >> sh_q;
-    cal = {x[VW-1:1], x[0] || ((mc_q != '0) && (sh_q >= 8'd112) && ({2'b0, tzc_q} <= sh_q - 8'd112))};
+    x   = {mc_q, 112'b0} >> sh;
+    cal = {x[VW-1:1], x[0] || ((mc_q != '0) && (sh >= 8'd112) && ({2'b0, tz_c} <= sh - 8'd112))};
   end
 
-  logic [VW:0] cop_q;           // addend operand of the adder: C or ~C (163 bits)
+  logic [VW:0] cop_q;           // addend operand of the adder: C or ~C (166 bits)
   always_ff @(posedge clk) begin
     cop_q <= c1_q.eff_sub ? ~{1'b0, cal} : {1'b0, cal};
-    c2_q  <= c1_q;
+    c2_q  <= c1x;
   end
 
   // ------------------------------------------------------------------------------------------
@@ -350,7 +366,10 @@ module tg_fpu_fma
   logic unused;
   assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim[13:8],
                     ub_raw.sign, uc_raw, q.src_fmt, q.ifmt, sum_y[VW], c4_q.e_top, c4_q.lim,
-                    c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky};
+                    c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky, c4_q.prod_zero, c4_q.c_zero,
+                    c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,
+                    c3_q.ec, c2_q.prod_zero, c2_q.c_zero, c2_q.ep, c2_q.shr, c2_q.ec, c2_q.lim,
+                    c2_q.e_top, c3_q.sp, c3_q.sc, c3_q.eff_sub, c3_q.prod_sticky, uc.exp};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

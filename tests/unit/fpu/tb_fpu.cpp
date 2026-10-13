@@ -74,6 +74,7 @@ class Tb {
   int ready_pct = 100;               // probability of fdiv_ready_i
   int issue_pct = 100;               // probability of issuing when a request is queued
   bool fdiv_holding = false;         // a divide request is presented and must stay until accepted
+  uint32_t fdiv_tag = 0;             // its tag
   bool fdiv_blocked = false;         // backpressure was applied (latencies may stretch)
   long max_report = 20;
 
@@ -161,7 +162,8 @@ class Tb {
     }
     // Divide/sqrt: valid holds until accepted
     if (!fdiv_holding && !q[2].empty() && want(issue_pct)) {
-      drive(top->fdiv_req_i, q[2].front().req, next_tag);
+      fdiv_tag = next_tag++;
+      drive(top->fdiv_req_i, q[2].front().req, fdiv_tag);
       fdiv_holding = true;
     }
     top->fdiv_valid_i = fdiv_holding;
@@ -173,7 +175,7 @@ class Tb {
     if (top->fmisc_valid_o) check(top->fmisc_resp_o, 1);
     if (top->fdiv_valid_o && top->fdiv_ready_i) check(top->fdiv_resp_o, 2);
     if (fdiv_holding && top->fdiv_ready_o) {
-      inflight[next_tag++] = {q[2].front(), cycle};
+      inflight[fdiv_tag] = {q[2].front(), cycle};
       q[2].pop_front();
       fdiv_holding = false;
     }
@@ -338,6 +340,8 @@ static int run_rand(Tb &tb, uint64_t seed, long n, const std::string &units) {
   bool en[3] = {units.find("fma") != std::string::npos, units.find("misc") != std::string::npos,
                 units.find("div") != std::string::npos};
   long made = 0;
+  uint64_t last_progress = 0;
+  long last_checked = -1;
   while (made < n || tb.busy()) {
     for (int u = 0; u < 3 && made < n; u++) {
       if (!en[u]) continue;
@@ -345,6 +349,18 @@ static int run_rand(Tb &tb, uint64_t seed, long n, const std::string &units) {
       if (tb.q[u].size() < cap) { tb.add(rand_req(rng, gen, u), "rand"); made++; }
     }
     tb.step();
+    if (tb.checked != last_checked) { last_checked = tb.checked; last_progress = tb.cycle; }
+    if (tb.cycle - last_progress > 2000) {
+      tb.errors++;
+      printf("FAIL no response for 2000 cycles at cycle %llu: %zu in flight, fdiv_ready_o=%d holding=%d\n",
+             (unsigned long long)tb.cycle, tb.inflight.size(), tb.top->fdiv_ready_o, tb.fdiv_holding);
+      int shown = 0;
+      for (auto &kv : tb.inflight)
+        if (shown++ < 10)
+          printf("  in flight: tag %u %s fmt=%d issued@%llu\n", kv.first, ref::op_name(kv.second.it.req.op),
+                 kv.second.it.req.fmt, (unsigned long long)kv.second.cycle);
+      break;
+    }
   }
   printf("rand seed=%llu units=%s: %ld operations, %ld checked, %ld errors\n", (unsigned long long)seed,
          units.c_str(), made, tb.checked, tb.errors);

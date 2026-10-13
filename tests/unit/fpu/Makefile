@@ -3,7 +3,7 @@
 #                        directed and random tests on the RTL
 #   make test-long       full regression: TestFloat level 1 and 2 for every operation (hours; -j8)
 #   make model           bit-accurate Goldschmidt model against SoftFloat
-#   make seed            regenerate the seed ROM (rtl/core/fpu/tg_fpu_seed_tab.svh, seed_tab.h)
+#   make seed            regenerate the seed ROM (rtl/core/fpu/tg_fpu_seed_pkg.sv, seed_tab.h)
 #   make tb              build the Verilator testbench (CFG=st by default)
 # Builds go to $TANAGER_BUILD/<worktree>/fpu (conventions §1).
 
@@ -29,7 +29,7 @@ $(BUILD):
 	mkdir -p $@
 
 seed:
-	python3 gen_seed.py $(ROOT)/rtl/core/fpu/tg_fpu_seed_tab.svh seed_tab.h
+	python3 gen_seed.py $(ROOT)/rtl/core/fpu/tg_fpu_seed_pkg.sv seed_tab.h
 
 $(BUILD)/gs_check: gs_check.cpp gs_model.h fpu_ref.h operands.h seed_tab.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gs_check.cpp $(SF_LIB)

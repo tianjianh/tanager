@@ -112,15 +112,17 @@ inline Result round_pack(bool sign, int eq, uint64_t t, bool g, bool s, bool dbl
 // e2 ~ e0^2 and e3 ~ e0^3 in Q2.58 (signed).
 // |e0| < 2^-8.6 (seed ROM bound plus the truncation of the SM0/SMa operands), so e0 fits the
 // 27-bit signed A port of a DSP48E2 in Q.33, e0 >> 9 its 18-bit signed B port, and e2 >> 24
-// (Q.34) the 17 magnitude bits of a B port.
-inline void small_terms(int64_t e0_33, int64_t &e2, int64_t &e3) {
+// (Q.34) the 17 magnitude bits of a B port. Returns the round-2 correction term in Q2.58:
+// division e2 + e3, square root 3/8 e2 + 5/16 e3 (as (6 e2 + 5 e3) / 16, the SMc DSP's form).
+inline int64_t small_terms(int64_t e0_33, bool sqrt) {
   int64_t b = e0_33 >> 9;                 // SMb B operand, Q.24
-  e2 = (e0_33 * b) << 1;                  // Q.33 x Q.24 = Q.57 -> Q.58
-  int64_t e2hi = e2 >> 24;                // SMc B operand, Q.34
-  e3 = (e2hi * e0_33) >> 9;               // Q.34 x Q.33 = Q.67 -> Q.58
+  int64_t e2 = (e0_33 * b) << 1;          // Q.33 x Q.24 = Q.57 -> Q.58
+  int64_t e2hi = e2 >> 24;                // SMc A operand, Q.34
   if (e0_33 >= (1ll << 26) || e0_33 < -(1ll << 26) || e2hi >= (1ll << 17)) {
     fprintf(stderr, "gs model: small-multiplier operand out of range\n"); abort();
   }
+  if (sqrt) return (5 * e2hi * b + 6 * e2) >> 4;
+  return e2hi * b + e2;                   // e3 = e2hi x (e0 >> 9): Q.34 x Q.24 = Q.58
 }
 
 inline Result div(uint64_t a, uint64_t b, bool dbl, int rm, uint64_t *q_out = nullptr) {
@@ -141,12 +143,11 @@ inline Result div(uint64_t a, uint64_t b, bool dbl, int rm, uint64_t *q_out = nu
   // SM0: approximate D0 from the top 24 bits of mb.
   uint64_t d0a = (ub.sig >> 29) * s10;                // Q1.23 x Q0.10 = Q1.33
   int64_t e0 = (int64_t)(1ull << 33) - (int64_t)d0a;
-  int64_t e2, e3;
-  small_terms(e0, e2, e3);
+  int64_t e23 = small_terms(e0, false);
   // R1
   uint64_t n = mul(A, s), d = mul(B, s);
   // R2: cubic step
-  uint64_t r = (uint64_t)((int64_t)(2 * ONE) - (int64_t)d + e2 + e3) & QMASK;
+  uint64_t r = (uint64_t)((int64_t)(2 * ONE) - (int64_t)d + e23) & QMASK;
   n = mul(n, r); d = mul(d, r);
   // R3 (D)
   if (dbl) { r = (2 * ONE - d) & QMASK; n = mul(n, r); }
@@ -188,13 +189,11 @@ inline Result sqrt(uint64_t a, bool dbl, int rm, uint64_t *q_out = nullptr) {
   // SMa: approximate u0 = x * y0^2 from the top 26 bits of x.
   uint64_t ua = (X >> 34) * y2;                       // Q2.24 x Q0.20 = Q2.44
   int64_t e0 = ((int64_t)(1ull << 44) - (int64_t)ua) >> 11;   // Q.33
-  int64_t e2, e3;
-  small_terms(e0, e2, e3);
+  int64_t t23 = small_terms(e0, true);
   // R1
   uint64_t q = mul(X, y0), u0 = mul(X, y2 << (QF - 20));
   // R2: P = (3 - u0)/2 + 3/8 e2 + 5/16 e3
-  int64_t t2 = (e2 >> 2) + (e2 >> 3), t3 = (e3 >> 2) + (e3 >> 4);
-  uint64_t p = (uint64_t)((int64_t)((3 * ONE - u0) >> 1) + t2 + t3) & QMASK;
+  uint64_t p = (uint64_t)((int64_t)((3 * ONE - u0) >> 1) + t23) & QMASK;
   uint64_t y = mul(y0, p);
   q = mul(q, p);
   if (dbl) {
