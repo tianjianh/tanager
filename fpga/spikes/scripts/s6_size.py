@@ -25,10 +25,11 @@ UNC_LUTRAM = 1_600          # L2 MSHR state and queues (lever R15 keeps them in 
 # Synthesised LUTs of S2 (whole scheduler, chosen options) + S3 + S4 + S5 per configuration,
 # out of context (fpga/spikes/results); refreshed when the spikes change.
 SPIKE_LUTS = {
-    "st":      6_100 + 5_210 + 2_600 + 3_400,
-    "smt2":    7_850 + 5_210 + 2_600 + 3_700,
-    "st_w3":   6_900 + 8_710 + 2_600 + 3_600,
-    "smt2_w3": 9_500 + 8_710 + 2_600 + 3_900,
+    # S2 (whole scheduler, DUP_SEL + EARLY_W=24) + S3 + S4 + S5 (LUTRAM micro-BTB, WR=4)
+    "st":      5_416 + 5_210 + 2_600 + 2_485,
+    "smt2":    7_790 + 5_210 + 2_600 + 2_700,
+    "st_w3":   6_100 + 8_713 + 2_600 + 2_700,
+    "smt2_w3": 10_500 + 8_713 + 2_600 + 2_900,
 }
 
 

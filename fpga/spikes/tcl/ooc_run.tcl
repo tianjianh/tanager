@@ -144,6 +144,33 @@ if {$do_impl} {
     report_design_analysis -congestion -file congestion.rpt
     report_control_sets -verbose -file control_sets.rpt
     report_utilization -hierarchical -hierarchical_depth 2 -file util_hier2.rpt
+    # Floorplan summary: LUTs of each top-level block per clock region, and where the
+    # UltraRAM and block RAM ended up
+    set rf [open regions.txt w]
+    foreach blk [get_cells -filter {!IS_PRIMITIVE}] {
+      current_instance -quiet
+      current_instance -quiet $blk
+      set cnt [dict create]
+      foreach c [get_cells -quiet -hier -filter {PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DMEM}] {
+        set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+        if {$cr ne ""} { dict incr cnt $cr }
+      }
+      current_instance -quiet
+      set line [format "%-24s" [get_property NAME $blk]]
+      foreach k [lsort [dict keys $cnt]] { append line [format " %s:%d" $k [dict get $cnt $k]] }
+      puts $rf $line
+    }
+    foreach ref {URAM288 RAMB36E2 RAMB18E2 DSP48E2} {
+      set cnt [dict create]
+      foreach c [get_cells -quiet -hier -filter "REF_NAME == $ref"] {
+        set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+        if {$cr ne ""} { dict incr cnt $cr }
+      }
+      set line [format "%-24s" $ref]
+      foreach k [lsort [dict keys $cnt]] { append line [format " %s:%d" $k [dict get $cnt $k]] }
+      puts $rf $line
+    }
+    close $rf
   }
 
   set p [get_timing_paths -max_paths 1 -nworst 1 -setup]

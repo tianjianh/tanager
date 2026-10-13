@@ -153,7 +153,41 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 
 ## 7. S5: next PC, I$, pre-decode, compaction
 
-(to be completed)
+**Structure** ([`tg_s5_top`](../../fpga/spikes/rtl/tg_s5_top.sv)):
+- **BP0/IF1:** the fetch PC register and the micro-BTB ([`tg_ubtb`](../../fpga/spikes/rtl/tg_ubtb.sv)), 64 entries, 2-way, LUTRAM, with a partial tag plus the thread ID. They close a 1-cycle loop: hit → target, else PC + 16; redirects (registered) override.
+  - The next PC also drives the I$ data address directly: the BRAMs' own address register is the I$ address register. So the loop ends at 16 BRAM address pins, which gives zero-bubble fetch after a redirect.
+  - SMT2: the other thread's next PC waits aside, and the registered ICOUNT choice switches threads.
+- **IF1:** I$ data, 8 ways × 16 B in 16 RAMB36 with output registers; tags in LUTRAM (8 × 64 × 23 bits); ITLB with 16 fully associative entries.
+- **IF2:** tag compare, way select, pre-decode ([`tg_predecode`](../../fpga/spikes/rtl/tg_predecode.sv)): boundaries over 8 parcels with the straddle carry, entry and exit slots, and branch, jump, call and return marks.
+- **IF3:** compaction straight into a 16-entry instruction queue of WR LUTRAM banks ([`tg_fetch_compact`](../../fpga/spikes/rtl/tg_fetch_compact.sv)); DECODE_WIDTH instructions leave per cycle.
+
+| Run | Config | Decode | CLB LUTs (LUTRAM) | FFs | RAMB36 | WNS ns | Levels | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| `s5_st_lut_wr4` | st | 2 | 2,485 (448) | 2,014 | 16 | **+0.582** | 8 | pass |
+| `s5_smt2_lut_wr4` | smt2 | 2 | (running) | | | | | |
+| `s5_w3_lut_wr4` | st_w3 | 3 | (running) | | | | | |
+| `s5_st_fa_wr4` (32-entry flip-flop fallback) | st | 2 | (running) | | | | | |
+| `s5_w3_lut_wr8` (8 writes per cycle) | st_w3 | 3 | (running) | | | | | |
+
+Named paths, `s5_st_lut_wr4`:
+
+| Path | Slack ns | Levels | Logic ns | Net ns |
+|---|---|---|---|---|
+| Next-PC loop: PC → micro-BTB LUTRAM → tag compare → next-PC mux → PC | **+1.914** | 6 | 0.72 | 2.29 |
+| Next PC → I$ BRAM address pins | +0.923 | 6 | 0.72 | 2.71 |
+| IF2: tags, ITLB page → compare → way select → pre-decode → IF3 registers | +0.582 | 8 | 1.14 | 2.92 |
+| IF3: compaction → instruction-queue LUTRAM write | +1.127 | 8 | 1.16 | 2.47 |
+| Instruction queue read → decode registers | +1.721 | 3 | 0.64 | 2.51 |
+
+**Findings (width 2).**
+- **The 64-entry LUTRAM micro-BTB closes the next-PC loop with 1.9 ns to spare.** It costs 154 LUTs, 64 of them LUTRAM.
+  - The flip-flop fallback is not needed at width 2; its run reports the comparison.
+  - Even with the BRAM address pins in the loop there is +0.9 ns, so the zero-bubble redirect path holds.
+- **Pre-decode in IF2 and compaction in IF3 both fit**, with +0.58 and +1.13 ns. The plan's 9-cycle mispredict path (§3.2) stands at width 2.
+- **IF3 cost:** compaction plus the queue is 981 LUTs, 128 of them LUTRAM.
+  - The queue is 4 banks of RAM32M16. Compaction selects straight into the banks, so no rotation stage follows it.
+  - **Instruction-queue capacity:** 4 entries deep per bank use 4 of the RAM32M16's 32 rows. Flip-flops would cost more LUTs in write muxes, so LUTRAM stays.
+
 
 ---
 
