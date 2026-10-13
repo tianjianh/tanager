@@ -45,8 +45,9 @@
 //                numbered across the queues; a row records which of them produce its sources
 //                (disp_mdep, set by dispatch while the producer still holds its row) and is
 //                ready only when all of those rows are selected (mx_issued: selected and
-//                held). The wakeup ID's W bit is then set a cycle later (wake_now is
-//                registered), so the loop is grant -> issued register -> readiness -> select,
+//                held). The wakeup ID's W bit is then set a cycle later (the grant is
+//                registered before the encode), so the loop is grant -> issued register ->
+//                readiness -> select,
 //                with no ID encode or decode. A freed row's column is cleared everywhere
 //                (mx_free); its producer has completed by then.
 //                Dispatch names a source by row only while that row still holds the
@@ -205,6 +206,17 @@ module tg_iq
     assign grant_w = grant;
   end
 
+  // MX: the wakeup encode works on the registered grant; W follows a cycle later anyway, and
+  // the encode leaves the select cycle.
+  logic [ROWS-1:0] grant_e;
+  if (MX) begin : g_grant_reg
+    logic [ROWS-1:0] grant_wq;
+    always_ff @(posedge clk) grant_wq <= rst ? '0 : grant_w & {ROWS{!cancel}};
+    assign grant_e = grant_wq;
+  end else begin : g_grant_now
+    assign grant_e = grant_w;
+  end
+
   // ---- Issue output: one-hot AND-OR mux of the early payload, LUTRAM for the rest ----
   logic [EARLY_W-1:0] payload_sel, early_q;
   always_comb begin
@@ -258,7 +270,7 @@ module tg_iq
   if (!WAKE_NOW) begin : g_nowake
     assign wake_c = '0;
     logic unused_gw;
-    assign unused_gw = ^grant_w;
+    assign unused_gw = ^{grant_w, grant_e};
   end else if (WAKE_ENC == 0) begin : g_wake_oh
     logic [ROWS-1:0][NCOL-1:0] wid_q;   // one-hot wakeup ID, zero if the op does not wake at select
     always_ff @(posedge clk) begin
@@ -266,7 +278,7 @@ module tg_iq
     end
     always_comb begin
       wake_c = '0;
-      for (int r = 0; r < ROWS; r++) wake_c |= {NCOL{grant_w[r]}} & wid_q[r];
+      for (int r = 0; r < ROWS; r++) wake_c |= {NCOL{grant_e[r]}} & wid_q[r];
     end
   end else begin : g_wake_hl
     // Predecoded ID: hi = ID / 8 one-hot, lo = ID % 8 one-hot (21 bits per row at 104 IDs)
@@ -298,20 +310,13 @@ module tg_iq
       sel_hi = '0;
       sel_lo = '0;
       for (int r = 0; r < ROWS; r++) begin
-        sel_hi |= {NHI{grant_w[r]}} & hi_q[r];
-        sel_lo |= {8{grant_w[r]}} & lo_q[r];
+        sel_hi |= {NHI{grant_e[r]}} & hi_q[r];
+        sel_lo |= {8{grant_e[r]}} & lo_q[r];
       end
       for (int c = 0; c < NCOL; c++) wake_c[c] = sel_hi[c / 8] && sel_lo[c % 8];
     end
   end
-  if (MX) begin : g_wake_reg
-    // Consumers waiting in a queue wake through the matrix; W follows a cycle later.
-    logic [NCOL-1:0] wake_q;
-    always_ff @(posedge clk) wake_q <= rst ? '0 : wake_c & {NCOL{!cancel}};
-    assign wake_now = wake_q;
-  end else begin : g_wake_now
-    assign wake_now = wake_c;
-  end
+  assign wake_now = wake_c;
 
   // ---- Row lifetime ----
   logic [ROWS-1:0] kill, free_now;
