@@ -13,6 +13,7 @@ module tg_s2_sched_top
   parameter bit DUP_SEL  = 1'b0,
   parameter int EARLY_W  = 64,       // payload bits in flip-flops (the rest in LUTRAM)
   parameter bit MX       = 1'b0,     // matrix wakeup for 1-cycle producers (ALU queues)
+  parameter int ALU_ROWS = 0,        // > 0: rows of every ALU queue (the plan's fallback)
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -21,7 +22,8 @@ module tg_s2_sched_top
   localparam int PW    = 64,
   localparam int ROBW  = ROB_IDX_W + 1,
   localparam int RMW   = idx_w(DW + 1),
-  localparam int RA    = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0)   // ALU-queue rows
+  localparam int RA    = (ALU_ROWS > 0) ? N_ALU * ALU_ROWS
+                                      : IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0)   // ALU-queue rows
 ) (
   input  logic                    clk,
   input  logic                    rst_i,
@@ -51,6 +53,7 @@ module tg_s2_sched_top
   output logic [NCOL-1:0]         w_o
 );
   function automatic int rows_of(input int q);
+    if (q < N_ALU && ALU_ROWS > 0) return ALU_ROWS;
     if (q == 0) return IQ_A0;
     if (q == 1) return IQ_A1;
     if (q < N_ALU) return IQ_A2;
