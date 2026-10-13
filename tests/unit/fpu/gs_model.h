@@ -193,12 +193,12 @@ inline Result sqrt(uint64_t a, bool dbl, int rm, uint64_t *q_out = nullptr) {
   // R1
   uint64_t q = mul(X, y0), u0 = mul(X, y2 << (QF - 20));
   // R2: P = (3 - u0)/2 + 3/8 e2 + 5/16 e3
-  uint64_t p = (uint64_t)((int64_t)((3 * ONE - u0) >> 1) + t23) & QMASK;
+  uint64_t p = (uint64_t)((int64_t)(3 * (ONE >> 1)) - (int64_t)(u0 >> 1) + t23) & QMASK;
   uint64_t y = mul(y0, p);
   q = mul(q, p);
   if (dbl) {
     uint64_t w = mul(q, y);                           // R3
-    uint64_t f = (3 * ONE - w) >> 1;                  // R4
+    uint64_t f = 3 * (ONE >> 1) - (w >> 1);           // R4
     q = mul(q, f);
   }
   {

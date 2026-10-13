@@ -48,8 +48,8 @@ static uint64_t get(const W &w, int lsb, int width) {
 // Latencies from tg_fpu_pkg (kept in sync by hand; the test fails if the RTL disagrees).
 static const int FMA_LAT = 5, FMISC_LAT = 2;
 static int fdiv_lat(int op, int fmt) {
-  if (op == ref::FDIV) return fmt == ref::D ? 22 : 18;
-  return fmt == ref::D ? 26 : 18;
+  if (op == ref::FDIV) return fmt == ref::D ? 23 : 19;
+  return fmt == ref::D ? 27 : 19;
 }
 
 struct Item {

@@ -10,7 +10,7 @@
 //   t+2    S2: exponent, operand scaling (ROM read)
 //   t+3    S3: SM0 (D0 approximation or y0^2)
 //   t+4    c0 of round 1; rounds every 4 cycles; SMa..SMc finish e23 for round 2
-//   ...    the remainder round, then F0 (in that slot's next c0) and F1 into the output queue
+//   ...    the remainder round, then F0 (in that slot's next c0), F1 and F2 into the output queue
 module tg_fpu_div
   import tg_pkg::*;
   import tg_fpu_pkg::*;
@@ -40,6 +40,13 @@ module tg_fpu_div
     logic        nv, dz;       // flags of a special result
     logic        sign;
     logic [12:0] eq;           // signed: the result is q * 2^eq with q in [1, 2)
+    // derived from eq in S3 for the rounding stages
+    logic        sub;          // eq < emin: denormalise by ks
+    logic [5:0]  ks;
+    logic [10:0] fbase;        // exponent field - 1 (normal) or 0 (subnormal)
+    logic        emin_m1;      // eq = emin - 1: tininess depends on rounding at full precision
+    logic        big;          // eq > emax: overflow
+    logic        at_emax;      // eq = emax: overflow if rounding carries out
   } info_t;
 
   // ------------------------------------------------------------------------------------------
@@ -162,10 +169,25 @@ module tg_fpu_div
   info_t       s4_info;
   logic [59:0] s4_opa, s4_opb;
   logic [9:0]  s4_seed;
+  info_t s3_info_x;
+  always_comb begin
+    logic signed [12:0] eq, emin, emax, k;
+    s3_info_x = s3_info;
+    eq   = $signed(s3_info.eq);
+    emin = s3_info.dbl ? -13'sd1022 : -13'sd126;
+    emax = s3_info.dbl ? 13'sd1023 : 13'sd127;
+    k    = emin - eq;
+    s3_info_x.sub     = eq < emin;
+    s3_info_x.ks      = (eq >= emin) ? 6'd0 : (k > 13'sd55) ? 6'd55 : 6'(k);
+    s3_info_x.fbase   = (eq < emin) ? 11'd0 : 11'(eq + emax - 13'sd1);
+    s3_info_x.emin_m1    = eq == emin - 13'sd1;
+    s3_info_x.big     = eq > emax;
+    s3_info_x.at_emax = eq == emax;
+  end
   always_ff @(posedge clk) begin
     if (rst) s4_v <= 1'b0;
     else     s4_v <= s3_v;
-    s4_info <= s3_info;
+    s4_info <= s3_info_x;
     s4_opa  <= s3_opa;
     s4_opb  <= s3_opb;
     s4_seed <= seed10;
@@ -248,11 +270,11 @@ module tg_fpu_div
     return sqrt ? (dbl ? 3'd5 : 3'd3) : (dbl ? 3'd4 : 3'd3);
   endfunction
 
-  // Output credits: queue entries plus the result in F1.
+  // Output credits: queue entries plus the results in F1 and F2.
   logic [2:0] q_count;
-  logic       f1_v;
+  logic       f1_v, f2_v;
   logic       credit_ok;
-  assign credit_ok = (32'(q_count) + 32'(f1_v)) < OUT_DEPTH;
+  assign credit_ok = (32'(q_count) + 32'(f1_v) + 32'(f2_v)) < OUT_DEPTH;
 
   logic fin, to_f0, cont;
   assign fin   = r4_v && (r4_q.rnd == n_last(r4_q.info.sqrt, r4_q.info.dbl));
@@ -261,6 +283,24 @@ module tg_fpu_div
 
   // A request accepted now enters the slot that is in c0 now, four cycles later.
   assign ready_o = !rst && !s4_v && !cont;
+
+  // The iteration factors share one adder: K - (src >> h) + e, i.e.
+  //   division R2: 2 - D0 + e23     division R3: 2 - D1
+  //   sqrt R2:     3/2 - u0/2 + e23 sqrt R4:     3/2 - w1/2
+  logic [59:0] fac_sum;
+  always_comb begin
+    logic        sq, use_m1, use_e;
+    logic [59:0] k, src;
+    logic [2:0]  nr;
+    nr     = r4_q.rnd + 3'd1;
+    sq     = r4_q.info.sqrt;
+    use_m1 = sq && (nr == 3'd4);
+    use_e  = (nr == 3'd2);
+    k      = sq ? 60'(3 * (ONE >> 1)) : 60'(2 * ONE);
+    src    = use_m1 ? m1 : m2;
+    if (sq) src = src >> 1;
+    fac_sum = k + ~src + 60'd1 + (use_e ? 60'(e23) : 60'd0);
+  end
 
   always_comb begin
     logic [2:0]  nn;
@@ -295,14 +335,13 @@ module tg_fpu_div
         x1 = r4_q.info.sqrt ? cand : r4_q.opb;
         y1 = cand;
       end else if (!r4_q.info.sqrt) begin
-        if (nn == 3'd2) fac = 60'(2 * ONE) - m2 + 60'(e23);   // ~ 1/D0 to third order
-        else            fac = 60'(2 * ONE) - m2;              // 2 - D1
+        fac = fac_sum;                               // 2 - D0 + e23 (~ 1/D0, cubic) or 2 - D1
         x1 = m1; y1 = fac;
         x2 = m2; y2 = fac;
       end else begin
+        fac = fac_sum;
         unique case (nn)
-          3'd2: begin                                // P = (3 - u0)/2 + 3/8 e2 + 5/16 e3
-            fac = ((60'(3 * ONE) - m2) >> 1) + 60'(e23);
+          3'd2: begin                                // P = 3/2 - u0/2 + 3/8 e2 + 5/16 e3
             x1 = m1; y1 = fac;
             x2 = seedq; y2 = fac;
           end
@@ -310,8 +349,7 @@ module tg_fpu_div
             r1_d.opb = m1;
             x1 = m1; y1 = m2;
           end
-          default: begin                             // q2 = q1 (3 - w1)/2
-            fac = (60'(3 * ONE) - m1) >> 1;
+          default: begin                             // q2 = q1 (3/2 - w1/2)
             x1 = r4_q.opb; y1 = fac;
           end
         endcase
@@ -352,56 +390,61 @@ module tg_fpu_div
   end
 
   // ------------------------------------------------------------------------------------------
-  // F1: denormalise (division below 2^emin), round, pack, specials
+  // F1: denormalise (division below 2^emin), rounding decision, flags
   // ------------------------------------------------------------------------------------------
-  fpu_resp_t f1_resp;
-  always_comb begin
-    logic dbl, s, tt0, gg, ss, inc, inexact, tiny, ovf, tmax;
-    logic signed [12:0] eq, emin, k;
+  info_t       f2_info;
+  logic [52:0] f2_t;
+  logic        f2_inc, f2_inexact, f2_tiny, f2_ovf;
+  always_ff @(posedge clk) begin
+    logic        s, gg, ss, tmax;
     logic [53:0] xg;
-    logic [5:0]  ks;
     logic [52:0] tt;
-    logic [62:0] pk_d;
-    logic [30:0] pk_s;
-    logic [12:0] fbase;
-    dbl  = f1_info.dbl;
     s    = f1_info.sign;
-    eq   = $signed(f1_info.eq);
-    emin = dbl ? -13'sd1022 : -13'sd126;
-    // denormalising shift with sticky
-    k    = emin - eq;
-    ks   = (eq >= emin) ? 6'd0 : (k > 13'sd55) ? 6'd55 : 6'(k);
-    xg   = {f1_t, f1_g} >> ks;
+    xg   = {f1_t, f1_g} >> f1_info.ks;
     tt   = xg[53:1];
     gg   = xg[0];
-    ss   = f1_s || (({f1_t, f1_g} & ((54'(1) << ks) - 54'd1)) != '0);
-    tt0  = tt[0];
-    inc  = round_up(f1_info.rm, s, tt0, gg, ss);
-    inexact = gg || ss;
-    tmax = dbl ? (&f1_t[52:0]) : (&f1_t[23:0]);
-    tiny = (eq < emin) && !(eq == emin - 13'sd1 && tmax && round_up(f1_info.rm, s, 1'b1, f1_g, f1_s));
-    // pack {exponent - 1 + hidden, fraction} + increment (exponent field 0 when subnormal)
-    fbase = (eq < emin) ? 13'd0 : 13'(eq + (dbl ? 13'sd1022 : 13'sd126));
-    pk_d = ({50'b0, fbase} << 52) + {10'b0, tt} + 63'(inc);
-    pk_s = ({18'b0, fbase} << 23) + {7'b0, tt[23:0]} + 31'(inc);
-    if (dbl) ovf = (eq > 13'sd1023) || (&pk_d[62:52]);
-    else     ovf = (eq > 13'sd127)  || (&pk_s[30:23]);
-    f1_resp.tag = f1_info.tag;
-    f1_resp.int_dest = 1'b0;
-    f1_resp.fflags = '0;
-    unique case (f1_info.spec)
-      SP_NAN:  begin f1_resp.result = cnan(dbl); f1_resp.fflags[FL_NV] = f1_info.nv; end
-      SP_INF:  begin f1_resp.result = inf_value(dbl, s); f1_resp.fflags[FL_DZ] = f1_info.dz; end
-      SP_ZERO: f1_resp.result = zero_value(dbl, s);
+    ss   = f1_s || (({f1_t, f1_g} & ((54'(1) << f1_info.ks) - 54'd1)) != '0);
+    tmax = f1_info.dbl ? (&f1_t[52:0]) : (&f1_t[23:0]);
+    if (rst) f2_v <= 1'b0;
+    else     f2_v <= f1_v;
+    f2_info    <= f1_info;
+    f2_t       <= tt;
+    f2_inc     <= round_up(f1_info.rm, s, tt[0], gg, ss);
+    f2_inexact <= gg || ss;
+    // tiny after rounding: below 2^emin unless rounding to full precision reaches it
+    f2_tiny    <= f1_info.sub && !(f1_info.emin_m1 && tmax && round_up(f1_info.rm, s, 1'b1, f1_g, f1_s));
+    // overflow: exponent above emax, or rounding carries out of the largest binade
+    f2_ovf     <= f1_info.big || (f1_info.at_emax && tmax && round_up(f1_info.rm, s, f1_t[0], f1_g, f1_s));
+  end
+
+  // ------------------------------------------------------------------------------------------
+  // F2: pack {exponent - 1 + hidden, fraction} + increment (field 0 when subnormal), specials
+  // ------------------------------------------------------------------------------------------
+  fpu_resp_t f2_resp;
+  always_comb begin
+    logic dbl, s;
+    logic [62:0] pk_d;
+    logic [30:0] pk_s;
+    dbl  = f2_info.dbl;
+    s    = f2_info.sign;
+    pk_d = ({52'b0, f2_info.fbase} << 52) + {10'b0, f2_t} + 63'(f2_inc);
+    pk_s = ({20'b0, f2_info.fbase} << 23) + {7'b0, f2_t[23:0]} + 31'(f2_inc);
+    f2_resp.tag = f2_info.tag;
+    f2_resp.int_dest = 1'b0;
+    f2_resp.fflags = '0;
+    unique case (f2_info.spec)
+      SP_NAN:  begin f2_resp.result = cnan(dbl); f2_resp.fflags[FL_NV] = f2_info.nv; end
+      SP_INF:  begin f2_resp.result = inf_value(dbl, s); f2_resp.fflags[FL_DZ] = f2_info.dz; end
+      SP_ZERO: f2_resp.result = zero_value(dbl, s);
       default: begin
-        if (ovf) begin
-          f1_resp.result = ovf_value(dbl, s, ovf_to_inf(f1_info.rm, s));
-          f1_resp.fflags[FL_OF] = 1'b1;
-          f1_resp.fflags[FL_NX] = 1'b1;
+        if (f2_ovf) begin
+          f2_resp.result = ovf_value(dbl, s, ovf_to_inf(f2_info.rm, s));
+          f2_resp.fflags[FL_OF] = 1'b1;
+          f2_resp.fflags[FL_NX] = 1'b1;
         end else begin
-          f1_resp.result = dbl ? {s, pk_d} : box_s({s, pk_s});
-          f1_resp.fflags[FL_NX] = inexact;
-          f1_resp.fflags[FL_UF] = tiny && inexact;
+          f2_resp.result = dbl ? {s, pk_d} : box_s({s, pk_s});
+          f2_resp.fflags[FL_NX] = f2_inexact;
+          f2_resp.fflags[FL_UF] = f2_tiny && f2_inexact;
         end
       end
     endcase
@@ -413,7 +456,7 @@ module tg_fpu_div
   logic q_in_ready;
   tg_fifo #(.T(fpu_resp_t), .DEPTH(OUT_DEPTH)) u_outq (
     .clk, .rst,
-    .in_valid (f1_v), .in_ready (q_in_ready), .in_data (f1_resp),
+    .in_valid (f2_v), .in_ready (q_in_ready), .in_data (f2_resp),
     .out_valid (valid_o), .out_ready (ready_i), .out_data (resp_o),
     .count (q_count)
   );
@@ -421,7 +464,9 @@ module tg_fpu_div
   logic unused;
   assign unused = ^{s1_q.c, s1_q.src_fmt, s1_q.ifmt, ua.inf, ub.sub, ua.sub, p1[119:118],
                     p2[119:118], p2[57:0], q_in_ready, r2_q.info, r3_q.rnd, f[59], f[4:0],
-                    f1_info.sqrt};
+                    f2_info.sqrt, f2_info.eq, f2_info.sub, f2_info.ks, f2_info.emin_m1, f2_info.big,
+                    f2_info.at_emax, f1_info.eq, f1_info.fbase, f1_info.nv, f1_info.dz, f1_info.spec,
+                    f1_info.tag, f1_info.sqrt, r4_q.info.eq};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
@@ -432,7 +477,7 @@ module tg_fpu_div
           else $error("tg_fpu_div: operation %0d belongs to another unit", req_i.op);
       end
       assert (!(s4_v && cont)) else $error("tg_fpu_div: slot collision");
-      assert (!f1_v || q_in_ready) else $error("tg_fpu_div: output queue overflow");
+      assert (!f2_v || q_in_ready) else $error("tg_fpu_div: output queue overflow");
     end
   end
 `endif
