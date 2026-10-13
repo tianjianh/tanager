@@ -4,7 +4,9 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 
 ## 1. Environment
 
-- **Where:** WSL distro **`Ubuntu-24.04`**, always selected explicitly (`wsl -d Ubuntu-24.04 ...`). The machine's default distro is a different Ubuntu.
+- **Where:**
+  - On the build host (`ssh home-wsl`, §9), WSL Ubuntu 24.04, in `~/tanager`.
+  - On the laptop, the WSL distro **`Ubuntu-24.04`**, always selected explicitly (`wsl -d Ubuntu-24.04 ...`). The laptop's default distro is a different Ubuntu.
 - **Setup:** `source tools/env.sh` before anything else.
   - It puts the pinned tools first on `PATH`: Verilator 5.052, Spike, TestFloat and the xPack GCC 15.2 cross compiler.
   - Pins are in `tools/versions.sh`; `tools/setup_tools.sh` rebuilds them on a new machine.
@@ -98,15 +100,23 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Command:** `verilator --lint-only -Wall` across all four configurations (`make lint-all`) must be clean.
 - **Waivers:** go in `rtl/lint.vlt`, one justified line each. Inline `lint_off` is allowed only around a single construct, with a comment saying why.
 
-## 9. Sharing the machine
+## 9. Sharing the build host
 
-Several sessions share one PC (8 threads, 32 GB, WSL sees about 23 GB). A faster build host may come later.
+**The hosts.**
+- **Build host:** the 5950X, `ssh home-wsl`. WSL Ubuntu 24.04, 32 threads, about 39 GB of RAM, and **about 100 GB of disk in total**: its Windows drive's free space is the real limit, not the 1 TB WSL reports. The tracks work there in the Linux filesystem (`~/tanager` and its worktrees).
+- **Laptop:** 8 threads, 32 GB. For the coordinator and light work only.
+
+**Rules.**
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - It takes a machine-wide slot lock; `TANAGER_VIVADO_SLOTS` (default 1) sets how many jobs run at once.
+  - It takes a machine-wide slot lock. `TANAGER_VIVADO_SLOTS` is 2 on the build host and 1 on the laptop, set in `tools/env.sh`; a full-device run needs about 8–12 GB of RAM.
   - Use out-of-context runs per unit wherever possible. A full-device run takes hours, so say so in your status.
-- **Builds:** at most `-j4` for Verilator and C++ builds.
+- **Builds:** at most `-j8` per track on the build host (`-j4` on the laptop).
 - **Long jobs:** run in the background with a log in your build tree. Never poll in a tight loop.
-- **Disk:** clean your own build trees when they pass ~20 GB.
+- **Disk:** a hard budget, because the whole host has about 100 GB.
+  - Each track's build tree stays under 10 GB. The SoC track gets 25 GB, including Buildroot and Linux; share one Buildroot download directory.
+  - After a Vivado run, keep the reports you need and delete checkpoints (`.dcp`), run directories and logs.
+  - Delete waveforms once a bug is understood.
+  - `tools/disk_report.sh` shows usage per tree and the host's free space. If free space is under 25 GB, clean up before starting anything new, and tell the coordinator.
 
 ## 10. Git and tracks
 
