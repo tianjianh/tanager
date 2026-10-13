@@ -37,7 +37,10 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 
 **Caveats.**
 - **Out of context is optimistic.** A structure placed alone is compact. In the full chip it competes for area and routing, and S6 measures that.
-- **Placement noise.** Small RTL changes move results by up to a few hundred picoseconds. S3's lever R8 is an example: it failed by 0.61 ns with 2 ALUs but passed with 3. **Margins under about 0.3 ns are marginal.**
+- **Placement scatter, and the pblock.** Out of context, Vivado may place a block anywhere on the die. Several early runs landed in clock-region row 0, far from the clock source in row 2.
+  - **Cost:** the clock insertion delay was 2.3–2.5 ns instead of 1.5–1.8 ns, and nets were longer. One S2 run lost 1.2 ns this way.
+  - **Fix:** every run from then on is constrained to clock regions X0Y2:X1Y3 next to the clock source (`-pblock`). That region holds about 39K LUTs and has room to spare for any one spike. The tables mark which runs used it.
+  - **Margins:** even with the pblock, results move by up to a few hundred picoseconds with small RTL changes, so **margins under about 0.3 ns are marginal.**
 - **The -2LV part** runs at 0.72 V, which behaves like a -1 speed grade (plan §2.1).
 
 **Reproducing a run:**
@@ -156,6 +159,8 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 | RF read: tag → LUTRAM → bank mux → operand register | +0.655 | 2 | 0.49 | 3.73 |
 | RF write (load result → LUTRAM data input) | +0.296 | 0 | 0.12 | 4.35 |
 | LD/STA base operand mux | +1.893 | 2 | 0.37 | 2.63 |
+
+(The table above is from runs without the pblock. Four of them were placed far from the clock source, including the R8 failure. Pblock reruns of the key variants are in §5.1 and supersede these where they differ.)
 
 **Findings.**
 1. **The plan's structure closes 200 MHz.**
