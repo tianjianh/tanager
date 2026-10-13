@@ -84,7 +84,8 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 | `fpga/kv260/xdc/kv260.xdc` | pin and I/O standard of the fan; clocks come from the PS and MMCM (derived automatically) |
 | `fpga/kv260/xdc/timing.xdc` | asynchronous clock groups between `clk_core` and `clk_host` (the host bridge's crossings are XPM macros with their own constraints) |
 
-- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, the primitive-count check, and the `.bit` with a `.bin` for `fpgautil`.
+- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for `fpgautil`.
+- **Loading under Linux:** a bitstream loaded at run time does not reconfigure the PS. `fpga/kv260/dtbo/tanager.dtso` is the device-tree overlay that sets `pl_clk0`, the fabric-interface widths (`xlnx,afi-fpga`) and a UIO node for the host window. `fpga/kv260/README.md` is the build and bring-up runbook.
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
 - **Pblocks:** later (spike S6, plan §7.5).
 
@@ -146,8 +147,9 @@ The test passes when the log shows OpenSBI's banner, all harts online (`TANAGER-
 These steps need a person. The coordinator collects them ([host.md](host.md) for the software side):
 1. The KV260 boots its standard Ubuntu image from SD, on the network, reachable by SSH with a key.
 2. **Carve-out:** the RISC-V DRAM window must be invisible to A53 Linux. The default plan is to boot with `mem=3G`, which leaves the top 1 GiB of the high DDR bank (`0x8_4000_0000`–`0x8_7FFF_FFFF`) unused. A `reserved-memory` node with `no-map` is the alternative. Spike S1 confirms the method and the SMMU bypass (plan §5.5).
-3. The bitstream is loaded with `fpgautil -b tanager.bit.bin`, or with `xmutil` and a firmware package.
-4. `tanager-host` is copied to the board and run as root.
+3. **SMMU:** the HP ports pass through the SMMU. If the board's Linux makes unknown stream IDs fault, add `arm-smmu.disable_bypass=0` to the kernel command line. Spike S1 confirms whether this is needed.
+4. **Load:** `fpgautil -b tanager.bit.bin -o tanager.dtbo` (the overlay above), or `xmutil` with a firmware package.
+5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
 
 ## Verification
 
