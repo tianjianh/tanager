@@ -11,6 +11,8 @@
 #   -lut_target N  after synthesis, stop (exit 3) unless CLB LUTs are within lut_tol
 #           (default 0.025) of N: the S6 fill test must hit its utilisation
 #   -extra 1  congestion and control-set reports (full-device runs)
+#   -pblock R  keep the design in clock-region range R (e.g. X0Y2:X1Y3), next to the clock
+#           source, so placement scatter does not decide the result
 # Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
 # util.rpt, util_hier.rpt, timing.rpt (worst 20 paths), levels.rpt, paths.txt.
 
@@ -27,6 +29,7 @@ set route_dir Default
 set lut_target 0
 set lut_tol 0.025
 set extra 0
+set pblock ""
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -40,6 +43,7 @@ while {[llength $rest]} {
     -lut_target { set lut_target $v }
     -lut_tol    { set lut_tol $v }
     -extra      { set extra $v }
+    -pblock     { set pblock $v }
     default { error "ooc_run.tcl: unknown option $k" }
   }
 }
@@ -65,6 +69,12 @@ synth_design -top $top -part $part -mode out_of_context {*}$gargs
 create_clock -period $period -name clk [get_ports clk]
 set bufg [lindex [lsort [get_sites -filter {SITE_TYPE == BUFGCE && CLOCK_REGION == X1Y2}]] 0]
 if {$bufg ne ""} { set_property HD.CLK_SRC $bufg [get_ports clk] }
+if {$pblock ne ""} {
+  lassign [split $pblock :] lo hi
+  set pb [create_pblock spike]
+  resize_pblock $pb -add "CLOCKREGION_${lo}:CLOCKREGION_${hi}"
+  add_cells_to_pblock $pb [get_cells]
+}
 
 set fh [open summary.txt w]
 tg_kv $fh top $top
