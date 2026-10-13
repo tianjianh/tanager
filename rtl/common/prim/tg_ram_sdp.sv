@@ -7,6 +7,7 @@
 //            are output pipeline registers; XPM puts them in the UltraRAM cascade, which a
 //            deep cascade needs at 200 MHz (S6: the L2's 4-deep banks use 4).
 //   PRIM:    "block", "ultra", "distributed" or "auto".
+(* keep_hierarchy = "yes" *)  // keeps the instance and its ports for the primitive check
 module tg_ram_sdp #(
   parameter int    DEPTH   = 512,
   parameter int    WIDTH   = 64,

@@ -3,6 +3,7 @@
 // Each port is read-first. Writes from both ports to the same address in the same
 // cycle are undefined; the user prevents them.
 // Synthesis maps it with xpm_memory_tdpram; simulation uses the behavioural model.
+(* keep_hierarchy = "yes" *)  // keeps the instance and its ports for the primitive check
 module tg_ram_tdp #(
   parameter int    DEPTH   = 512,
   parameter int    WIDTH   = 64,
