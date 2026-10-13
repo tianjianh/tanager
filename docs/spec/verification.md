@@ -1,6 +1,6 @@
 # Verification infrastructure: harness, lockstep, runners
 
-**Status:** draft 1, 2026-10-13. Owner: verification track (conventions §7). Implements plan §9 for M2 and M3.
+**Status:** implemented for M2 (§1–§5), 2026-10-13; M3 items (§6) to come. Owner: verification track (conventions §7). Implements plan §9.
 
 What the verification track gives the other tracks:
 
@@ -23,13 +23,29 @@ What the verification track gives the other tracks:
 source tools/env.sh
 make -C sim CFG=st                     # builds tg_vsim for tg_core, configuration st
 make -C sim CFG=st CORE=tcore          # the same harness around the test core
-sim/run.sh CFG=st prog.elf             # run one ELF with lockstep (the default)
+sim/run.sh CFG=st prog.elf             # build if needed, then run one ELF with lockstep (the default)
 make -C tests/isa CFG=st SUITES="rv64ui-p rv64um-p"   # riscv-tests, pass/fail summary
 make -C tests/bench CFG=st run         # CoreMark (flag sets A and B) and Dhrystone
 make regress CFG=st                    # everything above for one configuration
 ```
 
-Build trees go under `$TANAGER_BUILD/<worktree>/sim/<cfg>-<core>/` (conventions §1). Logs and waveforms of a run go to its run directory; nothing is written into the repository.
+- **Build trees:** `$TANAGER_BUILD/<worktree>/sim/<cfg>-<core>/tg_vsim`, `.../sim/replay/tg_replay`, `.../bench/<march>-i<iter>-r<runs>/`, logs under `.../regress/` and `.../isa-logs/` (conventions §1). Nothing is written into the repository; passing tests leave no logs.
+- **A first build** takes about a minute (Verilator, ccache); rebuilds after a C++ or SystemVerilog change take seconds for the test core.
+- **When something fails,** the last lines of the run say why (`TG-RESULT status=...` and the `tg_vsim:` line above it). A lockstep mismatch prints the report of §3.6. Rerun the same command with `--fst=wave.fst --fst-from=<cycle>` for a waveform, or `--log=trace.txt` for every commit record with disassembly.
+
+### 1.1 For the core track
+
+- **Plugging in:** `make -C sim CFG=<cfg>` compiles `rtl/rtl.f`, so files added to `rtl/core/core.f` are picked up. `tg_core` needs nothing else: the harness drives every port of interfaces.md §1–§3 and boots at `0x8000_0000`.
+- **What the checker expects** is interfaces.md §5 to the letter. The points that bite first:
+  - `insn` holds the raw encoding (16 bits, upper half zero, for a compressed one) and `rvc` matches it; for a fetch fault, the checker ignores `insn`;
+  - `tval` follows Spike: the instruction bits for an illegal instruction (16 bits for a compressed encoding without C), the PC for `ebreak`, the address for misaligned and faulting accesses, 0 for `ecall` and interrupts;
+  - `TR_IRQ.pc` is the PC of the instruction the interrupt preempts, which becomes `mepc`;
+  - stores report `mem_wdata` right-aligned and `mem_size` as log2 bytes; an SC that fails reports no store;
+  - `nondet` only on reads of the CSRs in §3.4; `mmio_ld` only on device and ROM loads.
+- **ISA and privilege modes:** the default Spike configuration for `CORE=core` is `rv64im_zicsr_zicntr_zifencei`, privilege `M`, 16 PMP regions (M2). Widen it per build (`make -C sim CFG=st ISA=... PRIV=MSU PMP=16`) or per run (`--isa`, `--priv`, `--pmp`) as features land, and tell the verification track so the regression defaults follow.
+- **Reset values** that Spike chooses and the core may not: PMP entry 0 (`--pmp-reset=off`), `mtvec` 0, `mstatus.MPP` = U (or M without U). A mismatch on the first read of such a CSR is this.
+- **Debugging a mismatch:** the report (§3.6) gives both sides' last 32 instructions. `--log=<file>` writes every record with disassembly; `--fst=<file> --fst-from=<cycle>` dumps waves from shortly before the failing cycle; `--no-lockstep` runs without Spike.
+- **Before a merge request:** `make regress CFG=st` and `make regress CFG=st_w3` (conventions §6).
 
 ## 2. The harness (`tg_vsim`)
 
@@ -88,9 +104,11 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 - **Sink:** each Grant gets a free sink ID; it is busy until the matching `GrantAck` on E.
 - **Release:** `Release` gets `ReleaseAck`; `ReleaseData` updates memory and gets `ReleaseAck` after its last beat.
 - **TL-UL on l1d:** `Get`, `PutFullData` and `PutPartialData` are also served, so page-table walks or uncached paths can use them if the core chooses to.
-- **Probes:** the manager can issue `ProbeBlock` / `ProbePerm` with `toN`, `toB` or `toT` on B, and takes `ProbeAck` / `ProbeAckData` on C (dirty data updates memory). Nothing needs probes before M8, but the machinery is there and tested against the test core:
-  - `--probe-rate=<permille>` sends random probes to lines the agent holds (stress mode, default off);
-  - the API `l1d.probe(addr, cap)` is for later uses, for example polling `tohost` out of a cache.
+- **Probes:** the manager can issue `ProbeBlock` / `ProbePerm` with `toN`, `toB` or `toT` on B, and takes `ProbeAck` / `ProbeAckData` on C (dirty data updates memory). They are used from M2 on:
+  - **coherent instruction fetch:** an `l1i` `Get` of a line the agent holds with T is held back while the manager probes that line to `toB`, so the fetch sees dirty data (self-modifying code, `rv64ui-p-fence_i`; the L2 does the same later, plan §5.2). The core needs no write-back on FENCE.I;
+  - `--probe-rate=<permille>` sends random `ProbeBlock`s to lines the agent holds (stress mode, default off). `ProbePerm` is never sent at random: it lets the agent drop dirty data;
+  - a Grant for a line with a probe outstanding waits for the ProbeAck, as a real L2 would;
+  - the API `l1d.probe(addr, cap)` is for later uses, for example the end-of-test flush for ACT4 signatures (§6.1).
 - **Coherence monitor:** the model tracks the agent's permission per line (N, B or T) and checks the TL-C rules of interfaces.md §2.3:
   1. at most one outstanding Acquire per line;
   2. no Acquire for a line whose Release is not yet acknowledged;
@@ -133,7 +151,9 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 |---|---|---|
 | `--cycles=N` | 50 M | cycle limit; reaching it is a failure (`TIMEOUT cycles`) |
 | `--timeout=S` | 3600 | wall-clock limit in seconds; also a failure |
-| `--hang=N` | 100 000 | no retirement on any hart for N cycles is a failure (`HANG`) |
+| `--hang=N` | 100 000 | no trace record on any hart for N cycles is a failure (`HANG`) |
+| `--wb-timeout=N` | 100 000 | a deferred writeback pending for N cycles after its retirement is a mismatch |
+| `--wb-drain=N` | 2 000 | after the exit store, how long to wait for pending deferred writebacks |
 | `--fst=<file>` | off | FST waveform; `--fst-from=<cycle>` / `--fst-to=<cycle>` bound it |
 | `--log=<file>` | off | text commit log: one line per trace record or writeback, with disassembly |
 | `--lockstep` / `--no-lockstep` | on | Spike lockstep (§3) |
@@ -141,7 +161,10 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 | `--seed=N` | 1 | seeds every random choice in the models; printed at start |
 | `--irq-rand=<permille>` | 0 | random level pulses on `irq_mei_i` / `irq_sei_i` (tests interrupt entry in lockstep) |
 | `--rand-reset` | off | Verilator random initial values for un-reset state (`+verilator+rand+reset+2`) |
-| `--quiet` | off | console output only, no banner or summary |
+| `--quiet` | off | no banner or human-readable summary on stderr; the console and the `TG-RESULT` line still go to stdout |
+| `+<plusarg>` | | passed to the Verilated model (for example `+tcore_defer=50`) |
+| memory and devices | | `--lat`, `--lat-jitter`, `--bp`, `--d-gap`, `--grant-b`, `--probe-rate`, `--mmio-lat`, `--deny`, `--mem-mb`, `--rom`, `--boot`, `--tohost-va`, `--mtime-div` (§2.4–§2.6) |
+| lockstep | | `--harts`, `--history`, `--pmp`, `--pmp-g`, `--pmp-reset` (§3.2) |
 
 **Exit status:** 0 for a pass; 1 for a program failure (non-zero `tohost` code); 2 for a lockstep mismatch; 3 for a protocol-monitor error; 4 for a cycle or wall-clock timeout or a hang; 5 for a harness or usage error. The last line of every run is a one-line summary that runners parse:
 
@@ -174,7 +197,8 @@ TG-RESULT status=PASS code=0 cycles=123456 instret=98765 ipc=0.800 khz=21.3 regi
 | ISA | `--isa`, default per configuration and milestone, see below | The string must describe the core exactly: `misa` is compared |
 | Privilege modes | `MSU` (`MU` for `tg_tcore`) | |
 | Harts | the core's `NUM_THREADS`, hart IDs `CORE_ID * NUM_THREADS + tid` | `--harts` overrides |
-| PMP | 16 regions, granularity 4 bytes | `--pmp=N`, `--pmp-g=N` |
+| PMP | 16 regions, granularity 4 bytes (`tg_tcore`: none) | `--pmp=N`, `--pmp-g=N`. With 0 regions the PMP CSRs do not exist in Spike: accessing them is an illegal instruction. |
+| MMU | Sv39 when the privilege modes include S | Spike normally takes it from a device tree; the checker sets it and resets the hart, because `mstatus.SUM`/`MXR` writability depends on it. |
 | PMP reset | Spike's (entry 0 = NAPOT, RWX, whole space) | `--pmp-reset=off` zeroes `pmpcfg0` and `pmpaddr0` after reset to match a core that resets them; to be settled with the core track |
 | Triggers | 0 (no Sdtrig until the debug module, M9) | |
 | Misaligned accesses | trap (no `Zicclsm`) | plan §4.1: emulated by OpenSBI at first |
@@ -229,7 +253,7 @@ Not adopted and so reported, by design: a load value from main memory that diffe
 
 - At a `TR_RETIRE` with `rd_deferred = 1`, the checker records Spike's value under `(hart, wb_tag)`, together with `rd`, `rd_fp`, `pc` and `insn`. Spike's register already holds the value, so younger instructions compute with it (interfaces.md §5).
 - A `tr_wb_t` must match a pending `(hart, wb_tag)`, with the same `rd`, `rd_fp` and value; the entry is then freed.
-- **Errors:** reusing a pending tag; a writeback with no pending tag; `rd_deferred` on a record with no destination; entries still pending at the end of the run (`--wb-drain` cycles after the exit store, default 2000).
+- **Errors:** reusing a pending tag; a writeback with no pending tag; `rd_deferred` on a record with no destination; an entry pending longer than `--wb-timeout` cycles; entries still pending at the end of the run (`--wb-drain` cycles after the exit store).
 - **Same-cycle order:** writebacks for tags pending before the cycle are applied first, then the cycle's records, then writebacks for tags those records created. A tag freed and reused in one cycle therefore works.
 
 ### 3.6 Divergence report
@@ -257,8 +281,14 @@ Two independent ways, both in `make regress`:
    - several harts, interleaved at random;
    - and **fault injection**: one wrong field (PC, rd, value, store data, cause, a missing writeback, a reused tag) at a random record. The run passes only if the checker reports that exact fault.
 
-   It runs every riscv-tests binary of every suite, `-p` and `-v`, through the checker in seconds.
+   It runs every riscv-tests binary of every suite, `-p` and `-v`, through the checker in seconds. A fault the program gives no chance to inject (for example a deferred writeback in a program without loads) is reported as not applicable.
 2. **The test core** (§5) runs the riscv-tests suites it supports, CoreMark and Dhrystone through the whole harness (TileLink models, trace, lockstep).
+
+**Results on 2026-10-13** (`tools/ci/checker_selftest.py`, 9 s):
+- 326 riscv-tests (all `-p` and `-v` suites of ui, um, ua, uc, uf, ud, mi, si, zba, zbb, zbs, zicond; `ma_data` excluded, §4.1) pass Spike against Spike, plain and under four perturbation sets (deferral up to 90% of results, nondet values, 2 and 4 harts, 3- and 4-record cycles);
+- 19 fault kinds × 7 programs × 2 seeds: every applicable injection is reported with the expected diagnosis (266 runs; a dropped writeback is reported either at the end or as the tag reuse it causes, whichever comes first).
+
+The checker found its first real bug the same day: the test core lost deferred writebacks when two deferred records left its trace queue in one cycle.
 
 ## 4. Test suites and runners
 
@@ -275,26 +305,32 @@ Two independent ways, both in `make regress`:
   | `tg_tcore` | `rv64ui-p`, `rv64um-p`, the `rv64mi-p` tests it supports |
 
 - **Known exclusions** go in `tests/isa/exclude/<cfg>.txt` with a reason per line (for example, `rv64mi-p-breakpoint` until Sdtrig exists).
-- **Command:** `make -C tests/isa CFG=<cfg> [CORE=...] [SUITES=...] [LAT=...]` runs each test with lockstep, at most 8 at a time, and prints a table and `N passed, M failed`; logs of failing tests stay in the run directory and passing ones are deleted.
+- **Command:** `make -C tests/isa CFG=<cfg> [CORE=...] [SUITES=...] [LAT=...] [SIMARGS=...]` runs each test with lockstep, at most 8 at a time, and prints a table and `N passed, M failed`; logs of failing tests stay in the log directory and passing ones are deleted. `make -C tests/isa replay SUITES=all` runs the same suites Spike against Spike. Underneath is `tests/isa/run_isa.py`, which takes any tg_vsim or tg_replay binary and arguments.
+- **`-v` tests:** the runner passes the kernel alias of `tohost` (§2.6).
+- **Exclusions:** `exclude/tanager.txt` for every configuration (`rv64ui-*-ma_data`: needs hardware misaligned access, which Tanager traps); `exclude/tcore.txt` for the test core (`rv64mi-p-pmpaddr`: needs PMP); `exclude/<cfg>.txt` if a configuration needs one.
 
 ### 4.2 Benchmarks
 
 - **Sources:** CoreMark and Dhrystone sources come from `perfmodel/third_party` (pinned in `perfmodel/third_party/VERSIONS.txt`; `perfmodel/scripts/fetch_deps.sh` fetches them). The ports are ours, in `tests/bench/`, following perfmodel's: CoreMark core files unmodified, flag sets A (`-O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las`) and B (`-O3 -funroll-loops`), Dhrystone with `-O3 -fno-inline` (plan §10.2).
 - **Platform:** `tests/bench/bsp`: start-up code, newlib stubs (console on the UART, exit through `tohost`), link script at `0x8000_0000`, and `tg_marker` around the timed region.
-- **Builds:** `rv64gc` for the product core (M3+; `MARCH=` overrides, `rv64im` for M2 and `tg_tcore`).
+- **Builds:** `MARCH=rv64im` (default: the M2 core and `tg_tcore`), `rv64gc` (the product core from M3/M5), `rv64gcb` (the extension build of plan §10.2).
 - **Iterations:** small by default (CoreMark 2 iterations, Dhrystone 500 runs), because RTL simulation runs at 5–30 kHz. CoreMark still validates its CRCs. `ITER=` and `RUNS=` raise them for performance runs.
-- **Results:** a run passes when it exits with code 0 and its console output matches the reference Spike run of the same ELF. The runner prints CoreMark/MHz = iterations × 10⁶ / region cycles and DMIPS/MHz = runs × 10⁶ / (region cycles × 1757). These are not EEMBC-valid scores (run length), only correlation points for the model (plan §10.1).
+- **Determinism:** CoreMark's ticks are retired instructions and Dhrystone's `time()` counts its calls, so the console text is the same in the RTL and in Spike. Cycles come from the `tg_marker` region.
+- **Results:** a run passes when lockstep passes, the program exits with code 0, its console output matches a Spike reference run of the same ELF (`tg_replay`), and CoreMark prints `Correct operation validated`. The runner prints CoreMark/MHz = iterations × 10⁶ / region cycles and DMIPS/MHz = runs × 10⁶ / (region cycles × 1757). These are not EEMBC-valid scores (run length), only correlation points for the model (plan §10.1).
+- **Unexpected traps** in a benchmark end it with exit code `0x1000 + mcause` (`bsp/crt0.S`).
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore]` (top-level target, implemented in `tools/ci/regress.sh`):
-1. builds `tg_vsim` for the configuration;
-2. runs the configuration's riscv-tests suites with lockstep;
-3. runs CoreMark A and B and Dhrystone with lockstep;
-4. (once per regression, independent of the configuration) runs `tg_replay` over all riscv-tests with perturbations and fault injection;
-5. prints one summary table and exits non-zero if anything failed.
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options):
+1. builds `tg_vsim` for the configuration and `tg_replay`;
+2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
+3. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
+4. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+5. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
-The core track runs it for `st` and `st_w3` before each merge request (conventions §6). It takes about as long as the slowest test, since tests run 8 at a time.
+The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
+
+**Results on 2026-10-13 with the test core:** `REGRESS PASS` for `st`, `st_w3`, `smt2` and `smt2_w3` at native latency, and for `st_w3` at 120 and 250 cycles with deferral, multi-slot trace and random probes (about 15 s per configuration). With the stub `tg_core` every test reports `HANG`, as it should.
 
 ## 5. The test core (`tg_tcore`)
 
@@ -304,8 +340,12 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 - **Pipeline:** one instruction at a time (a multi-cycle state machine). Width-generic trace output: it uses slot 0 only, or spreads records over all `COMMIT_WIDTH` slots when `TRACE_SPREAD=1`.
 - **Memory:** a one-line fetch buffer over `l1i` (`Get` of a line), and a small direct-mapped write-back data cache over `l1d` that acts as a real TL-C client: `AcquireBlock NtoB` / `NtoT`, `AcquirePerm BtoT` for upgrades, `GrantAck`, `Release` / `ReleaseData` on eviction, and `ProbeAck` / `ProbeAckData` to probes. Device accesses go to `mmio`.
 - **Trace features**, so that every checker path runs end to end:
-  - **deferred writebacks:** with `DEFER_LOADS=1`, it reports cacheable loads and DIV/REM with `rd_deferred = 1` and sends the value on a `trace_wb` port 1–16 cycles later (a delay line; the core itself is not early-retiring);
-  - `mmio_ld` on device loads, `nondet` on counter reads, `TR_TRAP`, `TR_IRQ`.
+  - **deferred writebacks:** with `+tcore_defer=<percent>`, it reports cacheable loads and DIV/REM with `rd_deferred = 1` and sends the value on a `trace_wb` port 1–16 cycles after the record (a delay line; the core itself is not early-retiring);
+  - **several records per cycle:** with `+tcore_spread=1`, records wait in a small queue and leave it 0 to `COMMIT_WIDTH` at a time;
+  - `mmio_ld` on device and ROM loads, `nondet` on counter, `mip` and `marchid` reads, `TR_TRAP`, `TR_IRQ`.
+- **CSRs:** exactly Spike's set for an M+U RV64IM hart without PMP or triggers (the checker found the differences).
+- **Speed:** about 1.7–2.3 MHz of simulated cycles at an IPC of 0.1 (it is a multi-cycle machine), so CoreMark's two iterations take 3–12 s.
+- **Results:** `rv64ui-p`, `rv64um-p` and `rv64mi-p` (82 tests) and CoreMark A/B and Dhrystone pass in lockstep at 30, 120 and 250 cycles, also with jitter, backpressure, D-channel gaps, `toB` grants, random probes (CoreMark: about 100 K Acquires, 5 K Releases with data, 280 K probes), deferral and multi-slot trace.
 
 ## 6. M3 items
 
@@ -330,19 +370,26 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 §2.8.
 
-## 7. Disk and machine sharing
+## 7. Build-host notes
+
+- **liblz4-dev** is not installed on the build host, and Verilator 5.052's FST writer includes `lz4.h`. `sim/src/compat/lz4.h` declares the two functions it uses and the build links the installed runtime (`liblz4.so.1`) through a symlink in the build tree. Installing `liblz4-dev` makes the shim unused (the Makefile checks for `/usr/include/lz4.h`).
+- **Spike** is used through its installed headers and `libriscv.so` (`$SPIKE_ROOT`); the build adds `-Wl,-rpath` so no `LD_LIBRARY_PATH` is needed.
+
+## 8. Disk and machine sharing
 
 - Builds use at most `-j8` (conventions §9). Test runners run at most 8 simulations at a time.
 - The verification build tree has a 5 GB budget: one `tg_vsim` build is about 50–300 MB depending on the core. Runners delete the logs of passing tests; waveforms are only produced on request and are deleted once a bug is understood.
 
-## 8. Open points for the coordinator
+## 9. Open points for the coordinator
 
 1. **Trace:** a load's address is not in `tr_rec_t`. It is needed for multi-hart lockstep (§3.7) at M7; requested then.
 2. **Physical store address:** `tohost` detection under virtual memory uses aliases (§2.6). A `mem_paddr` field would remove the aliases; not needed now.
 3. **PMP reset values:** Spike resets PMP entry 0 to "allow all"; the checker can patch it (§3.2) once the core track decides its reset values.
 4. **SC failure adoption** (§3.4) is a legal difference that interfaces.md §5 does not list yet.
+5. **ID CSRs:** `marchid`, `mimpid` and `mvendorid` reads are adopted (§3.4); the core track should still pick Tanager's values.
+6. **Illegal-instruction `tval`:** Spike writes the instruction bits (16 bits for a compressed encoding without C), `ebreak` writes the PC; the core must do the same or the checker reports it.
 
-## 9. Provenance
+## 10. Provenance
 
 - TileLink message rules: TileLink Specification 1.8.1 (SiFive, public).
 - The `tohost`/`fromhost` convention and the riscv-tests environment: riscv-tests (public test suite, used as-is).

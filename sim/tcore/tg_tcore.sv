@@ -642,6 +642,8 @@ module tg_tcore
       // Trace queue: pop, then push.
       begin
         int unsigned n;
+        logic [WQ_N-1:0] taken;  // writeback slots claimed earlier in this cycle
+        taken = '0;
         n = int'(tq_cnt_q) - int'(tq_pop);
         for (int i = 0; i < TQ_N; i++)
           if (i + int'(tq_pop) < TQ_N) tq_q[i] <= tq_q[i + int'(tq_pop)];
@@ -649,7 +651,8 @@ module tg_tcore
           if (i < int'(tq_pop) && trace_o[i].rd_deferred) begin
             // Schedule its writeback 1..16 cycles from now.
             for (int j = 0; j < WQ_N; j++) begin
-              if (!wq_v_q[j]) begin
+              if (!wq_v_q[j] && !taken[j]) begin
+                taken[j] = 1'b1;
                 wq_v_q[j] <= 1'b1;
                 wq_q[j].hart <= HART;
                 wq_q[j].wb_tag <= trace_o[i].wb_tag;

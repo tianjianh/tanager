@@ -37,7 +37,7 @@ namespace {
 
 struct opts_t {
   std::string elf;
-  uint64_t cycles = 50000000, hang = 100000, wb_drain = 2000;
+  uint64_t cycles = 50000000, hang = 100000, wb_drain = 2000, wb_timeout = 100000;
   double timeout = 3600;
   std::string fst, log;
   uint64_t fst_from = 0, fst_to = ~0ull;
@@ -56,7 +56,7 @@ struct opts_t {
 void usage() {
   fprintf(stderr,
           "usage: tg_vsim [options] program.elf\n"
-          "  run control: --cycles=N --timeout=S --hang=N --wb-drain=N --seed=N --quiet\n"
+          "  run control: --cycles=N --timeout=S --hang=N --wb-drain=N --wb-timeout=N --seed=N --quiet\n"
           "  waveforms:   --fst=FILE [--fst-from=C] [--fst-to=C]; text trace: --log=FILE\n"
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
           "               --pmp=N --pmp-g=BYTES --pmp-reset=spike|off\n"
@@ -99,6 +99,7 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "timeout") o.timeout = double(num(need(), "--timeout"));
     else if (k == "hang") o.hang = num(need(), "--hang");
     else if (k == "wb-drain") o.wb_drain = num(need(), "--wb-drain");
+    else if (k == "wb-timeout") o.wb_timeout = num(need(), "--wb-timeout");
     else if (k == "fst") o.fst = need();
     else if (k == "fst-from") o.fst_from = num(need(), "--fst-from");
     else if (k == "fst-to") o.fst_to = num(need(), "--fst-to");
@@ -167,7 +168,7 @@ int main(int argc, char** argv) {
                     {0x10001000ull, 0x1000},  {0x10010000ull, 0x4000},    {0x11000000ull, 0x10000}};
   opts_t o = parse(argc, argv, mc);
   t.ctx.rng = rng_t(o.seed * 0x9e3779b97f4a7c15ull + 1);
-  t.ctx.quiet = o.quiet;
+  t.ctx.quiet = false;  // the console always goes to stdout; --quiet drops the banners
 
   mem_t mem;
   t.ctx.mem = &mem;
@@ -293,7 +294,7 @@ int main(int argc, char** argv) {
         if ((v >> 48) == 0x0101) {  // HTIF console: device 1, command 1
           char c = char(v & 0xff);
           t.ctx.console.push_back(c);
-          if (!o.quiet) fputc(c, stdout);
+          fputc(c, stdout);
           htif_console = true;
           htif_cycle = cycle;
         } else if (v & 1) {
@@ -316,6 +317,7 @@ int main(int argc, char** argv) {
     if (status != EXIT_PASS) break;
 
     if (ls && !ls->cycle(t.recs, t.wbs)) { status = EXIT_MISMATCH; why = ls->error(); break; }
+    if (ls && (cycle & 4095) == 0 && !ls->check_stale(cycle, o.wb_timeout)) { status = EXIT_MISMATCH; why = ls->error(); break; }
 
     if (exit_seen) {
       // Let deferred writebacks of retired instructions arrive (verification.md §3.5).

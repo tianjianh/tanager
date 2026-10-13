@@ -94,6 +94,18 @@ class lockstep_impl_t {
     return true;
   }
 
+  bool check_stale(uint64_t now, uint64_t limit) {
+    if (failed_) return false;
+    for (auto& h : harts_)
+      for (auto& [tag, pw] : h.pending)
+        if (now > pw.cycle && now - pw.cycle > limit)
+          return mismatch(&h, nullptr, strfmt("deferred writeback tag %u for %c%u of the instruction at %016llx is still "
+                                              "pending %llu cycles after it retired (cycle %llu)", tag, pw.rd_fp ? 'f' : 'x',
+                                              pw.rd, (unsigned long long)pw.pc, (unsigned long long)(now - pw.cycle),
+                                              (unsigned long long)pw.cycle));
+    return true;
+  }
+
   size_t pending_wbs() const {
     size_t n = 0;
     for (auto& h : harts_) n += h.pending.size();
@@ -383,6 +395,7 @@ lockstep_t::lockstep_t(const lockstep_cfg_t& cfg, const mem_t& image, const elf_
 lockstep_t::~lockstep_t() = default;
 bool lockstep_t::cycle(const std::vector<tr_rec_t>& recs, const std::vector<tr_wb_t>& wbs) { return impl_->cycle(recs, wbs); }
 bool lockstep_t::finish() { return impl_->finish(); }
+bool lockstep_t::check_stale(uint64_t now, uint64_t limit) { return impl_->check_stale(now, limit); }
 size_t lockstep_t::pending_wbs() const { return impl_->pending_wbs(); }
 bool lockstep_t::failed() const { return impl_->failed(); }
 const std::string& lockstep_t::error() const { return impl_->error(); }

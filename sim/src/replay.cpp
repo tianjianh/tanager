@@ -151,7 +151,7 @@ int main(int argc, char** argv) {
   dut.dev_store = [&](uint64_t pa, size_t len, const uint8_t* b) {
     if (pa == 0x10000000ull && len >= 1) {
       console.push_back(char(b[0]));
-      if (!o.quiet) fputc(b[0], stdout);
+      fputc(b[0], stdout);
     }
   };
 
@@ -308,7 +308,7 @@ int main(int argc, char** argv) {
         if ((v >> 48) == 0x0101) {  // HTIF console
           console.push_back(char(v & 0xff));
           htif_console = true;
-          if (!o.quiet) fputc(int(v & 0xff), stdout);
+          fputc(int(v & 0xff), stdout);
         } else if ((v & 1) && h == 0) {
           exit_seen = true;
           code = int(v >> 1);

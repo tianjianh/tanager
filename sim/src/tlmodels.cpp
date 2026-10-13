@@ -363,8 +363,10 @@ void l1d_model_t::maybe_random_probe() {
     if (l.perm != PERM_N && !l.probe_inflight && !l.grant_unacked) cands.push_back(idx);
   if (cands.empty()) return;
   uint64_t idx = cands[ctx_.rng.below(cands.size())];
+  // ProbeBlock only: ProbePerm tells the agent it may drop dirty data, which only an L2 that is
+  // about to overwrite the whole line can say.
   static const uint8_t caps[] = {CAP_TO_N, CAP_TO_B, CAP_TO_T};
-  probe(idx * LINE_BYTES, caps[ctx_.rng.below(3)], ctx_.rng.below(2) == 0);
+  probe(idx * LINE_BYTES, caps[ctx_.rng.below(3)]);
 }
 
 void l1d_model_t::accept_e(uint32_t sink) {

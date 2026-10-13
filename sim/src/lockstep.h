@@ -42,6 +42,8 @@ class lockstep_t {
   bool cycle(const std::vector<tr_rec_t>& recs, const std::vector<tr_wb_t>& wbs);
   // End of run: deferred writebacks still pending are a mismatch.
   bool finish();
+  // A deferred writeback pending for more than `limit` cycles at cycle `now` is a mismatch.
+  bool check_stale(uint64_t now, uint64_t limit);
 
   size_t pending_wbs() const;
   bool failed() const;
