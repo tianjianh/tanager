@@ -1,5 +1,7 @@
 // Random test of the S2 scheduler pieces, tg_iq with tg_wake, against a reference model.
-//   Vtb_iq +seed=<n> +cycles=<n> ; parameters STALE (0 guard, 1 phase, 2 clear), WAKE_ENC
+//   Vtb_iq +seed=<n> +cycles=<n> ; parameters STALE (0 guard, 1 phase, 2 clear), WAKE_ENC,
+//   DUP_SEL, EARLY_W, MX (with MX the dispatcher names in-queue 1-cycle producers by row,
+//   or, at random, by wakeup ID)
 // The TB plays dispatch, the ID allocator (ROB entries and LLTs as one pool), long-latency
 // completions, shadow cancels and thread flushes. It checks:
 //   - at most one grant, and it is the oldest ready row (allocation order kept by the TB);
@@ -13,7 +15,8 @@ module tb_iq
   parameter int STALE    = 0,
   parameter int WAKE_ENC = 0,
   parameter bit DUP_SEL  = 1'b0,
-  parameter int EARLY_W  = 32
+  parameter int EARLY_W  = 32,
+  parameter bit MX       = 1'b0
 );
   localparam int ROWS  = 10;
   localparam int DW    = DISPATCH_WIDTH;
@@ -33,6 +36,8 @@ module tb_iq
   logic [DW-1:0][NCOL-1:0] disp_dep, disp_dep_ph, disp_wake_oh;
   logic [DW-1:0][ROBW-1:0] disp_rob;
   logic [DW-1:0][PW-1:0]   disp_payload;
+  logic [DW-1:0][ROWS-1:0] disp_mdep;
+  logic [ROWS-1:0]         issued, freed;
   logic [DW-1:0]           bank_free_q;
   logic [NUM_THREADS-1:0][RMW-1:0] room_q;
   logic [NCOL-1:0] w_q, w1_q, phase_q, wake_now, busy, wake_reg, alloc, col_clr, cancel_ids;
@@ -44,11 +49,12 @@ module tb_iq
 
   tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
           .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
-          .EARLY_W(EARLY_W)) u_iq (
+          .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS)) u_iq (
     .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph, .disp_wake_oh, .disp_rob,
     .disp_payload, .bank_free_q, .room_q, .w(w_q), .w1(w1_q), .col_clr, .cancel, .wake_now,
-    .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload(iss_payload_q));
-  tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE)) u_wake (
+    .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload(iss_payload_q),
+    .disp_mdep, .mx_issued(issued), .mx_free(freed), .issued_o(issued), .free_o(freed));
+  tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
     .clk, .rst, .wake_now, .wake_reg, .alloc, .cancel, .cancel_ids, .w_q, .w1_q, .phase_q);
 
   // Reference state
@@ -71,6 +77,8 @@ module tb_iq
   int row_seq [ROWS];      // allocation order of each row's op
   int disp_op [DW];        // op dispatched by each port this cycle
   int disp_seq [DW];
+  int disp_row [DW];       // row each port writes this cycle
+  int nmx = 0;             // dependencies named by row (MX)
   int seq = 0, cyc = 0, errors = 0, nsel = 0, ncancel = 0, nflush = 0, nreuse = 0;
   int seed = 1, cycles = 20000;
   int last_sel = -1;           // op selected in the previous cycle (its payload is out now)
@@ -100,7 +108,7 @@ module tb_iq
   always @(negedge clk) begin
     automatic int nthis;
     automatic int used [NUM_THREADS];
-    disp_valid = '0; disp_dep = '0; disp_dep_ph = '0; disp_wake_oh = '0;
+    disp_valid = '0; disp_dep = '0; disp_dep_ph = '0; disp_wake_oh = '0; disp_mdep = '0;
     disp_tid = '0; disp_rob = '0; disp_payload = '0;
     wake_reg = '0; alloc = '0; col_clr = '0; cancel_ids = '0;
     cancel = 1'b0; flush_valid = 1'b0; flush_all = 1'b0; flush_tid = '0; flush_rob = '0;
@@ -169,9 +177,21 @@ module tb_iq
           if (ops[p].killed || ops[p].tid != t) continue;
           // a pending producer is always a dependency; an available one sometimes
           if (ops[p].avail < 0 || ops[p].avail > cyc || ($urandom % 2) == 0) begin
+            automatic int prow = -1;
             ops[o].src[s] = p;
-            disp_dep[k][c] = 1'b1;
-            disp_dep_ph[k][c] = phase_q[c] ^ alloc[c];   // after this cycle's allocations
+            // MX: a 1-cycle producer that still holds its row may be named by that row
+            if (MX && ops[p].lat1) begin
+              for (int r = 0; r < ROWS; r++)
+                if (row_op[r] == p && u_iq.valid_q[r] && !u_iq.free_now[r]) prow = r;
+              for (int k2 = 0; k2 < k; k2++) if (disp_valid[k2] && disp_op[k2] == p) prow = disp_row[k2];
+            end
+            if (prow >= 0 && ($urandom % 3) != 0) begin
+              disp_mdep[k][prow] = 1'b1;
+              nmx++;
+            end else begin
+              disp_dep[k][c] = 1'b1;
+              disp_dep_ph[k][c] = phase_q[c] ^ alloc[c];   // after this cycle's allocations
+            end
           end
         end
         if (id_freed_at[d] >= 0) nreuse++;
@@ -185,6 +205,8 @@ module tb_iq
         if (ops[o].lat1) disp_wake_oh[k][d] = 1'b1;
         disp_op[k] = o;
         disp_seq[k] = seq++;
+        disp_row[k] = -1;
+        for (int r = 0; r < ROWS; r++) if (u_iq.alloc_oh_q[k][r]) disp_row[k] = r;
       end
     end
   end
@@ -277,8 +299,8 @@ module tb_iq
       end
     end
     if (left > 0) fail($sformatf("%0d ops never selected (deadlock)", left));
-    $display("tb_iq: ops %0d selected %0d cancels %0d flushes %0d ID reuses %0d",
-             nops, nsel, ncancel, nflush, nreuse);
+    $display("tb_iq: ops %0d selected %0d cancels %0d flushes %0d ID reuses %0d row deps %0d",
+             nops, nsel, ncancel, nflush, nreuse, nmx);
     if (errors == 0) $display("PASS tb_iq");
     else $display("FAIL tb_iq: %0d errors", errors);
     $finish;

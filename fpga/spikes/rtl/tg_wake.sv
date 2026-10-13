@@ -6,7 +6,10 @@
 // Clear: when an ID is allocated to a new producer (alloc, registered), and by the
 //        speculative-wakeup shadow cancel (cancel, registered): every W bit set by a select
 //        in the current cycle or the HIST cycles before it, plus cancel_ids (the missing
-//        load's own ID and anything else the load pipe names).
+//        load's own ID and anything else the load pipe names). HIST is the shadow depth
+//        minus the wakeup path's delay: 2 when wake_now comes straight from the selects,
+//        1 when the queues register it (tg_iq MX = 1). One too many undoes a wakeup outside
+//        the shadow, and its later consumers wait forever.
 // STALE = 1 (phase variant, see tg_iq): each ID has a phase bit that flips on allocation,
 // and W keeps one vector per phase (w_q for phase 0, w1_q for phase 1). A wakeup sets the
 // vector of the ID's current phase; an allocation clears the vector of the new phase only,
