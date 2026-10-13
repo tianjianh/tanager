@@ -1,0 +1,157 @@
+// Tanager platform device tree: the plan §5.4 memory map (docs/spec/soc.md §4).
+// Preprocessed with cpp before dtc. The including .dts defines:
+//   TG_NUM_CORES (1|2), TG_NUM_THREADS (1|2)   harts = cores x threads, mhartid = core * threads + tid
+//   TG_MEM_SIZE                                 DRAM bytes at 0x8000_0000 (64-bit expression)
+//   TG_FPU (0|1)                                1 when the core implements F and D
+//   TG_POWER_NODE                               label of the syscon that takes the power-off/reboot writes
+//   TG_POWER_OFFSET                             byte offset of the power register in that syscon
+// Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
+
+#define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
+
+#if TG_FPU
+#define TG_ISA_STR "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
+#define TG_ISA_EXT "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sstc"
+#else
+#define TG_ISA_STR "rv64imac_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
+#define TG_ISA_EXT "i", "m", "a", "c", "zicsr", "zifencei", "zba", "zbb", "zbs", "zicond", "sstc"
+#endif
+
+#define TG_CPU(n)                                                       \
+	cpu##n: cpu@n {                                                 \
+		device_type = "cpu";                                    \
+		reg = <n>;                                              \
+		compatible = "tanager,tanager", "riscv";                \
+		riscv,isa = TG_ISA_STR;                                 \
+		riscv,isa-base = "rv64i";                               \
+		riscv,isa-extensions = TG_ISA_EXT;                      \
+		mmu-type = "riscv,sv39";                                \
+		status = "okay";                                        \
+		cpu##n##_intc: interrupt-controller {                   \
+			#interrupt-cells = <1>;                         \
+			compatible = "riscv,cpu-intc";                  \
+			interrupt-controller;                           \
+		};                                                      \
+	}
+
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "tanager,soc";
+
+	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
+		timebase-frequency = <10000000>;	// ACLINT mtime: tg_map_pkg::TIMEBASE_HZ
+
+		TG_CPU(0);
+#if TG_HARTS > 1
+		TG_CPU(1);
+#endif
+#if TG_HARTS > 2
+		TG_CPU(2);
+		TG_CPU(3);
+#endif
+
+		cpu-map {
+			cluster0 {
+#if TG_NUM_THREADS == 1
+				core0 { cpu = <&cpu0>; };
+#if TG_NUM_CORES > 1
+				core1 { cpu = <&cpu1>; };
+#endif
+#else
+				core0 {
+					thread0 { cpu = <&cpu0>; };
+					thread1 { cpu = <&cpu1>; };
+				};
+#if TG_NUM_CORES > 1
+				core1 {
+					thread0 { cpu = <&cpu2>; };
+					thread1 { cpu = <&cpu3>; };
+				};
+#endif
+#endif
+			};
+		};
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 (TG_MEM_SIZE >> 32) (TG_MEM_SIZE & 0xffffffff)>;
+	};
+
+	soc {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		compatible = "simple-bus";
+		ranges;
+
+		// ACLINT MSWI + MTIMER in the CLINT layout: msip at 0x0, mtimecmp at 0x4000, mtime at 0xbff8.
+		// Interrupt pairs per hart: 3 = machine software, 7 = machine timer.
+		clint: clint@2000000 {
+			compatible = "riscv,clint0";
+			reg = <0x0 0x02000000 0x0 0x10000>;
+			interrupts-extended = <&cpu0_intc 3 &cpu0_intc 7
+#if TG_HARTS > 1
+					       &cpu1_intc 3 &cpu1_intc 7
+#endif
+#if TG_HARTS > 2
+					       &cpu2_intc 3 &cpu2_intc 7
+					       &cpu3_intc 3 &cpu3_intc 7
+#endif
+					      >;
+		};
+
+		// PLIC: contexts 2h (machine) and 2h+1 (supervisor) for hart h; 11 = machine external,
+		// 9 = supervisor external. Sources: 1-4 virtio slots, 10 UART, 11 host mailbox.
+		plic: interrupt-controller@c000000 {
+			compatible = "riscv,plic0";
+			reg = <0x0 0x0c000000 0x0 0x4000000>;
+			#address-cells = <0>;
+			#interrupt-cells = <1>;
+			interrupt-controller;
+			riscv,ndev = <31>;
+			interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9
+#if TG_HARTS > 1
+					       &cpu1_intc 11 &cpu1_intc 9
+#endif
+#if TG_HARTS > 2
+					       &cpu2_intc 11 &cpu2_intc 9
+					       &cpu3_intc 11 &cpu3_intc 9
+#endif
+					      >;
+		};
+
+		uart0: serial@10000000 {
+			compatible = "ns16550a";
+			reg = <0x0 0x10000000 0x0 0x1000>;
+			reg-shift = <0>;
+			reg-io-width = <1>;
+			clock-frequency = <3686400>;	// the UART's baud reference, emulated from clk_core
+			current-speed = <115200>;
+			interrupt-parent = <&plic>;
+			interrupts = <10>;
+		};
+
+	};
+
+	poweroff {
+		compatible = "syscon-poweroff";
+		regmap = <&TG_POWER_NODE>;
+		offset = <TG_POWER_OFFSET>;
+		value = <0x5555>;
+	};
+
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&TG_POWER_NODE>;
+		offset = <TG_POWER_OFFSET>;
+		value = <0x7777>;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200 earlycon";
+		stdout-path = "/soc/serial@10000000";
+	};
+};

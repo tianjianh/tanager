@@ -1,0 +1,21 @@
+// Tanager device-tree structure on QEMU's `virt` machine (docs/spec/soc.md §6).
+// The CLINT, PLIC, UART and DRAM nodes are identical to the KV260 tree: QEMU virt places those
+// devices at the same addresses. Only the power syscon differs: QEMU has no Tanager host-control
+// block, so power-off and reboot go to its sifive,test0 device at 0x100000, which takes the same
+// values. Run with: -M virt -smp <harts> -m <TG_MEM_SIZE> -dtb tanager-qemu.dtb.
+/dts-v1/;
+
+#define TG_POWER_NODE test
+#define TG_POWER_OFFSET 0x0
+#include "tanager.dtsi"
+
+/ {
+	model = "Tanager device tree on QEMU virt";
+
+	soc {
+		test: test@100000 {
+			compatible = "sifive,test1", "sifive,test0", "syscon";
+			reg = <0x0 0x00100000 0x0 0x1000>;
+		};
+	};
+};

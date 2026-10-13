@@ -1,0 +1,19 @@
+#!/bin/sh
+# Tanager boot marker and automated smoke test (docs/spec/soc.md §6).
+# Prints a marker the test harnesses wait for. With `tanager.autotest=1` on the kernel command
+# line it also runs a short smoke test and powers off, so QEMU, simulation and board runs end
+# by themselves.
+case "$1" in
+  start)
+    echo "TANAGER-BOOT-OK $(uname -r) harts=$(grep -c ^processor /proc/cpuinfo)"
+    if grep -q 'tanager.autotest=1' /proc/cmdline; then
+      echo "TANAGER-AUTOTEST begin"
+      cat /proc/cpuinfo | grep -E '^(processor|hart|isa|mmu)'
+      cat /proc/interrupts
+      dd if=/dev/zero of=/tmp/t bs=64k count=64 2>/dev/null && md5sum /tmp/t && rm /tmp/t
+      echo "TANAGER-AUTOTEST end"
+      poweroff -f
+    fi
+    ;;
+esac
+exit 0
