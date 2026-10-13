@@ -23,7 +23,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `s_axil_*` | host | host AXI4-Lite slave ([host.md](host.md)) |
 | `host_irq_o` | host | to `pl_ps_irq0` |
 | `m_axi_*[N_MEMPORTS]` | core | one AXI4 master per L2 bank: 128-bit data, 40-bit address (already remapped onto the carve-out), 6-bit ID |
-| `trace_*` | core | each core's commit-trace ports, passed out for the simulation harness until the trace ring exists (M4) |
+| `trace_*` | core | each core's commit-trace ports, passed out for simulation harnesses; inside, `tg_trace_ring` keeps the last records of one core for the host ([host.md](host.md) §Trace ring) |
 | `status_o` | core | LEDs and debug: reset states, L2 init, UART activity |
 
 ### Parameters
@@ -160,6 +160,14 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 - console loopback through the UART's loopback mode, driven by the traffic generator's `mmio` port;
 - memory tests through the L2 and the memory path at injected latencies 0 and 250;
 - the DRAM window's protection.
+
+- `KIND = "tcore"`: the verification track's test core (`sim/tcore`, a real TL-C client) stands in for `tg_core` through `tests/unit/soc/tcore_as_core.sv`. Two of them run `tests/unit/soc/sw/soc_test.c`:
+  - entry through the boot ROM, with `a0`/`a1` and host control;
+  - console output on the 16550, read back by the host;
+  - an ACLINT check;
+  - a 64 KiB memory test through the 16 KiB test L2;
+  - data handed between the harts through the coherent caches;
+  - PASS through `TOHOST`.
 
 With the core track's RTL, the same top runs the boot ROM → OpenSBI path; the full Linux boot moves to the board (plan §11).
 
