@@ -10,6 +10,8 @@ lib/tg_afifo.sv
 l2/tg_l2_plru_pkg.sv
 l2/tg_l2_bank.sv
 l2/tg_l2.sv
+mem/tg_axi_lat_inj.sv
+mem/tg_axi_window.sv
 interconnect/tg_tl_err.sv
 interconnect/tg_xbar.sv
 interconnect/tg_tl_dev.sv

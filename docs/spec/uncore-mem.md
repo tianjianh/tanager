@@ -36,7 +36,7 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
   - mode 0: `now − t0 ≥ rd_delay`;
   - mode 1: `now − t_arrival ≥ rd_delay`.
 
-  Its beats stream to the L2 contiguously, in issue order. The delivered latency is `max(native, rd_delay)` in mode 0, which is the plan's "delay from request issue" definition, and `native + rd_delay` in mode 1.
+  Its beats stream to the L2 contiguously, in issue order. The delivered latency is `max(native, rd_delay)` in mode 0, which is the plan's "delay from request issue" definition, and `native + rd_delay` in mode 1. Store-and-forward plus the output buffer adds about 5 cycles to either (measured: 255–279 cycles at a 250-cycle target).
 - **Writes.** AW and W pass through unchanged. Each B response is held in a FIFO until `now − t0(BID) ≥ wr_delay`, with `t0` from a per-ID table written at AW time, then released in arrival order. Delaying B keeps the L2's write-back MSHRs (and any re-read of the same line) honest at long latency.
 - **Bandwidth cap.** A token bucket gates released R beats:
   - it gains `bw_rate` tokens per cycle, up to 1024;
@@ -81,7 +81,7 @@ Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the
 
   The L2 turns these into `denied` responses ([l2.md](l2.md)).
 - **Configuration changes:** `base` and `size` may change only while the uncore is held in reset ([host.md](host.md) loading sequence). Their reset value, size 0, denies everything until the host configures the window.
-- **Error response order:** errors are produced in order behind any in-flight downstream responses of the same ID, preserving AXI's same-ID ordering.
+- **Error response order:** errors merge into the response streams between bursts. The L2's IDs are unique among its outstanding transactions, so AXI's same-ID ordering is not at stake. A master that reuses IDs would need an in-order merge here.
 
 ### Parameters
 `AXI_EXT_ADDR_W` = 40, `AXI_ID_W` = 6.
