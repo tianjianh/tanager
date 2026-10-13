@@ -20,3 +20,4 @@ plic/tg_plic.sv
 uart/tg_uart.sv
 bootrom/tg_bootrom.sv
 hostbridge/tg_host_bridge.sv
+hostbridge/tg_axi4_to_axil.sv
