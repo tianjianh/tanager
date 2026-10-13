@@ -45,11 +45,14 @@ static uint64_t get(const W &w, int lsb, int width) {
   return v;
 }
 
-// Latencies from tg_fpu_pkg (kept in sync by hand; the test fails if the RTL disagrees).
-static const int FMA_LAT = 5, FMISC_LAT = 2;
+// Latencies: the tg_fpu_pkg constants, passed in by the Makefile.
+#if !defined(FMA_LAT) || !defined(FMISC_LAT) || !defined(FDIV_LAT_S) || !defined(FDIV_LAT_D) || \
+    !defined(FSQRT_LAT_S) || !defined(FSQRT_LAT_D)
+#error "build with the latency constants of tg_fpu_pkg (tests/unit/fpu/Makefile)"
+#endif
 static int fdiv_lat(int op, int fmt) {
-  if (op == ref::FDIV) return fmt == ref::D ? 23 : 19;
-  return fmt == ref::D ? 27 : 19;
+  if (op == ref::FDIV) return fmt == ref::D ? FDIV_LAT_D : FDIV_LAT_S;
+  return fmt == ref::D ? FSQRT_LAT_D : FSQRT_LAT_S;
 }
 
 struct Item {

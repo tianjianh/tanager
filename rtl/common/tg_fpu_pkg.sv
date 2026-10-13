@@ -5,11 +5,11 @@ package tg_fpu_pkg;
 
   localparam int FMA_LAT    = 5;   // fixed, fully pipelined (plan §4.12; 4 if synthesis allows)
   localparam int FMISC_LAT  = 2;   // fixed, fully pipelined
-  localparam int FDIV_LAT_S = 18;  // Goldschmidt, plan §4.12
-  localparam int FDIV_LAT_D = 23;
-  localparam int FSQRT_LAT_S = 20;
-  localparam int FSQRT_LAT_D = 26;
-  localparam int FDIV_II    = 4;   // a new divide/sqrt may start every FDIV_II cycles
+  localparam int FDIV_LAT_S = 19;  // Goldschmidt (docs/spec/fpu.md): minimum latency, from
+  localparam int FDIV_LAT_D = 23;  //   acceptance to fdiv_valid_o, when the output is not blocked
+  localparam int FSQRT_LAT_S = 19;
+  localparam int FSQRT_LAT_D = 27;
+  localparam int FDIV_II    = 4;   // steady-state FDIV.D rate; any free slot accepts (fdiv_ready_o)
 
   typedef enum logic [4:0] {
     // FMA pipe

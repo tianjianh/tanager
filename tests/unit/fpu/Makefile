@@ -40,12 +40,15 @@ model: $(BUILD)/gs_check
 # ---- RTL testbench ----
 RTL_SRCS := $(shell sed -e 's://.*$$::' $(ROOT)/rtl/core/fpu/fpu.f | grep -v '^\s*$$' | sed -e 's:^:$(ROOT)/rtl/core/fpu/:')
 VDIR     := $(BUILD)/obj_$(CFG)
+# The testbench checks latencies against the constants the core uses (tg_fpu_pkg).
+PKG_LAT  := $(foreach c,FMA_LAT FMISC_LAT FDIV_LAT_S FDIV_LAT_D FSQRT_LAT_S FSQRT_LAT_D,\
+              -D$(c)=$(shell sed -n 's/.*localparam int $(c) *= *\([0-9]*\);.*/\1/p' $(ROOT)/rtl/common/tg_fpu_pkg.sv))
 VFLAGS   := --cc --exe --build -j $(JOBS) -O3 --assert -Wall -Wno-fatal --top-module tg_fpu \
             -I$(ROOT)/rtl/common -I$(ROOT)/rtl/core/fpu $(ROOT)/rtl/lint.vlt \
-            -CFLAGS "-O2 -std=c++17 -I$(CURDIR) -I$(SF_INC)" -LDFLAGS "$(SF_LIB)" \
-            --Mdir $(VDIR) -o tb_fpu
+            -CFLAGS "-O2 -std=c++17 -I$(CURDIR) -I$(SF_INC) $(PKG_LAT)" -LDFLAGS "$(SF_LIB)" \
+            -MAKEFLAGS "OPT_FAST=-O3 OPT_GLOBAL=-O3 OPT_SLOW=-O1" --Mdir $(VDIR) -o tb_fpu
 
-$(VDIR)/tb_fpu: tb_fpu.cpp fpu_ref.h operands.h gs_model.h seed_tab.h $(RTL_SRCS) | $(BUILD)
+$(VDIR)/tb_fpu: tb_fpu.cpp fpu_ref.h operands.h gs_model.h seed_tab.h $(RTL_SRCS) $(ROOT)/rtl/common/tg_fpu_pkg.sv | $(BUILD)
 	$(VERILATOR) $(VFLAGS) $(ROOT)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(ROOT)/rtl/common/common.f \
 	  -F $(ROOT)/rtl/core/fpu/fpu.f $(CURDIR)/tb_fpu.cpp
 

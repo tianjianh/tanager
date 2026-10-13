@@ -10,7 +10,7 @@ The three floating-point execution units behind port P4 of the core (plan §4.12
 |---|---|---|---|
 | FMA | `tg_fpu_fma` | FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD | `FMA_LAT` = 5, fully pipelined |
 | FMISC | `tg_fpu_misc` | FSGNJ/N/X, FMIN, FMAX, FEQ, FLT, FLE, FCLASS, FCVT (F↔F, F↔I), FMV | `FMISC_LAT` = 2, fully pipelined |
-| Divide/sqrt | `tg_fpu_div` | FDIV, FSQRT | 18 / 22 cycles (divide S / D), 18 / 26 (square root S / D); up to 4 in flight |
+| Divide/sqrt | `tg_fpu_div` | FDIV, FSQRT | 19 / 23 cycles (divide S / D), 19 / 27 (square root S / D); up to 4 in flight |
 
 `tg_fpu` instantiates the three units and nothing else. The core owns issue, the FP register file, bypass, writeback arbitration, `fcsr` and the accumulation of `fflags` (plan §4.5). The FPU holds no architectural state.
 
@@ -96,32 +96,38 @@ The sign flips are exact negations (FNMADD = −(a×b) − c), applied to the pr
 
 ### Datapath (D precision, p = 53; S uses the same path)
 
-The product P = ma × mb is a 106-bit integer, weight 2^(Ep−104) with Ep = Ea + Eb. The addend is aligned in a 161-bit window that holds the product in bits 105:0 and the addend anywhere from bits 160:108 downwards (the single-path FMA of Montoye et al., with the addend pre-placed to the left of the product so that only a right shift is needed). One extra bit below bit 0 carries the sticky of whatever was shifted out, so effective subtraction borrows correctly.
+The product P = ma × mb is a 106-bit integer, weight 2^(Ep−104) with Ep = Ea + Eb. The addend is aligned in a window to the left of the product (the single-path FMA of Montoye et al., with the addend pre-placed to the left of the product so that only a right shift is needed). In window coordinates V[164:0]:
+- the product occupies V[109:4] and the addend starts at V[164:112] (sh = 0);
+- V[3:1] are three zero bits below the product. A multiplicand that is a subnormal with one or two significant bits puts the product up to 53 places below its nominal position, and these bits keep its round bit inside the window;
+- V[0] collects the sticky of whatever falls below the window, so an effective subtraction borrows correctly;
+- the adder works on 166 bits (bit 165 is the sign of the difference).
 
-- Right shift of the addend: sh = Ep − Ec + 56, clamped to [0, 162].
-  - sh = 0 after clamping (Ec > Ep + 56): the addend dominates. The product is at least three bits below the addend's LSB and is replaced by its sticky in the extra bit.
-  - sh > 108: addend bits below bit 0 go to the sticky.
-- Window exponent: bit 160 has weight 2^E_top, E_top = max(Ep + 56, Ec).
+Placement:
+- Right shift of the addend: sh = Ep − Ec + 56, clamped to [0, 165].
+  - sh < 0 before clamping (Ec > Ep + 56): the addend dominates. The product is at least three bits below the addend's LSB and is replaced by a one in V[0].
+  - sh > 112: addend bits below V[0] go to the sticky, computed from the addend's trailing-zero count.
+  - A zero product anchors the window at the addend (sh = 0); a missing or zero addend anchors it at the product (sh = 165).
+- Window exponent: V[164] has weight 2^E_top, E_top = Ep + 56, or Ec when the addend dominates.
 
 **Multiplier.** With ma = 2^52·ha + fa and mb = 2^52·hb + fb (fa, fb the 52-bit fractions):
 
   P = fa × fb[50:0] + 2^51·fb[51]·fa + 2^52·(ha·fb + hb·fa) + 2^104·ha·hb
 
 - fa[51:0] × fb[50:0] uses six DSP48E2 tiles of 26 × 17 bits (fa in two 26-bit chunks on the 27-bit port, fb in three 17-bit chunks on the 18-bit port; UG579).
-- The three "row" terms and the 2^104 bit are summed in fabric (one ternary adder) and enter two of the tiles through their C ports, so they cost no extra compressor input.
+- The three "row" terms and the 2^104 bit are summed in fabric in E1 and enter two of the tiles through their C ports, so they cost no extra adder input in E2.
 - Each tile computes A×B + C into its P register in one cycle (no M register; the DSP48E2 meets 200 MHz without it).
 
 **Pipeline** (stage E*k* is the cycle after the request plus *k*; E0 is the request cycle; registers at the end of each stage):
 
 | Stage | Work |
 |---|---|
-| E0 | Unpack the three operands (format, NaN box, classes, hidden bits); special-case detection; exponents: Ep, sh, E_top; trailing-zero count of mc (addend sticky); load the DSP A/B registers. |
-| E1 | DSP tiles (A×B + rows); addend alignment: 53 → 161-bit right shift by sh (four levels of 4:1 multiplexers) with sticky; one's complement of the aligned addend for effective subtraction. |
-| E2 | Add: the six tile outputs and the aligned addend (column height ≤ 5) are reduced to three rows by one level of LUT counters over the columns that need it, then summed by two ternary adders in parallel, X = P − C and Z = C − P; X's sign selects \|S\|. The subnormal-limit marker (below) is ORed into \|S\|. |
-| E3 | Leading-zero count of the 161-bit \|S\| and a left shift that keeps only the top 55 bits (significand, guard, round) plus a sticky. |
+| E0 | Unpack the three operands (format, NaN box, classes, hidden bits); special-case detection; the raw exponent sums ep = ea + eb − bias and shr = ep − ec + 56, straight from the encoding fields with the format's bias in a constant; load the DSP A/B registers. The operands may arrive late (the core's bypass), so E0 stops at the sums. |
+| E1 | DSP tiles (A×B + rows). Window placement: clamp shr to sh, choose E_top, lim = E_top − emin. Addend alignment (`tg_fpu_fma_align`): 53 → 165-bit right shift by sh with the sticky from a trailing-zero count; one's complement for an effective subtraction. |
+| E2 | Add (`tg_fpu_fma_add`): the six tile outputs and the aligned addend (column height ≤ 5) reduce column by column to three rows, then two ternary adders run in parallel, X = P − C (= P + ~C + 1) and Y = X − 1; \|S\| is X, or ~Y when X < 0. The emin marker (below) is decoded from lim. |
+| E3 | Normalise (`tg_fpu_fma_norm`): leading-zero count of \|S\| \| marker, then the left shift in four radix-4 stages; each stage keeps only the bits that can still reach the top 55 (significand, guard, round) and ORs the rest into the sticky. |
 | E4 | Round (T, G, S and one round bit below G for the tininess test), pack with the exponent, special-case results, NaN boxing, flags. The response register. |
 
-**Subnormal results** need no right shift: the normalising left shift is limited so that the exponent never goes below emin. The limit L = E_top − emin is known in E1; a one-hot marker bit at position 160 − L is ORed into \|S\| before the leading-zero count, so the count can never exceed L (the "virtual leading one"). If L < 0 (E_top < emin: product and addend both far below the smallest subnormal) the significand is cleared and only the sticky survives, which rounds to zero or the smallest subnormal.
+**Subnormal results** need no right shift: the normalising left shift is limited so that the exponent never goes below emin. The limit L = E_top − emin is known in E1; a one-hot marker bit at V[164 − L] (decoded and registered in E2) is ORed into \|S\| for the leading-zero count only, so the count can never exceed L (the "virtual leading one"). If L < 0 (E_top < emin: no addend and a product far below the smallest subnormal) the significand is cleared and only the sticky survives, which rounds to zero or the smallest subnormal.
 
 **Rounding position.** For D, T = bits 54:2 of the normalised 55-bit window, G = bit 1, round bit = bit 0; for S, T = bits 54:31, G = bit 30, round bit = bit 29, and bits 28:0 join the sticky. The S exponent range check uses S limits (emin = −126, emax = 127).
 
@@ -133,26 +139,33 @@ The product P = ma × mb is a 106-bit integer, weight 2^(Ep−104) with Ep = Ea 
 
 ## FMISC unit (`tg_fpu_misc`)
 
-Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register.
+Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register. M0 unpacks, compares magnitudes and prepares the conversions; M1 computes every result.
+
+The three conversions that shift share **one 64-bit right shifter** in M1, with the shift amount and input chosen in M0:
+- FCVT.I.F: {significand, 11'b0} >> (63 − E): integer part, guard, sticky;
+- FCVT.S.D: {significand, 11'b0} >> (40 + k): the 24-bit (or S-subnormal) significand, guard, sticky;
+- FCVT.F.I: reverse(reverse(\|x\|) >> (L − 1)) = \|x\| << (L − 1), L = lz(x XOR sign); M1 adds the last place unless x = −2^k (where L is one too many).
+
+Guard bits come from the shifter; stickies come from trailing-zero counts compared with the shift amount, not from OR trees.
 
 | Operation | M0 | M1 |
 |---|---|---|
-| FSGNJ, FSGNJN, FSGNJX | unpack (NaN box); sign of b (or its inverse, or XOR); result | pass |
-| FMIN, FMAX | unpack; 63-bit magnitude compare; select per F 2.2: a NaN operand loses to a number; both NaN → canonical NaN; −0 < +0; NV if any sNaN | pass |
-| FEQ, FLT, FLE | unpack; compare (±0 equal); FEQ quiet (NV only for sNaN), FLT/FLE signalling (NV for any NaN), NaN compares false | pass |
-| FCLASS | unpack; 10-bit one-hot class mask | pass |
-| FMV.X.W / FMV.X.D | sign-extend a[31:0] / pass a | pass |
-| FMV.W.X / FMV.D.X | {0xFFFFFFFF, a[31:0]} / a | pass |
+| FSGNJ, FSGNJN, FSGNJX | unpack (NaN box) | sign of b (or its inverse, or XOR) |
+| FMIN, FMAX | unpack; 63-bit magnitude compare | select per F 2.2: a NaN operand loses to a number; both NaN → canonical NaN; −0 < +0; NV if any sNaN |
+| FEQ, FLT, FLE | unpack; magnitude compare | ±0 equal; FEQ quiet (NV only for sNaN), FLT/FLE signalling (NV for any NaN), NaN compares false |
+| FCLASS | unpack | 10-bit one-hot class mask |
+| FMV.X.W / FMV.X.D | – | sign-extend a[31:0] / pass a |
+| FMV.W.X / FMV.D.X | – | {0xFFFFFFFF, a[31:0]} / a |
 | FCVT.D.S | unpack S; leading-zero count of a subnormal fraction | normalise, rebias; canonical NaN (NV for sNaN) |
-| FCVT.S.D | unpack D; S exponent; for S-subnormal results a right shift of up to 26 places with sticky | round to 24 bits; S overflow/underflow; tininess after rounding as in the FMA |
-| FCVT.{W,WU,L,LU}.{S,D} | unpack; right shift of the significand to an integer with G and S (shift = 63 − E, saturated) | round; negate by one adder (result = negative ? ~m + ¬inc : m + inc); range check against the format's limits; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
-| FCVT.{S,D}.{W,WU,L,LU} | select and sign-handle the integer source; \|x\| by negation; leading-zero count of x XOR sign (the count of \|x\| except when x = −2^k, corrected in M1); trailing-zero count (the same for x and −x) | left shift; one-place correction; G from the shifted value, S from the trailing-zero count; round; pack |
+| FCVT.S.D | unpack D; k = 897 − exponent field (S-subnormal results, ≤ 27); trailing zeros of the significand | shared shifter; round to 24 bits; S overflow/underflow; tininess after rounding as in the FMA |
+| FCVT.{W,WU,L,LU}.{S,D} | unpack; shift = 1086 − exponent field, saturated; trailing zeros | shared shifter; round; negate by one adder (negative ? ~m + ¬inc : m + inc); range check on m and inc without another adder; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
+| FCVT.{S,D}.{W,WU,L,LU} | select and sign-handle the integer source; \|x\| by negation; leading zeros of x XOR sign; trailing zeros of x (the same for −x) | shared shifter; one-place correction; G from the normalised value, S from the trailing-zero count; round; pack (the S packing adder is shared with FCVT.S.D) |
 
 Integer sources for FCVT.F.I and FMV.F.X arrive in `a`. FCVT.D.W and FCVT.D.WU are exact.
 
 **Unsigned conversion of negative values.** A negative input that rounds to zero converts to 0 with NX only; one that rounds to −1 or below is invalid (result 0, NV).
 
-**Plan lever R5** (conversions sharing the FMA's normaliser and rounder) is not used: it would raise the conversion latency from 2 to 5 cycles or add a second entry point into the FMA pipe with its own writeback-slot rules for the core. The FMISC area is reported separately so the trade can be judged later.
+**Plan lever R5** (conversions sharing the FMA's normaliser and rounder) is not used: it would raise the conversion latency from 2 to 5 cycles and move FCVT.F.I and FCVT.F.F to the FMA port, an interface change. FCVT.F.F and FCVT.F.I could reuse the FMA as a × 1.0 with the source format decoupled from the result format, at a few multiplexers in the FMA; the saving and its cost are reported under "Timing and area" for the coordinator to judge.
 
 ## Divide/sqrt unit (`tg_fpu_div`)
 
@@ -178,7 +191,8 @@ Operands are normalised in the first cycle after acceptance (leading-zero count 
 
 - Reciprocal: index = mb fraction bits 51:42; entry s ≈ 1/mb, stored as 9 bits after an implicit "0.1" (10 significant bits). Each entry minimises the worst relative error |1 − mb·s| over its interval after quantisation (the optimal-interval-reciprocal construction of Das Sarma & Matula, IEEE TC 1994, with quantisation folded into the search).
 - Reciprocal square root: index = {exponent parity, fraction bits 51:43}; entry y0 ≈ 1/√x, same encoding.
-- Generated by `tests/unit/fpu/gen_seed.py` into `rtl/core/fpu/tg_fpu_seed_tab.svh` (checked in); the generator prints the worst-case errors, which the error budget below depends on.
+- Generated by `tests/unit/fpu/gen_seed.py` into the package `rtl/core/fpu/tg_fpu_seed_pkg.sv` (checked in); the generator prints the worst-case errors, which the error budget below depends on: max \|1 − mb·s\| = 2^−9.73 and max \|1 − x·y0²\| = 2^−8.69.
+- `tg_fpu_seed_rom` infers a block ROM (address and output registers in the BRAM18). `rtl/common/prim` has no ROM wrapper; one would replace it.
 
 ### Small multipliers (approximate terms)
 
@@ -186,19 +200,21 @@ While round 1 runs, small DSPs compute an approximation ẽ0 of the round-1 erro
 
 | Stage | Divide | Square root |
 |---|---|---|
-| SM0 (1 DSP) | D̃0 = mb[52:29] × s → ẽ0 = 1 − D̃0 | Y2 = y0² (exact; feeds M2 in round 1) |
-| SMa (2 DSPs) | (pass) | ũ0 = x[top 26 bits] × Y2 → ẽ0 = 1 − ũ0 |
-| SMb (1 DSP) | ẽ0² | ẽ0² |
-| SMc (1 DSP) | ẽ0³ = ẽ0² × ẽ0 (top bits) | same |
+| Stage (cycle) | Divide | Square root |
+|---|---|---|
+| SM0 (t+3, 1 DSP) | D̃0 = mb[52:29] × s → ẽ0 = 1 − D̃0 | Y2 = y0² (exact; feeds M2 in round 1) |
+| SMa (t+4, 2 DSPs) | – | ũ0 = x[59:34] × Y2 → ẽ0 = 1 − ũ0 (t+5) |
+| SMb (t+6, 1 DSP) | e2 = ẽ0 × (ẽ0 >> 9) ≈ ẽ0² | same |
+| SMc (t+7, 1 DSP) | e23 = (e2 >> 24) × (ẽ0 >> 9) + e2 ≈ ẽ0³ + ẽ0² | e23 = (5 (e2 >> 24)(ẽ0 >> 9) + 6 e2) / 16 ≈ 5/16 ẽ0³ + 3/8 ẽ0² |
 
-|ẽ0 − e0| ≤ 2^−23, so ẽ0² and ẽ0³ are good to about 2^−32. These terms only steer the iteration; the remainder step makes the result exact regardless.
+All values are Q.33 or Q2.58 two's complement and fit the DSP48E2 ports (27-bit A, 18-bit B, 48-bit C). The chain runs in lockstep with the slot: the operation that entered in t+4 is in ring stage r4 in t+8, the c0 of its round 2, exactly when e23 leaves SMc, so e23 is never stored in the ring. \|ẽ0 − e0\| ≤ 2^−23, so the terms are good to about 2^−32. They only steer the iteration; the remainder step makes the result exact regardless.
 
 ### Division schedule
 
 | Round | M1 | M2 | Notes |
 |---|---|---|---|
 | R1 | N0 = A · s | D0 = mb · s | e0 = 1 − D0, \|e0\| ≲ 2^−9.7 |
-| R2 | N1 = N0 · R | D1 = D0 · R | R = 2 − D0 + ẽ0² + ẽ0³ ≈ 1 + e0 + e0² + e0³ (cubic step); e1 = 1 − D1 ≈ 2^−31 |
+| R2 | N1 = N0 · R | D1 = D0 · R | R = 2 − D0 + e23 ≈ 1 + e0 + e0² + e0³ (cubic step); e1 = 1 − D1 ≈ 2^−31 |
 | R3 (D only) | N2 = N1 · (2 − D1) | – | error ≈ e1² + truncation |
 | last | remainder: mb · c | – | c = quotient rounded to the guard grid |
 
@@ -209,68 +225,73 @@ Single precision uses R1, R2 and the remainder round (3 rounds); double precisio
 | Round | M1 | M2 | Notes |
 |---|---|---|---|
 | R1 | q0 = x · y0 | u0 = x · Y2 | e0 = 1 − u0 ≈ 2·(seed error), \|e0\| ≲ 2^−8.5 |
-| R2 | q1 = q0 · P | y1 = y0 · P | P = 1 + e0/2 + ⅜ẽ0² + 5⁄16 ẽ0³, the series of (1 − e0)^−½; q1 error ≲ 2^−32 |
+| R2 | q1 = q0 · P | y1 = y0 · P | P = 3/2 − u0/2 + e23 = 1 + e0/2 + ⅜ẽ0² + 5⁄16 ẽ0³, the series of (1 − e0)^−½; q1 error ≲ 2^−32 |
 | R3 (D only) | w1 = q1 · y1 | – | e1 = 1 − w1, computed from the actual q1, y1 (self-correcting) |
-| R4 (D only) | q2 = q1 · (1 + e1/2) | – | error ≈ ⅜·e1² + truncation |
+| R4 (D only) | q2 = q1 · (3/2 − w1/2) | – | error ≈ ⅜·e1² + truncation |
 | last | remainder: c · c | – | |
 
 Single precision: 3 rounds; double: 5 rounds. Markstein (RNC 2004) gives the error behaviour of these coupled iterations.
 
+The four iteration factors share one adder in c0: K − (src >> h) + e, with K = 2 (division) or 3/2 (square root), src = D0, D1, u0 or w1, h = 1 for the square root (x/2 truncated) and e = e23 in round 2.
+
 ### Error budget
 
-The rounding step needs |q_approx − q| < u_g/2, where u_g is the guard-bit weight (2^−53 for D and 2^−24 for S, q ∈ [1, 2)). The budget, checked by the bit-accurate model (`tests/unit/fpu/gs_model.cpp`) over random and directed operands:
+The rounding step needs |q_approx − q| < u_g/2, where u_g is the guard-bit weight (2^−53 for D and 2^−24 for S, q ∈ [1, 2)), i.e. 2^−54 (D) and 2^−25 (S). The bit-accurate model (`tests/unit/fpu/gs_model.h`, checked by `gs_check`) measures, over 161M random operands, 20K directed cases per kind and both ends of every seed interval:
 - each truncated product adds at most 2^−58;
-- divide D: |error| < 2^−55.5; divide S: < 2^−29;
-- square root D: < 2^−55.5; square root S: < 2^−30.
+- divide D: worst 2^−56.1; divide S: 2^−32.8;
+- square root D: worst 2^−56.1; square root S: 2^−32.9.
 
 Q2.58 (rather than the plan's 56-bit multiplier) is what makes the double-precision budget hold with a one-step correction; it costs no extra DSPs (60 = 26 + 26 + 8 on the 27-bit port, 17 + 17 + 17 + 9 on the 18-bit port).
 
-### Final rounding (remainder round, F0, F1)
+### Final rounding (remainder round, F0, F1, F2)
 
 1. **c0 of the last round:** c = q_approx rounded to the nearest multiple of u_g. Then q ∈ (c − u_g, c + u_g), and c may equal 2.0.
 2. **Remainder:** R = A − mb·c (divide) or R = x − c² (square root), exact. Only its sign and whether it is zero are needed. |R| < 2^−51 (D), so only the low 57 bits of the product and two bits of A or x take part; S uses a window 29 bits higher.
 3. **F0:** (T, G, S) at normal precision:
    - R = 0: from c, S = 0;
    - R > 0: from c, S = 1;
-   - R < 0: from c − u_g (precomputed in the remainder round), S = 1.
+   - R < 0: from c − u_g, S = 1.
 
-   Exact midpoints cannot occur for division or square root, so the sticky case never hides a tie.
-4. **F1:** for a divide result below 2^emin, shift (T, G, S) right by k = emin − Eq (k ≤ 55, larger values clamp) with sticky; round; pack; overflow; special results; NaN boxing; into the output queue.
+   Exact midpoints cannot occur for division or square root, so the sticky case never hides a tie. F0 runs in the c0 cycle after the remainder product: a 96-bit subtraction (the low bits of A·2^58 − p), its sign and zero test, and the choice of c or c − u_g.
+4. **F1:** for a divide result below 2^emin, shift (T, G, S) right by k = emin − Eq (k ≤ 55, larger values clamp) with sticky; the rounding decision; flags. The conditions that depend only on Eq (subnormal, k, the exponent field, Eq = emin − 1, Eq > emax, Eq = emax) are derived in S3 and travel with the operation.
    - Tininess after rounding uses the normal-precision (T, G, S) from F0: a result with Eq = emin − 1 is not tiny if it rounds up to 2^emin at *p* bits.
+   - Overflow: Eq > emax, or Eq = emax and the significand rounds up from all ones.
    - Square roots are never subnormal and never overflow.
+5. **F2:** pack {exponent − 1 + hidden, fraction} + increment, special results, NaN boxing; into the output queue.
 
 ### Pipeline and latency
 
 | Cycle (accept = t) | Work |
 |---|---|
 | t | request registered |
-| t+1 | unpack, classify, normalise both significands (LZC + shift), exponent, ma < mb compare, seed address |
-| t+2 | BRAM18 read; seed into the DSP input registers |
-| t+3 | SM0 |
-| t+4 | c0 of R1 (slot entry) |
+| t+1 | S1: unpack, classify, specials, normalise both significands (LZC + shift), seed-ROM address |
+| t+2 | S2: ma < mb, operand scaling, result exponent Eq (BRAM read) |
+| t+3 | S3: SM0; conditions derived from Eq |
+| t+4 | c0 of R1 (slot entry); SMa |
 | t+4·n | c0 of round n |
 | t+4·n_last+4 | F0 |
-| t+4·n_last+5 | F1; written to the output queue |
-| t+4·n_last+6 | `fdiv_valid_o` |
+| t+4·n_last+5 | F1 |
+| t+4·n_last+6 | F2; written to the output queue |
+| t+4·n_last+7 | `fdiv_valid_o` |
 
 | Operation | Rounds n_last | Latency | Slot held (cycles) | Steady-state rate |
 |---|---|---|---|---|
-| FDIV.S | 3 | 18 | 12 | 1 per 3 cycles |
-| FDIV.D | 4 | 22 | 16 | 1 per 4 cycles |
-| FSQRT.S | 3 | 18 | 12 | 1 per 3 cycles |
-| FSQRT.D | 5 | 26 | 20 | 1 per 5 cycles |
+| FDIV.S | 3 | 19 | 12 | 1 per 3 cycles |
+| FDIV.D | 4 | 23 | 16 | 1 per 4 cycles |
+| FSQRT.S | 3 | 19 | 12 | 1 per 3 cycles |
+| FSQRT.D | 5 | 27 | 20 | 1 per 5 cycles |
 
-Against the plan (18/23, 20/26, one every 4 cycles) these are equal or better except FSQRT.D's rate. The constants `FDIV_LAT_S/D` and `FSQRT_LAT_S/D` in `tg_fpu_pkg` are set to the latencies above.
+Against the plan (18/23, 20/26, one every 4 cycles): FDIV.D and FSQRT.S meet it, FDIV.S and FSQRT.D are one cycle longer (F2 was added for timing), and FSQRT.D's rate is one per 5 cycles. The constants `FDIV_LAT_S/D` and `FSQRT_LAT_S/D` in `tg_fpu_pkg` are set to the latencies above.
 
 ### Flow control
 
-- **Slots.** Slot *k* passes the entry point (c0) in cycles ≡ *k* (mod 4). A request accepted in cycle *t* enters slot *t* mod 4 four cycles later, so `fdiv_ready_o` = slot (*t* mod 4) is free, or its operation is in its last round now and holds an output credit.
-- **Output queue and credits.** The output queue holds 4 results. An operation reserves a credit when its last round starts (c0); credits count queue entries plus results in the remainder round, F0 and F1. Without a credit the operation repeats its last round (4 cycles later; the remainder round is idempotent) and keeps its slot. With `fdiv_ready_i` mostly high this never happens.
-- **Special operands** (NaN, ∞, zero, divide by zero, negative square root) still pass through the ring, so every operation has the same latency and one exit path; F1 substitutes the special result.
+- **Slots.** Slot *k* passes the entry point (c0) in cycles ≡ *k* (mod 4). A request accepted in cycle *t* enters, four cycles later, the slot that is in c0 in cycle *t*. So `fdiv_ready_o` is high when that slot will be empty after this cycle: no operation enters it now (accepted four cycles ago) and its operation, if any, leaves now. It depends only on registers.
+- **Output queue and credits.** The output queue (`tg_fifo`, 4 entries) holds results until `fdiv_ready_i`. An operation whose remainder product is ready leaves its slot for F0 only if the queue has room for it counting the results in F1 and F2; otherwise it repeats the remainder round (4 cycles later; the round is idempotent) and keeps its slot. With `fdiv_ready_i` mostly high this never happens.
+- **Special operands** (NaN, ∞, zero, divide by zero, negative square root) still pass through the ring, so every operation has the same latency and one exit path; F2 substitutes the special result.
 
 ### Area
 
-- 24 DSP48E2 for M1 and M2: each is 12 tiles; pairs along the 18-bit port are summed in the DSP cascade (PCIN >> 17), the six pair sums by two ternary adders and one binary adder in c3.
+- 24 DSP48E2 for M1 and M2 (`tg_fpu_div_mul`): each is 12 tiles; tiles of y chunks 1 and 3 add their neighbour shifted right by 17 in c2 (the DSP cascade pattern), and the six pair sums are added by two ternary adders and one binary adder in c3.
 - 5 DSP48E2 for the small multipliers.
 - 1 BRAM18.
 
