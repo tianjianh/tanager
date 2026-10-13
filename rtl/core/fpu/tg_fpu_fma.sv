@@ -198,18 +198,8 @@ module tg_fpu_fma
   end
 
   // Addend: mc at V[164:112], shifted right by sh; V[0] collects every bit at or below it.
-  logic [5:0] tz_c;
-  always_comb begin
-    tz_c = 6'd53;
-    for (int i = 52; i >= 0; i--)
-      if (mc_q[i]) tz_c = 6'(i);
-  end
   logic [VW-1:0] cal;
-  always_comb begin
-    logic [VW-1:0] x;
-    x   = {mc_q, 112'b0} >> sh;
-    cal = {x[VW-1:1], x[0] || ((mc_q != '0) && (sh >= 8'd112) && ({2'b0, tz_c} <= sh - 8'd112))};
-  end
+  tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh, .cal);
 
   logic [VW:0] cop_q;           // addend operand of the adder: C or ~C (166 bits)
   always_ff @(posedge clk) begin
@@ -221,65 +211,41 @@ module tg_fpu_fma
   // E2: add. Six tiles and the addend reduce to three rows (one counter level), then two
   // ternary adders: X = P - C (= P + ~C + 1) and Y = X - 1. |P - C| is X, or ~Y when X < 0.
   // ------------------------------------------------------------------------------------------
-  logic [VW:0] s0, s1, s2;
-  always_comb begin
-    logic [VW:0] o [8];
-    logic gate;
-    gate = !c2_q.prod_sticky;
-    o[0] = (VW+1)'(gate ? t00_q : '0) << 4;
-    o[1] = (VW+1)'(gate ? t01_q : '0) << 21;
-    o[2] = (VW+1)'(gate ? t02_q : '0) << 38;
-    o[3] = (VW+1)'(gate ? t10_q : '0) << 30;
-    o[4] = (VW+1)'(gate ? t11_q : '0) << 47;
-    o[5] = (VW+1)'(gate ? t12_q : '0) << 64;
-    o[6] = cop_q;
-    o[7] = (VW+1)'(c2_q.prod_sticky);      // the product's sticky, an addend of weight V[0]
-    s0 = '0; s1 = '0; s2 = '0;
-    for (int k = 0; k <= VW; k++) begin
-      logic [2:0] cnt;
-      cnt = 3'(o[0][k]) + 3'(o[1][k]) + 3'(o[2][k]) + 3'(o[3][k]) + 3'(o[4][k]) + 3'(o[5][k]) + 3'(o[6][k])
-          + 3'(o[7][k]);
-      s0[k] = cnt[0];
-      if (k + 1 <= VW) s1[k+1] = cnt[1];
-      if (k + 2 <= VW) s2[k+2] = cnt[2];
-    end
-  end
-  logic [VW:0] sum_x, sum_y;
-  assign sum_x = s0 + s1 + s2 + (VW+1)'(1);
-  assign sum_y = s0 + s1 + s2;
-
   logic [VW-1:0] mag;
   logic          rsign;
+  tg_fpu_fma_add #(.W(VW)) u_add (
+    .t00(t00_q), .t01(t01_q), .t02(t02_q), .t10(t10_q), .t11(t11_q), .t12(t12_q),
+    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .eff_sub(c2_q.eff_sub), .sp(c2_q.sp), .sc(c2_q.sc),
+    .mag, .rsign
+  );
+
+  // The marker bit that limits normalisation at emin, decoded here from lim (known since E1).
+  logic [VW-1:0] marker_d;
+  logic          below_d;        // window entirely below the subnormal range
   always_comb begin
-    if (!c2_q.eff_sub)      begin mag = sum_y[VW-1:0];  rsign = c2_q.sp; end
-    else if (sum_x[VW])     begin mag = ~sum_y[VW-1:0]; rsign = c2_q.sc; end
-    else                    begin mag = sum_x[VW-1:0];  rsign = c2_q.sp; end
+    marker_d = '0;
+    below_d  = $signed(c2_q.lim) < 0;
+    if (!below_d && $signed(c2_q.lim) < 14'(VW)) marker_d[8'(VW-1) - c2_q.lim[7:0]] = 1'b1;
   end
 
-  logic [VW-1:0] mag_q;
-  logic          rsign_q;
+  logic [VW-1:0] mag_q, marker_q;
+  logic          rsign_q, below_q;
   always_ff @(posedge clk) begin
-    mag_q   <= mag;
-    rsign_q <= rsign;
-    c3_q    <= c2_q;
+    mag_q    <= mag;
+    rsign_q  <= rsign;
+    marker_q <= marker_d;
+    below_q  <= below_d;
+    c3_q     <= c2_q;
   end
 
   // ------------------------------------------------------------------------------------------
   // E3: leading-zero count (limited at emin by a marker bit) and normalising left shift that
   // keeps 55 bits (significand, guard, round) plus a sticky.
   // ------------------------------------------------------------------------------------------
-  logic [VW-1:0] marker;
-  logic          below;          // window entirely below the subnormal range
-  always_comb begin
-    marker = '0;
-    below  = $signed(c3_q.lim) < 0;
-    if (!below && $signed(c3_q.lim) < 14'(VW)) marker[8'(VW-1) - c3_q.lim[7:0]] = 1'b1;
-  end
-  logic [7:0] lz;
-  tg_fpu_lzc #(.W(VW)) u_lzc (.x(mag_q | marker), .cnt(lz));
-
-  logic [VW-1:0] nfull;
-  assign nfull = mag_q << lz;
+  logic [7:0]  lz;
+  logic [54:0] nrm;
+  logic        nst;
+  tg_fpu_fma_norm #(.W(VW), .K(55)) u_norm (.x(mag_q), .marker(marker_q), .lz, .n(nrm), .st(nst));
 
   logic [54:0] n_q;
   logic        st_q, zero_q;
@@ -287,15 +253,15 @@ module tg_fpu_fma
   ctl_t        c4_q;
   logic        rsign4_q;
   always_ff @(posedge clk) begin
-    if (below) begin
+    if (below_q) begin
       n_q  <= '0;
       st_q <= mag_q != '0;
     end else begin
-      n_q  <= nfull[VW-1 -: 55];
-      st_q <= |nfull[VW-56:0];
+      n_q  <= nrm;
+      st_q <= nst;
     end
     zero_q   <= mag_q == '0;
-    eres_q   <= below ? (c3_q.dbl ? 14'sd1 : 14'sd897) : 14'($signed(c3_q.e_top) - $signed({6'b0, lz}));
+    eres_q   <= below_q ? (c3_q.dbl ? 14'sd1 : 14'sd897) : 14'($signed(c3_q.e_top) - $signed({6'b0, lz}));
     c4_q     <= c3_q;
     rsign4_q <= rsign_q;
   end
@@ -364,8 +330,8 @@ module tg_fpu_fma
   assign resp_o = resp_q;
 
   logic unused;
-  assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim[13:8],
-                    ub_raw.sign, uc_raw, q.src_fmt, q.ifmt, sum_y[VW], c4_q.e_top, c4_q.lim,
+  assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim,
+                    ub_raw.sign, uc_raw, q.src_fmt, q.ifmt, c4_q.e_top, c4_q.lim,
                     c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky, c4_q.prod_zero, c4_q.c_zero,
                     c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,
                     c3_q.ec, c2_q.prod_zero, c2_q.c_zero, c2_q.ep, c2_q.shr, c2_q.ec, c2_q.lim,

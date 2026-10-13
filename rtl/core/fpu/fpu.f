@@ -3,6 +3,9 @@ tg_fpu_util_pkg.sv
 tg_fpu_seed_pkg.sv
 tg_fpu_lzc.sv
 tg_fpu_misc.sv
+tg_fpu_fma_align.sv
+tg_fpu_fma_add.sv
+tg_fpu_fma_norm.sv
 tg_fpu_fma.sv
 tg_fpu_seed_rom.sv
 tg_fpu_div_mul.sv
