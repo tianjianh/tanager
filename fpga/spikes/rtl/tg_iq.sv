@@ -49,6 +49,10 @@
 //                registered), so the loop is grant -> issued register -> readiness -> select,
 //                with no ID encode or decode. A freed row's column is cleared everywhere
 //                (mx_free); its producer has completed by then.
+//                Dispatch names a source by row only while that row still holds the
+//                producer: it compares the source's physical register with the row's
+//                destination (one compare per source, no CAM), else it uses the ID.
+//                tg_wake's cancel history must then be 1 cycle (HIST = 1), not 2.
 //
 // SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
