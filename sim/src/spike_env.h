@@ -35,6 +35,7 @@ struct spike_platform_t {
   uint64_t dram_base = 0x80000000ull, dram_size = 2048ull << 20;
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
+  std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny: accesses fault, as the RTL's do
 };
 
 inline bool in_range(uint64_t a, uint64_t base, uint64_t size) { return size && a >= base && a - base < size; }
@@ -97,16 +98,18 @@ class spike_env_t final : public simif_t {
   }
 
   char* addr_to_mem(reg_t paddr) override {
+    if (denied(paddr)) return nullptr;
     return in_range(paddr, c_.dram_base, c_.dram_size) ? reinterpret_cast<char*>(dram_ + (paddr - c_.dram_base)) : nullptr;
   }
-  bool reservable(reg_t paddr) override { return in_range(paddr, c_.dram_base, c_.dram_size); }
+  bool reservable(reg_t paddr) override { return in_range(paddr, c_.dram_base, c_.dram_size) && !denied(paddr); }
   bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) override {
+    if (denied(paddr)) return false;
     if (!in_range(paddr, c_.rom_base, c_.rom_size) || paddr + len > c_.rom_base + c_.rom_size) return false;
     memcpy(bytes, rom_.data() + (paddr - c_.rom_base), len);
     return true;
   }
   bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) override {
-    if (amo_step) return false;  // AMOs outside main memory are access faults (interfaces.md §2.4)
+    if (amo_step || denied(paddr)) return false;  // AMOs outside main memory fault (interfaces.md §2.4)
     if (in_range(paddr, c_.rom_base, c_.rom_size)) return mmio_fetch(paddr, len, bytes);
     if (!is_device(paddr)) return false;
     memset(bytes, 0, len);
@@ -114,7 +117,7 @@ class spike_env_t final : public simif_t {
     return true;
   }
   bool mmio_store(reg_t paddr, size_t len, const uint8_t* bytes) override {
-    if (amo_step || !is_device(paddr)) return false;
+    if (amo_step || denied(paddr) || !is_device(paddr)) return false;
     if (dev_store) dev_store(paddr, len, bytes);
     return true;
   }
@@ -129,6 +132,11 @@ class spike_env_t final : public simif_t {
     return false;
   }
   bool in_dram(uint64_t a) const { return in_range(a, c_.dram_base, c_.dram_size); }
+  bool denied(uint64_t a) const {
+    for (auto& r : c_.deny)
+      if (in_range(a, r.first, r.second)) return true;
+    return false;
+  }
   uint64_t read64(uint64_t pa) const {
     uint64_t v = 0;
     if (in_range(pa, c_.dram_base, c_.dram_size) && pa + 8 <= c_.dram_base + c_.dram_size)

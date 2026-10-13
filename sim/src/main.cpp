@@ -230,6 +230,7 @@ int main(int argc, char** argv) {
     lc.rom_base = mc.rom_base;
     lc.rom_size = mc.rom_size;
     lc.dev_regions = mc.dev_regions;
+    lc.deny = mc.deny;
     ls = std::make_unique<lockstep_t>(lc, mem, &elf);
   }
 

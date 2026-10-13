@@ -28,6 +28,7 @@ struct lockstep_cfg_t {
   uint64_t dram_base = 0x80000000ull, dram_size = 2048ull << 20;
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
+  std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny ranges: Spike faults on them too
 };
 
 class lockstep_impl_t;
