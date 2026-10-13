@@ -42,4 +42,13 @@ if ! command -v /usr/bin/cpio >/dev/null && [ ! -x "$out/host/bin/cpio" ]; then
   make -C "$out" host-cpio
 fi
 make -C "$out" "$@"
+
+# The kernel's effective size (Image header, image_size at offset 16) must stay below 32 MiB:
+# OpenSBI's fw_jump places the DTB at 0x8220_0000, 32 MiB above the kernel (docs/spec/soc.md §3).
+img="$out/images/Image"
+if [ -f "$img" ]; then
+  sz=$(python3 -I -c 'import sys,struct; print(struct.unpack_from("<Q", open(sys.argv[1],"rb").read(64), 16)[0])' "$img")
+  echo "kernel effective size: $sz bytes"
+  [ "$sz" -lt $((32 << 20)) ] || { echo "ERROR: kernel image_size $sz reaches the DTB at +32 MiB" >&2; exit 1; }
+fi
 ls -la "$out/images"
