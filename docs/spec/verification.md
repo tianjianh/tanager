@@ -375,7 +375,7 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ## 7. Build-host notes
 
-- **liblz4-dev** is not installed on the build host, and Verilator 5.052's FST writer includes `lz4.h`. `sim/src/compat/lz4.h` declares the two functions it uses and the build links the installed runtime (`liblz4.so.1`) through a symlink in the build tree. Installing `liblz4-dev` makes the shim unused (the Makefile checks for `/usr/include/lz4.h`).
+- **liblz4-dev** is needed for FST waveforms (Verilator 5.052's FST writer includes `lz4.h`); it is installed on the build host since 2026-10-13.
 - **Spike** is used through its installed headers and `libriscv.so` (`$SPIKE_ROOT`); the build adds `-Wl,-rpath` so no `LD_LIBRARY_PATH` is needed.
 
 ## 8. Disk and machine sharing
