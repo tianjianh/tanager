@@ -7,6 +7,11 @@ lib/tg_cdc_bit.sv
 lib/tg_cdc_pulse.sv
 lib/tg_cdc_mirror.sv
 lib/tg_afifo.sv
+l2/tg_l2_plru_pkg.sv
+l2/tg_l2_bank.sv
+l2/tg_l2.sv
+interconnect/tg_tl_err.sv
+interconnect/tg_xbar.sv
 interconnect/tg_tl_dev.sv
 aclint/tg_aclint.sv
 plic/tg_plic.sv
