@@ -138,7 +138,20 @@ module tg_trace_ring
       if (sv[k] && sd[k][1:0] != 2'd3 && sd[k][127:64] == trig_pc_i) hit = 1'b1;
   end
 
-  // bank writes: record k of this cycle goes to bank (wp + k) % CW
+  // records kept this cycle and where the next one goes
+  logic [KW:0]   n_kept;
+  logic [KW-1:0] bank_next;
+  logic          bank_wrap;
+  always_comb begin
+    int pos;
+    n_kept = '0;
+    for (int k = 0; k < CW; k++) n_kept = n_kept + (KW+1)'(sv[k]);
+    pos       = int'(bank_q) + int'(n_kept);
+    bank_wrap = pos >= CW;
+    bank_next = KW'(bank_wrap ? pos - CW : pos);
+  end
+
+  // bank writes: record k of this cycle goes to bank (bank_q + k) % CW
   logic [CW-1:0]           bwe;
   logic [CW-1:0][BAW-1:0]  bwaddr;
   logic [CW-1:0][319:0]    bwdata;
@@ -205,16 +218,9 @@ module tg_trace_ring
       end else if (!enable_i) begin
         run_q <= 1'b0;
       end else if (capture) begin
-        int n;
-        n = 0;
-        for (int k = 0; k < CW; k++) if (sv[k]) n++;
-        begin
-          int pos;
-          pos = int'(bank_q) + n;
-          bank_q <= KW'((pos >= CW) ? pos - CW : pos);
-          row_q  <= row_q + BAW'(pos >= CW);
-        end
-        count_q <= count_q + 32'(n);
+        bank_q  <= bank_next;
+        row_q   <= row_q + BAW'(bank_wrap);
+        count_q <= count_q + 32'(n_kept);
         if (n_valid > 8'(CW)) lost_q <= lost_q + 32'(n_valid - 8'(CW));
         if (trig_arm_i) begin
           if (!trig_seen_q && hit) begin
@@ -222,8 +228,8 @@ module tg_trace_ring
             post_left_q <= post_i;
             if (post_i == '0) frozen_q <= 1'b1;
           end else if (trig_seen_q) begin
-            if (post_left_q <= 16'(n)) frozen_q <= 1'b1;
-            else post_left_q <= post_left_q - 16'(n);
+            if (post_left_q <= 16'(n_kept)) frozen_q <= 1'b1;
+            else post_left_q <= post_left_q - 16'(n_kept);
           end
         end
       end
