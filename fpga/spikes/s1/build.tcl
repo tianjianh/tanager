@@ -66,6 +66,8 @@ validate_bd_design
 save_bd_design
 
 set bd [get_files s1.bd]
+# synthesise the IPs with the design (no out-of-context IP runs in an in-memory project)
+set_property synth_checkpoint_mode None $bd
 generate_target all $bd
 set wrapper [make_wrapper -files $bd -top]
 add_files -norecurse $wrapper
