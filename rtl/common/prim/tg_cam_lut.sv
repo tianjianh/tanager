@@ -121,13 +121,15 @@ module tg_cam_lut #(
 
   // ---- slice tables -----------------------------------------------------------------------
   logic [KPAD-1:0]    lk_pad;
-  logic [ENTRIES-1:0] onehot;                      // the entry being updated
-  assign lk_pad = KPAD'(lk_key);
-  always_comb begin
-    onehot = '0;
-    onehot[idx_q] = 1'b1;
+  logic [ENTRIES-1:0] mask;                        // the entries whose bit a table write sets
+  assign lk_pad = KPAD'(lk_key);                   // or clears: the one being updated, or all
+  always_comb begin                                // of them in the reset sweep (a clear)
+    mask = '0;
+    mask[idx_q] = 1'b1;
+    if (st_q == S_SWEEP) mask = '1;
   end
   wire upd = (st_q == S_CLEAR) || (st_q == S_SET);
+  wire set = st_q == S_SET;
 
   logic [NS-1:0][ENTRIES-1:0] word;                // each table's word at lk_key's slice
   for (genvar s = 0; s < NS; s++) begin : g_tab
@@ -149,11 +151,8 @@ module tg_cam_lut #(
     assign word[s] = rd[0];
     assign twe = upd || st_q == S_SWEEP;
     assign wa  = (st_q == S_SWEEP) ? cnt_q : ua;
-    always_comb begin
-      if (st_q == S_SWEEP)      wd = '0;
-      else if (st_q == S_SET)   wd = cur | onehot;
-      else                      wd = cur & ~onehot;
-    end
+    // three inputs per bit (the current bit, its mask bit, set), so two bits share a LUT6_2
+    assign wd = set ? (cur | mask) : (cur & ~mask);
     tg_ram_lut #(.DEPTH(TD), .WIDTH(ENTRIES), .NR(NRT)) u_tab (
       .clk, .we(twe), .waddr(wa), .wdata(wd), .raddr(ra), .rdata(rd));
   end
