@@ -99,6 +99,9 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - The youngest store older than a load is the last match below the load's `lq_sq` slot, else the last match overall.
   - Window checks compare slot numbers with the head and the bound.
 - **Store bytes:** forwarding, the drain and atomics use the store's bytes copied into every aligned slot of their size, instead of shifting them to the address. Stores are naturally aligned, so their own byte lanes hold the copy that a byte-masked write or a covered load reads.
+- **Loaded elements** (M2, MMIO loads, an atomic's old value) are extracted for their alignment (`ext_al`). Misaligned accesses trap at AG, so result byte 0 selects among 8 offsets, byte 1 among 4, bytes 2–3 between 2, and the upper half has one source. A byte shifter would offer all 8 everywhere.
+- **Reads by index of CAM fields** come from LUTRAM copies written with them: a replay's PA, and the MMIO load's (`u_lqa`), and the SQ head's PA, mask and size (`u_sqh`). The flip-flops stay for the searches.
+- **Atomics** read their SQ entry through the head's ports. An atomic runs only as the SQ head and commit point, and the drain has nothing to do meanwhile (asserted).
 - **MMIO loads** are picked at the LQ head. A load at the ROB head is the oldest in the window, so it is the LQ head.
 - Per-unit LUT counts: core-pipeline.md §16.
 

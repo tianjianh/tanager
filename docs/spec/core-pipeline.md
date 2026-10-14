@@ -145,7 +145,9 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
-- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`, `tlb` (M3: a DTLB miss).
+- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`.
+- **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
+- **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
@@ -211,13 +213,14 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 |---|---|---|
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
-| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) | not yet: two 64-bit LUT incrementers |
-| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles; one hart keeps flip-flops |
+| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | done (c86fd95; DSP count in the budget report) |
+| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
 | TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
-| LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; the MMIO pick at the LQ head; LQ/SQ fields written at AG/STA instead of dispatch | done |
+| LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; aligned extraction of loaded elements; the MMIO pick at the LQ head; LQ/SQ fields written at AG/STA instead of dispatch; LUTRAM copies of the queue addresses for reads by index; an atomic reads through the SQ head's ports | done |
+| ROB and rename tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`); `tg_rename`: store-data readiness carried from RN (no second ready-table read at DS) | done |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
 
 **Reserve (D18: sharing, or a function cut; not taken):**
