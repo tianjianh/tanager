@@ -383,7 +383,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
 - **Strictly in the background:**
   - `nice 19` and idle I/O priority, at most 8 simulations (Verilator builds at `-j4`), never Vivado;
-  - memory first (conventions §9): no program starts while `MemAvailable` is under 12 GB, and no build under 20 GB; it runs with `oom_score_adj` 900, so the kernel kills it before anything else;
+  - memory first (conventions §9): no program starts while `MemAvailable` is under 12 GB, and no build under 16 GB (a `tg_core` model compile peaks at 0.63 GB, measured on `smt2_w3`, so `-j4` takes about 3 GB). A simulation takes about 12 MB. While a new main cannot be built for lack of memory, the soak keeps running the previous build. It runs with `oom_score_adj` 900, so the host's memory guard and the kernel stop it before anything else;
   - holds while the host drive C: has under 20 GB free, and before a round while more than 20 tasks are runnable (the tracks are busy).
 - **Output:** `$TANAGER_BUILD/soak/summary.md` lists main's commit, the programs run per day and configuration, and the failures to triage.
   - Each failure keeps its program, the last 80 lines of its log and a one-line repro in `soak/fail/<time>-<cfg>-s<seed>/`; the newest 100 are kept.
