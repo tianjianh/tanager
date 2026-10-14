@@ -118,7 +118,7 @@ _start:
   addi s1, s0, 64
   li t0, 100
   sd t0, 0(s1)
-  li t5, 16
+  li t5, 1024                    /* probe stress (--probe-rate, --bp) took up to ~30 tries */
 1:
   lr.d t1, (s1)
   addi t1, t1, 1

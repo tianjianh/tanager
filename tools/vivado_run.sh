@@ -97,15 +97,36 @@ while true; do
             rm -f "$qfile"
             flock -u "$adm"; exec {adm}>&-
             echo "[vivado_run] slot $i ($owner, ${need} GB declared): $tcl in $run_dir ($(date '+%F %T'))"
+            # Measure the job's peak memory: every 10 s, the summed RSS of all processes working under the
+            # run directory (Vivado and its workers). Reported at the end and logged, so declarations can
+            # follow measurements.
+            peakf="$lock_dir/vivado.$i.peak"; echo 0 > "$peakf"
+            rdir=$(realpath "$run_dir")
+            # The sampler closes its copy of the slot lock (the job keeps it) and stops its sleep when killed,
+            # so nothing holds the slot after the job ends.
+            ( exec {fd}>&-
+              trap 'kill "$slp" 2>/dev/null; exit 0' TERM
+              while :; do
+                sleep 10 & slp=$!; wait "$slp"
+                s=0
+                for p in $(ls -l /proc/[0-9]*/cwd 2>/dev/null | awk -v d="$rdir" '$NF == d || index($NF, d "/") == 1 {split($(NF-2), a, "/"); print a[3]}'); do
+                  r=$(awk '/^VmRSS/ {print $2}' "/proc/$p/status" 2>/dev/null || true); s=$((s + ${r:-0}))
+                done
+                if [ "$s" -gt "$(cat "$peakf" 2>/dev/null || echo 0)" ]; then echo "$s" > "$peakf"; fi
+              done ) </dev/null >/dev/null 2>&1 &
+            sampler=$!
             set +e
             ( echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
               source "$settings" >/dev/null && cd "$run_dir" && \
               vivado -mode batch -nojournal -log vivado.log -source "$tcl" -tclargs "$@" ) </dev/null
             rc=$?
+            kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
             set -e
-            rm -f "$lock_dir/vivado.$i.mem" "$lock_dir/vivado.$i.owner"
+            peak=$(awk '{printf "%.1f", $1 / 1048576}' "$peakf" 2>/dev/null || echo "?")
+            rm -f "$lock_dir/vivado.$i.mem" "$lock_dir/vivado.$i.owner" "$peakf"
             exec {fd}>&-
-            echo "[vivado_run] done rc=$rc ($(date '+%F %T'))"
+            echo "$(date '+%F %T') $owner declared ${need} GB peak ${peak} GB rc=$rc $run_dir" >> "$lock_dir/vivado_peaks.log"
+            echo "[vivado_run] done rc=$rc, peak ${peak} GB of ${need} GB declared ($(date '+%F %T'))"
             exit $rc
           fi
           exec {fd}>&-

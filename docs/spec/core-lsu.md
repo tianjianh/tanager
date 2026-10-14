@@ -17,7 +17,8 @@ Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md))
 
 ## Interface
 Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
-- **From dispatch:** LQ/SQ entry writes (ROB index, size, sign, destination, LLT; for stores the data's physical register).
+- **From dispatch:** LQ/SQ entry allocation (valid, state); for stores also the data's physical register, its file, and the atomic flag.
+- **At AG / STA:** the rest of the entry, from the port's payload, since nothing reads it before: a load's ROB index, SQ bound, destination, LLT, size and extension; a store's ROB index and size. One write per queue and cycle, so no entry multiplexes the dispatch slots.
 - **From issue (RF stage):** the LD and STA ports' payloads; their base operands come bypassed from `tg_exec` in EX.
 - **Register file:** the shared store-data read port (address from the SQ, data back in the same cycle); the load bank's write port (written at WB from the load result register).
 - **To the ROB:** load and store completion, exceptions {ROB index, cause, `tval`}, replay marks (ordering violations), `mmio` marks.
@@ -48,7 +49,10 @@ A ready entry re-enters at AG when the AG slot is empty. While one is ready, IQ-
 - **STA pipe:** RF → AG: VA, misaligned (cause 6), access fault (cause 7: above `PA_W`, `PMA_NONE`, `PMA_ROM`), `PMA_DEVICE` → MMIO store. The address and byte mask go into the SQ entry.
 - **Ordering check:** at AG, every younger load (allocated after this store) that has already obtained its value from the cache or from an older store, with a byte overlap in the same dword, is marked for replay in the ROB (the oldest such load is enough; the ROB flushes at it).
 - **Data capture:** each cycle the oldest SQ entry without data whose register is written reads it through the shared read port. An entry knows its register is written from rename's ready bit at dispatch, or by snooping the register-file write ports (one compare per entry and bank), so the read sees the value; there is no lookup of the ready table per entry.
-- **Cold storage (LUTRAM):** the LQ's and SQ's virtual addresses (tval, the trace's `mem_vaddr`, the ROB head's walk) and the SQ's data (the trace, forwarding, the drain, atomics) live in `tg_ram_lut`s; the CAM flip-flops hold the physical address, masks and state.
+- **Cold storage (LUTRAM):** these live in `tg_ram_lut`s; the CAM flip-flops hold the physical address, masks, SQ bound, size and state.
+  - The LQ's and SQ's virtual addresses: tval, the trace's `mem_vaddr`, the ROB head's walk.
+  - The LQ's ROB index and result fields (destination, LLT, file, extension), next to the VA. They are written at AG and read at M2, at the MMIO load and at the LQ head; the oldest ordering violation's ROB index has a one-port copy.
+  - The SQ's data: the trace, forwarding, the drain, atomics.
 - **Completion:** the ROB entry completes when the SQ entry has its address and its data (or an exception).
 - **Commit** marks the entry committed; **drain** takes the SQ head once committed: cacheable stores write the D$ when the line is held with T (setting dirty), otherwise they request the MSHR (`AcquireBlock NtoT`, or `BtoT` from B) and retry; MMIO stores send `PutFullData` and pop on `AccessAck`.
 - **Flush:** uncommitted entries are dropped (tail ← commit pointer); committed ones keep draining. `sq_empty` gates FENCE, FENCE.I and MMIO loads.
@@ -89,7 +93,17 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
 
 ## Timing and area
-M2 is for simulation. The flip-flop state array and the 64-bit addresses in the queues are M2 conveniences; the plan's budget (§8.2, 6.4K LUTs for the LSU) applies from M6.
+- **Queues:** the fields the searches compare (physical address, byte masks, state, SQ bound, size) are flip-flops. Fields read only by index are in LUTRAM (cold storage, lever R7): virtual addresses, store data, and the LQ's ROB index and result fields.
+- **Age searches:** the replay pick, store-data capture, forwarding and the ordering check are each two priority encoders over a mask of slots, with no ID arithmetic.
+  - A queue's entries lie in [head, tail). So the oldest of a set of slots is the first at or after the head's slot, else the first from slot 0.
+  - The youngest store older than a load is the last match below the load's `lq_sq` slot, else the last match overall.
+  - Window checks compare slot numbers with the head and the bound.
+- **Store bytes:** forwarding, the drain and atomics use the store's bytes copied into every aligned slot of their size, instead of shifting them to the address. Stores are naturally aligned, so their own byte lanes hold the copy that a byte-masked write or a covered load reads.
+- **Loaded elements** (M2, MMIO loads, an atomic's old value) are extracted for their alignment (`ext_al`). Misaligned accesses trap at AG, so result byte 0 selects among 8 offsets, byte 1 among 4, bytes 2–3 between 2, and the upper half has one source. A byte shifter would offer all 8 everywhere.
+- **Reads by index of CAM fields** come from LUTRAM copies written with them: a replay's PA, and the MMIO load's (`u_lqa`), and the SQ head's PA, mask and size (`u_sqh`). The flip-flops stay for the searches.
+- **Atomics** read their SQ entry through the head's ports. An atomic runs only as the SQ head and commit point, and the drain has nothing to do meanwhile (asserted).
+- **MMIO loads** are picked at the LQ head. A load at the ROB head is the oldest in the window, so it is the LQ head.
+- Per-unit LUT counts: core-pipeline.md §16.
 
 ## Verification
 Spike lockstep on riscv-tests (`ld_st`, `st_ld`, misaligned and access-fault tests), CoreMark and Dhrystone, with `--lat`, `--bp`, `--d-gap`, `--grant-b` (S state and upgrades) and `--probe-rate` (random probes) stress; the harness's TL-C monitor checks the protocol rules.

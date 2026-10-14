@@ -122,7 +122,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Variant:** `STALE = 0`, the guard, with predecoded wakeup IDs (`WAKE_ENC = 1`), as spikes.md §4.1 recommends, for the LLT columns: `busy` (the OR of every row's dependency bits) names the LLTs a queued row still waits on, and rename does not reallocate them. Tag columns are cleared in every row when the tag returns (`col_clr`, honoured in the guard variant too). No queue wakes at select. The column-clear variant (`STALE = 2`) remains a `tg_issue` parameter.
 - **Timing levers (spikes.md §4.2), set in `tg_core_pkg`:** `IQ_DUP_SEL = 1` (a second select copy drives only the wakeup broadcast); `IQ_EARLY_W` = the source tags (the payload's low bits; the rest sits in per-bank LUTRAM and is read in RF); `IQ_MX` = on when `TID_W > 0` (matrix wakeup, required for `smt2` timing), with the cancel history `HIST = 1`.
 - **MX naming at dispatch.** A row names its in-queue 1-cycle producers (ALU ops and branches with a link) by ALU-queue row (`disp_mdep`, rows numbered across the ALU queues) and is ready when those rows have been selected; their W bit follows a cycle later. Dispatch finds the row through `rowof` (physical register → the row its producer was written into, recorded at DS) and confirms it with one compare: the row is still held (`mx_hold`: valid and not freed this cycle) and its destination (`rowdst`) equals the source. A producer in the same group is named by the row it is being written into (`mx_alloc`). Otherwise the source uses the producer's ID.
-- **Payload formats.** Rename builds one `iq_pl_t`; each queue stores only the bits its port reads, so no LUTRAM bit is left for synthesis to trim, and the other fields leave the queue as zero. All ALU queues: class, the ALU control word without the min/max group and `cmp_max` (`tg_alu` `MINMAX = 0`: min/max ride P1's MUL slot), `b_imm`, the immediate, the destination's index (its bank is the port's) and both source tags. A0 adds the branch fields (PC, kind, funct3, target, JALR offset, predicted next PC, micro-BTB hit and way, `dfix`, RVC); A1 adds `cmp_max`, the MUL/DIV/CSR fields, the wakeup column (MUL: its tag; DIV: its LLT's) and the instruction (CSR tval); both keep the ROB ID with its wrap bit (exception and misprediction age), A2 only the index (completion). LD: ROB ID, the 12-bit offset (sign-extended at issue), LQ index, size, base tag; STA: ROB ID, the 12-bit offset, SQ ID, size, base tag.
+- **Payload formats.** Rename builds one `iq_pl_t`; each queue stores only the bits its port reads, so no LUTRAM bit is left for synthesis to trim, and the other fields leave the queue as zero. All ALU queues: class, the ALU control word without the min/max group and `cmp_max` (`tg_alu` `MINMAX = 0`: min/max ride P1's MUL slot), `b_imm`, the immediate, the destination's index (its bank is the port's) and both source tags. A0 adds the branch fields (PC, kind, funct3, target, JALR offset, predicted next PC, micro-BTB hit and way, `dfix`, RVC); A1 adds `cmp_max`, the MUL/DIV/CSR fields, the wakeup column (MUL: its tag; DIV: its LLT's) and the instruction (CSR tval); both keep the ROB ID with its wrap bit (exception and misprediction age), A2 only the index (completion). LD: ROB ID, the 12-bit offset (sign-extended at issue), LQ index, size, base tag, and the fields the LQ entry takes at AG (SQ bound, destination index and file, LLT, extension; core-lsu.md); STA: ROB ID, the 12-bit offset, SQ ID, size, base tag.
 - **Changes to the spike module:** a `sel_block` input (registered) that suppresses the queue's grant for a cycle (A1 uses it to keep bank 1's write port free, §7.3; LD uses it to free the load pipe for LQ replays); and a row granted in the cycle it is killed does not issue.
 - **Wakeup timing:** ALU ops through MX alone (a dependant selects the cycle after its producer); MUL its tag through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); loads and DIV their LLT when their result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
 
@@ -145,7 +145,9 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
-- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`, `tlb` (M3: a DTLB miss).
+- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`.
+- **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
+- **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
@@ -211,13 +213,20 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 |---|---|---|
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
-| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) | not yet: two 64-bit LUT incrementers |
-| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles; one hart keeps flip-flops |
+| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | partly: Vivado maps the adders (2 DSPs, −30 LUTs) but keeps the counters in flip-flops; a hand-built DSP48E2 accumulator would take the rest (about 110 LUTs, 128 flip-flops) |
+| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
-| TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), AND-OR lookup | done |
+| TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
+| LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; aligned extraction of loaded elements; the MMIO pick at the LQ head; LQ/SQ fields written at AG/STA instead of dispatch; LUTRAM copies of the queue addresses for reads by index; an atomic reads through the SQ head's ports | done |
+| ROB tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`) | done: ROB 3,308 → 2,920 at st |
+| Region decode (DR-120) | `tg_map_pkg::pma_of`: naturally aligned power-of-two regions matched by prefix, with the range test kept for any other region | done: 136 → 10 LUTs per instance (fetch, load AG, STA, walker; the crossbar) |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
+
+**Reserve (D18: sharing, or a function cut; not taken):**
+- The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
+- The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
 
@@ -307,6 +316,76 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - **Sm_csr_ro "fetch bug" (verification track):** this was the I$ refill race. Reproduced on the M2 core at 41be4a0, it fails 0/2 without the refill fix and passes 2/2 with it.
 - **Lesson:** rebuild the ACT4 ELFs whenever the plan list grows. A stale ELF set hid these tests.
 
+**Second area pass (2026-10-14, after F/D):**
+- **Starting point:** main cb8ff6c. st 56,461 LUTs, smt2 62,501, with lsu_mmu the largest unit at 17.8K (st) and 22.3K (smt2).
+- **Proof of no IPC:** lockstep proves only correctness. Each step was also run against its predecessor on the same ELFs (326 riscv-tests, CoreMark A/B, Dhrystone), natively and under memory stress, and the cycle and instret counts were compared.
+
+| Step | Commit | Measured (st) |
+|---|---|---|
+| LSU age searches as two priority encoders each (the oldest from the head, or from slot 0; the youngest below a bound, or overall) | 2aa103d | the LSU's own logic, for the LSU steps together: 8,374 → 5,020 at st, 12,822 → 7,098 at smt2 |
+| TLB leaves in LUTRAM, read at the OR-encoded match | 9bf465f | DTLB 2,741 → 1,496 (flip-flops 1,989 → 965); ITLB 745 → 492 |
+| The walker's PMP checks on the STA port's checker | 4b85114 | `tg_ptw` 1,073 → 193; the STA checker 861 → 911 (its input mux). **Reverted** (5c124f2) under D18 and moved to the reserve (§13): walks and store addresses were not exclusive |
+| MMIO pick at the LQ head; store bytes replicated instead of shifted | a16116f | (in the LSU line above); `tg_dcache` 3,468 → 3,357 (its store write data) |
+| Divider: one 64-bit rotation and a mask instead of a 128-bit shifter | 8ed931c | 1,323 → 1,425: **worse**, reverted (a32d2aa) |
+| LQ fields written at AG, SQ fields at STA (no dispatch-slot multiplexers) | 6b70b1d | (in the LSU line); IQ-LD 603 → 654 (its payload, LUTRAM 32 → 64) |
+| LQ cold fields in LUTRAM with the VA | 8a5c651 | (in the LSU line); `u_lqc` 144 LUTRAM for the VA alone was 112 |
+| One AG report per LSU port into the ROB (14 index decoders instead of 17) | 935dc2b | ROB +20, LSU −12: **no gain**, reverted (a926037) |
+
+- **Result:**
+  - st: 56,461 → 50,768 LUTs (a32d2aa), −5.7K (−10%); flip-flops 23,091 → 21,292. lsu_mmu 17,819 → 12,307, fe 5,257 → 5,004.
+  - smt2: 62,501 → 54,506 (8a5c651, still with the divider rotation, +0.1K), −8.0K (−12.8%). lsu_mmu 22,281 → 14,405: the larger smt2 queues gained more from the searches.
+  - a926037 drops the neutral AG-report merge from a32d2aa, and 5c124f2 gives the walker its checker back (+0.83K): about 51.6K at st.
+- **Two steps measured worse or level and were reverted:**
+  - The divider's rotation: the 128-bit shift of a half-zero value maps well already.
+  - The merged AG reports: per-kind write qualifiers in every ROB entry cost what the decoders saved.
+  - Lesson: measure even "obvious" savings before keeping them.
+- **The walker's shared checker** was the one step that changed cycles. A walk step waited a cycle when it met an STA: +0.11% cycles in total on the 149 `-v` riscv-tests, which fault in every page, and +0.88% at worst. The coordinator's D18 check sent it back: sharing comes last unless the users are exclusive by construction. It is reverted, so the pass as merged is cycle-identical to main everywhere.
+
+**What the first cut did that cost area, and why:**
+- Each age search was written as "distance from the head" arithmetic and a running minimum. That is the obvious reading of "oldest", and it was the same shape in all four searches.
+- The TLB leaves sat in flip-flops read through an AND-OR, as in spike S4. The spike's TLB was small, and LUTRAM did not look necessary there.
+- LQ entries were filled at dispatch, the way the ROB is. Most of their fields are not needed until AG, and that is where a single write port is free.
+
+**What I'd write differently:** for every queue field, ask where it is first read. A field read only by index belongs in LUTRAM, written at that point. A field read by a search belongs in flip-flops.
+
+**Linux boots (2026-10-14).**
+- **The run:** OpenSBI v1.9, then Linux (Buildroot, lp64d), then userspace (syslogd, klogd, sysctl, network, crond), then `TANAGER-BOOT-OK`, on `tanager_soc` in Verilator. The core was main cb8ff6c with F/D on: 335.4 M cycles and 137.7 M instructions retired (3.3 h at 4 threads), with no oops and no assertion. The soc track's images and snapshot (`make -C tests/unit/boot linux`).
+- **Core bugs it needed:** only the I$ refill race (b5e11f4), found by the soc track's earlier kernel runs. With F/D, the userspace runs lp64d binaries.
+- **The area-pass core:** it ran the same boot to the 60 M-cycle cap, at the same kernel point and instruction count as main's.
+
+**Third area pass (2026-10-14, after the D18 check), from LUT attributions:**
+- **Method:** each unit was synthesised out of context, and every LUT was grouped by the signal it drives (`get_cells -filter {PRIMITIVE_SUBGROUP == LUT}`). That shows where a unit's own logic goes. Each step was then measured in the core and compared cycle for cycle with main.
+- **The walker's shared PMP checker was reverted (5c124f2).** It was not exclusive by construction (D18), so its −0.83K is a reserve lever (§13).
+
+| Step | Commit | Measured (st) |
+|---|---|---|
+| LSU: aligned extraction (`ext_al`), the atomic through the SQ head's ports, LUTRAM copies of the queue addresses for reads by index | 45af062 | lsu_mmu 13,266 → 12,622 (with the ROB step) |
+| ROB: FP flags in two one-port LUTRAMs; no `tlb` bit (the LSU's `hd_tlb`) | 625ef03 | ROB 3,308 → 2,920, flip-flops −292 |
+| R1: counters with `use_dsp` | c86fd95 | CSR −30 (2 DSPs). Vivado maps the adders, not the counters |
+| Rename: store-data readiness from RN | 46e3bba | rename +8: **reverted** (2196f12) |
+| D$: one way multiplexer for port B's read data (probes, releases, atomics) | a166670 | `tg_dcache` 3,274 → 2,770 |
+| LSU exceptions' tval read at the head (LQ head / SQ commit point VA) | 35e15db | LSU −130, ROB −133 |
+| MX rows confirmed by the issue queue's ROB IDs (no `rowdst_q`) | a95a397 | −69 LUTs, but **not cycle-identical**: reverted (279fe46). The old `rowdst_q` check also accepts a row whose new occupant did not update `rowdst_q` (a branch with no rd, MUL/DIV/CSR on A1): a false MX dependency. The ROB-ID check rejects those, which moves wakeup timing (Dhrystone +0.36% cycles, CoreMark A −0.03%, B +0.05%). Fixing it is an IPC question, not an area one |
+| D$: store and atomic data enter as 64 bits, duplicated inside (port B's write multiplexer sees equal halves) | 4606440 | lsu_mmu −52 |
+| `pma_of` by prefix match (DR-120) | 583e41e | lsu_mmu −490, fe −37 |
+| FLW NaN-boxed in the LSU, for the FPU track (P4 can drop `fld_single`): first in `ext_al`'s extension | 3f9a227 | lsu_mmu +140: a second extract path and a fill term in every upper bit |
+| ... then at the result register's input instead: the word arrives zero-extended and ones are ORed into its upper half | 0e3f639 | the D-input multiplexer absorbs it |
+
+- **Result at 583e41e** (with DR-120 and main's P4 pass):
+  - st 49,097 LUTs and smt2 51,839, against 56,461 and 62,501 on main cb8ff6c: −7.4K and −10.7K, of which −0.13K is P4's.
+  - st_w3 62,199, smt2_w3 66,773.
+  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks, and through 59 M cycles of the Linux boot (the same instruction count and PC at 58 M and 59 M cycles).
+- **With DR-113's settings** (the budget flow from main fd54e65: hierarchy kept plus `AreaOptimized_high`), at cc5e962 (0e3f639's RTL):
+  - st 46,132 against main cb8ff6c's 52,024 with the same settings (−5.9K, −11.3%): lsu_mmu 16,157 → 10,932, rob_csr 4,793 → 4,390, fe 4,966 → 4,738; rename 4,324 unchanged.
+  - smt2 49,022.
+- **The directed `amo` test** (bae805e): its LR/SC loop allowed 16 tries, and under `--probe-rate=150 --bp=20` it needs up to about 30, since a probe of the reserved line ends the reservation. It allows 1,024 now. Main failed the same way; the FPU track found it.
+- **Lessons:**
+  - A LUT attribution beats intuition. It found three way multiplexers on one port in the D$, 136-LUT range compares in `pma_of` (where a prefix compare takes 10), and tval buses that only a trap at the head reads.
+  - Two of the seven steps were level when measured, and one moved cycles, which only the cycle comparison caught: lockstep and every test passed.
+
 **Dead ends:**
 - My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
 - A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
+- The divider's normalisation as a 64-bit rotation plus a mask (8ed931c, reverted in a32d2aa): +102 LUTs.
+- One AG report per LSU port into the ROB (935dc2b, reverted in a926037): level.
+- The walker on the STA port's checker (4b85114, reverted in 5c124f2): −0.83K, but not exclusive (D18); it is in the reserve (§13).

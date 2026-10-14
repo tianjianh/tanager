@@ -50,8 +50,8 @@ Dates are 2026, US Pacific.
 | DR-015 | 10-12 | Vivado 2025.2, frozen | approved | coord (plan default) | D3 |
 | DR-016 | 10-12 | v1 ISA: RV64GC + Sv39 + the §4.1 extensions; no RVA23 | approved | coord (plan default) | D4 |
 | DR-017 | 10-12 | L2: 1 MiB in UltraRAM, with 512 KiB as the fallback | approved | coord (plan default) | D5 |
-| DR-018 | — | Licence: Apache-2.0 or Solderpad 2.1 | pending | user | D7 |
-| DR-019 | — | Name "Tanager" (a working name) | pending | user | D9 |
+| DR-018 | 10-14 | Licence: **Solderpad Hardware License 2.1 for the hardware** (`rtl/`, `fpga/`, HDL test benches) and **Apache-2.0 for the software** (host software, scripts, tools, models, docs). **Pros:** the usual split for RISC-V cores; Solderpad adapts Apache-2.0 to hardware, with a patent grant; Apache-2.0 is the familiar software licence. **Cons:** two licences to track (by directory); Solderpad is less known outside hardware. **Rejected:** Apache-2.0 for everything (written for software); MIT (no patent grant); proprietary (no outside use). | approved | user | D7 |
+| DR-019 | 10-14 | Keep the name "Tanager" (prefix `tg_`, `TANAGER_*`, `tanager-host`, ID `TNGR`). **Pros:** no rename churn, since the name is already in every module and tool. **Cons:** check for clashes with other projects or trademarks before publishing. | approved | user | D9 |
 | DR-020 | 10-13 | F and D are in v1, and the M1 study was re-checked with the FPU | approved | user | plan §4.12 |
 
 ## 2. Process and organisation
@@ -93,6 +93,7 @@ Dates are 2026, US Pacific.
 | DR-108 | 10-14 | Give WSL 56 GB of the 5950X's 64 GB (it has about 40 GB), then raise the Vivado budget to about 34 GB with 3 slots | approved (applied 10-14 at the 10:50 WSL restart) | user | `.wslconfig` (backup `C:\WSL\wslconfig.bak-20261014`) |
 | DR-109 | 10-14 | After the second stall: the admission counts a slot held by an older `vivado_run.sh` as 10 GB, and tracks merge main before their next heavy job whenever a shared tool changes | approved | coord | conventions §9; devlog §5 |
 | DR-115 | 10-14 | Vivado admission becomes a fair queue: tickets, with the waiting job whose owner holds the fewest slots going first, and the head holding the admission lock. **Why:** waiters polled every 15 s and lost freed slots to back-to-back launches. The core's run waited 35 minutes and the FPU's 50. **Also:** 3 slots on the build host, since the 24 GB declared budget is the binding limit. | approved | coord (core track's request) | conventions §9 |
+| DR-127 | 10-14 | Vivado jobs report their measured peak memory, and the build host goes to 4 slots with a 40 GB declared budget (from 3 slots and 34 GB). **Basis:** live jobs measured 19.1 GB against 32 GB declared, about 60%; four jobs were queued. **Pros:** more parallel runs, with declarations calibrated from measurements. **Cons:** the budget now assumes some over-declaration; if every job hits its full declaration, 40 GB plus about 8 GB for the rest still fits in WSL's 54 GB, and memguard is the backstop. The sampler adds a short `/proc` scan every 10 s per job. | approved | coord | conventions §9 |
 
 ## 4. Core microarchitecture and interfaces
 
@@ -198,6 +199,7 @@ Dates are 2026, US Pacific.
 | DR-103 | 10-14 | Trace streaming on S_AXI_HP3_FPD | approved | track | soc.md |
 | DR-104 | 10-14 | The initramfs is not compressed in RTL boots, which saves inflating 7 MB | approved | track | — |
 | DR-105 | 10-14 | Hold the KV260 bitstream with the real core until the core's area pass lands | approved | coord | — |
+| DR-126 | 10-14 | **The board setup and its bring-up stages (the user's plan).**<br>**Setup:** the KV260 connects to the laptop by a direct Ethernet cable with Windows connection sharing (192.168.137.0/24). The 5950X is remote and can't reach it, so board work runs from the laptop; bitstreams and software are built on the 5950X and copied over. A PMOD UART on the PL is the RISC-V side's debug console. Existing SSH entries stay untouched; the board has its own key and config (`~/.ssh/tanager_kv260.conf`).<br>**Stages:**<br>(A) the ARM side up: Kria Ubuntu, network, the `mem=3G` carve-out, the SMMU check, spike S1;<br>(B) the RISC-V core: the traffic-generator bitstream, then the real core booting Linux, with the console on the host bridge and the PMOD UART;<br>(C) the board's peripherals bridged to the RISC-V side;<br>(D) dual boot: the ARM and the RISC-V each have a partition on the SD card; once the ARM has booted, it can hand everything to the RISC-V and park.<br>**Stage D's choice, direct peripherals instead of virtio-blk served by the ARM (plan M5):** the RISC-V drives the PS's SD, Ethernet, USB and UART through a PL-to-PS port, with PS-to-PL interrupts.<br>**Pros:** a standalone RISC-V Linux machine, native peripheral speed, and the user's goal; the Cadence GEM, Arasan SDHCI and DWC3 drivers are in mainline Linux for RISC-V.<br>**Cons:** the ARM side (FSBL, PMU firmware, ATF) sets the peripherals' clocks, resets and pins, so the handover must leave them configured. The PL-to-PS path needs SMMU/XMPU settings. Harder to debug than virtio. virtio-blk stays as the interim path in stage C. | approved (direction) | user | soc.md (to plan) |
 
 ## 10. M1-era feature decisions
 
