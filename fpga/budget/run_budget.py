@@ -74,6 +74,25 @@ def has_module(files, top):
     return False
 
 
+def hier_rows(path):
+    """Instance -> counts for the first level below the top of a report_utilization
+    -hierarchical table (instance names are indented by depth)."""
+    rows = {}
+    with open(path) as f:
+        for line in f:
+            m = re.match(r"^\|(\s+)(\S+)\s+\|", line)
+            if not m or len(m.group(1)) != 3:
+                continue
+            c = [x.strip() for x in line.strip().strip("|").split("|")]
+            try:
+                n = [float(x) for x in c[2:11]]
+            except ValueError:
+                continue
+            rows[c[0]] = dict(lut=int(n[0]), lutram=int(n[2]), ff=int(n[4]),
+                              bram=n[5] + 0.5 * n[6], dsp=int(n[8]))
+    return rows
+
+
 def budget_for(budgets, unit, cfg):
     for row in budgets:
         if row[0] == unit and row[1] == cfg:
@@ -120,9 +139,20 @@ def main():
     want_c = set(filter(None, a.cfgs.split(",")))
     rtl = f_files(os.path.join(root, "rtl", "rtl.f"))
 
-    jobs, skipped = [], []
-    for u, cfgs, top, files, gens in units:
-        if want_u and u not in want_u:
+    jobs, derived, skipped = [], [], []
+    for row in units:
+        u, cfgs, top, files, gens = row[:5]
+        opts = row[5].split() if len(row) > 5 and row[5] != "-" else []
+        if want_u and u not in want_u and not top.startswith("@"):
+            continue
+        if top.startswith("@"):
+            # a unit read from another unit's hierarchical report (built with -flatten none)
+            parent, _, insts = top[1:].partition(":")
+            if want_u and u not in want_u and parent not in want_u:
+                continue
+            for c in cfgs.split(","):
+                if not want_c or c in want_c:
+                    derived.append(dict(unit=u, cfg=c, parent=parent, insts=insts.split("+")))
             continue
         extra = [] if files == "-" else files.split(",")
         if not has_module(rtl + [os.path.join(root, f) for f in extra], top):
@@ -131,7 +161,7 @@ def main():
         for c in cfgs.split(","):
             if want_c and c not in want_c:
                 continue
-            jobs.append(dict(unit=u, cfg=c, top=top, files=extra,
+            jobs.append(dict(unit=u, cfg=c, top=top, files=extra, opts=opts,
                              generics=[] if gens == "-" else gens.split(",")))
     print(f"budget run: {len(jobs)} syntheses at {commit}" +
           (f"; skipped: {', '.join(skipped)}" if skipped else ""), flush=True)
@@ -153,6 +183,7 @@ def main():
             cmd += ["-g", g]
         for f in j["files"]:
             cmd += ["-file", f]
+        cmd += j["opts"]
         t0 = datetime.datetime.now()
         rc = subprocess.run(cmd, cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
         summ = {}
@@ -182,6 +213,27 @@ def main():
                 shutil.copy(os.path.join(rd, f), keep)
         if not a.keep:
             shutil.rmtree(rd, ignore_errors=True)
+
+    # Derived units: an instance (or a sum of instances) of a built unit, from its
+    # hierarchical utilisation (exact when the parent was built with -flatten none)
+    for d in derived:
+        par = next((r for r in results if r["unit"] == d["parent"] and r["cfg"] == d["cfg"]), None)
+        vals = {k: None for k, _, _ in METRICS}
+        ok = False
+        hier = os.path.join(a.out, "reports", f"{d['parent']}_{d['cfg']}", "util_hier.rpt")
+        if par and par["ok"] and os.path.exists(hier):
+            rows = hier_rows(hier)
+            found = [rows[i] for i in d["insts"] if i in rows]
+            if len(found) == len(d["insts"]):
+                ok = True
+                vals = {"opt_lut": sum(f["lut"] for f in found),
+                        "opt_lut_dram": sum(f["lutram"] for f in found),
+                        "opt_ff": sum(f["ff"] for f in found),
+                        "opt_dsp": sum(f["dsp"] for f in found),
+                        "opt_bram": sum(f["bram"] for f in found)}
+        results.append(dict(unit=d["unit"], cfg=d["cfg"], top="@" + d["parent"] + ":" +
+                            "+".join(d["insts"]), generics=[], ok=ok, minutes=0, values=vals,
+                            prim_fail=0, prim_stray=0, derived=True))
 
     # Previous run, for the deltas
     prev = {}
@@ -221,6 +273,8 @@ def main():
                 cell += f" (Δ {'+' if d > 0 else ''}{fmt(d)})"
             cells.append(cell)
         prim = "clean" if r["prim_fail"] == 0 else f"{r['prim_fail']} FAIL"
+        if r.get("derived"):
+            prim = "(from " + r["top"][1:] + ")"
         if r["prim_stray"]:
             prim += f", {r['prim_stray']} stray"
         if not r["ok"]:

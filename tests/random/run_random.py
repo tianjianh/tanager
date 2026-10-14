@@ -61,6 +61,8 @@ def replay_args(seed):
         args.append("--defer-all")
     if r.randrange(2):
         args.append("--nondet")
+    if r.randrange(2):
+        args.append(f"--sc-fail={r.choice([20, 50])}")
     return args
 
 

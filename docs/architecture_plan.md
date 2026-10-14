@@ -464,6 +464,21 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
     - **The cancel history** is 1 cycle (`HIST = 1`).
     - **Results:** +0.11 ns at 8.9K LUTs (v1) and +0.06 ns at 12.5K (v2).
   - **Stale dependencies:** the guard. The phase-bit variant deadlocked in random tests, because a pooled LLT was reused while a row still waited on its first instance.
+- **Wakeup tags (AR-1, adopted 2026-10-14 under D18 step 1; [area study](perf/area_recovery.md) §5).** The readiness vectors drop their ROB-index columns (80 at v1, 96 at v2).
+  - **What replaces them:** a pool of 16 wakeup tags, for the producers that need one: multi-cycle fixed-latency ops (MUL, complex Zbb, the FMA, FP misc and move ops) and serialised ops.
+  - **The other producers are already covered:** MX covers every 1-cycle producer, and LLTs cover loads, divides and long FP ops.
+  - **Exact in the model:** 0.00% IPC at 30, 120 and 250 cycles, on every pair, the single-thread suite, and in v1, v2 and ST. There were 0 tag stalls.
+  - **Saving, measured (spike S2, 2026-10-14, whole scheduler at 200 MHz).** It beats the study's estimate (v1 2.7–3.0K, v2 4.7–5.0K, ST 1.0–1.2K):
+
+    | Configuration | ROB columns with MX | 16 wakeup tags | Saved | Slack |
+    |---|---|---|---|---|
+    | ST | 6,425 | 4,802 | −1,623 (−25%) | +0.145 → +0.518 ns |
+    | v1 (SMT2) | 8,895 | **5,506** | **−3,389 (−38%)** | +0.112 → +0.218 ns |
+    | v2 (SMT2 + 3-wide) | 12,515 | 7,703 | −4,812 (−38%) | +0.057 → +0.026 ns |
+
+    v1's scheduler is now about 2.8K under its 8.35K budget ([budgets.md](perf/budgets.md)).
+
+  - **Consequence:** the window size no longer sets the scheduler's LUTs.
 - **Wakeup timing:**
   - 1-cycle operations wake at select, so dependants issue back to back.
   - Fixed multi-cycle operations wake through a delay line.
@@ -1051,6 +1066,18 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 - **Every configuration has per-unit LUT budgets in CI:** `st`, `smt2`, `st_w3`, `smt2_w3`.
 - **Spike S6** floorplans the `smt2_w3` dual-core as well as v1, and runs the fill test.
 - **M6** synthesises all four configurations.
+
+**Area-recovery study, model side: done (2026-10-14; [area_recovery.md](perf/area_recovery.md)).** Decisions:
+
+| # | Item | Status |
+|---|---|---|
+| AR-1 | Wakeup tags (16), every configuration | **Adopted** (no IPC cost; §4.6) |
+| AR-2 | R9 (strict store forwarding) and R10 (shared checkpoints): −0.04% / −0.00% at most | **Held as the first reserve.** They share or reduce function, which D18 puts last. |
+| AR-3 | v1 keeps D15's structures and uses no IPC-costing lever. With tags it fits 103K at 200 MHz if every unit meets its budget (92–104K projected). | **Adopted.** A bigger window (ROB 96, LQ 32, SQ 24: +1.84% throughput, +0.69% single thread, ≈0.7K per core) is **kept as an option and not adopted** (user, 2026-10-14). It can be reconsidered when the measured fit leaves room. |
+| AR-4 | v2 re-plan: `smt2_w3` with tags (plus R9, R10, R12 and completion buffer 8 if needed); R11 and R13 dropped (both fail the rule); target 180–190 MHz. At 190 MHz v2 still beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread. | Direction recorded; v2 comes after v1 |
+| AR-5 | Fill test at 180–190 MHz with v2's core (with tags), at 90 / 93 / 96% | Running with spike S6 |
+| AR-6 | Reserve order. v1: R9, R10, FP queue 8, LD queue 4, radix-4. v2: radix-4, then 8-row ALU queues. Everything else fails the reverse rule. | Ranking only |
+| AR-7 | Re-measure the real RTL after the core track's no-IPC area pass (`st` is at 88K against 38.2K), then redo the fit | **Gate:** no IPC-costing lever before it |
 
 **Area-recovery study (started 2026-10-13, triggered by S6).**
 - **Priority (D18).** IPC comes first. The study proceeds in three steps and moves to the next only when the previous one is exhausted:
