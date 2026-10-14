@@ -128,7 +128,7 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 
 - **Pins:** `sw/versions.sh` (OpenSBI 1.9, Linux 6.18.56, Buildroot 2026.08, Bootlin `riscv64-lp64d` glibc toolchain 2026.08-1 with GCC 15.3, and for `tanager-host` the Bootlin `aarch64` musl toolchain 2026.08-1 with GCC 15.3). `sw/fetch.sh` downloads into the one shared download directory and checks SHA-256 sums recorded in `sw/sha256sums`, which match the upstream published sums. The aarch64 toolchain is unpacked under `$SOC_BUILD/tc` and its archive deleted; `make -C sw/host` builds a static, stripped `tanager-host` (about 75 KB).
 - **`sw/build_linux.sh`:** Buildroot with the external tree `sw/buildroot`. The configuration `tanager_lp64d` builds:
-  - a busybox initramfs, built into the kernel;
+  - a busybox initramfs, built into the kernel uncompressed (inflating its 7 MB would add an estimated hour or two to an RTL simulation);
   - Linux from `board/tanager/linux.config` (a small seed: no modules, no EFI, only the platform's drivers);
   - OpenSBI `fw_jump`;
   - the device trees.
