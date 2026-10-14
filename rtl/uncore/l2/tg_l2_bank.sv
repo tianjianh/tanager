@@ -1093,20 +1093,27 @@ module tg_l2_bank
     end
   end
 
-  // ReleaseAck queue (from the C path)
-  tl_d_t rack_in, rack_out;
+  // ReleaseAck queue (from the C path). It holds only the fields that vary, so every stored bit is
+  // read (a FIFO in LUTRAM loses primitives whose outputs are unused).
+  typedef struct packed {
+    logic [TL_SIZE_W-1:0] size;
+    logic [TL_SRC_W-1:0]  source;
+  } rack_t;
+  rack_t rack_in, rack_q;
+  tl_d_t rack_out;
   logic  rack_in_v, rack_in_r, rack_out_v, rack_out_r;
   logic [1:0] rack_cnt;
-  tg_fifo #(.T(tl_d_t), .DEPTH(2)) u_rack (
+  tg_fifo #(.T(rack_t), .DEPTH(2)) u_rack (
     .clk, .rst,
     .in_valid (rack_in_v), .in_ready (rack_in_r), .in_data (rack_in),
-    .out_valid (rack_out_v), .out_ready (rack_out_r), .out_data (rack_out), .count (rack_cnt)
+    .out_valid (rack_out_v), .out_ready (rack_out_r), .out_data (rack_q), .count (rack_cnt)
   );
+  assign rack_in = '{size: cin_q.size, source: cin_q.source};
   always_comb begin
-    rack_in        = '0;
-    rack_in.opcode = D_RELEASE_ACK;
-    rack_in.size   = cin_q.size;
-    rack_in.source = cin_q.source;
+    rack_out        = '0;
+    rack_out.opcode = D_RELEASE_ACK;
+    rack_out.size   = rack_q.size;
+    rack_out.source = rack_q.source;
   end
   assign rack_in_v = cin_st_q == CI_ACK && cin_rel;
 
