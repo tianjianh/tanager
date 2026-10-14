@@ -6,7 +6,7 @@ total LUT target, from plan §8.2/§4.15 budgets and the spike structures' measu
      target: LUTs or a percentage; adj: LUTs per core to add to the filler (the S6 runner
      passes half the miss of a run that missed its target)
   -> prints the tg_s6_top generics (-g NAME=VALUE ...) and the budget split; smt2 and the
-     3-wide builds get S2_MX=1
+     every configuration gets S2_MX=1
 
 Budget split: the uncore takes UNCORE_LUTS (plan §8.2: 13.3K), the two cores the rest
 equally. In each core the real spike structures (S2-S5) are SPIKE_LUTS[cfg], as measured
@@ -36,10 +36,10 @@ UNC_LUTRAM = 1_600          # L2 MSHR state and queues (lever R15 keeps them in 
 # where measured (util_hier.rpt of the S6 runs), else out of context (fpga/spikes/results).
 # S2: st DUP_SEL + EARLY_W = 24; smt2 and the 3-wide builds add MX, which they need.
 SPIKE_LUTS = {
-    "st":      5_307 + 5_277 + 2_840 + 2_485,     # out of context (pblock runs)
-    "smt2":    8_744 + 5_252 + 2_840 + 2_613,     # s6_smt2_90
-    "st_w3":   7_000 + 8_710 + 2_840 + 2_516,     # out of context; S2 st_w3 estimated
-    "smt2_w3": 12_047 + 8_653 + 2_678 + 2_582,    # s6_smt2w3_88
+    "st":      6_425 + 5_082 + 2_412 + 2_485,     # out of context (pblock runs; S2 with MX)
+    "smt2":    8_744 + 5_057 + 2_412 + 2_613,     # s6_smt2_90, S3 without min/max, S4 align M2
+    "st_w3":   8_842 + 8_579 + 2_412 + 2_516,     # out of context (S2: budget run)
+    "smt2_w3": 12_047 + 8_522 + 2_250 + 2_582,    # s6_smt2w3_88, same adjustments
 }
 
 
@@ -58,7 +58,7 @@ def main():
     nram = FILL_LUTRAM // LUTS_PER_RAM
     unc_nram = UNC_LUTRAM // LUTS_PER_RAM
     unc_tiles = int(round((UNCORE_LUTS - UNC_LUTRAM - UNC_FIXED) / LUTS_PER_TILE))
-    mx = " -g S2_MX=1" if cfg != "st" else ""
+    mx = " -g S2_MX=1"   # MX in every configuration (S6 at st: the non-MX loop misses)
     print(f"-g CORE_TILES={tiles} -g CORE_NRAM={nram} -g CORE_NBRAM={CORE_BRAM_FILL} "
           f"-g CORE_NDSP={CORE_DSP} -g UNC_TILES={unc_tiles} -g UNC_NRAM={unc_nram}{mx}")
     print(f"# {cfg}: target {total:.0f} LUTs ({100 * total / DEVICE_LUTS:.1f}%), "

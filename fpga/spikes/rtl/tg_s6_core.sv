@@ -188,7 +188,7 @@ module tg_s6_core
     .w_o(fin[O_u_s2_w_o +: S2_NCOL])
   );
 
-  tg_s3_top #(.BYPASS(0), .RF3(0), .SEL_OH(0)) u_s3 (
+  tg_s3_top #(.BYPASS(0), .RF3(0), .SEL_OH(0), .MINMAX(0)) u_s3 (
     .clk,
     .rst_i(fout[I_u_s3_rst_i +: 1]),
     .rbank_i(fout[I_u_s3_rbank_i +: S3_NLOG*S3_BW]),
@@ -212,7 +212,7 @@ module tg_s6_core
     .sd_o(fin[O_u_s3_sd_o +: 64])
   );
 
-  tg_s4_top #(.ALIGN_M1(1)) u_s4 (
+  tg_s4_top #(.ALIGN_M1(0)) u_s4 (
     .clk,
     .rst_i(fout[I_u_s4_rst_i +: 1]),
     .ld_valid_i(fout[I_u_s4_ld_valid_i +: 1]),
