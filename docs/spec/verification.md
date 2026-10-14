@@ -450,6 +450,8 @@ make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RA
 
   Some differing runs ended on the same cycle count as the base, with different timing on the way, or differed only in their TileLink events. A cycle count alone misses those.
 
+  **On real RTL:** main's third no-IPC area pass (merged as 43a523e: eight RTL files, the LSU most) was checked against fd54e65 after its merge. It is identical in `st` and `smt2` on all 796 programs, in both the commit trace and the TileLink outputs. That confirms with this check what the core track had shown with CoreMark's cycle counts.
+
 - **What the suites cannot see.** Identical on these programs does not mean identical everywhere: a structure that no program fills cannot show a difference.
   - Before `tlb_stress`, halving the data or instruction TLB moved no cycle in any of the 503 programs: the benchmarks and random programs run without translation, and the `-v` riscv-tests touch fewer pages than the TLBs hold.
   - A rewrite of a structure that the suites do not stress needs a program that does, first. `tlb_stress` is that program for the TLBs. The planted changes above show which sizes the suites see today.
