@@ -1,5 +1,5 @@
-// One instruction decoder (docs/spec/core-pipeline.md §4): RV64IM, Zicsr, Zifencei, M-mode
-// system instructions, and (with their switches) Zba/Zbb/Zbs/Zicond. Combinational. A compressed
+// One instruction decoder (docs/spec/core-pipeline.md §4): RV64IM, Zicsr, Zifencei, the system
+// instructions, and (with their switches) A, Zba/Zbb/Zbs/Zicond. Combinational. A compressed
 // instruction arrives already expanded by tg_rvc (len2 set: the link value is PC + 2);
 // misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the branch
 // and JAL targets) are computed here, so execute never adds the PC.
@@ -13,6 +13,7 @@ module tg_decode
   input  logic        fault,      // fetch access fault at pc
   input  logic        misa_m,
   input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
+  input  logic        misa_a,     // atomics (with EXT_A)
   input  priv_e       priv,       // current mode (stable: mode changes end in a flush)
   input  logic        tvm,
   input  logic        tw,
@@ -88,6 +89,20 @@ module tg_decode
         7'b0100011: begin                                  // stores
           if (f3[2]) ill = 1'b1;
           d.cls = C_ST; d.rs1_en = 1'b1; d.rs2_en = 1'b1; d.imm = imm_s;
+        end
+        7'b0101111: begin                                  // AMO: LR, SC, AMO*.W/D
+          d.cls = C_ST; d.amo = 1'b1; d.amo_op = insn[31:27]; d.serial = 1'b1;
+          d.rs1_en = 1'b1; d.rs2_en = 1'b1; d.rd_en = 1'b1; d.imm = '0;
+          if (!(EXT_A && misa_a) || !(f3 == 3'd2 || f3 == 3'd3)) ill = 1'b1;
+          unique case (insn[31:27])
+            AMO_LR: begin
+              d.rs2_en = 1'b0;
+              if (insn[24:20] != 5'd0) ill = 1'b1;
+            end
+            AMO_SC, AMO_SWAP, AMO_ADD, AMO_XOR, AMO_AND, AMO_OR, AMO_MIN, AMO_MAX, AMO_MINU,
+            AMO_MAXU: ;
+            default: ill = 1'b1;
+          endcase
         end
         7'b0010011, 7'b0011011: begin                      // OP-IMM, OP-IMM-32
           logic w;

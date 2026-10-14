@@ -11,3 +11,6 @@ lint_off -rule UNUSEDSIGNAL -file "*rtl/core/tg_core_pkg.sv" -match "*function v
 lint_off -rule UNUSEDPARAM -file "*rtl/core/exec/tg_alu_pkg.sv"
 // Exception causes in tg_core_pkg are used as the units that raise them land (page faults: MMU).
 lint_off -rule UNUSEDPARAM -file "*rtl/core/tg_core_pkg.sv" -match "*EXC_*"
+// FPU packages: compiled with the core, not instantiated until the FPU is wired in (M4)
+lint_off -rule UNUSEDPARAM -file "*/rtl/core/fpu/tg_fpu_util_pkg.sv"
+lint_off -rule UNUSEDPARAM -file "*/rtl/core/fpu/tg_fpu_seed_pkg.sv"

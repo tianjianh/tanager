@@ -181,9 +181,9 @@ module tg_rename
           if (rn_uop_q[i].d.rd == rn_uop_q[k].d.rd) ren[k].old = ren[i].dst;
         end
       end
-      // Wakeup ID: an LLT for loads and divides with a destination, else the ROB entry
+      // Wakeup ID: an LLT for loads, atomics and divides with a destination, else the ROB entry
       ren[k].use_llt = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
-                       (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV);
+                       (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo);
       ren[k].wid = wid_t'(ren[k].rob[ROBW-2:0]);
       if (ren[k].use_llt) begin
         got = 1'b0;
@@ -197,9 +197,9 @@ module tg_rename
         if (!got) llt_short = 1'b1;
         ren[k].wid = wid_t'(ROB_ENTRIES + int'(ren[k].llt));
       end
-      // Destination from the port's bank
+      // Destination from the port's bank (atomics: the load bank, written by the LSU)
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
-        b = (port == Q_LD) ? LD_BANK : port;
+        b = (port == Q_LD || rn_uop_q[k].d.amo) ? LD_BANK : port;
         ren[k].dst = mk_preg(b, fl_pop[b][pops[b]]);
         pops[b] = pops[b] + 1'b1;
       end

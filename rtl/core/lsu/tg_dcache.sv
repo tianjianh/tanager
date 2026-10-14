@@ -11,6 +11,11 @@
 //   Probes: answered at the line's current permission, without waiting on A-channel progress.
 //         They take B only while no Release is being sent (C beats are contiguous), and block
 //         the MSHR from starting and the store path from writing while they run.
+//   Atomics: the line is acquired with T like a store's; then one port B read and, the next
+//         cycle, the write (am_ack). Nothing else uses port B, the MSHR does not start and no
+//         probe is accepted across the two cycles, so the read-modify-write is atomic.
+//   lose_v reports a line that left the cache or lost T (probe, eviction): it ends an LR
+//         reservation on that line.
 module tg_dcache
   import tg_pkg::*, tg_tl_pkg::*, tg_core_pkg::*;
 #(
@@ -43,6 +48,16 @@ module tg_dcache
   input  logic [127:0]      st_wdata,
   output logic              st_ack,
   output logic              st_dropped,   // acked without writing (denied Grant)
+  // Atomics: read-modify-write of one row with the line held in T (never with st_req)
+  input  logic              am_req,       // held until am_ack or am_den
+  input  logic [PA_W-1:0]   am_pa,
+  input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
+  input  logic [127:0]      am_wdata,
+  output logic              am_ack,       // am_rdata valid; am_wmask/am_wdata written
+  output logic [63:0]       am_rdata,     // the addressed dword before the write
+  output logic              am_den,       // the line's last fill was denied
+  output logic              lose_v,       // registered: lose_line left the cache or lost T
+  output logic [PA_W-1:6]   lose_line,
   // l1d (TL-C)
   output tl_a_t             a_o,
   output logic              a_valid_o,
@@ -86,8 +101,12 @@ module tg_dcache
   logic [WAYS-1:0][2:0][TAG_W-1:0] tag_rd;
   logic [2:0][SET_W-1:0]        tag_ra;
   logic [PA_W-1:0]              ctl_pa;     // controller lookup address
+  logic                         sx_req;     // store or atomic: port 1 lookup and NtoT/BtoT
+  logic [PA_W-1:0]              sx_pa;
+  assign sx_req    = st_req || am_req;
+  assign sx_pa     = am_req ? am_pa : st_pa;
   assign tag_ra[0] = ld_m1_pa[6 +: SET_W];
-  assign tag_ra[1] = st_pa[6 +: SET_W];
+  assign tag_ra[1] = sx_pa[6 +: SET_W];
   assign tag_ra[2] = ctl_pa[6 +: SET_W];
   for (genvar w = 0; w < WAYS; w++) begin : g_tag
     tg_ram_lut #(.DEPTH(SETS), .WIDTH(TAG_W), .NR(3)) u_tag (
@@ -122,14 +141,14 @@ module tg_dcache
   assign ld_hit   = |lh;
   assign ld_dword = ld_m1_pa[3] ? lrow[127:64] : lrow[63:0];
 
-  // Store lookup
+  // Store / atomic lookup
   logic [WAYS-1:0]  sh;
   logic [WAY_W-1:0] sh_way;
   logic             s_hit, s_hit_t;
-  assign sh      = hits(1, st_pa[6 +: SET_W], st_pa[12 +: TAG_W], tag_rd, st_v_q);
+  assign sh      = hits(1, sx_pa[6 +: SET_W], sx_pa[12 +: TAG_W], tag_rd, st_v_q);
   assign sh_way  = enc(sh);
   assign s_hit   = |sh;
-  assign s_hit_t = s_hit && st_t_q[st_pa[6 +: SET_W]][sh_way];
+  assign s_hit_t = s_hit && st_t_q[sx_pa[6 +: SET_W]][sh_way];
 
   // Controller lookup
   logic [WAYS-1:0]  ch;
@@ -172,19 +191,27 @@ module tg_dcache
 
   assign ctl_pa = probe_active ? p_pa_q : lm_pa;
 
+  // ---- Atomic read-modify-write ----
+  logic             pb_amr, amw_q;       // read cycle; write cycle
+  logic [WAY_W-1:0] am_way_q;
+  logic [ROW_W-1:0] am_row_q;
+  logic             am_hi_q;
+  assign pb_amr = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amw_q;
+  assign am_ack = amw_q;
+
   // ---- Allocation (from M_IDLE) ----
   logic alloc_st, alloc_ld;
   always_comb begin
     alloc_st = 1'b0;
     alloc_ld = 1'b0;
     // A load allocates only if its line is still absent (it may have been filled since M1).
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE)) begin
-      if (st_req && !s_hit_t)   alloc_st = 1'b1;
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !amw_q) begin
+      if (sx_req && !s_hit_t)    alloc_st = 1'b1;
       else if (lm_req && !(|ch)) alloc_ld = 1'b1;
     end
   end
   logic [PA_W-1:0]  al_pa;
-  assign al_pa = alloc_st ? st_pa : lm_pa;
+  assign al_pa = alloc_st ? sx_pa : lm_pa;
   logic [WAYS-1:0]  al_hit;
   logic [WAY_W-1:0] al_hway, victim;
   logic             al_hb;               // line held in B (store upgrade)
@@ -206,7 +233,7 @@ module tg_dcache
   end
 
   // ---- Port B arbitration ----
-  logic pb_probe, pb_grant, pb_ev, pb_st;
+  logic pb_probe, pb_grant, pb_ev, pb_st, pb_amw;
   logic grant_beat;                      // a GrantData beat is accepted this cycle
   assign pb_probe   = ps_q == P_RD;
   assign pb_ev      = ms_q == M_EV_RD;
@@ -216,6 +243,8 @@ module tg_dcache
                       d_i.opcode == D_GRANT_DATA;
   assign pb_grant   = grant_beat;
   assign pb_st      = st_req && s_hit_t && !probe_active && !mshr_on_c && !pb_grant;
+  assign pb_amw     = amw_q && |am_wmask;
+  assign am_rdata   = am_hi_q ? b_rdata[am_way_q][127:64] : b_rdata[am_way_q][63:0];
   assign st_ack     = pb_st || st_drop;
   logic st_drop;
   assign st_dropped = st_drop;
@@ -238,6 +267,14 @@ module tg_dcache
       b_we = st_mask;
       b_addr = st_pa[4 +: ROW_W];
       b_wdata = st_wdata;
+    end else if (pb_amr) begin
+      b_en[sh_way] = 1'b1;
+      b_addr = am_pa[4 +: ROW_W];
+    end else if (pb_amw) begin
+      b_en[am_way_q] = 1'b1; b_en_w[am_way_q] = 1'b1;
+      b_we = am_wmask;
+      b_addr = am_row_q;
+      b_wdata = am_wdata;
     end
   end
 
@@ -255,7 +292,7 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld));
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !amw_q;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -289,9 +326,16 @@ module tg_dcache
   logic d_fire;
   assign d_fire = d_valid_i && d_ready_o;
 
-  // Store whose fill was denied: acknowledged without a write
-  assign st_drop = st_req && ms_q == M_IDLE && dn_v_q && dn_line_q == st_pa[PA_W-1:6] && !s_hit_t
+  // Store whose fill was denied: acknowledged without a write. An atomic: am_den (access fault).
+  logic sx_drop;
+  assign sx_drop = sx_req && ms_q == M_IDLE && dn_v_q && dn_line_q == sx_pa[PA_W-1:6] && !s_hit_t
                    && !alloc_ld && !probe_active;
+  assign st_drop = sx_drop && st_req;
+  assign am_den  = sx_drop && am_req;
+  logic            lose_v_q;
+  logic [PA_W-1:6] lose_line_q;
+  assign lose_v    = lose_v_q;
+  assign lose_line = lose_line_q;
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
@@ -303,13 +347,24 @@ module tg_dcache
       ms_q   <= M_IDLE;
       ps_q   <= P_IDLE;
       dn_v_q <= 1'b0;
+      amw_q  <= 1'b0;
+      lose_v_q <= 1'b0;
     end else begin
       // Store write: the line becomes dirty
       if (pb_st) st_d_q[st_pa[6 +: SET_W]][sh_way] <= 1'b1;
+      // Atomic: read now, write next cycle
+      amw_q <= pb_amr;
+      if (pb_amr) begin
+        am_way_q <= sh_way;
+        am_row_q <= am_pa[4 +: ROW_W];
+        am_hi_q  <= am_pa[3];
+      end
+      if (pb_amw) st_d_q[am_row_q[ROW_W-1:2]][am_way_q] <= 1'b1;
+      lose_v_q <= 1'b0;
 
       // ---- MSHR ----
       unique case (ms_q)
-        M_IDLE: if ((alloc_st || alloc_ld) && !st_drop) begin
+        M_IDLE: if ((alloc_st || alloc_ld) && !sx_drop) begin
           logic [SET_W-1:0] s;
           s = al_pa[6 +: SET_W];
           m_line_q <= al_pa[PA_W-1:6];
@@ -328,6 +383,8 @@ module tg_dcache
             if (st_v_q[s][victim]) begin
               // Release the victim; it is gone for probes and stores from now on
               m_vline_q  <= {tag_rd[victim][alloc_st ? 1 : 2], s};
+              lose_v_q    <= 1'b1;
+              lose_line_q <= {tag_rd[victim][alloc_st ? 1 : 2], s};
               m_vdirty_q <= st_d_q[s][victim];
               m_vt_q     <= st_t_q[s][victim];
               st_v_q[s][victim] <= 1'b0;
@@ -430,6 +487,10 @@ module tg_dcache
           logic [SET_W-1:0] s;
           s = p_pa_q[6 +: SET_W];
           ps_q <= P_IDLE;
+          if (p_hit_q && !p_nt_q) begin
+            lose_v_q    <= 1'b1;
+            lose_line_q <= p_pa_q[PA_W-1:6];
+          end
           if (p_hit_q) begin
             st_v_q[s][p_way_q] <= p_nv_q;
             st_t_q[s][p_way_q] <= p_nt_q;
@@ -450,13 +511,16 @@ module tg_dcache
 
   logic unused;
   assign unused = ^{m_st_q, b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
-                    ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0]};
+                    ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
+                    sx_pa[5:0], am_pa[2:0]};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst) begin
       assert ($onehot0(lh)) else $error("tg_dcache: multiple way hits");
-      assert ($onehot0({pb_probe, pb_grant, pb_ev, pb_st})) else $error("tg_dcache: port B conflict");
+      assert ($onehot0({pb_probe, pb_grant, pb_ev, pb_st, pb_amr, pb_amw})) else $error("tg_dcache: port B conflict");
+      assert (!(st_req && am_req)) else $error("tg_dcache: store and atomic requests together");
+      if (amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
     end
   end
 `endif

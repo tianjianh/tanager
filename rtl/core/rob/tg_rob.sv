@@ -62,6 +62,7 @@ module tg_rob
   output logic [NCW-1:0]               cm_nld,
   output logic [NCW-1:0]               cm_nst,
   output sqid_t [CW-1:0]               tr_sq,
+  input  logic [CW-1:0]                tr_st_wr,
   input  logic [CW-1:0][63:0]          tr_st_va,
   input  logic [CW-1:0][63:0]          tr_st_data,
   input  logic [CW-1:0][1:0]           tr_st_size,
@@ -326,8 +327,8 @@ module tg_rob
         rec[j].rd_we    = hp[j].rd_en;
         rec[j].rd       = hp[j].rd;
         rec[j].rd_value = hp[j].rd_en ? tr_data[j] : '0;
-        rec[j].mem_st   = hp[j].is_st;
-        if (hp[j].is_st) begin
+        rec[j].mem_st   = hp[j].is_st && tr_st_wr[j];     // not LR or a failed SC
+        if (rec[j].mem_st) begin
           rec[j].mem_vaddr = tr_st_va[j];
           rec[j].mem_size  = tr_st_size[j];
           unique case (tr_st_size[j])

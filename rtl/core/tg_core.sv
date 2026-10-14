@@ -109,7 +109,7 @@ module tg_core
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .priv, .tvm, .tw, .tsr, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .priv, .tvm, .tw, .tsr, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -216,6 +216,8 @@ module tg_core
   sqid_t [CW-1:0]   tr_sq;
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
   logic [CW-1:0][1:0]  tr_st_size;
+  logic [CW-1:0]       tr_st_wr;
+  logic                rsv_clr;           // trap or xRET: the LR reservation ends
   tg_lsu u_lsu (
     .clk, .rst, .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
@@ -224,8 +226,8 @@ module tg_core
     .wake_ld(wake_l), .llt_done(llt_done_l), .sd_tag, .sd_data, .ready_vec,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
-    .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_va, .tr_st_data,
-    .tr_st_size, .sq_drained, .mmio_busy, .st_dropped,
+    .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
+    .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
@@ -236,6 +238,7 @@ module tg_core
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, mepc, sepc;
+  assign rsv_clr = tr_valid || mret || sret;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
@@ -254,7 +257,7 @@ module tg_core
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
     .lx_valid, .lx_rob, .lx_cause, .lx_tval, .replay_valid, .replay_rob,
     .sq_drained, .mmio_busy,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_va,
+    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data, .col_clr(col_rob),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .mepc, .sepc, .priv, .irq_take, .irq_code, .wfi_wake,
@@ -267,6 +270,6 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, misa_a, priv_d, sum, mxr, satp_sv39, satp_asid, satp_ppn, pmpcfg,
+                    st_dropped, priv_d, sum, mxr, satp_sv39, satp_asid, satp_ppn, pmpcfg,
                     pmpaddr, sfence};
 endmodule

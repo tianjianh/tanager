@@ -120,6 +120,12 @@ package tg_core_pkg;
   typedef enum logic [1:0] { DIV_S = 2'd0, DIV_U = 2'd1, REM_S = 2'd2, REM_U = 2'd3 } div_op_e;
   typedef enum logic [1:0] { CSR_RW = 2'd1, CSR_RS = 2'd2, CSR_RC = 2'd3 } csr_op_e;
 
+  // Atomics: funct5 of the AMO opcode
+  localparam logic [4:0] AMO_ADD = 5'b00000, AMO_SWAP = 5'b00001, AMO_LR = 5'b00010,
+                         AMO_SC = 5'b00011, AMO_XOR = 5'b00100, AMO_OR = 5'b01000,
+                         AMO_AND = 5'b01100, AMO_MIN = 5'b10000, AMO_MAX = 5'b10100,
+                         AMO_MINU = 5'b11000, AMO_MAXU = 5'b11100;
+
   // Exception causes (privileged spec)
   localparam logic [3:0] EXC_IMISALIGN = 4'd0, EXC_IACCESS = 4'd1, EXC_ILLEGAL = 4'd2,
                          EXC_BREAK = 4'd3, EXC_LMISALIGN = 4'd4, EXC_LACCESS = 4'd5,
@@ -155,6 +161,8 @@ package tg_core_pkg;
     logic [11:0]   jalr_off;
     logic [1:0]    mem_size;
     logic          mem_uns;
+    logic          amo;         // LR, SC, AMO: a C_ST uop performed at the ROB head (core-lsu.md)
+    logic [4:0]    amo_op;
     mul_op_e       mul_op;
     div_op_e       div_op;
     logic          word;        // MULW / DIV*W / REM*W / CLZW, CTZW, CPOPW
