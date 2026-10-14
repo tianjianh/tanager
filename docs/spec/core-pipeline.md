@@ -258,9 +258,9 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | LSU queues keep physical addresses; virtual addresses and store data live in LUTRAM (R7) | 362ace2 | — |
 | Issue-queue payload formats per port | 0226254, 82591f5 | Exact LUTRAM primitive counts; LD/STA offsets of 12 bits |
 | I$ valid bits in LUTRAM, cleared by a sweep | 5c9f6d0 | front end 6,137 → 5,254 |
-| Wakeup tags (AR-1): 16 tags plus the LLTs instead of ROB-index columns | b2e38b1 | st: 32 columns instead of 64 |
+| Wakeup tags (AR-1): 16 tags plus the LLTs instead of ROB-index columns | b2e38b1 | st: 32 columns instead of 64. Core 45,088 → 44,407 LUTs (issue 4,776 → 4,264, rename −94, ROB −90) and −1,286 FFs. The study estimated −1.0 to −1.2K at st: the small st window (64 columns) and the earlier payload trims left less to take |
 
-- **Result:** 45,088 LUTs at st (82591f5, before AR-1; the AR-1 measurement is pending), and 58,269 at st_w3.
+- **Result:** 44,407 LUTs at st with AR-1 (b2e38b1), and 58,269 at st_w3 (525e875, before AR-1).
 - **Still over budget:**
   - the LSU's own logic, about 7.8K;
   - the D$ data, 32 BRAM36 at a quarter of their depth;
