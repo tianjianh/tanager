@@ -1,6 +1,6 @@
 # MMU and PMP (`tg_tlb`, `tg_ptw`, `tg_pmp`, M3)
 
-Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
+Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 
 ## Purpose
 Sv39 address translation and physical memory protection for fetch, loads, stores, atomics and the page-table walker (plan §4.10, §2.2). M3 builds the functional version: an L1 TLB per side, one walker through the L1D, PMP on every access. The plan's 512-entry L2 TLB, the page-walk cache and a second concurrent walk are M6 options.

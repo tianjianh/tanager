@@ -1,6 +1,6 @@
 # Load/store unit and L1 data cache (`tg_lsu`, `tg_dcache`, M2)
 
-Status: implemented for M2; atomics implemented for M3 (behind `EXT_A`) — core track — 2026-10-13
+Status: implemented for M2; atomics implemented for M3 (`EXT_A`, on) — core track — 2026-10-14
 
 ## Purpose
 Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md)), keeps memory order for one hart, and is the TL-C client on the `l1d` port and the TL-UL client on `mmio` (interfaces.md §2.3, §2.4). Plan §4.9 and §4.11 are the targets; M2 builds the parts in the table and leaves the rest for M6.

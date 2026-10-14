@@ -7,12 +7,13 @@ package tg_core_pkg;
   // ---- Core-local constants ----
   localparam int DIV_INFLIGHT = 4;        // divides between rename and the divider (input FIFO)
 
-  // ISA beyond M2's RV64IM, switched on with the M3 ISA string (sim ISA=..., verification.md §3.2)
-  localparam bit EXT_SU     = 1'b0;      // S and U modes, Sv39, delegation, Sstc, Zihpm
-  localparam bit EXT_A      = 1'b0;      // atomics
-  localparam bit EXT_C      = 1'b0;      // compressed instructions
-  localparam bit EXT_B      = 1'b0;      // Zba, Zbb, Zbs
-  localparam bit EXT_ZICOND = 1'b0;
+  // ISA beyond M2's RV64IM: on with the M3 ISA string (sim ISA=..., verification.md §3.2); misa
+  // and the illegal encodings follow them, so Spike's configuration must match
+  localparam bit EXT_SU     = 1'b1;      // S and U modes, Sv39, delegation, Sstc, Zihpm
+  localparam bit EXT_A      = 1'b1;      // atomics
+  localparam bit EXT_C      = 1'b1;      // compressed instructions
+  localparam bit EXT_B      = 1'b1;      // Zba, Zbb, Zbs
+  localparam bit EXT_ZICOND = 1'b1;
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

@@ -1,6 +1,6 @@
 # Privilege modes, CSRs, traps and interrupts (`tg_csr`, M3)
 
-Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
+Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 
 ## Purpose
 Extends the M2 machine-mode CSR file ([core-pipeline.md](core-pipeline.md) §9) to the privilege architecture Linux needs (plan §2.2, §4.1, §4.13): M, S and U modes; trap delegation; supervisor interrupts with Sstc; counters and their enables; the status fields that change memory access (MPRV, SUM, MXR, TVM, TW, TSR). The MMU and PMP are in [core-mmu.md](core-mmu.md); atomics in [core-lsu.md](core-lsu.md) §Atomics.
