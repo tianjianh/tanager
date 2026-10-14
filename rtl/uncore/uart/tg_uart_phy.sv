@@ -100,7 +100,7 @@ module tg_uart_phy #(
   end
 
   // ---- RX ----
-  logic [2:0]  rsync_q;                    // two-flop synchronizer, then the previous value
+  (* ASYNC_REG = "TRUE" *) logic [2:0] rsync_q;   // two-flop synchronizer, then the previous value
   wire         rxd_s = rsync_q[1];
   wire         rfall = rsync_q[2] && !rsync_q[1];
   logic [15:0] rpre_q;

@@ -7,17 +7,17 @@ Owner: SoC track. Design: [docs/spec/soc.md](../../docs/spec/soc.md), host inter
 Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repository root, after `source tools/env.sh && source sw/env.sh`:
 
 ```bash
-TANAGER_VIVADO_MEM_GB=12 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
+TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
-A full build declares 12 GB, which covers IP generation's child processes. `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context runs (`tcl/ooc_synth.tcl`) declare 4.
+A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)
 
 `TG_PMOD_UART=1` in the build environment puts the RISC-V console on the KV260's PMOD connector (DR-126):
 
 ```bash
-TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=12 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_core_100_pmod fpga/kv260/tcl/build.tcl $PWD st core 100 1 bit
+TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_core_100_pmod fpga/kv260/tcl/build.tcl $PWD st core 100 1 bit
 ```
 
 - **Line:** 8N1, 3.3 V, at the 16550's divisor (115 200 baud once OpenSBI has programmed it, also the reset value). Set the terminal on the laptop to 115200 8N1, no flow control.
