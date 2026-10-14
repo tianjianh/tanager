@@ -512,7 +512,7 @@ Named paths, slack in ns (the worst over both cores):
 - **The identified levers save 12.7–20.1K per SoC for v1**, without R8:
   - per core, ×2: R1–R7 (free, first commit), R10 and R14;
   - R15 once.
-  - R4 and R5 work on the FPU; if the 7.6K already includes them, the range shrinks by up to 2K.
+  - R4 and R5 work on the FPU. R5 is measured at −0.33 to −0.43K per core (plan §4.12). If the 7.6K already includes R4 or R5, the range shrinks by up to 2K.
 - **After them, v1 lands at ≈99–110K LUTs: 85–94%, about 90% at the midpoint.**
 - **The fill test (§8) says v1 holds 200 MHz to about 88%** (≈103K). So v1 fits at 200 MHz only with the levers in the upper half of their range, or with more savings:
 
@@ -522,6 +522,7 @@ Named paths, slack in ns (the worst over both cores):
 | min/max on the 2-cycle path | 0.4K | min/max latency +1 | S3 |
 | R14 applied to the scheduler and FPU (area directives on non-critical queues, LUT6_2 packing) | not measured | none | plan |
 | SMT2 window at ROB 64 (§8.5 contingency): 88 instead of 104 columns | ≈2.6K in the scheduler, plus ROB storage | −1.5% throughput | S2 scaling |
+| The radix-4 divide/sqrt (`FDIV_RADIX4`, the D17 fallback) | 2.8K (1.4K per core, measured) | −2.4% suite IPC (plan §4.12) | FPU track |
 | Accept 190–195 MHz above 88% fill | — | −2 to −5% clock | S6 |
 
 **v2 (smt2_w3).**
