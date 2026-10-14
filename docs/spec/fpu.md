@@ -295,6 +295,23 @@ Against the plan (18/23, 20/26, one every 4 cycles): FDIV.D and FSQRT.S meet it,
 - 5 DSP48E2 for the small multipliers.
 - 1 BRAM18.
 
+## Fallback: radix-4 divide/sqrt (`tg_fpu_div_r4`)
+
+The plan's fallback for the Goldschmidt unit (§4.12, trim ladder §8.4 #6). `tg_fpu_pkg::FDIV_RADIX4 = 1` selects it (`tg_fpu` parameter `DIV_RADIX4`) together with its latency constants; ports and handshake are those of `tg_fpu_div`. Bit-accurate model: `tests/unit/fpu/r4_model.h`.
+
+**Algorithm.** Restoring digit recurrence in radix 4 (Ercegovac & Lang, *Digital Arithmetic*, ch. 5 and 6), on the operands scaled as for the Goldschmidt unit (q ∈ [1, 2)), so the integer digit is 1 and the residual starts at w0 = A − d (division) or x − 1 (square root). Each cycle chooses the next digit b ∈ {0, 1, 2, 3} as the largest b with X − S_b ≥ 0, X = 4w, and sets w to X − S_b:
+
+| | S1 | S2 | S3 |
+|---|---|---|---|
+| Division | d | 2d | d + 2d |
+| Square root (u = 4^−(j+1)) | 2Q \| u | 4Q \| 4u | (2Q \| u) + (4Q \| 8u) = 6Q + 9u |
+
+- The partial root Q has no bits at or below u, so its terms are ORs, and S3 needs no 3Q register: T3 = X − S1 − (4Q \| 8u) is one ternary subtraction.
+- The three trial subtractions run in parallel, one carry chain per cycle. There is no redundancy, no selection table and no on-the-fly conversion; the residual is never negative, so the digits are exact and S = (w ≠ 0).
+- Widths: residual Q4.56 (the model shows 4w < 2^60), root and quotient Q1.56; 27 digits for D (52 fraction bits, guard and one spare), 12 for S.
+
+**Pipeline.** One operation at a time: UNP (unpack, specials, normalise the divisor or the radicand), NRM (normalise the dividend with the same leading-zero counter and shifter), INI (scaling, exponent, w0), then one digit per cycle; the last digit hands (T, G, S) to `tg_fpu_div_round`. Latency 18 (S) and 33 (D) cycles for both operations; the result waits in an output register for `fdiv_ready_i`, and the next request is accepted once it has been taken.
+
 ## Parameters
 
 No configuration parameter changes the FPU: the four configurations (`st`, `smt2`, `st_w3`, `smt2_w3`) build the same units. `FPU_TAG_W` comes from `tg_pkg`. SMT is invisible to the FPU (the tag carries everything; the divider's slots are shared by both harts).
@@ -318,7 +335,16 @@ The divider's LUTs exceed the plan's estimate, mainly two input normalisers, the
 
 ## Verification
 
-Tests live in `tests/unit/fpu/` (Verilator, C++ testbench on `tg_fpu`), exit non-zero on failure, print and accept their seed, and have `short` and `long` modes.
+Tests live in `tests/unit/fpu/` (Verilator, C++ testbench `tb_fpu.cpp` on `tg_fpu`), exit non-zero on failure, print and accept their seed, and have `short` and `long` modes:
+
+| Command (after `source tools/env.sh`, in `tests/unit/fpu`) | What runs |
+|---|---|
+| `make model` | the bit-accurate divider models against SoftFloat (`gs_check`, `r4_check`) |
+| `make test` | short regression, about 30 s with 8 jobs: TestFloat level 1 for every function, mode and format (mulAdd: 1.5M vectors per mode), directed divide/sqrt cases, random traffic on all units |
+| `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (about an hour with 6 jobs) |
+| `make tb DIV=r4`, `make test DIV=r4` | the same on the radix-4 fallback |
+
+The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the divider exactly when `fdiv_ready_i` is never low), so it checks the RTL against the constants the core uses.
 
 - **Reference model:** Berkeley SoftFloat 3 built with the RISC-V specialization (canonical NaN, RISC-V conversion limits, tininess after rounding), linked into the testbench; RISC-V-specific behaviour on top of it written from the ISA manual: NaN boxing, FMIN/FMAX 2.2, FCLASS, sign injection, moves, int_dest and sign extension.
 - **TestFloat:** `testfloat_gen` vectors piped into the testbench for every function, both formats and all five rounding modes:
@@ -328,7 +354,8 @@ Tests live in `tests/unit/fpu/` (Verilator, C++ testbench on `tg_fpu`), exit non
 - **Directed divide/sqrt cases** for the remainder correction: quotients and roots constructed to lie within 2^−2p of a midpoint or of a representable value, exact quotients and roots, results at the subnormal boundary (Eq = emin − 1), overflow edges, every seed-ROM interval endpoint.
 - **Pipelining:** back-to-back FMA and FMISC operations every cycle with random precision, op and rounding mode; the divider fed at full rate with mixed S/D divide and sqrt, random `fdiv_ready_i` backpressure, checking tags, order independence and that every accepted request produces exactly one response.
 - **Interleaving:** all three units driven at once with random traffic.
-- **Assertions** (Verilator `--assert`): FMT_H never requested; requests routed to the right unit; `fdiv_valid_i` held while not ready; credit and slot invariants.
+- **Assertions** (Verilator `--assert`): FMT_H never requested; requests routed to the right unit; no divider slot collision; output-queue credits in step and never exceeded.
+- **Models:** `gs_model.h` and `r4_model.h` are bit-accurate models of the two dividers; `gs_check` also measures the Goldschmidt approximation error against its budget, including both ends of every seed-ROM interval.
 - **Lockstep** (core track, later) compares FP results through the commit trace; `fflags` are compared only where software reads them (interfaces §5).
 
 ## Provenance

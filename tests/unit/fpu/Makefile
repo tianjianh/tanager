@@ -2,7 +2,7 @@
 #   make test            short regression (a few minutes): model check, TestFloat level 1 samples,
 #                        directed and random tests on the RTL
 #   make test-long       full regression: TestFloat level 1 and 2 for every operation (hours; -j8)
-#   make model           bit-accurate Goldschmidt model against SoftFloat
+#   make model           bit-accurate Goldschmidt and radix-4 models against SoftFloat
 #   make seed            regenerate the seed ROM (rtl/core/fpu/tg_fpu_seed_pkg.sv, seed_tab.h)
 #   make tb              build the Verilator testbench (CFG=st by default; DIV=gs|r4 picks the
 #                        Goldschmidt divider or the radix-4 fallback)
@@ -35,8 +35,12 @@ seed:
 $(BUILD)/gs_check: gs_check.cpp gs_model.h fpu_ref.h operands.h seed_tab.h | $(BUILD)
 	$(CXX) $(CXXFLAGS) -o $@ gs_check.cpp $(SF_LIB)
 
-model: $(BUILD)/gs_check
+$(BUILD)/r4_check: r4_check.cpp r4_model.h gs_model.h fpu_ref.h operands.h seed_tab.h | $(BUILD)
+	$(CXX) $(CXXFLAGS) -o $@ r4_check.cpp $(SF_LIB)
+
+model: $(BUILD)/gs_check $(BUILD)/r4_check
 	$(BUILD)/gs_check -n 2000000
+	$(BUILD)/r4_check -n 500000
 
 # ---- RTL testbench ----
 RTL_SRCS := $(shell sed -e 's://.*$$::' $(ROOT)/rtl/core/fpu/fpu.f | grep -v '^\s*$$' | sed -e 's:^:$(ROOT)/rtl/core/fpu/:')
