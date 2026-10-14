@@ -46,11 +46,13 @@ $(CORE_F): $(CORE_DIR)/core.f $(M3_PKG) Makefile
 
 $(OUTDIR)/$(TOP): $(CORE_F) $(CORE_SRCS) $(SOC_SRCS)
 
+# BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
+BOOTARGS ?= console=ttyS0,115200 earlycon
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -C $(REPO)/sw/dts O=$(OUTDIR)/dts CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=0
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=0 BOOTARGS="$(BOOTARGS)"
 DTB_FPU := $(OUTDIR)/dts-fpu/tanager-kv260.dtb
 $(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=1
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=1 BOOTARGS="$(BOOTARGS)"
 
 KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
 LINUX_MCYC ?= 1500
@@ -64,7 +66,7 @@ $(OSBI_FW):
 opensbi: build $(DTB) $(FW)
 	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC)
 
-.PHONY: linux-kernel linux
+.PHONY: linux-kernel linux $(DTB) $(DTB_FPU)
 linux-kernel: build $(DTB) $(FW) $(KERNEL)
 	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC)
 linux: build $(DTB_FPU) $(FW) $(KERNEL)
