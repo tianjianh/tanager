@@ -17,7 +17,7 @@ RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/rtl.f
 endif
 
 prog:
-	@$(MAKE) --no-print-directory -C sw
+	@$(MAKE) --no-print-directory -C sw SOC_BUILD=$(SOC_BUILD)
 short: prog
 	@for k in core trafgen tcore; do $(MAKE) --no-print-directory run KIND=$$k | grep -q "TEST PASSED" || { echo "FAIL $$k"; exit 1; }; echo "soc $$k: PASS"; done
 long: short

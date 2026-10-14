@@ -16,7 +16,14 @@
 #   tg_ram_lut   WIDTH = |wdata|, NR = |rdata| / WIDTH, AW = |waddr|
 #                AW <= 5: RAM32M16 = ceil(NR * ceil(WIDTH/2) / 7)
 #                AW >= 6: RAM64M8  = 2^(AW-6) * ceil(NR * WIDTH / 7)
+#                Read bits with no load are trimmed by Vivado, and with them every primitive
+#                whose read slots (tg_ram_lut's port-major packing, 7 per primitive) are all
+#                unloaded. The expectation counts only primitives that hold a loaded bit, so
+#                a field nobody reads passes (the line says how many bits were trimmed) while
+#                a primitive missing for a loaded bit still fails.
 #                Anything else inside the instance (other RAM primitives) is a failure.
+#   tg_rom       Block: RAMB36 equivalents of a 2^|raddr| x |rdata| single-port memory, as
+#                for tg_ram_tdp (a warning if different). Distributed: no RAM primitive.
 #   tg_ram_sdp   Block or UltraRAM through XPM. The family found must be one family, and the
 #   tg_ram_tdp   count is compared with the smallest mapping of a 2^AW x WIDTH memory:
 #                URAM288 = ceil(WIDTH/72) * ceil(2^AW / 4096) (exact)
@@ -49,6 +56,25 @@ proc tg_prim__count {cell} {
   }
   current_instance -quiet
   return $counts
+}
+
+# Read bits of a wrapper's output bus that drive a load outside it: a list indexed by
+# R * W + K (port R, bit K), 1 if loaded. Pins are bus[R][K] or bus[R * W + K].
+proc tg_prim__loaded_bits {cell bus w nr} {
+  set used [lrepeat [expr {$w * $nr}] 0]
+  foreach p [get_pins -quiet -of_objects $cell -filter {DIRECTION == OUT}] {
+    set rp [get_property REF_PIN_NAME $p]
+    if {![regexp "^${bus}\\\[(\\d+)\\\](?:\\\[(\\d+)\\\])?\$" $rp -> i j]} { continue }
+    set k [expr {$j eq "" ? $i : $i * $w + $j}]
+    if {$k >= [llength $used]} { continue }
+    set nets [get_nets -quiet -segments -of_objects $p]
+    if {[llength $nets] == 0} { continue }
+    if {[llength [get_pins -quiet -leaf -of_objects $nets -filter {DIRECTION == IN}]] ||
+        [llength [get_ports -quiet -of_objects $nets -filter {DIRECTION == OUT}]]} {
+      lset used $k 1
+    }
+  }
+  return $used
 }
 
 proc tg_prim__ram_refs {} {
@@ -102,12 +128,13 @@ proc tg_prim_check {args} {
   set covered [dict create]
 
   set wrappers [get_cells -quiet -hierarchical -filter {
-    !IS_PRIMITIVE && (ORIG_REF_NAME =~ "tg_ram_*" || REF_NAME =~ "tg_ram_*")}]
+    !IS_PRIMITIVE && (ORIG_REF_NAME =~ "tg_ram_*" || REF_NAME =~ "tg_ram_*" ||
+                      ORIG_REF_NAME =~ "tg_rom*" || REF_NAME =~ "tg_rom*")}]
   foreach cell $wrappers {
     set mod [get_property ORIG_REF_NAME $cell]
     if {$mod eq ""} { set mod [get_property REF_NAME $cell] }
     regsub {__parameterized\d+$} $mod {} mod
-    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp}} { continue }
+    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp tg_rom}} { continue }
     incr ninst
     set found [tg_prim__count $cell]
     set status OK
@@ -118,16 +145,54 @@ proc tg_prim_check {args} {
       set aw [tg_prim__busw $cell waddr]
       set rw [tg_prim__busw $cell rdata]
       set nr [expr {$w > 0 ? $rw / $w : 0}]
+      set used [tg_prim__loaded_bits $cell rdata $w $nr]
+      set nused 0
+      foreach u $used { incr nused $u }
       set shape "2^$aw x $w, $nr read"
+      if {$nused < $w * $nr} { append shape ", $nused of [expr {$w * $nr}] read bits loaded" }
+      set keep [dict create]
+      for {set r 0} {$r < $nr} {incr r} {
+        for {set k 0} {$k < $w} {incr k} {
+          if {![lindex $used [expr {$r * $w + $k}]]} { continue }
+          if {$aw <= 5} {
+            set slot [expr {$r * [tg_prim__ceil $w 2] + $k / 2}]
+          } else {
+            set slot [expr {$r * $w + $k}]
+          }
+          dict set keep [expr {$slot / 7}] 1
+        }
+      }
       if {$aw <= 5} {
-        dict set exp RAM32M16 [tg_prim__ceil [expr {$nr * [tg_prim__ceil $w 2]}] 7]
+        dict set exp RAM32M16 [dict size $keep]
       } else {
-        dict set exp RAM64M8 [expr {(1 << ($aw - 6)) * [tg_prim__ceil [expr {$nr * $w}] 7]}]
+        dict set exp RAM64M8 [expr {(1 << ($aw - 6)) * [dict size $keep]}]
       }
       foreach ref $ram_refs {
         set f [expr {[dict exists $found $ref] ? [dict get $found $ref] : 0}]
         set e [expr {[dict exists $exp $ref] ? [dict get $exp $ref] : 0}]
         if {$f != $e} { set status FAIL }
+      }
+    } elseif {$mod eq "tg_rom"} {
+      set w  [tg_prim__busw $cell rdata]
+      set aw [tg_prim__busw $cell raddr]
+      set shape "2^$aw x $w, rom"
+      set n36 [expr {[dict exists $found RAMB36E2] ? [dict get $found RAMB36E2] : 0}]
+      set n18 [expr {[dict exists $found RAMB18E2] ? [dict get $found RAMB18E2] : 0}]
+      set nother 0
+      foreach ref $ram_refs {
+        if {$ref ni {RAMB36E2 RAMB18E2} && [dict exists $found $ref]} {
+          incr nother [dict get $found $ref]
+        }
+      }
+      if {$nother > 0} {
+        dict set exp memory "block RAM or logic only"
+        set status FAIL
+      } elseif {($n36 + $n18) > 0} {
+        set e [tg_prim__bram_equiv [expr {1 << $aw}] $w 1]
+        dict set exp RAMB36_equiv $e
+        if {[expr {$n36 + 0.5 * $n18}] != $e} { set status WARN }
+      } else {
+        dict set exp distributed "LUT logic"
       }
     } else {
       set tdp [expr {$mod eq "tg_ram_tdp"}]

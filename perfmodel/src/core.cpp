@@ -212,6 +212,64 @@ int64_t Core::iq_free(uint8_t q, int tid) const {
   return f;
 }
 
+// iq_bank: each queue's rows are two banks, and a row wakes only on its bank's half of the ROB (with two
+// threads, a thread's static half). Bank 0 takes the odd row.
+int Core::rob_half(uint64_t id) const {
+  if (nthr_ > 1) return (int)(id >> TID_SHIFT);
+  return (int)((((id - 1) % (uint64_t)c_.rob) * 2) / (uint64_t)c_.rob);
+}
+
+int64_t Core::bank_free(uint8_t q, int b) const {
+  int64_t n = 0;
+  for (uint64_t id : iq_[q]) if (find(id)->iq_bank == b) n++;
+  return (iq_cap(q) + 1 - b) / 2 - n;
+}
+
+// MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
+bool Core::mx_named(const Uop& p) const {
+  return (p.q == Q_A0 || p.q == Q_A1 || p.q == Q_A2) &&
+         (p.cls == Cls::ALU || p.is_ctrl || p.sfb_cmp || p.sfb_sel) &&
+         (p.state == 1 || (p.state == 2 && t_ <= p.t_issue + 2));
+}
+
+// The bank whose rows see every wakeup a uop would wait on (one thread): a waiting producer's ROB half, or
+// its row's bank while MX names it. Long-latency tags are seen by every row unless iq_bank_llt, which gives
+// a tag the half of its producer. -1: any bank; -2: the producers need both, so the uop waits.
+int Core::bank_need(const Thread& T, const Uop& u) const {
+  int need = -1;
+  for (int k = 0; k < u.nsrc; k++) {
+    const uint64_t prod = u.src_arch[k] == -2 ? u.sfb_temp_of : T.rat[(size_t)u.src_arch[k]];
+    if (!prod) continue;
+    int b;
+    if (const Uop* p = find(prod)) {
+      if (p->state == 2 && p->t_ready <= t_) continue;
+      if (p->has_llt && !c_.iq_bank_llt) continue;
+      b = !p->has_llt && mx_named(*p) ? (int)p->iq_bank : rob_half(prod);
+    } else {
+      const auto it = pending_.find(prod);
+      if (!c_.iq_bank_llt || it == pending_.end() || it->second <= t_) continue;
+      b = rob_half(prod);
+    }
+    if (need >= 0 && need != b) return -2;
+    need = b;
+  }
+  return need;
+}
+
+// wake_tags: with MX, a row never waits on a 1-cycle producer's ROB column (MX names it while its row holds it,
+// and its value is ready after that), nor on a long-latency one (LLT). Only multi-cycle fixed-latency producers
+// (MUL, complex Zbb, FMA, FP misc and moves, serialised ops) need a column, so they take a tag from a pool at
+// dispatch instead. A tag is free again 2 cycles after its result wakes, past the load-shadow cancel (its column
+// is then cleared in every row). Dispatch still checks the ROB-indexed woken bit first, so a source whose
+// producer has woken never waits on a reused tag.
+int Core::wtags_used() const {
+  int n = 0;
+  for (auto& Tp : th_)
+    for (auto& w : Tp->win)
+      if (w.has_wtag && !(w.state == 2 && w.t_ready + 2 <= t_)) n++;
+  return n;
+}
+
 // A thread's share of a structure that SMT partitions statically (ROB, LQ, SQ, completion buffer).
 int64_t Core::share(int64_t size, int tid) const { return (size + nthr_ - 1 - tid) / nthr_; }
 
@@ -695,12 +753,24 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       break;
     }
     uint8_t q = u.q;
+    // iq_bank: the bank whose rows see the uop's producers (-1: either; two threads: the thread's own)
+    const bool banked = c_.iq_bank && q != Q_SERIAL && !c_.iq_unified;
+    int ibank = -1;
+    if (banked) {
+      ibank = nthr_ > 1 ? T.tid : bank_need(T, u);
+      if (ibank == -2) { T.st.disp_stall_bank++; break; }
+    }
+    auto qfree = [&](uint8_t qq) {
+      int64_t f = iq_free(qq, T.tid);
+      if (banked) f = std::min(f, ibank >= 0 ? bank_free(qq, ibank) : std::max(bank_free(qq, 0), bank_free(qq, 1)));
+      return f;
+    };
     if (q == Q_ALU_ANY) {
-      int64_t f0 = iq_free(Q_A0, T.tid), f1 = iq_free(Q_A1, T.tid);
+      int64_t f0 = qfree(Q_A0), f1 = qfree(Q_A1);
       if (c_.prf_banked) { if (free_regs(0) <= 0) f0 = -1; if (free_regs(1) <= 0) f1 = -1; }
       q = (f1 > f0) ? Q_A1 : Q_A0;
       if (c_.alu3) {
-        int64_t f2 = iq_free(Q_A2, T.tid);
+        int64_t f2 = qfree(Q_A2);
         if (c_.prf_banked && free_regs(5) <= 0) f2 = -1;
         if (c_.alu3_simple && !alu_simple(u.di->d->op)) {  // R13: ALU2 cannot take it
           if (f2 > 0 && std::max(f0, f1) <= 0) T.st.alu3_steer_stalls++;
@@ -713,23 +783,43 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       if (c_.iq_unified && c_.iq_rows) {
         const int64_t rows_cap = c_.iq_size / std::max<int64_t>(1, c_.decode_width);
         if (row < 0 && rows_used_ >= rows_cap) { T.st.disp_stall_iq++; break; }
-      } else if (iq_free(q, T.tid) <= 0) { T.st.disp_stall_iq++; break; }
+      } else if (qfree(q) <= 0) { T.st.disp_stall_iq++; break; }
+    }
+    if (banked && ibank < 0) {  // either bank: the one with more free rows, else the uop's own half
+      const int64_t b0 = bank_free(q, 0), b1 = bank_free(q, 1);
+      ibank = b0 == b1 ? rob_half(u.id) : (b1 > b0 ? 1 : 0);
     }
     const int bank = bank_for(u, q);
     if (bank >= 0 && free_regs(bank) <= 0) { T.st.disp_stall_reg++; break; }
     const bool need_llt = c_.llt > 0 && !u.serial && long_latency(u);
     if (need_llt) {
+      // iq_bank_llt: a tag comes from its producer's half, which only that bank's rows see
+      const bool lbank = c_.iq_bank && c_.iq_bank_llt;
+      const int h = lbank ? rob_half(u.id) : 0;
       int used = 0, own = 0;
       for (auto& Tp : th_)
         for (auto& w : Tp->win)
-          if (w.has_llt && (w.state < 2 || w.t_done > t_)) { used++; if (w.tid == T.tid) own++; }
+          if (w.has_llt && (w.state < 2 || w.t_done > t_)) {
+            used++;
+            if (lbank ? rob_half(w.id) == h : w.tid == T.tid) own++;
+          }
       for (auto& p : pending_)
-        if (p.second > t_) { used++; if ((p.first >> TID_SHIFT) == (uint64_t)T.tid) own++; }
-      const int64_t cap = nthr_ > 1 ? std::max<int64_t>(1, (c_.llt * c_.smt_llt_cap + 99) / 100) : c_.llt;
+        if (p.second > t_) {
+          used++;
+          if (lbank ? rob_half(p.first) == h : (p.first >> TID_SHIFT) == (uint64_t)T.tid) own++;
+        }
+      int64_t cap = nthr_ > 1 ? std::max<int64_t>(1, (c_.llt * c_.smt_llt_cap + 99) / 100) : c_.llt;
+      if (lbank) cap = std::min<int64_t>(cap, (c_.llt + 1 - h) / 2);
       if (used >= c_.llt || own >= cap) { T.st.disp_stall_llt++; break; }
     }
+    const bool mx_class = (q == Q_A0 || q == Q_A1 || q == Q_A2) &&
+                          (u.cls == Cls::ALU || u.is_ctrl || u.sfb_cmp || u.sfb_sel);
+    const bool need_wtag = c_.wake_tags > 0 && u.dst_arch != -1 && !need_llt && !mx_class;
+    if (need_wtag && wtags_used() >= c_.wake_tags) { T.st.disp_stall_wtag++; break; }
     // allocate
     u.q = q;
+    u.has_wtag = need_wtag;
+    if (banked) u.iq_bank = (uint8_t)ibank;
     u.dst_bank = bank;
     if (bank >= 0) bank_inflight_[bank]++;
     u.has_llt = need_llt;
@@ -746,7 +836,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     for (int k = 0; k < u.nsrc; k++)
       u.src_prod[k] = u.src_arch[k] == -2 ? u.sfb_temp_of : T.rat[(size_t)u.src_arch[k]];
     if (c_.census && q != Q_SERIAL)
-      for (int k = 0; k < u.nsrc; k++) census_source(T, q, u.src_prod[k]);
+      for (int k = 0; k < u.nsrc; k++) census_source(T, q, u.src_prod[k], u.id);
     if (u.sfb_sel) {
       if (const Uop* cmp = find(u.sfb_temp_of)) u.sfb_temp_bank = cmp->dst_bank;
     }
@@ -1291,7 +1381,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
 // ---------------------------------------------------------------- main loop
 
 // One source of a uop being dispatched into queue q: what its readiness would have to wait on.
-void Core::census_source(const Thread& T, uint8_t q, uint64_t prod) {
+void Core::census_source(const Thread& T, uint8_t q, uint64_t prod, uint64_t cons) {
   auto& c = census_[q];
   if (!prod) { c[CK_READY]++; return; }
   if ((prod >> TID_SHIFT) != (uint64_t)T.tid) { c[CK_XTHREAD]++; return; }
@@ -1303,13 +1393,13 @@ void Core::census_source(const Thread& T, uint8_t q, uint64_t prod) {
   }
   if (p->state == 2 && p->t_ready <= t_) { c[CK_READY]++; return; }
   if (p->has_llt) { c[CK_LLT]++; return; }
-  // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
-  const bool alu_row = (p->q == Q_A0 || p->q == Q_A1 || p->q == Q_A2) &&
-                       (p->cls == Cls::ALU || p->is_ctrl || p->sfb_cmp || p->sfb_sel) &&
-                       (p->state == 1 || (p->state == 2 && t_ <= p->t_issue + 2));
-  if (alu_row) { c[CK_MX]++; return; }
+  if (rob_half(prod) != rob_half(cons)) census_xhalf_[q]++;
+  if (mx_named(*p)) { c[CK_MX]++; return; }
   c[CK_ROB]++;
   census_rob_from_[q][p->q]++;
+  if ((p->q == Q_A0 || p->q == Q_A1 || p->q == Q_A2) &&
+      (p->cls == Cls::ALU || p->is_ctrl || p->sfb_cmp || p->sfb_sel))
+    census_rob_1c_[q]++;
 }
 
 void Core::sample_mlp() {
@@ -1476,7 +1566,9 @@ std::string Core::region_json(const Thread& T) const {
   first = false;
   TG_STATS(TG_RJ)
   if (nthr_ > 1) { TG_SMT_STATS(TG_RJ) }
-  if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared) { TG_LEVER_STATS(TG_RJ) }
+  if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared || c_.iq_bank || c_.wake_tags) {
+    TG_LEVER_STATS(TG_RJ)
+  }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)
@@ -1501,6 +1593,7 @@ std::string Core::census_json() const {
     o << (fq ? "" : ",") << "\"" << qn[q] << "\":{";
     fq = false;
     for (int k = 0; k < CK_N; k++) o << (k ? "," : "") << "\"" << kn[k] << "\":" << census_[(size_t)q][(size_t)k];
+    o << ",\"rob_1cycle\":" << census_rob_1c_[(size_t)q] << ",\"cross_half\":" << census_xhalf_[(size_t)q];
     o << ",\"rob_from\":{";
     bool fp = true;
     for (int p = 0; p < NQ; p++)

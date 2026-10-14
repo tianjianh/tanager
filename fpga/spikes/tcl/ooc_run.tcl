@@ -11,6 +11,8 @@
 #   -lut_target N  after synthesis, stop (exit 3) unless CLB LUTs are within lut_tol
 #           (default 0.025) of N: the S6 fill test must hit its utilisation
 #   -extra 1  congestion and control-set reports (full-device runs)
+#   -flatten M  synth_design -flatten_hierarchy M (default rebuilt; none keeps each module apart)
+#   -synth_directive D  synth_design -directive D (default Default; e.g. AreaOptimized_high)
 #   -pblock R  keep the design in clock-region range R (e.g. X0Y2:X1Y3), next to the clock
 #           source, so placement scatter does not decide the result
 # Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
@@ -30,6 +32,8 @@ set lut_target 0
 set lut_tol 0.025
 set extra 0
 set pblock ""
+set flatten rebuilt
+set synth_dir Default
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -44,6 +48,8 @@ while {[llength $rest]} {
     -lut_tol    { set lut_tol $v }
     -extra      { set extra $v }
     -pblock     { set pblock $v }
+    -flatten    { set flatten $v }
+    -synth_directive { set synth_dir $v }
     default { error "ooc_run.tcl: unknown option $k" }
   }
 }
@@ -62,7 +68,8 @@ tg_read_f [file join $root fpga spikes spikes.f]
 
 set gargs {}
 foreach g $generics { lappend gargs -generic $g }
-synth_design -top $top -part $part -mode out_of_context {*}$gargs
+synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
+  -directive $synth_dir {*}$gargs
 
 # One 200 MHz-class clock from a global buffer near the middle of the device, so the
 # clock tree is routed as in a full design.

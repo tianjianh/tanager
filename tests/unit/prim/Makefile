@@ -20,8 +20,10 @@ MODELS := models/RAM64M8.sv models/RAM32M16.sv
 FIFO   := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_fifo.sv tb_fifo.sv
 # tg_fifo: STORAGE-DEPTH; "lutram" also runs on the primitive models (TG_SIM_PRIMS)
 FIFO_V := lutram-2 lutram-4 lutram-16 lutram-64 reg-2 reg-4 reg-16
+# tg_rom: PRIM-DEPTH-WIDTH-RD_LAT
+ROM_V  := block-2048-9-2 block-512-36-1 distributed-64-16-1 distributed-100-37-2
 
-.PHONY: all test fifo clean
+.PHONY: all test fifo rom clean
 all: test
 fifo:
 	@set -e; for v in $(FIFO_V); do st=$${v%-*}; d=$${v#*-}; \
@@ -42,7 +44,17 @@ $(OBJ)/prim/Vtb_ram_lut: $(SRCS) $(MODELS)
 	  $(MODELS) $(SRCS) > /dev/null
 $(OBJ)/sdp/Vtb_ram_sdp: $(SDP)
 	mkdir -p $(OBJ)/sdp && verilator $(VFLAGS) --Mdir $(OBJ)/sdp --top-module tb_ram_sdp $(SDP) > /dev/null
-test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo
+rom:
+	@set -e; for v in $(ROM_V); do pr=$${v%%-*}; x=$${v#*-}; d=$${x%%-*}; x=$${x#*-}; \
+	  w=$${x%%-*}; l=$${x#*-}; \
+	  o=$(OBJ)/rom_$$v; mkdir -p $$o; \
+	  verilator $(VFLAGS) --Mdir $$o --top-module tb_rom -GPRIM='"'$$pr'"' -GDEPTH=$$d -GWIDTH=$$w \
+	    -GRD_LAT=$$l $(ROOT)/rtl/common/prim/tg_rom.sv tb_rom.sv > $$o/build.log 2>&1 || \
+	    { tail -20 $$o/build.log; exit 1; }; \
+	  $$o/Vtb_rom +seed=$(SEED) +cycles=$(CYCLES) > $$o/run.log; \
+	  echo "rom $$v: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
+	done
+test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom
 	$(OBJ)/beh/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/beh/run.log
 	@grep -q '^PASS' $(OBJ)/beh/run.log
 	$(OBJ)/prim/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/prim/run.log

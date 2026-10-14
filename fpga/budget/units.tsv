@@ -4,22 +4,21 @@
 #   top       top module; a line is skipped while the module does not exist in its sources
 #   files     sources beyond rtl/rtl.f, comma-separated, relative to the repo root (- for none)
 #   generics  NAME=VALUE, comma-separated (- for none)
-# When the core track merges a unit into rtl/core, add its line here (its budget is already
-# in budgets.tsv) and drop any spike stand-in for it.
+#   options   unit_synth.tcl options (- for none); the core is built with -flatten none so
+#             its hierarchical report gives each unit's exact count
+# A top of the form @<unit>:<instance>[+<instance>] is not synthesised: the unit is read from
+# that built unit's hierarchical utilisation (the sum of the named first-level instances).
+# When the core track adds a unit to tg_core, give it a line here (its budget is in
+# budgets.tsv).
 #
-# unit	cfgs	top	files	generics
-fpu	st,smt2,st_w3,smt2_w3	tg_fpu	-	-
-fpu_r4	smt2	tg_fpu	-	DIV_RADIX4=1
-# Core units (core track). Module boundaries against the budget rows: fe (tg_fetch) holds the
-# ITLB and lsu (tg_lsu) the DTLB, the walker and the D$, so the mmu row's share is inside them;
-# the rob row (ROB, traps, CSRs, PMP) is rob + csr; the rf and int rows are exec (tg_exec: the
-# register files, bypass, ALUs, MUL, DIV, branch unit).
-fe	st,smt2,st_w3,smt2_w3	tg_fetch	-	-
-dec	st,smt2,st_w3,smt2_w3	tg_decode_stage	-	-
-ren	st,smt2,st_w3,smt2_w3	tg_rename	-	-
-iq	st,smt2,st_w3,smt2_w3	tg_issue	-	-
-exec	st,smt2,st_w3,smt2_w3	tg_exec	-	-
-lsu	st,smt2,st_w3,smt2_w3	tg_lsu	-	-
-rob	st,smt2,st_w3,smt2_w3	tg_rob	-	-
-csr	st,smt2,st_w3,smt2_w3	tg_csr	-	-
-core	st,smt2,st_w3,smt2_w3	tg_core	-	-
+# unit	cfgs	top	files	generics	options
+fpu	st,smt2,st_w3,smt2_w3	tg_fpu	-	-	-
+fpu_r4	smt2	tg_fpu	-	DIV_RADIX4=1	-
+core	st,smt2,st_w3,smt2_w3	tg_core	-	-	-flatten none
+fe	st,smt2,st_w3,smt2_w3	@core:u_fetch	-	-	-
+dec	st,smt2,st_w3,smt2_w3	@core:u_de	-	-	-
+ren	st,smt2,st_w3,smt2_w3	@core:u_rn	-	-	-
+iq	st,smt2,st_w3,smt2_w3	@core:u_is	-	-	-
+ex	st,smt2,st_w3,smt2_w3	@core:u_ex	-	-	-
+lsu_mmu	st,smt2,st_w3,smt2_w3	@core:u_lsu	-	-	-
+rob_csr	st,smt2,st_w3,smt2_w3	@core:u_rob+u_csr	-	-	-

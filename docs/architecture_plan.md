@@ -464,6 +464,19 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
     - **The cancel history** is 1 cycle (`HIST = 1`).
     - **Results:** +0.11 ns at 8.9K LUTs (v1) and +0.06 ns at 12.5K (v2).
   - **Stale dependencies:** the guard. The phase-bit variant deadlocked in random tests, because a pooled LLT was reused while a row still waited on its first instance.
+- **Wakeup tags (AR-1, adopted 2026-10-14 under D18 step 1; [area study](perf/area_recovery.md) §5).** The readiness vectors drop their ROB-index columns (80 at v1, 96 at v2).
+  - **What replaces them:** a pool of 16 wakeup tags, for the producers that need one: multi-cycle fixed-latency ops (MUL, complex Zbb, the FMA, FP misc and move ops) and serialised ops.
+  - **The other producers are already covered:** MX covers every 1-cycle producer, and LLTs cover loads, divides and long FP ops.
+  - **Exact in the model:** 0.00% IPC at 30, 120 and 250 cycles, on every pair, the single-thread suite, and in v1, v2 and ST. There were 0 tag stalls.
+  - **Saving (estimate, to be confirmed by an S2 build at 40 columns):**
+
+    | Configuration | Per core |
+    |---|---|
+    | v1 | 2.7–3.0K |
+    | v2 | 4.7–5.0K |
+    | ST | ≈1.0–1.2K |
+
+  - **Consequence:** the window size no longer sets the scheduler's LUTs.
 - **Wakeup timing:**
   - 1-cycle operations wake at select, so dependants issue back to back.
   - Fixed multi-cycle operations wake through a delay line.
@@ -1052,6 +1065,18 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 - **Spike S6** floorplans the `smt2_w3` dual-core as well as v1, and runs the fill test.
 - **M6** synthesises all four configurations.
 
+**Area-recovery study, model side: done (2026-10-14; [area_recovery.md](perf/area_recovery.md)).** Decisions:
+
+| # | Item | Status |
+|---|---|---|
+| AR-1 | Wakeup tags (16), every configuration | **Adopted** (no IPC cost; §4.6) |
+| AR-2 | R9 (strict store forwarding) and R10 (shared checkpoints): −0.04% / −0.00% at most | **Held as the first reserve.** They share or reduce function, which D18 puts last. |
+| AR-3 | v1 keeps D15's structures and uses no IPC-costing lever. With tags it fits 103K at 200 MHz if every unit meets its budget (92–104K projected). | **Adopted.** A bigger window (ROB 96, LQ 32, SQ 24: +1.84% throughput, +0.69% single thread, ≈0.7K per core) is **kept as an option and not adopted** (user, 2026-10-14). It can be reconsidered when the measured fit leaves room. |
+| AR-4 | v2 re-plan: `smt2_w3` with tags (plus R9, R10, R12 and completion buffer 8 if needed); R11 and R13 dropped (both fail the rule); target 180–190 MHz. At 190 MHz v2 still beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread. | Direction recorded; v2 comes after v1 |
+| AR-5 | Fill test at 180–190 MHz with v2's core (with tags), at 90 / 93 / 96% | Running with spike S6 |
+| AR-6 | Reserve order. v1: R9, R10, FP queue 8, LD queue 4, radix-4. v2: radix-4, then 8-row ALU queues. Everything else fails the reverse rule. | Ranking only |
+| AR-7 | Re-measure the real RTL after the core track's no-IPC area pass (`st` is at 88K against 38.2K), then redo the fit | **Gate:** no IPC-costing lever before it |
+
 **Area-recovery study (started 2026-10-13, triggered by S6).**
 - **Priority (D18).** IPC comes first. The study proceeds in three steps and moves to the next only when the previous one is exhausted:
   1. **Standard implementation tricks that cost no IPC:**
@@ -1180,8 +1205,8 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
 |---|---|---|---|
 | **M0 Foundations** | Repository, CI, coding rules, Spike lockstep (including deferred writeback records), unit-spec templates. Spikes on XCK26 at 200 MHz:<br>S1: PL→DDR latency and bandwidth, idle and loaded; loader, carve-out and SMMU checks.<br>S2: one queue's wakeup-select over ROB and LLT columns.<br>S3: 3-bank register file with 2 ALUs and the shared store-data port, plus the replicated-bank variant for 3 ALUs.<br>S4: load path.<br>S5: 64-entry LUTRAM micro-BTB loop, I$, pre-decode in IF2 and compaction in IF3.<br>S6: dual-core floorplan dry run with a 1 MiB L2, for `st`, the `smt2` release and the `smt2_w3` (v2) area estimate. It includes a fill test (Fmax at 80%, 85% and 90% LUT utilisation) that sets the utilisation limit (§8.5). | Loops close or fallbacks are chosen; KV260 latency known; front-end, back-end, LSU and L2 specs reviewed | About 1 week, overlapping M2. The spikes need Vivado and the board. |
 | **M1 Model and DSE** | `tgsim` calibrated; sweeps at the latency points | v1 parameters frozen through the acceptance rule and recorded in the feature ledger; predicted CoreMark ≥ 1.21× the control (D11; was ≥ 6.0); suite margin ≥ 1.2× at all latency points; early-retirement go/no-go | **Done 2026-10-13.**<br>Freeze approved; margin 1.62–1.69×; CoreMark 1.46× / 1.34× of the control; early retirement GO.<br>[DSE report](perf/dse_report.md) |
-| **M2 Core alpha (sim, ST)** | RV64IM, M-mode, single-thread bring-up (`st`). Conservative out-of-order: commit-time recovery, wakeup on confirmed hits, a simple predictor behind the FTQ, 1-MSHR D$. **TID, LLT and deferred-free plumbing in place; width-generic front end, rename, dispatch and commit (§4.15).** | riscv-tests and CoreMark/Dhrystone pass in lockstep, **in both the 2-wide and 3-wide builds** | About 1 week |
-| **M3 Linux-capable (sim)** | A, C, privileged modes, Sv39, PMP, ACLINT, PLIC, UART, boot ROM, Zba/Zbb/Zbs/Zicond/Sstc. **F/D integration moves here from M5 (2026-10-13):** the FPU units are already built and verified, and with F/D in place the board runs the same `lp64d` image as QEMU, with no soft-float userland. | ACT4 passes, including F/D; OpenSBI and Buildroot (`lp64d`) reach a shell in Verilator | 1–2 weeks |
+| **M2 Core alpha (sim, ST)** | RV64IM, M-mode, single-thread bring-up (`st`). Conservative out-of-order: commit-time recovery, wakeup on confirmed hits, a simple predictor behind the FTQ, 1-MSHR D$. **TID, LLT and deferred-free plumbing in place; width-generic front end, rename, dispatch and commit (§4.15).** | riscv-tests and CoreMark/Dhrystone pass in lockstep, **in both the 2-wide and 3-wide builds** | **Done 2026-10-14.** Lockstep passes in all four configurations. `st`: CoreMark 3.04 / 2.88 CM/MHz (flag sets A/B), Dhrystone 1.66 DMIPS/MHz, from the conservative M2 core; M6 adds the performance features. First synthesis: 88K LUTs against a 38K budget, so an area pass comes first (D18). |
+| **M3 Linux-capable (sim)** | A, C, privileged modes, Sv39, PMP, ACLINT, PLIC, UART, boot ROM, Zba/Zbb/Zbs/Zicond/Sstc. **F/D integration moves here from M5 (2026-10-13):** the FPU units are already built and verified, and with F/D in place the board runs the same `lp64d` image as QEMU, with no soft-float userland. | ACT4 passes, including F/D; OpenSBI and Buildroot (`lp64d`) reach a shell in Verilator | 1–2 weeks. **Progress 2026-10-14:** A, C, S/U, Sv39, PMP and interrupts built behind switches; riscv-tests 280/280 and ACT4 rv64imac 355/355 pass. F/D follows the area pass. |
 | **M4 KV260 single core** | KV260 top, simple single-agent L2, `tanager-host`, commit-trace streaming, **latency injector** | Linux on hardware at ≥ 100 MHz; FPGA lockstep; Linux boots at 0 and 250 injected cycles | About 1 week; board work starts during M3 |
 | **M5 Debian** | virtio-blk, coherence model (F/D moved into M3) | Debian 13 boots; SPEC-like workloads run | About 1 week after M4 |
 | **M6 Performance (ST)** | Micro-BTB (64), TAGE-lite (4 × 4K), RAS repair, 4 checkpoints, speculative wakeup with replay, early retirement, 16 MSHRs, early ownership prefetch, I$/stride/stream prefetchers, Goldschmidt divide/sqrt; 200 MHz single core; synthesis of all four configurations (`st`, `smt2`, `st_w3`, `smt2_w3`) against their LUT budgets (§8.5) | All single-thread §0 targets at all latency points (via the injector); model correlation within 10% | 2–4 weeks; 200 MHz timing closure is the long pole |

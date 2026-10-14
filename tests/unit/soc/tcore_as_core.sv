@@ -54,6 +54,7 @@ module tg_core
   output logic                         mmio_d_ready_o,
 
   // Commit trace (lockstep in simulation, trace streaming on the FPGA)
+  input  logic                         trace_stall_i,     // interfaces.md v1.3: hold commit
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,

@@ -1,0 +1,97 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Tue Oct 13 23:00:20 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -max_paths 1 -input_pins -file timing_worst.rpt
+| Design            : tg_s2_sched_top
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Routed
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (MET) :             0.132ns  (required time - arrival time)
+  Source:                 g_q[1].u_iq/valid_q_reg[3]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            g_q[4].u_iq/early_q_reg[10]/D
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        4.787ns  (logic 1.432ns (29.915%)  route 3.355ns (70.085%))
+  Logic Levels:           8  (LUT3=1 LUT4=3 LUT6=4)
+  Clock Path Skew:        -0.089ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.279ns = ( 6.279 - 5.000 ) 
+    Source Clock Delay      (SCD):    1.445ns
+    Clock Pessimism Removal (CPR):    0.076ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=9620, unset)         1.445     1.445                         g_q[1].u_iq/clk
+    SLICE_X23Y175        FDRE                                         r  spike                g_q[1].u_iq/valid_q_reg[3]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X23Y175        FDRE (Prop_AFF_SLICEL_C_Q)
+                                                      0.114     1.559 f  spike                g_q[1].u_iq/valid_q_reg[3]/Q
+                         net (fo=15, routed)          0.426     1.985                         g_q[1].u_iq/p_0_in287_in
+    SLICE_X22Y174                                                     f  spike                g_q[1].u_iq/issued_o[3]_INST_0/I0
+    SLICE_X22Y174        LUT3 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.225     2.210 f  spike                g_q[1].u_iq/issued_o[3]_INST_0/O
+                         net (fo=50, routed)          1.142     3.352                         g_q[4].u_iq/mx_issued[13]
+    SLICE_X29Y198                                                     f  spike                g_q[4].u_iq/iss_valid_q_i_796/I0
+    SLICE_X29Y198        LUT4 (Prop_E6LUT_SLICEM_I0_O)
+                                                      0.057     3.409 r  spike                g_q[4].u_iq/iss_valid_q_i_796/O
+                         net (fo=1, routed)           0.134     3.543                         g_q[4].u_iq/iss_valid_q_i_796_n_0
+    SLICE_X29Y198                                                     r  spike                g_q[4].u_iq/iss_valid_q_i_390/I3
+    SLICE_X29Y198        LUT4 (Prop_H6LUT_SLICEM_I3_O)
+                                                      0.228     3.771 r  spike                g_q[4].u_iq/iss_valid_q_i_390/O
+                         net (fo=1, routed)           0.174     3.945                         g_q[4].u_iq/iss_valid_q_i_390_n_0
+    SLICE_X31Y200                                                     r  spike                g_q[4].u_iq/iss_valid_q_i_137/I5
+    SLICE_X31Y200        LUT6 (Prop_D6LUT_SLICEM_I5_O)
+                                                      0.151     4.096 r  spike                g_q[4].u_iq/iss_valid_q_i_137/O
+                         net (fo=9, routed)           0.443     4.539                         g_q[4].u_iq/iss_valid_q_i_137_n_0
+    SLICE_X33Y190                                                     r  spike                g_q[4].u_iq/iss_valid_q_i_60/I0
+    SLICE_X33Y190        LUT6 (Prop_B6LUT_SLICEL_I0_O)
+                                                      0.188     4.727 r  spike                g_q[4].u_iq/iss_valid_q_i_60/O
+                         net (fo=12, routed)          0.303     5.030                         g_q[4].u_iq/iss_valid_q_i_60_n_0
+    SLICE_X34Y187                                                     r  spike                g_q[4].u_iq/early_q[23]_i_10/I2
+    SLICE_X34Y187        LUT4 (Prop_G6LUT_SLICEM_I2_O)
+                                                      0.057     5.087 f  spike                g_q[4].u_iq/early_q[23]_i_10/O
+                         net (fo=25, routed)          0.491     5.578                         g_q[4].u_iq/early_q[23]_i_10_n_0
+    SLICE_X36Y177                                                     f  spike                g_q[4].u_iq/early_q[10]_i_2/I4
+    SLICE_X36Y177        LUT6 (Prop_D6LUT_SLICEL_I4_O)
+                                                      0.185     5.763 r  spike                g_q[4].u_iq/early_q[10]_i_2/O
+                         net (fo=1, routed)           0.172     5.935                         g_q[4].u_iq/early_q[10]_i_2_n_0
+    SLICE_X36Y177                                                     r  spike                g_q[4].u_iq/early_q[10]_i_1/I0
+    SLICE_X36Y177        LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.227     6.162 r  spike                g_q[4].u_iq/early_q[10]_i_1/O
+                         net (fo=1, routed)           0.070     6.232                         g_q[4].u_iq/payload_sel[10]
+    SLICE_X36Y177        FDRE                                         r  spike                g_q[4].u_iq/early_q_reg[10]/D
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)        5.000     5.000 r                       
+                                                      0.000     5.000 r                       clk (IN)
+                         net (fo=9620, unset)         1.279     6.279                         g_q[4].u_iq/clk
+    SLICE_X36Y177        FDRE                                         r  spike                g_q[4].u_iq/early_q_reg[10]/C
+                         clock pessimism              0.076     6.355                           
+                         clock uncertainty           -0.035     6.320                           
+    SLICE_X36Y177        FDRE (Setup_HFF_SLICEL_C_D)
+                                                      0.044     6.364    spike                  g_q[4].u_iq/early_q_reg[10]
+  -------------------------------------------------------------------
+                         required time                          6.364                           
+                         arrival time                          -6.232                           
+  -------------------------------------------------------------------
+                         slack                                  0.132                           
+
+
+
+

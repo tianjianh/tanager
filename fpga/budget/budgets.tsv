@@ -7,8 +7,9 @@
 #   mode  enforce: over budget is a failure of the run; track: report only (no budget yet,
 #         or the configuration waits for a re-plan: the 3-wide builds, plan §8.5)
 # Budgets are per core and after the §8.5 levers: v1 (smt2) at 88% of the XCK26 needs every
-# unit at or under them. Lines for units without RTL yet wait in this file for their units.tsv
-# line.
+# unit at or under them. tg_core's instances combine some plan rows: ex = rf + int (register
+# file, bypass, ALUs, MUL/DIV), lsu_mmu = lsu + mmu, rob_csr = rob (ROB, commit, traps, CSRs,
+# PMP); the rf/int/lsu/mmu/rob rows keep the plan's split for reference.
 #
 # unit	cfg	lut	lutram	ff	dsp	bram36	mode
 fe	st	5540	-	-	-	30	enforce
@@ -29,6 +30,23 @@ lsu	st	5770	-	-	0	9	enforce
 lsu	smt2	6780	-	-	0	9	enforce
 mmu	st	1600	-	-	0	2	enforce
 mmu	smt2	1780	-	-	0	2	enforce
+ex	*	7610	-	-	16	0	enforce
+lsu_mmu	st	7370	-	-	0	11	enforce
+lsu_mmu	smt2	8560	-	-	0	11	enforce
+rob_csr	st	2160	-	-	18	1	enforce
+rob_csr	smt2	4840	-	-	36	1	enforce
+fe	st_w3	-	-	-	-	-	track
+fe	smt2_w3	-	-	-	-	-	track
+dec	st_w3	-	-	-	-	-	track
+dec	smt2_w3	-	-	-	-	-	track
+ren	st_w3	-	-	-	-	-	track
+ren	smt2_w3	-	-	-	-	-	track
+ex	st_w3	-	-	-	-	-	track
+ex	smt2_w3	-	-	-	-	-	track
+lsu_mmu	st_w3	-	-	-	-	-	track
+lsu_mmu	smt2_w3	-	-	-	-	-	track
+rob_csr	st_w3	-	-	-	-	-	track
+rob_csr	smt2_w3	-	-	-	-	-	track
 fpu	*	6800	-	3450	32	0.5	enforce
 fpu_r4	*	-	-	-	-	-	track
 core	st	38220	-	-	66	42.5	enforce
