@@ -61,7 +61,7 @@ The board needs the standard Kria Ubuntu image (22.04 or 24.04 for Kria), booted
    ```bash
    cd ~/tg-s1 && make && sudo ./tg_s1 | tee s1_results.txt
    ```
-   It takes about a minute. `--quick` runs a tenth of the samples. `--mb N` sets the buffer size; the default is 256 MiB of hugepages.
+   It takes about a minute. `--quick` runs a tenth of the samples. `--mb N` sets the buffer size; the default is 256 MiB of hugepages. `--base ADDR` sets the engines' address, if `address_map.txt` from the build shows something other than `0xA0000000`.
 6. **Send back** `s1_results.txt`, and the output of these:
    ```bash
    dmesg | tail -50
