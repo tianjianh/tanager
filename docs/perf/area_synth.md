@@ -133,4 +133,33 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 
 ## 5. Fill test at 180 MHz
 
-(being measured)
+**Method:** the S6 full-device design ([spikes.md](spikes.md) §8): two cores of spike structures plus the uncore, a synthetic filler sized to the target fill of the XCK26's 117,120 LUTs, implemented at 5.556 ns (180 MHz). D18 asks how full the device can get at about 180 MHz before IPC-costing levers are needed. The cores take the spike verdicts (min/max off the 1-cycle ALU, alignment in M2, MX everywhere), unlike the 200 MHz runs of spikes.md §8; "with tags" means the AR-1 scheduler (`S2_WTAGS = 16`).
+
+| Run | Config | Target | CLB LUTs (fill) | WNS ns | Fmax MHz | Worst path | Route |
+|---|---|---|---|---|---|---|---|
+| `s6_smt2w3t_93_180` | smt2_w3 (v2), with tags | 93% | 110,280 (**94.2%**) | **+0.049** | **181.6** | harness: a filler register feeding S3's register file from across the die (1 level, 5.08 ns of wire) | 19 min |
+| `s6_smt2_93_180` | smt2 (v1), ROB columns | 93% | (routing) | | | | |
+| `s6_smt2_90_180`, `s6_smt2w3t_90_180` | v1 / v2 with tags | 90% | (queued) | | | | |
+| `s6_smt2_95_180`, `s6_smt2w3t_96_180` | v1 / v2 with tags | 95% / 96% | (queued) | | | | |
+
+Named paths, slack in ns at 5.556 ns (the worst over both cores):
+
+| Path | v2 with tags, 94.2% |
+|---|---|
+| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) |
+| S2: issue payload | +1.100 |
+| S3: ALU → bypass → ALU | **+0.178** (9 levels) |
+| S3: register-file read | +0.049 (the harness route above) |
+| S4: M2 compare, select, result | +0.379 |
+| S4: DTLB lookup in M1 | +0.610 |
+| S5: next-PC loop | +0.729 |
+| S5: next PC → I$ BRAM address | +0.200 |
+| S5: IF3 compaction → instruction queue | +0.186 |
+| L2: UltraRAM cascade input | +0.344 |
+| Core → L2 bus | +3.279 |
+| Synthetic logic | +0.665 |
+
+**Findings so far.**
+- **v2 with tags closes 180 MHz at 94.2% fill** (110.3K LUTs). The worst real paths are S3's ALU loop and S5's fetch (+0.18 to +0.20 ns); the scheduler, the 200 MHz limiter before tags, has more than 1 ns.
+- The router started from 112K overlapping nodes and cleared them in 19 minutes; the placer's worst congestion is level 5.
+
