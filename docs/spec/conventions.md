@@ -108,9 +108,15 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 
 **Rules.**
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - It takes a machine-wide slot lock. `TANAGER_VIVADO_SLOTS` is 2 on the build host and 1 on the laptop, set in `tools/env.sh`; a full-device run needs about 8–12 GB of RAM.
+  - It takes a machine-wide slot lock. `TANAGER_VIVADO_SLOTS` is 3 on the build host and 1 on the laptop, set in `tools/env.sh`.
+  - At most 2 full-device runs at a time, since each needs about 8–12 GB of RAM; out-of-context runs need 2–6 GB.
   - Use out-of-context runs per unit wherever possible. A full-device run takes hours, so say so in your status.
-- **Builds:** at most `-j8` per track on the build host (`-j4` on the laptop).
+- **Builds:** up to `-j16` per track on the build host (`-j4` on the laptop).
+- **Use the build host's spare capacity** (32 threads, about 39 GB); idle cores are wasted:
+  - run independent configurations and seeds in parallel;
+  - build long simulations (Linux boots, long benchmarks) with Verilator `--threads 4`–`8`;
+  - run soak tests and sweeps at `nice 19`, so interactive work keeps priority.
+- **Disk stays the tighter limit:** watch `tools/disk_report.sh`.
 - **Long jobs:** run in the background with a log in your build tree. Never poll in a tight loop.
 - **Disk:** a hard budget. The WSL virtual disk never gives space back to Windows, so what counts is total WSL usage.
   - **Totals:** WSL usage (`df -h /`, Used) must stay at or under **95 GB**, and the host drive at or over **15 GB free**. On 2026-10-13, with Vivado (47 GB) and the tools installed, usage was 64 GB and the host had 34 GB free.
