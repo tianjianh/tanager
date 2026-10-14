@@ -10,5 +10,16 @@
 # unit	cfgs	top	files	generics
 fpu	st,smt2,st_w3,smt2_w3	tg_fpu	-	-
 fpu_r4	smt2	tg_fpu	-	DIV_RADIX4=1
-iq	st,smt2,st_w3,smt2_w3	tg_s2_sched_top	fpga/spikes/rtl/tg_iq.sv,fpga/spikes/rtl/tg_wake.sv,fpga/spikes/rtl/tg_s2_sched_top.sv	STALE=0,WAKE_ENC=1,DUP_SEL=1,EARLY_W=24,MX=1
+# Core units (core track). Module boundaries against the budget rows: fe (tg_fetch) holds the
+# ITLB and lsu (tg_lsu) the DTLB, the walker and the D$, so the mmu row's share is inside them;
+# the rob row (ROB, traps, CSRs, PMP) is rob + csr; the rf and int rows are exec (tg_exec: the
+# register files, bypass, ALUs, MUL, DIV, branch unit).
+fe	st,smt2,st_w3,smt2_w3	tg_fetch	-	-
+dec	st,smt2,st_w3,smt2_w3	tg_decode_stage	-	-
+ren	st,smt2,st_w3,smt2_w3	tg_rename	-	-
+iq	st,smt2,st_w3,smt2_w3	tg_issue	-	-
+exec	st,smt2,st_w3,smt2_w3	tg_exec	-	-
+lsu	st,smt2,st_w3,smt2_w3	tg_lsu	-	-
+rob	st,smt2,st_w3,smt2_w3	tg_rob	-	-
+csr	st,smt2,st_w3,smt2_w3	tg_csr	-	-
 core	st,smt2,st_w3,smt2_w3	tg_core	-	-
