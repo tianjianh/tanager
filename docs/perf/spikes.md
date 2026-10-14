@@ -575,3 +575,76 @@ Production-intent RTL from the spikes, written to the conventions and parameteri
 | DDR engine (S1) | `fpga/spikes/s1/rtl/tg_s1_engine.sv` | `s1` | measurement only |
 
 Run every test with `source tools/env.sh` first: the Makefiles stop without the pinned Verilator, because the system's 5.020 runs `tb_iq` differently. The whole set: `make -C fpga/spikes/sim -j8 all` (41 tests) and `make -C tests/unit/prim`.
+
+---
+
+## 12. History and lessons
+
+*Kept short and updated with each merge (conventions §10); the coordinator rolls it up into [docs/devlog.md](../devlog.md).*
+
+### 12.1 The scheduler's path (S2, whole scheduler)
+
+Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a measured result.
+
+| Step | st | smt2 (v1) | smt2_w3 (v2) | What it bought |
+|---|---|---|---|---|
+| Plan structure: guard, predecoded wakeup IDs, ROB + LLT columns | 6,081 / −0.063 (free placement) | 7,858 / −0.249 | 10,576 / −0.652 (free placement) | — |
+| + DUP_SEL, EARLY_W = 24 | 5,307 / **+0.110** | 7,701 / −0.521 | 10,547 / −0.781 | closes st |
+| + MX: matrix wakeup for in-queue 1-cycle producers, grant registered before the encode | 6,425 / +0.145 | 8,895 / **+0.112** | 12,515 / **+0.057** | closes smt2 and smt2_w3 for +1.1–1.2K. st needs it too in the full chip: S6 at 76% missed by 0.041 without it |
+| + free synthesis settings (hierarchy kept, `AreaOptimized_high`) | — | 7,691 / +0.102 | 11,381 / −0.008 | −13%, no IPC |
+| **+ wakeup tags (AR-1):** 16 tags + LLTs, 32–40 columns; no wakeup at select | **4,802 / +0.518** | **5,506 / +0.218** | **7,703 / +0.026** | −25% / −38% / −38%, and the W loop leaves the 1-cycle path |
+
+- **Estimate against measurement:** the plan's §8.2 carried 2.9K for the issue queues. Measured with ROB columns, the scheduler was 1.9× / 3.1× / 4.3× that.
+- **Where those LUTs went:** readiness over 104–120 columns per row, the guard's busy vector, and MX's per-column clears.
+- **Why tags won:** they removed the columns themselves, which no implementation trick could.
+
+### 12.2 Findings that changed the plan
+
+- **LUTRAM is mapped explicitly.**
+  - Behavioural inference of a 64 × 64, 7-read-port memory gave 63 RAM64M8 plus 7 RAM64X1D.
+  - Explicit primitives with port-major slot packing give 64, and a 9-port bank 83, not 2 × 64. So bank replication for 3 ALUs costs +1.25K, not the planned +2.7K, and R11 saves only 0.74K.
+- **Dropped read ports.**
+  - `opt_design` silently removes a read port with no load (64 → 55 RAM64M8 in the first test). The primitive check exists for this.
+  - In the real core, eight such "failures" were payload fields nobody reads. The check now counts only primitives holding a loaded bit: unread fields pass and are reported, and a primitive missing for a used bit still fails.
+- **The pblock method.**
+  - Out of context, Vivado placed some runs far from the clock source: clock insertion was 2.3–2.5 ns instead of 1.5–1.8, and up to 1.2 ns of slack was lost.
+  - Every run since is constrained to clock regions X0Y2:X1Y3. Even so, results move by ±0.1–0.3 ns between runs, so margins under 0.3 ns are marginal.
+  - R8's −0.614 ns "failure" was such a placement artifact; it reran at +0.004.
+- **The fill test (S6).**
+  - v1 holds 200 MHz from 79% to 88% fill with no trend: +0.043 / +0.105 / +0.007 ns.
+  - The limits are the protected loops, not congestion (level 5 at 88%). v2 at 89% ran at 191 MHz.
+  - The synthetic filler is local wiring, hence the planning limit of 85% with a ceiling of 88–90%.
+  - The 180 MHz fill test (v1, and v2 with tags) is being run.
+- **min/max off the 1-cycle ALU.** With them, 2 ALUs had +0.014 ns under the pblock and 3 ALUs failed (−0.086). Without them the 2-ALU loop has +0.47 and 3 ALUs close.
+- **The real core's first synthesis (82.5K LUTs, st).** Seven PMP checkers take 21.8K of it, a quarter of the core. Keeping the hierarchy alone took 5.5K off the flattened 88K.
+
+### 12.3 Dead ends
+
+| Tried | Result | Why it failed |
+|---|---|---|
+| PRE_RDY (registered ID readiness) | −0.363 against +0.057 (smt2_w3) | It moves the readiness AND-OR into the cycle of the registered grant's wakeup encode: 10 levels |
+| ISS_REG (issued bit from a replicated register) | +0.055 / +0.054, no gain | The level it removes is within run-to-run noise |
+| Phase bit for stale dependencies | deadlocks; +780 LUTs per queue | Unsafe for pooled LLTs: a tag reused twice while a row waits wraps the phase (`tb_iq` found it) |
+| Column clear instead of the guard | +425 LUTs per queue | One LUT per dependency bit; the flip-flops' resets cannot be shared |
+| R8 (EX-only bypass) | saves 51–305 LUTs, no faster | The write-through puts the RF write data on the ALU's slowest path |
+| R11 (shared RF read ports, 3 ALUs) | −0.71K, −0.323 ns | Arbitration lengthens the select loop, for little area |
+| `AreaOptimized_high` without the kept hierarchy | −0.265 ns | It restructures the wakeup loop across module boundaries |
+| No matrix in the STA and FP queues | −403 LUTs | Invalid once wakeup tags are adopted |
+| Predecoded delay-line IDs | +20 LUTs | Nothing to gain at 4–10 sources |
+| Fully associative flip-flop micro-BTB (S5 fallback) | +1.1K LUTs, slower | LUTRAM wins on both counts |
+| Aligning loads in M1 (S4) | +0.43K for +0.11 ns | Not worth it; M2 alignment passes |
+
+### 12.4 Bugs and method lessons
+
+- **S1 histogram lost update.** The BRAM is read-first, so a read misses the write at its own clock edge, not only the one still in flight. A reference histogram in the testbench found it.
+- **Testbenches.**
+  - A static initializer inside a loop tested one ALU op instead of all of them.
+  - The system Verilator (5.020) runs `tb_iq` differently from the pinned 5.052, so the Makefiles now refuse to run without `tools/env.sh`.
+- **S6 sizing.**
+  - An unsigned 27 × 18 multiply took two DSPs.
+  - A per-tile LUT cost measured before that fix misled the first fill runs.
+  - The spikes measure the same inside S6 as out of context, within 2%, which validates the out-of-context budget numbers.
+- **Machine sharing.**
+  - `vivado_run.sh` waiters lose slots to fresh launches. The track now runs fair-share workers that use one slot while others wait, launch the moment a slot is free, and run from snapshots of committed HEAD.
+  - Never edit a running bash script: hand over to a new runner instead.
+- **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.

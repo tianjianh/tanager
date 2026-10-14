@@ -125,3 +125,23 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 - Each cell reads value / budget, bold when over, with Δ since the previous run.
 - The exit status is 0 when every enforced unit is within budget and primitive-clean, and 1 otherwise.
 - A unit that grows past its budget, or a memory that maps to the wrong primitives, shows the next morning.
+
+## 4. History and lessons
+
+*Updated with each merge (conventions §10).*
+
+- **2026-10-13: first budgets.**
+  - Derived from plan §8.2, the SMT2 study's per-structure split, the measured scheduler (8.9K at smt2) and FPU (7.6K), and the §8.5 levers per unit.
+  - v1 lands at 103.0K (88.0%) only with the free levers at the top of their ranges.
+- **ST revised the same night:** the S6 fill test showed st needs MX in the scheduler, +1.1K, so ST is 87.7K (74.9%).
+- **The first budget runs, 13 syntheses in 20 minutes:** the FPU at 7,518 and the scheduler at 6,470 / 8,909 were over budget, as expected before R5 and R14.
+- **2026-10-14: the real core.**
+  - Its first synthesis is 82.5K LUTs at st with the hierarchy kept, against the 38.2K core budget.
+  - The budget flow now builds `tg_core` with `-flatten none` and reads every unit from that one report.
+  - The breakdown points at seven PMP checkers (21.8K), the D-cache (13.2K) and rename (11.9K).
+- **AR-1 measured:**
+  - the scheduler with wakeup tags is 4,802 / 5,506 / 7,703 at st / smt2 / smt2_w3, 2.8K under its v1 budget of 8,350;
+  - the FPU pass brought the FPU to 5,889.
+- **Lessons:**
+  - Measure a unit before budgeting it: the estimate for the scheduler was off by 2–4×, while S3, S4 and S5 landed within plan.
+  - Build with the hierarchy kept when counting. It is exact per module, and on this design it was also 5–6% smaller.
