@@ -2,7 +2,7 @@
 // A bitstream loaded at run time does not reconfigure the PS, so this overlay supplies what the
 // block design assumes:
 //   - pl_clk0 at 100 MHz (PL0_REF, zynqmp clock 71);
-//   - fabric-interface widths: S_AXI_HP1/HP2 128-bit, M_AXI_HPM0_FPD 32-bit (xlnx,afi-fpga);
+//   - fabric-interface widths: S_AXI_HP1/HP2/HP3 128-bit, M_AXI_HPM0_FPD 32-bit (xlnx,afi-fpga);
 //   - the host bridge window (64 KiB at 0xA000_0000) and pl_ps_irq0[0] (GIC SPI 89) as a UIO device.
 // Build: dtc -@ -W no-reg_format -W no-simple_bus_reg -I dts -O dtb -o tanager.dtbo tanager.dtso
 // (the amba bus has #address-cells = #size-cells = 2; dtc cannot see that from an overlay)
@@ -21,7 +21,7 @@
 &amba {
 	afi0: afi0 {
 		compatible = "xlnx,afi-fpga";
-		config-afi = <6 0>, <7 0>, <8 0>, <9 0>, <14 0x800>;
+		config-afi = <6 0>, <7 0>, <8 0>, <9 0>, <10 0>, <11 0>, <14 0x800>;
 	};
 
 	clocking0: clocking0 {

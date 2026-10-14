@@ -115,14 +115,15 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 **Rules.**
 - **Memory is the binding limit (2026-10-14).**
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
-  - **The budget:** keep about 8 GB for the OS, sshd and the agent sessions; Vivado gets at most 34 GB declared (24 GB before WSL went from 40 to 56 GB); builds, simulations and soak share the rest.
+  - **The budget:** keep about 8 GB for the OS, sshd and the agent sessions; Vivado gets at most 40 GB declared (24 GB before WSL went from 40 to 56 GB; 34 GB until real peaks were measured at about 60% of the declarations); builds, simulations and soak share the rest.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - **Slots:** `TANAGER_VIVADO_SLOTS` is 3 on the build host and 1 on the laptop, set in `tools/env.sh`. On the build host the memory budget, not the slot count, is the binding limit.
+  - **Slots:** `TANAGER_VIVADO_SLOTS` is 6 on the build host and 1 on the laptop, set in `tools/env.sh`. The memory budget is the main limit; the slot count caps CPU use. Only the coordinator changes capacity live, through `.locks/vivado.slots` and `.locks/vivado.budget` in the build tree; jobs read them as they wait.
   - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
     - **Owner:** the `track-*` name in the script's path or the run directory. Set `TANAGER_TRACK` if neither has one.
     - **Status:** `tools/vivado_run.sh --status` shows the running jobs and the queue.
     - **Chained launches:** don't launch Vivado jobs back to back to hold slots. Queue them through the script; it orders them fairly against other tracks.
-  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (34 GB on the build host) next to the running jobs' declarations.
+  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (40 GB on the build host) next to the running jobs' declarations.
+  - **Declare from measurements:** every job reports its measured peak (`done rc=0, peak 8.6 GB of 12 GB declared`) and appends it to `$TANAGER_BUILD/.locks/vivado_peaks.log`. Declare about 1.2 × the measured peak of the same kind of run, rounded up. Over-declaring holds slots others could use. On 2026-10-14 jobs measured about 60% of their declarations.
   - **Undeclared jobs:** a held slot with no declaration (a job started by an older `vivado_run.sh`) counts as 10 GB.
   - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.
   - **Kill order:** Vivado runs with a raised `oom_score_adj`, so under memory pressure the kernel kills a Vivado job rather than sshd or the sessions.
@@ -170,6 +171,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - **End every merge request with a `Learned:` line:** what surprised you, what was measured against what was estimated, and what didn't work and why.
   - **Add a `Decisions:` line** for every design choice the merge makes or rejects: what was chosen, the alternatives considered, the **pros and cons** of each, and the evidence. The coordinator records each one in [docs/decisions.md](../decisions.md), pros and cons included (the user's rule, 2026-10-14).
   - **History and lessons:** every area document (spec or perf report) keeps a short "History and lessons" section, updated with each merge: the starting point, each change and what it bought (LUTs, slack, IPC, bugs found), and dead ends. The coordinator rolls these up into [docs/devlog.md](../devlog.md).
+  - **No-IPC rewrites (DR-123):** quote the result of `make cycle-identical CFG="st smt2" BASE=<merge base>` on the merge request's commit, plus the boot suite once it exists for uncore changes. A change that isn't identical goes to the reserve list with its cycle cost, which the tool reports per suite. Before rewriting a structure, check that some program in the suites fills it; `tlb_stress` was added because none filled the TLBs.
 
 ## 11. Clean room (plan §2.3)
 

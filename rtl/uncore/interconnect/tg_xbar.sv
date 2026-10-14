@@ -97,6 +97,50 @@ module tg_xbar
     return 1'b0;
   endfunction
 
+  // Which targets an initiator's requests can reach (route_a below): the L2 banks and the error
+  // responder from every initiator, the boot ROM from l1i and mmio, devices from mmio. Each
+  // arbiter has only the inputs that can reach it, so no multiplexer spans the 16-entry
+  // initiator index space.
+  function automatic logic reaches(input int i, input int t);
+    if (!present(i)) return 1'b0;
+    if (t >= T_L2B0 && t < T_L2B0 + N_BANKS) return 1'b1;
+    if (t == T_ROM) return (i >= SRC_L1I0 && i < SRC_L1I0 + MAX_CORES) || (i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES);
+    if (t == T_DEV) return i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES;
+    return t == T_ERR;
+  endfunction
+  function automatic int n_ini_of(input int t);       // initiators reaching target t
+    int n;
+    n = 0;
+    for (int i = 0; i < N_INIT; i++) if (reaches(i, t)) n++;
+    return n;
+  endfunction
+  function automatic int ini_of(input int t, input int k);   // the k-th of them
+    int n;
+    n = 0;
+    for (int i = 0; i < N_INIT; i++)
+      if (reaches(i, t)) begin
+        if (n == k) return i;
+        n++;
+      end
+    return 0;
+  endfunction
+  function automatic int n_tgt_of(input int i);       // targets answering initiator i
+    int n;
+    n = 0;
+    for (int t = 0; t < N_TGT; t++) if (reaches(i, t)) n++;
+    return n;
+  endfunction
+  function automatic int tgt_of(input int i, input int k);
+    int n;
+    n = 0;
+    for (int t = 0; t < N_TGT; t++)
+      if (reaches(i, t)) begin
+        if (n == k) return t;
+        n++;
+      end
+    return 0;
+  endfunction
+
   function automatic logic [TW-1:0] route_a(input int i, input paddr_t addr);
     pma_e p;
     p = pma_of(addr);
@@ -177,15 +221,24 @@ module tg_xbar
   logic  [N_TGT-1:0][N_INIT-1:0] ta_in_r;
 
   for (genvar t = 0; t < N_TGT; t++) begin : g_ta
-    logic [N_INIT-1:0] req;
-    for (genvar i = 0; i < N_INIT; i++) begin : g_req
-      assign req[i] = present(i) && ia_v[i] && a_dst[i] == TW'(t);
+    localparam int NS = n_ini_of(t);
+    logic  [NS-1:0] req, last, rdy;
+    tl_a_t [NS-1:0] din;
+    for (genvar k = 0; k < NS; k++) begin : g_in
+      localparam int I = ini_of(t, k);
+      assign req[k]  = ia_v[I] && a_dst[I] == TW'(t);
+      assign last[k] = a_last[I];
+      assign din[k]  = ia[I];
     end
-    tg_arb #(.N(N_INIT), .T(tl_a_t)) u_arb (
+    tg_arb #(.N(NS), .T(tl_a_t)) u_arb (
       .clk, .rst,
-      .in_valid (req), .in_last (a_last), .in_data (ia), .in_ready (ta_in_r[t]),
+      .in_valid (req), .in_last (last), .in_data (din), .in_ready (rdy),
       .out_valid (ta_v[t]), .out_data (ta[t]), .out_idx (), .out_ready (ta_r[t])
     );
+    always_comb begin
+      ta_in_r[t] = '0;
+      for (int k = 0; k < NS; k++) ta_in_r[t][ini_of(t, k)] = rdy[k];
+    end
   end
 
   always_comb begin
@@ -271,15 +324,24 @@ module tg_xbar
   logic  [N_INIT-1:0] ida_v, ida_r;
   for (genvar i = 0; i < N_INIT; i++) begin : g_id
     if (present(i)) begin : g_p
-      logic [N_TGT-1:0] req;
-      for (genvar t = 0; t < N_TGT; t++) begin : g_req
-        assign req[t] = td_v[t] && d_dst[t] == IW'(i);
+      localparam int NT = n_tgt_of(i);
+      logic  [NT-1:0] req, last, rdy;
+      tl_d_t [NT-1:0] din;
+      for (genvar k = 0; k < NT; k++) begin : g_in
+        localparam int T = tgt_of(i, k);
+        assign req[k]  = td_v[T] && d_dst[T] == IW'(i);
+        assign last[k] = d_last[T];
+        assign din[k]  = td[T];
       end
-      tg_arb #(.N(N_TGT), .T(tl_d_t)) u_arb (
+      tg_arb #(.N(NT), .T(tl_d_t)) u_arb (
         .clk, .rst,
-        .in_valid (req), .in_last (d_last), .in_data (td), .in_ready (id_in_r[i]),
+        .in_valid (req), .in_last (last), .in_data (din), .in_ready (rdy),
         .out_valid (ida_v[i]), .out_data (ida[i]), .out_idx (), .out_ready (ida_r[i])
       );
+      always_comb begin
+        id_in_r[i] = '0;
+        for (int k = 0; k < NT; k++) id_in_r[i][tgt_of(i, k)] = rdy[k];
+      end
       if (SLICE) begin : g_s
         tg_skid #(.T(tl_d_t)) u_s (.clk, .rst, .in_valid (ida_v[i]), .in_ready (ida_r[i]), .in_data (ida[i]),
                                    .out_valid (id_v[i]), .out_ready (id_r[i]), .out_data (id[i]));

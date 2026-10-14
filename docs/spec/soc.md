@@ -23,7 +23,8 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `s_axil_*` | host | host AXI4-Lite slave ([host.md](host.md)) |
 | `host_irq_o` | host | to `pl_ps_irq0` |
 | `m_axi_*[N_MEMPORTS]` | core | one AXI4 master per L2 bank: 128-bit data, 40-bit address (already remapped onto the carve-out), 6-bit ID |
-| `trace_*` | core | each core's commit-trace ports, passed out for simulation harnesses; inside, `tg_trace_ring` keeps the last records of one core for the host ([host.md](host.md) §Trace ring) |
+| `trace_*` | core | each core's commit-trace ports, passed out for simulation harnesses; inside, `tg_trace_stream` streams them into DDR and drives each core's `trace_stall_i` ([uncore-trace.md](uncore-trace.md)) |
+| `m_axi_trace_*` | core | the trace stream's AXI4 write master (AW, W, B; no reads): 128-bit, 40-bit PS physical address, one ID; `S_AXI_HP3_FPD` on the KV260 |
 | `status_o` | core | LEDs and debug: reset states, L2 init, UART activity |
 
 ### Parameters
@@ -56,13 +57,18 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **Reset synchronisers:** `pl_resetn0` and MMCM lock into each domain.
 - **`tg_axi4_to_axil`:** from `M_AXI_HPM0_FPD` (AXI4, 32-bit data) to the host bridge.
 - **`tanager_soc`.**
-- **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The 40-bit addresses are zero-extended to the ports' 49.
+- **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The commit-trace stream writes through `S_AXI_HP3_FPD` (its read channels are tied off). The 40-bit addresses are zero-extended to the ports' 49.
 - **Fan:** pin A12 (`som240_1_c24`, `fan_en_b`, active low) is driven low, so the fan always runs at full speed while the design is loaded.
+- **PMOD console** (`PMOD_UART`; `TG_PMOD_UART=1` in the build): the RISC-V console UART on the PMOD connector, for a USB-UART module (DR-126). The details are in [fpga/kv260/README.md](../../fpga/kv260/README.md).
+  - The line runs 8N1 at the 16550's divisor (115 200 baud after OpenSBI), through `tg_uart_phy` ([uncore-periph.md](uncore-periph.md) §UART).
+  - The host bridge keeps a copy of the output and can still send input.
+  - Off, `pmod_uart_txd` is high-impedance.
+  - The pins default to PMOD J2 pins 2 and 3 (E10 for TXD, D10 for RXD). They are unconfirmed until the user names the module.
 
 ### 2.2 PS configuration
 Block design `tg_ps` in Tcl (`fpga/kv260/tcl/ps_bd.tcl`), board part `xilinx.com:kv260_som:part0:1.4` with the board preset applied (DDR, MIO, clocks), then:
 - `M_AXI_HPM0_FPD` enabled, 32-bit, at `0xA000_0000` (64 KiB used), clocked by `clk_host`;
-- `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` enabled, 128-bit, clocked by `clk_core`; address apertures covering all of DDR;
+- `S_AXI_HP1_FPD`, `S_AXI_HP2_FPD` and `S_AXI_HP3_FPD` enabled, 128-bit, clocked by `clk_core`; address apertures covering all of DDR (the device-tree overlay sets the three ports' AFI widths);
 - `pl_clk0` = 100 MHz; `pl_resetn0`; `pl_ps_irq0[0]` from `host_irq_o`;
 - everything else off.
 
@@ -125,15 +131,15 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 
 ## 5. Software images
 
-- **Pins:** `sw/versions.sh` (OpenSBI 1.9, Linux 6.18.56, Buildroot 2026.08, Bootlin `riscv64-lp64d` glibc toolchain 2026.08-1 with GCC 15.3). `sw/fetch.sh` downloads into the one shared download directory and checks SHA-256 sums recorded in `sw/sha256sums`, which match the upstream published sums.
+- **Pins:** `sw/versions.sh` (OpenSBI 1.9, Linux 6.18.56, Buildroot 2026.08, Bootlin `riscv64-lp64d` glibc toolchain 2026.08-1 with GCC 15.3, and for `tanager-host` the Bootlin `aarch64` musl toolchain 2026.08-1 with GCC 15.3). `sw/fetch.sh` downloads into the one shared download directory and checks SHA-256 sums recorded in `sw/sha256sums`, which match the upstream published sums. The aarch64 toolchain is unpacked under `$SOC_BUILD/tc` and its archive deleted; `make -C sw/host` builds a static, stripped `tanager-host` (about 75 KB).
 - **`sw/build_linux.sh`:** Buildroot with the external tree `sw/buildroot`. The configuration `tanager_lp64d` builds:
-  - a busybox initramfs, built into the kernel;
+  - a busybox initramfs, built into the kernel uncompressed (inflating its 7 MB would add an estimated hour or two to an RTL simulation);
   - Linux from `board/tanager/linux.config` (a small seed: no modules, no EFI, only the platform's drivers);
   - OpenSBI `fw_jump`;
   - the device trees.
 
   Output goes to `$SOC_BUILD/br-<config>/images`.
-- **M4 board image without an FPU:** Bootlin offers no riscv64 soft-float toolchain. If the core lacks F and D at M4, the board image needs a Buildroot-built rv64imac/lp64 toolchain (a coordinator decision, noted in the merge request).
+- **Board image:** the lp64d image. F/D integration moves into M3, before the board (plan §11), so no soft-float userland is built.
 - **`/etc/init.d/S99tanager`:** prints `TANAGER-BOOT-OK` with the hart count. With `tanager.autotest=1` on the command line, it runs a short smoke test and powers off, so QEMU, simulation and board runs end by themselves.
 
 ## 6. QEMU proof
@@ -150,6 +156,83 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 3. **SMMU:** the HP ports pass through the SMMU. If the board's Linux makes unknown stream IDs fault, add `arm-smmu.disable_bypass=0` to the kernel command line. Spike S1 confirms whether this is needed.
 4. **Load:** `fpgautil -b tanager.bit.bin -o tanager.dtbo` (the overlay above), or `xmutil` with a firmware package.
 5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
+
+## 8. Board stages C and D (design draft, DR-126)
+
+Status: draft for review, 2026-10-14. No RTL yet: stages A (the ARM side) and B (the real core booting Linux, M4) come first. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked.
+
+### 8.1 Stage C: the board's peripherals through the ARM (virtio)
+
+The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio devices whose back-ends run on the A53 (`tanager-host`). Slots: `0x1001_0000`, 4 × 4 KiB (console, block, network, rng), PLIC sources 1–4 (already reserved in the device tree and the device bus).
+
+**Where the virtio-mmio registers live:**
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **C-a: registers in the uncore** | The virtio-mmio register set per slot in RTL (features, queue select, sizes, addresses, ready, status, interrupt status and ACK, configuration space). The host reads and writes the registers through its window. | Register reads at bus speed. | About 1–2K LUTs for four slots against an uncore already over budget. RTL for every new field or device type. |
+| **C-b: a forwarded window** (recommended) | RISC-V accesses to a slot become requests in a small queue the A53 serves. Reads wait for the answer; writes are posted. Interrupt status and ACK stay in RTL, so taking an interrupt needs no round trip. | Little RTL: a request FIFO, a response register and the interrupt bits. Every virtio device type is software in `tanager-host`. | A register read waits for the A53, about 10–100 µs. Linux's driver reads registers at probe time; at run time it writes QueueNotify (posted) and handles interrupts locally. The device-bus path must tolerate long stalls (it has no timeout). |
+
+**Data path.** Virtqueues and buffers are in RISC-V memory.
+- The back-end reaches them through the **coherent host DMA port**: an AXI path from the A53 (an HPM port) into the crossbar's `hdma` initiator, then the L2. The L2 serves the A53's reads and writes coherently, so neither side does cache maintenance.
+- `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used for this.
+- **Notification:** a QueueNotify write reaches the A53 as a forwarded request, through a host interrupt (`pl_ps_irq0`).
+- **Completion:** the back-end updates the used ring through the DMA port and sets the slot's interrupt bit (PLIC level source), which the driver's InterruptACK clears.
+
+**Order of work:** virtio-blk first, on a file or the RISC-V's SD partition seen from the A53. Then virtio-rng, then virtio-net (a TAP device on the A53).
+
+### 8.2 Stage D: dual boot, the RISC-V drives the PS's peripherals
+
+After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own drivers then run the PS's SD, GEM Ethernet, USB and UART controllers. Each OS has its own SD partition.
+
+**The PL-to-PS path.**
+- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`; to confirm in the TRM that `S_AXI_LPD` reaches them).
+- Device accesses are at most 8 bytes, so AXI4-Lite suffices.
+- The XPPU must allow that master to reach these peripherals.
+
+**Interrupts.** The PS routes the four peripherals' interrupts to the PL (the PS-to-PL interrupt signals, enabled in the PS configuration). They go to free PLIC sources, for example 20–27.
+
+**Peripheral DMA.**
+- The SD, GEM and USB controllers are bus masters that write DDR through the PS interconnect, behind the RISC-V's L2.
+- **Addresses** are a device-tree matter: `dma-ranges` maps RISC-V RAM (`0x8000_0000`) to the PS bus address the controllers must use.
+- **Coherence** with the L2 has three options:
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **D-a: cache maintenance** | Zicbom in the core (`cbo.clean`/`cbo.inval`) and flush and invalidate by address in the L2. Linux's non-coherent DMA operations then work (`riscv,cbom-block-size`). | Standard. No copies. Direct DDR bandwidth. | RTL in the core and the L2 (Zicbo* is planned for M9), so stage D waits for it. Maintenance costs CPU time per buffer. |
+| **D-b: bounce buffers** | An uncached alias of part of the carve-out: a PMA region the L2 does not cache, routed straight to the memory port. Linux's `restricted-dma-pool` (swiotlb) bounces all peripheral DMA through it. | No core changes; ready for M5. | Every DMA buffer is copied once. The pool's size limits the I/O in flight. A small uncore change: an uncached route in the crossbar. |
+| **D-c: DMA through the PL into the L2** | `dma-ranges` points the controllers at a PS bus address inside an HPM window (PS to PL), which the host bridge forwards into the coherent host DMA port of §8.1. The controllers' DMA then reaches the L2 like the A53's back-end does. | Coherent, with no core changes and no copies. Reuses stage C's DMA path. | DMA bandwidth is that of the HPM port and the L2's `hdma` initiator, enough for SD, USB 2 and 1 GbE but not for USB 3 at full speed. Longer latency. The HPM window is shared with the host window (decoded by address). **To confirm** in the ZynqMP TRM and on the board: that these IOU masters can target an HPM window at all. |
+
+  Recommendation: start with D-c if stage C's DMA port takes bursts well, else D-b. Move to D-a when Zicbom lands (M9).
+
+**The handover sequence** (what the A53 leaves configured):
+1. **Boot:** the PMU firmware and FSBL set up the PLLs, MIO pins, resets and DDR. ATF, U-Boot and the A53's Linux follow.
+2. **Prepare:** `tanager-host` loads the bitstream and the RISC-V images. The RISC-V device tree describes the peripherals it will own.
+3. **Release the devices:**
+   - The A53 unbinds its drivers for those controllers and keeps their clocks and resets as they are (`clk_ignore_unused`, or held clock references).
+   - The A53 can't keep its root filesystem on the SD card it gives away. It runs from an initramfs, or unmounts the SD first.
+   - The SD tap delays, which the A53's driver sets through firmware calls, stay programmed in the IOU registers.
+4. **Open the protections:**
+   - The SMMU passes the controllers' stream IDs through, or maps them as an identity.
+   - The XMPU lets their DMA reach the carve-out (or the HPM window for D-c).
+   - The XPPU lets `S_AXI_LPD` reach their registers.
+   - This may need a custom PMU-firmware isolation configuration.
+5. **Park:** the secondary A53 cores go off (PSCI `CPU_OFF`). The boot core waits in a WFI loop. The PMU firmware keeps running (power management, watchdog).
+6. **Release the RISC-V** (core reset off). Its Linux probes the controllers.
+
+**The RISC-V device tree.**
+- The four controllers get nodes with the generic compatibles: `arasan,sdhci-8.9a`, `cdns,gem`, `snps,dwc3` and `cdns,uart-r1p12`. The ZynqMP-specific ones call EEMI firmware through ARM SMC, which the RISC-V doesn't have.
+- **Clocks** are `fixed-clock` nodes at the rates the A53 left.
+- **Interrupts** go through the PLIC; **DMA** uses the `dma-ranges` above.
+
+**Risks:**
+- drivers that assume the ZynqMP firmware for resets, tap delays or PHY setup;
+- the PMU firmware's default isolation;
+- the PS-to-PL interrupt routing for USB;
+- the A53's Linux re-gating clocks it thinks are unused.
+
+Each is checked on the board in stage D's first step, with the UART: the simplest controller, no DMA.
+
+**Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
 ## Verification
 
@@ -169,7 +252,82 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
   - data handed between the harts through the coherent caches;
   - PASS through `TOHOST`.
 
-With the core track's RTL, the same top runs the boot ROM → OpenSBI path; the full Linux boot moves to the board (plan §11).
+`tests/unit/boot`: `tanager_soc` with the real core (`tg_core`), loaded the way `tanager-host` loads the board: the host port opens the DRAM window, writes the images into the carve-out, sets the entry points and releases the cores. The console is read through the host port and the run passes when it shows the expected text.
+- **Images:** OpenSBI `fw_jump` (`sw/build_opensbi.sh`, built on first use), a device tree built for the configuration (`sw/dts`, 128 MiB), and for Linux Buildroot's `lp64d` `Image` (`sw/build_linux.sh`).
+- **M3 switches:** the build compiles a copy of `tg_core_pkg.sv` with every `EXT_*` switch on, until the core track turns them on by default.
+- **Targets** (`make -C tests/unit/boot <target> [CORES=1|2]`):
+
+  | Target | Device tree | Passes on | Status (2026-10-14) |
+  |---|---|---|---|
+  | `opensbi` | no FPU | OpenSBI's banner (`Boot HART MEDELEG`) | passes 1×1 in 5.05 M cycles, 2×1 in 6.6 M and 2×2 (`CFG=smt2`) in 10.6 M. At 2×2 OpenSBI sees 4 harts and the core runs one thread per core so far. The long suite runs all three at once |
+  | `linux-kernel` | no FPU (`riscv,isa` without F/D) | `Run /init as init process` | its oops at 27 M cycles found the core's I$ refill race (fixed, main b5e11f4) |
+  | `linux` | with F/D | `TANAGER-BOOT-OK` from the Buildroot image's init | passes since the core has F/D: the core track's run reached `TANAGER-BOOT-OK` at 335 M cycles, 1×1 |
+
+- **Debugging:** each progress line (every million cycles) shows every hart's last pc. On failure the run prints the last 64 commit records of every hart. `ARGS="+dump_pc=<hex>"` or `ARGS="+dump_cause=<n>"` prints them when a record has that pc or traps with that cause, and `+dump_stop` ends the run there. `BOOTARGS="earlycon=sbi console=ttyS0 keep_bootcon"` prints the kernel's log through OpenSBI's console from the first line.
+- **Speed:** about 2.5–2.7 M cycles a minute at 1×1, so the kernel's early initcalls (27 M cycles) take about 11 minutes. Two-core builds use Verilator `--threads 4` (`VTHREADS`). On OpenSBI that is 1.5× faster at 2×1 (193 s against 286 s), while at 1×1 four threads were 20% slower than one (133 s against 111 s). `make -C tests/unit/boot long` boots OpenSBI in 1×1, 2×1 and 2×2 at once.
+
+The board runs the same images (plan §11).
+
+## Reserve levers
+
+Changes that save area but move cycles or remove function. Under D18 and DR-123 they wait until the cycle-identical work is done, and each one needs a decision. Pros and cons are per DR-124.
+
+| Lever | Saves | Costs | How often it costs (measured) |
+|---|---|---|---|
+| **L2 same-set rule at S0** (e256b0e, reverted in fc1031e): hold S0 while a request of the same set is in S1 or S2, in place of the directory's two-entry write-history bypass | 518 LUTs at st and at smt2 (uncore budget unit: 22,783 → 22,265 at smt2; 425 when it was first measured). The bypass multiplexers leave the 200 MHz S2 path | up to two bubbles per S0 entry that follows a same-set request: 2 if the match is in S1, 1 if only in S2 | almost never. In OpenSBI (5 M cycles, about 1,600 L2 pipeline entries per bank) it never occurs, at 64 and at 1,024 sets. In Linux's first 60 M cycles at 1,024 sets (1.14 M entries) it would hold 2 entries for 2 cycles: 4 bubbles. Counted with a testbench probe on S0, S1 and S2 (2026-10-14). The OpenSBI commit-trace signatures with and without the rule are equal |
+| **Release build without the latency injectors and the trace stream** ([budgets.md](../perf/budgets.md) §4) | about 4.3K (stream 2.85K, injectors 1.5K) | no FPGA lockstep and no latency sweeps on release bitstreams. The trace part is DR-121: the last reserve lever, release bitstreams only | always, in the builds that drop them |
+| **No register slices in the interconnect and at the memory ports** | about 2.4K | timing at 200 MHz at risk. It also moves cycles: every L2 round trip gets 2 shorter, so it is not a step-1 rewrite | every access |
+| **L2 MSHRs 24 → 16 per bank** | about 2.0K | IPC at the long latency points | under memory-level parallelism |
+
+## History and lessons
+
+**Starting point (2026-10-13):** the uncore and the KV260 flow, built with stub cores. That first build closed 100 MHz with WNS +2.463 ns, but synthesis removes most of the uncore when nothing drives it.
+
+**KV260 timing at 100 MHz** (WNS, [fpga/kv260/results.md](../../fpga/kv260/results.md)):
+
+| Build | WNS |
+|---|---|
+| stub cores | +2.463 ns |
+| first traffic-generator build | +0.928 ns |
+| after R15 | +1.701 ns |
+| after the primitive-check fixes | +1.093 ns |
+| UART and L2 tables in `tg_ram_lut` | +1.457 ns |
+| trace streaming on HP3 | +1.306 ns |
+
+Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds since then range from +1.09 to +1.70 ns, though none of the later changes targeted that path.
+
+**Changes and what each bought:**
+
+| Step | Result |
+|---|---|
+| Traffic-generator build (the first real uncore timing) | WNS +0.928 ns; the uncore was about 24K LUTs against the plan's 13.3K, 18.4K of it in the L2 |
+| L2 lever R15 ([l2.md](l2.md)) | 9.9K → 5.1K LUTs per bank; KV260 WNS +1.701 ns |
+| Interconnect arbiters sized to their reachable ports | uncore (budget unit, smt2) −1.5K LUTs, the same behaviour ([budgets.md](../perf/budgets.md) §4) |
+| L2 same-set rule at S0 (e256b0e) | −425 LUTs, but up to two bubbles on back-to-back same-set requests. Reverted (fc1031e), because step 1 takes only cycle-identical rewrites; now a reserve lever (§Reserve levers) |
+| Commit-trace streaming into DDR over `S_AXI_HP3_FPD` ([uncore-trace.md](uncore-trace.md)) | lossless lockstep trace; +732 LUTs, −9 RAMB36, so block RAM meets its budget of 18; KV260 WNS +1.306 ns, primitive check clean |
+| `tanager_soc` with the real core in Verilator (`tests/unit/boot`) | OpenSBI's banner in 5.0 M cycles at 1×1 and 6.6 M at 2×1 |
+| Linux 6.18 on the real core | the kernel's early initcalls at 27 M cycles; there the boot found a core bug (below) |
+| Uncompressed built-in initramfs | saves an estimated hour or two of simulation per Linux boot |
+
+**Bugs found:**
+- **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.
+  - Found from the commit trace (`+dump_pc`) and a testbench probe on the fetch unit. The race fired about 10 times in 27 M cycles, first inside OpenSBI.
+  - Lockstep had not seen it: the test programs fit in the I$. Fixed by the core track.
+- **Interface margin:** a trace sink that stalls from registered occupancy needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES` of headroom, not `TRACE_STALL_HEADROOM`'s 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` (verification.md §2.9).
+  - The SoC run with the test core overflowed a lane at 2 ×.
+  - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
+
+**From other tracks:**
+- **2026-10-14, core track (DR-120):** `tg_map_pkg::pma_of` matches its naturally aligned power-of-two regions by prefix: 10 LUTs per instance instead of 136 and 17 CARRY8, with identical results for every address. `tg_xbar`'s address decode uses it too. The range test is kept for any unaligned region, and `tg_core` warns at elaboration if one appears.
+
+**Lessons:**
+- **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
+- **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
+- **Run every queued Vivado or simulation job on a snapshot** (`git archive`). A job that starts later otherwise measures whatever the working tree holds by then.
+- **A Kconfig choice silently keeps its default when its dependency is unset in the seed.** `INITRAMFS_COMPRESSION_NONE` needs `INITRAMFS_SOURCE` in the seed.
+- **Verilator `--threads 4` was slower than one thread** for the 1×1 SoC.
+- **Dead end:** the xPack toolchain's `ld` lacks PIE, which OpenSBI needs. OpenSBI is built with the Bootlin toolchain.
+- **QEMU first:** QEMU `virt` places its CLINT, PLIC, UART and DRAM where our map does. OpenSBI, Linux and the device tree booted there (§6) before any RTL ran them, so the RTL boot's problems were the RTL's.
 
 ## Provenance
 

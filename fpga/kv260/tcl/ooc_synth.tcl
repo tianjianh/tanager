@@ -1,5 +1,5 @@
 # Out-of-context synthesis of one RTL module, for area and timing studies (SoC track).
-#   tools/vivado_run.sh <run-dir> fpga/kv260/tcl/ooc_synth.tcl <repo-root> <cfg> <top> <mhz> [GEN=VAL ...]
+#   TANAGER_VIVADO_MEM_GB=4 tools/vivado_run.sh <run-dir> fpga/kv260/tcl/ooc_synth.tcl <repo-root> <cfg> <top> <mhz> [GEN=VAL ...]
 # Writes reports/ooc_utilization.rpt (hierarchical, not flattened), reports/ooc_timing.rpt and,
 # with TG_OOC_CONES=1, reports/ooc_cones.txt.
 set root [lindex $argv 0]

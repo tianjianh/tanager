@@ -35,7 +35,7 @@ The PL side of that is the **host bridge**:
 | `0x000` | `ID` | RO | `0x5447_4E52` | "TNGR" |
 | `0x004` | `VERSION` | RO | | `[31:24]` major, `[23:16]` minor, `[15:12]` cores, `[11:8]` threads per core, `[7:0]` configuration (0 st, 1 smt2, 2 st_w3, 3 smt2_w3) |
 | `0x008` | `CLK_HZ` | RO | | `clk_core` frequency |
-| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[2]` trace ring, `[3]` host DMA, `[7:4]` memory ports |
+| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[3]` commit-trace streaming, `[7:4]` memory ports |
 | `0x010` | `CTRL` | RW | `0x3` (FPGA) | `[0]` hold cores in reset; `[1]` hold the uncore (L2, interconnect, devices, injector) in reset; `[2]` console lossless (0: TX bytes are dropped while the host FIFO is full, so the console never stalls the RISC-V side) |
 | `0x014` | `STATUS` | RO | | `[0]` cores in reset; `[1]` uncore in reset; `[2]` L2 initialised; `[3]` power request pending |
 | `0x018` | `POWER` | RO, W1C | 0 | `[31]` request pending; `[15:0]` value the RISC-V side wrote (`0x5555` power-off, `0x7777` reboot, `0x3333 \| code << 16` failure). A write with bit 31 set clears it |
@@ -67,15 +67,7 @@ The PL side of that is the **host bridge**:
 | `0x104` | `UART_TX_LEVEL` | RO | | bytes waiting (FIFO of 2048) |
 | `0x108` | `UART_RX` | WO | | push one byte to the console input |
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
-| `0x1000` | `TRACE_CTRL` | RW | 0 | `[0]` capture (0 → 1 clears the ring and starts), `[5:4]` core, `[8]` trigger armed |
-| `0x1008`/`0x100C` | `TRACE_TRIG_PC` lo/hi | RW | 0 | trigger pc (a retire, trap or interrupt record) |
-| `0x1010` | `TRACE_POST` | RW | 0 | records kept after the trigger record, then the ring freezes |
-| `0x1014` | `TRACE_COUNT` | RO | | records written since capture started |
-| `0x1018` | `TRACE_LOST` | RO | | records dropped (more than `COMMIT_WIDTH` in a cycle) |
-| `0x101C` | `TRACE_STATUS` | RO | | `[0]` frozen by the trigger, `[31:16]` ring depth in records |
-| `0x1020` | `TRACE_IDX` | RW | 0 | record to read (`count − 1` is the newest; index modulo depth) |
-| `0x1024` | `TRACE_IDX_SHOWN` | RO | | index of the record in `TRACE_REC`; read it after it equals `TRACE_IDX` |
-| `0x1040`–`0x1064` | `TRACE_REC[0..9]` | RO | | the 320-bit record, low word first (format in §Trace ring) |
+| `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
 
 A 64-bit pair is written low half first. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
@@ -92,15 +84,11 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 | `0x038` | `DOORBELL` | WO | any write rings the host (`MBOX_IN`) |
 | `0x040` | `MBOX_PENDING` | RO, W1C | `[0]` the host rang (drives PLIC source 11); write 1 to clear |
 
-## Trace ring
+## Commit trace
 
-`tg_trace_ring` (core domain) keeps the last `512 × COMMIT_WIDTH` commit records of the selected core (interfaces.md §5) in block RAM, for post-mortem debugging on the board.
-- **Capture:** up to `COMMIT_WIDTH` records per cycle. Retire records come first, then deferred writebacks fill the free slots. Anything more in a cycle is counted in `TRACE_LOST`.
-- **Trigger:** with the trigger armed, capture freezes `TRACE_POST` records after the first record whose pc equals `TRACE_TRIG_PC`.
-- **Record format** (320 bits): `[31:0]` header, `[63:32]` insn, `[127:64]` pc, `[191:128]` value (rd value; the cause for traps and interrupts; the value of a writeback), `[255:192]` address (store vaddr; tval for traps), `[319:256]` store data.
+`tg_trace_stream` (core domain) writes every core's commit records, with none lost, into a ring in DDR over its own PS port. It stalls the cores through `trace_stall_i` when it falls behind ([uncore-trace.md](uncore-trace.md)). The host reads the records directly from DDR; the `TRS_*` registers control it.
+- **Record format** (64 bytes in DDR; bytes 0–39 are the 320-bit record): `[31:0]` header, `[63:32]` insn, `[127:64]` pc, `[191:128]` value (rd value; the cause for traps and interrupts; the value of a writeback), `[255:192]` address (store vaddr; tval for traps), `[319:256]` store data, `[351:320]` the low 32 bits of the core-clock cycle count at capture, `[511:352]` zero.
   - **Header fields:** `[1:0]` kind (0 retire, 1 trap, 2 interrupt, 3 deferred writeback), `[3:2]` hart, `[5:4]` priv, `[6]` rvc, `[7]` rd_we, `[8]` rd_fp, `[13:9]` rd, `[14]` rd_deferred, `[19:15]` wb_tag, `[20]` mem_st, `[22:21]` mem_size, `[23]` mmio_ld, `[24]` nondet.
-- **Reading:** the host writes `TRACE_IDX` and waits until `TRACE_IDX_SHOWN` matches; the record crosses with the status vector.
-- **Streaming:** full-rate streaming into DDR for FPGA lockstep (plan §7.4) is the next step. It needs commit back-pressure from the core: `trace_stall_i`, proposed to the coordinator.
 
 ## Behaviour
 
@@ -163,6 +151,15 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
   - doorbells, `TOHOST` and power requests, interrupt status and masking.
 - **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)).
 - **On the board:** `tanager-host info`, `peek`/`poke` and a console loopback are the first bring-up checks.
+
+## History and lessons
+
+- **Estimate:** about 1K LUTs.
+- **First measurement:** 1,222 LUTs and 3,023 FFs of crossing registers (first traffic-generator build). Inside the uncore budget unit it was 3,335 LUTs and 5,971 FFs at smt2. Most of that was the trace ring's 320-bit record readback, the read multiplexer over it, and the status crossing (about 2.7K of the FFs).
+- **Trace streaming** moved the records to DDR, which the host reads directly. The `TRACE_*` registers became the `TRS_*` control registers, and the host bridge fell to 1,667 LUTs.
+- **Lessons:**
+  - **Wide data has no place on the AXI4-Lite side.** Records or buffers read through 32-bit registers cost LUTs and crossing flip-flops for every bit. A shared-memory ring that the A53 reads costs neither.
+  - **Every multi-bit value crosses through one handshake mirror** (XPM), so the CDC report has no unsafe endpoints. The crossing count grew from 525 to 629 safe endpoints with the `TRS_*` registers.
 
 ## Provenance
 

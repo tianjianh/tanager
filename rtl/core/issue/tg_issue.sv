@@ -73,9 +73,9 @@ module tg_issue
   // ALU ports: the ALU control word without min/max (tg_alu MINMAX = 0: they ride P1's MUL slot,
   // which reads cmp_max), the destination's index (its bank is the port's). P0 adds the branch
   // fields, P1 the MUL/DIV/CSR fields; both keep the ROB wrap bit (exception and misprediction
-  // age), the other ALU ports only the index (completion). LD: the LQ index; STA: the SQ ID;
-  // both keep the 12-bit offset (sign-extended at issue). The source tags are the low bits
-  // (EARLY_W).
+  // age), the other ALU ports only the index (completion). LD: the LQ index, and the fields the
+  // LQ entry takes at AG (the LSU writes them there, not at dispatch); STA: the SQ ID; both keep
+  // the 12-bit offset (sign-extended at issue). The source tags are the low bits (EARLY_W).
   typedef struct packed {
     logic [NGRP-2:0] grp;          // every group but G_MINMX
     logic            word, sub;
@@ -126,6 +126,11 @@ module tg_issue
     logic [11:0]         imm;
     logic [LQ_IDX_W-1:0] lq;
     logic [1:0]          mem_size;
+    logic                mem_uns;       // zero-extend (an FP load: raw bits)
+    sqid_t               sq;            // the stores before this SQ ID are older
+    logic                dst_en, dst_fp;
+    logic [PIDX_W-1:0]   dst;           // the destination's index (an FP load: F1's)
+    llt_t                llt;
     preg_t               src1;
   } f_ld_t;
   typedef struct packed {
@@ -276,9 +281,14 @@ module tg_issue
       end
     end else if (q == Q_LD) begin : g_fl
       for (genvar k = 0; k < DW; k++) begin : g_k
+        logic fp;
+        assign fp = EXT_FD && disp_pl[k].dst_fp;
         assign dpl[k] = f_ld_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0],
                                 lq: disp_pl[k].lq[LQ_IDX_W-1:0], mem_size: disp_pl[k].mem_size,
-                                src1: disp_pl[k].src1};
+                                mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
+                                dst_en: disp_pl[k].dst_en, dst_fp: fp,
+                                dst: fp ? PIDX_W'(fpreg_idx(disp_pl[k].dst)) : preg_idx(disp_pl[k].dst),
+                                llt: disp_pl[k].llt, src1: disp_pl[k].src1};
       end
       f_ld_t b;
       assign b = pl;
@@ -288,6 +298,12 @@ module tg_issue
         up.imm      = {{52{b.imm[11]}}, b.imm};
         up.lq       = {1'b0, b.lq};
         up.mem_size = b.mem_size;
+        up.mem_uns  = b.mem_uns;
+        up.sq       = b.sq;
+        up.dst_en   = b.dst_en;
+        up.dst_fp   = b.dst_fp;
+        up.dst      = preg_t'(b.dst);            // the index only: the LSU knows the bank
+        up.llt      = b.llt;
         up.src1     = b.src1;
       end
     end else if (q == Q_STA) begin : g_fs
