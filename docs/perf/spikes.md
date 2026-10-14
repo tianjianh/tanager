@@ -594,6 +594,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 | + MX: matrix wakeup for in-queue 1-cycle producers, grant registered before the encode | 6,425 / +0.145 | 8,895 / **+0.112** | 12,515 / **+0.057** | closes smt2 and smt2_w3 for +1.1–1.2K. st needs it too in the full chip: S6 at 76% missed by 0.041 without it |
 | + free synthesis settings (hierarchy kept, `AreaOptimized_high`) | — | 7,691 / +0.102 | 11,381 / −0.008 | −13%, no IPC |
 | **+ wakeup tags (AR-1):** 16 tags + LLTs, 32–40 columns; no wakeup at select | **4,802 / +0.518** | **5,506 / +0.218** | **7,703 / +0.026** | −25% / −38% / −38%, and the W loop leaves the 1-cycle path |
+| + free synthesis settings on tags | (queued) | **4,750 / +0.392** | **6,669 / +0.094** | −13% again, slack gained: the worst path leaves the wakeup loop for a queue's room counter |
 
 - **Estimate against measurement:** the plan's §8.2 carried 2.9K for the issue queues. Measured with ROB columns, the scheduler was 1.9× / 3.1× / 4.3× that.
 - **Where those LUTs went:** readiness over 104–120 columns per row, the guard's busy vector, and MX's per-column clears.
@@ -649,4 +650,6 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 - **Machine sharing.**
   - `vivado_run.sh` waiters lose slots to fresh launches. The track now runs fair-share workers that use one slot while others wait, launch the moment a slot is free, and run from snapshots of committed HEAD.
   - Never edit a running bash script: hand over to a new runner instead.
+  - **Memory, not slots, is the limit (2026-10-14).** A synthesis with the hierarchy kept forks one Vivado process per thread, so a job's memory is the parent plus its children. Two full-device S6 runs (8–10 GB each) and a budget synthesis with 8 threads (14.5 GB) exhausted the host, and the kernel killed an S6 run (rc 137) after 19 minutes of thrashing. The spike flow now synthesises with 2 threads (`TANAGER_SYNTH_THREADS`), and the workers declare 10 GB per S6 run and 4 GB per out-of-context run to `vivado_run.sh`.
+  - A worker that is killed leaves its Vivado job running: adopt it or kill the job by its own PIDs, never by a pattern your own shell's command line also matches.
 - **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.
