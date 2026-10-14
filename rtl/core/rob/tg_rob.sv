@@ -55,8 +55,9 @@ module tg_rob
   input  logic [3:0][63:0]             lx_tval,
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
-  input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports)
+  input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports): replay
   input  robid_t [1:0]                 tlbm_rob,
+  input  logic                         hd_tlb,       // the head is a load or store that missed the DTLB
   input  logic                         hd_retry,
   input  logic                         hd_fault,
   input  logic [3:0]                   hd_cause,
@@ -116,8 +117,7 @@ module tg_rob
 
   robid_t head_q, tail_q;
   assign head_o = head_q;
-  logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q, tlb_q;
-  logic [ROB_ENTRIES-1:0][4:0] ff_q;              // FP exception flags (EXT_FD)
+  logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q;
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -195,6 +195,27 @@ module tg_rob
     assign pr_d[b] = rd[0];
   end
 
+  // ---- FP exception flags (EXT_FD), by ROB entry, in LUTRAM ----
+  // P4's F0 completions write one table and FP->int completions (bank 1) the other, so each
+  // table has one write port; at commit an FP op's result file (rd_fp) says which it wrote.
+  // Entries are read only once complete, and every completion writes its flags.
+  logic [CW-1:0][RIW-1:0] ffr_a;
+  logic [CW-1:0][4:0]     ffp_rd, ffi_rd;
+  for (genvar j = 0; j < CW; j++) begin : g_ffa
+    assign ffr_a[j] = hid[j][RIW-1:0];
+  end
+  if (EXT_FD) begin : g_ff
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(5), .NR(CW)) u_ffp (
+      .clk, .we(fp_cmp), .waddr(fp_cmp_rob[RIW-1:0]), .wdata(fp_cmp_fflags), .raddr(ffr_a),
+      .rdata(ffp_rd));
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(5), .NR(CW)) u_ffi (
+      .clk, .we(oth_cmp), .waddr(oth_rob[RIW-1:0]), .wdata(oth_fflags), .raddr(ffr_a),
+      .rdata(ffi_rd));
+  end else begin : g_noff
+    assign ffp_rd = '0;
+    assign ffi_rd = '0;
+  end
+
   // ---- Commit decision ----
   int cnt;
   assign cnt = rob_cnt(tail_q, head_q);
@@ -238,7 +259,7 @@ module tg_rob
         do_flush = 1'b1;
         use_tt = 1'b1;
       end else if (rpl_q[i0]) begin
-        if (!tlb_q[i0] || hd_retry) begin
+        if (!hd_tlb || hd_retry) begin
           do_flush = 1'b1;
           nf_pc = hp[0].pc;
         end else if (hd_fault) begin
@@ -305,7 +326,7 @@ module tg_rob
       cm_valid[j] = ret[j];
       cm_rd_en[j] = ret[j] && hp[j].rd_en;
       cm_rd_fp[j] = hp[j].rd_fp;
-      cm_fflags[j] = (EXT_FD && hp[j].is_fp) ? ff_q[hid[j][RIW-1:0]] : '0;
+      cm_fflags[j] = (EXT_FD && hp[j].is_fp) ? (hp[j].rd_fp ? ffp_rd[j] : ffi_rd[j]) : '0;
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
@@ -426,7 +447,6 @@ module tg_rob
               exc_q[ds_ren[k].rob[RIW-1:0]]  <= ds_uop[k].d.exc;
               misp_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
               rpl_q[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
-              tlb_q[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
               mmio_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
             end
           end
@@ -437,12 +457,8 @@ module tg_rob
         if (oth_cmp) begin
           cmp_q[oth_rob[RIW-1:0]] <= 1'b1;
           if (oth_exc) exc_q[oth_rob[RIW-1:0]] <= 1'b1;
-          if (EXT_FD)  ff_q[oth_rob[RIW-1:0]]  <= oth_fflags;
         end
-        if (EXT_FD && fp_cmp) begin
-          cmp_q[fp_cmp_rob[RIW-1:0]] <= 1'b1;
-          ff_q[fp_cmp_rob[RIW-1:0]]  <= fp_cmp_fflags;
-        end
+        if (EXT_FD && fp_cmp) cmp_q[fp_cmp_rob[RIW-1:0]] <= 1'b1;
         if (br_valid) begin
           if (br_exc)       exc_q[br_rob[RIW-1:0]] <= 1'b1;
           else if (br_misp) misp_q[br_rob[RIW-1:0]] <= 1'b1;
@@ -462,7 +478,6 @@ module tg_rob
         for (int i = 0; i < 2; i++) begin
           if (tlbm_valid[i]) begin
             rpl_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
-            tlb_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
           end
         end
 

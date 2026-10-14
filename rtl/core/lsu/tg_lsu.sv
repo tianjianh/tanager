@@ -106,6 +106,7 @@ module tg_lsu
   input  logic                         tlb_flush,
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,
+  output logic                         hd_tlb,        // the ROB head is a load or store that missed the DTLB
   output logic                         hd_retry,      // the ROB head's DTLB miss resolves
   output logic                         hd_fault,
   output logic [3:0]                   hd_cause,
@@ -801,7 +802,8 @@ module tg_lsu
   assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sq_rob_q[hs] == rob_head && sq_cmt_q != sq_tail_q;
   assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[COMMIT_WIDTH];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
-  assign hd_need  = (hd_ld || hd_st) && !flush;
+  assign hd_tlb   = hd_ld || hd_st;
+  assign hd_need  = hd_tlb && !flush;
   assign hd_tok   = !sta_ag_valid && dt_hit[1] && pte_ok(dt_pte[1], hd_at, priv_d, sum, mxr);
   assign hd_retry = hd_need && hd_tok;
   assign hd_fault = hd_need && hdf_q;
