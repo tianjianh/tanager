@@ -626,7 +626,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 - **Shared primitives for the FPGA-friendly rewrite (2026-10-14; [fpga_friendly.md](fpga_friendly.md) §3.1).**
   - Multi-write LUTRAM (`tg_ram_lut_mw`) with the live-value table itself in XOR-coded LUTRAM: 4–7× fewer LUTs than flip-flop arrays, and cheaper than the classic flip-flop table at 23 of 24 shapes.
   - A LUTRAM CAM pays only with one-bit-write tables (RAM64X8SW): 13–22% fewer LUTs than flip-flops from 32 entries. With read-modify-write tables it costs more than flip-flops.
-  - A DSP48E2 compares for no LUTs (15–40 in fabric). A shift-register FIFO costs one LUT per bit, so LUTRAM stays cheaper above 8 bits wide.
+  - A DSP48E2 compares for no LUTs (15–40 in fabric). A shift-register FIFO up to 16 deep costs half a LUT per bit once placed (two 16-deep shift registers share a LUT), 25% below LUTRAM; from 32 deep LUTRAM is cheaper.
 
 ### 12.3 Dead ends
 
@@ -663,3 +663,4 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 - **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.
 - **Primitive models.** Hand-written models of vendor primitives can share the author's misreading. The DSP48E2 mapping ran on the vendor's own model under Icarus, which Verilator cannot compile, and found that the 48-bit carry out means "no borrow".
 - **Reports.** `report_utilization -hierarchical` hides instances under 50 cells by default, which silently dropped half the price run's instances.
+- **Synthesis counts are not placed counts for shift registers.** Before placement each SRL16E takes a LUT; placement pairs them, so a 16-deep shift-register FIFO costs half of what the synthesis count says.
