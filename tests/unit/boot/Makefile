@@ -1,5 +1,9 @@
 # Software boot on tanager_soc with the real core (docs/spec/soc.md §Verification).
 #   make -C tests/unit/boot opensbi [CORES=1|2]     boot ROM -> OpenSBI, passes on the full banner
+#   make -C tests/unit/boot linux-kernel [CORES=1]  Linux (Buildroot's lp64d Image) to "Run /init", with a
+#                                                   device tree without F/D: the kernel needs no FPU
+#   make -C tests/unit/boot linux [CORES=1]         the full lp64d boot to TANAGER-BOOT-OK, once the
+#                                                   core has F/D (device tree with the FPU)
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
@@ -44,6 +48,14 @@ $(OUTDIR)/$(TOP): $(CORE_F) $(CORE_SRCS) $(SOC_SRCS)
 
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
 	$(MAKE) --no-print-directory -C $(REPO)/sw/dts O=$(OUTDIR)/dts CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=0
+DTB_FPU := $(OUTDIR)/dts-fpu/tanager-kv260.dtb
+$(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
+	$(MAKE) --no-print-directory -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=1
+
+KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
+LINUX_MCYC ?= 1500
+$(KERNEL):
+	@echo "no $(KERNEL): build it with sw/build_linux.sh"; exit 1
 
 $(OSBI_FW):
 	bash $(REPO)/sw/build_opensbi.sh
@@ -51,6 +63,12 @@ $(OSBI_FW):
 .PHONY: opensbi
 opensbi: build $(DTB) $(FW)
 	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC)
+
+.PHONY: linux-kernel linux
+linux-kernel: build $(DTB) $(FW) $(KERNEL)
+	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC)
+linux: build $(DTB_FPU) $(FW) $(KERNEL)
+	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC)
 
 # The boots take minutes: only the long suite runs them.
 .PHONY: short long

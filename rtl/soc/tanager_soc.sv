@@ -60,7 +60,18 @@ module tanager_soc
   input  logic    [N_BANKS-1:0] m_axi_b_valid,
   output logic    [N_BANKS-1:0] m_axi_b_ready,
 
-  // commit trace of every core, for the simulation harness (the trace ring comes with M4)
+  // commit-trace stream (docs/spec/uncore-trace.md): AXI4 write master (clk), PS physical addresses
+  output axi_ax_t               m_axi_trace_aw,
+  output logic                  m_axi_trace_aw_valid,
+  input  logic                  m_axi_trace_aw_ready,
+  output axi_w_t                m_axi_trace_w,
+  output logic                  m_axi_trace_w_valid,
+  input  logic                  m_axi_trace_w_ready,
+  input  axi_b_t                m_axi_trace_b,
+  input  logic                  m_axi_trace_b_valid,
+  output logic                  m_axi_trace_b_ready,
+
+  // commit trace of every core, also to the simulation harness
   output tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_o,
   output logic    [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_o,
@@ -75,8 +86,10 @@ module tanager_soc
     $error("tanager_soc: N_CORES must be 1..NUM_CORES");
   end
 
-  // The cores' reset comes from the uncore's host bridge (rst, or the host's CTRL register).
-  logic core_rst;
+  // The cores' reset comes from the uncore's host bridge (rst, or the host's CTRL register); the
+  // trace stream holds a core's commit while its buffers are near full (interfaces.md §5).
+  logic               core_rst;
+  logic [N_CORES-1:0] trace_stall;
 
   // ---------------------------------------------------------------------------------------------
   // Cores
@@ -144,7 +157,7 @@ module tanager_soc
         .mmio_d_i (mmio_d[c]), .mmio_d_valid_i (mmio_dv[c]), .mmio_d_ready_o (mmio_dr[c]),
         .trace_o (trace_o[c]), .trace_valid_o (trace_valid_o[c]),
         .trace_wb_o (trace_wb_o[c]), .trace_wb_valid_o (trace_wb_valid_o[c]),
-        .trace_stall_i (1'b0)            // interfaces.md v1.3: tied off until trace streaming
+        .trace_stall_i (trace_stall[c])
       );
       assign tg_ops[c]      = '0;
       assign tg_errs[c]     = '0;
@@ -180,6 +193,9 @@ module tanager_soc
     .mmio_d_o (mmio_d), .mmio_d_valid_o (mmio_dv), .mmio_d_ready_i (mmio_dr),
     .plic_irq_o (plic_irq), .msi_o (msi), .mti_o (mti), .mtime_o (mtime), .merr_i (merr),
     .trace_i (trace_o), .trace_valid_i (trace_valid_o), .trace_wb_i (trace_wb_o), .trace_wb_valid_i (trace_wb_valid_o),
+    .trace_stall_o (trace_stall),
+    .m_axi_trace_aw, .m_axi_trace_aw_valid, .m_axi_trace_aw_ready, .m_axi_trace_w, .m_axi_trace_w_valid,
+    .m_axi_trace_w_ready, .m_axi_trace_b, .m_axi_trace_b_valid, .m_axi_trace_b_ready,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .status_o

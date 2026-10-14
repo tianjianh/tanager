@@ -4,6 +4,8 @@ KIND   ?= core
 NAME   := soc_$(KIND)
 TB     := $(CURDIR)/tb_soc.sv
 PARAMS := -GKIND='"$(KIND)"'
+# the test core takes trace_stall_i (interfaces.md §5) when built with TG_TRACE_STALL
+EXTRA_VFLAGS = $(if $(filter tcore,$(KIND)),+define+TG_TRACE_STALL)
 include ../common/unit.mk
 ifeq ($(KIND),tcore)
 # The verification track's test core stands in for tg_core (tcore_as_core.sv); rtl/core is left out.

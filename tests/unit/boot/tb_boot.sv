@@ -30,6 +30,10 @@ module tb_boot;
   axi_w_t  [N_BANKS-1:0] w;
   axi_b_t  [N_BANKS-1:0] b;
   logic [N_BANKS-1:0] arv, arr, rv, rr, awv, awr, wv, wr, bv, br;
+  axi_ax_t taw;                       // commit-trace stream (writes only)
+  axi_w_t  tw;
+  axi_b_t  tb;
+  logic    tawv, tawr, twv, twr, tbv, tbr;
 
   tg_trace_pkg::tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
@@ -52,6 +56,9 @@ module tb_boot;
     .m_axi_aw (aw), .m_axi_aw_valid (awv), .m_axi_aw_ready (awr),
     .m_axi_w (w), .m_axi_w_valid (wv), .m_axi_w_ready (wr),
     .m_axi_b (b), .m_axi_b_valid (bv), .m_axi_b_ready (br),
+    .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
+    .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
+    .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -67,12 +74,64 @@ module tb_boot;
     );
   end
 
-  // ---- retirement count (all harts), for progress lines ----
+  // the commit-trace stream's memory (records land here when the host enables streaming)
+  axi_r_t trace_r_unused;
+  tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(20), .READY_PCT(90), .OOO(1'b0), .STRICT_ID(1'b0), .NAME("trace")) u_tmem (
+    .clk, .rst,
+    .ar_i ('0), .ar_valid_i (1'b0), .ar_ready_o (), .r_o (trace_r_unused), .r_valid_o (), .r_ready_i (1'b1),
+    .aw_i (taw), .aw_valid_i (tawv), .aw_ready_o (tawr),
+    .w_i (tw), .w_valid_i (twv), .w_ready_o (twr),
+    .b_o (tb), .b_valid_o (tbv), .b_ready_i (tbr)
+  );
+
+  // ---- retirement count (all harts) and the last records of each hart, for progress and post-mortem ----
+  localparam int NH_TB = N_CORES * NUM_THREADS;
+  localparam int LAST  = 16;
+  typedef struct {
+    logic [63:0] pc;
+    logic [31:0] insn;
+    logic [1:0]  kind;
+    logic [1:0]  priv;
+    logic [63:0] val;        // rd value; the cause of a trap or interrupt
+    logic [63:0] tval;
+  } last_t;
   longint unsigned instret = 0;
+  last_t           last_rec [NH_TB][LAST];
+  longint unsigned last_n   [NH_TB];
   always @(posedge clk) if (!rst)
     for (int c = 0; c < N_CORES; c++)
       for (int k = 0; k < COMMIT_WIDTH; k++)
-        if (trace_v[c][k] && trace[c][k].kind == tg_trace_pkg::TR_RETIRE) instret++;
+        if (trace_v[c][k]) begin
+          int h;
+          h = int'(trace[c][k].hart);
+          if (trace[c][k].kind == tg_trace_pkg::TR_RETIRE) instret++;
+          if (h < NH_TB) begin
+            last_rec[h][last_n[h] % LAST] = '{pc: trace[c][k].pc, insn: trace[c][k].insn, kind: trace[c][k].kind,
+                                             priv: trace[c][k].priv,
+                                             val: (trace[c][k].kind == tg_trace_pkg::TR_RETIRE) ? trace[c][k].rd_value : trace[c][k].cause,
+                                             tval: trace[c][k].tval};
+            last_n[h]++;
+          end
+        end
+  function automatic string last_pc_str();
+    string r;
+    r = "";
+    for (int h = 0; h < NH_TB; h++)
+      r = {r, $sformatf(" hart%0d pc %h", h, (last_n[h] == 0) ? 64'd0 : last_rec[h][(last_n[h] - 1) % LAST].pc)};
+    return r;
+  endfunction
+  task automatic dump_last();
+    for (int h = 0; h < NH_TB; h++) begin
+      $display("[tb_boot] hart %0d: the last %0d of %0d records", h, (last_n[h] < LAST) ? last_n[h] : LAST, last_n[h]);
+      for (longint unsigned i = (last_n[h] > LAST) ? last_n[h] - LAST : 0; i < last_n[h]; i++) begin
+        last_t r;
+        r = last_rec[h][i % LAST];
+        $display("  %s pc %h insn %h priv %0d %s %h%s", (r.kind == 0) ? "retire" : (r.kind == 1) ? "TRAP  " : "IRQ   ",
+                 r.pc, r.insn, r.priv, (r.kind == 0) ? "rd" : "cause", r.val,
+                 (r.kind == 1) ? $sformatf(" tval %h", r.tval) : "");
+      end
+    end
+  endtask
 
   // ---- AXI4-Lite host master (clk_host) ----
   task automatic hw(input logic [15:0] a, input logic [31:0] d);
@@ -155,6 +214,7 @@ module tb_boot;
     if (!$value$plusargs("max_mcycles=%d", max_m)) max_m = 20;
     max_cycles = longint'(max_m) * 1_000_000;
     $display("tb_boot: %0d core(s) x %0d thread(s), expect \"%s\", up to %0d M cycles", N_CORES, NUM_THREADS, expect_s, max_m);
+    for (int h = 0; h < NH_TB; h++) last_n[h] = 0;
 
     repeat (10) @(posedge clk);
     rst = 0; rst_host = 0;
@@ -180,7 +240,7 @@ module tb_boot;
       repeat (2000) @(posedge clk);
       cyc += 2000;
       drain_console();
-      if (cyc % 1_000_000 == 0) $display("\n[tb_boot] %0d M cycles, %0d instructions retired", cyc / 1_000_000, instret);
+      if (cyc % 1_000_000 == 0) $display("\n[tb_boot] %0d M cycles, %0d instructions retired,%s", cyc / 1_000_000, instret, last_pc_str());
       hr(16'h018, v);
       if (v[31]) begin
         $display("\ntb_boot: power request %h", v[15:0]);
@@ -190,7 +250,10 @@ module tb_boot;
     drain_console();
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     if (console_has(expect_s)) $display("TEST PASSED (boot, %0d core(s))", N_CORES);
-    else                       $display("TEST FAILED (boot, %0d core(s)): \"%s\" not seen", N_CORES, expect_s);
+    else begin
+      dump_last();
+      $display("TEST FAILED (boot, %0d core(s)): \"%s\" not seen", N_CORES, expect_s);
+    end
     $finish;
   end
 endmodule

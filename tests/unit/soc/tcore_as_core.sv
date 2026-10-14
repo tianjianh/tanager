@@ -57,7 +57,8 @@ module tg_core
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
-  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o
+  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
+  input  logic                         trace_stall_i      // to tg_tcore, built with TG_TRACE_STALL
 );
 
   tg_tcore #(.CORE_ID (CORE_ID)) u_tcore (.*);

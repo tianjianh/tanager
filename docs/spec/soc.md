@@ -23,7 +23,8 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `s_axil_*` | host | host AXI4-Lite slave ([host.md](host.md)) |
 | `host_irq_o` | host | to `pl_ps_irq0` |
 | `m_axi_*[N_MEMPORTS]` | core | one AXI4 master per L2 bank: 128-bit data, 40-bit address (already remapped onto the carve-out), 6-bit ID |
-| `trace_*` | core | each core's commit-trace ports, passed out for simulation harnesses; inside, `tg_trace_ring` keeps the last records of one core for the host ([host.md](host.md) §Trace ring) |
+| `trace_*` | core | each core's commit-trace ports, passed out for simulation harnesses; inside, `tg_trace_stream` streams them into DDR and drives each core's `trace_stall_i` ([uncore-trace.md](uncore-trace.md)) |
+| `m_axi_trace_*` | core | the trace stream's AXI4 write master (AW, W, B; no reads): 128-bit, 40-bit PS physical address, one ID; `S_AXI_HP3_FPD` on the KV260 |
 | `status_o` | core | LEDs and debug: reset states, L2 init, UART activity |
 
 ### Parameters

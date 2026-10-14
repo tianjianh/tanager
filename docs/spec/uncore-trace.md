@@ -1,6 +1,6 @@
 # Commit-trace streaming (`tg_trace_stream`)
 
-Status: draft — soc track — 2026-10-13
+Status: implemented — soc track — 2026-10-14
 
 ## Purpose
 
@@ -42,19 +42,19 @@ valid masks  ──► order FIFO (64) ───────────┘
   - Retire banks hold the 320-bit record format of [host.md](host.md) §Trace ring (value and cause share a field, as do address and tval).
   - Writeback banks hold the `tr_wb_t` fields (77 bits at `smt2`), widened to the 320-bit format on the way out.
 - **Order FIFO.** Every cycle with at least one valid record pushes its valid mask (`COMMIT_WIDTH + TRACE_WB_PORTS` bits). The drain pops a mask and takes one record per step from the banks it names: retire slots in slot order (interfaces.md §5: a lower slot is older), then writeback ports. A writeback therefore always follows the retire record that deferred it, which came in an earlier cycle.
-- **Stall rule** (`trace_stall_o[c]`), while capture runs. It is asserted when any of these holds:
-  - a retire bank has fewer than 2 free entries. A slot adds at most one record per cycle, and the core may retire in the cycle the stall rises and in the next one (interfaces.md §5);
-  - a writeback bank has fewer than `LLT_ENTRIES + 2 × COMMIT_WIDTH` free entries. Writebacks are not stalled; after the stall takes effect at most the outstanding long-latency tags, plus those of the two cycles that still retire, can report;
-  - the order FIFO has fewer than `LLT_ENTRIES + 2 × COMMIT_WIDTH + 2` free entries.
+- **Stall rule** (`trace_stall_o[c]`), while capture runs. It is a compare of the registered occupancies, and it is asserted when any of these holds:
+  - a retire bank has fewer than 3 free entries. A slot adds at most one record per cycle. The cycle in which the stall rises still brings records, which the bank counts only at the next edge, and the core may retire in the cycle after (interfaces.md §5). That is three cycles of records;
+  - a writeback bank has fewer than `LLT_ENTRIES + 3 × COMMIT_WIDTH` free entries. Writebacks are not stalled; after the stall takes effect at most the outstanding long-latency tags, plus those of the three cycles that still retire, can report;
+  - the order FIFO has fewer than `LLT_ENTRIES + 3 × COMMIT_WIDTH + 3` free entries.
 
-  This is the interface's `TRACE_STALL_HEADROOM` rule applied to each lane, with the writeback bound counted conservatively. While capture is off, `trace_stall_o` is 0.
+  This is the interface's rule for a sink that stalls from its occupancy register: 3 × `COMMIT_WIDTH` + `LLT_ENTRIES`, verification.md §2.9. `TRACE_STALL_HEADROOM` (2 × `COMMIT_WIDTH`) is enough only for a sink that counts the current cycle's records combinationally. It is applied to each lane, with the writeback bound counted conservatively. While capture is off, `trace_stall_o` is 0.
 
 ### Records in DDR
 
 - **Record:** 64 bytes, written as one 4-beat burst.
   - Bytes 0–39: the 320-bit record of [host.md](host.md) §Trace ring (header, insn, pc, value, address, store data); writebacks use kind 3.
-  - Bytes 40–47: the `clk` cycle count when the record was captured.
-  - Bytes 48–63: zero (reserved).
+  - Bytes 40–43: the low 32 bits of the `clk` cycle count when the record was captured.
+  - Bytes 44–63: zero (reserved).
 - **Ring:** `2^SIZE_LOG2` records from `BASE` (PS physical address, 64-byte aligned, inside the carve-out). Record n goes to `BASE + (n mod 2^SIZE_LOG2) × 64`.
 - **Pointers:** 64-bit record counters.
   - `WP` (hardware): records whose write response has returned, so the host may read every record below it.
@@ -95,13 +95,13 @@ The registers replace `TRACE_*` at `0x1000`–`0x1064` in the host window ([host
 | `0x1038`/`0x103C` | `TRS_WP` lo/hi | RO | | records written and complete |
 | `0x1040` | `TRS_STATUS` | RO | | `[0]` capturing, `[1]` started, `[2]` stopped by the trigger, `[3]` waiting for `RP`, `[4]` AXI error, `[31:16]` records in the banks |
 | `0x1044` | `TRS_STALLS` | RO | | cycles in which any core was stalled by the stream (low 32 bits) |
-| `0x1048` | `TRS_INFO` | RO | | `[7:0]` record bytes (64), `[15:8]` cores, `[23:16]` bank depth |
+| `0x1048` | `TRS_INFO` | RO | | `[7:0]` record bytes (64), `[15:8]` cores |
 
 ## Parameters
 
 - `N_CORES`, `COMMIT_WIDTH`, `TRACE_WB_PORTS`, `LLT_ENTRIES` size the banks and the stall thresholds.
-- `BANK_DEPTH` = 32 entries. A RAM32M16 costs the same at 8 as at 32. The writeback banks need it: their threshold is 28 at `smt2` 2-wide.
-- At 3-wide there are three retire banks; the 3-wide threshold for writeback banks (24 + 6 = 30) needs `BANK_DEPTH` = 64 (RAM64M8), chosen by a generate.
+- The lane depth is 32 entries. A RAM32M16 costs the same at 8 as at 32. The writeback lanes need it: their threshold is 30 at `smt2` 2-wide.
+- At `smt2_w3` the writeback threshold (24 + 9 = 33) needs 64 entries (RAM64M8); the depth follows from the thresholds.
 
 ## Timing and area
 

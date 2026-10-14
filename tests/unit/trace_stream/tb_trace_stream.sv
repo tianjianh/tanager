@@ -90,7 +90,13 @@ module tb_trace_stream;
   logic [LLT_ENTRIES-1:0] tag_busy [NC];
   int retire_pct = 80, defer_pct = 25, wb_pct = 30;
 
-  always @(posedge clk) stall_q <= rst ? '0 : stall;
+  // The core registers trace_stall_i and may still retire in the cycle after it rises
+  // (interfaces.md §5): the longest latency the interface allows, two stages here.
+  logic [NC-1:0] stall_r1;
+  always @(posedge clk) begin
+    stall_r1 <= rst ? '0 : stall;
+    stall_q  <= rst ? '0 : stall_r1;
+  end
 
   always @(negedge clk) begin
     tr_v = '0; twb_v = '0; tr = '0; twb = '0;

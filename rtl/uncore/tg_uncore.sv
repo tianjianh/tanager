@@ -3,7 +3,8 @@
 // on its own, as the per-unit LUT budget run does (fpga/budget, unit "uncore").
 //   cores -> tg_xbar -> L2 banks -> latency injector -> DRAM window -> AXI slice -> m_axi_*
 //                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control)
-//   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox, trace ring.
+//   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
+//   commit-trace streaming into DDR (its own AXI master).
 module tg_uncore
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
@@ -96,11 +97,22 @@ module tg_uncore
   output logic [63:0]           mtime_o,
   input  logic [NH-1:0]         merr_i,
 
-  // commit trace of every core (trace ring)
+  // commit trace of every core, streamed into DDR; back-pressure to each core (interfaces.md §5)
   input  tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_i,
   input  logic    [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_valid_i,
   input  tr_wb_t  [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_i,
   input  logic    [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_valid_i,
+  output logic    [N_CORES-1:0]                     trace_stall_o,
+  // the trace stream's AXI4 write master (clk): PS physical addresses (S_AXI_HP3_FPD on the KV260)
+  output axi_ax_t                                   m_axi_trace_aw,
+  output logic                                      m_axi_trace_aw_valid,
+  input  logic                                      m_axi_trace_aw_ready,
+  output axi_w_t                                    m_axi_trace_w,
+  output logic                                      m_axi_trace_w_valid,
+  input  logic                                      m_axi_trace_w_ready,
+  input  axi_b_t                                    m_axi_trace_b,
+  input  logic                                      m_axi_trace_b_valid,
+  output logic                                      m_axi_trace_b_ready,
 
   // traffic-generator controls and results (host registers; tied off with real cores)
   output logic                    tg_en_o,
@@ -316,20 +328,24 @@ module tg_uncore
     end
   end
 
-  // Commit-trace ring
-  logic         tr_en, tr_arm, tr_frozen;
-  logic [1:0]   tr_core;
-  logic [63:0]  tr_pc;
-  logic [15:0]  tr_post, tr_idx, tr_idx_shown;
-  logic [31:0]  tr_count, tr_lost;
-  logic [319:0] tr_rec;
-  localparam int TRACE_DEPTH = 512 * COMMIT_WIDTH;
-  tg_trace_ring #(.N_CORES (N_CORES), .BANK_DEPTH (512)) u_trace (
+  // Commit-trace streaming into a DDR ring (docs/spec/uncore-trace.md)
+  logic         trs_en, trs_wrap, trs_stop_arm, trs_start_arm;
+  logic [63:0]  trs_stop_pc, trs_start_pc, trs_rp, trs_wp;
+  logic [15:0]  trs_post, trs_buffered;
+  logic [39:0]  trs_base;
+  logic [4:0]   trs_size, trs_flags;
+  logic [31:0]  trs_stalls;
+  tg_trace_stream #(.N_CORES (N_CORES)) u_trace (
     .clk, .rst (uncore_rst),
-    .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i,
-    .enable_i (tr_en), .core_sel_i (tr_core), .trig_arm_i (tr_arm), .trig_pc_i (tr_pc), .post_i (tr_post),
-    .rd_idx_i (tr_idx), .count_o (tr_count), .lost_o (tr_lost), .frozen_o (tr_frozen),
-    .rd_idx_o (tr_idx_shown), .rd_rec_o (tr_rec)
+    .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i, .trace_stall_o,
+    .enable_i (trs_en), .wrap_i (trs_wrap), .stop_arm_i (trs_stop_arm), .stop_pc_i (trs_stop_pc),
+    .post_i (trs_post), .start_arm_i (trs_start_arm), .start_pc_i (trs_start_pc), .base_i (trs_base),
+    .size_log2_i (trs_size), .rp_i (trs_rp),
+    .wp_o (trs_wp), .capturing_o (trs_flags[0]), .started_o (trs_flags[1]), .stopped_o (trs_flags[2]),
+    .full_o (trs_flags[3]), .axi_err_o (trs_flags[4]), .buffered_o (trs_buffered), .stall_cycles_o (trs_stalls),
+    .aw_o (m_axi_trace_aw), .aw_valid_o (m_axi_trace_aw_valid), .aw_ready_i (m_axi_trace_aw_ready),
+    .w_o (m_axi_trace_w), .w_valid_o (m_axi_trace_w_valid), .w_ready_i (m_axi_trace_w_ready),
+    .b_i (m_axi_trace_b), .b_valid_i (m_axi_trace_b_valid), .b_ready_o (m_axi_trace_b_ready)
   );
 
   localparam logic [7:0] CFG_CODE = (CFG_NAME == "smt2") ? 8'd1 : (CFG_NAME == "st_w3") ? 8'd2 :
@@ -355,9 +371,10 @@ module tg_uncore
     .inj_rd_count_i (inj_cnt_all), .inj_lat_sum_i (inj_sum_all), .inj_lat_max_i (inj_max_all),
     .tg_en_o, .tg_base_o, .tg_lines_o,
     .tg_ops_i (tg_ops_all), .tg_errs_i (tg_errs_all), .tg_err_line_i (tg_err_line_any), .tg_pass_i (tg_pass_i[0]),
-    .tr_enable_o (tr_en), .tr_core_o (tr_core), .tr_arm_o (tr_arm), .tr_pc_o (tr_pc), .tr_post_o (tr_post),
-    .tr_idx_o (tr_idx), .tr_count_i (tr_count), .tr_lost_i (tr_lost), .tr_frozen_i (tr_frozen),
-    .tr_idx_i (tr_idx_shown), .tr_rec_i (tr_rec), .tr_depth_i (16'(TRACE_DEPTH)),
+    .trs_enable_o (trs_en), .trs_wrap_o (trs_wrap), .trs_stop_arm_o (trs_stop_arm), .trs_stop_pc_o (trs_stop_pc),
+    .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
+    .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
+    .trs_wp_i (trs_wp), .trs_flags_i (trs_flags), .trs_buffered_i (trs_buffered), .trs_stalls_i (trs_stalls),
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );

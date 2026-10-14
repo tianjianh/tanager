@@ -14,6 +14,7 @@ module tb_soc;
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
+  localparam logic [39:0] TR_BASE = 40'h8_4800_0000;    // the trace stream's ring
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
   always #5    clk      = ~clk;        // 100 MHz
@@ -32,6 +33,10 @@ module tb_soc;
   axi_w_t  [N_BANKS-1:0] w;
   axi_b_t  [N_BANKS-1:0] b;
   logic [N_BANKS-1:0] arv, arr, rv, rr, awv, awr, wv, wr, bv, br;
+  axi_ax_t taw;                       // commit-trace stream (writes only)
+  axi_w_t  tw;
+  axi_b_t  tb;
+  logic    tawv, tawr, twv, twr, tbv, tbr;
 
   tg_trace_pkg::tr_rec_t [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
@@ -54,6 +59,9 @@ module tb_soc;
     .m_axi_aw (aw), .m_axi_aw_valid (awv), .m_axi_aw_ready (awr),
     .m_axi_w (w), .m_axi_w_valid (wv), .m_axi_w_ready (wr),
     .m_axi_b (b), .m_axi_b_valid (bv), .m_axi_b_ready (br),
+    .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
+    .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
+    .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -73,6 +81,16 @@ module tb_soc;
       if (awv[k] && awr[k]) assert (aw[k].addr >= CO_BASE && aw[k].addr < CO_BASE + CO_SIZE) else $error("AW outside the carve-out: %h", aw[k].addr);
     end
   end
+
+  // the commit-trace stream's memory (records land here when the host enables streaming)
+  axi_r_t trace_r_unused;
+  tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(20), .READY_PCT(90), .OOO(1'b0), .STRICT_ID(1'b0), .NAME("trace")) u_tmem (
+    .clk, .rst,
+    .ar_i ('0), .ar_valid_i (1'b0), .ar_ready_o (), .r_o (trace_r_unused), .r_valid_o (), .r_ready_i (1'b1),
+    .aw_i (taw), .aw_valid_i (tawv), .aw_ready_o (tawr),
+    .w_i (tw), .w_valid_i (twv), .w_ready_o (twr),
+    .b_o (tb), .b_valid_o (tbv), .b_ready_i (tbr)
+  );
 
   int errors = 0;
   task automatic fail(input string m);
@@ -174,6 +192,13 @@ module tb_soc;
       $fclose(fd);
       $display("loaded %0d bytes of %s", a, path);
     end
+    if (KIND == "tcore") begin
+      // commit-trace streaming into its memory: everything the cores retire (uncore-trace.md)
+      hw64(16'h1020, 64'(TR_BASE));
+      hw(16'h1028, 32'd16);                     // a ring of 64K records: no wrap in this test
+      hw(16'h1000, 32'h1);                      // enable
+      do hr(16'h1040, v); while (!v[0]);        // capturing in the core domain before the cores start
+    end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -193,14 +218,26 @@ module tb_soc;
     if (KIND == "tcore") begin
       // run until the program reports through TOHOST, echoing the console
       int t;
+      bit first_ok;
       logic [31:0] seq, lo;
       t = 0;
+      first_ok = 0;
       do begin
         repeat (500) @(posedge clk);
         drain_console();
         hr(16'h088, seq);
+        // the trace consumer: check the first record once, then release everything written
+        hr(16'h1038, lo);
+        if (lo != 0 && !first_ok) begin
+          logic [127:0] b0;
+          b0 = u_tmem.peek_beat(longint'(TR_BASE));
+          if (b0[1:0] != 2'd0 || b0[127:64] != 64'(BOOTROM_BASE))
+            fail($sformatf("first trace record: kind %0d pc %h, want the boot ROM's first instruction", b0[1:0], b0[127:64]));
+          first_ok = 1;
+        end
+        hw(16'h1030, lo); hw(16'h1034, 32'h0);    // TRS_RP = WP (records consumed)
         t++;
-      end while (seq == 0 && t < 4000);
+      end while (seq == 0 && t < 20000);         // streaming slows the cores to the trace rate
       drain_console();
       $display("console:\n%s", console);
       hr(16'h060, lo);
@@ -211,6 +248,19 @@ module tb_soc;
         found = 0;
         for (int i = 0; i + 4 <= console.len(); i++) if (console.substr(i, i + 3) == "PASS") found = 1;
         if (!found) fail("no PASS on the console");
+      end
+      // the stream: everything retired went to the trace memory, starting at the boot ROM
+      begin
+        logic [31:0] wpl, st, stl;
+        hw(16'h1000, 32'h0);                    // stop capturing; the lanes drain
+        repeat (2000) @(posedge clk);
+        hr(16'h1038, wpl);
+        hr(16'h1040, st);
+        hr(16'h1044, stl);
+        $display("trace stream: %0d records, %0d stall cycles, status %h", wpl, stl, st);
+        if (!first_ok) fail("no trace record was checked");
+        if (wpl < 1000) fail($sformatf("trace stream wrote %0d records", wpl));
+        if (st[4]) fail("trace stream AXI error");
       end
     end
 
@@ -261,7 +311,7 @@ module tb_soc;
   end
 
   initial begin
-    #200ms;
+    #500ms;
     $display("TEST FAILED: timeout");
     $finish;
   end

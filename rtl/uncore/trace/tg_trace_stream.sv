@@ -53,7 +53,7 @@ module tg_trace_stream
   localparam int CW   = COMMIT_WIDTH;
   localparam int NWB  = TRACE_WB_PORTS;
   localparam int NL   = CW + NWB;                                   // lanes per core
-  localparam int BD   = (LLT_ENTRIES + 2 * CW + 2 <= 32) ? 32 : 64; // lane depth
+  localparam int BD   = (LLT_ENTRIES + 3 * CW + 1 <= 32) ? 32 : 64; // lane depth
   localparam int BAW  = $clog2(BD);
   localparam int OD   = 64;                                         // order FIFO depth
   localparam int OAW  = $clog2(OD);
@@ -61,10 +61,13 @@ module tg_trace_stream
   localparam int LW   = idx_w(NL);
   localparam int CIW  = idx_w(N_CORES);
   localparam int MAX_OUT = 16;                                      // records in flight on AXI
-  // Stall thresholds (free entries), interfaces.md §5 applied per lane
-  localparam int TH_RET = 2;
-  localparam int TH_WB  = LLT_ENTRIES + 2 * CW;
-  localparam int TH_ORD = LLT_ENTRIES + 2 * CW + 2;
+  // Stall thresholds (free entries), interfaces.md §5 applied per lane. The stall is computed from
+  // the registered occupancy, so the cycle in which it rises still brings records (the sink sees
+  // them at the next edge) and the core may retire in the cycle after: three cycles of records per
+  // lane, verification.md §2.9's 3 x COMMIT_WIDTH + LLT_ENTRIES for a sink of this kind.
+  localparam int TH_RET = 3;
+  localparam int TH_WB  = LLT_ENTRIES + 3 * CW;
+  localparam int TH_ORD = LLT_ENTRIES + 3 * CW + 3;
 
   if (TH_WB >= BD || TH_ORD >= OD) begin : g_bad_depth
     $error("tg_trace_stream: lane or order FIFO too shallow for the stall headroom");

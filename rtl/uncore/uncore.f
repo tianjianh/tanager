@@ -20,7 +20,6 @@ aclint/tg_aclint.sv
 plic/tg_plic.sv
 uart/tg_uart.sv
 bootrom/tg_bootrom.sv
-hostbridge/tg_trace_ring.sv
 hostbridge/tg_host_bridge.sv
 hostbridge/tg_axi4_to_axil.sv
 trace/tg_trace_stream.sv
