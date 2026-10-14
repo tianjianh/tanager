@@ -171,6 +171,10 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 
 With the core track's RTL, the same top runs the boot ROM → OpenSBI path; the full Linux boot moves to the board (plan §11).
 
+## History and lessons
+
+- **2026-10-14, core track (DR-120):** `tg_map_pkg::pma_of` matches its naturally aligned power-of-two regions by prefix: 10 LUTs per instance instead of 136 and 17 CARRY8, with identical results for every address. `tg_xbar`'s address decode uses it too. The range test is kept for any unaligned region, and `tg_core` warns at elaboration if one appears.
+
 ## Provenance
 
 - Plan §3.1, §5.4, §5.5, §7.
