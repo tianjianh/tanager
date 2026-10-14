@@ -51,6 +51,9 @@ prepare() {
   if grep -q "print-trace-stall" "$src/sim/Makefile" &&
      [ "$(make -s --no-print-directory -C "$src/sim" CORE=core print-trace-stall)" != 1 ]; then ts=""; fi
   echo "$ts" > "$SOAK/trace_stall"
+  # Older mains' random runner has no --mem-gate; the check between rounds still applies.
+  if grep -q -- "--mem-gate" "$src/tests/random/run_random.py"; then echo "--mem-gate $MEM_GB"; else echo; fi \
+    > "$SOAK/mem_gate"
   echo "$commit" > "$SOAK/commit"
 }
 
@@ -63,11 +66,16 @@ campaign() {
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
     python3 "$SOAK/src/tanager/tests/random/run_random.py" --sim "$sim" \
       --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa rv64imac \
-      --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") --jobs "$JOBS" --mem-gate "$MEM_GB" \
-      --timeout 1200 --workdir "$work" \
+      --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
+      --jobs "$JOBS" --timeout 1200 --workdir "$work" \
       --name "soak $cfg" -- $M3_SPIKE ) > "$work/out.txt" 2>&1
   local res pass fail gen
   res=$(grep "passed, " "$work/out.txt" | tail -1)
+  if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
+    echo "$(date '+%F %T') $cfg on $commit: $(tail -1 "$work/out.txt" | cut -c1-200)" >> "$SOAK/errors.log"
+    tail -n 20 "$SOAK/errors.log" > "$SOAK/errors.tmp" && mv "$SOAK/errors.tmp" "$SOAK/errors.log"
+    return 0
+  fi
   pass=$(echo "$res" | sed -n 's/.*: \([0-9]*\) passed.*/\1/p')
   fail=$(echo "$res" | sed -n 's/.* \([0-9]*\) failed.*/\1/p')
   gen=$(echo "$res" | sed -n 's/.* \([0-9]*\) generator failures.*/\1/p')
@@ -111,6 +119,12 @@ summarize() {
     echo "|---|---|---|---|"
     awk -F'\t' '{n[$1"|"$2]+=$4; f[$1"|"$2]+=$5} END {for (k in n) {split(k, a, "|"); print "| " a[1] " | " a[2] " | " n[k] " | " f[k] " |"}}' \
       "$SOAK/counts.tsv" 2>/dev/null | sort -r | head -40
+    if [ -s "$SOAK/errors.log" ]; then
+      echo
+      echo "## Harness errors (campaigns without a result; newest last)"
+      echo
+      tail -n 5 "$SOAK/errors.log" | sed 's/^/- /'
+    fi
     echo
     echo "## Failures to triage (newest first)"
     echo
