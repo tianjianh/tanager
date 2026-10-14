@@ -79,7 +79,6 @@ module tg_lsu
   output logic [3:0]                   exc_valid,     // new load (AG), denied line (M2), MMIO load, store
   output robid_t [3:0]                 exc_rob,
   output logic [3:0][3:0]              exc_cause,
-  output logic [3:0][63:0]             exc_tval,
   output logic                         replay_valid,
   output robid_t                       replay_rob,
   // From the ROB / commit
@@ -110,7 +109,8 @@ module tg_lsu
   output logic                         hd_retry,      // the ROB head's DTLB miss resolves
   output logic                         hd_fault,
   output logic [3:0]                   hd_cause,
-  output logic [63:0]                  hd_tval,
+  output logic [63:0]                  hd_lva,        // the LQ head's VA and the SQ commit point's: the ROB
+  output logic [63:0]                  hd_sva,        // head's tval when a load or store traps there
   input  logic                         iw_req,        // fetch walks
   input  logic [63:0]                  iw_va,
   output logic                         iw_ack,
@@ -743,38 +743,33 @@ module tg_lsu
 
   // ================= ROB reports =================
   always_comb begin
-    exc_valid = '0; exc_rob = '0; exc_cause = '0; exc_tval = '0;
+    exc_valid = '0; exc_rob = '0; exc_cause = '0;      // (tval: the VA at the head, hd_lva/hd_sva)
     // loads: AG checks of a new load, or a denied line at M2
     if (ld_ag_valid && !flush && nl_exc) begin
       exc_valid[0] = 1'b1;
       exc_rob[0]   = ld_ag_pl.rob;
       exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
-      exc_tval[0]  = ld_ag_addr;
     end
     if (m2_v_q && m2_out == O_FAULT && !flush) begin
       exc_valid[1] = 1'b1;
       exc_rob[1]   = lqc_rd[0].rob;
       exc_cause[1] = EXC_LACCESS;
-      exc_tval[1]  = lqc_rd[0].va;
     end
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lqc_rd[1].rob;
       exc_cause[2] = EXC_LACCESS;
-      exc_tval[2]  = lqc_rd[1].va;
     end else if (am_req && am_den) begin               // an atomic's line was denied
       exc_valid[2] = 1'b1;
       exc_rob[2]   = am_rob_q;
       exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
-      exc_tval[2]  = sqva_rd[COMMIT_WIDTH];         // the SQ commit point: the atomic itself
     end
     if (sta_ag_valid && !flush && sa_exc) begin
       exc_valid[3] = 1'b1;
       exc_rob[3]   = sta_ag_pl.rob;
       exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
                      sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
-      exc_tval[3]  = sta_ag_addr;
     end
     // store completion: address arrives with the data present, or data arrives after the address
     st_cmp_valid = '0;
@@ -808,7 +803,8 @@ module tg_lsu
   assign hd_retry = hd_need && hd_tok;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
-  assign hd_tval  = hd_va;
+  assign hd_lva   = lqc_rd[2].va;
+  assign hd_sva   = sqva_rd[COMMIT_WIDTH];
 
   // A DTLB miss at AG: the ROB entry replays at the head; the walker prefetches the translation
   assign tlbm_valid[0] = ld_ag_valid && !flush && nl_tm;

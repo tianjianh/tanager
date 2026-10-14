@@ -52,7 +52,6 @@ module tg_rob
   input  logic [3:0]                   lx_valid,
   input  robid_t [3:0]                 lx_rob,
   input  logic [3:0][3:0]              lx_cause,
-  input  logic [3:0][63:0]             lx_tval,
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
   input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports): replay
@@ -61,7 +60,8 @@ module tg_rob
   input  logic                         hd_retry,
   input  logic                         hd_fault,
   input  logic [3:0]                   hd_cause,
-  input  logic [63:0]                  hd_tval,
+  input  logic [63:0]                  hd_lva,       // the head load's VA, or the head store's:
+  input  logic [63:0]                  hd_sva,       // tval of an LSU exception (taken at the head)
   // LSU state
   input  logic                         sq_drained,
   input  logic                         mmio_busy,
@@ -123,6 +123,7 @@ module tg_rob
   robid_t        exr_rob_q;
   logic [3:0]    exr_cause_q;
   logic [63:0]   exr_tval_q;
+  logic          exr_mem_q;      // an LSU exception: tval is the head's VA (hd_lva / hd_sva)
   logic          mpr_v_q;
   robid_t        mpr_rob_q;
   logic [63:0]   mpr_npc_q;
@@ -268,7 +269,7 @@ module tg_rob
           use_tt   = 1'b1;
           tlbx     = 1'b1;
           t_cause  = hd_cause;
-          t_tval   = hd_tval;
+          t_tval   = hp[0].is_ld ? hd_lva : hd_sva;
         end
       end else if (cmp_q[i0] && exc_q[i0]) begin
         do_trap = 1'b1;
@@ -284,7 +285,7 @@ module tg_rob
           endcase
         end else begin
           t_cause = exr_cause_q;
-          t_tval  = exr_tval_q;
+          t_tval  = exr_mem_q ? (hp[0].is_ld ? hd_lva : hd_sva) : exr_tval_q;
         end
       end else if (cmp_q[i0] && hp[0].serial) begin
         if (go) begin
@@ -400,17 +401,18 @@ module tg_rob
   robid_t      ex_r;
   logic [3:0]  ex_c;
   logic [63:0] ex_t;
+  logic        ex_m;
   always_comb begin
-    ex_v = exr_v_q; ex_r = exr_rob_q; ex_c = exr_cause_q; ex_t = exr_tval_q;
+    ex_v = exr_v_q; ex_r = exr_rob_q; ex_c = exr_cause_q; ex_t = exr_tval_q; ex_m = exr_mem_q;
     if (oth_cmp && oth_exc && (!ex_v || rob_older(oth_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = oth_rob; ex_c = EXC_ILLEGAL; ex_t = oth_tval;
+      ex_v = 1'b1; ex_r = oth_rob; ex_c = EXC_ILLEGAL; ex_t = oth_tval; ex_m = 1'b0;
     end
     if (br_valid && br_exc && (!ex_v || rob_older(br_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = br_rob; ex_c = EXC_IMISALIGN; ex_t = br_tval;
+      ex_v = 1'b1; ex_r = br_rob; ex_c = EXC_IMISALIGN; ex_t = br_tval; ex_m = 1'b0;
     end
     for (int i = 0; i < 4; i++) begin
       if (lx_valid[i] && (!ex_v || rob_older(lx_rob[i], ex_r))) begin
-        ex_v = 1'b1; ex_r = lx_rob[i]; ex_c = lx_cause[i]; ex_t = lx_tval[i];
+        ex_v = 1'b1; ex_r = lx_rob[i]; ex_c = lx_cause[i]; ex_m = 1'b1;
       end
     end
   end
@@ -483,6 +485,7 @@ module tg_rob
 
         // Oldest exception: the current register and this cycle's reports
         exr_v_q <= ex_v && !do_trap; exr_rob_q <= ex_r; exr_cause_q <= ex_c; exr_tval_q <= ex_t;
+        exr_mem_q <= ex_m;
         // Oldest mispredict
         if (br_valid && br_misp && !br_exc && (!mpr_v_q || rob_older(br_rob, mpr_rob_q))) begin
           mpr_v_q   <= 1'b1;
