@@ -1,6 +1,6 @@
 # F and D in the core (`EXT_FD`, M3)
 
-Status: core side built behind `EXT_FD` (off by default), not yet wired to the FP back end — core track — 2026-10-14
+Status: implemented, `EXT_FD` on — core track — 2026-10-14
 
 The FPU track owns the FP back end (docs/spec/fpu.md, "Core integration (P4 back end)"):
 - `tg_fp_exec`, port P4 from the issue grant onward, with `tg_fprf` and `tg_fpu` inside it;
@@ -73,10 +73,8 @@ This page covers the core's side of that contract. With `EXT_FD` off, none of th
   - FS becomes Dirty on `tg_fcsr`'s pulse (an f register written, flags accumulated) and on fcsr writes.
   - `misa.F` and `misa.D` exist with `EXT_FD`. Software may clear them as in Spike, and D needs F; with F clear, the F/D encodings are illegal.
 
-## Still to do
-- `tg_fp_exec` and `tg_fcsr` in `tg_core`:
-  - the payload conversion;
-  - the F0 writes into the FP ready table, with tags returned 2 cycles after their write;
-  - the FP trace reads;
-  - the reset sequence's zeros into F0 0–31.
-- The simulation's ISA string with F and D, the `rv64uf`/`rv64ud` riscv-tests, ACT4 `core-m3-rv64imafdc`, and random rv64gc in lockstep.
+## Tests (2026-10-14, st, `EXT_FD` on)
+- riscv-tests: 284/284, including `rv64uf`/`rv64ud` `-p` and `-v`, natively and under memory, probe and back-pressure stress.
+- ACT4 `core-m3-rv64imafdc`: 895/895.
+- Random rv64gc programs: 300 seeds in lockstep, with memory stress.
+- `make regress` in the four configurations: see the merge request.

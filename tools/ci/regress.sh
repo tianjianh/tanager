@@ -30,8 +30,8 @@ if [ "$CORE" = tcore ]; then
   EXCL+=(--exclude "$ROOT/tests/isa/exclude/tcore.txt")
 fi
 [ -f "$ROOT/tests/isa/exclude/$CFG.txt" ] && EXCL+=(--exclude "$ROOT/tests/isa/exclude/$CFG.txt")
-if [ "$CORE" = core ]; then   # M3: A, C, Zba/Zbb/Zbs, Zicond, S and U with Sv39
-  SUITES="${SUITES:-rv64ui-p rv64um-p rv64ua-p rv64uc-p rv64mi-p rv64si-p rv64ui-v rv64um-v rv64ua-v rv64uc-v rv64uzba-v rv64uzbb-v rv64uzbs-v rv64uzicond-v}"
+if [ "$CORE" = core ]; then   # M3: A, C, F, D, Zba/Zbb/Zbs, Zicond, S and U with Sv39
+  SUITES="${SUITES:-rv64ui-p rv64um-p rv64ua-p rv64uc-p rv64uf-p rv64ud-p rv64mi-p rv64si-p rv64ui-v rv64um-v rv64ua-v rv64uc-v rv64uf-v rv64ud-v rv64uzba-v rv64uzbb-v rv64uzbs-v rv64uzicond-v}"
 fi
 SUITES="${SUITES:-rv64ui-p rv64um-p rv64mi-p}"
 MARCH="${MARCH:-rv64im}"

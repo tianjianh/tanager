@@ -12,7 +12,7 @@
 CFG    ?= st
 CORE   ?= core
 JOBS   ?= 8
-ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imac)
+ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc)
 
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))

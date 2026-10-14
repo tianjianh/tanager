@@ -17,7 +17,7 @@ package tg_core_pkg;
   localparam bit EXT_C      = 1'b1;      // compressed instructions
   localparam bit EXT_B      = 1'b1;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b1;
-  localparam bit EXT_FD     = 1'b0;      // F and D: FP rename, IQ-FP and P4, fcsr (being built)
+  localparam bit EXT_FD     = 1'b1;      // F and D: FP rename, IQ-FP and P4, fcsr (core-fp.md)
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
