@@ -80,10 +80,13 @@ add_files -norecurse $wrapper
 set_property top s1_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 
-# Address map, for the A53 program and the report
+# Address map, for the A53 program and the report (best effort: never fails the build)
 set fh [open address_map.txt w]
-foreach s [get_bd_addr_segs -excluded false -of_objects [get_bd_addr_spaces -of_objects [get_bd_cells *]]] {
-  puts $fh [format "%-40s %s %s" [get_property NAME $s] [get_property OFFSET $s] [get_property RANGE $s]]
+foreach s [get_bd_addr_segs -quiet] {
+  if {[catch {format "%-48s %s %s" [get_property PATH $s] [get_property OFFSET $s] \
+               [get_property RANGE $s]} line] == 0 && [string match "*SEG*" $line]} {
+    puts $fh $line
+  }
 }
 close $fh
 
