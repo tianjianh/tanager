@@ -79,7 +79,7 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
    sudo xmutil unloadapp
    sudo xmutil loadapp tg-s1
    ```
-   **Check the fan** right after loading. The fan stays under Linux's control: the design routes the PS timer's PWM to the fan-enable pin (A12) as the default design does, and the overlay leaves the pwm-fan node alone, so the speed follows the temperature, not full speed. If the fan stops, run `sudo xmutil unloadapp` at once and tell the spikes track.
+   **Check the fan** right after loading. The fan stays under Linux's control: the design routes the PS timer's PWM to the fan-enable pin (A12) as the default design does, and the overlay leaves the pwm-fan node alone, so the speed follows the temperature (fancontrol: 15/255 at 35 °C, full at 45 °C), not full speed. If the fan stops, run `sudo xmutil unloadapp` at once and tell the spikes track.
 4. **Build and run the program:**
    ```bash
    cd ~/tg-s1 && make && sudo ./tg_s1 | tee s1_results.txt

@@ -8,9 +8,10 @@
 #   # then drive the A12 port from bit $tg_kv260_fan_bit of $wave, inverted when
 #   # $tg_kv260_fan_invert is 1
 #
-# The facts (timer, waveform channel, polarity) come from the board's running image. Until
-# the board session confirms them, they are the placeholders below: timer 0, channel 2,
-# not inverted.
+# The facts, read from the running board by the board session (DR-129): the PWM is TTC0
+# (0xFF11_0000) channel 2 at 25 kHz with inverted polarity, and reaches A12 only through EMIO
+# as emio_ttc0_wave_o[2]. Linux already inverts it, so the PL routes it uninverted. Linux's
+# fancontrol.service maps the AMS temperature to the pwm-fan duty (15/255 at 35 C, 255 at 45 C).
 set tg_kv260_fan_ttc    0
 set tg_kv260_fan_bit    2
 set tg_kv260_fan_invert 0
