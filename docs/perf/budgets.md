@@ -125,3 +125,50 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 - Each cell reads value / budget, bold when over, with Δ since the previous run.
 - The exit status is 0 when every enforced unit is within budget and primitive-clean, and 1 otherwise.
 - A unit that grows past its budget, or a memory that maps to the wrong primitives, shows the next morning.
+
+## 4. The uncore, measured (SoC track)
+
+**Unit:** `uncore` is `tg_uncore`: everything in `tanager_soc` except the cores, with the cores' ports as its ports, so nothing is trimmed. It uses the flow of §3 with 2 cores. A traffic-generator bitstream is not a measurement of the uncore: its generators use few of the ports, and synthesis trims the rest. Its uncore came to about 14.7K LUTs ([fpga/kv260/results.md](../../fpga/kv260/results.md)).
+
+| Commit | Change | st LUTs | smt2 LUTs | FFs (smt2) | RAMB36 equiv. |
+|---|---|---|---|---|---|
+| aac20a2 | first measurement (L2 after lever R15) | 22,830 | 23,475 | 19,047 | 27 |
+| e256b0e | L2: the same-set rule at S0 replaces the directory's write history | 22,405 | 23,050 | 18,854 | 27 |
+| 059a572 | interconnect: each arbiter over the ports that can reach it | 20,884 | 21,533 | 18,811 | 27 |
+| **budget** | | **11,300** | **10,800** | | **18** |
+
+**By block** (smt2, 059a572):
+
+| Block | LUTs | FFs | RAMB36 | Notes |
+|---|---|---|---|---|
+| L2, two banks | 9,866 | 5,061 | 13 | About 4.9K per bank: 24 MSHRs at about 120 LUTs each, plus about 2K. Lever R15 took it from 18.4K ([l2.md](../spec/l2.md)) |
+| Interconnect | 4,364 | 4,051 | — | arbiters about 2.1K; register slices about 2.0K (for 200 MHz) |
+| Host bridge | 3,335 | 5,971 | 1 | the trace ring's 320-bit record readback is about 2.7K of the FFs |
+| Devices | 1,614 | 1,176 | — | device bus 688, PLIC 565 (8 contexts), ACLINT 248, UART 113 |
+| Latency injectors | 1,479 | 546 | 4 | the plan §5.6 experiment feature |
+| AXI slices at the memory ports | 408 | 1,476 | — | for 200 MHz |
+| Trace ring | 449 | 437 | 9 | one core, block RAM |
+
+**Why it is above 13.3K.**
+- The plan's interconnect estimate was 1.5K ([uncore.md](../spec/uncore.md)); it measures 4.4K even after the arbiter change.
+- The per-bank L2 estimate (4–5K) is met only after R15.
+- The host bridge, the devices and the M4 debug and experiment features (latency injector, commit trace) were outside the estimate or estimated lower.
+
+**What no-IPC work is left** (estimates):
+
+| Item | LUTs | Other |
+|---|---|---|
+| Trace streaming replaces the ring ([uncore-trace.md](../spec/uncore-trace.md)) | +2.2K stream, −0.45K ring, −0.5K host readback = **+1.25K** | block RAM 27 → 18; host bridge −1.4K FFs |
+| Host bridge register file and read multiplexer | −0.3K | |
+| L2 remaining small items | −0.3K | |
+| **Landing (smt2), feature set as today plus streaming** | **≈ 22K** | 18 RAMB36 |
+
+No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the MSHRs. These options need a coordinator decision; their order follows D18:
+
+| Option | Saves (smt2) | Cost |
+|---|---|---|
+| Release build without the latency injectors and trace streaming (build parameters; verification and latency builds keep them) | ≈ 3.7K | no lockstep or latency sweeps on release bitstreams |
+| Remove the interconnect and memory-port register slices | ≈ 2.4K | timing: 200 MHz at risk; per D18 a clock down to about 180 MHz comes before IPC cuts |
+| L2 MSHRs 24 → 16 per bank | ≈ 2.0K | IPC at the long latency points (the last resort under D18) |
+| L2 MSHRs 24 → 8 per bank | ≈ 3.9K | IPC (more) |
+| Raise the uncore budget to the measured floor (≈ 18K for a release build) | — | about 7K over 10.8K: v1 lands at about 94% of the XCK26 (110K) instead of 88%, unless the core or the reserve gives it back |
