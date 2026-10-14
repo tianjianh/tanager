@@ -59,6 +59,7 @@ class spike_env_t final : public simif_t {
 
     void* m = mmap(nullptr, c.dram_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
     if (m == MAP_FAILED) fatal("Spike: cannot map %llu MiB of memory", (unsigned long long)(c.dram_size >> 20));
+    madvise(m, c.dram_size, MADV_DONTDUMP);  // a crash must not write gigabytes of core (WSL pipes it)
     dram_ = static_cast<uint8_t*>(m);
     rom_.assign(c.rom_size, 0);
     auto copy = [](uint64_t base, const uint8_t* p, uint64_t rbase, uint64_t rsize, uint8_t* dst) {
