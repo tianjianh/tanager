@@ -34,6 +34,7 @@ module tg_issue
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
   // dispatch port writes next in each ALU queue (global row numbers)
   output logic [RA-1:0]                mx_hold,
+  output robid_t [RA-1:0]              mx_rob,      // the ROB ID each ALU-queue row holds
   output logic [N_ALU-1:0][DW-1:0][RA-1:0] mx_alloc,
   // Wakeup
   input  logic [NCOL-1:0]              alloc,       // IDs given out at RN: W cleared
@@ -207,6 +208,7 @@ module tg_issue
     localparam int CAP  = (ROWS * IQ_CAP_PCT) / 100;
     logic [NCOL-1:0] wn;                // (no queue wakes at select)
     logic [ROWS-1:0] iss_o, free_o, val_o;
+    logic [ROWS-1:0][ROBW-1:0] rob_o;
     logic [DW-1:0][ROWS-1:0] aoh;
     logic [NUM_THREADS-1:0][idx_w(DW + 1)-1:0] room;
     localparam int PW = fmt_w(q);
@@ -376,7 +378,7 @@ module tg_issue
       .disp_cblk(cblk), .cls_block(fp_misc_block),
       .wake_now(wn), .busy(qbusy[q]),
       .disp_mdep(MX ? disp_mdep : '0), .mx_issued(q == Q_FP ? '0 : mx_issued), .mx_free, .issued_o(iss_o), .free_o(free_o),
-      .valid_o(val_o), .alloc_oh_o(aoh),
+      .valid_o(val_o), .rob_o(rob_o), .alloc_oh_o(aoh),
       .flush_valid(flush), .flush_tid(flush_tid), .flush_all(1'b1), .flush_rob('0),
       .iss_valid_q(iss_valid[q]), .iss_payload(pl)
     );
@@ -386,6 +388,7 @@ module tg_issue
       assign mx_issued[B +: ROWS] = iss_o;
       assign mx_free[B +: ROWS]   = free_o;
       assign mx_valid[B +: ROWS]  = val_o;
+      assign mx_rob[B +: ROWS]    = rob_o;
       for (genvar k = 0; k < DW; k++) begin : g_al
         always_comb begin
           mx_alloc[q][k] = '0;
@@ -394,7 +397,7 @@ module tg_issue
       end
     end else begin : g_nonow
       logic unused;
-      assign unused = ^{iss_o, free_o, val_o, aoh};
+      assign unused = ^{iss_o, free_o, val_o, aoh, rob_o};
     end
     logic unused;
     assign unused = ^{room, wn};

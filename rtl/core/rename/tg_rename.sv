@@ -25,9 +25,10 @@
 // MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
 // by that row instead of its ID. DS records each 1-cycle op's row in a LUTRAM by ROB entry, one
 // bank per rename slot (one write per bank per cycle); a consumer reads it in the bank of its
-// producer's slot, and one compare of the row's destination (rowdst_q) against the source
-// confirms the row still holds it. A producer in the same group is named by the row it is being
-// written into. Otherwise the ID is used.
+// producer's slot. One compare of the ROB ID the row holds (the issue queue's, mx_rob) with the
+// producer's confirms the row still holds it: rows dispatch in order, so no row can hold a later
+// op with the same ROB index while the consumer waits in DS. A producer in the same group is
+// named by the row it is being written into. Otherwise the ID is used.
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -91,6 +92,7 @@ module tg_rename
   output iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl,
   output logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep,     // MX: sources named by ALU-queue row
   input  logic [RA-1:0]                    mx_hold,     // ALU-queue rows holding an op
+  input  robid_t [RA-1:0]                  mx_rob,      // ... the ROB ID each holds
   input  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc,  // rows written next
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
@@ -124,7 +126,6 @@ module tg_rename
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic                  block_q;          // after a serialising uop, until the flush
   // MX naming state
-  preg_t [RA-1:0]        rowdst_q;         // destination of the op each ALU-queue row holds
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
@@ -536,10 +537,10 @@ module tg_rename
       mrow2[k] = '0;
       if (IQ_MX) begin
         if (ds_ren_q[k].p1 && ds_ren_q[k].l1 && int'(row1) < RA && mx_hold[row1] &&
-            rowdst_q[row1] == ds_ren_q[k].src1)
+            mx_rob[row1][ROBW-2:0] == ds_ren_q[k].w1[ROBW-2:0])
           mrow1[k][row1] = 1'b1;
         if (ds_ren_q[k].p2 && ds_ren_q[k].l2 && int'(row2) < RA && mx_hold[row2] &&
-            rowdst_q[row2] == ds_ren_q[k].src2)
+            mx_rob[row2][ROBW-2:0] == ds_ren_q[k].w2[ROBW-2:0])
           mrow2[k][row2] = 1'b1;
         // a producer in the same group: the row it is being written into
         for (int i = 0; i < k; i++) begin
@@ -688,15 +689,6 @@ module tg_rename
                       - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
         // DS
         if (ds_fire) ds_valid_q <= '0;
-        if (ds_fire && IQ_MX) begin
-          for (int k = 0; k < W; k++) begin
-            if (ds_valid_q[k] && ds_uop_q[k].d.rd_en && is_lat1(ds_uop_q[k].d.cls)) begin
-              for (int r = 0; r < RA; r++) begin
-                if (myrow[k][r]) rowdst_q[r] <= ds_ren_q[k].dst;
-              end
-            end
-          end
-        end
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
