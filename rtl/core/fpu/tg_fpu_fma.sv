@@ -186,12 +186,12 @@ module tg_fpu_fma
   // ------------------------------------------------------------------------------------------
   // E1: DSP tiles (A x B + C in one cycle) and addend alignment
   // ------------------------------------------------------------------------------------------
-  // rows = fb[51]*fa + 2*(ha*fb + hb*fa) + 2^53*ha*hb, in units of 2^51 of the product
+  // rows = fb[51]*fa + 2*(ha*fb + hb*fa) + 2^53*ha*hb, in units of 2^51 of the product: three
+  // operands (the 2^53 bit sits above 2*ha*fb in the same operand), so one ternary adder
   logic [54:0] rows;
   assign rows = ({3'b0, fb_q[51] ? fa_q : 52'b0})
-              + ({2'b0, ha_q ? fb_q : 52'b0, 1'b0})
-              + ({2'b0, hb_q ? fa_q : 52'b0, 1'b0})
-              + {1'b0, (ha_q && hb_q), 53'b0};
+              + ({1'b0, ha_q && hb_q, ha_q ? fb_q : 52'b0, 1'b0})
+              + ({2'b0, hb_q ? fa_q : 52'b0, 1'b0});
 
   // The tiles' output registers are reset (the DSP48E2 P-register reset) when the product does
   // not take part: FCVT.F.I, or an addend that dominates (the product is only a sticky).
