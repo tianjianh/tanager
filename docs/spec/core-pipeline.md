@@ -347,6 +347,25 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 
 **What I'd write differently:** for every queue field, ask where it is first read. A field read only by index belongs in LUTRAM, written at that point. A field read by a search belongs in flip-flops.
 
+**Third area pass (2026-10-14, after the D18 check), from LUT attributions:**
+- **Method:** each unit was synthesised out of context, and every LUT was grouped by the signal it drives (`get_cells -filter {PRIMITIVE_SUBGROUP == LUT}`). That shows where a unit's own logic goes. Each step was then measured in the core and compared cycle for cycle with main.
+- **The walker's shared PMP checker was reverted (5c124f2).** It was not exclusive by construction (D18), so its −0.83K is a reserve lever (§13).
+
+| Step | Commit | Measured (st) |
+|---|---|---|
+| LSU: aligned extraction (`ext_al`), the atomic through the SQ head's ports, LUTRAM copies of the queue addresses for reads by index | 45af062 | lsu_mmu 13,266 → 12,622 (with the ROB step) |
+| ROB: FP flags in two one-port LUTRAMs; no `tlb` bit (the LSU's `hd_tlb`) | 625ef03 | ROB 3,308 → 2,920, flip-flops −292 |
+| R1: counters with `use_dsp` | c86fd95 | CSR −30 (2 DSPs). Vivado maps the adders, not the counters |
+| Rename: store-data readiness from RN | 46e3bba | rename +8: **reverted** (2196f12) |
+| D$: one way multiplexer for port B's read data (probes, releases, atomics) | a166670 | `tg_dcache` 3,274 → 2,770 |
+| LSU exceptions' tval read at the head (LQ head / SQ commit point VA) | 35e15db | LSU −130, ROB −133 |
+| MX rows confirmed by the issue queue's ROB IDs (no `rowdst_q`) | a95a397 | see the MR |
+
+- **Result at 35e15db:** st 49,814 LUTs, against 56,461 on main cb8ff6c (−11.8%), and cycle-identical.
+- **Lessons:**
+  - A LUT attribution beats intuition. It found three way multiplexers on one port in the D$, 136-LUT range compares in `pma_of` (where a prefix compare takes 10), and tval buses that only a trap at the head reads.
+  - Two of the seven steps were level when measured.
+
 **Dead ends:**
 - My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
 - A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
