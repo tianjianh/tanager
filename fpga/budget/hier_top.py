@@ -32,7 +32,7 @@ def rows(path):
             del stack[depth:]
             stack.append(name)
             out.append(dict(path="/".join(stack[1:]) or stack[0], module=c[1], depth=depth,
-                            lut=int(n[0]), lutram=int(n[2]), ff=int(n[4]),
+                            lut=int(n[0]), lutram=int(n[2]), srl=int(n[3]), ff=int(n[4]),
                             bram=n[5] + 0.5 * n[6], dsp=int(n[8])))
     return out
 

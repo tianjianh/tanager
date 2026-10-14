@@ -1,0 +1,2 @@
+PRIM_OK u/g_ptr.g_lut.u_mem tg_ram_lut {2^5 x 64, 1 read} expected {RAM32M16 5} found {RAM32M16 5}
+PRIM_SUMMARY instances 1 fail 0 warn 0 stray 0
