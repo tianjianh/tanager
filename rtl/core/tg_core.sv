@@ -168,7 +168,7 @@ module tg_core
   logic                             fdiv_iss, fpi_iss, fdiv_done, fpi_pop;
   logic                             fp_misc_block;
   // FP loads and FP store data between the LSU and P4
-  logic                             fld_m2_will, fld_valid, fld_single, sd_busy;
+  logic                             fld_m2_will, fld_valid, sd_busy;
   logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
   logic [63:0]                      fld_data, fsd_data;
   preg_t                            fsd_tag;
@@ -300,7 +300,7 @@ module tg_core
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
-    .fld_single, .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
+    .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause),
@@ -378,7 +378,7 @@ module tg_core
       .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
       .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
       .isrc_valid, .isrc_tag, .isrc_data,
-      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_single, .fld_data,
+      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_single(1'b0), .fld_data,   // fld_single: unused by P4, the port goes
       .fsd_tag, .fsd_data, .tr_tag, .tr_data(tr_data_p4),
       .f0_we_o(f0_we), .f0_widx_o(f0_widx),
       .wake_reg(wake_p4), .llt_done(llt_done_p4),
@@ -458,7 +458,7 @@ module tg_core
     assign fc_fflags     = '0;
     assign fs_dirty      = 1'b0;
     logic unused;
-    assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_single, fld_data, fsd_tag,
+    assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_data, fsd_tag,
                       isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
   end
 

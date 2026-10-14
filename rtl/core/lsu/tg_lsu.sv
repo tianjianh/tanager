@@ -56,7 +56,6 @@ module tg_lsu
   output logic [FPIDX_W-1:0]           fld_m2_idx,
   output logic                         fld_valid,
   output logic [FPIDX_W-1:0]           fld_idx,
-  output logic                         fld_single,
   output logic [63:0]                  fld_data,
   // Store data: the shared integer port (busy while P4 reads an integer source) or, for FP
   // stores, the FP file's store-data port; FP register writes are snooped for FP store data
@@ -611,7 +610,7 @@ module tg_lsu
   // An FLW's word arrives zero-extended (FP loads take their bytes raw) and is NaN-boxed as the
   // register is written, so fld_data is the value P4 writes to F1 with no logic after the register.
   logic            r_v_q, r_dv_q, r_mmio_q;
-  logic            r_fv_q, r_fs_q;            // the result writes F1 (EXT_FD); an FLW
+  logic            r_fv_q;                    // the result writes F1 (EXT_FD)
   logic [PIDX_W-1:0] r_dst_q;
   logic [63:0]     r_data_q;
   robid_t          r_rob_q;
@@ -619,7 +618,6 @@ module tg_lsu
   assign ld_res_valid = r_v_q && r_dv_q && !r_fv_q;
   assign fld_valid    = r_fv_q;
   assign fld_idx      = FPIDX_W'(r_dst_q);
-  assign fld_single   = r_fs_q;
   assign fld_data     = r_data_q;
   assign ld_res_dst   = r_dst_q;
   assign ld_res_data  = r_data_q;
@@ -1060,7 +1058,6 @@ module tg_lsu
         r_v_q    <= 1'b1;
         r_dv_q   <= lqc_rd[0].dv;
         r_fv_q   <= EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp;
-        r_fs_q   <= lq_size_q[m2_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[0].dst;
         r_data_q <= m2_val | {{32{EXT_FD && lqc_rd[0].fp && lq_size_q[m2_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[0].rob;
@@ -1070,7 +1067,6 @@ module tg_lsu
         r_v_q    <= 1'b1;
         r_dv_q   <= lqc_rd[1].dv;
         r_fv_q   <= EXT_FD && lqc_rd[1].dv && lqc_rd[1].fp;
-        r_fs_q   <= lq_size_q[x_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[1].dst;
         r_data_q <= xr_data_q | {{32{EXT_FD && lqc_rd[1].fp && lq_size_q[x_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[1].rob;
