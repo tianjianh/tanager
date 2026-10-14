@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Status | Proposed, 2026-10-13 (spikes track) |
-| Target | v1 (`smt2`) dual-core at ≤ 88% of the XCK26 after the §8.5 levers: ≤ 103K of 117,120 LUTs (§8.5's fill limit, measured by spike S6) |
+| Target | v1 (`smt2`) dual-core at **180 MHz and ≤ 95% of the XCK26**: ≤ 111.3K of 117,120 LUTs (§1.1; the S6 fill test closes v1 at 95.3% at 180 MHz). At 200 MHz the limit was 88%, 103K, which the per-unit split below still follows |
 | Machine-readable form | [`fpga/budget/budgets.tsv`](../../fpga/budget/budgets.tsv); the check is [`fpga/budget`](../../fpga/budget) |
 | Inputs | plan §8.2 per-unit estimates; the SMT2 study's per-structure cost ([smt2_report.md](smt2_report.md) §8.3); measured units: the scheduler (spike S2, [spikes.md](spikes.md) §4) and the FPU ([fpu.md](../spec/fpu.md), "Timing and area"); the §8.5 levers |
 
@@ -28,6 +28,23 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 | **Core** | 37.7 | 44.2 | + R14 2.5 | **38,220** | +8.28 | 54.6 | + R14 3.0 | **46,120** |
 | Uncore (SoC track) | 13.3 | 13.3 | R15 2.0 | **11,300** | | 13.3 | R15 2.5 | **10,800** |
 | **SoC (2 cores + uncore)** | 88.7 | 101.6 | | **87,740 (74.9%)** | | 122.4 | | **103,040 (88.0%)** |
+
+### 1.1 Retargeted to 180 MHz (2026-10-14)
+
+D18 puts IPC first: the no-IPC tricks, then about 180 MHz, then the levers that cost IPC. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at up to 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
+
+| | 200 MHz | **180 MHz** |
+|---|---|---|
+| v1 SoC (2 cores + uncore) | 103,040 (88.0%) | **111,264 (95.0%)** |
+| Uncore (smt2) | 10,800 | 10,800 |
+| **Core, smt2** | 46,120 | **50,230** |
+| Sum of the unit budgets, smt2 | 46,110 | 46,110 |
+| Reserve per core, not yet given to a unit | — | **4,120** |
+
+- **The core line in `budgets.tsv` holds the 180 MHz room; the unit lines are unchanged.** A unit's budget is still its 200 MHz share, and the reserve is for the coordinator to allocate (for example to the units the measured core puts furthest over).
+- **The scheduler's budget is now loose.** With wakeup tags (AR-1) and DR-113's settings the whole scheduler measures 4,228 / 4,750 at st / smt2 out of context, against budgets of 6,030 / 8,350. Re-basing the smt2 budget on the measurement plus 10% would free about 3K per core more.
+- **ST is not retargeted.** Its budgets are the plan's ST costs (87.7K, 74.9%), not a fill limit.
+- **R14 is now measured rather than assumed.** The budget run builds the core with `AreaOptimized_high` (DR-113), which takes 7.9% off at st, more than the 2.5K (5.7%) R14 assumed.
 
 **The scheduler has MX (matrix wakeup) in every configuration.**
 - Out of context, st closed without it (+0.110 ns).
@@ -151,6 +168,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
     - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
     - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
 - **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
+- **Retargeted to 180 MHz (§1.1).** The S6 fill test at 180 MHz closes v1 at 95.3%, so the v1 target is 95%, 111.3K: the smt2 core line goes from 46,120 to 50,230, and the unit lines keep their 200 MHz split, leaving a 4,120-LUT reserve per core. The core's DSP lines follow DR-110 (69 / 87).
 - **The core built as DR-113 builds it.** The budget run now synthesises `tg_core` with the hierarchy kept plus `AreaOptimized_high`: at st 56,461 → 52,024 LUTs (−7.9%; every unit 5–14% smaller; flip-flops and LUTRAM unchanged). From the next nightly, the core and its derived units read about 8% lower for that reason alone.
 - **The core's memory, measured.** Sampled over Vivado's whole process tree, the st core peaks at 6.75 GB as built until now and 9.38 GB with the directive, against 6 GB declared. The core line now declares 12 GB, for the larger configurations. Vivado's log shows only the parent process, which is how 6 GB looked right.
 - **The primitive check after synthesis:** the FPU divider's output queue reported 8 LUTRAM primitives against 7 expected, and `opt_design` removed the extra one. A `tg_ram_lut` instance now passes anywhere between the primitives that hold a loaded bit and the full mapping, so the nightly's post-synthesis check no longer fails on a primitive that is not trimmed yet.

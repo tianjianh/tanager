@@ -6,10 +6,13 @@
 #   -     no budget for that metric (the value is reported and tracked, not judged)
 #   mode  enforce: over budget is a failure of the run; track: report only (no budget yet,
 #         or the configuration waits for a re-plan: the 3-wide builds, plan §8.5)
-# Budgets are per core and after the §8.5 levers: v1 (smt2) at 88% of the XCK26 needs every
-# unit at or under them. tg_core's instances combine some plan rows: ex = rf + int (register
-# file, bypass, ALUs, MUL/DIV), lsu_mmu = lsu + mmu, rob_csr = rob (ROB, commit, traps, CSRs,
-# PMP); the rf/int/lsu/mmu/rob rows keep the plan's split for reference.
+# Budgets are per core and after the §8.5 levers. Target (D18, docs/perf/budgets.md §1.1): v1
+# (smt2) at 180 MHz and at most 95% of the XCK26, 111.3K LUTs (the S6 fill test closes v1 at
+# 95.3%). The core line holds the 180 MHz room; the unit lines are still the 200 MHz split
+# (103K at 88%), so a core whose units are all within budget has 4,120 LUTs to spare.
+# tg_core's instances combine some plan rows: ex = rf + int (register file, bypass, ALUs,
+# MUL/DIV), lsu_mmu = lsu + mmu, rob_csr = rob (ROB, commit, traps, CSRs, PMP); the
+# rf/int/lsu/mmu/rob rows keep the plan's split for reference.
 #
 # unit	cfg	lut	lutram	ff	dsp	bram36	mode
 fe	st	5540	-	-	-	30	enforce
@@ -49,8 +52,8 @@ rob_csr	st_w3	-	-	-	-	-	track
 rob_csr	smt2_w3	-	-	-	-	-	track
 fpu	*	6800	-	4100	35	0.5	enforce
 fpu_r4	*	-	-	-	-	-	track
-core	st	38220	-	-	66	42.5	enforce
-core	smt2	46120	-	-	84	42.5	enforce
+core	st	38220	-	-	69	42.5	enforce
+core	smt2	50230	-	-	87	42.5	enforce
 core	st_w3	-	-	-	-	-	track
 core	smt2_w3	-	-	-	-	-	track
 uncore	st	11300	-	-	-	18	enforce
