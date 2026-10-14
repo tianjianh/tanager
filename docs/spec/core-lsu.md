@@ -1,6 +1,6 @@
 # Load/store unit and L1 data cache (`tg_lsu`, `tg_dcache`, M2)
 
-Status: draft for M2 — core track — 2026-10-13
+Status: implemented for M2; atomics drafted for M3 — core track — 2026-10-13
 
 ## Purpose
 Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md)), keeps memory order for one hart, and is the TL-C client on the `l1d` port and the TL-UL client on `mmio` (interfaces.md §2.3, §2.4). Plan §4.9 and §4.11 are the targets; M2 builds the parts in the table and leaves the rest for M6.
@@ -55,6 +55,24 @@ A ready entry re-enters at AG when the AG slot is empty. While one is ready, IQ-
 
 ### Forwarding (M1/M2)
 The SQ entries older than the load (allocated before it, from the head up to the SQ tail the load saw at rename, compared with index plus wrap bit) are searched for the same dword with a byte overlap. The youngest match decides: it forwards if it covers every byte the load reads and has its data; otherwise the load waits (`STQ`). No match: the cache decides.
+
+### Atomics (A extension, M3)
+LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are serialising: each is dispatched into an empty window and performed at the ROB head, after every older store has drained (plan §5.3: atomics with .aq or .rl are fully ordering in v1, and serialising them makes every atomic so).
+- **Issue:** one uop on the store-address port (address = rs1, no offset) with an SQ entry for rs2 (SC, AMO); the destination is in the load bank (plan §4.7: B2 takes SC/AMO results).
+- **Faults** (Spike's types):
+  - LR: misaligned is cause 4; a non-`PMA_MEM` address or a PMP/page failure is cause 5 or 13.
+  - SC and AMO: misaligned is cause 6; non-`PMA_MEM`, PMP and page failures are causes 7 and 15.
+- **Performing it** (an FSM in the LSU once the uop is the ROB head with its address and data):
+  1. Hold the line with T: the MSHR acquires it (`AcquireBlock NtoT` / `BtoT`) if needed.
+  2. Read the dword through port B, compute (AMO ALU; .W forms on the addressed word, results sign-extended), write it back.
+  3. The old value goes to rd through the load bank.
+
+  An interrupt is not taken while the FSM runs (like an MMIO load).
+- **Reservation** (one per hart): LR sets it to the 64-byte line (Za64rs, as Spike's reservation set). SC succeeds when it is valid and the SC address is in that line; SC always clears it.
+  - It is also cleared by a trap or xRET, by a probe that takes T away from the line, and by the line's eviction.
+  - It is **not** cleared by the flush that follows every serialising instruction: that flush follows LR itself, and clearing there would fail every SC.
+  - An RTL failure where Spike succeeds is adopted by the checker (interfaces.md §5 v1.1); the RTL never succeeds where Spike fails, because its reservation is never wider than Spike's.
+- **Trace:** rd = the old value (LR, AMO) or 0/1 (SC). `mem_st` and its fields carry the value written (AMO, successful SC).
 
 ### L1 data cache (`tg_dcache`)
 - **Arrays:** per way a `tg_ram_tdp` of 256 × 128 bits with byte enables. Port A: load reads. Port B: refill writes, store writes, Release and ProbeAck data reads. Tags: one `tg_ram_lut` per way (64 × (`PA_W` − 12) bits) with read ports for the load pipe, the store drain and the controller. State per (set, way) in flip-flops: valid, T, dirty (M = T + dirty, E = T, S = valid without T).
