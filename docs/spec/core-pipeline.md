@@ -366,9 +366,13 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | D$: one way multiplexer for port B's read data (probes, releases, atomics) | a166670 | `tg_dcache` 3,274 → 2,770 |
 | LSU exceptions' tval read at the head (LQ head / SQ commit point VA) | 35e15db | LSU −130, ROB −133 |
 | MX rows confirmed by the issue queue's ROB IDs (no `rowdst_q`) | a95a397 | −69 LUTs, but **not cycle-identical**: reverted (279fe46). The old `rowdst_q` check also accepts a row whose new occupant did not update `rowdst_q` (a branch with no rd, MUL/DIV/CSR on A1): a false MX dependency. The ROB-ID check rejects those, which moves wakeup timing (Dhrystone +0.36% cycles, CoreMark A −0.03%, B +0.05%). Fixing it is an IPC question, not an area one |
-| D$: store and atomic data enter as 64 bits, duplicated inside (port B's write multiplexer sees equal halves) | 4606440 | see the MR |
+| D$: store and atomic data enter as 64 bits, duplicated inside (port B's write multiplexer sees equal halves) | 4606440 | lsu_mmu −52 |
+| `pma_of` by prefix match (DR-120) | 583e41e | lsu_mmu −490, fe −37 |
 
-- **Result at 35e15db:** st 49,814 LUTs, against 56,461 on main cb8ff6c (−11.8%), and cycle-identical.
+- **Result at 583e41e** (with DR-120 and main's P4 pass):
+  - st 49,097 LUTs and smt2 51,839, against 56,461 and 62,501 on main cb8ff6c: −7.4K and −10.7K, of which −0.13K is P4's.
+  - st_w3 62,199, smt2_w3 66,773.
+  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks, and through 59 M cycles of the Linux boot (the same instruction count and PC at 58 M and 59 M cycles).
 - **Lessons:**
   - A LUT attribution beats intuition. It found three way multiplexers on one port in the D$, 136-LUT range compares in `pma_of` (where a prefix compare takes 10), and tval buses that only a trap at the head reads.
   - Two of the seven steps were level when measured, and one moved cycles, which only the cycle comparison caught: lockstep and every test passed.
