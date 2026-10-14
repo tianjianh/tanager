@@ -371,7 +371,7 @@ The core instantiates `tg_fp_exec`, which contains `tg_fprf` and `tg_fpu`. The C
 
 ### Register file (`tg_fprf`)
 - **Banks** (plan §4.7): F0 is written only by `tg_fp_exec`'s F0 stream, F1 only by the load path. Each bank is 64 × 64 bits (`FP_PREGS_PER_BANK`), one `tg_ram_lut` with explicit RAM64M8.
-- **FP tags** are {bank, index} (`FPIDX_W` + 1 bits). They travel in the low bits of `preg_t` fields, next to the flag that names the file (as on the core's F/D branch).
+- **FP tags** are {bank, index} (`FPIDX_W` + 1 bits). They travel in the low bits of `preg_t` fields, next to the flag that names the file. `FPIDX_W`, `fpreg_bank()`, `fpreg_idx()` and `mk_fpreg()` are the core's, in `tg_core_pkg`; rename and the LSU use them too.
 - **Read ports:**
   - three operand ports (P4's RF stage);
   - one store-data port, `fsd_tag` → `fsd_data`, combinational;
@@ -535,7 +535,7 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
 ### Helpers (`tg_fpcore_pkg`)
 - `fp_box_load(data, single)`: the F1 value of FLW and FLD.
 - `fp_rm_resolve(rm_field, frm)`: the rounding mode and legality, Spike's RM rule.
-- `fpreg_bank()` and `fpreg_idx()` on `preg_t`-wide FP tags.
+- `FPTAG_W`, the width of an FP tag. The tag helpers themselves are in `tg_core_pkg` (above).
 
 ## Parameters
 

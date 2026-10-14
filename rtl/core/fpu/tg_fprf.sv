@@ -5,7 +5,7 @@
 // the LUTRAM. Read-during-write follows tg_ram_lut: the new value is visible after the write
 // edge. The init port writes zero (the reset sequence's initial FP map) and has priority.
 module tg_fprf
-  import tg_pkg::*, tg_fpcore_pkg::*;
+  import tg_pkg::*, tg_core_pkg::*, tg_fpcore_pkg::*;
 #(
   parameter int NR = 4
 ) (
