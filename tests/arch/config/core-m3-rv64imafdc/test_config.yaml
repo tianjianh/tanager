@@ -8,4 +8,4 @@ ref_model_exe: sail_riscv_sim
 udb_config: core-m3-rv64imafdc.yaml
 linker_script: ../link.ld
 dut_include_dir: .
-# replay: --isa=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs --priv=MSU --pmp=16
+# spike: --isa=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs --priv=MSU --pmp=16

@@ -49,6 +49,13 @@ make -C tests/arch CFG=st CORE=tcore   # riscv-arch-test (ACT4): self-checking t
 - **Reset values** that Spike chooses and the core may not: PMP entry 0 (`--pmp-reset=off`), `mtvec` 0, `mstatus.MPP` = U (or M without U). A mismatch on the first read of such a CSR is this.
 - **Debugging a mismatch:** the report (§3.6) gives both sides' last 32 instructions. `--log=<file>` writes every record with disassembly; `--fst=<file> --fst-from=<cycle>` dumps waves from shortly before the failing cycle; `--no-lockstep` runs without Spike.
 - **Architecture tests:** `make -C tests/arch CFG=st` runs the M2 configuration's ACT4 tests on `tg_core` (§6.1): 113 tests, plus 16 PMP tests excluded until PMP checks arrive in M3. `ACTCFG=core-m3-rv64imac` runs the M3 configuration once the core has the M3 ISA. Each test checks itself against Sail's results and runs in lockstep.
+- **The M3 gate, once the core has the M3 ISA with F/D** (plan §11), per configuration:
+
+  ```bash
+  tools/ci/regress.sh CFG=st ARCH=1 ACTCFG=core-m3-rv64imafdc MARCH=rv64gc SUITES="rv64ui-p rv64um-p rv64ua-p rv64uc-p rv64uf-p rv64ud-p rv64mi-p rv64si-p rv64uzba-p rv64uzbb-p rv64uzbs-p rv64uzicond-p rv64ui-v rv64um-v rv64ua-v rv64uc-v rv64uf-v rv64ud-v" SIMARGS="--isa=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs --priv=MSU --pmp=16"
+  ```
+
+  It runs those riscv-tests suites, the directed tests (S-mode interrupts, Sv39, PMP and atomics included), CoreMark and Dhrystone built for `rv64gc`, random `rv64gc` programs with the F/D templates, and ACT4's F/D configuration (895 tests), all in lockstep with the M3 Spike configuration. Every piece passes Spike against Spike today (§4.1, §6.1, §6.2).
 - **Before a merge request:** `make regress CFG=st` and `make regress CFG=st_w3` (conventions §6).
 
 ## 2. The harness (`tg_vsim`)
@@ -403,7 +410,8 @@ make -C tests/arch clean
 
 - **Steps:** `elfs` copies the framework's `tests/env` and committed privileged tests into the build tree, runs `testgen` for one list of test plans (the generated tests are not committed upstream), runs `act` (UDB validation, test selection, Sail, compilation; `--fast --clean-intermediates`) and deletes the sources again, keeping only the ELFs; `make -C tests/arch tests ACTCFG=...` regenerates the sources for debugging. `run` runs every ELF in `tg_vsim` with lockstep, 8 at a time (`tests/arch/run_arch.py`). The riscv-arch-test checkout is only read.
 - **A pass** needs the test's own `RVCP-SUMMARY: TEST PASSED` and a passing run (lockstep and the `tohost` exit). The runner prints a table per suite; failing tests keep their logs in `$TANAGER_BUILD/<worktree>/arch/logs/<config>-<cfg>-<core>/`. `SIMARGS="..."` adds `tg_vsim` options (latency, stress); `exclude/<config>.txt` lists skipped tests with a reason each (all empty today).
-- **`replay`** runs the same ELFs in `tg_replay` (§3.8) with the Spike options on the `# replay:` line. Spike configured like the core must reproduce Sail's expected values, and the lockstep checker must pass, so this checks the configuration files themselves: every WARL choice in `sail.json` equals Spike's, and the core has to match Spike anyway.
+- **Spike's configuration:** the `# spike:` line of `test_config.yaml` (ISA, privilege modes, PMP regions) configures the lockstep checker in `run` and the replaying Spike in `replay`; `SIMARGS` can override it.
+- **`replay`** runs the same ELFs in `tg_replay` (§3.8) with those Spike options. Spike configured like the core must reproduce Sail's expected values, and the lockstep checker must pass, so this checks the configuration files themselves: every WARL choice in `sail.json` equals Spike's, and the core has to match Spike anyway.
 - **Test plans:** `GEN_PLANS` in `tests/arch/Makefile` lists every plan a Tanager core could need through F/D (base and B, A, C, F, D, Zcd, Zicond and the other unprivileged extensions; Sm, S, U, the Exceptions, Interrupts and Ssstrict plans, Sstc, Sstvala, Sstvecd, Ssu64xl, Ssccptr, Sscounterenw, Za64rs, and the F privileged plans). `act` keeps the tests whose requirements the UDB file meets, so a configuration cannot miss a plan by omission. Not used: `Misalign` (needs hardware misaligned access) and `Sm1p13`, `Ss1p13`, `Endian*` (no generators yet). A configuration may add plans on a `# testgen:` line.
 - **Rebuilds:** the ELFs are rebuilt when any file of the configuration, the link script, the shared macros or the Makefile change. Generation and Sail take about 90 s for the F/D configuration; its replay takes 7 s.
 
@@ -416,7 +424,7 @@ make -C tests/arch clean
 | `core-m3-rv64imac` | `tg_core` at M3 before its F/D integration | `rv64imac_…` (§3.2), MSU, 16 | 685: the above plus S, Zaamo, Zalrsc, Zca, Zba, Zbb, Zbs, Zicond, Zihintpause, Zihpm; the S, Zaamo, Zalrsc, Zc and Sv exception plans; InterruptsS; PMPS, PMPU, PMPZaamo, PMPZalrsc, PMPZca; Sv, SvPMP, SvSm, Svade, Svbare, Svinval; Sstc, SstcSm, Sstvala, Sstvecd, Ssu64xl, Ssccptr, Sscounterenw, Za64rs; SsstrictS |
 | `core-m3-rv64imafdc` | `tg_core` at M3 with F/D (plan §11; the M3 exit criterion) | `rv64imafdc_…` (§3.2), MSU, 16 | 895: the above plus F (84), D (116), Zcd, ExceptionsF, SmF, UF, ZicsrF, PMPF |
 
-Each directory holds `test_config.yaml` (tools, the `# testgen:` and `# replay:` lines), the UDB file `<config>.yaml` (validated by `udb validate cfg`; it decides which tests apply), `sail.json`, and `rvmodel_macros.h`, which includes the shared `tanager_rvmodel.h`. The shared `link.ld` places RAM at `0x8000_0000` (256 MiB, the main-memory region of every `sail.json`).
+Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optional `# testgen:` line), the UDB file `<config>.yaml` (validated by `udb validate cfg`; it decides which tests apply), `sail.json`, and `rvmodel_macros.h`, which includes the shared `tanager_rvmodel.h`. The shared `link.ld` places RAM at `0x8000_0000` (256 MiB, the main-memory region of every `sail.json`).
 
 **`sail.json`** is generated by `make_sail.py` (run it with the ACT venv's Python; never edit the output). It starts from the framework's `sail-RVA20S64` reference and overrides, per configuration:
 - the memory map of `tg_map_pkg`: the device regions (ACLINT, PLIC, UART, host control, virtio, debug) as I/O without AMOs or reservations, and DRAM; Sail keeps its own boot ROM at `0x1000`, which the tests never touch;
