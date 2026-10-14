@@ -9,6 +9,10 @@
 //   Trace: records go through a small queue that can release several per cycle on any slot
 //   (+tcore_spread=1), and loads and DIV/REM can report their value later through trace_wb
 //   (+tcore_defer=<percent>), as an early-retiring core would. +tcore_seed=<n> seeds both.
+//   trace_stall_i (interfaces.md §5, built with TG_TRACE_STALL) holds the queue, so commit stops
+//   once it is full; deferred writebacks keep flowing. +tcore_stall_lat=<0|1|2>: cycles of extra
+//   reaction latency (default 1, the interface's allowance; 2 breaks it), +tcore_stall_bug=1 drops
+//   a record when the stall starts. Both exist to test the harness's checks.
 module tg_tcore
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_map_pkg::*;
 #(
@@ -52,6 +56,9 @@ module tg_tcore
   input  tl_d_t                        mmio_d_i,
   input  logic                         mmio_d_valid_i,
   output logic                         mmio_d_ready_o,
+`ifdef TG_TRACE_STALL
+  input  logic                         trace_stall_i,
+`endif
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
@@ -68,12 +75,18 @@ module tg_tcore
   localparam logic [1:0] PRV_U2 = 2'd0, PRV_M2 = 2'd3;
 
   // ---- Run-time knobs (simulation only) ----
-  int unsigned defer_pct, spread, seed;
+  int unsigned defer_pct, spread, seed, stall_lat, stall_bug;
   initial begin
     if (!$value$plusargs("tcore_defer=%d", defer_pct)) defer_pct = 0;
     if (!$value$plusargs("tcore_spread=%d", spread)) spread = 0;
     if (!$value$plusargs("tcore_seed=%d", seed)) seed = 1;
+    if (!$value$plusargs("tcore_stall_lat=%d", stall_lat)) stall_lat = 1;
+    if (!$value$plusargs("tcore_stall_bug=%d", stall_bug)) stall_bug = 0;
   end
+`ifndef TG_TRACE_STALL
+  logic trace_stall_i;
+  assign trace_stall_i = 1'b0;
+`endif
 
   // ---- Architectural state ----
   typedef enum logic [4:0] {
@@ -85,6 +98,7 @@ module tg_tcore
   logic [63:0] xr_q [32];
   logic [1:0]  prv_q;
   logic        mie_bit_q, mpie_q, mprv_q, tw_q;
+  logic        misa_m_q;     // misa.M: software may clear it (Spike's write mask); MUL/DIV are then illegal
   logic [1:0]  mpp_q;
   logic [63:0] mtvec_q, mepc_q, mcause_q, mtval_q, mscratch_q, mcycle_q, minstret_q;
   logic [11:0] mie_q;
@@ -181,7 +195,7 @@ module tg_tcore
       12'hF12: begin csr_val = '0; csr_nd = 1'b1; end            // marchid: adopted by the checker
       12'hF14: csr_val = 64'(HART);
       12'h300: csr_val = mstatus_rd;
-      12'h301: csr_val = 64'h8000_0000_0010_1100;               // RV64 I M U
+      12'h301: csr_val = 64'h8000_0000_0010_0100 | {51'b0, misa_m_q, 12'b0};  // RV64 I (M) U
       12'h304: csr_val = {52'b0, mie_q};
       12'h305: csr_val = mtvec_q;
       12'h306: csr_val = {61'b0, mcounteren_q};
@@ -435,6 +449,7 @@ module tg_tcore
         end
         default: ex_trap = 1'b1;
       endcase
+      if ((op == 7'h33 || op == 7'h3B) && f7 == 7'h01 && !misa_m_q) ex_trap = 1'b1;  // M cleared in misa
     end
     if (insn_ex[11:7] == 5'd0) ex_rd_we = 1'b0;
   end
@@ -469,12 +484,20 @@ module tg_tcore
   logic      wq_v_q [WQ_N];
   logic [63:0] cyc_q;
 
-  // How many records leave the queue this cycle (into slots 0..n-1).
+  // trace_stall_i, registered (stall_sh_q[0]) and delayed by +tcore_stall_lat more cycles.
+  logic [2:0] stall_sh_q;
+  logic       stall_eff, stall_eff_q, tq_drop;
+  assign stall_eff = stall_sh_q[(stall_lat > 2) ? 2 : stall_lat];
+  // +tcore_stall_bug=1: the head record vanishes when a stall starts (a lost record).
+  assign tq_drop = stall_bug != 0 && stall_eff && !stall_eff_q && tq_cnt_q != '0;
+
+  // How many records leave the queue this cycle (into slots 0..n-1); none while stalled.
   logic [3:0] tq_pop;
   always_comb begin
     int unsigned want;
     want = (spread != 0) ? int'(lfsr_q[3:0]) % (COMMIT_WIDTH + 1) : COMMIT_WIDTH;
     tq_pop = (int'(tq_cnt_q) < want) ? tq_cnt_q : 4'(want);
+    if (stall_eff) tq_pop = '0;
   end
   logic tq_room;
   assign tq_room = (int'(tq_cnt_q) - int'(tq_pop)) < TQ_N;
@@ -515,7 +538,7 @@ module tg_tcore
     logic found;
     found = 1'b0;
     rec_tag = '0;
-    for (int t = 0; t < NTAGS; t++) begin
+    for (int t = 0; t < NTAGS && t < LLT_ENTRIES; t++) begin  // at most LLT_ENTRIES pending
       if (!found && !tag_busy_q[t]) begin
         found = 1'b1;
         rec_tag = WB_TAG_W'(t);
@@ -622,6 +645,7 @@ module tg_tcore
       mtvec_q <= '0; mepc_q <= '0; mcause_q <= '0; mtval_q <= '0; mscratch_q <= '0;
       mcycle_q <= '0; minstret_q <= '0; mie_q <= '0; mcounteren_q <= '0; mcountinhibit_q <= '0;
       mcontext_q <= '0;
+      misa_m_q <= 1'b1;
       fb_valid_q <= 1'b0;
       for (int i = 0; i < NLINES; i++) begin
         dc_valid_q[i] <= 1'b0; dc_t_q[i] <= 1'b0; dc_dirty_q[i] <= 1'b0;
@@ -629,6 +653,8 @@ module tg_tcore
       for (int i = 0; i < 32; i++) xr_q[i] <= '0;
       ps_q <= P_IDLE;
       tq_cnt_q <= '0;
+      stall_sh_q <= '0;
+      stall_eff_q <= 1'b0;
       tag_busy_q <= '0;
       for (int j = 0; j < WQ_N; j++) wq_v_q[j] <= 1'b0;
       lfsr_q <= (seed == 0) ? 32'h1 : seed;
@@ -639,14 +665,18 @@ module tg_tcore
       lfsr_q <= {lfsr_q[30:0], lfsr_q[31] ^ lfsr_q[21] ^ lfsr_q[1] ^ lfsr_q[0]};
       if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
 
-      // Trace queue: pop, then push.
+      stall_sh_q <= {stall_sh_q[1:0], trace_stall_i};
+      stall_eff_q <= stall_eff;
+
+      // Trace queue: pop (or drop), then push.
       begin
-        int unsigned n;
+        int unsigned n, out;
         logic [WQ_N-1:0] taken;  // writeback slots claimed earlier in this cycle
         taken = '0;
-        n = int'(tq_cnt_q) - int'(tq_pop);
+        out = int'(tq_pop) + (tq_drop ? 1 : 0);
+        n = int'(tq_cnt_q) - out;
         for (int i = 0; i < TQ_N; i++)
-          if (i + int'(tq_pop) < TQ_N) tq_q[i] <= tq_q[i + int'(tq_pop)];
+          if (i + out < TQ_N) tq_q[i] <= tq_q[i + out];
         for (int i = 0; i < COMMIT_WIDTH; i++) begin
           if (i < int'(tq_pop) && trace_o[i].rd_deferred) begin
             // Schedule its writeback 1..16 cycles from now.
@@ -926,6 +956,7 @@ module tg_tcore
                 12'h342: mcause_q <= csr_wval_q;
                 12'h343: mtval_q <= csr_wval_q;
                 12'h7A8: mcontext_q <= csr_wval_q[12:0];
+                12'h301: misa_m_q <= csr_wval_q[12];
                 12'hB00: mcycle_q <= csr_wval_q;
                 12'hB02: minstret_q <= csr_wval_q;
                 default: ;

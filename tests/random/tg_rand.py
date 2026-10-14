@@ -10,7 +10,12 @@ results. It aims at the plan's risk areas (§9, §4.5, §4.9, §4.15):
     (mispredict storms), traps and interrupts while they are pending;
   - width 3: 16-byte-aligned groups of three instructions with RAW/WAW/WAR dependencies and two
     branches per group;
-  - traps (misaligned, illegal, ecall/ebreak, access fault) that the handler skips; timer interrupts.
+  - traps (misaligned, illegal, ecall/ebreak, access fault) that the handler skips; timer interrupts;
+  - F/D (ISAs with f and d, e.g. rv64gc): arithmetic and FMA in every rounding mode, conversions,
+    compares, classify and moves on special values (signed zeros, infinities, quiet and signalling
+    NaNs, subnormals, NaN-boxed and unboxed singles), FP loads and stores with FP/integer forwarding
+    through memory, fflags/frm/fcsr (reserved rounding modes included) and mstatus.FS, and long
+    divides and square roots followed by dependents and a branch on their result.
 
   tg_rand.py --seed 42 --isa rv64im -o prog.S
 """
@@ -31,6 +36,15 @@ PTR_SLOTS = 32             # table of known offsets at gp + 0, for late store ad
 PTR_STEP = 48              # the table holds slot * PTR_STEP + 256 (all below 2 KiB)
 SPECIAL = [0, 1, 2, -1, -2, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000, 0xFFFFFFFF, 0x80000000, -0x80000000,
            0x7FFFFFFF, 0x100000000, 63, 64, 31, 32]
+# FP values: doubles, and singles that get NaN-boxed (an unboxed single reads as the canonical NaN).
+FP_D = [0x0, 0x8000000000000000, 0x7FF0000000000000, 0xFFF0000000000000, 0x7FF8000000000000,
+        0x7FF4000000000000, 0x7FF0000000000001, 0xFFF8000000000001, 0x0000000000000001, 0x800FFFFFFFFFFFFF,
+        0x0010000000000000, 0x7FEFFFFFFFFFFFFF, 0x3FF0000000000000, 0xBFF0000000000000, 0x3FE0000000000000,
+        0x4340000000000000, 0x43E0000000000000, 0xC3E0000000000000, 0x41DFFFFFFFC00000, 0x3CB0000000000000]
+FP_S = [0x00000000, 0x80000000, 0x7F800000, 0xFF800000, 0x7FC00000, 0x7FA00000, 0x7F800001, 0x00000001,
+        0x807FFFFF, 0x00800000, 0x7F7FFFFF, 0x3F800000, 0xBF800000, 0x3F000000, 0x4B800000, 0x4F000000,
+        0xCF000000, 0x34000000]
+RM = ["", "", ", rne", ", rtz", ", rdn", ", rup", ", rmm", ", dyn"]
 LD = {"lb": 0, "lbu": 0, "lh": 1, "lhu": 1, "lw": 2, "lwu": 2, "ld": 3}
 ST = {"sb": 0, "sh": 1, "sw": 2, "sd": 3}
 
@@ -44,8 +58,10 @@ class Gen:
         self.r = random.Random(seed)
         self.seed = seed
         self.isa = isa
-        self.has_m = "m" in isa[4:].split("_")[0]
-        self.has_a = "a" in isa[4:].split("_")[0] or isa.startswith("rv64g")
+        base = isa[4:].split("_")[0].replace("g", "imafd")
+        self.has_m = "m" in base
+        self.has_a = "a" in base
+        self.has_fd = "f" in base and "d" in base
         self.irq = irq
         self.length = length
         self.group3 = group3
@@ -268,7 +284,7 @@ class Gen:
         two branches (plan §4.15)."""
         self.emit(".balign 16")
         a, b, c = self.wr(), self.wr(), self.wr()
-        kind = self.r.randrange(5)
+        kind = self.r.randrange(6 if self.has_fd else 5)
         end = self.label()
         if kind == 0:  # RAW chain
             self.alu(rd=a)
@@ -289,10 +305,15 @@ class Gen:
             self.emit(f"{self.r.choice(['beq', 'bne', 'bltu', 'bge'])} {x(a)}, {x(self.rd_any())}, {end}")
             self.alu(rd=b, rs1=a)
             self.place(l1)
-        else:  # load-use and store in a group
+        elif kind == 4:  # load-use and store in a group
             self.emit(f"ld {x(a)}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
             self.alu(rd=b, rs1=a)
             self.emit(f"sd {x(b)}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
+        else:  # FP: an operation, a dependent one, and a store of the result
+            fa, fb, w = self.fr(), self.fr(), self.r.choice([".s", ".d"])
+            self.emit(f"fmul{w} {fa}, {self.fr()}, {self.fr()}")
+            self.emit(f"fadd{w} {fb}, {fa}, {self.fr()}")
+            self.emit(f"fsd {fb}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
         self.place(end)
 
     def t_amo(self):
@@ -343,6 +364,132 @@ class Gen:
             self.emit(f"jalr {x(self.wr((t,)))}, 0({x(t)})")
             self.place(fwd)
 
+    # ---- F and D ----
+    def fr(self):
+        return f"f{self.r.randrange(32)}"
+
+    def fp_value(self):
+        """A 64-bit FP register image: a special or random double, or a (usually NaN-boxed) single."""
+        k = self.r.randrange(6)
+        if k < 2:
+            return self.r.choice(FP_D)
+        if k == 2:
+            return self.r.getrandbits(64)
+        single = self.r.choice(FP_S) if k == 3 else self.r.getrandbits(32)
+        return single | (0xFFFFFFFF00000000 if self.r.randrange(8) else self.r.getrandbits(32) << 32)
+
+    def fp_op(self, rd=None):
+        """An FP instruction writing an FP register."""
+        rd = self.fr() if rd is None else rd
+        w = self.r.choice([".s", ".d"])
+        rm = self.r.choice(RM)
+        k = self.r.randrange(11)
+        if k < 4:
+            op = self.r.choice(["fadd", "fsub", "fmul", "fdiv"])
+            self.emit(f"{op}{w} {rd}, {self.fr()}, {self.fr()}{rm}")
+        elif k == 4:
+            self.emit(f"fsqrt{w} {rd}, {self.fr()}{rm}")
+        elif k == 5:
+            op = self.r.choice(["fmin", "fmax", "fsgnj", "fsgnjn", "fsgnjx"])
+            self.emit(f"{op}{w} {rd}, {self.fr()}, {self.fr()}")
+        elif k < 8:
+            op = self.r.choice(["fmadd", "fmsub", "fnmadd", "fnmsub"])
+            self.emit(f"{op}{w} {rd}, {self.fr()}, {self.fr()}, {self.fr()}{rm}")
+        elif k == 8:
+            self.emit(f"fcvt.s.d {rd}, {self.fr()}{rm}" if w == ".s" else f"fcvt.d.s {rd}, {self.fr()}")
+        elif k == 9:  # from an integer register (to double, 32-bit sources convert exactly)
+            src = x(self.rd_any())
+            t = self.r.choice(["w", "wu", "l", "lu"])
+            exact = w == ".d" and t in ("w", "wu")
+            self.emit(f"fcvt{w}.{t} {rd}, {src}{'' if exact else rm}")
+        else:
+            self.emit(f"fmv{'.w.x' if w == '.s' else '.d.x'} {rd}, {x(self.rd_any())}")
+        return rd
+
+    def fp_to_int(self, rd=None):
+        """An FP instruction writing an integer register: compare, classify, convert, move."""
+        rd = self.wr() if rd is None else rd
+        w = self.r.choice([".s", ".d"])
+        k = self.r.randrange(4)
+        if k == 0:
+            self.emit(f"{self.r.choice(['feq', 'flt', 'fle'])}{w} {x(rd)}, {self.fr()}, {self.fr()}")
+        elif k == 1:
+            self.emit(f"fclass{w} {x(rd)}, {self.fr()}")
+        elif k == 2:
+            self.emit(f"fcvt.{self.r.choice(['w', 'wu', 'l', 'lu'])}{w} {x(rd)}, {self.fr()}{self.r.choice(RM)}")
+        else:
+            self.emit(f"fmv.x{'.w' if w == '.s' else '.d'} {x(rd)}, {self.fr()}")
+        return rd
+
+    def t_fp_burst(self):
+        for _ in range(self.r.randrange(2, 7)):
+            self.r.choice([self.fp_op, self.fp_op, self.fp_to_int, self.alu])()
+
+    def t_fp_mem(self):
+        k = self.r.randrange(5)
+        if k == 0:  # FP store, then an integer load of the same bytes, or the other way round
+            off = self.r.randrange(PTR_SLOTS * 8, 2040, 8)
+            if self.r.randrange(2):
+                self.emit(f"{self.r.choice(['fsd', 'fsw'])} {self.fr()}, {off}(x3)")
+                self.emit(f"{self.r.choice(['ld', 'lw', 'lwu', 'lh'])} {x(self.wr())}, {off}(x3)")
+            else:
+                self.emit(f"{self.r.choice(['sd', 'sw'])} {x(self.rd_any())}, {off}(x3)")
+                self.emit(f"{self.r.choice(['fld', 'flw'])} {self.fr()}, {off}(x3)")
+        elif k == 1:  # fsw then flw: the load NaN-boxes
+            off = self.r.randrange(PTR_SLOTS * 8, 2044, 4)
+            self.emit(f"fsw {self.fr()}, {off}(x3)")
+            self.emit(f"flw {self.fr()}, {off}(x3)")
+        elif k < 4:  # any aligned address; registers f8-f15 with x8-x15 bases may compress
+            sz = self.r.choice([2, 3])
+            a = self.addr_reg(sz)
+            op = self.r.choice(["flw", "fsw"] if sz == 2 else ["fld", "fsd"])
+            self.emit(f"{op} {self.fr()}, 0({x(a)})")
+        else:  # misaligned: traps, the handler skips it
+            off = (self.r.randrange(PTR_SLOTS * 8, 2000) & ~7) + self.r.randrange(1, 4)
+            self.emit(f"{self.r.choice(['flw', 'fld', 'fsw', 'fsd'])} {self.fr()}, {off}(x3)")
+
+    def t_fp_csr(self):
+        k = self.r.randrange(9)
+        if k == 0:
+            self.emit(f"csrr {x(self.wr())}, {self.r.choice(['fflags', 'frm', 'fcsr'])}")
+        elif k == 1:
+            self.emit(f"csrw fflags, {x(self.rd_any())}")
+        elif k == 2:  # 5..7 are reserved: dynamic-rounding instructions then trap until frm is rewritten
+            self.emit(f"csrwi frm, {self.r.randrange(8) if self.r.randrange(4) == 0 else self.r.randrange(5)}")
+        elif k == 3:
+            self.emit(f"csrrw {x(self.wr())}, fcsr, {x(self.rd_any())}")
+        elif k == 4:
+            self.emit(f"csrrci {x(self.wr())}, fflags, {self.r.randrange(32)}")
+        elif k == 5:  # FS off for a moment: FP instructions trap; then Initial again
+            t = self.wr()
+            self.emit(f"li {x(t)}, 0x6000")
+            self.emit(f"csrc mstatus, {x(t)}")
+            self.r.choice([self.fp_op, self.fp_to_int])()
+            self.emit(f"li {x(t)}, 0x2000")
+            self.emit(f"csrs mstatus, {x(t)}")
+        else:
+            self.emit(f"csrr {x(self.wr())}, mstatus")  # FS and SD follow the FP writes
+
+    def t_fp_long(self):
+        """A divide or square root (long latency: a deferred writeback in the core), dependents, and
+        a branch on an FP compare of the result."""
+        w = self.r.choice([".s", ".d"])
+        a, b = self.fr(), self.fr()
+        if self.r.randrange(2):
+            self.emit(f"fdiv{w} {a}, {self.fr()}, {self.fr()}{self.r.choice(RM)}")
+        else:
+            self.emit(f"fsqrt{w} {a}, {self.fr()}{self.r.choice(RM)}")
+        self.emit(f"fadd{w} {b}, {a}, {self.fr()}{self.r.choice(RM)}")
+        t = self.wr()
+        self.emit(f"{self.r.choice(['flt', 'fle', 'feq'])}{w} {x(t)}, {b}, {self.fr()}")
+        skip = self.label()
+        self.emit(f"{self.r.choice(['beqz', 'bnez'])} {x(t)}, {skip}")
+        for _ in range(self.r.randrange(1, 4)):
+            self.r.choice([self.fp_op, self.alu, self.fp_to_int])()
+        if self.r.randrange(4) == 0:
+            self.t_trap()
+        self.place(skip)
+
     # ---- program ----
     def data(self):
         out = [".section .data", ".balign 4096", "data:"]
@@ -370,6 +517,13 @@ class Gen:
         self.emit("la x3, data")
         self.emit(f"li x4, {ALIAS_PAGES * 4096}")
         self.emit("add x4, x4, x3")
+        if self.has_fd:
+            self.emit("li x5, 0x2000")
+            self.emit("csrs mstatus, x5")  # FS = Initial: the first FP write makes it Dirty
+            self.emit(f"csrwi frm, {r.randrange(5)}")
+            for i in range(32):
+                self.emit(f"li x5, {self.fp_value():#x}")
+                self.emit(f"fmv.d.x f{i}, x5")
         for reg in WRITABLE:
             v = r.choice(SPECIAL) if r.randrange(4) == 0 else r.getrandbits(64)
             self.emit(f"li {x(reg)}, {v & 0xFFFFFFFFFFFFFFFF:#x}")
@@ -387,6 +541,8 @@ class Gen:
                      (self.t_csr, 1), (self.t_call, 2)]
         if self.group3:
             templates.append((self.t_group3, 6))
+        if self.has_fd:
+            templates += [(self.t_fp_burst, 10), (self.t_fp_mem, 4), (self.t_fp_csr, 2), (self.t_fp_long, 6)]
         fns, weights = zip(*templates)
         for _ in range(self.length):
             r.choices(fns, weights)[0]()

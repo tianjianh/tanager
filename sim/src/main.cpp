@@ -57,6 +57,9 @@ struct opts_t {
   uint64_t mem_mb = 2048;
   std::string rom;
   std::vector<uint64_t> tohost_va;
+  // Trace back-pressure (verification.md §2.9): -1 = trace_stall_i stays 0
+  int trace_stall = -1;
+  unsigned trace_fifo = 0;
   // Fork-based snapshots (verification.md §2.8)
   uint64_t snap_every = 0, snap_margin = 16;
   unsigned snap_keep = 2;
@@ -76,8 +79,10 @@ void usage() {
           "               --probe-rate=PERMILLE --mmio-lat=N --d-stall-max=N --mem-mb=N --rom=FILE\n"
           "               --deny=ADDR[:LEN] --boot=ADDR --tohost-va=ADDR\n"
           "  devices:     --mtime-div=N --irq-rand=PERMILLE\n"
+          "  trace:       --trace-stall=PERMILLE [--trace-fifo=N]: a trace sink that drains at random, busy\n"
+          "               for 1..64 cycles with this chance per cycle, drives trace_stall_i\n"
           "  RTL:         --rand-reset; +plusargs are passed to the model (tg_tcore: +tcore_defer=PCT\n"
-          "               +tcore_spread=1 +tcore_seed=N)\n"
+          "               +tcore_spread=1 +tcore_seed=N +tcore_stall_lat=0|1|2 +tcore_stall_bug=1)\n"
           "built for %s, configuration from the RTL, default ISA %s, privilege %s\n",
           TG_CORE_NAME, TG_DEFAULT_ISA, TG_DEFAULT_PRIV);
   exit(EXIT_HARNESS);
@@ -161,6 +166,8 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "tohost-va") o.tohost_va.push_back(num(need(), "--tohost-va"));
     else if (k == "mtime-div") mc.mtime_div = std::max(1u, unsigned(num(need(), "--mtime-div")));
     else if (k == "irq-rand") mc.irq_rand = unsigned(num(need(), "--irq-rand"));
+    else if (k == "trace-stall") o.trace_stall = int(std::min<uint64_t>(1000, num(need(), "--trace-stall")));
+    else if (k == "trace-fifo") o.trace_fifo = unsigned(num(need(), "--trace-fifo"));
     else { fprintf(stderr, "tg: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.elf.empty()) usage();
@@ -282,6 +289,22 @@ int main(int argc, char** argv) {
   mc.core_id = hw.core_id;
   t.mmio.clint.init((hw.core_id + 1) * hw.num_threads);
 
+  // ---- Trace sink (verification.md §2.9) ----
+  t.sink.llt = hw.llt_entries;
+  if (o.trace_stall >= 0) {
+    if (!hw.has_trace_stall)
+      fatal("--trace-stall: this %s build has no trace_stall_i (needs TG_TRACE_STALL; verification.md §2.9)",
+            TG_CORE_NAME);
+    // The model sees a cycle's records at its end and drives the stall in the next cycle, like a sink
+    // that stalls from its occupancy register: that needs COMMIT_WIDTH more than the headroom.
+    t.sink.enabled = true;
+    t.sink.busy = unsigned(o.trace_stall);
+    t.sink.threshold = hw.trace_stall_headroom + hw.commit_width;
+    t.sink.capacity = std::max(o.trace_fifo ? o.trace_fifo : t.sink.threshold + hw.commit_width, t.sink.threshold);
+    t.sink.max_drain = hw.commit_width + hw.trace_wb_ports;
+    t.sink.rng = rng_t(o.seed ^ 0x7ace57a11ull);
+  }
+
   // ---- Lockstep ----
   std::unique_ptr<lockstep_t> ls;
   if (o.lockstep) {
@@ -379,7 +402,7 @@ int main(int argc, char** argv) {
 
     if (t.ctx.failed) { status = EXIT_PROTOCOL; why = t.ctx.error; break; }
 
-    if (!t.recs.empty() || !t.wbs.empty()) last_rec = cycle;
+    if (!t.recs.empty() || !t.wbs.empty() || t.sink.stall) last_rec = cycle;
     for (auto& r : t.recs) {
       if (logf) fprintf(logf, "%s\n", format_rec(r, dis).c_str());
       if (r.kind != TR_RETIRE) continue;
@@ -469,6 +492,10 @@ int main(int argc, char** argv) {
     }
   }
 
+  if (status == EXIT_MISMATCH && t.sink.stalls && cycle - t.sink.last_stall <= 64)
+    why += strfmt(" (trace_stall_i was high until cycle %llu: a record lost or reordered at a stall?)",
+                  (unsigned long long)t.sink.last_stall);
+
   double secs = now_s() - t0;
   if (status == EXIT_MISMATCH && ls && ls->failed()) ls->report(stderr);
   if (!why.empty()) fprintf(stderr, "tg_vsim: %s\n", why.c_str());
@@ -483,6 +510,12 @@ int main(int argc, char** argv) {
             (unsigned long long)t.l1d.probes_sent, (unsigned long long)t.l1d.gets, (unsigned long long)t.l1d.puts,
             (unsigned long long)t.mmio.requests,
             t.merr_pulses ? strfmt("; merr_o pulsed %llu times", (unsigned long long)t.merr_pulses).c_str() : "");
+    if (t.sink.enabled)
+      fprintf(stderr, "tg_vsim: trace_stall_i high in %llu cycles (%llu stalls); sink peak %u of %u records, "
+                      "stall below %u free%s\n",
+              (unsigned long long)t.sink.stall_cycles, (unsigned long long)t.sink.stalls, t.sink.max_occ,
+              t.sink.capacity, t.sink.threshold,
+              t.sink.overflows ? strfmt("; %llu overflows", (unsigned long long)t.sink.overflows).c_str() : "");
   }
   printf("TG-RESULT status=%s code=%d cycles=%llu instret=%llu ipc=%.4f khz=%.2f region_cycles=%llu region_instret=%llu\n",
          exit_status_name(status), code, (unsigned long long)cycle, (unsigned long long)instret,

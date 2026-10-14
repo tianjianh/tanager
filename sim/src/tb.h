@@ -6,6 +6,7 @@
 
 #include "tlmodels.h"
 #include "trace.h"
+#include "trace_sink.h"
 
 namespace tg {
 
@@ -15,6 +16,8 @@ struct hw_cfg_t {
   std::string cfg_name;
   unsigned commit_width = 0, num_threads = 1, core_id = 0, hart_w = 1, wb_tag_w = 1;
   unsigned trace_wb_ports = 0, pa_w = 34, l1i_mshrs = 0, l1d_mshrs = 0;
+  unsigned llt_entries = 0, trace_stall_headroom = 0;
+  bool has_trace_stall = false;  // the core has trace_stall_i (built with TG_TRACE_STALL)
 };
 
 struct tb_t {
@@ -28,6 +31,7 @@ struct tb_t {
   // Trace records and writebacks of the current cycle, in arrival order.
   std::vector<tr_rec_t> recs;
   std::vector<tr_wb_t> wbs;
+  trace_sink_t sink;  // drives trace_stall_i and checks the core's side of it
 
   // Interrupt sources: random external-interrupt pulses end at these cycles (per hart index).
   std::vector<uint64_t> mei_until, sei_until;
