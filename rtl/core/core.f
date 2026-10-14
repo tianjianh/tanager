@@ -6,6 +6,7 @@ frontend/tg_ubtb.sv
 frontend/tg_predecode.sv
 frontend/tg_fetch_compact.sv
 frontend/tg_fetch.sv
+decode/tg_rvc.sv
 decode/tg_decode.sv
 decode/tg_decode_stage.sv
 rename/tg_freelist.sv

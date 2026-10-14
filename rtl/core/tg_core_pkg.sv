@@ -8,6 +8,7 @@ package tg_core_pkg;
   localparam int DIV_INFLIGHT = 4;        // divides between rename and the divider (input FIFO)
 
   // ISA beyond M2's RV64IM, switched on with the M3 ISA string (sim ISA=..., verification.md §3.2)
+  localparam bit EXT_C      = 1'b0;      // compressed instructions
   localparam bit EXT_B      = 1'b0;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b0;
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters

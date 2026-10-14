@@ -29,6 +29,7 @@ module tg_exec
   input  logic                         clk,
   input  logic                         rst,
   input  logic                         flush,
+  input  logic                         misa_c,      // C: jump targets need only 2-byte alignment
   // Reset sequence: zero writes into bank 0
   input  logic                         init_we,
   input  logic [PIDX_W-1:0]            init_idx,
@@ -463,7 +464,7 @@ module tg_exec
     bw_tgt_q    <= bt_target;
     bw_pred_q   <= bp.pred_npc;
     bw_rvc_q    <= bp.rvc;
-    bw_exc_q    <= bt_taken && bt_target[1];         // no C in M2: 4-byte alignment
+    bw_exc_q    <= bt_taken && bt_target[1] && !misa_c;   // 4-byte alignment without C
     bw_misp_q   <= bt_npc != bp.pred_npc;
     bw_strong_q <= bp.br_kind != BR_COND || ctr_new[1];
     bw_hit_q    <= bp.ubtb_hit;

@@ -98,12 +98,12 @@ module tg_core
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
-  logic misa_m, misa_b;
+  logic misa_m, misa_b, misa_c;
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -182,7 +182,7 @@ module tg_core
   iq_pl_t           csr_ex_pl;
   logic [63:0]      csr_ex_src, csr_ex_rdata;
   tg_exec u_ex (
-    .clk, .rst, .flush, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
+    .clk, .rst, .flush, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
     .iss_valid, .iss_pl, .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
@@ -230,7 +230,7 @@ module tg_core
     .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .trap_target, .mepc_o(mepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
+    .trap_target, .mepc_o(mepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b, .misa_c, .cm_pc(tr_epc),
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .mtime(mtime_i));
 
   // ---- ROB and commit ----

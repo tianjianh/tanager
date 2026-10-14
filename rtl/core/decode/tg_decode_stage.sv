@@ -16,6 +16,7 @@ module tg_decode_stage
   input  logic                flush,
   input  logic                misa_m,
   input  logic                misa_b,
+  input  logic                misa_c,
   // Instruction queue
   input  logic [W-1:0]        iq_valid,
   input  fe_insn_t [W-1:0]    iq_insn,
@@ -33,7 +34,14 @@ module tg_decode_stage
   logic [W-1:0][63:0]  npc;
   logic [W-1:0]        dfix;
   for (genvar j = 0; j < W; j++) begin : g_dec
-    tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].insn), .rvc(iq_insn[j].rvc),
+    // Compressed instructions are expanded first; without C they are illegal (tval is the
+    // 16-bit encoding, which the ROB keeps).
+    logic [31:0] xinsn;
+    logic        rvc_ill;
+    tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(1'b0), .insn(xinsn), .ill(rvc_ill));
+    tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].rvc ? xinsn : iq_insn[j].insn),
+                     .len2(iq_insn[j].rvc),
+                     .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
                      .fault(iq_insn[j].fault), .misa_m, .misa_b, .d(d[j]));
     logic [63:0] seq;
     logic        pt;

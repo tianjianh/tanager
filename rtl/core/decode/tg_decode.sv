@@ -1,13 +1,15 @@
 // One instruction decoder (docs/spec/core-pipeline.md §4): RV64IM, Zicsr, Zifencei, M-mode
-// system instructions. Combinational. Compressed encodings are illegal until the RVC expander
-// (M3); misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the
-// branch and JAL targets) are computed here, so execute never adds the PC.
+// system instructions, and (with their switches) Zba/Zbb/Zbs/Zicond. Combinational. A compressed
+// instruction arrives already expanded by tg_rvc (len2 set: the link value is PC + 2);
+// misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the branch
+// and JAL targets) are computed here, so execute never adds the PC.
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 (
   input  logic [63:0] pc,
-  input  logic [31:0] insn,
-  input  logic        rvc,
+  input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
+  input  logic        len2,       // the instruction is 2 bytes long
+  input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
   input  logic        fault,      // fetch access fault at pc
   input  logic        misa_m,
   input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
@@ -50,7 +52,7 @@ module tg_decode
     d.csr_imm = f3[2];
     ill = 1'b0;
 
-    if (rvc || insn[1:0] != 2'b11) begin
+    if (pre_ill || insn[1:0] != 2'b11) begin
       ill = 1'b1;
     end else begin
       unique case (op)
@@ -62,12 +64,13 @@ module tg_decode
         end
         7'b1101111: begin                                  // JAL
           d.cls = C_BR; d.br_kind = BR_JAL; d.rd_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + 64'd4; d.br_target = pc + imm_j;
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + (len2 ? 64'd2 : 64'd4);
+          d.br_target = pc + imm_j;
         end
         7'b1100111: begin                                  // JALR
           if (f3 != 3'd0) ill = 1'b1;
           d.cls = C_BR; d.br_kind = BR_JALR; d.rd_en = 1'b1; d.rs1_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + 64'd4;
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + (len2 ? 64'd2 : 64'd4);
         end
         7'b1100011: begin                                  // branches
           if (f3 == 3'd2 || f3 == 3'd3) ill = 1'b1;
