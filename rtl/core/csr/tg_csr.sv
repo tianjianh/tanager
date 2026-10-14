@@ -55,8 +55,9 @@ module tg_csr
   output logic [15:0]            satp_asid,
   output logic [43:0]            satp_ppn,
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
-  output logic [15:0][7:0]       pmpcfg,
-  output logic [15:0][53:0]      pmpaddr,
+  output pmp_d_t [15:0]          pmp_d,        // PMP region descriptors (registered)
+  output logic [2:0]             pmp_al,       // every 4K / 2M / 1G page is PMP-homogeneous
+  output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
   // Interrupt inputs and time
   input  logic                   irq_mei,
   input  logic                   irq_mti,
@@ -137,8 +138,51 @@ module tg_csr
   assign satp_sv39 = satp_mode_q;
   assign satp_asid = satp_asid_q;
   assign satp_ppn  = satp_ppn_q;
-  assign pmpcfg    = pmpcfg_q;
-  assign pmpaddr   = pmpaddr_q;
+  // ---- PMP region descriptors (core-mmu.md §PMP) ----
+  // Computed from the CSRs and registered: a PMP write is followed by a flush, so they are
+  // current before the next access. pmp_al[j]: no active region boundary lies strictly inside
+  // a page of 2^k granules (k = 10, 19, 28: 4K, 2M, 1G), so such pages can cache one result.
+  pmp_d_t [NPMP-1:0] pmp_d_n, pmp_d_q;
+  logic [2:0]        pmp_al_n, pmp_al_q;
+  localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
+  localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
+  localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
+  always_comb begin
+    for (int i = 0; i < NPMP; i++) begin
+      logic [53:0] y, dc;
+      y  = {pmpaddr_q[i][52:0], 1'b1};
+      dc = (pmpcfg_q[i][4:3] == 2'b11) ? (y & ~(y + 54'd1)) : '0;     // NAPOT don't-care bits
+      pmp_d_n[i].tor  = pmpcfg_q[i][4:3] == 2'b01;
+      pmp_d_n[i].nap  = pmpcfg_q[i][4];
+      pmp_d_n[i].l    = pmpcfg_q[i][7];
+      pmp_d_n[i].x    = pmpcfg_q[i][2];
+      pmp_d_n[i].w    = pmpcfg_q[i][1];
+      pmp_d_n[i].r    = pmpcfg_q[i][0];
+      pmp_d_n[i].hi   = pmpaddr_q[i][53:PMP_GW] != '0;
+      pmp_d_n[i].above  = (pmpaddr_q[i][53:PMP_GW] & ~dc[53:PMP_GW]) != '0;
+      pmp_d_n[i].mask = ~dc[PMP_GW-1:0];
+      pmp_d_n[i].a    = pmpaddr_q[i][PMP_GW-1:0];
+    end
+    pmp_al_n = '1;
+    for (int i = 0; i < NPMP; i++) begin
+      logic [2:0] top_al, lo_al;
+      top_al = {pmp_d_n[i].hi || (pmp_d_n[i].a & AL1G) == '0, pmp_d_n[i].hi || (pmp_d_n[i].a & AL2M) == '0,
+                pmp_d_n[i].hi || (pmp_d_n[i].a & AL4K) == '0};
+      lo_al  = (i == 0) ? 3'b111
+             : {pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL1G) == '0,
+                pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL2M) == '0,
+                pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL4K) == '0};
+      if (pmp_d_n[i].tor) pmp_al_n &= top_al & lo_al;
+      if (pmp_d_n[i].nap && !pmp_d_n[i].above)
+        pmp_al_n &= ~{pmp_d_n[i].mask[27], pmp_d_n[i].mask[18], pmp_d_n[i].mask[9]};
+    end
+  end
+  always_ff @(posedge clk) begin
+    pmp_d_q  <= pmp_d_n;
+    pmp_al_q <= pmp_al_n;
+  end
+  assign pmp_d  = pmp_d_q;
+  assign pmp_al = pmp_al_q;
   assign mepc_o    = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
   assign sepc_o    = {sepc_q[63:2], sepc_q[1] && misa_c_q, 1'b0};
 
@@ -298,6 +342,9 @@ module tg_csr
   assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
                    {(pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) ? pw_d_q[63] : satp_mode_q,
                     pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+  // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
+  assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
+                                        (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
 
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);

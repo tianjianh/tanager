@@ -135,11 +135,28 @@ package tg_core_pkg;
 
   // ---- Sv39 and PMP (core-mmu.md) ----
   typedef enum logic [1:0] { ACC_R = 2'd0, ACC_W = 2'd1, ACC_X = 2'd2 } acc_e;
-  // A leaf PTE as the TLBs hold it; a lookup returns the PPN with the superpage bits from the VA
+  localparam int PPN_W = PA_W - 12;       // physical page number bits the TLBs keep
+  // A leaf PTE as the TLBs hold it; a lookup returns the PPN with the superpage bits from the
+  // VA. `big`: the PPN has bits above PA_W (every access faults). PMP results are cached with
+  // the entry (plan §4.10): ph = the page is PMP-homogeneous, pr/pw/px its permissions in S/U.
   typedef struct packed {
-    logic [43:0] ppn;
-    logic        g, d, a, u, x, w, r;
+    logic [PPN_W-1:0] ppn;
+    logic             big;
+    logic             g, d, a, u, x, w, r;
+    logic             ph, pr, pw, px;
   } tlb_pte_t;
+
+  // PMP region descriptors, precomputed in tg_csr from pmpcfg/pmpaddr (core-mmu.md §PMP).
+  // Addresses are in 4-byte granules; `a` is pmpaddr's low PMP_GW bits.
+  localparam int PMP_GW = PA_W - 2;
+  typedef struct packed {
+    logic              tor, nap;          // mode (neither: off); nap covers NA4 and NAPOT
+    logic              l, x, w, r;
+    logic              hi;                // pmpaddr has bits above PMP_GW: TOR top above every PA
+    logic              above;              // NAPOT region above the physical address space
+    logic [PMP_GW-1:0] mask;              // NAPOT: 1 = compared bit
+    logic [PMP_GW-1:0] a;
+  } pmp_d_t;
   function automatic logic va_canon(input logic [63:0] va);     // bits 63:39 equal bit 38
     return va[63:38] == '0 || va[63:38] == '1;
   endfunction

@@ -26,6 +26,7 @@ module tg_lsu
 ) (
   input  logic                         clk,
   input  logic                         rst,
+  output logic                         ready,         // the D$ state is swept after reset
   input  logic                         flush,
   // Dispatch
   input  logic                         ds_fire,
@@ -87,8 +88,8 @@ module tg_lsu
   input  logic                         satp_sv39,
   input  logic [15:0]                  satp_asid,
   input  logic [43:0]                  satp_ppn,
-  input  logic [15:0][7:0]             pmpcfg,
-  input  logic [15:0][53:0]            pmpaddr,
+  input  pmp_d_t [15:0]                pmp_d,
+  input  logic [2:0]                   pmp_al,
   input  logic                         tlb_flush,
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,
@@ -275,7 +276,7 @@ module tg_lsu
   logic [63:0]       am_rdata;
   logic [PA_W-1:6]   lose_line;
   tg_dcache u_dc (
-    .clk, .rst,
+    .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
@@ -329,18 +330,24 @@ module tg_lsu
     .fill_vpn(pw_vpn), .fill_asid(pw_asid), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
-  logic [55:0] nl_pa56;
+  // A translated access to a PMP-homogeneous page uses the DTLB's cached PMP result (plan
+  // §4.10); bare-mode accesses and pages with a region boundary inside use the checker.
+  logic [PA_W-1:0] nl_pa;
   logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmp;
+  logic [0:0]  nl_chk;
   pma_e        nl_pma;
-  assign nl_pa56 = xl_d ? {dt_pte[0].ppn, ld_ag_addr[11:0]} : ld_ag_addr[55:0];
+  assign nl_pa   = xl_d ? {dt_pte[0].ppn, ld_ag_addr[11:0]} : ld_ag_addr[PA_W-1:0];
   assign nl_mis  = misal(ld_ag_addr[2:0], ld_ag_pl.mem_size);
   assign nl_pf   = xl_d && !nl_mis && !va_canon(ld_ag_addr);
   assign nl_tm   = xl_d && !nl_mis && !nl_pf && !(dt_hit[0] && pte_ok(dt_pte[0], ACC_R, priv_d, sum, mxr));
-  assign nl_pma  = pma_of(nl_pa56[PA_W-1:0]);
-  tg_pmp u_pmp_ld (.pa(nl_pa56[PA_W-1:0]), .dbl(ld_ag_pl.mem_size == 2'd3), .acc(ACC_R),
-                   .m_mode(priv_d == PRIV_M), .cfg(pmpcfg), .addr(pmpaddr), .ok(nl_pmp));
-  assign nl_acc  = (xl_d ? nl_pa56[55:PA_W] != '0 : ld_ag_addr[63:PA_W] != '0) || nl_pma == PMA_NONE ||
-                   !nl_pmp;
+  assign nl_pma  = pma_of(nl_pa);
+  logic       pmp_hit_ld, pmp_hit_st;
+  logic [2:0] pmp_rwx_ld, pmp_rwx_st;
+  tg_pmp #(.S(1)) u_pmp_ld (.pa(nl_pa), .dbl(ld_ag_pl.mem_size == 2'd3), .acc(ACC_R),
+                            .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(nl_chk), .hit(pmp_hit_ld),
+                            .rwx(pmp_rwx_ld));
+  assign nl_pmp  = (xl_d && dt_pte[0].ph) ? dt_pte[0].pr : nl_chk[0];
+  assign nl_acc  = (xl_d ? dt_pte[0].big : ld_ag_addr[63:PA_W] != '0) || nl_pma == PMA_NONE || !nl_pmp;
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
   assign nl_go   = !nl_exc && !nl_tm && !nl_mmio;
@@ -356,7 +363,7 @@ module tg_lsu
   assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !flush;
   assign ag_v    = (ld_ag_valid || ag_pt || ag_rp) && !flush;
   assign ag_lq   = ld_ag_valid ? ld_ag_pl.lq[LIW-1:0] : rp_idx;
-  assign ag_pa   = ld_ag_valid ? nl_pa56[PA_W-1:0] : ag_pt ? pt_pa : lq_pa_q[rp_idx];
+  assign ag_pa   = ld_ag_valid ? nl_pa : ag_pt ? pt_pa : lq_pa_q[rp_idx];
   assign ag_go   = ag_v && (!ld_ag_valid || nl_go);     // continues to M1
   assign pt_gnt  = ag_pt;
   assign dc_rd_en = ag_go;
@@ -596,7 +603,7 @@ module tg_lsu
   logic [7:0]     sa_mask;
   pma_e           sa_pma;
   logic           sa_mis, sa_pf, sa_tm, sa_acc, sa_exc, sa_mmio, sa_ok, sa_amo, sa_lr, sa_pmp;
-  logic [55:0]    sa_pa56;
+  logic [0:0]     sa_chk;
   logic [PA_W-1:0] sa_pa;
   acc_e           sa_at;
   assign sa_idx  = sta_ag_pl.sq[SIW-1:0];
@@ -604,16 +611,17 @@ module tg_lsu
   assign sa_lr   = sa_amo && am_op_q == AMO_LR;    // LR faults and translates as a load
   assign sa_at   = sa_lr ? ACC_R : ACC_W;
   assign sa_mask = bmask(sta_ag_addr[2:0], sta_ag_pl.mem_size);
-  assign sa_pa56 = xl_d ? {dt_pte[1].ppn, sta_ag_addr[11:0]} : sta_ag_addr[55:0];
-  assign sa_pa   = sa_pa56[PA_W-1:0];
+  assign sa_pa   = xl_d ? {dt_pte[1].ppn, sta_ag_addr[11:0]} : sta_ag_addr[PA_W-1:0];
   assign sa_mis  = misal(sta_ag_addr[2:0], sta_ag_pl.mem_size);
   assign sa_pf   = xl_d && !sa_mis && !va_canon(sta_ag_addr);
   assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
   assign sa_pma  = pma_of(sa_pa);
-  tg_pmp u_pmp_st (.pa(sa_pa), .dbl(sta_ag_pl.mem_size == 2'd3), .acc(sa_at), .m_mode(priv_d == PRIV_M),
-                   .cfg(pmpcfg), .addr(pmpaddr), .ok(sa_pmp));
+  tg_pmp #(.S(1)) u_pmp_st (.pa(sa_pa), .dbl(sta_ag_pl.mem_size == 2'd3), .acc(sa_at),
+                            .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st),
+                            .rwx(pmp_rwx_st));
+  assign sa_pmp  = (xl_d && dt_pte[1].ph) ? (sa_lr ? dt_pte[1].pr : dt_pte[1].pw) : sa_chk[0];
   // atomics only in main memory (interfaces.md §2.4)
-  assign sa_acc  = (xl_d ? sa_pa56[55:PA_W] != '0 : sta_ag_addr[63:PA_W] != '0) || !sa_pmp ||
+  assign sa_acc  = (xl_d ? dt_pte[1].big : sta_ag_addr[63:PA_W] != '0) || !sa_pmp ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -738,7 +746,7 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .satp_asid, .sum, .mxr, .pmpcfg, .pmpaddr,
+    .clk, .rst, .flush, .satp_ppn, .satp_asid, .sum, .mxr, .pmp_d, .pmp_al,
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
@@ -944,7 +952,7 @@ module tg_lsu
       m1_clash_q <= ag_clash;
       if (ld_ag_valid && !flush) begin
         lq_va_q[ag_lq]  <= ld_ag_addr;
-        lq_pa_q[ag_lq]  <= nl_pa56[PA_W-1:0];
+        lq_pa_q[ag_lq]  <= nl_pa;
         lq_pav_q[ag_lq] <= !nl_exc && !nl_tm;
         lq_st_q[ag_lq]  <= nl_exc ? L_EXC : nl_tm ? L_TLB : nl_mmio ? L_MMIO : L_PIPE;
       end else if (ag_rp) begin
@@ -1066,7 +1074,8 @@ module tg_lsu
 
   logic unused;
   assign unused = ^{ld_ag_pl, sta_ag_pl, m2_fidx_q, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
-                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q, sq_rob_q, x_lq_q, pw_ack[0], pw_who[2]};
+                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q, sq_rob_q, x_lq_q, pw_ack[0], pw_who[2],
+                    pmp_hit_ld, pmp_rwx_ld, pmp_hit_st, pmp_rwx_st};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

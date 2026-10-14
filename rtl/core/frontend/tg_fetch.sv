@@ -54,8 +54,7 @@ module tg_fetch
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
   input  priv_e       priv,
   input  logic [15:0] asid,
-  input  logic [15:0][7:0]  pmpcfg,
-  input  logic [15:0][53:0] pmpaddr,
+  input  pmp_d_t [15:0]     pmp_d,
   input  logic        tlb_flush,
   input  logic        it_fill,
   input  logic [26:0] it_fill_vpn,
@@ -153,8 +152,8 @@ module tg_fetch
     .clk, .rst, .asid, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_asid(it_fill_asid), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .flush(tlb_flush));
-  logic [55:0] f1_pa56;
-  assign f1_pa56 = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[55:0];
+  logic [PA_W-1:0] f1_pa;
+  assign f1_pa = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[PA_W-1:0];
   // A walk for this page faulted: its blocks are fault blocks until a redirect
   logic         xf_v_q, xf_pf_q;
   logic [63:12] xf_page_q;
@@ -163,19 +162,20 @@ module tg_fetch
   assign f1_xf    = xl_i && xf_v_q && fpc_q[63:12] == xf_page_q;
   assign f1_pf    = xl_i && !va_canon(fpc_q);
   assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
-  assign f1_pma   = pma_of(f1_pa56[PA_W-1:0]);
-  assign f1_acc   = (xl_i ? f1_pa56[55:PA_W] != '0 : fpc_q[63:PA_W] != '0) ||
+  assign f1_pma   = pma_of(f1_pa);
+  assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[63:PA_W] != '0) ||
                     (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
   assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
   assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
   // PMP per word (used in F2, where instruction boundaries are known)
-  logic [NW-1:0] f1_pmpd;
-  for (genvar w = 0; w < NW; w++) begin : g_pmp
-    logic ok;
-    tg_pmp u_pmp (.pa({f1_pa56[PA_W-1:4], 2'(w), 2'b00}), .dbl(1'b0), .acc(ACC_X),
-                  .m_mode(priv == PRIV_M), .cfg(pmpcfg), .addr(pmpaddr), .ok(ok));
-    assign f1_pmpd[w] = !ok;
-  end
+  // A translated page that is PMP-homogeneous uses the ITLB's cached result (plan §4.10);
+  // otherwise (bare mode, or a page with a region boundary inside) one block checker
+  logic [NW-1:0] f1_pmpd, pmp_okw;
+  logic          pmp_hit_u;
+  logic [2:0]    pmp_rwx_u;
+  tg_pmp #(.S(2)) u_pmp (.pa(f1_pa), .dbl(1'b0), .acc(ACC_X), .m_mode(priv == PRIV_M), .d(pmp_d),
+                         .ok(pmp_okw), .hit(pmp_hit_u), .rwx(pmp_rwx_u));
+  assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
 
   // ---- I$ arrays ----
   logic [WAYS-1:0][SETS-1:0] ival_q;
@@ -514,7 +514,7 @@ module tg_fetch
       end else if (f2_go) begin
         f2_valid_q <= f1_live && !(f2_deliver && f2_isfault);
         f2_pc_q    <= fpc_q;
-        f2_pa_q    <= f1_pa56[PA_W-1:0];
+        f2_pa_q    <= f1_pa;
         f2_fault_q <= f1_fault;
         f2_fpf_q   <= f1_fpf;
         f2_tm_q    <= f1_tm;
@@ -591,7 +591,7 @@ module tg_fetch
 
   logic unused;
   assign unused = ^{upd_pc[63:39], upd_pc[3:0], upd_target[63:39], upd_target[0], pd_call, pd_ret, l1i_d_i.opcode, l1i_d_i.param, l1i_d_i.size,
-                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0]};
+                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0], pmp_hit_u, pmp_rwx_u};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

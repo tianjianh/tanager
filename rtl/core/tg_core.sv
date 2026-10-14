@@ -92,11 +92,12 @@ module tg_core
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
   logic [43:0] satp_ppn;
-  logic [15:0][7:0]  pmpcfg;
-  logic [15:0][53:0] pmpaddr;
-  logic        satp_wr, sfence, tlb_flush;
-  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA or a satp write
-  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr);
+  pmp_d_t [15:0]     pmp_d;
+  logic [2:0]        pmp_al;
+  logic        satp_wr, pmp_wr, sfence, tlb_flush;
+  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
+  // write (the TLBs cache PMP results)
+  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr || pmp_wr);
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
   logic [3:0]  iw_cause;
@@ -106,7 +107,7 @@ module tg_core
   tlb_pte_t    it_fill_pte;
 
   // ---- Front end ----
-  logic        fe_ready;
+  logic        fe_ready, lsu_ready;
   logic        dred;
   logic [63:0] dred_pc;
   logic        upd_valid, upd_way, upd_inval;
@@ -120,7 +121,7 @@ module tg_core
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .asid(satp_asid), .pmpcfg, .pmpaddr, .tlb_flush,
+    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .asid(satp_asid), .pmp_d, .tlb_flush,
     .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -160,7 +161,7 @@ module tg_core
   logic [NPR-1:0]                   ready_vec;
   logic                             rn_ready;
   tg_rename u_rn (
-    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready), .flush,
+    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
     .de_valid, .de_uop, .de_take,
     .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .div_done,
@@ -245,7 +246,7 @@ module tg_core
   logic [3:0]          hd_cause;
   logic [63:0]         hd_tval;
   tg_lsu u_lsu (
-    .clk, .rst, .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .clk, .rst, .ready(lsu_ready), .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
@@ -254,7 +255,7 @@ module tg_core
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_asid, .satp_ppn, .pmpcfg, .pmpaddr, .tlb_flush,
+    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_asid, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
@@ -275,7 +276,7 @@ module tg_core
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .mepc_o(mepc), .sepc_o(sepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmpcfg, .pmpaddr,
+    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 

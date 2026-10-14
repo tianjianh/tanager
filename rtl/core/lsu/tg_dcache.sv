@@ -4,7 +4,11 @@
 //         (address in AG, data in M1). Port B: Grant writes, store writes, Release and
 //         ProbeAckData reads.
 //   Tags: per way a tg_ram_lut, read ports: load (M1), store drain, controller (probe/victim).
-//   State per (set, way) in flip-flops: valid, T (M/E), dirty.
+//   State per set in one tg_ram_lut: the round-robin victim pointer and valid, T (M/E) and
+//   dirty per way. Four read ports (load, store/atomic, controller, the set being written) and
+//   one write per cycle, a read-modify-write of one set, by priority: the reset sweep, a probe
+//   update, an MSHR install, an allocation, a store or atomic setting dirty. The sweep clears
+//   the sets after reset (SETS cycles, `ready`); probes wait for it.
 //   MSHR: one line at a time, for a load miss (AcquireBlock NtoB) or a store (NtoT, or BtoT for
 //         a line held in B). A valid victim is released first (state cleared when the Release
 //         starts, so probes and stores see the line as gone); the Acquire waits for ReleaseAck.
@@ -29,6 +33,7 @@ module tg_dcache
 ) (
   input  logic              clk,
   input  logic              rst,
+  output logic              ready,        // the state sweep after reset is done
   // Load pipe: port A read issued in AG; lookup in M1 (combinational)
   input  logic              ld_rd_en,
   input  logic [PA_W-1:0]   ld_rd_pa,
@@ -75,9 +80,6 @@ module tg_dcache
   output logic              e_valid_o,
   input  logic              e_ready_i
 );
-  // ---- State ----
-  logic [SETS-1:0][WAYS-1:0] st_v_q, st_t_q, st_d_q;
-  logic [SETS-1:0][WAY_W-1:0] rr_q;
 
   // ---- Arrays ----
   logic [WAYS-1:0]        b_en;
@@ -114,13 +116,37 @@ module tg_dcache
       .rdata(tag_rd[w]));
   end
 
+  // ---- State per set (LUTRAM) ----
+  typedef struct packed {
+    logic [WAY_W-1:0] rr;
+    logic [WAYS-1:0]  v, t, d;
+  } sst_t;
+  localparam int SST_W = $bits(sst_t);
+  logic [3:0][SET_W-1:0] st_ra;
+  logic [3:0][SST_W-1:0] st_rd;
+  sst_t                  sl, ss, sc, sw;    // load, store/atomic, controller, the written set
+  logic                  st_we;
+  logic [SET_W-1:0]      st_wa;
+  sst_t                  st_wd;
+  logic [SET_W:0]        init_q;
+  assign ready = init_q[SET_W];
+  assign st_ra[0] = ld_m1_pa[6 +: SET_W];
+  assign st_ra[1] = sx_pa[6 +: SET_W];
+  assign st_ra[2] = ctl_pa[6 +: SET_W];
+  assign st_ra[3] = st_wa;
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(SST_W), .NR(4)) u_state (
+    .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd), .raddr(st_ra), .rdata(st_rd));
+  assign sl = sst_t'(st_rd[0]);
+  assign ss = sst_t'(st_rd[1]);
+  assign sc = sst_t'(st_rd[2]);
+  assign sw = sst_t'(st_rd[3]);
+
   // Lookups: hit vector per read port
-  function automatic logic [WAYS-1:0] hits(input int port, input logic [SET_W-1:0] set,
-                                          input logic [TAG_W-1:0] tag,
+  function automatic logic [WAYS-1:0] hits(input int port, input logic [TAG_W-1:0] tag,
                                           input logic [WAYS-1:0][2:0][TAG_W-1:0] tr,
-                                          input logic [SETS-1:0][WAYS-1:0] v);
+                                          input logic [WAYS-1:0] v);
     logic [WAYS-1:0] h;
-    for (int w = 0; w < WAYS; w++) h[w] = v[set][w] && tr[w][port] == tag;
+    for (int w = 0; w < WAYS; w++) h[w] = v[w] && tr[w][port] == tag;
     return h;
   endfunction
   function automatic logic [WAY_W-1:0] enc(input logic [WAYS-1:0] h);
@@ -133,7 +159,7 @@ module tg_dcache
   // Load lookup (M1)
   logic [WAYS-1:0] lh;
   logic [127:0]    lrow;
-  assign lh = hits(0, ld_m1_pa[6 +: SET_W], ld_m1_pa[12 +: TAG_W], tag_rd, st_v_q);
+  assign lh = hits(0, ld_m1_pa[12 +: TAG_W], tag_rd, sl.v);
   always_comb begin
     lrow = '0;
     for (int w = 0; w < WAYS; w++) lrow |= {128{lh[w]}} & a_rdata[w];
@@ -145,15 +171,15 @@ module tg_dcache
   logic [WAYS-1:0]  sh;
   logic [WAY_W-1:0] sh_way;
   logic             s_hit, s_hit_t;
-  assign sh      = hits(1, sx_pa[6 +: SET_W], sx_pa[12 +: TAG_W], tag_rd, st_v_q);
+  assign sh      = hits(1, sx_pa[12 +: TAG_W], tag_rd, ss.v);
   assign sh_way  = enc(sh);
   assign s_hit   = |sh;
-  assign s_hit_t = s_hit && st_t_q[sx_pa[6 +: SET_W]][sh_way];
+  assign s_hit_t = s_hit && ss.t[sh_way];
 
   // Controller lookup
   logic [WAYS-1:0]  ch;
   logic [WAY_W-1:0] ch_way;
-  assign ch     = hits(2, ctl_pa[6 +: SET_W], ctl_pa[12 +: TAG_W], tag_rd, st_v_q);
+  assign ch     = hits(2, ctl_pa[12 +: TAG_W], tag_rd, sc.v);
   assign ch_way = enc(ch);
 
   // ---- MSHR ----
@@ -205,27 +231,32 @@ module tg_dcache
     alloc_st = 1'b0;
     alloc_ld = 1'b0;
     // A load allocates only if its line is still absent (it may have been filled since M1).
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !amw_q) begin
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !amw_q && ready) begin
       if (sx_req && !s_hit_t)    alloc_st = 1'b1;
       else if (lm_req && !(|ch)) alloc_ld = 1'b1;
     end
   end
   logic [PA_W-1:0]  al_pa;
   assign al_pa = alloc_st ? sx_pa : lm_pa;
+  logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
+  logic al_go;                           // the MSHR allocates this cycle
+  logic inst_go;                         // the MSHR installs this cycle
+  assign al_go   = ms_q == M_IDLE && (alloc_st || alloc_ld) && !sx_drop;
+  assign inst_go = ms_q == M_INSTALL && !(ps_q == P_UPD && p_hit_q);   // a probe update goes first
   logic [WAYS-1:0]  al_hit;
   logic [WAY_W-1:0] al_hway, victim;
   logic             al_hb;               // line held in B (store upgrade)
   assign al_hit  = alloc_st ? sh : ch;
   assign al_hway = enc(al_hit);
   assign al_hb   = |al_hit;
+  sst_t sa;                              // the allocation set: store port or controller port
+  assign sa = alloc_st ? ss : sc;
   always_comb begin
     logic found;
-    logic [SET_W-1:0] s;
-    s = al_pa[6 +: SET_W];
     found = 1'b0;
-    victim = rr_q[s];
+    victim = sa.rr;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !st_v_q[s][w]) begin
+      if (!found && !sa.v[w]) begin
         victim = WAY_W'(w);
         found = 1'b1;
       end
@@ -242,7 +273,9 @@ module tg_dcache
   assign grant_beat = ms_q == M_GRANT && d_valid_i && !(ps_q == P_RD || ps_q == P_SEND) &&
                       d_i.opcode == D_GRANT_DATA;
   assign pb_grant   = grant_beat;
-  assign pb_st      = st_req && s_hit_t && !probe_active && !mshr_on_c && !pb_grant;
+  // A store writes when the state port is free too: no install or allocation this cycle
+  assign pb_st      = st_req && s_hit_t && !probe_active && !mshr_on_c && !pb_grant &&
+                      ms_q != M_INSTALL && !al_go;
   assign pb_amw     = amw_q && |am_wmask;
   assign am_rdata   = am_hi_q ? b_rdata[am_way_q][127:64] : b_rdata[am_way_q][63:0];
   assign st_ack     = pb_st || st_drop;
@@ -292,7 +325,8 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !amw_q;
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !amw_q &&
+                  ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -327,7 +361,6 @@ module tg_dcache
   assign d_fire = d_valid_i && d_ready_o;
 
   // Store whose fill was denied: acknowledged without a write. An atomic: am_den (access fault).
-  logic sx_drop;
   assign sx_drop = sx_req && ms_q == M_IDLE && dn_v_q && dn_line_q == sx_pa[PA_W-1:6] && !s_hit_t
                    && !alloc_ld && !probe_active;
   assign st_drop = sx_drop && st_req;
@@ -337,21 +370,61 @@ module tg_dcache
   assign lose_v    = lose_v_q;
   assign lose_line = lose_line_q;
 
+  // ---- State writes: one read-modify-write per cycle ----
+  always_comb begin
+    st_we = 1'b0;
+    st_wa = '0;
+    st_wd = sw;
+    if (!ready) begin
+      st_we = 1'b1;
+      st_wa = init_q[SET_W-1:0];
+      st_wd = '0;
+    end else if (ps_q == P_UPD && p_hit_q) begin
+      st_we = 1'b1;
+      st_wa = p_pa_q[6 +: SET_W];
+      st_wd = sw;
+      st_wd.v[p_way_q] = p_nv_q;
+      st_wd.t[p_way_q] = p_nt_q;
+      if (!p_nt_q) st_wd.d[p_way_q] = 1'b0;     // to B or N: dirty data went with the ack
+    end else if (inst_go) begin
+      st_we = 1'b1;
+      st_wa = m_line_q[6 +: SET_W];
+      st_wd = sw;
+      st_wd.v[m_way_q] = !m_den_q;
+      st_wd.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
+      st_wd.d[m_way_q] = 1'b0;
+    end else if (al_go && !(alloc_st && al_hb)) begin
+      st_we = 1'b1;
+      st_wa = al_pa[6 +: SET_W];
+      st_wd = sw;
+      st_wd.rr = sw.rr + 1'b1;
+      st_wd.v[victim] = 1'b0;                   // the victim is released (or was invalid)
+      st_wd.t[victim] = 1'b0;
+      st_wd.d[victim] = 1'b0;
+    end else if (pb_st) begin
+      st_we = 1'b1;
+      st_wa = sx_pa[6 +: SET_W];
+      st_wd = sw;
+      st_wd.d[sh_way] = 1'b1;
+    end else if (pb_amw) begin
+      st_we = 1'b1;
+      st_wa = am_row_q[ROW_W-1:2];
+      st_wd = sw;
+      st_wd.d[am_way_q] = 1'b1;
+    end
+  end
+
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      st_v_q <= '0;
-      st_t_q <= '0;
-      st_d_q <= '0;
-      rr_q   <= '0;
+      init_q <= '0;
       ms_q   <= M_IDLE;
       ps_q   <= P_IDLE;
       dn_v_q <= 1'b0;
       amw_q  <= 1'b0;
       lose_v_q <= 1'b0;
     end else begin
-      // Store write: the line becomes dirty
-      if (pb_st) st_d_q[st_pa[6 +: SET_W]][sh_way] <= 1'b1;
+      if (!ready) init_q <= init_q + 1'b1;
       // Atomic: read now, write next cycle
       amw_q <= pb_amr;
       if (pb_amr) begin
@@ -359,12 +432,11 @@ module tg_dcache
         am_row_q <= am_pa[4 +: ROW_W];
         am_hi_q  <= am_pa[3];
       end
-      if (pb_amw) st_d_q[am_row_q[ROW_W-1:2]][am_way_q] <= 1'b1;
       lose_v_q <= 1'b0;
 
       // ---- MSHR ----
       unique case (ms_q)
-        M_IDLE: if ((alloc_st || alloc_ld) && !sx_drop) begin
+        M_IDLE: if (al_go) begin
           logic [SET_W-1:0] s;
           s = al_pa[6 +: SET_W];
           m_line_q <= al_pa[PA_W-1:6];
@@ -379,18 +451,14 @@ module tg_dcache
           end else begin
             m_way_q  <= victim;
             m_grow_q <= alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
-            rr_q[s]  <= rr_q[s] + 1'b1;
-            if (st_v_q[s][victim]) begin
+            if (sa.v[victim]) begin
               // Release the victim; it is gone for probes and stores from now on
               m_vline_q  <= {tag_rd[victim][alloc_st ? 1 : 2], s};
               lose_v_q    <= 1'b1;
               lose_line_q <= {tag_rd[victim][alloc_st ? 1 : 2], s};
-              m_vdirty_q <= st_d_q[s][victim];
-              m_vt_q     <= st_t_q[s][victim];
-              st_v_q[s][victim] <= 1'b0;
-              st_t_q[s][victim] <= 1'b0;
-              st_d_q[s][victim] <= 1'b0;
-              ms_q <= st_d_q[s][victim] ? M_EV_RD : M_EV_SEND;
+              m_vdirty_q <= sa.d[victim];
+              m_vt_q     <= sa.t[victim];
+              ms_q <= sa.d[victim] ? M_EV_RD : M_EV_SEND;
             end else begin
               ms_q <= M_ACQ;
             end
@@ -419,17 +487,11 @@ module tg_dcache
           m_beat_q <= m_beat_q + 1'b1;
         end
         M_GACK: if (e_ready_i) ms_q <= M_INSTALL;
-        M_INSTALL: begin
-          logic [SET_W-1:0] s;
-          s = m_line_q[6 +: SET_W];
+        M_INSTALL: if (inst_go) begin              // the state write is in the comb block above
           ms_q <= M_IDLE;
           if (!m_den_q) begin
-            st_v_q[s][m_way_q] <= 1'b1;
-            st_t_q[s][m_way_q] <= m_cap_q == TL_CAP_TO_T;
-            st_d_q[s][m_way_q] <= 1'b0;
             if (dn_v_q && dn_line_q == m_line_q) dn_v_q <= 1'b0;
           end else begin
-            st_v_q[s][m_way_q] <= 1'b0;
             dn_v_q    <= 1'b1;
             dn_line_q <= m_line_q;
           end
@@ -447,12 +509,10 @@ module tg_dcache
           p_src_q  <= b_i.source;
         end
         P_LOOK: begin
-          logic [SET_W-1:0] s;
           logic t, d, hit;
-          s = p_pa_q[6 +: SET_W];
           hit = |ch;
-          t = st_t_q[s][ch_way];
-          d = st_d_q[s][ch_way];
+          t = sc.t[ch_way];
+          d = sc.d[ch_way];
           p_way_q  <= ch_way;
           p_hit_q  <= hit;
           p_beat_q <= '0;
@@ -483,19 +543,11 @@ module tg_dcache
           end
         end
         P_ACK: if (c_ready_i) ps_q <= P_UPD;
-        P_UPD: begin
-          logic [SET_W-1:0] s;
-          s = p_pa_q[6 +: SET_W];
+        P_UPD: begin                               // the state write is in the comb block above
           ps_q <= P_IDLE;
           if (p_hit_q && !p_nt_q) begin
             lose_v_q    <= 1'b1;
             lose_line_q <= p_pa_q[PA_W-1:6];
-          end
-          if (p_hit_q) begin
-            st_v_q[s][p_way_q] <= p_nv_q;
-            st_t_q[s][p_way_q] <= p_nt_q;
-            if (p_nv_q && !p_nt_q) st_d_q[s][p_way_q] <= 1'b0;   // to B: dirty data went with the ack
-            if (!p_nv_q)           st_d_q[s][p_way_q] <= 1'b0;
           end
         end
         default: ps_q <= P_IDLE;
@@ -504,7 +556,7 @@ module tg_dcache
   end
 
   // Tag write at install
-  assign tag_we  = ms_q == M_INSTALL && !m_den_q;
+  assign tag_we  = inst_go && !m_den_q;
   assign tag_way = m_way_q;
   assign tag_set = m_line_q[6 +: SET_W];
   assign tag_wd  = m_line_q[PA_W-1:12];
@@ -512,7 +564,7 @@ module tg_dcache
   logic unused;
   assign unused = ^{m_st_q, b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
                     ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
-                    sx_pa[5:0], am_pa[2:0]};
+                    sx_pa[5:0], am_pa[2:0], sl.rr, sl.t, sl.d};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
