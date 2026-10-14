@@ -206,7 +206,7 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 | Run | Config | Decode | CLB LUTs (LUTRAM) | FFs | RAMB36 | WNS ns | Levels | Verdict |
 |---|---|---|---|---|---|---|---|---|
 | `s5_st_lut_wr4` | st | 2 | 2,485 (448) | 2,014 | 16 | **+0.582** | 8 | pass |
-| `s5_smt2_lut_wr4` | smt2 | 2 | (running) | | | | | |
+| `s5_smt2_lut_wr4` (pblock) | smt2 | 2 | 2,566 (448) | 2,090 | 16 | **+0.245** | 8 | pass |
 | `s5_w3_lut_wr4` | st_w3 | 3 | (running) | | | | | |
 | `s5_st_fa_wr4` (32-entry flip-flop fallback) | st | 2 | (running) | | | | | |
 | `s5_w3_lut_wr8` (8 writes per cycle) | st_w3 | 3 | (running) | | | | | |
