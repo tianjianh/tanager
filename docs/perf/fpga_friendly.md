@@ -202,6 +202,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 | 2026-10-14 | Execute (Zbb unit) | computed a cycle later (the result waits two cycles anyway) | 0 | +64 | — | yes | as above | **Adopted for timing.** Pros: takes the load bypass, the counts and ALU1's flag out of one cycle. Cons: 64 flip-flops. |
 | 2026-10-14 | Execute (divider) | NM shift amount ~(lzd − lza) with no adder in front; no-quotient case in FX | +75 | +1 | — | yes | as above | **Adopted for timing.** Pros: the divider's NM step leaves the failing paths. Cons: +75 LUTs (every faster form measured +58 to +75). |
 | 2026-10-14 | Execute (branch) | misprediction test as taken ? target ≠ pred : seq ≠ pred | +52 | 0 | — | yes | as above | **Adopted for timing.** Pros: the taken flag skips the next-PC multiplexer and a compare. Cons: a second 64-bit compare. |
+| 2026-10-14 | P4 | the FLW NaN-boxing moves into the LSU's extract step (core track, 3f9a227); P4 drops its boxing multiplexer and ignores `fld_single` (T7) | −16 | 0 | — | yes | P4: +0.089 (smt2), +0.073 (st) | **Adopted.** Pros: −16 LUTs and one LUT level off the load bypass into the FMA, at no cost in the LSU (the extension multiplexer was there anyway). Cons: P4 now relies on the core to box FLW; the contract in fpu.md says so. |
 
 ## 5. History and lessons
 

@@ -444,7 +444,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - This costs 2 cycles on integer-to-FP moves of in-flight ALU results, about 0.4% of FP sources in the census. MUL (tag) and LLT producers wake late enough already.
 
 **FP loads** (F1):
-- `fld_valid`, `fld_idx`, `fld_single` and `fld_data` (raw 64 bits) write F1 at the end of the cycle. `tg_fp_exec` NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]}.
+- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself; since DR-123 it ignores `fld_single`, and the port goes when the core drops its connection.
 - `fld_m2_will` and `fld_m2_idx` announce the write one cycle ahead, for the bypass select.
 - The core wakes the load's LLT and completes it, as for integer loads.
 
@@ -482,9 +482,9 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - each operation's wakeup column is in its range: a tag below NFX for FMA and FMISC FP results, NFX + llt for divides and integer results;
 - a divide does not retire early in a cycle when its thread is flushed. The flush is registered from an older commit, so nothing it kills can retire with it.
 
-Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) comes straight from the load result register, with no logic after it. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
+Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) comes straight from the load result register, with no logic after it, and `fld_data` is already NaN-boxed for FLW. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
 - The core agreed: `fld_data` and `fld_idx` come from the LSU's `r_data_q` and `r_dst_q`, which already drive the integer load bank at WB.
-- `fld_single` and `fld_valid` are flip-flops of the same stage.
+- `fld_valid` is a flip-flop of the same stage. (`fld_single` is still connected and ignored.)
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -570,7 +570,6 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
   - **Confirmed by synthesis** of the fd2 merge: the check after synthesis passes in smt2 and st. The queue is 71 bits in 6 RAM32M16, 2 fewer than before. Standalone `tg_fpu` stores 101 bits in 8 and passes too.
 
 ### Helpers (`tg_fpcore_pkg`)
-- `fp_box_load(data, single)`: the F1 value of FLW and FLD.
 - `fp_rm_resolve(rm_field, frm)`: the rounding mode and legality, Spike's RM rule.
 - `FPTAG_W`, the width of an FP tag. The tag helpers themselves are in `tg_core_pkg` (above).
 
@@ -717,6 +716,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
 | AR-8 no-IPC pass on P4 (step 1) | FMA −55 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. Budget flow (`-flatten none`): P4 7,954 → 7,823 (st), 7,977 → 7,846 (smt2), −131. Out-of-context synthesis with `rebuilt` flattening had shown −281/−239: it optimises across module boundaries, so it overstates. FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
 | DR-123 FPGA-native pass on P4 (step 2) | P4 −113 | The FMA's hi + 1 in 2 DSPs (−54), the divider's e0 subtraction in its SMa tile (−38) and the remainder's sign from a 38-bit subtraction (−22). Budget flow, standalone: P4 7,386 → 7,273 (st), 35 → 37 DSPs. Floorplanned P4 closes at default effort (+0.130 and +0.089 ns). Details below ("DR-123, FPGA-native pass"). |
+| DR-123, P4 step 3 | P4 −16 | The core's LSU NaN-boxes FLW before its load result register (core track, 3f9a227), so P4 drops its boxing multiplexer: `fld_data` goes straight into F1, the RF-stage capture and the EX0 bypass, one LUT level shorter. `fld_single` is ignored until the core drops the port. Budget flow: P4 7,273 → 7,257 (st), 7,294 → 7,278 (smt2). Floorplanned P4 closes at default effort (+0.089 ns smt2, +0.073 ns st); cycle-identical to main f46d871 (`make cycle-identical`, 798 of 798 programs in each configuration). |
 
 **What Goldschmidt really cost, and why.**
 - **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.
