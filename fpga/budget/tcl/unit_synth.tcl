@@ -3,8 +3,11 @@
 #   tools/vivado_run.sh <run-dir> fpga/budget/tcl/unit_synth.tcl <repo-root> <cfg> <top> \
 #       [-g NAME=VALUE]... [-file <path>]...
 #   -g     a top-level generic (repeatable)
-#   -file  an extra source beyond rtl/rtl.f, relative to the repo root (repeatable): units the
-#          core track has not adopted yet still live in fpga/spikes
+#   -file  an extra source beyond rtl/rtl.f, relative to the repo root or absolute
+#          (repeatable): units the core track has not adopted yet still live in fpga/spikes
+#   -flatten  synth_design -flatten_hierarchy (default rebuilt; none keeps every module's
+#          own LUTs apart, for breakdowns)
+#   -directive  synth_design -directive (default Default)
 # Synthesis, then opt_design (which trims logic with no load), no placement: the counts are
 # what the unit costs, not how it routes. The primitive check runs after both steps.
 # Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
@@ -15,12 +18,16 @@ set cfg  [lindex $argv 1]
 set top  [lindex $argv 2]
 set generics {}
 set files {}
+set flatten rebuilt
+set directive Default
 set rest [lrange $argv 3 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
   switch -- $k {
     -g    { lappend generics $v }
     -file { lappend files $v }
+    -flatten { set flatten $v }
+    -directive { set directive $v }
     default { error "unit_synth.tcl: unknown option $k" }
   }
 }
@@ -54,7 +61,8 @@ tg_kv $fh generics [expr {[llength $generics] ? [join $generics ,] : "-"}]
 set t0 [clock seconds]
 tg_read_rtl $root $cfg
 foreach f $files { read_verilog -sv [file join $root $f] }
-set opts [list -top $top -part $part -mode out_of_context -flatten_hierarchy rebuilt]
+set opts [list -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
+              -directive $directive]
 if {[llength $generics]} { lappend opts -generic $generics }
 synth_design {*}$opts
 if {[llength [get_ports -quiet clk]]} {

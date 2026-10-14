@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 # (instance, module, parameter overrides, inputs [(port, width)], outputs [(port, width)])
 TOPS = [
     ("u_s2", "tg_s2_sched_top",
-     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0)",
+     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0), .WTAGS(S2_WTAGS)",
      [("rst_i", "1"), ("disp_valid_i", "S2_DW"), ("disp_queue_i", "S2_DW*S2_QW"),
       ("disp_tid_i", "S2_DW*TID_BITS"), ("disp_dep_i", "S2_DW*S2_NCOL"),
       ("disp_dep_ph_i", "S2_DW*S2_NCOL"), ("disp_wake_oh_i", "S2_DW*S2_NCOL"),
@@ -27,7 +27,7 @@ TOPS = [
      [("iss_valid_o", "S2_NQ"), ("iss_payload_o", "S2_NQ*64"), ("bank_free_o", "S2_NQ*S2_DW"),
       ("room_o", "S2_NQ*NUM_THREADS*S2_RMW"), ("busy_o", "S2_NCOL"), ("w_o", "S2_NCOL")]),
     ("u_s3", "tg_s3_top",
-     ".BYPASS(0), .RF3(0), .SEL_OH(0)",
+     ".BYPASS(0), .RF3(0), .SEL_OH(0), .MINMAX(0)",
      [("rst_i", "1"), ("rbank_i", "S3_NLOG*S3_BW"), ("ridx_i", "S3_NLOG*S3_IW"),
       ("a2_share_i", "1"), ("alu_valid_i", "N_ALU"), ("alu_ctl_i", "N_ALU*S3_CTL_W"),
       ("alu_dest_i", "N_ALU*S3_IW"), ("alu_imm_i", "N_ALU*64"), ("alu_sel_i", "N_ALU*2*S3_SW"),
@@ -35,7 +35,7 @@ TOPS = [
       ("ld_data_i", "64"), ("oth_valid_i", "1"), ("oth_dest_i", "S3_IW"), ("oth_data_i", "64")],
      [("alu_res_o", "N_ALU*64"), ("alu_flags_o", "N_ALU*3"), ("base_o", "128"), ("sd_o", "64")]),
     ("u_s4", "tg_s4_top",
-     ".ALIGN_M1(1)",
+     ".ALIGN_M1(0)",
      [("rst_i", "1"), ("ld_valid_i", "1"), ("base_sel_i", "2"), ("base_src_i", "256"),
       ("offset_i", "12"), ("size_i", "2"), ("unsigned_i", "1"), ("tid_i", "TID_BITS"),
       ("asid_i", "16"), ("dwe_i", "8"), ("dway_i", "S4_WAY_W"), ("daddr_i", "9"),
@@ -72,7 +72,8 @@ module tg_s6_core
   parameter int NDSP  = 0,     // filler DSP48E2 (MUL, FMA, Goldschmidt)
   parameter int SEED  = 1,
   parameter int BUS_W = 256,
-  parameter int S2_MX = 0      // the scheduler's matrix wakeup option
+  parameter int S2_MX = 0,     // the scheduler's matrix wakeup option
+  parameter int S2_WTAGS = 0    // the scheduler's wakeup tags (AR-1), 0 = ROB columns
 ) (
   input  logic             clk,
   input  logic [BUS_W-1:0] l2_in,     // from the L2 (registered there)
