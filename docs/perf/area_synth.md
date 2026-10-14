@@ -64,6 +64,38 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 | Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
 | Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
-## 4. Fill test at 180 MHz
+## 4. The real core, module by module (st, first synthesis)
+
+**Build:** `tg_core` from main d04ae26 (M2 plus M3 features, no FPU), configuration st, synthesis and `opt_design` with the hierarchy kept (`-flatten_hierarchy none`, so every module's count is exact). The command is `fpga/budget/hier_top.py` on the budget run's report.
+
+**Total: 82,549 LUTs.** The same design flattened is 88K, so keeping the hierarchy alone saves about 5.5K here, as it did on the scheduler (§3) at no timing cost.
+
+| Instance | LUTs | Share | Notes |
+|---|---|---|---|
+| `u_lsu` (whole LSU) | 34,430 | 41.7% | |
+| … `u_lsu/u_dc` (D-cache) | 13,231 | 16.0% | state and tags in flip-flops (the core track's suspect) |
+| … `u_lsu/u_pmp_ld`, `u_pmp_st` | 3,121 each | 7.6% | PMP checkers |
+| … `u_lsu/u_ptw` (with its PMP checker, 3,110) | 3,198 | 3.9% | |
+| … `u_lsu/u_dtlb` | 1,276 | 1.5% | |
+| … the rest (LQ/SQ, forwarding, MSHRs) | about 10.5K | 13% | |
+| `u_fetch` (whole front end) | 16,911 | 20.5% | |
+| … `u_fetch/g_pmp[0..3]` | 3,117 each | 15.1% | **four** PMP checkers |
+| … `u_fetch/u_cmp` (compaction, IQ) | 1,700 | 2.1% | |
+| `u_rn` (rename) | 11,903 | 14.4% | maps in flip-flops (lever R3 puts them in LUTRAM) |
+| `u_ex` (RF, ALUs, MUL, DIV, bypass) | 8,479 | 10.3% | `tg_irf` 2,568, two ALUs 1.2K each, DIV 1.3K |
+| `u_is` (scheduler, no FP queue yet) | 5,121 | 6.2% | |
+| `u_rob` | 2,736 | 3.3% | |
+| `u_csr` | 1,532 | 1.9% | the flattened build charged the PMP checkers here |
+| `u_de` | 1,399 | 1.7% | |
+
+**The PMP checkers are a quarter of the core.** There are seven copies at about 3.1K LUTs each: 16 entries, each compared against the address. Two no-IPC options, both legal under the privileged spec:
+- **One check per fetch block** with a PMP granularity of at least 16 bytes (G ≥ 2). A 16-byte aligned fetch block then never straddles a PMP boundary, and three of the four fetch checkers go: **−9.3K**.
+- **PMP results cached in the TLBs** with a 4 KiB granularity (G ≥ 10):
+  - Each TLB fill checks the page once, with the PTW's checker, and stores the permissions in the entry. Software executes `SFENCE.VMA x0, x0` after writing PMP CSRs, as the spec allows implementations that cache PMP results to require.
+  - Bare-mode accesses go through identity TLB entries, or keep one shared checker.
+  - That leaves one or two checkers instead of seven: **−15.6K to −18.7K**.
+  - OpenSBI's regions are already 4 KiB-aligned or coarser.
+
+## 5. Fill test at 180 MHz
 
 (being measured)
