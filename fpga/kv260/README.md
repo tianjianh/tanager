@@ -7,11 +7,13 @@ Owner: SoC track. Design: [docs/spec/soc.md](../../docs/spec/soc.md), host inter
 Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repository root, after `source tools/env.sh && source sw/env.sh`:
 
 ```bash
-bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
+TANAGER_VIVADO_MEM_GB=12 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+A full build declares 12 GB, which covers IP generation's child processes. `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context runs (`tcl/ooc_synth.tcl`) declare 4.
+
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
-- `core` builds the cores as `tg_core`, today's stubs.
+- `core` builds the real `tg_core`. A bitstream with it waits for the core track's area work (the coordinator's call).
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).
 
 | Output (in the run directory) | Use |

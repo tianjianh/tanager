@@ -152,6 +152,15 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 - **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)).
 - **On the board:** `tanager-host info`, `peek`/`poke` and a console loopback are the first bring-up checks.
 
+## History and lessons
+
+- **Estimate:** about 1K LUTs.
+- **First measurement:** 1,222 LUTs and 3,023 FFs of crossing registers (first traffic-generator build). Inside the uncore budget unit it was 3,335 LUTs and 5,971 FFs at smt2. Most of that was the trace ring's 320-bit record readback, the read multiplexer over it, and the status crossing (about 2.7K of the FFs).
+- **Trace streaming** moved the records to DDR, which the host reads directly. The `TRACE_*` registers became the `TRS_*` control registers, and the host bridge fell to 1,667 LUTs.
+- **Lessons:**
+  - **Wide data has no place on the AXI4-Lite side.** Records or buffers read through 32-bit registers cost LUTs and crossing flip-flops for every bit. A shared-memory ring that the A53 reads costs neither.
+  - **Every multi-bit value crosses through one handshake mirror** (XPM), so the CDC report has no unsafe endpoints. The crossing count grew from 525 to 629 safe endpoints with the `TRS_*` registers.
+
 ## Provenance
 
 - AXI4-Lite per ARM IHI 0022.

@@ -190,6 +190,19 @@ The board runs the same images (plan §11).
 
 **Starting point (2026-10-13):** the uncore and the KV260 flow, built with stub cores. That first build closed 100 MHz with WNS +2.463 ns, but synthesis removes most of the uncore when nothing drives it.
 
+**KV260 timing at 100 MHz** (WNS, [fpga/kv260/results.md](../../fpga/kv260/results.md)):
+
+| Build | WNS |
+|---|---|
+| stub cores | +2.463 ns |
+| first traffic-generator build | +0.928 ns |
+| after R15 | +1.701 ns |
+| after the primitive-check fixes | +1.093 ns |
+| UART and L2 tables in `tg_ram_lut` | +1.457 ns |
+| trace streaming on HP3 | +1.306 ns |
+
+Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds since then range from +1.09 to +1.70 ns, though none of the later changes targeted that path.
+
 **Changes and what each bought:**
 
 | Step | Result |
@@ -217,6 +230,7 @@ The board runs the same images (plan §11).
 - **A Kconfig choice silently keeps its default when its dependency is unset in the seed.** `INITRAMFS_COMPRESSION_NONE` needs `INITRAMFS_SOURCE` in the seed.
 - **Verilator `--threads 4` was slower than one thread** for the 1×1 SoC.
 - **Dead end:** the xPack toolchain's `ld` lacks PIE, which OpenSBI needs. OpenSBI is built with the Bootlin toolchain.
+- **QEMU first:** QEMU `virt` places its CLINT, PLIC, UART and DRAM where our map does. OpenSBI, Linux and the device tree booted there (§6) before any RTL ran them, so the RTL boot's problems were the RTL's.
 
 ## Provenance
 
