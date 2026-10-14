@@ -395,6 +395,9 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
   - **Synthetic logic** for the rest of §8.2's 13.3K uncore LUTs.
 - **Buses:** the cores reach the L2 over 256-bit registered buses that cross the chip.
 - **Sizing:** [`s6_size.py`](../../fpga/spikes/scripts/s6_size.py) splits a total LUT target. The uncore gets 13.3K; each core gets the rest, as the measured spike LUTs plus synthetic logic.
+  - **Calibration**, from two smt2 runs of 542 and 610 tiles: a tile costs 36.3 LUTs, and the filler's fixed glue about 1.85K per core.
+  - **The first sizing** used a per-tile cost measured before a DSP fix, so the first st and smt2 runs came out about 4K under target. The runner now retries a miss once, with the measured difference.
+- **The spike structures measure the same inside S6 as out of context, within 2%** (smt2: S2 8,744 vs 8,895, S3 5,252 vs 5,277, S4 2,840 vs 2,803, S5 2,613 vs 2,566). So the out-of-context numbers in §10 hold in the full design.
 - **Utilisation check:** each run stops after synthesis if CLB LUTs miss the target by more than 2.5%.
 
 **The fill test** (plan §8.5): the smt2 design (the v1 release core) filled to 80%, 85% and 90% of the XCK26's 117,120 LUTs, timed at 5.0 ns. Fmax = 1 / (5.0 ns − WNS).
