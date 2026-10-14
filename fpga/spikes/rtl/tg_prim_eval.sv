@@ -180,27 +180,28 @@ module tg_pp_mwff (
   end
 endmodule
 
-// T5: tg_cam_lut (SLICE 5) with and without the second read port, and the flip-flop CAM,
-// ENTRIES {16, 32, 64} x KEYW {20, 30, 40}. Output bit ((e * 3 + k) * 3 + i), i: 0 LUTRAM
-// with RMW_PORT, 1 LUTRAM without, 2 flip-flops.
+// T5: tg_cam_lut, ENTRIES {16, 32, 64} x KEYW {20, 30, 40}, as: i = 0 "m16" (SLICE 5) with
+// the second read port, 1 "m16" without it, 2 the flip-flop CAM, 3 "sw" (one-bit-write
+// tables). Output bit ((e * 3 + k) * 4 + i).
 module tg_pp_cam (
   input  logic clk, rst,
   input  logic [39:0] lk_key, wr_key,
   input  logic wr_valid, inv, flush,
   input  logic [5:0] wr_idx, inv_idx,
-  output logic [26:0] out
+  output logic [35:0] out
 );
   localparam int ES [3] = '{16, 32, 64};
   localparam int KS [3] = '{20, 30, 40};
   for (genvar e = 0; e < 3; e++) begin : g_e
     for (genvar k = 0; k < 3; k++) begin : g_k
-      for (genvar i = 0; i < 3; i++) begin : g_i
+      for (genvar i = 0; i < 4; i++) begin : g_i
         localparam int E = ES[e], K = KS[k], IW = $clog2(E);
         logic [E-1:0]  m;
         logic [IW-1:0] x;
         logic          h, v, wr, rd;
-        if (i < 2) begin : g_lut
-          tg_cam_lut #(.ENTRIES(E), .KEYW(K), .SLICE(5), .RMW_PORT(i == 0)) u (
+        if (i != 2) begin : g_lut
+          tg_cam_lut #(.ENTRIES(E), .KEYW(K), .PRIM((i == 3) ? "sw" : "m16"),
+                       .SLICE((i == 3) ? 6 : 5), .RMW_PORT(i == 0)) u (
             .clk, .rst, .ready(rd), .lk_key(lk_key[K-1:0]), .lk_match(m), .lk_hit(h),
             .lk_idx(x), .lk_valid(v), .wr_valid, .wr_ready(wr), .wr_idx(wr_idx[IW-1:0]),
             .wr_key(wr_key[K-1:0]), .inv, .inv_idx(inv_idx[IW-1:0]), .flush);
@@ -211,7 +212,7 @@ module tg_pp_cam (
             .inv_idx(inv_idx[IW-1:0]), .flush);
           assign v = 1'b1; assign wr = 1'b1; assign rd = 1'b1;
         end
-        assign out[(e * 3 + k) * 3 + i] = ^{m, x, h, v, wr, rd};
+        assign out[(e * 3 + k) * 4 + i] = ^{m, x, h, v, wr, rd};
       end
     end
   end
@@ -298,10 +299,12 @@ module tg_pt_mw #(
   end
 endmodule
 
+// SW = 1: PRIM "sw" (SLICE 6); else "m16" with SLICE and RMW_PORT. FF = 1: the flip-flop CAM.
 module tg_pt_cam #(
   parameter int ENTRIES = 64, KEYW = 40, SLICE = 5,
   parameter bit RMW_PORT = 1'b1,
   parameter bit FF = 1'b0,
+  parameter bit SW = 1'b0,
   localparam int IW = $clog2(ENTRIES)
 ) (
   input  logic clk, rst_i,
@@ -328,7 +331,8 @@ module tg_pt_cam #(
       .inv_idx, .flush);
     assign lk_valid = 1'b1; assign wr_ready = 1'b1; assign ready = 1'b1;
   end else begin : g_lut
-    tg_cam_lut #(.ENTRIES(ENTRIES), .KEYW(KEYW), .SLICE(SLICE), .RMW_PORT(RMW_PORT)) u (.*);
+    tg_cam_lut #(.ENTRIES(ENTRIES), .KEYW(KEYW), .PRIM(SW ? "sw" : "m16"), .SLICE(SW ? 6 : SLICE),
+                 .RMW_PORT(RMW_PORT)) u (.*);
   end
 endmodule
 

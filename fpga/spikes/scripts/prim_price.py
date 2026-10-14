@@ -61,13 +61,13 @@ def mw(d, dff):
 
 def cam(d):
     es, ks = (16, 32, 64), (20, 30, 40)
-    imps = ("LUTRAM, second read port", "LUTRAM, shared port", "Flip-flops")
+    imps = ("m16, second read port", "m16, shared port", "Flip-flops", "sw (one-bit writes)")
     a = instances(os.path.join(d, "util_hier.rpt"))
     print("| Entries x key bits | " + " | ".join(f"{m}: LUTs / memory LUTs / FFs" for m in imps) + " |")
     print("|---|" + "---|" * len(imps))
     for ei, e in enumerate(es):
         for ki, k in enumerate(ks):
-            cells = [cell(a[(ei, ki, i)]) if (ei, ki, i) in a else "—" for i in range(3)]
+            cells = [cell(a[(ei, ki, i)]) if (ei, ki, i) in a else "—" for i in range(len(imps))]
             print(f"| {e} x {k} | " + " | ".join(cells) + " |")
 
 

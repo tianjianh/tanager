@@ -9,11 +9,14 @@
 module tb_cam_lut #(
   parameter int ENTRIES  = 32,
   parameter int KEYW     = 32,
+  parameter     PRIM     = "m16",
   parameter int SLICE    = 5,
   parameter bit RMW_PORT = 1'b1
 );
   localparam int IW = $clog2(ENTRIES);
   localparam int NS = (KEYW + SLICE - 1) / SLICE;
+  localparam bit SW = PRIM == "sw";
+  localparam int SWEEP = SW ? ENTRIES : (1 << SLICE);   // reset sweep cycles
 
   logic clk = 1'b0;
   always #5 clk = ~clk;
@@ -22,7 +25,7 @@ module tb_cam_lut #(
   logic [KEYW-1:0]    lk_key, wr_key;
   logic [ENTRIES-1:0] lk_match;
   logic [IW-1:0]      lk_idx, wr_idx, inv_idx;
-  tg_cam_lut #(.ENTRIES(ENTRIES), .KEYW(KEYW), .SLICE(SLICE), .RMW_PORT(RMW_PORT)) dut (.*);
+  tg_cam_lut #(.ENTRIES(ENTRIES), .KEYW(KEYW), .PRIM(PRIM), .SLICE(SLICE), .RMW_PORT(RMW_PORT)) dut (.*);
 
   // reference
   logic [KEYW-1:0]    rkey [ENTRIES];
@@ -61,11 +64,11 @@ module tb_cam_lut #(
       @(negedge clk);
       // ---- check the combinational outputs of this cycle ----
       if (since_rst > 0) begin
-        if (ready != (since_rst > (1 << SLICE))) begin
+        if (ready != (since_rst > SWEEP)) begin
           errors++;
           if (errors < 10) $display("ERROR cycle %0d: ready %b, %0d cycles after reset", c, ready, since_rst);
         end
-        if (ready && lk_valid != (RMW_PORT || !(pend == 1 || pend == 2))) begin
+        if (ready && lk_valid != ((RMW_PORT && !SW) || !(pend == 1 || pend == 2))) begin
           errors++;
           if (errors < 10) $display("ERROR cycle %0d: lk_valid %b (write stage %0d)", c, lk_valid, pend);
         end
@@ -114,8 +117,8 @@ module tb_cam_lut #(
       errors++;
       $display("ERROR poor coverage: %0d hits, %0d multiple hits, %0d resets", nhit, nmulti, nrst);
     end
-    if (errors == 0) $display("PASS tb_cam_lut ENTRIES %0d KEYW %0d SLICE %0d RMW_PORT %0d (%0d lookups checked, %0d hits, %0d multi, %0d writes, %0d resets)",
-                              ENTRIES, KEYW, SLICE, RMW_PORT, nchk, nhit, nmulti, nwr, nrst);
+    if (errors == 0) $display("PASS tb_cam_lut %s ENTRIES %0d KEYW %0d SLICE %0d RMW_PORT %0d (%0d lookups checked, %0d hits, %0d multi, %0d writes, %0d resets)",
+                              PRIM, ENTRIES, KEYW, SLICE, RMW_PORT, nchk, nhit, nmulti, nwr, nrst);
     else $display("FAIL tb_cam_lut: %0d errors", errors);
     $finish;
   end
