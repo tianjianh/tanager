@@ -94,7 +94,7 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 | `fpga/kv260/xdc/kv260.xdc` | pin and I/O standard of the fan; clocks come from the PS and MMCM (derived automatically) |
 | `fpga/kv260/xdc/timing.xdc` | asynchronous clock groups between `clk_core` and `clk_host` (the host bridge's crossings are XPM macros with their own constraints) |
 
-- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for `fpgautil`.
+- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for the FPGA manager (`xmutil`).
 - **Loading under Linux:** a bitstream loaded at run time does not reconfigure the PS. `fpga/kv260/dtbo/tanager.dtso` is the device-tree overlay that sets `pl_clk0`, the fabric-interface widths (`xlnx,afi-fpga`) and a UIO node for the host window. `fpga/kv260/README.md` is the build and bring-up runbook.
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
 - **Pblocks:** later (spike S6, plan §7.5).
@@ -158,7 +158,7 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 1. The KV260 boots its standard Ubuntu image from SD, on the network, reachable by SSH with a key.
 2. **Carve-out:** the RISC-V DRAM window must be invisible to A53 Linux. The default plan is to boot with `mem=3G`, which leaves the top 1 GiB of the high DDR bank (`0x8_4000_0000`–`0x8_7FFF_FFFF`) unused. A `reserved-memory` node with `no-map` is the alternative. Spike S1 confirms the method and the SMMU bypass (plan §5.5).
 3. **SMMU:** the HP ports pass through the SMMU. If the board's Linux makes unknown stream IDs fault, add `arm-smmu.disable_bypass=0` to the kernel command line. Spike S1 confirms whether this is needed.
-4. **Load:** `fpgautil -b tanager.bit.bin -o tanager.dtbo` (the overlay above), or `xmutil` with a firmware package.
+4. **Load:** as the PL app `tanager` through dfx-mgr's `xmutil`, as for spike S1. The app is `tanager.bit.bin`, `tanager.dtbo` (the overlay above) and `shell.json` in `/lib/firmware/xilinx/tanager/`; then `xmutil unloadapp` and `xmutil loadapp tanager`. `fpga/kv260/package.sh` puts the files together with `tanager-host`.
 5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
 
 ## 8. Board stages C and D (design draft, DR-126)
@@ -325,6 +325,9 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 - **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.
   - Found from the commit trace (`+dump_pc`) and a testbench probe on the fetch unit. The race fired about 10 times in 27 M cycles, first inside OpenSBI.
   - Lockstep had not seen it: the test programs fit in the I$. Fixed by the core track.
+- **Host program, `tg start` (found by the board session, 2026-10-14):** it released the uncore without setting the DRAM window. The window resets to base 0, size 0, and size 0 denies every access, so the generators would have counted errors, not passes.
+  - `tb_soc` writes the window itself before it starts the generators, so no test ran `tanager-host`'s own sequence.
+  - Fixed: `tg start` writes the window from `--base`/`--size` while cores and uncore are held, as `load` does.
 - **Interface margin:** a trace sink that stalls from registered occupancy needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES` of headroom, not `TRACE_STALL_HEADROOM`'s 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` (verification.md §2.9).
   - The SoC run with the test core overflowed a lane at 2 ×.
   - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
@@ -333,6 +336,7 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 - **2026-10-14, core track (DR-120):** `tg_map_pkg::pma_of` matches its naturally aligned power-of-two regions by prefix: 10 LUTs per instance instead of 136 and 17 CARRY8, with identical results for every address. `tg_xbar`'s address decode uses it too. The range test is kept for any unaligned region, and `tg_core` warns at elaboration if one appears.
 
 **Lessons:**
+- **A test bench that repeats the host program's register sequence does not test the host program.** `tb_soc` took its sequence from this document, not from `tanager-host.c`, and only `tanager-host` had the bug.
 - **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
 - **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
 - **Run every queued Vivado or simulation job on a snapshot** (`git archive`). A job that starts later otherwise measures whatever the working tree holds by then.

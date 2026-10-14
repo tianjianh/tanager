@@ -119,12 +119,14 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 | `tanager-host boot …` | load, then run |
 | `tanager-host reset` | hold cores and uncore in reset |
 | `tanager-host inj [--rd N] [--wr N] [--mode M] [--bw R] [--stats]` | change or read the injector |
+| `tanager-host tg start [LINES] [--base A --size S]` | traffic-generator bitstreams ([soc.md](soc.md) §2.3): steps 1–3 without images (hold everything, set the window, release the uncore, wait for the L2), then `TG_LINES`, `TG_CTRL = 1`, `CTRL = 0x0` |
+| `tanager-host tg stop`, `tg status` | stop the generators; print passes, operations, errors and the first failing line |
 | `tanager-host peek/poke <off> [val]` | raw register access (bring-up) |
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
-- **Bitstream:** loaded beforehand with the board's standard tool (`fpgautil`, or `xmutil` with a firmware package), and recorded in [soc.md](soc.md) §7.
+- **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.
 
 ## Parameters
