@@ -468,13 +468,15 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
   - **What replaces them:** a pool of 16 wakeup tags, for the producers that need one: multi-cycle fixed-latency ops (MUL, complex Zbb, the FMA, FP misc and move ops) and serialised ops.
   - **The other producers are already covered:** MX covers every 1-cycle producer, and LLTs cover loads, divides and long FP ops.
   - **Exact in the model:** 0.00% IPC at 30, 120 and 250 cycles, on every pair, the single-thread suite, and in v1, v2 and ST. There were 0 tag stalls.
-  - **Saving (estimate, to be confirmed by an S2 build at 40 columns):**
+  - **Saving, measured (spike S2, 2026-10-14, whole scheduler at 200 MHz).** It beats the study's estimate (v1 2.7–3.0K, v2 4.7–5.0K, ST 1.0–1.2K):
 
-    | Configuration | Per core |
-    |---|---|
-    | v1 | 2.7–3.0K |
-    | v2 | 4.7–5.0K |
-    | ST | ≈1.0–1.2K |
+    | Configuration | ROB columns with MX | 16 wakeup tags | Saved | Slack |
+    |---|---|---|---|---|
+    | ST | 6,425 | 4,802 | −1,623 (−25%) | +0.145 → +0.518 ns |
+    | v1 (SMT2) | 8,895 | **5,506** | **−3,389 (−38%)** | +0.112 → +0.218 ns |
+    | v2 (SMT2 + 3-wide) | 12,515 | 7,703 | −4,812 (−38%) | +0.057 → +0.026 ns |
+
+    v1's scheduler is now about 2.8K under its 8.35K budget ([budgets.md](perf/budgets.md)).
 
   - **Consequence:** the window size no longer sets the scheduler's LUTs.
 - **Wakeup timing:**
