@@ -322,7 +322,7 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
-**Status: ready for the board.** The design, the A53 program and the steps for you are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
+**Status: the bitstream is built and meets 200 MHz (WNS +0.513 ns; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile).** It is ready for the board. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
 
 **What it measures.**
 - **Latency**, in 5 ns core cycles at the PL port, from the read-address handshake to the first data beat: what the L2 sees on a miss.
@@ -336,10 +336,11 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 - **Fan:** the KV260 fan is held on.
 - **Device-tree overlay:** sets the AFI port widths. If they are not set, the PS and PL disagree on the bus width.
 
-**Simulation.** `fpga/spikes/s1/sim/tb_s1.sv` runs the PL logic against AXI memory models with random latency and out-of-order responses. It passes, on three seeds:
+**Timing.** The first build missed 200 MHz by 0.425 ns: the PS port's response ID went through the slot mux, the latency subtract, the histogram shift and saturate, and into the histogram BRAM's address, 12 levels in one cycle. The engine now registers the responses as they leave the PS port, then the latency sample, then the histogram bin. The issue time is stored as the handshake cycle + 1, so the measured latency is unchanged.
+
+**Simulation.** `fpga/spikes/s1/sim/tb_s1.sv` runs the PL logic against AXI memory models with random latency and out-of-order responses. It passes on four seeds:
 - the chase follows the chain;
-- latencies match the model;
-- the histogram sums to the count;
+- the engine's count, sum, minimum, maximum and every histogram bin match a reference computed from the port handshakes. That check found a lost update in the first histogram design: the BRAM is read-first, so a read missed the write at its own clock edge. A fourth forwarding stage fixes it;
 - two engines stream at about one beat per cycle together;
 - writes carry the right `wlast`.
 
