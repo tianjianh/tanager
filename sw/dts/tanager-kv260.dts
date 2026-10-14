@@ -1,0 +1,21 @@
+// Tanager on the KV260: the SoC's own devices (docs/spec/soc.md §4).
+// Build-time choices (passed by sw/dts/Makefile): TG_NUM_CORES, TG_NUM_THREADS, TG_MEM_SIZE, TG_FPU.
+/dts-v1/;
+
+#define TG_POWER_NODE hostctl
+#define TG_POWER_OFFSET 0x20
+#include "tanager.dtsi"
+
+/ {
+	model = "Tanager on KV260";
+
+	soc {
+		// Host control block (docs/spec/host.md §3): boot parameters, mailbox, power requests.
+		hostctl: syscon@10001000 {
+			compatible = "tanager,hostctl", "syscon";
+			reg = <0x0 0x10001000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <11>;
+		};
+	};
+};

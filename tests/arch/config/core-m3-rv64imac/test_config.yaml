@@ -1,0 +1,12 @@
+# ACT4 configuration for tg_core at M3: the plan §4.1 day-one ISA without F/D (M5): RV64IMAC, Zba, Zbb,
+# Zbs, Zicond, Zihintpause, Zicntr, Zihpm, Zkt, Za64rs; M, S and U; Sv39, Sstc, Svinval, Svade; 16 PMP
+# entries (docs/spec/verification.md §6.1).
+name: core-m3-rv64imac
+compiler_exe: riscv-none-elf-gcc
+objdump_exe: riscv-none-elf-objdump
+ref_model_exe: sail_riscv_sim
+udb_config: core-m3-rv64imac.yaml
+linker_script: ../link.ld
+dut_include_dir: .
+# testgen: I,M,Zmmul,Zicntr,Zicsr,Zifencei,Zaamo,Zalrsc,Zca,Zba,Zbb,Zbs,Zicond,Zihintpause,Zihpm,ExceptionsSm,InterruptsSm,ExceptionsU,ExceptionsS,InterruptsS,ExceptionsZaamo,ExceptionsZalrsc,ExceptionsZc
+# replay: --isa=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs --priv=MSU --pmp=16

@@ -1,7 +1,10 @@
 // FMA unit: (+-a x b) +- c with one rounding, for FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD
-// in S and D (docs/spec/fpu.md, "FMA unit"). Single-path datapath with the addend aligned in a
-// window to the left of the product; five stages E0..E4, response FMA_LAT = 5 cycles
-// after the request.
+// in S and D (docs/spec/fpu.md, "FMA unit"), and, by lever R5, the FP->FP and integer->FP
+// conversions, which reuse its normaliser and rounder:
+//   FCVT.F.F  a x 1.0 with no addend, a in src_fmt, rounded to fmt
+//   FCVT.F.I  |x| placed in the adder at V[164:101] (V[164] weighs 2^63), the product off
+// Single-path datapath with the addend aligned in a window to the left of the product; five
+// stages E0..E4, response FMA_LAT = 5 cycles after the request.
 //
 // Window coordinates ("V"): V[164:1] is the window (product in V[109:4], addend from
 // V[164:112] downwards), V[0] collects the sticky of whatever falls below it, and bit 165 is the
@@ -33,32 +36,47 @@ module tg_fpu_fma
   fpu_req_t q;
   assign q = req_i;
 
-  logic dbl, is_add, has_c, neg_prod, neg_add;
-  assign dbl      = (q.fmt == FMT_D);
+  logic dbl, sdbl, cvt_f, cvt_i, is_add, one_b, has_c, neg_prod, neg_add;
+  assign dbl      = (q.fmt == FMT_D);                    // result format
+  assign cvt_f    = (q.op == FOP_FCVT_F_F);
+  assign cvt_i    = (q.op == FOP_FCVT_F_I);
+  assign sdbl     = cvt_f ? (q.src_fmt == FMT_D) : dbl;  // format of the FP operands
   assign is_add   = (q.op == FOP_FADD) || (q.op == FOP_FSUB);
-  assign has_c    = (q.op != FOP_FMUL);
+  assign one_b    = is_add || cvt_f;                     // b reads as 1.0
+  assign has_c    = !(q.op == FOP_FMUL || cvt_f || cvt_i);
   assign neg_prod = (q.op == FOP_FNMSUB) || (q.op == FOP_FNMADD);
   assign neg_add  = (q.op == FOP_FSUB) || (q.op == FOP_FMSUB) || (q.op == FOP_FNMADD);
 
   fp_unp_t ua, ub, uc, ub_raw, uc_raw;
-  assign ua     = unpack(q.a, dbl);
-  assign ub_raw = unpack(q.b, dbl);
-  assign uc_raw = unpack(q.c, dbl);
+  assign ua     = unpack(q.a, sdbl);
+  assign ub_raw = unpack(q.b, sdbl);
+  assign uc_raw = unpack(q.c, sdbl);
   always_comb begin
-    // FADD/FSUB: a x 1.0 + b
-    if (is_add) begin
+    // FADD/FSUB: a x 1.0 + b; FCVT.F.F: a x 1.0
+    if (one_b) begin
       ub = '0;
       ub.exp = EXP_W'(D_BIAS);
       ub.sig = {1'b1, 52'b0};
-      uc = ub_raw;
     end else begin
       ub = ub_raw;
-      uc = uc_raw;
     end
+    uc = is_add ? ub_raw : uc_raw;
+  end
+
+  // FCVT.F.I: the integer source in a, sign-extended or zero-extended per ifmt
+  logic        x_neg;
+  logic [63:0] x_val;
+  always_comb begin
+    unique case (q.ifmt)
+      IFMT_W:  begin x_val = {{32{q.a[31]}}, q.a[31:0]}; x_neg = q.a[31]; end
+      IFMT_WU: begin x_val = {32'b0, q.a[31:0]};         x_neg = 1'b0;    end
+      IFMT_L:  begin x_val = q.a;                        x_neg = q.a[63]; end
+      default: begin x_val = q.a;                        x_neg = 1'b0;    end
+    endcase
   end
 
   logic sp, sc, eff_sub;
-  assign sp      = ua.sign ^ ub.sign ^ neg_prod;
+  assign sp      = cvt_i ? x_neg : (ua.sign ^ ub.sign ^ neg_prod);
   assign sc      = uc.sign ^ neg_add;
   assign eff_sub = has_c && (sp != sc);
 
@@ -77,7 +95,12 @@ module tg_fpu_fma
     inf_m_inf  = prod_inf && c_inf && (sp != sc);
     spec_nv    = snan_in || inf_x_zero || inf_m_inf;
     spec       = 1'b1;
-    if (nan_in || inf_x_zero || inf_m_inf) spec_res = cnan(dbl);
+    if (cvt_i) begin                       // integer source: only zero is special (+0)
+      spec     = x_val == '0;
+      spec_nv  = 1'b0;
+      spec_res = zero_value(dbl, 1'b0);
+    end
+    else if (nan_in || inf_x_zero || inf_m_inf) spec_res = cnan(dbl);
     else if (prod_inf)                     spec_res = inf_value(dbl, sp);
     else if (c_inf)                        spec_res = inf_value(dbl, sc);
     else if (prod_zero && c_zero)          // exact zero: x + x keeps the sign; +0 - +0 is +0 (RDN: -0)
@@ -89,25 +112,25 @@ module tg_fpu_fma
   end
 
   // Exponents. E0 only forms the sums, straight from the encoding fields (a subnormal field reads
-  // 1) with the format's bias folded into constants; E1 clamps and selects (double bias):
+  // 1) with the operand format's bias folded into constants; E1 clamps and selects (double bias):
   //   ep  = ea + eb - bias        product exponent      (S: + 896 to reach double bias)
   //   shr = ep - ec + 56          right shift of the addend, from V[164:112]
   logic [10:0] fa_e, fb_e, fc_e;
   // (an improperly boxed S operand is a NaN, whose result ignores these exponents)
   always_comb begin
     logic [10:0] ra, rb, rc;
-    ra = dbl ? q.a[62:52] : {3'b0, q.a[30:23]};
-    rb = is_add ? (dbl ? 11'd1023 : 11'd127) : (dbl ? q.b[62:52] : {3'b0, q.b[30:23]});
-    rc = is_add ? (dbl ? q.b[62:52] : {3'b0, q.b[30:23]}) : (dbl ? q.c[62:52] : {3'b0, q.c[30:23]});
+    ra = sdbl ? q.a[62:52] : {3'b0, q.a[30:23]};
+    rb = one_b ? (sdbl ? 11'd1023 : 11'd127) : (sdbl ? q.b[62:52] : {3'b0, q.b[30:23]});
+    rc = is_add ? (sdbl ? q.b[62:52] : {3'b0, q.b[30:23]}) : (sdbl ? q.c[62:52] : {3'b0, q.c[30:23]});
     fa_e = (ra == '0) ? 11'd1 : ra;
     fb_e = (rb == '0) ? 11'd1 : rb;
     fc_e = (rc == '0) ? 11'd1 : rc;
   end
   logic signed [13:0] ep0, shr0, ec0;
-  assign ep0  = $signed({3'b0, fa_e}) + $signed({3'b0, fb_e}) + (dbl ? -14'sd1023 : 14'sd769);
+  assign ep0  = $signed({3'b0, fa_e}) + $signed({3'b0, fb_e}) + (sdbl ? -14'sd1023 : 14'sd769);
   assign shr0 = $signed({3'b0, fa_e}) + $signed({3'b0, fb_e}) - $signed({3'b0, fc_e})
-              + (dbl ? -14'sd967 : -14'sd71);
-  assign ec0  = $signed({3'b0, fc_e}) + (dbl ? 14'sd0 : 14'sd896);
+              + (sdbl ? -14'sd967 : -14'sd71);
+  assign ec0  = $signed({3'b0, fc_e}) + (sdbl ? 14'sd0 : 14'sd896);
 
   // ---- E0 -> E1 registers ----
   typedef struct packed {
@@ -118,6 +141,7 @@ module tg_fpu_fma
     logic [63:0] spec_res;
     logic        sp, sc, eff_sub, prod_sticky;
     logic        prod_zero, c_zero;
+    logic        cvt_i;         // FCVT.F.I: the adder takes |x| instead of the product and addend
     logic [13:0] ep, shr, ec;   // signed (E0 -> E1)
     logic [13:0] e_top, lim;    // signed (from E1)
   } ctl_t;
@@ -129,6 +153,7 @@ module tg_fpu_fma
     c0.spec = spec; c0.spec_nv = spec_nv; c0.spec_res = spec_res;
     c0.sp = sp; c0.sc = sc; c0.eff_sub = eff_sub; c0.prod_sticky = 1'b0;
     c0.prod_zero = prod_zero; c0.c_zero = c_zero;
+    c0.cvt_i = cvt_i;
     c0.ep = ep0; c0.shr = shr0; c0.ec = ec0;
     c0.e_top = '0; c0.lim = '0;
   end
@@ -141,6 +166,7 @@ module tg_fpu_fma
   logic [51:0] fa_q, fb_q;
   logic        ha_q, hb_q;
   logic [52:0] mc_q;
+  logic [63:0] x_q;
   always_ff @(posedge clk) begin
     a0_q <= ua.sig[25:0];
     a1_q <= ua.sig[51:26];
@@ -151,7 +177,8 @@ module tg_fpu_fma
     fb_q <= ub.sig[51:0];
     ha_q <= ua.sig[52];
     hb_q <= ub.sig[52];
-    mc_q <= c_zero ? '0 : uc.sig;     // FMUL has no addend
+    mc_q <= c_zero ? '0 : uc.sig;     // FMUL and the conversions have no addend
+    x_q  <= x_val;
     c1_q <= c0;
   end
 
@@ -183,7 +210,10 @@ module tg_fpu_fma
   ctl_t       c1x;
   always_comb begin
     c1x = c1_q;
-    if (c1_q.prod_zero) begin             // a zero product: the addend anchors the window
+    if (c1_q.cvt_i) begin                 // integer source: V[164] weighs 2^63
+      sh = 8'(SH_MAX);
+      c1x.e_top = 14'sd1086;
+    end else if (c1_q.prod_zero) begin    // a zero product: the addend anchors the window
       sh = 8'd0;
       c1x.e_top = c1_q.ec;
     end else if (c1_q.c_zero) begin       // no addend: the product anchors
@@ -205,9 +235,15 @@ module tg_fpu_fma
   logic [VW-1:0] cal;
   tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh, .cal);
 
-  logic [VW:0] cop_q;           // addend operand of the adder: C or ~C (166 bits)
+  // FCVT.F.I: |x| (negating in E1, beside the alignment)
+  logic [63:0] x_abs;
+  assign x_abs = c1_q.sp ? -x_q : x_q;
+
+  logic [VW:0] cop_q;           // addend operand of the adder: C, ~C or |x| (166 bits)
   always_ff @(posedge clk) begin
-    cop_q <= c1_q.eff_sub ? ~{1'b0, cal} : {1'b0, cal};
+    if (c1_q.cvt_i)        cop_q <= {1'b0, x_abs, {(VW-64){1'b0}}};
+    else if (c1_q.eff_sub) cop_q <= ~{1'b0, cal};
+    else                   cop_q <= {1'b0, cal};
     c2_q  <= c1x;
   end
 
@@ -219,7 +255,8 @@ module tg_fpu_fma
   logic          rsign;
   tg_fpu_fma_add #(.W(VW)) u_add (
     .t00(t00_q), .t01(t01_q), .t02(t02_q), .t10(t10_q), .t11(t11_q), .t12(t12_q),
-    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .eff_sub(c2_q.eff_sub), .sp(c2_q.sp), .sc(c2_q.sc),
+    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .prod_off(c2_q.cvt_i), .eff_sub(c2_q.eff_sub),
+    .sp(c2_q.sp), .sc(c2_q.sc),
     .mag, .rsign
   );
 
@@ -338,7 +375,7 @@ module tg_fpu_fma
 
   logic unused;
   assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim,
-                    ub_raw.sign, uc_raw, q.src_fmt, q.ifmt, c4_q.e_top, c4_q.lim,
+                    ub_raw.sign, uc_raw, c4_q.e_top, c4_q.lim, c4_q.cvt_i, c3_q.cvt_i,
                     c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky, c4_q.prod_zero, c4_q.c_zero,
                     c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,
                     c3_q.ec, c2_q.prod_zero, c2_q.c_zero, c2_q.ep, c2_q.shr, c2_q.ec, c2_q.lim,
@@ -352,7 +389,7 @@ module tg_fpu_fma
   always_ff @(posedge clk) begin
     if (!rst && valid_i) begin
       assert (q.fmt != FMT_H) else $error("tg_fpu_fma: FMT_H is not implemented");
-      assert (q.op inside {FOP_FADD, FOP_FSUB, FOP_FMUL, FOP_FMADD, FOP_FMSUB, FOP_FNMSUB, FOP_FNMADD})
+      assert (fpu_unit_of(q.op) == FU_FMA)
         else $error("tg_fpu_fma: operation %0d belongs to another unit", q.op);
     end
   end

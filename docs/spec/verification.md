@@ -1,6 +1,6 @@
 # Verification infrastructure: harness, lockstep, runners
 
-**Status:** implemented for M2 (§1–§5), 2026-10-13; M3 items (§6) to come. Owner: verification track (conventions §7). Implements plan §9.
+**Status:** implemented for M2 (§1–§5) and the M3 items (§6), 2026-10-13. Owner: verification track (conventions §7). Implements plan §9.
 
 What the verification track gives the other tracks:
 
@@ -13,7 +13,7 @@ What the verification track gives the other tracks:
 | riscv-tests runner | `tests/isa/` | M2 |
 | CoreMark and Dhrystone for the simulation platform | `tests/bench/` | M2 |
 | `make regress CFG=...` | `tools/ci/` | M2 |
-| riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3: Sail installed, framework dependencies requested |
+| riscv-arch-test ACT4 flow with Sail: configurations for the test core, the M2 core and the M3 core | `tests/arch/` | M3, done |
 | Constrained-random instruction generator | `tests/random/` | M3, done |
 | Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
 
@@ -27,9 +27,10 @@ sim/run.sh CFG=st prog.elf             # build if needed, then run one ELF with 
 make -C tests/isa CFG=st SUITES="rv64ui-p rv64um-p"   # riscv-tests, pass/fail summary
 make -C tests/bench CFG=st run         # CoreMark (flag sets A and B) and Dhrystone
 make regress CFG=st                    # everything above for one configuration
+make -C tests/arch CFG=st CORE=tcore   # riscv-arch-test (ACT4): self-checking tests from Sail, run with lockstep
 ```
 
-- **Build trees:** `$TANAGER_BUILD/<worktree>/sim/<cfg>-<core>/tg_vsim`, `.../sim/replay/tg_replay`, `.../bench/<march>-i<iter>-r<runs>/`, logs under `.../regress/` and `.../isa-logs/` (conventions §1). Nothing is written into the repository; passing tests leave no logs.
+- **Build trees:** `$TANAGER_BUILD/<worktree>/sim/<cfg>-<core>/tg_vsim`, `.../sim/replay/tg_replay`, `.../bench/<march>-i<iter>-r<runs>/`, `.../arch/<config>/`, logs under `.../regress/`, `.../isa-logs/` and `.../arch/logs/` (conventions §1). Nothing is written into the repository; passing tests leave no logs.
 - **A first build** takes about a minute (Verilator, ccache); rebuilds after a C++ or SystemVerilog change take seconds for the test core.
 - **When something fails,** the last lines of the run say why (`TG-RESULT status=...` and the `tg_vsim:` line above it). A lockstep mismatch prints the report of §3.6. Rerun the same command with `--fst=wave.fst --fst-from=<cycle>` for a waveform, or `--log=trace.txt` for every commit record with disassembly.
 
@@ -45,6 +46,7 @@ make regress CFG=st                    # everything above for one configuration
 - **ISA and privilege modes:** the default Spike configuration for `CORE=core` is `rv64im_zicsr_zicntr_zifencei`, privilege `M`, 16 PMP regions (M2). Widen it per build (`make -C sim CFG=st ISA=... PRIV=MSU PMP=16`) or per run (`--isa`, `--priv`, `--pmp`) as features land, and tell the verification track so the regression defaults follow.
 - **Reset values** that Spike chooses and the core may not: PMP entry 0 (`--pmp-reset=off`), `mtvec` 0, `mstatus.MPP` = U (or M without U). A mismatch on the first read of such a CSR is this.
 - **Debugging a mismatch:** the report (§3.6) gives both sides' last 32 instructions. `--log=<file>` writes every record with disassembly; `--fst=<file> --fst-from=<cycle>` dumps waves from shortly before the failing cycle; `--no-lockstep` runs without Spike.
+- **Architecture tests:** `make -C tests/arch CFG=st` runs the M2 configuration's ACT4 tests on `tg_core` (§6.1): 113 tests, plus 16 PMP tests excluded until PMP checks arrive in M3. `ACTCFG=core-m3-rv64imac` runs the M3 configuration once the core has the M3 ISA. Each test checks itself against Sail's results and runs in lockstep.
 - **Before a merge request:** `make regress CFG=st` and `make regress CFG=st_w3` (conventions §6).
 
 ## 2. The harness (`tg_vsim`)
@@ -124,8 +126,9 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
   |---|---|---|
   | UART | `UART_BASE` | 16550 subset, byte registers: THR (0) prints to the console; LSR (5) reads `0x60` (transmitter empty); the other registers read back what was written; DLAB is honoured for DLL/DLM |
   | CLINT | `ACLINT_BASE` | CLINT layout: `msip[h]` at `+0x0000 + 4h`, `mtimecmp[h]` at `+0x4000 + 8h`, `mtime` at `+0xBFF8`. Drives `irq_msi_i`, `irq_mti_i` and `mtime_i`. `mtime` advances by one every `--mtime-div` cycles (default 20, which is 10 MHz at a 200 MHz core clock). |
+  | Interrupt generator | `0x0C00_0004` (in the PLIC's region) | The register of Sail's "simple interrupt generator", which ACT4's interrupt tests use (§6.1). A 32-bit write with bit 31 set raises the lines named by the other set bits; without bit 31 it lowers them. Bit 11 drives `irq_mei_i`, bit 9 `irq_sei_i`, bit 1 `irq_ssi_i`, for every hart. Reads return zero. |
 
-  Other device regions read as zero and ignore writes. The PLIC is not modelled: `irq_mei_i` and `irq_sei_i` come from the random interrupt source (`--irq-rand`, §2.7) and are otherwise zero.
+  Other device regions read as zero and ignore writes. The PLIC itself is not modelled (the SoC's PLIC is the soc track's): `irq_mei_i` and `irq_sei_i` come from the interrupt generator and from the random interrupt source (`--irq-rand`, §2.7).
 
 ### 2.5 DRAM latency model
 
@@ -138,7 +141,7 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 
 - **Link address:** programs are linked at `0x8000_0000`; the core boots there (`boot_addr_i`, `--boot` to change).
 - **Console:** the 16550 THR at `UART_BASE`. `tests/bench/bsp` has the start-up code and newlib stubs.
-- **Exit:** a riscv-tests-style write to the 8-byte `tohost` symbol, seen in the commit trace as a retired store (`mem_st`) whose `mem_vaddr` is `tohost` (or one of its aliases, below):
+- **Exit:** a riscv-tests-style write to the 8-byte `tohost` symbol, seen in the commit trace as retired stores (`mem_st`) to `tohost` (or one of its aliases, below). The harness keeps a copy of the 8 bytes; a command is complete when a store reaches the top byte, so one 64-bit store and the two 32-bit stores of riscv-tests and ACT4 (`sw value, tohost; sw high, tohost+4`) both work:
   - value bit 0 set: the program exits with code `value >> 1`; 0 is a pass;
   - value with device 1, command 1 (`0x0101 << 48 | c`): character `c` for the console; the harness prints it. It cannot clear `tohost` behind a cached line, so a program that waits for that is stopped as a failure with the text printed so far;
   - any other value is a failure (`unexpected tohost value`).
@@ -208,10 +211,11 @@ TG-RESULT status=PASS code=0 cycles=123456 instret=98765 ipc=0.800 khz=21.3 regi
 | WFI | a no-op in Spike | the RTL decides what follows: the next record, or a `TR_IRQ` |
 | Reset PC | `--boot` (default `0x8000_0000`) | |
 
-**ISA strings** (`sim/cfg/<cfg>.mk`, overridable):
-- M2 (core alpha): `rv64im_zicsr_zifencei`, privilege `M`. The core track widens it as features land.
-- M3 and later (plan §4.1, day one): `rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs`, privilege `MSU`.
-- `tg_tcore`: `rv64im_zicsr_zifencei_zicntr`, privilege `MU`.
+**ISA strings** (defaults per core in `sim/Makefile`; `make -C sim ISA=... PRIV=... PMP=...` or `--isa`, `--priv`, `--pmp` per run):
+- M2 (core alpha): `rv64im_zicsr_zicntr_zifencei`, privilege `M`, 16 PMP regions. The core track widens it as features land.
+- M3 (plan §4.1, day one, until the FPU joins at M5): `rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs`, privilege `MSU`, 16 PMP regions. This is the ACT4 configuration `core-m3-rv64imac` (§6.1).
+- M5 and later: the same with `f` and `d` (`rv64imafdc_...`).
+- `tg_tcore`: `rv64im_zicsr_zicntr_zifencei`, privilege `MU`, no PMP.
 
 ### 3.3 Per-record algorithm
 
@@ -285,6 +289,8 @@ Two independent ways, both in `make regress`:
    - and **fault injection**: one wrong field (PC, rd, value, store data, cause, a missing writeback, a reused tag) at a random record. The run passes only if the checker reports that exact fault.
 
    It runs every riscv-tests binary of every suite, `-p` and `-v`, through the checker in seconds. A fault the program gives no chance to inject (for example a deferred writeback in a program without loads) is reported as not applicable.
+
+   **Platform:** the replaying Spike sees the devices of §2.4: the UART (its output is the console), a CLINT whose `mtime` advances once per `--mtime-div` retired instructions (Spike's `time` CSR follows it, and so does Sstc's `stimecmp` comparison), and the interrupt generator. `MTIP`, `MSIP` and `MEIP` follow the device levels; `SEIP` and `SSIP`, which software may also write, are set or cleared only when the generator's line changes, as Sail and Spike's own PLIC do. Interrupts the replaying Spike takes become `TR_IRQ` records. Loads from device regions are marked `mmio_ld` when the access is untranslated (M-mode without MPRV, or satp Bare). `--isa`, `--priv` and `--pmp` configure both Spikes. ACT4 uses this to check its configurations (§6.1).
 2. **The test core** (§5) runs the riscv-tests suites it supports, CoreMark and Dhrystone through the whole harness (TileLink models, trace, lockstep).
 
 **Results on 2026-10-13** (`tools/ci/checker_selftest.py`, 9 s):
@@ -326,14 +332,15 @@ The checker found its first real bug the same day: the test core lost deferred w
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options):
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4):
 1. builds `tg_vsim` for the configuration and `tg_replay`;
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
 4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
 5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
-6. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
-7. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+6. with `ARCH=1`, runs the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
+7. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+8. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -358,14 +365,57 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ### 6.1 riscv-arch-test (ACT4) with Sail
 
-**Status (2026-10-13):** Sail is installed; the framework waits for its dependencies.
-- **How ACT4 works** (act4 branch, pinned in `tools/versions.sh`): the framework selects the tests that apply to a DUT from its UDB configuration, compiles them, runs them on Sail to compute the expected results, and compiles those results into self-checking ELFs. The DUT only has to run each ELF; the test prints `RVCP-SUMMARY: TEST PASSED|FAILED` and halts through `RVMODEL_HALT_PASS|FAIL`.
-- **Sail:** sail-riscv 0.15 (the version act4 requires), prebuilt release `sail-riscv-Linux-x86_64.tar.gz`, sha256 `8bb3626a…2e143`, at `$TANAGER_OPT/sail-0.15` (11 MB).
-- **Missing on the build host** (requested from the coordinator): Ruby ≥ 3.2 with Bundler and the UDB gems of ACT4's `Gemfile.lock` (the framework uses them to expand the configuration and generate `rvtest_config.h`), and the framework's Python packages (pydantic, pyjson5, ruamel.yaml, typer) in a venv.
-- **Plan once they are installed:**
-  - DUT configurations in `tests/arch/config/` for the test core (RV64IM, M and U), the M2 core (RV64IM, M) and the M3 core (the plan §4.1 ISA with S, Sv39 and 16 PMP regions): `test_config.yaml`, the UDB file, `sail.json`, `link.ld` (our map: RAM at `0x8000_0000`), and `rvmodel_macros.h` (halt through `tohost`, console on the 16550 at `UART_BASE`, CLINT `msip`/`mtime`/`mtimecmp`, access faults below the boot ROM);
-  - a runner, `make -C tests/arch CFG=... CORE=...`, that builds the ELFs into the build tree and runs each one in `tg_vsim` with lockstep: a pass needs both the self-check and lockstep;
-  - external-interrupt tests need a software-triggerable source: a minimal PLIC model in the harness with the 16550's transmit interrupt as a source, as other DUT configurations do.
+**Status (2026-10-13):** implemented. Three configurations; all their tests pass Spike against Spike, and the test core passes its configuration in `tg_vsim` with lockstep.
+
+**How ACT4 works** (act4 branch, pinned in `tools/versions.sh`): the framework selects the tests that apply to a DUT from its UDB configuration, compiles them, runs them on Sail to compute the expected results, and compiles those results into self-checking ELFs. The DUT only runs each ELF: the test prints `RVCP-SUMMARY: TEST PASSED|FAILED` and halts through `RVMODEL_HALT_PASS|FAIL`. In the Sail runs the framework's own macros (`tests/env/sail_macros.h`) replace the DUT's, so the DUT's macros only need to have the same architectural effect.
+
+**Commands** (after `source tools/env.sh`):
+
+```bash
+make -C tests/arch CFG=st CORE=tcore                     # ACTCFG=tcore-rv64im: build the ELFs, run them in tg_vsim
+make -C tests/arch CFG=st                                # CORE=core, ACTCFG=core-m2-rv64im
+make -C tests/arch CFG=st ACTCFG=core-m3-rv64imac        # once tg_core has the M3 ISA
+make -C tests/arch replay ACTCFG=core-m3-rv64imac        # the same ELFs, Spike against Spike (tg_replay)
+make -C tests/arch elfs ACTCFG=...                       # only generate and build the ELFs
+make -C tests/arch clean
+```
+
+- **Steps:** `elfs` copies the framework's `tests/env` and committed privileged tests into the build tree, runs `testgen` for the suites on the `# testgen:` line of the configuration's `test_config.yaml` (the generated tests are not committed upstream), runs `act` (UDB validation, test selection, Sail, compilation; `--fast --clean-intermediates`) and deletes the sources again, keeping only the ELFs; `make -C tests/arch tests ACTCFG=...` regenerates the sources for debugging. `run` runs every ELF in `tg_vsim` with lockstep, 8 at a time (`tests/arch/run_arch.py`). The riscv-arch-test checkout is only read.
+- **A pass** needs the test's own `RVCP-SUMMARY: TEST PASSED` and a passing run (lockstep and the `tohost` exit). The runner prints a table per suite; failing tests keep their logs in `$TANAGER_BUILD/<worktree>/arch/logs/<config>-<cfg>-<core>/`. `SIMARGS="..."` adds `tg_vsim` options (latency, stress); `exclude/<config>.txt` lists skipped tests with a reason each (all empty today).
+- **`replay`** runs the same ELFs in `tg_replay` (§3.8) with the Spike options on the `# replay:` line. Spike configured like the core must reproduce Sail's expected values, and the lockstep checker must pass, so this checks the configuration files themselves: every WARL choice in `sail.json` equals Spike's, and the core has to match Spike anyway.
+- **Rebuilds:** the ELFs are rebuilt when any file of the configuration, the link script or the shared macros change. Generation and Sail take about 25 s for the M3 configuration; the M3 replay takes 9 s.
+
+**Configurations** (`tests/arch/config/`):
+
+| Configuration | For | Spike ISA, modes, PMP | Tests |
+|---|---|---|---|
+| `tcore-rv64im` | `tg_tcore` (§5) | `rv64im_zicsr_zicntr_zifencei`, MU, none | 97: I, M, Zmmul, Zicntr, Zicsr, Zifencei, ExceptionsSm, InterruptsSm, ExceptionsU |
+| `core-m2-rv64im` | `tg_core` at M2 | the same, M, 16 | 129: the same without U (7 InterruptsSm tests instead of 14), plus PMPSm (40), of which 16 need PMP checks and are excluded until M3 |
+| `core-m3-rv64imac` | `tg_core` at M3 (no F/D until M5) | §3.2's M3 string, MSU, 16 | 355: the above plus Zaamo, Zalrsc, Zca, Zba, Zbb, Zbs, Zicond, Zihintpause, Zihpm; ExceptionsS, U, Zaamo, Zalrsc, Zc and the ExceptionsSv suites; InterruptsS (11) and InterruptsSm (21); PMPS, PMPU, PMPZaamo, PMPZalrsc, PMPZca; Sv, SvPMP, SvSm, Svade, Svbare, Svinval |
+
+Each directory holds `test_config.yaml` (tools, the `# testgen:` and `# replay:` lines), the UDB file `<config>.yaml` (validated by `udb validate cfg`; it decides which tests apply), `sail.json`, and `rvmodel_macros.h`, which includes the shared `tanager_rvmodel.h`. The shared `link.ld` places RAM at `0x8000_0000` (256 MiB, the main-memory region of every `sail.json`).
+
+**`sail.json`** is generated by `make_sail.py` (run it with the ACT venv's Python; never edit the output). It starts from the framework's `sail-RVA20S64` reference and overrides, per configuration:
+- the memory map of `tg_map_pkg`: the device regions (ACLINT, PLIC, UART, host control, virtio, debug) as I/O without AMOs or reservations, and DRAM; Sail keeps its own boot ROM at `0x1000`, which the tests never touch;
+- the extensions, and the misa bits software may clear (Spike's write mask: M, A, B, C within the ISA; the M2 core makes only M writable since it has no A, B or C);
+- the WARL choices that must equal Spike's: `mcountinhibit`, `mcounteren`, `scounteren` writable bits (CY, IR, and the HPM bits with Zihpm), HPM counters reading zero; `medeleg` causes 1–9, 12, 13, 15 and 19 (0 only without C) and `mideleg` SSIP, STIP, SEIP; `menvcfg.FIOM` writable with S; `mstatus.FS` with four states whenever S exists (even without F); WFI in U-mode legal only without S; `mtvec` and `stvec` 4-byte aligned in both modes;
+- misaligned loads, stores, AMOs and LR/SC trap with address-misaligned (no Zicclsm), and an LR reserves its 64-byte block (Za64rs, as Spike), which a store does not cancel;
+- privileged spec 1.13, Spike's (Sail allows `medeleg` bit 19 only from 1.13).
+
+**The DUT macros** (`tanager_rvmodel.h`): halt by writing 1 (pass) or 3 (fail) to `tohost` as two 32-bit stores (§2.6); the console on the 16550 at `UART_BASE`; the CLINT's `msip`, `mtimecmp` and `mtime`, with a "soon" timer delay of 2,000 ticks (the U-mode variants reach M-mode through ecalls, which takes the multi-cycle test core about 250 ticks); external and supervisor software interrupts through the interrupt generator (§2.4); access faults at address 0, below the boot ROM.
+
+**The interrupt generator instead of a PLIC model.** The plan here was a small PLIC model with the 16550's interrupt as its source. The interrupt tests only need software to raise and lower MEI, SEI and SSI, and Sail, which computes the expected values, has no PLIC but a "simple interrupt generator" register for exactly this; the framework's Sail macros use it. Modelling the same register in `tg_vsim` and `tg_replay` (§2.4, §3.8) took a few lines in each, gives the DUT and the reference identical macros and semantics, and drives `irq_ssi_i` as well, which a PLIC would not. A PLIC model can still be added for software that needs the standard PLIC (§9).
+
+**Results on 2026-10-13:**
+- Spike against Spike: `tcore-rv64im` 97/97, `core-m2-rv64im` 129/129, `core-m3-rv64imac` 355/355. Getting there fixed two `tg_replay` issues (the generator's SEIP handling, device loads under MPRV) and settled the `sail.json` choices above.
+- `tg_tcore` in `tg_vsim` with lockstep: 97/97 in `st` and in `st_w3`.
+- `tg_core` is still the stub on this branch. The core track's M2 core (`claude/track-core-adb715` at `9154bae`, not yet merged), built with this branch's harness in a scratch copy: 113 of the 129 tests pass in `st` and `st_w3`, also with 250-cycle latency, jitter, back-pressure and D-channel gaps. The other 16 are PMPSm tests in which Spike raises a PMP access fault that the core does not, because its PMP checks come in M3 (core-pipeline.md §1); `exclude/core-m2-rv64im.txt` lists them.
+
+**Known differences** that no test reaches today:
+- A reserved `mtvec`/`stvec` mode (2 or 3): Spike and the core clear bit 1; Sail can only ignore the write or stop.
+- Sail and Spike keep one `mip.SEIP` bit and one `mip.SSIP` bit that the generator and software both write; the core ORs `irq_sei_i` and `irq_ssi_i` with its software bits (interfaces.md §3), so while the generator's line is high, software cannot clear the bit. Measured in the replay over all 355 M3 tests: no test clears SEIP by software while the generator's line is high (ACT4's handler would, only with `MEIP` pending at the same time). 23 interrupt tests clear SSIP that way, but only after disabling `mie.SSIE`, and they lower the generator's line about 20 instructions later without reading `mip` in between, so a core with the OR behaves the same. §9 has the interface question.
+
+**Disk:** Sail 0.15 (pinned in `tools/versions.sh`, `$TANAGER_OPT/sail-0.15`, 11 MB), the framework's Python packages (`$TANAGER_OPT/act-venv`, 43 MB), the UDB gems (`$TANAGER_OPT/act-gems`, 74 MB, `bundle clean`), and UDB's cache in `~/.local/share/udb` (24 MB). The build tree keeps only the ELFs (about 20 MB for the test core and M2 configurations, 60 MB for M3) and the logs of failing tests.
 
 ### 6.2 Constrained-random instruction generator
 
@@ -393,11 +443,12 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 - **liblz4-dev** is needed for FST waveforms (Verilator 5.052's FST writer includes `lz4.h`); it is installed on the build host since 2026-10-13.
 - **Spike** is used through its installed headers and `libriscv.so` (`$SPIKE_ROOT`); the build adds `-Wl,-rpath` so no `LD_LIBRARY_PATH` is needed.
+- **ccache and precompiled headers:** Verilator's makefile lets ccache cache its precompiled header (about 100 MB for `tg_core`). On 2026-10-13 GCC 15 crashed (segmentation fault, `c_common_read_pch`) on every object compiled against such a header returned from the cache, reproducibly for an `st_w3` build of the core; with the header compiled fresh the same build passed. `sim/Makefile` therefore exports an empty `CCACHE_SLOPPINESS`: ccache then runs the compiles that use the header uncached (they rarely hit anyway, since the header changes with the RTL) and still caches Verilator's runtime and our C++. Other Verilator builds on the host (unit tests) may want the same.
 
 ## 8. Disk and machine sharing
 
 - Builds use at most `-j8` (conventions §9). Test runners run at most 8 simulations at a time.
-- The verification build tree has a 5 GB budget: one `tg_vsim` build is about 50–300 MB depending on the core. Runners delete the logs of passing tests; waveforms are only produced on request and are deleted once a bug is understood.
+- The verification build tree has a 5 GB budget: one `tg_vsim` build is about 50–300 MB depending on the core, and the three ACT4 configurations about 100 MB together (§6.1). Runners delete the logs of passing tests; waveforms are only produced on request and are deleted once a bug is understood.
 
 ## 9. Open points for the coordinator
 
@@ -407,6 +458,8 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 4. **SC failure adoption** (§3.4) is a legal difference that interfaces.md §5 does not list yet.
 5. **ID CSRs:** `marchid`, `mimpid` and `mvendorid` reads are adopted (§3.4); the core track should still pick Tanager's values.
 6. **Illegal-instruction `tval`:** Spike writes the instruction bits (16 bits for a compressed encoding without C), `ebreak` writes the PC; the core must do the same or the checker reports it.
+7. **PLIC model:** ACT4's external-interrupt tests run with the interrupt generator (§2.4) instead of the small PLIC model planned in §6.1; the reasons are there. A PLIC model can still be added for software that needs the standard PLIC in the harness (OpenSBI does not). It would share the region with the generator's register (`0x0C00_0004` is source 1's priority in the PLIC layout); Sail's generator base is configurable and the framework passes it to the macros, so the generator would move.
+8. **`irq_ssi_i` (interfaces.md §3):** the interface ORs the line into `mip.SSIP`, while the privileged spec says a platform controller may *set* SSIP to 1 (as the ACLINT SSWI does, and as Spike and Sail model it), after which software clears it. With a level, software cannot clear SSIP while the line is high. ACT4 is unaffected today (§6.1, known differences), and the platform ties the line to 0; defining `irq_ssi_i` as a one-cycle pulse that sets SSIP would match the spec before the SSWI arrives. `irq_sei_i` is fine as it is: SEIP is the OR by the spec.
 
 ## 10. Provenance
 
@@ -414,4 +467,6 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 - The `tohost`/`fromhost` convention and the riscv-tests environment: riscv-tests (public test suite, used as-is).
 - Spike's library interface (`simif_t`, `processor_t`, commit log): Spike's public headers and sources, used as a tool, not as a design reference.
 - Fork-based snapshots: a common simulation technique; described here from first principles.
+- ACT4 (riscv-arch-test, act4 branch): the framework, its test environment and test plans, the UDB configuration schema, and its Sail reference configuration `config/sail/sail-RVA20S64` (`sail.json` and the UDB file), which `make_sail.py` and our UDB files start from. The interrupt generator's register follows the framework's Sail macros (`tests/env/sail_macros.h`) and Sail's configuration schema. The configurations of other cores in the framework (`config/cores`) were not used.
+- WARL choices in the ACT4 configurations: Spike's sources (`csr_init.cc`, `csrs.cc`, `mmu.cc`), read as the specification of the lockstep reference.
 - No other core's RTL or testbench was read for any of this.

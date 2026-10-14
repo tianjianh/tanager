@@ -39,6 +39,20 @@ package tg_fpu_pkg;
     FOP_FMV_F_X     // FMV.W.X / FMV.D.X
   } fop_e;
 
+  // Which tg_fpu port executes an operation (docs/spec/interfaces.md §4). Lever R5 (plan §8.5)
+  // puts the FP->FP and integer->FP conversions on the FMA; the core routes with this function
+  // and never hard-codes the unit.
+  typedef enum logic [1:0] { FU_FMA = 2'd0, FU_MISC = 2'd1, FU_DIV = 2'd2 } fpu_unit_e;
+
+  function automatic fpu_unit_e fpu_unit_of(input fop_e op);
+    unique case (op)
+      FOP_FADD, FOP_FSUB, FOP_FMUL, FOP_FMADD, FOP_FMSUB, FOP_FNMSUB, FOP_FNMADD,
+      FOP_FCVT_F_F, FOP_FCVT_F_I: return FU_FMA;
+      FOP_FDIV, FOP_FSQRT:        return FU_DIV;
+      default:                    return FU_MISC;
+    endcase
+  endfunction
+
   // RISC-V fmt field encoding; H is for Zfhmin later.
   typedef enum logic [1:0] { FMT_S = 2'd0, FMT_D = 2'd1, FMT_H = 2'd2 } ffmt_e;
   typedef enum logic [1:0] { IFMT_W = 2'd0, IFMT_WU = 2'd1, IFMT_L = 2'd2, IFMT_LU = 2'd3 } ifmt_e;

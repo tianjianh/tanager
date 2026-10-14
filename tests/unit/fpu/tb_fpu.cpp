@@ -308,7 +308,16 @@ static ref::Req rand_req(std::mt19937_64 &rng, ops::Gen &gen, int unit) {
   ref::Req r{0, (int)(rng() & 1), 0, (int)(rng() & 3), (int)(rng() % 5), 0, 0, 0};
   bool dbl = r.fmt == ref::D;
   if (unit == 0) {
-    r.op = rng() % 7;
+    unsigned k = rng() % 9;
+    if (k == 7) {                  // FCVT.F.F (R5: on the FMA)
+      r.op = ref::FCVT_F_F; r.src_fmt = !r.fmt; r.a = gen.fp(r.src_fmt == ref::D);
+      return r;
+    }
+    if (k == 8) {                  // FCVT.F.I
+      r.op = ref::FCVT_F_I; r.a = gen.integer();
+      return r;
+    }
+    r.op = k;
     r.a = gen.fp(dbl); r.b = gen.fp(dbl); r.c = gen.fp(dbl);
     // Cancellation: the addend close to +-(a*b), or b close to +-a for FADD/FSUB.
     const uint64_t sbit = dbl ? 1ull << 63 : 1ull << 31;
@@ -323,11 +332,9 @@ static ref::Req rand_req(std::mt19937_64 &rng, ops::Gen &gen, int unit) {
     }
   } else if (unit == 1) {
     static const int mops[] = {ref::FSGNJ, ref::FSGNJN, ref::FSGNJX, ref::FMIN, ref::FMAX, ref::FEQ, ref::FLT,
-                               ref::FLE, ref::FCLASS, ref::FCVT_F_F, ref::FCVT_I_F, ref::FCVT_F_I, ref::FMV_X_F,
-                               ref::FMV_F_X};
-    r.op = mops[rng() % 14];
-    if (r.op == ref::FCVT_F_F) { r.src_fmt = !r.fmt; r.a = gen.fp(r.src_fmt == ref::D); }
-    else if (r.op == ref::FCVT_F_I || r.op == ref::FMV_F_X) r.a = gen.integer();
+                               ref::FLE, ref::FCLASS, ref::FCVT_I_F, ref::FMV_X_F, ref::FMV_F_X};
+    r.op = mops[rng() % 12];
+    if (r.op == ref::FMV_F_X) r.a = gen.integer();
     else { r.a = gen.fp(dbl); r.b = rng() % 8 == 0 ? r.a ^ (rng() & 1 ? 0 : (dbl ? 1ull << 63 : 1ull << 31)) : gen.fp(dbl); }
   } else {
     r.op = rng() & 1 ? ref::FDIV : ref::FSQRT;

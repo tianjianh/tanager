@@ -21,7 +21,9 @@
 #   tg_ram_tdp   count is compared with the smallest mapping of a 2^AW x WIDTH memory:
 #                URAM288 = ceil(WIDTH/72) * ceil(2^AW / 4096) (exact)
 #                RAMB36E2/RAMB18E2, in RAMB36 equivalents (a RAMB18 is 0.5): a different
-#                count is a warning, no primitive at all is a failure.
+#                count is a warning, no primitive at all is a failure. With byte writes
+#                (BYTE_W = |wdata| / |we| > 1 and not a multiple of 9) XPM cannot use the
+#                parity bits, so the modes are 64/32/16/8 bits wide instead of 72/36/18/9.
 # -expect adds exact checks for any cell: a list of {<cell-name-glob> <REF_NAME> <count>},
 # where the count is that of REF_NAME cells at or below the matching cells.
 
@@ -57,15 +59,18 @@ proc tg_prim__ram_refs {} {
 
 # Smallest block-RAM mapping of DEPTH x WIDTH, in RAMB36 equivalents. SDP allows the 72-bit
 # (RAMB36) and 36-bit (RAMB18) modes at 512 entries; TDP ports are at most 36 / 18 bits.
-proc tg_prim__bram_equiv {depth width tdp} {
+# nopar: byte writes with 8-bit bytes, so the parity bits hold no data.
+proc tg_prim__bram_equiv {depth width tdp {nopar 0}} {
   set best 1e9
   foreach {prim size} {RAMB36 36864 RAMB18 18432} {
     set w36 [expr {$prim eq "RAMB36" ? 1.0 : 0.5}]
-    # (depth, width) aspect ratios with parity, then without
+    # (depth, width) aspect ratios, the wider ones with parity unless nopar
     if {$prim eq "RAMB36"} {
-      set aspects {512 72 1024 36 2048 18 4096 9 8192 4 16384 2 32768 1}
+      set aspects [expr {$nopar ? {512 64 1024 32 2048 16 4096 8 8192 4 16384 2 32768 1}
+                                : {512 72 1024 36 2048 18 4096 9 8192 4 16384 2 32768 1}}]
     } else {
-      set aspects {512 36 1024 18 2048 9 4096 4 8192 2 16384 1}
+      set aspects [expr {$nopar ? {512 32 1024 16 2048 8 4096 4 8192 2 16384 1}
+                                : {512 36 1024 18 2048 9 4096 4 8192 2 16384 1}}]
     }
     foreach {d w} $aspects {
       if {$tdp && $d == 512} { continue }
@@ -129,7 +134,9 @@ proc tg_prim_check {args} {
       set w  [tg_prim__busw $cell [expr {$tdp ? "wdata_a" : "wdata"}]]
       set aw [tg_prim__busw $cell [expr {$tdp ? "addr_a" : "waddr"}]]
       set depth [expr {1 << $aw}]
-      set shape "2^$aw x $w[expr {$tdp ? ", tdp" : ""}]"
+      set nwe [tg_prim__busw $cell [expr {$tdp ? "we_a" : "we"}]]
+      set nopar [expr {$nwe > 1 && ($w / $nwe) % 9 != 0}]
+      set shape "2^$aw x $w[expr {$tdp ? ", tdp" : ""}][expr {$nopar ? ", bytes of [expr {$w / $nwe}]" : ""}]"
       set nuram [expr {[dict exists $found URAM288] ? [dict get $found URAM288] : 0}]
       set n36 [expr {[dict exists $found RAMB36E2] ? [dict get $found RAMB36E2] : 0}]
       set n18 [expr {[dict exists $found RAMB18E2] ? [dict get $found RAMB18E2] : 0}]
@@ -144,7 +151,7 @@ proc tg_prim_check {args} {
         dict set exp URAM288 $e
         if {$nuram != $e} { set status FAIL }
       } elseif {($n36 + $n18) > 0 && ($nuram + $nlut) == 0} {
-        set e [tg_prim__bram_equiv $depth $w $tdp]
+        set e [tg_prim__bram_equiv $depth $w $tdp $nopar]
         dict set exp RAMB36_equiv $e
         set got [expr {$n36 + 0.5 * $n18}]
         if {$got != $e} { set status WARN }

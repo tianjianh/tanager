@@ -11,6 +11,7 @@
 
 #include "common.h"
 #include "elfload.h"
+#include "htif.h"
 #include "lockstep.h"
 #include "spike_env.h"
 
@@ -22,7 +23,7 @@ struct opts_t {
   std::string elf;
   std::string isa = "rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs";
   std::string priv = "MSU";
-  unsigned harts = 1, width = 2, wb_ports = 2, tags = 16, history = 32;
+  unsigned harts = 1, width = 2, wb_ports = 2, tags = 16, history = 32, pmp = 16, mtime_div = 1;
   uint64_t seed = 1, max_steps = 20000000;
   unsigned defer = 0, defer_max = 200, irq = 0;
   bool defer_all = false, nondet = false, quiet = false;
@@ -35,7 +36,8 @@ struct opts_t {
 [[noreturn]] void usage() {
   fprintf(stderr,
           "usage: tg_replay [options] program.elf\n"
-          "  --isa=STR --priv=STR --harts=N --seed=N --max-steps=N --history=N --tohost-va=ADDR --quiet --log=FILE\n"
+          "  --isa=STR --priv=STR --harts=N --pmp=N --seed=N --max-steps=N --history=N --tohost-va=ADDR --quiet --log=FILE\n"
+          "  --mtime-div=N    the CLINT's mtime advances once per N retired instructions (default 1)\n"
           "  --width=N        records per cycle, 1..N at random (default 2)\n"
           "  --defer=PCT      defer the results of loads, DIV/REM, FDIV/FSQRT (percent); --defer-all: any result\n"
           "  --defer-max=N    deliver deferred writebacks 1..N records later (default 200)\n"
@@ -71,6 +73,8 @@ opts_t parse(int argc, char** argv) {
     else if (k == "wb-ports") o.wb_ports = std::max(1u, unsigned(num(v, "--wb-ports")));
     else if (k == "tags") o.tags = std::max(1u, unsigned(num(v, "--tags")));
     else if (k == "history") o.history = unsigned(num(v, "--history"));
+    else if (k == "pmp") o.pmp = unsigned(num(v, "--pmp"));
+    else if (k == "mtime-div") o.mtime_div = std::max(1u, unsigned(num(v, "--mtime-div")));
     else if (k == "seed") o.seed = num(v, "--seed");
     else if (k == "max-steps") o.max_steps = num(v, "--max-steps");
     else if (k == "defer") o.defer = unsigned(num(v, "--defer"));
@@ -133,31 +137,82 @@ int main(int argc, char** argv) {
   mem_t mem;
   elf_t elf;
   elf.load(o.elf, mem);
-  std::set<uint64_t> tohost_va(o.tohost_va.begin(), o.tohost_va.end());
-  if (elf.has("tohost")) tohost_va.insert(elf.sym("tohost"));
+  tohost_watch_t tohost;
+  tohost.va.insert(o.tohost_va.begin(), o.tohost_va.end());
+  if (elf.has("tohost")) tohost.va.insert(elf.sym("tohost"));
 
   spike_platform_t plat;
   plat.isa = o.isa;
   plat.priv = o.priv;
+  plat.pmp_regions = o.pmp;
   plat.hartids.clear();
   for (unsigned i = 0; i < o.harts; i++) plat.hartids.push_back(i);
   plat.dev_regions = {{0x02000000ull, 0x10000}, {0x0C000000ull, 0x4000000}, {0x10000000ull, 0x1000},
                       {0x10001000ull, 0x1000},  {0x10010000ull, 0x4000},    {0x11000000ull, 0x10000}};
   spike_env_t dut(plat, mem);
   std::string console;
-  dut.dev_load = [](uint64_t pa, size_t len, uint8_t* b) {
-    if (pa <= 0x10000005ull && pa + len > 0x10000005ull) b[0x10000005ull - pa] = 0x60;  // UART LSR: THR empty
+
+  // The platform of tg_vsim, for the replaying Spike (verification.md §2.4): the UART, a CLINT whose
+  // mtime advances once per --mtime-div retired instructions, and the simple interrupt generator.
+  // Their levels drive the replaying Spike's mip; the interrupts it takes become TR_IRQ records.
+  const uint64_t CLINT = 0x02000000ull, SIG = 0x0C000004ull, UART = 0x10000000ull;
+  std::vector<uint64_t> mtimecmp(o.harts, ~0ull);
+  std::vector<uint32_t> msip(o.harts, 0);
+  uint64_t mtime = 0, steps_total = 0;
+  uint32_t sig_lines = 0;
+  auto rd_bytes = [](uint64_t v, uint64_t off, size_t len, uint8_t* b) {
+    for (size_t i = 0; i < len; i++) b[i] = uint8_t(v >> (8 * ((off + i) & 7)));
   };
-  dut.dev_store = [&](uint64_t pa, size_t len, const uint8_t* b) {
-    if (pa == 0x10000000ull && len >= 1) {
-      console.push_back(char(b[0]));
-      fputc(b[0], stdout);
+  dut.dev_load = [&](uint64_t pa, size_t len, uint8_t* b) {
+    if (pa <= UART + 5 && pa + len > UART + 5) b[UART + 5 - pa] = 0x60;  // UART LSR: THR empty
+    if (pa >= CLINT && pa < CLINT + 0x10000) {
+      uint64_t off = pa - CLINT;
+      if (off < 0x4000 && off / 4 < o.harts) rd_bytes(msip[off / 4], off & 3, len, b);
+      else if (off >= 0x4000 && off < 0xbff8 && (off - 0x4000) / 8 < o.harts) rd_bytes(mtimecmp[(off - 0x4000) / 8], off & 7, len, b);
+      else if (off >= 0xbff8 && off < 0xc000) rd_bytes(mtime, off & 7, len, b);
     }
   };
+  dut.dev_store = [&](uint64_t pa, size_t len, const uint8_t* b) {
+    uint64_t v = 0;
+    for (size_t i = 0; i < len && i < 8; i++) v |= uint64_t(b[i]) << (8 * i);
+    if (pa == UART && len >= 1) {
+      console.push_back(char(b[0]));
+      fputc(b[0], stdout);
+    } else if (pa >= CLINT && pa < CLINT + 0x10000) {
+      uint64_t off = pa - CLINT;
+      auto merge = [&](uint64_t& reg) {
+        unsigned sh = unsigned(off & 7) * 8;
+        uint64_t m = (len >= 8 ? ~0ull : ((1ull << (8 * len)) - 1)) << sh;
+        reg = (reg & ~m) | ((v << sh) & m);
+      };
+      if (off < 0x4000 && off / 4 < o.harts) msip[off / 4] = v & 1;
+      else if (off >= 0x4000 && off < 0xbff8 && (off - 0x4000) / 8 < o.harts) merge(mtimecmp[(off - 0x4000) / 8]);
+      else if (off >= 0xbff8 && off < 0xc000) merge(mtime);
+    } else if (pa == SIG && len == 4) {
+      if (v & 0x80000000u) sig_lines |= uint32_t(v) & 0x7fffffffu;
+      else sig_lines &= ~uint32_t(v);
+    }
+  };
+  auto platform_levels = [&](unsigned h) -> reg_t {
+    reg_t m = 0;
+    if (mtime >= mtimecmp[h]) m |= MIP_MTIP;
+    if (msip[h]) m |= MIP_MSIP;
+    if (sig_lines >> 11 & 1) m |= MIP_MEIP;
+    if (sig_lines >> 9 & 1) m |= MIP_SEIP;
+    if (sig_lines >> 1 & 1) m |= MIP_SSIP;
+    return m;
+  };
+  // MTIP, MSIP and MEIP are read-only in mip and follow the platform's levels. Software may also
+  // write SEIP and SSIP, so the SIG sets or clears those only when its line changes (as Sail's SIG
+  // and Spike's own PLIC do).
+  const reg_t PLATFORM_MIP = MIP_MTIP | MIP_MSIP | MIP_MEIP;
+  const reg_t SIG_EDGE_MIP = MIP_SEIP | MIP_SSIP;
+  std::vector<reg_t> sig_edge_last(o.harts, 0);
 
   lockstep_cfg_t lc;
   lc.isa = o.isa;
   lc.priv = o.priv;
+  lc.pmp_regions = o.pmp;
   lc.hartids = plat.hartids;
   lc.history = o.history;
   lc.dev_regions = plat.dev_regions;
@@ -188,6 +243,16 @@ int main(int argc, char** argv) {
     uint32_t bits = 0;
     spike_fetch(p, s->pc, bits);
 
+    // Platform interrupt levels; the SIG's SEIP and SSIP only on a change.
+    if (++steps_total % o.mtime_div == 0) mtime++;
+    if (s->time) s->time->sync(mtime);  // the time CSR follows the CLINT, as with Spike's own CLINT
+    reg_t lv = platform_levels(h);
+    s->mip->backdoor_write_with_mask(PLATFORM_MIP, lv);
+    if (reg_t changed = (lv & SIG_EDGE_MIP) ^ sig_edge_last[h]) {
+      s->mip->backdoor_write_with_mask(changed, lv);
+      sig_edge_last[h] = lv & SIG_EDGE_MIP;
+    }
+
     // A random interrupt, if one is enabled here.
     reg_t forced = 0;
     if (o.irq && rng.permille(o.irq)) {
@@ -203,7 +268,7 @@ int main(int argc, char** argv) {
       }
     }
     spike_step_t st = spike_step(p, bits);
-    if (forced) s->mip->backdoor_write_with_mask(forced, 0);
+    if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced & PLATFORM_MIP);
 
     if (st.trapped && st.interrupt) {
       r.kind = TR_IRQ;
@@ -233,7 +298,9 @@ int main(int argc, char** argv) {
     }
     // Device loads: with translation off the load address is physical (enough for the programs
     // replay runs; the RTL knows the physical address itself).
-    bool bare = s->prv == PRV_M ? !(s->mstatus->read() & MSTATUS_MPRV) : (p->get_csr(CSR_SATP) >> 60) == 0;
+    reg_t eff = s->prv;  // the privilege of data accesses (MPRV)
+    if (eff == PRV_M && (s->mstatus->read() & MSTATUS_MPRV)) eff = get_field(s->mstatus->read(), MSTATUS_MPP);
+    bool bare = eff == PRV_M || !p->extension_enabled('S') || (p->get_csr(CSR_SATP) >> 60) == 0;
     if (r.rd_we && is_load_insn(bits, r.rvc) && st.nld && bare && !dut.in_dram(st.ld_addr)) r.mmio_ld = true;
     if (r.rd_we && is_csr_insn(bits) && adopted_csr(bits >> 20)) {
       r.nondet = true;
@@ -303,13 +370,13 @@ int main(int argc, char** argv) {
       tr_rec_t r = make_record(h);
       nrec++;
       if (r.kind == TR_RETIRE) instret++;
-      if (r.kind == TR_RETIRE && r.mem_st && tohost_va.count(r.mem_vaddr)) {
-        uint64_t v = r.mem_wdata & size_mask(r.mem_size);
-        if ((v >> 48) == 0x0101) {  // HTIF console
+      uint64_t v;
+      if (r.kind == TR_RETIRE && r.mem_st && tohost.store(r.mem_vaddr, r.mem_wdata, r.mem_size, v)) {
+        if (tohost_watch_t::is_putchar(v)) {  // HTIF console
           console.push_back(char(v & 0xff));
           htif_console = true;
           fputc(int(v & 0xff), stdout);
-        } else if ((v & 1) && h == 0) {
+        } else if (tohost_watch_t::is_exit(v) && h == 0) {
           exit_seen = true;
           code = int(v >> 1);
         }
