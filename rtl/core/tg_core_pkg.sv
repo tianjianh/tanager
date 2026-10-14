@@ -8,6 +8,8 @@ package tg_core_pkg;
   localparam int DIV_INFLIGHT = 4;        // divides between rename and the divider (input FIFO)
 
   // ISA beyond M2's RV64IM, switched on with the M3 ISA string (sim ISA=..., verification.md §3.2)
+  localparam bit EXT_SU     = 1'b0;      // S and U modes, Sv39, delegation, Sstc, Zihpm
+  localparam bit EXT_A      = 1'b0;      // atomics
   localparam bit EXT_C      = 1'b0;      // compressed instructions
   localparam bit EXT_B      = 1'b0;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b0;
@@ -110,7 +112,8 @@ package tg_core_pkg;
   typedef enum logic [1:0] { BR_COND = 2'd0, BR_JAL = 2'd1, BR_JALR = 2'd2 } br_kind_e;
 
   typedef enum logic [2:0] {
-    SYS_NONE = 3'd0, SYS_FENCE = 3'd1, SYS_FENCEI = 3'd2, SYS_WFI = 3'd3, SYS_MRET = 3'd4
+    SYS_NONE = 3'd0, SYS_FENCE = 3'd1, SYS_FENCEI = 3'd2, SYS_WFI = 3'd3, SYS_MRET = 3'd4,
+    SYS_SRET = 3'd5, SYS_SFENCE = 3'd6     // SFENCE.VMA and the Svinval forms
   } sys_e;
 
   typedef enum logic [1:0] { MUL_LO = 2'd0, MUL_H = 2'd1, MUL_HSU = 2'd2, MUL_HU = 2'd3 } mul_op_e;
@@ -120,7 +123,9 @@ package tg_core_pkg;
   // Exception causes (privileged spec)
   localparam logic [3:0] EXC_IMISALIGN = 4'd0, EXC_IACCESS = 4'd1, EXC_ILLEGAL = 4'd2,
                          EXC_BREAK = 4'd3, EXC_LMISALIGN = 4'd4, EXC_LACCESS = 4'd5,
-                         EXC_SMISALIGN = 4'd6, EXC_SACCESS = 4'd7, EXC_ECALL_M = 4'd11;
+                         EXC_SMISALIGN = 4'd6, EXC_SACCESS = 4'd7, EXC_ECALL_U = 4'd8,
+                         EXC_ECALL_S = 4'd9, EXC_ECALL_M = 4'd11, EXC_IPAGE = 4'd12,
+                         EXC_LPAGE = 4'd13, EXC_SPAGE = 4'd15;
 
   // ---- Front end -> decode: one instruction from the instruction queue ----
   typedef struct packed {
@@ -268,7 +273,7 @@ package tg_core_pkg;
 
   // CSRs whose reads the lockstep checker adopts (verification.md §3.4)
   function automatic logic csr_nondet(input logic [11:0] a);
-    return a == 12'hB00 || a == 12'hC00 || a == 12'hC01 || a == 12'h344 ||
+    return a == 12'hB00 || a == 12'hC00 || a == 12'hC01 || a == 12'h344 || a == 12'h144 ||
            a == 12'hF11 || a == 12'hF12 || a == 12'hF13 ||
            (a >= 12'hB03 && a <= 12'hB1F) || (a >= 12'hC03 && a <= 12'hC1F);
   endfunction

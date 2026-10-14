@@ -1,10 +1,13 @@
-// CSR file, traps and interrupts for M2 (docs/spec/core-pipeline.md §9): machine mode only,
-// RV64IM + Zicsr + Zicntr + Zifencei, 16 PMP entries (registers only; checks in M3), no
-// triggers. Field behaviour follows Spike's WARL rules for that configuration, so lockstep
-// compares every read. One hart (tid 0) in M2; per-hart arrays arrive with M7.
+// CSR file, privilege modes, traps and interrupts (docs/spec/core-pipeline.md §9 for M2,
+// docs/spec/core-priv.md for M3). Field behaviour follows Spike's WARL rules for the configured
+// ISA, so lockstep compares every read:
+//   EXT_SU = 0 (M2): machine mode only, RV64IM + Zicsr + Zicntr + Zifencei, 16 PMP entries.
+//   EXT_SU = 1 (M3): M, S and U modes, delegation, Sstc, Zihpm, satp (Sv39), envcfg.
+// One hart (tid 0); per-hart arrays arrive with M7.
 //
 // CSR instructions are serialised: execute (P1, EX) reads and checks here combinationally and
-// leaves the write pending; commit applies it. Traps and MRET are applied by commit.
+// leaves the write pending; commit applies it. Traps, MRET and SRET are applied by commit; the
+// flush that follows each of them refetches under the new mode and status.
 module tg_csr
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -29,74 +32,221 @@ module tg_csr
   input  logic [63:0]            tr_epc,
   input  logic [63:0]            tr_tval,
   input  logic                   mret,
-  // State for commit and decode
+  input  logic                   sret,
+  // State for commit, decode, fetch and the MMU
   output logic [63:0]            trap_target,  // for tr_* given this cycle
   output logic [63:0]            mepc_o,
+  output logic [63:0]            sepc_o,
   output logic                   irq_take,     // an enabled interrupt is pending
   output logic [5:0]             irq_code,
   output logic                   wfi_wake,     // mip & mie != 0
   output logic                   misa_m,
   output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   output logic                   misa_c,       // compressed instructions enabled
+  output logic                   misa_a,       // atomics enabled
+  output priv_e                  priv,         // current mode
+  output priv_e                  priv_d,       // mode of data accesses (MPRV)
+  output logic                   tvm,
+  output logic                   tw,
+  output logic                   tsr,
+  output logic                   sum,
+  output logic                   mxr,
+  output logic                   satp_sv39,
+  output logic [15:0]            satp_asid,
+  output logic [43:0]            satp_ppn,
+  output logic [15:0][7:0]       pmpcfg,
+  output logic [15:0][53:0]      pmpaddr,
   // Interrupt inputs and time
   input  logic                   irq_mei,
   input  logic                   irq_mti,
   input  logic                   irq_msi,
+  input  logic                   irq_sei,
+  input  logic                   irq_ssi,
   input  logic [63:0]            mtime
 );
   localparam int NPMP = 16;
   localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
+  localparam bit SU = EXT_SU;
 
   // ---- State ----
-  logic        mie_bit_q, mpie_q, misa_m_q, misa_b_q, misa_c_q;
+  priv_e       priv_q;
+  logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
+  logic [1:0]  mpp_q, fs_q;
+  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q;
   logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q, mcycle_q, minstret_q;
-  logic [11:0] mie_q;                 // bits 3, 7, 11
-  logic [2:0]  mcountinhibit_q;       // bits 0 and 2
+  logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
+  logic [11:0] mie_q;
+  logic        ssip_q, stip_sw_q, seip_sw_q;
+  logic [15:0] medeleg_q;
+  logic [11:0] mideleg_q;
+  logic [31:0] mcounteren_q, scounteren_q, mcountinhibit_q;
+  logic        menv_fiom_q, menv_stce_q, senv_fiom_q;
+  logic        satp_mode_q;
+  logic [15:0] satp_asid_q;
+  logic [43:0] satp_ppn_q;
   logic [12:0] mcontext_q;
+  logic [31:0] scontext_q;
   logic [NPMP-1:0][7:0]  pmpcfg_q;
   logic [NPMP-1:0][53:0] pmpaddr_q;
 
+  // ---- Interrupt pending bits ----
+  logic        stip;
+  assign stip = SU && (menv_stce_q ? (mtime >= stimecmp_q) : stip_sw_q);
   logic [11:0] mip;
-  assign mip = {irq_mei, 3'b0, irq_mti, 3'b0, irq_msi, 3'b0};
-  assign misa_m   = misa_m_q;
-  assign misa_b   = misa_b_q;
-  assign misa_c   = misa_c_q;
-  assign mepc_o   = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
-  assign wfi_wake = |(mip & mie_q);
   always_comb begin
-    logic [11:0] p;
-    p = mip & mie_q;
-    irq_take = mie_bit_q && |p;
-    irq_code = p[11] ? 6'd11 : p[3] ? 6'd3 : 6'd7;
+    mip = '0;
+    mip[3]  = irq_msi;
+    mip[7]  = irq_mti;
+    mip[11] = irq_mei;
+    if (SU) begin
+      mip[1] = ssip_q || irq_ssi;
+      mip[5] = stip;
+      mip[9] = seip_sw_q || irq_sei;
+    end
   end
-  assign trap_target = {mtvec_q[63:2], 2'b00} + ((tr_irq && mtvec_q[0]) ? {56'b0, tr_code, 2'b00} : 64'd0);
+
+  // Interrupt selection (Spike's take_interrupt): M first, then those delegated to S.
+  // Default priority: MEI, MSI, MTI, SEI, SSI, STI.
+  logic [11:0] ipend, ien;
+  always_comb begin
+    logic m_en, s_en;
+    ipend = mip & mie_q;
+    m_en  = priv_q != PRIV_M || mie_bit_q;
+    s_en  = priv_q == PRIV_U || (priv_q == PRIV_S && sie_bit_q);
+    ien   = ipend & ~mideleg_q & {12{m_en}};
+    if (ien == '0) ien = ipend & mideleg_q & {12{s_en}};
+  end
+  assign irq_take = |ien;
+  assign irq_code = ien[11] ? 6'd11 : ien[3] ? 6'd3 : ien[7] ? 6'd7 :
+                    ien[9]  ? 6'd9  : ien[1] ? 6'd1 : 6'd5;
+  assign wfi_wake = |ipend;
+
+  // ---- Outputs ----
+  assign misa_m    = misa_m_q;
+  assign misa_b    = misa_b_q;
+  assign misa_c    = misa_c_q;
+  assign misa_a    = misa_a_q;
+  assign priv      = priv_q;
+  assign priv_d    = (mprv_q && priv_q == PRIV_M) ? priv_e'(mpp_q) : priv_q;
+  assign tvm       = tvm_q;
+  assign tw        = tw_q;
+  assign tsr       = tsr_q;
+  assign sum       = sum_q;
+  assign mxr       = mxr_q;
+  assign satp_sv39 = satp_mode_q;
+  assign satp_asid = satp_asid_q;
+  assign satp_ppn  = satp_ppn_q;
+  assign pmpcfg    = pmpcfg_q;
+  assign pmpaddr   = pmpaddr_q;
+  assign mepc_o    = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
+  assign sepc_o    = {sepc_q[63:2], sepc_q[1] && misa_c_q, 1'b0};
+
+  // Trap target: S when delegated from S or U
+  logic deleg;
+  always_comb begin
+    if (!SU || priv_q == PRIV_M)  deleg = 1'b0;
+    else if (tr_irq)              deleg = tr_code < 6'd12 && mideleg_q[tr_code[3:0]];
+    else                          deleg = tr_code < 6'd16 && medeleg_q[tr_code[3:0]];
+  end
+  logic [63:0] tvec;
+  assign tvec = deleg ? stvec_q : mtvec_q;
+  assign trap_target = {tvec[63:2], 2'b00} + ((tr_irq && tvec[0]) ? {56'b0, tr_code, 2'b00} : 64'd0);
+
+  // ---- Status views ----
+  logic [63:0] mstatus_rd, sstatus_rd, misa_rd;
+  always_comb begin
+    mstatus_rd = '0;
+    mstatus_rd[3]     = mie_bit_q;
+    mstatus_rd[7]     = mpie_q;
+    mstatus_rd[12:11] = mpp_q;
+    if (SU) begin
+      mstatus_rd[1]     = sie_bit_q;
+      mstatus_rd[5]     = spie_q;
+      mstatus_rd[8]     = spp_q;
+      mstatus_rd[14:13] = fs_q;
+      mstatus_rd[17]    = mprv_q;
+      mstatus_rd[18]    = sum_q;
+      mstatus_rd[19]    = mxr_q;
+      mstatus_rd[20]    = tvm_q;
+      mstatus_rd[21]    = tw_q;
+      mstatus_rd[22]    = tsr_q;
+      mstatus_rd[33:32] = 2'd2;                  // UXL
+      mstatus_rd[35:34] = 2'd2;                  // SXL
+      mstatus_rd[63]    = fs_q == 2'd3;          // SD
+    end
+    sstatus_rd = '0;
+    sstatus_rd[1]     = sie_bit_q;
+    sstatus_rd[5]     = spie_q;
+    sstatus_rd[8]     = spp_q;
+    sstatus_rd[14:13] = fs_q;
+    sstatus_rd[18]    = sum_q;
+    sstatus_rd[19]    = mxr_q;
+    sstatus_rd[33:32] = 2'd2;
+    sstatus_rd[63]    = fs_q == 2'd3;
+    misa_rd = '0;
+    misa_rd[63:62] = 2'b10;
+    misa_rd[0]  = misa_a_q;
+    misa_rd[1]  = misa_b_q;
+    misa_rd[2]  = misa_c_q;
+    misa_rd[8]  = 1'b1;                          // I
+    misa_rd[12] = misa_m_q;
+    misa_rd[18] = SU;                            // S
+    misa_rd[20] = SU;                            // U
+  end
 
   // ---- Read and legality ----
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
-  logic        exists;
-  logic [63:0] rval;
+  logic        exists, deny;
+  logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
   always_comb begin
     exists = 1'b1;
-    rval = '0;
+    deny   = 1'b0;
+    rval   = '0;
     unique casez (a)
-      12'h300: rval = {51'b0, 2'b11, 3'b0, mpie_q, 3'b0, mie_bit_q, 3'b0};
-      12'h301: rval = {2'b10, 49'b0, misa_m_q, 3'b0, 1'b1, 5'b0, misa_c_q, misa_b_q, 1'b0};
+      12'h300: rval = mstatus_rd;
+      12'h301: rval = misa_rd;
       12'h304: rval = {52'b0, mie_q};
       12'h305: rval = mtvec_q;
-      12'h320: rval = {61'b0, mcountinhibit_q};
+      12'h320: rval = {32'b0, mcountinhibit_q};
       12'h340: rval = mscratch_q;
-      12'h341: rval = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
+      12'h341: rval = mepc_o;
       12'h342: rval = mcause_q;
       12'h343: rval = mtval_q;
       12'h344: rval = {52'b0, mip};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
       12'h7A8: rval = {51'b0, mcontext_q};
-      12'hB00, 12'hC00: rval = mcycle_q;
-      12'hB02, 12'hC02: rval = minstret_q;
+      12'hB00: rval = mcycle_q;
+      12'hB02: rval = minstret_q;
+      12'hC00: rval = mcycle_q;
       12'hC01: rval = mtime;
+      12'hC02: rval = minstret_q;
       12'hF11, 12'hF12, 12'hF13, 12'hF15: rval = '0;
       12'hF14: rval = HARTID;
+      // ---- S and U (M3) ----
+      12'h100: begin rval = sstatus_rd; exists = SU; end
+      12'h104: begin rval = {52'b0, mie_q & mideleg_q}; exists = SU; end
+      12'h105: begin rval = stvec_q; exists = SU; end
+      12'h106: begin rval = {32'b0, scounteren_q}; exists = SU; end
+      12'h10A: begin rval = {63'b0, senv_fiom_q}; exists = SU; end
+      12'h140: begin rval = sscratch_q; exists = SU; end
+      12'h141: begin rval = sepc_o; exists = SU; end
+      12'h142: begin rval = scause_q; exists = SU; end
+      12'h143: begin rval = stval_q; exists = SU; end
+      12'h144: begin rval = {52'b0, mip & mideleg_q}; exists = SU; end
+      12'h14D: begin                                                 // stimecmp (Sstc)
+        rval = stimecmp_q; exists = SU;
+        if (priv_q != PRIV_M && !(menv_stce_q && mcounteren_q[1])) deny = 1'b1;
+      end
+      12'h180: begin                                                 // satp
+        rval = {satp_mode_q, 3'b0, satp_asid_q, satp_ppn_q}; exists = SU;
+        if (priv_q == PRIV_S && tvm_q) deny = 1'b1;
+      end
+      12'h5A8: begin rval = {32'b0, scontext_q}; exists = SU; end
+      12'h302: begin rval = {48'b0, medeleg_q}; exists = SU; end
+      12'h303: begin rval = {52'b0, mideleg_q}; exists = SU; end
+      12'h306: begin rval = {32'b0, mcounteren_q}; exists = SU; end
+      12'h30A: begin rval = {menv_stce_q, 62'b0, menv_fiom_q}; exists = SU; end
       default: begin
         if (a >= 12'h3A0 && a <= 12'h3AF) begin                      // pmpcfg (even only)
           if (a[0]) exists = 1'b0;
@@ -107,11 +257,23 @@ module tg_csr
           rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pmpaddr_q[a[3:0]]} : '0;
         end else if ((a >= 12'hB03 && a <= 12'hB1F) || (a >= 12'h323 && a <= 12'h33F)) begin
           rval = '0;                                                 // mhpmcounter*, mhpmevent*
+        end else if (a >= 12'hC03 && a <= 12'hC1F) begin             // hpmcounter* (Zihpm)
+          rval = '0;
+          exists = SU;
         end else begin
           exists = 1'b0;
         end
       end
     endcase
+    // Counter enables below M (cycle, time, instret, hpmcounter*)
+    if (SU && a >= 12'hC00 && a <= 12'hC1F) begin
+      if (priv_q != PRIV_M && !mcounteren_q[a[4:0]]) deny = 1'b1;
+      if (priv_q == PRIV_U && !scounteren_q[a[4:0]]) deny = 1'b1;
+    end
+    if (2'(priv_q) < a[9:8]) deny = 1'b1;
+    // Spike's read_for_write: mip's SEIP is the software bit alone
+    rval_w = rval;
+    if (a == 12'h344) rval_w[9] = SU && seip_sw_q;
   end
 
   // Write value and legality
@@ -120,11 +282,11 @@ module tg_csr
     wsrc = ex_pl.csr_imm ? {59'b0, ex_pl.csr_zimm} : ex_src;
     unique case (ex_pl.csr_op)
       CSR_RW:  wval = wsrc;
-      CSR_RS:  wval = rval | wsrc;
-      default: wval = rval & ~wsrc;
+      CSR_RS:  wval = rval_w | wsrc;
+      default: wval = rval_w & ~wsrc;
     endcase
   end
-  assign ex_ill   = !exists || (ex_pl.csr_wr && a[11:10] == 2'b11);
+  assign ex_ill   = !exists || deny || (ex_pl.csr_wr && a[11:10] == 2'b11);
   assign ex_rdata = rval;
 
   // Pending write, applied at commit
@@ -140,25 +302,63 @@ module tg_csr
     if (!c[0]) c[1] = 1'b0;
     return c;
   endfunction
+  // MPP legalisation (Spike's legalize_privilege without H): M-only keeps M; 2 becomes U
+  function automatic logic [1:0] legal_pp(input logic [1:0] p);
+    if (!SU) return 2'd3;
+    return (p == 2'd2) ? 2'd0 : p;
+  endfunction
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
+      priv_q    <= PRIV_M;
       mie_bit_q <= 1'b0;
       mpie_q    <= 1'b0;
+      sie_bit_q <= 1'b0;
+      spie_q    <= 1'b0;
+      spp_q     <= 1'b0;
+      mpp_q     <= SU ? 2'd0 : 2'd3;
+      fs_q      <= 2'd0;
+      mprv_q    <= 1'b0;
+      sum_q     <= 1'b0;
+      mxr_q     <= 1'b0;
+      tvm_q     <= 1'b0;
+      tw_q      <= 1'b0;
+      tsr_q     <= 1'b0;
       misa_m_q  <= 1'b1;
       misa_b_q  <= EXT_B;
       misa_c_q  <= EXT_C;
+      misa_a_q  <= EXT_A;
       mtvec_q   <= '0;
       mscratch_q <= '0;
       mepc_q    <= '0;
       mcause_q  <= '0;
       mtval_q   <= '0;
+      stvec_q   <= '0;
+      sscratch_q <= '0;
+      sepc_q    <= '0;
+      scause_q  <= '0;
+      stval_q   <= '0;
+      stimecmp_q <= '0;
       mcycle_q  <= '0;
       minstret_q <= '0;
       mie_q     <= '0;
+      ssip_q    <= 1'b0;
+      stip_sw_q <= 1'b0;
+      seip_sw_q <= 1'b0;
+      medeleg_q <= '0;
+      mideleg_q <= '0;
+      mcounteren_q <= '0;
+      scounteren_q <= '0;
       mcountinhibit_q <= '0;
+      menv_fiom_q <= 1'b0;
+      menv_stce_q <= 1'b0;
+      senv_fiom_q <= 1'b0;
+      satp_mode_q <= 1'b0;
+      satp_asid_q <= '0;
+      satp_ppn_q  <= '0;
       mcontext_q <= '0;
+      scontext_q <= '0;
       pmpcfg_q  <= '0;
       pmpaddr_q <= '0;
       // Spike's reset: entry 0 allows everything (NAPOT, RWX)
@@ -182,21 +382,74 @@ module tg_csr
       if (cm_csr && pw_v_q) begin
         pw_v_q <= 1'b0;
         unique casez (pw_a_q)
-          12'h300: begin mie_bit_q <= pw_d_q[3]; mpie_q <= pw_d_q[7]; end
+          12'h300: begin
+            mie_bit_q <= pw_d_q[3];
+            mpie_q    <= pw_d_q[7];
+            mpp_q     <= legal_pp(pw_d_q[12:11]);
+            if (SU) begin
+              sie_bit_q <= pw_d_q[1];
+              spie_q    <= pw_d_q[5];
+              spp_q     <= pw_d_q[8];
+              fs_q      <= pw_d_q[14:13];
+              mprv_q    <= pw_d_q[17];
+              sum_q     <= pw_d_q[18];
+              mxr_q     <= pw_d_q[19];
+              tvm_q     <= pw_d_q[20];
+              tw_q      <= pw_d_q[21];
+              tsr_q     <= pw_d_q[22];
+            end
+          end
+          12'h100: begin
+            sie_bit_q <= pw_d_q[1];
+            spie_q    <= pw_d_q[5];
+            spp_q     <= pw_d_q[8];
+            fs_q      <= pw_d_q[14:13];
+            sum_q     <= pw_d_q[18];
+            mxr_q     <= pw_d_q[19];
+          end
           12'h301: begin
             // Spike: clearing C is ignored when the CSR instruction's PC is not 4-byte aligned
             misa_m_q <= pw_d_q[12];
             misa_b_q <= EXT_B && pw_d_q[1];
+            misa_a_q <= EXT_A && pw_d_q[0];
             if (!(misa_c_q && !pw_d_q[2] && cm_pc[1])) misa_c_q <= EXT_C && pw_d_q[2];
           end
-          12'h304: mie_q <= pw_d_q[11:0] & 12'h888;
+          12'h302: medeleg_q <= pw_d_q[15:0] & {4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};
+          12'h303: mideleg_q <= pw_d_q[11:0] & 12'h222;
+          12'h304: mie_q <= pw_d_q[11:0] & (SU ? 12'haaa : 12'h888);
+          12'h104: mie_q <= (mie_q & ~mideleg_q) | (pw_d_q[11:0] & mideleg_q & 12'h222);
+          12'h344: begin
+            if (SU) begin
+              ssip_q <= pw_d_q[1];
+              if (!menv_stce_q) stip_sw_q <= pw_d_q[5];
+              seip_sw_q <= pw_d_q[9];
+            end
+          end
+          12'h144: if (mideleg_q[1]) ssip_q <= pw_d_q[1];
           12'h305: mtvec_q <= pw_d_q & ~64'd2;
-          12'h320: mcountinhibit_q <= pw_d_q[2:0] & 3'b101;
+          12'h105: stvec_q <= pw_d_q & ~64'd2;
+          12'h306: mcounteren_q <= pw_d_q[31:0];
+          12'h106: scounteren_q <= pw_d_q[31:0];
+          12'h320: mcountinhibit_q <= pw_d_q[31:0] & (SU ? 32'hffff_fffd : 32'h0000_0005);
+          12'h30A: begin menv_fiom_q <= pw_d_q[0]; menv_stce_q <= pw_d_q[63]; end
+          12'h10A: senv_fiom_q <= pw_d_q[0];
           12'h340: mscratch_q <= pw_d_q;
+          12'h140: sscratch_q <= pw_d_q;
           12'h341: mepc_q <= pw_d_q & ~64'd1;
+          12'h141: sepc_q <= pw_d_q & ~64'd1;
           12'h342: mcause_q <= pw_d_q;
+          12'h142: scause_q <= pw_d_q;
           12'h343: mtval_q <= pw_d_q;
+          12'h143: stval_q <= pw_d_q;
+          12'h14D: stimecmp_q <= pw_d_q;
+          12'h180: begin
+            // MODE changes only to Bare or Sv39; ASID and PPN are always written
+            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) satp_mode_q <= pw_d_q[63];
+            satp_asid_q <= pw_d_q[59:44];
+            satp_ppn_q  <= pw_d_q[43:0];
+          end
           12'h7A8: mcontext_q <= pw_d_q[12:0];
+          12'h5A8: scontext_q <= pw_d_q[31:0];
           12'hB00: mcycle_q <= pw_d_q;
           12'hB02: minstret_q <= pw_d_q;              // replaces this instruction's increment
           12'h3A0: for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
@@ -214,20 +467,41 @@ module tg_csr
         endcase
       end
 
-      // Trap entry and MRET
+      // Trap entry, MRET, SRET
       if (tr_valid) begin
-        mepc_q    <= tr_epc & ~64'd1;
-        mcause_q  <= {tr_irq, 57'b0, tr_code};
-        mtval_q   <= tr_irq ? 64'd0 : tr_tval;
-        mpie_q    <= mie_bit_q;
-        mie_bit_q <= 1'b0;
+        if (deleg) begin
+          sepc_q    <= tr_epc & ~64'd1;
+          scause_q  <= {tr_irq, 57'b0, tr_code};
+          stval_q   <= tr_irq ? 64'd0 : tr_tval;
+          spie_q    <= sie_bit_q;
+          sie_bit_q <= 1'b0;
+          spp_q     <= priv_q == PRIV_S;
+          priv_q    <= PRIV_S;
+        end else begin
+          mepc_q    <= tr_epc & ~64'd1;
+          mcause_q  <= {tr_irq, 57'b0, tr_code};
+          mtval_q   <= tr_irq ? 64'd0 : tr_tval;
+          mpie_q    <= mie_bit_q;
+          mie_bit_q <= 1'b0;
+          mpp_q     <= SU ? 2'(priv_q) : 2'd3;
+          priv_q    <= PRIV_M;
+        end
       end else if (mret) begin
         mie_bit_q <= mpie_q;
         mpie_q    <= 1'b1;
+        priv_q    <= priv_e'(mpp_q);
+        mpp_q     <= SU ? 2'd0 : 2'd3;
+        if (mpp_q != 2'd3) mprv_q <= 1'b0;
+      end else if (sret) begin
+        sie_bit_q <= spie_q;
+        spie_q    <= 1'b1;
+        priv_q    <= spp_q ? PRIV_S : PRIV_U;
+        spp_q     <= 1'b0;
+        mprv_q    <= 1'b0;
       end
     end
   end
 
   logic unused;
-  assign unused = ^{ex_pl, mepc_q[0], cm_pc[63:2], cm_pc[0]};
+  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1]};
 endmodule

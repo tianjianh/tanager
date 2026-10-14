@@ -79,8 +79,12 @@ module tg_rob
   output logic [63:0]                  tr_epc,
   output logic [63:0]                  tr_tval,
   output logic                         mret,
+  output logic                         sret,
+  output logic                         sfence,       // SFENCE.VMA retires: flush the TLBs
   input  logic [63:0]                  trap_target,
   input  logic [63:0]                  mepc,
+  input  logic [63:0]                  sepc,
+  input  priv_e                        priv,
   input  logic                         irq_take,
   input  logic [5:0]                   irq_code,
   input  logic                         wfi_wake,
@@ -178,7 +182,7 @@ module tg_rob
   int cnt;
   assign cnt = rob_cnt(tail_q, head_q);
   logic [CW-1:0] ret;               // retiring slots
-  logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, use_tt;
+  logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt;
   logic [63:0]   nf_pc;
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
@@ -204,6 +208,7 @@ module tg_rob
   always_comb begin
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
+    do_sret = 1'b0; do_sfence = 1'b0;
     use_tt = 1'b0;
     nf_pc = '0;
     t_cause = '0;
@@ -239,7 +244,9 @@ module tg_rob
           do_icinv = hp[0].sys == SYS_FENCEI;
           do_csr   = hp[0].is_csr;
           do_mret  = hp[0].sys == SYS_MRET;
-          nf_pc    = do_mret ? mepc : hp[0].pc + (hp[0].rvc ? 64'd2 : 64'd4);
+          do_sret  = hp[0].sys == SYS_SRET;
+          do_sfence = hp[0].sys == SYS_SFENCE;
+          nf_pc    = do_mret ? mepc : do_sret ? sepc : hp[0].pc + (hp[0].rvc ? 64'd2 : 64'd4);
         end
       end else begin
         stop = 1'b0;
@@ -286,6 +293,8 @@ module tg_rob
   end
   assign cm_csr   = do_csr;
   assign mret     = do_mret;
+  assign sret     = do_sret;
+  assign sfence   = do_sfence;
   assign tr_valid = do_trap || do_irq;
   assign tr_irq   = do_irq;
   assign tr_code  = do_irq ? irq_code : {2'b0, t_cause};
@@ -299,7 +308,7 @@ module tg_rob
     for (int j = 0; j < CW; j++) begin
       rec[j] = '0;
       rec[j].hart = HART0;
-      rec[j].priv = PRIV_M;
+      rec[j].priv = priv;
       rec[j].pc   = hp[j].pc;
       rec[j].insn = hp[j].insn;
       rec[j].rvc  = hp[j].rvc;

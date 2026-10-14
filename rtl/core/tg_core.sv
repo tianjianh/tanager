@@ -98,12 +98,18 @@ module tg_core
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
-  logic misa_m, misa_b, misa_c;
+  logic misa_m, misa_b, misa_c, misa_a;
+  priv_e priv, priv_d;
+  logic  tvm, tw, tsr, sum, mxr, satp_sv39;
+  logic [15:0] satp_asid;
+  logic [43:0] satp_ppn;
+  logic [15:0][7:0]  pmpcfg;
+  logic [15:0][53:0] pmpaddr;
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .priv, .tvm, .tw, .tsr, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -226,16 +232,19 @@ module tg_core
     .mmio_a_o, .mmio_a_valid_o, .mmio_a_ready_i, .mmio_d_i, .mmio_d_valid_i, .mmio_d_ready_o);
 
   // ---- CSRs ----
-  logic             cm_csr, tr_valid, tr_irq, mret, irq_take, wfi_wake;
+  logic             cm_csr, tr_valid, tr_irq, mret, sret, sfence, irq_take, wfi_wake;
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
-  logic [63:0]      tr_epc, tr_tval, trap_target, mepc;
+  logic [63:0]      tr_epc, tr_tval, trap_target, mepc, sepc;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
-    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .trap_target, .mepc_o(mepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b, .misa_c, .cm_pc(tr_epc),
-    .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .mtime(mtime_i));
+    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
+    .trap_target, .mepc_o(mepc), .sepc_o(sepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
+    .misa_c, .misa_a, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
+    .satp_asid, .satp_ppn, .pmpcfg, .pmpaddr,
+    .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
+    .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 
   // ---- ROB and commit ----
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
@@ -247,8 +256,8 @@ module tg_core
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data, .col_clr(col_rob),
-    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .trap_target, .mepc, .irq_take, .irq_code, .wfi_wake,
+    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
+    .trap_target, .mepc, .sepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
 
   // ---- Unused in M2 ----
@@ -258,5 +267,6 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped};
+                    st_dropped, misa_a, priv_d, sum, mxr, satp_sv39, satp_asid, satp_ppn, pmpcfg,
+                    pmpaddr, sfence};
 endmodule

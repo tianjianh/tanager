@@ -17,6 +17,10 @@ module tg_decode_stage
   input  logic                misa_m,
   input  logic                misa_b,
   input  logic                misa_c,
+  input  priv_e               priv,
+  input  logic                tvm,
+  input  logic                tw,
+  input  logic                tsr,
   // Instruction queue
   input  logic [W-1:0]        iq_valid,
   input  fe_insn_t [W-1:0]    iq_insn,
@@ -42,7 +46,7 @@ module tg_decode_stage
     tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].rvc ? xinsn : iq_insn[j].insn),
                      .len2(iq_insn[j].rvc),
                      .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
-                     .fault(iq_insn[j].fault), .misa_m, .misa_b, .d(d[j]));
+                     .fault(iq_insn[j].fault), .misa_m, .misa_b, .priv, .tvm, .tw, .tsr, .d(d[j]));
     logic [63:0] seq;
     logic        pt;
     logic [63:0] ptg;

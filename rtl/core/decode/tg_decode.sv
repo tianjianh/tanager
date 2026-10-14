@@ -13,6 +13,10 @@ module tg_decode
   input  logic        fault,      // fetch access fault at pc
   input  logic        misa_m,
   input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
+  input  priv_e       priv,       // current mode (stable: mode changes end in a flush)
+  input  logic        tvm,
+  input  logic        tw,
+  input  logic        tsr,
   output dec_t        d
 );
   logic xb;
@@ -197,12 +201,34 @@ module tg_decode
         7'b1110011: begin                                  // SYSTEM
           if (f3 == 3'd0) begin
             d.cls = C_SYS;
-            unique case (insn)
-              32'h0000_0073: begin d.exc = 1'b1; d.exc_cause = EXC_ECALL_M; end
+            unique casez (insn)
+              32'h0000_0073: begin
+                d.exc = 1'b1;
+                d.exc_cause = (priv == PRIV_M) ? EXC_ECALL_M : (priv == PRIV_S) ? EXC_ECALL_S : EXC_ECALL_U;
+              end
               32'h0010_0073: begin d.exc = 1'b1; d.exc_cause = EXC_BREAK; end
-              32'h3020_0073: begin d.sys = SYS_MRET; d.serial = 1'b1; end
-              32'h1050_0073: begin d.sys = SYS_WFI;  d.serial = 1'b1; end
-              default: ill = 1'b1;                         // SRET, SFENCE.VMA (no S-mode), ...
+              32'h3020_0073: begin
+                d.sys = SYS_MRET; d.serial = 1'b1;
+                if (priv != PRIV_M) ill = 1'b1;
+              end
+              32'h1020_0073: begin                         // SRET
+                d.sys = SYS_SRET; d.serial = 1'b1;
+                if (!EXT_SU || priv == PRIV_U || (priv == PRIV_S && tsr)) ill = 1'b1;
+              end
+              32'h1050_0073: begin                         // WFI
+                d.sys = SYS_WFI; d.serial = 1'b1;
+                if (EXT_SU && priv != PRIV_M && (tw || priv == PRIV_U)) ill = 1'b1;
+              end
+              32'b0001001_?????_?????_000_00000_1110011,   // SFENCE.VMA
+              32'b0001011_?????_?????_000_00000_1110011: begin   // SINVAL.VMA (Svinval)
+                d.sys = SYS_SFENCE; d.serial = 1'b1;
+                if (!EXT_SU || priv == PRIV_U || (priv == PRIV_S && tvm)) ill = 1'b1;
+              end
+              32'h1800_0073, 32'h1810_0073: begin          // SFENCE.W.INVAL, SFENCE.INVAL.IR
+                d.sys = SYS_SFENCE; d.serial = 1'b1;
+                if (!EXT_SU || priv == PRIV_U) ill = 1'b1;
+              end
+              default: ill = 1'b1;
             endcase
           end else if (f3 == 3'd4) begin
             ill = 1'b1;
