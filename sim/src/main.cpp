@@ -45,8 +45,9 @@ struct opts_t {
   std::string elf;
   uint64_t cycles = 50000000, hang = 100000, wb_drain = 2000, wb_timeout = 100000;
   double timeout = 3600;
-  std::string fst, log;
-  uint64_t fst_from = 0, fst_to = ~0ull;
+  std::string fst, log, sig;
+  uint64_t fst_from = 0, fst_to = ~0ull, log_from = 0, sig_window = 1024;
+  bool log_bus = false;
   bool lockstep = true, rand_reset = false, quiet = false;
   std::string isa = TG_DEFAULT_ISA, priv = TG_DEFAULT_PRIV;
   uint64_t seed = 1;
@@ -70,7 +71,11 @@ void usage() {
   fprintf(stderr,
           "usage: tg_vsim [options] program.elf\n"
           "  run control: --cycles=N --timeout=S --hang=N --wb-drain=N --wb-timeout=N --seed=N --quiet\n"
-          "  waveforms:   --fst=FILE [--fst-from=C] [--fst-to=C]; text trace: --log=FILE\n"
+          "  waveforms:   --fst=FILE [--fst-from=C] [--fst-to=C]\n"
+          "  text trace:  --log=FILE [--log-from=C] [--log-bus]: commit records and writebacks from cycle C on;\n"
+          "               with --log-bus also the core's TileLink beats and the B/D readies that count\n"
+          "  signature:   --sig=FILE [--sig-window=N]: per N cycles (1024), hashes of the commit trace and of the\n"
+          "               core's TileLink outputs, for tools/ci/cycle_identical.py (verification.md §4.5)\n"
           "  snapshots:   --snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=N]: on a failure, replay\n"
           "               from the newest snapshot and write FILE with the waveform up to the failure\n"
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
@@ -121,6 +126,10 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "fst-from") o.fst_from = num(need(), "--fst-from");
     else if (k == "fst-to") o.fst_to = num(need(), "--fst-to");
     else if (k == "log") o.log = need();
+    else if (k == "log-from") o.log_from = num(need(), "--log-from");
+    else if (k == "log-bus") o.log_bus = true;
+    else if (k == "sig") o.sig = need();
+    else if (k == "sig-window") o.sig_window = std::max<uint64_t>(1, num(need(), "--sig-window"));
     else if (k == "snap-every") o.snap_every = num(need(), "--snap-every");
     else if (k == "snap-keep") o.snap_keep = std::max(1u, unsigned(num(need(), "--snap-keep")));
     else if (k == "snap-fst") o.snap_fst = need();
@@ -331,6 +340,12 @@ int main(int argc, char** argv) {
     if (!logf) fatal("cannot open %s", o.log.c_str());
   }
   auto dis = [&](uint32_t insn) { return ls ? ls->disasm(insn) : std::string(); };
+  if (!o.sig.empty()) {
+    t.sig.f = fopen(o.sig.c_str(), "w");
+    if (!t.sig.f) fatal("cannot open %s", o.sig.c_str());
+    t.sig.window = o.sig_window;
+    t.sig.header();
+  }
 
   if (!o.quiet) {
     fprintf(stderr, "tg_vsim: %s, core %s, cfg %s (commit width %u, %u thread(s)), seed %llu, lat %u, lockstep %s%s\n",
@@ -372,6 +387,7 @@ int main(int argc, char** argv) {
         if (!freopen("/dev/null", "w", stdout)) _exit(EXIT_HARNESS);
         if (!freopen((o.fst + ".log").c_str(), "w", stderr)) _exit(EXIT_HARNESS);
         if (logf) { fclose(logf); logf = nullptr; }
+        if (t.sig.f) { fclose(t.sig.f); t.sig.f = nullptr; }
         t0 = now_s();
         tlimit = t0 + o.timeout;
       }
@@ -384,6 +400,7 @@ int main(int argc, char** argv) {
     t.ctx.now = cycle;
     t.recs.clear();
     t.wbs.clear();
+    t.sig.log_bus = logf && o.log_bus && cycle >= o.log_from;
     top->clk = 1;
     top->eval();
     if (fst && !o.fst.empty()) {
@@ -397,11 +414,14 @@ int main(int argc, char** argv) {
     if (fst_open) fst->dump(vtime);
     vtime++;
 
+    const bool log_now = logf && cycle >= o.log_from;
+    for (auto& r : t.recs) t.sig.rec(r);
+    for (auto& w : t.wbs) t.sig.wb(w);
     if (t.ctx.failed) { status = EXIT_PROTOCOL; why = t.ctx.error; break; }
 
     if (!t.recs.empty() || !t.wbs.empty() || t.sink.stall) last_rec = cycle;
     for (auto& r : t.recs) {
-      if (logf) fprintf(logf, "%s\n", format_rec(r, dis).c_str());
+      if (log_now) fprintf(logf, "%s\n", format_rec(r, dis).c_str());
       if (r.kind != TR_RETIRE) continue;
       instret++;
       if (!r.mem_st) continue;
@@ -428,8 +448,11 @@ int main(int argc, char** argv) {
         else if (v == 2) { region_cycles = cycle - region_c0; region_instret = instret - region_i0; }
       }
     }
-    for (auto& w : t.wbs)
-      if (logf) fprintf(logf, "%s\n", format_wb(w).c_str());
+    if (log_now) {
+      for (auto& w : t.wbs) fprintf(logf, "%s\n", format_wb(w).c_str());
+      for (auto& b : t.sig.bus_lines) fprintf(logf, "%s\n", b.c_str());
+    }
+    t.sig.bus_lines.clear();
     if (status != EXIT_PASS) break;
 
     if (ls && !ls->cycle(t.recs, t.wbs)) { status = EXIT_MISMATCH; why = ls->error(); break; }
@@ -458,11 +481,13 @@ int main(int argc, char** argv) {
       why = strfmt("TIMEOUT: wall-clock limit of %.0f s reached", o.timeout);
       break;
     }
+    t.sig.cycle_end(cycle);
   }
   fflush(stdout);
   if (fst_open) fst->close();
   top->final();
   if (logf) fclose(logf);
+  t.sig.finish(cycle, instret, exit_status_name(status), code);
 
   // A failure with snapshots: wake the newest one to write the waveform (verification.md §2.8).
   std::string snap_note;
