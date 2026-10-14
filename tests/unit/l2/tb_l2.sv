@@ -551,9 +551,9 @@ module tb_l2;
         $display("ain_st %0d ain line %h op %0d | cin_st %0d cin line %h op %0d", dut.ain_st_q, dut.ain_q.address >> 6,
                  dut.ain_q.opcode, dut.cin_st_q, dut.cin_q.address >> 6, dut.cin_q.opcode);
         for (int m = 0; m < N_MSHR; m++)
-          $display("mshr %0d v%0d st %0d req %h line %h way %0d hit %0d ppend %b psent %b vact %0d vline %h wb %0d/%0d fill %0d ar %0d",
+          $display("mshr %0d v%0d st %0d req %h line %h way %0d hit %0d ppend %b psent %b vact %0d vtag %h wb %0d/%0d fill %0d ar %0d",
                    m, dut.m_valid[m], dut.m_st[m], dut.u_mreq.mem[m], dut.m_line[m], dut.m_way[m], dut.m_hit[m],
-                   dut.m_ppend[m], dut.m_psent[m], dut.m_vact[m], dut.m_vline[m], dut.m_need_wb[m], dut.m_wb_done[m],
+                   dut.m_ppend[m], dut.m_psent[m], dut.m_vact[m], dut.m_vtag[m], dut.m_need_wb[m], dut.m_wb_done[m],
                    dut.m_need_fill[m], dut.m_ar_sent[m]);
         $display("aq %0d cq %0d eq %0d | mem outstanding %0d | dq %0d credit %0d | vr_busy %0d rs_busy %0d pw_busy %0d ws_busy %0d",
                  aq.size(), cq.size(), eq.size(), mem.outstanding(), dut.dq_cnt, dut.d_credit_q, dut.vr_busy_q,

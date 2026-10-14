@@ -178,8 +178,9 @@ module tg_l2_bank
   // (line, victim line, way, request fields) is also kept in multi-read-port LUTRAM, so the engines
   // read it without wide N_MSHR:1 multiplexers; the flip-flop copies of line, victim line and way
   // remain only for the compares that look at every MSHR at once (admission, reservations).
-  logic    [N_MSHR-1:0] m_valid;
+  logic    [N_MSHR-1:0] m_valid;                // m_st != MS_IDLE
   mstate_e              m_st      [N_MSHR];
+  mstate_e              m_st_d    [N_MSHR];
   logic [LINE_W-1:0]    m_line    [N_MSHR];
   logic [2:0]           m_way     [N_MSHR];
   logic [N_MSHR-1:0]    m_hit;
@@ -189,7 +190,7 @@ module tg_l2_bank
   logic [N_MSHR-1:0]    m_pcap_n;               // probe cap toN (else toB)
   logic [N_MSHR-1:0]    m_pvict;                // probing the victim line (else the request line)
   logic [N_MSHR-1:0]    m_vact;                 // victim line still owned by this MSHR
-  logic [LINE_W-1:0]    m_vline   [N_MSHR];
+  logic [TAG_W-1:0]     m_vtag    [N_MSHR];     // victim tag (the victim is in the request's set)
   logic [N_MSHR-1:0]    m_need_wb, m_wb_done;
   logic [N_MSHR-1:0]    m_need_fill, m_ar_sent, m_ferr;
   logic [1:0]           m_fcnt    [N_MSHR];
@@ -295,9 +296,12 @@ module tg_l2_bank
     n_free_mshr = '0;
     n_set       = 0;
     for (int m = 0; m < N_MSHR; m++) begin
-      if (m_valid[m] && (m_line[m] == ain_line || (m_vact[m] && m_vline[m] == ain_line))) a_conflict = 1'b1;
+      logic set_eq;
+      set_eq = m_valid[m] && set_of(m_line[m]) == set_of(ain_line);
+      if (set_eq && (tag_of(m_line[m]) == tag_of(ain_line) || (m_vact[m] && m_vtag[m] == tag_of(ain_line))))
+        a_conflict = 1'b1;
       if (!m_valid[m]) n_free_mshr = n_free_mshr + 1'b1;
-      if (m_valid[m] && set_of(m_line[m]) == set_of(ain_line)) n_set++;
+      if (set_eq) n_set++;
     end
     // A Release/ProbeAck with data updates the directory at S2 and writes its beats afterwards:
     // a new request for the line waits until the data is in the array.
@@ -997,7 +1001,7 @@ module tg_l2_bank
     df_out.d.sink    = dh_out.sink;
     df_out.d.denied  = dh_out.denied;
     df_out.d.corrupt = dh_out.corrupt;
-    df_out.d.data    = !dh_out.use_ram ? '0 : dq_hi ? dr_out[255:128] : dr_out[127:0];
+    // data: added after the D arbiter
     df_out.last      = dh_out.last && (!dq_two || dq_beat_q);
   end
   assign df_out_v = dq_cnt != '0;
@@ -1032,13 +1036,21 @@ module tg_l2_bank
   end
   assign rack_in_v = cin_st_q == CI_ACK && cin_rel;
 
-  // D output: response FIFO and ReleaseAcks, multi-beat messages kept contiguous
-  logic [1:0]           dsel_r;
+  // D output: response FIFO and ReleaseAcks, multi-beat messages kept contiguous. The arbiter
+  // carries the headers; the data (ReleaseAcks have none) joins after it, so the FIFO's half
+  // select and the arbiter's choice are one level of logic.
+  logic [1:0] dsel_r;
+  logic       d_idx;
+  tl_d_t      d_hdr;
   tg_arb #(.N(2), .T(tl_d_t)) u_darb (
     .clk, .rst,
     .in_valid ({rack_out_v, df_out_v}), .in_last ({1'b1, df_out.last}), .in_data ({rack_out, df_out.d}),
-    .in_ready (dsel_r), .out_valid (d_valid_o), .out_data (d_o), .out_idx (), .out_ready (d_ready_i)
+    .in_ready (dsel_r), .out_valid (d_valid_o), .out_data (d_hdr), .out_idx (d_idx), .out_ready (d_ready_i)
   );
+  always_comb begin
+    d_o      = d_hdr;
+    d_o.data = (d_idx == 1'b0 && dh_out.use_ram) ? (dq_hi ? dr_out[255:128] : dr_out[127:0]) : '0;
+  end
   assign df_out_r   = dsel_r[0];
   assign rack_out_r = dsel_r[1];
   wire unused_d = ^{rack_cnt};
@@ -1110,9 +1122,9 @@ module tg_l2_bank
       ws_busy_q   <= 1'b0;
       ws_aw_done_q <= 1'b0;
       d_credit_q  <= 5'(DFIFO);
-      m_valid     <= '0;
       for (int m = 0; m < N_MSHR; m++) m_st[m] <= MS_IDLE;
     end else begin
+      for (int m = 0; m < N_MSHR; m++) m_st[m] <= m_st_d[m];
       // ---- reset sequencer ----
       if (init_issue) init_cnt_q <= init_cnt_q + 1'b1;
       if (!init_issue && !p1_v_q && !p2_v_q) init_done_q <= 1'b1;
@@ -1190,7 +1202,6 @@ module tg_l2_bank
         vr_buf_q              <= wb_slot;
         vr_row_q              <= 1'b0;
         vr_ptr_q              <= rr_next(vr_m);
-        m_st[vr_m]            <= MS_VWAIT;
         wb_free_q[wb_slot]    <= 1'b0;
         wb_owner_q[wb_slot]   <= vr_m;
         wb_line_q[wb_slot]    <= rl_vline[1];
@@ -1231,8 +1242,6 @@ module tg_l2_bank
       // ---- MSHR file ----
       // Allocation at S2
       if (s2_alloc) begin
-        m_valid[m_new]     <= 1'b1;
-        m_st[m_new]        <= s2_alloc_st;
         m_line[m_new]      <= p2_q.line;
         m_way[m_new]       <= s2_alloc_way;
         m_hit[m_new]       <= s2_alloc_hit;
@@ -1242,7 +1251,7 @@ module tg_l2_bank
         m_pcap_n[m_new]    <= s2_alloc_pcap_n;
         m_pvict[m_new]     <= s2_alloc_pvict;
         m_vact[m_new]      <= s2_alloc_vact;
-        m_vline[m_new]     <= s2_alloc_vline;
+        m_vtag[m_new]      <= tag_of(s2_alloc_vline);
         m_need_wb[m_new]   <= s2_alloc_wb;
         m_wb_done[m_new]   <= 1'b0;
         m_need_fill[m_new] <= s2_alloc_fill;
@@ -1250,10 +1259,8 @@ module tg_l2_bank
         m_ferr[m_new]      <= 1'b0;
         m_fcnt[m_new]      <= '0;
       end
-      // MCMD issue and result
-      if (s0_take_m) m_st[mcmd_pick] <= (m_st[mcmd_pick] == MS_INVAL) ? MS_PIPE_INV : MS_PIPE_RES;
+      // MCMD result
       if (s2_mcmd) begin
-        m_st[mc2] <= s2_mcmd_st;
         if (m_st[mc2] == MS_PIPE_RES) begin
           if (rl_req[0].kind == K_ACQ) m_grant_t[mc2] <= s2_mcmd_grant_t;
           if (!m_hit[mc2]) begin
@@ -1264,57 +1271,56 @@ module tg_l2_bank
       end
       // Probes sent and acknowledged
       if (b_valid_o && b_ready_i) m_psent[pr_m] <= m_psent[pr_m] | onehot_ag(pr_ag);
-      if (cin_st_q == CI_ACK && !cin_rel && cin_mok_q) begin
-        m_ppend[cin_m_q] <= m_ppend[cin_m_q] & ~onehot_ag(cin_ag);
-        if (m_ppend[cin_m_q] == onehot_ag(cin_ag)) m_st[cin_m_q] <= MS_RESUME;
-      end
+      if (ev_pack) m_ppend[cin_m_q] <= m_ppend[cin_m_q] & ~onehot_ag(cin_ag);
       // AXI reads
       if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
       if (f_wr) begin
         m_fcnt[r_m] <= m_fcnt[r_m] + 1'b1;
         if (r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
-        if (r_s.last) begin
-          if (r_s.resp != AXI_OKAY || m_ferr[r_m]) m_st[r_m] <= MS_INVAL;
-          else m_st[r_m] <= (rl_req[3].kind == K_PUT) ? MS_PUTW : MS_RESP;
-        end
       end
-      // Victim read-out finished: the fill (or the Put) may proceed
-      if (rt_out.v && rt_out.to_wb && rt_out.vr_last)
-        m_st[rt_out.m] <= m_need_fill[rt_out.m] ? MS_FILL : MS_PUTW;
-      // Put written: free its buffer, respond
-      if (pw_done) begin
-        m_st[pw_cur_q]          <= MS_RESP;
-        pb_free_q[rl_req[2].pb] <= 1'b1;
-      end
+      // Put written: free its buffer
+      if (pw_done) pb_free_q[rl_req[2].pb] <= 1'b1;
       // Response issued in full (a Put whose fill failed never reached MS_PUTW: free its buffer here)
       if (rs_done && rl_req[1].kind == K_PUT && m_ferr[rs_cur_q]) pb_free_q[rl_req[1].pb] <= 1'b1;
-      if (rs_done) begin
-        if (rl_req[1].kind == K_ACQ)                 m_st[rs_cur_q] <= MS_ACK;
-        else if (m_need_wb[rs_cur_q] && !m_wb_done[rs_cur_q]) m_st[rs_cur_q] <= MS_WBWAIT;
-        else begin
-          m_st[rs_cur_q]    <= MS_IDLE;
-          m_valid[rs_cur_q] <= 1'b0;
-        end
-      end
-      // GrantAck
-      if (e_hit) begin
-        if (m_need_wb[e_m] && !m_wb_done[e_m]) m_st[e_m] <= MS_WBWAIT;
-        else begin
-          m_st[e_m]    <= MS_IDLE;
-          m_valid[e_m] <= 1'b0;
-        end
-      end
       // Write-back response; an MSHR waiting only for it is freed the cycle after
       // (the B may arrive in the same cycle the MSHR enters MS_WBWAIT).
       if (bw_v) begin
         m_wb_done[bw_m] <= 1'b1;
         m_vact[bw_m]    <= 1'b0;
       end
-      for (int m = 0; m < N_MSHR; m++)
-        if (m_st[m] == MS_WBWAIT && m_wb_done[m]) begin
-          m_st[m]    <= MS_IDLE;
-          m_valid[m] <= 1'b0;
-        end
+    end
+  end
+
+  // MSHR state transitions. Every event applies to an MSHR in one state only, so the next state is
+  // selected by the current state, without priority among the event sources.
+  wire ev_pack = cin_st_q == CI_ACK && !cin_rel && cin_mok_q;    // a ProbeAck has been processed
+  wire ev_vrf  = rt_out.v && rt_out.to_wb && rt_out.vr_last;     // victim read out
+  wire ev_fill = f_wr && r_s.last;                               // last fill beat written
+  always_comb begin
+    for (int m = 0; m < N_MSHR; m++) begin
+      logic wbp;                               // the victim write-back still waits for its B
+      wbp       = m_need_wb[m] && !m_wb_done[m];
+      m_st_d[m] = m_st[m];
+      unique case (m_st[m])
+        MS_IDLE:     if (s2_alloc && m_new == MW'(m))      m_st_d[m] = s2_alloc_st;
+        MS_RESUME:   if (s0_take_m && mcmd_pick == MW'(m)) m_st_d[m] = MS_PIPE_RES;
+        MS_INVAL:    if (s0_take_m && mcmd_pick == MW'(m)) m_st_d[m] = MS_PIPE_INV;
+        MS_PIPE_RES,
+        MS_PIPE_INV: if (s2_mcmd && mc2 == MW'(m))         m_st_d[m] = s2_mcmd_st;
+        MS_PROBE:    if (ev_pack && cin_m_q == MW'(m) && (m_ppend[m] & ~onehot_ag(cin_ag)) == '0)
+                       m_st_d[m] = MS_RESUME;
+        MS_VREAD:    if (vr_start && vr_m == MW'(m))       m_st_d[m] = MS_VWAIT;
+        MS_VWAIT:    if (ev_vrf && rt_out.m == MW'(m))     m_st_d[m] = m_need_fill[m] ? MS_FILL : MS_PUTW;
+        MS_FILL:     if (ev_fill && r_m == MW'(m))
+                       m_st_d[m] = (r_s.resp != AXI_OKAY || m_ferr[m]) ? MS_INVAL :
+                                   (rl_req[3].kind == K_PUT) ? MS_PUTW : MS_RESP;
+        MS_PUTW:     if (pw_done && pw_cur_q == MW'(m))    m_st_d[m] = MS_RESP;
+        MS_RESP:     if (rs_done && rs_cur_q == MW'(m))    m_st_d[m] = rs_acq ? MS_ACK : wbp ? MS_WBWAIT : MS_IDLE;
+        MS_ACK:      if (e_valid_i && e_m == MW'(m))       m_st_d[m] = wbp ? MS_WBWAIT : MS_IDLE;
+        MS_WBWAIT:   if (m_wb_done[m])                     m_st_d[m] = MS_IDLE;
+        default: ;
+      endcase
+      m_valid[m] = m_st[m] != MS_IDLE;
     end
   end
 
@@ -1345,6 +1351,15 @@ module tg_l2_bank
             assert ($onehot(dir_wdata.way[w].pres))
               else $error("tg_l2_bank%0d: tip without a single holder (set %0d way %0d)", BANK, set2, w);
       assert (!s2_err) else $error("tg_l2_bank%0d: protocol error at S2 (kind %0d line %h)", BANK, p2_q.kind, p2_q.line);
+      // Each MSHR event finds its MSHR in the one state the transition logic expects
+      if (s2_alloc)  assert (m_st[m_new] == MS_IDLE) else $error("tg_l2_bank%0d: allocation of busy MSHR %0d", BANK, m_new);
+      if (s0_take_m) assert (m_st[mcmd_pick] inside {MS_RESUME, MS_INVAL}) else $error("tg_l2_bank%0d: MCMD state", BANK);
+      if (s2_mcmd)   assert (m_st[mc2] inside {MS_PIPE_RES, MS_PIPE_INV}) else $error("tg_l2_bank%0d: MCMD result state", BANK);
+      if (ev_pack)   assert (m_st[cin_m_q] == MS_PROBE) else $error("tg_l2_bank%0d: ProbeAck for MSHR %0d not probing", BANK, cin_m_q);
+      if (vr_start)  assert (m_st[vr_m] == MS_VREAD) else $error("tg_l2_bank%0d: victim read-out state", BANK);
+      if (ev_vrf)    assert (m_st[rt_out.m] == MS_VWAIT) else $error("tg_l2_bank%0d: victim read-out end state", BANK);
+      if (pw_done)   assert (m_st[pw_cur_q] == MS_PUTW) else $error("tg_l2_bank%0d: Put write state", BANK);
+      if (rs_done)   assert (m_st[rs_cur_q] == MS_RESP) else $error("tg_l2_bank%0d: response state", BANK);
       if (e_valid_i) assert (e_hit) else $error("tg_l2_bank%0d: GrantAck for sink %h without a Grant", BANK, e_i.sink);
     end
   end
