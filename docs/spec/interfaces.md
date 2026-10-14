@@ -1,6 +1,6 @@
 # Cross-track interfaces
 
-**Status:** v1.1, 2026-10-13 (v1.1 adds the SC-outcome rule in §5). Owner: coordinator. Changes go through the coordinator (§7).
+**Status:** v1.2, 2026-10-13 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4). Owner: coordinator. Changes go through the coordinator (§7).
 
 These are the contracts between the tracks: core, FPU, SoC, verification and spikes. The SystemVerilog packages are the source of truth for field names and widths:
 
@@ -132,9 +132,13 @@ The FPU track builds the execution units. The core owns everything else: issue q
 
 | Unit | Ops (`fop_e`) | Timing | Flow control |
 |---|---|---|---|
-| FMA | FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD | exactly `FMA_LAT` (5) cycles, fully pipelined | none: the core reserves the writeback slot at issue |
-| FMISC | sign injection, MIN/MAX, compares, FCLASS, FCVT (F↔F, F↔I), FMV | exactly `FMISC_LAT` (2) cycles, fully pipelined | none |
-| FDIV/FSQRT | FDIV, FSQRT | `FDIV_LAT_S/D`, `FSQRT_LAT_S/D` (18/23, 20/26); a new operation every `FDIV_II` (4) cycles | `fdiv_ready_o` on requests; `fdiv_ready_i` on results (a result waits for a free writeback slot) |
+| FMA | FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD; **with R5:** FCVT FP→FP (`FOP_FCVT_F_F`) and integer→FP (`FOP_FCVT_F_I`) | exactly `FMA_LAT` (5) cycles, fully pipelined | none: the core reserves the writeback slot at issue |
+| FMISC | sign injection, MIN/MAX, compares, FCLASS, FCVT FP→integer, FMV; **until R5 lands:** also the FP→FP and integer→FP conversions | exactly `FMISC_LAT` (2) cycles, fully pipelined | none |
+| FDIV/FSQRT | FDIV, FSQRT | `FDIV_LAT_S/D`, `FSQRT_LAT_S/D`. Goldschmidt (v1, D17): 19/23 and 19/27, accepting whenever one of its four slots is free. Radix-4 fallback (`FDIV_RADIX4 = 1`): 18/33, one operation at a time. | `fdiv_ready_o` on requests; `fdiv_ready_i` on results (a result waits for a free writeback slot) |
+
+- **R5 routing:** with lever R5 (plan §8.5), the core issues FP→FP and integer→FP conversions to the FMA unit.
+  - `tg_fpu_pkg` will name the routing, so the core never hard-codes it.
+  - Until the FPU track lands R5, those conversions still go to FMISC.
 
 - **P4 issue:** issues one FP operation per cycle to exactly one unit.
 - **Operands:** `a`, `b` and `c` as held in the 64-bit FP registers.

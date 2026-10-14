@@ -534,16 +534,23 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
   - **Why so little:** behind 2-wide decode, even a blocked matrix multiply (44% FMAs) needs only about 0.9 FMAs per cycle.
   - **Where the cost is:** DSPs are plentiful; the cost is the FMA's LUT logic and the FP register-file ports.
 - **Divide and square root: Goldschmidt on two dedicated DSP multipliers** (56×56, 4-cycle pipelined, about 24 DSP48E2), with a 10-bit reciprocal / reciprocal-square-root seed table in a BRAM18.
-  - **Latency:** divide 18 cycles (single) / 23 (double); square root 20 / 26.
-  - **Throughput:** pipelined, a new operation every 4 cycles.
+  - **Latency (as built):** divide 19 cycles (single) / 23 (double); square root 19 / 27. A rounding stage, added to meet timing, makes single divide and double square root one cycle longer than the plan's 18 / 26.
+  - **Throughput:** pipelined; a new operation starts whenever one of four slots is free (one FDIV.D every 4 cycles in steady state).
   - **Rounding:** a final remainder multiply and ±1 ulp correction give correctly rounded results.
   - **Early retirement:** it can retire early.
-  - **Cost:** about the LUTs of the radix-4 unit it replaces (+0.2K net); its multipliers use DSPs, which the XCK26 has in excess.
+  - **Cost:**
+    - **M1 estimate:** about the LUTs of the radix-4 unit it replaces (+0.2K net); its multipliers use DSPs, which the XCK26 has in excess.
+    - **Measured (FPU track):** 3,125 LUTs, 26 DSPs and 1 BRAM18, against 1,714 LUTs for the radix-4 unit as built. That is +1.4K LUTs, 3.7% of the core.
   - **M1:** +1.3% suite IPC (+2.2% counting nbody); st +67%, minver +14%.
     - Radix-16 digit recurrence was rejected: +1.1% for 1.2K LUTs.
     - A 14-bit seed adds only +0.04%.
-  - **Fallback:** radix-4 digit recurrence (17 / 31 cycles).
-- **FMISC unit:** conversions, compares, sign injection and moves.
+  - **Re-modelled with the as-built latencies** (120 cycles): +2.4% suite IPC over the radix-4 unit as built (18 / 33 cycles, unpipelined); nbody +71%, st +70%, minver +23%.
+  - **Decision (D17, user, 2026-10-13):** keep Goldschmidt in v1, although at its measured cost it fails the acceptance rule (2.4% IPC against 3.7% LUTs).
+    - **Fallback:** if the dual-core runs short of area at the end, switch to the radix-4 unit. Both are built and verified, and `FDIV_RADIX4` in `tg_fpu_pkg` selects between them.
+    - **Lever R4** (§8.5), integer divide on the Goldschmidt multipliers, would remove about 0.5K of the difference.
+- **FMISC unit:** compares, sign injection, min/max, class, moves, and FP→integer conversions.
+  - **Lever R5** (§8.5) moves integer→FP and FP→FP conversions into the FMA, which shares its normaliser and rounder. Those conversions then take `FMA_LAT` cycles.
+  - **R5 measured:** FMISC shrinks by 584 LUTs and the FMA grows by about 150–250. Even the upper-bound IPC cost, every FMISC operation at 5 cycles, is −0.09% suite IPC, so R5 passes the rule.
 - **Queue:** IQ-FP has 10 entries (exception E5, §4.6).
 - **Verification:** TestFloat from the first commit, plus directed hard-rounding cases for the Goldschmidt remainder correction.
 
@@ -961,7 +968,7 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 | R2 | Cold CSRs (scratch, epc, tval, tvec, cause, envcfg …) in one LUTRAM array indexed by (TID, CSR); hot CSRs stay in flip-flops | 0.5–1.0K | none: CSR access is serialised | first commit; pays in v1 (SMT2) |
 | R3 | Rename maps in multi-ported LUTRAM with versioned checkpoints, not flip-flops with 32:1 read muxes | 0.3–0.6K | check recovery latency | first commit, if S5 agrees |
 | R4 | Integer DIV/REM on the Goldschmidt unit's DSP multipliers; the radix-4 integer divider goes | 0.4–0.6K | none, or faster divides | first commit |
-| R5 | FMISC conversions share the FMA's normaliser and rounder | 0.3–0.5K | none | first commit |
+| R5 | FMISC conversions share the FMA's normaliser and rounder | 0.3–0.5K (measured: −584 in FMISC, +150–250 in the FMA) | ≤ 0.09% suite IPC (modelled upper bound) | first commit (being built, 2026-10-13) |
 | R6 | L1 TLBs as set-associative LUTRAM, not fully associative CAMs | 0.3–0.5K | small hit-rate loss (model) | first commit |
 | R7 | Cold storage in BRAM: FTQ PCs, commit-time ROB payload, page-walk cache, BTB metadata | 0.3–0.6K | none (latency hidden) | first commit |
 | R8 | EX-only bypass with LUTRAM write-through, no WB bypass level | ~0.5K | none, if the write path closes timing | first commit |
@@ -1187,6 +1194,7 @@ The plan assumes the defaults below; say if any should change.
 | D14 | Roadmap | **v1 = SMT2 2-wide (first release), then v2 = 3-wide added to the SMT2 core, all on the KV260** (decided 2026-10-13). Both fit the XCK26 through the area-recovery plan (§8.5). | — |
 | D16 | First release and bring-up | **The first release is the SMT2 dual-core (2 cores × 2 harts).** Single-thread (`st`, `TID_W = 0`) is the bring-up stage (M2–M6), the CI reference and the run-time SMT-off mode; it is not released (decided 2026-10-13). | A single-thread release before SMT2 (about 4–6 months sooner) |
 | D15 | SMT2 configuration of the first release | **§6.5, decided 2026-10-13:** ROB 80 in static halves, LQ 24, SQ 20, 24 LLTs, 75% issue-queue caps, ICOUNT fetch; SMT switchable at compile time (`TID_W`) and at run time (hart offline: partitions merge) | ROB 64 (−1.5% throughput, −0.5K LUTs); a shared window with caps |
+| D17 | FP divide/sqrt unit | **Goldschmidt in v1 (user, 2026-10-13)**, kept despite failing the acceptance rule at its measured cost (+2.4% suite IPC against +1.4K LUTs, 3.7% of the core; §4.12) | The radix-4 unit (`FDIV_RADIX4 = 1`), built and verified, if the dual-core runs short of area at the end |
 
 ---
 
