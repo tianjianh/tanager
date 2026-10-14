@@ -1,0 +1,1 @@
+# ACT4 tests skipped on tg_core at M2 (tests/arch/config/core-m2-rv64im), with reasons.
