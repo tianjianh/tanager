@@ -290,6 +290,18 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
   - **What happened:** a whole-core budget synthesis from this branch ran the old `tools/vivado_run.sh`, with 3 slots and no memory declaration. Its 7 worker processes (about 10 GB) ran beside two full-device runs, and the host thrashed for 31 minutes.
   - **Fix:** merge main before heavy jobs, and declare `TANAGER_VIVADO_MEM_GB=10` for core syntheses.
 
+**F and D (2026-10-14):**
+- The FPU track built the FP back end (P4: `tg_fp_exec`, `tg_fprf`, `tg_fcsr`) to an interface agreed in advance. The core track built decode, FP rename, IQ-FP and the LSU, ROB and CSR hooks behind `EXT_FD` (core-fp.md).
+- Wiring them together took one afternoon. On the first build, all 23 FP riscv-tests passed in lockstep.
+- ACT4's F/D configuration found two core bugs (P4's assertions caught the first):
+  - an FP→int op with rd = x0 carried no LLT column;
+  - misa.F/D were read-only, where Spike lets software clear them.
+
+**Other bugs found with the full ACT4 plan lists (685 and 895 tests, against 355 in my earlier ELF set):**
+- **satp:** a write with an unsupported MODE wrote ASID and PPN anyway.
+- **Sm_csr_ro "fetch bug" (verification track):** this was the I$ refill race. Reproduced on the M2 core at 41be4a0, it fails 0/2 without the refill fix and passes 2/2 with it.
+- **Lesson:** rebuild the ACT4 ELFs whenever the plan list grows. A stale ELF set hid these tests.
+
 **Dead ends:**
 - My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
 - A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
