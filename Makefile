@@ -2,7 +2,7 @@
 #   make lint CFG=st         lint all product RTL for one configuration
 #   make lint-all            lint all four configurations
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
-#   make cycle-identical CFG=st [BASE=<commit>]   does this tree's RTL run cycle for cycle like BASE's?
+#   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
 # Track-specific targets live in their areas (sim/, tests/, fpga/); see docs/spec/conventions.md.
 
 CFG  ?= st
@@ -28,8 +28,10 @@ regress:
 	@tools/ci/regress.sh CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
 	  $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN))
 
-# Cycle-identical check of this tree's RTL against BASE, by default the merge base with main
-# (docs/spec/verification.md §4.5; DR-123). CFG takes a list ("st smt2"); SUITES=isa,stress,bench,random,reset.
+# Cycle-identical check of this tree's RTL (or BRANCH's) against BASE, by default the merge base with main
+# (docs/spec/verification.md §4.5; DR-123). CFG takes a list ("st smt2"); SUITES=isa,stress,bench,random,reset
+# or none; BOOT=N adds the Linux boot's first N million cycles on the SoC (BOOT_CORES=1|2).
 cycle-identical:
-	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") \
-	  $(if $(SUITES),--suites "$(SUITES)") $(if $(RANDN),--randn $(RANDN)) $(if $(JOBS),--jobs $(JOBS))
+	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") $(if $(BRANCH),--branch "$(BRANCH)") \
+	  $(if $(SUITES),--suites "$(SUITES)") $(if $(RANDN),--randn $(RANDN)) $(if $(JOBS),--jobs $(JOBS)) \
+	  $(if $(BOOT),--boot $(BOOT)) $(if $(BOOT_CORES),--boot-cores $(BOOT_CORES))
