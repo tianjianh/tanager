@@ -47,7 +47,7 @@ else ifeq ($(CORE),core)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= M
   PMP  ?= 16
-  TRACE_STALL ?= 0
+  TRACE_STALL ?= 1
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
   CORE_DEF :=

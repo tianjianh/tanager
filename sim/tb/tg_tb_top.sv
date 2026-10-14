@@ -120,9 +120,6 @@ module tg_tb_top
     .irq_ssi_i        (irq_ssi_q),
     .mtime_i          (mtime_q),
     .debug_req_i      ('0),
-`ifndef TG_TCORE
-    .trace_stall_i    (1'b0),         // interfaces.md v1.3: no back-pressure in simulation
-`endif
     .merr_o           (merr),
     .l1i_a_o          (l1i_a),
     .l1i_a_valid_o    (l1i_a_valid),
