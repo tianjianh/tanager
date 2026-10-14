@@ -476,6 +476,27 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
   - fflags, frm or fcsr is written.
   This matches Spike.
 
+### Area and timing of the back end
+
+Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rtl/core/fpu/fpu_be.f`), v1 configuration (smt2), 2026-10-14:
+
+| Module | LUTs | of which LUTRAM | FFs | WNS | Budget line (docs/perf/budgets.md) |
+|---|---|---|---|---|---|
+| `tg_fprf` (3 operand ports, store data, 2 trace ports) | 1,158 | 880 | 0 | +1.64 ns | register files and bypass (plan §4.7: about 1.3K for the FP file) |
+| `tg_fcsr` (two harts) | 46 | 0 | 24 | +1.29 ns | ROB, commit, traps, CSRs |
+| `tg_fp_exec` without `tg_fpu` and `tg_fprf` (bypass, F0 stream, wakeups, divide table and queue, B1 queue) | 1,085 | 144 | 626 | — | FP bypass: register files and bypass; the rest: the FPU line's headroom (911 LUTs) |
+| `tg_fp_exec` complete (with `tg_fpu` and `tg_fprf`), smt2 | 8,312 | 1,080 | 3,954 | +0.05 ns | |
+| `tg_fp_exec` complete, st | 8,221 | 1,072 | 4,038 | +0.01 ns | |
+
+The per-module split comes from a synthesis that keeps the hierarchy. The trace ports cost 2 × 64 bits of LUTRAM per bank; without them `tg_fprf` would be about 850 LUTs.
+
+**Timing.** Every input is constrained to arrive 1.5 ns after the clock, as for the units.
+- The worst paths are within 0.1 ns of each other: the FMISC's FCVT.I.F path; the F1 load bypass into the FMA's E0 (`fld_data` and `fld_single`, which come from the load result register in the core, so 1.5 ns is pessimistic for them); the divider's S1 into the seed ROM; and the FMA's E2.
+- Two changes made it close:
+  - the F0 stream's data is selected by the registered slot owners only (the first version failed by 0.56 ns on flush and early-retirement inputs feeding the bypass);
+  - the divide claim and the F0 write enable use the registered retired bit only. This last change was synthesised after these runs, and only removes a path at +0.09 ns.
+- The wakeup decoders cover only their own ID range (ROB or LLT columns): −116 LUTs.
+
 ### Helpers (`tg_fpcore_pkg`)
 - `fp_box_load(data, single)`: the F1 value of FLW and FLD.
 - `fp_rm_resolve(rm_field, frm)`: the rounding mode and legality, Spike's RM rule.
