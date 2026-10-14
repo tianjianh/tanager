@@ -388,11 +388,11 @@ module tg_lsu
   logic              st_req, st_ack;
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
-  logic [127:0]      st_wdata;
+  logic [63:0]       st_wdata;
   logic              am_req, am_ack, am_den, lose_v;
   logic [PA_W-1:0]   am_pa;
   logic [15:0]       am_wmask;
-  logic [127:0]      am_wdata;
+  logic [63:0]       am_wdata;
   logic [63:0]       am_rdata;
   logic [PA_W-1:6]   lose_line;
   tg_dcache u_dc (
@@ -583,7 +583,7 @@ module tg_lsu
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
-  assign st_wdata = {2{rep(sqd_rd[COMMIT_WIDTH+1], sqh.size)}};
+  assign st_wdata = rep(sqd_rd[COMMIT_WIDTH+1], sqh.size);
   logic dr_pop;
   assign dr_pop = (st_req && st_ack) || dr_amo ||
                   (xs_q == X_WAIT && x_st_q && mmio_d_valid_i);
@@ -660,7 +660,7 @@ module tg_lsu
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
-  assign am_wdata = {2{rep(am_new, am_size)}};
+  assign am_wdata = rep(am_new, am_size);
   assign am_take  = am_st_q == AM_RES && !m2_ok && !xr_take && !flush;
 
   logic            rsv_v_d;

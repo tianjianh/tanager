@@ -50,14 +50,14 @@ module tg_dcache
   input  logic              st_req,
   input  logic [PA_W-1:0]   st_pa,
   input  logic [15:0]       st_mask,
-  input  logic [127:0]      st_wdata,
+  input  logic [63:0]       st_wdata,     // the bytes in their lanes of both dwords (st_mask picks)
   output logic              st_ack,
   output logic              st_dropped,   // acked without writing (denied Grant)
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
   input  logic [PA_W-1:0]   am_pa,
   input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
-  input  logic [127:0]      am_wdata,
+  input  logic [63:0]       am_wdata,     // as st_wdata
   output logic              am_ack,       // am_rdata valid; am_wmask/am_wdata written
   output logic [63:0]       am_rdata,     // the addressed dword before the write
   output logic              am_den,       // the line's last fill was denied
@@ -319,7 +319,7 @@ module tg_dcache
       b_en[sh_way] = 1'b1; b_en_w[sh_way] = 1'b1;
       b_we = st_mask;
       b_addr = st_pa[4 +: ROW_W];
-      b_wdata = st_wdata;
+      b_wdata = {2{st_wdata}};
     end else if (pb_amr) begin
       brd_en = 1'b1; brd_way = sh_way;
       b_en[sh_way] = 1'b1;
@@ -328,7 +328,7 @@ module tg_dcache
       b_en[am_way_q] = 1'b1; b_en_w[am_way_q] = 1'b1;
       b_we = am_wmask;
       b_addr = am_row_q;
-      b_wdata = am_wdata;
+      b_wdata = {2{am_wdata}};
     end
   end
 
