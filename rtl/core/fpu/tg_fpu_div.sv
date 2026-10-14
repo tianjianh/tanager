@@ -155,21 +155,24 @@ module tg_fpu_div
   // in r1 during t+5, r3 during t+7 and r4 during t+8, the c0 of its round 2, when e23 is ready
   // (gs_model.h, small_terms).
   // ------------------------------------------------------------------------------------------
-  logic [42:0]        sma_lo_q;                     // t+4: x[59:34] * y0^2 in two tiles
+  // u0 = x[59:34] * y0^2 in two tiles (Q2.44), and e0 = 1 - u0: the low tile's ALU subtracts its
+  // product from 2^44 (its P register holds 2^44 - lo), so only (that >> 17) - hi is left for the
+  // LUTs (fpga_friendly.md T6: the adders ride DSPs that are there anyway).
+  logic [45:0]        plo_q;                        // t+4: 2^44 - x[59:34] * y0^2[16:0]
   (* use_dsp = "yes" *) logic [28:0] sma_hi_q;        // (a DSP, not LUTs, for the 26 x 3 bits)
   logic signed [26:0] e0d_q;                        // t+4: division e0, Q.33
   always_ff @(posedge clk) begin
-    sma_lo_q <= 43'(s4_opa[59:34]) * 43'(sm0_q[16:0]);
+    plo_q    <= 46'(64'd1 << 44) - 46'(43'(s4_opa[59:34]) * 43'(sm0_q[16:0]));
     sma_hi_q <= 29'(s4_opa[59:34]) * 29'(sm0_q[19:17]);
     e0d_q    <= 27'($signed(35'(64'd1 << 33)) - $signed({1'b0, sm0_q}));
   end
 
   logic signed [26:0] e0_q, e0_d_q;                 // t+5, t+6: e0 in Q.33
-  logic signed [46:0] e0s;
+  logic signed [46:0] e0s;                          // 2^44 - lo - hi * 2^17
   always_comb begin
-    logic [45:0] u0a;                               // x * y0^2 approximation, Q2.44
-    u0a = 46'(sma_lo_q) + (46'(sma_hi_q) << 17);
-    e0s = $signed(47'(64'd1 << 44)) - $signed({1'b0, u0a});
+    logic signed [29:0] e0s_hi;                     // (2^27 >= that) - (hi < 2^29): fits
+    e0s_hi = $signed({1'b0, plo_q[45:17]}) - $signed({1'b0, sma_hi_q});
+    e0s    = {e0s_hi, plo_q[16:0]};
   end
   always_ff @(posedge clk) begin
     e0_q   <= r1_q.info.sqrt ? 27'(e0s >>> 11) : e0d_q;
@@ -325,13 +328,23 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // F0: remainder sign and zero test; (T, G, S) at normal precision
   // ------------------------------------------------------------------------------------------
-  logic [95:0] rem;
+  // The remainder {A[37:0], 58'b0} - P[95:0] (mod 2^96: it is small, as the candidate is within
+  // a grid step of the root or quotient) matters only by its sign and whether it is zero. Its
+  // low 58 bits are -P[57:0], which only lends a borrow when P[57:0] != 0, so a 38-bit
+  // subtraction gives the sign and, with that test, the zero test (fpga_friendly.md T7: no
+  // 96-bit subtractor).
+  logic        rem_neg, rem_nz;
   logic [59:0] f;
   always_comb begin
+    logic        lo_nz;
+    logic [37:0] rh;
     logic [59:0] grid;
-    rem  = {r4_q.opa[37:0], 58'b0} - p1[95:0];
-    grid = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
-    f    = rem[95] ? r4_q.c - grid : r4_q.c;
+    lo_nz   = |p1[57:0];
+    rh      = r4_q.opa[37:0] - p1[95:58] - 38'(lo_nz);   // the remainder's bits 95:58
+    rem_neg = rh[37];
+    rem_nz  = lo_nz || rh != '0;
+    grid    = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
+    f       = rem_neg ? r4_q.c - grid : r4_q.c;
   end
 
   // ------------------------------------------------------------------------------------------
@@ -345,7 +358,7 @@ module tg_fpu_div
     .info_i  (r4_q.info),
     .t_i     (r4_q.info.dbl ? f[58:6] : {29'b0, f[58:35]}),
     .g_i     (r4_q.info.dbl ? f[5] : f[34]),
-    .s_i     (rem != '0),
+    .s_i     (rem_nz),
     .valid_o (rd_v),
     .resp_o  (rd_resp)
   );
