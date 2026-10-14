@@ -202,8 +202,12 @@ int main(int argc, char** argv) {
     if (sig_lines >> 1 & 1) m |= MIP_SSIP;
     return m;
   };
-  const reg_t PLATFORM_MIP = MIP_MTIP | MIP_MSIP | MIP_MEIP | MIP_SEIP;
-  uint32_t sig_ssip_last = 0;
+  // MTIP, MSIP and MEIP are read-only in mip and follow the platform's levels. Software may also
+  // write SEIP and SSIP, so the SIG sets or clears those only when its line changes (as Sail's SIG
+  // and Spike's own PLIC do).
+  const reg_t PLATFORM_MIP = MIP_MTIP | MIP_MSIP | MIP_MEIP;
+  const reg_t SIG_EDGE_MIP = MIP_SEIP | MIP_SSIP;
+  std::vector<reg_t> sig_edge_last(o.harts, 0);
 
   lockstep_cfg_t lc;
   lc.isa = o.isa;
@@ -239,14 +243,14 @@ int main(int argc, char** argv) {
     uint32_t bits = 0;
     spike_fetch(p, s->pc, bits);
 
-    // Platform interrupt levels (the SIG's SSIP only on a change: software may also write mip.SSIP).
+    // Platform interrupt levels; the SIG's SEIP and SSIP only on a change.
     if (++steps_total % o.mtime_div == 0) mtime++;
     if (s->time) s->time->sync(mtime);  // the time CSR follows the CLINT, as with Spike's own CLINT
     reg_t lv = platform_levels(h);
     s->mip->backdoor_write_with_mask(PLATFORM_MIP, lv);
-    if ((sig_lines >> 1 & 1) != sig_ssip_last) {
-      sig_ssip_last = sig_lines >> 1 & 1;
-      s->mip->backdoor_write_with_mask(MIP_SSIP, lv);
+    if (reg_t changed = (lv & SIG_EDGE_MIP) ^ sig_edge_last[h]) {
+      s->mip->backdoor_write_with_mask(changed, lv);
+      sig_edge_last[h] = lv & SIG_EDGE_MIP;
     }
 
     // A random interrupt, if one is enabled here.
@@ -264,7 +268,7 @@ int main(int argc, char** argv) {
       }
     }
     spike_step_t st = spike_step(p, bits);
-    if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced);
+    if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced & PLATFORM_MIP);
 
     if (st.trapped && st.interrupt) {
       r.kind = TR_IRQ;
@@ -294,8 +298,9 @@ int main(int argc, char** argv) {
     }
     // Device loads: with translation off the load address is physical (enough for the programs
     // replay runs; the RTL knows the physical address itself).
-    bool bare = s->prv == PRV_M ? !(s->mstatus->read() & MSTATUS_MPRV)
-                                : !p->extension_enabled('S') || (p->get_csr(CSR_SATP) >> 60) == 0;
+    reg_t eff = s->prv;  // the privilege of data accesses (MPRV)
+    if (eff == PRV_M && (s->mstatus->read() & MSTATUS_MPRV)) eff = get_field(s->mstatus->read(), MSTATUS_MPP);
+    bool bare = eff == PRV_M || !p->extension_enabled('S') || (p->get_csr(CSR_SATP) >> 60) == 0;
     if (r.rd_we && is_load_insn(bits, r.rvc) && st.nld && bare && !dut.in_dram(st.ld_addr)) r.mmio_ld = true;
     if (r.rd_we && is_csr_insn(bits) && adopted_csr(bits >> 20)) {
       r.nondet = true;
