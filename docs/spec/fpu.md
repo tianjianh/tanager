@@ -359,7 +359,7 @@ Plan §8.5 lever R4 runs DIV/REM on the Goldschmidt unit's multipliers so that t
 
 ## Core integration (P4 back end)
 
-Status: interface proposed 2026-10-14 for the core track's agreement; modules being built.
+Status: interface proposed 2026-10-14 for the core track's agreement; modules built and unit-tested (verification below), not yet wired into `tg_core`.
 
 F/D integration splits between the two tracks:
 - **FPU track** (`rtl/core/fpu/`): `tg_fprf`, `tg_fp_exec`, `tg_fcsr` and the load/store helpers in `tg_fpcore_pkg`.
@@ -438,7 +438,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - Rename keeps at most `FPI_INFLIGHT` such operations between rename and the hand-off. `fpi_pop` returns one credit per entry leaving the queue.
 
 **Divide and square root:**
-- **Queue:** an FDIV leaves EX0 into a queue of `FDIV_Q` entries in front of the divider, and is tracked in a table of the same size until its result is written or dropped.
+- **Queue:** an FDIV takes an entry of a table of `FDIV_Q` entries in RF, which tracks it until its result is written or dropped (so an early retirement can find it from RF on). From EX0 it enters a queue of the same size in front of the divider, which it skips when the queue is empty and the divider is ready.
 - **Credits:** rename keeps at most `FDIV_INFLIGHT` divides between rename and their result. That differs from the F/D branch's comment ("rename and the unit"), and it bounds the table. `fdiv_done` returns one credit per divide, written or dropped.
 - **Tag:** the divider's tag is the table index.
 
@@ -452,7 +452,12 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - **B1 queue:** the thread's entries are marked dead and popped later without a request.
 - **Divides:** the thread's divides that have not retired early are marked squashed and dropped when they leave the divider.
 
-**Early retirement of divides** (plan §4.5; M6). The core reports `fdiv_ret_valid`, `fdiv_ret_tid` and `fdiv_ret_llt` when it retires a divide before its result. Its result still writes F0 and wakes, and flushes no longer squash it. Its fflags go to `tg_fcsr` (`er_valid`, `er_tid`, `er_fflags`) instead of the ROB completion. Tie these low until early retirement is on.
+**Early retirement of divides** (plan §4.5; M6). The core reports `fdiv_ret_valid`, `fdiv_ret_tid` and `fdiv_ret_llt` when it retires a divide before its result. Its result still writes F0 and wakes, and flushes no longer squash it, including one in the cycle of its claim or write. Its fflags go to `tg_fcsr` (`er_valid`, `er_tid`, `er_fflags`) instead of the ROB completion, also when the retirement arrives in the write cycle itself. Tie these low until early retirement is on.
+
+**The core's side of the contract**, checked by assertions:
+- an FMISC op with an FP destination is not selected while `fmisc_block` is high;
+- credits keep at most `FDIV_Q` divides and `FPI_Q` integer results in flight;
+- a divide does not retire early in a cycle when its thread is flushed. The flush is registered from an older commit, so nothing it kills can retire with it.
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -556,6 +561,7 @@ Tests live in `tests/unit/fpu/` (Verilator, C++ testbench `tb_fpu.cpp` on `tg_fp
 | `make test` | short regression, about 30 s with 8 jobs: TestFloat level 1 for every function, mode and format (mulAdd: 1.5M vectors per mode), directed divide/sqrt cases, random traffic on all units |
 | `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (23 minutes with 6 jobs on 2026-10-13: 2.6·10^9 results) |
 | `make tb DIV=r4`, `make test DIV=r4` | the same on the radix-4 fallback |
+| `make test-be CFG=…` (`DIV=r4`), `run_be_tests.sh short\|long` | the FP back end (below), with `-j16` |
 
 The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the divider exactly when `fdiv_ready_i` is never low), so it checks the RTL against the constants the core uses.
 
@@ -571,6 +577,30 @@ The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the 
 - **Assertions** (Verilator `--assert`): FMT_H never requested; requests routed to the right unit; no divider slot collision; output-queue credits in step and never exceeded.
 - **Models:** `gs_model.h` and `r4_model.h` are bit-accurate models of the two dividers; `gs_check` also measures the Goldschmidt approximation error against its budget, including both ends of every seed-ROM interval.
 - **Lockstep** (core track, later) compares FP results through the commit trace; `fflags` are compared only where software reads them (interfaces §5).
+
+**The FP back end** (`tb_fpx.cpp` on `tg_fp_exec` through the wrapper `tb_fpx_top.sv`; `tb_fcsr.cpp` on `tg_fcsr`; every configuration, and the radix-4 divider):
+
+The bench models the core's side of P4:
+- the woken vector, filled only from `wake_reg`, so a wakeup that fires early makes a consumer read a stale value;
+- physical-register, ROB and LLT pools, the divide and integer-result credits, and `fmisc_block`;
+- F1 loads announced through `fld_m2_will`, and the integer source port;
+- the bank-1 arbiter with random `fpi_ready`.
+
+It checks, against the SoftFloat-based reference:
+- every F0 write, at its exact cycle (FMA s+7, FMISC s+4, divides one cycle after their wakeup), and its value through a trace port the next cycle;
+- every completion and its flags, every wakeup at its exact cycle, `llt_done`;
+- every B1 record (value, flags, destination, IDs) in queue order;
+- random store-data reads.
+
+| Run | What it covers |
+|---|---|
+| `rand` | random FP streams with dependencies through both bypass levels. Three stress settings: no flushes; a flush per ~150 cycles with 20% early retirement and 60% `fpi_ready`; a flush per ~40 cycles with 40% and 30% |
+| `tf` | TestFloat level 1 for every function. Operands go through F1 loads (FP) or the integer source port, results through F0 or the B1 queue |
+| `tb_fcsr` | CSR writes of the three views, commit and early-retired accumulation, `er_busy`, `fs_dirty`, every cycle |
+
+Review and the bench found two errors in `tg_fp_exec`, both fixed:
+- a B1-queue entry pushed in a flush cycle could inherit its slot's previous occupant's dead mark;
+- a divide that retired early was still dropped when its thread was flushed in its claim or write cycle.
 
 ## Provenance
 
