@@ -427,3 +427,30 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - The divider's normalisation as a 64-bit rotation plus a mask (8ed931c, reverted in a32d2aa): +102 LUTs.
 - One AG report per LSU port into the ROB (935dc2b, reverted in a926037): level.
 - The walker on the STA port's checker (4b85114, reverted in 5c124f2): −0.83K, but not exclusive (D18); it is in the reserve (§13).
+
+**FPGA-friendly rewrite, first pass (2026-10-14, DR-123/125; branch `claude/track-core-adb715-fn`):**
+- **Method:** a LUT attribution of the whole core (hierarchy kept, DR-113's settings, every LUT grouped by the signal it drives). Each structure found was rewritten in an FPGA form, and each step was checked with `make cycle-identical` against main: st, smt2, st_w3 and smt2_w3, 796 programs each.
+
+| Step | Commit | Form | Measured (st, DR-113's settings) |
+|---|---|---|---|
+| Ready tables: a set phase per bank, an allocation phase XOR-banked; the free lists' next registers cleared every cycle | 9cbbc67, cc1f679 | T2 | rename 4,324 → 3,340; the 192:1 and 128:1 read multiplexers were 1.4K LUT cells |
+| `rowdst` (MX) in LUTRAM, XOR-banked by DS slot | 917189a | T2 | rename, with the next step: 3,340 → 2,780 |
+| The maps' banks XOR-banked, no live-value tables | 6f8c99e | T2 | (above) |
+| The DS payload loads whenever DS is free | c02be92 | timing | — |
+| The TLB match as a LUTRAM CAM: six level-aligned slice tables, a key store, a bypass comparator behind a three-cycle update | 7863a25 | T5 | DTLB 1,470 → 1,104 LUTs (−819 flip-flops); ITLB 486 → 480 (−392 flip-flops) |
+| The ROB's `complete`, `exc`, `mispredict`, `mmio` as per-port toggle tables with a dispatch-time parity | cb67ebc | T2 | ROB 2,696 → 2,042 |
+| The SQ's ROB index and size in LUTRAM | 8a18f6c | T1 | small |
+| D$ port B's byte enables shared by the ways | 7ad53ea | — | small |
+| `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | rob_csr: see the MR |
+
+- **Result at c02be92:** st 46,132 → 43,582 (−2,550): rename −1,508, lsu_mmu −383, rob_csr −653; flip-flops −2.0K, LUTRAM +1.0K.
+- **Timing, out of context at 200 MHz (reg-to-reg):**
+  - **Rename:** in one clock region, 41bc3f6 −2.233 ns and 7ad53ea −0.517 ns. Unconstrained the two vary run to run by about 0.3 ns around main's −0.154. The worst path is main's own: the free-list counts, steering and resource checks into rn_fire.
+  - **ROB:** −0.954 → −0.372 ns.
+  - **LSU:** −4.751 → −4.163 ns. That is M3's AG stage (TLB, PMP and the access decision in one cycle), whose fix is M6's.
+- **Lessons:**
+  - The flip-flop structures had a reader cost, not a storage cost. The ready bits, ROB flags and MX row destinations were cheap to store but read through wide multiplexers or written through many index decoders.
+  - XOR banking and per-port toggle tables give one writer per LUTRAM without a live-value table. They need either an exact old value at the write address, or a one-report-per-lap invariant; the ROB checks its invariant with a shadow copy of the old flags in simulation.
+  - A LUTRAM CAM is a LUT lever for a TLB with two lookups and an overlap check (−366), but not with one lookup (−6). The spikes track's single-lookup pricing (76 LUTs at 32 entries) did not see the second port.
+  - A change that is invisible in the core test bench can still show in the SoC boot's cycle counts: `tb_axi_mem`'s random draws move with the build at four Verilator threads (verification.md §4.5). Use `make cycle-identical`.
+  - Clearing a free list's next registers early is invisible, because nobody reads a free register's ready bit. Rewriting a structure exactly is easier when it is clear who can observe what, and when.
