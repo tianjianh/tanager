@@ -59,6 +59,11 @@ Each step's expected result is in brackets.
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
    ```
    [OpenSBI banner, Linux boot, `TANAGER-BOOT-OK`; Ctrl-A x leaves].
+7. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
+   - **Ring placement:** the ring takes the top `64 B << --trace-log2` of the carve-out (default 256 MiB), and the RISC-V memory window shrinks by that much. Build the device tree for traced runs with `make -C sw/dts MEM=0x30000000` (768 MiB).
+   - **Post-mortem:** `--trace-wrap --trace-stop PC --trace-post N` keeps the last records up to N after the first commit at `PC`, written to `FILE` at exit.
+   - **Starting late:** `--trace-start PC` lets the run reach `PC` at full speed and traces from there.
+   - **Status:** `sudo tanager-host trace status`.
 
 ## Pins and clocks
 
