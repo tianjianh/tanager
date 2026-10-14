@@ -49,6 +49,7 @@ route_design
 phys_opt_design
 report_utilization -file util.rpt
 report_utilization -hierarchical -file util_hier.rpt
+report_control_sets -file control_sets.rpt
 report_timing_summary -file timing.rpt -max_paths 20
 report_timing -max_paths 30 -nworst 1 -unique_pins -file paths.rpt
 report_design_analysis -logic_level_distribution -file levels.rpt
