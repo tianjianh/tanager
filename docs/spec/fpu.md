@@ -313,6 +313,50 @@ The plan's fallback for the Goldschmidt unit (§4.12, trim ladder §8.4 #6). `tg
 
 **Pipeline.** One operation at a time: UNP (unpack, specials, normalise the divisor or the radicand), NRM (normalise the dividend with the same leading-zero counter and shifter), INI (scaling, exponent, w0), then one digit per cycle; the last digit hands (T, G, S) to `tg_fpu_div_round`. Latency 18 (S) and 33 (D) cycles for both operations; the result waits in an output register for `fdiv_ready_i`, and the next request is accepted once it has been taken.
 
+## Lever R4: integer divide on the Goldschmidt unit (assessment, not built)
+
+Plan §8.5 lever R4 runs DIV/REM on the Goldschmidt unit's multipliers so that the core's integer divider goes. Assessed 2026-10-13 at the coordinator's request; not built (the coordinator schedules it with the core track).
+
+**What would go.** The core's integer divider `tg_div` (core track, branch `claude/track-core-adb715-m3`, commit 24595a1) uses radix-2 restoring division with early out:
+- **Latency:** n + 4 cycles for an n-bit quotient, so at most 68 (36 for the W forms), and 4 when the quotient is 0. It runs one divide at a time behind a 4-entry input FIFO.
+- **Size** (out of context at 200 MHz, the flow above): 1,447 LUTs (92 of them LUTRAM for the FIFO), 293 FFs, WNS +0.21 ns; its slowest path is the early-out normaliser (two 64-bit leading-zero counts and a 128-bit shift, 14 logic levels).
+
+**What the divide/sqrt unit would need.**
+- **Precision.** A 64-bit quotient needs the approximation within 2^−64 of A/B, so that one remainder round picks between two candidates. The FP unit reaches 2^−56.1, limited by truncation (about four products at 2^−58 each) and by the convergence after R3 (e1² ≈ 2^−62, "Division schedule").
+  - The iteration values grow from 60 to about 70 bits (Q2.68): x splits as 26 + 26 + 18 bits and y into five 17-bit chunks, so 15 tiles per multiplier instead of 12 (+6 DSPs). The c3 adders, the operand multiplexers and the slot registers grow by about 10 bits each.
+  - Integer division takes one more Newton round (R4: e ≈ e2² ≈ 2^−124) before the remainder round, +4 cycles.
+- **A front-end stage before S1:** the W forms extend bit 31, and the signed forms take \|a\| and \|b\| (two 64-bit negations). This cannot join S1, which is already the unit's critical path (10 logic levels into the seed-ROM address). Integer operations therefore enter the ring one cycle later than FP ones, and the ready logic looks one slot further ahead for them.
+- **S1:** the normalisers widen from 53 to 64 bits.
+- **Remainder round:** the candidate's grid becomes variable. The integer quotient's LSB lies lzb − lza places below the binary point of the normalised quotient, not at the S or D position, so the half-grid and mask are decoded from that difference.
+- **REM** needs the remainder's value, not just its sign. It is shifted back by the dividend's normalisation and corrected by +b when the lower candidate is taken, which takes an adder and the divisor carried in the slot.
+- **F1:** the denormalisation shifter, widened to 64 bits, aligns the quotient (DIV) or the remainder (REM).
+- **F2/F3:**
+  - the sign fix-up, one ternary adder that also folds in the REM correction;
+  - W sign extension;
+  - division by zero (quotient all ones, remainder a);
+  - overflow (−2^63 / −1) falls out of the magnitude path, as in `tg_div`.
+- **Estimate:** +0.9 to 1.1K LUTs and +6 DSPs.
+
+**What the core would change.**
+- **Request port:**
+  - DIV/REM stay in IQ-A1, which reads their two integer operands.
+  - P1 (DIV/REM) and P4 (FDIV/FSQRT) share the divider's request port through an arbiter and a 2:1 multiplexer for the operands, operation and tag, about 0.15K LUTs.
+  - P1's select sees `fdiv_ready_o` (a register) and the arbitration result.
+- **No input FIFO:**
+  - `tg_div`'s 4-entry FIFO goes, and a divide issues only when the divider is ready.
+  - Divides retire early once issued (plan §4.5), so nothing in the divider is ever flushed.
+- **Results:**
+  - Integer results leave the divider's output queue for P1's write port (bank B1, the existing reservation arbitration, the LLT wakeup as today). FP results go to F0.
+  - A result waiting for one port must not block the other: the queue needs per-destination heads, or a one-entry side register.
+- **Interface (interfaces.md §4):**
+  - `fop_e` gains the integer divide operations, and `fpu_unit_of` maps them to `FU_DIV`.
+  - The response's `int_dest` marks integer results.
+  - The tag, or a request bit, tells the destination file.
+
+**Net per core:** −1.45K (`tg_div`) + 0.15–0.2K (core glue) + 0.9–1.1K (divider) ≈ −0.15 to −0.4K LUTs, below the plan's 0.4–0.6K. A cheaper early-out normaliser in `tg_div` (the core track's call) would capture much of that saving without R4.
+
+**Latency:** about 29 cycles for any operand size: the FDIV.D schedule of 23, plus the extra round (4), the front-end stage and the integer fix-up. Up to four divides, integer and FP together, are in flight. `tg_div` takes n + 4 cycles, one divide at a time, so R4 is faster for quotients wider than about 25 bits and slower for narrower ones.
+
 ## Parameters
 
 No configuration parameter changes the FPU: the four configurations (`st`, `smt2`, `st_w3`, `smt2_w3`) build the same units. `FPU_TAG_W` comes from `tg_pkg`. SMT is invisible to the FPU (the tag carries everything; the divider's slots are shared by both harts).
