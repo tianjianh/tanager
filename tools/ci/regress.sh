@@ -1,18 +1,18 @@
 #!/bin/bash
 # Regression for one configuration (docs/spec/verification.md §4.3). Run after `source tools/env.sh`.
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
-#                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [ARCH=0] [ACTCFG=...] [JOBS=8]
+#                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; for a core with trace_stall_i, the
 # riscv-tests and directed tests again under trace back-pressure; with ARCH=1 the ACT4 tests of the
-# core's configuration (tests/arch); the checker self-test (tg_replay). Prints a summary and exits
-# non-zero on any failure.
+# core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay).
+# Prints a summary and exits non-zero on any failure.
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 ARCH=0 ACTCFG=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|ARCH=*|ACTCFG=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N]"; exit 5 ;;
   esac
 done
 
@@ -87,6 +87,10 @@ if [ "${RESULTS[0]}" = PASS ]; then
     step "checker self-test (Spike against Spike, fault injection)" "$LOGS/selftest.log" \
       python3 "$ROOT/tools/ci/checker_selftest.py" --replay "$REPLAY" --jobs "$JOBS" --logdir "$LOGS/selftest" \
         --directed "$BUILD/directed"
+  fi
+  if [ "$RANDFD" != 0 ]; then
+    step "random F/D programs ($RANDFD seeds, rv64gc), Spike against Spike with checker perturbations" \
+      "$LOGS/random-fd.log" make -C "$ROOT/tests/random" replay ISA=rv64gc N="$RANDFD" SEED=1 JOBS="$JOBS"
   fi
 fi
 

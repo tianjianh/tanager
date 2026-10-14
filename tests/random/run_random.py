@@ -3,11 +3,14 @@
 and keeps only the failures (docs/spec/verification.md §6.2).
 
   run_random.py --sim <tg_vsim> --replay <tg_replay> --n 100 --seed 1 --isa rv64im [--stress] [-- sim args]
+  run_random.py --replay-only --replay <tg_replay> --n 100 --isa rv64gc
 
 Each program is first run Spike against Spike (tg_replay), so a broken program is reported as a
 generator failure, not as an RTL bug. With --stress, every seed also picks its own memory-system
-settings (latency, jitter, backpressure, D gaps, toB grants, random probes) from the seed. Failures
-keep their .S, .elf and log, and a one-line command that reproduces them."""
+settings (latency, jitter, backpressure, D gaps, toB grants, random probes) from the seed. With
+--replay-only (for ISAs no core runs yet, such as F/D) the second run is tg_replay too, with the
+checker perturbations of verification.md §3.8 (deferred writebacks, wide cycles, nondet values)
+drawn from the seed. Failures keep their .S, .elf and log, and a one-line command that reproduces them."""
 import argparse
 import concurrent.futures as cf
 import os
@@ -51,6 +54,16 @@ def stress_args(seed, irq, trace_stall=False):
     return args
 
 
+def replay_args(seed):
+    r = random.Random(seed * 104729 + 7)
+    args = [f"--defer={r.choice([30, 60, 90])}", f"--width={r.randrange(1, 5)}", f"--seed={seed}"]
+    if r.randrange(3) == 0:
+        args.append("--defer-all")
+    if r.randrange(2):
+        args.append("--nondet")
+    return args
+
+
 def run(args, timeout, log=None):
     try:
         p = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=timeout)
@@ -66,7 +79,8 @@ def run(args, timeout, log=None):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--sim", required=True)
+    ap.add_argument("--sim", help="tg_vsim (not needed with --replay-only)")
+    ap.add_argument("--replay-only", action="store_true", help="the second run is tg_replay with perturbations")
     ap.add_argument("--replay", required=True)
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--seed", type=int, default=1)
@@ -104,21 +118,26 @@ def main():
         rc, out = run([a.replay, "--quiet", f"--isa={spike_isa}", "--priv=MU", "--max-steps=5000000", base + ".elf"], 600)
         if "status=PASS" not in out:
             return seed, "GEN-FAIL", "Spike-against-Spike run failed: " + out.strip().splitlines()[-1], ""
-        simargs = (stress_args(seed, a.irq, a.trace_stall) if a.stress else []) + list(a.extra)
-        cmd = [a.sim, "--quiet"] + simargs + [base + ".elf"]
+        if a.replay_only:
+            sim = a.replay
+            simargs = [f"--isa={spike_isa}", "--priv=MU", "--max-steps=5000000"] + replay_args(seed) + list(a.extra)
+        else:
+            sim = a.sim
+            simargs = (stress_args(seed, a.irq, a.trace_stall) if a.stress else []) + list(a.extra)
+        cmd = [sim, "--quiet"] + simargs + [base + ".elf"]
         rc, out = run(cmd, a.timeout, base + ".log")
-        res = next((l for l in out.splitlines() if l.startswith("TG-RESULT")), "")
+        res = next((l for l in out.splitlines() if l.startswith(("TG-RESULT", "TG-REPLAY"))), "")
         status = res.split("status=")[1].split()[0] if "status=" in res else "FAIL"
         if status == "PASS":
             for ext in (".S", ".elf", ".log"):
                 os.remove(base + ext)
             return seed, "PASS", res, ""
         detail = next((l.split(":", 1)[1].strip() for l in out.splitlines()
-                       if l.startswith("tg_vsim:") and "after" not in l), status)
+                       if l.startswith(("tg_vsim:", "tg_replay:")) and "after" not in l), status)
         os.makedirs(faildir, exist_ok=True)
         for ext in (".S", ".elf", ".log"):
             shutil.move(base + ext, os.path.join(faildir, f"r{seed}{ext}"))
-        repro = " ".join([a.sim] + simargs + [os.path.join(faildir, f"r{seed}.elf")])
+        repro = " ".join([sim] + simargs + [os.path.join(faildir, f"r{seed}.elf")])
         return seed, status, detail[:200], repro
 
     t0 = time.time()
@@ -133,7 +152,8 @@ def main():
     label = f"{a.name}: " if a.name else ""
     gen_fails = sum(1 for r in fails if r[1] == "GEN-FAIL")
     print(f"{label}{len(results) - len(fails)} passed, {len(fails) - gen_fails} failed, {gen_fails} generator failures "
-          f"(seeds {a.seed}..{a.seed + a.n - 1}, isa {a.isa}{', stress' if a.stress else ''}), {time.time() - t0:.0f} s"
+          f"(seeds {a.seed}..{a.seed + a.n - 1}, isa {a.isa}{', stress' if a.stress else ''}"
+          f"{', replay only' if a.replay_only else ''}), {time.time() - t0:.0f} s"
           + (f"; failures kept in {faildir}" if fails else ""))
     return 1 if fails else 0
 
