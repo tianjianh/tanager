@@ -128,13 +128,17 @@ module tg_fp_exec
   // Stage k holds the operation that was in EX0 k+1 cycles ago; the unit answers when it
   // reaches stage LAT-1.
   // ------------------------------------------------------------------------------------------
+  // Wakeup IDs follow the core's layout: a fixed-latency producer's ID is its ROB index (columns
+  // 0 .. ROB_ENTRIES-1); a divide's is its LLT (column ROB_ENTRIES + llt). Each decoder below
+  // covers only its own range.
+  localparam int RIW = idx_w(ROB_ENTRIES);
   typedef struct packed {
     logic               v;
     logic               live;
     logic               fpd;         // writes F0
     tid_t               tid;
     logic [FPIDX_W-1:0] idx;
-    wid_t               wid;
+    logic [RIW-1:0]     wid;         // ROB index
   } sh_t;
   sh_t [ML-1:0] fsh_q;               // FMA
   sh_t [SL-1:0] msh_q;               // FMISC
@@ -147,7 +151,6 @@ module tg_fp_exec
     logic               v;
     tid_t               tid;
     robid_t             rob;
-    wid_t               wid;
     llt_t               llt;
     logic [FPIDX_W-1:0] idx;
     logic               retired;      // retired early: survives flushes, flags to tg_fcsr
@@ -403,17 +406,21 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   // Wakeups
   // ------------------------------------------------------------------------------------------
+  logic [ROB_ENTRIES-1:0] wk_rob;
+  logic [LLT_ENTRIES-1:0] wk_llt;
   always_comb begin
-    wake_reg = '0;
+    wk_rob = '0;
+    wk_llt = '0;
     // FMISC with an FP destination: at RF, so dependants reach EX0 with the result
     if (iss_valid && rf_live && rf_unit == FU_MISC && !iss_pl.fp_int)
-      wake_reg[iss_pl.wid] = 1'b1;
+      wk_rob[iss_pl.wid[RIW-1:0]] = 1'b1;
     // FMA: ML-3 cycles after EX0 (s+4 for ML = 5)
     if (fsh_q[ML-4].v && fsh_q[ML-4].live && !tid_hit(flush, flush_tid, fsh_q[ML-4].tid))
-      wake_reg[fsh_q[ML-4].wid] = 1'b1;
+      wk_rob[fsh_q[ML-4].wid] = 1'b1;
     // A divide: when it claims its slot
-    if (fdv_claim && fdv_live) wake_reg[fdv_e.wid] = 1'b1;
+    if (fdv_claim && fdv_live) wk_llt[fdv_e.llt] = 1'b1;
   end
+  assign wake_reg = {wk_llt, wk_rob};
 
   // ------------------------------------------------------------------------------------------
   // B1 queue: integer results, with a dead mark per entry for flushes
@@ -493,13 +500,13 @@ module tg_fp_exec
       fsh_q[0].fpd  <= 1'b1;
       fsh_q[0].tid  <= ex_pl_q.tid;
       fsh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
-      fsh_q[0].wid  <= ex_pl_q.wid;
+      fsh_q[0].wid  <= ex_pl_q.wid[RIW-1:0];
       msh_q[0].v    <= ex_v_q && ex_unit == FU_MISC;
       msh_q[0].live <= ex_live;
       msh_q[0].fpd  <= !ex_pl_q.fp_int;
       msh_q[0].tid  <= ex_pl_q.tid;
       msh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
-      msh_q[0].wid  <= ex_pl_q.wid;
+      msh_q[0].wid  <= ex_pl_q.wid[RIW-1:0];
       if (flush) begin
         for (int k = 0; k < ML - 1; k++) if (fsh_q[k].tid == flush_tid) fsh_q[k+1].live <= 1'b0;
         for (int k = 0; k < SL - 1; k++) if (msh_q[k].tid == flush_tid) msh_q[k+1].live <= 1'b0;
@@ -510,7 +517,6 @@ module tg_fp_exec
         dt_q[dt_free_i].v        <= 1'b1;
         dt_q[dt_free_i].tid      <= iss_pl.tid;
         dt_q[dt_free_i].rob      <= iss_pl.rob;
-        dt_q[dt_free_i].wid      <= iss_pl.wid;
         dt_q[dt_free_i].llt      <= iss_pl.llt;
         dt_q[dt_free_i].idx      <= fpreg_idx(iss_pl.dst);
         dt_q[dt_free_i].retired  <= fdiv_ret_valid && fdiv_ret_tid == iss_pl.tid &&
@@ -564,6 +570,9 @@ module tg_fp_exec
         assert (!(fmisc_block_d && rf_unit == FU_MISC && !iss_pl.fp_int))
           else $error("tg_fp_exec: FMISC op with an FP destination selected under fmisc_block");
         assert (!rf_div || dt_free_ok) else $error("tg_fp_exec: more divides than FDIV_Q in flight");
+        assert ((rf_unit == FU_DIV || iss_pl.fp_int) ?
+                  int'(iss_pl.wid) == ROB_ENTRIES + int'(iss_pl.llt) : int'(iss_pl.wid) < ROB_ENTRIES)
+          else $error("tg_fp_exec: wakeup ID outside its range (ROB index, or ROB_ENTRIES + llt)");
         assert ((rf_unit == FU_DIV) == iss_pl.fp_div)
           else $error("tg_fp_exec: fp_div disagrees with fpu_unit_of");
         assert (!iss_pl.fp_int || rf_unit == FU_MISC)
