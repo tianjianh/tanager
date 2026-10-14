@@ -25,7 +25,7 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 | S4 load path, 3-cycle load-to-use (§6) | **pass** | +0.678 ns, 2.4K (align in M2) | — | none |
 | S5 next PC, I$, pre-decode, compaction (§7) | **pass** | st +0.582, smt2 +0.245; 2.5K | +0.357, 2.5K | none |
 | S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.043 at 79%, +0.105 at 84%, +0.007 at 88%; st: −0.041 at 76% (no MX) | smt2_w3: −0.238 at 89% | st: MX; v2: the S2, S3 and DTLB levers above |
-| S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
+| S1 PL → PS DDR (§9) | **done on the board**: idle 64 B read 36.8 cycles (184 ns); 3.2 GB/s per HP port, 6.35 GB/s for both; no DECERR | — | — | none |
 
 **What changes for the plan.**
 - **The scheduler is the budget problem** (§10). It closes timing, but costs 2.2× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. With the FPU's 7.6K (D17), the projection puts v1 at 85–94% of the XCK26 (about 90%) after the identified levers, and v2 at 97–109%.
@@ -464,7 +464,7 @@ Named paths, slack in ns (the worst over both cores):
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
-**Status: the bitstream is built and meets 200 MHz (WNS +0.513 ns; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile).** It is ready for the board. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
+**Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
 
 **What it measures.**
 - **Latency**, in 5 ns core cycles at the PL port, from the read-address handshake to the first data beat: what the L2 sees on a miss.
@@ -475,7 +475,7 @@ Named paths, slack in ns (the worst over both cores):
 **PL design** ([`fpga/spikes/s1`](../../fpga/spikes/s1)).
 - **Engines:** two `tg_s1_engine`s, AXI4 masters on S_AXI_HP1_FPD and S_AXI_HP2_FPD, 128-bit at 200 MHz (`pl_clk0` 100 MHz → MMCM).
 - **Control:** AXI4-Lite registers on M_AXI_HPM0_FPD at `0xA000_0000`.
-- **Fan:** the KV260 fan is held on.
+- **Fan:** the KV260 fan follows the PS timer's PWM (TTC0 channel 2 through EMIO, DR-129; `tools/tcl/tg_kv260_fan.tcl`), so Linux's fan control stays in charge.
 - **Device-tree overlay:** sets the AFI port widths. If they are not set, the PS and PL disagree on the bus width.
 
 **Timing.** The first build missed 200 MHz by 0.425 ns: the PS port's response ID went through the slot mux, the latency subtract, the histogram shift and saturate, and into the histogram BRAM's address, 12 levels in one cycle. The engine now registers the responses as they leave the PS port, then the latency sample, then the histogram bin. The issue time is stored as the handshake cycle + 1, so the measured latency is unchanged.
@@ -491,7 +491,13 @@ Named paths, slack in ns (the worst over both cores):
 - **SMMU bypass:** a DECERR response means the SMMU blocks PL masters; the README says what to send back.
 - **The native latency point:** it replaces `tgsim`'s 30/60-cycle bracket.
 
-(Results will go here once the board run is done.)
+**Results on the board** (the board session's run; the full output and the tables are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md), "Results on the board", and `fpga/spikes/results/s1_board/`):
+- **Idle latency:** a dependent 64 B read takes **36.8 cycles at 200 MHz (184 ns)** from the PL port. That is the native point that replaces `tgsim`'s 30/60-cycle bracket.
+- **Bandwidth:** **3.2 GB/s per HP port, 6.35 GB/s for both ports** together.
+- **No DECERR:** PL masters reach DDR through the HP ports with this image; no SMMU bypass is needed.
+- **Two fixes came out of the run:**
+  - The overlay asked for a 99,999,001 Hz `pl_clk0`. The board's IOPLL is 999,999,990 Hz, so ÷10 gives 99,999,999 Hz, and the clock driver rounded down to ÷11, 90.9 MHz: the engines ran at 181.8 MHz. The overlay now asks for 100,000,000 Hz, and `tg_s1` warns when its wall-clock estimate is more than 3% off 200 MHz and converts with the measured clock.
+  - HP2's write stream in the loaded-latency test wrote into the hugepage holding the chase's pointers, so the chase read wild addresses (about two DECERRs per read). The streams now use the last hugepage, which the chase leaves out.
 
 ---
 
@@ -661,6 +667,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - **Memory, not slots, is the limit (2026-10-14).** A synthesis with the hierarchy kept forks one Vivado process per thread, so a job's memory is the parent plus its children. Two full-device S6 runs (8–10 GB each) and a budget synthesis with 8 threads (14.5 GB) exhausted the host, and the kernel killed an S6 run (rc 137) after 19 minutes of thrashing. The spike flow now synthesises with 2 threads (`TANAGER_SYNTH_THREADS`), and the workers declare 15 GB per S6 run and 4 GB per out-of-context run to `vivado_run.sh`. The 15 is measured: sampled over the whole process tree, an S6 synthesis at 90–96% fill peaks at 12.9–14.3 GB, while Vivado's log, which shows only the parent, suggested 10 ([area_synth.md](area_synth.md) §6).
   - A worker that is killed leaves its Vivado job running: adopt it or kill the job by its own PIDs, never by a pattern your own shell's command line also matches.
 - **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.
+- **S1 on the board.** A clock request just below the reachable rate rounds down a whole divider step (100 MHz asked as 99,999,001 Hz gave 90.9 MHz); ask for the round number and check the measured clock. And a test's own write stream can corrupt the data its latency probe walks: keep them in disjoint pages.
 - **Primitive models.** Hand-written models of vendor primitives can share the author's misreading. The DSP48E2 mapping ran on the vendor's own model under Icarus, which Verilator cannot compile, and found that the 48-bit carry out means "no borrow".
 - **Reports.** `report_utilization -hierarchical` hides instances under 50 cells by default, which silently dropped half the price run's instances.
 - **Synthesis counts are not placed counts for shift registers.** Before placement each SRL16E takes a LUT; placement pairs them, so a 16-deep shift-register FIFO costs half of what the synthesis count says.
