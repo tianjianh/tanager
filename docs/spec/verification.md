@@ -424,21 +424,27 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   | `reset` | the riscv-tests | random initial values in every register without a reset (`--rand-reset`; see below) |
 
 - **The Linux boot (`BOOT=N`)** runs the first N million cycles of the SoC track's Linux boot on the whole SoC: cores and uncore (crossbar, L2, memory path, devices, host bridge, trace streamer). `tg_vsim` holds only the core, so for an uncore rewrite this is the check.
+  - **By default** a change that reaches the uncore boots 3 M cycles with two cores, on top of the programs. That is any changed file under `rtl/uncore`, `rtl/soc` or `rtl/common`, whose packages and primitives (`tg_fifo`, `tg_ram_lut`, `tg_map_pkg`) the uncore uses too (coordinator, 2026-10-14). Two cores, because the crossbar and the L2 see contention between cores and coherence probes only then. `BOOT=0` skips the boot; `BOOT=N` and `BOOT_CORES=1|2` set it.
   - **The testbench** is `tests/unit/boot`'s `tb_boot` (OpenSBI, then the `lp64d` kernel), unchanged. The check compiles `sim/tb/tg_soc_sig.sv` into it and binds it into `tanager_soc` with `tg_soc_sig_bind.sv`, which uses only the SoC's ports (soc.md §1).
   - **Its lines** add two columns to `tg_vsim`'s: every core's commit records and writebacks (hashed as in `sig.h`), then the SoC's memory side, then its host side.
     - Memory side: each beat the SoC drives to the DDR banks and the trace port (AR, AW, and W with only the bytes its strobes enable), its R and B ready while a beat is offered, and `status_o` changes.
     - Host side, on the host clock: the AXI4-Lite port's ready while a request is offered, its responses and `host_irq_o`.
   - **Determinism:**
     - The memory models draw their latencies from Verilator's random generator. So the seed is fixed (`+verilator+seed+1`, `--boot-seed`), and the boot builds with one Verilator thread: a threaded model maps processes to threads by its own partition, which a change anywhere in the design could move.
-    - With one thread, the draws did not move with a core change (below), nor when the testbench's memory instances were declared in another order.
+    - With one thread, the draws did not move with a core change (below), nor when the testbench's memory instances were declared in another order, nor with a `$display` added to `tb_boot`'s trace loop.
+    - With four threads they do move. That same `$display` changed a 1 M-cycle run from 1,063,470 instructions to 1,062,353: the core track found it, and it is reproduced here.
+    - The fix is one random stream per `tb_axi_mem` instance, offered to the SoC track (their file). With it, both testbench versions give the same run with one thread or four.
   - **Images:** OpenSBI's `fw_jump.bin` and Buildroot's `Image`, by default the newest under `$TANAGER_BUILD` (`--boot-fw`, `--boot-kernel`). The device tree comes from `sw/dts`, as the boot Makefile's `linux` target makes it (128 MiB, FPU). `BOOT_CORES=2` boots two cores; `CFG` picks `st` or `smt2` cores.
-  - **Cost:** a `tb_boot` build takes 28–45 s with ccache. It runs at about 24 kHz with one `st` core on a busy host, so 3 M cycles take about 2 minutes per side, both sides at once. The boot's change column is its cost in cycles: the boot runs a fixed number of cycles, so the change is measured from the instructions retired in them.
+  - **Cost:** a `tb_boot` build takes 19–45 s with ccache. It runs at 16–24 kHz with one `st` core on a busy host, so 3 M cycles take 2–3 minutes and 20 M about 18, both sides at once. A run that both sides share (one build, the same options, as in a check of main against itself) runs once. The boot's change column is its cost in cycles: the boot runs a fixed number of cycles, so the change is measured from the instructions retired in them.
   - **A difference** is explained like the programs': both sides rerun up to the first differing window with `+sig_log=FILE +sig_log_from=C +sig_stop=C2`, which log every record and every memory-side and host-side event.
-  - **Until `tb_boot` is on main,** `--boot-tree <ref>` (the script's option) takes `tests/unit` and `sw/dts` from a ref that has it, the SoC branch. The RTL on both sides must then be the SoC branch's too, since its `tb_boot` needs its `tanager_soc`.
+  - **`--boot-tree <ref>`** (the script's option) takes `tests/unit` and `sw/dts` from another ref. It was needed before `tb_boot` reached main with the SoC merge (cfaa9c9); the RTL on both sides must suit that `tb_boot`.
   - **Results (2026-10-14, SoC branch, `st`, one core, 3 M cycles):**
     - the SoC branch before and after it merged main's third area pass (a4df26d and 4d5ca13, eight core files) is identical;
     - a planted change, the L2 bank's D FIFO 8 → 4 entries, shows at cycle 50,477: a refill read issues earlier and a commit moves by two cycles.
-    - with two `smt2` cores (four harts, the v1 SoC's shape) over 2 M cycles, the same pair is identical too. That build takes about 2 minutes, and the run goes at about 14 kHz.
+    - with two `smt2` cores (four harts, the v1 SoC's shape) over 2 M cycles, the same pair is identical too. That build takes about 2 minutes, and the run goes at about 14 kHz;
+    - from main's tree after the SoC merge (98562e1), `make cycle-identical SUITES=none BOOT=20` passes: 20.09 M cycles in 18.5 minutes;
+    - by default (no `BOOT` given), a comment-only crossbar change gets the two-core boot and the programs: all 797 identical in 7.5 minutes;
+    - the same planted L2 change with two cores shows in the first 1,024 cycles (core 1's store one cycle later, at cycle 505), against cycle 50,477 with one core. Two cores contend from their first instructions.
 - **Output:**
   - **Per suite:** programs, identical, differing, cycles compared, and the cycle change summed over the suite. The change is the IPC cost of a change that is not identical, which the reserve list needs (DR-122).
   - **First differences:** for the first five differing runs, the check reruns the first differing window on both sides with `--log --log-from --log-bus` and prints the first differing line with its context, the two logs and a rerun command.
@@ -467,6 +473,8 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   Some differing runs ended on the same cycle count as the base, with different timing on the way, or differed only in their TileLink events. A cycle count alone misses those.
 
   **On real RTL:** main's third no-IPC area pass (merged as 43a523e: eight RTL files, the LSU most) was checked against fd54e65 after its merge. It is identical in `st` and `smt2` on all 796 programs, in both the commit trace and the TileLink outputs. That confirms with this check what the core track had shown with CoreMark's cycle counts.
+
+  The spikes track's shared primitives (merged as 2576359) restructured `tg_fifo`'s default path in `rtl/common/prim`, which both the core and the uncore use. Checked against 98562e1 after their merge, with the programs and the two-core boot that `rtl/common` now gets by default, all 797 runs are identical.
 
 - **What the suites cannot see.** Identical on these programs does not mean identical everywhere: a structure that no program fills cannot show a difference.
   - Before `tlb_stress`, halving the data or instruction TLB moved no cycle in any of the 503 programs: the benchmarks and random programs run without translation, and the `-v` riscv-tests touch fewer pages than the TLBs hold.
@@ -646,6 +654,9 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - The SoC branch's merge of main's core area pass was identical over 3 M boot cycles with one `st` core, and over 2 M with two `smt2` cores.
   - A planted L2 change (the D FIFO from 8 entries to 4) showed at cycle 50,477.
   - **A worry checked rather than assumed:** the memory models draw their latencies from Verilator's shared random generator, so the order of the draws could move between two builds. With one Verilator thread, it moved neither with a core change nor with the instances declared in another order.
+  - **After the SoC merge** (cfaa9c9), `make cycle-identical SUITES=none BOOT=20` ran from main's tree in 18.5 minutes.
+  - **The worry came true with threads:** the core track saw two builds of the same RTL disagree in `tb_boot`. That happened only with `VTHREADS=4`, which the boot suite never uses; a stream per memory-model instance removes it.
+  - **The boot became a default:** a change under `rtl/uncore`, `rtl/soc` or `rtl/common` now boots 3 M cycles with two cores. The coordinator's rule named the first two; `rtl/common` holds primitives and packages the uncore uses too. A comment-only crossbar change took 7.5 minutes for all 797 runs, the cache shared with another worktree's check of main.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
