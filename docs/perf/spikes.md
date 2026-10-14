@@ -618,7 +618,8 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - v1 holds 200 MHz from 79% to 88% fill with no trend: +0.043 / +0.105 / +0.007 ns.
   - The limits are the protected loops, not congestion (level 5 at 88%). v2 at 89% ran at 191 MHz.
   - The synthetic filler is local wiring, hence the planning limit of 85% with a ceiling of 88–90%.
-  - The 180 MHz fill test (v1, and v2 with tags) is being run.
+  - **At 180 MHz with wakeup tags** ([area_synth.md](area_synth.md) §5): v1 closes at 93.4% fill (+0.137 ns) and v2 at 94.2% (+0.049); the worst real paths are S3's ALU loop and S5's fetch, not the scheduler. Higher fills are being run.
+  - **Without tags, v1 did not route at 93.4%** in over 2 hours; with tags the same fill routed in 15 minutes. Tags matter for routability as well as for LUTs.
 - **min/max off the 1-cycle ALU.** With them, 2 ALUs had +0.014 ns under the pblock and 3 ALUs failed (−0.086). Without them the 2-ALU loop has +0.47 and 3 ALUs close.
 - **The real core's first synthesis (82.5K LUTs, st).** Seven PMP checkers take 21.8K of it, a quarter of the core. Keeping the hierarchy alone took 5.5K off the flattened 88K.
 
