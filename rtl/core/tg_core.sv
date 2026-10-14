@@ -141,6 +141,7 @@ module tg_core
   logic [INT_BANKS-1:0]             rf_we;
   logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx;
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
+  logic [IQ_TAGS-1:0]               tag_free;
   logic                             div_done;
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
@@ -150,7 +151,7 @@ module tg_core
   uop_t [DISPATCH_WIDTH-1:0]        ds_uop;
   ren_t [DISPATCH_WIDTH-1:0]        ds_ren;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_we;
-  logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep, iq_wake;
+  logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep;
   iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl;
   logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep;
   logic [RA-1:0]                    mx_hold;
@@ -162,24 +163,25 @@ module tg_core
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
     .de_valid, .de_uop, .de_take,
     .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
-    .rf_we, .rf_widx, .llt_rel, .div_done,
+    .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
-    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .iq_mdep, .mx_hold,
+    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
     .ds_src2_rdy, .rob_tail);
 
   // ---- Issue ----
-  logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr, col_rob;
+  logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
   assign wake_reg = wake_x | wake_l;
+  // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
   always_comb begin
-    col_clr = col_rob;
-    for (int t = 0; t < LLT_ENTRIES; t++) if (llt_rel[t]) col_clr[ROB_ENTRIES + t] = 1'b1;
+    col_clr = '0;
+    col_clr[IQ_TAGS-1:0] = tag_free;
   end
   tg_issue u_is (
-    .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep), .disp_wake(iq_wake),
+    .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .iss_valid, .iss_pl);
 
@@ -220,7 +222,7 @@ module tg_core
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
     .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
-    .wake_reg(wake_x), .llt_done(llt_done_x), .div_done,
+    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free, .div_done,
     .csr_ex_valid, .csr_ex_pl, .csr_ex_src, .csr_ex_rdata, .csr_ex_ill);
 
   // ---- Load/store unit ----
@@ -288,7 +290,7 @@ module tg_core
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
-    .tr_st_data, .tr_st_size, .tr_tag, .tr_data, .col_clr(col_rob),
+    .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .mepc, .sepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);

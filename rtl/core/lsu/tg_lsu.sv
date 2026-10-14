@@ -588,9 +588,9 @@ module tg_lsu
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin
     wake_ld = '0;
-    if (m2_ok && lq_dv_q[m2_lq_q]) wake_ld[ROB_ENTRIES + int'(lq_llt_q[m2_lq_q])] = 1'b1;
-    if (xr_take && lq_dv_q[x_lq_q]) wake_ld[ROB_ENTRIES + int'(lq_llt_q[x_lq_q])] = 1'b1;
-    if (am_take && am_dv_q) wake_ld[ROB_ENTRIES + int'(am_llt_q)] = 1'b1;
+    if (m2_ok && lq_dv_q[m2_lq_q]) wake_ld[llt_col(int'(lq_llt_q[m2_lq_q]))] = 1'b1;
+    if (xr_take && lq_dv_q[x_lq_q]) wake_ld[llt_col(int'(lq_llt_q[x_lq_q]))] = 1'b1;
+    if (am_take && am_dv_q) wake_ld[llt_col(int'(am_llt_q))] = 1'b1;
   end
 
   // ================= Store data capture =================

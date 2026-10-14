@@ -24,7 +24,7 @@ module tg_exec
   localparam int S_EX  = 1,               // + i: ALU i's res_q; + N_ALU: load result
   localparam int S_WB  = N_ALU + 2,       // + i: ALU i's wbq_q; + N_ALU: load result copy
   localparam int S_IMM = NSRC - 1,
-  localparam int TAG_W = PIDX_W + ROBW + LLT_IDX_W + 1   // {dst_en, dst index, rob, llt}
+  localparam int TAG_W = PIDX_W + ROBW + COL_W + 1   // {dst_en, dst index, rob, wakeup column}
 ) (
   input  logic                         clk,
   input  logic                         rst,
@@ -82,6 +82,7 @@ module tg_exec
   // Wakeups (W set at the end of this cycle) and LLT results written
   output logic [NCOL-1:0]              wake_reg,
   output logic [LLT_ENTRIES-1:0]       llt_done,
+  output logic [IQ_TAGS-1:0]           tag_free,       // MUL tags, 2 cycles after the write
   output logic                         div_done,
   // CSR execute (P1 EX)
   output logic                         csr_ex_valid,
@@ -314,7 +315,7 @@ module tg_exec
   assign csr_ex_src   = opa[1];
 
   logic [TAG_W-1:0] p1_tag;
-  assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.llt};
+  assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.wid};
   logic              mul_ov;
   logic [63:0]       mul_res;
   logic [TAG_W-1:0]  mul_tag;
@@ -379,6 +380,14 @@ module tg_exec
   // MUL wakeup delay line: RF (r) -> W set at the end of r + 3
   logic [2:0]       mwk_v_q;
   wid_t [2:0]       mwk_id_q;
+  // MUL tags return 2 cycles after the result's register write (rename's RN can no longer see
+  // it unwritten; tg_issue clears the tag's column)
+  logic [1:0]                    tf_v_q;
+  logic [1:0][WTAG_W-1:0]        tf_id_q;
+  always_comb begin
+    tag_free = '0;
+    if (tf_v_q[1]) tag_free[tf_id_q[1]] = 1'b1;
+  end
 
   // ---- Bank 1 write mux and completions ----
   logic        oth_we;
@@ -391,12 +400,12 @@ module tg_exec
       oth_valid = 1'b1; oth_rob = csr_rob_q; oth_exc = csr_ill_q; oth_tval = csr_tval_q;
       oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
     end else if (mul_ov) begin
-      oth_valid = 1'b1; oth_rob = mul_tag[LLT_IDX_W +: ROBW];
-      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[LLT_IDX_W + ROBW +: PIDX_W];
+      oth_valid = 1'b1; oth_rob = mul_tag[COL_W +: ROBW];
+      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[COL_W + ROBW +: PIDX_W];
       oth_wd = bc_v_q[2] ? bc_q[2] : mul_res;
     end else if (div_ov && div_ordy) begin
-      oth_valid = 1'b1; oth_rob = div_tag[LLT_IDX_W +: ROBW];
-      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[LLT_IDX_W + ROBW +: PIDX_W]; oth_wd = div_res;
+      oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
+      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
     end
   end
 
@@ -429,10 +438,10 @@ module tg_exec
   always_comb begin
     wake_reg = '0;
     if (mwk_v_q[2]) wake_reg[mwk_id_q[2]] = 1'b1;
-    if (div_wait_q == 3'd2 && div_tag[TAG_W-1])
-      wake_reg[ROB_ENTRIES + int'(div_tag[LLT_IDX_W-1:0])] = 1'b1;
+    if (div_wait_q == 3'd2 && div_tag[TAG_W-1]) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
     llt_done = '0;
-    if (div_ov && div_ordy && div_tag[TAG_W-1]) llt_done[div_tag[LLT_IDX_W-1:0]] = 1'b1;
+    if (div_ov && div_ordy && div_tag[TAG_W-1])
+      llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
   end
 
   // ---- Address generation (EX) ----
@@ -490,6 +499,7 @@ module tg_exec
     mwk_id_q[0] <= iss_pl[1].wid;
     mwk_id_q[1] <= mwk_id_q[0];
     mwk_id_q[2] <= mwk_id_q[1];
+    tf_id_q     <= {tf_id_q[0], mul_tag[WTAG_W-1:0]};
     lfsr_q <= {lfsr_q[6:0], lfsr_q[7] ^ lfsr_q[5] ^ lfsr_q[4] ^ lfsr_q[3]};
 
     if (rst || flush) begin
@@ -501,6 +511,7 @@ module tg_exec
       bht_we_q   <= 1'b0;
       csr_v_q    <= 1'b0;
       mwk_v_q    <= '0;
+      tf_v_q     <= '0;
       bc_v_q     <= '0;
       a1_block_q <= 1'b0;
       div_wait_q <= '0;
@@ -516,6 +527,7 @@ module tg_exec
       bht_we_q <= ex_br && bp.br_kind == BR_COND;
       csr_v_q  <= ex_csr;
       mwk_v_q  <= {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
+      tf_v_q   <= {tf_v_q[0], !csr_v_q && mul_ov && mul_tag[TAG_W-1]};   // the MUL write slot
       bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
       a1_block_q <= rf_mul || div_claim;
@@ -525,7 +537,7 @@ module tg_exec
   end
 
   logic unused;
-  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[LLT_IDX_W-1:0], csr_ex_pl, opb[Q_LD],
+  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD],
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS

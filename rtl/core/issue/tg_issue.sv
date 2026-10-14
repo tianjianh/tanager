@@ -1,8 +1,10 @@
 // Issue stage (docs/spec/core-pipeline.md §6): one tg_iq per port (ALU queues, LD, STA) sharing
-// the woken vector W (tg_wake). Spike S2 structures with the guard for stale dependencies
-// (STALE = 0, predecoded wakeup IDs, spikes.md §4.1): `busy` names the IDs some row still
-// depends on, and rename does not reallocate them. The ALU queues wake their dependants at
-// select; every other wakeup arrives on wake_reg (MUL delay line, load and divide completions).
+// the woken vector W (tg_wake) over the wakeup columns: IQ_TAGS wakeup tags, then the LLTs
+// (plan §4.6, AR-1). Spike S2 structures, predecoded wakeup IDs: LLT columns keep the guard
+// for stale dependencies (STALE = 0, spikes.md §4.1: `busy` names the LLTs some row still
+// depends on, and rename does not reallocate them); a tag column is cleared in every row when
+// the tag returns (col_clr). Every wakeup arrives on wake_reg (MUL delay line, load and divide
+// completions); 1-cycle producers wake their dependants through MX alone.
 // The payload leaves in the RF stage. DUP_SEL, EARLY_W and MX are the S2 timing levers.
 // Each queue stores its own payload format: only the iq_pl_t bits its port reads (the other
 // fields leave as '0), so synthesis has no LUTRAM bit to trim.
@@ -22,7 +24,6 @@ module tg_issue
   // Dispatch (DS)
   input  logic [N_IQ-1:0][DW-1:0]      disp_we,
   input  logic [DW-1:0][NCOL-1:0]      disp_dep,
-  input  logic [DW-1:0][NCOL-1:0]      disp_wake,
   input  iq_pl_t [DW-1:0]              disp_pl,
   input  logic [DW-1:0][RA-1:0]        disp_mdep,   // MX: sources named by ALU-queue row
   output logic [N_IQ-1:0][DW-1:0]      bank_free,
@@ -33,9 +34,9 @@ module tg_issue
   // Wakeup
   input  logic [NCOL-1:0]              alloc,       // IDs given out at RN: W cleared
   input  logic [NCOL-1:0]              wake_reg,    // W set at the end of this cycle
-  input  logic [NCOL-1:0]              col_clr,     // freed IDs (registered)
+  input  logic [NCOL-1:0]              col_clr,     // returned tags (registered)
   output logic [NCOL-1:0]              w,
-  output logic [NCOL-1:0]              busy,        // IDs a waiting row depends on (STALE = 0)
+  output logic [NCOL-1:0]              busy,        // columns a waiting row depends on
   // Select blocks (registered by their sources)
   input  logic                         a1_block,
   input  logic                         ld_block,
@@ -51,7 +52,6 @@ module tg_issue
     return IQ_STA;
   endfunction
 
-  logic [N_ALU-1:0][NCOL-1:0] wake_now;
   logic [N_IQ-1:0][NCOL-1:0]  qbusy;
   logic [RA-1:0]              mx_issued, mx_free, mx_valid;
   logic [DW-1:0][NCOL-1:0]    no_ph;
@@ -105,8 +105,7 @@ module tg_issue
     mul_op_e     mul_op;
     div_op_e     div_op;
     logic        word, bcnt;
-    llt_t        llt;
-    wid_t        wid;
+    wid_t        wid;                 // MUL: its tag; DIV: its LLT's column
     csr_op_e     csr_op;
     logic        csr_imm, csr_wr;
     logic [11:0] csr_addr;
@@ -178,7 +177,7 @@ module tg_issue
   for (genvar q = 0; q < N_IQ; q++) begin : g_q
     localparam int ROWS = rows_of(q);
     localparam int CAP  = (ROWS * IQ_CAP_PCT) / 100;
-    logic [NCOL-1:0] wn;
+    logic [NCOL-1:0] wn;                // (no queue wakes at select)
     logic [ROWS-1:0] iss_o, free_o, val_o;
     logic [DW-1:0][ROWS-1:0] aoh;
     logic [NUM_THREADS-1:0][idx_w(DW + 1)-1:0] room;
@@ -218,8 +217,7 @@ module tg_issue
         iq_pl_t p;
         assign p      = disp_pl[k];
         assign dpl[k] = {f_p1_t'{rob: p.rob, cmp_max: p.alu.cmp_max, mul_op: p.mul_op,
-                                 div_op: p.div_op, word: p.word, bcnt: p.bcnt, llt: p.llt,
-                                 wid: p.wid, csr_op: p.csr_op, csr_imm: p.csr_imm,
+                                 div_op: p.div_op, word: p.word, bcnt: p.bcnt, wid: p.wid, csr_op: p.csr_op, csr_imm: p.csr_imm,
                                  csr_wr: p.csr_wr, csr_addr: p.csr_addr, csr_zimm: p.csr_zimm,
                                  insn: p.insn}, pk_alu(p)};
       end
@@ -234,7 +232,6 @@ module tg_issue
         up.div_op      = b.div_op;
         up.word        = b.word;
         up.bcnt        = b.bcnt;
-        up.llt         = b.llt;
         up.wid         = b.wid;
         up.csr_op      = b.csr_op;
         up.csr_imm     = b.csr_imm;
@@ -290,12 +287,12 @@ module tg_issue
     assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : 1'b0;
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
-      .WAKE_NOW(q < N_ALU), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
+      .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
       .MX(MX), .RA(RA), .PRE_RDY(1'b0)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
-      .disp_wake_oh(disp_wake), .disp_rob(drob), .disp_payload(dpl),
+      .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
       .bank_free_q(bank_free[q]), .room_q(room),
       .w(w), .w_next('0), .w1('0), .col_clr(col_clr), .cancel(1'b0), .sel_block(blk),
       .wake_now(wn), .busy(qbusy[q]),
@@ -307,7 +304,6 @@ module tg_issue
     assign iss_pl[q] = up;
     if (q < N_ALU) begin : g_now
       localparam int B = alu_row_base(q);
-      assign wake_now[q] = wn;
       assign mx_issued[B +: ROWS] = iss_o;
       assign mx_free[B +: ROWS]   = free_o;
       assign mx_valid[B +: ROWS]  = val_o;
@@ -319,10 +315,10 @@ module tg_issue
       end
     end else begin : g_nonow
       logic unused;
-      assign unused = ^{wn, iss_o, free_o, val_o, aoh};
+      assign unused = ^{iss_o, free_o, val_o, aoh};
     end
     logic unused;
-    assign unused = ^{room};
+    assign unused = ^{room, wn};
   end
   assign mx_hold = mx_valid & ~mx_free;
   always_comb begin
@@ -331,8 +327,8 @@ module tg_issue
   end
 
   logic [NCOL-1:0] w1_unused, ph_unused, wd_unused;
-  tg_wake #(.NCOL(NCOL), .NNOW(N_ALU), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
-    .clk, .rst, .wake_now, .wake_reg, .alloc, .cancel(1'b0), .cancel_ids('0),
+  tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
+    .clk, .rst, .wake_now('0), .wake_reg, .alloc, .cancel(1'b0), .cancel_ids('0),
     .w_q(w), .w1_q(w1_unused), .phase_q(ph_unused), .w_d(wd_unused));
 
   logic unused;

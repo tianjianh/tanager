@@ -8,10 +8,15 @@
 // DS (group in ds_q): dependency vectors (pending producers' IDs AND NOT W), issue-queue rows,
 // and the ROB / LQ / SQ entry writes (done by those units from ds_*). DS waits until every uop
 // finds a free row in its queue's bank.
-// The RAT entry of each architectural register holds its mapping and its producer's wakeup ID,
-// whether the producer is a 1-cycle op, and the rename slot it had: sources need no table
-// indexed by physical register (a pending source's producer is still in flight, so its ID is
-// current; a written one is ready and its ID unused).
+// The RAT entry of each architectural register holds its mapping and its producer: its wakeup
+// column (a tag or an LLT), or for a 1-cycle op its ROB index (MX), and the rename slot it had.
+// Sources need no table indexed by physical register (a pending source's producer is still in
+// flight, so its column is current; a written one is ready and its column unused).
+// Wakeup tags (plan §4.6, AR-1): MUL and the P1 bit counts take one of IQ_TAGS tags at RN; a
+// tag returns 2 cycles after its producer's register write (tag_free, from tg_exec), when no
+// group still in RN or DS can see the register as unwritten, and its column is then cleared in
+// every queue row. 1-cycle ops take no column: a consumer names its row (MX) while the row is
+// held, and needs nothing once it is freed. A flush returns every tag.
 // The maps are LUTRAM (plan §8.5 R3): the speculative map has one bank per rename slot and the
 // committed map one per commit slot, so each write port is a LUTRAM's; live-value tables in
 // flip-flops name the bank holding each register's latest entry. A flush clears the per-register
@@ -52,6 +57,7 @@ module tg_rename
   input  logic [INT_BANKS-1:0]             rf_we,
   input  logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx,
   input  logic [LLT_ENTRIES-1:0]           llt_rel,
+  input  logic [IQ_TAGS-1:0]               tag_free,    // tags returned (registered)
   input  logic                             div_done,
   // Commit
   input  logic [COMMIT_WIDTH-1:0]          cm_valid,
@@ -66,7 +72,6 @@ module tg_rename
   output ren_t [DISPATCH_WIDTH-1:0]        ds_ren,
   output logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_we,
   output logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep,
-  output logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_wake,
   output iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl,
   output logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep,     // MX: sources named by ALU-queue row
   input  logic [RA-1:0]                    mx_hold,     // ALU-queue rows holding an op
@@ -83,15 +88,17 @@ module tg_rename
   localparam int KSW = idx_w(W);
   localparam int CSW = idx_w(COMMIT_WIDTH);
   typedef struct packed {
-    wid_t           w;                     // producer's wakeup ID
-    logic           l1;                    // producer is a 1-cycle op
-    logic [KSW-1:0] ks;                    // producer's rename slot
+    pid_t           id;                    // producer's column, or its ROB index if l1
+    logic           cv;                    // ... has a wakeup column
+    logic           l1;                    // ... is a 1-cycle op
+    logic [KSW-1:0] ks;                    // ... renamed in this slot of its group
   } rprod_t;
   function automatic logic is_lat1(input uclass_e c);       // a 1-cycle op in an ALU queue
     return c == C_ALU || c == C_BR;
   endfunction
   logic [NPR-1:0]        ready_q;
   logic [LLT_ENTRIES-1:0] llt_busy_q;
+  logic [IQ_TAGS-1:0]    tag_busy_q;
   robid_t                rtail_q;
   lqid_t                 ltail_q;
   sqid_t                 stail_q;
@@ -157,7 +164,9 @@ module tg_rename
       .clk, .we, .waddr(rn_uop_q[k].d.rd), .wdata(ren[k].dst), .raddr(map_ra), .rdata(ms_rd[k]));
     tg_ram_lut #(.DEPTH(32), .WIDTH(PDW), .NR(2 * W)) u_prod (
       .clk, .we, .waddr(rn_uop_q[k].d.rd),
-      .wdata(rprod_t'{w: ren[k].wid, l1: is_lat1(rn_uop_q[k].d.cls), ks: KSW'(k)}),
+      .wdata(rprod_t'{id: is_lat1(rn_uop_q[k].d.cls) ? pid_t'(ren[k].rob[ROBW-2:0]) : pid_t'(ren[k].wid),
+                      cv: ren[k].use_tag || ren[k].use_llt, l1: is_lat1(rn_uop_q[k].d.cls),
+                      ks: KSW'(k)}),
       .raddr(map_ra[2*W-1:0]), .rdata(mp_rd[k]));
   end
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_mc
@@ -197,13 +206,15 @@ module tg_rename
   always_comb begin
     int nrob, nld, nst, ndiv, port, pref, p, b;
     logic [LLT_ENTRIES-1:0] lfree;
-    logic llt_short, found, got, rob_busy;
+    logic [IQ_TAGS-1:0]     tfree;
+    logic llt_short, tag_short, found, got;
     pops = '0;
     nld = 0; nst = 0; ndiv = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0;
-    lfree = ~llt_busy_q & ~busy[ROB_ENTRIES +: LLT_ENTRIES];
+    lfree = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
+    tfree = ~tag_busy_q;
     llt_short = 1'b0;
-    rob_busy = 1'b0;
+    tag_short = 1'b0;
     found = 1'b0;
     got = 1'b0;
     for (int k = 0; k < W; k++) begin
@@ -233,7 +244,6 @@ module tg_rename
       ren[k].q = QW'(port);
       // Window entries
       ren[k].rob = rob_add(rtail_q, k);
-      if (rn_valid_q[k] && busy[ren[k].rob[ROBW-2:0]]) rob_busy = 1'b1;
       ren[k].lq  = lq_add(ltail_q, nld);
       ren[k].sq  = sq_add(stail_q, nst);
       if (rn_valid_q[k]) begin
@@ -247,8 +257,10 @@ module tg_rename
       ren[k].src2 = rn_uop_q[k].d.rs2_en ? map_p[2*k+1] : '0;
       ren[k].p1   = rn_uop_q[k].d.rs1_en && !ready_q[ren[k].src1];
       ren[k].p2   = rn_uop_q[k].d.rs2_en && !ready_q[ren[k].src2];
-      ren[k].w1   = map_pd[2*k].w;
-      ren[k].w2   = map_pd[2*k+1].w;
+      ren[k].w1   = map_pd[2*k].id;
+      ren[k].w2   = map_pd[2*k+1].id;
+      ren[k].c1   = map_pd[2*k].cv;
+      ren[k].c2   = map_pd[2*k+1].cv;
       ren[k].l1   = map_pd[2*k].l1;
       ren[k].l2   = map_pd[2*k+1].l1;
       ren[k].ks1  = map_pd[2*k].ks;
@@ -257,20 +269,26 @@ module tg_rename
       for (int i = 0; i < k; i++) begin
         if (rn_uop_q[i].d.rd_en) begin
           if (rn_uop_q[k].d.rs1_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs1) begin
-            ren[k].src1 = ren[i].dst; ren[k].p1 = 1'b1; ren[k].w1 = ren[i].wid;
+            ren[k].src1 = ren[i].dst; ren[k].p1 = 1'b1;
+            ren[k].w1 = is_lat1(rn_uop_q[i].d.cls) ? pid_t'(ren[i].rob[ROBW-2:0]) : pid_t'(ren[i].wid);
+            ren[k].c1 = ren[i].use_tag || ren[i].use_llt;
             ren[k].l1 = is_lat1(rn_uop_q[i].d.cls); ren[k].ks1 = KSW'(i);
           end
           if (rn_uop_q[k].d.rs2_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs2) begin
-            ren[k].src2 = ren[i].dst; ren[k].p2 = 1'b1; ren[k].w2 = ren[i].wid;
+            ren[k].src2 = ren[i].dst; ren[k].p2 = 1'b1;
+            ren[k].w2 = is_lat1(rn_uop_q[i].d.cls) ? pid_t'(ren[i].rob[ROBW-2:0]) : pid_t'(ren[i].wid);
+            ren[k].c2 = ren[i].use_tag || ren[i].use_llt;
             ren[k].l2 = is_lat1(rn_uop_q[i].d.cls); ren[k].ks2 = KSW'(i);
           end
           if (rn_uop_q[i].d.rd == rn_uop_q[k].d.rd) ren[k].old = ren[i].dst;
         end
       end
-      // Wakeup ID: an LLT for loads, atomics and divides with a destination, else the ROB entry
+      // Wakeup column: an LLT for loads, atomics and divides with a destination, a tag for MUL
+      // and the bit counts (P1's MUL slot), none for 1-cycle and serialised ops
       ren[k].use_llt = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
                        (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo);
-      ren[k].wid = wid_t'(ren[k].rob[ROBW-2:0]);
+      ren[k].use_tag = rn_uop_q[k].d.rd_en && rn_valid_q[k] && rn_uop_q[k].d.cls == C_MUL;
+      ren[k].wid = '0;
       if (ren[k].use_llt) begin
         got = 1'b0;
         for (int t = 0; t < LLT_ENTRIES; t++) begin
@@ -281,7 +299,18 @@ module tg_rename
           end
         end
         if (!got) llt_short = 1'b1;
-        ren[k].wid = wid_t'(ROB_ENTRIES + int'(ren[k].llt));
+        ren[k].wid = llt_col(int'(ren[k].llt));
+      end
+      if (ren[k].use_tag) begin
+        got = 1'b0;
+        for (int t = 0; t < IQ_TAGS; t++) begin
+          if (!got && tfree[t]) begin
+            got = 1'b1;
+            tfree[t] = 1'b0;
+            ren[k].wid = wid_t'(t);
+          end
+        end
+        if (!got) tag_short = 1'b1;
       end
       // Destination from the port's bank (atomics: the load bank, written by the LSU)
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
@@ -295,7 +324,7 @@ module tg_rename
     if (rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES) rn_ok = 1'b0;
     if (lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES) rn_ok = 1'b0;
     if (sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES) rn_ok = 1'b0;
-    if (llt_short || rob_busy) rn_ok = 1'b0;
+    if (llt_short || tag_short) rn_ok = 1'b0;
     if (int'(div_cnt_q) + ndiv > DIV_INFLIGHT) rn_ok = 1'b0;
     for (int i = 0; i < INT_BANKS; i++) begin
       if (int'(pops[i]) > int'(fl_count[i])) rn_ok = 1'b0;
@@ -320,7 +349,7 @@ module tg_rename
     wid_alloc = '0;
     if (rn_fire) begin
       for (int k = 0; k < W; k++) begin
-        if (rn_valid_q[k]) wid_alloc[ren[k].wid] = 1'b1;
+        if (ren[k].use_tag || ren[k].use_llt) wid_alloc[ren[k].wid] = 1'b1;
       end
     end
   end
@@ -397,13 +426,13 @@ module tg_rename
     iq_we = '0;
     for (int k = 0; k < W; k++) begin
       if (ds_fire && ds_valid_q[k] && ds_ren_q[k].has_q) iq_we[ds_ren_q[k].q][k] = 1'b1;
+      // A pending source waits on its producer's column, or on its row (MX); a 1-cycle
+      // producer whose row has been freed needs nothing
       iq_dep[k] = '0;
-      if (ds_ren_q[k].p1 && mrow1[k] == '0) iq_dep[k][ds_ren_q[k].w1] = 1'b1;
-      if (ds_ren_q[k].p2 && mrow2[k] == '0) iq_dep[k][ds_ren_q[k].w2] = 1'b1;
+      if (ds_ren_q[k].p1 && ds_ren_q[k].c1) iq_dep[k][wid_t'(ds_ren_q[k].w1)] = 1'b1;
+      if (ds_ren_q[k].p2 && ds_ren_q[k].c2) iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
       iq_dep[k] &= ~w_vec;
       iq_mdep[k] = mrow1[k] | mrow2[k];
-      iq_wake[k] = '0;
-      if (ds_uop_q[k].d.cls == C_ALU || ds_uop_q[k].d.cls == C_BR) iq_wake[k][ds_ren_q[k].wid] = 1'b1;
       iq_pl[k] = '0;
       iq_pl[k].rob       = ds_ren_q[k].rob;
       iq_pl[k].tid       = ds_uop_q[k].tid;
@@ -466,6 +495,7 @@ module tg_rename
       cinit_q    <= '0;
       ready_q    <= '1;
       llt_busy_q <= '0;
+      tag_busy_q <= '0;
       rtail_q    <= '0;
       ltail_q    <= '0;
       stail_q    <= '0;
@@ -484,11 +514,13 @@ module tg_rename
         if (rf_we[b]) ready_q[mk_preg(b, rf_widx[b])] <= 1'b1;
       end
       llt_busy_q <= llt_busy_q & ~llt_rel;
+      tag_busy_q <= tag_busy_q & ~tag_free;
       if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
 
       if (flush) begin
         sv_q       <= '0;               // the committed map (with this cycle's commits) answers
         llt_busy_q <= '0;
+        tag_busy_q <= '0;               // every tagged producer in flight is squashed
         rtail_q    <= rob_head;
         ltail_q    <= lq_head;
         stail_q    <= sq_cmt;
@@ -522,6 +554,7 @@ module tg_rename
                 ready_q[ren[k].dst]     <= 1'b0;
               end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
+              if (ren[k].use_tag) tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
             end
           end
           rtail_q <= rob_add(rtail_q, $countones(rn_valid_q));
@@ -559,12 +592,16 @@ module tg_rename
     return n;
   endfunction
 
+  logic unused;
+  assign unused = ^{busy[IQ_TAGS-1:0]};   // tag columns are cleared when a tag returns, not guarded
+
 `ifndef SYNTHESIS
   // A group is a prefix of valid slots.
   always_ff @(posedge clk) begin
     if (!rst) begin
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
+      assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
     end
   end
 `endif

@@ -77,8 +77,6 @@ module tg_rob
   // Trace register reads
   output preg_t [CW-1:0]               tr_tag,
   input  logic [CW-1:0][63:0]          tr_data,
-  // Retired IDs (registered): clear their dependency-vector columns
-  output logic [NCOL-1:0]              col_clr,
   // CSR file
   output logic                         cm_csr,
   output logic [NCW-1:0]               cm_n,
@@ -396,15 +394,12 @@ module tg_rob
       icinv    <= 1'b0;
       exr_v_q  <= 1'b0;
       mpr_v_q  <= 1'b0;
-      col_clr  <= '0;
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
       flush     <= do_flush;
       flush_pc  <= use_tt ? trap_target : nf_pc;
       icinv     <= do_icinv;
       head_q    <= rob_add(head_q, int'(cm_n));
-      col_clr   <= '0;
-      for (int j = 0; j < CW; j++) if (ret[j]) col_clr[hid[j][RIW-1:0]] <= 1'b1;
 
       if (flush) begin
         tail_q  <= head_q;

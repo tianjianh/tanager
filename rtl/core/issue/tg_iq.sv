@@ -419,11 +419,14 @@ module tg_iq
 
   // ---- Dependency vectors ----
   if (STALE == 0) begin : g_guard
-    // Cleared when the row is freed, so busy reflects live rows only.
+    // Cleared when the row is freed, so busy reflects live rows only. col_clr also clears a
+    // column here: the core's wakeup tags (pooled IDs that return with their column cleared,
+    // tg_issue), next to the guarded LLT columns.
     always_ff @(posedge clk) begin
       for (int r = 0; r < ROWS; r++) begin
         if (rst || (valid_q[r] && free_now[r])) dep_q[r] <= '0;
-        else if (we[r])                         dep_q[r] <= disp_dep[bank_of(r)];
+        else if (we[r])                         dep_q[r] <= disp_dep[bank_of(r)] & ~col_clr;
+        else                                    dep_q[r] <= dep_q[r] & ~col_clr;
       end
     end
     always_comb begin
@@ -486,7 +489,7 @@ module tg_iq
 
   // Inputs a variant does not use
   logic unused;
-  assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE == 2) ? '0 : col_clr,
+  assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE != 1) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
                     MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
                     PRE_RDY ? '0 : w_next, rdyw_q};

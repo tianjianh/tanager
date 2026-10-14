@@ -18,10 +18,18 @@ package tg_core_pkg;
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
 
-  // Wakeup IDs: ROB entries, then long-latency tags (dependency-vector columns)
-  localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES;
-  localparam int COL_W = idx_w(NCOL);
-  localparam int ROBW  = ROB_IDX_W + 1;   // ROB index plus wrap bit
+  // Wakeup columns (dependency-vector columns, plan §4.6, AR-1): IQ_TAGS wakeup tags for the
+  // multi-cycle fixed-latency producers (MUL and the bit counts on P1), then the long-latency
+  // tags (loads, atomics, divides). 1-cycle producers take no column: MX names them by row
+  // while they hold it, and once the row is freed their value is in the register file or the
+  // bypass by the time a consumer can issue. Serialised producers end in a flush.
+  localparam int IQ_TAGS = 16;            // wakeup tags (24: the margin option)
+  localparam int NCOL    = IQ_TAGS + LLT_ENTRIES;
+  localparam int COL_W   = idx_w(NCOL);
+  localparam int WTAG_W  = idx_w(IQ_TAGS);
+  localparam int ROBW    = ROB_IDX_W + 1;  // ROB index plus wrap bit
+  // A producer as rename records it: its column, or for a 1-cycle op its ROB index (MX)
+  localparam int PID_W   = (COL_W > ROB_IDX_W) ? COL_W : ROB_IDX_W;
   localparam int LQW   = LQ_IDX_W + 1;
   localparam int SQW   = SQ_IDX_W + 1;
 
@@ -39,6 +47,11 @@ package tg_core_pkg;
   typedef logic [BANK_W+PIDX_W-1:0] preg_t;
   typedef logic [ROBW-1:0]          robid_t;
   typedef logic [COL_W-1:0]         wid_t;
+  typedef logic [PID_W-1:0]         pid_t;
+  // The column of long-latency tag t
+  function automatic wid_t llt_col(input int t);
+    return wid_t'(IQ_TAGS + t);
+  endfunction
   typedef logic [LQW-1:0]           lqid_t;
   typedef logic [SQW-1:0]           sqid_t;
   typedef logic [LLT_IDX_W-1:0]     llt_t;
@@ -242,10 +255,12 @@ package tg_core_pkg;
     preg_t         old;         // previous mapping of rd
     preg_t         src1, src2;
     logic          p1, p2;      // source pending
-    wid_t          w1, w2;      // their producers' wakeup IDs
+    pid_t          w1, w2;      // their producers: column (c1/c2), or ROB index (l1/l2)
+    logic          c1, c2;      // ... has a wakeup column (tag or LLT)
     logic          l1, l2;      // ... a 1-cycle op (MX naming at DS)
     logic [idx_w(RENAME_WIDTH)-1:0] ks1, ks2;   // ... renamed in this slot of its group
-    wid_t          wid;         // own wakeup ID (ROB index or LLT column)
+    wid_t          wid;         // own wakeup column (valid with use_tag or use_llt)
+    logic          use_tag;
     logic          use_llt;
     llt_t          llt;
     robid_t        rob;
