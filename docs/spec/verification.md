@@ -46,7 +46,7 @@ make -C tests/arch CFG=st CORE=tcore   # riscv-arch-test (ACT4): self-checking t
 - **ISA and privilege modes:** the default Spike configuration for `CORE=core` is `rv64im_zicsr_zicntr_zifencei`, privilege `M`, 16 PMP regions (M2). Widen it per build (`make -C sim CFG=st ISA=... PRIV=MSU PMP=16`) or per run (`--isa`, `--priv`, `--pmp`) as features land, and tell the verification track so the regression defaults follow.
 - **Reset values** that Spike chooses and the core may not: PMP entry 0 (`--pmp-reset=off`), `mtvec` 0, `mstatus.MPP` = U (or M without U). A mismatch on the first read of such a CSR is this.
 - **Debugging a mismatch:** the report (§3.6) gives both sides' last 32 instructions. `--log=<file>` writes every record with disassembly; `--fst=<file> --fst-from=<cycle>` dumps waves from shortly before the failing cycle; `--no-lockstep` runs without Spike.
-- **Architecture tests:** `make -C tests/arch CFG=st` runs the M2 configuration's 129 ACT4 tests on `tg_core` (§6.1); `ACTCFG=core-m3-rv64imac` with the M3 ISA. Each test checks itself against Sail's results and runs in lockstep.
+- **Architecture tests:** `make -C tests/arch CFG=st` runs the M2 configuration's ACT4 tests on `tg_core` (§6.1): 113 tests, plus 16 PMP tests excluded until PMP checks arrive in M3. `ACTCFG=core-m3-rv64imac` runs the M3 configuration once the core has the M3 ISA. Each test checks itself against Sail's results and runs in lockstep.
 - **Before a merge request:** `make regress CFG=st` and `make regress CFG=st_w3` (conventions §6).
 
 ## 2. The harness (`tg_vsim`)
@@ -332,14 +332,15 @@ The checker found its first real bug the same day: the test core lost deferred w
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options):
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4):
 1. builds `tg_vsim` for the configuration and `tg_replay`;
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
 4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
 5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
-6. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
-7. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+6. with `ARCH=1`, runs the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
+7. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+8. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -389,7 +390,7 @@ make -C tests/arch clean
 | Configuration | For | Spike ISA, modes, PMP | Tests |
 |---|---|---|---|
 | `tcore-rv64im` | `tg_tcore` (§5) | `rv64im_zicsr_zicntr_zifencei`, MU, none | 97: I, M, Zmmul, Zicntr, Zicsr, Zifencei, ExceptionsSm, InterruptsSm, ExceptionsU |
-| `core-m2-rv64im` | `tg_core` at M2 | the same, M, 16 | 129: the same without U (7 InterruptsSm tests instead of 14), plus PMPSm (40) |
+| `core-m2-rv64im` | `tg_core` at M2 | the same, M, 16 | 129: the same without U (7 InterruptsSm tests instead of 14), plus PMPSm (40), of which 16 need PMP checks and are excluded until M3 |
 | `core-m3-rv64imac` | `tg_core` at M3 (no F/D until M5) | §3.2's M3 string, MSU, 16 | 355: the above plus Zaamo, Zalrsc, Zca, Zba, Zbb, Zbs, Zicond, Zihintpause, Zihpm; ExceptionsS, U, Zaamo, Zalrsc, Zc and the ExceptionsSv suites; InterruptsS (11) and InterruptsSm (21); PMPS, PMPU, PMPZaamo, PMPZalrsc, PMPZca; Sv, SvPMP, SvSm, Svade, Svbare, Svinval |
 
 Each directory holds `test_config.yaml` (tools, the `# testgen:` and `# replay:` lines), the UDB file `<config>.yaml` (validated by `udb validate cfg`; it decides which tests apply), `sail.json`, and `rvmodel_macros.h`, which includes the shared `tanager_rvmodel.h`. The shared `link.ld` places RAM at `0x8000_0000` (256 MiB, the main-memory region of every `sail.json`).
@@ -408,13 +409,13 @@ Each directory holds `test_config.yaml` (tools, the `# testgen:` and `# replay:`
 **Results on 2026-10-13:**
 - Spike against Spike: `tcore-rv64im` 97/97, `core-m2-rv64im` 129/129, `core-m3-rv64imac` 355/355. Getting there fixed two `tg_replay` issues (the generator's SEIP handling, device loads under MPRV) and settled the `sail.json` choices above.
 - `tg_tcore` in `tg_vsim` with lockstep: 97/97 in `st` and in `st_w3`.
-- `tg_core` is still the stub on this branch; `make -C tests/arch CFG=st` runs the M2 configuration once the core track's M2 core is merged.
+- `tg_core` is still the stub on this branch. The core track's M2 core (`claude/track-core-adb715` at `9154bae`, not yet merged), built with this branch's harness in a scratch copy: 113 of the 129 tests pass in `st` and `st_w3`, also with 250-cycle latency, jitter, back-pressure and D-channel gaps. The other 16 are PMPSm tests in which Spike raises a PMP access fault that the core does not, because its PMP checks come in M3 (core-pipeline.md §1); `exclude/core-m2-rv64im.txt` lists them.
 
 **Known differences** that no test reaches today:
 - A reserved `mtvec`/`stvec` mode (2 or 3): Spike and the core clear bit 1; Sail can only ignore the write or stop.
 - Sail and Spike keep one `mip.SEIP` bit and one `mip.SSIP` bit that the generator and software both write; the core ORs `irq_sei_i` and `irq_ssi_i` with its software bits (interfaces.md §3), so while the generator's line is high, software cannot clear the bit. Measured in the replay over all 355 M3 tests: no test clears SEIP by software while the generator's line is high (ACT4's handler would, only with `MEIP` pending at the same time). 23 interrupt tests clear SSIP that way, but only after disabling `mie.SSIE`, and they lower the generator's line about 20 instructions later without reading `mip` in between, so a core with the OR behaves the same. §9 has the interface question.
 
-**Disk:** the framework's Python packages (`$TANAGER_OPT/act-venv`, 43 MB), the UDB gems (`$TANAGER_OPT/act-gems`, 74 MB, `bundle clean`), Sail (11 MB), and UDB's cache in `~/.local/share/udb` (24 MB). The build tree keeps only the ELFs (about 20 MB for the test core and M2 configurations, 60 MB for M3) and the logs of failing tests.
+**Disk:** Sail 0.15 (pinned in `tools/versions.sh`, `$TANAGER_OPT/sail-0.15`, 11 MB), the framework's Python packages (`$TANAGER_OPT/act-venv`, 43 MB), the UDB gems (`$TANAGER_OPT/act-gems`, 74 MB, `bundle clean`), and UDB's cache in `~/.local/share/udb` (24 MB). The build tree keeps only the ELFs (about 20 MB for the test core and M2 configurations, 60 MB for M3) and the logs of failing tests.
 
 ### 6.2 Constrained-random instruction generator
 
@@ -442,6 +443,7 @@ Each directory holds `test_config.yaml` (tools, the `# testgen:` and `# replay:`
 
 - **liblz4-dev** is needed for FST waveforms (Verilator 5.052's FST writer includes `lz4.h`); it is installed on the build host since 2026-10-13.
 - **Spike** is used through its installed headers and `libriscv.so` (`$SPIKE_ROOT`); the build adds `-Wl,-rpath` so no `LD_LIBRARY_PATH` is needed.
+- **ccache and precompiled headers:** Verilator's makefile lets ccache cache its precompiled header (about 100 MB for `tg_core`). On 2026-10-13 GCC 15 crashed (segmentation fault, `c_common_read_pch`) on every object compiled against such a header returned from the cache, reproducibly for an `st_w3` build of the core; with the header compiled fresh the same build passed. `sim/Makefile` therefore exports an empty `CCACHE_SLOPPINESS`: ccache then runs the compiles that use the header uncached (they rarely hit anyway, since the header changes with the RTL) and still caches Verilator's runtime and our C++. Other Verilator builds on the host (unit tests) may want the same.
 
 ## 8. Disk and machine sharing
 

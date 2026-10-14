@@ -1,1 +1,17 @@
 # ACT4 tests skipped on tg_core at M2 (tests/arch/config/core-m2-rv64im), with reasons.
+PMPSm_all_entries_check-00           # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_A_tor_bot-00               # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_XWR_all-01-00              # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_XWR_all-02-00              # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_XWR_all-03-00              # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_XWR_all-04-00              # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_na4_all-00                 # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_napot_all-00               # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_cfg_tor_all-00                 # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_na4_legal_lxwr-00              # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_napot_legal_lxwr-01-00         # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_napot_legal_lxwr-02-00         # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_priority-00                    # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_priority_off-00                # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_tor_legal_lxwr-01-00           # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only
+PMPSm_tor_legal_lxwr-02-00           # needs PMP checks, which arrive in M3 (core-pipeline.md §1); the M2 core has the CSRs only

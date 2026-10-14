@@ -21,8 +21,17 @@ VERILATOR ?= verilator
 CXX      ?= g++-15
 SPIKE_ROOT ?= $(HOME)/opt/tanager/spike
 
+# Verilator's makefile lets ccache cache its precompiled headers (CCACHE_SLOPPINESS=pch_defines,
+# time_macros). GCC 15 crashes compiling against such a header when ccache returns it from the
+# cache (reproduced with st_w3 builds, 2026-10-13), so ccache leaves precompiled headers alone:
+# those compiles run uncached; Verilator's runtime and our C++ are still cached.
+export CCACHE_SLOPPINESS :=
+
 # Spike's default ISA and privilege modes for each core (verification.md §3.2). The core track
-# widens ISA/PRIV as features land; --isa and --priv override them per run.
+# widens ISA/PRIV as features land; --isa and --priv override them per run. They come from this
+# make's command line or these defaults, never from the environment: a runner's own ISA variable
+# (tests/random: the generator's ISA) reaches the environment of its sub-makes.
+$(foreach v,ISA PRIV PMP,$(if $(filter environment,$(origin $(v))),$(eval undefine $(v))))
 ifeq ($(CORE),tcore)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= MU
@@ -69,6 +78,7 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 	  $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv $(addprefix $(ROOT)/sim/src/,$(SRCS)) \
 	  > $(BUILD)/build.log 2>&1 || { tail -40 $(BUILD)/build.log; exit 1; }
 	@grep -E '^%Warning' $(BUILD)/build.log | head -20 || true
+	@touch $@  # Verilator does not relink when the generated code is unchanged
 	@echo "built $@"
 
 lint:
