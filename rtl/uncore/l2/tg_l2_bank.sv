@@ -18,7 +18,7 @@ module tg_l2_bank
   parameter int N_WB     = 4,
   parameter int N_PUTBUF = 4,
   parameter     DATA_PRIM = "ultra",
-  parameter int DATA_LAT  = 2         // data-array read latency (2: output register); see u_data
+  parameter int DATA_LAT  = 2         // data-array read latency, >= 2 (4 for the URAM cascade at 200 MHz)
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -763,12 +763,13 @@ module tg_l2_bank
   logic             da_re;
   logic [RAW-1:0]   da_raddr;
   logic [255:0]     da_rdata;
-  // Latency DATA_LAT: today the output register (2). With tg_ram_sdp's RD_LAT this becomes
-  // .RD_LAT(DATA_LAT) and 4 for the 4-deep URAM cascade at 200 MHz; the read pipeline below follows.
-  if (DATA_LAT != 2) begin : g_bad_lat
-    $error("tg_l2_bank: DATA_LAT other than 2 needs tg_ram_sdp RD_LAT");
+  // Read latency DATA_LAT: the output register (2), plus cascade pipeline stages above 2 (4 for the
+  // 4-deep URAM cascade at 200 MHz). The read-tag pipeline below follows it.
+  if (DATA_LAT < 2) begin : g_bad_lat
+    $error("tg_l2_bank: DATA_LAT must be at least 2 (output register)");
   end
-  tg_ram_sdp #(.DEPTH(SETS * WAYS * 2), .WIDTH(256), .BYTE_W(8), .OUT_REG(1'b1), .PRIM(DATA_PRIM)) u_data (
+  tg_ram_sdp #(.DEPTH(SETS * WAYS * 2), .WIDTH(256), .BYTE_W(8), .OUT_REG(1'b1), .RD_LAT(DATA_LAT),
+               .PRIM(DATA_PRIM)) u_data (
     .clk, .we (da_we), .waddr (da_waddr), .wdata (da_wdata), .re (da_re), .raddr (da_raddr), .rdata (da_rdata)
   );
 

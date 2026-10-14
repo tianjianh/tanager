@@ -12,6 +12,7 @@ module tanager_soc
   parameter int          L2_SETS         = 1024,
   parameter int          L2_MSHR         = 24,
   parameter              L2_PRIM         = "ultra",
+  parameter int          L2_DATA_LAT     = 2,          // 4 for the URAM cascade at 200 MHz
   parameter bit          CORE_RST_INIT   = 1'b1,
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
@@ -210,7 +211,8 @@ module tanager_soc
   logic                  l2_init_done;
   logic    [N_BANKS-1:0] ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
-  tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM)) u_l2 (
+  tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM),
+          .DATA_LAT (L2_DATA_LAT)) u_l2 (
     .clk, .rst (uncore_rst),
     .a_i (l2_a), .a_valid_i (l2_av), .a_ready_o (l2_ar),
     .b_o (l2_b), .b_valid_o (l2_bv), .b_ready_i (l2_br),

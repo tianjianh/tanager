@@ -32,7 +32,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `N_CORES` | `NUM_CORES` | 1 for M4 (single agent), 2 from M8 |
 | `BOOT_ADDR` | `BOOTROM_BASE` | `boot_addr_i` of every core; bare-metal simulation passes `DRAM_BASE` |
 | `CLK_HZ` | 100 000 000 | core clock (ACLINT tick, UART timeout, reported to the host) |
-| `L2_SETS`, `L2_MSHR` | 1024, 24 | [l2.md](l2.md) |
+| `L2_SETS`, `L2_MSHR`, `L2_DATA_LAT` | 1024, 24, 2 | [l2.md](l2.md); `kv260_top` sets `L2_DATA_LAT = 4` above 150 MHz |
 | `CORE_RST_INIT`, `UNCORE_RST_INIT` | 1, 1 | host `CTRL` reset value; simulation testbenches use 0, 0 |
 | `DRAM_BASE_INIT`, `DRAM_SIZE_INIT` | 0, 0 | DRAM window at reset; simulation uses base 0 and the model's size |
 | `CORE_KIND` | `"core"` | `"core"`: `tg_core` (the stub until the core track's RTL lands); `"trafgen"`: `tg_trafgen` traffic generators in the cores' place, for bring-up and timing runs before the core exists (§2.3) |

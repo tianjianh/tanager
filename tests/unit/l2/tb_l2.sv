@@ -12,6 +12,7 @@ module tb_l2;
   parameter int NA     = 1;
   parameter int SETS   = 16;
   parameter int N_MSHR = 8;
+  parameter int DATA_LAT = 2;
   parameter int NSETS_USED = 4;      // sets the line pool covers
   parameter int NTAGS  = 12;         // lines per set in the pool (> 8 ways forces evictions)
   parameter int CAP    = 6;          // lines an agent caches at most
@@ -34,7 +35,7 @@ module tb_l2;
   axi_b_t  bresp; logic bresp_valid, bresp_ready;
   logic    init_done, ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
-  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block")) dut (
+  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT)) dut (
     .clk, .rst,
     .a_i (a), .a_valid_i (a_valid), .a_ready_o (a_ready),
     .b_o (b), .b_valid_o (b_valid), .b_ready_i (b_ready),
@@ -142,7 +143,7 @@ module tb_l2;
     if (!$value$plusargs("ops=%d", ops_target)) ops_target = 20000;
     errlines = $test$plusargs("errlines");
     void'($urandom(seed));
-    $display("tb_l2: NA=%0d SETS=%0d N_MSHR=%0d seed=%0d ops=%0d", NA, SETS, N_MSHR, seed, ops_target);
+    $display("tb_l2: NA=%0d SETS=%0d N_MSHR=%0d DATA_LAT=%0d seed=%0d ops=%0d", NA, SETS, N_MSHR, DATA_LAT, seed, ops_target);
     for (int i = 0; i < NLINES; i++) begin
       int s, t;
       s = i % NSETS_USED;

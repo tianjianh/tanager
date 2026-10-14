@@ -119,6 +119,7 @@ module kv260_top
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND),
+    .L2_DATA_LAT (CORE_MHZ > 150 ? 4 : 2),   // pipeline the URAM cascade above 150 MHz
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1)
   ) u_soc (
     .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
