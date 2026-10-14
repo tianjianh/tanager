@@ -3,9 +3,11 @@
 // registered and appears exactly FMISC_LAT = 2 cycles after the request. The FP -> FP and
 // integer -> FP conversions run on the FMA (lever R5; tg_fpu_pkg::fpu_unit_of).
 //
-// M0 unpacks, compares magnitudes and prepares FCVT.I.F; M1 computes every result. FCVT.I.F
-// shifts {significand, 11'b0} right by 63 - E to the integer part, with the guard from the
-// shifter and the sticky from the significand's trailing-zero count.
+// M0 classifies the operands, compares magnitudes and prepares FCVT.I.F; M1 computes every
+// result from the raw operands. NaN boxing only matters where an S operand's bits reach the result
+// (sign injection), so M0 passes one flag rather than unboxed copies. FCVT.I.F shifts
+// {significand, 12'b0} right by 63 - E in three radix-4 stages to {integer part, guard}; each
+// stage ORs the bits it drops into the sticky.
 module tg_fpu_misc
   import tg_pkg::*;
   import tg_fpu_pkg::*;
@@ -32,14 +34,11 @@ module tg_fpu_misc
   assign ua = unpack(q.a, dbl);
   assign ub = unpack(q.b, dbl);
 
-  // Values as the format reads them (S unboxed; an improperly boxed S is the canonical NaN).
-  logic [63:0] ra, rb;
-  assign ra = dbl ? q.a : {32'b0, unbox_s(q.a)};
-  assign rb = dbl ? q.b : {32'b0, unbox_s(q.b)};
-
+  // Magnitudes for the compares, from the raw encodings: a NaN operand (an improperly boxed S
+  // operand included) decides every result through its class, so its bits do not matter.
   logic [62:0] mag_a, mag_b;
-  assign mag_a = dbl ? ra[62:0] : {32'b0, ra[30:0]};
-  assign mag_b = dbl ? rb[62:0] : {32'b0, rb[30:0]};
+  assign mag_a = dbl ? q.a[62:0] : {32'b0, q.a[30:0]};
+  assign mag_b = dbl ? q.b[62:0] : {32'b0, q.b[30:0]};
 
   // ---- FCVT.I.F preparation: shift = 1086 - exponent field (the MSB has weight 2^E) ----
   logic [6:0] fi_amt;
@@ -50,11 +49,6 @@ module tg_fpu_misc
     fi_big = ua.inf || (sh < 0);
     fi_amt = (sh > 13'sd65) ? 7'd65 : sh[6:0];
   end
-  // Trailing zeros of the significand, for the sticky.
-  logic [52:0] sig_rev;
-  always_comb for (int i = 0; i < 53; i++) sig_rev[i] = ua.sig[52-i];
-  logic [5:0] sig_tz;
-  tg_fpu_lzc #(.W(53)) u_sig_tz (.x(sig_rev), .cnt(sig_tz));
 
   // ---- M0 -> M1 register ----
   typedef struct packed {
@@ -63,14 +57,15 @@ module tg_fpu_misc
     ifmt_e       ifmt;
     rm_e         rm;
     logic [FPU_TAG_W-1:0] tag;
-    logic [63:0] ra, rb, a_raw;
+    logic [63:0] a_raw, b_raw;
+    logic        a_box;          // a reads as itself: D, or S properly NaN-boxed
     logic        a_sign, a_zero, a_sub, a_inf, a_nan, a_snan;
     logic        b_sign, b_zero, b_nan, b_snan;
     logic        mag_lt, mag_eq;
     // FCVT.I.F
     logic [52:0] a_sig;
+    logic        a_fnz;          // fraction bits a_sig[51:0] not all zero
     logic [6:0]  fi_amt;
-    logic [6:0]  sig_tz;         // trailing zeros of {significand, 11'b0}
     logic        fi_big;
   } m1_t;
 
@@ -79,15 +74,16 @@ module tg_fpu_misc
   always_comb begin
     m0 = '0;
     m0.op = q.op; m0.dbl = dbl; m0.ifmt = q.ifmt; m0.rm = q.rm; m0.tag = q.tag;
-    m0.ra = ra; m0.rb = rb; m0.a_raw = q.a;
+    m0.a_raw = q.a; m0.b_raw = q.b;
+    m0.a_box = dbl || (&q.a[63:32]);
     m0.a_sign = ua.sign; m0.a_zero = ua.zero; m0.a_sub = ua.sub; m0.a_inf = ua.inf;
     m0.a_nan = ua.nan; m0.a_snan = ua.snan;
     m0.b_sign = ub.sign; m0.b_zero = ub.zero; m0.b_nan = ub.nan; m0.b_snan = ub.snan;
     m0.mag_lt = mag_a < mag_b;
     m0.mag_eq = mag_a == mag_b;
     m0.a_sig  = ua.sig;
+    m0.a_fnz  = |ua.sig[51:0];
     m0.fi_amt = fi_amt;
-    m0.sig_tz = (ua.sig == '0) ? 7'd64 : 7'(sig_tz) + 7'd11;
     m0.fi_big = fi_big;
   end
 
@@ -123,6 +119,7 @@ module tg_fpu_misc
   always_comb begin
     logic sj, pick_a;
     logic [9:0] cls;
+    logic [30:0] a_mag_s;       // S: magnitude of a as read (the canonical NaN's if not boxed)
     simple_res = '0;
     simple_fl  = '0;
     unique case (m.op)
@@ -143,13 +140,15 @@ module tg_fpu_misc
     cls[7] = m.a_inf && !m.a_sign;
     cls[8] = m.a_snan;
     cls[9] = m.a_nan && !m.a_snan;
+    a_mag_s = m.a_box ? m.a_raw[30:0] : CNAN_S32[30:0];
     unique case (m.op)
       FOP_FSGNJ, FOP_FSGNJN, FOP_FSGNJX:
-        simple_res = m.dbl ? {sj, m.ra[62:0]} : box_s({sj, m.ra[30:0]});
+        simple_res = m.dbl ? {sj, m.a_raw[62:0]} : box_s({sj, a_mag_s});
       FOP_FMIN, FOP_FMAX: begin
+        // the result is an operand that is not a NaN, so (S) properly boxed: the raw value
         if (m.a_nan && m.b_nan) simple_res = cnan(m.dbl);
-        else if (m.a_nan || (!m.b_nan && !pick_a)) simple_res = m.dbl ? m.rb : box_s(m.rb[31:0]);
-        else simple_res = m.dbl ? m.ra : box_s(m.ra[31:0]);
+        else if (m.a_nan || (!m.b_nan && !pick_a)) simple_res = m.b_raw;
+        else simple_res = m.a_raw;
         simple_fl[FL_NV] = any_snan;
       end
       FOP_FEQ: begin simple_res = {63'b0, !any_nan && a_eq_b};             simple_fl[FL_NV] = any_snan; end
@@ -162,14 +161,25 @@ module tg_fpu_misc
     endcase
   end
 
-  // ---- FCVT.I.F: shift to the integer part, round, negate, range check, saturate ----
-  logic [63:0] sh_in, so;
+  // ---- FCVT.I.F: shift to {integer part, guard}, round, negate, range check, saturate ----
+  logic [63:0] so;
   logic        so_g, so_s;
   always_comb begin
-    sh_in = {m.a_sig, 11'b0};
-    so    = (m.fi_amt >= 7'd64) ? 64'b0 : (sh_in >> m.fi_amt[5:0]);
-    so_g  = (m.fi_amt == '0 || m.fi_amt > 7'd64) ? 1'b0 : sh_in[6'(m.fi_amt - 7'd1)];
-    so_s  = (m.fi_amt >= 7'd2) && ({1'b0, m.sig_tz} < {1'b0, m.fi_amt} - 8'd1);
+    logic [64:0] x0, x1, x2, x3;
+    logic        st1, st2, st3, st4;
+    x0  = {m.a_sig, 12'b0};
+    x1  = x0 >> {m.fi_amt[5:4], 4'b0};
+    st1 = |(x0 & ~({65{1'b1}} << {m.fi_amt[5:4], 4'b0}));
+    x2  = x1 >> {m.fi_amt[3:2], 2'b0};
+    st2 = |(x1 & ~({65{1'b1}} << {m.fi_amt[3:2], 2'b0}));
+    x3  = x2 >> m.fi_amt[1:0];
+    st3 = |(x2 & ~({65{1'b1}} << m.fi_amt[1:0]));
+    // fi_amt = 64 or 65 (|a| < 1; the stages shifted by 0 or 1): nothing reaches the integer
+    // part; the guard is x3[64] and the sticky is every significand bit below it
+    st4 = m.fi_amt[6] && (m.a_fnz || (m.fi_amt[0] && m.a_sig[52]));
+    so   = m.fi_amt[6] ? 64'b0 : x3[64:1];
+    so_g = m.fi_amt[6] ? x3[64] : x3[0];
+    so_s = st1 || st2 || st3 || st4;
   end
 
   logic [63:0] fi_res;
