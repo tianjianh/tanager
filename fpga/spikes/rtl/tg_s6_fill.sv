@@ -79,8 +79,10 @@ module tg_s6_fill #(
     assign in_d[15:14] = tq[(t + 2) % NT][15:14] ^ fin ^ side;
     always_ff @(posedge clk) in_q <= in_d;
 
-    // Four levels of 8 LUT6
+    // Four levels of 8 LUT6 (each level reads the previous one: not a loop)
+    /* verilator lint_off UNOPTFLAT */
     logic [3:0][7:0] lv;
+    /* verilator lint_on UNOPTFLAT */
     for (genvar l = 0; l < 4; l++) begin : g_lvl
       for (genvar k = 0; k < 8; k++) begin : g_lut
         localparam logic [63:0] H = mix(64'(SEED) * 64'h1_0000_0000 + 64'(t) * 64 + 64'(l * 8 + k));
@@ -139,17 +141,18 @@ module tg_s6_fill #(
   end
   for (genvar d = 0; d < NDSP; d++) begin : g_dsp
     localparam int T0 = side_t0(NRAM + NBRAM + d);
-    logic [26:0] a_q;
-    logic [17:0] b_q;
-    logic [44:0] m_q;
-    logic [47:0] acc_q;
+    // signed 27 x 18: one DSP48E2 (unsigned operands of these widths would need two)
+    logic signed [26:0] a_q;
+    logic signed [17:0] b_q;
+    logic signed [44:0] m_q;
+    logic signed [47:0] acc_q;
     always_ff @(posedge clk) begin
       a_q   <= {tq[T0][10:0], tq[(T0 + 1) % NT]};
       b_q   <= {tq[(T0 + 2) % NT][1:0], tq[(T0 + 3) % NT]};
       m_q   <= a_q * b_q;
       acc_q <= acc_q + 48'(m_q);
     end
-    assign so[NRAM + NBRAM + d] = acc_q[47:32];
+    always_ff @(posedge clk) so[NRAM + NBRAM + d] <= acc_q[47:32];
   end
   if (NSIDE == 0) begin : g_noside
     assign so = '0;

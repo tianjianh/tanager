@@ -17,7 +17,8 @@ module tb_iq
   parameter bit DUP_SEL  = 1'b0,
   parameter int EARLY_W  = 32,
   parameter bit MX       = 1'b0,
-  parameter bit PRE_RDY  = 1'b0
+  parameter bit PRE_RDY  = 1'b0,
+  parameter bit ISS_REG  = 1'b0
 );
   localparam int ROWS  = 10;
   localparam int DW    = DISPATCH_WIDTH;
@@ -50,7 +51,7 @@ module tb_iq
 
   tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
           .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
-          .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS), .PRE_RDY(PRE_RDY)) u_iq (
+          .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS), .PRE_RDY(PRE_RDY), .ISS_REG(ISS_REG)) u_iq (
     .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph, .disp_wake_oh, .disp_rob,
     .disp_payload, .bank_free_q, .room_q, .w(w_q), .w_next, .w1(w1_q), .col_clr, .cancel, .wake_now,
     .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload(iss_payload_q),

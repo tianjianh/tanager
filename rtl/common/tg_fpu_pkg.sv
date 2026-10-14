@@ -5,11 +5,24 @@ package tg_fpu_pkg;
 
   localparam int FMA_LAT    = 5;   // fixed, fully pipelined (plan §4.12; 4 if synthesis allows)
   localparam int FMISC_LAT  = 2;   // fixed, fully pipelined
-  localparam int FDIV_LAT_S = 18;  // Goldschmidt, plan §4.12
-  localparam int FDIV_LAT_D = 23;
-  localparam int FSQRT_LAT_S = 20;
-  localparam int FSQRT_LAT_D = 26;
-  localparam int FDIV_II    = 4;   // a new divide/sqrt may start every FDIV_II cycles
+  // Divide/sqrt (docs/spec/fpu.md): the Goldschmidt unit, or the radix-4 area fallback when
+  // FDIV_RADIX4 = 1. Latency is the minimum, from acceptance to fdiv_valid_o.
+  localparam bit FDIV_RADIX4 = 1'b0;
+  localparam int FDIV_GS_LAT_S  = 19;
+  localparam int FDIV_GS_LAT_D  = 23;
+  localparam int FSQRT_GS_LAT_S = 19;
+  localparam int FSQRT_GS_LAT_D = 27;
+  localparam int FDIV_R4_LAT_S  = 18;
+  localparam int FDIV_R4_LAT_D  = 33;
+  localparam int FSQRT_R4_LAT_S = 18;
+  localparam int FSQRT_R4_LAT_D = 33;
+  localparam int FDIV_LAT_S  = FDIV_RADIX4 ? FDIV_R4_LAT_S  : FDIV_GS_LAT_S;
+  localparam int FDIV_LAT_D  = FDIV_RADIX4 ? FDIV_R4_LAT_D  : FDIV_GS_LAT_D;
+  localparam int FSQRT_LAT_S = FDIV_RADIX4 ? FSQRT_R4_LAT_S : FSQRT_GS_LAT_S;
+  localparam int FSQRT_LAT_D = FDIV_RADIX4 ? FSQRT_R4_LAT_D : FSQRT_GS_LAT_D;
+  // Goldschmidt: a new operation whenever one of four slots is free (steady-state FDIV.D rate
+  // 1 per 4 cycles); radix-4: one operation at a time.
+  localparam int FDIV_II    = FDIV_RADIX4 ? FDIV_R4_LAT_D : 4;
 
   typedef enum logic [4:0] {
     // FMA pipe
@@ -25,6 +38,20 @@ package tg_fpu_pkg;
     FOP_FMV_X_F,    // FMV.X.W / FMV.X.D
     FOP_FMV_F_X     // FMV.W.X / FMV.D.X
   } fop_e;
+
+  // Which tg_fpu port executes an operation (docs/spec/interfaces.md §4). Lever R5 (plan §8.5)
+  // puts the FP->FP and integer->FP conversions on the FMA; the core routes with this function
+  // and never hard-codes the unit.
+  typedef enum logic [1:0] { FU_FMA = 2'd0, FU_MISC = 2'd1, FU_DIV = 2'd2 } fpu_unit_e;
+
+  function automatic fpu_unit_e fpu_unit_of(input fop_e op);
+    unique case (op)
+      FOP_FADD, FOP_FSUB, FOP_FMUL, FOP_FMADD, FOP_FMSUB, FOP_FNMSUB, FOP_FNMADD,
+      FOP_FCVT_F_F, FOP_FCVT_F_I: return FU_FMA;
+      FOP_FDIV, FOP_FSQRT:        return FU_DIV;
+      default:                    return FU_MISC;
+    endcase
+  endfunction
 
   // RISC-V fmt field encoding; H is for Zfhmin later.
   typedef enum logic [1:0] { FMT_S = 2'd0, FMT_D = 2'd1, FMT_H = 2'd2 } ffmt_e;

@@ -12,7 +12,7 @@ module tg_s6_core
   parameter int NDSP  = 0,     // filler DSP48E2 (MUL, FMA, Goldschmidt)
   parameter int SEED  = 1,
   parameter int BUS_W = 256,
-  parameter bit S2_MX = 1'b0   // the scheduler's matrix wakeup option
+  parameter int S2_MX = 0      // the scheduler's matrix wakeup option
 ) (
   input  logic             clk,
   input  logic [BUS_W-1:0] l2_in,     // from the L2 (registered there)
@@ -159,7 +159,7 @@ module tg_s6_core
     assign unused = ^fout[FOUT_W-1:SPK_IN + BUS_W];   // padding to whole tiles
   end
 
-  tg_s2_sched_top #(.STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX)) u_s2 (
+  tg_s2_sched_top #(.STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0)) u_s2 (
     .clk,
     .rst_i(fout[I_u_s2_rst_i +: 1]),
     .disp_valid_i(fout[I_u_s2_disp_valid_i +: S2_DW]),
@@ -212,7 +212,7 @@ module tg_s6_core
     .sd_o(fin[O_u_s3_sd_o +: 64])
   );
 
-  tg_s4_top #(.ALIGN_M1(1'b1)) u_s4 (
+  tg_s4_top #(.ALIGN_M1(1)) u_s4 (
     .clk,
     .rst_i(fout[I_u_s4_rst_i +: 1]),
     .ld_valid_i(fout[I_u_s4_ld_valid_i +: 1]),
@@ -246,7 +246,7 @@ module tg_s6_core
     .probe_tags_o(fin[O_u_s4_probe_tags_o +: L1_WAYS*(S4_PPN_W+2)])
   );
 
-  tg_s5_top #(.FA(1'b0), .WR(4)) u_s5 (
+  tg_s5_top #(.FA(0), .WR(4)) u_s5 (
     .clk,
     .rst_i(fout[I_u_s5_rst_i +: 1]),
     .redirect_i(fout[I_u_s5_redirect_i +: 1]),

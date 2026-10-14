@@ -13,7 +13,7 @@
 module tg_s4_top
   import tg_pkg::*;
 #(
-  parameter bit ALIGN_M1 = 1'b1,
+  parameter int ALIGN_M1 = 1,
   localparam int WAYS  = L1_WAYS,
   localparam int SETS  = (L1D_KIB * 1024) / (WAYS * 64),
   localparam int SET_W = idx_w(SETS),
@@ -166,7 +166,7 @@ module tg_s4_top
     m2_unsigned_q <= m1_unsigned_q;
     for (int w = 0; w < WAYS; w++) begin
       m2_tag_q[w]  <= tag_rd[w][0];
-      m2_data_q[w] <= ALIGN_M1 ? align(way_data[w], m1_va_q[2:0], m1_size_q, m1_unsigned_q)
+      m2_data_q[w] <= ALIGN_M1 != 0 ? align(way_data[w], m1_va_q[2:0], m1_size_q, m1_unsigned_q)
                                : way_data[w];
     end
   end
@@ -192,7 +192,7 @@ module tg_s4_top
       ld_hit_o    <= m2_valid_q && m2_tlb_hit_q && |way_hit;
       ld_cancel_o <= m2_valid_q && !(m2_tlb_hit_q && |way_hit);
     end
-    ld_data_o <= ALIGN_M1 ? sel : align(sel, m2_off_q, m2_size_q, m2_unsigned_q);
+    ld_data_o <= ALIGN_M1 != 0 ? sel : align(sel, m2_off_q, m2_size_q, m2_unsigned_q);
     for (int w = 0; w < WAYS; w++) probe_tags_o[w] <= tag_rd[w][1];
   end
 

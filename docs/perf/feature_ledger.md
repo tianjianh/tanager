@@ -86,7 +86,7 @@
 | Item | Draft 0.3 → v1 | Gain vs LUT share | Other costs | Status |
 |---|---|---|---|---|
 | FMA pipe | 4–5 cycles → **5** | 5 → 4: +0.22% (+0.12% without nbody) | timing (cost not in LUTs) | **changed** (pinned); revisit at synthesis |
-| Divide/sqrt | radix-4 digit recurrence → **Goldschmidt, 10-bit seed, pipelined** | +2.23% (+1.31% without nbody) vs 0.49% | +24 DSPs, +1 BRAM18; rounding needs the remainder step (TestFloat) | **adopted** |
+| Divide/sqrt | radix-4 digit recurrence → **Goldschmidt, 10-bit seed, pipelined** | M1: +2.23% (+1.31% without nbody) vs 0.49%. **As built (2026-10-13):** +2.4% suite IPC vs 3.7% (+1.4K LUTs measured; 26 DSPs, 1 BRAM18) | rounding needs the remainder step (TestFloat clean, level 2) | **adopted by user decision D17**, an exception to the rule at the measured cost; the radix-4 unit is the area fallback (`FDIV_RADIX4`) |
 | Divide/sqrt, radix-16 | option | +1.67% (+1.09%) vs 2.93% | — | **rejected** |
 | Goldschmidt, 14-bit seed | option | +0.12% (+0.04%) over the 10-bit seed vs 0.24% | +2–4 BRAM36 | **rejected** |
 | Second FMA pipe | option | +0.08% vs 10.7% | +12 DSPs | **rejected** |

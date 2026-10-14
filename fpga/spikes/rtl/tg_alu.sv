@@ -3,9 +3,14 @@
 // Zbs (bset/bclr/binv/bext), sext.b/sext.h/zext.h/rev8/orc.b, Zicond, lui (pass b).
 // clz/ctz/cpop take a second cycle on ALU1 and are not here. Spike S3; combinational, the
 // issue port registers the result. The compare flags serve branches (ctl.sub = 1).
+//   MINMAX = 0: min/max/minu/maxu are left out of the 1-cycle result (they then go to the
+//   2-cycle path with clz/ctz/cpop). Their select after the full carry chain is the
+//   longest path through the ALU.
 module tg_alu
   import tg_alu_pkg::*;
-(
+#(
+  parameter bit MINMAX = 1'b1
+) (
   input  alu_ctl_t     ctl,
   input  logic [63:0]  a,
   input  logic [63:0]  b,
@@ -100,7 +105,7 @@ module tg_alu
     if (ctl.grp[G_ADD])   res |= r_add;
     if (ctl.grp[G_SHIFT]) res |= r_sh;
     if (ctl.grp[G_SLT])   res |= {63'b0, less};
-    if (ctl.grp[G_MINMX]) res |= (less ^ ctl.cmp_max) ? a : b;
+    if (MINMAX && ctl.grp[G_MINMX]) res |= (less ^ ctl.cmp_max) ? a : b;
     if (ctl.grp[G_LOGIC]) res |= lg;
     if (ctl.grp[G_BIT])   res |= bitr;
     if (ctl.grp[G_UNARY]) res |= un;

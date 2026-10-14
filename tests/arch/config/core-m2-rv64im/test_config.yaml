@@ -1,0 +1,11 @@
+# ACT4 configuration for tg_core at M2: RV64IM, M-mode only, 16 PMP entries (docs/spec/core-pipeline.md §9.1,
+# docs/spec/verification.md §6.1).
+name: core-m2-rv64im
+compiler_exe: riscv-none-elf-gcc
+objdump_exe: riscv-none-elf-objdump
+ref_model_exe: sail_riscv_sim
+udb_config: core-m2-rv64im.yaml
+linker_script: ../link.ld
+dut_include_dir: .
+# testgen: I,M,Zmmul,Zicntr,Zicsr,Zifencei,ExceptionsSm,InterruptsSm
+# replay: --isa=rv64im_zicsr_zicntr_zifencei --priv=M --pmp=16

@@ -1,0 +1,2 @@
+PS8 cell s1_i/ps/inst/PS8_i site PS8_X0Y0
+PL cells next to the PS in X0Y3: 1

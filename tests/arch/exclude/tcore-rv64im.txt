@@ -1,0 +1,1 @@
+# ACT4 tests skipped on the test core (tests/arch/config/tcore-rv64im), with reasons.

@@ -1,0 +1,10 @@
+# ACT4 configuration for the test core tg_tcore (docs/spec/verification.md §6.1).
+name: tcore-rv64im
+compiler_exe: riscv-none-elf-gcc
+objdump_exe: riscv-none-elf-objdump
+ref_model_exe: sail_riscv_sim
+udb_config: tcore-rv64im.yaml
+linker_script: ../link.ld
+dut_include_dir: .
+# testgen: I,M,Zmmul,Zicntr,Zicsr,Zifencei,ExceptionsSm,InterruptsSm,ExceptionsU
+# replay: --isa=rv64im_zicsr_zicntr_zifencei --priv=MU --pmp=0
