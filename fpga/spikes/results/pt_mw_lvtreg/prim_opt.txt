@@ -1,0 +1,5 @@
+PRIM_OK g_lut.u/g_lvt.g_data[0].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[1].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[2].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[3].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_SUMMARY instances 4 fail 0 warn 0 stray 0

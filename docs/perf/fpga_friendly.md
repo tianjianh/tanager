@@ -174,7 +174,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 
 - **One DSP and no LUTs** against 15–40 LUTs for the same compare in fabric. Less-than is the sign of the 48-bit difference up to 47 bits; at 48 bits unsigned it is the inverted carry out (checked on the vendor's model).
 - **Latency 1:** the operands come from fabric registers and the DSP's P register holds the result, the same timing as a fabric compare followed by a register. **Latency 2:** the DSP's own A, B and C registers hold the operands (the pipeline register moves into the DSP).
-- **Timing at 200 MHz** (48 bits, both latencies and the fabric form): pending.
+- **Timing at 200 MHz** (48 bits, placed and routed, out of context): latency 1 **+3.039 ns** (fabric register → DSP A:B → ALU → P: 1.5 ns, 2 levels), latency 2 **+3.687 ns** (inside the DSP). The fabric form's run is pending. In a full design the operands travel to the DSP column, so expect less margin.
 - **Decision (proposed): use it where a compare's operands are already registered and the result can be registered.** It saves 15–40 LUTs per compare, and the device has 1,141 DSPs free.
   - *Pros:* no LUTs or carry chain.
   - *Cons:* the DSP sits in a fixed column, so the operands travel; one compare per DSP (SIMD modes would give four 12-bit less-thans, not equalities).
@@ -187,7 +187,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 | 10-14 | Shared primitive T4 (`tg_fifo` `"srl"`) | Shift-register FIFO against the LUTRAM FIFO, placed (16 × 64; at 32 × 64: 82 against 59) | 41 against about 55 | 5 against 10 | 32 SRL LUTs against 40 LUTRAM | Same ports and timing as `"lutram"` | +3.053 ns | `"srl"` up to 16 deep and for delay lines; `"lutram"` from 32 deep |
 | 10-14 | Shared primitive T5 (`tg_cam_lut` `"sw"`) | CAM with one-bit-write LUTRAM tables against a flip-flop CAM (64 × 40) | 893 against 1,128 | 160 against 2,624 | 496 / 0 / 0 | No: writes take 3 cycles (1 for flip-flops) | +0.725 ns (flip-flops +0.371) | Flip-flop savings, small LUT savings from 32 entries; TLBs keep flip-flop CAMs |
 | 10-14 | Shared primitive T5 (`tg_cam_lut` `"m16"`) | CAM with read-modify-write LUTRAM tables (64 × 40) | 1,295 against 1,128 | 166 against 2,624 | 368 / 0 / 0 | No (as above) | +0.700 / +1.066 ns | Rejected as a LUT lever: more LUTs than flip-flops at every size |
-| 10-14 | Shared primitive T6 (`tg_dsp_cmp`) | Equality and less-than in a DSP48E2 against fabric (48 bits) | 1 against 40 | 0 against 2 | 0 / 0 / 1 | Yes at latency 1 (the same register stage) | pending | Use where the operands are registered |
+| 10-14 | Shared primitive T6 (`tg_dsp_cmp`) | Equality and less-than in a DSP48E2 against fabric (48 bits) | 1 against 40 | 0 against 2 | 0 / 0 / 1 | Yes at latency 1 (the same register stage) | +3.039 ns (latency 1) | Use where the operands are registered |
 
 ## 5. History and lessons
 

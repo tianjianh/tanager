@@ -1,0 +1,3 @@
+PRIM_OK g_lut.u tg_cam_lut {64 x 40, cam (one-bit-write tables)} expected {RAM64X8SW 56} found {RAM64X8SW 56 RAM64M8 6}
+PRIM_OK g_lut.u/u_keys tg_ram_lut {2^6 x 40, 1 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_SUMMARY instances 2 fail 0 warn 0 stray 0
