@@ -41,7 +41,7 @@ module tg_ram_lut_mw #(
   localparam int   AW    = (DEPTH > 1) ? $clog2(DEPTH) : 1
 ) (
   input  logic                       clk,
-  input  logic [NW-1:0]              we,
+  input  logic [NW-1:0]              wen,
   input  logic [NW-1:0][AW-1:0]      waddr,
   input  logic [NW-1:0][WIDTH-1:0]   wdata,
   input  logic [NR-1:0][AW-1:0]      raddr,
@@ -64,9 +64,9 @@ module tg_ram_lut_mw #(
   logic [NW-1:0] wsole;
   always_comb begin
     for (int w = 0; w < NW; w++) begin
-      wsole[w] = we[w];
+      wsole[w] = wen[w];
       for (int v = w + 1; v < NW; v++) begin
-        if (we[v] && waddr[v] == waddr[w]) wsole[w] = 1'b0;
+        if (wen[v] && waddr[v] == waddr[w]) wsole[w] = 1'b0;
       end
     end
   end
@@ -111,7 +111,7 @@ module tg_ram_lut_mw #(
     logic [NW-1:0][NR-1:0][WIDTH-1:0] drd;
     for (genvar w = 0; w < NW; w++) begin : g_data
       tg_ram_lut #(.DEPTH(DEPTH), .WIDTH(WIDTH), .NR(NR)) u_mem (
-        .clk, .we(we[w]), .waddr(waddr[w]), .wdata(wdata[w]), .raddr(raddr), .rdata(drd[w]));
+        .clk, .we(wen[w]), .waddr(waddr[w]), .wdata(wdata[w]), .raddr(raddr), .rdata(drd[w]));
     end
 
     // Live-value table: sel[r] = the writer of raddr[r]'s last write.
@@ -120,7 +120,7 @@ module tg_ram_lut_mw #(
       (* ram_style = "registers" *) logic [LW-1:0] lvt [DEPTH];
       always_ff @(posedge clk) begin
         for (int w = 0; w < NW; w++) begin   // the highest writer is applied last
-          if (we[w]) lvt[waddr[w]] <= LW'(w);
+          if (wen[w]) lvt[waddr[w]] <= LW'(w);
         end
       end
       for (genvar r = 0; r < NR; r++) begin : g_rd

@@ -21,7 +21,8 @@ module tb_ram_mw #(
   logic [NW-1:0][WIDTH-1:0] wdata;
   logic [NR-1:0][AW-1:0]    raddr;
   logic [NR-1:0][WIDTH-1:0] rdata;
-  tg_ram_lut_mw #(.DEPTH(DEPTH), .WIDTH(WIDTH), .NW(NW), .NR(NR), .IMPL(IMPL), .LVT(LVT)) dut (.*);
+  tg_ram_lut_mw #(.DEPTH(DEPTH), .WIDTH(WIDTH), .NW(NW), .NR(NR), .IMPL(IMPL), .LVT(LVT)) dut (
+    .clk, .wen(we), .waddr, .wdata, .raddr, .rdata);
 
   logic [WIDTH-1:0] ref_mem [DEPTH];
   logic [DEPTH-1:0] ok = '0;

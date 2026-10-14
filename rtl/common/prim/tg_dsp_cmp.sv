@@ -2,18 +2,18 @@
 // operands that a pipeline register already holds, so the compare costs no LUTs or carry
 // chain.
 //
-//   eq = (a == b), lt = (a < b), signed when SIGNED, both LAT cycles after a and b.
-//   LAT = 1: a and b come from fabric registers; the DSP's P register holds the result
+//   is_eq = (opa == opb), is_lt = (opa < opb), signed when SIGNED, LAT cycles after the operands.
+//   LAT = 1: opa and opb come from fabric registers; the DSP's P register holds the result
 //            (the same timing as a fabric comparator followed by a result register).
 //   LAT = 2: the DSP's A, B and C registers hold the operands as well: pass the values the
 //            pipeline would register (its register's D input), and the compare result comes
 //            one cycle after that register stage. ce holds those input registers (a stall).
-// Operands: W <= 48. lt is the sign of the 48-bit difference for W <= 47, and the ALU's
+// Operands: W <= 48. is_lt is the sign of the 48-bit difference for W <= 47, and the ALU's
 // carry out for W = 48 unsigned; for W = 48 signed it is undefined (use W <= 47).
 //
 // Mapping (SYNTHESIS, or TG_SIM_PRIMS with the primitive's simulation model): the DSP
-// computes P = C - A:B with C = a and A:B = b, both extended to 48 bits; the pattern
-// detector flags P == 0 (PATTERN 0, MASK 0), registered with P; lt is P[47]. No multiplier:
+// computes P = C - A:B with C = opa and A:B = opb, both extended to 48 bits; the pattern
+// detector flags P == 0 (PATTERN 0, MASK 0), registered with P; is_lt is P[47]. No multiplier:
 // USE_MULT "NONE", OPMODE W=0, Z=C, Y=0, X=A:B, ALUMODE 0011 (Z - (W + X + Y + CIN)).
 module tg_dsp_cmp #(
   parameter int W      = 32,
@@ -22,10 +22,10 @@ module tg_dsp_cmp #(
 ) (
   input  logic         clk,
   input  logic         ce,      // LAT = 2: enables the operand registers; LAT = 1: unused
-  input  logic [W-1:0] a,
-  input  logic [W-1:0] b,
-  output logic         eq,
-  output logic         lt
+  input  logic [W-1:0] opa,
+  input  logic [W-1:0] opb,
+  output logic         is_eq,
+  output logic         is_lt
 );
   if (W < 1 || W > 48 || (LAT != 1 && LAT != 2)) begin : g_bad_params
     $error("tg_dsp_cmp: needs 1 <= W <= 48 and LAT 1 or 2");
@@ -34,14 +34,14 @@ module tg_dsp_cmp #(
   // Operands extended to the DSP's 48 bits (zero or sign); lt needs a spare bit (W <= 47).
   logic [47:0] ax, bx;
   if (W == 48) begin : g_w48
-    assign ax = a;
-    assign bx = b;
+    assign ax = opa;
+    assign bx = opb;
   end else if (SIGNED) begin : g_sx
-    assign ax = {{(48 - W){a[W-1]}}, a};
-    assign bx = {{(48 - W){b[W-1]}}, b};
+    assign ax = {{(48 - W){opa[W-1]}}, opa};
+    assign bx = {{(48 - W){opb[W-1]}}, opb};
   end else begin : g_zx
-    assign ax = {{(48 - W){1'b0}}, a};
-    assign bx = {{(48 - W){1'b0}}, b};
+    assign ax = {{(48 - W){1'b0}}, opa};
+    assign bx = {{(48 - W){1'b0}}, opb};
   end
 
 `ifdef SYNTHESIS
@@ -90,13 +90,13 @@ module tg_dsp_cmp #(
     .RSTA(1'b0), .RSTALLCARRYIN(1'b0), .RSTALUMODE(1'b0), .RSTB(1'b0), .RSTC(1'b0),
     .RSTCTRL(1'b0), .RSTD(1'b0), .RSTINMODE(1'b0), .RSTM(1'b0), .RSTP(1'b0)
   );
-  assign eq = patdet;
+  assign is_eq = patdet;
   // W <= 47: the sign of the 48-bit difference. W = 48 unsigned: the subtraction's carry
   // out, which is set when there is no borrow (a >= b), so lt is its complement.
   if (W == 48 && !SIGNED) begin : g_lt_co
-    assign lt = !co[3];
+    assign is_lt = !co[3];
   end else begin : g_lt_sign
-    assign lt = p[47];
+    assign is_lt = p[47];
   end
 `else
   // Behavioural model (simulation).
@@ -119,8 +119,8 @@ module tg_dsp_cmp #(
   logic [47:0] diff;
   assign diff = ai - bi;
   always_ff @(posedge clk) begin
-    eq <= diff == '0;
-    lt <= (W == 48 && !SIGNED) ? ai < bi : diff[47];
+    is_eq <= diff == '0;
+    is_lt <= (W == 48 && !SIGNED) ? ai < bi : diff[47];
   end
 `endif
 endmodule

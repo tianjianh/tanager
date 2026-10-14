@@ -13,7 +13,8 @@ module tb_dsp_cmp #(
   logic         ce;
   logic [W-1:0] a, b;
   logic         eq, lt;
-  tg_dsp_cmp #(.W(W), .SIGNED(SIGNED), .LAT(LAT)) dut (.*);
+  tg_dsp_cmp #(.W(W), .SIGNED(SIGNED), .LAT(LAT)) dut (
+    .clk, .ce, .opa(a), .opb(b), .is_eq(eq), .is_lt(lt));
 `ifdef TG_SIM_PRIMS
   // The vendor's DSP48E2 simulation model (built with TG_SIM_PRIMS) reads its global
   // set/reset from a top-level glbl instance, found by upward name resolution.
