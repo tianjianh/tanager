@@ -409,7 +409,10 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - **Result at 583e41e** (with DR-120 and main's P4 pass):
   - st 49,097 LUTs and smt2 51,839, against 56,461 and 62,501 on main cb8ff6c: −7.4K and −10.7K, of which −0.13K is P4's.
   - st_w3 62,199, smt2_w3 66,773.
-  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks, and through 59 M cycles of the Linux boot (the same instruction count and PC at 58 M and 59 M cycles).
+  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks. The Linux boot also matched main's per-million-cycle counts through 59 M cycles.
+    - **Later finding:** that boot match is not evidence of cycle identity. The SoC boot test bench draws its AXI memory latencies and ready stalls from one shared `$urandom` stream (`tb_axi_mem`). Its cycle counts therefore depend on the order Verilator evaluates the memory models in, which changes from build to build.
+    - Main's own core (41bc3f6) gave 1,063,470 instructions at 1 M cycles in one build and 1,062,353 in another; the only difference was a `$display` in the test bench.
+    - Cycle identity is proved with `tg_vsim` (deterministic memory, `--x-assign unique`). The boot is a functional check: no oops, no assertion, userspace reached.
 - **With DR-113's settings** (the budget flow from main fd54e65: hierarchy kept plus `AreaOptimized_high`), at cc5e962 (0e3f639's RTL):
   - st 46,132 against main cb8ff6c's 52,024 with the same settings (−5.9K, −11.3%): lsu_mmu 16,157 → 10,932, rob_csr 4,793 → 4,390, fe 4,966 → 4,738; rename 4,324 unchanged.
   - smt2 49,022.
