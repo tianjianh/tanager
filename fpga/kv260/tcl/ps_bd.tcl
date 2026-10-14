@@ -4,6 +4,7 @@
 #   M_AXI_HPM0_FPD  32-bit AXI4 master to the host bridge, at 0xA000_0000 (clocked by clk_host)
 #   S_AXI_HP1_FPD   128-bit AXI4 slave from L2 bank 0 (clocked by clk_core)
 #   S_AXI_HP2_FPD   128-bit AXI4 slave from L2 bank 1 (clocked by clk_core)
+#   S_AXI_HP3_FPD   128-bit AXI4 slave from the commit-trace stream, writes only (clocked by clk_core)
 #   pl_clk0 = 100 MHz, pl_resetn0, pl_ps_irq0[0]
 proc tg_make_ps_bd {bd_dir core_mhz} {
   create_bd_design -dir $bd_dir tg_ps
@@ -21,7 +22,8 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
     CONFIG.PSU__SAXIGP3__DATA_WIDTH {128} \
     CONFIG.PSU__USE__S_AXI_GP4 {1} \
     CONFIG.PSU__SAXIGP4__DATA_WIDTH {128} \
-    CONFIG.PSU__USE__S_AXI_GP5 {0} \
+    CONFIG.PSU__USE__S_AXI_GP5 {1} \
+    CONFIG.PSU__SAXIGP5__DATA_WIDTH {128} \
     CONFIG.PSU__USE__S_AXI_GP6 {0} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
@@ -35,7 +37,7 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
     CONFIG.FREQ_HZ {100000000}] $m_hpm0
   connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] $m_hpm0
 
-  foreach {port pin} {S_AXI_HP1 S_AXI_HP1_FPD S_AXI_HP2 S_AXI_HP2_FPD} {
+  foreach {port pin} {S_AXI_HP1 S_AXI_HP1_FPD S_AXI_HP2 S_AXI_HP2_FPD S_AXI_HP3 S_AXI_HP3_FPD} {
     set s [create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 $port]
     set_property -dict [list CONFIG.PROTOCOL {AXI4} CONFIG.DATA_WIDTH {128} CONFIG.ADDR_WIDTH {49} \
       CONFIG.ID_WIDTH {6} CONFIG.FREQ_HZ [expr {int($core_mhz * 1000000)}] \
@@ -48,9 +50,10 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_HPM0} $clk_host
   connect_bd_net $clk_host [get_bd_pins $ps/maxihpm0_fpd_aclk]
   set clk_core [create_bd_port -dir I -type clk -freq_hz [expr {int($core_mhz * 1000000)}] clk_core]
-  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2} $clk_core
+  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2:S_AXI_HP3} $clk_core
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp1_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp2_fpd_aclk]
+  connect_bd_net $clk_core [get_bd_pins $ps/saxihp3_fpd_aclk]
 
   set pl_clk0 [create_bd_port -dir O -type clk pl_clk0]
   connect_bd_net [get_bd_pins $ps/pl_clk0] $pl_clk0

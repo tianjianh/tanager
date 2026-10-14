@@ -151,7 +151,7 @@
 	};
 
 	chosen {
-		bootargs = "console=ttyS0,115200 earlycon";
+		bootargs = TG_BOOTARGS;
 		stdout-path = "/soc/serial@10000000";
 	};
 };

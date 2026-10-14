@@ -1,15 +1,17 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [MEM=0x40000000] [FPU=1]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [MEM=0x40000000] [FPU=1] [BOOTARGS="..."]
 # Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O.
 O       ?= $(SOC_BUILD)/dts
 CORES   ?= 2
 THREADS ?= 1
 MEM     ?= 0x40000000
 FPU     ?= 1
+BOOTARGS ?= console=ttyS0,115200 earlycon
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU)
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) \
+        -DTG_BOOTARGS='"$(BOOTARGS)"'
 
 .PHONY: all clean
 all: $(O)/tanager-kv260.dtb $(O)/tanager-qemu.dtb

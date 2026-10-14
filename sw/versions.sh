@@ -18,3 +18,10 @@ BUILDROOT_TAR=buildroot-${BUILDROOT_VER}.tar.xz
 RVTC_NAME=riscv64-lp64d--glibc--stable-2026.08-1
 RVTC_URL=https://toolchains.bootlin.com/downloads/releases/toolchains/riscv64-lp64d/tarballs/${RVTC_NAME}.tar.xz
 RVTC_TAR=${RVTC_NAME}.tar.xz
+
+# External aarch64 toolchain for tanager-host, the A53 program (a static musl binary runs on the
+# board's Ubuntu 22.04 or 24.04): GCC 15. Approved by the coordinator 2026-10-13. sw/fetch.sh unpacks
+# it under $SOC_BUILD/tc and deletes the archive.
+AATC_NAME=aarch64--musl--stable-2026.08-1
+AATC_URL=https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/${AATC_NAME}.tar.xz
+AATC_TAR=${AATC_NAME}.tar.xz

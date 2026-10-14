@@ -194,6 +194,10 @@ module tb_axi_mem
   end
 
   // Backdoor write of one byte (program loading in tests).
+  // Backdoor read of the 16-byte beat holding addr (test checks)
+  function automatic logic [127:0] peek_beat(input longint unsigned addr);
+    return rd_beat(addr >> 4);
+  endfunction
   function automatic void preload_byte(input longint unsigned addr, input logic [7:0] b);
     logic [127:0] v;
     v = rd_beat(addr >> 4);

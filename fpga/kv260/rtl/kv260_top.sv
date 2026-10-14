@@ -2,15 +2,21 @@
 // synchronizers, the AXI4 -> AXI4-Lite converter for the host window, and tanager_soc.
 //   M_AXI_HPM0_FPD (clk_host, 32-bit) -> tg_axi4_to_axil -> host bridge
 //   L2 banks 0/1 (clk_core, 128-bit)  -> S_AXI_HP1_FPD / S_AXI_HP2_FPD
+//   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
 //   host_irq -> pl_ps_irq0[0];  fan_en_b driven low (fan at full speed)
+//   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
+//   divisor, 115200 after OpenSBI); the host still gets a copy. Off: txd is high-impedance.
 module kv260_top
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
   parameter int    CORE_MHZ  = 100,
   parameter int    N_CORES   = NUM_CORES,
-  parameter string CORE_KIND = "core"
+  parameter string CORE_KIND = "core",
+  parameter bit    PMOD_UART = 1'b0
 ) (
-  output logic fan_en_b
+  output logic fan_en_b,
+  output logic pmod_uart_txd,
+  input  logic pmod_uart_rxd
 );
   // ---- PS ----
   logic        pl_clk0, pl_resetn0;
@@ -30,6 +36,10 @@ module kv260_top
   axi_r_t  [N_BANKS-1:0] r;
   axi_w_t  [N_BANKS-1:0] w;
   axi_b_t  [N_BANKS-1:0] b;
+  axi_ax_t taw;                       // commit-trace stream
+  axi_w_t  tw;
+  axi_b_t  tb;
+  logic    tawv, tawr, twv, twr, tbv, tbr;
   logic    [N_BANKS-1:0] arv, arr, rv, rr, awv, awr, wv, wr, bv, br;
 
   tg_ps_wrapper u_ps (
@@ -77,7 +87,20 @@ module kv260_top
     .S_AXI_HP2_rdata (r[1].data), .S_AXI_HP2_rid (r[1].id), .S_AXI_HP2_rlast (r[1].last), .S_AXI_HP2_rready (rr[1]),
     .S_AXI_HP2_rresp (r[1].resp), .S_AXI_HP2_rvalid (rv[1]),
     .S_AXI_HP2_wdata (w[1].data), .S_AXI_HP2_wlast (w[1].last), .S_AXI_HP2_wready (wr[1]), .S_AXI_HP2_wstrb (w[1].strb),
-    .S_AXI_HP2_wvalid (wv[1])
+    .S_AXI_HP2_wvalid (wv[1]),
+    // commit-trace stream: writes only
+    .S_AXI_HP3_araddr ('0), .S_AXI_HP3_arburst (2'b01), .S_AXI_HP3_arcache (4'b0011), .S_AXI_HP3_arid ('0),
+    .S_AXI_HP3_arlen ('0), .S_AXI_HP3_arlock (1'b0), .S_AXI_HP3_arprot (3'b000), .S_AXI_HP3_arqos (4'd0),
+    .S_AXI_HP3_arready (), .S_AXI_HP3_arsize (3'd4), .S_AXI_HP3_aruser (1'b0), .S_AXI_HP3_arvalid (1'b0),
+    .S_AXI_HP3_awaddr (49'(taw.addr)), .S_AXI_HP3_awburst (taw.burst), .S_AXI_HP3_awcache (4'b0011),
+    .S_AXI_HP3_awid (taw.id), .S_AXI_HP3_awlen (taw.len), .S_AXI_HP3_awlock (1'b0), .S_AXI_HP3_awprot (3'b000),
+    .S_AXI_HP3_awqos (4'd0), .S_AXI_HP3_awready (tawr), .S_AXI_HP3_awsize (taw.size), .S_AXI_HP3_awuser (1'b0),
+    .S_AXI_HP3_awvalid (tawv),
+    .S_AXI_HP3_bid (tb.id), .S_AXI_HP3_bready (tbr), .S_AXI_HP3_bresp (tb.resp), .S_AXI_HP3_bvalid (tbv),
+    .S_AXI_HP3_rdata (), .S_AXI_HP3_rid (), .S_AXI_HP3_rlast (), .S_AXI_HP3_rready (1'b1),
+    .S_AXI_HP3_rresp (), .S_AXI_HP3_rvalid (),
+    .S_AXI_HP3_wdata (tw.data), .S_AXI_HP3_wlast (tw.last), .S_AXI_HP3_wready (twr), .S_AXI_HP3_wstrb (tw.strb),
+    .S_AXI_HP3_wvalid (twv)
   );
 
   // ---- Clocks and resets ----
@@ -117,8 +140,9 @@ module kv260_top
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0]                  trace_wb_v;
   logic [7:0] status;
 
+  logic uart_txd;
   tanager_soc #(
-    .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND),
+    .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND), .UART_SERIAL (PMOD_UART),
     .L2_DATA_LAT (CORE_MHZ > 150 ? 4 : 2),   // pipeline the URAM cascade above 150 MHz
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1)
   ) u_soc (
@@ -134,9 +158,14 @@ module kv260_top
     .m_axi_aw (aw), .m_axi_aw_valid (awv), .m_axi_aw_ready (awr),
     .m_axi_w (w), .m_axi_w_valid (wv), .m_axi_w_ready (wr),
     .m_axi_b (b), .m_axi_b_valid (bv), .m_axi_b_ready (br),
+    .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
+    .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
+    .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
+    .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
   );
 
-  assign fan_en_b = 1'b0;
+  assign fan_en_b      = 1'b0;
+  assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
 endmodule

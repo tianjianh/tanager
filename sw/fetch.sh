@@ -1,7 +1,9 @@
 #!/bin/bash
 # Downloads the pinned sources of sw/versions.sh into $SOC_DL and checks them against sw/sha256sums.
 # A file with no recorded sum is recorded on first download (trust on first use; commit the change).
-#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc ...]     (default: all)
+#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc ...]     (default: all)
+# aatc (the aarch64 toolchain for sw/host) is unpacked under $SOC_BUILD/tc after the check, and its
+# archive deleted; it is fetched again only if the unpacked copy is missing.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/env.sh"
@@ -30,13 +32,23 @@ fetch() {  # url subdir file   (files go to $SOC_DL/<subdir>/, Buildroot's per-p
   fi
 }
 
-items=("$@"); [ ${#items[@]} -gt 0 ] || items=(opensbi linux buildroot rvtc)
+items=("$@"); [ ${#items[@]} -gt 0 ] || items=(opensbi linux buildroot rvtc aatc)
 for i in "${items[@]}"; do
   case "$i" in
     opensbi)   fetch "$OPENSBI_URL"   opensbi                   "$OPENSBI_TAR" ;;
     linux)     fetch "$LINUX_URL"     linux                     "$LINUX_TAR" ;;
     buildroot) fetch "$BUILDROOT_URL" buildroot                 "$BUILDROOT_TAR" ;;
     rvtc)      fetch "$RVTC_URL"      toolchain-external-custom "$RVTC_TAR" ;;
+    aatc)
+      if [ -x "$SOC_BUILD/tc/$AATC_NAME/bin/aarch64-buildroot-linux-musl-gcc" ]; then
+        echo "[fetch] ok $AATC_NAME (unpacked)"
+      else
+        fetch "$AATC_URL" toolchain-aarch64 "$AATC_TAR"
+        mkdir -p "$SOC_BUILD/tc"
+        tar -xf "$SOC_DL/toolchain-aarch64/$AATC_TAR" -C "$SOC_BUILD/tc"
+        rm -f "$SOC_DL/toolchain-aarch64/$AATC_TAR"
+        echo "[fetch] unpacked $AATC_NAME into $SOC_BUILD/tc (archive deleted)"
+      fi ;;
     *) echo "unknown item $i" >&2; exit 2 ;;
   esac
 done
