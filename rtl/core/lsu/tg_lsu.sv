@@ -268,10 +268,50 @@ module tg_lsu
     w = (i >= int'(head[SIW-1:0])) ? head[SIW] : !head[SIW];
     return {w, SIW'(i)};
   endfunction
-  function automatic lqid_t lq_id(input int i, input lqid_t head);
+
+  // ---- Age searches ----
+  // A queue's entries lie in [head, tail), so the oldest of a set of slots is the first at or
+  // after the head's slot, else the first from slot 0; and the youngest of a set inside
+  // [head, e) is the last below e's slot, else the last overall. Two priority encoders per
+  // search, with no distance arithmetic.
+  function automatic logic [LIW-1:0] lq_first(input logic [LQ_ENTRIES-1:0] v);
+    logic [LIW-1:0] r;
+    r = '0;
+    for (int i = LQ_ENTRIES - 1; i >= 0; i--) if (v[i]) r = LIW'(i);
+    return r;
+  endfunction
+  function automatic logic [SIW-1:0] sq_first(input logic [SQ_ENTRIES-1:0] v);
+    logic [SIW-1:0] r;
+    r = '0;
+    for (int i = SQ_ENTRIES - 1; i >= 0; i--) if (v[i]) r = SIW'(i);
+    return r;
+  endfunction
+  function automatic logic [SIW-1:0] sq_last(input logic [SQ_ENTRIES-1:0] v);
+    logic [SIW-1:0] r;
+    r = '0;
+    for (int i = 0; i < SQ_ENTRIES; i++) if (v[i]) r = SIW'(i);
+    return r;
+  endfunction
+  function automatic logic [LIW-1:0] lq_oldest(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    logic [LQ_ENTRIES-1:0] hi;
+    for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
+    return |hi ? lq_first(hi) : lq_first(v);
+  endfunction
+  function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
+    logic [SQ_ENTRIES-1:0] hi;
+    for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
+    return |hi ? sq_first(hi) : sq_first(v);
+  endfunction
+  // whether SQ slot i lies in the window [h, e) of IDs (every slot when e is h + SQ_ENTRIES)
+  function automatic logic sq_inwin(input int i, input sqid_t h, input sqid_t e);
+    return (h[SIW] == e[SIW]) ? i >= int'(h[SIW-1:0]) && i < int'(e[SIW-1:0])
+                              : i >= int'(h[SIW-1:0]) || i < int'(e[SIW-1:0]);
+  endfunction
+  // whether ID p is in the SQ, [h, t): its slot is in the window, with the window's wrap bit
+  function automatic logic sq_live(input sqid_t p, input sqid_t h, input sqid_t t);
     logic w;
-    w = (i >= int'(head[LIW-1:0])) ? head[LIW] : !head[LIW];
-    return {w, LIW'(i)};
+    w = (int'(p[SIW-1:0]) >= int'(h[SIW-1:0])) ? h[SIW] : !h[SIW];
+    return sq_inwin(int'(p[SIW-1:0]), h, t) && p[SIW] == w;
   endfunction
 
   // ---- Commit-side trace reads ----
@@ -324,20 +364,8 @@ module tg_lsu
   end
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
-  always_comb begin
-    int best;
-    best = LQ_ENTRIES;
-    rp_idx = '0;
-    for (int i = 0; i < LQ_ENTRIES; i++) begin
-      int a;
-      a = lq_cnt(lq_id(i, lq_head_q), lq_head_q);
-      if (rp_ready[i] && a < best) begin
-        best = a;
-        rp_idx = LIW'(i);
-      end
-    end
-    rp_any = best != LQ_ENTRIES;
-  end
+  assign rp_any = |rp_ready;
+  assign rp_idx = lq_oldest(rp_ready, lqi(lq_head_q));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -414,20 +442,16 @@ module tg_lsu
   logic [SIW-1:0]    f_idx;
   logic [63:0]       f_dword;
   always_comb begin
-    int lim, best;
-    lim = sq_cnt(lq_sq_q[m1_lq_q], sq_head_q);      // stores at distance < lim are older
-    best = -1;
-    f_idx = '0;
+    logic [SQ_ENTRIES-1:0] fc, fc_lo;
+    sqid_t lim;
+    lim = lq_sq_q[m1_lq_q];                         // the stores in [head, lim) are older
     for (int i = 0; i < SQ_ENTRIES; i++) begin
-      int a;
-      a = sq_cnt(sq_id(i, sq_head_q), sq_head_q);
-      if (sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && a < lim && a > best &&
-          sq_pa_q[i][PA_W-1:3] == m1_pa_q[PA_W-1:3] && |(sq_mask_q[i] & m1_mask)) begin
-        best = a;
-        f_idx = SIW'(i);
-      end
+      fc[i]    = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, lim) &&
+                 sq_pa_q[i][PA_W-1:3] == m1_pa_q[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
+      fc_lo[i] = fc[i] && i < int'(lim[SIW-1:0]);
     end
-    f_hit   = best >= 0;
+    f_hit   = |fc;
+    f_idx   = |fc_lo ? sq_last(fc_lo) : sq_last(fc);
     f_cover = (sq_mask_q[f_idx] & m1_mask) == m1_mask;
     f_data  = sq_dv_q[f_idx];
   end
@@ -619,18 +643,11 @@ module tg_lsu
   logic           cap_v;
   logic [SIW-1:0] cap_idx;
   always_comb begin
-    int best;
-    best = SQ_ENTRIES;
-    cap_idx = '0;
-    for (int i = 0; i < SQ_ENTRIES; i++) begin
-      int a;
-      a = sq_cnt(sq_id(i, sq_head_q), sq_head_q);
-      if (sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && !(sd_busy && !sq_fp_q[i]) && a < best) begin
-        best = a;
-        cap_idx = SIW'(i);
-      end
-    end
-    cap_v = best != SQ_ENTRIES && !flush;
+    logic [SQ_ENTRIES-1:0] cc;
+    for (int i = 0; i < SQ_ENTRIES; i++)
+      cc[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && !(sd_busy && !sq_fp_q[i]);
+    cap_v   = |cc && !flush;
+    cap_idx = sq_oldest(cc, sq_head_q[SIW-1:0]);
   end
   assign sd_tag  = sq_tag_q[cap_idx];
   assign fsd_tag = sq_tag_q[cap_idx];
@@ -665,23 +682,16 @@ module tg_lsu
   assign sa_ok   = sta_ag_valid && !sa_exc && !sa_tm && !flush;
 
   // Ordering check: the oldest younger load that has its value (or is in M1/M2) and overlaps
+  // (a load is younger than the store when the store is in [head, the load's lq_sq))
   always_comb begin
-    int sdist, best;
-    sdist = sq_cnt(sta_ag_pl.sq, sq_head_q);
-    best = LQ_ENTRIES;
-    replay_rob = '0;
-    for (int i = 0; i < LQ_ENTRIES; i++) begin
-      int a;
-      a = lq_cnt(lq_id(i, lq_head_q), lq_head_q);
-      if (lq_v_q[i] && lq_pav_q[i] && (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
-          sq_cnt(lq_sq_q[i], sq_head_q) > sdist &&
-          lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
-          |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask) && a < best) begin
-        best = a;
-        replay_rob = lq_rob_q[i];
-      end
-    end
-    replay_valid = sa_ok && best != LQ_ENTRIES;
+    logic [LQ_ENTRIES-1:0] oc;
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      oc[i] = lq_v_q[i] && lq_pav_q[i] && (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
+              sq_inwin(int'(sa_idx), sq_head_q, lq_sq_q[i]) &&
+              lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
+              |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
+    replay_valid = sa_ok && |oc;
+    replay_rob   = lq_rob_q[lq_oldest(oc, lqi(lq_head_q))];
   end
 
   // ================= ROB reports =================
@@ -1047,12 +1057,8 @@ module tg_lsu
         if (lq_v_q[i] && !(ag_v && !ag_pt && ag_lq == LIW'(i)) && !(m2_v_q && !m2_pt_q && m2_lq_q == LIW'(i))) begin
           if (lq_st_q[i] == L_MISS && mshr_idle) lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
-            int d, n;
-            logic gone;
-            d = sq_cnt(lq_blk_q[i], sq_head_q);
-            n = sq_cnt(sq_tail_q, sq_head_q);
-            gone = d < 0 || d >= n;
-            if (gone || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]])) lq_st_q[i] <= L_READY;
+            if (!sq_live(lq_blk_q[i], sq_head_q, sq_tail_q) || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
+              lq_st_q[i] <= L_READY;
           end
         end
       end
@@ -1136,7 +1142,7 @@ module tg_lsu
         lq_v_q    <= '0;
         lq_tail_q <= lq_head_q;
         for (int i = 0; i < SQ_ENTRIES; i++) begin
-          if (sq_cnt(sq_id(i, sq_head_q), sq_head_q) >= sq_cnt(sq_cmt_q, sq_head_q)) sq_v_q[i] <= 1'b0;
+          if (!sq_inwin(i, sq_head_q, sq_cmt_q)) sq_v_q[i] <= 1'b0;
         end
         sq_tail_q <= sq_cmt_q;
         m1_v_q    <= 1'b0;
