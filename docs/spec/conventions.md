@@ -127,6 +127,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
     The SoC budget covers Buildroot and Linux: use an external toolchain and one shared download directory.
   - After a Vivado run, keep the reports you need and delete checkpoints (`.dcp`), run directories and logs.
   - Delete waveforms once a bug is understood.
+  - `ccache` is capped at 1 GB on the build host (`ccache -M 1G`). Install pip and gem packages without keeping caches (`pip --no-cache-dir`, `bundle clean`).
   - `tools/disk_report.sh` shows usage per tree, WSL usage and the host's free space. When a total limit is near, clean up before starting anything new, and tell the coordinator.
 
 ## 10. Git and tracks

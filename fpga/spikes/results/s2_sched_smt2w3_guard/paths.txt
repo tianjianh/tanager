@@ -1,0 +1,8 @@
+w_loop                 slack  -0.652 levels  9 logic 1.158 net 4.360  u_wake/g_one.w_q_reg[20]/C -> u_wake/g_one.w_q_reg[82]/D
+w1_loop                none
+issue                  none
+age                    slack  -0.197 levels  7 logic 0.962 net 3.857  u_wake/g_one.w_q_reg[110]/C -> g_q[5].u_iq/age_q_reg[1][0]/D
+alloc                  slack   0.947 levels  5 logic 0.841 net 3.251  flush_rob_q_reg[2]/C -> g_q[0].u_iq/alloc_oh_q_reg[0][0]/D
+room                   slack  -0.415 levels 12 logic 2.040 net 3.134  flush_rob_q_reg[0]_rep/C -> g_q[2].u_iq/g_room[0].room_q_reg[0][0]/D
+dep_write              slack  -0.316 levels  0 logic 0.118 net 5.066  disp_dep_q_reg[1][107]/C -> g_q[1].u_iq/g_guard.dep_q_reg[7][107]/D
+busy                   slack   0.867 levels  4 logic 0.688 net 3.325  g_q[5].u_iq/g_guard.dep_q_reg[9][8]/C -> busy_o_reg[8]/D

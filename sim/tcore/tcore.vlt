@@ -1,0 +1,5 @@
+`verilator_config
+// Lint waivers for the test core (simulation only). Keep each one justified.
+
+// MULH* keep only the upper half of the 128-bit product.
+lint_off -rule UNUSEDSIGNAL -file "*sim/tcore/tg_tcore.sv" -match "*'prod'*"

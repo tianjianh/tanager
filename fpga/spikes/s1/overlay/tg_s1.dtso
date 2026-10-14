@@ -1,0 +1,29 @@
+// Device-tree overlay for spike S1 (Kria Ubuntu, xmutil / dfx-mgr): loads tg_s1.bit.bin
+// into the PL, sets the AXI port widths the design uses (HP1/HP2 128-bit, HPM0_FPD
+// 128-bit) and keeps pl_clk0 at 100 MHz. The engines' registers are at 0xA0000000 (4 KiB);
+// the A53 program maps them through /dev/mem.
+/dts-v1/;
+/plugin/;
+
+&fpga_full {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	firmware-name = "tg_s1.bit.bin";
+	resets = <&zynqmp_reset 116>;
+};
+
+&amba {
+	afi0: afi0 {
+		compatible = "xlnx,afi-fpga";
+		/* AFIFM3 = HP1 (6, 7), AFIFM4 = HP2 (8, 9): 0 = 128-bit; FPDCI (14): HPM0/1 128-bit */
+		config-afi = <6 0>, <7 0>, <8 0>, <9 0>, <14 0xa00>;
+	};
+	clocking0: clocking0 {
+		#clock-cells = <0>;
+		compatible = "xlnx,fclk";
+		clocks = <&zynqmp_clk 71>;
+		clock-output-names = "fabric_clk";
+		assigned-clocks = <&zynqmp_clk 71>;
+		assigned-clock-rates = <99999001>;
+	};
+};
