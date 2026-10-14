@@ -49,13 +49,13 @@ The exact partition therefore saves nothing with ROB-entry wakeup IDs.
 
 ## 3. No-IPC tricks measured
 
-Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909. The timing runs (200 MHz, pblock) of the synthesis settings are queued, so the timing effect is still open.
+Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routing, WNS +0.112 ns with the pblock).
 
-| Trick | LUTs | Saved | IPC cost | Status |
+| Trick | LUTs | Saved | IPC cost | Timing at 200 MHz (routed, pblock) |
 |---|---|---|---|---|
-| Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 | 506 (5.7%) | none | timing run queued |
-| `AreaOptimized_high` synthesis directive | 8,115 | 794 (8.9%) | none | timing run queued |
-| Both | **7,712** | **1,197 (13.4%)** | none | timing runs queued (smt2, smt2_w3) |
+| Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 (routed 8,368) | 506 (5.7%) | none | **+0.132 ns**, no loss |
+| `AreaOptimized_high` synthesis directive | 8,115 | 794 (8.9%) | none | (queued) |
+| Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 queued |
 | No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
 | Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
 | … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
