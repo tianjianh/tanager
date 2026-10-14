@@ -293,6 +293,11 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 **F and D (2026-10-14):**
 - The FPU track built the FP back end (P4: `tg_fp_exec`, `tg_fprf`, `tg_fcsr`) to an interface agreed in advance. The core track built decode, FP rename, IQ-FP and the LSU, ROB and CSR hooks behind `EXT_FD` (core-fp.md).
 - Wiring them together took one afternoon. On the first build, all 23 FP riscv-tests passed in lockstep.
+- **Area at st (b53b0a5, hierarchy kept):** 56,469 LUTs with F/D, against 44,407 without (+12.1K).
+  - P4 (`tg_fp_exec`): 7,861, of which the FPU units are 5,832 and the FP register file 1,108.
+  - Rename: +1.6K (the FP map, free lists and ready table).
+  - Issue: +1.1K (IQ-FP).
+  - ROB and CSRs: +0.5K. LSU: +0.6K.
 - ACT4's F/D configuration found two core bugs (P4's assertions caught the first):
   - an FP→int op with rd = x0 carried no LLT column;
   - misa.F/D were read-only, where Spike lets software clear them.
