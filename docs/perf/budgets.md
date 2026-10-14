@@ -56,11 +56,11 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 | Integer execution | 16 (multiplier) | — |
 | LSU | — | 9 (D$ data 8, LSQ data) |
 | MMU | — | 2 (L2 TLB) |
-| FPU | 32 (measured) | 0.5 (seed ROM) |
-| **Core** | **66 / 84** | **42.5** |
+| FPU | 35 (DR-110) | 0.5 (seed ROM) |
+| **Core** | **69 / 87** | **42.5** |
 | Uncore | — | 18 |
 
-- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 3,450). Each is the measurement plus about 10%.
+- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 4,100, DR-110). The scheduler's are the measurement plus about 10%; the FPU's were too (3,450 flip-flops, 32 DSPs) until DR-110 raised them to 4,100 and 35 so the FPU can trade LUTs for registers and DSPs.
 - **Everywhere else they are tracked, not judged.** The device-wide limits are about 57K LUTs of SLICEM sites for LUTRAM (plan §8.5) and 234K flip-flops.
 
 ## 2. What the budgets assume
@@ -150,6 +150,8 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
     - `tools/vivado_run.sh` admits jobs by declared memory: 24 GB budget, 2 slots.
     - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
     - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
+- **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
+- **The primitive check after synthesis:** the FPU divider's output queue reported 8 LUTRAM primitives against 7 expected, and `opt_design` removed the extra one. A `tg_ram_lut` instance now passes anywhere between the primitives that hold a loaded bit and the full mapping, so the nightly's post-synthesis check no longer fails on a primitive that is not trimmed yet.
 - **Lessons:**
   - A job's memory is the sum of what it forks, not what its parent shows: declare that total, or cap the forking.
   - Measure a unit before budgeting it: the estimate for the scheduler was off by 2–4×, while S3, S4 and S5 landed within plan.

@@ -100,6 +100,7 @@ The exact command of every run is in its `summary.txt` (`top`, `cfg`, `generics`
   - a field nobody reads passes, and the line reports it ("14 of 20 read bits loaded"), so the designer can drop it;
   - a primitive missing for a loaded bit still fails. That is the "silently dropped read port" the plan warns about.
   - Before this, the core track's queues failed eight times on fields they never read.
+  - **Not trimmed yet (2026-10-14):** `synth_design` can leave an unloaded primitive that `opt_design` removes (the FPU divider's output queue: 8 after synthesis, 7 after `opt_design`). So the count may lie anywhere between the primitives holding a loaded bit and the full mapping; the line shows the range ("expected {RAM32M16 1-2}").
 - **Byte writes:** block RAMs with 8-bit byte enables expect the no-parity widths (64/32/16/8 bits).
 - **ROMs:** [`tg_rom`](../../rtl/common/prim/tg_rom.sv) (block or distributed) is checked like a single-port block RAM, or as logic.
 - **Tested in Vivado:** [`tests/unit/prim/synth/run.sh`](../../tests/unit/prim/synth/run.sh) synthesises one instance of each wrapper, with fields left unread, a byte-write RAM, two ROMs and one stray memory, and checks every report line.
@@ -606,6 +607,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 - **Dropped read ports.**
   - `opt_design` silently removes a read port with no load (64 → 55 RAM64M8 in the first test). The primitive check exists for this.
   - In the real core, eight such "failures" were payload fields nobody reads. The check now counts only primitives holding a loaded bit: unread fields pass and are reported, and a primitive missing for a used bit still fails.
+  - Trimming is not all done by `synth_design`: the FPU's divider queue still had its unloaded primitive after synthesis. The check accepts the range from the loaded primitives to the full mapping, so it gives the same verdict at both stages.
 - **The pblock method.**
   - Out of context, Vivado placed some runs far from the clock source: clock insertion was 2.3–2.5 ns instead of 1.5–1.8, and up to 1.2 ns of slack was lost.
   - Every run since is constrained to clock regions X0Y2:X1Y3. Even so, results move by ±0.1–0.3 ns between runs, so margins under 0.3 ns are marginal.
