@@ -174,10 +174,10 @@ module tg_fp_exec
   fpu_resp_t          fdv_resp;
   dte_t               fdv_e;
   assign fdv_e   = dt_q[fdv_resp.tag[DQW-1:0]];
-  // a divide that retired early (possibly now) survives flushes
-  logic  fdv_ret;
-  assign fdv_ret  = fdv_e.retired || (fdiv_ret_valid && fdiv_ret_tid == fdv_e.tid && fdiv_ret_llt == fdv_e.llt);
-  assign fdv_live = !fdv_e.squashed && (fdv_ret || !tid_hit(flush, flush_tid, fdv_e.tid));
+  // A divide that retired early survives flushes. A retirement in this very cycle cannot meet a
+  // flush of its thread (the core's contract, asserted below), so the registered bit suffices
+  // here and the late fdiv_ret_* inputs stay off this path.
+  assign fdv_live = !fdv_e.squashed && (fdv_e.retired || !tid_hit(flush, flush_tid, fdv_e.tid));
   assign slot_busy = fsh_q[ML-2].v || (msh_q[SL-2].v && msh_q[SL-2].fpd);
   // A squashed result is drained at once; a live one needs the free slot.
   assign fdv_rdy   = !fdv_live || !slot_busy;
@@ -368,7 +368,7 @@ module tg_fp_exec
   assign fma_w  = fma_s.v && fma_s.live && !tid_hit(flush, flush_tid, fma_s.tid);
   assign misc_w = misc_s.v && misc_s.fpd && misc_s.live && !tid_hit(flush, flush_tid, misc_s.tid);
   assign misc_i = misc_s.v && !misc_s.fpd;           // into the B1 queue (live or dead)
-  assign div_w  = dv_q && dv_live_q && (dv_ret || !tid_hit(flush, flush_tid, dv_e.tid));
+  assign div_w  = dv_q && dv_live_q && (dv_e.retired || !tid_hit(flush, flush_tid, dv_e.tid));
 
   // The data and index of the F0 stream are selected by the registered slot owners alone (at
   // most one is valid: the slots are reserved), so the late flush and retirement inputs reach
