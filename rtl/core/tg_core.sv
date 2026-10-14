@@ -60,7 +60,8 @@ module tg_core
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
-  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o
+  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
+  input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
 );
   localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK;
   localparam int CW  = COMMIT_WIDTH;
@@ -74,6 +75,11 @@ module tg_core
     if (rst) init_q <= '0;
     else if (!init_done) init_q <= init_q + 1'b1;
   end
+
+  // ---- Trace back-pressure (registered): while set, nothing retires, traps or takes an
+  //      interrupt; deferred writebacks (none in M3) would continue ----
+  logic trace_stall_q;
+  always_ff @(posedge clk) trace_stall_q <= !rst && trace_stall_i;
 
   // ---- Flush and redirect from commit ----
   logic        flush, icinv;
@@ -275,7 +281,7 @@ module tg_core
 
   // ---- ROB and commit ----
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(init_done && rn_ready), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
+    .clk, .rst, .ready(init_done && rn_ready && !trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),

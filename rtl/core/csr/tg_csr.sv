@@ -78,7 +78,7 @@ module tg_csr
   logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
   logic [11:0] mie_q;
   logic        ssip_q, stip_sw_q, seip_sw_q;
-  logic [15:0] medeleg_q;
+  logic [19:0] medeleg_q;                      // bit 19: hardware error (Spike, with Zicntr)
   logic [11:0] mideleg_q;
   logic [31:0] mcounteren_q, scounteren_q, mcountinhibit_q;
   logic        menv_fiom_q, menv_stce_q, senv_fiom_q;
@@ -147,7 +147,7 @@ module tg_csr
   always_comb begin
     if (!SU || priv_q == PRIV_M)  deleg = 1'b0;
     else if (tr_irq)              deleg = tr_code < 6'd12 && mideleg_q[tr_code[3:0]];
-    else                          deleg = tr_code < 6'd16 && medeleg_q[tr_code[3:0]];
+    else                          deleg = tr_code < 6'd20 && medeleg_q[tr_code[4:0]];
   end
   logic [63:0] tvec;
   assign tvec = deleg ? stvec_q : mtvec_q;
@@ -244,7 +244,7 @@ module tg_csr
         if (priv_q == PRIV_S && tvm_q) deny = 1'b1;
       end
       12'h5A8: begin rval = {32'b0, scontext_q}; exists = SU; end
-      12'h302: begin rval = {48'b0, medeleg_q}; exists = SU; end
+      12'h302: begin rval = {44'b0, medeleg_q}; exists = SU; end
       12'h303: begin rval = {52'b0, mideleg_q}; exists = SU; end
       12'h306: begin rval = {32'b0, mcounteren_q}; exists = SU; end
       12'h30A: begin rval = {menv_stce_q, 62'b0, menv_fiom_q}; exists = SU; end
@@ -419,7 +419,7 @@ module tg_csr
             misa_a_q <= EXT_A && pw_d_q[0];
             if (!(misa_c_q && !pw_d_q[2] && cm_pc[1])) misa_c_q <= EXT_C && pw_d_q[2];
           end
-          12'h302: medeleg_q <= pw_d_q[15:0] & {4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};
+          12'h302: medeleg_q <= pw_d_q[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};
           12'h303: mideleg_q <= pw_d_q[11:0] & 12'h222;
           12'h304: mie_q <= pw_d_q[11:0] & (SU ? 12'haaa : 12'h888);
           12'h104: mie_q <= (mie_q & ~mideleg_q) | (pw_d_q[11:0] & mideleg_q & 12'h222);

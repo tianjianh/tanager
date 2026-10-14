@@ -35,7 +35,7 @@ Mode changes happen only at commit: a trap, MRET or SRET retires, the CSR file s
 | `mstatus` | Writable: SIE, MIE, SPIE, MPIE, SPP, MPP (the reserved value 2 becomes U, as Spike legalises it), FS, MPRV, SUM, MXR, TVM, TW, TSR. UXL = SXL = 2 (read-only). SD = (FS == 3). FS is writable although F is absent (Spike keeps FS whenever S exists). |
 | `sstatus` | View of SIE, SPIE, SPP, FS, SUM, MXR, UXL, SD |
 | `misa` | `0x8000_0000_0014_1107` with C, B, M, A, I, S, U as configured; writable M, A, B, C bits as in Spike |
-| `medeleg` | Writable: causes 0 (only without C), 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 15 |
+| `medeleg` | Writable: causes 0 (only while misa.C is clear), 1, 2, 3, 4, 5, 6, 7, 8, 9, 12, 13, 15, and 19 (hardware error: Spike makes it writable with Zicntr; never raised) |
 | `mideleg` | Writable: SSIP, STIP, SEIP |
 | `mie` / `sie` | `mie`: SSIE, MSIE, STIE, MTIE, SEIE, MEIE. `sie`: the S bits, masked by `mideleg` |
 | `mip` / `sip` | MSIP, MTIP, MEIP from the inputs. SSIP writable by M. STIP is writable by M only while `menvcfg.STCE` = 0; with STCE it is `time >= stimecmp`. SEIP reads as the input OR a software bit (writable by M). `sip` shows the bits `mideleg` delegates, and only SSIP is writable through it. Reads of `mip`/`sip` are `nondet`. |
