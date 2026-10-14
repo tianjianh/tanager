@@ -18,7 +18,21 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 
 ## 1. Summary
 
-(to be completed)
+| Spike | Verdict at 200 MHz | Width 2 | Width 3 | Fallback needed |
+|---|---|---|---|---|
+| S2 wakeup → select (§4) | **pass**, with options | st +0.180 ns, 5.4K LUTs; smt2 +0.112, 8.9K | smt2_w3 +0.057, 12.5K | MX (matrix wakeup) at smt2 and smt2_w3; 8-row ALU queues optional at smt2_w3 |
+| S3 register file, bypass, ALU loop (§5) | **pass** | +0.228 ns, 5.2K | +0.040, 8.7K (marginal) | none; R8 rejected |
+| S4 load path, 3-cycle load-to-use (§6) | (queued) | | | |
+| S5 next PC, I$, pre-decode, compaction (§7) | **pass** | st +0.582, smt2 +0.245; 2.5K | +0.357, 2.5K | none |
+| S6 floorplan and fill test (§8) | (being measured) | | | |
+| S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
+
+**What changes for the plan.**
+- **The scheduler is the budget problem** (§10). It closes timing, but costs 1.9× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. The projection puts v1 at 80–90% of the XCK26 (about 85%) after the identified levers, and v2 at 91–103%.
+- **The register file is cheaper than planned.** Explicit RAM64M8 gives 7 read ports per 64 × 64 bank in 64 primitives. Replicated banks for 3 ALUs cost +1.25K, not +2.7K, so R11 (shared ports) saves only 0.74K.
+- **R8 (EX-only bypass) does not close** and is rejected.
+- **The front end has margin at both widths.** The 64-entry LUTRAM micro-BTB closes the next-PC loop with 1.8 ns to spare.
+- **Memory primitives map deterministically** through `tg_ram_lut` (explicit RAM64M8/RAM32M16), and every synthesis run checks the primitive counts (§3).
 
 ---
 
