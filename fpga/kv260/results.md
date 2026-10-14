@@ -13,6 +13,7 @@ directories under `$SOC_BUILD/vivado/`; no checkpoints are kept.
 | 2026-10-13 | st | 2 (`tg_trafgen`), UART and L2 tables in `tg_ram_lut` (0aa82f0) | 100 MHz | +1.457 / +0.011 | 20,305 (17.3%) | 13,553 | 32 | 16 / 6 | 8 min |
 | 2026-10-14 | st | 2 (`tg_trafgen`), trace streaming on `S_AXI_HP3_FPD` (fca6fe8) | 100 MHz | +1.306 / +0.011 | 21,372 (18.2%) | 13,823 | 32 | 16 / 4 | 10 min |
 | 2026-10-14 | st | 2 (`tg_trafgen`), PMOD console on (`TG_PMOD_UART=1`; 3c86877 with the crossbar A-data change) | 100 MHz | +1.069 / +0.012 | 21,600 (18.4%) | 14,075 | 32 | 16 / 4 | 10 min |
+| 2026-10-14 | st | 2 (`tg_trafgen`), fan on the PS's TTC0 PWM (DR-129; c8cc8be) | 100 MHz | +1.360 / +0.010 | 21,483 (18.3%) | 13,994 | 32 | 16 / 4 | 15 min |
 
 Notes:
 - **Stub build:** the stub cores drive nothing, so synthesis removes the parts of the uncore that
@@ -45,6 +46,9 @@ Notes:
   - DRC clean; primitive check clean (63 instances). CDC: 628 safe endpoints between the two clocks, plus the RXD input into the line's synchronizer (false path).
   - The synchronizer flops now carry ASYNC_REG, which this build lacked.
   - **Memory:** this build peaked at 16.6 GB, against the 12 GB the conventions declare for a full build. It now declares 20 (README).
+- **Fan** (c8cc8be, DR-129): A12 (`fan_en_b`) is driven straight from `PS8_i/EMIOTTC0WAVEO[2]` through its output buffer, uninverted. Linux's `pwm-fan` and `fancontrol` regulate the fan.
+  - DRC clean; primitive check clean (63 instances). It peaked at 16.6 GB of 20 declared.
+  - This bitstream is the one for stage B. The earlier PMOD build drove the fan low, so its bitstream was deleted (reports kept).
 - **Worst paths:**
   - **Stub build:** L2 MSHR state -> `RREADY` -> injector buffer read enable (6.6 ns, 86% routing).
   - **Traffic-generator build:** 9.1 ns of 10 first; after R15 the worst path is the L2's S2 decision
