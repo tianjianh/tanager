@@ -5,6 +5,8 @@
 # With TG_OOC_HIER=1 in the environment it only synthesises, keeping the module hierarchy, and
 # reports utilisation per module (util_hier_synth.rpt): a breakdown, not a result.
 # TG_OOC_DIRECTIVE=<name> passes -directive <name> to synth_design (e.g. AreaOptimized_high).
+# TG_OOC_FILES="<list.f> ..." reads more file lists after rtl/rtl.f (paths relative to the root),
+# e.g. rtl/core/fpu/fpu_be.f until core.f includes it.
 # Inputs are constrained to arrive 1.5 ns after the clock (the core's operand bypass in front of
 # the FPU); outputs leave from registers and must reach the core's writeback within 1.0 ns.
 lassign $argv root cfg top period defines generics
@@ -13,6 +15,9 @@ set part xck26-sfvc784-2LV-c
 source [file join $root tools tcl tg_files.tcl]
 set_part $part
 tg_read_rtl $root $cfg
+if {[info exists ::env(TG_OOC_FILES)]} {
+  foreach f $::env(TG_OOC_FILES) { tg_read_f [file join $root $f] }
+}
 set hier [expr {[info exists ::env(TG_OOC_HIER)] && $::env(TG_OOC_HIER) eq "1"}]
 set opts [list -top $top -part $part -mode out_of_context \
   -flatten_hierarchy [expr {$hier ? "none" : "rebuilt"}]]
