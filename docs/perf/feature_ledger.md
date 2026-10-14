@@ -133,7 +133,7 @@ Configuration `smt2` (`TID_W = 1`). Gains are weighted two-thread throughput aga
 
 Levers judged by the area-recovery study ([area_recovery.md](area_recovery.md)). The statuses are the study's recommendations; plan §8.5 records the decisions.
 
-The verdicts are stated against the per-unit budgets ([budgets.md](budgets.md)). **Re-measured after the core's no-IPC area pass (AR-7, area_recovery.md §7):** the `st` core is 56,461 LUTs with F/D against its 38,220 budget, and v1 is ≈155.7K against 103.0K at 200 MHz. The gap is implementation work (D18 step 1). The reserve below is about a twentieth of it, so **no IPC-costing lever is chosen while step 1 has this much to do.**
+The verdicts are stated against the per-unit budgets ([budgets.md](budgets.md)). **Re-measured after the core's no-IPC area pass (AR-7, area_recovery.md §7):** after the core track's second no-IPC pass (5c124f2), the `st` core is 51,707 LUTs with F/D against its 38,220 budget, and v1 is ≈141.5K against 103,040 at 200 MHz (155.7K at AR-7). The gap is implementation work (D18 step 1). The reserve below is about a twentieth of it, so **no IPC-costing lever is chosen while step 1 has this much to do.**
 - **Rule:** the reverse acceptance rule at 120 cycles. A lever qualifies if its LUT saving (%) is at least its IPC loss (%), where the loss is the larger of the two-thread throughput loss and the single-thread suite loss.
 - **Base:** the core after the planned levers, 45.6K for v1 and 53.6K for v2.
 - **Free:** both losses within 0.05%.
@@ -156,10 +156,10 @@ The verdicts are stated against the per-unit budgets ([budgets.md](budgets.md)).
 
 **Net, measured (AR-7, area_recovery.md §7):**
 - **Wakeup tags:** −1.6K / −3.4K / −4.8K at st / smt2 / smt2_w3 in S2, and −0.7K in the real `st` core, at 0.00% IPC.
-- **v1 today:** ≈155.7K (two `smt2` cores at 62,501, hart 1 estimated at 4.2K each, the uncore at 22.3K). That is 52.6K over 103.0K at 200 MHz and 45.4K over 110.3K at 180 MHz.
+- **v1 today (5c124f2):** ≈141.5K (two `smt2` cores at 55,436, hart 1 estimated at 4.2K each, the uncore at 22.3K). That is 38.5K over 103,040 at 200 MHz and 31.3K over 110,280 at 180 MHz; it was 52.6K and 45.4K at AR-7.
   - It fits at 200 MHz once the units meet budgets.md.
   - The reserve (≈2.2K per SoC) and the clock (7.2K) cannot close the gap on their own.
-- **v2:** needs its own budget (≈49.7K per core at 180 MHz, AR-9) and a no-IPC pass on its 3-wide structures. The 3-wide increment is ≈13.2K per core today (`st_w3` − `st`, before AR-1 and F/D), against ≈3.6K of room.
+- **v2 (5c124f2):** 171.1K (two `smt2_w3` cores at 70,028), 60.8K over 110,280. It needs its own budget (≈49.7K per core at 180 MHz, AR-9) and a no-IPC pass on its 3-wide structures. The 3-wide increment is +14.6K per core (rename +4.55K), against ≈3.6K of room.
 
 ## Exceptions
 
@@ -199,3 +199,4 @@ Each exception is re-judged once Linux/SPEC-like workloads exist (M5). Any of th
 | 2026-10-13 | First release is SMT2 (D16). Renamed: the single-thread M1 freeze is the bring-up configuration ST; the first release v1 is the SMT2 build; 3-wide on SMT2 is v2. |
 | 2026-10-14 | Area-recovery study (plan §8.5, D18): wakeup tags adopted at no IPC cost. R9 and R10, and for v2 R12 and a completion buffer of 8, are held as the first reserve, since D18 puts sharing and reduced function last even at ≈0% cost. The v1 window step (ROB 96, LQ 32, SQ 24; +1.84% throughput) is recorded as an option and not adopted (user). R11, R13 and thread-banked readiness rejected. The reserve order is in [area_recovery.md](area_recovery.md). The verdicts are stated against the per-unit budgets; no IPC-costing lever is chosen until the real core is re-measured after its area pass. |
 | 2026-10-14 | AR-7, the fit from the measured RTL (area_recovery.md §7): v1 is ≈155.7K today against 103.0K at 200 MHz and 110.3K at 180 MHz (the `smt2` core is 62,501 against a 46,120 budget, hart 1's state ≈4.2K per core estimated, the uncore 22,265 against 10,800). The gap is implementation (D18 step 1); the clock is worth 7.2K and the reserve ≈2.2K. Radix-4 leaves the reserve (1.04K measured; fails the rule). v2 needs its own budget (≈49.7K per core) and a no-IPC pass on its 3-wide structures. |
+| 2026-10-14 | After the core track's second no-IPC pass, measured in all four configurations at 5c124f2 (area_recovery.md §7): v1 ≈141.5K (+38.5K at 200 MHz, +31.3K at 180 MHz); v2 171.1K (+60.8K at 180 MHz). The 3-wide increment is +14.6K per core, led by rename at +4.55K. The page walker sharing the STA's PMP checker (0.83K per core, reverted under D18) joins the reserve. |
