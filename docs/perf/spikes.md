@@ -595,6 +595,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 | + free synthesis settings (hierarchy kept, `AreaOptimized_high`) | — | 7,691 / +0.102 | 11,381 / −0.008 | −13%, no IPC |
 | **+ wakeup tags (AR-1):** 16 tags + LLTs, 32–40 columns; no wakeup at select | **4,802 / +0.518** | **5,506 / +0.218** | **7,703 / +0.026** | −25% / −38% / −38%, and the W loop leaves the 1-cycle path |
 | + free synthesis settings on tags | **4,228 / +0.226** | **4,750 / +0.392** | **6,669 / +0.094** | −13% again, slack gained: the worst path leaves the wakeup loop for a queue's room counter |
+| (option) `EARLY_W` 24 → 8 on that | — | 4,603 / +0.162 | — | −147 LUTs and −720 flip-flops for 0.23 ns: for 180 MHz only (DR-112) |
 
 - **Estimate against measurement:** the plan's §8.2 carried 2.9K for the issue queues. Measured with ROB columns, the scheduler was 1.9× / 3.1× / 4.3× that.
 - **Where those LUTs went:** readiness over 104–120 columns per row, the guard's busy vector, and MX's per-column clears.
