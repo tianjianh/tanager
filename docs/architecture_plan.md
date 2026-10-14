@@ -1075,7 +1075,7 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 | AR-2 | R9 (strict store forwarding) and R10 (shared checkpoints): −0.04% / −0.00% at most | **Held as the first reserve.** They share or reduce function, which D18 puts last. |
 | AR-3 | v1 keeps D15's structures and uses no IPC-costing lever. With tags it fits 103K at 200 MHz if every unit meets its budget (92–104K projected). | **Adopted.** A bigger window (ROB 96, LQ 32, SQ 24: +1.84% throughput, +0.69% single thread, ≈0.7K per core) is **kept as an option and not adopted** (user, 2026-10-14). It can be reconsidered when the measured fit leaves room. |
 | AR-4 | v2 re-plan: `smt2_w3` with tags (plus R9, R10, R12 and completion buffer 8 if needed); R11 and R13 dropped (both fail the rule); target 180–190 MHz. At 190 MHz v2 still beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread. | Direction recorded; v2 comes after v1 |
-| AR-5 | Fill test at 180–190 MHz with v2's core (with tags), at 90 / 93 / 96% | Running with spike S6 |
+| AR-5 | Fill test at 180–190 MHz with v2's core (with tags), at 90 / 93 / 96% | **First result (2026-10-14):** v2 with tags closes 180 MHz at 94.2% fill: 110,280 LUTs, +0.049 ns. The worst real paths are S3's ALU loop (+0.178 ns) and fetch (+0.19 to +0.20 ns); the scheduler has more than 1 ns of slack. The 90, 95 and 96% points and v1 at 93% are running ([area_synth.md](perf/area_synth.md) §5). |
 | AR-6 | Reserve order. v1: R9, R10, FP queue 8, LD queue 4, radix-4. v2: radix-4, then 8-row ALU queues. Everything else fails the reverse rule. | Ranking only |
 | AR-7 | Re-measure the real RTL after the core track's no-IPC area pass (`st` is at 88K against 38.2K), then redo the fit | **Gate:** no IPC-costing lever before it |
 
