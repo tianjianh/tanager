@@ -519,7 +519,14 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
   - **st's worst paths all lie within 0.1 ns of zero:** the load write into the FMA's E0 (+0.015), the divider's S1 into the seed ROM (+0.021), the FMA's E2 (+0.027) and E3 (+0.09).
   - **Alone, the FMA meets at +0.10 ns.** In this run, placement inside `tg_fp_exec` costs it about 0.25 ns. Across the six runs of the complete module, under either constraint, WNS lies between −0.15 and +0.10 ns.
   - **An earlier estimate overstated the margin.** It re-timed the routed designs of the 1.5 ns runs under the new constraint, which holds placement fixed, and gave +0.02 ns (smt2) and +0.14 ns (st).
-  - **Implementation effort:** a run with the Explore directives (`TG_OOC_IMPL=explore`) measures how much more effort recovers.
+  - **Implementation effort:** with the Explore directives (`TG_OOC_IMPL=explore`), the same RTL closes at **+0.020 ns (smt2) and +0.039 ns (st)**. Both are limited by the FMA's E2.
+  - **Where E2's time goes** (Explore runs, about 4.93 ns):
+    - 0.9 ns out of the DSP tile to the fabric;
+    - 0.6 ns in the column counters;
+    - 1.5 ns in two chained carry chains, with a 0.65 ns hop between them;
+    - 0.8–0.9 ns on one sign net with 165 loads;
+    - the magnitude select.
+  - **A cheap fix and its limit:** replicating the sign's driver (`max_fanout`) should recover about 0.3 ns there. But E3, the divider's S1 into the seed ROM and the load bypass also sit within 0.1 ns in context, so it does not make margin alone.
 - Under the uniform 1.5 ns, the worst path is the F1 load bypass into the FMA's E0: 11 LUT levels from `fld_data` through the bypass multiplexer and the FMA's classification of the addend. It moves with placement: smt2 +0.05 and −0.09 ns, st +0.01 and +0.10 ns. These are two runs each, before and after the last timing change and the ROM change, neither of which touches this path. Every failing path of the −0.09 ns run starts at `fld_*`; its worst internal path is +0.02 ns (the FMISC's FCVT.I.F).
 - Two changes made it close:
   - the F0 stream's data is selected by the registered slot owners only (the first version failed by 0.56 ns on flush and early-retirement inputs feeding the bypass);
@@ -675,7 +682,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K (below). The user kept it for its latency (D17). |
 | R5: FP→FP and integer→FP conversions on the FMA | 7,010 | −612 (FMISC −825, FMA +213), at most −0.09% IPC |
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
-| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. |
+| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
 
 **What Goldschmidt really cost, and why.**
