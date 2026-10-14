@@ -94,6 +94,12 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Outside your area:** you may add new files elsewhere when your work needs them, for example a unit test that instantiates another track's module. Do not edit another track's files; ask the owner.
 - **Coordinator files:** to change a shared file or an interface, message the coordinator with the change and the reason. Small additions, such as a new package constant, can be committed on your branch and flagged for review in the merge request.
 - **Unit specs:** every unit has a spec in `docs/spec/` before its RTL (plan §2.3), using [README.md](README.md)'s template. The spec records where each idea came from.
+- **FPGA-friendly from the start (DR-125):** new RTL uses the forms in [fpga_friendly.md](../perf/fpga_friendly.md) §2 wherever they keep the cycle behaviour.
+  - Tables read by index go in LUTRAM or block RAM.
+  - Per-thread state is an extra RAM address bit, not a second copy in flip-flops.
+  - Delay lines are shift-register LUTs.
+  - Rarely written lookups are LUTRAM CAMs.
+  - A unit's spec says which form each structure uses, and why when it stays in flip-flops.
 
 ## 8. Lint
 
@@ -103,20 +109,20 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 ## 9. Sharing the build host
 
 **The hosts.**
-- **Build host:** the 5950X, `ssh home-wsl`. WSL Ubuntu 24.04, 32 threads, about 39 GB of RAM, and **about 100 GB of disk in total**: its Windows drive's free space is the real limit, not the 1 TB WSL reports. The tracks work there in the Linux filesystem (`~/tanager` and its worktrees).
+- **Build host:** the 5950X, `ssh home-wsl`. WSL Ubuntu 24.04, 32 threads, 56 GB of RAM (`.wslconfig`, raised from 40 GB on 2026-10-14; the host has 64 GB), and **about 100 GB of disk in total**: its Windows drive's free space is the real limit, not the 1 TB WSL reports. The tracks work there in the Linux filesystem (`~/tanager` and its worktrees).
 - **Laptop:** 8 threads, 32 GB. For the coordinator and light work only.
 
 **Rules.**
 - **Memory is the binding limit (2026-10-14).**
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
-  - **The budget:** keep about 6 GB for the OS, sshd and the agent sessions; Vivado gets at most 24 GB declared; builds, simulations and soak share the rest.
+  - **The budget:** keep about 8 GB for the OS, sshd and the agent sessions; Vivado gets at most 34 GB declared (24 GB before WSL went from 40 to 56 GB); builds, simulations and soak share the rest.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
   - **Slots:** `TANAGER_VIVADO_SLOTS` is 3 on the build host and 1 on the laptop, set in `tools/env.sh`. On the build host the memory budget, not the slot count, is the binding limit.
   - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
     - **Owner:** the `track-*` name in the script's path or the run directory. Set `TANAGER_TRACK` if neither has one.
     - **Status:** `tools/vivado_run.sh --status` shows the running jobs and the queue.
     - **Chained launches:** don't launch Vivado jobs back to back to hold slots. Queue them through the script; it orders them fairly against other tracks.
-  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (24 GB) next to the running jobs' declarations.
+  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (34 GB on the build host) next to the running jobs' declarations.
   - **Undeclared jobs:** a held slot with no declaration (a job started by an older `vivado_run.sh`) counts as 10 GB.
   - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.
   - **Kill order:** Vivado runs with a raised `oom_score_adj`, so under memory pressure the kernel kills a Vivado job rather than sshd or the sessions.
@@ -162,7 +168,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - Never push to a remote; none is configured.
 - **Merge requests:** when a piece is green, message the coordinator with the branch name, what it adds, and the test commands and results.
   - **End every merge request with a `Learned:` line:** what surprised you, what was measured against what was estimated, and what didn't work and why.
-  - **Add a `Decisions:` line** for every design choice the merge makes or rejects: what, why, and the evidence. The coordinator records each one in [docs/decisions.md](../decisions.md).
+  - **Add a `Decisions:` line** for every design choice the merge makes or rejects: what was chosen, the alternatives considered, the **pros and cons** of each, and the evidence. The coordinator records each one in [docs/decisions.md](../decisions.md), pros and cons included (the user's rule, 2026-10-14).
   - **History and lessons:** every area document (spec or perf report) keeps a short "History and lessons" section, updated with each merge: the starting point, each change and what it bought (LUTs, slack, IPC, bugs found), and dead ends. The coordinator rolls these up into [docs/devlog.md](../devlog.md).
 
 ## 11. Clean room (plan §2.3)
