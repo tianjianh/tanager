@@ -33,8 +33,10 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // S1: unpack, normalise, specials, seed-ROM address
   // ------------------------------------------------------------------------------------------
+  // Pipeline and ring registers stay flip-flops (shreg_extract): as shift-register LUTs they
+  // would cost LUTs, the scarce resource, to save flip-flops (docs/spec/fpu.md, "Timing and area").
   logic     s1_v;
-  fpu_req_t s1_q;
+  (* shreg_extract = "no" *) fpu_req_t s1_q;
   always_ff @(posedge clk) begin
     if (rst) s1_v <= 1'b0;
     else     s1_v <= valid_i && ready_o;
@@ -71,7 +73,7 @@ module tg_fpu_div
   tg_fpu_seed_rom u_rom (.clk, .addr(rom_addr), .data(rom_data));
 
   logic        s2_v;
-  div_info_t       s2_info;
+  (* shreg_extract = "no" *) div_info_t s2_info;
   logic [52:0] s2_ma, s2_mb;
   logic [12:0] s2_ea, s2_eb;
   logic        s2_odd;
@@ -104,7 +106,7 @@ module tg_fpu_div
   end
 
   logic        s3_v;
-  div_info_t       s3_info;
+  (* shreg_extract = "no" *) div_info_t s3_info;
   logic [59:0] s3_opa, s3_opb;
   always_ff @(posedge clk) begin
     if (rst) s3_v <= 1'b0;
@@ -147,7 +149,7 @@ module tg_fpu_div
   // (gs_model.h, small_terms).
   // ------------------------------------------------------------------------------------------
   logic [42:0]        sma_lo_q;                     // t+4: x[59:34] * y0^2 in two tiles
-  logic [28:0]        sma_hi_q;
+  (* use_dsp = "yes" *) logic [28:0] sma_hi_q;        // (a DSP, not LUTs, for the 26 x 3 bits)
   logic signed [26:0] e0d_q;                        // t+4: division e0, Q.33
   always_ff @(posedge clk) begin
     sma_lo_q <= 43'(s4_opa[59:34]) * 43'(sm0_q[16:0]);
@@ -180,7 +182,8 @@ module tg_fpu_div
   always_comb begin
     e2    = 46'(smb_q) <<< 1;                       // Q.58, non-negative
     e2hi  = e2[40:24];                              // Q.34
-    smc_a = r3_q.info.sqrt ? $signed(21'(e2hi) * 21'sd5) : $signed(21'(e2hi));
+    // 5 e2hi = 4 e2hi + e2hi in the DSP's pre-adder (D + A), not in LUTs
+    smc_a = $signed(21'(r3_q.info.sqrt ? {e2hi, 2'b0} : 19'd0)) + $signed(21'(e2hi));
     smc_c = r3_q.info.sqrt ? $signed(47'(e2) * 47'sd6) : $signed(47'(e2));
   end
   always_ff @(posedge clk) begin
@@ -202,7 +205,8 @@ module tg_fpu_div
   } slot_t;
 
   logic  r1_v, r2_v, r3_v, r4_v, r1_vd;
-  slot_t r1_q, r2_q, r3_q, r4_q, r1_d;
+  (* shreg_extract = "no" *) slot_t r1_q, r2_q, r3_q, r4_q;
+  slot_t r1_d;
 
   logic [119:0] p1, p2;
   logic [59:0]  x1, y1, x2, y2;

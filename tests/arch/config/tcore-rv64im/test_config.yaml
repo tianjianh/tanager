@@ -6,5 +6,4 @@ ref_model_exe: sail_riscv_sim
 udb_config: tcore-rv64im.yaml
 linker_script: ../link.ld
 dut_include_dir: .
-# testgen: I,M,Zmmul,Zicntr,Zicsr,Zifencei,ExceptionsSm,InterruptsSm,ExceptionsU
 # replay: --isa=rv64im_zicsr_zicntr_zifencei --priv=MU --pmp=0

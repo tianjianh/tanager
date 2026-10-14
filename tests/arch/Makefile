@@ -28,9 +28,15 @@ export BUNDLE_PATH := $(TANAGER_OPT)/act-gems
 # Command-line variables of this make must not reach the sim build (see tests/random/Makefile).
 MAKEOVERRIDES :=
 
-# Test suites generated from ACT4's testplans for this configuration: the `# testgen:` line of its
-# test_config.yaml (the other privileged suites are committed upstream and copied).
-GEN_EXT := $(shell sed -n 's/^\# testgen: //p' $(CONFIG))
+# Test plans generated with testgen (the other privileged suites are committed upstream and copied):
+# every plan a Tanager core could need through F/D; act then selects the tests that apply to the
+# configuration's UDB file. A configuration may add plans on a `# testgen:` line of its test_config.yaml.
+GEN_PLANS := I M Zmmul Zaamo Zalrsc Zca Zcd Zba Zbb Zbs Zicond Zihintpause Zihpm Zicntr Zicsr Zifencei \
+             F D Misalign Sm SmF S U UF ExceptionsSm ExceptionsS ExceptionsU ExceptionsF ExceptionsZaamo \
+             ExceptionsZalrsc ExceptionsZc InterruptsSm InterruptsS Sstc SstcSm Sstvala Sstvecd Ssu64xl \
+             Ssccptr SsstrictS SsstrictSm SsstrictU Sscounterenw Za64rs ZicsrF
+comma := ,
+GEN_EXT := $(subst $() ,$(comma),$(strip $(GEN_PLANS) $(subst $(comma), ,$(shell sed -n 's/^\# testgen: //p' $(CONFIG)))))
 
 .PHONY: run elfs tests replay clean
 run: elfs

@@ -23,9 +23,9 @@ module tg_fpu_div_mul (
     yr[3] <= {8'b0, y[59:51]};
   end
 
-  // c1
+  // c1 (use_dsp: Vivado would build the smallest tile, 8 x 9 bits, in LUTs)
   logic [42:0] p0_q [3], p2_q [3];     // tiles (i, 0) and (i, 2): A x B into P
-  logic [42:0] m1_q [3], m3_q [3];     // tiles (i, 1) and (i, 3): A x B into M
+  (* use_dsp = "yes" *) logic [42:0] m1_q [3], m3_q [3];   // tiles (i, 1) and (i, 3): A x B into M
   always_ff @(posedge clk) begin
     for (int i = 0; i < 3; i++) begin
       p0_q[i] <= 43'(xr[i]) * 43'(yr[0]);

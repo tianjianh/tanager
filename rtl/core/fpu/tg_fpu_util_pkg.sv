@@ -108,15 +108,26 @@ package tg_fpu_util_pkg;
     return dbl ? CNAN_D : CNAN_S;
   endfunction
 
+  // A special result, decided from the operands' classes and carried to the result stage as a
+  // kind and a sign rather than as 64 bits.
+  typedef enum logic [1:0] { SPEC_NONE, SPEC_NAN, SPEC_INF, SPEC_ZERO } spec_e;
+
+  function automatic logic [63:0] spec_value(input spec_e k, input logic dbl, input logic sign);
+    unique case (k)
+      SPEC_NAN: return cnan(dbl);
+      SPEC_INF: return inf_value(dbl, sign);
+      default:  return zero_value(dbl, sign);
+    endcase
+  endfunction
+
   // ---- Divide/sqrt: what travels with an operation to the rounding stages (tg_fpu_div_round) ----
-  typedef enum logic [1:0] { DSP_NONE, DSP_NAN, DSP_INF, DSP_ZERO } div_spec_e;
 
   typedef struct packed {
     logic        sqrt;
     logic        dbl;
     rm_e         rm;
     logic [FPU_TAG_W-1:0] tag;
-    div_spec_e   spec;
+    spec_e       spec;
     logic        nv, dz;       // flags of a special result
     logic        sign;
     logic [12:0] eq;           // signed: the result is q * 2^eq with q in [1, 2)
@@ -142,19 +153,19 @@ package tg_fpu_util_pkg;
     i.rm   = rm;
     i.tag  = tag;
     i.sign = sqrt ? 1'b0 : (ua.sign ^ ub.sign);
-    i.spec = DSP_NONE;
+    i.spec = SPEC_NONE;
     if (sqrt) begin
-      if (ua.nan)                  begin i.spec = DSP_NAN;  i.nv = ua.snan; end
-      else if (ua.zero)            begin i.spec = DSP_ZERO; i.sign = ua.sign; end
-      else if (ua.sign)            begin i.spec = DSP_NAN;  i.nv = 1'b1; end
-      else if (ua.inf)             begin i.spec = DSP_INF; end
+      if (ua.nan)                  begin i.spec = SPEC_NAN;  i.nv = ua.snan; end
+      else if (ua.zero)            begin i.spec = SPEC_ZERO; i.sign = ua.sign; end
+      else if (ua.sign)            begin i.spec = SPEC_NAN;  i.nv = 1'b1; end
+      else if (ua.inf)             begin i.spec = SPEC_INF; end
     end else begin
-      if (ua.nan || ub.nan)        begin i.spec = DSP_NAN;  i.nv = ua.snan || ub.snan; end
+      if (ua.nan || ub.nan)        begin i.spec = SPEC_NAN;  i.nv = ua.snan || ub.snan; end
       else if ((ua.inf && ub.inf) || (ua.zero && ub.zero))
-                                   begin i.spec = DSP_NAN;  i.nv = 1'b1; end
-      else if (ua.inf)             begin i.spec = DSP_INF; end
-      else if (ub.zero)            begin i.spec = DSP_INF;  i.dz = 1'b1; end
-      else if (ua.zero || ub.inf)  begin i.spec = DSP_ZERO; end
+                                   begin i.spec = SPEC_NAN;  i.nv = 1'b1; end
+      else if (ua.inf)             begin i.spec = SPEC_INF; end
+      else if (ub.zero)            begin i.spec = SPEC_INF;  i.dz = 1'b1; end
+      else if (ua.zero || ub.inf)  begin i.spec = SPEC_ZERO; end
     end
     return i;
   endfunction

@@ -5,6 +5,15 @@
 lint_off -rule UNUSEDPARAM -file "*rtl/common/tg_*pkg.sv"
 // PRIM selects the XPM primitive and is used only under SYNTHESIS.
 lint_off -rule UNUSEDPARAM -file "*rtl/common/prim/tg_ram_*.sv" -match "*PRIM*"
+// Core package helpers take whole IDs and return one field of them.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/core/tg_core_pkg.sv" -match "*function variable*"
+// tg_alu_pkg's group and enum constants are not all used by every module that imports it.
+lint_off -rule UNUSEDPARAM -file "*rtl/core/exec/tg_alu_pkg.sv"
+// Exception causes in tg_core_pkg are used as the units that raise them land (page faults: MMU).
+lint_off -rule UNUSEDPARAM -file "*rtl/core/tg_core_pkg.sv" -match "*EXC_*"
+// FPU packages: compiled with the core, not instantiated until the FPU is wired in (M3)
+lint_off -rule UNUSEDPARAM -file "*/rtl/core/fpu/tg_fpu_util_pkg.sv"
+lint_off -rule UNUSEDPARAM -file "*/rtl/core/fpu/tg_fpu_seed_pkg.sv"
 // Uncore package constants need not be used by every module (SoC track).
 lint_off -rule UNUSEDPARAM -file "*rtl/uncore/tg_uncore_pkg.sv"
 // Arbiters' grant-index outputs are left open where only the granted data is needed (SoC track).
