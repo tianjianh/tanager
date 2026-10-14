@@ -54,6 +54,7 @@ module tg_csr
   output logic                   satp_sv39,
   output logic [15:0]            satp_asid,
   output logic [43:0]            satp_ppn,
+  output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
   output logic [15:0][7:0]       pmpcfg,
   output logic [15:0][53:0]      pmpaddr,
   // Interrupt inputs and time
@@ -293,6 +294,10 @@ module tg_csr
   logic        pw_v_q;
   logic [11:0] pw_a_q;
   logic [63:0] pw_d_q;
+  // satp writes that change it flush the TLBs (as Spike: a rewrite of the same value does not)
+  assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
+                   {(pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) ? pw_d_q[63] : satp_mode_q,
+                    pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
 
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);

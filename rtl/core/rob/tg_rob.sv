@@ -1,6 +1,8 @@
 // Reorder buffer and commit for M2 (docs/spec/core-pipeline.md §8, §9.3-9.4, §11).
 //   Payload: ROB_BANKS-way interleaved LUTRAM, written at dispatch, read at the head.
-//   Flags per entry in flip-flops: complete, exc, mispredict, replay, mmio.
+//   Flags per entry in flip-flops: complete, exc, mispredict, replay, mmio, tlb (M3).
+// A replay marked tlb (a DTLB miss) waits at the head for the LSU: hd_retry (the DTLB now
+// translates it: flush and refetch) or hd_fault (the deciding walk faulted: trap).
 //   Oldest-exception and oldest-mispredict registers hold the cause/tval and the redirect
 //   target of the oldest entry that reported one.
 // Commit retires up to COMMIT_WIDTH complete entries in order. Exceptions, serialising
@@ -49,6 +51,12 @@ module tg_rob
   input  logic [3:0][63:0]             lx_tval,
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
+  input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports)
+  input  robid_t [1:0]                 tlbm_rob,
+  input  logic                         hd_retry,
+  input  logic                         hd_fault,
+  input  logic [3:0]                   hd_cause,
+  input  logic [63:0]                  hd_tval,
   // LSU state
   input  logic                         sq_drained,
   input  logic                         mmio_busy,
@@ -104,7 +112,7 @@ module tg_rob
 
   robid_t head_q, tail_q;
   assign head_o = head_q;
-  logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q;
+  logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q, tlb_q;
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -141,6 +149,7 @@ module tg_rob
       dpl[k].serial     = ds_uop[k].d.serial;
       dpl[k].dexc       = ds_uop[k].d.exc;
       dpl[k].dexc_cause = ds_uop[k].d.exc_cause;
+      dpl[k].dexc_hi    = ds_uop[k].d.exc_hi;
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
     end
@@ -183,7 +192,7 @@ module tg_rob
   int cnt;
   assign cnt = rob_cnt(tail_q, head_q);
   logic [CW-1:0] ret;               // retiring slots
-  logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt;
+  logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt, tlbx;
   logic [63:0]   nf_pc;
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
@@ -195,9 +204,9 @@ module tg_rob
   logic go;
   always_comb begin
     unique case (hp[0].sys)
-      SYS_FENCE, SYS_FENCEI: go = sq_drained;
+      SYS_FENCE, SYS_FENCEI, SYS_SFENCE: go = sq_drained;    // later walks see the stores
       SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q) == WFI_MAX;
-      default:               go = 1'b1;
+      default:               go = !(hp[0].is_csr && hp[0].insn[31:20] == 12'h180) || sq_drained;  // satp
     endcase
   end
   always_ff @(posedge clk) begin
@@ -211,6 +220,7 @@ module tg_rob
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
     do_sret = 1'b0; do_sfence = 1'b0;
     use_tt = 1'b0;
+    tlbx = 1'b0;
     nf_pc = '0;
     t_cause = '0;
     t_tval = '0;
@@ -221,8 +231,17 @@ module tg_rob
         do_flush = 1'b1;
         use_tt = 1'b1;
       end else if (rpl_q[i0]) begin
-        do_flush = 1'b1;
-        nf_pc = hp[0].pc;
+        if (!tlb_q[i0] || hd_retry) begin
+          do_flush = 1'b1;
+          nf_pc = hp[0].pc;
+        end else if (hd_fault) begin
+          do_trap  = 1'b1;
+          do_flush = 1'b1;
+          use_tt   = 1'b1;
+          tlbx     = 1'b1;
+          t_cause  = hd_cause;
+          t_tval   = hd_tval;
+        end
       end else if (cmp_q[i0] && exc_q[i0]) begin
         do_trap = 1'b1;
         do_flush = 1'b1;
@@ -231,7 +250,8 @@ module tg_rob
           t_cause = hp[0].dexc_cause;
           unique case (hp[0].dexc_cause)
             EXC_ILLEGAL: t_tval = {32'b0, hp[0].insn};
-            EXC_BREAK, EXC_IACCESS: t_tval = hp[0].pc;
+            EXC_BREAK: t_tval = hp[0].pc;
+            EXC_IACCESS, EXC_IPAGE: t_tval = hp[0].pc + (hp[0].dexc_hi ? 64'd2 : 64'd0);
             default: t_tval = '0;
           endcase
         end else begin
@@ -399,6 +419,7 @@ module tg_rob
               exc_q[ds_ren[k].rob[RIW-1:0]]  <= ds_uop[k].d.exc;
               misp_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
               rpl_q[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
+              tlb_q[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
               mmio_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
             end
           end
@@ -426,6 +447,12 @@ module tg_rob
           end
         end
         if (replay_valid) rpl_q[replay_rob[RIW-1:0]] <= 1'b1;
+        for (int i = 0; i < 2; i++) begin
+          if (tlbm_valid[i]) begin
+            rpl_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+            tlb_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+          end
+        end
 
         // Oldest exception: the current register and this cycle's reports
         exr_v_q <= ex_v && !do_trap; exr_rob_q <= ex_r; exr_cause_q <= ex_c; exr_tval_q <= ex_t;
@@ -442,14 +469,14 @@ module tg_rob
 
   logic unused;
   assign unused = ^{hp[0].tid, hp[0].is_br, hp[0].lq, hp[CW-1].tid, hp[CW-1].is_br, hp[CW-1].lq,
-                    ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob, oth_rob[ROBW-1],
+                    ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob, oth_rob[ROBW-1], tlbm_rob,
                     br_rob[ROBW-1], lx_rob};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
       assert (cnt >= 0 && cnt <= ROB_ENTRIES) else $error("tg_rob: bad occupancy %0d", cnt);
-      if (do_trap && !hp[0].dexc)
+      if (do_trap && !hp[0].dexc && !tlbx)
         assert (exr_v_q && exr_rob_q == hid[0]) else $error("tg_rob: exception register does not hold the head");
       for (int j = 0; j < CW; j++)
         if (ret[j] && misp_q[hid[j][RIW-1:0]])

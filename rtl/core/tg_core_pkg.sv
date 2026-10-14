@@ -133,12 +133,38 @@ package tg_core_pkg;
                          EXC_ECALL_S = 4'd9, EXC_ECALL_M = 4'd11, EXC_IPAGE = 4'd12,
                          EXC_LPAGE = 4'd13, EXC_SPAGE = 4'd15;
 
+  // ---- Sv39 and PMP (core-mmu.md) ----
+  typedef enum logic [1:0] { ACC_R = 2'd0, ACC_W = 2'd1, ACC_X = 2'd2 } acc_e;
+  // A leaf PTE as the TLBs hold it; a lookup returns the PPN with the superpage bits from the VA
+  typedef struct packed {
+    logic [43:0] ppn;
+    logic        g, d, a, u, x, w, r;
+  } tlb_pte_t;
+  function automatic logic va_canon(input logic [63:0] va);     // bits 63:39 equal bit 38
+    return va[63:38] == '0 || va[63:38] == '1;
+  endfunction
+  // Does a cached leaf allow the access in mode S or U? Spike's walk checks: the U rule (SUM;
+  // S never executes U pages), R (or X with MXR) / W / X, and Svade: A set, D set for stores.
+  function automatic logic pte_ok(input tlb_pte_t p, input acc_e acc, input priv_e mode,
+                                  input logic sum, input logic mxr);
+    logic uok, pok;
+    uok = p.u ? (mode == PRIV_U || (acc != ACC_X && sum)) : (mode != PRIV_U);
+    unique case (acc)
+      ACC_X:   pok = p.x;
+      ACC_R:   pok = p.r || (mxr && p.x);
+      default: pok = p.w && p.d;
+    endcase
+    return uok && pok && p.a;
+  endfunction
+
   // ---- Front end -> decode: one instruction from the instruction queue ----
   typedef struct packed {
     logic [63:0]       pc;
     logic [31:0]       insn;        // [31:16] zero when rvc
     logic              rvc;
-    logic              fault;       // fetch access fault at pc
+    logic              fault;       // fetch fault at pc (access, or page with fault_pf)
+    logic              fault_pf;
+    logic              fault_hi;    // ... on the second half: tval = pc + 2
     logic              pred_taken;  // the front end followed pred_target after this instruction
     logic [63:0]       pred_target;
     logic              pred_bogus;  // unused in M2 (F2 checks predictions against pre-decode)
@@ -174,6 +200,7 @@ package tg_core_pkg;
     logic          serial;      // dispatched alone into an empty ROB; flush after commit
     logic          exc;         // decode-time exception
     logic [3:0]    exc_cause;
+    logic          exc_hi;      // fetch fault on the second half: tval = pc + 2
   } dec_t;
 
   // A micro-op in the RN / DS pipeline registers
@@ -274,6 +301,7 @@ package tg_core_pkg;
     logic          serial;
     logic          dexc;        // decode-time exception
     logic [3:0]    dexc_cause;
+    logic          dexc_hi;
     lqid_t         lq;
     sqid_t         sq;
   } rob_pl_t;

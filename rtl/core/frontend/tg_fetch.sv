@@ -11,6 +11,12 @@
 // One l1i Get is outstanding at a time (the plan's 4 MSHRs and prefetch are M6). A fetch from
 // a PC above PA_W or outside PMA_MEM/PMA_ROM, or a denied refill, produces a one-instruction
 // fault block; fetch then stops until a redirect.
+// M3 (core-mmu.md): in S and U with satp.MODE = Sv39, F1 translates fpc_q through the ITLB
+// (the I$ is indexed by page-offset bits and tagged with the PA). An ITLB miss parks fetch in
+// F2 and asks the walker; its end restarts fetch, and a walk fault turns the page's blocks
+// into fault blocks (cause 12, or 1 for a PTE access fault). PMP is checked per 4-byte word:
+// an instruction touching a denied word is a fault block at the entry, else the block ends
+// before it and fetch resumes there.
 module tg_fetch
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 #(
@@ -44,6 +50,24 @@ module tg_fetch
   output logic [DECODE_WIDTH-1:0]   iq_valid,
   output fe_insn_t [DECODE_WIDTH-1:0] iq_insn,
   input  logic [TKW-1:0]            iq_take,
+  // Translation and PMP (M3)
+  input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
+  input  priv_e       priv,
+  input  logic [15:0] asid,
+  input  logic [15:0][7:0]  pmpcfg,
+  input  logic [15:0][53:0] pmpaddr,
+  input  logic        tlb_flush,
+  input  logic        it_fill,
+  input  logic [26:0] it_fill_vpn,
+  input  logic [15:0] it_fill_asid,
+  input  logic [1:0]  it_fill_lvl,
+  input  tlb_pte_t    it_fill_pte,
+  output logic        iw_req,         // a walk for iw_va, held until iw_ack
+  output logic [63:0] iw_va,
+  input  logic        iw_ack,
+  input  logic        iw_done,        // a fetch walk ended
+  input  logic        iw_ok,
+  input  logic [3:0]  iw_cause,
   // l1i
   output tl_a_t       l1i_a_o,
   output logic        l1i_a_valid_o,
@@ -60,6 +84,8 @@ module tg_fetch
     logic [SLOT_W-1:0] slot;
     logic [63:0]       target;
     logic              fault;
+    logic              fpf;      // page fault (else access)
+    logic              fhi;      // on the entry instruction's second half
   } meta_t;
   localparam int META_W = $bits(meta_t);
   localparam int IB_W   = 32 + 1 + SLOT_W + 3 + META_W;
@@ -74,11 +100,14 @@ module tg_fetch
     else if (!ready) init_q <= init_q + 1'b1;
   end
 
+  localparam int NW = NP / 2;     // 4-byte words per block (PMP granules)
+
   // ---- F1 state ----
   logic        f1_valid_q;        // fpc_q names a block to fetch
   logic [63:0] fpc_q;
   logic        stop_q;            // after a fault block, until a redirect
   logic        carry_q;           // the last block left half a 32-bit instruction for the next one
+  logic        wk_q, wk_sent_q;   // parked on an ITLB miss; the walk was taken
 
   // Micro-BTB
   logic              ub_hit, ub_way;
@@ -115,11 +144,38 @@ module tg_fetch
   assign pred_tgt = {{25{ub_tgt[38]}}, ub_tgt, 1'b0};
   assign seq_pc   = {fpc_q[63:4] + 60'd1, 4'b0};
 
-  // Fetchability of fpc_q (no translation in M2)
-  logic f1_fault;
+  // ---- Translation and fetchability of fpc_q ----
+  logic [0:0][26:0] it_vpn;
+  logic [0:0]       it_hit;
+  tlb_pte_t [0:0]   it_pte;
+  assign it_vpn[0] = fpc_q[38:12];
+  tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
+    .clk, .rst, .asid, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .fill_vpn(it_fill_vpn), .fill_asid(it_fill_asid), .fill_lvl(it_fill_lvl),
+    .fill_pte(it_fill_pte), .flush(tlb_flush));
+  logic [55:0] f1_pa56;
+  assign f1_pa56 = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[55:0];
+  // A walk for this page faulted: its blocks are fault blocks until a redirect
+  logic         xf_v_q, xf_pf_q;
+  logic [63:12] xf_page_q;
+  logic f1_xf, f1_pf, f1_tm, f1_acc, f1_fault, f1_fpf;
   pma_e f1_pma;
-  assign f1_pma   = pma_of(fpc_q[PA_W-1:0]);
-  assign f1_fault = fpc_q[63:PA_W] != '0 || (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
+  assign f1_xf    = xl_i && xf_v_q && fpc_q[63:12] == xf_page_q;
+  assign f1_pf    = xl_i && !va_canon(fpc_q);
+  assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
+  assign f1_pma   = pma_of(f1_pa56[PA_W-1:0]);
+  assign f1_acc   = (xl_i ? f1_pa56[55:PA_W] != '0 : fpc_q[63:PA_W] != '0) ||
+                    (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
+  assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
+  assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
+  // PMP per word (used in F2, where instruction boundaries are known)
+  logic [NW-1:0] f1_pmpd;
+  for (genvar w = 0; w < NW; w++) begin : g_pmp
+    logic ok;
+    tg_pmp u_pmp (.pa({f1_pa56[PA_W-1:4], 2'(w), 2'b00}), .dbl(1'b0), .acc(ACC_X),
+                  .m_mode(priv == PRIV_M), .cfg(pmpcfg), .addr(pmpaddr), .ok(ok));
+    assign f1_pmpd[w] = !ok;
+  end
 
   // ---- I$ arrays ----
   logic [WAYS-1:0][SETS-1:0] ival_q;
@@ -148,8 +204,10 @@ module tg_fetch
   end
 
   // ---- F2 state ----
-  logic              f2_valid_q, f2_fault_q, f2_hit_q, f2_way_q;
+  logic              f2_valid_q, f2_fault_q, f2_hit_q, f2_way_q, f2_fpf_q, f2_tm_q;
   logic [63:0]       f2_pc_q, f2_tgt_q;
+  logic [PA_W-1:0]   f2_pa_q;
+  logic [NW-1:0]     f2_pmpd_q;
   logic [SLOT_W-1:0] f2_slot_q;
   logic [WAYS-1:0]   f2_wv_q;                 // valid bits of the set, read in F1
   logic [WAYS-1:0][TAG_W-1:0] f2_tag_q;
@@ -157,7 +215,7 @@ module tg_fetch
   logic [WAYS-1:0] way_hit;
   logic [127:0]    blk;
   for (genvar w = 0; w < WAYS; w++) begin : g_cmp
-    assign way_hit[w] = f2_wv_q[w] && f2_tag_q[w] == f2_pc_q[12 +: TAG_W];
+    assign way_hit[w] = f2_wv_q[w] && f2_tag_q[w] == f2_pa_q[12 +: TAG_W];
   end
   always_comb begin
     blk = '0;
@@ -165,20 +223,22 @@ module tg_fetch
   end
 
   // Refill / fault state
-  logic        miss_q;             // fetch is parked on miss_pc_q
+  logic        miss_q;             // fetch is parked on miss_pc_q (I$ miss)
   logic [63:0] miss_pc_q;
+  logic [PA_W-1:0] miss_pa_q;
   logic        fline_v_q;          // the last refill of this line was denied
   logic [PA_W-1:6] fline_q;
-  logic        f2_cache_hit, f2_isfault, f2_miss;
-  assign f2_isfault   = f2_fault_q || (fline_v_q && f2_pc_q[PA_W-1:6] == fline_q);
+  logic        f2_cache_hit, f2_bfault, f2_isfault, f2_miss, f2_wmiss;
+  assign f2_bfault    = f2_fault_q || (!f2_tm_q && fline_v_q && f2_pa_q[PA_W-1:6] == fline_q);
   assign f2_cache_hit = |way_hit;
-  assign f2_miss      = f2_valid_q && !f2_isfault && !f2_cache_hit;
+  assign f2_wmiss     = f2_valid_q && f2_tm_q && !f2_bfault;
+  assign f2_miss      = f2_valid_q && !f2_tm_q && !f2_bfault && !f2_cache_hit;
 
   // Pre-decode over the whole block, from the entry point
   logic [NP-1:0][15:0] parcel;
   logic [NP-1:0] pd_start, pd_is32, pd_br, pd_jal, pd_jalr, pd_call, pd_ret;
   logic          pd_carry;
-  assign parcel = f2_isfault ? '0 : blk;
+  assign parcel = f2_bfault ? '0 : blk;
   tg_predecode u_pd (
     .parcel, .entry_slot(f2_pc_q[SLOT_W:1]), .exit_slot(SLOT_W'(NP - 1)), .carry_in(carry_q),
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
@@ -194,10 +254,48 @@ module tg_fetch
         pred_ok = 1'b1;
     end
   end
+  // PMP inside the block: the first instruction from the entry, up to the predicted exit, that
+  // touches a denied word. At the entry the block is a fault block; later, the block ends
+  // before it and fetch resumes there (its own block then faults at the entry).
+  logic [SLOT_W-1:0] pexit, fp;
+  logic              pmp_e, pmp_hi, pmp_cut, fp_v;
+  logic [NP-1:0]     dslot;
+  for (genvar p = 0; p < NP; p++) begin : g_ds
+    assign dslot[p] = f2_pmpd_q[p / 2];
+  end
+  assign pexit = (f2_hit_q && pred_ok) ? f2_slot_q : SLOT_W'(NP - 1);
+  always_comb begin
+    fp_v = 1'b0;
+    fp = '0;
+    for (int p = NP - 1; p >= 0; p--) begin
+      if (pd_start[p] && SLOT_W'(p) <= pexit &&
+          (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]))) begin
+        fp_v = 1'b1;
+        fp = SLOT_W'(p);
+      end
+    end
+    pmp_e = 1'b0;
+    pmp_hi = 1'b0;
+    pmp_cut = 1'b0;
+    if (f2_valid_q && !f2_tm_q && !f2_bfault && f2_cache_hit) begin
+      if (carry_q && f2_pc_q[SLOT_W:1] == '0 && dslot[0]) begin
+        pmp_e = 1'b1;                              // the carried instruction's second half
+      end else if (fp_v) begin
+        if (fp == f2_pc_q[SLOT_W:1]) begin
+          pmp_e  = 1'b1;
+          pmp_hi = !dslot[fp];
+        end else begin
+          pmp_cut = 1'b1;
+        end
+      end
+    end
+  end
+  assign f2_isfault = f2_bfault || pmp_e;
+
   logic              f2_taken;            // the block ends at f2_slot_q and fetch went to f2_tgt_q
   logic [SLOT_W-1:0] f2_exit;
-  assign f2_taken = f2_hit_q && pred_ok && !f2_isfault;
-  assign f2_exit  = f2_taken ? f2_slot_q : SLOT_W'(NP - 1);
+  assign f2_taken = f2_hit_q && pred_ok && !f2_isfault && !pmp_cut;
+  assign f2_exit  = pmp_cut ? fp - 1'b1 : f2_taken ? f2_slot_q : SLOT_W'(NP - 1);
 
   logic [NP-1:0]      blk_start;
   logic [NP-1:0][2:0] blk_marks;
@@ -207,7 +305,7 @@ module tg_fetch
       blk_start[p] = pd_start[p] && SLOT_W'(p) <= f2_exit;
       blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
     end
-    blk_carry = pd_carry && !f2_taken;
+    blk_carry = pd_carry && !f2_taken && !pmp_cut;
     if (f2_isfault) begin                          // one pseudo-instruction at the entry slot
       blk_start = '0;
       blk_start[f2_pc_q[SLOT_W:1]] = 1'b1;
@@ -237,14 +335,16 @@ module tg_fetch
   // ---- Pipeline control ----
   // F2 delivers when it is valid, not missing, and F3 can take the block.
   logic f2_deliver, f2_hold;
-  assign f2_deliver = f2_valid_q && !f2_miss && f3_accept;
-  assign f2_hold    = f2_valid_q && !f2_miss && !f3_accept;
+  assign f2_deliver = f2_valid_q && !f2_miss && !f2_wmiss && f3_accept;
+  assign f2_hold    = f2_valid_q && !f2_miss && !f2_wmiss && !f3_accept;
   // F1 moves on when F2 is free (or delivers) and fetch is not parked or stopped.
   logic f1_live;
-  assign f1_live = f1_valid_q && !miss_q && !stop_q && ready;
+  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready;
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
   assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
+  assign iw_req = wk_q && !wk_sent_q;
+  assign iw_va  = miss_pc_q;
   assign f2_inval     = f2_override;
   assign f2_inval_pc  = f2_pc_q[38:4];
   assign f2_inval_way = f2_way_q;
@@ -268,7 +368,7 @@ module tg_fetch
     found = 1'b0;
     victim = rr_q;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !ival_q[w][miss_pc_q[6 +: SET_W]]) begin
+      if (!found && !ival_q[w][miss_pa_q[6 +: SET_W]]) begin
         victim = WAY_W'(w);
         found = 1'b1;
       end
@@ -305,7 +405,7 @@ module tg_fetch
       unique case (rs_q)
         R_IDLE: if (miss_q) begin
           rs_q      <= R_REQ;
-          rline_q   <= miss_pc_q[PA_W-1:6];
+          rline_q   <= miss_pa_q[PA_W-1:6];
           rway_q    <= victim;
           rr_q      <= rr_q + 1'b1;
           rbeat_q   <= '0;
@@ -347,6 +447,9 @@ module tg_fetch
       fpc_q      <= boot_pc;
       stop_q     <= 1'b0;
       miss_q     <= 1'b0;
+      wk_q       <= 1'b0;
+      wk_sent_q  <= 1'b0;
+      xf_v_q     <= 1'b0;
       carry_q    <= 1'b0;
       f2_valid_q <= 1'b0;
       f3_valid_q <= 1'b0;
@@ -355,6 +458,9 @@ module tg_fetch
       fpc_q      <= flush ? flush_pc : dred_pc;
       stop_q     <= 1'b0;
       miss_q     <= 1'b0;
+      wk_q       <= 1'b0;
+      wk_sent_q  <= 1'b0;
+      xf_v_q     <= 1'b0;
       carry_q    <= 1'b0;
       f2_valid_q <= 1'b0;
       f3_valid_q <= 1'b0;
@@ -363,18 +469,19 @@ module tg_fetch
       if (f3_accept) f3_valid_q <= 1'b0;
       if (f2_deliver) begin
         f3_valid_q  <= 1'b1;
-        f3_parcel_q <= parcel;
+        f3_parcel_q <= f2_isfault ? '0 : parcel;
         f3_start_q  <= blk_start;
         f3_marks_q  <= blk_marks;
         f3_carry_q  <= blk_carry;
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: f2_slot_q,
-                         target: f2_tgt_q, fault: f2_isfault};
+                         target: f2_tgt_q, fault: f2_isfault, fpf: f2_bfault && f2_fpf_q,
+                         fhi: !f2_bfault && pmp_hi};
         carry_q     <= blk_carry;
         if (f2_isfault) stop_q <= 1'b1;
       end
       // F2 <- F1
-      if (f2_miss && ((refill_done && f2_pc_q[PA_W-1:6] == rline_q) ||
-                      (rdone_d_q && f2_pc_q[PA_W-1:6] == rline_d_q))) begin
+      if (f2_miss && ((refill_done && f2_pa_q[PA_W-1:6] == rline_q) ||
+                      (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q))) begin
         // The line was installed this cycle or while F1 read the tags: fetch it again rather
         // than refilling it twice.
         f2_valid_q <= 1'b0;
@@ -384,8 +491,21 @@ module tg_fetch
         // Park on the missed block; the refill restarts fetch there (carry_q is kept).
         miss_q     <= 1'b1;
         miss_pc_q  <= f2_pc_q;
+        miss_pa_q  <= f2_pa_q;
         f2_valid_q <= 1'b0;
         f1_valid_q <= 1'b0;
+      end else if (f2_wmiss) begin
+        // ITLB miss: park and walk; the walk's end restarts fetch here
+        wk_q       <= 1'b1;
+        wk_sent_q  <= 1'b0;
+        miss_pc_q  <= f2_pc_q;
+        f2_valid_q <= 1'b0;
+        f1_valid_q <= 1'b0;
+      end else if (f2_deliver && pmp_cut) begin
+        // A later instruction touches a PMP-denied word: fetch it as its own block
+        f2_valid_q <= 1'b0;
+        f1_valid_q <= 1'b1;
+        fpc_q      <= {f2_pc_q[63:4], fp, 1'b0};
       end else if (f2_override) begin
         // Drop the prediction: F1 holds the predicted target; fetch the next block instead.
         f2_valid_q <= 1'b0;
@@ -394,7 +514,11 @@ module tg_fetch
       end else if (f2_go) begin
         f2_valid_q <= f1_live && !(f2_deliver && f2_isfault);
         f2_pc_q    <= fpc_q;
+        f2_pa_q    <= f1_pa56[PA_W-1:0];
         f2_fault_q <= f1_fault;
+        f2_fpf_q   <= f1_fpf;
+        f2_tm_q    <= f1_tm;
+        f2_pmpd_q  <= f1_pmpd;
         f2_hit_q   <= pred_hit;
         f2_way_q   <= ub_way;
         f2_slot_q  <= ub_slot;
@@ -410,6 +534,18 @@ module tg_fetch
         miss_q     <= 1'b0;
         f1_valid_q <= 1'b1;
         fpc_q      <= miss_pc_q;
+      end
+      // Restart after the walk (a fault: the page's blocks fault until a redirect)
+      if (wk_q && iw_ack) wk_sent_q <= 1'b1;
+      if (wk_q && wk_sent_q && iw_done) begin
+        wk_q       <= 1'b0;
+        f1_valid_q <= 1'b1;
+        fpc_q      <= miss_pc_q;
+        if (!iw_ok) begin
+          xf_v_q    <= 1'b1;
+          xf_pf_q   <= iw_cause == EXC_IPAGE;
+          xf_page_q <= miss_pc_q[63:12];
+        end
       end
     end
   end
@@ -440,6 +576,8 @@ module tg_fetch
       iq_insn[j].insn        = rvc ? {16'b0, lo} : {hi, lo};
       iq_insn[j].rvc         = rvc;
       iq_insn[j].fault       = m.fault;
+      iq_insn[j].fault_pf    = m.fpf;
+      iq_insn[j].fault_hi    = m.fault && (strad || m.fhi);
       iq_insn[j].pred_taken  = exit_here;
       iq_insn[j].pred_target = m.target;
       iq_insn[j].pred_bogus  = 1'b0;
@@ -453,7 +591,7 @@ module tg_fetch
 
   logic unused;
   assign unused = ^{upd_pc[63:39], upd_pc[3:0], upd_target[63:39], upd_target[0], pd_call, pd_ret, l1i_d_i.opcode, l1i_d_i.param, l1i_d_i.size,
-                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0};
+                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0]};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

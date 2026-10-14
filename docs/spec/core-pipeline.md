@@ -55,9 +55,9 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 ### 3.1 Fetch loop and I$
 - **Next PC (F1).** `fpc_d` = flush redirect, else decode redirect, else miss restart, else stall (`fpc_q`), else micro-BTB target on a hit, else the next 16-byte block. Spike S5's loop, with 64-bit PCs.
 - **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way; valid bits in flip-flops (reset and FENCE.I clear them in one cycle).
-- **Physical address.** M2 has no translation: PA = PC[`PA_W`-1:0]. A PC with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill.
+- **Physical address.** In M (and Bare), PA = PC[`PA_W`-1:0]; with `EXT_SU` in S and U under Sv39, F1 translates the PC through the ITLB (core-mmu.md: misses park fetch for a walk). A PA with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill; PMP is checked per 4-byte word.
 - **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (round robin per set); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
-- **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1, `tval` = PC). Fetch then waits for a redirect.
+- **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
@@ -140,7 +140,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
-- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`.
+- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`, `tlb` (M3: a DTLB miss).
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
@@ -149,7 +149,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Head-only entries** (slot 0, nothing else that cycle): exceptions, serialising instructions, replays.
 - **Mispredict:** the branch retires (in any slot); the group ends there; flush and redirect to the oldest-mispredict target.
 - **Exception:** TR_TRAP, trap entry (§9.3), flush, redirect to `mtvec` base.
-- **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC.
+- **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 
@@ -175,7 +175,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
-| `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–15 implemented (Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); entries 16–63 read 0. Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checks arrive in M3 |
+| `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–15 implemented (Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); entries 16–63 read 0. Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 
 Everything else is illegal (cause 2, `tval` = the instruction bits), as is a write to a read-only CSR. `csrrs/csrrc` with rs1 = x0 and the immediate forms with uimm = 0 do not write.
 

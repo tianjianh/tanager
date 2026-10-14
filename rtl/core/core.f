@@ -2,6 +2,9 @@
 -F fpu/fpu.f
 exec/tg_alu_pkg.sv
 tg_core_pkg.sv
+mmu/tg_tlb.sv
+mmu/tg_pmp.sv
+mmu/tg_ptw.sv
 frontend/tg_ubtb.sv
 frontend/tg_predecode.sv
 frontend/tg_fetch_compact.sv

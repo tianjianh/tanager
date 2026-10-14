@@ -1,14 +1,14 @@
 # MMU and PMP (`tg_tlb`, `tg_ptw`, `tg_pmp`, M3)
 
-Status: draft for M3 — core track — 2026-10-13
+Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
 
 ## Purpose
 Sv39 address translation and physical memory protection for fetch, loads, stores, atomics and the page-table walker (plan §4.10, §2.2). M3 builds the functional version: an L1 TLB per side, one walker through the L1D, PMP on every access. The plan's 512-entry L2 TLB, the page-walk cache and a second concurrent walk are M6 options.
 
 ## Interface
-- **`tg_tlb`** (ITLB: `ITLB_ENTRIES` = 16; DTLB: `DTLB_ENTRIES` = 32; fully associative): combinational lookup of {VPN, ASID}. A hit returns the PPN, the level (4K, 2M, 1G), R/W/X/U, D and G. Filled by the walker; flushed by SFENCE.VMA. Spike S4's `tg_dtlb` is the starting point (entries tagged {TID, ASID}).
-- **`tg_ptw`**: one walk at a time. Requests come from fetch (ITLB miss), the load pipe and store-address port (DTLB miss), and commit (the walk that decides a fault, below). PTE reads go into the load pipe's AG slot, ahead of LQ replays, and read the L1D like a load; a PTE line that misses takes the MSHR. Results: a fill for the requesting TLB, or a fault.
-- **`tg_pmp`**: combinational check of {physical address, size, access type, mode} against the 16 entries in `tg_csr`.
+- **`tg_tlb`** (`rtl/core/mmu`; ITLB: `ITLB_ENTRIES` = 16 in `tg_fetch`, one lookup; DTLB: `DTLB_ENTRIES` = 32 in `tg_lsu`, three lookups: the LD port, the STA port, the ROB head): fully associative, combinational lookup of {VPN, ASID}; global entries match any ASID; the first matching entry wins. A hit returns the leaf (`tlb_pte_t`: 44-bit PPN with the superpage bits taken from the VA, and G, D, A, U, X, W, R). A fill replaces an entry that already matches its VPN, else the first invalid one, else a round-robin victim. Flush: all entries. After spike S4's `tg_dtlb`.
+- **`tg_ptw`** (instantiated in `tg_lsu`): one walk at a time. Requesters in priority order: the ROB head's deciding walk, an ITLB miss (fetch), a DTLB prefetch (a one-entry buffer, cleared by flushes). PTE reads take the load pipe's AG slot ahead of LQ replays (IQ-LD's select is blocked while one waits), read the L1D like a load and come back at M2; a missing line takes the MSHR and the read retries when it is idle; a denied line is an access fault. Results: a leaf for the requester's TLB, or a fault cause. A flush ends the walk.
+- **`tg_pmp`**: combinational check of {physical address, 4 or 8 bytes, access type, M or not} against the 16 entries in `tg_csr`.
 
 ## Behaviour
 
@@ -16,51 +16,53 @@ Sv39 address translation and physical memory protection for fetch, loads, stores
 - **Fetch:** in S and U when `satp.MODE` = Sv39.
 - **Data:** in the data mode `priv_d`, which is MPP when `mstatus.MPRV` = 1 and `priv` = M, else `priv`.
 - **Untranslated (M, or Bare):** the physical address is the address itself. Bits above `PA_W` raise an access fault (as M2).
-- **Translated addresses** must be canonical (bits 63:39 equal to bit 38), else a page fault.
+- **Translated addresses** must be canonical (bits 63:39 equal to bit 38), else a page fault, raised at AG (fetch: a fault block) without a walk.
 
-### TLB hit checks (Spike's walk rules, applied to the cached leaf)
+### TLB hits
+A cached leaf is used only if it allows the access now (`pte_ok`, Spike's walk rules):
 - **Fetch:** X. U pages only in U mode; S never fetches from a U page.
 - **Load:** R, or X with MXR. U pages in U; in S only with SUM.
-- **Store and AMO:** W. U pages as for loads.
-  - A hit with D = 0 is treated as a **miss** and re-walked: the PTE may have been updated since the fill, and Spike reads it.
-- **A failed permission is a page fault:** 12 (fetch), 13 (load), 15 (store/AMO), with tval = the virtual address.
+- **Store and AMO (and SC):** W and D. U pages as for loads. LR checks as a load.
+- **Any failed check is a miss:** the walk decides, so page faults come only from walks (as in Spike, whose TLBs hold only translations that passed for their access type). This also re-reads a PTE that software changed (for example D set) since the fill.
 - **Entries are installed only from walks that succeeded** for their requester. Invalid or reserved PTEs are never cached (plan §2.2).
 
 ### Walk (Sv39, as Spike's `walk()`)
-For level 2 to 0, the PTE address is (level 2: `satp.PPN`, else the previous PTE's PPN) × 4096 + VPN[level] × 8. The PTE read must be `PMA_MEM` and pass PMP in S mode; otherwise an access fault (1, 5 or 7, by the requester's type). Then, in this order (each failure is a page fault):
-1. Reserved bits (63:54 without Svpbmt/Svnapot) set → fault.
-2. V = 0, or W = 1 with R = 0 → fault.
-3. Non-leaf (R = X = 0): D, A or U set → fault; else next level (level 0 → fault).
-4. Leaf: the U-bit rule for the mode (as for hits).
-5. Superpage with nonzero low PPN bits → fault.
-6. Permission for the access type (as for hits).
-7. Svade: A = 0, or a store with D = 0 → fault (no hardware A/D update).
+For level 2 to 0, the PTE address is (level 2: `satp.PPN`, else the previous PTE's PPN) × 4096 + VPN[level] × 8. The PTE address must be below `PA_W`, `PMA_MEM` and allowed by PMP in S; otherwise an access fault (1, 5 or 7, by the requester's type). Then (each failure is a page fault: 12, 13 or 15):
+1. Bits 63:54 set (reserved, PBMT, N: no Svpbmt or Svnapot) → fault.
+2. Non-leaf (V = 1, R = W = X = 0): D, A or U set, or level 0 → fault; else the next level.
+3. Leaf: the U-bit rule for the mode; V = 0, or W = 1 with R = 0; a superpage with nonzero low PPN bits; the access permission; Svade (A = 0, or a store with D = 0) → fault.
 
-A success installs the leaf, with the level, in the requester's TLB.
+A success fills the requester's TLB with the leaf and its level.
 
 ### Miss handling (M3: correct and simple)
-- **Fetch:** an ITLB miss parks fetch (like an I$ miss) and requests a walk; the fill restarts fetch. A walk fault becomes a fault block (cause 12). For a 32-bit instruction whose second half lies in the faulting page, tval is the faulting halfword's address.
-- **Load / store address:** a DTLB miss marks the instruction's ROB entry `replay` with a `tlb` flag, and asks the walker for its VA (dropped if the walker is busy; this walk only prefetches the translation). The load or store does not access memory. The LQ/SQ entry keeps the VA.
-- **Commit, head with `replay`+`tlb`:**
-  1. If the DTLB now translates the head's VA, flush and refetch at its PC.
-  2. Otherwise, when the walker is free, start a walk for it (non-speculative) and wait.
-  3. A fill → flush and refetch. A fault → the head takes the page or access fault (precise).
+- **Fetch:** F1 looks the ITLB up with `fpc_q`; the I$ is indexed with page-offset bits and tagged with the PA. A miss parks fetch in F2 and requests a walk; its end restarts fetch at the parked PC. A walk fault makes every block of that page a fault block (cause 12, or 1 for a PTE access fault) until a redirect.
+- **Fault blocks and tval:** a fault block is one pseudo-instruction at the entry PC (tval = PC). When a 32-bit instruction began in the previous block (or, for PMP, at the entry) and only its second half faults, tval = PC + 2, as Spike reports the faulting parcel's address.
+- **Load / store address:** new loads and STA look the DTLB up at AG (LQ replays reuse the PA in the LQ). The LQ and SQ keep the VA (trace, tval, walks) and the PA (D$, forwarding, ordering checks, drain). A miss marks the ROB entry `replay` + `tlb`, puts the load in `L_TLB` (or the store's SQ entry in `tlb`), does not access memory, and offers the VA to the prefetch buffer.
+- **Commit, head with `replay` + `tlb`:**
+  1. If the DTLB now translates the head's VA (it looks it up with the third port), flush and refetch at its PC (`hd_retry`).
+  2. Otherwise, once the walker is free and the committed stores have drained (so the PTE reads see them), the deciding walk starts.
+  3. A fill → the head finds it and refetches. A fault → the head traps with its cause and tval = VA (`hd_fault`), precisely.
 
-  Speculative walks never raise exceptions.
-- **SFENCE.VMA** (and SINVAL.VMA, SFENCE.W.INVAL, SFENCE.INVAL.IR, serialised) flushes both TLBs entirely. Over-flushing is always legal; the address and ASID forms come with the L2 TLB (M6).
-- **satp writes** take effect after the flush that follows every CSR write.
+  Speculative walks (fetch, prefetch) never raise exceptions in the data path; a fetch walk's fault reaches the trap only through a fault block that commits.
+- **SFENCE.VMA** (and SINVAL.VMA, SFENCE.W.INVAL, SFENCE.INVAL.IR, serialised) commits once the store queue has drained and flushes both TLBs together with the pipeline flush. Over-flushing is always legal; the address and ASID forms come with the L2 TLB (M6).
+- **satp writes** commit once the store queue has drained; a write that changes satp flushes both TLBs with the flush that follows (Spike does not flush on a rewrite of the same value).
 
 ### PMP (`tg_pmp`)
 - **Entries:** 16, `pmpcfg` / `pmpaddr` in `tg_csr` (WARL rules in core-pipeline.md §9.1). Modes OFF, TOR, NA4, NAPOT; granularity 4 bytes.
-- **Match:** the lowest-numbered entry matching any byte of the access decides, and every byte of the access must match it; otherwise the access fails. Misaligned accesses trap before PMP, so an access is one naturally aligned unit.
-- **Permission:** R (load, PTE read), W (store, AMO), X (fetch).
+- **Match:** the lowest-numbered entry matching any 4-byte granule of the access decides, and every granule must match it; otherwise the access fails (an 8-byte access that only half matches fails). Misaligned accesses trap before PMP, so an access is one naturally aligned unit.
+- **Permission:** R (load, LR, PTE read), W (store, AMO, SC), X (fetch).
   - Locked entries (L) apply to M too; unlocked entries do not.
   - No matching entry: M is allowed; S and U are denied.
 - **Where it is checked:**
-  - fetch, per 4-byte word of the block, with `priv` — the first denied word ends the block with an access fault (cause 1);
+  - fetch, per 4-byte word of the block, with `priv`: the first instruction from the entry that touches a denied word makes the block a fault block if it is the entry instruction (cause 1), else the block ends before it and fetch resumes there;
   - loads, stores and atomics at AG, after translation, with `priv_d` (causes 5, 7);
-  - PTE reads in S.
+  - PTE reads, in S.
 - **tval** is the original virtual address.
+
+### Known differences from Spike (none reached by the tests)
+- A PTE in a device region: the RTL raises an access fault; Spike would read the device.
+- Spike also flushes its TLB on privilege changes and on writes to mstatus (MPRV, SUM, MXR, MPP) and PMP CSRs. Our hits re-check the current mode and bits, so only PTE changes made without SFENCE.VMA can differ, which the ISA leaves unspecified.
+- Speculative walks read PTEs from the D$ without searching the store queue: a PTE store that has not drained can be missed by a fetch walk or a prefetch. Without SFENCE.VMA both outcomes are legal; deciding walks wait for the drain.
 
 ## Parameters
 `ITLB_ENTRIES`, `DTLB_ENTRIES`, `PA_W`, `TID_W` (entries are tagged with the thread). `L2TLB_ENTRIES` and `PWC_ENTRIES` are unused until M6.
@@ -71,10 +73,9 @@ A success installs the leaf, with the level, in the requester's TLB.
 - The plan's lever R6 (set-associative LUTRAM TLBs) is an M6 decision.
 
 ## Verification
-- Lockstep on `rv64si-p`, every `-v` suite (virtual memory under the riscv-tests kernel environment) and ACT4's privilege and PMP tests.
-- `rv64mi-p-pmpaddr` already passes.
-- Random programs with virtual memory, when the generator offers them.
-- Linux boot.
+- Lockstep, with `EXT_SU` and `EXT_A` on: `rv64si-p` (7/7, including `dirty` and `icache-alias`), `rv64ui-v`, `rv64um-v`, `rv64ua-v` (the riscv-tests kernel environment with demand paging), `rv64mi-p-pmpaddr`; under `--lat`, `--bp`, `--d-gap`, `--probe-rate` and `--grant-b` stress.
+- Directed: `tests/isa/directed/vm.S` (superpages, every PTE fault rule, SUM/MXR, MPRV, SFENCE.VMA and satp changes, atomics under translation, fetch faults in S and U) and `pmp.S` (NAPOT/NA4/TOR, a half-matching 8-byte access, no-match, a locked entry binding M, a fetch block executable for two words only).
+- To come: ACT4's privilege and PMP tests, random programs with virtual memory when the generator offers them, Linux boot.
 
 ## Provenance
 - RISC-V Privileged Architecture 1.13 (Sv39, PMP, SFENCE.VMA, Svinval, Svade).

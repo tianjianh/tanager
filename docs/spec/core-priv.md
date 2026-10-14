@@ -1,6 +1,6 @@
 # Privilege modes, CSRs, traps and interrupts (`tg_csr`, M3)
 
-Status: draft for M3 — core track — 2026-10-13
+Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
 
 ## Purpose
 Extends the M2 machine-mode CSR file ([core-pipeline.md](core-pipeline.md) §9) to the privilege architecture Linux needs (plan §2.2, §4.1, §4.13): M, S and U modes; trap delegation; supervisor interrupts with Sstc; counters and their enables; the status fields that change memory access (MPRV, SUM, MXR, TVM, TW, TSR). The MMU and PMP are in [core-mmu.md](core-mmu.md); atomics in [core-lsu.md](core-lsu.md) §Atomics.
@@ -43,7 +43,7 @@ Mode changes happen only at commit: a trap, MRET or SRET retires, the CSR file s
 | `menvcfg` | FIOM and STCE writable (no Zicbo*, Svpbmt or Svadu yet) |
 | `senvcfg` | FIOM writable |
 | `stvec`, `sscratch`, `sepc`, `scause`, `stval` | As their M counterparts; `sepc` masks like `mepc` |
-| `satp` | MODE (Bare or Sv39; other modes leave MODE unchanged), ASID (16 bits), PPN (44 bits). Access in S with TVM is illegal. |
+| `satp` | MODE (Bare or Sv39; other modes leave MODE unchanged), ASID (16 bits), PPN (44 bits). Access in S with TVM is illegal. A write commits once the store queue has drained; one that changes the value flushes the TLBs (core-mmu.md). |
 | `stimecmp` | Sstc. Access below M needs `menvcfg.STCE` and the `time` permission (`mcounteren.TM`), else illegal |
 | `hpmcounter3–31` | Read 0 (Zihpm), `nondet`; gated by the enables |
 | `mhpmevent3–31` | Read 0 (no Sscofpmf yet) |
@@ -95,9 +95,8 @@ Everything M2 listed is unchanged. Existence and privilege follow the CSR addres
 CSR accesses are serialised, so the CSR file is off the critical paths. The plan's lever R2 (cold CSRs in LUTRAM indexed by {TID, CSR}) applies when SMT2 doubles the state; M3 keeps flip-flops.
 
 ## Verification
-- Lockstep on `rv64mi-p` and `rv64si-p` with all their `-v` variants (verification.md §4.1, M3 suites), plus the directed interrupt tests with S-mode delegation.
-- ACT4 (privilege tests) when the flow targets the core.
-- OpenSBI + Linux in simulation (M3 exit).
+- Done (lockstep, `EXT_SU` and `EXT_A` on, Spike `--priv=MSU`): `rv64mi-p` 17/17, `rv64si-p` 7/7, `rv64ui-v`, `rv64um-v`, `rv64ua-v`; directed `vm.S` (S and U through Sv39, MPRV, SUM, MXR) and `pmp.S`.
+- To come: directed interrupt tests with S-mode delegation; ACT4 (privilege tests) when the flow targets the core; OpenSBI + Linux in simulation (M3 exit).
 
 ## Provenance
 - RISC-V Privileged Architecture 1.13 (status fields, delegation, xRET, Sstc, counters).

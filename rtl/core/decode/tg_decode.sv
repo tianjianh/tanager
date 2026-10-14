@@ -10,7 +10,9 @@ module tg_decode
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
   input  logic        len2,       // the instruction is 2 bytes long
   input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
-  input  logic        fault,      // fetch access fault at pc
+  input  logic        fault,      // fetch fault at pc: access, or page (fault_pf)
+  input  logic        fault_pf,
+  input  logic        fault_hi,   // ... on the second half (tval = pc + 2)
   input  logic        misa_m,
   input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
   input  logic        misa_a,     // atomics (with EXT_A)
@@ -263,7 +265,8 @@ module tg_decode
 
     if (fault) begin
       d = '0;
-      d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = EXC_IACCESS;
+      d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = fault_pf ? EXC_IPAGE : EXC_IACCESS;
+      d.exc_hi = fault_hi;
     end else if (ill) begin
       d = '0;
       d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = EXC_ILLEGAL;
