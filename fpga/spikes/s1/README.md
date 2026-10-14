@@ -123,7 +123,7 @@ The board track ran S1 on our KV260 (setup in [fpga/kv260/README.md](../../kv260
 - **Build:** the fan-routed one (DR-129; bitstream sha256 `fdb8ab2c…`), loaded with `xmutil` as app `tg-s1`. The fan stayed under Linux's control.
 - **Records:** the raw output, the two patches below and the run script are in [results/s1_board](../results/s1_board).
 
-**Two fixes went into the run.** Their patches are in `results/s1_board/` for this track to commit.
+**Two fixes went into the run.** The patches as run are in `results/s1_board/`. The spikes track committed both in `ef87de3`. That commit also makes `tg_s1` convert cycles with its measured clock, and warn when the clock is more than 3% off nominal. The board now runs that build (`tg_s1` sha256 `976e2351…`; overlay `99aa4dad…`, the same overlay as the run).
 - **The PL clock** (`s1_pl_clock.patch`).
   - **The cause:** the overlay asked for 99,999,001 Hz, Vivado's 99.999 MHz. The board's IOPLL runs at 999,999,990 Hz. ÷10 gives 99,999,999 Hz, just above the request, so the kernel rounded down to ÷11 = 90.9 MHz.
   - **The effect:** the engines ran at 181.8 MHz in the first run. The program's own wall-clock estimate printed 181.7 MHz.
