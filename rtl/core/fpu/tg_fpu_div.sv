@@ -182,7 +182,8 @@ module tg_fpu_div
   always_comb begin
     e2    = 46'(smb_q) <<< 1;                       // Q.58, non-negative
     e2hi  = e2[40:24];                              // Q.34
-    smc_a = r3_q.info.sqrt ? $signed(21'(e2hi) * 21'sd5) : $signed(21'(e2hi));
+    // 5 e2hi = 4 e2hi + e2hi in the DSP's pre-adder (D + A), not in LUTs
+    smc_a = $signed(21'(r3_q.info.sqrt ? {e2hi, 2'b0} : 19'd0)) + $signed(21'(e2hi));
     smc_c = r3_q.info.sqrt ? $signed(47'(e2) * 47'sd6) : $signed(47'(e2));
   end
   always_ff @(posedge clk) begin
