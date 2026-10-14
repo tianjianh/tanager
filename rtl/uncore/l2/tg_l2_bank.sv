@@ -236,7 +236,7 @@ module tg_l2_bank
   logic [1:0]       ain_beat_q, ain_left_q;
 
   logic [N_PUTBUF-1:0] pb_free_q;
-  logic [3:0]          pb_bv_q [N_PUTBUF];      // beats present in the Put buffer
+  logic [N_PUTBUF-1:0][3:0] pb_bv_q;            // beats present in each Put buffer (flip-flops)
   logic [PBW-1:0]      pb_slot;
   always_comb begin
     pb_slot = '0;
@@ -842,8 +842,6 @@ module tg_l2_bank
   // Victim read-out into write-back buffers, and the write-back engine (AW/W)
   // ---------------------------------------------------------------------------------------------
   logic [N_WB-1:0]   wb_free_q, wb_ready_q;
-  logic [MW-1:0]     wb_owner_q [N_WB];
-  logic [LINE_W-1:0] wb_line_q  [N_WB];
   logic [WBW-1:0]    wb_slot;
   always_comb begin
     wb_slot = '0;
@@ -882,10 +880,24 @@ module tg_l2_bank
     ws_pick = '0;
     for (int i = N_WB - 1; i >= 0; i--) if (wb_ready_q[i]) ws_pick = WBW'(i);
   end
+  // Write-back buffer owner and line, written at the read-out start and read by the send engine
+  typedef struct packed {
+    logic [MW-1:0]    owner;
+    logic [TAG_W-1:0] tag;
+    logic [SET_W-1:0] set;
+  } wbent_t;
+  wbent_t              wbe_new;
+  logic [0:0][$bits(wbent_t)-1:0] wbe_rd;
+  wbent_t              wbe;
+  assign wbe_new = '{owner: vr_m, tag: rl_vtag[1], set: rl_set[LP_VR]};   // VR port reads vr_m here
+  tg_ram_lut #(.DEPTH(N_WB), .WIDTH($bits(wbent_t)), .NR(1)) u_wbent (
+    .clk, .we (vr_start), .waddr (wb_slot), .wdata (wbe_new), .raddr (ws_buf_q), .rdata (wbe_rd)
+  );
+  assign wbe = wbe_rd[0];
   always_comb begin
     aw_o       = '0;
-    aw_o.id    = AXI_ID_W'(wb_owner_q[ws_buf_q]);
-    aw_o.addr  = AXI_ADDR_W'({wb_line_q[ws_buf_q], 6'd0});
+    aw_o.id    = AXI_ID_W'(wbe.owner);
+    aw_o.addr  = AXI_ADDR_W'({line_of(wbe.tag, wbe.set), 6'd0});
     aw_o.len   = 8'd3;
     aw_o.size  = 3'd4;
     aw_o.burst = AXI_INCR;
@@ -1282,8 +1294,6 @@ module tg_l2_bank
         vr_row_q              <= 1'b0;
         vr_ptr_q              <= rr_next(vr_m);
         wb_free_q[wb_slot]    <= 1'b0;
-        wb_owner_q[wb_slot]   <= vr_m;
-        wb_line_q[wb_slot]    <= line_of(rl_vtag[1], rl_set[LP_VR]);   // VR port reads vr_m here
       end else if (vr_rd) begin
         vr_row_q <= 1'b1;
         if (vr_row_q) vr_busy_q <= 1'b0;

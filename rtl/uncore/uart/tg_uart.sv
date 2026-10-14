@@ -35,8 +35,7 @@ module tg_uart
   logic       thre_ip_q;
 
   // ---- FIFOs ----
-  logic [7:0]    txf [DEPTH];
-  logic [7:0]    rxf [DEPTH];
+  logic [0:0][7:0] txf_rd, rxf_rd;          // heads of the FIFOs (tg_ram_lut, below)
   logic [CW-1:0] tx_wp_q, tx_rp_q, rx_wp_q, rx_rp_q;
   wire  [CW-1:0] tx_cnt = tx_wp_q - tx_rp_q;
   wire  [CW-1:0] rx_cnt = rx_wp_q - rx_rp_q;
@@ -92,7 +91,7 @@ module tg_uart
   wire tx_pop     = tx_to_rx || tx_to_host;
   wire rx_from_host = !loop && rx_valid_i && rx_cnt < cap;
   wire rx_push    = tx_to_rx || rx_from_host;
-  wire [7:0] rx_in = tx_to_rx ? txf[tx_rp_q[CW-2:0]] : rx_byte_i;
+  wire [7:0] rx_in = tx_to_rx ? txf_rd[0] : rx_byte_i;
 
   wire thr_wr   = wr && ri == 3'd0 && !dlab;
   wire rbr_rd   = rd && ri == 3'd0 && !dlab;
@@ -104,7 +103,17 @@ module tg_uart
   wire rx_pop   = rbr_rd && !rx_empty;
 
   assign tx_valid_o = !loop && !tx_empty;
-  assign tx_byte_o  = txf[tx_rp_q[CW-2:0]];
+  assign tx_byte_o  = txf_rd[0];
+
+  // FIFO storage in LUTRAM; a FIFO reset (FCR) wins over a push in the same cycle
+  tg_ram_lut #(.DEPTH(DEPTH), .WIDTH(8), .NR(1)) u_txf (
+    .clk, .we (!rst && !tx_reset && tx_push), .waddr (tx_wp_q[CW-2:0]), .wdata (wd),
+    .raddr (tx_rp_q[CW-2:0]), .rdata (txf_rd)
+  );
+  tg_ram_lut #(.DEPTH(DEPTH), .WIDTH(8), .NR(1)) u_rxf (
+    .clk, .we (!rst && !rx_reset && rx_push), .waddr (rx_wp_q[CW-2:0]), .wdata (rx_in),
+    .raddr (rx_rp_q[CW-2:0]), .rdata (rxf_rd)
+  );
   assign rx_ready_o = !loop && rx_cnt < cap;
 
   always_ff @(posedge clk) begin
@@ -149,10 +158,7 @@ module tg_uart
         tx_wp_q <= '0;
         tx_rp_q <= '0;
       end else begin
-        if (tx_push) begin
-          txf[tx_wp_q[CW-2:0]] <= wd;
-          tx_wp_q <= tx_wp_q + 1'b1;
-        end
+        if (tx_push) tx_wp_q <= tx_wp_q + 1'b1;
         if (tx_pop) tx_rp_q <= tx_rp_q + 1'b1;
       end
       // THRE interrupt: raised when TX becomes empty; cleared by a THR write or by an IIR read
@@ -166,10 +172,7 @@ module tg_uart
         rx_wp_q <= '0;
         rx_rp_q <= '0;
       end else begin
-        if (rx_push) begin
-          rxf[rx_wp_q[CW-2:0]] <= rx_in;
-          rx_wp_q <= rx_wp_q + 1'b1;
-        end
+        if (rx_push) rx_wp_q <= rx_wp_q + 1'b1;
         if (rx_pop) rx_rp_q <= rx_rp_q + 1'b1;
       end
       // Character timeout: idle time since the last RX push or pop
@@ -188,7 +191,7 @@ module tg_uart
   logic [7:0] rv;
   always_comb begin
     unique case (ri)
-      3'd0: rv = dlab ? dll_q : (rx_empty ? 8'h00 : rxf[rx_rp_q[CW-2:0]]);
+      3'd0: rv = dlab ? dll_q : (rx_empty ? 8'h00 : rxf_rd[0]);
       3'd1: rv = dlab ? dlm_q : {4'b0, ier_q};
       3'd2: rv = iir;
       3'd3: rv = lcr_q;
