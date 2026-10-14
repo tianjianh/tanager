@@ -2,6 +2,7 @@
 #   make lint CFG=st         lint all product RTL for one configuration
 #   make lint-all            lint all four configurations
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
+#   make cycle-identical CFG=st [BASE=<commit>]   does this tree's RTL run cycle for cycle like BASE's?
 # Track-specific targets live in their areas (sim/, tests/, fpga/); see docs/spec/conventions.md.
 
 CFG  ?= st
@@ -12,7 +13,7 @@ RTL_CFG := rtl/common/cfg/tg_cfg_$(CFG).sv
 RTL_F   := rtl/rtl.f
 LINT_FLAGS := --lint-only -Wall -Wno-MULTITOP --timing -Irtl/common rtl/lint.vlt
 
-.PHONY: lint lint-all regress
+.PHONY: lint lint-all regress cycle-identical
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(RTL_CFG) -F $(RTL_F)
@@ -26,3 +27,9 @@ CORE ?= core
 regress:
 	@tools/ci/regress.sh CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
 	  $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN))
+
+# Cycle-identical check of this tree's RTL against BASE, by default the merge base with main
+# (docs/spec/verification.md §4.5; DR-123). CFG takes a list ("st smt2"); SUITES=isa,stress,bench,random,reset.
+cycle-identical:
+	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") \
+	  $(if $(SUITES),--suites "$(SUITES)") $(if $(RANDN),--randn $(RANDN)) $(if $(JOBS),--jobs $(JOBS))
