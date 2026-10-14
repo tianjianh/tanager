@@ -357,6 +357,125 @@ Plan §8.5 lever R4 runs DIV/REM on the Goldschmidt unit's multipliers so that t
 
 **Latency:** about 29 cycles for any operand size: the FDIV.D schedule of 23, plus the extra round (4), the front-end stage and the integer fix-up. Up to four divides, integer and FP together, are in flight. `tg_div` takes n + 4 cycles, one divide at a time, so R4 is faster for quotients wider than about 25 bits and slower for narrower ones.
 
+## Core integration (P4 back end)
+
+Status: interface proposed 2026-10-14 for the core track's agreement; modules being built.
+
+F/D integration splits between the two tracks:
+- **FPU track** (`rtl/core/fpu/`): `tg_fprf`, `tg_fp_exec`, `tg_fcsr` and the load/store helpers in `tg_fpcore_pkg`.
+- **Core track:** decode, renaming of both register files, dispatch, IQ-FP inside the scheduler (sharing the woken vector W), ROB and commit, and the LSU and CSR-file hooks.
+
+The core instantiates `tg_fp_exec`, which contains `tg_fprf` and `tg_fpu`. The CSR file instantiates `tg_fcsr`.
+
+**Compile order.** The back end imports `tg_core_pkg`, so its files sit in `rtl/core/fpu/fpu_be.f`. core.f must include that file after `tg_core_pkg.sv`, while `fpu.f`, the units, stays first.
+
+### Register file (`tg_fprf`)
+- **Banks** (plan §4.7): F0 is written only by `tg_fp_exec`'s F0 stream, F1 only by the load path. Each bank is 64 × 64 bits (`FP_PREGS_PER_BANK`), one `tg_ram_lut` with explicit RAM64M8.
+- **FP tags** are {bank, index} (`FPIDX_W` + 1 bits). They travel in the low bits of `preg_t` fields, next to the flag that names the file (as on the core's F/D branch).
+- **Read ports:**
+  - three operand ports (P4's RF stage);
+  - one store-data port, `fsd_tag` → `fsd_data`, combinational;
+  - `NTR` trace ports (default `COMMIT_WIDTH`, as on the integer file).
+  A read selects its bank after the LUTRAM. Read-during-write follows `tg_ram_lut`: the new value is visible after the write edge.
+- **Init port:** `init_we`/`init_bank`/`init_idx` writes zero, for the reset sequence's initial FP map (Spike resets every f register to 0).
+
+### P4 pipeline (`tg_fp_exec`)
+
+Cycle s is IQ-FP's select. The payload `fp_iss_t` (`tg_fpcore_pkg`) is the core's `iq_pl_t` restricted to what P4 needs:
+- `tid`, `rob`, `wid`, `llt`, `dst_en`, `dst`;
+- `src1`, `src2`, `src3`, `src1_fp`;
+- `fop`, `fmt`, `src_fmt`, `ifmt`, `rm` (resolved);
+- `fp_int`, `fp_div`.
+
+| Cycle | Stage | Work |
+|---|---|---|
+| s | IS (core) | IQ-FP selects one operation; `fmisc_block` masks some FMISC rows (below) |
+| s+1 | RF | `iss_valid`/`iss_pl` arrive; the three operands are read from `tg_fprf`; bypass selects are computed; an integer source is read through the core's shared integer port (`isrc_tag` → `isrc_data`) |
+| s+2 | EX0 | operand multiplexers (bypass); the request to the FMA or FMISC (routing by `fpu_unit_of`), or into the FDIV queue |
+| s+4 | – | FMISC result (`FMISC_LAT` = 2): an FP result is written to F0 at the end of s+4; an integer result enters the B1 queue |
+| s+7 | – | FMA result (`FMA_LAT` = 5), written to F0 at the end of s+7 |
+| c, c+1 | – | an FDIV result claims a free F0 slot in cycle c and is written at the end of c+1 |
+
+**F0 writeback.** F0 has one write port and one writer, the F0 stream. That stream is also the bypass source for every F0 result.
+- **Fixed-latency writes:** FMA and FMISC FP results write at fixed cycles (s+7, s+4). They collide only when an FMISC op with an FP destination is selected three cycles after an FMA.
+- **`fmisc_block`** is a register, high in cycle s when an FMA was selected in s−3. While it is high, IQ-FP must not select an FMISC op with an FP destination (FSGNJ, FSGNJN, FSGNJX, FMIN, FMAX, FMV.F.X). Other rows are unaffected, so FMA streams issue every cycle.
+  - This needs one flip-flop per IQ-FP row (the row's op is FMISC with an FP destination) and an AND in the ready vector.
+  - **Alternative**, if the core prefers no row mask: FMISC FP results write at s+7 like the FMA, with their wakeup at s+4. That makes them effectively 5 cycles, which R5's model bounds at ≤ 0.09% suite IPC.
+- **FDIV results take free slots.** In cycle c the divider's result is accepted if slot c+1 is free, then it is written at the end of c+1. Otherwise it waits in the divider's output queue.
+
+**Bypass** (inside `tg_fp_exec`). The selects are made in RF from the tags; each FP operand of EX0 takes one of five sources:
+- the F0 stream of this cycle (EX level) or of the last cycle (WB level);
+- the F1 load write of this cycle or the last;
+- the register file.
+
+The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC from the select, FDIV from its claim), and the load path announces F1 writes one cycle ahead (`fld_m2_will`, as for integer loads).
+
+**Wakeup** (`wake_reg`: W set at the end of the cycle):
+
+| Producer | Wakeup ID | Fires | Dependants |
+|---|---|---|---|
+| FMA (all, including the conversions) | ROB index | s+4 | select at s+5; EX0 at s+7 takes the F0 stream |
+| FMISC, FP destination | ROB index | s+1 (RF) | select at s+2; EX0 at s+4 takes the F0 stream |
+| FDIV/FSQRT | LLT | claim cycle c | select at c+1; RF at c+2 reads F0 |
+| FMISC, integer destination | LLT | the core, when it writes B1 | – |
+| FP loads (F1) | LLT | the core's LSU | – |
+
+`llt_done` names the FDIV LLTs written each cycle.
+
+**Integer source** (FCVT.F.I and FMV.F.X):
+- `isrc_valid` and `isrc_tag` are presented in RF (s+1), and `isrc_data` is sampled at the end of that cycle.
+- The core gives P4 its shared integer read port in that cycle (ahead of the SQ's store-data claims). It guarantees the value is in the integer register file by then: an IQ-FP row's integer source is ready only once its register is written, or the core bypasses into `isrc_data`.
+
+**FP loads** (F1):
+- `fld_valid`, `fld_idx`, `fld_single` and `fld_data` (raw 64 bits) write F1 at the end of the cycle. `tg_fp_exec` NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]}.
+- `fld_m2_will` and `fld_m2_idx` announce the write one cycle ahead, for the bypass select.
+- The core wakes the load's LLT and completes it, as for integer loads.
+
+**FP store data:** the SQ claims `fsd_tag`/`fsd_data` when the value is in the register file, as it does the integer shared port. FSW stores bits 31:0, which the ISA requires without any NaN-box check.
+
+**Integer results (to bank B1).** FEQ, FLT, FLE, FCLASS, FCVT.W/WU/L/LU and FMV.X enter a queue of `FPI_Q` entries (default 4) at s+4, holding {`tid`, `rob`, `wid`/`llt`, `dst_en`, `dst`, `data`, `fflags`}.
+- `fpi_valid`/`fpi_ready` hand the head to the core's bank-1 write arbiter. The core writes B1 (unless `dst_en` is 0), wakes the LLT, and completes the ROB entry with `fpi_fflags`.
+- Rename keeps at most `FPI_INFLIGHT` such operations between rename and the hand-off. `fpi_pop` returns one credit per entry leaving the queue.
+
+**Divide and square root:**
+- **Queue:** an FDIV leaves EX0 into a queue of `FDIV_Q` entries in front of the divider, and is tracked in a table of the same size until its result is written or dropped.
+- **Credits:** rename keeps at most `FDIV_INFLIGHT` divides between rename and their result. That differs from the F/D branch's comment ("rename and the unit"), and it bounds the table. `fdiv_done` returns one credit per divide, written or dropped.
+- **Tag:** the divider's tag is the table index.
+
+**Completion to the ROB** (F0 results): one port, `cmp_valid`, `cmp_tid`, `cmp_rob` and `cmp_fflags`.
+- It fires in the F0 write cycle for FMA, FMISC FP results, and divides that did not retire early.
+- FP operations raise no exceptions.
+- The ROB keeps five fflag bits per FP entry and passes them to `tg_fcsr` when the entry retires.
+
+**Flush** (`flush` and `flush_tid`, registered by the core as for `tg_exec`). Every operation of that thread is dropped: no write, no wakeup, no completion. Credits still return.
+- **RF, EX0, FMA and FMISC:** shadow valid bits beside the units' fixed latencies; the FPU itself has no kill input (interfaces.md §4).
+- **B1 queue:** the thread's entries are marked dead and popped later without a request.
+- **Divides:** the thread's divides that have not retired early are marked squashed and dropped when they leave the divider.
+
+**Early retirement of divides** (plan §4.5; M6). The core reports `fdiv_ret_valid`, `fdiv_ret_tid` and `fdiv_ret_llt` when it retires a divide before its result. Its result still writes F0 and wakes, and flushes no longer squash it. Its fflags go to `tg_fcsr` (`er_valid`, `er_tid`, `er_fflags`) instead of the ROB completion. Tie these low until early retirement is on.
+
+### `fcsr` (`tg_fcsr`)
+- **State per hart:** `frm` and `fflags`.
+- **Rounding mode:** `frm_o[tid]` goes to decode, which resolves DYN and flags reserved modes. That is legal at decode because every CSR write ends in a flush. `fp_rm_resolve()` in `tg_fpcore_pkg` does the same check.
+- **CSR access:**
+  - read is combinational, `csr_rtid` → `csr_fflags`, `csr_frm`;
+  - write is `csr_wvalid`, `csr_wtid`, `csr_waddr` (fflags, frm or fcsr) and `csr_wdata`, applied at retirement;
+  - the CSR file checks FS ≠ Off and does the csrrs/csrrc arithmetic.
+- **Accumulation:**
+  - `cm_valid`, `cm_tid` and `cm_fflags` per commit slot (the ROB's per-entry flags);
+  - `er_valid`/`er_fflags`, early-retired divides at completion.
+- **`er_busy[tid]`:** an early-retired divide of that hart is still pending. Per plan §4.5, a CSR access to fflags or fcsr waits until it clears.
+- **`fs_dirty[tid]`** pulses (the CSR file sets mstatus.FS = Dirty) when any of these happens:
+  - an FP register is written by a retiring instruction (`cm_fpr`, FP loads included);
+  - nonzero flags are accumulated;
+  - fflags, frm or fcsr is written.
+  This matches Spike.
+
+### Helpers (`tg_fpcore_pkg`)
+- `fp_box_load(data, single)`: the F1 value of FLW and FLD.
+- `fp_rm_resolve(rm_field, frm)`: the rounding mode and legality, Spike's RM rule.
+- `fpreg_bank()` and `fpreg_idx()` on `preg_t`-wide FP tags.
+
 ## Parameters
 
 No configuration parameter changes the FPU: the four configurations (`st`, `smt2`, `st_w3`, `smt2_w3`) build the same units. `FPU_TAG_W` comes from `tg_pkg`. SMT is invisible to the FPU (the tag carries everything; the divider's slots are shared by both harts).
