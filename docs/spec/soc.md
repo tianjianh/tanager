@@ -170,7 +170,21 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
   - data handed between the harts through the coherent caches;
   - PASS through `TOHOST`.
 
-With the core track's RTL, the same top runs the boot ROM → OpenSBI path; the full Linux boot moves to the board (plan §11).
+`tests/unit/boot`: `tanager_soc` with the real core (`tg_core`), loaded the way `tanager-host` loads the board: the host port opens the DRAM window, writes the images into the carve-out, sets the entry points and releases the cores. The console is read through the host port and the run passes when it shows the expected text.
+- **Images:** OpenSBI `fw_jump` (`sw/build_opensbi.sh`, built on first use), a device tree built for the configuration (`sw/dts`, 128 MiB), and for Linux Buildroot's `lp64d` `Image` (`sw/build_linux.sh`).
+- **M3 switches:** the build compiles a copy of `tg_core_pkg.sv` with every `EXT_*` switch on, until the core track turns them on by default.
+- **Targets** (`make -C tests/unit/boot <target> [CORES=1|2]`):
+
+  | Target | Device tree | Passes on | Status (2026-10-14) |
+  |---|---|---|---|
+  | `opensbi` | no FPU | OpenSBI's banner (`Boot HART MEDELEG`) | passes, 1×1 in 5.0 M cycles and 2×1 in 6.6 M; the long suite runs both |
+  | `linux-kernel` | no FPU (`riscv,isa` without F/D) | `Run /init as init process` | the kernel boots to the early initcalls, then takes an illegal-instruction oops: a core instruction-fetch fault, reported to the core track |
+  | `linux` | with F/D | `TANAGER-BOOT-OK` from the Buildroot image's init | waits for the core's F/D |
+
+- **Debugging:** each progress line (every million cycles) shows every hart's last pc. On failure the run prints the last 64 commit records of every hart. `ARGS="+dump_pc=<hex>"` or `ARGS="+dump_cause=<n>"` prints them when a record has that pc or traps with that cause, and `+dump_stop` ends the run there. `BOOTARGS="earlycon=sbi console=ttyS0 keep_bootcon"` prints the kernel's log through OpenSBI's console from the first line.
+- **Speed:** about 2.5 M cycles a minute at 1×1, so the kernel's early initcalls (27 M cycles) take about 11 minutes. `VTHREADS=N` builds with Verilator `--threads N`; at 1×1 four threads were slower than one.
+
+The board runs the same images (plan §11).
 
 ## Provenance
 

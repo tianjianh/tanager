@@ -4,6 +4,8 @@
 //   +fw=<file>      at 0x8000_0000 (OpenSBI fw_jump)          +dtb=<file>    at DTB_ADDR (0x8220_0000)
 //   +kernel=<file>  at 0x8020_0000 (optional)                 +initrd=<file> at 0x8400_0000 (optional)
 //   +expect=<text>  pass when the console contains it         +max_mcycles=N  give up after N million cycles
+//   +dump_pc=<hex>  print the hart's last records when a record has this pc (once)
+//   +dump_cause=N   ... when an instruction traps with this cause (once)      +dump_stop  end the run there
 module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -86,7 +88,7 @@ module tb_boot;
 
   // ---- retirement count (all harts) and the last records of each hart, for progress and post-mortem ----
   localparam int NH_TB = N_CORES * NUM_THREADS;
-  localparam int LAST  = 16;
+  localparam int LAST  = 64;
   typedef struct {
     logic [63:0] pc;
     logic [31:0] insn;
@@ -98,6 +100,16 @@ module tb_boot;
   longint unsigned instret = 0;
   last_t           last_rec [NH_TB][LAST];
   longint unsigned last_n   [NH_TB];
+  longint unsigned cycles = 0;
+  logic [63:0]     dump_pc;
+  int              dump_cause;
+  bit              dump_pc_on, dump_cause_on, dump_stop, dumped = 1'b0;
+  initial begin
+    dump_pc_on    = $value$plusargs("dump_pc=%h", dump_pc);
+    dump_cause_on = $value$plusargs("dump_cause=%d", dump_cause);
+    dump_stop     = $test$plusargs("dump_stop");
+  end
+  always @(posedge clk) if (!rst) cycles <= cycles + 1;
   always @(posedge clk) if (!rst)
     for (int c = 0; c < N_CORES; c++)
       for (int k = 0; k < COMMIT_WIDTH; k++)
@@ -111,6 +123,14 @@ module tb_boot;
                                              val: (trace[c][k].kind == tg_trace_pkg::TR_RETIRE) ? trace[c][k].rd_value : trace[c][k].cause,
                                              tval: trace[c][k].tval};
             last_n[h]++;
+            if (!dumped && ((dump_pc_on && trace[c][k].pc == dump_pc) ||
+                            (dump_cause_on && trace[c][k].kind == tg_trace_pkg::TR_TRAP &&
+                             trace[c][k].cause == 64'(dump_cause)))) begin
+              dumped = 1'b1;
+              $display("\n[tb_boot] trigger: hart %0d, cycle %0d, pc %h", h, cycles, trace[c][k].pc);
+              dump_hart(h);
+              if (dump_stop) $finish;
+            end
           end
         end
   function automatic string last_pc_str();
@@ -120,17 +140,18 @@ module tb_boot;
       r = {r, $sformatf(" hart%0d pc %h", h, (last_n[h] == 0) ? 64'd0 : last_rec[h][(last_n[h] - 1) % LAST].pc)};
     return r;
   endfunction
-  task automatic dump_last();
-    for (int h = 0; h < NH_TB; h++) begin
-      $display("[tb_boot] hart %0d: the last %0d of %0d records", h, (last_n[h] < LAST) ? last_n[h] : LAST, last_n[h]);
-      for (longint unsigned i = (last_n[h] > LAST) ? last_n[h] - LAST : 0; i < last_n[h]; i++) begin
-        last_t r;
-        r = last_rec[h][i % LAST];
-        $display("  %s pc %h insn %h priv %0d %s %h%s", (r.kind == 0) ? "retire" : (r.kind == 1) ? "TRAP  " : "IRQ   ",
-                 r.pc, r.insn, r.priv, (r.kind == 0) ? "rd" : "cause", r.val,
-                 (r.kind == 1) ? $sformatf(" tval %h", r.tval) : "");
-      end
+  task automatic dump_hart(input int h);
+    $display("[tb_boot] hart %0d: the last %0d of %0d records", h, (last_n[h] < LAST) ? last_n[h] : LAST, last_n[h]);
+    for (longint unsigned i = (last_n[h] > LAST) ? last_n[h] - LAST : 0; i < last_n[h]; i++) begin
+      last_t r;
+      r = last_rec[h][i % LAST];
+      $display("  %s pc %h insn %h priv %0d %s %h%s", (r.kind == 0) ? "retire" : (r.kind == 1) ? "TRAP  " : "IRQ   ",
+               r.pc, r.insn, r.priv, (r.kind == 0) ? "rd" : "cause", r.val,
+               (r.kind == 1) ? $sformatf(" tval %h", r.tval) : "");
     end
+  endtask
+  task automatic dump_last();
+    for (int h = 0; h < NH_TB; h++) dump_hart(h);
   endtask
 
   // ---- AXI4-Lite host master (clk_host) ----

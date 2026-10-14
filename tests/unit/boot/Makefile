@@ -5,16 +5,20 @@
 #   make -C tests/unit/boot linux [CORES=1]         the full lp64d boot to TANAGER-BOOT-OK, once the
 #                                                   core has F/D (device tree with the FPU)
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
+#   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
 # The core's M3 switches (tg_core_pkg EXT_*) are on in this build. Until the core track turns them on
 # by default, a copy of tg_core_pkg.sv with them set is compiled in place of the original.
 TOP    := tb_boot
 CORES  ?= 1
-NAME   := boot_c$(CORES)
+# VTHREADS: Verilator --threads for the long boots (conventions §9); each count builds in its own directory.
+# At 1x1 four threads were slower than one (OpenSBI, loaded host, 2026-10-14), so the default is 1.
+VTHREADS ?= 1
+NAME   := boot_c$(CORES)$(if $(filter-out 1,$(VTHREADS)),_t$(VTHREADS))
 TB     := $(CURDIR)/tb_boot.sv
 PARAMS := -GN_CORES=$(CORES)
-EXTRA_VFLAGS := -CFLAGS -O2
+EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS))
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
@@ -64,13 +68,13 @@ $(OSBI_FW):
 
 .PHONY: opensbi
 opensbi: build $(DTB) $(FW)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC)
+	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +expect="Boot HART MEDELEG" +max_mcycles=$(MCYC) $(ARGS)
 
 .PHONY: linux-kernel linux $(DTB) $(DTB_FPU)
 linux-kernel: build $(DTB) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC)
+	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB) +kernel=$(KERNEL) +expect="Run /init as init process" +max_mcycles=$(LINUX_MCYC) $(ARGS)
 linux: build $(DTB_FPU) $(FW) $(KERNEL)
-	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC)
+	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC) $(ARGS)
 
 # The boots take minutes: only the long suite runs them.
 .PHONY: short long
