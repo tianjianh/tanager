@@ -217,6 +217,7 @@ module tg_core
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
+  preg_t [N_ALU-1:0] is_src1, is_src2;    // IS-stage ALU source tags (DR-133: execute's operand copy)
   assign wake_reg = wake_x | wake_l | wake_p4;
   assign tag_free = tag_free_x | tag_free_p4;
   // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
@@ -227,7 +228,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .is_src1, .is_src2, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -464,5 +465,6 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    is_src1, is_src2};            // until execute's operand copy takes them (DR-133)
 endmodule
