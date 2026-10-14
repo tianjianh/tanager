@@ -49,7 +49,17 @@ The exact partition therefore saves nothing with ROB-entry wakeup IDs.
 
 ## 3. No-IPC tricks measured
 
-(being measured)
+Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909. The timing runs (200 MHz, pblock) of the synthesis settings are queued, so the timing effect is still open.
+
+| Trick | LUTs | Saved | IPC cost | Status |
+|---|---|---|---|---|
+| Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 | 506 (5.7%) | none | timing run queued |
+| `AreaOptimized_high` synthesis directive | 8,115 | 794 (8.9%) | none | timing run queued |
+| Both | **7,712** | **1,197 (13.4%)** | none | timing runs queued (smt2, smt2_w3) |
+| No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
+| Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
+| Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
+| Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
 ## 4. Fill test at 180 MHz
 
