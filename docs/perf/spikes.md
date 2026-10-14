@@ -24,7 +24,7 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 | S3 register file, bypass, ALU loop (§5) | **pass with min/max on the 2-cycle path** | +0.342 ns (+0.014 with min/max), 5.1K | +0.052 (−0.086 with min/max), 8.6K | min/max to 2 cycles (trim 3); R8 rejected |
 | S4 load path, 3-cycle load-to-use (§6) | **pass** | +0.678 ns, 2.4K (align in M2) | — | none |
 | S5 next PC, I$, pre-decode, compaction (§7) | **pass** | st +0.582, smt2 +0.245; 2.5K | +0.357, 2.5K | none |
-| S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.105 at 84%, +0.007 at 88%; st: −0.041 at 76% (no MX) | smt2_w3: −0.238 at 89% | st: MX; v2: the S2, S3 and DTLB levers above |
+| S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.043 at 79%, +0.105 at 84%, +0.007 at 88%; st: −0.041 at 76% (no MX) | smt2_w3: −0.238 at 89% | st: MX; v2: the S2, S3 and DTLB levers above |
 | S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
 
 **What changes for the plan.**
@@ -407,28 +407,30 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 | `s6_smt2_85` | smt2 (v1) | 98,218 (83.9%) | 11,826 | 78,411 | 101 / 32 / 108 | **+0.105** | **204** | filler → S2 per-thread room counter | 25 min |
 | `s6_smt2_90` | smt2 (v1) | 103,369 (88.3%) | 11,826 | 82,832 | 101 / 32 / 108 | **+0.007** | **200** | S2: W → readiness → select → payload, 7 levels | 40 min |
 | `s6_smt2w3_88` | smt2_w3 (v2) | 104,598 (89.3%) | 14,468 | 80,195 | 101 / 32 / 108 | −0.238 | 191 | S2: MX issued → readiness → select → payload, 8 levels | 35 min |
-| `s6_smt2_80` | smt2 (v1) | (rerun queued; the first attempt missed its LUT target) | | | | | | | |
+| `s6_smt2_80` | smt2 (v1) | 92,866 (79.3%) | 11,826 | 73,830 | 101 / 32 / 108 | **+0.043** | **201** | synthetic logic (the spikes have ≥ +0.087) | 26 min |
 | `s6_st_76` | st (bring-up) | 88,495 (75.6%) | 11,818 | 70,066 | 101 / 32 / 108 | −0.041 | 199 | S2 without MX: W → readiness → select → wakeup → W, 10 levels | 35 min |
 
 Named paths, slack in ns (the worst over both cores):
 
-| Path | smt2, 84% | smt2, 88% | smt2_w3, 89% |
-|---|---|---|---|
-| S2: registered grant → wakeup encode → W | +0.759 | +0.858 | +0.377 |
-| S2: issue payload | +0.983 | +0.683 | +0.868 |
-| S3: ALU → bypass → ALU (min/max in the 1-cycle ALU) | +0.159 | +0.062 | **−0.159** |
-| S3: register-file read | +0.474 | +0.390 | +0.205 |
-| S4: M2 compare, select, result | +0.314 | +0.265 | +0.373 |
-| S4: DTLB lookup in M1 | +0.371 | +0.166 | **−0.112** |
-| S5: next-PC loop | +0.871 | +1.152 | +0.294 |
-| S5: next PC → I$ BRAM address | +0.301 | +0.466 | +0.013 |
-| S5: IF3 compaction → instruction queue | +0.527 | +0.592 | +0.551 |
-| L2: UltraRAM cascade input | +0.414 | +0.795 | +1.254 |
-| Core → L2 bus (registered, crosses the chip) | +3.232 | +2.089 | +3.140 |
-| Synthetic logic | +0.274 | +0.130 | +0.109 |
+| Path | st, 76% | smt2, 79% | smt2, 84% | smt2, 88% | smt2_w3, 89% |
+|---|---|---|---|---|---|
+| S2: wakeup loop (st: W → select → W; MX builds: registered grant → encode → W) | **−0.041** | +0.310 | +0.759 | +0.858 | +0.377 |
+| S2: issue payload | +1.440 | +0.862 | +0.983 | +0.683 | +0.868 |
+| S3: ALU → bypass → ALU (min/max in the 1-cycle ALU) | +0.013 | +0.146 | +0.159 | +0.062 | **−0.159** |
+| S3: register-file read | +0.204 | +0.187 | +0.474 | +0.390 | +0.205 |
+| S4: M2 compare, select, result | +0.083 | +0.114 | +0.314 | +0.265 | +0.373 |
+| S4: DTLB lookup in M1 | +0.144 | +0.087 | +0.371 | +0.166 | **−0.112** |
+| S5: next-PC loop | +1.726 | +1.118 | +0.871 | +1.152 | +0.294 |
+| S5: next PC → I$ BRAM address | +0.566 | +0.423 | +0.301 | +0.466 | +0.013 |
+| S5: IF3 compaction → instruction queue | +0.351 | +0.495 | +0.527 | +0.592 | +0.551 |
+| L2: UltraRAM cascade input | +1.035 | +0.866 | +0.414 | +0.795 | +1.254 |
+| Core → L2 bus (registered, crosses the chip) | +2.285 | +2.456 | +3.232 | +2.089 | +3.140 |
+| Synthetic logic | +0.268 | +0.043 | +0.274 | +0.130 | +0.109 |
 
 **Findings.**
-- **v1 (smt2) holds 200 MHz up to about 88% fill.** It has +0.105 ns at 84% and +0.007 at 88%, so Fmax falls about 2% across that range.
+- **v1 (smt2) holds 200 MHz up to about 88% fill.** It has +0.043 ns at 79%, +0.105 at 84% and +0.007 at 88%.
+  - Across that range Fmax shows no trend, only placement noise of about ±0.1 ns.
+  - The per-path slacks move by up to 0.4 ns between runs, with no order by fill.
   - **What limits it is the protected loops,** S2 and S3, which are already marginal out of context. Congestion is not the limit: it stays at level 5 (moderate) at 88%.
   - **The L2 is not a problem.** The 4-deep UltraRAM cascade and the core-to-L2 buses keep +0.4 ns or more.
 - **st at 76% misses by 0.041 ns, on its scheduler loop.** The st scheduler runs without MX, so its 1-cycle wakeup loop still passes through W: 10 levels. Out of context it closed at +0.110; inside the chip it does not.
