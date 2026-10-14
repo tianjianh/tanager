@@ -155,7 +155,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 - The per-bank L2 estimate (4–5K) is met only after R15.
 - The host bridge, the devices and the M4 debug and experiment features (latency injector, commit trace) were outside the estimate or estimated lower.
 
-**After streaming** (fca6fe8, smt2): the stream is 2,853 LUTs for two cores, about 1,000 of them LUTRAM. The ring was 449 LUTs plus 8 RAMB36. The host bridge fell from 3,335 to 1,667 LUTs, because the record readback left its read multiplexer and status crossing. Net: +732 LUTs and −9 RAMB36, so block RAM now meets its budget of 18. The primitive check is clean: 66 instances, no failures, warnings or strays.
+**After streaming** (fca6fe8, smt2): the stream is 2,853 LUTs for two cores, about 1,000 of them LUTRAM. The ring was 449 LUTs plus 8 RAMB36 and 2 RAMB18. The host bridge fell from 3,335 to 1,667 LUTs, because the record readback left its read multiplexer and status crossing. Net: +732 LUTs and −9 RAMB36, so block RAM now meets its budget of 18. The primitive check is clean: 66 instances, no failures, warnings or strays.
 
 **What no-IPC work is left** (estimates, written before streaming was measured):
 

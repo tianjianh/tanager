@@ -186,6 +186,38 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 
 The board runs the same images (plan §11).
 
+## History and lessons
+
+**Starting point (2026-10-13):** the uncore and the KV260 flow, built with stub cores. That first build closed 100 MHz with WNS +2.463 ns, but synthesis removes most of the uncore when nothing drives it.
+
+**Changes and what each bought:**
+
+| Step | Result |
+|---|---|
+| Traffic-generator build (the first real uncore timing) | WNS +0.928 ns; the uncore was about 24K LUTs against the plan's 13.3K, 18.4K of it in the L2 |
+| L2 lever R15 ([l2.md](l2.md)) | 9.9K → 5.1K LUTs per bank; KV260 WNS +1.701 ns |
+| Same-set rule, interconnect arbiters sized to their reachable ports | uncore (budget unit, smt2) 23,475 → 21,533 LUTs ([budgets.md](../perf/budgets.md) §4) |
+| Commit-trace streaming into DDR over `S_AXI_HP3_FPD` ([uncore-trace.md](uncore-trace.md)) | lossless lockstep trace; +732 LUTs, −9 RAMB36, so block RAM meets its budget of 18; KV260 WNS +1.306 ns, primitive check clean |
+| `tanager_soc` with the real core in Verilator (`tests/unit/boot`) | OpenSBI's banner in 5.0 M cycles at 1×1 and 6.6 M at 2×1 |
+| Linux 6.18 on the real core | the kernel's early initcalls at 27 M cycles; there the boot found a core bug (below) |
+| Uncompressed built-in initramfs | saves an estimated hour or two of simulation per Linux boot |
+
+**Bugs found:**
+- **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.
+  - Found from the commit trace (`+dump_pc`) and a testbench probe on the fetch unit. The race fired about 10 times in 27 M cycles, first inside OpenSBI.
+  - Lockstep had not seen it: the test programs fit in the I$. Fixed by the core track.
+- **Interface margin:** a trace sink that stalls from registered occupancy needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES` of headroom, not `TRACE_STALL_HEADROOM`'s 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` (verification.md §2.9).
+  - The SoC run with the test core overflowed a lane at 2 ×.
+  - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
+
+**Lessons:**
+- **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
+- **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
+- **Run every queued Vivado or simulation job on a snapshot** (`git archive`). A job that starts later otherwise measures whatever the working tree holds by then.
+- **A Kconfig choice silently keeps its default when its dependency is unset in the seed.** `INITRAMFS_COMPRESSION_NONE` needs `INITRAMFS_SOURCE` in the seed.
+- **Verilator `--threads 4` was slower than one thread** for the 1×1 SoC.
+- **Dead end:** the xPack toolchain's `ld` lacks PIE, which OpenSBI needs. OpenSBI is built with the Bootlin toolchain.
+
 ## Provenance
 
 - Plan §3.1, §5.4, §5.5, §7.

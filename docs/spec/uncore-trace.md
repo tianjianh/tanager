@@ -47,7 +47,7 @@ valid masks  ──► order FIFO (64) ───────────┘
   - a writeback bank has fewer than `LLT_ENTRIES + 3 × COMMIT_WIDTH` free entries. Writebacks are not stalled; after the stall takes effect at most the outstanding long-latency tags, plus those of the three cycles that still retire, can report;
   - the order FIFO has fewer than `LLT_ENTRIES + 3 × COMMIT_WIDTH + 3` free entries.
 
-  This is the interface's rule for a sink that stalls from its occupancy register: 3 × `COMMIT_WIDTH` + `LLT_ENTRIES`, verification.md §2.9. `TRACE_STALL_HEADROOM` (2 × `COMMIT_WIDTH`) is enough only for a sink that counts the current cycle's records combinationally. It is applied to each lane, with the writeback bound counted conservatively. While capture is off, `trace_stall_o` is 0.
+  This is the interface's rule for a sink that stalls from its occupancy register: 3 × `COMMIT_WIDTH` + `LLT_ENTRIES`, verification.md §2.9. `TRACE_STALL_HEADROOM` (2 × `COMMIT_WIDTH` + `LLT_ENTRIES`) is enough only for a sink that counts the current cycle's records combinationally. It is applied to each lane, with the writeback bound counted conservatively. While capture is off, `trace_stall_o` is 0.
 
 ### Records in DDR
 
@@ -129,6 +129,22 @@ The registers replace `TRACE_*` at `0x1000`–`0x1064` in the host window ([host
   - `WP` only counts completed writes.
 
 `tests/unit/soc`: the `tcore` run streams the bare-metal program's trace into the memory model, and the testbench checks the records against the program.
+
+## History and lessons
+
+- **Before:** a block-RAM trace ring in the host bridge (`tg_trace_ring`).
+  - It traced one selected core and kept the last 1,024 records.
+  - It dropped records beyond `COMMIT_WIDTH` per cycle.
+  - It cost 449 LUTs and 9 RAMB36 equivalents (8 RAMB36, 2 RAMB18) at smt2, plus about 2.7K FFs of record readback in the host bridge.
+- **This unit** (fca6fe8):
+  - lossless through `trace_stall_i`, every core, records into DDR;
+  - 2,853 LUTs for two cores and no block RAM. The host bridge fell by 1,668 LUTs, so the uncore's net change is +732 LUTs and −9 RAMB36.
+  - The estimate was 2.2K for the stream; it measured 2.85K, with no breakdown by block yet.
+- **Stall headroom:** the thresholds first used interfaces.md's `TRACE_STALL_HEADROOM` (2 × `COMMIT_WIDTH` + `LLT_ENTRIES`).
+  - The SoC run with the test core overflowed a retire lane. The stall is computed from registered occupancy, so the records of the cycle in which it rises are counted only at the next edge, and the core retires once more after that.
+  - The thresholds are now 3 × `COMMIT_WIDTH` (+ `LLT_ENTRIES` for writebacks), as verification.md §2.9 states for this kind of sink.
+  - The unit test's core model now delays the stall by two stages, the test core's default, so it catches the smaller margin.
+- **Lesson:** a core model in a testbench should take the latency the real core actually has (here the test core's `+tcore_stall_lat`), not the minimum the interface allows. The minimum hid the margin bug.
 
 ## Provenance
 
