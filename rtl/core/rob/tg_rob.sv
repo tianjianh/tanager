@@ -97,8 +97,9 @@ module tg_rob
   output logic                         sret,
   output logic                         sfence,       // SFENCE.VMA retires: flush the TLBs
   input  logic [63:0]                  trap_target,
-  input  logic [63:0]                  mepc,
-  input  logic [63:0]                  sepc,
+  output logic                         xret_v,       // an MRET or SRET is in flight (registered) ...
+  output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
+  input  logic [63:0]                  xepc,
   input  priv_e                        priv,
   input  logic                         irq_take,
   input  logic [5:0]                   irq_code,
@@ -119,6 +120,7 @@ module tg_rob
   robid_t head_q, tail_q;
   assign head_o = head_q;
   logic [ROB_ENTRIES-1:0] rpl_q;
+  logic                   xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -382,7 +384,7 @@ module tg_rob
           do_mret  = hp[0].sys == SYS_MRET;
           do_sret  = hp[0].sys == SYS_SRET;
           do_sfence = hp[0].sys == SYS_SFENCE;
-          nf_pc    = do_mret ? mepc : do_sret ? sepc : hp[0].pc + (hp[0].rvc ? 64'd2 : 64'd4);
+          nf_pc    = (do_mret || do_sret) ? xepc : hp[0].pc + (hp[0].rvc ? 64'd2 : 64'd4);
         end
       end else begin
         stop = 1'b0;
@@ -514,6 +516,7 @@ module tg_rob
       icinv    <= 1'b0;
       exr_v_q  <= 1'b0;
       mpr_v_q  <= 1'b0;
+      xr_v_q   <= 1'b0;
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
       flush     <= do_flush;
@@ -525,9 +528,18 @@ module tg_rob
         tail_q  <= head_q;
         exr_v_q <= 1'b0;
         mpr_v_q <= 1'b0;
+        xr_v_q  <= 1'b0;
       end else begin
         // Dispatch
         if (ds_fire) begin
+          // MRET and SRET are serial: dispatched alone, with nothing after them until their
+          // flush, so this holds until they commit
+          xr_v_q <= 1'b0;
+          xr_s_q <= 1'b0;
+          for (int k = 0; k < DISPATCH_WIDTH; k++) begin
+            if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q <= 1'b1;
+            if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q <= 1'b1;
+          end
           for (int k = 0; k < DISPATCH_WIDTH; k++) begin
             if (ds_valid[k]) rpl_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
           end
@@ -554,6 +566,14 @@ module tg_rob
     end
   end
   assign flush_tid = '0;
+  assign xret_v    = xr_v_q;
+  assign xret_s    = xr_s_q;
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst && (do_mret || do_sret))
+      assert (xr_v_q && xr_s_q == do_sret) else $error("tg_rob: an xRET commits that xret_v/xret_s do not name");
+  end
+`endif
 
   logic unused;
   assign unused = ^{hp[0].tid, hp[0].is_br, hp[0].lq, hp[CW-1].tid, hp[CW-1].is_br, hp[CW-1].lq,

@@ -35,8 +35,9 @@ module tg_csr
   input  logic                   sret,
   // State for commit, decode, fetch and the MMU
   output logic [63:0]            trap_target,  // for tr_* given this cycle
-  output logic [63:0]            mepc_o,
-  output logic [63:0]            sepc_o,
+  input  logic                   xret_v,       // an MRET or SRET is in flight (registered) ...
+  input  logic                   xret_s,       // ... and it is SRET
+  output logic [63:0]            xepc_o,       // its xepc (mepc or sepc), for its commit
   output logic                   irq_take,     // an enabled interrupt is pending
   output logic [5:0]             irq_code,
   output logic                   wfi_wake,     // mip & mie != 0
@@ -107,7 +108,8 @@ module tg_csr
   // ---- Cold CSRs in LUTRAM (FPGA-friendly T1) ----
   // xtvec, xscratch, xepc, xcause and xtval of M and S: one 16 x 64 tg_ram_lut at
   // {csr[9], csr[2:0]}, M (csr[9] = 1) or S, then scratch 0, epc 1, cause 2, tval 3, tvec 5.
-  // Read ports: the CSR read (EX), the trap vector (the trap's target), mepc, sepc (MRET, SRET).
+  // Read ports: the CSR read (EX), or xepc while an MRET or SRET is in flight (it is serial, so
+  // no CSR instruction executes meanwhile: asserted); the trap vector (the trap's target).
   // One write port, taken by
   //   - the reset sweep (PMP's counter, 16 cycles: nothing reads these before fetch starts),
   //   - trap entry: xepc, xcause and xtval in the three cycles after the trap, from registers,
@@ -129,12 +131,10 @@ module tg_csr
   logic             cw_we;
   logic [3:0]       cw_wa;
   logic [63:0]      cw_wd;
-  logic [3:0][3:0]  cw_ra;              // CSR read, trap vector, mepc, sepc
-  logic [3:0][63:0] cw_rd;
-  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(4)) u_cold (
+  logic [1:0][3:0]  cw_ra;              // CSR read or xepc, trap vector
+  logic [1:0][63:0] cw_rd;
+  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(2)) u_cold (
     .clk, .we(cw_we), .waddr(cw_wa), .wdata(cw_wd), .raddr(cw_ra), .rdata(cw_rd));
-  assign cw_ra[2] = {1'b1, CX_EPC};
-  assign cw_ra[3] = {1'b0, CX_EPC};
 
   // ---- Interrupt pending bits ----
   logic        stip;
@@ -258,8 +258,7 @@ module tg_csr
   assign pmp_d    = pmp_d_q;
   assign pmp_al   = pmp_al_q;
   assign pmp_busy = psweep || |pdirty_q || pchg_q;
-  assign mepc_o    = {cw_rd[2][63:2], cw_rd[2][1] && misa_c_q, 1'b0};
-  assign sepc_o    = {cw_rd[3][63:2], cw_rd[3][1] && misa_c_q, 1'b0};
+  assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0};
 
   // Trap target: S when delegated from S or U
   logic deleg;
@@ -320,8 +319,8 @@ module tg_csr
   // ---- Read and legality ----
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
-  logic [63:0] cold_rd;                          // xepc reads as mepc_o / sepc_o
-  assign cw_ra[0] = {a[9], a[2:0]};
+  logic [63:0] cold_rd;                          // xepc reads as xepc_o
+  assign cw_ra[0] = xret_v ? {!xret_s, CX_EPC} : {a[9], a[2:0]};
   assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0} : cw_rd[0];
   logic        exists, deny;
   logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
@@ -442,6 +441,8 @@ module tg_csr
     if (!rst && (psweep || ts_q != '0))
       assert (!tr_valid && !mret && !sret && !(cm_csr && pw_v_q) && !(ex_valid && !flush && cold_csr(a)))
         else $error("tg_csr: the cold CSRs are used while their sweep or a trap's writes run");
+    if (!rst && xret_v)
+      assert (!(ex_valid && !flush)) else $error("tg_csr: a CSR instruction executes while an xRET is in flight");
   end
 `endif
 
@@ -689,6 +690,5 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, cw_rd[2][0], cw_rd[3][0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q,
-                    tvec[1], pcfg[6:5]};
+  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1], pcfg[6:5]};
 endmodule
