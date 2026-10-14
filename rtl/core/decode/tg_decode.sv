@@ -194,7 +194,7 @@ module tg_decode
           end else if (xb && w && f7 == 7'b0000100 && f3 == 3'd4 && insn[24:20] == 5'd0) begin
             d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_ZEXTH; d.rs2_en = 1'b0;   // ZEXT.H
           end else if (xb && !w && f7 == 7'b0000101 && f3[2]) begin       // MIN(U), MAX(U)
-            d.alu = ctl(3'(G_MINMX)); d.alu.sub = 1'b1;
+            d.cls = C_MUL; d.bcnt = 1'b1; d.mul_op = MUL_HU;                // P1's 2-cycle path
             d.alu.cmp_unsigned = f3[0]; d.alu.cmp_max = f3[1];
           end else if (xb && f7 == 7'b0110000 && (f3 == 3'd1 || f3 == 3'd5)) begin
             d.alu = ctl(3'(G_SHIFT)); d.alu.sh_rot = 1'b1; d.alu.sh_left = !f3[2]; d.alu.word = w;

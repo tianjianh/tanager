@@ -225,7 +225,7 @@ module tg_exec
   logic [N_ALU-1:0][63:0] alu_res;
   logic [N_ALU-1:0]       f_eq, f_lt, f_ltu;
   for (genvar i = 0; i < N_ALU; i++) begin : g_alu
-    tg_alu u_alu (.ctl(ex_pl_q[i].alu), .a(opa[i]), .b(opb[i]), .res(alu_res[i]),
+    tg_alu #(.MINMAX(1'b0)) u_alu (.ctl(ex_pl_q[i].alu), .a(opa[i]), .b(opb[i]), .res(alu_res[i]),
                   .eq(f_eq[i]), .lt(f_lt[i]), .ltu(f_ltu[i]));
   end
 
@@ -322,15 +322,18 @@ module tg_exec
     .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
     .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag));
 
-  // clz, ctz, cpop (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's write cycle
+  // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's
+  // write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0)
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
   logic [2:0][63:0]  bc_q;
   always_comb begin
     logic [63:0] x;
     int n;
+    logic lt;
     x = p1.word ? {32'b0, opa[1][31:0]} : opa[1];
     n = 0;
+    lt = p1.alu.cmp_unsigned ? opa[1] < opb[1] : $signed(opa[1]) < $signed(opb[1]);
     unique case (p1.mul_op)
       MUL_LO: begin                                  // clz
         n = p1.word ? 32 : 64;
@@ -340,9 +343,11 @@ module tg_exec
         n = p1.word ? 32 : 64;
         for (int i = 63; i >= 0; i--) if (x[i]) n = i;
       end
-      default: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
+      MUL_HSU: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
+      default: n = 0;                                          // min/max below
     endcase
     bc_res = 64'(n);
+    if (p1.mul_op == MUL_HU) bc_res = (lt ^ p1.alu.cmp_max) ? opa[1] : opb[1];   // MIN(U), MAX(U)
   end
 
   logic              div_ov, div_ordy;

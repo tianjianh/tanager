@@ -278,7 +278,7 @@ package tg_core_pkg;
   // ---- Scheduler options (spikes.md §4.2) ----
   localparam bit IQ_DUP_SEL = 1'b1;               // a second select copy drives the wakeup
   localparam int IQ_EARLY_W = 2 * $bits(preg_t);  // only the source tags in flip-flops
-  localparam bit IQ_MX      = TID_W > 0;          // matrix wakeup: required for smt2 timing
+  localparam bit IQ_MX      = 1'b1;               // matrix wakeup: in every configuration (S6)
   // ALU-queue rows, numbered across the queues (MX names producers by these rows)
   localparam int RA = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0);
   localparam int RA_W = idx_w(RA);
