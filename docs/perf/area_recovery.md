@@ -650,6 +650,25 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
 | 2026-10-13 | Planning projection (spikes §10) | — | — | 99–110K | −4K to +7K | — |
 | 2026-10-14 01:30 | First real synthesis, d04ae26 (no FPU; P4 7,953 and hart 1 added) | 81,715 | 89,050 | ≈224.7K | ≈+121.6K | ≈+114.4K |
 | 2026-10-14 07:30 | AR-7: area pass, AR-1, F/D (c898f1e, cb8ff6c) | 56,461 | 62,501 | **155.7K** | **+52.6K** | **+45.4K** |
+| 2026-10-14 | Core track's second no-IPC pass (a32d2aa, 8a5c651; reported by core-2) | 50,768 (≈51.6K at the final head) | 54,506 (≈55.3K at the final head) | **≈141.3K** | **≈+38.3K** | **≈+31.1K** |
+
+**The second pass, per unit at `smt2` against the v1 budgets** (hart 1 added; final-head estimate, area_fit.py's method):
+
+| Unit | Over budget |
+|---|---|
+| LSU and MMU | +6.8K (14,405 measured, +0.83K for the walker's own PMP checker) |
+| Rename | +4.3K |
+| ROB, commit and CSRs | +3.2K |
+| P4 | +1.2K |
+| Execute | +1.1K |
+| Decode | +0.2K |
+| Issue queues | −2.9K |
+| Front end | −0.5K |
+| **Core** | **+13.4K** (was +20.6K) |
+
+The uncore is unchanged, at +11.5K.
+- **Where the final-head figures come from.** The measured numbers include the page walker sharing the STA's PMP checker. That sharing was reverted under D18, so the core track expects about +0.83K in lsu_mmu at its final head (5c124f2). Its runs of `st`, `smt2`, `st_w3` and `smt2_w3` there are queued, and they will replace these estimates and v2's.
+- **Candidate reported since AR-7: the commit trace,** 1,466 LUTs per core at `st` (core track, measured with `trace_o` unconnected). A production build without it would save that at no IPC cost, but it would lose the lockstep trace, so that is the user's call. With the uncore's trace stream (2.9K), trace logic comes to ≈5.8K per SoC.
 
 ---
 
