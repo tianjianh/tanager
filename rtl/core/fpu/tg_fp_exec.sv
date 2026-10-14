@@ -55,15 +55,18 @@ module tg_fp_exec
   // Wakeups: W set at the end of this cycle; divide LLTs written this cycle
   output logic [NCOL-1:0]              wake_reg,
   output logic [LLT_ENTRIES-1:0]       llt_done,
-  // Completion of F0 results
+  // Completion of F0 results (cmp_wid: the op's wakeup column, for the core's tag release)
   output logic                         cmp_valid,
   output tid_t                         cmp_tid,
   output robid_t                       cmp_rob,
+  output wid_t                         cmp_wid,
   output logic [4:0]                   cmp_fflags,
-  // Integer results for bank B1
+  // Integer results for bank B1: the head stays until fpi_ready; fpi_kill marks a flushed head
+  // (no write, wakeup or completion; the core still pops it with fpi_ready)
   output logic                         fpi_valid,
   input  logic                         fpi_ready,
   output fpi_t                         fpi_o,
+  output logic                         fpi_kill,
   output logic                         fpi_pop,        // one entry left the queue: a credit
   // Divides: credit return, early retirement, early-retired completion
   output logic                         fdiv_done,
@@ -128,17 +131,18 @@ module tg_fp_exec
   // Stage k holds the operation that was in EX0 k+1 cycles ago; the unit answers when it
   // reaches stage LAT-1.
   // ------------------------------------------------------------------------------------------
-  // Wakeup IDs follow the core's layout: a fixed-latency producer's ID is its ROB index (columns
-  // 0 .. ROB_ENTRIES-1); a divide's is its LLT (column ROB_ENTRIES + llt). Each decoder below
-  // covers only its own range.
-  localparam int RIW = idx_w(ROB_ENTRIES);
+  // Wakeup columns follow the core's layout: NFX columns for the fixed-latency producers (the
+  // wakeup tags of AR-1, plan §4.6; ROB indices before it), then one per LLT (column NFX + llt),
+  // which divides and integer-result ops use. Each decoder below covers only its own range.
+  localparam int NFX = NCOL - LLT_ENTRIES;
+  localparam int FXW = idx_w(NFX);
   typedef struct packed {
     logic               v;
     logic               live;
     logic               fpd;         // writes F0
     tid_t               tid;
     logic [FPIDX_W-1:0] idx;
-    logic [RIW-1:0]     wid;         // ROB index
+    logic [FXW-1:0]     wid;         // fixed-latency wakeup column (tag)
   } sh_t;
   sh_t [ML-1:0] fsh_q;               // FMA
   sh_t [SL-1:0] msh_q;               // FMISC
@@ -380,22 +384,25 @@ module tg_fp_exec
   end
   always_comb begin
     f0_we = 1'b0;
-    cmp_valid = 1'b0; cmp_tid = '0; cmp_rob = '0; cmp_fflags = '0;
+    cmp_valid = 1'b0; cmp_tid = '0; cmp_rob = '0; cmp_wid = '0; cmp_fflags = '0;
     er_valid = 1'b0; er_tid = '0; er_fflags = '0;
     llt_done = '0;
     if (fma_w) begin
       f0_we = 1'b1;
-      cmp_valid = 1'b1; cmp_tid = fma_t.tid; cmp_rob = fma_t.rob; cmp_fflags = fma_resp.fflags;
+      cmp_valid = 1'b1; cmp_tid = fma_t.tid; cmp_rob = fma_t.rob; cmp_wid = fma_t.wid;
+      cmp_fflags = fma_resp.fflags;
     end else if (misc_w) begin
       f0_we = 1'b1;
-      cmp_valid = 1'b1; cmp_tid = misc_t.tid; cmp_rob = misc_t.rob; cmp_fflags = misc_resp.fflags;
+      cmp_valid = 1'b1; cmp_tid = misc_t.tid; cmp_rob = misc_t.rob; cmp_wid = misc_t.wid;
+      cmp_fflags = misc_resp.fflags;
     end else if (div_w) begin
       f0_we = 1'b1;
       llt_done[dv_e.llt] = 1'b1;
       if (dv_ret) begin
         er_valid = 1'b1; er_tid = dv_e.tid; er_fflags = dv_fl_q;
       end else begin
-        cmp_valid = 1'b1; cmp_tid = dv_e.tid; cmp_rob = dv_e.rob; cmp_fflags = dv_fl_q;
+        cmp_valid = 1'b1; cmp_tid = dv_e.tid; cmp_rob = dv_e.rob; cmp_wid = wid_t'(NFX + int'(dv_e.llt));
+        cmp_fflags = dv_fl_q;
       end
     end
   end
@@ -406,24 +413,26 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   // Wakeups
   // ------------------------------------------------------------------------------------------
-  logic [ROB_ENTRIES-1:0] wk_rob;
+  logic [NFX-1:0]         wk_fx;
   logic [LLT_ENTRIES-1:0] wk_llt;
   always_comb begin
-    wk_rob = '0;
+    wk_fx  = '0;
     wk_llt = '0;
     // FMISC with an FP destination: at RF, so dependants reach EX0 with the result
     if (iss_valid && rf_live && rf_unit == FU_MISC && !iss_pl.fp_int)
-      wk_rob[iss_pl.wid[RIW-1:0]] = 1'b1;
+      wk_fx[iss_pl.wid[FXW-1:0]] = 1'b1;
     // FMA: ML-3 cycles after EX0 (s+4 for ML = 5)
     if (fsh_q[ML-4].v && fsh_q[ML-4].live && !tid_hit(flush, flush_tid, fsh_q[ML-4].tid))
-      wk_rob[fsh_q[ML-4].wid] = 1'b1;
+      wk_fx[fsh_q[ML-4].wid] = 1'b1;
     // A divide: when it claims its slot
     if (fdv_claim && fdv_live) wk_llt[fdv_e.llt] = 1'b1;
   end
-  assign wake_reg = {wk_llt, wk_rob};
+  assign wake_reg = {wk_llt, wk_fx};
 
   // ------------------------------------------------------------------------------------------
-  // B1 queue: integer results, with a dead mark per entry for flushes
+  // B1 queue: integer results, with a dead mark per entry for flushes. The head leaves only on
+  // fpi_ready, so it stays stable between the core's slot claim and its write; a flushed head is
+  // presented with fpi_kill and popped by the core without effects.
   // ------------------------------------------------------------------------------------------
   localparam int IQW = idx_w(FPI_Q);
   logic [IQW:0]          iq_wr_q, iq_rd_q;
@@ -451,8 +460,9 @@ module tg_fp_exec
   assign iq_head_dead = iq_dead_q[iq_rd_q[IQW-1:0]] ||
                         tid_hit(flush, flush_tid, iq_tid_q[iq_rd_q[IQW-1:0]]);
   assign fpi_o     = fpi_t'(iq_rd[0]);
-  assign fpi_valid = !iq_empty && !iq_head_dead;
-  assign iq_pop    = !iq_empty && (iq_head_dead || fpi_ready);
+  assign fpi_valid = !iq_empty;
+  assign fpi_kill  = !iq_empty && iq_head_dead;
+  assign iq_pop    = !iq_empty && fpi_ready;
   assign fpi_pop   = iq_pop;
 
   // ------------------------------------------------------------------------------------------
@@ -500,13 +510,13 @@ module tg_fp_exec
       fsh_q[0].fpd  <= 1'b1;
       fsh_q[0].tid  <= ex_pl_q.tid;
       fsh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
-      fsh_q[0].wid  <= ex_pl_q.wid[RIW-1:0];
+      fsh_q[0].wid  <= ex_pl_q.wid[FXW-1:0];
       msh_q[0].v    <= ex_v_q && ex_unit == FU_MISC;
       msh_q[0].live <= ex_live;
       msh_q[0].fpd  <= !ex_pl_q.fp_int;
       msh_q[0].tid  <= ex_pl_q.tid;
       msh_q[0].idx  <= fpreg_idx(ex_pl_q.dst);
-      msh_q[0].wid  <= ex_pl_q.wid[RIW-1:0];
+      msh_q[0].wid  <= ex_pl_q.wid[FXW-1:0];
       if (flush) begin
         for (int k = 0; k < ML - 1; k++) if (fsh_q[k].tid == flush_tid) fsh_q[k+1].live <= 1'b0;
         for (int k = 0; k < SL - 1; k++) if (msh_q[k].tid == flush_tid) msh_q[k+1].live <= 1'b0;
@@ -552,7 +562,7 @@ module tg_fp_exec
   logic unused;
   assign unused = ^{dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
-                    fma_t.dst_en, fma_t.dst, fma_t.wid, fma_t.llt, misc_t.fp_int,
+                    fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
                     iss_pl.fp_div, iss_pl.fp_int, iss_pl.dst_en, iss_pl.src_fmt, iss_pl.ifmt,
                     iss_pl.rm, iss_pl.fmt, ex_live_q, fma_s, misc_s, fdv_e, dv_e, fsd_tag,
@@ -571,8 +581,8 @@ module tg_fp_exec
           else $error("tg_fp_exec: FMISC op with an FP destination selected under fmisc_block");
         assert (!rf_div || dt_free_ok) else $error("tg_fp_exec: more divides than FDIV_Q in flight");
         assert ((rf_unit == FU_DIV || iss_pl.fp_int) ?
-                  int'(iss_pl.wid) == ROB_ENTRIES + int'(iss_pl.llt) : int'(iss_pl.wid) < ROB_ENTRIES)
-          else $error("tg_fp_exec: wakeup ID outside its range (ROB index, or ROB_ENTRIES + llt)");
+                  int'(iss_pl.wid) == NFX + int'(iss_pl.llt) : int'(iss_pl.wid) < NFX)
+          else $error("tg_fp_exec: wakeup column outside its range (a tag below NFX, or NFX + llt)");
         assert ((rf_unit == FU_DIV) == iss_pl.fp_div)
           else $error("tg_fp_exec: fp_div disagrees with fpu_unit_of");
         assert (!iss_pl.fp_int || rf_unit == FU_MISC)

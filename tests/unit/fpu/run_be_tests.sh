@@ -3,7 +3,8 @@
 # tg_fpu, and tg_fcsr. Exits non-zero if any job fails.
 #   run_be_tests.sh short|long <tb_fpx> <tb_fcsr> [seed]
 #   short: random P4 streams (three stress settings: no flushes; flushes, early retirement and
-#          B1 back-pressure; heavy flushing), TestFloat level 1 for every function in RNE
+#          B1 back-pressure; heavy flushing with 4 wakeup tags), TestFloat level 1 for every
+#          function in RNE
 #          (capped), fcsr streams
 #   long:  more and longer random streams, TestFloat level 1 for every function in all five
 #          modes (mulAdd capped), longer fcsr streams
@@ -24,7 +25,7 @@ funcs="f32_add f64_add f32_sub f64_sub f32_mul f64_mul f32_mulAdd f64_mulAdd f32
        f64_sqrt f32_eq f64_eq f32_lt f64_lt f32_le f64_le f32_to_i32 f32_to_ui32 f32_to_i64
        f32_to_ui64 f64_to_i32 f64_to_ui32 f64_to_i64 f64_to_ui64 i32_to_f32 ui32_to_f32 i64_to_f32
        ui64_to_f32 i32_to_f64 ui32_to_f64 i64_to_f64 ui64_to_f64 f32_to_f64 f64_to_f32"
-stress=("-flush 0 -ret 0 -ready 100" "-flush 150 -ret 20 -ready 60" "-flush 40 -ret 40 -ready 30")
+stress=("-flush 0 -ret 0 -ready 100" "-flush 150 -ret 20 -ready 60" "-flush 40 -ret 40 -ready 30 -tags 4")
 
 list=$(mktemp)
 trap 'rm -f "$list"' EXIT

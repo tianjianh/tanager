@@ -52,6 +52,7 @@ module tb_fpx_top
   output logic                    cmp_valid,
   output logic [TID_BITS-1:0]     cmp_tid,
   output logic [ROBW-1:0]         cmp_rob,
+  output logic [COL_W-1:0]        cmp_wid,
   output logic [4:0]              cmp_fflags,
   output logic                    fpi_valid,
   input  logic                    fpi_ready,
@@ -63,6 +64,7 @@ module tb_fpx_top
   output logic [PW-1:0]           fpi_dst,
   output logic [63:0]             fpi_data,
   output logic [4:0]              fpi_fflags,
+  output logic                    fpi_kill,
   output logic                    fpi_pop,
   output logic                    fdiv_done,
   input  logic                    fdiv_ret_valid,
@@ -70,8 +72,10 @@ module tb_fpx_top
   input  logic [LLT_IDX_W-1:0]    fdiv_ret_llt,
   output logic                    er_valid,
   output logic [TID_BITS-1:0]     er_tid,
-  output logic [4:0]              er_fflags
+  output logic [4:0]              er_fflags,
+  output logic [15:0]             nfx_o       // fixed-latency (tag) wakeup columns
 );
+  assign nfx_o = 16'(NCOL - LLT_ENTRIES);
   fp_iss_t pl;
   always_comb begin
     pl.tid     = iss_tid;
@@ -109,8 +113,8 @@ module tb_fpx_top
     .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_single, .fld_data,
     .fsd_tag, .fsd_data, .tr_tag(tr_tag), .tr_data(tr_data),
     .f0_we_o, .f0_widx_o, .wake_reg, .llt_done,
-    .cmp_valid, .cmp_tid, .cmp_rob, .cmp_fflags,
-    .fpi_valid, .fpi_ready, .fpi_o(fpi), .fpi_pop,
+    .cmp_valid, .cmp_tid, .cmp_rob, .cmp_wid, .cmp_fflags,
+    .fpi_valid, .fpi_ready, .fpi_o(fpi), .fpi_kill, .fpi_pop,
     .fdiv_done, .fdiv_ret_valid, .fdiv_ret_tid, .fdiv_ret_llt,
     .er_valid, .er_tid, .er_fflags);
 endmodule

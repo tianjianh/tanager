@@ -1,12 +1,15 @@
 // Verilator testbench for the FP back end: tg_fp_exec with tg_fprf and tg_fpu (docs/spec/fpu.md,
 // "Core integration"). A model of the core's side of port P4 (scheduler with the woken vector,
-// physical registers, ROB and LLT pools, rename credits, the load path and the bank-1 arbiter)
-// drives operation streams and checks every F0 write, completion, wakeup and integer result
-// against the SoftFloat-based reference, with exact cycles. Exits non-zero on failure.
+// physical registers, ROB and LLT pools, the 16 wakeup tags of AR-1, rename credits, the load
+// path and the bank-1 arbiter) drives operation streams and checks every F0 write, completion,
+// wakeup and integer result against the SoftFloat-based reference, with exact cycles. Exits
+// non-zero on failure.
 //
-//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT]
+//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT] [-tags N]
 //       random FP operations with dependencies, loads, flushes every ~N cycles (0: none),
-//       early retirement of divides (PCT per cycle), B1 back-pressure (fpi_ready PCT)
+//       early retirement of divides (PCT per cycle), B1 back-pressure (the arbiter claims the
+//       queue head with PCT per cycle and writes it 1-4 cycles later), N wakeup tags (default
+//       16; fewer exhaust the pool, so dispatch waits and tags are reused at once)
 //   tb_fpx tf <function> [-rm N] [-n N]
 //       TestFloat vectors (testfloat_gen output on stdin), operands through F1 loads and the
 //       integer source port, results through F0 and the B1 queue
@@ -46,6 +49,7 @@ static constexpr int ROBI  = clog2(ROB_ENTRIES);
 static constexpr int FDIVQ = 4;
 static constexpr int FPIQ  = 4;
 static constexpr int NINT  = 64;                    // integer pregs the bench uses (bank B1)
+static constexpr int NTAG  = 16;                    // wakeup tags (AR-1)
 static constexpr uint64_t NEVER = ~0ull;
 
 // ---- Bit access on Verilator ports of any width ----
@@ -59,6 +63,7 @@ enum { U_FMA = 0, U_MISC = 1, U_DIV = 2 };
 struct Op {
   long id = 0;
   int tid = 0, rob = 0, robi = 0, wid = 0, llt = -1;   // rob: index plus wrap bit
+  int tag = -1;                      // wakeup tag (FMA, FMISC with an FP destination)
   int unit = 0;
   bool fp_dst = true, dst_en = true;
   int dst = 0;                       // F0 index, or integer preg index
@@ -92,6 +97,7 @@ class Bench {
   ops::Gen gen;
   uint64_t cycle = 0;
   long checked = 0, errors = 0, issued = 0, flushes = 0, rets = 0, dead_ops = 0;
+  long tag_allocs = 0, tag_waits = 0, fpi_claims = 0, fpi_kills = 0;
   uint64_t last_progress = 0;
   // Knobs
   int flush_every = 0, ret_pct = 0, ready_pct = 100;
@@ -104,13 +110,22 @@ class Bench {
   long next_id = 1;
   bool rob_busy[NROB] = {};
   bool llt_busy[NLLT] = {};
-  long wid_owner[NROB + NLLT];        // op id waiting for this wakeup ID (-1: none)
+  int nfx = 0;                        // fixed-latency wakeup columns (tags), then the LLT columns
+  int ntag = 0;                       // tags in use by the bench: min(NTAG, nfx)
+  bool tag_busy[NTAG] = {};
+  uint64_t tag_free_at[NTAG] = {};    // rename frees a tag 2 cycles after its producer's F0 write
+  std::vector<long> wid_owner;        // op id waiting for this wakeup column (-1: none)
   int fdiv_cnt = 0, fpi_cnt = 0;
   std::deque<long> fpi_exp;           // integer results in queue order (ids; dead ones included)
   std::map<uint64_t, long> f0_sched;  // cycle -> op expected to write F0 (FMA, FMISC FP)
   // Pipeline of the bench's own inputs
   bool have_iss = false;              // an op selected last cycle, presented this cycle
   long iss_id = 0;
+  // Bank-1 arbiter: a claimed queue head, written (fpi_ready) fpi_left cycles later
+  bool fpi_claimed = false;
+  long fpi_claim_id = 0;
+  int fpi_left = 0;
+  uint64_t fpi_snap[8] = {};
   struct Ld { bool v = false; int idx = 0; bool single = false; uint64_t raw = 0; };
   Ld ld_new, ld_m2, ld_wr;            // started this cycle, announced this cycle, writing this cycle
   int tr_chk_idx = -1;                // F0 index written last cycle: checked through the trace port
@@ -119,7 +134,10 @@ class Bench {
 
   Bench(uint64_t seed) : rng(seed), gen(rng) {
     top = new Vtb_fpx_top;
-    for (auto &w : wid_owner) w = -1;
+    top->eval();
+    nfx = top->nfx_o;
+    ntag = std::min(NTAG, nfx);
+    wid_owner.assign(nfx + NLLT, -1);
     for (int i = 0; i < NINT; i++) { ival[i] = gen.integer(); ibusy[i] = false; iavail[i] = 0; }
   }
 
@@ -164,6 +182,14 @@ class Bench {
   int alloc_free(bool *busy, int n) {
     int start = r(n);
     for (int k = 0; k < n; k++) { int i = (start + k) % n; if (!busy[i]) return i; }
+    return -1;
+  }
+  int alloc_tag() {
+    int start = r(ntag);
+    for (int k = 0; k < ntag; k++) {
+      int i = (start + k) % ntag;
+      if (!tag_busy[i] && tag_free_at[i] <= cycle) return i;
+    }
     return -1;
   }
   int alloc_f(int bank) {
@@ -264,6 +290,8 @@ class Bench {
     bool need_llt = o.unit == U_DIV || !o.fp_dst;
     int llt = need_llt ? alloc_free(llt_busy, NLLT) : -1;
     if (need_llt && llt < 0) return false;
+    int tag = need_llt ? -1 : alloc_tag();
+    if (!need_llt && tag < 0) { tag_waits++; return false; }   // no free tag: dispatch waits
     int dst;
     if (o.fp_dst) { dst = alloc_f(0); if (dst < 0) return false; }
     else { dst = alloc_free(ibusy, NINT); if (dst < 0) return false; o.dst_en = chance(95); }
@@ -274,7 +302,9 @@ class Bench {
     rob_busy[rob] = true;
     o.llt = llt;
     if (need_llt) llt_busy[llt] = true;
-    o.wid = need_llt ? NROB + llt : rob;
+    o.tag = tag;
+    if (tag >= 0) { tag_busy[tag] = true; tag_allocs++; }
+    o.wid = need_llt ? nfx + llt : tag;
     o.dst = dst;
     o.sel = cycle;
     if (o.fp_dst) {
@@ -326,6 +356,7 @@ class Bench {
       rob_busy[o.robi] = false;
       if (o.llt >= 0) llt_busy[o.llt] = false;
       if (wid_owner[o.wid] == o.id) wid_owner[o.wid] = -1;
+      if (o.tag >= 0) { tag_busy[o.tag] = false; tag_free_at[o.tag] = cycle + 1; }
       if (o.fp_dst) {
         FReg &f = fr[0][o.dst];
         if (f.prod == o.id) f = FReg{};
@@ -349,7 +380,6 @@ class Bench {
     if (ld_wr.v) {
       top->fld_valid = 1; top->fld_idx = ld_wr.idx; top->fld_single = ld_wr.single; top->fld_data = ld_wr.raw;
     }
-    top->fpi_ready = chance(ready_pct);
     if (flushing) { top->flush = 1; top->flush_tid = ftid; }
     // Early retirement of a divide already in RF or beyond
     if (ret_pct && chance(ret_pct)) {
@@ -386,6 +416,24 @@ class Bench {
     }
     // The flush acts in this cycle: its thread's operations are dead from now on
     if (flushing) do_flush(ftid);
+    // Bank-1 arbiter: claim a live head, write it 1-4 cycles later (the head must stay put), and
+    // pop a killed head without a write, wakeup or completion
+    bool fpi_write = false;
+    if (top->fpi_valid) {
+      if (fpi_claimed) {
+        if (top->fpi_kill) { if (--fpi_left <= 0 || chance(50)) top->fpi_ready = 1; }
+        else if (--fpi_left <= 0) { top->fpi_ready = 1; fpi_write = true; }
+      } else if (top->fpi_kill) {
+        if (chance(70)) top->fpi_ready = 1;
+      } else if (chance(ready_pct)) {
+        fpi_claimed = true;
+        fpi_claim_id = fpi_exp.empty() ? -1 : fpi_exp.front();
+        fpi_left = 1 + r(4);
+        fpi_snap_take();
+        fpi_claims++;
+      }
+      top->eval();
+    }
 
     // ---- Observe ----
     if (fsd >= 0) {
@@ -402,7 +450,7 @@ class Bench {
       tr_chk_idx = -1;
     }
     // Wakeups
-    for (int w = 0; w < NROB + NLLT; w++) {
+    for (int w = 0; w < nfx + NLLT; w++) {
       if (!bit_of(top->wake_reg, w)) continue;
       long id = wid_owner[w];
       if (id < 0 || !ops.count(id) || !ops[id].live) { fail("wakeup of ID %d with no live producer", w); continue; }
@@ -464,6 +512,7 @@ class Bench {
         checked++;
         if (id != wid_) fail("op %ld completes without its F0 write", id);
         if (o.retired) fail("op %ld retired early but completes to the ROB", id);
+        if ((int)top->cmp_wid != o.wid) fail("op %ld completes with wid %d, expected %d", id, (int)top->cmp_wid, o.wid);
         if (top->cmp_fflags != o.exp.flags)
           fail("op %ld %s fmt %d rm %d a %016llx b %016llx c %016llx: flags %02x, expected %02x", id,
                ref::op_name(o.req.op), o.req.fmt, o.req.rm, (unsigned long long)o.req.a, (unsigned long long)o.req.b,
@@ -487,13 +536,18 @@ class Bench {
       if (!bit_of(top->llt_done, l)) continue;
       if (wid_ < 0 || wop.unit != U_DIV || wop.llt != l) fail("llt_done[%d] without its divide", l);
     }
-    // Integer results
-    if (top->fpi_valid || top->fpi_pop) {
-      if (fpi_exp.empty()) fail("B1 queue activity with nothing expected");
+    // Integer results: the queue head, held until the arbiter's fpi_ready
+    if (top->fpi_pop != (top->fpi_valid && top->fpi_ready)) fail("fpi_pop without fpi_ready on a valid head");
+    if (top->fpi_valid) {
+      if (fpi_exp.empty()) fail("B1 queue presents a head with nothing expected");
       else {
         Op &o = ops[fpi_exp.front()];
-        if (top->fpi_valid) {
-          if (!o.live) fail("B1 queue presents a squashed op %ld", o.id);
+        if ((bool)top->fpi_kill != !o.live) fail("B1 head op %ld: fpi_kill %d, live %d", o.id, (int)top->fpi_kill, (int)o.live);
+        if (fpi_claimed) {
+          if (fpi_claim_id != o.id) fail("B1 head changed under a claim (op %ld, claimed %ld)", o.id, fpi_claim_id);
+          else if (!fpi_snap_same()) fail("B1 head of op %ld changed under a claim", o.id);
+        }
+        if (o.live) {
           checked++;
           if ((int)top->fpi_rob != o.rob || (int)top->fpi_tid != o.tid || (int)top->fpi_wid != o.wid ||
               (int)top->fpi_llt != o.llt || (int)(top->fpi_dst & (NINT - 1)) != o.dst || (bool)top->fpi_dst_en != o.dst_en)
@@ -506,19 +560,21 @@ class Bench {
           if (o.wake != NEVER) fail("integer-result op %ld woke through P4", o.id);
           uint64_t want = o.sel + 2 + FMISC_LAT;
           if (cycle < want) fail("integer result of op %ld before its FMISC cycle", o.id);
-        } else if (o.live) {
-          fail("B1 queue dropped live op %ld", o.id);
         }
         if (top->fpi_pop) {
-          if (top->fpi_valid && o.live) {
+          if (o.live) {
+            if (!fpi_write) fail("bench: live B1 head popped without a write");
             if (o.dst_en) { ival[o.dst] = o.exp.result; iavail[o.dst] = cycle + 1; }
             finish(o);
-          }
+          } else { ops.erase(o.id); fpi_kills++; }
           fpi_exp.pop_front();
           fpi_cnt--;
-          if (!o.live) ops.erase(o.id);
+          fpi_claimed = false;
         }
       }
+    } else if (fpi_claimed) {
+      fail("B1 head of op %ld left under a claim", fpi_claim_id);
+      fpi_claimed = false;
     }
     if (top->fdiv_done) {
       fdiv_cnt--;
@@ -567,6 +623,8 @@ class Bench {
     rob_busy[o.robi] = false;
     if (o.llt >= 0) llt_busy[o.llt] = false;
     if (wid_owner[o.wid] == o.id) wid_owner[o.wid] = -1;
+    // completes in its F0 write cycle; rename frees the tag 2 cycles later (core track's rule)
+    if (o.tag >= 0) { tag_busy[o.tag] = false; tag_free_at[o.tag] = cycle + 2; }
     if (!o.fp_dst) ibusy[o.dst] = false;
     ops.erase(o.id);
   }
@@ -574,6 +632,7 @@ class Bench {
     rob_busy[o.robi] = false;
     if (o.llt >= 0) llt_busy[o.llt] = false;
     if (wid_owner[o.wid] == o.id) wid_owner[o.wid] = -1;
+    if (o.tag >= 0) tag_busy[o.tag] = false;
     if (o.fp_dst) fr[0][o.dst] = FReg{};
     else ibusy[o.dst] = false;
     if (o.unit == U_DIV) fdiv_cnt--;
@@ -581,6 +640,18 @@ class Bench {
     for (auto it = f0_sched.begin(); it != f0_sched.end();) it = (it->second == o.id) ? f0_sched.erase(it) : std::next(it);
     ops.erase(o.id);
     issued--;
+  }
+
+  // The B1 head record, for the stability check between the arbiter's claim and its write
+  void fpi_snap_read(uint64_t *v) {
+    v[0] = top->fpi_tid; v[1] = top->fpi_rob; v[2] = top->fpi_wid; v[3] = top->fpi_llt;
+    v[4] = top->fpi_dst_en; v[5] = top->fpi_dst; v[6] = top->fpi_data; v[7] = top->fpi_fflags;
+  }
+  void fpi_snap_take() { fpi_snap_read(fpi_snap); }
+  bool fpi_snap_same() {
+    uint64_t v[8];
+    fpi_snap_read(v);
+    return std::equal(v, v + 8, fpi_snap);
   }
 
   // A load into a free F1 register: announced next cycle, written the cycle after
@@ -603,9 +674,10 @@ class Bench {
 };
 
 // ---- Random mode ----
-static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct) {
+static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct, int tags) {
   Bench b(seed);
   b.flush_every = flush_every; b.ret_pct = ret_pct; b.ready_pct = ready_pct;
+  b.ntag = std::max(1, std::min(b.ntag, tags));
   b.reset();
   static const int fma_ops[] = {ref::FADD, ref::FSUB, ref::FMUL, ref::FMADD, ref::FMSUB, ref::FNMSUB, ref::FNMADD,
                                 ref::FCVT_F_F, ref::FCVT_F_I};
@@ -639,8 +711,9 @@ static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int rea
   while ((b.issued < target || b.busy()) && b.cycle < limit) b.step(true, pick);
   bool hung = b.cycle >= limit;
   printf("rand seed=%llu: %ld operations, %ld checks, %ld flushes (%ld ops squashed), %ld early retirements, "
-         "%llu cycles, %ld errors%s\n", (unsigned long long)seed, b.issued, b.checked, b.flushes, b.dead_ops, b.rets,
-         (unsigned long long)b.cycle, b.errors, hung ? ", HUNG" : "");
+         "%ld tags taken (%ld dispatch waits), %ld B1 claims, %ld killed B1 heads, %llu cycles, %ld errors%s\n",
+         (unsigned long long)seed, b.issued, b.checked, b.flushes, b.dead_ops, b.rets, b.tag_allocs, b.tag_waits,
+         b.fpi_claims, b.fpi_kills, (unsigned long long)b.cycle, b.errors, hung ? ", HUNG" : "");
   return (b.errors || hung) ? 1 : 0;
 }
 
@@ -750,7 +823,7 @@ int main(int argc, char **argv) {
   std::string mode = argv[1];
   uint64_t seed = 1;
   long n = 0;
-  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85;
+  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85, tags = NTAG;
   std::string fn;
   for (int i = 2; i < argc; i++) {
     std::string a = argv[i];
@@ -760,10 +833,11 @@ int main(int argc, char **argv) {
     else if (a == "-flush" && i + 1 < argc) flush_every = atoi(argv[++i]);
     else if (a == "-ret" && i + 1 < argc) ret_pct = atoi(argv[++i]);
     else if (a == "-ready" && i + 1 < argc) ready = atoi(argv[++i]);
+    else if (a == "-tags" && i + 1 < argc) tags = atoi(argv[++i]);
     else if (mode == "tf" && fn.empty()) fn = a;
     else { fprintf(stderr, "bad argument %s\n", a.c_str()); return 2; }
   }
-  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready);
+  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready, tags);
   if (mode == "tf") return run_tf(fn.c_str(), rm, n);
   fprintf(stderr, "unknown mode %s\n", mode.c_str());
   return 2;
