@@ -753,7 +753,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - clz and ctz share one leading-zero count: ctz is the clz of the bit-reversed value, and the W forms put ones beside the low word;
   - min/max use ALU1's compare flags, with its adder set to subtract for them in RF, instead of a comparator of their own.
   - `tg_exec`: 8,722 → 8,550 LUTs (st), 8,727 → 8,555 (smt2).
-- **Cycle-identical:** st matches the previous build on every passing ELF: 310 riscv-tests, CoreMark/Dhrystone and directed tests natively, 309 under memory stress, and 895 ACT4 tests.
+- **Cycle-identical:** st and smt2 each match the previous build on every passing ELF: 310 riscv-tests, CoreMark/Dhrystone and directed tests natively, 309 under memory stress, and 895 ACT4 tests.
 - **A new directed test,** `tests/isa/directed/zbb.S`, covers the bit counts and min/max in lockstep. The random generator has no Zbb, so riscv-tests' `rv64uzbb` was the only coverage before.
 - **Dead end:** one shift mask for both directions in `tg_alu` measured −5 and −0 LUTs; Vivado already maps it, so it was reverted.
 - **What is left is structural:** the register file (2,568: 9 read ports over 3 banks), two ALUs (≈1.17K each), the divider (1,315), and an 8-source bypass.
