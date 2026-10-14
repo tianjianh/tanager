@@ -145,7 +145,8 @@ Options measured (all in `tg_iq`):
 | `s2_pb_smt2_mx` | smt2 | + MX, grant registered before the wakeup encode | 8,895 | 9,104 | **+0.112** | 7 | pblock |
 | `s2_sched_smt2w3_guard` | smt2_w3 | plan structure | 10,576 | 13,741 | −0.652 | 9 | free |
 | `s2_sched_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W | 10,516 | 11,546 | −0.457 | 9 | free |
-| (queued) | smt2_w3 | + MX; + PRE_RDY; 8-row ALU queues | | | | | pblock |
+| `s2_pb_smt2w3_mx` | smt2_w3 | + DUP_SEL, EARLY_W, MX | 12,515 | 13,042 | **+0.057** | 8 | pblock |
+| (queued) | smt2_w3 | + PRE_RDY; 8-row ALU queues; without MX (pblock) | | | | | pblock |
 
 **What limits the loop.** Without MX, the loop is: W → readiness (3 LUT levels over 64–120 columns) → oldest-first select (2) → wakeup encode (2) → W update (1–2). That is 8–11 levels, and routing is 75–80% of the delay. The W bits fan out to every row of every queue, and the grants to the payload and the wakeup encode.
 
@@ -247,9 +248,8 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 |---|---|---|---|---|---|---|---|---|
 | `s5_st_lut_wr4` | st | 2 | 2,485 (448) | 2,014 | 16 | **+0.582** | 8 | pass |
 | `s5_smt2_lut_wr4` (pblock) | smt2 | 2 | 2,566 (448) | 2,090 | 16 | **+0.245** | 8 | pass |
-| `s5_w3_lut_wr4` | st_w3 | 3 | (running) | | | | | |
-| `s5_st_fa_wr4` (32-entry flip-flop fallback) | st | 2 | (running) | | | | | |
-| `s5_w3_lut_wr8` (8 writes per cycle) | st_w3 | 3 | (running) | | | | | |
+| `s5_w3_lut_wr4` (pblock) | st_w3 | 3 | 2,516 (448) | 2,062 | 16 | **+0.357** | 8 | pass |
+| `s5_st_fa_wr4` (32-entry flip-flop fallback) | st | 2 | (queued) | | | | | |
 
 Named paths, `s5_st_lut_wr4`:
 
@@ -261,6 +261,17 @@ Named paths, `s5_st_lut_wr4`:
 | IF3: compaction → instruction-queue LUTRAM write | +1.127 | 8 | 1.16 | 2.47 |
 | Instruction queue read → decode registers | +1.721 | 3 | 0.64 | 2.51 |
 
+Named paths, `s5_w3_lut_wr4` (decode width 3):
+
+| Path | Slack ns | Levels | Logic ns | Net ns |
+|---|---|---|---|---|
+| Next-PC loop | **+1.824** | 6 | 1.02 | 2.05 |
+| Next PC → I$ BRAM address pins | +0.638 | 6 | 1.03 | 2.69 |
+| IF2 → IF3 registers (the straddle carry is the worst endpoint) | +0.357 | 8 | 1.35 | 2.92 |
+| IF3: compaction → instruction-queue LUTRAM write | +1.100 | 7 | 0.99 | 2.54 |
+| IF3: compaction state (half-instruction register) | +1.563 | 7 | 1.06 | 2.14 |
+| Instruction queue read → decode registers | +1.392 | 3 | 0.74 | 2.75 |
+
 **Findings (width 2).**
 - **The 64-entry LUTRAM micro-BTB closes the next-PC loop with 1.9 ns to spare.** It costs 154 LUTs, 64 of them LUTRAM.
   - The flip-flop fallback is not needed at width 2; its run reports the comparison.
@@ -269,6 +280,12 @@ Named paths, `s5_st_lut_wr4`:
 - **IF3 cost:** compaction plus the queue is 981 LUTs, 128 of them LUTRAM.
   - The queue is 4 banks of RAM32M16. Compaction selects straight into the banks, so no rotation stage follows it.
   - **Instruction-queue capacity:** 4 entries deep per bank use 4 of the RAM32M16's 32 rows. Flip-flops would cost more LUTs in write muxes, so LUTRAM stays.
+
+**Findings (width 3).**
+- **Decode width 3 closes too, at +0.357 ns**, with the same structure: 4 instruction-queue banks written per cycle, 3 read.
+  - The worst path is IF2 again, now ending at the straddle-carry register. The next-PC loop keeps 1.8 ns.
+  - The cost does not grow with width: 2,516 LUTs against 2,485 at width 2. The fetch block is 16 B either way; only the queue's read side widens.
+- **Verdict: S5 passes at widths 2 and 3, and no §8.1 fallback is needed.** The 32-entry flip-flop micro-BTB is not needed; its run is kept for the comparison.
 
 
 ---
