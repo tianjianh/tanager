@@ -368,11 +368,17 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | MX rows confirmed by the issue queue's ROB IDs (no `rowdst_q`) | a95a397 | −69 LUTs, but **not cycle-identical**: reverted (279fe46). The old `rowdst_q` check also accepts a row whose new occupant did not update `rowdst_q` (a branch with no rd, MUL/DIV/CSR on A1): a false MX dependency. The ROB-ID check rejects those, which moves wakeup timing (Dhrystone +0.36% cycles, CoreMark A −0.03%, B +0.05%). Fixing it is an IPC question, not an area one |
 | D$: store and atomic data enter as 64 bits, duplicated inside (port B's write multiplexer sees equal halves) | 4606440 | lsu_mmu −52 |
 | `pma_of` by prefix match (DR-120) | 583e41e | lsu_mmu −490, fe −37 |
+| FLW NaN-boxed in the LSU, for the FPU track (P4 can drop `fld_single`): first in `ext_al`'s extension | 3f9a227 | lsu_mmu +140: a second extract path and a fill term in every upper bit |
+| ... then at the result register's input instead: the word arrives zero-extended and ones are ORed into its upper half | 0e3f639 | the D-input multiplexer absorbs it |
 
 - **Result at 583e41e** (with DR-120 and main's P4 pass):
   - st 49,097 LUTs and smt2 51,839, against 56,461 and 62,501 on main cb8ff6c: −7.4K and −10.7K, of which −0.13K is P4's.
   - st_w3 62,199, smt2_w3 66,773.
   - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks, and through 59 M cycles of the Linux boot (the same instruction count and PC at 58 M and 59 M cycles).
+- **With DR-113's settings** (the budget flow from main fd54e65: hierarchy kept plus `AreaOptimized_high`), at cc5e962 (0e3f639's RTL):
+  - st 46,132 against main cb8ff6c's 52,024 with the same settings (−5.9K, −11.3%): lsu_mmu 16,157 → 10,932, rob_csr 4,793 → 4,390, fe 4,966 → 4,738; rename 4,324 unchanged.
+  - smt2 49,022.
+- **The directed `amo` test** (bae805e): its LR/SC loop allowed 16 tries, and under `--probe-rate=150 --bp=20` it needs up to about 30, since a probe of the reserved line ends the reservation. It allows 1,024 now. Main failed the same way; the FPU track found it.
 - **Lessons:**
   - A LUT attribution beats intuition. It found three way multiplexers on one port in the D$, 136-LUT range compares in `pma_of` (where a prefix compare takes 10), and tval buses that only a trap at the head reads.
   - Two of the seven steps were level when measured, and one moved cycles, which only the cycle comparison caught: lockstep and every test passed.
