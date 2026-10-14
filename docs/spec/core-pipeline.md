@@ -62,6 +62,11 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
+  - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
+  - **It starts at zero after configuration:** the primitives' INIT is zero, and so is the simulator's default. So the first run after configuration matches simulation.
+  - **A core reset keeps the trained counters.**
+  - **Its start value changes timing only.** A counter decides only whether a branch trains the micro-BTB, and execute checks every prediction.
+  - **Under `--rand-reset`, programs take a few more mispredictions:** rv64ui-p-add takes 1,389, 1,468 or 1,561 cycles. Verilator 5.052 fills the whole array with one random value, so there are only three outcomes.
 - **Training at execute (P0).** For each resolved branch or jump: the counter moves toward the outcome; the block should be predicted taken if the instruction is JAL/JALR or the new counter is ≥ 2. If it should and the micro-BTB did not predict this target at this slot, the entry is written (the way that hit, else a pseudo-random way); if it should not and the micro-BTB predicted it taken, the entry is invalidated. Wrong-path branches also train (accepted in M2).
 
 ### 3.3 Instruction queue
@@ -220,7 +225,18 @@ Exception or interrupt: `mepc` ← PC, `mcause`, `mtval` (0 for interrupts), `ms
 Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. Taken at commit before the head instruction (TR_IRQ with `pc` = its PC), except when the head is a WFI (it retires first, and the interrupt is taken at the next instruction) or an MMIO load whose request is out. Nothing is taken while the ROB is empty.
 
 ## 10. Reset sequence
-After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB. Everything else resets through control state (valid bits, pointers).
+After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
+- **Other tables have their own sweeps, run alongside:**
+  - the I$ valid bits (§3.1);
+  - the D$ state (core-lsu);
+  - the maps' committed banks and the ready tables (§5.2);
+  - the DTLB's CAM tables (core-mmu).
+- **Everything else** resets through control state (valid bits, pointers), or holds data that is written before it is read.
+- **The exception is the direction counters (§3.2),** which keep whatever they held.
+- **Measured (2026-10-14, st, 9b14471):**
+  - Under `--rand-reset` (every register without a reset random), 99 of the 176 riscv-tests `-p` programs take other cycle counts than from zero (seeds 1 and 2).
+  - With only the counters started at zero, all 176 match, for seeds 1–3.
+  - So no other state left out of the reset changes timing.
 
 ## 11. Commit trace
 Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
@@ -243,7 +259,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |
 | Rename maps XOR-banked (T2) | `tg_rmap`: no live-value tables; a register's entry is the XOR of its banks | done: cycle-identical |
 | MX row destinations in LUTRAM (T2) | `tg_rename`: `rowdst` banked by DS slot, XORed | done: cycle-identical |
-| TLB match as a LUTRAM CAM (T5) | `tg_tlb`: six slice tables, a key store, a three-cycle table update behind a one-cycle fill | done: cycle-identical |
+| TLB match as a LUTRAM CAM (T5) | `tg_tlb` (`CAM`): six slice tables, a key store, a three-cycle table update behind a one-cycle fill | DTLB: done, cycle-identical. ITLB: rejected (LUT-neutral), flip-flops kept (9b14471; core-mmu) |
 | ROB flags as toggle tables (T2) | `tg_rob`: `complete`, `exc`, `mispredict`, `mmio` as one-writer LUTRAM tables per report port, XORed with a dispatch-time parity bit in the payload | done: cycle-identical (shadow-checked in simulation) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
@@ -442,6 +458,7 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | The SQ's ROB index and size in LUTRAM | 8a18f6c | T1 | small |
 | D$ port B's byte enables shared by the ways | 7ad53ea | — | small |
 | `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | CSR 1,694 → 1,615, DSPs +2 |
+| The ITLB back on flip-flop comparators (`tg_tlb` `CAM = 0`); the DTLB keeps the CAM | 9b14471 | — | ITLB about 486 again (T5 saved it 6 LUTs for 160 LUTRAM) |
 
 - **Result at f18704e (the final RTL):**
   - **st:** 46,132 → **43,342** (−2,790, −6.0%):
