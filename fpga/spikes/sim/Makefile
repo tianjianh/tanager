@@ -44,11 +44,13 @@ clean:
 
 # tg_alu against the ISA reference
 .PHONY: alu
-alu:
-	@d=$(OBJ)/alu; mkdir -p $$d; \
-	verilator $(VFLAGS) --Mdir $$d --top-module tb_alu $(ROOT)/fpga/spikes/rtl/tg_alu_pkg.sv \
+alu: alu-1 alu-0
+alu-%:
+	@d=$(OBJ)/alu_mm$*; mkdir -p $$d; \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_alu -GMINMAX=$* $(ROOT)/fpga/spikes/rtl/tg_alu_pkg.sv \
 	  $(ROOT)/fpga/spikes/rtl/tg_alu.sv tb_alu.sv > $$d/build.log 2>&1 || { tail -20 $$d/build.log; exit 1; }; \
-	$$d/Vtb_alu +seed=$(SEED) > $$d/run.log; $(TIDY) cat $$d/run.log | grep -vE '^-' | head -12; grep -q '^PASS' $$d/run.log
+	$$d/Vtb_alu +seed=$(SEED) > $$d/run.log; $(TIDY) echo "alu MINMAX=$*: $$(grep -E '^(PASS|FAIL)' $$d/run.log)"; \
+	grep -q '^PASS' $$d/run.log || { grep ERROR $$d/run.log | head; exit 1; }
 
 # S5 IF2/IF3: tg_predecode + tg_fetch_compact, write widths 4 and 8, decode widths 2 and 3
 FETCH_VARIANTS := st_wr4 st_wr8 st_w3_wr4 st_w3_wr8

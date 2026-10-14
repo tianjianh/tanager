@@ -2,7 +2,9 @@
 // (RV64I/M base ops, Zba, Zbb, Zbs, Zicond). to_ctl() is the decode the core's DE stage
 // would do; it documents the control encoding.
 //   Vtb_alu +seed=<n> +iters=<n>
-module tb_alu;
+module tb_alu #(
+  parameter bit MINMAX = 1'b1   // 0: tg_alu without min/max; those ops are not generated
+);
   import tg_alu_pkg::*;
 
   typedef enum int {
@@ -112,7 +114,7 @@ module tb_alu;
   alu_ctl_t ctl;
   logic [63:0] a, b, res;
   logic eq, lt, ltu;
-  tg_alu dut (.ctl, .a, .b, .res, .eq, .lt, .ltu);
+  tg_alu #(.MINMAX(MINMAX)) dut (.ctl, .a, .b, .res, .eq, .lt, .ltu);
 
   function automatic logic [63:0] rnd64();
     logic [63:0] v;
@@ -137,6 +139,7 @@ module tb_alu;
     for (int i = 0; i < iters; i++) begin
       automatic op_e op = op_e'($urandom % int'(NOPS));
       automatic logic [63:0] want;
+      if (!MINMAX && op inside {MIN, MAX, MINU, MAXU}) continue;
       ncov[op]++;
       ctl = to_ctl(op);
       a = rnd64();
@@ -152,7 +155,8 @@ module tb_alu;
         if (errors <= 10) $display("ERROR flags %s a=%h b=%h eq %b lt %b ltu %b", op.name(), a, b, eq, lt, ltu);
       end
     end
-    for (int k = 0; k < int'(NOPS); k++) if (ncov[k] == 0) begin
+    for (int k = 0; k < int'(NOPS); k++)
+      if (ncov[k] == 0 && (MINMAX || !(op_e'(k) inside {MIN, MAX, MINU, MAXU}))) begin
       errors++;
       $display("ERROR op %s never tested", op_e'(k));
     end
