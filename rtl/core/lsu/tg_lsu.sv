@@ -159,10 +159,9 @@ module tg_lsu
   endfunction
   // The naturally aligned element of a dword, 2^size bytes at byte offset off, extended. off is
   // a multiple of the size (misaligned accesses trap at AG), so each result byte selects among
-  // the few offsets its element sizes allow, not among all eight as a shifter would. box: an FP
-  // load's word is NaN-boxed here (ones above it), so P4 writes the result register as it is.
+  // the few offsets its element sizes allow, not among all eight as a shifter would.
   function automatic logic [63:0] ext_al(input logic [63:0] dw, input logic [2:0] off,
-                                         input logic [1:0] size, input logic uns, input logic box);
+                                         input logic [1:0] size, input logic uns);
     logic [7:0]  b0;                                 // the element's byte 0: any offset
     logic [7:0]  b1;                                 // ... byte 1: an even offset
     logic [15:0] h1;                                 // ... bytes 2-3: offset 0 or 4
@@ -175,7 +174,7 @@ module tg_lsu
       2'd1:    s = b1[7];
       default: s = h1[15];
     endcase
-    s = (s && !uns) || box;
+    s = s && !uns;
     unique case (size)
       2'd0:    return {{56{s}}, b0};
       2'd1:    return {{48{s}}, b1, b0};
@@ -534,7 +533,7 @@ module tg_lsu
     end else if (!m2_hit_q) begin
       m2_out = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
     end
-    m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns, EXT_FD && lqc_rd[0].fp);
+    m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
   // PTE reads: the cache's dword (no forwarding: the deciding walk runs with the SQ drained)
   logic m2_ok, pt_rsp, pt_hit, pt_den;
@@ -602,6 +601,8 @@ module tg_lsu
   end
 
   // ================= Result register (WB) =================
+  // An FLW's word arrives zero-extended (FP loads take their bytes raw) and is NaN-boxed as the
+  // register is written, so fld_data is the value P4 writes to F1 with no logic after the register.
   logic            r_v_q, r_dv_q, r_mmio_q;
   logic            r_fv_q, r_fs_q;            // the result writes F1 (EXT_FD); an FLW
   logic [PIDX_W-1:0] r_dst_q;
@@ -656,7 +657,7 @@ module tg_lsu
   // The reservation covers the SC's line and has not just been lost (probe, eviction)
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush;
-  assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0, 1'b0);
+  assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
   assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sqd_rd[COMMIT_WIDTH+1]);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
@@ -1004,7 +1005,7 @@ module tg_lsu
             end else begin
               xr_v_q    <= 1'b1;
               xr_data_q <= ext_al(x_pa_q[3] ? mmio_d_i.data[127:64] : mmio_d_i.data[63:0], x_pa_q[2:0],
-                                  x_size_q, lqc_rd[1].uns, EXT_FD && lqc_rd[1].fp);
+                                  x_size_q, lqc_rd[1].uns);
             end
           end
         end
@@ -1046,7 +1047,7 @@ module tg_lsu
         r_fv_q   <= EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp;
         r_fs_q   <= lq_size_q[m2_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[0].dst;
-        r_data_q <= m2_val;
+        r_data_q <= m2_val | {{32{EXT_FD && lqc_rd[0].fp && lq_size_q[m2_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[0].rob;
         r_llt_q  <= lqc_rd[0].llt;
         r_mmio_q <= 1'b0;
@@ -1056,7 +1057,7 @@ module tg_lsu
         r_fv_q   <= EXT_FD && lqc_rd[1].dv && lqc_rd[1].fp;
         r_fs_q   <= lq_size_q[x_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[1].dst;
-        r_data_q <= xr_data_q;
+        r_data_q <= xr_data_q | {{32{EXT_FD && lqc_rd[1].fp && lq_size_q[x_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[1].rob;
         r_llt_q  <= lqc_rd[1].llt;
         r_mmio_q <= 1'b1;
