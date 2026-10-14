@@ -27,8 +27,14 @@ ROM_V  := block-2048-9-2 block-512-36-1 distributed-64-16-1 distributed-100-37-2
 # both are installed.
 DSP_V  := 32-0-1 32-1-2 48-0-1 48-0-2 48-1-1 47-1-1 40-1-2 16-0-2 1-0-1
 UNISIM := $(dir $(TANAGER_VIVADO_SETTINGS))data/verilog/src
+# tg_ram_lut_mw: IMPL-LVT-DEPTH-WIDTH-NW-NR, each on the behavioural model and the primitives
+MW_V   := lvt-lutram-32-8-2-4 lvt-lutram-64-8-3-6 lvt-lutram-128-8-4-8 lvt-lutram-64-64-2-7 \
+          lvt-lutram-100-13-3-5 lvt-reg-64-8-4-8 lvt-reg-32-16-3-4 \
+          xor-lutram-32-8-2-4 xor-lutram-64-8-3-6 xor-lutram-128-8-4-8 xor-lutram-64-64-2-7 \
+          xor-lutram-100-13-3-5
+MW     := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_ram_lut_mw.sv tb_ram_mw.sv
 
-.PHONY: all test fifo rom dsp clean
+.PHONY: all test fifo rom dsp mw clean
 all: test
 fifo:
 	@set -e; for v in $(FIFO_V); do st=$${v%-*}; d=$${v#*-}; \
@@ -77,7 +83,19 @@ dsp:
 	    grep -q '^PASS' $$o/prim_run.log; \
 	  else echo "dsp $$v DSP48E2 model: skipped (needs iverilog and the Vivado install)"; fi; \
 	done
-test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom dsp
+mw:
+	@set -e; for v in $(MW_V); do set -- $$(echo $$v | tr - ' '); \
+	  for m in beh prim; do \
+	    if [ $$m = prim ]; then x="+define+TG_SIM_PRIMS $(MODELS)"; else x=""; fi; \
+	    o=$(OBJ)/mw_$${v}_$$m; mkdir -p $$o; \
+	    verilator $(VFLAGS) $$x --Mdir $$o --top-module tb_ram_mw -GIMPL='"'$$1'"' -GLVT='"'$$2'"' \
+	      -GDEPTH=$$3 -GWIDTH=$$4 -GNW=$$5 -GNR=$$6 $(MW) > $$o/build.log 2>&1 || \
+	      { tail -20 $$o/build.log; exit 1; }; \
+	    $$o/Vtb_ram_mw +seed=$(SEED) +cycles=$(CYCLES) > $$o/run.log; \
+	    echo "mw $$v $$m: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
+	  done; \
+	done
+test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom dsp mw
 	$(OBJ)/beh/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/beh/run.log
 	@grep -q '^PASS' $(OBJ)/beh/run.log
 	$(OBJ)/prim/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/prim/run.log
