@@ -527,3 +527,53 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 - ACT4 (riscv-arch-test, act4 branch): the framework, its test environment and test plans, the UDB configuration schema, and its Sail reference configuration `config/sail/sail-RVA20S64` (`sail.json` and the UDB file), which `make_sail.py` and our UDB files start from. The interrupt generator's register follows the framework's Sail macros (`tests/env/sail_macros.h`) and Sail's configuration schema. The configurations of other cores in the framework (`config/cores`) were not used.
 - WARL choices in the ACT4 configurations: Spike's sources (`csr_init.cc`, `csrs.cc`, `mmu.cc`), read as the specification of the lockstep reference.
 - No other core's RTL or testbench was read for any of this.
+
+## 11. History and lessons
+
+**Timeline.**
+- **2026-10-13, M2:** `tg_vsim`, the TileLink models, Spike as a library, the lockstep checker, `tg_replay`, the test core, the runners and `make regress`, all merged before any core existed.
+- **2026-10-13, M3 items:** fork snapshots; the random generator with width-3 groups; ACT4 with Sail, with configurations for the test core, M2 and M3, then F/D.
+- **2026-10-13 and 14:** trace back-pressure (interfaces v1.3); F/D readiness; the first merges with the real core; the soak.
+
+**What each piece bought.**
+- **The checker, proven before the core.** Spike was replayed against itself over 326 riscv-tests, under deferral, perturbed `nondet` values, several harts and wide cycles. 270 injected faults of 19 kinds were all reported. Its first real catch was the test core dropping deferred writebacks when two deferred records left its queue in one cycle.
+- **Random programs against riscv-tests**, on bugs planted in the test core:
+  - an SRAIW that ignored shift bit 4 failed 199 of 200 programs and one riscv-test;
+  - a dirty eviction that sent the wrong data in its last beat failed all 200 programs, while every riscv-test passed.
+- **ACT4.**
+  - Hand-picked plan lists covered only part of it: 97 tests for the test core, against 315 when every plan is generated and `act` selects (§6.1). The added tests found the test core's read-only `misa.M`, and a fetch bug in the core (`Sm_csr_ro`, still open).
+  - Replaying every configuration Spike against Spike found three `tg_replay` bugs, and every place where Sail's choices had to be made to match Spike's: `medeleg` bit 19 needs privileged spec 1.13, Za64rs means 64-byte reservations, misaligned AMOs raise address-misaligned, Zmmul stays off, and Spike's `marchid` is 5.
+- **On the real core:**
+  - the core track's M2 core passed 113 of 129 ACT4 tests before its merge, then 241 of 243 with the full plan list;
+  - `make regress` passes in all four configurations.
+- **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro.
+
+**Breaks at merges, and their fixes.**
+- **`trace_stall_i`:**
+  - the core track tied the port off for `tg_core` while the harness connected it under a define, so one build connected it twice;
+  - then the test core's port, which existed only under a define, broke the SoC test's `.*` wrapper (PINNOTFOUND).
+  - The fix puts the port in every build and connects it once. Lesson: never make a port conditional; other tracks instantiate the module.
+- **`irq_s`:** a directed test that counts its interrupts exactly failed the self-test's random interrupt injection. Injection now goes only into the tests written for it.
+- **`amo`:** the replay performed AMOs to devices, which the core faults (interfaces.md §2.4). The replay now models the core's rule.
+- **SC with `rd = x0`:** adoption keyed on the `rd` value; the missing store is the real sign.
+- **Builds:**
+  - ccache served Verilator's precompiled header from another build, and GCC 15 crashed on it (`st_w3`);
+  - a stale binary, plus an `ISA` variable leaking through the environment, rebuilt `tg_vsim` with the wrong Spike ISA, so every counter read failed lockstep.
+
+**What was hard.**
+- **Sail and ACT4:**
+  - the dependencies: Ruby and the UDB gems, a Python venv, a pinned Sail;
+  - test plans that must be generated, because they are not committed upstream;
+  - Sail's macros replacing the DUT's in the reference runs;
+  - making every WARL choice of Sail match Spike, which was only practical because `replay` checks the configuration files themselves.
+- **SC adoption:** a core may fail any SC legally. ACT4's `rd = x0` SC cases cannot retry, so under probe stress they fail their own self-check even with lockstep passing.
+- **Interrupts:**
+  - Spike and Sail keep one SEIP bit and one SSIP bit that software and the interrupt generator share, while the core ORs a level line into each (§9);
+  - the multi-cycle test core missed ACT4's timer windows until the "soon" delay grew from 100 to 2,000 ticks;
+  - injected interrupts have to respect what each test expects.
+
+**Dead ends.**
+- The small PLIC model planned for ACT4: Sail's interrupt generator did the job with the same macros on both sides.
+- ccache for precompiled headers.
+- A conditional `trace_stall_i` port.
+- Hand-picked ACT4 plan lists.

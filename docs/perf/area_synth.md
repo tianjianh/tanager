@@ -57,7 +57,31 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 | `AreaOptimized_high` synthesis directive | 8,115 (routed 8,113) | 794 (8.9%) | none | **−0.265 ns**: loses 200 MHz on its own (flattened) |
 | Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 queued |
 
-**Area directive only with the hierarchy kept.** With a flattened design the directive restructures the wakeup loop across module boundaries, and the loop misses by 0.265 ns. With each queue kept as a module it cannot, and the loop keeps its +0.1 ns.
+**At smt2_w3 (120 columns)** the two settings together give 11,381 LUTs (−1,134) at −0.008 ns: a hair short of 200 MHz, with about 0.5 ns to spare at v2's 180–190 MHz.
+
+### 3.1 Wakeup tags (AR-1, plan §4.6)
+
+**The structure.** 16 tags plus the LLTs replace the ROB-index columns: 32 columns at st, 40 at smt2 and smt2_w3. 1-cycle producers take no column:
+- while they hold a row, consumers name them by row (MX);
+- once the row is freed they are complete.
+
+So no queue wakes at select. Multi-cycle ops wake their tag through the delay lines. The S2 harness has it as `WTAGS = 16`; `tb_iq`'s tags mode tests it.
+
+**Results** (whole scheduler, routed at 200 MHz with the pblock, default synthesis):
+
+| Configuration | ROB columns + MX | Wakeup tags + MX | Saved | Study's estimate | WNS ns: before → after | Levels |
+|---|---|---|---|---|---|---|
+| st | 6,425 | **4,802** | **−1,623 (−25%)** | −1.0 to −1.2K | +0.145 → **+0.518** | 6 → 7 |
+| smt2 (v1) | 8,895 | **5,506** | **−3,389 (−38%)** | −2.7 to −3.0K | +0.112 → **+0.218** | 7 → 7 |
+| smt2_w3 (v2) | 12,515 | **7,703** | **−4,812 (−38%)** | −4.7 to −5.0K | +0.057 → +0.026 | 8 → 7 |
+
+- **The saving meets or beats the study everywhere.** Each row loses 64–80 readiness columns and their busy-vector share. The wakeup encode at select and the matrix W loop disappear.
+- **Timing:**
+  - W's own update is no longer a 1-cycle loop through select: one level, +1.8 ns.
+  - The worst path is now W → readiness → select → payload register, 7 levels.
+  - st and smt2 gain margin. smt2_w3 stays at the edge of 200 MHz but has about 0.5 ns at v2's 180–190 MHz.
+- **One earlier trick no longer applies:** STA and FP queues without the matrix (−403). With tags, those queues have no other way to wait on a 1-cycle producer.
+- With the free synthesis settings on top of tags: (being measured). With a flattened design the directive restructures the wakeup loop across module boundaries, and the loop misses by 0.265 ns. With each queue kept as a module it cannot, and the loop keeps its +0.1 ns.
 | No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
 | Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
 | … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |

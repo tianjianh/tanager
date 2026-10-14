@@ -7,6 +7,8 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 | [docs/architecture_plan.md](docs/architecture_plan.md) | Architecture and project plan (draft 0.4): targets, microarchitecture (M1 freeze), dual-core memory system, SMT/CMT hooks, KV260 integration, verification, milestones, risks, open decisions |
 | [docs/perf/dse_report.md](docs/perf/dse_report.md) | M1 performance model results: calibration, IPC vs DRAM latency, ablations, early retirement, FPU and decode-width studies, the v1 freeze |
 | [docs/perf/feature_ledger.md](docs/perf/feature_ledger.md) | Every v1 feature and size, with its evidence and decision |
+| [docs/devlog.md](docs/devlog.md) | Development log and lessons: timeline, the area story (estimates, overruns, what shrank them), timing, verification, operations |
+| [docs/decisions.md](docs/decisions.md) | Decision register: every decision, approved or rejected, with date, who decided and the evidence |
 | [perfmodel/](perfmodel/README.md) | `tgsim`, the performance model, with workloads and scripts (WSL Ubuntu 24.04, GCC 15) |
 | [reports/RISCV OoO soft cores for KV260.md](reports/RISCV%20OoO%20soft%20cores%20for%20KV260.md) | Literature review: pros, cons and numbers for about 30 cores and techniques |
 | `research_notes/RISCV OoO soft cores for KV260/` | Sourced research notes behind the review |
