@@ -1,0 +1,39 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Oct 13 18:34:40 2026
+| Host         : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+| Design       : tg_s4_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++------------------+---------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|     Instance     |     Module    | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++------------------+---------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| tg_s4_top        |         (top) |       2375 |       1927 |     448 |    0 | 3665 |      8 |      0 |    0 |          0 |
+|   (tg_s4_top)    |         (top) |        752 |        752 |       0 |    0 | 1425 |      0 |      0 |    0 |          0 |
+|   g_tag[0].u_tag | tg_ram_lut__1 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[1].u_tag | tg_ram_lut__2 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[2].u_tag | tg_ram_lut__3 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[3].u_tag | tg_ram_lut__4 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[4].u_tag | tg_ram_lut__5 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[5].u_tag | tg_ram_lut__6 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[6].u_tag | tg_ram_lut__7 |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   g_tag[7].u_tag |    tg_ram_lut |         56 |          0 |      56 |    0 |    0 |      0 |      0 |    0 |          0 |
+|   u_dtlb         |       tg_dtlb |       1159 |       1159 |       0 |    0 | 2240 |      0 |      0 |    0 |          0 |
++------------------+---------------+------------+------------+---------+------+------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+
