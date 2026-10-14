@@ -81,7 +81,7 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
 | User | `ubuntu`, passwordless sudo (`/etc/sudoers.d/90-tanager`); host name `kria` |
 | Network | a direct cable to the laptop's USB Ethernet adapter, with Windows connection sharing; DHCP lease `192.168.137.177` (`kria.mshome.net`) |
 | SSH (from the laptop) | `ssh -F ~/.ssh/tanager_kv260.conf kv260` (key `~/.ssh/tanager_kv260_ed25519`) |
-| Consoles (laptop COM ports, 115200 8N1) | **COM7:** the ARM console (`ttyPS1`).<br>**COM8:** the carrier's DisplayPort-to-HDMI bridge.<br>**COM5:** a CH340 USB UART on PMOD J2 for the RISC-V side, with its RX on J2 pin 1 and TX on pin 2. Pin 1 is H12. Pin 2 is B10 in the KV260's odd/even numbering, or E10 in Digilent's; to be confirmed. |
+| Consoles (laptop COM ports, 115200 8N1) | **COM7:** the ARM console (`ttyPS1`).<br>**COM8:** the carrier's DisplayPort-to-HDMI bridge.<br>**COM5:** a CH340 USB UART on PMOD J2 for the RISC-V side. Its RX is on J2 pin 1, which is the FPGA's TX on H12 (`som240_1_a17`). Its TX is on J2 pin 2, the FPGA's RX on B10 (`som240_1_b20`). J2 is numbered odd/even: one row reads 11 9 7 5 3 1 from left to right, the other 12 10 8 6 4 2, so pins 1 and 2 face each other. The other signal pins are 3 = E10, 4 = E12, 5 = D10, 6 = D11, 7 = C11 and 8 = B11. The pins are 3.3 V only (LVCMOS33). |
 | Kernel command line | `… cma=800M mem=3G arm-smmu.disable_bypass=0` |
 | Linux RAM | `0x0`–`0x7FEF_FFFF` and `0x8_0000_0000`–`0x8_3FFF_FFFF`. The carve-out `0x8_4000_0000`–`0x8_7FFF_FFFF` is outside it; CMA is 800 MiB at `0x4460_0000` |
 | Default PL app | `k26-starter-kits` (package `xlnx-default-bitstreams`), loaded by `dfx-mgr` at boot |
