@@ -67,8 +67,9 @@ module tg_issue
   // ALU ports: the ALU control word without min/max (tg_alu MINMAX = 0: they ride P1's MUL slot,
   // which reads cmp_max), the destination's index (its bank is the port's). P0 adds the branch
   // fields, P1 the MUL/DIV/CSR fields; both keep the ROB wrap bit (exception and misprediction
-  // age), the other ALU ports only the index (completion). LD: the LQ index; STA: the SQ ID.
-  // The source tags are the low bits (EARLY_W).
+  // age), the other ALU ports only the index (completion). LD: the LQ index; STA: the SQ ID;
+  // both keep the 12-bit offset (sign-extended at issue). The source tags are the low bits
+  // (EARLY_W).
   typedef struct packed {
     logic [NGRP-2:0] grp;          // every group but G_MINMX
     logic            word, sub;
@@ -117,14 +118,14 @@ module tg_issue
   } f_an_t;
   typedef struct packed {
     robid_t              rob;
-    logic [63:0]         imm;
+    logic [11:0]         imm;
     logic [LQ_IDX_W-1:0] lq;
     logic [1:0]          mem_size;
     preg_t               src1;
   } f_ld_t;
   typedef struct packed {
     robid_t      rob;
-    logic [63:0] imm;
+    logic [11:0] imm;
     sqid_t       sq;
     logic [1:0]  mem_size;
     preg_t       src1;
@@ -255,7 +256,7 @@ module tg_issue
       end
     end else if (q == Q_LD) begin : g_fl
       for (genvar k = 0; k < DW; k++) begin : g_k
-        assign dpl[k] = f_ld_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm,
+        assign dpl[k] = f_ld_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0],
                                 lq: disp_pl[k].lq[LQ_IDX_W-1:0], mem_size: disp_pl[k].mem_size,
                                 src1: disp_pl[k].src1};
       end
@@ -264,14 +265,14 @@ module tg_issue
       always_comb begin
         up          = '0;
         up.rob      = b.rob;
-        up.imm      = b.imm;
+        up.imm      = {{52{b.imm[11]}}, b.imm};
         up.lq       = {1'b0, b.lq};
         up.mem_size = b.mem_size;
         up.src1     = b.src1;
       end
     end else begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
-        assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm, sq: disp_pl[k].sq,
+        assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,
                                  mem_size: disp_pl[k].mem_size, src1: disp_pl[k].src1};
       end
       f_sta_t b;
@@ -279,7 +280,7 @@ module tg_issue
       always_comb begin
         up          = '0;
         up.rob      = b.rob;
-        up.imm      = b.imm;
+        up.imm      = {{52{b.imm[11]}}, b.imm};
         up.sq       = b.sq;
         up.mem_size = b.mem_size;
         up.src1     = b.src1;
@@ -336,4 +337,15 @@ module tg_issue
 
   logic unused;
   assign unused = ^{w1_unused, ph_unused, wd_unused};
+
+`ifndef SYNTHESIS
+  // Loads and stores (and atomics) have 12-bit offsets: the LD and STA formats keep 12 bits
+  always_ff @(posedge clk) begin
+    for (int k = 0; k < DW; k++) begin
+      if (!rst && (disp_we[Q_LD][k] || disp_we[Q_STA][k]))
+        assert (disp_pl[k].imm == {{52{disp_pl[k].imm[11]}}, disp_pl[k].imm[11:0]})
+          else $error("tg_issue: memory offset wider than 12 bits");
+    end
+  end
+`endif
 endmodule
