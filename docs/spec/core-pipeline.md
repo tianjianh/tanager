@@ -213,14 +213,14 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 |---|---|---|
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
-| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | done (c86fd95; DSP count in the budget report) |
+| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | partly: Vivado maps the adders (2 DSPs, −30 LUTs) but keeps the counters in flip-flops; a hand-built DSP48E2 accumulator would take the rest (about 110 LUTs, 128 flip-flops) |
 | R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
 | TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
 | LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; aligned extraction of loaded elements; the MMIO pick at the LQ head; LQ/SQ fields written at AG/STA instead of dispatch; LUTRAM copies of the queue addresses for reads by index; an atomic reads through the SQ head's ports | done |
-| ROB and rename tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`); `tg_rename`: store-data readiness carried from RN (no second ready-table read at DS) | done |
+| ROB tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`) | done: ROB 3,308 → 2,920 at st |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
 
 **Reserve (D18: sharing, or a function cut; not taken):**
