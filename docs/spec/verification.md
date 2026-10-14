@@ -204,9 +204,9 @@ interfaces.md v1.3 §5: while `trace_stall_i` is high the core retires nothing, 
 
   A record lost or reordered at a stall shows up in lockstep as a PC mismatch, because each record must be Spike's next instruction. Within 64 cycles of a stall, the mismatch line says so ("a record lost or reordered at a stall?"). While checks 1 and 2 hold, the FIFO cannot overflow; the summary still counts overflows.
 - **Headroom and the sink's timing:** `TRACE_STALL_HEADROOM` = 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` is exactly enough for a sink that computes the stall from its free space *after* the current cycle's records. That is a combinational path from `trace_valid_o` to `trace_stall_i`, which the core's input register makes safe. A sink that stalls from its occupancy register sees a cycle's records only at the next clock edge, so one more cycle of records can arrive: it needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES`. The harness's model is of that kind (its inputs are registers, §2.2) and uses the larger threshold (§9).
-- **Which builds have the port:** `tg_core` always (its port is on main since 2026-10-14); the test core when built with `TG_TRACE_STALL`, which `make -C sim CORE=tcore` sets by default (`TRACE_STALL=0` leaves it out, as the SoC unit test's build does). `make -C sim print-trace-stall CORE=...` prints 1 for a build that has it; `--trace-stall` on a build without it is an error.
+- **Which builds have the port:** all of them. The port list is the same in every build (interfaces.md §1): `tg_core`, the test core, and the SoC unit test's wrapper of the test core. The input stays 0 unless `tg_vsim` runs with `--trace-stall`.
 - **The test core:** the stall holds its trace queue, so commit stops once the queue is full, while deferred writebacks keep flowing. Two knobs prove that the checks work: `+tcore_stall_lat=0|1|2` adds reaction latency (default 1, the interface's allowance), and `+tcore_stall_bug=1` drops the head record when a stall starts. With latency 2 the run fails with check 1's error at the third stalled cycle; the dropped record fails lockstep with the hint.
-- **Where it runs:** for cores with the port, `make regress` runs the riscv-tests and the directed interrupt tests a second time with `--trace-stall=50`. A third of the stressed random seeds also draw `--trace-stall` (10, 50 or 200).
+- **Where it runs:** `make regress` runs the riscv-tests and the directed interrupt tests a second time with `--trace-stall=50`. A third of the stressed random seeds also draw `--trace-stall` (10, 50 or 200).
 - **Results on 2026-10-13 with the test core:** CoreMark with `--trace-stall=50 +tcore_spread=1 +tcore_defer=60` passes in lockstep through 82,759 stalls (2.2 M stalled cycles). `make regress` passes in `st` and `st_w3` with the back-pressure step.
 
 ## 3. Lockstep checker
@@ -364,7 +364,7 @@ The checker found its first real bug the same day: the test core lost deferred w
 3. runs the directed tests with lockstep (§4.1);
 4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
 5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
-6. for a core with `trace_stall_i`, the riscv-tests and directed tests again with `--trace-stall=50` (§2.9); with `ARCH=1`, the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
+6. runs the riscv-tests and directed tests again with `--trace-stall=50` (§2.9); with `ARCH=1`, the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
 7. runs the checker self-test (§3.8; `SELFTEST=0` skips it) and 50 random F/D programs Spike against Spike (§6.2; `RANDFD=N`, 0 skips them);
 8. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
@@ -379,7 +379,7 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 - **ISA:** RV64IM, Zicsr, Zifencei, Zicntr; M and U modes; `mstatus`, `misa`, `mie`/`mip`, `mtvec` (direct and vectored), `mscratch`, `mepc`, `mcause`, `mtval`, `mhartid`, the counters, `mcounteren`, `menvcfg` and PMP registers as WARL zero, the ID registers as zero; ECALL, EBREAK, MRET, WFI; precise exceptions for illegal instructions, misaligned and faulting accesses; interrupts MEI, MSI, MTI.
 - **Pipeline:** one instruction at a time (a multi-cycle state machine). Width-generic trace output: it uses slot 0 only, or spreads records over all `COMMIT_WIDTH` slots when `TRACE_SPREAD=1`.
 - **Memory:** a one-line fetch buffer over `l1i` (`Get` of a line), and a small direct-mapped write-back data cache over `l1d` that acts as a real TL-C client: `AcquireBlock NtoB` / `NtoT`, `AcquirePerm BtoT` for upgrades, `GrantAck`, `Release` / `ReleaseData` on eviction, and `ProbeAck` / `ProbeAckData` to probes. Device accesses go to `mmio`.
-- **Trace back-pressure:** `trace_stall_i` (when built with `TG_TRACE_STALL`, §2.9) holds the trace queue; `+tcore_stall_lat` and `+tcore_stall_bug` test the harness's checks.
+- **Trace back-pressure:** `trace_stall_i` (§2.9) holds the trace queue; `+tcore_stall_lat` and `+tcore_stall_bug` test the harness's checks.
 - **Trace features**, so that every checker path runs end to end:
   - **deferred writebacks:** with `+tcore_defer=<percent>`, it reports cacheable loads and DIV/REM with `rd_deferred = 1` and sends the value on a `trace_wb` port 1–16 cycles after the record (a delay line; the core itself is not early-retiring);
   - **several records per cycle:** with `+tcore_spread=1`, records wait in a small queue and leave it 0 to `COMMIT_WIDTH` at a time;

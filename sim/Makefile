@@ -5,7 +5,6 @@
 #   make -C sim replay                 build tg_replay (Spike against Spike, no RTL)
 #   make -C sim lint CFG=st CORE=tcore lint the testbench and the test core
 #   make -C sim clean                  remove this worktree's sim build trees
-#   make -C sim print-trace-stall CORE=...   1 if that core's build has trace_stall_i
 # The binary is $(BUILD)/tg_vsim; `make -C sim print-bin CFG=... CORE=...` prints its path.
 
 CFG  ?= st
@@ -33,13 +32,10 @@ export CCACHE_SLOPPINESS :=
 # make's command line or these defaults, never from the environment: a runner's own ISA variable
 # (tests/random: the generator's ISA) reaches the environment of its sub-makes.
 $(foreach v,ISA PRIV PMP,$(if $(filter environment,$(origin $(v))),$(eval undefine $(v))))
-# tg_core always has trace_stall_i (interfaces.md v1.3); TRACE_STALL=1 (the default) gives the test
-# core the port too.
 ifeq ($(CORE),tcore)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= MU
   PMP  ?= 0
-  TRACE_STALL ?= 1
   CORE_TOP := tg_tcore
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
@@ -47,15 +43,12 @@ else ifeq ($(CORE),core)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= M
   PMP  ?= 16
-  TRACE_STALL := 1
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
   CORE_DEF :=
 else
   $(error unknown CORE=$(CORE) (core or tcore))
 endif
-
-CORE_DEF += $(if $(filter 1,$(TRACE_STALL)),+define+TG_TRACE_STALL)
 
 RTL_CFG := $(ROOT)/rtl/common/cfg/tg_cfg_$(CFG).sv
 SRCS    := main.cpp tb_dpi.cpp tlmodels.cpp elfload.cpp lockstep.cpp
@@ -73,7 +66,7 @@ VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           -MAKEFLAGS "OPT_FAST=-O2 OPT_SLOW=-O1 OPT_GLOBAL=-O2" \
           -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)"
 
-.PHONY: all build lint replay clean print-bin print-build print-trace-stall
+.PHONY: all build lint replay clean print-bin print-build
 all: build
 
 build: $(BUILD)/tg_vsim
@@ -106,8 +99,6 @@ print-bin:
 	@echo $(BUILD)/tg_vsim
 print-build:
 	@echo $(BUILD)
-print-trace-stall:  # 1 when this core's tg_vsim has trace_stall_i
-	@echo $(if $(filter 1,$(TRACE_STALL)),1,0)
 
 clean:
 	rm -rf $(BUILD_ROOT)

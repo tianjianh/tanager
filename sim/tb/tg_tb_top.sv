@@ -15,8 +15,7 @@ module tg_tb_top
   import "DPI-C" function void tg_dpi_config(
     input string cfg_name, input int commit_width, input int num_threads, input int core_id,
     input int hart_w, input int wb_tag_w, input int trace_wb_ports, input int pa_w,
-    input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom,
-    input bit has_trace_stall);
+    input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom);
 
   // TL-UL responder (l1i = port 0, mmio = port 2): what the core presented this cycle, and the
   // responder's outputs for the next cycle.
@@ -69,26 +68,11 @@ module tg_tb_top
 
   import "DPI-C" function longint tg_dpi_boot_addr();
 
-  // trace_stall_i (interfaces.md v1.3): tg_core always has it; the test core when built with
-  // TG_TRACE_STALL. It stays 0 unless tg_vsim runs with --trace-stall (verification.md §2.9).
-`ifdef TG_TCORE
-`ifdef TG_TRACE_STALL
-`define TG_TB_TRACE_STALL
-`endif
-`else
-`define TG_TB_TRACE_STALL
-`endif
-`ifdef TG_TB_TRACE_STALL
-  localparam bit HAS_TRACE_STALL = 1'b1;
-`else
-  localparam bit HAS_TRACE_STALL = 1'b0;
-`endif
 
   paddr_t boot_addr;
   initial begin
     tg_dpi_config(CFG_NAME, COMMIT_WIDTH, NUM_THREADS, CORE_ID, HART_W, WB_TAG_W,
-                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM,
-                  HAS_TRACE_STALL);
+                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM);
     boot_addr = paddr_t'(tg_dpi_boot_addr());
   end
 
@@ -156,9 +140,7 @@ module tg_tb_top
     .mmio_d_i         (mmio_d_q),
     .mmio_d_valid_i   (mmio_d_valid_q),
     .mmio_d_ready_o   (mmio_d_ready),
-`ifdef TG_TB_TRACE_STALL
-    .trace_stall_i    (trace_stall_q),
-`endif
+    .trace_stall_i    (trace_stall_q),        // 0 unless tg_vsim runs with --trace-stall (§2.9)
     .trace_o          (trace),
     .trace_valid_o    (trace_valid),
     .trace_wb_o       (trace_wb),
@@ -281,4 +263,3 @@ module tg_tb_top
     end
   end
 endmodule
-`undef TG_TB_TRACE_STALL

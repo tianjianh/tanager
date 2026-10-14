@@ -53,7 +53,7 @@ static void put_d(const tl_d_t& d, int* opcode, int* param, int* size, int* sour
 
 extern "C" void tg_dpi_config(const char* cfg_name, int commit_width, int num_threads, int core_id, int hart_w,
                               int wb_tag_w, int trace_wb_ports, int pa_w, int l1i_mshrs, int l1d_mshrs,
-                              int llt_entries, int trace_stall_headroom, svBit has_trace_stall) {
+                              int llt_entries, int trace_stall_headroom) {
   hw_cfg_t& h = tb().hw;
   h.known = true;
   h.cfg_name = cfg_name;
@@ -68,7 +68,6 @@ extern "C" void tg_dpi_config(const char* cfg_name, int commit_width, int num_th
   h.l1d_mshrs = unsigned(l1d_mshrs);
   h.llt_entries = unsigned(llt_entries);
   h.trace_stall_headroom = unsigned(trace_stall_headroom);
-  h.has_trace_stall = has_trace_stall;
 }
 
 extern "C" long long tg_dpi_boot_addr() { return (long long)tb().boot_addr; }
