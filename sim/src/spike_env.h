@@ -102,7 +102,9 @@ class spike_env_t final : public simif_t {
     if (denied(paddr)) return nullptr;
     return in_range(paddr, c_.dram_base, c_.dram_size) ? reinterpret_cast<char*>(dram_ + (paddr - c_.dram_base)) : nullptr;
   }
-  bool reservable(reg_t paddr) override { return in_range(paddr, c_.dram_base, c_.dram_size) && !denied(paddr); }
+  // A denied range is a bus error, which only an access meets: it stays reservable, so an SC that fails for
+  // want of a reservation (no access) does not fault, as in the core; LR and AMOs still fault there.
+  bool reservable(reg_t paddr) override { return in_range(paddr, c_.dram_base, c_.dram_size); }
   bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) override {
     if (denied(paddr)) return false;
     if (!in_range(paddr, c_.rom_base, c_.rom_size) || paddr + len > c_.rom_base + c_.rom_size) return false;

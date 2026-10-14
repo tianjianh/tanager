@@ -82,6 +82,26 @@ module tb_host_bridge;
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );
 
+  // Port signatures, one per clock domain: every DUT output every cycle (read data only while
+  // valid). The same signatures mean the same behaviour at the ports, cycle by cycle (the cycle-
+  // identity check for rewrites, docs/perf/fpga_friendly.md).
+  logic [63:0] hsig = 64'hcbf2_9ce4_8422_2325, csig = 64'hcbf2_9ce4_8422_2325;
+  function automatic logic [63:0] fnv(input logic [63:0] h, input logic [255:0] x);
+    for (int b = 0; b < 32; b++) h = (h ^ 64'(x[8*b +: 8])) * 64'h0000_0100_0000_01b3;
+    return h;
+  endfunction
+  always @(posedge clk_host) if (!rst_host)
+    hsig <= fnv(hsig, 256'({l_awready, l_wready, l_bvalid, l_bresp, l_arready, l_rvalid, l_rresp, host_irq,
+                            l_rvalid ? l_rdata : 32'd0}));
+  always @(posedge clk) if (!rst) begin
+    logic [63:0] h;
+    h = fnv(csig, 256'({core_rst, uncore_rst, mbox_irq, ctx_r, crx_v, crx_v ? crx_b : 8'd0, dbase, dsize, ird, iwr, imode, ibw}));
+    h = fnv(h, 256'({tg_en, tg_base, tg_lines, trs_en, trs_wrap, trs_stop_arm, trs_start_arm, trs_post, trs_size, trs_base}));
+    h = fnv(h, 256'({trs_stop_pc, trs_start_pc, trs_rp}));
+    h = fnv(h, 256'(rsp));
+    csig <= h;
+  end
+
   int errors = 0;
   task automatic fail(input string m);
     errors++;
@@ -345,6 +365,7 @@ module tb_host_bridge;
     repeat (200) @(posedge clk);
     if (rx_got.size() != 700) fail($sformatf("console input: %0d of 700 bytes", rx_got.size()));
     foreach (rx_got[i]) if (rx_got[i] != 8'(i * 5)) begin fail($sformatf("console input byte %0d", i)); break; end
+    $display("host_bridge: port signatures %016h (host) %016h (core)", hsig, csig);
     if (errors == 0) $display("TEST PASSED");
     else $display("TEST FAILED: %0d errors", errors);
     $finish;

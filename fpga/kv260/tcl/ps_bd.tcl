@@ -6,6 +6,8 @@
 #   S_AXI_HP2_FPD   128-bit AXI4 slave from L2 bank 1 (clocked by clk_core)
 #   S_AXI_HP3_FPD   128-bit AXI4 slave from the commit-trace stream, writes only (clocked by clk_core)
 #   pl_clk0 = 100 MHz, pl_resetn0, pl_ps_irq0[0]
+#   fan_wave[2:0]   the fan PWM's TTC waveform outputs on EMIO (DR-129; tools/tcl/tg_kv260_fan.tcl, which the
+#                   caller sources first)
 proc tg_make_ps_bd {bd_dir core_mhz} {
   create_bd_design -dir $bd_dir tg_ps
   set ps [create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e zynq_ultra_ps_e_0]
@@ -30,6 +32,7 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
     CONFIG.PSU__FPGA_PL1_ENABLE {0} \
     CONFIG.PSU__USE__IRQ0 {1} \
   ] $ps
+  set fan_pin [tg_kv260_fan_ps $ps]
 
   # External ports with fixed names
   set m_hpm0 [create_bd_intf_port -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M_AXI_HPM0]
@@ -61,6 +64,8 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   connect_bd_net [get_bd_pins $ps/pl_resetn0] $pl_resetn0
   set irq [create_bd_port -dir I -from 0 -to 0 -type intr pl_ps_irq0]
   connect_bd_net $irq [get_bd_pins $ps/pl_ps_irq0]
+  set fan_wave [create_bd_port -dir O -from 2 -to 0 fan_wave]
+  connect_bd_net $fan_pin $fan_wave
 
   # Address map: the host bridge's 64 KiB at the start of the HPM0 aperture; the HP ports see all
   # of DDR (the carve-out is chosen at run time, docs/spec/host.md).

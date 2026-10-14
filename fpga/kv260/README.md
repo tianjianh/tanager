@@ -10,6 +10,16 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+**The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. The facts live in `tools/tcl/tg_kv260_fan.tcl`, shared with spike S1. `build.tcl` sources it, and the variables override it:
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `TG_FAN_TTC` | the TTC (0–3) whose waveform outputs go to EMIO | 0 |
+| `TG_FAN_WAVE` | which of its three waveform outputs (0–2) drives `fan_en_b` | 2 |
+| `TG_FAN_INVERT` | 1 if `fan_en_b` is the waveform inverted | 0 |
+
+The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)
@@ -17,18 +27,19 @@ A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two
 `TG_PMOD_UART=1` in the build environment puts the RISC-V console on the KV260's PMOD connector (DR-126):
 
 ```bash
-TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_core_100_pmod fpga/kv260/tcl/build.tcl $PWD st core 100 1 bit
+TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100_pmod fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
 - **Line:** 8N1, 3.3 V, at the 16550's divisor (115 200 baud once OpenSBI has programmed it, also the reset value). Set the terminal on the laptop to 115200 8N1, no flow control.
 - **Pins:**
 
-  | Port | Direction (FPGA) | Default pin | Connects to the module's |
+  | Port | Direction (FPGA) | Pin | Connects to the module's |
   |---|---|---|---|
-  | `pmod_uart_txd` | out | E10 (PMOD J2 pin 2) | RXD |
-  | `pmod_uart_rxd` | in, pulled up | D10 (PMOD J2 pin 3) | TXD |
+  | `pmod_uart_txd` | out | H12 (`som240_1_a17`, PMOD J2 pin 1) | RX |
+  | `pmod_uart_rxd` | in, pulled up | B10 (`som240_1_b20`, PMOD J2 pin 2) | TX |
 
-  - **Unconfirmed:** the J2 pin locations are the SOM240 3.3 V pins as the KV260 carrier's PMOD is generally documented; the local board files don't name the connector. Confirm them against the carrier's documentation and the module's pinout before connecting. Ground is J2 pin 5 or 11.
+  - **The module:** the board's CH340 USB UART on J2, which is COM5 on the laptop.
+  - **Source:** the board session read J2's numbering, and the user confirmed both pins on the board (2026-10-14; see [The board](#the-board), consoles). The Vivado board files (`kv260_som`, `kv260_carrier`) list the SOM240 pins but have no PMOD interface, so they cannot settle it. `xdc/kv260.xdc` holds the pins with the same note.
   - `TG_PMOD_TXD` and `TG_PMOD_RXD` override the pins without editing a file.
 - **With the option off** (the default), `pmod_uart_txd` is high-impedance and nothing drives the connector.
 - **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
@@ -57,6 +68,14 @@ dtc -@ -W no-reg_format -W no-simple_bus_reg -I dts -O dtb -o tanager.dtbo fpga/
 make -C sw/host
 ```
 
+### Board files
+
+The board loads a build as the PL app `tanager` through dfx-mgr's `xmutil`, as for spike S1. The app is three files in `/lib/firmware/xilinx/tanager/`: `tanager.bit.bin`, `tanager.dtbo` and `shell.json` (`dtbo/shell.json`: a flat shell with one slot). `package.sh` puts them in one directory with `tanager-host`, the build's `summary.txt` and `SHA256SUMS`. The summary records the commit, the PMOD and fan options, the pins and the timing.
+
+```bash
+fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/stage-b
+```
+
 ## Board setup (one-time; needs a person)
 
 1. **OS.** Write the standard Kria Ubuntu image (22.04 or 24.04 for Kria) to the SD card. Boot the KV260 and put it on the network. Install an SSH public key for the user that will run the tests. The user needs `sudo`.
@@ -65,19 +84,28 @@ make -C sw/host
    - **Check:** `sudo grep System /proc/iomem` ends at `0x83fffffff` (root is needed; other users see zeros). The kernel's boot line reads `Memory: …/3145728K available`. `free -m` shows about 2,900 MiB, and `free -g` truncates that to 2.
 3. **SMMU bypass for the PL masters.** The HP ports pass through the SMMU. If Linux's SMMU driver rejects unknown stream IDs, the RISC-V memory accesses fault. Add `arm-smmu.disable_bypass=0` to the same command line. Spike S1 is to confirm whether this is needed (plan §5.5).
    - On Ubuntu 24.04.2 for Kria the parameter is a no-op: the kernel has no driver for this SMMU and the device tree disables it (see [The board](#the-board)). It is kept as a guard.
-4. **Firmware files.** Copy `tanager.bit.bin` and `tanager.dtbo` to `/lib/firmware/` on the board. Copy `tanager-host` to `/usr/local/bin/`.
-5. **The default PL app stays loaded.** The Kria image loads `k26-starter-kits` at boot. It routes Linux's fan PWM to the fan pin. Unload it (`sudo xmutil unloadapp`) only right before loading a Tanager bitstream, and reload it (`sudo xmutil loadapp k26-starter-kits`) as soon as the run ends (see [The board](#the-board), fan).
+4. **Install the PL app** (again for each new build). Copy the [board files](#board-files) to the board, then:
+   ```bash
+   sudo mkdir -p /lib/firmware/xilinx/tanager
+   sudo cp tanager.bit.bin tanager.dtbo shell.json /lib/firmware/xilinx/tanager/
+   sudo cp tanager-host /usr/local/bin/
+   sudo xmutil listapps
+   ```
+   [`tanager` is in the list; if not, `sudo systemctl restart dfx-mgr` and list again].
+5. **The default PL app.** The Kria image loads `k26-starter-kits` at boot. It routes Linux's fan PWM to the fan pin, and so does every Tanager bitstream (DR-129), so the fan follows the temperature with either loaded. When a run ends, reload the default app (`sudo xmutil unloadapp && sudo xmutil loadapp k26-starter-kits`), or let the board session's auto-restore timer do it (see [The board](#the-board), fan).
 
 ## Bring-up sequence
 
 Each step's expected result is in brackets.
 
-1. **Load the bitstream.** `sudo fpgautil -b tanager.bit.bin -o tanager.dtbo` [`fpgautil` reports success; `dmesg` shows the FPGA manager loading and the overlay applied].
-2. **Host window.** `sudo tanager-host info` [ID `TNGR`, configuration, 100.0 MHz, cores and uncore in reset].
+1. **Load the bitstream.** `sudo xmutil unloadapp && sudo xmutil loadapp tanager` [`xmutil` reports the app loaded; `dmesg` shows the FPGA manager loading `tanager.bit.bin` and the overlay applied; the fan keeps following the temperature, at 15/255 when cool, not full speed. If it stops or runs flat out, `sudo xmutil unloadapp` at once].
+2. **Host window and clock.** `sudo tanager-host info` [ID `TNGR`, configuration, cores and uncore in reset; its 100.0 MHz is the design's `CLK_HZ` constant, not a measurement]. The PL clock as Linux set it: `sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate` [`99999999`; `90909090` means the overlay's request rounded down a divider step, as spike S1's once did].
 3. **Fabric widths and clock.** `sudo tanager-host poke 0x68 0x12345678; sudo tanager-host peek 0x68` [reads back `0x12345678`; a garbled value means the AXI width (overlay `afi0`) is wrong].
-4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384`, wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
+4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384` [it prints the DRAM window it set, `0x840000000 + 0x40000000` by default], wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
    - **At 250 cycles:** `sudo tanager-host inj --inj-rd 250`, wait, `tg status` again [errors still 0].
-5. **Console path.** The traffic generators print one `.` per pass on the UART: `sudo tanager-host run --timeout 5` [dots appear].
+5. **Console path.** Each traffic generator prints one `.` per pass on the UART, or `E` after a pass with an error: `sudo tanager-host run --timeout 5` [dots appear; `run` attaches to the running generators, and holds everything when it exits].
+   - **With the PMOD console** (`TG_PMOD_UART=1`): the same dots appear on COM5 at 115200 8N1 from the moment `tg start` runs, whether or not `tanager-host` reads the console. A clean line also rules out a `pl_clk0` that rounded down to 90.9 MHz: 9% slow garbles it.
+   - A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
 6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
@@ -93,8 +121,10 @@ Each step's expected result is in brackets.
 
 | Signal | Where | Notes |
 |---|---|---|
-| `fan_en_b` | A12 (`som240_1_c24`), LVCMOS33 | driven low: fan at full speed |
-| `pl_clk0` | PS | 100 MHz (set by the overlay) → MMCM → `clk_core` (`CORE_MHZ`), `clk_host` (100 MHz) |
+| `fan_en_b` | A12 (`som240_1_c24`), LVCMOS33 | the PS's TTC0 waveform 2 (`emio_ttc0_wave_o[2]`), uninverted: Linux's `pwm-fan` sets the speed (DR-129) |
+| `pmod_uart_txd` | H12 (`som240_1_a17`, PMOD J2 pin 1), LVCMOS33 | the RISC-V UART's TX with `TG_PMOD_UART=1`, high-impedance otherwise |
+| `pmod_uart_rxd` | B10 (`som240_1_b20`, PMOD J2 pin 2), LVCMOS33, pull-up | the RISC-V UART's RX with `TG_PMOD_UART=1` |
+| `pl_clk0` | PS | 100 MHz, asked for as exactly 100,000,000 Hz by the overlay (the board's IOPLL makes 99,999,999 Hz; a request below that rounds down to 90.9 MHz) → MMCM → `clk_core` (`CORE_MHZ`), `clk_host` (100 MHz) |
 | `pl_ps_irq0[0]` | PS, GIC SPI 89 | host bridge interrupt (console, mailbox, power, tohost) |
 
 ## The board
@@ -131,3 +161,32 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - ICS's DHCP stopped answering once: nothing listened on UDP 67, although the sharing service was running. Restarting ICS on the laptop fixed it.
   - Without DHCP, the board still answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet.
 - **Clock.** The board shows a wrong date until NTP reaches it through the laptop's connection sharing.
+
+## Bring-up on the board (2026-10-14)
+
+The board track ran bring-up steps 1–5 on [the board](#the-board) on 2026-10-14. All five pass.
+- **Build:** the traffic-generator build: `st`, 2 generators, 100 MHz, commit `5048957`, PMOD console on H12/B10, fan TTC0 wave 2 → A12. Bitstream sha256 `5706b857…`, `tanager-host` `24da9717…`.
+- **How:** [`board/tg.sh`](board/tg.sh) (`stage`, `load`, `steps`, `restore`), run as `ubuntu` on the board.
+- **Logs:** [`board/stage_b_steps.log`](board/stage_b_steps.log), the passing run. [`board/stage_b_first.log`](board/stage_b_first.log), the first try, with the README's command forms. [`board/stage_b_console.log`](board/stage_b_console.log), a console diagnostic.
+
+| Step | Result |
+|---|---|
+| 1. Load | `xmutil loadapp tanager` loads it in slot 0; the FPGA manager reports `operating`. `pl0_ref` reads 99,999,999 Hz. The fan stayed at 15/255 under `fancontrol`, and the user heard it stay quiet. |
+| 2. `info` | v1.0, `st`, 2 cores × 1 thread, capabilities `0x2b`, everything in reset, window 0/0 |
+| 3. Widths | `FROMHOST` as a 64-bit pair reads back `0x12345678`/`0x9abcdef0`. `TG_LINES` (32-bit) reads back `0x2468`. |
+| 4. Memory path | `tg start` sets the window 0x840000000 + 0x40000000, and it reads back exactly. About 60 passes/s for generator 0. 14.4 M lines checked, **0 errors**. |
+| 4, at 250 cycles | `INJ_RD` reads 250. Passes slow to about 13/s. 3.9 M lines checked, **0 errors**. |
+| 5. Console | `run` showed 1,681 dots through `tanager-host` in its 5 s. COM5 (the PMOD UART) received 3,371 bytes over the session, all `.`, two per pass. `UART_TX_LEVEL` agrees with the passes. |
+
+**What the steps above need on this build** (reported to the SoC track):
+- **Options before the command.**
+  - `tanager-host` parses its options with `getopt_long("+vh")`, which stops at the first word that is not an option. So `inj --inj-rd 250` and `run --timeout 5` silently ignore their options: the injector stayed at 0, and `run` never timed out.
+  - The forms that work are `tanager-host --inj-rd 250 inj`, `--stats inj` and `--timeout 5 run`.
+  - Step 6's `boot --fw … --kernel … --dtb …` and step 7's `run --trace FILE` are affected the same way.
+- **Step 3's check:** `poke 0x68` alone reads back 0. `FROMHOST` is a 64-bit pair, and its low half lands only when the high half is written, so write `0x6c` too, or use a 32-bit register.
+- **The injector's native latency:** `info` reports avg 0.1–0.2 cycles over 20–40 M reads, with a max of 98–102. The average is not plausible: spike S1 implies about 18 cycles at 100 MHz at the PS port, before the uncore's own path. `INJ_RD_LATSUM` or the count looks wrong, so step 4 does not yet give the SoC's native-latency number.
+
+**Never read the host window without the design.**
+- With `k26-starter-kits` (or nothing) in the PL, nothing answers at `0xA000_0000`, and a `tanager-host` read hangs the A53 until a power cycle. This happened once, from a status command after the automatic restore.
+- `tg.sh` now refuses every `tanager-host` call unless `xmutil listapps` shows `tanager` in the slot.
+- Proposed for `tanager-host` itself: refuse to start unless the overlay's `tanager@a0000000` node is present in the live device tree.

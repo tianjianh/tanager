@@ -3,7 +3,8 @@
 //   M_AXI_HPM0_FPD (clk_host, 32-bit) -> tg_axi4_to_axil -> host bridge
 //   L2 banks 0/1 (clk_core, 128-bit)  -> S_AXI_HP1_FPD / S_AXI_HP2_FPD
 //   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
-//   host_irq -> pl_ps_irq0[0];  fan_en_b driven low (fan at full speed)
+//   host_irq -> pl_ps_irq0[0];  fan_en_b = the PS TTC waveform Linux's pwm-fan drives (DR-129):
+//   fan_wave[FAN_WAVE] from the block design, inverted if FAN_INVERT
 //   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
 //   divisor, 115200 after OpenSBI); the host still gets a copy. Off: txd is high-impedance.
 module kv260_top
@@ -12,7 +13,9 @@ module kv260_top
   parameter int    CORE_MHZ  = 100,
   parameter int    N_CORES   = NUM_CORES,
   parameter string CORE_KIND = "core",
-  parameter bit    PMOD_UART = 1'b0
+  parameter bit    PMOD_UART = 1'b0,
+  parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
+  parameter bit    FAN_INVERT = 1'b0
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -22,6 +25,7 @@ module kv260_top
   logic        pl_clk0, pl_resetn0;
   logic        clk_core, clk_host, locked;
   logic        host_irq;
+  logic [2:0]  fan_wave;                // TTC waveform outputs (EMIO)
 
   logic [39:0] hpm_araddr, hpm_awaddr;
   logic [15:0] hpm_arid, hpm_awid, hpm_bid, hpm_rid;
@@ -48,6 +52,7 @@ module kv260_top
     .pl_clk0 (pl_clk0),
     .pl_resetn0 (pl_resetn0),
     .pl_ps_irq0 (host_irq),
+    .fan_wave (fan_wave),
     // host window
     .M_AXI_HPM0_araddr (hpm_araddr), .M_AXI_HPM0_arburst (), .M_AXI_HPM0_arcache (), .M_AXI_HPM0_arid (hpm_arid),
     .M_AXI_HPM0_arlen (hpm_arlen), .M_AXI_HPM0_arlock (), .M_AXI_HPM0_arprot (), .M_AXI_HPM0_arqos (),
@@ -166,6 +171,6 @@ module kv260_top
     .status_o (status)
   );
 
-  assign fan_en_b      = 1'b0;
+  assign fan_en_b      = fan_wave[FAN_WAVE] ^ FAN_INVERT;
   assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
 endmodule

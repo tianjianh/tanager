@@ -30,10 +30,14 @@ MARCH = {
 }
 
 
+# tg_rand's DENY_PAGE and DENY_IO: stressed runs deny them, so the programs' accesses there take bus errors
+DENY = ["--deny=0x80F00000:4096", "--deny=0x10001000:4096"]
+
+
 def stress_args(seed, irq, trace_stall=False):
     r = random.Random(seed * 7919 + 13)
     lat = r.choice(['native', 'native', '90', '120', '250'])
-    args = [f"--lat={lat}"]
+    args = [f"--lat={lat}"] + DENY
     if irq:
         # Stretch mtime with the latency so that the timer period stays longer than the handler, which
         # otherwise livelocks a slow core in interrupts (20 cycles per tick at native latency).
@@ -106,8 +110,11 @@ def main():
     ap.add_argument("--spike-isa", default=None, help="Spike ISA for the tg_replay pre-check")
     ap.add_argument("--irq", type=int, default=0, help="timer interrupt period (ticks); 0 = none")
     ap.add_argument("--length", type=int, default=300)
+    ap.add_argument("--vm", type=int, default=0, help="percentage of programs in S-mode under Sv39 (tg_rand --vm; "
+                                                      "the core needs S-mode)")
     ap.add_argument("--stress", action="store_true")
     ap.add_argument("--trace-stall", action="store_true", help="with --stress: some seeds also stall the trace")
+    ap.add_argument("--cov", default="", help="directory for each run's RTL coverage (a tg_vsim built with COV=1)")
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--workdir", required=True)
@@ -115,6 +122,8 @@ def main():
     ap.add_argument("extra", nargs="*")
     a = ap.parse_args()
     os.makedirs(a.workdir, exist_ok=True)
+    if a.cov:
+        os.makedirs(a.cov, exist_ok=True)
     faildir = os.path.join(a.workdir, "failures")
     spike_isa = a.spike_isa or {"rv64i": "rv64i_zicsr_zicntr_zifencei", "rv64im": "rv64im_zicsr_zicntr_zifencei",
                                 "rv64ima": "rv64ima_zicsr_zicntr_zifencei", "rv64imac": "rv64imac_zicsr_zicntr_zifencei",
@@ -124,7 +133,7 @@ def main():
         wait_for_memory(a.mem_gate)
         base = os.path.join(a.workdir, f"r{seed}")
         gen = [sys.executable, os.path.join(HERE, "tg_rand.py"), "--seed", str(seed), "--isa", a.isa,
-               "--irq", str(a.irq), "--length", str(a.length), "-o", base + ".S"]
+               "--irq", str(a.irq), "--length", str(a.length), "--vm", str(a.vm), "-o", base + ".S"]
         rc, out = run(gen, 120)
         if rc:
             return seed, "GEN-FAIL", out.strip().splitlines()[-1] if out.strip() else "generator failed", ""
@@ -134,15 +143,18 @@ def main():
         rc, out = run(cc, 120)
         if rc:
             return seed, "GEN-FAIL", "assembly failed: " + (out.strip().splitlines() or ["?"])[0], ""
-        rc, out = run([a.replay, "--quiet", f"--isa={spike_isa}", "--priv=MU", "--max-steps=5000000", base + ".elf"], 600)
+        priv = "--priv=MSU" if a.vm else "--priv=MU"  # programs under Sv39 need S-mode
+        rc, out = run([a.replay, "--quiet", f"--isa={spike_isa}", priv, "--max-steps=5000000", base + ".elf"], 600)
         if "status=PASS" not in out:
             return seed, "GEN-FAIL", "Spike-against-Spike run failed: " + out.strip().splitlines()[-1], ""
         if a.replay_only:
             sim = a.replay
-            simargs = [f"--isa={spike_isa}", "--priv=MU", "--max-steps=5000000"] + replay_args(seed) + list(a.extra)
+            simargs = [f"--isa={spike_isa}", priv, "--max-steps=5000000"] + replay_args(seed) + list(a.extra)
         else:
             sim = a.sim
             simargs = (stress_args(seed, a.irq, a.trace_stall) if a.stress else []) + list(a.extra)
+            if a.cov:
+                simargs.append(f"--cov={os.path.join(a.cov, f'r{seed}.dat')}")
         cmd = [sim, "--quiet"] + simargs + [base + ".elf"]
         rc, out = run(cmd, a.timeout, base + ".log")
         res = next((l for l in out.splitlines() if l.startswith(("TG-RESULT", "TG-REPLAY"))), "")

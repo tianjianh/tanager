@@ -378,7 +378,8 @@ The core track runs it for `st` and `st_w3` before each merge request (conventio
 A continuous random campaign on main that uses the build host's idle threads (conventions §9). Its findings never gate a merge.
 - **Each round** runs constrained-random programs (§6.2) on the real core in `st`, `st_w3`, `smt2` and `smt2_w3` at once:
   - every extension switch of `tg_core_pkg` (`EXT_*`) is on, as the core track tests them. Spike uses the M3 configuration (§3.2). Once the core has `EXT_FD`, Spike's ISA adds `f` and `d` and the programs are `rv64gc`, with the F/D templates; before that they are `rv64imac`;
-  - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes), and a third also stall the trace (§2.9);
+  - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes, the two denied pages), and a third also stall the trace (§2.9);
+  - a third run in S-mode under Sv39 (`tg_rand --vm 33`, §6.2), once main's generator has the option;
   - timer interrupts are on in every other round;
   - 48 programs per configuration per round, with new seeds each time.
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
@@ -420,7 +421,7 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   | `isa` | the regression's riscv-tests suites (284 at M3) and our 8 directed tests (§4.1), `tlb_stress` included | native latency; `--irq-rand=5` for the directed tests |
   | `stress` | the same programs | memory stress drawn per test (latency 30–250, jitter, back-pressure, D gaps, `toB` grants, probes) and `--trace-stall=50` |
   | `bench` | CoreMark A and B and Dhrystone, `rv64im` and `rv64gcb` | latency native and 120 |
-  | `random` | `RANDN` (200) `tg_rand` programs: `rv64gc` with F/D, else `rv64imac` | the soak's stress (§4.4); timer interrupts on odd seeds |
+  | `random` | `RANDN` (200) `tg_rand` programs: `rv64gc` with F/D, else `rv64imac`; a third in S-mode under Sv39 | the soak's stress (§4.4); timer interrupts on odd seeds |
   | `reset` | the riscv-tests | random initial values in every register without a reset (`--rand-reset`; see below) |
 
 - **The Linux boot (`BOOT=N`)** runs the first N million cycles of the SoC track's Linux boot on the whole SoC: cores and uncore (crossbar, L2, memory path, devices, host bridge, trace streamer). `tg_vsim` holds only the core, so for an uncore rewrite this is the check.
@@ -569,7 +570,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 
 ### 6.2 Constrained-random instruction generator
 
-`tests/random/tg_rand.py` (implemented 2026-10-13; plan §9, §4.15) writes assembly programs that run bare-metal in M-mode and in lockstep. Spike checks every instruction, so the generator never predicts results.
+`tests/random/tg_rand.py` (implemented 2026-10-13; plan §9, §4.15) writes assembly programs that run bare-metal in M-mode, or in S-mode under Sv39 (`--vm`), and in lockstep. Spike checks every instruction, so the generator never predicts results.
 - **Seeded:** a program is reproducible from its seed and options; failures print a one-line reproduction command (conventions §6).
 - **Safe by construction:** x2–x4 (stack, data base, alias base) and x30/x31 (trap scratch) are never written; every address is masked into its region; branches go forward and loops have fixed counts (an LR/SC loop is bounded, so a core that keeps failing SC still ends).
 - **Templates** (weighted), aimed at the plan's risk areas:
@@ -580,12 +581,42 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **width 3:** groups of three instructions in one 16-byte fetch block with RAW, WAW or WAR dependencies, two branches, or a load-use and a store (plan §4.15);
   - CSR reads (counters, `mstatus`, `mscratch`), fences, `fence.i`, calls and returns, and LR/SC and AMOs when A is in the ISA (bounded retry loops, and single LR/SC pairs whose SC writes `x0`);
   - **F and D** (ISAs with both, such as `rv64gc`): `mstatus.FS` starts at Initial, `frm` at a random mode, and every FP register at a special or random value: signed zeros, infinities, quiet and signalling NaNs with payloads, subnormals, extremes, NaN-boxed singles and a few unboxed ones. Templates: arithmetic and FMA in every static and dynamic rounding mode; conversions both ways, `fcvt` between widths, moves, compares and classify; FP loads and stores with FP/integer forwarding through memory, `flw` NaN-boxing and misaligned (trapping) accesses; `fflags`, `frm` (reserved modes 5–7 included, after which dynamic-rounding instructions trap) and `fcsr`, and windows with FS off; a divide or square root (a deferred writeback in the core) with dependents and a branch on an FP compare of its result; FP operations inside width-3 groups;
+  - **the structures the FPGA-friendly rewrites touch** (2026-10-14, measured in §6.4):
+    - register pressure: bursts that write two to four integer or FP registers over and over, so one rename group writes a register twice and reads it, with late completions, branches and exceptions in between (the rename maps);
+    - store bursts: 8 to 24 stores in a 64-byte window, more than the store queue holds, with overlapping sizes, late data, loads that forward from deep entries, FP stores and a branch that may squash the youngest (the queue's LUTRAM payload);
+    - every completion port at once: independent ALU, multiply, load, store, branch and FP operations, a few groups in a row (the ROB's per-port flag tables);
+    - CLINT loads (MMIO, performed at the ROB head) with dependents and a branch on the value;
+    - long-latency bursts: 12 to 28 independent divides, FP divides and square roots, and missing loads;
+    - WFI in programs with `--irq`;
+    - more traps: writes to read-only CSRs, a fetch from no memory (the handler returns through `x1`), misaligned LR, SC and AMOs, and loads, LR, SC and AMOs to two pages the stressed runs deny (`--deny`: a DRAM page and an unused device page). Stores do not go there: a denied fill for a committed store cannot be precise (core-lsu.md);
+  - **`--vm PCT`:** that share of the programs runs its body in S-mode under Sv39. M-mode builds an identity map: the 2 MiB image in 4 KiB pages, the CLINT and the denied DRAM page in 2 MiB pages, every leaf with A and D set. So every template runs translated, with TLB misses and page walks; the stream region grows to 256 KiB (64 pages, twice the DTLB). A VM template adds page faults (an unmapped and a non-canonical address, a fetch from an unmapped page), `SFENCE.VMA` and loads one page apart. CLINT and device-page loads stay out of VM programs: `tg_replay`'s pre-check adopts device loads only untranslated (§9). M-level interrupts stay enabled in S-mode, so the trap handler's scratch registers (x30/x31) are not used for anything an interrupt could disturb;
   - `--irq=<ticks>`: CLINT timer interrupts during all of it; the handler re-arms the timer.
 - **ISAs:** `rv64i`, `rv64im` (M2 and the test core), `rv64ima`, `rv64imac`, `rv64gc` (with the F/D templates). Programs for the integer ISAs are the same as before the F/D templates, seed for seed.
 - **Spike against Spike only:** `make -C tests/random replay ISA=rv64gc [N=...]` runs each program in `tg_replay` twice: plain, then with checker perturbations drawn from the seed (deferral of loads, FP loads, divides and FP divides and square roots, up to 4 records per cycle, perturbed `nondet` values, SCs the core fails). That is how the F/D templates are checked until a core runs them; `make regress` runs 50 seeds (`RANDFD=N`). On 2026-10-13, 500 seeds passed (about 250 FP instructions retired per program, 26 of them deferred in a typical one).
-- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1]`. Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes). Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
+- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1]`; `run_random.py --vm PCT` for programs under Sv39 (the pre-check then runs Spike with S-mode), `--cov DIR` for coverage (§6.4). Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes), and the two denied pages are denied. Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
 - **Results on 2026-10-13 with the test core:** 1,000 seeds with memory stress, and 300 with timer interrupts, deferred writebacks and multi-slot trace, in both `st` and `st_w3`, all pass (about 60 programs per second).
 - **Does it find bugs?** Two bugs planted in the test core: an SRAIW that ignores shift-amount bit 4 failed 199 of 200 programs (riscv-tests: one test); a dirty eviction that sends the wrong data in its last beat failed all 200 programs, and every riscv-test still passed.
+- **2026-10-14, the extended generator on the real core:** 1,300 programs in `st` and 100 in `smt2` (a third to half under Sv39, half with timer interrupts, all with memory stress, trace back-pressure and the denied pages) pass. On the way they found two harness bugs and no core bug: the bus model gave the agent the permissions of a denied Grant, and the Spike environment made denied DRAM non-reservable, so an SC without a reservation faulted there while the core (rightly) only fails it.
+
+### 6.4 RTL coverage of random programs
+
+`make -C sim CFG=st COV=1 [COV_UNITS="rename rob lsu"]` builds a separate `tg_vsim` with Verilator's line and expression coverage of those `rtl/core` units only. Verilator's `coverage_on` does not undo a `coverage_off`, so the build's configuration turns everything else off; a narrow scope keeps the build at about 80 s and the runs fast. `tg_vsim --cov=FILE` writes the counts, `run_random.py --cov DIR` one file per program, and `tools/ci/cov_report.py DIR [--save F] [--compare G]` merges them and reports, per file, the lines and expression term combinations reached (for example, two rename slots writing one register in a cycle), the ones never reached with their source lines, and what a campaign newly reached. Points no program can reach are counted apart: combinations of constants (`EXT_FD==0`, elaboration-time comparisons) and the failing side of assertions.
+
+- **The measurement (2026-10-14):** core-2's branch with the FPGA-friendly rewrites (the XOR-banked rename map, the ROB's per-port flag tables in LUTRAM, the SQ's ROB index and size in LUTRAM), `st`, 300 programs with the soak's settings, the same seeds before and after the extension (reachable points only):
+
+  | File | Lines before → after | Expressions before → after |
+  |---|---|---|
+  | `rename/tg_rmap.sv` (the XOR-banked map) | 100% → 100% | 100% → 100% |
+  | `rename/tg_rename.sv` | 97.2% → 97.6% | 94.5% → 94.5% |
+  | `rename/tg_rdytab.sv` | 100% → 100% | 91.1% → 92.4% |
+  | `rob/tg_rob.sv` | 90.3% → 97.9% | 87.4% → 92.3% |
+  | `lsu/tg_lsu.sv` | 82.6% → 91.6% | 88.4% → 98.3% |
+  | `lsu/tg_dcache.sv` | 94.6% → 97.3% | 90.2% → 94.9% |
+
+- **What it showed:**
+  - The rename map was already fully reached, same-cycle writes to one register included.
+  - The biggest gap was address translation: random programs ran in M-mode only, so none of the LSU's DTLB, page-walk and page-fault logic, nor the ROB's handling of a DTLB miss at its head, ever ran. `--vm` closes most of it.
+  - Still unreached, for the core track to judge (§9): exceptions on the ROB's "other" completion port (illegal CSR writes are caught before it), a completion for a squashed entry, an `mret` path in the next-PC selection, rename running out of long-latency tags (probably unreachable in `st`, where the issue queues and the divider throttle first), branch exceptions (impossible with C), and a fetch fault on the second half of an instruction.
 
 ### 6.3 Snapshots
 
@@ -614,6 +645,8 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 8. **`irq_ssi_i` (interfaces.md §3):** the interface ORs the line into `mip.SSIP`, while the privileged spec says a platform controller may *set* SSIP to 1 (as the ACLINT SSWI does, and as Spike and Sail model it), after which software clears it. With a level, software cannot clear SSIP while the line is high. ACT4 is unaffected today (§6.1, known differences), and the platform ties the line to 0; defining `irq_ssi_i` as a one-cycle pulse that sets SSIP would match the spec before the SSWI arrives. `irq_sei_i` is fine as it is: SEIP is the OR by the spec.
 9. **`TRACE_STALL_HEADROOM` (interfaces.md §5):** 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` is enough only if the sink counts the current cycle's records when it decides to stall. A sink that stalls from its occupancy register needs `COMMIT_WIDTH` more (§2.9). The rule should say which, for the SoC track's trace streamer.
 10. **The Linux boot in the cycle-identical check (§4.5):** built (`BOOT=N`). `sim/tb/tg_soc_sig.sv` is bound into `tanager_soc`, so `tb_boot` does not change. It can run from main once the SoC track merges `tb_boot`; until then `--boot-tree` takes it from the SoC branch. The bind names the SoC's ports, the trace AXI port the SoC branch added included, so a port rename in `tanager_soc` needs the same rename in `tg_soc_sig_bind.sv` (the build fails otherwise, and says so).
+11. **`tg_replay` and translated device loads:** the replay marks a device load `mmio` only when it is untranslated, so under Sv39 a CLINT load reads different values in its two Spikes, and the pre-check of a random program would fail. The generator keeps device loads out of `--vm` programs (lockstep against the RTL is not affected: the RTL marks the load itself). Checking the translated physical address in the replay would lift it.
+12. **Coverage gaps for the core track (§6.4):** which instructions report an exception on the ROB's "other" completion port, whether a completion for a squashed entry and the `mret` path in the head's next-PC selection can occur, and whether rename can run out of long-latency tags in any configuration. Programs for the reachable ones can then follow.
 
 ## 10. Provenance
 
@@ -657,6 +690,11 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **After the SoC merge** (cfaa9c9), `make cycle-identical SUITES=none BOOT=20` ran from main's tree in 18.5 minutes.
   - **The worry came true with threads:** the core track saw two builds of the same RTL disagree in `tb_boot`. That happened only with `VTHREADS=4`, which the boot suite never uses; a stream per memory-model instance removes it.
   - **The boot became a default:** a change under `rtl/uncore`, `rtl/soc` or `rtl/common` now boots 3 M cycles with two cores. The coordinator's rule named the first two; `rtl/common` holds primitives and packages the uncore uses too. A comment-only crossbar change took 7.5 minutes for all 797 runs, the cache shared with another worktree's check of main.
+
+- **Coverage-driven random programs (2026-10-14, §6.2, §6.4):** for the FPGA-friendly rewrites, a coverage build measured what 300 soak programs reach in core-2's rewritten rename, ROB and LSU.
+  - The XOR-banked rename map was already fully covered. The real hole was address translation: no random program ever ran under Sv39, so the LSU's DTLB, page walks and page faults and the ROB's DTLB-miss handling went untested by random programs. `--vm`, store bursts, port collisions, MMIO, denied pages and fetch faults took the LSU from 88.4% to 98.3% of its reachable expression points and the ROB from 87.4% to 92.3%.
+  - The new programs found two harness bugs, both in how denied memory is modelled (a denied Grant's permissions; denied DRAM as non-reservable), and no core bug.
+  - **Lesson:** measure before writing tests. The intuition (stress the rename map) was wrong about where the gap was.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
