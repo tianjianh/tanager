@@ -717,7 +717,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
 | Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. Floorplanned into two clock regions, it closes at default effort at +0.113 and +0.100 ns. |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
-| AR-8 no-IPC pass on P4 (step 1) | FMA −60 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. P4 after synthesis: 7,941 → 7,702 (smt2), 7,951 → 7,670 (st). FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
+| AR-8 no-IPC pass on P4 (step 1) | FMA −55 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. Budget flow (`-flatten none`): P4 7,954 → 7,823 (st), 7,977 → 7,846 (smt2), −131. Out-of-context synthesis with `rebuilt` flattening had shown −281/−239: it optimises across module boundaries, so it overstates. FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
 
 **What Goldschmidt really cost, and why.**
 - **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.
@@ -783,6 +783,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - Selecting the data by the registered slot owners alone fixed it.
   - `fdiv_ret` still reached the LUTRAM write enable at +0.09 ns, and was then removed from that path as well.
 - **Constrain each input by where it comes from.** With every input at 1.5 ns, the only failing paths of `tg_fp_exec` started at the load write, which leaves a register in the core, and they moved by ±0.1 ns between runs. Constraining those ports from the core's design (1.0 ns) fixed the measurement, not the RTL. The contract now states the assumption.
+- **Measure area the way the budget does.** P4's first pass measured −281 LUTs with out-of-context `rebuilt` flattening, but −131 in the budget flow (`-flatten none`), which counts each module's own LUTs.
 - **When placement is the cost, floorplan before changing RTL.** The floorplan gave +0.10 ns in both configurations for no LUTs, where the E2 restructure spent 118 LUTs and moved the failure.
 - **At the edge, fixing the worst path moves the failure.** The E2 restructure gained 0.21 ns on the FMA, and the next run failed on the divider instead. A design with five path groups within 0.1 ns of zero needs margin on all of them, or a floorplan, not one fix at a time.
 - **Re-timing is not re-implementing.** Re-timing a routed design under a new constraint holds its placement fixed. It predicted +0.02 ns for smt2; implementing with the constraint measured −0.145 ns. On paths this close to zero, only a new run counts.
