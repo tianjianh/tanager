@@ -364,7 +364,7 @@ module tg_fpu_div
     if (!rst) begin
       if (valid_i && ready_o) begin
         assert (req_i.fmt != FMT_H) else $error("tg_fpu_div: FMT_H is not implemented");
-        assert (req_i.op inside {FOP_FDIV, FOP_FSQRT})
+        assert (fpu_unit_of(req_i.op) == FU_DIV)
           else $error("tg_fpu_div: operation %0d belongs to another unit", req_i.op);
       end
       assert (!(s4_v && cont)) else $error("tg_fpu_div: slot collision");

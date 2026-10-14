@@ -179,7 +179,7 @@ module tg_fpu_div_r4
   always_ff @(posedge clk) begin
     if (!rst && valid_i && ready_o) begin
       assert (req_i.fmt != FMT_H) else $error("tg_fpu_div_r4: FMT_H is not implemented");
-      assert (req_i.op inside {FOP_FDIV, FOP_FSQRT})
+      assert (fpu_unit_of(req_i.op) == FU_DIV)
         else $error("tg_fpu_div_r4: operation %0d belongs to another unit", req_i.op);
     end
     if (!rst && rd_v) assert (!out_v_q || ready_i) else $error("tg_fpu_div_r4: result overwritten");

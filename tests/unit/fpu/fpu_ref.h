@@ -40,8 +40,11 @@ inline const char *op_name(int op) {
                             "fcvt.f.f", "fcvt.i.f", "fcvt.f.i", "fmv.x.f", "fmv.f.x"};
   return op >= 0 && op < NUM_OPS ? n[op] : "?";
 }
+// The unit (tg_fpu port) of an operation: tg_fpu_pkg::fpu_unit_of. Lever R5 puts the FP->FP and
+// integer->FP conversions on the FMA.
 inline int unit_of(int op) {  // 0 = FMA, 1 = FMISC, 2 = divide/sqrt
-  return op <= FNMADD ? 0 : (op <= FSQRT ? 2 : 1);
+  if (op <= FNMADD || op == FCVT_F_F || op == FCVT_F_I) return 0;
+  return op <= FSQRT ? 2 : 1;
 }
 
 inline uint64_t box32(uint32_t v) { return 0xFFFFFFFF00000000ull | v; }
