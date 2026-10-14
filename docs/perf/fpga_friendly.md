@@ -65,10 +65,28 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 
 ## 4. Results
 
+Budget flow (DR-113 settings), each unit synthesised alone, st; LUT changes against HEAD bf914f1 (FPU track). Cycle-identical means `cyc_cmp.py` against simulators built from bf914f1: 310 ELFs natively, 309 under memory stress, 895 ACT4, st and smt2. Slack is out of context at 200 MHz: P4 with its DR-119 floorplan, Execute with the load result at 1.0 ns. Details: [fpu.md](../spec/fpu.md), "DR-123, FPGA-native pass".
+
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
 |---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| 2026-10-14 | P4 (FMA) | hi + 1 above bit 112 in DSPs fed by their own copy of E1's addend register (T6) | −54 | +54 | DSP +2 | yes | P4: +0.130 (smt2), +0.089 (st) | **Adopted.** Pros: −54 LUTs, off E2's critical path; the XOR shares the addend's OR LUT. Cons: 2 DSPs; a second copy of 54 register bits. |
+| 2026-10-14 | P4 (divider) | 2^44 − x·y0² in the SMa low tile's own ALU (T6, existing DSP) | −38 | 0 | — | yes | as above | **Adopted.** Pros: −38 LUTs, no new DSP, a shorter path. Cons: the tile's arithmetic is less obvious; the spec now says it. |
+| 2026-10-14 | P4 (divider) | the remainder's sign and zero test from a 38-bit subtraction with the low part's borrow, not 96 bits (T7) | −22 | 0 | — | yes | as above | **Adopted.** Pros: −22 LUTs, a shorter F0 path. Cons: it depends on the remainder being small (it is, by construction); the first version got the modular wrap wrong, and the back-end bench caught it. |
+| 2026-10-14 | P4 (divider) | F2 pack adders in DSPs (T6) | −4 | — | DSP +3 | — | — | **Rejected.** Pros: −4. Cons: 3 DSPs; incrementers already cost almost nothing beyond their carry chain. |
+| 2026-10-14 | P4 (divider) | c − grid in DSPs (T6) | −14 | — | DSP +2 | — | — | **Rejected.** Same reason as the pack adders. |
+| 2026-10-14 | Execute (branch) | pc + 2 or 4 in DSPs with their own copy of the RF → EX register (T6) | −50 | +66 | DSP +2 | yes | Execute: +0.025 (st), +0.006 (smt2) | **Adopted.** Pros: −50 LUTs. Cons: 2 DSPs; the PC copy. |
+| 2026-10-14 | Execute (ALUs) | logic ops and lui through the adder; an encoded 4:1 result select (T7) | −61 | 0 | — | yes | as above | **Adopted.** Pros: −61 LUTs over two ALUs. Cons: about 0.07 ns more through the ALU alone (+1.39 against +1.46 ns). |
+| 2026-10-14 | Execute (ALUs) | a hand-instantiated CARRY8 chain for add, sub and logic | +129 per ALU alone, 0 in context | — | — | (bench) | — | **Rejected.** Synthesis already packs these functions; the explicit chain needs a LUT per bit for generate. |
+| 2026-10-14 | Execute (MUL) | M3's select folded into the bank-1 write multiplexer (T7) | −64 | +64 | — | yes | as above | **Adopted.** Pros: −64 LUTs. Cons: M3 holds the 128-bit product; the select now lives in `tg_exec`. |
+| 2026-10-14 | Execute (Zbb unit) | computed a cycle later (the result waits two cycles anyway) | 0 | +64 | — | yes | as above | **Adopted for timing.** Pros: takes the load bypass, the counts and ALU1's flag out of one cycle. Cons: 64 flip-flops. |
+| 2026-10-14 | Execute (divider) | NM shift amount ~(lzd − lza) with no adder in front; no-quotient case in FX | +75 | +1 | — | yes | as above | **Adopted for timing.** Pros: the divider's NM step leaves the failing paths. Cons: +75 LUTs (every faster form measured +58 to +75). |
+| 2026-10-14 | Execute (branch) | misprediction test as taken ? target ≠ pred : seq ≠ pred | +52 | 0 | — | yes | as above | **Adopted for timing.** Pros: the taken flag skips the next-PC multiplexer and a compare. Cons: a second 64-bit compare. |
 
 ## 5. History and lessons
 
 - **2026-10-14:** started after AR-7 showed v1 about 50K over. The planning estimates had assumed FPGA-native structures that the first RTL did not use.
+- **2026-10-14, FPU track (P4 and Execute):**
+  - P4 7,386 → 7,273 and Execute 7,944 → 7,892 LUTs, both cycle-identical, with 4 more DSPs.
+  - The DSP measurements set a rule of thumb for T6. An incrementer or a constant add costs almost nothing beyond its carry chain, so it is not worth a DSP. An adder whose operand bits come from LUT logic saves about a LUT per bit.
+  - Inference needs `(* use_dsp = "yes" *)` on a module, with the operand register inside it under the kept hierarchy (`tg_fpu_dsp_add`).
+  - A hand-mapped carry chain lost to synthesis (+129 LUTs).
