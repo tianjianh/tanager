@@ -19,7 +19,7 @@ SEEDS=400               # programs per configuration per round (about a minute)
 # Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
-spike_args() { echo "--isa=$(cat "$SOAK/spike_isa") --priv=MSU --pmp=16"; }
+spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp=16"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 
 log() { echo "$(date '+%F %T') soak: $*"; }
@@ -82,7 +82,6 @@ campaign() {
   res=$(grep "passed, " "$work/out.txt" | tail -1)
   if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
     echo "$(date '+%F %T') $cfg on $commit: $(tail -1 "$work/out.txt" | cut -c1-200)" >> "$SOAK/errors.log"
-    tail -n 20 "$SOAK/errors.log" > "$SOAK/errors.tmp" && mv "$SOAK/errors.tmp" "$SOAK/errors.log"
     return 0
   fi
   pass=$(echo "$res" | sed -n 's/.*: \([0-9]*\) passed.*/\1/p')
@@ -129,6 +128,7 @@ summarize() {
     awk -F'\t' '{n[$1"|"$2]+=$4; f[$1"|"$2]+=$5} END {for (k in n) {split(k, a, "|"); print "| " a[1] " | " a[2] " | " n[k] " | " f[k] " |"}}' \
       "$SOAK/counts.tsv" 2>/dev/null | sort -r | head -40
     if [ -s "$SOAK/errors.log" ]; then
+      tail -n 20 "$SOAK/errors.log" > "$SOAK/errors.tmp" && mv "$SOAK/errors.tmp" "$SOAK/errors.log"
       echo
       echo "## Harness errors (campaigns without a result; newest last)"
       echo
@@ -149,6 +149,8 @@ run() {
   mkdir -p "$SOAK/logs" "$SOAK/fail"
   echo $$ > "$SOAK/soak.pid"
   echo 900 > /proc/self/oom_score_adj  # the first out-of-memory victim; everything it starts inherits it
+  # A build made before the Spike and program ISAs were recorded is rebuilt.
+  [ -s "$SOAK/spike_isa" ] && [ -s "$SOAK/prog_isa" ] || rm -f "$SOAK/commit"
   trap 'rm -f "$SOAK/soak.pid"; exit 0' TERM INT
   local commit seed free load irq
   while :; do
