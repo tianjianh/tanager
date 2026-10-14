@@ -146,13 +146,16 @@ Options measured (all in `tg_iq`):
 | `s2_sched_smt2w3_guard` | smt2_w3 | plan structure | 10,576 | 13,741 | −0.652 | 9 | free |
 | `s2_sched_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W | 10,516 | 11,546 | −0.457 | 9 | free |
 | `s2_pb_smt2w3_mx` | smt2_w3 | + DUP_SEL, EARLY_W, MX | 12,515 | 13,042 | **+0.057** | 8 | pblock |
-| (queued) | smt2_w3 | + PRE_RDY; 8-row ALU queues; without MX (pblock) | | | | | pblock |
+| `s2_pb_smt2w3_mxpre` | smt2_w3 | + DUP_SEL, EARLY_W, MX, PRE_RDY | 12,404 | 13,110 | −0.363 | 10 | pblock |
+| (queued) | smt2_w3 | 8-row ALU queues; without MX (pblock) | | | | | pblock |
 
 **What limits the loop.** Without MX, the loop is: W → readiness (3 LUT levels over 64–120 columns) → oldest-first select (2) → wakeup encode (2) → W update (1–2). That is 8–11 levels, and routing is 75–80% of the delay. The W bits fan out to every row of every queue, and the grants to the payload and the wakeup encode.
 
 With MX the 1-cycle loop no longer passes through W. In `s2_pb_smt2_mx`:
 - **The W path** (W → wakeup register) has +0.60 ns.
-- **The worst path** is W → readiness → select → payload register: 7 levels, not a loop, and that is where PRE_RDY helps.
+- **The worst path** is W → readiness → select → payload register: 7 levels, not a loop.
+
+**PRE_RDY does not help.** It computes each row's ID readiness from W's next state. With MX the grant is registered before the wakeup encode, so that path becomes registered grant → encode → W's next state → readiness → row register: 10 levels, −0.363 ns at smt2_w3, where MX alone has +0.057. It is dropped.
 
 
 ---
