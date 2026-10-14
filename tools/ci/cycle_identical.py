@@ -19,8 +19,9 @@ Suites of tg_vsim, the core with TileLink models (default isa,stress,bench,rando
           odd seeds, trace back-pressure on some
   reset   riscv-tests with random initial values in every register without a reset (--rand-reset)
 With --boot N, also the Linux boot's first N million cycles on the whole SoC: tests/unit/boot's tb_boot
-(--boot-tree REF while it is not in this tree), with sim/tb/tg_soc_sig.sv bound into tanager_soc, for
-the uncore and anything the programs miss.
+(--boot-tree REF for another tree's), with sim/tb/tg_soc_sig.sv bound into tanager_soc, for the uncore
+and anything the programs miss. Without --boot, a change to rtl/uncore, rtl/soc or rtl/common (whose
+packages and primitives the uncore uses too) boots 3 million cycles with two cores; --boot 0 skips it.
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -48,6 +49,8 @@ KEEP_BUILDS = 12          # cached builds kept (least recently used go first)
 NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load-dependent cycle
 BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
 BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
+AUTO_BOOT = 3                            # million cycles, when the change reaches the uncore
+UNCORE_PATHS = ("rtl/uncore/", "rtl/soc/", "rtl/common/")
 
 sys.path.insert(0, os.path.join(ROOT, "tests", "isa"))
 sys.path.insert(0, os.path.join(ROOT, "tests", "random"))
@@ -419,7 +422,7 @@ def run_side(side, prog, extra, timeout):
     os.makedirs(os.path.dirname(sig), exist_ok=True)
     tmp = f"{sig}.{os.getpid()}.{threading.get_ident()}"
     cmd = run_cmd(side, prog, extra, [f"--sig={tmp}"] if kind == "vsim" else [f"+sig={tmp}"])
-    so = open(sig[:-4] + ".out", "w") if kind == "boot" else subprocess.DEVNULL  # a boot's console and progress
+    so = open(tmp + ".out", "w") if kind == "boot" else subprocess.DEVNULL  # a boot's console and progress
     try:
         p = subprocess.run(cmd, stdout=so, stderr=subprocess.PIPE, text=True, errors="replace", timeout=timeout)
         err = p.stderr
@@ -430,9 +433,12 @@ def run_side(side, prog, extra, timeout):
             so.close()
     lines = read_sig(tmp)
     if lines is None:
-        if os.path.exists(tmp):
-            os.remove(tmp)
+        for f in (tmp, tmp + ".out"):
+            if os.path.exists(f):
+                os.remove(f)
         return None, (err.strip().splitlines() or ["the run ended without a signature"])[-1], False
+    if kind == "boot":
+        os.replace(tmp + ".out", sig[:-4] + ".out")
     os.replace(tmp, sig)
     return lines, None, False
 
@@ -507,8 +513,11 @@ def main():
     ap.add_argument("--branch", default="", help="take this side's rtl/ from this ref instead of the working tree")
     ap.add_argument("--suites", default="isa,stress,bench,random")
     ap.add_argument("--randn", type=int, default=200, help="random programs")
-    ap.add_argument("--boot", type=int, default=0, help="also the Linux boot's first N million cycles (0: no)")
-    ap.add_argument("--boot-cores", type=int, default=1, choices=(1, 2), help="cores in the booted SoC")
+    ap.add_argument("--boot", type=int, default=None,
+                    help="also the Linux boot's first N million cycles (0: no; default: 3 when the change reaches "
+                         "the uncore, else 0)")
+    ap.add_argument("--boot-cores", type=int, default=None, choices=(1, 2),
+                    help="cores in the booted SoC (default: 2 when the change reaches the uncore, else 1)")
     ap.add_argument("--boot-fw", default="", help="OpenSBI fw_jump.bin (default: the newest under $TANAGER_BUILD)")
     ap.add_argument("--boot-kernel", default="", help="Linux Image (default: the newest under $TANAGER_BUILD)")
     ap.add_argument("--boot-seed", type=int, default=1, help="the memory models' random seed (+verilator+seed+)")
@@ -537,19 +546,31 @@ def main():
         branch_rtl = tree
         dirty = git("diff", "--stat", "HEAD", tree, "--", "rtl", "sim", "tests/unit").strip()
         label = f"{WT} at {git('rev-parse', '--short', 'HEAD')}{' with uncommitted changes' if dirty else ''}"
-    tb_src = a.boot_tree or tree
-    if a.boot:
-        if a.boot_tree:
-            tb_src = git("rev-parse", "--verify", f"{a.boot_tree}^{{commit}}")
-        if git("ls-tree", "--name-only", tb_src, "tests/unit/boot/tb_boot.sv") == "":
-            fail("this tree has no tests/unit/boot/tb_boot.sv: give --boot-tree with a ref that has it")
     changed = git("diff", "--name-only", base_commit, branch_rtl, "--", "rtl").splitlines()
+    tb_src = git("rev-parse", "--verify", f"{a.boot_tree}^{{commit}}") if a.boot_tree else tree
+    has_tb = git("ls-tree", "--name-only", tb_src, "tests/unit/boot/tb_boot.sv") != ""
+    # The uncore and the SoC top see only the boot; rtl/common's packages and primitives are theirs too
+    uncore = [c for c in changed if c.startswith(UNCORE_PATHS)]
+    auto_note = ""
+    if a.boot is None:
+        a.boot = AUTO_BOOT if uncore and has_tb else 0
+        if uncore:
+            auto_note = (f"  {len(uncore)} of the changed files reach the uncore ({', '.join(c[4:] for c in uncore[:3])}"
+                         f"{' ...' if len(uncore) > 3 else ''}): "
+                         + (f"the boot runs by default (BOOT={AUTO_BOOT}; BOOT=0 skips it)" if has_tb else
+                            "the boot would run, but this tree has no tests/unit/boot"))
+    if a.boot_cores is None:
+        a.boot_cores = 2 if uncore else 1
+    if a.boot and not has_tb:
+        fail("this tree has no tests/unit/boot/tb_boot.sv: give --boot-tree with a ref that has it")
     tool = toolchain_id()
     log(f"cycle-identical: base {base_commit[:10]} ({git('log', '-1', '--format=%s', base_commit)[:70]})")
     log(f"  this side: {label}; {len(changed)} rtl file(s) differ from the base"
         f"{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}{' ...' if len(changed) > 6 else ''}")
     if not changed:
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
+    if auto_note:
+        log(auto_note)
     os.makedirs(WORK, exist_ok=True)
 
     t_start = time.time()
@@ -575,13 +596,19 @@ def main():
         jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]
         res = {}
         with cf.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
-            futs = {}
+            futs, same = {}, {}  # a run both sides share (one build, the same options) runs once
             for i, side in jobs:
+                xa = extra if side.name == "branch" and progs[i][2] == "vsim" else []
+                k = (side.key, i, tuple(xa))
+                if k in same:
+                    same[k].append((i, side.name))
+                    continue
+                same[k] = [(i, side.name)]
                 limit = a.timeout if progs[i][2] == "vsim" else max(a.timeout, a.boot * 500)
-                futs[ex.submit(run_side, side, progs[i], extra if side.name == "branch" and progs[i][2] == "vsim" else [],
-                               limit)] = (i, side.name)
+                futs[ex.submit(run_side, side, progs[i], xa, limit)] = k
             for fu in cf.as_completed(futs):
-                res[futs[fu]] = fu.result()
+                for who in same[futs[fu]]:
+                    res[who] = fu.result()
         cached = sum(1 for r in res.values() if r[2])
 
         per_suite = {}
