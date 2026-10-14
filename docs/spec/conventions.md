@@ -107,16 +107,21 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Laptop:** 8 threads, 32 GB. For the coordinator and light work only.
 
 **Rules.**
+- **Memory is the binding limit (2026-10-14).**
+  - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
+  - **The budget:** keep about 6 GB for the OS, sshd and the agent sessions; Vivado gets at most 24 GB declared; builds, simulations and soak share the rest.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - It takes a machine-wide slot lock. `TANAGER_VIVADO_SLOTS` is 3 on the build host and 1 on the laptop, set in `tools/env.sh`.
-  - At most 2 full-device runs at a time, since each needs about 8–12 GB of RAM; out-of-context runs need 2–6 GB.
+  - **Slots:** `TANAGER_VIVADO_SLOTS` is 2 on the build host and 1 on the laptop, set in `tools/env.sh`.
+  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (24 GB) next to the running jobs' declarations.
+  - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.
+  - **Kill order:** Vivado runs with a raised `oom_score_adj`, so under memory pressure the kernel kills a Vivado job rather than sshd or the sessions.
   - Use out-of-context runs per unit wherever possible. A full-device run takes hours, so say so in your status.
-- **Builds:** up to `-j16` per track on the build host (`-j4` on the laptop).
-- **Use the build host's spare capacity** (32 threads, about 39 GB); idle cores are wasted:
+- **Builds:** at most `-j8` per track on the build host for Verilator model builds, since each compile can take 2–4 GB; `-j4` on the laptop.
+- **Use the build host's spare capacity** (32 threads), within the memory budget:
   - run independent configurations and seeds in parallel;
-  - build long simulations (Linux boots, long benchmarks) with Verilator `--threads 4`–`8`;
-  - run soak tests and sweeps at `nice 19`, so interactive work keeps priority.
-- **Disk stays the tighter limit:** watch `tools/disk_report.sh`.
+  - build long simulations (Linux boots, long benchmarks) with Verilator `--threads 4`;
+  - run soak tests and sweeps at `nice 19`, pausing them when `MemAvailable` falls under 12 GB.
+- **Disk is a limit too:** watch `tools/disk_report.sh`.
 - **Long jobs:** run in the background with a log in your build tree. Never poll in a tight loop.
 - **Disk:** a hard budget. The WSL virtual disk never gives space back to Windows, so what counts is total WSL usage.
   - **Totals:** WSL usage (`df -h /`, Used) must stay at or under **95 GB**, and the host drive at or over **15 GB free**. On 2026-10-13, with Vivado (47 GB) and the tools installed, usage was 64 GB and the host had 34 GB free.
@@ -147,6 +152,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - Never push to a remote; none is configured.
 - **Merge requests:** when a piece is green, message the coordinator with the branch name, what it adds, and the test commands and results.
   - **End every merge request with a `Learned:` line:** what surprised you, what was measured against what was estimated, and what didn't work and why.
+  - **Add a `Decisions:` line** for every design choice the merge makes or rejects: what, why, and the evidence. The coordinator records each one in [docs/decisions.md](../decisions.md).
   - **History and lessons:** every area document (spec or perf report) keeps a short "History and lessons" section, updated with each merge: the starting point, each change and what it bought (LUTs, slack, IPC, bugs found), and dead ends. The coordinator rolls these up into [docs/devlog.md](../devlog.md).
 
 ## 11. Clean room (plan §2.3)
