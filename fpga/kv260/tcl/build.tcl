@@ -4,12 +4,12 @@
 #     stop:  synth | impl | bit (default bit)
 # Reports go to <run-dir>/reports; checkpoints are not kept (conventions §9).
 # Environment: TG_PMOD_UART=1 puts the RISC-V console on the PMOD connector (kv260_top PMOD_UART);
-# TG_PMOD_TXD / TG_PMOD_RXD name its pins (defaults E10 / D10, PMOD J2 pins 2 and 3: unconfirmed,
-# see fpga/kv260/README.md).
+# TG_PMOD_TXD / TG_PMOD_RXD name its pins (defaults H12 / B10: PMOD J2 pins 1 and 2, where the board's
+# CH340 USB UART sits, fpga/kv260/README.md).
 lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
-set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "E10"}]
-set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "D10"}]
+set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "H12"}]
+set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "B10"}]
 # The fan stays under Linux's control (DR-129): A12 carries the PS TTC waveform that Linux's pwm-fan
 # drives, as Kria's own PL design routes it. Read from the running board: TTC0 channel 2
 # (emio_ttc0_wave_o[2]), to A12 uninverted. TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override.

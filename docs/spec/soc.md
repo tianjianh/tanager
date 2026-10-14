@@ -67,7 +67,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
   - The line runs 8N1 at the 16550's divisor (115 200 baud after OpenSBI), through `tg_uart_phy` ([uncore-periph.md](uncore-periph.md) §UART).
   - The host bridge keeps a copy of the output and can still send input.
   - Off, `pmod_uart_txd` is high-impedance.
-  - The pins default to PMOD J2 pins 2 and 3 (E10 for TXD, D10 for RXD). They are unconfirmed until the user names the module.
+  - The pins are PMOD J2 pins 1 and 2, where the board's CH340 USB UART sits (COM5 on the laptop): H12 for TXD (`som240_1_a17`) and B10 for RXD (`som240_1_b20`), as the board session read them.
 
 ### 2.2 PS configuration
 Block design `tg_ps` in Tcl (`fpga/kv260/tcl/ps_bd.tcl`), board part `xilinx.com:kv260_som:part0:1.4` with the board preset applied (DDR, MIO, clocks), then:

@@ -35,10 +35,10 @@ TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/viva
 
   | Port | Direction (FPGA) | Default pin | Connects to the module's |
   |---|---|---|---|
-  | `pmod_uart_txd` | out | E10 (PMOD J2 pin 2) | RXD |
-  | `pmod_uart_rxd` | in, pulled up | D10 (PMOD J2 pin 3) | TXD |
+  | `pmod_uart_txd` | out | H12 (`som240_1_a17`, PMOD J2 pin 1) | RX |
+  | `pmod_uart_rxd` | in, pulled up | B10 (`som240_1_b20`, PMOD J2 pin 2) | TX |
 
-  - **Unconfirmed:** the J2 pin locations are the SOM240 3.3 V pins as the KV260 carrier's PMOD is generally documented; the local board files don't name the connector. Confirm them against the carrier's documentation and the module's pinout before connecting. Ground is J2 pin 5 or 11.
+  - **The module:** the board's CH340 USB UART on J2, which is COM5 on the laptop. The board session read the pins and J2's numbering; see stage A below.
   - `TG_PMOD_TXD` and `TG_PMOD_RXD` override the pins without editing a file.
 - **With the option off** (the default), `pmod_uart_txd` is high-impedance and nothing drives the connector.
 - **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.

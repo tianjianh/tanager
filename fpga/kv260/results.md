@@ -42,7 +42,7 @@ Notes:
   LUTRAM although its header says flip-flop storage.
 - **CDC** (0aa82f0): 525 crossing endpoints between `clk_core` and `clk_host`, all safe.
 - **Trace streaming** (fca6fe8): the block design gains `S_AXI_HP3_FPD`, and the stream replaces the block-RAM trace ring, which takes 2 RAMB18 off this build. The traffic generators drive no trace records, so synthesis trims much of the stream in this build. Its real size is in the uncore measurement (docs/perf/budgets.md §4: 2.9K LUTs for two cores); this build checks the port, the block design and timing. The primitive check is clean: 63 instances, no failures, warnings or strays, now that tg_fifo maps through tg_ram_lut. CDC: 629 crossing endpoints, all safe.
-- **PMOD console** (3c86877, `TG_PMOD_UART=1`): `pmod_uart_txd` placed at E10 and `pmod_uart_rxd` at D10, both LVCMOS33.
+- **PMOD console** (3c86877, `TG_PMOD_UART=1`): `pmod_uart_txd` placed at E10 and `pmod_uart_rxd` at D10, both LVCMOS33. Those were placeholders: the board's module is on J2 pins 1 and 2, H12 and B10, now the defaults.
   - DRC clean; primitive check clean (63 instances). CDC: 628 safe endpoints between the two clocks, plus the RXD input into the line's synchronizer (false path).
   - The synchronizer flops now carry ASYNC_REG, which this build lacked.
   - **Memory:** this build peaked at 16.6 GB, against the 12 GB the conventions declare for a full build. It now declares 20 (README).
