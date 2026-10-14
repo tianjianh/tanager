@@ -16,4 +16,6 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 - **SMT2 model study:** done ([docs/perf/smt2_report.md](docs/perf/smt2_report.md)).
 - **Roadmap:** single-thread bring-up (ST) → **v1, the first release: SMT2, 2-wide, 2 cores × 2 harts** (plan §6.5) → v2: 3-wide on the SMT2 core. All on the KV260 (plan §8.5).
 - **Schedule (plan §11):** agent-built. Linux on the board about 4–6 weeks after M0 starts; v1 in about 3 months.
-- **M0 (repository, CI, FPGA spikes):** not started.
+- **M0 (repository, CI, FPGA spikes):** done, except spike S1, which waits for the board. The spikes are reported in [docs/perf/spikes.md](docs/perf/spikes.md).
+- **M2 (out-of-order core in simulation):** done on 2026-10-14. Lockstep passes in all four configurations; CoreMark 3.04 CM/MHz on the conservative M2 core.
+- **M3 (Linux-capable core):** in progress. The features are built behind switches; an area pass comes next, then F/D.
