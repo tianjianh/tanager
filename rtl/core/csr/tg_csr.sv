@@ -86,7 +86,7 @@ module tg_csr
   priv_e       priv_q;
   logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
   logic [1:0]  mpp_q, fs_q;
-  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q;
+  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
   logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q, mcycle_q, minstret_q;
   logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
   logic [11:0] mie_q;
@@ -139,8 +139,8 @@ module tg_csr
   assign misa_b    = misa_b_q;
   assign misa_c    = misa_c_q;
   assign misa_a    = misa_a_q;
-  assign misa_f    = EXT_FD;
-  assign misa_d    = EXT_FD;
+  assign misa_f    = misa_f_q;
+  assign misa_d    = misa_d_q;
   assign fs        = fs_q;
   assign priv      = priv_q;
   assign priv_d    = (mprv_q && priv_q == PRIV_M) ? priv_e'(mpp_q) : priv_q;
@@ -276,8 +276,8 @@ module tg_csr
     misa_rd[2]  = misa_c_q;
     misa_rd[8]  = 1'b1;                          // I
     misa_rd[12] = misa_m_q;
-    misa_rd[3]  = EXT_FD;                        // D
-    misa_rd[5]  = EXT_FD;                        // F
+    misa_rd[3]  = misa_d_q;                      // D
+    misa_rd[5]  = misa_f_q;                      // F
     misa_rd[18] = SU;                            // S
     misa_rd[20] = SU;                            // U
   end
@@ -454,6 +454,8 @@ module tg_csr
       misa_b_q  <= EXT_B;
       misa_c_q  <= EXT_C;
       misa_a_q  <= EXT_A;
+      misa_f_q  <= EXT_FD;
+      misa_d_q  <= EXT_FD;
       mtvec_q   <= '0;
       mscratch_q <= '0;
       mepc_q    <= '0;
@@ -544,6 +546,8 @@ module tg_csr
             misa_m_q <= pw_d_q[12];
             misa_b_q <= EXT_B && pw_d_q[1];
             misa_a_q <= EXT_A && pw_d_q[0];
+            misa_f_q <= EXT_FD && pw_d_q[5];
+            misa_d_q <= EXT_FD && pw_d_q[3] && pw_d_q[5];   // D needs F (Spike)
             if (!(misa_c_q && !pw_d_q[2] && cm_pc[1])) misa_c_q <= EXT_C && pw_d_q[2];
           end
           12'h302: medeleg_q <= pw_d_q[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};

@@ -414,6 +414,8 @@ module tg_rename
         end
         if (!got) llt_short = 1'b1;
         ren[k].wid = llt_col(int'(ren[k].llt));
+      end else if (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)) begin
+        ren[k].wid = llt_col(0);          // rd = x0: no LLT, but P4 expects an LLT column
       end
       if (ren[k].use_tag) begin
         got = 1'b0;

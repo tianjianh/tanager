@@ -35,7 +35,7 @@ This page covers the core's side of that contract. With `EXT_FD` off, none of th
   - an FP op with an integer result takes bank 1, written through the bank-1 slots (below).
 - **Wakeup columns (AR-1):**
   - FMA and FMISC ops with an FP result take a wakeup tag;
-  - divides, square roots, FP→int ops and FP loads take an LLT.
+  - divides, square roots, FP→int ops and FP loads take an LLT. An FP→int op with `rd` = x0 takes none, but still carries an LLT's column, as P4 expects.
   - P4 wakes FMA and FMISC results; the core wakes FP→int results and FP loads.
 - **Credits:** FP divides are held to `FDIV_INFLIGHT` and FP→int ops to `FPI_INFLIGHT` in flight. Each count is the sum of two parts:
   - the uops renamed but not yet issued; a flush drops these;
@@ -71,7 +71,7 @@ This page covers the core's side of that contract. With `EXT_FD` off, none of th
 - **CSRs:**
   - `fflags`, `frm` and `fcsr` are illegal while FS is Off. They are read from `tg_fcsr` and written to it at retirement.
   - FS becomes Dirty on `tg_fcsr`'s pulse (an f register written, flags accumulated) and on fcsr writes.
-  - `misa.F` and `misa.D` follow `EXT_FD`.
+  - `misa.F` and `misa.D` exist with `EXT_FD`. Software may clear them as in Spike, and D needs F; with F clear, the F/D encodings are illegal.
 
 ## Still to do
 - `tg_fp_exec` and `tg_fcsr` in `tg_core`:

@@ -2,6 +2,7 @@
 -F fpu/fpu.f
 exec/tg_alu_pkg.sv
 tg_core_pkg.sv
+-F fpu/fpu_be.f
 mmu/tg_tlb.sv
 mmu/tg_pmp.sv
 mmu/tg_ptw.sv

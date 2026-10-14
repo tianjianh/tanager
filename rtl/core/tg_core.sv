@@ -5,7 +5,7 @@
 // with tg_csr beside commit. Every recovery is at commit: tg_rob registers flush and the
 // redirect PC, and every unit clears its thread's state in that cycle.
 module tg_core
-  import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
+  import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_core_pkg::*, tg_fpcore_pkg::*;
 #(
   parameter int unsigned CORE_ID = 0  // used for mhartid and trace hart IDs
 ) (
@@ -89,14 +89,11 @@ module tg_core
   logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
   logic [1:0] fs;
   logic [2:0] frm;
-  // fcsr (tg_fcsr arrives with the FP back end; EXT_FD)
+  // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
   logic [4:0] fc_fflags;
   logic       fc_wvalid, fs_dirty;
   logic [1:0] fc_waddr;
   logic [7:0] fc_wdata;
-  assign frm       = '0;
-  assign fc_fflags = '0;
-  assign fs_dirty  = 1'b0;
   priv_e priv, priv_d;
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
@@ -158,20 +155,17 @@ module tg_core
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
   logic [CW-1:0]                    cm_rd_fp;
-  // F and D (EXT_FD): the FP back end's register-file writes, issue and returns (tg_fp_exec
-  // arrives with the FPU track's back end)
+  // F and D (EXT_FD): the FP back end's register-file writes (F0: P4, F1: FP loads), issue
+  // and returns (P4 below)
   logic [1:0]                       fp_we;
   logic [1:0][FPIDX_W-1:0]          fp_widx;
   logic                             fdiv_iss, fpi_iss, fdiv_done, fpi_pop;
-  assign fp_we     = '0;
-  assign fp_widx   = '0;
   logic                             fp_misc_block;
   // FP loads and FP store data between the LSU and P4
   logic                             fld_m2_will, fld_valid, fld_single, sd_busy;
   logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
   logic [63:0]                      fld_data, fsd_data;
   preg_t                            fsd_tag;
-  assign fsd_data = '0;
   // P4's integer source and FP->int results (driven by P4 with the FP back end)
   logic                             isrc_valid, fpi_valid, fpi_kill, fpi_ready, fpi_dst_en;
   preg_t                            isrc_tag, fpi_dst;
@@ -179,30 +173,15 @@ module tg_core
   robid_t                           fpi_rob;
   llt_t                             fpi_llt;
   logic [4:0]                       fpi_fflags, oth_fflags;
-  assign isrc_valid = 1'b0;
-  assign isrc_tag   = '0;
-  assign fpi_valid  = 1'b0;
-  assign fpi_kill   = 1'b0;
-  assign fpi_rob    = '0;
-  assign fpi_llt    = '0;
-  assign fpi_dst_en = 1'b0;
-  assign fpi_dst    = '0;
-  assign fpi_data   = '0;
-  assign fpi_fflags = '0;
   assign sd_busy    = EXT_FD && isrc_valid;
   // P4's F0 completions (with the FP back end)
   logic                             fp_cmp;
   robid_t                           fp_cmp_rob;
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
-  assign fp_cmp        = 1'b0;
-  assign fp_cmp_rob    = '0;
-  assign fp_cmp_fflags = '0;
-  assign fp_misc_block = 1'b0;
-  assign fdiv_iss  = 1'b0;
-  assign fpi_iss   = 1'b0;
-  assign fdiv_done = 1'b0;
-  assign fpi_pop   = 1'b0;
+  logic [NCOL-1:0]                  wake_p4;
+  logic [LLT_ENTRIES-1:0]           llt_done_p4;
+  logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
   logic                             ds_fire;
   logic [DISPATCH_WIDTH-1:0]        ds_valid;
   uop_t [DISPATCH_WIDTH-1:0]        ds_uop;
@@ -232,7 +211,8 @@ module tg_core
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
-  assign wake_reg = wake_x | wake_l;
+  assign wake_reg = wake_x | wake_l | wake_p4;
+  assign tag_free = tag_free_x | tag_free_p4;
   // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
   always_comb begin
     col_clr = '0;
@@ -246,7 +226,7 @@ module tg_core
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
     if (rst) llt_rel <= '0;
-    else     llt_rel <= llt_done_x | llt_done_l;
+    else     llt_rel <= llt_done_x | llt_done_l | llt_done_p4;
   end
 
   // ---- Execute ----
@@ -259,7 +239,10 @@ module tg_core
   preg_t            sd_tag;
   logic [63:0]      sd_data;
   preg_t [CW-1:0]   tr_tag;
-  logic [CW-1:0][63:0] tr_data;
+  logic [CW-1:0][63:0] tr_data, tr_data_x, tr_data_p4;
+  for (genvar j = 0; j < CW; j++) begin : g_trd
+    assign tr_data[j] = (EXT_FD && cm_rd_fp[j]) ? tr_data_p4[j] : tr_data_x[j];
+  end
   logic [N_ALU-1:0] alu_cmp;
   robid_t [N_ALU-1:0] alu_rob;
   logic             oth_cmp, oth_exc;
@@ -278,12 +261,12 @@ module tg_core
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
     .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
-    .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
+    .tr_tag, .tr_data(tr_data_x), .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
     .oth_fflags,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
     .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
-    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free, .div_done,
+    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done,
     .csr_ex_valid, .csr_ex_pl, .csr_ex_src, .csr_ex_rdata, .csr_ex_ill);
 
   // ---- Load/store unit ----
@@ -365,10 +348,116 @@ module tg_core
   assign trace_wb_o       = '0;
   assign trace_wb_valid_o = '0;
 
+  // ---- F and D (EXT_FD): P4 (tg_fp_exec, docs/spec/fpu.md) and fcsr (tg_fcsr) ----
+  if (EXT_FD) begin : g_p4
+    fp_iss_t p4_pl;
+    fpi_t    p4_fpi;
+    logic    p4_cmp;
+    wid_t    p4_cmp_wid;
+    assign p4_pl = '{tid: iss_pl[Q_FP].tid, rob: iss_pl[Q_FP].rob, wid: iss_pl[Q_FP].wid,
+                     llt: iss_pl[Q_FP].llt, dst_en: iss_pl[Q_FP].dst_en, dst: iss_pl[Q_FP].dst,
+                     src1: iss_pl[Q_FP].src1, src2: iss_pl[Q_FP].src2, src3: iss_pl[Q_FP].src3,
+                     src1_fp: iss_pl[Q_FP].src1_fp, fop: iss_pl[Q_FP].fop, fmt: iss_pl[Q_FP].fmt,
+                     src_fmt: iss_pl[Q_FP].src_fmt, ifmt: iss_pl[Q_FP].ifmt, rm: iss_pl[Q_FP].rm,
+                     fp_int: iss_pl[Q_FP].fp_int, fp_div: iss_pl[Q_FP].fp_div};
+    assign fdiv_iss = iss_valid[Q_FP] && iss_pl[Q_FP].fp_div;
+    assign fpi_iss  = iss_valid[Q_FP] && iss_pl[Q_FP].fp_int;
+    logic f0_we;
+    logic [FPIDX_W-1:0] f0_widx;
+    tid_t       p4_cmp_tid, p4_er_tid;
+    logic       p4_er_v;
+    logic [4:0] p4_er_ff;
+    logic [2:0] fc_frm_rd;
+    tg_fp_exec #(.FDIV_Q(FDIV_INFLIGHT), .FPI_Q(FPI_INFLIGHT)) u_p4 (
+      .clk, .rst, .flush, .flush_tid,
+      .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
+      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
+      .isrc_valid, .isrc_tag, .isrc_data,
+      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_single, .fld_data,
+      .fsd_tag, .fsd_data, .tr_tag, .tr_data(tr_data_p4),
+      .f0_we_o(f0_we), .f0_widx_o(f0_widx),
+      .wake_reg(wake_p4), .llt_done(llt_done_p4),
+      .cmp_valid(p4_cmp), .cmp_tid(p4_cmp_tid), .cmp_rob(fp_cmp_rob), .cmp_wid(p4_cmp_wid),
+      .cmp_fflags(fp_cmp_fflags),
+      .fpi_valid, .fpi_ready, .fpi_o(p4_fpi), .fpi_kill, .fpi_pop,
+      .fdiv_done, .fdiv_ret_valid(1'b0), .fdiv_ret_tid('0), .fdiv_ret_llt('0),
+      .er_valid(p4_er_v), .er_tid(p4_er_tid), .er_fflags(p4_er_ff));
+    assign fp_cmp     = p4_cmp;
+    assign fp_we      = {fld_valid, f0_we};
+    assign fp_widx    = {fld_idx, f0_widx};
+    assign fpi_rob    = p4_fpi.rob;
+    assign fpi_llt    = p4_fpi.llt;
+    assign fpi_dst_en = p4_fpi.dst_en;
+    assign fpi_dst    = p4_fpi.dst;
+    assign fpi_data   = p4_fpi.data;
+    assign fpi_fflags = p4_fpi.fflags;
+    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec)
+    logic [1:0]              ptf_v_q;
+    logic [1:0][WTAG_W-1:0]  ptf_id_q;
+    always_ff @(posedge clk) begin
+      if (rst || flush) ptf_v_q <= '0;
+      else              ptf_v_q <= {ptf_v_q[0], p4_cmp && int'(p4_cmp_wid) < IQ_TAGS};
+      ptf_id_q <= {ptf_id_q[0], p4_cmp_wid[WTAG_W-1:0]};
+    end
+    always_comb begin
+      tag_free_p4 = '0;
+      if (ptf_v_q[1]) tag_free_p4[ptf_id_q[1]] = 1'b1;
+    end
+    // fcsr: one hart; FP state changes set mstatus.FS to Dirty
+    logic [CW-1:0] cm_fpr;
+    tid_t [CW-1:0] cm_tid;
+    for (genvar j = 0; j < CW; j++) begin : g_cf
+      assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
+      assign cm_tid[j] = '0;
+    end
+    logic [NUM_THREADS-1:0][2:0] frm_t;
+    logic [NUM_THREADS-1:0]      fs_dirty_t, er_busy_t;
+    tg_fcsr u_fcsr (
+      .clk, .rst, .frm_o(frm_t), .csr_rtid('0), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
+      .csr_wvalid(fc_wvalid), .csr_wtid('0), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
+      .cm_valid, .cm_tid, .cm_fflags, .cm_fpr,
+      .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
+      .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
+    assign frm      = frm_t[0];
+    assign fs_dirty = fs_dirty_t[0];
+    logic unused;
+    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+                      p4_er_v, p4_er_ff, fc_frm_rd};
+  end else begin : g_nop4
+    assign fdiv_iss      = 1'b0;
+    assign fpi_iss       = 1'b0;
+    assign fp_misc_block = 1'b0;
+    assign isrc_valid    = 1'b0;
+    assign isrc_tag      = '0;
+    assign fsd_data      = '0;
+    assign tr_data_p4    = '0;
+    assign wake_p4       = '0;
+    assign llt_done_p4   = '0;
+    assign fp_cmp        = 1'b0;
+    assign fp_cmp_rob    = '0;
+    assign fp_cmp_fflags = '0;
+    assign fpi_valid     = 1'b0;
+    assign fpi_kill      = 1'b0;
+    assign fpi_pop       = 1'b0;
+    assign fdiv_done     = 1'b0;
+    assign fp_we         = '0;
+    assign fp_widx       = '0;
+    assign fpi_rob       = '0;
+    assign fpi_llt       = '0;
+    assign fpi_dst_en    = 1'b0;
+    assign fpi_dst       = '0;
+    assign fpi_data      = '0;
+    assign fpi_fflags    = '0;
+    assign tag_free_p4   = '0;
+    assign frm           = '0;
+    assign fc_fflags     = '0;
+    assign fs_dirty      = 1'b0;
+    logic unused;
+    assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_single, fld_data, fsd_tag,
+                      isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
+  end
+
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_single, fld_data, fsd_tag,
-                    isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
-                    // (the FP load and store-data ports go to P4 with the FP back end)
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
 endmodule
