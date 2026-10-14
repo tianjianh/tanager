@@ -569,6 +569,7 @@ Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc
 - **Divider.** The Goldschmidt unit costs 1,036 LUTs (and 29 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. The user kept it for v1 (decision D17, plan §4.12): `FDIV_RADIX4` = 0, and the radix-4 unit stays built and in the regression as the fallback.
 - **Levers:** R5 (−612 LUTs) and the LUT pass (−1,121 LUTs) are built; R4 is assessed and parked (section above).
 - **FMA** is 127 LUTs under its own estimate after the pass.
+- **Flip-flops and DSPs** are over their budget lines after the pass. The nightly synthesis at d04ae26 measures 3,733 FFs against 3,450, and 35 DSPs against 32. The pass moved the pipelines from shift-register LUTs into flip-flops, and the divider's smallest tiles into DSPs (+3). Whether to raise those lines is the coordinator's decision.
 
 **Fallbacks not needed:** an LZA in the FMA (E3 meets timing without it), `FMA_LAT` = 6, the radix-4 unit for timing.
 
@@ -619,9 +620,47 @@ It checks, against the SoftFloat-based reference:
 | `tf` | TestFloat level 1 for every function. Operands go through F1 loads (FP) or the integer source port, results through F0 or the B1 queue |
 | `tb_fcsr` | CSR writes of the three views, commit and early-retired accumulation, `er_busy`, `fs_dirty`, every cycle |
 
-Review and the bench found two errors in `tg_fp_exec`, both fixed:
+Review and the bench found three errors in `tg_fp_exec`, all fixed:
 - a B1-queue entry pushed in a flush cycle could inherit its slot's previous occupant's dead mark;
-- a divide that retired early was still dropped when its thread was flushed in its claim or write cycle.
+- a divide that retired early was still dropped when its thread was flushed in its claim or write cycle;
+- a divide that retired in its own write cycle completed to the ROB entry it had just left, not through the early-retirement port.
+
+## History and lessons
+
+**Starting point** (M1, merged 2026-10-13 as 9e861b2). The spec and a bit-accurate Goldschmidt model came first: 161M cases matched SoftFloat, with a worst error of 2^−56.1 against a 2^−54 budget. The RTL followed: the FMA (5 stages), FMISC, the Goldschmidt divide/sqrt unit and the radix-4 fallback.
+- **Verification:** SoftFloat and TestFloat, 2.6·10^9 results in the long run.
+- **Timing:** all units at 200 MHz. Getting there took a staged normaliser in the FMA's E3, and a third rounding stage (F2) in the divider, which added one cycle to every divide and square-root latency.
+- **Area:** 7,622 LUTs with the Goldschmidt unit (FMA 2,670, FMISC 1,827, divider 3,125), against the plan's 4.7K.
+
+| Step | FPU LUTs (Goldschmidt) | What it bought |
+|---|---|---|
+| As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K. The user kept it for its latency (D17). |
+| R5: FP→FP and integer→FP conversions on the FMA | 7,010 | −612 (FMISC −825, FMA +213), at most −0.09% IPC |
+| LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
+| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` meets 200 MHz (+0.05 ns in smt2, +0.01 ns in st). |
+
+**Dead ends:**
+- **A 4-cycle FMA:** misses 200 MHz by 1.88 ns.
+- **Area-optimised synthesis:** −167 LUTs on the FMA and FMISC, but the divider then fails timing. Left as a per-module strategy for the full-chip flow.
+- **Not possible at 200 MHz without a latency or throughput change:** the alignment shift as a DSP multiply, the adders in DSP ALUs, and one S1 normaliser shared by both operands.
+- **R4** (integer divide on the Goldschmidt unit): only 0.15–0.4K saved per core. Parked.
+
+**Bugs found by the back-end bench:**
+- three errors in `tg_fp_exec` before merge (list under "Verification");
+- one wrong assertion: the `fmisc_block` check looked one cycle early;
+- more errors in the bench's own model of the core than in the RTL.
+
+**Lessons:**
+- **Estimates made by deletion undercount.** R5's FMISC saving was estimated at 584 by zeroing the two results; it measured 825, because the shared shifter's operand selection and bit reversal also went.
+- **Single-run deltas of a few tens of LUTs are noise.** One change measured +126 and the next −302. The single packing adder measured +20 in sequence and −12 in an A/B at the final state. Judge small changes by A/B.
+- **LUT savings moved cost into flip-flops and DSPs.** Pipelines in flip-flops instead of shift-register LUTs, and the smallest divider tiles in DSPs, saved LUTs. The nightly synthesis at d04ae26 measures the FPU at 5,703 LUTs, but 3,733 FFs and 35 DSPs, against 3,450 and 32 on the budgets.tsv FPU line, which was set before the pass.
+- **Late control signals should gate write enables, not select data.**
+  - The first `tg_fp_exec` failed timing by 0.56 ns (smt2) and 0.80 ns (st), because flush and `fdiv_ret` chose the F0 data that feeds the bypass into the units' first stage.
+  - Selecting the data by the registered slot owners alone fixed it.
+  - `fdiv_ret` still reached the LUTRAM write enable at +0.09 ns, and was then removed from that path as well.
+- **A model of the partner needs as much care as the RTL.** Most failures were in the bench's model of the core, not in `tg_fp_exec`: registers recycled too early, retirement before producers, sources from the other thread, retirement in the flush cycle. Writing the core's side down first (the contract above, asserted in the RTL) settled each one quickly.
+- **Check every event at its exact cycle.** Each wakeup, F0 write and completion is checked in its own cycle, and each value through a trace port one cycle later. Errors were therefore reported where they happened, not when a later result went wrong.
+- **Operations:** jobs waiting on `tools/vivado_run.sh` lose free slots to fresh launches. Batching the OOC runs through one slot, on snapshots of the tree, ran reliably.
 
 ## Provenance
 
