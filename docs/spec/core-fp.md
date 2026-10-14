@@ -57,7 +57,7 @@ This page covers the core's side of that contract. With `EXT_FD` off, none of th
   - It wakes its LLT a cycle before the write.
   - It is written in its slot (`fpi_ready`) and completes its ROB entry with its fflags. A flush cancels a pending claim.
 - **FP loads:**
-  - They write F1 through P4 straight from the load result register (`fld_*`); P4 NaN-boxes FLW.
+  - They write F1 through P4 straight from the load result register (`fld_*`). The LSU NaN-boxes FLW in its extract step, so the register already holds the boxed value; P4 may drop its own boxing (`fld_single`).
   - The write is announced at M2 for P4's bypass.
   - The LQ keeps an FP load's F1 index and takes its bytes unextended.
 - **FP stores:**
