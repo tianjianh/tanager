@@ -27,7 +27,7 @@ MARCH = {
 }
 
 
-def stress_args(seed, irq):
+def stress_args(seed, irq, trace_stall=False):
     r = random.Random(seed * 7919 + 13)
     lat = r.choice(['native', 'native', '90', '120', '250'])
     args = [f"--lat={lat}"]
@@ -45,6 +45,8 @@ def stress_args(seed, irq):
         args.append(f"--grant-b={r.choice([50, 100])}")
     if r.randrange(3) == 0:
         args.append(f"--probe-rate={r.choice([5, 50, 200])}")
+    if trace_stall and r.randrange(3) == 0:
+        args.append(f"--trace-stall={r.choice([10, 50, 200])}")
     args.append(f"--seed={seed}")
     return args
 
@@ -73,6 +75,7 @@ def main():
     ap.add_argument("--irq", type=int, default=0, help="timer interrupt period (ticks); 0 = none")
     ap.add_argument("--length", type=int, default=300)
     ap.add_argument("--stress", action="store_true")
+    ap.add_argument("--trace-stall", action="store_true", help="with --stress: some seeds also stall the trace")
     ap.add_argument("--jobs", type=int, default=8)
     ap.add_argument("--timeout", type=int, default=1800)
     ap.add_argument("--workdir", required=True)
@@ -101,7 +104,7 @@ def main():
         rc, out = run([a.replay, "--quiet", f"--isa={spike_isa}", "--priv=MU", "--max-steps=5000000", base + ".elf"], 600)
         if "status=PASS" not in out:
             return seed, "GEN-FAIL", "Spike-against-Spike run failed: " + out.strip().splitlines()[-1], ""
-        simargs = (stress_args(seed, a.irq) if a.stress else []) + list(a.extra)
+        simargs = (stress_args(seed, a.irq, a.trace_stall) if a.stress else []) + list(a.extra)
         cmd = [a.sim, "--quiet"] + simargs + [base + ".elf"]
         rc, out = run(cmd, a.timeout, base + ".log")
         res = next((l for l in out.splitlines() if l.startswith("TG-RESULT")), "")
