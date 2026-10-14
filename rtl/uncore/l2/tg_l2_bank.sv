@@ -73,7 +73,7 @@ module tg_l2_bank
   localparam int PBW    = idx_w(N_PUTBUF);
   localparam int WBW    = idx_w(N_WB);
   localparam int RAW    = SET_W + 4;                 // data row address {set, way, half}
-  localparam int DFIFO  = 8;                         // D output beats
+  localparam int DFIFO  = 8;                         // D output: beats of credit, FIFO entries
 
   if (SETS < 2 || (SETS & (SETS - 1)) != 0) begin : g_bad_sets
     $error("tg_l2_bank: SETS must be a power of two");
@@ -150,16 +150,22 @@ module tg_l2_bank
     return N_AGENTS'(1) << a;
   endfunction
 
-  // Round-robin pick over a request vector, starting at ptr.
+  // Round-robin pick over a request vector: the first request at or after ptr, wrapping. Two
+  // priority encoders (requests at or above ptr, and all requests) instead of a rotation.
   function automatic logic [MW-1:0] rr_pick(input logic [N_MSHR-1:0] v, input logic [MW-1:0] ptr);
-    logic [MW-1:0] r;
-    r = '0;
-    for (int k = N_MSHR - 1; k >= 0; k--) begin
-      logic [MW-1:0] i;
-      i = MW'((int'(ptr) + k) % N_MSHR);
-      if (v[i]) r = i;
+    logic [MW-1:0] r_hi, r_all;
+    logic          any_hi;
+    r_hi   = '0;
+    r_all  = '0;
+    any_hi = 1'b0;
+    for (int i = N_MSHR - 1; i >= 0; i--) begin
+      if (v[i]) r_all = MW'(i);
+      if (v[i] && i >= int'(ptr)) begin
+        r_hi   = MW'(i);
+        any_hi = 1'b1;
+      end
     end
-    return r;
+    return any_hi ? r_hi : r_all;
   endfunction
   function automatic logic [MW-1:0] rr_next(input logic [MW-1:0] i);
     return (int'(i) == N_MSHR - 1) ? '0 : i + 1'b1;
@@ -933,37 +939,79 @@ module tg_l2_bank
   assign wbm_waddr = rt_out.wb_addr;
   assign wbm_wdata = da_rdata;
 
-  // D FIFO: takes the one or two beats of a row in one cycle, gives one per cycle. Responses
-  // reserve their beats (d_credit_q) when they issue, so it never overflows.
-  dbeat_t       dq_q [DFIFO];
-  logic [3:0]   dq_wp_q, dq_rp_q;
+  // D FIFO: one entry per row read (one or two beats, in LUTRAM), one beat out per cycle; the
+  // beat's half and the zero data of data-less responses are chosen on the way out. Responses
+  // reserve their beats (d_credit_q, DFIFO beats) when they issue, and every entry holds at least
+  // one beat, so DFIFO entries never overflow.
+  typedef struct packed {
+    tl_d_op_e             opcode;
+    logic [1:0]           param;
+    logic [TL_SIZE_W-1:0] size;
+    logic [TL_SRC_W-1:0]  source;
+    logic [TL_SINK_W-1:0] sink;
+    logic                 denied;
+    logic                 corrupt;
+    logic [1:0]           nb;
+    logic                 half;
+    logic                 use_ram;
+    logic                 last;
+  } dhdr_t;
+  localparam int DQW = idx_w(DFIFO);
+
   dbeat_t       df_out;
   logic         df_out_v, df_out_r;
-  wire  [3:0]   dq_cnt = dq_wp_q - dq_rp_q;
-  assign df_out_v = dq_cnt != 4'd0;
-  assign df_out   = dq_q[dq_rp_q[2:0]];
-
-  wire rt_d = rt_out.v && !rt_out.to_wb;
-  dbeat_t x0, x1;
+  logic [DQW:0] dq_wp_q, dq_rp_q;
+  logic         dq_beat_q;                   // beat within the head entry
+  wire  [DQW:0] dq_cnt = dq_wp_q - dq_rp_q;
+  wire          rt_d   = rt_out.v && !rt_out.to_wb;
+  dhdr_t        dh_in, dh_out;
+  logic [255:0] dr_out;
+  logic [0:0][DQW-1:0]                 dq_raddr;
+  logic [0:0][$bits(dhdr_t)+256-1:0]   dq_rdata;
   always_comb begin
-    x0.d      = rt_out.hdr;
-    x0.d.data = rt_out.use_ram ? ((rt_out.nb == 2'd1 && rt_out.half) ? da_rdata[255:128] : da_rdata[127:0]) : '0;
-    x0.last   = rt_out.last && rt_out.nb == 2'd1;
-    x1.d      = rt_out.hdr;
-    x1.d.data = rt_out.use_ram ? da_rdata[255:128] : '0;
-    x1.last   = rt_out.last;
+    dh_in.opcode  = rt_out.hdr.opcode;
+    dh_in.param   = rt_out.hdr.param;
+    dh_in.size    = rt_out.hdr.size;
+    dh_in.source  = rt_out.hdr.source;
+    dh_in.sink    = rt_out.hdr.sink;
+    dh_in.denied  = rt_out.hdr.denied;
+    dh_in.corrupt = rt_out.hdr.corrupt;
+    dh_in.nb      = rt_out.nb;
+    dh_in.half    = rt_out.half;
+    dh_in.use_ram = rt_out.use_ram;
+    dh_in.last    = rt_out.last;
   end
+  tg_ram_lut #(.DEPTH(DFIFO), .WIDTH($bits(dhdr_t) + 256), .NR(1)) u_dfifo (
+    .clk, .we (rt_d), .waddr (dq_wp_q[DQW-1:0]), .wdata ({dh_in, da_rdata}), .raddr (dq_raddr), .rdata (dq_rdata)
+  );
+  assign dq_raddr[0]      = dq_rp_q[DQW-1:0];
+  assign {dh_out, dr_out} = dq_rdata[0];
+  wire dq_two = dh_out.nb == 2'd2;
+  wire dq_hi  = dq_two ? dq_beat_q : dh_out.half;
+  always_comb begin
+    df_out           = '0;
+    df_out.d.opcode  = dh_out.opcode;
+    df_out.d.param   = dh_out.param;
+    df_out.d.size    = dh_out.size;
+    df_out.d.source  = dh_out.source;
+    df_out.d.sink    = dh_out.sink;
+    df_out.d.denied  = dh_out.denied;
+    df_out.d.corrupt = dh_out.corrupt;
+    df_out.d.data    = !dh_out.use_ram ? '0 : dq_hi ? dr_out[255:128] : dr_out[127:0];
+    df_out.last      = dh_out.last && (!dq_two || dq_beat_q);
+  end
+  assign df_out_v = dq_cnt != '0;
   always_ff @(posedge clk) begin
     if (rst) begin
-      dq_wp_q <= '0;
-      dq_rp_q <= '0;
+      dq_wp_q   <= '0;
+      dq_rp_q   <= '0;
+      dq_beat_q <= 1'b0;
     end else begin
-      if (rt_d) dq_wp_q <= dq_wp_q + 4'(rt_out.nb);
-      if (df_out_v && df_out_r) dq_rp_q <= dq_rp_q + 1'b1;
-    end
-    if (rt_d) begin
-      dq_q[dq_wp_q[2:0]] <= x0;
-      if (rt_out.nb == 2'd2) dq_q[3'(dq_wp_q[2:0] + 3'd1)] <= x1;
+      if (rt_d) dq_wp_q <= dq_wp_q + 1'b1;
+      if (df_out_v && df_out_r) begin
+        dq_beat_q <= dq_two && !dq_beat_q;
+        if (!dq_two || dq_beat_q) dq_rp_q <= dq_rp_q + 1'b1;
+      end
     end
   end
 
@@ -993,7 +1041,7 @@ module tg_l2_bank
   );
   assign df_out_r   = dsel_r[0];
   assign rack_out_r = dsel_r[1];
-  wire unused_d = ^{rack_cnt, dq_cnt[3]};
+  wire unused_d = ^{rack_cnt};
 
   // ---------------------------------------------------------------------------------------------
   // E (GrantAck) and AXI B (write-back responses)
