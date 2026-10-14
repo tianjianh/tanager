@@ -184,6 +184,17 @@ module tg_lsu
       default:  return b;                           // SWAP and SC (LR writes nothing)
     endcase
   endfunction
+  // A store's bytes copied into every naturally aligned slot of their size. Stores are
+  // naturally aligned, so this puts them in their own byte lanes, which is all a byte-masked
+  // write or a covered load reads: no shifter by the address.
+  function automatic logic [63:0] rep(input logic [63:0] d, input logic [1:0] size);
+    unique case (size)
+      2'd0:    return {8{d[7:0]}};
+      2'd1:    return {4{d[15:0]}};
+      2'd2:    return {2{d[31:0]}};
+      default: return d;
+    endcase
+  endfunction
   function automatic logic misal(input logic [2:0] a, input logic [1:0] size);
     unique case (size)
       2'd0: return 1'b0;
@@ -251,6 +262,8 @@ module tg_lsu
   sqid_t                             sq_head_q, sq_cmt_q, sq_tail_q;
 
   assign lq_head_o = lq_head_q;
+  logic [LIW-1:0] hl;                             // the LQ head's slot
+  assign hl = lq_head_q[LIW-1:0];
   assign sq_head_o = sq_head_q;
   assign sq_cmt_o  = sq_cmt_q;
   assign sq_drained = sq_head_q == sq_cmt_q;
@@ -456,7 +469,7 @@ module tg_lsu
     f_data  = sq_dv_q[f_idx];
   end
 
-  assign f_dword = sqd_rd[COMMIT_WIDTH] << {sq_pa_q[f_idx][2:0], 3'b000};   // LUTRAM read at f_idx
+  assign f_dword = rep(sqd_rd[COMMIT_WIDTH], sq_size_q[f_idx]);   // LUTRAM read at f_idx
 
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
@@ -513,17 +526,12 @@ module tg_lsu
   // An interrupt must not separate an MMIO load or an atomic from its commit (side effects)
   assign mmio_busy = (xs_q != X_IDLE && !x_st_q) || xr_v_q || xd_q || am_v_q;
 
-  // MMIO load: the ROB head, no committed store left, port free
-  logic [LQ_ENTRIES-1:0] mm_cand;
-  for (genvar i = 0; i < LQ_ENTRIES; i++) begin : g_mm
-    assign mm_cand[i] = lq_v_q[i] && lq_st_q[i] == L_MMIO && lq_rob_q[i] == rob_head;
-  end
-  logic            mm_go;
+  // MMIO load: the ROB head, no committed store left, port free. A load at the ROB head is
+  // the oldest in the window, so it is the LQ head.
+  logic            mm_go, mm_cand;
   logic [LIW-1:0]  mm_idx;
-  always_comb begin
-    mm_idx = '0;
-    for (int i = 0; i < LQ_ENTRIES; i++) if (mm_cand[i]) mm_idx = LIW'(i);
-  end
+  assign mm_idx  = hl;
+  assign mm_cand = lq_v_q[hl] && lq_st_q[hl] == L_MMIO && lq_rob_q[hl] == rob_head;
 
   // Drain: the SQ head once committed
   logic [SIW-1:0] dh;
@@ -533,11 +541,11 @@ module tg_lsu
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
-  assign mm_go = |mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush;
+  assign mm_go = mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush;
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sq_pa_q[dh];
   assign st_mask  = {8'b0, sq_mask_q[dh]} << {sq_pa_q[dh][3], 3'b000};
-  assign st_wdata = {64'b0, sqd_rd[COMMIT_WIDTH+1] << {sq_pa_q[dh][2:0], 3'b000}} << {sq_pa_q[dh][3], 6'b000000};
+  assign st_wdata = {2{rep(sqd_rd[COMMIT_WIDTH+1], sq_size_q[dh])}};
   logic dr_pop;
   assign dr_pop = (st_req && st_ack) || dr_amo ||
                   (xs_q == X_WAIT && x_st_q && mmio_d_valid_i);
@@ -614,7 +622,7 @@ module tg_lsu
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
-  assign am_wdata = {64'b0, am_new << {am_pa[2:0], 3'b000}} << {am_pa[3], 6'b000000};
+  assign am_wdata = {2{rep(am_new, am_size)}};
   assign am_take  = am_st_q == AM_RES && !m2_ok && !xr_take && !flush;
 
   logic            rsv_v_d;
@@ -750,12 +758,10 @@ module tg_lsu
   // TLB-missed loads (L_TLB) and stores (sq_tlb_q) wait for the head. If the DTLB translates the
   // head's VA now, the ROB refetches it; otherwise a non-speculative walk decides, once the
   // committed stores have drained (its PTE reads see them).
-  logic [LIW-1:0] hl;
   logic [SIW-1:0] hs;
   logic           hd_ld, hd_st, hd_need, hd_tok, hdf_q;
   logic [3:0]     hdc_q;
   acc_e           hd_at;
-  assign hl       = lq_head_q[LIW-1:0];
   assign hs       = sq_cmt_q[SIW-1:0];
   assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lq_rob_q[hl] == rob_head;
   assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sq_rob_q[hs] == rob_head && sq_cmt_q != sq_tail_q;
