@@ -13,6 +13,8 @@ set_param general.maxThreads 8
 create_project -in_memory -part $part
 set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
 set_property target_language Verilog [current_project]
+# module references need automatic compile order
+set_property source_mgmt_mode All [current_project]
 add_files -norecurse [list \
   [file join $root rtl common prim tg_ram_sdp.sv] \
   [file join $here rtl tg_s1_engine.sv] \
