@@ -1,6 +1,6 @@
 # FPU execution units (`tg_fpu`, `tg_fpu_fma`, `tg_fpu_misc`, `tg_fpu_div`)
 
-Status: draft — fpu track — 2026-10-13
+Status: implemented — fpu track — 2026-10-13 (results under "Timing and area")
 
 ## Purpose
 
@@ -318,20 +318,27 @@ No configuration parameter changes the FPU: the four configurations (`st`, `smt2
 
 ## Timing and area
 
-Target: 200 MHz on xck26-sfvc784-2LV-c (≈ −1 speed at 0.72 V), out-of-context per unit.
+Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc.tcl` through `tools/vivado_run.sh`), Vivado 2025.2, xck26-sfvc784-2LV-c, 5.0 ns clock, request inputs arriving 1.5 ns after the clock (the core's operand bypass), outputs needed 1.0 ns before the next edge. Routed results, 2026-10-13:
 
-| Unit | LUT estimate | DSP | BRAM | Budget (plan §8.2) | Critical stage |
-|---|---|---|---|---|---|
-| FMA | ≈ 2.2K | 6 | – | ≈ 2.5K, 10–14 DSP | E2 (ternary add 161 bits) and E3 (LZC + shift) |
-| FMISC | ≈ 1.0K | – | – | | M1 of FCVT.F.I |
-| Divide/sqrt | ≈ 1.8K | 29 | 1 BRAM18 | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSP, 1 BRAM18 | c3 of the multiplier, c0 operand formation |
-| Total | ≈ 5.0K | 35 | 0.5 BRAM36 | ≈ 4.7K | |
+| Unit | LUTs | FFs | DSP48E2 | RAMB18 | WNS at 200 MHz | Latency | Budget (plan §8.2) |
+|---|---|---|---|---|---|---|---|
+| FMA, 5 stages | 2,670 | 982 | 6 | 0 | +0.34 ns | 5 | ≈ 2.5K LUTs, 10–14 DSPs |
+| FMISC | 1,827 | 515 | 0 | 0 | +0.25 ns | 2 | (part of the 4.7K FPU) |
+| Divide/sqrt, Goldschmidt | 3,125 | 1,642 | 26 | 1 | +0.39 ns | 19/23 div, 19/27 sqrt | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSPs, 1 BRAM18 |
+| Divide/sqrt, radix-4 fallback | 1,714 | 899 | 0 | 0 | +0.20 ns | 18/33 div and sqrt | (the plan's fallback) |
+| **FPU with Goldschmidt** | **7,622** | 3,139 | 32 | 1 | met | | **≈ 4.7K LUTs** |
+| **FPU with radix-4** | **6,211** | 2,396 | 6 | 0 | met | | **≈ 4.7K LUTs** |
 
-The divider's LUTs exceed the plan's estimate, mainly two input normalisers, the multipliers' final adders and the remainder logic. Levers if the total misses: share one normaliser between dividend and divisor; replace F1's denormalising shifter by candidates precomputed in the remainder round; FMISC lever R5.
+**All units meet 200 MHz.** The critical paths are: FMA E3 (normalisation: leading-zero count, then the shift), FMISC M1 (shared shifter, rounding), Goldschmidt S1 (normalise, then the seed-ROM address), radix-4 UNP/NRM (normalise).
 
-**Fallbacks.**
-- FMA misses 200 MHz at 5 stages: an LZA in E2 to take the leading-zero count off E3, or `FMA_LAT` = 6 (the plan prices 5 → 4 at +0.22% suite IPC, so 5 → 6 costs about as much).
-- Divider misses: radix-4 digit recurrence at 17/31 cycles (plan §4.12).
+**Four-cycle FMA.** With the E3/E4 boundary removed (`STAGES = 4`) the FMA misses by 1.88 ns (≈ 145 MHz, 26 logic levels from the marker register through LZC, shift, rounding and packing to the response) and grows to 2,971 LUTs. It costs Fmax, so `FMA_LAT` stays 5 (plan §4.12).
+
+**Area against the budget.** The FPU is over its 4.7K-LUT budget: by 2.9K with the Goldschmidt unit, by 1.5K with radix-4.
+- **Divider.** The Goldschmidt unit costs 1,411 LUTs (and 26 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. The plan credits it with +1.3% suite IPC over radix-4 (M1 model, at 18/23/20/26 against 17/31). A 1,411-LUT increase is 3.7% of the 37.7K-LUT core, so by the plan's acceptance rule (§2.5: the IPC gain in percent must be at least the LUT increase in percent) the Goldschmidt unit no longer qualifies; the radix-4 unit is the rule's choice. `FDIV_RADIX4` switches between them; the decision is the coordinator's.
+- **Lever R5** (plan §8.5): moving FCVT.F.I and FCVT.F.F into the FMA (as a × 1.0 with the source format decoupled, int→FP injected after the adder) removes 584 LUTs from FMISC (measured: 1,243 LUTs without them). The FMA would grow by an estimated 150–250 LUTs, and those conversions would take 5 cycles instead of 2 on the FMA port, an interface change.
+- **FMA** is 170 LUTs over its own estimate. The largest blocks are the 166-bit adder pair (P − C and its complement, needed because the sign of an effective subtraction is unknown in the near case), the 165-bit alignment and the normaliser.
+
+**Fallbacks not needed:** an LZA in the FMA (E3 meets timing without it), `FMA_LAT` = 6, the radix-4 unit for timing.
 
 ## Verification
 
