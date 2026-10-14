@@ -19,7 +19,9 @@ module tb_iq
   parameter bit MX       = 1'b0,
   parameter bit PRE_RDY  = 1'b0,
   parameter bit ISS_REG  = 1'b0,
-  parameter bit MX_CONS  = MX      // MX = 1, MX_CONS = 0: rows name every source by ID
+  parameter bit MX_CONS  = MX,     // MX = 1, MX_CONS = 0: rows name every source by ID
+  parameter bit TAGS     = 1'b0    // wakeup tags (with MX): 1-cycle ops take no ID and wake no
+                                   // column; consumers name them by row while they hold one
 );
   localparam int ROWS  = 10;
   localparam int DW    = DISPATCH_WIDTH;
@@ -51,7 +53,7 @@ module tb_iq
   logic [PW-1:0] iss_payload_q;
 
   tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
-          .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
+          .WAKE_NOW(!TAGS), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
           .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS), .PRE_RDY(PRE_RDY), .ISS_REG(ISS_REG),
           .MX_CONS(MX_CONS)) u_iq (
     .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph, .disp_wake_oh, .disp_rob,
@@ -174,15 +176,16 @@ module tb_iq
         automatic int t = $urandom % NUM_THREADS;
         automatic int free_ids [$];
         automatic int o, d;
+        automatic bit lat1 = ($urandom % 3) != 0;
         if (!bank_free_q[k] || used[t] >= int'(room_q[t]) || nops >= MAXOP - 1) continue;
         if (flush_valid && flush_tid == tid_t'(t)) continue;   // the flushed thread stalls
         for (int c = 0; c < NCOL; c++)
           if (id_owner[c] < 0 && id_freed_at[c] < cyc) free_ids.push_back(c);
-        if (free_ids.size() == 0) continue;
+        if (free_ids.size() == 0 && !(TAGS && lat1)) continue;
         o = nops++;
-        d = free_ids[$urandom % free_ids.size()];
+        d = (TAGS && lat1) ? -1 : free_ids[$urandom % free_ids.size()];
         ops[o].dest = d;
-        ops[o].lat1 = ($urandom % 3) != 0;
+        ops[o].lat1 = lat1;
         ops[o].tid = t;
         ops[o].rob = rob_next[t]++;
         ops[o].sel_cycle = -100;
@@ -192,7 +195,12 @@ module tb_iq
           automatic int c = $urandom % NCOL;
           automatic int p = id_owner[c];
           ops[o].src[s] = -1;
-          if (($urandom % 3) == 0 || p < 0 || c == d) continue;
+          // with tags, a 1-cycle producer has no ID: pick one of the recent ops instead
+          if (TAGS && ($urandom % 2) == 0 && nops > 1) begin
+            p = nops - 2 - ($urandom % ((nops - 1) < 8 ? (nops - 1) : 8));
+            if (!ops[p].lat1) p = -1;
+          end
+          if (($urandom % 3) == 0 || p < 0 || (c == d && !(TAGS && p >= 0 && ops[p].lat1))) continue;
           if (ops[p].killed || ops[p].tid != t) continue;
           // a pending producer is always a dependency; an available one sometimes
           if (ops[p].avail < 0 || ops[p].avail > cyc || ($urandom % 2) == 0) begin
@@ -204,24 +212,36 @@ module tb_iq
                 if (row_op[r] == p && u_iq.valid_q[r] && !u_iq.free_now[r]) prow = r;
               for (int k2 = 0; k2 < k; k2++) if (disp_valid[k2] && disp_op[k2] == p) prow = disp_row[k2];
             end
-            if (prow >= 0 && ($urandom % 3) != 0) begin
+            if (TAGS && ops[p].lat1) begin
+              // no column: a row dependency while the producer holds its row; once the row
+              // is freed the producer is complete and there is nothing to wait for
+              if (prow >= 0) begin
+                disp_mdep[k][prow] = 1'b1;
+                nmx++;
+              end else if (ops[p].avail < 0 || ops[p].avail > cyc) begin
+                ops[o].src[s] = -1;   // cannot happen: a freed 1-cycle op is available
+                fail($sformatf("tags: producer %0d neither holds a row nor is available", p));
+              end
+            end else if (prow >= 0 && ($urandom % 3) != 0) begin
               disp_mdep[k][prow] = 1'b1;
               nmx++;
             end else begin
-              disp_dep[k][c] = 1'b1;
-              disp_dep_ph[k][c] = phase_q[c] ^ alloc[c];   // after this cycle's allocations
+              disp_dep[k][ops[p].dest] = 1'b1;
+              disp_dep_ph[k][ops[p].dest] = phase_q[ops[p].dest] ^ alloc[ops[p].dest];
             end
           end
         end
-        if (id_freed_at[d] >= 0) nreuse++;
-        id_owner[d] = o;
-        alloc[d] = 1'b1;
+        if (d >= 0) begin
+          if (id_freed_at[d] >= 0) nreuse++;
+          id_owner[d] = o;
+          alloc[d] = 1'b1;
+        end
         used[t]++;
         disp_valid[k] = 1'b1;
         disp_tid[k] = tid_t'(t);
         disp_rob[k] = ROBW'(ops[o].rob);
         disp_payload[k] = PW'(o);
-        if (ops[o].lat1) disp_wake_oh[k][d] = 1'b1;
+        if (ops[o].lat1 && !TAGS) disp_wake_oh[k][d] = 1'b1;
         disp_op[k] = o;
         disp_seq[k] = seq++;
         disp_row[k] = -1;

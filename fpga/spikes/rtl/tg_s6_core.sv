@@ -12,7 +12,8 @@ module tg_s6_core
   parameter int NDSP  = 0,     // filler DSP48E2 (MUL, FMA, Goldschmidt)
   parameter int SEED  = 1,
   parameter int BUS_W = 256,
-  parameter int S2_MX = 0      // the scheduler's matrix wakeup option
+  parameter int S2_MX = 0,     // the scheduler's matrix wakeup option
+  parameter int S2_WTAGS = 0    // the scheduler's wakeup tags (AR-1), 0 = ROB columns
 ) (
   input  logic             clk,
   input  logic [BUS_W-1:0] l2_in,     // from the L2 (registered there)
@@ -159,7 +160,7 @@ module tg_s6_core
     assign unused = ^fout[FOUT_W-1:SPK_IN + BUS_W];   // padding to whole tiles
   end
 
-  tg_s2_sched_top #(.STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0)) u_s2 (
+  tg_s2_sched_top #(.STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0), .WTAGS(S2_WTAGS)) u_s2 (
     .clk,
     .rst_i(fout[I_u_s2_rst_i +: 1]),
     .disp_valid_i(fout[I_u_s2_disp_valid_i +: S2_DW]),

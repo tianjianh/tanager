@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 # (instance, module, parameter overrides, inputs [(port, width)], outputs [(port, width)])
 TOPS = [
     ("u_s2", "tg_s2_sched_top",
-     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0)",
+     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX != 0), .WTAGS(S2_WTAGS)",
      [("rst_i", "1"), ("disp_valid_i", "S2_DW"), ("disp_queue_i", "S2_DW*S2_QW"),
       ("disp_tid_i", "S2_DW*TID_BITS"), ("disp_dep_i", "S2_DW*S2_NCOL"),
       ("disp_dep_ph_i", "S2_DW*S2_NCOL"), ("disp_wake_oh_i", "S2_DW*S2_NCOL"),
@@ -72,7 +72,8 @@ module tg_s6_core
   parameter int NDSP  = 0,     // filler DSP48E2 (MUL, FMA, Goldschmidt)
   parameter int SEED  = 1,
   parameter int BUS_W = 256,
-  parameter int S2_MX = 0      // the scheduler's matrix wakeup option
+  parameter int S2_MX = 0,     // the scheduler's matrix wakeup option
+  parameter int S2_WTAGS = 0    // the scheduler's wakeup tags (AR-1), 0 = ROB columns
 ) (
   input  logic             clk,
   input  logic [BUS_W-1:0] l2_in,     // from the L2 (registered there)

@@ -19,7 +19,13 @@ module tg_s2_sched_top
   parameter int MX_CQ    = -1,       // MX: bit q set = queue q's rows take row dependencies
   parameter int DL_Q     = -1,       // bit q set = queue q issues ops with a delayed wakeup
   parameter bit DL_ENC   = 1'b0,     // delay lines carry the wakeup ID predecoded {ID/8, ID%8}
-  localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
+  parameter int WTAGS    = 0,        // > 0: wakeup tags (plan §4.6, AR-1): W has WTAGS tag
+                                     // columns + the LLTs instead of ROB columns + LLTs. With
+                                     // MX, 1-cycle producers need no column (row dependencies
+                                     // while they hold a row, nothing once freed), so no queue
+                                     // wakes at select; multi-cycle ops wake their tag through
+                                     // the delay lines
+  localparam int NCOL  = ((WTAGS > 0) ? WTAGS : ROB_ENTRIES) + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
   localparam int NQ    = N_ALU + 3,             // ALU queues, LD, STA, FP
@@ -136,7 +142,7 @@ module tg_s2_sched_top
     end
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
-      .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
+      .STALE(STALE), .WAKE_NOW(q < N_ALU && WTAGS == 0), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
       .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY),
       .ISS_REG(ISS_REG), .MX_CONS(MX && ((MX_CQ >> q) & 1) != 0)
     ) u_iq (
@@ -203,6 +209,10 @@ module tg_s2_sched_top
     .clk, .rst, .wake_now, .wake_reg(wake_reg_q), .alloc(alloc_q), .cancel(cancel_q),
     .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q, .w_d(w_next)
   );
+
+  if (WTAGS > 0 && !MX) begin : g_bad_tags
+    $error("tg_s2_sched_top: wakeup tags (WTAGS) need MX = 1");
+  end
 
   logic [NCOL-1:0] busy_all;
   always_comb begin

@@ -35,6 +35,12 @@ UNC_LUTRAM = 1_600          # L2 MSHR state and queues (lever R15 keeps them in 
 # LUTs of S2 (whole scheduler, chosen options) + S3 + S4 + S5 per configuration, inside S6
 # where measured (util_hier.rpt of the S6 runs), else out of context (fpga/spikes/results).
 # S2: st DUP_SEL + EARLY_W = 24; smt2 and the 3-wide builds add MX, which they need.
+# With wakeup tags (S6_TAGS=1 in the environment; AR-1): the scheduler measured at 40 columns
+# replaces S2 (estimates until the S2 runs land: the study's -1.1 / -2.9 / -4.9K)
+SPIKE_LUTS_TAGS_S2 = {"st": 6_425 - 1_100, "smt2": 8_744 - 2_850, "st_w3": 8_842 - 2_000,
+                      "smt2_w3": 12_047 - 4_850}
+SPIKE_LUTS_S2 = {"st": 6_425, "smt2": 8_744, "st_w3": 8_842, "smt2_w3": 12_047}
+
 SPIKE_LUTS = {
     "st":      6_425 + 5_082 + 2_412 + 2_485,     # out of context (pblock runs; S2 with MX)
     "smt2":    8_744 + 5_057 + 2_412 + 2_613,     # s6_smt2_90, S3 without min/max, S4 align M2
@@ -51,7 +57,10 @@ def main():
     adj = float(sys.argv[3]) if len(sys.argv) == 4 else 0.0
     total = DEVICE_LUTS * float(tgt[:-1]) / 100 if tgt.endswith("%") else float(tgt)
     core = (total - UNCORE_LUTS) / 2
-    fill = core - SPIKE_LUTS[cfg] - FILL_LUTRAM - FILL_GLUE + adj
+    import os
+    tags = os.environ.get("S6_TAGS", "0") == "1"
+    spikes = SPIKE_LUTS[cfg] - (SPIKE_LUTS_S2[cfg] - SPIKE_LUTS_TAGS_S2[cfg] if tags else 0)
+    fill = core - spikes - FILL_LUTRAM - FILL_GLUE + adj
     if fill <= 0:
         sys.exit(f"target {total:.0f} leaves no room for core filler")
     tiles = int(round(fill / LUTS_PER_TILE))
@@ -59,10 +68,12 @@ def main():
     unc_nram = UNC_LUTRAM // LUTS_PER_RAM
     unc_tiles = int(round((UNCORE_LUTS - UNC_LUTRAM - UNC_FIXED) / LUTS_PER_TILE))
     mx = " -g S2_MX=1"   # MX in every configuration (S6 at st: the non-MX loop misses)
+    if tags:
+        mx += " -g S2_WTAGS=16"
     print(f"-g CORE_TILES={tiles} -g CORE_NRAM={nram} -g CORE_NBRAM={CORE_BRAM_FILL} "
           f"-g CORE_NDSP={CORE_DSP} -g UNC_TILES={unc_tiles} -g UNC_NRAM={unc_nram}{mx}")
     print(f"# {cfg}: target {total:.0f} LUTs ({100 * total / DEVICE_LUTS:.1f}%), "
-          f"core {core:.0f} = spikes {SPIKE_LUTS[cfg]} + filler {tiles} tiles + "
+          f"core {core:.0f} = spikes {spikes} + filler {tiles} tiles + "
           f"{nram} LUTRAM blocks; uncore {UNCORE_LUTS}", file=sys.stderr)
 
 
