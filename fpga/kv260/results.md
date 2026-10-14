@@ -15,6 +15,7 @@ directories under `$SOC_BUILD/vivado/`; no checkpoints are kept.
 | 2026-10-14 | st | 2 (`tg_trafgen`), PMOD console on (`TG_PMOD_UART=1`; 3c86877 with the crossbar A-data change) | 100 MHz | +1.069 / +0.012 | 21,600 (18.4%) | 14,075 | 32 | 16 / 4 | 10 min |
 | 2026-10-14 | st | 2 (`tg_trafgen`), fan on the PS's TTC0 PWM (DR-129; c8cc8be) | 100 MHz | +1.360 / +0.010 | 21,483 (18.3%) | 13,994 | 32 | 16 / 4 | 15 min |
 | 2026-10-14 | st | 2 (`tg_trafgen`), fan on TTC0 and PMOD console on H12/B10 (343c5a4, `TG_PMOD_UART=1`) | 100 MHz | +1.231 / +0.011 | 21,592 (18.4%) | 14,068 | 32 | 16 / 4 | 12 min |
+| 2026-10-14 | st | 2 (`tg_trafgen`), stage B: fan on TTC0, PMOD console on H12/B10 from `kv260.xdc` (5048957, `TG_PMOD_UART=1`) | 100 MHz | +1.104 / +0.011 | 21,567 (18.4%) | 14,068 | 32 | 16 / 4 | 14 min |
 
 Notes:
 - **Stub build:** the stub cores drive nothing, so synthesis removes the parts of the uncore that
@@ -52,7 +53,11 @@ Notes:
   - The earlier PMOD build drove the fan low, so its bitstream was deleted (reports kept).
 - **Fan and PMOD console together** (343c5a4): `fan_en_b` from `EMIOTTC0WAVEO[2]` at A12; `pmod_uart_txd` at H12; `pmod_uart_rxd` at B10, into the line's synchronizer.
   - DRC clean; primitive check clean (63 instances). It peaked at 16.7 GB of 20 declared.
-  - **The stage B bitstream:** `$SOC_BUILD/vivado/st_trafgen_100_fan_pmod/tanager.bit.bin`. The traffic generators drive no console, so the PMOD line idles.
+  - Superseded by the stage B build below; its bitstream is deleted.
+- **Stage B** (5048957): the same design, with the PMOD pins now in `kv260.xdc`. Synthesis read 87556b3, which is identical under `rtl/`, `fpga/` and `tools/`. `summary.txt` confirms the routed pins (H12, B10, A12) and the fan settings (TTC0 waveform 2, uninverted).
+  - **Checks:** DRC has no errors and one warning, RTSTAT-10 (the unused count outputs of the host bridge's XPM FIFOs), as in the earlier builds. Primitive check clean: 66 instances after synthesis, 63 after `opt_design`. CDC: 628 safe endpoints between the two clocks, plus the RXD input (false path). It peaked at 16.7 GB of 20 declared.
+  - **Board files:** `$SOC_BUILD/board/stage-b/`, made by `package.sh`: `tanager.bit.bin`, `tanager.dtbo`, `shell.json`, `tanager-host` (with the `tg start` and `run` fixes), `summary.txt` and `SHA256SUMS`.
+  - **Console:** each generator writes one `.` per pass to the UART (`E` after a pass with an error), so the PMOD line carries about two characters per pass at 115200 baud. An earlier note here said the line would idle; `tb_soc` checks those characters.
 - **Worst paths:**
   - **Stub build:** L2 MSHR state -> `RREADY` -> injector buffer read enable (6.6 ns, 86% routing).
   - **Traffic-generator build:** 9.1 ns of 10 first; after R15 the worst path is the L2's S2 decision

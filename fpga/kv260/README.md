@@ -99,11 +99,13 @@ fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/sta
 Each step's expected result is in brackets.
 
 1. **Load the bitstream.** `sudo xmutil unloadapp && sudo xmutil loadapp tanager` [`xmutil` reports the app loaded; `dmesg` shows the FPGA manager loading `tanager.bit.bin` and the overlay applied; the fan keeps following the temperature, at 15/255 when cool, not full speed. If it stops or runs flat out, `sudo xmutil unloadapp` at once].
-2. **Host window.** `sudo tanager-host info` [ID `TNGR`, configuration, 100.0 MHz, cores and uncore in reset].
+2. **Host window and clock.** `sudo tanager-host info` [ID `TNGR`, configuration, cores and uncore in reset; its 100.0 MHz is the design's `CLK_HZ` constant, not a measurement]. The PL clock as Linux set it: `sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate` [`99999999`; `90909090` means the overlay's request rounded down a divider step, as spike S1's once did].
 3. **Fabric widths and clock.** `sudo tanager-host poke 0x68 0x12345678; sudo tanager-host peek 0x68` [reads back `0x12345678`; a garbled value means the AXI width (overlay `afi0`) is wrong].
-4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384`, wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
+4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384` [it prints the DRAM window it set, `0x840000000 + 0x40000000` by default], wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
    - **At 250 cycles:** `sudo tanager-host inj --inj-rd 250`, wait, `tg status` again [errors still 0].
-5. **Console path.** The traffic generators print one `.` per pass on the UART: `sudo tanager-host run --timeout 5` [dots appear]. With the PMOD console (`TG_PMOD_UART=1`), the same dots appear on COM5 at 115200 8N1 from the moment `tg start` runs, whether or not `tanager-host` reads the console. A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
+5. **Console path.** Each traffic generator prints one `.` per pass on the UART, or `E` after a pass with an error: `sudo tanager-host run --timeout 5` [dots appear; `run` attaches to the running generators, and holds everything when it exits].
+   - **With the PMOD console** (`TG_PMOD_UART=1`): the same dots appear on COM5 at 115200 8N1 from the moment `tg start` runs, whether or not `tanager-host` reads the console. A clean line also rules out a `pl_clk0` that rounded down to 90.9 MHz: 9% slow garbles it.
+   - A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
 6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
