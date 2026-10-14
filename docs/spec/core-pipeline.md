@@ -91,8 +91,12 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Initial map:** x*i* → bank 0, index *i* (written with 0 by the reset sequence, as Spike resets every register to 0).
 
 ### 5.2 RN stage (`tg_rename`)
-- **RAT** (speculative) and **CRAT** (committed) in LUTRAM (plan §8.5 R3). A RAT entry holds the mapping and, for sources, the producer: its wakeup column, or for a 1-cycle op its ROB index (MX naming, §5.3), and its rename slot. Each RAT bank belongs to one rename slot and each CRAT bank to one commit slot, so every write port is a LUTRAM write port; live-value tables (flip-flops, `log2` of the width per register) name the bank with each register's latest entry. Reads: rs1, rs2 and rd (the old mapping) per slot.
-- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 (32 cycles, alongside the free lists' initialisation).
+- **RAT** (speculative) and **CRAT** (committed) in LUTRAM (plan §8.5 R3). A RAT entry holds the mapping and, for sources, the producer: its wakeup column, or for a 1-cycle op its ROB index (MX naming, §5.3), and its rename slot. Each RAT bank belongs to one rename slot and each CRAT bank to one commit slot, so every write port is a LUTRAM write port.
+  - **The banks are XOR-banked (FPGA-friendly T2; LaForest et al., FPGA 2012).** A register's entry is the XOR of its banks. A slot writes its own bank with the new value XOR the other banks' entries at that register, which costs one more read port per bank, at the other slots' write registers.
+  - Of several slots writing one register in a cycle, only the last writes (a later slot wins).
+  - No live-value table names the bank that holds the latest entry. The flip-flop LVTs, with a 32:1 read at every port, are gone (6f8c99e).
+  - Reads: rs1, rs2 and rd (the old mapping) per slot.
+- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
 - **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
 - **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
@@ -100,12 +104,26 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - **Tag:** MUL and the P1 bit counts (C_MUL) with a destination, from a pool of `IQ_TAGS`; RN waits when it runs short. A tag returns 2 cycles after its producer's register-file write (`tag_free` from `tg_exec`): by then no group in RN or DS can see the register as unwritten. Its column is then cleared in every queue row (`col_clr`), so a returned tag needs no guard. A flush returns every tag.
   - **No column:** 1-cycle ops, which consumers name by row (MX) while the row is held. Once it is freed (2 cycles after the select), the value is in the bypass or the register file before any later consumer can issue. Serialised ops end in a flush, so their consumers find the value written.
 - **Ready table:** one bit per physical register, cleared when RN allocates it, set when the register file is written (each bank's write port).
+  - **Form (`tg_rdytab`, LUTRAM, FPGA-friendly T2):** each register is two phase bits, and it is ready when they are equal (A == S).
+    - S, the set phase, has one table per bank, written only by that bank's register-file port: S := A.
+    - A, the allocation phase, is XOR-banked into W tables (A = A⁰ ⊕ A¹ …). A clear of p through Aᶜ writes Aᶜ := ¬S′ ⊕ (the other A), where S′ is S after this cycle's set. So a set and a clear of one register in the same cycle leave it not ready, exactly as the flip-flop vector did.
+    - **The clears do not wait for rename (cc1f679).** Every cycle, each bank's next W free registers are cleared, candidate c through Aᶜ, whether or not rename takes them; the free list's head and count give their indices.
+      - A free register's ready bit is never read: no map holds it, and every reader of its last value read it before it was freed. So the early clears are invisible.
+      - A register is still cleared in the cycle it is allocated. No write waits for rn_fire.
+    - A sweep zeroes the tables in 64 cycles after reset. Only rn_fire waits for it, and that sweep ends with the D$'s, so no earlier than `start`. rename's `ready` (decode may hand a group over) does not wait for it.
+  - **Why not flip-flops:** a 192-bit (st) vector read through 3W 192:1 multiplexers, and 128 FP bits through 4W.
+  - **Rejected:**
+    - A live-value table needs a multi-write table of its own in flip-flops.
+    - Toggle-only phases go wrong for a register that a flush frees before it is written.
+  - **Source:** XOR-based multi-ported memories, LaForest et al., FPGA 2012.
 - **Sources:** an earlier slot of the same group that writes the register (intra-group, generated for any width), else RAT; pending if produced in the group or its ready bit is clear; a pending source waits on its producer's column, or on its row (MX), or on nothing (a 1-cycle producer whose row is freed).
 - **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, wakeup tags, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
 - **Serialising instructions** wait at RN until the ROB and `ds_q` are empty; after one is renamed, RN accepts nothing until the next flush (every serialising instruction ends in a flush, §8).
 
 ### 5.3 DS stage (also in `tg_rename`)
 - Writes the ROB entries (§8.1), the issue-queue rows (`tg_iq` dispatch port *k* = group slot *k*) and the LQ/SQ entries.
+- **The DS payload** (`ds_uop_q`, `ds_ren_q`) loads RN's group whenever DS is free (c02be92), not only when RN fires, so its enable does not wait for rn_fire, the end of rename's longest path. `ds_valid_q` says whether RN fired; every reader of the payload is gated by a valid slot or `ds_fire`.
+- **MX row destinations** (`rowdst`, the destination of the op each ALU-queue row holds) are LUTRAM, one bank per DS slot. A row's value is the XOR of the banks: each slot writes only its own bank, at the row it takes (917189a).
 - **Dependency vector** = one-hot of the pending sources' columns **AND NOT W**. A column is only reallocated after its producer has set its W bit and written the register file (a tag 2 cycles after the write, an LLT when released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
 - **Allocation (AR-1):** RN gives out tags with the LLTs, from a free pool, and clears their W bits (`wid_alloc`).
 - **IQ room:** dispatch waits until every uop of the group finds a free row in its queue's bank (`bank_free_q`).
@@ -145,7 +163,13 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
-- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`.
+- **Flags per entry: `complete`, `exc`, `mispredict`, `mmio`** are toggle tables in LUTRAM (FPGA-friendly T2).
+  - Each reporting port has a one-bit table of its own, indexed by ROB entry, and toggles it at the entry it reports. Every table therefore has one writer: 11 for `complete` at st, 6 for `exc`, and one each for `mispredict` and `mmio`.
+  - A flag is the parity of its ports' tables XOR a bit the payload took at dispatch: that parity then, XOR the flag's initial value. Dispatch writes none of the tables, and they need no reset.
+  - **The condition:** every live entry gets at most one report per flag per lap, and none as it is dispatched. Reports in a flush cycle are dropped, as the flip-flop flags dropped them. Later reports for squashed entries arrive before those entries are dispatched again (the flip-flop design relied on that too).
+  - **Checked:** in simulation, a shadow copy of the old flip-flop flags checks the condition, and checks every cycle that the head's flags equal the old ones.
+  - **Why:** the flags were 4 × `ROB_ENTRIES` flip-flops with up to 13 writers each (dispatch and every report port), each port through its own index decoder: about 900 LUT cells at st.
+- `replay` stays a flip-flop per entry: an entry can be marked more than once (two ordering violations).
 - **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
@@ -216,6 +240,11 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | partly: Vivado maps the adders (2 DSPs, −30 LUTs) but keeps the counters in flip-flops; a hand-built DSP48E2 accumulator would take the rest (about 110 LUTs, 128 flip-flops) |
 | R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
+| Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |
+| Rename maps XOR-banked (T2) | `tg_rmap`: no live-value tables; a register's entry is the XOR of its banks | done: cycle-identical |
+| MX row destinations in LUTRAM (T2) | `tg_rename`: `rowdst` banked by DS slot, XORed | done: cycle-identical |
+| TLB match as a LUTRAM CAM (T5) | `tg_tlb`: six slice tables, a key store, a three-cycle table update behind a one-cycle fill | done: cycle-identical |
+| ROB flags as toggle tables (T2) | `tg_rob`: `complete`, `exc`, `mispredict`, `mmio` as one-writer LUTRAM tables per report port, XORed with a dispatch-time parity bit in the payload | done: cycle-identical (shadow-checked in simulation) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
 | TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
@@ -227,6 +256,12 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 **Reserve (D18: sharing, or a function cut; not taken):**
 - The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
+
+**Follow-ups (functional, with deadlines):**
+- **LR/SC forward progress under read probes. Deadline: M8 (dual core).**
+  - **The problem:** a probe that only takes away T (toB, from another core's read) also ends the reservation. The spec's eventual-success guarantee for a constrained LR/SC loop covers contention that is only reads, so two cores could starve an SC.
+  - **The fix:** a reservation hold. Probes to the reserved line wait a bounded number of cycles after an LR, and nothing in that wait depends on A-channel progress.
+  - **Found by:** the directed `amo` test under `--probe-rate=150 --bp=20`. It needed up to about 30 tries, and its bound is now 1,024 (bae805e).
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
 

@@ -27,7 +27,7 @@ This page covers the core's side of that contract. With `EXT_FD` off, none of th
 - **Physical FP registers:** {bank, index}, in the low bits of `preg_t` fields.
   - **F0:** written by P4's results. Its free list starts with indices 32–63; f0–f31 map to F0 0–31 after reset, written with zero by the reset sequence.
   - **F1:** written by FP loads. Its free list holds 0–63.
-- **FP ready table:** one bit per FP physical register. It is set by F0 writes (from P4) and F1 writes (FP loads), and cleared when rename allocates the register.
+- **FP ready table:** one bit per FP physical register. It is set by F0 writes (from P4) and F1 writes (FP loads), and cleared when rename allocates the register. It is a `tg_rdytab` in LUTRAM, like the integer table (core-pipeline.md §5.2): one set-phase table per bank and an allocation phase XOR-banked by rename slot.
 - **Sources:** `src1` and `src2` come from whichever file their flag names. `src3` is always FP. The intra-group bypass compares the register file as well as the number.
 - **Destinations:**
   - an FP result takes F0;
