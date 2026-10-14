@@ -209,14 +209,15 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 | Lever | Where | State |
 |---|---|---|
-| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
+| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: three checkers (fetch block, LD, STA) instead of seven; the walker uses STA's in cycles without a store address |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) | not yet: two 64-bit LUT incrementers |
 | R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles; one hart keeps flip-flops |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
-| TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), AND-OR lookup | done |
+| TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
+| LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; the MMIO pick at the LQ head | done |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).

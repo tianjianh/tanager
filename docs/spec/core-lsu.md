@@ -89,7 +89,14 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
 
 ## Timing and area
-M2 is for simulation. The flip-flop state array and the 64-bit addresses in the queues are M2 conveniences; the plan's budget (§8.2, 6.4K LUTs for the LSU) applies from M6.
+- **Queues:** the fields the searches compare (physical address, byte masks, state, IDs) are flip-flops. Virtual addresses and store data are in LUTRAM (cold storage, lever R7).
+- **Age searches:** the replay pick, store-data capture, forwarding and the ordering check are each two priority encoders over a mask of slots, with no ID arithmetic.
+  - A queue's entries lie in [head, tail). So the oldest of a set of slots is the first at or after the head's slot, else the first from slot 0.
+  - The youngest store older than a load is the last match below the load's `lq_sq` slot, else the last match overall.
+  - Window checks compare slot numbers with the head and the bound.
+- **Store bytes:** forwarding, the drain and atomics use the store's bytes copied into every aligned slot of their size, instead of shifting them to the address. Stores are naturally aligned, so their own byte lanes hold the copy that a byte-masked write or a covered load reads.
+- **MMIO loads** are picked at the LQ head. A load at the ROB head is the oldest in the window, so it is the LQ head.
+- Per-unit LUT counts: core-pipeline.md §16.
 
 ## Verification
 Spike lockstep on riscv-tests (`ld_st`, `st_ld`, misaligned and access-fault tests), CoreMark and Dhrystone, with `--lat`, `--bp`, `--d-gap`, `--grant-b` (S state and upgrades) and `--probe-rate` (random probes) stress; the harness's TL-C monitor checks the protocol rules.
