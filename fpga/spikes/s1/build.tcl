@@ -61,9 +61,13 @@ create_bd_port -dir O fan_en_b
 connect_bd_net [get_bd_pins s1/fan_en_b] [get_bd_ports fan_en_b]
 
 assign_bd_address
-set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces ps/Data] -filter {NAME =~ *s1*}]
-set_property offset 0xA0000000 $seg
-set_property range 4K $seg
+set seg [get_bd_addr_segs -quiet -of_objects [get_bd_addr_spaces ps/Data] -filter {NAME =~ *s1*}]
+if {[llength $seg] == 1} {
+  set_property range 4K $seg
+  set_property offset 0xA0000000 $seg
+} else {
+  puts "S1_NOTE engine segment not found by name; keeping the automatic address (see address_map.txt)"
+}
 validate_bd_design
 save_bd_design
 
