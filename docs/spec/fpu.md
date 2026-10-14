@@ -92,10 +92,12 @@ All arithmetic operations become (±A × B) ± C with one rounding:
 | FMSUB | a | b | c | – | yes |
 | FNMSUB | a | b | c | yes | – |
 | FNMADD | a | b | c | yes | yes |
-| FADD | a | 1.0 | b | – | – |
-| FSUB | a | 1.0 | b | – | yes |
+| FADD | a | 1.0 | c (rs2) | – | – |
+| FSUB | a | 1.0 | c (rs2) | – | yes |
 | FMUL | a | b | none (exact zero, no sign contribution) | – | – |
 | FCVT.F.F | a, in `src_fmt` | 1.0 | none | – | – |
+
+FADD and FSUB take their second operand in `c`, and `b` is ignored: P4 reads rs2 into `c` (AR-8, 2026-10-14). Before that, the FMA had a multiplexer moving `b` into the addend.
 
 The sign flips are exact negations (FNMADD = −(a×b) − c), applied to the product and addend signs before the effective operation is chosen, so rounding direction and zero signs follow the negated operands.
 
@@ -405,10 +407,13 @@ Cycle s is IQ-FP's select. The payload `fp_iss_t` (`tg_fpcore_pkg`) is the core'
   - The alternative, not taken: FMISC FP results write at s+7 like the FMA, with their wakeup at s+4. That makes them effectively 5 cycles, at most −0.09% suite IPC by R5's model.
 - **FDIV results take free slots.** In cycle c the divider's result is accepted if slot c+1 is free, then it is written at the end of c+1. Otherwise it waits in the divider's output queue.
 
-**Bypass** (inside `tg_fp_exec`). The selects are made in RF from the tags; each FP operand of EX0 takes one of five sources:
-- the F0 stream of this cycle (EX level) or of the last cycle (WB level);
-- the F1 load write of this cycle or the last;
-- the register file.
+**Bypass** (inside `tg_fp_exec`). The selects are made in RF from the tags.
+- **RF** takes an F1 load write of its own cycle into the operand register, in place of the register file's value.
+- **EX0** then chooses among four sources, one LUT6 per bit:
+  - the operand register;
+  - the F0 stream of EX0's cycle (EX level) or of RF's (WB level);
+  - the F1 load write of EX0's cycle.
+- **History:** until AR-8 the F1 write of RF's cycle was a fifth EX0 source (two LUTs per bit).
 
 The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC from the select, FDIV from its claim), and the load path announces F1 writes one cycle ahead (`fld_m2_will`, as for integer loads).
 
@@ -616,7 +621,7 @@ Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc
 
 **Measured but not adopted:**
 - **Area-optimised synthesis** (`AreaOptimized_high`, `TG_OOC_DIRECTIVE`): FMA 2,331 (−42, +0.25 ns), FMISC 738 (−125, +0.13 ns), divider 2,532 (−121, but −0.19 ns: fails). Worth applying to the FMA and FMISC as a per-module synthesis strategy in the full-chip flow (−167 LUTs), not to the divider.
-- **FADD/FSUB's second operand in `c`** (an interface change: the core routes rs2 to `c` for FADD/FSUB): the FMA drops its b/c operand multiplexer, −92 LUTs. For the coordinator.
+- **FADD/FSUB's second operand in `c`:** the FMA drops its b/c operand multiplexer, −92 LUTs. Built in AR-8: P4 reads rs2 into `c` (−60 LUTs measured).
 - **The single packing adder** measured −12 LUTs against two adders at the final state, within run-to-run variation; kept.
 - **Not possible at 200 MHz without a latency change:** the alignment shift as a DSP multiply by 2^k (its one-hot would be decoded at the end of E0, which is near-critical, or the DSP output would feed two more LUT levels in E1); the adders into DSP ALUs (E2 and the divider's c3 need their full results in the same cycle); sharing the divider's two S1 normalisers (one normaliser can serve both operands only if requests are accepted every other cycle, a throughput change).
 
@@ -712,6 +717,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
 | Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. Floorplanned into two clock regions, it closes at default effort at +0.113 and +0.100 ns. |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
+| AR-8 no-IPC pass on P4 (step 1) | FMA −60 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. P4 after synthesis: 7,941 → 7,702 (smt2), 7,951 → 7,670 (st). FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
 
 **What Goldschmidt really cost, and why.**
 - **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.

@@ -53,7 +53,7 @@ module tg_fpu_fma
   assign ub_raw = unpack(q.b, sdbl);
   assign uc_raw = unpack(q.c, sdbl);
   always_comb begin
-    // FADD/FSUB: a x 1.0 + b; FCVT.F.F: a x 1.0
+    // FADD/FSUB: a x 1.0 + c (P4 reads rs2 into c); FCVT.F.F: a x 1.0
     if (one_b) begin
       ub = '0;
       ub.exp = EXP_W'(D_BIAS);
@@ -61,7 +61,7 @@ module tg_fpu_fma
     end else begin
       ub = ub_raw;
     end
-    uc = is_add ? ub_raw : uc_raw;
+    uc = uc_raw;
   end
 
   // FCVT.F.I: the integer source in a, sign-extended or zero-extended per ifmt
@@ -122,7 +122,7 @@ module tg_fpu_fma
     logic [10:0] ra, rb, rc;
     ra = sdbl ? q.a[62:52] : {3'b0, q.a[30:23]};
     rb = one_b ? (sdbl ? 11'd1023 : 11'd127) : (sdbl ? q.b[62:52] : {3'b0, q.b[30:23]});
-    rc = is_add ? (sdbl ? q.b[62:52] : {3'b0, q.b[30:23]}) : (sdbl ? q.c[62:52] : {3'b0, q.c[30:23]});
+    rc = sdbl ? q.c[62:52] : {3'b0, q.c[30:23]};
     fa_e = (ra == '0) ? 11'd1 : ra;
     fb_e = (rb == '0) ? 11'd1 : rb;
     fc_e = (rc == '0) ? 11'd1 : rc;

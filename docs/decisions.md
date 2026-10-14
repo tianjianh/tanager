@@ -154,6 +154,9 @@ Dates are 2026, US Pacific.
 | DR-117 | 10-14 | AR-9: v2's per-core budget is about 49.7K at 180 MHz, from the 94.2% fill with the uncore on budget | approved | coord | area_recovery.md §7 |
 | DR-118 | 10-14 | Radix-4 leaves the reserve. Re-measured after the FPU's no-IPC pass, it saves only 1,036 LUTs, and it fails the reverse rule (2.34% IPC per 1K LUTs against a 2.19% limit). It touches the user's D17 fallback, so the user decides. | pending | user | area_recovery.md §7; D17 |
 | DR-119 | 10-14 | Floorplan P4 (`tg_fp_exec`) into two stacked clock regions per core in the full-chip flow. It then closes 200 MHz at default effort: +0.113 ns smt2, +0.100 ns st. **Parked:** the E2 restructure (+0.21 ns on the FMA, +118 LUTs), on its own branch. | approved | coord (FPU track's recommendation) | fpu.md |
+| DR-120 | 10-14 | Region tests in `tg_map_pkg` use a prefix match for naturally aligned power-of-two regions, with the range test kept for any other region. Results are identical for every address. It saves about 0.4K LUTs per core and about 0.13K per crossbar instance (`pma_of` went from 136 LUTs and 17 CARRY8 to 10 LUTs). | approved | coord (core track's request; `rtl/common` is shared) | core-pipeline §13 |
+| DR-121 | 10-14 | Option for the user: release builds without the commit trace. That saves 1,466 LUTs per core, plus about 2.9K for the uncore's trace stream, at no IPC cost, but loses FPGA lockstep in those builds. | pending | user | area_recovery.md §7 |
+| DR-122 | 10-14 | The page walker keeps its own PMP checker. Sharing STA's checker (−0.83K) went into the reserve after the order R9 and R10. The walker and STA were not exclusive, so sharing reduced function (D18). | approved (reverted 4b85114) | coord (D18) | core-pipeline §13 |
 
 ## 7. Timing and implementation
 

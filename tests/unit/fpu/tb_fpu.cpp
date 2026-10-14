@@ -101,8 +101,12 @@ class Tb {
 
   template <typename W>
   void drive(W &w, const ref::Req &r, uint32_t tag) {
+    // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"); b carries a decoy
+    // the FMA must ignore
+    const bool add = r.op == ref::FADD || r.op == ref::FSUB;
     put(w, 233, 5, r.op); put(w, 231, 2, r.fmt); put(w, 229, 2, r.src_fmt); put(w, 227, 2, r.ifmt);
-    put(w, 224, 3, r.rm); put(w, 160, 64, r.a); put(w, 96, 64, r.b); put(w, 32, 64, r.c); put(w, 0, 32, tag);
+    put(w, 224, 3, r.rm); put(w, 160, 64, r.a); put(w, 96, 64, add ? ~r.b : r.b);
+    put(w, 32, 64, add ? r.b : r.c); put(w, 0, 32, tag);
   }
 
   void report(const char *what, const Inflight &f, uint64_t res, unsigned fl, bool idst, uint32_t tag) {
