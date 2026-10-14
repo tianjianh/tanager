@@ -178,3 +178,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Specs first:** all RTL is written by us from our own specs.
 - **Other cores' RTL:** never read it (NaxRiscv, BOOM, XiangShan, CVA6, Rocket, OpenC910 and so on) for a unit you are designing. Published papers, public specifications and documentation are fine; cite them in the unit spec.
 - **Tools:** third-party tools (Spike, Verilator, GCC, OpenSBI, Linux, TestFloat) are used as-is.
+- **Licences (DR-018, DR-130):** hardware files are under SHL-2.1 and software under Apache-2.0, by path through `REUSE.toml`; no header is needed.
+  - **Third-party source:** never copy it into the repository; fetch it at build time, as now.
+  - **A new kind of path** (a new top-level directory, a new file type in `fpga/`): tell the coordinator, so `REUSE.toml` stays right.
+  - **Generated reports** go under a `results/` directory, which `REUSE.toml` marks as tool output.
