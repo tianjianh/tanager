@@ -58,7 +58,10 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **`tg_axi4_to_axil`:** from `M_AXI_HPM0_FPD` (AXI4, 32-bit data) to the host bridge.
 - **`tanager_soc`.**
 - **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The commit-trace stream writes through `S_AXI_HP3_FPD` (its read channels are tied off). The 40-bit addresses are zero-extended to the ports' 49.
-- **Fan:** pin A12 (`som240_1_c24`, `fan_en_b`, active low) is driven low, so the fan always runs at full speed while the design is loaded.
+- **Fan** (DR-129): pin A12 (`som240_1_c24`, `fan_en_b`, active low) carries the PS timer's PWM, so Linux's `pwm-fan` driver and its thermal zone keep regulating the fan whatever bitstream is loaded.
+  - The block design enables TTC<n>'s waveform outputs on EMIO (`PSU__TTC<n>__WAVEOUT__ENABLE`, `__IO = EMIO`, pins `emio_ttc<n>_wave_o[2:0]`), and `kv260_top` drives `fan_en_b` from the right bit, inverted if needed, as Kria's own PL design does.
+  - A bitstream loaded at run time does not reconfigure the PS, so the boot configuration already routes the waveform to EMIO; the PL only connects it.
+  - The TTC, the bit and the polarity come from the board (`TG_FAN_TTC`, `TG_FAN_WAVE`, `TG_FAN_INVERT`). Until it confirms them, `build.tcl` refuses to build.
 - **PMOD console** (`PMOD_UART`; `TG_PMOD_UART=1` in the build): the RISC-V console UART on the PMOD connector, for a USB-UART module (DR-126). The details are in [fpga/kv260/README.md](../../fpga/kv260/README.md).
   - The line runs 8N1 at the 16550's divisor (115 200 baud after OpenSBI), through `tg_uart_phy` ([uncore-periph.md](uncore-periph.md) §UART).
   - The host bridge keeps a copy of the output and can still send input.
@@ -231,6 +234,14 @@ After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own
 - the A53's Linux re-gating clocks it thinks are unused.
 
 Each is checked on the board in stage D's first step, with the UART: the simplest controller, no DMA.
+
+**The fan in stage D** (DR-129). With the A53 parked, its Linux no longer regulates the fan: the TTC keeps its last duty cycle. Options:
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **F-a: PL controller** | A small controller reads the PL SYSMON's die temperature (SYSMONE4, DRP) and sets the PWM from a fixed curve. | Works without any OS, and keeps working if software hangs. | RTL (an estimated 200 LUTs plus the SYSMON primitive). A fixed curve. Our own thermal policy to get right. |
+| **F-b: RISC-V Linux** | The RISC-V's Linux drives the same TTC (the `pwm-cadence` driver over the PL-to-PS port) with `pwm-fan` and a thermal zone reading the PS's AMS or the PL SYSMON. | The same regulation as on the A53, in software. | Depends on the RISC-V's Linux running. If it hangs, the fan stays at the last duty, possibly low. Needs the TTC and a temperature sensor in the RISC-V's device tree. |
+| **F-c: both** (recommended) | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 

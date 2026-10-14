@@ -10,6 +10,16 @@ lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
 set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "E10"}]
 set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "D10"}]
+# The fan stays under Linux's control (DR-129): A12 carries the PS TTC waveform that Linux's pwm-fan
+# drives. TG_FAN_TTC (0-3), TG_FAN_WAVE (0-2) and TG_FAN_INVERT (0/1) name it as Kria's own PL design
+# routes it; there is no default until the board has confirmed them (docs/spec/soc.md §2.1).
+foreach {v lo hi} {TG_FAN_TTC 0 3 TG_FAN_WAVE 0 2 TG_FAN_INVERT 0 1} {
+  if {![info exists ::env($v)] || ![string is integer -strict $::env($v)] || $::env($v) < $lo || $::env($v) > $hi} {
+    puts "ERROR: set $v ($lo-$hi): the fan's TTC waveform and polarity (DR-129, fpga/kv260/README.md)"
+    exit 1
+  }
+}
+set fan_ttc $::env(TG_FAN_TTC); set fan_wave $::env(TG_FAN_WAVE); set fan_inv $::env(TG_FAN_INVERT)
 if {$n_cores eq ""} { set n_cores 1 }
 if {$stop eq ""} { set stop bit }
 set part xck26-sfvc784-2LV-c
@@ -25,7 +35,7 @@ set_param general.maxThreads 8
 # ---- PS block design ----
 stamp "block design"
 source [file join $root fpga kv260 tcl ps_bd.tcl]
-tg_make_ps_bd [file normalize ./bd] $core_mhz
+tg_make_ps_bd [file normalize ./bd] $core_mhz $fan_ttc
 read_verilog $::tg_ps_wrapper
 
 # ---- RTL ----
@@ -39,6 +49,7 @@ read_xdc [file join $root fpga kv260 xdc timing.xdc]
 stamp "synth_design"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv \
   -flatten_hierarchy rebuilt
 # PMOD console pins: always placed (txd is high-impedance while PMOD_UART = 0); asynchronous to clk_core
 set_property PACKAGE_PIN $pmod_txd [get_ports pmod_uart_txd]
@@ -49,6 +60,7 @@ set_property SLEW SLOW [get_ports pmod_uart_txd]
 set_property DRIVE 4 [get_ports pmod_uart_txd]
 set_false_path -from [get_ports pmod_uart_rxd]
 set_false_path -to [get_ports pmod_uart_txd]
+set_false_path -to [get_ports fan_en_b]          ;# the PS TTC's PWM, unrelated to the PL clocks
 report_utilization -file $rep/synth_utilization.rpt
 report_utilization -hierarchical -hierarchical_depth 4 -file $rep/synth_utilization_hier.rpt
 report_timing_summary -max_paths 10 -file $rep/synth_timing_summary.rpt

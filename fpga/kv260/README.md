@@ -10,6 +10,14 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+**The fan** (DR-129): every board bitstream leaves the fan to Linux's `pwm-fan` driver. A12 carries the PS TTC waveform Kria's own PL design uses. `build.tcl` needs its location and polarity, and stops without them:
+
+| Variable | Meaning | Value |
+|---|---|---|
+| `TG_FAN_TTC` | the TTC (0–3) whose waveform outputs go to EMIO | from the board (pending) |
+| `TG_FAN_WAVE` | which of its three waveform outputs (0–2) drives `fan_en_b` | from the board (pending) |
+| `TG_FAN_INVERT` | 1 if `fan_en_b` is the waveform inverted | from the board (pending) |
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)
