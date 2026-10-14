@@ -5,16 +5,16 @@
 # go to a triage list, $TANAGER_BUILD/soak/summary.md; they never gate merges.
 # Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
 # (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
-# no program while MemAvailable is under 12 GB (no build under 20 GB), and holds while the host
+# no program while MemAvailable is under 12 GB (no build under 16 GB), and holds while the host
 # drive C: has under 20 GB free or the machine is busy.
 #   tools/ci/soak.sh start | stop | status
 set -u
 SOAK="${TANAGER_BUILD:-$HOME/tanager-build}/soak"
 CFGS="st st_w3 smt2 smt2_w3"
 JOBS=2                  # simulations per configuration: 4 x 2 = 8 at most
-BUILD_JOBS=4            # Verilator compiles take 2-4 GB each (conventions §9)
+BUILD_JOBS=4            # a tg_core model compile peaks at 0.63 GB (smt2_w3, measured): -j4 needs ~3 GB
 MEM_GB=12               # start no program while MemAvailable is under this
-BUILD_MEM_GB=20         # nor a build
+BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
 SEEDS=400               # programs per configuration per round (about a minute)
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3_SPIKE="--isa=$M3_ISA --priv=MSU --pmp=16"
@@ -27,6 +27,7 @@ running() { [ -f "$SOAK/soak.pid" ] && kill -0 "$(cat "$SOAK/soak.pid")" 2>/dev/
 # Export main into $SOAK/src (no checkout is touched), turn every M3 switch on, build.
 prepare() {
   local commit=$1 src="$SOAK/src/tanager"
+  rm -f "$SOAK/commit"  # an interrupted build must never be used
   rm -rf "$SOAK/src" "$SOAK/build"
   mkdir -p "$src"
   git --git-dir="$SOAK_GIT" archive "$commit" rtl sim tests/random tools | tar -x -C "$src" || return 1
@@ -39,7 +40,6 @@ prepare() {
     source "$src/tools/env.sh" >/dev/null 2>&1
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
-      while [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; do sleep 60; done
       make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
         ISA="$M3_ISA" PRIV=MSU PMP=16 build || exit 1
     done
@@ -143,6 +143,7 @@ run() {
   trap 'rm -f "$SOAK/soak.pid"; exit 0' TERM INT
   local commit seed free load irq
   while :; do
+    state_note=""
     [ -f "$SOAK/logs/soak.log" ] && [ "$(stat -c %s "$SOAK/logs/soak.log")" -gt 1000000 ] &&
       mv "$SOAK/logs/soak.log" "$SOAK/logs/soak.log.1"
     commit=$(git --git-dir="$SOAK_GIT" rev-parse --short main 2>/dev/null) || { sleep 600; continue; }
@@ -159,24 +160,36 @@ run() {
       summarize "$commit" "waiting ($load runnable tasks)"; sleep 300; continue
     fi
     if [ "$(cat "$SOAK/commit" 2>/dev/null)" != "$commit" ]; then
-      log "building main $commit"
-      if ! prepare "$commit"; then
-        log "build of $commit failed (logs/build.log)"; summarize "$commit" "build failed, retry in 30 min"
-        sleep 1800; continue
+      if [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; then
+        # Too little memory to build main now: keep soaking the previous build, if there is one
+        # (programs take about 12 MB each), and try again after the round.
+        if [ -s "$SOAK/commit" ]; then
+          state_note="main $commit waits for $BUILD_MEM_GB GB to build"
+          commit=$(cat "$SOAK/commit")
+        else
+          summarize "$commit" "waiting ($BUILD_MEM_GB GB available needed to build; MemAvailable $(mem_gb) GB)"
+          sleep 120; continue
+        fi
+      else
+        log "building main $commit"
+        if ! prepare "$commit"; then
+          log "build of $commit failed (logs/build.log)"; summarize "$commit" "build failed, retry in 30 min"
+          sleep 1800; continue
+        fi
       fi
     fi
     seed=$(cat "$SOAK/next_seed" 2>/dev/null || echo 1000000)
     echo $((seed + 4 * SEEDS)) > "$SOAK/next_seed"
     irq=$(( (seed / (4 * SEEDS)) % 2 * 200 ))
     log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq"
-    summarize "$commit" "running"
+    summarize "$commit" "running${state_note:+; $state_note}"
     local i=0 cfg day; day=$(date +%F)
     for cfg in $CFGS; do
       campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" &
       i=$((i + 1))
     done
     wait
-    summarize "$commit" "running"
+    summarize "$commit" "running${state_note:+; $state_note}"
   done
 }
 
