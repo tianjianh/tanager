@@ -171,6 +171,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - **End every merge request with a `Learned:` line:** what surprised you, what was measured against what was estimated, and what didn't work and why.
   - **Add a `Decisions:` line** for every design choice the merge makes or rejects: what was chosen, the alternatives considered, the **pros and cons** of each, and the evidence. The coordinator records each one in [docs/decisions.md](../decisions.md), pros and cons included (the user's rule, 2026-10-14).
   - **History and lessons:** every area document (spec or perf report) keeps a short "History and lessons" section, updated with each merge: the starting point, each change and what it bought (LUTs, slack, IPC, bugs found), and dead ends. The coordinator rolls these up into [docs/devlog.md](../devlog.md).
+  - **No-IPC rewrites (DR-123):** quote the result of `make cycle-identical CFG="st smt2" BASE=<merge base>` on the merge request's commit, plus the boot suite once it exists for uncore changes. A change that isn't identical goes to the reserve list with its cycle cost, which the tool reports per suite. Before rewriting a structure, check that some program in the suites fills it; `tlb_stress` was added because none filled the TLBs.
 
 ## 11. Clean room (plan §2.3)
 
