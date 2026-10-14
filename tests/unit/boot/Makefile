@@ -2,14 +2,13 @@
 #   make -C tests/unit/boot opensbi [CORES=1|2] [CFG=st|smt2]  boot ROM -> OpenSBI, passes on the full banner
 #   make -C tests/unit/boot linux-kernel [CORES=1]  Linux (Buildroot's lp64d Image) to "Run /init", with a
 #                                                   device tree without F/D: the kernel needs no FPU
-#   make -C tests/unit/boot linux [CORES=1]         the full lp64d boot to TANAGER-BOOT-OK, once the
-#                                                   core has F/D (device tree with the FPU)
+#   make -C tests/unit/boot linux [CORES=1|2]       the full lp64d boot to TANAGER-BOOT-OK (the init
+#                                                   script), with the FPU in the device tree
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
 #   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
-# The core's M3 switches (tg_core_pkg EXT_*) are on in this build. Until the core track turns them on
-# by default, a copy of tg_core_pkg.sv with them set is compiled in place of the original.
+# The core builds with its own switches: every M3 feature, F and D included, is on by default (main b53b0a5).
 TOP    := tb_boot
 CORES  ?= 1
 # VTHREADS: Verilator --threads (conventions §9); each count builds in its own directory. Measured on
@@ -30,27 +29,11 @@ FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts/tanager-kv260.dtb
 
 CORE_DIR := $(REPO)/rtl/core
-M3_PKG   := $(OUTDIR)/tg_core_pkg_m3.sv
-CORE_F   := $(OUTDIR)/core_m3.f
-CORE_SRCS := $(shell sed -e 's://.*$$::' -e '/^\s*$$/d' -e '/^-F/d' $(CORE_DIR)/core.f | sed -e 's:^:$(CORE_DIR)/:') \
-             $(shell sed -e 's://.*$$::' -e '/^\s*$$/d' $(CORE_DIR)/fpu/fpu.f | sed -e 's:^:$(CORE_DIR)/fpu/:')
-SOC_SRCS  := $(shell sed -e 's://.*$$::' -e '/^\s*$$/d' $(REPO)/rtl/soc/soc.f | sed -e 's:^:$(REPO)/rtl/soc/:')
-
-RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f -F $(CORE_F) \
+RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f -F $(CORE_DIR)/core.f \
             -F $(REPO)/rtl/uncore/uncore.f -F $(REPO)/rtl/soc/soc.f
-
-$(M3_PKG): $(CORE_DIR)/tg_core_pkg.sv Makefile
-	@mkdir -p $(OUTDIR)
-	sed -E "/localparam bit EXT_/s/1'b0/1'b1/" $< > $@
-	@grep -q "EXT_SU *= *1'b1" $@
-
-$(CORE_F): $(CORE_DIR)/core.f $(M3_PKG) Makefile
-	@mkdir -p $(OUTDIR)
-	@sed -e 's://.*$$::' -e '/^\s*$$/d' $(CORE_DIR)/core.f | \
-	  awk -v d=$(CORE_DIR) -v pkg=$(M3_PKG) '/^-F/ { print "-F " d "/" $$2; next } \
-	    $$1 == "tg_core_pkg.sv" { print pkg; next } { print d "/" $$1 }' > $@
-
-$(OUTDIR)/$(TOP): $(CORE_F) $(CORE_SRCS) $(SOC_SRCS)
+# Any change in the core, the SoC top or the shared packages rebuilds the model
+$(OUTDIR)/$(TOP): $(wildcard $(CORE_DIR)/*.sv $(CORE_DIR)/*/*.sv $(CORE_DIR)/*.f $(CORE_DIR)/*/*.f) \
+                  $(wildcard $(REPO)/rtl/soc/*.sv $(REPO)/rtl/soc/*.f $(REPO)/rtl/common/*.sv $(REPO)/rtl/common/*/*.sv)
 
 # BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
 BOOTARGS ?= console=ttyS0,115200 earlycon
