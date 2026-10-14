@@ -308,6 +308,40 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - **Sm_csr_ro "fetch bug" (verification track):** this was the I$ refill race. Reproduced on the M2 core at 41be4a0, it fails 0/2 without the refill fix and passes 2/2 with it.
 - **Lesson:** rebuild the ACT4 ELFs whenever the plan list grows. A stale ELF set hid these tests.
 
+**Second area pass (2026-10-14, after F/D):**
+- **Starting point:** main cb8ff6c. st 56,461 LUTs, smt2 62,501, with lsu_mmu the largest unit at 17.8K (st) and 22.3K (smt2).
+- **Proof of no IPC:** lockstep proves only correctness. Each step was also run against its predecessor on the same ELFs (326 riscv-tests, CoreMark A/B, Dhrystone), natively and under memory stress, and the cycle and instret counts were compared.
+
+| Step | Commit | Measured (st) |
+|---|---|---|
+| LSU age searches as two priority encoders each (the oldest from the head, or from slot 0; the youngest below a bound, or overall) | 2aa103d | the LSU's own logic, for the LSU steps together: 8,374 → 5,020 at st, 12,822 → 7,098 at smt2 |
+| TLB leaves in LUTRAM, read at the OR-encoded match | 9bf465f | DTLB 2,741 → 1,496 (flip-flops 1,989 → 965); ITLB 745 → 492 |
+| The walker's PMP checks on the STA port's checker | 4b85114 | `tg_ptw` 1,073 → 193; the STA checker 861 → 911 (its input mux) |
+| MMIO pick at the LQ head; store bytes replicated instead of shifted | a16116f | (in the LSU line above); `tg_dcache` 3,468 → 3,357 (its store write data) |
+| Divider: one 64-bit rotation and a mask instead of a 128-bit shifter | 8ed931c | 1,323 → 1,425: **worse**, reverted (a32d2aa) |
+| LQ fields written at AG, SQ fields at STA (no dispatch-slot multiplexers) | 6b70b1d | (in the LSU line); IQ-LD 603 → 654 (its payload, LUTRAM 32 → 64) |
+| LQ cold fields in LUTRAM with the VA | 8a5c651 | (in the LSU line); `u_lqc` 144 LUTRAM for the VA alone was 112 |
+| One AG report per LSU port into the ROB (14 index decoders instead of 17) | 935dc2b | ROB +20, LSU −12: **no gain**, reverted (a926037) |
+
+- **Result:**
+  - st: 56,461 → 50,768 LUTs (a32d2aa), −5.7K (−10%); flip-flops 23,091 → 21,292. lsu_mmu 17,819 → 12,307, fe 5,257 → 5,004.
+  - smt2: 62,501 → 54,506 (8a5c651, still with the divider rotation, +0.1K), −8.0K (−12.8%). lsu_mmu 22,281 → 14,405: the larger smt2 queues gained more from the searches.
+  - a926037 drops the neutral AG-report merge from a32d2aa.
+- **Two steps measured worse or level and were reverted:**
+  - The divider's rotation: the 128-bit shift of a half-zero value maps well already.
+  - The merged AG reports: per-kind write qualifiers in every ROB entry cost what the decoders saved.
+  - Lesson: measure even "obvious" savings before keeping them.
+- **The one step that is not cycle-identical:** the walker's shared checker. A walk step waits a cycle when it meets an STA. On the 149 `-v` riscv-tests, which fault in every page, cycles rose 0.11% in total, by 0.88% at worst. The `-p` tests and the benchmarks are identical. Merging W_CHK into the PTE read's AG cycle on the LD port's checker would make walks faster than before; that is left as a follow-up.
+
+**What the first cut did that cost area, and why:**
+- Each age search was written as "distance from the head" arithmetic and a running minimum. That is the obvious reading of "oldest", and it was the same shape in all four searches.
+- The TLB leaves sat in flip-flops read through an AND-OR, as in spike S4. The spike's TLB was small, and LUTRAM did not look necessary there.
+- LQ entries were filled at dispatch, the way the ROB is. Most of their fields are not needed until AG, and that is where a single write port is free.
+
+**What I'd write differently:** for every queue field, ask where it is first read. A field read only by index belongs in LUTRAM, written at that point. A field read by a search belongs in flip-flops.
+
 **Dead ends:**
 - My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
 - A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
+- The divider's normalisation as a 64-bit rotation plus a mask (8ed931c, reverted in a32d2aa): +102 LUTs.
+- One AG report per LSU port into the ROB (935dc2b, reverted in a926037): level.
