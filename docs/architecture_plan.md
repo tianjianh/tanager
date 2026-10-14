@@ -50,6 +50,10 @@ Unless a source is cited, every number in this plan is our own estimate, a model
   - **v2:** 3-wide added to the SMT2 core.
   - All on the KV260, with an area-recovery plan (§8.5).
 - **CoreMark target restated (D11, decided 2026-10-13).** The target is now **≥ 1.21× the NaxRiscv control on identical binaries**, the ratio that 6.0 vs NaxRiscv's 4.94 implied. 6.0 on standard rv64gc binaries is out of reach at 2-wide decode (§10.2) and moves to the 3-wide version.
+- **FPGA spikes S2–S6 measured (2026-10-13; §4.6, §4.8, §8.1, §8.2, §8.5).**
+  - **Timing:** every protected loop closes 200 MHz. The SMT2 builds need the MX wakeup, and min/max moves to the 2-cycle path.
+  - **Fit:** the scheduler and the FPU are over budget, so v1 measures 99–110K LUTs after area recovery, against a fill ceiling of about 88% at 200 MHz. v2 does not fit as planned, which triggers the area-recovery study.
+  - **FPU:** Goldschmidt is kept by user decision D17, with radix-4 as the fallback.
 - **Schedule re-estimated for an agent-built project (§11, D8).** The years-long estimate assumed people writing the RTL. With agents writing it, tool runtime, the board and fixed-length tests set the pace: Linux on the board in about 4–6 weeks, v1 in about 3 months.
 
 **What changed in 0.3**
@@ -451,6 +455,15 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
   - **Dependency vectors** have 48 + 16 columns and are written once at dispatch.
   - **Stale dependencies:** a guard prevents reallocating an ID while a row still waits on it. Spike S2 compares it with a wrap-phase bit.
 - **Select:** oldest ready first, using an age matrix per queue set at allocation. Branch-first priority in IQ-A0 was measured in M1 and removed: −0.03%.
+- **Measured (spike S2, 2026-10-13; all five queues share one woken vector).** The whole scheduler closes 200 MHz at every width, with these structures (`fpga/spikes/rtl/tg_iq.sv`):
+  - **ST:** two levers, at +0.11 ns and 5.3K LUTs.
+    - **DUP_SEL:** a second select copy drives only the wakeup broadcast.
+    - **EARLY_W:** only the source tags sit in flip-flops behind the grant mux; the rest of the payload is in LUTRAM, read in the RF stage.
+  - **SMT2 (v1) and SMT2 + 3-wide (v2): MX is required.** A row names its in-queue 1-cycle producers by ALU-queue row and is ready when those rows are selected; W follows a cycle later.
+    - **Dispatch** supplies the row names: one compare of the source's physical register with the row's destination.
+    - **The cancel history** is 1 cycle (`HIST = 1`).
+    - **Results:** +0.11 ns at 8.9K LUTs (v1) and +0.06 ns at 12.5K (v2).
+  - **Stale dependencies:** the guard. The phase-bit variant deadlocked in random tests, because a pooled LLT was reused while a row still waited on its first instance.
 - **Wakeup timing:**
   - 1-cycle operations wake at select, so dependants issue back to back.
   - Fixed multi-cycle operations wake through a delay line.
@@ -477,6 +490,7 @@ Every size is a parameter. DSE (§10) freezes the values through the acceptance 
 
 ### 4.8 Execution units
 - **ALU0/ALU1 (1 cycle):** add, logic, shifts, compares, Zba, Zbs and simple Zbb. ALU1 also does clz, ctz, cpop, rev8 and orc.b (1–2 cycles).
+  - **min/max/minu/maxu go on the 2-cycle path** with clz/ctz/cpop, at both widths (spike S3, 2026-10-13). They were the worst ALU path: with them in the 1-cycle loop, 3 ALUs miss 200 MHz (−0.09 ns). With them moved out, 2 ALUs gain +0.34 ns of slack and 3 ALUs pass (+0.05).
 - **`N_ALU`:** a third ALU port is an RTL parameter, off in v1.
   - **At 2-wide decode:** it is worth +1.2%, mostly from its extra queue entries.
   - **With 3-wide decode:** it is part of the +13% option (§4).
@@ -878,6 +892,13 @@ v1, the first release, is configuration `smt2` (§4.15): `TID_W = 1`, sized by t
 | Load-to-use | Index from address bits 11:3; DTLB in M1; compare, way select and align in M2 | 4-cycle load-to-use |
 | Mispredict path | Redirect to IF1 directly; pre-decode in IF2, compaction in IF3 | 10 cycles |
 
+**Measured (spikes S2–S6, 2026-10-13, 200 MHz on xck26-2LV; [report](perf/spikes.md)).** Every loop closes without a fallback, given the structures noted:
+- **Next PC (S5):** the LUTRAM micro-BTB loop has +1.8 ns. Next PC to the I$ BRAM address has +0.6–0.9 ns, so the zero-bubble redirect holds. The flip-flop fallback is worse on both counts (3.6K LUTs, +0.29 ns).
+- **Wakeup → select (S2):** closes with DUP_SEL + EARLY_W in ST, and needs MX in the SMT2 builds (§4.6).
+- **ALU → bypass → ALU (S3):** closes with min/max on the 2-cycle path (§4.8). The register file is 2.0K LUTs, as planned. Bank replication for 3 ALUs costs +1.25K, not +2.7K.
+- **Load-to-use (S4):** 3 cycles, +0.68 ns, 2.4K LUTs. The DTLB lookup in M1 is the path to watch: +0.17 ns at 88% fill, −0.11 ns in the v2 floorplan.
+- **Mispredict path (S5):** pre-decode in IF2 is the worst stage (+0.36 ns at width 3). The 9-cycle penalty stands.
+
 **At width 3 (§4.15)** the same loops get harder, and the spikes measure them at both widths:
 - **Rename:** the intra-group dependency check grows from 1 to 3 compare pairs per source; its fallback is a 2-stage rename.
 - **Wakeup → select:** a third ALU queue, and more ROB columns if the ROB grows.
@@ -901,6 +922,12 @@ v1, the first release, is configuration `smt2` (§4.15): `TID_W = 1`, sized by t
 | **Core total** | **≈ 37.7K** | ≈ 41K | **−3.3K** |
 | Uncore (L2 1 MiB control and directory with 48 MSHRs, latency injector, interconnect, AXI, ACLINT, PLIC, UART, debug module, host bridge, trace) | ≈ 13.3K | ≈ 12.5K | +0.8K |
 | **SoC total** | **≈ 89K (76%)** | ≈ 94K (80%) | **−5.7K** |
+
+**Measured so far (2026-10-13), replacing estimates where they exist:**
+- **Issue queues and wakeup** (S2): 5.3K (ST), 8.9K (SMT2, with MX) and 12.5K (SMT2 + 3-wide), against 2.9K above. That is +4.2K to +6.0K per core for v1.
+- **FPU:** 7.6K with the Goldschmidt divider (D17) and 6.2K with radix-4, against 4.7K: +2.9K per core.
+- **Within plan:** the register files and bypass (S3), the load path (S4) and the fetch path (S5).
+- **v1 dual-core:** 119–123K LUTs before area recovery, and 99–110K after the §8.5 levers (85–94%).
 
 - **These totals are the single-thread ST build.**
   - **ST:** about 4% below the 80% guideline.
@@ -971,10 +998,10 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 | R5 | FMISC conversions share the FMA's normaliser and rounder | 0.3–0.5K (measured: −584 in FMISC, +150–250 in the FMA) | ≤ 0.09% suite IPC (modelled upper bound) | first commit (being built, 2026-10-13) |
 | R6 | L1 TLBs as set-associative LUTRAM, not fully associative CAMs | 0.3–0.5K | small hit-rate loss (model) | first commit |
 | R7 | Cold storage in BRAM: FTQ PCs, commit-time ROB payload, page-walk cache, BTB metadata | 0.3–0.6K | none (latency hidden) | first commit |
-| R8 | EX-only bypass with LUTRAM write-through, no WB bypass level | ~0.5K | none, if the write path closes timing | first commit |
+| R8 | EX-only bypass with LUTRAM write-through, no WB bypass level | ~0.5K (measured: 51–305 LUTs) | none, if the write path closes timing | **rejected** (spike S3: no timing gain) |
 | R9 | Store-to-load forwarding for aligned same-size stores only; others wait | 0.2–0.3K | measurable (`fwd_strict` in `tgsim`) | if the model agrees |
 | R10 | The 4 checkpoints shared between the two threads | ~0.5K | small (model) | v1 (SMT2) |
-| R11 | Third ALU's register reads through shared, arbitrated ports (≤ 7 per bank) instead of replicated banks | ~1.7K | port conflicts (model) | v2 (3-wide) |
+| R11 | Third ALU's register reads through shared, arbitrated ports (≤ 7 per bank) instead of replicated banks | ~1.7K (measured: 0.71K) | port conflicts (model); timing worse (S3: −0.32 ns) | v2 (3-wide) |
 | R12 | Asymmetric third decoder: common subset only (ALU, load/store, branch); CSR, FP, AMO and system ops decode in slots 0–1 | ~0.2K | rare (model) | v2 (3-wide) |
 | R13 | Simple third ALU: add, logic, compare, Zba; shifts and Zbb stay on ALU0/1 | ~0.4K | steering conflicts (model) | v2 (3-wide) |
 | R14 | Implementation: LUT6_2 packing, F7/F8 muxes, area-optimised directives on non-critical units, no datapath resets | 2.0–3.0K | none | always |
@@ -985,6 +1012,33 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 - **v1 (SMT2) dual-core:** the first-commit levers plus R10, R14 and R15 bring it from ≈105K to about 84–92K LUTs (72–79%).
 - **v2 dual-core:** ≈98–105K LUTs (83–90%) from the conservative 124K starting point; ≈94–101K from 120K.
 - **The rest of the gap** to v2's limit (85–90%) comes from two places: real synthesis numbers, which the estimates are expected to overstate, and further levers found during RTL design.
+
+**Spike S6 result (2026-10-13): fill test and measured fit.**
+
+*Fill test* (whole-device floorplans):
+
+| Configuration | Fill | Slack (Fmax) |
+|---|---|---|
+| v1 (SMT2) | 83.9% | +0.105 ns (204 MHz) |
+| v1 (SMT2) | 88.3% | +0.007 ns (200 MHz) |
+| v2 (SMT2 + 3-wide) | 89.3% | −0.238 ns (191 MHz) |
+
+- **What limits it:** routing congestion is moderate. The limits are the protected loops (S2 MX, the 3-ALU loop, the DTLB), not routing.
+- **The utilisation limit:** plan with **85%**; treat **88–90% as the ceiling** if M6 synthesis agrees. The synthetic filler routes more easily than real logic.
+
+*Measured fit* (spikes plus the FPU; plan estimates elsewhere):
+- **v1:** 119–123K LUTs before recovery. The levers above, without R8, save 12.7–20.1K per SoC, leaving **99–110K (85–94%)**. Holding 200 MHz at about 88% (103K) needs the levers in their upper half, or some of these:
+  - 8-row ALU queues: about 2K per SoC, −1.2–1.5% IPC;
+  - the radix-4 divider (the D17 fallback): 2.8K, −2.4%;
+  - ROB 64 for the SMT2 window: about 2.6K in the scheduler, −1.5%;
+  - R14 applied to the scheduler and the FPU;
+  - accepting 190–195 MHz.
+- **v2:** 136–144K LUTs before recovery and 113–128K after (97–109%). **v2 does not fit as planned. It needs a re-plan, not only levers:**
+  - a smaller window;
+  - readiness computed only over the columns a queue can depend on;
+  - fewer ALU-queue rows;
+  - or 3-wide without SMT2.
+- **This triggers the deferred area-recovery study below:** v2 cannot fit, and v1 is close to its ceiling.
 
 **Contingencies** (they cost IPC):
 - the SMT2 window steps back to ROB 64 (−1.5% throughput);
@@ -1152,7 +1206,7 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
 | Two cores do not fit within about 80% of LUTs | S6 or M6 synthesis | The M1 freeze brought the estimate to about 76% (§8.2). Per-unit budgets in CI; trim ladder (§8.4), latency structures last |
 | Protected loops miss 200 MHz on -2LV | S2–S5 | Fallbacks (§8.1), including 32 flip-flop micro-BTB entries; 150 MHz floor |
 | CoreMark 6.0 out of reach at 2-wide | **Confirmed by the M1 model** (§10.2) | **Resolved by D11:** v1's target is ≥ 1.21× the NaxRiscv control (met in the model, 1.46× / 1.34×); 6.0 moves to the 3-wide version. Report honestly rather than tune to the benchmark. |
-| **v1 (SMT2) or v2 (3-wide) does not fit the XCK26** (first-pass estimates: v1 ≈90%, v2 ≈103–106%) | S6 floorplan of `smt2_w3`; M6 synthesis of all four configurations | Area-recovery levers R1–R15 (§8.5), the free ones from the first commit; per-unit LUT budgets in CI for every configuration; contingencies (window ROB 64, drop exceptions, 16 KiB L1s) |
+| **v1 (SMT2) or v2 (3-wide) does not fit the XCK26.** **Measured at S6 (2026-10-13):** v1 is 99–110K after levers (85–94%) against a ~88% ceiling at 200 MHz; v2 is 113–128K (97–109%). | S6 (done); M6 synthesis of all four configurations | Area-recovery levers R1–R15 (§8.5), the free ones from the first commit; the area-recovery study (triggered by S6); the S6 candidates (8-row ALU queues, ROB 64 window, R14 on the scheduler and FPU); the D17 radix-4 fallback; a v2 re-plan; per-unit LUT budgets in CI for every configuration |
 | **The 3-wide reserve rots**: parameters that are never exercised stop working | 3-wide build failures in CI; widths hard-coded in reviews | CI builds and lockstep at width 3 from M2; spikes S2, S3 and S5 at both widths; M6 synthesis of the 3-wide build; §4.15 review rules |
 | **The model suite under-represents Linux and SPEC behaviour** (large code, branchy integer code, 0.5–4 MiB working sets, dense FP) | Provisional ledger exceptions E1–E5 | Targeted kernels for now; re-judge the exceptions with Linux/SPEC-like workloads at M5 |
 | **Size decisions taken one parameter at a time miss interactions** | M1: issue-queue and ROB trims looked cheap alone and cost 3.2% together | Freeze sizes on the combined design (greedy acceptance rule, §2.5) |
