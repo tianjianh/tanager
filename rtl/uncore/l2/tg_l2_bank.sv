@@ -196,21 +196,28 @@ module tg_l2_bank
   logic [N_MSHR-1:0]    m_need_wb, m_wb_done;
   logic [N_MSHR-1:0]    m_need_fill, m_ar_sent, m_ferr;
 
+  // LUTRAM read ports (instances near the end of the module, once the indices are declared).
+  // Each LUTRAM holds the fields that the same engines read, so every read port uses every bit it
+  // reads (tools/tcl/tg_prim_check.tcl counts the primitives after opt_design). Lines are stored
+  // as set and tag; their bank bit is BANK.
+  localparam int LP_S0 = 0, LP_PR = 1, LP_AR = 2, LP_PW = 3, LP_FL = 4, LP_VR = 5, LP_RS = 6;
+  logic [6:0][SET_W-1:0] rl_set;       // line's set at: S0 resume pick, probe, AR, Put, fill, victim, response
+  logic [3:0][TAG_W-1:0] rl_tag;       // line's tag at: S0 resume pick, S2 resume, probe, AR
+  logic [1:0][TAG_W-1:0] rl_vtag;      // victim's tag at: probe, victim read-out start
+  logic [4:0][2:0]       rl_way;       // way at: S2 resume, Put, fill, victim, response
   typedef struct packed {
-    kind_e                kind;
-    tl_a_op_e             op;
-    logic [2:0]           param;
+    logic  grow;                       // Acquire NtoT / BtoT
+    kind_e kind;
+  } mkind_t;
+  typedef struct packed {
+    logic                 block;       // AcquireBlock (data in the Grant)
     logic [TL_SIZE_W-1:0] size;
-    logic [5:0]           off;
-    logic [TL_SRC_W-1:0]  src;
-    logic [PBW-1:0]       pb;
-  } mreq_t;
-  // LUTRAM read ports (instances near the end of the module, once the indices are declared)
-  localparam int LP_S0 = 0, LP_MC = 1, LP_PR = 2, LP_AR = 3, LP_PW = 4, LP_FL = 5, LP_VR = 6, LP_RS = 7;
-  logic  [7:0][LINE_W-1:0] rl_line;    // m_line at: S0 resume pick, S2 resume, probe, AR, Put, fill, victim, response
-  logic  [1:0][LINE_W-1:0] rl_vline;   // victim line at: probe, victim read-out start
-  logic  [4:0][2:0]        rl_way;     // way at: S2 resume, Put, fill, victim, response
-  mreq_t [3:0]             rl_req;     // request at: S2 resume, response, Put, fill
+    logic [1:0]           off;         // address bits 5:4: the row and the half of a short response
+  } mrsp_t;
+  mkind_t [2:0]                rl_kind;  // at: S2 resume, response, fill
+  logic   [1:0][TL_SRC_W-1:0]  rl_src;   // at: S2 resume, response
+  logic   [1:0][PBW-1:0]       rl_pb;    // at: response, Put
+  mrsp_t  [0:0]                rl_rsp;   // at: response
 
   // ---------------------------------------------------------------------------------------------
   // Reset sequencer: write every set invalid
@@ -348,7 +355,7 @@ module tg_l2_bank
       s0_take_m = 1'b1;
       s0.kind   = PK_MCMD;
       s0.mshr   = mcmd_pick;
-      s0.line   = rl_line[LP_S0];
+      s0.line   = line_of(rl_tag[0], rl_set[LP_S0]);
     end else if (ain_st_q == AI_READY && !a_conflict && a_mshr_ok && a_set_ok) begin
       s0_v      = 1'b1;
       s0_take_a = 1'b1;
@@ -615,10 +622,10 @@ module tg_l2_bank
             e.tip   = 1'b0;
             s2_mcmd_st = MS_RESP;
           end else if (m_hit[mc2]) begin
-            unique case (rl_req[0].kind)
+            unique case (rl_kind[0].kind)
               K_ACQ: begin
-                grow_t = rl_req[0].param == TL_GROW_N_TO_T || rl_req[0].param == TL_GROW_B_TO_T;
-                e = acq_final(e, agent_of(rl_req[0].src), grow_t);
+                grow_t = rl_kind[0].grow;
+                e = acq_final(e, agent_of(rl_src[0]), grow_t);
                 s2_mcmd_grant_t = e.tip;
                 s2_mcmd_st = MS_RESP;
               end
@@ -633,11 +640,11 @@ module tg_l2_bank
             if (e.pres != '0) s2_err = 1'b1;
             s2_mcmd_wb       = e.valid && e.dirty;
             s2_mcmd_vact_clr = !(e.valid && e.dirty);
-            e.tag   = tag_of(rl_line[LP_MC]);
+            e.tag   = rl_tag[1];
             e.valid = 1'b1;
-            e.dirty = rl_req[0].kind == K_PUT;
-            e.pres  = (rl_req[0].kind == K_ACQ) ? N_AGENTS'(1) << agent_of(rl_req[0].src) : '0;
-            e.tip   = rl_req[0].kind == K_ACQ;
+            e.dirty = rl_kind[0].kind == K_PUT;
+            e.pres  = (rl_kind[0].kind == K_ACQ) ? N_AGENTS'(1) << agent_of(rl_src[0]) : '0;
+            e.tip   = rl_kind[0].kind == K_ACQ;
             s2_mcmd_grant_t = 1'b1;
             s2_mcmd_st = (e.valid && s2_mcmd_wb) ? MS_VREAD : m_need_fill[mc2] ? MS_FILL : MS_PUTW;
           end
@@ -724,7 +731,7 @@ module tg_l2_bank
     b_o.param   = m_pcap_n[pr_m] ? TL_CAP_TO_N : TL_CAP_TO_B;
     b_o.size    = 3'd6;
     b_o.source  = TL_SRC_W'({SRC_HI_W'(SRC_L1D0) + SRC_HI_W'(pr_ag), 6'd0});
-    b_o.address = {(m_pvict[pr_m] ? rl_vline[0] : rl_line[LP_PR]), 6'd0};
+    b_o.address = {line_of(m_pvict[pr_m] ? rl_vtag[0] : rl_tag[2], rl_set[LP_PR]), 6'd0};
   end
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
@@ -741,7 +748,7 @@ module tg_l2_bank
   always_comb begin
     ar_o       = '0;
     ar_o.id    = AXI_ID_W'(ar_m);
-    ar_o.addr  = AXI_ADDR_W'({rl_line[LP_AR], 6'd0});
+    ar_o.addr  = AXI_ADDR_W'({line_of(rl_tag[3], rl_set[LP_AR]), 6'd0});
     ar_o.len   = 8'd3;
     ar_o.size  = 3'd4;
     ar_o.burst = AXI_INCR;
@@ -782,11 +789,11 @@ module tg_l2_bank
     for (int m = 0; m < N_MSHR; m++) pw_req[m] = m_st[m] == MS_PUTW;
     pw_m = rr_pick(pw_req, pw_ptr_q);
   end
-  wire [3:0] pw_bv    = pb_bv_q[rl_req[2].pb];
+  wire [3:0] pw_bv    = pb_bv_q[rl_pb[1]];
   wire       pw_wr    = pw_busy_q && !c_wr && pw_bv[pw_beat_q];
   wire       pw_adv   = pw_busy_q && (!c_wr || !pw_bv[pw_beat_q]);   // the current beat is written or skipped
   wire       pw_done  = pw_adv && pw_beat_q == 2'd3;
-  assign pb_raddr[0] = {rl_req[2].pb, pw_beat_q};
+  assign pb_raddr[0] = {rl_pb[1], pw_beat_q};
 
   // Fills from R, through a register slice: RREADY toward the memory path comes from a flip-flop,
   // so the MSHR-state lookup below stays inside the bank.
@@ -819,11 +826,11 @@ module tg_l2_bank
       da_wdata = {cb_rdata[0], cb_rdata[0]};
       da_we    = cin_wcnt_q[0] ? {16'hFFFF, 16'h0} : {16'h0, 16'hFFFF};
     end else if (pw_wr) begin
-      da_waddr = {set_of(rl_line[LP_PW]), rl_way[1], pw_beat_q[1]};
+      da_waddr = {rl_set[LP_PW], rl_way[1], pw_beat_q[1]};
       da_wdata = {pb_rdata[0][127:0], pb_rdata[0][127:0]};
       da_we    = pw_beat_q[0] ? {pb_rdata[0][143:128], 16'h0} : {16'h0, pb_rdata[0][143:128]};
     end else if (f_wr) begin
-      da_waddr = {set_of(rl_line[LP_FL]), rl_way[2], fcnt_rd[0][1]};
+      da_waddr = {rl_set[LP_FL], rl_way[2], fcnt_rd[0][1]};
       da_wdata = {r_s.data, r_s.data};
       da_we    = fcnt_rd[0][0] ? {16'hFFFF, 16'h0} : {16'h0, 16'hFFFF};
     end
@@ -928,10 +935,10 @@ module tg_l2_bank
   end
 
   // The current response's shape
-  wire          rs_acq    = rl_req[1].kind == K_ACQ;
-  wire          rs_data   = (rs_acq && rl_req[1].op == A_ACQUIRE_BLOCK) || rl_req[1].kind == K_GET;
+  wire          rs_acq    = rl_kind[1].kind == K_ACQ;
+  wire          rs_data   = (rs_acq && rl_rsp[0].block) || rl_kind[1].kind == K_GET;
   wire          rs_den    = m_ferr[rs_cur_q];
-  wire [2:0]    rs_size   = rl_req[1].size;
+  wire [2:0]    rs_size   = rl_rsp[0].size;
   wire          rs_two    = rs_data && rs_size == 3'd6;          // two rows
   wire [1:0]    rs_nb     = !rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2;
   wire          rs_lastrow = !rs_two || rs_row_q;
@@ -942,13 +949,13 @@ module tg_l2_bank
     rs_tag.v        = 1'b1;
     rs_tag.m        = rs_cur_q;
     rs_tag.nb       = rs_nb;
-    rs_tag.half     = rl_req[1].off[4];
+    rs_tag.half     = rl_rsp[0].off[0];
     rs_tag.use_ram  = rs_data && !rs_den;
     rs_tag.last     = rs_lastrow;
     rs_tag.hdr.opcode  = rs_acq ? (rs_data ? D_GRANT_DATA : D_GRANT) : rs_data ? D_ACCESS_ACK_DATA : D_ACCESS_ACK;
     rs_tag.hdr.param   = rs_acq ? (m_grant_t[rs_cur_q] ? TL_CAP_TO_T[1:0] : TL_CAP_TO_B[1:0]) : 2'd0;
     rs_tag.hdr.size    = rs_size;
-    rs_tag.hdr.source  = rl_req[1].src;
+    rs_tag.hdr.source  = rl_src[1];
     rs_tag.hdr.sink    = rs_acq ? TL_SINK_W'({1'(BANK), SINK_MSHR_W'(rs_cur_q)}) : '0;
     rs_tag.hdr.denied  = rs_den;
     rs_tag.hdr.corrupt = rs_den && rs_data;
@@ -961,10 +968,10 @@ module tg_l2_bank
     da_raddr = '0;
     if (vr_rd) begin
       da_re    = 1'b1;
-      da_raddr = {set_of(rl_line[LP_VR]), rl_way[3], vr_row_q};
+      da_raddr = {rl_set[LP_VR], rl_way[3], vr_row_q};
     end else if (rs_issue && rs_tag.use_ram) begin
       da_re    = 1'b1;
-      da_raddr = {set_of(rl_line[LP_RS]), rl_way[4], rs_two ? rs_row_q : rl_req[1].off[5]};
+      da_raddr = {rl_set[LP_RS], rl_way[4], rs_two ? rs_row_q : rl_rsp[0].off[1]};
     end
   end
 
@@ -1122,31 +1129,48 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // MSHR payload LUTRAMs (written at allocation; read by index)
   // ---------------------------------------------------------------------------------------------
-  mreq_t mreq_new;
+  mkind_t mkind_new;
+  mrsp_t  mrsp_new;
   always_comb begin
-    mreq_new.kind  = (p2_q.kind == PK_ACQ) ? K_ACQ : (p2_q.kind == PK_GET) ? K_GET : K_PUT;
-    mreq_new.op    = p2_q.a_op;
-    mreq_new.param = p2_q.a_param;
-    mreq_new.size  = p2_q.a_size;
-    mreq_new.off   = p2_q.a_off;
-    mreq_new.src   = p2_q.a_src;
-    mreq_new.pb    = p2_q.a_pb;
+    mkind_new.grow  = a2_growt;
+    mkind_new.kind  = (p2_q.kind == PK_ACQ) ? K_ACQ : (p2_q.kind == PK_GET) ? K_GET : K_PUT;
+    mrsp_new.block  = p2_q.a_op == A_ACQUIRE_BLOCK;
+    mrsp_new.size   = p2_q.a_size;
+    mrsp_new.off    = p2_q.a_off[5:4];
   end
-  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(LINE_W), .NR(8)) u_mline (
-    .clk, .we (s2_alloc), .waddr (m_new), .wdata (p2_q.line),
-    .raddr ({rs_cur_q, vr_cur_q, r_m, pw_cur_q, ar_m, pr_m, mc2, mcmd_pick}), .rdata (rl_line)
+  // The victim read-out reads its MSHR's set at the start (vr_m) and during the read-out (vr_cur_q).
+  wire [MW-1:0] vr_ra = vr_busy_q ? vr_cur_q : vr_m;
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(SET_W), .NR(7)) u_mset (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (set2),
+    .raddr ({rs_cur_q, vr_ra, r_m, pw_cur_q, ar_m, pr_m, mcmd_pick}), .rdata (rl_set)
   );
-  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(LINE_W), .NR(2)) u_mvline (
-    .clk, .we (s2_alloc), .waddr (m_new), .wdata (s2_alloc_vline),
-    .raddr ({vr_m, pr_m}), .rdata (rl_vline)
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(TAG_W), .NR(4)) u_mtag (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (tag2),
+    .raddr ({ar_m, pr_m, mc2, mcmd_pick}), .rdata (rl_tag)
+  );
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(TAG_W), .NR(2)) u_mvtag (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (tag_of(s2_alloc_vline)),
+    .raddr ({vr_m, pr_m}), .rdata (rl_vtag)
   );
   tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(3), .NR(5)) u_mway (
     .clk, .we (s2_alloc), .waddr (m_new), .wdata (s2_alloc_way),
     .raddr ({rs_cur_q, vr_cur_q, r_m, pw_cur_q, mc2}), .rdata (rl_way)
   );
-  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH($bits(mreq_t)), .NR(4)) u_mreq (
-    .clk, .we (s2_alloc), .waddr (m_new), .wdata (mreq_new),
-    .raddr ({r_m, pw_cur_q, rs_cur_q, mc2}), .rdata (rl_req)
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH($bits(mkind_t)), .NR(3)) u_mkind (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (mkind_new),
+    .raddr ({r_m, rs_cur_q, mc2}), .rdata (rl_kind)
+  );
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(TL_SRC_W), .NR(2)) u_msrc (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (p2_q.a_src),
+    .raddr ({rs_cur_q, mc2}), .rdata (rl_src)
+  );
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(PBW), .NR(2)) u_mpb (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (p2_q.a_pb),
+    .raddr ({pw_cur_q, rs_cur_q}), .rdata (rl_pb)
+  );
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH($bits(mrsp_t)), .NR(1)) u_mrsp (
+    .clk, .we (s2_alloc), .waddr (m_new), .wdata (mrsp_new),
+    .raddr (rs_cur_q), .rdata (rl_rsp)
   );
 
   // ---------------------------------------------------------------------------------------------
@@ -1259,7 +1283,7 @@ module tg_l2_bank
         vr_ptr_q              <= rr_next(vr_m);
         wb_free_q[wb_slot]    <= 1'b0;
         wb_owner_q[wb_slot]   <= vr_m;
-        wb_line_q[wb_slot]    <= rl_vline[1];
+        wb_line_q[wb_slot]    <= line_of(rl_vtag[1], rl_set[LP_VR]);   // VR port reads vr_m here
       end else if (vr_rd) begin
         vr_row_q <= 1'b1;
         if (vr_row_q) vr_busy_q <= 1'b0;
@@ -1316,7 +1340,7 @@ module tg_l2_bank
       // MCMD result
       if (s2_mcmd) begin
         if (m_st[mc2] == MS_PIPE_RES) begin
-          if (rl_req[0].kind == K_ACQ) m_grant_t[mc2] <= s2_mcmd_grant_t;
+          if (rl_kind[0].kind == K_ACQ) m_grant_t[mc2] <= s2_mcmd_grant_t;
           if (!m_hit[mc2]) begin
             m_need_wb[mc2] <= s2_mcmd_wb;
             if (s2_mcmd_vact_clr) m_vact[mc2] <= 1'b0;
@@ -1330,9 +1354,9 @@ module tg_l2_bank
       if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
       if (f_wr && r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
       // Put written: free its buffer
-      if (pw_done) pb_free_q[rl_req[2].pb] <= 1'b1;
+      if (pw_done) pb_free_q[rl_pb[1]] <= 1'b1;
       // Response issued in full (a Put whose fill failed never reached MS_PUTW: free its buffer here)
-      if (rs_done && rl_req[1].kind == K_PUT && m_ferr[rs_cur_q]) pb_free_q[rl_req[1].pb] <= 1'b1;
+      if (rs_done && rl_kind[1].kind == K_PUT && m_ferr[rs_cur_q]) pb_free_q[rl_pb[0]] <= 1'b1;
       // Write-back response; an MSHR waiting only for it is freed the cycle after
       // (the B may arrive in the same cycle the MSHR enters MS_WBWAIT).
       if (bw_v) begin
@@ -1364,7 +1388,7 @@ module tg_l2_bank
         MS_VWAIT:    if (ev_vrf && rt_out.m == MW'(m))     m_st_d[m] = m_need_fill[m] ? MS_FILL : MS_PUTW;
         MS_FILL:     if (ev_fill && r_m == MW'(m))
                        m_st_d[m] = (r_s.resp != AXI_OKAY || m_ferr[m]) ? MS_INVAL :
-                                   (rl_req[3].kind == K_PUT) ? MS_PUTW : MS_RESP;
+                                   (rl_kind[2].kind == K_PUT) ? MS_PUTW : MS_RESP;
         MS_PUTW:     if (pw_done && pw_cur_q == MW'(m))    m_st_d[m] = MS_RESP;
         MS_RESP:     if (rs_done && rs_cur_q == MW'(m))    m_st_d[m] = rs_acq ? MS_ACK : wbp ? MS_WBWAIT : MS_IDLE;
         MS_ACK:      if (e_valid_i && e_m == MW'(m))       m_st_d[m] = wbp ? MS_WBWAIT : MS_IDLE;
@@ -1400,6 +1424,9 @@ module tg_l2_bank
         assert ($onehot(dir_went.pres))
           else $error("tg_l2_bank%0d: tip without a single holder (set %0d way %0d)", BANK, set2, sw2);
       assert (!s2_err) else $error("tg_l2_bank%0d: protocol error at S2 (kind %0d line %h)", BANK, p2_q.kind, p2_q.line);
+      // Requests reach the bank that address bit 6 selects (the MSHR LUTRAMs store no bank bit)
+      if (a_valid_i) assert (a_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: A address %h of the other bank", BANK, a_i.address);
+      if (c_valid_i) assert (c_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: C address %h of the other bank", BANK, c_i.address);
       // Each MSHR event finds its MSHR in the one state the transition logic expects
       if (s2_alloc)  assert (m_st[m_new] == MS_IDLE) else $error("tg_l2_bank%0d: allocation of busy MSHR %0d", BANK, m_new);
       if (s0_take_m) assert (m_st[mcmd_pick] inside {MS_RESUME, MS_INVAL}) else $error("tg_l2_bank%0d: MCMD state", BANK);
