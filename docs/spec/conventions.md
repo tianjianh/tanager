@@ -117,7 +117,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
   - **The budget:** keep about 8 GB for the OS, sshd and the agent sessions; Vivado gets at most 40 GB declared (24 GB before WSL went from 40 to 56 GB; 34 GB until real peaks were measured at about 60% of the declarations); builds, simulations and soak share the rest.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - **Slots:** `TANAGER_VIVADO_SLOTS` is 4 on the build host and 1 on the laptop, set in `tools/env.sh`. On the build host the memory budget, not the slot count, is the binding limit.
+  - **Slots:** `TANAGER_VIVADO_SLOTS` is 6 on the build host and 1 on the laptop, set in `tools/env.sh`. The memory budget is the main limit; the slot count caps CPU use. Only the coordinator changes capacity live, through `.locks/vivado.slots` and `.locks/vivado.budget` in the build tree; jobs read them as they wait.
   - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
     - **Owner:** the `track-*` name in the script's path or the run directory. Set `TANAGER_TRACK` if neither has one.
     - **Status:** `tools/vivado_run.sh --status` shows the running jobs and the queue.

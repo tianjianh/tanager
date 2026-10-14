@@ -4,10 +4,12 @@
 #   tools/vivado_run.sh <run-dir> <script.tcl> [tcl args...]
 #   tools/vivado_run.sh --status      running jobs and the queue
 # Environment:
-#   TANAGER_VIVADO_SLOTS       concurrent Vivado jobs (default 1; tools/env.sh sets the host's value)
+#   TANAGER_VIVADO_SLOTS       concurrent Vivado jobs (default 1; tools/env.sh sets the host's value;
+#                              .locks/vivado.slots, if present, overrides it live)
 #   TANAGER_VIVADO_MEM_GB      memory this job may use, children included (default 10 = full device;
 #                              out-of-context unit runs should declare 4)
-#   TANAGER_VIVADO_MEM_BUDGET  total GB all running Vivado jobs may declare (default 24)
+#   TANAGER_VIVADO_MEM_BUDGET  total GB all running Vivado jobs may declare (default 24;
+#                              .locks/vivado.budget, if present, overrides it live)
 #   TANAGER_TRACK              owner for fair queueing (default: the track-* name in this script's path
 #                              or the run directory, else "other")
 # Admission is a fair queue. Each job takes a ticket. The next job admitted is the waiting one whose owner
@@ -60,9 +62,11 @@ fi
 
 [ $# -ge 2 ] || { echo "usage: $0 <run-dir> <script.tcl> [args...] | --status" >&2; exit 2; }
 run_dir="$1"; tcl="$(realpath "$2")"; shift 2
-slots="${TANAGER_VIVADO_SLOTS:-1}"
+slots_env="${TANAGER_VIVADO_SLOTS:-1}"
 need="${TANAGER_VIVADO_MEM_GB:-10}"
-budget="${TANAGER_VIVADO_MEM_BUDGET:-24}"
+budget_env="${TANAGER_VIVADO_MEM_BUDGET:-24}"
+slots=$(cat "$lock_dir/vivado.slots" 2>/dev/null || echo "$slots_env")
+budget=$(cat "$lock_dir/vivado.budget" 2>/dev/null || echo "$budget_env")
 settings="${TANAGER_VIVADO_SETTINGS:-$HOME/Xilinx/2025.2/Vivado/settings64.sh}"
 owner="${TANAGER_TRACK:-$(printf '%s %s' "$(realpath "$0")" "$(realpath -m "$run_dir")" | grep -o 'track-[a-z0-9]*' | head -n 1 || true)}"
 owner="${owner:-other}"
@@ -85,8 +89,11 @@ said=0
 while true; do
   flock "$adm"
   if [ "$(head_ticket)" = "${qfile##*/}" ]; then
-    # Next in line: keep the admission lock until a slot is free and the memory fits.
+    # Next in line: keep the admission lock until a slot is free and the memory fits. The coordinator can
+    # change the host's capacity live through .locks/vivado.slots and .locks/vivado.budget.
     while true; do
+      slots=$(cat "$lock_dir/vivado.slots" 2>/dev/null || echo "$slots_env")
+      budget=$(cat "$lock_dir/vivado.budget" 2>/dev/null || echo "$budget_env")
       used=$(running | awk '{s += $2} END {print s + 0}')
       if [ $(( used + need )) -le "$budget" ]; then
         for ((i = 0; i < slots; i++)); do
