@@ -538,6 +538,7 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
 - **Primitive check:** the seed ROM, both register-file banks (55 RAM64M8 each) and the queues pass.
   - **Until 5a31536,** the check after synthesis flagged the divider's output queue inside `tg_fp_exec`: 8 RAM32M16 found, 7 expected. 31 of its 102 bits were never read: `int_dest` and 30 tag bits, since P4 uses only 2. Synthesis kept one primitive whose read bits were all unloaded; `opt_design` removed it.
   - **Fixed at the source:** the queue now keeps only the bits P4 reads (`DIV_TAG_W`).
+  - **Confirmed by synthesis** of the fd2 merge: the check after synthesis passes in smt2 and st. The queue is 71 bits in 6 RAM32M16, 2 fewer than before. Standalone `tg_fpu` stores 101 bits in 8 and passes too.
 
 ### Helpers (`tg_fpcore_pkg`)
 - `fp_box_load(data, single)`: the F1 value of FLW and FLD.
