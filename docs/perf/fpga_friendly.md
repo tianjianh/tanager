@@ -30,12 +30,17 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 
 - **The range:** 141.3K is the fit after the core's second no-IPC pass (area_recovery.md §7.7). About 132K applies DR-113's settings (−7.9% at st) to the cores, if that run didn't already use them. The next measured fit settles it.
 - **The gap:** about 27–38K to the 88–90% bar at 200 MHz.
-- **What is free on the device:**
-  - about 1,160 of 1,248 DSP48E2;
-  - UltraRAM beyond the L2;
-  - block RAM, to be confirmed from the utilisation report;
-  - flip-flops, which aren't binding (234,240).
-- **LUTRAM is limited to SLICEM sites:** about 57K LUTs of them (plan §8.5).
+- **What is free on the device** (v1 = two smt2 cores plus the uncore, from the latest unit builds, 2026-10-14: the core track's `core_smt2` budget run and the SoC track's `uncore_st`; no full-chip build with real cores yet):
+
+  | Resource | Core (smt2) | Uncore | v1 | XCK26 | Free |
+  |---|---|---|---|---|---|
+  | Block RAM (RAMB36 equivalents) | 48.5 (48 + one RAMB18) | 18 (16 + four RAMB18) | 115 | 144 | **29** (20%) |
+  | UltraRAM | 0 | 32 (the 1 MiB L2) | 32 | 64 | **32** (50%, 288 Kb each) |
+  | DSP48E2 | 53 (MUL 16, P4 35, 2 more) | 1 | 107 | 1,248 | **1,141** (91%) |
+  | Flip-flops | 22,514 | 18,021 | 63,049 | 234,240 | 171,191 (73%) |
+
+  - v2's cores (`core_smt2_w3`) use the same block RAM and DSPs (48.5 and 53).
+  - LUTRAM can only use SLICEM sites, about 57K of the 117K LUTs (plan §8.5); v1's LUTRAM takes about 16.8K of them today (7,016 per core, 2,816 in the uncore). Those sites also hold logic, so LUTRAM that replaces logic does not need room of its own, but a design with over about 57K LUTs of LUTRAM cannot place.
 
 ## 2. Techniques, with pros and cons
 
