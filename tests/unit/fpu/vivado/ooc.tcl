@@ -2,6 +2,7 @@
 #   tools/vivado_run.sh <run-dir> tests/unit/fpu/vivado/ooc.tcl <repo-root> <cfg> <top> [period-ns]
 #     [defines: A,B=1] [generics: STAGES=4,...]
 # Writes utilisation and timing reports into the run directory; no checkpoints are kept.
+# The memory-primitive check (tools/tcl/tg_prim_check.tcl) writes prim_synth.txt after synthesis.
 # With TG_OOC_HIER=1 in the environment it only synthesises, keeping the module hierarchy, and
 # reports utilisation per module (util_hier_synth.rpt): a breakdown, not a result.
 # TG_OOC_DIRECTIVE=<name> passes -directive <name> to synth_design (e.g. AreaOptimized_high).
@@ -37,6 +38,8 @@ set_input_delay -clock clk 1.5 $ins
 set_output_delay -clock clk 1.0 [get_ports -filter {DIRECTION == OUT}]
 report_utilization -file util_synth.rpt
 report_timing_summary -file timing_synth.rpt -max_paths 10
+source [file join $root tools tcl tg_prim_check.tcl]
+tg_prim_check -file prim_synth.txt -fail 0
 if {$hier} {
   report_utilization -hierarchical -file util_hier_synth.rpt
   set fh [open lut_cells.txt w]
