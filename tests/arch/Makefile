@@ -3,9 +3,11 @@
 #   make -C tests/arch CFG=st CORE=tcore [ACTCFG=...] [SIMARGS=...]   build the ELFs and run them in tg_vsim
 #   make -C tests/arch elfs ACTCFG=...                                 build the ELFs only (Sail runs here)
 #   make -C tests/arch replay ACTCFG=...                               run them Spike against Spike (tg_replay)
+#   make -C tests/arch tests ACTCFG=...                                generate the test sources (for debugging)
 #   make -C tests/arch clean
 # A test passes when its self-check (expected values from Sail) passes and lockstep passes.
-# Work trees: $TANAGER_BUILD/<worktree>/arch/<ACTCFG>/{tests,elfs}; the riscv-arch-test checkout is only read.
+# Work trees: $TANAGER_BUILD/<worktree>/arch/<ACTCFG>/elfs; the generated sources (tests/) only exist
+# while the ELFs are built, or after `make tests`. The riscv-arch-test checkout is only read.
 
 CFG    ?= st
 CORE   ?= tcore
@@ -46,24 +48,32 @@ replay: elfs
 
 # The ELFs: the framework selects the tests that apply (UDB file), runs them on Sail and compiles
 # the expected values in. Rebuilt when any file of the configuration or the shared macros changes.
+# The generated sources are deleted afterwards (half the work tree; regenerating takes seconds).
 CFG_FILES := $(wildcard $(ROOT)/tests/arch/config/$(ACTCFG)/*) $(ROOT)/tests/arch/config/link.ld \
              $(ROOT)/tests/arch/config/tanager_rvmodel.h
 elfs: $(WORK)/$(ACTCFG)/.elfs
-$(WORK)/$(ACTCFG)/.elfs: $(TESTS)/.stamp $(CFG_FILES)
-	@test -f $(CONFIG) || { echo "unknown ACTCFG=$(ACTCFG) (tests/arch/config/*)"; exit 2; }
+$(WORK)/$(ACTCFG)/.elfs: $(lastword $(MAKEFILE_LIST)) $(CFG_FILES)
 	@rm -rf $(WORK)/$(ACTCFG)/elfs
+	$(gen_tests)
 	cd $(ARCH_TEST) && $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) --jobs $(JOBS) \
 	  --fast --clean-intermediates
+	@rm -rf $(TESTS)
 	@touch $@
 
-tests: $(TESTS)/.stamp
-$(TESTS)/.stamp: $(lastword $(MAKEFILE_LIST)) $(CONFIG)
+# The test sources: the framework's environment and committed privileged tests, and the suites
+# testgen generates for this configuration.
+define gen_tests
+	@test -f $(CONFIG) || { echo "unknown ACTCFG=$(ACTCFG) (tests/arch/config/*)"; exit 2; }
 	@rm -rf $(TESTS) && mkdir -p $(TESTS)/priv
 	cp -r $(ARCH_TEST)/tests/env $(TESTS)/
 	cp -r $(ARCH_TEST)/tests/priv/. $(TESTS)/priv/
 	cd $(ARCH_TEST) && $(VENV)/bin/testgen testplans -o $(TESTS) -j $(JOBS) -e $(GEN_EXT) > /dev/null
 	@rm -rf $(TESTS)/rv32i $(TESTS)/rv32e $(TESTS)/rv64e   # RV64 only
-	@touch $@
+endef
+
+tests:
+	$(gen_tests)
+	@echo "test sources in $(TESTS)"
 
 clean:
 	rm -rf $(WORK)
