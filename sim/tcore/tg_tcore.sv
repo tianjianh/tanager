@@ -98,6 +98,7 @@ module tg_tcore
   logic [63:0] xr_q [32];
   logic [1:0]  prv_q;
   logic        mie_bit_q, mpie_q, mprv_q, tw_q;
+  logic        misa_m_q;     // misa.M: software may clear it (Spike's write mask); MUL/DIV are then illegal
   logic [1:0]  mpp_q;
   logic [63:0] mtvec_q, mepc_q, mcause_q, mtval_q, mscratch_q, mcycle_q, minstret_q;
   logic [11:0] mie_q;
@@ -194,7 +195,7 @@ module tg_tcore
       12'hF12: begin csr_val = '0; csr_nd = 1'b1; end            // marchid: adopted by the checker
       12'hF14: csr_val = 64'(HART);
       12'h300: csr_val = mstatus_rd;
-      12'h301: csr_val = 64'h8000_0000_0010_1100;               // RV64 I M U
+      12'h301: csr_val = 64'h8000_0000_0010_0100 | {51'b0, misa_m_q, 12'b0};  // RV64 I (M) U
       12'h304: csr_val = {52'b0, mie_q};
       12'h305: csr_val = mtvec_q;
       12'h306: csr_val = {61'b0, mcounteren_q};
@@ -448,6 +449,7 @@ module tg_tcore
         end
         default: ex_trap = 1'b1;
       endcase
+      if ((op == 7'h33 || op == 7'h3B) && f7 == 7'h01 && !misa_m_q) ex_trap = 1'b1;  // M cleared in misa
     end
     if (insn_ex[11:7] == 5'd0) ex_rd_we = 1'b0;
   end
@@ -643,6 +645,7 @@ module tg_tcore
       mtvec_q <= '0; mepc_q <= '0; mcause_q <= '0; mtval_q <= '0; mscratch_q <= '0;
       mcycle_q <= '0; minstret_q <= '0; mie_q <= '0; mcounteren_q <= '0; mcountinhibit_q <= '0;
       mcontext_q <= '0;
+      misa_m_q <= 1'b1;
       fb_valid_q <= 1'b0;
       for (int i = 0; i < NLINES; i++) begin
         dc_valid_q[i] <= 1'b0; dc_t_q[i] <= 1'b0; dc_dirty_q[i] <= 1'b0;
@@ -953,6 +956,7 @@ module tg_tcore
                 12'h342: mcause_q <= csr_wval_q;
                 12'h343: mtval_q <= csr_wval_q;
                 12'h7A8: mcontext_q <= csr_wval_q[12:0];
+                12'h301: misa_m_q <= csr_wval_q[12];
                 12'hB00: mcycle_q <= csr_wval_q;
                 12'hB02: minstret_q <= csr_wval_q;
                 default: ;

@@ -1,0 +1,1 @@
+# ACT4 tests skipped on tg_core at M3 with F/D (tests/arch/config/core-m3-rv64imafdc), with reasons.

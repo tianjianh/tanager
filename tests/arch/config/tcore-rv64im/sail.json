@@ -490,7 +490,7 @@
   },
   "extensions": {
     "M": {
-      "mutable_misa": false,
+      "mutable_misa": true,
       "supported": true
     },
     "A": {
@@ -670,7 +670,7 @@
       "supported": false
     },
     "Zmmul": {
-      "supported": true
+      "supported": false
     },
     "Zaamo": {
       "supported": false

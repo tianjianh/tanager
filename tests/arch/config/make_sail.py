@@ -59,8 +59,8 @@ ALL_OFF = ["A", "F", "D", "S", "H", "B", "V"]  # extensions with a "supported" f
 
 def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False):
     """Common Tanager settings. `zexts`: the Z* and S* extensions that are supported; `letters`: the
-    single-letter extensions among A, B, M (C follows Zca); `mutable`: the misa bits software may clear,
-    as in Spike (its write mask is M, A, B, C, F, D, Q, H, V within the ISA)."""
+    single-letter extensions among A, B, M, F, D (C follows Zca); `mutable`: the misa bits software may
+    clear, as in Spike (its write mask is M, A, B, C, F, D, Q, H, V within the ISA)."""
     b = c["base"]
     # mcountinhibit: CY and IR (and the HPM counters when they exist); bit 1 is read-only zero
     b["mcountinhibit"] = {"supported": True, "writable_bits": {"len": 32, "value": "0xFFFF_FFFD" if hpm else "0x0000_0005"}}
@@ -102,8 +102,11 @@ def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False):
     e = c["extensions"]
     for k in ALL_OFF:
         e[k]["supported"] = k in letters
-    for k in "MABC":
+    for k in "MABCFD":
         e[k]["mutable_misa"] = k in mutable
+    if "F" in letters:
+        # Spike dirties mstatus.FS whenever an instruction raises a flag, even one already set.
+        e["F"]["fflags_dirty_policy"] = "Fflags_Dirty_Flag"
     e["M"]["supported"] = True
     e["U"]["supported"] = user
     e["S"]["supported"] = sup
@@ -113,12 +116,14 @@ def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False):
     return c
 
 
-BASE_Z = ("Zicntr", "Zicsr", "Zifencei", "Zmmul")
+# Zmmul stays off in Sail: Spike's ISA strings have no zmmul, so clearing misa.M makes MUL illegal too.
+BASE_Z = ("Zicntr", "Zicsr", "Zifencei")
 
 
 def tcore(c):
-    """tg_tcore: RV64IM, Zicsr, Zicntr, Zifencei; M and U; no PMP, no HPM counters (verification.md §5)."""
-    return tanager(c, user=True, sup=False, pmp=0, zexts=BASE_Z)
+    """tg_tcore: RV64IM, Zicsr, Zicntr, Zifencei; M and U; no PMP, no HPM counters; misa.M writable
+    (verification.md §5)."""
+    return tanager(c, user=True, sup=False, pmp=0, zexts=BASE_Z, mutable="M")
 
 
 def core_m2(c):
@@ -126,17 +131,28 @@ def core_m2(c):
     return tanager(c, user=False, sup=False, pmp=16, zexts=BASE_Z, mutable="M")
 
 
+M3_Z = BASE_Z + ("Zaamo", "Zalrsc", "Zca", "Zba", "Zbb", "Zbs", "Zicond", "Zihintpause", "Zihpm", "Zkt",
+                 "Ziccamoa", "Ziccif", "Ziccrse", "Sstc", "Svinval", "Sv39", "Svade", "Svbare",
+                 "Ssccptr", "Sstvala", "Sstvecd",
+                 "Ssstrict")  # Sail allows Ssstrict only with S; without S its defaults trap the same way
+
+
 def core_m3(c):
-    """tg_core at M3: the plan's day-one ISA without F and D (M5). RV64IMAC, Zba, Zbb, Zbs (B), Zicond,
-    Zihintpause, Zihpm (counters read zero), Zkt; M, S and U with Sv39, Svade, Sstc, Svinval; 16 PMP
-    entries. misa M, A, B and C are writable, as in Spike."""
-    zexts = BASE_Z + ("Zaamo", "Zalrsc", "Zca", "Zba", "Zbb", "Zbs", "Zicond", "Zihintpause", "Zihpm", "Zkt",
-                      "Ziccamoa", "Ziccif", "Ziccrse", "Sstc", "Svinval", "Sv39", "Svade", "Svbare",
-                      "Ssccptr", "Sstvala", "Sstvecd", "Ssstrict")
-    return tanager(c, user=True, sup=True, pmp=16, zexts=zexts, letters="MAB", mutable="MABC", hpm=True)
+    """tg_core at M3 before its F/D integration: the plan's day-one ISA without F and D. RV64IMAC, Zba,
+    Zbb, Zbs (B), Zicond, Zihintpause, Zihpm (counters read zero), Zkt; M, S and U with Sv39, Svade,
+    Sstc, Svinval; 16 PMP entries. misa M, A, B and C are writable, as in Spike."""
+    return tanager(c, user=True, sup=True, pmp=16, zexts=M3_Z, letters="MAB", mutable="MABC", hpm=True)
 
 
-CONFIGS = {"tcore-rv64im": tcore, "core-m2-rv64im": core_m2, "core-m3-rv64imac": core_m3}
+def core_m3_fd(c):
+    """tg_core at M3 with F/D (plan §11): the plan's day-one ISA, RV64IMAFDC with Zcd; misa F and D
+    are writable too, as in Spike."""
+    return tanager(c, user=True, sup=True, pmp=16, zexts=M3_Z + ("Zcd",), letters="MABFD", mutable="MABCFD",
+                   hpm=True)
+
+
+CONFIGS = {"tcore-rv64im": tcore, "core-m2-rv64im": core_m2, "core-m3-rv64imac": core_m3,
+           "core-m3-rv64imafdc": core_m3_fd}
 
 
 def main():
