@@ -10,6 +10,13 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+**From a snapshot.** A run that waits for a slot reads the tree only when it starts, so build a commit from a snapshot of it. `summary.txt` records the commit: from `TG_COMMIT`, or from git when the build runs in a checkout.
+
+```bash
+S=$SOC_BUILD/snap-build; rm -rf $S; mkdir -p $S; git archive HEAD | tar -x -C $S
+TG_COMMIT=$(git rev-parse --short=12 HEAD) TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 $S/fpga/kv260/tcl/build.tcl $S st trafgen 100 2 bit
+```
+
 **The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. The facts live in `tools/tcl/tg_kv260_fan.tcl`, shared with spike S1. `build.tcl` sources it, and the variables override it:
 
 | Variable | Meaning | Default |
@@ -45,7 +52,7 @@ TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/viva
 - **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
 
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
-- `core` builds the real `tg_core`. A bitstream with it waits for the core track's area work (the coordinator's call).
+- `core` builds the real `tg_core`. The M4 bitstream is one `st` core with the PMOD console at 100 MHz (`st core 100 1 bit` with `TG_PMOD_UART=1`), about 43K LUTs of core and 21K of uncore.
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).
 
 | Output (in the run directory) | Use |
@@ -74,6 +81,14 @@ The board loads a build as the PL app `tanager` through dfx-mgr's `xmutil`, as f
 
 ```bash
 fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/stage-b
+```
+
+For a core bitstream, name the boot images too: OpenSBI, the kernel, and a device tree for the bitstream's cores (`sw/dts`; one core here).
+
+```bash
+make -C sw/dts O=$SOC_BUILD/dts-c1 CORES=1
+fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_100_pmod $SOC_BUILD/board/m4 \
+  $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
 ```
 
 ## Board setup (one-time; needs a person)
