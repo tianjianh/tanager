@@ -213,8 +213,11 @@ def main():
         limits = [("200 MHz, 88%", CEIL_200), ("180 MHz if 90%", 0.90 * DEVICE), ("180 MHz if 92%", 0.92 * DEVICE),
                   ("180 MHz if 94%", 0.94 * DEVICE)]
         out += ["## Frequency trade, v1\n", freq_table(res, "v1"), "## Frequency trade, v2\n", freq_table(res, "v2")]
-        out += ["## Fit, v1\n", fit_table(res, "v1", (99000, 103000, 106000, 110000), limits),
-                "## Fit, v2\n", fit_table(res, "v2", (113000, 120000, 128000), limits)]
+        note = ("Takes the cumulative steps above in order, R9 and R10 included. The SoC projections already count "
+                "R10 (and v2's count R11-R13), so docs/perf/area_recovery.md section 7 redoes the fit without "
+                "counting them twice.\n")
+        out += ["## Fit, v1 (rank-order sensitivity)\n", note, fit_table(res, "v1", (99000, 103000, 106000, 110000), limits),
+                "## Fit, v2 (rank-order sensitivity)\n", note, fit_table(res, "v2", (113000, 120000, 128000), limits)]
         if "st_alt" in res:
             L = ["| Single-thread mode | Suite IPC @30 / @120 / @250 | vs the merged window @120 |", "|---|---|---|"]
             for name, a in res["st_alt"].items():

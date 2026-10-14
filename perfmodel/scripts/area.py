@@ -130,9 +130,9 @@ def st_w3_configs():
 # st_w3 8,842 (docs/perf/budgets.md), each within 0.14K:
 #   LUTs = 1.369 x rows x wakeup columns + 1.404 x rows x MX columns + 338 x ALU queues + 1.26K
 # with rows = every queue's rows (40 at smt2, 50 at smt2_w3: tg_cfg_smt2_w3.sv), wakeup columns = ROB entries +
-# LLTs and MX columns = ALU-queue rows. Other forms fitted to the same builds put the wakeup tags' saving within
-# 10% of this one. A banked queue gives each row only its bank's columns: half the ROB, all LLTs (or half with
-# iq_bank_llt) and half the MX columns.
+# LLTs and MX columns = ALU-queue rows. Six other forms fitted to the same builds put the wakeup tags' saving
+# 0-16% above this one at smt2 and within 3% at smt2_w3. A banked queue gives each row only its bank's columns:
+# half the ROB, all LLTs (or half with iq_bank_llt) and half the MX columns.
 def sched_luts(s):
     a2 = (s.get("iq_a2") or s["iq_a1"]) if s.get("alu3") else 0
     alu_rows = s["iq_a0"] + s["iq_a1"] + a2
@@ -285,7 +285,7 @@ def ranked(res, tag):
         dw, ds = delta(L["by_lat"], base)
         lo, hi = L["luts_saved"]
         mid = (lo + hi) / 2
-        loss = max(-dw, -ds, 0.0)
+        loss = max(0.0, -dw, -ds)
         rows.append({"name": name, "dws": dw, "dst": ds, "lo": lo, "hi": hi, "mid": mid, "loss": loss,
                      "per_k": loss / (mid / 1000) if mid > 0 else float("inf"),
                      "share": mid / CORE_BASE[tag] * 100})
@@ -313,7 +313,7 @@ def cumulative(res, tag, levers, limit):
             if name.startswith("wakeup tags") and f" {TAGS} " not in name:
                 continue
             dw, ds = delta(L["by_lat"], base)
-            loss = max(-dw, -ds, 0.0)
+            loss = max(0.0, -dw, -ds)
             nxt = {**state, **{k: v for k, v in levers[name].items() if cfg.get(k) != v}}
             lo, hi, _ = lut_saving(state, nxt)
             mid = (lo + hi) / 2
