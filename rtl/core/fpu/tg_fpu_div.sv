@@ -33,8 +33,10 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // S1: unpack, normalise, specials, seed-ROM address
   // ------------------------------------------------------------------------------------------
+  // Pipeline and ring registers stay flip-flops (shreg_extract): as shift-register LUTs they
+  // would cost LUTs, the scarce resource, to save flip-flops (docs/spec/fpu.md, "Timing and area").
   logic     s1_v;
-  fpu_req_t s1_q;
+  (* shreg_extract = "no" *) fpu_req_t s1_q;
   always_ff @(posedge clk) begin
     if (rst) s1_v <= 1'b0;
     else     s1_v <= valid_i && ready_o;
@@ -71,7 +73,7 @@ module tg_fpu_div
   tg_fpu_seed_rom u_rom (.clk, .addr(rom_addr), .data(rom_data));
 
   logic        s2_v;
-  div_info_t       s2_info;
+  (* shreg_extract = "no" *) div_info_t s2_info;
   logic [52:0] s2_ma, s2_mb;
   logic [12:0] s2_ea, s2_eb;
   logic        s2_odd;
@@ -104,7 +106,7 @@ module tg_fpu_div
   end
 
   logic        s3_v;
-  div_info_t       s3_info;
+  (* shreg_extract = "no" *) div_info_t s3_info;
   logic [59:0] s3_opa, s3_opb;
   always_ff @(posedge clk) begin
     if (rst) s3_v <= 1'b0;
@@ -202,7 +204,8 @@ module tg_fpu_div
   } slot_t;
 
   logic  r1_v, r2_v, r3_v, r4_v, r1_vd;
-  slot_t r1_q, r2_q, r3_q, r4_q, r1_d;
+  (* shreg_extract = "no" *) slot_t r1_q, r2_q, r3_q, r4_q;
+  slot_t r1_d;
 
   logic [119:0] p1, p2;
   logic [59:0]  x1, y1, x2, y2;
