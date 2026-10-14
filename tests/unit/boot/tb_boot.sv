@@ -14,12 +14,14 @@ module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   parameter int N_CORES = 1;
+  parameter bit UART_SERIAL_TB = 1'b0;   // console on the serial line; the host keeps a copy
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
   localparam longint unsigned RV_DRAM = 64'h8000_0000;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
+  logic uart_txd;
   always #5    clk      = ~clk;        // 100 MHz
   always #6.85 clk_host = ~clk_host;   // ~73 MHz, unrelated
 
@@ -48,8 +50,9 @@ module tb_boot;
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (64), .L2_MSHR (24),
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core")
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
+    .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr (awaddr), .s_axil_awvalid (awvalid), .s_axil_awready (awready),
     .s_axil_wdata (wdata), .s_axil_wstrb (wstrb), .s_axil_wvalid (wvalid), .s_axil_wready (wready),
@@ -90,6 +93,25 @@ module tb_boot;
     .b_o (tb), .b_valid_o (tbv), .b_ready_i (tbr)
   );
 
+
+  // ---- Serial console (UART_SERIAL_TB): TXD decoded at 115200 baud (divisor 2 at 3.6864 MHz) ----
+  string sconsole = "";
+  if (UART_SERIAL_TB) begin : g_sdec
+    localparam real BIT = 100.0e6 / 115200.0;   // cycles per bit at the 100 MHz clock
+    initial begin
+      forever begin
+        logic [7:0] b;
+        @(negedge uart_txd);
+        repeat ($rtoi(BIT * 1.5)) @(posedge clk);
+        for (int i = 0; i < 8; i++) begin
+          b[i] = uart_txd;
+          repeat ($rtoi(BIT)) @(posedge clk);
+        end
+        if (uart_txd) sconsole = {sconsole, string'(b)};
+        else          $display("tb_boot: serial framing error after %0d characters", sconsole.len());
+      end
+    end
+  end
   // ---- retirement count (all harts) and the last records of each hart, for progress and post-mortem ----
   localparam int NH_TB = N_CORES * NUM_THREADS;
   localparam int LAST  = 64;
@@ -284,6 +306,11 @@ module tb_boot;
     drain_console();
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);
+    if (UART_SERIAL_TB) begin
+      if (sconsole.len() == 0) $display("tb_boot: ERROR: nothing on the serial line");
+      else if (console.substr(0, sconsole.len() - 1) != sconsole) $display("tb_boot: ERROR: the serial line and the host copy differ");
+      else $display("tb_boot: serial line: %0d characters, the same as the host copy", sconsole.len());
+    end
     if (console_has(expect_s)) $display("TEST PASSED (boot, %0d core(s))", N_CORES);
     else begin
       dump_last();

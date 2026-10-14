@@ -3,7 +3,13 @@
 #     cfg:   st | smt2 | st_w3 | smt2_w3        kind: core | trafgen
 #     stop:  synth | impl | bit (default bit)
 # Reports go to <run-dir>/reports; checkpoints are not kept (conventions §9).
+# Environment: TG_PMOD_UART=1 puts the RISC-V console on the PMOD connector (kv260_top PMOD_UART);
+# TG_PMOD_TXD / TG_PMOD_RXD name its pins (defaults E10 / D10, PMOD J2 pins 2 and 3: unconfirmed,
+# see fpga/kv260/README.md).
 lassign $argv root cfg kind core_mhz n_cores stop
+set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
+set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "E10"}]
+set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "D10"}]
 if {$n_cores eq ""} { set n_cores 1 }
 if {$stop eq ""} { set stop bit }
 set part xck26-sfvc784-2LV-c
@@ -32,8 +38,17 @@ read_xdc [file join $root fpga kv260 xdc timing.xdc]
 # ---- synthesis ----
 stamp "synth_design"
 synth_design -top kv260_top -part $part \
-  -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" \
+  -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
   -flatten_hierarchy rebuilt
+# PMOD console pins: always placed (txd is high-impedance while PMOD_UART = 0); asynchronous to clk_core
+set_property PACKAGE_PIN $pmod_txd [get_ports pmod_uart_txd]
+set_property PACKAGE_PIN $pmod_rxd [get_ports pmod_uart_rxd]
+set_property IOSTANDARD LVCMOS33 [get_ports {pmod_uart_txd pmod_uart_rxd}]
+set_property PULLUP true [get_ports pmod_uart_rxd]
+set_property SLEW SLOW [get_ports pmod_uart_txd]
+set_property DRIVE 4 [get_ports pmod_uart_txd]
+set_false_path -from [get_ports pmod_uart_rxd]
+set_false_path -to [get_ports pmod_uart_txd]
 report_utilization -file $rep/synth_utilization.rpt
 report_utilization -hierarchical -hierarchical_depth 4 -file $rep/synth_utilization_hier.rpt
 report_timing_summary -max_paths 10 -file $rep/synth_timing_summary.rpt

@@ -18,6 +18,7 @@ module tg_uncore
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
+  parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (8N1), else host only
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -122,6 +123,10 @@ module tg_uncore
   input  logic [N_CORES-1:0][15:0] tg_errs_i,
   input  logic [N_CORES-1:0][27:0] tg_err_line_i,
   input  logic [N_CORES-1:0][15:0] tg_pass_i,
+
+  // console serial line (UART_SERIAL = 1): 8N1 at the 16550's divisor; idle high otherwise
+  output logic        uart_txd_o,
+  input  logic        uart_rxd_i,
 
   output logic [7:0]  status_o
 );
@@ -302,14 +307,46 @@ module tg_uncore
     .src_i (plic_src), .irq_o (plic_irq_o)
   );
 
-  logic       con_tx_v, con_tx_r, con_rx_v, con_rx_r;
-  logic [7:0] con_tx_b, con_rx_b;
+  logic        con_tx_v, con_tx_r, con_rx_v, con_rx_r;      // host bridge console streams
+  logic [7:0]  con_tx_b, con_rx_b;
+  logic        u_tx_v, u_tx_r, u_rx_v, u_rx_r, line_busy;   // the UART's streams
+  logic [7:0]  u_tx_b, u_rx_b;
+  logic [15:0] uart_div;
   tg_uart #(.CLK_HZ (CLK_HZ)) u_uart (
     .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_UART]), .rsp_o (drsp[DEV_UART]),
     .irq_o (uart_irq),
-    .tx_valid_o (con_tx_v), .tx_ready_i (con_tx_r), .tx_byte_o (con_tx_b),
-    .rx_valid_i (con_rx_v), .rx_ready_o (con_rx_r), .rx_byte_i (con_rx_b)
+    .tx_valid_o (u_tx_v), .tx_ready_i (u_tx_r), .tx_byte_o (u_tx_b),
+    .rx_valid_i (u_rx_v), .rx_ready_o (u_rx_r), .rx_byte_i (u_rx_b),
+    .div_o (uart_div), .line_busy_i (line_busy)
   );
+  if (UART_SERIAL) begin : g_serial
+    // The line paces TX, and the host gets a copy of each character (dropped while its FIFO is
+    // full). RX takes the line's byte first, else the host's, so both consoles work.
+    logic       ph_tx_r, ph_rx_v;
+    logic [7:0] ph_rx_b;
+    tg_uart_phy #(.CLK_HZ (CLK_HZ)) u_phy (
+      .clk, .rst (uncore_rst), .div_i (uart_div),
+      .tx_valid_i (u_tx_v), .tx_ready_o (ph_tx_r), .tx_byte_i (u_tx_b), .tx_busy_o (line_busy), .txd_o (uart_txd_o),
+      .rxd_i (uart_rxd_i), .rx_valid_o (ph_rx_v), .rx_ready_i (u_rx_r), .rx_byte_o (ph_rx_b)
+    );
+    assign u_tx_r   = ph_tx_r;
+    assign con_tx_v = u_tx_v && ph_tx_r;
+    assign con_tx_b = u_tx_b;
+    assign u_rx_v   = ph_rx_v || con_rx_v;
+    assign u_rx_b   = ph_rx_v ? ph_rx_b : con_rx_b;
+    assign con_rx_r = u_rx_r && !ph_rx_v;
+    wire unused_ser = con_tx_r;                 // the copy never waits
+  end else begin : g_virtual
+    assign u_tx_r     = con_tx_r;
+    assign con_tx_v   = u_tx_v;
+    assign con_tx_b   = u_tx_b;
+    assign u_rx_v     = con_rx_v;
+    assign u_rx_b     = con_rx_b;
+    assign con_rx_r   = u_rx_r;
+    assign line_busy  = 1'b0;
+    assign uart_txd_o = 1'b1;
+    wire unused_ser = ^{uart_rxd_i, uart_div};
+  end
 
   // ---------------------------------------------------------------------------------------------
   // Host bridge (host control is the device bus's fourth device)

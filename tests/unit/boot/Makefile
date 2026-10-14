@@ -18,9 +18,12 @@ VTHREADS ?= $(if $(filter 1,$(CORES)),1,4)
 # TAG: a suffix for a separate build of the same configuration (A/B comparisons, probes); the cores and
 # threads stay in the directory name, so builds of different configurations never share one
 TAG    ?=
-NAME   := boot$(TAG)_c$(CORES)_t$(VTHREADS)
+# SERIAL=1: the console on the UART's serial line (tg_uart_phy), decoded by the testbench and checked
+# against the host's copy
+SERIAL ?= 0
+NAME   := boot$(TAG)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
-PARAMS := -GN_CORES=$(CORES)
+PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS))
 include ../common/unit.mk
 

@@ -12,6 +12,27 @@ TANAGER_VIVADO_MEM_GB=12 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_1
 
 A full build declares 12 GB, which covers IP generation's child processes. `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context runs (`tcl/ooc_synth.tcl`) declare 4.
 
+### PMOD console (RISC-V UART on the PMOD connector)
+
+`TG_PMOD_UART=1` in the build environment puts the RISC-V console on the KV260's PMOD connector (DR-126):
+
+```bash
+TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=12 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_core_100_pmod fpga/kv260/tcl/build.tcl $PWD st core 100 1 bit
+```
+
+- **Line:** 8N1, 3.3 V, at the 16550's divisor (115 200 baud once OpenSBI has programmed it, also the reset value). Set the terminal on the laptop to 115200 8N1, no flow control.
+- **Pins:**
+
+  | Port | Direction (FPGA) | Default pin | Connects to the module's |
+  |---|---|---|---|
+  | `pmod_uart_txd` | out | E10 (PMOD J2 pin 2) | RXD |
+  | `pmod_uart_rxd` | in, pulled up | D10 (PMOD J2 pin 3) | TXD |
+
+  - **Unconfirmed:** the J2 pin locations are the SOM240 3.3 V pins as the KV260 carrier's PMOD is generally documented; the local board files don't name the connector. Confirm them against the carrier's documentation and the module's pinout before connecting. Ground is J2 pin 5 or 11.
+  - `TG_PMOD_TXD` and `TG_PMOD_RXD` override the pins without editing a file.
+- **With the option off** (the default), `pmod_uart_txd` is high-impedance and nothing drives the connector.
+- **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
+
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
 - `core` builds the real `tg_core`. A bitstream with it waits for the core track's area work (the coordinator's call).
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).

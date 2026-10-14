@@ -16,6 +16,7 @@ module tanager_soc
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
+  parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -76,6 +77,10 @@ module tanager_soc
   output logic    [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_o,
   output logic    [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_valid_o,
+
+  // console serial line (UART_SERIAL = 1), idle high otherwise
+  output logic        uart_txd_o,
+  input  logic        uart_rxd_i,
 
   output logic [7:0]  status_o
 );
@@ -172,7 +177,7 @@ module tanager_soc
   tg_uncore #(
     .N_CORES (N_CORES), .CLK_HZ (CLK_HZ), .L2_SETS (L2_SETS), .L2_MSHR (L2_MSHR), .L2_PRIM (L2_PRIM),
     .L2_DATA_LAT (L2_DATA_LAT), .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,
@@ -198,6 +203,7 @@ module tanager_soc
     .m_axi_trace_w_ready, .m_axi_trace_b, .m_axi_trace_b_valid, .m_axi_trace_b_ready,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
+    .uart_txd_o, .uart_rxd_i,
     .status_o
   );
 

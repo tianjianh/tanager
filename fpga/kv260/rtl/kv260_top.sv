@@ -4,14 +4,19 @@
 //   L2 banks 0/1 (clk_core, 128-bit)  -> S_AXI_HP1_FPD / S_AXI_HP2_FPD
 //   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
 //   host_irq -> pl_ps_irq0[0];  fan_en_b driven low (fan at full speed)
+//   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
+//   divisor, 115200 after OpenSBI); the host still gets a copy. Off: txd is high-impedance.
 module kv260_top
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
   parameter int    CORE_MHZ  = 100,
   parameter int    N_CORES   = NUM_CORES,
-  parameter string CORE_KIND = "core"
+  parameter string CORE_KIND = "core",
+  parameter bit    PMOD_UART = 1'b0
 ) (
-  output logic fan_en_b
+  output logic fan_en_b,
+  output logic pmod_uart_txd,
+  input  logic pmod_uart_rxd
 );
   // ---- PS ----
   logic        pl_clk0, pl_resetn0;
@@ -135,8 +140,9 @@ module kv260_top
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0]                  trace_wb_v;
   logic [7:0] status;
 
+  logic uart_txd;
   tanager_soc #(
-    .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND),
+    .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND), .UART_SERIAL (PMOD_UART),
     .L2_DATA_LAT (CORE_MHZ > 150 ? 4 : 2),   // pipeline the URAM cascade above 150 MHz
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1)
   ) u_soc (
@@ -156,8 +162,10 @@ module kv260_top
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
+    .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
   );
 
-  assign fan_en_b = 1'b0;
+  assign fan_en_b      = 1'b0;
+  assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
 endmodule

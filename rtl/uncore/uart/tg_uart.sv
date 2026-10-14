@@ -1,6 +1,8 @@
-// 16550A-compatible UART, reg-shift 0 (docs/spec/uncore-periph.md). The line is virtual: the
-// TX FIFO drains into the host stream (or into RX in loopback) as fast as it is accepted, and RX
-// fills from the host stream while there is room. Divisor and framing bits are stored only.
+// 16550A-compatible UART, reg-shift 0 (docs/spec/uncore-periph.md). The TX FIFO drains into the
+// TX stream (or into RX in loopback) as fast as it is accepted, and RX fills from the RX stream while
+// there is room. The streams go to the host bridge (a virtual line) or to tg_uart_phy (a serial line,
+// which takes the divisor from div_o and holds LSR.TEMT at 0 through line_busy_i while a character
+// is on the line). Framing bits are stored only: the line is 8N1.
 module tg_uart
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
@@ -20,7 +22,10 @@ module tg_uart
   output logic [7:0] tx_byte_o,
   input  logic       rx_valid_i,
   output logic       rx_ready_o,
-  input  logic [7:0] rx_byte_i
+  input  logic [7:0] rx_byte_i,
+  // serial line (tg_uart_phy), or 16'd0 / 1'b0 for the virtual line
+  output logic [15:0] div_o,
+  input  logic        line_busy_i
 );
   localparam int CW = $clog2(DEPTH) + 1;
   // Character timeout: 4 characters of 10 bits at the programmed divisor, at least 1024 cycles.
@@ -196,7 +201,7 @@ module tg_uart
       3'd2: rv = iir;
       3'd3: rv = lcr_q;
       3'd4: rv = {3'b0, mcr_q};
-      3'd5: rv = {1'b0, tx_empty, tx_empty, 4'b0, !rx_empty};          // TEMT, THRE, DR
+      3'd5: rv = {1'b0, tx_empty && !line_busy_i, tx_empty, 4'b0, !rx_empty};   // TEMT, THRE, DR
       3'd6: rv = loop ? {mcr_q[3], mcr_q[2], mcr_q[0], mcr_q[1], 4'b0} : 8'hB0;   // DCD DSR CTS
       default: rv = scr_q;
     endcase
@@ -211,6 +216,8 @@ module tg_uart
     if (rst) irq_o <= 1'b0;
     else     irq_o <= ipend;
   end
+
+  assign div_o = {dlm_q, dll_q};
 
   wire unused = ^{req_i.addr[PA_W-1:3], req_i.size, req_i.be};
 endmodule
