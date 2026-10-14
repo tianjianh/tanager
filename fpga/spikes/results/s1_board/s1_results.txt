@@ -1,0 +1,48 @@
+tg_s1: allocating 128 x 2 MiB hugepages
+hugepage 0 at PA 0x82b800000, last at 0x83be00000
+core clock: 199.4 MHz by wall time (includes polling; nominal 200, used below)
+
+== Idle latency: dependent 64 B reads (pointer chase), one in flight, HP1
+  chase within 2 MiB                 n=200000   min   29  avg   36.7  p50    37  p90    37  p99   107  max   126 cycles  (avg 183.3 ns)
+  chase over the whole buffer        n=200000   min   29  avg   36.8  p50    37  p90    37  p99   105  max   125 cycles  (avg 184.2 ns)
+  chase, 16 B reads                  n=200000   min   29  avg   36.7  p50    37  p90    37  p99   105  max   131 cycles  (avg 183.5 ns)
+  chase, HP2                         n=200000   min   29  avg   36.8  p50    35  p90    37  p99   107  max   129 cycles  (avg 184.2 ns)
+
+== Read bandwidth, one port (HP1), sequential, within 2 MiB
+   64 B bursts,  1 outstanding          360.5 MB/s  (1.80 bytes/cycle, avg latency 30.5 cycles)
+   64 B bursts,  2 outstanding          722.1 MB/s  (3.61 bytes/cycle, avg latency 30.4 cycles)
+   64 B bursts,  4 outstanding         1433.4 MB/s  (7.17 bytes/cycle, avg latency 30.7 cycles)
+   64 B bursts,  8 outstanding         2821.5 MB/s  (14.11 bytes/cycle, avg latency 31.3 cycles)
+   64 B bursts, 16 outstanding         3102.7 MB/s  (15.51 bytes/cycle, avg latency 61.0 cycles)
+   64 B bursts, 32 outstanding         3199.9 MB/s  (16.00 bytes/cycle, avg latency 121.5 cycles)
+  256 B bursts,  1 outstanding         1058.3 MB/s  (5.29 bytes/cycle, avg latency 31.4 cycles)
+  256 B bursts,  2 outstanding         2116.4 MB/s  (10.58 bytes/cycle, avg latency 31.4 cycles)
+  256 B bursts,  4 outstanding         3084.2 MB/s  (15.42 bytes/cycle, avg latency 49.2 cycles)
+  256 B bursts,  8 outstanding         3199.8 MB/s  (16.00 bytes/cycle, avg latency 111.0 cycles)
+  256 B bursts, 16 outstanding         3199.9 MB/s  (16.00 bytes/cycle, avg latency 239.0 cycles)
+  256 B bursts, 32 outstanding         3199.9 MB/s  (16.00 bytes/cycle, avg latency 268.1 cycles)
+
+== Read bandwidth, random 64 B within 2 MiB
+  random 64 B,  8 outstanding          2290.3 MB/s  (11.45 bytes/cycle, avg latency 39.7 cycles)
+  random 64 B, 16 outstanding          2992.7 MB/s  (14.96 bytes/cycle, avg latency 63.4 cycles)
+  random 64 B, 32 outstanding          3011.6 MB/s  (15.06 bytes/cycle, avg latency 83.6 cycles)
+
+== Write bandwidth, HP1, sequential, within 2 MiB (into hugepage 1)
+   64 B bursts, 16 outstanding         3199.9 MB/s  (16.00 bytes/cycle, avg latency 52.4 cycles)
+  256 B bursts, 16 outstanding         3200.0 MB/s  (16.00 bytes/cycle, avg latency 176.6 cycles)
+
+== Both ports reading at once (HP1 + HP2), 256 B bursts, 32 outstanding
+  HP1                                  3175.2 MB/s  (15.88 bytes/cycle, avg latency 269.6 cycles)
+  HP2                                  3175.2 MB/s  (15.88 bytes/cycle, avg latency 269.9 cycles)
+  aggregate 6350.3 MB/s
+
+== Loaded latency: chase on HP1 while HP2 streams
+  chase, HP2 reading                 n=200000   min   29  avg   36.9  p50    35  p90    37  p99   107  max   148 cycles  (avg 184.7 ns)
+    (HP2 read stream)                  3198.5 MB/s  (15.99 bytes/cycle, avg latency 268.4 cycles)
+  chase, HP2 writing                 n=200000   min   29  avg   37.7  p50    37  p90    41  p99   111  max   156 cycles  (avg 188.7 ns)
+    (HP2 write stream)                 3200.1 MB/s  (16.00 bytes/cycle, avg latency 176.4 cycles)
+
+== Loaded latency: chase on HP1 while 4 A53 threads copy memory
+  chase, A53 memcpy x4               n=200000   min   29  avg   36.8  p50    37  p90    37  p99    99  max   122 cycles  (avg 184.2 ns)
+
+core cycle = 5.000 ns. Paste this output into the S1 section of docs/perf/spikes.md.
