@@ -146,7 +146,8 @@ module tanager_soc
         .mmio_a_o (mmio_a[c]), .mmio_a_valid_o (mmio_av[c]), .mmio_a_ready_i (mmio_ar[c]),
         .mmio_d_i (mmio_d[c]), .mmio_d_valid_i (mmio_dv[c]), .mmio_d_ready_o (mmio_dr[c]),
         .trace_o (trace_o[c]), .trace_valid_o (trace_valid_o[c]),
-        .trace_wb_o (trace_wb_o[c]), .trace_wb_valid_o (trace_wb_valid_o[c])
+        .trace_wb_o (trace_wb_o[c]), .trace_wb_valid_o (trace_wb_valid_o[c]),
+        .trace_stall_i (1'b0)            // interfaces.md v1.3: tied off until trace streaming
       );
       assign tg_ops[c]      = '0;
       assign tg_errs[c]     = '0;
