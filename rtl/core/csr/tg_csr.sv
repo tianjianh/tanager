@@ -390,8 +390,8 @@ module tg_csr
   logic [63:0] pw_d_q;
   // satp writes that change it flush the TLBs (as Spike: a rewrite of the same value does not)
   assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
-                   {(pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) ? pw_d_q[63] : satp_mode_q,
-                    pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+                   (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) &&
+                   {pw_d_q[63], pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
   // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
   assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
                                         (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
@@ -575,10 +575,13 @@ module tg_csr
           12'h143: stval_q <= pw_d_q;
           12'h14D: stimecmp_q <= pw_d_q;
           12'h180: begin
-            // MODE changes only to Bare or Sv39; ASID and PPN are always written
-            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) satp_mode_q <= pw_d_q[63];
-            satp_asid_q <= pw_d_q[59:44];
-            satp_ppn_q  <= pw_d_q[43:0];
+            // A write with an unsupported MODE has no effect at all (privileged spec, Spike);
+            // Bare and Sv39 write MODE, ASID and PPN
+            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) begin
+              satp_mode_q <= pw_d_q[63];
+              satp_asid_q <= pw_d_q[59:44];
+              satp_ppn_q  <= pw_d_q[43:0];
+            end
           end
           12'h7A8: mcontext_q <= pw_d_q[12:0];
           12'h5A8: scontext_q <= pw_d_q[31:0];
