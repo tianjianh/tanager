@@ -760,9 +760,14 @@ module tg_rename
   assign unused = ^{busy[IQ_TAGS-1:0]};   // tag columns are cleared when a tag returns, not guarded
 
 `ifndef SYNTHESIS
-  // A group is a prefix of valid slots.
+  // A group is a prefix of valid slots. Only allocated LLTs are released (a flush frees them
+  // all, and a release registered from that cycle may follow).
+  logic flush_d;
+  always_ff @(posedge clk) flush_d <= flush;
   always_ff @(posedge clk) begin
     if (!rst) begin
+      assert ((llt_rel & ~llt_busy_q) == '0 || flush || flush_d)
+        else $error("tg_rename: an LLT released while free");
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
