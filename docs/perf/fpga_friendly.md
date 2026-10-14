@@ -111,7 +111,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 - **The LVT held in XOR-coded LUTRAM is the cheapest form almost everywhere:** 4–7× fewer LUTs than a flip-flop array (64 × 8, 4 writers × 8 readers: 553 against 2,448; 64 × 32: 1,609 against 9,808), and no flip-flops.
 - **XOR banking** ties with it at 8 bits wide and costs up to about 55% more at 32 bits: every bank is full width and needs writers − 1 extra read ports.
 - **The flip-flop LVT** (the classic form) costs more than the LUTRAM one at 23 of the 24 shapes (the exception: 32 × 32 with 2 writers and 8 readers, by 20 LUTs). Its DEPTH:1 read multiplexers per port dominate.
-- **Timing at 200 MHz** (128 × 32, 4 writers × 8 readers): pending.
+- **Timing at 200 MHz** (128 × 32, 4 writers × 8 readers, placed and routed): the LVT in LUTRAM closes with **+1.075 ns** (3,487 LUTs), the flip-flop LVT +0.503, XOR +0.500, the flip-flop array +0.325 (17,634 LUTs). The worst path of the LUTRAM forms is a write address fanning out to its bank's primitives (0 levels, 3.7 ns of wire), not a read.
 - **Decision (proposed): the LVT in LUTRAM for multi-write tables** (rename maps, free lists).
   - *Pros:* 77–85% fewer LUTs than flip-flops, no flip-flops, asynchronous reads like a flip-flop array, so a drop-in that keeps the cycle behaviour.
   - *Cons:* uses SLICEM sites; contents have no reset (valid bits stay in flip-flops); no single-cycle copy of all entries (a checkpoint needs its own copy or a version pointer); XOR coding needs two-state simulation (four-state simulators show X until every bank is written).
@@ -159,7 +159,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 - **The one-bit-write form (`sw`) needs no read-modify-write.** It saves 13–22% of the LUTs from 32 entries (64 × 40: 893 against 1,128; 32 × 40: 487 against 563) and breaks even at 16 entries. Both forms save 90–94% of the flip-flops.
 - **Writes take three cycles** (accept, clear the old key's bits, set the new key's), and the entry stops matching from the accept. In `sw` and in `m16` without the second read port, lookups are not served during the last two cycles (`lk_valid` low). After a reset, a sweep: ENTRIES cycles (`sw`) or 32 (`m16`).
 - **No masked compares:** a TLB's superpages would need a per-entry mask or extra tables.
-- **Timing at 200 MHz** (64 × 40): pending.
+- **Timing at 200 MHz** (64 × 40, placed and routed): `sw` **+0.725 ns** (908 LUTs; its worst path is the reset sweep through the key store and a table into the hit output, 11 levels), `m16` +1.066 with the second read port and +0.700 without, the flip-flop CAM +0.371 (1,093 LUTs).
 - **Decision (proposed): T5 is "flip-flop savings, and a modest LUT saving from 32 entries", not a LUT lever. The TLBs keep flip-flop CAMs:** the ITLB (16 entries) would gain nothing, the DTLB (32) about 76 LUTs, and either would trade single-cycle refills for three cycles with two lookup gaps, and lose superpage masking.
   - *Pros of `sw`:* fewer flip-flops and LUTs from 32 entries; single-cycle invalidate and flush.
   - *Cons:* three-cycle writes; lookup gaps during writes; exact match only.
@@ -183,10 +183,10 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
 |---|---|---|---|---|---|---|---|---|
-| 10-14 | Shared primitive T2 (`tg_ram_lut_mw`) | Multi-write LUTRAM, LVT in LUTRAM, against a flip-flop array (64 × 8, 4 writers × 8 readers) | 553 against 2,448 | 0 against 512 | 448 / 0 / 0 | A primitive: same behaviour as the array (tested against a reference) | pending | Proposed for multi-write tables (§3.1) |
+| 10-14 | Shared primitive T2 (`tg_ram_lut_mw`) | Multi-write LUTRAM, LVT in LUTRAM, against a flip-flop array (64 × 8, 4 writers × 8 readers) | 553 against 2,448 | 0 against 512 | 448 / 0 / 0 | A primitive: same behaviour as the array (tested against a reference) | +1.075 ns (128 × 32; the array +0.325) | Proposed for multi-write tables (§3.1) |
 | 10-14 | Shared primitive T4 (`tg_fifo` `"srl"`) | Shift-register FIFO against the LUTRAM FIFO (32 × 64) | 84 against 60 | 6 against 12 | 64 SRL against 40 LUTRAM | Same ports and timing as `"lutram"` | pending | `"lutram"` stays the default; `"srl"` for narrow FIFOs and delay lines |
-| 10-14 | Shared primitive T5 (`tg_cam_lut` `"sw"`) | CAM with one-bit-write LUTRAM tables against a flip-flop CAM (64 × 40) | 893 against 1,128 | 160 against 2,624 | 496 / 0 / 0 | No: writes take 3 cycles (1 for flip-flops) | pending | Flip-flop savings, small LUT savings from 32 entries; TLBs keep flip-flop CAMs |
-| 10-14 | Shared primitive T5 (`tg_cam_lut` `"m16"`) | CAM with read-modify-write LUTRAM tables (64 × 40) | 1,295 against 1,128 | 166 against 2,624 | 368 / 0 / 0 | No (as above) | — | Rejected as a LUT lever: more LUTs than flip-flops at every size |
+| 10-14 | Shared primitive T5 (`tg_cam_lut` `"sw"`) | CAM with one-bit-write LUTRAM tables against a flip-flop CAM (64 × 40) | 893 against 1,128 | 160 against 2,624 | 496 / 0 / 0 | No: writes take 3 cycles (1 for flip-flops) | +0.725 ns (flip-flops +0.371) | Flip-flop savings, small LUT savings from 32 entries; TLBs keep flip-flop CAMs |
+| 10-14 | Shared primitive T5 (`tg_cam_lut` `"m16"`) | CAM with read-modify-write LUTRAM tables (64 × 40) | 1,295 against 1,128 | 166 against 2,624 | 368 / 0 / 0 | No (as above) | +0.700 / +1.066 ns | Rejected as a LUT lever: more LUTs than flip-flops at every size |
 | 10-14 | Shared primitive T6 (`tg_dsp_cmp`) | Equality and less-than in a DSP48E2 against fabric (48 bits) | 1 against 40 | 0 against 2 | 0 / 0 / 1 | Yes at latency 1 (the same register stage) | pending | Use where the operands are registered |
 
 ## 5. History and lessons
