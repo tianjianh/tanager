@@ -183,8 +183,16 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
 |---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| 10-14 | Shared primitive T2 (`tg_ram_lut_mw`) | Multi-write LUTRAM, LVT in LUTRAM, against a flip-flop array (64 × 8, 4 writers × 8 readers) | 553 against 2,448 | 0 against 512 | 448 / 0 / 0 | A primitive: same behaviour as the array (tested against a reference) | pending | Proposed for multi-write tables (§3.1) |
+| 10-14 | Shared primitive T4 (`tg_fifo` `"srl"`) | Shift-register FIFO against the LUTRAM FIFO (32 × 64) | 84 against 60 | 6 against 12 | 64 SRL against 40 LUTRAM | Same ports and timing as `"lutram"` | pending | `"lutram"` stays the default; `"srl"` for narrow FIFOs and delay lines |
+| 10-14 | Shared primitive T5 (`tg_cam_lut` `"sw"`) | CAM with one-bit-write LUTRAM tables against a flip-flop CAM (64 × 40) | 893 against 1,128 | 160 against 2,624 | 496 / 0 / 0 | No: writes take 3 cycles (1 for flip-flops) | pending | Flip-flop savings, small LUT savings from 32 entries; TLBs keep flip-flop CAMs |
+| 10-14 | Shared primitive T5 (`tg_cam_lut` `"m16"`) | CAM with read-modify-write LUTRAM tables (64 × 40) | 1,295 against 1,128 | 166 against 2,624 | 368 / 0 / 0 | No (as above) | — | Rejected as a LUT lever: more LUTs than flip-flops at every size |
+| 10-14 | Shared primitive T6 (`tg_dsp_cmp`) | Equality and less-than in a DSP48E2 against fabric (48 bits) | 1 against 40 | 0 against 2 | 0 / 0 / 1 | Yes at latency 1 (the same register stage) | pending | Use where the operands are registered |
 
 ## 5. History and lessons
 
 - **2026-10-14:** started after AR-7 showed v1 about 50K over. The planning estimates had assumed FPGA-native structures that the first RTL did not use.
+- **2026-10-14, shared primitives (§3.1):** T2, T4, T5 and T6 built, verified and priced.
+  - Multi-write LUTRAM is the large win: 4–7× fewer LUTs than flip-flop arrays.
+  - The LUTRAM CAM's first form lost to flip-flops on LUTs; only the one-bit-write form (RAM64X8SW) wins, and only from 32 entries. Measure before adopting: the per-bit update path cost more than the comparators it replaced.
+  - Vivado's hierarchical utilisation report hides instances of fewer than 50 cells unless asked (`-hierarchical_min_primitive_count 0`); the budget and spike flows now ask.
