@@ -1,0 +1,7 @@
+g_core[0].u_core        
+g_core[1].u_core        
+u_l2                    
+URAM288                  X2Y1:8 X2Y2:16 X2Y3:8
+RAMB36E2                 X1Y0:7 X1Y1:7 X1Y2:6 X1Y3:10 X2Y0:12 X2Y1:19 X2Y2:19 X2Y3:20
+RAMB18E2                 X2Y2:2
+DSP48E2                  X0Y0:1 X0Y1:19 X0Y2:25 X0Y3:13 X1Y0:19 X1Y1:3 X1Y2:7 X1Y3:7 X2Y0:11 X2Y1:3

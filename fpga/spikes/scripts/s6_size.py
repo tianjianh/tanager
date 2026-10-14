@@ -35,10 +35,12 @@ UNC_LUTRAM = 1_600          # L2 MSHR state and queues (lever R15 keeps them in 
 # LUTs of S2 (whole scheduler, chosen options) + S3 + S4 + S5 per configuration, inside S6
 # where measured (util_hier.rpt of the S6 runs), else out of context (fpga/spikes/results).
 # S2: st DUP_SEL + EARLY_W = 24; smt2 and the 3-wide builds add MX, which they need.
-# With wakeup tags (S6_TAGS=1 in the environment; AR-1): the scheduler measured at 40 columns
-# replaces S2 (estimates until the S2 runs land: the study's -1.1 / -2.9 / -4.9K)
-SPIKE_LUTS_TAGS_S2 = {"st": 6_425 - 1_100, "smt2": 8_744 - 2_850, "st_w3": 8_842 - 2_000,
-                      "smt2_w3": 12_047 - 4_850}
+# With wakeup tags (S6_TAGS=1 in the environment; AR-1): the tags scheduler replaces S2.
+# Calibrated on s6_smt2w3t_93_180: its 634 tiles per core gave 110,280 LUTs, which this model
+# reproduces with S2 = 7,845 for smt2_w3 (out of context 7,703, so +1.8% in the full design;
+# the study's estimate of 7,197 made that run overshoot its 93% target by 1.2%). st and smt2:
+# their out-of-context runs (4,802, 5,506) plus 1.8%; st_w3: the study's estimate.
+SPIKE_LUTS_TAGS_S2 = {"st": 4_890, "smt2": 5_605, "st_w3": 8_842 - 2_000, "smt2_w3": 7_845}
 SPIKE_LUTS_S2 = {"st": 6_425, "smt2": 8_744, "st_w3": 8_842, "smt2_w3": 12_047}
 
 SPIKE_LUTS = {
