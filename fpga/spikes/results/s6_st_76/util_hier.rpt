@@ -1,0 +1,202 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Oct 13 20:51:00 2026
+| Host         : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+| Design       : tg_s6_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Physopt postRoute
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++------------------------------+--------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+|           Instance           |                Module                | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs  | RAMB36 | RAMB18 | URAM | DSP Blocks |
++------------------------------+--------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+| tg_s6_top                    |                                (top) |      88495 |      76677 |   11744 |   74 | 70066 |    100 |      2 |   32 |        108 |
+|   (tg_s6_top)                |                                (top) |          0 |          0 |       0 |    0 |   576 |      0 |      0 |    0 |          0 |
+|   g_core[0].u_core           |                           tg_s6_core |      38143 |      33034 |    5072 |   37 | 29758 |     42 |      0 |    0 |         54 |
+|     u_fill                   |                           tg_s6_fill |      22229 |      19829 |    2400 |    0 | 17741 |     18 |      0 |    0 |         54 |
+|       (u_fill)               |                           tg_s6_fill |      19829 |      19829 |       0 |    0 | 17741 |      0 |      0 |    0 |         54 |
+|       g_ram[0].u_ram         |                       tg_ram_lut__30 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[10].u_ram        |                       tg_ram_lut__11 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[11].u_ram        |                       tg_ram_lut__28 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[12].u_ram        |                       tg_ram_lut__27 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[13].u_ram        |                       tg_ram_lut__26 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[14].u_ram        |                       tg_ram_lut__25 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[15].u_ram        |                       tg_ram_lut__24 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[16].u_ram        |                       tg_ram_lut__23 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[17].u_ram        |                       tg_ram_lut__22 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[18].u_ram        |                        tg_ram_lut__4 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[19].u_ram        |                        tg_ram_lut__5 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[1].u_ram         |                       tg_ram_lut__29 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[20].u_ram        |                       tg_ram_lut__21 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[21].u_ram        |                       tg_ram_lut__20 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[22].u_ram        |                       tg_ram_lut__19 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[23].u_ram        |                       tg_ram_lut__18 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[24].u_ram        |                       tg_ram_lut__10 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[25].u_ram        |                        tg_ram_lut__9 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[26].u_ram        |                        tg_ram_lut__8 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[27].u_ram        |                        tg_ram_lut__6 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[28].u_ram        |                        tg_ram_lut__7 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[29].u_ram        |                       tg_ram_lut__17 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[2].u_ram         |                        tg_ram_lut__1 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[3].u_ram         |                        tg_ram_lut__2 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[4].u_ram         |                        tg_ram_lut__3 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[5].u_ram         |                       tg_ram_lut__16 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[6].u_ram         |                       tg_ram_lut__15 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[7].u_ram         |                       tg_ram_lut__14 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[8].u_ram         |                       tg_ram_lut__13 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[9].u_ram         |                       tg_ram_lut__12 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|     u_s2                     |                    tg_s2_sched_top_1 |       5369 |       5094 |     240 |   35 |  5519 |      0 |      0 |    0 |          0 |
+|       (u_s2)                 |                    tg_s2_sched_top_1 |        787 |        752 |       0 |   35 |   666 |      0 |      0 |    0 |          0 |
+|       g_q[0].u_iq            |                             tg_iq_10 |        540 |        492 |      48 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|         (g_q[0].u_iq)        |                             tg_iq_10 |        492 |        492 |       0 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|       g_q[1].u_iq            |                             tg_iq_11 |        482 |        434 |      48 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|         (g_q[1].u_iq)        |                             tg_iq_11 |        434 |        434 |       0 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|       g_q[2].u_iq            |             tg_iq__parameterized0_12 |        231 |        183 |      48 |    0 |   650 |      0 |      0 |    0 |          0 |
+|         (g_q[2].u_iq)        |             tg_iq__parameterized0_12 |        183 |        183 |       0 |    0 |   650 |      0 |      0 |    0 |          0 |
+|       g_q[3].u_iq            |             tg_iq__parameterized1_13 |        165 |        117 |      48 |    0 |   439 |      0 |      0 |    0 |          0 |
+|         (g_q[3].u_iq)        |             tg_iq__parameterized1_13 |        117 |        117 |       0 |    0 |   439 |      0 |      0 |    0 |          0 |
+|       g_q[4].u_iq            |             tg_iq__parameterized2_14 |        416 |        368 |      48 |    0 |  1084 |      0 |      0 |    0 |          0 |
+|         (g_q[4].u_iq)        |             tg_iq__parameterized2_14 |        368 |        368 |       0 |    0 |  1084 |      0 |      0 |    0 |          0 |
+|       u_wake                 |                           tg_wake_15 |       2754 |       2754 |       0 |    0 |   192 |      0 |      0 |    0 |          0 |
+|     u_s3                     |                          tg_s3_top_2 |       5301 |       3763 |    1536 |    2 |  1439 |      0 |      0 |    0 |          0 |
+|       (u_s3)                 |                          tg_s3_top_2 |       3317 |       3315 |       0 |    2 |  1439 |      0 |      0 |    0 |          0 |
+|       u_irf                  |                             tg_irf_9 |       1984 |        448 |    1536 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         (u_irf)              |                             tg_irf_9 |        448 |        448 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[0].u_ram      |        tg_ram_lut__parameterized3__5 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[1].u_ram      |        tg_ram_lut__parameterized3__4 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[2].u_ram      |        tg_ram_lut__parameterized3__3 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|     u_s4                     |                          tg_s4_top_3 |       2798 |       2350 |     448 |    0 |  3342 |      8 |      0 |    0 |          0 |
+|       (u_s4)                 |                          tg_s4_top_3 |       1256 |       1256 |       0 |    0 |  1102 |      0 |      0 |    0 |          0 |
+|       g_tag[0].u_tag         |       tg_ram_lut__parameterized4__15 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[1].u_tag         |       tg_ram_lut__parameterized4__14 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[2].u_tag         |       tg_ram_lut__parameterized4__13 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[3].u_tag         |       tg_ram_lut__parameterized4__12 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[4].u_tag         |       tg_ram_lut__parameterized4__11 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[5].u_tag         |       tg_ram_lut__parameterized4__10 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[6].u_tag         |        tg_ram_lut__parameterized4__9 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[7].u_tag         |        tg_ram_lut__parameterized4__8 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_dtlb                 |                            tg_dtlb_8 |       1078 |       1078 |       0 |    0 |  2240 |      0 |      0 |    0 |          0 |
+|     u_s5                     |                          tg_s5_top_4 |       2459 |       2011 |     448 |    0 |  1717 |     16 |      0 |    0 |          0 |
+|       (u_s5)                 |                          tg_s5_top_4 |        651 |        651 |       0 |    0 |   608 |      0 |      0 |    0 |          0 |
+|       u_cmp                  |                   tg_fetch_compact_5 |        940 |        812 |     128 |    0 |    37 |      0 |      0 |    0 |          0 |
+|         (u_cmp)              |                   tg_fetch_compact_5 |        812 |        812 |       0 |    0 |    37 |      0 |      0 |    0 |          0 |
+|       u_itlb                 |            tg_dtlb__parameterized0_6 |        494 |        494 |       0 |    0 |  1072 |      0 |      0 |    0 |          0 |
+|       u_ubtb                 |                            tg_ubtb_7 |        119 |         55 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         (u_ubtb)             |                            tg_ubtb_7 |         55 |         55 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|   g_core[1].u_core           |           tg_s6_core__parameterized0 |      38112 |      33003 |    5072 |   37 | 29682 |     42 |      0 |    0 |         54 |
+|     u_fill                   |           tg_s6_fill__parameterized0 |      22251 |      19851 |    2400 |    0 | 17661 |     18 |      0 |    0 |         54 |
+|       (u_fill)               |           tg_s6_fill__parameterized0 |      19851 |      19851 |       0 |    0 | 17661 |      0 |      0 |    0 |         54 |
+|       g_ram[0].u_ram         |                       tg_ram_lut__53 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[10].u_ram        |                       tg_ram_lut__47 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[11].u_ram        |                       tg_ram_lut__46 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[12].u_ram        |                       tg_ram_lut__45 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[13].u_ram        |                       tg_ram_lut__44 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[14].u_ram        |                       tg_ram_lut__43 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[15].u_ram        |                       tg_ram_lut__42 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[16].u_ram        |                       tg_ram_lut__41 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[17].u_ram        |                       tg_ram_lut__32 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[18].u_ram        |                       tg_ram_lut__33 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[19].u_ram        |                       tg_ram_lut__34 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[1].u_ram         |                       tg_ram_lut__60 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[20].u_ram        |                       tg_ram_lut__57 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[21].u_ram        |                       tg_ram_lut__56 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[22].u_ram        |                       tg_ram_lut__55 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[23].u_ram        |                       tg_ram_lut__54 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[24].u_ram        |                       tg_ram_lut__40 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[25].u_ram        |                       tg_ram_lut__39 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[26].u_ram        |                       tg_ram_lut__38 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[27].u_ram        |                       tg_ram_lut__35 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[28].u_ram        |                       tg_ram_lut__36 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[29].u_ram        |                       tg_ram_lut__37 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[2].u_ram         |                       tg_ram_lut__59 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[3].u_ram         |                       tg_ram_lut__58 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[4].u_ram         |                       tg_ram_lut__52 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[5].u_ram         |                       tg_ram_lut__51 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[6].u_ram         |                       tg_ram_lut__31 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[7].u_ram         |                       tg_ram_lut__50 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[8].u_ram         |                       tg_ram_lut__49 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[9].u_ram         |                       tg_ram_lut__48 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|     u_s2                     |                      tg_s2_sched_top |       5331 |       5056 |     240 |   35 |  5519 |      0 |      0 |    0 |          0 |
+|       (u_s2)                 |                      tg_s2_sched_top |        781 |        746 |       0 |   35 |   666 |      0 |      0 |    0 |          0 |
+|       g_q[0].u_iq            |                                tg_iq |        545 |        497 |      48 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|         (g_q[0].u_iq)        |                                tg_iq |        497 |        497 |       0 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|       g_q[1].u_iq            |                              tg_iq_0 |        476 |        428 |      48 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|         (g_q[1].u_iq)        |                              tg_iq_0 |        428 |        428 |       0 |    0 |  1244 |      0 |      0 |    0 |          0 |
+|       g_q[2].u_iq            |                tg_iq__parameterized0 |        230 |        182 |      48 |    0 |   650 |      0 |      0 |    0 |          0 |
+|         (g_q[2].u_iq)        |                tg_iq__parameterized0 |        182 |        182 |       0 |    0 |   650 |      0 |      0 |    0 |          0 |
+|       g_q[3].u_iq            |                tg_iq__parameterized1 |        165 |        117 |      48 |    0 |   439 |      0 |      0 |    0 |          0 |
+|         (g_q[3].u_iq)        |                tg_iq__parameterized1 |        117 |        117 |       0 |    0 |   439 |      0 |      0 |    0 |          0 |
+|       g_q[4].u_iq            |                tg_iq__parameterized2 |        419 |        371 |      48 |    0 |  1084 |      0 |      0 |    0 |          0 |
+|         (g_q[4].u_iq)        |                tg_iq__parameterized2 |        371 |        371 |       0 |    0 |  1084 |      0 |      0 |    0 |          0 |
+|       u_wake                 |                              tg_wake |       2719 |       2719 |       0 |    0 |   192 |      0 |      0 |    0 |          0 |
+|     u_s3                     |                            tg_s3_top |       5264 |       3726 |    1536 |    2 |  1439 |      0 |      0 |    0 |          0 |
+|       (u_s3)                 |                            tg_s3_top |       3280 |       3278 |       0 |    2 |  1439 |      0 |      0 |    0 |          0 |
+|       u_irf                  |                               tg_irf |       1984 |        448 |    1536 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         (u_irf)              |                               tg_irf |        448 |        448 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[0].u_ram      |        tg_ram_lut__parameterized3__1 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[1].u_ram      |        tg_ram_lut__parameterized3__2 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         g_bank[2].u_ram      |           tg_ram_lut__parameterized3 |        512 |          0 |     512 |    0 |     0 |      0 |      0 |    0 |          0 |
+|     u_s4                     |                            tg_s4_top |       2795 |       2347 |     448 |    0 |  3346 |      8 |      0 |    0 |          0 |
+|       (u_s4)                 |                            tg_s4_top |       1253 |       1253 |       0 |    0 |  1106 |      0 |      0 |    0 |          0 |
+|       g_tag[0].u_tag         |        tg_ram_lut__parameterized4__1 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[1].u_tag         |        tg_ram_lut__parameterized4__2 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[2].u_tag         |        tg_ram_lut__parameterized4__3 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[3].u_tag         |        tg_ram_lut__parameterized4__4 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[4].u_tag         |        tg_ram_lut__parameterized4__5 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[5].u_tag         |        tg_ram_lut__parameterized4__6 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[6].u_tag         |        tg_ram_lut__parameterized4__7 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_tag[7].u_tag         |           tg_ram_lut__parameterized4 |         56 |          0 |      56 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       u_dtlb                 |                              tg_dtlb |       1078 |       1078 |       0 |    0 |  2240 |      0 |      0 |    0 |          0 |
+|     u_s5                     |                            tg_s5_top |       2483 |       2035 |     448 |    0 |  1717 |     16 |      0 |    0 |          0 |
+|       (u_s5)                 |                            tg_s5_top |        674 |        674 |       0 |    0 |   608 |      0 |      0 |    0 |          0 |
+|       u_cmp                  |                     tg_fetch_compact |        941 |        813 |     128 |    0 |    37 |      0 |      0 |    0 |          0 |
+|         (u_cmp)              |                     tg_fetch_compact |        813 |        813 |       0 |    0 |    37 |      0 |      0 |    0 |          0 |
+|       u_itlb                 |              tg_dtlb__parameterized0 |        494 |        494 |       0 |    0 |  1072 |      0 |      0 |    0 |          0 |
+|       u_ubtb                 |                              tg_ubtb |        119 |         55 |      64 |    0 |     0 |      0 |      0 |    0 |          0 |
+|         (u_ubtb)             |                              tg_ubtb |         55 |         55 |       0 |    0 |     0 |      0 |      0 |    0 |          0 |
+|   u_l2                       |                             tg_s6_l2 |      12240 |      10640 |    1600 |    0 | 10050 |     16 |      2 |   32 |          0 |
+|     (u_l2)                   |                             tg_s6_l2 |        512 |        512 |       0 |    0 |  1040 |      0 |      0 |    0 |          0 |
+|     g_bank[0].u_data         |        tg_ram_sdp__parameterized2__1 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|       u_mem                  | xpm_memory_sdpram__parameterized2__1 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|         xpm_memory_base_inst |   xpm_memory_base__parameterized2__1 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|     g_bank[1].u_data         |           tg_ram_sdp__parameterized2 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|       u_mem                  |    xpm_memory_sdpram__parameterized2 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|         xpm_memory_base_inst |      xpm_memory_base__parameterized2 |          0 |          0 |       0 |    0 |   256 |      0 |      0 |   16 |          0 |
+|     u_fill                   |           tg_s6_fill__parameterized1 |      11728 |      10128 |    1600 |    0 |  8498 |      0 |      0 |    0 |          0 |
+|       (u_fill)               |           tg_s6_fill__parameterized1 |      10128 |      10128 |       0 |    0 |  8498 |      0 |      0 |    0 |          0 |
+|       g_ram[0].u_ram         |                       tg_ram_lut__61 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[10].u_ram        |                       tg_ram_lut__71 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[11].u_ram        |                       tg_ram_lut__72 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[12].u_ram        |                       tg_ram_lut__73 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[13].u_ram        |                       tg_ram_lut__74 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[14].u_ram        |                       tg_ram_lut__75 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[15].u_ram        |                       tg_ram_lut__76 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[16].u_ram        |                       tg_ram_lut__77 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[17].u_ram        |                       tg_ram_lut__78 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[18].u_ram        |                       tg_ram_lut__79 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[19].u_ram        |                           tg_ram_lut |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[1].u_ram         |                       tg_ram_lut__62 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[2].u_ram         |                       tg_ram_lut__63 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[3].u_ram         |                       tg_ram_lut__64 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[4].u_ram         |                       tg_ram_lut__65 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[5].u_ram         |                       tg_ram_lut__66 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[6].u_ram         |                       tg_ram_lut__67 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[7].u_ram         |                       tg_ram_lut__68 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[8].u_ram         |                       tg_ram_lut__69 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
+|       g_ram[9].u_ram         |                       tg_ram_lut__70 |         80 |          0 |      80 |    0 |     0 |      0 |      0 |    0 |          0 |
++------------------------------+--------------------------------------+------------+------------+---------+------+-------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+
