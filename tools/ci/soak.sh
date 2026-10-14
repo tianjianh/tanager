@@ -3,20 +3,25 @@
 # constrained-random programs on the real core, every M3 switch on, in st, st_w3, smt2 and smt2_w3
 # at once, with memory stress (latency 30-250), timer interrupts and trace back-pressure. Findings
 # go to a triage list, $TANAGER_BUILD/soak/summary.md; they never gate merges.
-# Strictly background: nice 19 and idle I/O, at most 12 simulations, no Vivado, no checkout touched
-# (main is exported with git archive), holds while the host drive C: has under 20 GB free or the
-# machine is busy.
+# Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
+# (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
+# no program while MemAvailable is under 12 GB (no build under 20 GB), and holds while the host
+# drive C: has under 20 GB free or the machine is busy.
 #   tools/ci/soak.sh start | stop | status
 set -u
 SOAK="${TANAGER_BUILD:-$HOME/tanager-build}/soak"
 CFGS="st st_w3 smt2 smt2_w3"
-JOBS=3                  # simulations per configuration: 4 x 3 = 12 at most
+JOBS=2                  # simulations per configuration: 4 x 2 = 8 at most
+BUILD_JOBS=4            # Verilator compiles take 2-4 GB each (conventions §9)
+MEM_GB=12               # start no program while MemAvailable is under this
+BUILD_MEM_GB=20         # nor a build
 SEEDS=400               # programs per configuration per round (about a minute)
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3_SPIKE="--isa=$M3_ISA --priv=MSU --pmp=16"
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 
 log() { echo "$(date '+%F %T') soak: $*"; }
+mem_gb() { awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo; }
 running() { [ -f "$SOAK/soak.pid" ] && kill -0 "$(cat "$SOAK/soak.pid")" 2>/dev/null; }
 
 # Export main into $SOAK/src (no checkout is touched), turn every M3 switch on, build.
@@ -34,7 +39,8 @@ prepare() {
     source "$src/tools/env.sh" >/dev/null 2>&1
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
-      make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS=12 TANAGER_BUILD="$SOAK/build" \
+      while [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; do sleep 60; done
+      make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
         ISA="$M3_ISA" PRIV=MSU PMP=16 build || exit 1
     done
     make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" replay || exit 1
@@ -45,6 +51,9 @@ prepare() {
   if grep -q "print-trace-stall" "$src/sim/Makefile" &&
      [ "$(make -s --no-print-directory -C "$src/sim" CORE=core print-trace-stall)" != 1 ]; then ts=""; fi
   echo "$ts" > "$SOAK/trace_stall"
+  # Older mains' random runner has no --mem-gate; the check between rounds still applies.
+  if grep -q -- "--mem-gate" "$src/tests/random/run_random.py"; then echo "--mem-gate $MEM_GB"; else echo; fi \
+    > "$SOAK/mem_gate"
   echo "$commit" > "$SOAK/commit"
 }
 
@@ -57,10 +66,16 @@ campaign() {
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
     python3 "$SOAK/src/tanager/tests/random/run_random.py" --sim "$sim" \
       --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa rv64imac \
-      --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") --jobs "$JOBS" --timeout 1200 --workdir "$work" \
+      --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
+      --jobs "$JOBS" --timeout 1200 --workdir "$work" \
       --name "soak $cfg" -- $M3_SPIKE ) > "$work/out.txt" 2>&1
   local res pass fail gen
   res=$(grep "passed, " "$work/out.txt" | tail -1)
+  if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
+    echo "$(date '+%F %T') $cfg on $commit: $(tail -1 "$work/out.txt" | cut -c1-200)" >> "$SOAK/errors.log"
+    tail -n 20 "$SOAK/errors.log" > "$SOAK/errors.tmp" && mv "$SOAK/errors.tmp" "$SOAK/errors.log"
+    return 0
+  fi
   pass=$(echo "$res" | sed -n 's/.*: \([0-9]*\) passed.*/\1/p')
   fail=$(echo "$res" | sed -n 's/.* \([0-9]*\) failed.*/\1/p')
   gen=$(echo "$res" | sed -n 's/.* \([0-9]*\) generator failures.*/\1/p')
@@ -104,6 +119,12 @@ summarize() {
     echo "|---|---|---|---|"
     awk -F'\t' '{n[$1"|"$2]+=$4; f[$1"|"$2]+=$5} END {for (k in n) {split(k, a, "|"); print "| " a[1] " | " a[2] " | " n[k] " | " f[k] " |"}}' \
       "$SOAK/counts.tsv" 2>/dev/null | sort -r | head -40
+    if [ -s "$SOAK/errors.log" ]; then
+      echo
+      echo "## Harness errors (campaigns without a result; newest last)"
+      echo
+      tail -n 5 "$SOAK/errors.log" | sed 's/^/- /'
+    fi
     echo
     echo "## Failures to triage (newest first)"
     echo
@@ -118,6 +139,7 @@ summarize() {
 run() {
   mkdir -p "$SOAK/logs" "$SOAK/fail"
   echo $$ > "$SOAK/soak.pid"
+  echo 900 > /proc/self/oom_score_adj  # the first out-of-memory victim; everything it starts inherits it
   trap 'rm -f "$SOAK/soak.pid"; exit 0' TERM INT
   local commit seed free load irq
   while :; do
@@ -127,6 +149,9 @@ run() {
     free=$(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9')
     if [ -n "$free" ] && [ "$free" -lt 20 ]; then
       log "holding: C: has $free GB free"; summarize "$commit" "holding (C: under 20 GB free)"; sleep 1800; continue
+    fi
+    if [ "$(mem_gb)" -lt "$MEM_GB" ]; then
+      summarize "$commit" "waiting (MemAvailable $(mem_gb) GB, under $MEM_GB)"; sleep 120; continue
     fi
     # Between rounds nothing of ours runs: more than 20 runnable tasks means the tracks are busy.
     load=$(cut -d' ' -f4 /proc/loadavg); load=${load%/*}

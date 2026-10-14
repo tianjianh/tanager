@@ -23,13 +23,16 @@ settings="${TANAGER_VIVADO_SETTINGS:-$HOME/Xilinx/2025.2/Vivado/settings64.sh}"
 mkdir -p "$lock_dir" "$run_dir"
 [ "$need" -le "$budget" ] || { echo "[vivado_run] job declares ${need} GB > budget ${budget} GB" >&2; exit 2; }
 
-# Sum of the memory declared by running jobs: a slot's .mem file counts only while its lock is held.
+# Sum of the memory declared by running jobs, over every held slot lock, not only this host's slot count.
+# A held slot with no declaration (a job started by an older vivado_run.sh, such as one from a branch that
+# has not merged main) counts as a full-device run, 10 GB.
 declared() {
-  local sum=0 i f
-  for ((i = 0; i < slots; i++)); do
-    f="$lock_dir/vivado.$i.mem"
-    [ -f "$f" ] || continue
-    if ! flock -n "$lock_dir/vivado.$i.lock" true 2>/dev/null; then sum=$((sum + $(cat "$f" 2>/dev/null || echo 0))); fi
+  local sum=0 f i
+  for f in "$lock_dir"/vivado.[0-9]*.lock; do
+    [ -e "$f" ] || continue
+    flock -n "$f" true 2>/dev/null && continue
+    i=${f%.lock}; i=${i##*.}
+    sum=$((sum + $(cat "$lock_dir/vivado.$i.mem" 2>/dev/null || echo 10)))
   done
   echo "$sum"
 }
