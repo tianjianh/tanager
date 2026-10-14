@@ -54,6 +54,9 @@
 //                producer: it compares the source's physical register with the row's
 //                destination (one compare per source, no CAM), else it uses the ID.
 //                tg_wake's cancel history must then be 1 cycle (HIST = 1), not 2.
+//   ISS_REG = 1 (with MX): issued_o comes from its own register, replicated by synthesis
+//                for fanout (it reaches every row of every queue), instead of a LUT on the
+//                row's valid bit and hold counter. Same values cycle by cycle.
 //   PRE_RDY = 1 (with MX, STALE 0 or 2): each row's ID readiness is computed a cycle
 //                early from W's next state (w_next) and registered, so the select cycle
 //                starts from one flip-flop per row instead of an NCOL-wide AND-OR. Rows
@@ -80,6 +83,7 @@ module tg_iq
   parameter bit MX        = 1'b0,
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
+  parameter bit ISS_REG   = 1'b0,   // MX: issued_o from its own replicated register
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -358,8 +362,7 @@ module tg_iq
   end
 
   for (genvar r = 0; r < ROWS; r++) begin : g_mxo
-    assign issued_o[r] = valid_q[r] && age_q[r] != 2'd0;
-    assign free_o[r]   = valid_q[r] && free_now[r];
+    assign free_o[r] = valid_q[r] && free_now[r];
   end
 
   // Matrix dependencies: written at dispatch, a column cleared when its row is freed
@@ -381,17 +384,38 @@ module tg_iq
     end
   end
 
+  // Issue hold: 0 waiting, 1 and 2 the cycles after the select; a cancel returns the row
+  logic [ROWS-1:0][1:0] age_d;
+  always_comb begin
+    for (int r = 0; r < ROWS; r++) begin
+      if (we[r] || cancel)       age_d[r] = 2'd0;
+      else if (grant[r])         age_d[r] = 2'd1;
+      else if (age_q[r] == 2'd1) age_d[r] = 2'd2;
+      else                       age_d[r] = age_q[r];
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       valid_q <= '0;
       age_q   <= '0;
     end else begin
       valid_q <= valid_d;
-      for (int r = 0; r < ROWS; r++) begin
-        if (we[r] || cancel)            age_q[r] <= 2'd0;
-        else if (grant[r])              age_q[r] <= 2'd1;
-        else if (age_q[r] == 2'd1)      age_q[r] <= 2'd2;
-      end
+      age_q   <= age_d;
+    end
+  end
+
+  // Selected and still held (MX consumers): from the row state, or its own register
+  if (ISS_REG) begin : g_iss_reg
+    (* max_fanout = 16 *) logic [ROWS-1:0] issued_q;
+    always_ff @(posedge clk) begin
+      for (int r = 0; r < ROWS; r++)
+        issued_q[r] <= !rst && valid_d[r] && age_d[r] != 2'd0;
+    end
+    assign issued_o = issued_q;
+  end else begin : g_iss_comb
+    for (genvar r = 0; r < ROWS; r++) begin : g_r
+      assign issued_o[r] = valid_q[r] && age_q[r] != 2'd0;
     end
   end
 

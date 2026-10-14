@@ -22,16 +22,18 @@ IQ_SRC := $(ROOT)/fpga/spikes/rtl/tg_iq.sv $(ROOT)/fpga/spikes/rtl/tg_wake.sv tb
 IQ_VARIANTS := $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(foreach w,0 1,$(c)_s$(s)_w$(w)_d0_e32))) \
                $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16)) \
                $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mx)) \
-               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxpre))
+               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxpre)) \
+               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxr))
 
 .PHONY: iq clean
 iq: $(addprefix iq-,$(IQ_VARIANTS))
 iq-%:
 	@set -e; v=$*; cfg=$${v%%_s*}; rest=$${v#*_s}; s=$${rest%%_w*}; rest=$${rest#*_w}; \
 	w=$${rest%%_d*}; rest=$${rest#*_d}; dup=$${rest%%_e*}; rest=$${rest#*_e}; e=$${rest%%_mx}; \
-	e=$${e%%_mxpre}; mx=0; pre=0; case $$v in *_mx) mx=1;; *_mxpre) mx=1; pre=1;; esac; \
+	e=$${e%%_mxpre}; e=$${e%%_mxr}; mx=0; pre=0; iss=0; \
+	case $$v in *_mx) mx=1;; *_mxpre) mx=1; pre=1;; *_mxr) mx=1; iss=1;; esac; \
 	d=$(OBJ)/iq_$$v; mkdir -p $$d; \
-	verilator $(VFLAGS) --Mdir $$d --top-module tb_iq -GSTALE=$$s -GWAKE_ENC=$$w -GDUP_SEL=$$dup -GEARLY_W=$$e -GMX=$$mx -GPRE_RDY=$$pre \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_iq -GSTALE=$$s -GWAKE_ENC=$$w -GDUP_SEL=$$dup -GEARLY_W=$$e -GMX=$$mx -GPRE_RDY=$$pre -GISS_REG=$$iss \
 	  $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv $(COMMON) $(IQ_SRC) > $$d/build.log 2>&1 || \
 	  { tail -20 $$d/build.log; exit 1; }; \
 	$$d/Vtb_iq +seed=$(SEED) +cycles=$(CYCLES) > $$d/run.log; $(TIDY) \
