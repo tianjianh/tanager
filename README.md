@@ -1,4 +1,4 @@
-# Tanager (working name)
+# Tanager
 
 Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two hardware threads per core (SMT2) that runs Linux on the AMD Kria KV260 (XCK26). Its IPC must beat NaxRiscv's, and it is built so 3-wide decode can be added next.
 
@@ -20,4 +20,9 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 - **Schedule (plan §11):** agent-built. Linux on the board about 4–6 weeks after M0 starts; v1 in about 3 months.
 - **M0 (repository, CI, FPGA spikes):** done, except spike S1, which waits for the board. The spikes are reported in [docs/perf/spikes.md](docs/perf/spikes.md).
 - **M2 (out-of-order core in simulation):** done on 2026-10-14. Lockstep passes in all four configurations; CoreMark 3.04 CM/MHz on the conservative M2 core.
-- **M3 (Linux-capable core):** in progress. RV64GC, with F and D, runs in lockstep with Spike in all four configurations (ACT4 rv64imafdc 895/895). **Next:** OpenSBI and Buildroot to a shell in Verilator, and redoing the area fit with the measured RTL.
+- **M3 (Linux-capable core):** done in simulation on 2026-10-14. RV64GC, with F and D, runs in lockstep with Spike in all four configurations (ACT4 rv64imafdc 895/895), and Linux (OpenSBI, Buildroot lp64d) boots to userspace in Verilator. The area work toward v1's 103K-LUT bar continues as FPGA-native rewrites ([docs/perf/fpga_friendly.md](docs/perf/fpga_friendly.md)).
+- **M4 (single core on the KV260):** in progress. The board's ARM side is up (stage A); spike S1, which measures DDR latency from the FPGA, is staged.
+
+## License
+
+Hardware (the RTL, FPGA design files, constraints and HDL test benches) is under the Solderpad Hardware License 2.1; software and documentation are under the Apache License 2.0. [LICENSE](LICENSE) explains the split, and [REUSE.toml](REUSE.toml) maps every path. Copyright 2026 Tianjian Huang.

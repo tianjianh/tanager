@@ -1,0 +1,9 @@
+PRIM_OK g_lut.u/g_lvt.g_data[0].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[1].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[2].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_data[3].u_mem tg_ram_lut {2^7 x 32, 8 read} expected {RAM64M8 74} found {RAM64M8 74}
+PRIM_OK g_lut.u/g_lvt.g_lvt_ram.g_bank[0].u_lvt tg_ram_lut {2^7 x 2, 11 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_OK g_lut.u/g_lvt.g_lvt_ram.g_bank[1].u_lvt tg_ram_lut {2^7 x 2, 11 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_OK g_lut.u/g_lvt.g_lvt_ram.g_bank[2].u_lvt tg_ram_lut {2^7 x 2, 11 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_OK g_lut.u/g_lvt.g_lvt_ram.g_bank[3].u_lvt tg_ram_lut {2^7 x 2, 11 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_SUMMARY instances 8 fail 0 warn 0 stray 0
