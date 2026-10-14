@@ -62,7 +62,8 @@ module tg_exec
   input  preg_t                        isrc_tag,
   output logic [63:0]                  isrc_data,
   input  logic                         fpi_valid,
-  output logic                         fpi_ready,      // written this cycle
+  input  logic                         fpi_kill,       // the head was flushed: pop it, no write
+  output logic                         fpi_ready,      // written (or, if killed, popped) this cycle
   input  robid_t                       fpi_rob,
   input  llt_t                         fpi_llt,
   input  logic                         fpi_dst_en,
@@ -387,8 +388,11 @@ module tg_exec
   assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !flush;
   logic       fpi_claim;                   // the FP->int result at P4's queue head claims slot +4
   logic [2:0] fpi_wait_q;
-  assign fpi_claim = EXT_FD && fpi_valid && fpi_wait_q == '0 && !rf_mul && !div_claim && !flush;
-  assign fpi_ready = fpi_wait_q == 3'd1 && !flush;
+  logic       fpi_wr;                      // the claimed head is written this cycle
+  assign fpi_claim = EXT_FD && fpi_valid && !fpi_kill && fpi_wait_q == '0 && !rf_mul && !div_claim &&
+                     !flush;
+  assign fpi_wr    = fpi_wait_q == 3'd1 && !flush;
+  assign fpi_ready = fpi_wr || (EXT_FD && fpi_valid && fpi_kill && fpi_wait_q == '0);
   assign a1_block  = a1_block_q;
   assign div_ordy  = div_wait_q == 3'd1;
   assign div_done  = div_ov && div_ordy;
@@ -428,7 +432,7 @@ module tg_exec
     end else if (div_ov && div_ordy) begin
       oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
       oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
-    end else if (fpi_ready) begin
+    end else if (fpi_wr) begin
       oth_valid = 1'b1; oth_rob = fpi_rob; oth_fflags = fpi_fflags;
       oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); oth_wd = fpi_data;
     end
@@ -468,7 +472,7 @@ module tg_exec
     llt_done = '0;
     if (div_ov && div_ordy && div_tag[TAG_W-1])
       llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
-    if (fpi_ready && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
+    if (fpi_wr && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
   end
 
   // ---- Address generation (EX) ----
@@ -573,7 +577,7 @@ module tg_exec
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst) begin
-      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy, fpi_ready}))
+      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy, fpi_wr}))
         else $error("tg_exec: two bank-1 results in one slot");
       assert (!(oth_we && wb_dv_q[1])) else $error("tg_exec: bank 1 write conflict");
     end

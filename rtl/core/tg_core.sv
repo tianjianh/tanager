@@ -173,7 +173,7 @@ module tg_core
   preg_t                            fsd_tag;
   assign fsd_data = '0;
   // P4's integer source and FP->int results (driven by P4 with the FP back end)
-  logic                             isrc_valid, fpi_valid, fpi_ready, fpi_dst_en;
+  logic                             isrc_valid, fpi_valid, fpi_kill, fpi_ready, fpi_dst_en;
   preg_t                            isrc_tag, fpi_dst;
   logic [63:0]                      isrc_data, fpi_data;
   robid_t                           fpi_rob;
@@ -182,6 +182,7 @@ module tg_core
   assign isrc_valid = 1'b0;
   assign isrc_tag   = '0;
   assign fpi_valid  = 1'b0;
+  assign fpi_kill   = 1'b0;
   assign fpi_rob    = '0;
   assign fpi_llt    = '0;
   assign fpi_dst_en = 1'b0;
@@ -275,7 +276,7 @@ module tg_core
     .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
-    .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_ready, .fpi_rob, .fpi_llt,
+    .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
     .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
     .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
