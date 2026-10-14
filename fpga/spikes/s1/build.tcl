@@ -1,6 +1,6 @@
 # Spike S1: the KV260 bitstream for the PL -> PS DDR latency and bandwidth measurement.
 #   tools/vivado_run.sh <run-dir> fpga/spikes/s1/build.tcl <repo-root>
-# Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (100 MHz) -> MMCM ->
+# Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (99.999 MHz) -> MMCM ->
 # clk_core 200 MHz, which clocks M_AXI_HPM0_FPD (128-bit, SmartConnect to AXI4-Lite),
 # S_AXI_HP1_FPD and S_AXI_HP2_FPD (128-bit) and the engines (tg_s1_bd). The fan enable
 # (package pin A12) is held on. Outputs in the run directory: tg_s1.bit, tg_s1.bit.bin
@@ -36,7 +36,7 @@ set_property -dict [list \
 ] $ps
 
 set clk [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz clk_core]
-set_property -dict [list CONFIG.PRIM_IN_FREQ {100} CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
+set_property -dict [list CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
   CONFIG.USE_LOCKED {true} CONFIG.USE_RESET {true} CONFIG.RESET_TYPE {ACTIVE_LOW} \
   CONFIG.RESET_PORT {resetn}] $clk
 set rst [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset rst_core]
