@@ -66,6 +66,20 @@ def replay_args(seed):
     return args
 
 
+def mem_available_gb():
+    with open("/proc/meminfo") as f:
+        for line in f:
+            if line.startswith("MemAvailable:"):
+                return int(line.split()[1]) / (1 << 20)
+    return 1e9
+
+
+def wait_for_memory(gb):
+    """Start nothing while the machine has less than `gb` GB available (conventions §9)."""
+    while gb and mem_available_gb() < gb:
+        time.sleep(30)
+
+
 def run(args, timeout, log=None):
     try:
         p = subprocess.run(args, capture_output=True, text=True, errors="replace", timeout=timeout)
@@ -83,6 +97,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--sim", help="tg_vsim (not needed with --replay-only)")
     ap.add_argument("--replay-only", action="store_true", help="the second run is tg_replay with perturbations")
+    ap.add_argument("--mem-gate", type=float, default=0,
+                    help="start no program while MemAvailable is under this many GB (the soak uses 12)")
     ap.add_argument("--replay", required=True)
     ap.add_argument("--n", type=int, default=100)
     ap.add_argument("--seed", type=int, default=1)
@@ -105,6 +121,7 @@ def main():
                                 "rv64gc": "rv64gc_zicntr"}[a.isa]
 
     def one(seed):
+        wait_for_memory(a.mem_gate)
         base = os.path.join(a.workdir, f"r{seed}")
         gen = [sys.executable, os.path.join(HERE, "tg_rand.py"), "--seed", str(seed), "--isa", a.isa,
                "--irq", str(a.irq), "--length", str(a.length), "-o", base + ".S"]
