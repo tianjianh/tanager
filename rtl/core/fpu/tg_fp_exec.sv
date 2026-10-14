@@ -367,19 +367,27 @@ module tg_fp_exec
   assign misc_i = misc_s.v && !misc_s.fpd;           // into the B1 queue (live or dead)
   assign div_w  = dv_q && dv_live_q && (dv_ret || !tid_hit(flush, flush_tid, dv_e.tid));
 
+  // The data and index of the F0 stream are selected by the registered slot owners alone (at
+  // most one is valid: the slots are reserved), so the late flush and retirement inputs reach
+  // only the write enable, not the bypass path into the units.
   always_comb begin
-    f0_we = 1'b0; f0_wa = '0; f0_wd = '0;
+    if (fma_s.v)                     begin f0_wa = fma_s.idx;  f0_wd = fma_resp.result;  end
+    else if (misc_s.v && misc_s.fpd) begin f0_wa = misc_s.idx; f0_wd = misc_resp.result; end
+    else                             begin f0_wa = dv_e.idx;   f0_wd = dv_res_q;         end
+  end
+  always_comb begin
+    f0_we = 1'b0;
     cmp_valid = 1'b0; cmp_tid = '0; cmp_rob = '0; cmp_fflags = '0;
     er_valid = 1'b0; er_tid = '0; er_fflags = '0;
     llt_done = '0;
     if (fma_w) begin
-      f0_we = 1'b1; f0_wa = fma_s.idx; f0_wd = fma_resp.result;
+      f0_we = 1'b1;
       cmp_valid = 1'b1; cmp_tid = fma_t.tid; cmp_rob = fma_t.rob; cmp_fflags = fma_resp.fflags;
     end else if (misc_w) begin
-      f0_we = 1'b1; f0_wa = misc_s.idx; f0_wd = misc_resp.result;
+      f0_we = 1'b1;
       cmp_valid = 1'b1; cmp_tid = misc_t.tid; cmp_rob = misc_t.rob; cmp_fflags = misc_resp.fflags;
     end else if (div_w) begin
-      f0_we = 1'b1; f0_wa = dv_e.idx; f0_wd = dv_res_q;
+      f0_we = 1'b1;
       llt_done[dv_e.llt] = 1'b1;
       if (dv_ret) begin
         er_valid = 1'b1; er_tid = dv_e.tid; er_fflags = dv_fl_q;
