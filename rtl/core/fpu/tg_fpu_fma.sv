@@ -2,7 +2,8 @@
 // in S and D (docs/spec/fpu.md, "FMA unit"), and, by lever R5, the FP->FP and integer->FP
 // conversions, which reuse its normaliser and rounder:
 //   FCVT.F.F  a x 1.0 with no addend, a in src_fmt, rounded to fmt
-//   FCVT.F.I  |x| placed in the adder at V[164:101] (V[164] weighs 2^63), the product off
+//   FCVT.F.I  x placed in the adder at V[164:101] (V[164] weighs 2^63), the product off; a
+//             negative x goes through the subtraction path, which yields -x
 // Single-path datapath with the addend aligned in a window to the left of the product; five
 // stages E0..E4, response FMA_LAT = 5 cycles after the request.
 //
@@ -78,7 +79,9 @@ module tg_fpu_fma
   logic sp, sc, eff_sub;
   assign sp      = cvt_i ? x_neg : (ua.sign ^ ub.sign ^ neg_prod);
   assign sc      = uc.sign ^ neg_add;
-  assign eff_sub = has_c && (sp != sc);
+  // FCVT.F.I: a negative x enters the adder as itself (two's complement) and leaves as -x, through
+  // the effective-subtraction path, so it needs no negation of its own
+  assign eff_sub = cvt_i ? x_neg : (has_c && (sp != sc));
 
   // Special results, decided here and substituted in E4 (a kind and a sign).
   logic  prod_zero, c_zero, inf_x_zero, prod_inf, c_inf, nan_in, snan_in, inf_m_inf;
@@ -139,7 +142,7 @@ module tg_fpu_fma
     logic        spec_nv, spec_sign;
     logic        sp, sc, eff_sub, prod_sticky;
     logic        prod_zero, c_zero;
-    logic        cvt_i;         // FCVT.F.I: the adder takes |x| instead of the product and addend
+    logic        cvt_i;         // FCVT.F.I: the adder takes x instead of the product and addend
     logic [13:0] ep, shr, ec;   // signed (E0 -> E1)
     logic [13:0] e_top, lim;    // signed (from E1)
   } ctl_t;
@@ -244,14 +247,12 @@ module tg_fpu_fma
   logic [VW-1:0] cal;
   tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh, .cal);
 
-  // FCVT.F.I: |x| (negating in E1, beside the alignment). x_q is zero for every other operation,
-  // and the aligned addend is zero for FCVT.F.I (it has none), so the two are ORed.
-  logic [63:0] x_abs;
-  assign x_abs = c1_q.sp ? -x_q : x_q;
-
-  logic [VW:0] cop_q;           // addend operand of the adder: C or |x| (166 bits)
+  // FCVT.F.I: x itself at V[164:101], sign-extended into bit 165; E2 complements it for a negative
+  // x (eff_sub), so |S| = -x. x_q is zero for every other operation, and the aligned addend is zero
+  // for FCVT.F.I (it has none), so the two are ORed.
+  logic [VW:0] cop_q;           // addend operand of the adder: C or x (166 bits)
   always_ff @(posedge clk) begin
-    cop_q <= {1'b0, cal | {x_abs, {(VW-64){1'b0}}}};
+    cop_q <= {c1_q.cvt_i && c1_q.sp, cal | {x_q, {(VW-64){1'b0}}}};
     c2_q  <= c1x;
   end
 
