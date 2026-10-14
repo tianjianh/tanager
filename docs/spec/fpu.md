@@ -801,7 +801,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
     - a funnel shifter instead of the rotator and mask: +43.
     - All passed the equivalence bench (3 million vectors against the old ALU, with Xilinx's CARRY8 model for the explicit chain).
   - The divider's NM as two 64-bit shifts: +185. One shifter with the amount `nz ? 64 : ~(lzd − lza)` measured +58 in context, 17 below the adopted form (+75, verified end to end first): a candidate for the next pass.
-- **What is left:** P4 is 473 (st) and 487 (smt2) over its 6,800, and Execute 282 over its 7,610 in both. The big blocks are:
+- **What is left:** P4 is 457 (st) and 478 (smt2) over its 6,800 after step 3 (the history table above), and Execute 282 over its 7,610 in both. The big blocks are:
   - LUTRAM register files, sized by their read ports (2,568 and 1,143);
   - the FMA's adder tree and normaliser, which must finish within E2 and E3;
   - the divider's operand multiplexers into two 60 × 60 multipliers;
