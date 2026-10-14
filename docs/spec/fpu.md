@@ -459,6 +459,8 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - credits keep at most `FDIV_Q` divides and `FPI_Q` integer results in flight;
 - a divide does not retire early in a cycle when its thread is flushed. The flush is registered from an older commit, so nothing it kills can retire with it.
 
+Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) comes straight from the load result register, with no logic after it. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
+
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
 - **Rounding mode:** `frm_o[tid]` goes to decode, which resolves DYN and flags reserved modes. That is legal at decode because every CSR write ends in a flush. `fp_rm_resolve()` in `tg_fpcore_pkg` does the same check.
@@ -478,24 +480,34 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 
 ### Area and timing of the back end
 
-Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rtl/core/fpu/fpu_be.f`), v1 configuration (smt2), 2026-10-14:
+Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rtl/core/fpu/fpu_be.f`), v1 configuration (smt2), 2026-10-14. The complete `tg_fp_exec` rows are the final RTL, with the seed ROM on `tg_rom`:
 
 | Module | LUTs | of which LUTRAM | FFs | WNS | Budget line (docs/perf/budgets.md) |
 |---|---|---|---|---|---|
 | `tg_fprf` (3 operand ports, store data, 2 trace ports) | 1,158 | 880 | 0 | +1.64 ns | register files and bypass (plan §4.7: about 1.3K for the FP file) |
 | `tg_fcsr` (two harts) | 46 | 0 | 24 | +1.29 ns | ROB, commit, traps, CSRs |
 | `tg_fp_exec` without `tg_fpu` and `tg_fprf` (bypass, F0 stream, wakeups, divide table and queue, B1 queue) | 1,085 | 144 | 626 | — | FP bypass: register files and bypass; the rest: the FPU line's headroom (911 LUTs) |
-| `tg_fp_exec` complete (with `tg_fpu` and `tg_fprf`), smt2 | 8,312 | 1,080 | 3,954 | +0.05 ns | |
-| `tg_fp_exec` complete, st | 8,221 | 1,072 | 4,038 | +0.01 ns | |
+| `tg_fp_exec` complete (with `tg_fpu` and `tg_fprf`), smt2 | 8,293 | 1,080 | 4,065 | +0.02 ns (−0.09 ns with every input at 1.5 ns) | |
+| `tg_fp_exec` complete, st | 8,135 | 1,072 | 4,321 | +0.14 ns (+0.10 ns with every input at 1.5 ns) | |
 
 The per-module split comes from a synthesis that keeps the hierarchy. The trace ports cost 2 × 64 bits of LUTRAM per bank; without them `tg_fprf` would be about 850 LUTs.
 
-**Timing.** Every input is constrained to arrive 1.5 ns after the clock, as for the units.
-- The worst paths are within 0.1 ns of each other: the FMISC's FCVT.I.F path; the F1 load bypass into the FMA's E0 (`fld_data` and `fld_single`, which come from the load result register in the core, so 1.5 ns is pessimistic for them); the divider's S1 into the seed ROM; and the FMA's E2.
+**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
+- The core writes the load bank at WB from its load result register ([core-lsu.md](core-lsu.md)), so these ports leave a register. 1.0 ns leaves about 0.9 ns for routing across the core. The contract above requires it.
+- **With that constraint, at the final RTL:** +0.02 ns (smt2) and +0.14 ns (st).
+  - These figures re-time the routed designs of the 1.5 ns runs: each `fld_*` path gains exactly 0.5 ns, and the internal paths are unchanged.
+  - The worst paths become the FMISC's FCVT.I.F (smt2) and the FMA's E2 (st).
+  - The smt2 margin is thin. An implementation run with the constraint from the start was queued behind the full-device runs.
+- Under the uniform 1.5 ns, the worst path is the F1 load bypass into the FMA's E0: 11 LUT levels from `fld_data` through the bypass multiplexer and the FMA's classification of the addend. It moves with placement: smt2 +0.05 and −0.09 ns, st +0.01 and +0.10 ns. These are two runs each, before and after the last timing change and the ROM change, neither of which touches this path. Every failing path of the −0.09 ns run starts at `fld_*`; its worst internal path is +0.02 ns (the FMISC's FCVT.I.F).
 - Two changes made it close:
   - the F0 stream's data is selected by the registered slot owners only (the first version failed by 0.56 ns on flush and early-retirement inputs feeding the bypass);
-  - the divide claim and the F0 write enable use the registered retired bit only. This last change was synthesised after these runs, and only removes a path at +0.09 ns.
+  - the divide claim and the F0 write enable use the registered retired bit only, which removed a path at +0.09 ns.
 - The wakeup decoders cover only their own ID range (ROB or LLT columns): −116 LUTs.
+- **Flip-flops:** synthesis gives 3,886 (smt2) and 3,868 (st) in every run. The routed counts above are higher by 70 to 450, from register replication during implementation, and vary from run to run.
+- **Primitive check** (after synthesis):
+  - The seed ROM, both register-file banks (55 RAM64M8 each) and the queues pass.
+  - It flags the divider's output queue inside `tg_fp_exec`: 8 RAM32M16 found, 7 expected. P4 uses only 2 of the divider's tag bits, and synthesis keeps one primitive whose read bits are all unloaded.
+  - Implementation removes it: the routed queue has 7 (56 LUTRAM).
 
 ### Helpers (`tg_fpcore_pkg`)
 - `fp_box_load(data, single)`: the F1 value of FLW and FLD.
@@ -542,6 +554,8 @@ Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc
 | Divide/sqrt | smallest tiles in DSPs (+3); rounding sticky from the shift stages | 2,670 | +0.17 ns |
 | Divide/sqrt | 5·e2hi in the SMc pre-adder | **2,653** | +0.15 ns |
 | Radix-4 | rounding sticky from the shift stages (shared `tg_fpu_div_round`) | 1,714 → **1,617** | +0.59 ns |
+
+**Seed ROM on `tg_rom`** (DR-070, after the pass): the divider is 2,651 LUTs at +0.16 ns with one RAMB18. That is neutral, and the primitive check now counts the ROM instead of reporting a stray block RAM.
 
 **Measured but not adopted:**
 - **Area-optimised synthesis** (`AreaOptimized_high`, `TG_OOC_DIRECTIVE`): FMA 2,331 (−42, +0.25 ns), FMISC 738 (−125, +0.13 ns), divider 2,532 (−121, but −0.19 ns: fails). Worth applying to the FMA and FMISC as a per-module synthesis strategy in the full-chip flow (−167 LUTs), not to the divider.
@@ -637,7 +651,8 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K. The user kept it for its latency (D17). |
 | R5: FP→FP and integer→FP conversions on the FMA | 7,010 | −612 (FMISC −825, FMA +213), at most −0.09% IPC |
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
-| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` meets 200 MHz (+0.05 ns in smt2, +0.01 ns in st). |
+| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` meets 200 MHz with the load write from a register: +0.02 ns (smt2), +0.14 ns (st). |
+| Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
 
 **Dead ends:**
 - **A 4-cycle FMA:** misses 200 MHz by 1.88 ns.
@@ -658,6 +673,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - The first `tg_fp_exec` failed timing by 0.56 ns (smt2) and 0.80 ns (st), because flush and `fdiv_ret` chose the F0 data that feeds the bypass into the units' first stage.
   - Selecting the data by the registered slot owners alone fixed it.
   - `fdiv_ret` still reached the LUTRAM write enable at +0.09 ns, and was then removed from that path as well.
+- **Constrain each input by where it comes from.** With every input at 1.5 ns, the only failing paths of `tg_fp_exec` started at the load write, which leaves a register in the core, and they moved by ±0.1 ns between runs. Constraining those ports from the core's design (1.0 ns) fixed the measurement, not the RTL. The contract now states the assumption.
 - **A model of the partner needs as much care as the RTL.** Most failures were in the bench's model of the core, not in `tg_fp_exec`: registers recycled too early, retirement before producers, sources from the other thread, retirement in the flush cycle. Writing the core's side down first (the contract above, asserted in the RTL) settled each one quickly.
 - **Check every event at its exact cycle.** Each wakeup, F0 write and completion is checked in its own cycle, and each value through a trace port one cycle later. Errors were therefore reported where they happened, not when a later result went wrong.
 - **Operations:** jobs waiting on `tools/vivado_run.sh` lose free slots to fresh launches. Batching the OOC runs through one slot, on snapshots of the tree, ran reliably.
