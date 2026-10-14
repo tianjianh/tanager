@@ -442,10 +442,20 @@ module tg_csr
   assign cyc_wr = cm_csr && pw_v_q && pw_a_q == 12'hB00;
   assign ins_wr = cm_csr && pw_v_q && pw_a_q == 12'hB02;
   localparam int CNW = idx_w(COMMIT_WIDTH + 1);
+  // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
+  // flush is on, so nothing reads the counter, and pw_d_q holds (a flush keeps EX from writing it)
   tg_dsp_ctr #(.IW(1)) u_mcycle (
     .clk, .rst, .ld(cyc_wr), .d(pw_d_q), .inc(!mcountinhibit_q[0]), .q(mcycle_q));
   tg_dsp_ctr #(.IW(CNW)) u_minstret (
     .clk, .rst, .ld(ins_wr), .d(pw_d_q), .inc(mcountinhibit_q[2] ? '0 : CNW'(cm_n)), .q(minstret_q));
+`ifndef SYNTHESIS
+  logic ctr_wr_q;
+  always_ff @(posedge clk) begin
+    ctr_wr_q <= !rst && (cyc_wr || ins_wr);
+    if (!rst && ctr_wr_q)
+      assert (flush && !(cyc_wr || ins_wr)) else $error("tg_csr: a counter write not followed by its flush");
+  end
+`endif
 
   always_ff @(posedge clk) begin
     if (rst) begin
