@@ -372,6 +372,24 @@ The core track runs it for `st` and `st_w3` before each merge request (conventio
 
 **Results on 2026-10-13 with the test core:** `REGRESS PASS` for `st`, `st_w3`, `smt2` and `smt2_w3` at native latency, and for `st_w3` at 120 and 250 cycles with deferral, multi-slot trace and random probes (about 15 s per configuration). With the stub `tg_core` every test reports `HANG`, as it should.
 
+### 4.4 Soak (`tools/ci/soak.sh`)
+
+A continuous random campaign on main that uses the build host's idle threads (conventions §9). Its findings never gate a merge.
+- **Each round** runs constrained-random programs (`rv64imac`, §6.2) on the real core in `st`, `st_w3`, `smt2` and `smt2_w3` at once:
+  - every M3 switch of `tg_core_pkg` is on, as the core track tests them, and Spike uses the M3 configuration (§3.2, without F/D);
+  - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes), and a third also stall the trace (§2.9);
+  - timer interrupts are on in every other round;
+  - 48 programs per configuration per round, with new seeds each time.
+- **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
+- **Strictly in the background:**
+  - `nice 19` and idle I/O priority, at most 12 simulations, never Vivado;
+  - holds while the host drive C: has under 20 GB free, and before a round while more than 20 tasks are runnable (the tracks are busy).
+- **Output:** `$TANAGER_BUILD/soak/summary.md` lists main's commit, the programs run per day and configuration, and the failures to triage.
+  - Each failure keeps its program, the last 80 lines of its log and a one-line repro in `soak/fail/<time>-<cfg>-s<seed>/`; the newest 100 are kept.
+  - The loop's own log rotates at 1 MB.
+  - A finding becomes a core bug report only after the verification track confirms it; checker or harness problems are the verification track's to fix.
+- **Control:** `tools/ci/soak.sh start` (it runs under `nohup` from a private copy, so editing the script does not disturb it), `tools/ci/soak.sh stop` (stops it with everything it started), and `tools/ci/soak.sh status`.
+
 ## 5. The test core (`tg_tcore`)
 
 Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job is to exercise the harness and the checker before `tg_core` exists, and to keep doing so as a reference afterwards.
