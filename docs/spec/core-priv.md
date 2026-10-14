@@ -43,7 +43,7 @@ Mode changes happen only at commit: a trap, MRET or SRET retires, the CSR file s
 | `menvcfg` | FIOM and STCE writable (no Zicbo*, Svpbmt or Svadu yet) |
 | `senvcfg` | FIOM writable |
 | `stvec`, `sscratch`, `sepc`, `scause`, `stval` | As their M counterparts; `sepc` masks like `mepc` |
-| `satp` | MODE (Bare or Sv39; other modes leave MODE unchanged), ASID (16 bits), PPN (44 bits). Access in S with TVM is illegal. A write commits once the store queue has drained; one that changes the value flushes the TLBs (core-mmu.md). |
+| `satp` | MODE (Bare or Sv39), ASID (16 bits), PPN (44 bits). A write with any other MODE has no effect at all (privileged spec; Spike). Access in S with TVM is illegal. A write commits once the store queue has drained; one that changes the value flushes the TLBs (core-mmu.md). |
 | `stimecmp` | Sstc. Access below M needs `menvcfg.STCE` and the `time` permission (`mcounteren.TM`), else illegal |
 | `hpmcounter3–31` | Read 0 (Zihpm), `nondet`; gated by the enables |
 | `mhpmevent3–31` | Read 0 (no Sscofpmf yet) |
