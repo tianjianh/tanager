@@ -1,8 +1,9 @@
 #!/bin/bash
 # Synthesis test of the primitive check (tools/tcl/tg_prim_check.tcl), needs a Vivado slot:
 #   tests/unit/prim/synth/run.sh            (after `source tools/env.sh`)
-# Synthesises tg_prim_synth_top through fpga/budget/tcl/unit_synth.tcl and checks the report
-# after opt_design:
+# Synthesises tg_prim_synth_top through fpga/budget/tcl/unit_synth.tcl and checks the reports.
+# After synth_design: everything PRIM_OK, although u_a and u_b may still hold their unloaded
+# primitives (Vivado 2025.2 leaves 2 and 6; the check accepts the range). After opt_design:
 #   u_a  PRIM_OK, expected RAM32M16 1-2 (trimmed to 1 after opt_design), 14 of 20 read bits loaded
 #   u_b  PRIM_OK, expected RAM64M8 4-6 (trimmed to 4), 24 of 36 bits loaded
 #   u_c  PRIM_OK, RAMB36_equiv 6.5 (bytes of 8)
@@ -26,5 +27,10 @@ check '^PRIM_OK \S*u_d .*rom.*RAMB36_equiv 0.5' "u_d block ROM 0.5"
 check '^PRIM_OK \S*u_e .*rom.*distributed' "u_e distributed ROM"
 [ "$(grep -c '^PRIM_STRAY' "$r")" -ge 1 ] || { echo "  missing: the stray memory"; bad=1; }
 if grep -E '^PRIM_(FAIL|WARN)' "$r"; then bad=1; fi
+s="$RD/prim_synth.txt"
+for i in u_a u_b u_c u_d u_e; do
+  grep -E "^PRIM_OK \S*$i " "$s" > /dev/null || { echo "  missing after synth_design: $i PRIM_OK"; bad=1; }
+done
+if grep -E '^PRIM_(FAIL|WARN)' "$s"; then bad=1; fi
 if [ $bad = 0 ]; then echo "PASS prim synth"; else echo "FAIL prim synth ($r)"; exit 1; fi
 rm -rf "$RD/.Xil"
