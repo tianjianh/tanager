@@ -74,12 +74,21 @@ module tg_lsu
   output logic                         ld_cmp_valid,
   output robid_t                       ld_cmp_rob,
   output logic                         ld_cmp_mmio,
-  output logic [1:0]                   st_cmp_valid,
-  output robid_t [1:0]                 st_cmp_rob,
-  output logic [3:0]                   exc_valid,     // new load (AG), denied line (M2), MMIO load, store
-  output robid_t [3:0]                 exc_rob,
-  output logic [3:0][3:0]              exc_cause,
-  output logic [3:0][63:0]             exc_tval,
+  // AG reports, one per port ([0] a new load at AG, [1] a store address), for that port's ROB
+  // index: complete (stores), an exception (cause, tval), or a DTLB miss (replay at the head)
+  output logic [1:0]                   agr_valid,
+  output robid_t [1:0]                 agr_rob,
+  output logic [1:0]                   agr_cmp,
+  output logic [1:0]                   agr_exc,
+  output logic [1:0]                   agr_tlb,
+  output logic [1:0][3:0]              agr_cause,
+  output logic [1:0][63:0]             agr_tval,
+  output logic                         st_cmp_valid,  // a store's data arrives after its address
+  output robid_t                       st_cmp_rob,
+  output logic [1:0]                   exc_valid,     // a denied line (M2), an MMIO load or atomic
+  output robid_t [1:0]                 exc_rob,
+  output logic [1:0][3:0]              exc_cause,
+  output logic [1:0][63:0]             exc_tval,
   output logic                         replay_valid,
   output robid_t                       replay_rob,
   // From the ROB / commit
@@ -104,8 +113,6 @@ module tg_lsu
   input  pmp_d_t [15:0]                pmp_d,
   input  logic [2:0]                   pmp_al,
   input  logic                         tlb_flush,
-  output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
-  output robid_t [1:0]                 tlbm_rob,
   output logic                         hd_retry,      // the ROB head's DTLB miss resolves
   output logic                         hd_fault,
   output logic [3:0]                   hd_cause,
@@ -716,50 +723,48 @@ module tg_lsu
   assign replay_rob = lqr_rd[0];
 
   // ================= ROB reports =================
+  // AG reports: a new load's exception or DTLB miss; a store address's exception, DTLB miss, or
+  // completion when its data is present (or captured this cycle)
+  logic sa_cmp;
+  assign sa_cmp       = sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx));
+  assign agr_valid[0] = ld_ag_valid && !flush && (nl_exc || nl_tm);
+  assign agr_rob[0]   = ld_ag_pl.rob;
+  assign agr_cmp[0]   = 1'b0;
+  assign agr_exc[0]   = nl_exc;
+  assign agr_tlb[0]   = nl_tm;
+  assign agr_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
+  assign agr_tval[0]  = ld_ag_addr;
+  assign agr_valid[1] = sta_ag_valid && !flush && (sa_exc || sa_tm || sa_cmp);
+  assign agr_rob[1]   = sta_ag_pl.rob;
+  assign agr_cmp[1]   = sa_cmp;
+  assign agr_exc[1]   = sa_exc;
+  assign agr_tlb[1]   = sa_tm;
+  assign agr_cause[1] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
+                        sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
+  assign agr_tval[1]  = sta_ag_addr;
+  // A store whose data arrives after its address completes at the capture
+  assign st_cmp_valid = cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx];
+  assign st_cmp_rob   = sq_rob_q[cap_idx];
   always_comb begin
     exc_valid = '0; exc_rob = '0; exc_cause = '0; exc_tval = '0;
-    // loads: AG checks of a new load, or a denied line at M2
-    if (ld_ag_valid && !flush && nl_exc) begin
-      exc_valid[0] = 1'b1;
-      exc_rob[0]   = ld_ag_pl.rob;
-      exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
-      exc_tval[0]  = ld_ag_addr;
-    end
+    // a denied line at M2
     if (m2_v_q && m2_out == O_FAULT && !flush) begin
-      exc_valid[1] = 1'b1;
-      exc_rob[1]   = lqc_rd[0].rob;
-      exc_cause[1] = EXC_LACCESS;
-      exc_tval[1]  = lqc_rd[0].va;
+      exc_valid[0] = 1'b1;
+      exc_rob[0]   = lqc_rd[0].rob;
+      exc_cause[0] = EXC_LACCESS;
+      exc_tval[0]  = lqc_rd[0].va;
     end
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
-      exc_valid[2] = 1'b1;
-      exc_rob[2]   = lqc_rd[1].rob;
-      exc_cause[2] = EXC_LACCESS;
-      exc_tval[2]  = lqc_rd[1].va;
+      exc_valid[1] = 1'b1;
+      exc_rob[1]   = lqc_rd[1].rob;
+      exc_cause[1] = EXC_LACCESS;
+      exc_tval[1]  = lqc_rd[1].va;
     end else if (am_req && am_den) begin               // an atomic's line was denied
-      exc_valid[2] = 1'b1;
-      exc_rob[2]   = am_rob_q;
-      exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
-      exc_tval[2]  = sqva_rd[COMMIT_WIDTH];
-    end
-    if (sta_ag_valid && !flush && sa_exc) begin
-      exc_valid[3] = 1'b1;
-      exc_rob[3]   = sta_ag_pl.rob;
-      exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
-                     sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
-      exc_tval[3]  = sta_ag_addr;
-    end
-    // store completion: address arrives with the data present, or data arrives after the address
-    st_cmp_valid = '0;
-    st_cmp_rob   = '0;
-    if (sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx))) begin
-      st_cmp_valid[0] = 1'b1;
-      st_cmp_rob[0]   = sta_ag_pl.rob;
-    end
-    if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) begin
-      st_cmp_valid[1] = 1'b1;
-      st_cmp_rob[1]   = sq_rob_q[cap_idx];
+      exc_valid[1] = 1'b1;
+      exc_rob[1]   = am_rob_q;
+      exc_cause[1] = am_lr ? EXC_LACCESS : EXC_SACCESS;
+      exc_tval[1]  = sqva_rd[COMMIT_WIDTH];
     end
   end
 
@@ -784,10 +789,9 @@ module tg_lsu
   assign hd_tval  = hd_va;
 
   // A DTLB miss at AG: the ROB entry replays at the head; the walker prefetches the translation
-  assign tlbm_valid[0] = ld_ag_valid && !flush && nl_tm;
-  assign tlbm_rob[0]   = ld_ag_pl.rob;
-  assign tlbm_valid[1] = sta_ag_valid && !flush && sa_tm;
-  assign tlbm_rob[1]   = sta_ag_pl.rob;
+  logic [1:0] tlbm_v;
+  assign tlbm_v[0] = ld_ag_valid && !flush && nl_tm;
+  assign tlbm_v[1] = sta_ag_valid && !flush && sa_tm;
   logic        dpf_v_q;
   logic [63:0] dpf_va_q;
   acc_e        dpf_at_q;
@@ -840,11 +844,11 @@ module tg_lsu
       end
       if (pw_ack[2]) dpf_v_q <= 1'b0;
       if (!dpf_v_q || pw_ack[2]) begin
-        if (tlbm_valid[0]) begin
+        if (tlbm_v[0]) begin
           dpf_v_q  <= 1'b1;
           dpf_va_q <= ld_ag_addr;
           dpf_at_q <= ACC_R;
-        end else if (tlbm_valid[1]) begin
+        end else if (tlbm_v[1]) begin
           dpf_v_q  <= 1'b1;
           dpf_va_q <= sta_ag_addr;
           dpf_at_q <= sa_at;

@@ -47,16 +47,21 @@ module tg_rob
   input  logic                         ld_cmp,
   input  robid_t                       ld_rob,
   input  logic                         ld_mmio,
-  input  logic [1:0]                   st_cmp,
-  input  robid_t [1:0]                 st_rob,
-  input  logic [3:0]                   lx_valid,
-  input  robid_t [3:0]                 lx_rob,
-  input  logic [3:0][3:0]              lx_cause,
-  input  logic [3:0][63:0]             lx_tval,
+  input  logic [1:0]                   agr_valid,    // LSU AG reports (LD, STA): one index each
+  input  robid_t [1:0]                 agr_rob,
+  input  logic [1:0]                   agr_cmp,      // ... complete
+  input  logic [1:0]                   agr_exc,      // ... complete with an exception
+  input  logic [1:0]                   agr_tlb,      // ... a DTLB miss: replay + tlb
+  input  logic [1:0][3:0]              agr_cause,
+  input  logic [1:0][63:0]             agr_tval,
+  input  logic                         st_cmp,       // a store's data captured after its address
+  input  robid_t                       st_rob,
+  input  logic [1:0]                   lx_valid,     // LSU exceptions after AG (M2, MMIO/atomic)
+  input  robid_t [1:0]                 lx_rob,
+  input  logic [1:0][3:0]              lx_cause,
+  input  logic [1:0][63:0]             lx_tval,
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
-  input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports)
-  input  robid_t [1:0]                 tlbm_rob,
   input  logic                         hd_retry,
   input  logic                         hd_fault,
   input  logic [3:0]                   hd_cause,
@@ -387,10 +392,16 @@ module tg_rob
     if (br_valid && br_exc && (!ex_v || rob_older(br_rob, ex_r))) begin
       ex_v = 1'b1; ex_r = br_rob; ex_c = EXC_IMISALIGN; ex_t = br_tval;
     end
-    for (int i = 0; i < 4; i++) begin
+    if (agr_valid[0] && agr_exc[0] && (!ex_v || rob_older(agr_rob[0], ex_r))) begin
+      ex_v = 1'b1; ex_r = agr_rob[0]; ex_c = agr_cause[0]; ex_t = agr_tval[0];
+    end
+    for (int i = 0; i < 2; i++) begin
       if (lx_valid[i] && (!ex_v || rob_older(lx_rob[i], ex_r))) begin
         ex_v = 1'b1; ex_r = lx_rob[i]; ex_c = lx_cause[i]; ex_t = lx_tval[i];
       end
+    end
+    if (agr_valid[1] && agr_exc[1] && (!ex_v || rob_older(agr_rob[1], ex_r))) begin
+      ex_v = 1'b1; ex_r = agr_rob[1]; ex_c = agr_cause[1]; ex_t = agr_tval[1];
     end
   end
 
@@ -451,20 +462,24 @@ module tg_rob
           cmp_q[ld_rob[RIW-1:0]]  <= 1'b1;
           mmio_q[ld_rob[RIW-1:0]] <= ld_mmio;
         end
-        for (int i = 0; i < 2; i++) if (st_cmp[i]) cmp_q[st_rob[i][RIW-1:0]] <= 1'b1;
-        for (int i = 0; i < 4; i++) begin
+        if (st_cmp) cmp_q[st_rob[RIW-1:0]] <= 1'b1;
+        for (int i = 0; i < 2; i++) begin
           if (lx_valid[i]) begin
             cmp_q[lx_rob[i][RIW-1:0]] <= 1'b1;
             exc_q[lx_rob[i][RIW-1:0]] <= 1'b1;
           end
         end
-        if (replay_valid) rpl_q[replay_rob[RIW-1:0]] <= 1'b1;
         for (int i = 0; i < 2; i++) begin
-          if (tlbm_valid[i]) begin
-            rpl_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
-            tlb_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+          if (agr_valid[i]) begin
+            if (agr_cmp[i] || agr_exc[i]) cmp_q[agr_rob[i][RIW-1:0]] <= 1'b1;
+            if (agr_exc[i])               exc_q[agr_rob[i][RIW-1:0]] <= 1'b1;
+            if (agr_tlb[i]) begin
+              rpl_q[agr_rob[i][RIW-1:0]] <= 1'b1;
+              tlb_q[agr_rob[i][RIW-1:0]] <= 1'b1;
+            end
           end
         end
+        if (replay_valid) rpl_q[replay_rob[RIW-1:0]] <= 1'b1;
 
         // Oldest exception: the current register and this cycle's reports
         exr_v_q <= ex_v && !do_trap; exr_rob_q <= ex_r; exr_cause_q <= ex_c; exr_tval_q <= ex_t;
@@ -481,8 +496,8 @@ module tg_rob
 
   logic unused;
   assign unused = ^{hp[0].tid, hp[0].is_br, hp[0].lq, hp[CW-1].tid, hp[CW-1].is_br, hp[CW-1].lq,
-                    ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob, oth_rob[ROBW-1], tlbm_rob,
-                    br_rob[ROBW-1], lx_rob, fp_cmp_rob[ROBW-1]};
+                    ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob[ROBW-1], oth_rob[ROBW-1],
+                    br_rob[ROBW-1], fp_cmp_rob[ROBW-1]};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
