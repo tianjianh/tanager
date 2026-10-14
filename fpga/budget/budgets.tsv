@@ -6,10 +6,11 @@
 #   -     no budget for that metric (the value is reported and tracked, not judged)
 #   mode  enforce: over budget is a failure of the run; track: report only (no budget yet,
 #         or the configuration waits for a re-plan: the 3-wide builds, plan §8.5)
-# Budgets are per core and after the §8.5 levers. Target (D18, docs/perf/budgets.md §1.1): v1
-# (smt2) at 180 MHz and at most 95% of the XCK26, 111.3K LUTs (the S6 fill test closes v1 at
-# 95.3%). The core line holds the 180 MHz room; the unit lines are still the 200 MHz split
-# (103K at 88%), so a core whose units are all within budget has 4,120 LUTs to spare.
+# Budgets are per core and after the §8.5 levers: v1 (smt2) at 200 MHz and 88% of the XCK26
+# needs every unit at or under them (D18 step 1 works against these, DR-116; the 180 MHz
+# numbers are informational, docs/perf/budgets.md §1.1). v2 (smt2_w3) has its own lines at
+# 180 MHz (AR-9, DR-117: 49,740 per core from the 94.2% fill), tracked, not enforced, until
+# v2 work starts; fpu * applies to it too.
 # tg_core's instances combine some plan rows: ex = rf + int (register file, bypass, ALUs,
 # MUL/DIV), lsu_mmu = lsu + mmu, rob_csr = rob (ROB, commit, traps, CSRs, PMP); the
 # rf/int/lsu/mmu/rob rows keep the plan's split for reference.
@@ -26,7 +27,7 @@ rob	smt2	4840	-	-	36	1	enforce
 iq	st	6030	300	7540	0	0	enforce
 iq	smt2	8350	310	10000	0	0	enforce
 iq	st_w3	-	-	-	-	-	track
-iq	smt2_w3	-	-	-	-	-	track
+iq	smt2_w3	7240	-	-	0	0	track
 rf	*	4320	-	-	0	0	enforce
 int	*	3290	-	-	16	0	enforce
 lsu	st	5770	-	-	0	9	enforce
@@ -39,22 +40,22 @@ lsu_mmu	smt2	8560	-	-	0	11	enforce
 rob_csr	st	2160	-	-	18	1	enforce
 rob_csr	smt2	4840	-	-	36	1	enforce
 fe	st_w3	-	-	-	-	-	track
-fe	smt2_w3	-	-	-	-	-	track
+fe	smt2_w3	6480	-	-	-	30	track
 dec	st_w3	-	-	-	-	-	track
-dec	smt2_w3	-	-	-	-	-	track
+dec	smt2_w3	2340	-	-	-	0	track
 ren	st_w3	-	-	-	-	-	track
-ren	smt2_w3	-	-	-	-	-	track
+ren	smt2_w3	2330	-	-	-	0	track
 ex	st_w3	-	-	-	-	-	track
-ex	smt2_w3	-	-	-	-	-	track
+ex	smt2_w3	10750	-	-	16	0	track
 lsu_mmu	st_w3	-	-	-	-	-	track
-lsu_mmu	smt2_w3	-	-	-	-	-	track
+lsu_mmu	smt2_w3	8560	-	-	0	11	track
 rob_csr	st_w3	-	-	-	-	-	track
-rob_csr	smt2_w3	-	-	-	-	-	track
+rob_csr	smt2_w3	5240	-	-	36	1	track
 fpu	*	6800	-	4100	35	0.5	enforce
 fpu_r4	*	-	-	-	-	-	track
 core	st	38220	-	-	69	42.5	enforce
-core	smt2	50230	-	-	87	42.5	enforce
+core	smt2	46120	-	-	87	42.5	enforce
 core	st_w3	-	-	-	-	-	track
-core	smt2_w3	-	-	-	-	-	track
+core	smt2_w3	49740	-	-	87	42.5	track
 uncore	st	11300	-	-	-	18	enforce
 uncore	smt2	10800	-	-	-	18	enforce
