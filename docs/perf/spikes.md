@@ -28,7 +28,7 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 | S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
 
 **What changes for the plan.**
-- **The scheduler is the budget problem** (§10). It closes timing, but costs 1.9× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. With the FPU's 7.6K (D17), the projection puts v1 at 85–94% of the XCK26 (about 90%) after the identified levers, and v2 at 97–109%.
+- **The scheduler is the budget problem** (§10). It closes timing, but costs 2.2× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. With the FPU's 7.6K (D17), the projection puts v1 at 85–94% of the XCK26 (about 90%) after the identified levers, and v2 at 97–109%.
 - **The utilisation limit** (§8): v1 holds 200 MHz to about 88% fill. Plan with 85%, and treat 88–90% as the ceiling if M6 agrees.
 - **min/max leave the 1-cycle ALU** (§5.1). That gives the 2-ALU loop +0.47 ns and lets 3 ALUs close.
 - **The register file is cheaper than planned.** Explicit RAM64M8 gives 7 read ports per 64 × 64 bank in 64 primitives. Replicated banks for 3 ALUs cost +1.25K, not +2.7K, so R11 (shared ports) saves only 0.74K.
@@ -489,20 +489,20 @@ Named paths, slack in ns (the worst over both cores):
 
 | Structure | Plan §8.2 (ST) | st | smt2 | smt2_w3 |
 |---|---|---|---|---|
-| Scheduler: every issue queue, W, wakeup delay lines (S2) | 2.9K | **5.4K** | **8.9K** (MX) | **12.5K** (MX); 11.0K with 8-row ALU queues |
+| Scheduler: every issue queue, W, wakeup delay lines (S2) | 2.9K | **6.4K** (MX; 5.3K without) | **8.9K** (MX) | **12.5K** (MX); 11.0K with 8-row ALU queues |
 | Integer register file, bypass, ALUs (S3) | within RF + bypass 4.6K and integer execution 4.0K | 5.2K (RF 2.0K) | 5.2K | 8.7K (3 ALUs, replicated banks; RF 3.3K) |
 | Micro-BTB, I$, ITLB, pre-decode, compaction, instruction queue (S5) | within front end 6.1K | 2.5K | 2.6K | 2.5K (`st_w3`) |
 | Load path: AG, D$ ways and tags, DTLB, align (S4) | within LSU 6.4K | 2.4K | — | — |
 | FPU with Goldschmidt divide/sqrt (FPU track; kept, D17) | 4.7K | 7.6K | 7.6K | 7.6K |
 
-**The scheduler is the outlier, and the FPU the other overrun.** S3, S4 and S5 are within the plan's estimates; S3 at width 3 is under them (+3.5K for the third ALU, its bypass and the fourth bank, against 4.8K planned). The scheduler is 1.9× the plan at st, 3.1× at smt2 and 4.3× at smt2_w3:
+**The scheduler is the outlier, and the FPU the other overrun.** S3, S4 and S5 are within the plan's estimates; S3 at width 3 is under them (+3.5K for the third ALU, its bypass and the fourth bank, against 4.8K planned). The scheduler is 2.2× the plan at st (with MX, which st needs in the full chip, §8), 3.1× at smt2 and 4.3× at smt2_w3:
 - **Readiness** is an AND-OR over every column for every row: 40 rows × 104 columns at smt2, 46 × 120 at smt2_w3.
 - **The guard's busy vector** ORs every row's dependency bits per column. The alternatives cost more (§4.1).
 - **MX adds about 1.2K** (smt2) and is needed for timing at smt2 and smt2_w3. Its row-dependency bits are cleared per column but written per row, so the clear cannot use the flip-flops' reset and takes a LUT per bit.
 - **The plan's 2.9K** was an estimate for st. §6.5's +8.3K per core for SMT2 does not itemise the queues. If its +1.9K for sizes was meant to cover the wider columns, the plan's smt2 scheduler would be at most about 4.7K (2.9K × 104 / 64).
 
 **Overrun against the plan** (measured minus planned, per core):
-- st +2.5K;
+- st +3.5K (with MX);
 - smt2 +4.2K to +6.0K (the range is the question of what §6.5 covered);
 - smt2_w3 +6.5K to +8.3K, offset by −1.3K in S3.
 
