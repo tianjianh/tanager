@@ -50,7 +50,8 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
 `SLOTS` = 32 (more than the L2 bank's 24 MSHRs), `AXI_ID_W` = 6, `BEATS` = 4.
 
 ### Timing and area
-- About 600 LUTs and 1 BRAM36 per port (32 × 4 × 130 bits, plan §5.6: "1–2 BRAM36 per port").
+- About 600 LUTs and 1 BRAM36 per port (32 × 4 × 130 bits, plan §5.6: "1–2 BRAM36 per port"); measured 700–900 LUTs in the traffic-generator build.
+- Storage: the beat buffer in block RAM. The fields written once per burst and read by index (issue and arrival times, IDs, the ID → slot table, the issue-order queue, the per-ID AW times and the 32-entry B queue) are in LUTRAM through `tg_ram_lut`. The flags and beat counters with several writers are flip-flops.
 - The release decision is a 10-bit subtract-compare on the head slot only.
 
 ### Verification

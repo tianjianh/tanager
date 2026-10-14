@@ -65,13 +65,11 @@ module tg_axi_lat_inj
   // ---------------------------------------------------------------------------------------------
   // Read slots
   // ---------------------------------------------------------------------------------------------
+  // Flip-flops: the flags and counters several sources update. LUTRAM (tg_ram_lut, the
+  // explicit-primitive LUTRAM of plan §8.3): the fields written once per burst and read by index.
   logic [SLOTS-1:0]    free_q, done_q;
-  logic [15:0]         t_iss_q [SLOTS];
-  logic [15:0]         t_arr_q [SLOTS];
-  logic [AXI_ID_W-1:0] sid_q   [SLOTS];
   logic [BW-1:0]       slen_q  [SLOTS];     // beats - 1
   logic [BW-1:0]       scnt_q  [SLOTS];     // beats received
-  logic [SW-1:0]       id2slot_q [NID];
 
   logic [SW-1:0] alloc;
   always_comb begin
@@ -80,10 +78,10 @@ module tg_axi_lat_inj
   end
 
   // Issue-order queue of slots
-  logic [SW-1:0] oq_q [SLOTS];
   logic [SW:0]   oq_wp_q, oq_rp_q;
   wire           oq_empty = oq_wp_q == oq_rp_q;
-  wire [SW-1:0]  head     = oq_q[oq_rp_q[SW-1:0]];
+  logic [0:0][SW-1:0] oq_rd;
+  wire [SW-1:0]  head     = oq_rd[0];
 
   assign m_ar_o       = s_ar_i;
   assign m_ar_valid_o = s_ar_valid_i && |free_q;
@@ -92,8 +90,30 @@ module tg_axi_lat_inj
 
   // R beats from downstream into the slot buffer
   assign m_r_ready_o = 1'b1;
-  wire [SW-1:0] r_slot = id2slot_q[m_r_i.id];
+  logic [0:0][SW-1:0] id2slot_rd;
+  wire [SW-1:0] r_slot = id2slot_rd[0];
   wire          r_fire = m_r_valid_i;
+
+  // Per-slot fields and the ID -> slot map, written at AR time (arrival time at the last beat)
+  logic [1:0][15:0]          t_iss_rd;      // issue time at: head (due), r_slot (latency statistic)
+  logic [0:0][15:0]          t_arr_rd;      // arrival time at: head
+  logic [0:0][AXI_ID_W-1:0]  sid_rd;        // ID at: the slot whose beat is being released
+  logic [SW-1:0]             pend_slot_q;
+  tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(16), .NR(2)) u_tiss (
+    .clk, .we (ar_fire), .waddr (alloc), .wdata (now_q), .raddr ({r_slot, head}), .rdata (t_iss_rd)
+  );
+  tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(16), .NR(1)) u_tarr (
+    .clk, .we (r_fire && m_r_i.last), .waddr (r_slot), .wdata (now_q), .raddr (head), .rdata (t_arr_rd)
+  );
+  tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(AXI_ID_W), .NR(1)) u_sid (
+    .clk, .we (ar_fire), .waddr (alloc), .wdata (s_ar_i.id), .raddr (pend_slot_q), .rdata (sid_rd)
+  );
+  tg_ram_lut #(.DEPTH(NID), .WIDTH(SW), .NR(1)) u_id2slot (
+    .clk, .we (ar_fire), .waddr (s_ar_i.id), .wdata (alloc), .raddr (m_r_i.id), .rdata (id2slot_rd)
+  );
+  tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(SW), .NR(1)) u_oq (
+    .clk, .we (ar_fire), .waddr (oq_wp_q[SW-1:0]), .wdata (alloc), .raddr (oq_rp_q[SW-1:0]), .rdata (oq_rd)
+  );
 
   logic                 buf_we;
   logic [SW+BW-1:0]     buf_waddr, buf_raddr;
@@ -114,15 +134,14 @@ module tg_axi_lat_inj
   wire         bw_cap  = bw_rate_i != '0;
   wire         tok_ok  = !bw_cap || tokens_q >= 11'd256;
 
-  wire [15:0] el_iss = now_q - t_iss_q[head];
-  wire [15:0] el_arr = now_q - t_arr_q[head];
+  wire [15:0] el_iss = now_q - t_iss_rd[0];
+  wire [15:0] el_arr = now_q - t_arr_rd[0];
   wire        due    = mode_i ? (el_arr >= 16'(rd_delay_i)) : (el_iss >= 16'(rd_delay_i));
 
   logic          rel_q;              // releasing the head slot
   logic [BW-1:0] rel_beat_q;         // next beat to read
   logic          pend_q;             // a read issued last cycle, data now on buf_rdata
   logic          pend_last_q;
-  logic [SW-1:0] pend_slot_q;
 
   // Output buffer (2 entries)
   axi_r_t ob_in;
@@ -145,7 +164,7 @@ module tg_axi_lat_inj
   assign ob_in_v       = pend_q;
   always_comb begin
     ob_in      = '0;
-    ob_in.id   = sid_q[pend_slot_q];
+    ob_in.id   = sid_rd[0];
     ob_in.data = buf_rdata[AXI_DATA_W-1:0];
     ob_in.resp = buf_rdata[AXI_DATA_W +: 2];
     ob_in.last = pend_last_q;
@@ -161,23 +180,32 @@ module tg_axi_lat_inj
   assign m_w_valid_o  = s_w_valid_i;
   assign s_w_ready_o  = m_w_ready_i;
 
-  logic [15:0] wt_q [NID];
+  // AW time per write ID
+  logic [0:0][15:0] wt_rd;
+  tg_ram_lut #(.DEPTH(NID), .WIDTH(16), .NR(1)) u_wt (
+    .clk, .we (s_aw_valid_i && s_aw_ready_o), .waddr (s_aw_i.id), .wdata (now_q), .raddr (m_b_i.id), .rdata (wt_rd)
+  );
+  // B queue: 32 entries in LUTRAM, released in order once due (data appears the cycle after the push)
   typedef struct packed {
     axi_b_t      b;
     logic [15:0] t;      // reference time for the delay
   } bq_t;
-  bq_t        bq_in, bq_out;
-  logic       bq_out_v;
-  logic [5:0] bq_cnt;
-  logic       bq_in_r;
+  localparam int BQD = 32;
+  bq_t         bq_in, bq_out;
+  logic [5:0]  bq_wp_q, bq_rp_q;
+  logic [0:0][$bits(bq_t)-1:0] bq_rd;
+  wire         bq_out_v = bq_wp_q != bq_rp_q;
+  wire         bq_in_r  = (bq_wp_q - bq_rp_q) != 6'(BQD);
+  wire         bq_push  = m_b_valid_i && bq_in_r;
+  wire         bq_pop   = s_b_valid_o && s_b_ready_i;
   always_comb begin
     bq_in.b = m_b_i;
-    bq_in.t = mode_i ? now_q : wt_q[m_b_i.id];
+    bq_in.t = mode_i ? now_q : wt_rd[0];
   end
-  tg_fifo #(.T(bq_t), .DEPTH(32)) u_bq (
-    .clk, .rst, .in_valid (m_b_valid_i), .in_ready (bq_in_r), .in_data (bq_in),
-    .out_valid (bq_out_v), .out_ready (s_b_valid_o && s_b_ready_i), .out_data (bq_out), .count (bq_cnt)
+  tg_ram_lut #(.DEPTH(BQD), .WIDTH($bits(bq_t)), .NR(1)) u_bq (
+    .clk, .we (bq_push), .waddr (bq_wp_q[4:0]), .wdata (bq_in), .raddr (bq_rp_q[4:0]), .rdata (bq_rd)
   );
+  assign bq_out      = bq_rd[0];
   assign m_b_ready_o = bq_in_r;
   wire [15:0] el_b = now_q - bq_out.t;
   assign s_b_valid_o = bq_out_v && el_b >= 16'(wr_delay_i);
@@ -193,6 +221,8 @@ module tg_axi_lat_inj
       done_q        <= '0;
       oq_wp_q       <= '0;
       oq_rp_q       <= '0;
+      bq_wp_q       <= '0;
+      bq_rp_q       <= '0;
       rel_q         <= 1'b0;
       pend_q        <= 1'b0;
       tokens_q      <= 11'd1024;
@@ -201,16 +231,14 @@ module tg_axi_lat_inj
       st_lat_max_o  <= '0;
     end else begin
       now_q <= now_q + 1'b1;
+      if (bq_push) bq_wp_q <= bq_wp_q + 1'b1;
+      if (bq_pop)  bq_rp_q <= bq_rp_q + 1'b1;
       // allocation at AR
       if (ar_fire) begin
         free_q[alloc]        <= 1'b0;
         done_q[alloc]        <= 1'b0;
-        t_iss_q[alloc]       <= now_q;
-        sid_q[alloc]         <= s_ar_i.id;
         slen_q[alloc]        <= BW'(s_ar_i.len);
         scnt_q[alloc]        <= '0;
-        id2slot_q[s_ar_i.id] <= alloc;
-        oq_q[oq_wp_q[SW-1:0]] <= alloc;
         oq_wp_q              <= oq_wp_q + 1'b1;
       end
       // beats arriving
@@ -218,10 +246,9 @@ module tg_axi_lat_inj
         scnt_q[r_slot] <= scnt_q[r_slot] + 1'b1;
         if (m_r_i.last) begin
           done_q[r_slot]  <= 1'b1;
-          t_arr_q[r_slot] <= now_q;
           st_rd_count_o   <= st_rd_count_o + 1'b1;
-          st_lat_sum_o    <= st_lat_sum_o + 32'(now_q - t_iss_q[r_slot]);
-          if (now_q - t_iss_q[r_slot] > st_lat_max_o) st_lat_max_o <= now_q - t_iss_q[r_slot];
+          st_lat_sum_o    <= st_lat_sum_o + 32'(now_q - t_iss_rd[1]);
+          if (now_q - t_iss_rd[1] > st_lat_max_o) st_lat_max_o <= now_q - t_iss_rd[1];
         end
       end
       // release
@@ -245,10 +272,9 @@ module tg_axi_lat_inj
         tokens_q <= 11'd1024;
       end
     end
-    if (s_aw_valid_i && s_aw_ready_o) wt_q[s_aw_i.id] <= now_q;
   end
 
-  wire unused = ^{bq_cnt, ob_in_r};
+  wire unused = ^{ob_in_r};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) if (!rst) begin
