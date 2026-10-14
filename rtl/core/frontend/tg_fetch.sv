@@ -177,7 +177,6 @@ module tg_fetch
   assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
 
   // ---- I$ arrays ----
-  logic [WAYS-1:0][SETS-1:0] ival_q;
   logic                rf_we;
   logic [WAY_W-1:0]    rf_way;
   logic [ROW_W-1:0]    rf_row;
@@ -337,9 +336,9 @@ module tg_fetch
   assign f2_deliver = f2_valid_q && !f2_miss && !f2_wmiss && f3_accept;
   assign f2_hold    = f2_valid_q && !f2_miss && !f2_wmiss && !f3_accept;
   // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
-  // PMP descriptors.
-  logic f1_live;
-  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready && !pmp_busy;
+  // PMP descriptors or the valid-bit sweep.
+  logic f1_live, ivs_done;
+  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready && !pmp_busy && ivs_done;
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
   assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
@@ -361,6 +360,32 @@ module tg_fetch
   logic             rdone_d_q;          // ... in the previous cycle
   logic [PA_W-1:6]  rline_d_q;
 
+  // Valid bits: a LUTRAM row of WAYS bits per set (plan §8.3: no flip-flop arrays). Reads: the
+  // set F1 fetches, and the missed set (victim choice when the refill starts; the refill's
+  // read-modify-write when it ends). After reset and FENCE.I a sweep clears every set while
+  // F1 waits.
+  logic [1:0][SET_W-1:0] iv_ra;
+  logic [1:0][WAYS-1:0]  iv_rd;
+  logic                  iv_we;
+  logic [SET_W-1:0]      iv_wa;
+  logic [WAYS-1:0]       iv_wd;
+  logic [SET_W:0]        ivs_q;             // sweep: the next set to clear; done at SETS
+  assign ivs_done = ivs_q[SET_W];
+  assign iv_ra[0] = fpc_q[6 +: SET_W];
+  assign iv_ra[1] = (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
+  always_comb begin
+    iv_we = tag_we;
+    iv_wa = tag_set;
+    iv_wd = iv_rd[1] | (WAYS'(1) << rway_q);
+    if (!ivs_done) begin
+      iv_we = 1'b1;
+      iv_wa = ivs_q[SET_W-1:0];
+      iv_wd = '0;
+    end
+  end
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
+    .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
+
   // victim: first invalid way of the set, else round robin
   logic [WAY_W-1:0] victim;
   always_comb begin
@@ -368,7 +393,7 @@ module tg_fetch
     found = 1'b0;
     victim = rr_q;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !ival_q[w][miss_pa_q[6 +: SET_W]]) begin
+      if (!found && !iv_rd[1][w]) begin
         victim = WAY_W'(w);
         found = 1'b1;
       end
@@ -434,8 +459,8 @@ module tg_fetch
   end
 
   always_ff @(posedge clk) begin
-    if (rst || icinv) ival_q <= '0;
-    else if (tag_we) ival_q[rway_q][tag_set] <= 1'b1;
+    if (rst || icinv)  ivs_q <= '0;
+    else if (!ivs_done) ivs_q <= ivs_q + 1'b1;
     rdone_d_q <= tag_we && !rst;
     rline_d_q <= rline_q;
   end
@@ -524,7 +549,7 @@ module tg_fetch
         f2_slot_q  <= ub_slot;
         f2_tgt_q   <= pred_tgt;
         f2_tag_q   <= tag_rd;
-        for (int w = 0; w < WAYS; w++) f2_wv_q[w] <= ival_q[w][fpc_q[6 +: SET_W]];
+        f2_wv_q    <= iv_rd[0];
         if (f1_live) begin
           fpc_q <= (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
         end
