@@ -2,12 +2,16 @@
 #   tools/vivado_run.sh <run-dir> tests/unit/fpu/vivado/ooc.tcl <repo-root> <cfg> <top> [period-ns]
 #     [defines: A,B=1] [generics: STAGES=4,...]
 # Writes utilisation and timing reports into the run directory; no checkpoints are kept.
-# The memory-primitive check (tools/tcl/tg_prim_check.tcl) writes prim_synth.txt after synthesis.
+# The memory-primitive check (tools/tcl/tg_prim_check.tcl) writes prim_synth.txt after synthesis
+# and prim_opt.txt after opt_design, as the budget flow does.
 # With TG_OOC_HIER=1 in the environment it only synthesises, keeping the module hierarchy, and
 # reports utilisation per module (util_hier_synth.rpt): a breakdown, not a result.
 # TG_OOC_DIRECTIVE=<name> passes -directive <name> to synth_design (e.g. AreaOptimized_high).
 # TG_OOC_FILES="<list.f> ..." reads more file lists after rtl/rtl.f (paths relative to the root),
 # e.g. rtl/core/fpu/fpu_be.f until core.f includes it.
+# TG_OOC_IO="<script.tcl> ..." sources constraint scripts after the default I/O delays (paths
+# relative to the root), e.g. tests/unit/fpu/vivado/fp_exec_io.tcl for ports the core drives
+# from registers.
 # Inputs are constrained to arrive 1.5 ns after the clock (the core's operand bypass in front of
 # the FPU); outputs leave from registers and must reach the core's writeback within 1.0 ns.
 lassign $argv root cfg top period defines generics
@@ -36,6 +40,9 @@ create_clock -name clk -period $period [get_ports clk]
 set ins [get_ports -filter {DIRECTION == IN && NAME != clk}]
 set_input_delay -clock clk 1.5 $ins
 set_output_delay -clock clk 1.0 [get_ports -filter {DIRECTION == OUT}]
+if {[info exists ::env(TG_OOC_IO)]} {
+  foreach f $::env(TG_OOC_IO) { source [file join $root $f] }
+}
 report_utilization -file util_synth.rpt
 report_timing_summary -file timing_synth.rpt -max_paths 10
 source [file join $root tools tcl tg_prim_check.tcl]
@@ -51,6 +58,7 @@ if {$hier} {
   return
 }
 opt_design
+tg_prim_check -file prim_opt.txt -fail 0
 place_design
 phys_opt_design
 route_design
