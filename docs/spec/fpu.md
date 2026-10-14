@@ -527,7 +527,7 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
   - the divide claim and the F0 write enable use the registered retired bit only, which removed a path at +0.09 ns.
 - The wakeup decoders cover only their own ID range (ROB or LLT columns): −116 LUTs.
 - **Flip-flops:** synthesis gives 3,886 (smt2) and 3,868 (st) in every run. The routed counts above are higher by 70 to 450, from register replication during implementation, and vary from run to run.
-- **Primitive check** (after synthesis):
+- **Primitive check** (after synthesis; DR-110 has the spikes track make the check accept this queue):
   - The seed ROM, both register-file banks (55 RAM64M8 each) and the queues pass.
   - It flags the divider's output queue inside `tg_fp_exec`: 8 RAM32M16 found, 7 expected. P4 uses only 2 of the divider's tag bits, and synthesis keeps one primitive whose read bits are all unloaded.
   - Implementation removes it: the routed queue has 7 (56 LUTRAM).
@@ -606,7 +606,8 @@ Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc
 - **Divider.** The Goldschmidt unit costs 1,036 LUTs (and 29 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. The user kept it for v1 (decision D17, plan §4.12): `FDIV_RADIX4` = 0, and the radix-4 unit stays built and in the regression as the fallback.
 - **Levers:** R5 (−612 LUTs) and the LUT pass (−1,121 LUTs) are built; R4 is assessed and parked (section above).
 - **FMA** is 127 LUTs under its own estimate after the pass.
-- **Flip-flops and DSPs** are over their budget lines after the pass. The nightly synthesis at d04ae26 measures 3,733 FFs against 3,450, and 35 DSPs against 32. The pass moved the pipelines from shift-register LUTs into flip-flops, and the divider's smallest tiles into DSPs (+3). Whether to raise those lines is the coordinator's decision.
+- **Flip-flops and DSPs** went over their budget lines with the pass. The nightly synthesis at d04ae26 measures 3,733 FFs against 3,450, and 35 DSPs against 32. The pass moved the pipelines from shift-register LUTs into flip-flops, and the divider's smallest tiles into DSPs (+3).
+  - DR-110 raised the lines to 4,100 FFs and 35 DSPs: LUTs are the binding resource, and D18 favours trading LUTs for flip-flops and DSPs.
 
 **Fallbacks not needed:** an LZA in the FMA (E3 meets timing without it), `FMA_LAT` = 6, the radix-4 unit for timing.
 
@@ -710,7 +711,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 **Lessons:**
 - **Estimates made by deletion undercount.** R5's FMISC saving was estimated at 584 by zeroing the two results; it measured 825, because the shared shifter's operand selection and bit reversal also went.
 - **Single-run deltas of a few tens of LUTs are noise.** One change measured +126 and the next −302. The single packing adder measured +20 in sequence and −12 in an A/B at the final state. Judge small changes by A/B.
-- **LUT savings moved cost into flip-flops and DSPs.** Pipelines in flip-flops instead of shift-register LUTs, and the smallest divider tiles in DSPs, saved LUTs. The nightly synthesis at d04ae26 measures the FPU at 5,703 LUTs, but 3,733 FFs and 35 DSPs, against 3,450 and 32 on the budgets.tsv FPU line, which was set before the pass.
+- **LUT savings moved cost into flip-flops and DSPs.** Pipelines in flip-flops instead of shift-register LUTs, and the smallest divider tiles in DSPs, saved LUTs. The nightly synthesis at d04ae26 measures the FPU at 5,703 LUTs, but 3,733 FFs and 35 DSPs, against 3,450 and 32 on the budgets.tsv FPU line, which was set before the pass. DR-110 raised the lines to 4,100 and 35.
 - **Late control signals should gate write enables, not select data.**
   - The first `tg_fp_exec` failed timing by 0.56 ns (smt2) and 0.80 ns (st), because flush and `fdiv_ret` chose the F0 data that feeds the bypass into the units' first stage.
   - Selecting the data by the registered slot owners alone fixed it.
