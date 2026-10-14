@@ -1,7 +1,8 @@
 // Rounding stages of the divide/sqrt units (docs/spec/fpu.md, "Final rounding"): takes the
 // quotient or root at normal precision as (T, G, S) and returns the packed response.
-//   F1 (registered input): denormalise a division result below 2^emin by ks with sticky, the
-//      rounding decision, tininess after rounding, overflow
+//   F1 (registered input): denormalise a division result below 2^emin by ks (three radix-4
+//      stages, each ORing the bits it drops into the sticky), the rounding decision, tininess
+//      after rounding, overflow
 //   F2 (registered input, combinational output): pack {exponent - 1 + hidden, fraction} plus
 //      the increment, special results, NaN boxing
 // valid_o and resp_o appear two cycles after valid_i.
@@ -39,14 +40,22 @@ module tg_fpu_div_round
   logic [52:0] f2_t;
   logic        f2_inc, f2_inexact, f2_tiny, f2_ovf;
   always_ff @(posedge clk) begin
-    logic        s, gg, ss, tmax;
-    logic [53:0] xg;
+    logic        s, gg, ss, tmax, st1, st2, st3;
+    logic [53:0] x0, x1, x2, x3;
     logic [52:0] tt;
+    logic [5:0]  ks;
     s    = f1_info.sign;
-    xg   = {f1_t, f1_g} >> f1_info.ks;
-    tt   = xg[53:1];
-    gg   = xg[0];
-    ss   = f1_s || (({f1_t, f1_g} & ((54'(1) << f1_info.ks) - 54'd1)) != '0);
+    ks   = f1_info.ks;
+    x0   = {f1_t, f1_g};
+    x1   = x0 >> {ks[5:4], 4'b0};
+    st1  = |(x0 & ~({54{1'b1}} << {ks[5:4], 4'b0}));
+    x2   = x1 >> {ks[3:2], 2'b0};
+    st2  = |(x1 & ~({54{1'b1}} << {ks[3:2], 2'b0}));
+    x3   = x2 >> ks[1:0];
+    st3  = |(x2 & ~({54{1'b1}} << ks[1:0]));
+    tt   = x3[53:1];
+    gg   = x3[0];
+    ss   = f1_s || st1 || st2 || st3;
     tmax = f1_info.dbl ? (&f1_t[52:0]) : (&f1_t[23:0]);
     if (rst) f2_v <= 1'b0;
     else     f2_v <= f1_v;
