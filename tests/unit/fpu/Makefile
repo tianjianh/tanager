@@ -4,7 +4,8 @@
 #   make test-long       full regression: TestFloat level 1 and 2 for every operation (hours; -j8)
 #   make model           bit-accurate Goldschmidt model against SoftFloat
 #   make seed            regenerate the seed ROM (rtl/core/fpu/tg_fpu_seed_pkg.sv, seed_tab.h)
-#   make tb              build the Verilator testbench (CFG=st by default)
+#   make tb              build the Verilator testbench (CFG=st by default; DIV=gs|r4 picks the
+#                        Goldschmidt divider or the radix-4 fallback)
 # Builds go to $TANAGER_BUILD/<worktree>/fpu (conventions §1).
 
 ROOT     := $(abspath ../../..)
@@ -39,11 +40,21 @@ model: $(BUILD)/gs_check
 
 # ---- RTL testbench ----
 RTL_SRCS := $(shell sed -e 's://.*$$::' $(ROOT)/rtl/core/fpu/fpu.f | grep -v '^\s*$$' | sed -e 's:^:$(ROOT)/rtl/core/fpu/:')
+DIV      ?= gs
+ifeq ($(DIV),r4)
+VDIR     := $(BUILD)/obj_$(CFG)_r4
+DIV_G    := -GDIV_RADIX4=1
+DIV_LAT  := FDIV_R4_LAT_S FDIV_R4_LAT_D FSQRT_R4_LAT_S FSQRT_R4_LAT_D
+else
 VDIR     := $(BUILD)/obj_$(CFG)
+DIV_G    := -GDIV_RADIX4=0
+DIV_LAT  := FDIV_GS_LAT_S FDIV_GS_LAT_D FSQRT_GS_LAT_S FSQRT_GS_LAT_D
+endif
 # The testbench checks latencies against the constants the core uses (tg_fpu_pkg).
-PKG_LAT  := $(foreach c,FMA_LAT FMISC_LAT FDIV_LAT_S FDIV_LAT_D FSQRT_LAT_S FSQRT_LAT_D,\
-              -D$(c)=$(shell sed -n 's/.*localparam int $(c) *= *\([0-9]*\);.*/\1/p' $(ROOT)/rtl/common/tg_fpu_pkg.sv))
-VFLAGS   := --cc --exe --build -j $(JOBS) -O3 --assert -Wall -Wno-fatal --top-module tg_fpu \
+pkg_int   = $(shell sed -n 's/.*localparam int $(1) *= *\([0-9]*\);.*/\1/p' $(ROOT)/rtl/common/tg_fpu_pkg.sv)
+PKG_LAT  := -DFMA_LAT=$(call pkg_int,FMA_LAT) -DFMISC_LAT=$(call pkg_int,FMISC_LAT) \
+            $(join -DFDIV_LAT_S= -DFDIV_LAT_D= -DFSQRT_LAT_S= -DFSQRT_LAT_D=,$(foreach c,$(DIV_LAT),$(call pkg_int,$(c))))
+VFLAGS   := --cc --exe --build -j $(JOBS) -O3 --assert -Wall -Wno-fatal --top-module tg_fpu $(DIV_G) \
             -I$(ROOT)/rtl/common -I$(ROOT)/rtl/core/fpu $(ROOT)/rtl/lint.vlt \
             -CFLAGS "-O2 -std=c++17 -I$(CURDIR) -I$(SF_INC) $(PKG_LAT)" -LDFLAGS "$(SF_LIB)" \
             -MAKEFLAGS "OPT_FAST=-O3 OPT_GLOBAL=-O3 OPT_SLOW=-O1" --Mdir $(VDIR) -o tb_fpu

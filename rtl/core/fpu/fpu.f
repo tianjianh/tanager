@@ -9,5 +9,7 @@ tg_fpu_fma_norm.sv
 tg_fpu_fma.sv
 tg_fpu_seed_rom.sv
 tg_fpu_div_mul.sv
+tg_fpu_div_round.sv
 tg_fpu_div.sv
+tg_fpu_div_r4.sv
 tg_fpu.sv

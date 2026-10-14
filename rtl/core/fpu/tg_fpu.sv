@@ -2,7 +2,10 @@
 // Owned by the FPU track. The three units are independent; this module only instantiates them.
 module tg_fpu
   import tg_fpu_pkg::*;
-(
+#(
+  // 0: Goldschmidt divide/sqrt (tg_fpu_div); 1: the radix-4 fallback (tg_fpu_div_r4)
+  parameter bit DIV_RADIX4 = FDIV_RADIX4
+) (
   input  logic       clk,
   input  logic       rst,
 
@@ -39,10 +42,18 @@ module tg_fpu
     .valid_o (fmisc_valid_o), .resp_o (fmisc_resp_o)
   );
 
-  tg_fpu_div u_div (
-    .clk, .rst,
-    .valid_i (fdiv_valid_i), .req_i (fdiv_req_i), .ready_o (fdiv_ready_o),
-    .valid_o (fdiv_valid_o), .resp_o (fdiv_resp_o), .ready_i (fdiv_ready_i)
-  );
+  if (DIV_RADIX4) begin : g_div_r4
+    tg_fpu_div_r4 u_div (
+      .clk, .rst,
+      .valid_i (fdiv_valid_i), .req_i (fdiv_req_i), .ready_o (fdiv_ready_o),
+      .valid_o (fdiv_valid_o), .resp_o (fdiv_resp_o), .ready_i (fdiv_ready_i)
+    );
+  end else begin : g_div_gs
+    tg_fpu_div u_div (
+      .clk, .rst,
+      .valid_i (fdiv_valid_i), .req_i (fdiv_req_i), .ready_o (fdiv_ready_o),
+      .valid_o (fdiv_valid_o), .resp_o (fdiv_resp_o), .ready_i (fdiv_ready_i)
+    );
+  end
 
 endmodule

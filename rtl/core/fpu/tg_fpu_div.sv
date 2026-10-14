@@ -29,25 +29,6 @@ module tg_fpu_div
   localparam logic [59:0] ONE = 60'(1) << QF;
   localparam int OUT_DEPTH = 4;
 
-  typedef enum logic [1:0] { SP_NONE, SP_NAN, SP_INF, SP_ZERO } spec_e;
-
-  typedef struct packed {
-    logic        sqrt;
-    logic        dbl;
-    rm_e         rm;
-    logic [FPU_TAG_W-1:0] tag;
-    spec_e       spec;
-    logic        nv, dz;       // flags of a special result
-    logic        sign;
-    logic [12:0] eq;           // signed: the result is q * 2^eq with q in [1, 2)
-    // derived from eq in S3 for the rounding stages
-    logic        sub;          // eq < emin: denormalise by ks
-    logic [5:0]  ks;
-    logic [10:0] fbase;        // exponent field - 1 (normal) or 0 (subnormal)
-    logic        emin_m1;      // eq = emin - 1: tininess depends on rounding at full precision
-    logic        big;          // eq > emax: overflow
-    logic        at_emax;      // eq = emax: overflow if rounding carries out
-  } info_t;
 
   // ------------------------------------------------------------------------------------------
   // S1: unpack, normalise, specials, seed-ROM address
@@ -74,29 +55,8 @@ module tg_fpu_div
   assign ma = ua.sig << lza;
   assign mb = ub.sig << lzb;
 
-  info_t s1_info;
-  always_comb begin
-    s1_info      = '0;
-    s1_info.sqrt = s1_sqrt;
-    s1_info.dbl  = s1_dbl;
-    s1_info.rm   = s1_q.rm;
-    s1_info.tag  = s1_q.tag;
-    s1_info.sign = s1_sqrt ? 1'b0 : (ua.sign ^ ub.sign);
-    s1_info.spec = SP_NONE;
-    if (s1_sqrt) begin
-      if (ua.nan)                  begin s1_info.spec = SP_NAN;  s1_info.nv = ua.snan; end
-      else if (ua.zero)            begin s1_info.spec = SP_ZERO; s1_info.sign = ua.sign; end
-      else if (ua.sign)            begin s1_info.spec = SP_NAN;  s1_info.nv = 1'b1; end
-      else if (ua.inf)             begin s1_info.spec = SP_INF; end
-    end else begin
-      if (ua.nan || ub.nan)        begin s1_info.spec = SP_NAN;  s1_info.nv = ua.snan || ub.snan; end
-      else if ((ua.inf && ub.inf) || (ua.zero && ub.zero))
-                                   begin s1_info.spec = SP_NAN;  s1_info.nv = 1'b1; end
-      else if (ua.inf)             begin s1_info.spec = SP_INF; end
-      else if (ub.zero)            begin s1_info.spec = SP_INF;  s1_info.dz = 1'b1; end
-      else if (ua.zero || ub.inf)  begin s1_info.spec = SP_ZERO; end
-    end
-  end
+  div_info_t s1_info;
+  assign s1_info = div_info_init(s1_sqrt, s1_dbl, s1_q.rm, s1_q.tag, ua, ub);
 
   // Exponent fields after normalisation (double bias, may go below 1)
   logic [12:0] s1_ea, s1_eb;
@@ -111,7 +71,7 @@ module tg_fpu_div
   tg_fpu_seed_rom u_rom (.clk, .addr(rom_addr), .data(rom_data));
 
   logic        s2_v;
-  info_t       s2_info;
+  div_info_t       s2_info;
   logic [52:0] s2_ma, s2_mb;
   logic [12:0] s2_ea, s2_eb;
   logic        s2_odd;
@@ -126,7 +86,7 @@ module tg_fpu_div
   // S2: scaling (q and the root in [1, 2)) and the result exponent
   // ------------------------------------------------------------------------------------------
   logic        lt;
-  info_t       s2_info_x;
+  div_info_t       s2_info_x;
   logic [59:0] s2_opa, s2_opb;
   always_comb begin
     logic signed [12:0] eu;
@@ -144,7 +104,7 @@ module tg_fpu_div
   end
 
   logic        s3_v;
-  info_t       s3_info;
+  div_info_t       s3_info;
   logic [59:0] s3_opa, s3_opb;
   always_ff @(posedge clk) begin
     if (rst) s3_v <= 1'b0;
@@ -166,24 +126,11 @@ module tg_fpu_div
   end
 
   logic        s4_v;
-  info_t       s4_info;
+  div_info_t       s4_info;
   logic [59:0] s4_opa, s4_opb;
   logic [9:0]  s4_seed;
-  info_t s3_info_x;
-  always_comb begin
-    logic signed [12:0] eq, emin, emax, k;
-    s3_info_x = s3_info;
-    eq   = $signed(s3_info.eq);
-    emin = s3_info.dbl ? -13'sd1022 : -13'sd126;
-    emax = s3_info.dbl ? 13'sd1023 : 13'sd127;
-    k    = emin - eq;
-    s3_info_x.sub     = eq < emin;
-    s3_info_x.ks      = (eq >= emin) ? 6'd0 : (k > 13'sd55) ? 6'd55 : 6'(k);
-    s3_info_x.fbase   = (eq < emin) ? 11'd0 : 11'(eq + emax - 13'sd1);
-    s3_info_x.emin_m1    = eq == emin - 13'sd1;
-    s3_info_x.big     = eq > emax;
-    s3_info_x.at_emax = eq == emax;
-  end
+  div_info_t s3_info_x;
+  assign s3_info_x = div_info_derive(s3_info);
   always_ff @(posedge clk) begin
     if (rst) s4_v <= 1'b0;
     else     s4_v <= s3_v;
@@ -246,7 +193,7 @@ module tg_fpu_div
   // Ring
   // ------------------------------------------------------------------------------------------
   typedef struct packed {
-    info_t       info;
+    div_info_t       info;
     logic [2:0]  rnd;          // round in the multipliers
     logic [59:0] opa;          // A or x
     logic [59:0] opb;          // division: mb; square root: q1 from round 3
@@ -270,11 +217,11 @@ module tg_fpu_div
     return sqrt ? (dbl ? 3'd5 : 3'd3) : (dbl ? 3'd4 : 3'd3);
   endfunction
 
-  // Output credits: queue entries plus the results in F1 and F2.
+  // Output credits: queue entries plus the results in the rounding stages.
   logic [2:0] q_count;
-  logic       f1_v, f2_v;
+  logic       rd1_v, rd2_v;
   logic       credit_ok;
-  assign credit_ok = (32'(q_count) + 32'(f1_v) + 32'(f2_v)) < OUT_DEPTH;
+  assign credit_ok = (32'(q_count) + 32'(rd1_v) + 32'(rd2_v)) < OUT_DEPTH;
 
   logic fin, to_f0, cont;
   assign fin   = r4_v && (r4_q.rnd == n_last(r4_q.info.sqrt, r4_q.info.dbl));
@@ -369,9 +316,6 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // F0: remainder sign and zero test; (T, G, S) at normal precision
   // ------------------------------------------------------------------------------------------
-  info_t       f1_info;
-  logic [52:0] f1_t;
-  logic        f1_g, f1_s;
   logic [95:0] rem;
   logic [59:0] f;
   always_comb begin
@@ -380,74 +324,25 @@ module tg_fpu_div
     grid = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
     f    = rem[95] ? r4_q.c - grid : r4_q.c;
   end
-  always_ff @(posedge clk) begin
-    if (rst) f1_v <= 1'b0;
-    else     f1_v <= to_f0;
-    f1_info <= r4_q.info;
-    f1_t    <= r4_q.info.dbl ? f[58:6] : {29'b0, f[58:35]};
-    f1_g    <= r4_q.info.dbl ? f[5] : f[34];
-    f1_s    <= rem != '0;
-  end
 
   // ------------------------------------------------------------------------------------------
-  // F1: denormalise (division below 2^emin), rounding decision, flags
+  // F1, F2: rounding (tg_fpu_div_round)
   // ------------------------------------------------------------------------------------------
-  info_t       f2_info;
-  logic [52:0] f2_t;
-  logic        f2_inc, f2_inexact, f2_tiny, f2_ovf;
+  logic      rd_v;
+  fpu_resp_t rd_resp;
+  tg_fpu_div_round u_round (
+    .clk, .rst,
+    .valid_i (to_f0),
+    .info_i  (r4_q.info),
+    .t_i     (r4_q.info.dbl ? f[58:6] : {29'b0, f[58:35]}),
+    .g_i     (r4_q.info.dbl ? f[5] : f[34]),
+    .s_i     (rem != '0),
+    .valid_o (rd_v),
+    .resp_o  (rd_resp)
+  );
   always_ff @(posedge clk) begin
-    logic        s, gg, ss, tmax;
-    logic [53:0] xg;
-    logic [52:0] tt;
-    s    = f1_info.sign;
-    xg   = {f1_t, f1_g} >> f1_info.ks;
-    tt   = xg[53:1];
-    gg   = xg[0];
-    ss   = f1_s || (({f1_t, f1_g} & ((54'(1) << f1_info.ks) - 54'd1)) != '0);
-    tmax = f1_info.dbl ? (&f1_t[52:0]) : (&f1_t[23:0]);
-    if (rst) f2_v <= 1'b0;
-    else     f2_v <= f1_v;
-    f2_info    <= f1_info;
-    f2_t       <= tt;
-    f2_inc     <= round_up(f1_info.rm, s, tt[0], gg, ss);
-    f2_inexact <= gg || ss;
-    // tiny after rounding: below 2^emin unless rounding to full precision reaches it
-    f2_tiny    <= f1_info.sub && !(f1_info.emin_m1 && tmax && round_up(f1_info.rm, s, 1'b1, f1_g, f1_s));
-    // overflow: exponent above emax, or rounding carries out of the largest binade
-    f2_ovf     <= f1_info.big || (f1_info.at_emax && tmax && round_up(f1_info.rm, s, f1_t[0], f1_g, f1_s));
-  end
-
-  // ------------------------------------------------------------------------------------------
-  // F2: pack {exponent - 1 + hidden, fraction} + increment (field 0 when subnormal), specials
-  // ------------------------------------------------------------------------------------------
-  fpu_resp_t f2_resp;
-  always_comb begin
-    logic dbl, s;
-    logic [62:0] pk_d;
-    logic [30:0] pk_s;
-    dbl  = f2_info.dbl;
-    s    = f2_info.sign;
-    pk_d = ({52'b0, f2_info.fbase} << 52) + {10'b0, f2_t} + 63'(f2_inc);
-    pk_s = ({20'b0, f2_info.fbase} << 23) + {7'b0, f2_t[23:0]} + 31'(f2_inc);
-    f2_resp.tag = f2_info.tag;
-    f2_resp.int_dest = 1'b0;
-    f2_resp.fflags = '0;
-    unique case (f2_info.spec)
-      SP_NAN:  begin f2_resp.result = cnan(dbl); f2_resp.fflags[FL_NV] = f2_info.nv; end
-      SP_INF:  begin f2_resp.result = inf_value(dbl, s); f2_resp.fflags[FL_DZ] = f2_info.dz; end
-      SP_ZERO: f2_resp.result = zero_value(dbl, s);
-      default: begin
-        if (f2_ovf) begin
-          f2_resp.result = ovf_value(dbl, s, ovf_to_inf(f2_info.rm, s));
-          f2_resp.fflags[FL_OF] = 1'b1;
-          f2_resp.fflags[FL_NX] = 1'b1;
-        end else begin
-          f2_resp.result = dbl ? {s, pk_d} : box_s({s, pk_s});
-          f2_resp.fflags[FL_NX] = f2_inexact;
-          f2_resp.fflags[FL_UF] = f2_tiny && f2_inexact;
-        end
-      end
-    endcase
+    if (rst) begin rd1_v <= 1'b0; rd2_v <= 1'b0; end
+    else     begin rd1_v <= to_f0; rd2_v <= rd1_v; end
   end
 
   // ------------------------------------------------------------------------------------------
@@ -456,7 +351,7 @@ module tg_fpu_div
   logic q_in_ready;
   tg_fifo #(.T(fpu_resp_t), .DEPTH(OUT_DEPTH)) u_outq (
     .clk, .rst,
-    .in_valid (f2_v), .in_ready (q_in_ready), .in_data (f2_resp),
+    .in_valid (rd_v), .in_ready (q_in_ready), .in_data (rd_resp),
     .out_valid (valid_o), .out_ready (ready_i), .out_data (resp_o),
     .count (q_count)
   );
@@ -464,9 +359,7 @@ module tg_fpu_div
   logic unused;
   assign unused = ^{s1_q.c, s1_q.src_fmt, s1_q.ifmt, ua.inf, ub.sub, ua.sub, p1[119:118],
                     p2[119:118], p2[57:0], q_in_ready, r2_q.info, r3_q.rnd, f[59], f[4:0],
-                    f2_info.sqrt, f2_info.eq, f2_info.sub, f2_info.ks, f2_info.emin_m1, f2_info.big,
-                    f2_info.at_emax, f1_info.eq, f1_info.fbase, f1_info.nv, f1_info.dz, f1_info.spec,
-                    f1_info.tag, f1_info.sqrt, r4_q.info.eq};
+                    r4_q.info.eq};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
@@ -477,7 +370,8 @@ module tg_fpu_div
           else $error("tg_fpu_div: operation %0d belongs to another unit", req_i.op);
       end
       assert (!(s4_v && cont)) else $error("tg_fpu_div: slot collision");
-      assert (!f2_v || q_in_ready) else $error("tg_fpu_div: output queue overflow");
+      assert (!rd_v || q_in_ready) else $error("tg_fpu_div: output queue overflow");
+      assert (rd_v == rd2_v) else $error("tg_fpu_div: credit tracking out of step");
     end
   end
 `endif

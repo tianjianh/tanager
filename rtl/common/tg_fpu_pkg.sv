@@ -5,11 +5,24 @@ package tg_fpu_pkg;
 
   localparam int FMA_LAT    = 5;   // fixed, fully pipelined (plan §4.12; 4 if synthesis allows)
   localparam int FMISC_LAT  = 2;   // fixed, fully pipelined
-  localparam int FDIV_LAT_S = 19;  // Goldschmidt (docs/spec/fpu.md): minimum latency, from
-  localparam int FDIV_LAT_D = 23;  //   acceptance to fdiv_valid_o, when the output is not blocked
-  localparam int FSQRT_LAT_S = 19;
-  localparam int FSQRT_LAT_D = 27;
-  localparam int FDIV_II    = 4;   // steady-state FDIV.D rate; any free slot accepts (fdiv_ready_o)
+  // Divide/sqrt (docs/spec/fpu.md): the Goldschmidt unit, or the radix-4 area fallback when
+  // FDIV_RADIX4 = 1. Latency is the minimum, from acceptance to fdiv_valid_o.
+  localparam bit FDIV_RADIX4 = 1'b0;
+  localparam int FDIV_GS_LAT_S  = 19;
+  localparam int FDIV_GS_LAT_D  = 23;
+  localparam int FSQRT_GS_LAT_S = 19;
+  localparam int FSQRT_GS_LAT_D = 27;
+  localparam int FDIV_R4_LAT_S  = 18;
+  localparam int FDIV_R4_LAT_D  = 33;
+  localparam int FSQRT_R4_LAT_S = 18;
+  localparam int FSQRT_R4_LAT_D = 33;
+  localparam int FDIV_LAT_S  = FDIV_RADIX4 ? FDIV_R4_LAT_S  : FDIV_GS_LAT_S;
+  localparam int FDIV_LAT_D  = FDIV_RADIX4 ? FDIV_R4_LAT_D  : FDIV_GS_LAT_D;
+  localparam int FSQRT_LAT_S = FDIV_RADIX4 ? FSQRT_R4_LAT_S : FSQRT_GS_LAT_S;
+  localparam int FSQRT_LAT_D = FDIV_RADIX4 ? FSQRT_R4_LAT_D : FSQRT_GS_LAT_D;
+  // Goldschmidt: a new operation whenever one of four slots is free (steady-state FDIV.D rate
+  // 1 per 4 cycles); radix-4: one operation at a time.
+  localparam int FDIV_II    = FDIV_RADIX4 ? FDIV_R4_LAT_D : 4;
 
   typedef enum logic [4:0] {
     // FMA pipe
