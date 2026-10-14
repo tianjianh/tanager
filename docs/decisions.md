@@ -150,6 +150,10 @@ Dates are 2026, US Pacific.
 | DR-083 | 10-14 | **Rejected by the rule:** R8, R11, R13, readiness banked by thread, ALU queues 10 → 8 (v1), the LQ/SQ/STA/LLT cuts, and ROB 64 with wakeup tags | rejected | rule | area_recovery.md |
 | DR-084 | 10-14 | v2 levers R12 (asymmetric third decoder) and a completion buffer of 8 | reserve (v2) | coord (D18) | ledger |
 | DR-085 | 10-13 | L2 MSHRs stay at 24 per bank; fewer would cost IPC | approved | coord (D18) | — |
+| DR-116 | 10-14 | AR-8. The measured RTL puts v1 at ≈155.7K LUTs, against 103K (200 MHz) and 110.3K (180 MHz), so the gap is implementation. D18 step 1, no-IPC work, continues unit by unit against the per-unit budgets before any clock or reserve decision. The clock is worth 7.2K and the reserve about 2.2K per SoC. | approved | coord (smt2-study's AR-7) | area_recovery.md §7 |
+| DR-117 | 10-14 | AR-9: v2's per-core budget is about 49.7K at 180 MHz, from the 94.2% fill with the uncore on budget | approved | coord | area_recovery.md §7 |
+| DR-118 | 10-14 | Radix-4 leaves the reserve. Re-measured after the FPU's no-IPC pass, it saves only 1,036 LUTs, and it fails the reverse rule (2.34% IPC per 1K LUTs against a 2.19% limit). It touches the user's D17 fallback, so the user decides. | pending | user | area_recovery.md §7; D17 |
+| DR-119 | 10-14 | Floorplan P4 (`tg_fp_exec`) into two stacked clock regions per core in the full-chip flow. It then closes 200 MHz at default effort: +0.113 ns smt2, +0.100 ns st. **Parked:** the E2 restructure (+0.21 ns on the FMA, +118 LUTs), on its own branch. | approved | coord (FPU track's recommendation) | fpu.md |
 
 ## 7. Timing and implementation
 

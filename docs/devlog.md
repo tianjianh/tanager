@@ -42,6 +42,8 @@ Times are US Pacific.
 | 10-14 05:07 | **FP back end merged** (`tg_fprf`, `tg_fp_exec`, `tg_fcsr`). Its interface was agreed directly between the FPU and core tracks (DR-111). `tg_fp_exec` is 8,293 LUTs at smt2 and meets 200 MHz by +0.02 ns. Its long smt2 run covered 7.2M random operations with 99K flushes, and each of three deliberately broken copies of the RTL was caught. The FPU's LUT pass moved cost into flip-flops and DSPs, so those lines were raised (DR-110). |
 | 10-14 05:40 | **AR-5, first fill result at 180 MHz:** v2 with wakeup tags closes at 94.2% fill (110.3K LUTs, +0.049 ns). The free synthesis settings, a kept hierarchy plus `AreaOptimized_high`, bring the smt2 scheduler to 4,750 LUTs, 47% below the old one. The directive alone fails timing by 0.265 ns. The primitive check now accepts a range, because synthesis leaves unread primitives that `opt_design` removes. |
 | 10-14 06:24 | **F and D run in the core (M3).** The FPU and core tracks wired P4 together in about an hour, working from the interface they had agreed directly. In lockstep with Spike, in all four configurations: ACT4 rv64imafdc 895/895, riscv-tests 284/284 and random rv64gc programs. The FPU's assertions caught two core-side bugs during integration: an FP→int op with `rd` = x0 had no LLT column, and `misa.F/D` were read-only. **Area:** the core's no-IPC pass took `st` from 88K to 45.1K LUTs, and AR-1 to 44.4K; with F/D the `st` core is 56.5K, of which P4 is 7.9K. The soak now runs rv64gc. |
+| 10-14 07:10 | **v1 closes 180 MHz at 93.4% fill with wakeup tags** (109.4K LUTs, +0.137 ns); without tags the same fill did not finish routing in 2 hours. The Vivado admission becomes a fair queue (DR-115) after the core's and FPU's jobs waited 35 to 50 minutes behind back-to-back launches. |
+| 10-14 07:45 | **AR-7: v1 does not fit yet.** The measured RTL puts v1 at ≈155.7K LUTs against 103K (200 MHz) and 110.3K (180 MHz); see §2.3. The gap is implementation, so D18 step 1 continues (AR-8). `tg_fp_exec` closes 200 MHz at default effort when floorplanned into two clock regions (DR-119). |
 
 **Pace.** About 16 hours of wall-clock time took the project from an empty repository to:
 - M0, except S1, which needs the board;
@@ -122,13 +124,23 @@ Rejected:
 
 ### 2.3 Where v1 stands
 
-| Stage | v1 dual-core | Ceiling at 200 MHz |
+| Stage | v1 dual-core | Ceiling |
 |---|---|---|
-| Before recovery | 119–123K | about 103K (88%) |
-| With the planned levers | 99–110K | |
-| With wakeup tags | 92–104K | |
+| Projected before recovery | 119–123K | about 103K at 200 MHz (88%) |
+| Projected with the planned levers | 99–110K | |
+| Projected with wakeup tags | 92–104K | |
+| **Measured RTL, after the area pass and F/D (AR-7, 10-14)** | **≈155.7K (133% of the device)** | 103K at 200 MHz; 110.3K at 180 MHz (AR-5) |
 
-The real numbers come after the core's area pass (AR-7). No IPC-costing lever is chosen before then.
+**What the measurement showed.** The projection put v1 at 92–104K. The real RTL comes to about 156K.
+- **The core:** `st` is 56.5K against 38.2K, and `smt2` 62.5K against 46.1K. Every unit except the issue queues and the front end is over budget: LSU/MMU +13.8K, rename +4.3K, ROB/CSRs +3.2K.
+- **The uncore:** 22.3K against 10.8K. The crossbar is +4.4K, trace +2.9K and the host bridge +1.7K.
+- **The other levers are small by comparison:**
+  - D18's later steps: 180 MHz gives 7.2K, and the IPC-costing reserve about 2.2K per SoC.
+  - Wakeup tags saved 3.4K in the scheduler harness but only 0.7K in the real `st` core.
+
+**Lesson.** The lever study ranked the last few percent. Only per-unit budgets reported from real RTL show whether a design fits, and the budgets were set from estimates that the RTL overran almost everywhere. Ranking levers should wait for real numbers.
+
+**What happens now (AR-8).** D18 step 1, no-IPC implementation work, continues unit by unit against the per-unit budgets. It has to find about 45–53K. A single SMT2 core (≈89K with the uncore) fits today, and so does M4's single core.
 
 ## 3. Timing story
 
