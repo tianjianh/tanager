@@ -149,7 +149,7 @@ module tg_fpu_div
   // (gs_model.h, small_terms).
   // ------------------------------------------------------------------------------------------
   logic [42:0]        sma_lo_q;                     // t+4: x[59:34] * y0^2 in two tiles
-  logic [28:0]        sma_hi_q;
+  (* use_dsp = "yes" *) logic [28:0] sma_hi_q;        // (a DSP, not LUTs, for the 26 x 3 bits)
   logic signed [26:0] e0d_q;                        // t+4: division e0, Q.33
   always_ff @(posedge clk) begin
     sma_lo_q <= 43'(s4_opa[59:34]) * 43'(sm0_q[16:0]);
