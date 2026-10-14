@@ -195,6 +195,7 @@ The real numbers come after the core's area pass (AR-7). No IPC-costing lever is
     - the soak pauses under 12 GB available;
     - a memory guard stops the newest heavy job under 3 GB available.
   - **The user's call:** giving WSL more of the host's 64 GB (DR-108).
+- **A queue needs an order, not just a limit.** The first admission let waiters poll every 15 s. A track that launched jobs back to back took every freed slot, and other tracks' jobs waited 35–50 minutes. Fixed with a fair queue (DR-115).
 - **A tool fix on main protects nothing until each track merges it.** Tracks run tools from their own branches, and the spikes track from snapshots taken when each run starts. The second stall came from a track that had not merged the new admission yet. The memory guard runs from the main checkout, so it covers every job whatever its branch.
 
 **Sessions and messaging:**

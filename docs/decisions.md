@@ -91,6 +91,7 @@ Dates are 2026, US Pacific.
 | DR-107 | 10-14 | A memory guard in user space (`tools/memguard.sh`): under 3 GB available it stops the newest heavy job, the soak first, and logs it, before the kernel thrashes. A system early-OOM daemon (earlyoom, systemd-oomd) stays the user's option: it is a system setting. | approved | coord | conventions §9 |
 | DR-108 | 10-14 | Give WSL 56 GB of the 5950X's 64 GB (it has about 40 GB), then raise the Vivado budget to about 34 GB with 3 slots | pending | user | — |
 | DR-109 | 10-14 | After the second stall: the admission counts a slot held by an older `vivado_run.sh` as 10 GB, and tracks merge main before their next heavy job whenever a shared tool changes | approved | coord | conventions §9; devlog §5 |
+| DR-115 | 10-14 | Vivado admission becomes a fair queue: tickets, with the waiting job whose owner holds the fewest slots going first, and the head holding the admission lock. **Why:** waiters polled every 15 s and lost freed slots to back-to-back launches. The core's run waited 35 minutes and the FPU's 50. **Also:** 3 slots on the build host, since the 24 GB declared budget is the binding limit. | approved | coord (core track's request) | conventions §9 |
 
 ## 4. Core microarchitecture and interfaces
 
