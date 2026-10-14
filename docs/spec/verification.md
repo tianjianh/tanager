@@ -167,7 +167,8 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 | `--wb-timeout=N` | 100 000 | a deferred writeback pending for N cycles after its retirement is a mismatch |
 | `--wb-drain=N` | 2 000 | after the exit store, how long to wait for pending deferred writebacks |
 | `--fst=<file>` | off | FST waveform; `--fst-from=<cycle>` / `--fst-to=<cycle>` bound it |
-| `--log=<file>` | off | text commit log: one line per trace record or writeback, with disassembly |
+| `--log=<file>` | off | text commit log: one line per trace record or writeback, with disassembly; `--log-from=<cycle>` starts it later, `--log-bus` adds the core's TileLink beats (§4.5) |
+| `--sig=<file>` | off | cycle signature for the cycle-identical check (§4.5): per `--sig-window` cycles (1,024), hashes of the commit trace and of the core's TileLink outputs |
 | `--lockstep` / `--no-lockstep` | on | Spike lockstep (§3) |
 | `--isa=<str>`, `--priv=<str>` | per configuration (§3.2) | Spike's ISA and privilege modes |
 | `--seed=N` | 1 | seeds every random choice in the models; printed at start |
@@ -343,7 +344,7 @@ The checker found its first real bug the same day: the test core lost deferred w
 - **Known exclusions** go in `tests/isa/exclude/<cfg>.txt` with a reason per line (for example, `rv64mi-p-breakpoint` until Sdtrig exists).
 - **Command:** `make -C tests/isa CFG=<cfg> [CORE=...] [SUITES=...] [LAT=...] [SIMARGS=...]` runs each test with lockstep, at most 8 at a time, and prints a table and `N passed, M failed`; logs of failing tests stay in the log directory and passing ones are deleted. `make -C tests/isa replay SUITES=all` runs the same suites Spike against Spike. Underneath is `tests/isa/run_isa.py`, which takes any tg_vsim or tg_replay binary and arguments.
 - **`-v` tests:** the runner passes the kernel alias of `tohost` (§2.6).
-- **Directed tests** (ours, `tests/isa/directed/*.S`, built to `tanager-p-*`): `irq_timer` (CLINT timer and software interrupts, WFI, `mip` reads) and `irq_ext` (external interrupts from `--irq-rand` pulses). `make -C tests/isa directed CFG=<cfg>` runs them with lockstep and random external-interrupt pulses; the checker self-test runs them Spike against Spike with injected interrupts. riscv-tests never enable interrupts, so these are what exercise `TR_IRQ`. The core track added `amo` (AMOs, LR/SC and their faults, including AMOs to device addresses), `cache_evict`, `irq_s` (supervisor interrupts, Sstc), `pmp` and `vm` (Sv39); each passes at once on a core without the feature. The checker self-test replays them all (§3.8).
+- **Directed tests** (ours, `tests/isa/directed/*.S`, built to `tanager-p-*`): `irq_timer` (CLINT timer and software interrupts, WFI, `mip` reads) and `irq_ext` (external interrupts from `--irq-rand` pulses). `make -C tests/isa directed CFG=<cfg>` runs them with lockstep and random external-interrupt pulses; the checker self-test runs them Spike against Spike with injected interrupts. riscv-tests never enable interrupts, so these are what exercise `TR_IRQ`. The core track added `amo` (AMOs, LR/SC and their faults, including AMOs to device addresses), `cache_evict`, `irq_s` (supervisor interrupts, Sstc), `pmp` and `vm` (Sv39). `tlb_stress` (ours, for §4.5) maps 128 data pages and 64 code pages of 4 KiB in permuted order, plus a megapage, and sweeps working sets of 4 to 128 pages twice each, so TLB hits, misses and replacement all depend on the TLB's size and policy; it also flushes by SFENCE.VMA and satp and adds with AMOs under translation. Each directed test passes at once on a core without the feature. The checker self-test replays them all (§3.8).
 - **Exclusions:** `exclude/tanager.txt` for every configuration (`rv64ui-*-ma_data`: needs hardware misaligned access, which Tanager traps); `exclude/tcore.txt` for the test core (`rv64mi-p-pmpaddr`: needs PMP); `exclude/<cfg>.txt` if a configuration needs one.
 
 ### 4.2 Benchmarks
@@ -392,6 +393,74 @@ A continuous random campaign on main that uses the build host's idle threads (co
 - **Control:**
   - `tools/ci/soak.sh start` runs it under `nohup` from a private copy, so editing the script does not disturb it. It also installs an `@reboot` crontab entry with main's copy of the script, so the soak starts again after a WSL restart (as `tools/memguard.sh` does).
   - `stop` stops it, with everything it started, until the next start or boot; `disable` also removes the `@reboot` entry; `status` shows its state.
+
+### 4.5 Cycle-identical check (`make cycle-identical`)
+
+The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fpga_friendly.md rule 1). This check proves it for one tree against a base commit, in a few minutes:
+
+```
+make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RANDN=200] [JOBS=8]
+```
+
+- **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
+  - the commit records and writebacks of the window: their number and a hash of them, each with its cycle and its slot or port;
+  - the core's TileLink outputs: the number of events and a hash of them. An event is a valid beat the core drives on A, C or E, with its payload, or its ready on B or D in a cycle when the model offers a beat there;
+  - at the end, the cycle count, `instret` and the status.
+
+  Fields without meaning are left out of the hashes: the data of a message that carries none, a store's bytes beyond its size, and `rd_value` without `rd_we`. So a rewrite that changes only don't-care bits passes. Two runs are identical when every line matches.
+- **The two sides:**
+  - **The branch** is the working tree as it is, uncommitted and untracked files in `rtl/` and `sim/` included. It is read through a temporary git index, so the worktree and its index are not touched.
+  - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
+  - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs; `--harness own` builds the base side with BASE's.
+  - **Programs** are built once and shared by both sides.
+- **Suites** (the defaults are the first four):
+
+  | Suite | Programs | Options |
+  |---|---|---|
+  | `isa` | the regression's riscv-tests suites (284 at M3) and our 8 directed tests (§4.1), `tlb_stress` included | native latency; `--irq-rand=5` for the directed tests |
+  | `stress` | the same programs | memory stress drawn per test (latency 30–250, jitter, back-pressure, D gaps, `toB` grants, probes) and `--trace-stall=50` |
+  | `bench` | CoreMark A and B and Dhrystone, `rv64im` and `rv64gcb` | latency native and 120 |
+  | `random` | `RANDN` (200) `tg_rand` programs: `rv64gc` with F/D, else `rv64imac` | the soak's stress (§4.4); timer interrupts on odd seeds |
+  | `reset` | the riscv-tests | random initial values in every register without a reset (`--rand-reset`; see below) |
+
+- **Output:**
+  - **Per suite:** programs, identical, differing, cycles compared, and the cycle change summed over the suite. The change is the IPC cost of a change that is not identical, which the reserve list needs (DR-122).
+  - **First differences:** for the first five differing runs, the check reruns the first differing window on both sides with `--log --log-from --log-bus` and prints the first differing line with its context, the two logs and a rerun command.
+  - **The report:** every difference goes to `$TANAGER_BUILD/<worktree>/cycle-identical/<cfg>/report.txt`.
+  - **Exit status:** 0 when every run is identical, 1 when some differ, 2 when the check could not run.
+- **Cost:**
+  - **Builds** are cached in `$TANAGER_BUILD/cycle-identical/`, shared by every worktree. The key is the RTL and harness tree hashes, the configuration and the toolchain. Only the binary is kept (3.5 MB), for the 12 most recently used builds, with a lock against two checks building the same tree.
+  - **Signatures** are cached by build, program and options. A check against a base that someone has already checked builds and runs only the branch side.
+  - **Measured on `st`** (2026-10-14, host busy with the tracks' work):
+    - the default suites are 796 programs, 32 M cycles per side;
+    - with the base side cached, a check took 1–3 minutes: a build of 58–81 s with ccache, then 63–104 s of runs at `-j8`;
+    - a first check against a new base builds and runs both sides, so it takes about twice as long.
+- **Self-test.** Changes planted in `rtl/common/cfg/tg_cfg_st.sv` on main fd54e65 (`st`, default suites):
+
+  | Planted change | Programs that differ: `isa` / `stress` / `bench` / `random` (of 292 / 292 / 12 / 200) | Cycles, `bench` |
+  |---|---|---|
+  | a comment in `tg_rob.sv` | none | 0 |
+  | `RAS_ENTRIES` 32 → 16, `CHECKPOINTS` 4 → 2 (no RTL uses them yet: controls) | none | 0 |
+  | `IBUF_ENTRIES` 16 → 8 | 292 / 292 / 12 / 200 | +0.10% |
+  | `IQ_STA` 4 → 3 | 177 / 170 / 12 / 200 | +1.99% |
+  | `LQ_ENTRIES` 16 → 8 | 151 / 152 / 12 / 134 | +0.14% |
+  | `UBTB_ENTRIES` 64 → 32 | 152 / 148 / 12 / 89 | +2.12% |
+  | `DTLB_ENTRIES` 32 → 16 | 1 / 1 / 0 / 0: `tlb_stress` only (+8.4% there) | 0 |
+  | `ITLB_ENTRIES` 16 → 8 | 1 / 1 / 0 / 0: `tlb_stress` only (+1.8% there) | 0 |
+
+  Some differing runs ended on the same cycle count as the base, with different timing on the way, or differed only in their TileLink events. A cycle count alone misses those.
+
+  **On real RTL:** main's third no-IPC area pass (merged as 43a523e: eight RTL files, the LSU most) was checked against fd54e65 after its merge. It is identical in `st` and `smt2` on all 796 programs, in both the commit trace and the TileLink outputs. That confirms with this check what the core track had shown with CoreMark's cycle counts.
+
+- **What the suites cannot see.** Identical on these programs does not mean identical everywhere: a structure that no program fills cannot show a difference.
+  - Before `tlb_stress`, halving the data or instruction TLB moved no cycle in any of the 503 programs: the benchmarks and random programs run without translation, and the `-v` riscv-tests touch fewer pages than the TLBs hold.
+  - A rewrite of a structure that the suites do not stress needs a program that does, first. `tlb_stress` is that program for the TLBs. The planted changes above show which sizes the suites see today.
+  - The Linux boot's first N million cycles would add the long-run paths: evictions, page tables, interrupts and the uncore (§9, item 10).
+- **Reset (`SUITES=...,reset`).** Verilator 5.052 draws each register's random initial value from the seed and a hash of the register's scope name. So a register that keeps its name gets the same value on both sides.
+  - **What a difference means:** the branch's timing depends on the initial content of state that the base does not have. Typically a structure has moved from flip-flops with a reset into LUTRAM or block RAM, which have none (fpga_friendly.md T1, T3).
+  - **On the board,** that shows only after a warm reset. At power-up the content is the INIT value, zero, the same as in the default runs.
+  - **The base already depends on such state:** `rv64ui-p-add` takes 1,389 cycles from zeros and 1,468 with most random seeds. A branch at its first loop exit is predicted differently, which points to a predictor table without a reset. Such results need reading, so `reset` is not a default suite.
+- **Configurations:** `CFG="st smt2 st_w3 smt2_w3"` checks each in turn. A rewrite must be identical in every configuration it builds in.
 
 ## 5. The test core (`tg_tcore`)
 
@@ -520,6 +589,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 7. **PLIC model:** ACT4's external-interrupt tests run with the interrupt generator (§2.4) instead of the small PLIC model planned in §6.1; the reasons are there. A PLIC model can still be added for software that needs the standard PLIC in the harness (OpenSBI does not). It would share the region with the generator's register (`0x0C00_0004` is source 1's priority in the PLIC layout); Sail's generator base is configurable and the framework passes it to the macros, so the generator would move.
 8. **`irq_ssi_i` (interfaces.md §3):** the interface ORs the line into `mip.SSIP`, while the privileged spec says a platform controller may *set* SSIP to 1 (as the ACLINT SSWI does, and as Spike and Sail model it), after which software clears it. With a level, software cannot clear SSIP while the line is high. ACT4 is unaffected today (§6.1, known differences), and the platform ties the line to 0; defining `irq_ssi_i` as a one-cycle pulse that sets SSIP would match the spec before the SSWI arrives. `irq_sei_i` is fine as it is: SEIP is the OR by the spec.
 9. **`TRACE_STALL_HEADROOM` (interfaces.md §5):** 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` is enough only if the sink counts the current cycle's records when it decides to stall. A sink that stalls from its occupancy register needs `COMMIT_WIDTH` more (§2.9). The rule should say which, for the SoC track's trace streamer.
+10. **The Linux boot in the cycle-identical check (§4.5):** the SoC track's `tb_boot` (not on main yet) carries every core's commit trace under the same names as `tb_soc` (`trace`, `trace_v`, `trace_wb`, `trace_wb_v`). The plan: a signature module in `sim/tb/` that the check binds into `tb_boot` when it builds it (SystemVerilog `bind`, so the SoC track's file does not change), then the first N million cycles of the boot on both sides (`BOOT=N`). It covers what the programs cannot: the uncore (crossbar, L2, trace streamer, host bridge), evictions, page tables and interrupts over millions of cycles. Ready to add once `tb_boot` is on main; the SoC track's rewrites need it, since `tg_vsim` holds no uncore.
 
 ## 10. Provenance
 
@@ -549,7 +619,12 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 - **On the real core:**
   - the core track's M2 core passed 113 of 129 ACT4 tests before its merge, then 241 of 243 with the full plan list;
   - `make regress` passes in all four configurations.
-- **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro. After the build host ran out of memory (Vivado, at about 03:20) it gained a memory gate, an 8-simulation cap and a raised `oom_score_adj`.
+- **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. By 11:30 the same day, 193,760 programs and still none; the last 100,000 or so were `rv64gc` with F/D, and the soak came back by itself after a WSL restart. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro. After the build host ran out of memory (Vivado, at about 03:20) it gained a memory gate, an 8-simulation cap and a raised `oom_score_adj`.
+
+- **The cycle-identical check (2026-10-14, §4.5),** for the FPGA-friendly rewrites:
+  - **Planted changes showed its strength:** a store-address queue one entry smaller moved cycles in 559 of 796 programs. Some runs ended on the same cycle count with different timing on the way, which comparing cycle counts alone would miss.
+  - **And its limit:** halving either TLB moved no cycle in any of 503 programs, because none filled a TLB. `tlb_stress` fills them now, and both changes show.
+  - **Lesson:** a check is only as strong as its programs, and a structure that no program fills cannot show a difference. Stress a structure before rewriting it.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**

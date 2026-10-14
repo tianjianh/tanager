@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "sig.h"
 #include "tlmodels.h"
 #include "trace.h"
 #include "trace_sink.h"
@@ -31,6 +32,7 @@ struct tb_t {
   std::vector<tr_rec_t> recs;
   std::vector<tr_wb_t> wbs;
   trace_sink_t sink;  // drives trace_stall_i and checks the core's side of it
+  sig_t sig;          // --sig and --log-bus (verification.md §4.5)
 
   // Interrupt sources: random external-interrupt pulses end at these cycles (per hart index).
   std::vector<uint64_t> mei_until, sei_until;

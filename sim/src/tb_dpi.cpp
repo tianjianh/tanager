@@ -81,9 +81,12 @@ extern "C" void tg_dpi_tl_ul(int port, svBit a_valid, int a_opcode, int a_param,
   in.a_valid = a_valid;
   get_a(in.a, a_opcode, a_param, a_size, a_source, a_address, a_mask, a_data, a_corrupt);
   in.d_ready = d_ready;
+  tb_t& t = tb();
+  t.sig.ul(t.ctx.now, port, in);
   ul_out_t out;
-  if (port == 0) tb().l1i.cycle(in, out);
-  else tb().mmio.cycle(in, out);
+  if (port == 0) t.l1i.cycle(in, out);
+  else t.mmio.cycle(in, out);
+  t.sig.d_offered[port] = out.d_valid;
   *a_ready_n = out.a_ready;
   *d_valid_n = out.d_valid;
   put_d(out.d, d_opcode_n, d_param_n, d_size_n, d_source_n, d_sink_n, d_denied_n, d_data_n, d_corrupt_n);
@@ -112,8 +115,12 @@ extern "C" void tg_dpi_tl_c(svBit a_valid, int a_opcode, int a_param, int a_size
   in.d_ready = d_ready;
   in.e_valid = e_valid;
   in.e_sink = uint32_t(e_sink);
+  tb_t& t = tb();
+  t.sig.c(t.ctx.now, in);
   c_out_t out;
-  tb().l1d.cycle(in, out);
+  t.l1d.cycle(in, out);
+  t.sig.b_offered = out.b_valid;
+  t.sig.d_offered[1] = out.d_valid;
   *a_ready_n = out.a_ready;
   *b_valid_n = out.b_valid;
   *b_opcode_n = out.b.opcode;
@@ -130,6 +137,7 @@ extern "C" void tg_dpi_tl_c(svBit a_valid, int a_opcode, int a_param, int a_size
 extern "C" void tg_dpi_irq(int merr, int* mei_n, int* sei_n, int* mti_n, int* msi_n, int* ssi_n, long long* mtime_n) {
   tb_t& t = tb();
   model_ctx_t& ctx = t.ctx;
+  t.sig.merr(ctx.now, merr);
   if (merr) {
     t.merr_seen |= uint32_t(merr);
     t.merr_pulses++;
