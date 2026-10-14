@@ -20,4 +20,4 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 - **Schedule (plan §11):** agent-built. Linux on the board about 4–6 weeks after M0 starts; v1 in about 3 months.
 - **M0 (repository, CI, FPGA spikes):** done, except spike S1, which waits for the board. The spikes are reported in [docs/perf/spikes.md](docs/perf/spikes.md).
 - **M2 (out-of-order core in simulation):** done on 2026-10-14. Lockstep passes in all four configurations; CoreMark 3.04 CM/MHz on the conservative M2 core.
-- **M3 (Linux-capable core):** in progress. The features are built behind switches. The area pass is under way. The FP back end is merged and is being wired into the core.
+- **M3 (Linux-capable core):** in progress. RV64GC, with F and D, runs in lockstep with Spike in all four configurations (ACT4 rv64imafdc 895/895). **Next:** OpenSBI and Buildroot to a shell in Verilator, and redoing the area fit with the measured RTL.

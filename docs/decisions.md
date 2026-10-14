@@ -161,6 +161,9 @@ Dates are 2026, US Pacific.
 | DR-090 | 10-13 | Per-unit LUT budgets with a nightly synthesis check | approved | coord, track | budgets.md |
 | DR-091 | 10-13 | `tg_fifo` stores entries in LUTRAM by default | approved | track | — |
 | DR-092 | 10-13 | Accept 180–190 MHz for v2 rather than cutting IPC | approved (direction) | user (D18) | plan §8.5 |
+| DR-112 | 10-14 | The scheduler keeps `EARLY_W` = 24 at 200 MHz. `EARLY_W` = 8 saves 147 LUTs and 720 flip-flops at smt2, but cuts slack from +0.392 to +0.162 ns and moves the worst path back onto the wakeup loop. It is kept as an option for a 180 MHz core only. | option | coord (spikes' recommendation) | area_synth.md |
+| DR-113 | 10-14 | Synthesis settings for the core: keep the hierarchy, plus `AreaOptimized_high`. **Rejected:** the directive without the kept hierarchy, which failed timing by 0.265 ns. | approved | track | area_synth.md §3.1 |
+| DR-114 | 10-14 | `tg_fp_exec` closes 200 MHz with the Explore implementation directives: +0.020 ns at smt2, +0.039 ns at st. Default effort missed by 0.145 ns inside the FMA's E2 stage. | approved | track | fpu.md |
 
 ## 8. Verification
 
