@@ -1,0 +1,9 @@
+/ps/Data/SEG_s1_reg0                             0x00A0000000 0x0000001000
+/s1/m0_axi/SEG_ps_HP1_DDR_HIGH                   0x0000800000000 0x0000800000000
+/s1/m0_axi/SEG_ps_HP1_DDR_LOW                    0x0000000000000 0x0000080000000
+/s1/m0_axi/SEG_ps_HP1_LPS_OCM                    0x00000FF000000 0x0000001000000
+/s1/m0_axi/SEG_ps_HP1_QSPI                       0x00000C0000000 0x0000020000000
+/s1/m1_axi/SEG_ps_HP2_DDR_HIGH                   0x0000800000000 0x0000800000000
+/s1/m1_axi/SEG_ps_HP2_DDR_LOW                    0x0000000000000 0x0000080000000
+/s1/m1_axi/SEG_ps_HP2_LPS_OCM                    0x00000FF000000 0x0000001000000
+/s1/m1_axi/SEG_ps_HP2_QSPI                       0x00000C0000000 0x0000020000000
