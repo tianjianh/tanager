@@ -2,7 +2,9 @@
 """Sizes the S6 dual-core dry run (fpga/spikes/rtl/tg_s6_top.sv) for a configuration and a
 total LUT target, from plan §8.2/§4.15 budgets and the spike structures' measured sizes.
 
-  python3 -I fpga/spikes/scripts/s6_size.py <cfg> <target>    target: LUTs or a percentage
+  python3 -I fpga/spikes/scripts/s6_size.py <cfg> <target> [adj]
+     target: LUTs or a percentage; adj: LUTs per core to add to the filler (the S6 runner
+     passes half the miss of a run that missed its target)
   -> prints the tg_s6_top generics (-g NAME=VALUE ...) and the budget split; smt2 and the
      3-wide builds get S2_MX=1
 
@@ -34,15 +36,27 @@ SPIKE_LUTS = {
     "smt2_w3": 12_000 + 8_713 + 2_600 + 2_900,
 }
 
+# Inside S6 the spikes synthesise smaller than out of context (cross-boundary optimisation
+# with the filler). Measured: s6_smt2_80 came out 4,030 LUTs under its target, 2,015 per
+# core. The calibration run (s6_cal_st) defines LUTS_PER_TILE, so st is 0 by construction;
+# smt2_w3 scales smt2's figure by the scheduler's size (12.5K / 8.9K).
+S6_ADJ = {
+    "st": 0,
+    "smt2": -2_015,
+    "st_w3": 0,
+    "smt2_w3": -2_830,
+}
+
 
 def main():
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         print(__doc__)
         sys.exit(2)
     cfg, tgt = sys.argv[1], sys.argv[2]
+    adj = float(sys.argv[3]) if len(sys.argv) == 4 else 0.0
     total = DEVICE_LUTS * float(tgt[:-1]) / 100 if tgt.endswith("%") else float(tgt)
     core = (total - UNCORE_LUTS) / 2
-    fill = core - SPIKE_LUTS[cfg] - FILL_LUTRAM
+    fill = core - (SPIKE_LUTS[cfg] + S6_ADJ[cfg]) - FILL_LUTRAM + adj
     if fill <= 0:
         sys.exit(f"target {total:.0f} leaves no room for core filler")
     tiles = int(round(fill / LUTS_PER_TILE))
@@ -53,7 +67,7 @@ def main():
     print(f"-g CORE_TILES={tiles} -g CORE_NRAM={nram} -g CORE_NBRAM={CORE_BRAM_FILL} "
           f"-g CORE_NDSP={CORE_DSP} -g UNC_TILES={unc_tiles} -g UNC_NRAM={unc_nram}{mx}")
     print(f"# {cfg}: target {total:.0f} LUTs ({100 * total / DEVICE_LUTS:.1f}%), "
-          f"core {core:.0f} = spikes {SPIKE_LUTS[cfg]} + filler {tiles} tiles + "
+          f"core {core:.0f} = spikes {SPIKE_LUTS[cfg] + S6_ADJ[cfg]} + filler {tiles} tiles + "
           f"{nram} LUTRAM blocks; uncore {UNCORE_LUTS}", file=sys.stderr)
 
 

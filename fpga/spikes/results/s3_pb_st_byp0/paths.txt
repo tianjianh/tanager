@@ -1,0 +1,6 @@
+alu_loop               slack   0.036 levels 16 logic 1.749 net 3.087  res_q_reg[0][7]/C -> res_q_reg[0][13]/D
+alu_any                slack   0.014 levels 17 logic 1.728 net 3.135  ld_q_reg[3]/C -> res_q_reg[0][13]/D
+flags                  slack   0.952 levels  6 logic 0.956 net 2.738  ex_sel_q_reg[1][1][1]/C -> alu_flags_o_reg[1][2]/D
+rf_read                slack   0.399 levels  2 logic 0.482 net 3.820  ridx_q_reg[1][2]/C -> rf_q_reg[1][43]/D
+rf_write               slack   0.128 levels  0 logic 0.113 net 4.182  wb_valid_q_reg[0]/C -> u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[61].u_ram/RAMA/WE
+base                   slack   0.659 levels  2 logic 0.398 net 3.812  ex_bsel_q_reg[1][1]/C -> g_base[1].base_q_reg[1][36]/D

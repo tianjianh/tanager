@@ -27,6 +27,7 @@ module tg_s3_top
   parameter int BYPASS = 0,
   parameter int RF3    = 0,
   parameter int SEL_OH = 0,
+  parameter int MINMAX = 1,   // 0: min/max leave the 1-cycle ALUs (tg_alu)
   localparam int NB    = INT_BANKS,
   localparam int IW    = idx_w(INT_PREGS_PER_BANK),
   localparam int BW    = idx_w(NB),
@@ -205,7 +206,7 @@ module tg_s3_top
     end
     assign a = opmux(sa, ex_sel_q[i][0]);
     assign b = opmux(sb, ex_sel_q[i][1]);
-    tg_alu u_alu (.ctl(ex_ctl_q[i]), .a, .b, .res(alu_res[i]), .eq(flags[i][2]),
+    tg_alu #(.MINMAX(MINMAX != 0)) u_alu (.ctl(ex_ctl_q[i]), .a, .b, .res(alu_res[i]), .eq(flags[i][2]),
                   .lt(flags[i][1]), .ltu(flags[i][0]));
   end
 

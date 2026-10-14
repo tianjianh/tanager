@@ -108,6 +108,8 @@ if {$lut_target > 0} {
   tg_kv $fh lut_target $lut_target
   if {abs($luts - $lut_target) > $lut_tol * $lut_target} {
     tg_kv $fh lut_target_miss $luts
+    # per-block sizes, to correct the sizing (fpga/spikes/scripts/s6_size.py)
+    report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
     close $fh
     puts "LUT_TARGET_MISS $luts vs $lut_target"
     exit 3

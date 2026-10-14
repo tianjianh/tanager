@@ -15,6 +15,7 @@ module tg_s2_sched_top
   parameter bit MX       = 1'b0,     // matrix wakeup for 1-cycle producers (ALU queues)
   parameter int ALU_ROWS = 0,        // > 0: rows of every ALU queue (the plan's fallback)
   parameter bit PRE_RDY  = 1'b0,     // registered ID readiness (with MX)
+  parameter bit ISS_REG  = 1'b0,     // MX: issued rows from their own replicated register
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -133,7 +134,8 @@ module tg_s2_sched_top
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
       .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
-      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY)
+      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY),
+      .ISS_REG(ISS_REG)
     ) u_iq (
       .clk, .rst,
       .disp_valid(dv), .disp_tid(disp_tid_q), .disp_dep(disp_dep_q),

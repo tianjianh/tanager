@@ -1,0 +1,17 @@
+PRIM_OK g_tag[0].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[1].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[2].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[3].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[4].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[5].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[6].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_tag[7].u_tag tg_ram_lut {2^6 x 24, 2 read} expected {RAM64M8 7} found {RAM64M8 7}
+PRIM_OK g_way[0].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[1].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[2].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[3].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[4].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[5].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[6].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK g_way[7].u_data tg_ram_sdp {2^9 x 64} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_SUMMARY instances 16 fail 0 warn 0 stray 0
