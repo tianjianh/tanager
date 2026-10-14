@@ -140,30 +140,32 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 | `s6_smt2w3t_93_180` | smt2_w3 (v2), with tags | 93% | 110,280 (**94.2%**) | **+0.049** | **181.6** | harness: a filler register feeding S3's register file from across the die (1 level, 5.08 ns of wire) | 19 min |
 | `s6_smt2_93_180` | smt2 (v1), ROB columns (no tags) | 93% | 109,422 (93.4%) after synthesis | — | — | **routing did not converge**: the router's first iteration took 2 h (114,671 overlapping nodes down to 21) and the second was under way when the run was stopped ([route_stuck.txt](../../fpga/spikes/results/s6_smt2_93_180/route_stuck.txt)) | > 2 h |
 | `s6_smt2t_93_180` | smt2 (v1), with tags | 93% | 109,364 (**93.4%**) | **+0.137** | **184.5** | harness: a filler register driving S5's reset fan-out (0 levels, 4.84 ns of wire); worst real path S3's ALU loop, +0.276 | 15 min |
-| `s6_smt2w3t_96_180` | v2 with tags | 96% | (running) | | | | |
-| `s6_smt2t_95_180` | v1 with tags | 95% | (queued) | | | | |
-| `s6_smt2w3t_90_180` | v2 with tags | 90% | (queued) | | | | |
+| `s6_smt2t_95_180` | smt2 (v1), with tags | 95% | 111,633 (**95.3%**) | **+0.126** | **184.2** | S5: IF2's page number → IF3's instruction marks, 8 levels | 16 min |
+| `s6_smt2w3t_96_180` | smt2_w3 (v2), with tags | 96% | 112,441 (**96.0%**) | **+0.071** | **182.3** | S3: ALU → bypass → ALU, 9 levels | 24 min |
+| `s6_smt2w3t_90_180` | smt2_w3 (v2), with tags | 90% | 105,403 (**90.0%**) | **+0.054** | **181.8** | S5: IF2 → IF3 marks, 8 levels | 15 min |
 
 Named paths, slack in ns at 5.556 ns (the worst over both cores):
 
-| Path | v2 with tags, 94.2% | v1 with tags, 93.4% |
-|---|---|---|
-| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) | ≥ +2.693 (the same) |
-| S2: issue payload | +1.100 | +1.911 |
-| S3: ALU → bypass → ALU | **+0.178** (9 levels) | **+0.276** (10 levels) |
-| S3: register-file read | +0.049 (the harness route above) | +0.474 |
-| S4: M2 compare, select, result | +0.379 | +0.310 |
-| S4: DTLB lookup in M1 | +0.610 | +0.899 |
-| S5: next-PC loop | +0.729 | ≥ +0.214 (a filler-driven reset) |
-| S5: next PC → I$ BRAM address | +0.200 | +0.876 |
-| S5: IF3 compaction → instruction queue | +0.186 | +1.067 |
-| L2: UltraRAM cascade input | +0.344 | +1.965 |
-| Core → L2 bus | +3.279 | +2.932 |
-| Synthetic logic | +0.665 | +0.518 |
+| Path | v2 with tags, 94.2% | v1 with tags, 93.4% | v1 with tags, 95.3% | v2 with tags, 96.0% | v2 with tags, 90.0% |
+|---|---|---|---|---|---|
+| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) | ≥ +2.693 (the same) | ≥ +0.926 | ≥ +1.001 | ≥ +1.351 |
+| S2: issue payload | +1.100 | +1.911 | +1.392 | +1.323 | +1.323 |
+| S3: ALU → bypass → ALU | **+0.178** (9 levels) | **+0.276** (10 levels) | **+0.334** | **+0.129** (12 levels; the run's worst, +0.071, is in the same loop) | +0.304 |
+| S3: register-file read | +0.049 (the harness route above) | +0.474 | +0.723 | +0.728 | +0.320 |
+| S4: M2 compare, select, result | +0.379 | +0.310 | +0.707 | **+0.142** | **+0.129** |
+| S4: DTLB lookup in M1 | +0.610 | +0.899 | +0.628 | +0.256 | +0.459 |
+| S5: next-PC loop | +0.729 | ≥ +0.214 (a filler-driven reset) | +0.958 | +1.501 | ≥ +1.546 |
+| S5: next PC → I$ BRAM address | +0.200 | +0.876 | +0.510 | +0.480 | +0.386 |
+| S5: IF3 compaction → instruction queue | +0.186 | +1.067 | +0.689 | +0.573 | +0.976 |
+| S5: IF2 page number → IF3 marks (not a named group) | — | — | **+0.126** (the run's worst) | — | **+0.054** (the run's worst) |
+| L2: UltraRAM cascade input | +0.344 | +1.965 | +1.627 | +1.020 | +0.946 |
+| Core → L2 bus | +3.279 | +2.932 | +3.677 | +4.015 | +3.383 |
+| Synthetic logic | +0.665 | +0.518 | +0.710 | +0.697 | +0.740 |
 
-**Findings so far.**
-- **v2 with tags closes 180 MHz at 94.2% fill** (110.3K LUTs). The worst real paths are S3's ALU loop and S5's fetch (+0.18 to +0.20 ns); the scheduler, the 200 MHz limiter before tags, has more than 1 ns.
-- The router started from 112K overlapping nodes and cleared them in 19 minutes; the placer's worst congestion is level 5.
-- **v1 with tags closes 180 MHz at 93.4% fill** (109.4K LUTs, +0.137 ns, 184.5 MHz). The worst path is a harness route; the worst real path is S3's ALU loop at +0.276, then S4's M2 stage at +0.310. Routing took 15 minutes.
+**Findings.**
+- **v1 with tags closes 180 MHz at 93.4% and 95.3% fill** (109.4K and 111.6K LUTs; +0.137 and +0.126 ns). **v2 with tags closes it at 90.0%, 94.2% and 96.0%** (+0.054, +0.049, +0.071 ns).
+- **Slack does not trend with fill** between 90% and 96%. The limits are logic loops (S3's ALU loop, S5's IF2 → IF3 step, S4's M2 stage), not congestion, as at 200 MHz (spikes.md §8). Routing takes 15–24 minutes, and the placer's worst congestion is at most level 5.
+- **The ceiling is above the highest fill tested:** at 180 MHz v1 fits at least 111.6K LUTs (95.3%) and v2 at least 112.4K (96.0%), against about 103K (88%) for v1 at 200 MHz.
+- **The scheduler is no longer near the limit.** Its wakeup loop has at least 0.9 ns at every fill (the groups' worst paths start at the harness's filler registers), where before tags it set the 200 MHz limit.
 - **v1 with the ROB-column scheduler did not route at the same fill (93.4%)** in over 2 hours. With tags (40 readiness columns per row instead of 104) the same core at the same fill routes in 15 minutes. v1 without tags at 90% was stopped during placement, since no decision depends on it.
 
