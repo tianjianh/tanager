@@ -49,7 +49,10 @@ A ready entry re-enters at AG when the AG slot is empty. While one is ready, IQ-
 - **STA pipe:** RF → AG: VA, misaligned (cause 6), access fault (cause 7: above `PA_W`, `PMA_NONE`, `PMA_ROM`), `PMA_DEVICE` → MMIO store. The address and byte mask go into the SQ entry.
 - **Ordering check:** at AG, every younger load (allocated after this store) that has already obtained its value from the cache or from an older store, with a byte overlap in the same dword, is marked for replay in the ROB (the oldest such load is enough; the ROB flushes at it).
 - **Data capture:** each cycle the oldest SQ entry without data whose register is written reads it through the shared read port. An entry knows its register is written from rename's ready bit at dispatch, or by snooping the register-file write ports (one compare per entry and bank), so the read sees the value; there is no lookup of the ready table per entry.
-- **Cold storage (LUTRAM):** the LQ's and SQ's virtual addresses (tval, the trace's `mem_vaddr`, the ROB head's walk) and the SQ's data (the trace, forwarding, the drain, atomics) live in `tg_ram_lut`s; the CAM flip-flops hold the physical address, masks and state.
+- **Cold storage (LUTRAM):** these live in `tg_ram_lut`s; the CAM flip-flops hold the physical address, masks, SQ bound, size and state.
+  - The LQ's and SQ's virtual addresses: tval, the trace's `mem_vaddr`, the ROB head's walk.
+  - The LQ's ROB index and result fields (destination, LLT, file, extension), next to the VA. They are written at AG and read at M2, at the MMIO load and at the LQ head; the oldest ordering violation's ROB index has a one-port copy.
+  - The SQ's data: the trace, forwarding, the drain, atomics.
 - **Completion:** the ROB entry completes when the SQ entry has its address and its data (or an exception).
 - **Commit** marks the entry committed; **drain** takes the SQ head once committed: cacheable stores write the D$ when the line is held with T (setting dirty), otherwise they request the MSHR (`AcquireBlock NtoT`, or `BtoT` from B) and retry; MMIO stores send `PutFullData` and pop on `AccessAck`.
 - **Flush:** uncommitted entries are dropped (tail ← commit pointer); committed ones keep draining. `sq_empty` gates FENCE, FENCE.I and MMIO loads.
@@ -90,7 +93,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
 
 ## Timing and area
-- **Queues:** the fields the searches compare (physical address, byte masks, state, IDs) are flip-flops. Virtual addresses and store data are in LUTRAM (cold storage, lever R7).
+- **Queues:** the fields the searches compare (physical address, byte masks, state, SQ bound, size) are flip-flops. Fields read only by index are in LUTRAM (cold storage, lever R7): virtual addresses, store data, and the LQ's ROB index and result fields.
 - **Age searches:** the replay pick, store-data capture, forwarding and the ordering check are each two priority encoders over a mask of slots, with no ID arithmetic.
   - A queue's entries lie in [head, tail). So the oldest of a set of slots is the first at or after the head's slot, else the first from slot 0.
   - The youngest store older than a load is the last match below the load's `lq_sq` slot, else the last match overall.
