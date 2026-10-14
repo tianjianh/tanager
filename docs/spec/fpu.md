@@ -757,6 +757,10 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 - **A new directed test,** `tests/isa/directed/zbb.S`, covers the bit counts and min/max in lockstep. The random generator has no Zbb, so riscv-tests' `rv64uzbb` was the only coverage before.
 - **The divider's leading-zero counts** use `tg_fpu_lzc`, the FPU's two-level tree, instead of a loop: 1,315 → 1,188 LUTs. In context the loop cost far more than the 71 against 57 of an isolated test.
 - **Execute after both steps:** 8,722 → 8,423 LUTs (st), 8,727 → 8,428 (smt2), against 7,610.
+- **Divider timing.** The divider's NM step is its critical path: two leading-zero counts, then the 128-bit shift, in one cycle.
+  - Alone at 200 MHz it measures +0.088 ns with the loop counts and +0.117 ns with the tree.
+  - In one out-of-context run of the whole `tg_exec` it fell to −0.365 ns; another run of the same RTL did not show it.
+  - So it depends on placement whichever count it uses. It belongs on the timing list with the floorplan.
 - **Dead ends, measured and reverted:**
   - one shift mask for both directions in `tg_alu`: −5 and −0 LUTs;
   - `bext` from the rotator: +1;
