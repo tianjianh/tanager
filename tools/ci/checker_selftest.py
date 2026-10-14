@@ -22,7 +22,11 @@ PERTURB = [
     "--defer=90 --defer-all --defer-max=300 --nondet --seed=5",
     "--harts=2 --defer=50 --width=3 --seed=7",
     "--harts=4 --defer=50 --defer-all --nondet --width=4 --wb-ports=1 --seed=9",
+    "--sc-fail=40 --defer=30 --width=2 --seed=13",   # SCs the core fails: the checker adopts them
 ]
+
+# Directed tests that tolerate interrupts injected at random enabled boundaries.
+INJECT_OK = ("tanager-p-irq_timer", "tanager-p-irq_ext")
 
 FAULTS = ["pc", "skip", "insn", "priv", "rd", "value", "nowrite", "store-data", "store-addr", "nostore",
           "cause", "tval", "trap-as-retire", "retire-as-trap", "nondet-bad", "wb-value", "wb-missing",
@@ -59,15 +63,18 @@ def main():
             print("\n".join("    " + l for l in p.stdout.splitlines() if l.startswith("  ")))
 
     if a.directed:
-        print("== Interrupts (directed tests with random interrupt injection)")
-        for t in sorted(f for f in os.listdir(a.directed) if f.startswith("tanager-p-irq")):
+        # Every directed test with deferred writebacks; the two written for it (they count nothing
+        # that an extra interrupt would upset) also with random interrupts injected.
+        print("== Directed tests (tests/isa/directed), deferral; interrupt injection where the test allows it")
+        for t in sorted(f for f in os.listdir(a.directed) if f.startswith("tanager-p-")):
+            inject = t in INJECT_OK
             for seed in (1, 2, 3):
-                p = subprocess.run([a.replay, "--quiet", "--irq=30", "--defer=50", f"--seed={seed}",
-                                    os.path.join(a.directed, t)], capture_output=True, text=True)
+                args = [a.replay, "--quiet", "--defer=50", f"--seed={seed}"] + (["--irq=30"] if inject else [])
+                p = subprocess.run(args + [os.path.join(a.directed, t)], capture_output=True, text=True)
                 line = next((l for l in p.stdout.splitlines() if l.startswith("TG-REPLAY")), "no result")
                 if "status=PASS" not in line:
                     ok = False
-                    print(f"  FAIL {t} seed {seed}: {line}")
+                    print(f"  FAIL {t} seed {seed}{' (interrupts injected)' if inject else ''}: {line}")
         print("  done")
 
     print("== Fault injection")

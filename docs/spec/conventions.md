@@ -146,6 +146,8 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - Never rewrite history that others may have merged.
   - Never push to a remote; none is configured.
 - **Merge requests:** when a piece is green, message the coordinator with the branch name, what it adds, and the test commands and results.
+  - **End every merge request with a `Learned:` line:** what surprised you, what was measured against what was estimated, and what didn't work and why.
+  - **History and lessons:** every area document (spec or perf report) keeps a short "History and lessons" section, updated with each merge: the starting point, each change and what it bought (LUTs, slack, IPC, bugs found), and dead ends. The coordinator rolls these up into [docs/devlog.md](../devlog.md).
 
 ## 11. Clean room (plan §2.3)
 

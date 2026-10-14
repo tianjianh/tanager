@@ -28,6 +28,7 @@ struct opts_t {
   uint64_t seed = 1, max_steps = 20000000;
   unsigned defer = 0, defer_max = 200, irq = 0;
   bool defer_all = false, nondet = false, quiet = false;
+  unsigned sc_fail = 0;  // percent of SCs the replaying Spike fails (as a core may, §3.4)
   std::string inject;
   int64_t inject_at = -1;
   std::vector<uint64_t> tohost_va;
@@ -44,6 +45,7 @@ struct opts_t {
           "  --defer-max=N    deliver deferred writebacks 1..N records later (default 200)\n"
           "  --tags=N         wb_tag space (default 16); --wb-ports=N writebacks per cycle (default 2)\n"
           "  --nondet         perturb the values of non-deterministic CSR reads\n"
+          "  --sc-fail=PCT    fail this share of SCs (the replaying Spike drops its reservation)\n"
           "  --mvendorid=N --marchid=N --mimpid=N   the core's ID CSR values (default 0, core-pipeline.md §9)\n"
           "  --irq=PERMILLE   random interrupts at boundaries where one is enabled\n"
           "  --inject=KIND    inject one fault the checker must report; --inject-at=N: at record N or later\n"
@@ -83,6 +85,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "defer-all") o.defer_all = true;
     else if (k == "defer-max") o.defer_max = std::max(1u, unsigned(num(v, "--defer-max")));
     else if (k == "nondet") o.nondet = true;
+    else if (k == "sc-fail") o.sc_fail = unsigned(num(v, "--sc-fail"));
     else if (k == "mvendorid") o.ids[0] = num(v, "--mvendorid");
     else if (k == "marchid") o.ids[1] = num(v, "--marchid");
     else if (k == "mimpid") o.ids[2] = num(v, "--mimpid");
@@ -272,7 +275,14 @@ int main(int argc, char** argv) {
         else s->mip->backdoor_write_with_mask(forced, forced);
       }
     }
+    // An SC the core fails (lost reservation, §3.4): the checker must adopt the failure.
+    if (o.sc_fail && (bits & 3) == 3 && is_amo_insn(bits) && (bits >> 27) == 3 && rng.percent(o.sc_fail))
+      p->get_mmu()->yield_load_reservation();
+    // As the core does (interfaces.md §2.4), an AMO outside main memory faults (LR/SC already do).
+    const unsigned f5 = bits >> 27;
+    dut.amo_step = (bits & 3) == 3 && is_amo_insn(bits) && f5 != 2 && f5 != 3;
     spike_step_t st = spike_step(p, bits);
+    dut.amo_step = false;
     if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced & PLATFORM_MIP);
 
     if (st.trapped && st.interrupt) {

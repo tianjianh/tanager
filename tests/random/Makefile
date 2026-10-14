@@ -22,15 +22,13 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 WORK := $(TANAGER_BUILD)/$(WT)/random/$(CFG)-$(CORE)
-# Stressed seeds may also stall the trace when the core has trace_stall_i.
-TRACE_STALL := $(shell $(MAKE) -s --no-print-directory -C $(ROOT)/sim CORE=$(CORE) print-trace-stall)
 
 .PHONY: run replay gen
 run:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build replay
 	python3 $(ROOT)/tests/random/run_random.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim \
 	  --replay $(TANAGER_BUILD)/$(WT)/sim/replay/tg_replay --n $(N) --seed $(SEED) --isa $(ISA) --irq $(IRQ) \
-	  --length $(LENGTH) $(if $(filter 1,$(STRESS)),--stress $(if $(filter 1,$(TRACE_STALL)),--trace-stall)) \
+	  --length $(LENGTH) $(if $(filter 1,$(STRESS)),--stress --trace-stall) \
 	  --jobs $(JOBS) --workdir $(WORK) \
 	  --name "random $(CFG) $(CORE)" -- $(SIMARGS)
 
