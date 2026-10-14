@@ -3,9 +3,12 @@
 package tg_core_pkg;
   import tg_pkg::*;
   import tg_alu_pkg::*;
+  import tg_fpu_pkg::*;
 
   // ---- Core-local constants ----
   localparam int DIV_INFLIGHT = 4;        // divides between rename and the divider (input FIFO)
+  localparam int FDIV_INFLIGHT = 4;       // FP divides/square roots between rename and the unit
+  localparam int FPI_INFLIGHT  = 4;       // FP ops with an integer result, rename to bank B1
 
   // ISA beyond M2's RV64IM: on with the M3 ISA string (sim ISA=..., verification.md §3.2); misa
   // and the illegal encodings follow them, so Spike's configuration must match
@@ -14,6 +17,7 @@ package tg_core_pkg;
   localparam bit EXT_C      = 1'b1;      // compressed instructions
   localparam bit EXT_B      = 1'b1;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b1;
+  localparam bit EXT_FD     = 1'b0;      // F and D: FP rename, IQ-FP and P4, fcsr (being built)
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -38,10 +42,18 @@ package tg_core_pkg;
   localparam int BANK_W = idx_w(INT_BANKS);
   localparam int LD_BANK = N_ALU;         // the load pipe's bank
 
-  // Issue queues: ALU queues 0..N_ALU-1, then LD and STA (FP arrives with M5)
-  localparam int N_IQ  = N_ALU + 2;
+  // FP physical registers {bank, index}: F0 takes P4 results, F1 FP loads. FP tags travel in
+  // preg_t-wide fields next to a flag that says which file they name.
+  localparam int FPIDX_W = idx_w(FP_PREGS_PER_BANK);
+  localparam int FPB_F0  = 0;
+  localparam int FPB_F1  = 1;
+
+  // Issue queues: ALU queues 0..N_ALU-1, then LD and STA, then FP (with EXT_FD)
+  localparam int N_IQ  = N_ALU + 2 + int'(EXT_FD);
   localparam int Q_LD  = N_ALU;
   localparam int Q_STA = N_ALU + 1;
+  localparam int Q_FP  = N_ALU + 2;
+  localparam int N_XQ  = N_ALU + 2;       // queues that issue to tg_exec (ALU, LD, STA)
   localparam int QW    = idx_w(N_IQ);
 
   typedef logic [BANK_W+PIDX_W-1:0] preg_t;
@@ -64,6 +76,15 @@ package tg_core_pkg;
   endfunction
   function automatic preg_t mk_preg(input int b, input logic [PIDX_W-1:0] i);
     return {BANK_W'(b), i};
+  endfunction
+  function automatic logic fpreg_bank(input preg_t p);
+    return p[FPIDX_W];
+  endfunction
+  function automatic logic [FPIDX_W-1:0] fpreg_idx(input preg_t p);
+    return p[FPIDX_W-1:0];
+  endfunction
+  function automatic preg_t mk_fpreg(input int b, input logic [FPIDX_W-1:0] i);
+    return preg_t'({1'(b), i});
   endfunction
 
   // Age of two ROB IDs (index plus wrap bit): a older than b
@@ -112,15 +133,16 @@ package tg_core_pkg;
   endfunction
 
   // ---- Micro-op classes ----
-  typedef enum logic [2:0] {
-    C_ALU = 3'd0,   // 1-cycle ALU op on any ALU port
-    C_BR  = 3'd1,   // branch, JAL, JALR: port 0
-    C_MUL = 3'd2,   // port 1, 3 cycles
-    C_DIV = 3'd3,   // port 1, iterative
-    C_LD  = 3'd4,
-    C_ST  = 3'd5,
-    C_CSR = 3'd6,   // port 1, serialised
-    C_SYS = 3'd7    // no execution: FENCE, FENCE.I, WFI, MRET, decode-time exceptions
+  typedef enum logic [3:0] {
+    C_ALU = 4'd0,   // 1-cycle ALU op on any ALU port
+    C_BR  = 4'd1,   // branch, JAL, JALR: port 0
+    C_MUL = 4'd2,   // port 1, 3 cycles
+    C_DIV = 4'd3,   // port 1, iterative
+    C_LD  = 4'd4,
+    C_ST  = 4'd5,
+    C_CSR = 4'd6,   // port 1, serialised
+    C_SYS = 4'd7,   // no execution: FENCE, FENCE.I, WFI, MRET, decode-time exceptions
+    C_FP  = 4'd8    // port 4: the FPU's units (EXT_FD)
   } uclass_e;
 
   typedef enum logic [1:0] { BR_COND = 2'd0, BR_JAL = 2'd1, BR_JALR = 2'd2 } br_kind_e;
@@ -208,7 +230,10 @@ package tg_core_pkg;
   typedef struct packed {
     uclass_e       cls;
     logic [4:0]    rs1, rs2, rd;
-    logic          rs1_en, rs2_en, rd_en;   // rd_en is 0 for x0
+    logic          rs1_en, rs2_en, rd_en;   // rd_en is 0 for x0 (never for an FP rd)
+    logic          rs1_fp, rs2_fp, rd_fp;   // the register is an FP register
+    logic          rs3_en;                  // FMA forms: rs3 (always FP)
+    logic [4:0]    rs3;
     alu_ctl_t      alu;
     logic          b_imm;       // ALU operand b is imm
     logic [63:0]   imm;         // ALU operand b, memory offset, or the link value (PC + 4)
@@ -232,6 +257,13 @@ package tg_core_pkg;
     logic          exc;         // decode-time exception
     logic [3:0]    exc_cause;
     logic          exc_hi;      // fetch fault on the second half: tval = pc + 2
+    fop_e          fop;         // C_FP: the FPU operation and its formats
+    ffmt_e         fmt;
+    ffmt_e         src_fmt;
+    ifmt_e         ifmt;
+    rm_e           rm;          // resolved: frm substituted for DYN
+    logic          fp_int;      // C_FP with an integer result (bank B1)
+    logic          fp_div;      // C_FP on the divide/sqrt unit
   } dec_t;
 
   // A micro-op in the RN / DS pipeline registers
@@ -253,11 +285,11 @@ package tg_core_pkg;
     logic          has_q;
     preg_t         dst;         // destination (valid when d.rd_en)
     preg_t         old;         // previous mapping of rd
-    preg_t         src1, src2;
-    logic          p1, p2;      // source pending
-    pid_t          w1, w2;      // their producers: column (c1/c2), or ROB index (l1/l2)
-    logic          c1, c2;      // ... has a wakeup column (tag or LLT)
-    logic          l1, l2;      // ... a 1-cycle op (MX naming at DS)
+    preg_t         src1, src2, src3;
+    logic          p1, p2, p3;  // source pending
+    pid_t          w1, w2, w3;  // their producers: column (c*), or ROB index (l1/l2)
+    logic          c1, c2, c3;  // ... has a wakeup column (tag or LLT)
+    logic          l1, l2;      // ... a 1-cycle op (MX naming at DS); rs3 is always FP
     logic [idx_w(RENAME_WIDTH)-1:0] ks1, ks2;   // ... renamed in this slot of its group
     wid_t          wid;         // own wakeup column (valid with use_tag or use_llt)
     logic          use_tag;
@@ -306,13 +338,22 @@ package tg_core_pkg;
     sqid_t         sq;
     logic [1:0]    mem_size;
     logic          mem_uns;
-    preg_t         src1, src2;
+    fop_e          fop;         // C_FP
+    ffmt_e         fmt;
+    ffmt_e         src_fmt;
+    ifmt_e         ifmt;
+    rm_e           rm;
+    logic          fp_int;
+    logic          fp_div;
+    logic          src1_fp;     // C_FP: operand a from the FP file (else the integer file)
+    logic          dst_fp;
+    preg_t         src1, src2, src3;
   } iq_pl_t;
   localparam int IQ_PL_W = $bits(iq_pl_t);
 
   // ---- Scheduler options (spikes.md §4.2) ----
   localparam bit IQ_DUP_SEL = 1'b1;               // a second select copy drives the wakeup
-  localparam int IQ_EARLY_W = 2 * $bits(preg_t);  // only the source tags in flip-flops
+  localparam int IQ_EARLY_W = 3 * $bits(preg_t);  // only the source tags in flip-flops
   localparam bit IQ_MX      = 1'b1;               // matrix wakeup: in every configuration (S6)
   // ALU-queue rows, numbered across the queues (MX names producers by these rows)
   localparam int RA = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0);
@@ -328,10 +369,11 @@ package tg_core_pkg;
     logic          rvc;
     tid_t          tid;
     logic          rd_en;
+    logic          rd_fp;
     logic [4:0]    rd;
     preg_t         dst;
     preg_t         old;
-    logic          is_ld, is_st, is_br, is_csr;
+    logic          is_ld, is_st, is_br, is_csr, is_fp;
     sys_e          sys;
     logic          serial;
     logic          dexc;        // decode-time exception

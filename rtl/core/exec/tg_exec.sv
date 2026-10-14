@@ -34,8 +34,8 @@ module tg_exec
   input  logic                         init_we,
   input  logic [PIDX_W-1:0]            init_idx,
   // Issue (RF stage)
-  input  logic [N_IQ-1:0]              iss_valid,
-  input  iq_pl_t [N_IQ-1:0]            iss_pl,
+  input  logic [N_XQ-1:0]              iss_valid,
+  input  iq_pl_t [N_XQ-1:0]            iss_pl,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -127,10 +127,10 @@ module tg_exec
   end
 
   // ---- Pipeline state per port (ALU ports, then LD and STA) ----
-  logic [N_IQ-1:0]              ex_v_q;
-  iq_pl_t [N_IQ-1:0]            ex_pl_q;
-  logic [N_IQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
-  logic [N_IQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
+  logic [N_XQ-1:0]              ex_v_q;
+  iq_pl_t [N_XQ-1:0]            ex_pl_q;
+  logic [N_XQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
+  logic [N_XQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
   logic [N_ALU-1:0]             wb_v_q;              // res_q holds an ALU result
   logic [N_ALU-1:0]             wb_dv_q;             // ... with a destination
   logic [N_ALU-1:0][PIDX_W-1:0] wb_dst_q;
@@ -145,8 +145,8 @@ module tg_exec
   endfunction
 
   // ---- RF stage: bypass selects ----
-  function automatic logic [SW-1:0] bsel(input preg_t t, input logic [N_IQ-1:0] exv,
-                                         input iq_pl_t [N_IQ-1:0] expl, input logic [N_ALU-1:0] wbdv,
+  function automatic logic [SW-1:0] bsel(input preg_t t, input logic [N_XQ-1:0] exv,
+                                         input iq_pl_t [N_XQ-1:0] expl, input logic [N_ALU-1:0] wbdv,
                                          input logic [N_ALU-1:0][PIDX_W-1:0] wbdst,
                                          input logic m2w, input logic [PIDX_W-1:0] m2d,
                                          input logic lrv, input logic [PIDX_W-1:0] lrd);
@@ -167,9 +167,9 @@ module tg_exec
     return SW'(S_RF);
   endfunction
 
-  logic [N_IQ-1:0][SW-1:0] sa, sb;
-  logic [N_IQ-1:0][63:0]   ra, rb;
-  for (genvar q = 0; q < N_IQ; q++) begin : g_sel
+  logic [N_XQ-1:0][SW-1:0] sa, sb;
+  logic [N_XQ-1:0][63:0]   ra, rb;
+  for (genvar q = 0; q < N_XQ; q++) begin : g_sel
     always_comb begin
       sa[q] = bsel(iss_pl[q].src1, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
@@ -207,8 +207,8 @@ module tg_exec
     return o;
   endfunction
 
-  logic [N_IQ-1:0][63:0] opa, opb;
-  for (genvar q = 0; q < N_IQ; q++) begin : g_op
+  logic [N_XQ-1:0][63:0] opa, opb;
+  for (genvar q = 0; q < N_XQ; q++) begin : g_op
     always_comb begin
       logic [NSRC-1:0][63:0] s1, s2;
       s1 = src_common;
@@ -458,7 +458,7 @@ module tg_exec
     ex_pl_q <= iss_pl;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
-    for (int q = 0; q < N_IQ; q++) begin
+    for (int q = 0; q < N_XQ; q++) begin
       ex_a_q[q] <= ra[q];
       ex_b_q[q] <= rb[q];
     end

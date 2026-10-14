@@ -28,6 +28,14 @@
 // producer's slot, and one compare of the row's destination (rowdst_q) against the source
 // confirms the row still holds it. A producer in the same group is named by the row it is being
 // written into. Otherwise the ID is used.
+// F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
+// {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
+// An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
+// as usual; an FP op with an integer result writes bank B1. FMA and FMISC ops with an FP result
+// take a wakeup tag; divides, square roots and FP->int ops an LLT. FP divides and FP->int ops
+// are held to FDIV_INFLIGHT and FPI_INFLIGHT between rename and their return from P4: each
+// count is the uops renamed but not yet issued (dropped by a flush) plus those issued and not
+// yet returned (fdiv_done, fpi_pop: P4 returns every issued one, flushed or not).
 module tg_rename
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -59,12 +67,20 @@ module tg_rename
   input  logic [LLT_ENTRIES-1:0]           llt_rel,
   input  logic [IQ_TAGS-1:0]               tag_free,    // tags returned (registered)
   input  logic                             div_done,
+  // F and D (EXT_FD): FP register-file writes (F0: P4, F1: FP loads), P4 issue and returns
+  input  logic [1:0]                       fp_we,
+  input  logic [1:0][FPIDX_W-1:0]          fp_widx,
+  input  logic                             fdiv_iss,    // IQ-FP issued a divide / sqrt
+  input  logic                             fpi_iss,     // ... an FP->int op
+  input  logic                             fdiv_done,   // P4 returned a divide
+  input  logic                             fpi_pop,     // ... an FP->int op
   // Commit
   input  logic [COMMIT_WIDTH-1:0]          cm_valid,
   input  logic [COMMIT_WIDTH-1:0]          cm_rd_en,
   input  logic [COMMIT_WIDTH-1:0][4:0]     cm_rd,
   input  preg_t [COMMIT_WIDTH-1:0]         cm_dst,
   input  preg_t [COMMIT_WIDTH-1:0]         cm_old,
+  input  logic [COMMIT_WIDTH-1:0]          cm_rd_fp,    // ... rd is an f register
   // DS
   output logic                             ds_fire,
   output logic [DISPATCH_WIDTH-1:0]        ds_valid,
@@ -86,7 +102,6 @@ module tg_rename
 
   // ---- State ----
   localparam int KSW = idx_w(W);
-  localparam int CSW = idx_w(COMMIT_WIDTH);
   typedef struct packed {
     pid_t           id;                    // producer's column, or its ROB index if l1
     logic           cv;                    // ... has a wakeup column
@@ -103,6 +118,10 @@ module tg_rename
   lqid_t                 ltail_q;
   sqid_t                 stail_q;
   logic [idx_w(DIV_INFLIGHT + 1)-1:0] div_cnt_q;
+  // FP divides and FP->int ops: renamed, not yet issued (a flush drops them) / issued, not
+  // yet returned by P4
+  logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
+  logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic                  block_q;          // after a serialising uop, until the flush
   // MX naming state
   preg_t [RA-1:0]        rowdst_q;         // destination of the op each ALU-queue row holds
@@ -114,7 +133,8 @@ module tg_rename
   ren_t [W-1:0]          ds_ren_q;
 
   for (genvar k = 0; k < W; k++) begin : g_s2r
-    assign ds_src2_rdy[k] = ready_q[ds_ren_q[k].src2];
+    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? fready_q[fpr(ds_ren_q[k].src2)]
+                                                              : ready_q[ds_ren_q[k].src2];
   end
   assign rob_tail  = rtail_q;
 
@@ -134,22 +154,41 @@ module tg_rename
       .commit_n(fl_cmt_n[b]), .flush);
   end
 
+  // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63
+  logic [1:0]                         ffl_ready;
+  logic [1:0][FPIDX_W:0]              ffl_count;
+  logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
+  logic [1:0][idx_w(W+1)-1:0]         ffl_pop_n;
+  logic [1:0][COMMIT_WIDTH-1:0]       ffl_push_v;
+  logic [1:0][COMMIT_WIDTH-1:0][FPIDX_W-1:0] ffl_push_idx;
+  logic [1:0][idx_w(COMMIT_WIDTH+1)-1:0] ffl_cmt_n;
+  logic [1:0][idx_w(W+1)-1:0]         fpops;
+  if (EXT_FD) begin : g_ffl
+    for (genvar b = 0; b < 2; b++) begin : g_b
+      tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
+                    .FIRST(b == FPB_F0 ? 32 : 0)) u_fl (
+        .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_idx(ffl_pop[b]),
+        .pop_n(ffl_pop_n[b]), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
+        .commit_n(ffl_cmt_n[b]), .flush);
+    end
+  end else begin : g_noffl
+    assign ffl_ready = '1;
+    assign ffl_count = '0;
+    assign ffl_pop   = '0;
+    logic unused;
+    assign unused = ^{ffl_pop_n, ffl_push_v, ffl_push_idx, ffl_cmt_n};
+  end
+
   // ---- Rename maps (LUTRAM) ----
   // Read ports: rs1 and rs2 of slot k at 2k and 2k + 1, rd (the old mapping) at 2W + k; the
   // producer fields are read for the sources only.
   localparam int NMR = 3 * W;
   localparam int PRW = $bits(preg_t);
   localparam int PDW = $bits(rprod_t);
-  logic [31:0]                          sv_q;     // renamed since the last flush
-  logic [31:0][KSW-1:0]                 lvt_q;    // speculative bank with the latest entry
-  logic [31:0][CSW-1:0]                 lvtc_q;   // committed bank with the latest entry
-  logic [5:0]                           cinit_q;  // reset sweep: identity into committed bank 0
   logic [NMR-1:0][4:0]                  map_ra;
-  logic [W-1:0][NMR-1:0][PRW-1:0]       ms_rd;
-  logic [W-1:0][2*W-1:0][PDW-1:0]       mp_rd;
-  logic [COMMIT_WIDTH-1:0][NMR-1:0][PRW-1:0] mc_rd;
   preg_t  [NMR-1:0]                     map_p;    // mapping per read port
-  rprod_t [2*W-1:0]                     map_pd;   // producer per source port
+  rprod_t [2*W-1:0]                     map_pd;   // producer per source port (a committed
+                                                  // mapping's producer is done: not read)
   for (genvar k = 0; k < W; k++) begin : g_mra
     assign map_ra[2*k]     = rn_uop_q[k].d.rs1;
     assign map_ra[2*k+1]   = rn_uop_q[k].d.rs2;
@@ -157,60 +196,101 @@ module tg_rename
   end
   ren_t [W-1:0] ren;
   logic         rn_fire;
-  for (genvar k = 0; k < W; k++) begin : g_ms
-    logic we;
-    assign we = rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en;
-    tg_ram_lut #(.DEPTH(32), .WIDTH(PRW), .NR(NMR)) u_map (
-      .clk, .we, .waddr(rn_uop_q[k].d.rd), .wdata(ren[k].dst), .raddr(map_ra), .rdata(ms_rd[k]));
-    tg_ram_lut #(.DEPTH(32), .WIDTH(PDW), .NR(2 * W)) u_prod (
-      .clk, .we, .waddr(rn_uop_q[k].d.rd),
-      .wdata(rprod_t'{id: is_lat1(rn_uop_q[k].d.cls) ? pid_t'(ren[k].rob[ROBW-2:0]) : pid_t'(ren[k].wid),
-                      cv: ren[k].use_tag || ren[k].use_llt, l1: is_lat1(rn_uop_q[k].d.cls),
-                      ks: KSW'(k)}),
-      .raddr(map_ra[2*W-1:0]), .rdata(mp_rd[k]));
+  logic [W-1:0]                im_we;
+  logic [W-1:0][4:0]           im_wa;
+  logic [W-1:0][PRW-1:0]       im_wdp;
+  logic [W-1:0][PDW-1:0]       im_wdd;
+  logic [COMMIT_WIDTH-1:0]     icm_we;
+  logic [NMR-1:0][PRW-1:0]     im_rdp;
+  logic [2*W-1:0][PDW-1:0]     im_rdd;
+  logic                        imap_ready;
+  for (genvar k = 0; k < W; k++) begin : g_imw
+    assign im_we[k]  = rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en && !rn_uop_q[k].d.rd_fp;
+    assign fm_we[k]  = EXT_FD && rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en && rn_uop_q[k].d.rd_fp;
+    assign im_wa[k]  = rn_uop_q[k].d.rd;
+    assign im_wdp[k] = ren[k].dst;
+    assign im_wdd[k] = rprod_t'{id: is_lat1(rn_uop_q[k].d.cls) ? pid_t'(ren[k].rob[ROBW-2:0])
+                                                               : pid_t'(ren[k].wid),
+                                cv: ren[k].use_tag || ren[k].use_llt,
+                                l1: is_lat1(rn_uop_q[k].d.cls), ks: KSW'(k)};
   end
-  for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_mc
-    logic we;
-    logic [4:0] wa;
-    preg_t wd;
-    always_comb begin
-      we = cm_valid[j] && cm_rd_en[j];
-      wa = cm_rd[j];
-      wd = cm_dst[j];
-      if (j == 0 && !cinit_q[5]) begin
-        we = 1'b1;
-        wa = cinit_q[4:0];
-        wd = mk_preg(0, PIDX_W'(cinit_q[4:0]));
-      end
-    end
-    tg_ram_lut #(.DEPTH(32), .WIDTH(PRW), .NR(NMR)) u_cmap (
-      .clk, .we, .waddr(wa), .wdata(wd), .raddr(map_ra), .rdata(mc_rd[j]));
+  for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_icm
+    assign icm_we[j] = cm_valid[j] && cm_rd_en[j] && !cm_rd_fp[j];
   end
-  for (genvar i = 0; i < NMR; i++) begin : g_mrd
-    always_comb begin
-      logic [4:0] r;
-      r = map_ra[i];
-      map_p[i] = sv_q[r] ? ms_rd[lvt_q[r]][i] : mc_rd[lvtc_q[r]][i];
-    end
-    if (i < 2 * W) begin : g_pd
-      // a committed mapping's producer is done: the source is ready and these are not read
-      assign map_pd[i] = rprod_t'(mp_rd[lvt_q[map_ra[i]]][i]);
-    end
+  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W)) u_imap (
+    .clk, .rst, .flush, .ready(imap_ready), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
+    .we(im_we), .wa(im_wa), .wd_p(im_wdp), .wd_d(im_wdd), .cwe(icm_we), .cwa(cm_rd),
+    .cwd(cm_dst));
+  for (genvar i = 0; i < NMR; i++) begin : g_imr
+    assign map_p[i] = preg_t'(im_rdp[i]);
+  end
+  for (genvar i = 0; i < 2 * W; i++) begin : g_imd
+    assign map_pd[i] = rprod_t'(im_rdd[i]);
   end
 
-  assign ready = &fl_ready && cinit_q[5];
+  // FP map (EXT_FD): rs1, rs2, rs3 of slot k at 3k .. 3k + 2, rd at 3W + k; the producer
+  // fields (its wakeup column: an FP result always has one) for the sources
+  localparam int FNMR = 4 * W;
+  localparam int FRW  = FPIDX_W + 1;
+  logic [FNMR-1:0][4:0]        fmap_ra;
+  logic [FNMR-1:0][FRW-1:0]    fmap_p;
+  logic [3*W-1:0][COL_W-1:0]   fmap_w;
+  logic                        fmap_ready;
+  logic [W-1:0]                fm_we;
+  logic [COMMIT_WIDTH-1:0]     fcm_we;
+  logic [COMMIT_WIDTH-1:0][FRW-1:0] fcm_wd;
+  for (genvar k = 0; k < W; k++) begin : g_fmra
+    assign fmap_ra[3*k]     = rn_uop_q[k].d.rs1;
+    assign fmap_ra[3*k+1]   = rn_uop_q[k].d.rs2;
+    assign fmap_ra[3*k+2]   = rn_uop_q[k].d.rs3;
+    assign fmap_ra[3*W + k] = rn_uop_q[k].d.rd;
+  end
+  for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_fcm
+    assign fcm_we[j] = EXT_FD && cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
+    assign fcm_wd[j] = FRW'(cm_dst[j]);
+  end
+  if (EXT_FD) begin : g_fmap
+    logic [W-1:0][4:0]       fm_wa;
+    logic [W-1:0][FRW-1:0]   fm_wdp;
+    logic [W-1:0][COL_W-1:0] fm_wdd;
+    for (genvar k = 0; k < W; k++) begin : g_w
+      assign fm_wa[k]  = rn_uop_q[k].d.rd;
+      assign fm_wdp[k] = FRW'(ren[k].dst);
+      assign fm_wdd[k] = ren[k].wid;
+    end
+    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W)) u_fmap (
+      .clk, .rst, .flush, .ready(fmap_ready), .ra(fmap_ra), .rd_p(fmap_p), .rd_d(fmap_w),
+      .we(fm_we), .wa(fm_wa), .wd_p(fm_wdp), .wd_d(fm_wdd), .cwe(fcm_we), .cwa(cm_rd),
+      .cwd(fcm_wd));
+  end else begin : g_nofmap
+    assign fmap_ready = 1'b1;
+    assign fmap_p     = '0;
+    assign fmap_w     = '0;
+    logic unused;
+    assign unused = ^{fmap_ra, fm_we, fcm_we, fcm_wd};
+  end
+  // FP ready table: one bit per FP physical register {bank, index}
+  logic [2*FP_PREGS_PER_BANK-1:0] fready_q;
+  /* verilator lint_off UNUSEDSIGNAL */      // an FP tag is the low FRW bits of preg_t
+  function automatic logic [FRW-1:0] fpr(input preg_t p);
+    return p[FRW-1:0];
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+
+  assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
 
   // ---- RN ----
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
-    int nrob, nld, nst, ndiv, port, pref, p, b;
+    int nrob, nld, nst, ndiv, nfdiv, nfpi, port, pref, p, b, fb;
     logic [LLT_ENTRIES-1:0] lfree;
     logic [IQ_TAGS-1:0]     tfree;
     logic llt_short, tag_short, found, got;
     pops = '0;
-    nld = 0; nst = 0; ndiv = 0; nrob = 0;
-    port = 0; pref = 0; p = 0; b = 0;
+    fpops = '0;
+    nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
+    port = 0; pref = 0; p = 0; b = 0; fb = 0;
     lfree = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
     tfree = ~tag_busy_q;
     llt_short = 1'b0;
@@ -239,6 +319,7 @@ module tg_rename
             end
           end
         end
+        C_FP:  port = EXT_FD ? Q_FP : 0;
         default: begin port = 0; ren[k].has_q = 1'b0; end
       endcase
       ren[k].q = QW'(port);
@@ -250,9 +331,11 @@ module tg_rename
         if (rn_uop_q[k].d.cls == C_LD) nld++;
         if (rn_uop_q[k].d.cls == C_ST) nst++;
         if (rn_uop_q[k].d.cls == C_DIV) ndiv++;
+        if (rn_uop_q[k].d.cls == C_FP && rn_uop_q[k].d.fp_div) nfdiv++;
+        if (rn_uop_q[k].d.cls == C_FP && rn_uop_q[k].d.fp_int) nfpi++;
         nrob = k + 1;
       end
-      // Sources: RAT, or the closest earlier slot that writes the register
+      // Sources: the maps, or the closest earlier slot that writes the register
       ren[k].src1 = rn_uop_q[k].d.rs1_en ? map_p[2*k] : '0;
       ren[k].src2 = rn_uop_q[k].d.rs2_en ? map_p[2*k+1] : '0;
       ren[k].p1   = rn_uop_q[k].d.rs1_en && !ready_q[ren[k].src1];
@@ -266,28 +349,59 @@ module tg_rename
       ren[k].ks1  = map_pd[2*k].ks;
       ren[k].ks2  = map_pd[2*k+1].ks;
       ren[k].old  = map_p[2*W + k];
+      if (EXT_FD) begin
+        // f-register sources: always a wakeup column, never MX
+        if (rn_uop_q[k].d.rs1_fp) begin
+          ren[k].src1 = preg_t'(fmap_p[3*k]);
+          ren[k].p1   = rn_uop_q[k].d.rs1_en && !fready_q[fmap_p[3*k]];
+          ren[k].w1   = pid_t'(fmap_w[3*k]);
+          ren[k].c1   = 1'b1;
+          ren[k].l1   = 1'b0;
+        end
+        if (rn_uop_q[k].d.rs2_fp) begin
+          ren[k].src2 = preg_t'(fmap_p[3*k+1]);
+          ren[k].p2   = rn_uop_q[k].d.rs2_en && !fready_q[fmap_p[3*k+1]];
+          ren[k].w2   = pid_t'(fmap_w[3*k+1]);
+          ren[k].c2   = 1'b1;
+          ren[k].l2   = 1'b0;
+        end
+        ren[k].src3 = rn_uop_q[k].d.rs3_en ? preg_t'(fmap_p[3*k+2]) : '0;
+        ren[k].p3   = rn_uop_q[k].d.rs3_en && !fready_q[fmap_p[3*k+2]];
+        ren[k].w3   = pid_t'(fmap_w[3*k+2]);
+        ren[k].c3   = 1'b1;
+        if (rn_uop_q[k].d.rd_fp) ren[k].old = preg_t'(fmap_p[3*W + k]);
+      end
       for (int i = 0; i < k; i++) begin
         if (rn_uop_q[i].d.rd_en) begin
-          if (rn_uop_q[k].d.rs1_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs1) begin
+          if (rn_uop_q[k].d.rs1_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs1 &&
+              rn_uop_q[i].d.rd_fp == rn_uop_q[k].d.rs1_fp) begin
             ren[k].src1 = ren[i].dst; ren[k].p1 = 1'b1;
             ren[k].w1 = is_lat1(rn_uop_q[i].d.cls) ? pid_t'(ren[i].rob[ROBW-2:0]) : pid_t'(ren[i].wid);
             ren[k].c1 = ren[i].use_tag || ren[i].use_llt;
             ren[k].l1 = is_lat1(rn_uop_q[i].d.cls); ren[k].ks1 = KSW'(i);
           end
-          if (rn_uop_q[k].d.rs2_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs2) begin
+          if (rn_uop_q[k].d.rs2_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs2 &&
+              rn_uop_q[i].d.rd_fp == rn_uop_q[k].d.rs2_fp) begin
             ren[k].src2 = ren[i].dst; ren[k].p2 = 1'b1;
             ren[k].w2 = is_lat1(rn_uop_q[i].d.cls) ? pid_t'(ren[i].rob[ROBW-2:0]) : pid_t'(ren[i].wid);
             ren[k].c2 = ren[i].use_tag || ren[i].use_llt;
             ren[k].l2 = is_lat1(rn_uop_q[i].d.cls); ren[k].ks2 = KSW'(i);
           end
-          if (rn_uop_q[i].d.rd == rn_uop_q[k].d.rd) ren[k].old = ren[i].dst;
+          if (EXT_FD && rn_uop_q[k].d.rs3_en && rn_uop_q[i].d.rd_fp && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs3) begin
+            ren[k].src3 = ren[i].dst; ren[k].p3 = 1'b1; ren[k].w3 = pid_t'(ren[i].wid); ren[k].c3 = 1'b1;
+          end
+          if (rn_uop_q[i].d.rd == rn_uop_q[k].d.rd && rn_uop_q[i].d.rd_fp == rn_uop_q[k].d.rd_fp)
+            ren[k].old = ren[i].dst;
         end
       end
       // Wakeup column: an LLT for loads, atomics and divides with a destination, a tag for MUL
       // and the bit counts (P1's MUL slot), none for 1-cycle and serialised ops
       ren[k].use_llt = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
-                       (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo);
-      ren[k].use_tag = rn_uop_q[k].d.rd_en && rn_valid_q[k] && rn_uop_q[k].d.cls == C_MUL;
+                       (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo ||
+                        (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)));
+      ren[k].use_tag = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
+                       (rn_uop_q[k].d.cls == C_MUL ||
+                        (rn_uop_q[k].d.cls == C_FP && !rn_uop_q[k].d.fp_div && !rn_uop_q[k].d.fp_int));
       ren[k].wid = '0;
       if (ren[k].use_llt) begin
         got = 1'b0;
@@ -312,11 +426,18 @@ module tg_rename
         end
         if (!got) tag_short = 1'b1;
       end
-      // Destination from the port's bank (atomics: the load bank, written by the LSU)
+      // Destination from the port's bank (atomics: the load bank, written by the LSU; FP->int
+      // results: bank 1); an f register from F0 (P4) or F1 (FP loads)
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
-        b = (port == Q_LD || rn_uop_q[k].d.amo) ? LD_BANK : port;
-        ren[k].dst = mk_preg(b, fl_pop[b][pops[b]]);
-        pops[b] = pops[b] + 1'b1;
+        if (EXT_FD && rn_uop_q[k].d.rd_fp) begin
+          fb = (rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0;
+          ren[k].dst = mk_fpreg(fb, ffl_pop[fb][fpops[fb]]);
+          fpops[fb] = fpops[fb] + 1'b1;
+        end else begin
+          b = (port == Q_LD || rn_uop_q[k].d.amo) ? LD_BANK : (rn_uop_q[k].d.cls == C_FP) ? 1 : port;
+          ren[k].dst = mk_preg(b, fl_pop[b][pops[b]]);
+          pops[b] = pops[b] + 1'b1;
+        end
       end
     end
     // Resources
@@ -326,6 +447,11 @@ module tg_rename
     if (sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES) rn_ok = 1'b0;
     if (llt_short || tag_short) rn_ok = 1'b0;
     if (int'(div_cnt_q) + ndiv > DIV_INFLIGHT) rn_ok = 1'b0;
+    if (int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT) rn_ok = 1'b0;
+    if (int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT) rn_ok = 1'b0;
+    for (int i = 0; i < 2; i++) begin
+      if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok = 1'b0;
+    end
     for (int i = 0; i < INT_BANKS; i++) begin
       if (int'(pops[i]) > int'(fl_count[i])) rn_ok = 1'b0;
     end
@@ -341,6 +467,8 @@ module tg_rename
                    (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
 
+  assign ffl_pop_n[0] = rn_fire ? fpops[0] : '0;
+  assign ffl_pop_n[1] = rn_fire ? fpops[1] : '0;
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_pops
     assign fl_pop_n[b] = rn_fire ? pops[b] : '0;
   end
@@ -431,6 +559,7 @@ module tg_rename
       iq_dep[k] = '0;
       if (ds_ren_q[k].p1 && ds_ren_q[k].c1) iq_dep[k][wid_t'(ds_ren_q[k].w1)] = 1'b1;
       if (ds_ren_q[k].p2 && ds_ren_q[k].c2) iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
+      if (EXT_FD && ds_ren_q[k].p3 && ds_ren_q[k].c3) iq_dep[k][wid_t'(ds_ren_q[k].w3)] = 1'b1;
       iq_dep[k] &= ~w_vec;
       iq_mdep[k] = mrow1[k] | mrow2[k];
       iq_pl[k] = '0;
@@ -470,6 +599,16 @@ module tg_rename
       iq_pl[k].sq        = ds_ren_q[k].sq;
       iq_pl[k].mem_size  = ds_uop_q[k].d.mem_size;
       iq_pl[k].mem_uns   = ds_uop_q[k].d.mem_uns;
+      iq_pl[k].src3      = ds_ren_q[k].src3;
+      iq_pl[k].src1_fp   = ds_uop_q[k].d.rs1_fp;
+      iq_pl[k].dst_fp    = ds_uop_q[k].d.rd_fp;
+      iq_pl[k].fop       = ds_uop_q[k].d.fop;
+      iq_pl[k].fmt       = ds_uop_q[k].d.fmt;
+      iq_pl[k].src_fmt   = ds_uop_q[k].d.src_fmt;
+      iq_pl[k].ifmt      = ds_uop_q[k].d.ifmt;
+      iq_pl[k].rm        = ds_uop_q[k].d.rm;
+      iq_pl[k].fp_int    = ds_uop_q[k].d.fp_int;
+      iq_pl[k].fp_div    = ds_uop_q[k].d.fp_div;
     end
   end
 
@@ -478,11 +617,19 @@ module tg_rename
     fl_push_v = '0;
     fl_push_idx = '0;
     fl_cmt_n = '0;
+    ffl_push_v = '0;
+    ffl_push_idx = '0;
+    ffl_cmt_n = '0;
     for (int j = 0; j < COMMIT_WIDTH; j++) begin
-      if (cm_valid[j] && cm_rd_en[j]) begin
+      if (cm_valid[j] && cm_rd_en[j] && !(EXT_FD && cm_rd_fp[j])) begin
         fl_push_v[preg_bank(cm_old[j])][j]   = 1'b1;
         fl_push_idx[preg_bank(cm_old[j])][j] = preg_idx(cm_old[j]);
         fl_cmt_n[preg_bank(cm_dst[j])]       = fl_cmt_n[preg_bank(cm_dst[j])] + 1'b1;
+      end
+      if (EXT_FD && cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j]) begin
+        ffl_push_v[fpreg_bank(cm_old[j])][j]   = 1'b1;
+        ffl_push_idx[fpreg_bank(cm_old[j])][j] = fpreg_idx(cm_old[j]);
+        ffl_cmt_n[fpreg_bank(cm_dst[j])]       = ffl_cmt_n[fpreg_bank(cm_dst[j])] + 1'b1;
       end
     end
   end
@@ -490,10 +637,12 @@ module tg_rename
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      sv_q       <= '0;
-      lvtc_q     <= '0;
-      cinit_q    <= '0;
       ready_q    <= '1;
+      fready_q   <= '1;
+      fdiv_pre_q <= '0;
+      fdiv_post_q <= '0;
+      fpi_pre_q  <= '0;
+      fpi_post_q <= '0;
       llt_busy_q <= '0;
       tag_busy_q <= '0;
       rtail_q    <= '0;
@@ -504,31 +653,37 @@ module tg_rename
       rn_valid_q <= '0;
       ds_valid_q <= '0;
     end else begin
-      // Committed map: the bank written last
-      if (!cinit_q[5]) cinit_q <= cinit_q + 1'b1;
-      for (int j = 0; j < COMMIT_WIDTH; j++) begin
-        if (cm_valid[j] && cm_rd_en[j]) lvtc_q[cm_rd[j]] <= CSW'(j);
-      end
       // Ready bits: set by register-file writes, cleared by allocation (below)
       for (int b = 0; b < INT_BANKS; b++) begin
         if (rf_we[b]) ready_q[mk_preg(b, rf_widx[b])] <= 1'b1;
       end
+      for (int b = 0; b < 2; b++) begin
+        if (EXT_FD && fp_we[b]) fready_q[{1'(b), fp_widx[b]}] <= 1'b1;
+      end
       llt_busy_q <= llt_busy_q & ~llt_rel;
+      fdiv_post_q <= fdiv_post_q + (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss) - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_done);
+      fpi_post_q  <= fpi_post_q + (idx_w(FPI_INFLIGHT + 1))'(fpi_iss) - (idx_w(FPI_INFLIGHT + 1))'(fpi_pop);
       tag_busy_q <= tag_busy_q & ~tag_free;
       if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
 
       if (flush) begin
-        sv_q       <= '0;               // the committed map (with this cycle's commits) answers
         llt_busy_q <= '0;
         tag_busy_q <= '0;               // every tagged producer in flight is squashed
         rtail_q    <= rob_head;
         ltail_q    <= lq_head;
         stail_q    <= sq_cmt;
         div_cnt_q  <= '0;
+        fdiv_pre_q <= '0;                // not yet issued: gone with the flush
+        fpi_pre_q  <= '0;
         block_q    <= 1'b0;
         rn_valid_q <= '0;
         ds_valid_q <= '0;
       end else begin
+        // FP divides and FP->int ops renamed this cycle, and those issued
+        fdiv_pre_q <= fdiv_pre_q + (idx_w(FDIV_INFLIGHT + 1))'(rn_fire ? ren_nfp(rn_uop_q, rn_valid_q, 1'b1) : 0)
+                      - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss);
+        fpi_pre_q  <= fpi_pre_q + (idx_w(FPI_INFLIGHT + 1))'(rn_fire ? ren_nfp(rn_uop_q, rn_valid_q, 1'b0) : 0)
+                      - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
         // DS
         if (ds_fire) ds_valid_q <= '0;
         if (ds_fire && IQ_MX) begin
@@ -549,9 +704,8 @@ module tg_rename
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
               if (rn_uop_q[k].d.rd_en) begin
-                sv_q[rn_uop_q[k].d.rd]  <= 1'b1;
-                lvt_q[rn_uop_q[k].d.rd] <= KSW'(k);
-                ready_q[ren[k].dst]     <= 1'b0;
+                if (EXT_FD && rn_uop_q[k].d.rd_fp) fready_q[fpr(ren[k].dst)] <= 1'b0;
+                else                               ready_q[ren[k].dst] <= 1'b0;
               end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
               if (ren[k].use_tag) tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
@@ -577,6 +731,14 @@ module tg_rename
     int n;
     n = 0;
     for (int k = 0; k < W; k++) if (v[k] && u[k].d.cls == C_LD) n++;
+    return n;
+  endfunction
+  // FP divides (dv = 1) or FP->int ops (dv = 0) in a group
+  function automatic int ren_nfp(input uop_t [W-1:0] u, input logic [W-1:0] v, input logic dv);
+    int n;
+    n = 0;
+    for (int k = 0; k < W; k++)
+      if (v[k] && u[k].d.cls == C_FP && (dv ? u[k].d.fp_div : u[k].d.fp_int)) n++;
     return n;
   endfunction
   function automatic int ren_ndiv(input uop_t [W-1:0] u, input logic [W-1:0] v);

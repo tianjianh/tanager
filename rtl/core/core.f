@@ -13,6 +13,7 @@ decode/tg_rvc.sv
 decode/tg_decode.sv
 decode/tg_decode_stage.sv
 rename/tg_freelist.sv
+rename/tg_rmap.sv
 rename/tg_rename.sv
 issue/tg_iq.sv
 issue/tg_wake.sv

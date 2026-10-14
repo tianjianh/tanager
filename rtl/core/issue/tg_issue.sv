@@ -8,8 +8,12 @@
 // The payload leaves in the RF stage. DUP_SEL, EARLY_W and MX are the S2 timing levers.
 // Each queue stores its own payload format: only the iq_pl_t bits its port reads (the other
 // fields leave as '0), so synthesis has no LUTRAM bit to trim.
+// IQ-FP (EXT_FD) issues to P4 (tg_fp_exec). Its rows wait on 1-cycle integer producers until
+// their rows are freed (no mx_issued), so an FP op's integer source is in the register file by
+// P4's RF stage; FMISC ops with an FP destination are not selected while fp_misc_block is high
+// (the F0 slot three cycles after an FMA).
 module tg_issue
-  import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
+  import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 #(
   parameter bit DUP_SEL = IQ_DUP_SEL,    // S2 lever: separate select copy for the wakeup
   parameter int EARLY_W = IQ_EARLY_W,    // S2 lever: the source tags in flip-flops (IQ_PL_W: all)
@@ -40,6 +44,7 @@ module tg_issue
   // Select blocks (registered by their sources)
   input  logic                         a1_block,
   input  logic                         ld_block,
+  input  logic                         fp_misc_block,   // EXT_FD: P4's F0 slot is taken
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
   output iq_pl_t [N_IQ-1:0]            iss_pl
@@ -49,7 +54,8 @@ module tg_issue
     if (q == 1) return IQ_A1;
     if (q < N_ALU) return IQ_A2;
     if (q == Q_LD) return IQ_LD;
-    return IQ_STA;
+    if (q == Q_STA) return IQ_STA;
+    return IQ_FP;
   endfunction
 
   logic [N_IQ-1:0][NCOL-1:0]  qbusy;
@@ -166,12 +172,29 @@ module tg_issue
     p.src2             = f.src2;
     return p;
   endfunction
+  // IQ-FP: what P4 reads (docs/spec/fpu.md, the P4 payload)
+  typedef struct packed {
+    tid_t        tid;
+    robid_t      rob;
+    wid_t        wid;
+    llt_t        llt;
+    logic        dst_en;
+    preg_t       dst;
+    logic        src1_fp;
+    fop_e        fop;
+    ffmt_e       fmt, src_fmt;
+    ifmt_e       ifmt;
+    rm_e         rm;
+    logic        fp_int, fp_div;
+    preg_t       src1, src2, src3;
+  } f_fp_t;
   function automatic int fmt_w(input int q);
     if (q == 0)     return $bits(f_br_t) + $bits(f_alu_t);
     if (q == 1)     return $bits(f_p1_t) + $bits(f_alu_t);
     if (q < N_ALU)  return $bits(f_an_t) + $bits(f_alu_t);
     if (q == Q_LD)  return $bits(f_ld_t);
-    return $bits(f_sta_t);
+    if (q == Q_STA) return $bits(f_sta_t);
+    return $bits(f_fp_t);
   endfunction
 
   for (genvar q = 0; q < N_IQ; q++) begin : g_q
@@ -182,7 +205,7 @@ module tg_issue
     logic [DW-1:0][ROWS-1:0] aoh;
     logic [NUM_THREADS-1:0][idx_w(DW + 1)-1:0] room;
     localparam int PW = fmt_w(q);
-    localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : 1) * $bits(preg_t) : PW;
+    localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
     logic [DW-1:0][PW-1:0] dpl;
     logic [PW-1:0] pl;
     iq_pl_t up;
@@ -267,7 +290,7 @@ module tg_issue
         up.mem_size = b.mem_size;
         up.src1     = b.src1;
       end
-    end else begin : g_fs
+    end else if (q == Q_STA) begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
         assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,
                                  mem_size: disp_pl[k].mem_size, src1: disp_pl[k].src1};
@@ -282,11 +305,50 @@ module tg_issue
         up.mem_size = b.mem_size;
         up.src1     = b.src1;
       end
+    end else begin : g_ffp
+      for (genvar k = 0; k < DW; k++) begin : g_k
+        assign dpl[k] = f_fp_t'{tid: disp_pl[k].tid, rob: disp_pl[k].rob, wid: disp_pl[k].wid,
+                                llt: disp_pl[k].llt, dst_en: disp_pl[k].dst_en, dst: disp_pl[k].dst,
+                                src1_fp: disp_pl[k].src1_fp, fop: disp_pl[k].fop,
+                                fmt: disp_pl[k].fmt, src_fmt: disp_pl[k].src_fmt,
+                                ifmt: disp_pl[k].ifmt, rm: disp_pl[k].rm, fp_int: disp_pl[k].fp_int,
+                                fp_div: disp_pl[k].fp_div, src1: disp_pl[k].src1,
+                                src2: disp_pl[k].src2, src3: disp_pl[k].src3};
+      end
+      f_fp_t b;
+      assign b = pl;
+      always_comb begin
+        up         = '0;
+        up.tid     = b.tid;
+        up.rob     = b.rob;
+        up.wid     = b.wid;
+        up.llt     = b.llt;
+        up.dst_en  = b.dst_en;
+        up.dst     = b.dst;
+        up.src1_fp = b.src1_fp;
+        up.dst_fp  = !b.fp_int;
+        up.fop     = b.fop;
+        up.fmt     = b.fmt;
+        up.src_fmt = b.src_fmt;
+        up.ifmt    = b.ifmt;
+        up.rm      = b.rm;
+        up.fp_int  = b.fp_int;
+        up.fp_div  = b.fp_div;
+        up.src1    = b.src1;
+        up.src2    = b.src2;
+        up.src3    = b.src3;
+        up.cls     = C_FP;
+      end
     end
     logic blk;
     assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : 1'b0;
+    // IQ-FP: FMISC ops with an FP destination yield to fp_misc_block
+    logic [DW-1:0] cblk;
+    for (genvar k = 0; k < DW; k++) begin : g_cb
+      assign cblk[k] = q == Q_FP && fpu_unit_of(disp_pl[k].fop) == FU_MISC && !disp_pl[k].fp_int;
+    end
     tg_iq #(
-      .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
+      .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
       .MX(MX), .RA(RA), .PRE_RDY(1'b0)
     ) u_iq (
@@ -295,8 +357,9 @@ module tg_issue
       .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
       .bank_free_q(bank_free[q]), .room_q(room),
       .w(w), .w_next('0), .w1('0), .col_clr(col_clr), .cancel(1'b0), .sel_block(blk),
+      .disp_cblk(cblk), .cls_block(fp_misc_block),
       .wake_now(wn), .busy(qbusy[q]),
-      .disp_mdep(MX ? disp_mdep : '0), .mx_issued, .mx_free, .issued_o(iss_o), .free_o(free_o),
+      .disp_mdep(MX ? disp_mdep : '0), .mx_issued(q == Q_FP ? '0 : mx_issued), .mx_free, .issued_o(iss_o), .free_o(free_o),
       .valid_o(val_o), .alloc_oh_o(aoh),
       .flush_valid(flush), .flush_tid(flush_tid), .flush_all(1'b1), .flush_rob('0),
       .iss_valid_q(iss_valid[q]), .iss_payload(pl)

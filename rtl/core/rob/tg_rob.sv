@@ -63,6 +63,7 @@ module tg_rob
   // To rename
   output logic [CW-1:0]                cm_valid,
   output logic [CW-1:0]                cm_rd_en,
+  output logic [CW-1:0]                cm_rd_fp,     // rd is an f register (EXT_FD)
   output logic [CW-1:0][4:0]           cm_rd,
   output preg_t [CW-1:0]               cm_dst,
   output preg_t [CW-1:0]               cm_old,
@@ -137,6 +138,8 @@ module tg_rob
       dpl[k].tid        = ds_uop[k].tid;
       dpl[k].rd_en      = ds_uop[k].d.rd_en;
       dpl[k].rd         = ds_uop[k].d.rd;
+      dpl[k].rd_fp      = EXT_FD && ds_uop[k].d.rd_fp;
+      dpl[k].is_fp      = EXT_FD && ds_uop[k].d.cls == C_FP;
       dpl[k].dst        = ds_ren[k].dst;
       dpl[k].old        = ds_ren[k].old;
       dpl[k].is_ld      = ds_uop[k].d.cls == C_LD;
@@ -295,6 +298,7 @@ module tg_rob
     for (int j = 0; j < CW; j++) begin
       cm_valid[j] = ret[j];
       cm_rd_en[j] = ret[j] && hp[j].rd_en;
+      cm_rd_fp[j] = hp[j].rd_fp;
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;

@@ -85,6 +85,7 @@ module tg_iq
   parameter bit MX        = 1'b0,
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
+  parameter bit CBLK      = 1'b0,   // rows of a class whose select cls_block can mask (core)
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -107,6 +108,8 @@ module tg_iq
   input  logic [NCOL-1:0]               col_clr,       // STALE = 2
   input  logic                          cancel,
   input  logic                          sel_block,     // no grant this cycle
+  input  logic [DW-1:0]                 disp_cblk,     // CBLK: the row's op is of that class
+  input  logic                          cls_block,     // CBLK: no grant to such rows this cycle
   output logic [NCOL-1:0]               wake_now,      // IDs woken by this cycle's select
   output logic [NCOL-1:0]               busy,          // STALE = 0
   // Matrix wakeup (MX = 1)
@@ -138,6 +141,7 @@ module tg_iq
   tid_t [ROWS-1:0]            tid_q;
   logic [ROWS-1:0][ROBW-1:0]  rob_q;
   logic [ROWS-1:0][EARLY_W-1:0] payload_q;
+  logic [ROWS-1:0]              cblk_q;     // CBLK: the row's op is in the maskable class
   logic [ROWS-1:0][NCOL-1:0]  dep_q;      // STALE 0/2: dep; STALE 1: waits on phase 0
   logic [ROWS-1:0][NCOL-1:0]  dep1_q;     // STALE 1: waits on phase 1
   logic [ROWS-1:0][RA-1:0]    mdep_q;     // MX: waits on these ALU-queue rows
@@ -186,7 +190,13 @@ module tg_iq
     end else begin : g_nomx
       assign mpend = 1'b0;
     end
-    assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend && !sel_block;
+    logic cblk;
+    if (CBLK) begin : g_cblk
+      assign cblk = cblk_q[r] && cls_block;
+    end else begin : g_nocblk
+      assign cblk = 1'b0;
+    end
+    assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend && !sel_block && !cblk;
   end
 
   // ---- Age matrix (upper triangle: older_q[i][j], i < j: row i allocated before row j) ----
@@ -412,6 +422,7 @@ module tg_iq
       if (we[r]) begin
         tid_q[r]     <= disp_tid[bank_of(r)];
         rob_q[r]     <= disp_rob[bank_of(r)];
+        cblk_q[r]    <= CBLK && disp_cblk[bank_of(r)];
         payload_q[r] <= disp_payload[bank_of(r)][EARLY_W-1:0];
       end
     end
@@ -492,7 +503,7 @@ module tg_iq
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE != 1) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
                     MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
-                    PRE_RDY ? '0 : w_next, rdyw_q};
+                    PRE_RDY ? '0 : w_next, rdyw_q, CBLK ? '0 : {disp_cblk, cls_block, cblk_q}};
 
 `ifndef SYNTHESIS
   // A port writes only when its bank has a free row.

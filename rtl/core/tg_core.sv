@@ -86,7 +86,10 @@ module tg_core
   logic [63:0] flush_pc;
 
   // ---- Mode, translation and PMP state (tg_csr) ----
-  logic misa_m, misa_b, misa_c, misa_a;
+  logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
+  logic [1:0] fs;
+  logic [2:0] frm;
+  assign frm = '0;      // tg_fcsr arrives with the FP back end (EXT_FD)
   priv_e priv, priv_d;
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
@@ -129,7 +132,8 @@ module tg_core
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .priv, .tvm, .tw, .tsr, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
+    .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -146,6 +150,20 @@ module tg_core
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
+  logic [CW-1:0]                    cm_rd_fp;
+  // F and D (EXT_FD): the FP back end's register-file writes, issue and returns (tg_fp_exec
+  // arrives with the FPU track's back end)
+  logic [1:0]                       fp_we;
+  logic [1:0][FPIDX_W-1:0]          fp_widx;
+  logic                             fdiv_iss, fpi_iss, fdiv_done, fpi_pop;
+  assign fp_we     = '0;
+  assign fp_widx   = '0;
+  logic                             fp_misc_block;
+  assign fp_misc_block = 1'b0;
+  assign fdiv_iss  = 1'b0;
+  assign fpi_iss   = 1'b0;
+  assign fdiv_done = 1'b0;
+  assign fpi_pop   = 1'b0;
   logic                             ds_fire;
   logic [DISPATCH_WIDTH-1:0]        ds_valid;
   uop_t [DISPATCH_WIDTH-1:0]        ds_uop;
@@ -164,7 +182,8 @@ module tg_core
     .de_valid, .de_uop, .de_take,
     .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
+    .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
+    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
     .ds_src2_rdy, .rob_tail);
@@ -183,7 +202,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .iss_valid, .iss_pl);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -215,7 +234,7 @@ module tg_core
   logic [63:0]      csr_ex_src, csr_ex_rdata;
   tg_exec u_ex (
     .clk, .rst, .flush, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
-    .iss_valid, .iss_pl, .a1_block,
+    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
@@ -275,7 +294,7 @@ module tg_core
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .mepc_o(mepc), .sepc_o(sepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
-    .misa_c, .misa_a, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
+    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
     .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr, .pmp_busy,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
@@ -289,7 +308,7 @@ module tg_core
     .lx_valid, .lx_rob, .lx_cause, .lx_tval, .replay_valid, .replay_rob,
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .sq_drained, .mmio_busy,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .mepc, .sepc, .priv, .irq_take, .irq_code, .wfi_wake,

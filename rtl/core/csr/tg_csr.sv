@@ -44,6 +44,9 @@ module tg_csr
   output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   output logic                   misa_c,       // compressed instructions enabled
   output logic                   misa_a,       // atomics enabled
+  output logic                   misa_f,       // F and D enabled (EXT_FD)
+  output logic                   misa_d,
+  output logic [1:0]             fs,           // mstatus.FS
   output priv_e                  priv,         // current mode
   output priv_e                  priv_d,       // mode of data accesses (MPRV)
   output logic                   tvm,
@@ -128,6 +131,9 @@ module tg_csr
   assign misa_b    = misa_b_q;
   assign misa_c    = misa_c_q;
   assign misa_a    = misa_a_q;
+  assign misa_f    = EXT_FD;
+  assign misa_d    = EXT_FD;
+  assign fs        = fs_q;
   assign priv      = priv_q;
   assign priv_d    = (mprv_q && priv_q == PRIV_M) ? priv_e'(mpp_q) : priv_q;
   assign tvm       = tvm_q;
