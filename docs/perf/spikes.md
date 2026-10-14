@@ -125,7 +125,33 @@ One queue closes 200 MHz in every variant. The guard with predecoded wakeup IDs 
 
 ### 4.2 The whole scheduler
 
-(being measured; see the queue)
+Options measured (all in `tg_iq`):
+- **DUP_SEL:** a second copy of the select drives only the wakeup broadcast, so the grant net on the loop has a small fanout.
+- **EARLY_W = 24:** only the source tags sit in flip-flops behind the grant mux; the rest of the payload is in per-bank LUTRAM, read in the RF stage.
+- **MX:** matrix wakeup for in-queue 1-cycle producers. A row names them by ALU-queue row and is ready when those rows are selected. The protected loop becomes grant → issued register → readiness → select, with no wakeup-ID encode or decode. W follows a cycle later.
+- **PRE_RDY**, with MX: each row's ID readiness is computed a cycle early from W's next state.
+- **ALU_ROWS:** the plan's fallback, smaller ALU queues.
+
+| Run | Config | Options | CLB LUTs | FFs | WNS ns | Levels | Placement |
+|---|---|---|---|---|---|---|---|
+| `s2_sched_st_guard` | st | plan structure (guard, predecoded IDs) | 6,081 | 7,819 | −0.063 | 8 | free |
+| `s2_sched_st_opt` | st | + DUP_SEL, EARLY_W | 5,416 | 6,059 | **+0.180** | 10 | free |
+| `s2_sched_smt2_guard` | smt2 | plan structure | 7,846 | 10,108 | −0.101 | 9 | free |
+| `s2_sched_smt2_clear` | smt2 | column clear instead of the guard | 9,116 | 10,115 | −0.530 | 9 | free |
+| `s2_sched_smt2_phase` | smt2 | phase bit instead of the guard | 10,363 | 14,582 | −0.705 | 10 | free |
+| `s2_sched_smt2_opt` | smt2 | + DUP_SEL, EARLY_W | 7,790 | 8,358 | −1.296 | 11 | free, scattered (2.4 ns clock insertion) |
+| `s2_pb_smt2_opt` | smt2 | + DUP_SEL, EARLY_W | 7,701 | 8,350 | −0.521 | 11 | pblock |
+| `s2_sched_smt2_mx` | smt2 | + DUP_SEL, EARLY_W, MX | 9,165 | 9,292 | +0.065 | 9 | free |
+| `s2_pb_smt2_mx` | smt2 | + MX, grant registered before the wakeup encode | 8,895 | 9,104 | **+0.112** | 7 | pblock |
+| `s2_sched_smt2w3_guard` | smt2_w3 | plan structure | 10,576 | 13,741 | −0.652 | 9 | free |
+| `s2_sched_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W | 10,516 | 11,546 | −0.457 | 9 | free |
+| (queued) | smt2_w3 | + MX; + PRE_RDY; 8-row ALU queues | | | | | pblock |
+
+**What limits the loop.** Without MX, the loop is: W → readiness (3 LUT levels over 64–120 columns) → oldest-first select (2) → wakeup encode (2) → W update (1–2). That is 8–11 levels, and routing is 75–80% of the delay. The W bits fan out to every row of every queue, and the grants to the payload and the wakeup encode.
+
+With MX the 1-cycle loop no longer passes through W. In `s2_pb_smt2_mx`:
+- **The W path** (W → wakeup register) has +0.60 ns.
+- **The worst path** is W → readiness → select → payload register: 7 levels, not a loop, and that is where PRE_RDY helps.
 
 
 ---
