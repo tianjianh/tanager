@@ -88,10 +88,9 @@ module tg_csr
   logic [1:0]  mpp_q, fs_q;
   logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
   logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q;
-  // R1: the cycle and instret counters are DSP48E2 accumulators (with their load from a CSR
-  // write), not LUT adders and flip-flops
-  (* use_dsp = "yes" *) logic [63:0] mcycle_q;
-  (* use_dsp = "yes" *) logic [63:0] minstret_q;
+  // R1: the cycle and instret counters are DSP48E2 pairs (tg_dsp_ctr: count, load from a CSR
+  // write, reset), with no fabric register, adder or multiplexer
+  logic [63:0] mcycle_q, minstret_q;
   logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
   logic [11:0] mie_q;
   logic        ssip_q, stip_sw_q, seip_sw_q;
@@ -442,17 +441,11 @@ module tg_csr
   logic cyc_wr, ins_wr;
   assign cyc_wr = cm_csr && pw_v_q && pw_a_q == 12'hB00;
   assign ins_wr = cm_csr && pw_v_q && pw_a_q == 12'hB02;
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      mcycle_q   <= '0;
-      minstret_q <= '0;
-    end else begin
-      if (cyc_wr)                   mcycle_q <= pw_d_q;
-      else if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
-      if (ins_wr)                   minstret_q <= pw_d_q;
-      else if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
-    end
-  end
+  localparam int CNW = idx_w(COMMIT_WIDTH + 1);
+  tg_dsp_ctr #(.IW(1)) u_mcycle (
+    .clk, .rst, .ld(cyc_wr), .d(pw_d_q), .inc(!mcountinhibit_q[0]), .q(mcycle_q));
+  tg_dsp_ctr #(.IW(CNW)) u_minstret (
+    .clk, .rst, .ld(ins_wr), .d(pw_d_q), .inc(mcountinhibit_q[2] ? '0 : CNW'(cm_n)), .q(minstret_q));
 
   always_ff @(posedge clk) begin
     if (rst) begin

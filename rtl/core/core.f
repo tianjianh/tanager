@@ -27,6 +27,7 @@ exec/tg_div.sv
 exec/tg_exec.sv
 lsu/tg_dcache.sv
 lsu/tg_lsu.sv
+csr/tg_dsp_ctr.sv
 csr/tg_csr.sv
 rob/tg_rob.sv
 tg_core.sv
