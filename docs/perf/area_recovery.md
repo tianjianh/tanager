@@ -646,9 +646,9 @@ The free levers the budgets assume (R1, R2, R14, R15) are part of that. Wakeup t
 | **3. The reserve (AR-6), re-priced** | R9 0.5K and R10 1.0K; FP queue 8 and LD queue 4, ≈0.7K with tags.<br>**New sharing candidate:** the page walker on the STA's PMP checker, 0.83K per core (core track), measured and reverted under D18.<br>**Radix-4:** now saves 1.04K per core, measured after the FPU's no-IPC pass, and fails the reverse rule (2.34% per 1K at v1, against 2.19%; DR-118 is with the user). | **≈2.2K**, ≈3.9K with the walker sharing, or ≈6.0K with radix-4 as well |
 
 **What this means for AR-6:**
-- **The reserve is about a twentieth of the gap** (≈2.2K of 38.5K). Choosing an IPC-costing lever before step 1 has run its course would cost IPC and change nothing about the fit.
+- **The reserve is about 6% of the gap** (≈2.2K of 38.5K). Choosing an IPC-costing lever before step 1 has run its course would cost IPC and change nothing about the fit.
 - **The ranking stands:** R9, R10, then FP queue 8 and LD queue 4.
-- **Radix-4 leaves the reserve:** at its measured saving it fails the rule.
+- **Radix-4 fails the rule at its measured saving.** Taking it out of the reserve is DR-118, pending the user, because it is the D17 fallback.
 - **Step 2 is worth more than the whole reserve,** so the 180 MHz option comes first, as D18 has it.
 - **Once step 1 lands, re-run this section** from the budget report (§7.7, `area_fit.py`). If the gap is then within ≈7K, 180 MHz closes it. Only a remainder beyond that calls on the reserve, in AR-6's order.
 - **The commit trace is not in the reserve.** It costs 1.47K per core at `st`, plus the uncore's 2.9K trace stream. Removing it costs no IPC but loses the lockstep trace, so it is the user's call (with the coordinator).
@@ -726,7 +726,7 @@ The ledger's "Area recovery" section records the decisions (plan §8.5, 2026-10-
 - **Rejected:** R11, R13, banked readiness, and the ALU-queue, LQ, SQ, STA and LLT cuts.
 
 This update (AR-7) changes it in three places:
-- **Radix-4 leaves the reserve.** Re-measured after the FPU's no-IPC pass, it saves 1,036 LUTs per core (5,889 → 4,853) and fails the reverse rule.
+- **Radix-4 is proposed to leave the reserve.** Re-measured after the FPU's no-IPC pass, it saves 1,036 LUTs per core (5,889 → 4,853) and fails the reverse rule. The decision is DR-118, pending the user.
 - **The net lines** move from the planning projection to the measured fit (§7).
 - **The intro** records the re-measurement.
 
