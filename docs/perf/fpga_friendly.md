@@ -68,6 +68,117 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 | Host bridge (SoC) | +1.7K | Buffers in block RAM (T3) |
 | Shared primitives (spikes) | — | Build, verify and price `rtl/common/prim` blocks for T2, T5 and T6, and an SRL FIFO, at 200 MHz. Publish a cost table, so unit owners pick from measured numbers. |
 
+### 3.1 Shared primitives: measured cost (spikes track)
+
+Four building blocks in `rtl/common/prim`, for unit owners to pick from:
+- **Verified** against reference models, on the behavioural model and on primitive models (`make -C tests/unit/prim test`). The DSP mapping also ran on the vendor's DSP48E2 simulation model under Icarus, and the RAM64X8SW model matches the vendor's. Each test catches deliberately broken versions of its module.
+- **Priced** by one synthesis per family with DR-113's settings (hierarchy kept, `AreaOptimized_high`), every configuration side by side, so each instance's count is exact (`fpga/spikes/rtl/tg_prim_eval.sv`; `fpga/spikes/scripts/prim_price.py` prints the tables). Counts are after `opt_design`, before placement.
+- **Timed** out of context at 200 MHz between input and output registers, at the largest size priced (the timing tops in the same file).
+- The idea sources are in each module's header (published papers only, DR-001).
+
+**T2: `tg_ram_lut_mw`, more write ports from LUTRAM.** LUTs (of which LUTRAM). The LUTRAM forms use no flip-flops; the flip-flop LVT uses depth × log2(writers) flip-flops, and the flip-flop array depth × width.
+
+| Depth × width | Writers × readers | LVT in LUTRAM | XOR | LVT in flip-flops | Flip-flop array |
+|---|---|---|---|---|---|
+| 32 × 8 | 2 × 4 | 100 (64) | 99 (48) | 172 (48) | 481 |
+| 32 × 8 | 2 × 8 | 180 (112) | 179 (96) | 256 (80) | 769 |
+| 32 × 8 | 4 × 4 | 191 (128) | 207 (128) | 338 (96) | 910 |
+| 32 × 8 | 4 × 8 | 327 (224) | 335 (224) | 506 (160) | 1,198 |
+| 32 × 32 | 2 × 4 | 308 (176) | 387 (192) | 332 (160) | — |
+| 32 × 32 | 2 × 8 | 596 (336) | 659 (336) | 576 (304) | — |
+| 32 × 32 | 4 × 4 | 511 (352) | 783 (512) | 658 (320) | — |
+| 32 × 32 | 4 × 8 | 967 (672) | 1,231 (832) | 1,146 (608) | — |
+| 64 × 8 | 2 × 4 | 132 (96) | 147 (96) | 312 (80) | 900 |
+| 64 × 8 | 2 × 8 | 260 (192) | 259 (176) | 476 (160) | 1,444 |
+| 64 × 8 | 4 × 4 | 289 (224) | 337 (256) | 556 (160) | 1,904 |
+| 64 × 8 | 4 × 8 | 553 (448) | 529 (416) | 884 (320) | 2,448 |
+| 64 × 32 | 2 × 4 | 452 (320) | 563 (368) | 584 (304) | — |
+| 64 × 32 | 2 × 8 | 884 (624) | 995 (672) | 1,004 (592) | — |
+| 64 × 32 | 4 × 4 | 833 (672) | 1,297 (1,024) | 1,100 (608) | — |
+| 64 × 32 | 4 × 8 | 1,609 (1,312) | 2,033 (1,632) | 1,940 (1,184) | 9,808 |
+| 128 × 8 | 2 × 4 | 277 (192) | 287 (192) | 612 (160) | 2,146 |
+| 128 × 8 | 2 × 8 | 541 (384) | 511 (352) | 956 (320) | 3,234 |
+| 128 × 8 | 4 × 4 | 623 (448) | 715 (512) | 1,128 (320) | 4,224 |
+| 128 × 8 | 4 × 8 | 1,191 (896) | 1,131 (832) | 1,816 (640) | 5,312 |
+| 128 × 32 | 2 × 4 | 917 (640) | 1,095 (736) | 1,204 (608) | — |
+| 128 × 32 | 2 × 8 | 1,789 (1,248) | 1,959 (1,344) | 2,108 (1,184) | — |
+| 128 × 32 | 4 × 4 | 1,807 (1,344) | 2,779 (2,048) | 2,312 (1,216) | — |
+| 128 × 32 | 4 × 8 | 3,495 (2,624) | 4,379 (3,264) | 4,120 (2,368) | — |
+
+The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2,048 flip-flops.
+
+- **Behaviour:** asynchronous reads, like `tg_ram_lut` (old data until the clock edge). When writers hit the same address in one cycle, the highest-numbered one wins, so writers in program order behave like the youngest write.
+- **The LVT held in XOR-coded LUTRAM is the cheapest form almost everywhere:** 4–7× fewer LUTs than a flip-flop array (64 × 8, 4 writers × 8 readers: 553 against 2,448; 64 × 32: 1,609 against 9,808), and no flip-flops.
+- **XOR banking** ties with it at 8 bits wide and costs up to about 55% more at 32 bits: every bank is full width and needs writers − 1 extra read ports.
+- **The flip-flop LVT** (the classic form) costs more than the LUTRAM one at 23 of the 24 shapes (the exception: 32 × 32 with 2 writers and 8 readers, by 20 LUTs). Its DEPTH:1 read multiplexers per port dominate.
+- **Timing at 200 MHz** (128 × 32, 4 writers × 8 readers): pending.
+- **Decision (proposed): the LVT in LUTRAM for multi-write tables** (rename maps, free lists).
+  - *Pros:* 77–85% fewer LUTs than flip-flops, no flip-flops, asynchronous reads like a flip-flop array, so a drop-in that keeps the cycle behaviour.
+  - *Cons:* uses SLICEM sites; contents have no reset (valid bits stay in flip-flops); no single-cycle copy of all entries (a checkpoint needs its own copy or a version pointer); XOR coding needs two-state simulation (four-state simulators show X until every bank is written).
+
+**T4: `tg_fifo` `STORAGE "srl"`, a FIFO in shift-register LUTs.** LUTs / flip-flops.
+
+| Depth × width | `srl` | `lutram` | `reg` |
+|---|---|---|---|
+| 4 × 8 | 13 / 3 | 16 / 6 | 21 / 38 |
+| 4 × 32 | 38 / 3 | 32 / 6 | 46 / 134 |
+| 4 × 64 | 70 / 3 | 48 / 6 | 78 / 262 |
+| 8 × 8 | 17 / 4 | 21 / 8 | 35 / 72 |
+| 8 × 32 | 43 / 4 | 37 / 8 | 83 / 264 |
+| 8 × 64 | 75 / 4 | 53 / 8 | 147 / 520 |
+| 16 × 8 | 17 / 5 | 23 / 10 | 63 / 138 |
+| 16 × 32 | 43 / 5 | 39 / 10 | 158 / 522 |
+| 16 × 64 | 75 / 5 | 55 / 10 | 289 / 1,036 |
+| 32 × 8 | 26 / 6 | 28 / 12 | 122 / 268 |
+| 32 × 32 | 52 / 6 | 44 / 12 | 341 / 1,039 |
+| 32 × 64 | 84 / 6 | 60 / 12 | 636 / 2,070 |
+
+- **One LUT per bit before placement, at every depth.** Vivado did not pair 16-deep shift registers in a LUT here, while a RAM32M16 FIFO costs 0.625 LUTs per bit at depth 32 or less.
+- So `srl` wins only for narrow FIFOs (8 bits: 13–26 LUTs against 16–28) and in flip-flops (one count register instead of two pointers: 3–6 against 6–12).
+- **Flip-flop storage** costs 5–10× more from depth 8.
+- **Timing at 200 MHz** (32 × 64, and 16 × 64): pending.
+- **Decision (proposed): `lutram` stays the default; `srl` for delay lines and narrow FIFOs.**
+  - *Pros of `srl`:* no write pointer or address decode; fewer flip-flops.
+  - *Cons:* one LUT per bit; at most 32 deep; no reset of contents.
+
+**T5: `tg_cam_lut`, a CAM in LUTRAM.** LUTs / flip-flops; `sw` = one-bit-write tables (RAM64X8SW, 6-bit slices), `m16` = read-modify-write tables (RAM32M16, 5-bit slices).
+
+| Entries × key bits | `sw` | `m16`, shared port | `m16`, second read port | Flip-flop CAM |
+|---|---|---|---|---|
+| 16 × 20 | 201 / 70 | 257 / 69 | 270 / 69 | 170 / 336 |
+| 16 × 30 | 243 / 90 | 362 / 89 | 381 / 89 | 218 / 496 |
+| 16 × 40 | 292 / 110 | 452 / 109 | 477 / 109 | 282 / 656 |
+| 32 × 20 | 322 / 87 | 368 / 86 | 413 / 86 | 338 / 672 |
+| 32 × 30 | 375 / 107 | 493 / 108 | 559 / 108 | 435 / 992 |
+| 32 × 40 | 487 / 127 | 594 / 129 | 683 / 129 | 563 / 1,312 |
+| 64 × 20 | 593 / 120 | 754 / 123 | 890 / 123 | 680 / 1,344 |
+| 64 × 30 | 678 / 140 | 1,059 / 144 | 1,268 / 144 | 872 / 1,984 |
+| 64 × 40 | 893 / 160 | 1,295 / 166 | 1,574 / 166 | 1,128 / 2,624 |
+
+- **The first form (`m16`) costs more LUTs than flip-flops at every size** (64 × 40: 1,295–1,574 against 1,128). About half of its logic is the per-bit read-modify-write of each table.
+- **The one-bit-write form (`sw`) needs no read-modify-write.** It saves 13–22% of the LUTs from 32 entries (64 × 40: 893 against 1,128; 32 × 40: 487 against 563) and breaks even at 16 entries. Both forms save 90–94% of the flip-flops.
+- **Writes take three cycles** (accept, clear the old key's bits, set the new key's), and the entry stops matching from the accept. In `sw` and in `m16` without the second read port, lookups are not served during the last two cycles (`lk_valid` low). After a reset, a sweep: ENTRIES cycles (`sw`) or 32 (`m16`).
+- **No masked compares:** a TLB's superpages would need a per-entry mask or extra tables.
+- **Timing at 200 MHz** (64 × 40): pending.
+- **Decision (proposed): T5 is "flip-flop savings, and a modest LUT saving from 32 entries", not a LUT lever. The TLBs keep flip-flop CAMs:** the ITLB (16 entries) would gain nothing, the DTLB (32) about 76 LUTs, and either would trade single-cycle refills for three cycles with two lookup gaps, and lose superpage masking.
+  - *Pros of `sw`:* fewer flip-flops and LUTs from 32 entries; single-cycle invalidate and flush.
+  - *Cons:* three-cycle writes; lookup gaps during writes; exact match only.
+
+**T6: `tg_dsp_cmp`, equality and less-than in one DSP48E2.**
+
+| Width | DSP, latency 1 | DSP, latency 2 | Fabric (LUTs and carry chain), result registered |
+|---|---|---|---|
+| 16 | no LUTs, 1 DSP | no LUTs, 1 DSP | 15 LUTs, 2 flip-flops |
+| 32 | no LUTs, 1 DSP | no LUTs, 1 DSP | 29 LUTs, 2 flip-flops |
+| 48 | 1 LUT, 1 DSP | 1 LUT, 1 DSP | 40 LUTs, 2 flip-flops |
+
+- **One DSP and no LUTs** against 15–40 LUTs for the same compare in fabric. Less-than is the sign of the 48-bit difference up to 47 bits; at 48 bits unsigned it is the inverted carry out (checked on the vendor's model).
+- **Latency 1:** the operands come from fabric registers and the DSP's P register holds the result, the same timing as a fabric compare followed by a register. **Latency 2:** the DSP's own A, B and C registers hold the operands (the pipeline register moves into the DSP).
+- **Timing at 200 MHz** (48 bits, both latencies and the fabric form): pending.
+- **Decision (proposed): use it where a compare's operands are already registered and the result can be registered.** It saves 15–40 LUTs per compare, and the device has 1,141 DSPs free.
+  - *Pros:* no LUTs or carry chain.
+  - *Cons:* the DSP sits in a fixed column, so the operands travel; one compare per DSP (SIMD modes would give four 12-bit less-thans, not equalities).
+
 ## 4. Results
 
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
