@@ -354,6 +354,7 @@ module tg_rob
       end else begin
         rec[j].kind     = TR_RETIRE;
         rec[j].rd_we    = hp[j].rd_en;
+        rec[j].rd_fp    = hp[j].rd_fp;
         rec[j].rd       = hp[j].rd;
         rec[j].rd_value = hp[j].rd_en ? tr_data[j] : '0;
         rec[j].mem_st   = hp[j].is_st && tr_st_wr[j];     // not LR or a failed SC
