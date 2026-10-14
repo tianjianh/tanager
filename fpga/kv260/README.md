@@ -10,7 +10,7 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
-**The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. These are the defaults; the variables override them:
+**The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. The facts live in `tools/tcl/tg_kv260_fan.tcl`, shared with spike S1. `build.tcl` sources it, and the variables override it:
 
 | Variable | Meaning | Default |
 |---|---|---|

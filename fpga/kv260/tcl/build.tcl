@@ -11,17 +11,18 @@ set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 
 set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "H12"}]
 set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "B10"}]
 # The fan stays under Linux's control (DR-129): A12 carries the PS TTC waveform that Linux's pwm-fan
-# drives, as Kria's own PL design routes it. Read from the running board: TTC0 channel 2
-# (emio_ttc0_wave_o[2]), to A12 uninverted. TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override.
-set fan_ttc  [expr {[info exists ::env(TG_FAN_TTC)]    ? $::env(TG_FAN_TTC)    : 0}]
-set fan_wave [expr {[info exists ::env(TG_FAN_WAVE)]   ? $::env(TG_FAN_WAVE)   : 2}]
-set fan_inv  [expr {[info exists ::env(TG_FAN_INVERT)] ? $::env(TG_FAN_INVERT) : 0}]
-foreach {v val lo hi} [list TG_FAN_TTC $fan_ttc 0 3 TG_FAN_WAVE $fan_wave 0 2 TG_FAN_INVERT $fan_inv 0 1] {
+# drives, as Kria's own PL design routes it. The facts live in tools/tcl/tg_kv260_fan.tcl, shared with
+# spike S1 (TTC0 channel 2, uninverted); TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override them.
+source [file join $root tools tcl tg_kv260_fan.tcl]
+foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bit 0 2 TG_FAN_INVERT tg_kv260_fan_invert 0 1} {
+  if {[info exists ::env($v)]} { set ::$g $::env($v) }
+  set val [set ::$g]
   if {![string is integer -strict $val] || $val < $lo || $val > $hi} {
     puts "ERROR: $v must be $lo-$hi (DR-129, fpga/kv260/README.md)"
     exit 1
   }
 }
+set fan_wave $::tg_kv260_fan_bit; set fan_inv $::tg_kv260_fan_invert
 if {$n_cores eq ""} { set n_cores 1 }
 if {$stop eq ""} { set stop bit }
 set part xck26-sfvc784-2LV-c
@@ -37,7 +38,7 @@ set_param general.maxThreads 8
 # ---- PS block design ----
 stamp "block design"
 source [file join $root fpga kv260 tcl ps_bd.tcl]
-tg_make_ps_bd [file normalize ./bd] $core_mhz $fan_ttc
+tg_make_ps_bd [file normalize ./bd] $core_mhz
 read_verilog $::tg_ps_wrapper
 
 # ---- RTL ----
