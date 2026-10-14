@@ -174,7 +174,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 
 - **One DSP and no LUTs** against 15–40 LUTs for the same compare in fabric. Less-than is the sign of the 48-bit difference up to 47 bits; at 48 bits unsigned it is the inverted carry out (checked on the vendor's model).
 - **Latency 1:** the operands come from fabric registers and the DSP's P register holds the result, the same timing as a fabric compare followed by a register. **Latency 2:** the DSP's own A, B and C registers hold the operands (the pipeline register moves into the DSP).
-- **Timing at 200 MHz** (48 bits, placed and routed, out of context): latency 1 **+3.039 ns** (fabric register → DSP A:B → ALU → P: 1.5 ns, 2 levels), latency 2 **+3.687 ns** (inside the DSP). The fabric form's run is pending. In a full design the operands travel to the DSP column, so expect less margin.
+- **Timing at 200 MHz** (48 bits, placed and routed, out of context): latency 1 **+3.039 ns** (fabric register → DSP A:B → ALU → P: 1.5 ns, 2 levels), latency 2 **+3.687 ns** (inside the DSP); the fabric form +3.660 ns (40 LUTs, 4 levels, 3 of them CARRY8). So the DSP is no faster than fabric at this width: its gain is the LUTs. In a full design the operands travel to the DSP column, so expect less margin.
 - **Decision (proposed): use it where a compare's operands are already registered and the result can be registered.** It saves 15–40 LUTs per compare, and the device has 1,141 DSPs free.
   - *Pros:* no LUTs or carry chain.
   - *Cons:* the DSP sits in a fixed column, so the operands travel; one compare per DSP (SIMD modes would give four 12-bit less-thans, not equalities).

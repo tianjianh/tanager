@@ -84,6 +84,7 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
    ```bash
    cd ~/tg-s1 && make && sudo ./tg_s1 | tee s1_results.txt
    ```
+   With no compiler on the board, use the static binary built on the build host instead (`make -C fpga/spikes/s1/sw cross`, the toolchain that builds tanager-host): copy `tg_s1.aarch64` and run `sudo ./tg_s1.aarch64 | tee s1_results.txt`. `./tg_s1.aarch64 --x` prints the usage line without touching the hardware.
    It takes about a minute. It first checks the engines' ID register (`0x71530001`) and stops with a message if it reads anything else. **Run it only after step 3 has worked:** with no design in the PL, nothing answers at the engines' address and the read can hang the board (power-cycle to recover). Options:
    - `--quick` runs a tenth of the samples.
    - `--mb N` sets the buffer size; the default is 256 MiB of 2 MiB hugepages, which the program reserves itself.
@@ -105,7 +106,7 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
 | Symptom | Likely cause | What to try |
 |---|---|---|
 | `ID 0x...` instead of `0x71530001`, or the board hangs at the first register read | Design not loaded, or HPM0 width not applied | Power-cycle if it hangs; `xmutil listapps` (the active app has a non-negative slot); `dmesg` for fpga-manager and afi messages |
-| `DECERR` responses | The SMMU blocks PL masters, or the address is outside DDR | Send the `iommu_groups` listing. The fix is booting with `arm-smmu.disable_bypass=0` or an SMMU-bypass device-tree entry; the plan's carve-out checks start here |
+| `DECERR` responses | The SMMU blocks PL masters, or the address is outside DDR, or the test's own write stream overwrote the chase's pointers (fixed 2026-10-14: the streams use the last hugepage) | Send the `iommu_groups` listing. The fix is booting with `arm-smmu.disable_bypass=0` or an SMMU-bypass device-tree entry; the plan's carve-out checks start here |
 | Hugepage allocation fails | Memory fragmented | `echo 140 \| sudo tee /proc/sys/vm/nr_hugepages` just after boot, or `--mb 64` |
 | Timeouts | An engine waits for a response that never comes | Send `dmesg`. It points to the PS port or SMMU setup |
 
