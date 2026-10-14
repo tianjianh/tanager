@@ -1,0 +1,25 @@
+// Uncore RTL in compile order (owned by the SoC track; docs/spec/uncore.md).
+tg_uncore_pkg.sv
+bootrom/tg_bootrom_img_pkg.sv
+lib/tg_skid.sv
+lib/tg_arb.sv
+lib/tg_cdc_bit.sv
+lib/tg_cdc_pulse.sv
+lib/tg_cdc_mirror.sv
+lib/tg_afifo.sv
+l2/tg_l2_plru_pkg.sv
+l2/tg_l2_bank.sv
+l2/tg_l2.sv
+mem/tg_axi_lat_inj.sv
+mem/tg_axi_window.sv
+mem/tg_axi_slice.sv
+interconnect/tg_tl_err.sv
+interconnect/tg_xbar.sv
+interconnect/tg_tl_dev.sv
+aclint/tg_aclint.sv
+plic/tg_plic.sv
+uart/tg_uart.sv
+bootrom/tg_bootrom.sv
+hostbridge/tg_trace_ring.sv
+hostbridge/tg_host_bridge.sv
+hostbridge/tg_axi4_to_axil.sv
