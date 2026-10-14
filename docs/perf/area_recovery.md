@@ -24,9 +24,9 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
 - **st_w3:** 3-wide without SMT2.
 
 **Real RTL (AR-7 and since, 2026-10-14; §7).** The core track's three no-IPC passes took the `st` core from 88K to **46,132 LUTs with F/D and AR-1, against its 38,220 budget** (+21%). That figure uses DR-113's synthesis settings, at main 43a523e. With the old settings the third pass measures 49,097, and AR-7 measured 56.5K after the first pass.
-- **v1 today (43a523e):** two `smt2` cores (49,022 each, DR-113's settings), hart 1's state estimated, and the 22.3K uncore (old settings) come to **≈128.7K**. The limits are 103,040 at 200 MHz (88%) and 111,633 at 180 MHz (95.3%, the full fill test).
+- **v1 today:** two `smt2` cores (49,022 each, main 43a523e) and the uncore (20,560, the SoC track's MR at 4d5ca13), all with DR-113's settings, plus hart 1's state estimated, come to **≈127.0K**. The limits are 103,040 at 200 MHz (88%) and 111,633 at 180 MHz (95.3%, the full fill test).
 - **Verdict:** v1 does not fit today, at 200 MHz or at 180 MHz. It fits at 200 MHz when its units meet their budgets, which sum to 103,040.
-- **Closing the gap:** the remaining 25.7K is D18 step-1 work, unit by unit (52.6K at AR-7, 38.5K after the second pass). 11.5K of it is the uncore, still measured with the old settings. The clock (step 2) is worth 8.6K (§7.7). The reserve (step 3) is ≈8.0K, ≈5.8K of it from release builds without the commit trace, its last lever (DR-121).
+- **Closing the gap:** the remaining 24.0K is D18 step-1 work, unit by unit (52.6K at AR-7, 38.5K after the second pass). 9.8K of it is the uncore. The clock (step 2) is worth 8.6K (§7.7). The reserve (step 3) is ≈8.0K, ≈5.8K of it from release builds without the commit trace, its last lever (DR-121).
 - **v2 (the third pass, old settings): 164.6K, 52.2K over its 180 MHz limit (112,441, 96.0%).** It needs a per-core budget (≈49.7K at 180 MHz; AR-9) and its own no-IPC pass on the 3-wide structures, which add +14.9K per core today.
 - **How to read this study:**
   - its verdicts are stated against the per-unit budgets of [budgets.md](budgets.md);
@@ -77,8 +77,8 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **With SMT off,** 1–4% of waits cross the two ROB halves. Steering around them costs 8–10% single-thread IPC.
    - **Rejected.** Wakeup tags save more, at no cost.
 5. **Measured RTL (AR-7 and since, §7): v1 does not fit today. It fits at 200 MHz once its units meet their budgets.**
-   - **Today v1 is ≈128.7K** (141.5K after the second pass, 155.7K at AR-7), against 103,040 at 200 MHz and 111,633 at 180 MHz. That is two `smt2` cores at 49,022 each (the third pass, main 43a523e, with DR-113's settings), hart 1's state estimated at 4.2K per core, and the 22.3K uncore (old settings).
-   - **The budgets sum to 103,040,** so meeting them is the fit. Each core is 7.1K over its budget (rename, LSU and MMU, ROB and CSRs, then P4 and Execute), and the uncore 11.5K over.
+   - **Today v1 is ≈127.0K** (141.5K after the second pass, 155.7K at AR-7), against 103,040 at 200 MHz and 111,633 at 180 MHz. That is two `smt2` cores at 49,022 each (the third pass, main 43a523e), hart 1's state estimated at 4.2K per core, and the uncore at 20,560 (the SoC track's MR, 4d5ca13), all with DR-113's settings.
+   - **The budgets sum to 103,040,** so meeting them is the fit. Each core is 7.1K over its budget (rename, LSU and MMU, ROB and CSRs, then P4 and Execute), and the uncore 9.8K over.
    - **Wakeup tags put the issue queues under budget:** 4,924 at `st` and 5,268 at `smt2`, against 6,030 and 8,350.
    - **The window step stays an option** (AR-3): +1.84% throughput for ≈0.7K per core with tags.
 6. **v2 needs a budget, then a no-IPC pass on its 3-wide structures** (§7.4).
@@ -87,7 +87,7 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **IPC still favours v2 at a lower clock:** at 190 MHz it beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread.
 7. **D18's order holds, and the measured gap makes it sharper** (§6, §7.5).
    - In the model, every trim costs less IPC than the clock it replaces.
-   - But against the measured gap, step 2 (180 MHz, 8.6K) and the whole reserve (step 3, ≈8.0K with trace-free release builds, DR-121) together do not close step 1's remaining 25.7K.
+   - But against the measured gap, step 2 (180 MHz, 8.6K) and the whole reserve (step 3, ≈8.0K with trace-free release builds, DR-121) together do not close step 1's remaining 24.0K.
    - **Radix-4 is out of the reserve** (user, DR-118). It saves only 1.04K, measured after the FPU's no-IPC pass, and fails the rule.
 
 ### 1.2 What the levers add up to
@@ -521,7 +521,7 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
 
-*Redone on 2026-10-14 from the real RTL. AR-7 measured it after the core track's no-IPC area pass, AR-1 and F/D, at c898f1e and cb8ff6c. This section has since been updated to the core track's second no-IPC pass at 5c124f2, the first build measured in all four configurations. §7.7 keeps the gap over time, and §7.6 the planning projection it replaced. §7.1–7.5 stay at 5c124f2 with the old synthesis settings. §7.7 has the third pass (main 43a523e), whose cores use DR-113's settings; §7.1–7.5 move to it once the uncore and the 3-wide configurations are measured with those settings too.*
+*Redone on 2026-10-14 from the real RTL. AR-7 measured it after the core track's no-IPC area pass, AR-1 and F/D, at c898f1e and cb8ff6c. This section has since been updated to the core track's second no-IPC pass at 5c124f2, the first build measured in all four configurations. §7.7 keeps the gap over time, and §7.6 the planning projection it replaced. §7.1–7.5 stay at 5c124f2 with the old synthesis settings. §7.7 has the third pass (main 43a523e), whose cores use DR-113's settings; §7.1–7.5 move to it once the 3-wide configurations are measured with those settings too; the uncore now is.*
 
 ### 7.1 What is measured
 
@@ -679,7 +679,7 @@ Earlier versions of this table measured the 180 MHz column against 110,280 (94.2
 
 **The settings.**
 - From the third pass on, the budget flow builds the core with DR-113's settings: the hierarchy kept, plus `AreaOptimized_high` (814c4e7). The budgets assume them (R14), so those rows compare like with like.
-- Earlier rows use the old settings, and so does every uncore figure so far.
+- Earlier rows use the old settings, and so does every uncore figure before the last row.
 - The core runs record no commit, so each row names its run.
 
 **Step-1 saving** is what a row saved per SoC against the row before, by no-IPC, cycle-identical work. Since DR-123 that work is the FPGA-friendly program. The settings change has its own row.
@@ -696,7 +696,8 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
 | 2026-10-14 | Core track's second no-IPC pass, as reported first (a32d2aa, 8a5c651) | old | 50,768 | 54,506 | ≈141.3K (with the revert below) | — | ≈+38.3K / ≈+35.9K | ≈+29.7K |
 | 2026-10-14 08:38 | Second pass at the core track's final head, 5c124f2: `out14_st`, `out14_smt2` | old | 51,707 | 55,436 | **141.5K** (120.8%) | −14.1K | **+38.5K** / +36.1K | **+29.9K** |
 | 2026-10-14 10:07 | Third no-IPC pass with DR-120, before the FLW-boxing fix: `out20_st`, `out20_smt2` | old | 49,097 | 51,839 | 134.3K (114.7%) | −7.2K | +31.3K / +28.9K | +22.7K |
-| 2026-10-14 11:25 | Third pass as merged (main 43a523e): `out23_st`, `out23_smt2` | **cores DR-113**; uncore old | **46,132** | **49,022** | **128.7K** (109.9%) | −5.6K (the settings) | **+25.7K** / +23.3K | **+17.1K** |
+| 2026-10-14 11:25 | Third pass as merged (main 43a523e): `out23_st`, `out23_smt2` | cores DR-113; uncore old | 46,132 | 49,022 | 128.7K (109.9%) | −5.6K (the cores' settings) | +25.7K / +23.3K | +17.1K |
+| 2026-10-14 13:02 | The uncore with DR-113's settings: the SoC track's MR at 4d5ca13 (`budget_mr3_dr113`), with the 11:25 cores | **DR-113** (cores and uncore) | **46,132** | **49,022** | **127.0K** (108.4%) | −1.7K (the uncore's settings) | **+24.0K** / +21.6K | **+15.4K** |
 
 **The third pass, per unit at `smt2` against the v1 budgets** (main 43a523e, DR-113's settings, `out23_smt2`; hart 1 added; `area_fit.py`):
 
@@ -718,14 +719,15 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
   - 2,817 from DR-113's settings;
   - the LSU and MMU most: 15,415 → 12,376.
 - **What is left per core, +7.1K:** rename +4.0K, the LSU and MMU +3.9K, the ROB, commit and CSRs +2.1K, P4 and Execute +0.4K each. The issue queues (−3.1K) and the front end (−0.7K) are under budget.
-- **The uncore is now 45% of v1's gap:**
-  - It measures 22,265 against its 10,800 budget (+11.5K of 25.7K), with the old settings.
-  - Its figure under DR-113's settings has been asked of the SoC track. The settings took 5.4% off the `smt2` core.
-  - The SoC track's newer run (fc1031e, 11:30) measures 22,783, which would make v1 ≈129.2K.
-- **D18's steps against the remaining 25.7K:**
-  - 180 MHz (step 2) is worth 8.6K, which leaves 17.1K;
+- **The uncore is 41% of v1's gap:**
+  - It is 20,560 with DR-113's settings (the SoC track's MR, 4d5ca13), against its 10,800 budget: +9.8K of the 24.0K.
+  - The same commit gives 22,284 with the old flow, so the settings take 7.7% off, close to the core's 7.9%.
+  - Its timing under `AreaOptimized_high` is not checked yet. The directive alone cost the scheduler 0.265 ns; with the hierarchy kept, the scheduler gained slack.
+  - The SoC track's next MR brings a crossbar rewrite (−249 LUTs with the old flow, cycle-identical so far) and a host-bridge read-decode rewrite.
+- **D18's steps against the remaining 24.0K:**
+  - 180 MHz (step 2) is worth 8.6K, which leaves 15.4K;
   - the reserve (step 3) is ≈8.0K;
-  - together they do not close it, so step 1, the FPGA-friendly rewrite (DR-125), still has to find most of it.
+  - together (16.6K) they do not close it. Step 1, the FPGA-friendly rewrite (DR-125), has to find at least 7.4K, and D18 takes it first.
 - **`st`, for reference:** 46,132 against 38,220 (+7.9K), led by the LSU and MMU (+3.6K), rename (+3.1K) and the ROB and CSRs (+2.2K).
 
 **Notes on the earlier rows.**
@@ -748,7 +750,7 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
 | 2026-10-14 08:54 | Second pass at 5c124f2 (`out14_st_w3`, `out14_smt2_w3`), measured | old | 64,408 | 70,028 | **171.1K** (146%) | — | **+58.7K** |
 | 2026-10-14 10:19 | Third pass, before the FLW-boxing fix (`out20_st_w3`, `out20_smt2_w3`) | old | 62,199 | 66,773 | **164.6K** (140.5%) | −6.5K | **+52.2K** |
 
-- **No DR-113 run of the 3-wide configurations yet.** If the settings took the same 5.4% off `smt2_w3` as off `smt2`, the core would be ≈63.1K and v2 ≈157.4K, ≈+44.9K over 112,441. That is an estimate, not a row.
+- **No DR-113 run of the 3-wide configurations yet.** If the settings took the same 5.4% off `smt2_w3` as off `smt2`, the core would be ≈63.1K. With the DR-113 uncore, v2 would then be ≈155.6K, ≈+43.2K over 112,441. That is an estimate, not a row.
 - **Per unit at the third pass** (old settings, against v2's lines; hart 1 added):
   - rename +8.4K;
   - the LSU and MMU +5.8K;
@@ -760,7 +762,7 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
   The core is +21.4K over 49,740. Its 3-wide increment is +14.9K (`smt2_w3` − `smt2`, old settings), with rename +4.48K of it.
 
 **Next rows:**
-- the uncore under DR-113's settings (asked of the SoC track, 2026-10-14);
+- the SoC track's next MR (the crossbar and host-bridge rewrites);
 - the 3-wide configurations under DR-113's settings;
 - then §7.1–7.5 move to the third pass.
 
@@ -866,9 +868,10 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 
 **2026-10-14: the third no-IPC pass** (main 43a523e), the first rows with DR-113's synthesis settings:
 - **The cores:** `st` 46,132 and `smt2` 49,022 with the new settings. With the old settings, before the FLW-boxing fix, they were `st` 49,097, `smt2` 51,839, `st_w3` 62,199 and `smt2_w3` 66,773.
-- **v1 fell to ≈128.7K:** −12.8K since 5c124f2, 7.2K of it from the RTL and 5.6K from the settings.
+- **The uncore with the same settings:** the SoC track measured 20,560 at 4d5ca13 (−7.7%).
+- **v1 fell to ≈127.0K:** −14.5K since 5c124f2. Of that, 7.2K came from the core RTL, 5.6K from the cores' settings and 1.7K from the uncore's.
   - Each core is +7.1K over its budget.
-  - The uncore (+11.5K, old settings) is now 45% of the gap.
+  - The uncore (+9.8K) is 41% of the gap.
 - **v2 is 164.6K** with the old settings.
 - **§7.7's changes:** the 180 MHz column uses the full fill test's limits (111,633 for v1, 112,441 for v2), and the table gains the 90% line and a step-1 (FPGA-friendly) saving column.
 
