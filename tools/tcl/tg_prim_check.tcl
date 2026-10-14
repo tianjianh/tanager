@@ -18,9 +18,10 @@
 #                AW >= 6: RAM64M8  = 2^(AW-6) * ceil(NR * WIDTH / 7)
 #                Read bits with no load are trimmed by Vivado, and with them every primitive
 #                whose read slots (tg_ram_lut's port-major packing, 7 per primitive) are all
-#                unloaded. The expectation counts only primitives that hold a loaded bit, so
-#                a field nobody reads passes (the line says how many bits were trimmed) while
-#                a primitive missing for a loaded bit still fails.
+#                unloaded, usually by opt_design. So the count may lie between the primitives
+#                that hold a loaded bit and the full mapping: a field nobody reads passes (the
+#                line says how many bits are loaded), while a primitive missing for a loaded
+#                bit, or one beyond the full mapping, fails.
 #                Anything else inside the instance (other RAM primitives) is a failure.
 #   tg_rom       Block: RAMB36 equivalents of a 2^|raddr| x |rdata| single-port memory, as
 #                for tg_ram_tdp (a warning if different). Distributed: no RAM primitive.
@@ -162,15 +163,27 @@ proc tg_prim_check {args} {
           dict set keep [expr {$slot / 7}] 1
         }
       }
+      # lo: primitives holding a loaded bit (all a correct mapping needs); hi: the full mapping.
+      # Between the two, unloaded primitives are not trimmed yet (after synth_design they may
+      # still be there; opt_design removes them): fewer than lo means a used bit lost its
+      # primitive, more than hi a wrong mapping.
       if {$aw <= 5} {
-        dict set exp RAM32M16 [dict size $keep]
+        set pref RAM32M16
+        set lo [dict size $keep]
+        set hi [tg_prim__ceil [expr {$nr * [tg_prim__ceil $w 2]}] 7]
       } else {
-        dict set exp RAM64M8 [expr {(1 << ($aw - 6)) * [dict size $keep]}]
+        set pref RAM64M8
+        set lo [expr {(1 << ($aw - 6)) * [dict size $keep]}]
+        set hi [expr {(1 << ($aw - 6)) * [tg_prim__ceil [expr {$nr * $w}] 7]}]
       }
+      dict set exp $pref [expr {$lo == $hi ? $lo : "$lo-$hi"}]
       foreach ref $ram_refs {
         set f [expr {[dict exists $found $ref] ? [dict get $found $ref] : 0}]
-        set e [expr {[dict exists $exp $ref] ? [dict get $exp $ref] : 0}]
-        if {$f != $e} { set status FAIL }
+        if {$ref eq $pref} {
+          if {$f < $lo || $f > $hi} { set status FAIL }
+        } elseif {$f != 0} {
+          set status FAIL
+        }
       }
     } elseif {$mod eq "tg_rom"} {
       set w  [tg_prim__busw $cell rdata]

@@ -111,7 +111,11 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
   - **The budget:** keep about 6 GB for the OS, sshd and the agent sessions; Vivado gets at most 24 GB declared; builds, simulations and soak share the rest.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - **Slots:** `TANAGER_VIVADO_SLOTS` is 2 on the build host and 1 on the laptop, set in `tools/env.sh`.
+  - **Slots:** `TANAGER_VIVADO_SLOTS` is 3 on the build host and 1 on the laptop, set in `tools/env.sh`. On the build host the memory budget, not the slot count, is the binding limit.
+  - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
+    - **Owner:** the `track-*` name in the script's path or the run directory. Set `TANAGER_TRACK` if neither has one.
+    - **Status:** `tools/vivado_run.sh --status` shows the running jobs and the queue.
+    - **Chained launches:** don't launch Vivado jobs back to back to hold slots. Queue them through the script; it orders them fairly against other tracks.
   - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (24 GB) next to the running jobs' declarations.
   - **Undeclared jobs:** a held slot with no declaration (a job started by an older `vivado_run.sh`) counts as 10 GB.
   - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.

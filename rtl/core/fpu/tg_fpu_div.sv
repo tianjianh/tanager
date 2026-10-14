@@ -15,7 +15,11 @@ module tg_fpu_div
   import tg_pkg::*;
   import tg_fpu_pkg::*;
   import tg_fpu_util_pkg::*;
-(
+#(
+  // Tag bits the user reads: the output queue keeps only these, and the response returns the
+  // rest as zero (requests must leave them zero). tg_fp_exec tags a divide with its table index.
+  parameter int TAG_W = FPU_TAG_W
+) (
   input  logic       clk,
   input  logic       rst,
   input  logic       valid_i,
@@ -70,7 +74,10 @@ module tg_fpu_div
   logic [10:0] rom_addr;
   assign rom_addr = s1_sqrt ? {1'b1, s1_odd, ma[51:43]} : {1'b0, mb[51:42]};
   logic [8:0] rom_data;
-  tg_fpu_seed_rom u_rom (.clk, .addr(rom_addr), .data(rom_data));
+  // Seed ROM in one BRAM18 (2K x 9, docs/spec/fpu.md "Seed ROM"): address and output registers
+  // in the block RAM, so the data appears two cycles after the address.
+  tg_rom #(.DEPTH(2048), .WIDTH(9), .PRIM("block"), .RD_LAT(2), .INIT(tg_fpu_seed_pkg::SEED_ROM)) u_rom (
+    .clk, .re(1'b1), .raddr(rom_addr), .rdata(rom_data));
 
   logic        s2_v;
   (* shreg_extract = "no" *) div_info_t s2_info;
@@ -350,18 +357,36 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // Output queue
   // ------------------------------------------------------------------------------------------
-  logic q_in_ready;
-  tg_fifo #(.T(fpu_resp_t), .DEPTH(OUT_DEPTH)) u_outq (
+  // It keeps only what the user reads: the result, the flags and TAG_W tag bits. A divide never
+  // writes an integer register.
+  typedef struct packed {
+    logic [63:0]      result;
+    logic [4:0]       fflags;
+    logic [TAG_W-1:0] tag;
+  } outq_t;
+  logic  q_in_ready;
+  outq_t q_in, q_out;
+  assign q_in.result = rd_resp.result;
+  assign q_in.fflags = rd_resp.fflags;
+  assign q_in.tag    = rd_resp.tag[TAG_W-1:0];
+  tg_fifo #(.T(outq_t), .DEPTH(OUT_DEPTH)) u_outq (
     .clk, .rst,
-    .in_valid (rd_v), .in_ready (q_in_ready), .in_data (rd_resp),
-    .out_valid (valid_o), .out_ready (ready_i), .out_data (resp_o),
+    .in_valid (rd_v), .in_ready (q_in_ready), .in_data (q_in),
+    .out_valid (valid_o), .out_ready (ready_i), .out_data (q_out),
     .count (q_count)
   );
+  always_comb begin
+    resp_o          = '0;
+    resp_o.result   = q_out.result;
+    resp_o.fflags   = q_out.fflags;
+    resp_o.int_dest = 1'b0;
+    resp_o.tag      = FPU_TAG_W'(q_out.tag);
+  end
 
   logic unused;
   assign unused = ^{s1_q.c, s1_q.src_fmt, s1_q.ifmt, ua.inf, ub.sub, ua.sub, p1[119:118],
                     p2[119:118], p2[57:0], q_in_ready, r2_q.info, r3_q.rnd, f[59], f[4:0],
-                    r4_q.info.eq};
+                    r4_q.info.eq, rd_resp.int_dest, rd_resp.tag};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
@@ -370,6 +395,8 @@ module tg_fpu_div
         assert (req_i.fmt != FMT_H) else $error("tg_fpu_div: FMT_H is not implemented");
         assert (fpu_unit_of(req_i.op) == FU_DIV)
           else $error("tg_fpu_div: operation %0d belongs to another unit", req_i.op);
+        assert ((req_i.tag >> TAG_W) == '0)
+          else $error("tg_fpu_div: request tag wider than TAG_W");
       end
       assert (!(s4_v && cont)) else $error("tg_fpu_div: slot collision");
       assert (!rd_v || q_in_ready) else $error("tg_fpu_div: output queue overflow");

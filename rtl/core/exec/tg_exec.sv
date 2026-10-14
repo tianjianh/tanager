@@ -10,6 +10,10 @@
 // after it claims a slot. A MUL in RF (cycle r) and a DIV claim (cycle r) both take slot r+4, the
 // slot an A1 select in cycle r+1 would use, so that select is blocked (a1_block, registered).
 // A DIV does not claim in a cycle where a MUL is in RF.
+// F and D (EXT_FD): an FP->int result from P4 (fpi_*) claims a bank 1 slot like a finished
+// divide, after any MUL in RF and any divide claim that cycle; it is written (fpi_ready) and
+// wakes its LLT a cycle earlier. P4's integer source takes the shared read port first
+// (isrc_*; the LSU's store-data capture waits that cycle).
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
@@ -24,7 +28,7 @@ module tg_exec
   localparam int S_EX  = 1,               // + i: ALU i's res_q; + N_ALU: load result
   localparam int S_WB  = N_ALU + 2,       // + i: ALU i's wbq_q; + N_ALU: load result copy
   localparam int S_IMM = NSRC - 1,
-  localparam int TAG_W = PIDX_W + ROBW + LLT_IDX_W + 1   // {dst_en, dst index, rob, llt}
+  localparam int TAG_W = PIDX_W + ROBW + COL_W + 1   // {dst_en, dst index, rob, wakeup column}
 ) (
   input  logic                         clk,
   input  logic                         rst,
@@ -34,8 +38,8 @@ module tg_exec
   input  logic                         init_we,
   input  logic [PIDX_W-1:0]            init_idx,
   // Issue (RF stage)
-  input  logic [N_IQ-1:0]              iss_valid,
-  input  iq_pl_t [N_IQ-1:0]            iss_pl,
+  input  logic [N_XQ-1:0]              iss_valid,
+  input  iq_pl_t [N_XQ-1:0]            iss_pl,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -53,6 +57,19 @@ module tg_exec
   // Shared store-data read port and trace read ports (combinational)
   input  preg_t                        sd_tag,
   output logic [63:0]                  sd_data,
+  // P4 (EXT_FD): its integer source through the shared port; FP->int results for bank 1
+  input  logic                         isrc_valid,
+  input  preg_t                        isrc_tag,
+  output logic [63:0]                  isrc_data,
+  input  logic                         fpi_valid,
+  input  logic                         fpi_kill,       // the head was flushed: pop it, no write
+  output logic                         fpi_ready,      // written (or, if killed, popped) this cycle
+  input  robid_t                       fpi_rob,
+  input  llt_t                         fpi_llt,
+  input  logic                         fpi_dst_en,
+  input  preg_t                        fpi_dst,
+  input  logic [63:0]                  fpi_data,
+  input  logic [4:0]                   fpi_fflags,
   input  preg_t [COMMIT_WIDTH-1:0]     tr_tag,
   output logic [COMMIT_WIDTH-1:0][63:0] tr_data,
   // Register-file writes (for the ready table)
@@ -64,6 +81,7 @@ module tg_exec
   output logic                         oth_valid,      // bank 1 mux: MUL, DIV, CSR
   output robid_t                       oth_rob,
   output logic                         oth_exc,        // CSR: illegal instruction
+  output logic [4:0]                   oth_fflags,     // FP->int results
   output logic [63:0]                  oth_tval,
   // Branch resolution (P0, WB)
   output logic                         br_valid,
@@ -82,6 +100,7 @@ module tg_exec
   // Wakeups (W set at the end of this cycle) and LLT results written
   output logic [NCOL-1:0]              wake_reg,
   output logic [LLT_ENTRIES-1:0]       llt_done,
+  output logic [IQ_TAGS-1:0]           tag_free,       // MUL tags, 2 cycles after the write
   output logic                         div_done,
   // CSR execute (P1 EX)
   output logic                         csr_ex_valid,
@@ -116,9 +135,10 @@ module tg_exec
   assign rd_idx[P_LD]   = preg_idx(iss_pl[Q_LD].src1);
   assign rd_bank[P_STA] = preg_bank(iss_pl[Q_STA].src1);
   assign rd_idx[P_STA]  = preg_idx(iss_pl[Q_STA].src1);
-  assign rd_bank[P_SH]  = preg_bank(sd_tag);
-  assign rd_idx[P_SH]   = preg_idx(sd_tag);
+  assign rd_bank[P_SH]  = preg_bank((EXT_FD && isrc_valid) ? isrc_tag : sd_tag);
+  assign rd_idx[P_SH]   = preg_idx((EXT_FD && isrc_valid) ? isrc_tag : sd_tag);
   assign sd_data        = rd_data[P_SH];
+  assign isrc_data      = rd_data[P_SH];
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_tr
     assign rd_bank[P_TR+j] = preg_bank(tr_tag[j]);
     assign rd_idx[P_TR+j]  = preg_idx(tr_tag[j]);
@@ -126,10 +146,10 @@ module tg_exec
   end
 
   // ---- Pipeline state per port (ALU ports, then LD and STA) ----
-  logic [N_IQ-1:0]              ex_v_q;
-  iq_pl_t [N_IQ-1:0]            ex_pl_q;
-  logic [N_IQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
-  logic [N_IQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
+  logic [N_XQ-1:0]              ex_v_q;
+  iq_pl_t [N_XQ-1:0]            ex_pl_q;
+  logic [N_XQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
+  logic [N_XQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
   logic [N_ALU-1:0]             wb_v_q;              // res_q holds an ALU result
   logic [N_ALU-1:0]             wb_dv_q;             // ... with a destination
   logic [N_ALU-1:0][PIDX_W-1:0] wb_dst_q;
@@ -144,8 +164,8 @@ module tg_exec
   endfunction
 
   // ---- RF stage: bypass selects ----
-  function automatic logic [SW-1:0] bsel(input preg_t t, input logic [N_IQ-1:0] exv,
-                                         input iq_pl_t [N_IQ-1:0] expl, input logic [N_ALU-1:0] wbdv,
+  function automatic logic [SW-1:0] bsel(input preg_t t, input logic [N_XQ-1:0] exv,
+                                         input iq_pl_t [N_XQ-1:0] expl, input logic [N_ALU-1:0] wbdv,
                                          input logic [N_ALU-1:0][PIDX_W-1:0] wbdst,
                                          input logic m2w, input logic [PIDX_W-1:0] m2d,
                                          input logic lrv, input logic [PIDX_W-1:0] lrd);
@@ -166,9 +186,9 @@ module tg_exec
     return SW'(S_RF);
   endfunction
 
-  logic [N_IQ-1:0][SW-1:0] sa, sb;
-  logic [N_IQ-1:0][63:0]   ra, rb;
-  for (genvar q = 0; q < N_IQ; q++) begin : g_sel
+  logic [N_XQ-1:0][SW-1:0] sa, sb;
+  logic [N_XQ-1:0][63:0]   ra, rb;
+  for (genvar q = 0; q < N_XQ; q++) begin : g_sel
     always_comb begin
       sa[q] = bsel(iss_pl[q].src1, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
@@ -206,8 +226,8 @@ module tg_exec
     return o;
   endfunction
 
-  logic [N_IQ-1:0][63:0] opa, opb;
-  for (genvar q = 0; q < N_IQ; q++) begin : g_op
+  logic [N_XQ-1:0][63:0] opa, opb;
+  for (genvar q = 0; q < N_XQ; q++) begin : g_op
     always_comb begin
       logic [NSRC-1:0][63:0] s1, s2;
       s1 = src_common;
@@ -314,7 +334,7 @@ module tg_exec
   assign csr_ex_src   = opa[1];
 
   logic [TAG_W-1:0] p1_tag;
-  assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.llt};
+  assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.wid};
   logic              mul_ov;
   logic [63:0]       mul_res;
   logic [TAG_W-1:0]  mul_tag;
@@ -366,6 +386,13 @@ module tg_exec
   logic       div_claim;                   // the finished divide claims slot +4
   logic [2:0] div_wait_q;                  // cycles to its slot (0: none)
   assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !flush;
+  logic       fpi_claim;                   // the FP->int result at P4's queue head claims slot +4
+  logic [2:0] fpi_wait_q;
+  logic       fpi_wr;                      // the claimed head is written this cycle
+  assign fpi_claim = EXT_FD && fpi_valid && !fpi_kill && fpi_wait_q == '0 && !rf_mul && !div_claim &&
+                     !flush;
+  assign fpi_wr    = fpi_wait_q == 3'd1 && !flush;
+  assign fpi_ready = fpi_wr || (EXT_FD && fpi_valid && fpi_kill && fpi_wait_q == '0);
   assign a1_block  = a1_block_q;
   assign div_ordy  = div_wait_q == 3'd1;
   assign div_done  = div_ov && div_ordy;
@@ -379,6 +406,14 @@ module tg_exec
   // MUL wakeup delay line: RF (r) -> W set at the end of r + 3
   logic [2:0]       mwk_v_q;
   wid_t [2:0]       mwk_id_q;
+  // MUL tags return 2 cycles after the result's register write (rename's RN can no longer see
+  // it unwritten; tg_issue clears the tag's column)
+  logic [1:0]                    tf_v_q;
+  logic [1:0][WTAG_W-1:0]        tf_id_q;
+  always_comb begin
+    tag_free = '0;
+    if (tf_v_q[1]) tag_free[tf_id_q[1]] = 1'b1;
+  end
 
   // ---- Bank 1 write mux and completions ----
   logic        oth_we;
@@ -386,17 +421,20 @@ module tg_exec
   logic [63:0] oth_wd;
   always_comb begin
     oth_we = 1'b0; oth_wa = '0; oth_wd = '0;
-    oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0;
+    oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0; oth_fflags = '0;
     if (csr_v_q) begin
       oth_valid = 1'b1; oth_rob = csr_rob_q; oth_exc = csr_ill_q; oth_tval = csr_tval_q;
       oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
     end else if (mul_ov) begin
-      oth_valid = 1'b1; oth_rob = mul_tag[LLT_IDX_W +: ROBW];
-      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[LLT_IDX_W + ROBW +: PIDX_W];
+      oth_valid = 1'b1; oth_rob = mul_tag[COL_W +: ROBW];
+      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[COL_W + ROBW +: PIDX_W];
       oth_wd = bc_v_q[2] ? bc_q[2] : mul_res;
     end else if (div_ov && div_ordy) begin
-      oth_valid = 1'b1; oth_rob = div_tag[LLT_IDX_W +: ROBW];
-      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[LLT_IDX_W + ROBW +: PIDX_W]; oth_wd = div_res;
+      oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
+      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
+    end else if (fpi_wr) begin
+      oth_valid = 1'b1; oth_rob = fpi_rob; oth_fflags = fpi_fflags;
+      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); oth_wd = fpi_data;
     end
   end
 
@@ -429,10 +467,12 @@ module tg_exec
   always_comb begin
     wake_reg = '0;
     if (mwk_v_q[2]) wake_reg[mwk_id_q[2]] = 1'b1;
-    if (div_wait_q == 3'd2 && div_tag[TAG_W-1])
-      wake_reg[ROB_ENTRIES + int'(div_tag[LLT_IDX_W-1:0])] = 1'b1;
+    if (div_wait_q == 3'd2 && div_tag[TAG_W-1]) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
+    if (fpi_wait_q == 3'd2 && fpi_dst_en && !flush) wake_reg[llt_col(int'(fpi_llt))] = 1'b1;
     llt_done = '0;
-    if (div_ov && div_ordy && div_tag[TAG_W-1]) llt_done[div_tag[LLT_IDX_W-1:0]] = 1'b1;
+    if (div_ov && div_ordy && div_tag[TAG_W-1])
+      llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
+    if (fpi_wr && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
   end
 
   // ---- Address generation (EX) ----
@@ -449,7 +489,7 @@ module tg_exec
     ex_pl_q <= iss_pl;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
-    for (int q = 0; q < N_IQ; q++) begin
+    for (int q = 0; q < N_XQ; q++) begin
       ex_a_q[q] <= ra[q];
       ex_b_q[q] <= rb[q];
     end
@@ -490,6 +530,7 @@ module tg_exec
     mwk_id_q[0] <= iss_pl[1].wid;
     mwk_id_q[1] <= mwk_id_q[0];
     mwk_id_q[2] <= mwk_id_q[1];
+    tf_id_q     <= {tf_id_q[0], mul_tag[WTAG_W-1:0]};
     lfsr_q <= {lfsr_q[6:0], lfsr_q[7] ^ lfsr_q[5] ^ lfsr_q[4] ^ lfsr_q[3]};
 
     if (rst || flush) begin
@@ -501,9 +542,11 @@ module tg_exec
       bht_we_q   <= 1'b0;
       csr_v_q    <= 1'b0;
       mwk_v_q    <= '0;
+      tf_v_q     <= '0;
       bc_v_q     <= '0;
       a1_block_q <= 1'b0;
       div_wait_q <= '0;
+      fpi_wait_q <= '0;
       if (rst) lfsr_q <= 8'h5a;
     end else begin
       ex_v_q <= iss_valid;
@@ -516,22 +559,25 @@ module tg_exec
       bht_we_q <= ex_br && bp.br_kind == BR_COND;
       csr_v_q  <= ex_csr;
       mwk_v_q  <= {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
+      tf_v_q   <= {tf_v_q[0], !csr_v_q && mul_ov && mul_tag[TAG_W-1]};   // the MUL write slot
       bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
-      a1_block_q <= rf_mul || div_claim;
+      a1_block_q <= rf_mul || div_claim || fpi_claim;
       if (div_claim)               div_wait_q <= 3'd4;
       else if (div_wait_q != '0)   div_wait_q <= div_wait_q - 1'b1;
+      if (fpi_claim)               fpi_wait_q <= 3'd4;
+      else if (fpi_wait_q != '0)   fpi_wait_q <= fpi_wait_q - 1'b1;
     end
   end
 
   logic unused;
-  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[LLT_IDX_W-1:0], csr_ex_pl, opb[Q_LD],
+  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD],
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst) begin
-      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy}))
+      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy, fpi_wr}))
         else $error("tg_exec: two bank-1 results in one slot");
       assert (!(oth_we && wb_dv_q[1])) else $error("tg_exec: bank 1 write conflict");
     end

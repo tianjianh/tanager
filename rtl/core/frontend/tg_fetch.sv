@@ -53,13 +53,11 @@ module tg_fetch
   // Translation and PMP (M3)
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
   input  priv_e       priv,
-  input  logic [15:0] asid,
-  input  logic [15:0][7:0]  pmpcfg,
-  input  logic [15:0][53:0] pmpaddr,
+  input  pmp_d_t [15:0]     pmp_d,
+  input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic        tlb_flush,
   input  logic        it_fill,
   input  logic [26:0] it_fill_vpn,
-  input  logic [15:0] it_fill_asid,
   input  logic [1:0]  it_fill_lvl,
   input  tlb_pte_t    it_fill_pte,
   output logic        iw_req,         // a walk for iw_va, held until iw_ack
@@ -150,11 +148,11 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .asid, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
-    .fill_vpn(it_fill_vpn), .fill_asid(it_fill_asid), .fill_lvl(it_fill_lvl),
+    .clk, .rst, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .flush(tlb_flush));
-  logic [55:0] f1_pa56;
-  assign f1_pa56 = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[55:0];
+  logic [PA_W-1:0] f1_pa;
+  assign f1_pa = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[PA_W-1:0];
   // A walk for this page faulted: its blocks are fault blocks until a redirect
   logic         xf_v_q, xf_pf_q;
   logic [63:12] xf_page_q;
@@ -163,22 +161,22 @@ module tg_fetch
   assign f1_xf    = xl_i && xf_v_q && fpc_q[63:12] == xf_page_q;
   assign f1_pf    = xl_i && !va_canon(fpc_q);
   assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
-  assign f1_pma   = pma_of(f1_pa56[PA_W-1:0]);
-  assign f1_acc   = (xl_i ? f1_pa56[55:PA_W] != '0 : fpc_q[63:PA_W] != '0) ||
+  assign f1_pma   = pma_of(f1_pa);
+  assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[63:PA_W] != '0) ||
                     (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
   assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
   assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
   // PMP per word (used in F2, where instruction boundaries are known)
-  logic [NW-1:0] f1_pmpd;
-  for (genvar w = 0; w < NW; w++) begin : g_pmp
-    logic ok;
-    tg_pmp u_pmp (.pa({f1_pa56[PA_W-1:4], 2'(w), 2'b00}), .dbl(1'b0), .acc(ACC_X),
-                  .m_mode(priv == PRIV_M), .cfg(pmpcfg), .addr(pmpaddr), .ok(ok));
-    assign f1_pmpd[w] = !ok;
-  end
+  // A translated page that is PMP-homogeneous uses the ITLB's cached result (plan §4.10);
+  // otherwise (bare mode, or a page with a region boundary inside) one block checker
+  logic [NW-1:0] f1_pmpd, pmp_okw;
+  logic          pmp_hit_u;
+  logic [2:0]    pmp_rwx_u;
+  tg_pmp #(.S(2)) u_pmp (.pa(f1_pa), .dbl(1'b0), .acc(ACC_X), .m_mode(priv == PRIV_M), .d(pmp_d),
+                         .ok(pmp_okw), .hit(pmp_hit_u), .rwx(pmp_rwx_u));
+  assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
 
   // ---- I$ arrays ----
-  logic [WAYS-1:0][SETS-1:0] ival_q;
   logic                rf_we;
   logic [WAY_W-1:0]    rf_way;
   logic [ROW_W-1:0]    rf_row;
@@ -337,9 +335,10 @@ module tg_fetch
   logic f2_deliver, f2_hold;
   assign f2_deliver = f2_valid_q && !f2_miss && !f2_wmiss && f3_accept;
   assign f2_hold    = f2_valid_q && !f2_miss && !f2_wmiss && !f3_accept;
-  // F1 moves on when F2 is free (or delivers) and fetch is not parked or stopped.
-  logic f1_live;
-  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready;
+  // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
+  // PMP descriptors or the valid-bit sweep.
+  logic f1_live, ivs_done;
+  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready && !pmp_busy && ivs_done;
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
   assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
@@ -361,6 +360,28 @@ module tg_fetch
   logic             rdone_d_q;          // ... in the previous cycle
   logic [PA_W-1:6]  rline_d_q;
 
+  // Valid bits: a LUTRAM row of WAYS bits per set (plan §8.3: no flip-flop arrays). Reads: the
+  // set F1 fetches, and the missed set (victim choice when the refill starts; the refill's
+  // read-modify-write when it ends). After reset and FENCE.I a sweep clears every set while
+  // F1 waits.
+  // The refill rewrites the victim's rows beat by beat and may outlive a redirect, so the
+  // victim's valid bit is cleared when the refill starts: its old line misses from the next
+  // cycle on (a read in the start cycle still gets the old data: no beat is written yet), and
+  // F1 reads in the install cycle are refetched (rdone_d_q).
+  logic [1:0][SET_W-1:0] iv_ra;
+  logic [1:0][WAYS-1:0]  iv_rd;
+  logic                  iv_we;
+  logic [SET_W-1:0]      iv_wa;
+  logic [WAYS-1:0]       iv_wd;
+  logic [SET_W:0]        ivs_q;             // sweep: the next set to clear; done at SETS
+  logic                  r_start;           // the refill of miss_pa_q's line starts
+  assign ivs_done = ivs_q[SET_W];
+  assign r_start  = rs_q == R_IDLE && miss_q && !rst;
+  assign iv_ra[0] = fpc_q[6 +: SET_W];
+  assign iv_ra[1] = (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
+    .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
+
   // victim: first invalid way of the set, else round robin
   logic [WAY_W-1:0] victim;
   always_comb begin
@@ -368,10 +389,26 @@ module tg_fetch
     found = 1'b0;
     victim = rr_q;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !ival_q[w][miss_pa_q[6 +: SET_W]]) begin
+      if (!found && !iv_rd[1][w]) begin
         victim = WAY_W'(w);
         found = 1'b1;
       end
+    end
+  end
+
+  always_comb begin
+    iv_we = tag_we;
+    iv_wa = tag_set;
+    iv_wd = iv_rd[1] | (WAYS'(1) << rway_q);
+    if (r_start) begin                      // (never with tag_we: that is the refill's end)
+      iv_we = 1'b1;
+      iv_wa = miss_pa_q[6 +: SET_W];
+      iv_wd = iv_rd[1] & ~(WAYS'(1) << victim);
+    end
+    if (!ivs_done) begin
+      iv_we = 1'b1;
+      iv_wa = ivs_q[SET_W-1:0];
+      iv_wd = '0;
     end
   end
 
@@ -434,8 +471,8 @@ module tg_fetch
   end
 
   always_ff @(posedge clk) begin
-    if (rst || icinv) ival_q <= '0;
-    else if (tag_we) ival_q[rway_q][tag_set] <= 1'b1;
+    if (rst || icinv)  ivs_q <= '0;
+    else if (!ivs_done) ivs_q <= ivs_q + 1'b1;
     rdone_d_q <= tag_we && !rst;
     rline_d_q <= rline_q;
   end
@@ -514,7 +551,7 @@ module tg_fetch
       end else if (f2_go) begin
         f2_valid_q <= f1_live && !(f2_deliver && f2_isfault);
         f2_pc_q    <= fpc_q;
-        f2_pa_q    <= f1_pa56[PA_W-1:0];
+        f2_pa_q    <= f1_pa;
         f2_fault_q <= f1_fault;
         f2_fpf_q   <= f1_fpf;
         f2_tm_q    <= f1_tm;
@@ -524,7 +561,7 @@ module tg_fetch
         f2_slot_q  <= ub_slot;
         f2_tgt_q   <= pred_tgt;
         f2_tag_q   <= tag_rd;
-        for (int w = 0; w < WAYS; w++) f2_wv_q[w] <= ival_q[w][fpc_q[6 +: SET_W]];
+        f2_wv_q    <= iv_rd[0];
         if (f1_live) begin
           fpc_q <= (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
         end
@@ -591,9 +628,22 @@ module tg_fetch
 
   logic unused;
   assign unused = ^{upd_pc[63:39], upd_pc[3:0], upd_target[63:39], upd_target[0], pd_call, pd_ret, l1i_d_i.opcode, l1i_d_i.param, l1i_d_i.size,
-                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0]};
+                    l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0], pmp_hit_u, pmp_rwx_u};
 
 `ifndef SYNTHESIS
+  // No F2 hit on the way being refilled from a row the refill had already rewritten when F1
+  // read it (the old line's tag over the new line's bytes; soc track's report, 2026-10-14)
+  logic            stale_q;
+  logic [WAY_W-1:0] stale_way_q;
+  always_ff @(posedge clk) begin
+    if (f2_go) begin
+      stale_q     <= rs_q == R_DATA && fpc_q[6 +: SET_W] == rline_q[6 +: SET_W] &&
+                     (fpc_q[5:4] < rbeat_q || (fpc_q[5:4] == rbeat_q && rf_we));
+      stale_way_q <= rway_q;
+    end
+    if (!rst && f2_valid_q && stale_q)
+      assert (!way_hit[stale_way_q]) else $error("tg_fetch: I$ hit on a row the refill rewrote");
+  end
   always_ff @(posedge clk) begin
     if (!rst && f2_valid_q && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
   end

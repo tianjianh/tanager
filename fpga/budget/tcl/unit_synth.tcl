@@ -33,7 +33,10 @@ while {[llength $rest]} {
 }
 
 set part xck26-sfvc784-2LV-c
-set_param general.maxThreads 8
+# Synthesis of a hierarchical design forks one Vivado process per thread (about 1-2 GB each):
+# at most TANAGER_SYNTH_THREADS (default 2), so the job stays inside its declared memory
+# (conventions §9; run_budget.py declares it per unit).
+set_param general.maxThreads [expr {[info exists ::env(TANAGER_SYNTH_THREADS)] ? $::env(TANAGER_SYNTH_THREADS) : 2}]
 source [file join $root tools tcl tg_files.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
 

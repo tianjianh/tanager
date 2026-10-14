@@ -1,14 +1,14 @@
 # MMU and PMP (`tg_tlb`, `tg_ptw`, `tg_pmp`, M3)
 
-Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
+Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 
 ## Purpose
 Sv39 address translation and physical memory protection for fetch, loads, stores, atomics and the page-table walker (plan §4.10, §2.2). M3 builds the functional version: an L1 TLB per side, one walker through the L1D, PMP on every access. The plan's 512-entry L2 TLB, the page-walk cache and a second concurrent walk are M6 options.
 
 ## Interface
-- **`tg_tlb`** (`rtl/core/mmu`; ITLB: `ITLB_ENTRIES` = 16 in `tg_fetch`, one lookup; DTLB: `DTLB_ENTRIES` = 32 in `tg_lsu`, three lookups: the LD port, the STA port, the ROB head): fully associative, combinational lookup of {VPN, ASID}; global entries match any ASID; the first matching entry wins. A hit returns the leaf (`tlb_pte_t`: 44-bit PPN with the superpage bits taken from the VA, and G, D, A, U, X, W, R). A fill replaces an entry that already matches its VPN, else the first invalid one, else a round-robin victim. Flush: all entries. After spike S4's `tg_dtlb`.
+- **`tg_tlb`** (`rtl/core/mmu`; ITLB: `ITLB_ENTRIES` = 16 in `tg_fetch`, one lookup; DTLB: `DTLB_ENTRIES` = 32 in `tg_lsu`, two lookups: the LD port, and the STA port, which the ROB head's check uses when STA is idle): fully associative, combinational lookup of the VPN. No ASID tags: every satp change and SFENCE.VMA flushes the TLBs (as Spike), so every entry belongs to the current address space (TID tags come with SMT2, M7). A hit returns the leaf (`tlb_pte_t`: 22-bit PPN with the superpage bits taken from the VA, `big`, G, D, A, U, X, W, R, and the cached PMP result). A fill first invalidates every entry whose page overlaps the new one, so at most one entry matches and the result is an AND-OR; then it takes an invalid entry, else a round-robin victim. Flush: all entries. After spike S4's `tg_dtlb`.
 - **`tg_ptw`** (instantiated in `tg_lsu`): one walk at a time. Requesters in priority order: the ROB head's deciding walk, an ITLB miss (fetch), a DTLB prefetch (a one-entry buffer, cleared by flushes). PTE reads take the load pipe's AG slot ahead of LQ replays (IQ-LD's select is blocked while one waits), read the L1D like a load and come back at M2; a missing line takes the MSHR and the read retries when it is idle; a denied line is an access fault. Results: a leaf for the requester's TLB, or a fault cause. A flush ends the walk.
-- **`tg_pmp`**: combinational check of {physical address, 4 or 8 bytes, access type, M or not} against the 16 entries in `tg_csr`.
+- **`tg_pmp`**: combinational check of {physical address, 4 or 8 bytes (or a 16-byte fetch block, one result per word), access type, M or not} against the 16 region descriptors `tg_csr` precomputes. Four instances: fetch (one per block), the LD and STA ports, the walker.
 
 ## Behaviour
 
@@ -49,6 +49,9 @@ A success fills the requester's TLB with the leaf and its level.
 
 ### PMP (`tg_pmp`)
 - **Entries:** 16, `pmpcfg` / `pmpaddr` in `tg_csr` (WARL rules in core-pipeline.md §9.1). Modes OFF, TOR, NA4, NAPOT; granularity 4 bytes.
+- **Region descriptors** (flip-flops in `tg_csr`, read by every checker): per entry the mode, R/W/X/L, `pmpaddr`'s low `PA_W` − 2 granule bits, whether its high bits put a TOR top above every physical address, and for NAPOT/NA4 the compare mask and whether the region lies above the physical address space. Only `PA_W` − 2 bits are compared; a TOR top is compared once and serves as the next entry's base.
+- **Descriptor updates:** `pmpaddr` is a LUTRAM. A PMP write marks the entries it changes (a `pmpaddr` write one, a `pmpcfg` write eight), and one descriptor unit recomputes a marked entry per cycle; `pmp_al` follows a cycle later. Meanwhile `pmp_busy` holds fetch (F1): the write is serialised and followed by a flush, so nothing else checks PMP until fetch resumes. After reset a 16-cycle sweep writes the reset values into the LUTRAM (entry 0: NAPOT over everything), then all 16 descriptors are computed.
+- **Cached in the TLB** (plan §4.10, lever for area and the AG/F1 paths): a fill checks the leaf page's base once more (one cycle in the walker) and stores the S/U permissions with the entry. They hold for the whole page when `tg_csr`'s alignment flags say no active region boundary lies inside pages of that size (4K, 2M, 1G); then fetch, loads and stores use the cached bits. Bare-mode accesses, M-mode accesses, and pages with a boundary inside use the checker. PMP writes flush both TLBs (as Spike).
 - **Match:** the lowest-numbered entry matching any 4-byte granule of the access decides, and every granule must match it; otherwise the access fails (an 8-byte access that only half matches fails). Misaligned accesses trap before PMP, so an access is one naturally aligned unit.
 - **Permission:** R (load, LR, PTE read), W (store, AMO, SC), X (fetch).
   - Locked entries (L) apply to M too; unlocked entries do not.
@@ -68,7 +71,7 @@ A success fills the requester's TLB with the leaf and its level.
 `ITLB_ENTRIES`, `DTLB_ENTRIES`, `PA_W`, `TID_W` (entries are tagged with the thread). `L2TLB_ENTRIES` and `PWC_ENTRIES` are unused until M6.
 
 ## Timing and area
-- **Lookups:** fully associative 16/32-entry lookups as in spike S4 (the DTLB in M1 of the load pipe), plus the PMP compare.
+- **Lookups:** fully associative 16/32-entry lookups as in spike S4 (the DTLB in M1 of the load pipe). Entries keep a 22-bit PPN (`PA_W` − 12) and a flag for a PTE whose PPN reaches above `PA_W` (every access then faults).
 - **M3 moves the DTLB lookup into AG** (address add + CAM + PMP in one stage). This is a simulation-first choice: M6 puts it back in M1 with the D$ index from the untranslated page offset (VIPT).
 - The plan's lever R6 (set-associative LUTRAM TLBs) is an M6 decision.
 

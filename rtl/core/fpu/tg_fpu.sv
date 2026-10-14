@@ -4,7 +4,9 @@ module tg_fpu
   import tg_fpu_pkg::*;
 #(
   // 0: Goldschmidt divide/sqrt (tg_fpu_div); 1: the radix-4 fallback (tg_fpu_div_r4)
-  parameter bit DIV_RADIX4 = FDIV_RADIX4
+  parameter bit DIV_RADIX4 = FDIV_RADIX4,
+  // Divide tag bits the user reads: the Goldschmidt unit's output queue keeps only these
+  parameter int DIV_TAG_W = tg_pkg::FPU_TAG_W
 ) (
   input  logic       clk,
   input  logic       rst,
@@ -49,7 +51,7 @@ module tg_fpu
       .valid_o (fdiv_valid_o), .resp_o (fdiv_resp_o), .ready_i (fdiv_ready_i)
     );
   end else begin : g_div_gs
-    tg_fpu_div u_div (
+    tg_fpu_div #(.TAG_W(DIV_TAG_W)) u_div (
       .clk, .rst,
       .valid_i (fdiv_valid_i), .req_i (fdiv_req_i), .ready_o (fdiv_ready_o),
       .valid_o (fdiv_valid_o), .resp_o (fdiv_resp_o), .ready_i (fdiv_ready_i)

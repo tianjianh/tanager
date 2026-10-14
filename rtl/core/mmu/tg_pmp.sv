@@ -1,52 +1,105 @@
-// PMP check (docs/spec/core-mmu.md): the 16 entries of tg_csr, OFF / TOR / NA4 / NAPOT, 4-byte
-// granules. The lowest-numbered entry that matches any granule of the access decides and must
-// match all of them; with no matching entry only M is allowed. Locked entries bind M too. As
-// Spike's pmp_ok without Smepmp. Combinational; an access is at most 8 bytes, naturally aligned.
+// PMP check (docs/spec/core-mmu.md §PMP) on the region descriptors tg_csr precomputes: 16
+// entries, OFF / TOR / NA4 / NAPOT, 4-byte granules, as Spike's pmp_ok without Smepmp. The
+// lowest-numbered entry matching any granule of the access decides and must match all of
+// them; with no match only M is allowed; locked entries bind M too. Combinational.
+// TOR shares one comparator per entry: entry i matches [top(i-1), top(i)), so A < top(i) is
+// computed once and used by entries i and i+1. Only PA_W - 2 granule bits are compared.
+//   S = 1: an access of one granule, or two (dbl: 8 bytes, naturally aligned): ok[0].
+//   S = 2: a 16-byte fetch block, one result per 4-byte word: ok[3:0].
+// `hit`/`rwx` (S = 1): the deciding entry for the first granule, for the TLB's cached result.
 module tg_pmp
   import tg_pkg::*, tg_core_pkg::*;
-(
+#(
+  parameter int S = 1,
+  localparam int NW = (S == 2) ? 4 : 1
+) (
   input  logic [PA_W-1:0]   pa,
-  input  logic              dbl,          // an 8-byte access: two granules
+  input  logic              dbl,          // S = 1: an 8-byte access
   input  acc_e              acc,
   input  logic              m_mode,
-  input  logic [15:0][7:0]  cfg,
-  input  logic [15:0][53:0] addr,         // pmpaddr: address bits 55:2
-  output logic              ok
+  input  pmp_d_t [15:0]     d,
+  output logic [NW-1:0]     ok,
+  output logic              hit,
+  output logic [2:0]        rwx
 );
-  logic [53:0] g0, g1;
-  assign g0 = 54'(pa[PA_W-1:2]);
-  assign g1 = dbl ? (g0 | 54'd1) : g0;
+  localparam int GW = PMP_GW;
 
-  // Does entry i match granule g?
-  function automatic logic m4(input int i, input logic [53:0] g, input logic [15:0][7:0] c,
-                              input logic [15:0][53:0] a);
-    logic [53:0] y, dc, base;
-    base = (i == 0) ? '0 : a[(i + 15) % 16];
-    y  = {a[i][52:0], 1'b1};
-    dc = y & ~(y + 54'd1);                     // NAPOT: the trailing ones of {pmpaddr, 1}
-    unique case (c[i][4:3])
-      2'd0:    return 1'b0;
-      2'd1:    return g >= base && g < a[i];   // TOR
-      2'd2:    return g == a[i];               // NA4
-      default: return ((g ^ a[i]) & ~dc) == '0;
-    endcase
-  endfunction
-
-  logic [15:0] h0, h1;
-  for (genvar i = 0; i < 16; i++) begin : g_m
-    assign h0[i] = m4(i, g0, cfg, addr);
-    assign h1[i] = m4(i, g1, cfg, addr);
+  // Per entry and word: does the entry match the word's granule(s), any and all of them?
+  logic [NW-1:0][15:0] any_m, all_m;
+  if (S == 2) begin : g_blk
+    // Block granules {B, w}: compare the block index once, then the two low bits per word
+    logic [GW-3:0]   B;
+    logic [15:0]     ltb, eqb, nhi;
+    assign B = pa[PA_W-1:4];
+    for (genvar i = 0; i < 16; i++) begin : g_e
+      assign ltb[i] = d[i].hi || B < d[i].a[GW-1:2];
+      assign eqb[i] = !d[i].hi && B == d[i].a[GW-1:2];
+      assign nhi[i] = !d[i].above && ((B ^ d[i].a[GW-1:2]) & d[i].mask[GW-1:2]) == '0;
+    end
+    for (genvar w = 0; w < 4; w++) begin : g_w
+      logic [15:0] lt;                     // granule {B, w} < top(i)
+      for (genvar i = 0; i < 16; i++) begin : g_e
+        /* verilator lint_off CMPCONST */   // word 3 is never below a top in its block
+        assign lt[i] = ltb[i] || (eqb[i] && 2'(w) < d[i].a[1:0]);
+        /* verilator lint_on CMPCONST */
+        logic napm, torm;
+        assign napm = nhi[i] && ((2'(w) ^ d[i].a[1:0]) & d[i].mask[1:0]) == '0;
+        assign torm = lt[i] && (i == 0 || !lt[(i + 15) % 16]);
+        assign any_m[w][i] = (d[i].nap && napm) || (d[i].tor && torm);
+        assign all_m[w][i] = any_m[w][i];
+      end
+    end
+  end else begin : g_acc
+    // Granules A and, for dbl, A + 1 (A even)
+    logic [GW-1:0] A;
+    logic [15:0]   lt0, lt1;               // A < top(i), A + 1 < top(i) (lt1 = lt0 unless dbl)
+    assign A = pa[PA_W-1:2];
+    for (genvar i = 0; i < 16; i++) begin : g_e
+      logic eqo;                           // top(i) = A + 1 (odd, the dword's second granule)
+      assign lt0[i] = d[i].hi || A < d[i].a;
+      assign eqo    = !d[i].hi && d[i].a[0] && A[GW-1:1] == d[i].a[GW-1:1];
+      assign lt1[i] = lt0[i] && !(dbl && eqo);
+      logic [GW-1:0] x;
+      assign x = (A ^ d[i].a) & d[i].mask;
+      logic nh, n0;
+      assign nh = !d[i].above && x[GW-1:1] == '0;
+      assign n0 = !x[0];
+      // NAPOT: a 2-granule access matches entirely unless the region is one granule (NA4)
+      logic nany, nall, tany, tall;
+      assign nany = nh && (dbl || n0);
+      assign nall = nh && (dbl ? !d[i].mask[0] : n0);
+      // TOR [top(i-1), top(i)): any = A + 1 >= lo && A < hi; all = A >= lo && A + 1 < hi
+      assign tany = lt0[i] && (i == 0 || !lt1[(i + 15) % 16]);
+      assign tall = lt1[i] && (i == 0 || !lt0[(i + 15) % 16]);
+      assign any_m[0][i] = (d[i].nap && nany) || (d[i].tor && tany);
+      assign all_m[0][i] = (d[i].nap && nall) || (d[i].tor && tall);
+    end
   end
-  logic unused;
-  assign unused = ^pa[1:0];
-  always_comb begin
-    ok = m_mode;
-    for (int i = 15; i >= 0; i--) begin
-      if (h0[i] || h1[i]) begin
-        ok = h0[i] && h1[i] &&
-             ((m_mode && !cfg[i][7]) || (acc == ACC_R && cfg[i][0]) || (acc == ACC_W && cfg[i][1]) ||
-              (acc == ACC_X && cfg[i][2]));
+
+  // The lowest matching entry decides
+  for (genvar w = 0; w < NW; w++) begin : g_dec
+    always_comb begin
+      ok[w] = m_mode;
+      for (int i = 15; i >= 0; i--) begin
+        if (any_m[w][i]) begin
+          ok[w] = all_m[w][i] &&
+                  ((m_mode && !d[i].l) || (acc == ACC_R && d[i].r) || (acc == ACC_W && d[i].w) ||
+                   (acc == ACC_X && d[i].x));
+        end
       end
     end
   end
+  always_comb begin
+    hit = 1'b0;
+    rwx = '0;
+    for (int i = 15; i >= 0; i--) begin
+      if (any_m[0][i]) begin
+        hit = 1'b1;
+        rwx = {d[i].r, d[i].w, d[i].x};
+      end
+    end
+  end
+
+  logic unused;
+  assign unused = ^{pa[3:0], dbl};
 endmodule

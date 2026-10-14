@@ -4,8 +4,11 @@
 #   top       top module; a line is skipped while the module does not exist in its sources
 #   files     sources beyond rtl/rtl.f, comma-separated, relative to the repo root (- for none)
 #   generics  NAME=VALUE, comma-separated (- for none)
-#   options   unit_synth.tcl options (- for none); the core is built with -flatten none so
-#             its hierarchical report gives each unit's exact count
+#   options   unit_synth.tcl options (- for none); the core is built as DR-113 builds it,
+#             -flatten none (so its hierarchical report gives each unit's exact count) plus
+#             -directive AreaOptimized_high. -mem N declares the job's memory, synthesis
+#             helpers included, to tools/vivado_run.sh (default 4 GB; the whole core 12:
+#             measured 9.4 GB at st, docs/perf/area_synth.md §6)
 # A top of the form @<unit>:<instance>[+<instance>] is not synthesised: the unit is read from
 # that built unit's hierarchical utilisation (the sum of the named first-level instances).
 # When the core track adds a unit to tg_core, give it a line here (its budget is in
@@ -14,7 +17,7 @@
 # unit	cfgs	top	files	generics	options
 fpu	st,smt2,st_w3,smt2_w3	tg_fpu	-	-	-
 fpu_r4	smt2	tg_fpu	-	DIV_RADIX4=1	-
-core	st,smt2,st_w3,smt2_w3	tg_core	-	-	-flatten none
+core	st,smt2,st_w3,smt2_w3	tg_core	-	-	-flatten none -directive AreaOptimized_high -mem 12
 fe	st,smt2,st_w3,smt2_w3	@core:u_fetch	-	-	-
 dec	st,smt2,st_w3,smt2_w3	@core:u_de	-	-	-
 ren	st,smt2,st_w3,smt2_w3	@core:u_rn	-	-	-
@@ -22,4 +25,5 @@ iq	st,smt2,st_w3,smt2_w3	@core:u_is	-	-	-
 ex	st,smt2,st_w3,smt2_w3	@core:u_ex	-	-	-
 lsu_mmu	st,smt2,st_w3,smt2_w3	@core:u_lsu	-	-	-
 rob_csr	st,smt2,st_w3,smt2_w3	@core:u_rob+u_csr	-	-	-
+p4	st,smt2,st_w3,smt2_w3	@core:g_p4.u_p4	-	-	-
 uncore	st,smt2	tg_uncore	-	-	-

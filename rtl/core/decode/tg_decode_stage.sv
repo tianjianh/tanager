@@ -18,6 +18,10 @@ module tg_decode_stage
   input  logic                misa_b,
   input  logic                misa_c,
   input  logic                misa_a,
+  input  logic                misa_f,
+  input  logic                misa_d,
+  input  logic [1:0]          fs,
+  input  logic [2:0]          frm,
   input  priv_e               priv,
   input  logic                tvm,
   input  logic                tw,
@@ -43,11 +47,11 @@ module tg_decode_stage
     // 16-bit encoding, which the ROB keeps).
     logic [31:0] xinsn;
     logic        rvc_ill;
-    tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(1'b0), .insn(xinsn), .ill(rvc_ill));
+    tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(EXT_FD && misa_d), .insn(xinsn), .ill(rvc_ill));
     tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].rvc ? xinsn : iq_insn[j].insn),
                      .len2(iq_insn[j].rvc),
                      .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
-                     .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .priv, .tvm, .tw, .tsr, .d(d[j]));
+                     .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
     logic [63:0] seq;
     logic        pt;
     logic [63:0] ptg;
