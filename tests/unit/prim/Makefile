@@ -33,8 +33,11 @@ MW_V   := lvt-lutram-32-8-2-4 lvt-lutram-64-8-3-6 lvt-lutram-128-8-4-8 lvt-lutra
           xor-lutram-32-8-2-4 xor-lutram-64-8-3-6 xor-lutram-128-8-4-8 xor-lutram-64-64-2-7 \
           xor-lutram-100-13-3-5
 MW     := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_ram_lut_mw.sv tb_ram_mw.sv
+# tg_cam_lut: ENTRIES-KEYW-SLICE-RMW_PORT, each on the behavioural model and the primitives
+CAM_V  := 16-20-5-1 32-27-5-1 64-40-5-1 64-40-5-0 32-32-6-1 16-20-6-0 48-33-5-1 2-7-5-0
+CAM    := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_cam_lut.sv tb_cam_lut.sv
 
-.PHONY: all test fifo rom dsp mw clean
+.PHONY: all test fifo rom dsp mw cam clean
 all: test
 fifo:
 	@set -e; for v in $(FIFO_V); do st=$${v%-*}; d=$${v#*-}; \
@@ -95,7 +98,18 @@ mw:
 	    echo "mw $$v $$m: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
 	  done; \
 	done
-test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom dsp mw
+cam:
+	@set -e; for v in $(CAM_V); do set -- $$(echo $$v | tr - ' '); \
+	  for m in beh prim; do \
+	    if [ $$m = prim ]; then x="+define+TG_SIM_PRIMS $(MODELS)"; else x=""; fi; \
+	    o=$(OBJ)/cam_$${v}_$$m; mkdir -p $$o; \
+	    verilator $(VFLAGS) $$x --Mdir $$o --top-module tb_cam_lut -GENTRIES=$$1 -GKEYW=$$2 \
+	      -GSLICE=$$3 -GRMW_PORT=$$4 $(CAM) > $$o/build.log 2>&1 || { tail -20 $$o/build.log; exit 1; }; \
+	    $$o/Vtb_cam_lut +seed=$(SEED) +cycles=$(CYCLES) > $$o/run.log; \
+	    echo "cam $$v $$m: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
+	  done; \
+	done
+test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom dsp mw cam
 	$(OBJ)/beh/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/beh/run.log
 	@grep -q '^PASS' $(OBJ)/beh/run.log
 	$(OBJ)/prim/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/prim/run.log
