@@ -389,7 +389,9 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - Each failure keeps its program, the last 80 lines of its log and a one-line repro in `soak/fail/<time>-<cfg>-s<seed>/`; the newest 100 are kept.
   - The loop's own log rotates at 1 MB.
   - A finding becomes a core bug report only after the verification track confirms it; checker or harness problems are the verification track's to fix.
-- **Control:** `tools/ci/soak.sh start` (it runs under `nohup` from a private copy, so editing the script does not disturb it), `tools/ci/soak.sh stop` (stops it with everything it started), and `tools/ci/soak.sh status`.
+- **Control:**
+  - `tools/ci/soak.sh start` runs it under `nohup` from a private copy, so editing the script does not disturb it. It also installs an `@reboot` crontab entry with main's copy of the script, so the soak starts again after a WSL restart (as `tools/memguard.sh` does).
+  - `stop` stops it, with everything it started, until the next start or boot; `disable` also removes the `@reboot` entry; `status` shows its state.
 
 ## 5. The test core (`tg_tcore`)
 
