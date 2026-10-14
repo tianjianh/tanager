@@ -23,6 +23,8 @@ spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 
 log() { echo "$(date '+%F %T') soak: $*"; }
+# What the soak builds from a commit: a main that changes none of it needs no rebuild.
+fingerprint() { git --git-dir="$SOAK_GIT" rev-parse "$1:rtl" "$1:sim" "$1:tests/random" "$1:tools" 2>/dev/null | tr '\n' ' '; }
 mem_gb() { awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo; }
 running() { [ -f "$SOAK/soak.pid" ] && kill -0 "$(cat "$SOAK/soak.pid")" 2>/dev/null; }
 
@@ -63,6 +65,7 @@ prepare() {
   # Older mains' random runner has no --mem-gate; the check between rounds still applies.
   if grep -q -- "--mem-gate" "$src/tests/random/run_random.py"; then echo "--mem-gate $MEM_GB"; else echo; fi \
     > "$SOAK/mem_gate"
+  fingerprint "$commit" > "$SOAK/fingerprint"
   echo "$commit" > "$SOAK/commit"
 }
 
@@ -151,6 +154,7 @@ run() {
   echo 900 > /proc/self/oom_score_adj  # the first out-of-memory victim; everything it starts inherits it
   # A build made before the Spike and program ISAs were recorded is rebuilt.
   [ -s "$SOAK/spike_isa" ] && [ -s "$SOAK/prog_isa" ] || rm -f "$SOAK/commit"
+  [ -s "$SOAK/commit" ] && [ ! -s "$SOAK/fingerprint" ] && fingerprint "$(cat "$SOAK/commit")" > "$SOAK/fingerprint"
   trap 'rm -f "$SOAK/soak.pid"; exit 0' TERM INT
   local commit seed free load irq
   while :; do
@@ -169,6 +173,11 @@ run() {
     load=$(cut -d' ' -f4 /proc/loadavg); load=${load%/*}
     if [ "$load" -gt 20 ]; then
       summarize "$commit" "waiting ($load runnable tasks)"; sleep 300; continue
+    fi
+    if [ "$(cat "$SOAK/commit" 2>/dev/null)" != "$commit" ] && [ -s "$SOAK/commit" ] &&
+       [ "$(fingerprint "$commit")" = "$(cat "$SOAK/fingerprint" 2>/dev/null)" ]; then
+      log "main $commit changes nothing the soak builds: no rebuild"
+      echo "$commit" > "$SOAK/commit"
     fi
     if [ "$(cat "$SOAK/commit" 2>/dev/null)" != "$commit" ]; then
       if [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; then

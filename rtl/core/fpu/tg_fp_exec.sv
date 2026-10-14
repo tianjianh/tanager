@@ -116,9 +116,12 @@ module tg_fp_exec
     .f0_we, .f0_waddr(f0_wa), .f0_wdata(f0_wd),
     .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_box),
     .rtag, .rdata);
+  // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
+  logic rf_add;
+  assign rf_add  = iss_pl.fop == FOP_FADD || iss_pl.fop == FOP_FSUB;
   assign rtag[0] = FPTAG_W'(iss_pl.src1);
   assign rtag[1] = FPTAG_W'(iss_pl.src2);
-  assign rtag[2] = FPTAG_W'(iss_pl.src3);
+  assign rtag[2] = FPTAG_W'(rf_add ? iss_pl.src2 : iss_pl.src3);
   assign rtag[3] = FPTAG_W'(fsd_tag);
   assign fsd_data = rdata[3];
   for (genvar j = 0; j < NTR; j++) begin : g_tr
@@ -201,7 +204,10 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   // RF (s+1)
   // ------------------------------------------------------------------------------------------
-  typedef enum logic [2:0] { BP_RF, BP_F0X, BP_F0W, BP_F1X, BP_F1W } bsel_e;
+  // Bypass. RF takes an F1 write of its own cycle (a load) into the operand register, so EX0
+  // chooses among four sources: the register value, the F0 stream of EX0's cycle or of RF's, and
+  // the F1 write of EX0's cycle.
+  typedef enum logic [1:0] { BP_RF, BP_F0X, BP_F0W, BP_F1X } bsel_e;
   function automatic bsel_e bsel(input logic [FPTAG_W-1:0] t, input logic nwe,
                                  input logic [FPIDX_W-1:0] nidx, input logic cwe,
                                  input logic [FPIDX_W-1:0] cidx);
@@ -211,8 +217,7 @@ module tg_fp_exec
       if (nwe && nidx == i) return BP_F0X;      // F0 written next cycle (EX0's cycle)
       if (cwe && cidx == i) return BP_F0W;      // F0 written this cycle
     end else begin
-      if (fld_m2_will && fld_m2_idx == i) return BP_F1X;
-      if (fld_valid && fld_idx == i) return BP_F1W;
+      if (fld_m2_will && fld_m2_idx == i) return BP_F1X;   // F1 written next cycle
     end
     return BP_RF;
   endfunction
@@ -229,11 +234,16 @@ module tg_fp_exec
   logic [2:0][63:0] ex_rf_q;
   bsel_e [2:0]      ex_sel_q;
   logic [DQW-1:0]   ex_di_q;          // a divide's table entry
+  logic [2:0][63:0] rf_val;           // the register's value in RF, with this cycle's F1 write
+  for (genvar k = 0; k < 3; k++) begin : g_rfv
+    assign rf_val[k] = (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0]) ?
+                       fld_box : rdata[k];
+  end
   always_ff @(posedge clk) begin
     ex_pl_q     <= iss_pl;
-    ex_rf_q[0]  <= iss_pl.src1_fp ? rdata[0] : isrc_data;
-    ex_rf_q[1]  <= rdata[1];
-    ex_rf_q[2]  <= rdata[2];
+    ex_rf_q[0]  <= iss_pl.src1_fp ? rf_val[0] : isrc_data;
+    ex_rf_q[1]  <= rf_val[1];
+    ex_rf_q[2]  <= rf_val[2];
     ex_sel_q[0] <= iss_pl.src1_fp ? bsel(rtag[0], nx_we, nx_idx, f0_we, f0_wa) : BP_RF;
     ex_sel_q[1] <= bsel(rtag[1], nx_we, nx_idx, f0_we, f0_wa);
     ex_sel_q[2] <= bsel(rtag[2], nx_we, nx_idx, f0_we, f0_wa);
@@ -260,7 +270,7 @@ module tg_fp_exec
   assign ex_live = ex_live_q && !tid_hit(flush, flush_tid, ex_pl_q.tid);
   assign ex_unit = fpu_unit_of(ex_pl_q.fop);
 
-  logic [63:0] f0_wb_q, f1_wb_q;      // the F0 stream and the F1 write of last cycle
+  logic [63:0] f0_wb_q;               // the F0 stream of last cycle
   logic [2:0][63:0] opnd;
   for (genvar k = 0; k < 3; k++) begin : g_op
     always_comb begin
@@ -268,7 +278,6 @@ module tg_fp_exec
         BP_F0X:  opnd[k] = f0_wd;
         BP_F0W:  opnd[k] = f0_wb_q;
         BP_F1X:  opnd[k] = fld_box;
-        BP_F1W:  opnd[k] = f1_wb_q;
         default: opnd[k] = ex_rf_q[k];
       endcase
     end
@@ -478,7 +487,6 @@ module tg_fp_exec
   always_ff @(posedge clk) begin
     // Bypass copies
     f0_wb_q <= f0_wd;
-    f1_wb_q <= fld_box;
     // Claimed divide result
     dv_i_q   <= fdv_resp.tag[DQW-1:0];
     dv_res_q <= fdv_resp.result;
