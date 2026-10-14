@@ -16,8 +16,10 @@ BUILD_JOBS=4            # a tg_core model compile peaks at 0.63 GB (smt2_w3, mea
 MEM_GB=12               # start no program while MemAvailable is under this
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
 SEEDS=400               # programs per configuration per round (about a minute)
+# Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
-M3_SPIKE="--isa=$M3_ISA --priv=MSU --pmp=16"
+M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
+spike_args() { echo "--isa=$(cat "$SOAK/spike_isa") --priv=MSU --pmp=16"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 
 log() { echo "$(date '+%F %T') soak: $*"; }
@@ -31,17 +33,24 @@ prepare() {
   rm -rf "$SOAK/src" "$SOAK/build"
   mkdir -p "$src"
   git --git-dir="$SOAK_GIT" archive "$commit" rtl sim tests/random tools | tar -x -C "$src" || return 1
-  sed -i -E "s/(localparam bit EXT_(SU|A|C|B|ZICOND)[[:space:]]*=[[:space:]]*)1'b0/\\11'b1/" \
-    "$src/rtl/core/tg_core_pkg.sv"
-  if grep -Eq "localparam bit EXT_(SU|A|C|B|ZICOND)[[:space:]]*=[[:space:]]*1'b0" "$src/rtl/core/tg_core_pkg.sv"; then
-    log "could not turn the M3 switches on"; return 1
+  # Every extension switch on: the M3 set the core track tests, and F/D once it exists.
+  local pkg="$src/rtl/core/tg_core_pkg.sv"
+  sed -i -E "s/(localparam bit EXT_[A-Z0-9_]+[[:space:]]*=[[:space:]]*)1'b0/\\11'b1/" "$pkg"
+  if grep -Eq "localparam bit EXT_[A-Z0-9_]+[[:space:]]*=[[:space:]]*1'b0" "$pkg"; then
+    log "could not turn the extension switches on"; return 1
   fi
+  if grep -q "localparam bit EXT_FD" "$pkg"; then
+    echo "$M3FD_ISA" > "$SOAK/spike_isa"; echo rv64gc > "$SOAK/prog_isa"
+  else
+    echo "$M3_ISA" > "$SOAK/spike_isa"; echo rv64imac > "$SOAK/prog_isa"
+  fi
+  local isa; isa=$(cat "$SOAK/spike_isa")
   (
     source "$src/tools/env.sh" >/dev/null 2>&1
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
       make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
-        ISA="$M3_ISA" PRIV=MSU PMP=16 build || exit 1
+        ISA="$isa" PRIV=MSU PMP=16 build || exit 1
     done
     make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" replay || exit 1
   ) > "$SOAK/logs/build.log" 2>&1 || return 1
@@ -65,10 +74,10 @@ campaign() {
   mkdir -p "$work"
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
     python3 "$SOAK/src/tanager/tests/random/run_random.py" --sim "$sim" \
-      --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa rv64imac \
+      --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa "$(cat "$SOAK/prog_isa")" \
       --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
       --jobs "$JOBS" --timeout 1200 --workdir "$work" \
-      --name "soak $cfg" -- $M3_SPIKE ) > "$work/out.txt" 2>&1
+      --name "soak $cfg" -- $(spike_args) ) > "$work/out.txt" 2>&1
   local res pass fail gen
   res=$(grep "passed, " "$work/out.txt" | tail -1)
   if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
@@ -109,7 +118,7 @@ summarize() {
   [ -n "$(cat "$SOAK/trace_stall" 2>/dev/null)" ] || stall="off (main's tg_core build has no trace_stall_i yet)"
   { echo "# Soak of main (tools/ci/soak.sh)"
     echo
-    echo "- main: \`$commit\`, every M3 switch on, Spike \`$M3_SPIKE\`; random programs (rv64imac) with memory stress and timer interrupts on alternate rounds; trace back-pressure $stall"
+    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)) with memory stress and timer interrupts on alternate rounds; trace back-pressure $stall"
     echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free"
     echo "- findings are a triage list: they gate nothing until confirmed as core bugs (verification.md §4.4)"
     echo
