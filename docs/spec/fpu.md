@@ -8,8 +8,8 @@ The three floating-point execution units behind port P4 of the core (plan §4.12
 
 | Unit | Module | Operations | Timing |
 |---|---|---|---|
-| FMA | `tg_fpu_fma` | FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD | `FMA_LAT` = 5, fully pipelined |
-| FMISC | `tg_fpu_misc` | FSGNJ/N/X, FMIN, FMAX, FEQ, FLT, FLE, FCLASS, FCVT (F↔F, F↔I), FMV | `FMISC_LAT` = 2, fully pipelined |
+| FMA | `tg_fpu_fma` | FADD, FSUB, FMUL, FMADD, FMSUB, FNMSUB, FNMADD; FCVT FP→FP and integer→FP (lever R5) | `FMA_LAT` = 5, fully pipelined |
+| FMISC | `tg_fpu_misc` | FSGNJ/N/X, FMIN, FMAX, FEQ, FLT, FLE, FCLASS, FCVT FP→integer, FMV | `FMISC_LAT` = 2, fully pipelined |
 | Divide/sqrt | `tg_fpu_div` | FDIV, FSQRT | 19 / 23 cycles (divide S / D), 19 / 27 (square root S / D); up to 4 in flight |
 
 `tg_fpu` instantiates the three units and nothing else. The core owns issue, the FP register file, bypass, writeback arbitration, `fcsr` and the accumulation of `fflags` (plan §4.5). The FPU holds no architectural state.
@@ -20,7 +20,9 @@ Both formats of RISC-V F and D (unprivileged ISA 20240411, chapters "F" and "D")
 
 Ports are those of the stub `rtl/core/fpu/tg_fpu.sv`; requests are `fpu_req_t`, responses `fpu_resp_t` (`tg_fpu_pkg`).
 
-**Request timing.** A request is taken at the rising edge that ends the cycle in which `*_valid_i` is high (and `fdiv_ready_o`, for the divider). The first stage of every unit does little work, because the operands may arrive late in the cycle through the core's bypass multiplexer: at most a format multiplexer, the NaN-box check, exponent arithmetic of 13 bits and the DSP input registers.
+**Routing.** `tg_fpu_pkg::fpu_unit_of(op)` returns the port (`FU_FMA`, `FU_MISC`, `FU_DIV`) that executes an operation; the core routes with it and never hard-codes the unit. Each unit asserts that it only receives its own operations.
+
+**Request timing.** A request is taken at the rising edge that ends the cycle in which `*_valid_i` is high (and `fdiv_ready_o`, for the divider). The first stage of every unit does little work, because the operands may arrive late in the cycle through the core's bypass multiplexer. The FMA's E0 stops at a format multiplexer, the NaN-box check, the integer extension of FCVT.F.I, exponent arithmetic of 13 bits and the DSP input registers; FMISC's M0 adds a magnitude compare and a trailing-zero count. The timing runs model the late arrival (1.5 ns; "Timing and area").
 
 **FMA and FMISC.** A request in cycle *t* produces `*_valid_o` and the response in cycle *t* + `FMA_LAT` (resp. *t* + `FMISC_LAT`), from a register. There is no backpressure: the core reserves the writeback slot at issue. A unit accepts one request per cycle.
 
@@ -80,7 +82,7 @@ Results are packed by adding the round increment to `{exponent − 1 + h, fracti
 
 ### Operation mapping
 
-All operations become (±A × B) ± C with one rounding:
+All arithmetic operations become (±A × B) ± C with one rounding:
 
 | Op | A | B | C | Product sign flip | Addend sign flip |
 |---|---|---|---|---|---|
@@ -91,8 +93,13 @@ All operations become (±A × B) ± C with one rounding:
 | FADD | a | 1.0 | b | – | – |
 | FSUB | a | 1.0 | b | – | yes |
 | FMUL | a | b | none (exact zero, no sign contribution) | – | – |
+| FCVT.F.F | a, in `src_fmt` | 1.0 | none | – | – |
 
 The sign flips are exact negations (FNMADD = −(a×b) − c), applied to the product and addend signs before the effective operation is chosen, so rounding direction and zero signs follow the negated operands.
+
+**Conversions (lever R5, plan §8.5).** The FP→FP and integer→FP conversions reuse the FMA's normaliser and rounder and take `FMA_LAT` cycles:
+- **FCVT.F.F** is a × 1.0 with no addend. The operand is unpacked (NaN box, classes, exponent constants) in `src_fmt`; the result is rounded, range-checked and packed in `fmt`. S → D is exact (a subnormal S is normalised like any unnormalised product); D → S rounds to 24 bits with S overflow, S subnormals and tininess after rounding. NaN, infinity and zero follow the multiply's special cases.
+- **FCVT.F.I** takes the integer from `a` (sign- or zero-extended per `ifmt`). E0 registers it; E1 negates a negative value beside the alignment and places \|x\| as the adder's addend operand at V[164:101], so V[164] weighs 2^63 (E_top = 63 + 1023); E2 drops the product. E3 normalises and E4 rounds as for any sum; the sign is that of x, and x = 0 gives +0 through the special path.
 
 ### Datapath (D precision, p = 53; S uses the same path)
 
@@ -139,14 +146,9 @@ Placement:
 
 ## FMISC unit (`tg_fpu_misc`)
 
-Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register. M0 unpacks, compares magnitudes and prepares the conversions; M1 computes every result.
+Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register. M0 unpacks, compares magnitudes and prepares FCVT.I.F; M1 computes every result. The FP→FP and integer→FP conversions run on the FMA (lever R5, above).
 
-The three conversions that shift share **one 64-bit right shifter** in M1, with the shift amount and input chosen in M0:
-- FCVT.I.F: {significand, 11'b0} >> (63 − E): integer part, guard, sticky;
-- FCVT.S.D: {significand, 11'b0} >> (40 + k): the 24-bit (or S-subnormal) significand, guard, sticky;
-- FCVT.F.I: reverse(reverse(\|x\|) >> (L − 1)) = \|x\| << (L − 1), L = lz(x XOR sign); M1 adds the last place unless x = −2^k (where L is one too many).
-
-Guard bits come from the shifter; stickies come from trailing-zero counts compared with the shift amount, not from OR trees.
+FCVT.I.F shifts {significand, 11'b0} right by 63 − E in M1: the integer part, the guard from the shifter, and the sticky from the significand's trailing-zero count compared with the shift amount (no OR tree).
 
 | Operation | M0 | M1 |
 |---|---|---|
@@ -156,16 +158,11 @@ Guard bits come from the shifter; stickies come from trailing-zero counts compar
 | FCLASS | unpack | 10-bit one-hot class mask |
 | FMV.X.W / FMV.X.D | – | sign-extend a[31:0] / pass a |
 | FMV.W.X / FMV.D.X | – | {0xFFFFFFFF, a[31:0]} / a |
-| FCVT.D.S | unpack S; leading-zero count of a subnormal fraction | normalise, rebias; canonical NaN (NV for sNaN) |
-| FCVT.S.D | unpack D; k = 897 − exponent field (S-subnormal results, ≤ 27); trailing zeros of the significand | shared shifter; round to 24 bits; S overflow/underflow; tininess after rounding as in the FMA |
-| FCVT.{W,WU,L,LU}.{S,D} | unpack; shift = 1086 − exponent field, saturated; trailing zeros | shared shifter; round; negate by one adder (negative ? ~m + ¬inc : m + inc); range check on m and inc without another adder; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
-| FCVT.{S,D}.{W,WU,L,LU} | select and sign-handle the integer source; \|x\| by negation; leading zeros of x XOR sign; trailing zeros of x (the same for −x) | shared shifter; one-place correction; G from the normalised value, S from the trailing-zero count; round; pack (the S packing adder is shared with FCVT.S.D) |
+| FCVT.{W,WU,L,LU}.{S,D} | unpack; shift = 1086 − exponent field, saturated; trailing zeros | shift; round; negate by one adder (negative ? ~m + ¬inc : m + inc); range check on m and inc without another adder; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
 
-Integer sources for FCVT.F.I and FMV.F.X arrive in `a`. FCVT.D.W and FCVT.D.WU are exact.
+The integer source of FMV.F.X arrives in `a`.
 
 **Unsigned conversion of negative values.** A negative input that rounds to zero converts to 0 with NX only; one that rounds to −1 or below is invalid (result 0, NV).
-
-**Plan lever R5** (conversions sharing the FMA's normaliser and rounder) is not used: it would raise the conversion latency from 2 to 5 cycles and move FCVT.F.I and FCVT.F.F to the FMA port, an interface change. FCVT.F.F and FCVT.F.I could reuse the FMA as a × 1.0 with the source format decoupled from the result format, at a few multiplexers in the FMA; the saving and its cost are reported under "Timing and area" for the coordinator to judge.
 
 ## Divide/sqrt unit (`tg_fpu_div`)
 
@@ -318,25 +315,41 @@ No configuration parameter changes the FPU: the four configurations (`st`, `smt2
 
 ## Timing and area
 
-Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc.tcl` through `tools/vivado_run.sh`), Vivado 2025.2, xck26-sfvc784-2LV-c, 5.0 ns clock, request inputs arriving 1.5 ns after the clock (the core's operand bypass), outputs needed 1.0 ns before the next edge. Routed results, 2026-10-13:
+Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc.tcl` through `tools/vivado_run.sh`), Vivado 2025.2, xck26-sfvc784-2LV-c, 5.0 ns clock, request inputs arriving 1.5 ns after the clock (the core's operand bypass), outputs needed 1.0 ns before the next edge. Routed results, 2026-10-13, with lever R5 (the FP→FP and integer→FP conversions on the FMA):
 
 | Unit | LUTs | FFs | DSP48E2 | RAMB18 | WNS at 200 MHz | Latency | Budget (plan §8.2) |
 |---|---|---|---|---|---|---|---|
-| FMA, 5 stages | 2,670 | 982 | 6 | 0 | +0.34 ns | 5 | ≈ 2.5K LUTs, 10–14 DSPs |
-| FMISC | 1,827 | 515 | 0 | 0 | +0.25 ns | 2 | (part of the 4.7K FPU) |
-| Divide/sqrt, Goldschmidt | 3,125 | 1,642 | 26 | 1 | +0.39 ns | 19/23 div, 19/27 sqrt | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSPs, 1 BRAM18 |
+| FMA, 5 stages | 2,883 | 1,040 | 6 | 0 | +0.08 ns | 5 | ≈ 2.5K LUTs, 10–14 DSPs |
+| FMISC | 1,002 | 416 | 0 | 0 | +0.51 ns | 2 | (part of the 4.7K FPU) |
+| Divide/sqrt, Goldschmidt (v1, D17) | 3,125 | 1,642 | 26 | 1 | +0.39 ns | 19/23 div, 19/27 sqrt | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSPs, 1 BRAM18 |
 | Divide/sqrt, radix-4 fallback | 1,714 | 899 | 0 | 0 | +0.20 ns | 18/33 div and sqrt | (the plan's fallback) |
-| **FPU with Goldschmidt** | **7,622** | 3,139 | 32 | 1 | met | | **≈ 4.7K LUTs** |
-| **FPU with radix-4** | **6,211** | 2,396 | 6 | 0 | met | | **≈ 4.7K LUTs** |
+| **FPU with Goldschmidt** | **7,010** | 3,098 | 32 | 1 | met | | **≈ 4.7K LUTs** |
+| **FPU with radix-4** | **5,599** | 2,355 | 6 | 0 | met | | **≈ 4.7K LUTs** |
 
-**All units meet 200 MHz.** The critical paths are: FMA E3 (normalisation: leading-zero count, then the shift), FMISC M1 (shared shifter, rounding), Goldschmidt S1 (normalise, then the seed-ROM address), radix-4 UNP/NRM (normalise).
+The divider rows did not change with R5 (the units only switched their routing assertion to `fpu_unit_of`), so they are the runs of the first build.
 
-**Four-cycle FMA.** With the E3/E4 boundary removed (`STAGES = 4`) the FMA misses by 1.88 ns (≈ 145 MHz, 26 logic levels from the marker register through LZC, shift, rounding and packing to the response) and grows to 2,971 LUTs. It costs Fmax, so `FMA_LAT` stays 5 (plan §4.12).
+**All units meet 200 MHz.** The critical paths are: FMA E3 (normalisation: leading-zero count from the marker register, then the shift), FMISC M0 (the late operand through unpacking to the significand's trailing-zero count; M1, the FCVT.I.F shift and rounding, has +0.62 ns), Goldschmidt S1 (normalise, then the seed-ROM address), radix-4 UNP/NRM (normalise).
 
-**Area against the budget.** The FPU is over its 4.7K-LUT budget: by 2.9K with the Goldschmidt unit, by 1.5K with radix-4.
-- **Divider.** The Goldschmidt unit costs 1,411 LUTs (and 26 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. The plan credits it with +1.3% suite IPC over radix-4 (M1 model, at 18/23/20/26 against 17/31). A 1,411-LUT increase is 3.7% of the 37.7K-LUT core, so by the plan's acceptance rule (§2.5: the IPC gain in percent must be at least the LUT increase in percent) the Goldschmidt unit no longer qualifies; the radix-4 unit is the rule's choice. `FDIV_RADIX4` switches between them; the decision is the coordinator's.
-- **Lever R5** (plan §8.5): moving FCVT.F.I and FCVT.F.F into the FMA (as a × 1.0 with the source format decoupled, int→FP injected after the adder) removes 584 LUTs from FMISC (measured: 1,243 LUTs without them). The FMA would grow by an estimated 150–250 LUTs, and those conversions would take 5 cycles instead of 2 on the FMA port, an interface change.
-- **FMA** is 170 LUTs over its own estimate. The largest blocks are the 166-bit adder pair (P − C and its complement, needed because the sign of an effective subtraction is unknown in the near case), the 165-bit alignment and the normaliser.
+**Lever R5, measured** (same flow and constraints, routed):
+
+| Unit | Before R5 | After R5 | Change |
+|---|---|---|---|
+| FMA | 2,670 LUTs, 982 FFs, WNS +0.34 ns | 2,883 LUTs, 1,040 FFs, WNS +0.08 ns | +213 LUTs, +58 FFs |
+| FMISC | 1,827 LUTs, 515 FFs, WNS +0.25 ns | 1,002 LUTs, 416 FFs, WNS +0.51 ns | −825 LUTs, −99 FFs |
+| FPU with Goldschmidt | 7,622 LUTs | 7,010 LUTs | −612 LUTs |
+| FPU with radix-4 | 6,211 LUTs | 5,599 LUTs | −612 LUTs |
+
+- The FMA grows by the source-format decode in E0, the 64-bit integer register, its negation and the addend-operand multiplexer in E1, and the product gate in E2. E3 and E4 are unchanged.
+- The FMA's critical path is still E3, with the same 11 logic levels; its slack is smaller because that path routes longer (3.10 ns of route against 2.85 ns).
+- FMISC loses 825 LUTs, more than the 584 estimated before the change. The estimate only zeroed the two results and so kept the shared shifter's operand selection and bit reversal; FCVT.I.F now has a right shifter of its own.
+- FP→FP and integer→FP conversions now take `FMA_LAT` = 5 cycles instead of `FMISC_LAT` = 2.
+
+**Four-cycle FMA.** Measured before R5: with the E3/E4 boundary removed (`STAGES = 4`) the FMA misses by 1.88 ns (≈ 145 MHz, 26 logic levels from the marker register through LZC, shift, rounding and packing to the response) and grows to 2,971 LUTs. It costs Fmax, so `FMA_LAT` stays 5 (plan §4.12). R5 adds nothing to E3 or E4, so the result stands.
+
+**Area against the budget.** The FPU is over its 4.7K-LUT budget: by 2.3K with the Goldschmidt unit, by 0.9K with radix-4.
+- **Divider.** The Goldschmidt unit costs 1,411 LUTs (and 26 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. At that cost it fails the plan's acceptance rule (§2.5: +2.4% suite IPC against 3.7% of the 37.7K-LUT core). The user kept it for v1 (decision D17, plan §4.12): `FDIV_RADIX4` = 0, and the radix-4 unit stays built and in the regression as the fallback.
+- **Lever R5** (plan §8.5) is adopted and built: −612 LUTs net (table above).
+- **FMA** is 383 LUTs over its own estimate: 170 before R5 and 213 for the conversions. The largest blocks are the 166-bit adder pair (P − C and its complement, needed because the sign of an effective subtraction is unknown in the near case), the 165-bit alignment and the normaliser.
 
 **Fallbacks not needed:** an LZA in the FMA (E3 meets timing without it), `FMA_LAT` = 6, the radix-4 unit for timing.
 
@@ -348,7 +361,7 @@ Tests live in `tests/unit/fpu/` (Verilator, C++ testbench `tb_fpu.cpp` on `tg_fp
 |---|---|
 | `make model` | the bit-accurate divider models against SoftFloat (`gs_check`, `r4_check`) |
 | `make test` | short regression, about 30 s with 8 jobs: TestFloat level 1 for every function, mode and format (mulAdd: 1.5M vectors per mode), directed divide/sqrt cases, random traffic on all units |
-| `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (about an hour with 6 jobs) |
+| `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (23 minutes with 6 jobs on 2026-10-13: 2.6·10^9 results) |
 | `make tb DIV=r4`, `make test DIV=r4` | the same on the radix-4 fallback |
 
 The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the divider exactly when `fdiv_ready_i` is never low), so it checks the RTL against the constants the core uses.
@@ -358,6 +371,7 @@ The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the 
   - level 1 for every operation;
   - level 2 for add, sub, mul, div and sqrt (complete), and for mulAdd as a long prefix: complete level 2 is 1.5·10^10 (S) and 1.8·10^11 (D) cases, beyond simulation; the prefix length is reported with the results;
   - FMSUB, FNMSUB, FNMADD and FSUB reuse the mulAdd/add vectors with the operand signs flipped (exact identities: FMSUB(a, b, −c) = fma(a, b, c) and so on).
+  - The testbench routes every vector with the same rule as `fpu_unit_of`, so the FP→FP and integer→FP conversion vectors run on the FMA and are checked at `FMA_LAT`.
 - **Directed divide/sqrt cases** for the remainder correction: quotients and roots constructed to lie within 2^−2p of a midpoint or of a representable value, exact quotients and roots, results at the subnormal boundary (Eq = emin − 1), overflow edges, every seed-ROM interval endpoint.
 - **Pipelining:** back-to-back FMA and FMISC operations every cycle with random precision, op and rounding mode; the divider fed at full rate with mixed S/D divide and sqrt, random `fdiv_ready_i` backpressure, checking tags, order independence and that every accepted request produces exactly one response.
 - **Interleaving:** all three units driven at once with random traffic.
