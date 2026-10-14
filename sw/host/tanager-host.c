@@ -145,7 +145,8 @@ static void usage(void) {
     "  load --fw F --kernel K --dtb D         reset, set the window, copy images (soc.md §3)\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
-    "                                         release reset, bridge the console, exit on power-off/tohost;\n"
+    "                                         release reset (a running system keeps running), bridge the\n"
+    "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
     "                                         the cores while it falls behind (with --trace-wrap: the last\n"
     "                                         2^N records, at exit). The ring takes the top 64 B << N of the\n"
@@ -154,7 +155,8 @@ static void usage(void) {
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
-    "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams)\n"
+    "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
+    "                                         DRAM window from --base/--size, as load does\n"
     "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -346,8 +348,11 @@ static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
   uint32_t ctrl = o->lossless ? CTRL_LOSSLESS : 0;
-  /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence) */
-  wr(R_CTRL, ctrl | CTRL_CORE_RST);
+  /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
+   * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
+   * transactions short and leave the L2 waiting for a GrantAck or the rest of a burst. */
+  int running = !(rd(R_STATUS) & (ST_CORES_RST | ST_UNC_RST));
+  wr(R_CTRL, ctrl | (running ? 0 : CTRL_CORE_RST));
   for (int i = 0; !(rd(R_STATUS) & ST_L2_INIT); i++) {
     if (i > 10000) die("L2 never finished its initialisation");
     sleep_us(100);
@@ -438,17 +443,23 @@ static int cmd_run(const struct opts *o) {
   return rc;
 }
 
-static void cmd_tg(int argc, char **argv) {
+static void cmd_tg(const struct opts *o, int argc, char **argv) {
   check_id();
   if (argc < 1) usage();
   if (!strcmp(argv[0], "start")) {
     uint32_t lines = argc > 1 ? (uint32_t)num(argv[1]) : 16384;
+    /* The generators reach memory through the DRAM window like the cores do: set it while
+     * everything is held, or a size of 0 denies every access. */
+    wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
+    wr64(R_DRAM_BASE, o->base);
+    wr64(R_DRAM_SIZE, dram_bytes(o));
     wr(R_CTRL, CTRL_CORE_RST);              /* uncore running, generators held */
     for (int i = 0; !(rd(R_STATUS) & ST_L2_INIT); i++) { if (i > 10000) die("L2 not ready"); sleep_us(100); }
     wr(R_TG_LINES, lines);
     wr(R_TG_CTRL, 1);
     wr(R_CTRL, 0);
-    printf("traffic generators running over %u lines each\n", lines);
+    printf("traffic generators running over %u lines each; window 0x%" PRIx64 " + 0x%" PRIx64 "\n",
+           lines, o->base, dram_bytes(o));
   } else if (!strcmp(argv[0], "stop")) {
     wr(R_TG_CTRL, 0);
   } else if (!strcmp(argv[0], "status")) {
@@ -517,7 +528,7 @@ int main(int argc, char **argv) {
              rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
     return 0;
   }
-  if (!strcmp(cmd, "tg"))         { cmd_tg(argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "tg"))         { cmd_tg(&o, argc - optind, argv + optind); return 0; }
   if (!strcmp(cmd, "trace"))      {
     check_id();
     if (optind >= argc || strcmp(argv[optind], "status")) usage();
