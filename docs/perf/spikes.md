@@ -51,7 +51,7 @@ python3 -I fpga/spikes/scripts/results_table.py '<name>'
 ```
 The exact command of every run is in its `summary.txt` (`top`, `cfg`, `generics`).
 
-**Tests.** Every spike structure has a random simulation test with a reference model. All are listed in §10.
+**Tests.** Every spike structure has a random simulation test with a reference model. All are listed in §11.
 
 ---
 
@@ -147,7 +147,9 @@ Options measured (all in `tg_iq`):
 | `s2_sched_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W | 10,516 | 11,546 | −0.457 | 9 | free |
 | `s2_pb_smt2w3_mx` | smt2_w3 | + DUP_SEL, EARLY_W, MX | 12,515 | 13,042 | **+0.057** | 8 | pblock |
 | `s2_pb_smt2w3_mxpre` | smt2_w3 | + DUP_SEL, EARLY_W, MX, PRE_RDY | 12,404 | 13,110 | −0.363 | 10 | pblock |
-| (queued) | smt2_w3 | 8-row ALU queues; without MX (pblock) | | | | | pblock |
+| `s2_pb_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W (no MX) | 10,547 | 11,541 | −0.781 | 10 | pblock |
+| `s2_pb_smt2w3_mx_r8` | smt2_w3 | + DUP_SEL, EARLY_W, MX, ALU queues of 8 rows (§8.1 fallback) | 10,986 | 11,430 | **+0.069** | 10 | pblock |
+| (queued) | st | DUP_SEL, EARLY_W; and + MX (pblock reruns) | | | | | pblock |
 
 **What limits the loop.** Without MX, the loop is: W → readiness (3 LUT levels over 64–120 columns) → oldest-first select (2) → wakeup encode (2) → W update (1–2). That is 8–11 levels, and routing is 75–80% of the delay. The W bits fan out to every row of every queue, and the grants to the payload and the wakeup encode.
 
@@ -155,7 +157,25 @@ With MX the 1-cycle loop no longer passes through W. In `s2_pb_smt2_mx`:
 - **The W path** (W → wakeup register) has +0.60 ns.
 - **The worst path** is W → readiness → select → payload register: 7 levels, not a loop.
 
+**Named paths at smt2_w3** (slack in ns):
+
+| Path | MX, 10 rows | MX, 8-row ALU queues | no MX |
+|---|---|---|---|
+| Registered grant → wakeup encode → W | +0.396 | +0.592 | −0.781 (the loop itself) |
+| W → readiness → select → issue state ("age") | +0.132 | +0.223 | −0.488 |
+| Issued register → readiness (MX) → select → payload register | **+0.057** (worst) | above +0.069 | — |
+| Flush → per-thread room counters (harness fan-out) | +0.139 | +0.069 (worst) | −0.567 |
+
 **PRE_RDY does not help.** It computes each row's ID readiness from W's next state. With MX the grant is registered before the wakeup encode, so that path becomes registered grant → encode → W's next state → readiness → row register: 10 levels, −0.363 ns at smt2_w3, where MX alone has +0.057. It is dropped.
+
+**S2 verdict: which §8.1 fallbacks are needed.**
+- **st:** none. DUP_SEL and EARLY_W close the loop with the plan's 10-row queues (+0.180; the pblock rerun is queued).
+- **smt2 (v1):** MX is required (+0.112 with it, −0.521 without). Queue sizes stay at 10 rows.
+- **smt2_w3 (v2):** MX is required (−0.781 without). With it, 10-row queues close at +0.057, which is marginal.
+  - **The 8-row ALU-queue fallback** gives the select path +0.22 ns and saves 1.5K LUTs per core. Its worst path is then the harness's flush fan-out, which a real dispatch stage registers locally.
+  - **S6 shows** whether the 10-row version survives the full chip. If it does not, v2 takes the fallback.
+- **Cost:** the scheduler is far above the plan's estimate at every width (§10), so its LUTs matter as much as its timing.
+- **Possible further margin:** an option to take each row's "issued" bit from its own register, replicated per consumer queue, instead of a LUT. It would remove a level and a 52-load net from the worst smt2_w3 path. It is not yet measured.
 
 
 ---
@@ -353,7 +373,51 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 
 ---
 
-## 10. RTL and tests for the core track
+## 10. Budget calibration (plan §8.2, §8.5)
+
+**Measured, per core** (out of context, LUTs after routing):
+
+| Structure | Plan §8.2 (ST) | st | smt2 | smt2_w3 |
+|---|---|---|---|---|
+| Scheduler: every issue queue, W, wakeup delay lines (S2) | 2.9K | **5.4K** | **8.9K** (MX) | **12.5K** (MX); 11.0K with 8-row ALU queues |
+| Integer register file, bypass, ALUs (S3) | within RF + bypass 4.6K and integer execution 4.0K | 5.2K (RF 2.0K) | 5.2K | 8.7K (3 ALUs, replicated banks; RF 3.3K) |
+| Micro-BTB, I$, ITLB, pre-decode, compaction, instruction queue (S5) | within front end 6.1K | 2.5K | 2.6K | 2.5K (`st_w3`) |
+| Load path: AG, D$ ways and tags, DTLB, align (S4) | within LSU 6.4K | (queued) | | |
+
+**The scheduler is the outlier.** S3 and S5 are within the plan's estimates; S3 at width 3 is under them (+3.5K for the third ALU, its bypass and the fourth bank, against 4.8K planned). The scheduler is 1.9× the plan at st, 3.1× at smt2 and 4.3× at smt2_w3:
+- **Readiness** is an AND-OR over every column for every row: 40 rows × 104 columns at smt2, 46 × 120 at smt2_w3.
+- **The guard's busy vector** ORs every row's dependency bits per column. The alternatives cost more (§4.1).
+- **MX adds about 1.2K** (smt2) and is needed for timing at smt2 and smt2_w3. Its row-dependency bits are cleared per column but written per row, so the clear cannot use the flip-flops' reset and takes a LUT per bit.
+- **The plan's 2.9K** was an estimate for st. §6.5's +8.3K per core for SMT2 does not itemise the queues. If its +1.9K for sizes was meant to cover the wider columns, the plan's smt2 scheduler would be at most about 4.7K (2.9K × 104 / 64).
+
+**Overrun against the plan** (measured minus planned, per core):
+- st +2.5K;
+- smt2 +4.2K to +6.0K (the range is the question of what §6.5 covered);
+- smt2_w3 +6.5K to +8.3K, offset by −1.3K in S3.
+
+**Lever updates from the spikes:**
+- **R8 (EX-only bypass) is rejected** (§5): −0.5K per core of planned savings is gone.
+- **R11 (shared RF read ports) saves 0.74K**, not 1.7K (§5). R11 is v2-only.
+- **Smaller ALU queues** (the plan's §8.1 fallback, 10 → 8 rows) save 1.5K per core at smt2_w3, with no timing change (§4.2). §8.1 puts their cost at 1.2–1.5% IPC per 2 entries.
+
+**Where v1 (smt2) lands.** These are projections: measured spikes, plan estimates for everything else. S6's fill test and M6 synthesis replace them.
+- **Before area recovery:** ≈105K (§6.5) + 2 × (4.2 to 6.0K) ≈ **113–117K LUTs (97–100%)**.
+- **After the identified levers:** the levers of §8.5 save 13–21K per SoC for v1. Without R8, that is 12–20K.
+- **Result: v1 lands at ≈ 93–105K LUTs, 80–90%, about 85% at the midpoint.** That is the §8.5 working limit, not the 80% target.
+- **Getting back to 80%** takes about 6K more per SoC. The candidates:
+  - the free lever R14 applied to the scheduler: area-optimised directives on the LD, STA and FP queues, which have slack;
+  - the 8-row ALU queues (≈1K per core at smt2, IPC cost as above);
+  - the SMT2 window at ROB 64, a §8.5 contingency: 88 instead of 104 columns, about −1.3K per core in the scheduler alone.
+- **Or the fill test allows 85–90%.**
+
+**v2 (smt2_w3).**
+- **Before area recovery:** the same arithmetic gives ≈130–138K, against the plan's 120–124K.
+- **After the levers:** ≈106–121K (91–103%), over the 85–90% limit.
+- **What v2 needs:** the 8-row ALU queues are worth −3K per SoC. Beyond that, v2 needs a cheaper scheduler or a smaller window. The S6 `smt2_w3` floorplan (88%) shows what timing does at that fill.
+
+---
+
+## 11. RTL and tests for the core track
 
 Production-intent RTL from the spikes, written to the conventions and parameterized by `tg_pkg`. It is lint-clean with `-Wall` in all four configurations (`make -C fpga/spikes lint`). It lives in `fpga/spikes/rtl` until the core track moves it into `rtl/core`.
 
@@ -361,13 +425,15 @@ Production-intent RTL from the spikes, written to the conventions and parameteri
 |---|---|---|---|
 | Multi-port LUTRAM | `rtl/common/prim/tg_ram_lut.sv` | `make -C tests/unit/prim` | explicit RAM64M8/RAM32M16 under SYNTHESIS |
 | Primitive-count check | `tools/tcl/tg_prim_check.tcl` | spike flow, every run | call after synth_design and opt_design |
-| Issue queue | `tg_iq.sv` | `iq`: 24 variants; 8 + 2 injected bugs caught | options: STALE, WAKE_ENC, DUP_SEL, EARLY_W, MX |
+| Issue queue | `tg_iq.sv` | `iq`: 30 variants (st, smt2, smt2_w3; guard and column clear; with and without MX); injected bugs caught | options: STALE, WAKE_ENC, DUP_SEL, EARLY_W, MX (PRE_RDY: measured, not recommended) |
 | Woken vector | `tg_wake.sv` | with `tg_iq` | HIST must match the wakeup path's delay |
 | Integer ALU | `tg_alu.sv`, `tg_alu_pkg.sv` | `alu`: 46 ops vs ISA reference | pre-decoded control word |
 | Register file | `tg_irf.sv` | via `tg_ram_lut` tests | writer-sharded, generic read ports |
 | Bypass network | `tg_s3_top.sv` (operand muxes) | — | binary selects from the RF stage |
-| DTLB / ITLB | `tg_dtlb.sv` | — | fully associative, Sv39 superpages, {TID, ASID} |
-| Micro-BTB | `tg_ubtb.sv` | — | 64 × 2-way LUTRAM, or 32 FA flip-flops |
+| DTLB / ITLB | `tg_dtlb.sv` | `dtlb` | fully associative, Sv39 superpages, {TID, ASID} |
+| Micro-BTB | `tg_ubtb.sv` | `ubtb`: both organisations | 64 × 2-way LUTRAM, or 32 FA flip-flops |
 | Pre-decode (IF2) | `tg_predecode.sv` | `fetch`: 4 variants; 4 injected bugs caught | boundaries, straddles, branch marks |
 | Compaction + instruction queue (IF3) | `tg_fetch_compact.sv` | `fetch` | writes straight into banked LUTRAM |
-| DDR engine (S1) | `fpga/spikes/s1/rtl/tg_s1_engine.sv` | `fpga/spikes/s1/sim/tb_s1.sv` | measurement only |
+| DDR engine (S1) | `fpga/spikes/s1/rtl/tg_s1_engine.sv` | `s1` | measurement only |
+
+Run every test with `source tools/env.sh` first: the Makefiles stop without the pinned Verilator, because the system's 5.020 runs `tb_iq` differently. The whole set: `make -C fpga/spikes/sim -j8 all` (41 tests) and `make -C tests/unit/prim`.
