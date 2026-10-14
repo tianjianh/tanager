@@ -113,12 +113,14 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
   - **Slots:** `TANAGER_VIVADO_SLOTS` is 2 on the build host and 1 on the laptop, set in `tools/env.sh`.
   - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (24 GB) next to the running jobs' declarations.
+  - **Undeclared jobs:** a held slot with no declaration (a job started by an older `vivado_run.sh`) counts as 10 GB.
   - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.
   - **Kill order:** Vivado runs with a raised `oom_score_adj`, so under memory pressure the kernel kills a Vivado job rather than sshd or the sessions.
+- **Shared-tool changes:** when main changes `tools/vivado_run.sh`, `tools/env.sh` or `tools/memguard.sh`, merge main before your next heavy job. You run tools from your own branch, so a fix on main does not reach your jobs until you merge it.
 - **Memory guard:** `tools/memguard.sh` runs on the build host, started at boot by an `@reboot` crontab entry.
   - **What it does:** when `MemAvailable` falls under 3 GB, it stops the newest expendable job holding at least 1 GB, then checks again. Expendable means Vivado, a compiler or linker, a Verilator model, Spike, QEMU, or anything with a raised `oom_score_adj`. It never touches agent sessions, sshd or shells.
   - **If your job dies with signal 15 or 9,** look in `$TANAGER_BUILD/memguard.log` first.
-  - **Why:** the kernel's OOM killer acts only after minutes of thrashing, and every session stalls meanwhile (about 10 minutes on 2026-10-14).
+  - **Why:** the kernel's OOM killer acts only after minutes of thrashing, and every session stalls meanwhile (10 and then 31 minutes on 2026-10-14).
   - Use out-of-context runs per unit wherever possible. A full-device run takes hours, so say so in your status.
 - **Builds:** at most `-j8` per track on the build host for Verilator model builds, since each compile can take 2–4 GB; `-j4` on the laptop.
 - **Use the build host's spare capacity** (32 threads), within the memory budget:
