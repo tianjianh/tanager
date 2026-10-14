@@ -32,6 +32,7 @@ module tg_rename
   // Issue state
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free,
   input  logic [NCOL-1:0] w_vec,
+  input  logic [NCOL-1:0] busy,         // IDs a queued row still depends on: not reallocated
   // Register-file writes (ready bits), LLT releases, divides leaving the divider
   input  logic [INT_BANKS-1:0]             rf_we,
   input  logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx,
@@ -104,12 +105,13 @@ module tg_rename
   always_comb begin
     int nrob, nld, nst, ndiv, port, pref, p, b;
     logic [LLT_ENTRIES-1:0] lfree;
-    logic llt_short, found, got;
+    logic llt_short, found, got, rob_busy;
     pops = '0;
     nld = 0; nst = 0; ndiv = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0;
-    lfree = ~llt_busy_q;
+    lfree = ~llt_busy_q & ~busy[ROB_ENTRIES +: LLT_ENTRIES];
     llt_short = 1'b0;
+    rob_busy = 1'b0;
     found = 1'b0;
     got = 1'b0;
     for (int k = 0; k < W; k++) begin
@@ -139,6 +141,7 @@ module tg_rename
       ren[k].q = QW'(port);
       // Window entries
       ren[k].rob = rob_add(rtail_q, k);
+      if (rn_valid_q[k] && busy[ren[k].rob[ROBW-2:0]]) rob_busy = 1'b1;
       ren[k].lq  = lq_add(ltail_q, nld);
       ren[k].sq  = sq_add(stail_q, nst);
       if (rn_valid_q[k]) begin
@@ -194,7 +197,7 @@ module tg_rename
     if (rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES) rn_ok = 1'b0;
     if (lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES) rn_ok = 1'b0;
     if (sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES) rn_ok = 1'b0;
-    if (llt_short) rn_ok = 1'b0;
+    if (llt_short || rob_busy) rn_ok = 1'b0;
     if (int'(div_cnt_q) + ndiv > DIV_INFLIGHT) rn_ok = 1'b0;
     for (int i = 0; i < INT_BANKS; i++) begin
       if (int'(pops[i]) > int'(fl_count[i])) rn_ok = 1'b0;

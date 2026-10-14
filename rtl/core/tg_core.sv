@@ -111,7 +111,7 @@ module tg_core
   lqid_t  lq_head;
   sqid_t  sq_head, sq_cmt;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free;
-  logic [NCOL-1:0] w_vec;
+  logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
   logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx;
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
@@ -132,7 +132,7 @@ module tg_core
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready), .flush,
     .de_valid, .de_uop, .de_take,
-    .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec,
+    .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .div_done,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .wid_alloc,
@@ -151,7 +151,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep), .disp_wake(iq_wake),
     .disp_pl(iq_pl), .bank_free(iq_bank_free), .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .a1_block, .ld_block, .iss_valid, .iss_pl);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
