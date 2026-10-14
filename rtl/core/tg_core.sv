@@ -89,7 +89,14 @@ module tg_core
   logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
   logic [1:0] fs;
   logic [2:0] frm;
-  assign frm = '0;      // tg_fcsr arrives with the FP back end (EXT_FD)
+  // fcsr (tg_fcsr arrives with the FP back end; EXT_FD)
+  logic [4:0] fc_fflags;
+  logic       fc_wvalid, fs_dirty;
+  logic [1:0] fc_waddr;
+  logic [7:0] fc_wdata;
+  assign frm       = '0;
+  assign fc_fflags = '0;
+  assign fs_dirty  = 1'b0;
   priv_e priv, priv_d;
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
@@ -159,6 +166,37 @@ module tg_core
   assign fp_we     = '0;
   assign fp_widx   = '0;
   logic                             fp_misc_block;
+  // FP loads and FP store data between the LSU and P4
+  logic                             fld_m2_will, fld_valid, fld_single, sd_busy;
+  logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
+  logic [63:0]                      fld_data, fsd_data;
+  preg_t                            fsd_tag;
+  assign fsd_data = '0;
+  // P4's integer source and FP->int results (driven by P4 with the FP back end)
+  logic                             isrc_valid, fpi_valid, fpi_ready, fpi_dst_en;
+  preg_t                            isrc_tag, fpi_dst;
+  logic [63:0]                      isrc_data, fpi_data;
+  robid_t                           fpi_rob;
+  llt_t                             fpi_llt;
+  logic [4:0]                       fpi_fflags, oth_fflags;
+  assign isrc_valid = 1'b0;
+  assign isrc_tag   = '0;
+  assign fpi_valid  = 1'b0;
+  assign fpi_rob    = '0;
+  assign fpi_llt    = '0;
+  assign fpi_dst_en = 1'b0;
+  assign fpi_dst    = '0;
+  assign fpi_data   = '0;
+  assign fpi_fflags = '0;
+  assign sd_busy    = EXT_FD && isrc_valid;
+  // P4's F0 completions (with the FP back end)
+  logic                             fp_cmp;
+  robid_t                           fp_cmp_rob;
+  logic [4:0]                       fp_cmp_fflags;
+  logic [CW-1:0][4:0]               cm_fflags;
+  assign fp_cmp        = 1'b0;
+  assign fp_cmp_rob    = '0;
+  assign fp_cmp_fflags = '0;
   assign fp_misc_block = 1'b0;
   assign fdiv_iss  = 1'b0;
   assign fpi_iss   = 1'b0;
@@ -237,8 +275,11 @@ module tg_core
     .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
-    .sd_tag, .sd_data, .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
+    .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_ready, .fpi_rob, .fpi_llt,
+    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
+    .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
+    .oth_fflags,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
     .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
     .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free, .div_done,
@@ -269,7 +310,9 @@ module tg_core
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
-    .wake_ld(wake_l), .llt_done(llt_done_l), .sd_tag, .sd_data, .ds_src2_rdy, .rf_we, .rf_widx,
+    .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
+    .fld_single, .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
+    .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
@@ -294,7 +337,8 @@ module tg_core
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .mepc_o(mepc), .sepc_o(sepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
-    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
+    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
+    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
     .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr, .pmp_busy,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
@@ -302,7 +346,8 @@ module tg_core
   // ---- ROB and commit ----
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
     .clk, .rst, .ready(init_done && rn_ready && !trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
-    .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval,
+    .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
+    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
     .lx_valid, .lx_rob, .lx_cause, .lx_tval, .replay_valid, .replay_rob,
@@ -321,5 +366,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_single, fld_data, fsd_tag,
+                    isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
+                    // (the FP load and store-data ports go to P4 with the FP back end)
 endmodule

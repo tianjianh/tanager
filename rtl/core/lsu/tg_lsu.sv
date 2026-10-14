@@ -51,9 +51,22 @@ module tg_lsu
   output logic [63:0]                  ld_res_data,
   output logic [NCOL-1:0]              wake_ld,       // LLTs confirmed this cycle
   output logic [LLT_ENTRIES-1:0]       llt_done,      // load bank written this cycle
-  // Store data
+  // FP loads (EXT_FD): F1 written by P4 straight from the result register, announced at M2
+  output logic                         fld_m2_will,
+  output logic [FPIDX_W-1:0]           fld_m2_idx,
+  output logic                         fld_valid,
+  output logic [FPIDX_W-1:0]           fld_idx,
+  output logic                         fld_single,
+  output logic [63:0]                  fld_data,
+  // Store data: the shared integer port (busy while P4 reads an integer source) or, for FP
+  // stores, the FP file's store-data port; FP register writes are snooped for FP store data
   output preg_t                        sd_tag,
   input  logic [63:0]                  sd_data,
+  input  logic                         sd_busy,
+  output preg_t                        fsd_tag,
+  input  logic [63:0]                  fsd_data,
+  input  logic [1:0]                   fp_we,
+  input  logic [1:0][FPIDX_W-1:0]      fp_widx,
   input  logic [DISPATCH_WIDTH-1:0]    ds_src2_rdy,   // DS: the store data's register is written
   input  logic [INT_BANKS-1:0]         rf_we,         // register-file writes, snooped for store data
   input  logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx,
@@ -201,6 +214,7 @@ module tg_lsu
   llt_t   [LQ_ENTRIES-1:0]           lq_llt_q;
   logic   [LQ_ENTRIES-1:0][1:0]      lq_size_q;
   logic   [LQ_ENTRIES-1:0]           lq_uns_q;
+  logic   [LQ_ENTRIES-1:0]           lq_fp_q;      // writes an f register (EXT_FD)
   // The VA is cold (tval, the ROB head's walk): a LUTRAM written at AG, not CAM flip-flops
   logic [2:0][LIW-1:0]               lqva_ra;
   logic [2:0][63:0]                  lqva_rd;
@@ -231,6 +245,7 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0][1:0]      sq_size_q;
   logic   [SQ_ENTRIES-1:0][7:0]      sq_mask_q;
   preg_t  [SQ_ENTRIES-1:0]           sq_tag_q;
+  logic   [SQ_ENTRIES-1:0]           sq_fp_q;      // the data is an f register (EXT_FD)
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
   logic   [SQ_ENTRIES-1:0]           sq_amw_q;     // ... the atomic wrote memory (trace)
   sqid_t                             sq_head_q, sq_cmt_q, sq_tail_q;
@@ -453,8 +468,10 @@ module tg_lsu
   assign m2_ok  = m2_v_q && !m2_pt_q && m2_out == O_OK && !flush;
   assign lm_req = m2_v_q && !flush && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out == O_MISS);
   assign lm_pa  = m2_pa_q;
-  assign ld_m2_will = m2_ok && lq_dv_q[m2_lq_q];
-  assign ld_m2_dst  = lq_dst_q[m2_lq_q];
+  assign ld_m2_will  = m2_ok && lq_dv_q[m2_lq_q] && !lq_fp_q[m2_lq_q];
+  assign ld_m2_dst   = lq_dst_q[m2_lq_q];
+  assign fld_m2_will = EXT_FD && m2_ok && lq_dv_q[m2_lq_q] && lq_fp_q[m2_lq_q];
+  assign fld_m2_idx  = FPIDX_W'(lq_dst_q[m2_lq_q]);
 
   // ================= MMIO =================
   typedef enum logic [1:0] { X_IDLE, X_REQ, X_WAIT } xstate_e;
@@ -515,11 +532,16 @@ module tg_lsu
 
   // ================= Result register (WB) =================
   logic            r_v_q, r_dv_q, r_mmio_q;
+  logic            r_fv_q, r_fs_q;            // the result writes F1 (EXT_FD); an FLW
   logic [PIDX_W-1:0] r_dst_q;
   logic [63:0]     r_data_q;
   robid_t          r_rob_q;
   llt_t            r_llt_q;
-  assign ld_res_valid = r_v_q && r_dv_q;
+  assign ld_res_valid = r_v_q && r_dv_q && !r_fv_q;
+  assign fld_valid    = r_fv_q;
+  assign fld_idx      = FPIDX_W'(r_dst_q);
+  assign fld_single   = r_fs_q;
+  assign fld_data     = r_data_q;
   assign ld_res_dst   = r_dst_q;
   assign ld_res_data  = r_data_q;
   assign ld_cmp_valid = r_v_q;
@@ -603,14 +625,15 @@ module tg_lsu
     for (int i = 0; i < SQ_ENTRIES; i++) begin
       int a;
       a = sq_cnt(sq_id(i, sq_head_q), sq_head_q);
-      if (sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && a < best) begin
+      if (sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && !(sd_busy && !sq_fp_q[i]) && a < best) begin
         best = a;
         cap_idx = SIW'(i);
       end
     end
     cap_v = best != SQ_ENTRIES && !flush;
   end
-  assign sd_tag = sq_tag_q[cap_idx];
+  assign sd_tag  = sq_tag_q[cap_idx];
+  assign fsd_tag = sq_tag_q[cap_idx];
 
   // ================= STA =================
   logic [SIW-1:0] sa_idx;
@@ -807,6 +830,18 @@ module tg_lsu
 
   // ================= Cold storage: VAs and store data (LUTRAM) =================
   // A register written this cycle (DS of a store whose data is being written meanwhile)
+  /* verilator lint_off UNUSEDSIGNAL */      // an FP tag is the low bits of preg_t
+  function automatic logic fsnoop(input preg_t p, input logic [1:0] we,
+                                  input logic [1:0][FPIDX_W-1:0] wi);
+    logic h;
+    h = 1'b0;
+    for (int b = 0; b < 2; b++) if (we[b] && fpreg_bank(p) == 1'(b) && fpreg_idx(p) == wi[b]) h = 1'b1;
+    return h;
+  endfunction
+  /* verilator lint_on UNUSEDSIGNAL */
+  if (EXT_FD && FPIDX_W > PIDX_W) begin : g_bad_fpidx
+    $error("tg_lsu: the LQ keeps an FP load's F1 index in its PIDX_W-bit destination field");
+  end
   function automatic logic snoop(input preg_t p, input logic [INT_BANKS-1:0] we,
                                  input logic [INT_BANKS-1:0][PIDX_W-1:0] wi);
     logic h;
@@ -831,7 +866,7 @@ module tg_lsu
   assign sqd_ra[COMMIT_WIDTH+2] = am_i;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? am_i : cap_idx;
-  assign sqd_wd = (am_req && am_ack) ? am_new : sd_data;
+  assign sqd_wd = (am_req && am_ack) ? am_new : (EXT_FD && sq_fp_q[cap_idx]) ? fsd_data : sd_data;
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SDR)) u_sqd (
     .clk, .we(sqd_we), .waddr(sqd_wa), .wdata(sqd_wd), .raddr(sqd_ra), .rdata(sqd_rd));
 
@@ -848,6 +883,7 @@ module tg_lsu
       m1_v_q    <= 1'b0;
       m2_v_q    <= 1'b0;
       r_v_q     <= 1'b0;
+      r_fv_q    <= 1'b0;
       xs_q      <= X_IDLE;
       xr_v_q    <= 1'b0;
       x_kill_q  <= 1'b0;
@@ -930,9 +966,12 @@ module tg_lsu
 
       // ---- Result register ----
       r_v_q <= 1'b0;
+      r_fv_q <= 1'b0;
       if (m2_ok) begin
         r_v_q    <= 1'b1;
         r_dv_q   <= lq_dv_q[m2_lq_q];
+        r_fv_q   <= EXT_FD && lq_dv_q[m2_lq_q] && lq_fp_q[m2_lq_q];
+        r_fs_q   <= lq_size_q[m2_lq_q] == 2'd2;
         r_dst_q  <= lq_dst_q[m2_lq_q];
         r_data_q <= m2_val;
         r_rob_q  <= lq_rob_q[m2_lq_q];
@@ -941,6 +980,8 @@ module tg_lsu
       end else if (xr_take) begin
         r_v_q    <= 1'b1;
         r_dv_q   <= lq_dv_q[x_lq_q];
+        r_fv_q   <= EXT_FD && lq_dv_q[x_lq_q] && lq_fp_q[x_lq_q];
+        r_fs_q   <= lq_size_q[x_lq_q] == 2'd2;
         r_dst_q  <= lq_dst_q[x_lq_q];
         r_data_q <= xr_data_q;
         r_rob_q  <= lq_rob_q[x_lq_q];
@@ -950,6 +991,7 @@ module tg_lsu
       end else if (am_take) begin
         r_v_q    <= 1'b1;
         r_dv_q   <= am_dv_q;
+        r_fv_q   <= 1'b0;
         r_dst_q  <= am_dst_q;
         r_data_q <= am_res_q;
         r_rob_q  <= am_rob_q;
@@ -1018,11 +1060,12 @@ module tg_lsu
 
       // ---- Store data capture ----
       if (cap_v) sq_dv_q[cap_idx] <= 1'b1;            // the data goes into the LUTRAM
-      // Store data readiness: snoop the register-file writes
+      // Store data readiness: snoop the register-file writes (FP stores: the FP file's)
       for (int i = 0; i < SQ_ENTRIES; i++) begin
-        for (int b = 0; b < INT_BANKS; b++) begin
-          if (rf_we[b] && preg_bank(sq_tag_q[i]) == BANK_W'(b) && preg_idx(sq_tag_q[i]) == rf_widx[b])
-            sq_dr_q[i] <= 1'b1;
+        if (EXT_FD && sq_fp_q[i]) begin
+          if (fsnoop(sq_tag_q[i], fp_we, fp_widx)) sq_dr_q[i] <= 1'b1;
+        end else if (snoop(sq_tag_q[i], rf_we, rf_widx)) begin
+          sq_dr_q[i] <= 1'b1;
         end
       end
 
@@ -1047,10 +1090,12 @@ module tg_lsu
             lq_rob_q[i]  <= ds_ren[k].rob;
             lq_sq_q[i]   <= ds_ren[k].sq;
             lq_dv_q[i]   <= ds_uop[k].d.rd_en;
-            lq_dst_q[i]  <= preg_idx(ds_ren[k].dst);
+            lq_fp_q[i]   <= EXT_FD && ds_uop[k].d.rd_fp;
+            lq_dst_q[i]  <= (EXT_FD && ds_uop[k].d.rd_fp) ? PIDX_W'(fpreg_idx(ds_ren[k].dst))
+                                                          : preg_idx(ds_ren[k].dst);
             lq_llt_q[i]  <= ds_ren[k].llt;
             lq_size_q[i] <= ds_uop[k].d.mem_size;
-            lq_uns_q[i]  <= ds_uop[k].d.mem_uns;
+            lq_uns_q[i]  <= ds_uop[k].d.mem_uns || (EXT_FD && ds_uop[k].d.rd_fp);   // raw bits
             lq_pav_q[i]  <= 1'b0;
           end
           if (ds_valid[k] && ds_uop[k].d.cls == C_ST) begin
@@ -1064,7 +1109,10 @@ module tg_lsu
             sq_mmio_q[i] <= 1'b0;
             sq_size_q[i] <= ds_uop[k].d.mem_size;
             sq_tag_q[i]  <= ds_ren[k].src2;
-            sq_dr_q[i]   <= ds_src2_rdy[k] || snoop(ds_ren[k].src2, rf_we, rf_widx);
+            sq_fp_q[i]   <= EXT_FD && ds_uop[k].d.rs2_fp;
+            sq_dr_q[i]   <= ds_src2_rdy[k] ||
+                            ((EXT_FD && ds_uop[k].d.rs2_fp) ? fsnoop(ds_ren[k].src2, fp_we, fp_widx)
+                                                            : snoop(ds_ren[k].src2, rf_we, rf_widx));
             sq_amo_q[i]  <= ds_uop[k].d.amo;
             sq_amw_q[i]  <= 1'b0;
             sq_tlb_q[i]  <= 1'b0;

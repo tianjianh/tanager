@@ -68,7 +68,15 @@ module tg_csr
   input  logic                   irq_msi,
   input  logic                   irq_sei,
   input  logic                   irq_ssi,
-  input  logic [63:0]            mtime
+  input  logic [63:0]            mtime,
+  // F and D (EXT_FD): fcsr lives in tg_fcsr; this file decodes fflags/frm/fcsr (illegal while
+  // mstatus.FS is Off), hands it the writes at retirement, and sets FS to Dirty on its pulse
+  input  logic [4:0]             fc_fflags,
+  input  logic [2:0]             fc_frm,
+  output logic                   fc_wvalid,
+  output logic [1:0]             fc_waddr,     // 1 fflags, 2 frm, 3 fcsr
+  output logic [7:0]             fc_wdata,
+  input  logic                   fs_dirty
 );
   localparam int NPMP = 16;
   localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
@@ -268,6 +276,8 @@ module tg_csr
     misa_rd[2]  = misa_c_q;
     misa_rd[8]  = 1'b1;                          // I
     misa_rd[12] = misa_m_q;
+    misa_rd[3]  = EXT_FD;                        // D
+    misa_rd[5]  = EXT_FD;                        // F
     misa_rd[18] = SU;                            // S
     misa_rd[20] = SU;                            // U
   end
@@ -294,6 +304,13 @@ module tg_csr
       12'h344: rval = {52'b0, mip};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
       12'h7A8: rval = {51'b0, mcontext_q};
+      // ---- F and D ----
+      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
+      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
+      12'h003: begin
+        rval = {56'b0, fc_frm, fc_fflags}; exists = EXT_FD;
+        if (fs_q == 2'd0) deny = 1'b1;
+      end
       12'hB00: rval = mcycle_q;
       12'hB02: rval = minstret_q;
       12'hC00: rval = mcycle_q;
@@ -397,6 +414,11 @@ module tg_csr
     end
   end
 
+  // fcsr writes go to tg_fcsr in the cycle the CSR instruction retires
+  assign fc_wvalid = EXT_FD && cm_csr && pw_v_q && pw_a_q[11:2] == '0 && pw_a_q[1:0] != 2'd0;
+  assign fc_waddr  = pw_a_q[1:0];
+  assign fc_wdata  = pw_d_q[7:0];
+
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);
     logic [7:0] c;
@@ -470,6 +492,8 @@ module tg_csr
       pchg_q    <= 1'b0;
       pw_v_q    <= 1'b0;
     end else begin
+      // F and D: FS becomes Dirty when tg_fcsr says so (and on an fcsr write)
+      if (EXT_FD && (fs_dirty || fc_wvalid)) fs_q <= 2'd3;
       // PMP: reset sweep, then descriptor recomputation of the marked entries
       if (psweep) psw_q <= psw_q + 1'b1;
       pchg_q <= pcalc;

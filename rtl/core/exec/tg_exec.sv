@@ -10,6 +10,10 @@
 // after it claims a slot. A MUL in RF (cycle r) and a DIV claim (cycle r) both take slot r+4, the
 // slot an A1 select in cycle r+1 would use, so that select is blocked (a1_block, registered).
 // A DIV does not claim in a cycle where a MUL is in RF.
+// F and D (EXT_FD): an FP->int result from P4 (fpi_*) claims a bank 1 slot like a finished
+// divide, after any MUL in RF and any divide claim that cycle; it is written (fpi_ready) and
+// wakes its LLT a cycle earlier. P4's integer source takes the shared read port first
+// (isrc_*; the LSU's store-data capture waits that cycle).
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
@@ -53,6 +57,18 @@ module tg_exec
   // Shared store-data read port and trace read ports (combinational)
   input  preg_t                        sd_tag,
   output logic [63:0]                  sd_data,
+  // P4 (EXT_FD): its integer source through the shared port; FP->int results for bank 1
+  input  logic                         isrc_valid,
+  input  preg_t                        isrc_tag,
+  output logic [63:0]                  isrc_data,
+  input  logic                         fpi_valid,
+  output logic                         fpi_ready,      // written this cycle
+  input  robid_t                       fpi_rob,
+  input  llt_t                         fpi_llt,
+  input  logic                         fpi_dst_en,
+  input  preg_t                        fpi_dst,
+  input  logic [63:0]                  fpi_data,
+  input  logic [4:0]                   fpi_fflags,
   input  preg_t [COMMIT_WIDTH-1:0]     tr_tag,
   output logic [COMMIT_WIDTH-1:0][63:0] tr_data,
   // Register-file writes (for the ready table)
@@ -64,6 +80,7 @@ module tg_exec
   output logic                         oth_valid,      // bank 1 mux: MUL, DIV, CSR
   output robid_t                       oth_rob,
   output logic                         oth_exc,        // CSR: illegal instruction
+  output logic [4:0]                   oth_fflags,     // FP->int results
   output logic [63:0]                  oth_tval,
   // Branch resolution (P0, WB)
   output logic                         br_valid,
@@ -117,9 +134,10 @@ module tg_exec
   assign rd_idx[P_LD]   = preg_idx(iss_pl[Q_LD].src1);
   assign rd_bank[P_STA] = preg_bank(iss_pl[Q_STA].src1);
   assign rd_idx[P_STA]  = preg_idx(iss_pl[Q_STA].src1);
-  assign rd_bank[P_SH]  = preg_bank(sd_tag);
-  assign rd_idx[P_SH]   = preg_idx(sd_tag);
+  assign rd_bank[P_SH]  = preg_bank((EXT_FD && isrc_valid) ? isrc_tag : sd_tag);
+  assign rd_idx[P_SH]   = preg_idx((EXT_FD && isrc_valid) ? isrc_tag : sd_tag);
   assign sd_data        = rd_data[P_SH];
+  assign isrc_data      = rd_data[P_SH];
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_tr
     assign rd_bank[P_TR+j] = preg_bank(tr_tag[j]);
     assign rd_idx[P_TR+j]  = preg_idx(tr_tag[j]);
@@ -367,6 +385,10 @@ module tg_exec
   logic       div_claim;                   // the finished divide claims slot +4
   logic [2:0] div_wait_q;                  // cycles to its slot (0: none)
   assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !flush;
+  logic       fpi_claim;                   // the FP->int result at P4's queue head claims slot +4
+  logic [2:0] fpi_wait_q;
+  assign fpi_claim = EXT_FD && fpi_valid && fpi_wait_q == '0 && !rf_mul && !div_claim && !flush;
+  assign fpi_ready = fpi_wait_q == 3'd1 && !flush;
   assign a1_block  = a1_block_q;
   assign div_ordy  = div_wait_q == 3'd1;
   assign div_done  = div_ov && div_ordy;
@@ -395,7 +417,7 @@ module tg_exec
   logic [63:0] oth_wd;
   always_comb begin
     oth_we = 1'b0; oth_wa = '0; oth_wd = '0;
-    oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0;
+    oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0; oth_fflags = '0;
     if (csr_v_q) begin
       oth_valid = 1'b1; oth_rob = csr_rob_q; oth_exc = csr_ill_q; oth_tval = csr_tval_q;
       oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
@@ -406,6 +428,9 @@ module tg_exec
     end else if (div_ov && div_ordy) begin
       oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
       oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
+    end else if (fpi_ready) begin
+      oth_valid = 1'b1; oth_rob = fpi_rob; oth_fflags = fpi_fflags;
+      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); oth_wd = fpi_data;
     end
   end
 
@@ -439,9 +464,11 @@ module tg_exec
     wake_reg = '0;
     if (mwk_v_q[2]) wake_reg[mwk_id_q[2]] = 1'b1;
     if (div_wait_q == 3'd2 && div_tag[TAG_W-1]) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
+    if (fpi_wait_q == 3'd2 && fpi_dst_en && !flush) wake_reg[llt_col(int'(fpi_llt))] = 1'b1;
     llt_done = '0;
     if (div_ov && div_ordy && div_tag[TAG_W-1])
       llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
+    if (fpi_ready && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
   end
 
   // ---- Address generation (EX) ----
@@ -515,6 +542,7 @@ module tg_exec
       bc_v_q     <= '0;
       a1_block_q <= 1'b0;
       div_wait_q <= '0;
+      fpi_wait_q <= '0;
       if (rst) lfsr_q <= 8'h5a;
     end else begin
       ex_v_q <= iss_valid;
@@ -530,9 +558,11 @@ module tg_exec
       tf_v_q   <= {tf_v_q[0], !csr_v_q && mul_ov && mul_tag[TAG_W-1]};   // the MUL write slot
       bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
-      a1_block_q <= rf_mul || div_claim;
+      a1_block_q <= rf_mul || div_claim || fpi_claim;
       if (div_claim)               div_wait_q <= 3'd4;
       else if (div_wait_q != '0)   div_wait_q <= div_wait_q - 1'b1;
+      if (fpi_claim)               fpi_wait_q <= 3'd4;
+      else if (fpi_wait_q != '0)   fpi_wait_q <= fpi_wait_q - 1'b1;
     end
   end
 
@@ -543,7 +573,7 @@ module tg_exec
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst) begin
-      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy}))
+      assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy, fpi_ready}))
         else $error("tg_exec: two bank-1 results in one slot");
       assert (!(oth_we && wb_dv_q[1])) else $error("tg_exec: bank 1 write conflict");
     end
