@@ -670,9 +670,13 @@ module tg_lsu
   assign sa_pf   = xl_d && !sa_mis && !va_canon(sta_ag_addr);
   assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
   assign sa_pma  = pma_of(sa_pa);
-  tg_pmp #(.S(1)) u_pmp_st (.pa(sa_pa), .dbl(sta_ag_pl.mem_size == 2'd3), .acc(sa_at),
-                            .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st),
-                            .rwx(pmp_rwx_st));
+  // The STA port's checker also serves the walker's checks, in cycles without a store
+  logic [PA_W-1:0] pc_pa;
+  logic            pc_dbl;
+  tg_pmp #(.S(1)) u_pmp_st (.pa(sta_ag_valid ? sa_pa : pc_pa),
+                            .dbl(sta_ag_valid ? sta_ag_pl.mem_size == 2'd3 : pc_dbl),
+                            .acc(sta_ag_valid ? sa_at : ACC_R), .m_mode(sta_ag_valid && priv_d == PRIV_M),
+                            .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
   assign sa_pmp  = (xl_d && dt_pte[1].ph) ? (sa_lr ? dt_pte[1].pr : dt_pte[1].pw) : sa_chk[0];
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_d ? dt_pte[1].big : sta_ag_addr[63:PA_W] != '0) || !sa_pmp ||
@@ -793,7 +797,9 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al,
+    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_al,
+    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_gnt(!sta_ag_valid), .chk_ok(sa_chk[0]), .chk_hit(pmp_hit_st),
+    .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
@@ -1174,7 +1180,7 @@ module tg_lsu
   logic unused;
   assign unused = ^{ld_ag_pl, sta_ag_pl, m2_fidx_q, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, sq_rob_q, x_lq_q, pw_ack[0], pw_who[2],
-                    pmp_hit_ld, pmp_rwx_ld, pmp_hit_st, pmp_rwx_st};
+                    pmp_hit_ld, pmp_rwx_ld};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
