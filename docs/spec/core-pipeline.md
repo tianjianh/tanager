@@ -115,8 +115,8 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 | LD | `IQ_LD` | load pipe | loads |
 | STA | `IQ_STA` | store-address pipe | store addresses |
 
-- **Variant:** `STALE = 2` (column clear): when a ROB entry retires or an LLT is released, its column is cleared in every row (registered). DUP_SEL and EARLY_W stay parameters for the S2 levers.
-- **Change to the spike module:** a `sel_block` input (registered) that suppresses the queue's grant for a cycle. A1 uses it to keep bank 1's write port free (§7.3); LD uses it to free the load pipe for LQ replays.
+- **Variant:** `STALE = 0`, the guard, with predecoded wakeup IDs (`WAKE_ENC = 1`), as spikes.md §4.1 recommends: `busy` (the OR of every row's dependency bits) names the IDs a queued row still waits on, and rename allocates neither a ROB entry nor an LLT whose column is busy. The column-clear variant (`STALE = 2`) remains a `tg_issue` parameter. DUP_SEL, EARLY_W and MX (matrix wakeup, needed for `smt2` timing) are the S2 levers; MX is wired off in M2.
+- **Changes to the spike module:** a `sel_block` input (registered) that suppresses the queue's grant for a cycle (A1 uses it to keep bank 1's write port free, §7.3; LD uses it to free the load pipe for LQ replays); and a row granted in the cycle it is killed does not issue.
 - **Wakeup timing:** ALU ops at select (`wake_now`); MUL through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); loads and DIV on their LLT when their result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
 
 ## 7. Register read, bypass, execute (`tg_exec`; spike S3 RTL)
