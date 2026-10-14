@@ -138,9 +138,10 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 | Run | Config | Target | CLB LUTs (fill) | WNS ns | Fmax MHz | Worst path | Route |
 |---|---|---|---|---|---|---|---|
 | `s6_smt2w3t_93_180` | smt2_w3 (v2), with tags | 93% | 110,280 (**94.2%**) | **+0.049** | **181.6** | harness: a filler register feeding S3's register file from across the die (1 level, 5.08 ns of wire) | 19 min |
-| `s6_smt2_93_180` | smt2 (v1), ROB columns | 93% | (routing) | | | | |
-| `s6_smt2_90_180`, `s6_smt2w3t_90_180` | v1 / v2 with tags | 90% | (queued) | | | | |
-| `s6_smt2_95_180`, `s6_smt2w3t_96_180` | v1 / v2 with tags | 95% / 96% | (queued) | | | | |
+| `s6_smt2_93_180` | smt2 (v1), ROB columns (no tags) | 93% | 109,422 (93.4%) after synthesis | — | — | **routing did not converge**: the router's first iteration took 2 h (114,671 overlapping nodes down to 21) and the second was under way when the run was stopped ([route_stuck.txt](../../fpga/spikes/results/s6_smt2_93_180/route_stuck.txt)) | > 2 h |
+| `s6_smt2t_93_180` | smt2 (v1), with tags | 93% | (queued) | | | | |
+| `s6_smt2w3t_96_180`, `s6_smt2t_95_180` | v2 / v1 with tags | 96% / 95% | (queued) | | | | |
+| `s6_smt2w3t_90_180` | v2 with tags | 90% | (queued) | | | | |
 
 Named paths, slack in ns at 5.556 ns (the worst over both cores):
 
@@ -162,4 +163,5 @@ Named paths, slack in ns at 5.556 ns (the worst over both cores):
 **Findings so far.**
 - **v2 with tags closes 180 MHz at 94.2% fill** (110.3K LUTs). The worst real paths are S3's ALU loop and S5's fetch (+0.18 to +0.20 ns); the scheduler, the 200 MHz limiter before tags, has more than 1 ns.
 - The router started from 112K overlapping nodes and cleared them in 19 minutes; the placer's worst congestion is level 5.
+- **v1 with the ROB-column scheduler did not route at 93.4%** in over 2 hours, where v2 with tags, a larger core, routed at 94.2% in 19 minutes. The v1 runs continue with tags, the scheduler the core takes (AR-1); v1 without tags at 90% was stopped during placement, since no decision depends on it.
 
