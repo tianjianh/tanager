@@ -97,17 +97,7 @@ module tg_div
   assign lza = lzc64(q_q);
   assign lzd = lzc64(d_q);
   assign nq  = (dz || lzd < lza) ? 7'd0 : lzd - lza + 7'd1;
-  // {r, q} = |a| << (64 - n) as a 128-bit value (r = |a| >> n is below |b|), from one 64-bit
-  // rotation: rotating |a| right by n puts |a| >> n in the low 64 - n bits and the n bits
-  // left to divide in the high bits, so a mask of the low 64 - n bits splits r from q.
-  logic [63:0] rot, lo;
-  always_comb begin
-    for (int i = 0; i < 64; i++) begin
-      rot[i] = q_q[6'(i) + nq[5:0]];             // rotate right by n mod 64
-      lo[i]  = 7'(i) < 7'd64 - nq;
-    end
-  end
-  assign rq0 = {rot & lo, rot & ~lo};
+  assign rq0 = {64'b0, q_q} << (7'd64 - nq);   // r = |a| >> n is below |b|
 
   // ---- IT: one restoring step ----
   logic [64:0] r2, diff;

@@ -135,7 +135,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 
 ### 7.2 Ports
 - **ALU ports:** `tg_alu` (S3). P0 adds the branch unit: taken from the ALU's compare flags; target = precomputed PC + imm (branches, JAL) or (rs1 + imm) & ~1 (JALR); the link value is the precomputed immediate through the ALU's pass-b group. A taken target with bit 1 set raises a misaligned-fetch exception (cause 0, `tval` = target) on the branch (no C in M2). A mispredict is `actual_npc != pred_npc`.
-- **P1 extras:** MUL (3 stages, 128-bit product, MULH/MULHSU/MULHU/MULW), DIV (radix-2 iterative with a `DIV_INFLIGHT`-deep input FIFO, the RISC-V divide-by-zero and overflow results; the leading quotient zeros are skipped by one 64-bit rotation and a mask), CSR (§9) executed in EX.
+- **P1 extras:** MUL (3 stages, 128-bit product, MULH/MULHSU/MULHU/MULW), DIV (radix-2 iterative with a `DIV_INFLIGHT`-deep input FIFO, the RISC-V divide-by-zero and overflow results), CSR (§9) executed in EX.
 - **LD / STA:** address generation in EX; the rest is in [core-lsu.md](core-lsu.md).
 
 ### 7.3 Bank 1's write port
