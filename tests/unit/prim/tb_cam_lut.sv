@@ -86,7 +86,7 @@ module tb_cam_lut #(
         end
       end
       // ---- drive the next cycle ----
-      rst = ($urandom % 4000) == 0;
+      rst = ($urandom % 4000) == 0 || c == cycles / 2;   // at least one mid-run reset
       lk_key   = ($urandom % 8) ? pick_key() : KEYW'({$urandom, $urandom});
       wr_valid = ($urandom % 3) == 0;
       wr_idx   = IW'($urandom % ENTRIES);
