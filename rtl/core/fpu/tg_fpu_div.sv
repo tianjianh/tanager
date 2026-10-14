@@ -251,7 +251,7 @@ module tg_fpu_div
 
   always_comb begin
     logic [2:0]  nn;
-    logic [59:0] seedq, cand, fac, grid;
+    logic [59:0] seedq, cand, grid;
     r1_d  = r4_q;
     r1_vd = 1'b0;
     x1 = '0; y1 = '0; x2 = '0; y2 = '0;
@@ -259,7 +259,6 @@ module tg_fpu_div
     seedq = {2'b0, r4_q.seed, 48'b0};
     nn    = fin ? r4_q.rnd : r4_q.rnd + 3'd1;
     cand  = fin ? r4_q.c : (m1 + (grid >> 1)) & ~(grid - 60'd1);
-    fac   = '0;
     if (s4_v) begin
       // round 1: N0 = A s, D0 = mb s; or q0 = x y0, u0 = x y0^2
       r1_vd     = 1'b1;
@@ -282,22 +281,21 @@ module tg_fpu_div
         x1 = r4_q.info.sqrt ? cand : r4_q.opb;
         y1 = cand;
       end else if (!r4_q.info.sqrt) begin
-        fac = fac_sum;                               // 2 - D0 + e23 (~ 1/D0, cubic) or 2 - D1
-        x1 = m1; y1 = fac;
-        x2 = m2; y2 = fac;
+        // 2 - D0 + e23 (~ 1/D0 to third order) or 2 - D1
+        x1 = m1; y1 = fac_sum;
+        x2 = m2; y2 = fac_sum;
       end else begin
-        fac = fac_sum;
         unique case (nn)
           3'd2: begin                                // P = 3/2 - u0/2 + 3/8 e2 + 5/16 e3
-            x1 = m1; y1 = fac;
-            x2 = seedq; y2 = fac;
+            x1 = m1; y1 = fac_sum;
+            x2 = seedq; y2 = fac_sum;
           end
           3'd3: begin                                // w1 = q1 y1; keep q1
             r1_d.opb = m1;
             x1 = m1; y1 = m2;
           end
           default: begin                             // q2 = q1 (3/2 - w1/2)
-            x1 = r4_q.opb; y1 = fac;
+            x1 = r4_q.opb; y1 = fac_sum;
           end
         endcase
       end
