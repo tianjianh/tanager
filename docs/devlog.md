@@ -38,6 +38,8 @@ Times are US Pacific.
 | 10-14 03:10 | **AR-1 measured:** v1 scheduler 8,895 → 5,506 LUTs (−38%), with better slack. |
 | 10-14 03:20 | **The build host ran out of memory.** Two full-device Vivado runs plus the nightly budget synthesis (a parent and six child Vivado processes) took about 33 of WSL's 39 GB, and SSH and every session stalled for about 10 minutes. The budget run and the soak were stopped; Vivado now declares its memory and waits for room in a budget (DR-106). |
 | 10-14 03:30–04:01 | **A second stall, 31 minutes.** A core-track synthesis started at 03:30 with seven parallel worker processes, about 10 GB in all. Its branch did not have the new admission yet, so it ran beside two full-device spikes runs. After about 19 minutes of thrashing, the kernel killed one of those (`s6_smt2w3t_93_180`) at 03:51; SSH came back at 04:01. **Now:** the memory guard runs on the build host (DR-107), and the admission counts a slot held by an older script as 10 GB (DR-109). |
+| 10-14 04:40 | Soak memory gate merged; the soak has run 44,160 programs with no failures. |
+| 10-14 05:07 | **FP back end merged** (`tg_fprf`, `tg_fp_exec`, `tg_fcsr`). Its interface was agreed directly between the FPU and core tracks (DR-111). `tg_fp_exec` is 8,293 LUTs at smt2 and meets 200 MHz by +0.02 ns. Its long smt2 run covered 7.2M random operations with 99K flushes, and each of three deliberately broken copies of the RTL was caught. The FPU's LUT pass moved cost into flip-flops and DSPs, so those lines were raised (DR-110). |
 
 **Pace.** About 16 hours of wall-clock time took the project from an empty repository to:
 - M0, except S1, which needs the board;
