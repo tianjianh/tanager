@@ -145,7 +145,8 @@ static void usage(void) {
     "  load --fw F --kernel K --dtb D         reset, set the window, copy images (soc.md §3)\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
-    "                                         release reset, bridge the console, exit on power-off/tohost;\n"
+    "                                         release reset (a running system keeps running), bridge the\n"
+    "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
     "                                         the cores while it falls behind (with --trace-wrap: the last\n"
     "                                         2^N records, at exit). The ring takes the top 64 B << N of the\n"
@@ -347,8 +348,11 @@ static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
   uint32_t ctrl = o->lossless ? CTRL_LOSSLESS : 0;
-  /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence) */
-  wr(R_CTRL, ctrl | CTRL_CORE_RST);
+  /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
+   * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
+   * transactions short and leave the L2 waiting for a GrantAck or the rest of a burst. */
+  int running = !(rd(R_STATUS) & (ST_CORES_RST | ST_UNC_RST));
+  wr(R_CTRL, ctrl | (running ? 0 : CTRL_CORE_RST));
   for (int i = 0; !(rd(R_STATUS) & ST_L2_INIT); i++) {
     if (i > 10000) die("L2 never finished its initialisation");
     sleep_us(100);

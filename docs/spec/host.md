@@ -107,6 +107,8 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 3. Set `BOOT_ENTRY`, `DTB_ADDR` and the injector. Write `CTRL = 0x1`: release the uncore. Poll `STATUS[2]` (L2 initialised).
 4. Write `CTRL = 0x0`: release the cores. Bridge the console: pop `UART_TX` to the pty, push pty input to `UART_RX`. Watch `POWER` and `TOHOST`.
 
+Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 3 and 4. The uncore does not drain a core's TileLink transactions when its reset rises, so a core held in the middle of one leaves the L2 waiting for a `GrantAck` or for the rest of a `ReleaseData` burst. To stop a running system, hold both (`CTRL = 0x3`).
+
 ## `tanager-host` (A53 program)
 
 `sw/host/`: a single static aarch64 binary (C, built with GCC 15 from an external toolchain, sw/versions.sh). It runs as root on the KV260's Linux.
@@ -115,7 +117,7 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 |---|---|
 | `tanager-host info` | print `ID`, `VERSION`, `CLK_HZ`, `CAPS`, `STATUS` |
 | `tanager-host load --fw F --kernel K --dtb D [--base A --size S]` | steps 1–3 of the loading sequence |
-| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value |
+| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value, and hold everything (`CTRL = 0x3`). A system that already runs (after `tg start`) keeps running; `run` only attaches the console |
 | `tanager-host boot …` | load, then run |
 | `tanager-host reset` | hold cores and uncore in reset |
 | `tanager-host inj [--rd N] [--wr N] [--mode M] [--bw R] [--stats]` | change or read the injector |
