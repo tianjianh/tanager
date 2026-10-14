@@ -17,7 +17,8 @@ Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md))
 
 ## Interface
 Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
-- **From dispatch:** LQ/SQ entry writes (ROB index, size, sign, destination, LLT; for stores the data's physical register).
+- **From dispatch:** LQ/SQ entry allocation (valid, state); for stores also the data's physical register, its file, and the atomic flag.
+- **At AG / STA:** the rest of the entry, from the port's payload, since nothing reads it before: a load's ROB index, SQ bound, destination, LLT, size and extension; a store's ROB index and size. One write per queue and cycle, so no entry multiplexes the dispatch slots.
 - **From issue (RF stage):** the LD and STA ports' payloads; their base operands come bypassed from `tg_exec` in EX.
 - **Register file:** the shared store-data read port (address from the SQ, data back in the same cycle); the load bank's write port (written at WB from the load result register).
 - **To the ROB:** load and store completion, exceptions {ROB index, cause, `tval`}, replay marks (ordering violations), `mmio` marks.
