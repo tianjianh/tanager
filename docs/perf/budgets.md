@@ -109,6 +109,18 @@ It does nothing when main has not moved since the last run.
 
 As the core track merges each unit, it gets a line in `units.tsv`; its budget is already in `budgets.tsv`.
 
+**First run (2026-10-13, this branch, 13 syntheses in about 20 minutes):**
+
+| Unit | st | smt2 | st_w3 | smt2_w3 |
+|---|---|---|---|---|
+| FPU | **7,518** / 6,800 | **7,518** / 6,800 | 7,518 | 7,518 |
+| FPU, radix-4 (tracked) | | 6,079 | | |
+| Scheduler | **6,470** / 6,030 | **8,909** / 8,350 | 8,842 | 12,424 |
+| `tg_core` (stub) | 0 / 38,220 | 0 / 46,120 | 0 | 0 |
+
+- **Over budget, as expected:** the FPU everywhere and the scheduler at st and smt2. The R5 and R14 work closes those gaps.
+- **Primitive check:** clean everywhere. The FPU reports one stray block RAM, its seed ROM, which is inferred because `rtl/common/prim` has no ROM wrapper yet.
+
 **Reading the report:**
 - Each cell reads value / budget, bold when over, with Δ since the previous run.
 - The exit status is 0 when every enforced unit is within budget and primitive-clean, and 1 otherwise.

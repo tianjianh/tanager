@@ -32,7 +32,7 @@ The same check on the current checkout, for some units (`--dry-run` lists what w
 - 2: a synthesis did not finish;
 - 3 (nightly only): skipped for disk space.
 
-**Time:** each synthesis takes a few minutes. All 13 of today's run one after another through `tools/vivado_run.sh`, queueing for a Vivado slot like any other job, in about an hour.
+**Time:** each synthesis takes 1–2 minutes. All 13 of today's run one after another through `tools/vivado_run.sh`, queueing for a Vivado slot like any other job, in about 20 minutes.
 
 ## Files
 
