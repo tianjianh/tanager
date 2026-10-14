@@ -23,17 +23,19 @@ IQ_VARIANTS := $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(foreach w,0 1,$(c)_
                $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16)) \
                $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mx)) \
                $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxpre)) \
-               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxr))
+               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxr)) \
+               $(foreach c,st smt2 smt2_w3,$(foreach s,0 2,$(c)_s$(s)_w1_d1_e16_mxc))
 
 .PHONY: iq clean
 iq: $(addprefix iq-,$(IQ_VARIANTS))
 iq-%:
 	@set -e; v=$*; cfg=$${v%%_s*}; rest=$${v#*_s}; s=$${rest%%_w*}; rest=$${rest#*_w}; \
 	w=$${rest%%_d*}; rest=$${rest#*_d}; dup=$${rest%%_e*}; rest=$${rest#*_e}; e=$${rest%%_mx}; \
-	e=$${e%%_mxpre}; e=$${e%%_mxr}; mx=0; pre=0; iss=0; \
-	case $$v in *_mx) mx=1;; *_mxpre) mx=1; pre=1;; *_mxr) mx=1; iss=1;; esac; \
+	e=$${e%%_mxpre}; e=$${e%%_mxr}; e=$${e%%_mxc}; mx=0; pre=0; iss=0; cons=-1; \
+	case $$v in *_mx) mx=1;; *_mxpre) mx=1; pre=1;; *_mxr) mx=1; iss=1;; *_mxc) mx=1; cons=0;; esac; \
+	if [ $$cons -lt 0 ]; then cons=$$mx; fi; \
 	d=$(OBJ)/iq_$$v; mkdir -p $$d; \
-	verilator $(VFLAGS) --Mdir $$d --top-module tb_iq -GSTALE=$$s -GWAKE_ENC=$$w -GDUP_SEL=$$dup -GEARLY_W=$$e -GMX=$$mx -GPRE_RDY=$$pre -GISS_REG=$$iss \
+	verilator $(VFLAGS) --Mdir $$d --top-module tb_iq -GSTALE=$$s -GWAKE_ENC=$$w -GDUP_SEL=$$dup -GEARLY_W=$$e -GMX=$$mx -GPRE_RDY=$$pre -GISS_REG=$$iss -GMX_CONS=$$cons \
 	  $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv $(COMMON) $(IQ_SRC) > $$d/build.log 2>&1 || \
 	  { tail -20 $$d/build.log; exit 1; }; \
 	$$d/Vtb_iq +seed=$(SEED) +cycles=$(CYCLES) > $$d/run.log; $(TIDY) \

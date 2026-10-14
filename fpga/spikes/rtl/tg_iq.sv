@@ -54,6 +54,11 @@
 //                producer: it compares the source's physical register with the row's
 //                destination (one compare per source, no CAM), else it uses the ID.
 //                tg_wake's cancel history must then be 1 cycle (HIST = 1), not 2.
+//   MX_CONS (default MX): this queue's rows take row dependencies (disp_mdep) and wait on
+//                them. With MX = 1 and MX_CONS = 0 the queue still produces issued_o/free_o
+//                for the others and keeps the registered grant, but its own rows name every
+//                source by ID: a queue whose consumers can take the ID path's extra cycle
+//                (the FP or STA queue) saves the matrix and its column clears.
 //   ISS_REG = 1 (with MX): issued_o comes from its own register, replicated by synthesis
 //                for fanout (it reaches every row of every queue), instead of a LUT on the
 //                row's valid bit and hold counter. Same values cycle by cycle.
@@ -84,6 +89,7 @@ module tg_iq
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
   parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   parameter bit ISS_REG   = 1'b0,   // MX: issued_o from its own replicated register
+  parameter bit MX_CONS   = MX,     // rows take row dependencies (needs MX)
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -160,7 +166,7 @@ module tg_iq
         else       rdyw_q[r] <= !(|(dep_q[r] & ~w_next));
       end
     end
-    if (!MX || STALE == 1) begin : g_bad_pre
+    if (!MX_CONS || STALE == 1) begin : g_bad_pre
       $error("tg_iq: PRE_RDY needs MX = 1 and STALE 0 or 2");
     end
   end else begin : g_nordyw
@@ -176,7 +182,7 @@ module tg_iq
       assign pend = |(dep_q[r] & ~w);
     end
     logic mpend;
-    if (MX) begin : g_mx
+    if (MX_CONS) begin : g_mx
       assign mpend = |(mdep_q[r] & ~mx_issued);
     end else begin : g_nomx
       assign mpend = 1'b0;
@@ -366,7 +372,7 @@ module tg_iq
   end
 
   // Matrix dependencies: written at dispatch, a column cleared when its row is freed
-  if (MX) begin : g_mdep
+  if (MX_CONS) begin : g_mdep
     always_ff @(posedge clk) begin
       for (int r = 0; r < ROWS; r++)
         mdep_q[r] <= (we[r] ? disp_mdep[bank_of(r)] : mdep_q[r]) & ~mx_free;
@@ -496,11 +502,15 @@ module tg_iq
     end
   end
 
+  if (MX_CONS && !MX) begin : g_bad_mxcons
+    $error("tg_iq: MX_CONS needs MX = 1");
+  end
+
   // Inputs a variant does not use
   logic unused;
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE == 2) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
-                    MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
+                    MX_CONS ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
                     PRE_RDY ? '0 : w_next, rdyw_q};
 
 `ifndef SYNTHESIS

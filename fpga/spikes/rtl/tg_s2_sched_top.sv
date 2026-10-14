@@ -16,6 +16,9 @@ module tg_s2_sched_top
   parameter int ALU_ROWS = 0,        // > 0: rows of every ALU queue (the plan's fallback)
   parameter bit PRE_RDY  = 1'b0,     // registered ID readiness (with MX)
   parameter bit ISS_REG  = 1'b0,     // MX: issued rows from their own replicated register
+  parameter int MX_CQ    = -1,       // MX: bit q set = queue q's rows take row dependencies
+  parameter int DL_Q     = -1,       // bit q set = queue q issues ops with a delayed wakeup
+  parameter bit DL_ENC   = 1'b0,     // delay lines carry the wakeup ID predecoded {ID/8, ID%8}
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -135,7 +138,7 @@ module tg_s2_sched_top
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
       .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
       .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY),
-      .ISS_REG(ISS_REG)
+      .ISS_REG(ISS_REG), .MX_CONS(MX && ((MX_CQ >> q) & 1) != 0)
     ) u_iq (
       .clk, .rst,
       .disp_valid(dv), .disp_tid(disp_tid_q), .disp_dep(disp_dep_q),
@@ -158,25 +161,39 @@ module tg_s2_sched_top
   end
 
   // Delayed wakeups from the registered issue outputs: the short class lands one cycle
-  // later (load hit speculation, MUL), the long class four (FMA).
+  // later (load hit speculation, MUL), the long class four (FMA). DL_Q names the queues that
+  // issue such ops (a real core: the MUL port, the load pipe and the FP ports); DL_ENC
+  // carries their IDs predecoded, so the decode into W is one AND per column and source.
+  localparam int NHI = (NCOL + 7) / 8;
   logic [NCOL-1:0] wake_reg_d, wake_reg_q;
   logic [NQ-1:0][3:0]            dl_v_q;
   logic [NQ-1:0][3:0]            dl_long_q;
   logic [NQ-1:0][3:0][COL_W-1:0] dl_id_q;
+  logic [NQ-1:0][3:0][NHI-1:0]   dl_hi_q;
+  logic [NQ-1:0][3:0][7:0]       dl_lo_q;
   always_ff @(posedge clk) begin
     for (int q = 0; q < NQ; q++) begin
-      if (rst) dl_v_q[q] <= '0;
-      else     dl_v_q[q] <= {dl_v_q[q][2:0], iss_valid_q[q] && iss_payload_q[q][COL_W]};
+      if (rst || ((DL_Q >> q) & 1) == 0) dl_v_q[q] <= '0;
+      else dl_v_q[q] <= {dl_v_q[q][2:0], iss_valid_q[q] && iss_payload_q[q][COL_W]};
       dl_long_q[q] <= {dl_long_q[q][2:0], iss_payload_q[q][COL_W+1]};
       dl_id_q[q]   <= {dl_id_q[q][2:0], iss_payload_q[q][COL_W-1:0]};
+      dl_hi_q[q]   <= {dl_hi_q[q][2:0], NHI'(1) << (iss_payload_q[q][COL_W-1:0] >> 3)};
+      dl_lo_q[q]   <= {dl_lo_q[q][2:0], 8'(1) << iss_payload_q[q][2:0]};
     end
   end
   always_comb begin
     wake_reg_d = llt_done_q;
     for (int q = 0; q < NQ; q++) begin
       for (int c = 0; c < NCOL; c++) begin
-        if (dl_v_q[q][0] && !dl_long_q[q][0] && dl_id_q[q][0] == COL_W'(c)) wake_reg_d[c] = 1'b1;
-        if (dl_v_q[q][3] &&  dl_long_q[q][3] && dl_id_q[q][3] == COL_W'(c)) wake_reg_d[c] = 1'b1;
+        if (DL_ENC) begin
+          if (dl_v_q[q][0] && !dl_long_q[q][0] && dl_hi_q[q][0][c / 8] && dl_lo_q[q][0][c % 8])
+            wake_reg_d[c] = 1'b1;
+          if (dl_v_q[q][3] &&  dl_long_q[q][3] && dl_hi_q[q][3][c / 8] && dl_lo_q[q][3][c % 8])
+            wake_reg_d[c] = 1'b1;
+        end else begin
+          if (dl_v_q[q][0] && !dl_long_q[q][0] && dl_id_q[q][0] == COL_W'(c)) wake_reg_d[c] = 1'b1;
+          if (dl_v_q[q][3] &&  dl_long_q[q][3] && dl_id_q[q][3] == COL_W'(c)) wake_reg_d[c] = 1'b1;
+        end
       end
     end
   end
