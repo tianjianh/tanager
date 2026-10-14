@@ -133,13 +133,13 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 | 32 × 32 | 52 / 6 | 44 / 12 | 341 / 1,039 |
 | 32 × 64 | 84 / 6 | 60 / 12 | 636 / 2,070 |
 
-- **One LUT per bit before placement, at every depth.** Vivado did not pair 16-deep shift registers in a LUT here, while a RAM32M16 FIFO costs 0.625 LUTs per bit at depth 32 or less.
-- So `srl` wins only for narrow FIFOs (8 bits: 13–26 LUTs against 16–28) and in flip-flops (one count register instead of two pointers: 3–6 against 6–12).
+- **The counts above are before placement, where every shift register takes a LUT. Placement pairs two 16-deep ones in a LUT:** the 16 × 64 FIFO implements in **41 LUTs** (32 of them shift registers, half the 64 above), where a RAM32M16 FIFO stays at 0.625 LUTs per bit (16 × 64: 55). At 32 deep a shift register fills its LUT: 32 × 64 implements in 82 LUTs against **59** for `lutram`.
+- So **`srl` is the cheapest storage up to 16 deep** (about 25% below `lutram`, with one count register instead of two pointers: 3–5 flip-flops against 6–10), and `lutram` from 32 deep, except for narrow FIFOs.
 - **Flip-flop storage** costs 5–10× more from depth 8.
-- **Timing at 200 MHz** (32 × 64, and 16 × 64): pending.
-- **Decision (proposed): `lutram` stays the default; `srl` for delay lines and narrow FIFOs.**
-  - *Pros of `srl`:* no write pointer or address decode; fewer flip-flops.
-  - *Cons:* one LUT per bit; at most 32 deep; no reset of contents.
+- **Timing at 200 MHz** (64 bits, placed and routed): `srl` 16 deep +3.053 ns, 32 deep +3.133; `lutram` 32 deep +3.158. All three have more than 3 ns to spare.
+- **Decision (proposed): `srl` for FIFOs up to 16 deep and for delay lines; `lutram` stays the default from 32 deep.**
+  - *Pros of `srl`:* half a LUT per bit up to 16 deep; no write pointer or address decode; fewer flip-flops.
+  - *Cons:* a full LUT per bit at 32 deep; at most 32 deep; no reset of contents; the saving appears only after placement, so synthesis-only counts overstate it.
 
 **T5: `tg_cam_lut`, a CAM in LUTRAM.** LUTs / flip-flops; `sw` = one-bit-write tables (RAM64X8SW, 6-bit slices), `m16` = read-modify-write tables (RAM32M16, 5-bit slices).
 
@@ -184,7 +184,7 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
 |---|---|---|---|---|---|---|---|---|
 | 10-14 | Shared primitive T2 (`tg_ram_lut_mw`) | Multi-write LUTRAM, LVT in LUTRAM, against a flip-flop array (64 × 8, 4 writers × 8 readers) | 553 against 2,448 | 0 against 512 | 448 / 0 / 0 | A primitive: same behaviour as the array (tested against a reference) | +1.075 ns (128 × 32; the array +0.325) | Proposed for multi-write tables (§3.1) |
-| 10-14 | Shared primitive T4 (`tg_fifo` `"srl"`) | Shift-register FIFO against the LUTRAM FIFO (32 × 64) | 84 against 60 | 6 against 12 | 64 SRL against 40 LUTRAM | Same ports and timing as `"lutram"` | pending | `"lutram"` stays the default; `"srl"` for narrow FIFOs and delay lines |
+| 10-14 | Shared primitive T4 (`tg_fifo` `"srl"`) | Shift-register FIFO against the LUTRAM FIFO, placed (16 × 64; at 32 × 64: 82 against 59) | 41 against about 55 | 5 against 10 | 32 SRL LUTs against 40 LUTRAM | Same ports and timing as `"lutram"` | +3.053 ns | `"srl"` up to 16 deep and for delay lines; `"lutram"` from 32 deep |
 | 10-14 | Shared primitive T5 (`tg_cam_lut` `"sw"`) | CAM with one-bit-write LUTRAM tables against a flip-flop CAM (64 × 40) | 893 against 1,128 | 160 against 2,624 | 496 / 0 / 0 | No: writes take 3 cycles (1 for flip-flops) | +0.725 ns (flip-flops +0.371) | Flip-flop savings, small LUT savings from 32 entries; TLBs keep flip-flop CAMs |
 | 10-14 | Shared primitive T5 (`tg_cam_lut` `"m16"`) | CAM with read-modify-write LUTRAM tables (64 × 40) | 1,295 against 1,128 | 166 against 2,624 | 368 / 0 / 0 | No (as above) | +0.700 / +1.066 ns | Rejected as a LUT lever: more LUTs than flip-flops at every size |
 | 10-14 | Shared primitive T6 (`tg_dsp_cmp`) | Equality and less-than in a DSP48E2 against fabric (48 bits) | 1 against 40 | 0 against 2 | 0 / 0 / 1 | Yes at latency 1 (the same register stage) | pending | Use where the operands are registered |
