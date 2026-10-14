@@ -146,7 +146,10 @@ module tg_fpu_fma
     logic [13:0] e_top, lim;    // signed (from E1)
   } ctl_t;
 
-  ctl_t c0, c1_q, c2_q, c3_q;
+  // Flip-flops, not shift-register LUTs (shreg_extract): LUTs are the scarce resource, and an SRL
+  // input's setup time would lengthen E0.
+  ctl_t c0;
+  (* shreg_extract = "no" *) ctl_t c1_q, c2_q, c3_q;
   logic v1_q, v2_q, v3_q, v4_q;
   always_comb begin
     c0.dbl = dbl; c0.rm = q.rm; c0.tag = q.tag;
@@ -178,7 +181,7 @@ module tg_fpu_fma
     ha_q <= ua.sig[52];
     hb_q <= ub.sig[52];
     mc_q <= c_zero ? '0 : uc.sig;     // FMUL and the conversions have no addend
-    x_q  <= x_val;
+    x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
     c1_q <= c0;
   end
 
@@ -192,16 +195,23 @@ module tg_fpu_fma
               + ({2'b0, hb_q ? fa_q : 52'b0, 1'b0})
               + {1'b0, (ha_q && hb_q), 53'b0};
 
+  // The tiles' output registers are reset (the DSP48E2 P-register reset) when the product does
+  // not take part: FCVT.F.I, or an addend that dominates (the product is only a sticky).
   logic [42:0] t00_q, t01_q, t02_q, t10_q;
   logic [43:0] t11_q;
   logic [46:0] t12_q;
+  logic        p_off;
   always_ff @(posedge clk) begin
-    t00_q <= 43'(a0_q) * 43'(b0_q);
-    t01_q <= 43'(a0_q) * 43'(b1_q);
-    t02_q <= 43'(a0_q) * 43'(b2_q);
-    t10_q <= 43'(a1_q) * 43'(b0_q);
-    t11_q <= 44'(a1_q) * 44'(b1_q) + {27'b0, rows[8:0], 8'b0};   // frame 43: rows bits 59:51
-    t12_q <= 47'(a1_q) * 47'(b2_q) + {1'b0, rows[54:9]};         // frame 60: rows bits 105:60
+    if (p_off) begin
+      t00_q <= '0; t01_q <= '0; t02_q <= '0; t10_q <= '0; t11_q <= '0; t12_q <= '0;
+    end else begin
+      t00_q <= 43'(a0_q) * 43'(b0_q);
+      t01_q <= 43'(a0_q) * 43'(b1_q);
+      t02_q <= 43'(a0_q) * 43'(b2_q);
+      t10_q <= 43'(a1_q) * 43'(b0_q);
+      t11_q <= 44'(a1_q) * 44'(b1_q) + {27'b0, rows[8:0], 8'b0};   // frame 43: rows bits 59:51
+      t12_q <= 47'(a1_q) * 47'(b2_q) + {1'b0, rows[54:9]};         // frame 60: rows bits 105:60
+    end
   end
 
   // Window placement: the window's bit 160 has weight 2^(ep + 56) unless the addend dominates
@@ -230,20 +240,20 @@ module tg_fpu_fma
     // normalising may not take the exponent below emin (double bias: 1 for D, 897 for S)
     c1x.lim = 14'($signed(c1x.e_top) - (c1_q.dbl ? 14'sd1 : 14'sd897));
   end
+  assign p_off = c1_q.cvt_i || c1x.prod_sticky;
 
   // Addend: mc at V[164:112], shifted right by sh; V[0] collects every bit at or below it.
   logic [VW-1:0] cal;
   tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh, .cal);
 
-  // FCVT.F.I: |x| (negating in E1, beside the alignment)
+  // FCVT.F.I: |x| (negating in E1, beside the alignment). x_q is zero for every other operation,
+  // and the aligned addend is zero for FCVT.F.I (it has none), so the two are ORed.
   logic [63:0] x_abs;
   assign x_abs = c1_q.sp ? -x_q : x_q;
 
-  logic [VW:0] cop_q;           // addend operand of the adder: C, ~C or |x| (166 bits)
+  logic [VW:0] cop_q;           // addend operand of the adder: C or |x| (166 bits)
   always_ff @(posedge clk) begin
-    if (c1_q.cvt_i)        cop_q <= {1'b0, x_abs, {(VW-64){1'b0}}};
-    else if (c1_q.eff_sub) cop_q <= ~{1'b0, cal};
-    else                   cop_q <= {1'b0, cal};
+    cop_q <= {1'b0, cal | {x_abs, {(VW-64){1'b0}}}};
     c2_q  <= c1x;
   end
 
@@ -255,18 +265,22 @@ module tg_fpu_fma
   logic          rsign;
   tg_fpu_fma_add #(.W(VW)) u_add (
     .t00(t00_q), .t01(t01_q), .t02(t02_q), .t10(t10_q), .t11(t11_q), .t12(t12_q),
-    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .prod_off(c2_q.cvt_i), .eff_sub(c2_q.eff_sub),
+    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .eff_sub(c2_q.eff_sub),
     .sp(c2_q.sp), .sc(c2_q.sc),
     .mag, .rsign
   );
 
-  // The marker bit that limits normalisation at emin, decoded here from lim (known since E1).
+  // The marker bit that limits normalisation at emin: V[164 - lim], decoded here from lim (known
+  // since E1) as the AND of a one-hot of lim[7:4] (zero unless 0 <= lim < 165) and one of lim[3:0].
   logic [VW-1:0] marker_d;
   logic          below_d;        // window entirely below the subnormal range
   always_comb begin
-    marker_d = '0;
-    below_d  = $signed(c2_q.lim) < 0;
-    if (!below_d && $signed(c2_q.lim) < 14'(VW)) marker_d[8'(VW-1) - c2_q.lim[7:0]] = 1'b1;
+    logic [10:0] mk_hi;
+    logic [15:0] mk_lo;
+    below_d = $signed(c2_q.lim) < 0;
+    mk_hi   = (!below_d && $signed(c2_q.lim) < 14'(VW)) ? 11'(1) << c2_q.lim[7:4] : '0;
+    mk_lo   = 16'(1) << c2_q.lim[3:0];
+    for (int k = 0; k < VW; k++) marker_d[k] = mk_hi[(VW-1-k) >> 4] && mk_lo[(VW-1-k) & 15];
   end
 
   logic [VW-1:0] mag_q, marker_q;
@@ -288,24 +302,26 @@ module tg_fpu_fma
   logic        nst;
   tg_fpu_fma_norm #(.W(VW), .K(55)) u_norm (.x(mag_q), .marker(marker_q), .lz, .n(nrm), .st(nst));
 
+  // Below the subnormal range the window holds a non-zero product (a window anchored at an
+  // addend or a zero product never lies below emin), so its sticky is 1. An exact zero
+  // (cancellation) is recognised in E4 as n = 0 with no sticky.
   logic [54:0] n_d, n_q;
-  logic        st_d, st_q, zero_d, zero_q;
+  logic        st_d, st_q;
   logic [13:0] eres_d, eres_q;   // signed, double bias
-  ctl_t        c4_q;
+  (* shreg_extract = "no" *) ctl_t c4_q;
   logic        rsign4_q;
   always_comb begin
     n_d    = below_q ? '0 : nrm;
-    st_d   = below_q ? (mag_q != '0) : nst;
-    zero_d = mag_q == '0;
+    st_d   = below_q || nst;
     eres_d = below_q ? (c3_q.dbl ? 14'sd1 : 14'sd897) : 14'($signed(c3_q.e_top) - $signed({6'b0, lz}));
   end
   if (STAGES == 5) begin : g_e3_reg
     always_ff @(posedge clk) begin
-      n_q <= n_d; st_q <= st_d; zero_q <= zero_d; eres_q <= eres_d;
+      n_q <= n_d; st_q <= st_d; eres_q <= eres_d;
       c4_q <= c3_q; rsign4_q <= rsign_q;
     end
   end else begin : g_e3_comb
-    assign n_q = n_d; assign st_q = st_d; assign zero_q = zero_d; assign eres_q = eres_d;
+    assign n_q = n_d; assign st_q = st_d; assign eres_q = eres_d;
     assign c4_q = c3_q; assign rsign4_q = rsign_q;
   end
 
@@ -314,12 +330,12 @@ module tg_fpu_fma
   // ------------------------------------------------------------------------------------------
   fpu_resp_t r;
   always_comb begin
-    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn;
+    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn, zero;
     logic signed [13:0] ef;      // exponent in the result format's bias
-    logic [62:0] pk_d;
-    logic [30:0] pk_s;
+    logic [62:0] pk_b, pk;
     logic [63:0] res;
     s = rsign4_q;
+    zero = (n_q == '0) && !st_q;
     if (c4_q.dbl) begin
       lsb = n_q[2]; g = n_q[1]; st = n_q[0] || st_q;
       tn_ones = &n_q[53:1]; gn = n_q[0]; sn = st_q;
@@ -334,20 +350,21 @@ module tg_fpu_fma
     // tiny after rounding: below 2^emin unless the normal-precision rounding reaches it
     tiny    = !n_q[54] && !(n_q[53] && tn_ones && round_up(c4_q.rm, s, 1'b1, gn, sn));
     // pack {exponent - 1 + hidden, fraction} + increment; a subnormal has exponent emin and no
-    // hidden bit, so its field becomes 0 (or 1 if it rounds up to 2^emin)
-    pk_d = ({49'b0, 14'(ef - 14'sd1)} << 52) + {10'b0, n_q[54:2]} + 63'(inc);
-    pk_s = ({17'b0, 14'(ef - 14'sd1)} << 23) + {7'b0, n_q[54:31]} + 31'(inc);
-    if (c4_q.dbl) ovf = (ef >= 14'sd2047) || (&pk_d[62:52]);
-    else          ovf = (ef >= 14'sd255) || (&pk_s[30:23]);
-    if (c4_q.dbl) res = {s, pk_d};
-    else          res = box_s({s, pk_s});
+    // hidden bit, so its field becomes 0 (or 1 if it rounds up to 2^emin). One adder serves both
+    // formats: an S result is bits 59:29 of the D layout, and below bit 29 its operand is all
+    // ones when rounding up, so the increment enters at bit 0 and carries into bit 29.
+    pk_b = {10'b0, n_q[54:31], c4_q.dbl ? n_q[30:2] : {29{inc}}};
+    pk   = ({49'b0, 14'(ef - 14'sd1)} << 52) + pk_b + 63'(inc);
+    if (c4_q.dbl) ovf = (ef >= 14'sd2047) || (&pk[62:52]);
+    else          ovf = (ef >= 14'sd255) || (&pk[59:52]);
+    res = c4_q.dbl ? {s, pk} : box_s({s, pk[59:29]});
     r.fflags = '0;
     r.int_dest = 1'b0;
     r.tag = c4_q.tag;
     if (c4_q.spec) begin
       r.result = c4_q.spec_res;
       r.fflags[FL_NV] = c4_q.spec_nv;
-    end else if (zero_q) begin
+    end else if (zero) begin
       // exact cancellation (sticky bits make any inexact difference non-zero)
       r.result = zero_value(c4_q.dbl, c4_q.rm == RM_RDN);
     end else if (ovf) begin
@@ -375,7 +392,7 @@ module tg_fpu_fma
 
   logic unused;
   assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim,
-                    ub_raw.sign, uc_raw, c4_q.e_top, c4_q.lim, c4_q.cvt_i, c3_q.cvt_i,
+                    ub_raw.sign, uc_raw, c4_q.e_top, c4_q.lim, c4_q.cvt_i, c3_q.cvt_i, c2_q.cvt_i,
                     c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky, c4_q.prod_zero, c4_q.c_zero,
                     c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,
                     c3_q.ec, c2_q.prod_zero, c2_q.c_zero, c2_q.ep, c2_q.shr, c2_q.ec, c2_q.lim,
