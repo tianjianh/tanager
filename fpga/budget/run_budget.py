@@ -2,7 +2,8 @@
 """Per-unit budget run (plan §8.5; fpga/budget/README.md).
 
 Synthesises every unit of units.tsv out of context in each of its configurations, one at a
-time through tools/vivado_run.sh, then compares LUTs, LUTRAM, FFs, DSP and block RAM with
+time through tools/vivado_run.sh (declaring each unit's memory: -mem N in units.tsv, default
+4 GB; synthesis runs with at most 2 processes), then compares LUTs, LUTRAM, FFs, DSP and block RAM with
 budgets.tsv and with the previous run, and runs the memory-primitive check.
 
   python3 -I fpga/budget/run_budget.py [--root R] [--out DIR] [--units a,b] [--cfgs c,d]
@@ -143,6 +144,11 @@ def main():
     for row in units:
         u, cfgs, top, files, gens = row[:5]
         opts = row[5].split() if len(row) > 5 and row[5] != "-" else []
+        mem = "4"
+        if "-mem" in opts:
+            i = opts.index("-mem")
+            mem = opts[i + 1]
+            del opts[i:i + 2]
         if want_u and u not in want_u and not top.startswith("@"):
             continue
         if top.startswith("@"):
@@ -161,7 +167,7 @@ def main():
         for c in cfgs.split(","):
             if want_c and c not in want_c:
                 continue
-            jobs.append(dict(unit=u, cfg=c, top=top, files=extra, opts=opts,
+            jobs.append(dict(unit=u, cfg=c, top=top, files=extra, opts=opts, mem=mem,
                              generics=[] if gens == "-" else gens.split(",")))
     print(f"budget run: {len(jobs)} syntheses at {commit}" +
           (f"; skipped: {', '.join(skipped)}" if skipped else ""), flush=True)
@@ -185,7 +191,9 @@ def main():
             cmd += ["-file", f]
         cmd += j["opts"]
         t0 = datetime.datetime.now()
-        rc = subprocess.run(cmd, cwd=root, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+        env = dict(os.environ, TANAGER_VIVADO_MEM_GB=j["mem"])   # declared memory (conventions §9)
+        rc = subprocess.run(cmd, cwd=root, env=env, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL).returncode
         summ = {}
         try:
             with open(os.path.join(rd, "summary.txt")) as f:
