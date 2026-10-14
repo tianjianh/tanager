@@ -230,3 +230,66 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - Micro-BTB, pre-decode and compaction: spike S5 (our RTL); block-based fetch: Reinman et al., ISCA 1999.
 - RISC-V semantics: the unprivileged ISA (20240411) and privileged spec (1.13); CSR WARL behaviour as Spike implements it (Spike used as a reference model, as allowed by plan §2.3).
 - No other core's RTL was read.
+
+## 16. History and lessons (core track)
+
+**Starting point (main d04ae26, 2026-10-13):**
+- **Scope:** the M2 core with the M3 features behind their switches.
+- **Size:** 82,549 LUTs at st, with the hierarchy kept (88K flattened), against the 38,220 budget.
+- **Where they went (area_synth.md §4):**
+  - LSU: 34.4K. The D$ took 13.2K, with its state and tags in flip-flops; each of the LD and STA PMP checkers took 3.1K.
+  - Front end: 16.9K, four PMP checkers among it.
+  - Rename: 11.9K.
+  - Execute: 8.5K.
+  - Issue: 5.1K.
+  - ROB: 2.7K.
+  - CSRs: 1.5K.
+  - Decode: 1.4K.
+- **PMP:** seven checkers at about 3.1K each made up a quarter of the core.
+
+**The area pass (2026-10-14).** None of these steps changed IPC: CoreMark's cycle counts were identical before and after each one.
+
+| Step | Commit | Measured |
+|---|---|---|
+| PMP results cached in the TLB entries (plan §4.10). Region descriptors are precomputed, and checks use a shared TOR compare. Four checkers remain (fetch block, LD, STA, walker), and the walker checks the page once at fill. | 8436f16, 7b19a3f | Each checker is about 0.87K instead of 3.1K: 3.5K for all four instead of 21.8K. Descriptors are computed one entry per cycle after a PMP write. |
+| D$ state in LUTRAM. The valid bits are apart because the load port reads only them. | 8436f16, 0226254 | D$ 13.2K → 3.5K |
+| Rename: producer info in the RAT instead of per-physical-register tables. The maps are in LUTRAM with live-value tables and versioned recovery (R3). | 621dd64, 69c9d7e | 11.9K → 3.1K, with no added recovery latency |
+| TLBs: no ASID tags, a 22-bit PPN, AND-OR lookup | 7311595 | DTLB 2.7K with two lookups |
+| LSU queues keep physical addresses; virtual addresses and store data live in LUTRAM (R7) | 362ace2 | — |
+| Issue-queue payload formats per port | 0226254, 82591f5 | Exact LUTRAM primitive counts; LD/STA offsets of 12 bits |
+| I$ valid bits in LUTRAM, cleared by a sweep | 5c9f6d0 | front end 6,137 → 5,254 |
+| Wakeup tags (AR-1): 16 tags plus the LLTs instead of ROB-index columns | b2e38b1 | st: 32 columns instead of 64 |
+
+- **Result:** 45,088 LUTs at st (82591f5, before AR-1; the AR-1 measurement is pending), and 58,269 at st_w3.
+- **Still over budget:**
+  - the LSU's own logic, about 7.8K;
+  - the D$ data, 32 BRAM36 at a quarter of their depth;
+  - rename, ROB and CSRs.
+- **Timing:** not yet measured on the full core after these changes. The cached PMP bits take the checkers off the AG and F1 paths. The LUTRAM RAT adds a read level in RN.
+
+**What the first cut did that cost area, and why:**
+- The PMP checkers were written straight from the specification. Each derived the NAPOT mask from `pmpaddr` per entry and per access, and there were seven of them.
+- Per-physical-register tables (producer ID, 1-cycle flag, MX row) with 2W read ports: they were the simplest way to name producers.
+- Flip-flop arrays for the cache state, the TLB fields, and the LSU's 64-bit virtual addresses and store data: easy flash clears and simple reads.
+- One ~400-bit payload for every issue queue.
+- The spike's ROB-index wakeup columns, so the window size set the scheduler's width.
+
+**What I'd write differently from the first commit:**
+- Start from the per-unit budgets and plan §8.3 (storage in LUTRAM or block RAM).
+- Compute anything derived from CSRs at write time.
+- Give each storage structure exactly the bits its readers use.
+- Measure each module with the hierarchy kept from the first synthesis.
+
+**Bugs and incidents:**
+- **I$ refill race (soc track, Linux on `tanager_soc`, fixed in b5e11f4).**
+  - **What went wrong:** the refill rewrote a victim way that still looked valid under its old tag, so a fetch after a redirect executed another line's bytes.
+  - **Why lockstep missed it:** the riscv-tests, CoreMark and the random programs fit in the 32 KiB I$, so they never evicted lines this way.
+  - **What guards it now:** an assertion built from the soc track's probe.
+  - **Lesson:** long boots exercise eviction paths that the suites do not.
+- **Build-host stall (2026-10-14, 03:30–04:01).**
+  - **What happened:** a whole-core budget synthesis from this branch ran the old `tools/vivado_run.sh`, with 3 slots and no memory declaration. Its 7 worker processes (about 10 GB) ran beside two full-device runs, and the host thrashed for 31 minutes.
+  - **Fix:** merge main before heavy jobs, and declare `TANAGER_VIVADO_MEM_GB=10` for core syntheses.
+
+**Dead ends:**
+- My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
+- A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
