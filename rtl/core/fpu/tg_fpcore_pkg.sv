@@ -1,31 +1,20 @@
 // FP back end, core side (docs/spec/fpu.md, "Core integration (P4 back end)"): the issue payload
-// of port P4, FP register tags, the record handed to the core's bank-1 arbiter, and helpers for
-// the load path and decode. Owned by the FPU track; compiled after tg_core_pkg
-// (rtl/core/fpu/fpu_be.f).
+// of port P4, the record handed to the core's bank-1 arbiter, and helpers for the load path and
+// decode. FP register tags ({bank, index} in preg_t's low bits: FPIDX_W, fpreg_bank(),
+// fpreg_idx(), mk_fpreg()) are the core's, in tg_core_pkg. Owned by the FPU track; compiled after
+// tg_core_pkg (rtl/core/fpu/fpu_be.f).
 package tg_fpcore_pkg;
   import tg_pkg::*;
   import tg_core_pkg::*;
   import tg_fpu_pkg::*;
 
-  localparam int FPIDX_W = idx_w(FP_PREGS_PER_BANK);
   localparam int FPTAG_W = FPIDX_W + 1;               // {bank, index}; F0 = 0, F1 = 1
-
-  // FP register tags travel in the low bits of preg_t fields, next to the flag that says which
-  // file they name (the core's F/D convention); the bits above the tag are not read.
-  /* verilator lint_off UNUSEDSIGNAL */
-  function automatic logic fpreg_bank(input preg_t p);
-    return p[FPIDX_W];
-  endfunction
-  function automatic logic [FPIDX_W-1:0] fpreg_idx(input preg_t p);
-    return p[FPIDX_W-1:0];
-  endfunction
-  /* verilator lint_on UNUSEDSIGNAL */
 
   // The P4 issue payload: the fields of the core's iq_pl_t that P4 uses.
   typedef struct packed {
     tid_t     tid;
     robid_t   rob;
-    wid_t     wid;         // own wakeup ID: ROB index (FMA, FMISC FP result) or LLT column
+    wid_t     wid;         // own wakeup column: a tag (FMA, FMISC FP result) or an LLT's
     llt_t     llt;         // FDIV and integer-destination operations
     logic     dst_en;      // 0 only for an integer destination x0
     preg_t    dst;         // FP tag (always F0) or, with fp_int, an integer preg in bank B1

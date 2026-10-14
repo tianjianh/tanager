@@ -33,6 +33,7 @@ module tg_rob
   input  logic                         oth_cmp,
   input  robid_t                       oth_rob,
   input  logic                         oth_exc,
+  input  logic [4:0]                   oth_fflags,   // FP->int results (EXT_FD)
   input  logic [63:0]                  oth_tval,
   input  logic                         br_valid,
   input  robid_t                       br_rob,
@@ -40,6 +41,9 @@ module tg_rob
   input  logic [63:0]                  br_npc,
   input  logic                         br_exc,
   input  logic [63:0]                  br_tval,
+  input  logic                         fp_cmp,       // P4's F0 results (EXT_FD)
+  input  robid_t                       fp_cmp_rob,
+  input  logic [4:0]                   fp_cmp_fflags,
   input  logic                         ld_cmp,
   input  robid_t                       ld_rob,
   input  logic                         ld_mmio,
@@ -63,6 +67,8 @@ module tg_rob
   // To rename
   output logic [CW-1:0]                cm_valid,
   output logic [CW-1:0]                cm_rd_en,
+  output logic [CW-1:0]                cm_rd_fp,     // rd is an f register (EXT_FD)
+  output logic [CW-1:0][4:0]           cm_fflags,    // the retiring FP op's exception flags
   output logic [CW-1:0][4:0]           cm_rd,
   output preg_t [CW-1:0]               cm_dst,
   output preg_t [CW-1:0]               cm_old,
@@ -77,8 +83,6 @@ module tg_rob
   // Trace register reads
   output preg_t [CW-1:0]               tr_tag,
   input  logic [CW-1:0][63:0]          tr_data,
-  // Retired IDs (registered): clear their dependency-vector columns
-  output logic [NCOL-1:0]              col_clr,
   // CSR file
   output logic                         cm_csr,
   output logic [NCW-1:0]               cm_n,
@@ -113,6 +117,7 @@ module tg_rob
   robid_t head_q, tail_q;
   assign head_o = head_q;
   logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q, tlb_q;
+  logic [ROB_ENTRIES-1:0][4:0] ff_q;              // FP exception flags (EXT_FD)
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -139,6 +144,8 @@ module tg_rob
       dpl[k].tid        = ds_uop[k].tid;
       dpl[k].rd_en      = ds_uop[k].d.rd_en;
       dpl[k].rd         = ds_uop[k].d.rd;
+      dpl[k].rd_fp      = EXT_FD && ds_uop[k].d.rd_fp;
+      dpl[k].is_fp      = EXT_FD && ds_uop[k].d.cls == C_FP;
       dpl[k].dst        = ds_ren[k].dst;
       dpl[k].old        = ds_ren[k].old;
       dpl[k].is_ld      = ds_uop[k].d.cls == C_LD;
@@ -297,6 +304,8 @@ module tg_rob
     for (int j = 0; j < CW; j++) begin
       cm_valid[j] = ret[j];
       cm_rd_en[j] = ret[j] && hp[j].rd_en;
+      cm_rd_fp[j] = hp[j].rd_fp;
+      cm_fflags[j] = (EXT_FD && hp[j].is_fp) ? ff_q[hid[j][RIW-1:0]] : '0;
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
@@ -345,6 +354,7 @@ module tg_rob
       end else begin
         rec[j].kind     = TR_RETIRE;
         rec[j].rd_we    = hp[j].rd_en;
+        rec[j].rd_fp    = hp[j].rd_fp;
         rec[j].rd       = hp[j].rd;
         rec[j].rd_value = hp[j].rd_en ? tr_data[j] : '0;
         rec[j].mem_st   = hp[j].is_st && tr_st_wr[j];     // not LR or a failed SC
@@ -396,15 +406,12 @@ module tg_rob
       icinv    <= 1'b0;
       exr_v_q  <= 1'b0;
       mpr_v_q  <= 1'b0;
-      col_clr  <= '0;
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
       flush     <= do_flush;
       flush_pc  <= use_tt ? trap_target : nf_pc;
       icinv     <= do_icinv;
       head_q    <= rob_add(head_q, int'(cm_n));
-      col_clr   <= '0;
-      for (int j = 0; j < CW; j++) if (ret[j]) col_clr[hid[j][RIW-1:0]] <= 1'b1;
 
       if (flush) begin
         tail_q  <= head_q;
@@ -430,6 +437,11 @@ module tg_rob
         if (oth_cmp) begin
           cmp_q[oth_rob[RIW-1:0]] <= 1'b1;
           if (oth_exc) exc_q[oth_rob[RIW-1:0]] <= 1'b1;
+          if (EXT_FD)  ff_q[oth_rob[RIW-1:0]]  <= oth_fflags;
+        end
+        if (EXT_FD && fp_cmp) begin
+          cmp_q[fp_cmp_rob[RIW-1:0]] <= 1'b1;
+          ff_q[fp_cmp_rob[RIW-1:0]]  <= fp_cmp_fflags;
         end
         if (br_valid) begin
           if (br_exc)       exc_q[br_rob[RIW-1:0]] <= 1'b1;
@@ -470,7 +482,7 @@ module tg_rob
   logic unused;
   assign unused = ^{hp[0].tid, hp[0].is_br, hp[0].lq, hp[CW-1].tid, hp[CW-1].is_br, hp[CW-1].lq,
                     ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob, oth_rob[ROBW-1], tlbm_rob,
-                    br_rob[ROBW-1], lx_rob};
+                    br_rob[ROBW-1], lx_rob, fp_cmp_rob[ROBW-1]};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

@@ -375,8 +375,8 @@ The core track runs it for `st` and `st_w3` before each merge request (conventio
 ### 4.4 Soak (`tools/ci/soak.sh`)
 
 A continuous random campaign on main that uses the build host's idle threads (conventions §9). Its findings never gate a merge.
-- **Each round** runs constrained-random programs (`rv64imac`, §6.2) on the real core in `st`, `st_w3`, `smt2` and `smt2_w3` at once:
-  - every M3 switch of `tg_core_pkg` is on, as the core track tests them, and Spike uses the M3 configuration (§3.2, without F/D);
+- **Each round** runs constrained-random programs (§6.2) on the real core in `st`, `st_w3`, `smt2` and `smt2_w3` at once:
+  - every extension switch of `tg_core_pkg` (`EXT_*`) is on, as the core track tests them. Spike uses the M3 configuration (§3.2). Once the core has `EXT_FD`, Spike's ISA adds `f` and `d` and the programs are `rv64gc`, with the F/D templates; before that they are `rv64imac`;
   - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes), and a third also stall the trace (§2.9);
   - timer interrupts are on in every other round;
   - 48 programs per configuration per round, with new seeds each time.

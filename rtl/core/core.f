@@ -2,6 +2,7 @@
 -F fpu/fpu.f
 exec/tg_alu_pkg.sv
 tg_core_pkg.sv
+-F fpu/fpu_be.f
 mmu/tg_tlb.sv
 mmu/tg_pmp.sv
 mmu/tg_ptw.sv
@@ -13,6 +14,7 @@ decode/tg_rvc.sv
 decode/tg_decode.sv
 decode/tg_decode_stage.sv
 rename/tg_freelist.sv
+rename/tg_rmap.sv
 rename/tg_rename.sv
 issue/tg_iq.sv
 issue/tg_wake.sv

@@ -1,10 +1,12 @@
 // One instruction decoder (docs/spec/core-pipeline.md §4): RV64IM, Zicsr, Zifencei, the system
-// instructions, and (with their switches) A, Zba/Zbb/Zbs/Zicond. Combinational. A compressed
+// instructions, and (with their switches) A, F/D, Zba/Zbb/Zbs/Zicond. F and D follow Spike:
+// legal only with misa.F (and misa.D for D) and mstatus.FS != Off; a rounding mode of 5 or 6,
+// or DYN while frm >= 5, is illegal in the instructions that round. Combinational. A compressed
 // instruction arrives already expanded by tg_rvc (len2 set: the link value is PC + 2);
 // misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the branch
 // and JAL targets) are computed here, so execute never adds the PC.
 module tg_decode
-  import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
+  import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 (
   input  logic [63:0] pc,
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
@@ -16,14 +18,27 @@ module tg_decode
   input  logic        misa_m,
   input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
   input  logic        misa_a,     // atomics (with EXT_A)
+  input  logic        misa_f,     // F and D (with EXT_FD)
+  input  logic        misa_d,
+  input  logic [1:0]  fs,         // mstatus.FS
+  input  logic [2:0]  frm,
   input  priv_e       priv,       // current mode (stable: mode changes end in a flush)
   input  logic        tvm,
   input  logic        tw,
   input  logic        tsr,
   output dec_t        d
 );
-  logic xb;
+  logic xb, xf, xd;
   assign xb = EXT_B && misa_b;
+  assign xf = EXT_FD && misa_f && fs != 2'd0;
+  assign xd = xf && misa_d;
+  // A format the configuration has: S with F, D with D
+  function automatic logic fmt_ok(input logic [1:0] f, input logic hf, input logic hd);
+    return (f == 2'd0 && hf) || (f == 2'd1 && hd);
+  endfunction
+  // A rounding mode the instruction may use (frm for DYN); Spike's RM macro
+  logic [2:0] rm_eff;
+  assign rm_eff = (insn[14:12] == 3'd7) ? frm : insn[14:12];
   logic [6:0] op;
   logic [2:0] f3;
   logic [6:0] f7;
@@ -91,6 +106,85 @@ module tg_decode
         7'b0100011: begin                                  // stores
           if (f3[2]) ill = 1'b1;
           d.cls = C_ST; d.rs1_en = 1'b1; d.rs2_en = 1'b1; d.imm = imm_s;
+        end
+        7'b0000111: begin                                  // FLW, FLD
+          d.cls = C_LD; d.rs1_en = 1'b1; d.rd_en = 1'b1; d.rd_fp = 1'b1; d.imm = imm_i;
+          if (!((f3 == 3'd2 && xf) || (f3 == 3'd3 && xd))) ill = 1'b1;
+        end
+        7'b0100111: begin                                  // FSW, FSD
+          d.cls = C_ST; d.rs1_en = 1'b1; d.rs2_en = 1'b1; d.rs2_fp = 1'b1; d.imm = imm_s;
+          if (!((f3 == 3'd2 && xf) || (f3 == 3'd3 && xd))) ill = 1'b1;
+        end
+        7'b1000011, 7'b1000111, 7'b1001011, 7'b1001111: begin   // FMADD, FMSUB, FNMSUB, FNMADD
+          d.cls = C_FP; d.rd_en = 1'b1; d.rd_fp = 1'b1;
+          d.rs1_en = 1'b1; d.rs1_fp = 1'b1; d.rs2_en = 1'b1; d.rs2_fp = 1'b1;
+          d.rs3_en = 1'b1; d.rs3 = insn[31:27];
+          d.fmt = ffmt_e'(insn[26:25]); d.rm = rm_e'(rm_eff);
+          unique case (op[3:2])
+            2'b00:   d.fop = FOP_FMADD;
+            2'b01:   d.fop = FOP_FMSUB;
+            2'b10:   d.fop = FOP_FNMSUB;
+            default: d.fop = FOP_FNMADD;
+          endcase
+          if (!fmt_ok(insn[26:25], xf, xd) || rm_eff > 3'd4) ill = 1'b1;
+        end
+        7'b1010011: begin                                  // OP-FP
+          logic rnd;                                       // uses the rounding mode
+          d.cls = C_FP; d.rd_en = 1'b1; d.rd_fp = 1'b1;
+          d.rs1_en = 1'b1; d.rs1_fp = 1'b1; d.rs2_en = 1'b1; d.rs2_fp = 1'b1;
+          d.fmt = ffmt_e'(insn[26:25]); d.rm = rm_e'(rm_eff);
+          d.ifmt = ifmt_e'(insn[21:20]);
+          rnd = 1'b0;
+          if (!fmt_ok(insn[26:25], xf, xd)) ill = 1'b1;
+          unique case (insn[31:27])
+            5'b00000: begin d.fop = FOP_FADD; rnd = 1'b1; end
+            5'b00001: begin d.fop = FOP_FSUB; rnd = 1'b1; end
+            5'b00010: begin d.fop = FOP_FMUL; rnd = 1'b1; end
+            5'b00011: begin d.fop = FOP_FDIV; rnd = 1'b1; d.fp_div = 1'b1; end
+            5'b01011: begin                                // FSQRT
+              d.fop = FOP_FSQRT; rnd = 1'b1; d.fp_div = 1'b1; d.rs2_en = 1'b0;
+              if (insn[24:20] != 5'd0) ill = 1'b1;
+            end
+            5'b00100: begin                                // FSGNJ, FSGNJN, FSGNJX
+              d.fop = (f3 == 3'd0) ? FOP_FSGNJ : (f3 == 3'd1) ? FOP_FSGNJN : FOP_FSGNJX;
+              if (f3 > 3'd2) ill = 1'b1;
+            end
+            5'b00101: begin                                // FMIN, FMAX
+              d.fop = f3[0] ? FOP_FMAX : FOP_FMIN;
+              if (f3 > 3'd1) ill = 1'b1;
+            end
+            5'b01000: begin                                // FCVT.S.D, FCVT.D.S
+              d.fop = FOP_FCVT_F_F; rnd = 1'b1; d.rs2_en = 1'b0;
+              d.src_fmt = ffmt_e'(insn[21:20]);
+              if (insn[24:22] != 3'd0 || insn[21:20] == insn[26:25] || !fmt_ok(insn[21:20], xf, xd))
+                ill = 1'b1;
+            end
+            5'b10100: begin                                // FLE, FLT, FEQ
+              d.fop = (f3 == 3'd0) ? FOP_FLE : (f3 == 3'd1) ? FOP_FLT : FOP_FEQ;
+              d.rd_fp = 1'b0; d.fp_int = 1'b1;
+              if (f3 > 3'd2) ill = 1'b1;
+            end
+            5'b11000: begin                                // FCVT.W/WU/L/LU.fmt
+              d.fop = FOP_FCVT_I_F; rnd = 1'b1; d.rs2_en = 1'b0;
+              d.rd_fp = 1'b0; d.fp_int = 1'b1;
+              if (insn[24:22] != 3'd0) ill = 1'b1;
+            end
+            5'b11010: begin                                // FCVT.fmt.W/WU/L/LU
+              d.fop = FOP_FCVT_F_I; rnd = 1'b1; d.rs2_en = 1'b0; d.rs1_fp = 1'b0;
+              if (insn[24:22] != 3'd0) ill = 1'b1;
+            end
+            5'b11100: begin                                // FMV.X.W/D, FCLASS
+              d.fop = (f3 == 3'd0) ? FOP_FMV_X_F : FOP_FCLASS; d.rs2_en = 1'b0;
+              d.rd_fp = 1'b0; d.fp_int = 1'b1;
+              if (insn[24:20] != 5'd0 || f3 > 3'd1) ill = 1'b1;
+            end
+            5'b11110: begin                                // FMV.W.X, FMV.D.X
+              d.fop = FOP_FMV_F_X; d.rs2_en = 1'b0; d.rs1_fp = 1'b0;
+              if (insn[24:20] != 5'd0 || f3 != 3'd0) ill = 1'b1;
+            end
+            default: ill = 1'b1;
+          endcase
+          if (rnd && rm_eff > 3'd4) ill = 1'b1;
         end
         7'b0101111: begin                                  // AMO: LR, SC, AMO*.W/D
           d.cls = C_ST; d.amo = 1'b1; d.amo_op = insn[31:27]; d.serial = 1'b1;
@@ -259,9 +353,9 @@ module tg_decode
       endcase
     end
 
-    if (d.rd == 5'd0) d.rd_en = 1'b0;
-    if (d.rs1 == 5'd0) d.rs1_en = 1'b0;
-    if (d.rs2 == 5'd0) d.rs2_en = 1'b0;
+    if (d.rd == 5'd0 && !d.rd_fp) d.rd_en = 1'b0;       // f0 is a register
+    if (d.rs1 == 5'd0 && !d.rs1_fp) d.rs1_en = 1'b0;
+    if (d.rs2 == 5'd0 && !d.rs2_fp) d.rs2_en = 1'b0;
 
     if (fault) begin
       d = '0;
