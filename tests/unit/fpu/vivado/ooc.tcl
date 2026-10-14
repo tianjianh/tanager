@@ -4,6 +4,7 @@
 # Writes utilisation and timing reports into the run directory; no checkpoints are kept.
 # With TG_OOC_HIER=1 in the environment it only synthesises, keeping the module hierarchy, and
 # reports utilisation per module (util_hier_synth.rpt): a breakdown, not a result.
+# TG_OOC_DIRECTIVE=<name> passes -directive <name> to synth_design (e.g. AreaOptimized_high).
 # Inputs are constrained to arrive 1.5 ns after the clock (the core's operand bypass in front of
 # the FPU); outputs leave from registers and must reach the core's writeback within 1.0 ns.
 lassign $argv root cfg top period defines generics
@@ -15,6 +16,9 @@ tg_read_rtl $root $cfg
 set hier [expr {[info exists ::env(TG_OOC_HIER)] && $::env(TG_OOC_HIER) eq "1"}]
 set opts [list -top $top -part $part -mode out_of_context \
   -flatten_hierarchy [expr {$hier ? "none" : "rebuilt"}]]
+if {[info exists ::env(TG_OOC_DIRECTIVE)] && $::env(TG_OOC_DIRECTIVE) ne ""} {
+  lappend opts -directive $::env(TG_OOC_DIRECTIVE)
+}
 set vdefs {}
 foreach d [split $defines ","] { if {$d ne ""} { lappend vdefs $d } }
 if {[llength $vdefs]} { lappend opts -verilog_define $vdefs }
