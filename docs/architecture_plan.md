@@ -1212,12 +1212,20 @@ Durations are wall-clock estimates for an **agent-built** project (D8): Claude a
 | **M2 Core alpha (sim, ST)** | RV64IM, M-mode, single-thread bring-up (`st`). Conservative out-of-order: commit-time recovery, wakeup on confirmed hits, a simple predictor behind the FTQ, 1-MSHR D$. **TID, LLT and deferred-free plumbing in place; width-generic front end, rename, dispatch and commit (§4.15).** | riscv-tests and CoreMark/Dhrystone pass in lockstep, **in both the 2-wide and 3-wide builds** | **Done 2026-10-14.** Lockstep passes in all four configurations. `st`: CoreMark 3.04 / 2.88 CM/MHz (flag sets A/B), Dhrystone 1.66 DMIPS/MHz, from the conservative M2 core; M6 adds the performance features. First synthesis: 88K LUTs against a 38K budget, so an area pass comes first (D18). |
 | **M3 Linux-capable (sim)** | A, C, privileged modes, Sv39, PMP, ACLINT, PLIC, UART, boot ROM, Zba/Zbb/Zbs/Zicond/Sstc. **F/D integration moves here from M5 (2026-10-13):** the FPU units are already built and verified, and with F/D in place the board runs the same `lp64d` image as QEMU, with no soft-float userland. | ACT4 passes, including F/D; OpenSBI and Buildroot (`lp64d`) reach a shell in Verilator | 1–2 weeks. **Progress 2026-10-14:** A, C, S/U, Sv39, PMP and interrupts built behind switches; riscv-tests 280/280 and ACT4 rv64imac 355/355 pass. **F and D are in the core (2026-10-14), on by default.** In lockstep with Spike, in all four configurations: ACT4 rv64imafdc 895/895, riscv-tests 284/284 (with rv64uf/ud), and random rv64gc programs. **Next:** OpenSBI and Buildroot (`lp64d`) to a shell in Verilator. |
 | **M4 KV260 single core** | KV260 top, simple single-agent L2, `tanager-host`, commit-trace streaming, **latency injector** | Linux on hardware at ≥ 100 MHz; FPGA lockstep; Linux boots at 0 and 250 injected cycles | About 1 week; board work starts during M3 |
-| **M5 Debian** | virtio-blk, coherence model (F/D moved into M3) | Debian 13 boots; SPEC-like workloads run | About 1 week after M4 |
+| **M5 Debian** | virtio-blk served by the ARM (interim), then the PS peripherals driven by the RISC-V with the ARM parked (board stage D, DR-126); coherence model (F/D moved into M3) | Debian 13 boots; SPEC-like workloads run | About 1 week after M4 |
 | **M6 Performance (ST)** | Micro-BTB (64), TAGE-lite (4 × 4K), RAS repair, 4 checkpoints, speculative wakeup with replay, early retirement, 16 MSHRs, early ownership prefetch, I$/stride/stream prefetchers, Goldschmidt divide/sqrt; 200 MHz single core; synthesis of all four configurations (`st`, `smt2`, `st_w3`, `smt2_w3`) against their LUT budgets (§8.5) | All single-thread §0 targets at all latency points (via the injector); model correlation within 10% | 2–4 weeks; 200 MHz timing closure is the long pole |
 | **M7 SMT2** | `TID_W = 1` with the §6.5 configuration: second hart, per-thread partitions and caps, ICOUNT fetch, second CSR file and counters, TID-scoped flush and memory ordering, run-time SMT-off. Per-hart lockstep; random tests aimed at sibling interactions. | Linux on 2 harts of one core; weighted throughput ≥ 1.3× ST at all latency points; SMT-off mode works; litmus with sibling harts clean | 1–2 weeks |
 | **M8 Dual core** | Coherent L2, coherent I$ refills, LR/SC forward progress, SMP Linux on 4 harts | SMP Debian on 2 cores × 2 harts; litmus suite clean at 3 latencies; 72-hour stress clean; ≥ 150 MHz (goal 200); LUTs ≤ ~80% (§8.5) | 2–3 weeks, including the 72-hour stress run |
 | **M9 Hardening** | Sscofpmf/perf, Svpbmt, Zicbo*, misaligned hardware, store sets, indirect predictor, virtio-net, debug module with OpenOCD, documentation | **v1 release: the SMT2 dual-core** | About 1 week; parts run in parallel with M8 |
 | **M10 v2: 3-wide on the SMT2 core** | `smt2_w3` (§4.15) with its own freeze by the acceptance rule; the `st_w3` bring-up stage first; v2 area-recovery levers (§8.5) | CoreMark/MHz ≥ 6.0 on rv64gc; v2 suite targets; dual-core within the measured utilisation limit on the XCK26 (85–90%, §8.5), ≥ 150 MHz | After v1; about 1–2 months |
+
+**Board stages (user, 2026-10-14; DR-126).**
+- **The connection:** the KV260 hangs off the laptop by a direct Ethernet cable with shared networking, and a PMOD UART on the PL is the RISC-V debug console. The 5950X builds; the laptop runs board work.
+- **The stages:**
+  - **A:** the ARM side up (Kria Ubuntu, the `mem=3G` carve-out, the SMMU check, spike S1).
+  - **B:** the RISC-V core: the traffic-generator bitstream, then the real core booting Linux (M4).
+  - **C:** the board's peripherals bridged to the RISC-V side, with virtio-blk through the ARM as the interim.
+  - **D:** dual boot. The ARM and the RISC-V each have a partition on the SD card. Once the ARM has booted, it can hand everything to the RISC-V, which drives the PS's SD, Ethernet, USB and UART directly, and park.
 
 **Total.** About 3 months to the v1 release (10–18 weeks). Linux runs on the board after about 4–6 weeks, and the single-thread core reaches 200 MHz (M6) after about 2 months. These are first estimates. Re-estimate after M2 with measured rates, as the model was calibrated in M1.
 
@@ -1276,9 +1284,9 @@ The plan assumes the defaults below; say if any should change.
 | D4 | v1 ISA scope | RV64GC + Sv39 + §4.1 extensions; no RVA23 | V in a release after v2 |
 | D5 | L2 size | **1 MiB** (UltraRAM is otherwise unused) | 512 KiB if timing or placement fails |
 | D6 | Multithreading path | **SMT2 in the first release (D16)**; hooks from the first commit | A CMT experiment |
-| D7 | Licence | Apache-2.0 or Solderpad 2.1 | MIT; proprietary |
+| D7 | Licence | **Solderpad 2.1 for the hardware, Apache-2.0 for the software (user, 2026-10-14)** | MIT; proprietary; Apache-2.0 for everything |
 | D8 | Team and timeline | **Agent-built (2026-10-13): Linux on the board in about 4–6 weeks, v1 in about 3 months (§11); re-estimated after M2** | A faster build machine to shorten M6–M8 |
-| D9 | Name | Tanager | Any |
+| D9 | Name | **Tanager (user, 2026-10-14)** | Any |
 | D10 | Latency points and rule | **Native, 90, 120 (decision point) and 250 (stress) cycles, with the acceptance rule** (decided 2026-10-12) | Other values if a specific future platform is chosen; a different acceptance ratio |
 | D11 | CoreMark target | **CoreMark/MHz ≥ 1.21× the NaxRiscv control on identical binaries, for each flag set** (decided 2026-10-13). 6.0 on rv64gc is the 3-wide version's target. | ≥ 6.0 on rv64gcb with pair-decode fusion; 6.0 on rv64gc for v1, which would need 3-wide now |
 | D12 | v1 parameter freeze | **M1 freeze, approved 2026-10-13** (§4.14, ledger) | Re-judge exceptions E1–E5 at M5 |

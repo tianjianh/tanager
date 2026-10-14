@@ -63,6 +63,12 @@ module tg_core
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
   input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
 );
+  // DR-120: pma_of's region tests are prefix matches only while every region in tg_map_pkg is a
+  // naturally aligned power of two; an unaligned one falls back to the range test (~0.13K LUTs
+  // per instance), so it is reported here rather than costing area silently
+  if (!tg_map_pkg::map_prefix_only()) begin : g_map_unaligned
+    $warning("tg_map_pkg: a region is not a naturally aligned power of two; pma_of uses the range test");
+  end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -277,7 +283,6 @@ module tg_core
   logic [3:0]       lx_valid;
   robid_t [3:0]     lx_rob;
   logic [3:0][3:0]  lx_cause;
-  logic [3:0][63:0] lx_tval;
   logic [NCW-1:0]   cm_nld, cm_nst;
   sqid_t [CW-1:0]   tr_sq;
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
@@ -286,9 +291,9 @@ module tg_core
   logic                rsv_clr;           // trap or xRET: the LR reservation ends
   logic [1:0]          tlbm_valid;
   robid_t [1:0]        tlbm_rob;
-  logic                hd_retry, hd_fault;
+  logic                hd_tlb, hd_retry, hd_fault;
   logic [3:0]          hd_cause;
-  logic [63:0]         hd_tval;
+  logic [63:0]         hd_lva, hd_sva;
   tg_lsu u_lsu (
     .clk, .rst, .ready(lsu_ready), .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
@@ -298,11 +303,11 @@ module tg_core
     .fld_single, .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
-    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
+    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
-    .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
+    .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
@@ -334,8 +339,8 @@ module tg_core
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
-    .lx_valid, .lx_rob, .lx_cause, .lx_tval, .replay_valid, .replay_rob,
-    .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
+    .lx_valid, .lx_rob, .lx_cause, .replay_valid, .replay_rob,
+    .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data,

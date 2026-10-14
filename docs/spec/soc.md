@@ -235,6 +235,9 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
   - The SoC run with the test core overflowed a lane at 2 ×.
   - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
 
+**From other tracks:**
+- **2026-10-14, core track (DR-120):** `tg_map_pkg::pma_of` matches its naturally aligned power-of-two regions by prefix: 10 LUTs per instance instead of 136 and 17 CARRY8, with identical results for every address. `tg_xbar`'s address decode uses it too. The range test is kept for any unaligned region, and `tg_core` warns at elaboration if one appears.
+
 **Lessons:**
 - **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
 - **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.

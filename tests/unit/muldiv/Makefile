@@ -9,8 +9,9 @@ N      ?= 20000
 CFG    ?= st
 CFGS   := st smt2 st_w3 smt2_w3
 OBJ    ?= $(or $(TANAGER_BUILD),$(HOME)/tanager-build)/$(notdir $(ROOT))/unit_muldiv
-PKGS   := $(ROOT)/rtl/common/tg_pkg.sv $(ROOT)/rtl/core/exec/tg_alu_pkg.sv $(ROOT)/rtl/core/tg_core_pkg.sv
-RTL    := $(ROOT)/rtl/common/prim/tg_fifo.sv $(ROOT)/rtl/core/exec/tg_mul.sv $(ROOT)/rtl/core/exec/tg_div.sv
+PKGS   := $(ROOT)/rtl/common/tg_pkg.sv $(ROOT)/rtl/common/tg_fpu_pkg.sv $(ROOT)/rtl/core/exec/tg_alu_pkg.sv \
+          $(ROOT)/rtl/core/tg_core_pkg.sv
+RTL    := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_fifo.sv $(ROOT)/rtl/core/exec/tg_mul.sv $(ROOT)/rtl/core/exec/tg_div.sv
 VFLAGS := --binary --timing --assert -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
           -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -j 8 -I$(ROOT)/rtl/common
 # rtl/lint.vlt plus lint.vlt here (package items these two units do not use)

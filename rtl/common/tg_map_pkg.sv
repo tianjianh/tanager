@@ -22,15 +22,32 @@ package tg_map_pkg;
     PMA_DEVICE = 2'd3   // I/O: uncached, non-idempotent, no speculation, no AMO/LR/SC
   } pma_e;
 
+  // a in [base, base + size). For a naturally aligned power-of-two region, which every region
+  // above is, that is a match of the address bits above the size (DR-120: 10 LUTs per pma_of
+  // instead of 136 and 17 CARRY8 for the subtract-and-compare). Any other region keeps the
+  // range test. The choice folds at elaboration, since base and size are constants.
+  function automatic logic rg_al(input paddr_t base, input paddr_t size);   // naturally aligned 2^n
+    return (size & (size - paddr_t'(1))) == '0 && (base & (size - paddr_t'(1))) == '0;
+  endfunction
+  function automatic logic in_rg(input paddr_t a, input paddr_t base, input paddr_t size);
+    if (rg_al(base, size)) return ((a ^ base) & ~(size - paddr_t'(1))) == '0;
+    return a >= base && a - base < size;
+  endfunction
+  // Every region takes the prefix match. tg_core checks this at elaboration, so a future
+  // unaligned region shows up as a warning instead of a silently slower pma_of.
+  function automatic logic map_prefix_only();
+    return rg_al(DRAM_BASE, DRAM_SIZE_MAX) && rg_al(BOOTROM_BASE, BOOTROM_SIZE) &&
+           rg_al(ACLINT_BASE, ACLINT_SIZE) && rg_al(PLIC_BASE, PLIC_SIZE) &&
+           rg_al(UART_BASE, UART_SIZE) && rg_al(HOSTCTL_BASE, HOSTCTL_SIZE) &&
+           rg_al(VIRTIO_BASE, VIRTIO_SIZE) && rg_al(DEBUG_BASE, DEBUG_SIZE);
+  endfunction
+
   function automatic pma_e pma_of(input paddr_t a);
-    if (a >= DRAM_BASE && a - DRAM_BASE < DRAM_SIZE_MAX)          return PMA_MEM;
-    if (a >= BOOTROM_BASE && a - BOOTROM_BASE < BOOTROM_SIZE)     return PMA_ROM;
-    if ((a >= ACLINT_BASE  && a - ACLINT_BASE  < ACLINT_SIZE)  ||
-        (a >= PLIC_BASE    && a - PLIC_BASE    < PLIC_SIZE)    ||
-        (a >= UART_BASE    && a - UART_BASE    < UART_SIZE)    ||
-        (a >= HOSTCTL_BASE && a - HOSTCTL_BASE < HOSTCTL_SIZE) ||
-        (a >= VIRTIO_BASE  && a - VIRTIO_BASE  < VIRTIO_SIZE)  ||
-        (a >= DEBUG_BASE   && a - DEBUG_BASE   < DEBUG_SIZE))     return PMA_DEVICE;
+    if (in_rg(a, DRAM_BASE, DRAM_SIZE_MAX))     return PMA_MEM;
+    if (in_rg(a, BOOTROM_BASE, BOOTROM_SIZE))   return PMA_ROM;
+    if (in_rg(a, ACLINT_BASE, ACLINT_SIZE)   || in_rg(a, PLIC_BASE, PLIC_SIZE)       ||
+        in_rg(a, UART_BASE, UART_SIZE)       || in_rg(a, HOSTCTL_BASE, HOSTCTL_SIZE) ||
+        in_rg(a, VIRTIO_BASE, VIRTIO_SIZE)   || in_rg(a, DEBUG_BASE, DEBUG_SIZE))  return PMA_DEVICE;
     return PMA_NONE;
   endfunction
 endpackage
