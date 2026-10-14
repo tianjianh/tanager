@@ -6,7 +6,10 @@ REPO      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 VERILATOR ?= verilator
 CFG       ?= st
 NAME      ?= $(TOP)
-SOC_BUILD ?= $(HOME)/tanager-build/$(notdir $(REPO))
+# $TANAGER_BUILD/<worktree> by default, so tools/env.sh alone is enough (conventions §1);
+# exported for the sub-makes (the SoC test's program).
+SOC_BUILD ?= $(or $(TANAGER_BUILD),$(HOME)/tanager-build)/$(notdir $(REPO))
+export SOC_BUILD
 OUTDIR    := $(SOC_BUILD)/tests/$(NAME)_$(CFG)
 JOBS      ?= 8
 SEED      ?= 1
