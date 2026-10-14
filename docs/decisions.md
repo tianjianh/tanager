@@ -1,6 +1,6 @@
 # Tanager decision register
 
-**What is in it.** Every decision, approved or rejected, with its date, who made it and its basis.
+**What is in it.** Every decision, approved or rejected, with its date, who made it, its pros and cons, and its basis. From 2026-10-14 every entry states its pros and cons (the user's rule, DR-124). Older entries are being backfilled.
 - Plan §13 holds the headline decisions (D1–D18).
 - The [feature ledger](perf/feature_ledger.md) holds each feature's and size's evidence.
 - This register holds the rest, and points to both.
@@ -68,6 +68,7 @@ Dates are 2026, US Pacific.
 | DR-028 | 10-14 | A coordination loop in the coordinator's session, about every 25 minutes | approved | user, coord | — |
 | DR-029 | 10-14 | Document as we go: `devlog.md` and this register; merge requests end with a `Learned:` line; area documents keep a "History and lessons" section | approved | user | conventions §10 |
 | DR-030 | 10-14 | The soak service must never block main development | approved | user | verification.md |
+| DR-124 | 10-14 | Every decision, approved or rejected, records its pros and cons, here and in the `Decisions:` line of the merge request that makes it. Older entries are backfilled. **Pros:** a rejected option can be revisited without redoing the analysis; trade-offs stay visible to the user. **Cons:** longer entries and merge requests. | approved | user | conventions §10 |
 | DR-031 | 10-13 | End-of-turn reports are the reliable channel from the build host, because direct messages there are unreliable | approved | coord | devlog §5 |
 
 ## 3. Platform, tools and infrastructure
@@ -157,6 +158,7 @@ Dates are 2026, US Pacific.
 | DR-120 | 10-14 | Region tests in `tg_map_pkg` use a prefix match for naturally aligned power-of-two regions, with the range test kept for any other region. Results are identical for every address. It saves about 0.4K LUTs per core and about 0.13K per crossbar instance (`pma_of` went from 136 LUTs and 17 CARRY8 to 10 LUTs). | approved | coord (core track's request; `rtl/common` is shared) | core-pipeline §13 |
 | DR-121 | 10-14 | Release builds without the commit trace, as the last reserve lever (after the no-IPC work and the IPC-costing reserve), release bitstreams only; every development and test build keeps the trace. That saves 1,466 LUTs per core, plus about 2.9K for the uncore's trace stream, at no IPC cost, but loses FPGA lockstep in those builds. | approved (late lever) | user | area_recovery.md §7 |
 | DR-122 | 10-14 | The page walker keeps its own PMP checker. Sharing STA's checker (−0.83K) went into the reserve after the order R9 and R10. The walker and STA were not exclusive, so sharing reduced function (D18). | approved (reverted 4b85114) | coord (D18) | core-pipeline §13 |
+| DR-123 | 10-14 | **An FPGA-friendly re-implementation program as D18 step 1:**<br>• state into LUTRAM, block RAM or UltraRAM, or shift-register LUTs;<br>• more LUTRAM ports by banking, LVT or XOR;<br>• CAMs in LUTRAM;<br>• DSPs as comparators and adders;<br>• logic shaping and synthesis settings.<br>Each change must be cycle-identical to main and close 200 MHz, measured per unit. Ideas from published work such as RSD's papers are allowed; no other core's RTL (DR-001).<br>**Pros:** attacks the largest cost, which is state and selects in flip-flops and LUT logic, at no IPC cost; it uses idle resources (about 1,160 DSPs, block RAM and UltraRAM).<br>**Cons:** RAM forms limit ports, reset and parallel access, so some structures need redesign (checkpoint restore, CAM writes). Registered reads constrain where block RAM fits. Verification load goes up, since every change needs a cycle-identical proof. | approved | user (request), coord (plan) | [fpga_friendly.md](perf/fpga_friendly.md) |
 
 ## 7. Timing and implementation
 
