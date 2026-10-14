@@ -83,7 +83,7 @@ close $pf
 tg_kv $fh prim_stray $nstray
 tg_util $fh opt
 report_utilization -file util.rpt
-report_utilization -hierarchical -hierarchical_depth 3 -file util_hier.rpt
+report_utilization -hierarchical -hierarchical_depth 3 -hierarchical_min_primitive_count 0 -file util_hier.rpt
 tg_kv $fh total_s [expr {[clock seconds] - $t0}]
 close $fh
 puts "UNIT_SYNTH_DONE $top $cfg"

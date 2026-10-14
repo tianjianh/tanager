@@ -1,4 +1,5 @@
-// Synthesis test of tools/tcl/tg_prim_check.tcl: one instance of each memory wrapper, some
+// Synthesis test of tools/tcl/tg_prim_check.tcl: one instance of each memory wrapper (and of
+// each CAM form), some
 // with read fields nobody reads (Vivado trims them), and one memory outside the wrappers.
 // Run tests/unit/prim/synth/run.sh; the expected report is in its header.
 module tg_prim_synth_top (
@@ -65,6 +66,28 @@ module tg_prim_synth_top (
   logic [15:0] f_rd;
   assign f_rd = f_mem[in[25:22]];
 
+  // g: a CAM with one-bit-write tables, 20 entries x 13-bit keys: ceil(13/6) x ceil(20/8) =
+  // 9 RAM64X8SW, plus its key store (a tg_ram_lut, checked on its own line)
+  logic [19:0] g_m;
+  logic [4:0]  g_i;
+  logic        g_h, g_v, g_w, g_r;
+  tg_cam_lut #(.ENTRIES(20), .KEYW(13), .PRIM("sw")) u_g (
+    .clk, .rst(in[2]), .ready(g_r), .lk_key(in[15:3]), .lk_match(g_m), .lk_hit(g_h),
+    .lk_idx(g_i), .lk_valid(g_v), .wr_valid(in[16]), .wr_ready(g_w), .wr_idx(in[21:17]),
+    .wr_key(in[34:22]), .inv(in[35]), .inv_idx(in[40:36]), .flush(in[41]));
+
+  // h: a CAM with tg_ram_lut tables (PRIM "m16"): no RAM64X8SW of its own
+  logic [15:0] h_m;
+  logic [3:0]  h_i;
+  logic        h_h, h_v, h_w, h_r;
+  tg_cam_lut #(.ENTRIES(16), .KEYW(20), .PRIM("m16")) u_h (
+    .clk, .rst(in[2]), .ready(h_r), .lk_key(in[22:3]), .lk_match(h_m), .lk_hit(h_h),
+    .lk_idx(h_i), .lk_valid(h_v), .wr_valid(in[23]), .wr_ready(h_w), .wr_idx(in[27:24]),
+    .wr_key(in[47:28]), .inv(in[48]), .inv_idx(in[52:49]), .flush(in[53]));
+
+  logic [7:0] cam_fold;
+  assign cam_fold = {^g_m, ^g_i, g_h ^ g_v, g_w ^ g_r, ^h_m, ^h_i, h_h ^ h_v, h_w ^ h_r};
+
   // every bit read, except the fields the test leaves unread (port 1 of a above bit 3, b's
   // port 2)
   logic [25:0] c_fold;
@@ -73,6 +96,6 @@ module tg_prim_synth_top (
     for (int i = 0; i < 200; i++) c_fold[i % 26] ^= c_rd[i];
   end
   always_ff @(posedge clk) begin
-    out <= {a_rd[0], a_rd[1][3:0], b_rd[0], b_rd[1], c_fold} ^ {d_rd, e_rd, f_rd, 23'd0};
+    out <= {a_rd[0], a_rd[1][3:0], b_rd[0], b_rd[1], c_fold} ^ {d_rd, e_rd, f_rd, 15'd0, cam_fold};
   end
 endmodule

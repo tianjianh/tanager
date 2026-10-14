@@ -1,0 +1,11 @@
+PRIM_OK g_lut.u tg_cam_lut {64 x 40, cam (tables in tg_ram_lut)} expected {} found {RAM32M16 80 RAM64M8 6}
+PRIM_OK g_lut.u/g_m16.g_tab[0].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[1].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[2].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[3].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[4].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[5].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[6].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/g_m16.g_tab[7].u_tab tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK g_lut.u/u_keys tg_ram_lut {2^6 x 40, 1 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_SUMMARY instances 10 fail 0 warn 0 stray 0

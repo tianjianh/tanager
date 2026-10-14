@@ -1,6 +1,6 @@
 // Spike S1 PL design: two DDR traffic/latency engines (tg_s1_engine) on S_AXI_HP1_FPD and
 // S_AXI_HP2_FPD, controlled through an AXI4-Lite slave on M_AXI_HPM0_FPD (engine k at byte
-// offset k * 0x800, 32-bit registers), plus the KV260 fan enable held on. One clock (the
+// offset k * 0x800, 32-bit registers). One clock (the
 // block design's 200 MHz clk_core) for everything. The A53 program is fpga/spikes/s1/sw.
 module tg_s1_top #(
   parameter int AW = 49,
@@ -9,7 +9,6 @@ module tg_s1_top #(
 ) (
   input  logic          clk,
   input  logic          rstn,
-  output logic          fan_en_b,     // KV260 fan: low = on
   // AXI4-Lite slave
   input  logic [11:0]   s_axi_awaddr,
   input  logic          s_axi_awvalid,
@@ -67,8 +66,6 @@ module tg_s1_top #(
   input  logic          m0_axi_bvalid, m1_axi_bvalid,
   output logic          m0_axi_bready, m1_axi_bready
 );
-  assign fan_en_b = 1'b0;
-
   logic rst;
   always_ff @(posedge clk) rst <= !rstn;
 
