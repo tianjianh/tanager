@@ -14,7 +14,7 @@ module kv260_top
   parameter int    N_CORES   = NUM_CORES,
   parameter string CORE_KIND = "core",
   parameter bit    PMOD_UART = 1'b0,
-  parameter int    FAN_WAVE   = 0,        // TTC waveform output on fan_en_b (build.tcl TG_FAN_*)
+  parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
   parameter bit    FAN_INVERT = 1'b0
 ) (
   output logic fan_en_b,

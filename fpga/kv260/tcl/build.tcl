@@ -11,15 +11,17 @@ set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 
 set pmod_txd  [expr {[info exists ::env(TG_PMOD_TXD)]  ? $::env(TG_PMOD_TXD)  : "E10"}]
 set pmod_rxd  [expr {[info exists ::env(TG_PMOD_RXD)]  ? $::env(TG_PMOD_RXD)  : "D10"}]
 # The fan stays under Linux's control (DR-129): A12 carries the PS TTC waveform that Linux's pwm-fan
-# drives. TG_FAN_TTC (0-3), TG_FAN_WAVE (0-2) and TG_FAN_INVERT (0/1) name it as Kria's own PL design
-# routes it; there is no default until the board has confirmed them (docs/spec/soc.md §2.1).
-foreach {v lo hi} {TG_FAN_TTC 0 3 TG_FAN_WAVE 0 2 TG_FAN_INVERT 0 1} {
-  if {![info exists ::env($v)] || ![string is integer -strict $::env($v)] || $::env($v) < $lo || $::env($v) > $hi} {
-    puts "ERROR: set $v ($lo-$hi): the fan's TTC waveform and polarity (DR-129, fpga/kv260/README.md)"
+# drives, as Kria's own PL design routes it. Read from the running board: TTC0 channel 2
+# (emio_ttc0_wave_o[2]), to A12 uninverted. TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override.
+set fan_ttc  [expr {[info exists ::env(TG_FAN_TTC)]    ? $::env(TG_FAN_TTC)    : 0}]
+set fan_wave [expr {[info exists ::env(TG_FAN_WAVE)]   ? $::env(TG_FAN_WAVE)   : 2}]
+set fan_inv  [expr {[info exists ::env(TG_FAN_INVERT)] ? $::env(TG_FAN_INVERT) : 0}]
+foreach {v val lo hi} [list TG_FAN_TTC $fan_ttc 0 3 TG_FAN_WAVE $fan_wave 0 2 TG_FAN_INVERT $fan_inv 0 1] {
+  if {![string is integer -strict $val] || $val < $lo || $val > $hi} {
+    puts "ERROR: $v must be $lo-$hi (DR-129, fpga/kv260/README.md)"
     exit 1
   }
 }
-set fan_ttc $::env(TG_FAN_TTC); set fan_wave $::env(TG_FAN_WAVE); set fan_inv $::env(TG_FAN_INVERT)
 if {$n_cores eq ""} { set n_cores 1 }
 if {$stop eq ""} { set stop bit }
 set part xck26-sfvc784-2LV-c

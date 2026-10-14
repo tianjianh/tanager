@@ -10,13 +10,15 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
-**The fan** (DR-129): every board bitstream leaves the fan to Linux's `pwm-fan` driver. A12 carries the PS TTC waveform Kria's own PL design uses. `build.tcl` needs its location and polarity, and stops without them:
+**The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. These are the defaults; the variables override them:
 
-| Variable | Meaning | Value |
+| Variable | Meaning | Default |
 |---|---|---|
-| `TG_FAN_TTC` | the TTC (0–3) whose waveform outputs go to EMIO | from the board (pending) |
-| `TG_FAN_WAVE` | which of its three waveform outputs (0–2) drives `fan_en_b` | from the board (pending) |
-| `TG_FAN_INVERT` | 1 if `fan_en_b` is the waveform inverted | from the board (pending) |
+| `TG_FAN_TTC` | the TTC (0–3) whose waveform outputs go to EMIO | 0 |
+| `TG_FAN_WAVE` | which of its three waveform outputs (0–2) drives `fan_en_b` | 2 |
+| `TG_FAN_INVERT` | 1 if `fan_en_b` is the waveform inverted | 0 |
+
+The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 

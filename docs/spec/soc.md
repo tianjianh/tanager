@@ -61,7 +61,8 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **Fan** (DR-129): pin A12 (`som240_1_c24`, `fan_en_b`, active low) carries the PS timer's PWM, so Linux's `pwm-fan` driver and its thermal zone keep regulating the fan whatever bitstream is loaded.
   - The block design enables TTC<n>'s waveform outputs on EMIO (`PSU__TTC<n>__WAVEOUT__ENABLE`, `__IO = EMIO`, pins `emio_ttc<n>_wave_o[2:0]`), and `kv260_top` drives `fan_en_b` from the right bit, inverted if needed, as Kria's own PL design does.
   - A bitstream loaded at run time does not reconfigure the PS, so the boot configuration already routes the waveform to EMIO; the PL only connects it.
-  - The TTC, the bit and the polarity come from the board (`TG_FAN_TTC`, `TG_FAN_WAVE`, `TG_FAN_INVERT`). Until it confirms them, `build.tcl` refuses to build.
+  - **As read from the board:** TTC0 channel 2 (`emio_ttc0_wave_o[2]`), to A12 uninverted. These are `build.tcl`'s defaults (`TG_FAN_TTC`, `TG_FAN_WAVE`, `TG_FAN_INVERT` override them).
+  - On the board, `fancontrol` maps the AMS's temp1 to pwm1, from 15/255 at 35 °C to 255 at 45 °C. The overlay keeps the `pwmfan` node.
 - **PMOD console** (`PMOD_UART`; `TG_PMOD_UART=1` in the build): the RISC-V console UART on the PMOD connector, for a USB-UART module (DR-126). The details are in [fpga/kv260/README.md](../../fpga/kv260/README.md).
   - The line runs 8N1 at the 16550's divisor (115 200 baud after OpenSBI), through `tg_uart_phy` ([uncore-periph.md](uncore-periph.md) §UART).
   - The host bridge keeps a copy of the output and can still send input.
