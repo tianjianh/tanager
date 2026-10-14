@@ -4,12 +4,14 @@
 // Y = X - 1. |P - C| is X, or ~Y when X < 0; for an effective addition Y is P + C. When the
 // product does not take part, the tiles arrive as zero (their output registers are reset).
 module tg_fpu_fma_add #(
-  parameter int W = 165
+  parameter int W  = 165,
+  parameter int LO = 112               // see below; the FMA computes hi1 for this split
 ) (
   input  logic [42:0]   t00, t01, t02, t10,
   input  logic [43:0]   t11,
   input  logic [46:0]   t12,
   input  logic [W:0]    cop,           // C (bit W is zero), or |x| for FCVT.F.I
+  input  logic [W-LO:0] hi1,           // (cop ^ eff_sub)[W:LO] + 1, from the FMA's DSPs
   input  logic          prod_sticky,   // the product only contributes a sticky at V[0]
   input  logic          eff_sub,
   input  logic          sp, sc,        // product and addend signs
@@ -40,15 +42,13 @@ module tg_fpu_fma_add #(
   // From bit LO up only the addend contributes: the tiles end at V[110] and the counters' carries
   // at V[111]. The low part sums to less than 2^(LO+1) (product < 2^110, addend part < 2^LO), so
   // its carry out is 0 or 1, and both sums above LO are the addend's bits plus that carry: one
-  // incrementer serves X and Y there.
-  localparam int LO = 112;
+  // incrementer serves X and Y there (hi1 = hi + 1, an input: the FMA computes it in DSPs).
   logic [LO:0]   lx, ly;        // low parts with their carry out (bit LO)
-  logic [W-LO:0] hi, hi1;       // the addend's bits W..LO, and hi + 1
+  logic [W-LO:0] hi;            // the addend's bits W..LO
   logic [W:0]    sum_x, sum_y;
   assign lx  = {1'b0, s0[LO-1:0]} + {1'b0, s1[LO-1:0]} + {1'b0, s2[LO-1:0]} + (LO+1)'(1);
   assign ly  = {1'b0, s0[LO-1:0]} + {1'b0, s1[LO-1:0]} + {1'b0, s2[LO-1:0]};
   assign hi  = s0[W:LO];
-  assign hi1 = hi + (W-LO+1)'(1);
   assign sum_x = {lx[LO] ? hi1 : hi, lx[LO-1:0]};
   assign sum_y = {ly[LO] ? hi1 : hi, ly[LO-1:0]};
 

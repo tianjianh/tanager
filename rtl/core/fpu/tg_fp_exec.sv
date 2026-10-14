@@ -42,8 +42,9 @@ module tg_fp_exec
   input  logic [FPIDX_W-1:0]           fld_m2_idx,
   input  logic                         fld_valid,
   input  logic [FPIDX_W-1:0]           fld_idx,
-  input  logic                         fld_single,
-  input  logic [63:0]                  fld_data,
+  input  logic                         fld_single,   // unused: the LSU NaN-boxes FLW (3f9a227);
+                                                     // the port goes when the core drops it
+  input  logic [63:0]                  fld_data,     // the value F1 gets (FLW already boxed)
   // FP store data and trace reads (combinational)
   input  preg_t                        fsd_tag,
   output logic [63:0]                  fsd_data,
@@ -107,14 +108,12 @@ module tg_fp_exec
   logic                       f0_we;
   logic [FPIDX_W-1:0]         f0_wa;
   logic [63:0]                f0_wd;
-  logic [63:0]                fld_box;
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
   logic [NRP-1:0][63:0]        rdata;
-  assign fld_box = fp_box_load(fld_data, fld_single);
   tg_fprf #(.NR(NRP)) u_rf (
     .clk, .init_we, .init_bank, .init_idx,
     .f0_we, .f0_waddr(f0_wa), .f0_wdata(f0_wd),
-    .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_box),
+    .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
     .rtag, .rdata);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
   logic rf_add;
@@ -237,7 +236,7 @@ module tg_fp_exec
   logic [2:0][63:0] rf_val;           // the register's value in RF, with this cycle's F1 write
   for (genvar k = 0; k < 3; k++) begin : g_rfv
     assign rf_val[k] = (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0]) ?
-                       fld_box : rdata[k];
+                       fld_data : rdata[k];
   end
   always_ff @(posedge clk) begin
     ex_pl_q     <= iss_pl;
@@ -277,7 +276,7 @@ module tg_fp_exec
       unique case (ex_sel_q[k])
         BP_F0X:  opnd[k] = f0_wd;
         BP_F0W:  opnd[k] = f0_wb_q;
-        BP_F1X:  opnd[k] = fld_box;
+        BP_F1X:  opnd[k] = fld_data;
         default: opnd[k] = ex_rf_q[k];
       endcase
     end
@@ -568,7 +567,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{fld_single, dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
