@@ -19,3 +19,4 @@ rtl/tg_s6_fill.sv
 rtl/tg_s6_core.sv
 rtl/tg_s6_l2.sv
 rtl/tg_s6_top.sv
+rtl/tg_prim_eval.sv
