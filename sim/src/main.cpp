@@ -1,4 +1,8 @@
 // tg_vsim: the Verilator harness around tg_core (docs/spec/verification.md §2).
+#include <signal.h>
+#include <sys/prctl.h>
+#include <sys/wait.h>
+#include <unistd.h>
 #include <verilated.h>
 #include <verilated_fst_c.h>
 
@@ -6,6 +10,7 @@
 #include <chrono>
 #include <cinttypes>
 #include <cstring>
+#include <deque>
 #include <memory>
 #include <set>
 #include <string>
@@ -51,6 +56,10 @@ struct opts_t {
   uint64_t mem_mb = 2048;
   std::string rom;
   std::vector<uint64_t> tohost_va;
+  // Fork-based snapshots (verification.md §2.8)
+  uint64_t snap_every = 0, snap_margin = 16;
+  unsigned snap_keep = 2;
+  std::string snap_fst = "snap.fst";
 };
 
 void usage() {
@@ -58,6 +67,8 @@ void usage() {
           "usage: tg_vsim [options] program.elf\n"
           "  run control: --cycles=N --timeout=S --hang=N --wb-drain=N --wb-timeout=N --seed=N --quiet\n"
           "  waveforms:   --fst=FILE [--fst-from=C] [--fst-to=C]; text trace: --log=FILE\n"
+          "  snapshots:   --snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=N]: on a failure, replay\n"
+          "               from the newest snapshot and write FILE with the waveform up to the failure\n"
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
           "               --pmp=N --pmp-g=BYTES --pmp-reset=spike|off\n"
           "  memory:      --lat=native|90|120|250|N --lat-jitter=N --bp=PCT --d-gap=PCT --grant-b=PCT\n"
@@ -104,6 +115,10 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "fst-from") o.fst_from = num(need(), "--fst-from");
     else if (k == "fst-to") o.fst_to = num(need(), "--fst-to");
     else if (k == "log") o.log = need();
+    else if (k == "snap-every") o.snap_every = num(need(), "--snap-every");
+    else if (k == "snap-keep") o.snap_keep = std::max(1u, unsigned(num(need(), "--snap-keep")));
+    else if (k == "snap-fst") o.snap_fst = need();
+    else if (k == "snap-margin") o.snap_margin = num(need(), "--snap-margin");
     else if (k == "lockstep") o.lockstep = true;
     else if (k == "no-lockstep") o.lockstep = false;
     else if (k == "isa") o.isa = need();
@@ -148,6 +163,7 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else { fprintf(stderr, "tg: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.elf.empty()) usage();
+  if (o.snap_every && !o.fst.empty()) fatal("--snap-every and --fst are exclusive (a snapshot replay writes --snap-fst)");
   mc.seed = o.seed;
   mc.dram_size = o.mem_mb << 20;
   return o;
@@ -156,6 +172,56 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
 double now_s() {
   using namespace std::chrono;
   return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+// Fork-based snapshots (verification.md §2.8). A snapshot is a forked copy of the whole simulation
+// (model, memories, Spike) blocked on a pipe. Closing the pipe discards it; writing a command wakes
+// it to replay from its cycle with a waveform up to `stop`.
+struct snapshot_t {
+  pid_t pid;
+  uint64_t cycle;
+  int wfd;
+};
+struct snap_cmd_t {
+  uint64_t stop;
+  char path[488];
+};
+
+void snap_drop(const snapshot_t& s) {
+  close(s.wfd);
+  waitpid(s.pid, nullptr, 0);
+}
+
+// Takes a snapshot. Returns true only in a snapshot that was woken with a command (in `cmd`).
+bool snap_take(std::deque<snapshot_t>& snaps, uint64_t cycle, unsigned keep, snap_cmd_t& cmd) {
+  fflush(nullptr);
+  int fds[2];
+  if (pipe(fds) != 0) return false;
+  pid_t parent = getpid();
+  pid_t pid = fork();
+  if (pid < 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return false;
+  }
+  if (pid == 0) {
+    close(fds[1]);
+    for (auto& s : snaps) close(s.wfd);
+    prctl(PR_SET_PDEATHSIG, SIGKILL);  // never outlive the run
+    if (getppid() != parent) _exit(0);
+    ssize_t n = read(fds[0], &cmd, sizeof cmd);
+    close(fds[0]);
+    if (n != ssize_t(sizeof cmd)) _exit(0);
+    snaps.clear();
+    return true;
+  }
+  close(fds[0]);
+  snaps.push_back({pid, cycle, fds[1]});
+  while (snaps.size() > keep) {
+    snap_drop(snaps.front());
+    snaps.pop_front();
+  }
+  return false;
 }
 
 }  // namespace
@@ -192,13 +258,17 @@ int main(int argc, char** argv) {
 
   // ---- Verilated model ----
   auto vctx = std::make_unique<VerilatedContext>();
+  // One thread: the model is single-threaded, and a trace thread pool would deadlock a forked
+  // snapshot (only the forking thread survives fork).
+  vctx->threads(1);
   vctx->commandArgs(argc, argv);  // +plusargs for the RTL (for example +tcore_defer=50)
   vctx->randReset(o.rand_reset ? 2 : 0);
   vctx->randSeed(int(o.seed & 0x7fffffff));
-  if (!o.fst.empty()) vctx->traceEverOn(true);
+  const bool want_trace = !o.fst.empty() || o.snap_every;
+  if (want_trace) vctx->traceEverOn(true);
   auto top = std::make_unique<Vtg_tb_top>(vctx.get(), "TOP");
   std::unique_ptr<VerilatedFstC> fst;
-  if (!o.fst.empty()) {
+  if (want_trace) {
     fst = std::make_unique<VerilatedFstC>();
     top->trace(fst.get(), 99);
   }
@@ -264,14 +334,38 @@ int main(int argc, char** argv) {
   uint64_t exit_cycle = 0, htif_cycle = 0;
   double t0 = now_s(), tlimit = t0 + o.timeout;
   bool fst_open = false;
+  std::deque<snapshot_t> snaps;
+  bool replaying = false;
+  uint64_t replay_from = 0;
 
   for (;; cycle++) {
+    if (o.snap_every && !replaying && cycle && cycle % o.snap_every == 0) {
+      snap_cmd_t cmd;
+      if (snap_take(snaps, cycle, o.snap_keep, cmd)) {
+        // A woken snapshot: replay to the failure with a waveform, quietly.
+        replaying = true;
+        replay_from = cycle;
+        o.fst = cmd.path;
+        o.fst_from = cycle;
+        o.fst_to = cmd.stop;
+        if (!freopen("/dev/null", "w", stdout)) _exit(EXIT_HARNESS);
+        if (!freopen((o.fst + ".log").c_str(), "w", stderr)) _exit(EXIT_HARNESS);
+        if (logf) { fclose(logf); logf = nullptr; }
+        t0 = now_s();
+        tlimit = t0 + o.timeout;
+      }
+    }
+    if (replaying && cycle > o.fst_to) {
+      why = strfmt("snapshot replay from cycle %llu stopped at cycle %llu", (unsigned long long)replay_from,
+                   (unsigned long long)o.fst_to);
+      break;
+    }
     t.ctx.now = cycle;
     t.recs.clear();
     t.wbs.clear();
     top->clk = 1;
     top->eval();
-    if (fst) {
+    if (fst && !o.fst.empty()) {
       if (!fst_open && cycle >= o.fst_from && cycle <= o.fst_to) { fst->open(o.fst.c_str()); fst_open = true; }
       if (fst_open && cycle > o.fst_to) { fst->close(); fst.reset(); fst_open = false; }
       if (fst_open) fst->dump(vtime);
@@ -349,9 +443,35 @@ int main(int argc, char** argv) {
   top->final();
   if (logf) fclose(logf);
 
+  // A failure with snapshots: wake the newest one to write the waveform (verification.md §2.8).
+  std::string snap_note;
+  if (!snaps.empty()) {
+    snapshot_t s = snaps.back();
+    snaps.pop_back();
+    for (auto& d : snaps) snap_drop(d);
+    if (status != EXIT_PASS) {
+      snap_cmd_t cmd{};
+      cmd.stop = cycle + o.snap_margin;
+      snprintf(cmd.path, sizeof cmd.path, "%s", o.snap_fst.c_str());
+      if (write(s.wfd, &cmd, sizeof cmd) == ssize_t(sizeof cmd)) {
+        if (!o.quiet) fprintf(stderr, "tg_vsim: replaying from the snapshot at cycle %llu for a waveform...\n",
+                              (unsigned long long)s.cycle);
+        close(s.wfd);
+        waitpid(s.pid, nullptr, 0);
+        snap_note = strfmt("waveform of cycles %llu-%llu in %s (replay log %s.log)", (unsigned long long)s.cycle,
+                           (unsigned long long)cmd.stop, o.snap_fst.c_str(), o.snap_fst.c_str());
+      } else {
+        snap_drop(s);
+      }
+    } else {
+      snap_drop(s);
+    }
+  }
+
   double secs = now_s() - t0;
   if (status == EXIT_MISMATCH && ls && ls->failed()) ls->report(stderr);
   if (!why.empty()) fprintf(stderr, "tg_vsim: %s\n", why.c_str());
+  if (!snap_note.empty()) fprintf(stderr, "tg_vsim: %s\n", snap_note.c_str());
   if (!o.quiet) {
     fprintf(stderr, "tg_vsim: %s after %llu cycles, %llu instructions retired, IPC %.3f, %.1f s (%.1f kHz)\n",
             exit_status_name(status), (unsigned long long)cycle, (unsigned long long)instret,
