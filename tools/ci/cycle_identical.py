@@ -2,22 +2,25 @@
 """Cycle-identical check (docs/spec/verification.md §4.5; DR-123): does this tree's RTL behave exactly
 like a base commit's, cycle by cycle?
 
-  make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RANDN=200] [JOBS=8]
-  tools/ci/cycle_identical.py --cfg st,smt2 --base main --suites isa,bench,random,reset
+  make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
+  tools/ci/cycle_identical.py --cfg st,smt2 --base main --suites isa,bench,random,reset --boot 20
 
-Builds tg_vsim twice with this tree's harness (sim/): once with this tree's rtl/ (the working tree as it
-is, uncommitted and untracked files included) and once with the base's rtl/. Runs the same programs with
-the same options in both and compares each run's cycle signature (tg_vsim --sig): per 1,024 cycles, a
-hash of the commit trace and one of the core's TileLink outputs. For a run that differs, it reruns the
+Builds the simulators twice with this tree's harness (sim/): once with this tree's rtl/ (the working tree
+as it is, uncommitted and untracked files included; or --branch REF's) and once with the base's rtl/.
+Runs the same programs with the same options on both and compares each run's cycle signature: per 1,024
+cycles, a hash of the commit trace and of the design's outputs. For a run that differs, it reruns the
 first differing window with full logs and prints the first differing line.
 
-Suites (default isa,stress,bench,random):
+Suites of tg_vsim, the core with TileLink models (default isa,stress,bench,random; "none" for none):
   isa     riscv-tests (the regression's suites) and our directed tests, at native latency
   stress  the same programs with memory stress and trace back-pressure (settings drawn per test)
   bench   CoreMark A/B and Dhrystone, rv64im and rv64gcb, at native latency and latency 120
   random  RANDN tg_rand programs (rv64gc with F/D, else rv64imac), memory stress, timer interrupts on
           odd seeds, trace back-pressure on some
   reset   riscv-tests with random initial values in every register without a reset (--rand-reset)
+With --boot N, also the Linux boot's first N million cycles on the whole SoC: tests/unit/boot's tb_boot
+(--boot-tree REF while it is not in this tree), with sim/tb/tg_soc_sig.sv bound into tanager_soc, for
+the uncore and anything the programs miss.
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -26,6 +29,7 @@ only this tree's side. Exit status: 0 identical everywhere; 1 some run differs; 
 import argparse
 import concurrent.futures as cf
 import fcntl
+import glob
 import hashlib
 import os
 import shutil
@@ -40,8 +44,10 @@ WT = os.path.basename(ROOT)
 TB = os.environ.get("TANAGER_BUILD", os.path.expanduser("~/tanager-build"))
 CACHE = os.path.join(TB, "cycle-identical")
 WORK = os.path.join(TB, WT, "cycle-identical")
-KEEP_BUILDS = 12          # cached tg_vsim builds kept (least recently used go first)
+KEEP_BUILDS = 12          # cached builds kept (least recently used go first)
 NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load-dependent cycle
+BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
+BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
 
 sys.path.insert(0, os.path.join(ROOT, "tests", "isa"))
 sys.path.insert(0, os.path.join(ROOT, "tests", "random"))
@@ -70,17 +76,17 @@ def git(*args, env=None):
 
 
 def worktree_tree():
-    """The working tree's rtl/ and sim/ as a tree object, written through a temporary index (the
-    worktree's own index and files are not touched)."""
+    """The working tree's rtl/, sim/ and tests/unit/ as a tree object, written through a temporary
+    index (the worktree's own index and files are not touched)."""
     with tempfile.TemporaryDirectory() as d:
         env = dict(os.environ, GIT_INDEX_FILE=os.path.join(d, "index"))
         git("read-tree", "HEAD", env=env)
-        git("add", "-A", "--", "rtl", "sim", env=env)
+        git("add", "-A", "--", "rtl", "sim", "tests/unit", env=env)
         return git("write-tree", env=env)
 
 
 def toolchain_id():
-    """What else goes into a tg_vsim build: Verilator, the compiler and Spike's library."""
+    """What else goes into a build: Verilator, the compiler and Spike's library."""
     parts = []
     for cmd in (["verilator", "--version"], [os.environ.get("CXX", "g++-15"), "--version"]):
         try:
@@ -104,17 +110,45 @@ def sha1(*parts):
     return h.hexdigest()
 
 
-class Side:
-    """One side of the comparison: an rtl/ tree and a sim/ tree, built for one configuration."""
+_digests = {}
 
-    def __init__(self, name, rtl_src, sim_src, cfg, tool):
-        self.name, self.cfg = name, cfg
-        self.rtl_src, self.sim_src = rtl_src, sim_src      # tree-ishes for git archive
-        self.rtl_tree = git("rev-parse", f"{rtl_src}:rtl")
-        self.sim_tree = git("rev-parse", f"{sim_src}:sim")
-        self.key = sha1(self.rtl_tree, self.sim_tree, cfg, "core", tool)[:16]
+
+def file_digest(path):
+    """sha1 of a file's content, computed once per run of this script."""
+    st = os.stat(path)
+    k = (path, st.st_size, st.st_mtime_ns)
+    if k not in _digests:
+        h = hashlib.sha1()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        _digests[k] = h.hexdigest()
+    return _digests[k]
+
+
+def clean_env(**extra):
+    """The environment for a sub-make: no variables from a calling make (MAKEFLAGS carries its command
+    line) and none of the names the sim build reads from its own command line only."""
+    env = dict(os.environ, **extra)
+    for v in ("ISA", "PRIV", "PMP", "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"):
+        env.pop(v, None)
+    return env
+
+
+class Side:
+    """One side of the comparison for one configuration: tg_vsim ("vsim"), or tests/unit/boot's tb_boot
+    with tg_soc_sig bound into the SoC ("boot"). `srcs` are (tree-ish, path) pairs for git archive."""
+
+    def __init__(self, name, kind, cfg, tool, rtl_src, harness_src, tb_src=None, cores=1):
+        self.name, self.kind, self.cfg, self.cores = name, kind, cfg, cores
+        if kind == "vsim":
+            self.srcs = [(rtl_src, "rtl"), (harness_src, "sim")]
+        else:
+            self.srcs = [(rtl_src, "rtl"), (harness_src, "sim/tb"), (tb_src, "tests/unit")]
+        trees = [git("rev-parse", f"{src}:{path}") for src, path in self.srcs]
+        self.key = sha1(kind, *trees, cfg, cores, tool)[:16]
         self.dir = os.path.join(CACHE, "build", self.key)
-        self.bin = os.path.join(self.dir, "tg_vsim")
+        self.bin = os.path.join(self.dir, "tg_vsim" if kind == "vsim" else "tb_boot")
         self.sigdir = os.path.join(self.dir, "sig")
 
     def built(self):
@@ -129,7 +163,7 @@ class Side:
             src, obj = os.path.join(self.dir, "src"), os.path.join(self.dir, "obj")
             shutil.rmtree(self.dir, ignore_errors=True)
             os.makedirs(src)
-            for treeish, path in ((self.rtl_src, "rtl"), (self.sim_src, "sim")):
+            for treeish, path in self.srcs:
                 a = subprocess.Popen(["git", "archive", treeish, path], cwd=ROOT, stdout=subprocess.PIPE)
                 subprocess.run(["tar", "-x", "-C", src], stdin=a.stdout, check=True)
                 if a.wait():
@@ -137,22 +171,52 @@ class Side:
             # Paths under the build directory reach ccache relative to it, so builds of other trees hit.
             env = clean_env(CCACHE_BASEDIR=self.dir)
             t0 = time.time()
-            p = subprocess.run(["make", "-s", "-C", os.path.join(src, "sim"), f"CFG={self.cfg}", "CORE=core",
-                                f"JOBS={jobs}", f"BUILD={obj}", "build"], env=env, capture_output=True, text=True)
-            if os.path.exists(os.path.join(obj, "build.log")):
-                shutil.copy(os.path.join(obj, "build.log"), os.path.join(self.dir, "build.log"))
-            if p.returncode or not os.path.exists(os.path.join(obj, "tg_vsim")):
+            if self.kind == "vsim":
+                cmd = ["make", "-s", "-C", os.path.join(src, "sim"), f"CFG={self.cfg}", "CORE=core", f"JOBS={jobs}",
+                       f"BUILD={obj}", "build"]
+            else:
+                # One Verilator thread: a threaded model maps the memory models' random draws to threads
+                # by its own partition, which a change elsewhere in the design can move.
+                bdir = os.path.join(src, "tests", "unit", "boot")
+                tb = " ".join(os.path.join(src, f) for f in ("tests/unit/boot/tb_boot.sv", "sim/tb/tg_soc_sig.sv",
+                                                              "sim/tb/tg_soc_sig_bind.sv"))
+                cmd = ["make", "-s", "-C", bdir, f"CFG={self.cfg}", f"CORES={self.cores}", "VTHREADS=1",
+                       f"JOBS={jobs}", f"SOC_BUILD={obj}", f"TB={tb}", "build"]
+            p = subprocess.run(cmd, env=env, capture_output=True, text=True)
+            made = (glob.glob(os.path.join(obj, "tg_vsim")) if self.kind == "vsim" else
+                    glob.glob(os.path.join(obj, "tests", "*", "tb_boot")))
+            logs = glob.glob(os.path.join(obj, "build.log")) + glob.glob(os.path.join(obj, "tests", "*", "build.log"))
+            if logs:
+                shutil.copy(logs[0], os.path.join(self.dir, "build.log"))
+            if p.returncode or len(made) != 1:
                 with open(os.path.join(self.dir, "make.log"), "w") as f:
-                    f.write(p.stdout + p.stderr)
+                    f.write(" ".join(cmd) + "\n" + p.stdout + p.stderr)
                 shutil.rmtree(src, ignore_errors=True)
+                shutil.rmtree(obj, ignore_errors=True)
                 return f"build failed: {os.path.join(self.dir, 'make.log')}"
-            os.rename(os.path.join(obj, "tg_vsim"), self.bin)
+            os.rename(made[0], self.bin)
             shutil.rmtree(obj, ignore_errors=True)
             shutil.rmtree(src, ignore_errors=True)
             with open(os.path.join(self.dir, "info"), "w") as f:
-                f.write(f"rtl {self.rtl_tree} from {self.rtl_src}\nsim {self.sim_tree} from {self.sim_src}\n"
-                        f"cfg {self.cfg}\nbuilt in {time.time() - t0:.0f} s\n")
+                f.write("".join(f"{path} from {treeish}\n" for treeish, path in self.srcs) +
+                        f"{self.kind} cfg {self.cfg} cores {self.cores}\nbuilt in {time.time() - t0:.0f} s\n")
             return None
+
+
+def build_all(sides, jobs, cfg):
+    need = list({s.key: s for s in sides if not s.built()}.values())
+    if need:
+        t0 = time.time()
+        each = max(1, jobs // len(need))
+        log(f"[{cfg}] building {', '.join(f'{s.kind} for {s.name}' for s in need)} (-j{each} each)...")
+        with cf.ThreadPoolExecutor(max_workers=len(need)) as ex:
+            errs = list(ex.map(lambda s: s.build(each), need))
+        for s, e in zip(need, errs):
+            if e:
+                fail(f"[{cfg}] {s.kind} for {s.name}: {e}")
+        log(f"[{cfg}] built in {time.time() - t0:.0f} s")
+    for s in sides:
+        os.utime(s.dir)  # most recently used
 
 
 def prune_builds(keep_keys):
@@ -174,16 +238,7 @@ def prune_builds(keep_keys):
         os.remove(lock)
 
 
-# ---- Programs ----
-
-def clean_env(**extra):
-    """The environment for a sub-make: no variables from a calling make (MAKEFLAGS carries its command
-    line) and none of the names the sim build reads from its own command line only."""
-    env = dict(os.environ, **extra)
-    for v in ("ISA", "PRIV", "PMP", "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"):
-        env.pop(v, None)
-    return env
-
+# ---- Programs: (suite, name, kind, payload); payload (elf, args) for vsim, (plusargs, files) for boot ----
 
 def make(*args):
     p = subprocess.run(["make", "-s", "--no-print-directory", *args], cwd=ROOT, capture_output=True, text=True,
@@ -267,28 +322,65 @@ def random_programs(n, jobs):
             fail(f"generating random programs: {' '.join(e.cmd)}: {e.stderr.decode(errors='replace')[-500:]}")
 
 
-def programs(suites, cfg, randn, jobs):
+def vsim_programs(suites, cfg, randn, jobs):
     out = []
+
+    def add(suite, progs):
+        out.extend((suite, name, "vsim", (elf, args)) for name, elf, args in progs)
+
     for s in suites:
+        if s == "none":
+            continue
         if s == "isa":
-            out += [("isa",) + p for p in isa_programs(cfg, lambda i, d: ["--lat=native"] +
-                                                       (["--irq-rand=5"] if d else []))]
+            add("isa", isa_programs(cfg, lambda i, d: ["--lat=native"] + (["--irq-rand=5"] if d else [])))
         elif s == "stress":
             def stress(i, d):
                 a = [x for x in run_random.stress_args(i + 1, 0, True) if not x.startswith("--trace-stall")]
                 return a + ["--trace-stall=50"] + (["--irq-rand=5"] if d else [])
-            out += [("stress",) + p for p in isa_programs(cfg, stress)]
+            add("stress", isa_programs(cfg, stress))
         elif s == "reset":
-            out += [("reset",) + p for p in isa_programs(cfg, lambda i, d: ["--lat=native", "--rand-reset",
-                                                                            f"--seed={i + 1}"] +
-                                                         (["--irq-rand=5"] if d else []))]
+            add("reset", isa_programs(cfg, lambda i, d: ["--lat=native", "--rand-reset", f"--seed={i + 1}"] +
+                                      (["--irq-rand=5"] if d else [])))
         elif s == "bench":
-            out += [("bench",) + p for p in bench_programs()]
+            add("bench", bench_programs())
         elif s == "random":
-            out += [("random",) + p for p in random_programs(randn, jobs)]
+            add("random", random_programs(randn, jobs))
         else:
-            fail(f"unknown suite {s} (isa, stress, bench, random, reset)")
+            fail(f"unknown suite {s} (isa, stress, bench, random, reset, none)")
     return out
+
+
+def newest(pattern):
+    files = glob.glob(pattern)
+    return max(files, key=os.path.getmtime) if files else None
+
+
+def boot_program(a, cfg, tb_src):
+    """The Linux boot's first N million cycles: tb_boot's plusargs and the images they name."""
+    fw = a.boot_fw or newest(os.path.join(TB, "*", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"))
+    kernel = a.boot_kernel or newest(os.path.join(TB, "*", "br-tanager_lp64d", "images", "Image"))
+    if not fw or not kernel:
+        fail("the boot needs OpenSBI's fw_jump.bin and Buildroot's Image (sw/build_opensbi.sh, sw/build_linux.sh), "
+             "or --boot-fw and --boot-kernel")
+    # The device tree for the configuration, from the boot tree's sw/dts
+    threads = 2 if cfg.startswith("smt2") else 1
+    dsrc = git("rev-parse", f"{tb_src}:sw/dts")
+    ddir = os.path.join(WORK, "boot", f"dts-{dsrc[:12]}-c{a.boot_cores}t{threads}")
+    dtb = os.path.join(ddir, "tanager-kv260.dtb")
+    if not os.path.exists(dtb):
+        src = os.path.join(ddir, "src")
+        shutil.rmtree(ddir, ignore_errors=True)
+        os.makedirs(src)
+        ar = subprocess.Popen(["git", "archive", tb_src, "sw/dts"], cwd=ROOT, stdout=subprocess.PIPE)
+        subprocess.run(["tar", "-x", "-C", src], stdin=ar.stdout, check=True)
+        ar.wait()
+        p = subprocess.run(["make", "-s", "-C", os.path.join(src, "sw", "dts"), f"O={ddir}", f"CORES={a.boot_cores}",
+                            f"THREADS={threads}", *BOOT_DTS], capture_output=True, text=True, env=clean_env())
+        if p.returncode or not os.path.exists(dtb):
+            fail(f"building the boot's device tree: {(p.stdout + p.stderr)[-1000:]}")
+    plus = [f"+fw={fw}", f"+dtb={dtb}", f"+kernel={kernel}", f"+expect={BOOT_EXPECT}", f"+max_mcycles={a.boot}",
+            f"+verilator+seed+{a.boot_seed}"]
+    return ("boot", f"linux-{a.boot}M-c{a.boot_cores}", "boot", (plus, [fw, dtb, kernel]))
 
 
 # ---- Runs and signatures ----
@@ -302,21 +394,40 @@ def read_sig(path):
     return lines if lines and lines[-1].startswith("end ") else None
 
 
-def run_side(side, elf, args, extra, timeout):
+def run_cmd(side, prog, extra, out_args):
+    """The command line of one run of `prog` on `side`, with `out_args` for its signature or log."""
+    _, _, kind, payload = prog
+    if kind == "vsim":
+        elf, args = payload
+        return [side.bin, "--quiet", NO_WALL_LIMIT, *args, *extra, *out_args, elf]
+    plus, _ = payload
+    return [side.bin, *plus, *extra, *out_args]
+
+
+def run_side(side, prog, extra, timeout):
     """The signature of one run (cached per build, program and options); None and a reason on a crash."""
-    key = sha1(open(elf, "rb").read(), *args, *extra)
+    _, _, kind, payload = prog
+    if kind == "vsim":
+        key = sha1(file_digest(payload[0]), *payload[1], *extra)
+    else:
+        key = sha1(*(file_digest(f) for f in payload[1]), *(p for p in payload[0] if not p.startswith(("+fw", "+dtb", "+kernel"))),
+                   *extra)
     sig = os.path.join(side.sigdir, key[:2], key + ".sig")
     lines = read_sig(sig)
     if lines is not None:
         return lines, None, True
     os.makedirs(os.path.dirname(sig), exist_ok=True)
     tmp = f"{sig}.{os.getpid()}.{threading.get_ident()}"
-    cmd = [side.bin, "--quiet", NO_WALL_LIMIT, *args, *extra, f"--sig={tmp}", elf]
+    cmd = run_cmd(side, prog, extra, [f"--sig={tmp}"] if kind == "vsim" else [f"+sig={tmp}"])
+    so = open(sig[:-4] + ".out", "w") if kind == "boot" else subprocess.DEVNULL  # a boot's console and progress
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, errors="replace", timeout=timeout)
+        p = subprocess.run(cmd, stdout=so, stderr=subprocess.PIPE, text=True, errors="replace", timeout=timeout)
         err = p.stderr
     except subprocess.TimeoutExpired:
         err = f"no result after {timeout} s of wall-clock time"
+    finally:
+        if so is not subprocess.DEVNULL:
+            so.close()
     lines = read_sig(tmp)
     if lines is None:
         if os.path.exists(tmp):
@@ -327,12 +438,21 @@ def run_side(side, elf, args, extra, timeout):
 
 
 def parse_end(lines):
+    """(cycles, status, work) of a run: work is what it did in those cycles (instret, or a boot's records)."""
     kv = dict(x.split("=", 1) for x in lines[-1].split()[1:])
-    return int(kv.get("cycles", 0)), kv.get("status", "?")
+    return int(kv.get("cycles", 0)), kv.get("status", "?"), int(kv.get("instret", kv.get("records", 0)))
+
+
+def cost(kind, ca, wa, cb, wb):
+    """The branch's cost in cycles, relative to the base: tg_vsim runs a program to its end, so cycles;
+    a boot runs a fixed number of cycles, so the cycles it would need for the base's work."""
+    if kind == "vsim":
+        return cb - ca, ca
+    return (ca * wa / wb - ca) if wb else 0.0, ca
 
 
 def first_diff(a, b):
-    """Index of the first differing signature line, and the cycle window it covers."""
+    """Index of the first differing signature line, and the first cycle of the window it covers."""
     for i in range(min(len(a), len(b))):
         if a[i] != b[i]:
             break
@@ -344,17 +464,20 @@ def first_diff(a, b):
     return i, prev
 
 
-def explain(base, branch, elf, args, extra, start, end, outdir, name):
+def explain(base, branch, prog, extra, start, end, outdir):
     """Rerun cycles start..end-1 of both sides with full logs; the first differing log line."""
+    suite, name, kind, _ = prog
     os.makedirs(outdir, exist_ok=True)
-    logs = {}
-    for side in (base, branch):
-        lg = os.path.join(outdir, f"{name}.{side.name}.log")
-        cmd = [side.bin, "--quiet", NO_WALL_LIMIT, *args, *(extra if side is branch else []), f"--log={lg}",
-               f"--log-from={start}", "--log-bus", f"--cycles={end}", elf]
-        subprocess.run(cmd, capture_output=True, timeout=7200)
-        logs[side.name] = (lg, open(lg, errors="replace").read().splitlines() if os.path.exists(lg) else [])
-    (la, a), (lb, b) = logs["base"], logs["branch"]
+
+    def one(side):
+        lg = os.path.join(outdir, f"{suite}-{name}.{side.name}.log")
+        out = ([f"--log={lg}", f"--log-from={start}", "--log-bus", f"--cycles={end}"] if kind == "vsim" else
+               [f"+sig_log={lg}", f"+sig_log_from={start}", f"+sig_stop={end}"])
+        subprocess.run(run_cmd(side, prog, extra if side is branch else [], out), capture_output=True, timeout=14400)
+        return lg, open(lg, errors="replace").read().splitlines() if os.path.exists(lg) else []
+
+    with cf.ThreadPoolExecutor(max_workers=2) as ex:
+        (la, a), (lb, b) = ex.map(one, (base, branch))
     i = next((k for k in range(min(len(a), len(b))) if a[k] != b[k]), min(len(a), len(b)))
     ctx = [f"    = {x}" for x in a[max(0, i - 3):i]]
     ctx += [f"    base   {x}" for x in a[i:i + 3]] or ["    base   (no more lines)"]
@@ -362,13 +485,35 @@ def explain(base, branch, elf, args, extra, start, end, outdir, name):
     return ctx, la, lb
 
 
+# Signature columns after the window's end cycle: tg_vsim has the trace and TileLink; tg_soc_sig adds the host.
+COLUMNS = {"vsim": (("commit trace", "records"), ("TileLink", "events")),
+           "boot": (("commit trace", "records"), ("memory side", "events"), ("host side", "events"))}
+
+
+def what_differs(kind, fa, fb):
+    parts = []
+    for j, (label, unit) in enumerate(COLUMNS[kind]):
+        lo = 1 if j == 0 else 2 + 2 * j  # the trace takes three columns (records, writebacks, hash)
+        hi = 4 if j == 0 else lo + 2
+        if fa[lo:hi] != fb[lo:hi]:
+            parts.append(f"{label} ({fa[lo]} -> {fb[lo]} {unit})")
+    return " and ".join(parts) or "window"
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--cfg", default="st", help="configurations, comma- or space-separated (st smt2 st_w3 smt2_w3)")
     ap.add_argument("--base", default="", help="the base commit (default: merge base of HEAD and main)")
+    ap.add_argument("--branch", default="", help="take this side's rtl/ from this ref instead of the working tree")
     ap.add_argument("--suites", default="isa,stress,bench,random")
     ap.add_argument("--randn", type=int, default=200, help="random programs")
-    ap.add_argument("--jobs", type=int, default=8, help="parallel runs, and make jobs across both builds")
+    ap.add_argument("--boot", type=int, default=0, help="also the Linux boot's first N million cycles (0: no)")
+    ap.add_argument("--boot-cores", type=int, default=1, choices=(1, 2), help="cores in the booted SoC")
+    ap.add_argument("--boot-fw", default="", help="OpenSBI fw_jump.bin (default: the newest under $TANAGER_BUILD)")
+    ap.add_argument("--boot-kernel", default="", help="Linux Image (default: the newest under $TANAGER_BUILD)")
+    ap.add_argument("--boot-seed", type=int, default=1, help="the memory models' random seed (+verilator+seed+)")
+    ap.add_argument("--boot-tree", default="", help="take tests/unit (tb_boot) and sw/dts from this ref")
+    ap.add_argument("--jobs", type=int, default=8, help="parallel runs, and make jobs across the builds")
     ap.add_argument("--harness", choices=("branch", "own"), default="branch",
                     help="the base side's sim/: this tree's (default) or the base commit's")
     ap.add_argument("--branch-args", default="",
@@ -380,19 +525,29 @@ def main():
     if not os.environ.get("RISCV_TESTS"):
         fail("source tools/env.sh first")
     cfgs = a.cfg.replace(",", " ").split()
-    suites = a.suites.replace(",", " ").split()
+    suites = [s for s in a.suites.replace(",", " ").split() if s != "none"]
     extra = a.branch_args.split()
     base_commit = a.base or git("merge-base", "HEAD", "main")
     base_commit = git("rev-parse", "--verify", f"{base_commit}^{{commit}}")
-    head = git("rev-parse", "--short", "HEAD")
     tree = worktree_tree()
-    dirty = git("diff", "--stat", "HEAD", tree, "--", "rtl", "sim").strip()
-    changed = git("diff", "--name-only", base_commit, tree, "--", "rtl").splitlines()
+    if a.branch:
+        branch_rtl = git("rev-parse", "--verify", f"{a.branch}^{{commit}}")
+        label = f"{a.branch} ({branch_rtl[:10]})"
+    else:
+        branch_rtl = tree
+        dirty = git("diff", "--stat", "HEAD", tree, "--", "rtl", "sim", "tests/unit").strip()
+        label = f"{WT} at {git('rev-parse', '--short', 'HEAD')}{' with uncommitted changes' if dirty else ''}"
+    tb_src = a.boot_tree or tree
+    if a.boot:
+        if a.boot_tree:
+            tb_src = git("rev-parse", "--verify", f"{a.boot_tree}^{{commit}}")
+        if git("ls-tree", "--name-only", tb_src, "tests/unit/boot/tb_boot.sv") == "":
+            fail("this tree has no tests/unit/boot/tb_boot.sv: give --boot-tree with a ref that has it")
+    changed = git("diff", "--name-only", base_commit, branch_rtl, "--", "rtl").splitlines()
     tool = toolchain_id()
     log(f"cycle-identical: base {base_commit[:10]} ({git('log', '-1', '--format=%s', base_commit)[:70]})")
-    log(f"  this tree: {WT} at {head}{' with uncommitted changes' if dirty else ''}; "
-        f"{len(changed)} rtl file(s) differ from the base{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}"
-        f"{' ...' if len(changed) > 6 else ''}")
+    log(f"  this side: {label}; {len(changed)} rtl file(s) differ from the base"
+        f"{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}{' ...' if len(changed) > 6 else ''}")
     if not changed:
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
     os.makedirs(WORK, exist_ok=True)
@@ -400,31 +555,31 @@ def main():
     t_start = time.time()
     all_ok, any_broken = True, False
     for cfg in cfgs:
-        base = Side("base", base_commit, tree if a.harness == "branch" else base_commit, cfg, tool)
-        branch = Side("branch", tree, tree, cfg, tool)
-        need = [s for s in {base.key: base, branch.key: branch}.values() if not s.built()]
-        t0 = time.time()
-        if need:
-            log(f"[{cfg}] building tg_vsim for {' and '.join(s.name for s in need)} "
-                f"(-j{max(1, a.jobs // len(need))} each)...")
-            with cf.ThreadPoolExecutor(max_workers=2) as ex:
-                errs = list(ex.map(lambda s: s.build(max(1, a.jobs // len(need))), need))
-            for s, e in zip(need, errs):
-                if e:
-                    fail(f"[{cfg}] {s.name}: {e}")
-            log(f"[{cfg}] built in {time.time() - t0:.0f} s")
-        for s in (base, branch):
-            os.utime(s.dir)  # most recently used
-        prune_builds({base.key, branch.key})
+        harness_base = tree if a.harness == "branch" else base_commit
+        sides = {}  # kind -> (base, branch)
+        if suites:
+            sides["vsim"] = (Side("base", "vsim", cfg, tool, base_commit, harness_base),
+                             Side("branch", "vsim", cfg, tool, branch_rtl, tree))
+        if a.boot:
+            sides["boot"] = (Side("base", "boot", cfg, tool, base_commit, harness_base, tb_src, a.boot_cores),
+                             Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores))
+        if not sides:
+            fail("nothing to run: no suites and no --boot")
+        build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
+        prune_builds({s.key for pair in sides.values() for s in pair})
 
-        progs = programs(suites, cfg, a.randn, a.jobs)
-        log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites)})...")
+        # The boot first: it is long, and the programs run beside it
+        progs = ([boot_program(a, cfg, tb_src)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
+        log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites + (['boot'] if a.boot else []))})...")
         t1 = time.time()
-        jobs = [(i, s) for i in range(len(progs)) for s in (base, branch)]
+        jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]
         res = {}
         with cf.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
-            futs = {ex.submit(run_side, s, progs[i][2], progs[i][3], extra if s is branch else [], a.timeout):
-                    (i, s.name) for i, s in jobs}
+            futs = {}
+            for i, side in jobs:
+                limit = a.timeout if progs[i][2] == "vsim" else max(a.timeout, a.boot * 500)
+                futs[ex.submit(run_side, side, progs[i], extra if side.name == "branch" and progs[i][2] == "vsim" else [],
+                               limit)] = (i, side.name)
             for fu in cf.as_completed(futs):
                 res[futs[fu]] = fu.result()
         cached = sum(1 for r in res.values() if r[2])
@@ -432,18 +587,19 @@ def main():
         per_suite = {}
         diffs, broken, base_failed = [], [], 0
         for i, p in enumerate(progs):
-            suite, name, elf, args = p
+            suite = p[0]
             (sa, ea, _), (sb, eb, _) = res[(i, "base")], res[(i, "branch")]
-            st = per_suite.setdefault(suite, [0, 0, 0, 0, 0])  # programs, identical, differ, cycles: base, branch
+            st = per_suite.setdefault(suite, [0, 0, 0, 0, 0.0])  # programs, identical, differ, cycles, cost
             st[0] += 1
             if sa is None or sb is None:
                 broken.append((p, ea or eb, "base" if sa is None else "branch"))
                 continue
-            ca, status_a = parse_end(sa)
-            cb, _ = parse_end(sb)
+            ca, status_a, wa = parse_end(sa)
+            cb, _, wb = parse_end(sb)
+            d, _ = cost(p[2], ca, wa, cb, wb)
             st[3] += ca
-            st[4] += cb
-            if status_a != "PASS":
+            st[4] += d
+            if status_a not in ("PASS", "RAN"):
                 base_failed += 1
             if sa == sb:
                 st[1] += 1
@@ -462,44 +618,44 @@ def main():
                 log(line)
 
         out(f"[{cfg}] {'suite':8s} {'programs':>8s} {'identical':>9s} {'differ':>6s} {'cycles':>9s} {'change':>8s}")
-        for suite, (n, ok, nd, ca, cb) in per_suite.items():
+        for suite, (n, ok, nd, ca, d) in per_suite.items():
             out(f"[{cfg}] {suite:8s} {n:8d} {ok:9d} {nd:6d} {ca / 1e6:8.2f}M "
-                f"{'0' if ca == cb else f'{100.0 * (cb - ca) / max(1, ca):+.3f}%':>8s}")
+                f"{'0' if ok == n else f'{100.0 * d / max(1, ca):+.3f}%':>8s}")
         out(f"[{cfg}] runs took {time.time() - t1:.0f} s ({cached} of {len(jobs)} signatures from the cache)")
         if base_failed:
             out(f"[{cfg}] note: {base_failed} base run(s) did not pass; they are compared all the same")
         for p, why, side in broken:
             any_broken = True
             out(f"[{cfg}] BROKEN {p[0]}/{p[1]}: the {side} run gave no signature: {why}"
-                + (" (a base harness older than tg_vsim --sig? drop --harness own)"
+                + (" (a base harness older than the signatures? drop --harness own)"
                    if side == "base" and a.harness == "own" else ""))
         for k, (p, sa, sb) in enumerate(diffs):
-            suite, name, elf, args = p
+            suite, name, kind, _ = p
+            base, branch = sides[kind]
             i, start = first_diff(sa, sb)
-            ca, status_a = parse_end(sa)
-            cb, status_b = parse_end(sb)
+            ca, status_a, wa = parse_end(sa)
+            cb, status_b, wb = parse_end(sb)
             what = "the run's end"
             end = max(ca, cb) + 1
             if i < len(sa) - 1 and i < len(sb) - 1:
                 fa, fb = sa[i].split(), sb[i].split()
                 end = int(fa[0])
-                parts = []
-                if fa[1:4] != fb[1:4]:
-                    parts.append(f"commit trace ({fa[1]} -> {fb[1]} records)")
-                if fa[4:6] != fb[4:6]:
-                    parts.append(f"TileLink ({fa[4]} -> {fb[4]} events)")
-                what = " and ".join(parts) or "window"
+                what = what_differs(kind, fa, fb)
             status = "" if status_a == status_b else f", status {status_a} -> {status_b}"
             show = k < a.show + 20
-            out(f"[{cfg}] DIFF {suite}/{name}: cycles {ca} -> {cb} ({cb - ca:+d}){status}; "
-                f"first difference in cycles {start}..{end - 1}: {what}", show)
+            amount = (f"cycles {ca} -> {cb} ({cb - ca:+d})" if kind == "vsim" else
+                      f"records retired in {ca} cycles {wa} -> {wb} ({wb - wa:+d})")
+            out(f"[{cfg}] DIFF {suite}/{name}: {amount}{status}; first difference in cycles {start}..{end - 1}: {what}",
+                show)
             if k < a.show:
-                ctx, la, lb = explain(base, branch, elf, args, extra, start, end, outdir, f"{suite}-{name}")
+                xb = extra if kind == "vsim" else []
+                ctx, la, lb = explain(base, branch, p, xb, start, end, outdir)
                 for c in ctx:
                     out(c)
                 out(f"    logs: {la} {lb}")
-                out(f"    rerun: {branch.bin} {' '.join(args + extra)} --log=FILE --log-from={start} --log-bus "
-                    f"--cycles={end} {elf}  (base: {base.bin})")
+                lopts = ([f"--log=FILE", f"--log-from={start}", "--log-bus", f"--cycles={end}"] if kind == "vsim" else
+                         ["+sig_log=FILE", f"+sig_log_from={start}", f"+sig_stop={end}"])
+                out(f"    rerun: {' '.join(run_cmd(branch, p, xb, lopts))}  (base: {base.bin})")
         if len(diffs) > a.show + 20:
             log(f"[{cfg}] ... and {len(diffs) - a.show - 20} more differences")
         if diffs or broken:
