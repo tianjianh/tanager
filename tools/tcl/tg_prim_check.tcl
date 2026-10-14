@@ -23,6 +23,8 @@
 #                line says how many bits are loaded), while a primitive missing for a loaded
 #                bit, or one beyond the full mapping, fails.
 #                Anything else inside the instance (other RAM primitives) is a failure.
+#   tg_cam_lut   RAM64X8SW = ceil(|lk_key| / 6) * ceil(|lk_match| / 8) when it has any (PRIM
+#                "sw"); none otherwise (PRIM "m16": its tables are tg_ram_lut instances).
 #   tg_rom       Block: RAMB36 equivalents of a 2^|raddr| x |rdata| single-port memory, as
 #                for tg_ram_tdp (a warning if different). Distributed: no RAM primitive.
 #   tg_ram_sdp   Block or UltraRAM through XPM. The family found must be one family, and the
@@ -80,8 +82,8 @@ proc tg_prim__loaded_bits {cell bus w nr} {
 
 proc tg_prim__ram_refs {} {
   return {RAM32M16 RAM64M8 RAM32M RAM64M RAM32X1D RAM64X1D RAM128X1D RAM256X1D RAM512X1S
-          RAM32X1S RAM64X1S RAM128X1S RAM256X1S RAM32X16DR8 RAMB36E2 RAMB18E2 URAM288
-          FIFO36E2 FIFO18E2}
+          RAM32X1S RAM64X1S RAM128X1S RAM256X1S RAM32X16DR8 RAM64X8SW RAMB36E2 RAMB18E2
+          URAM288 FIFO36E2 FIFO18E2}
 }
 
 # Smallest block-RAM mapping of DEPTH x WIDTH, in RAMB36 equivalents. SDP allows the 72-bit
@@ -130,12 +132,13 @@ proc tg_prim_check {args} {
 
   set wrappers [get_cells -quiet -hierarchical -filter {
     !IS_PRIMITIVE && (ORIG_REF_NAME =~ "tg_ram_*" || REF_NAME =~ "tg_ram_*" ||
-                      ORIG_REF_NAME =~ "tg_rom*" || REF_NAME =~ "tg_rom*")}]
+                      ORIG_REF_NAME =~ "tg_rom*" || REF_NAME =~ "tg_rom*" ||
+                      ORIG_REF_NAME =~ "tg_cam_*" || REF_NAME =~ "tg_cam_*")}]
   foreach cell $wrappers {
     set mod [get_property ORIG_REF_NAME $cell]
     if {$mod eq ""} { set mod [get_property REF_NAME $cell] }
     regsub {__parameterized\d+$} $mod {} mod
-    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp tg_rom}} { continue }
+    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp tg_rom tg_cam_lut}} { continue }
     incr ninst
     set found [tg_prim__count $cell]
     set status OK
@@ -184,6 +187,20 @@ proc tg_prim_check {args} {
         } elseif {$f != 0} {
           set status FAIL
         }
+      }
+    } elseif {$mod eq "tg_cam_lut"} {
+      # PRIM "sw": its slice tables are ceil(KEYW / 6) x ceil(ENTRIES / 8) RAM64X8SWs. PRIM
+      # "m16" has none: its tables and key store are tg_ram_lut instances, checked as such.
+      set e [tg_prim__busw $cell lk_match]
+      set k [tg_prim__busw $cell lk_key]
+      set nsw [expr {[dict exists $found RAM64X8SW] ? [dict get $found RAM64X8SW] : 0}]
+      if {$nsw == 0} {
+        set shape "$e x $k, cam (tables in tg_ram_lut)"
+      } else {
+        set shape "$e x $k, cam (one-bit-write tables)"
+        set n [expr {[tg_prim__ceil $k 6] * [tg_prim__ceil $e 8]}]
+        dict set exp RAM64X8SW $n
+        if {$nsw != $n} { set status FAIL }
       }
     } elseif {$mod eq "tg_rom"} {
       set w  [tg_prim__busw $cell rdata]

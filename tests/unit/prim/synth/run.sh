@@ -9,6 +9,8 @@
 #   u_c  PRIM_OK, RAMB36_equiv 6.5 (bytes of 8)
 #   u_d  PRIM_OK, RAMB36_equiv 0.5 (rom)
 #   u_e  PRIM_OK, distributed
+#   u_g  PRIM_OK, tg_cam_lut with one-bit-write tables: RAM64X8SW 9 (its key store on its own line)
+#   u_h  PRIM_OK, tg_cam_lut with tables in tg_ram_lut (they are checked on their own lines)
 #   one PRIM_STRAY (f_mem), no PRIM_FAIL, no PRIM_WARN
 set -u
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)"
@@ -25,10 +27,12 @@ check '^PRIM_OK \S*u_b .*24 of 36 read bits loaded.* expected \{RAM64M8 4-6\} fo
 check '^PRIM_OK \S*u_c .*bytes of 8.*RAMB36_equiv 6.5' "u_c byte-write 6.5"
 check '^PRIM_OK \S*u_d .*rom.*RAMB36_equiv 0.5' "u_d block ROM 0.5"
 check '^PRIM_OK \S*u_e .*rom.*distributed' "u_e distributed ROM"
+check '^PRIM_OK \S*u_g tg_cam_lut .*one-bit-write.* expected \{RAM64X8SW 9\} found \{[^}]*RAM64X8SW 9' "u_g CAM, 9 RAM64X8SW"
+check '^PRIM_OK \S*u_h tg_cam_lut .*tables in tg_ram_lut' "u_h CAM, tables in tg_ram_lut"
 [ "$(grep -c '^PRIM_STRAY' "$r")" -ge 1 ] || { echo "  missing: the stray memory"; bad=1; }
 if grep -E '^PRIM_(FAIL|WARN)' "$r"; then bad=1; fi
 s="$RD/prim_synth.txt"
-for i in u_a u_b u_c u_d u_e; do
+for i in u_a u_b u_c u_d u_e u_g u_h; do
   grep -E "^PRIM_OK \S*$i " "$s" > /dev/null || { echo "  missing after synth_design: $i PRIM_OK"; bad=1; }
 done
 if grep -E '^PRIM_(FAIL|WARN)' "$s"; then bad=1; fi

@@ -1,7 +1,9 @@
 // Device-tree overlay for spike S1 (Kria Ubuntu, xmutil / dfx-mgr): loads tg_s1.bit.bin
 // into the PL, sets the AXI port widths the design uses (HP1/HP2 128-bit, HPM0_FPD
 // 128-bit) and keeps pl_clk0 at 100 MHz. The engines' registers are at 0xA0000000 (4 KiB);
-// the A53 program maps them through /dev/mem.
+// the A53 program maps them through /dev/mem. The overlay leaves the pwm-fan node alone: the
+// bitstream routes the PS timer's PWM to the fan pin, so Linux keeps controlling the fan
+// (DR-129).
 /dts-v1/;
 /plugin/;
 

@@ -121,7 +121,7 @@ if {$lut_target > 0} {
   if {abs($luts - $lut_target) > $lut_tol * $lut_target} {
     tg_kv $fh lut_target_miss $luts
     # per-block sizes, to correct the sizing (fpga/spikes/scripts/s6_size.py)
-    report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+    report_utilization -hierarchical -hierarchical_depth 4 -hierarchical_min_primitive_count 0 -file util_hier.rpt
     close $fh
     puts "LUT_TARGET_MISS $luts vs $lut_target"
     exit 3
@@ -148,7 +148,7 @@ if {$do_impl} {
 
   # Utilisation as Vivado reports it (CLB LUTs = logic + memory + SRL)
   report_utilization -file util.rpt
-  report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+  report_utilization -hierarchical -hierarchical_depth 4 -hierarchical_min_primitive_count 0 -file util_hier.rpt
   report_timing -max_paths 20 -nworst 1 -unique_pins -input_pins -sort_by slack -file timing.rpt
   report_timing -max_paths 1 -input_pins -file timing_worst.rpt
   report_timing_summary -max_paths 5 -file timing_summary.rpt
@@ -157,7 +157,7 @@ if {$do_impl} {
   if {$extra} {
     report_design_analysis -congestion -file congestion.rpt
     report_control_sets -verbose -file control_sets.rpt
-    report_utilization -hierarchical -hierarchical_depth 2 -file util_hier2.rpt
+    report_utilization -hierarchical -hierarchical_depth 2 -hierarchical_min_primitive_count 0 -file util_hier2.rpt
     # Floorplan summary: LUTs of each top-level block per clock region, and where the
     # UltraRAM and block RAM ended up
     set rf [open regions.txt w]

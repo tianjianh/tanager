@@ -1,0 +1,5 @@
+PRIM_OK g_lut.u/g_xor.g_bank[0].u_mem tg_ram_lut {2^7 x 32, 11 read} expected {RAM64M8 102} found {RAM64M8 102}
+PRIM_OK g_lut.u/g_xor.g_bank[1].u_mem tg_ram_lut {2^7 x 32, 11 read} expected {RAM64M8 102} found {RAM64M8 102}
+PRIM_OK g_lut.u/g_xor.g_bank[2].u_mem tg_ram_lut {2^7 x 32, 11 read} expected {RAM64M8 102} found {RAM64M8 102}
+PRIM_OK g_lut.u/g_xor.g_bank[3].u_mem tg_ram_lut {2^7 x 32, 11 read} expected {RAM64M8 102} found {RAM64M8 102}
+PRIM_SUMMARY instances 4 fail 0 warn 0 stray 0
