@@ -178,7 +178,7 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
   | Target | Device tree | Passes on | Status (2026-10-14) |
   |---|---|---|---|
   | `opensbi` | no FPU | OpenSBI's banner (`Boot HART MEDELEG`) | passes, 1×1 in 5.0 M cycles and 2×1 in 6.6 M; the long suite runs both |
-  | `linux-kernel` | no FPU (`riscv,isa` without F/D) | `Run /init as init process` | the kernel boots to its early initcalls (27 M cycles), then takes an illegal-instruction oops. Cause: `tg_fetch` executed another I$ line's bytes when an instruction-cache refill outlived a redirect. The core track has a fix pending merge (`claude/track-core-adb715-m3`) |
+  | `linux-kernel` | no FPU (`riscv,isa` without F/D) | `Run /init as init process` | the kernel boots to its early initcalls (27 M cycles), then takes an illegal-instruction oops. Cause: `tg_fetch` executed another I$ line's bytes when an instruction-cache refill outlived a redirect. The core track has a fix pending merge (`claude/track-core-adb715-m3`). With it, the core track's run of this boot went 60 M cycles (0.346 s of kernel time) without an oops |
   | `linux` | with F/D | `TANAGER-BOOT-OK` from the Buildroot image's init | waits for the core's F/D |
 
 - **Debugging:** each progress line (every million cycles) shows every hart's last pc. On failure the run prints the last 64 commit records of every hart. `ARGS="+dump_pc=<hex>"` or `ARGS="+dump_cause=<n>"` prints them when a record has that pc or traps with that cause, and `+dump_stop` ends the run there. `BOOTARGS="earlycon=sbi console=ttyS0 keep_bootcon"` prints the kernel's log through OpenSBI's console from the first line.
