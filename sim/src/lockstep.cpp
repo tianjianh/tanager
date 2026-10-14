@@ -185,8 +185,9 @@ class lockstep_impl_t {
       return mismatch(&h, &r, "nondet on an instruction that is not a read of a CSR on the checker's list");
     if (r.mmio_ld && !is_load_insn(insn, r.rvc)) return mismatch(&h, &r, "mmio_ld on an instruction that is not a load");
 
-    // An SC the RTL failed: make Spike fail it too (§3.4).
-    if (sc && r.rd_we && !r.rd_deferred && r.rd_value != 0 && !r.mem_st) h.p->get_mmu()->yield_load_reservation();
+    // An SC the RTL failed: make Spike fail it too (§3.4). A successful SC always stores, so the
+    // missing store is the sign; with rd = x0 it is the only one.
+    if (sc && !r.mem_st) h.p->get_mmu()->yield_load_reservation();
     env_->amo_step = amo && !lr && !sc;
     spike_step_t st = step(h, insn);
     env_->amo_step = false;

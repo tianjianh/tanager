@@ -33,8 +33,8 @@ export CCACHE_SLOPPINESS :=
 # make's command line or these defaults, never from the environment: a runner's own ISA variable
 # (tests/random: the generator's ISA) reaches the environment of its sub-makes.
 $(foreach v,ISA PRIV PMP,$(if $(filter environment,$(origin $(v))),$(eval undefine $(v))))
-# TRACE_STALL=1 connects trace_stall_i (interfaces.md v1.3); tg_core gets it by default once its
-# port is on main.
+# tg_core always has trace_stall_i (interfaces.md v1.3); TRACE_STALL=1 (the default) gives the test
+# core the port too.
 ifeq ($(CORE),tcore)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= MU
@@ -47,7 +47,7 @@ else ifeq ($(CORE),core)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= M
   PMP  ?= 16
-  TRACE_STALL ?= 0
+  TRACE_STALL := 1
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
   CORE_DEF :=

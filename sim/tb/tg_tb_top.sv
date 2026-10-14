@@ -69,8 +69,16 @@ module tg_tb_top
 
   import "DPI-C" function longint tg_dpi_boot_addr();
 
-  // Cores built with TG_TRACE_STALL have the trace_stall_i input (interfaces.md v1.3).
+  // trace_stall_i (interfaces.md v1.3): tg_core always has it; the test core when built with
+  // TG_TRACE_STALL. It stays 0 unless tg_vsim runs with --trace-stall (verification.md §2.9).
+`ifdef TG_TCORE
 `ifdef TG_TRACE_STALL
+`define TG_TB_TRACE_STALL
+`endif
+`else
+`define TG_TB_TRACE_STALL
+`endif
+`ifdef TG_TB_TRACE_STALL
   localparam bit HAS_TRACE_STALL = 1'b1;
 `else
   localparam bit HAS_TRACE_STALL = 1'b0;
@@ -120,9 +128,6 @@ module tg_tb_top
     .irq_ssi_i        (irq_ssi_q),
     .mtime_i          (mtime_q),
     .debug_req_i      ('0),
-`ifndef TG_TCORE
-    .trace_stall_i    (1'b0),         // interfaces.md v1.3: no back-pressure in simulation
-`endif
     .merr_o           (merr),
     .l1i_a_o          (l1i_a),
     .l1i_a_valid_o    (l1i_a_valid),
@@ -151,7 +156,7 @@ module tg_tb_top
     .mmio_d_i         (mmio_d_q),
     .mmio_d_valid_i   (mmio_d_valid_q),
     .mmio_d_ready_o   (mmio_d_ready),
-`ifdef TG_TRACE_STALL
+`ifdef TG_TB_TRACE_STALL
     .trace_stall_i    (trace_stall_q),
 `endif
     .trace_o          (trace),
@@ -276,3 +281,4 @@ module tg_tb_top
     end
   end
 endmodule
+`undef TG_TB_TRACE_STALL
