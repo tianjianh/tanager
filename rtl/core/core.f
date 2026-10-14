@@ -1,3 +1,25 @@
 // Core RTL in compile order (owned by the core track; the FPU track owns fpu/fpu.f).
 -F fpu/fpu.f
+exec/tg_alu_pkg.sv
+tg_core_pkg.sv
+frontend/tg_ubtb.sv
+frontend/tg_predecode.sv
+frontend/tg_fetch_compact.sv
+frontend/tg_fetch.sv
+decode/tg_decode.sv
+decode/tg_decode_stage.sv
+rename/tg_freelist.sv
+rename/tg_rename.sv
+issue/tg_iq.sv
+issue/tg_wake.sv
+issue/tg_issue.sv
+regfile/tg_irf.sv
+exec/tg_alu.sv
+exec/tg_mul.sv
+exec/tg_div.sv
+exec/tg_exec.sv
+lsu/tg_dcache.sv
+lsu/tg_lsu.sv
+csr/tg_csr.sv
+rob/tg_rob.sv
 tg_core.sv

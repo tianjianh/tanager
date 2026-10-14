@@ -5,3 +5,7 @@
 lint_off -rule UNUSEDPARAM -file "*rtl/common/tg_*pkg.sv"
 // PRIM selects the XPM primitive and is used only under SYNTHESIS.
 lint_off -rule UNUSEDPARAM -file "*rtl/common/prim/tg_ram_*.sv" -match "*PRIM*"
+// Core package helpers take whole IDs and return one field of them.
+lint_off -rule UNUSEDSIGNAL -file "*rtl/core/tg_core_pkg.sv" -match "*function variable*"
+// tg_alu_pkg's group and enum constants are not all used by every module that imports it.
+lint_off -rule UNUSEDPARAM -file "*rtl/core/exec/tg_alu_pkg.sv"
