@@ -363,20 +363,46 @@ No configuration parameter changes the FPU: the four configurations (`st`, `smt2
 
 ## Timing and area
 
-Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc.tcl` through `tools/vivado_run.sh`), Vivado 2025.2, xck26-sfvc784-2LV-c, 5.0 ns clock, request inputs arriving 1.5 ns after the clock (the core's operand bypass), outputs needed 1.0 ns before the next edge. Routed results, 2026-10-13, with lever R5 (the FP→FP and integer→FP conversions on the FMA):
+Out-of-context synthesis and implementation per unit (`tests/unit/fpu/vivado/ooc.tcl` through `tools/vivado_run.sh`), Vivado 2025.2, xck26-sfvc784-2LV-c, 5.0 ns clock, request inputs arriving 1.5 ns after the clock (the core's operand bypass), outputs needed 1.0 ns before the next edge. Routed results, 2026-10-13, after R5 and the LUT pass:
 
 | Unit | LUTs | FFs | DSP48E2 | RAMB18 | WNS at 200 MHz | Latency | Budget (plan §8.2) |
 |---|---|---|---|---|---|---|---|
-| FMA, 5 stages | 2,883 | 1,040 | 6 | 0 | +0.08 ns | 5 | ≈ 2.5K LUTs, 10–14 DSPs |
-| FMISC | 1,002 | 416 | 0 | 0 | +0.51 ns | 2 | (part of the 4.7K FPU) |
-| Divide/sqrt, Goldschmidt (v1, D17) | 3,125 | 1,642 | 26 | 1 | +0.39 ns | 19/23 div, 19/27 sqrt | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSPs, 1 BRAM18 |
-| Divide/sqrt, radix-4 fallback | 1,714 | 899 | 0 | 0 | +0.20 ns | 18/33 div and sqrt | (the plan's fallback) |
-| **FPU with Goldschmidt** | **7,010** | 3,098 | 32 | 1 | met | | **≈ 4.7K LUTs** |
-| **FPU with radix-4** | **5,599** | 2,355 | 6 | 0 | met | | **≈ 4.7K LUTs** |
+| FMA, 5 stages | 2,373 | 1,150 | 6 | 0 | +0.10 ns | 5 | ≈ 2.5K LUTs, 10–14 DSPs |
+| FMISC | 863 | 347 | 0 | 0 | +0.40 ns | 2 | (part of the 4.7K FPU) |
+| Divide/sqrt, Goldschmidt (v1, D17) | 2,653 | 2,262 | 29 | 1 | +0.15 ns | 19/23 div, 19/27 sqrt | ≈ 1.2K LUTs (radix-4 + 0.2K), 24 DSPs, 1 BRAM18 |
+| Divide/sqrt, radix-4 fallback | 1,617 | 899 | 0 | 0 | +0.59 ns | 18/33 div and sqrt | (the plan's fallback) |
+| **FPU with Goldschmidt** | **5,889** | 3,759 | 35 | 1 | met | | **≈ 4.7K LUTs**; nightly budget 6,800 |
+| **FPU with radix-4** | **4,853** | 2,396 | 6 | 0 | met | | **≈ 4.7K LUTs** |
 
-The divider rows did not change with R5 (the units only switched their routing assertion to `fpu_unit_of`), so they are the runs of the first build.
+**All units meet 200 MHz.** The critical paths are: FMA E3 (normalisation: leading-zero count, then the shift) and E2 (the tile outputs into the adder), FMISC M1 (the FCVT.I.F shift and rounding), Goldschmidt S1 (normalise, then the seed-ROM address) and the seed into SMa, radix-4 UNP/NRM (normalise).
 
-**All units meet 200 MHz.** The critical paths are: FMA E3 (normalisation: leading-zero count from the marker register, then the shift), FMISC M0 (the late operand through unpacking to the significand's trailing-zero count; M1, the FCVT.I.F shift and rounding, has +0.62 ns), Goldschmidt S1 (normalise, then the seed-ROM address), radix-4 UNP/NRM (normalise).
+**LUT pass** (2026-10-13, plan §8.5 step 1: no latency or function change). Each run includes the changes above it, so a row's change also carries synthesis variation of a few tens of LUTs (the counter change alone measured +126, and the next change −302):
+
+| Unit | Change | LUTs | WNS |
+|---|---|---|---|
+| FMA | after R5 | 2,883 | +0.08 ns |
+| FMA | control pipeline in flip-flops, not shift-register LUTs | 2,809 | +0.29 ns |
+| FMA | emin marker as the AND of two small one-hots | 2,797 | +0.27 ns |
+| FMA | sticky-only window below emin; exact zero found in E4 | 2,710 | +0.15 ns |
+| FMA | one packing adder for S and D | 2,730 | +0.15 ns |
+| FMA | addend complement in the column counters; tiles dropped by the P-register reset | 2,856 | +0.28 ns |
+| FMA | one incrementer above bit 112 | 2,554 | +0.02 ns |
+| FMA | special results as a kind and a sign | 2,530 | +0.22 ns |
+| FMA | rows sum as one ternary add | 2,530 | +0.22 ns |
+| FMA | FCVT.F.I without a negation | **2,373** | +0.10 ns |
+| FMISC | after R5 | 1,002 | +0.51 ns |
+| FMISC | raw operands and a boxing flag; FCVT.I.F sticky from the shift stages | **863** | +0.40 ns |
+| Divide/sqrt | after R5 | 3,125 | +0.39 ns |
+| Divide/sqrt | ring and pipeline in flip-flops, not shift-register LUTs | 2,979 | +0.06 ns |
+| Divide/sqrt | smallest tiles in DSPs (+3); rounding sticky from the shift stages | 2,670 | +0.17 ns |
+| Divide/sqrt | 5·e2hi in the SMc pre-adder | **2,653** | +0.15 ns |
+| Radix-4 | rounding sticky from the shift stages (shared `tg_fpu_div_round`) | 1,714 → **1,617** | +0.59 ns |
+
+**Measured but not adopted:**
+- **Area-optimised synthesis** (`AreaOptimized_high`, `TG_OOC_DIRECTIVE`): FMA 2,331 (−42, +0.25 ns), FMISC 738 (−125, +0.13 ns), divider 2,532 (−121, but −0.19 ns: fails). Worth applying to the FMA and FMISC as a per-module synthesis strategy in the full-chip flow (−167 LUTs), not to the divider.
+- **FADD/FSUB's second operand in `c`** (an interface change: the core routes rs2 to `c` for FADD/FSUB): the FMA drops its b/c operand multiplexer, −92 LUTs. For the coordinator.
+- **The single packing adder** measured −12 LUTs against two adders at the final state, within run-to-run variation; kept.
+- **Not possible at 200 MHz without a latency change:** the alignment shift as a DSP multiply by 2^k (its one-hot would be decoded at the end of E0, which is near-critical, or the DSP output would feed two more LUT levels in E1); the adders into DSP ALUs (E2 and the divider's c3 need their full results in the same cycle); sharing the divider's two S1 normalisers (one normaliser can serve both operands only if requests are accepted every other cycle, a throughput change).
 
 **Lever R5, measured** (same flow and constraints, routed):
 
@@ -394,10 +420,10 @@ The divider rows did not change with R5 (the units only switched their routing a
 
 **Four-cycle FMA.** Measured before R5: with the E3/E4 boundary removed (`STAGES = 4`) the FMA misses by 1.88 ns (≈ 145 MHz, 26 logic levels from the marker register through LZC, shift, rounding and packing to the response) and grows to 2,971 LUTs. It costs Fmax, so `FMA_LAT` stays 5 (plan §4.12). R5 adds nothing to E3 or E4, so the result stands.
 
-**Area against the budget.** The FPU is over its 4.7K-LUT budget: by 2.3K with the Goldschmidt unit, by 0.9K with radix-4.
-- **Divider.** The Goldschmidt unit costs 1,411 LUTs (and 26 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. At that cost it fails the plan's acceptance rule (§2.5: +2.4% suite IPC against 3.7% of the 37.7K-LUT core). The user kept it for v1 (decision D17, plan §4.12): `FDIV_RADIX4` = 0, and the radix-4 unit stays built and in the regression as the fallback.
-- **Lever R5** (plan §8.5) is adopted and built: −612 LUTs net (table above).
-- **FMA** is 383 LUTs over its own estimate: 170 before R5 and 213 for the conversions. The largest blocks are the 166-bit adder pair (P − C and its complement, needed because the sign of an effective subtraction is unknown in the near case), the 165-bit alignment and the normaliser.
+**Area against the budget.** The FPU is 5,889 LUTs with the Goldschmidt unit: under the nightly budget of 6,800 (docs/perf/budgets.md), 1.2K over the plan's 4.7K estimate; 4,853 with radix-4.
+- **Divider.** The Goldschmidt unit costs 1,036 LUTs (and 29 DSPs and a BRAM18) more than the radix-4 unit, not the plan's +0.2K. The user kept it for v1 (decision D17, plan §4.12): `FDIV_RADIX4` = 0, and the radix-4 unit stays built and in the regression as the fallback.
+- **Levers:** R5 (−612 LUTs) and the LUT pass (−1,121 LUTs) are built; R4 is assessed and parked (section above).
+- **FMA** is 127 LUTs under its own estimate after the pass.
 
 **Fallbacks not needed:** an LZA in the FMA (E3 meets timing without it), `FMA_LAT` = 6, the radix-4 unit for timing.
 
