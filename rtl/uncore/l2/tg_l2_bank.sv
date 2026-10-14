@@ -81,6 +81,9 @@ module tg_l2_bank
   if (N_MSHR > 31 || N_MSHR > (1 << AXI_ID_W)) begin : g_bad_mshr
     $error("tg_l2_bank: N_MSHR must fit the sink and AXI ID encodings (<= 31)");
   end
+  if (SETS < N_MSHR) begin : g_bad_sets_mshr
+    $error("tg_l2_bank: the reset sequencer clears per-MSHR LUTRAM: SETS >= N_MSHR");
+  end
   if (N_AGENTS < 1 || N_AGENTS > MAX_CORES) begin : g_bad_agents
     $error("tg_l2_bank: N_AGENTS must be 1..4");
   end
@@ -97,7 +100,6 @@ module tg_l2_bank
     logic [6:0]          plru;
     way_t [WAYS-1:0]     way;
   } row_t;
-  localparam int ROW_W = $bits(row_t);
 
   typedef enum logic [1:0] { K_ACQ, K_GET, K_PUT } kind_e;
 
@@ -193,7 +195,6 @@ module tg_l2_bank
   logic [TAG_W-1:0]     m_vtag    [N_MSHR];     // victim tag (the victim is in the request's set)
   logic [N_MSHR-1:0]    m_need_wb, m_wb_done;
   logic [N_MSHR-1:0]    m_need_fill, m_ar_sent, m_ferr;
-  logic [1:0]           m_fcnt    [N_MSHR];
 
   typedef struct packed {
     kind_e                kind;
@@ -362,13 +363,38 @@ module tg_l2_bank
     end
   end
 
-  // Directory RAM: one row per set, read at S0, data at S2 (output register), written at S2
-  logic             dir_we;
-  logic [SET_W-1:0] dir_waddr;
-  row_t             dir_wdata, dir_rdata;
-  tg_ram_sdp #(.DEPTH(SETS), .WIDTH(ROW_W), .OUT_REG(1'b1), .PRIM("block")) u_dir (
-    .clk, .we (dir_we), .waddr (dir_waddr), .wdata (dir_wdata),
-    .re (s0_v), .raddr (set_of(s0.line)), .rdata (dir_rdata)
+  // Directory RAM: one row per set, read at S0, data at S2 (output register), written at S2.
+  // Each way entry and the PLRU bits fill whole bytes with their own write enables: S2 writes the
+  // one entry it changes (and the PLRU), never a rebuilt row.
+  localparam int WAY_W  = $bits(way_t);
+  localparam int WAYB   = (WAY_W + 7) / 8;              // bytes per way entry
+  localparam int DROW_W = 8 * (WAYS * WAYB + 1);        // the ways, then one PLRU byte
+  logic [WAYS-1:0]      dir_wway;                       // way entries written
+  logic                 dir_wplru;                      // PLRU written
+  logic [SET_W-1:0]     dir_waddr;
+  way_t                 dir_went;                       // the entry written (every written way)
+  logic [6:0]           dir_wplru_v;
+  logic [WAYS*WAYB:0]   dir_be;
+  logic [DROW_W-1:0]    dir_wraw;
+  /* verilator lint_off UNUSEDSIGNAL */                 // byte padding is not read
+  logic [DROW_W-1:0]    dir_rraw;
+  /* verilator lint_on UNUSEDSIGNAL */
+  row_t                 dir_rdata;
+  always_comb begin
+    dir_be   = '0;
+    dir_wraw = '0;
+    for (int w = 0; w < WAYS; w++) begin
+      dir_be[w*WAYB +: WAYB]       = {WAYB{dir_wway[w]}};
+      dir_wraw[w*WAYB*8 +: WAY_W]  = dir_went;
+      dir_rdata.way[w]             = dir_rraw[w*WAYB*8 +: WAY_W];
+    end
+    dir_be[WAYS*WAYB]              = dir_wplru;
+    dir_wraw[WAYS*WAYB*8 +: 7]     = dir_wplru_v;
+    dir_rdata.plru                 = dir_rraw[WAYS*WAYB*8 +: 7];
+  end
+  tg_ram_sdp #(.DEPTH(SETS), .WIDTH(DROW_W), .BYTE_W(8), .OUT_REG(1'b1), .PRIM("block")) u_dir (
+    .clk, .we (dir_be), .waddr (dir_waddr), .wdata (dir_wraw),
+    .re (s0_v), .raddr (set_of(s0.line)), .rdata (dir_rraw)
   );
 
   always_ff @(posedge clk) begin
@@ -384,29 +410,43 @@ module tg_l2_bank
   end
 
   // Write history: the last two S2 writes, newest first, bypass the RAM's stale read
-  logic             h0_v_q, h1_v_q;
+  logic [WAYS-1:0]  h0_way_q, h1_way_q;
+  logic             h0_pl_q, h1_pl_q;
   logic [SET_W-1:0] h0_set_q, h1_set_q;
-  row_t             h0_row_q, h1_row_q;
+  way_t             h0_ent_q, h1_ent_q;
+  logic [6:0]       h0_plru_q, h1_plru_q;
   wire [SET_W-1:0]  set2 = set_of(p2_q.line);
   wire [TAG_W-1:0]  tag2 = tag_of(p2_q.line);
+  wire              h0_hit = h0_set_q == set2;
+  wire              h1_hit = h1_set_q == set2;
   row_t row2;
   always_comb begin
     row2 = dir_rdata;
-    if (h1_v_q && h1_set_q == set2) row2 = h1_row_q;
-    if (h0_v_q && h0_set_q == set2) row2 = h0_row_q;
+    for (int w = 0; w < WAYS; w++) begin
+      if (h1_hit && h1_way_q[w]) row2.way[w] = h1_ent_q;
+      if (h0_hit && h0_way_q[w]) row2.way[w] = h0_ent_q;
+    end
+    if (h1_hit && h1_pl_q) row2.plru = h1_plru_q;
+    if (h0_hit && h0_pl_q) row2.plru = h0_plru_q;
   end
   always_ff @(posedge clk) begin
     if (rst) begin
-      h0_v_q <= 1'b0;
-      h1_v_q <= 1'b0;
+      h0_way_q <= '0;
+      h1_way_q <= '0;
+      h0_pl_q  <= 1'b0;
+      h1_pl_q  <= 1'b0;
     end else begin
-      h0_v_q <= dir_we;
-      h1_v_q <= h0_v_q;
+      h0_way_q <= dir_wway;
+      h1_way_q <= h0_way_q;
+      h0_pl_q  <= dir_wplru;
+      h1_pl_q  <= h0_pl_q;
     end
-    h0_set_q <= dir_waddr;
-    h0_row_q <= dir_wdata;
-    h1_set_q <= h0_set_q;
-    h1_row_q <= h0_row_q;
+    h0_set_q  <= dir_waddr;
+    h0_ent_q  <= dir_went;
+    h0_plru_q <= dir_wplru_v;
+    h1_set_q  <= h0_set_q;
+    h1_ent_q  <= h0_ent_q;
+    h1_plru_q <= h0_plru_q;
   end
 
   // ---------------------------------------------------------------------------------------------
@@ -442,6 +482,19 @@ module tg_l2_bank
     for (int m = N_MSHR - 1; m >= 0; m--) if (!m_valid[m]) m_new = MW'(m);
   end
 
+  // The way S2 reads and may write: the hit way, the MSHR's way for MCMD, the victim on a miss
+  logic [2:0] sw2;
+  way_t       e2;
+  always_comb begin
+    unique case (p2_q.kind)
+      PK_MCMD:                sw2 = rl_way[0];
+      PK_ACQ, PK_GET, PK_PUT: sw2 = hit2 ? hw2 : vw2;
+      default:                sw2 = hw2;        // PK_REL, PK_PACK; PK_INIT writes every way
+    endcase
+    e2 = row2.way[sw2];
+  end
+  wire [WAYS-1:0] sw2_oh = WAYS'(1) << sw2;
+
   // Requester's final directory entry for an Acquire (spec §Transactions).
   function automatic way_t acq_final(input way_t e_in, input logic [AGENT_W-1:0] a, input logic grow_t);
     way_t                r;
@@ -476,12 +529,12 @@ module tg_l2_bank
   logic                s2_err;
 
   always_comb begin
-    row_t   nr;
     way_t   e;
     logic [N_AGENTS-1:0] me, p;
     logic   grow_t, full_put;
-    nr               = row2;
-    dir_we           = 1'b0;
+    dir_wway         = '0;
+    dir_wplru        = 1'b0;
+    dir_wplru_v      = plru_touch(row2.plru, sw2);
     dir_waddr        = set2;
     s2_alloc         = 1'b0;
     s2_alloc_st      = MS_IDLE;
@@ -517,15 +570,16 @@ module tg_l2_bank
     if (p2_v_q) begin
       unique case (p2_q.kind)
         PK_INIT: begin
-          nr     = '0;
-          dir_we = 1'b1;
+          dir_wway    = '1;
+          dir_wplru   = 1'b1;
+          dir_wplru_v = '0;
         end
 
         PK_REL, PK_PACK: begin
           s2_c     = 1'b1;
           s2_c_hit = hit2;
           if (hit2) begin
-            e = nr.way[hw2];
+            e = e2;
             unique case (cin_q.param)
               TL_SHRINK_T_TO_B: begin e.pres = e.pres | onehot_ag(cin_ag);  e.tip = 1'b0; end
               TL_SHRINK_T_TO_N: begin e.pres = e.pres & ~onehot_ag(cin_ag); e.tip = 1'b0; end
@@ -534,8 +588,7 @@ module tg_l2_bank
             endcase
             if (e.pres == '0) e.tip = 1'b0;   // no holder left: no owner either
             if (cin_data) e.dirty = 1'b1;
-            nr.way[hw2] = e;
-            dir_we = 1'b1;
+            dir_wway = sw2_oh;
           end else begin
             s2_err = 1'b1;   // a Release or ProbeAck for a line the inclusive L2 does not hold
           end
@@ -554,7 +607,7 @@ module tg_l2_bank
 
         PK_MCMD: begin
           s2_mcmd = 1'b1;
-          e = nr.way[rl_way[0]];
+          e = e2;
           if (m_st[mc2] == MS_PIPE_INV) begin
             e.valid = 1'b0;
             e.dirty = 1'b0;
@@ -588,8 +641,7 @@ module tg_l2_bank
             s2_mcmd_grant_t = 1'b1;
             s2_mcmd_st = (e.valid && s2_mcmd_wb) ? MS_VREAD : m_need_fill[mc2] ? MS_FILL : MS_PUTW;
           end
-          nr.way[rl_way[0]] = e;
-          dir_we = 1'b1;
+          dir_wway = sw2_oh;
         end
 
         default: begin   // PK_ACQ, PK_GET, PK_PUT: allocate MSHR m_new
@@ -599,7 +651,7 @@ module tg_l2_bank
           if (hit2) begin
             ev_hit_o     = 1'b1;
             s2_alloc_way = hw2;
-            e = nr.way[hw2];
+            e = e2;
             unique case (p2_q.kind)
               PK_ACQ:  p = a2_growt ? (e.pres & ~me) : (e.tip && e.pres != me) ? (e.pres & ~me) : '0;
               PK_GET:  p = e.tip ? e.pres : '0;
@@ -622,14 +674,13 @@ module tg_l2_bank
                 end
                 default: s2_alloc_st = MS_RESP;
               endcase
-              nr.way[hw2] = e;
+              dir_wway = sw2_oh;
             end
-            nr.plru = plru_touch(nr.plru, hw2);
           end else begin
             ev_miss_o     = 1'b1;
             s2_alloc_way  = vw2;
             s2_alloc_fill = !full_put;
-            e = nr.way[vw2];
+            e = e2;
             s2_alloc_vline = line_of(e.tag, set2);
             if (e.valid && e.pres != '0) begin
               // The victim is held by agents: probe them first; its tag stays until resolved.
@@ -648,15 +699,14 @@ module tg_l2_bank
               e.pres  = (p2_q.kind == PK_ACQ) ? me : '0;
               e.tip   = p2_q.kind == PK_ACQ;
               s2_alloc_grant_t = 1'b1;
-              nr.way[vw2] = e;
+              dir_wway = sw2_oh;
             end
-            nr.plru = plru_touch(nr.plru, vw2);
           end
-          dir_we = 1'b1;
+          dir_wplru = 1'b1;
         end
       endcase
     end
-    dir_wdata = nr;
+    dir_went = e;
   end
 
   // ---------------------------------------------------------------------------------------------
@@ -755,6 +805,15 @@ module tg_l2_bank
   assign r_s_r        = r_ok && !c_wr && !pw_wr;
   wire          f_wr  = r_s_v && r_s_r;
 
+  // Fill beat counters, one per MSHR (R beats of different IDs interleave), in LUTRAM. A fill
+  // always has four beats, so a finished fill leaves its counter at 0; the reset sequencer clears
+  // them first.
+  wire             fc_init = init_issue && int'(init_cnt_q) < N_MSHR;
+  logic [0:0][1:0] fcnt_rd;
+  tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(2), .NR(1)) u_fcnt (
+    .clk, .we (f_wr || fc_init), .waddr (fc_init ? MW'(init_cnt_q) : r_m),
+    .wdata (fc_init ? 2'd0 : fcnt_rd[0] + 2'd1), .raddr (r_m), .rdata (fcnt_rd)
+  );
   always_comb begin
     da_we    = '0;
     da_waddr = '0;
@@ -768,9 +827,9 @@ module tg_l2_bank
       da_wdata = {pb_rdata[0][127:0], pb_rdata[0][127:0]};
       da_we    = pw_beat_q[0] ? {pb_rdata[0][143:128], 16'h0} : {16'h0, pb_rdata[0][143:128]};
     end else if (f_wr) begin
-      da_waddr = {set_of(rl_line[LP_FL]), rl_way[2], m_fcnt[r_m][1]};
+      da_waddr = {set_of(rl_line[LP_FL]), rl_way[2], fcnt_rd[0][1]};
       da_wdata = {r_s.data, r_s.data};
-      da_we    = m_fcnt[r_m][0] ? {16'hFFFF, 16'h0} : {16'h0, 16'hFFFF};
+      da_we    = fcnt_rd[0][0] ? {16'hFFFF, 16'h0} : {16'h0, 16'hFFFF};
     end
   end
   assign da_we_any = |da_we;
@@ -1257,7 +1316,6 @@ module tg_l2_bank
         m_need_fill[m_new] <= s2_alloc_fill;
         m_ar_sent[m_new]   <= 1'b0;
         m_ferr[m_new]      <= 1'b0;
-        m_fcnt[m_new]      <= '0;
       end
       // MCMD result
       if (s2_mcmd) begin
@@ -1274,10 +1332,7 @@ module tg_l2_bank
       if (ev_pack) m_ppend[cin_m_q] <= m_ppend[cin_m_q] & ~onehot_ag(cin_ag);
       // AXI reads
       if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
-      if (f_wr) begin
-        m_fcnt[r_m] <= m_fcnt[r_m] + 1'b1;
-        if (r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
-      end
+      if (f_wr && r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
       // Put written: free its buffer
       if (pw_done) pb_free_q[rl_req[2].pb] <= 1'b1;
       // Response issued in full (a Put whose fill failed never reached MS_PUTW: free its buffer here)
@@ -1345,11 +1400,9 @@ module tg_l2_bank
               else $error("tg_l2_bank%0d: MSHRs %0d and %0d on set %0d way %0d", BANK, i, j, set_of(m_line[i]), m_way[i]);
           end
       // Directory rows written by S2 keep the MESI invariant: tip implies exactly one holder
-      if (dir_we && p2_q.kind != PK_INIT)
-        for (int w = 0; w < WAYS; w++)
-          if (dir_wdata.way[w].valid && dir_wdata.way[w].tip)
-            assert ($onehot(dir_wdata.way[w].pres))
-              else $error("tg_l2_bank%0d: tip without a single holder (set %0d way %0d)", BANK, set2, w);
+      if (dir_wway != '0 && p2_q.kind != PK_INIT && dir_went.valid && dir_went.tip)
+        assert ($onehot(dir_went.pres))
+          else $error("tg_l2_bank%0d: tip without a single holder (set %0d way %0d)", BANK, set2, sw2);
       assert (!s2_err) else $error("tg_l2_bank%0d: protocol error at S2 (kind %0d line %h)", BANK, p2_q.kind, p2_q.line);
       // Each MSHR event finds its MSHR in the one state the transition logic expects
       if (s2_alloc)  assert (m_st[m_new] == MS_IDLE) else $error("tg_l2_bank%0d: allocation of busy MSHR %0d", BANK, m_new);
