@@ -21,25 +21,9 @@ export HOSTCC=gcc-15 HOSTCXX=g++-15
 export BR2_DL_DIR="$SOC_DL"
 unset CC CXX   # the target compilers come from Buildroot's toolchain, not from tools/env.sh
 
-# Buildroot's dependency check wants a host cpio. If the system has none, a shim forwards to the
-# host-cpio Buildroot builds for the rootfs (the check only tests that the command exists).
-if ! command -v cpio >/dev/null; then
-  mkdir -p "$SOC_BUILD/shim"
-  cat > "$SOC_BUILD/shim/cpio" <<SHIM
-#!/bin/sh
-[ -x "$out/host/bin/cpio" ] || { echo "cpio shim: host-cpio not built yet" >&2; exit 1; }
-exec "$out/host/bin/cpio" "\$@"
-SHIM
-  chmod +x "$SOC_BUILD/shim/cpio"
-  export PATH="$SOC_BUILD/shim:$PATH"
-fi
-
 mkdir -p "$out"
 if [ ! -f "$out/.config" ]; then
   make -C "$br" O="$out" BR2_EXTERNAL="$here/buildroot" "${name}_defconfig"
-fi
-if ! command -v /usr/bin/cpio >/dev/null && [ ! -x "$out/host/bin/cpio" ]; then
-  make -C "$out" host-cpio
 fi
 make -C "$out" "$@"
 

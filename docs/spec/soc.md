@@ -125,7 +125,7 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 
 ## 5. Software images
 
-- **Pins:** `sw/versions.sh` (OpenSBI 1.9, Linux 6.18.56, Buildroot 2026.08, Bootlin `riscv64-lp64d` glibc toolchain 2026.08-1 with GCC 15.3). `sw/fetch.sh` downloads into the one shared download directory and checks SHA-256 sums recorded in `sw/sha256sums`, which match the upstream published sums.
+- **Pins:** `sw/versions.sh` (OpenSBI 1.9, Linux 6.18.56, Buildroot 2026.08, Bootlin `riscv64-lp64d` glibc toolchain 2026.08-1 with GCC 15.3, and for `tanager-host` the Bootlin `aarch64` musl toolchain 2026.08-1 with GCC 15.3). `sw/fetch.sh` downloads into the one shared download directory and checks SHA-256 sums recorded in `sw/sha256sums`, which match the upstream published sums. The aarch64 toolchain is unpacked under `$SOC_BUILD/tc` and its archive deleted; `make -C sw/host` builds a static, stripped `tanager-host` (about 75 KB).
 - **`sw/build_linux.sh`:** Buildroot with the external tree `sw/buildroot`. The configuration `tanager_lp64d` builds:
   - a busybox initramfs, built into the kernel;
   - Linux from `board/tanager/linux.config` (a small seed: no modules, no EFI, only the platform's drivers);
@@ -133,7 +133,7 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
   - the device trees.
 
   Output goes to `$SOC_BUILD/br-<config>/images`.
-- **M4 board image without an FPU:** Bootlin offers no riscv64 soft-float toolchain. If the core lacks F and D at M4, the board image needs a Buildroot-built rv64imac/lp64 toolchain (a coordinator decision, noted in the merge request).
+- **Board image:** the lp64d image. F/D integration moves into M3, before the board (plan §11), so no soft-float userland is built.
 - **`/etc/init.d/S99tanager`:** prints `TANAGER-BOOT-OK` with the hart count. With `tanager.autotest=1` on the command line, it runs a short smoke test and powers off, so QEMU, simulation and board runs end by themselves.
 
 ## 6. QEMU proof

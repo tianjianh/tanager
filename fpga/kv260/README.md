@@ -54,7 +54,7 @@ Each step's expected result is in brackets.
 4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384`, wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
    - **At 250 cycles:** `sudo tanager-host inj --inj-rd 250`, wait, `tg status` again [errors still 0].
 5. **Console path.** The traffic generators print one `.` per pass on the UART: `sudo tanager-host run --timeout 5` [dots appear].
-6. **Linux** (once the core exists; it needs F/D for the lp64d image, otherwise the soft-float image):
+6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
    ```
