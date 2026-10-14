@@ -5,6 +5,9 @@
 //             signed multiply covers every op.
 //   M2 (c+2): the product's low 128 bits.
 //   M3 (c+3): the high or low half, or MULW's low word sign-extended: the output register.
+//             out_prod, out_hi and out_word give the same result unselected (the M3 register
+//             holds the whole product), so a user with a write multiplexer of its own can fold
+//             the select into it (tg_exec: one LUT level less; fpga_friendly.md T7).
 // The single 65x65 multiply keeps simulation fast. Synthesis maps it onto DSP48E2 tiles and
 // their cascade, absorbing M1 and M2 into the tiles' pipeline registers (AREG/BREG, then
 // MREG/PREG); a hand-partitioned tile array can replace it if timing needs one.
@@ -26,14 +29,18 @@ module tg_mul
   input  logic [TAG_W-1:0] in_tag,
   output logic             out_valid,
   output logic [63:0]      out_res,
-  output logic [TAG_W-1:0] out_tag
+  output logic [TAG_W-1:0] out_tag,
+  output logic [127:0]     out_prod,   // the product's low 128 bits; out_res is
+  output logic             out_hi,     //   out_word ? sext(out_prod[31:0]) : out_hi ? out_prod[127:64]
+  output logic             out_word    //   : out_prod[63:0]
 );
   logic                v1_q, v2_q, v3_q;
   logic signed [64:0]  a1_q, b1_q;
   logic                hi1_q, hi2_q, word1_q, word2_q;
   logic [TAG_W-1:0]    tag1_q, tag2_q, tag3_q;
-  logic [127:0]        prod2_q;
+  logic [127:0]        prod2_q, prod3_q;
   logic [63:0]         res3_q;
+  logic                hi3_q, word3_q;
 
   always_ff @(posedge clk) begin
     if (rst) {v1_q, v2_q, v3_q} <= '0;
@@ -63,13 +70,19 @@ module tg_mul
       if (word2_q)    res3_q <= {{32{prod2_q[31]}}, prod2_q[31:0]};
       else if (hi2_q) res3_q <= prod2_q[127:64];
       else            res3_q <= prod2_q[63:0];
-      tag3_q <= tag2_q;
+      tag3_q  <= tag2_q;
+      prod3_q <= prod2_q;
+      hi3_q   <= hi2_q;
+      word3_q <= word2_q;
     end
   end
 
   assign out_valid = v3_q;
   assign out_res   = res3_q;
   assign out_tag   = tag3_q;
+  assign out_prod  = prod3_q;
+  assign out_hi    = hi3_q;
+  assign out_word  = word3_q;
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

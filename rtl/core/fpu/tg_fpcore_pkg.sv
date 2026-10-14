@@ -41,11 +41,6 @@ package tg_fpcore_pkg;
     logic [4:0]  fflags;
   } fpi_t;
 
-  // The value FLW or FLD writes to F1: a single is NaN-boxed (RISC-V F, "NaN boxing").
-  function automatic logic [63:0] fp_box_load(input logic [63:0] data, input logic single);
-    return single ? {32'hFFFF_FFFF, data[31:0]} : data;
-  endfunction
-
   // Rounding mode of an instruction that rounds (Spike's RM rule): DYN (7) reads frm; 5 and 6,
   // and DYN while frm >= 5, are illegal.
   function automatic rm_e fp_rm_resolve(input logic [2:0] rm_field, input logic [2:0] frm);

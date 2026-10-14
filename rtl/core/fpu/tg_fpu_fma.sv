@@ -250,11 +250,20 @@ module tg_fpu_fma
   // FCVT.F.I: x itself at V[164:101], sign-extended into bit 165; E2 complements it for a negative
   // x (eff_sub), so |S| = -x. x_q is zero for every other operation, and the aligned addend is zero
   // for FCVT.F.I (it has none), so the two are ORed.
-  logic [VW:0] cop_q;           // addend operand of the adder: C or x (166 bits)
+  logic [VW:0] cop_d, cop_q;    // addend operand of the adder: C or x (166 bits)
+  assign cop_d = {c1_q.cvt_i && c1_q.sp, cal | {x_q, {(VW-64){1'b0}}}};
   always_ff @(posedge clk) begin
-    cop_q <= {c1_q.cvt_i && c1_q.sp, cal | {x_q, {(VW-64){1'b0}}}};
+    cop_q <= cop_d;
     c2_q  <= c1x;
   end
+
+  // The adder's upper part plus one (tg_fpu_fma_add: above LO only the addend contributes):
+  // (cop ^ eff_sub)[VW:LO] + 1, in DSPs that keep their own copy of that register (T6). The XOR
+  // shares its LUT with cop_d's OR.
+  localparam int LO = 112;
+  logic [VW-LO:0] hi1;
+  tg_fpu_dsp_add #(.W(VW-LO+1)) u_hi1 (
+    .clk, .ce(1'b1), .a(cop_d[VW:LO] ^ {(VW-LO+1){c1x.eff_sub}}), .b('0), .ci(1'b1), .s(hi1));
 
   // ------------------------------------------------------------------------------------------
   // E2: add. Six tiles and the addend reduce to three rows (one counter level), then two
@@ -262,9 +271,9 @@ module tg_fpu_fma
   // ------------------------------------------------------------------------------------------
   logic [VW-1:0] mag;
   logic          rsign;
-  tg_fpu_fma_add #(.W(VW)) u_add (
+  tg_fpu_fma_add #(.W(VW), .LO(LO)) u_add (
     .t00(t00_q), .t01(t01_q), .t02(t02_q), .t10(t10_q), .t11(t11_q), .t12(t12_q),
-    .cop(cop_q), .prod_sticky(c2_q.prod_sticky), .eff_sub(c2_q.eff_sub),
+    .cop(cop_q), .hi1, .prod_sticky(c2_q.prod_sticky), .eff_sub(c2_q.eff_sub),
     .sp(c2_q.sp), .sc(c2_q.sc),
     .mag, .rsign
   );

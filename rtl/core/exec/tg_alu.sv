@@ -6,6 +6,10 @@
 //   MINMAX = 0: min/max/minu/maxu are left out of the 1-cycle result (they then go to the
 //   2-cycle path with clz/ctz/cpop). Their select after the full carry chain is the
 //   longest path through the ALU.
+// FPGA form (docs/perf/fpga_friendly.md T7, DR-123): the logic ops and lui go through the
+// adder (a op b plus zero, or zero plus b: no carries), so the result is an encoded 4:1
+// select of the adder, the shifter, the bit ops and the unary ops (slt takes the unary
+// path's zeros above bit 0).
 module tg_alu
   import tg_alu_pkg::*;
 #(
@@ -19,13 +23,25 @@ module tg_alu
   output logic         lt,    // a < b, signed   (valid with ctl.sub)
   output logic         ltu    // a < b, unsigned (valid with ctl.sub)
 );
-  // ---- Adder (one CARRY8 chain): (a pre-shifted) + (b or ~b) + sub ----
-  logic [63:0] a_uw, a_add, b_add, sum;
+  // ---- Adder (one CARRY8 chain): x + y + sub ----
+  // add/sub: x = a pre-shifted, y = b or ~b; logic: x = a op b, y = 0; lui: x = 0, y = b
+  logic        is_lg, is_pb;
+  logic [63:0] a_uw, a_add, lb, xx, yy, sum;
   logic        cout;
+  assign is_lg = ctl.grp[G_LOGIC];
+  assign is_pb = ctl.grp[G_PASSB];
   assign a_uw  = ctl.uw ? {32'b0, a[31:0]} : a;
   assign a_add = a_uw << ctl.zba_sh;
-  assign b_add = ctl.sub ? ~b : b;
-  assign {cout, sum} = {1'b0, a_add} + {1'b0, b_add} + {64'b0, ctl.sub};
+  assign lb    = ctl.lg_invb ? ~b : b;
+  always_comb begin
+    unique case (ctl.lg_fn)
+      LG_AND:  xx = is_lg ? (a & lb) : is_pb ? 64'd0 : a_add;
+      LG_OR:   xx = is_lg ? (a | lb) : is_pb ? 64'd0 : a_add;
+      default: xx = is_lg ? (a ^ lb) : is_pb ? 64'd0 : a_add;
+    endcase
+  end
+  assign yy = is_lg ? 64'd0 : (ctl.sub ? ~b : b);
+  assign {cout, sum} = {1'b0, xx} + {1'b0, yy} + {64'b0, ctl.sub && !is_lg};
 
   // a - b: borrow is !cout; signed less-than from the sign bits and the difference
   assign ltu = !cout;
@@ -63,16 +79,8 @@ module tg_alu
   assign fill   = ctl.sh_arith && sh_in[63];
   assign sh_out = ctl.sh_rot ? rot : ((rot & keep) | (~keep & {64{fill}}));
 
-  // ---- Logic, bit ops, unary ----
-  logic [63:0] lb, lg, bmask, bitr, un;
-  assign lb = ctl.lg_invb ? ~b : b;
-  always_comb begin
-    unique case (ctl.lg_fn)
-      LG_AND:  lg = a & lb;
-      LG_OR:   lg = a | lb;
-      default: lg = a ^ lb;
-    endcase
-  end
+  // ---- Bit ops, unary (and slt) ----
+  logic [63:0] bmask, bitr, un;
   assign bmask = 64'd1 << b[5:0];
   always_comb begin
     unique case (ctl.bit_fn)
@@ -84,7 +92,7 @@ module tg_alu
   logic bz;
   assign bz = (b == 64'd0);
   always_comb begin
-    unique case (ctl.un_fn)
+    unique case (ctl.grp[G_SLT] ? UN_BEXT : ctl.un_fn)     // slt: zeros above bit 0
       UN_SEXTB: un = {{56{a[7]}}, a[7:0]};
       UN_SEXTH: un = {{48{a[15]}}, a[15:0]};
       UN_ZEXTH: un = {48'b0, a[15:0]};
@@ -96,19 +104,25 @@ module tg_alu
     endcase
   end
 
-  // ---- Result: AND-OR over the one-hot group ----
-  logic [63:0] r_add, r_sh;
-  assign r_add = ctl.word ? {{32{sum[31]}}, sum[31:0]} : sum;
-  assign r_sh  = ctl.word ? {{32{sh_out[31]}}, sh_out[31:0]} : sh_out;
+  // ---- Result: an encoded 4:1 select; the W forms sign-extend above bit 31 ----
+  // With MINMAX, min/max is a fifth source (after the full carry chain: the longest path).
+  logic [1:0] rs;
   always_comb begin
-    res = '0;
-    if (ctl.grp[G_ADD])   res |= r_add;
-    if (ctl.grp[G_SHIFT]) res |= r_sh;
-    if (ctl.grp[G_SLT])   res |= {63'b0, less};
-    if (MINMAX && ctl.grp[G_MINMX]) res |= (less ^ ctl.cmp_max) ? a : b;
-    if (ctl.grp[G_LOGIC]) res |= lg;
-    if (ctl.grp[G_BIT])   res |= bitr;
-    if (ctl.grp[G_UNARY]) res |= un;
-    if (ctl.grp[G_PASSB]) res |= b;
+    rs = 2'd0;                                               // adder: add, sub, logic, lui
+    if (ctl.grp[G_SHIFT])                     rs = 2'd1;
+    if (ctl.grp[G_BIT])                       rs = 2'd2;
+    if (ctl.grp[G_UNARY] || ctl.grp[G_SLT])   rs = 2'd3;
+  end
+  always_comb begin
+    for (int i = 0; i < 64; i++) begin
+      unique case (rs)
+        2'd0:    res[i] = (i >= 32 && ctl.word) ? sum[31] : sum[i];
+        2'd1:    res[i] = (i >= 32 && ctl.word) ? sh_out[31] : sh_out[i];
+        2'd2:    res[i] = bitr[i];
+        default: res[i] = un[i];
+      endcase
+    end
+    if (ctl.grp[G_SLT]) res[0] = less;
+    if (MINMAX && ctl.grp[G_MINMX]) res = (less ^ ctl.cmp_max) ? a : b;
   end
 endmodule
