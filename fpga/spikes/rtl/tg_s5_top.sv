@@ -14,7 +14,7 @@
 module tg_s5_top
   import tg_pkg::*;
 #(
-  parameter bit FA = 1'b0,
+  parameter int FA = 0,
   parameter int WR = 4,
   localparam int NP    = FETCH_BYTES / 2,
   localparam int SW    = idx_w(NP),
@@ -27,7 +27,7 @@ module tg_s5_top
   localparam int ROWW  = idx_w((SETS * 64) / FETCH_BYTES),   // 16-byte rows per way
   localparam int META_W = 8,
   localparam int IB_W  = 32 + 1 + SW + 3 + META_W,
-  localparam int UW    = FA ? 5 : 1
+  localparam int UW    = FA != 0 ? 5 : 1
 ) (
   input  logic                    clk,
   input  logic                    rst_i,
@@ -97,7 +97,7 @@ module tg_s5_top
   logic [38:1] target;
   logic [SW-1:0] br_slot;
 
-  tg_ubtb #(.FA(FA), .NE(UBTB_ENTRIES), .NFA(32)) u_ubtb (
+  tg_ubtb #(.FA(FA != 0), .NE(UBTB_ENTRIES), .NFA(32)) u_ubtb (
     .clk, .rst, .pc(fpc_q[38:4]), .tid(ftid_q), .hit, .target, .br_slot,
     .upd_valid(upd_valid_q), .upd_way(upd_way_q), .upd_pc(upd_pc_q), .upd_tid(upd_tid_q),
     .upd_target(upd_target_q), .upd_slot(upd_slot_q), .upd_inval(1'b0));

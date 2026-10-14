@@ -11,7 +11,7 @@ module tg_s6_top #(
   parameter int CORE_NDSP  = 0,
   parameter int UNC_TILES  = 300,
   parameter int UNC_NRAM   = 0,
-  parameter bit S2_MX      = 1'b0,
+  parameter int S2_MX      = 0,
   localparam int BUS_W = 256
 ) (
   input  logic        clk,

@@ -16,7 +16,7 @@ import sys
 
 DEVICE_LUTS = 117_120
 UNCORE_LUTS = 13_300
-LUTS_PER_TILE = 36.0        # calibrated from a filler-only synthesis (s6_fill_cal)
+LUTS_PER_TILE = 43.3        # calibrated: s6_cal_st (500 + 308 tiles, synthesis)
 LUTS_PER_RAM = 80           # tg_s6_fill LUTRAM block: 10 RAM64M8
 FILL_LUTRAM = 2_400         # per core
 CORE_BRAM_FILL = 18         # TAGE 8, BTB, L2 TLB, ... (S4 has 8, S5 16)

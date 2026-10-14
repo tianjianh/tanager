@@ -12,6 +12,9 @@
 // time; latency is counted from the address handshake to the first data beat (reads) or the
 // write response (writes), in clock cycles. Results: min, max, sum, count, a 256-bin
 // histogram (bin = latency >> HSHIFT, saturating), total cycles and bytes, error count.
+// The responses are registered as they come from the PS port, and the latency sample goes
+// through two more stages before the histogram's read-modify-write (200 MHz). The issue time
+// is kept as the handshake cycle + 1, so the registered arrival gives the same count.
 //
 // Registers (word offsets): 0 ID, 1 CTRL, 2 STATUS, 3 BEATS, 4 OUTST, 5 COUNT, 6 BASE_LO,
 // 7 BASE_HI, 8 SIZE, 9 STRIDE, 10 SEED, 11 HSHIFT, 12/13 CYCLES, 14 LAT_MIN, 15 LAT_MAX,
@@ -170,51 +173,86 @@ module tg_s1_engine #(
   assign w_go   = wvalid && wready;
   assign w_done = w_go && wlast;
 
+  // ---- Responses, registered as they leave the PS port ----
+  logic          rv_q, rlast_q, bv_q;
+  logic [SW-1:0] rslot_q, bslot_q;
+  logic [1:0]    rresp_q, bresp_q;
+  logic [AW-1:0] rptr_q;           // the beat's first 8 bytes: the chase pointer
+  always_ff @(posedge clk) begin
+    rv_q    <= !rst && rvalid;
+    bv_q    <= !rst && bvalid;
+    rlast_q <= rlast;
+    rslot_q <= rid[SW-1:0];
+    bslot_q <= bid[SW-1:0];
+    rresp_q <= rresp;
+    bresp_q <= bresp;
+    rptr_q  <= rdata[AW-1:0];
+  end
+
   // ---- Completions: latency samples ----
   logic        smp_v;
   logic [31:0] smp_lat;
   logic        r_first;
-  assign r_first = rvalid && !slot_first_q[rid[SW-1:0]];
+  assign r_first = rv_q && !slot_first_q[rslot_q];
   always_comb begin
     smp_v = 1'b0;
     smp_lat = '0;
     if (!mode_wr_q && r_first) begin
       smp_v = 1'b1;
-      smp_lat = now_q - slot_t_q[rid[SW-1:0]];
-    end else if (mode_wr_q && bvalid) begin
+      smp_lat = now_q - slot_t_q[rslot_q];
+    end else if (mode_wr_q && bv_q) begin
       smp_v = 1'b1;
-      smp_lat = now_q - slot_t_q[bid[SW-1:0]];
+      smp_lat = now_q - slot_t_q[bslot_q];
     end
   end
-  logic fin;          // a transaction finished this cycle
+  logic fin;          // a transaction finished (its last response was registered)
   logic [SW-1:0] fin_slot;
-  assign fin      = mode_wr_q ? bvalid : (rvalid && rlast);
-  assign fin_slot = mode_wr_q ? bid[SW-1:0] : rid[SW-1:0];
+  assign fin      = mode_wr_q ? bv_q : (rv_q && rlast_q);
+  assign fin_slot = mode_wr_q ? bslot_q : rslot_q;
   logic resp_err;
-  assign resp_err = (rvalid && rresp[1]) || (bvalid && bresp[1]);
+  assign resp_err = (rv_q && rresp_q[1]) || (bv_q && bresp_q[1]);
+
+  // Stage A: the sample, registered; the statistics and the bin come from it
+  logic        a_v_q;
+  logic [31:0] a_lat_q;
+  always_ff @(posedge clk) begin
+    a_v_q   <= !rst && smp_v && busy_q;
+    a_lat_q <= smp_lat;
+  end
 
   // ---- Histogram: BRAM read-modify-write, one sample per cycle, with forwarding ----
-  logic [7:0]  h_bin, b_bin_q, c_bin_q, clr_idx_q;
-  logic        b_v_q, c_v_q;
-  logic [31:0] h_rd, b_cnt, c_cnt_q;
+  // H: bin registered, BRAM read; B: count as read, forwarded; C: count + 1 written;
+  // D: the write C did in the previous cycle. The BRAM is read-first, so a read misses the
+  // write at its own clock edge (now in D) as well as the one still in C.
+  logic [7:0]  h_bin_q, b_bin_q, c_bin_q, d_bin_q, clr_idx_q;
+  logic        h_v_q, b_v_q, c_v_q, d_v_q;
+  logic [31:0] h_rd, b_cnt, c_cnt_q, d_cnt_q;
   logic [31:0] hshifted;
-  assign hshifted = smp_lat >> hshift_q;
-  assign h_bin = (hshifted > 32'd255) ? 8'd255 : hshifted[7:0];
+  assign hshifted = a_lat_q >> hshift_q;
+  always_ff @(posedge clk) begin
+    h_v_q   <= !rst && a_v_q;
+    h_bin_q <= (hshifted > 32'd255) ? 8'd255 : hshifted[7:0];
+  end
   logic        reg_hist_rd;
   assign reg_hist_rd = reg_rd && reg_addr[8];
   tg_ram_sdp #(.DEPTH(256), .WIDTH(32), .OUT_REG(1'b0), .PRIM("block")) u_hist (
     .clk, .we(clearing_q || c_v_q), .waddr(clearing_q ? clr_idx_q : c_bin_q),
     .wdata(clearing_q ? 32'd0 : c_cnt_q), .re(1'b1),
-    .raddr(smp_v ? h_bin : reg_addr[7:0]), .rdata(h_rd));
-  // Stage B: the bin's count as read; forward the write of the previous sample
-  assign b_cnt = (c_v_q && c_bin_q == b_bin_q) ? c_cnt_q : h_rd;
+    .raddr(h_v_q ? h_bin_q : reg_addr[7:0]), .rdata(h_rd));
+  assign b_cnt = (c_v_q && c_bin_q == b_bin_q) ? c_cnt_q :
+                 (d_v_q && d_bin_q == b_bin_q) ? d_cnt_q : h_rd;
   always_ff @(posedge clk) begin
-    b_v_q   <= smp_v && busy_q;
-    b_bin_q <= h_bin;
-    c_v_q   <= b_v_q;
+    b_v_q   <= !rst && h_v_q;
+    b_bin_q <= h_bin_q;
+    c_v_q   <= !rst && b_v_q;
     c_bin_q <= b_bin_q;
     c_cnt_q <= b_cnt + 1'b1;
+    d_v_q   <= !rst && c_v_q;
+    d_bin_q <= c_bin_q;
+    d_cnt_q <= c_cnt_q;
   end
+  logic smp_pipe;     // samples still on their way to the statistics or the histogram
+  assign smp_pipe = a_v_q || h_v_q || b_v_q || c_v_q;
 
   // ---- Control and statistics ----
   always_ff @(posedge clk) begin
@@ -255,7 +293,7 @@ module tg_s1_engine #(
         end else begin
           cycles_q <= cycles_q + 1'b1;
         end
-        if (abort || (!clearing_q && issued_q == count_q && inflight_q == 0)) begin
+        if (abort || (!clearing_q && issued_q == count_q && inflight_q == 0 && !smp_pipe)) begin
           busy_q <= 1'b0;
           done_q <= 1'b1;
         end
@@ -268,7 +306,7 @@ module tg_s1_engine #(
         last_addr_q <= next_addr;
         slot_busy_q[free_slot]  <= 1'b1;
         slot_first_q[free_slot] <= 1'b0;
-        slot_t_q[free_slot]     <= now_q;
+        slot_t_q[free_slot]     <= now_q + 1'b1;   // the response is seen a cycle late
         if (chase_q) chase_ready_q <= 1'b0;
       end
       if (aw_go && !w_done)      w_pending_q <= w_pending_q + 1'b1;
@@ -276,27 +314,27 @@ module tg_s1_engine #(
       if (w_go) w_beat_q <= wlast ? 8'd0 : w_beat_q + 1'b1;
       // Responses
       if (r_first && !mode_wr_q) begin
-        slot_first_q[rid[SW-1:0]] <= 1'b1;
+        slot_first_q[rslot_q] <= 1'b1;
         if (chase_q) begin
           // the node's first 8 bytes: the next node's physical address
-          chase_addr_q  <= rdata[AW-1:0] & ~AW'(BEAT_BYTES - 1);
+          chase_addr_q  <= rptr_q & ~{{(AW-32){1'b0}}, 32'(BEAT_BYTES - 1)};
           chase_ready_q <= 1'b1;
         end
       end
-      if (rvalid || w_go) bytes_q <= bytes_q + 64'(BEAT_BYTES);
+      if (rv_q || w_go) bytes_q <= bytes_q + 64'(BEAT_BYTES);
       if (fin) begin
         slot_busy_q[fin_slot] <= 1'b0;
       end
       inflight_q <= inflight_q + ((ar_go || aw_go) ? 6'd1 : 6'd0) - (fin ? 6'd1 : 6'd0);
-      if (smp_v && busy_q) begin
+      if (a_v_q && busy_q) begin
         done_cnt_q <= done_cnt_q + 1'b1;
-        lat_sum_q  <= lat_sum_q + {32'd0, smp_lat};
-        if (smp_lat < lat_min_q) lat_min_q <= smp_lat;
-        if (smp_lat > lat_max_q) lat_max_q <= smp_lat;
+        lat_sum_q  <= lat_sum_q + {32'd0, a_lat_q};
+        if (a_lat_q < lat_min_q) lat_min_q <= a_lat_q;
+        if (a_lat_q > lat_max_q) lat_max_q <= a_lat_q;
       end
       if (resp_err) begin
         errors_q <= errors_q + 1'b1;
-        if (errors_q == 0) first_err_q <= rvalid ? rresp : bresp;
+        if (errors_q == 0) first_err_q <= rv_q ? rresp_q : bresp_q;
       end
     end
   end
