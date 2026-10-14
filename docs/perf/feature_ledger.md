@@ -156,7 +156,7 @@ The verdicts are stated against the per-unit budgets ([budgets.md](budgets.md)).
 
 **Net, measured (AR-7, area_recovery.md §7):**
 - **Wakeup tags:** −1.6K / −3.4K / −4.8K at st / smt2 / smt2_w3 in S2, and −0.7K in the real `st` core, at 0.00% IPC.
-- **v1 today:** ≈155.7K (two `smt2` cores at 62,501, hart 1 estimated at 4.2K each, the uncore at 22.3K). That is 52.7K over 103.0K at 200 MHz and 45.4K over 110.3K at 180 MHz.
+- **v1 today:** ≈155.7K (two `smt2` cores at 62,501, hart 1 estimated at 4.2K each, the uncore at 22.3K). That is 52.6K over 103.0K at 200 MHz and 45.4K over 110.3K at 180 MHz.
   - It fits at 200 MHz once the units meet budgets.md.
   - The reserve (≈2.2K per SoC) and the clock (7.2K) cannot close the gap on their own.
 - **v2:** needs its own budget (≈49.7K per core at 180 MHz, AR-9) and a no-IPC pass on its 3-wide structures. The 3-wide increment is ≈13.2K per core today (`st_w3` − `st`, before AR-1 and F/D), against ≈3.6K of room.

@@ -26,7 +26,7 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
 **Real RTL after the area pass (AR-7, 2026-10-14; §7).** The core track's no-IPC area pass took the `st` core from 88K to 45.1K LUTs, and AR-1 took it to 44.4K. With F/D it is **56,461 against its 38,220 budget** (+48%).
 - **v1 today:** two `smt2` cores, hart 1's state estimated, and the measured 22.3K uncore come to **≈155.7K**. The limits are 103.0K at 200 MHz (88%) and 110.3K at 180 MHz (94.2%, measured with v2's core).
 - **Verdict:** v1 does not fit at 200 MHz today, nor at 180 MHz. It fits at 200 MHz when its units meet their budgets, which sum to 103.0K.
-- **Closing the gap:** the 52.7K is D18 step-1 work, unit by unit. The clock (step 2) is worth 7.2K, and the re-priced reserve (step 3) ≈2.2K.
+- **Closing the gap:** the 52.6K is D18 step-1 work, unit by unit. The clock (step 2) is worth 7.2K, and the re-priced reserve (step 3) ≈2.2K.
 - **v2 needs a per-core budget** (≈49.7K at 180 MHz; AR-9) and its own no-IPC pass on the 3-wide structures.
 - **How to read this study:**
   - its verdicts are stated against the per-unit budgets of [budgets.md](budgets.md);
@@ -87,7 +87,7 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **IPC still favours v2 at a lower clock:** at 190 MHz it beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread.
 7. **D18's order holds, and the measured gap makes it sharper** (§6, §7.5).
    - In the model, every trim costs less IPC than the clock it replaces.
-   - But against the measured gap, step 2 (180 MHz, +7.2K) is worth more than the whole re-priced reserve (step 3, ≈2.2K). Both are small next to step 1's 52.7K.
+   - But against the measured gap, step 2 (180 MHz, +7.2K) is worth more than the whole re-priced reserve (step 3, ≈2.2K). Both are small next to step 1's 52.6K.
    - **Radix-4 now fails the rule:** it saves 1.04K, measured after the FPU's no-IPC pass.
 
 ### 1.2 What the levers add up to
@@ -583,11 +583,11 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
 | Hart 1's state, ×2 (M7, est.) | 8.4K | 8.8K |
 | Uncore, measured | 22.3K | 22.3K |
 | **Total** | **155.7K** (133% of the device) | **≈182.4K (est.)** (156%) |
-| Over 103.0K (200 MHz, 88%; also the sum of v1's budgets) | 52.7K | ≈79.4K |
+| Over 103.0K (200 MHz, 88%; also the sum of v1's budgets) | 52.6K | ≈79.4K |
 | Over 110.3K (180 MHz, 94%) | 45.4K | ≈72.1K |
 
 **Today neither fits, at 200 MHz or 180 MHz. The gap is in implementation, not IPC.**
-- **Where v1's 52.7K goes:**
+- **Where v1's 52.6K goes:**
   - each core is 20.6K over its budget once hart 1 is in;
   - the uncore is 11.5K over its budget.
 - **Without hart 1's estimate,** the measured parts alone (two `smt2` cores and the uncore) come to 147.3K. That is 37.0K over the 180 MHz limit.
@@ -615,7 +615,7 @@ The free levers the budgets assume (R1, R2, R14, R15) are part of that. Wakeup t
 
 | D18 step | What | v1, per SoC |
 |---|---|---|
-| **1. No-IPC implementation** | Every unit to its budget line. Core: LSU and MMU, rename, ROB and CSRs, Execute, then decode. Uncore: crossbar, trace, host bridge. And R14's area directive on non-critical units: on the scheduler it saved 8% beyond the kept hierarchy (area_synth.md §3); the whole-core runs with and without it are pending. | needs **52.7K** to reach 103.0K at 200 MHz, or **45.4K** to reach 110.3K at 180 MHz |
+| **1. No-IPC implementation** | Every unit to its budget line. Core: LSU and MMU, rename, ROB and CSRs, Execute, then decode. Uncore: crossbar, trace, host bridge. And R14's area directive on non-critical units: on the scheduler it saved 8% beyond the kept hierarchy (area_synth.md §3); the whole-core runs with and without it are pending. | needs **52.6K** to reach 103.0K at 200 MHz, or **45.4K** to reach 110.3K at 180 MHz |
 | **2. A lower clock** | 200 → 180 MHz moves the limit from 103.0K to 110.3K | **+7.2K** of room |
 | **3. The reserve (AR-6), re-priced** | R9 0.5K and R10 1.0K; FP queue 8 and LD queue 4, ≈0.7K with tags. Radix-4 now saves 1.04K per core, measured after the FPU's no-IPC pass, and fails the reverse rule (2.34% per 1K at v1, against 2.19%). | **≈2.2K**, or ≈4.3K with radix-4 |
 
@@ -636,6 +636,20 @@ The per-unit view above replaces both. That projection's condition, "if every un
 - the window step costs ≈0.7K per core with tags (AR-3);
 - v2 at 180–190 MHz beats v1 at 200 MHz (+15.6% throughput at 190 MHz);
 - the frequency trade of §6.
+
+### 7.7 The gap over time (v1)
+
+Re-run after each step-1 milestone of the core, FPU and SoC tracks (AR-8). Each row is two `smt2` cores with hart 1's state added (until M7 builds it), plus the uncore, against the budgets' 103,040 (200 MHz, 88%) and the 180 MHz limit of 110,280 (94.2%).
+
+```bash
+python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --uncore <uncore budget run>/latest.json
+```
+
+| Date | Milestone | `st` core | `smt2` core | v1 dual-core | Over 103,040 | Over 110,280 |
+|---|---|---|---|---|---|---|
+| 2026-10-13 | Planning projection (spikes §10) | — | — | 99–110K | −4K to +7K | — |
+| 2026-10-14 01:30 | First real synthesis, d04ae26 (no FPU; P4 7,953 and hart 1 added) | 81,715 | 89,050 | ≈224.7K | ≈+121.6K | ≈+114.4K |
+| 2026-10-14 07:30 | AR-7: area pass, AR-1, F/D (c898f1e, cb8ff6c) | 56,461 | 62,501 | **155.7K** | **+52.6K** | **+45.4K** |
 
 ---
 
@@ -659,7 +673,7 @@ This update (AR-7) changes it in three places:
 Plan §4.6 and §8.5 carry AR-1 to AR-7 (f550a00). Proposed for §8.5 after this update:
 - **AR-7 row:**
 
-  > **Done (area_recovery.md §7).** v1 is ≈155.7K today: two `smt2` cores with hart 1's state estimated, and the measured 22.3K uncore. That is against 103.0K at 200 MHz and 110.3K at 180 MHz. v1 fits at 200 MHz once every unit meets [budgets.md](perf/budgets.md), which needs 52.7K of no-IPC work. The clock is worth 7.2K and the reserve ≈2.2K. Radix-4 fails the rule at its measured 1.04K.
+  > **Done (area_recovery.md §7).** v1 is ≈155.7K today: two `smt2` cores with hart 1's state estimated, and the measured 22.3K uncore. That is against 103.0K at 200 MHz and 110.3K at 180 MHz. v1 fits at 200 MHz once every unit meets [budgets.md](perf/budgets.md), which needs 52.6K of no-IPC work. The clock is worth 7.2K and the reserve ≈2.2K. Radix-4 fails the rule at its measured 1.04K.
 
 - **AR-8 (proposed):** the gap is implementation. Continue D18 step 1, unit by unit, before any clock or reserve decision.
 - **AR-9 (proposed):** v2's per-core budget is ≈49.7K, from the 94.2% fill at 180 MHz with the uncore at its budget. The 3-wide additions must fit in ≈3.6K over v1's lines.
