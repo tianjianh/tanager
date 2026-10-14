@@ -361,7 +361,7 @@ Tests live in `tests/unit/fpu/` (Verilator, C++ testbench `tb_fpu.cpp` on `tg_fp
 |---|---|
 | `make model` | the bit-accurate divider models against SoftFloat (`gs_check`, `r4_check`) |
 | `make test` | short regression, about 30 s with 8 jobs: TestFloat level 1 for every function, mode and format (mulAdd: 1.5M vectors per mode), directed divide/sqrt cases, random traffic on all units |
-| `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (about an hour with 6 jobs) |
+| `make test-long` | level 2 for every function, mulAdd level 1 complete plus a level-2 prefix of 2·10^7 vectors per mode and format, longer directed and random runs (23 minutes with 6 jobs on 2026-10-13: 2.6·10^9 results) |
 | `make tb DIV=r4`, `make test DIV=r4` | the same on the radix-4 fallback |
 
 The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the divider exactly when `fdiv_ready_i` is never low), so it checks the RTL against the constants the core uses.
