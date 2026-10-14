@@ -1,0 +1,40 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Wed Oct 14 06:11:02 2026
+| Host         : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+| Design       : tg_s2_sched_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++---------------------+-----------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|       Instance      |         Module        | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++---------------------+-----------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| tg_s2_sched_top     |                 (top) |       4228 |       3958 |     240 |   30 | 4748 |      0 |      0 |    0 |          0 |
+|   (tg_s2_sched_top) |                 (top) |        267 |        237 |       0 |   30 |  855 |      0 |      0 |    0 |          0 |
+|   g_q[0].u_iq       |              tg_iq__1 |        976 |        928 |      48 |    0 |  964 |      0 |      0 |    0 |          0 |
+|     (g_q[0].u_iq)   |              tg_iq__1 |        928 |        928 |       0 |    0 |  964 |      0 |      0 |    0 |          0 |
+|   g_q[1].u_iq       |              tg_iq__2 |        978 |        930 |      48 |    0 |  964 |      0 |      0 |    0 |          0 |
+|     (g_q[1].u_iq)   |              tg_iq__2 |        930 |        930 |       0 |    0 |  964 |      0 |      0 |    0 |          0 |
+|   g_q[2].u_iq       | tg_iq__parameterized0 |        572 |        524 |      48 |    0 |  578 |      0 |      0 |    0 |          0 |
+|     (g_q[2].u_iq)   | tg_iq__parameterized0 |        524 |        524 |       0 |    0 |  578 |      0 |      0 |    0 |          0 |
+|   g_q[3].u_iq       | tg_iq__parameterized1 |        444 |        396 |      48 |    0 |  391 |      0 |      0 |    0 |          0 |
+|     (g_q[3].u_iq)   | tg_iq__parameterized1 |        396 |        396 |       0 |    0 |  391 |      0 |      0 |    0 |          0 |
+|   g_q[4].u_iq       |                 tg_iq |        966 |        918 |      48 |    0 |  964 |      0 |      0 |    0 |          0 |
+|     (g_q[4].u_iq)   |                 tg_iq |        918 |        918 |       0 |    0 |  964 |      0 |      0 |    0 |          0 |
++---------------------+-----------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

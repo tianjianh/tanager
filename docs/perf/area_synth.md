@@ -58,7 +58,7 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 | Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 below |
 | No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
 | Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
-| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
+| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags | with tags and both settings: 4,603 against 4,750 (−147, −3.1%; −720 FFs), **+0.162 ns** against +0.392: the worst path returns to the wakeup loop. A small saving: `EARLY_W` stays 24 for 200 MHz, and 8 is an option at 180 MHz only (DR-112) |
 | Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
 | Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
@@ -90,14 +90,14 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 
   | Configuration | Tags, default | Tags, both settings | Saved | WNS ns | Levels |
   |---|---|---|---|---|---|
-  | st | 4,802 | (queued) | | | |
+  | st | 4,802 | **4,228** | −574 (−12.0%) | +0.518 → **+0.226** | 7 → 11 |
   | smt2 (v1) | 5,506 | **4,750** | −756 (−13.7%) | +0.218 → **+0.392** | 7 → 11 |
   | smt2_w3 (v2) | 7,703 | **6,669** | −1,034 (−13.4%) | +0.026 → **+0.094** | 7 → 11 |
 
   - The same −13% as without tags (§3), and timing improves rather than degrades. Flip-flops and LUTRAM do not change (5,208 / 240 at smt2).
   - The directive alone fails (§3): with a flattened design it restructures the wakeup loop across module boundaries and misses by 0.265 ns. With each queue kept as a module it cannot, so the loop keeps its margin. Use the two together or not at all.
-  - The worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack.
-  - **The scheduler from ROB columns to tags plus both settings: 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, with slack gained at both.
+  - At smt2 and smt2_w3 the worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack. At st it stays on the wakeup loop, now 11 levels, and gives up 0.29 ns of its large margin.
+  - **The scheduler from ROB columns to tags plus both settings: 6,425 → 4,228 at st (−34%), 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, all closing 200 MHz.
 
 ## 4. The real core, module by module (st, first synthesis)
 
@@ -131,6 +131,27 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
   - That leaves one or two checkers instead of seven: **−15.6K to −18.7K**.
   - OpenSBI's regions are already 4 KiB-aligned or coarser.
 
+### 4.1 The free synthesis settings on the whole core (DR-113)
+
+**Build:** `tg_core` at st from main cb8ff6c (F and D in, P4 included, the core's first no-IPC pass with wakeup tags), synthesis and `opt_design` with the hierarchy kept, without and with `AreaOptimized_high`. Both runs come from one snapshot.
+
+| Instance | Hierarchy kept | + `AreaOptimized_high` | Saved |
+|---|---|---|---|
+| `u_lsu` | 17,819 | 16,157 | −1,662 (−9.3%) |
+| `u_ex` | 8,636 | 7,984 | −652 (−7.5%) |
+| `g_p4.u_p4` (FP back end) | 7,853 | 7,333 | −520 (−6.6%) |
+| `u_is` | 5,357 | 4,874 | −483 (−9.0%) |
+| `u_fetch` | 5,257 | 4,966 | −291 (−5.5%) |
+| `u_rn` | 4,541 | 4,324 | −217 (−4.8%) |
+| `u_rob` | 3,308 | 3,078 | −230 (−7.0%) |
+| `u_csr` | 1,855 | 1,715 | −140 (−7.5%) |
+| `u_de` | 1,677 | 1,437 | −240 (−14.3%) |
+| **Core** | **56,461** | **52,024** | **−4,437 (−7.9%)** |
+
+- Every unit saves 5–14%; flip-flops (23,091 / 23,074) and LUTRAM (6,624) do not change.
+- **Timing is measured only on the scheduler** (§3, §3.1), where the pair closes 200 MHz with margin. The core's own implementation runs are the check for the rest.
+- **Memory:** this synthesis peaks at 9.4 GB with its helper processes (2 threads), against 6.8 GB without the directive (§6).
+
 ## 5. Fill test at 180 MHz
 
 **Method:** the S6 full-device design ([spikes.md](spikes.md) §8): two cores of spike structures plus the uncore, a synthetic filler sized to the target fill of the XCK26's 117,120 LUTs, implemented at 5.556 ns (180 MHz). D18 asks how full the device can get at about 180 MHz before IPC-costing levers are needed. The cores take the spike verdicts (min/max off the 1-cycle ALU, alignment in M2, MX everywhere), unlike the 200 MHz runs of spikes.md §8; "with tags" means the AR-1 scheduler (`S2_WTAGS = 16`).
@@ -138,28 +159,48 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 | Run | Config | Target | CLB LUTs (fill) | WNS ns | Fmax MHz | Worst path | Route |
 |---|---|---|---|---|---|---|---|
 | `s6_smt2w3t_93_180` | smt2_w3 (v2), with tags | 93% | 110,280 (**94.2%**) | **+0.049** | **181.6** | harness: a filler register feeding S3's register file from across the die (1 level, 5.08 ns of wire) | 19 min |
-| `s6_smt2_93_180` | smt2 (v1), ROB columns | 93% | (routing) | | | | |
-| `s6_smt2_90_180`, `s6_smt2w3t_90_180` | v1 / v2 with tags | 90% | (queued) | | | | |
-| `s6_smt2_95_180`, `s6_smt2w3t_96_180` | v1 / v2 with tags | 95% / 96% | (queued) | | | | |
+| `s6_smt2_93_180` | smt2 (v1), ROB columns (no tags) | 93% | 109,422 (93.4%) after synthesis | — | — | **routing did not converge**: the router's first iteration took 2 h (114,671 overlapping nodes down to 21) and the second was under way when the run was stopped ([route_stuck.txt](../../fpga/spikes/results/s6_smt2_93_180/route_stuck.txt)) | > 2 h |
+| `s6_smt2t_93_180` | smt2 (v1), with tags | 93% | 109,364 (**93.4%**) | **+0.137** | **184.5** | harness: a filler register driving S5's reset fan-out (0 levels, 4.84 ns of wire); worst real path S3's ALU loop, +0.276 | 15 min |
+| `s6_smt2t_95_180` | smt2 (v1), with tags | 95% | 111,633 (**95.3%**) | **+0.126** | **184.2** | S5: IF2's page number → IF3's instruction marks, 8 levels | 16 min |
+| `s6_smt2w3t_96_180` | smt2_w3 (v2), with tags | 96% | 112,441 (**96.0%**) | **+0.071** | **182.3** | S3: ALU → bypass → ALU, 9 levels | 24 min |
+| `s6_smt2w3t_90_180` | smt2_w3 (v2), with tags | 90% | 105,403 (**90.0%**) | **+0.054** | **181.8** | S5: IF2 → IF3 marks, 8 levels | 15 min |
 
 Named paths, slack in ns at 5.556 ns (the worst over both cores):
 
-| Path | v2 with tags, 94.2% |
-|---|---|
-| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) |
-| S2: issue payload | +1.100 |
-| S3: ALU → bypass → ALU | **+0.178** (9 levels) |
-| S3: register-file read | +0.049 (the harness route above) |
-| S4: M2 compare, select, result | +0.379 |
-| S4: DTLB lookup in M1 | +0.610 |
-| S5: next-PC loop | +0.729 |
-| S5: next PC → I$ BRAM address | +0.200 |
-| S5: IF3 compaction → instruction queue | +0.186 |
-| L2: UltraRAM cascade input | +0.344 |
-| Core → L2 bus | +3.279 |
-| Synthetic logic | +0.665 |
+| Path | v2 with tags, 94.2% | v1 with tags, 93.4% | v1 with tags, 95.3% | v2 with tags, 96.0% | v2 with tags, 90.0% |
+|---|---|---|---|---|---|
+| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) | ≥ +2.693 (the same) | ≥ +0.926 | ≥ +1.001 | ≥ +1.351 |
+| S2: issue payload | +1.100 | +1.911 | +1.392 | +1.323 | +1.323 |
+| S3: ALU → bypass → ALU | **+0.178** (9 levels) | **+0.276** (10 levels) | **+0.334** | **+0.129** (12 levels; the run's worst, +0.071, is in the same loop) | +0.304 |
+| S3: register-file read | +0.049 (the harness route above) | +0.474 | +0.723 | +0.728 | +0.320 |
+| S4: M2 compare, select, result | +0.379 | +0.310 | +0.707 | **+0.142** | **+0.129** |
+| S4: DTLB lookup in M1 | +0.610 | +0.899 | +0.628 | +0.256 | +0.459 |
+| S5: next-PC loop | +0.729 | ≥ +0.214 (a filler-driven reset) | +0.958 | +1.501 | ≥ +1.546 |
+| S5: next PC → I$ BRAM address | +0.200 | +0.876 | +0.510 | +0.480 | +0.386 |
+| S5: IF3 compaction → instruction queue | +0.186 | +1.067 | +0.689 | +0.573 | +0.976 |
+| S5: IF2 page number → IF3 marks (not a named group) | — | — | **+0.126** (the run's worst) | — | **+0.054** (the run's worst) |
+| L2: UltraRAM cascade input | +0.344 | +1.965 | +1.627 | +1.020 | +0.946 |
+| Core → L2 bus | +3.279 | +2.932 | +3.677 | +4.015 | +3.383 |
+| Synthetic logic | +0.665 | +0.518 | +0.710 | +0.697 | +0.740 |
 
-**Findings so far.**
-- **v2 with tags closes 180 MHz at 94.2% fill** (110.3K LUTs). The worst real paths are S3's ALU loop and S5's fetch (+0.18 to +0.20 ns); the scheduler, the 200 MHz limiter before tags, has more than 1 ns.
-- The router started from 112K overlapping nodes and cleared them in 19 minutes; the placer's worst congestion is level 5.
+**Findings.**
+- **v1 with tags closes 180 MHz at 93.4% and 95.3% fill** (109.4K and 111.6K LUTs; +0.137 and +0.126 ns). **v2 with tags closes it at 90.0%, 94.2% and 96.0%** (+0.054, +0.049, +0.071 ns).
+- **Slack does not trend with fill** between 90% and 96%. The limits are logic loops (S3's ALU loop, S5's IF2 → IF3 step, S4's M2 stage), not congestion, as at 200 MHz (spikes.md §8). Routing takes 15–24 minutes, and the placer's worst congestion is at most level 5.
+- **The ceiling is above the highest fill tested:** at 180 MHz v1 fits at least 111.6K LUTs (95.3%) and v2 at least 112.4K (96.0%), against about 103K (88%) for v1 at 200 MHz.
+- **The scheduler is no longer near the limit.** Its wakeup loop has at least 0.9 ns at every fill (the groups' worst paths start at the harness's filler registers), where before tags it set the 200 MHz limit.
+- **v1 with the ROB-column scheduler did not route at the same fill (93.4%)** in over 2 hours. With tags (40 readiness columns per row instead of 104) the same core at the same fill routes in 15 minutes. v1 without tags at 90% was stopped during placement, since no decision depends on it.
 
+## 6. Memory of the Vivado runs
+
+Measured by sampling every 20 s the proportional set size (PSS) of each job's Vivado process and all its descendants, so shared pages count once and synthesis helpers count. Synthesis uses 2 threads (`TANAGER_SYNTH_THREADS`).
+
+| Job | Peak PSS | Processes at the peak | Declared |
+|---|---|---|---|
+| S6 full device, 90–96% fill (synthesis is the peak) | **12.9–14.3 GB** | 10 | 10 GB |
+| S6 full device, implementation (place and route) | 9.7–9.8 GB | 1 | 10 GB |
+| `tg_core` st, hierarchy kept | 6.75 GB | 10 | 6 GB |
+| `tg_core` st, hierarchy kept + `AreaOptimized_high` | 9.38 GB | 10 | 6 GB |
+
+- **A full-device synthesis with 2 threads needs about 14 GB, not 10.** Vivado's log reports only the parent process; summed with its synthesis helpers, the job peaks during synthesis at 13–14 GB. Place and route run in one process at about 10 GB.
+- The whole core at st needs 7 GB as built until now and 9.4 GB with `AreaOptimized_high` (DR-113). The larger configurations need more.
+- **What changed:** the spike workers declare 15 GB for S6 runs, and the budget flow declares 12 GB for the core (`fpga/budget/units.tsv`), which it now builds with DR-113's settings.
