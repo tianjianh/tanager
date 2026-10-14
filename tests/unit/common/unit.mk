@@ -1,6 +1,6 @@
 # Shared rules for the SoC track's unit tests (docs/spec/conventions.md §6).
 # A test's Makefile sets TOP, TB (its testbench files) and optionally PARAMS (-G...), then includes
-# this file. Targets: build, run (SEED=, OPS= or ARGS=), short, long, clean.
+# this file. Targets: build, run (SEED=, OPS= or ARGS=), short, long, clean; long-seeds (below).
 # Builds go to $(SOC_BUILD)/tests/<name>, never into the repository.
 REPO      := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 VERILATOR ?= verilator
@@ -34,3 +34,20 @@ run: build
 
 clean:
 	rm -rf $(OUTDIR)
+
+# Long runs in parallel (conventions §9: use the build host's idle threads). A test sets LONG_SEEDS and
+# LABEL before including this file, and its long target depends on long-seeds: one build, then one run
+# per seed, PAR at a time, each logged to $(LOGDIR)/$(NAME)_s<seed>.log.
+PAR    ?= 6
+LOGDIR := $(SOC_BUILD)/tests/long_logs
+ifneq ($(strip $(LONG_SEEDS)),)
+SEED_RUNS := $(addprefix seed-,$(LONG_SEEDS))
+.PHONY: long-seeds $(SEED_RUNS)
+long-seeds:
+	@$(MAKE) --no-print-directory build
+	@mkdir -p $(LOGDIR)
+	@$(MAKE) --no-print-directory -j$(PAR) $(SEED_RUNS)
+$(SEED_RUNS): seed-%:
+	@if $(MAKE) --no-print-directory run SEED=$* > $(LOGDIR)/$(NAME)_s$*.log 2>&1 && grep -q "TEST PASSED" $(LOGDIR)/$(NAME)_s$*.log; \
+	then echo "$(LABEL) seed $*: PASS"; else echo "FAIL $(LABEL) seed $* ($(LOGDIR)/$(NAME)_s$*.log)"; exit 1; fi
+endif

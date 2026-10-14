@@ -1,5 +1,5 @@
 # Software boot on tanager_soc with the real core (docs/spec/soc.md §Verification).
-#   make -C tests/unit/boot opensbi [CORES=1|2]     boot ROM -> OpenSBI, passes on the full banner
+#   make -C tests/unit/boot opensbi [CORES=1|2] [CFG=st|smt2]  boot ROM -> OpenSBI, passes on the full banner
 #   make -C tests/unit/boot linux-kernel [CORES=1]  Linux (Buildroot's lp64d Image) to "Run /init", with a
 #                                                   device tree without F/D: the kernel needs no FPU
 #   make -C tests/unit/boot linux [CORES=1]         the full lp64d boot to TANAGER-BOOT-OK, once the
@@ -12,17 +12,18 @@
 # by default, a copy of tg_core_pkg.sv with them set is compiled in place of the original.
 TOP    := tb_boot
 CORES  ?= 1
-# VTHREADS: Verilator --threads for the long boots (conventions §9); each count builds in its own directory.
-# At 1x1 four threads were slower than one (OpenSBI, loaded host, 2026-10-14), so the default is 1.
-VTHREADS ?= 1
-NAME   := boot_c$(CORES)$(if $(filter-out 1,$(VTHREADS)),_t$(VTHREADS))
+# VTHREADS: Verilator --threads (conventions §9); each count builds in its own directory. Measured on
+# OpenSBI (2026-10-14, host load about 17): 2x1 runs 1.5x faster with 4 threads (193 s against 286 s),
+# 1x1 20% slower (133 s against 111 s). So two cores use 4 threads and one core uses 1.
+VTHREADS ?= $(if $(filter 1,$(CORES)),1,4)
+NAME   := boot_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 PARAMS := -GN_CORES=$(CORES)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS))
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
-MCYC    ?= 40
+MCYC    ?= 20   # OpenSBI's banner comes by 10.7 M cycles (2x2)
 OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts/tanager-kv260.dtb
@@ -76,9 +77,18 @@ linux-kernel: build $(DTB) $(FW) $(KERNEL)
 linux: build $(DTB_FPU) $(FW) $(KERNEL)
 	$(OUTDIR)/$(TOP) +fw=$(FW) +dtb=$(DTB_FPU) +kernel=$(KERNEL) +expect="TANAGER-BOOT-OK" +max_mcycles=$(LINUX_MCYC) $(ARGS)
 
-# The boots take minutes: only the long suite runs them.
-.PHONY: short long
+# The boots take minutes: only the long suite runs them, OpenSBI in 1x1, 2x1 and 2x2 at once
+# (cores x threads; 2x2 is CFG=smt2), each built with -j3 so the three builds stay within -j8 or so.
+# Each run's log: $(SOC_BUILD)/tests/boot_logs/<run>.log.
+LONG_RUNS := osbi-st-1 osbi-st-2 osbi-smt2-2
+LOGDIR    := $(SOC_BUILD)/tests/boot_logs
+.PHONY: short long $(LONG_RUNS)
 short:
 	@echo "boot: skipped in the short suite (make -C tests/unit/boot long)"
 long:
-	@for c in 1 2; do $(MAKE) --no-print-directory opensbi CORES=$$c | grep -q "TEST PASSED" || { echo "FAIL OpenSBI, $$c core(s)"; exit 1; }; echo "boot OpenSBI $$c core(s): PASS"; done
+	@$(MAKE) --no-print-directory -j$(words $(LONG_RUNS)) $(LONG_RUNS)
+$(LONG_RUNS): osbi-%:
+	@mkdir -p $(LOGDIR)
+	@set -- $(subst -, ,$*); \
+	if $(MAKE) --no-print-directory opensbi CFG=$$1 CORES=$$2 JOBS=3 > $(LOGDIR)/$@.log 2>&1 && grep -q "TEST PASSED" $(LOGDIR)/$@.log; \
+	then echo "boot OpenSBI $$1, $$2 core(s): PASS"; else echo "FAIL boot OpenSBI $$1, $$2 core(s) ($(LOGDIR)/$@.log)"; exit 1; fi

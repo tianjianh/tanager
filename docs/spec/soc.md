@@ -177,12 +177,12 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 
   | Target | Device tree | Passes on | Status (2026-10-14) |
   |---|---|---|---|
-  | `opensbi` | no FPU | OpenSBI's banner (`Boot HART MEDELEG`) | passes, 1×1 in 5.0 M cycles and 2×1 in 6.6 M; the long suite runs both |
+  | `opensbi` | no FPU | OpenSBI's banner (`Boot HART MEDELEG`) | 1×1 passes in 5.0 M cycles, 2×1 in 6.6 M. 2×2 (`CFG=smt2`) passes in 10.7 M with the core track's I$ fix and hits the refill race without it; OpenSBI sees 4 harts, and the core runs one thread per core so far. The long suite runs all three at once |
   | `linux-kernel` | no FPU (`riscv,isa` without F/D) | `Run /init as init process` | the kernel boots to its early initcalls (27 M cycles), then takes an illegal-instruction oops. Cause: `tg_fetch` executed another I$ line's bytes when an instruction-cache refill outlived a redirect. The core track has a fix pending merge (`claude/track-core-adb715-m3`). With it, the core track's run of this boot went 60 M cycles (0.346 s of kernel time) without an oops |
   | `linux` | with F/D | `TANAGER-BOOT-OK` from the Buildroot image's init | waits for the core's F/D |
 
 - **Debugging:** each progress line (every million cycles) shows every hart's last pc. On failure the run prints the last 64 commit records of every hart. `ARGS="+dump_pc=<hex>"` or `ARGS="+dump_cause=<n>"` prints them when a record has that pc or traps with that cause, and `+dump_stop` ends the run there. `BOOTARGS="earlycon=sbi console=ttyS0 keep_bootcon"` prints the kernel's log through OpenSBI's console from the first line.
-- **Speed:** about 2.5 M cycles a minute at 1×1, so the kernel's early initcalls (27 M cycles) take about 11 minutes. `VTHREADS=N` builds with Verilator `--threads N`; at 1×1 four threads were slower than one.
+- **Speed:** about 2.5–2.7 M cycles a minute at 1×1, so the kernel's early initcalls (27 M cycles) take about 11 minutes. Two-core builds use Verilator `--threads 4` (`VTHREADS`). On OpenSBI that is 1.5× faster at 2×1 (193 s against 286 s), while at 1×1 four threads were 20% slower than one (133 s against 111 s). `make -C tests/unit/boot long` boots OpenSBI in 1×1, 2×1 and 2×2 at once.
 
 The board runs the same images (plan §11).
 
