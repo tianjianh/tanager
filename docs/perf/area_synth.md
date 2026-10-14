@@ -58,7 +58,7 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 | Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 below |
 | No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
 | Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
-| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
+| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags | with tags and both settings: 4,603 against 4,750 (−147, −3.1%; −720 FFs), **+0.162 ns** against +0.392: the worst path returns to the wakeup loop. A small saving; take it where the clock has margin (180 MHz) |
 | Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
 | Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
