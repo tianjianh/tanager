@@ -102,7 +102,6 @@ module tg_core
   logic [63:0] iw_va;
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
-  logic [15:0] it_fill_asid;
   logic [1:0]  it_fill_lvl;
   tlb_pte_t    it_fill_pte;
 
@@ -121,8 +120,8 @@ module tg_core
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .asid(satp_asid), .pmp_d, .tlb_flush,
-    .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
+    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .pmp_d, .tlb_flush,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
@@ -255,10 +254,10 @@ module tg_core
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_asid, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
+    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
-    .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
@@ -302,5 +301,5 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped};
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
 endmodule

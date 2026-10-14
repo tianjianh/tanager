@@ -86,7 +86,6 @@ module tg_lsu
   input  logic                         sum,
   input  logic                         mxr,
   input  logic                         satp_sv39,
-  input  logic [15:0]                  satp_asid,
   input  logic [43:0]                  satp_ppn,
   input  pmp_d_t [15:0]                pmp_d,
   input  logic [2:0]                   pmp_al,
@@ -105,7 +104,6 @@ module tg_lsu
   output logic [3:0]                   iw_cause,
   output logic                         it_fill,
   output logic [26:0]                  it_fill_vpn,
-  output logic [15:0]                  it_fill_asid,
   output logic [1:0]                   it_fill_lvl,
   output tlb_pte_t                     it_fill_pte,
   output logic                         st_dropped,
@@ -313,21 +311,20 @@ module tg_lsu
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
   assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
-  logic [2:0][26:0] dt_vpn;
-  logic [2:0]       dt_hit;
-  tlb_pte_t [2:0]   dt_pte;
+  logic [1:0][26:0] dt_vpn;
+  logic [1:0]       dt_hit;
+  tlb_pte_t [1:0]   dt_pte;
   logic             dt_fill;
   logic [26:0]      pw_vpn;
-  logic [15:0]      pw_asid;
   logic [1:0]       pw_lvl;
   tlb_pte_t         pw_pte;
   logic [63:0]      hd_va;
+  // Two lookups: the LD port, and the STA port (the ROB head's check when STA is idle)
   assign dt_vpn[0] = ld_ag_addr[38:12];
-  assign dt_vpn[1] = sta_ag_addr[38:12];
-  assign dt_vpn[2] = hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3)) u_dtlb (
-    .clk, .rst, .asid(satp_asid), .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
-    .fill_vpn(pw_vpn), .fill_asid(pw_asid), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
+  assign dt_vpn[1] = sta_ag_valid ? sta_ag_addr[38:12] : hd_va[38:12];
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2)) u_dtlb (
+    .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
+    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
   // A translated access to a PMP-homogeneous page uses the DTLB's cached PMP result (plan
@@ -711,7 +708,7 @@ module tg_lsu
   assign hd_va    = hd_ld ? lq_va_q[hl] : sq_va_q[hs];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_need  = (hd_ld || hd_st) && !flush;
-  assign hd_tok   = dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
+  assign hd_tok   = !sta_ag_valid && dt_hit[1] && pte_ok(dt_pte[1], hd_at, priv_d, sum, mxr);
   assign hd_retry = hd_need && hd_tok;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
@@ -733,7 +730,7 @@ module tg_lsu
   priv_e [2:0]      pw_mode;
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
-  assign pw_req[0]  = hd_need && !hd_tok && !hdf_q && sq_drained;
+  assign pw_req[0]  = hd_need && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d;
@@ -746,11 +743,11 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .satp_asid, .sum, .mxr, .pmp_d, .pmp_al,
+    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al,
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
-    .fill_vpn(pw_vpn), .fill_asid(pw_asid), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
+    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
   assign dt_fill      = pw_done && pw_ok && !pw_who[1];
   assign iw_ack       = pw_ack[1];
   assign iw_done      = pw_done && pw_who[1];
@@ -758,7 +755,6 @@ module tg_lsu
   assign iw_cause     = pw_cause;
   assign it_fill      = pw_done && pw_ok && pw_who[1];
   assign it_fill_vpn  = pw_vpn;
-  assign it_fill_asid = pw_asid;
   assign it_fill_lvl  = pw_lvl;
   assign it_fill_pte  = pw_pte;
 

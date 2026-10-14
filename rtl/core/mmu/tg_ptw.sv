@@ -15,7 +15,6 @@ module tg_ptw
   input  logic              rst,
   input  logic              flush,
   input  logic [43:0]       satp_ppn,
-  input  logic [15:0]       satp_asid,
   input  logic              sum,
   input  logic              mxr,
   input  pmp_d_t [15:0]     pmp_d,
@@ -41,7 +40,6 @@ module tg_ptw
   output logic              done_ok,      // fill_* hold the leaf
   output logic [3:0]        done_cause,   // else the fault
   output logic [26:0]       fill_vpn,
-  output logic [15:0]       fill_asid,
   output logic [1:0]        fill_lvl,
   output tlb_pte_t          fill_pte
 );
@@ -184,7 +182,6 @@ module tg_ptw
   assign done_ok    = ok_q;
   assign done_cause = cause_q;
   assign fill_vpn   = va_q[38:12];
-  assign fill_asid  = satp_asid;
   assign fill_lvl   = lvl_q;
   assign fill_pte   = leaf_q;
 

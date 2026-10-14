@@ -53,12 +53,10 @@ module tg_fetch
   // Translation and PMP (M3)
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
   input  priv_e       priv,
-  input  logic [15:0] asid,
   input  pmp_d_t [15:0]     pmp_d,
   input  logic        tlb_flush,
   input  logic        it_fill,
   input  logic [26:0] it_fill_vpn,
-  input  logic [15:0] it_fill_asid,
   input  logic [1:0]  it_fill_lvl,
   input  tlb_pte_t    it_fill_pte,
   output logic        iw_req,         // a walk for iw_va, held until iw_ack
@@ -149,8 +147,8 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .asid, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
-    .fill_vpn(it_fill_vpn), .fill_asid(it_fill_asid), .fill_lvl(it_fill_lvl),
+    .clk, .rst, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .flush(tlb_flush));
   logic [PA_W-1:0] f1_pa;
   assign f1_pa = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[PA_W-1:0];
