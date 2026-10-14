@@ -3,8 +3,8 @@
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
 #                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
-# Dhrystone, RANDN constrained-random programs, all with lockstep; for a core with trace_stall_i, the
-# riscv-tests and directed tests again under trace back-pressure; with ARCH=1 the ACT4 tests of the
+# Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
+# again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay).
 # Prints a summary and exits non-zero on any failure.
 set -u
@@ -32,8 +32,6 @@ fi
 [ -f "$ROOT/tests/isa/exclude/$CFG.txt" ] && EXCL+=(--exclude "$ROOT/tests/isa/exclude/$CFG.txt")
 SUITES="${SUITES:-rv64ui-p rv64um-p rv64mi-p}"
 MARCH="${MARCH:-rv64im}"
-# Cores with trace_stall_i also run under trace back-pressure (verification.md §2.9).
-TRACE_STALL=$(make -s --no-print-directory -C "$ROOT/sim" CORE="$CORE" print-trace-stall)
 
 declare -a NAMES RESULTS
 step() {  # step <name> <log> <command...>
@@ -63,17 +61,16 @@ if [ "${RESULTS[0]}" = PASS ]; then
     make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
   step "CoreMark A/B and Dhrystone ($MARCH), lockstep, lat=$LAT" "$LOGS/bench.log" \
     make -C "$ROOT/tests/bench" run CFG="$CFG" CORE="$CORE" MARCH="$MARCH" LAT="$LAT" JOBS="$JOBS" SIMARGS="$SIMARGS"
-  if [ "$TRACE_STALL" = 1 ]; then
-    stall_pass() {
-      python3 "$ROOT/tests/isa/run_isa.py" --sim "$BIN" --suites "$SUITES" "${EXCL[@]}" --jobs "$JOBS" \
-        --logdir "$LOGS/isa-stall" --name "riscv-tests $CFG $CORE, trace stall" -- --lat="$LAT" --trace-stall=50 \
-        $SIMARGS &&
-      make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" LAT="$LAT" JOBS="$JOBS" \
-        SIMARGS="--trace-stall=50 $SIMARGS"
-    }
-    step "riscv-tests and directed tests under trace back-pressure (--trace-stall=50), lockstep" \
-      "$LOGS/stall.log" stall_pass
-  fi
+  # Trace back-pressure (verification.md §2.9)
+  stall_pass() {
+    python3 "$ROOT/tests/isa/run_isa.py" --sim "$BIN" --suites "$SUITES" "${EXCL[@]}" --jobs "$JOBS" \
+      --logdir "$LOGS/isa-stall" --name "riscv-tests $CFG $CORE, trace stall" -- --lat="$LAT" --trace-stall=50 \
+      $SIMARGS &&
+    make -C "$ROOT/tests/isa" directed CFG="$CFG" CORE="$CORE" LAT="$LAT" JOBS="$JOBS" \
+      SIMARGS="--trace-stall=50 $SIMARGS"
+  }
+  step "riscv-tests and directed tests under trace back-pressure (--trace-stall=50), lockstep" \
+    "$LOGS/stall.log" stall_pass
   if [ "$RANDN" != 0 ]; then
     step "random programs ($RANDN seeds, $MARCH, memory stress), lockstep" "$LOGS/random.log" \
       make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" N="$RANDN" SEED=1 ISA="$MARCH" JOBS="$JOBS" SIMARGS="$SIMARGS"

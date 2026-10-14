@@ -320,7 +320,12 @@ class Gen:
         if not self.has_a:
             return self.t_forwarding()
         a = self.addr_reg(3)
-        if self.r.randrange(2):
+        k = self.r.randrange(3)
+        if k == 2:  # one LR/SC pair, the SC with rd = x0: nothing sees whether it succeeded
+            w = self.r.choice([".d", ".w"])
+            self.emit(f"lr{w} {x(self.wr((a,)))}, ({x(a)})")
+            self.emit(f"sc{w} x0, {x(self.rd_any())}, ({x(a)})")
+        elif k == 1:
             op = self.r.choice(["amoadd", "amoswap", "amoand", "amoor", "amoxor", "amomin", "amomax",
                                 "amominu", "amomaxu"]) + self.r.choice([".d", ".w"]) + self.r.choice(["", ".aq", ".rl", ".aqrl"])
             self.emit(f"{op} {x(self.wr((a,)))}, {x(self.rd_any())}, ({x(a)})")

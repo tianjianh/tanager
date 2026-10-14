@@ -9,8 +9,8 @@
 //   Trace: records go through a small queue that can release several per cycle on any slot
 //   (+tcore_spread=1), and loads and DIV/REM can report their value later through trace_wb
 //   (+tcore_defer=<percent>), as an early-retiring core would. +tcore_seed=<n> seeds both.
-//   trace_stall_i (interfaces.md §5, built with TG_TRACE_STALL) holds the queue, so commit stops
-//   once it is full; deferred writebacks keep flowing. +tcore_stall_lat=<0|1|2>: cycles of extra
+//   trace_stall_i (interfaces.md §5) holds the queue, so commit stops once it is full; deferred
+//   writebacks keep flowing. +tcore_stall_lat=<0|1|2>: cycles of extra
 //   reaction latency (default 1, the interface's allowance; 2 breaks it), +tcore_stall_bug=1 drops
 //   a record when the stall starts. Both exist to test the harness's checks.
 module tg_tcore
@@ -56,9 +56,7 @@ module tg_tcore
   input  tl_d_t                        mmio_d_i,
   input  logic                         mmio_d_valid_i,
   output logic                         mmio_d_ready_o,
-`ifdef TG_TRACE_STALL
   input  logic                         trace_stall_i,
-`endif
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
@@ -83,10 +81,6 @@ module tg_tcore
     if (!$value$plusargs("tcore_stall_lat=%d", stall_lat)) stall_lat = 1;
     if (!$value$plusargs("tcore_stall_bug=%d", stall_bug)) stall_bug = 0;
   end
-`ifndef TG_TRACE_STALL
-  logic trace_stall_i;
-  assign trace_stall_i = 1'b0;
-`endif
 
   // ---- Architectural state ----
   typedef enum logic [4:0] {

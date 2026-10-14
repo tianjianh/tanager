@@ -10,7 +10,7 @@
 # while the ELFs are built, or after `make tests`. The riscv-arch-test checkout is only read.
 
 CFG    ?= st
-CORE   ?= tcore
+CORE   ?= core
 JOBS   ?= 8
 ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m2-rv64im)
 
@@ -28,6 +28,10 @@ export BUNDLE_PATH := $(TANAGER_OPT)/act-gems
 # Command-line variables of this make must not reach the sim build (see tests/random/Makefile).
 MAKEOVERRIDES :=
 
+# The Spike configuration of this ACT4 configuration (its test_config.yaml's `# spike:` line): the
+# lockstep checker in tg_vsim and the replaying Spike both use it. SIMARGS can override it.
+SPIKE_ARGS := $(shell sed -n 's/^\# spike: //p' $(CONFIG))
+
 # Test plans generated with testgen (the other privileged suites are committed upstream and copied):
 # every plan a Tanager core could need through F/D; act then selects the tests that apply to the
 # configuration's UDB file. A configuration may add plans on a `# testgen:` line of its test_config.yaml.
@@ -43,14 +47,14 @@ run: elfs
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build
 	python3 $(ROOT)/tests/arch/run_arch.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim \
 	  --elfs $(WORK)/$(ACTCFG)/elfs --exclude $(ROOT)/tests/arch/exclude/$(ACTCFG).txt --jobs $(JOBS) \
-	  --logdir $(WORK)/logs/$(ACTCFG)-$(CFG)-$(CORE) --name "ACT4 $(ACTCFG) on $(CFG) $(CORE)" -- $(SIMARGS)
+	  --logdir $(WORK)/logs/$(ACTCFG)-$(CFG)-$(CORE) --name "ACT4 $(ACTCFG) on $(CFG) $(CORE)" -- $(SPIKE_ARGS) $(SIMARGS)
 
 replay: elfs
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim replay
 	python3 $(ROOT)/tests/arch/run_arch.py --sim $(TANAGER_BUILD)/$(WT)/sim/replay/tg_replay \
 	  --elfs $(WORK)/$(ACTCFG)/elfs --exclude $(ROOT)/tests/arch/exclude/$(ACTCFG).txt --jobs $(JOBS) \
 	  --logdir $(WORK)/logs/$(ACTCFG)-replay --name "ACT4 $(ACTCFG), Spike against Spike" -- \
-	  $(shell sed -n 's/^# replay: //p' $(CONFIG)) $(SIMARGS)
+	  $(SPIKE_ARGS) $(SIMARGS)
 
 # The ELFs: the framework selects the tests that apply (UDB file), runs them on Sail and compiles
 # the expected values in. Rebuilt when any file of the configuration or the shared macros changes.

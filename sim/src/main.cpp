@@ -292,9 +292,6 @@ int main(int argc, char** argv) {
   // ---- Trace sink (verification.md §2.9) ----
   t.sink.llt = hw.llt_entries;
   if (o.trace_stall >= 0) {
-    if (!hw.has_trace_stall)
-      fatal("--trace-stall: this %s build has no trace_stall_i (needs TG_TRACE_STALL; verification.md §2.9)",
-            TG_CORE_NAME);
     // The model sees a cycle's records at its end and drives the stall in the next cycle, like a sink
     // that stalls from its occupancy register: that needs COMMIT_WIDTH more than the headroom.
     t.sink.enabled = true;
