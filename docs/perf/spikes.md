@@ -20,15 +20,17 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 
 | Spike | Verdict at 200 MHz | Width 2 | Width 3 | Fallback needed |
 |---|---|---|---|---|
-| S2 wakeup → select (§4) | **pass**, with options | st +0.180 ns, 5.4K LUTs; smt2 +0.112, 8.9K | smt2_w3 +0.057, 12.5K | MX (matrix wakeup) at smt2 and smt2_w3; 8-row ALU queues optional at smt2_w3 |
-| S3 register file, bypass, ALU loop (§5) | **pass** | +0.228 ns, 5.2K | +0.040, 8.7K (marginal) | none; R8 rejected |
-| S4 load path, 3-cycle load-to-use (§6) | (queued) | | | |
+| S2 wakeup → select (§4) | **pass**, with options | st +0.110 ns, 5.3K LUTs; smt2 +0.112, 8.9K | smt2_w3 +0.057, 12.5K | MX (matrix wakeup) at smt2 and smt2_w3; 8-row ALU queues for margin at smt2_w3 |
+| S3 register file, bypass, ALU loop (§5) | **pass with min/max on the 2-cycle path** | +0.342 ns (+0.014 with min/max), 5.1K | +0.052 (−0.086 with min/max), 8.6K | min/max to 2 cycles (trim 3); R8 rejected |
+| S4 load path, 3-cycle load-to-use (§6) | **pass** | +0.678 ns, 2.4K (align in M2) | — | none |
 | S5 next PC, I$, pre-decode, compaction (§7) | **pass** | st +0.582, smt2 +0.245; 2.5K | +0.357, 2.5K | none |
-| S6 floorplan and fill test (§8) | (being measured) | | | |
+| S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.105 at 84%, +0.007 at 88% | smt2_w3: −0.238 at 89% | v2: the S2, S3 and DTLB levers above |
 | S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
 
 **What changes for the plan.**
-- **The scheduler is the budget problem** (§10). It closes timing, but costs 1.9× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. The projection puts v1 at 80–90% of the XCK26 (about 85%) after the identified levers, and v2 at 91–103%.
+- **The scheduler is the budget problem** (§10). It closes timing, but costs 1.9× the plan's estimate at st, 3.1× at smt2 and 4.3× at smt2_w3. With the FPU's 7.6K (D17), the projection puts v1 at 85–94% of the XCK26 (about 90%) after the identified levers, and v2 at 97–109%.
+- **The utilisation limit** (§8): v1 holds 200 MHz to about 88% fill. Plan with 85%, and treat 88–90% as the ceiling if M6 agrees.
+- **min/max leave the 1-cycle ALU** (§5.1). That gives the 2-ALU loop +0.47 ns and lets 3 ALUs close.
 - **The register file is cheaper than planned.** Explicit RAM64M8 gives 7 read ports per 64 × 64 bank in 64 primitives. Replicated banks for 3 ALUs cost +1.25K, not +2.7K, so R11 (shared ports) saves only 0.74K.
 - **R8 (EX-only bypass) does not close** and is rejected.
 - **The front end has margin at both widths.** The 64-entry LUTRAM micro-BTB closes the next-PC loop with 1.8 ns to spare.
@@ -163,7 +165,11 @@ Options measured (all in `tg_iq`):
 | `s2_pb_smt2w3_mxpre` | smt2_w3 | + DUP_SEL, EARLY_W, MX, PRE_RDY | 12,404 | 13,110 | −0.363 | 10 | pblock |
 | `s2_pb_smt2w3_opt` | smt2_w3 | + DUP_SEL, EARLY_W (no MX) | 10,547 | 11,541 | −0.781 | 10 | pblock |
 | `s2_pb_smt2w3_mx_r8` | smt2_w3 | + DUP_SEL, EARLY_W, MX, ALU queues of 8 rows (§8.1 fallback) | 10,986 | 11,430 | **+0.069** | 10 | pblock |
-| (queued) | st | DUP_SEL, EARLY_W; and + MX (pblock reruns) | | | | | pblock |
+| `s2_pb_st_opt` | st | + DUP_SEL, EARLY_W | 5,307 | 6,059 | **+0.110** | 10 | pblock |
+| `s2_pb_st_mx` | st | + DUP_SEL, EARLY_W, MX | 6,425 | 6,855 | +0.145 | 6 | pblock |
+| `s2_pb_smt2_base` | smt2 | plan structure | 7,858 | 10,108 | −0.249 | 8 | pblock |
+| `s2_pb_smt2_mxr` | smt2 | + DUP_SEL, EARLY_W, MX, ISS_REG | 9,050 | 9,164 | +0.055 | 7 | pblock |
+| `s2_pb_smt2w3_mxr` | smt2_w3 | + DUP_SEL, EARLY_W, MX, ISS_REG | 12,167 | 13,168 | +0.054 | 7 | pblock |
 
 **What limits the loop.** Without MX, the loop is: W → readiness (3 LUT levels over 64–120 columns) → oldest-first select (2) → wakeup encode (2) → W update (1–2). That is 8–11 levels, and routing is 75–80% of the delay. The W bits fan out to every row of every queue, and the grants to the payload and the wakeup encode.
 
@@ -183,13 +189,13 @@ With MX the 1-cycle loop no longer passes through W. In `s2_pb_smt2_mx`:
 **PRE_RDY does not help.** It computes each row's ID readiness from W's next state. With MX the grant is registered before the wakeup encode, so that path becomes registered grant → encode → W's next state → readiness → row register: 10 levels, −0.363 ns at smt2_w3, where MX alone has +0.057. It is dropped.
 
 **S2 verdict: which §8.1 fallbacks are needed.**
-- **st:** none. DUP_SEL and EARLY_W close the loop with the plan's 10-row queues (+0.180; the pblock rerun is queued).
+- **st:** none. DUP_SEL and EARLY_W close the loop with the plan's 10-row queues (+0.180 unconstrained, +0.110 with the pblock). MX is not needed at st; it adds 1.1K LUTs for +0.035 ns.
 - **smt2 (v1):** MX is required (+0.112 with it, −0.521 without). Queue sizes stay at 10 rows.
 - **smt2_w3 (v2):** MX is required (−0.781 without). With it, 10-row queues close at +0.057, which is marginal.
   - **The 8-row ALU-queue fallback** gives the select path +0.22 ns and saves 1.5K LUTs per core. Its worst path is then the harness's flush fan-out, which a real dispatch stage registers locally.
   - **S6 shows** whether the 10-row version survives the full chip. If it does not, v2 takes the fallback.
 - **Cost:** the scheduler is far above the plan's estimate at every width (§10), so its LUTs matter as much as its timing.
-- **Possible further margin:** an option to take each row's "issued" bit from its own register, replicated per consumer queue, instead of a LUT. It would remove a level and a 52-load net from the worst smt2_w3 path. It is not yet measured.
+- **ISS_REG does not help.** That option takes each row's "issued" bit from its own register, replicated for fanout, instead of a LUT. It removes a logic level (7 instead of 8), but the slack does not improve: +0.054 against +0.057 at smt2_w3, and +0.055 against +0.112 at smt2. Run-to-run noise is about 0.05–0.1 ns. It stays off by default.
 
 
 ---
@@ -226,22 +232,43 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 
 (The table above is from runs without the pblock. Four of them were placed far from the clock source, including the R8 failure. Pblock reruns of the key variants are in §5.1 and supersede these where they differ.)
 
+### 5.1 Pblock reruns, and min/max off the 1-cycle path
+
+| Run | Config | Variant | CLB LUTs (LUTRAM) | FFs | WNS ns | Levels |
+|---|---|---|---|---|---|---|
+| `s3_pb_st_byp0` | st | 2 ALUs, EX+WB bypass (chosen) | 5,277 (1,536) | 1,802 | +0.014 | 17 |
+| `s3_pb_st_byp1` | st | 2 ALUs, R8 | 5,226 (1,536) | 1,718 | +0.004 | 15 |
+| `s3_pb_st_nomm` | st | 2 ALUs, EX+WB bypass, **min/max on the 2-cycle path** | 5,082 (1,536) | 1,794 | **+0.342** (ALU loop +0.470) | 0 / 11 |
+| `s3_pb_w3_rf0` | st_w3 | 3 ALUs, replicated banks | 8,710 (2,656) | 2,306 | −0.086 | 15 |
+| `s3_pb_w3_rf1` | st_w3 | 3 ALUs, shared ports (R11) | 8,001 (2,048) | 2,177 | −0.323 | 16 |
+| `s3_pb_w3_byp1_rf0` | st_w3 | 3 ALUs, replicated banks, R8 | 8,405 (2,656) | 2,236 | −0.215 | 15 |
+| `s3_pb_w3_rf0_nomm` | st_w3 | 3 ALUs, replicated banks, **min/max on the 2-cycle path** | 8,579 (2,656) | 2,294 | **+0.052** | 9 |
+
+**What changes.**
+- **The chosen 2-ALU design closes with only +0.014 ns** under the pblock (+0.228 unconstrained). Both runs show the same min/max path; the difference is placement.
+- **Without min/max the 2-ALU loop has +0.47 ns.** The worst path is then the register-file write address (+0.342), with no logic levels.
+- **3 ALUs fail with min/max in the 1-cycle ALU** (−0.086 ns) and pass without it (+0.052). R11 (shared ports) is worse in timing (−0.323) and saves 0.71K LUTs.
+- **Recommendation:** min/max go to the 2-cycle path at both widths. The cost is one more cycle of latency on min/max/minu/maxu, which are rare in integer code. The 3-wide loop still has little margin: the 10:1 bypass mux and the carry chain.
+
 **Findings.**
 1. **The plan's structure closes 200 MHz.**
    - **Register file:** three banks of 64 × 64 with 7 read ports, from explicit RAM64M8, cost **2,020 LUTs**: 1,536 LUTRAM plus 484 for the bank read muxes. That matches the plan's 2.0K.
    - **Bypass:** the 8:1 operand mux uses binary selects computed in the RF stage. It maps to LUT6 + MUXF7, and is cheaper and faster than one-hot.
 2. **The worst ALU path is min/max.** It runs: operand mux → the adder's carry chain → the compare → a 64-bit select of a or b → the result OR → the result register.
    - Add/sub (13 levels, 8 of them CARRY8) and the shifter have slack to spare.
-   - If the core needs margin, give min/max (and minu/maxu) a second cycle, on ALU1 next to clz/ctz/cpop.
-3. **3 ALUs close too, but only marginally.** The 10:1 bypass passes at +0.04 ns. S6 shows whether that survives the full chip.
+   - **Recommendation (from §5.1): give min/max/minu/maxu a second cycle** on ALU1, next to clz/ctz/cpop (`tg_alu` MINMAX = 0; plan §8.4 trim 3). That buys +0.43 ns on the 2-ALU loop and is what lets 3 ALUs close.
+3. **3 ALUs close only without min/max** (§5.1). With them, the pblock rerun fails by 0.086 ns, and S6's v2 floorplan by 0.159.
 4. **Bank replication is cheap with RAM64M8.** 4 banks × 9 read ports cost 3,268 LUTs, against 2,020 for 3 banks × 7: **+1.25K, not the +2.7K** of plan §4.15.
    - **Lever R11** (shared, arbitrated ports) saves only 0.74K.
    - **What R11 costs:** IPC from port conflicts, and an arbitration term in the select loop. S2 shows that loop is the tighter one.
    - **Recommendation:** replication for v2. R11's estimate (~1.7K) in §8.5 should drop to ~0.7K.
-5. **Lever R8 (EX-only bypass with write-through) does not close reliably.**
-   - **Why:** it puts the register-file write data (64-bit, fanning out to 7–9 primitive copies) on the ALU's slowest path.
-   - **Results:** it missed by 0.61 ns with 2 ALUs; it closed by 0.03 ns with 3 ALUs and replication, but failed with sharing. That is placement noise around a path with no margin.
-   - **Recommendation:** keep the WB bypass level. R8's ~0.5K saving is not available at 200 MHz.
+5. **Lever R8 (EX-only bypass with write-through) brings nothing** (§5.1).
+   - **Why:** it puts the register-file write data (64-bit, fanning out to 7–9 primitive copies) on the ALU's slowest path, and the operand mux it removes is small.
+   - **Results with the pblock:**
+     - with 2 ALUs, +0.004 ns against +0.014 for the WB bypass, and 51 fewer LUTs;
+     - with 3 ALUs, −0.215 against −0.086, and 305 fewer LUTs.
+     - The unconstrained run's −0.614 was a placement artifact.
+   - **Recommendation:** keep the WB bypass level. R8's planned ~0.5K saving does not appear (51–305 LUTs measured).
 
 **Adopt** (production intent, with tests):
 - [`tg_alu.sv`](../../fpga/spikes/rtl/tg_alu.sv) and [`tg_alu_pkg.sv`](../../fpga/spikes/rtl/tg_alu_pkg.sv): the control word is pre-decoded before EX.
@@ -266,7 +293,29 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 
 **Why the data ways are simple dual port.** An SDP RAMB36 gives a 64-bit read port and a 64-bit write port with byte enables. Loads and dirty reads only read, and refills and stores only write, so that is exactly the D$'s port use. As true dual port, a RAMB36 port is at most 36 bits wide, and every way would need two BRAMs.
 
-(results: queued)
+| Run | Config | Align | CLB LUTs (LUTRAM) | FFs | RAMB36 | WNS ns | Levels | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| `s4_st_alignm2` (pblock) | st | in M2 (plan) | **2,375** (448) | 3,665 | 8 | **+0.678** | 7 | pass |
+| `s4_st_alignm1` (pblock) | st | in M1, per way | 2,803 (448) | 3,672 | 8 | +0.785 | 4 | pass |
+
+Named paths, `s4_st_alignm2`:
+
+| Path | Slack ns | Levels |
+|---|---|---|
+| AG: base mux + offset adder → data-way BRAM address pins | +1.350 | 4 |
+| AG → M1 virtual-address register | +2.356 | 5 |
+| M1: data-way BRAM → M2 register | +1.277 | 0 |
+| M1: DTLB lookup (32 entries, fully associative) → physical page register | +0.924 | 7 |
+| M1: DTLB hit | +1.487 | 6 |
+| M1: tag LUTRAM read | +2.755 | 1 |
+| M2: tag compare → way select → align and extend → result register | **+0.678** | 7 |
+| M2: hit → shadow cancel | +2.034 | 6 |
+
+**Findings.**
+- **The 3-cycle load-to-use holds at 200 MHz with the plan's structure**, align in M2, with +0.68 ns. The §8.1 fallback (4 cycles) is not needed.
+- **Aligning in M1 is not worth it.** It moves 3 levels out of M2, but costs 428 LUTs (8 aligners instead of 1) for +0.11 ns.
+- **The path to watch is the DTLB lookup in M1.** It has +0.92 out of context, but it is the one S4 path that lost slack in the full chip: +0.17 in S6 at 88% fill (v1), −0.11 in the v2 floorplan (§8). A smaller DTLB (trim 4) or a registered page-match stage would recover it.
+- **Cost:** 2,375 LUTs for AG, 8 data ways, tags, DTLB and M2. The rest of the LSU (queues, forwarding, MSHRs) is outside this spike.
 
 
 ---
@@ -286,7 +335,7 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 | `s5_st_lut_wr4` | st | 2 | 2,485 (448) | 2,014 | 16 | **+0.582** | 8 | pass |
 | `s5_smt2_lut_wr4` (pblock) | smt2 | 2 | 2,566 (448) | 2,090 | 16 | **+0.245** | 8 | pass |
 | `s5_w3_lut_wr4` (pblock) | st_w3 | 3 | 2,516 (448) | 2,062 | 16 | **+0.357** | 8 | pass |
-| `s5_st_fa_wr4` (32-entry flip-flop fallback) | st | 2 | (queued) | | | | | |
+| `s5_st_fa_wr4` (pblock; 32-entry flip-flop fallback) | st | 2 | 3,589 (384) | 4,532 | 16 | +0.286 | 8 | pass, worse |
 
 Named paths, `s5_st_lut_wr4`:
 
@@ -322,7 +371,8 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 - **Decode width 3 closes too, at +0.357 ns**, with the same structure: 4 instruction-queue banks written per cycle, 3 read.
   - The worst path is IF2 again, now ending at the straddle-carry register. The next-PC loop keeps 1.8 ns.
   - The cost does not grow with width: 2,516 LUTs against 2,485 at width 2. The fetch block is 16 B either way; only the queue's read side widens.
-- **Verdict: S5 passes at widths 2 and 3, and no §8.1 fallback is needed.** The 32-entry flip-flop micro-BTB is not needed; its run is kept for the comparison.
+- **Verdict: S5 passes at widths 2 and 3, and no §8.1 fallback is needed.**
+- **The flip-flop fallback is worse on both counts:** the 32-entry fully associative micro-BTB costs 1.1K LUTs more (3,589 against 2,485), and its next-PC loop has +0.58 ns against +1.9.
 
 
 ---
@@ -349,7 +399,47 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 
 **The fill test** (plan §8.5): the smt2 design (the v1 release core) filled to 80%, 85% and 90% of the XCK26's 117,120 LUTs, timed at 5.0 ns. Fmax = 1 / (5.0 ns − WNS).
 
-(being measured)
+| Run | Config | CLB LUTs (fill) | LUTRAM | FFs | BRAM36 / URAM / DSP | WNS ns | Fmax MHz | Worst path | Implementation time |
+|---|---|---|---|---|---|---|---|---|---|
+| `s6_smt2_85` | smt2 (v1) | 98,218 (83.9%) | 11,826 | 78,411 | 101 / 32 / 108 | **+0.105** | **204** | filler → S2 per-thread room counter | 25 min |
+| `s6_smt2_90` | smt2 (v1) | 103,369 (88.3%) | 11,826 | 82,832 | 101 / 32 / 108 | **+0.007** | **200** | S2: W → readiness → select → payload, 7 levels | 40 min |
+| `s6_smt2w3_88` | smt2_w3 (v2) | 104,598 (89.3%) | 14,468 | 80,195 | 101 / 32 / 108 | −0.238 | 191 | S2: MX issued → readiness → select → payload, 8 levels | 35 min |
+| `s6_smt2_80` | smt2 (v1) | (rerun queued; the first attempt missed its LUT target) | | | | | | | |
+| `s6_st_76` | st | (running) | | | | | | | |
+
+Named paths, slack in ns (the worst over both cores):
+
+| Path | smt2, 84% | smt2, 88% | smt2_w3, 89% |
+|---|---|---|---|
+| S2: registered grant → wakeup encode → W | +0.759 | +0.858 | +0.377 |
+| S2: issue payload | +0.983 | +0.683 | +0.868 |
+| S3: ALU → bypass → ALU (min/max in the 1-cycle ALU) | +0.159 | +0.062 | **−0.159** |
+| S3: register-file read | +0.474 | +0.390 | +0.205 |
+| S4: M2 compare, select, result | +0.314 | +0.265 | +0.373 |
+| S4: DTLB lookup in M1 | +0.371 | +0.166 | **−0.112** |
+| S5: next-PC loop | +0.871 | +1.152 | +0.294 |
+| S5: next PC → I$ BRAM address | +0.301 | +0.466 | +0.013 |
+| S5: IF3 compaction → instruction queue | +0.527 | +0.592 | +0.551 |
+| L2: UltraRAM cascade input | +0.414 | +0.795 | +1.254 |
+| Core → L2 bus (registered, crosses the chip) | +3.232 | +2.089 | +3.140 |
+| Synthetic logic | +0.274 | +0.130 | +0.109 |
+
+**Findings.**
+- **v1 (smt2) holds 200 MHz up to about 88% fill.** It has +0.105 ns at 84% and +0.007 at 88%, so Fmax falls about 2% across that range.
+  - **What limits it is the protected loops,** S2 and S3, which are already marginal out of context. Congestion is not the limit: it stays at level 5 (moderate) at 88%.
+  - **The L2 is not a problem.** The 4-deep UltraRAM cascade and the core-to-L2 buses keep +0.4 ns or more.
+- **v2 (smt2_w3) at 89% runs at 191 MHz.** Three paths fail:
+  - **the S2 MX path** (−0.238). The 8-row ALU queues give it about +0.1–0.2 (§4.2);
+  - **the 3-ALU bypass loop** (−0.159), with min/max still in the 1-cycle ALU. §5.1 takes them out;
+  - **the DTLB lookup** (−0.112): a smaller DTLB or a registered page match.
+  - Each fix has a measured or plausible lever, so v2 at 200 MHz is not ruled out. At 191 MHz, the 3-wide's +13% IPC would still be worth +8% over 2-wide at 200 MHz.
+- **Placement.** The L2's 32 UltraRAM sit in the right-hand column (clock regions X2Y1–X2Y3), so the cores' buses cross the chip with room to spare.
+- **For the §8.5 utilisation limit:**
+  - the data support up to about 88% for v1 at 200 MHz;
+  - the synthetic logic is mostly local wiring, so it places and routes more easily than real core logic would. The limit should therefore keep some margin: **85% as the planning figure, 88–90% as the ceiling if M6 timing agrees.**
+- **Caveats.**
+  - S6's cores were generated before the S3 and S4 verdicts: S3 still has min/max in the 1-cycle ALU, and S4 aligns in M1.
+  - The filler adds no LUTRAM-heavy units beyond the 2,400 LUTs per core of plan §8.2.
 
 
 ---
@@ -396,9 +486,10 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 | Scheduler: every issue queue, W, wakeup delay lines (S2) | 2.9K | **5.4K** | **8.9K** (MX) | **12.5K** (MX); 11.0K with 8-row ALU queues |
 | Integer register file, bypass, ALUs (S3) | within RF + bypass 4.6K and integer execution 4.0K | 5.2K (RF 2.0K) | 5.2K | 8.7K (3 ALUs, replicated banks; RF 3.3K) |
 | Micro-BTB, I$, ITLB, pre-decode, compaction, instruction queue (S5) | within front end 6.1K | 2.5K | 2.6K | 2.5K (`st_w3`) |
-| Load path: AG, D$ ways and tags, DTLB, align (S4) | within LSU 6.4K | (queued) | | |
+| Load path: AG, D$ ways and tags, DTLB, align (S4) | within LSU 6.4K | 2.4K | — | — |
+| FPU with Goldschmidt divide/sqrt (FPU track; kept, D17) | 4.7K | 7.6K | 7.6K | 7.6K |
 
-**The scheduler is the outlier.** S3 and S5 are within the plan's estimates; S3 at width 3 is under them (+3.5K for the third ALU, its bypass and the fourth bank, against 4.8K planned). The scheduler is 1.9× the plan at st, 3.1× at smt2 and 4.3× at smt2_w3:
+**The scheduler is the outlier, and the FPU the other overrun.** S3, S4 and S5 are within the plan's estimates; S3 at width 3 is under them (+3.5K for the third ALU, its bypass and the fourth bank, against 4.8K planned). The scheduler is 1.9× the plan at st, 3.1× at smt2 and 4.3× at smt2_w3:
 - **Readiness** is an AND-OR over every column for every row: 40 rows × 104 columns at smt2, 46 × 120 at smt2_w3.
 - **The guard's busy vector** ORs every row's dependency bits per column. The alternatives cost more (§4.1).
 - **MX adds about 1.2K** (smt2) and is needed for timing at smt2 and smt2_w3. Its row-dependency bits are cleared per column but written per row, so the clear cannot use the flip-flops' reset and takes a LUT per bit.
@@ -414,20 +505,35 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 - **R11 (shared RF read ports) saves 0.74K**, not 1.7K (§5). R11 is v2-only.
 - **Smaller ALU queues** (the plan's §8.1 fallback, 10 → 8 rows) save 1.5K per core at smt2_w3, with no timing change (§4.2). §8.1 puts their cost at 1.2–1.5% IPC per 2 entries.
 
-**Where v1 (smt2) lands.** These are projections: measured spikes, plan estimates for everything else. S6's fill test and M6 synthesis replace them.
-- **Before area recovery:** ≈105K (§6.5) + 2 × (4.2 to 6.0K) ≈ **113–117K LUTs (97–100%)**.
-- **After the identified levers:** the levers of §8.5 save 13–21K per SoC for v1. Without R8, that is 12–20K.
-- **Result: v1 lands at ≈ 93–105K LUTs, 80–90%, about 85% at the midpoint.** That is the §8.5 working limit, not the 80% target.
-- **Getting back to 80%** takes about 6K more per SoC. The candidates:
-  - the free lever R14 applied to the scheduler: area-optimised directives on the LD, STA and FP queues, which have slack;
-  - the 8-row ALU queues (≈1K per core at smt2, IPC cost as above);
-  - the SMT2 window at ROB 64, a §8.5 contingency: 88 instead of 104 columns, about −1.3K per core in the scheduler alone.
-- **Or the fill test allows 85–90%.**
+**The FPU is the other overrun.** The FPU track measures 7.6K LUTs per core with the Goldschmidt divide/sqrt, which the user keeps (D17), against §8.2's 4.7K: +2.9K per core, +5.8K per SoC.
+
+**Where v1 (smt2) lands.** These are projections: measured spikes and FPU, plan estimates for everything else. M6 synthesis replaces them.
+- **Before area recovery:** ≈105K (§6.5) + 2 × (4.2 to 6.0K) for the scheduler + 5.8K for the FPU ≈ **119–123K LUTs (102–105%)**.
+- **The identified levers save 12.7–20.1K per SoC for v1**, without R8:
+  - per core, ×2: R1–R7 (free, first commit), R10 and R14;
+  - R15 once.
+  - R4 and R5 work on the FPU; if the 7.6K already includes them, the range shrinks by up to 2K.
+- **After them, v1 lands at ≈99–110K LUTs: 85–94%, about 90% at the midpoint.**
+- **The fill test (§8) says v1 holds 200 MHz to about 88%** (≈103K). So v1 fits at 200 MHz only with the levers in the upper half of their range, or with more savings:
+
+| Further saving (per SoC) | Saves | Cost | Source |
+|---|---|---|---|
+| ALU queues 10 → 8 rows (the §8.1 fallback) | ≈2K (1.5K per core measured at smt2_w3) | 1.2–1.5% IPC (§8.1) | S2 |
+| min/max on the 2-cycle path | 0.4K | min/max latency +1 | S3 |
+| R14 applied to the scheduler and FPU (area directives on non-critical queues, LUT6_2 packing) | not measured | none | plan |
+| SMT2 window at ROB 64 (§8.5 contingency): 88 instead of 104 columns | ≈2.6K in the scheduler, plus ROB storage | −1.5% throughput | S2 scaling |
+| Accept 190–195 MHz above 88% fill | — | −2 to −5% clock | S6 |
 
 **v2 (smt2_w3).**
-- **Before area recovery:** the same arithmetic gives ≈130–138K, against the plan's 120–124K.
-- **After the levers:** ≈106–121K (91–103%), over the 85–90% limit.
-- **What v2 needs:** the 8-row ALU queues are worth −3K per SoC. Beyond that, v2 needs a cheaper scheduler or a smaller window. The S6 `smt2_w3` floorplan (88%) shows what timing does at that fill.
+- **Before area recovery:** the same arithmetic gives ≈136–144K, against the plan's 120–124K.
+- **After the v2 levers** (16–23K per SoC, with R8 gone and R11 at 0.74K per core): ≈113–128K (97–109%), over any limit the fill test supports.
+- **What v2 needs is a re-plan, not levers.** The scheduler alone is 12.5K per core. Options:
+  - a smaller window, which means fewer wakeup columns;
+  - queues whose readiness covers only the columns a queue can depend on;
+  - fewer ALU-queue rows;
+  - a 3-wide core without SMT2.
+
+  S6 also shows v2 at 191 MHz at 89% fill (§8).
 
 ---
 
