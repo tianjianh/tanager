@@ -92,14 +92,23 @@ The exact command of every run is in its `summary.txt` (`top`, `cfg`, `generics`
 **Why this matters for 3-wide.** Read ports beyond 7 cost primitives, not whole bank copies. A 9-port bank is 83 primitives, not 2 × 64.
 
 **The primitive check.** [`tools/tcl/tg_prim_check.tcl`](../../tools/tcl/tg_prim_check.tcl) (a new file in the coordinator's area; please review) runs after `synth_design` and again after `opt_design`.
-- **What it checks:** every `tg_ram_lut`, `tg_ram_sdp` and `tg_ram_tdp` instance, against the primitive counts its port widths imply. The wrappers keep their hierarchy for this (`keep_hierarchy`).
+- **What it checks:** every `tg_ram_lut`, `tg_ram_sdp`, `tg_ram_tdp` and `tg_rom` instance, against the primitive counts its port widths imply. The wrappers keep their hierarchy for this (`keep_hierarchy`).
 - **Exact for LUTRAM and URAM.**
 - **Block RAM:** checks the family, and warns if the count differs from the smallest mapping.
 - **Strays:** lists inferred RAMs outside the wrappers.
-- **Demonstrated:** a test top with one unused read port passes after synthesis (the hierarchy is kept) but fails after `opt_design`: 64 → 55 RAM64M8. That is the "silently dropped read port" the plan warns about.
+- **Unread fields (2026-10-14).** A read bit with no load is trimmed by Vivado, and with it every primitive whose read slots all have no load. The expectation now counts only the primitives that hold a loaded bit:
+  - a field nobody reads passes, and the line reports it ("14 of 20 read bits loaded"), so the designer can drop it;
+  - a primitive missing for a loaded bit still fails. That is the "silently dropped read port" the plan warns about.
+  - Before this, the core track's queues failed eight times on fields they never read.
+- **Byte writes:** block RAMs with 8-bit byte enables expect the no-parity widths (64/32/16/8 bits).
+- **ROMs:** [`tg_rom`](../../rtl/common/prim/tg_rom.sv) (block or distributed) is checked like a single-port block RAM, or as logic.
+- **Tested in Vivado:** [`tests/unit/prim/synth/run.sh`](../../tests/unit/prim/synth/run.sh) synthesises one instance of each wrapper, with fields left unread, a byte-write RAM, two ROMs and one stray memory, and checks every report line.
 - **Integration:** the spike flow calls it on every run (`prim_synth.txt`, `prim_opt.txt`). Other flows source the file and call `tg_prim_check -file <report>`; it raises an error on a mismatch.
 
-**Tests.** [`tests/unit/prim`](../../tests/unit/prim): random reads and writes on six shapes, against a reference array, for both the behavioural model and the primitive mapping.
+**Tests.** [`tests/unit/prim`](../../tests/unit/prim):
+- random reads and writes on six shapes against a reference array, for both the behavioural model and the primitive mapping;
+- `tg_fifo` against a queue model;
+- `tg_rom` on four shapes.
 
 ---
 

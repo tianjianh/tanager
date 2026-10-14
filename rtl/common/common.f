@@ -9,3 +9,4 @@ prim/tg_ram_lut.sv
 prim/tg_ram_sdp.sv
 prim/tg_ram_tdp.sv
 prim/tg_fifo.sv
+prim/tg_rom.sv

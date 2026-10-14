@@ -9,7 +9,7 @@
 module tg_fifo #(
   parameter type T       = logic [7:0],
   parameter int  DEPTH   = 4,
-  parameter      STORAGE = "lutram",   // "lutram" or "reg"
+  parameter string STORAGE = "lutram",  // "lutram" or "reg"
   localparam int AW      = (DEPTH > 1) ? $clog2(DEPTH) : 1
 ) (
   input  logic  clk,
