@@ -131,6 +131,27 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
   - That leaves one or two checkers instead of seven: **−15.6K to −18.7K**.
   - OpenSBI's regions are already 4 KiB-aligned or coarser.
 
+### 4.1 The free synthesis settings on the whole core (DR-113)
+
+**Build:** `tg_core` at st from main cb8ff6c (F and D in, P4 included, the core's first no-IPC pass with wakeup tags), synthesis and `opt_design` with the hierarchy kept, without and with `AreaOptimized_high`. Both runs come from one snapshot.
+
+| Instance | Hierarchy kept | + `AreaOptimized_high` | Saved |
+|---|---|---|---|
+| `u_lsu` | 17,819 | 16,157 | −1,662 (−9.3%) |
+| `u_ex` | 8,636 | 7,984 | −652 (−7.5%) |
+| `g_p4.u_p4` (FP back end) | 7,853 | 7,333 | −520 (−6.6%) |
+| `u_is` | 5,357 | 4,874 | −483 (−9.0%) |
+| `u_fetch` | 5,257 | 4,966 | −291 (−5.5%) |
+| `u_rn` | 4,541 | 4,324 | −217 (−4.8%) |
+| `u_rob` | 3,308 | 3,078 | −230 (−7.0%) |
+| `u_csr` | 1,855 | 1,715 | −140 (−7.5%) |
+| `u_de` | 1,677 | 1,437 | −240 (−14.3%) |
+| **Core** | **56,461** | **52,024** | **−4,437 (−7.9%)** |
+
+- Every unit saves 5–14%; flip-flops (23,091 / 23,074) and LUTRAM (6,624) do not change.
+- **Timing is measured only on the scheduler** (§3, §3.1), where the pair closes 200 MHz with margin. The core's own implementation runs are the check for the rest.
+- **Memory:** this synthesis peaks at 9.4 GB with its helper processes (2 threads), against 6.8 GB without the directive (§6).
+
 ## 5. Fill test at 180 MHz
 
 **Method:** the S6 full-device design ([spikes.md](spikes.md) §8): two cores of spike structures plus the uncore, a synthetic filler sized to the target fill of the XCK26's 117,120 LUTs, implemented at 5.556 ns (180 MHz). D18 asks how full the device can get at about 180 MHz before IPC-costing levers are needed. The cores take the spike verdicts (min/max off the 1-cycle ALU, alignment in M2, MX everywhere), unlike the 200 MHz runs of spikes.md §8; "with tags" means the AR-1 scheduler (`S2_WTAGS = 16`).
@@ -169,3 +190,17 @@ Named paths, slack in ns at 5.556 ns (the worst over both cores):
 - **The scheduler is no longer near the limit.** Its wakeup loop has at least 0.9 ns at every fill (the groups' worst paths start at the harness's filler registers), where before tags it set the 200 MHz limit.
 - **v1 with the ROB-column scheduler did not route at the same fill (93.4%)** in over 2 hours. With tags (40 readiness columns per row instead of 104) the same core at the same fill routes in 15 minutes. v1 without tags at 90% was stopped during placement, since no decision depends on it.
 
+## 6. Memory of the Vivado runs
+
+Measured by sampling every 20 s the proportional set size (PSS) of each job's Vivado process and all its descendants, so shared pages count once and synthesis helpers count. Synthesis uses 2 threads (`TANAGER_SYNTH_THREADS`).
+
+| Job | Peak PSS | Processes at the peak | Declared |
+|---|---|---|---|
+| S6 full device, 90–96% fill (synthesis is the peak) | **12.9–14.3 GB** | 10 | 10 GB |
+| S6 full device, implementation (place and route) | 9.7–9.8 GB | 1 | 10 GB |
+| `tg_core` st, hierarchy kept | 6.75 GB | 10 | 6 GB |
+| `tg_core` st, hierarchy kept + `AreaOptimized_high` | 9.38 GB | 10 | 6 GB |
+
+- **A full-device synthesis with 2 threads needs about 14 GB, not 10.** Vivado's log reports only the parent process; summed with its synthesis helpers, the job peaks during synthesis at 13–14 GB. Place and route run in one process at about 10 GB.
+- The whole core at st needs 7 GB as built until now and 9.4 GB with `AreaOptimized_high` (DR-113). The larger configurations need more.
+- **What changed:** the spike workers declare 15 GB for S6 runs, and the budget flow declares 12 GB for the core (`fpga/budget/units.tsv`), which it now builds with DR-113's settings.
