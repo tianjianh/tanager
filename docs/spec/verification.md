@@ -382,7 +382,8 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - 48 programs per configuration per round, with new seeds each time.
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
 - **Strictly in the background:**
-  - `nice 19` and idle I/O priority, at most 12 simulations, never Vivado;
+  - `nice 19` and idle I/O priority, at most 8 simulations (Verilator builds at `-j4`), never Vivado;
+  - memory first (conventions §9): no program starts while `MemAvailable` is under 12 GB, and no build under 20 GB; it runs with `oom_score_adj` 900, so the kernel kills it before anything else;
   - holds while the host drive C: has under 20 GB free, and before a round while more than 20 tasks are runnable (the tracks are busy).
 - **Output:** `$TANAGER_BUILD/soak/summary.md` lists main's commit, the programs run per day and configuration, and the failures to triage.
   - Each failure keeps its program, the last 80 lines of its log and a one-line repro in `soak/fail/<time>-<cfg>-s<seed>/`; the newest 100 are kept.
@@ -546,7 +547,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 - **On the real core:**
   - the core track's M2 core passed 113 of 129 ACT4 tests before its merge, then 241 of 243 with the full plan list;
   - `make regress` passes in all four configurations.
-- **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro.
+- **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro. After the build host ran out of memory (Vivado, at about 03:20) it gained a memory gate, an 8-simulation cap and a raised `oom_score_adj`.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
