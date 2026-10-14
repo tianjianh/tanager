@@ -67,7 +67,13 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 
 | Date | Unit | Change | LUTs | Flip-flops | LUTRAM / BRAM / DSP | Cycle-identical | Slack | Decision |
 |---|---|---|---|---|---|---|---|---|
-| | | | | | | | | |
+| 10-14 | uncore: crossbar (SoC) | The caches' A-channel data, corrupt and mask as constants: interfaces.md §2.2–2.3 says l1i only sends Gets and l1d only Acquires. Their inputs leave the A arbiters' data multiplexers (T7). | −249 (uncore at st and at smt2) | 0 | 0 / 0 / 0 | yes: `make cycle-identical BOOT=20`, tb_xbar's 12 seeds, the OpenSBI signatures | tg_xbar +2.136 ns at 200 MHz | adopted (11bf523) |
+| 10-14 | uncore: trace stream (SoC) | Record kinds decoded once with KEEP, so each shared 64-bit field select is a 3-input function (T7, LUT pairing) | +8: 130 per lane against 128; synthesis did not pair them | 0 | 0 / 0 / 0 | yes (20 seeds) | — | rejected: no gain |
+| 10-14 | uncore: host bridge (SoC) | The read multiplexer decoded by range and word index instead of a 16-bit compare per register (T7) | +5 (1,260 against 1,255; Vivado already shared the compares) | 0 | 0 / 0 / 0 | yes (port signatures) | — | rejected: no gain |
+| 10-14 | uncore: trace stream (SoC) | FIFOs in SRL (T4) | not built. At one write and one read port LUTRAM holds 1.75 bits per LUT at 32 deep against SRL's 1, and the FIFOs are already LUTRAM. | — | — | — | — | rejected: denser as it is |
+| 10-14 | uncore: trace stream (SoC) | The W output as one flat F7/F8 select over core, lane and beat (T7) | not built. About 900 LUTs either way: the staged selects already cost what a flat 24-input select per bit does. | — | — | — | — | rejected: no gain expected |
+| 10-14 | uncore: host bridge (SoC) | The CDC mirrors in block RAM (T3) | not built. Synthesized alone, tg_cdc_mirror at 581 bits is 4 LUTs and 2,334 flip-flops; the LUTs the uncore report puts inside it belong to the read multiplexer. | — | — | — | — | rejected: nothing to save |
+| 10-14 | uncore: host bridge (SoC) | The read multiplexer (≈690 LUTs) as a block-RAM register file (T3) | an estimated −500 | — | +1 RAMB18, over the uncore's 18 | no: status words reach the block RAM a word at a time, so the host port sees them a few host cycles later | — | open: a coordinator decision (cycle-identity on the host port, the block-RAM budget) |
 
 ## 5. History and lessons
 
