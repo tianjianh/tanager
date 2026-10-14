@@ -132,6 +132,8 @@ Configuration `smt2` (`TID_W = 1`). Gains are weighted two-thread throughput aga
 ## Area recovery (study 2026-10-14; plan §8.5, D18)
 
 Levers judged by the area-recovery study ([area_recovery.md](area_recovery.md)). The statuses are the study's recommendations; plan §8.5 records the decisions.
+
+The verdicts are stated against the per-unit budgets ([budgets.md](budgets.md)). The real core's first synthesis (`st`, no FPU) is 88K LUTs against its 38.2K budget, from simulation-first structures the core track is replacing with no-IPC fixes (area_recovery.md §7.3). **No IPC-costing lever is chosen until the units are re-measured after that pass (D18).**
 - **Rule:** the reverse acceptance rule at 120 cycles. A lever qualifies if its LUT saving (%) is at least its IPC loss (%), where the loss is the larger of the two-thread throughput loss and the single-thread suite loss.
 - **Base:** the core after the planned levers, 45.6K for v1 and 53.6K for v2.
 - **Free:** both losses within 0.05%.
@@ -144,15 +146,17 @@ Levers judged by the area-recovery study ([area_recovery.md](area_recovery.md)).
 | Store-to-load forwarding (R9) | any covering store → **same address and size only** | 0.2–0.3K | −0.03% / −0.00% | **adopted** (no IPC cost) |
 | Third decoder (R12, v2) | full → **ALU, branch, jump, multiply/divide and integer load/store only** | 0.15–0.25K | −0.03% / −0.06% | **adopted for v2** |
 | Completion buffer (v2) | 16 → **8** | 0.06K | −0.06% / 0.00% | **adopted for v2** |
-| Reserve, in rank order (D18 step 3) | v1: FP queue 10 → 8, LD queue 6 → 4, radix-4 divide/sqrt. v2: radix-4, ALU queues 10 → 8 | 0.17K, 0.17K (with tags), 1.41K; 1.41K, 0.95K (with tags) | each alone: v1 0.00% / −0.06%, −0.15% / −0.20%, −0.42% / −2.42%; v2 −0.66% / −2.61%, −1.93% / −0.95% | not adopted; used only if the fit needs them, after a lower clock |
+| Reserve, in rank order (D18 step 3) | v1: FP queue 10 → 8, LD queue 6 → 4, radix-4 divide/sqrt. v2: radix-4, ALU queues 10 → 8 | 0.17K, 0.17K (with tags), 1.41K; 1.41K, 0.95K (with tags) | each alone: v1 0.00% / −0.06%, −0.15% / −0.20%, −0.42% / −2.42%; v2 −0.66% / −2.61%, −1.93% / −0.95% | not adopted. Used only if the fit still needs them once the real RTL has been re-measured after the core's area pass, and after a lower clock (D18). The radix-4 saving predates the FPU's no-IPC pass (FPU now 5,889 LUTs) and must be re-measured. |
 | R11 (v2): ALU2's register reads through shared, arbitrated ports | — | 0.74K (S3) | −0.62% / −1.66%; timing −0.24 ns against replication (S3) | **rejected** |
 | R13 (v2): simple third ALU | — | 0.3–0.5K | −0.09% / −1.53% | **rejected** |
 | Readiness banked by thread (rows see one ROB half) | — | 1.7–2.8K (v1) | −2.61% / −8.21% | **rejected** |
 | ALU queues 10 → 8 (v1); LQ, SQ, STA queue and LLT cuts; ROB 64 (v1) and ROB 80 (v2) | — | 0.2–1.7K | −0.7% to −4% | **rejected** (the ROB cuts pass only without wakeup tags) |
 
 **Net, per core:**
-- **v1:** −3.4 to −3.8K at −0.04% throughput. The dual-core is ≈92–104K LUTs, which fits at 200 MHz (area_recovery.md §7.1).
-- **v2:** −5.6 to −6.1K at −0.10%. The dual-core is ≈105–121K, so v2 is re-planned around 180–190 MHz (§7.2).
+- **v1:** −3.4 to −3.8K at −0.04% throughput.
+  - With wakeup tags, the scheduler measures ≈2.5–2.8K under its budget.
+  - On the planning projection, the dual-core is ≈92–104K LUTs, which fits at 200 MHz if every unit meets its budget (area_recovery.md §7.1, §7.3).
+- **v2:** −5.6 to −6.1K at −0.10%. On the planning projection the dual-core is ≈105–121K, so v2 is re-planned around 180–190 MHz (§7.2).
 
 ## Exceptions
 
@@ -190,4 +194,4 @@ Each exception is re-judged once Linux/SPEC-like workloads exist (M5). Any of th
 | 2026-10-13 | SMT2 build sized by the rule on two-thread throughput: ROB 80, LQ 24, SQ 20, 24 LLTs, 75% issue-queue caps (D15). The 3-wide cost estimate was refined to 6.0–7.7K LUTs per core (plan §4.15). |
 | 2026-10-13 | Roadmap: v2 = SMT2, v3 = 3-wide on the SMT2 core, all on the XCK26 (D14). Area-recovery levers R1–R15 (plan §8.5) enter the ledger as they are measured. |
 | 2026-10-13 | First release is SMT2 (D16). Renamed: the single-thread M1 freeze is the bring-up configuration ST; the first release v1 is the SMT2 build; 3-wide on SMT2 is v2. |
-| 2026-10-14 | Area-recovery study (plan §8.5, D18): wakeup tags, R9 and R10 adopted at no IPC cost, and R12 and a completion buffer of 8 for v2. R11, R13 and thread-banked readiness rejected. The reserve order is in [area_recovery.md](area_recovery.md). |
+| 2026-10-14 | Area-recovery study (plan §8.5, D18): wakeup tags, R9 and R10 adopted at no IPC cost, and R12 and a completion buffer of 8 for v2. R11, R13 and thread-banked readiness rejected. The reserve order is in [area_recovery.md](area_recovery.md). The verdicts are stated against the per-unit budgets; no IPC-costing lever is chosen until the real core is re-measured after its area pass. |

@@ -23,6 +23,13 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
 - **v2:** SMT2 + 3-wide.
 - **st_w3:** 3-wide without SMT2.
 
+**Real RTL, first numbers (2026-10-14).** The first synthesis of the real core (`st`, M3 features on, no FPU) is **88K LUTs against its 38.2K budget**.
+- **Where the excess is:** the core track traces it to simulation-first structures it is replacing with no-IPC fixes. These are the PMP checkers, the D$ state, the rename tables, the TLB CAMs and the LSU queues (§7.3).
+- **Already measured:** the FPU is 5,889 LUTs after a no-IPC pass (budget 6,800), and the scheduler is 8.9K at smt2.
+- **How to read this study:**
+  - its verdicts are stated against the per-unit budgets of [budgets.md](budgets.md), not as absolute SoC totals;
+  - **no IPC-costing lever should be chosen until the real core's units are re-measured after its area pass (D18)**.
+
 ---
 
 ## 1. Summary
@@ -67,7 +74,7 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **With SMT2 on,** no row ever waits on the other thread (0 sources). But binding rows to threads acts as a 50% issue-queue cap: −2.6% throughput at v1.
    - **With SMT off,** 1–4% of waits cross the two ROB halves. Steering around them costs 8–10% single-thread IPC.
    - **Rejected.** Wakeup tags save more, at no cost.
-5. **v1 fits at 200 MHz with full structures** (§7.1).
+5. **v1 fits at 200 MHz with full structures, provided every unit meets its budget** (§7.1, §7.3).
    - **With the free levers:** 92–104K LUTs on the spikes' 99–110K projection, or 97–100K on the budgets' 103–105K basis. The 88% ceiling (103K) is crossed only at the very top of the range, by ≤1.2K.
    - **No IPC-costing lever and no lower clock is needed** in any other outcome.
    - **IPC first:** with tags, the window step the SMT2 study rejected (ROB 96, LQ 32, SQ 24) adds +1.84% throughput and +0.69% single thread for about 0.7K per core, and still fits.
@@ -100,10 +107,11 @@ Per core, in rank order on top of wakeup tags, each step simulated as a whole. T
 |---|---|---|
 | AR-1 | Wakeup tags in the scheduler (plan §4.6) | **Adopt, for every configuration, with 16 tags.** No IPC cost anywhere; 24 tags give extra margin for dense FP code at +0.4–0.5K per core. First, confirm the LUT saving with one S2 build at 40 wakeup columns (§5.2); the design can be built in parallel. Proposed plan text is in §8.2. |
 | AR-2 | R9 and R10 | **Adopt.** Both are free in the model, and [budgets.md](budgets.md) already assumes them. |
-| AR-3 | v1 | **Keep D15's structures. Do not use any IPC-costing lever.** With AR-1 and AR-2, v1 lands at 92–104K, at 200 MHz (§7.1). Spend the headroom on IPC under the rule: the window step to ROB 96 / LQ 32 / SQ 24 gives +1.84% throughput for ≈0.7K per core. |
-| AR-4 | v2 re-plan | **Keep smt2_w3** with wakeup tags, R9, R10, R12 and completion buffer 8. Drop R11 and R13. Target 180–190 MHz (D18 step 2), and measure the fill limit at that clock (AR-5). Hold radix-4 and 8-row ALU queues in reserve, in that order. Keep st_w3 as the fallback only if the fill test fails. |
+| AR-3 | v1 | **Keep D15's structures. Do not use any IPC-costing lever.** With AR-1 and AR-2, the scheduler comes in ≈2.5–2.8K under its budget, so v1 meets 103K if the other units meet theirs (§7.3). That is 92–104K on the planning projection, at 200 MHz (§7.1). Spend the headroom on IPC under the rule: the window step to ROB 96 / LQ 32 / SQ 24 gives +1.84% throughput for ≈0.7K per core. |
+| AR-4 | v2 re-plan | **Keep smt2_w3** with wakeup tags, R9, R10, R12 and completion buffer 8. Drop R11 and R13. Target 180–190 MHz (D18 step 2), and measure the fill limit at that clock (AR-5). Hold radix-4 and 8-row ALU queues in reserve, in that order, and choose between them only after AR-7. Keep st_w3 as the fallback only if the fill test fails. |
 | AR-5 | Fill test at 180–190 MHz | **Extend S6:** run v2's core (with tags) at 90%, 93% and 96% fill, timed at 5.56 ns. It decides v2's clock and whether v2 needs any lever beyond the free ones. |
-| AR-6 | Reserve order (D18 step 3) | **v1:** FP queue 8, LD queue 4, radix-4. **v2:** radix-4, then 8-row ALU queues. Everything else fails the reverse rule (§3, §4). |
+| AR-6 | Reserve order (D18 step 3) | **v1:** FP queue 8, LD queue 4, radix-4. **v2:** radix-4, then 8-row ALU queues. Everything else fails the reverse rule (§3, §4). The order is a ranking, not a decision: none of these is used before AR-7. |
+| AR-7 | Re-measure the real RTL | **After the core track's no-IPC area pass** (the `st` core is at 88K against its 38.2K budget), re-measure each unit against [budgets.md](budgets.md) and redo §7 with the measured numbers. Only then choose an IPC-costing lever, if one is still needed (D18). The radix-4 saving must be re-measured too: its 1.41K predates the FPU's no-IPC pass. |
 
 ---
 
@@ -177,7 +185,7 @@ Per core. The source of each number is given with it.
 
 **Measured elsewhere:**
 - R11: 0.74K (spike S3);
-- the radix-4 divide/sqrt: 1.41K, plus 26 DSPs and a BRAM18 freed (FPU track).
+- the radix-4 divide/sqrt: 1.41K, plus 26 DSPs and a BRAM18 freed (FPU track). This was measured before the FPU's no-IPC pass, which brought the whole FPU to 5,889 LUTs, so it must be re-measured (§7.3).
 
 **Estimates:**
 - R9 0.2–0.3K, R12 0.15–0.25K and R13 0.3–0.5K (plan §8.5);
@@ -562,6 +570,39 @@ Tags make a window step cheap, so IPC first suggests spending some of the headro
   3. radix-4, then 8-row ALU queues, in reserve;
   4. st_w3 as the fallback.
 
+### 7.3 Against the per-unit budgets, and what must be re-measured
+
+§7.1 and §7.2 use the planning projections (spikes §10, [budgets.md](budgets.md)). The real RTL has started to report, and its first numbers say the projections hold only once every unit meets its budget.
+
+**The first synthesis of the real core** (`st`, M3 features on, no FPU) is 88K LUTs against the 38.2K ST budget. The core track traces the excess to simulation-first structures it is replacing with no-IPC fixes (D18 step 1):
+
+| Structure (`st`) | LUTs now | Fix (no IPC cost), from the core track | Budget unit, ST / v1 ([budgets.md](budgets.md)) |
+|---|---|---|---|
+| PMP checkers | 18.5K | cache the PMP result in the TLB | ROB, commit, traps, CSRs, PMP: 2,160 / 4,840 |
+| D$ state in flip-flops | 16.6K | being replaced | LSU: 5,770 / 6,780 |
+| Rename tables in flip-flops | 13.4K | LUTRAM (R3) | Rename, checkpoints, free lists: 1,220 / 1,830 |
+| TLB CAMs | 8.3K | a narrower PPN | MMU: 1,600 / 1,780 |
+| LSU queues | 6.9K | being replaced | LSU |
+
+**Where this study's verdicts land, unit by unit:**
+
+| Unit | Budget, ST / v1 | Measured | With this study's verdicts |
+|---|---|---|---|
+| Issue queues and wakeup | 6,030 / 8,350 | 6,470 (st), 8,909 (smt2), 12,424 (smt2_w3); nightly run | **Wakeup tags:** ≈5.2–5.5K at st, ≈5.9–6.2K at smt2, ≈7.4–7.7K at smt2_w3. After R14 (≈6%, as the budgets assume), that is ≈4.9–5.2K and ≈5.6–5.8K: under budget by ≈0.8–1.1K at ST and ≈2.5–2.8K at v1. |
+| FPU | 6,800 / 6,800 | 5,889 after a no-IPC pass | **0.9K under budget.** The radix-4 fallback is not needed for the FPU's budget, and its 1.41K saving predates the pass, so it must be re-measured. |
+| Rename, checkpoints, free lists | 1,220 / 1,830 | real RTL: rename tables in flip-flops, 13.4K (being moved to LUTRAM) | The budget counts R10 (0.5K at v1). **R10 is free**, so that assumption holds. |
+| LSU | 5,770 / 6,780 | real RTL: D$ state 16.6K, LSU queues 6.9K (being replaced) | The budget counts R9 (0.25K). **R9 is free**, so that assumption holds. |
+| MMU | 1,600 / 1,780 | real RTL: TLB CAMs 8.3K (being narrowed) | The budget counts R6 (0.4K). R6 cannot be modelled (no MMU in `tgsim`), so it stays an assumption. |
+| ROB, commit, traps, CSRs, PMP | 2,160 / 4,840 | real RTL: PMP checkers 18.5K (to be cached in the TLB) | No lever of this study. |
+
+**What this means.**
+- **The no-IPC verdicts stand, whatever the real numbers turn out to be.** Wakeup tags, R9 and R10 cost nothing, so they are D18 step 1 work, alongside the core track's fixes.
+  - With tags, the scheduler goes from 0.6K over its v1 budget to ≈2.5–2.8K under.
+  - The FPU is already 0.9K under its budget.
+  - Together that is ≈3.4–3.7K per core of slack against the budgets, ≈7K per SoC. The other units may need it.
+- **The IPC-costing verdicts are a ranking, not a decision.** They say which lever to use first if one is needed. Whether one is needed depends on what the units measure after the core's area pass. Until then, no IPC-costing lever is chosen (D18), and the reserve list (AR-6) stays a list.
+- **The SoC fits of §7.1 and §7.2 assume every unit meets its budget.** Redo them with the measured per-unit numbers once the area pass lands (AR-7). v2 has no per-unit budgets yet; its scheduler with tags (≈7.4–7.7K) is an input for them.
+
 ---
 
 ## 8. Ledger entries and proposed plan text
@@ -594,8 +635,9 @@ Replace the "Wakeup IDs" and "Dependency vectors" bullets with:
 - **The levers table gains a row:** wakeup tags.
 
 **For the budgets** ([budgets.md](budgets.md)):
-- **The scheduler at v1** drops from 8.35K to about 5.4–5.7K.
-- **Its overrun against the plan** is then mostly closed.
+- **With wakeup tags, the scheduler measures about 5.6–5.8K at v1 after R14,** against its 8,350 budget, and 4.9–5.2K at ST against 6,030.
+- **The budgets can keep their values:** the slack covers units still over (§7.3). v2's scheduler (≈7.4–7.7K) is an input for v2's budgets.
+- **R9 and R10 are confirmed free,** as the budgets assume. R6 is still an assumption.
 
 ---
 
