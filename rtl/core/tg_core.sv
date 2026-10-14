@@ -5,7 +5,7 @@
 // with tg_csr beside commit. Every recovery is at commit: tg_rob registers flush and the
 // redirect PC, and every unit clears its thread's state in that cycle.
 module tg_core
-  import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
+  import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_core_pkg::*, tg_fpcore_pkg::*;
 #(
   parameter int unsigned CORE_ID = 0  // used for mhartid and trace hart IDs
 ) (
@@ -63,7 +63,6 @@ module tg_core
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
   input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
 );
-  localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK;
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -87,26 +86,33 @@ module tg_core
   logic [63:0] flush_pc;
 
   // ---- Mode, translation and PMP state (tg_csr) ----
-  logic misa_m, misa_b, misa_c, misa_a;
+  logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
+  logic [1:0] fs;
+  logic [2:0] frm;
+  // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
+  logic [4:0] fc_fflags;
+  logic       fc_wvalid, fs_dirty;
+  logic [1:0] fc_waddr;
+  logic [7:0] fc_wdata;
   priv_e priv, priv_d;
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
   logic [43:0] satp_ppn;
-  logic [15:0][7:0]  pmpcfg;
-  logic [15:0][53:0] pmpaddr;
-  logic        satp_wr, sfence, tlb_flush;
-  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA or a satp write
-  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr);
+  pmp_d_t [15:0]     pmp_d;
+  logic [2:0]        pmp_al;
+  logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
+  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
+  // write (the TLBs cache PMP results)
+  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr || pmp_wr);
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
-  logic [15:0] it_fill_asid;
   logic [1:0]  it_fill_lvl;
   tlb_pte_t    it_fill_pte;
 
   // ---- Front end ----
-  logic        fe_ready;
+  logic        fe_ready, lsu_ready;
   logic        dred;
   logic [63:0] dred_pc;
   logic        upd_valid, upd_way, upd_inval;
@@ -120,8 +126,8 @@ module tg_core
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .asid(satp_asid), .pmpcfg, .pmpaddr, .tlb_flush,
-    .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
+    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .pmp_d, .pmp_busy, .tlb_flush,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
@@ -130,7 +136,8 @@ module tg_core
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .priv, .tvm, .tw, .tsr, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
+    .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -142,52 +149,84 @@ module tg_core
   logic [INT_BANKS-1:0]             rf_we;
   logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx;
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
+  logic [IQ_TAGS-1:0]               tag_free;
   logic                             div_done;
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
+  logic [CW-1:0]                    cm_rd_fp;
+  // F and D (EXT_FD): the FP back end's register-file writes (F0: P4, F1: FP loads), issue
+  // and returns (P4 below)
+  logic [1:0]                       fp_we;
+  logic [1:0][FPIDX_W-1:0]          fp_widx;
+  logic                             fdiv_iss, fpi_iss, fdiv_done, fpi_pop;
+  logic                             fp_misc_block;
+  // FP loads and FP store data between the LSU and P4
+  logic                             fld_m2_will, fld_valid, fld_single, sd_busy;
+  logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
+  logic [63:0]                      fld_data, fsd_data;
+  preg_t                            fsd_tag;
+  // P4's integer source and FP->int results (driven by P4 with the FP back end)
+  logic                             isrc_valid, fpi_valid, fpi_kill, fpi_ready, fpi_dst_en;
+  preg_t                            isrc_tag, fpi_dst;
+  logic [63:0]                      isrc_data, fpi_data;
+  robid_t                           fpi_rob;
+  llt_t                             fpi_llt;
+  logic [4:0]                       fpi_fflags, oth_fflags;
+  assign sd_busy    = EXT_FD && isrc_valid;
+  // P4's F0 completions (with the FP back end)
+  logic                             fp_cmp;
+  robid_t                           fp_cmp_rob;
+  logic [4:0]                       fp_cmp_fflags;
+  logic [CW-1:0][4:0]               cm_fflags;
+  logic [NCOL-1:0]                  wake_p4;
+  logic [LLT_ENTRIES-1:0]           llt_done_p4;
+  logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
   logic                             ds_fire;
   logic [DISPATCH_WIDTH-1:0]        ds_valid;
   uop_t [DISPATCH_WIDTH-1:0]        ds_uop;
   ren_t [DISPATCH_WIDTH-1:0]        ds_ren;
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_we;
-  logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep, iq_wake;
+  logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep;
   iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl;
   logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep;
   logic [RA-1:0]                    mx_hold;
   logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc;
   logic [NCOL-1:0]                  wid_alloc;
-  logic [NPR-1:0]                   ready_vec;
+  logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
   logic                             rn_ready;
   tg_rename u_rn (
-    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready), .flush,
+    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
     .de_valid, .de_uop, .de_take,
     .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
-    .rf_we, .rf_widx, .llt_rel, .div_done,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
-    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .iq_mdep, .mx_hold,
+    .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
+    .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
+    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
+    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ready_vec, .rob_tail);
+    .ds_src2_rdy, .rob_tail);
 
   // ---- Issue ----
-  logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr, col_rob;
+  logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
-  assign wake_reg = wake_x | wake_l;
+  assign wake_reg = wake_x | wake_l | wake_p4;
+  assign tag_free = tag_free_x | tag_free_p4;
+  // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
   always_comb begin
-    col_clr = col_rob;
-    for (int t = 0; t < LLT_ENTRIES; t++) if (llt_rel[t]) col_clr[ROB_ENTRIES + t] = 1'b1;
+    col_clr = '0;
+    col_clr[IQ_TAGS-1:0] = tag_free;
   end
   tg_issue u_is (
-    .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep), .disp_wake(iq_wake),
+    .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .iss_valid, .iss_pl);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
     if (rst) llt_rel <= '0;
-    else     llt_rel <= llt_done_x | llt_done_l;
+    else     llt_rel <= llt_done_x | llt_done_l | llt_done_p4;
   end
 
   // ---- Execute ----
@@ -200,7 +239,10 @@ module tg_core
   preg_t            sd_tag;
   logic [63:0]      sd_data;
   preg_t [CW-1:0]   tr_tag;
-  logic [CW-1:0][63:0] tr_data;
+  logic [CW-1:0][63:0] tr_data, tr_data_x, tr_data_p4;
+  for (genvar j = 0; j < CW; j++) begin : g_trd
+    assign tr_data[j] = (EXT_FD && cm_rd_fp[j]) ? tr_data_p4[j] : tr_data_x[j];
+  end
   logic [N_ALU-1:0] alu_cmp;
   robid_t [N_ALU-1:0] alu_rob;
   logic             oth_cmp, oth_exc;
@@ -214,14 +256,17 @@ module tg_core
   logic [63:0]      csr_ex_src, csr_ex_rdata;
   tg_exec u_ex (
     .clk, .rst, .flush, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
-    .iss_valid, .iss_pl, .a1_block,
+    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
-    .sd_tag, .sd_data, .tr_tag, .tr_data, .rf_we_o(rf_we), .rf_widx_o(rf_widx),
+    .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
+    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
+    .tr_tag, .tr_data(tr_data_x), .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
+    .oth_fflags,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
     .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
-    .wake_reg(wake_x), .llt_done(llt_done_x), .div_done,
+    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done,
     .csr_ex_valid, .csr_ex_pl, .csr_ex_src, .csr_ex_rdata, .csr_ex_ill);
 
   // ---- Load/store unit ----
@@ -245,19 +290,21 @@ module tg_core
   logic [3:0]          hd_cause;
   logic [63:0]         hd_tval;
   tg_lsu u_lsu (
-    .clk, .rst, .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .clk, .rst, .ready(lsu_ready), .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
-    .wake_ld(wake_l), .llt_done(llt_done_l), .sd_tag, .sd_data, .ready_vec,
+    .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
+    .fld_single, .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
+    .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_asid, .satp_ppn, .pmpcfg, .pmpaddr, .tlb_flush,
+    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
-    .it_fill, .it_fill_vpn, .it_fill_asid, .it_fill_lvl, .it_fill_pte,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
@@ -274,22 +321,24 @@ module tg_core
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .mepc_o(mepc), .sepc_o(sepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
-    .misa_c, .misa_a, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmpcfg, .pmpaddr,
+    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
+    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
+    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr, .pmp_busy,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 
   // ---- ROB and commit ----
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
     .clk, .rst, .ready(init_done && rn_ready && !trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
-    .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval,
+    .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
+    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
     .lx_valid, .lx_rob, .lx_cause, .lx_tval, .replay_valid, .replay_rob,
     .tlbm_valid, .tlbm_rob, .hd_retry, .hd_fault, .hd_cause, .hd_tval,
     .sq_drained, .mmio_busy,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
-    .tr_st_data, .tr_st_size, .tr_tag, .tr_data, .col_clr(col_rob),
+    .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .mepc, .sepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
@@ -299,7 +348,116 @@ module tg_core
   assign trace_wb_o       = '0;
   assign trace_wb_valid_o = '0;
 
+  // ---- F and D (EXT_FD): P4 (tg_fp_exec, docs/spec/fpu.md) and fcsr (tg_fcsr) ----
+  if (EXT_FD) begin : g_p4
+    fp_iss_t p4_pl;
+    fpi_t    p4_fpi;
+    logic    p4_cmp;
+    wid_t    p4_cmp_wid;
+    assign p4_pl = '{tid: iss_pl[Q_FP].tid, rob: iss_pl[Q_FP].rob, wid: iss_pl[Q_FP].wid,
+                     llt: iss_pl[Q_FP].llt, dst_en: iss_pl[Q_FP].dst_en, dst: iss_pl[Q_FP].dst,
+                     src1: iss_pl[Q_FP].src1, src2: iss_pl[Q_FP].src2, src3: iss_pl[Q_FP].src3,
+                     src1_fp: iss_pl[Q_FP].src1_fp, fop: iss_pl[Q_FP].fop, fmt: iss_pl[Q_FP].fmt,
+                     src_fmt: iss_pl[Q_FP].src_fmt, ifmt: iss_pl[Q_FP].ifmt, rm: iss_pl[Q_FP].rm,
+                     fp_int: iss_pl[Q_FP].fp_int, fp_div: iss_pl[Q_FP].fp_div};
+    assign fdiv_iss = iss_valid[Q_FP] && iss_pl[Q_FP].fp_div;
+    assign fpi_iss  = iss_valid[Q_FP] && iss_pl[Q_FP].fp_int;
+    logic f0_we;
+    logic [FPIDX_W-1:0] f0_widx;
+    tid_t       p4_cmp_tid, p4_er_tid;
+    logic       p4_er_v;
+    logic [4:0] p4_er_ff;
+    logic [2:0] fc_frm_rd;
+    tg_fp_exec #(.FDIV_Q(FDIV_INFLIGHT), .FPI_Q(FPI_INFLIGHT)) u_p4 (
+      .clk, .rst, .flush, .flush_tid,
+      .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
+      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
+      .isrc_valid, .isrc_tag, .isrc_data,
+      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_single, .fld_data,
+      .fsd_tag, .fsd_data, .tr_tag, .tr_data(tr_data_p4),
+      .f0_we_o(f0_we), .f0_widx_o(f0_widx),
+      .wake_reg(wake_p4), .llt_done(llt_done_p4),
+      .cmp_valid(p4_cmp), .cmp_tid(p4_cmp_tid), .cmp_rob(fp_cmp_rob), .cmp_wid(p4_cmp_wid),
+      .cmp_fflags(fp_cmp_fflags),
+      .fpi_valid, .fpi_ready, .fpi_o(p4_fpi), .fpi_kill, .fpi_pop,
+      .fdiv_done, .fdiv_ret_valid(1'b0), .fdiv_ret_tid('0), .fdiv_ret_llt('0),
+      .er_valid(p4_er_v), .er_tid(p4_er_tid), .er_fflags(p4_er_ff));
+    assign fp_cmp     = p4_cmp;
+    assign fp_we      = {fld_valid, f0_we};
+    assign fp_widx    = {fld_idx, f0_widx};
+    assign fpi_rob    = p4_fpi.rob;
+    assign fpi_llt    = p4_fpi.llt;
+    assign fpi_dst_en = p4_fpi.dst_en;
+    assign fpi_dst    = p4_fpi.dst;
+    assign fpi_data   = p4_fpi.data;
+    assign fpi_fflags = p4_fpi.fflags;
+    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec)
+    logic [1:0]              ptf_v_q;
+    logic [1:0][WTAG_W-1:0]  ptf_id_q;
+    always_ff @(posedge clk) begin
+      if (rst || flush) ptf_v_q <= '0;
+      else              ptf_v_q <= {ptf_v_q[0], p4_cmp && int'(p4_cmp_wid) < IQ_TAGS};
+      ptf_id_q <= {ptf_id_q[0], p4_cmp_wid[WTAG_W-1:0]};
+    end
+    always_comb begin
+      tag_free_p4 = '0;
+      if (ptf_v_q[1]) tag_free_p4[ptf_id_q[1]] = 1'b1;
+    end
+    // fcsr: one hart; FP state changes set mstatus.FS to Dirty
+    logic [CW-1:0] cm_fpr;
+    tid_t [CW-1:0] cm_tid;
+    for (genvar j = 0; j < CW; j++) begin : g_cf
+      assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
+      assign cm_tid[j] = '0;
+    end
+    logic [NUM_THREADS-1:0][2:0] frm_t;
+    logic [NUM_THREADS-1:0]      fs_dirty_t, er_busy_t;
+    tg_fcsr u_fcsr (
+      .clk, .rst, .frm_o(frm_t), .csr_rtid('0), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
+      .csr_wvalid(fc_wvalid), .csr_wtid('0), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
+      .cm_valid, .cm_tid, .cm_fflags, .cm_fpr,
+      .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
+      .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
+    assign frm      = frm_t[0];
+    assign fs_dirty = fs_dirty_t[0];
+    logic unused;
+    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+                      p4_er_v, p4_er_ff, fc_frm_rd};
+  end else begin : g_nop4
+    assign fdiv_iss      = 1'b0;
+    assign fpi_iss       = 1'b0;
+    assign fp_misc_block = 1'b0;
+    assign isrc_valid    = 1'b0;
+    assign isrc_tag      = '0;
+    assign fsd_data      = '0;
+    assign tr_data_p4    = '0;
+    assign wake_p4       = '0;
+    assign llt_done_p4   = '0;
+    assign fp_cmp        = 1'b0;
+    assign fp_cmp_rob    = '0;
+    assign fp_cmp_fflags = '0;
+    assign fpi_valid     = 1'b0;
+    assign fpi_kill      = 1'b0;
+    assign fpi_pop       = 1'b0;
+    assign fdiv_done     = 1'b0;
+    assign fp_we         = '0;
+    assign fp_widx       = '0;
+    assign fpi_rob       = '0;
+    assign fpi_llt       = '0;
+    assign fpi_dst_en    = 1'b0;
+    assign fpi_dst       = '0;
+    assign fpi_data      = '0;
+    assign fpi_fflags    = '0;
+    assign tag_free_p4   = '0;
+    assign frm           = '0;
+    assign fc_fflags     = '0;
+    assign fs_dirty      = 1'b0;
+    logic unused;
+    assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_single, fld_data, fsd_tag,
+                      isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
+  end
+
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped};
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
 endmodule

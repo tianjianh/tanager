@@ -1,6 +1,6 @@
 # Privilege modes, CSRs, traps and interrupts (`tg_csr`, M3)
 
-Status: implemented for M3 behind `EXT_SU` — core track — 2026-10-13
+Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 
 ## Purpose
 Extends the M2 machine-mode CSR file ([core-pipeline.md](core-pipeline.md) §9) to the privilege architecture Linux needs (plan §2.2, §4.1, §4.13): M, S and U modes; trap delegation; supervisor interrupts with Sstc; counters and their enables; the status fields that change memory access (MPRV, SUM, MXR, TVM, TW, TSR). The MMU and PMP are in [core-mmu.md](core-mmu.md); atomics in [core-lsu.md](core-lsu.md) §Atomics.
@@ -43,7 +43,7 @@ Mode changes happen only at commit: a trap, MRET or SRET retires, the CSR file s
 | `menvcfg` | FIOM and STCE writable (no Zicbo*, Svpbmt or Svadu yet) |
 | `senvcfg` | FIOM writable |
 | `stvec`, `sscratch`, `sepc`, `scause`, `stval` | As their M counterparts; `sepc` masks like `mepc` |
-| `satp` | MODE (Bare or Sv39; other modes leave MODE unchanged), ASID (16 bits), PPN (44 bits). Access in S with TVM is illegal. A write commits once the store queue has drained; one that changes the value flushes the TLBs (core-mmu.md). |
+| `satp` | MODE (Bare or Sv39), ASID (16 bits), PPN (44 bits). A write with any other MODE has no effect at all (privileged spec; Spike). Access in S with TVM is illegal. A write commits once the store queue has drained; one that changes the value flushes the TLBs (core-mmu.md). |
 | `stimecmp` | Sstc. Access below M needs `menvcfg.STCE` and the `time` permission (`mcounteren.TM`), else illegal |
 | `hpmcounter3–31` | Read 0 (Zihpm), `nondet`; gated by the enables |
 | `mhpmevent3–31` | Read 0 (no Sscofpmf yet) |

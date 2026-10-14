@@ -54,9 +54,9 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 
 ### 3.1 Fetch loop and I$
 - **Next PC (F1).** `fpc_d` = flush redirect, else decode redirect, else miss restart, else stall (`fpc_q`), else micro-BTB target on a hit, else the next 16-byte block. Spike S5's loop, with 64-bit PCs.
-- **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way; valid bits in flip-flops (reset and FENCE.I clear them in one cycle).
+- **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way. Valid bits: one `tg_ram_lut` row of 8 bits per set (plan §8.3), read by F1 and by the refill (victim choice, then a read-modify-write with the tag); after reset and FENCE.I a 64-cycle sweep clears them while F1 waits.
 - **Physical address.** In M (and Bare), PA = PC[`PA_W`-1:0]; with `EXT_SU` in S and U under Sv39, F1 translates the PC through the ITLB (core-mmu.md: misses park fetch for a walk). A PA with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill; PMP is checked per 4-byte word.
-- **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (round robin per set); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
+- **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (an invalid way, else a round-robin pointer shared by the sets); the victim's valid bit is cleared when the refill starts, because the refill rewrites its rows beat by beat and outlives redirects (its old line must miss meanwhile); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
 - **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
 ### 3.2 Prediction
@@ -79,7 +79,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 
 `DECODE_WIDTH` copies of a combinational RV64IM + Zicsr + Zifencei + system decoder. Output: `dec_t` (`tg_core_pkg`): class (ALU, BR, MUL, DIV, LD, ST, CSR, SYS), sources and destination, ALU control (`alu_ctl_t`), 64-bit immediate (AUIPC, JAL and JALR link values are precomputed: PC + imm, PC + 4), branch fields, memory size and sign, MUL/DIV op, CSR op, and a decode-time exception (illegal 2 with `tval` = instruction bits, 16-bit for a compressed encoding; ECALL 11 with `tval` 0; EBREAK 3 with `tval` = PC; fetch fault 1 with `tval` = PC).
 - **Compressed encodings** are illegal in M2 (misa has no C). They are expanded by `tg_rvc` before decode when `EXT_C` is on; decode then sees the 32-bit form plus its length (link value PC + 2).
-- **ISA switches (M3 groundwork):** `EXT_C`, `EXT_B` (Zba, Zbb, Zbs) and `EXT_ZICOND` in `tg_core_pkg` are off until the M3 ISA string, because misa and the illegal encodings must match the Spike configuration. With them on, clz/ctz/cpop run on P1 in the MUL slot, misa.B and misa.C are writable as in Spike, and jump targets need only 2-byte alignment.
+- **ISA switches (M3):** `EXT_SU`, `EXT_A`, `EXT_C`, `EXT_B` (Zba, Zbb, Zbs), `EXT_ZICOND` and `EXT_FD` (F and D, core-fp.md) in `tg_core_pkg` are on, with the M3 Spike configuration (`rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs`, `MSU`, 16 PMP regions: the `sim/Makefile` default for `CORE=core`), because misa and the illegal encodings must match it. clz/ctz/cpop and min/max run on P1 in the MUL slot, misa.B and misa.C are writable as in Spike, and jump targets need only 2-byte alignment. Each switch can still be turned off (with the matching narrower ISA string).
 - **misa.M** gates MUL/DIV (Spike lets software clear it); misa.B gates Zba/Zbb/Zbs.
 - **Group rules (DE):** a serialising instruction (CSR, FENCE, FENCE.I, WFI, MRET) or an instruction with a decode-time exception is taken alone, in slot 0; the instructions before it go in the previous group. A decode-time redirect ends the group.
 
@@ -91,19 +91,23 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Initial map:** x*i* → bank 0, index *i* (written with 0 by the reset sequence, as Spike resets every register to 0).
 
 ### 5.2 RN stage (`tg_rename`)
-- **RAT** (speculative) and **CRAT** (committed), 32 × `INT_PREG_W` flip-flops. A flush copies CRAT into RAT.
+- **RAT** (speculative) and **CRAT** (committed) in LUTRAM (plan §8.5 R3). A RAT entry holds the mapping and, for sources, the producer: its wakeup column, or for a 1-cycle op its ROB index (MX naming, §5.3), and its rename slot. Each RAT bank belongs to one rename slot and each CRAT bank to one commit slot, so every write port is a LUTRAM write port; live-value tables (flip-flops, `log2` of the width per register) name the bank with each register's latest entry. Reads: rs1, rs2 and rd (the old mapping) per slot.
+- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 (32 cycles, alongside the free lists' initialisation).
 - **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
-- **Wakeup ID:** the ROB index for every producer except loads and DIV/REM, which take a long-latency tag (LLT). IDs are columns 0..`ROB_ENTRIES`-1 (ROB) and `ROB_ENTRIES`..+`LLT_ENTRIES`-1 (LLTs) of the dependency vectors.
-- **Ready table:** one bit per physical register, cleared when RN allocates it, set when the register file is written (each bank's write port). **Producer table:** physical register → wakeup ID, written at RN.
-- **Sources:** an earlier slot of the same group that writes the register (intra-group, generated for any width), else RAT; pending if produced in the group or its ready bit is clear; a pending source contributes its producer's wakeup ID.
-- **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
+- **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
+  - **LLT:** loads, atomics and DIV/REM with a destination.
+  - **Tag:** MUL and the P1 bit counts (C_MUL) with a destination, from a pool of `IQ_TAGS`; RN waits when it runs short. A tag returns 2 cycles after its producer's register-file write (`tag_free` from `tg_exec`): by then no group in RN or DS can see the register as unwritten. Its column is then cleared in every queue row (`col_clr`), so a returned tag needs no guard. A flush returns every tag.
+  - **No column:** 1-cycle ops, which consumers name by row (MX) while the row is held. Once it is freed (2 cycles after the select), the value is in the bypass or the register file before any later consumer can issue. Serialised ops end in a flush, so their consumers find the value written.
+- **Ready table:** one bit per physical register, cleared when RN allocates it, set when the register file is written (each bank's write port).
+- **Sources:** an earlier slot of the same group that writes the register (intra-group, generated for any width), else RAT; pending if produced in the group or its ready bit is clear; a pending source waits on its producer's column, or on its row (MX), or on nothing (a 1-cycle producer whose row is freed).
+- **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, wakeup tags, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
 - **Serialising instructions** wait at RN until the ROB and `ds_q` are empty; after one is renamed, RN accepts nothing until the next flush (every serialising instruction ends in a flush, §8).
 
 ### 5.3 DS stage (also in `tg_rename`)
 - Writes the ROB entries (§8.1), the issue-queue rows (`tg_iq` dispatch port *k* = group slot *k*) and the LQ/SQ entries.
-- **Dependency vector** = one-hot of the pending sources' IDs **AND NOT W**. An ID is only reallocated after its producer has set its W bit and written the register file (ROB entry retired, or LLT released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
-- **Wake at select:** 1-cycle ALU ops (and branches with a destination) carry their own ROB index as `disp_wake_oh`.
+- **Dependency vector** = one-hot of the pending sources' columns **AND NOT W**. A column is only reallocated after its producer has set its W bit and written the register file (a tag 2 cycles after the write, an LLT when released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
+- **Allocation (AR-1):** RN gives out tags with the LLTs, from a free pool, and clears their W bits (`wid_alloc`).
 - **IQ room:** dispatch waits until every uop of the group finds a free row in its queue's bank (`bank_free_q`).
 - **Uops without a queue** (FENCE, FENCE.I, WFI, MRET, decode-time exceptions) are written complete.
 
@@ -115,11 +119,12 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 | LD | `IQ_LD` | load pipe | loads |
 | STA | `IQ_STA` | store-address pipe | store addresses |
 
-- **Variant:** `STALE = 0`, the guard, with predecoded wakeup IDs (`WAKE_ENC = 1`), as spikes.md §4.1 recommends: `busy` (the OR of every row's dependency bits) names the IDs a queued row still waits on, and rename allocates neither a ROB entry nor an LLT whose column is busy. The column-clear variant (`STALE = 2`) remains a `tg_issue` parameter.
-- **Timing levers (spikes.md §4.2), set in `tg_core_pkg`:** `IQ_DUP_SEL = 1` (a second select copy drives only the wakeup broadcast); `IQ_EARLY_W` = the two source tags (the payload's low bits; the rest sits in per-bank LUTRAM and is read in RF); `IQ_MX` = on when `TID_W > 0` (matrix wakeup, required for `smt2` timing), with the cancel history `HIST = 1`.
+- **Variant:** `STALE = 0`, the guard, with predecoded wakeup IDs (`WAKE_ENC = 1`), as spikes.md §4.1 recommends, for the LLT columns: `busy` (the OR of every row's dependency bits) names the LLTs a queued row still waits on, and rename does not reallocate them. Tag columns are cleared in every row when the tag returns (`col_clr`, honoured in the guard variant too). No queue wakes at select. The column-clear variant (`STALE = 2`) remains a `tg_issue` parameter.
+- **Timing levers (spikes.md §4.2), set in `tg_core_pkg`:** `IQ_DUP_SEL = 1` (a second select copy drives only the wakeup broadcast); `IQ_EARLY_W` = the source tags (the payload's low bits; the rest sits in per-bank LUTRAM and is read in RF); `IQ_MX` = on when `TID_W > 0` (matrix wakeup, required for `smt2` timing), with the cancel history `HIST = 1`.
 - **MX naming at dispatch.** A row names its in-queue 1-cycle producers (ALU ops and branches with a link) by ALU-queue row (`disp_mdep`, rows numbered across the ALU queues) and is ready when those rows have been selected; their W bit follows a cycle later. Dispatch finds the row through `rowof` (physical register → the row its producer was written into, recorded at DS) and confirms it with one compare: the row is still held (`mx_hold`: valid and not freed this cycle) and its destination (`rowdst`) equals the source. A producer in the same group is named by the row it is being written into (`mx_alloc`). Otherwise the source uses the producer's ID.
+- **Payload formats.** Rename builds one `iq_pl_t`; each queue stores only the bits its port reads, so no LUTRAM bit is left for synthesis to trim, and the other fields leave the queue as zero. All ALU queues: class, the ALU control word without the min/max group and `cmp_max` (`tg_alu` `MINMAX = 0`: min/max ride P1's MUL slot), `b_imm`, the immediate, the destination's index (its bank is the port's) and both source tags. A0 adds the branch fields (PC, kind, funct3, target, JALR offset, predicted next PC, micro-BTB hit and way, `dfix`, RVC); A1 adds `cmp_max`, the MUL/DIV/CSR fields, the wakeup column (MUL: its tag; DIV: its LLT's) and the instruction (CSR tval); both keep the ROB ID with its wrap bit (exception and misprediction age), A2 only the index (completion). LD: ROB ID, the 12-bit offset (sign-extended at issue), LQ index, size, base tag; STA: ROB ID, the 12-bit offset, SQ ID, size, base tag.
 - **Changes to the spike module:** a `sel_block` input (registered) that suppresses the queue's grant for a cycle (A1 uses it to keep bank 1's write port free, §7.3; LD uses it to free the load pipe for LQ replays); and a row granted in the cycle it is killed does not issue.
-- **Wakeup timing:** ALU ops at select (`wake_now`); MUL through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); loads and DIV on their LLT when their result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
+- **Wakeup timing:** ALU ops through MX alone (a dependant selects the cycle after its producer); MUL its tag through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); loads and DIV their LLT when their result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
 
 ## 7. Register read, bypass, execute (`tg_exec`; spike S3 RTL)
 
@@ -198,7 +203,23 @@ Records leave through a register one cycle after commit. `rd_value` is read from
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).
 
 ## 13. Timing and area
-M2 targets simulation; the structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Known M2-only costs to remove later: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports, flip-flop D$ state.
+The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
+
+**Where the area levers land** (plan §8.5; no lever below costs IPC):
+
+| Lever | Where | State |
+|---|---|---|
+| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
+| No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
+| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) | not yet: two 64-bit LUT incrementers |
+| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles; one hart keeps flip-flops |
+| R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
+| R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
+| R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
+| TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), AND-OR lookup | done |
+| R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
+
+Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
 
 ## 14. Verification
 Spike lockstep on every test (verification.md): riscv-tests, the directed interrupt tests, CoreMark and Dhrystone, in `st` and `st_w3`, with latency, back-pressure and probe stress options. Assertions (`ifndef SYNTHESIS`) on queue occupancy, free-list over/underflow, ROB order and one-hot grants.
@@ -209,3 +230,83 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - Micro-BTB, pre-decode and compaction: spike S5 (our RTL); block-based fetch: Reinman et al., ISCA 1999.
 - RISC-V semantics: the unprivileged ISA (20240411) and privileged spec (1.13); CSR WARL behaviour as Spike implements it (Spike used as a reference model, as allowed by plan §2.3).
 - No other core's RTL was read.
+
+## 16. History and lessons (core track)
+
+**Starting point (main d04ae26, 2026-10-13):**
+- **Scope:** the M2 core with the M3 features behind their switches.
+- **Size:** 82,549 LUTs at st, with the hierarchy kept (88K flattened), against the 38,220 budget.
+- **Where they went (area_synth.md §4):**
+  - LSU: 34.4K. The D$ took 13.2K, with its state and tags in flip-flops; each of the LD and STA PMP checkers took 3.1K.
+  - Front end: 16.9K, four PMP checkers among it.
+  - Rename: 11.9K.
+  - Execute: 8.5K.
+  - Issue: 5.1K.
+  - ROB: 2.7K.
+  - CSRs: 1.5K.
+  - Decode: 1.4K.
+- **PMP:** seven checkers at about 3.1K each made up a quarter of the core.
+
+**The area pass (2026-10-14).** None of these steps changed IPC: CoreMark's cycle counts were identical before and after each one.
+
+| Step | Commit | Measured |
+|---|---|---|
+| PMP results cached in the TLB entries (plan §4.10). Region descriptors are precomputed, and checks use a shared TOR compare. Four checkers remain (fetch block, LD, STA, walker), and the walker checks the page once at fill. | 8436f16, 7b19a3f | Each checker is about 0.87K instead of 3.1K: 3.5K for all four instead of 21.8K. Descriptors are computed one entry per cycle after a PMP write. |
+| D$ state in LUTRAM. The valid bits are apart because the load port reads only them. | 8436f16, 0226254 | D$ 13.2K → 3.5K |
+| Rename: producer info in the RAT instead of per-physical-register tables. The maps are in LUTRAM with live-value tables and versioned recovery (R3). | 621dd64, 69c9d7e | 11.9K → 3.1K, with no added recovery latency |
+| TLBs: no ASID tags, a 22-bit PPN, AND-OR lookup | 7311595 | DTLB 2.7K with two lookups |
+| LSU queues keep physical addresses; virtual addresses and store data live in LUTRAM (R7) | 362ace2 | — |
+| Issue-queue payload formats per port | 0226254, 82591f5 | Exact LUTRAM primitive counts; LD/STA offsets of 12 bits |
+| I$ valid bits in LUTRAM, cleared by a sweep | 5c9f6d0 | front end 6,137 → 5,254 |
+| Wakeup tags (AR-1): 16 tags plus the LLTs instead of ROB-index columns | b2e38b1 | st: 32 columns instead of 64. Core 45,088 → 44,407 LUTs (issue 4,776 → 4,264, rename −94, ROB −90) and −1,286 FFs. The study estimated −1.0 to −1.2K at st: the small st window (64 columns) and the earlier payload trims left less to take |
+
+- **Result:** 44,407 LUTs at st with AR-1 (b2e38b1), and 58,269 at st_w3 (525e875, before AR-1).
+- **Still over budget:**
+  - the LSU's own logic, about 7.8K;
+  - the D$ data, 32 BRAM36 at a quarter of their depth;
+  - rename, ROB and CSRs.
+- **Timing:** not yet measured on the full core after these changes. The cached PMP bits take the checkers off the AG and F1 paths. The LUTRAM RAT adds a read level in RN.
+
+**What the first cut did that cost area, and why:**
+- The PMP checkers were written straight from the specification. Each derived the NAPOT mask from `pmpaddr` per entry and per access, and there were seven of them.
+- Per-physical-register tables (producer ID, 1-cycle flag, MX row) with 2W read ports: they were the simplest way to name producers.
+- Flip-flop arrays for the cache state, the TLB fields, and the LSU's 64-bit virtual addresses and store data: easy flash clears and simple reads.
+- One ~400-bit payload for every issue queue.
+- The spike's ROB-index wakeup columns, so the window size set the scheduler's width.
+
+**What I'd write differently from the first commit:**
+- Start from the per-unit budgets and plan §8.3 (storage in LUTRAM or block RAM).
+- Compute anything derived from CSRs at write time.
+- Give each storage structure exactly the bits its readers use.
+- Measure each module with the hierarchy kept from the first synthesis.
+
+**Bugs and incidents:**
+- **I$ refill race (soc track, Linux on `tanager_soc`, fixed in b5e11f4).**
+  - **What went wrong:** the refill rewrote a victim way that still looked valid under its old tag, so a fetch after a redirect executed another line's bytes.
+  - **Why lockstep missed it:** the riscv-tests, CoreMark and the random programs fit in the 32 KiB I$, so they never evicted lines this way.
+  - **What guards it now:** an assertion built from the soc track's probe.
+  - **Lesson:** long boots exercise eviction paths that the suites do not.
+- **Build-host stall (2026-10-14, 03:30–04:01).**
+  - **What happened:** a whole-core budget synthesis from this branch ran the old `tools/vivado_run.sh`, with 3 slots and no memory declaration. Its 7 worker processes (about 10 GB) ran beside two full-device runs, and the host thrashed for 31 minutes.
+  - **Fix:** merge main before heavy jobs, and declare `TANAGER_VIVADO_MEM_GB=10` for core syntheses.
+
+**F and D (2026-10-14):**
+- The FPU track built the FP back end (P4: `tg_fp_exec`, `tg_fprf`, `tg_fcsr`) to an interface agreed in advance. The core track built decode, FP rename, IQ-FP and the LSU, ROB and CSR hooks behind `EXT_FD` (core-fp.md).
+- Wiring them together took one afternoon. On the first build, all 23 FP riscv-tests passed in lockstep.
+- **Area at st (b53b0a5, hierarchy kept):** 56,469 LUTs with F/D, against 44,407 without (+12.1K).
+  - P4 (`tg_fp_exec`): 7,861, of which the FPU units are 5,832 and the FP register file 1,108.
+  - Rename: +1.6K (the FP map, free lists and ready table).
+  - Issue: +1.1K (IQ-FP).
+  - ROB and CSRs: +0.5K. LSU: +0.6K.
+- ACT4's F/D configuration found two core bugs (P4's assertions caught the first):
+  - an FP→int op with rd = x0 carried no LLT column;
+  - misa.F/D were read-only, where Spike lets software clear them.
+
+**Other bugs found with the full ACT4 plan lists (685 and 895 tests, against 355 in my earlier ELF set):**
+- **satp:** a write with an unsupported MODE wrote ASID and PPN anyway.
+- **Sm_csr_ro "fetch bug" (verification track):** this was the I$ refill race. Reproduced on the M2 core at 41be4a0, it fails 0/2 without the refill fix and passes 2/2 with it.
+- **Lesson:** rebuild the ACT4 ELFs whenever the plan list grows. A stale ELF set hid these tests.
+
+**Dead ends:**
+- My per-module `units.tsv` lines were superseded by units read from `tg_core`'s hierarchy, which give exact per-instance counts in context.
+- A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.

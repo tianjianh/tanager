@@ -44,6 +44,9 @@ module tg_csr
   output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   output logic                   misa_c,       // compressed instructions enabled
   output logic                   misa_a,       // atomics enabled
+  output logic                   misa_f,       // F and D enabled (EXT_FD)
+  output logic                   misa_d,
+  output logic [1:0]             fs,           // mstatus.FS
   output priv_e                  priv,         // current mode
   output priv_e                  priv_d,       // mode of data accesses (MPRV)
   output logic                   tvm,
@@ -55,15 +58,25 @@ module tg_csr
   output logic [15:0]            satp_asid,
   output logic [43:0]            satp_ppn,
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
-  output logic [15:0][7:0]       pmpcfg,
-  output logic [15:0][53:0]      pmpaddr,
+  output pmp_d_t [15:0]          pmp_d,        // PMP region descriptors (registered)
+  output logic [2:0]             pmp_al,       // every 4K / 2M / 1G page is PMP-homogeneous
+  output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
+  output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
   // Interrupt inputs and time
   input  logic                   irq_mei,
   input  logic                   irq_mti,
   input  logic                   irq_msi,
   input  logic                   irq_sei,
   input  logic                   irq_ssi,
-  input  logic [63:0]            mtime
+  input  logic [63:0]            mtime,
+  // F and D (EXT_FD): fcsr lives in tg_fcsr; this file decodes fflags/frm/fcsr (illegal while
+  // mstatus.FS is Off), hands it the writes at retirement, and sets FS to Dirty on its pulse
+  input  logic [4:0]             fc_fflags,
+  input  logic [2:0]             fc_frm,
+  output logic                   fc_wvalid,
+  output logic [1:0]             fc_waddr,     // 1 fflags, 2 frm, 3 fcsr
+  output logic [7:0]             fc_wdata,
+  input  logic                   fs_dirty
 );
   localparam int NPMP = 16;
   localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
@@ -73,7 +86,7 @@ module tg_csr
   priv_e       priv_q;
   logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
   logic [1:0]  mpp_q, fs_q;
-  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q;
+  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
   logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q, mcycle_q, minstret_q;
   logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
   logic [11:0] mie_q;
@@ -88,7 +101,6 @@ module tg_csr
   logic [12:0] mcontext_q;
   logic [31:0] scontext_q;
   logic [NPMP-1:0][7:0]  pmpcfg_q;
-  logic [NPMP-1:0][53:0] pmpaddr_q;
 
   // ---- Interrupt pending bits ----
   logic        stip;
@@ -127,6 +139,9 @@ module tg_csr
   assign misa_b    = misa_b_q;
   assign misa_c    = misa_c_q;
   assign misa_a    = misa_a_q;
+  assign misa_f    = misa_f_q;
+  assign misa_d    = misa_d_q;
+  assign fs        = fs_q;
   assign priv      = priv_q;
   assign priv_d    = (mprv_q && priv_q == PRIV_M) ? priv_e'(mpp_q) : priv_q;
   assign tvm       = tvm_q;
@@ -137,8 +152,78 @@ module tg_csr
   assign satp_sv39 = satp_mode_q;
   assign satp_asid = satp_asid_q;
   assign satp_ppn  = satp_ppn_q;
-  assign pmpcfg    = pmpcfg_q;
-  assign pmpaddr   = pmpaddr_q;
+  // ---- PMP region descriptors (core-mmu.md §PMP) ----
+  // pmpaddr lives in LUTRAM. A PMP write marks the entries it changes, and one descriptor unit
+  // recomputes a marked entry per cycle into pmp_d_q (flip-flops: every checker reads all 16);
+  // pmp_al follows a cycle later. pmp_busy holds fetch meanwhile: the write's flush has emptied
+  // the window, so nothing else checks PMP until fetch resumes. After reset a sweep writes the
+  // reset values (entry 0: NAPOT over everything), then every entry is computed.
+  // pmp_al[j]: no active region boundary lies strictly inside a page of 2^k granules (k = 10,
+  // 19, 28: 4K, 2M, 1G), so such pages can cache one result.
+  pmp_d_t [NPMP-1:0]     pmp_d_q;
+  logic [NPMP-1:0][2:0]  pal_top_q;     // entry's address aligned to 1G / 2M / 4K pages
+  logic [2:0]            pmp_al_n, pmp_al_q;
+  logic [NPMP-1:0]       pdirty_q;
+  logic                  pchg_q;        // a descriptor changed last cycle: pmp_al follows
+  logic [4:0]            psw_q;         // reset sweep of the pmpaddr LUTRAM
+  logic                  pa_we;
+  logic [3:0]            pa_wa;
+  logic [53:0]           pa_wd;
+  logic [1:0][3:0]       pa_ra;         // CSR read, descriptor unit
+  logic [1:0][53:0]      pa_rd;
+  tg_ram_lut #(.DEPTH(NPMP), .WIDTH(54), .NR(2)) u_pmpaddr (
+    .clk, .we(pa_we), .waddr(pa_wa), .wdata(pa_wd), .raddr(pa_ra), .rdata(pa_rd));
+  localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
+  localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
+  localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
+  logic       psweep, pcalc;
+  logic [3:0] pj;                       // the entry the unit computes
+  pmp_d_t     pd_n;
+  logic [2:0] ptop_n;
+  logic [7:0] pcfg;
+  assign psweep = !psw_q[4];
+  always_comb begin
+    pj = '0;
+    for (int i = NPMP - 1; i >= 0; i--) if (pdirty_q[i]) pj = 4'(i);
+  end
+  assign pcalc = !psweep && |pdirty_q;
+  assign pcfg  = pmpcfg_q[pj];
+  always_comb begin
+    logic [53:0] y, dc;
+    y  = {pa_rd[1][52:0], 1'b1};
+    dc = (pcfg[4:3] == 2'b11) ? (y & ~(y + 54'd1)) : '0;    // NAPOT don't-care bits
+    pd_n.tor   = pcfg[4:3] == 2'b01;
+    pd_n.nap   = pcfg[4];
+    pd_n.l     = pcfg[7];
+    pd_n.x     = pcfg[2];
+    pd_n.w     = pcfg[1];
+    pd_n.r     = pcfg[0];
+    pd_n.hi    = pa_rd[1][53:PMP_GW] != '0;
+    pd_n.above = (pa_rd[1][53:PMP_GW] & ~dc[53:PMP_GW]) != '0;
+    pd_n.mask  = ~dc[PMP_GW-1:0];
+    pd_n.a     = pa_rd[1][PMP_GW-1:0];
+    ptop_n = {pd_n.hi || (pd_n.a & AL1G) == '0, pd_n.hi || (pd_n.a & AL2M) == '0,
+              pd_n.hi || (pd_n.a & AL4K) == '0};
+  end
+  assign pa_ra[1] = pj;
+  always_comb begin
+    pmp_al_n = '1;
+    for (int i = 0; i < NPMP; i++) begin
+      if (pmp_d_q[i].tor) pmp_al_n &= pal_top_q[i] & ((i == 0) ? 3'b111 : pal_top_q[(i + NPMP - 1) % NPMP]);
+      if (pmp_d_q[i].nap && !pmp_d_q[i].above)
+        pmp_al_n &= ~{pmp_d_q[i].mask[27], pmp_d_q[i].mask[18], pmp_d_q[i].mask[9]};
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (pcalc) begin
+      pmp_d_q[pj]   <= pd_n;
+      pal_top_q[pj] <= ptop_n;
+    end
+    pmp_al_q <= pmp_al_n;
+  end
+  assign pmp_d    = pmp_d_q;
+  assign pmp_al   = pmp_al_q;
+  assign pmp_busy = psweep || |pdirty_q || pchg_q;
   assign mepc_o    = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
   assign sepc_o    = {sepc_q[63:2], sepc_q[1] && misa_c_q, 1'b0};
 
@@ -191,6 +276,8 @@ module tg_csr
     misa_rd[2]  = misa_c_q;
     misa_rd[8]  = 1'b1;                          // I
     misa_rd[12] = misa_m_q;
+    misa_rd[3]  = misa_d_q;                      // D
+    misa_rd[5]  = misa_f_q;                      // F
     misa_rd[18] = SU;                            // S
     misa_rd[20] = SU;                            // U
   end
@@ -217,6 +304,13 @@ module tg_csr
       12'h344: rval = {52'b0, mip};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
       12'h7A8: rval = {51'b0, mcontext_q};
+      // ---- F and D ----
+      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
+      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
+      12'h003: begin
+        rval = {56'b0, fc_frm, fc_fflags}; exists = EXT_FD;
+        if (fs_q == 2'd0) deny = 1'b1;
+      end
       12'hB00: rval = mcycle_q;
       12'hB02: rval = minstret_q;
       12'hC00: rval = mcycle_q;
@@ -255,7 +349,7 @@ module tg_csr
           else if (a == 12'h3A2) rval = pmpcfg_q[15:8];
           else rval = '0;
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
-          rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pmpaddr_q[a[3:0]]} : '0;
+          rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pa_rd[0]} : '0;
         end else if ((a >= 12'hB03 && a <= 12'hB1F) || (a >= 12'h323 && a <= 12'h33F)) begin
           rval = '0;                                                 // mhpmcounter*, mhpmevent*
         end else if (a >= 12'hC03 && a <= 12'hC1F) begin             // hpmcounter* (Zihpm)
@@ -296,8 +390,34 @@ module tg_csr
   logic [63:0] pw_d_q;
   // satp writes that change it flush the TLBs (as Spike: a rewrite of the same value does not)
   assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
-                   {(pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) ? pw_d_q[63] : satp_mode_q,
-                    pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+                   (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) &&
+                   {pw_d_q[63], pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+  // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
+  assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
+                                        (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
+
+  // pmpaddr writes (entry i is locked by its own L, or by entry i + 1's L when that is TOR)
+  // and the reset sweep
+  assign pa_ra[0] = a[3:0];
+  always_comb begin
+    int i;
+    i = int'(pw_a_q[3:0]);
+    pa_we = cm_csr && pw_v_q && pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF &&
+            !(pmpcfg_q[i][7] ||
+              (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01));
+    pa_wa = pw_a_q[3:0];
+    pa_wd = pw_d_q[53:0];
+    if (psweep) begin                    // Spike's reset: entry 0 allows everything
+      pa_we = 1'b1;
+      pa_wa = psw_q[3:0];
+      pa_wd = (psw_q[3:0] == '0) ? '1 : '0;
+    end
+  end
+
+  // fcsr writes go to tg_fcsr in the cycle the CSR instruction retires
+  assign fc_wvalid = EXT_FD && cm_csr && pw_v_q && pw_a_q[11:2] == '0 && pw_a_q[1:0] != 2'd0;
+  assign fc_waddr  = pw_a_q[1:0];
+  assign fc_wdata  = pw_d_q[7:0];
 
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);
@@ -334,6 +454,8 @@ module tg_csr
       misa_b_q  <= EXT_B;
       misa_c_q  <= EXT_C;
       misa_a_q  <= EXT_A;
+      misa_f_q  <= EXT_FD;
+      misa_d_q  <= EXT_FD;
       mtvec_q   <= '0;
       mscratch_q <= '0;
       mepc_q    <= '0;
@@ -365,12 +487,19 @@ module tg_csr
       mcontext_q <= '0;
       scontext_q <= '0;
       pmpcfg_q  <= '0;
-      pmpaddr_q <= '0;
       // Spike's reset: entry 0 allows everything (NAPOT, RWX)
       pmpcfg_q[0]  <= 8'h1f;
-      pmpaddr_q[0] <= '1;
+      psw_q     <= '0;
+      pdirty_q  <= '1;
+      pchg_q    <= 1'b0;
       pw_v_q    <= 1'b0;
     end else begin
+      // F and D: FS becomes Dirty when tg_fcsr says so (and on an fcsr write)
+      if (EXT_FD && (fs_dirty || fc_wvalid)) fs_q <= 2'd3;
+      // PMP: reset sweep, then descriptor recomputation of the marked entries
+      if (psweep) psw_q <= psw_q + 1'b1;
+      pchg_q <= pcalc;
+      if (pcalc) pdirty_q[pj] <= 1'b0;
       // Counters
       if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
       if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
@@ -417,6 +546,8 @@ module tg_csr
             misa_m_q <= pw_d_q[12];
             misa_b_q <= EXT_B && pw_d_q[1];
             misa_a_q <= EXT_A && pw_d_q[0];
+            misa_f_q <= EXT_FD && pw_d_q[5];
+            misa_d_q <= EXT_FD && pw_d_q[3] && pw_d_q[5];   // D needs F (Spike)
             if (!(misa_c_q && !pw_d_q[2] && cm_pc[1])) misa_c_q <= EXT_C && pw_d_q[2];
           end
           12'h302: medeleg_q <= pw_d_q[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};
@@ -448,27 +579,27 @@ module tg_csr
           12'h143: stval_q <= pw_d_q;
           12'h14D: stimecmp_q <= pw_d_q;
           12'h180: begin
-            // MODE changes only to Bare or Sv39; ASID and PPN are always written
-            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) satp_mode_q <= pw_d_q[63];
-            satp_asid_q <= pw_d_q[59:44];
-            satp_ppn_q  <= pw_d_q[43:0];
+            // A write with an unsupported MODE has no effect at all (privileged spec, Spike);
+            // Bare and Sv39 write MODE, ASID and PPN
+            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) begin
+              satp_mode_q <= pw_d_q[63];
+              satp_asid_q <= pw_d_q[59:44];
+              satp_ppn_q  <= pw_d_q[43:0];
+            end
           end
           12'h7A8: mcontext_q <= pw_d_q[12:0];
           12'h5A8: scontext_q <= pw_d_q[31:0];
           12'hB00: mcycle_q <= pw_d_q;
           12'hB02: minstret_q <= pw_d_q;              // replaces this instruction's increment
-          12'h3A0: for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
-          12'h3A2: for (int i = 0; i < 8; i++) pmpcfg_q[8+i] <= pmpcfg_w(pmpcfg_q[8+i], pw_d_q[8*i +: 8]);
-          default: begin
-            if (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF) begin
-              int i;
-              logic lk;
-              i = int'(pw_a_q[3:0]);
-              lk = pmpcfg_q[i][7] ||
-                   (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01);
-              if (!lk) pmpaddr_q[i] <= pw_d_q[53:0];
-            end
+          12'h3A0: begin
+            for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
+            pdirty_q[7:0] <= '1;
           end
+          12'h3A2: begin
+            for (int i = 0; i < 8; i++) pmpcfg_q[8+i] <= pmpcfg_w(pmpcfg_q[8+i], pw_d_q[8*i +: 8]);
+            pdirty_q[15:8] <= '1;
+          end
+          default: if (pa_we) pdirty_q[pa_wa] <= 1'b1;      // pmpaddr (written in its LUTRAM)
         endcase
       end
 
@@ -508,5 +639,6 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1]};
+  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1],
+                    pcfg[6:5]};
 endmodule

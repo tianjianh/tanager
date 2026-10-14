@@ -40,8 +40,8 @@ ifeq ($(CORE),tcore)
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
 else ifeq ($(CORE),core)
-  ISA  ?= rv64im_zicsr_zicntr_zifencei
-  PRIV ?= M
+  ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs
+  PRIV ?= MSU
   PMP  ?= 16
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
