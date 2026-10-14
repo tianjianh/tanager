@@ -73,9 +73,9 @@ module tg_fpu_div_round
     resp_o.int_dest = 1'b0;
     resp_o.fflags = '0;
     unique case (f2_info.spec)
-      DSP_NAN:  begin resp_o.result = cnan(dbl); resp_o.fflags[FL_NV] = f2_info.nv; end
-      DSP_INF:  begin resp_o.result = inf_value(dbl, s); resp_o.fflags[FL_DZ] = f2_info.dz; end
-      DSP_ZERO: resp_o.result = zero_value(dbl, s);
+      SPEC_NAN:  begin resp_o.result = cnan(dbl); resp_o.fflags[FL_NV] = f2_info.nv; end
+      SPEC_INF:  begin resp_o.result = inf_value(dbl, s); resp_o.fflags[FL_DZ] = f2_info.dz; end
+      SPEC_ZERO: resp_o.result = zero_value(dbl, s);
       default: begin
         if (f2_ovf) begin
           resp_o.result = ovf_value(dbl, s, ovf_to_inf(f2_info.rm, s));

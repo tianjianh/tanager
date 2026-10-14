@@ -80,10 +80,10 @@ module tg_fpu_fma
   assign sc      = uc.sign ^ neg_add;
   assign eff_sub = has_c && (sp != sc);
 
-  // Special results, decided here and substituted in E4.
-  logic prod_zero, c_zero, inf_x_zero, prod_inf, c_inf, nan_in, snan_in, inf_m_inf;
-  logic spec, spec_nv;
-  logic [63:0] spec_res;
+  // Special results, decided here and substituted in E4 (a kind and a sign).
+  logic  prod_zero, c_zero, inf_x_zero, prod_inf, c_inf, nan_in, snan_in, inf_m_inf;
+  spec_e spec;
+  logic  spec_nv, spec_sign;
   always_comb begin
     prod_zero  = ua.zero || ub.zero;
     c_zero     = !has_c || uc.zero;
@@ -94,21 +94,19 @@ module tg_fpu_fma
     c_inf      = has_c && uc.inf;
     inf_m_inf  = prod_inf && c_inf && (sp != sc);
     spec_nv    = snan_in || inf_x_zero || inf_m_inf;
-    spec       = 1'b1;
+    spec_sign  = 1'b0;
     if (cvt_i) begin                       // integer source: only zero is special (+0)
-      spec     = x_val == '0;
+      spec     = (x_val == '0) ? SPEC_ZERO : SPEC_NONE;
       spec_nv  = 1'b0;
-      spec_res = zero_value(dbl, 1'b0);
     end
-    else if (nan_in || inf_x_zero || inf_m_inf) spec_res = cnan(dbl);
-    else if (prod_inf)                     spec_res = inf_value(dbl, sp);
-    else if (c_inf)                        spec_res = inf_value(dbl, sc);
-    else if (prod_zero && c_zero)          // exact zero: x + x keeps the sign; +0 - +0 is +0 (RDN: -0)
-      spec_res = zero_value(dbl, !has_c ? sp : (sp == sc) ? sp : (q.rm == RM_RDN));
-    else begin
-      spec     = 1'b0;
-      spec_res = '0;
+    else if (nan_in || inf_x_zero || inf_m_inf) spec = SPEC_NAN;
+    else if (prod_inf) begin spec = SPEC_INF; spec_sign = sp; end
+    else if (c_inf)    begin spec = SPEC_INF; spec_sign = sc; end
+    else if (prod_zero && c_zero) begin    // exact zero: x + x keeps the sign; +0 - +0 is +0 (RDN: -0)
+      spec      = SPEC_ZERO;
+      spec_sign = !has_c ? sp : (sp == sc) ? sp : (q.rm == RM_RDN);
     end
+    else spec = SPEC_NONE;
   end
 
   // Exponents. E0 only forms the sums, straight from the encoding fields (a subnormal field reads
@@ -137,8 +135,8 @@ module tg_fpu_fma
     logic        dbl;
     rm_e         rm;
     logic [FPU_TAG_W-1:0] tag;
-    logic        spec, spec_nv;
-    logic [63:0] spec_res;
+    spec_e       spec;
+    logic        spec_nv, spec_sign;
     logic        sp, sc, eff_sub, prod_sticky;
     logic        prod_zero, c_zero;
     logic        cvt_i;         // FCVT.F.I: the adder takes |x| instead of the product and addend
@@ -153,7 +151,7 @@ module tg_fpu_fma
   logic v1_q, v2_q, v3_q, v4_q;
   always_comb begin
     c0.dbl = dbl; c0.rm = q.rm; c0.tag = q.tag;
-    c0.spec = spec; c0.spec_nv = spec_nv; c0.spec_res = spec_res;
+    c0.spec = spec; c0.spec_nv = spec_nv; c0.spec_sign = spec_sign;
     c0.sp = sp; c0.sc = sc; c0.eff_sub = eff_sub; c0.prod_sticky = 1'b0;
     c0.prod_zero = prod_zero; c0.c_zero = c_zero;
     c0.cvt_i = cvt_i;
@@ -361,8 +359,8 @@ module tg_fpu_fma
     r.fflags = '0;
     r.int_dest = 1'b0;
     r.tag = c4_q.tag;
-    if (c4_q.spec) begin
-      r.result = c4_q.spec_res;
+    if (c4_q.spec != SPEC_NONE) begin
+      r.result = spec_value(c4_q.spec, c4_q.dbl, c4_q.spec_sign);
       r.fflags[FL_NV] = c4_q.spec_nv;
     end else if (zero) begin
       // exact cancellation (sticky bits make any inexact difference non-zero)
