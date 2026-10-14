@@ -15,7 +15,10 @@ CORES  ?= 1
 # OpenSBI (2026-10-14, host load about 17): 2x1 runs 1.5x faster with 4 threads (193 s against 286 s),
 # 1x1 20% slower (133 s against 111 s). So two cores use 4 threads and one core uses 1.
 VTHREADS ?= $(if $(filter 1,$(CORES)),1,4)
-NAME   := boot_c$(CORES)_t$(VTHREADS)
+# TAG: a suffix for a separate build of the same configuration (A/B comparisons, probes); the cores and
+# threads stay in the directory name, so builds of different configurations never share one
+TAG    ?=
+NAME   := boot$(TAG)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 PARAMS := -GN_CORES=$(CORES)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS))

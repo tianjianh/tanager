@@ -186,6 +186,17 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 
 The board runs the same images (plan §11).
 
+## Reserve levers
+
+Changes that save area but move cycles or remove function. Under D18 and DR-123 they wait until the cycle-identical work is done, and each one needs a decision. Pros and cons are per DR-124.
+
+| Lever | Saves | Costs | How often it costs (measured) |
+|---|---|---|---|
+| **L2 same-set rule at S0** (e256b0e, reverted in fc1031e): hold S0 while a request of the same set is in S1 or S2, in place of the directory's two-entry write-history bypass | 518 LUTs at st and at smt2 (uncore budget unit: 22,783 → 22,265 at smt2; 425 when it was first measured). The bypass multiplexers leave the 200 MHz S2 path | up to two bubbles per S0 entry that follows a same-set request: 2 if the match is in S1, 1 if only in S2 | almost never. In OpenSBI (5 M cycles, about 1,600 L2 pipeline entries per bank) it never occurs, at 64 and at 1,024 sets. In Linux's first 60 M cycles at 1,024 sets (1.14 M entries) it would hold 2 entries for 2 cycles: 4 bubbles. Counted with a testbench probe on S0, S1 and S2 (2026-10-14). The OpenSBI commit-trace signatures with and without the rule are equal |
+| **Release build without the latency injectors and the trace stream** ([budgets.md](../perf/budgets.md) §4) | about 4.3K (stream 2.85K, injectors 1.5K) | no FPGA lockstep and no latency sweeps on release bitstreams. The trace part is DR-121: the last reserve lever, release bitstreams only | always, in the builds that drop them |
+| **No register slices in the interconnect and at the memory ports** | about 2.4K | timing at 200 MHz at risk. It also moves cycles: every L2 round trip gets 2 shorter, so it is not a step-1 rewrite | every access |
+| **L2 MSHRs 24 → 16 per bank** | about 2.0K | IPC at the long latency points | under memory-level parallelism |
+
 ## History and lessons
 
 **Starting point (2026-10-13):** the uncore and the KV260 flow, built with stub cores. That first build closed 100 MHz with WNS +2.463 ns, but synthesis removes most of the uncore when nothing drives it.
@@ -209,7 +220,8 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 |---|---|
 | Traffic-generator build (the first real uncore timing) | WNS +0.928 ns; the uncore was about 24K LUTs against the plan's 13.3K, 18.4K of it in the L2 |
 | L2 lever R15 ([l2.md](l2.md)) | 9.9K → 5.1K LUTs per bank; KV260 WNS +1.701 ns |
-| Same-set rule, interconnect arbiters sized to their reachable ports | uncore (budget unit, smt2) 23,475 → 21,533 LUTs ([budgets.md](../perf/budgets.md) §4) |
+| Interconnect arbiters sized to their reachable ports | uncore (budget unit, smt2) −1.5K LUTs, the same behaviour ([budgets.md](../perf/budgets.md) §4) |
+| L2 same-set rule at S0 (e256b0e) | −425 LUTs, but up to two bubbles on back-to-back same-set requests. Reverted (fc1031e), because step 1 takes only cycle-identical rewrites; now a reserve lever (§Reserve levers) |
 | Commit-trace streaming into DDR over `S_AXI_HP3_FPD` ([uncore-trace.md](uncore-trace.md)) | lossless lockstep trace; +732 LUTs, −9 RAMB36, so block RAM meets its budget of 18; KV260 WNS +1.306 ns, primitive check clean |
 | `tanager_soc` with the real core in Verilator (`tests/unit/boot`) | OpenSBI's banner in 5.0 M cycles at 1×1 and 6.6 M at 2×1 |
 | Linux 6.18 on the real core | the kernel's early initcalls at 27 M cycles; there the boot found a core bug (below) |

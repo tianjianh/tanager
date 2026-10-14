@@ -8,7 +8,8 @@
 //   +dump_cause=N   ... when an instruction traps with this cause (once)      +dump_stop  end the run there
 // At the end the run prints a signature over every commit record and its cycle: two builds that give
 // the same signature retired the same instructions in the same cycles (the cycle-identity check of
-// docs/perf/fpga_friendly.md for uncore rewrites).
+// docs/perf/fpga_friendly.md for uncore rewrites). Each progress line carries the running signature,
+// so two runs compare at every million cycles, however far each got.
 module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -273,7 +274,7 @@ module tb_boot;
       repeat (2000) @(posedge clk);
       cyc += 2000;
       drain_console();
-      if (cyc % 1_000_000 == 0) $display("\n[tb_boot] %0d M cycles, %0d instructions retired,%s", cyc / 1_000_000, instret, last_pc_str());
+      if (cyc % 1_000_000 == 0) $display("\n[tb_boot] %0d M cycles, %0d instructions retired, sig %016h,%s", cyc / 1_000_000, instret, tsig, last_pc_str());
       hr(16'h018, v);
       if (v[31]) begin
         $display("\ntb_boot: power request %h", v[15:0]);

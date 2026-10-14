@@ -164,9 +164,10 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | Commit | Change | st LUTs | smt2 LUTs | FFs (smt2) | RAMB36 equiv. |
 |---|---|---|---|---|---|
 | aac20a2 | first measurement (L2 after lever R15) | 22,830 | 23,475 | 19,047 | 27 |
-| e256b0e | L2: the same-set rule at S0 replaces the directory's write history | 22,405 | 23,050 | 18,854 | 27 |
+| e256b0e | L2: the same-set rule at S0 replaces the directory's write history (reverted in fc1031e: it adds bubbles; a reserve lever, [soc.md](../spec/soc.md) §Reserve levers) | 22,405 | 23,050 | 18,854 | 27 |
 | 059a572 | interconnect: each arbiter over the ports that can reach it | 20,884 | 21,533 | 18,811 | 27 |
 | fca6fe8 | commit-trace streaming into DDR replaces the block-RAM ring | 21,797 | 22,265 | 18,304 | **18** |
+| fc1031e | L2: the write-history bypass back (the same-set rule moves to the reserve list, D18 step 1) | 22,315 | 22,783 | 18,493 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **By block** (smt2, 059a572):
