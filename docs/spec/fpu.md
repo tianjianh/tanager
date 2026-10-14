@@ -548,8 +548,11 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
     - FMA E3 (−0.02);
     - EX0's bypass select into FMA E0 (+0.02).
   - **Placement decides which group fails.** Each has 0.16–0.40 ns in its unit's own run, and placement in the combined module costs 0.2–0.3 ns.
+  - **Floorplan test** (`TG_OOC_IO` with `tests/unit/fpu/vivado/fp_exec_pblock.tcl`): main's RTL, confined to the smallest clock-region block that holds its DSPs, block RAM and slices at 60% fill. That is two stacked regions, X1Y0 and X1Y1; no single region holds it.
+    - **It closes at default effort in both configurations:** +0.113 ns (smt2, limited by the load write into FMA E0) and +0.100 ns (st, limited by the divider's seed-ROM address).
+    - **LUTs fall too:** 8,017 and 7,960, against about 8,200–8,275 unconstrained, because implementation replicates less.
   - **Options for default-effort closure:**
-    - **Floorplan P4** (a pblock in the full-chip flow): this targets the placement cost directly, with no RTL change, and is untested.
+    - **Floorplan P4** (a pblock in the full-chip flow): measured above, with no RTL change and no IPC cost. This is the recommended route.
     - **Seed-ROM address register in the fabric:** this removes the block-RAM setup from S1, but costs one divider cycle (FDIV/FSQRT 20/24/20/28). Divides complete through LLTs, so the IPC effect should be negligible; it is still an IPC cost, a report item under D18.
     - **The E2 restructure:** only together with the above, since alone it moves the failure elsewhere.
 - Under the uniform 1.5 ns, the worst path is the F1 load bypass into the FMA's E0: 11 LUT levels from `fld_data` through the bypass multiplexer and the FMA's classification of the addend. It moves with placement: smt2 +0.05 and −0.09 ns, st +0.01 and +0.10 ns. These are two runs each, before and after the last timing change and the ROM change, neither of which touches this path. Every failing path of the −0.09 ns run starts at `fld_*`; its worst internal path is +0.02 ns (the FMISC's FCVT.I.F).
@@ -707,7 +710,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K (below). The user kept it for its latency (D17). |
 | R5: FP→FP and integer→FP conversions on the FMA | 7,010 | −612 (FMISC −825, FMA +213), at most −0.09% IPC |
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
-| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. |
+| Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. Floorplanned into two clock regions, it closes at default effort at +0.113 and +0.100 ns. |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
 
 **What Goldschmidt really cost, and why.**
@@ -755,6 +758,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - Selecting the data by the registered slot owners alone fixed it.
   - `fdiv_ret` still reached the LUTRAM write enable at +0.09 ns, and was then removed from that path as well.
 - **Constrain each input by where it comes from.** With every input at 1.5 ns, the only failing paths of `tg_fp_exec` started at the load write, which leaves a register in the core, and they moved by ±0.1 ns between runs. Constraining those ports from the core's design (1.0 ns) fixed the measurement, not the RTL. The contract now states the assumption.
+- **When placement is the cost, floorplan before changing RTL.** The floorplan gave +0.10 ns in both configurations for no LUTs, where the E2 restructure spent 118 LUTs and moved the failure.
 - **At the edge, fixing the worst path moves the failure.** The E2 restructure gained 0.21 ns on the FMA, and the next run failed on the divider instead. A design with five path groups within 0.1 ns of zero needs margin on all of them, or a floorplan, not one fix at a time.
 - **Re-timing is not re-implementing.** Re-timing a routed design under a new constraint holds its placement fixed. It predicted +0.02 ns for smt2; implementing with the constraint measured −0.145 ns. On paths this close to zero, only a new run counts.
 - **A model of the partner needs as much care as the RTL.** Most failures were in the bench's model of the core, not in `tg_fp_exec`: registers recycled too early, retirement before producers, sources from the other thread, retirement in the flush cycle. Writing the core's side down first (the contract above, asserted in the RTL) settled each one quickly.
