@@ -1057,9 +1057,17 @@ module tg_lsu
       m1_pa_q    <= ag_pa;
       m1_clash_q <= ag_clash;
       if (ld_ag_valid && !flush) begin
-        lq_pa_q[ag_lq]  <= nl_pa;
-        lq_pav_q[ag_lq] <= !nl_exc && !nl_tm;
-        lq_st_q[ag_lq]  <= nl_exc ? L_EXC : nl_tm ? L_TLB : nl_mmio ? L_MMIO : L_PIPE;
+        lq_pa_q[ag_lq]   <= nl_pa;
+        lq_pav_q[ag_lq]  <= !nl_exc && !nl_tm;
+        lq_st_q[ag_lq]   <= nl_exc ? L_EXC : nl_tm ? L_TLB : nl_mmio ? L_MMIO : L_PIPE;
+        lq_rob_q[ag_lq]  <= ld_ag_pl.rob;
+        lq_sq_q[ag_lq]   <= ld_ag_pl.sq;
+        lq_dv_q[ag_lq]   <= ld_ag_pl.dst_en;
+        lq_fp_q[ag_lq]   <= EXT_FD && ld_ag_pl.dst_fp;
+        lq_dst_q[ag_lq]  <= preg_idx(ld_ag_pl.dst);
+        lq_llt_q[ag_lq]  <= ld_ag_pl.llt;
+        lq_size_q[ag_lq] <= ld_ag_pl.mem_size;
+        lq_uns_q[ag_lq]  <= ld_ag_pl.mem_uns;
       end else if (ag_rp) begin
         lq_st_q[ag_lq]  <= L_PIPE;
       end
@@ -1088,7 +1096,9 @@ module tg_lsu
       end
 
       // ---- STA ----
-      if (sta_ag_valid && !flush) begin
+      if (sta_ag_valid && !flush) begin                // (rob and size: nothing reads them before)
+        sq_rob_q[sa_idx]  <= sta_ag_pl.rob;
+        sq_size_q[sa_idx] <= sta_ag_pl.mem_size;
         sq_av_q[sa_idx]   <= !sa_exc && !sa_tm;
         sq_exc_q[sa_idx]  <= sa_exc;
         sq_tlb_q[sa_idx]  <= sa_tm;
@@ -1100,32 +1110,22 @@ module tg_lsu
       // ---- Dispatch: new LQ / SQ entries ----
       if (ds_fire) begin
         for (int k = 0; k < DISPATCH_WIDTH; k++) begin
+          // A load's other fields come with it at AG (nothing reads them before)
           if (ds_valid[k] && ds_uop[k].d.cls == C_LD) begin
             logic [LIW-1:0] i;
             i = ds_ren[k].lq[LIW-1:0];
             lq_v_q[i]    <= 1'b1;
             lq_st_q[i]   <= L_WAIT;
-            lq_rob_q[i]  <= ds_ren[k].rob;
-            lq_sq_q[i]   <= ds_ren[k].sq;
-            lq_dv_q[i]   <= ds_uop[k].d.rd_en;
-            lq_fp_q[i]   <= EXT_FD && ds_uop[k].d.rd_fp;
-            lq_dst_q[i]  <= (EXT_FD && ds_uop[k].d.rd_fp) ? PIDX_W'(fpreg_idx(ds_ren[k].dst))
-                                                          : preg_idx(ds_ren[k].dst);
-            lq_llt_q[i]  <= ds_ren[k].llt;
-            lq_size_q[i] <= ds_uop[k].d.mem_size;
-            lq_uns_q[i]  <= ds_uop[k].d.mem_uns || (EXT_FD && ds_uop[k].d.rd_fp);   // raw bits
             lq_pav_q[i]  <= 1'b0;
           end
           if (ds_valid[k] && ds_uop[k].d.cls == C_ST) begin
             logic [SIW-1:0] i;
             i = ds_ren[k].sq[SIW-1:0];
             sq_v_q[i]    <= 1'b1;
-            sq_rob_q[i]  <= ds_ren[k].rob;
             sq_av_q[i]   <= 1'b0;
             sq_dv_q[i]   <= 1'b0;
             sq_exc_q[i]  <= 1'b0;
             sq_mmio_q[i] <= 1'b0;
-            sq_size_q[i] <= ds_uop[k].d.mem_size;
             sq_tag_q[i]  <= ds_ren[k].src2;
             sq_fp_q[i]   <= EXT_FD && ds_uop[k].d.rs2_fp;
             sq_dr_q[i]   <= ds_src2_rdy[k] ||
