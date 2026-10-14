@@ -721,6 +721,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 - **Assertions:** the wakeup-column assertion caught a core-side bug, an FP→int op with rd = x0 that had no LLT column.
 - **Core-owned helpers:** `FPIDX_W`, `fpreg_bank()` and `fpreg_idx()` moved to `tg_core_pkg`. Defined in both packages, which `tg_fp_exec` imports together, they made the build fail.
 - **Divider queue:** the core's budget run flagged the output queue, which now keeps only the read bits (above).
+- **After that fix** (fd2 at c898f1e): the st core's primitive check passes (92 instances, 0 failures). P4 is 7,853 LUTs of the core's 56,461, and `make regress` still passes in all four configurations.
 
 **Lessons:**
 - **Estimates made by deletion undercount.** R5's FMISC saving was estimated at 584 by zeroing the two results; it measured 825, because the shared shifter's operand selection and bit reversal also went.
