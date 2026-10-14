@@ -22,6 +22,9 @@
 // flip-flops name the bank holding each register's latest entry. A flush clears the per-register
 // "renamed since the flush" bits, after which the committed map answers: recovery is immediate,
 // with no copy. A reset sweep writes the identity into the committed map.
+// The ready tables (one bit per physical register: written since allocated) are LUTRAM too
+// (tg_rdytab): a set phase per bank, written by the bank's register-file port, and an allocation
+// phase XOR-banked by rename slot. They read as the flip-flop vectors they replace did.
 // MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
 // by that row instead of its ID. DS records each 1-cycle op's row in a LUTRAM by ROB entry, one
 // bank per rename slot (one write per bank per cycle); a consumer reads it in the bank of its
@@ -40,7 +43,6 @@ module tg_rename
   import tg_pkg::*, tg_core_pkg::*;
 #(
   localparam int W   = RENAME_WIDTH,
-  localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK,
   localparam int FPW = PIDX_W + 1
 ) (
   input  logic clk,
@@ -111,7 +113,6 @@ module tg_rename
   function automatic logic is_lat1(input uclass_e c);       // a 1-cycle op in an ALU queue
     return c == C_ALU || c == C_BR;
   endfunction
-  logic [NPR-1:0]        ready_q;
   logic [LLT_ENTRIES-1:0] llt_busy_q;
   logic [IQ_TAGS-1:0]    tag_busy_q;
   robid_t                rtail_q;
@@ -132,9 +133,10 @@ module tg_rename
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
 
+  logic [3*W-1:0] irdy;                  // integer ready table reads: RN sources, DS rs2
+  logic [4*W-1:0] frdy;                  // FP: RN sources (3 per slot), DS rs2
   for (genvar k = 0; k < W; k++) begin : g_s2r
-    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? fready_q[fpr(ds_ren_q[k].src2)]
-                                                              : ready_q[ds_ren_q[k].src2];
+    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? frdy[3*W + k] : irdy[2*W + k];
   end
   assign rob_tail  = rtail_q;
 
@@ -269,15 +271,59 @@ module tg_rename
     logic unused;
     assign unused = ^{fmap_ra, fm_we, fcm_we, fcm_wd};
   end
-  // FP ready table: one bit per FP physical register {bank, index}
-  logic [2*FP_PREGS_PER_BANK-1:0] fready_q;
-  /* verilator lint_off UNUSEDSIGNAL */      // an FP tag is the low FRW bits of preg_t
-  function automatic logic [FRW-1:0] fpr(input preg_t p);
-    return p[FRW-1:0];
-  endfunction
-  /* verilator lint_on UNUSEDSIGNAL */
+  // ---- Ready tables (LUTRAM): set by register-file writes, cleared by allocation at RN ----
+  // Read ports: the RN sources (integer rs1, rs2 of slot k at 2k, 2k + 1; FP rs1-rs3 at 3k ..
+  // 3k + 2), then rs2 of each DS slot (store data).
+  logic irdy_ready, frdy_ready;
+  logic [W-1:0]             ic_v, fc_v;
+  logic [W-1:0][BANK_W-1:0] ic_b;
+  logic [W-1:0][PIDX_W-1:0] ic_i;
+  logic [W-1:0]             fc_b;
+  logic [W-1:0][FPIDX_W-1:0] fc_i;
+  logic [W-1:0][KSW-1:0]    dst_c;     // the free-list candidate each slot's destination takes
+  logic [3*W-1:0][BANK_W-1:0] ir_b;
+  logic [3*W-1:0][PIDX_W-1:0] ir_i;
+  for (genvar k = 0; k < W; k++) begin : g_rdc
+    assign ic_v[k] = rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en && !(EXT_FD && rn_uop_q[k].d.rd_fp);
+    assign ic_b[k] = preg_bank(ren[k].dst);
+    assign ic_i[k] = preg_idx(ren[k].dst);
+    assign fc_v[k] = EXT_FD && rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en && rn_uop_q[k].d.rd_fp;
+    assign fc_b[k] = fpreg_bank(ren[k].dst);
+    assign fc_i[k] = fpreg_idx(ren[k].dst);
+  end
+  for (genvar i = 0; i < 2 * W; i++) begin : g_irs
+    assign ir_b[i] = preg_bank(map_p[i]);
+    assign ir_i[i] = preg_idx(map_p[i]);
+  end
+  for (genvar k = 0; k < W; k++) begin : g_ird
+    assign ir_b[2*W + k] = preg_bank(ds_ren_q[k].src2);
+    assign ir_i[2*W + k] = preg_idx(ds_ren_q[k].src2);
+  end
+  tg_rdytab #(.NB(INT_BANKS), .DEPTH(INT_PREGS_PER_BANK), .W(W), .NR(3 * W)) u_irdy (
+    .clk, .rst, .ready(irdy_ready), .set_v(rf_we), .set_i(rf_widx), .cand_i(fl_pop),
+    .clr_v(ic_v), .clr_b(ic_b), .clr_c(dst_c), .clr_i(ic_i), .rd_b(ir_b), .rd_i(ir_i), .rdy(irdy));
+  if (EXT_FD) begin : g_frdy
+    logic [4*W-1:0]              fr_b;
+    logic [4*W-1:0][FPIDX_W-1:0] fr_i;
+    for (genvar i = 0; i < 3 * W; i++) begin : g_frs
+      assign fr_b[i] = fmap_p[i][FPIDX_W];
+      assign fr_i[i] = fmap_p[i][FPIDX_W-1:0];
+    end
+    for (genvar k = 0; k < W; k++) begin : g_frd
+      assign fr_b[3*W + k] = fpreg_bank(ds_ren_q[k].src2);
+      assign fr_i[3*W + k] = fpreg_idx(ds_ren_q[k].src2);
+    end
+    tg_rdytab #(.NB(2), .DEPTH(FP_PREGS_PER_BANK), .W(W), .NR(4 * W)) u_frdy (
+      .clk, .rst, .ready(frdy_ready), .set_v(fp_we), .set_i(fp_widx), .cand_i(ffl_pop),
+      .clr_v(fc_v), .clr_b(fc_b), .clr_c(dst_c), .clr_i(fc_i), .rd_b(fr_b), .rd_i(fr_i), .rdy(frdy));
+  end else begin : g_nofrdy
+    assign frdy_ready = 1'b1;
+    assign frdy       = '1;
+    logic unused;
+    assign unused = ^{fc_v, fc_b, fc_i, ffl_pop};
+  end
 
-  assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
+  assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready && irdy_ready && frdy_ready;
 
   // ---- RN ----
   logic          rn_ok;             // resources available for the whole group
@@ -289,6 +335,7 @@ module tg_rename
     logic llt_short, tag_short, found, got;
     pops = '0;
     fpops = '0;
+    dst_c = '0;
     nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0; fb = 0;
     lfree = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
@@ -338,8 +385,8 @@ module tg_rename
       // Sources: the maps, or the closest earlier slot that writes the register
       ren[k].src1 = rn_uop_q[k].d.rs1_en ? map_p[2*k] : '0;
       ren[k].src2 = rn_uop_q[k].d.rs2_en ? map_p[2*k+1] : '0;
-      ren[k].p1   = rn_uop_q[k].d.rs1_en && !ready_q[ren[k].src1];
-      ren[k].p2   = rn_uop_q[k].d.rs2_en && !ready_q[ren[k].src2];
+      ren[k].p1   = rn_uop_q[k].d.rs1_en && !irdy[2*k];
+      ren[k].p2   = rn_uop_q[k].d.rs2_en && !irdy[2*k+1];
       ren[k].w1   = map_pd[2*k].id;
       ren[k].w2   = map_pd[2*k+1].id;
       ren[k].c1   = map_pd[2*k].cv;
@@ -353,20 +400,20 @@ module tg_rename
         // f-register sources: always a wakeup column, never MX
         if (rn_uop_q[k].d.rs1_fp) begin
           ren[k].src1 = preg_t'(fmap_p[3*k]);
-          ren[k].p1   = rn_uop_q[k].d.rs1_en && !fready_q[fmap_p[3*k]];
+          ren[k].p1   = rn_uop_q[k].d.rs1_en && !frdy[3*k];
           ren[k].w1   = pid_t'(fmap_w[3*k]);
           ren[k].c1   = 1'b1;
           ren[k].l1   = 1'b0;
         end
         if (rn_uop_q[k].d.rs2_fp) begin
           ren[k].src2 = preg_t'(fmap_p[3*k+1]);
-          ren[k].p2   = rn_uop_q[k].d.rs2_en && !fready_q[fmap_p[3*k+1]];
+          ren[k].p2   = rn_uop_q[k].d.rs2_en && !frdy[3*k+1];
           ren[k].w2   = pid_t'(fmap_w[3*k+1]);
           ren[k].c2   = 1'b1;
           ren[k].l2   = 1'b0;
         end
         ren[k].src3 = rn_uop_q[k].d.rs3_en ? preg_t'(fmap_p[3*k+2]) : '0;
-        ren[k].p3   = rn_uop_q[k].d.rs3_en && !fready_q[fmap_p[3*k+2]];
+        ren[k].p3   = rn_uop_q[k].d.rs3_en && !frdy[3*k+2];
         ren[k].w3   = pid_t'(fmap_w[3*k+2]);
         ren[k].c3   = 1'b1;
         if (rn_uop_q[k].d.rd_fp) ren[k].old = preg_t'(fmap_p[3*W + k]);
@@ -434,10 +481,12 @@ module tg_rename
         if (EXT_FD && rn_uop_q[k].d.rd_fp) begin
           fb = (rn_uop_q[k].d.cls == C_LD) ? FPB_F1 : FPB_F0;
           ren[k].dst = mk_fpreg(fb, ffl_pop[fb][fpops[fb]]);
+          dst_c[k] = KSW'(fpops[fb]);
           fpops[fb] = fpops[fb] + 1'b1;
         end else begin
           b = (port == Q_LD || rn_uop_q[k].d.amo) ? LD_BANK : (rn_uop_q[k].d.cls == C_FP) ? 1 : port;
           ren[k].dst = mk_preg(b, fl_pop[b][pops[b]]);
+          dst_c[k] = KSW'(pops[b]);
           pops[b] = pops[b] + 1'b1;
         end
       end
@@ -639,8 +688,6 @@ module tg_rename
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      ready_q    <= '1;
-      fready_q   <= '1;
       fdiv_pre_q <= '0;
       fdiv_post_q <= '0;
       fpi_pre_q  <= '0;
@@ -655,13 +702,6 @@ module tg_rename
       rn_valid_q <= '0;
       ds_valid_q <= '0;
     end else begin
-      // Ready bits: set by register-file writes, cleared by allocation (below)
-      for (int b = 0; b < INT_BANKS; b++) begin
-        if (rf_we[b]) ready_q[mk_preg(b, rf_widx[b])] <= 1'b1;
-      end
-      for (int b = 0; b < 2; b++) begin
-        if (EXT_FD && fp_we[b]) fready_q[{1'(b), fp_widx[b]}] <= 1'b1;
-      end
       llt_busy_q <= llt_busy_q & ~llt_rel;
       fdiv_post_q <= fdiv_post_q + (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss) - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_done);
       fpi_post_q  <= fpi_post_q + (idx_w(FPI_INFLIGHT + 1))'(fpi_iss) - (idx_w(FPI_INFLIGHT + 1))'(fpi_pop);
@@ -705,10 +745,6 @@ module tg_rename
           rn_valid_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
-              if (rn_uop_q[k].d.rd_en) begin
-                if (EXT_FD && rn_uop_q[k].d.rd_fp) fready_q[fpr(ren[k].dst)] <= 1'b0;
-                else                               ready_q[ren[k].dst] <= 1'b0;
-              end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
               if (ren[k].use_tag) tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
             end
