@@ -6,6 +6,9 @@
 #   make seed            regenerate the seed ROM (rtl/core/fpu/tg_fpu_seed_pkg.sv, seed_tab.h)
 #   make tb              build the Verilator testbench (CFG=st by default; DIV=gs|r4 picks the
 #                        Goldschmidt divider or the radix-4 fallback)
+#   make tbx             build the FP back-end testbench (tg_fp_exec with tg_fprf and tg_fpu;
+#                        CFG=st|smt2|st_w3|smt2_w3, DIV=gs|r4)
+#   make tbc             build the fcsr testbench (tg_fcsr)
 # Builds go to $TANAGER_BUILD/<worktree>/fpu (conventions §1).
 
 ROOT     := $(abspath ../../..)
@@ -23,7 +26,7 @@ ifeq ($(TANAGER_BUILD),)
 $(error run `source tools/env.sh` first)
 endif
 
-.PHONY: all model seed tb test test-long clean
+.PHONY: all model seed tb tbx tbc test test-long test-be clean
 all: test
 
 $(BUILD):
@@ -68,6 +71,36 @@ $(VDIR)/tb_fpu: tb_fpu.cpp fpu_ref.h operands.h gs_model.h seed_tab.h $(RTL_SRCS
 	  -F $(ROOT)/rtl/core/fpu/fpu.f $(CURDIR)/tb_fpu.cpp
 
 tb: $(VDIR)/tb_fpu
+
+# ---- FP back end (docs/spec/fpu.md, "Core integration") ----
+CFG_F    := $(ROOT)/rtl/common/cfg/tg_cfg_$(CFG).sv
+cfg_int   = $(shell sed -n 's/.*localparam int $(1) *= *\([0-9]*\);.*/\1/p' $(CFG_F))
+CFG_DEFS := -DROB_ENTRIES=$(call cfg_int,ROB_ENTRIES) -DLLT_ENTRIES=$(call cfg_int,LLT_ENTRIES) \
+            -DTID_W=$(call cfg_int,TID_W) -DFP_PREGS=$(call cfg_int,FP_PREGS_PER_BANK) \
+            -DINT_PREGS=$(call cfg_int,INT_PREGS_PER_BANK) -DDECODE_WIDTH=$(call cfg_int,DECODE_WIDTH)
+BE_SRCS  := $(ROOT)/rtl/core/exec/tg_alu_pkg.sv $(ROOT)/rtl/core/tg_core_pkg.sv \
+            $(addprefix $(ROOT)/rtl/core/fpu/,$(shell sed -e 's://.*$$::' $(ROOT)/rtl/core/fpu/fpu_be.f | grep -v '^\s*$$'))
+XDIR     := $(BUILD)/objx_$(CFG)$(if $(filter r4,$(DIV)),_r4,)
+XFLAGS   := --cc --exe --build -j $(JOBS) -O3 --assert -Wall -Wno-fatal -Wno-UNUSEDPARAM \
+            -I$(ROOT)/rtl/common -I$(ROOT)/rtl/core/fpu $(ROOT)/rtl/lint.vlt \
+            -CFLAGS "-O2 -std=c++17 -I$(CURDIR) -I$(SF_INC) $(PKG_LAT) $(CFG_DEFS)" -LDFLAGS "$(SF_LIB)" \
+            -MAKEFLAGS "OPT_FAST=-O3 OPT_GLOBAL=-O3 OPT_SLOW=-O1"
+$(XDIR)/tb_fpx: tb_fpx.cpp tb_fpx_top.sv tf_table.h fpu_ref.h operands.h $(RTL_SRCS) $(BE_SRCS) $(ROOT)/rtl/common/tg_fpu_pkg.sv | $(BUILD)
+	$(VERILATOR) $(XFLAGS) --top-module tb_fpx_top -GDIV_RADIX4=$(if $(filter r4,$(DIV)),1,0) --Mdir $(XDIR) -o tb_fpx \
+	  $(CFG_F) -F $(ROOT)/rtl/common/common.f -F $(ROOT)/rtl/core/fpu/fpu.f $(BE_SRCS) $(CURDIR)/tb_fpx_top.sv \
+	  $(CURDIR)/tb_fpx.cpp
+tbx: $(XDIR)/tb_fpx
+
+CDIR     := $(BUILD)/objc_$(CFG)
+$(CDIR)/tb_fcsr: tb_fcsr.cpp $(BE_SRCS) | $(BUILD)
+	$(VERILATOR) --cc --exe --build -j $(JOBS) -O3 --assert -Wall -Wno-fatal -Wno-UNUSEDPARAM --top-module tg_fcsr \
+	  -I$(ROOT)/rtl/common -I$(ROOT)/rtl/core/fpu $(ROOT)/rtl/lint.vlt \
+	  -CFLAGS "-O2 -std=c++17 $(CFG_DEFS)" --Mdir $(CDIR) -o tb_fcsr \
+	  $(CFG_F) -F $(ROOT)/rtl/common/common.f -F $(ROOT)/rtl/core/fpu/fpu.f $(BE_SRCS) $(CURDIR)/tb_fcsr.cpp
+tbc: $(CDIR)/tb_fcsr
+
+test-be: tbx tbc
+	./run_be_tests.sh short $(XDIR)/tb_fpx $(CDIR)/tb_fcsr
 
 test: model tb
 	./run_tests.sh short $(VDIR)/tb_fpu

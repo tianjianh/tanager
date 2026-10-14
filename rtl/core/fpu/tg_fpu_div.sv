@@ -70,7 +70,10 @@ module tg_fpu_div
   logic [10:0] rom_addr;
   assign rom_addr = s1_sqrt ? {1'b1, s1_odd, ma[51:43]} : {1'b0, mb[51:42]};
   logic [8:0] rom_data;
-  tg_fpu_seed_rom u_rom (.clk, .addr(rom_addr), .data(rom_data));
+  // Seed ROM in one BRAM18 (2K x 9, docs/spec/fpu.md "Seed ROM"): address and output registers
+  // in the block RAM, so the data appears two cycles after the address.
+  tg_rom #(.DEPTH(2048), .WIDTH(9), .PRIM("block"), .RD_LAT(2), .INIT(tg_fpu_seed_pkg::SEED_ROM)) u_rom (
+    .clk, .re(1'b1), .raddr(rom_addr), .rdata(rom_data));
 
   logic        s2_v;
   (* shreg_extract = "no" *) div_info_t s2_info;
