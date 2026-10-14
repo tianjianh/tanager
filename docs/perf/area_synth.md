@@ -90,14 +90,14 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 
   | Configuration | Tags, default | Tags, both settings | Saved | WNS ns | Levels |
   |---|---|---|---|---|---|
-  | st | 4,802 | (queued) | | | |
+  | st | 4,802 | **4,228** | −574 (−12.0%) | +0.518 → **+0.226** | 7 → 11 |
   | smt2 (v1) | 5,506 | **4,750** | −756 (−13.7%) | +0.218 → **+0.392** | 7 → 11 |
   | smt2_w3 (v2) | 7,703 | **6,669** | −1,034 (−13.4%) | +0.026 → **+0.094** | 7 → 11 |
 
   - The same −13% as without tags (§3), and timing improves rather than degrades. Flip-flops and LUTRAM do not change (5,208 / 240 at smt2).
   - The directive alone fails (§3): with a flattened design it restructures the wakeup loop across module boundaries and misses by 0.265 ns. With each queue kept as a module it cannot, so the loop keeps its margin. Use the two together or not at all.
-  - The worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack.
-  - **The scheduler from ROB columns to tags plus both settings: 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, with slack gained at both.
+  - At smt2 and smt2_w3 the worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack. At st it stays on the wakeup loop, now 11 levels, and gives up 0.29 ns of its large margin.
+  - **The scheduler from ROB columns to tags plus both settings: 6,425 → 4,228 at st (−34%), 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, all closing 200 MHz.
 
 ## 4. The real core, module by module (st, first synthesis)
 
