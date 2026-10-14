@@ -16,7 +16,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BUDGETS = ROOT / "fpga" / "budget" / "budgets.tsv"
 DEVICE = 117120
-LIMITS = (("200 MHz, 88% (S6)", 103040), ("180 MHz, 94.2% (S6)", 110280))
+# 88% is S6's 200 MHz result and the sum of v1's budgets; 90% is the plan's ceiling (DR-011); the 180 MHz
+# figures are the full fill test's (area_synth.md section 5). AR-9's v2 budget came from the earlier 94.2% (110,280).
+LIMITS = (("200 MHz, 88% (S6)", 103040), ("200 MHz, 90% (DR-011)", 105408),
+          ("180 MHz, v1 closes at 95.3%", 111633), ("180 MHz, v2 closes at 96.0%", 112441))
 UNITS = ("fe", "dec", "ren", "iq", "ex", "lsu_mmu", "rob_csr", "p4")
 BUDGET_ROW = {"p4": "fpu"}  # P4 (tg_fp_exec) is judged against the FPU line; it also holds the FP register file
 # Hart 1's state per unit, until M7 builds it: budgets.md's SMT2 additions after R1 and R2 (area_recovery.md 7.1).
@@ -49,7 +52,7 @@ def measured(path, cfg):
 
 
 def k(x):
-    return f"{x / 1000:.1f}K"
+    return f"{x / 1000:.2f}".rstrip("0").rstrip(".") + "K"
 
 
 def main():
@@ -79,7 +82,8 @@ def main():
               if b is not None else f"| {u} | — | {m:,} | {('+' + k(h)) if h else '—'} | — |")
     core_total = core["core"] + sum(hart1.values())
     core_budget = a.budget_total or budget_for(rows, "core", a.cfg)
-    print(f"| **core** | **{core_budget:,}** | **{core['core']:,}** | **+{k(sum(hart1.values()))}** | "
+    h1 = f"**+{k(sum(hart1.values()))}**" if hart1 else "—"
+    print(f"| **core** | **{core_budget:,}** | **{core['core']:,}** | {h1} | "
           f"**{core_total - core_budget:+,}** |" if core_budget else f"| core | — | {core['core']:,} | | |")
     ub = budget_for(rows, "uncore", ucfg)
     soc = 2 * core_total + unc["uncore"]

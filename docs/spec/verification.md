@@ -399,7 +399,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
 The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fpga_friendly.md rule 1). This check proves it for one tree against a base commit, in a few minutes:
 
 ```
-make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RANDN=200] [JOBS=8]
+make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
 ```
 
 - **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
@@ -409,7 +409,7 @@ make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RA
 
   Fields without meaning are left out of the hashes: the data of a message that carries none, a store's bytes beyond its size, and `rd_value` without `rd_we`. So a rewrite that changes only don't-care bits passes. Two runs are identical when every line matches.
 - **The two sides:**
-  - **The branch** is the working tree as it is, uncommitted and untracked files in `rtl/` and `sim/` included. It is read through a temporary git index, so the worktree and its index are not touched.
+  - **The branch** is the working tree as it is, uncommitted and untracked files in `rtl/`, `sim/` and `tests/unit/` included. It is read through a temporary git index, so the worktree and its index are not touched. `BRANCH=<ref>` takes the branch side's `rtl/` from a ref instead, so a track's branch can be checked from another checkout (main's, for a merge) without checking it out.
   - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
   - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs; `--harness own` builds the base side with BASE's.
   - **Programs** are built once and shared by both sides.
@@ -423,6 +423,22 @@ make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RA
   | `random` | `RANDN` (200) `tg_rand` programs: `rv64gc` with F/D, else `rv64imac` | the soak's stress (§4.4); timer interrupts on odd seeds |
   | `reset` | the riscv-tests | random initial values in every register without a reset (`--rand-reset`; see below) |
 
+- **The Linux boot (`BOOT=N`)** runs the first N million cycles of the SoC track's Linux boot on the whole SoC: cores and uncore (crossbar, L2, memory path, devices, host bridge, trace streamer). `tg_vsim` holds only the core, so for an uncore rewrite this is the check.
+  - **The testbench** is `tests/unit/boot`'s `tb_boot` (OpenSBI, then the `lp64d` kernel), unchanged. The check compiles `sim/tb/tg_soc_sig.sv` into it and binds it into `tanager_soc` with `tg_soc_sig_bind.sv`, which uses only the SoC's ports (soc.md §1).
+  - **Its lines** add two columns to `tg_vsim`'s: every core's commit records and writebacks (hashed as in `sig.h`), then the SoC's memory side, then its host side.
+    - Memory side: each beat the SoC drives to the DDR banks and the trace port (AR, AW, and W with only the bytes its strobes enable), its R and B ready while a beat is offered, and `status_o` changes.
+    - Host side, on the host clock: the AXI4-Lite port's ready while a request is offered, its responses and `host_irq_o`.
+  - **Determinism:**
+    - The memory models draw their latencies from Verilator's random generator. So the seed is fixed (`+verilator+seed+1`, `--boot-seed`), and the boot builds with one Verilator thread: a threaded model maps processes to threads by its own partition, which a change anywhere in the design could move.
+    - With one thread, the draws did not move with a core change (below), nor when the testbench's memory instances were declared in another order.
+  - **Images:** OpenSBI's `fw_jump.bin` and Buildroot's `Image`, by default the newest under `$TANAGER_BUILD` (`--boot-fw`, `--boot-kernel`). The device tree comes from `sw/dts`, as the boot Makefile's `linux` target makes it (128 MiB, FPU). `BOOT_CORES=2` boots two cores; `CFG` picks `st` or `smt2` cores.
+  - **Cost:** a `tb_boot` build takes 28–45 s with ccache. It runs at about 24 kHz with one `st` core on a busy host, so 3 M cycles take about 2 minutes per side, both sides at once. The boot's change column is its cost in cycles: the boot runs a fixed number of cycles, so the change is measured from the instructions retired in them.
+  - **A difference** is explained like the programs': both sides rerun up to the first differing window with `+sig_log=FILE +sig_log_from=C +sig_stop=C2`, which log every record and every memory-side and host-side event.
+  - **Until `tb_boot` is on main,** `--boot-tree <ref>` (the script's option) takes `tests/unit` and `sw/dts` from a ref that has it, the SoC branch. The RTL on both sides must then be the SoC branch's too, since its `tb_boot` needs its `tanager_soc`.
+  - **Results (2026-10-14, SoC branch, `st`, one core, 3 M cycles):**
+    - the SoC branch before and after it merged main's third area pass (a4df26d and 4d5ca13, eight core files) is identical;
+    - a planted change, the L2 bank's D FIFO 8 → 4 entries, shows at cycle 50,477: a refill read issues earlier and a commit moves by two cycles.
+    - with two `smt2` cores (four harts, the v1 SoC's shape) over 2 M cycles, the same pair is identical too. That build takes about 2 minutes, and the run goes at about 14 kHz.
 - **Output:**
   - **Per suite:** programs, identical, differing, cycles compared, and the cycle change summed over the suite. The change is the IPC cost of a change that is not identical, which the reserve list needs (DR-122).
   - **First differences:** for the first five differing runs, the check reruns the first differing window on both sides with `--log --log-from --log-bus` and prints the first differing line with its context, the two logs and a rerun command.
@@ -455,7 +471,7 @@ make cycle-identical CFG=st [BASE=<commit>] [SUITES=isa,stress,bench,random] [RA
 - **What the suites cannot see.** Identical on these programs does not mean identical everywhere: a structure that no program fills cannot show a difference.
   - Before `tlb_stress`, halving the data or instruction TLB moved no cycle in any of the 503 programs: the benchmarks and random programs run without translation, and the `-v` riscv-tests touch fewer pages than the TLBs hold.
   - A rewrite of a structure that the suites do not stress needs a program that does, first. `tlb_stress` is that program for the TLBs. The planted changes above show which sizes the suites see today.
-  - The Linux boot's first N million cycles would add the long-run paths: evictions, page tables, interrupts and the uncore (§9, item 10).
+  - The Linux boot's first N million cycles (`BOOT=N`) adds the long-run paths: evictions, page tables, interrupts and the uncore.
 - **Reset (`SUITES=...,reset`).** Verilator 5.052 draws each register's random initial value from the seed and a hash of the register's scope name. So a register that keeps its name gets the same value on both sides.
   - **What a difference means:** the branch's timing depends on the initial content of state that the base does not have. Typically a structure has moved from flip-flops with a reset into LUTRAM or block RAM, which have none (fpga_friendly.md T1, T3).
   - **On the board,** that shows only after a warm reset. At power-up the content is the INIT value, zero, the same as in the default runs.
@@ -589,7 +605,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 7. **PLIC model:** ACT4's external-interrupt tests run with the interrupt generator (§2.4) instead of the small PLIC model planned in §6.1; the reasons are there. A PLIC model can still be added for software that needs the standard PLIC in the harness (OpenSBI does not). It would share the region with the generator's register (`0x0C00_0004` is source 1's priority in the PLIC layout); Sail's generator base is configurable and the framework passes it to the macros, so the generator would move.
 8. **`irq_ssi_i` (interfaces.md §3):** the interface ORs the line into `mip.SSIP`, while the privileged spec says a platform controller may *set* SSIP to 1 (as the ACLINT SSWI does, and as Spike and Sail model it), after which software clears it. With a level, software cannot clear SSIP while the line is high. ACT4 is unaffected today (§6.1, known differences), and the platform ties the line to 0; defining `irq_ssi_i` as a one-cycle pulse that sets SSIP would match the spec before the SSWI arrives. `irq_sei_i` is fine as it is: SEIP is the OR by the spec.
 9. **`TRACE_STALL_HEADROOM` (interfaces.md §5):** 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` is enough only if the sink counts the current cycle's records when it decides to stall. A sink that stalls from its occupancy register needs `COMMIT_WIDTH` more (§2.9). The rule should say which, for the SoC track's trace streamer.
-10. **The Linux boot in the cycle-identical check (§4.5):** the SoC track's `tb_boot` (not on main yet) carries every core's commit trace under the same names as `tb_soc` (`trace`, `trace_v`, `trace_wb`, `trace_wb_v`). The plan: a signature module in `sim/tb/` that the check binds into `tb_boot` when it builds it (SystemVerilog `bind`, so the SoC track's file does not change), then the first N million cycles of the boot on both sides (`BOOT=N`). It covers what the programs cannot: the uncore (crossbar, L2, trace streamer, host bridge), evictions, page tables and interrupts over millions of cycles. Ready to add once `tb_boot` is on main; the SoC track's rewrites need it, since `tg_vsim` holds no uncore.
+10. **The Linux boot in the cycle-identical check (§4.5):** built (`BOOT=N`). `sim/tb/tg_soc_sig.sv` is bound into `tanager_soc`, so `tb_boot` does not change. It can run from main once the SoC track merges `tb_boot`; until then `--boot-tree` takes it from the SoC branch. The bind names the SoC's ports, the trace AXI port the SoC branch added included, so a port rename in `tanager_soc` needs the same rename in `tg_soc_sig_bind.sv` (the build fails otherwise, and says so).
 
 ## 10. Provenance
 
@@ -625,6 +641,11 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **Planted changes showed its strength:** a store-address queue one entry smaller moved cycles in 559 of 796 programs. Some runs ended on the same cycle count with different timing on the way, which comparing cycle counts alone would miss.
   - **And its limit:** halving either TLB moved no cycle in any of 503 programs, because none filled a TLB. `tlb_stress` fills them now, and both changes show.
   - **Lesson:** a check is only as strong as its programs, and a structure that no program fills cannot show a difference. Stress a structure before rewriting it.
+
+- **The boot in the cycle-identical check (2026-10-14, §4.5):** a signature module bound into `tanager_soc` runs the SoC track's `tb_boot` unchanged.
+  - The SoC branch's merge of main's core area pass was identical over 3 M boot cycles with one `st` core, and over 2 M with two `smt2` cores.
+  - A planted L2 change (the D FIFO from 8 entries to 4) showed at cycle 50,477.
+  - **A worry checked rather than assumed:** the memory models draw their latencies from Verilator's shared random generator, so the order of the draws could move between two builds. With one Verilator thread, it moved neither with a core change nor with the instances declared in another order.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**

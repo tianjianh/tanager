@@ -7,11 +7,34 @@ Owner: SoC track. Design: [docs/spec/soc.md](../../docs/spec/soc.md), host inter
 Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repository root, after `source tools/env.sh && source sw/env.sh`:
 
 ```bash
-bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
+TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
+
+### PMOD console (RISC-V UART on the PMOD connector)
+
+`TG_PMOD_UART=1` in the build environment puts the RISC-V console on the KV260's PMOD connector (DR-126):
+
+```bash
+TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_core_100_pmod fpga/kv260/tcl/build.tcl $PWD st core 100 1 bit
+```
+
+- **Line:** 8N1, 3.3 V, at the 16550's divisor (115 200 baud once OpenSBI has programmed it, also the reset value). Set the terminal on the laptop to 115200 8N1, no flow control.
+- **Pins:**
+
+  | Port | Direction (FPGA) | Default pin | Connects to the module's |
+  |---|---|---|---|
+  | `pmod_uart_txd` | out | E10 (PMOD J2 pin 2) | RXD |
+  | `pmod_uart_rxd` | in, pulled up | D10 (PMOD J2 pin 3) | TXD |
+
+  - **Unconfirmed:** the J2 pin locations are the SOM240 3.3 V pins as the KV260 carrier's PMOD is generally documented; the local board files don't name the connector. Confirm them against the carrier's documentation and the module's pinout before connecting. Ground is J2 pin 5 or 11.
+  - `TG_PMOD_TXD` and `TG_PMOD_RXD` override the pins without editing a file.
+- **With the option off** (the default), `pmod_uart_txd` is high-impedance and nothing drives the connector.
+- **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
+
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
-- `core` builds the cores as `tg_core`, today's stubs.
+- `core` builds the real `tg_core`. A bitstream with it waits for the core track's area work (the coordinator's call).
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).
 
 | Output (in the run directory) | Use |
@@ -54,11 +77,16 @@ Each step's expected result is in brackets.
 4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384`, wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
    - **At 250 cycles:** `sudo tanager-host inj --inj-rd 250`, wait, `tg status` again [errors still 0].
 5. **Console path.** The traffic generators print one `.` per pass on the UART: `sudo tanager-host run --timeout 5` [dots appear].
-6. **Linux** (once the core exists; it needs F/D for the lp64d image, otherwise the soft-float image):
+6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
    ```
    [OpenSBI banner, Linux boot, `TANAGER-BOOT-OK`; Ctrl-A x leaves].
+7. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
+   - **Ring placement:** the ring takes the top `64 B << --trace-log2` of the carve-out (default 256 MiB), and the RISC-V memory window shrinks by that much. Build the device tree for traced runs with `make -C sw/dts MEM=0x30000000` (768 MiB).
+   - **Post-mortem:** `--trace-wrap --trace-stop PC --trace-post N` keeps the last records up to N after the first commit at `PC`, written to `FILE` at exit.
+   - **Starting late:** `--trace-start PC` lets the run reach `PC` at full speed and traces from there.
+   - **Status:** `sudo tanager-host trace status`.
 
 ## Pins and clocks
 

@@ -36,7 +36,8 @@ module tb_periph;
   logic [7:0] tx_b, rx_b;
   tg_uart #(.CLK_HZ (CLK_HZ)) u_uart (
     .clk, .rst, .req_i (req), .req_valid_i (req_v[DEV_UART]), .rsp_o (rsp[DEV_UART]), .irq_o (uirq),
-    .tx_valid_o (tx_v), .tx_ready_i (tx_r), .tx_byte_o (tx_b), .rx_valid_i (rx_v), .rx_ready_o (rx_r), .rx_byte_i (rx_b));
+    .tx_valid_o (tx_v), .tx_ready_i (tx_r), .tx_byte_o (tx_b), .rx_valid_i (rx_v), .rx_ready_o (rx_r), .rx_byte_i (rx_b),
+    .div_o (), .line_busy_i (1'b0));
 
   // stub host control: one 64-bit scratch register at offset 0x30, everything else 0
   logic [63:0] hc_scratch;

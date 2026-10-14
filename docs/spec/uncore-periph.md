@@ -96,11 +96,14 @@ RISC-V Platform-Level Interrupt Controller Specification v1.0.0 (register map, g
 ## UART (`tg_uart`)
 
 ### Purpose
-A 16550A-compatible UART at `UART_BASE` (`0x1000_0000`), compatible `ns16550a`, `reg-shift = 0`, byte registers (plan §5.4). It is the console of OpenSBI and Linux. Its byte streams connect to the host bridge, which bridges them to a pty on the A53 (plan §7.3). A serial pin pair (Pmod) is a later option.
+A 16550A-compatible UART at `UART_BASE` (`0x1000_0000`), compatible `ns16550a`, `reg-shift = 0`, byte registers (plan §5.4). It is the console of OpenSBI and Linux.
+- **Virtual line (the default):** its byte streams connect to the host bridge, which bridges them to a pty on the A53 (plan §7.3).
+- **Serial line** (`tg_uncore` `UART_SERIAL = 1`; on the KV260, the PMOD console of [soc.md](soc.md) §2): `tg_uart_phy` carries the streams on a TXD/RXD pin pair. The host keeps a copy of TX and can still type into RX.
 
 ### Interface
 - Device-bus port and `irq_o` (PLIC source 10).
-- TX stream to the host (`tx_valid`, `tx_ready`, `tx_byte`) and RX stream from the host (`rx_valid`, `rx_ready`, `rx_byte`).
+- TX stream (`tx_valid`, `tx_ready`, `tx_byte`) and RX stream (`rx_valid`, `rx_ready`, `rx_byte`), to the host bridge or the serial line.
+- For the serial line: `div_o`, the divisor `{DLM, DLL}`; `line_busy_i`, a character is on the line (0 on the virtual line).
 
 ### Behaviour
 - **Registers** (offset; DLAB = `LCR[7]`):
@@ -117,8 +120,10 @@ A 16550A-compatible UART at `UART_BASE` (`0x1000_0000`), compatible `ns16550a`, 
   | 7 | SCR | SCR |
 
 - **FIFOs:** 16-byte TX and RX FIFOs. `FCR[0]` enables FIFO mode (IIR[7:6] = 11). `FCR[1]` and `FCR[2]` reset the FIFOs. `FCR[7:6]` sets the RX trigger level (1, 4, 8, 14 bytes).
-- **Transmit:** THR writes go to the TX FIFO, which drains into the host TX stream. In this build that happens as fast as the stream accepts: the line is virtual, so the divisor and `LCR` framing bits are stored but do not pace the console.
-  - LSR.THRE = TX FIFO empty; LSR.TEMT = TX FIFO empty and no byte in transfer.
+- **Transmit:** THR writes go to the TX FIFO, which drains into the TX stream as fast as the stream accepts.
+  - On the virtual line that is at once, so the divisor and the `LCR` framing bits are stored but do not pace the console.
+  - On the serial line the stream takes one character at a time, paced by the divisor.
+  - LSR.THRE = TX FIFO empty; LSR.TEMT = TX FIFO empty and `line_busy_i` = 0.
 - **Receive:** bytes from the host RX stream enter the RX FIFO while it has room, so it never overruns. LSR.DR = RX FIFO not empty.
 - **Interrupts** (IIR priority order, IIR[0] = 0 when one is pending):
   1. receiver line status (011): never raised here;
@@ -133,11 +138,25 @@ A 16550A-compatible UART at `UART_BASE` (`0x1000_0000`), compatible `ns16550a`, 
   - MSR reports CTS, DSR and DCD asserted.
   - In loopback (`MCR[4]`), THR bytes go to the RX FIFO instead of the host, and MSR reflects MCR. Linux's 8250 probe and self-test use loopback.
 
+### Serial line (`tg_uart_phy`)
+- **Format:** 8N1, LSB first, idle high. `LCR`'s framing bits are not applied: OpenSBI and Linux use 8N1.
+- **Baud:** `REF_HZ / (16 × divisor)`. A divisor of 0 counts as 1. The reset divisor is 2: 115 200 baud.
+  - As in a 16550, a REF_HZ tick is divided by the divisor into 16× ticks.
+  - The REF_HZ tick comes from a fractional accumulator (`REF_HZ / CLK_HZ` in lowest terms), so the baud error does not grow.
+  - Each direction has its own prescaler: TX restarts it with each character, RX at each start edge.
+- **Receive:**
+  - RXD passes through a two-flop synchronizer.
+  - A character starts on a high-to-low edge, so after a framing error the receiver waits for the line to idle. The start bit is checked mid-bit (a shorter low pulse is a glitch), and the data and stop bits are sampled mid-bit.
+  - A byte waits in a one-byte holding register until the UART takes it. A byte completed meanwhile is dropped (overrun), as is one with a framing error.
+- **In `tg_uncore`:**
+  - The line paces TX, and each character is also copied to the host console stream (dropped while its FIFO is full).
+  - RX takes the line's byte first, else the host's.
+
 ### Parameters
-`FIFO_DEPTH` = 16; `CLK_HZ` and `REF_HZ` = 3 686 400 (the `clock-frequency` in the device tree) for `RX_TIMEOUT`.
+`FIFO_DEPTH` = 16; `CLK_HZ` and `REF_HZ` = 3 686 400 (the `clock-frequency` in the device tree) for `RX_TIMEOUT` and the serial line's baud.
 
 ### Timing and area
-About 400 LUTs, FIFOs in LUTRAM, all outputs registered.
+About 400 LUTs, FIFOs in LUTRAM, all outputs registered. The serial line adds an estimated 100 LUTs, and nothing while `UART_SERIAL` = 0.
 
 ### Verification
 `tests/unit/uart`:
@@ -148,8 +167,16 @@ About 400 LUTs, FIFOs in LUTRAM, all outputs registered.
 - loopback;
 - streaming 10⁴ random bytes each way with random stream back-pressure.
 
+`tests/unit/uart_phy` (the serial line):
+- every TXD edge falls a whole number of bit times after its character's start, at divisors 2 and 6, within one REF_HZ period;
+- loopback of random bytes with brief RX back-pressure at 115 200 and 38 400 baud;
+- a reference serializer on RXD at the nominal baud and 2.5% fast and slow;
+- a framing error (dropped, then the next byte arrives), a glitch, an overrun, and divisor 0.
+
+`tests/unit/boot` with `SERIAL=1` decodes TXD during a boot and checks it against the host's copy.
+
 ### Provenance
-TI/National PC16550D datasheet (register map, FIFO and interrupt behaviour). Implemented as written, except the transmitter is not paced by the divisor (virtual line, noted above).
+TI/National PC16550D datasheet (register map, FIFO and interrupt behaviour, the 16× sampling and divisor). Implemented as written, except: on the virtual line the transmitter is not paced by the divisor; the serial line is fixed at 8N1.
 
 ---
 
