@@ -242,6 +242,8 @@ package tg_core_pkg;
     preg_t         src1, src2;
     logic          p1, p2;      // source pending
     wid_t          w1, w2;      // their producers' wakeup IDs
+    logic          l1, l2;      // ... a 1-cycle op (MX naming at DS)
+    logic [idx_w(RENAME_WIDTH)-1:0] ks1, ks2;   // ... renamed in this slot of its group
     wid_t          wid;         // own wakeup ID (ROB index or LLT column)
     logic          use_llt;
     llt_t          llt;
