@@ -1,0 +1,39 @@
+# Per-unit budgets (docs/perf/budgets.md derives them). Tab-separated columns:
+#   unit  cfg  lut  lutram  ff  dsp  bram36  mode
+#   cfg   a configuration, or * for every configuration
+#   lut   CLB LUTs (logic + LUTRAM + SRL), after opt_design; lutram: LUTs as distributed RAM
+#   bram36  block RAM in RAMB36 equivalents (a RAMB18 is 0.5)
+#   -     no budget for that metric (the value is reported and tracked, not judged)
+#   mode  enforce: over budget is a failure of the run; track: report only (no budget yet,
+#         or the configuration waits for a re-plan: the 3-wide builds, plan §8.5)
+# Budgets are per core and after the §8.5 levers: v1 (smt2) at 88% of the XCK26 needs every
+# unit at or under them. Lines for units without RTL yet wait in this file for their units.tsv
+# line.
+#
+# unit	cfg	lut	lutram	ff	dsp	bram36	mode
+fe	st	5530	-	-	-	30	enforce
+fe	smt2	6480	-	-	-	30	enforce
+dec	st	1500	-	-	-	0	enforce
+dec	smt2	1640	-	-	-	0	enforce
+ren	st	1220	-	-	-	0	enforce
+ren	smt2	1830	-	-	-	0	enforce
+rob	st	2150	-	-	18	1	enforce
+rob	smt2	4840	-	-	36	1	enforce
+iq	st	4970	300	6700	0	0	enforce
+iq	smt2	8350	310	10000	0	0	enforce
+iq	st_w3	-	-	-	-	-	track
+iq	smt2_w3	-	-	-	-	-	track
+rf	*	4320	-	-	0	0	enforce
+int	*	3290	-	-	16	0	enforce
+lsu	st	5760	-	-	0	9	enforce
+lsu	smt2	6780	-	-	0	9	enforce
+mmu	st	1590	-	-	0	2	enforce
+mmu	smt2	1780	-	-	0	2	enforce
+fpu	*	6800	-	3450	32	0.5	enforce
+fpu_r4	*	-	-	-	-	-	track
+core	st	37100	-	-	66	42.5	enforce
+core	smt2	46120	-	-	84	42.5	enforce
+core	st_w3	-	-	-	-	-	track
+core	smt2_w3	-	-	-	-	-	track
+uncore	st	11300	-	-	-	18	enforce
+uncore	smt2	10800	-	-	-	18	enforce
