@@ -1,6 +1,7 @@
 // Reorder buffer and commit for M2 (docs/spec/core-pipeline.md §8, §9.3-9.4, §11).
 //   Payload: ROB_BANKS-way interleaved LUTRAM, written at dispatch, read at the head.
-//   Flags per entry in flip-flops: complete, exc, mispredict, replay, mmio, tlb (M3).
+//   Flags per entry: complete, exc, mispredict and mmio as toggle tables in LUTRAM, one per
+//   reporting port (below); replay in flip-flops (an entry may be marked more than once).
 // A replay marked tlb (a DTLB miss) waits at the head for the LSU: hd_retry (the DTLB now
 // translates it: flush and refetch) or hd_fault (the deciding walk faulted: trap).
 //   Oldest-exception and oldest-mispredict registers hold the cause/tval and the redirect
@@ -117,7 +118,7 @@ module tg_rob
 
   robid_t head_q, tail_q;
   assign head_o = head_q;
-  logic [ROB_ENTRIES-1:0] cmp_q, exc_q, misp_q, rpl_q, mmio_q;
+  logic [ROB_ENTRIES-1:0] rpl_q;
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -136,6 +137,7 @@ module tg_rob
     return int'(i) / NB;
   endfunction
   rob_pl_t [DISPATCH_WIDTH-1:0] dpl;
+  logic [DISPATCH_WIDTH-1:0]    fp_cmp_d, fp_exc_d, fp_misp_d, fp_mmio_d;   // flag parities at dispatch
   for (genvar k = 0; k < DISPATCH_WIDTH; k++) begin : g_dpl
     always_comb begin
       dpl[k]            = '0;
@@ -160,6 +162,10 @@ module tg_rob
       dpl[k].dexc_hi    = ds_uop[k].d.exc_hi;
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
+      dpl[k].f_cmp      = fp_cmp_d[k] ^ !ds_ren[k].has_q;   // complete at once without a queue
+      dpl[k].f_exc      = fp_exc_d[k] ^ ds_uop[k].d.exc;
+      dpl[k].f_misp     = fp_misp_d[k];
+      dpl[k].f_mmio     = fp_mmio_d[k];
     end
   end
   logic [NB-1:0]                      pw_we;
@@ -217,6 +223,86 @@ module tg_rob
     assign ffi_rd = '0;
   end
 
+  // ---- Complete, exception, mispredict and MMIO flags (FPGA-friendly T2) ----
+  // Each reporting port toggles its own one-bit LUTRAM table at the entry it reports, so every
+  // table has one writer. A flag is the parity of its ports' tables XOR the bit the payload took
+  // at dispatch (that parity then, XOR the flag's initial value), so dispatch writes none of the
+  // tables, and their contents need no reset. This holds while every live entry gets at most
+  // one report per flag per lap and none as it is dispatched (asserted); reports in a flush
+  // cycle are dropped, as the flip-flop flags dropped them, and later ones for squashed entries
+  // come before those entries are dispatched again.
+  // Read ports per table: the commit slots' entries, the dispatched entries, and its own write
+  // entry (the toggle).
+  localparam int NCP = N_ALU + 9;                // completion ports
+  localparam int NXP = 6;                        // exception ports
+  localparam int NFT = NCP + NXP + 2;            // tables: completions, exceptions, mispredict, MMIO
+  localparam int NFR = CW + DISPATCH_WIDTH + 1;
+  logic [NFT-1:0]          ft_v;
+  robid_t [NFT-1:0]        ft_e;
+  always_comb begin
+    // completions: tables 0 .. NCP-1
+    for (int i = 0; i < N_ALU; i++) begin
+      ft_v[i] = alu_cmp[i];
+      ft_e[i] = alu_rob[i];
+    end
+    ft_v[N_ALU]     = oth_cmp;            ft_e[N_ALU]     = oth_rob;
+    ft_v[N_ALU + 1] = EXT_FD && fp_cmp;   ft_e[N_ALU + 1] = fp_cmp_rob;
+    ft_v[N_ALU + 2] = ld_cmp;             ft_e[N_ALU + 2] = ld_rob;
+    for (int i = 0; i < 2; i++) begin
+      ft_v[N_ALU + 3 + i] = st_cmp[i];
+      ft_e[N_ALU + 3 + i] = st_rob[i];
+    end
+    for (int i = 0; i < 4; i++) begin
+      ft_v[N_ALU + 5 + i] = lx_valid[i];
+      ft_e[N_ALU + 5 + i] = lx_rob[i];
+      // exceptions: tables NCP .. NCP+NXP-1
+      ft_v[NCP + 2 + i]   = lx_valid[i];
+      ft_e[NCP + 2 + i]   = lx_rob[i];
+    end
+    ft_v[NCP]     = oth_cmp && oth_exc;    ft_e[NCP]     = oth_rob;
+    ft_v[NCP + 1] = br_valid && br_exc;    ft_e[NCP + 1] = br_rob;
+    // mispredict and MMIO load
+    ft_v[NFT - 2] = br_valid && !br_exc && br_misp;  ft_e[NFT - 2] = br_rob;
+    ft_v[NFT - 1] = ld_cmp && ld_mmio;               ft_e[NFT - 1] = ld_rob;
+  end
+  logic [NFT-1:0][NFR-1:0] ft_rd;
+  for (genvar t = 0; t < NFT; t++) begin : g_ft
+    logic [NFR-1:0][RIW-1:0] ra;
+    for (genvar j = 0; j < CW; j++) begin : g_rh
+      assign ra[j] = hid[j][RIW-1:0];
+    end
+    for (genvar k = 0; k < DISPATCH_WIDTH; k++) begin : g_rd
+      assign ra[CW + k] = ds_ren[k].rob[RIW-1:0];
+    end
+    assign ra[NFR-1] = ft_e[t][RIW-1:0];
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NFR)) u_ft (
+      .clk, .we(ft_v[t] && !flush && !rst), .waddr(ft_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
+      .raddr(ra), .rdata(ft_rd[t]));
+  end
+  // The completion and exception parities at each read port
+  logic [NFR-1:0] par_c, par_x;
+  always_comb begin
+    for (int p = 0; p < NFR; p++) begin
+      par_c[p] = 1'b0;
+      par_x[p] = 1'b0;
+      for (int t = 0; t < NCP; t++)         par_c[p] ^= ft_rd[t][p];
+      for (int t = NCP; t < NCP + NXP; t++) par_x[p] ^= ft_rd[t][p];
+    end
+  end
+  logic [CW-1:0] cmp_h, exc_h, misp_h, mmio_h;   // the flags of the commit slots' entries
+  for (genvar j = 0; j < CW; j++) begin : g_fh
+    assign cmp_h[j]  = par_c[j] ^ hp[j].f_cmp;
+    assign exc_h[j]  = par_x[j] ^ hp[j].f_exc;
+    assign misp_h[j] = ft_rd[NFT-2][j] ^ hp[j].f_misp;
+    assign mmio_h[j] = ft_rd[NFT-1][j] ^ hp[j].f_mmio;
+  end
+  for (genvar k = 0; k < DISPATCH_WIDTH; k++) begin : g_fd
+    assign fp_cmp_d[k]  = par_c[CW + k];
+    assign fp_exc_d[k]  = par_x[CW + k];
+    assign fp_misp_d[k] = ft_rd[NFT-2][CW + k];
+    assign fp_mmio_d[k] = ft_rd[NFT-1][CW + k];
+  end
+
   // ---- Commit decision ----
   int cnt;
   assign cnt = rob_cnt(tail_q, head_q);
@@ -271,7 +357,7 @@ module tg_rob
           t_cause  = hd_cause;
           t_tval   = hp[0].is_ld ? hd_lva : hd_sva;
         end
-      end else if (cmp_q[i0] && exc_q[i0]) begin
+      end else if (cmp_h[0] && exc_h[0]) begin
         do_trap = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;
@@ -287,7 +373,7 @@ module tg_rob
           t_cause = exr_cause_q;
           t_tval  = exr_mem_q ? (hp[0].is_ld ? hd_lva : hd_sva) : exr_tval_q;
         end
-      end else if (cmp_q[i0] && hp[0].serial) begin
+      end else if (cmp_h[0] && hp[0].serial) begin
         if (go) begin
           ret[0]   = 1'b1;
           do_flush = 1'b1;
@@ -302,10 +388,9 @@ module tg_rob
         stop = 1'b0;
         for (int j = 0; j < CW; j++) begin
           if (!stop) begin
-            if (j < cnt && cmp_q[hid[j][RIW-1:0]] && !exc_q[hid[j][RIW-1:0]] && !hp[j].serial &&
-                !rpl_q[hid[j][RIW-1:0]]) begin
+            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_q[hid[j][RIW-1:0]]) begin
               ret[j] = 1'b1;
-              if (misp_q[hid[j][RIW-1:0]]) begin
+              if (misp_h[j]) begin
                 do_flush = 1'b1;
                 nf_pc = mpr_npc_q;
                 stop = 1'b1;
@@ -390,7 +475,7 @@ module tg_rob
             default: rec[j].mem_wdata = tr_st_data[j];
           endcase
         end
-        rec[j].mmio_ld = hp[j].is_ld && mmio_q[hid[j][RIW-1:0]];
+        rec[j].mmio_ld = hp[j].is_ld && mmio_h[j];
         rec[j].nondet  = hp[j].is_csr && hp[j].rd_en && csr_nondet(hp[j].insn[31:20]);
       end
     end
@@ -444,38 +529,11 @@ module tg_rob
         // Dispatch
         if (ds_fire) begin
           for (int k = 0; k < DISPATCH_WIDTH; k++) begin
-            if (ds_valid[k]) begin
-              cmp_q[ds_ren[k].rob[RIW-1:0]]  <= !ds_ren[k].has_q;
-              exc_q[ds_ren[k].rob[RIW-1:0]]  <= ds_uop[k].d.exc;
-              misp_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
-              rpl_q[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
-              mmio_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
-            end
+            if (ds_valid[k]) rpl_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
           end
           tail_q <= rob_add(tail_q, $countones(ds_valid));
         end
-        // Completions
-        for (int i = 0; i < N_ALU; i++) if (alu_cmp[i]) cmp_q[alu_rob[i][RIW-1:0]] <= 1'b1;
-        if (oth_cmp) begin
-          cmp_q[oth_rob[RIW-1:0]] <= 1'b1;
-          if (oth_exc) exc_q[oth_rob[RIW-1:0]] <= 1'b1;
-        end
-        if (EXT_FD && fp_cmp) cmp_q[fp_cmp_rob[RIW-1:0]] <= 1'b1;
-        if (br_valid) begin
-          if (br_exc)       exc_q[br_rob[RIW-1:0]] <= 1'b1;
-          else if (br_misp) misp_q[br_rob[RIW-1:0]] <= 1'b1;
-        end
-        if (ld_cmp) begin
-          cmp_q[ld_rob[RIW-1:0]]  <= 1'b1;
-          mmio_q[ld_rob[RIW-1:0]] <= ld_mmio;
-        end
-        for (int i = 0; i < 2; i++) if (st_cmp[i]) cmp_q[st_rob[i][RIW-1:0]] <= 1'b1;
-        for (int i = 0; i < 4; i++) begin
-          if (lx_valid[i]) begin
-            cmp_q[lx_rob[i][RIW-1:0]] <= 1'b1;
-            exc_q[lx_rob[i][RIW-1:0]] <= 1'b1;
-          end
-        end
+        // Completions, exceptions, mispredicts and MMIO loads: the toggle tables (above)
         if (replay_valid) rpl_q[replay_rob[RIW-1:0]] <= 1'b1;
         for (int i = 0; i < 2; i++) begin
           if (tlbm_valid[i]) begin
@@ -503,13 +561,68 @@ module tg_rob
                     br_rob[ROBW-1], lx_rob, fp_cmp_rob[ROBW-1]};
 
 `ifndef SYNTHESIS
+  // Shadow flags as flip-flops (the form the toggle tables replace): the head's flags must
+  // match them, and the tables' condition must hold (no second report for a live entry, none
+  // for an entry as it is dispatched).
+  logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s;
+  function automatic logic live(input robid_t e);
+    return rob_cnt(e, head_q) < rob_cnt(tail_q, head_q);
+  endfunction
+  always_ff @(posedge clk) begin
+    if (!rst && !flush) begin
+      if (ds_fire) begin
+        for (int k = 0; k < DISPATCH_WIDTH; k++) begin
+          if (ds_valid[k]) begin
+            cmp_s[ds_ren[k].rob[RIW-1:0]]  <= !ds_ren[k].has_q;
+            exc_s[ds_ren[k].rob[RIW-1:0]]  <= ds_uop[k].d.exc;
+            misp_s[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
+            mmio_s[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
+          end
+        end
+      end
+      for (int t = 0; t < NFT; t++) begin
+        if (ft_v[t]) begin
+          if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;
+          else if (t < NCP + NXP) exc_s[ft_e[t][RIW-1:0]]  <= 1'b1;
+          else if (t == NFT - 2)  misp_s[ft_e[t][RIW-1:0]] <= 1'b1;
+          else                    mmio_s[ft_e[t][RIW-1:0]] <= 1'b1;
+          if (live(ft_e[t])) begin
+            if (t < NCP)
+              assert (!cmp_s[ft_e[t][RIW-1:0]]) else $error("tg_rob: a second completion of %0d", ft_e[t]);
+            else if (t < NCP + NXP)
+              assert (!exc_s[ft_e[t][RIW-1:0]]) else $error("tg_rob: a second exception of %0d", ft_e[t]);
+            else if (t == NFT - 2)
+              assert (!misp_s[ft_e[t][RIW-1:0]]) else $error("tg_rob: a second mispredict of %0d", ft_e[t]);
+            else
+              assert (!mmio_s[ft_e[t][RIW-1:0]]) else $error("tg_rob: a second MMIO mark of %0d", ft_e[t]);
+          end
+          for (int u = t + 1; u < NFT; u++) begin
+            if ((t < NCP) == (u < NCP) && (t < NCP + NXP) == (u < NCP + NXP) && (t < NFT - 2) == (u < NFT - 2) &&
+                (t < NFT - 1) == (u < NFT - 1) && live(ft_e[t]))
+              assert (!(ft_v[u] && ft_e[u] == ft_e[t])) else $error("tg_rob: two reports of one flag for %0d", ft_e[t]);
+          end
+          if (ds_fire)
+            for (int k = 0; k < DISPATCH_WIDTH; k++)
+              assert (!(ds_valid[k] && ds_ren[k].rob[RIW-1:0] == ft_e[t][RIW-1:0]))
+                else $error("tg_rob: a report for entry %0d as it is dispatched", ft_e[t]);
+        end
+      end
+      for (int j = 0; j < CW; j++) begin
+        if (j < cnt) begin
+          assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
+                  misp_h[j] == misp_s[hid[j][RIW-1:0]] && mmio_h[j] == mmio_s[hid[j][RIW-1:0]])
+            else $error("tg_rob: the toggle-table flags of %0d differ from the shadow flags", hid[j]);
+        end
+      end
+    end
+  end
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
       assert (cnt >= 0 && cnt <= ROB_ENTRIES) else $error("tg_rob: bad occupancy %0d", cnt);
       if (do_trap && !hp[0].dexc && !tlbx)
         assert (exr_v_q && exr_rob_q == hid[0]) else $error("tg_rob: exception register does not hold the head");
       for (int j = 0; j < CW; j++)
-        if (ret[j] && misp_q[hid[j][RIW-1:0]])
+        if (ret[j] && misp_h[j])
           assert (mpr_v_q && mpr_rob_q == hid[j]) else $error("tg_rob: mispredict register does not hold the branch");
     end
   end
