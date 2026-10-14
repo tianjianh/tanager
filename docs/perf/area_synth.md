@@ -54,8 +54,10 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 | Trick | LUTs | Saved | IPC cost | Timing at 200 MHz (routed, pblock) |
 |---|---|---|---|---|
 | Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 (routed 8,368) | 506 (5.7%) | none | **+0.132 ns**, no loss |
-| `AreaOptimized_high` synthesis directive | 8,115 | 794 (8.9%) | none | (queued) |
+| `AreaOptimized_high` synthesis directive | 8,115 (routed 8,113) | 794 (8.9%) | none | **−0.265 ns**: loses 200 MHz on its own (flattened) |
 | Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 queued |
+
+**Area directive only with the hierarchy kept.** With a flattened design the directive restructures the wakeup loop across module boundaries, and the loop misses by 0.265 ns. With each queue kept as a module it cannot, and the loop keeps its +0.1 ns.
 | No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
 | Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
 | … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
