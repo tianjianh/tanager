@@ -332,6 +332,11 @@ module tg_rob
   end
   logic [RIW-1:0] i0;
   assign i0 = hid[0][RIW-1:0];
+  // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
+  // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
+  // exception, which traps, so one instruction never needs both.
+  logic [63:0] hd_pc_inc;
+  assign hd_pc_inc = hp[0].pc + (hp[0].dexc ? {62'b0, hp[0].dexc_hi, 1'b0} : (hp[0].rvc ? 64'd2 : 64'd4));
   always_comb begin
     ret = '0;
     do_flush = 1'b0; do_trap = 1'b0; do_irq = 1'b0; do_icinv = 1'b0; do_csr = 1'b0; do_mret = 1'b0;
@@ -368,7 +373,7 @@ module tg_rob
           unique case (hp[0].dexc_cause)
             EXC_ILLEGAL: t_tval = {32'b0, hp[0].insn};
             EXC_BREAK: t_tval = hp[0].pc;
-            EXC_IACCESS, EXC_IPAGE: t_tval = hp[0].pc + (hp[0].dexc_hi ? 64'd2 : 64'd0);
+            EXC_IACCESS, EXC_IPAGE: t_tval = hd_pc_inc;
             default: t_tval = '0;
           endcase
         end else begin
@@ -384,7 +389,7 @@ module tg_rob
           do_mret  = hp[0].sys == SYS_MRET;
           do_sret  = hp[0].sys == SYS_SRET;
           do_sfence = hp[0].sys == SYS_SFENCE;
-          nf_pc    = (do_mret || do_sret) ? xepc : hp[0].pc + (hp[0].rvc ? 64'd2 : 64'd4);
+          nf_pc    = (do_mret || do_sret) ? xepc : hd_pc_inc;
         end
       end else begin
         stop = 1'b0;
@@ -572,6 +577,8 @@ module tg_rob
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))
       assert (xr_v_q && xr_s_q == do_sret) else $error("tg_rob: an xRET commits that xret_v/xret_s do not name");
+    if (!rst && ret[0] && hp[0].serial)
+      assert (!hp[0].dexc) else $error("tg_rob: a serial instruction with a decode exception retires");
   end
 `endif
 
