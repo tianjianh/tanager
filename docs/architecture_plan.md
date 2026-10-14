@@ -162,7 +162,7 @@ The IPC rows are single-thread results, from the ST configuration; the release c
 - **XCK26 resources:** 117,120 LUTs, 234,240 FFs, 144 BRAM36, 64 UltraRAM (4K × 72 each), 1,248 DSP48E2, and about 3.5 Mb of distributed RAM (we estimate about 57K LUTs usable as RAM).
 - **Speed grade:** -2LV with the fabric at 0.72 V, which behaves like a -1 part. BRAM reaches 585/510 MHz, UltraRAM 500 MHz when registered, DSPs 644 MHz.
 - **No DRAM on the programmable logic.** The 4 GB of DDR4-2400 x64 is reached through PS ports: HP0–3, HPC, ACE and ACP. Each is 128 bits wide, runs at up to 333 MHz, and supports 8 IDs and 16 outstanding transactions.
-- **Unknown:** idle PL-to-DDR latency has never been published. Spike S1 measures it; it informs the KV260 build, not the sizing (§2.5).
+- **Measured (spike S1, 2026-10-14):** an idle 64-byte read from the PL takes 36.8 cycles (184 ns) at 200 MHz, from the read-address handshake to the first data beat. Each HP port sustains 3.2 GB/s, and two together 6.35 GB/s. It informs the KV260 build, not the sizing (§2.5).
 - **I/O:** the programmable logic reaches only one Pmod, the fan pin and the MIPI connectors. Console, Ethernet, SD and USB belong to the PS. Clocks come from the PS `pl_clk` outputs through an MMCM.
 - **Tools:** Vivado 2025.2 supports the XCK26 for free. Vivado 2026.1 uses tiered licences; a one-year CORE voucher ships with Kria kits.
 
@@ -205,7 +205,7 @@ The IPC rows are single-thread results, from the ST configuration; the release c
 
 | Latency point | DRAM round trip (core cycles) | Represents | Role |
 |---|---|---|---|
-| Native | Measured in S1; expected 30–60 | KV260 at 150–200 MHz | Deployment numbers; no regression allowed |
+| Native | **36.8 cycles idle (S1, 2026-10-14)**; expected 30–60 | KV260 at 150–200 MHz | Deployment numbers; no regression allowed |
 | 90 | 90 | A faster-FPGA build (about 300–400 MHz) | Shape of the curve |
 | **120** | 120 | Design margin | **Decision point** for features and sizes |
 | 250 | 250 | ASIC-class stress | No cliffs |
@@ -754,7 +754,7 @@ The A53 host reaches RISC-V memory through a coherent DMA port on the L2, so vir
 ### 5.5 PS DDR interface
 - **Ports:** one AXI4 master per L2 bank, 128 bits at the core clock, to S_AXI_HP1 and HP2.
 - **Address mapping:** an offset maps the DRAM window onto the carve-out.
-- **To verify in S1:** the carve-out method (`reserved-memory` or `mem=`) and SMMU bypass.
+- **Verified in S1 (2026-10-14):** the `mem=3G` carve-out works (Linux RAM ends at 0x83fffffff), and the PL reaches DDR through the HP ports with no DECERR. This Kria image has no SMMU driver and its device tree disables the SMMU, so the bypass setting is moot here; it stays on the command line as a guard.
 - **Isolation:** all of this lives in the SoC layer. The L2 sees a generic AXI4 memory, so a future board with DDR on the programmable logic needs only a different SoC top.
 
 ### 5.6 Latency injector (new)
