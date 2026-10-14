@@ -500,7 +500,10 @@ Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_s
 
 ### Area and timing of the back end
 
-Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rtl/core/fpu/fpu_be.f`), v1 configuration (smt2), 2026-10-14. The complete `tg_fp_exec` rows are the final RTL, with the seed ROM on `tg_rom`:
+Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rtl/core/fpu/fpu_be.f`), v1 configuration (smt2), 2026-10-14. The complete `tg_fp_exec` rows measure the RTL with the seed ROM on `tg_rom`, before the interface agreement.
+- That agreement added the completion's `wid` (a multiplexer on 7 bits) and `fpi_kill`, and simplified the B1 pop.
+- A run of the agreed RTL (d8335ca) was queued behind full-device runs.
+
 
 | Module | LUTs | of which LUTRAM | FFs | WNS | Budget line (docs/perf/budgets.md) |
 |---|---|---|---|---|---|
