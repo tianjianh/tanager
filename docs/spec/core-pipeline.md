@@ -348,6 +348,11 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 
 **What I'd write differently:** for every queue field, ask where it is first read. A field read only by index belongs in LUTRAM, written at that point. A field read by a search belongs in flip-flops.
 
+**Linux boots (2026-10-14).**
+- **The run:** OpenSBI v1.9, then Linux (Buildroot, lp64d), then userspace (syslogd, klogd, sysctl, network, crond), then `TANAGER-BOOT-OK`, on `tanager_soc` in Verilator. The core was main cb8ff6c with F/D on: 335.4 M cycles and 137.7 M instructions retired (3.3 h at 4 threads), with no oops and no assertion. The soc track's images and snapshot (`make -C tests/unit/boot linux`).
+- **Core bugs it needed:** only the I$ refill race (b5e11f4), found by the soc track's earlier kernel runs. With F/D, the userspace runs lp64d binaries.
+- **The area-pass core:** it ran the same boot to the 60 M-cycle cap, at the same kernel point and instruction count as main's.
+
 **Third area pass (2026-10-14, after the D18 check), from LUT attributions:**
 - **Method:** each unit was synthesised out of context, and every LUT was grouped by the signal it drives (`get_cells -filter {PRIMITIVE_SUBGROUP == LUT}`). That shows where a unit's own logic goes. Each step was then measured in the core and compared cycle for cycle with main.
 - **The walker's shared PMP checker was reverted (5c124f2).** It was not exclusive by construction (D18), so its −0.83K is a reserve lever (§13).
