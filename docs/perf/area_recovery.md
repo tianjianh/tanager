@@ -561,7 +561,7 @@ AR-7's first measurement (c898f1e, cb8ff6c) was `st` 56,461 and `smt2` 62,501 (�
 | FPU (P4) | 6,800 | 7,853 | +1,053 | 6,800 | 7,953 | — | +1,153 |
 | **Core** (with glue) | **38,220** | **51,707** | **+13,487 (+35%)** | **46,120** | **55,436** | **+4.2K** | **+13,516 (+29%)** |
 
-**v2,** against the per-unit lines proposed for AR-9 (sent to the spikes track, not yet in [budgets.md](budgets.md)):
+**v2,** against AR-9's per-unit lines ([budgets.md](budgets.md) §1.1; `budgets.tsv` in `track` mode until v2 work starts, spikes track 1db95bd):
 
 | Unit | v2 line (proposed) | `smt2_w3` (hart 0) | + hart 1 (est.) | v2 over | 3-wide increment (`smt2_w3` − `smt2`) | Plan / spike estimate |
 |---|---|---|---|---|---|---|
@@ -743,7 +743,7 @@ Plan §4.6 and §8.5 record AR-1 to AR-9 (f550a00, e5bde85; AR-8 and AR-9 as DR-
 **For the budgets:**
 - **Issue queues:** the scheduler with tags and the free settings measures 4,750 in S2 at `smt2`, against its 8,350 budget. In the real cores it is 5,430 (`smt2`) and 5,409 (`st`).
 - **Radix-4:** its saving is 1.04K, not 1.4K.
-- **v2:** the per-unit lines proposed for AR-9 (§7.2) are with the spikes track.
+- **v2:** AR-9's per-unit lines are in [budgets.md](budgets.md) §1.1 and `budgets.tsv` (spikes track, 1db95bd). They are in `track` mode, so the nightly reports them without failing on them until v2 work starts. The core's DSP budget is 87 at `smt2` and `smt2_w3` (DR-110).
 
 The text first proposed for plan §4.6 (now recorded there) follows, for reference. It replaced the "Wakeup IDs" and "Dependency vectors" bullets with:
 
