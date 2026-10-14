@@ -1,0 +1,21 @@
+Tanager is licensed in two parts.
+
+Hardware: Solderpad Hardware License, Version 2.1 (SPDX: SHL-2.1), in LICENSES/SHL-2.1.txt.
+  This covers the RTL (rtl/), the FPGA design and build files and constraints (fpga/), the device-tree
+  overlays for the programmable logic, and the HDL test benches.
+
+Software and documentation: Apache License, Version 2.0 (SPDX: Apache-2.0), in LICENSES/Apache-2.0.txt.
+  This covers the host software, scripts, tools, the performance model, tests written in C, C++, Python
+  or assembly, and the documentation.
+
+REUSE.toml gives the exact mapping by path. A file's own SPDX header, where present, takes precedence.
+
+Not licensed by this project: the Vivado-generated reports under fpga/**/results/. They are tool output
+whose headers carry AMD's copyright, kept for engineering reference
+(LICENSES/LicenseRef-Vivado-Generated-Report.txt).
+
+Third-party software that the build fetches (the Linux kernel, OpenSBI, Buildroot, Spike, riscv-tests,
+riscv-arch-test, Sail, TestFloat, Verilator and others) keeps its own licences. None of its source is
+in this repository; tools/versions.sh and perfmodel/third_party/VERSIONS.txt list the versions used.
+
+Copyright 2026 Tianjian Huang

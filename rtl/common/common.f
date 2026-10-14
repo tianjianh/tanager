@@ -10,3 +10,6 @@ prim/tg_ram_sdp.sv
 prim/tg_ram_tdp.sv
 prim/tg_fifo.sv
 prim/tg_rom.sv
+prim/tg_ram_lut_mw.sv
+prim/tg_cam_lut.sv
+prim/tg_dsp_cmp.sv

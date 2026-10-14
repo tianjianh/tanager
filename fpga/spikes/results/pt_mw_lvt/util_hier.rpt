@@ -1,0 +1,40 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Wed Oct 14 12:29:04 2026
+| Host         : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -hierarchical_min_primitive_count 0 -file util_hier.rpt
+| Design       : tg_pt_mw
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-------------------------------------+-------------------------------+------------+------------+---------+------+-----+--------+--------+------+------------+
+|               Instance              |             Module            | Total LUTs | Logic LUTs | LUTRAMs | SRLs | FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-------------------------------------+-------------------------------+------------+------------+---------+------+-----+--------+--------+------+------------+
+| tg_pt_mw                            |                         (top) |       3487 |        863 |    2624 |    0 | 472 |      0 |      0 |    0 |          0 |
+|   (tg_pt_mw)                        |                         (top) |          0 |          0 |       0 |    0 | 472 |      0 |      0 |    0 |          0 |
+|   g_lut.u                           |                 tg_ram_lut_mw |       3487 |        863 |    2624 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     (g_lut.u)                       |                 tg_ram_lut_mw |        299 |        299 |       0 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_data[0].u_mem           |                 tg_ram_lut__1 |        721 |        129 |     592 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_data[1].u_mem           |                 tg_ram_lut__2 |        721 |        129 |     592 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_data[2].u_mem           |                 tg_ram_lut__3 |        721 |        129 |     592 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_data[3].u_mem           |                    tg_ram_lut |        722 |        130 |     592 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_lvt_ram.g_bank[0].u_lvt | tg_ram_lut__parameterized0__1 |         76 |         12 |      64 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_lvt_ram.g_bank[1].u_lvt | tg_ram_lut__parameterized0__2 |         76 |         12 |      64 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_lvt_ram.g_bank[2].u_lvt | tg_ram_lut__parameterized0__3 |         76 |         12 |      64 |    0 |   0 |      0 |      0 |    0 |          0 |
+|     g_lvt.g_lvt_ram.g_bank[3].u_lvt |    tg_ram_lut__parameterized0 |         77 |         13 |      64 |    0 |   0 |      0 |      0 |    0 |          0 |
++-------------------------------------+-------------------------------+------------+------------+---------+------+-----+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+
