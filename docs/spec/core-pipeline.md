@@ -99,7 +99,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
 - **Serialising instructions** wait at RN until the ROB and `ds_q` are empty; after one is renamed, RN accepts nothing until the next flush (every serialising instruction ends in a flush, §8).
 
-### 5.3 DS stage (`tg_dispatch`, inside `tg_rename`'s successor)
+### 5.3 DS stage (also in `tg_rename`)
 - Writes the ROB entries (§8.1), the issue-queue rows (`tg_iq` dispatch port *k* = group slot *k*) and the LQ/SQ entries.
 - **Dependency vector** = one-hot of the pending sources' IDs **AND NOT W**. An ID is only reallocated after its producer has set its W bit and written the register file (ROB entry retired, or LLT released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
 - **Wake at select:** 1-cycle ALU ops (and branches with a destination) carry their own ROB index as `disp_wake_oh`.
@@ -147,7 +147,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Mispredict:** the branch retires (in any slot); the group ends there; flush and redirect to the oldest-mispredict target.
 - **Exception:** TR_TRAP, trap entry (§9.3), flush, redirect to `mtvec` base.
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC.
-- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
+- **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 
 ### 8.3 Flush

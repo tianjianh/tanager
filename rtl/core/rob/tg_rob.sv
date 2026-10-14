@@ -183,13 +183,21 @@ module tg_rob
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
   logic          stop;
+  // WFI retires when a locally enabled interrupt is pending, or after WFI_MAX cycles (the ISA
+  // lets WFI complete at any time; Spike treats it as a no-op), so it never hangs the hart.
+  localparam int WFI_MAX = 4096;
+  logic [idx_w(WFI_MAX + 1)-1:0] wfi_cnt_q;
   logic go;
   always_comb begin
     unique case (hp[0].sys)
       SYS_FENCE, SYS_FENCEI: go = sq_drained;
-      SYS_WFI:               go = wfi_wake;
+      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q) == WFI_MAX;
       default:               go = 1'b1;
     endcase
+  end
+  always_ff @(posedge clk) begin
+    if (rst || flush || cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q <= '0;
+    else if (int'(wfi_cnt_q) != WFI_MAX) wfi_cnt_q <= wfi_cnt_q + 1'b1;
   end
   logic [RIW-1:0] i0;
   assign i0 = hid[0][RIW-1:0];
