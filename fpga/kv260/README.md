@@ -83,11 +83,12 @@ The board loads a build as the PL app `tanager` through dfx-mgr's `xmutil`, as f
 fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/stage-b
 ```
 
-For a core bitstream, name the boot images too: OpenSBI, the kernel, and a device tree for the bitstream's cores (`sw/dts`; one core here).
+For a core bitstream, name the images too: the first-light program (bring-up step 6), OpenSBI, the kernel, and a device tree for the bitstream's cores (`sw/dts`; one core here).
 
 ```bash
 make -C sw/dts O=$SOC_BUILD/dts-c1 CORES=1
-fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_100_pmod $SOC_BUILD/board/m4 \
+make -C tests/unit/soc prog
+fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_100_pmod $SOC_BUILD/board/m4 $SOC_BUILD/tests/soc_sw/soc_test.bin \
   $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
 ```
 
@@ -121,12 +122,15 @@ Each step's expected result is in brackets.
 5. **Console path.** Each traffic generator prints one `.` per pass on the UART, or `E` after a pass with an error: `sudo tanager-host run --timeout 5` [dots appear; `run` attaches to the running generators, and holds everything when it exits].
    - **With the PMOD console** (`TG_PMOD_UART=1`): the same dots appear on COM5 at 115200 8N1 from the moment `tg start` runs, whether or not `tanager-host` reads the console. A clean line also rules out a `pl_clk0` that rounded down to 90.9 MHz: 9% slow garbles it.
    - A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
-6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
+6. **First light on the core** (core bitstream; steps 4 and 5 need the traffic-generator one): `sudo tanager-host load --fw soc_test.bin --kernel /dev/null --dtb /dev/null && sudo tanager-host run --timeout 10`.
+   - [The console, and COM5 with the PMOD console, shows `tanager soc test: hart 0, dtb 0000000082200000`, `aclint ok`, `memory ok`, `one hart: coherence skipped` (with one core), `PASS`; `run` ends with `tohost 0x1: PASS`].
+   - `soc_test.bin` comes from `make -C tests/unit/soc prog` (`tests/unit/soc/sw`). In simulation it takes 0.29 M cycles on one core (3 ms at 100 MHz).
+7. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
    ```
    [OpenSBI banner, Linux boot, `TANAGER-BOOT-OK`; Ctrl-A x leaves].
-7. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
+8. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
    - **Ring placement:** the ring takes the top `64 B << --trace-log2` of the carve-out (default 256 MiB), and the RISC-V memory window shrinks by that much. Build the device tree for traced runs with `make -C sw/dts MEM=0x30000000` (768 MiB).
    - **Post-mortem:** `--trace-wrap --trace-stop PC --trace-post N` keeps the last records up to N after the first commit at `PC`, written to `FILE` at exit.
    - **Starting late:** `--trace-start PC` lets the run reach `PC` at full speed and traces from there.
