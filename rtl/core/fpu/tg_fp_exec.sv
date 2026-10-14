@@ -110,11 +110,12 @@ module tg_fp_exec
   logic [63:0]                f0_wd;
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
   logic [NRP-1:0][63:0]        rdata;
+  logic [1:0][NRP-1:0][63:0]   bank_rd;
   tg_fprf #(.NR(NRP)) u_rf (
     .clk, .init_we, .init_bank, .init_idx,
     .f0_we, .f0_waddr(f0_wa), .f0_wdata(f0_wd),
     .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
-    .rtag, .rdata);
+    .rtag, .rdata, .bank_rd);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
   logic rf_add;
   assign rf_add  = iss_pl.fop == FOP_FADD || iss_pl.fop == FOP_FSUB;
@@ -233,16 +234,28 @@ module tg_fp_exec
   logic [2:0][63:0] ex_rf_q;
   bsel_e [2:0]      ex_sel_q;
   logic [DQW-1:0]   ex_di_q;          // a divide's table entry
-  logic [2:0][63:0] rf_val;           // the register's value in RF, with this cycle's F1 write
+  // The operands in RF: the register's value with this cycle's F1 write, or (port 0) the integer
+  // source. The register file's bank select is folded in here, so each port is one encoded 4:1
+  // select (bank 0, bank 1, the F1 write, the integer source) in one module (fpga_friendly.md
+  // T7; in tg_fprf it was a level of its own).
+  logic [2:0][63:0] rf_val;
   for (genvar k = 0; k < 3; k++) begin : g_rfv
-    assign rf_val[k] = (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0]) ?
-                       fld_data : rdata[k];
+    logic [1:0] rs;                   // 0: bank 0, 1: bank 1, 2: the F1 write, 3: integer source
+    always_comb begin
+      if (k == 0 && !iss_pl.src1_fp)                                                rs = 2'd3;
+      else if (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0])   rs = 2'd2;
+      else                                                                         rs = {1'b0, rtag[k][FPIDX_W]};
+      unique case (rs)
+        2'd0:    rf_val[k] = bank_rd[0][k];
+        2'd1:    rf_val[k] = bank_rd[1][k];
+        2'd2:    rf_val[k] = fld_data;
+        default: rf_val[k] = isrc_data;
+      endcase
+    end
   end
   always_ff @(posedge clk) begin
     ex_pl_q     <= iss_pl;
-    ex_rf_q[0]  <= iss_pl.src1_fp ? rf_val[0] : isrc_data;
-    ex_rf_q[1]  <= rf_val[1];
-    ex_rf_q[2]  <= rf_val[2];
+    ex_rf_q     <= rf_val;
     ex_sel_q[0] <= iss_pl.src1_fp ? bsel(rtag[0], nx_we, nx_idx, f0_we, f0_wa) : BP_RF;
     ex_sel_q[1] <= bsel(rtag[1], nx_we, nx_idx, f0_we, f0_wa);
     ex_sel_q[2] <= bsel(rtag[2], nx_we, nx_idx, f0_we, f0_wa);
@@ -567,7 +580,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{fld_single, dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{fld_single, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
