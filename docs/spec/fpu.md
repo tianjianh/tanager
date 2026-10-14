@@ -755,7 +755,12 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - `tg_exec`: 8,722 → 8,550 LUTs (st), 8,727 → 8,555 (smt2).
 - **Cycle-identical:** st and smt2 each match the previous build on every passing ELF: 310 riscv-tests, CoreMark/Dhrystone and directed tests natively, 309 under memory stress, and 895 ACT4 tests.
 - **A new directed test,** `tests/isa/directed/zbb.S`, covers the bit counts and min/max in lockstep. The random generator has no Zbb, so riscv-tests' `rv64uzbb` was the only coverage before.
-- **Dead end:** one shift mask for both directions in `tg_alu` measured −5 and −0 LUTs; Vivado already maps it, so it was reverted.
+- **The divider's leading-zero counts** use `tg_fpu_lzc`, the FPU's two-level tree, instead of a loop: 1,315 → 1,188 LUTs. In context the loop cost far more than the 71 against 57 of an isolated test.
+- **Execute after both steps:** 8,722 → 8,423 LUTs (st), 8,727 → 8,428 (smt2), against 7,610.
+- **Dead ends, measured and reverted:**
+  - one shift mask for both directions in `tg_alu`: −5 and −0 LUTs;
+  - `bext` from the rotator: +1;
+  - the tree count in the Zbb unit: +77, because with `-flatten none` synthesis can no longer fold the bit-reverse multiplexer into the count.
 - **What is left is structural:** the register file (2,568: 9 read ports over 3 banks), two ALUs (≈1.17K each), the divider (1,315), and an 8-source bypass.
 - **Options that cost IPC** (report only):
   - dropping the write-back level from the load/store base bypass: about −128 LUTs;

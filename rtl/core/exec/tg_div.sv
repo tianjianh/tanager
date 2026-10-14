@@ -86,16 +86,12 @@ module tg_div
   assign bn    = sgn && eb[63];
 
   // ---- NM: quotient bits to compute (|a| is in q_q) ----
-  function automatic logic [6:0] lzc64(input logic [63:0] x);   // leading zeros, 64 for 0
-    lzc64 = 7'd64;
-    for (int i = 0; i < 64; i++) if (x[i]) lzc64 = 7'(63 - i);
-  endfunction
   logic         dz;
-  logic [6:0]   lza, lzd, nq;
+  logic [6:0]   lza, lzd, nq;     // leading zeros of |a| and |b|, 64 for 0
   logic [127:0] rq0;
   assign dz  = d_q == '0;
-  assign lza = lzc64(q_q);
-  assign lzd = lzc64(d_q);
+  tg_fpu_lzc #(.W(64)) u_lza (.x(q_q), .cnt(lza));
+  tg_fpu_lzc #(.W(64)) u_lzd (.x(d_q), .cnt(lzd));
   assign nq  = (dz || lzd < lza) ? 7'd0 : lzd - lza + 7'd1;
   assign rq0 = {64'b0, q_q} << (7'd64 - nq);   // r = |a| >> n is below |b|
 
