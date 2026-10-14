@@ -23,7 +23,8 @@ EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREAD
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
-MCYC    ?= 20   # OpenSBI's banner comes by 10.7 M cycles (2x2)
+# MCYC: the OpenSBI runs' cycle limit, in millions (the banner comes by 10.7 M cycles at 2x2)
+MCYC    ?= 20
 OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
 DTB     := $(OUTDIR)/dts/tanager-kv260.dtb
