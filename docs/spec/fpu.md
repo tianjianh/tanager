@@ -359,7 +359,7 @@ Plan §8.5 lever R4 runs DIV/REM on the Goldschmidt unit's multipliers so that t
 
 ## Core integration (P4 back end)
 
-Status: interface proposed 2026-10-14 for the core track's agreement; modules built and unit-tested (verification below), not yet wired into `tg_core`.
+Status: interface agreed with the core track on 2026-10-14. That includes its changes: AR-1's wakeup tags, the completion's `wid`, the B1 hand-off, the integer source, and the load write from a register. The modules are built and unit-tested (verification below), but not yet wired into `tg_core`.
 
 F/D integration splits between the two tracks:
 - **FPU track** (`rtl/core/fpu/`): `tg_fprf`, `tg_fp_exec`, `tg_fcsr` and the load/store helpers in `tg_fpcore_pkg`.
@@ -367,7 +367,7 @@ F/D integration splits between the two tracks:
 
 The core instantiates `tg_fp_exec`, which contains `tg_fprf` and `tg_fpu`. The CSR file instantiates `tg_fcsr`.
 
-**Compile order.** The back end imports `tg_core_pkg`, so its files sit in `rtl/core/fpu/fpu_be.f`. core.f must include that file after `tg_core_pkg.sv`, while `fpu.f`, the units, stays first.
+**Compile order.** The back end imports `tg_core_pkg`, so its files sit in `rtl/core/fpu/fpu_be.f`. `core.f` lists `fpu.f` (the units), then `tg_core_pkg.sv`, then `fpu_be.f`.
 
 ### Register file (`tg_fprf`)
 - **Banks** (plan §4.7): F0 is written only by `tg_fp_exec`'s F0 stream, F1 only by the load path. Each bank is 64 × 64 bits (`FP_PREGS_PER_BANK`), one `tg_ram_lut` with explicit RAM64M8.
@@ -399,8 +399,8 @@ Cycle s is IQ-FP's select. The payload `fp_iss_t` (`tg_fpcore_pkg`) is the core'
 **F0 writeback.** F0 has one write port and one writer, the F0 stream. That stream is also the bypass source for every F0 result.
 - **Fixed-latency writes:** FMA and FMISC FP results write at fixed cycles (s+7, s+4). They collide only when an FMISC op with an FP destination is selected three cycles after an FMA.
 - **`fmisc_block`** is a register, high in cycle s when an FMA was selected in s−3. While it is high, IQ-FP must not select an FMISC op with an FP destination (FSGNJ, FSGNJN, FSGNJX, FMIN, FMAX, FMV.F.X). Other rows are unaffected, so FMA streams issue every cycle.
-  - This needs one flip-flop per IQ-FP row (the row's op is FMISC with an FP destination) and an AND in the ready vector.
-  - **Alternative**, if the core prefers no row mask: FMISC FP results write at s+7 like the FMA, with their wakeup at s+4. That makes them effectively 5 cycles, which R5's model bounds at ≤ 0.09% suite IPC.
+  - The core takes it: `tg_iq` gets a class bit per row (FMISC with an FP destination), set at dispatch, and an AND with `fmisc_block` in the ready vector.
+  - The alternative, not taken: FMISC FP results write at s+7 like the FMA, with their wakeup at s+4. That makes them effectively 5 cycles, at most −0.09% suite IPC by R5's model.
 - **FDIV results take free slots.** In cycle c the divider's result is accepted if slot c+1 is free, then it is written at the end of c+1. Otherwise it waits in the divider's output queue.
 
 **Bypass** (inside `tg_fp_exec`). The selects are made in RF from the tags; each FP operand of EX0 takes one of five sources:
@@ -410,21 +410,33 @@ Cycle s is IQ-FP's select. The payload `fp_iss_t` (`tg_fpcore_pkg`) is the core'
 
 The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC from the select, FDIV from its claim), and the load path announces F1 writes one cycle ahead (`fld_m2_will`, as for integer loads).
 
-**Wakeup** (`wake_reg`: W set at the end of the cycle):
+**Wakeup** (`wake_reg`: W set at the end of the cycle). The columns follow the core's layout, with the wakeup tags of AR-1 (plan §4.6; area_recovery.md §5.2):
+- columns 0 to NFX − 1 are the fixed-latency producers' tags (NFX = `NCOL − LLT_ENTRIES`: 16 tags; ROB indices before AR-1);
+- column NFX + llt is an LLT;
+- the payload's `wid` is the column an operation wakes.
 
-| Producer | Wakeup ID | Fires | Dependants |
+`tg_fp_exec` takes NFX from `NCOL`, so it works with either layout.
+
+| Producer | Wakeup column | Fires | Dependants |
 |---|---|---|---|
-| FMA (all, including the conversions) | ROB index | s+4 | select at s+5; EX0 at s+7 takes the F0 stream |
-| FMISC, FP destination | ROB index | s+1 (RF) | select at s+2; EX0 at s+4 takes the F0 stream |
+| FMA (all, including the conversions) | tag | s+4 | select at s+5; EX0 at s+7 takes the F0 stream (back to back at `FMA_LAT`) |
+| FMISC, FP destination | tag | s+1 (RF) | select at s+2; EX0 at s+4 takes the F0 stream (back to back at `FMISC_LAT`) |
 | FDIV/FSQRT | LLT | claim cycle c | select at c+1; RF at c+2 reads F0 |
 | FMISC, integer destination | LLT | the core, when it writes B1 | – |
 | FP loads (F1) | LLT | the core's LSU | – |
 
 `llt_done` names the FDIV LLTs written each cycle.
 
+**Tags** are the core's:
+- Rename allocates them and clears their W column on allocation.
+- Rename frees a tag 2 cycles after its op's F0 write, which the completion's `cmp_wid` names. A flushed op writes nothing and never wakes, so the core frees its tag at the flush.
+- P4 only carries the tag (`wid`) beside the operation and broadcasts it.
+
 **Integer source** (FCVT.F.I and FMV.F.X):
 - `isrc_valid` and `isrc_tag` are presented in RF (s+1), and `isrc_data` is sampled at the end of that cycle.
-- The core gives P4 its shared integer read port in that cycle (ahead of the SQ's store-data claims). It guarantees the value is in the integer register file by then: an IQ-FP row's integer source is ready only once its register is written, or the core bypasses into `isrc_data`.
+- The core gives P4 its shared integer read port in that cycle, ahead of the SQ's store-data capture, which it suppresses in that cycle.
+- There is no bypass into `isrc_data`. IQ-FP's dependencies on 1-cycle ALU producers resolve only when the producer's row is freed, 2 cycles after its issue, so the FP op reaches RF after the ALU's register-file write.
+- This costs 2 cycles on integer-to-FP moves of in-flight ALU results, about 0.4% of FP sources in the census. MUL (tag) and LLT producers wake late enough already.
 
 **FP loads** (F1):
 - `fld_valid`, `fld_idx`, `fld_single` and `fld_data` (raw 64 bits) write F1 at the end of the cycle. `tg_fp_exec` NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]}.
@@ -434,7 +446,12 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 **FP store data:** the SQ claims `fsd_tag`/`fsd_data` when the value is in the register file, as it does the integer shared port. FSW stores bits 31:0, which the ISA requires without any NaN-box check.
 
 **Integer results (to bank B1).** FEQ, FLT, FLE, FCLASS, FCVT.W/WU/L/LU and FMV.X enter a queue of `FPI_Q` entries (default 4) at s+4, holding {`tid`, `rob`, `wid`/`llt`, `dst_en`, `dst`, `data`, `fflags`}.
-- `fpi_valid`/`fpi_ready` hand the head to the core's bank-1 write arbiter. The core writes B1 (unless `dst_en` is 0), wakes the LLT, and completes the ROB entry with `fpi_fflags`.
+- **The hand-off.** The core treats the head like a finished divide on bank 1:
+  - it claims a write slot when `fpi_valid` is high, `fpi_kill` is low and the slot is free;
+  - it wakes the LLT one cycle before the write;
+  - in the write cycle it pulses `fpi_ready`, sampling `fpi_o`, writing B1 (unless `dst_en` is 0) and completing the ROB entry with `fpi_fflags`.
+- **The head stays put until `fpi_ready`.** Only `fpi_ready` pops the queue, so the head cannot change between the claim and the write.
+- **`fpi_kill`** marks a head whose thread was flushed, including by a flush in this very cycle. The core pops it with `fpi_ready` without a write, wakeup or completion: at any time, or in its claimed write cycle when the flush came after the claim.
 - Rename keeps at most `FPI_INFLIGHT` such operations between rename and the hand-off. `fpi_pop` returns one credit per entry leaving the queue.
 
 **Divide and square root:**
@@ -442,14 +459,14 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - **Credits:** rename keeps at most `FDIV_INFLIGHT` divides between rename and their result. That differs from the F/D branch's comment ("rename and the unit"), and it bounds the table. `fdiv_done` returns one credit per divide, written or dropped.
 - **Tag:** the divider's tag is the table index.
 
-**Completion to the ROB** (F0 results): one port, `cmp_valid`, `cmp_tid`, `cmp_rob` and `cmp_fflags`.
+**Completion to the ROB** (F0 results): one port, `cmp_valid`, `cmp_tid`, `cmp_rob`, `cmp_wid` and `cmp_fflags`. `cmp_wid` (the op's wakeup column) is for rename's tag release.
 - It fires in the F0 write cycle for FMA, FMISC FP results, and divides that did not retire early.
 - FP operations raise no exceptions.
 - The ROB keeps five fflag bits per FP entry and passes them to `tg_fcsr` when the entry retires.
 
 **Flush** (`flush` and `flush_tid`, registered by the core as for `tg_exec`). Every operation of that thread is dropped: no write, no wakeup, no completion. Credits still return.
 - **RF, EX0, FMA and FMISC:** shadow valid bits beside the units' fixed latencies; the FPU itself has no kill input (interfaces.md §4).
-- **B1 queue:** the thread's entries are marked dead and popped later without a request.
+- **B1 queue:** the thread's entries are marked dead and presented with `fpi_kill` (above).
 - **Divides:** the thread's divides that have not retired early are marked squashed and dropped when they leave the divider.
 
 **Early retirement of divides** (plan §4.5; M6). The core reports `fdiv_ret_valid`, `fdiv_ret_tid` and `fdiv_ret_llt` when it retires a divide before its result. Its result still writes F0 and wakes, and flushes no longer squash it, including one in the cycle of its claim or write. Its fflags go to `tg_fcsr` (`er_valid`, `er_tid`, `er_fflags`) instead of the ROB completion, also when the retirement arrives in the write cycle itself. Tie these low until early retirement is on.
@@ -457,9 +474,12 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 **The core's side of the contract**, checked by assertions:
 - an FMISC op with an FP destination is not selected while `fmisc_block` is high;
 - credits keep at most `FDIV_Q` divides and `FPI_Q` integer results in flight;
+- each operation's wakeup column is in its range: a tag below NFX for FMA and FMISC FP results, NFX + llt for divides and integer results;
 - a divide does not retire early in a cycle when its thread is flushed. The flush is registered from an older commit, so nothing it kills can retire with it.
 
 Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) comes straight from the load result register, with no logic after it. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
+- The core agreed: `fld_data` and `fld_idx` come from the LSU's `r_data_q` and `r_dst_q`, which already drive the integer load bank at WB.
+- `fld_single` and `fld_valid` are flip-flops of the same stage.
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -619,18 +639,19 @@ The testbench takes every latency from `tg_fpu_pkg` (FMA and FMISC exactly; the 
 The bench models the core's side of P4:
 - the woken vector, filled only from `wake_reg`, so a wakeup that fires early makes a consumer read a stale value;
 - physical-register, ROB and LLT pools, the divide and integer-result credits, and `fmisc_block`;
+- AR-1's wakeup tags: 16 (or fewer, `-tags`), taken at select, freed 2 cycles after the F0 write or at a flush, so tags are reused at once;
 - F1 loads announced through `fld_m2_will`, and the integer source port;
-- the bank-1 arbiter with random `fpi_ready`.
+- the bank-1 arbiter: it claims a live head, writes it 1 to 4 cycles later, and pops killed heads without effects.
 
 It checks, against the SoftFloat-based reference:
 - every F0 write, at its exact cycle (FMA s+7, FMISC s+4, divides one cycle after their wakeup), and its value through a trace port the next cycle;
-- every completion and its flags, every wakeup at its exact cycle, `llt_done`;
-- every B1 record (value, flags, destination, IDs) in queue order;
+- every completion with its flags and `cmp_wid`, every wakeup at its exact cycle, `llt_done`;
+- every B1 record (value, flags, destination, IDs) in queue order; `fpi_kill` exactly on flushed entries; the head unchanged from claim to write; pops only on `fpi_ready`;
 - random store-data reads.
 
 | Run | What it covers |
 |---|---|
-| `rand` | random FP streams with dependencies through both bypass levels. Three stress settings: no flushes; a flush per ~150 cycles with 20% early retirement and 60% `fpi_ready`; a flush per ~40 cycles with 40% and 30% |
+| `rand` | random FP streams with dependencies through both bypass levels. Three stress settings: no flushes; a flush per ~150 cycles with 20% early retirement and 60% claims per cycle; a flush per ~40 cycles with 40% and 30%, and only 4 tags |
 | `tf` | TestFloat level 1 for every function. Operands go through F1 loads (FP) or the integer source port, results through F0 or the B1 queue |
 | `tb_fcsr` | CSR writes of the three views, commit and early-retired accumulation, `er_busy`, `fs_dirty`, every cycle |
 
@@ -648,22 +669,40 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 
 | Step | FPU LUTs (Goldschmidt) | What it bought |
 |---|---|---|
-| As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K. The user kept it for its latency (D17). |
+| As built | 7,622 | The Goldschmidt unit is 1,411 LUTs more than radix-4, not the plan's +0.2K (below). The user kept it for its latency (D17). |
 | R5: FP→FP and integer→FP conversions on the FMA | 7,010 | −612 (FMISC −825, FMA +213), at most −0.09% IPC |
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
 | Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` meets 200 MHz with the load write from a register: +0.02 ns (smt2), +0.14 ns (st). |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
 
+**What Goldschmidt really cost, and why.**
+- **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.
+- **As built:** 3,125 LUTs against radix-4's 1,714, and 26 DSPs against 24 planned.
+- **Why:** the logic around the DSPs is LUTs. In the as-built breakdown, 2,066 LUTs sit outside the multipliers and the shared rounding:
+  - the ring's operand multiplexers into two 60 × 60 multipliers;
+  - the c3 adders and the correction terms;
+  - a normaliser for each operand in S1;
+  - the remainder round.
+- On top of that, each multiplier spends 259 LUTs summing the tiles the DSP cascade does not cover.
+- **The LUT pass** brought it to 2,653: pipelines in flip-flops, the smallest tiles in DSPs, and the pre-adder.
+
 **Dead ends:**
-- **A 4-cycle FMA:** misses 200 MHz by 1.88 ns.
+- **A 4-cycle FMA:** misses 200 MHz by 1.88 ns (about 145 MHz). Without the E3/E4 boundary, one cycle must hold the leading-zero count, the normalising shift, rounding and packing: 26 logic levels from the marker register to the response.
 - **Area-optimised synthesis:** −167 LUTs on the FMA and FMISC, but the divider then fails timing. Left as a per-module strategy for the full-chip flow.
 - **Not possible at 200 MHz without a latency or throughput change:** the alignment shift as a DSP multiply, the adders in DSP ALUs, and one S1 normaliser shared by both operands.
-- **R4** (integer divide on the Goldschmidt unit): only 0.15–0.4K saved per core. Parked.
+- **R4** (integer divide on the Goldschmidt unit): only 0.15–0.4K saved per core, against the plan's 0.4–0.6K. Parked.
+  - **Divider growth:** an integer quotient needs 2^−64 accuracy instead of 2^−56. That means wider iteration values, one more Newton round, a stage for signs and W forms, a variable-grid remainder round and the REM fix-up: about +1K LUTs and +6 DSPs.
+  - **Core glue:** the core keeps an arbiter and the result routing.
+  - **Alternative:** a cheaper early-out normaliser in `tg_div` would capture most of the saving without R4.
 
 **Bugs found by the back-end bench:**
 - three errors in `tg_fp_exec` before merge (list under "Verification");
 - one wrong assertion: the `fmisc_block` check looked one cycle early;
 - more errors in the bench's own model of the core than in the RTL.
+
+**Interface agreement (2026-10-14).** The core track's review brought AR-1's wakeup tags (columns are tags, not ROB indices), the completion's `wid` for tag release, the B1 head held until `fpi_ready` with `fpi_kill`, and the load write from a register.
+- The bench now recycles 16 tags (4 in one stress setting) and models the bank-1 arbiter's claim, hold and write.
+- Three mutations are each caught at once: a wrong `cmp_wid`, the old B1 head that left on a flush, and a flushed FMA that still wakes its tag. The last woke a reused tag's new consumers two cycles early, which is the hazard tag reuse creates.
 
 **Lessons:**
 - **Estimates made by deletion undercount.** R5's FMISC saving was estimated at 584 by zeroing the two results; it measured 825, because the shared shifter's operand selection and bit reversal also went.
