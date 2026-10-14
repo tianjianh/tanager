@@ -75,7 +75,6 @@ module tb_axi_mem
       now        <= now + 1;
       ar_ready_o <= ($urandom_range(99) < READY_PCT);
       aw_ready_o <= ($urandom_range(99) < READY_PCT);
-      w_ready_o  <= ($urandom_range(99) < READY_PCT);
 
       // ---- AR ----
       if (ar_valid_i && ar_ready_o) begin
@@ -175,6 +174,9 @@ module tb_axi_mem
           end
         end
       end
+
+      // WREADY only with an address in hand: AXI lets W come before AW, and lets a slave wait for AW.
+      w_ready_o <= ($urandom_range(99) < READY_PCT) && (wq.size() > 0);
 
       // ---- B ----
       if (b_valid_o && b_ready_i) b_valid_o <= 1'b0;

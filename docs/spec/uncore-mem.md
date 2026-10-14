@@ -9,6 +9,8 @@ tg_l2_bank ──AXI4──► tg_axi_lat_inj ──AXI4──► tg_axi_window 
              PA_W address, RISC-V physical               remapped address, AXI_EXT_ADDR_W bits
 ```
 
+A register slice (`tg_axi_slice`: a skid buffer on each channel) follows the window, so the window's adder and the route to the PS port end at flip-flops. It may present a W beat before its AW, which AXI4 allows.
+
 Both are board-independent and simulate with the rest of `tanager_soc`. The carve-out location and size are run-time values from the host ([host.md](host.md)), so the L2 sees a generic memory (plan §5.5).
 
 ---

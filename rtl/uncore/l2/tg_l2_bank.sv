@@ -17,7 +17,8 @@ module tg_l2_bank
   parameter int N_MSHR   = 24,
   parameter int N_WB     = 4,
   parameter int N_PUTBUF = 4,
-  parameter     DATA_PRIM = "ultra"
+  parameter     DATA_PRIM = "ultra",
+  parameter int DATA_LAT  = 2         // data-array read latency (2: output register); see u_data
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -684,6 +685,11 @@ module tg_l2_bank
   logic             da_re;
   logic [RAW-1:0]   da_raddr;
   logic [255:0]     da_rdata;
+  // Latency DATA_LAT: today the output register (2). With tg_ram_sdp's RD_LAT this becomes
+  // .RD_LAT(DATA_LAT) and 4 for the 4-deep URAM cascade at 200 MHz; the read pipeline below follows.
+  if (DATA_LAT != 2) begin : g_bad_lat
+    $error("tg_l2_bank: DATA_LAT other than 2 needs tg_ram_sdp RD_LAT");
+  end
   tg_ram_sdp #(.DEPTH(SETS * WAYS * 2), .WIDTH(256), .BYTE_W(8), .OUT_REG(1'b1), .PRIM(DATA_PRIM)) u_data (
     .clk, .we (da_we), .waddr (da_waddr), .wdata (da_wdata), .re (da_re), .raddr (da_raddr), .rdata (da_rdata)
   );
@@ -708,11 +714,18 @@ module tg_l2_bank
   wire       pw_done  = pw_adv && pw_beat_q == 2'd3;
   assign pb_raddr[0] = {m_pb[pw_cur_q], pw_beat_q};
 
-  // Fills from R
-  wire [MW-1:0] r_m   = r_i.id[MW-1:0];
-  wire          r_ok  = r_valid_i && int'(r_i.id) < N_MSHR && m_st[r_m] == MS_FILL;
-  assign r_ready_o    = r_ok && !c_wr && !pw_wr;
-  wire          f_wr  = r_valid_i && r_ready_o;
+  // Fills from R, through a register slice: RREADY toward the memory path comes from a flip-flop,
+  // so the MSHR-state lookup below stays inside the bank.
+  axi_r_t r_s;
+  logic   r_s_v, r_s_r;
+  tg_skid #(.T(axi_r_t)) u_rslice (
+    .clk, .rst, .in_valid (r_valid_i), .in_ready (r_ready_o), .in_data (r_i),
+    .out_valid (r_s_v), .out_ready (r_s_r), .out_data (r_s)
+  );
+  wire [MW-1:0] r_m   = r_s.id[MW-1:0];
+  wire          r_ok  = r_s_v && int'(r_s.id) < N_MSHR && m_st[r_m] == MS_FILL;
+  assign r_s_r        = r_ok && !c_wr && !pw_wr;
+  wire          f_wr  = r_s_v && r_s_r;
 
   always_comb begin
     da_we    = '0;
@@ -728,7 +741,7 @@ module tg_l2_bank
       da_we    = pw_beat_q[0] ? {pb_rdata[0][143:128], 16'h0} : {16'h0, pb_rdata[0][143:128]};
     end else if (f_wr) begin
       da_waddr = {set_of(m_line[r_m]), m_way[r_m], m_fcnt[r_m][1]};
-      da_wdata = {r_i.data, r_i.data};
+      da_wdata = {r_s.data, r_s.data};
       da_we    = m_fcnt[r_m][0] ? {16'hFFFF, 16'h0} : {16'h0, 16'hFFFF};
     end
   end
@@ -872,29 +885,34 @@ module tg_l2_bank
     end
   end
 
-  rtag_t rt1_q, rt2_q;
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      rt1_q.v <= 1'b0;
-      rt2_q.v <= 1'b0;
-    end else begin
-      rt1_q   <= '0;
-      if (vr_rd) begin
-        rt1_q.v       <= 1'b1;
-        rt1_q.to_wb   <= 1'b1;
-        rt1_q.wb_addr <= {vr_buf_q, vr_row_q};
-        rt1_q.vr_last <= vr_row_q;
-        rt1_q.m       <= vr_cur_q;
-        rt1_q.use_ram <= 1'b1;
-      end else if (rs_issue) begin
-        rt1_q <= rs_tag;
-      end
-      rt2_q <= rt1_q;
+  // Read tags travel with the data array's latency; rt_out meets the data.
+  rtag_t rt_q [DATA_LAT];
+  rtag_t rt_in, rt_out;
+  always_comb begin
+    rt_in = '0;
+    if (vr_rd) begin
+      rt_in.v       = 1'b1;
+      rt_in.to_wb   = 1'b1;
+      rt_in.wb_addr = {vr_buf_q, vr_row_q};
+      rt_in.vr_last = vr_row_q;
+      rt_in.m       = vr_cur_q;
+      rt_in.use_ram = 1'b1;
+    end else if (rs_issue) begin
+      rt_in = rs_tag;
     end
   end
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      for (int i = 0; i < DATA_LAT; i++) rt_q[i].v <= 1'b0;
+    end else begin
+      rt_q[0] <= rt_in;
+      for (int i = 1; i < DATA_LAT; i++) rt_q[i] <= rt_q[i - 1];
+    end
+  end
+  assign rt_out = rt_q[DATA_LAT - 1];
 
-  assign wbm_we    = rt2_q.v && rt2_q.to_wb;
-  assign wbm_waddr = rt2_q.wb_addr;
+  assign wbm_we    = rt_out.v && rt_out.to_wb;
+  assign wbm_waddr = rt_out.wb_addr;
   assign wbm_wdata = da_rdata;
 
   // D FIFO: takes the one or two beats of a row in one cycle, gives one per cycle. Responses
@@ -907,27 +925,27 @@ module tg_l2_bank
   assign df_out_v = dq_cnt != 4'd0;
   assign df_out   = dq_q[dq_rp_q[2:0]];
 
-  wire rt2_d = rt2_q.v && !rt2_q.to_wb;
+  wire rt_d = rt_out.v && !rt_out.to_wb;
   dbeat_t x0, x1;
   always_comb begin
-    x0.d      = rt2_q.hdr;
-    x0.d.data = rt2_q.use_ram ? ((rt2_q.nb == 2'd1 && rt2_q.half) ? da_rdata[255:128] : da_rdata[127:0]) : '0;
-    x0.last   = rt2_q.last && rt2_q.nb == 2'd1;
-    x1.d      = rt2_q.hdr;
-    x1.d.data = rt2_q.use_ram ? da_rdata[255:128] : '0;
-    x1.last   = rt2_q.last;
+    x0.d      = rt_out.hdr;
+    x0.d.data = rt_out.use_ram ? ((rt_out.nb == 2'd1 && rt_out.half) ? da_rdata[255:128] : da_rdata[127:0]) : '0;
+    x0.last   = rt_out.last && rt_out.nb == 2'd1;
+    x1.d      = rt_out.hdr;
+    x1.d.data = rt_out.use_ram ? da_rdata[255:128] : '0;
+    x1.last   = rt_out.last;
   end
   always_ff @(posedge clk) begin
     if (rst) begin
       dq_wp_q <= '0;
       dq_rp_q <= '0;
     end else begin
-      if (rt2_d) dq_wp_q <= dq_wp_q + 4'(rt2_q.nb);
+      if (rt_d) dq_wp_q <= dq_wp_q + 4'(rt_out.nb);
       if (df_out_v && df_out_r) dq_rp_q <= dq_rp_q + 1'b1;
     end
-    if (rt2_d) begin
+    if (rt_d) begin
       dq_q[dq_wp_q[2:0]] <= x0;
-      if (rt2_q.nb == 2'd2) dq_q[3'(dq_wp_q[2:0] + 3'd1)] <= x1;
+      if (rt_out.nb == 2'd2) dq_q[3'(dq_wp_q[2:0] + 3'd1)] <= x1;
     end
   end
 
@@ -1084,7 +1102,7 @@ module tg_l2_bank
         vr_row_q <= 1'b1;
         if (vr_row_q) vr_busy_q <= 1'b0;
       end
-      if (rt2_q.v && rt2_q.to_wb && rt2_q.vr_last) wb_ready_q[rt2_q.wb_addr[WBW:1]] <= 1'b1;
+      if (rt_out.v && rt_out.to_wb && rt_out.vr_last) wb_ready_q[rt_out.wb_addr[WBW:1]] <= 1'b1;
 
       if (!ws_busy_q && |wb_ready_q) begin
         ws_busy_q            <= 1'b1;
@@ -1165,15 +1183,15 @@ module tg_l2_bank
       if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
       if (f_wr) begin
         m_fcnt[r_m] <= m_fcnt[r_m] + 1'b1;
-        if (r_i.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
-        if (r_i.last) begin
-          if (r_i.resp != AXI_OKAY || m_ferr[r_m]) m_st[r_m] <= MS_INVAL;
+        if (r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
+        if (r_s.last) begin
+          if (r_s.resp != AXI_OKAY || m_ferr[r_m]) m_st[r_m] <= MS_INVAL;
           else m_st[r_m] <= (m_kind[r_m] == K_PUT) ? MS_PUTW : MS_RESP;
         end
       end
       // Victim read-out finished: the fill (or the Put) may proceed
-      if (rt2_q.v && rt2_q.to_wb && rt2_q.vr_last)
-        m_st[rt2_q.m] <= m_need_fill[rt2_q.m] ? MS_FILL : MS_PUTW;
+      if (rt_out.v && rt_out.to_wb && rt_out.vr_last)
+        m_st[rt_out.m] <= m_need_fill[rt_out.m] ? MS_FILL : MS_PUTW;
       // Put written: free its buffer, respond
       if (pw_done) begin
         m_st[pw_cur_q]          <= MS_RESP;
@@ -1213,10 +1231,10 @@ module tg_l2_bank
 
   assign init_done_o = init_done_q;
   assign ev_err_o    = s2_err || (bresp_valid_i && bresp_i.resp != AXI_OKAY) ||
-                       (r_valid_i && r_ready_o && r_i.resp != AXI_OKAY);
+                       (f_wr && r_s.resp != AXI_OKAY);
 
   wire unused = ^{da_we_any, ain_q.data, ain_q.mask, ain_q.corrupt, cin_q.data, cin_q.corrupt,
-                  cin_hit_q, r_i.id, bresp_i.id, e_i.sink};
+                  cin_hit_q, r_s.id, bresp_i.id, e_i.sink};
 
 `ifndef SYNTHESIS
   // ---- Invariants (docs/spec/l2.md §Verification) ----

@@ -195,8 +195,14 @@ module tanager_soc
   // ---------------------------------------------------------------------------------------------
   axi_ax_t [N_BANKS-1:0] l2_ar_ch, l2_aw_ch, ij_ar, ij_aw;
   logic    [N_BANKS-1:0] l2_arv, l2_arr, l2_awv, l2_awr, ij_arv, ij_arr, ij_awv, ij_awr;
-  axi_r_t  [N_BANKS-1:0] l2_r_ch, ij_r;
-  logic    [N_BANKS-1:0] l2_rv, l2_rr, ij_rv, ij_rr;
+  axi_r_t  [N_BANKS-1:0] l2_r_ch, ij_r, wn_r;
+  logic    [N_BANKS-1:0] l2_rv, l2_rr, ij_rv, ij_rr, wn_rv, wn_rr;
+  axi_ax_t [N_BANKS-1:0] wn_ar, wn_aw;
+  logic    [N_BANKS-1:0] wn_arv, wn_arr, wn_awv, wn_awr;
+  axi_w_t  [N_BANKS-1:0] wn_w;
+  logic    [N_BANKS-1:0] wn_wv, wn_wr;
+  axi_b_t  [N_BANKS-1:0] wn_b;
+  logic    [N_BANKS-1:0] wn_bv, wn_br;
   axi_w_t  [N_BANKS-1:0] l2_w_ch, ij_w;
   logic    [N_BANKS-1:0] l2_wv, l2_wr, ij_wv, ij_wr;
   axi_b_t  [N_BANKS-1:0] l2_b_ch, ij_b;
@@ -250,6 +256,20 @@ module tanager_soc
       .s_aw_i (ij_aw[b]), .s_aw_valid_i (ij_awv[b]), .s_aw_ready_o (ij_awr[b]),
       .s_w_i (ij_w[b]), .s_w_valid_i (ij_wv[b]), .s_w_ready_o (ij_wr[b]),
       .s_b_o (ij_b[b]), .s_b_valid_o (ij_bv[b]), .s_b_ready_i (ij_br[b]),
+      .m_ar_o (wn_ar[b]), .m_ar_valid_o (wn_arv[b]), .m_ar_ready_i (wn_arr[b]),
+      .m_r_i (wn_r[b]), .m_r_valid_i (wn_rv[b]), .m_r_ready_o (wn_rr[b]),
+      .m_aw_o (wn_aw[b]), .m_aw_valid_o (wn_awv[b]), .m_aw_ready_i (wn_awr[b]),
+      .m_w_o (wn_w[b]), .m_w_valid_o (wn_wv[b]), .m_w_ready_i (wn_wr[b]),
+      .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b])
+    );
+    // register slice toward the PS port: the window's adder and the long route end at flip-flops
+    tg_axi_slice u_slice (
+      .clk, .rst (uncore_rst),
+      .s_ar_i (wn_ar[b]), .s_ar_valid_i (wn_arv[b]), .s_ar_ready_o (wn_arr[b]),
+      .s_r_o (wn_r[b]), .s_r_valid_o (wn_rv[b]), .s_r_ready_i (wn_rr[b]),
+      .s_aw_i (wn_aw[b]), .s_aw_valid_i (wn_awv[b]), .s_aw_ready_o (wn_awr[b]),
+      .s_w_i (wn_w[b]), .s_w_valid_i (wn_wv[b]), .s_w_ready_o (wn_wr[b]),
+      .s_b_o (wn_b[b]), .s_b_valid_o (wn_bv[b]), .s_b_ready_i (wn_br[b]),
       .m_ar_o (m_axi_ar[b]), .m_ar_valid_o (m_axi_ar_valid[b]), .m_ar_ready_i (m_axi_ar_ready[b]),
       .m_r_i (m_axi_r[b]), .m_r_valid_i (m_axi_r_valid[b]), .m_r_ready_o (m_axi_r_ready[b]),
       .m_aw_o (m_axi_aw[b]), .m_aw_valid_o (m_axi_aw_valid[b]), .m_aw_ready_i (m_axi_aw_ready[b]),
