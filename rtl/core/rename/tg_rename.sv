@@ -12,6 +12,11 @@
 // whether the producer is a 1-cycle op, and the rename slot it had: sources need no table
 // indexed by physical register (a pending source's producer is still in flight, so its ID is
 // current; a written one is ready and its ID unused).
+// The maps are LUTRAM (plan §8.5 R3): the speculative map has one bank per rename slot and the
+// committed map one per commit slot, so each write port is a LUTRAM's; live-value tables in
+// flip-flops name the bank holding each register's latest entry. A flush clears the per-register
+// "renamed since the flush" bits, after which the committed map answers: recovery is immediate,
+// with no copy. A reset sweep writes the identity into the committed map.
 // MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
 // by that row instead of its ID. DS records each 1-cycle op's row in a LUTRAM by ROB entry, one
 // bank per rename slot (one write per bank per cycle); a consumer reads it in the bank of its
@@ -76,14 +81,12 @@ module tg_rename
 
   // ---- State ----
   localparam int KSW = idx_w(W);
+  localparam int CSW = idx_w(COMMIT_WIDTH);
   typedef struct packed {
-    preg_t          p;                     // mapping
     wid_t           w;                     // producer's wakeup ID
     logic           l1;                    // producer is a 1-cycle op
     logic [KSW-1:0] ks;                    // producer's rename slot
-  } rmap_t;
-  rmap_t [31:0]          rat_q;
-  preg_t [31:0]          crat_q;
+  } rprod_t;
   function automatic logic is_lat1(input uclass_e c);       // a 1-cycle op in an ALU queue
     return c == C_ALU || c == C_BR;
   endfunction
@@ -123,10 +126,72 @@ module tg_rename
       .pop_n(fl_pop_n[b]), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
       .commit_n(fl_cmt_n[b]), .flush);
   end
-  assign ready = &fl_ready;
+
+  // ---- Rename maps (LUTRAM) ----
+  // Read ports: rs1 and rs2 of slot k at 2k and 2k + 1, rd (the old mapping) at 2W + k; the
+  // producer fields are read for the sources only.
+  localparam int NMR = 3 * W;
+  localparam int PRW = $bits(preg_t);
+  localparam int PDW = $bits(rprod_t);
+  logic [31:0]                          sv_q;     // renamed since the last flush
+  logic [31:0][KSW-1:0]                 lvt_q;    // speculative bank with the latest entry
+  logic [31:0][CSW-1:0]                 lvtc_q;   // committed bank with the latest entry
+  logic [5:0]                           cinit_q;  // reset sweep: identity into committed bank 0
+  logic [NMR-1:0][4:0]                  map_ra;
+  logic [W-1:0][NMR-1:0][PRW-1:0]       ms_rd;
+  logic [W-1:0][2*W-1:0][PDW-1:0]       mp_rd;
+  logic [COMMIT_WIDTH-1:0][NMR-1:0][PRW-1:0] mc_rd;
+  preg_t  [NMR-1:0]                     map_p;    // mapping per read port
+  rprod_t [2*W-1:0]                     map_pd;   // producer per source port
+  for (genvar k = 0; k < W; k++) begin : g_mra
+    assign map_ra[2*k]     = rn_uop_q[k].d.rs1;
+    assign map_ra[2*k+1]   = rn_uop_q[k].d.rs2;
+    assign map_ra[2*W + k] = rn_uop_q[k].d.rd;
+  end
+  ren_t [W-1:0] ren;
+  logic         rn_fire;
+  for (genvar k = 0; k < W; k++) begin : g_ms
+    logic we;
+    assign we = rn_fire && rn_valid_q[k] && rn_uop_q[k].d.rd_en;
+    tg_ram_lut #(.DEPTH(32), .WIDTH(PRW), .NR(NMR)) u_map (
+      .clk, .we, .waddr(rn_uop_q[k].d.rd), .wdata(ren[k].dst), .raddr(map_ra), .rdata(ms_rd[k]));
+    tg_ram_lut #(.DEPTH(32), .WIDTH(PDW), .NR(2 * W)) u_prod (
+      .clk, .we, .waddr(rn_uop_q[k].d.rd),
+      .wdata(rprod_t'{w: ren[k].wid, l1: is_lat1(rn_uop_q[k].d.cls), ks: KSW'(k)}),
+      .raddr(map_ra[2*W-1:0]), .rdata(mp_rd[k]));
+  end
+  for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_mc
+    logic we;
+    logic [4:0] wa;
+    preg_t wd;
+    always_comb begin
+      we = cm_valid[j] && cm_rd_en[j];
+      wa = cm_rd[j];
+      wd = cm_dst[j];
+      if (j == 0 && !cinit_q[5]) begin
+        we = 1'b1;
+        wa = cinit_q[4:0];
+        wd = mk_preg(0, PIDX_W'(cinit_q[4:0]));
+      end
+    end
+    tg_ram_lut #(.DEPTH(32), .WIDTH(PRW), .NR(NMR)) u_cmap (
+      .clk, .we, .waddr(wa), .wdata(wd), .raddr(map_ra), .rdata(mc_rd[j]));
+  end
+  for (genvar i = 0; i < NMR; i++) begin : g_mrd
+    always_comb begin
+      logic [4:0] r;
+      r = map_ra[i];
+      map_p[i] = sv_q[r] ? ms_rd[lvt_q[r]][i] : mc_rd[lvtc_q[r]][i];
+    end
+    if (i < 2 * W) begin : g_pd
+      // a committed mapping's producer is done: the source is ready and these are not read
+      assign map_pd[i] = rprod_t'(mp_rd[lvt_q[map_ra[i]]][i]);
+    end
+  end
+
+  assign ready = &fl_ready && cinit_q[5];
 
   // ---- RN ----
-  ren_t [W-1:0]  ren;
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
@@ -178,17 +243,17 @@ module tg_rename
         nrob = k + 1;
       end
       // Sources: RAT, or the closest earlier slot that writes the register
-      ren[k].src1 = rn_uop_q[k].d.rs1_en ? rat_q[rn_uop_q[k].d.rs1].p : '0;
-      ren[k].src2 = rn_uop_q[k].d.rs2_en ? rat_q[rn_uop_q[k].d.rs2].p : '0;
+      ren[k].src1 = rn_uop_q[k].d.rs1_en ? map_p[2*k] : '0;
+      ren[k].src2 = rn_uop_q[k].d.rs2_en ? map_p[2*k+1] : '0;
       ren[k].p1   = rn_uop_q[k].d.rs1_en && !ready_q[ren[k].src1];
       ren[k].p2   = rn_uop_q[k].d.rs2_en && !ready_q[ren[k].src2];
-      ren[k].w1   = rat_q[rn_uop_q[k].d.rs1].w;
-      ren[k].w2   = rat_q[rn_uop_q[k].d.rs2].w;
-      ren[k].l1   = rat_q[rn_uop_q[k].d.rs1].l1;
-      ren[k].l2   = rat_q[rn_uop_q[k].d.rs2].l1;
-      ren[k].ks1  = rat_q[rn_uop_q[k].d.rs1].ks;
-      ren[k].ks2  = rat_q[rn_uop_q[k].d.rs2].ks;
-      ren[k].old  = rat_q[rn_uop_q[k].d.rd].p;
+      ren[k].w1   = map_pd[2*k].w;
+      ren[k].w2   = map_pd[2*k+1].w;
+      ren[k].l1   = map_pd[2*k].l1;
+      ren[k].l2   = map_pd[2*k+1].l1;
+      ren[k].ks1  = map_pd[2*k].ks;
+      ren[k].ks2  = map_pd[2*k+1].ks;
+      ren[k].old  = map_p[2*W + k];
       for (int i = 0; i < k; i++) begin
         if (rn_uop_q[i].d.rd_en) begin
           if (rn_uop_q[k].d.rs1_en && rn_uop_q[i].d.rd == rn_uop_q[k].d.rs1) begin
@@ -242,7 +307,7 @@ module tg_rename
   assign rn_serial    = rn_valid_q[0] && (rn_uop_q[0].d.serial || rn_uop_q[0].d.exc);
   assign window_empty = rtail_q == rob_head && !(|ds_valid_q);
 
-  logic ds_free, rn_fire;
+  logic ds_free;
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q && !flush && ready && start &&
                    (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
@@ -396,10 +461,9 @@ module tg_rename
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      for (int r = 0; r < 32; r++) begin
-        rat_q[r]  <= '{p: mk_preg(0, PIDX_W'(r)), w: '0, l1: 1'b0, ks: '0};
-        crat_q[r] <= mk_preg(0, PIDX_W'(r));
-      end
+      sv_q       <= '0;
+      lvtc_q     <= '0;
+      cinit_q    <= '0;
       ready_q    <= '1;
       llt_busy_q <= '0;
       rtail_q    <= '0;
@@ -410,9 +474,10 @@ module tg_rename
       rn_valid_q <= '0;
       ds_valid_q <= '0;
     end else begin
-      // Committed map
+      // Committed map: the bank written last
+      if (!cinit_q[5]) cinit_q <= cinit_q + 1'b1;
       for (int j = 0; j < COMMIT_WIDTH; j++) begin
-        if (cm_valid[j] && cm_rd_en[j]) crat_q[cm_rd[j]] <= cm_dst[j];
+        if (cm_valid[j] && cm_rd_en[j]) lvtc_q[cm_rd[j]] <= CSW'(j);
       end
       // Ready bits: set by register-file writes, cleared by allocation (below)
       for (int b = 0; b < INT_BANKS; b++) begin
@@ -422,11 +487,7 @@ module tg_rename
       if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
 
       if (flush) begin
-        // committed mappings are ready: their producer fields are never used
-        for (int r = 0; r < 32; r++) rat_q[r] <= '{p: crat_q[r], w: '0, l1: 1'b0, ks: '0};
-        for (int j = 0; j < COMMIT_WIDTH; j++) begin
-          if (cm_valid[j] && cm_rd_en[j]) rat_q[cm_rd[j]] <= '{p: cm_dst[j], w: '0, l1: 1'b0, ks: '0};
-        end
+        sv_q       <= '0;               // the committed map (with this cycle's commits) answers
         llt_busy_q <= '0;
         rtail_q    <= rob_head;
         ltail_q    <= lq_head;
@@ -456,9 +517,9 @@ module tg_rename
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
               if (rn_uop_q[k].d.rd_en) begin
-                rat_q[rn_uop_q[k].d.rd] <= '{p: ren[k].dst, w: ren[k].wid, l1: is_lat1(rn_uop_q[k].d.cls),
-                                             ks: KSW'(k)};
-                ready_q[ren[k].dst] <= 1'b0;
+                sv_q[rn_uop_q[k].d.rd]  <= 1'b1;
+                lvt_q[rn_uop_q[k].d.rd] <= KSW'(k);
+                ready_q[ren[k].dst]     <= 1'b0;
               end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
             end
