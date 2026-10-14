@@ -36,6 +36,8 @@ Times are US Pacific.
 | 10-14 02:18 | Verification fixes and the soak service; FPU LUT pass merged (FPU 5,889 LUTs). |
 | 10-14 02:00–03:00 | Vivado trimmed on the build host (47 → 33 GB); unused folders archived to E:. |
 | 10-14 03:10 | **AR-1 measured:** v1 scheduler 8,895 → 5,506 LUTs (−38%), with better slack. |
+| 10-14 03:20 | **The build host ran out of memory.** Two full-device Vivado runs plus the nightly budget synthesis (a parent and six child Vivado processes) took about 33 of WSL's 39 GB, and SSH and every session stalled for about 10 minutes. The budget run and the soak were stopped; Vivado now declares its memory and waits for room in a budget (DR-106). |
+| 10-14 03:30–04:01 | **A second stall, 31 minutes.** A core-track synthesis started at 03:30 with seven parallel worker processes, about 10 GB in all. Its branch did not have the new admission yet, so it ran beside two full-device spikes runs. After about 19 minutes of thrashing, the kernel killed one of those (`s6_smt2w3t_93_180`) at 03:51; SSH came back at 04:01. **Now:** the memory guard runs on the build host (DR-107), and the admission counts a slot held by an older script as 10 GB (DR-109). |
 
 **Pace.** About 16 hours of wall-clock time took the project from an empty repository to:
 - M0, except S1, which needs the board;
@@ -180,7 +182,16 @@ The real numbers come after the core's area pass (AR-7). No IPC-costing lever is
 
 **Machine and account:**
 - **The account usage limit stops every session at once.** Fewer idle sessions, standby for finished tracks, and restarts after each reset. The user upgraded the plan on 10-14.
-- **Use the 32-thread host:** `-j16` per track, 3 Vivado slots, Verilator threads for long simulations, and a nice-19 soak.
+- **Use the 32-thread host:** `-j16` per track, 3 Vivado slots, Verilator threads for long simulations, and a nice-19 soak. That sizing came from the thread count, and it was wrong; see the next point.
+- **Memory, not threads, limits the build host.** WSL has 39 GB. Three Vivado slots plus a budget run's six child processes used it all.
+  - **Why it hurts so much:** the kernel's OOM killer acts only after minutes of thrashing, and SSH and every agent session stall meanwhile.
+  - **Now:**
+    - Vivado jobs declare their memory, children included, and wait for room in a 24 GB budget;
+    - Verilator builds at `-j8`;
+    - the soak pauses under 12 GB available;
+    - a memory guard stops the newest heavy job under 3 GB available.
+  - **The user's call:** giving WSL more of the host's 64 GB (DR-108).
+- **A tool fix on main protects nothing until each track merges it.** Tracks run tools from their own branches, and the spikes track from snapshots taken when each run starts. The second stall came from a track that had not merged the new admission yet. The memory guard runs from the main checkout, so it covers every job whatever its branch.
 
 **Sessions and messaging:**
 - **Sessions on the build host often can't message the coordinator on the laptop;** the coordinator's messages do reach them. End-of-turn reports are the reliable channel, and the coordinator now checks in every 20–30 minutes.
@@ -205,3 +216,6 @@ The real numbers come after the core's area pass (AR-7). No IPC-costing lever is
 - `pkill -f` matched its own command line twice, and a monitor loop matched itself.
 - An `&&` before a backgrounded `nohup` held the user's SSH session open.
 - An implementation smoke test used a combinational module with no clock port.
+- Raised the build host's parallelism (3 Vivado slots, `-j16`) from its thread count, without a memory model. The host ran out of memory.
+- `pkill -f` again: the command that stopped the budget synthesis also killed the nightly runner that had started it.
+- Changed the Vivado admission on main without having the tracks merge it before their next heavy job. The core track's next synthesis ran under the old rules and stalled the host for 31 minutes.

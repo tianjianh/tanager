@@ -80,13 +80,17 @@ Dates are 2026, US Pacific.
 | DR-035 | 10-13 | Tool pins: Verilator 5.052, Spike, riscv-tests, riscv-arch-test (ACT4), TestFloat, Sail 0.15 | approved | coord | tools/versions.sh |
 | DR-036 | 10-13 | Disk limits: WSL ≤ 95 GB, host ≥ 15 GB free, per-track budgets, ccache capped at 1 GB | approved | coord | conventions §9 |
 | DR-037 | 10-13 | Passwordless sudo on the 5950X. The user set it up; the coordinator would not change a security setting itself. | approved | user | — |
-| DR-038 | 10-14 | Use the build host fully: `-j16` per track, 3 Vivado slots (at most 2 full-device), Verilator threads for long simulations, a nice-19 soak | approved | user, coord | conventions §9 |
+| DR-038 | 10-14 | Use the build host fully: `-j16` per track, 3 Vivado slots (at most 2 full-device), Verilator threads for long simulations, a nice-19 soak | superseded in part (DR-106: memory, not threads, sets the limits) | user, coord | conventions §9 |
 | DR-039 | 10-14 | Delete Vivado's simulator libraries (`data/xsim`, `data/secureip`; 7.5 GB) after testing synthesis, implementation and the KV260 block design without them | approved | user | devlog §5 |
 | DR-040 | 10-14 | Archive Vivado's `gnu/` and `Vitis/ide` to E: (tested the same way) | approved | user | E:\tanager-archive\README.txt |
 | DR-041 | 10-14 | **Rejected:** a build or worktree virtual disk on E:. It is a USB flash stick whose 4 KiB writes average 138 ms with stalls of seconds; it is for cold storage only. | rejected | coord (the user offered it) | devlog §5 |
 | DR-042 | 10-14 | Compact the WSL disk with the self-service script when C: is short and the tracks are idle | approved | user | C:\WSL\tg_compact.ps1 |
 | DR-043 | 10-13 | **Rejected:** a sparse WSL virtual disk, which needs `--allow-unsafe` and carries a corruption risk | rejected | coord | — |
 | DR-044 | 10-13 | KV260 setup deferred until bring-up needs it (S1 and M4) | pending | user | fpga/kv260/README.md |
+| DR-106 | 10-14 | Memory sets the build host's limits, after it ran out at 03:20. **The rules:** Vivado jobs declare their memory, children included, and are admitted within a 24 GB budget across 2 slots; Vivado runs with `oom_score_adj` 800; Verilator builds use at most `-j8` and long simulations `--threads 4`; the soak pauses under 12 GB available. **Supersedes:** DR-038's 3 slots and `-j16`. | approved | coord | conventions §9; devlog §5 |
+| DR-107 | 10-14 | A memory guard in user space (`tools/memguard.sh`): under 3 GB available it stops the newest heavy job, the soak first, and logs it, before the kernel thrashes. A system early-OOM daemon (earlyoom, systemd-oomd) stays the user's option: it is a system setting. | approved | coord | conventions §9 |
+| DR-108 | 10-14 | Give WSL 56 GB of the 5950X's 64 GB (it has about 40 GB), then raise the Vivado budget to about 34 GB with 3 slots | pending | user | — |
+| DR-109 | 10-14 | After the second stall: the admission counts a slot held by an older `vivado_run.sh` as 10 GB, and tracks merge main before their next heavy job whenever a shared tool changes | approved | coord | conventions §9; devlog §5 |
 
 ## 4. Core microarchitecture and interfaces
 
