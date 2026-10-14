@@ -7,7 +7,7 @@ export TANAGER_OPT="$HOME/opt/tanager"
 export VERILATOR_ROOT="$TANAGER_OPT/verilator-$VERILATOR_TAG/share/verilator"
 export SPIKE_ROOT="$TANAGER_OPT/spike"
 export RISCV_TESTS="$TANAGER_OPT/riscv-tests"
-export PATH="$TANAGER_OPT/verilator-$VERILATOR_TAG/bin:$SPIKE_ROOT/bin:$TANAGER_OPT/testfloat/bin:$HOME/opt/xpack-riscv-none-elf-gcc-15.2.0-1/bin:$PATH"
+export PATH="$TANAGER_OPT/verilator-$VERILATOR_TAG/bin:$SPIKE_ROOT/bin:$TANAGER_OPT/testfloat/bin:$TANAGER_OPT/sail-$SAIL_VERSION/bin:$HOME/opt/xpack-riscv-none-elf-gcc-15.2.0-1/bin:$PATH"
 export LD_LIBRARY_PATH="$SPIKE_ROOT/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 # GCC 15 for host C/C++ (harnesses, checkers). Verilator models use the g++-15 baked into
 # verilated.mk when Verilator was built (tools/setup_tools.sh).

@@ -1,6 +1,6 @@
 # Cross-track interfaces
 
-**Status:** v1, 2026-10-13, M0. Owner: coordinator. Changes go through the coordinator (§7).
+**Status:** v1.1, 2026-10-13 (v1.1 adds the SC-outcome rule in §5). Owner: coordinator. Changes go through the coordinator (§7).
 
 These are the contracts between the tracks: core, FPU, SoC, verification and spikes. The SystemVerilog packages are the source of truth for field names and widths:
 
@@ -181,11 +181,14 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 - `mmio_ld = 1`: a load from a device or ROM region.
 - `nondet = 1`: reads of `cycle`, `time`, `mip`, `sip`, the `hpmcounter*` registers, and any other CSR the checker lists as non-deterministic. `instret` is compared exactly.
 - `TR_IRQ`: the checker makes Spike take the same interrupt (`cause`) at the same instruction boundary.
+- SC outcome: an SC may fail in the RTL where it succeeds in Spike, for example when a probe, an interrupt or the LR timeout (plan §4.9) ends the reservation. The checker adopts the RTL's outcome (the `rd` value) and keeps Spike's memory consistent with it.
 - `fflags` and `fcsr` are compared only where software reads them, never per instruction.
 
 **Stores.** `mem_vaddr`, `mem_wdata` and `mem_size` are compared with Spike's commit log.
 
-**Future fields.** With the fusion, SFB or jump-folding options enabled, a record may stand for more than one instruction. A count field will be added when one of those options is scheduled; none is in v1.
+**Future fields.** These are additive, and the struct changes only when they are scheduled.
+- **Instruction count:** with the fusion, SFB or jump-folding options enabled, a record may stand for more than one instruction. A count field will be added when one of those options is scheduled; none is in v1.
+- **M7:** load addresses (for multi-hart lockstep) and a physical store address (for `tohost` detection under virtual memory).
 
 ## 6. Reset and clocks between tracks
 - **SoC clocks:** `clk_core` (200 MHz goal, 150 floor) and `clk_host` (100 MHz). Only the host bridge crosses between them (plan §7.1).

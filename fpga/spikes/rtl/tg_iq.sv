@@ -27,7 +27,10 @@
 //   0 guard:  busy[c] = some row still has dep[c] set; the ID allocator must not reuse c
 //             while busy[c] (dependency bits are cleared when a row is freed)
 //   1 phase:  every ID has a phase bit that flips on allocation; a row records the phase
-//             of each producer and W has one vector per phase (w1)
+//             of each producer and W has one vector per phase (w1). Unsafe for pooled IDs:
+//             an LLT can be reallocated twice while a row still waits on its first
+//             instance, the phase wraps and the row waits forever (tb_iq finds it). Safe
+//             only for IDs reused in allocation order (ROB entries).
 //   2 clear:  col_clr[c] (registered, when the producer holding c is freed: retire or LLT
 //             release) clears column c in every row; the producer is complete by then
 //
@@ -38,6 +41,23 @@
 //                first) sit in flip-flops and leave through the grant's AND-OR mux; the rest
 //                is in one LUTRAM per bank, read in the next cycle with the registered grant.
 //   Either way iss_payload is valid in the cycle after the select (the RF stage).
+//   MX = 1:      matrix wakeup for 1-cycle producers. The RA rows of the ALU queues are
+//                numbered across the queues; a row records which of them produce its sources
+//                (disp_mdep, set by dispatch while the producer still holds its row) and is
+//                ready only when all of those rows are selected (mx_issued: selected and
+//                held). The wakeup ID's W bit is then set a cycle later (the grant is
+//                registered before the encode), so the loop is grant -> issued register ->
+//                readiness -> select,
+//                with no ID encode or decode. A freed row's column is cleared everywhere
+//                (mx_free); its producer has completed by then.
+//                Dispatch names a source by row only while that row still holds the
+//                producer: it compares the source's physical register with the row's
+//                destination (one compare per source, no CAM), else it uses the ID.
+//                tg_wake's cancel history must then be 1 cycle (HIST = 1), not 2.
+//   PRE_RDY = 1 (with MX, STALE 0 or 2): each row's ID readiness is computed a cycle
+//                early from W's next state (w_next) and registered, so the select cycle
+//                starts from one flip-flop per row instead of an NCOL-wide AND-OR. Rows
+//                written this cycle take theirs from their dispatch port's dependencies.
 //
 // SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
@@ -57,6 +77,9 @@ module tg_iq
   parameter int ROBW      = ROB_IDX_W + 1,   // ROB index plus wrap bit
   parameter bit DUP_SEL   = 1'b0,
   parameter int EARLY_W   = PAYLOAD_W,
+  parameter bit MX        = 1'b0,
+  parameter int RA        = 1,      // MX: ALU-queue rows, all queues
+  parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -74,11 +97,18 @@ module tg_iq
   output logic [NUM_THREADS-1:0][RMW-1:0] room_q,
   // Wakeup state
   input  logic [NCOL-1:0]               w,             // woken vector (phase 0 if STALE = 1)
+  input  logic [NCOL-1:0]               w_next,        // its next state (PRE_RDY)
   input  logic [NCOL-1:0]               w1,            // phase-1 vector (STALE = 1)
   input  logic [NCOL-1:0]               col_clr,       // STALE = 2
   input  logic                          cancel,
   output logic [NCOL-1:0]               wake_now,      // IDs woken by this cycle's select
   output logic [NCOL-1:0]               busy,          // STALE = 0
+  // Matrix wakeup (MX = 1)
+  input  logic [DW-1:0][RA-1:0]         disp_mdep,     // sources made by 1-cycle ops in these rows
+  input  logic [RA-1:0]                 mx_issued,     // ALU-queue rows selected and still held
+  input  logic [RA-1:0]                 mx_free,       // ALU-queue rows freed this cycle
+  output logic [ROWS-1:0]               issued_o,      // this queue's rows selected and held
+  output logic [ROWS-1:0]               free_o,        // this queue's rows freed this cycle
   // Kill
   input  logic                          flush_valid,
   input  tid_t                          flush_tid,
@@ -102,6 +132,7 @@ module tg_iq
   logic [ROWS-1:0][EARLY_W-1:0] payload_q;
   logic [ROWS-1:0][NCOL-1:0]  dep_q;      // STALE 0/2: dep; STALE 1: waits on phase 0
   logic [ROWS-1:0][NCOL-1:0]  dep1_q;     // STALE 1: waits on phase 1
+  logic [ROWS-1:0][RA-1:0]    mdep_q;     // MX: waits on these ALU-queue rows
 
   // Allocation: the row each bank writes next (one-hot within the queue)
   logic [DW-1:0][ROWS-1:0]    alloc_oh_q;
@@ -112,14 +143,41 @@ module tg_iq
 
   // ---- Readiness ----
   logic [ROWS-1:0] ready;
+  logic [ROWS-1:0] rdyw_q;   // PRE_RDY: every ID dependency satisfied in this cycle's W
+  if (PRE_RDY) begin : g_rdyw
+    logic [DW-1:0] slot_rdy;
+    for (genvar k = 0; k < DW; k++) begin : g_slot
+      assign slot_rdy[k] = !(|(disp_dep[k] & ~w_next));
+    end
+    always_ff @(posedge clk) begin
+      for (int r = 0; r < ROWS; r++) begin
+        if (we[r]) rdyw_q[r] <= slot_rdy[bank_of(r)];
+        else if (STALE == 2) rdyw_q[r] <= !(|(dep_q[r] & ~col_clr & ~w_next));
+        else       rdyw_q[r] <= !(|(dep_q[r] & ~w_next));
+      end
+    end
+    if (!MX || STALE == 1) begin : g_bad_pre
+      $error("tg_iq: PRE_RDY needs MX = 1 and STALE 0 or 2");
+    end
+  end else begin : g_nordyw
+    assign rdyw_q = '1;
+  end
   for (genvar r = 0; r < ROWS; r++) begin : g_ready
     logic pend;
-    if (STALE == 1) begin : g_ph
+    if (PRE_RDY) begin : g_pre
+      assign pend = !rdyw_q[r];
+    end else if (STALE == 1) begin : g_ph
       assign pend = |((dep_q[r] & ~w) | (dep1_q[r] & ~w1));
     end else begin : g_one
       assign pend = |(dep_q[r] & ~w);
     end
-    assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend;
+    logic mpend;
+    if (MX) begin : g_mx
+      assign mpend = |(mdep_q[r] & ~mx_issued);
+    end else begin : g_nomx
+      assign mpend = 1'b0;
+    end
+    assign ready[r] = valid_q[r] && age_q[r] == 2'd0 && !pend && !mpend;
   end
 
   // ---- Age matrix (upper triangle: older_q[i][j], i < j: row i allocated before row j) ----
@@ -175,6 +233,17 @@ module tg_iq
     assign grant_w = grant;
   end
 
+  // MX: the wakeup encode works on the registered grant; W follows a cycle later anyway, and
+  // the encode leaves the select cycle.
+  logic [ROWS-1:0] grant_e;
+  if (MX) begin : g_grant_reg
+    logic [ROWS-1:0] grant_wq;
+    always_ff @(posedge clk) grant_wq <= rst ? '0 : grant_w & {ROWS{!cancel}};
+    assign grant_e = grant_wq;
+  end else begin : g_grant_now
+    assign grant_e = grant_w;
+  end
+
   // ---- Issue output: one-hot AND-OR mux of the early payload, LUTRAM for the rest ----
   logic [EARLY_W-1:0] payload_sel, early_q;
   always_comb begin
@@ -224,18 +293,19 @@ module tg_iq
   end
 
   // ---- Wakeup at select ----
+  logic [NCOL-1:0] wake_c;
   if (!WAKE_NOW) begin : g_nowake
-    assign wake_now = '0;
+    assign wake_c = '0;
     logic unused_gw;
-    assign unused_gw = ^grant_w;
+    assign unused_gw = ^{grant_w, grant_e};
   end else if (WAKE_ENC == 0) begin : g_wake_oh
     logic [ROWS-1:0][NCOL-1:0] wid_q;   // one-hot wakeup ID, zero if the op does not wake at select
     always_ff @(posedge clk) begin
       for (int r = 0; r < ROWS; r++) if (we[r]) wid_q[r] <= disp_wake_oh[bank_of(r)];
     end
     always_comb begin
-      wake_now = '0;
-      for (int r = 0; r < ROWS; r++) wake_now |= {NCOL{grant_w[r]}} & wid_q[r];
+      wake_c = '0;
+      for (int r = 0; r < ROWS; r++) wake_c |= {NCOL{grant_e[r]}} & wid_q[r];
     end
   end else begin : g_wake_hl
     // Predecoded ID: hi = ID / 8 one-hot, lo = ID % 8 one-hot (21 bits per row at 104 IDs)
@@ -267,12 +337,13 @@ module tg_iq
       sel_hi = '0;
       sel_lo = '0;
       for (int r = 0; r < ROWS; r++) begin
-        sel_hi |= {NHI{grant_w[r]}} & hi_q[r];
-        sel_lo |= {8{grant_w[r]}} & lo_q[r];
+        sel_hi |= {NHI{grant_e[r]}} & hi_q[r];
+        sel_lo |= {8{grant_e[r]}} & lo_q[r];
       end
-      for (int c = 0; c < NCOL; c++) wake_now[c] = sel_hi[c / 8] && sel_lo[c % 8];
+      for (int c = 0; c < NCOL; c++) wake_c[c] = sel_hi[c / 8] && sel_lo[c % 8];
     end
   end
+  assign wake_now = wake_c;
 
   // ---- Row lifetime ----
   logic [ROWS-1:0] kill, free_now;
@@ -284,6 +355,21 @@ module tg_iq
                    : (rob_q[r][ROBW-2:0] < flush_rob[ROBW-2:0]);
     assign kill[r] = flush_valid && tid_q[r] == flush_tid && (flush_all || younger);
     assign free_now[r] = (age_q[r] == 2'd2 && !cancel) || kill[r];
+  end
+
+  for (genvar r = 0; r < ROWS; r++) begin : g_mxo
+    assign issued_o[r] = valid_q[r] && age_q[r] != 2'd0;
+    assign free_o[r]   = valid_q[r] && free_now[r];
+  end
+
+  // Matrix dependencies: written at dispatch, a column cleared when its row is freed
+  if (MX) begin : g_mdep
+    always_ff @(posedge clk) begin
+      for (int r = 0; r < ROWS; r++)
+        mdep_q[r] <= (we[r] ? disp_mdep[bank_of(r)] : mdep_q[r]) & ~mx_free;
+    end
+  end else begin : g_nomdep
+    assign mdep_q = '0;
   end
 
   logic [ROWS-1:0] valid_d;
@@ -389,7 +475,9 @@ module tg_iq
   // Inputs a variant does not use
   logic unused;
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE == 2) ? '0 : col_clr,
-                    WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q};
+                    WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
+                    MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
+                    PRE_RDY ? '0 : w_next, rdyw_q};
 
 `ifndef SYNTHESIS
   // A port writes only when its bank has a free row.

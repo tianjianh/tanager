@@ -1,0 +1,8 @@
+nextpc                 slack   1.914 levels  6 logic 0.717 net 2.292  fpc_q_reg[4]/C -> fpc_q_reg[6]/D
+icache_addr            slack   0.923 levels  6 logic 0.717 net 2.713  fpc_q_reg[4]/C -> g_way[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/ADDRARDADDR[8]
+saved_pc               none
+if2_stage              slack   0.582 levels  8 logic 1.136 net 2.922  if2_ppn_q_reg[11]/C -> if3_marks_q_reg[7][0]/R
+if2_carry              slack   0.735 levels  8 logic 1.136 net 2.767  if2_ppn_q_reg[11]/C -> if3_carry_q_reg/R
+if3_iq_write           slack   1.127 levels  8 logic 1.155 net 2.472  if3_start_q_reg[4]/C -> u_cmp/g_bank[2].u_ram/g_m32.g_prim[0].u_ram/RAMG_D1/I
+if3_state              slack   1.436 levels  7 logic 1.040 net 2.275  u_cmp/half_v_q_reg/C -> u_cmp/half_q_reg[15]/CE
+iq_read                slack   1.721 levels  3 logic 0.642 net 2.510  u_cmp/head_q_reg[1]/C -> out_insn_o_reg[1][37]/D

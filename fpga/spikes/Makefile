@@ -11,7 +11,8 @@ CHECKS := \
   $(foreach c,st smt2 smt2_w3,$(foreach s,0 1 2,$(foreach w,0 1,tg_s2_iq_top:$(c):-GSTALE=$(s)+-GWAKE_ENC=$(w) tg_s2_sched_top:$(c):-GSTALE=$(s)+-GWAKE_ENC=$(w)))) \
   $(foreach c,st smt2 st_w3 smt2_w3,$(foreach b,0 1,$(foreach r,0 1,$(foreach o,0 1,tg_s3_top:$(c):-GBYPASS=$(b)+-GRF3=$(r)+-GSEL_OH=$(o))))) \
   $(foreach c,st smt2,$(foreach a,0 1,tg_s4_top:$(c):-GALIGN_M1=$(a))) \
-  $(foreach c,st smt2 st_w3 smt2_w3,$(foreach f,0 1,$(foreach w,4 8,tg_s5_top:$(c):-GFA=$(f)+-GWR=$(w))))
+  $(foreach c,st smt2 st_w3 smt2_w3,$(foreach f,0 1,$(foreach w,4 8,tg_s5_top:$(c):-GFA=$(f)+-GWR=$(w)))) \
+  $(foreach c,st smt2_w3,tg_s6_top:$(c):-GCORE_TILES=300+-GCORE_NRAM=2+-GCORE_NBRAM=2+-GCORE_NDSP=2+-GUNC_TILES=100+-GUNC_NRAM=2+-GS2_MX=$(if $(filter st,$(c)),0,1))
 
 .PHONY: lint
 lint:
@@ -20,4 +21,8 @@ lint:
 	  out=$$($(LINT) $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv -F $(ROOT)/rtl/common/common.f \
 	        -F spikes.f --top-module $$top $$g 2>&1 | grep -E '^%' || true); \
 	  if [ -n "$$out" ]; then echo "== $$top $$cfg $$g"; echo "$$out"; exit 1; fi; \
-	done; echo "spike lint OK ($(words $(CHECKS)) checks)"
+	done; \
+	out=$$($(LINT) $(ROOT)/rtl/common/prim/tg_ram_sdp.sv s1/rtl/tg_s1_engine.sv \
+	      s1/rtl/tg_s1_top.sv --top-module tg_s1_top 2>&1 | grep -E '^%' || true); \
+	if [ -n "$$out" ]; then echo "== tg_s1_top"; echo "$$out"; exit 1; fi; \
+	echo "spike lint OK ($(words $(CHECKS)) checks + S1)"

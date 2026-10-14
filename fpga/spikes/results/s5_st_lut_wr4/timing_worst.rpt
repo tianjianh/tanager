@@ -1,0 +1,97 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Tue Oct 13 16:35:09 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -max_paths 1 -input_pins -file timing_worst.rpt
+| Design            : tg_s5_top
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Routed
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (MET) :             0.582ns  (required time - arrival time)
+  Source:                 if2_ppn_q_reg[11]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            if3_marks_q_reg[7][0]/R
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        4.058ns  (logic 1.136ns (27.992%)  route 2.922ns (72.008%))
+  Logic Levels:           8  (CARRY8=1 LUT2=2 LUT6=5)
+  Clock Path Skew:        -0.207ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    2.041ns = ( 7.041 - 5.000 ) 
+    Source Clock Delay      (SCD):    2.393ns
+    Clock Pessimism Removal (CPR):    0.145ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=2685, unset)         2.393     2.393    clk
+    SLICE_X41Y33         FDRE                                         r  if2_ppn_q_reg[11]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X41Y33         FDRE (Prop_CFF_SLICEM_C_Q)
+                                                      0.116     2.509 r  if2_ppn_q_reg[11]/Q
+                         net (fo=8, routed)           0.530     3.039    g_way[3].u_data/if3_parcel_q_reg[7][15]_i_27_0[11]
+    SLICE_X38Y34                                                      r  g_way[3].u_data/if3_parcel_q[7][15]_i_32/I0
+    SLICE_X38Y34         LUT6 (Prop_D6LUT_SLICEM_I0_O)
+                                                      0.134     3.173 r  g_way[3].u_data/if3_parcel_q[7][15]_i_32/O
+                         net (fo=1, routed)           0.032     3.205    g_way[3].u_data/if3_parcel_q[7][15]_i_32_n_0
+    SLICE_X38Y34                                                      r  g_way[3].u_data/if3_parcel_q_reg[7][15]_i_26/S[3]
+    SLICE_X38Y34         CARRY8 (Prop_CARRY8_SLICEM_S[3]_CO[7])
+                                                      0.240     3.445 r  g_way[3].u_data/if3_parcel_q_reg[7][15]_i_26/CO[7]
+                         net (fo=1, routed)           0.396     3.841    g_way[3].u_data/way_hit_40
+    SLICE_X34Y33                                                      r  g_way[3].u_data/if3_parcel_q[7][15]_i_8/I1
+    SLICE_X34Y33         LUT2 (Prop_G6LUT_SLICEM_I1_O)
+                                                      0.082     3.923 r  g_way[3].u_data/if3_parcel_q[7][15]_i_8/O
+                         net (fo=129, routed)         0.745     4.667    g_way[3].u_data/if2_tag_q_reg[4][22]
+    SLICE_X27Y21                                                      r  g_way[3].u_data/if3_parcel_q[2][1]_i_3/I2
+    SLICE_X27Y21         LUT6 (Prop_D6LUT_SLICEL_I2_O)
+                                                      0.081     4.748 r  g_way[3].u_data/if3_parcel_q[2][1]_i_3/O
+                         net (fo=2, routed)           0.258     5.006    g_way[3].u_data/gen_wr_a.gen_word_narrow.mem_reg_0_5
+    SLICE_X29Y19                                                      r  g_way[3].u_data/if3_start_q[7]_i_11/I3
+    SLICE_X29Y19         LUT6 (Prop_D6LUT_SLICEM_I3_O)
+                                                      0.134     5.140 f  g_way[3].u_data/if3_start_q[7]_i_11/O
+                         net (fo=2, routed)           0.168     5.308    g_way[3].u_data/gen_wr_a.gen_word_narrow.mem_reg_0
+    SLICE_X30Y21                                                      f  g_way[3].u_data/if3_start_q[7]_i_4/I4
+    SLICE_X30Y21         LUT6 (Prop_H6LUT_SLICEL_I4_O)
+                                                      0.153     5.461 f  g_way[3].u_data/if3_start_q[7]_i_4/O
+                         net (fo=3, routed)           0.157     5.618    g_way[6].u_data/if3_start_q_reg[7]
+    SLICE_X30Y24                                                      f  g_way[6].u_data/if3_start_q[7]_i_1/I2
+    SLICE_X30Y24         LUT6 (Prop_F6LUT_SLICEL_I2_O)
+                                                      0.136     5.754 f  g_way[6].u_data/if3_start_q[7]_i_1/O
+                         net (fo=3, routed)           0.233     5.987    u_cmp/D[0]
+    SLICE_X32Y25                                                      f  u_cmp/if3_marks_q[7][2]_i_1/I1
+    SLICE_X32Y25         LUT2 (Prop_H6LUT_SLICEM_I1_O)
+                                                      0.060     6.047 r  u_cmp/if3_marks_q[7][2]_i_1/O
+                         net (fo=4, routed)           0.404     6.451    u_cmp_n_1
+    SLICE_X32Y29         FDRE                                         r  if3_marks_q_reg[7][0]/R
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        5.000     5.000 r  
+                                                      0.000     5.000 r  clk (IN)
+                         net (fo=2685, unset)         2.041     7.041    clk
+    SLICE_X32Y29         FDRE                                         r  if3_marks_q_reg[7][0]/C
+                         clock pessimism              0.145     7.186    
+                         clock uncertainty           -0.035     7.151    
+    SLICE_X32Y29         FDRE (Setup_AFF_SLICEM_C_R)
+                                                     -0.118     7.033    if3_marks_q_reg[7][0]
+  -------------------------------------------------------------------
+                         required time                          7.033    
+                         arrival time                          -6.451    
+  -------------------------------------------------------------------
+                         slack                                  0.582    
+
+
+
+

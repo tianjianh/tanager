@@ -146,6 +146,37 @@ module tb_s1;
     end
   end
 
+  // ---- Reference statistics per engine, from the port handshakes: latency from the address
+  // handshake to the first read beat or the write response, binned with HSHIFT = 1 ----
+  int href [2][256];
+  int rn [2], rmin [2], rmax [2];
+  longint rsum [2];
+  function automatic void ref_clear(input int e);
+    for (int i = 0; i < 256; i++) href[e][i] = 0;
+    rn[e] = 0; rsum[e] = 0; rmin[e] = 32'h7fff_ffff; rmax[e] = 0;
+  endfunction
+  function automatic void ref_add(input int e, input int lat);
+    href[e][(lat >> 1) > 255 ? 255 : (lat >> 1)]++;
+    rn[e]++; rsum[e] += lat;
+    if (lat < rmin[e]) rmin[e] = lat;
+    if (lat > rmax[e]) rmax[e] = lat;
+  endfunction
+  for (genvar p = 0; p < 2; p++) begin : g_ref
+    int t_iss [64];
+    bit seen [64];
+    int cyc = 0;
+    always @(posedge clk) begin
+      cyc++;
+      if (arvalid_m[p] && arready_m[p]) begin t_iss[arid[p]] = cyc; seen[arid[p]] = 0; end
+      if (awvalid_m[p] && awready_m[p]) t_iss[awid[p]] = cyc;
+      if (rvalid_m[p] && rready_m[p] && !seen[rid[p]]) begin
+        seen[rid[p]] = 1;
+        ref_add(p, cyc - t_iss[rid[p]]);
+      end
+      if (bvalid_m[p] && bready_m[p]) ref_add(p, cyc - t_iss[bid[p]]);
+    end
+  end
+
   // ---- AXI-Lite master ----
   task automatic lw(input logic [11:0] a, input logic [31:0] d);
     @(negedge clk);
@@ -187,8 +218,32 @@ module tb_s1;
     lw(reg_a(e, 8), size);
     lw(reg_a(e, 9), stride);
     lw(reg_a(e, 11), 1);
+    ref_clear(e);
     lw(reg_a(e, 1), (chase << 2) | (mode << 4) | 1);
     if (wait_end) wait_idle(e);
+  endtask
+  // The engine's count, sum, min, max and every histogram bin against the reference
+  task automatic check_stats(input int e, input string name);
+    logic [31:0] n, lo, hi, smin, smax, h;
+    int bad = 0;
+    lr(reg_a(e, 18), n); lr(reg_a(e, 16), lo); lr(reg_a(e, 17), hi);
+    lr(reg_a(e, 14), smin); lr(reg_a(e, 15), smax);
+    if (int'(n) != rn[e] || {hi, lo} != 64'(rsum[e]) || int'(smin) != rmin[e]
+        || int'(smax) != rmax[e]) begin
+      errors++;
+      $display("ERROR %s: n %0d/%0d sum %0d/%0d min %0d/%0d max %0d/%0d", name, n, rn[e],
+               {hi, lo}, rsum[e], smin, rmin[e], smax, rmax[e]);
+    end
+    for (int i = 0; i < 256; i++) begin
+      lr(reg_a(e, 256 + i), h);
+      if (int'(h) != href[e][i]) begin
+        bad++;
+        if (bad < 4) $display("ERROR %s: bin %0d holds %0d, expected %0d", name, i, h, href[e][i]);
+      end
+    end
+    if (bad != 0) errors++;
+    $display("%s: %0d samples, latency %0d..%0d, mean %0.1f", name, rn[e], rmin[e], rmax[e],
+             real'(rsum[e]) / rn[e]);
   endtask
 
   // Monitor the chase: every read address must be the node the previous read pointed to
@@ -240,6 +295,7 @@ module tb_s1;
       hsum = 0;
       for (int i = 0; i < 256; i++) begin lr(reg_a(0, 256 + i), h); hsum += h; end
       if (hsum != 1000) begin errors++; $display("ERROR histogram sums to %0d", hsum); end
+      check_stats(0, "chase");
     end
     // 2. read bandwidth: 2000 bursts of 4 beats, 16 outstanding, on both engines at once
     begin
@@ -251,6 +307,8 @@ module tb_s1;
       lr(reg_a(0, 19), b0); lr(reg_a(1, 19), b1); lr(reg_a(0, 12), c0);
       $display("bandwidth: engine0 %0d bytes in %0d cycles, engine1 %0d bytes", b0, c0, b1);
       if (b0 != 2000 * 64 || b1 != 500 * 256) begin errors++; $display("ERROR byte counts"); end
+      check_stats(0, "stream e0");
+      check_stats(1, "stream e1");
     end
     // 3. writes: 300 bursts of 4 beats, sequential from 0x3000_0000
     begin
@@ -258,6 +316,7 @@ module tb_s1;
       run_job(0, 1, 0, 4, 8, 300, 49'h3000_0000, 'h10000, 64);
       lr(reg_a(0, 18), d); lr(reg_a(0, 21), nerr);
       if (d != 300 || nerr != 0) begin errors++; $display("ERROR writes: done %0d", d); end
+      check_stats(0, "writes");
       for (int i = 0; i < 300 * 8; i++)
         if (!mem.exists(49'h3000_0000 + AW'(i * 8))) begin
           errors++; $display("ERROR write missing at %0d", i); break;

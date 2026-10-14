@@ -1,0 +1,35 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Tue Oct 13 16:59:19 2026
+| Host         : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command      : report_utilization -hierarchical -hierarchical_depth 4 -file util_hier.rpt
+| Design       : tg_s5_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++---------------+------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+|    Instance   |      Module      | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++---------------+------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+| tg_s5_top     |            (top) |       2566 |       2118 |     448 |    0 | 2090 |     16 |      0 |    0 |          0 |
+|   (tg_s5_top) |            (top) |        452 |        452 |       0 |    0 |  981 |      0 |      0 |    0 |          0 |
+|   u_cmp       | tg_fetch_compact |       1105 |        977 |     128 |    0 |   37 |      0 |      0 |    0 |          0 |
+|     (u_cmp)   | tg_fetch_compact |        977 |        977 |       0 |    0 |   37 |      0 |      0 |    0 |          0 |
+|   u_itlb      |          tg_dtlb |        519 |        519 |       0 |    0 | 1072 |      0 |      0 |    0 |          0 |
+|   u_ubtb      |          tg_ubtb |        235 |        171 |      64 |    0 |    0 |      0 |      0 |    0 |          0 |
+|     (u_ubtb)  |          tg_ubtb |        171 |        171 |       0 |    0 |    0 |      0 |      0 |    0 |          0 |
++---------------+------------------+------------+------------+---------+------+------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+

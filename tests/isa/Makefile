@@ -9,6 +9,10 @@ SUITES ?= rv64ui-p rv64um-p rv64mi-p
 LAT    ?= native
 JOBS   ?= 8
 
+# Command-line variables of this make (ISA, MARCH, ...) must not reach the sim build, where ISA
+# means Spike's ISA: sub-makes get only what is passed to them explicitly.
+MAKEOVERRIDES :=
+
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
