@@ -58,6 +58,7 @@ module tg_csr
   output pmp_d_t [15:0]          pmp_d,        // PMP region descriptors (registered)
   output logic [2:0]             pmp_al,       // every 4K / 2M / 1G page is PMP-homogeneous
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
+  output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
   // Interrupt inputs and time
   input  logic                   irq_mei,
   input  logic                   irq_mti,
@@ -89,7 +90,6 @@ module tg_csr
   logic [12:0] mcontext_q;
   logic [31:0] scontext_q;
   logic [NPMP-1:0][7:0]  pmpcfg_q;
-  logic [NPMP-1:0][53:0] pmpaddr_q;
 
   // ---- Interrupt pending bits ----
   logic        stip;
@@ -139,50 +139,77 @@ module tg_csr
   assign satp_asid = satp_asid_q;
   assign satp_ppn  = satp_ppn_q;
   // ---- PMP region descriptors (core-mmu.md §PMP) ----
-  // Computed from the CSRs and registered: a PMP write is followed by a flush, so they are
-  // current before the next access. pmp_al[j]: no active region boundary lies strictly inside
-  // a page of 2^k granules (k = 10, 19, 28: 4K, 2M, 1G), so such pages can cache one result.
-  pmp_d_t [NPMP-1:0] pmp_d_n, pmp_d_q;
-  logic [2:0]        pmp_al_n, pmp_al_q;
+  // pmpaddr lives in LUTRAM. A PMP write marks the entries it changes, and one descriptor unit
+  // recomputes a marked entry per cycle into pmp_d_q (flip-flops: every checker reads all 16);
+  // pmp_al follows a cycle later. pmp_busy holds fetch meanwhile: the write's flush has emptied
+  // the window, so nothing else checks PMP until fetch resumes. After reset a sweep writes the
+  // reset values (entry 0: NAPOT over everything), then every entry is computed.
+  // pmp_al[j]: no active region boundary lies strictly inside a page of 2^k granules (k = 10,
+  // 19, 28: 4K, 2M, 1G), so such pages can cache one result.
+  pmp_d_t [NPMP-1:0]     pmp_d_q;
+  logic [NPMP-1:0][2:0]  pal_top_q;     // entry's address aligned to 1G / 2M / 4K pages
+  logic [2:0]            pmp_al_n, pmp_al_q;
+  logic [NPMP-1:0]       pdirty_q;
+  logic                  pchg_q;        // a descriptor changed last cycle: pmp_al follows
+  logic [4:0]            psw_q;         // reset sweep of the pmpaddr LUTRAM
+  logic                  pa_we;
+  logic [3:0]            pa_wa;
+  logic [53:0]           pa_wd;
+  logic [1:0][3:0]       pa_ra;         // CSR read, descriptor unit
+  logic [1:0][53:0]      pa_rd;
+  tg_ram_lut #(.DEPTH(NPMP), .WIDTH(54), .NR(2)) u_pmpaddr (
+    .clk, .we(pa_we), .waddr(pa_wa), .wdata(pa_wd), .raddr(pa_ra), .rdata(pa_rd));
   localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
   localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
   localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
+  logic       psweep, pcalc;
+  logic [3:0] pj;                       // the entry the unit computes
+  pmp_d_t     pd_n;
+  logic [2:0] ptop_n;
+  logic [7:0] pcfg;
+  assign psweep = !psw_q[4];
   always_comb begin
-    for (int i = 0; i < NPMP; i++) begin
-      logic [53:0] y, dc;
-      y  = {pmpaddr_q[i][52:0], 1'b1};
-      dc = (pmpcfg_q[i][4:3] == 2'b11) ? (y & ~(y + 54'd1)) : '0;     // NAPOT don't-care bits
-      pmp_d_n[i].tor  = pmpcfg_q[i][4:3] == 2'b01;
-      pmp_d_n[i].nap  = pmpcfg_q[i][4];
-      pmp_d_n[i].l    = pmpcfg_q[i][7];
-      pmp_d_n[i].x    = pmpcfg_q[i][2];
-      pmp_d_n[i].w    = pmpcfg_q[i][1];
-      pmp_d_n[i].r    = pmpcfg_q[i][0];
-      pmp_d_n[i].hi   = pmpaddr_q[i][53:PMP_GW] != '0;
-      pmp_d_n[i].above  = (pmpaddr_q[i][53:PMP_GW] & ~dc[53:PMP_GW]) != '0;
-      pmp_d_n[i].mask = ~dc[PMP_GW-1:0];
-      pmp_d_n[i].a    = pmpaddr_q[i][PMP_GW-1:0];
-    end
+    pj = '0;
+    for (int i = NPMP - 1; i >= 0; i--) if (pdirty_q[i]) pj = 4'(i);
+  end
+  assign pcalc = !psweep && |pdirty_q;
+  assign pcfg  = pmpcfg_q[pj];
+  always_comb begin
+    logic [53:0] y, dc;
+    y  = {pa_rd[1][52:0], 1'b1};
+    dc = (pcfg[4:3] == 2'b11) ? (y & ~(y + 54'd1)) : '0;    // NAPOT don't-care bits
+    pd_n.tor   = pcfg[4:3] == 2'b01;
+    pd_n.nap   = pcfg[4];
+    pd_n.l     = pcfg[7];
+    pd_n.x     = pcfg[2];
+    pd_n.w     = pcfg[1];
+    pd_n.r     = pcfg[0];
+    pd_n.hi    = pa_rd[1][53:PMP_GW] != '0;
+    pd_n.above = (pa_rd[1][53:PMP_GW] & ~dc[53:PMP_GW]) != '0;
+    pd_n.mask  = ~dc[PMP_GW-1:0];
+    pd_n.a     = pa_rd[1][PMP_GW-1:0];
+    ptop_n = {pd_n.hi || (pd_n.a & AL1G) == '0, pd_n.hi || (pd_n.a & AL2M) == '0,
+              pd_n.hi || (pd_n.a & AL4K) == '0};
+  end
+  assign pa_ra[1] = pj;
+  always_comb begin
     pmp_al_n = '1;
     for (int i = 0; i < NPMP; i++) begin
-      logic [2:0] top_al, lo_al;
-      top_al = {pmp_d_n[i].hi || (pmp_d_n[i].a & AL1G) == '0, pmp_d_n[i].hi || (pmp_d_n[i].a & AL2M) == '0,
-                pmp_d_n[i].hi || (pmp_d_n[i].a & AL4K) == '0};
-      lo_al  = (i == 0) ? 3'b111
-             : {pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL1G) == '0,
-                pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL2M) == '0,
-                pmp_d_n[(i + NPMP - 1) % NPMP].hi || (pmp_d_n[(i + NPMP - 1) % NPMP].a & AL4K) == '0};
-      if (pmp_d_n[i].tor) pmp_al_n &= top_al & lo_al;
-      if (pmp_d_n[i].nap && !pmp_d_n[i].above)
-        pmp_al_n &= ~{pmp_d_n[i].mask[27], pmp_d_n[i].mask[18], pmp_d_n[i].mask[9]};
+      if (pmp_d_q[i].tor) pmp_al_n &= pal_top_q[i] & ((i == 0) ? 3'b111 : pal_top_q[(i + NPMP - 1) % NPMP]);
+      if (pmp_d_q[i].nap && !pmp_d_q[i].above)
+        pmp_al_n &= ~{pmp_d_q[i].mask[27], pmp_d_q[i].mask[18], pmp_d_q[i].mask[9]};
     end
   end
   always_ff @(posedge clk) begin
-    pmp_d_q  <= pmp_d_n;
+    if (pcalc) begin
+      pmp_d_q[pj]   <= pd_n;
+      pal_top_q[pj] <= ptop_n;
+    end
     pmp_al_q <= pmp_al_n;
   end
-  assign pmp_d  = pmp_d_q;
-  assign pmp_al = pmp_al_q;
+  assign pmp_d    = pmp_d_q;
+  assign pmp_al   = pmp_al_q;
+  assign pmp_busy = psweep || |pdirty_q || pchg_q;
   assign mepc_o    = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
   assign sepc_o    = {sepc_q[63:2], sepc_q[1] && misa_c_q, 1'b0};
 
@@ -299,7 +326,7 @@ module tg_csr
           else if (a == 12'h3A2) rval = pmpcfg_q[15:8];
           else rval = '0;
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
-          rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pmpaddr_q[a[3:0]]} : '0;
+          rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pa_rd[0]} : '0;
         end else if ((a >= 12'hB03 && a <= 12'hB1F) || (a >= 12'h323 && a <= 12'h33F)) begin
           rval = '0;                                                 // mhpmcounter*, mhpmevent*
         end else if (a >= 12'hC03 && a <= 12'hC1F) begin             // hpmcounter* (Zihpm)
@@ -345,6 +372,24 @@ module tg_csr
   // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
   assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
                                         (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
+
+  // pmpaddr writes (entry i is locked by its own L, or by entry i + 1's L when that is TOR)
+  // and the reset sweep
+  assign pa_ra[0] = a[3:0];
+  always_comb begin
+    int i;
+    i = int'(pw_a_q[3:0]);
+    pa_we = cm_csr && pw_v_q && pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF &&
+            !(pmpcfg_q[i][7] ||
+              (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01));
+    pa_wa = pw_a_q[3:0];
+    pa_wd = pw_d_q[53:0];
+    if (psweep) begin                    // Spike's reset: entry 0 allows everything
+      pa_we = 1'b1;
+      pa_wa = psw_q[3:0];
+      pa_wd = (psw_q[3:0] == '0) ? '1 : '0;
+    end
+  end
 
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);
@@ -412,12 +457,17 @@ module tg_csr
       mcontext_q <= '0;
       scontext_q <= '0;
       pmpcfg_q  <= '0;
-      pmpaddr_q <= '0;
       // Spike's reset: entry 0 allows everything (NAPOT, RWX)
       pmpcfg_q[0]  <= 8'h1f;
-      pmpaddr_q[0] <= '1;
+      psw_q     <= '0;
+      pdirty_q  <= '1;
+      pchg_q    <= 1'b0;
       pw_v_q    <= 1'b0;
     end else begin
+      // PMP: reset sweep, then descriptor recomputation of the marked entries
+      if (psweep) psw_q <= psw_q + 1'b1;
+      pchg_q <= pcalc;
+      if (pcalc) pdirty_q[pj] <= 1'b0;
       // Counters
       if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
       if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
@@ -504,18 +554,15 @@ module tg_csr
           12'h5A8: scontext_q <= pw_d_q[31:0];
           12'hB00: mcycle_q <= pw_d_q;
           12'hB02: minstret_q <= pw_d_q;              // replaces this instruction's increment
-          12'h3A0: for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
-          12'h3A2: for (int i = 0; i < 8; i++) pmpcfg_q[8+i] <= pmpcfg_w(pmpcfg_q[8+i], pw_d_q[8*i +: 8]);
-          default: begin
-            if (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF) begin
-              int i;
-              logic lk;
-              i = int'(pw_a_q[3:0]);
-              lk = pmpcfg_q[i][7] ||
-                   (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01);
-              if (!lk) pmpaddr_q[i] <= pw_d_q[53:0];
-            end
+          12'h3A0: begin
+            for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
+            pdirty_q[7:0] <= '1;
           end
+          12'h3A2: begin
+            for (int i = 0; i < 8; i++) pmpcfg_q[8+i] <= pmpcfg_w(pmpcfg_q[8+i], pw_d_q[8*i +: 8]);
+            pdirty_q[15:8] <= '1;
+          end
+          default: if (pa_we) pdirty_q[pa_wa] <= 1'b1;      // pmpaddr (written in its LUTRAM)
         endcase
       end
 
@@ -555,5 +602,6 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1]};
+  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1],
+                    pcfg[6:5]};
 endmodule

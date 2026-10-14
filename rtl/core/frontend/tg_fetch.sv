@@ -54,6 +54,7 @@ module tg_fetch
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
   input  priv_e       priv,
   input  pmp_d_t [15:0]     pmp_d,
+  input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic        tlb_flush,
   input  logic        it_fill,
   input  logic [26:0] it_fill_vpn,
@@ -335,9 +336,10 @@ module tg_fetch
   logic f2_deliver, f2_hold;
   assign f2_deliver = f2_valid_q && !f2_miss && !f2_wmiss && f3_accept;
   assign f2_hold    = f2_valid_q && !f2_miss && !f2_wmiss && !f3_accept;
-  // F1 moves on when F2 is free (or delivers) and fetch is not parked or stopped.
+  // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
+  // PMP descriptors.
   logic f1_live;
-  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready;
+  assign f1_live = f1_valid_q && !miss_q && !wk_q && !stop_q && ready && !pmp_busy;
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
   assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
