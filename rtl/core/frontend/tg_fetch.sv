@@ -364,25 +364,21 @@ module tg_fetch
   // set F1 fetches, and the missed set (victim choice when the refill starts; the refill's
   // read-modify-write when it ends). After reset and FENCE.I a sweep clears every set while
   // F1 waits.
+  // The refill rewrites the victim's rows beat by beat and may outlive a redirect, so the
+  // victim's valid bit is cleared when the refill starts: its old line misses from the next
+  // cycle on (a read in the start cycle still gets the old data: no beat is written yet), and
+  // F1 reads in the install cycle are refetched (rdone_d_q).
   logic [1:0][SET_W-1:0] iv_ra;
   logic [1:0][WAYS-1:0]  iv_rd;
   logic                  iv_we;
   logic [SET_W-1:0]      iv_wa;
   logic [WAYS-1:0]       iv_wd;
   logic [SET_W:0]        ivs_q;             // sweep: the next set to clear; done at SETS
+  logic                  r_start;           // the refill of miss_pa_q's line starts
   assign ivs_done = ivs_q[SET_W];
+  assign r_start  = rs_q == R_IDLE && miss_q && !rst;
   assign iv_ra[0] = fpc_q[6 +: SET_W];
   assign iv_ra[1] = (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
-  always_comb begin
-    iv_we = tag_we;
-    iv_wa = tag_set;
-    iv_wd = iv_rd[1] | (WAYS'(1) << rway_q);
-    if (!ivs_done) begin
-      iv_we = 1'b1;
-      iv_wa = ivs_q[SET_W-1:0];
-      iv_wd = '0;
-    end
-  end
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
     .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
 
@@ -397,6 +393,22 @@ module tg_fetch
         victim = WAY_W'(w);
         found = 1'b1;
       end
+    end
+  end
+
+  always_comb begin
+    iv_we = tag_we;
+    iv_wa = tag_set;
+    iv_wd = iv_rd[1] | (WAYS'(1) << rway_q);
+    if (r_start) begin                      // (never with tag_we: that is the refill's end)
+      iv_we = 1'b1;
+      iv_wa = miss_pa_q[6 +: SET_W];
+      iv_wd = iv_rd[1] & ~(WAYS'(1) << victim);
+    end
+    if (!ivs_done) begin
+      iv_we = 1'b1;
+      iv_wa = ivs_q[SET_W-1:0];
+      iv_wd = '0;
     end
   end
 
@@ -619,6 +631,19 @@ module tg_fetch
                     l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0], pmp_hit_u, pmp_rwx_u};
 
 `ifndef SYNTHESIS
+  // No F2 hit on the way being refilled from a row the refill had already rewritten when F1
+  // read it (the old line's tag over the new line's bytes; soc track's report, 2026-10-14)
+  logic            stale_q;
+  logic [WAY_W-1:0] stale_way_q;
+  always_ff @(posedge clk) begin
+    if (f2_go) begin
+      stale_q     <= rs_q == R_DATA && fpc_q[6 +: SET_W] == rline_q[6 +: SET_W] &&
+                     (fpc_q[5:4] < rbeat_q || (fpc_q[5:4] == rbeat_q && rf_we));
+      stale_way_q <= rway_q;
+    end
+    if (!rst && f2_valid_q && stale_q)
+      assert (!way_hit[stale_way_q]) else $error("tg_fetch: I$ hit on a row the refill rewrote");
+  end
   always_ff @(posedge clk) begin
     if (!rst && f2_valid_q && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
   end
