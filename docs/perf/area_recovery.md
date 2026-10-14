@@ -23,11 +23,11 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
 - **v2:** SMT2 + 3-wide.
 - **st_w3:** 3-wide without SMT2.
 
-**Real RTL after the area pass (AR-7, 2026-10-14; §7).** The core track's no-IPC area pass took the `st` core from 88K to 45.1K LUTs, and AR-1 took it to 44.4K. With F/D it is **56,461 against its 38,220 budget** (+48%).
-- **v1 today:** two `smt2` cores, hart 1's state estimated, and the measured 22.3K uncore come to **≈155.7K**. The limits are 103.0K at 200 MHz (88%) and 110.3K at 180 MHz (94.2%, measured with v2's core).
-- **Verdict:** v1 does not fit at 200 MHz today, nor at 180 MHz. It fits at 200 MHz when its units meet their budgets, which sum to 103.0K.
-- **Closing the gap:** the 52.6K is D18 step-1 work, unit by unit. The clock (step 2) is worth 7.2K, and the re-priced reserve (step 3) ≈2.2K.
-- **v2 needs a per-core budget** (≈49.7K at 180 MHz; AR-9) and its own no-IPC pass on the 3-wide structures.
+**Real RTL (AR-7 and since, 2026-10-14; §7).** The core track's no-IPC passes took the `st` core from 88K to **51,707 LUTs with F/D and AR-1, against its 38,220 budget** (+35%). AR-7 measured 56.5K after the first pass.
+- **v1 today (5c124f2):** two `smt2` cores (55,436 each), hart 1's state estimated, and the measured 22.3K uncore come to **≈141.5K**. The limits are 103,040 at 200 MHz (88%) and 110,280 at 180 MHz (94.2%, measured with v2's core).
+- **Verdict:** v1 does not fit today, at 200 MHz or at 180 MHz. It fits at 200 MHz when its units meet their budgets, which sum to 103,040.
+- **Closing the gap:** the remaining 38.5K is D18 step-1 work, unit by unit (it was 52.6K at AR-7). The clock (step 2) is worth at least 7.2K (§7.7). The reserve (step 3) is ≈8.0K, ≈5.8K of it from release builds without the commit trace, its last lever (DR-121).
+- **v2 (5c124f2): 171.1K, 60.8K over the 180 MHz limit.** It needs a per-core budget (≈49.7K at 180 MHz; AR-9) and its own no-IPC pass on the 3-wide structures, which add +14.6K per core today.
 - **How to read this study:**
   - its verdicts are stated against the per-unit budgets of [budgets.md](budgets.md);
   - no IPC-costing lever is chosen while step 1 has this much left to do (D18).
@@ -71,24 +71,24 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **R13 (simple third ALU) fails:** −1.53% single thread.
    - **The LQ, SQ, STA-queue and LLT cuts all fail.**
    - **ROB 64 (v1) and ROB 80 / v1's window (v2) pass without tags, but not with them.** Tags remove the scheduler columns those cuts were saving.
-   - **What passes and stays in reserve:** the FP-queue and LD-queue trims (≤ 0.3%), then the radix-4 divider (−0.4–0.8% throughput, −2.4–2.6% single thread).
+   - **What passes and stays in reserve:** the FP-queue and LD-queue trims (≤ 0.3%). The radix-4 divider (−0.4–0.8% throughput, −2.4–2.6% single thread) passed in the model, but at its measured 1,036 LUTs it fails the rule. The user took it out of the reserve (DR-118).
 4. **Readiness by thread (banked rows) is exact but not free** (§5.3).
    - **With SMT2 on,** no row ever waits on the other thread (0 sources). But binding rows to threads acts as a 50% issue-queue cap: −2.6% throughput at v1.
    - **With SMT off,** 1–4% of waits cross the two ROB halves. Steering around them costs 8–10% single-thread IPC.
    - **Rejected.** Wakeup tags save more, at no cost.
-5. **Measured RTL (AR-7, §7): v1 does not fit today. It fits at 200 MHz once its units meet their budgets.**
-   - **Today v1 is ≈155.7K,** against 103.0K at 200 MHz and 110.3K at 180 MHz. That is two `smt2` cores at 62,501 each, hart 1's state estimated at 4.2K per core, and the measured 22.3K uncore.
-   - **The budgets sum to 103.0K,** so meeting them is the fit. Each core is 20.6K over its budget (LSU and MMU, rename, ROB and CSRs, Execute), and the uncore 11.5K over.
-   - **Wakeup tags put the issue queues under budget:** 5,357 at `st` and 5,376 at `smt2`, against 6,030 and 8,350.
+5. **Measured RTL (AR-7 and since, §7): v1 does not fit today. It fits at 200 MHz once its units meet their budgets.**
+   - **Today v1 is ≈141.5K** (155.7K at AR-7), against 103,040 at 200 MHz and 110,280 at 180 MHz. That is two `smt2` cores at 55,436 each (5c124f2), hart 1's state estimated at 4.2K per core, and the measured 22.3K uncore.
+   - **The budgets sum to 103,040,** so meeting them is the fit. Each core is 13.5K over its budget (LSU and MMU, rename, ROB and CSRs, Execute, P4), and the uncore 11.5K over.
+   - **Wakeup tags put the issue queues under budget:** 5,409 at `st` and 5,430 at `smt2`, against 6,030 and 8,350.
    - **The window step stays an option** (AR-3): +1.84% throughput for ≈0.7K per core with tags.
 6. **v2 needs a budget, then a no-IPC pass on its 3-wide structures** (§7.4).
    - **The budget:** at 180 MHz the device takes 110.3K (94.2%). With the uncore at budget, that leaves ≈49.7K per core, ≈3.6K over v1's lines.
-   - **Today** the 3-wide increment is ≈13.2K per core (`st_w3` − `st`, measured before AR-1 and F/D). The plan estimated 6–8K.
+   - **Today** v2 is 171.1K (two `smt2_w3` cores at 70,028, measured at 5c124f2), 60.8K over the 180 MHz limit. The 3-wide increment is +14.6K per core, with rename at +4.55K against +0.5K planned. The plan estimated 6–8K in all.
    - **IPC still favours v2 at a lower clock:** at 190 MHz it beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread.
 7. **D18's order holds, and the measured gap makes it sharper** (§6, §7.5).
    - In the model, every trim costs less IPC than the clock it replaces.
-   - But against the measured gap, step 2 (180 MHz, +7.2K) is worth more than the whole re-priced reserve (step 3, ≈2.2K). Both are small next to step 1's 52.6K.
-   - **Radix-4 now fails the rule:** it saves 1.04K, measured after the FPU's no-IPC pass.
+   - But against the measured gap, step 2 (180 MHz, +7.2K or more) and the whole reserve (step 3, ≈8.0K with trace-free release builds, DR-121) are both small next to step 1's 38.5K.
+   - **Radix-4 is out of the reserve** (user, DR-118). It saves only 1.04K, measured after the FPU's no-IPC pass, and fails the rule.
 
 ### 1.2 What the levers add up to
 
@@ -101,6 +101,8 @@ Per core, in rank order on top of wakeup tags, each step simulated as a whole. T
 | + v1: FP queue 8, LD queue 4. v2: R12, completion buffer 8 | 3.74–4.14K | −0.21% / −0.29% | 5.59–6.09K | −0.10% / −0.06% |
 | + radix-4 divide/sqrt | 5.15–5.55K | −0.66% / −2.70% | 7.00–7.50K | −0.77% / −2.62% |
 
+The radix-4 step is the model's result at the FPU track's first 1.41K. Re-measured after the FPU's no-IPC pass, it saves 1.04K and fails the rule, and it is no longer a lever (user, DR-118). The reserve's last v1 lever is now release builds without the commit trace (DR-121, §7.5).
+
 ### 1.3 Decisions and their status
 
 AR-1 to AR-7 were proposed by this study and recorded in plan §8.5 (2026-10-14). AR-8 and AR-9 come from the AR-7 re-measurement (§7).
@@ -112,7 +114,7 @@ AR-1 to AR-7 were proposed by this study and recorded in plan §8.5 (2026-10-14)
 | AR-3 | v1 keeps D15's structures and uses no IPC-costing lever | **Adopted.** The window step (ROB 96, LQ 32, SQ 24: +1.84% throughput, ≈0.7K per core) is an option, not adopted (user), until the measured fit leaves room. |
 | AR-4 | v2 re-plan: `smt2_w3` with tags, R11 and R13 dropped, 180–190 MHz | Direction recorded; v2 comes after v1. §7.4 updates what it needs. |
 | AR-5 | Fill test at 180–190 MHz | **v2 with tags closes 180 MHz at 94.2% fill** (110,280 LUTs; area_synth.md §5). v1 at 93% and the 90/95/96% points are running. |
-| AR-6 | Reserve order (D18 step 3). v1: R9, R10, FP queue 8, LD queue 4, radix-4. v2: radix-4, then 8-row ALU queues | Ranking only. §7.5 re-prices it against the measured gap. |
+| AR-6 | Reserve order (D18 step 3). v1: R9, R10, FP queue 8, LD queue 4, then release builds without the commit trace (DR-121, last; development builds keep it). v2: 8-row ALU queues | Ranking only. Radix-4 is out (user, DR-118). §7.5 re-prices the reserve against the measured gap. |
 | AR-7 | Re-measure the real RTL after the area pass, then redo the fit | **Done (this update, §7).** |
 | AR-8 | **The gap is implementation, not IPC** (§7.3–§7.5) | **Proposed.** Keep D18 step 1 going unit by unit against [budgets.md](budgets.md), in the order of §7.5, before any clock or reserve decision. The reserve is too small to matter at this gap. |
 | AR-9 | **Budget v2 from the 180 MHz fill limit** (§7.4) | **Proposed.** Per core ≈49.7K with the uncore at budget (110.3K, 94%), against v1's 46.1K. The 3-wide additions must fit in the difference. |
@@ -519,50 +521,73 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
 
-*Redone on 2026-10-14 from the real RTL, after the core track's no-IPC area pass, AR-1 and F/D. The planning projection it replaces is kept, condensed, in §7.6.*
+*Redone on 2026-10-14 from the real RTL. AR-7 measured it after the core track's no-IPC area pass, AR-1 and F/D, at c898f1e and cb8ff6c. This section has since been updated to the core track's second no-IPC pass at 5c124f2, the first build measured in all four configurations. §7.7 keeps the gap over time, and §7.6 the planning projection it replaced.*
 
 ### 7.1 What is measured
 
 | Item | LUTs | Source |
 |---|---|---|
-| `st` core: area pass, AR-1 and F/D | **56,461** | core track's budget run at c898f1e: `tg_core` with the hierarchy kept, after `opt_design` |
-| `smt2` core (hart 0 only, see below) | **62,501** | core track's budget run at cb8ff6c (07:30), `tg_core` with the hierarchy kept |
-| `smt2_w3` core (hart 0 only) | **≈75.7K (estimate)** | No post-pass build yet: `smt2` plus the measured 3-wide increment, `st_w3` − `st` = 58,269 − 45,088 = +13.2K (525e875, before AR-1 and F/D). The spikes track's `core_smt2w3_hier` (117,570) comes from a snapshot before the area pass, with no F/D, so it is not used. |
+| `st` core: two no-IPC passes, AR-1 and F/D | **51,707** | core track's budget runs at 5c124f2 (`out14_*`): `tg_core` with the hierarchy kept, after `opt_design`, primitive check clean |
+| `smt2` core (hart 0 only, see below) | **55,436** | same |
+| `st_w3` core | **64,408** | same |
+| `smt2_w3` core (hart 0 only) | **70,028** | same. The spikes track's `core_smt2w3_hier` (117,570) came from a snapshot before the area pass, with no F/D, and is not used. |
 | Uncore at `smt2`: two L2 banks, crossbar, host bridge, trace, two latency injectors, PLIC, ACLINT, UART | **22,265** (21,797 at `st`) | SoC track's budget run, 2026-10-14 02:16 |
-| Fill limit at 200 MHz | ≈88%: **103.0K** | S6, v1 at 88.3% (+0.007 ns) |
-| Fill limit at 180 MHz | 94.2%: **110.3K** | S6 at 5.556 ns, v2's core with tags (+0.049 ns; area_synth.md §5). v1 at 93% is still running. |
+| Fill limit at 200 MHz | ≈88%: **103,040** | S6, v1 at 88.3% (+0.007 ns); also the sum of v1's budgets |
+| Fill limit at 180 MHz | 94.2%: **110,280** | S6 at 5.556 ns, v2's core with tags (+0.049 ns; area_synth.md §5). v1 at 93% is still running. |
 
-**Not yet in the RTL: hart 1's state.** The `smt2` builds carry `tid` everywhere but run hart 0 only until M7 (core-pipeline.md §1). [budgets.md](budgets.md)'s SMT2 additions put the missing state at **≈4.2K per core** (3–6K), after R1 and R2:
+AR-7's first measurement (c898f1e, cb8ff6c) was `st` 56,461 and `smt2` 62,501 (§7.7).
 
-| Part | LUTs |
-|---|---|
-| Second FTQ, history, RAS and fetch PC | 1.0K |
-| Decode-to-rename queue per thread | 0.15K |
-| Second rename and committed maps, and checkpoints (less if the LUTRAM maps only deepen) | 1.3K |
-| Second CSR file and counters (3.0K, less 1.35K from R1 and R2) | 1.65K |
-| Sibling snoops and LR | 0.1K |
+**Not yet in the RTL: hart 1's state.** The `smt2` builds carry `tid` everywhere but run hart 0 only until M7 (core-pipeline.md §1). [budgets.md](budgets.md)'s SMT2 additions put the missing state at **≈4.2K per core** at v1 (3–6K) and ≈4.4K at v2, after R1 and R2:
 
-### 7.2 Per unit, against the budgets (per core)
+| Part | v1 | v2 |
+|---|---|---|
+| Second FTQ, history, RAS and fetch PC | 1.0K | 1.0K |
+| Decode-to-rename queue per thread | 0.15K | 0.2K |
+| Second rename and committed maps, and checkpoints (less if the LUTRAM maps only deepen) | 1.3K | 1.45K |
+| Second CSR file and counters (3.0K, less 1.35K from R1 and R2) | 1.65K | 1.65K |
+| Sibling snoops and LR | 0.1K | 0.1K |
 
-| Unit ([budgets.md](budgets.md)) | ST budget | `st` | Over | v1 budget | `smt2` (hart 0) | + hart 1 (est.) | v1 over |
+### 7.2 Per unit, against the budgets (per core, 5c124f2)
+
+**v1, and ST** ([budgets.md](budgets.md)):
+
+| Unit | ST budget | `st` | Over | v1 budget | `smt2` (hart 0) | + hart 1 (est.) | v1 over |
 |---|---|---|---|---|---|---|---|
-| Front end | 5,540 | 5,257 | −283 | 6,480 | 5,257 | +1.0K | −223 |
+| Front end | 5,540 | 5,004 | −536 | 6,480 | 5,004 | +1.0K | −476 |
 | Decode | 1,500 | 1,677 | +177 | 1,640 | 1,677 | +0.15K | +187 |
 | Rename | 1,220 | 4,541 | **+3,321** | 1,830 | 4,789 | +1.3K | **+4,259** |
-| Issue queues and wakeup | 6,030 | 5,357 | −673 | 8,350 | 5,376 | — | **−2,974** |
+| Issue queues and wakeup | 6,030 | 5,409 | −621 | 8,350 | 5,430 | — | **−2,920** |
 | Execute (RF, bypass, integer units) | 7,610 | 8,636 | +1,026 | 7,610 | 8,631 | — | +1,021 |
-| LSU and MMU | 7,370 | 17,819 | **+10,449** | 8,560 | 22,281 | +0.1K | **+13,821** |
+| LSU and MMU | 7,370 | 13,266 | **+5,896** | 8,560 | 15,415 | +0.1K | **+6,955** |
 | ROB, commit, traps, CSRs, PMP | 2,160 | 5,163 | **+3,003** | 4,840 | 6,363 | +1.65K | **+3,173** |
 | FPU (P4) | 6,800 | 7,853 | +1,053 | 6,800 | 7,953 | — | +1,153 |
-| **Core** (with glue) | **38,220** | **56,461** | **+18,241 (+48%)** | **46,120** | **62,501** | **+4.2K** | **+20.6K (+45%)** |
+| **Core** (with glue) | **38,220** | **51,707** | **+13,487 (+35%)** | **46,120** | **55,436** | **+4.2K** | **+13,516 (+29%)** |
+
+**v2,** against AR-9's per-unit lines ([budgets.md](budgets.md) §1.1; `budgets.tsv` in `track` mode until v2 work starts, spikes track 1db95bd):
+
+| Unit | v2 line (proposed) | `smt2_w3` (hart 0) | + hart 1 (est.) | v2 over | 3-wide increment (`smt2_w3` − `smt2`) | Plan / spike estimate |
+|---|---|---|---|---|---|---|
+| Front end | 6,480 | 5,236 | +1.0K | −244 | +232 | 0 (S5) |
+| Decode | 2,340 | 2,530 | +0.2K | +390 | +853 | +0.7K (§4.15) |
+| Rename | 2,330 | 9,339 | +1.45K | **+8,459** | **+4,550** | +0.5K (§4.15) |
+| Issue queues and wakeup | 7,240 | 7,815 | — | +575 | +2,385 | +2.2K (S2, tags) |
+| Execute | 10,750 | 12,334 | — | +1,584 | +3,703 | +3.4K (S3) |
+| LSU and MMU | 8,560 | 16,299 | +0.1K | **+7,839** | +884 | 0 |
+| ROB, commit, traps, CSRs, PMP | 5,240 | 8,135 | +1.65K | **+4,545** | +1,772 | +0.4K (§4.15) |
+| FPU (P4) | 6,800 | 8,134 | — | +1,334 | +181 | 0 |
+| **Core** (with glue) | **49,740** | **70,028** | **+4.4K** | **+24,688 (+50%)** | **+14,592** | ≈7.2K |
 
 **Notes.**
 - **P4's register file.** P4 holds the FP register file (1,108), which the budgets count in "Register files and bypass", part of Execute's 7,610. Like for like, P4 is ≈0.2K under its budget and Execute ≈2.3K over.
-- **Where the excess is.** The issue queues (wakeup tags put them there) and the front end are under budget. The excess is in:
-  - the LSU and MMU: the core track counts about 7.8K of LSU logic over budget, and the D$ data uses 32 BRAM36 at a quarter of their depth;
+- **Where v1's excess is.** The issue queues (wakeup tags put them there) and the front end are under budget. The excess is in:
+  - the LSU and MMU: the second pass took 6.9K off, and 7.0K remain;
   - rename;
   - ROB, commit and CSRs;
-  - Execute.
+  - Execute and P4.
+- **Where the 3-wide increment is.** It measures +14.6K at `smt2` and +12.7K at `st`, against ≈7.2K in the plan.
+  - **Rename is the outlier:** +4.55K, against +0.5K planned. It needs read and write ports for a third slot on the LUTRAM maps, plus the intra-group checks.
+  - **ROB, commit and CSRs** come next at +1.8K, against +0.4K.
+  - **Execute (+3.7K) and the issue queues (+2.4K) are close to the spikes' estimates.**
 - **Uncore**, against its 10,800 budget:
 
   | Part | LUTs |
@@ -575,56 +600,60 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
   | PLIC, ACLINT, UART, device bus and AXI slices | 2,032 |
   | **Total** | **22,265** (+11.5K) |
 
-### 7.3 Device totals
+### 7.3 Device totals (5c124f2)
 
 | | v1: 2 × `smt2` | v2: 2 × `smt2_w3` |
 |---|---|---|
-| Two cores, measured | 125.0K | ≈151.4K (est.) |
+| Two cores, measured | 110.9K | 140.1K |
 | Hart 1's state, ×2 (M7, est.) | 8.4K | 8.8K |
 | Uncore, measured | 22.3K | 22.3K |
-| **Total** | **155.7K** (133% of the device) | **≈182.4K (est.)** (156%) |
-| Over 103.0K (200 MHz, 88%; also the sum of v1's budgets) | 52.6K | ≈79.4K |
-| Over 110.3K (180 MHz, 94%) | 45.4K | ≈72.1K |
+| **Total** | **141.5K** (121% of the device) | **171.1K** (146%) |
+| Over 103,040 (200 MHz, 88%; also the sum of v1's budgets) | 38.5K | 68.1K |
+| Over 110,280 (180 MHz, 94.2%) | 31.3K | 60.8K |
 
 **Today neither fits, at 200 MHz or 180 MHz. The gap is in implementation, not IPC.**
-- **Where v1's 52.6K goes:**
-  - each core is 20.6K over its budget once hart 1 is in;
+- **Where v1's 38.5K goes:**
+  - each core is 13.5K over its budget once hart 1 is in;
   - the uncore is 11.5K over its budget.
-- **Without hart 1's estimate,** the measured parts alone (two `smt2` cores and the uncore) come to 147.3K. That is 37.0K over the 180 MHz limit.
+- **Without hart 1's estimate,** the measured parts alone (two `smt2` cores and the uncore) come to 133.1K. That is 22.9K over the 180 MHz limit.
+- **Progress:** AR-7 had v1 at 155.7K. The core's second no-IPC pass took 14.1K off.
 
 ### 7.4 What v1 and v2 need
 
-**v1 fits at 200 MHz when its units meet their budgets.** The budgets sum to 103.0K by construction, so v1 needs:
-- every core unit within its line of [budgets.md](budgets.md), with hart 1 included: 20.6K per core to find, 41.2K for two cores;
+**v1 fits at 200 MHz when its units meet their budgets.** The budgets sum to 103,040 by construction, so v1 needs:
+- every core unit within its line of [budgets.md](budgets.md), with hart 1 included: 13.5K per core to find, 27.0K for two cores;
 - the uncore down 11.5K to its 10.8K.
 
-The free levers the budgets assume (R1, R2, R14, R15) are part of that. Wakeup tags already bring the issue queues ≈3.0K under budget. **No IPC-costing lever is needed if the units land; and if they do not, the levers cannot close the gap (§7.5).**
+The free levers the budgets assume (R1, R2, R14, R15) are part of that. Wakeup tags already bring the issue queues ≈2.9K under budget. **No IPC-costing lever is needed if the units land; and if they do not, the levers cannot close the gap (§7.5).**
 
-**v2 needs a budget of its own first (AR-9).**
-- **The limit:** 110.3K at 180 MHz (94.2%). With the uncore at its 10.8K budget, that leaves **≈49.7K per core**, against v1's 46.1K.
-- **So the 3-wide additions must fit in ≈3.6K per core.** Today the 3-wide increment is ≈13.2K per core (`st_w3` − `st`, measured before AR-1 and F/D): the 3-wide decode, rename and dispatch, the third ALU with its queue, and the replicated register banks. The plan estimated 6–8K.
+**v2 needs its own budget (AR-9) and its own no-IPC pass.**
+- **The limit:** 110,280 at 180 MHz (94.2%). With the uncore at its 10.8K budget, that leaves **≈49.7K per core**, against v1's 46.1K. The 3-wide additions must therefore fit in ≈3.6K per core.
+- **Today the 3-wide increment is +14.6K per core** (`smt2_w3` − `smt2`, measured). The plan estimated 6–8K.
 - **The levers left for v2 do not cover the difference:**
   - R12 (0.2K) and completion buffer 8 (0.06K), both in v2's reserve;
   - 8-row ALU queues (≈1K, −1.9% throughput);
-  - radix-4 (1.04K, failing the rule);
+  - radix-4: out of the reserve (DR-118);
   - R11 and R13, rejected.
-- **So v2 needs its own no-IPC pass on the 3-wide structures,** as the 2-wide units got. It also needs every v1 unit at budget, and 180 MHz.
-- **st_w3 does not avoid this.** Dropping SMT2 saves ≈10K per core: hart 1's state (≈4.2K), and the SMT2 window and `tid` fields (6.0K, measured as `smt2` − `st`). But its 3-wide increment is the same, so two `st_w3` cores and the uncore would still be ≈161K.
+- **So v2 needs a no-IPC pass on the 3-wide structures,** as the 2-wide units got. It should start with rename (+4.55K, against +0.5K planned), then ROB and CSRs (+1.8K) and execute. v2 also needs every v1 unit at budget, and 180 MHz.
+- **st_w3 does not avoid this.**
+  - **What dropping SMT2 saves:** ≈7.9K per core. That is hart 1's state (≈4.2K) plus the SMT2 window and `tid` fields (3.7K, measured as `smt2` − `st`).
+  - **What it does not:** its 3-wide increment is the same. Two `st_w3` cores and the `st` uncore come to 150.6K (129%).
 
 ### 7.5 D18's order against the measured gap (v1)
 
 | D18 step | What | v1, per SoC |
 |---|---|---|
-| **1. No-IPC implementation** | Every unit to its budget line. Core: LSU and MMU, rename, ROB and CSRs, Execute, then decode. Uncore: crossbar, trace, host bridge. And R14's area directive on non-critical units: on the scheduler it saved 8% beyond the kept hierarchy (area_synth.md §3); the whole-core runs with and without it are pending. | needs **52.6K** to reach 103.0K at 200 MHz, or **45.4K** to reach 110.3K at 180 MHz |
-| **2. A lower clock** | 200 → 180 MHz moves the limit from 103.0K to 110.3K | **+7.2K** of room |
-| **3. The reserve (AR-6), re-priced** | R9 0.5K and R10 1.0K; FP queue 8 and LD queue 4, ≈0.7K with tags. Radix-4 now saves 1.04K per core, measured after the FPU's no-IPC pass, and fails the reverse rule (2.34% per 1K at v1, against 2.19%). | **≈2.2K**, or ≈4.3K with radix-4 |
+| **1. No-IPC implementation** | Every unit to its budget line.<br>**Core:** LSU and MMU, rename, ROB and CSRs, Execute, then decode. The core track's next commit (c86fd95) is expected to take ≈1.2K more at `st`, and a `pma_of` fix ≈0.4K per core, pending approval.<br>**Uncore:** crossbar, trace, host bridge.<br>**R14's area directive on non-critical units:** on the scheduler it saved 8% beyond the kept hierarchy (area_synth.md §3); the whole-core runs with and without it are pending. | needs **38.5K** to reach 103,040 at 200 MHz, or **31.3K** to reach 110,280 at 180 MHz (it was 52.6K and 45.4K at AR-7) |
+| **2. A lower clock** | 200 → 180 MHz moves the limit from 103,040 to 110,280 | **+7.2K** of room |
+| **3. The reserve (AR-6)** | In order:<br>R9 0.5K, R10 1.0K;<br>FP queue 8 and LD queue 4, ≈0.7K with tags;<br>**last,** release builds without the commit trace (DR-121): 1,466 LUTs per core plus ≈2.9K for the uncore's trace stream, at no IPC cost. Development builds keep the trace.<br>**Not in AR-6:** the page walker sharing the STA's PMP checker (0.83K per core), which the core track holds back under D18; and radix-4, out (DR-118). | **≈8.0K**: ≈2.2K before the trace, ≈5.8K from it |
 
 **What this means for AR-6:**
-- **The reserve is about a twentieth of the gap.** Choosing an IPC-costing lever before step 1 has run its course would cost IPC and change nothing about the fit.
+- **The reserve is about a fifth of the gap** (≈8.0K of 38.5K), and ≈2.2K before its last lever. Choosing an IPC-costing lever before step 1 has run its course would cost IPC and change little about the fit.
 - **The ranking stands:** R9, R10, then FP queue 8 and LD queue 4.
-- **Radix-4 leaves the reserve:** at its measured saving it fails the rule.
-- **Step 2 is worth more than the whole reserve,** so the 180 MHz option comes first, as D18 has it.
-- **Once step 1 lands, re-run this section** from the budget report. If the gap is then within ≈7K, 180 MHz closes it. Only a remainder beyond that calls on the reserve, in AR-6's order.
+- **Radix-4 is out** (user, DR-118). It fails the rule at its measured saving, and it stays buildable but is not an area lever.
+- **Step 2 comes before the reserve,** as D18 has it. The two are now of similar size: 180 MHz gives ≥7.2K, and more under §7.7's full fill test.
+- **Once step 1 lands, re-run this section** from the budget report (§7.7, `area_fit.py`). If the gap is then within ≈7K, 180 MHz closes it. Only a remainder beyond that calls on the reserve, in AR-6's order.
+- **The commit trace is the reserve's last lever** (user, DR-121). It costs 1.47K per core at `st`, plus the uncore's 2.9K trace stream. Only release bitstreams drop it; development builds keep the lockstep trace.
 
 ### 7.6 The planning projection (superseded)
 
@@ -637,7 +666,7 @@ The per-unit view above replaces both. That projection's condition, "if every un
 - v2 at 180–190 MHz beats v1 at 200 MHz (+15.6% throughput at 190 MHz);
 - the frequency trade of §6.
 
-### 7.7 The gap over time (v1)
+### 7.7 The gap over time
 
 Re-run after each step-1 milestone of the core, FPU and SoC tracks (AR-8). Each row is two `smt2` cores with hart 1's state added (until M7 builds it), plus the uncore, against the budgets' 103,040 (200 MHz, 88%) and the 180 MHz limit of 110,280 (94.2%).
 
@@ -650,25 +679,45 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
 | 2026-10-13 | Planning projection (spikes §10) | — | — | 99–110K | −4K to +7K | — |
 | 2026-10-14 01:30 | First real synthesis, d04ae26 (no FPU; P4 7,953 and hart 1 added) | 81,715 | 89,050 | ≈224.7K | ≈+121.6K | ≈+114.4K |
 | 2026-10-14 07:30 | AR-7: area pass, AR-1, F/D (c898f1e, cb8ff6c) | 56,461 | 62,501 | **155.7K** | **+52.6K** | **+45.4K** |
-| 2026-10-14 | Core track's second no-IPC pass (a32d2aa, 8a5c651; reported by core-2) | 50,768 (≈51.6K at the final head) | 54,506 (≈55.3K at the final head) | **≈141.3K** | **≈+38.3K** | **≈+31.1K** |
+| 2026-10-14 | Core track's second no-IPC pass, as reported first (a32d2aa, 8a5c651) | 50,768 | 54,506 | ≈141.3K (with the revert below) | ≈+38.3K | ≈+31.1K |
+| 2026-10-14 08:38 | Second pass at the core track's final head, 5c124f2: budget runs out14_st and out14_smt2 | 51,707 | 55,436 | **141.5K** (120.8%) | **+38.5K** | **+31.3K** |
 
-**The second pass, per unit at `smt2` against the v1 budgets** (hart 1 added; final-head estimate, area_fit.py's method):
+**The second pass, per unit at `smt2` against the v1 budgets** (5c124f2, measured; hart 1 added; `area_fit.py`):
 
 | Unit | Over budget |
 |---|---|
-| LSU and MMU | +6.8K (14,405 measured, +0.83K for the walker's own PMP checker) |
+| LSU and MMU | +7.0K (15,415, including the walker's own PMP checker) |
 | Rename | +4.3K |
 | ROB, commit and CSRs | +3.2K |
 | P4 | +1.2K |
-| Execute | +1.1K |
+| Execute | +1.0K |
 | Decode | +0.2K |
 | Issue queues | −2.9K |
 | Front end | −0.5K |
-| **Core** | **+13.4K** (was +20.6K) |
+| **Core** | **+13.5K** (was +20.6K) |
 
 The uncore is unchanged, at +11.5K.
-- **Where the final-head figures come from.** The measured numbers include the page walker sharing the STA's PMP checker. That sharing was reverted under D18, so the core track expects about +0.83K in lsu_mmu at its final head (5c124f2). Its runs of `st`, `smt2`, `st_w3` and `smt2_w3` there are queued, and they will replace these estimates and v2's.
-- **Candidate reported since AR-7: the commit trace,** 1,466 LUTs per core at `st` (core track, measured with `trace_o` unconnected). A production build without it would save that at no IPC cost, but it would lose the lockstep trace, so that is the user's call. With the uncore's trace stream (2.9K), trace logic comes to ≈5.8K per SoC.
+- **The first report was close.** It measured the page walker sharing the STA's PMP checker. That sharing was reverted under D18, and the final head has its own checker back: +1.0K in lsu_mmu at `smt2`, against the 0.83K expected.
+- **Added to the reserve since AR-7: release builds without the commit trace** (user, DR-121, the last v1 lever). That saves 1,466 LUTs per core at `st` (core track, measured with `trace_o` unconnected) and ≈2.9K for the uncore's trace stream: ≈5.8K per SoC, at no IPC cost. Development builds keep the trace.
+
+**v2.** Two `smt2_w3` cores with hart 1's state added (≈4.4K each), plus the uncore, against 110,280 at 180 MHz (AR-9). Until v2's lines are in `budgets.tsv`, judge the core against AR-9's total:
+
+```bash
+python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --budget-total 49740 --core <run>/latest.json --uncore <run>/latest.json
+```
+
+| Date | Milestone | `st_w3` core | `smt2_w3` core | v2 dual-core | Over 110,280 |
+|---|---|---|---|---|---|
+| 2026-10-14 07:30 | AR-7 estimate: `smt2` + (`st_w3` − `st` at 525e875) | — | ≈75.7K | ≈182.4K | ≈+72.1K |
+| 2026-10-14 08:54 | Second pass at 5c124f2 (`out14_st_w3`, `out14_smt2_w3`), measured | 64,408 | 70,028 | **171.1K** (146%) | **+60.8K** |
+
+**For the next row:** two results arrived after 5c124f2 and change it.
+- **DR-113's synthesis settings** (hierarchy kept plus `AreaOptimized_high`) are now in the budget flow. They take the `st` core from 56,461 to 52,024 at cb8ff6c (−7.9%; every unit 5–14% smaller). Since the budgets already assume R14, the next row compares like with like.
+- **The full 180 MHz fill test** (area_synth.md §5) closes v1 with tags at 95.3% (111,633) and v2 at 96.0% (112,441). That gives 8.6K of room over 103,040 for v1, not 7.2K. AR-9's per-core budget for v2 could rise from 49,740 to ≈50.8K, which is the coordinator's call.
+
+**In flight (core track):**
+- c86fd95, synthesising: LSU aligned extraction, atomics through the SQ head's ports, LUTRAM copies of the queue addresses, ROB FP flags in LUTRAM, rename store-data readiness from RN, and R1's counters in DSPs. Expected ≈−1.2K at `st`.
+- A `pma_of` prefix-compare fix, ≈−0.4K per core, pending the coordinator's approval.
 
 ---
 
@@ -683,24 +732,24 @@ The ledger's "Area recovery" section records the decisions (plan §8.5, 2026-10-
 - **Rejected:** R11, R13, banked readiness, and the ALU-queue, LQ, SQ, STA and LLT cuts.
 
 This update (AR-7) changes it in three places:
-- **Radix-4 leaves the reserve.** Re-measured after the FPU's no-IPC pass, it saves 1,036 LUTs per core (5,889 → 4,853) and fails the reverse rule.
+- **Radix-4 left the reserve** (user, DR-118). Re-measured after the FPU's no-IPC pass, it saves 1,036 LUTs per core (5,889 → 4,853) and fails the reverse rule. It stays buildable but is not an area lever.
 - **The net lines** move from the planning projection to the measured fit (§7).
 - **The intro** records the re-measurement.
 
 ### 8.2 Plan text
 
-Plan §4.6 and §8.5 carry AR-1 to AR-7 (f550a00). Proposed for §8.5 after this update:
-- **AR-7 row:**
+Plan §4.6 and §8.5 record AR-1 to AR-9 (f550a00, e5bde85; AR-8 and AR-9 as DR-116 and DR-117). The AR-7 row records 155.7K, AR-7's measurement. Proposed addition after the core's second no-IPC pass:
 
-  > **Done (area_recovery.md §7).** v1 is ≈155.7K today: two `smt2` cores with hart 1's state estimated, and the measured 22.3K uncore. That is against 103.0K at 200 MHz and 110.3K at 180 MHz. v1 fits at 200 MHz once every unit meets [budgets.md](perf/budgets.md), which needs 52.6K of no-IPC work. The clock is worth 7.2K and the reserve ≈2.2K. Radix-4 fails the rule at its measured 1.04K.
-
-- **AR-8 (proposed):** the gap is implementation. Continue D18 step 1, unit by unit, before any clock or reserve decision.
-- **AR-9 (proposed):** v2's per-core budget is ≈49.7K, from the 94.2% fill at 180 MHz with the uncore at its budget. The 3-wide additions must fit in ≈3.6K over v1's lines.
+> **Updated (5c124f2, all four configurations measured).**
+> - **v1** is ≈141.5K: +38.5K at 200 MHz, +31.3K at 180 MHz.
+> - **v2** is 171.1K: +60.8K at 180 MHz.
+> - **The 3-wide increment** is +14.6K per core, against ≈3.6K of room under AR-9. Rename alone is +4.55K, against +0.5K planned.
+> - **The page walker sharing the STA's PMP checker** (0.83K per core, reverted under D18) is a candidate for the reserve; AR-6 does not list it.
 
 **For the budgets:**
-- **Issue queues:** the smt2 scheduler with tags and the free settings measures 4,750 in S2, against its 8,350 budget. In the real cores it is 5,376 (`smt2`) and 5,357 (`st`).
+- **Issue queues:** the scheduler with tags and the free settings measures 4,750 in S2 at `smt2`, against its 8,350 budget. In the real cores it is 5,430 (`smt2`) and 5,409 (`st`).
 - **Radix-4:** its saving is 1.04K, not 1.4K.
-- **v2:** it needs budget lines (AR-9).
+- **v2:** AR-9's per-unit lines are in [budgets.md](budgets.md) §1.1 and `budgets.tsv` (spikes track, 1db95bd). They are in `track` mode, so the nightly reports them without failing on them until v2 work starts. The core's DSP budget is 87 at `smt2` and `smt2_w3` (DR-110).
 
 The text first proposed for plan §4.6 (now recorded there) follows, for reference. It replaced the "Wakeup IDs" and "Dependency vectors" bullets with:
 
@@ -761,7 +810,14 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **v1 comes to ≈155.7K** against 103.0K at 200 MHz. Every unit is over budget except the issue queues and the front end, and so is the uncore.
 - **The IPC-costing reserve is worth ≈2.2K per SoC.**
 - **Radix-4,** re-measured at 1.04K, fails the rule.
+- **Later the same day the user took radix-4 out of the reserve (DR-118).** They added release builds without the commit trace as its last lever (DR-121, ≈5.8K per SoC), which brings the reserve to ≈8.0K.
 - **The spikes track's `core_smt2w3_hier`** came from a pre-pass snapshot and was not used. v2's core is estimated from the measured 3-wide increment.
+
+**2026-10-14: the second no-IPC pass, measured in all four configurations** (5c124f2):
+- **The cores:** `st` 51,707, `smt2` 55,436, `st_w3` 64,408, `smt2_w3` 70,028.
+- **v1 fell to ≈141.5K** (−14.1K since AR-7), most of it from the LSU and MMU.
+- **v2 is 171.1K.** The first measured 3-wide increment is +14.6K per core against ≈7.2K planned, with rename at +4.55K against +0.5K. It replaces the AR-7 estimate built from a pre-AR-1, pre-F/D `st_w3`.
+- **`area_fit.py`** turns each budget run into a row of §7.7.
 
 **Lessons:**
 - **Ask which consumers actually wait on a structure before sizing it.** The census turned a 4–5K "overrun" into an exact redesign. The same question asked of the window, the queues and the checkpoints only found IPC.

@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | Status | Proposed, 2026-10-13 (spikes track) |
-| Target | v1 (`smt2`) dual-core at ≤ 88% of the XCK26 after the §8.5 levers: ≤ 103K of 117,120 LUTs (§8.5's fill limit, measured by spike S6) |
+| Target | v1 (`smt2`) dual-core at 200 MHz and ≤ 88% of the XCK26 after the §8.5 levers: ≤ 103K of 117,120 LUTs (§8.5's fill limit, measured by spike S6). D18 step 1 works against it (DR-116). v2 (`smt2_w3`): 49.7K per core at 180 MHz (AR-9, DR-117; §1.1) |
 | Machine-readable form | [`fpga/budget/budgets.tsv`](../../fpga/budget/budgets.tsv); the check is [`fpga/budget`](../../fpga/budget) |
 | Inputs | plan §8.2 per-unit estimates; the SMT2 study's per-structure cost ([smt2_report.md](smt2_report.md) §8.3); measured units: the scheduler (spike S2, [spikes.md](spikes.md) §4) and the FPU ([fpu.md](../spec/fpu.md), "Timing and area"); the §8.5 levers |
 
@@ -28,6 +28,36 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 | **Core** | 37.7 | 44.2 | + R14 2.5 | **38,220** | +8.28 | 54.6 | + R14 3.0 | **46,120** |
 | Uncore (SoC track) | 13.3 | 13.3 | R15 2.0 | **11,300** | | 13.3 | R15 2.5 | **10,800** |
 | **SoC (2 cores + uncore)** | 88.7 | 101.6 | | **87,740 (74.9%)** | | 122.4 | | **103,040 (88.0%)** |
+
+### 1.1 At 180 MHz: v2's budget, and v1's for reference
+
+D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that cost IPC. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at 90.0%, 94.2% and 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
+
+**v1 stays on its 200 MHz lines.** Moving them to 180 MHz would be the clock decision, which comes after D18 step 1 (the no-IPC work, DR-116). For reference only, v1 at 180 MHz and 95% would be:
+
+| v1 (smt2) | 200 MHz (the budget) | 180 MHz at 95% (reference) |
+|---|---|---|
+| SoC (2 cores + uncore) | 103,040 (88.0%) | 111,264 (95.0%) |
+| Uncore | 10,800 | 10,800 |
+| Core | 46,120 | 50,230 |
+
+**v2 (smt2_w3) has its own lines at 180 MHz** (AR-9, DR-117; [area_recovery.md](area_recovery.md) §7.4): per core (110,280 − 10,800) / 2 = **49,740**, from the 94.2% fill with the uncore on budget. Each line is v1's plus the 3-wide increment:
+
+| Unit | v1 (smt2) | v2 (smt2_w3) | Increment, and its source |
+|---|---|---|---|
+| Front end | 6,480 | 6,480 | +0: S5 measured the same at width 3 |
+| Decode | 1,640 | 2,340 | +700, plan §4.15 |
+| Rename | 1,830 | 2,330 | +500, plan §4.15 |
+| Issue queues | 8,350 | 7,240 | re-based on the tags scheduler: 7,703 × 0.94 (R14) |
+| Execution (RF, bypass, ALUs) | 7,610 | 10,750 | +3,140: S3's third ALU, bypass and fourth bank (+3,433) less R14 |
+| LSU and MMU | 8,560 | 8,560 | — |
+| ROB, commit, CSRs | 4,840 | 5,240 | +400, plan §4.15 |
+| FPU | 6,800 | 6,800 | — |
+| **Core** | **46,120** | **49,740** | DSPs 87, block RAM 42.5 as smt2 |
+
+- The v2 lines are **tracked, not enforced**: the nightly shows them as value / budget, but its exit status stays about v1 and ST until v2 work starts.
+- **v1's issue-queue line predates the tags.** With tags (AR-1) and DR-113's settings the whole scheduler measures 4,228 / 4,750 at st / smt2 out of context, against budgets of 6,030 / 8,350.
+- **R14 is now measured rather than assumed.** The budget run builds the core with `AreaOptimized_high` (DR-113), which takes 7.9% off at st, more than the 2.5K (5.7%) R14 assumed.
 
 **The scheduler has MX (matrix wakeup) in every configuration.**
 - Out of context, st closed without it (+0.110 ns).
@@ -78,14 +108,15 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
   | Option | Saves per core | Cost |
   |---|---|---|
   | ALU issue queues 10 → 8 rows | ≈1.0K (1.5K measured at smt2_w3) | 1.2–1.5% IPC (§8.1) |
-  | Radix-4 divide/sqrt (`FDIV_RADIX4`, the D17 fallback) | 1.4K | −2.4% suite IPC |
   | SMT2 window at ROB 64 (§8.5 contingency) | ≈1.3K in the scheduler, plus ROB storage | −1.5% throughput |
+  | **Last:** release builds without the commit trace (DR-121), release bitstreams only | 1,466, plus about 2.9K in the uncore's trace stream | no IPC; those builds lose FPGA lockstep (every development and test build keeps the trace) |
 
-- **The scheduler and FPU budgets are below today's measurements.**
-  - The scheduler: 8,350 against 8,895 at smt2, and 6,030 against 6,425 at st. That is R14, about 6%, applied to it as to every unit.
-  - The FPU: 6,800 against 7,622, from R5 (being built) and R14.
-  - Until that work lands, the nightly check reports both as over budget. That is the gap it is there to track.
-- **The 3-wide configurations** (`st_w3`, `smt2_w3`) are tracked without budgets until the v2 re-plan (plan §8.5: v2 lands at 97–109% after levers).
+  - **Radix-4 divide/sqrt has left the reserve** (DR-118, the user's decision). Re-measured after the FPU's no-IPC pass it saves only 1,036 LUTs and fails the reverse rule (2.34% IPC per 1K LUTs against a 2.19% limit). It stays buildable behind `FDIV_RADIX4`, and the nightly still tracks it, but it is not an area lever.
+
+- **The scheduler and FPU budgets were set below their measurements, and both units are now within them.**
+  - The scheduler: 8,350 at smt2 and 6,030 at st, set against 8,895 and 6,425 (R14, about 6%, applied as to every unit). With wakeup tags (AR-1) and DR-113's settings it measures 4,750 and 4,228 out of context.
+  - The FPU: 6,800, set against 7,622 (R5 and R14). After R5 and the no-IPC pass `tg_fpu` measures 5,700 at smt2.
+- **The 3-wide configurations:** `smt2_w3` (v2) has per-unit lines at 180 MHz (AR-9, DR-117; §1.1), tracked until v2 work starts; `st_w3` is tracked without budgets.
 
 ## 3. The nightly check
 
@@ -151,8 +182,12 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
     - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
     - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
 - **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
+- **The reserve follows the user's decisions:** radix-4 is out (DR-118); release builds without the commit trace are its last lever (DR-121).
+- **The 180 MHz fill test and v2's lines (§1.1).** The fill test closes v1 at up to 95.3% and v2 at up to 96.0% at 180 MHz. v2's per-unit lines go in at 180 MHz (AR-9, DR-117: 49,740 per core), tracked until v2 work starts. v1 stays at 200 MHz: its move to 180 MHz is the clock decision, after D18 step 1 (DR-116). The core's DSP lines follow DR-110 (69 / 87).
+- **The core built as DR-113 builds it.** The budget run now synthesises `tg_core` with the hierarchy kept plus `AreaOptimized_high`: at st 56,461 → 52,024 LUTs (−7.9%; every unit 5–14% smaller; flip-flops and LUTRAM unchanged). From the next nightly, the core and its derived units read about 8% lower for that reason alone.
+- **The core's memory, measured.** Sampled over Vivado's whole process tree, the st core peaks at 6.75 GB as built until now and 9.38 GB with the directive, against 6 GB declared. The core line now declares 12 GB, for the larger configurations. Vivado's log shows only the parent process, which is how 6 GB looked right.
 - **The primitive check after synthesis:** the FPU divider's output queue reported 8 LUTRAM primitives against 7 expected, and `opt_design` removed the extra one. A `tg_ram_lut` instance now passes anywhere between the primitives that hold a loaded bit and the full mapping, so the nightly's post-synthesis check no longer fails on a primitive that is not trimmed yet.
 - **Lessons:**
-  - A job's memory is the sum of what it forks, not what its parent shows: declare that total, or cap the forking.
+  - A job's memory is the sum of what it forks, not what its parent shows: declare that total, or cap the forking. Measure it over the process tree (PSS), not from Vivado's log.
   - Measure a unit before budgeting it: the estimate for the scheduler was off by 2–4×, while S3, S4 and S5 landed within plan.
   - Build with the hierarchy kept when counting. It is exact per module, and on this design it was also 5–6% smaller.

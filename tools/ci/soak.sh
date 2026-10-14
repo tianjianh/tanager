@@ -7,7 +7,10 @@
 # (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
 # no program while MemAvailable is under 12 GB (no build under 16 GB), and holds while the host
 # drive C: has under 20 GB free or the machine is busy.
-#   tools/ci/soak.sh start | stop | status
+#   tools/ci/soak.sh start     start it (also at every boot, from main's checkout: an @reboot crontab entry)
+#   tools/ci/soak.sh stop      stop it until the next start or boot
+#   tools/ci/soak.sh disable   stop it and remove the @reboot entry
+#   tools/ci/soak.sh status
 set -u
 SOAK="${TANAGER_BUILD:-$HOME/tanager-build}/soak"
 CFGS="st st_w3 smt2 smt2_w3"
@@ -26,7 +29,8 @@ log() { echo "$(date '+%F %T') soak: $*"; }
 # What the soak builds from a commit: a main that changes none of it needs no rebuild.
 fingerprint() { git --git-dir="$SOAK_GIT" rev-parse "$1:rtl" "$1:sim" "$1:tests/random" "$1:tools" 2>/dev/null | tr '\n' ' '; }
 mem_gb() { awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo; }
-running() { [ -f "$SOAK/soak.pid" ] && kill -0 "$(cat "$SOAK/soak.pid")" 2>/dev/null; }
+# The PID must still be a soak: after a restart the old number can belong to anything.
+running() { [ -f "$SOAK/soak.pid" ] && grep -qa "soak.sh" "/proc/$(cat "$SOAK/soak.pid")/cmdline" 2>/dev/null; }
 
 # Export main into $SOAK/src (no checkout is touched), turn every M3 switch on, build.
 prepare() {
@@ -216,11 +220,14 @@ run() {
 case "${1:-}" in
   run) run ;;
   start)
+    SOAK_GIT=$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir) || exit 2
+    # Start again after a WSL restart, with main's copy of this script (as tools/memguard.sh does).
+    { crontab -l 2>/dev/null | grep -v 'tools/ci/soak\.sh'
+      echo "@reboot /bin/bash $(dirname "$SOAK_GIT")/tools/ci/soak.sh start >/dev/null 2>&1"; } | crontab -
     if running; then echo "soak: already running (pid $(cat "$SOAK/soak.pid"))"; exit 0; fi
     mkdir -p "$SOAK/bin" "$SOAK/logs"
     # A private copy runs, so editing this file does not disturb the running loop.
     cp "$0" "$SOAK/bin/soak.sh"
-    SOAK_GIT=$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir) || exit 2
     export SOAK_GIT TANAGER_BUILD="${TANAGER_BUILD:-$HOME/tanager-build}"
     nohup setsid nice -n 19 ionice -c3 "$SOAK/bin/soak.sh" run >> "$SOAK/logs/soak.log" 2>&1 < /dev/null &
     sleep 2
@@ -236,9 +243,13 @@ case "${1:-}" in
     rm -f "$SOAK/soak.pid"
     echo "soak: stopped"
     ;;
+  disable)  # stop it and do not start it at boot either
+    crontab -l 2>/dev/null | grep -v 'tools/ci/soak\.sh' | crontab -
+    "$0" stop
+    ;;
   status)
     if running; then echo "soak: running (pid $(cat "$SOAK/soak.pid"))"; else echo "soak: not running"; fi
     [ -f "$SOAK/summary.md" ] && head -20 "$SOAK/summary.md"
     ;;
-  *) echo "usage: $0 start | stop | status"; exit 2 ;;
+  *) echo "usage: $0 start | stop | disable | status"; exit 2 ;;
 esac

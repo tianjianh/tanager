@@ -1,0 +1,8 @@
+s6_smt2_93_180: v1 (smt2, ROB columns + MX, no wakeup tags) at 5.556 ns, target 108,922 LUTs (93%)
+synthesis: 109,422 CLB LUTs (93.4%)
+timeline (file times): synthesis done 04:02 (through the 03:30-04:01 memory incident), placement done 04:07, routing from 04:09
+stopped 2026-10-14 06:08, routing not converged after 2 h:
+Phase 5.1 Global Iteration 0: 114671 27919 8466 3610 1993 1280 905 703 598 538 421 329 286 244 213 176 151 149 118 103 94 85 79 64 64 61 50 45 44 42 45 43 43 40 34 31 26 25 26 21
+Phase 5.2 Global Iteration 1: 13544 8203 4023 1914 901 424 231
+router start: Intermediate Timing Summary | WNS=0.646  | TNS=0.000  | WHS=-0.073 | THS=-177.269|
+for comparison, s6_smt2w3t_93_180 (v2 with wakeup tags, 110,280 LUTs, 94.2%) routed in 19 min, from 112,219 overlapping nodes

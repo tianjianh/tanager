@@ -59,21 +59,21 @@ def main():
     ap.add_argument("--cfg", default="smt2")
     ap.add_argument("--no-hart1", action="store_true", help="the RTL already has hart 1's state (M7)")
     ap.add_argument("--budget-total", type=int, help="per-core budget when the configuration has no lines")
+    ap.add_argument("--uncore-cfg", help="the uncore run's configuration (default --cfg; smt2 for smt2_w3)")
     a = ap.parse_args()
+    ucfg = a.uncore_cfg or a.cfg
 
     rows = budgets()
     core, stamp, commit = measured(a.core, a.cfg)
-    unc, ustamp, _ = measured(a.uncore, a.cfg)
+    unc, ustamp, _ = measured(a.uncore, ucfg)
     hart1 = {} if a.no_hart1 else HART1.get(a.cfg, {})
     print(f"core {a.cfg}: budget run {stamp} at {commit}; uncore: {ustamp}\n")
     print("| Unit | Budget | Measured | + hart 1 (est.) | Over |\n|---|---|---|---|---|")
-
     for u in UNITS:
         if u not in core:
             continue
         b = budget_for(rows, BUDGET_ROW.get(u, u), a.cfg)
         m, h = core[u], hart1.get(u, 0)
-
         over = f"{m + h - b:+,}" if b is not None else "—"
         print(f"| {u} | {b if b is not None else '—':,} | {m:,} | {('+' + k(h)) if h else '—'} | {over} |"
               if b is not None else f"| {u} | — | {m:,} | {('+' + k(h)) if h else '—'} | — |")
@@ -81,7 +81,7 @@ def main():
     core_budget = a.budget_total or budget_for(rows, "core", a.cfg)
     print(f"| **core** | **{core_budget:,}** | **{core['core']:,}** | **+{k(sum(hart1.values()))}** | "
           f"**{core_total - core_budget:+,}** |" if core_budget else f"| core | — | {core['core']:,} | | |")
-    ub = budget_for(rows, "uncore", a.cfg)
+    ub = budget_for(rows, "uncore", ucfg)
     soc = 2 * core_total + unc["uncore"]
     print(f"\nuncore: {unc['uncore']:,} against {ub:,} ({unc['uncore'] - ub:+,})" if ub else "")
     print(f"dual-core: 2 x {core_total:,} + {unc['uncore']:,} = {soc:,} ({soc / DEVICE:.1%} of the XCK26)")
