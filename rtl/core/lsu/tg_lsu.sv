@@ -437,7 +437,7 @@ module tg_lsu
   // Two lookups: the LD port, and the STA port (the ROB head's check when STA is idle)
   assign dt_vpn[0] = ld_ag_addr[38:12];
   assign dt_vpn[1] = sta_ag_valid ? sta_ag_addr[38:12] : hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2)) u_dtlb (
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
