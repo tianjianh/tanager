@@ -129,6 +129,8 @@ Dates are 2026, US Pacific.
 | DR-070 | 10-14 | The seed table moves to `tg_rom`, so the primitive check counts it | approved | coord | — |
 | DR-071 | 10-13 | F/D integration moves into M3. **Rejected:** a soft-float (lp64) board image for M4. | approved | coord | plan §11 |
 | DR-072 | 10-13 | **Rejected in M1:** a second FMA pipe, radix-16 divide, a 14-bit seed | rejected | rule | ledger |
+| DR-110 | 10-14 | Raise the FPU's flip-flop line to 4,100 (from 3,450) and its DSP line to 35 (from 32). The LUT pass moved cost into flip-flops (3,733) and DSPs (35). Neither binds: the device has 234K flip-flops and 1,248 DSPs, and D18 favours trading LUTs for them. | approved | coord | budgets.md; fpga/budget/budgets.tsv |
+| DR-111 | 10-14 | The FP back end's interface with the core, agreed between the FPU and core tracks:<br>• the core instantiates `tg_fp_exec`, with a single F0 writer;<br>• `fmisc_block` in IQ-FP;<br>• wakeup tags as columns below `NCOL − LLT_ENTRIES`;<br>• tag release by `cmp_wid`;<br>• the B1 head held until `fpi_ready`;<br>• no bypass into the integer source;<br>• FP loads written from the load result register. | approved | track | fpu.md |
 
 ## 6. Area recovery
 
