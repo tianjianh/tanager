@@ -55,7 +55,12 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 |---|---|---|---|---|
 | Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 (routed 8,368) | 506 (5.7%) | none | **+0.132 ns**, no loss |
 | `AreaOptimized_high` synthesis directive | 8,115 (routed 8,113) | 794 (8.9%) | none | **−0.265 ns**: loses 200 MHz on its own (flattened) |
-| Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 queued |
+| Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 below |
+| No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
+| Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
+| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
+| Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
+| Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
 **At smt2_w3 (120 columns)** the two settings together give 11,381 LUTs (−1,134) at −0.008 ns: a hair short of 200 MHz, with about 0.5 ns to spare at v2's 180–190 MHz.
 
@@ -81,12 +86,18 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
   - The worst path is now W → readiness → select → payload register, 7 levels.
   - st and smt2 gain margin. smt2_w3 stays at the edge of 200 MHz but has about 0.5 ns at v2's 180–190 MHz.
 - **One earlier trick no longer applies:** STA and FP queues without the matrix (−403). With tags, those queues have no other way to wait on a 1-cycle producer.
-- With the free synthesis settings on top of tags: (being measured). With a flattened design the directive restructures the wakeup loop across module boundaries, and the loop misses by 0.265 ns. With each queue kept as a module it cannot, and the loop keeps its +0.1 ns.
-| No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
-| Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
-| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
-| Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
-| Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
+- **The free synthesis settings stack on tags** (hierarchy kept plus `AreaOptimized_high`, routed at 200 MHz with the pblock):
+
+  | Configuration | Tags, default | Tags, both settings | Saved | WNS ns | Levels |
+  |---|---|---|---|---|---|
+  | st | 4,802 | (queued) | | | |
+  | smt2 (v1) | 5,506 | **4,750** | −756 (−13.7%) | +0.218 → **+0.392** | 7 → 11 |
+  | smt2_w3 (v2) | 7,703 | **6,669** | −1,034 (−13.4%) | +0.026 → **+0.094** | 7 → 11 |
+
+  - The same −13% as without tags (§3), and timing improves rather than degrades. Flip-flops and LUTRAM do not change (5,208 / 240 at smt2).
+  - The directive alone fails (§3): with a flattened design it restructures the wakeup loop across module boundaries and misses by 0.265 ns. With each queue kept as a module it cannot, so the loop keeps its margin. Use the two together or not at all.
+  - The worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack.
+  - **The scheduler from ROB columns to tags plus both settings: 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, with slack gained at both.
 
 ## 4. The real core, module by module (st, first synthesis)
 
@@ -122,4 +133,33 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 
 ## 5. Fill test at 180 MHz
 
-(being measured)
+**Method:** the S6 full-device design ([spikes.md](spikes.md) §8): two cores of spike structures plus the uncore, a synthetic filler sized to the target fill of the XCK26's 117,120 LUTs, implemented at 5.556 ns (180 MHz). D18 asks how full the device can get at about 180 MHz before IPC-costing levers are needed. The cores take the spike verdicts (min/max off the 1-cycle ALU, alignment in M2, MX everywhere), unlike the 200 MHz runs of spikes.md §8; "with tags" means the AR-1 scheduler (`S2_WTAGS = 16`).
+
+| Run | Config | Target | CLB LUTs (fill) | WNS ns | Fmax MHz | Worst path | Route |
+|---|---|---|---|---|---|---|---|
+| `s6_smt2w3t_93_180` | smt2_w3 (v2), with tags | 93% | 110,280 (**94.2%**) | **+0.049** | **181.6** | harness: a filler register feeding S3's register file from across the die (1 level, 5.08 ns of wire) | 19 min |
+| `s6_smt2_93_180` | smt2 (v1), ROB columns | 93% | (routing) | | | | |
+| `s6_smt2_90_180`, `s6_smt2w3t_90_180` | v1 / v2 with tags | 90% | (queued) | | | | |
+| `s6_smt2_95_180`, `s6_smt2w3t_96_180` | v1 / v2 with tags | 95% / 96% | (queued) | | | | |
+
+Named paths, slack in ns at 5.556 ns (the worst over both cores):
+
+| Path | v2 with tags, 94.2% |
+|---|---|
+| S2: wakeup loop | ≥ +2.551 (the group's worst is a filler-driven reset) |
+| S2: issue payload | +1.100 |
+| S3: ALU → bypass → ALU | **+0.178** (9 levels) |
+| S3: register-file read | +0.049 (the harness route above) |
+| S4: M2 compare, select, result | +0.379 |
+| S4: DTLB lookup in M1 | +0.610 |
+| S5: next-PC loop | +0.729 |
+| S5: next PC → I$ BRAM address | +0.200 |
+| S5: IF3 compaction → instruction queue | +0.186 |
+| L2: UltraRAM cascade input | +0.344 |
+| Core → L2 bus | +3.279 |
+| Synthetic logic | +0.665 |
+
+**Findings so far.**
+- **v2 with tags closes 180 MHz at 94.2% fill** (110.3K LUTs). The worst real paths are S3's ALU loop and S5's fetch (+0.18 to +0.20 ns); the scheduler, the 200 MHz limiter before tags, has more than 1 ns.
+- The router started from 112K overlapping nodes and cleared them in 19 minutes; the placer's worst congestion is level 5.
+

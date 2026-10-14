@@ -56,11 +56,11 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 | Integer execution | 16 (multiplier) | — |
 | LSU | — | 9 (D$ data 8, LSQ data) |
 | MMU | — | 2 (L2 TLB) |
-| FPU | 32 (measured) | 0.5 (seed ROM) |
-| **Core** | **66 / 84** | **42.5** |
+| FPU | 35 (DR-110) | 0.5 (seed ROM) |
+| **Core** | **69 / 87** | **42.5** |
 | Uncore | — | 18 |
 
-- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 3,450). Each is the measurement plus about 10%.
+- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 4,100, DR-110). The scheduler's are the measurement plus about 10%; the FPU's were too (3,450 flip-flops, 32 DSPs) until DR-110 raised them to 4,100 and 35 so the FPU can trade LUTs for registers and DSPs.
 - **Everywhere else they are tracked, not judged.** The device-wide limits are about 57K LUTs of SLICEM sites for LUTRAM (plan §8.5) and 234K flip-flops.
 
 ## 2. What the budgets assume
@@ -125,3 +125,34 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 - Each cell reads value / budget, bold when over, with Δ since the previous run.
 - The exit status is 0 when every enforced unit is within budget and primitive-clean, and 1 otherwise.
 - A unit that grows past its budget, or a memory that maps to the wrong primitives, shows the next morning.
+
+## 4. History and lessons
+
+*Updated with each merge (conventions §10).*
+
+- **2026-10-13: first budgets.**
+  - Derived from plan §8.2, the SMT2 study's per-structure split, the measured scheduler (8.9K at smt2) and FPU (7.6K), and the §8.5 levers per unit.
+  - v1 lands at 103.0K (88.0%) only with the free levers at the top of their ranges.
+- **ST revised the same night:** the S6 fill test showed st needs MX in the scheduler, +1.1K, so ST is 87.7K (74.9%).
+- **The first budget runs, 13 syntheses in 20 minutes:** the FPU at 7,518 and the scheduler at 6,470 / 8,909 were over budget, as expected before R5 and R14.
+- **2026-10-14: the real core.**
+  - Its first synthesis is 82.5K LUTs at st with the hierarchy kept, against the 38.2K core budget.
+  - The budget flow now builds `tg_core` with `-flatten none` and reads every unit from that one report.
+  - The breakdown points at seven PMP checkers (21.8K), the D-cache (13.2K) and rename (11.9K).
+- **AR-1 measured:**
+  - the scheduler with wakeup tags is 4,802 / 5,506 / 7,703 at st / smt2 / smt2_w3, 2.8K under its v1 budget of 8,350;
+  - the FPU pass brought the FPU to 5,889.
+- **2026-10-14 ~03:20: the memory incident.**
+  - The nightly's `core_smt2_w3` synthesis ran with the hierarchy kept and 8 threads. Vivado forks one process per thread for a hierarchical synthesis, so it ran as a parent plus six children: about 14.5 GB.
+  - Next to two full-device S6 runs of about 9 GB each, it exhausted WSL's 39 GB, and SSH and the sessions stalled for about 10 minutes. The coordinator stopped the budget synthesis, which also stopped that night's run.
+  - **A second episode, 03:30–04:01:** another track's synthesis, started with the old `vivado_run.sh`, added about 10 GB. After 19 minutes of thrashing the kernel killed the S6 run `s6_smt2w3t_93_180` (since re-queued).
+  - **The fix:**
+    - `tools/vivado_run.sh` admits jobs by declared memory: 24 GB budget, 2 slots.
+    - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
+    - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
+- **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
+- **The primitive check after synthesis:** the FPU divider's output queue reported 8 LUTRAM primitives against 7 expected, and `opt_design` removed the extra one. A `tg_ram_lut` instance now passes anywhere between the primitives that hold a loaded bit and the full mapping, so the nightly's post-synthesis check no longer fails on a primitive that is not trimmed yet.
+- **Lessons:**
+  - A job's memory is the sum of what it forks, not what its parent shows: declare that total, or cap the forking.
+  - Measure a unit before budgeting it: the estimate for the scheduler was off by 2–4×, while S3, S4 and S5 landed within plan.
+  - Build with the hierarchy kept when counting. It is exact per module, and on this design it was also 5–6% smaller.

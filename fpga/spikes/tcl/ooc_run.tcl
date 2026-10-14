@@ -55,7 +55,11 @@ while {[llength $rest]} {
 }
 
 set part xck26-sfvc784-2LV-c
-set_param general.maxThreads 8
+# Synthesis of a hierarchical design forks one Vivado process per thread (about 1-2 GB each),
+# so it runs with at most TANAGER_SYNTH_THREADS (default 2) to stay inside the job's declared
+# memory (conventions §9); placement and routing are threads of one process and get 8.
+set synth_threads [expr {[info exists ::env(TANAGER_SYNTH_THREADS)] ? $::env(TANAGER_SYNTH_THREADS) : 2}]
+set_param general.maxThreads $synth_threads
 source [file join $root tools tcl tg_files.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
 
@@ -70,6 +74,7 @@ set gargs {}
 foreach g $generics { lappend gargs -generic $g }
 synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
   -directive $synth_dir {*}$gargs
+set_param general.maxThreads 8
 
 # One 200 MHz-class clock from a global buffer near the middle of the device, so the
 # clock tree is routed as in a full design.

@@ -47,7 +47,7 @@ lsu_mmu	st_w3	-	-	-	-	-	track
 lsu_mmu	smt2_w3	-	-	-	-	-	track
 rob_csr	st_w3	-	-	-	-	-	track
 rob_csr	smt2_w3	-	-	-	-	-	track
-fpu	*	6800	-	3450	32	0.5	enforce
+fpu	*	6800	-	4100	35	0.5	enforce
 fpu_r4	*	-	-	-	-	-	track
 core	st	38220	-	-	66	42.5	enforce
 core	smt2	46120	-	-	84	42.5	enforce
