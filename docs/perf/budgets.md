@@ -135,6 +135,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | aac20a2 | first measurement (L2 after lever R15) | 22,830 | 23,475 | 19,047 | 27 |
 | e256b0e | L2: the same-set rule at S0 replaces the directory's write history | 22,405 | 23,050 | 18,854 | 27 |
 | 059a572 | interconnect: each arbiter over the ports that can reach it | 20,884 | 21,533 | 18,811 | 27 |
+| fca6fe8 | commit-trace streaming into DDR replaces the block-RAM ring | 21,797 | 22,265 | 18,304 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **By block** (smt2, 059a572):
@@ -154,7 +155,9 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 - The per-bank L2 estimate (4–5K) is met only after R15.
 - The host bridge, the devices and the M4 debug and experiment features (latency injector, commit trace) were outside the estimate or estimated lower.
 
-**What no-IPC work is left** (estimates):
+**After streaming** (fca6fe8, smt2): the stream is 2,853 LUTs for two cores, about 1,000 of them LUTRAM. The ring was 449 LUTs plus 8 RAMB36. The host bridge fell from 3,335 to 1,667 LUTs, because the record readback left its read multiplexer and status crossing. Net: +732 LUTs and −9 RAMB36, so block RAM now meets its budget of 18. The primitive check is clean: 66 instances, no failures, warnings or strays.
+
+**What no-IPC work is left** (estimates, written before streaming was measured):
 
 | Item | LUTs | Other |
 |---|---|---|
