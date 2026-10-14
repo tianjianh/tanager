@@ -57,13 +57,13 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **Reset synchronisers:** `pl_resetn0` and MMCM lock into each domain.
 - **`tg_axi4_to_axil`:** from `M_AXI_HPM0_FPD` (AXI4, 32-bit data) to the host bridge.
 - **`tanager_soc`.**
-- **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The 40-bit addresses are zero-extended to the ports' 49.
+- **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The commit-trace stream writes through `S_AXI_HP3_FPD` (its read channels are tied off). The 40-bit addresses are zero-extended to the ports' 49.
 - **Fan:** pin A12 (`som240_1_c24`, `fan_en_b`, active low) is driven low, so the fan always runs at full speed while the design is loaded.
 
 ### 2.2 PS configuration
 Block design `tg_ps` in Tcl (`fpga/kv260/tcl/ps_bd.tcl`), board part `xilinx.com:kv260_som:part0:1.4` with the board preset applied (DDR, MIO, clocks), then:
 - `M_AXI_HPM0_FPD` enabled, 32-bit, at `0xA000_0000` (64 KiB used), clocked by `clk_host`;
-- `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` enabled, 128-bit, clocked by `clk_core`; address apertures covering all of DDR;
+- `S_AXI_HP1_FPD`, `S_AXI_HP2_FPD` and `S_AXI_HP3_FPD` enabled, 128-bit, clocked by `clk_core`; address apertures covering all of DDR (the device-tree overlay sets the three ports' AFI widths);
 - `pl_clk0` = 100 MHz; `pl_resetn0`; `pl_ps_irq0[0]` from `host_irq_o`;
 - everything else off.
 
