@@ -36,6 +36,8 @@ Ports are those of the stub `rtl/core/fpu/tg_fpu.sv`; requests are `fpu_req_t`, 
 - `result`: FP results NaN-boxed when `fmt = S`; integer results (`int_dest = 1`) sign-extended to 64 bits as RV64 requires (FCVT.W[U] sign-extend bit 31; FMV.X.W sign-extends bit 31; compares return 0 or 1; FCLASS returns the 10-bit mask).
 - `fflags` = {NV, DZ, OF, UF, NX} of this operation only.
 - `tag` is returned unchanged.
+  - **Divider exception:** the divider keeps only `DIV_TAG_W` tag bits (a `tg_fpu` parameter, default `FPU_TAG_W`) in its output queue and returns the rest as zero. Requests must leave them zero, which an assertion checks. `tg_fp_exec` uses 2, its divide-table index.
+  - A divide's `int_dest` is always 0.
 
 **Reset** clears every valid bit (pipeline valids, the divider's slot and queue state). Datapath registers are not reset (plan §8.3).
 
@@ -286,7 +288,7 @@ Against the plan (18/23, 20/26, one every 4 cycles): FDIV.D and FSQRT.S meet it,
 ### Flow control
 
 - **Slots.** Slot *k* passes the entry point (c0) in cycles ≡ *k* (mod 4). A request accepted in cycle *t* enters, four cycles later, the slot that is in c0 in cycle *t*. So `fdiv_ready_o` is high when that slot will be empty after this cycle: no operation enters it now (accepted four cycles ago) and its operation, if any, leaves now. It depends only on registers.
-- **Output queue and credits.** The output queue (`tg_fifo`, 4 entries) holds results until `fdiv_ready_i`. An operation whose remainder product is ready leaves its slot for F0 only if the queue has room for it counting the results in F1 and F2; otherwise it repeats the remainder round (4 cycles later; the round is idempotent) and keeps its slot. With `fdiv_ready_i` mostly high this never happens.
+- **Output queue and credits.** The output queue (`tg_fifo`, 4 entries) holds results until `fdiv_ready_i`. It stores only the result, the flags and `DIV_TAG_W` tag bits: 71 bits in P4, not 102. An operation whose remainder product is ready leaves its slot for F0 only if the queue has room for it counting the results in F1 and F2; otherwise it repeats the remainder round (4 cycles later; the round is idempotent) and keeps its slot. With `fdiv_ready_i` mostly high this never happens.
 - **Special operands** (NaN, ∞, zero, divide by zero, negative square root) still pass through the ring, so every operation has the same latency and one exit path; F2 substitutes the special result.
 
 ### Area
@@ -533,10 +535,9 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
   - the divide claim and the F0 write enable use the registered retired bit only, which removed a path at +0.09 ns.
 - The wakeup decoders cover only their own ID range (ROB or LLT columns): −116 LUTs.
 - **Flip-flops:** synthesis gives 3,868 to 3,907 in every run. The routed counts above are higher by 70 to 620, from register replication during implementation, and vary from run to run.
-- **Primitive check** (after synthesis; DR-110 has the spikes track make the check accept this queue):
-  - The seed ROM, both register-file banks (55 RAM64M8 each) and the queues pass.
-  - It flags the divider's output queue inside `tg_fp_exec`: 8 RAM32M16 found, 7 expected. P4 uses only 2 of the divider's tag bits, and synthesis keeps one primitive whose read bits are all unloaded.
-  - `opt_design` removes it: the check after `opt_design` passes, and the routed queue has 7 (56 LUTRAM).
+- **Primitive check:** the seed ROM, both register-file banks (55 RAM64M8 each) and the queues pass.
+  - **Until 5a31536,** the check after synthesis flagged the divider's output queue inside `tg_fp_exec`: 8 RAM32M16 found, 7 expected. 31 of its 102 bits were never read: `int_dest` and 30 tag bits, since P4 uses only 2. Synthesis kept one primitive whose read bits were all unloaded; `opt_design` removed it.
+  - **Fixed at the source:** the queue now keeps only the bits P4 reads (`DIV_TAG_W`).
 
 ### Helpers (`tg_fpcore_pkg`)
 - `fp_box_load(data, single)`: the F1 value of FLW and FLD.
@@ -713,6 +714,12 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 **Interface agreement (2026-10-14).** The core track's review brought AR-1's wakeup tags (columns are tags, not ROB indices), the completion's `wid` for tag release, the B1 head held until `fpi_ready` with `fpi_kill`, and the load write from a register.
 - The bench now recycles 16 tags (4 in one stress setting) and models the bank-1 arbiter's claim, hold and write.
 - Three mutations are each caught at once: a wrong `cmp_wid`, the old B1 head that left on a flush, and a flushed FMA that still wakes its tag. The last woke a reused tag's new consumers two cycles early, which is the hazard tag reuse creates.
+
+**Integration on the core's F/D branch (fd2, 2026-10-14).**
+- **Results:** with F/D on, all four configurations pass `make regress` (riscv-tests 284/284 including rv64uf/ud, ACT4 rv64imafdc 895/895). P4 measures 7,861 LUTs in the st core (`tg_fpu` 5,832, `tg_fprf` 1,108).
+- **Assertions:** the wakeup-column assertion caught a core-side bug, an FP→int op with rd = x0 that had no LLT column.
+- **Core-owned helpers:** `FPIDX_W`, `fpreg_bank()` and `fpreg_idx()` moved to `tg_core_pkg`. Defined in both packages, which `tg_fp_exec` imports together, they made the build fail.
+- **Divider queue:** the core's budget run flagged the output queue, which now keeps only the read bits (above).
 
 **Lessons:**
 - **Estimates made by deletion undercount.** R5's FMISC saving was estimated at 584 by zeroing the two results; it measured 825, because the shared shifter's operand selection and bit reversal also went.
