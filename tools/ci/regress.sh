@@ -1,15 +1,17 @@
 #!/bin/bash
 # Regression for one configuration (docs/spec/verification.md §4.3). Run after `source tools/env.sh`.
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
-#                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [JOBS=8]
+#                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [ARCH=0] [ACTCFG=...] [JOBS=8]
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
-# Dhrystone, RANDN constrained-random programs, all with lockstep; the checker self-test (tg_replay). Prints a summary and exits non-zero on any failure.
+# Dhrystone, RANDN constrained-random programs, all with lockstep; with ARCH=1 the ACT4 tests of the
+# core's configuration (tests/arch); the checker self-test (tg_replay). Prints a summary and exits
+# non-zero on any failure.
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 ARCH=0 ACTCFG=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [JOBS=N]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|ARCH=*|ACTCFG=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N]"; exit 5 ;;
   esac
 done
 
@@ -41,7 +43,7 @@ step() {  # step <name> <log> <command...>
     RESULTS+=("FAIL")
   fi
   NAMES+=("$name ($((SECONDS - t0)) s)")
-  grep -E "passed, [0-9]+ failed|self-test:|^  (FAIL|TIMEOUT|MISMATCH|PROTOCOL|MISSED|OUTPUT|REF-FAIL|GEN-FAIL)|repro:|^(coremark|dhrystone)" "$log" | sed 's/^/   /' | head -40
+  grep -E "passed, [0-9]+ failed|self-test:|^  (FAIL|TIMEOUT|HANG|MISMATCH|PROTOCOL|MISSED|OUTPUT|REF-FAIL|GEN-FAIL|SELFCHECK|NO-SUMMARY)|repro:|^(coremark|dhrystone)" "$log" | sed 's/^/   /' | head -40
   [ "${RESULTS[-1]}" = PASS ] || echo "   log: $log"
 }
 
@@ -61,6 +63,11 @@ if [ "${RESULTS[0]}" = PASS ]; then
   if [ "$RANDN" != 0 ]; then
     step "random programs ($RANDN seeds, $MARCH, memory stress), lockstep" "$LOGS/random.log" \
       make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" N="$RANDN" SEED=1 ISA="$MARCH" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  fi
+  if [ "$ARCH" = 1 ]; then
+    step "riscv-arch-test (ACT4${ACTCFG:+ $ACTCFG}), self-check and lockstep, lat=$LAT" "$LOGS/arch.log" \
+      make -C "$ROOT/tests/arch" CFG="$CFG" CORE="$CORE" ${ACTCFG:+ACTCFG="$ACTCFG"} JOBS="$JOBS" \
+        SIMARGS="--lat=$LAT $SIMARGS"
   fi
   if [ "$SELFTEST" = 1 ]; then
     step "checker self-test (Spike against Spike, fault injection)" "$LOGS/selftest.log" \

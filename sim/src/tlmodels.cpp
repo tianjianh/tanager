@@ -255,6 +255,12 @@ bool mmio_model_t::dev_write(uint64_t addr, unsigned size, uint64_t v) {
     clint.write(addr - c.clint_base, size, v);
     return true;
   }
+  if (addr == c.sig_addr && size == 2) {
+    uint32_t lines = uint32_t(v) & 0x7fffffffu;
+    if (v & 0x80000000u) sig_lines |= lines;
+    else sig_lines &= ~lines;
+    return true;
+  }
   for (auto& r : c.dev_regions)
     if (addr >= r.first && addr < r.first + r.second) return true;
   return false;  // ROM, main memory and unmapped space

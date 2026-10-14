@@ -34,6 +34,7 @@ struct model_cfg_t {
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   uint64_t uart_base = 0x10000000ull, uart_size = 0x1000;
   uint64_t clint_base = 0x02000000ull, clint_size = 0x10000;
+  uint64_t sig_addr = 0x0C000004ull;  // simple interrupt generator (same register as Sail's)
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;  // every PMA_DEVICE region
   std::vector<std::pair<uint64_t, uint64_t>> deny;         // --deny ranges: answered with denied
   // Harts of this core and interrupts
@@ -176,6 +177,11 @@ class mmio_model_t {
   void cycle(const ul_in_t& in, ul_out_t& out);
   uart_t uart;
   clint_t clint;
+  // Simple interrupt generator (verification.md §2.4): a 32-bit write with bit 31 set raises the
+  // interrupt lines named by bits 30:0 (1 SSI, 9 SEI, 11 MEI), without bit 31 it lowers them. The
+  // lines are levels, for every hart of the core. Sail models the same register, so ACT4's
+  // external-interrupt tests use it.
+  uint32_t sig_lines = 0;
   uint64_t requests = 0;
 
  private:
