@@ -5,6 +5,8 @@ if {$core_mhz eq ""} { set core_mhz 100 }
 create_project -in_memory -part xck26-sfvc784-2LV-c
 set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
 source [file join $root fpga kv260 tcl ps_bd.tcl]
+source [file join $root tools tcl tg_kv260_fan.tcl]
+if {[info exists ::env(TG_FAN_TTC)]} { set ::tg_kv260_fan_ttc $::env(TG_FAN_TTC) }
 tg_make_ps_bd [file normalize ./bd] $core_mhz
 puts "WRAPPER $::tg_ps_wrapper"
 file copy -force $::tg_ps_wrapper ./tg_ps_wrapper.v
