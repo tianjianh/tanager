@@ -10,6 +10,7 @@ directories under `$SOC_BUILD/vivado/`; no checkpoints are kept.
 | 2026-10-13 | st | 2 (`tg_trafgen`) | 100 MHz | +0.928 / +0.011 | 28,706 (24.5%) | 15,101 | 32 | 14 / 6 | 15 min |
 | 2026-10-13 | st | 2 (`tg_trafgen`), L2 after R15 (d480394) | 100 MHz | +1.701 / +0.014 | 20,530 (17.5%) | 13,521 | 32 | 16 / 6 | 29 min |
 | 2026-10-13 | st | 2 (`tg_trafgen`), prim-check fixes (a2f3bc8) | 100 MHz | +1.093 / +0.010 | 20,235 (17.3%) | 13,520 | 32 | 16 / 6 | 10 min |
+| 2026-10-13 | st | 2 (`tg_trafgen`), UART and L2 tables in `tg_ram_lut` (0aa82f0) | 100 MHz | +1.457 / +0.011 | 20,305 (17.3%) | 13,553 | 32 | 16 / 6 | 8 min |
 
 Notes:
 - **Stub build:** the stub cores drive nothing, so synthesis removes the parts of the uncore that
@@ -31,10 +32,12 @@ Notes:
   The latency injectors (about 1.5K) are an experiment feature a product build could leave out.
 - **Primitive check** (tools/tcl/tg_prim_check.tcl, reports/prim_check_{synth,opt}.txt): the first
   R15 build failed u_mline and u_mreq (opt_design removed RAM32M16s whose read-port slots were
-  unused) and listed 78 stray inferred LUTRAMs, all in the memory path. a2f3bc8 has no failures,
-  4 warnings (the byte-enabled directory takes 6 RAMB36 + 1 RAMB18 against 6.0 expected; the trace
-  ring is trimmed without trace sources) and 44 strays: the shared tg_fifo (32), small L2 arrays and
-  the UART FIFOs (12, moved to tg_ram_lut in the next commit).
+  unused) and listed 78 stray inferred LUTRAMs, all in my blocks. 0aa82f0 has no failures, 4
+  warnings (the byte-enabled directory takes 6 RAMB36 + 1 RAMB18 against 6.0 expected; the trace
+  ring is trimmed without trace sources) and 32 strays, all inside the shared `tg_fifo` (the
+  injectors' output buffers 26, the windows' W-order FIFOs 4, the L2's ReleaseAck queues 2): it infers
+  LUTRAM although its header says flip-flop storage.
+- **CDC** (0aa82f0): 525 crossing endpoints between `clk_core` and `clk_host`, all safe.
 - **Worst paths:**
   - **Stub build:** L2 MSHR state -> `RREADY` -> injector buffer read enable (6.6 ns, 86% routing).
   - **Traffic-generator build:** 9.1 ns of 10 first; after R15 the worst path is the L2's S2 decision
