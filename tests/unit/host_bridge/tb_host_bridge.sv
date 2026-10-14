@@ -43,6 +43,12 @@ module tb_host_bridge;
   logic core_rst, uncore_rst, mbox_irq, host_irq;
   dev_req_t req; logic req_v; dev_rsp_t rsp;
   logic [39:0] dbase, dsize;
+  // trace-stream configuration and status
+  logic        trs_en, trs_wrap, trs_stop_arm, trs_start_arm;
+  logic [63:0] trs_stop_pc, trs_start_pc, trs_rp;
+  logic [15:0] trs_post;
+  logic [39:0] trs_base;
+  logic [4:0]  trs_size;
   logic [9:0]  ird, iwr;
   logic        imode;
   logic [8:0]  ibw;
@@ -68,6 +74,10 @@ module tb_host_bridge;
     .l2_init_done_i (1'b1), .inj_rd_count_i (32'd1234), .inj_lat_sum_i (32'd56789), .inj_lat_max_i (16'd77),
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (32'd42), .tg_errs_i (16'd0), .tg_err_line_i (28'd0), .tg_pass_i (16'd3),
+    .trs_enable_o (trs_en), .trs_wrap_o (trs_wrap), .trs_stop_arm_o (trs_stop_arm), .trs_stop_pc_o (trs_stop_pc),
+    .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
+    .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
+    .trs_wp_i (64'h0000_0001_2345_6789), .trs_flags_i (5'b01011), .trs_buffered_i (16'd17), .trs_stalls_i (32'd999),
     .con_tx_valid_i (ctx_v), .con_tx_ready_o (ctx_r), .con_tx_byte_i (ctx_b),
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );
@@ -202,6 +212,28 @@ module tb_host_bridge;
     expect_h(16'h058, 32'd77, "INJ_RD_LATMAX");
     expect_h(16'h0D0, 32'd42, "TG_OPS");
     expect_h(16'h0DC, 32'd3, "TG_PASS");
+
+    // ---- trace-stream registers (docs/spec/uncore-trace.md): 64-bit commits, both crossings ----
+    hw(16'h1020, 32'h4100_0000); hw(16'h1024, 32'h8);       // TRS_BASE
+    hw(16'h1028, 32'd22);                                    // TRS_SIZE_LOG2
+    hw(16'h1008, 32'h8000_1234); hw(16'h100C, 32'h0);        // TRS_TRIG_PC
+    hw(16'h1010, 32'd100);                                   // TRS_POST
+    hw(16'h1018, 32'h8000_0100); hw(16'h101C, 32'h0);        // TRS_START_PC
+    hw(16'h1030, 32'h0000_0400); hw(16'h1034, 32'h1);        // TRS_RP
+    hw(16'h1000, 32'h303);                                   // enable, wrap, both triggers
+    repeat (60) @(posedge clk);
+    if (!trs_en || !trs_wrap || !trs_stop_arm || !trs_start_arm) fail("TRS_CTRL crossing");
+    if (trs_base != 40'h8_4100_0000 || trs_size != 5'd22) fail("TRS_BASE / TRS_SIZE_LOG2 crossing");
+    if (trs_stop_pc != 64'h8000_1234 || trs_post != 16'd100 || trs_start_pc != 64'h8000_0100) fail("trigger crossing");
+    if (trs_rp != 64'h1_0000_0400) fail("TRS_RP crossing");
+    expect_h(16'h1000, 32'h303, "TRS_CTRL");
+    expect_h(16'h1034, 32'h1, "TRS_RP high");
+    expect_h(16'h1038, 32'h2345_6789, "TRS_WP low");
+    expect_h(16'h103C, 32'h1, "TRS_WP high");
+    expect_h(16'h1040, {16'd17, 11'd0, 5'b01011}, "TRS_STATUS");
+    expect_h(16'h1044, 32'd999, "TRS_STALLS");
+    expect_h(16'h1048, 32'h0000_0240, "TRS_INFO");
+    hw(16'h1000, 32'h0);
 
     // ---- resets ----
     hw(16'h010, 32'h1);

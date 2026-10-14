@@ -53,6 +53,38 @@ module tb_xbar;
     .dev_d_i (dev_d), .dev_d_valid_i (dev_dv), .dev_d_ready_o (dev_dr)
   );
 
+  // Port signature: every cycle, every output of the DUT (payloads only while valid). Two builds with
+  // the same seed and signature behave identically at the ports, cycle by cycle (the cycle-identity
+  // check for rewrites, docs/perf/fpga_friendly.md).
+  logic [63:0] psig = 64'hcbf2_9ce4_8422_2325;
+  function automatic logic [63:0] fnv(input logic [63:0] h, input logic [255:0] x);
+    for (int b = 0; b < 32; b++) h = (h ^ 64'(x[8*b +: 8])) * 64'h0000_0100_0000_01b3;
+    return h;
+  endfunction
+  function automatic logic [255:0] pv(input logic v, input logic [255:0] x);
+    return v ? x : '0;
+  endfunction
+  always @(posedge clk) if (!rst) begin
+    logic [63:0] h;
+    h = fnv(psig, 256'({cyc[15:0], l1i_ar, l1d_ar, mmio_ar, hdma_ar, l1d_cr, l1d_er, l2_br, l2_dr, rom_dr, dev_dr,
+                        l1i_dv, l1d_dv, mmio_dv, hdma_dv, l1d_bv, l2_av, l2_cv, l2_ev, rom_av, dev_av}));
+    for (int c = 0; c < NC; c++) begin
+      h = fnv(h, pv(l1i_dv[c], 256'(l1i_d[c])));
+      h = fnv(h, pv(l1d_dv[c], 256'(l1d_d[c])));
+      h = fnv(h, pv(mmio_dv[c], 256'(mmio_d[c])));
+      h = fnv(h, pv(l1d_bv[c], 256'(l1d_b[c])));
+    end
+    for (int b = 0; b < NB; b++) begin
+      h = fnv(h, pv(l2_av[b], 256'(l2_a[b])));
+      h = fnv(h, pv(l2_cv[b], 256'(l2_c[b])));
+      h = fnv(h, pv(l2_ev[b], 256'(l2_e[b])));
+    end
+    h = fnv(h, pv(hdma_dv, 256'(hdma_d)));
+    h = fnv(h, pv(rom_av, 256'(rom_a)));
+    h = fnv(h, pv(dev_av, 256'(dev_a)));
+    psig <= h;
+  end
+
   int errors = 0;
   task automatic fail(input string m);
     errors++;
@@ -423,6 +455,7 @@ module tb_xbar;
     for (int b = 0; b < NB; b++) if (exp_c[b] != 0 || exp_e[b] != 0) fail($sformatf("bank %0d: %0d C / %0d E undelivered", b, exp_c[b], exp_e[b]));
     for (int c = 0; c < NC; c++) if (exp_b[c] != 0 || rel_acks[c] != 0) fail($sformatf("agent %0d: %0d probes / %0d ReleaseAcks undelivered", c, exp_b[c], rel_acks[c]));
     $display("xbar: %0d requests, %0d responses, %0d C, %0d E, %0d probes", n_sent, n_resp, n_c, n_e, n_b);
+    $display("xbar: port signature %016h", psig);
     if (errors == 0) $display("TEST PASSED (seed %0d)", seed); else $display("TEST FAILED (seed %0d)", seed);
     $finish;
   end
