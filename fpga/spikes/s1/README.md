@@ -84,6 +84,7 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
    ```bash
    cd ~/tg-s1 && make && sudo ./tg_s1 | tee s1_results.txt
    ```
+   With no compiler on the board, use the static binary built on the build host instead (`make -C fpga/spikes/s1/sw cross`, the toolchain that builds tanager-host): copy `tg_s1.aarch64` and run `sudo ./tg_s1.aarch64 | tee s1_results.txt`. `./tg_s1.aarch64 --x` prints the usage line without touching the hardware.
    It takes about a minute. It first checks the engines' ID register (`0x71530001`) and stops with a message if it reads anything else. **Run it only after step 3 has worked:** with no design in the PL, nothing answers at the engines' address and the read can hang the board (power-cycle to recover). Options:
    - `--quick` runs a tenth of the samples.
    - `--mb N` sets the buffer size; the default is 256 MiB of 2 MiB hugepages, which the program reserves itself.
