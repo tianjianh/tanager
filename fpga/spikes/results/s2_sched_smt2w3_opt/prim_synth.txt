@@ -1,0 +1,19 @@
+PRIM_OK g_q[0].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[0].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[0].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[1].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[1].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[1].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[2].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[2].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[2].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[3].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[3].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[3].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[4].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[4].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[4].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^1 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[5].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[5].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK g_q[5].u_iq/g_late.g_bank[2].u_ram tg_ram_lut {2^2 x 40, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_SUMMARY instances 18 fail 0 warn 0 stray 0

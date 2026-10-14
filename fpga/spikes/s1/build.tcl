@@ -1,6 +1,6 @@
 # Spike S1: the KV260 bitstream for the PL -> PS DDR latency and bandwidth measurement.
 #   tools/vivado_run.sh <run-dir> fpga/spikes/s1/build.tcl <repo-root>
-# Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (100 MHz) -> MMCM ->
+# Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (99.999 MHz) -> MMCM ->
 # clk_core 200 MHz, which clocks M_AXI_HPM0_FPD (128-bit, SmartConnect to AXI4-Lite),
 # S_AXI_HP1_FPD and S_AXI_HP2_FPD (128-bit) and the engines (tg_s1_bd). The fan enable
 # (package pin A12) is held on. Outputs in the run directory: tg_s1.bit, tg_s1.bit.bin
@@ -13,6 +13,8 @@ set_param general.maxThreads 8
 create_project -in_memory -part $part
 set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
 set_property target_language Verilog [current_project]
+# module references need automatic compile order
+set_property source_mgmt_mode All [current_project]
 add_files -norecurse [list \
   [file join $root rtl common prim tg_ram_sdp.sv] \
   [file join $here rtl tg_s1_engine.sv] \
@@ -34,7 +36,7 @@ set_property -dict [list \
 ] $ps
 
 set clk [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz clk_core]
-set_property -dict [list CONFIG.PRIM_IN_FREQ {100} CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
+set_property -dict [list CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
   CONFIG.USE_LOCKED {true} CONFIG.USE_RESET {true} CONFIG.RESET_TYPE {ACTIVE_LOW} \
   CONFIG.RESET_PORT {resetn}] $clk
 set rst [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset rst_core]
@@ -59,23 +61,32 @@ create_bd_port -dir O fan_en_b
 connect_bd_net [get_bd_pins s1/fan_en_b] [get_bd_ports fan_en_b]
 
 assign_bd_address
-set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces ps/Data] -filter {NAME =~ *s1*}]
-set_property offset 0xA0000000 $seg
-set_property range 4K $seg
+set seg [get_bd_addr_segs -quiet -of_objects [get_bd_addr_spaces ps/Data] -filter {NAME =~ *s1*}]
+if {[llength $seg] == 1} {
+  set_property range 4K $seg
+  set_property offset 0xA0000000 $seg
+} else {
+  puts "S1_NOTE engine segment not found by name; keeping the automatic address (see address_map.txt)"
+}
 validate_bd_design
 save_bd_design
 
 set bd [get_files s1.bd]
+# synthesise the IPs with the design (no out-of-context IP runs in an in-memory project)
+set_property synth_checkpoint_mode None $bd
 generate_target all $bd
 set wrapper [make_wrapper -files $bd -top]
 add_files -norecurse $wrapper
 set_property top s1_wrapper [current_fileset]
 update_compile_order -fileset sources_1
 
-# Address map, for the A53 program and the report
+# Address map, for the A53 program and the report (best effort: never fails the build)
 set fh [open address_map.txt w]
-foreach s [get_bd_addr_segs -excluded false -of_objects [get_bd_addr_spaces -of_objects [get_bd_cells *]]] {
-  puts $fh [format "%-40s %s %s" [get_property NAME $s] [get_property OFFSET $s] [get_property RANGE $s]]
+foreach s [get_bd_addr_segs -quiet] {
+  if {[catch {format "%-48s %s %s" [get_property PATH $s] [get_property OFFSET $s] \
+               [get_property RANGE $s]} line] == 0 && [string match "*SEG*" $line]} {
+    puts $fh $line
+  }
 }
 close $fh
 
@@ -89,6 +100,21 @@ report_utilization -file util.rpt
 report_timing_summary -max_paths 10 -file timing_summary.rpt
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
 puts "S1_WNS $wns"
+
+# Where the PS-PL interface sits (for the S6 floorplan): clock regions of the PL cells
+# wired straight to the PS block.
+set fh [open ps_location.txt w]
+set ps [get_cells -hier -filter {REF_NAME == PS8}]
+puts $fh "PS8 cell $ps site [get_property LOC $ps]"
+set regions [dict create]
+foreach n [get_nets -of_objects [get_pins -of_objects $ps]] {
+  foreach c [get_cells -quiet -of_objects $n -filter {REF_NAME != PS8 && IS_PRIMITIVE}] {
+    set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+    if {$cr ne ""} { dict incr regions $cr }
+  }
+}
+dict for {k v} $regions { puts $fh "PL cells next to the PS in $k: $v" }
+close $fh
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 write_bitstream -force tg_s1.bit
 

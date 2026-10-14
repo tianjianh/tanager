@@ -3,13 +3,18 @@
 // Synthesis maps it with xpm_memory_sdpram; simulation uses the behavioural model.
 //   BYTE_W:  write-enable granularity in bits (WIDTH = no byte enables).
 //   OUT_REG: 1 adds the output register (read latency 2 instead of 1).
+//   RD_LAT:  read latency in cycles, default 1 (2 with OUT_REG). Above 2 the extra stages
+//            are output pipeline registers; XPM puts them in the UltraRAM cascade, which a
+//            deep cascade needs at 200 MHz (S6: the L2's 4-deep banks use 4).
 //   PRIM:    "block", "ultra", "distributed" or "auto".
+(* keep_hierarchy = "yes" *)  // keeps the instance and its ports for the primitive check
 module tg_ram_sdp #(
   parameter int    DEPTH   = 512,
   parameter int    WIDTH   = 64,
   parameter int    BYTE_W  = WIDTH,
   parameter bit    OUT_REG = 1'b0,
   parameter        PRIM    = "block",   // untyped: XPM compares it with integers too
+  parameter int    RD_LAT  = OUT_REG ? 2 : 1,
   localparam int   AW      = (DEPTH > 1) ? $clog2(DEPTH) : 1,
   localparam int   NWE     = WIDTH / BYTE_W
 ) (
@@ -31,7 +36,7 @@ module tg_ram_sdp #(
     .MEMORY_PRIMITIVE    (PRIM),
     .MEMORY_SIZE         (DEPTH * WIDTH),
     .READ_DATA_WIDTH_B   (WIDTH),
-    .READ_LATENCY_B      (OUT_REG ? 2 : 1),
+    .READ_LATENCY_B      (RD_LAT),
     .USE_MEM_INIT        (0),
     .WRITE_DATA_WIDTH_A  (WIDTH),
     .WRITE_MODE_B        ("read_first")
@@ -51,10 +56,13 @@ module tg_ram_sdp #(
     if (re) rd_q <= mem[raddr];
   end
 
-  if (OUT_REG) begin : g_oreg
-    logic [WIDTH-1:0] out_q;
-    always_ff @(posedge clk) out_q <= rd_q;
-    assign rdata = out_q;
+  if (RD_LAT > 1) begin : g_oreg
+    logic [RD_LAT-2:0][WIDTH-1:0] out_q;
+    always_ff @(posedge clk) begin
+      out_q[0] <= rd_q;
+      for (int i = 1; i < RD_LAT - 1; i++) out_q[i] <= out_q[i-1];
+    end
+    assign rdata = out_q[RD_LAT-2];
   end else begin : g_noreg
     assign rdata = rd_q;
   end

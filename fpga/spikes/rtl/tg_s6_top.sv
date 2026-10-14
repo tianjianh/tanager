@@ -11,6 +11,7 @@ module tg_s6_top #(
   parameter int CORE_NDSP  = 0,
   parameter int UNC_TILES  = 300,
   parameter int UNC_NRAM   = 0,
+  parameter bit S2_MX      = 1'b0,
   localparam int BUS_W = 256
 ) (
   input  logic        clk,
@@ -19,7 +20,7 @@ module tg_s6_top #(
   logic [1:0][BUS_W-1:0] to_l2, to_l2_q, from_l2, from_l2_q;
   for (genvar c = 0; c < 2; c++) begin : g_core
     tg_s6_core #(.TILES(CORE_TILES), .NRAM(CORE_NRAM), .NBRAM(CORE_NBRAM), .NDSP(CORE_NDSP),
-                 .SEED(c + 1), .BUS_W(BUS_W)) u_core (
+                 .SEED(c + 1), .BUS_W(BUS_W), .S2_MX(S2_MX)) u_core (
       .clk, .l2_in(from_l2_q[c]), .l2_out(to_l2[c]));
   end
   always_ff @(posedge clk) begin

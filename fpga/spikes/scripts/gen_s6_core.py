@@ -15,11 +15,12 @@ ROOT = pathlib.Path(__file__).resolve().parents[3]
 # (instance, module, parameter overrides, inputs [(port, width)], outputs [(port, width)])
 TOPS = [
     ("u_s2", "tg_s2_sched_top",
-     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24)",
+     ".STALE(0), .WAKE_ENC(1), .DUP_SEL(1'b1), .EARLY_W(24), .MX(S2_MX)",
      [("rst_i", "1"), ("disp_valid_i", "S2_DW"), ("disp_queue_i", "S2_DW*S2_QW"),
       ("disp_tid_i", "S2_DW*TID_BITS"), ("disp_dep_i", "S2_DW*S2_NCOL"),
       ("disp_dep_ph_i", "S2_DW*S2_NCOL"), ("disp_wake_oh_i", "S2_DW*S2_NCOL"),
       ("disp_rob_i", "S2_DW*S2_ROBW"), ("disp_payload_i", "S2_DW*64"),
+      ("disp_mdep_i", "S2_DW*S2_RA"),
       ("llt_done_i", "S2_NCOL"), ("alloc_i", "S2_NCOL"), ("cancel_ids_i", "S2_NCOL"),
       ("col_clr_i", "S2_NCOL"), ("cancel_i", "1"), ("flush_valid_i", "1"),
       ("flush_tid_i", "TID_BITS"), ("flush_all_i", "1"), ("flush_rob_i", "S2_ROBW")],
@@ -70,7 +71,8 @@ module tg_s6_core
   parameter int NBRAM = 0,     // filler RAMB36 (TAGE, BTB, L2 TLB ...)
   parameter int NDSP  = 0,     // filler DSP48E2 (MUL, FMA, Goldschmidt)
   parameter int SEED  = 1,
-  parameter int BUS_W = 256
+  parameter int BUS_W = 256,
+  parameter bit S2_MX = 1'b0   // the scheduler's matrix wakeup option
 ) (
   input  logic             clk,
   input  logic [BUS_W-1:0] l2_in,     // from the L2 (registered there)
@@ -83,6 +85,7 @@ module tg_s6_core
   localparam int S2_QW   = idx_w(S2_NQ);
   localparam int S2_ROBW = ROB_IDX_W + 1;
   localparam int S2_RMW  = idx_w(S2_DW + 1);
+  localparam int S2_RA   = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0);
   localparam int S3_NLOG = 2 * N_ALU + 3;
   localparam int S3_BW   = idx_w(INT_BANKS);
   localparam int S3_IW   = idx_w(INT_PREGS_PER_BANK);

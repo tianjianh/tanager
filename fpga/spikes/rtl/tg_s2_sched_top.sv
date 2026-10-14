@@ -12,6 +12,9 @@ module tg_s2_sched_top
   parameter int WAKE_ENC = 0,
   parameter bit DUP_SEL  = 1'b0,
   parameter int EARLY_W  = 64,       // payload bits in flip-flops (the rest in LUTRAM)
+  parameter bit MX       = 1'b0,     // matrix wakeup for 1-cycle producers (ALU queues)
+  parameter int ALU_ROWS = 0,        // > 0: rows of every ALU queue (the plan's fallback)
+  parameter bit PRE_RDY  = 1'b0,     // registered ID readiness (with MX)
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -19,7 +22,9 @@ module tg_s2_sched_top
   localparam int QW    = idx_w(NQ),
   localparam int PW    = 64,
   localparam int ROBW  = ROB_IDX_W + 1,
-  localparam int RMW   = idx_w(DW + 1)
+  localparam int RMW   = idx_w(DW + 1),
+  localparam int RA    = (ALU_ROWS > 0) ? N_ALU * ALU_ROWS
+                                      : IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0)   // ALU-queue rows
 ) (
   input  logic                    clk,
   input  logic                    rst_i,
@@ -31,6 +36,7 @@ module tg_s2_sched_top
   input  logic [DW-1:0][NCOL-1:0] disp_wake_oh_i,
   input  logic [DW-1:0][ROBW-1:0] disp_rob_i,
   input  logic [DW-1:0][PW-1:0]   disp_payload_i,
+  input  logic [DW-1:0][RA-1:0]   disp_mdep_i,
   input  logic [NCOL-1:0]         llt_done_i,
   input  logic [NCOL-1:0]         alloc_i,
   input  logic [NCOL-1:0]         cancel_ids_i,
@@ -48,6 +54,7 @@ module tg_s2_sched_top
   output logic [NCOL-1:0]         w_o
 );
   function automatic int rows_of(input int q);
+    if (q < N_ALU && ALU_ROWS > 0) return ALU_ROWS;
     if (q == 0) return IQ_A0;
     if (q == 1) return IQ_A1;
     if (q < N_ALU) return IQ_A2;
@@ -64,6 +71,7 @@ module tg_s2_sched_top
   logic [DW-1:0][NCOL-1:0] disp_dep_q, disp_dep_ph_q, disp_wake_oh_q;
   logic [DW-1:0][ROBW-1:0] disp_rob_q;
   logic [DW-1:0][PW-1:0]   disp_payload_q;
+  logic [DW-1:0][RA-1:0]   disp_mdep_q;
   logic [NCOL-1:0]         llt_done_q, alloc_q, cancel_ids_q, col_clr_q;
   logic                    cancel_q, flush_valid_q, flush_all_q;
   tid_t                    flush_tid_q;
@@ -78,6 +86,7 @@ module tg_s2_sched_top
     disp_wake_oh_q <= disp_wake_oh_i;
     disp_rob_q     <= disp_rob_i;
     disp_payload_q <= disp_payload_i;
+    disp_mdep_q    <= disp_mdep_i;
     llt_done_q     <= llt_done_i;
     alloc_q        <= alloc_i;
     cancel_ids_q   <= cancel_ids_i;
@@ -89,7 +98,7 @@ module tg_s2_sched_top
     flush_rob_q    <= flush_rob_i;
   end
 
-  logic [NCOL-1:0] w_q, w1_q, phase_q;
+  logic [NCOL-1:0] w_q, w1_q, phase_q, w_next;
   logic [N_ALU-1:0][NCOL-1:0] wake_now;
   logic [NQ-1:0][NCOL-1:0] busy;
   logic [NQ-1:0][DW-1:0] bank_free_q;
@@ -97,8 +106,24 @@ module tg_s2_sched_top
   logic [NQ-1:0] iss_valid_q;
   logic [NQ-1:0][PW-1:0] iss_payload_q;
 
+  // First matrix row of ALU queue q
+  function automatic int row0_of(input int q);
+    int r = 0;
+    for (int i = 0; i < q; i++) r += rows_of(i);
+    return r;
+  endfunction
+  logic [RA-1:0] mx_issued, mx_free;
+
   for (genvar q = 0; q < NQ; q++) begin : g_q
     localparam int ROWS = rows_of(q);
+    logic [ROWS-1:0] iss_rows, free_rows;
+    if (q < N_ALU) begin : g_mxrow
+      assign mx_issued[row0_of(q) +: ROWS] = iss_rows;
+      assign mx_free[row0_of(q) +: ROWS]   = free_rows;
+    end else begin : g_nomxrow
+      logic unused_rows;
+      assign unused_rows = ^{iss_rows, free_rows};
+    end
     logic [DW-1:0] dv;
     logic [NCOL-1:0] wn;
     for (genvar k = 0; k < DW; k++) begin : g_disp
@@ -108,15 +133,16 @@ module tg_s2_sched_top
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
       .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
-      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W)
+      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY)
     ) u_iq (
       .clk, .rst,
       .disp_valid(dv), .disp_tid(disp_tid_q), .disp_dep(disp_dep_q),
       .disp_dep_ph(disp_dep_ph_q), .disp_wake_oh(disp_wake_oh_q), .disp_rob(disp_rob_q),
       .disp_payload(disp_payload_q),
       .bank_free_q(bank_free_q[q]), .room_q(room_q[q]),
-      .w(w_q), .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now(wn),
-      .busy(busy[q]),
+      .w(w_q), .w_next, .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now(wn),
+      .busy(busy[q]), .disp_mdep(disp_mdep_q), .mx_issued, .mx_free, .issued_o(iss_rows),
+      .free_o(free_rows),
       .flush_valid(flush_valid_q), .flush_tid(flush_tid_q), .flush_all(flush_all_q),
       .flush_rob(flush_rob_q),
       .iss_valid_q(iss_valid_q[q]), .iss_payload(iss_payload_q[q])
@@ -154,9 +180,9 @@ module tg_s2_sched_top
   end
   always_ff @(posedge clk) wake_reg_q <= wake_reg_d;
 
-  tg_wake #(.NCOL(NCOL), .NNOW(N_ALU), .STALE(STALE)) u_wake (
+  tg_wake #(.NCOL(NCOL), .NNOW(N_ALU), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
     .clk, .rst, .wake_now, .wake_reg(wake_reg_q), .alloc(alloc_q), .cancel(cancel_q),
-    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q
+    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q, .w_d(w_next)
   );
 
   logic [NCOL-1:0] busy_all;

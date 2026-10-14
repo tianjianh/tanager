@@ -4,7 +4,8 @@
 // Needs root: /dev/mem for the engines' registers, /proc/self/pagemap for physical
 // addresses of the hugepage buffers.
 //   build:  gcc -O2 -Wall -o tg_s1 tg_s1.c -lpthread
-//   run:    sudo ./tg_s1 [--mb 256] [--quick] | tee s1_results.txt
+//   run:    sudo ./tg_s1 [--mb 256] [--quick] [--base 0xA0000000] | tee s1_results.txt
+//           (--base: the engines' address if address_map.txt from the build differs)
 //
 // The PL has two engines (tg_s1_engine) on S_AXI_HP1_FPD and S_AXI_HP2_FPD, 128-bit at the
 // 200 MHz core clock. Latency is counted in core clock cycles from the read-address
@@ -239,14 +240,16 @@ static void measure_clock(void) {
 
 int main(int argc, char **argv) {
   int mb = 256, quick = 0;
+  unsigned long base = ENG_PHYS;
   for (int i = 1; i < argc; i++) {
     if (!strcmp(argv[i], "--mb") && i + 1 < argc) mb = atoi(argv[++i]);
+    else if (!strcmp(argv[i], "--base") && i + 1 < argc) base = strtoul(argv[++i], NULL, 0);
     else if (!strcmp(argv[i], "--quick")) quick = 1;
-    else { fprintf(stderr, "usage: %s [--mb N] [--quick]\n", argv[0]); return 2; }
+    else { fprintf(stderr, "usage: %s [--mb N] [--quick] [--base ADDR]\n", argv[0]); return 2; }
   }
   int fd = open("/dev/mem", O_RDWR | O_SYNC);
   if (fd < 0) { perror("/dev/mem (run as root)"); return 1; }
-  volatile uint32_t *regs = mmap(NULL, ENG_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, fd, ENG_PHYS);
+  volatile uint32_t *regs = mmap(NULL, ENG_SPAN, PROT_READ | PROT_WRITE, MAP_SHARED, fd, (off_t)base);
   if (regs == MAP_FAILED) { perror("mmap engines"); return 1; }
   eng[0] = regs;
   eng[1] = regs + ENG_STRIDE / 4;

@@ -2,7 +2,7 @@
 // flow wants a Verilog top). Interface attributes tie the AXI ports to the clock.
 module tg_s1_bd (
   (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK" *)
-  (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi:m0_axi:m1_axi, ASSOCIATED_RESET rstn, FREQ_HZ 200000000" *)
+  (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi:m0_axi:m1_axi, ASSOCIATED_RESET rstn" *)
   input  wire clk,
   (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rstn RST" *)
   (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)

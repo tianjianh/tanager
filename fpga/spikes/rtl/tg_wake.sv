@@ -6,7 +6,10 @@
 // Clear: when an ID is allocated to a new producer (alloc, registered), and by the
 //        speculative-wakeup shadow cancel (cancel, registered): every W bit set by a select
 //        in the current cycle or the HIST cycles before it, plus cancel_ids (the missing
-//        load's own ID and anything else the load pipe names).
+//        load's own ID and anything else the load pipe names). HIST is the shadow depth
+//        minus the wakeup path's delay: 2 when wake_now comes straight from the selects,
+//        1 when the queues register it (tg_iq MX = 1). One too many undoes a wakeup outside
+//        the shadow, and its later consumers wait forever.
 // STALE = 1 (phase variant, see tg_iq): each ID has a phase bit that flips on allocation,
 // and W keeps one vector per phase (w_q for phase 0, w1_q for phase 1). A wakeup sets the
 // vector of the ID's current phase; an allocation clears the vector of the new phase only,
@@ -29,7 +32,8 @@ module tg_wake
   input  logic [NCOL-1:0]           cancel_ids,
   output logic [NCOL-1:0]           w_q,
   output logic [NCOL-1:0]           w1_q,
-  output logic [NCOL-1:0]           phase_q
+  output logic [NCOL-1:0]           phase_q,
+  output logic [NCOL-1:0]           w_d       // next state of w_q (tg_iq PRE_RDY; STALE != 1)
 );
   logic [NCOL-1:0] set_now;
   always_comb begin
@@ -56,13 +60,15 @@ module tg_wake
   if (STALE != 1) begin : g_one
     logic [NCOL-1:0] base;
     assign base = (w_q & ~alloc & ~undo) | wake_reg;   // register-derived
+    assign w_d  = base | (set_now & {NCOL{!cancel}});
     always_ff @(posedge clk) begin
       if (rst) w_q <= '0;
-      else     w_q <= base | (set_now & {NCOL{!cancel}});
+      else     w_q <= w_d;
     end
     assign w1_q    = '0;
     assign phase_q = '0;
   end else begin : g_phase
+    assign w_d = '0;   // not provided for the phase variant
     logic [NCOL-1:0] en0, en1, base0, base1;
     // A wakeup or a cancel acts on the vector of the ID's current phase; an allocation
     // flips the phase and clears the vector of the new phase.
