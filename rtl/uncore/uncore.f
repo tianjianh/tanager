@@ -23,3 +23,4 @@ bootrom/tg_bootrom.sv
 hostbridge/tg_trace_ring.sv
 hostbridge/tg_host_bridge.sv
 hostbridge/tg_axi4_to_axil.sv
+tg_uncore.sv

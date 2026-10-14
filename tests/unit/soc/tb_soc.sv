@@ -180,15 +180,15 @@ module tb_soc;
     // ---- mailbox host -> RISC-V ----
     hw(16'h074, 32'h1);
     repeat (40) @(posedge clk);
-    if (!dut.u_host.mbox_pend_q) fail("MBOX_OUT did not reach the RISC-V side");
-    if (!dut.plic_src[IRQ_HOSTCTL]) fail("mailbox not on PLIC source 11");
+    if (!dut.u_uncore.u_host.mbox_pend_q) fail("MBOX_OUT did not reach the RISC-V side");
+    if (!dut.u_uncore.plic_src[IRQ_HOSTCTL]) fail("mailbox not on PLIC source 11");
 
     // ---- console input reaches the UART ----
     hr(16'h10C, v);
     if (v != 512) fail($sformatf("UART_RX_SPACE %0d, want 512", v));
     hw(16'h108, 32'h41);
     repeat (40) @(posedge clk);
-    if (dut.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
+    if (dut.u_uncore.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
 
     if (KIND == "tcore") begin
       // run until the program reports through TOHOST, echoing the console
@@ -236,7 +236,7 @@ module tb_soc;
       end while (int'(v) < passes);
       expect_reg(16'h0D4, 32'd0, "traffic generator errors at injected latency 250");
       hr(16'h050, v);
-      $display("injector: %0d reads, native latency max %0d", v, dut.inj_max_all);
+      $display("injector: %0d reads, native latency max %0d", v, dut.u_uncore.inj_max_all);
       if (v == 0) fail("injector saw no reads");
       hw(16'h0C0, 32'h0);
       hw(16'h040, 32'd0);
