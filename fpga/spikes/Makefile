@@ -2,6 +2,10 @@
 # docs/perf/spikes.md. Simulation tests: make -C fpga/spikes/sim.
 #   make -C fpga/spikes lint
 ROOT := $(abspath ../..)
+# The pinned Verilator (tools/env.sh); /usr/bin/verilator 5.020 gives wrong results here.
+ifeq ($(VERILATOR_ROOT),)
+$(error source tools/env.sh first: the pinned Verilator is needed, not /usr/bin/verilator)
+endif
 VERILATOR ?= verilator
 LINT := $(VERILATOR) --lint-only -Wall -Wno-MULTITOP -I$(ROOT)/rtl/common $(ROOT)/rtl/lint.vlt lint.vlt
 
