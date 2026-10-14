@@ -314,11 +314,9 @@ module tg_l2_bank
     // A Release/ProbeAck with data updates the directory at S2 and writes its beats afterwards:
     // a new request for the line waits until the data is in the array.
     if ((cin_st_q == CI_PIPE || cin_st_q == CI_WRITE) && cin_data && cin_line == ain_line) a_conflict = 1'b1;
-    // An A request in S1/S2 of the same set may evict this line at its S2 (victims are chosen
-    // there), so same-set A requests go through S0-S2 one at a time. Once the older one is past
-    // S2, its MSHR's victim line is visible to the check above.
-    if (p1_v_q && p1_q.kind inside {PK_ACQ, PK_GET, PK_PUT} && set_of(p1_q.line) == set_of(ain_line)) a_conflict = 1'b1;
-    if (p2_v_q && p2_q.kind inside {PK_ACQ, PK_GET, PK_PUT} && set_of(p2_q.line) == set_of(ain_line)) a_conflict = 1'b1;
+    // Same-set requests in S1/S2 block every request at S0 (below). For A requests that is also
+    // rule 2: an older request of the set may evict this line at its S2, where victims are chosen;
+    // once it is past S2, its MSHR's victim line is visible to the check above.
     a_mshr_ok = int'(n_free_mshr) > (int'(p1_v_q && p1_q.kind inside {PK_ACQ, PK_GET, PK_PUT}) +
                                      int'(p2_v_q && p2_q.kind inside {PK_ACQ, PK_GET, PK_PUT}));
     a_set_ok  = n_set < WAYS;          // same-set requests in S1/S2 already block (above)
@@ -330,6 +328,19 @@ module tg_l2_bank
   always_comb
     for (int m = 0; m < N_MSHR; m++) mcmd_req[m] = m_st[m] == MS_RESUME || m_st[m] == MS_INVAL;
   assign mcmd_pick = rr_pick(mcmd_req, mcmd_ptr_q);
+
+  // A request may not enter S0 while a request of the same set is in S1 or S2: S2 writes the
+  // directory, and the RAM read at S0 (read-first, data two cycles later) would not see that
+  // write. Same-set requests back to back are rare (A requests of one set go one at a time
+  // anyway), so this costs at most two bubbles where a write-history bypass cost a row of
+  // multiplexers on the S2 path. The highest-priority waiting request holds S0 meanwhile.
+  function automatic logic set_busy(input logic [SET_W-1:0] s, input logic v1, input logic [SET_W-1:0] s1,
+                                    input logic v2, input logic [SET_W-1:0] s2);
+    return (v1 && s1 == s) || (v2 && s2 == s);
+  endfunction
+  wire c_busy = set_busy(set_of(cin_line), p1_v_q, set_of(p1_q.line), p2_v_q, set_of(p2_q.line));
+  wire m_busy = set_busy(rl_set[LP_S0],    p1_v_q, set_of(p1_q.line), p2_v_q, set_of(p2_q.line));
+  wire a_busy = set_busy(set_of(ain_line), p1_v_q, set_of(p1_q.line), p2_v_q, set_of(p2_q.line));
 
   // S0 selection
   logic  s0_v;
@@ -346,17 +357,17 @@ module tg_l2_bank
       s0.kind   = PK_INIT;
       s0.line   = LINE_W'({init_cnt_q[SET_W-1:0], 1'(BANK)});
     end else if (cin_st_q == CI_READY) begin
-      s0_v      = 1'b1;
-      s0_take_c = 1'b1;
+      s0_v      = !c_busy;
+      s0_take_c = !c_busy;
       s0.kind   = cin_rel ? PK_REL : PK_PACK;
       s0.line   = cin_line;
     end else if (|mcmd_req) begin
-      s0_v      = 1'b1;
-      s0_take_m = 1'b1;
+      s0_v      = !m_busy;
+      s0_take_m = !m_busy;
       s0.kind   = PK_MCMD;
       s0.mshr   = mcmd_pick;
       s0.line   = line_of(rl_tag[0], rl_set[LP_S0]);
-    end else if (ain_st_q == AI_READY && !a_conflict && a_mshr_ok && a_set_ok) begin
+    end else if (ain_st_q == AI_READY && !a_conflict && a_mshr_ok && a_set_ok && !a_busy) begin
       s0_v      = 1'b1;
       s0_take_a = 1'b1;
       s0.kind   = (ain_q.opcode == A_GET) ? PK_GET : tl_a_has_data(ain_q.opcode) ? PK_PUT : PK_ACQ;
@@ -416,45 +427,11 @@ module tg_l2_bank
     p2_q <= p1_q;
   end
 
-  // Write history: the last two S2 writes, newest first, bypass the RAM's stale read
-  logic [WAYS-1:0]  h0_way_q, h1_way_q;
-  logic             h0_pl_q, h1_pl_q;
-  logic [SET_W-1:0] h0_set_q, h1_set_q;
-  way_t             h0_ent_q, h1_ent_q;
-  logic [6:0]       h0_plru_q, h1_plru_q;
+  // The row S2 acts on: no same-set request was in S1/S2 when this one read it at S0 (above).
   wire [SET_W-1:0]  set2 = set_of(p2_q.line);
   wire [TAG_W-1:0]  tag2 = tag_of(p2_q.line);
-  wire              h0_hit = h0_set_q == set2;
-  wire              h1_hit = h1_set_q == set2;
   row_t row2;
-  always_comb begin
-    row2 = dir_rdata;
-    for (int w = 0; w < WAYS; w++) begin
-      if (h1_hit && h1_way_q[w]) row2.way[w] = h1_ent_q;
-      if (h0_hit && h0_way_q[w]) row2.way[w] = h0_ent_q;
-    end
-    if (h1_hit && h1_pl_q) row2.plru = h1_plru_q;
-    if (h0_hit && h0_pl_q) row2.plru = h0_plru_q;
-  end
-  always_ff @(posedge clk) begin
-    if (rst) begin
-      h0_way_q <= '0;
-      h1_way_q <= '0;
-      h0_pl_q  <= 1'b0;
-      h1_pl_q  <= 1'b0;
-    end else begin
-      h0_way_q <= dir_wway;
-      h1_way_q <= h0_way_q;
-      h0_pl_q  <= dir_wplru;
-      h1_pl_q  <= h0_pl_q;
-    end
-    h0_set_q  <= dir_waddr;
-    h0_ent_q  <= dir_went;
-    h0_plru_q <= dir_wplru_v;
-    h1_set_q  <= h0_set_q;
-    h1_ent_q  <= h0_ent_q;
-    h1_plru_q <= h0_plru_q;
-  end
+  assign row2 = dir_rdata;
 
   // ---------------------------------------------------------------------------------------------
   // S2: directory decision
