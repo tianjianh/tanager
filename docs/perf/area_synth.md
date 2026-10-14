@@ -55,7 +55,12 @@ Synthesis and `opt_design` LUTs, smt2 with MX, against 8,909 (8,895 after routin
 |---|---|---|---|---|
 | Keep the hierarchy (`-flatten_hierarchy none`) | 8,403 (routed 8,368) | 506 (5.7%) | none | **+0.132 ns**, no loss |
 | `AreaOptimized_high` synthesis directive | 8,115 (routed 8,113) | 794 (8.9%) | none | **−0.265 ns**: loses 200 MHz on its own (flattened) |
-| Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 queued |
+| Both | **7,712 (routed 7,691)** | **1,197 (13.4%)** | none | **+0.102 ns**, no loss; smt2_w3 below |
+| No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
+| Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
+| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
+| Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
+| Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
 
 **At smt2_w3 (120 columns)** the two settings together give 11,381 LUTs (−1,134) at −0.008 ns: a hair short of 200 MHz, with about 0.5 ns to spare at v2's 180–190 MHz.
 
@@ -81,12 +86,18 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
   - The worst path is now W → readiness → select → payload register, 7 levels.
   - st and smt2 gain margin. smt2_w3 stays at the edge of 200 MHz but has about 0.5 ns at v2's 180–190 MHz.
 - **One earlier trick no longer applies:** STA and FP queues without the matrix (−403). With tags, those queues have no other way to wait on a 1-cycle producer.
-- With the free synthesis settings on top of tags: (being measured). With a flattened design the directive restructures the wakeup loop across module boundaries, and the loop misses by 0.265 ns. With each queue kept as a module it cannot, and the loop keeps its +0.1 ns.
-| No row-dependency matrix in the STA and FP queues (`MX_CQ`: their rows take the ID path, one cycle later for ALU producers) | 8,506 | 403 | near zero (int→FP moves, store addresses); the model session to confirm | tested in simulation |
-| Less payload in flip-flops (`EARLY_W` 24 → 16, the rest in LUTRAM) | 8,813 | 96 (+80 LUTRAM) | none | small |
-| … `EARLY_W` 24 → 8 (only part of the source tags in flip-flops) | 8,637 | 272 (+80 LUTRAM, −720 FFs) | none if the RF stage can wait for the LUTRAM tags; timing run needed | promising |
-| Harness only: delay lines on the queues that really have delayed wakeups (`DL_Q`) | 8,663 | 246 | — | a harness artifact, not a saving in the core |
-| Delay lines with predecoded IDs (`DL_ENC`) | 8,683 | −20 | — | does not help |
+- **The free synthesis settings stack on tags** (hierarchy kept plus `AreaOptimized_high`, routed at 200 MHz with the pblock):
+
+  | Configuration | Tags, default | Tags, both settings | Saved | WNS ns | Levels |
+  |---|---|---|---|---|---|
+  | st | 4,802 | (queued) | | | |
+  | smt2 (v1) | 5,506 | **4,750** | −756 (−13.7%) | +0.218 → **+0.392** | 7 → 11 |
+  | smt2_w3 (v2) | 7,703 | **6,669** | −1,034 (−13.4%) | +0.026 → **+0.094** | 7 → 11 |
+
+  - The same −13% as without tags (§3), and timing improves rather than degrades. Flip-flops and LUTRAM do not change (5,208 / 240 at smt2).
+  - The directive alone fails (§3): with a flattened design it restructures the wakeup loop across module boundaries and misses by 0.265 ns. With each queue kept as a module it cannot, so the loop keeps its margin. Use the two together or not at all.
+  - The worst path moves off the wakeup loop (W → readiness → select → payload, 7 LUT levels) to a queue's room counter (`room_q`, 11 levels of which 2 are CARRY8), at more slack.
+  - **The scheduler from ROB columns to tags plus both settings: 8,895 → 4,750 at smt2 (−47%) and 12,515 → 6,669 at smt2_w3 (−47%)**, with slack gained at both.
 
 ## 4. The real core, module by module (st, first synthesis)
 
