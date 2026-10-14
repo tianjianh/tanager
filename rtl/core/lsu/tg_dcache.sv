@@ -266,7 +266,7 @@ module tg_dcache
       c_o.size    = 3'd6;
       c_o.source  = p_src_q;
       c_o.address = {p_pa_q[PA_W-1:6], 6'b0};
-      c_o.data    = b_rdata[p_way_q];
+      c_o.data    = (ps_q == P_SEND) ? b_rdata[p_way_q] : '0;   // held stable: see port B rules
     end else if (ms_q == M_EV_SEND) begin
       c_valid_o   = 1'b1;
       c_o.opcode  = m_vdirty_q ? C_RELEASE_DATA : C_RELEASE;
@@ -274,7 +274,7 @@ module tg_dcache
       c_o.size    = 3'd6;
       c_o.source  = TL_SRC_W'(1);
       c_o.address = {m_vline_q, 6'b0};
-      c_o.data    = b_rdata[m_way_q];
+      c_o.data    = m_vdirty_q ? b_rdata[m_way_q] : '0;
     end
 
     d_ready_o = 1'b1;
