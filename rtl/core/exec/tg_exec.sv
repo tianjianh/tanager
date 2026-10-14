@@ -344,28 +344,27 @@ module tg_exec
 
   // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's
   // write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0)
+  // - clz and ctz share one leading-zero count, ctz(x) = clz(x bit-reversed). The W forms put ones
+  //   beside the low word (below it for clz, above it for ctz), so the count stops at 32.
+  // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
   logic [2:0][63:0]  bc_q;
   always_comb begin
-    logic [63:0] x;
+    logic [63:0] x, y, w;
     int n;
     logic lt;
     x = p1.word ? {32'b0, opa[1][31:0]} : opa[1];
-    n = 0;
-    lt = p1.alu.cmp_unsigned ? opa[1] < opb[1] : $signed(opa[1]) < $signed(opb[1]);
-    unique case (p1.mul_op)
-      MUL_LO: begin                                  // clz
-        n = p1.word ? 32 : 64;
-        for (int i = 0; i < 64; i++) if (x[i] && (!p1.word || i < 32)) n = (p1.word ? 31 : 63) - i;
-      end
-      MUL_H: begin                                   // ctz
-        n = p1.word ? 32 : 64;
-        for (int i = 63; i >= 0; i--) if (x[i]) n = i;
-      end
-      MUL_HSU: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
-      default: n = 0;                                          // min/max below
-    endcase
+    w = p1.word ? {32'hFFFF_FFFF, opa[1][31:0]} : opa[1];
+    y = p1.word ? {opa[1][31:0], 32'hFFFF_FFFF} : opa[1];
+    if (p1.mul_op == MUL_H) for (int i = 0; i < 64; i++) y[i] = w[63 - i];   // ctz
+    n = 64;
+    for (int i = 0; i < 64; i++) if (y[i]) n = 63 - i;                       // clz, ctz
+    if (p1.mul_op == MUL_HSU) begin                                          // cpop
+      n = 0;
+      for (int i = 0; i < 64; i++) n += int'(x[i]);
+    end
+    lt = p1.alu.cmp_unsigned ? f_ltu[1] : f_lt[1];
     bc_res = 64'(n);
     if (p1.mul_op == MUL_HU) bc_res = (lt ^ p1.alu.cmp_max) ? opa[1] : opb[1];   // MIN(U), MAX(U)
   end
@@ -487,6 +486,9 @@ module tg_exec
   always_ff @(posedge clk) begin
     // RF -> EX
     ex_pl_q <= iss_pl;
+    // min/max on P1's 2-cycle path read ALU1's compare flags, so its adder subtracts for them
+    if (iss_pl[1].cls == C_MUL && iss_pl[1].bcnt && iss_pl[1].mul_op == MUL_HU)
+      ex_pl_q[1].alu.sub <= 1'b1;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
     for (int q = 0; q < N_XQ; q++) begin
