@@ -532,9 +532,11 @@ module tg_l2_bank
     way_t   e;
     logic [N_AGENTS-1:0] me, p;
     logic   grow_t, full_put;
+    // Every S2 request writes back its selected entry and the PLRU bits, changed or not, so the
+    // RAM's write enables depend only on p2_v_q (the decision logic feeds the data inputs only).
     dir_wway         = '0;
     dir_wplru        = 1'b0;
-    dir_wplru_v      = plru_touch(row2.plru, sw2);
+    dir_wplru_v      = row2.plru;
     dir_waddr        = set2;
     s2_alloc         = 1'b0;
     s2_alloc_st      = MS_IDLE;
@@ -564,14 +566,15 @@ module tg_l2_bank
     me               = N_AGENTS'(1) << a2_ag;
     grow_t           = 1'b0;
     full_put         = 1'b0;
-    e                = '0;
+    e                = e2;
     p                = '0;
 
     if (p2_v_q) begin
+      dir_wway  = (p2_q.kind == PK_INIT) ? '1 : sw2_oh;
+      dir_wplru = 1'b1;
       unique case (p2_q.kind)
         PK_INIT: begin
-          dir_wway    = '1;
-          dir_wplru   = 1'b1;
+          e           = '0;
           dir_wplru_v = '0;
         end
 
@@ -579,7 +582,6 @@ module tg_l2_bank
           s2_c     = 1'b1;
           s2_c_hit = hit2;
           if (hit2) begin
-            e = e2;
             unique case (cin_q.param)
               TL_SHRINK_T_TO_B: begin e.pres = e.pres | onehot_ag(cin_ag);  e.tip = 1'b0; end
               TL_SHRINK_T_TO_N: begin e.pres = e.pres & ~onehot_ag(cin_ag); e.tip = 1'b0; end
@@ -588,7 +590,6 @@ module tg_l2_bank
             endcase
             if (e.pres == '0) e.tip = 1'b0;   // no holder left: no owner either
             if (cin_data) e.dirty = 1'b1;
-            dir_wway = sw2_oh;
           end else begin
             s2_err = 1'b1;   // a Release or ProbeAck for a line the inclusive L2 does not hold
           end
@@ -607,7 +608,6 @@ module tg_l2_bank
 
         PK_MCMD: begin
           s2_mcmd = 1'b1;
-          e = e2;
           if (m_st[mc2] == MS_PIPE_INV) begin
             e.valid = 1'b0;
             e.dirty = 1'b0;
@@ -641,7 +641,6 @@ module tg_l2_bank
             s2_mcmd_grant_t = 1'b1;
             s2_mcmd_st = (e.valid && s2_mcmd_wb) ? MS_VREAD : m_need_fill[mc2] ? MS_FILL : MS_PUTW;
           end
-          dir_wway = sw2_oh;
         end
 
         default: begin   // PK_ACQ, PK_GET, PK_PUT: allocate MSHR m_new
@@ -651,7 +650,6 @@ module tg_l2_bank
           if (hit2) begin
             ev_hit_o     = 1'b1;
             s2_alloc_way = hw2;
-            e = e2;
             unique case (p2_q.kind)
               PK_ACQ:  p = a2_growt ? (e.pres & ~me) : (e.tip && e.pres != me) ? (e.pres & ~me) : '0;
               PK_GET:  p = e.tip ? e.pres : '0;
@@ -674,13 +672,11 @@ module tg_l2_bank
                 end
                 default: s2_alloc_st = MS_RESP;
               endcase
-              dir_wway = sw2_oh;
             end
           end else begin
             ev_miss_o     = 1'b1;
             s2_alloc_way  = vw2;
             s2_alloc_fill = !full_put;
-            e = e2;
             s2_alloc_vline = line_of(e.tag, set2);
             if (e.valid && e.pres != '0) begin
               // The victim is held by agents: probe them first; its tag stays until resolved.
@@ -699,10 +695,9 @@ module tg_l2_bank
               e.pres  = (p2_q.kind == PK_ACQ) ? me : '0;
               e.tip   = p2_q.kind == PK_ACQ;
               s2_alloc_grant_t = 1'b1;
-              dir_wway = sw2_oh;
             end
           end
-          dir_wplru = 1'b1;
+          dir_wplru_v = plru_touch(row2.plru, sw2);
         end
       endcase
     end
