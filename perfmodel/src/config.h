@@ -124,7 +124,13 @@ namespace tg {
   X(smt_mshr_cap, 100, "percent of the L1D MSHRs one thread may hold")                             \
   X(smt_llt_cap, 100, "percent of the long-latency tags one thread may hold")                      \
   X(smt_bp_hash, 1, "hash the thread ID into shared predictor tables (0 = threads share entries by PC)") \
-  X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread")
+  X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread") \
+  /* area-recovery levers (plan section 8.5); off by default */                                   \
+  X(smt_ckpt_shared, 0, "R10: the ckpt checkpoints are one pool shared by the threads (0 = ckpt per thread)") \
+  X(rf_share_a2, 0, "R11 (alu3): ALU2 reads through the STA and shared ports; STA and FP int reads win") \
+  X(dec_full, 0, "R12: decode slots from this index on take only ALU/branch/integer load-store (0 = all)") \
+  X(alu3_simple, 0, "R13 (alu3): ALU2 executes add/sub, logic, compare, LUI/AUIPC and Zba shift-adds only") \
+  X(census, 0, "count every dispatched uop's source dependencies by wakeup kind (output only)")
 
 constexpr int MAX_THREADS = 2;
 
