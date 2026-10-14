@@ -215,7 +215,21 @@ Named paths of the chosen 2-ALU variant (`s3_st_byp0_oh0`):
 
 ## 6. S4: load path
 
-(to be completed)
+**Structure** ([`tg_s4_top`](../../fpga/spikes/rtl/tg_s4_top.sv), DTLB [`tg_dtlb`](../../fpga/spikes/rtl/tg_dtlb.sv)): AG → M1 → M2, 3-cycle load-to-use (plan §4.9, §4.11).
+- **AG:** the base operand through a bypass mux, plus the sign-extended offset. The adder's VA[11:3] drives the address pins of the eight data-way BRAMs directly (VIPT: the index lies inside the page).
+- **M1:**
+  - the eight ways read: one RAMB36 each, 512 × 64 simple dual port. Port A reads for loads; port B writes refills and stores, with byte enables.
+  - the LUTRAM tags read at VA[11:6]: per way, 64 sets × 24 bits, with 2 read ports (loads, and probes/refills);
+  - the DTLB lookup: 32 entries, fully associative, Sv39 with 2 MiB/1 GiB pages and {TID, ASID} tags.
+- **M2:** tag compare against the DTLB's physical page, way select, and the result register. A miss raises the shadow cancel.
+- **Where the align goes:**
+  - `ALIGN_M1 = 0`, the plan's structure: align and sign-extend in M2, after the way select.
+  - `ALIGN_M1 = 1`: align every way's word in M1 from the raw BRAM outputs, so M2 is only compare and select.
+
+**Why the data ways are simple dual port.** An SDP RAMB36 gives a 64-bit read port and a 64-bit write port with byte enables. Loads and dirty reads only read, and refills and stores only write, so that is exactly the D$'s port use. As true dual port, a RAMB36 port is at most 36 bits wide, and every way would need two BRAMs.
+
+(results: queued)
+
 
 ---
 
