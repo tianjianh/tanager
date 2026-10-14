@@ -87,7 +87,11 @@ module tg_csr
   logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
   logic [1:0]  mpp_q, fs_q;
   logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
-  logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q, mcycle_q, minstret_q;
+  logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q;
+  // R1: the cycle and instret counters are DSP48E2 accumulators (with their load from a CSR
+  // write), not LUT adders and flip-flops
+  (* use_dsp = "yes" *) logic [63:0] mcycle_q;
+  (* use_dsp = "yes" *) logic [63:0] minstret_q;
   logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
   logic [11:0] mie_q;
   logic        ssip_q, stip_sw_q, seip_sw_q;
@@ -434,6 +438,22 @@ module tg_csr
   endfunction
 
   // ---- Sequential ----
+  // Counters (R1): a CSR write replaces that cycle's increment
+  logic cyc_wr, ins_wr;
+  assign cyc_wr = cm_csr && pw_v_q && pw_a_q == 12'hB00;
+  assign ins_wr = cm_csr && pw_v_q && pw_a_q == 12'hB02;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      mcycle_q   <= '0;
+      minstret_q <= '0;
+    end else begin
+      if (cyc_wr)                   mcycle_q <= pw_d_q;
+      else if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
+      if (ins_wr)                   minstret_q <= pw_d_q;
+      else if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
+    end
+  end
+
   always_ff @(posedge clk) begin
     if (rst) begin
       priv_q    <= PRIV_M;
@@ -467,8 +487,6 @@ module tg_csr
       scause_q  <= '0;
       stval_q   <= '0;
       stimecmp_q <= '0;
-      mcycle_q  <= '0;
-      minstret_q <= '0;
       mie_q     <= '0;
       ssip_q    <= 1'b0;
       stip_sw_q <= 1'b0;
@@ -500,9 +518,6 @@ module tg_csr
       if (psweep) psw_q <= psw_q + 1'b1;
       pchg_q <= pcalc;
       if (pcalc) pdirty_q[pj] <= 1'b0;
-      // Counters
-      if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
-      if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
 
       // Execute: hold the write until commit
       if (flush) pw_v_q <= 1'b0;
@@ -589,8 +604,6 @@ module tg_csr
           end
           12'h7A8: mcontext_q <= pw_d_q[12:0];
           12'h5A8: scontext_q <= pw_d_q[31:0];
-          12'hB00: mcycle_q <= pw_d_q;
-          12'hB02: minstret_q <= pw_d_q;              // replaces this instruction's increment
           12'h3A0: begin
             for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
             pdirty_q[7:0] <= '1;

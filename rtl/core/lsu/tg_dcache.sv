@@ -50,14 +50,14 @@ module tg_dcache
   input  logic              st_req,
   input  logic [PA_W-1:0]   st_pa,
   input  logic [15:0]       st_mask,
-  input  logic [127:0]      st_wdata,
+  input  logic [63:0]       st_wdata,     // the bytes in their lanes of both dwords (st_mask picks)
   output logic              st_ack,
   output logic              st_dropped,   // acked without writing (denied Grant)
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
   input  logic [PA_W-1:0]   am_pa,
   input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
-  input  logic [127:0]      am_wdata,
+  input  logic [63:0]       am_wdata,     // as st_wdata
   output logic              am_ack,       // am_rdata valid; am_wmask/am_wdata written
   output logic [63:0]       am_rdata,     // the addressed dword before the write
   output logic              am_den,       // the line's last fill was denied
@@ -287,14 +287,23 @@ module tg_dcache
   assign pb_st      = st_req && s_hit_t && !probe_active && !mshr_on_c && !pb_grant &&
                       ms_q != M_INSTALL && !al_go;
   assign pb_amw     = amw_q && |am_wmask;
-  assign am_rdata   = am_hi_q ? b_rdata[am_way_q][127:64] : b_rdata[am_way_q][63:0];
+  // Port B's read data, selected once by the way it last read: a probe, an eviction or an
+  // atomic. Port B makes one access per cycle and holds its output while a C beat waits, so
+  // one multiplexer serves all three readers.
+  logic             brd_en;
+  logic [WAY_W-1:0] brd_way, brd_way_q;
+  logic [127:0]     brow;
+  assign brow       = b_rdata[brd_way_q];
+  assign am_rdata   = am_hi_q ? brow[127:64] : brow[63:0];
   assign st_ack     = pb_st || st_drop;
   logic st_drop;
   assign st_dropped = st_drop;
 
   always_comb begin
     b_en = '0; b_en_w = '0; b_we = '0; b_addr = '0; b_wdata = '0;
+    brd_en = 1'b0; brd_way = '0;
     if (pb_probe) begin
+      brd_en = 1'b1; brd_way = p_way_q;
       b_en[p_way_q] = 1'b1;
       b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
     end else if (pb_grant) begin
@@ -303,21 +312,23 @@ module tg_dcache
       b_addr = {m_line_q[6 +: SET_W], m_beat_q};
       b_wdata = d_i.data;
     end else if (pb_ev) begin
+      brd_en = 1'b1; brd_way = m_way_q;
       b_en[m_way_q] = 1'b1;
       b_addr = {m_vline_q[6 +: SET_W], m_beat_q};
     end else if (pb_st) begin
       b_en[sh_way] = 1'b1; b_en_w[sh_way] = 1'b1;
       b_we = st_mask;
       b_addr = st_pa[4 +: ROW_W];
-      b_wdata = st_wdata;
+      b_wdata = {2{st_wdata}};
     end else if (pb_amr) begin
+      brd_en = 1'b1; brd_way = sh_way;
       b_en[sh_way] = 1'b1;
       b_addr = am_pa[4 +: ROW_W];
     end else if (pb_amw) begin
       b_en[am_way_q] = 1'b1; b_en_w[am_way_q] = 1'b1;
       b_we = am_wmask;
       b_addr = am_row_q;
-      b_wdata = am_wdata;
+      b_wdata = {2{am_wdata}};
     end
   end
 
@@ -347,7 +358,7 @@ module tg_dcache
       c_o.size    = 3'd6;
       c_o.source  = p_src_q;
       c_o.address = {p_pa_q[PA_W-1:6], 6'b0};
-      c_o.data    = (ps_q == P_SEND) ? b_rdata[p_way_q] : '0;   // held stable: see port B rules
+      c_o.data    = (ps_q == P_SEND) ? brow : '0;   // held stable: see port B rules
     end else if (ms_q == M_EV_SEND) begin
       c_valid_o   = 1'b1;
       c_o.opcode  = m_vdirty_q ? C_RELEASE_DATA : C_RELEASE;
@@ -355,7 +366,7 @@ module tg_dcache
       c_o.size    = 3'd6;
       c_o.source  = TL_SRC_W'(1);
       c_o.address = {m_vline_q, 6'b0};
-      c_o.data    = m_vdirty_q ? b_rdata[m_way_q] : '0;
+      c_o.data    = m_vdirty_q ? brow : '0;
     end
 
     d_ready_o = 1'b1;
@@ -435,6 +446,7 @@ module tg_dcache
       lose_v_q <= 1'b0;
     end else begin
       if (!ready) init_q <= init_q + 1'b1;
+      if (brd_en) brd_way_q <= brd_way;
       // Atomic: read now, write next cycle
       amw_q <= pb_amr;
       if (pb_amr) begin
@@ -583,6 +595,10 @@ module tg_dcache
       assert ($onehot0({pb_probe, pb_grant, pb_ev, pb_st, pb_amr, pb_amw})) else $error("tg_dcache: port B conflict");
       assert (!(st_req && am_req)) else $error("tg_dcache: store and atomic requests together");
       if (amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
+      // port B's read data belongs to the way its reader expects
+      if (ps_q == P_SEND) assert (brd_way_q == p_way_q) else $error("tg_dcache: probe data from another way");
+      if (ms_q == M_EV_SEND && m_vdirty_q) assert (brd_way_q == m_way_q) else $error("tg_dcache: release data from another way");
+      if (amw_q) assert (brd_way_q == am_way_q) else $error("tg_dcache: atomic data from another way");
     end
   end
 `endif
