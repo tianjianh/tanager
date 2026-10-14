@@ -73,6 +73,8 @@ struct Uop {
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
   bool retired_early = false;
   int row = -1;
+  uint8_t iq_bank = 0;                // iq_bank: the bank of its queue's rows that holds it
+  bool has_wtag = false;              // wake_tags: holds a wakeup tag until its result wakes
   uint64_t addr = 0;
   uint8_t size = 0;
 };
@@ -103,8 +105,9 @@ struct SqEntry {
 // Multithreading only (reported per thread when threads > 1).
 #define TG_SMT_STATS(X) X(fetch_cycles) X(fetch_lost_smt) X(decode_slots) X(dispatch_slots)
 // Area-recovery levers (reported when one of them is on): R11 port conflicts, R12 decode stops, R13 dispatch
-// stalls of an op ALU2 could not take.
-#define TG_LEVER_STATS(X) X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls)
+// stalls of an op ALU2 could not take, iq_bank dispatch stalls of a uop whose producers lie in both banks,
+// wake_tags dispatch stalls for want of a tag.
+#define TG_LEVER_STATS(X)   X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls) X(disp_stall_bank) X(disp_stall_wtag)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -229,6 +232,12 @@ class Core {
   int64_t iq_free(uint8_t q, int tid) const;  // entries thread tid may still take in queue q
   int iq_occ(uint8_t q, int tid) const;     // entries of queue q held by thread tid
   int64_t share(int64_t size, int tid) const;  // per-thread limit of a ROB/LQ/SQ/CB-like structure
+  // iq_bank: the ROB half of a uop, free rows of a bank, and the bank a uop's producers need (-1 any, -2 none)
+  int rob_half(uint64_t id) const;
+  int64_t bank_free(uint8_t q, int b) const;
+  int bank_need(const Thread& T, const Uop& u) const;
+  bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
+  int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken
   bool window_full(int64_t size, uint64_t own, uint64_t total, int tid) const;
   bool fast_forward(Thread& T);
   bool finished(Thread& T);
@@ -272,7 +281,10 @@ class Core {
   enum CensusKind { CK_READY, CK_MX, CK_ROB, CK_LLT, CK_XTHREAD, CK_N };
   std::array<std::array<uint64_t, CK_N>, NQ> census_{};
   std::array<std::array<uint64_t, NQ>, NQ> census_rob_from_{};  // ROB-column waits by producer queue
-  void census_source(const Thread& T, uint8_t q, uint64_t prod);
+  // ROB-column waits on a 1-cycle ALU-queue producer (none can occur while MX covers them: these are the waits
+  // that wakeup tags would lose), and waits (MX or ROB column) on a producer in the other half of the ROB
+  std::array<uint64_t, NQ> census_rob_1c_{}, census_xhalf_{};
+  void census_source(const Thread& T, uint8_t q, uint64_t prod, uint64_t cons);
   // overlap window of the threads' first regions (threads > 1)
   bool ov_started_ = false, ov_ended_ = false;
   uint64_t ov_start_ = 0, ov_end_ = 0;

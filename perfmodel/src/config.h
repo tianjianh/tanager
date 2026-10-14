@@ -130,6 +130,8 @@ namespace tg {
   X(rf_share_a2, 0, "R11 (alu3): ALU2 reads through the STA and shared ports; STA and FP int reads win") \
   X(dec_full, 0, "R12: decode slots from this index on take only ALU/branch/integer load-store (0 = all)") \
   X(alu3_simple, 0, "R13 (alu3): ALU2 executes add/sub, logic, compare, LUI/AUIPC and Zba shift-adds only") \
+  X(iq_bank, 0, "each issue queue is two banks of rows that wake only on their half of the ROB; a uop takes the bank that sees its producers (two threads: its own)") \
+  X(iq_bank_llt, 0, "with iq_bank: each bank also sees only half of the long-latency tags")      X(wake_tags, 0, "rows wake on a pool of this many tags for multi-cycle fixed-latency producers instead of ROB columns (0 = ROB columns)") \
   X(census, 0, "count every dispatched uop's source dependencies by wakeup kind (output only)")
 
 constexpr int MAX_THREADS = 2;

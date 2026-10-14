@@ -15,8 +15,9 @@ export CC=gcc-15 CXX=g++-15
 # Vivado is sourced on demand by the FPGA scripts (fpga/), not here, because its settings
 # script puts an older bundled toolchain on PATH.
 export TANAGER_VIVADO_SETTINGS="$HOME/Xilinx/2025.2/Vivado/settings64.sh"
-# Concurrent Vivado jobs per machine (tools/vivado_run.sh): 2 on the 32-thread build host, else 1.
-export TANAGER_VIVADO_SLOTS="${TANAGER_VIVADO_SLOTS:-$( [ "$(nproc)" -ge 24 ] && echo 2 || echo 1 )}"
+# Concurrent Vivado jobs per machine (tools/vivado_run.sh): 3 on the 32-thread build host, else 1
+# (at most 2 of them full-device runs; conventions §9).
+export TANAGER_VIVADO_SLOTS="${TANAGER_VIVADO_SLOTS:-$( [ "$(nproc)" -ge 24 ] && echo 3 || echo 1 )}"
 # Build trees live in the Linux filesystem: builds under /mnt/c are several times slower.
 export TANAGER_BUILD="${TANAGER_BUILD:-$HOME/tanager-build}"
 unset _tg_here
