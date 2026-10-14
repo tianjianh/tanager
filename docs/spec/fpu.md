@@ -22,7 +22,7 @@ Ports are those of the stub `rtl/core/fpu/tg_fpu.sv`; requests are `fpu_req_t`, 
 
 **Routing.** `tg_fpu_pkg::fpu_unit_of(op)` returns the port (`FU_FMA`, `FU_MISC`, `FU_DIV`) that executes an operation; the core routes with it and never hard-codes the unit. Each unit asserts that it only receives its own operations.
 
-**Request timing.** A request is taken at the rising edge that ends the cycle in which `*_valid_i` is high (and `fdiv_ready_o`, for the divider). The first stage of every unit does little work, because the operands may arrive late in the cycle through the core's bypass multiplexer. The FMA's E0 stops at a format multiplexer, the NaN-box check, the integer extension of FCVT.F.I, exponent arithmetic of 13 bits and the DSP input registers; FMISC's M0 adds a magnitude compare and a trailing-zero count. The timing runs model the late arrival (1.5 ns; "Timing and area").
+**Request timing.** A request is taken at the rising edge that ends the cycle in which `*_valid_i` is high (and `fdiv_ready_o`, for the divider). The first stage of every unit does little work, because the operands may arrive late in the cycle through the core's bypass multiplexer. The FMA's E0 stops at a format multiplexer, the NaN-box check, the integer extension of FCVT.F.I, exponent arithmetic of 13 bits and the DSP input registers; FMISC's M0 adds a magnitude compare. The timing runs model the late arrival (1.5 ns; "Timing and area").
 
 **FMA and FMISC.** A request in cycle *t* produces `*_valid_o` and the response in cycle *t* + `FMA_LAT` (resp. *t* + `FMISC_LAT`), from a register. There is no backpressure: the core reserves the writeback slot at issue. A unit accepts one request per cycle.
 
@@ -121,34 +121,37 @@ Placement:
   P = fa × fb[50:0] + 2^51·fb[51]·fa + 2^52·(ha·fb + hb·fa) + 2^104·ha·hb
 
 - fa[51:0] × fb[50:0] uses six DSP48E2 tiles of 26 × 17 bits (fa in two 26-bit chunks on the 27-bit port, fb in three 17-bit chunks on the 18-bit port; UG579).
-- The three "row" terms and the 2^104 bit are summed in fabric in E1 and enter two of the tiles through their C ports, so they cost no extra adder input in E2.
+- The three "row" terms and the 2^104 bit are summed in fabric in E1 by one ternary adder (the 2^104 bit sits above 2^52·ha·fb in the same operand) and enter two of the tiles through their C ports, so they cost no extra adder input in E2.
 - Each tile computes A×B + C into its P register in one cycle (no M register; the DSP48E2 meets 200 MHz without it).
+- When the product takes no part (FCVT.F.I, or an addend that dominates), the tiles' P registers are reset (the DSP48E2 P-register reset), so the adder needs no input gating.
 
 **Pipeline** (stage E*k* is the cycle after the request plus *k*; E0 is the request cycle; registers at the end of each stage):
 
 | Stage | Work |
 |---|---|
 | E0 | Unpack the three operands (format, NaN box, classes, hidden bits); special-case detection; the raw exponent sums ep = ea + eb − bias and shr = ep − ec + 56, straight from the encoding fields with the format's bias in a constant; load the DSP A/B registers. The operands may arrive late (the core's bypass), so E0 stops at the sums. |
-| E1 | DSP tiles (A×B + rows). Window placement: clamp shr to sh, choose E_top, lim = E_top − emin. Addend alignment (`tg_fpu_fma_align`): 53 → 165-bit right shift by sh with the sticky from a trailing-zero count; one's complement for an effective subtraction. |
-| E2 | Add (`tg_fpu_fma_add`): the six tile outputs and the aligned addend (column height ≤ 5) reduce column by column to three rows, then two ternary adders run in parallel, X = P − C (= P + ~C + 1) and Y = X − 1; \|S\| is X, or ~Y when X < 0. The emin marker (below) is decoded from lim. |
+| E1 | DSP tiles (A×B + rows). Window placement: clamp shr to sh, choose E_top, lim = E_top − emin. Addend alignment (`tg_fpu_fma_align`): 53 → 165-bit right shift by sh with the sticky from a trailing-zero count. FCVT.F.I's \|x\| is ORed into the addend operand (each is zero when the other is used). |
+| E2 | Add (`tg_fpu_fma_add`): the six tile outputs and the aligned addend (complemented inside the column counters for an effective subtraction; column height ≤ 5) reduce column by column to three rows. Below bit 112 two ternary adders run in parallel, X = P − C (= P + ~C + 1) and Y = X − 1; above it only the addend contributes and the low part's carry is 0 or 1, so one incrementer serves both. \|S\| is X, or ~Y when X < 0. The emin marker (below) is decoded from lim, as the AND of one-hots of lim[7:4] and lim[3:0]. |
 | E3 | Normalise (`tg_fpu_fma_norm`): leading-zero count of \|S\| \| marker, then the left shift in four radix-4 stages; each stage keeps only the bits that can still reach the top 55 (significand, guard, round) and ORs the rest into the sticky. |
-| E4 | Round (T, G, S and one round bit below G for the tininess test), pack with the exponent, special-case results, NaN boxing, flags. The response register. |
+| E4 | Round (T, G, S and one round bit below G for the tininess test), pack with the exponent (one adder for both formats: an S result occupies bits 59:29 of the D layout), exact zero (n = 0 with no sticky), special-case results, NaN boxing, flags. The response register. |
 
-**Subnormal results** need no right shift: the normalising left shift is limited so that the exponent never goes below emin. The limit L = E_top − emin is known in E1; a one-hot marker bit at V[164 − L] (decoded and registered in E2) is ORed into \|S\| for the leading-zero count only, so the count can never exceed L (the "virtual leading one"). If L < 0 (E_top < emin: no addend and a product far below the smallest subnormal) the significand is cleared and only the sticky survives, which rounds to zero or the smallest subnormal.
+The control fields travel E0 → E4 in flip-flops (`shreg_extract = "no"`). As shift-register LUTs they would cost LUTs, and their longer setup time would lengthen E0's special-case path.
+
+**Subnormal results** need no right shift: the normalising left shift is limited so that the exponent never goes below emin. The limit L = E_top − emin is known in E1; a one-hot marker bit at V[164 − L] (decoded and registered in E2) is ORed into \|S\| for the leading-zero count only, so the count can never exceed L (the "virtual leading one"). If L < 0 (E_top < emin: no addend and a product far below the smallest subnormal) the significand is cleared and the sticky is 1, which rounds to zero or the smallest subnormal. (Such a window always holds a non-zero product: a window anchored at an addend or at a zero product is never below emin.)
 
 **Rounding position.** For D, T = bits 54:2 of the normalised 55-bit window, G = bit 1, round bit = bit 0; for S, T = bits 54:31, G = bit 30, round bit = bit 29, and bits 28:0 join the sticky. The S exponent range check uses S limits (emin = −126, emax = 127).
 
 **Tininess after rounding.** When the normalised value has its MSB one place below the emin position (the value is in [2^(emin−1), 2^emin)), the result is not tiny if rounding to *p* bits at the normal position (T' = the *p* bits below the MSB, G' = the next bit, S' = the rest) rounds up to 2^emin. The round bit makes this test exact.
 
-**Special results** (computed in E0, carried to E4): canonical NaN for NaN inputs, ∞ × 0, ∞ − ∞; ∞ with the right sign; exact zeros with the IEEE sign rules above.
+**Special results** (computed in E0, carried to E4 as a kind and a sign, `spec_e`): canonical NaN for NaN inputs, ∞ × 0, ∞ − ∞; ∞ with the right sign; exact zeros with the IEEE sign rules above.
 
 **Four-cycle option.** Plan §4.12 adopts a 4-cycle FMA only if it costs no Fmax. The RTL keeps each stage a separate block so a 4-stage variant (E3 and E4 merged) can be synthesised for comparison; the result of that experiment is reported under "Timing and area".
 
 ## FMISC unit (`tg_fpu_misc`)
 
-Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register. M0 unpacks, compares magnitudes and prepares FCVT.I.F; M1 computes every result. The FP→FP and integer→FP conversions run on the FMA (lever R5, above).
+Two stages, M0 (request cycle) and M1, each ending in a register; the response comes from the M1 register. M0 classifies the operands, compares the magnitudes of the raw encodings and prepares FCVT.I.F; M1 computes every result from the raw operands. NaN boxing matters only where an S operand's bits reach the result (sign injection of an improperly boxed a), so one flag travels instead of unboxed copies; FMIN/FMAX return an operand that is not a NaN, which is properly boxed. The FP→FP and integer→FP conversions run on the FMA (lever R5, above).
 
-FCVT.I.F shifts {significand, 11'b0} right by 63 − E in M1: the integer part, the guard from the shifter, and the sticky from the significand's trailing-zero count compared with the shift amount (no OR tree).
+FCVT.I.F shifts {significand, 12'b0} right by 63 − E in M1, in three radix-4 stages, to {integer part, guard}; each stage ORs the bits it drops into the sticky.
 
 | Operation | M0 | M1 |
 |---|---|---|
@@ -158,7 +161,7 @@ FCVT.I.F shifts {significand, 11'b0} right by 63 − E in M1: the integer part, 
 | FCLASS | unpack | 10-bit one-hot class mask |
 | FMV.X.W / FMV.X.D | – | sign-extend a[31:0] / pass a |
 | FMV.W.X / FMV.D.X | – | {0xFFFFFFFF, a[31:0]} / a |
-| FCVT.{W,WU,L,LU}.{S,D} | unpack; shift = 1086 − exponent field, saturated; trailing zeros | shift; round; negate by one adder (negative ? ~m + ¬inc : m + inc); range check on m and inc without another adder; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
+| FCVT.{W,WU,L,LU}.{S,D} | unpack; shift = 1086 − exponent field, saturated | shift; round; negate by one adder (negative ? ~m + ¬inc : m + inc); range check on m and inc without another adder; saturate (NaN and +overflow → max, −overflow → min, i.e. 0 for unsigned); NV, or NX if inexact |
 
 The integer source of FMV.F.X arrives in `a`.
 
@@ -250,7 +253,7 @@ Q2.58 (rather than the plan's 56-bit multiplier) is what makes the double-precis
    - R < 0: from c − u_g, S = 1.
 
    Exact midpoints cannot occur for division or square root, so the sticky case never hides a tie. F0 runs in the c0 cycle after the remainder product: a 96-bit subtraction (the low bits of A·2^58 − p), its sign and zero test, and the choice of c or c − u_g.
-4. **F1:** for a divide result below 2^emin, shift (T, G, S) right by k = emin − Eq (k ≤ 55, larger values clamp) with sticky; the rounding decision; flags. The conditions that depend only on Eq (subnormal, k, the exponent field, Eq = emin − 1, Eq > emax, Eq = emax) are derived in S3 and travel with the operation.
+4. **F1:** for a divide result below 2^emin, shift (T, G, S) right by k = emin − Eq (k ≤ 55, larger values clamp) in three radix-4 stages, each ORing the bits it drops into the sticky; the rounding decision; flags. The conditions that depend only on Eq (subnormal, k, the exponent field, Eq = emin − 1, Eq > emax, Eq = emax) are derived in S3 and travel with the operation.
    - Tininess after rounding uses the normal-precision (T, G, S) from F0: a result with Eq = emin − 1 is not tiny if it rounds up to 2^emin at *p* bits.
    - Overflow: Eq > emax, or Eq = emax and the significand rounds up from all ones.
    - Square roots are never subnormal and never overflow.
@@ -288,8 +291,9 @@ Against the plan (18/23, 20/26, one every 4 cycles): FDIV.D and FSQRT.S meet it,
 
 ### Area
 
-- 24 DSP48E2 for M1 and M2 (`tg_fpu_div_mul`): each is 12 tiles; tiles of y chunks 1 and 3 add their neighbour shifted right by 17 in c2 (the DSP cascade pattern), and the six pair sums are added by two ternary adders and one binary adder in c3.
-- 5 DSP48E2 for the small multipliers.
+- 24 DSP48E2 for M1 and M2 (`tg_fpu_div_mul`): each is 12 tiles; tiles of y chunks 1 and 3 add their neighbour shifted right by 17 in c2 (the DSP cascade pattern), and the six pair sums are added by two ternary adders and one binary adder in c3. `use_dsp` keeps the smallest tile (8 × 9 bits) in a DSP; Vivado otherwise builds it in LUTs.
+- 5 DSP48E2 for the small multipliers (SMa's 26 × 3-bit half by `use_dsp` too); SMc forms 5·e2hi in its pre-adder.
+- The pipeline and ring registers are flip-flops (`shreg_extract = "no"`): as shift-register LUTs they would spend LUTs, the scarce resource, to save flip-flops.
 - 1 BRAM18.
 
 ## Fallback: radix-4 divide/sqrt (`tg_fpu_div_r4`)
