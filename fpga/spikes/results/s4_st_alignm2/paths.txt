@@ -1,0 +1,8 @@
+ag_bram                slack   1.350 levels  4 logic 0.754 net 2.272  ag_sel_q_reg[1]/C -> g_way[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_byte_narrow.for_mem_cols[1].mem_reg/ADDRARDADDR[12]
+ag_va                  slack   2.356 levels  5 logic 0.985 net 1.561  ag_src_q_reg[2][20]/C -> m1_va_q_reg[37]/D
+m1_data                slack   1.277 levels  0 logic 1.224 net 2.202  g_way[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_byte_narrow.for_mem_cols[1].mem_reg/CLKARDCLK -> m2_data_q_reg[1][11]/D
+m1_tlb                 slack   0.924 levels  7 logic 1.019 net 2.971  m1_va_q_reg[18]/C -> m2_ppn_q_reg[4]/D
+m1_tlbhit              slack   1.487 levels  6 logic 0.917 net 2.500  m1_va_q_reg[18]/C -> m2_tlb_hit_q_reg/D
+m1_tag                 slack   2.755 levels  1 logic 0.299 net 1.843  m1_va_q_reg[7]/C -> m2_tag_q_reg[1][12]/D
+m2_data                slack   0.678 levels  7 logic 1.340 net 2.589  m2_ppn_q_reg[3]/C -> ld_data_o_reg[58]/S
+m2_hit                 slack   2.034 levels  6 logic 1.139 net 1.594  m2_ppn_q_reg[3]/C -> ld_cancel_o_reg/D

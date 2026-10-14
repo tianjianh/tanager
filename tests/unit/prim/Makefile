@@ -3,8 +3,13 @@
 #   make -C tests/unit/prim SEED=7 CYCLES=200000
 # Objects go to $(TANAGER_BUILD)/<worktree>/unit_prim (conventions §1).
 ROOT   := $(abspath ../../..)
+# The pinned Verilator (tools/env.sh); /usr/bin/verilator 5.020 gives wrong results here.
+ifeq ($(VERILATOR_ROOT),)
+$(error source tools/env.sh first: the pinned Verilator is needed, not /usr/bin/verilator)
+endif
 SEED   ?= 1
 CYCLES ?= 20000
+KEEP   ?= 0
 OBJ    ?= $(or $(TANAGER_BUILD),$(HOME)/tanager-build)/$(notdir $(ROOT))/unit_prim
 VFLAGS := --binary --timing -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-UNUSEDPARAM \
           -Wno-WIDTHEXPAND -Wno-WIDTHTRUNC -j 8 -I$(ROOT)/rtl/common
@@ -29,5 +34,7 @@ test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp
 	@grep -q '^PASS' $(OBJ)/prim/run.log
 	$(OBJ)/sdp/Vtb_ram_sdp +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/sdp/run.log
 	@grep -q '^PASS' $(OBJ)/sdp/run.log
+	@# keep only the logs (conventions §9: disk); KEEP=1 keeps the objects
+	@[ "$(KEEP)" = 1 ] || find $(OBJ) -type f ! -name '*.log' -delete
 clean:
 	rm -rf $(OBJ)

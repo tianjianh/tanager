@@ -1,0 +1,125 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Tue Oct 13 18:25:56 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -max_paths 1 -input_pins -file timing_worst.rpt
+| Design            : tg_s3_top
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Physopt postRoute
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -0.215ns  (required time - arrival time)
+  Source:                 res_q_reg[2][12]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/RAMA/I
+                            (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        4.977ns  (logic 1.714ns (34.439%)  route 3.263ns (65.561%))
+  Logic Levels:           15  (CARRY8=7 LUT3=1 LUT6=7)
+  Clock Path Skew:        -0.066ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.520ns = ( 6.520 - 5.000 ) 
+    Source Clock Delay      (SCD):    1.604ns
+    Clock Pessimism Removal (CPR):    0.018ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=4891, unset)         1.604     1.604                         clk
+    SLICE_X15Y146        FDRE                                         r  spike                res_q_reg[2][12]/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X15Y146        FDRE (Prop_AFF_SLICEL_C_Q)
+                                                      0.114     1.718 r  spike                res_q_reg[2][12]/Q
+                         net (fo=9, routed)           0.710     2.428                         u_irf/alu_flags_o[0][1]_i_3_0[12]
+    SLICE_X4Y132                                                      r  spike                u_irf/g_bank[0].u_ram_i_1001/I0
+    SLICE_X4Y132         LUT6 (Prop_D6LUT_SLICEM_I0_O)
+                                                      0.185     2.613 r  spike                u_irf/g_bank[0].u_ram_i_1001/O
+                         net (fo=2, routed)           0.055     2.668                         u_irf/g_bank[0].u_ram_i_1001_n_0
+    SLICE_X4Y132                                                      r  spike                u_irf/g_bank[0].u_ram_i_618/I0
+    SLICE_X4Y132         LUT6 (Prop_G6LUT_SLICEM_I0_O)
+                                                      0.152     2.820 r  spike                u_irf/g_bank[0].u_ram_i_618/O
+                         net (fo=17, routed)          0.425     3.244                         u_irf/ld_q_reg[12]
+    SLICE_X8Y134                                                      r  spike                u_irf/g_bank[0].u_ram_i_1140/I0
+    SLICE_X8Y134         LUT6 (Prop_D6LUT_SLICEM_I0_O)
+                                                      0.080     3.324 r  spike                u_irf/g_bank[0].u_ram_i_1140/O
+                         net (fo=2, routed)           0.255     3.579                         u_irf/g_alu[0].u_alu/p_1_in[15]
+    SLICE_X9Y135                                                      r  spike                u_irf/g_bank[0].u_ram_i_1148/I0
+    SLICE_X9Y135         LUT3 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.058     3.637 r  spike                u_irf/g_bank[0].u_ram_i_1148/O
+                         net (fo=1, routed)           0.015     3.652                         u_irf/g_bank[0].u_ram_i_1148_n_0
+    SLICE_X9Y135                                                      r  spike                u_irf/g_bank[0].u_ram_i_928/S[7]
+    SLICE_X9Y135         CARRY8 (Prop_CARRY8_SLICEL_S[7]_CO[7])
+                                                      0.172     3.824 r  spike                u_irf/g_bank[0].u_ram_i_928/CO[7]
+                         net (fo=1, routed)           0.030     3.854                         u_irf/g_bank[0].u_ram_i_928_n_0
+    SLICE_X9Y136                                                      r  spike                u_irf/g_bank[0].u_ram_i_561/CI
+    SLICE_X9Y136         CARRY8 (Prop_CARRY8_SLICEL_CI_CO[7])
+                                                      0.065     3.919 r  spike                u_irf/g_bank[0].u_ram_i_561/CO[7]
+                         net (fo=1, routed)           0.030     3.949                         u_irf/g_bank[0].u_ram_i_561_n_0
+    SLICE_X9Y137                                                      r  spike                u_irf/g_bank[0].u_ram_i_514/CI
+    SLICE_X9Y137         CARRY8 (Prop_CARRY8_SLICEL_CI_CO[7])
+                                                      0.065     4.014 r  spike                u_irf/g_bank[0].u_ram_i_514/CO[7]
+                         net (fo=1, routed)           0.030     4.044                         u_irf/g_bank[0].u_ram_i_514_n_0
+    SLICE_X9Y138                                                      r  spike                u_irf/alu_flags_o_reg[0][1]_i_48/CI
+    SLICE_X9Y138         CARRY8 (Prop_CARRY8_SLICEL_CI_CO[7])
+                                                      0.065     4.109 r  spike                u_irf/alu_flags_o_reg[0][1]_i_48/CO[7]
+                         net (fo=1, routed)           0.030     4.139                         u_irf/alu_flags_o_reg[0][1]_i_48_n_0
+    SLICE_X9Y139                                                      r  spike                u_irf/alu_flags_o_reg[0][1]_i_24/CI
+    SLICE_X9Y139         CARRY8 (Prop_CARRY8_SLICEL_CI_CO[7])
+                                                      0.065     4.204 r  spike                u_irf/alu_flags_o_reg[0][1]_i_24/CO[7]
+                         net (fo=1, routed)           0.030     4.234                         u_irf/alu_flags_o_reg[0][1]_i_24_n_0
+    SLICE_X9Y140                                                      r  spike                u_irf/alu_flags_o_reg[0][1]_i_5/CI
+    SLICE_X9Y140         CARRY8 (Prop_CARRY8_SLICEL_CI_CO[7])
+                                                      0.065     4.299 r  spike                u_irf/alu_flags_o_reg[0][1]_i_5/CO[7]
+                         net (fo=1, routed)           0.030     4.329                         u_irf/alu_flags_o_reg[0][1]_i_5_n_0
+    SLICE_X9Y141                                                      r  spike                u_irf/alu_flags_o_reg[0][1]_i_2/CI
+    SLICE_X9Y141         CARRY8 (Prop_CARRY8_SLICEL_CI_O[6])
+                                                      0.157     4.486 r  spike                u_irf/alu_flags_o_reg[0][1]_i_2/O[6]
+                         net (fo=1, routed)           0.194     4.680                         u_irf/g_alu[0].u_alu/sum[62]
+    SLICE_X9Y142                                                      r  spike                u_irf/g_bank[0].u_ram_i_713/I3
+    SLICE_X9Y142         LUT6 (Prop_C6LUT_SLICEL_I3_O)
+                                                      0.136     4.816 r  spike                u_irf/g_bank[0].u_ram_i_713/O
+                         net (fo=1, routed)           0.225     5.041                         u_irf/g_bank[0].u_ram_i_713_n_0
+    SLICE_X8Y146                                                      r  spike                u_irf/g_bank[0].u_ram_i_321/I0
+    SLICE_X8Y146         LUT6 (Prop_G6LUT_SLICEM_I0_O)
+                                                      0.057     5.098 r  spike                u_irf/g_bank[0].u_ram_i_321/O
+                         net (fo=1, routed)           0.146     5.244                         u_irf/g_bank[0].u_ram_i_321_n_0
+    SLICE_X9Y147                                                      r  spike                u_irf/g_bank[0].u_ram_i_74/I5
+    SLICE_X9Y147         LUT6 (Prop_B6LUT_SLICEL_I5_O)
+                                                      0.058     5.302 r  spike                u_irf/g_bank[0].u_ram_i_74/O
+                         net (fo=1, routed)           0.540     5.842                         u_irf/g_bank[0].u_ram_i_74_n_0
+    SLICE_X2Y164                                                      r  spike                u_irf/g_bank[0].u_ram_i_2/I5
+    SLICE_X2Y164         LUT6 (Prop_C6LUT_SLICEM_I5_O)
+                                                      0.220     6.062 r  spike                u_irf/g_bank[0].u_ram_i_2/O
+                         net (fo=10, routed)          0.518     6.581                         u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/DIA
+    SLICE_X2Y188         RAMD64E                                      r  spike                u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/RAMA/I
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)        5.000     5.000 r                       
+                                                      0.000     5.000 r                       clk (IN)
+                         net (fo=4891, unset)         1.520     6.520                         u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/WCLK
+    SLICE_X2Y188         RAMD64E                                      r  spike                u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/RAMA/CLK
+                         clock pessimism              0.018     6.538                           
+                         clock uncertainty           -0.035     6.503                           
+    SLICE_X2Y188         RAMD64E (Setup_A6LUT_SLICEM_CLK_I)
+                                                     -0.137     6.366    spike                  u_irf/g_bank[0].u_ram/g_m64.g_bank[0].g_prim[82].u_ram/RAMA
+  -------------------------------------------------------------------
+                         required time                          6.366                           
+                         arrival time                          -6.581                           
+  -------------------------------------------------------------------
+                         slack                                 -0.215                           
+
+
+
+
