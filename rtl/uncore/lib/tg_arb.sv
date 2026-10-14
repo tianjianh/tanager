@@ -23,14 +23,22 @@ module tg_arb
   logic [IW-1:0] ptr_q, lock_idx_q, pick;
   logic          lock_q;
 
-  // First valid input at or after ptr_q, wrapping.
+  // First valid input at or after ptr_q, wrapping: two priority encoders (inputs at or above
+  // ptr_q, and all inputs) instead of a rotation.
   always_comb begin
-    pick = ptr_q;
-    for (int k = N - 1; k >= 0; k--) begin
-      logic [IW-1:0] i;
-      i = IW'((int'(ptr_q) + k) % N);
-      if (in_valid[i]) pick = i;
+    logic [IW-1:0] p_hi, p_all;
+    logic          any_hi;
+    p_hi   = '0;
+    p_all  = '0;
+    any_hi = 1'b0;
+    for (int i = N - 1; i >= 0; i--) begin
+      if (in_valid[i]) p_all = IW'(i);
+      if (in_valid[i] && i >= int'(ptr_q)) begin
+        p_hi   = IW'(i);
+        any_hi = 1'b1;
+      end
     end
+    pick = any_hi ? p_hi : p_all;
   end
 
   assign out_idx   = lock_q ? lock_idx_q : pick;
