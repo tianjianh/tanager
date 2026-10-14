@@ -1,6 +1,6 @@
 # Cross-track interfaces
 
-**Status:** v1.2, 2026-10-13 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4). Owner: coordinator. Changes go through the coordinator (§7).
+**Status:** v1.3, 2026-10-13 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4; v1.3: `trace_stall_i` back-pressure in §1 and §5). Owner: coordinator. Changes go through the coordinator (§7).
 
 These are the contracts between the tracks: core, FPU, SoC, verification and spikes. The SystemVerilog packages are the source of truth for field names and widths:
 
@@ -25,7 +25,7 @@ One `tg_core` instance is one core with `NUM_THREADS` harts.
 | Interrupts and time | per-hart `irq_{mei,sei,mti,msi,ssi}_i` (§3); `mtime_i`; `debug_req_i` (M9) |
 | Machine error | `merr_o[tid]`: pulses when a refill for an early-retired load returns an error (plan §4.5). The SoC routes it to a PLIC source. |
 | Memory | three TileLink ports: `l1i`, `l1d` and `mmio` (§2) |
-| Trace | `COMMIT_WIDTH` retire records and `TRACE_WB_PORTS` deferred-writeback records per cycle (§5) |
+| Trace | `COMMIT_WIDTH` retire records and `TRACE_WB_PORTS` deferred-writeback records per cycle; `trace_stall_i` back-pressure (§5) |
 
 - **Parameter `CORE_ID`:** `mhartid = CORE_ID * NUM_THREADS + tid`.
 - **After reset:** every hart starts at `boot_addr_i` in M-mode with the reset state of the privileged spec. In SMT2 builds both harts start; software parks hart 1 (OpenSBI HSM).
@@ -189,6 +189,13 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 - `fflags` and `fcsr` are compared only where software reads them, never per instruction.
 
 **Stores.** `mem_vaddr`, `mem_wdata` and `mem_size` are compared with Spike's commit log.
+
+**Back-pressure: `trace_stall_i`** (one bit per core; added in v1.3 for lossless FPGA lockstep streaming).
+- **While it is high,** the core retires nothing: no `TR_RETIRE`, `TR_TRAP` or `TR_IRQ` records. Commit holds, interrupts stay pending, and the rest of the pipeline stalls behind the full ROB.
+- **Latency:** the core registers the input, so it may still retire in the cycle after the input rises.
+- **Deferred writebacks are not stalled.** They come from completions of operations that already retired. At most `LLT_ENTRIES` of them can be outstanding per core, because each holds a long-latency tag until its `tr_wb_t` is emitted.
+- **The sink's rule:** assert `trace_stall_i` whenever its free space is below `tg_trace_pkg::TRACE_STALL_HEADROOM` (= 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` records). No record is ever lost.
+- **Tie-offs:** the simulation harness ties it to 0, or drives random stalls to exercise the path. Builds without trace streaming tie it to 0.
 
 **Future fields.** These are additive, and the struct changes only when they are scheduled.
 - **Instruction count:** with the fusion, SFB or jump-folding options enabled, a record may stand for more than one instruction. A count field will be added when one of those options is scheduled; none is in v1.

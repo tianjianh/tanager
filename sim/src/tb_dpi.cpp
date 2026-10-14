@@ -52,7 +52,8 @@ static void put_d(const tl_d_t& d, int* opcode, int* param, int* size, int* sour
 }
 
 extern "C" void tg_dpi_config(const char* cfg_name, int commit_width, int num_threads, int core_id, int hart_w,
-                              int wb_tag_w, int trace_wb_ports, int pa_w, int l1i_mshrs, int l1d_mshrs) {
+                              int wb_tag_w, int trace_wb_ports, int pa_w, int l1i_mshrs, int l1d_mshrs,
+                              int llt_entries, int trace_stall_headroom, svBit has_trace_stall) {
   hw_cfg_t& h = tb().hw;
   h.known = true;
   h.cfg_name = cfg_name;
@@ -65,6 +66,9 @@ extern "C" void tg_dpi_config(const char* cfg_name, int commit_width, int num_th
   h.pa_w = unsigned(pa_w);
   h.l1i_mshrs = unsigned(l1i_mshrs);
   h.l1d_mshrs = unsigned(l1d_mshrs);
+  h.llt_entries = unsigned(llt_entries);
+  h.trace_stall_headroom = unsigned(trace_stall_headroom);
+  h.has_trace_stall = has_trace_stall;
 }
 
 extern "C" long long tg_dpi_boot_addr() { return (long long)tb().boot_addr; }
@@ -186,6 +190,16 @@ extern "C" void tg_dpi_trace(int slot, int kind, int hart, int priv, long long p
   r.cause = uint64_t(cause);
   r.tval = uint64_t(tval);
   tb().recs.push_back(r);
+}
+
+// Called once per cycle after the cycle's records: the sink's checks, and trace_stall_i for the next cycle.
+extern "C" svBit tg_dpi_trace_stall() {
+  tb_t& t = tb();
+  unsigned deferred = 0;
+  for (auto& r : t.recs) deferred += r.rd_we && r.rd_deferred;
+  std::string err;
+  if (!t.sink.cycle(t.ctx.now, unsigned(t.recs.size()), deferred, unsigned(t.wbs.size()), err)) t.ctx.fail(err);
+  return t.sink.stall;
 }
 
 extern "C" void tg_dpi_trace_wb(int port, int hart, int wb_tag, svBit rd_fp, int rd, long long value) {

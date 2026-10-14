@@ -102,11 +102,15 @@ struct SqEntry {
 
 // Multithreading only (reported per thread when threads > 1).
 #define TG_SMT_STATS(X) X(fetch_cycles) X(fetch_lost_smt) X(decode_slots) X(dispatch_slots)
+// Area-recovery levers (reported when one of them is on): R11 port conflicts, R12 decode stops, R13 dispatch
+// stalls of an op ALU2 could not take.
+#define TG_LEVER_STATS(X) X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
   TG_STATS(TG_SDECL)
   TG_SMT_STATS(TG_SDECL)
+  TG_LEVER_STATS(TG_SDECL)
 #undef TG_SDECL
 };
 
@@ -233,6 +237,7 @@ class Core {
   void region_event(Thread& T, bool start);
   void overlap_check_start();
   std::string region_json(const Thread& T) const;
+  std::string census_json() const;
   uint64_t pa(const Thread& T, uint64_t a) const { return a + T.pa_off; }
 
   const Config& c_;
@@ -261,6 +266,13 @@ class Core {
   std::array<uint64_t, 128> wb_b1_{};
   // early-retired uop id -> t_ready
   std::unordered_map<uint64_t, uint64_t> pending_;
+  // Dependency census (census = 1): each dispatched uop's sources, by what its row would wait on.
+  // READY: the value exists; MX: a 1-cycle producer still in an ALU-queue row; ROB: a ROB-indexed wakeup
+  // (multi-cycle or not yet woken); LLT: a long-latency tag; XTHREAD: a producer of the other thread.
+  enum CensusKind { CK_READY, CK_MX, CK_ROB, CK_LLT, CK_XTHREAD, CK_N };
+  std::array<std::array<uint64_t, CK_N>, NQ> census_{};
+  std::array<std::array<uint64_t, NQ>, NQ> census_rob_from_{};  // ROB-column waits by producer queue
+  void census_source(const Thread& T, uint8_t q, uint64_t prod);
   // overlap window of the threads' first regions (threads > 1)
   bool ov_started_ = false, ov_ended_ = false;
   uint64_t ov_start_ = 0, ov_end_ = 0;

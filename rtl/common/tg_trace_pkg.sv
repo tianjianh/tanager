@@ -39,4 +39,9 @@ package tg_trace_pkg;
     logic [4:0]            rd;
     logic [63:0]           value;
   } tr_wb_t;
+
+  // Free space, in records, below which a trace sink must assert trace_stall_i
+  // (interfaces.md §5): one cycle of retirement after the stall plus one in flight, and every
+  // deferred writeback that can still arrive.
+  localparam int TRACE_STALL_HEADROOM = 2 * COMMIT_WIDTH + LLT_ENTRIES;
 endpackage

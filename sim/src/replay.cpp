@@ -24,6 +24,7 @@ struct opts_t {
   std::string isa = "rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs";
   std::string priv = "MSU";
   unsigned harts = 1, width = 2, wb_ports = 2, tags = 16, history = 32, pmp = 16, mtime_div = 1;
+  uint64_t ids[3] = {0, 0, 0};  // mvendorid, marchid, mimpid as the core reports them (Spike's marchid is 5)
   uint64_t seed = 1, max_steps = 20000000;
   unsigned defer = 0, defer_max = 200, irq = 0;
   bool defer_all = false, nondet = false, quiet = false;
@@ -43,6 +44,7 @@ struct opts_t {
           "  --defer-max=N    deliver deferred writebacks 1..N records later (default 200)\n"
           "  --tags=N         wb_tag space (default 16); --wb-ports=N writebacks per cycle (default 2)\n"
           "  --nondet         perturb the values of non-deterministic CSR reads\n"
+          "  --mvendorid=N --marchid=N --mimpid=N   the core's ID CSR values (default 0, core-pipeline.md §9)\n"
           "  --irq=PERMILLE   random interrupts at boundaries where one is enabled\n"
           "  --inject=KIND    inject one fault the checker must report; --inject-at=N: at record N or later\n"
           "                   KIND: pc insn priv rd value nowrite store-data store-addr nostore cause tval\n"
@@ -81,6 +83,9 @@ opts_t parse(int argc, char** argv) {
     else if (k == "defer-all") o.defer_all = true;
     else if (k == "defer-max") o.defer_max = std::max(1u, unsigned(num(v, "--defer-max")));
     else if (k == "nondet") o.nondet = true;
+    else if (k == "mvendorid") o.ids[0] = num(v, "--mvendorid");
+    else if (k == "marchid") o.ids[1] = num(v, "--marchid");
+    else if (k == "mimpid") o.ids[2] = num(v, "--mimpid");
     else if (k == "irq") o.irq = unsigned(num(v, "--irq"));
     else if (k == "inject") o.inject = v;
     else if (k == "inject-at") o.inject_at = int64_t(num(v, "--inject-at"));
@@ -304,7 +309,11 @@ int main(int argc, char** argv) {
     if (r.rd_we && is_load_insn(bits, r.rvc) && st.nld && bare && !dut.in_dram(st.ld_addr)) r.mmio_ld = true;
     if (r.rd_we && is_csr_insn(bits) && adopted_csr(bits >> 20)) {
       r.nondet = true;
-      if (o.nondet) {
+      unsigned csr = bits >> 20;
+      if (csr >= 0xF11 && csr <= 0xF13) {  // the replaying Spike stands for the core: its ID values
+        r.rd_value = o.ids[csr - 0xF11];
+        s->XPR.write(r.rd, r.rd_value);
+      } else if (o.nondet) {
         r.rd_value ^= rng.next() & 0xffff;
         if (r.rd_fp) { freg_t v; v.v[0] = r.rd_value; v.v[1] = ~0ull; s->FPR.write(r.rd, v); }
         else s->XPR.write(r.rd, r.rd_value);

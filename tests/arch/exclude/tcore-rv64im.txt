@@ -1,1 +1,2 @@
 # ACT4 tests skipped on the test core (tests/arch/config/tcore-rv64im), with reasons.
+Sm_mcsr_cntr-00                      # mcycle_wrap assumes 300 instructions take under 1,000 cycles; the multi-cycle test core needs about 2,100

@@ -15,7 +15,8 @@ module tg_tb_top
   import "DPI-C" function void tg_dpi_config(
     input string cfg_name, input int commit_width, input int num_threads, input int core_id,
     input int hart_w, input int wb_tag_w, input int trace_wb_ports, input int pa_w,
-    input int l1i_mshrs, input int l1d_mshrs);
+    input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom,
+    input bit has_trace_stall);
 
   // TL-UL responder (l1i = port 0, mmio = port 2): what the core presented this cycle, and the
   // responder's outputs for the next cycle.
@@ -63,13 +64,23 @@ module tg_tb_top
   import "DPI-C" function void tg_dpi_trace_wb(
     input int port, input int hart, input int wb_tag, input bit rd_fp, input int rd,
     input longint value);
+  // After the cycle's records: the trace sink's trace_stall_i for the next cycle (interfaces.md §5).
+  import "DPI-C" function bit tg_dpi_trace_stall();
 
   import "DPI-C" function longint tg_dpi_boot_addr();
+
+  // Cores built with TG_TRACE_STALL have the trace_stall_i input (interfaces.md v1.3).
+`ifdef TG_TRACE_STALL
+  localparam bit HAS_TRACE_STALL = 1'b1;
+`else
+  localparam bit HAS_TRACE_STALL = 1'b0;
+`endif
 
   paddr_t boot_addr;
   initial begin
     tg_dpi_config(CFG_NAME, COMMIT_WIDTH, NUM_THREADS, CORE_ID, HART_W, WB_TAG_W,
-                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS);
+                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM,
+                  HAS_TRACE_STALL);
     boot_addr = paddr_t'(tg_dpi_boot_addr());
   end
 
@@ -93,6 +104,7 @@ module tg_tb_top
   logic    [COMMIT_WIDTH-1:0]   trace_valid;
   tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb;
   logic    [TRACE_WB_PORTS-1:0] trace_wb_valid;
+  logic                         trace_stall_q;
 
 `ifdef TG_TCORE
   tg_tcore #(.CORE_ID(CORE_ID)) u_core (
@@ -108,6 +120,9 @@ module tg_tb_top
     .irq_ssi_i        (irq_ssi_q),
     .mtime_i          (mtime_q),
     .debug_req_i      ('0),
+`ifndef TG_TCORE
+    .trace_stall_i    (1'b0),         // interfaces.md v1.3: no back-pressure in simulation
+`endif
     .merr_o           (merr),
     .l1i_a_o          (l1i_a),
     .l1i_a_valid_o    (l1i_a_valid),
@@ -136,6 +151,9 @@ module tg_tb_top
     .mmio_d_i         (mmio_d_q),
     .mmio_d_valid_i   (mmio_d_valid_q),
     .mmio_d_ready_o   (mmio_d_ready),
+`ifdef TG_TRACE_STALL
+    .trace_stall_i    (trace_stall_q),
+`endif
     .trace_o          (trace),
     .trace_valid_o    (trace_valid),
     .trace_wb_o       (trace_wb),
@@ -178,6 +196,7 @@ module tg_tb_top
       l1d_e_ready_q  <= 1'b0;
       irq_mei_q <= '0; irq_sei_q <= '0; irq_mti_q <= '0; irq_msi_q <= '0; irq_ssi_q <= '0;
       mtime_q   <= '0;
+      trace_stall_q <= 1'b0;
     end else begin
       // mmio (port 2)
       tg_dpi_tl_ul(2, mmio_a_valid, int'(mmio_a.opcode), int'(mmio_a.param), int'(mmio_a.size),
@@ -253,6 +272,7 @@ module tg_tb_top
                           int'(trace_wb[i].rd), trace_wb[i].value);
         end
       end
+      trace_stall_q <= tg_dpi_trace_stall();
     end
   end
 endmodule
