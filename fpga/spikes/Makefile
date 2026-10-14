@@ -20,4 +20,8 @@ lint:
 	  out=$$($(LINT) $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv -F $(ROOT)/rtl/common/common.f \
 	        -F spikes.f --top-module $$top $$g 2>&1 | grep -E '^%' || true); \
 	  if [ -n "$$out" ]; then echo "== $$top $$cfg $$g"; echo "$$out"; exit 1; fi; \
-	done; echo "spike lint OK ($(words $(CHECKS)) checks)"
+	done; \
+	out=$$($(LINT) $(ROOT)/rtl/common/prim/tg_ram_sdp.sv s1/rtl/tg_s1_engine.sv \
+	      s1/rtl/tg_s1_top.sv --top-module tg_s1_top 2>&1 | grep -E '^%' || true); \
+	if [ -n "$$out" ]; then echo "== tg_s1_top"; echo "$$out"; exit 1; fi; \
+	echo "spike lint OK ($(words $(CHECKS)) checks + S1)"

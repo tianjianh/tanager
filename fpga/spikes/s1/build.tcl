@@ -103,17 +103,24 @@ puts "S1_WNS $wns"
 
 # Where the PS-PL interface sits (for the S6 floorplan): clock regions of the PL cells
 # wired straight to the PS block.
+# Best effort: a cell without a site (constants, clock buffers' leaves) is skipped.
 set fh [open ps_location.txt w]
-set ps [get_cells -hier -filter {REF_NAME == PS8}]
-puts $fh "PS8 cell $ps site [get_property LOC $ps]"
-set regions [dict create]
-foreach n [get_nets -of_objects [get_pins -of_objects $ps]] {
-  foreach c [get_cells -quiet -of_objects $n -filter {REF_NAME != PS8 && IS_PRIMITIVE}] {
-    set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
-    if {$cr ne ""} { dict incr regions $cr }
+set ps [get_cells -quiet -hier -filter {REF_NAME == PS8}]
+if {[llength $ps] == 1} {
+  puts $fh "PS8 cell $ps site [get_property -quiet LOC $ps]"
+  set regions [dict create]
+  foreach n [get_nets -quiet -of_objects [get_pins -quiet -of_objects $ps]] {
+    foreach c [get_cells -quiet -of_objects $n -filter {REF_NAME != PS8 && IS_PRIMITIVE}] {
+      set site [get_sites -quiet -of_objects $c]
+      if {[llength $site] != 1} continue
+      set cr [get_property -quiet CLOCK_REGION $site]
+      if {$cr ne ""} { dict incr regions $cr }
+    }
   }
+  dict for {k v} $regions { puts $fh "PL cells next to the PS in $k: $v" }
+} else {
+  puts $fh "PS8 cell not found"
 }
-dict for {k v} $regions { puts $fh "PL cells next to the PS in $k: $v" }
 close $fh
 set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]
 write_bitstream -force tg_s1.bit
