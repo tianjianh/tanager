@@ -254,6 +254,9 @@ module tg_exec
   logic        bt_taken;
   logic [63:0] bt_target, bt_npc, bt_seq;
   assign bp = ex_pl_q[0];
+  // bt_seq = bp.pc + 2 or 4, in DSPs that hold their own copy of the RF -> EX register (T6)
+  tg_fpu_dsp_add #(.W(64)) u_seq (
+    .clk, .ce(1'b1), .a(iss_pl[0].pc), .b(iss_pl[0].rvc ? 64'd2 : 64'd4), .ci(1'b0), .s(bt_seq));
   always_comb begin
     unique case (bp.br_f3)
       3'd0: bt_taken = f_eq[0];
@@ -266,9 +269,15 @@ module tg_exec
     if (bp.br_kind != BR_COND) bt_taken = 1'b1;
     bt_target = (bp.br_kind == BR_JALR) ? ((opa[0] + {{52{bp.jalr_off[11]}}, bp.jalr_off}) & ~64'd1)
                                         : bp.br_target;
-    bt_seq = bp.pc + (bp.rvc ? 64'd2 : 64'd4);
     bt_npc = bt_taken ? bt_target : bt_seq;
   end
+  // The misprediction test bt_npc != pred_npc as (taken ? target != pred : seq != pred): the
+  // taken flag (the end of ALU0's carry chain for conditional branches) then selects between two
+  // compares instead of going through the next-PC multiplexer and a compare (timing; one more
+  // 64-bit compare).
+  logic tgt_ne, seq_ne;
+  assign tgt_ne = bt_target != bp.pred_npc;
+  assign seq_ne = bt_seq != bp.pred_npc;
   logic ex_br;
   assign ex_br = ex_v_q[0] && bp.cls == C_BR;
 
@@ -336,38 +345,44 @@ module tg_exec
   logic [TAG_W-1:0] p1_tag;
   assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.wid};
   logic              mul_ov;
-  logic [63:0]       mul_res;
+  logic [63:0]       mul_res;              // unused: the bank 1 write multiplexer selects from
+  logic [127:0]      mul_prod;             // the product itself (one LUT level less)
+  logic              mul_hi, mul_word;
   logic [TAG_W-1:0]  mul_tag;
   tg_mul #(.TAG_W(TAG_W)) u_mul (
     .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
-    .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag));
+    .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag),
+    .out_prod(mul_prod), .out_hi(mul_hi), .out_word(mul_word));
 
-  // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's
-  // write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0)
+  // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: their operands and ALU1's compare flag
+  // are registered at the end of EX and the result is computed in the next cycle, then delayed to
+  // the MUL's write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0; the
+  // count needs no bypass, so it may start a cycle late: this takes the load bypass, the count
+  // and the flag out of one cycle)
+  // - clz and ctz share one leading-zero count, ctz(x) = clz(x bit-reversed). The W forms put ones
+  //   beside the low word (below it for clz, above it for ctz), so the count stops at 32.
+  // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
-  logic [2:0][63:0]  bc_q;
+  logic [2:1][63:0]  bc_q;
+  logic [63:0]       bca_q, bcb_q;             // the operands, registered at the end of EX
+  mul_op_e           bcop_q;
+  logic              bcw_q, bclt_q, bcmax_q;
   always_comb begin
-    logic [63:0] x;
+    logic [63:0] x, y, w;
     int n;
-    logic lt;
-    x = p1.word ? {32'b0, opa[1][31:0]} : opa[1];
-    n = 0;
-    lt = p1.alu.cmp_unsigned ? opa[1] < opb[1] : $signed(opa[1]) < $signed(opb[1]);
-    unique case (p1.mul_op)
-      MUL_LO: begin                                  // clz
-        n = p1.word ? 32 : 64;
-        for (int i = 0; i < 64; i++) if (x[i] && (!p1.word || i < 32)) n = (p1.word ? 31 : 63) - i;
-      end
-      MUL_H: begin                                   // ctz
-        n = p1.word ? 32 : 64;
-        for (int i = 63; i >= 0; i--) if (x[i]) n = i;
-      end
-      MUL_HSU: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
-      default: n = 0;                                          // min/max below
-    endcase
+    x = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
+    w = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
+    y = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
+    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) y[i] = w[63 - i];      // ctz
+    n = 64;
+    for (int i = 0; i < 64; i++) if (y[i]) n = 63 - i;                       // clz, ctz
+    if (bcop_q == MUL_HSU) begin                                             // cpop
+      n = 0;
+      for (int i = 0; i < 64; i++) n += int'(x[i]);
+    end
     bc_res = 64'(n);
-    if (p1.mul_op == MUL_HU) bc_res = (lt ^ p1.alu.cmp_max) ? opa[1] : opb[1];   // MIN(U), MAX(U)
+    if (bcop_q == MUL_HU) bc_res = (bclt_q ^ bcmax_q) ? bca_q : bcb_q;       // MIN(U), MAX(U)
   end
 
   logic              div_ov, div_ordy;
@@ -416,25 +431,45 @@ module tg_exec
   end
 
   // ---- Bank 1 write mux and completions ----
+  // The data is an encoded 8:1 select over ALU1, CSR, bit counts, the product's three forms,
+  // DIV and FP->int: the MUL's own M3 select folds in here (at most one writer is valid; see
+  // the assertion below).
+  typedef enum logic [2:0] { W1_ALU, W1_CSR, W1_BC, W1_MLO, W1_MHI, W1_MW, W1_DIV, W1_FPI } w1_e;
   logic        oth_we;
   logic [PIDX_W-1:0] oth_wa;
-  logic [63:0] oth_wd;
+  w1_e         w1s;
   always_comb begin
-    oth_we = 1'b0; oth_wa = '0; oth_wd = '0;
+    oth_we = 1'b0; oth_wa = '0; w1s = W1_ALU;
     oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0; oth_fflags = '0;
     if (csr_v_q) begin
       oth_valid = 1'b1; oth_rob = csr_rob_q; oth_exc = csr_ill_q; oth_tval = csr_tval_q;
-      oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
+      oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; w1s = W1_CSR;
     end else if (mul_ov) begin
       oth_valid = 1'b1; oth_rob = mul_tag[COL_W +: ROBW];
       oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[COL_W + ROBW +: PIDX_W];
-      oth_wd = bc_v_q[2] ? bc_q[2] : mul_res;
+      w1s = bc_v_q[2] ? W1_BC : mul_word ? W1_MW : mul_hi ? W1_MHI : W1_MLO;
     end else if (div_ov && div_ordy) begin
       oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
-      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
+      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; w1s = W1_DIV;
     end else if (fpi_wr) begin
       oth_valid = 1'b1; oth_rob = fpi_rob; oth_fflags = fpi_fflags;
-      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); oth_wd = fpi_data;
+      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); w1s = W1_FPI;
+    end
+    if (!oth_we) w1s = W1_ALU;
+  end
+  logic [63:0] wd1;                        // bank 1 write data
+  always_comb begin
+    for (int i = 0; i < 64; i++) begin
+      unique case (w1s)
+        W1_ALU:  wd1[i] = res_q[1][i];
+        W1_CSR:  wd1[i] = csr_res_q[i];
+        W1_BC:   wd1[i] = bc_q[2][i];
+        W1_MLO:  wd1[i] = mul_prod[i];
+        W1_MHI:  wd1[i] = mul_prod[64 + i];
+        W1_MW:   wd1[i] = mul_prod[i < 32 ? i : 31];
+        W1_DIV:  wd1[i] = div_res[i];
+        default: wd1[i] = fpi_data[i];
+      endcase
     end
   end
 
@@ -446,10 +481,10 @@ module tg_exec
       cmp_valid[i] = wb_cmp_q[i];
       cmp_rob[i]   = wb_rob_q[i];
     end
+    rf_wd[1] = wd1;
     if (oth_we) begin
       rf_we[1] = 1'b1;
       rf_wa[1] = oth_wa;
-      rf_wd[1] = oth_wd;
     end
     if (init_we) begin
       rf_we[0] = 1'b1;
@@ -487,6 +522,9 @@ module tg_exec
   always_ff @(posedge clk) begin
     // RF -> EX
     ex_pl_q <= iss_pl;
+    // min/max on P1's 2-cycle path read ALU1's compare flags, so its adder subtracts for them
+    if (iss_pl[1].cls == C_MUL && iss_pl[1].bcnt && iss_pl[1].mul_op == MUL_HU)
+      ex_pl_q[1].alu.sub <= 1'b1;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
     for (int q = 0; q < N_XQ; q++) begin
@@ -510,7 +548,7 @@ module tg_exec
     bw_pred_q   <= bp.pred_npc;
     bw_rvc_q    <= bp.rvc;
     bw_exc_q    <= bt_taken && bt_target[1] && !misa_c;   // 4-byte alignment without C
-    bw_misp_q   <= bt_npc != bp.pred_npc;
+    bw_misp_q   <= bt_taken ? tgt_ne : seq_ne;    // bt_npc != bp.pred_npc
     bw_strong_q <= bp.br_kind != BR_COND || ctr_new[1];
     bw_hit_q    <= bp.ubtb_hit;
     bw_way_q    <= bp.ubtb_way;
@@ -525,7 +563,14 @@ module tg_exec
     csr_ill_q  <= csr_ex_ill;
     csr_dv_q   <= p1.dst_en;
     // Bit counts alongside the MUL pipeline
-    bc_q <= {bc_q[1:0], bc_res};
+    bc_q[1] <= bc_res;
+    bc_q[2] <= bc_q[1];
+    bca_q   <= opa[1];
+    bcb_q   <= opb[1];
+    bcop_q  <= p1.mul_op;
+    bcw_q   <= p1.word;
+    bclt_q  <= p1.alu.cmp_unsigned ? f_ltu[1] : f_lt[1];
+    bcmax_q <= p1.alu.cmp_max;
     // MUL wakeup ids
     mwk_id_q[0] <= iss_pl[1].wid;
     mwk_id_q[1] <= mwk_id_q[0];
@@ -571,7 +616,7 @@ module tg_exec
   end
 
   logic unused;
-  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD],
+  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS

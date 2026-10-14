@@ -378,7 +378,10 @@ class Bench {
     }
     if (ld_m2.v) { top->fld_m2_will = 1; top->fld_m2_idx = ld_m2.idx; }
     if (ld_wr.v) {
-      top->fld_valid = 1; top->fld_idx = ld_wr.idx; top->fld_single = ld_wr.single; top->fld_data = ld_wr.raw;
+      // the core's LSU NaN-boxes FLW before the load result register (3f9a227), so fld_data is
+      // the value F1 gets; fld_single is still driven while the port exists, and P4 ignores it
+      top->fld_valid = 1; top->fld_idx = ld_wr.idx; top->fld_single = ld_wr.single;
+      top->fld_data = ld_wr.single ? ref::box32((uint32_t)ld_wr.raw) : ld_wr.raw;
     }
     if (flushing) { top->flush = 1; top->flush_tid = ftid; }
     // Early retirement of a divide already in RF or beyond

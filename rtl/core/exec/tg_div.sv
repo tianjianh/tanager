@@ -86,18 +86,22 @@ module tg_div
   assign bn    = sgn && eb[63];
 
   // ---- NM: quotient bits to compute (|a| is in q_q) ----
-  function automatic logic [6:0] lzc64(input logic [63:0] x);   // leading zeros, 64 for 0
-    lzc64 = 7'd64;
-    for (int i = 0; i < 64; i++) if (x[i]) lzc64 = 7'(63 - i);
-  endfunction
-  logic         dz;
-  logic [6:0]   lza, lzd, nq;
+  // {r, q} = {0, |a|} << (64 - n): r = |a| >> n is below |b|, and q holds the dividend bits still
+  // to use. For n > 0 the amount 64 - n is 63 - (n - 1) = ~(lzd - lza), 6 bits, so no adder sits
+  // in front of the shifter (n = lzd - lza + 1 and then 64 - n made this the divider's longest
+  // path). With no quotient bits (n = 0: |a| < |b| or b = 0) r and q keep their values and FX
+  // takes the quotient 0 and the remainder |a| from q (nz_q), so the shifter has no case 64.
+  logic         dz, nz, nz_q;
+  logic [6:0]   lza, lzd, nq;     // leading zeros of |a| and |b|, 64 for 0
+  logic [5:0]   s1;
   logic [127:0] rq0;
   assign dz  = d_q == '0;
-  assign lza = lzc64(q_q);
-  assign lzd = lzc64(d_q);
-  assign nq  = (dz || lzd < lza) ? 7'd0 : lzd - lza + 7'd1;
-  assign rq0 = {64'b0, q_q} << (7'd64 - nq);   // r = |a| >> n is below |b|
+  tg_fpu_lzc #(.W(64)) u_lza (.x(q_q), .cnt(lza));
+  tg_fpu_lzc #(.W(64)) u_lzd (.x(d_q), .cnt(lzd));
+  assign nz  = dz || lzd < lza;
+  assign nq  = nz ? 7'd0 : lzd - lza + 7'd1;
+  assign s1  = 6'(lzd - lza);                  // n - 1 when !nz (lzd <= 63 then)
+  assign rq0 = {64'b0, q_q} << ~s1;
 
   // ---- IT: one restoring step ----
   logic [64:0] r2, diff;
@@ -109,7 +113,7 @@ module tg_div
 
   // ---- FX: result and sign fix-up ----
   logic [63:0] mag, fx;
-  assign mag = rem_q ? r_q : q_q;
+  assign mag = rem_q ? (nz_q ? q_q : r_q) : (nz_q ? '0 : q_q);
   always_comb begin
     fx = neg_q ? -mag : mag;
     if (dz && !rem_q) fx = '1;                   // x / 0 = -1; x % 0 = x falls out of r
@@ -137,8 +141,9 @@ module tg_div
       neg_q  <= h_rem ? an : an ^ bn;    // the remainder takes the dividend's sign
       tag_q  <= hd.tag;
     end else if (st_q == S_NM) begin
-      {r_q, q_q} <= rq0;
-      n_q        <= nq;
+      if (!nz) {r_q, q_q} <= rq0;
+      n_q  <= nq;
+      nz_q <= nz;
     end else if (st_q == S_IT) begin
       r_q <= borrow ? r2[63:0] : diff[63:0];
       q_q <= {q_q[62:0], !borrow};
