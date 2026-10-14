@@ -115,3 +115,56 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
 - **The KV260 latency injector's base value** (§5.6). The injector adds the target latency minus this native latency.
 - **The PS port bandwidth limit.** It shows whether two HP ports cover the L2's streaming (§5.1, E4).
 - **The open items of §5.5 S1.** The carve-out method (here: hugepages, no carve-out needed for measurement) and SMMU bypass (the DECERR check).
+
+## Results on the board (2026-10-14)
+
+The board track ran S1 on our KV260 (setup in [fpga/kv260/README.md](../../kv260/README.md#the-board)):
+- **Software:** Ubuntu 24.04.2 for Kria, kernel 6.8.0-1015-xilinx, with `mem=3G arm-smmu.disable_bypass=0`.
+- **Build:** the fan-routed one (DR-129; bitstream sha256 `fdb8ab2c…`), loaded with `xmutil` as app `tg-s1`. The fan stayed under Linux's control.
+- **Records:** the raw output, the two patches below and the run script are in [results/s1_board](../results/s1_board).
+
+**Two fixes went into the run.** Their patches are in `results/s1_board/` for this track to commit.
+- **The PL clock** (`s1_pl_clock.patch`).
+  - **The cause:** the overlay asked for 99,999,001 Hz, Vivado's 99.999 MHz. The board's IOPLL runs at 999,999,990 Hz. ÷10 gives 99,999,999 Hz, just above the request, so the kernel rounded down to ÷11 = 90.9 MHz.
+  - **The effect:** the engines ran at 181.8 MHz in the first run. The program's own wall-clock estimate printed 181.7 MHz.
+  - **The fix:** asking for 100,000,000 Hz gives ÷10 and 200.0 MHz after the MMCM (199.4 MHz measured).
+  - fpga/kv260's overlay already asks for 100,000,000.
+- **The loaded-latency chase** (`s1_loaded_chase.patch`).
+  - **The cause:** the HP2 write stream wrote into hugepage 1, which held part of the chase.
+  - **The effect:** the chase then followed overwritten pointers to unmapped addresses. About two DECERRs per read showed up in the "HP2 writing" and "A53 memcpy" tests.
+  - **The fix:** the streams now use the last hugepage, which the chase leaves out.
+
+| Test (200 MHz, 5 ns per cycle, 200,000 samples) | Result |
+|---|---|
+| Idle latency: dependent 64 B reads, HP1, within 2 MiB | min 29, **avg 36.7**, p50 37, p90 37, p99 107, max 126 cycles (avg 183 ns) |
+| The same over the whole 256 MiB / with 16 B reads / on HP2 | avg 36.8 / 36.7 / 36.8 cycles; p99 105–107 |
+| Sequential reads, one port, 64 B bursts, by reads outstanding | 1: 0.36 GB/s (30.5 cycles each); 4: 1.43; 8: 2.82; 16: 3.10; 32: **3.20 GB/s** (16.0 B/cycle) |
+| The same with 256 B bursts | 1: 1.06; 2: 2.12; 4: 3.08; 8 or more: **3.20 GB/s** |
+| Random 64 B reads within 2 MiB | 8: 2.29; 16: 2.99; 32: 3.01 GB/s |
+| Writes, 64 B or 256 B bursts, 16 outstanding | 3.20 GB/s |
+| Both ports reading at once | 3.18 + 3.18 = **6.35 GB/s** |
+| Chase while HP2 reads at 3.2 GB/s | avg 36.9, p90 37, p99 107, max 148 cycles |
+| Chase while HP2 writes at 3.2 GB/s | avg 37.7, p90 41, p99 111, max 156 cycles |
+| Chase while 4 A53 threads copy memory | avg 36.8, p90 37, p99 99, max 122 cycles |
+
+- **Errors:** no response errors in any test. The kernel logged no SMMU, AXI or FPGA-manager errors.
+- **Coverage:** the hugepages spanned PA `0x340_0000`–`0x8_2B80_0000` in the first run and `0x8_2B80_0000`–`0x8_3BE0_0000` in the second, so both ports reached both DDR banks.
+- **First run, 181.8 MHz, before the fixes** (`s1_results_181mhz.txt`): idle avg 34.0 cycles = 187 ns, and 16 B/cycle = 2.9 GB/s per port. That agrees with the 200 MHz run once converted to nanoseconds.
+
+**What it means for the plan.**
+- **The native latency point** (§2.5, §10.1).
+  - **The number:** about 37 cycles at 200 MHz (184 ns) idle at the PL port. The minimum is 29; the p99 is about 105, probably from refresh and page conflicts.
+  - **Row hits:** sequential reads with one outstanding take 30.5 cycles.
+  - **Against the model:** `tgsim`'s bracket of 30 and 60 cycles has the KV260 near its low end.
+  - **The L2's view** adds the uncore path (window and injector); bring-up step 4 of fpga/kv260 measures it.
+- **The injector's base** (§5.6): the injector adds the target latency minus this native latency, about 37 cycles.
+- **Port bandwidth** (§5.1, E4).
+  - **The limit:** each HP port is limited by its PL side, 16 B per cycle or 3.2 GB/s at 200 MHz, not by the DDR. Two ports together reach 6.35 GB/s.
+  - **What saturates a port:** about 16 64 B lines in flight; 8 give 88%. With 256 B bursts, 4–8 in flight.
+  - **For the L2:** a port delivers at most one 64 B line every 4 cycles, and only with about 16 misses in flight on that port.
+- **Loaded latency:**
+  - a saturated neighbouring port adds 0.2 cycles on average when it reads and 1.0 when it writes (p90 37 → 41);
+  - four A53 cores copying memory add nothing measurable.
+- **DR-102, the verdict:**
+  - **Carve-out: confirmed.** With `mem=3G`, Linux RAM ends at `0x8_3FFF_FFFF`, and `/dev/mem` maps `0x8_4000_0000` but refuses Linux RAM. S1 itself measures in hugepages and does not use the carve-out.
+  - **SMMU bypass: not needed on this image.** The kernel has no MMU-500 driver and the device tree disables the SMMU. Both ports reached both DDR banks at full bandwidth with no DECERR. `arm-smmu.disable_bypass=0` stays on the command line as a harmless guard.
