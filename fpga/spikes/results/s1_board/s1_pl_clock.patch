@@ -1,0 +1,10 @@
+--- a/fpga/spikes/s1/overlay/tg_s1.dtso
++++ b/fpga/spikes/s1/overlay/tg_s1.dtso
+@@ -26,6 +26,6 @@
+ 		clocks = <&zynqmp_clk 71>;
+ 		clock-output-names = "fabric_clk";
+ 		assigned-clocks = <&zynqmp_clk 71>;
+-		assigned-clock-rates = <99999001>;
++		assigned-clock-rates = <100000000>;
+ 	};
+ };

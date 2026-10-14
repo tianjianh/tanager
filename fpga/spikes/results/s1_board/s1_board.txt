@@ -1,0 +1,51 @@
+Oct 14 20:31:41 kria systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+Oct 14 20:31:41 kria systemd[1]: systemd-pcrmachine.service - TPM2 PCR Machine ID Measurement was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+Oct 14 20:31:41 kria systemd[1]: systemd-tpm2-setup-early.service - TPM2 SRK Setup (Early) was skipped because of an unmet condition check (ConditionSecurity=measured-uki).
+Oct 14 20:31:41 kria systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+Oct 14 20:31:41 kria systemd[1]: Started systemd-journald.service - Journal Service.
+Oct 14 20:31:41 kria kernel: EXT4-fs (mmcblk1p2): re-mounted 461d1b5d-3b45-4362-a84f-c5bdff2605fb r/w. Quota mode: none.
+Oct 14 20:31:42 kria systemd-journald[395]: Received client request to flush runtime journal.
+Oct 14 20:31:42 kria systemd-journald[395]: /var/log/journal/a0afbb68acb049bb9f95eb5cbbe1cbfc/system.journal: Realtime clock jumped backwards relative to last journal entry, rotating.
+Oct 14 20:31:42 kria systemd-journald[395]: Rotating system journal.
+Oct 14 20:31:42 kria kernel: loop0: detected capacity change from 0 to 121944
+Oct 14 20:31:42 kria kernel: loop1: detected capacity change from 0 to 141032
+Oct 14 20:31:42 kria kernel: loop2: detected capacity change from 0 to 108656
+Oct 14 20:31:42 kria kernel: loop3: detected capacity change from 0 to 95432
+Oct 14 20:31:42 kria kernel: loop4: detected capacity change from 0 to 79224
+Oct 14 20:31:45 kria kernel: EDAC DEVICE0: Giving out device to module zynqmp-ocm-edac controller zynqmp_ocm: DEV ff960000.memory-controller (INTERRUPT)
+Oct 14 20:31:45 kria kernel: ARM FF-A: FFA_VERSION returned not supported
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.895:2): apparmor="STATUS" operation="profile_load" profile="unconfined" name="1password" pid=759 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.896:3): apparmor="STATUS" operation="profile_load" profile="unconfined" name="Discord" pid=760 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.896:4): apparmor="STATUS" operation="profile_load" profile="unconfined" name="QtWebEngineProcess" pid=762 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.896:5): apparmor="STATUS" operation="profile_load" profile="unconfined" name=4D6F6E676F444220436F6D70617373 pid=761 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.905:6): apparmor="STATUS" operation="profile_load" profile="unconfined" name="balena-etcher" pid=763 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.907:7): apparmor="STATUS" operation="profile_load" profile="unconfined" name="busybox" pid=766 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.908:8): apparmor="STATUS" operation="profile_load" profile="unconfined" name="buildah" pid=765 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.908:9): apparmor="STATUS" operation="profile_load" profile="unconfined" name="brave" pid=764 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.912:10): apparmor="STATUS" operation="profile_load" profile="unconfined" name="cam" pid=767 comm="apparmor_parser"
+Oct 14 20:31:47 kria kernel: audit: type=1400 audit(1792009907.915:11): apparmor="STATUS" operation="profile_load" profile="unconfined" name="ch-checkns" pid=768 comm="apparmor_parser"
+Oct 14 20:33:41 kria kernel: kauditd_printk_skb: 114 callbacks suppressed
+Oct 14 20:33:41 kria kernel: audit: type=1400 audit(1792010021.719:126): apparmor="STATUS" operation="profile_replace" info="same as current profile, skipping" profile="unconfined" name="rsyslogd" pid=1006 comm="apparmor_parser"
+Oct 14 20:33:42 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 14 20:33:42 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 14 20:33:46 kria kernel: NET: Registered PF_QIPCRTR protocol family
+Oct 14 20:33:46 kria kernel: loop5: detected capacity change from 0 to 8
+Oct 14 20:33:47 kria kernel: audit: type=1400 audit(1792010027.591:127): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="/usr/lib/snapd/snap-confine" pid=1302 comm="apparmor_parser"
+Oct 14 20:33:47 kria kernel: audit: type=1400 audit(1792010027.598:128): apparmor="STATUS" operation="profile_replace" profile="unconfined" name="/usr/lib/snapd/snap-confine//mount-namespace-capture-helper" pid=1302 comm="apparmor_parser"
+Oct 14 20:33:50 kria kernel: macb ff0e0000.ethernet eth0: PHY [ff0e0000.ethernet-ffffffff:01] driver [TI DP83867] (irq=POLL)
+Oct 14 20:33:50 kria kernel: macb ff0e0000.ethernet eth0: configuring for phy/rgmii-id link mode
+Oct 14 20:33:50 kria kernel: pps pps0: new PPS source ptp0
+Oct 14 20:33:50 kria kernel: macb ff0e0000.ethernet: gem-ptp-timer ptp clock registered.
+Oct 14 20:33:53 kria kernel: macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+Oct 14 20:37:39 kria systemd-journald[395]: /var/log/journal/a0afbb68acb049bb9f95eb5cbbe1cbfc/user-1000.journal: Journal file uses a different sequence number ID, rotating.
+Oct 14 21:25:30 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 14 21:25:30 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 14 21:25:30 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 14 21:25:30 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 14 21:27:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 14 21:27:04 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 14 21:32:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 14 21:32:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 14 21:32:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 14 21:32:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+ root=LABEL=writable rootwait earlycon console=ttyPS1,115200 console=tty1 clk_ignore_unused uio_pdrv_genirq.of_id=generic-uio xilinx_tsn_ep.st_pcp=4 cma=800M mem=3G arm-smmu.disable_bypass=0
