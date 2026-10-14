@@ -36,6 +36,7 @@
 //   port. The reset sweep clears each entry at the key the key store holds: ENTRIES cycles
 //   (the key store is written only when the tables are, so it always names the bits to clear).
 // The key store (ENTRIES x KEYW, one read port) holds each entry's key for the clear.
+(* keep_hierarchy = "yes" *)  // keeps the instance and its ports for the primitive check
 module tg_cam_lut #(
   parameter int    ENTRIES  = 32,
   parameter int    KEYW     = 32,
