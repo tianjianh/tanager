@@ -1,7 +1,8 @@
 // FMA adder (docs/spec/fpu.md, "FMA unit", E2): the six DSP tiles of the product and the aligned
 // addend (or its complement for an effective subtraction) reduce column by column to three rows,
 // then two ternary adders give X = P - C (= P + ~C + 1) and Y = X - 1. |P - C| is X, or ~Y when
-// X < 0; for an effective addition Y is P + C.
+// X < 0; for an effective addition Y is P + C. prod_off drops the product (FCVT.F.I, whose |x|
+// arrives as the addend operand).
 module tg_fpu_fma_add #(
   parameter int W = 165
 ) (
@@ -10,6 +11,7 @@ module tg_fpu_fma_add #(
   input  logic [46:0]   t12,
   input  logic [W:0]    cop,           // C or ~C, with the sign bit W
   input  logic          prod_sticky,   // the product only contributes a sticky at V[0]
+  input  logic          prod_off,      // the product does not take part
   input  logic          eff_sub,
   input  logic          sp, sc,        // product and addend signs
   output logic [W-1:0]  mag,
@@ -19,7 +21,7 @@ module tg_fpu_fma_add #(
   always_comb begin
     logic [W:0] o [8];
     logic gate;
-    gate = !prod_sticky;
+    gate = !prod_sticky && !prod_off;
     o[0] = (W+1)'(gate ? t00 : '0) << 4;
     o[1] = (W+1)'(gate ? t01 : '0) << 21;
     o[2] = (W+1)'(gate ? t02 : '0) << 38;

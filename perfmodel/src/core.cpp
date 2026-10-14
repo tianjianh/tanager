@@ -27,6 +27,39 @@ std::string json_escape(const std::string& s, size_t max_len) {
   return o;
 }
 
+// R12: what a limited decode slot takes: integer ALU, branch, multiply/divide and integer load/store. CSR,
+// FENCE, system, AMO and FP instructions (FP loads and stores included) need one of the full decoders.
+bool decode_simple(Cls c) {
+  switch (c) {
+    case Cls::ALU: case Cls::ALUX: case Cls::BR: case Cls::JAL: case Cls::JALR: case Cls::MUL: case Cls::DIV:
+    case Cls::LD: case Cls::ST:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// R13: what a simple third ALU executes: add/sub, logic, compares, LUI/AUIPC and the Zba shift-adds. Shifts,
+// Zbb, Zbs and Zicond stay on ALU0 and ALU1.
+bool alu_simple(Op op) {
+  switch (op) {
+    case Op::LUI: case Op::AUIPC: case Op::ADDI: case Op::ADD: case Op::SUB: case Op::ADDIW: case Op::ADDW:
+    case Op::SUBW: case Op::SLTI: case Op::SLTIU: case Op::SLT: case Op::SLTU: case Op::XORI: case Op::ORI:
+    case Op::ANDI: case Op::XOR: case Op::OR: case Op::AND: case Op::SH1ADD: case Op::SH2ADD: case Op::SH3ADD:
+    case Op::ADD_UW: case Op::SH1ADD_UW: case Op::SH2ADD_UW: case Op::SH3ADD_UW:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// Integer register operands a uop reads at issue (FP sources read the FP banks; -2 is the SFB temp).
+int int_srcs(const Uop& u) {
+  int n = 0;
+  for (int k = 0; k < u.nsrc; k++) if (u.src_arch[k] < 32) n++;
+  return n;
+}
+
 // Thread 1's PCs are XORed with this salt where they index shared predictor tables (smt_bp_hash). It leaves
 // the low 4 bits alone, so block-BTB slot offsets are unchanged.
 constexpr uint64_t SALT1 = 0x79b97f4a7c10ull;
@@ -515,6 +548,11 @@ int Core::decode_thread(Thread& T, int slots_avail) {
     FetchRec& r = T.fetchq.front();
     if (r.avail > t_) break;
     const Decoded& d = *r.di->d;
+    // R12: slots from index dec_full on (counted over the whole cycle) have limited decoders.
+    if (c_.dec_full > 0 && c_.decode_width - slots >= c_.dec_full && !decode_simple(d.cls)) {
+      T.st.dec_slot_stops++;
+      break;
+    }
     if (c_.fold && d.cls == Cls::JAL && d.rd == 0 && last && !r.mispred && !r.synthetic) {
       last->n_instr++;
       last->seq_next = r.seq + 1;
@@ -664,6 +702,10 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       if (c_.alu3) {
         int64_t f2 = iq_free(Q_A2, T.tid);
         if (c_.prf_banked && free_regs(5) <= 0) f2 = -1;
+        if (c_.alu3_simple && !alu_simple(u.di->d->op)) {  // R13: ALU2 cannot take it
+          if (f2 > 0 && std::max(f0, f1) <= 0) T.st.alu3_steer_stalls++;
+          f2 = -1;
+        }
         if (f2 > std::max(f0, f1)) q = Q_A2;
       }
     }
@@ -693,11 +735,18 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     u.has_llt = need_llt;
     if (lq_need) { T.lq_count++; u.in_lq = true; }
     if (u.is_ctrl && (u.cls == Cls::BR || u.cls == Cls::JALR) && c_.ckpt > 0) {
-      if (T.ckpt_used < c_.ckpt) { T.ckpt_used++; u.has_ckpt = true; }
+      int used = T.ckpt_used;
+      if (nthr_ > 1 && c_.smt_ckpt_shared) {  // R10: one pool for both threads
+        used = 0;
+        for (auto& Tp : th_) used += Tp->ckpt_used;
+      }
+      if (used < c_.ckpt) { T.ckpt_used++; u.has_ckpt = true; }
       else T.st.ckpt_none++;
     }
     for (int k = 0; k < u.nsrc; k++)
       u.src_prod[k] = u.src_arch[k] == -2 ? u.sfb_temp_of : T.rat[(size_t)u.src_arch[k]];
+    if (c_.census && q != Q_SERIAL)
+      for (int k = 0; k < u.nsrc; k++) census_source(T, q, u.src_prod[k]);
     if (u.sfb_sel) {
       if (const Uop* cmp = find(u.sfb_temp_of)) u.sfb_temp_bank = cmp->dst_bank;
     }
@@ -949,6 +998,23 @@ void Core::issue() {
       }
       if (q == Q_A0 && first_br) { take(first_br); continue; }
       for (int k = 0; k < ports && k < (int)ready.size(); k++) take(ready[(size_t)k]);
+    }
+    // R11: ALU2 has no register-file read ports of its own. Its operand 0 reads through the STA port and its
+    // operand 1 through the shared port (FP's integer source); their owners win, and a refused ALU2 pick
+    // stays in its queue. (Store data also uses the shared port; that is not modelled.)
+    if (c_.alu3 && c_.rf_share_a2) {
+      bool sta = false, sh = false;
+      Uop* a2 = nullptr;
+      for (Uop* u : picks) {
+        if (u->q == Q_STA && int_srcs(*u) > 0) sta = true;
+        else if (u->q == Q_FP && int_srcs(*u) > 0) sh = true;
+        else if (u->q == Q_A2) a2 = u;
+      }
+      const int n = a2 ? int_srcs(*a2) : 0;
+      if ((n >= 1 && sta) || (n >= 2 && sh)) {
+        picks.erase(std::find(picks.begin(), picks.end(), a2));
+        th(*a2).st.rf_port_conflicts++;
+      }
     }
   }
   for (Uop* u : picks) {
@@ -1224,6 +1290,28 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
 
 // ---------------------------------------------------------------- main loop
 
+// One source of a uop being dispatched into queue q: what its readiness would have to wait on.
+void Core::census_source(const Thread& T, uint8_t q, uint64_t prod) {
+  auto& c = census_[q];
+  if (!prod) { c[CK_READY]++; return; }
+  if ((prod >> TID_SHIFT) != (uint64_t)T.tid) { c[CK_XTHREAD]++; return; }
+  const Uop* p = find(prod);
+  if (!p) {  // retired: either complete, or early-retired and still pending on its long-latency tag
+    auto it = pending_.find(prod);
+    c[it != pending_.end() && it->second > t_ ? CK_LLT : CK_READY]++;
+    return;
+  }
+  if (p->state == 2 && p->t_ready <= t_) { c[CK_READY]++; return; }
+  if (p->has_llt) { c[CK_LLT]++; return; }
+  // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
+  const bool alu_row = (p->q == Q_A0 || p->q == Q_A1 || p->q == Q_A2) &&
+                       (p->cls == Cls::ALU || p->is_ctrl || p->sfb_cmp || p->sfb_sel) &&
+                       (p->state == 1 || (p->state == 2 && t_ <= p->t_issue + 2));
+  if (alu_row) { c[CK_MX]++; return; }
+  c[CK_ROB]++;
+  census_rob_from_[q][p->q]++;
+}
+
 void Core::sample_mlp() {
   for (auto& Tp : th_) {
     Stats& s = Tp->st;
@@ -1388,11 +1476,40 @@ std::string Core::region_json(const Thread& T) const {
   first = false;
   TG_STATS(TG_RJ)
   if (nthr_ > 1) { TG_SMT_STATS(TG_RJ) }
+  if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared) { TG_LEVER_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)
 #undef TG_MJ
   o << ",\"mlp_peak\":" << T.st_end.mlp_max;
+  o << "}";
+  return o.str();
+}
+
+// The dependency census (census = 1), as ',"census":{...}', or nothing.
+std::string Core::census_json() const {
+  if (!c_.census) return "";
+  static const char* qn[NQ] = {"A0", "A1", "LD", "STA", "FP", "UNI", "SERIAL", "ALU_ANY", "A2"};
+  static const char* kn[CK_N] = {"ready", "mx", "rob", "llt", "xthread"};
+  std::ostringstream o;
+  o << ",\"census\":{";
+  bool fq = true;
+  for (int q = 0; q < NQ; q++) {
+    uint64_t tot = 0;
+    for (int k = 0; k < CK_N; k++) tot += census_[(size_t)q][(size_t)k];
+    if (!tot) continue;
+    o << (fq ? "" : ",") << "\"" << qn[q] << "\":{";
+    fq = false;
+    for (int k = 0; k < CK_N; k++) o << (k ? "," : "") << "\"" << kn[k] << "\":" << census_[(size_t)q][(size_t)k];
+    o << ",\"rob_from\":{";
+    bool fp = true;
+    for (int p = 0; p < NQ; p++)
+      if (census_rob_from_[(size_t)q][(size_t)p]) {
+        o << (fp ? "" : ",") << "\"" << qn[p] << "\":" << census_rob_from_[(size_t)q][(size_t)p];
+        fp = false;
+      }
+    o << "}}";
+  }
   o << "}";
   return o.str();
 }
@@ -1406,7 +1523,7 @@ std::string Core::result_json(const std::string& bench) const {
     o << ",\"region\":" << region_json(T);
     o << ",\"total\":{\"cycles\":" << T.st.cycles << ",\"instr\":" << T.st.instr << "}";
     o << ",\"marked\":" << (T.region_seen ? "true" : "false");
-    o << ",\"stdout\":\"" << json_escape(T.iss->stdout_buf(), 4000) << "\"}";
+    o << ",\"stdout\":\"" << json_escape(T.iss->stdout_buf(), 4000) << "\"" << census_json() << "}";
     return o.str();
   }
   // Multithreaded: per-thread results of each program's first run, plus the window where both regions overlap.
@@ -1427,7 +1544,7 @@ std::string Core::result_json(const std::string& bench) const {
   for (int t = 0; t < nthr_; t++) o << (t ? "," : "") << (ov_i1_[(size_t)t] - ov_i0_[(size_t)t]);
   o << "],\"region_instr_at_start\":[";
   for (int t = 0; t < nthr_; t++) o << (t ? "," : "") << ov_r0_[(size_t)t];
-  o << "]}}";
+  o << "]}" << census_json() << "}";
   return o.str();
 }
 

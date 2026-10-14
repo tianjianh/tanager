@@ -141,11 +141,12 @@ extern "C" void tg_dpi_irq(int merr, int* mei_n, int* sei_n, int* mti_n, int* ms
     auto& until = ctx.rng.below(2) ? t.mei_until : t.sei_until;
     until[h] = ctx.now + 1 + ctx.rng.below(200);
   }
-  int mei = 0, sei = 0, mti = 0, msi = 0;
+  int mei = 0, sei = 0, mti = 0, msi = 0, ssi = 0;
   for (unsigned i = 0; i < nt; i++) {
     unsigned hart = t.hw.core_id * nt + i;
-    if (t.mei_until[i] > ctx.now) mei |= 1 << i;
-    if (t.sei_until[i] > ctx.now) sei |= 1 << i;
+    if (t.mei_until[i] > ctx.now || (t.mmio.sig_lines >> 11 & 1)) mei |= 1 << i;
+    if (t.sei_until[i] > ctx.now || (t.mmio.sig_lines >> 9 & 1)) sei |= 1 << i;
+    if (t.mmio.sig_lines >> 1 & 1) ssi |= 1 << i;
     if (hart < c.mtimecmp.size() && c.mtime >= c.mtimecmp[hart]) mti |= 1 << i;
     if (hart < c.msip.size() && c.msip[hart]) msi |= 1 << i;
   }
@@ -153,7 +154,7 @@ extern "C" void tg_dpi_irq(int merr, int* mei_n, int* sei_n, int* mti_n, int* ms
   *sei_n = sei;
   *mti_n = mti;
   *msi_n = msi;
-  *ssi_n = 0;
+  *ssi_n = ssi;
   *mtime_n = (long long)c.mtime;
 }
 

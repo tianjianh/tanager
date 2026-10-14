@@ -19,6 +19,7 @@
 #include "Vtg_tb_top.h"
 #include "common.h"
 #include "elfload.h"
+#include "htif.h"
 #include "lockstep.h"
 #include "mem.h"
 #include "tb.h"
@@ -250,9 +251,9 @@ int main(int argc, char** argv) {
   }
 
   // tohost and its aliases (verification.md §2.6)
-  std::set<uint64_t> tohost_va(o.tohost_va.begin(), o.tohost_va.end());
-  uint64_t tohost = elf.sym("tohost");
-  if (elf.has("tohost")) tohost_va.insert(tohost);
+  tohost_watch_t tohost;
+  tohost.va.insert(o.tohost_va.begin(), o.tohost_va.end());
+  if (elf.has("tohost")) tohost.va.insert(elf.sym("tohost"));
   bool has_marker = elf.has("tg_marker");
   uint64_t marker = elf.sym("tg_marker");
 
@@ -384,15 +385,15 @@ int main(int argc, char** argv) {
       if (r.kind != TR_RETIRE) continue;
       instret++;
       if (!r.mem_st) continue;
-      if (tohost_va.count(r.mem_vaddr) && !exit_seen) {
-        uint64_t v = r.mem_wdata & size_mask(r.mem_size);
-        if ((v >> 48) == 0x0101) {  // HTIF console: device 1, command 1
+      uint64_t v;
+      if (!exit_seen && tohost.store(r.mem_vaddr, r.mem_wdata, r.mem_size, v)) {
+        if (tohost_watch_t::is_putchar(v)) {  // HTIF console: device 1, command 1
           char c = char(v & 0xff);
           t.ctx.console.push_back(c);
           fputc(c, stdout);
           htif_console = true;
           htif_cycle = cycle;
-        } else if (v & 1) {
+        } else if (tohost_watch_t::is_exit(v)) {
           exit_seen = true;
           exit_cycle = cycle;
           code = int(v >> 1);
