@@ -117,14 +117,18 @@ module tg_dcache
   end
 
   // ---- State per set (LUTRAM) ----
+  // Two RAMs written together: the valid bits, read by all four ports, and the rest, which the
+  // load port does not read
   typedef struct packed {
     logic [WAY_W-1:0] rr;
     logic [WAYS-1:0]  v, t, d;
   } sst_t;
-  localparam int SST_W = $bits(sst_t);
+  localparam int SM_W = WAY_W + 2 * WAYS;     // rr, t, d
   logic [3:0][SET_W-1:0] st_ra;
-  logic [3:0][SST_W-1:0] st_rd;
-  sst_t                  sl, ss, sc, sw;    // load, store/atomic, controller, the written set
+  logic [3:0][WAYS-1:0]  sv_rd;
+  logic [2:0][SM_W-1:0]  sm_rd;
+  logic [WAYS-1:0]       sl_v;              // load port
+  sst_t                  ss, sc, sw;        // store/atomic, controller, the written set
   logic                  st_we;
   logic [SET_W-1:0]      st_wa;
   sst_t                  st_wd;
@@ -134,12 +138,18 @@ module tg_dcache
   assign st_ra[1] = sx_pa[6 +: SET_W];
   assign st_ra[2] = ctl_pa[6 +: SET_W];
   assign st_ra[3] = st_wa;
-  tg_ram_lut #(.DEPTH(SETS), .WIDTH(SST_W), .NR(4)) u_state (
-    .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd), .raddr(st_ra), .rdata(st_rd));
-  assign sl = sst_t'(st_rd[0]);
-  assign ss = sst_t'(st_rd[1]);
-  assign sc = sst_t'(st_rd[2]);
-  assign sw = sst_t'(st_rd[3]);
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(4)) u_valid (
+    .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd.v), .raddr(st_ra), .rdata(sv_rd));
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(SM_W), .NR(3)) u_meta (
+    .clk, .we(st_we), .waddr(st_wa), .wdata({st_wd.rr, st_wd.t, st_wd.d}), .raddr(st_ra[3:1]),
+    .rdata(sm_rd));
+  function automatic sst_t sst(input logic [WAYS-1:0] v, input logic [SM_W-1:0] m);
+    return '{rr: m[2*WAYS +: WAY_W], v: v, t: m[WAYS +: WAYS], d: m[0 +: WAYS]};
+  endfunction
+  assign sl_v = sv_rd[0];
+  assign ss   = sst(sv_rd[1], sm_rd[0]);
+  assign sc   = sst(sv_rd[2], sm_rd[1]);
+  assign sw   = sst(sv_rd[3], sm_rd[2]);
 
   // Lookups: hit vector per read port
   function automatic logic [WAYS-1:0] hits(input int port, input logic [TAG_W-1:0] tag,
@@ -159,7 +169,7 @@ module tg_dcache
   // Load lookup (M1)
   logic [WAYS-1:0] lh;
   logic [127:0]    lrow;
-  assign lh = hits(0, ld_m1_pa[12 +: TAG_W], tag_rd, sl.v);
+  assign lh = hits(0, ld_m1_pa[12 +: TAG_W], tag_rd, sl_v);
   always_comb begin
     lrow = '0;
     for (int w = 0; w < WAYS; w++) lrow |= {128{lh[w]}} & a_rdata[w];
@@ -564,7 +574,7 @@ module tg_dcache
   logic unused;
   assign unused = ^{m_st_q, b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
                     ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
-                    sx_pa[5:0], am_pa[2:0], sl.rr, sl.t, sl.d};
+                    sx_pa[5:0], am_pa[2:0]};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
