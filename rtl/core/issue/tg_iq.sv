@@ -119,7 +119,6 @@ module tg_iq
   output logic [ROWS-1:0]               issued_o,      // this queue's rows selected and held
   output logic [ROWS-1:0]               free_o,        // this queue's rows freed this cycle
   output logic [ROWS-1:0]               valid_o,       // rows holding an op
-  output logic [ROWS-1:0][ROBW-1:0]     rob_o,         // ... their ROB IDs (MX: rename confirms a row)
   output logic [DW-1:0][ROWS-1:0]       alloc_oh_o,    // the row each dispatch port writes next
   // Kill
   input  logic                          flush_valid,
@@ -383,7 +382,6 @@ module tg_iq
     assign issued_o[r] = valid_q[r] && age_q[r] != 2'd0;
     assign free_o[r]   = valid_q[r] && free_now[r];
     assign valid_o[r]  = valid_q[r];
-    assign rob_o[r]    = rob_q[r];
   end
 
   // Matrix dependencies: written at dispatch, a column cleared when its row is freed

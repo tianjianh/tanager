@@ -191,7 +191,6 @@ module tg_core
   iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl;
   logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep;
   logic [RA-1:0]                    mx_hold;
-  robid_t [RA-1:0]                  mx_rob;
   logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc;
   logic [NCOL-1:0]                  wid_alloc;
   logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
@@ -203,7 +202,7 @@ module tg_core
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
     .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
-    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold, .mx_rob,
+    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
     .ds_src2_rdy, .rob_tail);
 
@@ -221,7 +220,7 @@ module tg_core
   end
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
-    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_rob, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
