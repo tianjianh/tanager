@@ -95,8 +95,8 @@ Everything M2 listed is unchanged. Existence and privilege follow the CSR addres
 CSR accesses are serialised, so the CSR file is off the critical paths. The plan's lever R2 (cold CSRs in LUTRAM indexed by {TID, CSR}) applies when SMT2 doubles the state; M3 keeps flip-flops.
 
 ## Verification
-- Done (lockstep, `EXT_SU` and `EXT_A` on, Spike `--priv=MSU`): `rv64mi-p` 17/17, `rv64si-p` 7/7, `rv64ui-v`, `rv64um-v`, `rv64ua-v`; directed `vm.S` (S and U through Sv39, MPRV, SUM, MXR) and `pmp.S`.
-- To come: directed interrupt tests with S-mode delegation; ACT4 (privilege tests) when the flow targets the core; OpenSBI + Linux in simulation (M3 exit).
+- Done (lockstep, every M3 switch on, Spike `--priv=MSU`): `rv64mi-p` 17/17, `rv64si-p` 7/7, the `-v` suites; directed `vm.S` (S and U through Sv39, MPRV, SUM, MXR), `pmp.S`, and `irq_s.S` (SSI/STI/SEI delegated to S, Sstc, STI in U and waking WFI in S, an M timer interrupt taken from S).
+- To come: ACT4 (privilege tests) when the flow targets the core; OpenSBI + Linux in simulation (M3 exit).
 
 ## Provenance
 - RISC-V Privileged Architecture 1.13 (status fields, delegation, xRET, Sstc, counters).
