@@ -345,7 +345,7 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   logic      fma_ov, misc_ov;
   fpu_resp_t fma_resp, misc_resp;
-  tg_fpu #(.DIV_RADIX4(DIV_RADIX4)) u_fpu (
+  tg_fpu #(.DIV_RADIX4(DIV_RADIX4), .DIV_TAG_W(DQW)) u_fpu (
     .clk, .rst,
     .fma_valid_i (ex_v_q && ex_unit == FU_FMA), .fma_req_i (ex_req),
     .fma_valid_o (fma_ov), .fma_resp_o (fma_resp),

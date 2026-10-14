@@ -7,6 +7,8 @@
 # With TG_OOC_HIER=1 in the environment it only synthesises, keeping the module hierarchy, and
 # reports utilisation per module (util_hier_synth.rpt): a breakdown, not a result.
 # TG_OOC_DIRECTIVE=<name> passes -directive <name> to synth_design (e.g. AreaOptimized_high).
+# TG_OOC_IMPL=explore runs placement, physical optimisation and routing with their Explore
+# directives (ExtraTimingOpt, AggressiveExplore): how much slack more implementation effort finds.
 # TG_OOC_FILES="<list.f> ..." reads more file lists after rtl/rtl.f (paths relative to the root),
 # e.g. rtl/core/fpu/fpu_be.f until core.f includes it.
 # TG_OOC_IO="<script.tcl> ..." sources constraint scripts after the default I/O delays (paths
@@ -59,10 +61,17 @@ if {$hier} {
 }
 opt_design
 tg_prim_check -file prim_opt.txt -fail 0
-place_design
-phys_opt_design
-route_design
-phys_opt_design
+if {[info exists ::env(TG_OOC_IMPL)] && $::env(TG_OOC_IMPL) eq "explore"} {
+  place_design -directive ExtraTimingOpt
+  phys_opt_design -directive AggressiveExplore
+  route_design -directive AggressiveExplore
+  phys_opt_design -directive AggressiveExplore
+} else {
+  place_design
+  phys_opt_design
+  route_design
+  phys_opt_design
+}
 report_utilization -file util.rpt
 report_utilization -hierarchical -file util_hier.rpt
 report_control_sets -file control_sets.rpt
