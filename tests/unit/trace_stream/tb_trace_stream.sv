@@ -46,6 +46,23 @@ module tb_trace_stream;
     .b_i (b), .b_valid_i (b_v), .b_ready_o (b_r)
   );
 
+  // Port signature: every cycle, every output of the DUT (payloads only while valid). Two builds with
+  // the same seed and signature behave identically at the ports, cycle by cycle (the cycle-identity
+  // check for rewrites, docs/perf/fpga_friendly.md).
+  logic [63:0] psig = 64'hcbf2_9ce4_8422_2325;
+  function automatic logic [63:0] fnv(input logic [63:0] h, input logic [255:0] x);
+    for (int b = 0; b < 32; b++) h = (h ^ 64'(x[8*b +: 8])) * 64'h0000_0100_0000_01b3;
+    return h;
+  endfunction
+  always @(posedge clk) if (!rst) begin
+    logic [63:0] h;
+    h = fnv(psig, 256'({stall, aw_v, w_v, b_r, capturing, started, stopped, full, axi_err, buffered, stall_cyc}));
+    h = fnv(h, 256'(wp));
+    h = fnv(h, aw_v ? 256'(aw) : '0);
+    h = fnv(h, w_v ? 256'(w) : '0);
+    psig <= h;
+  end
+
   int errors = 0;
   task automatic fail(input string m);
     errors++;
@@ -337,6 +354,7 @@ module tb_trace_stream;
     end
     $display("phase 3: started at the trigger pc, %0d records", wp);
 
+    $display("trace_stream: port signature %016h", psig);
     if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
     else             $display("TEST FAILED (seed %0d): %0d errors", seed, errors);
     $finish;

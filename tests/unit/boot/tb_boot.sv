@@ -6,6 +6,9 @@
 //   +expect=<text>  pass when the console contains it         +max_mcycles=N  give up after N million cycles
 //   +dump_pc=<hex>  print the hart's last records when a record has this pc (once)
 //   +dump_cause=N   ... when an instruction traps with this cause (once)      +dump_stop  end the run there
+// At the end the run prints a signature over every commit record and its cycle: two builds that give
+// the same signature retired the same instructions in the same cycles (the cycle-identity check of
+// docs/perf/fpga_friendly.md for uncore rewrites).
 module tb_boot;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -101,6 +104,11 @@ module tb_boot;
   last_t           last_rec [NH_TB][LAST];
   longint unsigned last_n   [NH_TB];
   longint unsigned cycles = 0;
+  logic [63:0]     tsig = 64'hcbf2_9ce4_8422_2325;   // FNV-1a offset basis
+  function automatic logic [63:0] fnv(input logic [63:0] h, input logic [63:0] x);
+    for (int b = 0; b < 8; b++) h = (h ^ 64'(x[8*b +: 8])) * 64'h0000_0100_0000_01b3;
+    return h;
+  endfunction
   logic [63:0]     dump_pc;
   int              dump_cause;
   bit              dump_pc_on, dump_cause_on, dump_stop, dumped = 1'b0;
@@ -123,6 +131,10 @@ module tb_boot;
                                              val: (trace[c][k].kind == tg_trace_pkg::TR_RETIRE) ? trace[c][k].rd_value : trace[c][k].cause,
                                              tval: trace[c][k].tval};
             last_n[h]++;
+            tsig = fnv(tsig, cycles);
+            tsig = fnv(tsig, {32'(h), trace[c][k].insn});
+            tsig = fnv(tsig, trace[c][k].pc);
+            tsig = fnv(tsig, (trace[c][k].kind == tg_trace_pkg::TR_RETIRE) ? trace[c][k].rd_value : trace[c][k].cause);
             if (!dumped && ((dump_pc_on && trace[c][k].pc == dump_pc) ||
                             (dump_cause_on && trace[c][k].kind == tg_trace_pkg::TR_TRAP &&
                              trace[c][k].cause == 64'(dump_cause)))) begin
@@ -270,6 +282,7 @@ module tb_boot;
     end
     drain_console();
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
+    $display("[tb_boot] trace signature %016h", tsig);
     if (console_has(expect_s)) $display("TEST PASSED (boot, %0d core(s))", N_CORES);
     else begin
       dump_last();
