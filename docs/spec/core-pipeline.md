@@ -209,7 +209,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 | Lever | Where | State |
 |---|---|---|
-| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: three checkers (fetch block, LD, STA) instead of seven. The walker uses STA's in cycles without a store address; this is the one lever here that changes cycles, as a walk step can wait a cycle (§16) |
+| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) | not yet: two 64-bit LUT incrementers |
 | R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles; one hart keeps flip-flops |
@@ -219,6 +219,10 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
 | LSU searches and byte lanes | `tg_lsu`: age searches as two priority encoders each (core-lsu.md, Timing and area); store bytes replicated, not shifted; the MMIO pick at the LQ head; LQ/SQ fields written at AG/STA instead of dispatch | done |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
+
+**Reserve (D18: sharing, or a function cut; not taken):**
+- The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
+- The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring.
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
 
@@ -316,7 +320,7 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 |---|---|---|
 | LSU age searches as two priority encoders each (the oldest from the head, or from slot 0; the youngest below a bound, or overall) | 2aa103d | the LSU's own logic, for the LSU steps together: 8,374 → 5,020 at st, 12,822 → 7,098 at smt2 |
 | TLB leaves in LUTRAM, read at the OR-encoded match | 9bf465f | DTLB 2,741 → 1,496 (flip-flops 1,989 → 965); ITLB 745 → 492 |
-| The walker's PMP checks on the STA port's checker | 4b85114 | `tg_ptw` 1,073 → 193; the STA checker 861 → 911 (its input mux) |
+| The walker's PMP checks on the STA port's checker | 4b85114 | `tg_ptw` 1,073 → 193; the STA checker 861 → 911 (its input mux). **Reverted** (5c124f2) under D18 and moved to the reserve (§13): walks and store addresses were not exclusive |
 | MMIO pick at the LQ head; store bytes replicated instead of shifted | a16116f | (in the LSU line above); `tg_dcache` 3,468 → 3,357 (its store write data) |
 | Divider: one 64-bit rotation and a mask instead of a 128-bit shifter | 8ed931c | 1,323 → 1,425: **worse**, reverted (a32d2aa) |
 | LQ fields written at AG, SQ fields at STA (no dispatch-slot multiplexers) | 6b70b1d | (in the LSU line); IQ-LD 603 → 654 (its payload, LUTRAM 32 → 64) |
@@ -326,12 +330,12 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - **Result:**
   - st: 56,461 → 50,768 LUTs (a32d2aa), −5.7K (−10%); flip-flops 23,091 → 21,292. lsu_mmu 17,819 → 12,307, fe 5,257 → 5,004.
   - smt2: 62,501 → 54,506 (8a5c651, still with the divider rotation, +0.1K), −8.0K (−12.8%). lsu_mmu 22,281 → 14,405: the larger smt2 queues gained more from the searches.
-  - a926037 drops the neutral AG-report merge from a32d2aa.
+  - a926037 drops the neutral AG-report merge from a32d2aa, and 5c124f2 gives the walker its checker back (+0.83K): about 51.6K at st.
 - **Two steps measured worse or level and were reverted:**
   - The divider's rotation: the 128-bit shift of a half-zero value maps well already.
   - The merged AG reports: per-kind write qualifiers in every ROB entry cost what the decoders saved.
   - Lesson: measure even "obvious" savings before keeping them.
-- **The one step that is not cycle-identical:** the walker's shared checker. A walk step waits a cycle when it meets an STA. On the 149 `-v` riscv-tests, which fault in every page, cycles rose 0.11% in total, by 0.88% at worst. The `-p` tests and the benchmarks are identical. Merging W_CHK into the PTE read's AG cycle on the LD port's checker would make walks faster than before; that is left as a follow-up.
+- **The walker's shared checker** was the one step that changed cycles. A walk step waited a cycle when it met an STA: +0.11% cycles in total on the 149 `-v` riscv-tests, which fault in every page, and +0.88% at worst. The coordinator's D18 check sent it back: sharing comes last unless the users are exclusive by construction. It is reverted, so the pass as merged is cycle-identical to main everywhere.
 
 **What the first cut did that cost area, and why:**
 - Each age search was written as "distance from the head" arithmetic and a running minimum. That is the obvious reading of "oldest", and it was the same shape in all four searches.
@@ -345,3 +349,4 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - A single 4-port D$ state LUTRAM failed the primitive check, because the load port reads only the valid bits.
 - The divider's normalisation as a 64-bit rotation plus a mask (8ed931c, reverted in a32d2aa): +102 LUTs.
 - One AG report per LSU port into the ROB (935dc2b, reverted in a926037): level.
+- The walker on the STA port's checker (4b85114, reverted in 5c124f2): −0.83K, but not exclusive (D18); it is in the reserve (§13).
