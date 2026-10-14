@@ -132,10 +132,10 @@ module tg_rename
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
 
-  // Store data readiness at DS (ds_src2_rdy), kept per DS slot instead of a second read of the
-  // ready tables: ready at RN (not p2), or written since. The LSU adds the DS cycle's writes.
-  logic [W-1:0] rn_s2r, ds_s2r_q;
-  assign ds_src2_rdy = ds_s2r_q;
+  for (genvar k = 0; k < W; k++) begin : g_s2r
+    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? fready_q[fpr(ds_ren_q[k].src2)]
+                                                              : ready_q[ds_ren_q[k].src2];
+  end
   assign rob_tail  = rtail_q;
 
   // ---- Free lists, one per bank (bank 0 keeps preg 0 as the zero register, and x1..x31) ----
@@ -277,20 +277,6 @@ module tg_rename
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
 
-  // A write of register p this cycle (the ready tables' set events)
-  function automatic logic wr_now(input preg_t p, input logic fp,
-                                  input logic [INT_BANKS-1:0] iwe, input logic [INT_BANKS-1:0][PIDX_W-1:0] iwi,
-                                  input logic [1:0] fwe, input logic [1:0][FPIDX_W-1:0] fwi);
-    logic h;
-    h = 1'b0;
-    if (EXT_FD && fp) begin
-      for (int b = 0; b < 2; b++) if (fwe[b] && fpr(p) == {1'(b), fwi[b]}) h = 1'b1;
-    end else begin
-      for (int b = 0; b < INT_BANKS; b++) if (iwe[b] && p == mk_preg(b, iwi[b])) h = 1'b1;
-    end
-    return h;
-  endfunction
-
   assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
 
   // ---- RN ----
@@ -413,7 +399,6 @@ module tg_rename
       ren[k].use_llt = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
                        (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo ||
                         (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)));
-      rn_s2r[k] = !ren[k].p2 || wr_now(ren[k].src2, rn_uop_q[k].d.rs2_fp, rf_we, rf_widx, fp_we, fp_widx);
       ren[k].use_tag = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
                        (rn_uop_q[k].d.cls == C_MUL ||
                         (rn_uop_q[k].d.cls == C_FP && !rn_uop_q[k].d.fp_div && !rn_uop_q[k].d.fp_int));
@@ -712,17 +697,11 @@ module tg_rename
             end
           end
         end
-        // A group held in DS (no issue-queue room yet): its store data may be written meanwhile
-        for (int k = 0; k < W; k++) begin
-          if (wr_now(ds_ren_q[k].src2, ds_uop_q[k].d.rs2_fp, rf_we, rf_widx, fp_we, fp_widx))
-            ds_s2r_q[k] <= 1'b1;
-        end
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
           ds_uop_q   <= rn_uop_q;
           ds_ren_q   <= ren;
-          ds_s2r_q   <= rn_s2r;
           rn_valid_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
