@@ -20,11 +20,11 @@ Every number here is a Vivado result for this device, at a 5.0 ns (200 MHz) cloc
 
 | Spike | Verdict at 200 MHz | Width 2 | Width 3 | Fallback needed |
 |---|---|---|---|---|
-| S2 wakeup → select (§4) | **pass**, with options | st +0.110 ns, 5.3K LUTs; smt2 +0.112, 8.9K | smt2_w3 +0.057, 12.5K | MX (matrix wakeup) at smt2 and smt2_w3; 8-row ALU queues for margin at smt2_w3 |
+| S2 wakeup → select (§4) | **pass**, with options | st +0.145 ns with MX, 6.4K LUTs; smt2 +0.112, 8.9K | smt2_w3 +0.057, 12.5K | MX (matrix wakeup) at every width (st needs it in the full chip); 8-row ALU queues for margin at smt2_w3 |
 | S3 register file, bypass, ALU loop (§5) | **pass with min/max on the 2-cycle path** | +0.342 ns (+0.014 with min/max), 5.1K | +0.052 (−0.086 with min/max), 8.6K | min/max to 2 cycles (trim 3); R8 rejected |
 | S4 load path, 3-cycle load-to-use (§6) | **pass** | +0.678 ns, 2.4K (align in M2) | — | none |
 | S5 next PC, I$, pre-decode, compaction (§7) | **pass** | st +0.582, smt2 +0.245; 2.5K | +0.357, 2.5K | none |
-| S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.105 at 84%, +0.007 at 88% | smt2_w3: −0.238 at 89% | v2: the S2, S3 and DTLB levers above |
+| S6 floorplan and fill test (§8) | v1 **200 MHz to 88% fill**; v2 191 MHz at 89% | smt2: +0.105 at 84%, +0.007 at 88%; st: −0.041 at 76% (no MX) | smt2_w3: −0.238 at 89% | st: MX; v2: the S2, S3 and DTLB levers above |
 | S1 PL → PS DDR (§9) | bitstream built (+0.513 ns) | — | — | waiting for the board |
 
 **What changes for the plan.**
@@ -189,7 +189,7 @@ With MX the 1-cycle loop no longer passes through W. In `s2_pb_smt2_mx`:
 **PRE_RDY does not help.** It computes each row's ID readiness from W's next state. With MX the grant is registered before the wakeup encode, so that path becomes registered grant → encode → W's next state → readiness → row register: 10 levels, −0.363 ns at smt2_w3, where MX alone has +0.057. It is dropped.
 
 **S2 verdict: which §8.1 fallbacks are needed.**
-- **st:** none. DUP_SEL and EARLY_W close the loop with the plan's 10-row queues (+0.180 unconstrained, +0.110 with the pblock). MX is not needed at st; it adds 1.1K LUTs for +0.035 ns.
+- **st:** MX as well. DUP_SEL and EARLY_W alone close the loop out of context (+0.180 unconstrained, +0.110 with the pblock), but miss by 0.041 ns in the full chip at 76% fill (S6, §8). MX takes the loop out of the 1-cycle path: +0.145 out of context, for 1.1K LUTs.
 - **smt2 (v1):** MX is required (+0.112 with it, −0.521 without). Queue sizes stay at 10 rows.
 - **smt2_w3 (v2):** MX is required (−0.781 without). With it, 10-row queues close at +0.057, which is marginal.
   - **The 8-row ALU-queue fallback** gives the select path +0.22 ns and saves 1.5K LUTs per core. Its worst path is then the harness's flush fan-out, which a real dispatch stage registers locally.
@@ -408,7 +408,7 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 | `s6_smt2_90` | smt2 (v1) | 103,369 (88.3%) | 11,826 | 82,832 | 101 / 32 / 108 | **+0.007** | **200** | S2: W → readiness → select → payload, 7 levels | 40 min |
 | `s6_smt2w3_88` | smt2_w3 (v2) | 104,598 (89.3%) | 14,468 | 80,195 | 101 / 32 / 108 | −0.238 | 191 | S2: MX issued → readiness → select → payload, 8 levels | 35 min |
 | `s6_smt2_80` | smt2 (v1) | (rerun queued; the first attempt missed its LUT target) | | | | | | | |
-| `s6_st_76` | st | (running) | | | | | | | |
+| `s6_st_76` | st (bring-up) | 88,495 (75.6%) | 11,818 | 70,066 | 101 / 32 / 108 | −0.041 | 199 | S2 without MX: W → readiness → select → wakeup → W, 10 levels | 35 min |
 
 Named paths, slack in ns (the worst over both cores):
 
@@ -431,6 +431,9 @@ Named paths, slack in ns (the worst over both cores):
 - **v1 (smt2) holds 200 MHz up to about 88% fill.** It has +0.105 ns at 84% and +0.007 at 88%, so Fmax falls about 2% across that range.
   - **What limits it is the protected loops,** S2 and S3, which are already marginal out of context. Congestion is not the limit: it stays at level 5 (moderate) at 88%.
   - **The L2 is not a problem.** The 4-deep UltraRAM cascade and the core-to-L2 buses keep +0.4 ns or more.
+- **st at 76% misses by 0.041 ns, on its scheduler loop.** The st scheduler runs without MX, so its 1-cycle wakeup loop still passes through W: 10 levels. Out of context it closed at +0.110; inside the chip it does not.
+  - With MX (+0.145 out of context) that loop leaves the 1-cycle path.
+  - **So MX belongs in every configuration** (§4.2), for 1.1K LUTs at st.
 - **v2 (smt2_w3) at 89% runs at 191 MHz.** Three paths fail:
   - **the S2 MX path** (−0.238). The 8-row ALU queues give it about +0.1–0.2 (§4.2);
   - **the 3-ALU bypass loop** (−0.159), with min/max still in the 1-cycle ALU. §5.1 takes them out;

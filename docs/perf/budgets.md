@@ -15,19 +15,24 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 
 | Unit (plan §8.2 row) | Plan, ST | ST before | ST levers | **ST budget** | SMT2 adds | SMT2 before | SMT2 levers | **SMT2 budget (v1)** |
 |---|---|---|---|---|---|---|---|---|
-| Front end | 6.1 | 6.1 | R7 0.2 | **5,530** | +1.0 | 7.1 | R7 0.2 | **6,480** |
+| Front end | 6.1 | 6.1 | R7 0.2 | **5,540** | +1.0 | 7.1 | R7 0.2 | **6,480** |
 | Decode, RVC | 1.6 | 1.6 | — | **1,500** | +0.15 | 1.75 | — | **1,640** |
 | Rename, checkpoints, free lists | 1.6 | 1.6 | R3 0.3 | **1,220** | +1.3 | 2.9 | R3 0.45, R10 0.5 | **1,830** |
-| ROB, commit, traps, CSRs, PMP | 3.6 | 3.6 | R1 0.75, R2 0.4, R7 0.15 | **2,150** | +4.21 | 7.81 | R1 1.5, R2 1.0, R7 0.15 | **4,840** |
-| Issue queues and wakeup | 2.9 | **5.31 measured** | — | **4,970** | (measured) | **8.90 measured** | — | **8,350** |
+| ROB, commit, traps, CSRs, PMP | 3.6 | 3.6 | R1 0.75, R2 0.4, R7 0.15 | **2,160** | +4.21 | 7.81 | R1 1.5, R2 1.0, R7 0.15 | **4,840** |
+| Issue queues and wakeup | 2.9 | **6.43 measured** (with MX) | — | **6,030** | (measured) | **8.90 measured** | — | **8,350** |
 | Register files and bypass | 4.6 | 4.6 | (R8 rejected) | **4,320** | — | 4.6 | — | **4,320** |
 | Integer execution | 4.0 | 4.0 | R4 0.5 | **3,290** | — | 4.0 | R4 0.5 | **3,290** |
-| LSU | 6.4 | 6.4 | R9 0.25 | **5,760** | +1.07 | 7.47 | R9 0.25 | **6,780** |
-| MMU | 2.2 | 2.2 | R6 0.4, R7 0.1 | **1,590** | +0.2 | 2.4 | R6 0.4, R7 0.1 | **1,780** |
+| LSU | 6.4 | 6.4 | R9 0.25 | **5,770** | +1.07 | 7.47 | R9 0.25 | **6,780** |
+| MMU | 2.2 | 2.2 | R6 0.4, R7 0.1 | **1,600** | +0.2 | 2.4 | R6 0.4, R7 0.1 | **1,780** |
 | FPU (Goldschmidt, D17) | 4.7 | **7.62 measured** | R5 0.38 | **6,800** | — | 7.62 | R5 0.38 | **6,800** |
-| **Core** | 37.7 | 43.0 | + R14 2.5 | **37,100** | +8.28 | 54.6 | + R14 3.0 | **46,120** |
+| **Core** | 37.7 | 44.2 | + R14 2.5 | **38,220** | +8.28 | 54.6 | + R14 3.0 | **46,120** |
 | Uncore (SoC track) | 13.3 | 13.3 | R15 2.0 | **11,300** | | 13.3 | R15 2.5 | **10,800** |
-| **SoC (2 cores + uncore)** | 88.7 | 99.4 | | **85,500 (73.0%)** | | 122.4 | | **103,040 (88.0%)** |
+| **SoC (2 cores + uncore)** | 88.7 | 101.6 | | **87,740 (74.9%)** | | 122.4 | | **103,040 (88.0%)** |
+
+**The scheduler has MX (matrix wakeup) in every configuration.**
+- Out of context, st closed without it (+0.110 ns).
+- In the full chip at 76% fill (spike S6), the ST wakeup loop missed by 0.041 ns.
+- MX takes that loop out of the 1-cycle path (+0.145 out of context) for 1.1K LUTs.
 
 **Where the SMT2 additions sit.** The SMT2 study's §8.3 items, central values, put on their units:
 - **Front end, +1.0K:** the second FTQ, history, RAS and fetch PC; the per-thread instruction-queue pointers; ICOUNT.
@@ -55,7 +60,7 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 | **Core** | **66 / 84** | **42.5** |
 | Uncore | — | 18 |
 
-- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 6,700 / 10,000 for st / smt2) and the FPU (flip-flops 3,450). Each is the measurement plus about 10%.
+- **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 3,450). Each is the measurement plus about 10%.
 - **Everywhere else they are tracked, not judged.** The device-wide limits are about 57K LUTs of SLICEM sites for LUTRAM (plan §8.5) and 234K flip-flops.
 
 ## 2. What the budgets assume
@@ -77,7 +82,7 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
   | SMT2 window at ROB 64 (§8.5 contingency) | ≈1.3K in the scheduler, plus ROB storage | −1.5% throughput |
 
 - **The scheduler and FPU budgets are below today's measurements.**
-  - The scheduler: 8,350 against 8,895 at smt2, and 4,970 against 5,307 at st. That is R14, about 6%, applied to it as to every unit.
+  - The scheduler: 8,350 against 8,895 at smt2, and 6,030 against 6,425 at st. That is R14, about 6%, applied to it as to every unit.
   - The FPU: 6,800 against 7,622, from R5 (being built) and R14.
   - Until that work lands, the nightly check reports both as over budget. That is the gap it is there to track.
 - **The 3-wide configurations** (`st_w3`, `smt2_w3`) are tracked without budgets until the v2 re-plan (plan §8.5: v2 lands at 97–109% after levers).
