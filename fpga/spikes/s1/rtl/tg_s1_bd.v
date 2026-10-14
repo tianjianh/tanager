@@ -1,12 +1,19 @@
 // Verilog-2001 wrapper of tg_s1_top for the block design's module reference (the BD
 // flow wants a Verilog top). Interface attributes tie the AXI ports to the clock.
-module tg_s1_bd (
+// The KV260 fan enable (fan_en_b, package pin A12, low = on) follows the PS timer's PWM
+// (DR-129): ttc_wave is the timer's EMIO waveform outputs, FAN_BIT picks the channel and
+// FAN_INV the polarity, both set by fpga/spikes/s1/build.tcl from tools/tcl/tg_kv260_fan.tcl.
+module tg_s1_bd #(
+  parameter FAN_BIT = 2,
+  parameter FAN_INV = 0
+) (
   (* X_INTERFACE_INFO = "xilinx.com:signal:clock:1.0 clk CLK" *)
   (* X_INTERFACE_PARAMETER = "ASSOCIATED_BUSIF s_axi:m0_axi:m1_axi, ASSOCIATED_RESET rstn" *)
   input  wire clk,
   (* X_INTERFACE_INFO = "xilinx.com:signal:reset:1.0 rstn RST" *)
   (* X_INTERFACE_PARAMETER = "POLARITY ACTIVE_LOW" *)
   input  wire rstn,
+  input  wire [2:0] ttc_wave,
   output wire fan_en_b,
   input  wire [11:0] s_axi_awaddr,
   input  wire s_axi_awvalid,
@@ -103,7 +110,6 @@ module tg_s1_bd (
   tg_s1_top u_top (
     .clk(clk),
     .rstn(rstn),
-    .fan_en_b(fan_en_b),
     .s_axi_awaddr(s_axi_awaddr),
     .s_axi_awvalid(s_axi_awvalid),
     .s_axi_awready(s_axi_awready),
@@ -196,4 +202,5 @@ module tg_s1_bd (
     .m0_axi_bready(m0_axi_bready),
     .m1_axi_bready(m1_axi_bready)
   );
+  assign fan_en_b = ttc_wave[FAN_BIT] ^ (FAN_INV != 0);
 endmodule

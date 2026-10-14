@@ -7,9 +7,9 @@ S1 measures what the L2 will see when it misses: the latency and bandwidth of th
 | Path | What it is |
 |---|---|
 | `rtl/tg_s1_engine.sv` | One measurement engine: an AXI4 master (128-bit, 49-bit addresses, 6-bit IDs) that issues pointer-chase reads, or read or write streams with up to 32 outstanding bursts. It keeps per-transaction latency, a 256-bin histogram, cycles and bytes. |
-| `rtl/tg_s1_top.sv`, `rtl/tg_s1_bd.v` | Two engines (on HP1 and HP2), their AXI4-Lite registers at `0xA000_0000`, and the KV260 fan held on. `tg_s1_bd.v` is the Verilog wrapper the block design instantiates. |
+| `rtl/tg_s1_top.sv`, `rtl/tg_s1_bd.v` | Two engines (on HP1 and HP2) and their AXI4-Lite registers at `0xA000_0000`. `tg_s1_bd.v` is the Verilog wrapper the block design instantiates; it also drives the KV260 fan pin from the PS timer's PWM (DR-129). |
 | `build.tcl` | Builds the bitstream. It creates the block design: the PS with the KV260 SOM preset, `pl_clk0` 100 MHz → MMCM → 200 MHz for HPM0 (128-bit, SmartConnect to AXI-Lite), HP1 and HP2 (128-bit). |
-| `tg_s1.xdc` | The fan pin (A12, LVCMOS33). |
+| `tg_s1.xdc` | The fan pin (A12, LVCMOS33). The timer, channel and polarity are in `tools/tcl/tg_kv260_fan.tcl`, shared with the SoC build. |
 | `overlay/tg_s1.dtso`, `overlay/shell.json` | Device-tree overlay and app description for `xmutil`. The overlay sets the AXI port widths (AFI registers) and `pl_clk0`. |
 | `sw/tg_s1.c`, `sw/Makefile` | The A53 program. It allocates 2 MiB hugepages, finds their physical addresses, writes a random pointer chase, cleans the caches, then runs the tests below. |
 | `sim/tb_s1.sv` | Simulation of the PL side against AXI memory models. It passes: chase order, both engines streaming at once, writes. |
@@ -79,7 +79,7 @@ The run takes about 10 minutes. It writes `tg_s1.bit.bin`, `tg_s1.dtbo`, `shell.
    sudo xmutil unloadapp
    sudo xmutil loadapp tg-s1
    ```
-   **Check that the fan is spinning** right after loading. The design drives the fan-enable pin (A12) low, which turns the fan on. If the fan stops, run `sudo xmutil unloadapp` at once and tell the spikes track.
+   **Check the fan** right after loading. The fan stays under Linux's control: the design routes the PS timer's PWM to the fan-enable pin (A12) as the default design does, and the overlay leaves the pwm-fan node alone, so the speed follows the temperature, not full speed. If the fan stops, run `sudo xmutil unloadapp` at once and tell the spikes track.
 4. **Build and run the program:**
    ```bash
    cd ~/tg-s1 && make && sudo ./tg_s1 | tee s1_results.txt

@@ -3,12 +3,14 @@
 # Block design: Zynq UltraScale+ PS with the KV260 SOM preset; pl_clk0 (99.999 MHz) -> MMCM ->
 # clk_core 200 MHz, which clocks M_AXI_HPM0_FPD (128-bit, SmartConnect to AXI4-Lite),
 # S_AXI_HP1_FPD and S_AXI_HP2_FPD (128-bit) and the engines (tg_s1_bd). The fan enable
-# (package pin A12) is held on. Outputs in the run directory: tg_s1.bit, tg_s1.bit.bin
+# (package pin A12) follows the PS timer's PWM through EMIO, so Linux's pwm-fan driver sets
+# the fan speed (DR-129; tools/tcl/tg_kv260_fan.tcl). Outputs in the run directory: tg_s1.bit, tg_s1.bit.bin
 # (for the Linux FPGA manager), tg_s1.dtbo, shell.json, reports.
 set root [lindex $argv 0]
 set part xck26-sfvc784-2LV-c
 set here [file join $root fpga spikes s1]
 set_param general.maxThreads 8
+source [file join $root tools tcl tg_kv260_fan.tcl]
 
 create_project -in_memory -part $part
 set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
@@ -34,6 +36,7 @@ set_property -dict [list \
   CONFIG.PSU__FPGA_PL0_ENABLE {1} CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
   CONFIG.PSU__USE__FABRIC__RST {1} CONFIG.PSU__NUM_FABRIC_RESETS {1} \
 ] $ps
+set fan_wave [tg_kv260_fan_ps $ps]
 
 set clk [create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz clk_core]
 set_property -dict [list CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200} \
@@ -43,6 +46,7 @@ set rst [create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset rst_core]
 set sc [create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect sc]
 set_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {1}] $sc
 set eng [create_bd_cell -type module -reference tg_s1_bd s1]
+set_property -dict [list CONFIG.FAN_BIT $tg_kv260_fan_bit CONFIG.FAN_INV $tg_kv260_fan_invert] $eng
 
 connect_bd_net [get_bd_pins ps/pl_clk0] [get_bd_pins clk_core/clk_in1]
 connect_bd_net [get_bd_pins ps/pl_resetn0] [get_bd_pins clk_core/resetn] \
@@ -57,6 +61,7 @@ connect_bd_intf_net [get_bd_intf_pins ps/M_AXI_HPM0_FPD] [get_bd_intf_pins sc/S0
 connect_bd_intf_net [get_bd_intf_pins sc/M00_AXI] [get_bd_intf_pins s1/s_axi]
 connect_bd_intf_net [get_bd_intf_pins s1/m0_axi] [get_bd_intf_pins ps/S_AXI_HP1_FPD]
 connect_bd_intf_net [get_bd_intf_pins s1/m1_axi] [get_bd_intf_pins ps/S_AXI_HP2_FPD]
+connect_bd_net $fan_wave [get_bd_pins s1/ttc_wave]
 create_bd_port -dir O fan_en_b
 connect_bd_net [get_bd_pins s1/fan_en_b] [get_bd_ports fan_en_b]
 
