@@ -1,4 +1,4 @@
-# Unit tests of the memory-primitive wrappers (rtl/common/prim, spikes track).
+# Unit tests of the primitive wrappers (rtl/common/prim, spikes track).
 #   make -C tests/unit/prim                      behavioural model and primitive mapping
 #   make -C tests/unit/prim SEED=7 CYCLES=200000
 # Objects go to $(TANAGER_BUILD)/<worktree>/unit_prim (conventions §1).
@@ -16,14 +16,19 @@ VFLAGS := --binary --timing -Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-
 SRCS   := $(ROOT)/rtl/common/cfg/tg_cfg_st.sv $(ROOT)/rtl/common/tg_pkg.sv \
           $(ROOT)/rtl/common/prim/tg_ram_lut.sv tb_ram_lut.sv
 SDP    := $(ROOT)/rtl/common/prim/tg_ram_sdp.sv tb_ram_sdp.sv
-MODELS := models/RAM64M8.sv models/RAM32M16.sv
+MODELS := models/RAM64M8.sv models/RAM32M16.sv models/SRL16E.sv models/SRLC32E.sv
 FIFO   := $(ROOT)/rtl/common/prim/tg_ram_lut.sv $(ROOT)/rtl/common/prim/tg_fifo.sv tb_fifo.sv
-# tg_fifo: STORAGE-DEPTH; "lutram" also runs on the primitive models (TG_SIM_PRIMS)
-FIFO_V := lutram-2 lutram-4 lutram-16 lutram-64 reg-2 reg-4 reg-16
+# tg_fifo: STORAGE-DEPTH; "lutram" and "srl" also run on the primitive models (TG_SIM_PRIMS)
+FIFO_V := lutram-2 lutram-4 lutram-16 lutram-64 reg-2 reg-4 reg-16 srl-2 srl-4 srl-16 srl-32
 # tg_rom: PRIM-DEPTH-WIDTH-RD_LAT
 ROM_V  := block-2048-9-2 block-512-36-1 distributed-64-16-1 distributed-100-37-2
+# tg_dsp_cmp: W-SIGNED-LAT. The behavioural model runs on Verilator; the DSP48E2 mapping runs
+# on Icarus with the vendor's simulation model (Verilator does not take that model), when
+# both are installed.
+DSP_V  := 32-0-1 32-1-2 48-0-1 48-0-2 48-1-1 47-1-1 40-1-2 16-0-2 1-0-1
+UNISIM := $(dir $(TANAGER_VIVADO_SETTINGS))data/verilog/src
 
-.PHONY: all test fifo rom clean
+.PHONY: all test fifo rom dsp clean
 all: test
 fifo:
 	@set -e; for v in $(FIFO_V); do st=$${v%-*}; d=$${v#*-}; \
@@ -54,7 +59,25 @@ rom:
 	  $$o/Vtb_rom +seed=$(SEED) +cycles=$(CYCLES) > $$o/run.log; \
 	  echo "rom $$v: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
 	done
-test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom
+dsp:
+	@set -e; for v in $(DSP_V); do w=$${v%%-*}; x=$${v#*-}; sg=$${x%%-*}; l=$${x#*-}; \
+	  o=$(OBJ)/dsp_$$v; mkdir -p $$o; \
+	  verilator $(VFLAGS) --Mdir $$o --top-module tb_dsp_cmp -GW=$$w -GSIGNED=$$sg -GLAT=$$l \
+	    $(ROOT)/rtl/common/prim/tg_dsp_cmp.sv tb_dsp_cmp.sv > $$o/build.log 2>&1 || \
+	    { tail -20 $$o/build.log; exit 1; }; \
+	  $$o/Vtb_dsp_cmp +seed=$(SEED) +cycles=$(CYCLES) > $$o/run.log; \
+	  echo "dsp $$v beh: $$(grep -E '^(PASS|FAIL)' $$o/run.log)"; grep -q '^PASS' $$o/run.log; \
+	  if command -v iverilog > /dev/null && [ -f $(UNISIM)/unisims/DSP48E2.v ]; then \
+	    iverilog -g2012 -DTG_SIM_PRIMS -s tb_dsp_cmp -s glbl -P tb_dsp_cmp.W=$$w \
+	      -P tb_dsp_cmp.SIGNED=$$sg -P tb_dsp_cmp.LAT=$$l -o $$o/prim.vvp \
+	      $(ROOT)/rtl/common/prim/tg_dsp_cmp.sv tb_dsp_cmp.sv $(UNISIM)/glbl.v \
+	      $(UNISIM)/unisims/DSP48E2.v > $$o/prim_build.log 2>&1 || { tail -20 $$o/prim_build.log; exit 1; }; \
+	    vvp -n $$o/prim.vvp +seed=$(SEED) +cycles=$(CYCLES) > $$o/prim_run.log; \
+	    echo "dsp $$v DSP48E2 model: $$(grep -E '^(PASS|FAIL)' $$o/prim_run.log)"; \
+	    grep -q '^PASS' $$o/prim_run.log; \
+	  else echo "dsp $$v DSP48E2 model: skipped (needs iverilog and the Vivado install)"; fi; \
+	done
+test: $(OBJ)/beh/Vtb_ram_lut $(OBJ)/prim/Vtb_ram_lut $(OBJ)/sdp/Vtb_ram_sdp fifo rom dsp
 	$(OBJ)/beh/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/beh/run.log
 	@grep -q '^PASS' $(OBJ)/beh/run.log
 	$(OBJ)/prim/Vtb_ram_lut +seed=$(SEED) +cycles=$(CYCLES) | tee $(OBJ)/prim/run.log
