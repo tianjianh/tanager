@@ -441,12 +441,18 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | The ROB's `complete`, `exc`, `mispredict`, `mmio` as per-port toggle tables with a dispatch-time parity | cb67ebc | T2 | ROB 2,696 → 2,042 |
 | The SQ's ROB index and size in LUTRAM | 8a18f6c | T1 | small |
 | D$ port B's byte enables shared by the ways | 7ad53ea | — | small |
-| `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | rob_csr: see the MR |
+| `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | CSR 1,694 → 1,615, DSPs +2 |
 
-- **Result at c02be92:** st 46,132 → 43,582 (−2,550): rename −1,508, lsu_mmu −383, rob_csr −653; flip-flops −2.0K, LUTRAM +1.0K.
+- **Result at f18704e (the final RTL):**
+  - **st:** 46,132 → **43,342** (−2,790, −6.0%):
+    - rename 4,324 → 2,816;
+    - lsu_mmu 10,932 → 10,390, of which the D$ is 2,609 → 2,483, from the shared byte enables;
+    - rob_csr 4,390 → 3,656, of which the ROB is 2,696 → 2,041.
+    - Flip-flops −2.2K, LUTRAM +1.0K, DSPs 53 → 55.
+  - **smt2 (7ad53ea, before the counters, −79):** 49,022 → **45,992**, under its 46,120 core budget. rob_csr 4,461 is under its 4,840.
 - **Timing, out of context at 200 MHz (reg-to-reg):**
   - **Rename:** in one clock region, 41bc3f6 −2.233 ns and 7ad53ea −0.517 ns. Unconstrained the two vary run to run by about 0.3 ns around main's −0.154. The worst path is main's own: the free-list counts, steering and resource checks into rn_fire.
-  - **ROB:** −0.954 → −0.372 ns.
+  - **ROB:** −0.954 → −0.372 ns; in one clock region, −0.660 → −0.278.
   - **LSU:** −4.751 → −4.163 ns. That is M3's AG stage (TLB, PMP and the access decision in one cycle), whose fix is M6's.
 - **Lessons:**
   - The flip-flop structures had a reader cost, not a storage cost. The ready bits, ROB flags and MX row destinations were cheap to store but read through wide multiplexers or written through many index decoders.
