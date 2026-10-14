@@ -224,13 +224,30 @@ Exception or interrupt: `mepc` ← PC, `mcause`, `mtval` (0 for interrupts), `ms
 ### 9.4 Interrupts
 Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. Taken at commit before the head instruction (TR_IRQ with `pc` = its PC), except when the head is a WFI (it retires first, and the interrupt is taken at the next instruction) or an MMIO load whose request is out. Nothing is taken while the ROB is empty.
 
+### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
+- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
+  - They replace ten 64-bit registers with their write multiplexers, ten inputs of the CSR read multiplexer, and the trap vector's M/S multiplexer.
+  - `stimecmp` and `satp` stay flip-flops: the timer compare and the MMU read them every cycle.
+- **Two read ports:**
+  - **Port 0** serves the CSR read in P1's EX. While an MRET or SRET is in flight, it serves that instruction's xepc (`xepc_o`) for the ROB's redirect.
+    - The ROB registers which xRET is in flight when it dispatches it (`xret_v`, `xret_s`).
+    - Both instructions are serial, so no CSR instruction executes meanwhile (asserted in `tg_csr`). The ROB asserts that each xRET it commits is the one named.
+  - **Port 1** serves the trap vector, addressed by the delegation decision.
+- **One write port,** taken by:
+  - **the reset sweep:** PMP's 16-cycle counter (§10);
+  - **trap entry:** xepc, xcause and xtval are written in the three cycles after the trap, from registers taken in the trap cycle. The privilege and status fields still change in the trap cycle.
+  - **a CSR write** at commit.
+- **Why the trap's writes may lag:** the trap's flush leaves the window empty longer than three cycles. In that time nothing commits, no trap or interrupt is taken (the ROB is empty), and no CSR instruction executes (asserted).
+  - A CSR instruction can still be in EX in the flush cycle itself (`ex_v_q` clears at its end). It reads before the writes, but it is killed there: its result is never written back, and its pending write is dropped.
+
 ## 10. Reset sequence
 After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
 - **Other tables have their own sweeps, run alongside:**
   - the I$ valid bits (§3.1);
   - the D$ state (core-lsu);
   - the maps' committed banks and the ready tables (§5.2);
-  - the DTLB's CAM tables (core-mmu).
+  - the DTLB's CAM tables (core-mmu);
+  - the cold CSRs (§9.5), on PMP's 16-cycle counter.
 - **Everything else** resets through control state (valid bits, pointers), or holds data that is written before it is read.
 - **The exception is the direction counters (§3.2),** which keep whatever they held.
 - **Measured (2026-10-14, st, 9b14471):**
