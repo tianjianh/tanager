@@ -194,6 +194,8 @@ package tg_core_pkg;
   } ren_t;
 
   // ---- Issue-queue payload (one format for every queue) ----
+  // The source tags are the last fields (the low bits): with EARLY_W they are the only payload
+  // bits kept in flip-flops behind the grant mux; the rest is read from LUTRAM in RF.
   typedef struct packed {
     robid_t        rob;
     tid_t          tid;
@@ -201,7 +203,6 @@ package tg_core_pkg;
     alu_ctl_t      alu;
     logic          b_imm;
     logic [63:0]   imm;
-    preg_t         src1, src2;
     logic          dst_en;
     preg_t         dst;
     wid_t          wid;
@@ -230,8 +231,20 @@ package tg_core_pkg;
     sqid_t         sq;
     logic [1:0]    mem_size;
     logic          mem_uns;
+    preg_t         src1, src2;
   } iq_pl_t;
   localparam int IQ_PL_W = $bits(iq_pl_t);
+
+  // ---- Scheduler options (spikes.md §4.2) ----
+  localparam bit IQ_DUP_SEL = 1'b1;               // a second select copy drives the wakeup
+  localparam int IQ_EARLY_W = 2 * $bits(preg_t);  // only the source tags in flip-flops
+  localparam bit IQ_MX      = TID_W > 0;          // matrix wakeup: required for smt2 timing
+  // ALU-queue rows, numbered across the queues (MX names producers by these rows)
+  localparam int RA = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0);
+  localparam int RA_W = idx_w(RA);
+  function automatic int alu_row_base(input int q);
+    return (q == 0) ? 0 : (q == 1) ? IQ_A0 : IQ_A0 + IQ_A1;
+  endfunction
 
   // ---- ROB payload, written at dispatch ----
   typedef struct packed {

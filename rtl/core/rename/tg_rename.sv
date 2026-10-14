@@ -8,6 +8,11 @@
 // DS (group in ds_q): dependency vectors (pending producers' IDs AND NOT W), issue-queue rows,
 // and the ROB / LQ / SQ entry writes (done by those units from ds_*). DS waits until every uop
 // finds a free row in its queue's bank.
+// MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
+// by that row instead of its ID. The row is found through rowof_q (physical register -> the row
+// its producer was written into) and confirmed with one compare of the row's destination
+// (rowdst_q) against the source; a producer in the same group is named by the row it is
+// being written into. Otherwise the ID is used.
 module tg_rename
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -53,6 +58,9 @@ module tg_rename
   output logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep,
   output logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_wake,
   output iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl,
+  output logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep,     // MX: sources named by ALU-queue row
+  input  logic [RA-1:0]                    mx_hold,     // ALU-queue rows holding an op
+  input  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc,  // rows written next
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [NPR-1:0]                   ready_vec,
   output robid_t                           rob_tail     // next ROB entry RN gives out
@@ -71,6 +79,10 @@ module tg_rename
   sqid_t                 stail_q;
   logic [idx_w(DIV_INFLIGHT + 1)-1:0] div_cnt_q;
   logic                  block_q;          // after a serialising uop, until the flush
+  // MX naming state
+  logic [NPR-1:0]        lat1_q;           // the register's producer wakes at select
+  logic [NPR-1:0][RA_W-1:0] rowof_q;       // ALU-queue row its producer was written into
+  preg_t [RA-1:0]        rowdst_q;         // destination of the op each ALU-queue row holds
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
@@ -241,14 +253,48 @@ module tg_rename
   assign ds_uop   = ds_uop_q;
   assign ds_ren   = ds_ren_q;
 
+  // MX: name a pending source by the ALU-queue row that holds its 1-cycle producer
+  function automatic logic is_lat1(input uclass_e c);
+    return c == C_ALU || c == C_BR;
+  endfunction
+  logic [W-1:0][RA-1:0] mrow1, mrow2;     // one-hot row, or 0 (use the ID)
+  logic [W-1:0][RA-1:0] myrow;            // the row slot k is written into (ALU-queue 1-cycle ops)
+  for (genvar k = 0; k < W; k++) begin : g_mx
+    always_comb begin
+      myrow[k] = '0;
+      if (ds_ren_q[k].has_q && int'(ds_ren_q[k].q) < N_ALU)
+        myrow[k] = mx_alloc[ds_ren_q[k].q][k];
+    end
+    always_comb begin
+      mrow1[k] = '0;
+      mrow2[k] = '0;
+      if (IQ_MX) begin
+        if (ds_ren_q[k].p1 && lat1_q[ds_ren_q[k].src1] && int'(rowof_q[ds_ren_q[k].src1]) < RA &&
+            mx_hold[rowof_q[ds_ren_q[k].src1]] && rowdst_q[rowof_q[ds_ren_q[k].src1]] == ds_ren_q[k].src1)
+          mrow1[k][rowof_q[ds_ren_q[k].src1]] = 1'b1;
+        if (ds_ren_q[k].p2 && lat1_q[ds_ren_q[k].src2] && int'(rowof_q[ds_ren_q[k].src2]) < RA &&
+            mx_hold[rowof_q[ds_ren_q[k].src2]] && rowdst_q[rowof_q[ds_ren_q[k].src2]] == ds_ren_q[k].src2)
+          mrow2[k][rowof_q[ds_ren_q[k].src2]] = 1'b1;
+        // a producer in the same group: the row it is being written into
+        for (int i = 0; i < k; i++) begin
+          if (ds_valid_q[i] && ds_uop_q[i].d.rd_en && is_lat1(ds_uop_q[i].d.cls) && myrow[i] != '0) begin
+            if (ds_ren_q[k].p1 && ds_ren_q[i].dst == ds_ren_q[k].src1) mrow1[k] = myrow[i];
+            if (ds_ren_q[k].p2 && ds_ren_q[i].dst == ds_ren_q[k].src2) mrow2[k] = myrow[i];
+          end
+        end
+      end
+    end
+  end
+
   always_comb begin
     iq_we = '0;
     for (int k = 0; k < W; k++) begin
       if (ds_fire && ds_valid_q[k] && ds_ren_q[k].has_q) iq_we[ds_ren_q[k].q][k] = 1'b1;
       iq_dep[k] = '0;
-      if (ds_ren_q[k].p1) iq_dep[k][ds_ren_q[k].w1] = 1'b1;
-      if (ds_ren_q[k].p2) iq_dep[k][ds_ren_q[k].w2] = 1'b1;
+      if (ds_ren_q[k].p1 && mrow1[k] == '0) iq_dep[k][ds_ren_q[k].w1] = 1'b1;
+      if (ds_ren_q[k].p2 && mrow2[k] == '0) iq_dep[k][ds_ren_q[k].w2] = 1'b1;
       iq_dep[k] &= ~w_vec;
+      iq_mdep[k] = mrow1[k] | mrow2[k];
       iq_wake[k] = '0;
       if (ds_uop_q[k].d.cls == C_ALU || ds_uop_q[k].d.cls == C_BR) iq_wake[k][ds_ren_q[k].wid] = 1'b1;
       iq_pl[k] = '0;
@@ -349,6 +395,18 @@ module tg_rename
       end else begin
         // DS
         if (ds_fire) ds_valid_q <= '0;
+        if (ds_fire && IQ_MX) begin
+          for (int k = 0; k < W; k++) begin
+            if (ds_valid_q[k] && ds_uop_q[k].d.rd_en && is_lat1(ds_uop_q[k].d.cls)) begin
+              for (int r = 0; r < RA; r++) begin
+                if (myrow[k][r]) begin
+                  rowof_q[ds_ren_q[k].dst] <= RA_W'(r);
+                  rowdst_q[r] <= ds_ren_q[k].dst;
+                end
+              end
+            end
+          end
+        end
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
@@ -361,6 +419,7 @@ module tg_rename
                 rat_q[rn_uop_q[k].d.rd] <= ren[k].dst;
                 ready_q[ren[k].dst] <= 1'b0;
                 prod_q[ren[k].dst] <= ren[k].wid;
+                lat1_q[ren[k].dst] <= is_lat1(rn_uop_q[k].d.cls);
               end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
             end

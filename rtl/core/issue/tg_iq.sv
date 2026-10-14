@@ -61,7 +61,8 @@
 //
 // Core-track copy of the S2 module; changes: sel_block (registered by the user) suppresses the
 // select for one cycle (A1 keeps bank 1's write port free for MUL/DIV/CSR results; LD frees the
-// load pipe for LQ replays); a row granted in the cycle it is killed does not issue.
+// load pipe for LQ replays); a row granted in the cycle it is killed does not issue; valid_o
+// and alloc_oh_o let dispatch name MX producers by row.
 //
 // SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
@@ -114,6 +115,8 @@ module tg_iq
   input  logic [RA-1:0]                 mx_free,       // ALU-queue rows freed this cycle
   output logic [ROWS-1:0]               issued_o,      // this queue's rows selected and held
   output logic [ROWS-1:0]               free_o,        // this queue's rows freed this cycle
+  output logic [ROWS-1:0]               valid_o,       // rows holding an op
+  output logic [DW-1:0][ROWS-1:0]       alloc_oh_o,    // the row each dispatch port writes next
   // Kill
   input  logic                          flush_valid,
   input  tid_t                          flush_tid,
@@ -141,6 +144,7 @@ module tg_iq
 
   // Allocation: the row each bank writes next (one-hot within the queue)
   logic [DW-1:0][ROWS-1:0]    alloc_oh_q;
+  assign alloc_oh_o = alloc_oh_q;
   logic [ROWS-1:0]            we;
   for (genvar r = 0; r < ROWS; r++) begin : g_we
     assign we[r] = disp_valid[bank_of(r)] && alloc_oh_q[bank_of(r)][r];
@@ -367,6 +371,7 @@ module tg_iq
   for (genvar r = 0; r < ROWS; r++) begin : g_mxo
     assign issued_o[r] = valid_q[r] && age_q[r] != 2'd0;
     assign free_o[r]   = valid_q[r] && free_now[r];
+    assign valid_o[r]  = valid_q[r];
   end
 
   // Matrix dependencies: written at dispatch, a column cleared when its row is freed

@@ -126,6 +126,9 @@ module tg_core
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_we;
   logic [DISPATCH_WIDTH-1:0][NCOL-1:0] iq_dep, iq_wake;
   iq_pl_t [DISPATCH_WIDTH-1:0]      iq_pl;
+  logic [DISPATCH_WIDTH-1:0][RA-1:0] iq_mdep;
+  logic [RA-1:0]                    mx_hold;
+  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc;
   logic [NCOL-1:0]                  wid_alloc;
   logic [NPR-1:0]                   ready_vec;
   logic                             rn_ready;
@@ -135,7 +138,8 @@ module tg_core
     .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .div_done,
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
-    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .wid_alloc,
+    .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .iq_mdep, .mx_hold,
+    .mx_alloc, .wid_alloc,
     .ready_vec, .rob_tail);
 
   // ---- Issue ----
@@ -150,7 +154,7 @@ module tg_core
   end
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep), .disp_wake(iq_wake),
-    .disp_pl(iq_pl), .bank_free(iq_bank_free), .alloc(wid_alloc), .wake_reg, .col_clr,
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
