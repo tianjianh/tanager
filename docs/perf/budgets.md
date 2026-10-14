@@ -108,14 +108,15 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
   | Option | Saves per core | Cost |
   |---|---|---|
   | ALU issue queues 10 → 8 rows | ≈1.0K (1.5K measured at smt2_w3) | 1.2–1.5% IPC (§8.1) |
-  | Radix-4 divide/sqrt (`FDIV_RADIX4`, the D17 fallback) | 1.4K | −2.4% suite IPC |
   | SMT2 window at ROB 64 (§8.5 contingency) | ≈1.3K in the scheduler, plus ROB storage | −1.5% throughput |
+  | **Last:** release builds without the commit trace (DR-121), release bitstreams only | 1,466, plus about 2.9K in the uncore's trace stream | no IPC; those builds lose FPGA lockstep (every development and test build keeps the trace) |
 
-- **The scheduler and FPU budgets are below today's measurements.**
-  - The scheduler: 8,350 against 8,895 at smt2, and 6,030 against 6,425 at st. That is R14, about 6%, applied to it as to every unit.
-  - The FPU: 6,800 against 7,622, from R5 (being built) and R14.
-  - Until that work lands, the nightly check reports both as over budget. That is the gap it is there to track.
-- **The 3-wide configurations** (`st_w3`, `smt2_w3`) are tracked without budgets until the v2 re-plan (plan §8.5: v2 lands at 97–109% after levers).
+  - **Radix-4 divide/sqrt has left the reserve** (DR-118, the user's decision). Re-measured after the FPU's no-IPC pass it saves only 1,036 LUTs and fails the reverse rule (2.34% IPC per 1K LUTs against a 2.19% limit). It stays buildable behind `FDIV_RADIX4`, and the nightly still tracks it, but it is not an area lever.
+
+- **The scheduler and FPU budgets were set below their measurements, and both units are now within them.**
+  - The scheduler: 8,350 at smt2 and 6,030 at st, set against 8,895 and 6,425 (R14, about 6%, applied as to every unit). With wakeup tags (AR-1) and DR-113's settings it measures 4,750 and 4,228 out of context.
+  - The FPU: 6,800, set against 7,622 (R5 and R14). After R5 and the no-IPC pass `tg_fpu` measures 5,700 at smt2.
+- **The 3-wide configurations:** `smt2_w3` (v2) has per-unit lines at 180 MHz (AR-9, DR-117; §1.1), tracked until v2 work starts; `st_w3` is tracked without budgets.
 
 ## 3. The nightly check
 
@@ -232,6 +233,7 @@ No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the 
     - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
     - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
 - **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
+- **The reserve follows the user's decisions:** radix-4 is out (DR-118); release builds without the commit trace are its last lever (DR-121).
 - **The 180 MHz fill test and v2's lines (§1.1).** The fill test closes v1 at up to 95.3% and v2 at up to 96.0% at 180 MHz. v2's per-unit lines go in at 180 MHz (AR-9, DR-117: 49,740 per core), tracked until v2 work starts. v1 stays at 200 MHz: its move to 180 MHz is the clock decision, after D18 step 1 (DR-116). The core's DSP lines follow DR-110 (69 / 87).
 - **The core built as DR-113 builds it.** The budget run now synthesises `tg_core` with the hierarchy kept plus `AreaOptimized_high`: at st 56,461 → 52,024 LUTs (−7.9%; every unit 5–14% smaller; flip-flops and LUTRAM unchanged). From the next nightly, the core and its derived units read about 8% lower for that reason alone.
 - **The core's memory, measured.** Sampled over Vivado's whole process tree, the st core peaks at 6.75 GB as built until now and 9.38 GB with the directive, against 6 GB declared. The core line now declares 12 GB, for the larger configurations. Vivado's log shows only the parent process, which is how 6 GB looked right.

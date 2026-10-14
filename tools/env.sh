@@ -15,10 +15,10 @@ export CC=gcc-15 CXX=g++-15
 # Vivado is sourced on demand by the FPGA scripts (fpga/), not here, because its settings
 # script puts an older bundled toolchain on PATH.
 export TANAGER_VIVADO_SETTINGS="$HOME/Xilinx/2025.2/Vivado/settings64.sh"
-# Vivado admission (tools/vivado_run.sh, conventions §9): 3 slots and a 24 GB declared-memory budget on
-# the 32-thread build host (39 GB WSL); 1 slot and 12 GB elsewhere. Jobs declare TANAGER_VIVADO_MEM_GB
-# (default 10 for full-device runs; 4 for out-of-context unit runs).
-if [ "$(nproc)" -ge 24 ]; then _tg_slots=3; _tg_vmem=24; else _tg_slots=1; _tg_vmem=12; fi
+# Vivado admission (tools/vivado_run.sh, conventions §9): 3 slots and a 34 GB declared-memory budget on
+# the 32-thread build host (56 GB WSL since 2026-10-14); 1 slot and 12 GB elsewhere. Jobs declare
+# TANAGER_VIVADO_MEM_GB (default 10 for full-device runs; 4 for out-of-context unit runs).
+if [ "$(nproc)" -ge 24 ]; then _tg_slots=3; _tg_vmem=34; else _tg_slots=1; _tg_vmem=12; fi
 export TANAGER_VIVADO_SLOTS="${TANAGER_VIVADO_SLOTS:-$_tg_slots}"
 export TANAGER_VIVADO_MEM_BUDGET="${TANAGER_VIVADO_MEM_BUDGET:-$_tg_vmem}"
 unset _tg_slots _tg_vmem
