@@ -623,6 +623,11 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 - **min/max off the 1-cycle ALU.** With them, 2 ALUs had +0.014 ns under the pblock and 3 ALUs failed (−0.086). Without them the 2-ALU loop has +0.47 and 3 ALUs close.
 - **The real core's first synthesis (82.5K LUTs, st).** Seven PMP checkers take 21.8K of it, a quarter of the core. Keeping the hierarchy alone took 5.5K off the flattened 88K.
 
+- **Shared primitives for the FPGA-friendly rewrite (2026-10-14; [fpga_friendly.md](fpga_friendly.md) §3.1).**
+  - Multi-write LUTRAM (`tg_ram_lut_mw`) with the live-value table itself in XOR-coded LUTRAM: 4–7× fewer LUTs than flip-flop arrays, and cheaper than the classic flip-flop table at 23 of 24 shapes.
+  - A LUTRAM CAM pays only with one-bit-write tables (RAM64X8SW): 13–22% fewer LUTs than flip-flops from 32 entries. With read-modify-write tables it costs more than flip-flops.
+  - A DSP48E2 compares for no LUTs (15–40 in fabric). A shift-register FIFO costs one LUT per bit, so LUTRAM stays cheaper above 8 bits wide.
+
 ### 12.3 Dead ends
 
 | Tried | Result | Why it failed |
@@ -638,6 +643,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
 | Predecoded delay-line IDs | +20 LUTs | Nothing to gain at 4–10 sources |
 | Fully associative flip-flop micro-BTB (S5 fallback) | +1.1K LUTs, slower | LUTRAM wins on both counts |
 | Aligning loads in M1 (S4) | +0.43K for +0.11 ns | Not worth it; M2 alignment passes |
+| CAM tables written by read-modify-write (`tg_cam_lut` `"m16"`) | +9 to +69% LUTs against a flip-flop CAM | The per-bit update logic of every table costs more than the comparators it replaces; the one-bit-write form (`"sw"`) has none and wins |
 
 ### 12.4 Bugs and method lessons
 
@@ -655,3 +661,5 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - **Memory, not slots, is the limit (2026-10-14).** A synthesis with the hierarchy kept forks one Vivado process per thread, so a job's memory is the parent plus its children. Two full-device S6 runs (8–10 GB each) and a budget synthesis with 8 threads (14.5 GB) exhausted the host, and the kernel killed an S6 run (rc 137) after 19 minutes of thrashing. The spike flow now synthesises with 2 threads (`TANAGER_SYNTH_THREADS`), and the workers declare 15 GB per S6 run and 4 GB per out-of-context run to `vivado_run.sh`. The 15 is measured: sampled over the whole process tree, an S6 synthesis at 90–96% fill peaks at 12.9–14.3 GB, while Vivado's log, which shows only the parent, suggested 10 ([area_synth.md](area_synth.md) §6).
   - A worker that is killed leaves its Vivado job running: adopt it or kill the job by its own PIDs, never by a pattern your own shell's command line also matches.
 - **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.
+- **Primitive models.** Hand-written models of vendor primitives can share the author's misreading. The DSP48E2 mapping ran on the vendor's own model under Icarus, which Verilator cannot compile, and found that the 48-bit carry out means "no borrow".
+- **Reports.** `report_utilization -hierarchical` hides instances under 50 cells by default, which silently dropped half the price run's instances.
