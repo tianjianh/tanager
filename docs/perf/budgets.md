@@ -144,7 +144,8 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
   - the FPU pass brought the FPU to 5,889.
 - **2026-10-14 ~03:20: the memory incident.**
   - The nightly's `core_smt2_w3` synthesis ran with the hierarchy kept and 8 threads. Vivado forks one process per thread for a hierarchical synthesis, so it ran as a parent plus six children: about 14.5 GB.
-  - Next to two full-device S6 runs of about 9 GB each, it exhausted WSL's 39 GB. SSH and the sessions stalled for about 10 minutes, and the out-of-memory killer took one of the S6 runs.
+  - Next to two full-device S6 runs of about 9 GB each, it exhausted WSL's 39 GB, and SSH and the sessions stalled for about 10 minutes. The coordinator stopped the budget synthesis, which also stopped that night's run.
+  - **A second episode, 03:30–04:01:** another track's synthesis, started with the old `vivado_run.sh`, added about 10 GB. After 19 minutes of thrashing the kernel killed the S6 run `s6_smt2w3t_93_180` (since re-queued).
   - **The fix:**
     - `tools/vivado_run.sh` admits jobs by declared memory: 24 GB budget, 2 slots.
     - The budget flow declares each unit's total: `-mem` in `units.tsv`, 6 GB for the whole core, 4 for the others.
