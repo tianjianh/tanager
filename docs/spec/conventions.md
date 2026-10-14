@@ -94,6 +94,12 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 - **Outside your area:** you may add new files elsewhere when your work needs them, for example a unit test that instantiates another track's module. Do not edit another track's files; ask the owner.
 - **Coordinator files:** to change a shared file or an interface, message the coordinator with the change and the reason. Small additions, such as a new package constant, can be committed on your branch and flagged for review in the merge request.
 - **Unit specs:** every unit has a spec in `docs/spec/` before its RTL (plan §2.3), using [README.md](README.md)'s template. The spec records where each idea came from.
+- **FPGA-friendly from the start (DR-125):** new RTL uses the forms in [fpga_friendly.md](../perf/fpga_friendly.md) §2 wherever they keep the cycle behaviour.
+  - Tables read by index go in LUTRAM or block RAM.
+  - Per-thread state is an extra RAM address bit, not a second copy in flip-flops.
+  - Delay lines are shift-register LUTs.
+  - Rarely written lookups are LUTRAM CAMs.
+  - A unit's spec says which form each structure uses, and why when it stays in flip-flops.
 
 ## 8. Lint
 
