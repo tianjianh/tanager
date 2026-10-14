@@ -13,9 +13,9 @@ What the verification track gives the other tracks:
 | riscv-tests runner | `tests/isa/` | M2 |
 | CoreMark and Dhrystone for the simulation platform | `tests/bench/` | M2 |
 | `make regress CFG=...` | `tools/ci/` | M2 |
-| riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3 |
-| Constrained-random instruction generator | `tests/random/` | M3 |
-| Fork-based snapshots | `sim/` | M3 |
+| riscv-arch-test ACT4 flow with Sail | `tests/arch/` | M3: Sail installed, framework dependencies requested |
+| Constrained-random instruction generator | `tests/random/` | M3, done |
+| Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
 
 ## 1. Quick start
 
@@ -172,11 +172,14 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 TG-RESULT status=PASS code=0 cycles=123456 instret=98765 ipc=0.800 khz=21.3 region_cycles=... region_instret=...
 ```
 
-### 2.8 Fork-based snapshots (M3)
+### 2.8 Fork-based snapshots
 
-- `--snap-every=N` forks the process every N cycles. The child is a frozen copy of the whole simulation (model, memories, Spike) and waits on a pipe; the parent keeps the newest `--snap-keep` (default 2) and kills older ones.
-- On a failure, the parent wakes the newest snapshot taken before the failure cycle. It re-runs from there with `--fst` enabled up to the failure cycle and writes `<run>/snap_<cycle>.fst`. The waveform covers only the window that matters, so a multi-hour run does not need a multi-gigabyte FST.
-- **Limits:** fork copies are copy-on-write, so memory grows only with what changes; the snapshot count is bounded for that reason. Open files (logs) are reopened by the child.
+`--snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=M]` (implemented 2026-10-13):
+- **Taking:** every N cycles the run forks. The child is a frozen copy of the whole simulation (model, harness memories and models, the checker's Spike, every random generator) blocked on a pipe. The newest K (default 2) are kept; older ones are discarded by closing their pipe, and they exit.
+- **Using:** when the run fails (any non-pass status), the newest snapshot is woken with the failure cycle. It replays from its own cycle with the waveform on, writes `FILE` (default `snap.fst`) up to M cycles (default 16) past the failure, and logs its run to `FILE.log`; the replay is deterministic, so it fails at the same cycle with the same report. The parent waits for it and prints where the waveform is.
+- **So** a long run (a Linux boot) needs no multi-gigabyte waveform: rerun it with `--snap-every` and get just the last window. Choose N so that a window of N cycles is a reasonable FST (about 20 KB per 1,000 cycles with the test core).
+- **Cost:** a fork copies page tables only; pages are copied when written. A CoreMark run with 34 snapshots ran 1% slower and stayed at 10 MB resident.
+- **Details:** the Verilated context runs with one thread (`threads(1)`): only the forking thread survives a fork, and a trace thread pool would hang the replay. Snapshots die with the run (`PR_SET_PDEATHSIG`). `--snap-every` and `--fst` are exclusive.
 
 ## 3. Lockstep checker
 
@@ -328,8 +331,9 @@ The checker found its first real bug the same day: the test core lost deferred w
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
 4. runs CoreMark A and B and Dhrystone with lockstep (default `MARCH=rv64im`);
-5. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
-6. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
+6. runs the checker self-test (§3.8; `SELFTEST=0` skips it);
+7. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -354,20 +358,32 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ### 6.1 riscv-arch-test (ACT4) with Sail
 
-- **Flow:** `tests/arch/` builds the ACT4 tests from `~/src/tanager/riscv-arch-test` (act4 branch, pinned) for a Tanager DUT configuration, with Sail as the reference model. Each test runs in `tg_vsim` with lockstep. The signature region is then dumped from the harness's view of memory, after the run's final cache flush (a probe sweep of the l1d), and compared with Sail's signature.
-- **Sail:** the prebuilt release of the RISC-V Sail model (`sail_riscv_sim`), installed under `$TANAGER_OPT/sail` with its version recorded in `tools/versions.sh` (reported to the coordinator when downloaded).
+**Status (2026-10-13):** Sail is installed; the framework waits for its dependencies.
+- **How ACT4 works** (act4 branch, pinned in `tools/versions.sh`): the framework selects the tests that apply to a DUT from its UDB configuration, compiles them, runs them on Sail to compute the expected results, and compiles those results into self-checking ELFs. The DUT only has to run each ELF; the test prints `RVCP-SUMMARY: TEST PASSED|FAILED` and halts through `RVMODEL_HALT_PASS|FAIL`.
+- **Sail:** sail-riscv 0.15 (the version act4 requires), prebuilt release `sail-riscv-Linux-x86_64.tar.gz`, sha256 `8bb3626a…2e143`, at `$TANAGER_OPT/sail-0.15` (11 MB).
+- **Missing on the build host** (requested from the coordinator): Ruby ≥ 3.2 with Bundler and the UDB gems of ACT4's `Gemfile.lock` (the framework uses them to expand the configuration and generate `rvtest_config.h`), and the framework's Python packages (pydantic, pyjson5, ruamel.yaml, typer) in a venv.
+- **Plan once they are installed:**
+  - DUT configurations in `tests/arch/config/` for the test core (RV64IM, M and U), the M2 core (RV64IM, M) and the M3 core (the plan §4.1 ISA with S, Sv39 and 16 PMP regions): `test_config.yaml`, the UDB file, `sail.json`, `link.ld` (our map: RAM at `0x8000_0000`), and `rvmodel_macros.h` (halt through `tohost`, console on the 16550 at `UART_BASE`, CLINT `msip`/`mtime`/`mtimecmp`, access faults below the boot ROM);
+  - a runner, `make -C tests/arch CFG=... CORE=...`, that builds the ELFs into the build tree and runs each one in `tg_vsim` with lockstep: a pass needs both the self-check and lockstep;
+  - external-interrupt tests need a software-triggerable source: a minimal PLIC model in the harness with the 16550's transmit interrupt as a source, as other DUT configurations do.
 
 ### 6.2 Constrained-random instruction generator
 
-`tests/random/` (plan §9, §4.15). A Python generator writes assembly programs that run in the bare-metal environment and in lockstep:
-- **Seeded:** every program prints its seed and is reproducible from it (conventions §6).
-- **Templates:** weighted streams of instruction classes, aimed at the plan's risk areas:
-  - LSU: same-line and same-address load and store mixes; partial overlaps for forwarding; aliasing across pages; misaligned accesses that must trap;
-  - ordering: loads that pass older stores to the same address; FENCE variants; LR/SC loops; AMOs;
-  - early retirement: long-latency loads (cache-missing strides) and DIV/REM followed by branch mispredictions, traps and interrupts while they are pending ("flush storms over pending retired loads");
-  - width 3: groups of 3 instructions with intra-group dependencies (RAW, WAW, WAR) and two branches per group, aligned to 16-byte fetch blocks so they decode in one cycle.
-- **Shape:** a memory region of a few pages per program, so misses and evictions happen at small size; traps return through a handler that skips the faulting instruction.
-- **Driver:** `make -C tests/random CFG=... N=100 SEED=...` generates, builds and runs N programs, keeping only the failures.
+`tests/random/tg_rand.py` (implemented 2026-10-13; plan §9, §4.15) writes assembly programs that run bare-metal in M-mode and in lockstep. Spike checks every instruction, so the generator never predicts results.
+- **Seeded:** a program is reproducible from its seed and options; failures print a one-line reproduction command (conventions §6).
+- **Safe by construction:** x2–x4 (stack, data base, alias base) and x30/x31 (trap scratch) are never written; every address is masked into its region; branches go forward and loops have fixed counts (an LR/SC loop is bounded, so a core that keeps failing SC still ends).
+- **Templates** (weighted), aimed at the plan's risk areas:
+  - LSU: a store followed by loads of the same, contained or partially overlapping bytes, through the same or the other base; the same page offset on two pages (`gp`/`tp`, 16 KiB apart); a store whose address comes from a slow load (or a divide) while younger loads hit or miss it (ordering violations);
+  - cache-miss streams over a 64 KiB region (larger than a 32 KiB L1), with stores in them, so lines are evicted dirty;
+  - early retirement: a divide or a missing load, its consumers, then a data-dependent branch and sometimes a trap right behind it ("flush storms over pending retired loads");
+  - traps the handler skips: misaligned loads and stores, `unimp`, `ecall`, `ebreak`, access faults (addresses below the boot ROM);
+  - **width 3:** groups of three instructions in one 16-byte fetch block with RAW, WAW or WAR dependencies, two branches, or a load-use and a store (plan §4.15);
+  - CSR reads (counters, `mstatus`, `mscratch`), fences, `fence.i`, calls and returns, and LR/SC and AMOs when A is in the ISA;
+  - `--irq=<ticks>`: CLINT timer interrupts during all of it; the handler re-arms the timer.
+- **ISAs:** `rv64i`, `rv64im` (M2 and the test core), `rv64ima`, `rv64imac`, `rv64gc` (no FP templates yet; they come with the FPU in M5).
+- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1]`. Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes). Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
+- **Results on 2026-10-13 with the test core:** 1,000 seeds with memory stress, and 300 with timer interrupts, deferred writebacks and multi-slot trace, in both `st` and `st_w3`, all pass (about 60 programs per second).
+- **Does it find bugs?** Two bugs planted in the test core: an SRAIW that ignores shift-amount bit 4 failed 199 of 200 programs (riscv-tests: one test); a dirty eviction that sends the wrong data in its last beat failed all 200 programs, and every riscv-test still passed.
 
 ### 6.3 Snapshots
 
@@ -375,7 +391,7 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ## 7. Build-host notes
 
-- **liblz4-dev** is not installed on the build host, and Verilator 5.052's FST writer includes `lz4.h`. `sim/src/compat/lz4.h` declares the two functions it uses and the build links the installed runtime (`liblz4.so.1`) through a symlink in the build tree. Installing `liblz4-dev` makes the shim unused (the Makefile checks for `/usr/include/lz4.h`).
+- **liblz4-dev** is needed for FST waveforms (Verilator 5.052's FST writer includes `lz4.h`); it is installed on the build host since 2026-10-13.
 - **Spike** is used through its installed headers and `libriscv.so` (`$SPIKE_ROOT`); the build adds `-Wl,-rpath` so no `LD_LIBRARY_PATH` is needed.
 
 ## 8. Disk and machine sharing

@@ -10,6 +10,10 @@ ARCH_TEST_SHA=729288a56b7628c6464b3a229e3862abd4f56245    # riscv-non-isa/riscv-
 SOFTFLOAT_SHA=a0c6494cdc11865811dec815d5c0049fba9d82a8    # ucb-bar/berkeley-softfloat-3
 TESTFLOAT_SHA=a9c849f1b0eb0264b626d9686ffae167d996e3be    # ucb-bar/berkeley-testfloat-3
 
+# Sail RISC-V model, prebuilt release: the reference model ACT4 (riscv-arch-test act4) requires.
+SAIL_VERSION=0.15
+SAIL_SHA256=8bb3626a6ce5d45c1d1fa7b907f9d9602cc23270883e470db5d6401f26a2e143  # sail-riscv-Linux-x86_64.tar.gz
+
 # Already installed, not built here:
 #   Vivado 2025.2 at ~/Xilinx/2025.2/Vivado (D3)
 #   xPack riscv-none-elf-gcc 15.2.0-1 at ~/opt (perfmodel/scripts/fetch_deps.sh)

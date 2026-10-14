@@ -46,13 +46,9 @@ SRCS    := main.cpp tb_dpi.cpp tlmodels.cpp elfload.cpp lockstep.cpp
 HDRS    := $(wildcard $(ROOT)/sim/src/*.h)
 SV      := $(shell find $(ROOT)/rtl $(ROOT)/sim -name '*.sv' -o -name '*.f')
 
-# Verilator's FST writer needs lz4.h; when liblz4-dev is missing, use sim/src/compat and the
-# runtime library through a symlink in the build tree.
-LZ4_COMPAT := $(if $(wildcard /usr/include/lz4.h),,1)
-COMPAT_LIB := $(BUILD_ROOT)/compat/lib
-CXXFLAGS_TB := -std=c++20 -O2 -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include $(if $(LZ4_COMPAT),-I$(ROOT)/sim/src/compat) \
+CXXFLAGS_TB := -std=c++20 -O2 -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include \
                -DTG_DEFAULT_ISA=\\\"$(ISA)\\\" -DTG_DEFAULT_PRIV=\\\"$(PRIV)\\\" -DTG_DEFAULT_PMP=$(PMP) -DTG_CORE_NAME=\\\"$(CORE_TOP)\\\"
-LDFLAGS_TB  := -L$(SPIKE_ROOT)/lib -Wl,-rpath,$(SPIKE_ROOT)/lib -lriscv $(if $(LZ4_COMPAT),-L$(COMPAT_LIB))
+LDFLAGS_TB  := -L$(SPIKE_ROOT)/lib -Wl,-rpath,$(SPIKE_ROOT)/lib -lriscv
 
 VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           --x-assign unique --x-initial unique --trace-fst --trace-structs \
@@ -69,9 +65,6 @@ build: $(BUILD)/tg_vsim
 $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(lastword $(MAKEFILE_LIST))
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	@mkdir -p $(BUILD)
-ifneq ($(LZ4_COMPAT),)
-	@mkdir -p $(COMPAT_LIB) && ln -sf /usr/lib/x86_64-linux-gnu/liblz4.so.1 $(COMPAT_LIB)/liblz4.so
-endif
 	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD) -o tg_vsim \
 	  $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv $(addprefix $(ROOT)/sim/src/,$(SRCS)) \
 	  > $(BUILD)/build.log 2>&1 || { tail -40 $(BUILD)/build.log; exit 1; }
