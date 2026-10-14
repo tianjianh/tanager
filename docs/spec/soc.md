@@ -157,6 +157,83 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 4. **Load:** `fpgautil -b tanager.bit.bin -o tanager.dtbo` (the overlay above), or `xmutil` with a firmware package.
 5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
 
+## 8. Board stages C and D (design draft, DR-126)
+
+Status: draft for review, 2026-10-14. No RTL yet: stages A (the ARM side) and B (the real core booting Linux, M4) come first. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked.
+
+### 8.1 Stage C: the board's peripherals through the ARM (virtio)
+
+The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio devices whose back-ends run on the A53 (`tanager-host`). Slots: `0x1001_0000`, 4 × 4 KiB (console, block, network, rng), PLIC sources 1–4 (already reserved in the device tree and the device bus).
+
+**Where the virtio-mmio registers live:**
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **C-a: registers in the uncore** | The virtio-mmio register set per slot in RTL (features, queue select, sizes, addresses, ready, status, interrupt status and ACK, configuration space). The host reads and writes the registers through its window. | Register reads at bus speed. | About 1–2K LUTs for four slots against an uncore already over budget. RTL for every new field or device type. |
+| **C-b: a forwarded window** (recommended) | RISC-V accesses to a slot become requests in a small queue the A53 serves. Reads wait for the answer; writes are posted. Interrupt status and ACK stay in RTL, so taking an interrupt needs no round trip. | Little RTL: a request FIFO, a response register and the interrupt bits. Every virtio device type is software in `tanager-host`. | A register read waits for the A53, about 10–100 µs. Linux's driver reads registers at probe time; at run time it writes QueueNotify (posted) and handles interrupts locally. The device-bus path must tolerate long stalls (it has no timeout). |
+
+**Data path.** Virtqueues and buffers are in RISC-V memory.
+- The back-end reaches them through the **coherent host DMA port**: an AXI path from the A53 (an HPM port) into the crossbar's `hdma` initiator, then the L2. The L2 serves the A53's reads and writes coherently, so neither side does cache maintenance.
+- `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used for this.
+- **Notification:** a QueueNotify write reaches the A53 as a forwarded request, through a host interrupt (`pl_ps_irq0`).
+- **Completion:** the back-end updates the used ring through the DMA port and sets the slot's interrupt bit (PLIC level source), which the driver's InterruptACK clears.
+
+**Order of work:** virtio-blk first, on a file or the RISC-V's SD partition seen from the A53. Then virtio-rng, then virtio-net (a TAP device on the A53).
+
+### 8.2 Stage D: dual boot, the RISC-V drives the PS's peripherals
+
+After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own drivers then run the PS's SD, GEM Ethernet, USB and UART controllers. Each OS has its own SD partition.
+
+**The PL-to-PS path.**
+- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`; to confirm in the TRM that `S_AXI_LPD` reaches them).
+- Device accesses are at most 8 bytes, so AXI4-Lite suffices.
+- The XPPU must allow that master to reach these peripherals.
+
+**Interrupts.** The PS routes the four peripherals' interrupts to the PL (the PS-to-PL interrupt signals, enabled in the PS configuration). They go to free PLIC sources, for example 20–27.
+
+**Peripheral DMA.**
+- The SD, GEM and USB controllers are bus masters that write DDR through the PS interconnect, behind the RISC-V's L2.
+- **Addresses** are a device-tree matter: `dma-ranges` maps RISC-V RAM (`0x8000_0000`) to the PS bus address the controllers must use.
+- **Coherence** with the L2 has three options:
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **D-a: cache maintenance** | Zicbom in the core (`cbo.clean`/`cbo.inval`) and flush and invalidate by address in the L2. Linux's non-coherent DMA operations then work (`riscv,cbom-block-size`). | Standard. No copies. Direct DDR bandwidth. | RTL in the core and the L2 (Zicbo* is planned for M9), so stage D waits for it. Maintenance costs CPU time per buffer. |
+| **D-b: bounce buffers** | An uncached alias of part of the carve-out: a PMA region the L2 does not cache, routed straight to the memory port. Linux's `restricted-dma-pool` (swiotlb) bounces all peripheral DMA through it. | No core changes; ready for M5. | Every DMA buffer is copied once. The pool's size limits the I/O in flight. A small uncore change: an uncached route in the crossbar. |
+| **D-c: DMA through the PL into the L2** | `dma-ranges` points the controllers at a PS bus address inside an HPM window (PS to PL), which the host bridge forwards into the coherent host DMA port of §8.1. The controllers' DMA then reaches the L2 like the A53's back-end does. | Coherent, with no core changes and no copies. Reuses stage C's DMA path. | DMA bandwidth is that of the HPM port and the L2's `hdma` initiator, enough for SD, USB 2 and 1 GbE but not for USB 3 at full speed. Longer latency. The HPM window is shared with the host window (decoded by address). **To confirm** in the ZynqMP TRM and on the board: that these IOU masters can target an HPM window at all. |
+
+  Recommendation: start with D-c if stage C's DMA port takes bursts well, else D-b. Move to D-a when Zicbom lands (M9).
+
+**The handover sequence** (what the A53 leaves configured):
+1. **Boot:** the PMU firmware and FSBL set up the PLLs, MIO pins, resets and DDR. ATF, U-Boot and the A53's Linux follow.
+2. **Prepare:** `tanager-host` loads the bitstream and the RISC-V images. The RISC-V device tree describes the peripherals it will own.
+3. **Release the devices:**
+   - The A53 unbinds its drivers for those controllers and keeps their clocks and resets as they are (`clk_ignore_unused`, or held clock references).
+   - The A53 can't keep its root filesystem on the SD card it gives away. It runs from an initramfs, or unmounts the SD first.
+   - The SD tap delays, which the A53's driver sets through firmware calls, stay programmed in the IOU registers.
+4. **Open the protections:**
+   - The SMMU passes the controllers' stream IDs through, or maps them as an identity.
+   - The XMPU lets their DMA reach the carve-out (or the HPM window for D-c).
+   - The XPPU lets `S_AXI_LPD` reach their registers.
+   - This may need a custom PMU-firmware isolation configuration.
+5. **Park:** the secondary A53 cores go off (PSCI `CPU_OFF`). The boot core waits in a WFI loop. The PMU firmware keeps running (power management, watchdog).
+6. **Release the RISC-V** (core reset off). Its Linux probes the controllers.
+
+**The RISC-V device tree.**
+- The four controllers get nodes with the generic compatibles: `arasan,sdhci-8.9a`, `cdns,gem`, `snps,dwc3` and `cdns,uart-r1p12`. The ZynqMP-specific ones call EEMI firmware through ARM SMC, which the RISC-V doesn't have.
+- **Clocks** are `fixed-clock` nodes at the rates the A53 left.
+- **Interrupts** go through the PLIC; **DMA** uses the `dma-ranges` above.
+
+**Risks:**
+- drivers that assume the ZynqMP firmware for resets, tap delays or PHY setup;
+- the PMU firmware's default isolation;
+- the PS-to-PL interrupt routing for USB;
+- the A53's Linux re-gating clocks it thinks are unused.
+
+Each is checked on the board in stage D's first step, with the UART: the simplest controller, no DMA.
+
+**Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
+
 ## Verification
 
 `tests/unit/soc`: `tanager_soc` in Verilator with `CORE_KIND = "core"` (stubs) and `"trafgen"`, AXI memory models on the memory ports, and a host-port driver. It checks:
