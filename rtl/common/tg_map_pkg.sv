@@ -26,10 +26,20 @@ package tg_map_pkg;
   // above is, that is a match of the address bits above the size (DR-120: 10 LUTs per pma_of
   // instead of 136 and 17 CARRY8 for the subtract-and-compare). Any other region keeps the
   // range test. The choice folds at elaboration, since base and size are constants.
+  function automatic logic rg_al(input paddr_t base, input paddr_t size);   // naturally aligned 2^n
+    return (size & (size - paddr_t'(1))) == '0 && (base & (size - paddr_t'(1))) == '0;
+  endfunction
   function automatic logic in_rg(input paddr_t a, input paddr_t base, input paddr_t size);
-    if ((size & (size - paddr_t'(1))) == '0 && (base & (size - paddr_t'(1))) == '0)
-      return ((a ^ base) & ~(size - paddr_t'(1))) == '0;
+    if (rg_al(base, size)) return ((a ^ base) & ~(size - paddr_t'(1))) == '0;
     return a >= base && a - base < size;
+  endfunction
+  // Every region takes the prefix match. tg_core checks this at elaboration, so a future
+  // unaligned region shows up as a warning instead of a silently slower pma_of.
+  function automatic logic map_prefix_only();
+    return rg_al(DRAM_BASE, DRAM_SIZE_MAX) && rg_al(BOOTROM_BASE, BOOTROM_SIZE) &&
+           rg_al(ACLINT_BASE, ACLINT_SIZE) && rg_al(PLIC_BASE, PLIC_SIZE) &&
+           rg_al(UART_BASE, UART_SIZE) && rg_al(HOSTCTL_BASE, HOSTCTL_SIZE) &&
+           rg_al(VIRTIO_BASE, VIRTIO_SIZE) && rg_al(DEBUG_BASE, DEBUG_SIZE);
   endfunction
 
   function automatic pma_e pma_of(input paddr_t a);

@@ -63,6 +63,12 @@ module tg_core
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
   input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
 );
+  // DR-120: pma_of's region tests are prefix matches only while every region in tg_map_pkg is a
+  // naturally aligned power of two; an unaligned one falls back to the range test (~0.13K LUTs
+  // per instance), so it is reported here rather than costing area silently
+  if (!tg_map_pkg::map_prefix_only()) begin : g_map_unaligned
+    $warning("tg_map_pkg: a region is not a naturally aligned power of two; pma_of uses the range test");
+  end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
