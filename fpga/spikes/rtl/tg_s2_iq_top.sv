@@ -11,6 +11,7 @@ module tg_s2_iq_top
   parameter bit DUP_SEL  = 1'b0,
   parameter int EARLY_W  = 64,       // payload bits in flip-flops (the rest in LUTRAM)
   parameter bit MX       = 1'b0,     // matrix wakeup for 1-cycle producers
+  parameter bit PRE_RDY  = 1'b0,     // registered ID readiness (with MX)
   parameter int ROWS     = IQ_A0,
   localparam int NCOL = ROB_ENTRIES + LLT_ENTRIES,
   localparam int DW   = DISPATCH_WIDTH,
@@ -78,7 +79,7 @@ module tg_s2_iq_top
     flush_rob_q    <= flush_rob_i;
   end
 
-  logic [NCOL-1:0] w_q, w1_q, phase_q, wake_now, busy;
+  logic [NCOL-1:0] w_q, w1_q, phase_q, wake_now, busy, w_next;
   logic [ROWS-1:0] issued, freed;
   logic [DW-1:0]   bank_free_q, disp_valid;
   logic [NUM_THREADS-1:0][RMW-1:0] room_q;
@@ -91,13 +92,13 @@ module tg_s2_iq_top
   tg_iq #(
     .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
     .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W),
-    .MX(MX), .RA(ROWS)
+    .MX(MX), .RA(ROWS), .PRE_RDY(PRE_RDY)
   ) u_iq (
     .clk, .rst,
     .disp_valid, .disp_tid(disp_tid_q), .disp_dep(disp_dep_q), .disp_dep_ph(disp_dep_ph_q),
     .disp_wake_oh(disp_wake_oh_q), .disp_rob(disp_rob_q), .disp_payload(disp_payload_q),
     .bank_free_q, .room_q,
-    .w(w_q), .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now, .busy,
+    .w(w_q), .w_next, .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now, .busy,
     .disp_mdep(disp_mdep_q), .mx_issued(issued), .mx_free(freed), .issued_o(issued),
     .free_o(freed),
     .flush_valid(flush_valid_q), .flush_tid(flush_tid_q), .flush_all(flush_all_q),
@@ -107,7 +108,7 @@ module tg_s2_iq_top
 
   tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
     .clk, .rst, .wake_now, .wake_reg(wake_reg_q), .alloc(alloc_q), .cancel(cancel_q),
-    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q
+    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q, .w_d(w_next)
   );
 
   always_ff @(posedge clk) begin

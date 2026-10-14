@@ -14,6 +14,7 @@ module tg_s2_sched_top
   parameter int EARLY_W  = 64,       // payload bits in flip-flops (the rest in LUTRAM)
   parameter bit MX       = 1'b0,     // matrix wakeup for 1-cycle producers (ALU queues)
   parameter int ALU_ROWS = 0,        // > 0: rows of every ALU queue (the plan's fallback)
+  parameter bit PRE_RDY  = 1'b0,     // registered ID readiness (with MX)
   localparam int NCOL  = ROB_ENTRIES + LLT_ENTRIES,
   localparam int COL_W = idx_w(NCOL),
   localparam int DW    = DISPATCH_WIDTH,
@@ -97,7 +98,7 @@ module tg_s2_sched_top
     flush_rob_q    <= flush_rob_i;
   end
 
-  logic [NCOL-1:0] w_q, w1_q, phase_q;
+  logic [NCOL-1:0] w_q, w1_q, phase_q, w_next;
   logic [N_ALU-1:0][NCOL-1:0] wake_now;
   logic [NQ-1:0][NCOL-1:0] busy;
   logic [NQ-1:0][DW-1:0] bank_free_q;
@@ -132,14 +133,14 @@ module tg_s2_sched_top
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP((ROWS * IQ_CAP_PCT) / 100),
       .STALE(STALE), .WAKE_NOW(q < N_ALU), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW),
-      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA)
+      .DUP_SEL(DUP_SEL), .EARLY_W(EARLY_W), .MX(MX), .RA(RA), .PRE_RDY(PRE_RDY)
     ) u_iq (
       .clk, .rst,
       .disp_valid(dv), .disp_tid(disp_tid_q), .disp_dep(disp_dep_q),
       .disp_dep_ph(disp_dep_ph_q), .disp_wake_oh(disp_wake_oh_q), .disp_rob(disp_rob_q),
       .disp_payload(disp_payload_q),
       .bank_free_q(bank_free_q[q]), .room_q(room_q[q]),
-      .w(w_q), .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now(wn),
+      .w(w_q), .w_next, .w1(w1_q), .col_clr(col_clr_q), .cancel(cancel_q), .wake_now(wn),
       .busy(busy[q]), .disp_mdep(disp_mdep_q), .mx_issued, .mx_free, .issued_o(iss_rows),
       .free_o(free_rows),
       .flush_valid(flush_valid_q), .flush_tid(flush_tid_q), .flush_all(flush_all_q),
@@ -181,7 +182,7 @@ module tg_s2_sched_top
 
   tg_wake #(.NCOL(NCOL), .NNOW(N_ALU), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
     .clk, .rst, .wake_now, .wake_reg(wake_reg_q), .alloc(alloc_q), .cancel(cancel_q),
-    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q
+    .cancel_ids(cancel_ids_q), .w_q, .w1_q, .phase_q, .w_d(w_next)
   );
 
   logic [NCOL-1:0] busy_all;

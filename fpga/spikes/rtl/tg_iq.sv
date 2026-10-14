@@ -54,6 +54,10 @@
 //                producer: it compares the source's physical register with the row's
 //                destination (one compare per source, no CAM), else it uses the ID.
 //                tg_wake's cancel history must then be 1 cycle (HIST = 1), not 2.
+//   PRE_RDY = 1 (with MX, STALE 0 or 2): each row's ID readiness is computed a cycle
+//                early from W's next state (w_next) and registered, so the select cycle
+//                starts from one flip-flop per row instead of an NCOL-wide AND-OR. Rows
+//                written this cycle take theirs from their dispatch port's dependencies.
 //
 // SMT2: per-thread caps. room_q[t] is how many more rows thread t may allocate next cycle,
 // at most DW: the per-thread cap CAP (75% of ROWS in SMT2 builds, plan §6.5) minus its rows.
@@ -75,6 +79,7 @@ module tg_iq
   parameter int EARLY_W   = PAYLOAD_W,
   parameter bit MX        = 1'b0,
   parameter int RA        = 1,      // MX: ALU-queue rows, all queues
+  parameter bit PRE_RDY   = 1'b0,   // registered ID readiness (needs MX, STALE 0/2)
   localparam int NHI      = (NCOL + 7) / 8,
   localparam int RMW      = idx_w(DW + 1)
 ) (
@@ -92,6 +97,7 @@ module tg_iq
   output logic [NUM_THREADS-1:0][RMW-1:0] room_q,
   // Wakeup state
   input  logic [NCOL-1:0]               w,             // woken vector (phase 0 if STALE = 1)
+  input  logic [NCOL-1:0]               w_next,        // its next state (PRE_RDY)
   input  logic [NCOL-1:0]               w1,            // phase-1 vector (STALE = 1)
   input  logic [NCOL-1:0]               col_clr,       // STALE = 2
   input  logic                          cancel,
@@ -137,9 +143,30 @@ module tg_iq
 
   // ---- Readiness ----
   logic [ROWS-1:0] ready;
+  logic [ROWS-1:0] rdyw_q;   // PRE_RDY: every ID dependency satisfied in this cycle's W
+  if (PRE_RDY) begin : g_rdyw
+    logic [DW-1:0] slot_rdy;
+    for (genvar k = 0; k < DW; k++) begin : g_slot
+      assign slot_rdy[k] = !(|(disp_dep[k] & ~w_next));
+    end
+    always_ff @(posedge clk) begin
+      for (int r = 0; r < ROWS; r++) begin
+        if (we[r]) rdyw_q[r] <= slot_rdy[bank_of(r)];
+        else if (STALE == 2) rdyw_q[r] <= !(|(dep_q[r] & ~col_clr & ~w_next));
+        else       rdyw_q[r] <= !(|(dep_q[r] & ~w_next));
+      end
+    end
+    if (!MX || STALE == 1) begin : g_bad_pre
+      $error("tg_iq: PRE_RDY needs MX = 1 and STALE 0 or 2");
+    end
+  end else begin : g_nordyw
+    assign rdyw_q = '1;
+  end
   for (genvar r = 0; r < ROWS; r++) begin : g_ready
     logic pend;
-    if (STALE == 1) begin : g_ph
+    if (PRE_RDY) begin : g_pre
+      assign pend = !rdyw_q[r];
+    end else if (STALE == 1) begin : g_ph
       assign pend = |((dep_q[r] & ~w) | (dep1_q[r] & ~w1));
     end else begin : g_one
       assign pend = |(dep_q[r] & ~w);
@@ -449,7 +476,8 @@ module tg_iq
   logic unused;
   assign unused = ^{(STALE == 1) ? '0 : {disp_dep_ph, w1}, (STALE == 2) ? '0 : col_clr,
                     WAKE_NOW ? '0 : disp_wake_oh, (STALE == 1) ? '0 : dep1_q,
-                    MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q};
+                    MX ? '0 : {disp_mdep, mx_issued, mx_free}, mdep_q,
+                    PRE_RDY ? '0 : w_next, rdyw_q};
 
 `ifndef SYNTHESIS
   // A port writes only when its bank has a free row.

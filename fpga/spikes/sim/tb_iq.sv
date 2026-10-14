@@ -16,7 +16,8 @@ module tb_iq
   parameter int WAKE_ENC = 0,
   parameter bit DUP_SEL  = 1'b0,
   parameter int EARLY_W  = 32,
-  parameter bit MX       = 1'b0
+  parameter bit MX       = 1'b0,
+  parameter bit PRE_RDY  = 1'b0
 );
   localparam int ROWS  = 10;
   localparam int DW    = DISPATCH_WIDTH;
@@ -40,7 +41,7 @@ module tb_iq
   logic [ROWS-1:0]         issued, freed;
   logic [DW-1:0]           bank_free_q;
   logic [NUM_THREADS-1:0][RMW-1:0] room_q;
-  logic [NCOL-1:0] w_q, w1_q, phase_q, wake_now, busy, wake_reg, alloc, col_clr, cancel_ids;
+  logic [NCOL-1:0] w_q, w1_q, phase_q, wake_now, busy, wake_reg, alloc, col_clr, cancel_ids, w_next;
   logic cancel, flush_valid, flush_all;
   tid_t flush_tid;
   logic [ROBW-1:0] flush_rob;
@@ -49,13 +50,14 @@ module tb_iq
 
   tg_iq #(.ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE),
           .WAKE_NOW(1'b1), .WAKE_ENC(WAKE_ENC), .ROBW(ROBW), .DUP_SEL(DUP_SEL),
-          .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS)) u_iq (
+          .EARLY_W(EARLY_W), .MX(MX), .RA(ROWS), .PRE_RDY(PRE_RDY)) u_iq (
     .clk, .rst, .disp_valid, .disp_tid, .disp_dep, .disp_dep_ph, .disp_wake_oh, .disp_rob,
-    .disp_payload, .bank_free_q, .room_q, .w(w_q), .w1(w1_q), .col_clr, .cancel, .wake_now,
+    .disp_payload, .bank_free_q, .room_q, .w(w_q), .w_next, .w1(w1_q), .col_clr, .cancel, .wake_now,
     .busy, .flush_valid, .flush_tid, .flush_all, .flush_rob, .iss_valid_q, .iss_payload(iss_payload_q),
     .disp_mdep, .mx_issued(issued), .mx_free(freed), .issued_o(issued), .free_o(freed));
   tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
-    .clk, .rst, .wake_now, .wake_reg, .alloc, .cancel, .cancel_ids, .w_q, .w1_q, .phase_q);
+    .clk, .rst, .wake_now, .wake_reg, .alloc, .cancel, .cancel_ids, .w_q, .w1_q, .phase_q,
+    .w_d(w_next));
 
   // Reference state
   typedef struct {
@@ -79,6 +81,7 @@ module tb_iq
   int disp_seq [DW];
   int disp_row [DW];       // row each port writes this cycle
   int nmx = 0;             // dependencies named by row (MX)
+  int nmiss = 0;           // cancels that also un-woke a long op
   int seq = 0, cyc = 0, errors = 0, nsel = 0, ncancel = 0, nflush = 0, nreuse = 0;
   int seed = 1, cycles = 20000;
   int last_sel = -1;           // op selected in the previous cycle (its payload is out now)
@@ -134,10 +137,23 @@ module tb_iq
           if (STALE == 2) col_clr[c] = 1'b1;
         end
       end
-      // Shadow cancel (rare)
+      // Shadow cancel (rare), as a load miss causes it: a long op that woke its
+      // dependants in the last two cycles turns out not to be done; its W bit is undone
+      // (cancel_ids) and it completes again later.
       if (!draining && ($urandom % 97) == 0) begin
         cancel = 1'b1;
         ncancel++;
+        for (int i = nops - 1; i >= 0 && i >= nops - 64; i--) begin
+          if (!ops[i].lat1 && ops[i].done && !ops[i].killed && ops[i].avail >= cyc - 2
+              && ops[i].avail <= cyc) begin
+            cancel_ids[ops[i].dest] = 1'b1;
+            ops[i].done = 1'b0;
+            ops[i].avail = -1;
+            ops[i].done_at = cyc + 4 + ($urandom % 8);
+            nmiss++;
+            break;
+          end
+        end
       end
       // Thread flush (rare): one thread's ops younger than a point, or all of them
       if (!draining && !cancel && ($urandom % 211) == 0) begin
@@ -299,8 +315,8 @@ module tb_iq
       end
     end
     if (left > 0) fail($sformatf("%0d ops never selected (deadlock)", left));
-    $display("tb_iq: ops %0d selected %0d cancels %0d flushes %0d ID reuses %0d row deps %0d",
-             nops, nsel, ncancel, nflush, nreuse, nmx);
+    $display("tb_iq: ops %0d selected %0d cancels %0d (%0d with a miss) flushes %0d ID reuses %0d row deps %0d",
+             nops, nsel, ncancel, nmiss, nflush, nreuse, nmx);
     if (errors == 0) $display("PASS tb_iq");
     else $display("FAIL tb_iq: %0d errors", errors);
     $finish;
