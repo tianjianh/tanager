@@ -28,9 +28,10 @@
 // MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
 // by that row instead of its ID. DS records each 1-cycle op's row in a LUTRAM by ROB entry, one
 // bank per rename slot (one write per bank per cycle); a consumer reads it in the bank of its
-// producer's slot, and one compare of the row's destination (rowdst_q) against the source
+// producer's slot, and one compare of the row's destination (rowdst) against the source
 // confirms the row still holds it. A producer in the same group is named by the row it is being
-// written into. Otherwise the ID is used.
+// written into. Otherwise the ID is used. rowdst is LUTRAM too, banked by DS slot and read by
+// row: a row's value is the XOR of the banks.
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -124,8 +125,6 @@ module tg_rename
   logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic                  block_q;          // after a serialising uop, until the flush
-  // MX naming state
-  preg_t [RA-1:0]        rowdst_q;         // destination of the op each ALU-queue row holds
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
@@ -555,21 +554,59 @@ module tg_rename
   localparam int ROBIW = ROBW - 1;
   logic [W-1:0][2*W-1:0][RA_W-1:0] rowrd;
   logic [2*W-1:0][ROBIW-1:0]       rowra;
+  logic [W-1:0][RA_W-1:0]          row1, row2;   // the rows of each slot's rs1 and rs2 producers
+  logic [W-1:0]                    rw_we;        // slot k's op takes its row ...
+  logic [W-1:0][RA_W-1:0]          rw_a;         // ... this one
+  // rowdst, the destination of the op each ALU-queue row holds: bank b is written only by slot b,
+  // at its row, with its value XOR the other banks' there. Reads: every slot's source rows, then
+  // the other slots' write rows (for that XOR).
+  localparam int RDN = 3 * W - 1;
+  logic [W-1:0][RDN-1:0][PRW-1:0]  rdst_rd;
+  logic [W-1:0][PRW-1:0]           rdst1, rdst2; // rowdst at row1, row2
   for (genvar k = 0; k < W; k++) begin : g_rowa
     assign rowra[2*k]   = ds_ren_q[k].w1[ROBIW-1:0];
     assign rowra[2*k+1] = ds_ren_q[k].w2[ROBIW-1:0];
+    assign row1[k]      = rowrd[ds_ren_q[k].ks1][2*k];
+    assign row2[k]      = rowrd[ds_ren_q[k].ks2][2*k+1];
   end
   for (genvar b = 0; b < W; b++) begin : g_rowtab
-    logic            we;
-    logic [RA_W-1:0] wd;
     always_comb begin
-      wd = '0;
-      for (int r = 0; r < RA; r++) if (myrow[b][r]) wd = RA_W'(r);
+      rw_a[b] = '0;
+      for (int r = 0; r < RA; r++) if (myrow[b][r]) rw_a[b] = RA_W'(r);
     end
-    assign we = IQ_MX && ds_fire && ds_valid_q[b] && ds_uop_q[b].d.rd_en && is_lat1(ds_uop_q[b].d.cls) &&
-                myrow[b] != '0;
+    assign rw_we[b] = IQ_MX && ds_fire && ds_valid_q[b] && ds_uop_q[b].d.rd_en &&
+                      is_lat1(ds_uop_q[b].d.cls) && myrow[b] != '0;
     tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(RA_W), .NR(2 * W)) u_row (
-      .clk, .we, .waddr(ds_ren_q[b].rob[ROBIW-1:0]), .wdata(wd), .raddr(rowra), .rdata(rowrd[b]));
+      .clk, .we(rw_we[b]), .waddr(ds_ren_q[b].rob[ROBIW-1:0]), .wdata(rw_a[b]), .raddr(rowra),
+      .rdata(rowrd[b]));
+    logic [RDN-1:0][RA_W-1:0] dra;
+    for (genvar k = 0; k < W; k++) begin : g_dra
+      assign dra[2*k]   = row1[k];
+      assign dra[2*k+1] = row2[k];
+    end
+    for (genvar o = 0; o < W; o++) begin : g_dro
+      if (o != b) begin : g_o
+        assign dra[2*W + (o < b ? o : o - 1)] = rw_a[o];
+      end
+    end
+    logic [PRW-1:0] dwd;
+    always_comb begin
+      dwd = ds_ren_q[b].dst;
+      for (int o = 0; o < W; o++)
+        if (o != b) dwd ^= rdst_rd[o][2*W + (b < o ? b : b - 1)];
+    end
+    tg_ram_lut #(.DEPTH(RA), .WIDTH(PRW), .NR(RDN)) u_rdst (
+      .clk, .we(rw_we[b]), .waddr(rw_a[b]), .wdata(dwd), .raddr(dra), .rdata(rdst_rd[b]));
+  end
+  always_comb begin
+    for (int k = 0; k < W; k++) begin
+      rdst1[k] = '0;
+      rdst2[k] = '0;
+      for (int b = 0; b < W; b++) begin
+        rdst1[k] ^= rdst_rd[b][2*k];
+        rdst2[k] ^= rdst_rd[b][2*k+1];
+      end
+    end
   end
   for (genvar k = 0; k < W; k++) begin : g_mx
     always_comb begin
@@ -577,19 +614,16 @@ module tg_rename
       if (ds_ren_q[k].has_q && int'(ds_ren_q[k].q) < N_ALU)
         myrow[k] = mx_alloc[ds_ren_q[k].q][k];
     end
-    logic [RA_W-1:0] row1, row2;
-    assign row1 = rowrd[ds_ren_q[k].ks1][2*k];
-    assign row2 = rowrd[ds_ren_q[k].ks2][2*k+1];
     always_comb begin
       mrow1[k] = '0;
       mrow2[k] = '0;
       if (IQ_MX) begin
-        if (ds_ren_q[k].p1 && ds_ren_q[k].l1 && int'(row1) < RA && mx_hold[row1] &&
-            rowdst_q[row1] == ds_ren_q[k].src1)
-          mrow1[k][row1] = 1'b1;
-        if (ds_ren_q[k].p2 && ds_ren_q[k].l2 && int'(row2) < RA && mx_hold[row2] &&
-            rowdst_q[row2] == ds_ren_q[k].src2)
-          mrow2[k][row2] = 1'b1;
+        if (ds_ren_q[k].p1 && ds_ren_q[k].l1 && int'(row1[k]) < RA && mx_hold[row1[k]] &&
+            rdst1[k] == ds_ren_q[k].src1)
+          mrow1[k][row1[k]] = 1'b1;
+        if (ds_ren_q[k].p2 && ds_ren_q[k].l2 && int'(row2[k]) < RA && mx_hold[row2[k]] &&
+            rdst2[k] == ds_ren_q[k].src2)
+          mrow2[k][row2[k]] = 1'b1;
         // a producer in the same group: the row it is being written into
         for (int i = 0; i < k; i++) begin
           if (ds_valid_q[i] && ds_uop_q[i].d.rd_en && is_lat1(ds_uop_q[i].d.cls) && myrow[i] != '0) begin
@@ -728,15 +762,6 @@ module tg_rename
                       - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
         // DS
         if (ds_fire) ds_valid_q <= '0;
-        if (ds_fire && IQ_MX) begin
-          for (int k = 0; k < W; k++) begin
-            if (ds_valid_q[k] && ds_uop_q[k].d.rd_en && is_lat1(ds_uop_q[k].d.cls)) begin
-              for (int r = 0; r < RA; r++) begin
-                if (myrow[k][r]) rowdst_q[r] <= ds_ren_q[k].dst;
-              end
-            end
-          end
-        end
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
