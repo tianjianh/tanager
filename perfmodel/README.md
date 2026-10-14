@@ -115,6 +115,7 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 | `scripts/recheck.py --freeze` | runs `--preset v1_freeze` on the whole suite at 30/120/250 cycles and compares every region statistic with the cached M1 freeze runs |
 | `scripts/smt.py` | the SMT2 study (42 thread pairs; policies, partitions, sizes, the M1 options, a greedy sizing pass) → `results/smt2_rv64gc.json`. Other modes:<br>`--bundles`: the sizing pass with whole-window steps (the proposed SMT2 core);<br>`--width3`: the same pass on a 3-wide, 3-ALU SMT2 core (plan §6.2 rule 12);<br>`--supplementary`: window sharing × issue-queue caps, and window bundles;<br>`--explore`: the policy and cap exploration;<br>`--validate`: the SMT consistency checks (needs `bash tests/build_idle.sh` first) |
 | `scripts/smt_tables.py` (or `smt.py --tables`) | generated SMT2 tables → `docs/perf/smt2_tables.md` |
+| `scripts/area.py` | the area-recovery study (plan §8.5, D18): each IPC-costing lever alone on v1 (`smt2`) and v2 (`smt2_w3`), at 30/120/250 cycles, on the 42 pairs and the single-thread suite → `results/area_recovery.json`. Other modes:<br>`--combos`: the levers that pass the reverse rule, added in rank order, and the v2 re-plan options;<br>`--census`: the dependency census on v1 and v2;<br>`--tables`: generated tables → `results/area_tables.md` (used by `docs/perf/area_recovery.md`) |
 | `scripts/stats.py <isa> <workload> <preset> [k=v ...]` | every statistic of one run, per cycle and per 1,000 instructions |
 | `scripts/quick.sh`, `scripts/sweep1.sh`, `scripts/pairs.sh`, `scripts/dbg.sh` | quick comparisons, one-parameter sweeps, opcode mix and dependent pairs, functional runs (`TGSIM_TRACE=N`) |
 
@@ -179,6 +180,21 @@ Decode, rename and commit alternate their first thread every cycle. ICOUNT appli
 **Unchanged single-thread behaviour.** With `threads=1` (the default), results are identical to the M1 model:
 - `scripts/recheck.py` and `scripts/recheck.py --freeze` re-simulate cached runs;
 - `MODEL_VERSION` stays 3.
+
+## Area-recovery levers (plan §8.5)
+
+Options for the IPC-costing levers. All are off by default; with them off, results are identical to the SMT2 model (threads=1 and threads=2), so `MODEL_VERSION` stays 3.
+
+| Parameter | Lever | Model |
+|---|---|---|
+| `smt_ckpt_shared` | R10 | the `ckpt` checkpoints are one pool for both threads (default: `ckpt` per thread) |
+| `fwd_strict` | R9 | (existing) a load forwards only from a store of the same address and size; others wait for the store to drain |
+| `rf_share_a2` | R11 (`alu3`) | ALU2 has no read ports of its own. Operand 0 uses the STA port and operand 1 the shared port (store data, FP integer sources). At select, an STA pick with an integer source or an FP pick with an integer source wins, and ALU2's pick waits a cycle (`rf_port_conflicts`) |
+| `dec_full` | R12 | decode slots from this index on take only ALU, branch, jump, multiply/divide and integer load/store; anything else waits for the next cycle (`dec_slot_stops`). `dec_full=2` at 3-wide is the asymmetric third decoder |
+| `alu3_simple` | R13 (`alu3`) | ALU2 executes only add/sub, logic, compare, LUI/AUIPC and the Zba shift-adds; the rest steer to ALU0/1 (`alu3_steer_stalls` counts uops that waited although ALU2 had room) |
+| `iq_bank` | banked readiness | every issue queue is two banks of rows, and a row's readiness covers only its bank's half of the ROB (plus every LLT, and its bank's MX rows). With two threads, a thread uses its own bank. With one thread, a uop goes to the bank that sees all of its waiting producers; if they are in both halves, dispatch waits (`disp_stall_bank`). No dependency is ever dropped |
+| `iq_bank_llt` | with `iq_bank` | each bank also sees only half of the long-latency tags; a tag comes from its producer's half |
+| `census` | (measurement) | counts every dispatched uop's sources by what its row would wait on (value ready, MX row, ROB column, LLT column, other thread) and adds a `census` record to the JSON |
 
 ## Scoring
 
