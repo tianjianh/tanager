@@ -8,8 +8,6 @@
 // requester's TLB, with the page's PMP result cached (plan §4.10): one more cycle checks the
 // page base, and the result holds for the whole page when tg_csr says pages of its size are
 // PMP-homogeneous (pmp_al). A flush ends the walk; its PTE read, if any, dies in the load pipe.
-// The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
-// port leaves it free (chk_gnt); W_CHK and W_PMP wait for one.
 module tg_ptw
   import tg_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 (
@@ -19,14 +17,8 @@ module tg_ptw
   input  logic [43:0]       satp_ppn,
   input  logic              sum,
   input  logic              mxr,
+  input  pmp_d_t [15:0]     pmp_d,
   input  logic [2:0]        pmp_al,
-  // PMP checks on a shared checker (S mode, ACC_R)
-  output logic [PA_W-1:0]   chk_pa,
-  output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
-  input  logic              chk_gnt,      // the checker's result below is for chk_pa this cycle
-  input  logic              chk_ok,
-  input  logic              chk_hit,
-  input  logic [2:0]        chk_rwx,
   // Requests, held until ack
   input  logic [2:0]        req,
   input  logic [2:0][63:0]  req_va,
@@ -85,11 +77,16 @@ module tg_ptw
     endcase
   end
   assign pte_pa = {base_q, vpn_i, 3'b000};
-  // The checks: the PTE address (8 bytes), or in W_PMP the leaf page's base
-  logic pa_ok;
-  assign chk_pa  = (st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0];
-  assign chk_dbl = st_q != W_PMP;
-  assign pa_ok   = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && chk_ok;
+  // One checker: the PTE address (S mode, 8 bytes), or in W_PMP the leaf page's base
+  logic [0:0]      pmp_ok;
+  logic            pmp_hit;
+  logic [2:0]      pmp_rwx;
+  logic [PA_W-1:0] chk_pa;
+  logic            pa_ok;
+  assign chk_pa = (st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0];
+  tg_pmp #(.S(1)) u_pmp (.pa(chk_pa), .dbl(st_q != W_PMP), .acc(ACC_R), .m_mode(1'b0), .d(pmp_d),
+                         .ok(pmp_ok), .hit(pmp_hit), .rwx(pmp_rwx));
+  assign pa_ok  = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && pmp_ok[0];
   assign pt_req = st_q == W_REQ;
   assign pt_pa  = pte_pa[PA_W-1:0];
 
@@ -142,9 +139,9 @@ module tg_ptw
         W_CHK: begin
           if (!va_canon(va_q)) begin
             ok_q <= 1'b0; cause_q <= pf_cause(acc_q); st_q <= W_DONE;
-          end else if (chk_gnt && !pa_ok) begin
+          end else if (!pa_ok) begin
             ok_q <= 1'b0; cause_q <= af_cause(acc_q); st_q <= W_DONE;
-          end else if (chk_gnt) begin
+          end else begin
             st_q <= W_REQ;
           end
         end
@@ -170,9 +167,9 @@ module tg_ptw
           end
         end
         W_MISS: if (mshr_idle) st_q <= W_REQ;
-        W_PMP: if (chk_gnt) begin                  // the page's PMP result, for S and U
+        W_PMP: begin                               // the page's PMP result, for S and U
           leaf_q.ph <= pmp_al[lvl_q] && !leaf_q.big;
-          {leaf_q.pr, leaf_q.pw, leaf_q.px} <= chk_hit ? chk_rwx : 3'b000;
+          {leaf_q.pr, leaf_q.pw, leaf_q.px} <= pmp_hit ? pmp_rwx : 3'b000;
           st_q <= W_DONE;
         end
         default: st_q <= W_IDLE;                   // W_DONE
