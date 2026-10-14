@@ -87,9 +87,23 @@ build_riscv_tests() {
   echo "$RISCV_TESTS_SHA" > "$p/SHA"
 }
 
-# riscv-arch-test (ACT4): fetched now; the runner is set up in M3.
+# riscv-arch-test (ACT4): the runner lives in tests/arch (verification track).
 build_arch_test() {
   fetch riscv-arch-test https://github.com/riscv-non-isa/riscv-arch-test.git "$ARCH_TEST_SHA"
+}
+
+# Sail RISC-V model, prebuilt release, checksum-verified (ACT4's reference model).
+build_sail() {
+  local p="$OPT/sail-$SAIL_VERSION"
+  [ -x "$p/bin/sail_riscv_sim" ] && grep -q "$SAIL_SHA256" "$p/SHA256" 2>/dev/null && return
+  local dl; dl="$(mktemp -d)"
+  curl -fL --retry 3 -o "$dl/sail.tar.gz" \
+    "https://github.com/riscv/sail-riscv/releases/download/$SAIL_VERSION/sail-riscv-Linux-x86_64.tar.gz"
+  echo "$SAIL_SHA256  $dl/sail.tar.gz" | sha256sum -c -
+  rm -rf "$p"; mkdir -p "$p"
+  tar -xzf "$dl/sail.tar.gz" -C "$p" --strip-components=1
+  rm -rf "$dl"
+  echo "$SAIL_SHA256" > "$p/SHA256"
 }
 
 # SoftFloat and TestFloat with the RISC-V NaN specialization, for FPU test vectors.
@@ -107,7 +121,7 @@ build_testfloat() {
 }
 
 steps=("$@")
-[ ${#steps[@]} -eq 0 ] && steps=(verilator spike riscv-tests arch-test testfloat)
+[ ${#steps[@]} -eq 0 ] && steps=(verilator spike riscv-tests arch-test testfloat sail)
 for s in "${steps[@]}"; do
   echo "=== $s"
   case "$s" in
@@ -116,6 +130,7 @@ for s in "${steps[@]}"; do
     riscv-tests) build_riscv_tests ;;
     arch-test)   build_arch_test ;;
     testfloat)   build_testfloat ;;
+    sail)        build_sail ;;
     *) echo "unknown step $s" >&2; exit 2 ;;
   esac
 done

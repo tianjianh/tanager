@@ -1,7 +1,7 @@
 // Synthetic uncore for the S6 floorplan dry run: the shared L2's real memories plus
 // synthetic logic for the rest of the uncore budget (plan §5.1, §8.2).
 //   Data: 1 MiB in 32 UltraRAMs, 2 banks interleaved on address bit 6, each 16K x 256 bits
-//         (4 URAM288 wide, cascaded 4 deep), output registers.
+//         (4 URAM288 wide, cascaded 4 deep), read latency 4 (cascade pipelined).
 //   Tags and directory: 1K sets x 8 ways x 28 bits per bank in block RAM.
 //   Latency injector buffers: one 512 x 128 block RAM per memory port.
 //   Control (MSHRs, directory logic, interconnect, AXI, peripherals, debug, host bridge):
@@ -41,7 +41,7 @@ module tg_s6_l2 #(
     assign wa  = fout[b * 64 +: 14];
     assign tra = cin_q[b][23:14];
     assign twa = fout[b * 64 + 14 +: 10];
-    tg_ram_sdp #(.DEPTH(16384), .WIDTH(256), .OUT_REG(1'b1), .PRIM("ultra")) u_data (
+    tg_ram_sdp #(.DEPTH(16384), .WIDTH(256), .OUT_REG(1'b1), .RD_LAT(4), .PRIM("ultra")) u_data (
       .clk, .we(fout[b * 64 + 24]), .waddr(wa), .wdata({cin_q[b][BUS_W-1:24], fout[b * 64 +: 24]}),
       .re(1'b1), .raddr(ra), .rdata(dq[b]));
     tg_ram_sdp #(.DEPTH(1024), .WIDTH(224), .OUT_REG(1'b0), .PRIM("block")) u_tag (
