@@ -233,9 +233,17 @@ static void measure_clock(void) {
   double t0 = now_s();
   if (run(0, &j, &r)) return;
   double t = now_s() - t0;
-  if (t > 0.05 && r.cycles)
-    printf("core clock: %.1f MHz by wall time (includes polling; nominal 200, used below)\n",
-           r.cycles / t / 1e6);
+  if (t > 0.05 && r.cycles) {
+    double mhz = r.cycles / t / 1e6, off = (mhz - 200.0) / 200.0;
+    printf("core clock: %.1f MHz by wall time (includes polling; nominal 200)\n", mhz);
+    if (off > 0.03 || off < -0.03) {
+      // e.g. pl_clk0 rounded down by the clock driver: convert with what the engines really ran at
+      printf("WARNING: the core clock is %+.1f%% off its nominal 200 MHz (check pl_clk0 and the "
+             "overlay's assigned-clock-rates); converting with the measured %.1f MHz below\n",
+             100.0 * off, mhz);
+      core_hz = mhz * 1e6;
+    }
+  }
 }
 
 int main(int argc, char **argv) {
@@ -330,11 +338,13 @@ int main(int argc, char **argv) {
 
   printf("\n== Loaded latency: chase on HP1 while HP2 streams\n");
   {
-    uint64_t first = build_chase(np);
+    // the streams use the last hugepage, which the chase leaves out: HP2's write stream must
+    // not overwrite the chase's pointers (it did, in the first board run)
+    uint64_t first = build_chase(np - 1);
     for (int wmode = 0; wmode < 2; wmode++) {
       job_t load = { .mode = wmode ? MODE_WRITE : MODE_READ, .beats = 16, .outst = 32,
                      .count = 0xffffffffu, .size = HUGE_SZ, .stride = 256,
-                     .base = pages[1].pa, .hshift = 2 };
+                     .base = pages[np - 1].pa, .hshift = 2 };
       job_t j = { .mode = MODE_READ, .chase = 1, .beats = 4, .outst = 1, .count = cnt,
                   .size = HUGE_SZ, .stride = LINE, .base = first, .hshift = 1 };
       start(1, &load);

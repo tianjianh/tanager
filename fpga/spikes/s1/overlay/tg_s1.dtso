@@ -26,6 +26,8 @@
 		clocks = <&zynqmp_clk 71>;
 		clock-output-names = "fabric_clk";
 		assigned-clocks = <&zynqmp_clk 71>;
-		assigned-clock-rates = <99999001>;
+		/* 100 MHz exactly: the board's IOPLL is 999,999,990 Hz, so /10 is 99,999,999 Hz, and a
+		 * request below that (it was 99,999,001) rounds down to /11 = 90.9 MHz */
+		assigned-clock-rates = <100000000>;
 	};
 };
