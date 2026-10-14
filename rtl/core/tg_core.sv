@@ -63,7 +63,6 @@ module tg_core
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
   input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
 );
-  localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK;
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -157,7 +156,7 @@ module tg_core
   logic [RA-1:0]                    mx_hold;
   logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc;
   logic [NCOL-1:0]                  wid_alloc;
-  logic [NPR-1:0]                   ready_vec;
+  logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
@@ -167,7 +166,7 @@ module tg_core
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_wake, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ready_vec, .rob_tail);
+    .ds_src2_rdy, .rob_tail);
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr, col_rob;
@@ -249,7 +248,7 @@ module tg_core
     .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
-    .wake_ld(wake_l), .llt_done(llt_done_l), .sd_tag, .sd_data, .ready_vec,
+    .wake_ld(wake_l), .llt_done(llt_done_l), .sd_tag, .sd_data, .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .exc_tval(lx_tval),
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,

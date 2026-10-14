@@ -67,7 +67,7 @@ module tg_rename
   input  logic [RA-1:0]                    mx_hold,     // ALU-queue rows holding an op
   input  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc,  // rows written next
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
-  output logic [NPR-1:0]                   ready_vec,
+  output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
   output robid_t                           rob_tail     // next ROB entry RN gives out
 );
   if (W != DISPATCH_WIDTH) begin : g_bad
@@ -103,7 +103,9 @@ module tg_rename
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
 
-  assign ready_vec = ready_q;
+  for (genvar k = 0; k < W; k++) begin : g_s2r
+    assign ds_src2_rdy[k] = ready_q[ds_ren_q[k].src2];
+  end
   assign rob_tail  = rtail_q;
 
   // ---- Free lists, one per bank (bank 0 keeps preg 0 as the zero register, and x1..x31) ----

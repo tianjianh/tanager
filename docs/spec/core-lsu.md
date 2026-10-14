@@ -47,7 +47,8 @@ A ready entry re-enters at AG when the AG slot is empty. While one is ready, IQ-
 ### Stores
 - **STA pipe:** RF → AG: VA, misaligned (cause 6), access fault (cause 7: above `PA_W`, `PMA_NONE`, `PMA_ROM`), `PMA_DEVICE` → MMIO store. The address and byte mask go into the SQ entry.
 - **Ordering check:** at AG, every younger load (allocated after this store) that has already obtained its value from the cache or from an older store, with a byte overlap in the same dword, is marked for replay in the ROB (the oldest such load is enough; the ROB flushes at it).
-- **Data capture:** each cycle the oldest SQ entry without data whose source register's ready bit is set reads it through the shared read port. The ready bit is set when the register file is written, so the read sees the value.
+- **Data capture:** each cycle the oldest SQ entry without data whose register is written reads it through the shared read port. An entry knows its register is written from rename's ready bit at dispatch, or by snooping the register-file write ports (one compare per entry and bank), so the read sees the value; there is no lookup of the ready table per entry.
+- **Cold storage (LUTRAM):** the LQ's and SQ's virtual addresses (tval, the trace's `mem_vaddr`, the ROB head's walk) and the SQ's data (the trace, forwarding, the drain, atomics) live in `tg_ram_lut`s; the CAM flip-flops hold the physical address, masks and state.
 - **Completion:** the ROB entry completes when the SQ entry has its address and its data (or an exception).
 - **Commit** marks the entry committed; **drain** takes the SQ head once committed: cacheable stores write the D$ when the line is held with T (setting dirty), otherwise they request the MSHR (`AcquireBlock NtoT`, or `BtoT` from B) and retry; MMIO stores send `PutFullData` and pop on `AccessAck`.
 - **Flush:** uncommitted entries are dropped (tail ← commit pointer); committed ones keep draining. `sq_empty` gates FENCE, FENCE.I and MMIO loads.

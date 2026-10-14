@@ -20,7 +20,6 @@
 module tg_lsu
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 #(
-  localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK,
   localparam int LIW = LQW - 1,
   localparam int SIW = SQW - 1
 ) (
@@ -55,7 +54,9 @@ module tg_lsu
   // Store data
   output preg_t                        sd_tag,
   input  logic [63:0]                  sd_data,
-  input  logic [NPR-1:0]               ready_vec,
+  input  logic [DISPATCH_WIDTH-1:0]    ds_src2_rdy,   // DS: the store data's register is written
+  input  logic [INT_BANKS-1:0]         rf_we,         // register-file writes, snooped for store data
+  input  logic [INT_BANKS-1:0][PIDX_W-1:0] rf_widx,
   // To the ROB
   output logic                         ld_cmp_valid,
   output robid_t                       ld_cmp_rob,
@@ -200,7 +201,9 @@ module tg_lsu
   llt_t   [LQ_ENTRIES-1:0]           lq_llt_q;
   logic   [LQ_ENTRIES-1:0][1:0]      lq_size_q;
   logic   [LQ_ENTRIES-1:0]           lq_uns_q;
-  logic   [LQ_ENTRIES-1:0][63:0]     lq_va_q;
+  // The VA is cold (tval, the ROB head's walk): a LUTRAM written at AG, not CAM flip-flops
+  logic [2:0][LIW-1:0]               lqva_ra;
+  logic [2:0][63:0]                  lqva_rd;
   logic   [LQ_ENTRIES-1:0][PA_W-1:0] lq_pa_q;
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
@@ -211,7 +214,18 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_v_q;
   robid_t [SQ_ENTRIES-1:0]           sq_rob_q;
   logic   [SQ_ENTRIES-1:0]           sq_av_q, sq_dv_q, sq_mmio_q, sq_exc_q;
-  logic   [SQ_ENTRIES-1:0][63:0]     sq_va_q, sq_data_q;
+  // VA and data in LUTRAM: the VA for the trace, the head's walk and tval; the data for the
+  // trace, forwarding, the drain and atomics. The CAMs use the PA and masks in flip-flops.
+  localparam int SVR = COMMIT_WIDTH + 2;          // SQ VA reads: trace, atomic, head
+  localparam int SDR = COMMIT_WIDTH + 3;          // SQ data reads: trace, forwarding, drain, atomic
+  logic [SVR-1:0][SIW-1:0]           sqva_ra;
+  logic [SVR-1:0][63:0]              sqva_rd;
+  logic [SDR-1:0][SIW-1:0]           sqd_ra;
+  logic [SDR-1:0][63:0]              sqd_rd;
+  logic                              sqd_we;
+  logic [SIW-1:0]                    sqd_wa;
+  logic [63:0]                       sqd_wd;
+  logic   [SQ_ENTRIES-1:0]           sq_dr_q;      // the data's register is written (snooped)
   logic   [SQ_ENTRIES-1:0][PA_W-1:0] sq_pa_q;
   logic   [SQ_ENTRIES-1:0]           sq_tlb_q;     // DTLB miss: no address (ROB replay)
   logic   [SQ_ENTRIES-1:0][1:0]      sq_size_q;
@@ -247,8 +261,10 @@ module tg_lsu
 
   // ---- Commit-side trace reads ----
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_tr
-    assign tr_st_va[j]   = sq_va_q[tr_sq[j][SIW-1:0]];
-    assign tr_st_data[j] = sq_data_q[tr_sq[j][SIW-1:0]];
+    assign sqva_ra[j]    = tr_sq[j][SIW-1:0];
+    assign sqd_ra[j]     = tr_sq[j][SIW-1:0];
+    assign tr_st_va[j]   = sqva_rd[j];
+    assign tr_st_data[j] = sqd_rd[j];
     assign tr_st_size[j] = sq_size_q[tr_sq[j][SIW-1:0]];
     assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
   end
@@ -399,8 +415,9 @@ module tg_lsu
     f_hit   = best >= 0;
     f_cover = (sq_mask_q[f_idx] & m1_mask) == m1_mask;
     f_data  = sq_dv_q[f_idx];
-    f_dword = sq_data_q[f_idx] << {sq_pa_q[f_idx][2:0], 3'b000};
   end
+
+  assign f_dword = sqd_rd[COMMIT_WIDTH] << {sq_pa_q[f_idx][2:0], 3'b000};   // LUTRAM read at f_idx
 
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
@@ -479,7 +496,7 @@ module tg_lsu
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sq_pa_q[dh];
   assign st_mask  = {8'b0, sq_mask_q[dh]} << {sq_pa_q[dh][3], 3'b000};
-  assign st_wdata = {64'b0, sq_data_q[dh] << {sq_pa_q[dh][2:0], 3'b000}} << {sq_pa_q[dh][3], 6'b000000};
+  assign st_wdata = {64'b0, sqd_rd[COMMIT_WIDTH+1] << {sq_pa_q[dh][2:0], 3'b000}} << {sq_pa_q[dh][3], 6'b000000};
   logic dr_pop;
   assign dr_pop = (st_req && st_ack) || dr_amo ||
                   (xs_q == X_WAIT && x_st_q && mmio_d_valid_i);
@@ -547,7 +564,7 @@ module tg_lsu
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush;
   assign am_old   = ext(am_rdata >> {am_pa[2:0], 3'b000}, am_size, 1'b0);
-  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sq_data_q[am_i]);
+  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sqd_rd[COMMIT_WIDTH+2]);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
@@ -586,7 +603,7 @@ module tg_lsu
     for (int i = 0; i < SQ_ENTRIES; i++) begin
       int a;
       a = sq_cnt(sq_id(i, sq_head_q), sq_head_q);
-      if (sq_v_q[i] && !sq_dv_q[i] && ready_vec[sq_tag_q[i]] && a < best) begin
+      if (sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && a < best) begin
         best = a;
         cap_idx = SIW'(i);
       end
@@ -658,19 +675,19 @@ module tg_lsu
       exc_valid[1] = 1'b1;
       exc_rob[1]   = lq_rob_q[m2_lq_q];
       exc_cause[1] = EXC_LACCESS;
-      exc_tval[1]  = lq_va_q[m2_lq_q];
+      exc_tval[1]  = lqva_rd[0];
     end
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lq_rob_q[x_lq_q];
       exc_cause[2] = EXC_LACCESS;
-      exc_tval[2]  = lq_va_q[x_lq_q];
+      exc_tval[2]  = lqva_rd[1];
     end else if (am_req && am_den) begin               // an atomic's line was denied
       exc_valid[2] = 1'b1;
       exc_rob[2]   = am_rob_q;
       exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
-      exc_tval[2]  = sq_va_q[am_i];
+      exc_tval[2]  = sqva_rd[COMMIT_WIDTH];
     end
     if (sta_ag_valid && !flush && sa_exc) begin
       exc_valid[3] = 1'b1;
@@ -705,7 +722,7 @@ module tg_lsu
   assign hs       = sq_cmt_q[SIW-1:0];
   assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lq_rob_q[hl] == rob_head;
   assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sq_rob_q[hs] == rob_head && sq_cmt_q != sq_tail_q;
-  assign hd_va    = hd_ld ? lq_va_q[hl] : sq_va_q[hs];
+  assign hd_va    = hd_ld ? lqva_rd[2] : sqva_rd[COMMIT_WIDTH+1];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_need  = (hd_ld || hd_st) && !flush;
   assign hd_tok   = !sta_ag_valid && dt_hit[1] && pte_ok(dt_pte[1], hd_at, priv_d, sum, mxr);
@@ -788,6 +805,36 @@ module tg_lsu
     else              ld_block <= |rp_ready || pt_req;
   end
 
+  // ================= Cold storage: VAs and store data (LUTRAM) =================
+  // A register written this cycle (DS of a store whose data is being written meanwhile)
+  function automatic logic snoop(input preg_t p, input logic [INT_BANKS-1:0] we,
+                                 input logic [INT_BANKS-1:0][PIDX_W-1:0] wi);
+    logic h;
+    h = 1'b0;
+    for (int b = 0; b < INT_BANKS; b++) if (we[b] && preg_bank(p) == BANK_W'(b) && preg_idx(p) == wi[b]) h = 1'b1;
+    return h;
+  endfunction
+  assign lqva_ra[0] = m2_lq_q;
+  assign lqva_ra[1] = x_lq_q;
+  assign lqva_ra[2] = hl;
+  tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(64), .NR(3)) u_lqva (
+    .clk, .we(ld_ag_valid && !flush), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(ld_ag_addr), .raddr(lqva_ra),
+    .rdata(lqva_rd));
+  assign sqva_ra[COMMIT_WIDTH]   = am_i;
+  assign sqva_ra[COMMIT_WIDTH+1] = hs;
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SVR)) u_sqva (
+    .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx), .wdata(sta_ag_addr), .raddr(sqva_ra),
+    .rdata(sqva_rd));
+  // Data: captured from the register file, or written by an atomic (the value it stored)
+  assign sqd_ra[COMMIT_WIDTH]   = f_idx;
+  assign sqd_ra[COMMIT_WIDTH+1] = dh;
+  assign sqd_ra[COMMIT_WIDTH+2] = am_i;
+  assign sqd_we = (am_req && am_ack) || cap_v;
+  assign sqd_wa = (am_req && am_ack) ? am_i : cap_idx;
+  assign sqd_wd = (am_req && am_ack) ? am_new : sd_data;
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SDR)) u_sqd (
+    .clk, .we(sqd_we), .waddr(sqd_wa), .wdata(sqd_wd), .raddr(sqd_ra), .rdata(sqd_rd));
+
   // ================= Sequential =================
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -830,7 +877,7 @@ module tg_lsu
             x_st_q    <= 1'b1;
             x_pa_q    <= sq_pa_q[dh];
             x_size_q  <= sq_size_q[dh];
-            x_wdata_q <= sq_data_q[dh];
+            x_wdata_q <= sqd_rd[COMMIT_WIDTH+1];
           end else if (mm_go) begin
             xs_q      <= X_REQ;
             x_st_q    <= 1'b0;
@@ -873,7 +920,6 @@ module tg_lsu
         AM_REQ: if (am_ack) begin
           am_res_q        <= am_sc ? {63'b0, !am_wr} : am_old;
           sq_amw_q[am_i]  <= am_wr;
-          sq_data_q[am_i] <= am_new;              // the value written (trace)
           am_st_q         <= AM_RES;
         end else if (am_den) begin
           am_st_q <= AM_DONE;                     // access fault
@@ -947,7 +993,6 @@ module tg_lsu
       m1_pa_q    <= ag_pa;
       m1_clash_q <= ag_clash;
       if (ld_ag_valid && !flush) begin
-        lq_va_q[ag_lq]  <= ld_ag_addr;
         lq_pa_q[ag_lq]  <= nl_pa;
         lq_pav_q[ag_lq] <= !nl_exc && !nl_tm;
         lq_st_q[ag_lq]  <= nl_exc ? L_EXC : nl_tm ? L_TLB : nl_mmio ? L_MMIO : L_PIPE;
@@ -972,9 +1017,13 @@ module tg_lsu
       if (mm_go) lq_st_q[mm_idx] <= L_PIPE;   // MMIO request out (not L_MMIO any more)
 
       // ---- Store data capture ----
-      if (cap_v) begin
-        sq_dv_q[cap_idx]   <= 1'b1;
-        sq_data_q[cap_idx] <= sd_data;
+      if (cap_v) sq_dv_q[cap_idx] <= 1'b1;            // the data goes into the LUTRAM
+      // Store data readiness: snoop the register-file writes
+      for (int i = 0; i < SQ_ENTRIES; i++) begin
+        for (int b = 0; b < INT_BANKS; b++) begin
+          if (rf_we[b] && preg_bank(sq_tag_q[i]) == BANK_W'(b) && preg_idx(sq_tag_q[i]) == rf_widx[b])
+            sq_dr_q[i] <= 1'b1;
+        end
       end
 
       // ---- STA ----
@@ -982,7 +1031,6 @@ module tg_lsu
         sq_av_q[sa_idx]   <= !sa_exc && !sa_tm;
         sq_exc_q[sa_idx]  <= sa_exc;
         sq_tlb_q[sa_idx]  <= sa_tm;
-        sq_va_q[sa_idx]   <= sta_ag_addr;
         sq_pa_q[sa_idx]   <= sa_pa;
         sq_mask_q[sa_idx] <= sa_mask;
         sq_mmio_q[sa_idx] <= sa_mmio;
@@ -1016,6 +1064,7 @@ module tg_lsu
             sq_mmio_q[i] <= 1'b0;
             sq_size_q[i] <= ds_uop[k].d.mem_size;
             sq_tag_q[i]  <= ds_ren[k].src2;
+            sq_dr_q[i]   <= ds_src2_rdy[k] || snoop(ds_ren[k].src2, rf_we, rf_widx);
             sq_amo_q[i]  <= ds_uop[k].d.amo;
             sq_amw_q[i]  <= 1'b0;
             sq_tlb_q[i]  <= 1'b0;
@@ -1078,6 +1127,7 @@ module tg_lsu
     if (!rst && !flush) begin
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx]) else $error("tg_lsu: STA for a free SQ entry");
+      assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
     end
   end
 `endif
