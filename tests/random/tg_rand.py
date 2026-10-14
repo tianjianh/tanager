@@ -15,7 +15,14 @@ results. It aims at the plan's risk areas (§9, §4.5, §4.9, §4.15):
     compares, classify and moves on special values (signed zeros, infinities, quiet and signalling
     NaNs, subnormals, NaN-boxed and unboxed singles), FP loads and stores with FP/integer forwarding
     through memory, fflags/frm/fcsr (reserved rounding modes included) and mstatus.FS, and long
-    divides and square roots followed by dependents and a branch on their result.
+    divides and square roots followed by dependents and a branch on their result;
+  - the structures the FPGA-friendly rewrites touch (verification.md §6.2, §6.4): register pressure
+    on the rename maps (one register written twice in a group, flushes in between), store bursts
+    past the store queue's depth, every completion port in the same cycle, CLINT loads (MMIO), more
+    long-latency operations than the core has tags, WFI, illegal CSR writes, fetch faults and
+    accesses to a page the runs deny (--deny);
+  - with --vm PCT, that share of the programs runs its body in S-mode under Sv39: an identity map in
+    4 KiB pages (TLB misses and page walks on every template), plus page faults and SFENCE.VMA.
 
   tg_rand.py --seed 42 --isa rv64im -o prog.S
 """
@@ -31,7 +38,7 @@ WRITABLE = [r for r in range(32) if r not in RESERVED]
 DATA_SIZE = 16384          # main data region, at gp
 ALIAS_PAGES = 4            # tp = gp + ALIAS_PAGES * 4 KiB: same page offsets, different pages
 DATA_BYTES = ALIAS_PAGES * 4096 + 4096   # gp region plus the alias page tp addresses (offsets < 2 KiB)
-STREAM_SIZE = 65536        # cache-miss stream region (bigger than a 32 KiB L1)
+STREAM_SIZE = 65536        # cache-miss stream region (bigger than a 32 KiB L1); four times that under --vm
 PTR_SLOTS = 32             # table of known offsets at gp + 0, for late store addresses
 PTR_STEP = 48              # the table holds slot * PTR_STEP + 256 (all below 2 KiB)
 SPECIAL = [0, 1, 2, -1, -2, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000, 0xFFFFFFFF, 0x80000000, -0x80000000,
@@ -45,6 +52,11 @@ FP_S = [0x00000000, 0x80000000, 0x7F800000, 0xFF800000, 0x7FC00000, 0x7FA00000, 
         0x807FFFFF, 0x00800000, 0x7F7FFFFF, 0x3F800000, 0xBF800000, 0x3F000000, 0x4B800000, 0x4F000000,
         0xCF000000, 0x34000000]
 RM = ["", "", ", rne", ", rtz", ", rdn", ", rup", ", rmm", ", dyn"]
+DENY_PAGE = 0x80F00000     # the runs deny this page (run_random's --deny): its loads and stores fault
+DENY_IO = 0x10001000       # and this unused device page: an MMIO load there gets a denied response
+NOMEM_PA = 0x800           # nothing below the boot ROM: access faults (data and fetch)
+UNMAPPED_VA = 0x40000000   # under --vm, nothing is mapped here: page faults
+NONCANON_VA = 0x0000004000000000  # bit 38 set, bits 63..39 clear: not a Sv39 address
 LD = {"lb": 0, "lbu": 0, "lh": 1, "lhu": 1, "lw": 2, "lwu": 2, "ld": 3}
 ST = {"sb": 0, "sh": 1, "sw": 2, "sd": 3}
 
@@ -54,7 +66,7 @@ def x(r):
 
 
 class Gen:
-    def __init__(self, seed, isa, irq, length, group3):
+    def __init__(self, seed, isa, irq, length, group3, vm=0):
         self.r = random.Random(seed)
         self.seed = seed
         self.isa = isa
@@ -68,6 +80,9 @@ class Gen:
         self.lines = []
         self.nlabel = 0
         self.funcs = 0
+        # --vm PCT: this share of the programs runs in S-mode under Sv39 (drawn first, from the seed)
+        self.vm = bool(vm) and self.r.randrange(100) < vm
+        self.stream_size = STREAM_SIZE * 4 if self.vm else STREAM_SIZE
 
     # ---- helpers ----
     def emit(self, s):
@@ -227,7 +242,7 @@ class Gen:
         # keep the pointer inside the stream region
         self.emit(f"la {x(v)}, stream")
         self.emit(f"sub {x(ptr)}, {x(ptr)}, {x(v)}")
-        self.emit(f"li {x(v)}, {STREAM_SIZE - 64}")
+        self.emit(f"li {x(v)}, {self.stream_size - 64}")
         self.emit(f"and {x(ptr)}, {x(ptr)}, {x(v)}")
         self.emit(f"la {x(v)}, stream")
         self.emit(f"add {x(ptr)}, {x(ptr)}, {x(v)}")
@@ -256,12 +271,19 @@ class Gen:
         self.place(skip)
 
     def t_trap(self):
-        """An exception the handler skips."""
-        k = self.r.randrange(6)
-        if k == 0:  # misaligned load or store
+        """An exception the handler skips (a fetch fault returns through x1)."""
+        k = self.r.randrange(9)
+        if k == 0:  # misaligned load or store (or LR, SC, AMO: they fault too)
             sz = self.r.randrange(1, 4)
             off = (self.r.randrange(PTR_SLOTS * 8, 2000) & ~7) + self.r.randrange(1, 1 << sz)
-            if self.r.randrange(2):
+            if self.has_a and self.r.randrange(4) == 0:
+                t = self.wr()
+                self.emit(f"addi {x(t)}, x3, {(off & ~3) + 2}")   # 2 bytes off a word boundary
+                w = self.r.choice([".w", ".d"])
+                self.emit(self.r.choice([f"lr{w} {x(self.wr((t,)))}, ({x(t)})",
+                                         f"sc{w} {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})",
+                                         f"amoswap{w} {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})"]))
+            elif self.r.randrange(2):
                 self.emit(f"{self.r.choice([o for o, s in LD.items() if s == sz])} {x(self.wr())}, {off}(x3)")
             else:
                 self.emit(f"{self.r.choice([o for o, s in ST.items() if s == sz])} {x(self.rd_any())}, {off}(x3)")
@@ -271,13 +293,35 @@ class Gen:
             self.emit("ecall")
         elif k == 3:
             self.emit("ebreak")
-        else:  # access fault: nothing is mapped below the boot ROM
+        elif k < 6:  # access fault: nothing is mapped below the boot ROM
             t = self.wr()
             self.emit(f"li {x(t)}, {self.r.randrange(0x40, 0x800, 8)}")
             if k == 4:
                 self.emit(f"ld {x(self.wr())}, 0({x(t)})")
             else:
                 self.emit(f"sd {x(self.rd_any())}, 0({x(t)})")
+        elif k == 6:  # a write to a read-only CSR: illegal (reported by the CSR unit's port)
+            csr = self.r.choice(["cycle", "instret", "time", "mvendorid", "marchid", "mimpid", "mhartid"])
+            self.emit(self.r.choice([f"csrw {csr}, {x(self.rd_any())}", f"csrrs {x(self.wr())}, {csr}, {x(self.wr())}",
+                                     f"csrrwi {x(self.wr())}, {csr}, {self.r.randrange(32)}"]))
+        elif k == 7:  # a fetch from no memory (or, under --vm, from no mapping): the handler returns to x1
+            t = self.wr((1,))
+            self.emit(f"li {x(t)}, {self.r.choice([NOMEM_PA, NOMEM_PA + 0x100, UNMAPPED_VA])}")
+            self.emit(f"jalr x1, 0({x(t)})")
+        else:  # the denied page: a bus error where the run denies it (--deny), plain memory where not.
+            # Loads and atomics only: a denied fill for a committed store cannot be precise (core-lsu.md).
+            t = self.wr()
+            if not self.vm and self.r.randrange(4) == 0:  # a device load (untranslated: see t_mmio)
+                self.emit(f"li {x(t)}, {DENY_IO + self.r.randrange(0, 4096, 8)}")
+                self.emit(f"ld {x(self.wr((t,)))}, 0({x(t)})")
+                return
+            self.emit(f"li {x(t)}, {DENY_PAGE + self.r.randrange(0, 4096, 8)}")
+            if self.has_a and self.r.randrange(3) == 0:
+                self.emit(self.r.choice([f"amoadd.d {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})",
+                                         f"lr.d {x(self.wr((t,)))}, ({x(t)})",
+                                         f"sc.d {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})"]))
+            else:
+                self.emit(f"{self.r.choice(['ld', 'lw', 'lbu'])} {x(self.wr((t,)))}, 0({x(t)})")
 
     def t_group3(self):
         """Three instructions in one 16-byte fetch block, with dependencies inside the group and up to
@@ -368,6 +412,203 @@ class Gen:
             self.emit(f"la {x(t)}, {fwd}")
             self.emit(f"jalr {x(self.wr((t,)))}, 0({x(t)})")
             self.place(fwd)
+
+    # ---- structures the FPGA-friendly rewrites touch (verification.md §6.2, §6.4) ----
+    def t_reg_pressure(self):
+        """A few registers written over and over: rename groups that write one register twice (the
+        later slot wins in the XOR-banked map) and read it in the same group, late completions, and
+        flushes in between, after which the committed mappings answer."""
+        if self.has_fd and self.r.randrange(3) == 0:
+            return self.t_fp_pressure()
+        pool = self.r.sample(WRITABLE, self.r.randrange(2, 5))
+
+        def pick():
+            return self.r.choice(pool)
+
+        for _ in range(self.r.randrange(8, 24)):
+            k = self.r.randrange(12)
+            rd = 0 if self.r.randrange(10) == 0 else pick()  # x0 renames nothing
+            if k < 6:
+                self.alu(rd=rd, rs1=pick(), rs2=pick())
+            elif k < 8:
+                self.muldiv(rd=rd, rs1=pick(), rs2=pick())   # completes late
+            elif k == 8:
+                self.emit(f"ld {x(pick())}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
+            elif k == 9:
+                self.emit(f"sd {x(pick())}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
+            elif k == 10:  # a data-dependent branch over writes to the same registers
+                skip = self.label()
+                self.emit(f"{self.r.choice(['beq', 'bne', 'blt', 'bgeu'])} {x(pick())}, {x(pick())}, {skip}")
+                for _ in range(self.r.randrange(1, 4)):
+                    self.alu(rd=pick(), rs1=pick(), rs2=pick())
+                self.place(skip)
+            else:  # an exception: the flush restores the committed mappings
+                self.emit(self.r.choice(["ecall", "ebreak", "unimp"]))
+
+    def t_fp_pressure(self):
+        """The same on the FP map: two or three FP registers, with moves, loads, stores, a long divide
+        and a branch on an FP compare."""
+        pool = [f"f{i}" for i in self.r.sample(range(32), self.r.randrange(2, 4))]
+
+        def pick():
+            return self.r.choice(pool)
+
+        for _ in range(self.r.randrange(8, 20)):
+            k = self.r.randrange(10)
+            w = self.r.choice([".s", ".d"])
+            if k < 4:
+                op = self.r.choice(["fadd", "fsub", "fmul", "fsgnj", "fsgnjx", "fmin", "fmax"])
+                rm = self.r.choice(RM) if op in ("fadd", "fsub", "fmul") else ""
+                self.emit(f"{op}{w} {pick()}, {pick()}, {pick()}{rm}")
+            elif k == 4:
+                self.emit(f"fmadd{w} {pick()}, {pick()}, {pick()}, {pick()}{self.r.choice(RM)}")
+            elif k == 5:
+                self.emit(f"fdiv{w} {pick()}, {pick()}, {pick()}{self.r.choice(RM)}")
+            elif k == 6:
+                self.emit(f"fmv.d.x {pick()}, {x(self.rd_any())}")
+            elif k == 7:
+                self.emit(f"fld {pick()}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
+            elif k == 8:
+                self.emit(f"fsd {pick()}, {self.r.randrange(PTR_SLOTS * 8, 2040, 8)}(x3)")
+            else:
+                t = self.wr()
+                skip = self.label()
+                self.emit(f"{self.r.choice(['flt', 'fle', 'feq'])}{w} {x(t)}, {pick()}, {pick()}")
+                self.emit(f"{self.r.choice(['beqz', 'bnez'])} {x(t)}, {skip}")
+                self.emit(f"fadd{w} {pick()}, {pick()}, {pick()}")
+                self.place(skip)
+
+    def t_store_burst(self):
+        """More stores than the store queue holds, in a 64-byte window: sizes and offsets overlap, some
+        data arrives late, loads in between forward from deep entries, and a branch may squash the
+        youngest (the queue's payload in LUTRAM is read by index: data, address, size, ROB index)."""
+        base = self.r.choice([3, 3, 4])
+        win = self.r.randrange(PTR_SLOTS * 8, 2040 - 64) & ~7
+        late = self.muldiv() if self.has_m and self.r.randrange(2) else None
+        n = self.r.randrange(8, 25)
+        cut = self.r.randrange(n) if self.r.randrange(3) == 0 else -1
+        skip = None
+        for i in range(n):
+            if i == cut:
+                t = self.wr()
+                self.emit(f"andi {x(t)}, {x(self.rd_any())}, 1")
+                skip = self.label()
+                self.emit(f"bnez {x(t)}, {skip}")
+            sz = self.r.randrange(4)
+            off = win + (self.r.randrange(64 >> sz) << sz)
+            if self.has_fd and sz >= 2 and self.r.randrange(5) == 0:
+                self.emit(f"{'fsw' if sz == 2 else 'fsd'} {self.fr()}, {off}({x(base)})")
+            else:
+                src = late if late is not None and self.r.randrange(3) == 0 else self.rd_any()
+                self.store(size=sz, base=base, off=off, src=src)
+            if self.r.randrange(3) == 0:
+                lsz = self.r.randrange(4)
+                self.load(size=lsz, base=base, off=win + (self.r.randrange(64 >> lsz) << lsz))
+        if skip:
+            self.place(skip)
+        if self.r.randrange(4) == 0:
+            self.emit(self.r.choice(["fence", "fence rw, rw", "fence w, w"]))
+
+    def t_all_ports(self):
+        """Independent operations for every completion port, a few groups in a row, so that several
+        ports report to the ROB in one cycle (its flags are one LUTRAM table per reporting port)."""
+        def branch():
+            lab = self.label()
+            self.emit(f"{self.r.choice(['beq', 'bne'])} x0, x0, {lab}")  # predictable either way
+            self.place(lab)
+
+        for _ in range(self.r.randrange(2, 5)):
+            ops = [self.alu, self.alu, self.muldiv, branch,
+                   lambda: self.load(size=3, off=self.r.randrange(PTR_SLOTS * 8, 2040, 8)),
+                   lambda: self.store(size=3, off=self.r.randrange(PTR_SLOTS * 8, 2040, 8))]
+            if self.has_fd:
+                ops += [self.fp_op, self.fp_to_int]
+            self.r.shuffle(ops)
+            for op in ops:
+                op()
+
+    def t_mmio(self):
+        """A load from the CLINT (a device region; performed at the ROB head, its value adopted in
+        lockstep), its dependents, and a branch on the value."""
+        t = self.wr()
+        self.emit(f"li {x(t)}, {self.r.choice(['CLINT_MTIME', 'CLINT_MTIMECMP'])}")
+        v = self.wr((t,))
+        self.emit(f"ld {x(v)}, 0({x(t)})")
+        if self.r.randrange(2):
+            self.alu(rs1=v)
+        if self.r.randrange(2):
+            skip = self.label()
+            self.emit(f"andi {x(t)}, {x(v)}, 1")
+            self.emit(f"beqz {x(t)}, {skip}")
+            self.alu()
+            self.place(skip)
+
+    def t_long_burst(self):
+        """More long-latency operations in flight than the core has tags (LLT_ENTRIES = 16):
+        independent divides, FP divides and square roots, and loads that miss, so rename waits for a
+        tag."""
+        p = self.wr()
+        self.emit(f"la {x(p)}, stream")
+        self.emit(f"li {x(self.wr((p,)))}, {self.r.randrange(4) * 2048}")
+        for i in range(self.r.randrange(12, 28)):
+            k = self.r.randrange(3 if self.has_fd else 2)
+            if k == 0 and self.has_m:
+                op = self.r.choice(["div", "divu", "rem", "remu", "divw", "remuw"])
+                self.emit(f"{op} {x(self.wr((p,)))}, {x(self.rd_any())}, {x(self.rd_any())}")
+            elif k == 2:
+                w = self.r.choice([".s", ".d"])
+                self.emit(f"fdiv{w} {self.fr()}, {self.fr()}, {self.fr()}" if self.r.randrange(2) else
+                          f"fsqrt{w} {self.fr()}, {self.fr()}")
+            else:  # a new line of the stream region each time: misses
+                self.emit(f"ld {x(self.wr((p,)))}, {(i * 64) % 2048}({x(p)})")
+
+    def t_wfi(self):
+        """WFI: wakes on the timer interrupt (programs with --irq), else retires after the core's
+        time-out."""
+        self.emit("wfi")
+        if self.r.randrange(2):
+            self.alu()
+
+    def t_vm(self):
+        """Under --vm: page faults (an unmapped address, a non-canonical one, a fetch from an unmapped
+        page), SFENCE.VMA, and loads one page apart through the stream region (TLB misses)."""
+        k = self.r.randrange(6)
+        t = self.wr((1,))
+        if k < 2:
+            self.emit(f"li {x(t)}, {UNMAPPED_VA if k == 0 else NONCANON_VA:#x}")
+            if self.has_a and self.r.randrange(4) == 0:
+                self.emit(self.r.choice([f"lr.d {x(self.wr((t,)))}, ({x(t)})",
+                                         f"sc.d {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})",
+                                         f"amoor.d {x(self.wr((t,)))}, {x(self.rd_any())}, ({x(t)})"]))
+            elif self.r.randrange(2):
+                self.emit(f"{self.r.choice(['ld', 'lw', 'lbu'])} {x(self.wr((t,)))}, {self.r.randrange(0, 2040, 8)}({x(t)})")
+            else:
+                self.emit(f"{self.r.choice(['sd', 'sw', 'sb'])} {x(self.rd_any())}, {self.r.randrange(0, 2040, 8)}({x(t)})")
+        elif k == 2:
+            self.emit(f"li {x(t)}, {UNMAPPED_VA + self.r.randrange(0, 4096, 4):#x}")
+            self.emit(f"jalr x1, 0({x(t)})")   # instruction page fault: the handler returns to x1
+        elif k == 3:
+            if self.r.randrange(2):
+                self.emit("sfence.vma")
+            else:
+                self.emit(f"la {x(t)}, stream")
+                self.emit(f"sfence.vma {x(t)}, x0")
+        else:
+            self.emit(f"la {x(t)}, stream")
+            v = self.wr((t,))
+            self.emit(f"li {x(v)}, {self.r.randrange(self.stream_size // 4096) * 4096}")
+            self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
+            for _ in range(self.r.randrange(3, 10)):
+                self.emit(f"{self.r.choice(['ld', 'lw', 'sd'])} {x(v)}, {self.r.randrange(0, 2040, 8)}({x(t)})")
+                self.emit(f"li {x(v)}, {4096 + 64 * self.r.randrange(8)}")
+                self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
+                # stay inside the stream region
+                self.emit(f"la {x(v)}, stream")
+                self.emit(f"sub {x(t)}, {x(t)}, {x(v)}")
+                self.emit(f"li {x(v)}, {self.stream_size - 4096}")
+                self.emit(f"and {x(t)}, {x(t)}, {x(v)}")
+                self.emit(f"la {x(v)}, stream")
+                self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
 
     # ---- F and D ----
     def fr(self):
@@ -505,14 +746,78 @@ class Gen:
         for i in range(0, words, 4):
             vals = ", ".join(f"0x{self.r.getrandbits(64):016x}" for _ in range(min(4, words - i)))
             out.append(f"  .dword {vals}")
-        out += [".section .bss", ".balign 4096", "stream:", f"  .space {STREAM_SIZE}",
+        out += [".section .bss", ".balign 4096", "stream:", f"  .space {self.stream_size}",
                 ".balign 4096", "stack:", "  .space 4096", "stack_top:"]
+        if self.vm:  # Sv39 tables: the root, the level-1 tables for 0..1 GiB and 2..3 GiB, the image's level 0
+            out += [".balign 4096", "pt_root:", "  .space 4096", "pt_l1lo:", "  .space 4096", "pt_l1:", "  .space 4096",
+                    "pt_l0:", "  .space 4096"]
         return out
+
+    def vm_setup(self):
+        """M-mode: an Sv39 identity map, then S-mode for the body. The first 2 MiB from 0x8000_0000 (the
+        whole image) in 4 KiB pages; the CLINT and the denied page in 2 MiB pages; nothing else, so
+        UNMAPPED_VA and NONCANON_VA fault. Every leaf has A and D set (the core faults on clear ones)."""
+        e = self.emit
+        for t in ("pt_root", "pt_l1lo", "pt_l1"):  # the loader zeroes .bss; make sure
+            e(f"la x30, {t}")
+            e("li x31, 512")
+            self.place(f"{t}_z")
+            e("sd x0, 0(x30)")
+            e("addi x30, x30, 8")
+            e("addi x31, x31, -1")
+            e(f"bnez x31, {t}_z")
+        e("la x30, pt_l0")              # level 0: 512 pages from 0x8000_0000, RWX, A, D
+        e("li x31, 0x200000CF")
+        e("li x5, 512")
+        self.place("pt_l0_fill")
+        e("sd x31, 0(x30)")
+        e("addi x30, x30, 8")
+        e("addi x31, x31, 0x400")
+        e("addi x5, x5, -1")
+        e("bnez x5, pt_l0_fill")
+
+        def link(table, index, target):  # table[index] = non-leaf -> target
+            e(f"la x30, {target}")
+            e("srli x30, x30, 12")
+            e("slli x30, x30, 10")
+            e("ori x30, x30, 1")
+            e(f"la x31, {table}")
+            e(f"li x5, {index * 8}")
+            e("add x31, x31, x5")
+            e("sd x30, 0(x31)")
+
+        def leaf(table, index, pte):
+            e(f"la x31, {table}")
+            e(f"li x5, {index * 8}")
+            e("add x31, x31, x5")
+            e(f"li x30, {pte:#x}")
+            e("sd x30, 0(x31)")
+
+        link("pt_root", 0, "pt_l1lo")
+        link("pt_root", 2, "pt_l1")
+        link("pt_l1", 0, "pt_l0")                                  # 0x8000_0000: the image
+        leaf("pt_l1", (DENY_PAGE >> 21) & 0x1FF, ((DENY_PAGE >> 21 << 9) << 10) | 0xC7)   # 2 MiB, RW
+        leaf("pt_l1lo", (0x02000000 >> 21) & 0x1FF, ((0x02000000 >> 12) << 10) | 0xC7)   # the CLINT, RW
+        e("la x30, pt_root")
+        e("srli x30, x30, 12")
+        e("li x31, 8")
+        e("slli x31, x31, 60")
+        e("or x30, x30, x31")
+        e("csrw satp, x30")
+        e("sfence.vma")
+        e("li x30, 0x1800")
+        e("csrc mstatus, x30")
+        e("li x30, 0x0800")
+        e("csrs mstatus, x30")         # MPP = S
+        e("la x30, vm_body")
+        e("csrw mepc, x30")
+        e("mret")
+        self.place("vm_body")
 
     def program(self):
         r = self.r
         out = [f"/* tg_rand seed={self.seed} isa={self.isa} irq={self.irq} length={self.length} "
-               f"group3={self.group3} (tests/random/tg_rand.py) */",
+               f"group3={self.group3} vm={int(self.vm)} (tests/random/tg_rand.py) */",
                '#define CLINT_MTIMECMP 0x02004000', '#define CLINT_MTIME 0x0200bff8',
                ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:"]
         self.lines = []
@@ -540,10 +845,20 @@ class Gen:
             self.emit("sd x31, 0(x30)")
             self.emit("li x31, 0x80")
             self.emit("csrs mie, x31")
-            self.emit("csrsi mstatus, 8")
+            if not self.vm:  # in S-mode, M-level interrupts are taken whatever mstatus.MIE says; leaving it
+                self.emit("csrsi mstatus, 8")  # clear keeps the tables' setup and the switch to S uninterrupted
+        if self.vm:  # from here on S-mode under Sv39; the registers keep their values
+            self.vm_setup()
         templates = [(self.t_alu_burst, 6), (self.t_forwarding, 5), (self.t_alias, 2), (self.t_late_store, 4),
                      (self.t_miss_stream, 2), (self.t_long_then_flush, 5), (self.t_trap, 2), (self.t_amo, 2),
-                     (self.t_csr, 1), (self.t_call, 2)]
+                     (self.t_csr, 1), (self.t_call, 2), (self.t_reg_pressure, 5), (self.t_store_burst, 4),
+                     (self.t_all_ports, 3), (self.t_long_burst, 2)]
+        if not self.vm:  # tg_replay's pre-check adopts device loads only untranslated (verification.md §9)
+            templates.append((self.t_mmio, 1))
+        if self.irq:
+            templates.append((self.t_wfi, 1))
+        if self.vm:
+            templates.append((self.t_vm, 4))
         if self.group3:
             templates.append((self.t_group3, 6))
         if self.has_fd:
@@ -553,9 +868,11 @@ class Gen:
             r.choices(fns, weights)[0]()
         if self.irq:
             self.emit("csrci mstatus, 8")
-        self.emit("li x31, 1")
-        self.emit("la x30, tohost")
-        self.emit("sd x31, 0(x30)")
+        # The exit through registers the trap handler never touches: in S-mode (--vm) M-level interrupts
+        # stay enabled, and one between these instructions must not change the value or the address.
+        self.emit("li x5, 1")
+        self.emit("la x6, tohost")
+        self.emit("sd x5, 0(x6)")
         self.place("1")
         self.emit("j 1b")
         out += self.lines
@@ -568,9 +885,15 @@ class Gen:
                 out += self.lines
             out.append("  ret")
         # Trap handler: skip the faulting instruction (2 or 4 bytes); re-arm the timer on interrupts.
+        # A fetch fault (access 1, page 12) cannot skip its instruction: it returns to x1, which the
+        # jalr into the faulting address set.
         out += [".balign 4", "trap:",
                 "  csrr x31, mcause",
                 "  bltz x31, trap_irq",
+                "  addi x30, x31, -1",
+                "  beqz x30, trap_ra",
+                "  addi x30, x31, -12",
+                "  beqz x30, trap_ra",
                 "  csrr x31, mepc",
                 "  lhu x30, 0(x31)",
                 "  andi x30, x30, 3",
@@ -580,6 +903,9 @@ class Gen:
                 "  addi x31, x31, 2",
                 "1:",
                 "  csrw mepc, x31",
+                "  mret",
+                "trap_ra:",
+                "  csrw mepc, x1",
                 "  mret",
                 "trap_irq:",
                 "  li x31, CLINT_MTIME",
@@ -601,9 +927,11 @@ def main():
     ap.add_argument("--irq", type=int, default=0, help="timer interrupt period in mtime ticks (0: none)")
     ap.add_argument("--length", type=int, default=200, help="number of templates")
     ap.add_argument("--no-group3", action="store_true", help="leave out the width-3 groups")
+    ap.add_argument("--vm", type=int, default=0, help="percentage of programs that run in S-mode under Sv39 "
+                                                      "(needs S-mode and Sv39: Spike --priv=MSU)")
     ap.add_argument("-o", "--output", default="-")
     a = ap.parse_args()
-    text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3).program()
+    text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm).program()
     if a.output == "-":
         sys.stdout.write(text)
     else:
