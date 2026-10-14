@@ -1052,8 +1052,17 @@ They are conservative: unit-by-unit guesses, counted before LUT packing and befo
 - **Spike S6** floorplans the `smt2_w3` dual-core as well as v1, and runs the fill test.
 - **M6** synthesises all four configurations.
 
-**Area-recovery study (deferred; decided 2026-10-13).**
-- **Trigger.** It runs only if a release configuration misses its LUT budget at S6 or M6 synthesis: the SMT2 release (`smt2`, levers R9 and R10) or a 3-wide configuration (`st_w3`, `smt2_w3`; levers R9–R13). Until then the IPC-cost levers stay unjudged, and the 2-wide work does not wait for it.
+**Area-recovery study (started 2026-10-13, triggered by S6).**
+- **Priority (D18).** IPC comes first. The study proceeds in three steps and moves to the next only when the previous one is exhausted:
+  1. **Standard implementation tricks that cost no IPC:**
+     - LUT packing, F7/F8 muxes, encodings;
+     - LUTRAM payloads; cold state in BRAM or UltraRAM; arithmetic and counters in DSPs;
+     - control-set reduction and area directives on non-critical units;
+     - R1–R5, R7 and R14.
+     These are measured unit by unit in synthesis.
+  2. **A lower clock, down to about 180 MHz,** rather than smaller structures. A fill test at 180 MHz sets how full the device may be at that clock.
+  3. **Only then the IPC-costing levers,** ranked by IPC lost per LUT saved: smaller queues or window, shared checkpoints, narrower or shared units (R6, R9–R13, and the S6 candidates).
+- **Trigger (met).** The study was to run if a release configuration missed its LUT budget at S6 or M6. S6 shows v2 cannot fit and v1 is near its ceiling. The 2-wide RTL work does not wait for it.
 - **Scope.** Add each IPC-cost lever to `tgsim` as an off-by-default option, with model support where it is missing:
   - R9, store-to-load forwarding restricted to aligned same-size stores (the existing `fwd_strict`);
   - R10, checkpoints shared between threads;
@@ -1249,6 +1258,7 @@ The plan assumes the defaults below; say if any should change.
 | D16 | First release and bring-up | **The first release is the SMT2 dual-core (2 cores × 2 harts).** Single-thread (`st`, `TID_W = 0`) is the bring-up stage (M2–M6), the CI reference and the run-time SMT-off mode; it is not released (decided 2026-10-13). | A single-thread release before SMT2 (about 4–6 months sooner) |
 | D15 | SMT2 configuration of the first release | **§6.5, decided 2026-10-13:** ROB 80 in static halves, LQ 24, SQ 20, 24 LLTs, 75% issue-queue caps, ICOUNT fetch; SMT switchable at compile time (`TID_W`) and at run time (hart offline: partitions merge) | ROB 64 (−1.5% throughput, −0.5K LUTs); a shared window with caps |
 | D17 | FP divide/sqrt unit | **Goldschmidt in v1 (user, 2026-10-13)**, kept despite failing the acceptance rule at its measured cost (+2.4% suite IPC against +1.4K LUTs, 3.7% of the core; §4.12) | The radix-4 unit (`FDIV_RADIX4 = 1`), built and verified, if the dual-core runs short of area at the end |
+| D18 | Area-recovery priority | **(user, 2026-10-13)** Optimise for IPC first, in this order:<br>1. Standard implementation tricks with no IPC cost.<br>2. A lower clock, down to about 180 MHz, rather than cutting IPC.<br>3. Only then shrink sizes, share units, or reduce widths or components (the IPC-costing levers). | — |
 
 ---
 
