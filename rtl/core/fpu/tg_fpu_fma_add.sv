@@ -45,19 +45,25 @@ module tg_fpu_fma_add #(
   logic [LO:0]   lx, ly;        // low parts with their carry out (bit LO)
   logic [W-LO:0] hi, hi1;       // the addend's bits W..LO, and hi + 1
   logic [W:0]    sum_x, sum_y;
-  assign lx  = {1'b0, s0[LO-1:0]} + {1'b0, s1[LO-1:0]} + {1'b0, s2[LO-1:0]} + (LO+1)'(1);
+  // X's +1 goes into s2's bit 0, which the counters never set (s2 starts at bit 2), so both low
+  // sums are three-operand adds: one carry chain each, not two in series.
+  assign lx  = {1'b0, s0[LO-1:0]} + {1'b0, s1[LO-1:0]} + {1'b0, s2[LO-1:1], 1'b1};
   assign ly  = {1'b0, s0[LO-1:0]} + {1'b0, s1[LO-1:0]} + {1'b0, s2[LO-1:0]};
   assign hi  = s0[W:LO];
   assign hi1 = hi + (W-LO+1)'(1);
   assign sum_x = {lx[LO] ? hi1 : hi, lx[LO-1:0]};
   assign sum_y = {ly[LO] ? hi1 : hi, ly[LO-1:0]};
 
+  // The select of ~Y drives every magnitude bit at the end of E2's critical path: replicated
+  // (max_fanout), it reaches them without one long net.
+  (* max_fanout = 24 *) logic neg;
+  assign neg = eff_sub && sum_x[W];
   always_comb begin
-    if (!eff_sub)       begin mag = sum_y[W-1:0];  rsign = sp; end
-    else if (sum_x[W])  begin mag = ~sum_y[W-1:0]; rsign = sc; end
-    else                begin mag = sum_x[W-1:0];  rsign = sp; end
+    if (!eff_sub)  begin mag = sum_y[W-1:0];  rsign = sp; end
+    else if (neg)  begin mag = ~sum_y[W-1:0]; rsign = sc; end
+    else           begin mag = sum_x[W-1:0];  rsign = sp; end
   end
 
   logic unused;
-  assign unused = ^{sum_y[W], s1[W:LO], s2[W:LO]};
+  assign unused = ^{sum_y[W], s1[W:LO], s2[W:LO], s2[0]};
 endmodule
