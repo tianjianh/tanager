@@ -317,7 +317,10 @@ module tg_rename
     assign unused = ^{fcv, ffl_pop};
   end
 
-  assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready && irdy_ready && frdy_ready;
+  // `ready` (decode may hand over a group) does not wait for the ready tables' sweep: it takes
+  // 64 cycles after reset, as the D$'s does, so only rn_fire waits for it, and no earlier than
+  // `start` did
+  assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
 
   // ---- RN ----
   logic          rn_ok;             // resources available for the whole group
@@ -506,7 +509,7 @@ module tg_rename
 
   logic ds_free;
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q && !flush && ready && start &&
-                   (!rn_serial || window_empty);
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
 
   assign ffl_pop_n[0] = rn_fire ? fpops[0] : '0;
@@ -757,8 +760,6 @@ module tg_rename
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
-          ds_uop_q   <= rn_uop_q;
-          ds_ren_q   <= ren;
           rn_valid_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
@@ -779,6 +780,16 @@ module tg_rename
           rn_uop_q   <= de_uop;
         end
       end
+    end
+  end
+
+  // The DS payload takes RN's group whenever DS is free, so its enable does not wait for
+  // rn_fire (a load of every DS flip-flop); ds_valid_q says whether RN fired, and nothing reads
+  // the payload of an invalid slot
+  always_ff @(posedge clk) begin
+    if (ds_free) begin
+      ds_uop_q <= rn_uop_q;
+      ds_ren_q <= ren;
     end
   end
 
