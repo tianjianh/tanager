@@ -318,8 +318,31 @@ module tg_exec
   logic [63:0]       mul_res;
   logic [TAG_W-1:0]  mul_tag;
   tg_mul #(.TAG_W(TAG_W)) u_mul (
-    .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word), .in_a(opa[1]),
+    .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
     .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag));
+
+  // clz, ctz, cpop (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's write cycle
+  logic [63:0]       bc_res;
+  logic [2:0]        bc_v_q;
+  logic [2:0][63:0]  bc_q;
+  always_comb begin
+    logic [63:0] x;
+    int n;
+    x = p1.word ? {32'b0, opa[1][31:0]} : opa[1];
+    n = 0;
+    unique case (p1.mul_op)
+      MUL_LO: begin                                  // clz
+        n = p1.word ? 32 : 64;
+        for (int i = 0; i < 64; i++) if (x[i] && (!p1.word || i < 32)) n = (p1.word ? 31 : 63) - i;
+      end
+      MUL_H: begin                                   // ctz
+        n = p1.word ? 32 : 64;
+        for (int i = 63; i >= 0; i--) if (x[i]) n = i;
+      end
+      default: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
+    endcase
+    bc_res = 64'(n);
+  end
 
   logic              div_ov, div_ordy;
   logic [63:0]       div_res;
@@ -363,7 +386,8 @@ module tg_exec
       oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
     end else if (mul_ov) begin
       oth_valid = 1'b1; oth_rob = mul_tag[LLT_IDX_W +: ROBW];
-      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[LLT_IDX_W + ROBW +: PIDX_W]; oth_wd = mul_res;
+      oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[LLT_IDX_W + ROBW +: PIDX_W];
+      oth_wd = bc_v_q[2] ? bc_q[2] : mul_res;
     end else if (div_ov && div_ordy) begin
       oth_valid = 1'b1; oth_rob = div_tag[LLT_IDX_W +: ROBW];
       oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[LLT_IDX_W + ROBW +: PIDX_W]; oth_wd = div_res;
@@ -454,6 +478,8 @@ module tg_exec
     csr_tval_q <= {32'b0, p1.insn};
     csr_ill_q  <= csr_ex_ill;
     csr_dv_q   <= p1.dst_en;
+    // Bit counts alongside the MUL pipeline
+    bc_q <= {bc_q[1:0], bc_res};
     // MUL wakeup ids
     mwk_id_q[0] <= iss_pl[1].wid;
     mwk_id_q[1] <= mwk_id_q[0];
@@ -469,6 +495,7 @@ module tg_exec
       bht_we_q   <= 1'b0;
       csr_v_q    <= 1'b0;
       mwk_v_q    <= '0;
+      bc_v_q     <= '0;
       a1_block_q <= 1'b0;
       div_wait_q <= '0;
       if (rst) lfsr_q <= 8'h5a;
@@ -483,6 +510,7 @@ module tg_exec
       bht_we_q <= ex_br && bp.br_kind == BR_COND;
       csr_v_q  <= ex_csr;
       mwk_v_q  <= {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
+      bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
       a1_block_q <= rf_mul || div_claim;
       if (div_claim)               div_wait_q <= 3'd4;

@@ -15,6 +15,7 @@ module tg_decode_stage
   input  logic                rst,
   input  logic                flush,
   input  logic                misa_m,
+  input  logic                misa_b,
   // Instruction queue
   input  logic [W-1:0]        iq_valid,
   input  fe_insn_t [W-1:0]    iq_insn,
@@ -33,7 +34,7 @@ module tg_decode_stage
   logic [W-1:0]        dfix;
   for (genvar j = 0; j < W; j++) begin : g_dec
     tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].insn), .rvc(iq_insn[j].rvc),
-                     .fault(iq_insn[j].fault), .misa_m, .d(d[j]));
+                     .fault(iq_insn[j].fault), .misa_m, .misa_b, .d(d[j]));
     logic [63:0] seq;
     logic        pt;
     logic [63:0] ptg;

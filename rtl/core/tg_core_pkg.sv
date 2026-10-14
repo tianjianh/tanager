@@ -6,6 +6,10 @@ package tg_core_pkg;
 
   // ---- Core-local constants ----
   localparam int DIV_INFLIGHT = 4;        // divides between rename and the divider (input FIFO)
+
+  // ISA beyond M2's RV64IM, switched on with the M3 ISA string (sim ISA=..., verification.md §3.2)
+  localparam bit EXT_B      = 1'b0;      // Zba, Zbb, Zbs
+  localparam bit EXT_ZICOND = 1'b0;
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -147,7 +151,8 @@ package tg_core_pkg;
     logic          mem_uns;
     mul_op_e       mul_op;
     div_op_e       div_op;
-    logic          word;        // MULW / DIV*W / REM*W
+    logic          word;        // MULW / DIV*W / REM*W / CLZW, CTZW, CPOPW
+    logic          bcnt;        // C_MUL slot: clz/ctz/cpop (mul_op 0/1/2) instead of a multiply
     csr_op_e       csr_op;
     logic          csr_imm;     // CSRR*I: rs1 field is the zero-extended immediate
     logic          csr_wr;      // the instruction writes the CSR
@@ -213,6 +218,7 @@ package tg_core_pkg;
     mul_op_e       mul_op;
     div_op_e       div_op;
     logic          word;
+    logic          bcnt;
     csr_op_e       csr_op;
     logic          csr_imm;
     logic          csr_wr;

@@ -35,6 +35,7 @@ module tg_csr
   output logic [5:0]             irq_code,
   output logic                   wfi_wake,     // mip & mie != 0
   output logic                   misa_m,
+  output logic                   misa_b,       // Zba/Zbb/Zbs enabled (Spike lets software clear B)
   // Interrupt inputs and time
   input  logic                   irq_mei,
   input  logic                   irq_mti,
@@ -45,7 +46,7 @@ module tg_csr
   localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
 
   // ---- State ----
-  logic        mie_bit_q, mpie_q, misa_m_q;
+  logic        mie_bit_q, mpie_q, misa_m_q, misa_b_q;
   logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q, mcycle_q, minstret_q;
   logic [11:0] mie_q;                 // bits 3, 7, 11
   logic [2:0]  mcountinhibit_q;       // bits 0 and 2
@@ -56,6 +57,7 @@ module tg_csr
   logic [11:0] mip;
   assign mip = {irq_mei, 3'b0, irq_mti, 3'b0, irq_msi, 3'b0};
   assign misa_m   = misa_m_q;
+  assign misa_b   = misa_b_q;
   assign mepc_o   = {mepc_q[63:2], 2'b00};
   assign wfi_wake = |(mip & mie_q);
   always_comb begin
@@ -76,7 +78,7 @@ module tg_csr
     rval = '0;
     unique casez (a)
       12'h300: rval = {51'b0, 2'b11, 3'b0, mpie_q, 3'b0, mie_bit_q, 3'b0};
-      12'h301: rval = {2'b10, 49'b0, misa_m_q, 3'b0, 1'b1, 8'b0};
+      12'h301: rval = {2'b10, 49'b0, misa_m_q, 3'b0, 1'b1, 6'b0, misa_b_q, 1'b0};
       12'h304: rval = {52'b0, mie_q};
       12'h305: rval = mtvec_q;
       12'h320: rval = {61'b0, mcountinhibit_q};
@@ -142,6 +144,7 @@ module tg_csr
       mie_bit_q <= 1'b0;
       mpie_q    <= 1'b0;
       misa_m_q  <= 1'b1;
+      misa_b_q  <= EXT_B;
       mtvec_q   <= '0;
       mscratch_q <= '0;
       mepc_q    <= '0;
@@ -176,7 +179,7 @@ module tg_csr
         pw_v_q <= 1'b0;
         unique casez (pw_a_q)
           12'h300: begin mie_bit_q <= pw_d_q[3]; mpie_q <= pw_d_q[7]; end
-          12'h301: misa_m_q <= pw_d_q[12];
+          12'h301: begin misa_m_q <= pw_d_q[12]; misa_b_q <= EXT_B && pw_d_q[1]; end
           12'h304: mie_q <= pw_d_q[11:0] & 12'h888;
           12'h305: mtvec_q <= pw_d_q & ~64'd2;
           12'h320: mcountinhibit_q <= pw_d_q[2:0] & 3'b101;

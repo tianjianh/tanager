@@ -274,6 +274,7 @@ module tg_rename
       iq_pl[k].mul_op    = ds_uop_q[k].d.mul_op;
       iq_pl[k].div_op    = ds_uop_q[k].d.div_op;
       iq_pl[k].word      = ds_uop_q[k].d.word;
+      iq_pl[k].bcnt      = ds_uop_q[k].d.bcnt;
       iq_pl[k].csr_op    = ds_uop_q[k].d.csr_op;
       iq_pl[k].csr_imm   = ds_uop_q[k].d.csr_imm;
       iq_pl[k].csr_wr    = ds_uop_q[k].d.csr_wr;

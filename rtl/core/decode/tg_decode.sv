@@ -10,8 +10,11 @@ module tg_decode
   input  logic        rvc,
   input  logic        fault,      // fetch access fault at pc
   input  logic        misa_m,
+  input  logic        misa_b,     // Zba/Zbb/Zbs (with EXT_B)
   output dec_t        d
 );
+  logic xb;
+  assign xb = EXT_B && misa_b;
   logic [6:0] op;
   logic [2:0] f3;
   logic [6:0] f7;
@@ -90,15 +93,42 @@ module tg_decode
             3'd4: begin d.alu = ctl(3'(G_LOGIC)); d.alu.lg_fn = LG_XOR; if (w) ill = 1'b1; end
             3'd6: begin d.alu = ctl(3'(G_LOGIC)); d.alu.lg_fn = LG_OR;  if (w) ill = 1'b1; end
             3'd7: begin d.alu = ctl(3'(G_LOGIC)); d.alu.lg_fn = LG_AND; if (w) ill = 1'b1; end
-            3'd1: begin                                    // SLLI, SLLIW
-              d.alu = ctl(3'(G_SHIFT)); d.alu.sh_left = 1'b1; d.alu.word = w;
-              if (w ? (f7 != 7'd0) : (insn[31:26] != 6'd0)) ill = 1'b1;
-            end
-            default: begin                                 // SRLI/SRAI, SRLIW/SRAIW
-              d.alu = ctl(3'(G_SHIFT)); d.alu.word = w;
-              d.alu.sh_arith = insn[30];
-              if (w ? (f7 != 7'd0 && f7 != 7'b0100000) : (insn[31:26] != 6'd0 && insn[31:26] != 6'b010000))
+            3'd1: begin
+              if (w ? (f7 == 7'd0) : (insn[31:26] == 6'd0)) begin           // SLLI, SLLIW
+                d.alu = ctl(3'(G_SHIFT)); d.alu.sh_left = 1'b1; d.alu.word = w;
+              end else if (xb && w && insn[31:26] == 6'b000010) begin   // SLLI.UW
+                d.alu = ctl(3'(G_SHIFT)); d.alu.sh_left = 1'b1; d.alu.uw = 1'b1;
+              end else if (xb && insn[31:20] inside {12'h600, 12'h601, 12'h602}) begin
+                d.cls = C_MUL; d.bcnt = 1'b1; d.word = w;                 // CLZ, CTZ, CPOP (W)
+                d.mul_op = mul_op_e'(insn[21:20]);
+                d.b_imm = 1'b0;
+              end else if (xb && !w && insn[31:20] == 12'h604) begin    // SEXT.B
+                d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_SEXTB;
+              end else if (xb && !w && insn[31:20] == 12'h605) begin    // SEXT.H
+                d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_SEXTH;
+              end else if (xb && !w && insn[31:26] inside {6'b001010, 6'b010010, 6'b011010}) begin
+                d.alu = ctl(3'(G_BIT));                                   // BSETI, BCLRI, BINVI
+                d.alu.bit_fn = (insn[31:26] == 6'b001010) ? BIT_SET :
+                               (insn[31:26] == 6'b010010) ? BIT_CLR : BIT_INV;
+              end else begin
                 ill = 1'b1;
+              end
+            end
+            default: begin                                 // f3 = 5
+              if (w ? (f7 == 7'd0 || f7 == 7'b0100000)
+                    : (insn[31:26] == 6'd0 || insn[31:26] == 6'b010000)) begin   // SRLI/SRAI(W)
+                d.alu = ctl(3'(G_SHIFT)); d.alu.word = w; d.alu.sh_arith = insn[30];
+              end else if (xb && (w ? f7 == 7'b0110000 : insn[31:26] == 6'b011000)) begin
+                d.alu = ctl(3'(G_SHIFT)); d.alu.word = w; d.alu.sh_rot = 1'b1;   // RORI(W)
+              end else if (xb && !w && insn[31:20] == 12'h287) begin    // ORC.B
+                d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_ORCB;
+              end else if (xb && !w && insn[31:20] == 12'h6B8) begin    // REV8
+                d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_REV8;
+              end else if (xb && !w && insn[31:26] == 6'b010010) begin  // BEXTI
+                d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_BEXT;
+              end else begin
+                ill = 1'b1;
+              end
             end
           endcase
         end
@@ -126,10 +156,31 @@ module tg_decode
               3'd6: begin d.alu = ctl(3'(G_LOGIC)); d.alu.lg_fn = LG_OR;  if (w) ill = 1'b1; end
               default: begin d.alu = ctl(3'(G_LOGIC)); d.alu.lg_fn = LG_AND; if (w) ill = 1'b1; end
             endcase
-          end else if (f7 == 7'b0100000 && f3 == 3'd0) begin
+          end else if (f7 == 7'b0100000 && f3 == 3'd0) begin                // SUB(W)
             d.alu = ctl(3'(G_ADD)); d.alu.sub = 1'b1; d.alu.word = w;
-          end else if (f7 == 7'b0100000 && f3 == 3'd5) begin
+          end else if (f7 == 7'b0100000 && f3 == 3'd5) begin                // SRA(W)
             d.alu = ctl(3'(G_SHIFT)); d.alu.sh_arith = 1'b1; d.alu.word = w;
+          end else if (xb && !w && f7 == 7'b0100000 && f3 inside {3'd4, 3'd6, 3'd7}) begin
+            d.alu = ctl(3'(G_LOGIC)); d.alu.lg_invb = 1'b1;                 // XNOR, ORN, ANDN
+            d.alu.lg_fn = (f3 == 3'd4) ? LG_XOR : (f3 == 3'd6) ? LG_OR : LG_AND;
+          end else if (xb && f7 == 7'b0010000 && f3 inside {3'd2, 3'd4, 3'd6}) begin
+            d.alu = ctl(3'(G_ADD)); d.alu.zba_sh = f3[2:1]; d.alu.uw = w;  // SHnADD(.UW)
+          end else if (xb && w && f7 == 7'b0000100 && f3 == 3'd0) begin  // ADD.UW
+            d.alu = ctl(3'(G_ADD)); d.alu.uw = 1'b1;
+          end else if (xb && w && f7 == 7'b0000100 && f3 == 3'd4 && insn[24:20] == 5'd0) begin
+            d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_ZEXTH; d.rs2_en = 1'b0;   // ZEXT.H
+          end else if (xb && !w && f7 == 7'b0000101 && f3[2]) begin       // MIN(U), MAX(U)
+            d.alu = ctl(3'(G_MINMX)); d.alu.sub = 1'b1;
+            d.alu.cmp_unsigned = f3[0]; d.alu.cmp_max = f3[1];
+          end else if (xb && f7 == 7'b0110000 && (f3 == 3'd1 || f3 == 3'd5)) begin
+            d.alu = ctl(3'(G_SHIFT)); d.alu.sh_rot = 1'b1; d.alu.sh_left = !f3[2]; d.alu.word = w;
+          end else if (xb && !w && f3 == 3'd1 && f7 inside {7'b0010100, 7'b0100100, 7'b0110100}) begin
+            d.alu = ctl(3'(G_BIT));                                         // BSET, BCLR, BINV
+            d.alu.bit_fn = (f7 == 7'b0010100) ? BIT_SET : (f7 == 7'b0100100) ? BIT_CLR : BIT_INV;
+          end else if (xb && !w && f7 == 7'b0100100 && f3 == 3'd5) begin  // BEXT
+            d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = UN_BEXT;
+          end else if (EXT_ZICOND && !w && f7 == 7'b0000111 && (f3 == 3'd5 || f3 == 3'd7)) begin
+            d.alu = ctl(3'(G_UNARY)); d.alu.un_fn = f3[1] ? UN_CZNEZ : UN_CZEQZ;   // CZERO.*
           end else begin
             ill = 1'b1;
           end

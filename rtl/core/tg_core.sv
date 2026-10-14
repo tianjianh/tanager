@@ -98,12 +98,12 @@ module tg_core
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
-  logic misa_m;
+  logic misa_m, misa_b;
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
+    .clk, .rst, .flush, .misa_m, .misa_b, .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc);
 
   // ---- Rename and dispatch ----
@@ -230,7 +230,7 @@ module tg_core
     .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
-    .trap_target, .mepc_o(mepc), .irq_take, .irq_code, .wfi_wake, .misa_m,
+    .trap_target, .mepc_o(mepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .mtime(mtime_i));
 
   // ---- ROB and commit ----
