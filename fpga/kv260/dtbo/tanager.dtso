@@ -1,12 +1,18 @@
 // Device-tree overlay that loads the Tanager bitstream on the KV260's Linux (docs/spec/soc.md §7).
 // A bitstream loaded at run time does not reconfigure the PS, so this overlay supplies what the
 // block design assumes:
-//   - pl_clk0 at 100 MHz (PL0_REF, zynqmp clock 71);
+//   - pl_clk0 at 100 MHz (PL0_REF, zynqmp clock 71), asked for as exactly 100,000,000 Hz: the board's
+//     IOPLL is 999,999,990 Hz, so /10 gives 99,999,999 Hz, and any lower request rounds down to /11,
+//     90.9 MHz (spike S1 on the board);
 //   - fabric-interface widths: S_AXI_HP1/HP2/HP3 128-bit, M_AXI_HPM0_FPD 32-bit (xlnx,afi-fpga);
 //   - the host bridge window (64 KiB at 0xA000_0000) and pl_ps_irq0[0] (GIC SPI 89) as a UIO device.
 // Build: dtc -@ -W no-reg_format -W no-simple_bus_reg -I dts -O dtb -o tanager.dtbo tanager.dtso
 // (the amba bus has #address-cells = #size-cells = 2; dtc cannot see that from an overlay)
-// Load:  sudo fpgautil -b tanager.bit.bin -o tanager.dtbo   (or xmutil with a firmware package)
+// Load:  as the PL app "tanager": tanager.bit.bin, tanager.dtbo and shell.json in
+//        /lib/firmware/xilinx/tanager/, then sudo xmutil unloadapp && sudo xmutil loadapp tanager
+//        (fpga/kv260/README.md, board files; fpga/kv260/package.sh puts them together).
+// The overlay only adds nodes: the board's pwm-fan node and its TTC stay as they are, and the
+// bitstream routes the TTC's waveform to the fan pin, so Linux keeps the fan (DR-129).
 // The AFI encodings follow the xlnx,afi-fpga binding: slave ports 0 = 128-bit; entry 14 holds the
 // FPD master widths in bits [9:8] (HPM0) and [11:10] (HPM1), 0 = 32-bit, 2 = 128-bit.
 // To verify on the board at first load (bring-up step 3, fpga/kv260/README.md).
