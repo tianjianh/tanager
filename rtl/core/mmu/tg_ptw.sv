@@ -130,14 +130,19 @@ module tg_ptw
       st_q <= W_IDLE;
     end else begin
       unique case (st_q)
-        W_IDLE: if (|ack) begin
-          who_q  <= ack;
+        // The request's fields load in every idle cycle (nothing reads them before a walk starts:
+        // the shared PMP checker's answer is used only in W_CHK and W_PMP), so only who_q and
+        // st_q wait for the arbitration, which follows the ROB head's late DTLB check
+        W_IDLE: begin
           va_q   <= req_va[k];
           acc_q  <= req_acc[k];
           mode_q <= req_mode[k];
           lvl_q  <= 2'd2;
           base_q <= satp_ppn;
-          st_q   <= W_CHK;
+          if (|ack) begin
+            who_q <= ack;
+            st_q  <= W_CHK;
+          end
         end
         W_CHK: begin
           if (!va_canon(va_q)) begin
