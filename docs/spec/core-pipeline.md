@@ -103,6 +103,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - Reads: rs1, rs2 and rd (the old mapping) per slot.
 - **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
 - **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
+  - **The free count is a register,** not tail − head: it is updated by the pushes and pops. A second register, tail − committed head, is the count a flush takes. Rename's steering and resource checks then start from flip-flops, not a subtraction (timing; the same values, asserted).
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
 - **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
   - **LLT:** loads, atomics and DIV/REM with a destination.
@@ -305,8 +306,16 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | Region decode (DR-120) | `tg_map_pkg::pma_of`: naturally aligned power-of-two regions matched by prefix, with the range test kept for any other region | done: 136 → 10 LUTs per instance (fetch, load AG, STA, walker; the crossbar) |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
 
-**Reserve (D18: sharing, or a function cut; not taken):**
-- The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
+**Reserve (DR-135: each one moves cycles, and only the user adopts it; not taken):**
+
+Cycle costs are from `make cycle-identical` against fn3's head (1c0eaca), as change in cycles per suite, st / smt2. Each lever's RTL is kept on a local branch.
+
+| Lever | Gain | isa | stress | bench | random | Branch |
+|---|---|---|---|---|---|---|
+| The walker's PMP checks on the STA port's checker. A walk step waits a cycle whenever a store address is in AG. | −0.83K LUTs at st (`tg_ptw` 1,073 → 193, the STA checker +50) | +0.052% / +0.228% | +0.098% / −0.098% | 0 / 0 | +0.003% / −0.018% | `tmp/core-pmp-share` |
+| F1 cut: the LSU's fault reports reach the ROB a cycle later. It is the "fault reporting" row of smt2-study's ablation. | timing: the AG fault decision leaves the exception register's paths (whole core: see §16) | +0.000% / +0.000% | +0.000% / +0.000% | 0 / 0 | +0.032% / +0.024% | `tmp/core-cut-fault` |
+| F2/F5 cut: the store reports (completions and the ordering replay mark) reach the ROB a cycle later, together. It is the "completion → ROB" row. | timing: the STA's TLB and PMP decision and the LQ ordering search leave the ROB's completion and replay tables | +0.428% / +0.369% | +0.217% / −0.053% | +0.100% / +0.188% | −0.150% / +0.018% | `tmp/core-cut-store` |
+| F3 cut: the ROB head's DTLB retry reaches the ROB a cycle later | timing: the head's DTLB lookup leaves the commit redirect | +0.002% / +0.006% | +0.198% / −0.031% | 0 / 0 | −0.057% / +0.046% | `tmp/core-cut-head` |
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 **Follow-ups (functional, with deadlines):**
