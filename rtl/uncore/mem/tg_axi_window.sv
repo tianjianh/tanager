@@ -47,12 +47,16 @@ module tg_axi_window
 );
   localparam logic [AXI_ADDR_W-1:0] DBASE = AXI_ADDR_W'(DRAM_BASE);
 
-  function automatic logic in_range(input logic [AXI_ADDR_W-1:0] a, input logic [AXI_ADDR_W-1:0] size);
-    return a >= DBASE && (a - DBASE) < size;
+  // a - DBASE < size exactly when a < size + DBASE (41 bits, so neither side wraps). The limit comes
+  // from the size register, so the address passes one compare, not a subtract and then a compare:
+  // the range check feeds s_ar_ready_o, the end of the L2's AR handshake path (200 MHz, DR-137)
+  wire [AXI_ADDR_W:0] lim = {1'b0, size_i} + {1'b0, DBASE};
+  function automatic logic in_range(input logic [AXI_ADDR_W-1:0] a, input logic [AXI_ADDR_W:0] limit);
+    return a >= DBASE && {1'b0, a} < limit;
   endfunction
 
   // ---- Reads ----
-  wire ar_ok = in_range(s_ar_i.addr, size_i);
+  wire ar_ok = in_range(s_ar_i.addr, lim);
   // Error reads queue here (one burst outstanding at a time is plenty: errors are exceptional)
   logic          er_v_q;
   axi_ax_t       er_q;
@@ -81,7 +85,7 @@ module tg_axi_window
   assign m_r_ready_o = r_in_r[0];
 
   // ---- Writes: each accepted AW's fate (forwarded or absorbed) is queued for its W beats ----
-  wire aw_ok = in_range(s_aw_i.addr, size_i);
+  wire aw_ok = in_range(s_aw_i.addr, lim);
   logic       wf_in_r, wf_out_v, wf_out;
   logic [3:0] wf_cnt;
   always_comb begin
@@ -141,4 +145,14 @@ module tg_axi_window
   end
 
   wire unused = ^{wf_cnt, er_q.addr, er_q.size, er_q.burst};
+
+`ifndef SYNTHESIS
+  // The range check against the limit is the original subtract-and-compare
+  always_ff @(posedge clk) if (!rst) begin
+    if (s_ar_valid_i) assert (ar_ok == (s_ar_i.addr >= DBASE && (s_ar_i.addr - DBASE) < size_i))
+      else $error("tg_axi_window: AR range check differs at %h", s_ar_i.addr);
+    if (s_aw_valid_i) assert (aw_ok == (s_aw_i.addr >= DBASE && (s_aw_i.addr - DBASE) < size_i))
+      else $error("tg_axi_window: AW range check differs at %h", s_aw_i.addr);
+  end
+`endif
 endmodule
