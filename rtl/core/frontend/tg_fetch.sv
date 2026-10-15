@@ -333,10 +333,13 @@ module tg_fetch
 
   // ---- F3: compaction ----
   logic                 f3_valid_q, f3_carry_q;
-  logic [NP-1:0][15:0]  f3_parcel_q;
+  logic [NP-1:0][15:0]  f3_parcel_q, f3_parcel;
   logic [NP-1:0]        f3_start_q;
   logic [NP-1:0][2:0]   f3_marks_q;
   meta_t                f3_meta_q;
+  // A fault block's parcels go to the queue as zeros: zeroed here, from the registered fault bit,
+  // so F2's late fault decision does not drive the parcel registers' resets
+  assign f3_parcel = f3_meta_q.fault ? '0 : f3_parcel_q;
   logic                 blk_ready;
   logic                 f3_accept;
   assign f3_accept = !f3_valid_q || blk_ready;
@@ -346,7 +349,7 @@ module tg_fetch
   logic                              redirect;
   assign redirect = flush || dred;
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush(redirect), .blk_valid(f3_valid_q), .parcel(f3_parcel_q),
+    .clk, .rst, .flush(redirect), .blk_valid(f3_valid_q), .parcel(f3_parcel),
     .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
     .blk_ready, .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -548,7 +551,7 @@ module tg_fetch
       // F3: the data registers take whatever block F2 offers; only the valid bit waits for its hit
       if (f3_accept) f3_valid_q <= 1'b0;
       if (f2v && f3_accept) begin
-        f3_parcel_q <= f2_isfault ? '0 : parcel;
+        f3_parcel_q <= parcel;                      // a fault block's are zeroed after it
         f3_start_q  <= blk_start;
         f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
