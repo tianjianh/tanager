@@ -15,7 +15,8 @@ rm -rf "$build"; mkdir -p "$build" "$res"
 bash "$root/tools/vivado_run.sh" "$build" "$root/fpga/spikes/tcl/g4_fit.tcl" \
   "$root" "$cfg" "$mhz" "$mask" "$@" > "$build/run.out" 2>&1
 rc=$?
-for f in summary.txt sites.txt sites_paths.rpt uncore_paths.rpt prim_synth.txt prim_opt.txt util_hier.rpt \
+for f in summary.txt sites.txt sites_paths.rpt uncore_paths.rpt xbar_core.txt xbar_core_paths.rpt \
+         uncore_failing.txt uncore_internal.rpt prim_synth.txt prim_opt.txt util_hier.rpt \
          util.rpt timing_summary.rpt timing.rpt levels.rpt clock_utilization.rpt constraints.txt; do
   [ -f "$build/$f" ] && cp "$build/$f" "$res/"
 done

@@ -14,7 +14,9 @@
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
 # sites.txt (per register-slice site: its UNCORE_DSP bit, form, and the worst slack into and out
 # of its main data register and into its control flops), sites_paths.rpt, uncore_paths.rpt,
-# util.rpt, util_hier.rpt, timing_summary.rpt, timing.rpt, levels.rpt, prim_synth.txt, prim_opt.txt.
+# xbar_core.txt and xbar_core_paths.rpt (the crossbar's paths from and to the cores, by group),
+# uncore_failing.txt (failing endpoints by block), uncore_internal.rpt, util.rpt, util_hier.rpt,
+# timing_summary.rpt, timing.rpt, levels.rpt, prim_synth.txt, prim_opt.txt.
 
 lassign $argv root cfg core_mhz uncore_dsp
 set n_cores 2
@@ -137,6 +139,13 @@ proc tg_path_kv {fh tag p} {
     [get_property LOGIC_LEVELS $p] [get_property DATAPATH_LOGIC_DELAY $p] [get_property DATAPATH_NET_DELAY $p] \
     [get_property NAME [get_property STARTPOINT_PIN $p]] [get_property NAME [get_property ENDPOINT_PIN $p]]]
 }
+proc tg_xgroup {n} {
+  foreach {re k} {{/u_xbar/g_ta_slice\[} a_slice {/u_xbar/g_ta\[} a_arb {/u_xbar/g_id\[} d_slice
+                  {/u_xbar/g_ib\[} b_slice {/u_xbar/g_tc\[} c {/u_xbar/g_te\[} e} {
+    if {[regexp $re $n]} { return $k }
+  }
+  return other
+}
 proc tg_worst {args} {
   if {[catch {get_timing_paths -max_paths 1 -nworst 1 -setup {*}$args} p]} { return "" }
   return $p
@@ -170,6 +179,66 @@ foreach {tag targs} [list \
   if {$q ne ""} { lappend upaths $q }
 }
 if {[llength $upaths]} { report_timing -of_objects $upaths -input_pins -file uncore_paths.rpt }
+
+# ---- the crossbar's paths to and from the cores (the SoC track: out-of-context uncore runs do
+# not time them). The crossbar's cells by group: A slices, A arbiters (g_ta), C and E slices,
+# D and B slices; a DSP-form slice is timed through its DSP's pins.
+set xg [dict create]
+foreach c [get_cells -quiet -hierarchical -filter "NAME =~ ${U}/u_xbar/* && IS_SEQUENTIAL && REF_NAME != DSP48E2"] {
+  dict lappend xg [tg_xgroup [get_property NAME $c]] $c
+}
+set xd [dict create]
+foreach c [get_cells -quiet -hierarchical -filter "NAME =~ ${U}/u_xbar/* && REF_NAME == DSP48E2"] {
+  dict lappend xd [tg_xgroup [get_property NAME $c]] $c
+}
+set xf [open xbar_core.txt w]
+puts $xf "# worst setup slack (ns) between the cores and the crossbar's groups at $core_mhz MHz: levels, logic and wire"
+set xpaths {}
+foreach {tag dir grp} {core_to_a_slice in a_slice core_to_a_arb in a_arb core_to_c_slice in c core_to_e_slice in e
+                       core_to_xbar in * d_slice_to_core out d_slice b_slice_to_core out b_slice xbar_to_core out *} {
+  set worst ""
+  foreach src {seq dsp} {
+    set cells {}
+    if {$src eq "seq"} { set d $xg } else { set d $xd }
+    dict for {k v} $d { if {$grp eq "*" || $k eq $grp} { lappend cells {*}$v } }
+    if {![llength $cells]} { continue }
+    set cells [get_cells -quiet $cells]
+    if {$dir eq "in" && $src eq "seq"} {
+      set q [tg_worst -from $cseq -to $cells]
+    } elseif {$dir eq "in"} {
+      set q [tg_worst -from $cseq -through [get_pins -quiet -of_objects $cells -filter {DIRECTION == IN}]]
+    } elseif {$src eq "seq"} {
+      set q [tg_worst -from $cells -to $cseq]
+    } else {
+      set q [tg_worst -through [get_pins -quiet -of_objects $cells -filter {DIRECTION == OUT}] -to $cseq]
+    }
+    if {$q ne "" && ($worst eq "" || [get_property SLACK $q] < [get_property SLACK $worst])} { set worst $q }
+  }
+  if {$worst eq ""} { puts $xf [format "%-18s none" $tag]; continue }
+  lappend xpaths $worst
+  puts $xf [format "%-18s %8.3f  levels %2d  logic %.3f  net %.3f  %s -> %s" $tag [get_property SLACK $worst] \
+    [get_property LOGIC_LEVELS $worst] [get_property DATAPATH_LOGIC_DELAY $worst] [get_property DATAPATH_NET_DELAY $worst] \
+    [get_property NAME [get_property STARTPOINT_PIN $worst]] [get_property NAME [get_property ENDPOINT_PIN $worst]]]
+}
+close $xf
+if {[llength $xpaths]} { report_timing -of_objects $xpaths -input_pins -file xbar_core_paths.rpt }
+
+# ---- the uncore's failing endpoints by block (two levels under u_uncore), as the SoC track's
+# out-of-context runs count them ----
+set cnt [dict create]; set wst [dict create]
+foreach q [get_timing_paths -quiet -max_paths 5000 -nworst 1 -setup -slack_lesser_than 0 -to $useq] {
+  set key [join [lrange [split [get_property NAME [get_property ENDPOINT_PIN $q]] /] 2 3] /]
+  dict incr cnt $key
+  set sl [get_property SLACK $q]
+  if {![dict exists $wst $key] || $sl < [dict get $wst $key]} { dict set wst $key $sl }
+}
+set rows {}
+dict for {k n} $cnt { lappend rows [list $k $n [dict get $wst $k]] }
+set ff [open uncore_failing.txt w]
+puts $ff "# the uncore's failing endpoints (at most 5,000) by block, with the worst slack (ns)"
+foreach r [lsort -real -index 2 $rows] { puts $ff [format "%-64s %6d %8.3f" {*}$r] }
+close $ff
+report_timing -max_paths 20 -nworst 1 -setup -from $useq -to $useq -input_pins -file uncore_internal.rpt
 
 # ---- per register-slice site (tg_skid) ----
 proc tg_ini {i} {
