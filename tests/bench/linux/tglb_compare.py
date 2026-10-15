@@ -1,27 +1,36 @@
 #!/usr/bin/env python3
 """Compares runs of the Linux workload set (DR-141; docs/spec/verification.md §4.6).
 
-    tglb_compare.py [--metric cycles|instret|ns] [NAME=]LOG [[NAME=]LOG ...]
+    tglb_compare.py [--metric cycles|instret|ns] [NAME=]LOG[,LOG...] ...
 
-Each LOG is a console log holding one run of tg-lbench.sh (anything else in it is skipped), for
-example one per bitstream profile. Prints a Markdown table: per test, the median over the runs of the
-metric per operation in each log, its change against the first log, and the spread (the widest
-of the runs, (max - min) / median, in any log), so a change within the spread is not a finding.
-A log that did not finish, had a failing test, or has no cycle counts is reported above the table.
+Each LOG is a console log holding one run of tg-lbench.sh (anything else in it is skipped); several
+logs for one NAME, one per boot say, are pooled. The first NAME is the base, for example one per
+bitstream profile. Prints a Markdown table: per test, the median over the runs of the metric per
+operation for each NAME, its change against the base, and the spread (the widest of the runs,
+(max - min) / median, for any NAME), so a change within the spread is not a finding. A log that did
+not finish, had a failing test, or has no cycle counts is reported above the table, and so is the
+kernel's boot time to /init when the logs carry its timestamps. The output is ASCII.
 """
 import argparse
 import os
+import re
 import statistics
 import sys
 
+INIT = re.compile(r'\[\s*(\d+\.\d+)\]\s+Run /init as init process')
+
 
 def parse(path):
-    """Returns (header lines, problems, {test: [run dicts]}) for one log."""
-    head, problems, tests = [], [], {}
+    """Returns (header lines, problems, {test: [run dicts]}, [boot-to-init seconds]) for one log."""
+    head, problems, tests, boots = [], [], {}, []
     began = ended = stopped = False
     with open(path, errors='replace') as f:
         for raw in f:
             line = raw.strip()
+            m = INIT.search(line)
+            if m:
+                boots.append(float(m.group(1)))
+                continue
             i = line.find('TGLB')  # a console may prefix the line (a timestamp, a carriage return)
             if i < 0:
                 continue
@@ -56,7 +65,7 @@ def parse(path):
         problems.append('no TGLB-BEGIN line')
     elif not ended:
         problems.append('no TGLB-END line: the run did not finish')
-    return head, problems, tests
+    return head, problems, tests, boots
 
 
 def per_op(run, metric):
@@ -74,27 +83,47 @@ def fmt(v):
     return f'{v:.4f}'
 
 
+def spread(vals):
+    m = statistics.median(vals)
+    return (max(vals) - min(vals)) / m if m > 0 else 0.0
+
+
 def main():
+    sys.stdout.reconfigure(errors='replace')  # a Windows console's code page cannot fail the report
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--metric', choices=('cycles', 'instret', 'ns'), default='cycles')
-    ap.add_argument('logs', nargs='+', metavar='[NAME=]LOG')
+    ap.add_argument('logs', nargs='+', metavar='[NAME=]LOG[,LOG...]')
     a = ap.parse_args()
 
-    names, data = [], []
+    names, data, boots = [], [], []
     for spec in a.logs:
-        name, path = spec.split('=', 1) if '=' in spec and not os.path.exists(spec) else (spec, spec)
-        head, problems, tests = parse(path)
+        name, paths = spec.split('=', 1) if '=' in spec and not os.path.exists(spec) else (spec, spec)
+        tests, nboot = {}, []
+        for path in paths.split(','):
+            head, problems, t, b = parse(path)
+            for k, runs in t.items():
+                tests.setdefault(k, []).extend(runs)
+            nboot += b
+            print(f'- **{name}** (`{path}`): ' + ('; '.join(head) or 'no header'))
+            for p in problems:
+                print(f'  - problem: {p}')
         names.append(name)
         data.append(tests)
-        print(f'- **{name}** (`{path}`): ' + ('; '.join(head) or 'no header'))
-        for p in problems:
-            print(f'  - problem: {p}')
+        boots.append(nboot)
+    if all(boots):
+        base = statistics.median(boots[0])
+        cells = []
+        for n, b in zip(names, boots):
+            m = statistics.median(b)
+            change = '' if n == names[0] else f', {(m / base - 1) * 100:+.2f}%'
+            cells.append(f'{n} {m:.3f} s ({len(b)} boot{"s" if len(b) > 1 else ""}, spread {spread(b) * 100:.1f}%{change})')
+        print('- **Linux boot to /init** (kernel log timestamps, median): ' + '; '.join(cells))
     print()
 
     order = []
     for tests in data:
         order += [t for t in tests if t not in order]
-    cols = [f'{names[0]} {a.metric}/op'] + [f'{n} Δ' for n in names[1:]]
+    cols = [f'{names[0]} {a.metric}/op'] + [f'{n} (change)' for n in names[1:]]
     print('| test | ' + ' | '.join(cols) + ' | spread |')
     print('|---' * (len(cols) + 2) + '|')
     for t in order:
@@ -104,10 +133,8 @@ def main():
             if not vals:
                 meds.append(None)
                 continue
-            m = statistics.median(vals)
-            meds.append(m)
-            if m > 0:
-                noise = max(noise, (max(vals) - min(vals)) / m)
+            meds.append(statistics.median(vals))
+            noise = max(noise, spread(vals))
         base = meds[0]
         cells = [fmt(base) if base is not None else '-']
         for m in meds[1:]:
