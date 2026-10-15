@@ -188,9 +188,50 @@ Named paths, slack in ns at 5.556 ns (the worst over both cores):
 **Findings.**
 - **v1 with tags closes 180 MHz at 93.4% and 95.3% fill** (109.4K and 111.6K LUTs; +0.137 and +0.126 ns). **v2 with tags closes it at 90.0%, 94.2% and 96.0%** (+0.054, +0.049, +0.071 ns).
 - **Slack does not trend with fill** between 90% and 96%. The limits are logic loops (S3's ALU loop, S5's IF2 → IF3 step, S4's M2 stage), not congestion, as at 200 MHz (spikes.md §8). Routing takes 15–24 minutes, and the placer's worst congestion is at most level 5.
-- **The ceiling is above the highest fill tested:** at 180 MHz v1 fits at least 111.6K LUTs (95.3%) and v2 at least 112.4K (96.0%), against about 103K (88%) for v1 at 200 MHz.
+- **The ceiling is above the highest fill tested:** at 180 MHz v1 fits at least 111.6K LUTs (95.3%) and v2 at least 112.4K (96.0%), against about 103K (88%) for v1 at 200 MHz. §5.1 later measured v1 at 99.3% (116.3K) at 180 MHz.
 - **The scheduler is no longer near the limit.** Its wakeup loop has at least 0.9 ns at every fill (the groups' worst paths start at the harness's filler registers), where before tags it set the 200 MHz limit.
 - **v1 with the ROB-column scheduler did not route at the same fill (93.4%)** in over 2 hours. With tags (40 readiness columns per row instead of 104) the same core at the same fill routes in 15 minutes. v1 without tags at 90% was stopped during placement, since no decision depends on it.
+
+### 5.1 Fill test at 150, 160, 170, 180 and 200 MHz
+
+**These are measurements only:** they are for the user's clock decision (DR-137), and the target stays 200 MHz until the user approves a lower one.
+
+**Question (the coordinator):** at each of 150, 160, 170, 180 and 200 MHz, the highest fill at which v1 closes, the LUTs that fill allows, and the worst path, with AR-5's method, so the bars compare across the five clocks.
+
+**Method:** §5's, unchanged. The S6 design with v1 (`smt2`) cores with tags, implemented with only the clock changed. Each fill uses the same generics at every clock (`CORE_TILES` 768, 800, 832, 849 and 865 for the 93, 95, 97, 98 and 99% targets), the flow is deterministic (Vivado's default seed), and a run passes when its routed WNS is ≥ 0. The 180 MHz runs of §5 (a540d99, 91b5191) and these (1d9391d to e0ff7b8) read the same S6 sources: what changed in between are primitives the S6 build does not use and report-only script changes. The 93% fill gives 109,364 LUTs at 180 MHz and 109,407 at 200.
+
+| Clock | Highest fill that closes | CLB LUTs | WNS ns (Fmax) | Its worst path | The next fill up |
+|---|---|---|---|---|---|
+| 150 MHz | **99.3%** (the device: 819 LUTs left) | **116,301** | +0.459 (161.1 MHz) | S5: IF2 page number → IF3 instruction marks, 8 levels (5.2 of 6.1 ns is wire) | none: the device is full |
+| 160 MHz | **99.3%** (the device) | **116,295** | +0.262 (167.0 MHz) | S4: M2 page number → load data, 7 levels (4.2 of 5.5 ns wire) | none: the device is full |
+| 170 MHz | **99.3%** (the device) | **116,306** | +0.250 (177.6 MHz) | harness: a filler register into S4's probe tags (1 level, 5.0 ns of wire); the worst real path is S4's M2 stage, +0.272 | none: the device is full |
+| 180 MHz | **99.3%** (the device) | **116,318** | +0.179 (186.0 MHz) | harness: a filler register into S2's queue-room counter, 11 levels; the worst real path is S4's DTLB lookup, +0.230 | none: the device is full |
+| 200 MHz | **93.4%** | **109,407** | +0.037 (201.5 MHz) | S5: IF2 page number → IF3 instruction marks, 7 levels (3.4 of 4.8 ns wire) | 95.3% misses by 0.037 ns, on the harness's filler → S2 room-counter path (11 levels); its worst real path has +0.077 |
+
+All the runs (v1 with tags):
+
+| Run | Clock | CLB LUTs (fill) | WNS ns | Worst path | Place / route |
+|---|---|---|---|---|---|
+| `s6_smt2t_98_150` | 150 MHz | 115,162 (98.3%) | +0.492 | S3: the load write-back valid → a register-file write enable (0 levels, 5.8 ns of fan-out wire) | 12 / 24 min |
+| `s6_smt2t_99_150` | 150 MHz | 116,301 (99.3%) | +0.459 | S5: IF2 → IF3 marks, 8 levels | 15 / 25 min |
+| `s6_smt2t_99_160` | 160 MHz | 116,295 (99.3%) | +0.262 | S4: M2 page number → load data, 7 levels | 12 / 35 min |
+| `s6_smt2t_98_170` | 170 MHz | 115,175 (98.3%) | +0.183 | S4: M2 tag compare → load data, 7 levels | 17 / 31 min |
+| `s6_smt2t_99_170` | 170 MHz | 116,306 (99.3%) | +0.250 | harness: filler → S4's probe tags, 1 level | 11 / 25 min |
+| `s6_smt2t_93_180` (§5) | 180 MHz | 109,364 (93.4%) | +0.137 | harness: a filler register driving S5's reset fan-out | 12 / 15 min |
+| `s6_smt2t_95_180` (§5) | 180 MHz | 111,633 (95.3%) | +0.126 | S5: IF2 → IF3 marks, 8 levels | 13 / 16 min |
+| `s6_smt2t_97_180` | 180 MHz | 113,952 (97.3%) | +0.071 | S4: M2 page number → load data, 7 levels | 12 / 27 min |
+| `s6_smt2t_98_180` | 180 MHz | 115,174 (98.3%) | +0.057 | harness: filler → S2's queue-room counter, 11 levels | 14 / 25 min |
+| `s6_smt2t_99_180` | 180 MHz | 116,318 (99.3%) | +0.179 | harness: filler → S2's queue-room counter, 11 levels | 14 / 33 min |
+| `s6_smt2t_93_200` | 200 MHz | 109,407 (93.4%) | +0.037 | S5: IF2 → IF3 marks, 7 levels | 16 / 15 min |
+| `s6_smt2t_95_200` | 200 MHz | 111,652 (95.3%) | **−0.037** | harness: filler → S2's queue-room counter, 11 levels | 15 / 23 min |
+
+**Findings.**
+- **From 150 to 180 MHz the device is the limit:** 99.3% (116.3K of 117,120 LUTs, about 800 left) closes at every one of the four clocks, with +0.459, +0.262, +0.250 and +0.179 ns at 150, 160, 170 and 180 MHz. No higher fill can be tested.
+- **At 200 MHz the ceiling is about 94%.** 93.4% closes by +0.037 ns and 95.3% misses by 0.037, on a path that starts in the harness's filler; that run's worst real path has +0.077. Both are within a few tens of picoseconds of zero, and runs move by ±0.1–0.3 ns (spikes.md §12.2), so the ceiling lies between them.
+- **So a lower clock buys about 7K LUTs, and 180 MHz buys all of it:** the bar is 109.4K (93.4%) at 200 MHz and the whole device (116.3K, 99.3%) at 180 MHz and below. Where between 180 and 200 MHz the step lies was not measured.
+- **Margin does not trend with fill at a given clock** (180 MHz: +0.137, +0.126, +0.071, +0.057 and +0.179 ns from 93.4% to 99.3%), as §5 found from 90% to 96%.
+- **The same few paths limit every clock,** all inside the spike structures and mostly wire: S5's IF2 page number → IF3 instruction marks (7–8 levels), S4's M2 compare and select → load data (7 levels), S3's ALU loop (8–10 levels), and, from the harness, S2's queue-room counter. Wire is 70–86% of each worst path. Placement takes 11–17 minutes and routing 15–35 at every fill.
+- **What this measures.** S6's cores are the spike structures with their verdicts (§5); the real core's own deep paths miss 200 MHz by 5–7 ns today (the core track's whole-core runs), and that work is separate. These bars are what the device allows once the core's paths are as short as the spikes'.
 
 ## 6. Memory of the Vivado runs
 

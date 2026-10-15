@@ -184,7 +184,7 @@ if {$do_impl} {
       current_instance -quiet
       current_instance -quiet $blk
       set cnt [dict create]
-      foreach c [get_cells -quiet -hier -filter {PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DMEM}] {
+      foreach c [get_cells -quiet -hier -filter {PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*}] {
         set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
         if {$cr ne ""} { dict incr cnt $cr }
       }
