@@ -232,10 +232,16 @@ module tg_fetch
   for (genvar w = 0; w < WAYS; w++) begin : g_cmp
     assign way_hit[w] = f2_wv_q[w] && f2_tag_q[w] == f2_pa_q[12 +: TAG_W];
   end
+  // The block from the hit way's index: one multiplexer per bit on an encoded select (two LUT6
+  // and a MUXF7 for 8 ways) rather than an AND-OR over the one-hot hits. At most one way hits
+  // (asserted below); a block delivered without a hit is a fault block, whose parcels and
+  // pre-decode results are not used, and a missed block is never delivered.
+  logic [WAY_W-1:0] hit_way;
   always_comb begin
-    blk = '0;
-    for (int w = 0; w < WAYS; w++) blk |= {128{way_hit[w]}} & way_data[w];
+    hit_way = '0;
+    for (int w = 0; w < WAYS; w++) if (way_hit[w]) hit_way |= WAY_W'(w);
   end
+  assign blk = way_data[hit_way];
 
   // Refill / fault state
   logic        miss_q;             // fetch is parked on miss_pc_q (I$ miss)
@@ -249,11 +255,14 @@ module tg_fetch
   assign f2_wmiss     = f2v && f2_tm_q && !f2_bfault;
   assign f2_miss      = f2v && !f2_tm_q && !f2_bfault && !f2_cache_hit;
 
-  // Pre-decode over the whole block, from the entry point
+  // Pre-decode over the whole block, from the entry point. It reads the block as fetched: for a
+  // fault block (f2_bfault) every result below is overridden or unused (the block is one
+  // pseudo-instruction, its parcels and marks registered as zero), so the fault check, which
+  // compares the whole line address, does not wait in front of it.
   logic [NP-1:0][15:0] parcel;
   logic [NP-1:0] pd_start, pd_is32, pd_br, pd_jal, pd_jalr, pd_call, pd_ret;
   logic          pd_carry;
-  assign parcel = f2_bfault ? '0 : blk;
+  assign parcel = blk;
   tg_predecode u_pd (
     .parcel, .entry_slot(f2_pc_q[SLOT_W:1]), .exit_slot(SLOT_W'(NP - 1)), .carry_in(carry_q),
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
@@ -272,68 +281,66 @@ module tg_fetch
   // PMP inside the block: the first instruction from the entry, up to the predicted exit, that
   // touches a denied word. At the entry the block is a fault block; later, the block ends
   // before it and fetch resumes there (its own block then faults at the entry).
-  logic [SLOT_W-1:0] pexit, fp;
-  logic              pmp_e, pmp_hi, pmp_cut, fp_v;
-  logic [NP-1:0]     dslot;
+  // The decisions use the per-parcel vector pq, not that instruction's encoded slot: no
+  // instruction starts before the entry (pd_start), so it is at the entry exactly when
+  // pq[entry] is set, and the parcels before it are those with no pq at or below them (a
+  // prefix OR). Only the refetch slot (fp_q) waits for the encoding.
+  logic [SLOT_W-1:0] fp, f2_ent;
+  logic              pmp_e, pmp_hi, pmp_cut, f2_chk, f2_carried;
+  logic [NP-1:0]     dslot, pq, pq_run;      // pq_run[p]: an instruction at or before p touches one
   for (genvar p = 0; p < NP; p++) begin : g_ds
     assign dslot[p] = f2_pmpd_q[p / 2];
   end
-  assign pexit = (f2_hit_q && pred_ok) ? f2_slot_q : SLOT_W'(NP - 1);
+  assign f2_ent = f2_pc_q[SLOT_W:1];
   always_comb begin
-    fp_v = 1'b0;
+    logic run;
+    run = 1'b0;
+    for (int p = 0; p < NP; p++) begin
+      pq[p] = pd_start[p] && (!(f2_hit_q && pred_ok) || SLOT_W'(p) <= f2_slot_q) &&
+              (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+      run = run || pq[p];
+      pq_run[p] = run;
+    end
     fp = '0;
-    for (int p = NP - 1; p >= 0; p--) begin
-      if (pd_start[p] && SLOT_W'(p) <= pexit &&
-          (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]))) begin
-        fp_v = 1'b1;
-        fp = SLOT_W'(p);
-      end
-    end
-    pmp_e = 1'b0;
-    pmp_hi = 1'b0;
-    pmp_cut = 1'b0;
-    if (f2v && !f2_tm_q && !f2_bfault && f2_cache_hit) begin
-      if (carry_q && f2_pc_q[SLOT_W:1] == '0 && dslot[0]) begin
-        pmp_e = 1'b1;                              // the carried instruction's second half
-      end else if (fp_v) begin
-        if (fp == f2_pc_q[SLOT_W:1]) begin
-          pmp_e  = 1'b1;
-          pmp_hi = !dslot[fp];
-        end else begin
-          pmp_cut = 1'b1;
-        end
-      end
-    end
+    for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
   end
+  assign f2_chk     = f2v && !f2_tm_q && !f2_bfault && f2_cache_hit;
+  assign f2_carried = carry_q && f2_ent == '0 && dslot[0];   // the carried instruction's second half
+  assign pmp_e      = f2_chk && (f2_carried || pq[f2_ent]);
+  assign pmp_hi     = f2_chk && !f2_carried && pq[f2_ent] && !dslot[f2_ent];
+  assign pmp_cut    = f2_chk && !f2_carried && |pq && !pq[f2_ent];
   assign f2_isfault = f2_bfault || pmp_e;
 
   logic              f2_taken;            // the block ends at f2_slot_q and fetch went to f2_tgt_q
-  logic [SLOT_W-1:0] f2_exit;
   assign f2_taken = f2_hit_q && pred_ok && !f2_isfault && !pmp_cut;
-  assign f2_exit  = pmp_cut ? fp - 1'b1 : f2_taken ? f2_slot_q : SLOT_W'(NP - 1);
 
+  // The block's instructions: those before a PMP cut, else up to a taken exit, else all of them;
+  // a fault block is one pseudo-instruction at the entry slot
   logic [NP-1:0]      blk_start;
   logic [NP-1:0][2:0] blk_marks;
   logic               blk_carry;
   always_comb begin
     for (int p = 0; p < NP; p++) begin
-      blk_start[p] = pd_start[p] && SLOT_W'(p) <= f2_exit;
+      blk_start[p] = pd_start[p] && (pmp_cut ? !pq_run[p] : (!f2_taken || SLOT_W'(p) <= f2_slot_q));
       blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
     end
     blk_carry = pd_carry && !f2_taken && !pmp_cut;
     if (f2_isfault) begin                          // one pseudo-instruction at the entry slot
       blk_start = '0;
-      blk_start[f2_pc_q[SLOT_W:1]] = 1'b1;
+      blk_start[f2_ent] = 1'b1;
       blk_carry = 1'b0;
     end
   end
 
   // ---- F3: compaction ----
   logic                 f3_valid_q, f3_carry_q;
-  logic [NP-1:0][15:0]  f3_parcel_q;
+  logic [NP-1:0][15:0]  f3_parcel_q, f3_parcel;
   logic [NP-1:0]        f3_start_q;
   logic [NP-1:0][2:0]   f3_marks_q;
   meta_t                f3_meta_q;
+  // A fault block's parcels go to the queue as zeros: zeroed here, from the registered fault bit,
+  // so F2's late fault decision does not drive the parcel registers' resets
+  assign f3_parcel = f3_meta_q.fault ? '0 : f3_parcel_q;
   logic                 blk_ready;
   logic                 f3_accept;
   assign f3_accept = !f3_valid_q || blk_ready;
@@ -343,7 +350,7 @@ module tg_fetch
   logic                              redirect;
   assign redirect = flush || dred;
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush(redirect), .blk_valid(f3_valid_q), .parcel(f3_parcel_q),
+    .clk, .rst, .flush(redirect), .blk_valid(f3_valid_q), .parcel(f3_parcel),
     .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
     .blk_ready, .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -545,9 +552,9 @@ module tg_fetch
       // F3: the data registers take whatever block F2 offers; only the valid bit waits for its hit
       if (f3_accept) f3_valid_q <= 1'b0;
       if (f2v && f3_accept) begin
-        f3_parcel_q <= f2_isfault ? '0 : parcel;
+        f3_parcel_q <= parcel;                      // a fault block's are zeroed after it
         f3_start_q  <= blk_start;
-        f3_marks_q  <= blk_marks;
+        f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: f2_slot_q,
                          target: f2_tgt_q, fault: f2_isfault, fpf: f2_bfault && f2_fpf_q,
@@ -693,7 +700,7 @@ module tg_fetch
       assert (!way_hit[stale_way_q]) else $error("tg_fetch: I$ hit on a row the refill rewrote");
   end
   always_ff @(posedge clk) begin
-    if (!rst && f2v && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
+    if (!rst && f2v && !f2_bfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
     if (!rst && (miss_q || am_go || wk_q)) assert (!f2v) else $error("tg_fetch: F2 holds a block while fetch is parked");
   end
 `endif
