@@ -171,17 +171,28 @@ module tg_fpu_fma
   logic        ha_q, hb_q;
   logic [52:0] mc_q;
   logic [63:0] x_q;
+  // Zeros come from the registers' synchronous resets, not LUTs (fpga_friendly.md T7): an S
+  // significand has nothing in bits 28:0; b reads as 1.0 (fraction 0) for FADD, FSUB and FCVT.F.F;
+  // with no addend (FMUL, the conversions) mc is 0, and a zero addend's significand is 0 anyway
+  (* direct_reset = "yes" *) logic zs, zsb, zc, zsc;
+  assign zs  = !sdbl;
+  assign zsb = !sdbl || one_b;
+  assign zc  = !has_c;
+  assign zsc = zs || zc;
   always_ff @(posedge clk) begin
-    a0_q <= ua.sig[25:0];
+    a0_q <= zs ? '0 : q.a[25:0];
     a1_q <= ua.sig[51:26];
-    b0_q <= ub.sig[16:0];
+    b0_q <= zsb ? '0 : q.b[16:0];
     b1_q <= ub.sig[33:17];
     b2_q <= ub.sig[50:34];
-    fa_q <= ua.sig[51:0];
-    fb_q <= ub.sig[51:0];
+    fa_q[28:0]  <= zs ? '0 : q.a[28:0];
+    fa_q[51:29] <= ua.sig[51:29];
+    fb_q[28:0]  <= zsb ? '0 : q.b[28:0];
+    fb_q[51:29] <= ub.sig[51:29];
     ha_q <= ua.sig[52];
     hb_q <= ub.sig[52];
-    mc_q <= c_zero ? '0 : uc.sig;     // FMUL and the conversions have no addend
+    mc_q[28:0]  <= zsc ? '0 : q.c[28:0];
+    mc_q[52:29] <= zc ? '0 : uc.sig[52:29];
     x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
     c1_q <= c0;
   end
