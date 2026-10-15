@@ -11,6 +11,12 @@ set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 
 # TG_UNCORE_DSP (hex, e.g. 0x8403080000, the default): which register slices keep their data in DSPs
 # (tg_uncore UNCORE_DSP, one bit per site; 0 is all fabric, 0xDEFFFFFFFFF every site but the AXI B slices)
 set xbar_gen {}
+# TG_DEFINES (space-separated NAME=VALUE): Verilog defines for synthesis, e.g. the core's timing-cut
+# profile (TG_TIMING_CUTS=0|1, DR-140). TG_PROFILE labels the build in summary.txt (and so the package).
+set def_args {}
+set defines [expr {[info exists ::env(TG_DEFINES)] ? $::env(TG_DEFINES) : ""}]
+foreach d $defines { lappend def_args -verilog_define $d }
+set profile [expr {[info exists ::env(TG_PROFILE)] ? $::env(TG_PROFILE) : "-"}]
 if {[info exists ::env(TG_UNCORE_DSP)]} { lappend xbar_gen -generic "UNCORE_DSP=64'h[format %016llX $::env(TG_UNCORE_DSP)]" }
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
@@ -63,7 +69,7 @@ read_xdc [file join $root fpga kv260 xdc timing.xdc]
 stamp "synth_design"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
-  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$xbar_gen \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$xbar_gen {*}$def_args \
   -flatten_hierarchy rebuilt
 # PMOD console pins (xdc/kv260.xdc) can be overridden; they are asynchronous to clk_core
 if {[info exists ::env(TG_PMOD_TXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_TXD) [get_ports pmod_uart_txd] }
@@ -106,6 +112,7 @@ puts $fh "cfg=$cfg kind=$kind core_mhz=$core_mhz n_cores=$n_cores"
 puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
+puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
 close $fh

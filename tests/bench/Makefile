@@ -21,6 +21,7 @@ MAKEOVERRIDES :=
 ROOT  := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT    := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
+include $(ROOT)/sim/profile.mk
 OUT   := $(TANAGER_BUILD)/$(WT)/bench/$(MARCH)-i$(ITER)-r$(RUNS)
 TP    ?= $(firstword $(patsubst %/coremark/core_main.c,%,$(wildcard $(ROOT)/perfmodel/third_party/coremark/core_main.c \
            $(HOME)/tanager/perfmodel/third_party/coremark/core_main.c)))
@@ -68,10 +69,10 @@ $(OUT)/dhrystone.elf: $(BSP) $(B)/dhrystone/dhry_time.c
 	  $(OUT)/gen/dhry_1.o $(OUT)/gen/dhry_2.c $(B)/dhrystone/dhry_time.c -lm -o $@
 
 run: build
-	@$(MAKE) --no-print-directory -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build replay > /dev/null
-	python3 $(B)/run_bench.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim \
+	@$(MAKE) --no-print-directory -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build replay > /dev/null
+	python3 $(B)/run_bench.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim \
 	  --replay $(TANAGER_BUILD)/$(WT)/sim/replay/tg_replay --iter $(ITER) --runs $(RUNS) --jobs $(JOBS) \
-	  --name "$(CFG) $(CORE) $(MARCH) lat=$(LAT)" $(ELFS) -- --lat=$(LAT) $(SIMARGS)
+	  --name "$(CFG) $(CORE)$(TC_SUFFIX) $(MARCH) lat=$(LAT)" $(ELFS) -- --lat=$(LAT) $(SIMARGS)
 
 print-out:
 	@echo $(OUT)

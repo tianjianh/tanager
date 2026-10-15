@@ -1,0 +1,326 @@
+loaded: fw 277856 B, kernel 23550464 B, dtb 2203 B into 0x840000000 (RISC-V 0x80000000)
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 1
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 321 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 65 KB
+Firmware Heap Offset        : 0x47000
+Firmware Heap Size          : 37 KB (total), 0 KB (reserved), 13 KB (used), 23 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000010000000-0x0000000010001fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region05            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+[    0.000000] Booting Linux on hartid 0
+[    0.000000] Linux version 6.18.56-tanager (w@DESKTOP-TOJ3UPG) (riscv64-buildroot-linux-gnu-gcc.br_real (toolchains.bootlin.com 2026.08-1) 15.3.0, GNU ld (GNU Binutils) 2.45.1) #4 SMP Thu Oct 15 11:08:07 PDT 2026
+[    0.000000] Machine model: Tanager on KV260
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI FWFT extension detected
+[    0.000000] earlycon: ns16550a0 at MMIO 0x0000000010000000 (options '')
+[    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] Ticket spinlock: enabled
+[    0.000000] percpu: Embedded 17 pages/cpu s37976 r0 d31656 u69632
+[    0.000000] Kernel command line: console=ttyS0,115200 earlycon tanager.bench=1
+[    0.000000] printk: log buffer data + meta data: 65536 + 229376 = 294912 bytes
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=8 to nr_cpu_ids=1.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000016] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.008684] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.019327] Console: colour dummy device 80x25
+[    0.024975] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.036110] pid_max: default: 32768 minimum: 301
+[    0.044237] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.052723] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.098192] riscv: ELF compat mode unsupported
+[    0.098655] ASID allocator using 16 bits (65536 entries)
+[    0.112246] rcu: Hierarchical SRCU implementation.
+[    0.117619] rcu: 	Max phase no-delay instances is 1000.
+[    0.133319] EFI services will not be available.
+[    0.140708] smp: Bringing up secondary CPUs ...
+[    0.145816] smp: Brought up 1 node, 1 CPU
+[    0.152125] Memory: 1002216K/1048576K available (4432K kernel code, 3590K rwdata, 2048K rodata, 11215K init, 197K bss, 42988K reserved, 0K cma-reserved)
+[    0.173763] devtmpfs: initialized
+[    0.203239] posixtimers hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.211618] futex hash table entries: 256 (16384 bytes on 1 NUMA nodes, total 16 KiB, linear).
+[    0.222932] DMI not present or invalid.
+[    0.237453] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.251145] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.259194] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.271437] SBI misaligned access exception delegation ok
+[    0.319596] iommu: Default domain type: Translated
+[    0.324941] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.346520] clocksource: Switched to clocksource riscv_clocksource
+[    0.513070] NET: Registered PF_INET protocol family
+[    0.523645] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.559513] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    0.568892] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.577566] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    0.587615] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    0.601022] TCP: Hash tables configured (established 8192 bind 8192)
+[    0.611395] UDP hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.619489] UDP-Lite hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.629954] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.691118] workingset: timestamp_bits=62 max_order=18 bucket_order=0
+[    0.706671] io scheduler mq-deadline registered
+[    0.711840] io scheduler kyber registered
+[    0.759362] riscv-plic: interrupt-controller@c000000: mapped 31 interrupts with 1 handlers for 2 contexts.
+[    0.803928] Serial: 8250/16550 driver, 1 ports, IRQ sharing disabled
+[    0.849319] printk: legacy console [ttyS0] disabled
+[    0.872046] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    0.882462] printk: legacy console [ttyS0] enabled
+[    0.882462] printk: legacy console [ttyS0] enabled
+[    0.892892] printk: legacy bootconsole [ns16550a0] disabled
+[    0.892892] printk: legacy bootconsole [ns16550a0] disabled
+[    0.984550] riscv-pmu-sbi: SBI PMU extension is available
+[    0.990945] riscv-pmu-sbi: 16 firmware and 2 hardware counters
+[    0.997251] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[    1.055674] NET: Registered PF_PACKET protocol family
+[    1.562086] clk: Disabling unused clocks
+[    2.454824] Freeing unused kernel image (initmem) memory: 11212K
+[    2.463615] Run /init as init process
+Saving 256 bits of non-creditable seed for next boot
+Starting syslogd: OK
+Starting klogd: OK
+Running sysctl: OK
+Starting network: OK
+Starting crond: OK
+TANAGER-BOOT-OK 6.18.56-tanager harts=1
+TGLB-BEGIN version=1 kernel=6.18.56-tanager harts=1 runs=3
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=2 perf_errno=0
+TGLB forkexec run=1 cycles=3220990878 instret=1407095457 ticks=536831813 ns=53683184900 ops=1000 prog=/bin/true
+TGLB forkexec run=2 cycles=3223315082 instret=1406637920 ticks=537219180 ns=53721918200 ops=1000 prog=/bin/true
+TGLB forkexec run=3 cycles=3219191087 instret=1406957842 ticks=536531848 ns=53653185000 ops=1000 prog=/bin/true
+TGLB syscall run=1 cycles=531778440 instret=245497183 ticks=88629740 ns=8862976700 ops=1000000 call=getpid
+TGLB syscall run=2 cycles=531964612 instret=245543971 ticks=88660768 ns=8866076600 ops=1000000 call=getpid
+TGLB syscall run=3 cycles=531703763 instret=245490805 ticks=88617294 ns=8861729600 ops=1000000 call=getpid
+TGLB memcpy-64 run=1 cycles=86207002 instret=94699516 ticks=14367833 ns=1436787100 ops=1048576 bytes=67108864
+TGLB memcpy-64 run=2 cycles=86211848 instret=94702678 ticks=14368641 ns=1436864100 ops=1048576 bytes=67108864
+TGLB memcpy-64 run=3 cycles=86193746 instret=94696504 ticks=14365624 ns=1436562900 ops=1048576 bytes=67108864
+TGLB memset-64 run=1 cycles=65668619 instret=48247404 ticks=10944770 ns=1094481000 ops=1048576 bytes=67108864
+TGLB memset-64 run=2 cycles=65439446 instret=48235115 ticks=10906575 ns=1090657700 ops=1048576 bytes=67108864
+TGLB memset-64 run=3 cycles=65585333 instret=48241845 ticks=10930889 ns=1093089300 ops=1048576 bytes=67108864
+TGLB memcpy-4096 run=1 cycles=19869525 instret=31719725 ticks=3311587 ns=331162700 ops=16384 bytes=67108864
+TGLB memcpy-4096 run=2 cycles=19872767 instret=31725292 ticks=3312128 ns=331213000 ops=16384 bytes=67108864
+TGLB memcpy-4096 run=3 cycles=19863005 instret=31723680 ticks=3310501 ns=331050300 ops=16384 bytes=67108864
+TGLB memset-4096 run=1 cycles=11973083 instret=11259854 ticks=1995514 ns=199555700 ops=16384 bytes=67108864
+TGLB memset-4096 run=2 cycles=11986036 instret=11268100 ticks=1997673 ns=199767000 ops=16384 bytes=67108864
+TGLB memset-4096 run=3 cycles=11988813 instret=11270128 ticks=1998136 ns=199814000 ops=16384 bytes=67108864
+TGLB memcpy-1048576 run=1 cycles=146201227 instret=32714674 ticks=24366871 ns=2436692100 ops=64 bytes=67108864
+TGLB memcpy-1048576 run=2 cycles=146375182 instret=32773532 ticks=24395864 ns=2439586700 ops=64 bytes=67108864
+TGLB memcpy-1048576 run=3 cycles=146226300 instret=32731903 ticks=24371050 ns=2437105000 ops=64 bytes=67108864
+TGLB memset-1048576 run=1 cycles=58560582 instret=11410457 ticks=9760097 ns=976013900 ops=64 bytes=67108864
+TGLB memset-1048576 run=2 cycles=58350021 instret=11427418 ticks=9725003 ns=972500500 ops=64 bytes=67108864
+TGLB memset-1048576 run=3 cycles=58266636 instret=11425387 ticks=9711106 ns=971111100 ops=64 bytes=67108864
+TGLB pipe run=1 cycles=58379964 instret=17184159 ticks=9729994 ns=973003100 ops=256 size=65536 bytes=16777216
+TGLB pipe run=2 cycles=58465499 instret=17214943 ticks=9744250 ns=973730200 ops=256 size=65536 bytes=16777216
+TGLB pipe run=3 cycles=58778950 instret=17320583 ticks=9796492 ns=979649200 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-write run=1 cycles=54088841 instret=15799005 ticks=9014807 ns=901483800 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-read run=1 cycles=37571607 instret=9524617 ticks=6261934 ns=626194100 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-write run=2 cycles=53756989 instret=15485440 ticks=8959498 ns=895949600 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-read run=2 cycles=37509831 instret=9518291 ticks=6251638 ns=625164000 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-write run=3 cycles=53612333 instret=15484736 ticks=8935389 ns=893538400 ops=256 size=65536 bytes=16777216
+TGLB tmpfs-read run=3 cycles=37630913 instret=9538576 ticks=6271818 ns=627181800 ops=256 size=65536 bytes=16777216
+TGLB pagefault run=1 cycles=158706410 instret=43605941 ticks=26451068 ns=2645110800 ops=16384 mib=64 faults=16385
+TGLB pagefault run=2 cycles=157517390 instret=42289227 ticks=26252899 ns=2625289900 ops=16384 mib=64 faults=16384
+TGLB pagefault run=3 cycles=156908871 instret=42252253 ticks=26151478 ns=2615147800 ops=16384 mib=64 faults=16384
+TGLB tlbwalk run=1 cycles=122044172 instret=4922122 ticks=20340696 ns=2034074000 ops=1000000 mib=64 pages=16384
+TGLB tlbwalk run=2 cycles=122120817 instret=4947476 ticks=20353470 ns=2035347200 ops=1000000 mib=64 pages=16384
+TGLB tlbwalk run=3 cycles=122219819 instret=4970915 ticks=20369970 ns=2036997500 ops=1000000 mib=64 pages=16384
+TGLB gzip run=1 cycles=1887949238 instret=909521237 ticks=314658212 ns=31465823900 ops=1 status=0
+TGLB gzip run=2 cycles=1887025669 instret=908975332 ticks=314504290 ns=31450429200 ops=1 status=0
+TGLB gzip run=3 cycles=1884663531 instret=908949869 ticks=314110603 ns=31411060500 ops=1 status=0
+TGLB sha256sum run=1 cycles=221509657 instret=341671530 ticks=36918282 ns=3691832300 ops=1 status=0
+TGLB sha256sum run=2 cycles=221569537 instret=341711484 ticks=36928268 ns=3692827000 ops=1 status=0
+TGLB sha256sum run=3 cycles=221621984 instret=341684935 ticks=36937007 ns=3693701200 ops=1 status=0
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 12217981400
+Total time (secs): 12.217981
+Iterations/Sec   : 163.693161
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 163.693161 / GCC15.3.0 -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las / STATIC
+TGLB coremark-a run=1 cycles=733078881 instret=685274396 ticks=122179814 ns=12217981400 ops=2000 iterations=2000 crc=0x4983
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 14759067700
+Total time (secs): 14.759068
+Iterations/Sec   : 135.509914
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O3 -funroll-loops
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 135.509914 / GCC15.3.0 -O3 -funroll-loops / STATIC
+TGLB coremark-b run=1 cycles=885544061 instret=695937651 ticks=147590676 ns=14759067700 ops=2000 iterations=2000 crc=0x4983
+TGLB dhrystone run=1 cycles=410717520 instret=327520580 ticks=68452925 ns=6845297100 ops=1000000
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 12196823300
+Total time (secs): 12.196823
+Iterations/Sec   : 163.977123
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 163.977123 / GCC15.3.0 -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las / STATIC
+TGLB coremark-a run=2 cycles=731809407 instret=685290332 ticks=121968234 ns=12196823300 ops=2000 iterations=2000 crc=0x4983
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 14760496300
+Total time (secs): 14.760496
+Iterations/Sec   : 135.496799
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O3 -funroll-loops
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 135.496799 / GCC15.3.0 -O3 -funroll-loops / STATIC
+TGLB coremark-b run=2 cycles=885629790 instret=695931174 ticks=147604965 ns=14760496300 ops=2000 iterations=2000 crc=0x4983
+TGLB dhrystone run=2 cycles=410641082 instret=327546757 ticks=68440183 ns=6844022300 ops=1000000
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 12221638500
+Total time (secs): 12.221638
+Iterations/Sec   : 163.644179
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 163.644179 / GCC15.3.0 -O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las / STATIC
+TGLB coremark-a run=3 cycles=733298305 instret=685268692 ticks=122216384 ns=12221638500 ops=2000 iterations=2000 crc=0x4983
+2K performance run parameters for coremark.
+CoreMark Size    : 666
+Total ticks      : 14761968500
+Total time (secs): 14.761969
+Iterations/Sec   : 135.483286
+Iterations       : 2000
+Compiler version : GCC15.3.0
+Compiler flags   : -O3 -funroll-loops
+Memory location  : STATIC
+seedcrc          : 0xe9f5
+[0]crclist       : 0xe714
+[0]crcmatrix     : 0x1fd7
+[0]crcstate      : 0x8e3a
+[0]crcfinal      : 0x4983
+Correct operation validated. See README.md for run and reporting rules.
+CoreMark 1.0 : 135.483286 / GCC15.3.0 -O3 -funroll-loops / STATIC
+TGLB coremark-b run=3 cycles=885718131 instret=695916229 ticks=147619688 ns=14761968500 ops=2000 iterations=2000 crc=0x4983
+TGLB dhrystone run=3 cycles=410753723 instret=327531473 ticks=68458956 ns=6845900300 ops=1000000
+TGLB-END status=0
+[  502.247837] reboot: Power down
+
+[tanager-host] RISC-V requested power-off

@@ -52,12 +52,18 @@ prepare() {
     echo "$M3_ISA" > "$SOAK/spike_isa"; echo rv64imac > "$SOAK/prog_isa"
   fi
   local isa; isa=$(cat "$SOAK/spike_isa")
+  # DR-140's timing cuts: once main's core package has the switch and its sim/ the profiles, both are
+  # built and the rounds alternate between them (verification.md §4.4).
+  local tcs=""
+  if grep -q "TG_TIMING_CUTS" "$pkg" && [ -f "$src/sim/profile.mk" ]; then tcs="0 1"; fi
   (
     source "$src/tools/env.sh" >/dev/null 2>&1
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
-      make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
-        ISA="$isa" PRIV=MSU PMP=16 build || exit 1
+      for tc in ${tcs:-default}; do
+        make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
+          ISA="$isa" PRIV=MSU PMP=16 $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
+      done
     done
     make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" replay || exit 1
   ) > "$SOAK/logs/build.log" 2>&1 || return 1
@@ -72,14 +78,15 @@ prepare() {
     > "$SOAK/mem_gate"
   # A third of the programs in S-mode under Sv39, once main's generator has --vm (verification.md §6.2)
   if grep -q -- '"--vm"' "$src/tests/random/run_random.py"; then echo "--vm $VM_PCT"; else echo; fi > "$SOAK/vm"
+  echo "$tcs" > "$SOAK/timing_cuts"
   fingerprint "$commit" > "$SOAK/fingerprint"
   echo "$commit" > "$SOAK/commit"
 }
 
 # One configuration's campaign; failures keep the program, the end of the log and a repro line.
 campaign() {
-  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 work="$SOAK/work/$2"
-  local sim="$SOAK/build/tanager/sim/$cfg-core/tg_vsim"
+  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} work="$SOAK/work/$2"
+  local sim="$SOAK/build/tanager/sim/$cfg-core${tc:+-tc$tc}/tg_vsim" label="$cfg${tc:+-tc$tc}"
   rm -rf "$work"
   mkdir -p "$work"
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
@@ -88,28 +95,28 @@ campaign() {
       --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
       $(cat "$SOAK/vm" 2>/dev/null) \
       --jobs "$JOBS" --timeout 1200 --workdir "$work" \
-      --name "soak $cfg" -- $(spike_args) ) > "$work/out.txt" 2>&1
+      --name "soak $label" -- $(spike_args) ) > "$work/out.txt" 2>&1
   local res pass fail gen
   res=$(grep "passed, " "$work/out.txt" | tail -1)
   if [ -z "$res" ]; then  # the runner itself failed: a harness error, not a result
-    echo "$(date '+%F %T') $cfg on $commit: $(tail -1 "$work/out.txt" | cut -c1-200)" >> "$SOAK/errors.log"
+    echo "$(date '+%F %T') $label on $commit: $(tail -1 "$work/out.txt" | cut -c1-200)" >> "$SOAK/errors.log"
     return 0
   fi
   pass=$(echo "$res" | sed -n 's/.*: \([0-9]*\) passed.*/\1/p')
   fail=$(echo "$res" | sed -n 's/.* \([0-9]*\) failed.*/\1/p')
   gen=$(echo "$res" | sed -n 's/.* \([0-9]*\) generator failures.*/\1/p')
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$day" "$cfg" "$commit" "$((${pass:-0} + ${fail:-0}))" "${fail:-0}" \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$day" "$label" "$commit" "$((${pass:-0} + ${fail:-0}))" "${fail:-0}" \
     "${gen:-0}" >> "$SOAK/counts.tsv"
   [ -d "$work/failures" ] || return 0
   local f s d
   for f in "$work"/failures/r*.elf; do
     [ -f "$f" ] || continue
     s=$(basename "$f" .elf); s=${s#r}
-    d="$SOAK/fail/$(date +%Y%m%d-%H%M%S)-$cfg-s$s"
+    d="$SOAK/fail/$(date +%Y%m%d-%H%M%S)-$label-s$s"
     mkdir -p "$d"
     cp "$f" "$work/failures/r$s.S" "$d/" 2>/dev/null
     tail -n 80 "$work/failures/r$s.log" > "$d/tail.log" 2>/dev/null
-    { echo "main $commit, every M3 switch on (rtl/core/tg_core_pkg.sv), CFG=$cfg, seed $s"
+    { echo "main $commit, every M3 switch on (rtl/core/tg_core_pkg.sv), CFG=$cfg${tc:+ TIMING_CUTS=$tc}, seed $s"
       grep -A1 "seed $s:" "$work/out.txt" | sed -n 's/.*repro: //p' | \
         sed "s#$work/failures/#$d/#; s#$sim#tg_vsim#"
       grep -m1 "seed $s:" "$work/out.txt" | sed 's/^ *//'
@@ -128,7 +135,7 @@ summarize() {
   [ -n "$(cat "$SOAK/trace_stall" 2>/dev/null)" ] || stall="off (main's tg_core build has no trace_stall_i yet)"
   { echo "# Soak of main (tools/ci/soak.sh)"
     echo
-    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds; trace back-pressure $stall"
+    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds$([ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ] && echo " (alternate pairs of rounds), the core's timing cuts (DR-140) off and on in alternate rounds"); trace back-pressure $stall"
     echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free"
     echo "- findings are a triage list: they gate nothing until confirmed as core bugs (verification.md §4.4)"
     echo
@@ -208,12 +215,19 @@ run() {
     fi
     seed=$(cat "$SOAK/next_seed" 2>/dev/null || echo 1000000)
     echo $((seed + 4 * SEEDS)) > "$SOAK/next_seed"
-    irq=$(( (seed / (4 * SEEDS)) % 2 * 200 ))
-    log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq"
+    # With both timing-cut profiles built, the profile alternates every round and the timer interrupts
+    # every second round, so four rounds cover all four pairs.
+    local r=$(( seed / (4 * SEEDS) )) tc=""
+    if [ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ]; then
+      tc=$(( r % 2 )); irq=$(( (r / 2) % 2 * 200 ))
+    else
+      irq=$(( r % 2 * 200 ))
+    fi
+    log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq${tc:+, timing cuts $tc}"
     summarize "$commit" "running${state_note:+; $state_note}"
     local i=0 cfg day; day=$(date +%F)
     for cfg in $CFGS; do
-      campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" &
+      campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" "$tc" &
       i=$((i + 1))
     done
     wait

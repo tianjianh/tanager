@@ -14,6 +14,7 @@
 #   tg.sh ls-soc      core, FPGA lockstep steps 2-3: the SoC test traced to a file and checked, then live
 #   tg.sh ls-linux    core, FPGA lockstep steps 4-5: Linux live through the checker (INJ_RD, LINUX_S)
 #   tg.sh ls-plant    core: the lockstep failure path, a planted fault (PLANT) on the live SoC test
+#   tg.sh bench       core: the DR-141 Linux workload set, BOOTS boots of BENCH_DIR's image, logs NAME_bootK.txt
 #   tg.sh restore     unload TG_APP and reload k26-starter-kits
 #   tg.sh status      the apps, the FPGA manager state, the PL clock and the fan
 #   tg.sh th ARGS     one tanager-host call, refused unless TG_APP is loaded
@@ -291,6 +292,42 @@ case "${1:-}" in
     rm -f tg.trace
     fan
     ;;
+  bench)
+    # The DR-141 Linux workload set (verification track): boot BENCH_DIR's fw_jump.bin, Image and
+    # BENCH_DTB BOOTS times on the loaded profile; the set runs after TANAGER-BOOT-OK and powers off.
+    # Each console goes to BENCH_DIR/NAME_bootK.txt; the checks are verif-2's (verification.md §4.6).
+    B=${BENCH_DIR:-$HOME/tanager/bench}; name=${NAME:-$APP}; lim=${BENCH_S:-3600}
+    dtb=${BENCH_DTB:-tanager-kv260-bench.dtb}; boots=${BOOTS:-1}
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    th info | grep -E "configuration|core clock"
+    for k in $(seq 1 "$boots"); do
+      log=$B/${name}_boot$k.txt
+      active "$APP" || exit 1
+      echo "== $name boot $k: tanager-host boot --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --timeout $lim"
+      t0=$(date +%s)
+      sudo "$TH" boot --fw "$B/fw_jump.bin" --kernel "$B/Image" --dtb "$B/$dtb" --lossless --timeout "$lim" \
+        < /dev/null > "$log" 2>&1 &
+      pid=$!
+      tok=""; tbeg=""
+      while kill -0 "$pid" 2>/dev/null; do
+        el=$(( $(date +%s) - t0 ))
+        [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$log" && { tok=$el; echo "TANAGER-BOOT-OK at $el s"; }
+        [ -z "$tbeg" ] && grep -q "TGLB-BEGIN" "$log" && { tbeg=$el; echo "TGLB-BEGIN at $el s"; }
+        sleep 2
+      done
+      wait "$pid"; rc=$?
+      echo "boot exit $rc after $(( $(date +%s) - t0 )) s (TANAGER-BOOT-OK ${tok:-never} s, TGLB-BEGIN ${tbeg:-never} s)"
+      tr -d '\r' < "$log" | grep -m1 "TGLB-INFO" || echo "CHECK: no TGLB-INFO line"
+      tr -d '\r' < "$log" | grep -q "TGLB-INFO.*counters=cycle,instret,time.*perf_events=2" || echo "CHECK: info line lacks counters=cycle,instret,time / perf_events=2 (old image?)"
+      n=$(tr -d '\r' < "$log" | grep -c "^TGLB [a-z]")
+      echo "measurement lines: $n (expect 54); CoreMark validated: $(grep -c "Correct operation validated" "$log") (expect 6)"
+      tr -d '\r' < "$log" | grep -m1 "TGLB-END" || echo "CHECK: no TGLB-END line"
+      tr -d '\r' < "$log" | grep -E "TGLB-FAIL|cycles=0 |cycles=-" | head -3
+    done
+    fan
+    ;;
   restore)
     if [ "${2:-}" = deadman ]; then echo "dead-man restore at $(date +%T)" >> "$D/deadman.log"; else deadman_cancel; fi
     sudo xmutil unloadapp
@@ -306,6 +343,6 @@ case "${1:-}" in
     sudo xmutil listapps; echo "fpga0: $(cat /sys/class/fpga_manager/fpga0/state)"; plclk; fan
     ;;
   *)
-    sed -n '2,21p' "$ME"; exit 2
+    sed -n '2,22p' "$ME"; exit 2
     ;;
 esac
