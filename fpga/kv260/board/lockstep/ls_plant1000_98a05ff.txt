@@ -1,0 +1,18 @@
+$ tanager-host boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace-log2 16 --trace /home/ubuntu/tanager/lockstep/tg.trace --timeout 60
+zeroed the RISC-V window: 1020 MiB in 1.4 s
+loaded: fw 1544 B, kernel 0 B, dtb 0 B into 0x840000000 (RISC-V 0x80000000)
+tanager soc te
+[tanager-host] trace write: Broken pipe
+st: hart 0, dtb 0000000082200000
+aclint ok
+
+[tanager-host] trace consumer stopped
+[tanager-host] trace: 66377 records written
+boot exit 4 (expect 4: the checker stopped)
+checker exit 2 (expect 2)
+tanager-lockstep: MISMATCH at record 1002 (cycle 124782): x15 value: RTL 0000000000000001, Spike 0000000000000000
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 06:25:56
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
