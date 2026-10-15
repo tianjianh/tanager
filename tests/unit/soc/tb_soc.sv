@@ -287,7 +287,14 @@ module tb_soc;
       end while (int'(v) < passes);
       expect_reg(16'h0D4, 32'd0, "traffic generator errors at injected latency 250");
       hr(16'h050, v);
-      $display("injector: %0d reads, native latency max %0d", v, dut.u_uncore.inj_max_all);
+      begin
+        logic [31:0] lsum, lmax;
+        hr(16'h054, lsum);
+        hr(16'h058, lmax);
+        $display("injector: %0d reads, native latency avg %0.1f max %0d (host registers)", v,
+                 (v != 0) ? real'(lsum) / real'(v) : 0.0, lmax);
+        if (v != 0 && real'(lsum) / real'(v) < 2.0) fail("injector: native latency average below 2 cycles");
+      end
       if (v == 0) fail("injector saw no reads");
       hw(16'h0C0, 32'h0);
       hw(16'h040, 32'd0);
