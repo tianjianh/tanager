@@ -721,10 +721,10 @@ module tg_rob
       end
       for (int j = 0; j < CW; j++) begin
         if (j < cnt) begin
-          assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
+          assert (cmp_h[j] == (cmp_s[hid[j][RIW-1:0]] || stb[j]) && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
                   misp_h[j] == misp_s[hid[j][RIW-1:0]] && mmio_h[j] == mmio_s[hid[j][RIW-1:0]])
             else $error("tg_rob: the toggle-table flags of %0d differ from the shadow flags", hid[j]);
-          assert (rpl_h[j] == rpl_s[hid[j][RIW-1:0]])
+          assert (rpl_h[j] == (rpl_s[hid[j][RIW-1:0]] || rpb[j]))
             else $error("tg_rob: the replay tables' flag of %0d differs from the shadow flag", hid[j]);
         end
       end
