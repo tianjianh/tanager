@@ -700,17 +700,26 @@ module tg_lsu
   end
 
   // ================= Store data capture =================
+  // The oldest store whose data is ready captures it; while P4 takes the shared read port
+  // (sd_busy, late: P4's issue) only an FP store can, the oldest ready one. Both choices are
+  // formed without sd_busy, which picks between them last. Each read tag takes its own choice:
+  // sd_tag is read only when the port is free, and fsd_tag's value is used only when an FP store
+  // captures, which is then the oldest ready FP store in either case.
   logic           cap_v;
-  logic [SIW-1:0] cap_idx;
+  logic [SIW-1:0] cap_idx, cap_ia, cap_if;
   always_comb begin
-    logic [SQ_ENTRIES-1:0] cc;
-    for (int i = 0; i < SQ_ENTRIES; i++)
-      cc[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && !(sd_busy && !sq_fp_q[i]);
-    cap_v   = |cc && !flush;
-    cap_idx = sq_oldest(cc, sq_head_q[SIW-1:0]);
+    logic [SQ_ENTRIES-1:0] ca, cf;
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      ca[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
+      cf[i] = ca[i] && sq_fp_q[i];
+    end
+    cap_ia  = sq_oldest(ca, sq_head_q[SIW-1:0]);
+    cap_if  = sq_oldest(cf, sq_head_q[SIW-1:0]);
+    cap_v   = (sd_busy ? |cf : |ca) && !flush;
+    cap_idx = sd_busy ? cap_if : cap_ia;
   end
-  assign sd_tag  = sq_tag_q[cap_idx];
-  assign fsd_tag = sq_tag_q[cap_idx];
+  assign sd_tag  = sq_tag_q[cap_ia];
+  assign fsd_tag = sq_tag_q[cap_if];
 
   // ================= STA =================
   logic [SIW-1:0] sa_idx;
