@@ -283,13 +283,23 @@ module tg_core
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
-  // The LSU's fault reports reach the ROB a cycle later (DR-140 #1). Timing: the address stage's
-  // fault decision leaves the ROB's exception register. A fault is taken only at the head, so the
-  // cycle costs about nothing (random +0.03%).
+  // Measurement only (reserve lever F1): the LSU's fault reports reach the ROB a cycle later
   always_ff @(posedge clk) begin
     lx_valid_q <= (rst || flush) ? '0 : lx_valid;
     lx_rob_q   <= lx_rob;
     lx_cause_q <= lx_cause;
+  end
+  // Measurement only (reserve levers F2/F5): the store reports (completions and the ordering
+  // replay mark) reach the ROB a cycle later, together, so a replayed load never commits first
+  logic [1:0]       st_cmp_q;
+  robid_t [1:0]     st_cmp_rob_q;
+  logic             replay_valid_q;
+  robid_t           replay_rob_q;
+  always_ff @(posedge clk) begin
+    st_cmp_q       <= (rst || flush) ? '0 : st_cmp;
+    st_cmp_rob_q   <= st_cmp_rob;
+    replay_valid_q <= !(rst || flush) && replay_valid;
+    replay_rob_q   <= replay_rob;
   end
   logic [NCW-1:0]   cm_nld, cm_nst;
   sqid_t [CW-1:0]   tr_sq;
@@ -347,8 +357,8 @@ module tg_core
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
-    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
-    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid, .replay_rob,
+    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_q), .st_rob(st_cmp_rob_q),
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid(replay_valid_q), .replay_rob(replay_rob_q),
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
