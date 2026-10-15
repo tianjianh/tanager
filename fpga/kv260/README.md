@@ -198,15 +198,36 @@ The board track ran bring-up steps 1–5 on [the board](#the-board) on 2026-10-1
 | 4, at 250 cycles | `INJ_RD` reads 250. Passes slow to about 13/s. 3.9 M lines checked, **0 errors**. |
 | 5. Console | `run` showed 1,681 dots through `tanager-host` in its 5 s. COM5 (the PMOD UART) received 3,371 bytes over the session, all `.`, two per pass. `UART_TX_LEVEL` agrees with the passes. |
 
-**What the steps above need on this build** (reported to the SoC track):
+**What the steps above needed on `tanager-host` `5048957`.** All of these are fixed in `c44622c`, and the board confirms it ([`board/stage_b_steps_c44622c.log`](board/stage_b_steps_c44622c.log)): the README's own forms pass, `inj --inj-rd 250` sets 250, and `run --timeout 5` stops at 5 s.
 - **Options before the command.**
   - `tanager-host` parses its options with `getopt_long("+vh")`, which stops at the first word that is not an option. So `inj --inj-rd 250` and `run --timeout 5` silently ignore their options: the injector stayed at 0, and `run` never timed out.
   - The forms that work are `tanager-host --inj-rd 250 inj`, `--stats inj` and `--timeout 5 run`.
   - Step 6's `boot --fw … --kernel … --dtb …` and step 7's `run --trace FILE` are affected the same way.
 - **Step 3's check:** `poke 0x68` alone reads back 0. `FROMHOST` is a 64-bit pair, and its low half lands only when the high half is written, so write `0x6c` too, or use a 32-bit register.
-- **The injector's native latency:** `info` reports avg 0.1–0.2 cycles over 20–40 M reads, with a max of 98–102. The average is not plausible: spike S1 implies about 18 cycles at 100 MHz at the PS port, before the uncore's own path. `INJ_RD_LATSUM` or the count looks wrong, so step 4 does not yet give the SoC's native-latency number.
+- **The injector's native latency:** `info` reports avg 0.1–0.2 cycles over 20–40 M reads, with a max of 98–102. The cause is an RTL width bug: every read in flight when the 16-bit time counter wrapped corrupted the sum. The traffic-generator bitstream still has it (with the new `tanager-host`: avg 142.0, max 108). The M4 bitstream has the fix (below).
 
 **Never read the host window without the design.**
 - With `k26-starter-kits` (or nothing) in the PL, nothing answers at `0xA000_0000`, and a `tanager-host` read hangs the A53 until a power cycle. This happened once, from a status command after the automatic restore.
 - `tg.sh` now refuses every `tanager-host` call unless `xmutil listapps` shows `tanager` in the slot.
-- Proposed for `tanager-host` itself: refuse to start unless the overlay's `tanager@a0000000` node is present in the live device tree.
+- `tanager-host` itself (`c44622c`) now refuses before any MMIO unless `/sys/firmware/devicetree/base/axi/tanager@a0000000` (or `/amba/…`) exists, and `--force` overrides. On the board, with the default app loaded, it refused with the message and exit 2. That test used `--regs 0xff0a0000`, a PS GPIO block, so a failed guard could not have hung the board.
+
+### The core: M4 first light and Linux (2026-10-15)
+
+The board track then took steps 6 and 7 on the SoC track's first core bitstream.
+- **Build:** one `st` core at 60 MHz (commit `20435b1`), with the PMOD console and the fan routing. WNS is +0.153 ns; at 100 MHz it misses by 3.8 ns inside the core. Bitstream sha256 `2f71d6ce…`.
+- **App:** loaded as the dfx-mgr app `tanager-m4`, with `TG_APP=tanager-m4 TG_DIR=~/tanager/m4 board/tg.sh`.
+
+| Step | Result |
+|---|---|
+| 6. First light | `load --fw soc_test.bin --kernel /dev/null --dtb /dev/null`, then `run --timeout 10`, gives `tanager soc test: hart 0, dtb 0000000082200000`, `aclint ok`, `memory ok`, `one hart: coherence skipped`, then `tohost 0x1: PASS` ([log](board/m4_firstlight.log)). |
+| 7. Linux, native latency | OpenSBI v1.9 ("Tanager on KV260", rv64imafdcb, Sv39), then Linux 6.18.56-tanager with 1 GiB. Init at 2.1 s of kernel time. `TANAGER-BOOT-OK 6.18.56-tanager harts=1` came **8 s after the load**, the 21 MB image copy included ([log](board/m4_linux_boot.log)). |
+| 7. Linux, 250 injected read cycles | The login prompt came 14 s after the load (init at 4.0 s). Root logged in on the console and ran `uname -a`, `/proc/cpuinfo`, `/proc/meminfo` and `uptime`. Then `poweroff`, and `tanager-host` reported `RISC-V requested power-off`, 31 s after the load ([log](board/m4_linux_shell_inj250.log)). |
+
+- **What Linux reports:** `isa: rv64imafdc_zicntr_zicond_zicsr_zifencei_zaamo_zalrsc_zca_zcd_zba_zbb_zbs_sstc`, `mmu: sv39`, `uarch: tanager,tanager`. MemTotal is 1,016,492 kB.
+- **The injector, read while Linux ran:** 1.53 M reads, native latency **avg 19.8, max 54 cycles** at 60 MHz (330 ns on average). That is from the L2's request to its response, through the window and the PS port. It is consistent with spike S1's 184 ns at the PS port, once the uncore path, the PL-PS crossing at 60 MHz and the line's last beat are added.
+- **The PMOD console** (COM5, 115200 8N1) carried both boots and the whole session: 22,403 bytes. The only bad byte is described next.
+- **The console tail:** first light's last line first showed as `PAS` on both consoles, because `run` wrote `CTRL = 3` as soon as `tohost` arrived, while the UART was still sending. `tanager-host` `c68bc6e` drains the console until it has been quiet for 20 ms (0.5 s at most) before it resets. On the board, both consoles now end in `PASS` ([log](board/m4_firstlight_c68bc6e.log)).
+- **M4's exit criteria** (plan §11):
+  - **Linux boots at 0 and 250 injected cycles:** met, at 60 MHz.
+  - **Linux at ≥ 100 MHz:** waits for the core's timing.
+  - **FPGA lockstep:** waits for step 8, the commit trace.

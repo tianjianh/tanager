@@ -6,7 +6,8 @@ the per-unit gap against fpga/budget/budgets.tsv and the dual-core total against
 
   python3 perfmodel/scripts/area_fit.py --core core/latest.json --uncore uncore/latest.json [--cfg smt2]
   python3 perfmodel/scripts/area_fit.py ... --no-hart1        # once M7 builds hart 1's state
-  python3 perfmodel/scripts/area_fit.py ... --hart1 ram       # hart 1 as a RAM address bit (v1 only)
+  python3 perfmodel/scripts/area_fit.py ... --hart1 ram       # hart 1 in RAM form (v1 only; docs/perf/hart1_ram_form.md)
+  python3 perfmodel/scripts/area_fit.py ... --hart1 copies    # hart 1 as second copies, with the PMP select
 
 Pass --budget-total to judge a configuration that has no per-unit lines yet (smt2_w3 before AR-9's lines).
 """
@@ -23,12 +24,24 @@ LIMITS = (("200 MHz, 88% (S6)", 103040), ("200 MHz, 90% (DR-011)", 105408),
           ("180 MHz, v1 closes at 95.3%", 111633), ("180 MHz, v2 closes at 96.0%", 112441))
 UNITS = ("fe", "dec", "ren", "iq", "ex", "lsu_mmu", "rob_csr", "p4")
 BUDGET_ROW = {"p4": "fpu"}  # P4 (tg_fp_exec) is judged against the FPU line; it also holds the FP register file
-# Hart 1's state per unit, until M7 builds it: budgets.md's SMT2 additions after R1 and R2 (area_recovery.md 7.1),
-# which cost second copies (flip-flop maps, tables with their own ports). --hart1 ram uses the second estimate, with
-# per-thread state as a RAM address bit (conventions section 7; area_recovery.md 7.7), worked out for v1 only.
+# Hart 1's state per unit, until M7 builds it (area_recovery.md 7.1 and 7.7):
+# - budgets (default): budgets.md's SMT2 additions after R1 and R2, which cost second copies; the rows up to
+#   2026-10-14 16:31 use it.
+# - copies: the same plus the PMP descriptor select, measured at +576 LUTs at each of the four tg_pmp checkers
+#   (fetch in fe; LD, STA and the walker in lsu_mmu), which neither earlier estimate counted.
+# - ram: per-thread state as a RAM address bit (conventions section 7; docs/perf/hart1_ram_form.md), with the same
+#   PMP select; worked out for v1 only.
+PMP_SELECT = {"fe": 576, "lsu_mmu": 3 * 576}
 HART1 = {"smt2": {"fe": 1000, "dec": 150, "ren": 1300, "rob_csr": 1650, "lsu_mmu": 100},
          "smt2_w3": {"fe": 1000, "dec": 200, "ren": 1450, "rob_csr": 1650, "lsu_mmu": 100}}
-HART1_RAM = {"smt2": {"fe": 650, "dec": 100, "ren": 550, "rob_csr": 1000, "lsu_mmu": 100}}
+HART1_RAM = {"smt2": {"fe": 600, "dec": 100, "ren": 580, "rob_csr": 680, "lsu_mmu": 100}}
+
+
+def hart1_for(basis, cfg):
+    base = (HART1_RAM if basis == "ram" else HART1).get(cfg, {})
+    if basis == "budgets":
+        return dict(base)
+    return {u: base.get(u, 0) + PMP_SELECT.get(u, 0) for u in set(base) | set(PMP_SELECT)}
 
 
 def budgets():
@@ -65,8 +78,9 @@ def main():
     ap.add_argument("--uncore", required=True, help="latest.json of a budget run with the uncore")
     ap.add_argument("--cfg", default="smt2")
     ap.add_argument("--no-hart1", action="store_true", help="the RTL already has hart 1's state (M7)")
-    ap.add_argument("--hart1", choices=("ff", "ram"), default="ff",
-                    help="hart 1's estimate: second copies (ff, the budgets' basis) or a RAM address bit (ram)")
+    ap.add_argument("--hart1", choices=("budgets", "copies", "ram"), default="budgets",
+                    help="hart 1's estimate: the budgets' second copies (default), copies with the PMP select, "
+                         "or RAM form with the PMP select")
     ap.add_argument("--budget-total", type=int, help="per-core budget when the configuration has no lines")
     ap.add_argument("--uncore-cfg", help="the uncore run's configuration (default --cfg; smt2 for smt2_w3)")
     a = ap.parse_args()
@@ -77,7 +91,7 @@ def main():
     unc, ustamp, _ = measured(a.uncore, ucfg)
     if a.hart1 == "ram" and a.cfg not in HART1_RAM:
         ap.error(f"no RAM-form hart 1 estimate for {a.cfg}")
-    hart1 = {} if a.no_hart1 else (HART1_RAM if a.hart1 == "ram" else HART1).get(a.cfg, {})
+    hart1 = {} if a.no_hart1 else (hart1_for(a.hart1, a.cfg) if a.cfg in HART1 else {})
     print(f"core {a.cfg}: budget run {stamp} at {commit}; uncore: {ustamp}\n")
     print("| Unit | Budget | Measured | + hart 1 (est.) | Over |\n|---|---|---|---|---|")
     for u in UNITS:
