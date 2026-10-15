@@ -1,0 +1,24 @@
+remove from slot 0 returns: 0 (Ok)
+tanager-m4: Loaded with slot_handle 0
+loaded tanager-m4 at 03:20:12; fpga0 operating
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 15 03:19:51 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 15 03:19:51 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 15 03:20:11 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 15 03:20:11 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 15 03:20:11 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 15 03:20:11 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 15 03:20:11 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 03:30:12 unless 'steps' or 'restore' runs first
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb --lossless --trace-log2 16 --trace tg.trace --timeout 5400
+boot exit 141 after 61 s (TANAGER-BOOT-OK never s, prompt never s)
+checker exit 2
+tanager-lockstep: MISMATCH after 8204496 records (8204490 retired, 7 traps, 0 interrupts, 0 writebacks) in 58.7 s, 139865 records/s
+==== END OF REPORT ====
+tanager-lockstep: MISMATCH after 8204496 records (8204490 retired, 7 traps, 0 interrupts, 0 writebacks) in 58.7 s, 139865 records/s
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 03:21:16
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active

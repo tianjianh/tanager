@@ -19,10 +19,12 @@ results. It aims at the plan's risk areas (§9, §4.5, §4.9, §4.15):
   - the structures the FPGA-friendly rewrites touch (verification.md §6.2, §6.4): register pressure
     on the rename maps (one register written twice in a group, flushes in between), store bursts
     past the store queue's depth, every completion port in the same cycle, CLINT loads (MMIO), more
-    long-latency operations than the core has tags, WFI, illegal CSR writes, fetch faults and
+    long-latency operations than the core has tags, more multiplies and FP-to-FP operations waiting
+    on a missing load than rename has wakeup tags, WFI, illegal CSR writes, fetch faults and
     accesses to a page the runs deny (--deny);
   - with --vm PCT, that share of the programs runs its body in S-mode under Sv39: an identity map in
-    4 KiB pages (TLB misses and page walks on every template), plus page faults and SFENCE.VMA.
+    4 KiB pages (TLB misses and page walks on every template), plus page faults, SFENCE.VMA and
+    SRET (staying in S).
 
   tg_rand.py --seed 42 --isa rv64im -o prog.S
 """
@@ -562,6 +564,52 @@ class Gen:
             else:  # a new line of the stream region each time: misses
                 self.emit(f"ld {x(self.wr((p,)))}, {(i * 64) % 2048}({x(p)})")
 
+    def t_tag_burst(self):
+        """More operations waiting than rename has wakeup tags (16): a load that misses feeds integer
+        multiplies and, with F/D, FP-to-FP operations on its value moved to an FP register, all with
+        distinct destinations. They wait in IQ_A1 and IQ_FP (ten rows each) while the load is
+        outstanding, so rename runs out of tags (tg_rename's tag_short; verification.md §6.4). Integer
+        multiplies alone fill IQ_A1 first, so it needs F/D."""
+        if not self.has_m:
+            return self.t_long_burst()
+        p = self.wr((1,))
+        t = self.wr((1, p))
+        self.emit(f"la {x(p)}, stream")
+        self.emit(f"li {x(t)}, {self.r.randrange(self.stream_size // 64) * 64}")
+        self.emit(f"add {x(p)}, {x(p)}, {x(t)}")
+        src = self.wr((1, p))
+        self.emit(f"ld {x(src)}, 0({x(p)})")              # a line of the stream region: likely a miss
+        ints = self.r.sample([r for r in WRITABLE if r not in (1, p, src)], self.r.randrange(8, 12))
+        fps, fsrc = [], None
+        if self.has_fd:
+            fsrc = self.r.randrange(32)
+            self.emit(f"fmv.d.x f{fsrc}, {x(src)}")
+            fps = self.r.sample([f for f in range(32) if f != fsrc], self.r.randrange(8, 12))
+        for i in range(max(len(ints), len(fps))):
+            if i < len(ints):
+                op = self.r.choice(["mul", "mulw", "mulh", "mulhu", "mulhsu"])
+                self.emit(f"{op} {x(ints[i])}, {x(src)}, {x(self.r.choice([src, self.rd_any()]))}")
+            if i < len(fps):
+                w = self.r.choice([".s", ".d"])
+                a, b = f"f{fsrc}", self.r.choice([f"f{fsrc}", self.fr()])
+                self.emit(self.r.choice([f"fmul{w} f{fps[i]}, {a}, {b}", f"fadd{w} f{fps[i]}, {a}, {b}",
+                                         f"fmadd{w} f{fps[i]}, {a}, {b}, {self.fr()}",
+                                         f"fsgnjx{w} f{fps[i]}, {a}, {b}", f"fmax{w} f{fps[i]}, {a}, {b}"]))
+
+    def t_sret(self):
+        """Under --vm (S-mode): SRET to the next instruction, staying in S (sstatus.SPP = S). The ROB's
+        head takes the same next-PC path (xepc) as for MRET, which every trap handler retires."""
+        t = self.wr((1,))
+        lab = self.label()
+        self.emit(f"la {x(t)}, {lab}")
+        self.emit(f"csrw sepc, {x(t)}")
+        self.emit(f"li {x(t)}, 0x100")
+        self.emit(f"csrs sstatus, {x(t)}")
+        if self.r.randrange(2):
+            self.alu()
+        self.emit("sret")
+        self.place(lab)
+
     def t_wfi(self):
         """WFI: wakes on the timer interrupt (programs with --irq), else retires after the core's
         time-out."""
@@ -858,7 +906,9 @@ class Gen:
         if self.irq:
             templates.append((self.t_wfi, 1))
         if self.vm:
-            templates.append((self.t_vm, 4))
+            templates += [(self.t_vm, 4), (self.t_sret, 1)]
+        if self.has_m:
+            templates.append((self.t_tag_burst, 2))
         if self.group3:
             templates.append((self.t_group3, 6))
         if self.has_fd:

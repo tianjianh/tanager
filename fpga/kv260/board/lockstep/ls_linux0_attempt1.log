@@ -1,0 +1,142 @@
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 1 hart(s), 768 MiB; fw 277856 B, kernel 21449216 B, dtb 2087 B; reading tg.trace
+tanager-lockstep: 4221100 records (140700/s; 140700/s overall), 4221094 retired, 6 traps, 0 interrupts, 0 writebacks pending
+tanager-lockstep: MISMATCH at record 8204496 (cycle 3504571414): x14 value: RTL 0000000000000040, Spike 0000000000000000
+  raw record: 0005c70300001c90 ffffffff802689e2 0000000000000040 0000000000000000 0000000000000000 00000000d0e38416
+
+==== LOCKSTEP MISMATCH ====
+x14 value: RTL 0000000000000040, Spike 0000000000000000
+RTL record: 3504571414 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000040
+
+---- last 64 RTL records, hart 0 (cycle, hart, privilege, kind) ----
+3504571113 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 0000000048200c00
+3504571113 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- ffffffffaeca3165
+3504571114 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571114 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000006f
+3504571115 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 00000000000000ae
+3504571115 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec00905
+3504571143 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 00000000000000c1
+3504571143 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 0000000000000304
+3504571144 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102bc04
+3504571144 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 00000000594b8d2e
+3504571145 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffffca316500
+3504571145 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- ffffffff937ae82e
+3504571173 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571173 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000002d
+3504571174 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000093
+3504571174 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec00906
+3504571175 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 00000000000000be
+3504571175 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 00000000000002f8
+3504571203 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102bbf8
+3504571203 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- ffffffff81b02d74
+3504571204 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 000000007ae82e00
+3504571204 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- fffffffffb580374
+3504571205 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571205 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000006d
+3504571233 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 00000000000000fb
+3504571233 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec00907
+3504571234 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 0000000000000096
+3504571234 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 0000000000000258
+3504571235 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102bb58
+3504571235 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 000000003f9b762c
+3504571263 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 0000000058037400
+3504571263 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- 000000006798022c
+3504571264 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571264 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000061
+3504571265 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000067
+3504571265 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec00908
+3504571293 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 0000000000000006
+3504571293 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 0000000000000018
+3504571294 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102b918
+3504571294 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 000000001a864db2
+3504571295 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffff98022c00
+3504571295 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- ffffffff828461b2
+3504571323 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571323 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000070
+3504571324 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000082
+3504571324 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec00909
+3504571325 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 00000000000000f2
+3504571325 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 00000000000003c8
+3504571353 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102bcc8
+3504571353 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- ffffffff803ac667
+3504571354 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffff8461b200
+3504571354 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- 00000000045b7467
+3504571355 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571355 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000000
+3504571383 h0 S retire pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000004
+3504571383 h0 S retire pc=ffffffff802689ea (0585)     c.addi  a1, 1                x11 <- ffffffc4fec0090a
+3504571384 h0 S retire pc=ffffffff802689ec (8fb9)     c.xor   a5, a4               x15 <- 0000000000000004
+3504571384 h0 S retire pc=ffffffff802689ee (078a)     c.slli  a5, 2                x15 <- 0000000000000010
+3504571385 h0 S retire pc=ffffffff802689f0 (97b6)     c.add   a5, a3               x15 <- ffffffff8102b910
+3504571385 h0 S retire pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 00000000130476dc
+3504571413 h0 S retire pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 000000005b746700
+3504571413 h0 S retire pc=ffffffff802689fa (8d3d)     c.xor   a0, a5               x10 <- 00000000487011dc
+3504571414 h0 S retire pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+3504571414 h0 S retire pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000040
+
+---- last 64 Spike steps, hart 0 (step 8204497 is the last) ----
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 0000000048200c00
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- ffffffffaeca3165
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000006f
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 00000000000000ae
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec00905
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 00000000000000c1
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 0000000000000304
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102bc04
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 00000000594b8d2e
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffffca316500
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- ffffffff937ae82e
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000002d
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000093
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec00906
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 00000000000000be
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 00000000000002f8
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102bbf8
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- ffffffff81b02d74
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 000000007ae82e00
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- fffffffffb580374
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 000000000000006d
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 00000000000000fb
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec00907
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 0000000000000096
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 0000000000000258
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102bb58
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 000000003f9b762c
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 0000000058037400
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- 000000006798022c
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000061
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000067
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec00908
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 0000000000000006
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 0000000000000018
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102b918
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 000000001a864db2
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffff98022c00
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- ffffffff828461b2
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000070
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000082
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec00909
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 00000000000000f2
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 00000000000003c8
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102bcc8
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- ffffffff803ac667
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- ffffffff8461b200
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- 00000000045b7467
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000000
+S pc=ffffffff802689e6 (0185579b) srliw   a5, a0, 24           x15 <- 0000000000000004
+S pc=ffffffff802689ea (00000585) c.addi  a1, 1                x11 <- ffffffc4fec0090a
+S pc=ffffffff802689ec (00008fb9) c.xor   a5, a4               x15 <- 0000000000000004
+S pc=ffffffff802689ee (0000078a) c.slli  a5, 2                x15 <- 0000000000000010
+S pc=ffffffff802689f0 (000097b6) c.add   a5, a3               x15 <- ffffffff8102b910
+S pc=ffffffff802689f2 (8c07a783) lw      a5, -1856(a5)        x15 <- 00000000130476dc
+S pc=ffffffff802689f6 (0085151b) slliw   a0, a0, 8            x10 <- 000000005b746700
+S pc=ffffffff802689fa (00008d3d) c.xor   a0, a5               x10 <- 00000000487011dc
+S pc=ffffffff802689fc (ff0593e3) bne     a1, a6, pc - 26     
+S pc=ffffffff802689e2 (0005c703) lbu     a4, 0(a1)            x14 <- 0000000000000000
+==== END OF REPORT ====
+tanager-lockstep: MISMATCH after 8204496 records (8204490 retired, 7 traps, 0 interrupts, 0 writebacks) in 58.7 s, 139865 records/s

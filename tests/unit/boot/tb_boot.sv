@@ -6,6 +6,8 @@
 //   +expect=<text>  pass when the console contains it         +max_mcycles=N  give up after N million cycles
 //   +dump_pc=<hex>  print the hart's last records when a record has this pc (once)
 //   +dump_cause=N   ... when an instruction traps with this cause (once)      +dump_stop  end the run there
+//   +trace_out=<file>  the commit trace into <file>, 64 bytes a record, as tanager-host --trace writes it
+//                      (for tanager-lockstep); unwritten memory then reads as zero, as on the board
 // At the end the run prints a signature over every commit record and its cycle: two builds that give
 // the same signature retired the same instructions in the same cycles (the cycle-identity check of
 // docs/perf/fpga_friendly.md for uncore rewrites). Each progress line carries the running signature,
@@ -19,6 +21,8 @@ module tb_boot;
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
   localparam longint unsigned RV_DRAM = 64'h8000_0000;
+  localparam logic [39:0] TR_BASE = 40'h8_4800_0000;    // the trace ring, in the trace memory
+  localparam int          TR_LOG2 = 12;                 // 4,096 records: it wraps, and the reader holds the cores
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
   logic uart_txd;
@@ -260,6 +264,32 @@ module tb_boot;
   endfunction
 
   // =============================================================================================
+  // tanager-host's `run --trace FILE` (host.md): +trace_out=FILE streams every commit record into the ring,
+  // copies the records the stream has completed to FILE, 64 bytes each as the board's ring holds them, and
+  // frees them (TRS_RP), so that tanager-lockstep can check the run (verification.md §3.9).
+  int              trace_fd = 0;
+  longint unsigned trace_rp = 0;
+  task automatic trace_poll();
+    logic [31:0] lo, hi;
+    longint unsigned wp, a;
+    logic [127:0] b;
+    if (trace_fd == 0) return;
+    hr(16'h1038, lo);
+    hr(16'h103C, hi);
+    wp = {hi, lo};
+    for (longint unsigned n = trace_rp; n < wp; n++) begin
+      a = longint'(TR_BASE) + (n % (64'd1 << TR_LOG2)) * 64;
+      for (int k = 0; k < 4; k++) begin
+        b = u_tmem.peek_beat(a + longint'(k) * 16);
+        for (int i = 0; i < 16; i++) $fwrite(trace_fd, "%c", b[8*i +: 8]);
+      end
+    end
+    if (wp != trace_rp) begin
+      trace_rp = wp;
+      hw64(16'h1030, trace_rp);
+    end
+  endtask
+
   initial begin
     string path;
     longint unsigned max_cycles, cyc;
@@ -271,6 +301,14 @@ module tb_boot;
     max_cycles = longint'(max_m) * 1_000_000;
     $display("tb_boot: %0d core(s) x %0d thread(s), expect \"%s\", up to %0d M cycles", N_CORES, NUM_THREADS, expect_s, max_m);
     for (int h = 0; h < NH_TB; h++) last_n[h] = 0;
+
+    // A traced run is checked against Spike, whose memory starts at zero: unwritten memory reads as zero
+    // here too, as on the board, where tanager-host zeroes the window for --trace. Set before the images
+    // load, so the bytes they leave unwritten in a beat are zero as well.
+    if ($test$plusargs("trace_out=")) begin
+      g_mem[0].u_mem.zero_unwritten(1'b1);
+      g_mem[1].u_mem.zero_unwritten(1'b1);
+    end
 
     repeat (10) @(posedge clk);
     rst = 0; rst_host = 0;
@@ -288,6 +326,15 @@ module tb_boot;
     if ($value$plusargs("initrd=%s", path)) load(path, 64'h8400_0000);
     hw64(16'h030, 64'h8000_0000);               // BOOT_ENTRY
     hw64(16'h038, 64'h8220_0000);               // DTB_ADDR
+    if ($value$plusargs("trace_out=%s", path)) begin
+      trace_fd = $fopen(path, "wb");
+      if (trace_fd == 0) $fatal(1, "tb_boot: cannot open %s", path);
+      hw64(16'h1020, 64'(TR_BASE));
+      hw(16'h1028, 32'(TR_LOG2));
+      hw64(16'h1030, 64'h0);
+      hw(16'h1000, 32'h1);                      // enable, no wrap: the cores wait for the reader
+      do hr(16'h1040, v); while (!v[0]);
+    end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0);
 
@@ -296,6 +343,7 @@ module tb_boot;
       repeat (2000) @(posedge clk);
       cyc += 2000;
       drain_console();
+      trace_poll();
       if (cyc % 1_000_000 == 0) $display("\n[tb_boot] %0d M cycles, %0d instructions retired, sig %016h,%s", cyc / 1_000_000, instret, tsig, last_pc_str());
       hr(16'h018, v);
       if (v[31]) begin
@@ -304,6 +352,13 @@ module tb_boot;
       end
     end
     drain_console();
+    if (trace_fd != 0) begin                    // stop taking records; the lanes drain into the ring
+      hw(16'h1000, 32'h0);
+      repeat (4000) @(posedge clk);
+      trace_poll();
+      $fclose(trace_fd);
+      $display("\n[tb_boot] trace: %0d records", trace_rp);
+    end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);
     if (UART_SERIAL_TB) begin
