@@ -79,6 +79,37 @@ package tg_fpu_util_pkg;
     return u;
   endfunction
 
+  // unpack's value with the classes formed from the unboxed value: fewer LUTs, more levels. For
+  // operands that come straight from registers (the dividers).
+  function automatic fp_unp_t unpack_lean(input logic [63:0] x, input logic dbl);
+    fp_unp_t u;
+    logic [31:0] s;
+    logic [EXP_W-1:0] e;
+    logic [SIG_W-2:0] f;
+    logic emax;
+    s = unbox_s(x);
+    if (dbl) begin
+      u.sign = x[63];
+      e      = x[62:52];
+      f      = x[51:0];
+      emax   = &x[62:52];
+    end else begin
+      u.sign = s[31];
+      e      = {3'b000, s[30:23]};
+      f      = {s[22:0], 29'b0};
+      emax   = &s[30:23];
+    end
+    u.zero = (e == '0) && (f == '0);
+    u.sub  = (e == '0) && (f != '0);
+    u.inf  = emax && (f == '0);
+    u.nan  = emax && (f != '0);
+    u.snan = u.nan && !f[SIG_W-2];
+    u.sig  = {e != '0, f};
+    if (dbl) u.exp = (e == '0) ? EXP_W'(1) : e;
+    else     u.exp = ((e == '0) ? EXP_W'(1) : e) + EXP_W'(S2D);
+    return u;
+  endfunction
+
   // IEEE 754 rounding decision from the last kept bit, guard and sticky.
   function automatic logic round_up(input rm_e rm, input logic sign, input logic lsb, input logic g,
                                     input logic s);
