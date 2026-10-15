@@ -7,8 +7,10 @@ set tg_paths {
   {uram_to_ex_b   *g_core?0?*u_ex/ex_b_q_reg*       *g_core?0?*u_ex/g_uram*u_ur*}
   {ex_a_q         *g_core?0?*u_ex/ex_a_q_reg*}
   {core0_uram_in  *g_core?0?*u_ex/g_uram*u_ur*}
+  {c1_is_to_uram  *g_core?1?*u_ex/g_uram*u_ur*      *g_core?1?*u_is/*}
+  {c1_uram_to_ex_a *g_core?1?*u_ex/ex_a_q_reg*      *g_core?1?*u_ex/g_uram*u_ur*}
+  {c1_uram_to_ex_b *g_core?1?*u_ex/ex_b_q_reg*      *g_core?1?*u_ex/g_uram*u_ur*}
   {core1_uram_in  *g_core?1?*u_ex/g_uram*u_ur*}
-  {core1_ex_a_q   *g_core?1?*u_ex/ex_a_q_reg*}
   {l2_uram        *u_l2/g_bank*u_data*}
   {l2_resp        *u_l2/c_out_reg*}
 }

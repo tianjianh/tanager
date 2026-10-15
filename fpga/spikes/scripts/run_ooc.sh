@@ -15,7 +15,7 @@ rm -rf "$build"; mkdir -p "$build" "$res"
 bash "$root/tools/vivado_run.sh" "$build" "$root/fpga/spikes/tcl/ooc_run.tcl" \
   "$root" "$cfg" "$top" "${PERIOD:-5.0}" "$@" > "$build/run.out" 2>&1
 rc=$?
-for f in summary.txt paths.txt prim_synth.txt prim_opt.txt util_hier.rpt util.rpt timing_worst.rpt levels.rpt congestion.rpt regions.txt; do
+for f in summary.txt paths.txt prim_synth.txt prim_opt.txt util_hier.rpt util.rpt timing_worst.rpt levels.rpt congestion.rpt regions.txt constraints.txt; do
   [ -f "$build/$f" ] && cp "$build/$f" "$res/"
 done
 grep -E '^(ERROR|CRITICAL WARNING)' "$build/vivado.log" 2>/dev/null | head -20 > "$res/errors.txt"
