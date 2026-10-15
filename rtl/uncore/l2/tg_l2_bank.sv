@@ -557,9 +557,8 @@ module tg_l2_bank
   logic                s2_err;
 
   always_comb begin
-    way_t   e, ha, hc;
-    logic [N_AGENTS-1:0] me, p, hp;
-    logic [WAYS-1:0]     hoh;
+    way_t   e;
+    logic [N_AGENTS-1:0] me, p;
     logic   grow_t, full_put;
     // Every S2 request writes back its selected entry and the PLRU bits, changed or not, so the
     // RAM's write enables depend only on p2_v_q (the decision logic feeds the data inputs only).
@@ -598,43 +597,6 @@ module tg_l2_bank
     e                = e2;
     p                = '0;
 
-    // A hit's updates, made for every way from its own entry and selected by the hit way late
-    // (200 MHz, DR-137), so the hit way's encoding and entry select are not in front of them: the
-    // alloc kinds' probe set and final entry (ha), and the C message's final entry (hc).
-    hoh = hitv & (~hitv + 1'b1);         // the hit way, one-hot: the lowest, as hw2
-    ha  = '0;
-    hc  = '0;
-    hp  = '0;
-    for (int w = 0; w < WAYS; w++) begin
-      way_t x, xa, xc;
-      logic [N_AGENTS-1:0] px;
-      x = row2.way[w];
-      unique case (p2_q.kind)
-        PK_ACQ:  px = a2_growt ? (x.pres & ~me) : (x.tip && x.pres != me) ? (x.pres & ~me) : '0;
-        PK_GET:  px = x.tip ? x.pres : '0;
-        default: px = x.pres;
-      endcase
-      xa = x;
-      if (px == '0) begin
-        if (p2_q.kind == PK_ACQ)      xa = acq_final(x, a2_ag, a2_growt);
-        else if (p2_q.kind == PK_PUT) xa.dirty = 1'b1;
-      end
-      xc = x;
-      unique case (cin_q.param)
-        TL_SHRINK_T_TO_B: begin xc.pres = xc.pres | onehot_ag(cin_ag);  xc.tip = 1'b0; end
-        TL_SHRINK_T_TO_N: begin xc.pres = xc.pres & ~onehot_ag(cin_ag); xc.tip = 1'b0; end
-        TL_SHRINK_B_TO_N, TL_REPORT_N_TO_N: xc.pres = xc.pres & ~onehot_ag(cin_ag);
-        default: ;   // TtoT, BtoB reports: unchanged
-      endcase
-      if (xc.pres == '0) xc.tip = 1'b0;   // no holder left: no owner either
-      if (cin_data) xc.dirty = 1'b1;
-      if (hoh[w]) begin
-        ha = ha | xa;
-        hc = hc | xc;
-        hp = hp | px;
-      end
-    end
-
     if (p2_v_q) begin
       dir_wway  = (p2_q.kind == PK_INIT) ? '1 : sw2_oh;
       dir_wplru = 1'b1;
@@ -648,7 +610,14 @@ module tg_l2_bank
           s2_c     = 1'b1;
           s2_c_hit = hit2;
           if (hit2) begin
-            e = hc;
+            unique case (cin_q.param)
+              TL_SHRINK_T_TO_B: begin e.pres = e.pres | onehot_ag(cin_ag);  e.tip = 1'b0; end
+              TL_SHRINK_T_TO_N: begin e.pres = e.pres & ~onehot_ag(cin_ag); e.tip = 1'b0; end
+              TL_SHRINK_B_TO_N, TL_REPORT_N_TO_N: e.pres = e.pres & ~onehot_ag(cin_ag);
+              default: ;   // TtoT, BtoB reports: unchanged
+            endcase
+            if (e.pres == '0) e.tip = 1'b0;   // no holder left: no owner either
+            if (cin_data) e.dirty = 1'b1;
           end else begin
             s2_err = 1'b1;   // a Release or ProbeAck for a line the inclusive L2 does not hold
           end
@@ -709,8 +678,11 @@ module tg_l2_bank
           if (hit2) begin
             ev_hit_o     = 1'b1;
             s2_alloc_way = hw2;
-            p            = hp;
-            e            = ha;               // the probe set's ways unchanged, else updated
+            unique case (p2_q.kind)
+              PK_ACQ:  p = a2_growt ? (e.pres & ~me) : (e.tip && e.pres != me) ? (e.pres & ~me) : '0;
+              PK_GET:  p = e.tip ? e.pres : '0;
+              default: p = e.pres;
+            endcase
             s2_alloc_probe  = p;
             s2_alloc_pcap_n = !(p2_q.kind == PK_GET || (p2_q.kind == PK_ACQ && !a2_growt));
             if (p != '0) begin
@@ -718,10 +690,12 @@ module tg_l2_bank
             end else begin
               unique case (p2_q.kind)
                 PK_ACQ: begin
+                  e = acq_final(e, a2_ag, a2_growt);
                   s2_alloc_grant_t = e.tip;
                   s2_alloc_st = MS_RESP;
                 end
                 PK_PUT: begin
+                  e.dirty     = 1'b1;
                   s2_alloc_st = MS_PUTW;
                 end
                 default: s2_alloc_st = MS_RESP;
