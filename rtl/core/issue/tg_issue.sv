@@ -45,6 +45,10 @@ module tg_issue
   input  logic                         a1_block,
   input  logic                         ld_block,
   input  logic                         fp_misc_block,   // EXT_FD: P4's F0 slot is taken
+  // IS stage (DR-133): each ALU queue's source tags in the row granted now (zero without a
+  // grant), which iss_pl carries in the next cycle; for an operand copy read a cycle early
+  output preg_t [N_ALU-1:0]            is_src1,
+  output preg_t [N_ALU-1:0]            is_src2,
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
   output iq_pl_t [N_IQ-1:0]            iss_pl
@@ -213,6 +217,7 @@ module tg_issue
     localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
     logic [DW-1:0][PW-1:0] dpl;
     logic [PW-1:0] pl;
+    logic [EW-1:0] se;
     iq_pl_t up;
     if (q == 0) begin : g_f0
       for (genvar k = 0; k < DW; k++) begin : g_k
@@ -378,9 +383,21 @@ module tg_issue
       .disp_mdep(MX ? disp_mdep : '0), .mx_issued(q == Q_FP ? '0 : mx_issued), .mx_free, .issued_o(iss_o), .free_o(free_o),
       .valid_o(val_o), .alloc_oh_o(aoh),
       .flush_valid(flush), .flush_tid(flush_tid), .flush_all(1'b1), .flush_rob('0),
-      .iss_valid_q(iss_valid[q]), .iss_payload(pl)
+      .sel_early(se), .iss_valid_q(iss_valid[q]), .iss_payload(pl)
     );
     assign iss_pl[q] = up;
+    if (q < N_ALU) begin : g_is
+      // the ALU format's low bits are {src1, src2}
+      assign is_src1[q] = se[2 * $bits(preg_t) - 1 : $bits(preg_t)];
+      assign is_src2[q] = se[$bits(preg_t) - 1 : 0];
+      if (EW > 2 * $bits(preg_t)) begin : g_un
+        logic unused;
+        assign unused = ^se[EW-1:2 * $bits(preg_t)];
+      end
+    end else begin : g_nois
+      logic unused;
+      assign unused = ^se;
+    end
     if (q < N_ALU) begin : g_now
       localparam int B = alu_row_base(q);
       assign mx_issued[B +: ROWS] = iss_o;
@@ -414,6 +431,19 @@ module tg_issue
   assign unused = ^{w1_unused, ph_unused, wd_unused};
 
 `ifndef SYNTHESIS
+  // The IS-stage tags are the RF stage's a cycle early
+  preg_t [N_ALU-1:0] is_src1_q, is_src2_q;
+  logic              is_chk_q;
+  always_ff @(posedge clk) begin
+    is_src1_q <= is_src1;
+    is_src2_q <= is_src2;
+    is_chk_q  <= !rst;
+    for (int q = 0; q < N_ALU; q++) begin
+      if (is_chk_q) assert (iss_pl[q].src1 == is_src1_q[q] && iss_pl[q].src2 == is_src2_q[q])
+        else $error("tg_issue: queue %0d's IS-stage source tags differ from RF's", q);
+    end
+  end
+
   // Loads and stores (and atomics) have 12-bit offsets: the LD and STA formats keep 12 bits
   always_ff @(posedge clk) begin
     for (int k = 0; k < DW; k++) begin

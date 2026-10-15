@@ -15,6 +15,7 @@ decode/tg_decode.sv
 decode/tg_decode_stage.sv
 rename/tg_freelist.sv
 rename/tg_rmap.sv
+rename/tg_rdytab.sv
 rename/tg_rename.sv
 issue/tg_iq.sv
 issue/tg_wake.sv
@@ -26,6 +27,7 @@ exec/tg_div.sv
 exec/tg_exec.sv
 lsu/tg_dcache.sv
 lsu/tg_lsu.sv
+csr/tg_dsp_ctr.sv
 csr/tg_csr.sv
 rob/tg_rob.sv
 tg_core.sv
