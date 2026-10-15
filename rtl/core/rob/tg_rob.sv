@@ -308,8 +308,9 @@ module tg_rob
   // Cleared at dispatch; set by the LSU's replay report and its two TLB-miss reports, possibly
   // more than once a lap (so not a toggle table). One table per writer, and the flag is the XOR
   // of the tables: a writer stores its value XOR the other tables at its entry, read in the same
-  // cycle. Two writers at one entry would cancel, so of several setters there only the first
-  // writes, and a dispatch clear yields to a set (the order the flip-flops had).
+  // cycle. Two writers at one entry in a cycle would cancel; none do (asserted): a setter's entry
+  // is live, so never one being dispatched; a TLB miss is a new access at AG, never a load the
+  // ordering search finds (it has a value); the LD and STA ports carry different instructions.
   localparam int NRW = DISPATCH_WIDTH + 3;       // dispatch slots, then replay, TLB miss LD, STA
   localparam int NRR = NRW - 1 + CW;             // read ports: the other writers', then the head's
   logic [NRW-1:0]           rw_v;
@@ -317,19 +318,11 @@ module tg_rob
   logic [NRW-1:0]           rw_d;
   logic [NRW-1:0][NRR-1:0]  rw_rd;
   always_comb begin
-    logic [2:0]          sv;
-    logic [2:0][RIW-1:0] sa;
-    sv = {tlbm_valid[1], tlbm_valid[0], replay_valid};
-    sa = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
-    for (int i = 0; i < 3; i++) begin
-      rw_v[DISPATCH_WIDTH + i] = sv[i];
-      for (int t = 0; t < i; t++) if (sv[t] && sa[t] == sa[i]) rw_v[DISPATCH_WIDTH + i] = 1'b0;
-      rw_a[DISPATCH_WIDTH + i] = sa[i];
-      rw_d[DISPATCH_WIDTH + i] = 1'b1;
-    end
+    rw_v[DISPATCH_WIDTH +: 3] = {tlbm_valid[1], tlbm_valid[0], replay_valid};
+    rw_a[DISPATCH_WIDTH +: 3] = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
+    rw_d[DISPATCH_WIDTH +: 3] = '1;
     for (int k = 0; k < DISPATCH_WIDTH; k++) begin
       rw_v[k] = ds_fire && ds_valid[k];
-      for (int i = 0; i < 3; i++) if (sv[i] && sa[i] == ds_ren[k].rob[RIW-1:0]) rw_v[k] = 1'b0;
       rw_a[k] = ds_ren[k].rob[RIW-1:0];
       rw_d[k] = 1'b0;
     end
@@ -676,6 +669,10 @@ module tg_rob
       end
       if (replay_valid) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
       for (int i = 0; i < 2; i++) if (tlbm_valid[i]) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+      for (int a = 0; a < NRW; a++)
+        for (int b = a + 1; b < NRW; b++)
+          assert (!(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
+            else $error("tg_rob: two replay-table writers at entry %0d", rw_a[a]);
       for (int t = 0; t < NFT; t++) begin
         if (ft_v[t]) begin
           if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;

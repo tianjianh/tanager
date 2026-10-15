@@ -177,7 +177,8 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **`replay` is XOR-banked LUTRAM (FPGA-friendly T2).** It can't be a toggle table: an entry can be marked more than once (two ordering violations).
   - **Writers:** dispatch clears it, one table per slot. The LSU's replay report and its two TLB-miss reports set it, a table each.
   - **Writing:** a writer stores its value XOR the other tables at its entry, read in the same cycle. The flag is the XOR of all the tables.
-  - **Same-entry writes:** two writers at one entry would cancel. So of several setters there, only the first writes, and a dispatch clear yields to a set: the order the flip-flops had.
+  - **Same-entry writes:** two writers at one entry in one cycle would cancel, and none occur (asserted). A setter's entry is live, so it is never one being dispatched. A TLB miss is a new access at AG, never a load the ordering search finds (that load already has its value). The LD and STA ports carry different instructions.
+    - An earlier version guarded these cases with comparators. That put the LSU's late replay report on every dispatch table's write enable: the whole core's second-worst path (§13).
   - **Size:** at st, five 48 × 1 tables with six read ports each (the four other writers' entries and the two commit slots'), one RAM64M8 apiece. The tables need no reset, because dispatch clears an entry before anything reads it.
   - **Checked:** a shadow copy of the flip-flop flag, in simulation, must equal the tables' flag at every live commit slot.
 - **One adder on the head's PC** serves both a serial instruction's next PC (+2 or +4) and the `tval` of a fetch fault on an instruction's second half (+2). The fault is a decode exception, which traps, so one instruction never needs both (asserted).
