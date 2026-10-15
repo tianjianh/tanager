@@ -563,10 +563,9 @@ module tg_exec
       rf_we[1] = 1'b1;
       rf_wa[1] = oth_wa;
     end
-    if (init_we) begin
+    if (init_we) begin                     // the data is res_q[0], zero then (below)
       rf_we[0] = 1'b1;
       rf_wa[0] = init_idx;
-      rf_wd[0] = '0;
     end
     rf_we[LD_BANK] = ld_res_valid;
     rf_wa[LD_BANK] = ld_res_dst;
@@ -614,6 +613,9 @@ module tg_exec
       wb_dst_q[i] <= preg_idx(ex_pl_q[i].dst);
       wb_rob_q[i] <= ex_pl_q[i].rob;
     end
+    // res_q[0] is zero through the reset sequence (rst, then init_we, while nothing issues), so
+    // bank 0's zero writes take it as their data: no multiplexer in front of the bank (T7)
+    if (rst || init_we) res_q[0] <= '0;
     wbq_q    <= res_q;
     ld_wbq_q <= ld_res_data;
     // Branch WB state
