@@ -330,6 +330,10 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 - **Host program, `tg start` (found by the board session, 2026-10-14):** it released the uncore without setting the DRAM window. The window resets to base 0, size 0, and size 0 denies every access, so the generators would have counted errors, not passes.
   - `tb_soc` writes the window itself before it starts the generators, so no test ran `tanager-host`'s own sequence.
   - Fixed: `tg start` writes the window from `--base`/`--size` while cores and uncore are held, as `load` does.
+- **Found on the board in stage B (2026-10-14):**
+  - **`tanager-host` read the PL with no design loaded.** The board session ran it after the default app was back; the read went unanswered and the ARM hung until a power cycle. `tanager-host` now refuses unless the overlay's node is in the live device tree (`--force` skips the check).
+  - **Options after the command were ignored:** the option string began with `+`, which stops getopt at the command. They now go anywhere.
+  - **The injector's native-latency average read 0.1 cycles.** A 32-bit cast around a 16-bit time difference made the subtraction 32 bits wide, so each read in flight across the time counter's wrap added 2^32 − 2^16. The unit test ran shorter than one wrap; it now runs past one and checks the average against the maximum.
 - **Interface margin:** a trace sink that stalls from registered occupancy needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES` of headroom, not `TRACE_STALL_HEADROOM`'s 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` (verification.md §2.9).
   - The SoC run with the test core overflowed a lane at 2 ×.
   - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
@@ -339,6 +343,7 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 
 **Lessons:**
 - **A test bench that repeats the host program's register sequence does not test the host program.** `tb_soc` took its sequence from this document, not from `tanager-host.c`, and only `tanager-host` had the bug.
+- **Take a difference of wrapping counters in their own width.** A wider cast around the subtraction widens the subtraction too. And run every counter-based statistic past its counter's wrap in its test.
 - **Time the whole core in context before planning its clock.** Each unit met its own timing run, yet two paths that cross four or five units are 13.5 ns long; the first full build found them.
 - **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
 - **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
