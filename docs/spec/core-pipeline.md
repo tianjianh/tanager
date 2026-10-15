@@ -185,6 +185,17 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
+  - **The exception is chosen in parallel, not by a chain of compares.**
+    - **Candidates:** the register, the CSR port, the branch port and the LSU's four ports. Every pair is compared by ROB index.
+    - **Why it is fast:** the indices arrive early, since the LSU sends each port's payload index whether or not it faults. The late valid bits only gate a one-hot select.
+    - **Same result as the chain:** the oldest wins, the first candidate in the old order on a tie. `tval` is the best of the first three alone, as the chain left it.
+    - **Checked:** in simulation the old chain runs beside it and must agree every cycle.
+    - **Why:** the chain was the end of the whole core's worst paths at 100 MHz (§13), and the ROB's own worst path (−0.350 ns at 200 MHz out of context).
+- **The trap target comes in two parts** (`tg_csr`):
+  - **An exception's** is its vector's base, chosen by its cause's delegation.
+  - **An interrupt's** adds 4 × its code in vectored mode. Its code and delegation are the CSR file's own and arrive early, so the 64-bit add stays off the exception's path.
+  - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
+- **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
 ### 8.2 Commit
