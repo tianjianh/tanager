@@ -263,7 +263,7 @@ module tg_core
   logic [63:0]      csr_ex_src, csr_ex_rdata;
   tg_exec u_ex (
     .clk, .rst, .flush, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
-    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
+    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .is_src1, .is_src2, .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
@@ -466,6 +466,5 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    is_src1, is_src2};            // until execute's operand copy takes them (DR-133)
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
 endmodule

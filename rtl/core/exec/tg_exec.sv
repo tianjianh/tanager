@@ -17,11 +17,19 @@
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
-  localparam int NRP   = 2 * N_ALU + 3 + COMMIT_WIDTH,
-  localparam int P_LD  = 2 * N_ALU,
-  localparam int P_STA = 2 * N_ALU + 1,
-  localparam int P_SH  = 2 * N_ALU + 2,
-  localparam int P_TR  = 2 * N_ALU + 3,
+  // DR-133: the ALU operand ports read UltraRAM copies of the register file (gated: 0 until
+  // cycle identity, 200 MHz next to a URAM column and a full-chip placement check pass)
+`ifdef TG_IRF_URAM
+  parameter bit  IRF_URAM = 1'b1,
+`else
+  parameter bit  IRF_URAM = 1'b1,   // TEST WORKTREE ONLY
+`endif
+  localparam int NAP   = IRF_URAM ? 0 : 2 * N_ALU,   // ALU operand ports in tg_irf
+  localparam int NRP   = NAP + 3 + COMMIT_WIDTH,
+  localparam int P_LD  = NAP,
+  localparam int P_STA = NAP + 1,
+  localparam int P_SH  = NAP + 2,
+  localparam int P_TR  = NAP + 3,
   localparam int NSRC  = 2 * (N_ALU + 1) + 2,
   localparam int SW    = idx_w(NSRC),
   localparam int S_RF  = 0,
@@ -40,6 +48,10 @@ module tg_exec
   // Issue (RF stage)
   input  logic [N_XQ-1:0]              iss_valid,
   input  iq_pl_t [N_XQ-1:0]            iss_pl,
+  // IS (tg_issue, DR-133): the source tags of the row each ALU queue grants now (RF's a cycle
+  // later), the URAM read address with IRF_URAM; unconnected until the core wires them
+  input  preg_t [N_ALU-1:0]            is_src1 = '0,
+  input  preg_t [N_ALU-1:0]            is_src2 = '0,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -125,11 +137,64 @@ module tg_exec
     .rdata(rd_data));
 
   // Read addresses: ALU operands, LD and STA bases (RF stage), store data, trace
-  for (genvar i = 0; i < N_ALU; i++) begin : g_rda
-    assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
-    assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
-    assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
-    assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+  logic [N_ALU-1:0][1:0][63:0] alu_rd;   // the ALU operands' register values in RF
+  if (!IRF_URAM) begin : g_rda
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
+      assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
+      assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
+      assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+      assign alu_rd[i][0]   = rd_data[2*i];
+      assign alu_rd[i][1]   = rd_data[2*i+1];
+    end
+    logic unused_isd;
+    assign unused_isd = ^{is_src1, is_src2};
+  end else begin : g_uram
+    // UltraRAM copies, one per bank and ALU operand port, written like the banks and read with
+    // the source tags of IS (is_src1/is_src2), so the data arrives in RF as tg_irf's does. The URAM
+    // read is read-first, so a write in the cycle before RF is taken from that write's
+    // registers instead (the LUTRAM banks show it to an RF read).
+    logic [INT_BANKS-1:0]             pw_we_q;
+    logic [INT_BANKS-1:0][PIDX_W-1:0] pw_wa_q;
+    logic [INT_BANKS-1:0][63:0]       pw_wd_q;
+    always_ff @(posedge clk) begin
+      pw_we_q <= rf_we;
+      pw_wa_q <= rf_wa;
+      pw_wd_q <= rf_wd;
+    end
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      for (genvar o = 0; o < 2; o++) begin : g_o
+        logic [INT_BANKS-1:0][63:0] urd;
+        for (genvar b = 0; b < INT_BANKS; b++) begin : g_b
+          tg_ram_sdp #(.DEPTH(INT_PREGS_PER_BANK), .WIDTH(64), .PRIM("ultra")) u_ur (
+            .clk, .we(rf_we[b]), .waddr(rf_wa[b]), .wdata(rf_wd[b]),
+            .re(1'b1), .raddr(preg_idx(o ? is_src2[i] : is_src1[i])), .rdata(urd[b]));
+        end
+        // One encoded select per bit: the source's bank, or that bank's write of the cycle before
+        // (picked once per port), so a bit is a 4:1 (with three banks) after a 3:1.
+        preg_t t;
+        assign t = o ? iss_pl[i].src2 : iss_pl[i].src1;
+        logic [BANK_W-1:0] tb;
+        logic [63:0]       pw;      // the source bank's write of the cycle before
+        logic              hit;
+        always_comb begin
+          tb  = preg_bank(t);
+          pw  = pw_wd_q[0];
+          hit = 1'b0;
+          for (int b = 0; b < INT_BANKS; b++) begin
+            if (tb == BANK_W'(b)) begin
+              pw  = pw_wd_q[b];
+              hit = pw_we_q[b] && pw_wa_q[b] == preg_idx(t);
+            end
+          end
+          alu_rd[i][o] = urd[0];
+          if (hit) alu_rd[i][o] = pw;
+          else begin
+            for (int b = 1; b < INT_BANKS; b++) if (tb == BANK_W'(b)) alu_rd[i][o] = urd[b];
+          end
+        end
+      end
+    end
   end
   assign rd_bank[P_LD]  = preg_bank(iss_pl[Q_LD].src1);
   assign rd_idx[P_LD]   = preg_idx(iss_pl[Q_LD].src1);
@@ -196,8 +261,8 @@ module tg_exec
             : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
       if (q < N_ALU) begin
-        ra[q] = rd_data[2*q];
-        rb[q] = rd_data[2*q+1];
+        ra[q] = alu_rd[(q < N_ALU) ? q : 0][0];   // (the index stays in range where q >= N_ALU)
+        rb[q] = alu_rd[(q < N_ALU) ? q : 0][1];
       end else if (q == Q_LD) begin
         ra[q] = rd_data[P_LD];
         rb[q] = '0;

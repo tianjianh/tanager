@@ -20,7 +20,9 @@ module tg_fprf
   input  logic [FPIDX_W-1:0]          f1_waddr,
   input  logic [63:0]                 f1_wdata,
   input  logic [NR-1:0][FPTAG_W-1:0]  rtag,        // {bank, index}
-  output logic [NR-1:0][63:0]         rdata
+  output logic [NR-1:0][63:0]         rdata,       // the bank rtag names
+  output logic [1:0][NR-1:0][63:0]    bank_rd      // both banks, for a user that folds the bank
+                                                   // select into a multiplexer of its own
 );
   logic [1:0]               we;
   logic [1:0][FPIDX_W-1:0]  wa;
@@ -41,7 +43,6 @@ module tg_fprf
     assign ridx[p] = rtag[p][FPIDX_W-1:0];
   end
 
-  logic [1:0][NR-1:0][63:0] bank_rd;
   for (genvar b = 0; b < 2; b++) begin : g_bank
     tg_ram_lut #(.DEPTH(FP_PREGS_PER_BANK), .WIDTH(64), .NR(NR)) u_ram (
       .clk, .we(we[b]), .waddr(wa[b]), .wdata(wd[b]), .raddr(ridx), .rdata(bank_rd[b]));
