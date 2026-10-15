@@ -523,7 +523,6 @@ module tg_lsu
   // (q_*), and with the split, the store address in M1 selected last (g_split / g_nosplit)
   logic              f_hit, f_cover, f_data;
   logic [SIW-1:0]    f_idx;
-  logic [63:0]       f_dword;
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
   logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
   logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
@@ -544,17 +543,19 @@ module tg_lsu
     q_data  = sq_dv_q[q_idx];
   end
 
-  assign sqsz_ra[COMMIT_WIDTH] = f_idx;
-  assign f_dword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at f_idx
 
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
   logic [LIW-1:0]    m2_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
-  logic [63:0]       m2_dword_q, m2_fdword_q;
+  logic [63:0]       m2_dword_q, m2_fdword;
   logic [SIW-1:0]    m2_fidx_q;
   sqid_t             m2_fid;
   assign m2_fid = sq_id(int'(m2_fidx_q), sq_head_q);
+  // The forwarded data, read in M2 at the forwarding store's index (timing: the M1 search ends at
+  // m2_fidx_q). Data that was in at M1 (m2_fdat_q) does not change; data captured since is not used.
+  assign sqsz_ra[COMMIT_WIDTH] = m2_fidx_q;
+  assign m2_fdword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at m2_fidx_q
 
   typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
   m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
@@ -564,7 +565,7 @@ module tg_lsu
     m2_out_w = O_OK;
     dw = m2_dword_q;
     if (m2_fhit_q) begin
-      if (m2_fcov_q && m2_fdat_q) dw = m2_fdword_q;
+      if (m2_fcov_q && m2_fdat_q) dw = m2_fdword;
       else                        m2_out_w = O_STQ;
     end else if (m2_clash_q) begin
       m2_out_w = O_RETRY;
@@ -689,18 +690,25 @@ module tg_lsu
   logic              am_lr, am_sc, am_go, am_take, rsv_ok, am_wr;
   logic [63:0]       am_old, am_new;
   // An atomic runs only as the SQ head (every older store drained, itself not committed), so
-  // it reads its entry through the head's ports, which the drain cannot use meanwhile
-  assign am_size  = sqh.size;
-  assign am_pa    = sqh.pa;
+  // it reads its entry through the head's ports, which the drain cannot use meanwhile. Its address,
+  // size and operand are registered as it starts (timing: the read-modify-write then starts at
+  // flip-flops); the head and its entry do not change while it runs.
+  logic [PA_W-1:0] am_pa_q;
+  logic [1:0]      am_size_q;
+  logic [63:0]     am_b_q;
+  logic            rsv_ok_go;                     // the reservation check as it starts: the head's fields
+  assign am_size  = am_size_q;
+  assign am_pa    = am_pa_q;
   assign am_lr    = am_op_q == AMO_LR;
   assign am_sc    = am_op_q == AMO_SC;
   assign am_go    = am_v_q && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
                     sq_head_q == am_sq_q && rob_head == am_rob_q && !flush;
   // The reservation covers the SC's line and has not just been lost (probe, eviction)
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
+  assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush;
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
-  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sqd_rd[COMMIT_WIDTH+1]);
+  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, am_b_q);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
@@ -717,7 +725,7 @@ module tg_lsu
       rsv_line_d = am_pa[PA_W-1:6];
     end
     // every SC ends it
-    if ((am_go && am_sc && !rsv_ok) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
+    if ((am_go && am_sc && !rsv_ok_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
     if (lose_v && lose_line == rsv_line_d) rsv_v_d = 1'b0;
     if (rsv_clr) rsv_v_d = 1'b0;
   end
@@ -993,7 +1001,7 @@ module tg_lsu
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_addr), .raddr(sqva_ra),
     .rdata(sqva_rd));
   // Data: captured from the register file, or written by an atomic (the value it stored)
-  assign sqd_ra[COMMIT_WIDTH]   = f_idx;
+  assign sqd_ra[COMMIT_WIDTH]   = m2_fidx_q;
   assign sqd_ra[COMMIT_WIDTH+1] = dh;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? dh : cap_idx;
@@ -1092,7 +1100,10 @@ module tg_lsu
       rsv_line_q <= rsv_line_d;
       unique case (am_st_q)
         AM_IDLE: if (am_go) begin
-          if (am_sc && !rsv_ok) begin
+          am_pa_q   <= sqh.pa;
+          am_size_q <= sqh.size;
+          am_b_q    <= sqd_rd[COMMIT_WIDTH+1];
+          if (am_sc && !rsv_ok_go) begin
             am_res_q <= 64'd1;                    // SC without a reservation: fails, no access
             am_st_q  <= AM_RES;
           end else begin
@@ -1169,7 +1180,6 @@ module tg_lsu
       m2_fhit_q   <= f_hit;
       m2_fcov_q   <= f_cover;
       m2_fdat_q   <= f_data;
-      m2_fdword_q <= f_dword;
       m2_fidx_q   <= f_idx;
       m2_pt_q     <= m1_pt_q;
 
