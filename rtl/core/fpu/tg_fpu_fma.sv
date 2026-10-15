@@ -19,12 +19,16 @@ module tg_fpu_fma
 #(
   // 5: E0..E4 as specified. 4: the E3/E4 boundary is removed (the plan's 4-cycle option,
   // kept for timing experiments; the core's FMA_LAT must match).
-  parameter int STAGES = FMA_LAT
+  parameter int STAGES = FMA_LAT,
+  // 1: a and b come unpacked (ua_i, ub_i, from tg_fpu, shared with FMISC)
+  parameter bit SHARED = 1'b0
 ) (
   input  logic       clk,
   input  logic       rst,
   input  logic       valid_i,
   input  fpu_req_t   req_i,
+  input  fp_unp_t    ua_i = '0,
+  input  fp_unp_t    ub_i = '0,
   output logic       valid_o,
   output fpu_resp_t  resp_o
 );
@@ -49,8 +53,8 @@ module tg_fpu_fma
   assign neg_add  = (q.op == FOP_FSUB) || (q.op == FOP_FMSUB) || (q.op == FOP_FNMADD);
 
   fp_unp_t ua, ub, uc, ub_raw, uc_raw;
-  assign ua     = unpack(q.a, sdbl);
-  assign ub_raw = unpack(q.b, sdbl);
+  assign ua     = SHARED ? ua_i : unpack(q.a, sdbl);
+  assign ub_raw = SHARED ? ub_i : unpack(q.b, sdbl);
   assign uc_raw = unpack(q.c, sdbl);
   always_comb begin
     // FADD/FSUB: a x 1.0 + c (P4 reads rs2 into c); FCVT.F.F: a x 1.0
@@ -167,8 +171,8 @@ module tg_fpu_fma
   // the C ports of two tiles.
   logic [25:0] a0_q, a1_q;
   logic [16:0] b0_q, b1_q, b2_q;
-  logic [51:0] fa_q, fb_q;
-  logic        ha_q, hb_q;
+  logic [51:0] g1_q, g2_q, g3_q;    // the rows' terms (below): fa gated by fb[51], fb by ha, fa by hb
+  logic        hh_q;                // ha && hb
   logic [52:0] mc_q;
   logic [63:0] x_q;
   // Zeros come from the registers' synchronous resets, not LUTs (fpga_friendly.md T7): an S
@@ -185,12 +189,10 @@ module tg_fpu_fma
     b0_q <= zsb ? '0 : q.b[16:0];
     b1_q <= ub.sig[33:17];
     b2_q <= ub.sig[50:34];
-    fa_q[28:0]  <= zs ? '0 : q.a[28:0];
-    fa_q[51:29] <= ua.sig[51:29];
-    fb_q[28:0]  <= zsb ? '0 : q.b[28:0];
-    fb_q[51:29] <= ub.sig[51:29];
-    ha_q <= ua.sig[52];
-    hb_q <= ub.sig[52];
+    g1_q <= ub.sig[51] ? ua.sig[51:0] : '0;
+    g2_q <= ua.sig[52] ? ub.sig[51:0] : '0;
+    g3_q <= ub.sig[52] ? ua.sig[51:0] : '0;
+    hh_q <= ua.sig[52] && ub.sig[52];
     mc_q[28:0]  <= zsc ? '0 : q.c[28:0];
     mc_q[52:29] <= zc ? '0 : uc.sig[52:29];
     x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
@@ -201,11 +203,10 @@ module tg_fpu_fma
   // E1: DSP tiles (A x B + C in one cycle) and addend alignment
   // ------------------------------------------------------------------------------------------
   // rows = fb[51]*fa + 2*(ha*fb + hb*fa) + 2^53*ha*hb, in units of 2^51 of the product: three
-  // operands (the 2^53 bit sits above 2*ha*fb in the same operand), so one ternary adder
+  // operands (the 2^53 bit sits above 2*ha*fb in the same operand), so one ternary adder. Its
+  // terms are gated in E0 and registered (fpga_friendly.md T7), so the adder takes registers.
   logic [54:0] rows;
-  assign rows = ({3'b0, fb_q[51] ? fa_q : 52'b0})
-              + ({1'b0, ha_q && hb_q, ha_q ? fb_q : 52'b0, 1'b0})
-              + ({2'b0, hb_q ? fa_q : 52'b0, 1'b0});
+  assign rows = {3'b0, g1_q} + {1'b0, hh_q, g2_q, 1'b0} + {2'b0, g3_q, 1'b0};
 
   // The tiles' output registers are reset (the DSP48E2 P-register reset) when the product does
   // not take part: FCVT.F.I, or an addend that dominates (the product is only a sticky).
@@ -349,10 +350,10 @@ module tg_fpu_fma
   // ------------------------------------------------------------------------------------------
   fpu_resp_t r;
   always_comb begin
-    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn, zero;
+    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn, zero, use_k;
     logic signed [13:0] ef;      // exponent in the result format's bias
     logic [62:0] pk_b, pk;
-    logic [63:0] res;
+    logic [63:0] kw;
     s = rsign4_q;
     zero = (n_q == '0) && !st_q;
     if (c4_q.dbl) begin
@@ -376,22 +377,27 @@ module tg_fpu_fma
     pk   = ({49'b0, 14'(ef - 14'sd1)} << 52) + pk_b + 63'(inc);
     if (c4_q.dbl) ovf = (ef >= 14'sd2047) || (&pk[62:52]);
     else          ovf = (ef >= 14'sd255) || (&pk[59:52]);
-    res = c4_q.dbl ? {s, pk} : box_s({s, pk[59:29]});
+    // The result as one select per bit (T7): the packed sum in its D or S position, or a constant
+    // word kw (a special, zero or overflow value; for a normal result the sign and S's NaN box)
+    use_k = (c4_q.spec != SPEC_NONE) || zero || ovf;
+    if (c4_q.spec != SPEC_NONE) kw = spec_value(c4_q.spec, c4_q.dbl, c4_q.spec_sign);
+    else if (zero)              kw = zero_value(c4_q.dbl, c4_q.rm == RM_RDN);   // exact cancellation
+    else if (ovf)               kw = ovf_value(c4_q.dbl, s, ovf_to_inf(c4_q.rm, s));
+    else                        kw = c4_q.dbl ? {s, 63'b0} : box_s({s, 31'b0});
+    r.result[63] = kw[63];
+    for (int i = 31; i < 63; i++) r.result[i] = (use_k || !c4_q.dbl) ? kw[i] : pk[i];
+    for (int i = 0; i < 31; i++)  r.result[i] = use_k ? kw[i] : c4_q.dbl ? pk[i] : pk[i + 29];
     r.fflags = '0;
     r.int_dest = 1'b0;
     r.tag = c4_q.tag;
     if (c4_q.spec != SPEC_NONE) begin
-      r.result = spec_value(c4_q.spec, c4_q.dbl, c4_q.spec_sign);
       r.fflags[FL_NV] = c4_q.spec_nv;
     end else if (zero) begin
-      // exact cancellation (sticky bits make any inexact difference non-zero)
-      r.result = zero_value(c4_q.dbl, c4_q.rm == RM_RDN);
+      // exact cancellation (sticky bits make any inexact difference non-zero): no flags
     end else if (ovf) begin
-      r.result = ovf_value(c4_q.dbl, s, ovf_to_inf(c4_q.rm, s));
       r.fflags[FL_OF] = 1'b1;
       r.fflags[FL_NX] = 1'b1;
     end else begin
-      r.result = res;
       r.fflags[FL_NX] = inexact;
       r.fflags[FL_UF] = tiny && inexact;
     end
