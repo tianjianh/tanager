@@ -16,7 +16,7 @@ module kv260_top
   parameter bit    PMOD_UART = 1'b0,
   parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
   parameter bit    FAN_INVERT = 1'b0,
-  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b11, 5'b01111, 5'b01111, 32'hFFFF_FFFF}  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
+  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000}  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,

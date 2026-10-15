@@ -173,6 +173,8 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 11bf523 | crossbar: the caches' A-channel data, corrupt and mask as constants (−249, measured on fc1031e; cycle-identical) | ≈21,475 | ≈22,035 | | **18** |
 | e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
 | 44767a1 | register slices in DSPs (DR-136): the crossbar's, the memory paths' AR, AW, W and R, the L2 banks' R; 83 DSPs; cycle-identical | 18,047 | 18,603 | 16,092 | **18** |
+| ca1aece | L2: the S2 restructure for 200 MHz (A + B + D, DR-137; +129 to +181 LUTs per bank), the injector's late select; cycle-identical | 18,359 | 18,903 | 16,190 | **18** |
+| cd1f584 | `UNCORE_DSP` defaults to the sites that meet 200 MHz as DSPs (21 DSPs: −373 LUTs and −767 FFs against all fabric at `st`, 19,604; +872 against every site in DSPs), the ACLINT's compares in DSPs (−62), the injector's head slot (+32); cycle-identical | 19,231 | 19,664 | 18,249 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
@@ -189,13 +191,46 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 
 - At 44767a1 the worst paths were the L2's S2 decision into the directory's block RAM (14–23 levels) in every run. The latency injectors, the memory windows, the crossbar and the memory slices also failed by 0.4–1.8 ns.
 - **After the L2's S2 rework** (028a480; [l2.md](../spec/l2.md) §Timing), three all-fabric placements of the same S2 RTL gave WNS −0.738, −0.903 and −0.908 ns. An unconstrained out-of-context placement of the whole uncore varies by about 0.2 ns from run to run, so a single run's difference below that is not a result. Across the runs:
-  - the injector's token bucket: −0.738 ns, then −0.17 ns in both runs after acec41c;
+  - the injector's token bucket, worst over both ports: −0.738 ns all fabric (−1.035 with the DSP mask), then −0.21 and −0.65 ns in the two all-fabric runs after acec41c (−0.743 with the DSP mask). The late `issue` itself still reaches the bucket's select and the beat buffer's read; e8a1e1d takes a LUTRAM read off it;
   - S2 into the directory RAM: −0.66 to −0.91 ns, the worst path in two of the three runs;
   - the L2's AR handshake (pick, MSHR LUTRAM, the window's range check, `ar_ready_i`, the AR pointer): about −0.70 ns, 60–70% of it wire. Cutting it needs the LUTRAM address from a register, which adds a cycle (a reserve item, DR-135);
   - the crossbar's B slices, the memory AR slices and the injector's AR-side writes: −0.5 to −0.85 ns.
 - For reference only (DR-137: the clock is the user's decision): 180 MHz lengthens the period by 0.556 ns. At first order, the all-fabric uncore after the S2 rework would still miss 180 MHz by about 0.2–0.35 ns. Before the rework it missed by about 1.2 ns.
 - `AreaOptimized_high` costs about 0.6 ns here for its 1.35K LUTs, and the DSP slices another 0.2 ns and about 3,500 failing endpoints: the slices behind the crossbar's arbiters (B −1.9, D −0.8 to −1.6, memory AR −1.3 to −1.5, A 0 and 1 −0.6 to −0.9 ns).
 - So the uncore needs timing work for 200 MHz with or without the DSPs. The board builds run at 60–100 MHz, where every slice has slack. The full-chip fit decides per site through `UNCORE_DSP`.
+
+**Per-site check of the DSP slices** (DR-136, DR-137), 200 MHz:
+- **028a480 and ca1aece**, every site in DSPs. ca1aece gives the worst setup slack into and out of each site's DSPs (`ooc_impl.tcl`, `reports/ooc_dsp_sites.txt`). 028a480 gives only the failing endpoints at the DSPs.
+- **b45c763**, with the first default (the sites that passed in both, memory R included). This is a second sample for the kept sites.
+
+A site stays in DSPs only if it passed in every run that had it in DSPs:
+
+| Bit | Site | 028a480 (in) | ca1aece in / out | b45c763 in / out | Default |
+|---|---|---|---|---|---|
+| 0, 1 | D slices, l1d 0 and 1 | −0.43, −0.41 | −0.15, −0.27 / +3.9 | | fabric |
+| 4, 5 | D slices, l1i 0 and 1 | −0.58, −0.72 | −0.54, −0.56 / +3.9 | | fabric |
+| 8, 9 | D slices, mmio 0 and 1 | −0.99, −0.83 | −0.66, −0.43 / +3.9 | | fabric |
+| 16, 17 | A slices, L2 banks 0 and 1 | −0.41, −0.41 | +0.15 / +0.59, 0.00 / +0.01 | | fabric |
+| 18 | A slice, boot ROM | −0.02 | +1.41 / +2.77 | | fabric |
+| 19 | A slice, device bus | pass | +1.34 / +1.94 | +0.54 / +1.79 | **DSP** |
+| 20 | A slice, error responder | −0.22 | +0.13 / +2.81 | | fabric |
+| 24, 25 | C slices, banks 0 and 1 | pass | +0.52 / +1.77, +1.35 / +3.04 | +1.17 / +2.29, +1.73 / +2.38 | **DSP** |
+| 28, 29 | B slices, cores 0 and 1 | −1.41, −1.55 | −0.79, −0.80 / +3.9 | | fabric |
+| 32, 37 | memory AR, ports 0 and 1 | −1.17, −1.36 | −0.90, −0.67 / +3.9 | | fabric |
+| 33, 38 | memory AW, ports 0 and 1 | pass | −0.05, +0.19 / +3.9 | | fabric |
+| 34, 39 | memory W, ports 0 and 1 | pass | +1.13, +0.41 / +3.9 | +0.58, +0.50 / +3.9 | **DSP** |
+| 35, 40 | memory R, ports 0 and 1 | pass | +2.05 / +0.003, +2.76 / +1.29 | +2.18 / −0.16, +2.11 / +0.05 | fabric (cd1f584) |
+| 42, 43 | L2 R slices, banks 0 and 1 | pass | +0.60 / +1.00, +0.37 / −0.37 | | fabric |
+
+The default is `64'h84_0308_0000`, with 21 DSPs at the sites, plus 4 for the ACLINT's compares at `st` and 1 in the UART. With the first default, b45c763's two placements compare like this (memory R in DSPs; it is about 138 LUTs and 274 FFs of the gap):
+
+| b45c763, st | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
+|---|---|---|---|---|---|
+| all fabric | 19,925 | 19,192 | 5 | −0.983 ns | −1,415 ns (3,540) |
+| the first default | 19,441 (−484) | 18,097 (−1,095) | 32 | −0.858 ns | −961 ns (2,771) |
+
+- Neither run's worst path is a DSP site. Both are the L2's AR handshake or S2, as in the all-fabric runs.
+- In the budget flow (cd1f584, `st`), all fabric is 19,604 LUTs, 18,740 FFs and 5 DSPs, and the default is 19,231 LUTs, 17,973 FFs and 26 DSPs: the default saves 373 LUTs and 767 FFs for its 21 site DSPs. Every site in DSPs saved about 1,390 at 44767a1, so the per-site check gives back about 1,020 LUTs to hold 200 MHz at the sites.
 
 **By block** (smt2, 059a572):
 
