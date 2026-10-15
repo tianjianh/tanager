@@ -6,6 +6,7 @@ the per-unit gap against fpga/budget/budgets.tsv and the dual-core total against
 
   python3 perfmodel/scripts/area_fit.py --core core/latest.json --uncore uncore/latest.json [--cfg smt2]
   python3 perfmodel/scripts/area_fit.py ... --no-hart1        # once M7 builds hart 1's state
+  python3 perfmodel/scripts/area_fit.py ... --hart1 ram       # hart 1 as a RAM address bit (v1 only)
 
 Pass --budget-total to judge a configuration that has no per-unit lines yet (smt2_w3 before AR-9's lines).
 """
@@ -22,9 +23,12 @@ LIMITS = (("200 MHz, 88% (S6)", 103040), ("200 MHz, 90% (DR-011)", 105408),
           ("180 MHz, v1 closes at 95.3%", 111633), ("180 MHz, v2 closes at 96.0%", 112441))
 UNITS = ("fe", "dec", "ren", "iq", "ex", "lsu_mmu", "rob_csr", "p4")
 BUDGET_ROW = {"p4": "fpu"}  # P4 (tg_fp_exec) is judged against the FPU line; it also holds the FP register file
-# Hart 1's state per unit, until M7 builds it: budgets.md's SMT2 additions after R1 and R2 (area_recovery.md 7.1).
+# Hart 1's state per unit, until M7 builds it: budgets.md's SMT2 additions after R1 and R2 (area_recovery.md 7.1),
+# which cost second copies (flip-flop maps, tables with their own ports). --hart1 ram uses the second estimate, with
+# per-thread state as a RAM address bit (conventions section 7; area_recovery.md 7.7), worked out for v1 only.
 HART1 = {"smt2": {"fe": 1000, "dec": 150, "ren": 1300, "rob_csr": 1650, "lsu_mmu": 100},
          "smt2_w3": {"fe": 1000, "dec": 200, "ren": 1450, "rob_csr": 1650, "lsu_mmu": 100}}
+HART1_RAM = {"smt2": {"fe": 650, "dec": 100, "ren": 550, "rob_csr": 1000, "lsu_mmu": 100}}
 
 
 def budgets():
@@ -61,6 +65,8 @@ def main():
     ap.add_argument("--uncore", required=True, help="latest.json of a budget run with the uncore")
     ap.add_argument("--cfg", default="smt2")
     ap.add_argument("--no-hart1", action="store_true", help="the RTL already has hart 1's state (M7)")
+    ap.add_argument("--hart1", choices=("ff", "ram"), default="ff",
+                    help="hart 1's estimate: second copies (ff, the budgets' basis) or a RAM address bit (ram)")
     ap.add_argument("--budget-total", type=int, help="per-core budget when the configuration has no lines")
     ap.add_argument("--uncore-cfg", help="the uncore run's configuration (default --cfg; smt2 for smt2_w3)")
     a = ap.parse_args()
@@ -69,7 +75,9 @@ def main():
     rows = budgets()
     core, stamp, commit = measured(a.core, a.cfg)
     unc, ustamp, _ = measured(a.uncore, ucfg)
-    hart1 = {} if a.no_hart1 else HART1.get(a.cfg, {})
+    if a.hart1 == "ram" and a.cfg not in HART1_RAM:
+        ap.error(f"no RAM-form hart 1 estimate for {a.cfg}")
+    hart1 = {} if a.no_hart1 else (HART1_RAM if a.hart1 == "ram" else HART1).get(a.cfg, {})
     print(f"core {a.cfg}: budget run {stamp} at {commit}; uncore: {ustamp}\n")
     print("| Unit | Budget | Measured | + hart 1 (est.) | Over |\n|---|---|---|---|---|")
     for u in UNITS:
