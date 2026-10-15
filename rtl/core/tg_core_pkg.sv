@@ -21,20 +21,36 @@ package tg_core_pkg;
 
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
-  // Two profiles are verified, and no other combination is supported:
+  // Two profiles are verified:
   //   default:  #2, #4 and #5 on, #8 off (the shipping profile, the user's choice);
   //   fallback: #2, #4 and #5 off, #8 off (TG_TIMING_CUTS=0: the core without them).
+  // A switch's own define overrides its profile value (TG_ROB_STORE_REPORT_LATE, TG_LSU_AG_SPLIT,
+  // TG_DC_AMO_READ_REG =0|1); the default without #2 (TG_ROB_STORE_REPORT_LATE=0) is being measured
+  // for the user (DR-140, DR-141). Other combinations are not verified.
   // #8 on is lint-only, on top of the default, until the user turns it on (TG_DE_STAGE=1).
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
   localparam bit TIMING_CUTS = 1'b1;
 `endif
-  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
-                                                      // replay mark reach the ROB a cycle later
-  localparam bit LSU_AG_SPLIT          = TIMING_CUTS; // #4: a new load's and a store address's
-                                                      // DTLB, PMP and decisions in M1 (core-lsu.md)
-  localparam bit DC_AMO_READ_REG       = TIMING_CUTS; // #5: an atomic's D$ read data is registered
+  // #2: store completions and the ordering replay mark reach the ROB a cycle later
+`ifdef TG_ROB_STORE_REPORT_LATE
+  localparam bit ROB_STORE_REPORT_LATE = `TG_ROB_STORE_REPORT_LATE;
+`else
+  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS;
+`endif
+  // #4: a new load's and a store address's DTLB, PMP and decisions in M1 (core-lsu.md)
+`ifdef TG_LSU_AG_SPLIT
+  localparam bit LSU_AG_SPLIT = `TG_LSU_AG_SPLIT;
+`else
+  localparam bit LSU_AG_SPLIT = TIMING_CUTS;
+`endif
+  // #5: an atomic's D$ read data is registered
+`ifdef TG_DC_AMO_READ_REG
+  localparam bit DC_AMO_READ_REG = `TG_DC_AMO_READ_REG;
+`else
+  localparam bit DC_AMO_READ_REG = TIMING_CUTS;
+`endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
   localparam bit DE_STAGE = `TG_DE_STAGE;
