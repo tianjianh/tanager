@@ -15,6 +15,12 @@
 // Nor does the group wait for the expander: whether an instruction raises an exception or goes
 // alone comes from the raw encoding too, from a second decoder (only these outputs are kept) for a
 // 32-bit instruction, and from its 16 bits for a compressed one.
+// DE_STAGE (DR-140 #8, off, not verified until turned on): decode takes a stage of its own. DE1
+// decodes the queue head into registers, as many as there is room for (the slots DE2 does not
+// hand on move to the front); DE2 forms the group and checks the predictions from them. The
+// queue's take then counts a group as ending only at instructions that go alone: those after a
+// redirect in it are dropped, as the redirect drops what DE1 holds. Every redirect costs one more
+// front-end cycle.
 module tg_decode_stage
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -106,18 +112,41 @@ module tg_decode_stage
     assign alone_f[j] = iq_insn[j].rvc ? c_exc : (dr.exc || dr.serial);
     logic unused_dr;
     assign unused_dr = ^dr;                     // only exc and serial are kept
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+      if (!rst && iq_valid[j])
+        assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
+          else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
+    end
+`endif
+  end
+
+  // ================= The checks and the group: DE, or DE2 with DE_STAGE =================
+  // DE2's inputs: the queue head itself, or with DE_STAGE the DE1 registers (a prefix is valid)
+  logic [W-1:0]     v1_q, e1_q, a1_q;
+  fe_insn_t [W-1:0] i1_q;
+  dec_t [W-1:0]     d1_q;
+  logic [W-1:0]     xv, xe, xa;
+  fe_insn_t [W-1:0] xq;
+  dec_t [W-1:0]     xd;
+  assign xv = DE_STAGE ? v1_q : iq_valid;
+  assign xe = DE_STAGE ? e1_q : exc_f;
+  assign xa = DE_STAGE ? a1_q : alone_f;
+  assign xq = DE_STAGE ? i1_q : iq_insn;
+  assign xd = DE_STAGE ? d1_q : d;
+  for (genvar j = 0; j < W; j++) begin : g_chk
     logic [63:0] seq, pbase, poff, imm, tgt;
     logic        pt, hit, mbr, mjal, mjalr;
     logic [63:0] ptg;
-    assign pbase = {iq_insn[j].blk, 4'b0};
-    assign poff  = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
-    assign seq   = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
-    assign pt    = iq_insn[j].pred_taken;
-    assign ptg   = iq_insn[j].pred_target;
+    assign pbase = {xq[j].blk, 4'b0};
+    assign poff  = xq[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, xq[j].pc[3:0]};
+    assign seq   = pbase + poff + (xq[j].rvc ? 64'd2 : 64'd4);
+    assign pt    = xq[j].pred_taken;
+    assign ptg   = xq[j].pred_target;
     // the class from the queue's pre-decode marks, the offset from the raw encoding
-    assign {mbr, mjal, mjalr} = iq_insn[j].marks;
+    assign {mbr, mjal, mjalr} = xq[j].marks;
     logic [20:0] bimm;
-    assign bimm  = bimm_of(iq_insn[j].insn, mjal);
+    assign bimm  = bimm_of(xq[j].insn, mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = pbase + poff + imm;               // d[j].br_target for a branch or JAL
     assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
@@ -125,7 +154,7 @@ module tg_decode_stage
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
       dfix[j]  = 1'b0;
-      if (!exc_f[j]) begin
+      if (!xe[j]) begin
         if (mjal) begin
           if (!pt || !hit) begin
             redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = tgt;
@@ -142,54 +171,108 @@ module tg_decode_stage
 `ifndef SYNTHESIS
     // The marks and the offset are decode's class and target wherever the check uses them
     always_ff @(posedge clk) begin
-      if (!rst && iq_valid[j])
-        assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
-          else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
-      if (!rst && iq_valid[j] && !d[j].exc) begin
-        assert (mjal == (d[j].cls == C_BR && d[j].br_kind == BR_JAL) &&
-                mbr == (d[j].cls == C_BR && d[j].br_kind == BR_COND) &&
-                mjalr == (d[j].cls == C_BR && d[j].br_kind == BR_JALR))
+      if (!rst && xv[j] && !xd[j].exc) begin
+        assert (mjal == (xd[j].cls == C_BR && xd[j].br_kind == BR_JAL) &&
+                mbr == (xd[j].cls == C_BR && xd[j].br_kind == BR_COND) &&
+                mjalr == (xd[j].cls == C_BR && xd[j].br_kind == BR_JALR))
           else $error("tg_decode_stage: pre-decode marks differ from decode's class");
-        if (mjal || mbr) assert (tgt == d[j].br_target)
+        if (mjal || mbr) assert (tgt == xd[j].br_target)
           else $error("tg_decode_stage: the raw offset gives another target than decode's");
       end
     end
 `endif
   end
 
-  // Group: a prefix of the queue head
-  logic [TKW-1:0] n;
+  // Group: a prefix of DE2's inputs (n); for the queue's take with DE_STAGE, the same without
+  // the redirects (nq)
+  logic [TKW-1:0] n, nq;
   always_comb begin
-    logic stop;
-    stop = 1'b0;
-    n = '0;
+    logic stop, stopq;
+    stop  = 1'b0;
+    stopq = 1'b0;
+    n  = '0;
+    nq = '0;
     for (int j = 0; j < W; j++) begin
       if (!stop) begin
-        if (!iq_valid[j]) stop = 1'b1;
-        else if (alone_f[j] && j > 0) stop = 1'b1;
+        if (!xv[j]) stop = 1'b1;
+        else if (xa[j] && j > 0) stop = 1'b1;
         else begin
           n = TKW'(j + 1);
-          if (alone_f[j] || redir[j]) stop = 1'b1;
+          if (xa[j] || redir[j]) stop = 1'b1;
+        end
+      end
+      if (!stopq) begin
+        if (!xv[j]) stopq = 1'b1;
+        else if (xa[j] && j > 0) stopq = 1'b1;
+        else begin
+          nq = TKW'(j + 1);
+          if (xa[j]) stopq = 1'b1;
         end
       end
     end
-    if (dred || flush) n = '0;
+    if (dred || flush) begin
+      n  = '0;
+      nq = '0;
+    end
   end
 
-  assign iq_take = de_take ? n : '0;
   for (genvar j = 0; j < W; j++) begin : g_out
     assign de_valid[j] = TKW'(j) < n;
     always_comb begin
       de_uop[j]          = '0;
-      de_uop[j].pc       = iq_insn[j].pc;
-      de_uop[j].insn     = iq_insn[j].insn;
-      de_uop[j].rvc      = iq_insn[j].rvc;
+      de_uop[j].pc       = xq[j].pc;
+      de_uop[j].insn     = xq[j].insn;
+      de_uop[j].rvc      = xq[j].rvc;
       de_uop[j].pred_npc = npc[j];
-      de_uop[j].ubtb_hit = iq_insn[j].ubtb_hit;
-      de_uop[j].ubtb_way = iq_insn[j].ubtb_way;
+      de_uop[j].ubtb_hit = xq[j].ubtb_hit;
+      de_uop[j].ubtb_way = xq[j].ubtb_way;
       de_uop[j].dfix     = dfix[j];
-      de_uop[j].tid      = iq_insn[j].tid;
-      de_uop[j].d        = d[j];
+      de_uop[j].tid      = xq[j].tid;
+      de_uop[j].d        = xd[j];
+    end
+  end
+
+  // The queue's take. With DE_STAGE: DE2 hands on `used` slots (counted without redirects), the
+  // `left` after them move to the front, and the queue fills the rest.
+  int used, left, acc;
+  always_comb begin
+    int cnt1, iqn;
+    cnt1 = 0;
+    iqn  = 0;
+    for (int j = 0; j < W; j++) begin
+      cnt1 += int'(v1_q[j]);
+      iqn  += int'(iq_valid[j]);
+    end
+    used = de_take ? int'(nq) : 0;
+    left = cnt1 - used;
+    acc  = (dred || flush) ? 0 : ((iqn < W - left) ? iqn : W - left);
+  end
+  assign iq_take = DE_STAGE ? TKW'(acc) : de_take ? n : '0;
+
+  // DE1's registers (DE_STAGE)
+  always_ff @(posedge clk) begin
+    if (rst || flush || dred || !DE_STAGE) begin
+      v1_q <= '0;
+    end else begin
+      for (int k = 0; k < W; k++) begin
+        v1_q[k] <= 1'b0;
+        for (int s = 0; s < W; s++) begin
+          if (k < left && s == k + used) begin                 // kept: slot s moves to k
+            v1_q[k] <= 1'b1;
+            i1_q[k] <= i1_q[s];
+            d1_q[k] <= d1_q[s];
+            e1_q[k] <= e1_q[s];
+            a1_q[k] <= a1_q[s];
+          end
+          if (k >= left && s == k - left && s < acc) begin     // new: queue entry s
+            v1_q[k] <= 1'b1;
+            i1_q[k] <= iq_insn[s];
+            d1_q[k] <= d[s];
+            e1_q[k] <= exc_f[s];
+            a1_q[k] <= alone_f[s];
+          end
+        end
+      end
     end
   end
 
