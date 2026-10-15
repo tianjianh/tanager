@@ -42,16 +42,17 @@ proc tg_fp_pblock {name cells args} {
   resize_pblock $pb -add $ranges
   set cells [get_cells -quiet $cells]
   if {[llength $cells]} { add_cells_to_pblock $pb $cells }
+  # the cells' LUTs (logic and LUTRAM), by name under each hierarchical cell (unit names have no
+  # brackets, which -filter globs would read as character classes)
   set luts 0
   foreach c $cells {
     if {[get_property IS_PRIMITIVE $c]} {
       if {[get_property PRIMITIVE_GROUP $c] in {LUT DISTRAM}} { incr luts }
       continue
     }
-    current_instance -quiet
-    current_instance -quiet $c
-    incr luts [llength [get_cells -quiet -hierarchical -filter {PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DISTRAM}]]
-    current_instance -quiet
+    set n [get_property NAME $c]
+    incr luts [llength [get_cells -quiet -hierarchical -filter \
+      "NAME =~ ${n}/* && (PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DISTRAM)"]]
   }
   set slices [llength [get_sites -quiet -of_objects $pb -filter {NAME =~ SLICE_*}]]
   set names [expr {[llength $cells] > 12 ? "[llength $cells] cells" : [join [get_property NAME $cells] " "]}]
