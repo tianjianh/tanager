@@ -56,7 +56,14 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 - **Next PC (F1).** `fpc_d` = flush redirect, else decode redirect, else miss restart, else stall (`fpc_q`), else micro-BTB target on a hit, else the next 16-byte block. Spike S5's loop, with 64-bit PCs.
 - **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way. Valid bits: one `tg_ram_lut` row of 8 bits per set (plan §8.3), read by F1 and by the refill (victim choice, then a read-modify-write with the tag); after reset and FENCE.I a 64-cycle sweep clears them while F1 waits.
 - **Physical address.** In M (and Bare), PA = PC[`PA_W`-1:0]; with `EXT_SU` in S and U under Sv39, F1 translates the PC through the ITLB (core-mmu.md: misses park fetch for a walk). A PA with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill; PMP is checked per 4-byte word.
+  - **On a translated page that a PMP region boundary splits, F1 waits a cycle for the check** (DR-140 #6). The block checker reads the address the ITLB gave then, so the ITLB and the checker are never in one cycle.
+  - Bare mode checks the fetch PC itself, and homogeneous pages use the ITLB's cached result.
 - **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (an invalid way, else a round-robin pointer shared by the sets); the victim's valid bit is cleared when the refill starts, because the refill rewrites its rows beat by beat and outlives redirects (its old line must miss meanwhile); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
+- **F2's actions on F1 are registered** (DR-140 #7). They take effect a cycle later and drop the blocks F1 and F2 took meanwhile:
+  - parking on an I$ or ITLB miss;
+  - a refetch: at a PMP cut, after a dropped prediction, or of a line installed while F2 missed it;
+  - the stop after a fault block.
+  - The refill and the walk start from the registered decision, as early as before.
 - **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
 ### 3.2 Prediction
@@ -89,6 +96,10 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - **The exception that gates it:** from the raw encoding too. A 32-bit instruction's comes from a second decoder of which only that output and "serialising" are kept. A compressed instruction's: illegal as such, C.EBREAK, or an FP load or store (C.FLD, C.FSD, C.FLDSP, C.FSDSP) with the FP unit off.
   - **The group** (who goes alone) uses the same bits, so the RVC expander feeds only the uop's fields.
   - **Checks:** simulation asserts every one of these against the decoder's own results.
+- **One more stage, a switch** (DR-140 #8, `DE_STAGE`; off, and not verified until the user turns it on):
+  - DE1 decodes the queue head into registers. DE2 forms the group and checks the predictions from them.
+  - The queue's take then counts a group as ending only at the instructions that go alone.
+  - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
 
 ## 4. Decode (`tg_decode`)
 
@@ -207,6 +218,8 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
   - **An interrupt's** adds 4 × its code in vectored mode. Its code and delegation are the CSR file's own and arrive early, so the 64-bit add stays off the exception's path.
   - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
 - **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
+- **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
+  - With `ROB_STORE_REPORT_LATE` (#2), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
 ### 8.2 Commit
