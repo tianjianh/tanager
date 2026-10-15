@@ -291,9 +291,24 @@ module tg_rob
       for (int t = NCP; t < NCP + NXP; t++) par_x[p] ^= ft_rd[t][p];
     end
   end
+  // With the store reports registered (DR-140 #2), the commit slots also read this cycle's store
+  // completions and replay marks, which the tables show only from the next cycle: a store at the
+  // head completes as early as without the register (prototype, not for merge)
+  logic [CW-1:0] stb, rpb;
+  if (ROB_STORE_REPORT_LATE) begin : g_stb
+    always_comb begin
+      for (int j = 0; j < CW; j++) begin
+        stb[j] = (st_cmp[0] && st_rob[0] == hid[j]) || (st_cmp[1] && st_rob[1] == hid[j]);
+        rpb[j] = replay_valid && replay_rob == hid[j];
+      end
+    end
+  end else begin : g_nostb
+    assign stb = '0;
+    assign rpb = '0;
+  end
   logic [CW-1:0] cmp_h, exc_h, misp_h, mmio_h;   // the flags of the commit slots' entries
   for (genvar j = 0; j < CW; j++) begin : g_fh
-    assign cmp_h[j]  = par_c[j] ^ hp[j].f_cmp;
+    assign cmp_h[j]  = (par_c[j] ^ hp[j].f_cmp) || stb[j];
     assign exc_h[j]  = par_x[j] ^ hp[j].f_exc;
     assign misp_h[j] = ft_rd[NFT-2][j] ^ hp[j].f_misp;
     assign mmio_h[j] = ft_rd[NFT-1][j] ^ hp[j].f_mmio;
@@ -349,6 +364,7 @@ module tg_rob
     for (int j = 0; j < CW; j++) begin
       rpl_h[j] = 1'b0;
       for (int b = 0; b < NRW; b++) rpl_h[j] ^= rw_rd[b][NRW - 1 + j];
+      rpl_h[j] = rpl_h[j] || rpb[j];
     end
   end
 
