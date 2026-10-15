@@ -170,6 +170,20 @@ module tg_l2_bank
     end
     return any_hi ? r_hi : r_all;
   endfunction
+  // rr_pick as a one-hot grant, for a pick on a late path: the lowest request at or above ptr, else
+  // the lowest, each found as x & -x (a carry chain) rather than through a priority encoder; oh_enc
+  // gives rr_pick's index from it (0 when there is no request, as rr_pick)
+  function automatic logic [N_MSHR-1:0] rr_pick_oh(input logic [N_MSHR-1:0] v, input logic [MW-1:0] ptr);
+    logic [N_MSHR-1:0] hi;
+    for (int i = 0; i < N_MSHR; i++) hi[i] = v[i] && i >= int'(ptr);
+    return (hi != '0) ? (hi & (~hi + 1'b1)) : (v & (~v + 1'b1));
+  endfunction
+  function automatic logic [MW-1:0] oh_enc(input logic [N_MSHR-1:0] oh);
+    logic [MW-1:0] r;
+    r = '0;
+    for (int i = 0; i < N_MSHR; i++) if (oh[i]) r = r | MW'(i);
+    return r;
+  endfunction
   function automatic logic [MW-1:0] rr_next(input logic [MW-1:0] i);
     return (int'(i) == N_MSHR - 1) ? '0 : i + 1'b1;
   endfunction
@@ -763,24 +777,31 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // Probe sender (B)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] pr_req;
+  // The pick is one-hot, and the per-MSHR flags are selected by it directly (AND-OR); its index
+  // addresses the LUTRAMs. The pick heads the path into the crossbar's B slices (200 MHz)
+  logic [N_MSHR-1:0] pr_req, pr_oh;
   logic [MW-1:0]     pr_ptr_q, pr_m;
   logic [AGENT_W-1:0] pr_ag;
+  logic              pr_capn, pr_vict;
   always_comb begin
     logic [N_AGENTS-1:0] todo;
     for (int m = 0; m < N_MSHR; m++) pr_req[m] = ms[m][MS_PROBE] && (m_ppend[m] & ~m_psent[m]) != '0;
-    pr_m  = rr_pick(pr_req, pr_ptr_q);
-    todo  = m_ppend[pr_m] & ~m_psent[pr_m];
-    pr_ag = '0;
+    pr_oh   = rr_pick_oh(pr_req, pr_ptr_q);
+    pr_m    = oh_enc(pr_oh);
+    todo    = '0;
+    for (int m = 0; m < N_MSHR; m++) if (pr_oh[m]) todo = todo | (m_ppend[m] & ~m_psent[m]);
+    pr_capn = |(pr_oh & m_pcap_n);
+    pr_vict = |(pr_oh & m_pvict);
+    pr_ag   = '0;
     for (int a = N_AGENTS - 1; a >= 0; a--) if (todo[a]) pr_ag = AGENT_W'(a);
   end
   always_comb begin
     b_o         = '0;
     b_o.opcode  = B_PROBE_BLOCK;
-    b_o.param   = m_pcap_n[pr_m] ? TL_CAP_TO_N : TL_CAP_TO_B;
+    b_o.param   = pr_capn ? TL_CAP_TO_N : TL_CAP_TO_B;
     b_o.size    = 3'd6;
     b_o.source  = TL_SRC_W'({SRC_HI_W'(SRC_L1D0) + SRC_HI_W'(pr_ag), 6'd0});
-    b_o.address = {line_of(m_pvict[pr_m] ? rl_vtag[0] : rl_tag[2], rl_set[LP_PR]), 6'd0};
+    b_o.address = {line_of(pr_vict ? rl_vtag[0] : rl_tag[2], rl_set[LP_PR]), 6'd0};
   end
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
@@ -788,11 +809,14 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // AXI read requests (fills)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] ar_req;
+  // The pick is one-hot: its index addresses the MSHR LUTRAMs for the address, which the window's
+  // range check turns into ar_ready_i, so the pick heads the uncore's longest handshake path (200 MHz)
+  logic [N_MSHR-1:0] ar_req, ar_oh;
   logic [MW-1:0]     ar_ptr_q, ar_m;
   always_comb begin
     for (int m = 0; m < N_MSHR; m++) ar_req[m] = m_valid[m] && m_need_fill[m] && !m_ar_sent[m];
-    ar_m = rr_pick(ar_req, ar_ptr_q);
+    ar_oh = rr_pick_oh(ar_req, ar_ptr_q);
+    ar_m  = oh_enc(ar_oh);
   end
   always_comb begin
     ar_o       = '0;
@@ -1414,10 +1438,10 @@ module tg_l2_bank
         end
       end
       // Probes sent and acknowledged
-      if (b_valid_o && b_ready_i) m_psent[pr_m] <= m_psent[pr_m] | onehot_ag(pr_ag);
+      if (b_valid_o && b_ready_i) for (int m = 0; m < N_MSHR; m++) if (pr_oh[m]) m_psent[m] <= m_psent[m] | onehot_ag(pr_ag);
       if (ev_pack) m_ppend[cin_m_q] <= m_ppend[cin_m_q] & ~onehot_ag(cin_ag);
       // AXI reads
-      if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
+      if (ar_valid_o && ar_ready_i) for (int m = 0; m < N_MSHR; m++) if (ar_oh[m]) m_ar_sent[m] <= 1'b1;
       if (f_wr && r_s.resp != AXI_OKAY) m_ferr[r_m] <= 1'b1;
       // Put written: free its buffer
       if (pw_done) pb_free_q[rl_pb[1]] <= 1'b1;
@@ -1537,6 +1561,11 @@ module tg_l2_bank
                                   row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
                                  held, resv, row2.plru) && $onehot(vw2_oh))
         else $error("tg_l2_bank%0d: one-hot victim differs", BANK);
+      assert (ar_m == rr_pick(ar_req, ar_ptr_q) && ar_oh == ((ar_req != '0) ? N_MSHR'(1) << ar_m : '0))
+        else $error("tg_l2_bank%0d: one-hot AR pick differs", BANK);
+      assert (pr_m == rr_pick(pr_req, pr_ptr_q) && pr_oh == ((pr_req != '0) ? N_MSHR'(1) << pr_m : '0) &&
+              (pr_req == '0 || (pr_capn == m_pcap_n[pr_m] && pr_vict == m_pvict[pr_m])))
+        else $error("tg_l2_bank%0d: one-hot probe pick differs", BANK);
       for (int m = 0; m < N_MSHR; m++)
         assert (smatch[m] == (m_valid[m] && set_of(m_line[m]) == set2))
           else $error("tg_l2_bank%0d: MSHR %0d set compare made in S1 differs", BANK, m);
