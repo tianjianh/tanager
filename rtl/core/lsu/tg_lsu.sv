@@ -455,10 +455,17 @@ module tg_lsu
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
   // A translated access to a PMP-homogeneous page uses the DTLB's cached PMP result (plan
-  // §4.10); bare-mode accesses and pages with a region boundary inside use the checker.
+  // §4.10) where it decides; bare-mode accesses and pages with a region boundary inside use the
+  // checker, which runs on the registered PA after the decision (M1, or M2 with the split:
+  // g_split / g_nosplit). A denial it finds faults the load in M2 (an MMIO load: L_MMIO -> L_EXC,
+  // its issue held until then).
   logic [PA_W-1:0] nl_pa;
-  logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmp;
+  logic        nl_mis, nl_pf, nl_tm, nl_acc, nl_mmio, nl_exc, nl_go, nl_pmpc, nl_pmpd;
   logic [0:0]  nl_chk;
+  logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
+  logic        lck_dbl;
+  logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
+  logic [LIW-1:0] lm_lq;                          // ... the MMIO load's LQ entry
   pma_e        nl_pma;
   assign nl_pa   = xl_d ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
   assign nl_mis  = misal(ln_va[2:0], ln_size);
@@ -467,11 +474,13 @@ module tg_lsu
   assign nl_pma  = pma_of(nl_pa);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
-  tg_pmp #(.S(1)) u_pmp_ld (.pa(nl_pa), .dbl(ln_size == 2'd3), .acc(ACC_R),
+  tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
                             .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(nl_chk), .hit(pmp_hit_ld),
                             .rwx(pmp_rwx_ld));
-  assign nl_pmp  = (xl_d && dt_pte[0].ph) ? dt_pte[0].pr : nl_chk[0];
-  assign nl_acc  = (xl_d ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE || !nl_pmp;
+  assign nl_pmpc = xl_d && dt_pte[0].ph;          // the cached result applies
+  assign nl_pmpd = !nl_pmpc;                      // ... else the checker decides, later
+  assign nl_acc  = (xl_d ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
+                   (nl_pmpc && !dt_pte[0].pr);
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
   assign nl_go   = !nl_exc && !nl_tm && !nl_mmio;
@@ -548,33 +557,38 @@ module tg_lsu
   assign m2_fid = sq_id(int'(m2_fidx_q), sq_head_q);
 
   typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
-  m2_out_e   m2_out;
+  m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
   logic [63:0] m2_val;
   always_comb begin
     logic [63:0] dw;
-    m2_out = O_OK;
+    m2_out_w = O_OK;
     dw = m2_dword_q;
     if (m2_fhit_q) begin
       if (m2_fcov_q && m2_fdat_q) dw = m2_fdword_q;
-      else                        m2_out = O_STQ;
+      else                        m2_out_w = O_STQ;
     end else if (m2_clash_q) begin
-      m2_out = O_RETRY;
+      m2_out_w = O_RETRY;
     end else if (!m2_hit_q) begin
-      m2_out = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
+      m2_out_w = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
     end
     m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
+  assign m2_out = l_den ? O_FAULT : m2_out_w;     // a PMP denial found after the decision: first
   // PTE reads: the cache's dword (no forwarding: the deciding walk runs with the SQ drained)
   logic m2_ok, pt_rsp, pt_hit, pt_den;
   assign pt_rsp = m2_v_q && m2_pt_q && !flush;
   assign pt_hit = m2_hit_q && !m2_clash_q;
   assign pt_den = !m2_hit_q && deny_v && deny_line == m2_pa_q[PA_W-1:6];
-  assign m2_ok  = m2_v_q && !m2_pt_q && m2_out == O_OK && !flush;
+  // The wakeups do not wait for the PMP checker (m2_okw): a load it denies faults, and the dependents
+  // it woke read a stale value and go with the trap's flush (the flush frees its LLT)
+  logic m2_okw;
+  assign m2_okw = m2_v_q && !m2_pt_q && m2_out_w == O_OK && !flush;
+  assign m2_ok  = m2_okw && !l_den;
   assign lm_req = m2_v_q && !flush && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out == O_MISS);
   assign lm_pa  = m2_pa_q;
-  assign ld_m2_will  = m2_ok && lqc_rd[0].dv && !lqc_rd[0].fp;
+  assign ld_m2_will  = m2_okw && lqc_rd[0].dv && !lqc_rd[0].fp;
   assign ld_m2_dst   = lqc_rd[0].dst;
-  assign fld_m2_will = EXT_FD && m2_ok && lqc_rd[0].dv && lqc_rd[0].fp;
+  assign fld_m2_will = EXT_FD && m2_okw && lqc_rd[0].dv && lqc_rd[0].fp;
   assign fld_m2_idx  = FPIDX_W'(lqc_rd[0].dst);
 
   // ================= MMIO =================
@@ -608,7 +622,7 @@ module tg_lsu
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
-  assign mm_go = mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush;
+  assign mm_go = mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush && !mm_hold;
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
@@ -710,7 +724,7 @@ module tg_lsu
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin
     wake_ld = '0;
-    if (m2_ok && lqc_rd[0].dv) wake_ld[llt_col(int'(lqc_rd[0].llt))] = 1'b1;
+    if (m2_okw && lqc_rd[0].dv) wake_ld[llt_col(int'(lqc_rd[0].llt))] = 1'b1;
     if (xr_take && lqc_rd[1].dv) wake_ld[llt_col(int'(lqc_rd[1].llt))] = 1'b1;
     if (am_take && am_dv_q) wake_ld[llt_col(int'(am_llt_q))] = 1'b1;
   end
@@ -791,7 +805,7 @@ module tg_lsu
                    sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
     // loads: AG checks of a new load, or a denied line at M2
     if (ln_v && !flush && nl_exc) exc_valid[0] = 1'b1;
-    if (m2_v_q && m2_out == O_FAULT && !flush) exc_valid[1] = 1'b1;
+    if (((m2_v_q && m2_out == O_FAULT) || lm_den) && !flush) exc_valid[1] = 1'b1;  // lm_lq is m2_lq_q
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
       exc_valid[2] = 1'b1;
@@ -1143,6 +1157,7 @@ module tg_lsu
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
       end
+      if (lm_den && !flush) lq_st_q[lm_lq] <= L_EXC;   // an MMIO load the PMP checker denied
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
@@ -1329,6 +1344,19 @@ module tg_lsu
     assign m1_go    = m1_v_q && (!ln_v_q || nl_go);
     assign ln_lq    = m1_lq_q;
     assign ln_lqw   = m1_lq_q;
+    // A new load's PMP checker runs in M2 on m2_pa_q: for a load in the pipe, or an MMIO load parked
+    // in M1 (check only; its issue can come no earlier than this cycle)
+    logic m2_pck_q, m2_mck_q;
+    always_ff @(posedge clk) begin
+      m2_pck_q <= !rst && !flush && ln_v_q && nl_pmpd && nl_go;
+      m2_mck_q <= !rst && !flush && ln_v_q && nl_pmpd && !nl_exc && !nl_tm && nl_mmio;
+    end
+    assign lck_pa  = m2_pa_q;
+    assign lck_dbl = lq_size_q[m2_lq_q] == 2'd3;
+    assign l_den   = m2_pck_q && !nl_chk[0];
+    assign lm_den  = m2_mck_q && !nl_chk[0];
+    assign lm_lq   = m2_lq_q;
+    assign mm_hold = lm_den && m2_lq_q == hl;
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
     // It does not wait for its access-fault checks (PMP, PMA, the high bits): a store that faults
@@ -1368,6 +1396,22 @@ module tg_lsu
     assign m1_go    = m1_v_q;
     assign ln_lq    = ld_ag_pl.lq[LIW-1:0];
     assign ln_lqw   = ag_lq;                       // = ln_lq while a new load decides: one decoder with AG's writes
+    // A new load's PMP checker runs in M1 on m1_pa_q (a load going on, or an MMIO load parked at AG:
+    // its issue can come from this cycle, so it is held on the verdict here and in M2), and the
+    // verdict takes effect in M2
+    logic m1_pck_q, m1_mck_q, m2_lden_q, m2_mden_q;
+    always_ff @(posedge clk) begin
+      m1_pck_q  <= !rst && !flush && ld_ag_valid && nl_pmpd && nl_go;
+      m1_mck_q  <= !rst && !flush && ld_ag_valid && nl_pmpd && !nl_exc && !nl_tm && nl_mmio;
+      m2_lden_q <= !rst && !flush && m1_pck_q && !nl_chk[0];
+      m2_mden_q <= !rst && !flush && m1_mck_q && !nl_chk[0];
+    end
+    assign lck_pa  = m1_pa_q;
+    assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
+    assign l_den   = m2_lden_q;
+    assign lm_den  = m2_mden_q;
+    assign lm_lq   = m2_lq_q;
+    assign mm_hold = (m1_mck_q && !nl_chk[0] && m1_lq_q == hl) || (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
     assign f_idx    = q_idx;
     assign f_cover  = q_cover;
