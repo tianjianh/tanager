@@ -174,7 +174,13 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
   - **The condition:** every live entry gets at most one report per flag per lap, and none as it is dispatched. Reports in a flush cycle are dropped, as the flip-flop flags dropped them. Later reports for squashed entries arrive before those entries are dispatched again (the flip-flop design relied on that too).
   - **Checked:** in simulation, a shadow copy of the old flip-flop flags checks the condition, and checks every cycle that the head's flags equal the old ones.
   - **Why:** the flags were 4 × `ROB_ENTRIES` flip-flops with up to 13 writers each (dispatch and every report port), each port through its own index decoder: about 900 LUT cells at st.
-- `replay` stays a flip-flop per entry: an entry can be marked more than once (two ordering violations).
+- **`replay` is XOR-banked LUTRAM (FPGA-friendly T2).** It can't be a toggle table: an entry can be marked more than once (two ordering violations).
+  - **Writers:** dispatch clears it, one table per slot. The LSU's replay report and its two TLB-miss reports set it, a table each.
+  - **Writing:** a writer stores its value XOR the other tables at its entry, read in the same cycle. The flag is the XOR of all the tables.
+  - **Same-entry writes:** two writers at one entry would cancel. So of several setters there, only the first writes, and a dispatch clear yields to a set: the order the flip-flops had.
+  - **Size:** at st, five 48 × 1 tables with six read ports each (the four other writers' entries and the two commit slots'), one RAM64M8 apiece. The tables need no reset, because dispatch clears an entry before anything reads it.
+  - **Checked:** a shadow copy of the flip-flop flag, in simulation, must equal the tables' flag at every live commit slot.
+- **One adder on the head's PC** serves both a serial instruction's next PC (+2 or +4) and the `tval` of a fetch fault on an instruction's second half (+2). The fault is a decode exception, which traps, so one instruction never needs both (asserted).
 - **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
