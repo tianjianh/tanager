@@ -641,9 +641,9 @@ module tg_lsu
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
-  // the line in T and reads and writes it in two cycles (am_ack) -> AM_RES: rd through the
-  // result register -> AM_DONE until the flush that follows its commit. An SC without a
-  // reservation for its line fails without touching memory.
+  // the line in T and reads and writes it in two cycles, or three with DC_AMO_READ_REG
+  // (am_ack) -> AM_RES: rd through the result register -> AM_DONE until the flush that follows
+  // its commit. An SC without a reservation for its line fails without touching memory.
   typedef enum logic [1:0] { AM_IDLE, AM_REQ, AM_RES, AM_DONE } amstate_e;
   amstate_e          am_st_q;
   robid_t            am_rob_q;
