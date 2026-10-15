@@ -4,16 +4,19 @@
 #   make -C tests/bench/linux install DESTDIR=DIR   install into a root filesystem tree
 #   make -C tests/bench/linux initrd                $(OUT)/tglb-initrd.cpio: the install tree as an extra
 #                                                   initrd, for QEMU (-initrd) without rebuilding the image
-# A Buildroot package passes CC, OUT and DESTDIR. Standalone, the compiler is sw/versions.sh's RVTC
-# unpacked under $(TANAGER_BUILD)/<worktree>/tc. CoreMark and Dhrystone come from perfmodel/third_party
-# (perfmodel/scripts/fetch_deps.sh), as for tests/bench; the flag sets are plan §10.2's.
-ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
+# A Buildroot package passes CC, OUT and DESTDIR, and ROOT (the repository) when it builds from a copy of
+# this directory. The flags are the Makefile's own on purpose: the benchmarks keep plan §10.2's flag
+# sets, the same as the bare-metal runs (tests/bench), and every program links statically; CFLAGS is
+# not used. Standalone, the compiler is sw/versions.sh's RVTC unpacked under
+# $(TANAGER_BUILD)/<worktree>/tc. CoreMark and Dhrystone come from perfmodel/third_party
+# (perfmodel/scripts/fetch_deps.sh), as for tests/bench.
+ROOT ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 WT   := $(notdir $(ROOT))
-L    := $(ROOT)/tests/bench/linux
+L    := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 OUT  ?= $(TANAGER_BUILD)/$(WT)/linux-bench
-RVTC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$RVTC_NAME)
 ifeq ($(origin CC),default)
+  RVTC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$RVTC_NAME)
   CC := $(TANAGER_BUILD)/$(WT)/tc/$(RVTC_NAME)/bin/riscv64-buildroot-linux-gnu-gcc
 endif
 TP   ?= $(firstword $(patsubst %/coremark/core_main.c,%,$(wildcard $(ROOT)/perfmodel/third_party/coremark/core_main.c \
