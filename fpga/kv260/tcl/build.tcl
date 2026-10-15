@@ -8,7 +8,7 @@
 # TG_PMOD_TXD / TG_PMOD_RXD override them.
 lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
-# TG_UNCORE_DSP (hex, e.g. 0x18C03080000, the default): which register slices keep their data in DSPs
+# TG_UNCORE_DSP (hex, e.g. 0x8403080000, the default): which register slices keep their data in DSPs
 # (tg_uncore UNCORE_DSP, one bit per site; 0 is all fabric, 0xDEFFFFFFFFF every site but the AXI B slices)
 set xbar_gen {}
 if {[info exists ::env(TG_UNCORE_DSP)]} { lappend xbar_gen -generic "UNCORE_DSP=64'h[format %016llX $::env(TG_UNCORE_DSP)]" }

@@ -17,7 +17,7 @@ module tanager_soc
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (tg_uncore)
-  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b01100, 5'b01100, 32'h0308_0000},  // slices in DSPs (tg_uncore)
+  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},  // slices in DSPs (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
