@@ -39,4 +39,19 @@ package tg_l2_plru_pkg;
     if (cz != '0)  return cz[pv] ? pv : lowest8(cz);
     return cand[pv] ? pv : lowest8(cand);
   endfunction
+
+  // pick_victim's choice one-hot, without the priority encoders: the lowest set bit is v & -v
+  // (a carry chain), so the victim drives selects and way enables straight (200 MHz, DR-137).
+  function automatic logic [7:0] pick_victim_oh(input logic [7:0] valid, input logic [7:0] held,
+                                                input logic [7:0] resv, input logic [6:0] plru);
+    logic [7:0] inv, cand, cz, pvo;
+    inv  = ~valid & ~resv;
+    cand = ~resv;
+    cz   = cand & ~held;
+    pvo  = 8'd1 << plru_victim(plru);
+    if (inv != '0)          return inv & (~inv + 8'd1);
+    if (cz != '0)           return ((cz & pvo) != '0) ? pvo : (cz & (~cz + 8'd1));
+    if ((cand & pvo) != '0) return pvo;
+    return (cand != '0) ? (cand & (~cand + 8'd1)) : 8'd1;   // none unreserved: way 0, as lowest8
+  endfunction
 endpackage

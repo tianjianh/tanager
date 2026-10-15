@@ -482,6 +482,7 @@ module tg_l2_bank
   logic [N_MSHR-1:0] smatch;           // active MSHRs in the S2 request's set
   logic            hit2;
   logic [2:0]      hw2, vw2;
+  logic [WAYS-1:0] vw2_oh;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       // compare, then select: the RAM's entry and the two history entries are compared at once
@@ -499,9 +500,10 @@ module tg_l2_bank
     if (cin_st_q == CI_WRITE && cin_seq_q) resv[cin_way_q] = 1'b1;
     hit2 = |hitv;
     hw2  = lowest8(hitv);
-    vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
-                        row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
-                       held, resv, row2.plru);
+    vw2_oh = pick_victim_oh({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
+                             row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
+                            held, resv, row2.plru);
+    vw2    = {|(vw2_oh & 8'hF0), |(vw2_oh & 8'hCC), |(vw2_oh & 8'hAA)};   // vw2_oh is one-hot
   end
 
   // A free MSHR for an allocating A request (admission guaranteed one)
@@ -524,9 +526,10 @@ module tg_l2_bank
     swf = (p2_q.kind == PK_MCMD) ? rl_way[0] : hw2;   // PK_REL, PK_PACK, a hit: the hit way
     sw2 = s2_miss ? vw2 : swf;
     e2  = row2.way[swf];
-    vic = row2.way[vw2];
+    vic = '0;
+    for (int w = 0; w < WAYS; w++) if (vw2_oh[w]) vic = vic | row2.way[w];   // the victim's entry
   end
-  wire [WAYS-1:0] sw2_oh = WAYS'(1) << sw2;
+  wire [WAYS-1:0] sw2_oh = s2_miss ? vw2_oh : WAYS'(1) << swf;
 
   // Requester's final directory entry for an Acquire (spec §Transactions).
   function automatic way_t acq_final(input way_t e_in, input logic [AGENT_W-1:0] a, input logic grow_t);
@@ -1530,6 +1533,10 @@ module tg_l2_bank
       for (int w = 0; w < WAYS; w++)
         assert (hitv[w] == (row2.way[w].valid && row2.way[w].tag == tag2))
           else $error("tg_l2_bank%0d: way %0d hit differs", BANK, w);
+      assert (vw2 == pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
+                                  row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
+                                 held, resv, row2.plru) && $onehot(vw2_oh))
+        else $error("tg_l2_bank%0d: one-hot victim differs", BANK);
       for (int m = 0; m < N_MSHR; m++)
         assert (smatch[m] == (m_valid[m] && set_of(m_line[m]) == set2))
           else $error("tg_l2_bank%0d: MSHR %0d set compare made in S1 differs", BANK, m);
