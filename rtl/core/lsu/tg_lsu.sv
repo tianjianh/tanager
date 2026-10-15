@@ -810,7 +810,15 @@ module tg_lsu
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
   assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
-  assign hd_retry = hd_need && hd_tok;
+  // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
+  // leaves the commit redirect). The head is the same op in both cycles: a TLB-missed head leaves
+  // only through a flush.
+  logic hd_tok_q, hd_need_q;
+  always_ff @(posedge clk) begin
+    hd_tok_q  <= hd_tok;
+    hd_need_q <= hd_need;
+  end
+  assign hd_retry = hd_need && hd_need_q && hd_tok_q;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
   assign hd_lva   = lqc_rd[2].va;
