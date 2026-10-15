@@ -4,6 +4,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #include <verilated.h>
+#if VM_COVERAGE
+#include <verilated_cov.h>
+#endif
 #include <verilated_fst_c.h>
 
 #include <cerrno>
@@ -45,7 +48,7 @@ struct opts_t {
   std::string elf;
   uint64_t cycles = 50000000, hang = 100000, wb_drain = 2000, wb_timeout = 100000;
   double timeout = 3600;
-  std::string fst, log, sig;
+  std::string fst, log, sig, cov;
   uint64_t fst_from = 0, fst_to = ~0ull, log_from = 0, sig_window = 1024;
   bool log_bus = false;
   bool lockstep = true, rand_reset = false, quiet = false;
@@ -74,6 +77,7 @@ void usage() {
           "  waveforms:   --fst=FILE [--fst-from=C] [--fst-to=C]\n"
           "  text trace:  --log=FILE [--log-from=C] [--log-bus]: commit records and writebacks from cycle C on;\n"
           "               with --log-bus also the core's TileLink beats and the B/D readies that count\n"
+          "  coverage:    --cov=FILE: the RTL's line and expression coverage, in a build made with COV=1\n"
           "  signature:   --sig=FILE [--sig-window=N]: per N cycles (1024), hashes of the commit trace and of the\n"
           "               core's TileLink outputs, for tools/ci/cycle_identical.py (verification.md §4.5)\n"
           "  snapshots:   --snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=N]: on a failure, replay\n"
@@ -129,6 +133,7 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "log-from") o.log_from = num(need(), "--log-from");
     else if (k == "log-bus") o.log_bus = true;
     else if (k == "sig") o.sig = need();
+    else if (k == "cov") o.cov = need();
     else if (k == "sig-window") o.sig_window = std::max<uint64_t>(1, num(need(), "--sig-window"));
     else if (k == "snap-every") o.snap_every = num(need(), "--snap-every");
     else if (k == "snap-keep") o.snap_keep = std::max(1u, unsigned(num(need(), "--snap-keep")));
@@ -180,6 +185,9 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else { fprintf(stderr, "tg: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.elf.empty()) usage();
+#if !VM_COVERAGE
+  if (!o.cov.empty()) fatal("--cov needs a build with coverage (make -C sim COV=1)");
+#endif
   if (o.snap_every && !o.fst.empty()) fatal("--snap-every and --fst are exclusive (a snapshot replay writes --snap-fst)");
   mc.seed = o.seed;
   mc.dram_size = o.mem_mb << 20;
@@ -488,6 +496,9 @@ int main(int argc, char** argv) {
   top->final();
   if (logf) fclose(logf);
   t.sig.finish(cycle, instret, exit_status_name(status), code);
+#if VM_COVERAGE
+  if (!o.cov.empty() && !replaying) vctx->coveragep()->write(o.cov.c_str());
+#endif
 
   // A failure with snapshots: wake the newest one to write the waveform (verification.md §2.8).
   std::string snap_note;

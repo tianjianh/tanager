@@ -21,7 +21,7 @@ Tanager is a clean-room, 2-wide-decode, out-of-order RV64GC dual-core with two h
 - **M0 (repository, CI, FPGA spikes):** done. Spike S1 ran on the board on 2026-10-14: an idle 64-byte DDR read from the FPGA takes 36.8 cycles (184 ns) at 200 MHz, and the two HP ports together move 6.35 GB/s. The spikes are reported in [docs/perf/spikes.md](docs/perf/spikes.md).
 - **M2 (out-of-order core in simulation):** done on 2026-10-14. Lockstep passes in all four configurations; CoreMark 3.04 CM/MHz on the conservative M2 core.
 - **M3 (Linux-capable core):** done in simulation on 2026-10-14. RV64GC, with F and D, runs in lockstep with Spike in all four configurations (ACT4 rv64imafdc 895/895), and Linux (OpenSBI, Buildroot lp64d) boots to userspace in Verilator. The area work toward v1's 103K-LUT bar continues as FPGA-native rewrites ([docs/perf/fpga_friendly.md](docs/perf/fpga_friendly.md)).
-- **M4 (single core on the KV260):** in progress. The board's ARM side is up (stage A) and spike S1 is done. **Next:** the traffic-generator bitstream with Linux's fan control and the PMOD console, then the real core booting Linux on hardware.
+- **M4 (single core on the KV260):** in progress. The ARM side is up (stage A) and spike S1 is done. Stage B's first half passed on 2026-10-14: the traffic-generator bitstream loads with Linux's fan control, its memory path runs with 0 errors at native and at 250 injected cycles, and the RISC-V console comes out on the PMOD UART. **Next:** the real core booting Linux on hardware.
 
 ## License
 

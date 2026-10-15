@@ -1,0 +1,52 @@
+fan: pwm1 17/255, AMS temp1 35 C, fancontrol active
+== step 2: the host window
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 2 core(s) x 1 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+== step 3: fabric widths and clock (FROMHOST round trip)
+$ tanager-host poke 0x68 0x12345678
+$ tanager-host peek 0x68
+0x00000000
+== step 4: the memory path, no core
+$ tanager-host tg start 16384
+traffic generators running over 16384 lines each; window 0x840000000 + 0x40000000
+window read back: base 0x0000000840000000, size 0x0000000040000000
+$ tanager-host tg status
+passes 107, lines checked 3493337, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 206, lines checked 6750208, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 306, lines checked 10025015, errors 0 (last at line 0x0000000)
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 2 core(s) x 1 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000002b
+  status          cores running, uncore running, L2 ready
+  window          base 0x840000000 size 0x40000000
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 20162673 reads, native latency avg 0.1 max 98 cycles
+  tohost          0x0000000000000000 (0 writes)
+== step 4, at 250 injected read cycles
+$ tanager-host inj --inj-rd 250
+injector: rd 0 wr 0 ctrl 0x00000000; 20276045 reads, native latency avg 0.1 max 98 cycles
+$ tanager-host tg status
+passes 409, lines checked 13401821, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 509, lines checked 16649796, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 608, lines checked 19922944, errors 0 (last at line 0x0000000)
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 39966145 reads, native latency avg 0.2 max 98 cycles
+$ tanager-host inj --inj-rd 0
+injector: rd 0 wr 0 ctrl 0x00000000; 40078581 reads, native latency avg 0.2 max 98 cycles
+== step 5: the console (one '.' per pass), also on the PMOD UART
+$ tanager-host run --timeout 5
+[29188 dots]
