@@ -80,6 +80,10 @@ For each instruction, `pred_exit` = the block was predicted taken and the predic
 
 The redirecting instruction stays in the group; younger slots are dropped. Its `pred_npc` (the next PC the front end followed) is what execute compares against.
 
+**Timing:**
+- **No add waits for another.** An instruction's PC is its block's address plus its offset in the block (`pc[3:0]`, or −2 for a straddler). The PC-relative values (the targets, AUIPC, the link value, the next PC) are each one three-input add of block address, offset and operand: a carry-save step and one carry chain. Only a straddler's PC needs a decrement of the block address.
+- **The redirect decision uses no add at all.** "The predicted target is the branch's" is checked carry-free, as `a + b + c == k` (Cortadella and Llabería, IEEE Trans. Computers, 1992). Every bit of the carry-save sum must match the carry that k needs there. The sums themselves feed only registers.
+
 ## 4. Decode (`tg_decode`)
 
 `DECODE_WIDTH` copies of a combinational RV64IM + Zicsr + Zifencei + system decoder. Output: `dec_t` (`tg_core_pkg`): class (ALU, BR, MUL, DIV, LD, ST, CSR, SYS), sources and destination, ALU control (`alu_ctl_t`), 64-bit immediate (AUIPC, JAL and JALR link values are precomputed: PC + imm, PC + 4), branch fields, memory size and sign, MUL/DIV op, CSR op, and a decode-time exception (illegal 2 with `tval` = instruction bits, 16-bit for a compressed encoding; ECALL 11 with `tval` 0; EBREAK 3 with `tval` = PC; fetch fault 1 with `tval` = PC).

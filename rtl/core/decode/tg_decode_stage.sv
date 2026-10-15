@@ -5,6 +5,10 @@
 // Redirects: JAL not predicted to its target, a branch predicted taken to a wrong target, or a
 // prediction on something that is not a branch or jump. The redirect is registered (dred) and
 // flushes the front end in the next cycle; decode takes nothing in that cycle.
+// Timing: whether the predicted target is the branch's is checked without a carry chain: the
+// target is block address + offset + immediate, and "a + b + c == k" holds when every bit of
+// the carry-save sum matches the carry k needs there (Cortadella and Llaberia, IEEE Trans.
+// Computers, 1992). The sums themselves (the targets, the next PC) feed only registers.
 module tg_decode_stage
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -38,6 +42,16 @@ module tg_decode_stage
   output logic                dred,
   output logic [63:0]         dred_pc
 );
+  // a + b + c == k, carry-free
+  function automatic logic eq_add3(input logic [63:0] a, input logic [63:0] b, input logic [63:0] c,
+                                   input logic [63:0] k);
+    logic [63:0] s, y, cin;
+    s   = a ^ b ^ c;
+    y   = ((a & b) | (a & c) | (b & c)) << 1;
+    cin = {(s[62:0] & y[62:0]) | ((s[62:0] | y[62:0]) & ~k[62:0]), 1'b0};
+    return (s ^ y ^ k) == cin;
+  endfunction
+
   dec_t [W-1:0]        d;
   logic [W-1:0]        redir;
   logic [W-1:0][63:0]  npc;
@@ -48,27 +62,35 @@ module tg_decode_stage
     logic [31:0] xinsn;
     logic        rvc_ill;
     tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(EXT_FD && misa_d), .insn(xinsn), .ill(rvc_ill));
-    tg_decode u_dec (.pc(iq_insn[j].pc), .insn(iq_insn[j].rvc ? xinsn : iq_insn[j].insn),
+    logic [31:0] xi;
+    assign xi = iq_insn[j].rvc ? xinsn : iq_insn[j].insn;
+    tg_decode u_dec (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
                      .len2(iq_insn[j].rvc),
                      .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
-    logic [63:0] seq;
-    logic        pt;
+    logic [63:0] seq, pbase, poff, imm;
+    logic        pt, hit;
     logic [63:0] ptg;
-    assign seq = iq_insn[j].pc + (iq_insn[j].rvc ? 64'd2 : 64'd4);
-    assign pt  = iq_insn[j].pred_taken;
-    assign ptg = iq_insn[j].pred_target;
+    assign pbase = {iq_insn[j].blk, 4'b0};
+    assign poff  = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
+    assign seq   = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
+    assign pt    = iq_insn[j].pred_taken;
+    assign ptg   = iq_insn[j].pred_target;
+    // the branch's immediate (JAL or conditional), as tg_decode adds it for d.br_target
+    assign imm   = (d[j].br_kind == BR_JAL) ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
+                                            : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0};
+    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == d[j].br_target
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
       dfix[j]  = 1'b0;
       if (!d[j].exc) begin
         if (d[j].cls == C_BR && d[j].br_kind == BR_JAL) begin
-          if (!pt || ptg != d[j].br_target) begin
+          if (!pt || !hit) begin
             redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
           end
         end else if (d[j].cls == C_BR && d[j].br_kind == BR_COND) begin
-          if (pt && ptg != d[j].br_target) begin
+          if (pt && !hit) begin
             redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
           end
         end else if (d[j].cls != C_BR && pt) begin
