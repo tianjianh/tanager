@@ -94,7 +94,7 @@ Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the
 - One 40-bit adder and compare per address channel, registered. About 200 LUTs per port.
 - **The range check feeds `s_ar_ready_o`**, so it ends the L2's AR handshake path: the L2's pick, then its MSHR LUTRAM for the address, then this check, then the injector, then back into the L2's AR pointer (−0.700 ns at 200 MHz, all fabric).
   - `DRAM_BASE` is 2³¹, so synthesis already reduces `a − DRAM_BASE` to a short decrement of the top bits.
-  - Comparing against `size + DRAM_BASE` instead was tried together with a one-hot L2 pick (ca1aece reverts both). The window's error registers went from −0.20 to −0.60 ns.
+  - Comparing against `size + DRAM_BASE` instead was tried together with a one-hot L2 pick. Neither gained anything measurable, and ca1aece reverts both.
 
 ### Verification
 `tests/unit/axi_window`: random in- and out-of-range bursts against a memory model, checking remapped addresses, that out-of-range transactions never appear downstream, the error responses, and same-ID ordering.
