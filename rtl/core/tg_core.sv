@@ -280,9 +280,15 @@ module tg_core
   robid_t           ld_cmp_rob, replay_rob;
   logic [1:0]       st_cmp;
   robid_t [1:0]     st_cmp_rob;
-  logic [3:0]       lx_valid;
-  robid_t [3:0]     lx_rob;
-  logic [3:0][3:0]  lx_cause;
+  logic [3:0]       lx_valid, lx_valid_q;
+  robid_t [3:0]     lx_rob, lx_rob_q;
+  logic [3:0][3:0]  lx_cause, lx_cause_q;
+  // Measurement only (reserve lever F1): the LSU's fault reports reach the ROB a cycle later
+  always_ff @(posedge clk) begin
+    lx_valid_q <= (rst || flush) ? '0 : lx_valid;
+    lx_rob_q   <= lx_rob;
+    lx_cause_q <= lx_cause;
+  end
   logic [NCW-1:0]   cm_nld, cm_nst;
   sqid_t [CW-1:0]   tr_sq;
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
@@ -340,7 +346,7 @@ module tg_core
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
-    .lx_valid, .lx_rob, .lx_cause, .replay_valid, .replay_rob,
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid, .replay_rob,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
