@@ -31,6 +31,10 @@ module tg_uncore
   // memory R slices (their slower clock-to-out) and the L2 R slices failed in one placement and stay
   // there too; the AXI B slices (a few bits) always do.
   parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},
+  // A register slice on each bank's AXI AR, before the latency injector: it cuts the L2's AR
+  // handshake (pick, MSHR LUTRAM, the window's range check, ready back into the pick), the
+  // uncore's longest path at 200 MHz, for a cycle on every fill (a DR-135 reserve item)
+  parameter bit          AR_SLICE        = 1'b0,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -225,11 +229,23 @@ module tg_uncore
   logic [N_BANKS-1:0][15:0] inj_max;
 
   for (genvar b = 0; b < N_BANKS; b++) begin : g_mem
+    axi_ax_t ar_s;
+    logic    ar_sv, ar_sr;
+    if (AR_SLICE) begin : g_ars
+      tg_skid #(.T (axi_ax_t)) u_ars (
+        .clk, .rst (uncore_rst), .in_valid (l2_arv[b]), .in_ready (l2_arr[b]), .in_data (l2_ar_ch[b]),
+        .out_valid (ar_sv), .out_ready (ar_sr), .out_data (ar_s)
+      );
+    end else begin : g_arw
+      assign ar_s      = l2_ar_ch[b];
+      assign ar_sv     = l2_arv[b];
+      assign l2_arr[b] = ar_sr;
+    end
     tg_axi_lat_inj u_inj (
       .clk, .rst (uncore_rst),
       .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
       .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
-      .s_ar_i (l2_ar_ch[b]), .s_ar_valid_i (l2_arv[b]), .s_ar_ready_o (l2_arr[b]),
+      .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
       .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
       .s_aw_i (l2_aw_ch[b]), .s_aw_valid_i (l2_awv[b]), .s_aw_ready_o (l2_awr[b]),
       .s_w_i (l2_w_ch[b]), .s_w_valid_i (l2_wv[b]), .s_w_ready_o (l2_wr[b]),

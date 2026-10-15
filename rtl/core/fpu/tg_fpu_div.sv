@@ -51,8 +51,8 @@ module tg_fpu_div
   fp_unp_t ua, ub;
   assign s1_dbl  = (s1_q.fmt == FMT_D);
   assign s1_sqrt = (s1_q.op == FOP_FSQRT);
-  assign ua = unpack(s1_q.a, s1_dbl);
-  assign ub = unpack(s1_q.b, s1_dbl);
+  assign ua = unpack_lean(s1_q.a, s1_dbl);
+  assign ub = unpack_lean(s1_q.b, s1_dbl);
 
   logic [5:0]  lza, lzb;
   tg_fpu_lzc #(.W(53)) u_lza (.x(ua.sig), .cnt(lza));

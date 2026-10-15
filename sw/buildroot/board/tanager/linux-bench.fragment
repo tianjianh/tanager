@@ -1,0 +1,6 @@
+# The bench image's kernel (tanager_lp64d_bench, DR-141): user-mode rdcycle and rdinstret for the
+# Linux workload. The SBI PMU driver opens scounteren's CY, TM and IR bits on every hart when the
+# run script sets kernel.perf_user_access=2; OpenSBI's generic platform has the SBI PMU extension.
+CONFIG_PERF_EVENTS=y
+CONFIG_RISCV_PMU=y
+CONFIG_RISCV_PMU_SBI=y

@@ -1,1 +1,1 @@
-# No Tanager-specific packages yet.
+source "$BR2_EXTERNAL_TANAGER_PATH/package/tg-lbench/Config.in"

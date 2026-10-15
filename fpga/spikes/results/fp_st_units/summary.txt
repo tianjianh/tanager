@@ -1,0 +1,35 @@
+checkpoint               /home/w/tanager-build/track-spikes-72f833/fp/core_st_6d0523e_routed.dcp
+floorplan                fpga/spikes/tcl/fp/st_units.tcl
+period_ns                5.000
+pblocks                  7
+place_s                  306
+route_s                  668
+wns_route_ns             -5.986
+impl_s                   1899
+wns_ns                   -5.536
+fmax_mhz                 94.9
+worst_levels             26
+worst_logic_ns           3.281
+worst_net_ns             7.161
+worst_from               u_ex/ex_sa_q_reg[2][1]_replica_7/C
+worst_to                 u_lsu/lq_st_q_reg[13][2]/D
+whs_ns                   0.010
+tns_ns                   -55955.598
+failing_endpoints        30826 of 110410
+wire_share_2000          0.633
+fam_de                   slack -5.333 levels 26 logic 4.003 net 6.131 u_fetch/u_cmp/head_q_reg[1]_replica_4/C -> u_de/dred_pc_reg[33]/D
+fam_rnuop                slack -5.261 levels 25 logic 3.902 net 6.144 u_fetch/u_cmp/head_q_reg[1]_replica_4/C -> u_rn/rn_uop_q_reg[0][pred_npc][4]/D
+fam_iqptr                slack -5.089 levels 26 logic 3.894 net 6.088 u_fetch/u_cmp/head_q_reg[1]_replica_4/C -> u_fetch/u_cmp/head_q_reg[2]_replica_4/D
+fam_fpc                  slack -5.088 levels 28 logic 3.838 net 6.160 u_fetch/f2_pa_q_reg[13]/C -> u_fetch/fpc_q_reg[11]_replica_4/D
+fam_f2                   slack -5.273 levels 28 logic 3.696 net 6.242 u_fetch/f2_pa_q_reg[13]/C -> u_fetch/f2_tag_q_reg[1][18]/CE
+fam_dc                   slack -5.466 levels 18 logic 3.662 net 5.969 u_lsu/u_dc/g_data[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_1/CLKBWRCLK -> u_lsu/u_dc/g_data[2].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_3/DINBDIN[27]
+fam_map                  slack -3.870 levels 16 logic 2.266 net 6.073 u_rob/head_q_reg[0]_rep__2/C -> u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA/WE
+fam_robx                 slack -2.818 levels 8 logic 1.206 net 6.238 u_rob/flush_reg/C -> u_rob/exr_tval_q_reg[12]/CE
+fam_robrw                slack -3.461 levels 19 logic 2.446 net 5.678 u_lsu/lq_head_q_reg[1]_replica_1/C -> u_rob/g_rw[4].u_rw/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/WE
+fam_robft                slack -1.035 levels 4 logic 0.710 net 5.028 u_rob/flush_reg/C -> u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+fam_lsuq                 slack -5.536 levels 26 logic 3.281 net 7.161 u_ex/ex_sa_q_reg[2][1]_replica_7/C -> u_lsu/lq_st_q_reg[13][2]/D
+path_ds_ren              slack -1.899 levels 4 u_rob/flush_reg/C -> u_rn/ds_ren_q_reg[0][src3][4]/R
+path_rdytab              slack -1.257 levels 8 u_rob/flush_reg/C -> u_rn/u_irdy/g_bank[1].g_a[1].u_a/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+path_rmap                slack -3.870 levels 16 u_rob/head_q_reg[0]_rep__2/C -> u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA/WE
+path_fl                  slack -4.512 levels 18 u_rob/head_q_reg[0]_rep__2/C -> u_rn/g_fl[0].u_fl/g_bank[0].u_ram/g_m32.g_prim[0].u_ram/RAMA/WADR0
+total_s                  1926

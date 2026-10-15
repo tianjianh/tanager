@@ -39,7 +39,52 @@ package tg_fpu_util_pkg;
     return (&x[63:32]) ? x[31:0] : CNAN_S32;
   endfunction
 
+  // A register's value as format dbl reads it, unpacked, for the units' first stages (operands
+  // through P4's bypass). The classes come from the raw fields, with an S operand's box check ANDed
+  // in last (an unboxed S operand reads as the canonical NaN: exponent all ones, quiet, fraction
+  // not zero), so they do not wait for the unboxed value: four LUT levels, where forming them from
+  // it took eight. The S fraction's zero check is a part of the D one's.
   function automatic fp_unp_t unpack(input logic [63:0] x, input logic dbl);
+    fp_unp_t u;
+    logic [31:0] s;
+    logic [EXP_W-1:0] e;
+    logic [SIG_W-2:0] f;
+    logic box, lo0, emax, ez, fz, qb;
+    s   = unbox_s(x);
+    box = &x[63:32];
+    lo0 = x[22:0] == '0;
+    if (dbl) begin
+      u.sign = x[63];
+      e      = x[62:52];
+      f      = x[51:0];
+      emax   = &x[62:52];
+      ez     = x[62:52] == '0;
+      fz     = (x[51:23] == '0) && lo0;
+      qb     = x[51];
+    end else begin
+      u.sign = s[31];
+      e      = {3'b000, s[30:23]};
+      f      = {s[22:0], 29'b0};
+      emax   = !box || &x[30:23];
+      ez     = box && x[30:23] == '0;
+      fz     = box && lo0;
+      qb     = !box || x[22];
+    end
+    u.zero = ez && fz;
+    u.sub  = ez && !fz;
+    u.inf  = emax && fz;
+    u.nan  = emax && !fz;
+    u.snan = u.nan && !qb;
+    u.sig  = {e != '0, f};
+    if (dbl) u.exp = (e == '0) ? EXP_W'(1) : e;
+    else     u.exp = ((e == '0) ? EXP_W'(1) : e) + EXP_W'(S2D);
+    return u;
+  endfunction
+
+  // unpack's value, with the classes formed from the unboxed value: more levels, but fewer LUTs
+  // where they share logic with the significand and exponent (the dividers: the form above cost
+  // them 58). For operands straight from registers.
+  function automatic fp_unp_t unpack_lean(input logic [63:0] x, input logic dbl);
     fp_unp_t u;
     logic [31:0] s;
     logic [EXP_W-1:0] e;

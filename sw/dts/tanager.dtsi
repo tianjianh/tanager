@@ -5,6 +5,7 @@
 //   TG_FPU (0|1)                                1 when the core implements F and D
 //   TG_POWER_NODE                               label of the syscon that takes the power-off/reboot writes
 //   TG_POWER_OFFSET                             byte offset of the power register in that syscon
+//   TG_PMU (0|1)                                1 adds the riscv,pmu node (the bench image, DR-141)
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
@@ -149,6 +150,17 @@
 		offset = <TG_POWER_OFFSET>;
 		value = <0x7777>;
 	};
+
+#if TG_PMU
+	// OpenSBI's PMU event map (its riscv,pmu binding; OpenSBI removes the property before Linux sees
+	// it). The core has only mcycle and minstret (no mhpmcounters): CPU_CYCLES on counter 0 and
+	// INSTRUCTIONS on counter 2. Without the map, SBI v3's event-info probe reports neither, so
+	// Linux's PMU driver can never start them and a user-mode rdcycle reads a stopped counter.
+	pmu {
+		compatible = "riscv,pmu";
+		riscv,event-to-mhpmcounters = <0x00001 0x00001 0x00000001>, <0x00002 0x00002 0x00000004>;
+	};
+#endif
 
 	chosen {
 		bootargs = TG_BOOTARGS;

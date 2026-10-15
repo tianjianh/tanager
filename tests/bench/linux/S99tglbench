@@ -1,0 +1,13 @@
+#!/bin/sh
+# The Linux workload set (DR-141; docs/spec/verification.md §4.6). With tanager.bench=1 on the kernel
+# command line it runs once the system is up, after S99tanager's boot marker, and powers off, so an
+# unattended board run ends by itself.
+case "$1" in
+  start)
+    if grep -q 'tanager.bench=1' /proc/cmdline; then
+      /usr/bin/tg-lbench.sh 3
+      poweroff -f
+    fi
+    ;;
+esac
+exit 0

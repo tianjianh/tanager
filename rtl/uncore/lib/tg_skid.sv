@@ -37,8 +37,19 @@ module tg_skid #(
     end
   end
 
+  // The skid entry loads whenever it is empty, not only when it is about to be filled: its contents
+  // matter only once skid_v_q is set, which happens exactly when the entry loads in either form. So
+  // its clock enable is a register, not the late in_valid and out_ready fanned out to every bit
+  // (200 MHz, DR-137: the clock enable of a crossbar D slice's skid entry was 1.3 ns of its path).
   always_ff @(posedge clk)
-    if (!main_free && in_valid && !skid_v_q) skid_q <= in_data;
+    if (!skid_v_q) skid_q <= in_data;
+
+`ifndef SYNTHESIS
+  // The skid entry holds what the original load rule would have captured, whenever it is in use
+  T skid_ref_q;
+  always_ff @(posedge clk) if (!main_free && in_valid && !skid_v_q) skid_ref_q <= in_data;
+  always_ff @(posedge clk) if (!rst && skid_v_q) assert (skid_q == skid_ref_q) else $error("tg_skid: skid entry differs");
+`endif
 
   if (DSP) begin : g_dsp
     tg_dsp_reg2 #(.W ($bits(T))) u_main (

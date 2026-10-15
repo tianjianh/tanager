@@ -1,0 +1,125 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Thu Oct 15 07:31:36 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -of_objects [get_timing_paths -quiet -max_paths 1 -nworst 1 -setup -to {{u_lsu/sq_head_q_reg[0]_replica_5/C --> u_lsu/u_dc/g_data[6].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_3/WEBWE[2]}}] -input_pins -file fam_map.rpt
+| Design            : tg_core
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Physopt postRoute
+| Temperature Grade : C
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -3.459ns  (required time - arrival time)
+  Source:                 u_rob/head_q_reg[4]/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA/WE
+                            (rising edge-triggered cell RAMD32 clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        8.044ns  (logic 1.992ns (24.763%)  route 6.052ns (75.237%))
+  Logic Levels:           15  (CARRY8=1 LUT2=2 LUT3=5 LUT4=2 LUT5=2 LUT6=2 RAMD32=1)
+  Clock Path Skew:        -0.114ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    2.277ns = ( 7.277 - 5.000 ) 
+    Source Clock Delay      (SCD):    2.470ns
+    Clock Pessimism Removal (CPR):    0.079ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    Netlist Resource(s)
+  -------------------------------------------------------------------    -------------------
+                         (clock clk rise edge)        0.000     0.000 r  
+                                                      0.000     0.000 r  clk (IN)
+                         net (fo=30493, unset)        2.470     2.470    u_rob/clk
+    SLICE_X51Y45         FDRE                                         r  u_rob/head_q_reg[4]/C
+  -------------------------------------------------------------------    -------------------
+    SLICE_X51Y45         FDRE (Prop_FFF_SLICEL_C_Q)
+                                                      0.113     2.583 r  u_rob/head_q_reg[4]/Q
+                         net (fo=66, routed)          0.978     3.561    u_rob/head_o[4]
+    SLICE_X34Y51                                                      r  u_rob/g_ff.u_ffp_i_11/I4
+    SLICE_X34Y51         LUT5 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.135     3.696 r  u_rob/g_ff.u_ffp_i_11/O
+                         net (fo=1, routed)           0.029     3.725    u_rob/g_ff.u_ffp_i_11_n_0
+    SLICE_X34Y51                                                      r  u_rob/g_ff.u_ffp_i_6/S[2]
+    SLICE_X34Y51         CARRY8 (Prop_CARRY8_SLICEM_S[2]_CO[3])
+                                                      0.213     3.938 r  u_rob/g_ff.u_ffp_i_6/CO[3]
+                         net (fo=2, routed)           0.206     4.144    u_rob/g_hid[1].i1
+    SLICE_X34Y51                                                      r  u_rob/g_ff.u_ffp_i_2/I0
+    SLICE_X34Y51         LUT5 (Prop_G6LUT_SLICEM_I0_O)
+                                                      0.057     4.201 r  u_rob/g_ff.u_ffp_i_2/O
+                         net (fo=36, routed)          0.387     4.588    u_rob/g_ff.u_ffp_i_2_n_0
+    SLICE_X25Y53                                                      r  u_rob/g_pl[0].u_pl_i_156/I2
+    SLICE_X25Y53         LUT4 (Prop_G6LUT_SLICEM_I2_O)
+                                                      0.057     4.645 r  u_rob/g_pl[0].u_pl_i_156/O
+                         net (fo=150, routed)         0.756     5.401    u_rob/g_pl[0].u_pl/g_m32.g_prim[6].u_ram/ADDRA3
+    SLICE_X24Y77                                                      r  u_rob/g_pl[0].u_pl/g_m32.g_prim[6].u_ram/RAMA_D1/RADR3
+    SLICE_X24Y77         RAMD32 (Prop_A6LUT_SLICEM_RADR3_O)
+                                                      0.138     5.539 r  u_rob/g_pl[0].u_pl/g_m32.g_prim[6].u_ram/RAMA_D1/O
+                         net (fo=2, routed)           0.339     5.879    u_rob/pr_d[0][85]
+    SLICE_X25Y68                                                      r  u_rob/trace_o[0][insn][31]_i_1/I2
+    SLICE_X25Y68         LUT3 (Prop_C6LUT_SLICEM_I2_O)
+                                                      0.186     6.065 r  u_rob/trace_o[0][insn][31]_i_1/O
+                         net (fo=5, routed)           0.523     6.588    u_rob/p_0_in[31]
+    SLICE_X29Y62                                                      r  u_rob/cm_csr_INST_0_i_7/I0
+    SLICE_X29Y62         LUT4 (Prop_E6LUT_SLICEM_I0_O)
+                                                      0.083     6.671 r  u_rob/cm_csr_INST_0_i_7/O
+                         net (fo=1, routed)           0.071     6.742    u_rob/cm_csr_INST_0_i_7_n_0
+    SLICE_X29Y62                                                      r  u_rob/cm_csr_INST_0_i_5/I4
+    SLICE_X29Y62         LUT6 (Prop_C6LUT_SLICEM_I4_O)
+                                                      0.220     6.962 f  u_rob/cm_csr_INST_0_i_5/O
+                         net (fo=1, routed)           0.205     7.167    u_rob/cm_csr_INST_0_i_5_n_0
+    SLICE_X29Y62                                                      f  u_rob/cm_csr_INST_0_i_4/I1
+    SLICE_X29Y62         LUT6 (Prop_D6LUT_SLICEM_I1_O)
+                                                      0.151     7.318 f  u_rob/cm_csr_INST_0_i_4/O
+                         net (fo=1, routed)           0.228     7.546    u_rob/cm_csr_INST_0_i_4_n_0
+    SLICE_X27Y61                                                      f  u_rob/cm_csr_INST_0_i_3/I0
+    SLICE_X27Y61         LUT3 (Prop_E6LUT_SLICEL_I0_O)
+                                                      0.057     7.603 f  u_rob/cm_csr_INST_0_i_3/O
+                         net (fo=65, routed)          0.119     7.722    u_rob/cm_csr_INST_0_i_3_n_0
+    SLICE_X27Y62                                                      f  u_rob/cm_csr_INST_0_i_2/I0
+    SLICE_X27Y62         LUT2 (Prop_A6LUT_SLICEL_I0_O)
+                                                      0.152     7.874 f  u_rob/cm_csr_INST_0_i_2/O
+                         net (fo=6, routed)           0.058     7.932    u_rob/cm_csr_INST_0_i_2_n_0
+    SLICE_X27Y62                                                      f  u_rob/cm_valid[0]_INST_0_i_1/I0
+    SLICE_X27Y62         LUT3 (Prop_B6LUT_SLICEL_I0_O)
+                                                      0.138     8.070 r  u_rob/cm_valid[0]_INST_0_i_1/O
+                         net (fo=43, routed)          0.777     8.847    u_rob/cm_valid[0]
+    SLICE_X15Y63                                                      r  u_rob/cm_rd_en[0]_INST_0/I1
+    SLICE_X15Y63         LUT2 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.057     8.904 r  u_rob/cm_rd_en[0]_INST_0/O
+                         net (fo=21, routed)          0.720     9.624    u_rn/cm_rd_en[0]
+    SLICE_X9Y73                                                       r  u_rn/u_imap_i_20/I1
+    SLICE_X9Y73          LUT3 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.083     9.707 r  u_rn/u_imap_i_20/O
+                         net (fo=28, routed)          0.189     9.895    u_rn/u_imap/cwe[0]
+    SLICE_X9Y68                                                       r  u_rn/u_imap/g_mc[0].u_cmap_i_1/I1
+    SLICE_X9Y68          LUT3 (Prop_B6LUT_SLICEL_I1_O)
+                                                      0.152    10.047 r  u_rn/u_imap/g_mc[0].u_cmap_i_1/O
+                         net (fo=64, routed)          0.466    10.514    u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/WE
+    SLICE_X5Y62          RAMD32                                       r  u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA/WE
+  -------------------------------------------------------------------    -------------------
+
+                         (clock clk rise edge)        5.000     5.000 r  
+                                                      0.000     5.000 r  clk (IN)
+                         net (fo=30493, unset)        2.277     7.277    u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/WCLK
+    SLICE_X5Y62          RAMD32                                       r  u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA/CLK
+                         clock pessimism              0.079     7.356    
+                         clock uncertainty           -0.035     7.321    
+    SLICE_X5Y62          RAMD32 (Setup_A5LUT_SLICEM_CLK_WE)
+                                                     -0.266     7.055    u_rn/u_imap/g_mc[0].u_cmap/g_m32.g_prim[1].u_ram/RAMA
+  -------------------------------------------------------------------
+                         required time                          7.055    
+                         arrival time                         -10.514    
+  -------------------------------------------------------------------
+                         slack                                 -3.459    
+
+
+
+

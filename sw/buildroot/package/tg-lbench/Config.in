@@ -1,0 +1,7 @@
+config BR2_PACKAGE_TG_LBENCH
+	bool "tg-lbench"
+	help
+	  The Linux workload set (DR-141; docs/spec/verification.md §4.6):
+	  static user programs and their run script, built from
+	  tests/bench/linux in this repository. With tanager.bench=1 on the
+	  kernel command line it runs at boot and powers off.
