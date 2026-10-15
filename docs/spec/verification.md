@@ -592,6 +592,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
   - **default:** memcpy 1 MiB +2.4%, Dhrystone +2.3%, tlbwalk +1.1%, syscall +0.9%, memcpy 64 B −1.1%;
   - **default without #2:** memcpy 1 MiB +1.9%, Dhrystone +1.5%, tlbwalk +1.1%, syscall −2.4%;
   - CoreMark A and B within ±0.1%, inside the spread. Instructions per operation are identical across the profiles, so the differences are the core's cycles.
+  - **The kernel's boot to `/init`** (its log timestamps; every profile is one `st` core at 60 MHz, so time is cycles): 2.451 s on the fallback, +0.59% on the default, +0.46% without #2, with a spread of 0.1% or less over three boots. The logs and the board's tables are in `fpga/kv260/board/dr141/`; `tglb_compare.py` reproduces the tables from the nine logs.
 
 ## 5. The test core (`tg_tcore`)
 
