@@ -332,8 +332,10 @@ module tg_exec
       default: bt_taken = !f_ltu[0];
     endcase
     if (bp.br_kind != BR_COND) bt_taken = 1'b1;
-    bt_target = (bp.br_kind == BR_JALR) ? ((opa[0] + {{52{bp.jalr_off[11]}}, bp.jalr_off}) & ~64'd1)
-                                        : bp.br_target;
+    // One adder: JALR adds rs1 and its offset, the others zero to the decoded target (whose bit 0
+    // is zero), so the target select sits in the adder's LUTs (fpga_friendly.md T7)
+    bt_target = ((bp.br_kind == BR_JALR ? opa[0] : bp.br_target)
+               + (bp.br_kind == BR_JALR ? {{52{bp.jalr_off[11]}}, bp.jalr_off} : 64'd0)) & ~64'd1;
     bt_npc = bt_taken ? bt_target : bt_seq;
   end
   // The misprediction test bt_npc != pred_npc as (taken ? target != pred : seq != pred): the
