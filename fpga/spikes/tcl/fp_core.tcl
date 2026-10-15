@@ -6,24 +6,22 @@
 # runs compare with its unconstrained baseline.
 # Run it only through tools/vivado_run.sh (conventions §9), e.g. by fpga/spikes/scripts/run_fp.sh:
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/fp_core.tcl <repo-root> <checkpoint.dcp> \
-#       <floorplan.tcl | none> [-place D] [-route D] [-dcp 0|1]
+#       <floorplan.tcl | none> [-place D] [-route D]
 #   none re-places and re-routes without pblocks: the control for run-to-run variation
 # Writes to the run directory: summary.txt (key value lines), floorplan.txt, util.rpt,
 # util_hier.rpt, util_pblocks.rpt, timing.rpt, timing_worst.rpt, levels.rpt, paths.tsv (the worst
 # path into each of the 2,000 worst endpoints, with the units it crosses), fam_<name>.rpt,
-# regions.txt (each unit's slices per clock region).
+# regions.txt (each unit's slices per clock region), routed.dcp.
 
 lassign $argv root dcp fp
 set place_dir Default
 set route_dir Default
-set keep_dcp 0
 set rest [lrange $argv 3 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
   switch -- $k {
     -place { set place_dir $v }
     -route { set route_dir $v }
-    -dcp   { set keep_dcp $v }
     default { error "fp_core.tcl: unknown option $k" }
   }
 }
@@ -58,10 +56,14 @@ set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
 tg_kv $fh wns_route_ns [format %.3f $wns]
 if {$wns ne "" && $wns < 0} { phys_opt_design }
 tg_kv $fh impl_s [expr {[clock seconds] - $t0}]
+# the routed design first, so a failing report does not cost the implementation (run_fp.sh keeps
+# it outside the run directory, for queries)
+write_checkpoint -force routed.dcp
 
 report_utilization -file util.rpt
 report_utilization -hierarchical -hierarchical_depth 3 -hierarchical_min_primitive_count 0 -file util_hier.rpt
-if {[llength [get_pblocks -quiet]]} { report_utilization -pblocks [get_pblocks] -file util_pblocks.rpt }
+close [open util_pblocks.rpt w]
+foreach pb [get_pblocks -quiet] { report_utilization -pblocks $pb -append -file util_pblocks.rpt }
 report_timing -max_paths 30 -nworst 1 -unique_pins -input_pins -sort_by slack -file timing.rpt
 report_timing -max_paths 1 -input_pins -file timing_worst.rpt
 report_design_analysis -logic_level_distribution -logic_level_dist_paths 2000 -file levels.rpt
@@ -156,7 +158,6 @@ foreach ref {RAMB36E2 RAMB18E2 DSP48E2} {
   puts $rf $line
 }
 close $rf
-if {$keep_dcp} { write_checkpoint -force routed.dcp }
 tg_kv $fh total_s [expr {[clock seconds] - $t0}]
 close $fh
 puts "FP_CORE_DONE $fp"

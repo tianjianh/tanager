@@ -19,6 +19,8 @@ for f in summary.txt floorplan.txt regions.txt util.rpt util_hier.rpt util_pbloc
          levels.rpt paths.tsv fam_*.rpt; do
   for g in $build/$f; do [ -f "$g" ] && cp "$g" "$res/"; done
 done
+# the routed design, for queries (outside git: about 30 MB)
+[ -f "$build/routed.dcp" ] && cp "$build/routed.dcp" "$TANAGER_BUILD/$(basename "$root")/fp/${name}_routed.dcp"
 grep -E '^(ERROR|CRITICAL WARNING)' "$build/vivado.log" 2>/dev/null | head -20 > "$res/errors.txt"
 [ -s "$res/errors.txt" ] || rm -f "$res/errors.txt"
 echo "$name rc=$rc $(grep -E '^(wns_ns|wire_share_2000|failing_endpoints) ' "$res/summary.txt" 2>/dev/null | awk '{printf "%s=%s ", $1, $2}')"
