@@ -354,6 +354,7 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 | Uncompressed built-in initramfs | saves an estimated hour or two of simulation per Linux boot |
 | L2: the MSHR state one-hot ([l2.md](l2.md)) | uncore −400 LUTs (19,439 st, 19,933 smt2 under DR-113's settings), cycle-identical |
 | The first M4 bitstream, one real `st` core ([fpga/kv260/results.md](../../fpga/kv260/results.md)) | 65.3K LUTs; closes at 60 MHz. At 100 MHz it misses by 3.8 ns on two cross-unit paths inside the core (load data and EX's writeback queue into the ROB, 35–38 levels), which per-unit timing runs cannot see |
+| M4 on the board (20435b1, 60 MHz; the board session) | first light passes; Linux 6.18 reaches TANAGER-BOOT-OK 8 s after the load, and runs a root shell at 250 injected read cycles; poweroff ends the run cleanly. The injector reads a native latency of 19.8 cycles on average (54 at most) |
 
 **Bugs found:**
 - **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.

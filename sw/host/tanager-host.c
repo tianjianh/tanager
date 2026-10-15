@@ -361,6 +361,20 @@ static void restore_tty(void) { if (tio_saved) tcsetattr(0, TCSANOW, &saved_tio)
 static volatile sig_atomic_t stop_req;
 static void on_sig(int s) { (void)s; stop_req = 1; }
 
+/* Copy what the RISC-V's UART has sent to out_fd (if any); returns the number of bytes. */
+static int console_out(int out_fd) {
+  int n = 0;
+  for (; n < 256; n++) {
+    uint32_t v = rd(R_UART_TX);
+    if (!(v & 0x100)) break;
+    if (out_fd >= 0) {
+      char c = (char)(v & 0xff);
+      if (write(out_fd, &c, 1) < 0 && errno != EAGAIN) die("console write: %s", strerror(errno));
+    }
+  }
+  return n;
+}
+
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
@@ -403,18 +417,10 @@ static int cmd_run(const struct opts *o) {
   wr(R_CTRL, ctrl);                         /* release the cores */
   double t_end = o->timeout > 0 ? now_s() + o->timeout : 0;
   int rc = 0, ctrl_a = 0;
+  char why[96] = "";                        /* the exit reason, printed after the console drains */
   for (;;) {
     int idle = 1;
-    /* console out */
-    for (int k = 0; k < 256; k++) {
-      uint32_t v = rd(R_UART_TX);
-      if (!(v & 0x100)) break;
-      if (out_fd >= 0) {
-        char c = (char)(v & 0xff);
-        if (write(out_fd, &c, 1) < 0 && errno != EAGAIN) die("console write: %s", strerror(errno));
-      }
-      idle = 0;
-    }
+    if (console_out(out_fd)) idle = 0;
     /* console in (stdio: ctrl-a x quits) */
     if (in_fd >= 0) {
       struct pollfd p = { in_fd, POLLIN, 0 };
@@ -437,14 +443,14 @@ static int cmd_run(const struct opts *o) {
     if (pw & 0x80000000u) {
       uint32_t v = pw & 0xffff;
       wr(R_POWER, 0x80000000u);
-      if (v == POWER_OFF)         { fprintf(stderr, "\r\n[%s] RISC-V requested power-off\r\n", prog); rc = 0; break; }
-      if (v == POWER_REBOOT)      { fprintf(stderr, "\r\n[%s] RISC-V requested reboot\r\n", prog); rc = 3; break; }
-      if ((v & 0xffff) == POWER_FAIL) { fprintf(stderr, "\r\n[%s] RISC-V reported failure\r\n", prog); rc = 1; break; }
+      if (v == POWER_OFF)         { snprintf(why, sizeof why, "RISC-V requested power-off"); rc = 0; break; }
+      if (v == POWER_REBOOT)      { snprintf(why, sizeof why, "RISC-V requested reboot"); rc = 3; break; }
+      if ((v & 0xffff) == POWER_FAIL) { snprintf(why, sizeof why, "RISC-V reported failure"); rc = 1; break; }
     }
     if (rd(R_TOHOST_SEQ) != seq0) {
       uint64_t th = rd64(R_TOHOST);
       if (th & 1) {                         /* riscv-tests convention: 1 = pass, else (code << 1) | 1 */
-        fprintf(stderr, "\r\n[%s] tohost 0x%" PRIx64 ": %s\r\n", prog, th, th == 1 ? "PASS" : "FAIL");
+        snprintf(why, sizeof why, "tohost 0x%" PRIx64 ": %s", th, th == 1 ? "PASS" : "FAIL");
         rc = th == 1 ? 0 : 1;
         break;
       }
@@ -452,9 +458,17 @@ static int cmd_run(const struct opts *o) {
     }
     if (o->trace && trace_poll(o)) idle = 0;
     if (stop_req) { rc = 130; break; }
-    if (t_end && now_s() > t_end) { fprintf(stderr, "\r\n[%s] timeout\r\n", prog); rc = 124; break; }
+    if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
     if (idle) sleep_us(200);
   }
+  /* Drain the console before holding everything: the RISC-V's last line is often still in its UART
+   * (the board's first light lost "S\n" of "PASS"), and on the PMOD line each byte takes 87 us at
+   * 115200. Done once the UART has been quiet for 20 ms, or after 500 ms for a talkative program. */
+  for (double t0 = now_s(), quiet = now_s(); now_s() - quiet < 0.02 && now_s() - t0 < 0.5; ) {
+    if (console_out(out_fd)) quiet = now_s();
+    else sleep_us(1000);
+  }
+  if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
   if (o->trace) trace_end(o);
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
