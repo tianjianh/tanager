@@ -42,8 +42,6 @@ module tg_fp_exec
   input  logic [FPIDX_W-1:0]           fld_m2_idx,
   input  logic                         fld_valid,
   input  logic [FPIDX_W-1:0]           fld_idx,
-  input  logic                         fld_single,   // unused: the LSU NaN-boxes FLW (3f9a227);
-                                                     // the port goes when the core drops it
   input  logic [63:0]                  fld_data,     // the value F1 gets (FLW already boxed)
   // FP store data and trace reads (combinational)
   input  preg_t                        fsd_tag,
@@ -583,7 +581,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{fld_single, init_bank, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{init_bank, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,

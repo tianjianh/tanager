@@ -444,7 +444,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - This costs 2 cycles on integer-to-FP moves of in-flight ALU results, about 0.4% of FP sources in the census. MUL (tag) and LLT producers wake late enough already.
 
 **FP loads** (F1):
-- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself; since DR-123 it ignores `fld_single`, and the port goes when the core drops its connection.
+- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself, from a `fld_single` flag; DR-123 dropped the flag and the port.
 - `fld_m2_will` and `fld_m2_idx` announce the write one cycle ahead, for the bypass select.
 - The core wakes the load's LLT and completes it, as for integer loads.
 
@@ -484,7 +484,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 
 Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) comes straight from the load result register, with no logic after it, and `fld_data` is already NaN-boxed for FLW. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
 - The core agreed: `fld_data` and `fld_idx` come from the LSU's `r_data_q` and `r_dst_q`, which already drive the integer load bank at WB.
-- `fld_valid` is a flip-flop of the same stage. (`fld_single` is still connected and ignored.)
+- `fld_valid` is a flip-flop of the same stage.
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -517,7 +517,7 @@ Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rt
 
 The per-module split comes from a synthesis that keeps the hierarchy. The trace ports cost 2 × 64 bits of LUTRAM per bank; without them `tg_fprf` would be about 850 LUTs.
 
-**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
+**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
 - The core writes the load bank at WB from its load result register ([core-lsu.md](core-lsu.md)), so these ports leave a register. 1.0 ns leaves about 0.9 ns for routing across the core. The contract above requires it.
 - **The complete module has no margin at 200 MHz.** The agreed RTL measures −0.145 ns (smt2) and +0.015 ns (st).
   - **smt2's worst path is inside the FMA's E2:** the tile outputs, the row sum and the roughly 120-bit adder, whose sign selects the magnitude (85 loads), into `mag_q`. It has 15 logic levels and 71% of its delay is routing. E3 follows at −0.062 ns.
