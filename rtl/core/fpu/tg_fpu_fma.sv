@@ -87,33 +87,25 @@ module tg_fpu_fma
   // the effective-subtraction path, so it needs no negation of its own
   assign eff_sub = cvt_i ? x_neg : (has_c && (sp != sc));
 
-  // Special results, decided here and substituted in E4 (a kind and a sign).
-  logic  prod_zero, c_zero, inf_x_zero, prod_inf, c_inf, nan_in, snan_in, inf_m_inf;
-  spec_e spec;
-  logic  spec_nv, spec_sign;
+  // Operand classes. E0 only classifies (its operands come through P4's bypass multiplexers);
+  // E1 decides the special result from the registered classes, and E4 substitutes it (a kind
+  // and a sign). The addend's classes include has_c.
+  typedef struct packed {
+    logic a_zero, a_inf, a_nan, a_snan;
+    logic b_zero, b_inf, b_nan, b_snan;
+    logic c_inf, c_nan, c_snan, has_c;
+  } cls_t;
+  cls_t cls0, cls1_q;
+  logic prod_zero, c_zero;
   always_comb begin
-    prod_zero  = ua.zero || ub.zero;
-    c_zero     = !has_c || uc.zero;
-    inf_x_zero = (ua.inf && ub.zero) || (ua.zero && ub.inf);
-    nan_in     = ua.nan || ub.nan || (has_c && uc.nan);
-    snan_in    = ua.snan || ub.snan || (has_c && uc.snan);
-    prod_inf   = (ua.inf || ub.inf) && !inf_x_zero && !ua.nan && !ub.nan;
-    c_inf      = has_c && uc.inf;
-    inf_m_inf  = prod_inf && c_inf && (sp != sc);
-    spec_nv    = snan_in || inf_x_zero || inf_m_inf;
-    spec_sign  = 1'b0;
-    if (cvt_i) begin                       // integer source: only zero is special (+0)
-      spec     = (x_val == '0) ? SPEC_ZERO : SPEC_NONE;
-      spec_nv  = 1'b0;
-    end
-    else if (nan_in || inf_x_zero || inf_m_inf) spec = SPEC_NAN;
-    else if (prod_inf) begin spec = SPEC_INF; spec_sign = sp; end
-    else if (c_inf)    begin spec = SPEC_INF; spec_sign = sc; end
-    else if (prod_zero && c_zero) begin    // exact zero: x + x keeps the sign; +0 - +0 is +0 (RDN: -0)
-      spec      = SPEC_ZERO;
-      spec_sign = !has_c ? sp : (sp == sc) ? sp : (q.rm == RM_RDN);
-    end
-    else spec = SPEC_NONE;
+    prod_zero    = ua.zero || ub.zero;
+    c_zero       = !has_c || uc.zero;
+    cls0.a_zero  = ua.zero;  cls0.a_inf = ua.inf;  cls0.a_nan = ua.nan;  cls0.a_snan = ua.snan;
+    cls0.b_zero  = ub.zero;  cls0.b_inf = ub.inf;  cls0.b_nan = ub.nan;  cls0.b_snan = ub.snan;
+    cls0.c_inf   = has_c && uc.inf;
+    cls0.c_nan   = has_c && uc.nan;
+    cls0.c_snan  = has_c && uc.snan;
+    cls0.has_c   = has_c;
   end
 
   // Exponents. E0 only forms the sums, straight from the encoding fields (a subnormal field reads
@@ -158,7 +150,7 @@ module tg_fpu_fma
   logic v1_q, v2_q, v3_q, v4_q;
   always_comb begin
     c0.dbl = dbl; c0.rm = q.rm; c0.tag = q.tag;
-    c0.spec = spec; c0.spec_nv = spec_nv; c0.spec_sign = spec_sign;
+    c0.spec = SPEC_NONE; c0.spec_nv = 1'b0; c0.spec_sign = 1'b0;   // decided in E1
     c0.sp = sp; c0.sc = sc; c0.eff_sub = eff_sub; c0.prod_sticky = 1'b0;
     c0.prod_zero = prod_zero; c0.c_zero = c_zero;
     c0.cvt_i = cvt_i;
@@ -197,6 +189,7 @@ module tg_fpu_fma
     mc_q[52:29] <= zc ? '0 : uc.sig[52:29];
     x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
     c1_q <= c0;
+    cls1_q <= cls0;
   end
 
   // ------------------------------------------------------------------------------------------
@@ -232,6 +225,7 @@ module tg_fpu_fma
   logic [7:0] sh;
   ctl_t       c1x;
   always_comb begin
+    logic inf_x_zero, nan_in, snan_in, prod_inf, inf_m_inf;
     c1x = c1_q;
     if (c1_q.cvt_i) begin                 // integer source: V[164] weighs 2^63
       sh = 8'(SH_MAX);
@@ -252,6 +246,26 @@ module tg_fpu_fma
     end
     // normalising may not take the exponent below emin (double bias: 1 for D, 897 for S)
     c1x.lim = 14'($signed(c1x.e_top) - (c1_q.dbl ? 14'sd1 : 14'sd897));
+    // The special result, from E0's operand classes
+    inf_x_zero = (cls1_q.a_inf && cls1_q.b_zero) || (cls1_q.a_zero && cls1_q.b_inf);
+    nan_in     = cls1_q.a_nan || cls1_q.b_nan || cls1_q.c_nan;
+    snan_in    = cls1_q.a_snan || cls1_q.b_snan || cls1_q.c_snan;
+    prod_inf   = (cls1_q.a_inf || cls1_q.b_inf) && !inf_x_zero && !cls1_q.a_nan && !cls1_q.b_nan;
+    inf_m_inf  = prod_inf && cls1_q.c_inf && (c1_q.sp != c1_q.sc);
+    c1x.spec_nv   = snan_in || inf_x_zero || inf_m_inf;
+    c1x.spec_sign = 1'b0;
+    if (c1_q.cvt_i) begin                  // integer source (x_q): only zero is special (+0)
+      c1x.spec    = (x_q == '0) ? SPEC_ZERO : SPEC_NONE;
+      c1x.spec_nv = 1'b0;
+    end
+    else if (nan_in || inf_x_zero || inf_m_inf) c1x.spec = SPEC_NAN;
+    else if (prod_inf)     begin c1x.spec = SPEC_INF; c1x.spec_sign = c1_q.sp; end
+    else if (cls1_q.c_inf) begin c1x.spec = SPEC_INF; c1x.spec_sign = c1_q.sc; end
+    else if (c1_q.prod_zero && c1_q.c_zero) begin   // exact zero: x + x keeps the sign; +0 - +0 is +0 (RDN: -0)
+      c1x.spec      = SPEC_ZERO;
+      c1x.spec_sign = !cls1_q.has_c ? c1_q.sp : (c1_q.sp == c1_q.sc) ? c1_q.sp : (c1_q.rm == RM_RDN);
+    end
+    else c1x.spec = SPEC_NONE;
   end
   assign p_off = c1_q.cvt_i || c1x.prod_sticky;
 
@@ -416,7 +430,7 @@ module tg_fpu_fma
   assign resp_o = resp_q;
 
   logic unused;
-  assign unused = ^{ua.sub, ub.sub, uc.sub, ua.snan, ub.inf, ua.exp, ub.exp, c3_q.lim,
+  assign unused = ^{ua.sub, ub.sub, uc.sub, ua.exp, ub.exp, c3_q.lim, c1_q.spec, c1_q.spec_nv, c1_q.spec_sign,
                     ub_raw.sign, uc_raw, c4_q.e_top, c4_q.lim, c4_q.cvt_i, c3_q.cvt_i, c2_q.cvt_i,
                     c4_q.sp, c4_q.sc, c4_q.eff_sub, c4_q.prod_sticky, c4_q.prod_zero, c4_q.c_zero,
                     c4_q.ep, c4_q.shr, c4_q.ec, c3_q.prod_zero, c3_q.c_zero, c3_q.ep, c3_q.shr,

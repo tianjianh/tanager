@@ -46,8 +46,8 @@ module tg_fpu_div_r4
 
   // ---- Unpack ----
   fp_unp_t ua, ub;
-  assign ua = unpack(rq_q.a, rq_q.fmt == FMT_D);
-  assign ub = unpack(rq_q.b, rq_q.fmt == FMT_D);
+  assign ua = unpack_lean(rq_q.a, rq_q.fmt == FMT_D);
+  assign ub = unpack_lean(rq_q.b, rq_q.fmt == FMT_D);
 
   // ---- Shared normaliser: UNP normalises b (division) or a (square root), NRM normalises a ----
   logic [52:0] nrm_in, nrm_out;
