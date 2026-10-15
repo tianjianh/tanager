@@ -34,7 +34,7 @@ BUDGET_ROW = {"p4": "fpu"}  # P4 (tg_fp_exec) is judged against the FPU line; it
 PMP_SELECT = {"fe": 576, "lsu_mmu": 3 * 576}
 HART1 = {"smt2": {"fe": 1000, "dec": 150, "ren": 1300, "rob_csr": 1650, "lsu_mmu": 100},
          "smt2_w3": {"fe": 1000, "dec": 200, "ren": 1450, "rob_csr": 1650, "lsu_mmu": 100}}
-HART1_RAM = {"smt2": {"fe": 600, "dec": 100, "ren": 580, "rob_csr": 680, "lsu_mmu": 100}}
+HART1_RAM = {"smt2": {"fe": 600, "dec": 100, "ren": 580, "rob_csr": 580, "lsu_mmu": 100}}
 
 
 def hart1_for(basis, cfg):
