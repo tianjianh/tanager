@@ -53,7 +53,7 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
 | LSU and MMU | 8,560 | 8,560 | — |
 | ROB, commit, CSRs | 4,840 | 5,240 | +400, plan §4.15 |
 | FPU | 6,800 | 6,800 | — |
-| **Core** | **46,120** | **49,740** | DSPs 87, block RAM 42.5 as smt2 |
+| **Core** | **46,120** | **49,740** | DSPs 91, block RAM 42.5 as smt2 |
 
 - The v2 lines are **tracked, not enforced**: the nightly shows them as value / budget, but its exit status stays about v1 and ST until v2 work starts.
 - **v1's issue-queue line predates the tags.** With tags (AR-1) and DR-113's settings the whole scheduler measures 4,228 / 4,750 at st / smt2 out of context, against budgets of 6,030 / 8,350.
@@ -83,11 +83,11 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
 |---|---|---|
 | Front end | — | 30 (I$ 16, TAGE and BTB) |
 | ROB, commit, CSRs | 18 (ST) / 36 (SMT2): the R1 counters, 18 per hart | 1 (R7: commit-time payload) |
-| Integer execution | 16 (multiplier) | — |
+| Integer execution | 18 (multiplier 16; the branch unit's pc + 2/4 adder 2, DR-131) | — |
 | LSU | — | 9 (D$ data 8, LSQ data) |
 | MMU | — | 2 (L2 TLB) |
-| FPU | 35 (DR-110) | 0.5 (seed ROM) |
-| **Core** | **69 / 87** | **42.5** |
+| FPU | 37 (DR-110 35; the FMA's hi + 1 adder 2, DR-131) | 0.5 (seed ROM) |
+| **Core** | **73 / 91** | **42.5** |
 | Uncore | — | 18 |
 
 - **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 4,100, DR-110). The scheduler's are the measurement plus about 10%; the FPU's were too (3,450 flip-flops, 32 DSPs) until DR-110 raised them to 4,100 and 35 so the FPU can trade LUTs for registers and DSPs.
@@ -238,6 +238,7 @@ No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the 
     - Unit syntheses (and the spike flow's synthesis step) run with at most 2 processes (`TANAGER_SYNTH_THREADS`).
 - **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
 - **The reserve follows the user's decisions:** radix-4 is out (DR-118); release builds without the commit trace are its last lever (DR-121).
+- **DR-131: DSP lines for the T6 adders** (fpga_friendly.md T6): execute 16 → 18 (the branch unit's pc + 2/4, −50 LUTs) and the FPU 35 → 37 (the FMA's hi + 1, −54 LUTs), so the core's DSPs are 73 / 91. The table lines come with the FPU track's merge.
 - **The 180 MHz fill test and v2's lines (§1.1).** The fill test closes v1 at up to 95.3% and v2 at up to 96.0% at 180 MHz. v2's per-unit lines go in at 180 MHz (AR-9, DR-117: 49,740 per core), tracked until v2 work starts. v1 stays at 200 MHz: its move to 180 MHz is the clock decision, after D18 step 1 (DR-116). The core's DSP lines follow DR-110 (69 / 87).
 - **The core built as DR-113 builds it.** The budget run now synthesises `tg_core` with the hierarchy kept plus `AreaOptimized_high`: at st 56,461 → 52,024 LUTs (−7.9%; every unit 5–14% smaller; flip-flops and LUTRAM unchanged). From the next nightly, the core and its derived units read about 8% lower for that reason alone.
 - **The core's memory, measured.** Sampled over Vivado's whole process tree, the st core peaks at 6.75 GB as built until now and 9.38 GB with the directive, against 6 GB declared. The core line now declares 12 GB, for the larger configurations. Vivado's log shows only the parent process, which is how 6 GB looked right.
