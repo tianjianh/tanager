@@ -35,8 +35,9 @@ module tg_csr
   input  logic                   sret,
   // State for commit, decode, fetch and the MMU
   output logic [63:0]            trap_target,  // for tr_* given this cycle
-  output logic [63:0]            mepc_o,
-  output logic [63:0]            sepc_o,
+  input  logic                   xret_v,       // an MRET or SRET is in flight (registered) ...
+  input  logic                   xret_s,       // ... and it is SRET
+  output logic [63:0]            xepc_o,       // its xepc (mepc or sepc), for its commit
   output logic                   irq_take,     // an enabled interrupt is pending
   output logic [5:0]             irq_code,
   output logic                   wfi_wake,     // mip & mie != 0
@@ -87,12 +88,10 @@ module tg_csr
   logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
   logic [1:0]  mpp_q, fs_q;
   logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
-  logic [63:0] mtvec_q, mscratch_q, mepc_q, mcause_q, mtval_q;
-  // R1: the cycle and instret counters are DSP48E2 accumulators (with their load from a CSR
-  // write), not LUT adders and flip-flops
-  (* use_dsp = "yes" *) logic [63:0] mcycle_q;
-  (* use_dsp = "yes" *) logic [63:0] minstret_q;
-  logic [63:0] stvec_q, sscratch_q, sepc_q, scause_q, stval_q, stimecmp_q;
+  // R1: the cycle and instret counters are DSP48E2 pairs (tg_dsp_ctr: count, load from a CSR
+  // write, reset), with no fabric register, adder or multiplexer
+  logic [63:0] mcycle_q, minstret_q;
+  logic [63:0] stimecmp_q;
   logic [11:0] mie_q;
   logic        ssip_q, stip_sw_q, seip_sw_q;
   logic [19:0] medeleg_q;                      // bit 19: hardware error (Spike, with Zicntr)
@@ -105,6 +104,37 @@ module tg_csr
   logic [12:0] mcontext_q;
   logic [31:0] scontext_q;
   logic [NPMP-1:0][7:0]  pmpcfg_q;
+
+  // ---- Cold CSRs in LUTRAM (FPGA-friendly T1) ----
+  // xtvec, xscratch, xepc, xcause and xtval of M and S: one 16 x 64 tg_ram_lut at
+  // {csr[9], csr[2:0]}, M (csr[9] = 1) or S, then scratch 0, epc 1, cause 2, tval 3, tvec 5.
+  // Read ports: the CSR read (EX), or xepc while an MRET or SRET is in flight (it is serial, so
+  // no CSR instruction executes meanwhile: asserted); the trap vector (the trap's target).
+  // One write port, taken by
+  //   - the reset sweep (PMP's counter, 16 cycles: nothing reads these before fetch starts),
+  //   - trap entry: xepc, xcause and xtval in the three cycles after the trap, from registers,
+  //   - a CSR write at commit.
+  // The trap's flush keeps the window empty for longer than that, so nothing sees the order:
+  // nothing commits, no trap is taken and no CSR instruction executes (asserted). A CSR
+  // instruction in EX in the flush cycle reads before the writes, but it is killed there: its
+  // result is never written back.
+  localparam logic [2:0] CX_EPC = 3'd1, CX_CAUSE = 3'd2, CX_TVAL = 3'd3, CX_TVEC = 3'd5;  // scratch: 0
+  function automatic logic cold_csr(input logic [11:0] x);
+    return x == 12'h305 || (x >= 12'h340 && x <= 12'h343) ||
+           (SU && (x == 12'h105 || (x >= 12'h140 && x <= 12'h143)));
+  endfunction
+  logic [2:0]       ts_q;               // trap writes to do: epc, cause, tval (one-hot)
+  logic             tdel_q;             // ... into S's registers
+  logic             tirq_q;
+  logic [5:0]       tcode_q;
+  logic [63:0]      tepc_q, ttval_q;
+  logic             cw_we;
+  logic [3:0]       cw_wa;
+  logic [63:0]      cw_wd;
+  logic [1:0][3:0]  cw_ra;              // CSR read or xepc, trap vector
+  logic [1:0][63:0] cw_rd;
+  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(2)) u_cold (
+    .clk, .we(cw_we), .waddr(cw_wa), .wdata(cw_wd), .raddr(cw_ra), .rdata(cw_rd));
 
   // ---- Interrupt pending bits ----
   logic        stip;
@@ -228,8 +258,7 @@ module tg_csr
   assign pmp_d    = pmp_d_q;
   assign pmp_al   = pmp_al_q;
   assign pmp_busy = psweep || |pdirty_q || pchg_q;
-  assign mepc_o    = {mepc_q[63:2], mepc_q[1] && misa_c_q, 1'b0};
-  assign sepc_o    = {sepc_q[63:2], sepc_q[1] && misa_c_q, 1'b0};
+  assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0};
 
   // Trap target: S when delegated from S or U
   logic deleg;
@@ -239,7 +268,8 @@ module tg_csr
     else                          deleg = tr_code < 6'd20 && medeleg_q[tr_code[4:0]];
   end
   logic [63:0] tvec;
-  assign tvec = deleg ? stvec_q : mtvec_q;
+  assign cw_ra[1] = {!deleg, CX_TVEC};
+  assign tvec     = cw_rd[1];
   assign trap_target = {tvec[63:2], 2'b00} + ((tr_irq && tvec[0]) ? {56'b0, tr_code, 2'b00} : 64'd0);
 
   // ---- Status views ----
@@ -289,6 +319,9 @@ module tg_csr
   // ---- Read and legality ----
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
+  logic [63:0] cold_rd;                          // xepc reads as xepc_o
+  assign cw_ra[0] = xret_v ? {!xret_s, CX_EPC} : {a[9], a[2:0]};
+  assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0} : cw_rd[0];
   logic        exists, deny;
   logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
   always_comb begin
@@ -299,12 +332,8 @@ module tg_csr
       12'h300: rval = mstatus_rd;
       12'h301: rval = misa_rd;
       12'h304: rval = {52'b0, mie_q};
-      12'h305: rval = mtvec_q;
+      12'h305, 12'h340, 12'h341, 12'h342, 12'h343: rval = cold_rd;
       12'h320: rval = {32'b0, mcountinhibit_q};
-      12'h340: rval = mscratch_q;
-      12'h341: rval = mepc_o;
-      12'h342: rval = mcause_q;
-      12'h343: rval = mtval_q;
       12'h344: rval = {52'b0, mip};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
       12'h7A8: rval = {51'b0, mcontext_q};
@@ -325,13 +354,9 @@ module tg_csr
       // ---- S and U (M3) ----
       12'h100: begin rval = sstatus_rd; exists = SU; end
       12'h104: begin rval = {52'b0, mie_q & mideleg_q}; exists = SU; end
-      12'h105: begin rval = stvec_q; exists = SU; end
+      12'h105, 12'h140, 12'h141, 12'h142, 12'h143: begin rval = cold_rd; exists = SU; end
       12'h106: begin rval = {32'b0, scounteren_q}; exists = SU; end
       12'h10A: begin rval = {63'b0, senv_fiom_q}; exists = SU; end
-      12'h140: begin rval = sscratch_q; exists = SU; end
-      12'h141: begin rval = sepc_o; exists = SU; end
-      12'h142: begin rval = scause_q; exists = SU; end
-      12'h143: begin rval = stval_q; exists = SU; end
       12'h144: begin rval = {52'b0, mip & mideleg_q}; exists = SU; end
       12'h14D: begin                                                 // stimecmp (Sstc)
         rval = stimecmp_q; exists = SU;
@@ -396,6 +421,31 @@ module tg_csr
   assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
                    (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) &&
                    {pw_d_q[63], pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+  // The cold CSRs' write port: the sweep, then the trap's three writes, else a CSR write
+  always_comb begin
+    cw_we = cm_csr && pw_v_q && cold_csr(pw_a_q);
+    cw_wa = {pw_a_q[9], pw_a_q[2:0]};
+    cw_wd = pw_d_q & ~{62'b0, pw_a_q[2:0] == CX_TVEC, pw_a_q[2:0] == CX_EPC};
+    if (psweep) begin
+      cw_we = 1'b1;
+      cw_wa = psw_q[3:0];
+      cw_wd = '0;
+    end else if (ts_q != '0) begin
+      cw_we = 1'b1;
+      cw_wa = {!tdel_q, ts_q[0] ? CX_EPC : ts_q[1] ? CX_CAUSE : CX_TVAL};
+      cw_wd = ts_q[0] ? tepc_q : ts_q[1] ? {tirq_q, 57'b0, tcode_q} : ttval_q;
+    end
+  end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst && (psweep || ts_q != '0))
+      assert (!tr_valid && !mret && !sret && !(cm_csr && pw_v_q) && !(ex_valid && !flush && cold_csr(a)))
+        else $error("tg_csr: the cold CSRs are used while their sweep or a trap's writes run");
+    if (!rst && xret_v)
+      assert (!(ex_valid && !flush)) else $error("tg_csr: a CSR instruction executes while an xRET is in flight");
+  end
+`endif
+
   // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
   assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
                                         (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
@@ -442,17 +492,21 @@ module tg_csr
   logic cyc_wr, ins_wr;
   assign cyc_wr = cm_csr && pw_v_q && pw_a_q == 12'hB00;
   assign ins_wr = cm_csr && pw_v_q && pw_a_q == 12'hB02;
+  localparam int CNW = idx_w(COMMIT_WIDTH + 1);
+  // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
+  // flush is on, so nothing reads the counter, and pw_d_q holds (a flush keeps EX from writing it)
+  tg_dsp_ctr #(.IW(1)) u_mcycle (
+    .clk, .rst, .ld(cyc_wr), .d(pw_d_q), .inc(!mcountinhibit_q[0]), .q(mcycle_q));
+  tg_dsp_ctr #(.IW(CNW)) u_minstret (
+    .clk, .rst, .ld(ins_wr), .d(pw_d_q), .inc(mcountinhibit_q[2] ? '0 : CNW'(cm_n)), .q(minstret_q));
+`ifndef SYNTHESIS
+  logic ctr_wr_q;
   always_ff @(posedge clk) begin
-    if (rst) begin
-      mcycle_q   <= '0;
-      minstret_q <= '0;
-    end else begin
-      if (cyc_wr)                   mcycle_q <= pw_d_q;
-      else if (!mcountinhibit_q[0]) mcycle_q <= mcycle_q + 64'd1;
-      if (ins_wr)                   minstret_q <= pw_d_q;
-      else if (!mcountinhibit_q[2]) minstret_q <= minstret_q + 64'(cm_n);
-    end
+    ctr_wr_q <= !rst && (cyc_wr || ins_wr);
+    if (!rst && ctr_wr_q)
+      assert (flush && !(cyc_wr || ins_wr)) else $error("tg_csr: a counter write not followed by its flush");
   end
+`endif
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -476,16 +530,6 @@ module tg_csr
       misa_a_q  <= EXT_A;
       misa_f_q  <= EXT_FD;
       misa_d_q  <= EXT_FD;
-      mtvec_q   <= '0;
-      mscratch_q <= '0;
-      mepc_q    <= '0;
-      mcause_q  <= '0;
-      mtval_q   <= '0;
-      stvec_q   <= '0;
-      sscratch_q <= '0;
-      sepc_q    <= '0;
-      scause_q  <= '0;
-      stval_q   <= '0;
       stimecmp_q <= '0;
       mie_q     <= '0;
       ssip_q    <= 1'b0;
@@ -511,6 +555,7 @@ module tg_csr
       pdirty_q  <= '1;
       pchg_q    <= 1'b0;
       pw_v_q    <= 1'b0;
+      ts_q      <= '0;
     end else begin
       // F and D: FS becomes Dirty when tg_fcsr says so (and on an fcsr write)
       if (EXT_FD && (fs_dirty || fc_wvalid)) fs_q <= 2'd3;
@@ -577,21 +622,13 @@ module tg_csr
             end
           end
           12'h144: if (mideleg_q[1]) ssip_q <= pw_d_q[1];
-          12'h305: mtvec_q <= pw_d_q & ~64'd2;
-          12'h105: stvec_q <= pw_d_q & ~64'd2;
+          12'h305, 12'h105, 12'h340, 12'h140, 12'h341, 12'h141, 12'h342, 12'h142, 12'h343,
+          12'h143: ;                                       // u_cold (the cold CSRs above)
           12'h306: mcounteren_q <= pw_d_q[31:0];
           12'h106: scounteren_q <= pw_d_q[31:0];
           12'h320: mcountinhibit_q <= pw_d_q[31:0] & (SU ? 32'hffff_fffd : 32'h0000_0005);
           12'h30A: begin menv_fiom_q <= pw_d_q[0]; menv_stce_q <= pw_d_q[63]; end
           12'h10A: senv_fiom_q <= pw_d_q[0];
-          12'h340: mscratch_q <= pw_d_q;
-          12'h140: sscratch_q <= pw_d_q;
-          12'h341: mepc_q <= pw_d_q & ~64'd1;
-          12'h141: sepc_q <= pw_d_q & ~64'd1;
-          12'h342: mcause_q <= pw_d_q;
-          12'h142: scause_q <= pw_d_q;
-          12'h343: mtval_q <= pw_d_q;
-          12'h143: stval_q <= pw_d_q;
           12'h14D: stimecmp_q <= pw_d_q;
           12'h180: begin
             // A write with an unsupported MODE has no effect at all (privileged spec, Spike);
@@ -616,20 +653,21 @@ module tg_csr
         endcase
       end
 
-      // Trap entry, MRET, SRET
+      // Trap entry (xepc, xcause and xtval follow in u_cold), MRET, SRET
+      ts_q <= {ts_q[1:0], 1'b0};
       if (tr_valid) begin
+        ts_q    <= 3'b001;
+        tdel_q  <= deleg;
+        tirq_q  <= tr_irq;
+        tcode_q <= tr_code;
+        tepc_q  <= tr_epc & ~64'd1;
+        ttval_q <= tr_irq ? 64'd0 : tr_tval;
         if (deleg) begin
-          sepc_q    <= tr_epc & ~64'd1;
-          scause_q  <= {tr_irq, 57'b0, tr_code};
-          stval_q   <= tr_irq ? 64'd0 : tr_tval;
           spie_q    <= sie_bit_q;
           sie_bit_q <= 1'b0;
           spp_q     <= priv_q == PRIV_S;
           priv_q    <= PRIV_S;
         end else begin
-          mepc_q    <= tr_epc & ~64'd1;
-          mcause_q  <= {tr_irq, 57'b0, tr_code};
-          mtval_q   <= tr_irq ? 64'd0 : tr_tval;
           mpie_q    <= mie_bit_q;
           mie_bit_q <= 1'b0;
           mpp_q     <= SU ? 2'(priv_q) : 2'd3;
@@ -652,6 +690,5 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, mepc_q[0], sepc_q[0], cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1],
-                    pcfg[6:5]};
+  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1], pcfg[6:5]};
 endmodule

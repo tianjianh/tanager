@@ -6,7 +6,7 @@ Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 Sv39 address translation and physical memory protection for fetch, loads, stores, atomics and the page-table walker (plan §4.10, §2.2). M3 builds the functional version: an L1 TLB per side, one walker through the L1D, PMP on every access. The plan's 512-entry L2 TLB, the page-walk cache and a second concurrent walk are M6 options.
 
 ## Interface
-- **`tg_tlb`** (`rtl/core/mmu`; ITLB: `ITLB_ENTRIES` = 16 in `tg_fetch`, one lookup; DTLB: `DTLB_ENTRIES` = 32 in `tg_lsu`, two lookups: the LD port, and the STA port, which the ROB head's check uses when STA is idle): fully associative, combinational lookup of the VPN. No ASID tags: every satp change and SFENCE.VMA flushes the TLBs (as Spike), so every entry belongs to the current address space (TID tags come with SMT2, M7). A hit returns the leaf (`tlb_pte_t`: 22-bit PPN with the superpage bits taken from the VA, `big`, G, D, A, U, X, W, R, and the cached PMP result). A fill first invalidates every entry whose page overlaps the new one, so at most one entry matches (asserted); then it takes an invalid entry, else a round-robin victim. The tags (valid, VPN, level) are flip-flops for the match; the leaf and its level are in LUTRAM (`tg_ram_lut`), read at the matching entry's index, which is the OR of the match bits. Without a match the leaf is undefined, and users gate it with `hit`. Flush: all entries. After spike S4's `tg_dtlb`.
+- **`tg_tlb`** (`rtl/core/mmu`; ITLB: `ITLB_ENTRIES` = 16 in `tg_fetch`, one lookup; DTLB: `DTLB_ENTRIES` = 32 in `tg_lsu`, two lookups: the LD port, and the STA port, which the ROB head's check uses when STA is idle): fully associative, combinational lookup of the VPN. No ASID tags: every satp change and SFENCE.VMA flushes the TLBs (as Spike), so every entry belongs to the current address space (TID tags come with SMT2, M7). A hit returns the leaf (`tlb_pte_t`: 22-bit PPN with the superpage bits taken from the VA, `big`, G, D, A, U, X, W, R, and the cached PMP result). A fill first invalidates every entry whose page overlaps the new one, so at most one entry matches (asserted); then it takes an invalid entry, else a round-robin victim. The match is a CAM in LUTRAM (below, Timing and area); the valid bits and levels are flip-flops, and the leaf and its level are in LUTRAM (`tg_ram_lut`), read at the matching entry's index, which is the OR of the match bits. Without a match the leaf is undefined, and users gate it with `hit`. Flush: all entries. After spike S4's `tg_dtlb`.
 - **`tg_ptw`** (instantiated in `tg_lsu`): one walk at a time. Requesters in priority order: the ROB head's deciding walk, an ITLB miss (fetch), a DTLB prefetch (a one-entry buffer, cleared by flushes). PTE reads take the load pipe's AG slot ahead of LQ replays (IQ-LD's select is blocked while one waits), read the L1D like a load and come back at M2; a missing line takes the MSHR and the read retries when it is idle; a denied line is an access fault. Results: a leaf for the requester's TLB, or a fault cause. A flush ends the walk.
 - **`tg_pmp`**: combinational check of {physical address, 4 or 8 bytes (or a 16-byte fetch block, one result per word), access type, M or not} against the 16 region descriptors `tg_csr` precomputes. Four instances: fetch (one per block), the LD and STA ports, the walker.
 
@@ -73,7 +73,28 @@ A success fills the requester's TLB with the leaf and its level.
 ## Timing and area
 - **Lookups:** fully associative 16/32-entry lookups as in spike S4 (the DTLB in M1 of the load pipe). Entries keep a 22-bit PPN (`PA_W` − 12) and a flag for a PTE whose PPN reaches above `PA_W` (every access then faults).
 - **M3 moves the DTLB lookup into AG** (address add + CAM + PMP in one stage). This is a simulation-first choice: M6 puts it back in M1 with the D$ index from the untranslated page offset (VIPT).
-- **TLB leaves in LUTRAM:** the match is a CAM of flip-flops, and the leaf is read from a `tg_ram_lut` at the encoded match. This replaces an AND-OR over the entries; the DTLB keeps 6 RAM32M16 for its two lookups, and the ITLB 3.
+- **TLB leaves in LUTRAM:** the leaf is read from a `tg_ram_lut` at the encoded match. This replaces an AND-OR over the entries; the DTLB keeps 6 RAM32M16 for its two lookups, and the ITLB 3.
+- **The DTLB's match is a CAM in LUTRAM (FPGA-friendly T5, `CAM = 1`). The ITLB compares flip-flop VPNs (`CAM = 0`).**
+  - **Tables:** the VPN is cut into six slices, each 9-bit level into 5 + 4 bits. Slice table s holds one bit per entry at each slice value: set when the entry's VPN has that value there.
+  - **Lookup:** it reads every table at its VPN's slices. Entry e matches when its valid bit and its tables' bits agree; a level's slices don't count above the entry's page size (`lvl_q`, flip-flops).
+  - **Fill:** it behaves as before, in one cycle:
+    - The overlap check reads the tables at the new VPN through a maintenance read port.
+    - The valid bits, the level and the leaf change in the fill cycle.
+    - The next two cycles clear the victim's bits at its old VPN (from a key store, LUTRAM) and set them at the new one. Each is a read-modify-write through the maintenance port. Meanwhile the entry is left out of the table match, and a comparator on the new VPN stands in for it.
+  - **Spacing:** fills come at least six cycles apart, since there is one walk at a time (asserted).
+  - **Reset:** a 32-cycle sweep zeroes the tables. The key store needs no reset, because clearing a never-filled entry's bits is a no-op.
+  - **Why:** the flip-flop CAM compares every entry's 27-bit VPN at each lookup port and again for the overlap check. The slice tables' cost doesn't grow with the compares in the same way.
+  - **Measured** (budget flow, st, per instance, main 41bc3f6 → the CAM in both TLBs at f18704e):
+    - **DTLB** (32 entries, two lookups and the overlap check): 1,470 → 1,104 LUTs, 965 → 146 flip-flops. The CAM wins.
+    - **ITLB** (16 entries, one lookup and the overlap check): 486 → 480 LUTs, 484 → 92 flip-flops, for 160 more LUTs as LUTRAM. LUT-neutral: T5 is rejected for it.
+  - **The verdict, with pros and cons (DR-124):**
+    - **DTLB on the CAM:**
+      - Pros: −366 LUTs and −819 flip-flops.
+      - Cons: the three-cycle table update and its bypass comparator; a fill spacing to keep (asserted); a 32-cycle reset sweep.
+    - **ITLB on flip-flops:**
+      - Pros: one comparator per entry and no update state machine, for the same LUTs; the 160 LUTRAM LUTs stay free.
+      - Cons: 392 more flip-flops; two TLB forms to maintain, one parameter apart.
+  - **Source:** the spikes track's `tg_cam_lut` (slice tables, key store), extended for superpage levels, two lookups and the overlap check.
 - **The walker keeps its own checker.** Sharing the STA port's would save about 0.83K, but a walk step would then wait whenever a store address is in AG: the two are not exclusive. Under D18 that is a reserve lever, not a free one (core-pipeline.md §13).
 - The plan's lever R6 (set-associative LUTRAM TLBs) is an M6 decision.
 

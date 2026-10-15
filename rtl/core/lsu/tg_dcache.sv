@@ -87,12 +87,11 @@ module tg_dcache
   logic [ROW_W-1:0]       b_addr;
   logic [127:0]           b_wdata;
   logic [WAYS-1:0][127:0] a_rdata, b_rdata;
-  logic [WAYS-1:0]        b_en_w;
   for (genvar w = 0; w < WAYS; w++) begin : g_data
     tg_ram_tdp #(.DEPTH(ROWS), .WIDTH(128), .BYTE_W(8), .OUT_REG(1'b0), .PRIM("block")) u_data (
       .clk,
       .en_a(ld_rd_en), .we_a('0), .addr_a(ld_rd_pa[4 +: ROW_W]), .wdata_a('0), .rdata_a(a_rdata[w]),
-      .en_b(b_en[w]), .we_b(b_en_w[w] ? b_we : 16'h0), .addr_b(b_addr), .wdata_b(b_wdata),
+      .en_b(b_en[w]), .we_b(b_we), .addr_b(b_addr), .wdata_b(b_wdata),
       .rdata_b(b_rdata[w]));
   end
 
@@ -300,14 +299,16 @@ module tg_dcache
   assign st_dropped = st_drop;
 
   always_comb begin
-    b_en = '0; b_en_w = '0; b_we = '0; b_addr = '0; b_wdata = '0;
+    // One way at most is enabled, and the byte write enables are zero for reads, so they are
+    // shared by the ways: a disabled way neither reads nor writes
+    b_en = '0; b_we = '0; b_addr = '0; b_wdata = '0;
     brd_en = 1'b0; brd_way = '0;
     if (pb_probe) begin
       brd_en = 1'b1; brd_way = p_way_q;
       b_en[p_way_q] = 1'b1;
       b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
     end else if (pb_grant) begin
-      b_en[m_way_q] = 1'b1; b_en_w[m_way_q] = 1'b1;
+      b_en[m_way_q] = 1'b1;
       b_we = '1;
       b_addr = {m_line_q[6 +: SET_W], m_beat_q};
       b_wdata = d_i.data;
@@ -316,7 +317,7 @@ module tg_dcache
       b_en[m_way_q] = 1'b1;
       b_addr = {m_vline_q[6 +: SET_W], m_beat_q};
     end else if (pb_st) begin
-      b_en[sh_way] = 1'b1; b_en_w[sh_way] = 1'b1;
+      b_en[sh_way] = 1'b1;
       b_we = st_mask;
       b_addr = st_pa[4 +: ROW_W];
       b_wdata = {2{st_wdata}};
@@ -325,7 +326,7 @@ module tg_dcache
       b_en[sh_way] = 1'b1;
       b_addr = am_pa[4 +: ROW_W];
     end else if (pb_amw) begin
-      b_en[am_way_q] = 1'b1; b_en_w[am_way_q] = 1'b1;
+      b_en[am_way_q] = 1'b1;
       b_we = am_wmask;
       b_addr = am_row_q;
       b_wdata = {2{am_wdata}};

@@ -22,12 +22,16 @@
 // flip-flops name the bank holding each register's latest entry. A flush clears the per-register
 // "renamed since the flush" bits, after which the committed map answers: recovery is immediate,
 // with no copy. A reset sweep writes the identity into the committed map.
+// The ready tables (one bit per physical register: written since allocated) are LUTRAM too
+// (tg_rdytab): a set phase per bank, written by the bank's register-file port, and an allocation
+// phase XOR-banked by rename slot. They read as the flip-flop vectors they replace did.
 // MX (IQ_MX): a source whose producer is a 1-cycle op still holding its ALU-queue row is named
 // by that row instead of its ID. DS records each 1-cycle op's row in a LUTRAM by ROB entry, one
 // bank per rename slot (one write per bank per cycle); a consumer reads it in the bank of its
-// producer's slot, and one compare of the row's destination (rowdst_q) against the source
+// producer's slot, and one compare of the row's destination (rowdst) against the source
 // confirms the row still holds it. A producer in the same group is named by the row it is being
-// written into. Otherwise the ID is used.
+// written into. Otherwise the ID is used. rowdst is LUTRAM too, banked by DS slot and read by
+// row: a row's value is the XOR of the banks.
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -40,7 +44,6 @@ module tg_rename
   import tg_pkg::*, tg_core_pkg::*;
 #(
   localparam int W   = RENAME_WIDTH,
-  localparam int NPR = INT_BANKS * INT_PREGS_PER_BANK,
   localparam int FPW = PIDX_W + 1
 ) (
   input  logic clk,
@@ -111,7 +114,6 @@ module tg_rename
   function automatic logic is_lat1(input uclass_e c);       // a 1-cycle op in an ALU queue
     return c == C_ALU || c == C_BR;
   endfunction
-  logic [NPR-1:0]        ready_q;
   logic [LLT_ENTRIES-1:0] llt_busy_q;
   logic [IQ_TAGS-1:0]    tag_busy_q;
   robid_t                rtail_q;
@@ -123,8 +125,6 @@ module tg_rename
   logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic                  block_q;          // after a serialising uop, until the flush
-  // MX naming state
-  preg_t [RA-1:0]        rowdst_q;         // destination of the op each ALU-queue row holds
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
@@ -132,9 +132,10 @@ module tg_rename
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
 
+  logic [3*W-1:0] irdy;                  // integer ready table reads: RN sources, DS rs2
+  logic [4*W-1:0] frdy;                  // FP: RN sources (3 per slot), DS rs2
   for (genvar k = 0; k < W; k++) begin : g_s2r
-    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? fready_q[fpr(ds_ren_q[k].src2)]
-                                                              : ready_q[ds_ren_q[k].src2];
+    assign ds_src2_rdy[k] = (EXT_FD && ds_uop_q[k].d.rs2_fp) ? frdy[3*W + k] : irdy[2*W + k];
   end
   assign rob_tail  = rtail_q;
 
@@ -269,14 +270,56 @@ module tg_rename
     logic unused;
     assign unused = ^{fmap_ra, fm_we, fcm_we, fcm_wd};
   end
-  // FP ready table: one bit per FP physical register {bank, index}
-  logic [2*FP_PREGS_PER_BANK-1:0] fready_q;
-  /* verilator lint_off UNUSEDSIGNAL */      // an FP tag is the low FRW bits of preg_t
-  function automatic logic [FRW-1:0] fpr(input preg_t p);
-    return p[FRW-1:0];
-  endfunction
-  /* verilator lint_on UNUSEDSIGNAL */
+  // ---- Ready tables (LUTRAM): set by register-file writes, cleared by allocation at RN ----
+  // Read ports: the RN sources (integer rs1, rs2 of slot k at 2k, 2k + 1; FP rs1-rs3 at 3k ..
+  // 3k + 2), then rs2 of each DS slot (store data).
+  // Clears: every cycle, each free list's next W registers (those it holds), rename or not
+  logic irdy_ready, frdy_ready;
+  logic [INT_BANKS-1:0][W-1:0] icv;
+  logic [1:0][W-1:0]           fcv;
+  logic [3*W-1:0][BANK_W-1:0] ir_b;
+  logic [3*W-1:0][PIDX_W-1:0] ir_i;
+  always_comb begin
+    for (int b = 0; b < INT_BANKS; b++)
+      for (int c = 0; c < W; c++) icv[b][c] = int'(fl_count[b]) > c;
+    for (int b = 0; b < 2; b++)
+      for (int c = 0; c < W; c++) fcv[b][c] = int'(ffl_count[b]) > c;
+  end
+  for (genvar i = 0; i < 2 * W; i++) begin : g_irs
+    assign ir_b[i] = preg_bank(map_p[i]);
+    assign ir_i[i] = preg_idx(map_p[i]);
+  end
+  for (genvar k = 0; k < W; k++) begin : g_ird
+    assign ir_b[2*W + k] = preg_bank(ds_ren_q[k].src2);
+    assign ir_i[2*W + k] = preg_idx(ds_ren_q[k].src2);
+  end
+  tg_rdytab #(.NB(INT_BANKS), .DEPTH(INT_PREGS_PER_BANK), .W(W), .NR(3 * W)) u_irdy (
+    .clk, .rst, .ready(irdy_ready), .set_v(rf_we), .set_i(rf_widx), .cand_v(icv), .cand_i(fl_pop),
+    .rd_b(ir_b), .rd_i(ir_i), .rdy(irdy));
+  if (EXT_FD) begin : g_frdy
+    logic [4*W-1:0]              fr_b;
+    logic [4*W-1:0][FPIDX_W-1:0] fr_i;
+    for (genvar i = 0; i < 3 * W; i++) begin : g_frs
+      assign fr_b[i] = fmap_p[i][FPIDX_W];
+      assign fr_i[i] = fmap_p[i][FPIDX_W-1:0];
+    end
+    for (genvar k = 0; k < W; k++) begin : g_frd
+      assign fr_b[3*W + k] = fpreg_bank(ds_ren_q[k].src2);
+      assign fr_i[3*W + k] = fpreg_idx(ds_ren_q[k].src2);
+    end
+    tg_rdytab #(.NB(2), .DEPTH(FP_PREGS_PER_BANK), .W(W), .NR(4 * W)) u_frdy (
+      .clk, .rst, .ready(frdy_ready), .set_v(fp_we), .set_i(fp_widx), .cand_v(fcv), .cand_i(ffl_pop),
+      .rd_b(fr_b), .rd_i(fr_i), .rdy(frdy));
+  end else begin : g_nofrdy
+    assign frdy_ready = 1'b1;
+    assign frdy       = '1;
+    logic unused;
+    assign unused = ^{fcv, ffl_pop};
+  end
 
+  // `ready` (decode may hand over a group) does not wait for the ready tables' sweep: it takes
+  // 64 cycles after reset, as the D$'s does, so only rn_fire waits for it, and no earlier than
+  // `start` did
   assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
 
   // ---- RN ----
@@ -338,8 +381,8 @@ module tg_rename
       // Sources: the maps, or the closest earlier slot that writes the register
       ren[k].src1 = rn_uop_q[k].d.rs1_en ? map_p[2*k] : '0;
       ren[k].src2 = rn_uop_q[k].d.rs2_en ? map_p[2*k+1] : '0;
-      ren[k].p1   = rn_uop_q[k].d.rs1_en && !ready_q[ren[k].src1];
-      ren[k].p2   = rn_uop_q[k].d.rs2_en && !ready_q[ren[k].src2];
+      ren[k].p1   = rn_uop_q[k].d.rs1_en && !irdy[2*k];
+      ren[k].p2   = rn_uop_q[k].d.rs2_en && !irdy[2*k+1];
       ren[k].w1   = map_pd[2*k].id;
       ren[k].w2   = map_pd[2*k+1].id;
       ren[k].c1   = map_pd[2*k].cv;
@@ -353,20 +396,20 @@ module tg_rename
         // f-register sources: always a wakeup column, never MX
         if (rn_uop_q[k].d.rs1_fp) begin
           ren[k].src1 = preg_t'(fmap_p[3*k]);
-          ren[k].p1   = rn_uop_q[k].d.rs1_en && !fready_q[fmap_p[3*k]];
+          ren[k].p1   = rn_uop_q[k].d.rs1_en && !frdy[3*k];
           ren[k].w1   = pid_t'(fmap_w[3*k]);
           ren[k].c1   = 1'b1;
           ren[k].l1   = 1'b0;
         end
         if (rn_uop_q[k].d.rs2_fp) begin
           ren[k].src2 = preg_t'(fmap_p[3*k+1]);
-          ren[k].p2   = rn_uop_q[k].d.rs2_en && !fready_q[fmap_p[3*k+1]];
+          ren[k].p2   = rn_uop_q[k].d.rs2_en && !frdy[3*k+1];
           ren[k].w2   = pid_t'(fmap_w[3*k+1]);
           ren[k].c2   = 1'b1;
           ren[k].l2   = 1'b0;
         end
         ren[k].src3 = rn_uop_q[k].d.rs3_en ? preg_t'(fmap_p[3*k+2]) : '0;
-        ren[k].p3   = rn_uop_q[k].d.rs3_en && !fready_q[fmap_p[3*k+2]];
+        ren[k].p3   = rn_uop_q[k].d.rs3_en && !frdy[3*k+2];
         ren[k].w3   = pid_t'(fmap_w[3*k+2]);
         ren[k].c3   = 1'b1;
         if (rn_uop_q[k].d.rd_fp) ren[k].old = preg_t'(fmap_p[3*W + k]);
@@ -466,7 +509,7 @@ module tg_rename
 
   logic ds_free;
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q && !flush && ready && start &&
-                   (!rn_serial || window_empty);
+                   irdy_ready && frdy_ready && (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
 
   assign ffl_pop_n[0] = rn_fire ? fpops[0] : '0;
@@ -506,21 +549,59 @@ module tg_rename
   localparam int ROBIW = ROBW - 1;
   logic [W-1:0][2*W-1:0][RA_W-1:0] rowrd;
   logic [2*W-1:0][ROBIW-1:0]       rowra;
+  logic [W-1:0][RA_W-1:0]          row1, row2;   // the rows of each slot's rs1 and rs2 producers
+  logic [W-1:0]                    rw_we;        // slot k's op takes its row ...
+  logic [W-1:0][RA_W-1:0]          rw_a;         // ... this one
+  // rowdst, the destination of the op each ALU-queue row holds: bank b is written only by slot b,
+  // at its row, with its value XOR the other banks' there. Reads: every slot's source rows, then
+  // the other slots' write rows (for that XOR).
+  localparam int RDN = 3 * W - 1;
+  logic [W-1:0][RDN-1:0][PRW-1:0]  rdst_rd;
+  logic [W-1:0][PRW-1:0]           rdst1, rdst2; // rowdst at row1, row2
   for (genvar k = 0; k < W; k++) begin : g_rowa
     assign rowra[2*k]   = ds_ren_q[k].w1[ROBIW-1:0];
     assign rowra[2*k+1] = ds_ren_q[k].w2[ROBIW-1:0];
+    assign row1[k]      = rowrd[ds_ren_q[k].ks1][2*k];
+    assign row2[k]      = rowrd[ds_ren_q[k].ks2][2*k+1];
   end
   for (genvar b = 0; b < W; b++) begin : g_rowtab
-    logic            we;
-    logic [RA_W-1:0] wd;
     always_comb begin
-      wd = '0;
-      for (int r = 0; r < RA; r++) if (myrow[b][r]) wd = RA_W'(r);
+      rw_a[b] = '0;
+      for (int r = 0; r < RA; r++) if (myrow[b][r]) rw_a[b] = RA_W'(r);
     end
-    assign we = IQ_MX && ds_fire && ds_valid_q[b] && ds_uop_q[b].d.rd_en && is_lat1(ds_uop_q[b].d.cls) &&
-                myrow[b] != '0;
+    assign rw_we[b] = IQ_MX && ds_fire && ds_valid_q[b] && ds_uop_q[b].d.rd_en &&
+                      is_lat1(ds_uop_q[b].d.cls) && myrow[b] != '0;
     tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(RA_W), .NR(2 * W)) u_row (
-      .clk, .we, .waddr(ds_ren_q[b].rob[ROBIW-1:0]), .wdata(wd), .raddr(rowra), .rdata(rowrd[b]));
+      .clk, .we(rw_we[b]), .waddr(ds_ren_q[b].rob[ROBIW-1:0]), .wdata(rw_a[b]), .raddr(rowra),
+      .rdata(rowrd[b]));
+    logic [RDN-1:0][RA_W-1:0] dra;
+    for (genvar k = 0; k < W; k++) begin : g_dra
+      assign dra[2*k]   = row1[k];
+      assign dra[2*k+1] = row2[k];
+    end
+    for (genvar o = 0; o < W; o++) begin : g_dro
+      if (o != b) begin : g_o
+        assign dra[2*W + (o < b ? o : o - 1)] = rw_a[o];
+      end
+    end
+    logic [PRW-1:0] dwd;
+    always_comb begin
+      dwd = ds_ren_q[b].dst;
+      for (int o = 0; o < W; o++)
+        if (o != b) dwd ^= rdst_rd[o][2*W + (b < o ? b : b - 1)];
+    end
+    tg_ram_lut #(.DEPTH(RA), .WIDTH(PRW), .NR(RDN)) u_rdst (
+      .clk, .we(rw_we[b]), .waddr(rw_a[b]), .wdata(dwd), .raddr(dra), .rdata(rdst_rd[b]));
+  end
+  always_comb begin
+    for (int k = 0; k < W; k++) begin
+      rdst1[k] = '0;
+      rdst2[k] = '0;
+      for (int b = 0; b < W; b++) begin
+        rdst1[k] ^= rdst_rd[b][2*k];
+        rdst2[k] ^= rdst_rd[b][2*k+1];
+      end
+    end
   end
   for (genvar k = 0; k < W; k++) begin : g_mx
     always_comb begin
@@ -528,19 +609,16 @@ module tg_rename
       if (ds_ren_q[k].has_q && int'(ds_ren_q[k].q) < N_ALU)
         myrow[k] = mx_alloc[ds_ren_q[k].q][k];
     end
-    logic [RA_W-1:0] row1, row2;
-    assign row1 = rowrd[ds_ren_q[k].ks1][2*k];
-    assign row2 = rowrd[ds_ren_q[k].ks2][2*k+1];
     always_comb begin
       mrow1[k] = '0;
       mrow2[k] = '0;
       if (IQ_MX) begin
-        if (ds_ren_q[k].p1 && ds_ren_q[k].l1 && int'(row1) < RA && mx_hold[row1] &&
-            rowdst_q[row1] == ds_ren_q[k].src1)
-          mrow1[k][row1] = 1'b1;
-        if (ds_ren_q[k].p2 && ds_ren_q[k].l2 && int'(row2) < RA && mx_hold[row2] &&
-            rowdst_q[row2] == ds_ren_q[k].src2)
-          mrow2[k][row2] = 1'b1;
+        if (ds_ren_q[k].p1 && ds_ren_q[k].l1 && int'(row1[k]) < RA && mx_hold[row1[k]] &&
+            rdst1[k] == ds_ren_q[k].src1)
+          mrow1[k][row1[k]] = 1'b1;
+        if (ds_ren_q[k].p2 && ds_ren_q[k].l2 && int'(row2[k]) < RA && mx_hold[row2[k]] &&
+            rdst2[k] == ds_ren_q[k].src2)
+          mrow2[k][row2[k]] = 1'b1;
         // a producer in the same group: the row it is being written into
         for (int i = 0; i < k; i++) begin
           if (ds_valid_q[i] && ds_uop_q[i].d.rd_en && is_lat1(ds_uop_q[i].d.cls) && myrow[i] != '0) begin
@@ -639,8 +717,6 @@ module tg_rename
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      ready_q    <= '1;
-      fready_q   <= '1;
       fdiv_pre_q <= '0;
       fdiv_post_q <= '0;
       fpi_pre_q  <= '0;
@@ -655,13 +731,6 @@ module tg_rename
       rn_valid_q <= '0;
       ds_valid_q <= '0;
     end else begin
-      // Ready bits: set by register-file writes, cleared by allocation (below)
-      for (int b = 0; b < INT_BANKS; b++) begin
-        if (rf_we[b]) ready_q[mk_preg(b, rf_widx[b])] <= 1'b1;
-      end
-      for (int b = 0; b < 2; b++) begin
-        if (EXT_FD && fp_we[b]) fready_q[{1'(b), fp_widx[b]}] <= 1'b1;
-      end
       llt_busy_q <= llt_busy_q & ~llt_rel;
       fdiv_post_q <= fdiv_post_q + (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss) - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_done);
       fpi_post_q  <= fpi_post_q + (idx_w(FPI_INFLIGHT + 1))'(fpi_iss) - (idx_w(FPI_INFLIGHT + 1))'(fpi_pop);
@@ -688,27 +757,12 @@ module tg_rename
                       - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
         // DS
         if (ds_fire) ds_valid_q <= '0;
-        if (ds_fire && IQ_MX) begin
-          for (int k = 0; k < W; k++) begin
-            if (ds_valid_q[k] && ds_uop_q[k].d.rd_en && is_lat1(ds_uop_q[k].d.cls)) begin
-              for (int r = 0; r < RA; r++) begin
-                if (myrow[k][r]) rowdst_q[r] <= ds_ren_q[k].dst;
-              end
-            end
-          end
-        end
         // RN -> DS
         if (rn_fire) begin
           ds_valid_q <= rn_valid_q;
-          ds_uop_q   <= rn_uop_q;
-          ds_ren_q   <= ren;
           rn_valid_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
-              if (rn_uop_q[k].d.rd_en) begin
-                if (EXT_FD && rn_uop_q[k].d.rd_fp) fready_q[fpr(ren[k].dst)] <= 1'b0;
-                else                               ready_q[ren[k].dst] <= 1'b0;
-              end
               if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
               if (ren[k].use_tag) tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
             end
@@ -726,6 +780,16 @@ module tg_rename
           rn_uop_q   <= de_uop;
         end
       end
+    end
+  end
+
+  // The DS payload takes RN's group whenever DS is free, so its enable does not wait for
+  // rn_fire (a load of every DS flip-flop); ds_valid_q says whether RN fired, and nothing reads
+  // the payload of an invalid slot
+  always_ff @(posedge clk) begin
+    if (ds_free) begin
+      ds_uop_q <= rn_uop_q;
+      ds_ren_q <= ren;
     end
   end
 
