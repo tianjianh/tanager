@@ -19,7 +19,13 @@ module tg_uncore
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (8N1), else host only
-  parameter logic [31:0] XBAR_DSP        = '1,         // tg_xbar DSP_SKID: slices whose data register is in DSPs
+  // Register slices whose main data register sits in DSP48E2s (tg_skid DSP; DR-136), one bit per
+  // site, so a placement check can return a site to fabric without new RTL:
+  //   [31:0]  tg_xbar DSP_SKID (D per initiator, A per target, C per bank, B per core);
+  //   [41:32] memory port p's tg_axi_slice: bit 32 + 5p + {0 AR, 1 AW, 2 W, 3 R, 4 B};
+  //   [43:42] L2 bank b's R slice; [63:44] reserved.
+  // The B slices (a few bits) stay in fabric.
+  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b11, 5'b01111, 5'b01111, 32'hFFFF_FFFF},
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -149,7 +155,7 @@ module tg_uncore
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
   tl_d_t hdma_d; logic hdma_ar, hdma_dv;
 
-  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (XBAR_DSP)) u_xbar (
+  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
     .l1i_a_i, .l1i_a_valid_i, .l1i_a_ready_o, .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
     .l1d_a_i, .l1d_a_valid_i, .l1d_a_ready_o, .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
@@ -190,7 +196,7 @@ module tg_uncore
   logic    [N_BANKS-1:0] ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
   tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM),
-          .DATA_LAT (L2_DATA_LAT)) u_l2 (
+          .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]})) u_l2 (
     .clk, .rst (uncore_rst),
     .a_i (l2_a), .a_valid_i (l2_av), .a_ready_o (l2_ar),
     .b_o (l2_b), .b_valid_o (l2_bv), .b_ready_i (l2_br),
@@ -243,7 +249,7 @@ module tg_uncore
       .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b])
     );
     // register slice toward the PS port: the window's adder and the long route end at flip-flops
-    tg_axi_slice u_slice (
+    tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5])) u_slice (
       .clk, .rst (uncore_rst),
       .s_ar_i (wn_ar[b]), .s_ar_valid_i (wn_arv[b]), .s_ar_ready_o (wn_arr[b]),
       .s_r_o (wn_r[b]), .s_r_valid_o (wn_rv[b]), .s_r_ready_i (wn_rr[b]),

@@ -16,7 +16,7 @@ module kv260_top
   parameter bit    PMOD_UART = 1'b0,
   parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
   parameter bit    FAN_INVERT = 1'b0,
-  parameter logic [31:0] XBAR_DSP = '1      // crossbar slices in DSPs (tg_xbar DSP_SKID; build.tcl TG_XBAR_DSP)
+  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b11, 5'b01111, 5'b01111, 32'hFFFF_FFFF}  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -150,7 +150,7 @@ module kv260_top
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND), .UART_SERIAL (PMOD_UART),
     .L2_DATA_LAT (CORE_MHZ > 150 ? 4 : 2),   // pipeline the URAM cascade above 150 MHz
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .XBAR_DSP (XBAR_DSP)
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP)
   ) u_soc (
     .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),

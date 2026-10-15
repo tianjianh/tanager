@@ -8,9 +8,10 @@
 # TG_PMOD_TXD / TG_PMOD_RXD override them.
 lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
-# TG_XBAR_DSP (hex, e.g. 0xFFFFFFFF): which crossbar slices use DSPs (tg_xbar DSP_SKID; default all)
+# TG_UNCORE_DSP (hex, e.g. 0xDEFFFFFFFF): which register slices keep their data in DSPs (tg_uncore
+# UNCORE_DSP, one bit per site; the default is every site but the B slices)
 set xbar_gen {}
-if {[info exists ::env(TG_XBAR_DSP)]} { lappend xbar_gen -generic "XBAR_DSP=32'h[format %08X $::env(TG_XBAR_DSP)]" }
+if {[info exists ::env(TG_UNCORE_DSP)]} { lappend xbar_gen -generic "UNCORE_DSP=64'h[format %016llX $::env(TG_UNCORE_DSP)]" }
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {

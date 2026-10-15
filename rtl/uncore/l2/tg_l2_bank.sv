@@ -18,7 +18,8 @@ module tg_l2_bank
   parameter int N_WB     = 4,
   parameter int N_PUTBUF = 4,
   parameter     DATA_PRIM = "ultra",
-  parameter int DATA_LAT  = 2         // data-array read latency, >= 2 (4 for the URAM cascade at 200 MHz)
+  parameter int DATA_LAT  = 2,        // data-array read latency, >= 2 (4 for the URAM cascade at 200 MHz)
+  parameter bit RSLICE_DSP = 1'b0     // the R slice's data register in DSP48E2s (tg_skid DSP; DR-136)
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -803,7 +804,7 @@ module tg_l2_bank
   // so the MSHR-state lookup below stays inside the bank.
   axi_r_t r_s;
   logic   r_s_v, r_s_r;
-  tg_skid #(.T(axi_r_t)) u_rslice (
+  tg_skid #(.T(axi_r_t), .DSP(RSLICE_DSP)) u_rslice (
     .clk, .rst, .in_valid (r_valid_i), .in_ready (r_ready_o), .in_data (r_i),
     .out_valid (r_s_v), .out_ready (r_s_r), .out_data (r_s)
   );
