@@ -623,9 +623,8 @@ module tg_fetch
       iq_insn[j].ubtb_hit    = exit_here;
       iq_insn[j].ubtb_way    = m.way;
       iq_insn[j].tid         = '0;
+      iq_insn[j].marks       = marks;
     end
-    logic unused;
-    assign unused = ^marks;
   end
 
   logic unused;

@@ -226,6 +226,8 @@ package tg_core_pkg;
     logic              ubtb_hit;    // the micro-BTB predicted taken at this instruction
     logic              ubtb_way;
     tid_t              tid;
+    logic [2:0]        marks;       // pre-decode: {conditional branch, JAL, JALR}; decode's class
+                                    // unless decode raises an exception
   } fe_insn_t;
 
   // ---- Decoded micro-op ----

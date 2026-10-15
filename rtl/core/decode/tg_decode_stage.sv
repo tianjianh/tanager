@@ -9,6 +9,9 @@
 // target is block address + offset + immediate, and "a + b + c == k" holds when every bit of
 // the carry-save sum matches the carry k needs there (Cortadella and Llaberia, IEEE Trans.
 // Computers, 1992). The sums themselves (the targets, the next PC) feed only registers.
+// The check needs neither the RVC expander nor the decoder's class and immediate: the queue
+// brings the instruction's pre-decode marks (decode's class unless decode raises an exception,
+// which the check excludes), and the offset comes from the raw encoding.
 module tg_decode_stage
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -42,6 +45,17 @@ module tg_decode_stage
   output logic                dred,
   output logic [63:0]         dred_pc
 );
+  // The offset of a branch (jal = 0) or JAL (jal = 1), bits 20:0 with the sign at 20, from the raw
+  // encoding: B and J types, or RVC's CB (c.beqz, c.bnez) and CJ (c.j); as decode adds it to the PC
+  function automatic logic [20:0] bimm_of(input logic [31:0] x, input logic jal);
+    if (x[1:0] == 2'b11)
+      return jal ? {x[31], x[19:12], x[20], x[30:21], 1'b0}
+                 : {{8{x[31]}}, x[31], x[7], x[30:25], x[11:8], 1'b0};
+    else
+      return jal ? {{9{x[12]}}, x[12], x[8], x[10:9], x[6], x[7], x[2], x[11], x[5:3], 1'b0}
+                 : {{12{x[12]}}, x[12], x[6:5], x[2], x[11:10], x[4:3], 1'b0};
+  endfunction
+
   // a + b + c == k, carry-free
   function automatic logic eq_add3(input logic [63:0] a, input logic [63:0] b, input logic [63:0] c,
                                    input logic [63:0] k);
@@ -68,36 +82,52 @@ module tg_decode_stage
                      .len2(iq_insn[j].rvc),
                      .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
-    logic [63:0] seq, pbase, poff, imm;
-    logic        pt, hit;
+    logic [63:0] seq, pbase, poff, imm, tgt;
+    logic        pt, hit, mbr, mjal, mjalr;
     logic [63:0] ptg;
     assign pbase = {iq_insn[j].blk, 4'b0};
     assign poff  = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
     assign seq   = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
     assign pt    = iq_insn[j].pred_taken;
     assign ptg   = iq_insn[j].pred_target;
-    // the branch's immediate (JAL or conditional), as tg_decode adds it for d.br_target
-    assign imm   = (d[j].br_kind == BR_JAL) ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
-                                            : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0};
-    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == d[j].br_target
+    // the class from the queue's pre-decode marks, the offset from the raw encoding
+    assign {mbr, mjal, mjalr} = iq_insn[j].marks;
+    logic [20:0] bimm;
+    assign bimm  = bimm_of(iq_insn[j].insn, mjal);
+    assign imm   = {{43{bimm[20]}}, bimm};
+    assign tgt   = pbase + poff + imm;               // d[j].br_target for a branch or JAL
+    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
       dfix[j]  = 1'b0;
       if (!d[j].exc) begin
-        if (d[j].cls == C_BR && d[j].br_kind == BR_JAL) begin
+        if (mjal) begin
           if (!pt || !hit) begin
-            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
+            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = tgt;
           end
-        end else if (d[j].cls == C_BR && d[j].br_kind == BR_COND) begin
+        end else if (mbr) begin
           if (pt && !hit) begin
-            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
+            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = tgt;
           end
-        end else if (d[j].cls != C_BR && pt) begin
+        end else if (!mjalr && pt) begin
           redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = seq;
         end
       end
     end
+`ifndef SYNTHESIS
+    // The marks and the offset are decode's class and target wherever the check uses them
+    always_ff @(posedge clk) begin
+      if (!rst && iq_valid[j] && !d[j].exc) begin
+        assert (mjal == (d[j].cls == C_BR && d[j].br_kind == BR_JAL) &&
+                mbr == (d[j].cls == C_BR && d[j].br_kind == BR_COND) &&
+                mjalr == (d[j].cls == C_BR && d[j].br_kind == BR_JALR))
+          else $error("tg_decode_stage: pre-decode marks differ from decode's class");
+        if (mjal || mbr) assert (tgt == d[j].br_target)
+          else $error("tg_decode_stage: the raw offset gives another target than decode's");
+      end
+    end
+`endif
   end
 
   // Group: a prefix of the queue head
