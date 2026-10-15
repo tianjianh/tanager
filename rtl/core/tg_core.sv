@@ -280,6 +280,23 @@ module tg_core
   robid_t           ld_cmp_rob, replay_rob;
   logic [1:0]       st_cmp;
   robid_t [1:0]     st_cmp_rob;
+  // The store reports (completions and the ordering replay mark) reach the ROB a cycle later,
+  // together, so a replayed load never commits first (DR-140 #2, ROB_STORE_REPORT_LATE). Timing:
+  // the store address's TLB and PMP decision and the LQ's ordering search leave the ROB's tables.
+  logic [1:0]       st_cmp_q, st_cmp_r;
+  robid_t [1:0]     st_cmp_rob_q, st_cmp_rob_r;
+  logic             replay_valid_q, replay_valid_r;
+  robid_t           replay_rob_q, replay_rob_r;
+  always_ff @(posedge clk) begin
+    st_cmp_q       <= (rst || flush) ? '0 : st_cmp;
+    st_cmp_rob_q   <= st_cmp_rob;
+    replay_valid_q <= !(rst || flush) && replay_valid;
+    replay_rob_q   <= replay_rob;
+  end
+  assign st_cmp_r       = ROB_STORE_REPORT_LATE ? st_cmp_q       : st_cmp;
+  assign st_cmp_rob_r   = ROB_STORE_REPORT_LATE ? st_cmp_rob_q   : st_cmp_rob;
+  assign replay_valid_r = ROB_STORE_REPORT_LATE ? replay_valid_q : replay_valid;
+  assign replay_rob_r   = ROB_STORE_REPORT_LATE ? replay_rob_q   : replay_rob;
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
@@ -347,8 +364,9 @@ module tg_core
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
-    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
-    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid, .replay_rob,
+    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid(replay_valid_r),
+    .replay_rob(replay_rob_r),
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,

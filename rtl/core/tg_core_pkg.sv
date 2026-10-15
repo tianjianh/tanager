@@ -18,6 +18,18 @@ package tg_core_pkg;
   localparam bit EXT_B      = 1'b1;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b1;
   localparam bit EXT_FD     = 1'b1;      // F and D: FP rename, IQ-FP and P4, fcsr (core-fp.md)
+
+  // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). They are verified
+  // as two profiles only: all three off (the default, cycle-identical to the core without them) or
+  // all three on (TIMING_CUTS: define TG_TIMING_CUTS, or flip the default). No other combination
+  // is supported.
+`ifdef TG_TIMING_CUTS
+  localparam bit TIMING_CUTS = 1'b1;
+`else
+  localparam bit TIMING_CUTS = 1'b0;
+`endif
+  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
+                                                      // replay mark reach the ROB a cycle later
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
