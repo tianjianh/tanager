@@ -70,8 +70,9 @@ static void touch(void *p, size_t bytes) {
 }
 
 static int t_info(void) {
-  printf("TGLB-INFO counters=%s timebase=%" PRIu64 " pagesize=%ld\n", tglb_has_cycle() ? "cycle,instret,time" : "time",
-         timebase(), sysconf(_SC_PAGESIZE));
+  int c = tglb_has_cycle();
+  printf("TGLB-INFO counters=%s timebase=%" PRIu64 " pagesize=%ld perf_events=%d perf_errno=%d\n",
+         c ? "cycle,instret,time" : "time", timebase(), sysconf(_SC_PAGESIZE), tglb_perf_opened, tglb_perf_errno);
   return 0;
 }
 

@@ -2,18 +2,25 @@
    Every measurement prints one line:
      TGLB <test> run=<k> cycles=<n|-> instret=<n|-> ticks=<n> ns=<n> ops=<n> [<key>=<value> ...]
    cycles and instret come from rdcycle and rdinstret. Linux lets user mode read them only with the
-   SBI PMU driver and kernel.perf_user_access = 2; otherwise they trap, and the line says "-". ticks
-   come from rdtime, at the device tree's timebase-frequency; ns from CLOCK_MONOTONIC. */
+   SBI PMU driver and kernel.perf_user_access = 2 (legacy access); otherwise they trap. The driver also
+   stops every counter at boot, so that perf can start them: pinned system-wide cycles and instructions
+   events on every CPU, which legacy mode puts on the fixed mcycle and minstret, keep them counting
+   while the program runs. A counter that traps or does not advance makes the line say "-". ticks come
+   from rdtime, at the device tree's timebase-frequency; ns from CLOCK_MONOTONIC. */
 #ifndef TGLB_H
 #define TGLB_H
 
+#include <errno.h>
 #include <inttypes.h>
+#include <linux/perf_event.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/syscall.h>
 #include <time.h>
+#include <unistd.h>
 
 static inline uint64_t tglb_rdcycle(void) {
   uint64_t v;
@@ -36,7 +43,30 @@ static inline uint64_t tglb_ns(void) {
   return (uint64_t)t.tv_sec * 1000000000u + (uint64_t)t.tv_nsec;
 }
 
-/* Whether user mode may read cycle and instret, probed once with SIGILL caught. */
+/* Pinned system-wide cycles and instructions events on every CPU, so the counters run; the descriptors
+   stay open until the program exits, and close on exec. The probe below decides; tg-lbench info
+   reports how many opened and the first error. */
+static int tglb_perf_opened, tglb_perf_errno;
+static void tglb_start_counters(void) {  /* C89 too: Dhrystone builds as gnu89 */
+  long ncpu = sysconf(_SC_NPROCESSORS_ONLN), c;
+  int k;
+  for (c = 0; c < ncpu; c++)
+    for (k = 0; k < 2; k++) {
+      struct perf_event_attr a;
+      long fd;
+      memset(&a, 0, sizeof a);
+      a.type = PERF_TYPE_HARDWARE;
+      a.size = sizeof a;
+      a.config = k ? PERF_COUNT_HW_INSTRUCTIONS : PERF_COUNT_HW_CPU_CYCLES;
+      a.pinned = 1;  // no exclude_* bits: without Sscofpmf the counters cannot filter by mode
+      fd = syscall(SYS_perf_event_open, &a, -1, (int)c, -1, PERF_FLAG_FD_CLOEXEC);
+      if (fd >= 0) tglb_perf_opened++;
+      else if (!tglb_perf_errno) tglb_perf_errno = errno;
+    }
+}
+
+/* Whether user mode reads running cycle and instret counters, probed once: a read with SIGILL caught,
+   then the counters started and checked to advance. */
 static sigjmp_buf tglb_jb;
 static void tglb_on_sigill(int s) {
   (void)s;
@@ -57,6 +87,16 @@ static int tglb_has_cycle(void) {
     known = 0;
   }
   sigaction(SIGILL, &old, NULL);
+  if (known) {
+    uint64_t c0, i0;
+    volatile int i;
+    tglb_start_counters();
+    c0 = tglb_rdcycle();
+    i0 = tglb_rdinstret();
+    for (i = 0; i < 1000; i++) {
+    }
+    known = tglb_rdcycle() != c0 && tglb_rdinstret() != i0;
+  }
   return known;
 }
 
