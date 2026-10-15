@@ -135,7 +135,7 @@ Placement:
 |---|---|
 | E0 | Unpack the three operands (format, NaN box, classes, hidden bits); special-case detection; the raw exponent sums ep = ea + eb − bias and shr = ep − ec + 56, straight from the encoding fields with the format's bias in a constant; load the DSP A/B registers. The operands may arrive late (the core's bypass), so E0 stops at the sums. |
 | E1 | DSP tiles (A×B + rows). Window placement: clamp shr to sh, choose E_top, lim = E_top − emin. Addend alignment (`tg_fpu_fma_align`): 53 → 165-bit right shift by sh with the sticky from a trailing-zero count. FCVT.F.I's \|x\| is ORed into the addend operand (each is zero when the other is used). |
-| E2 | Add (`tg_fpu_fma_add`): the six tile outputs and the aligned addend (complemented inside the column counters for an effective subtraction; column height ≤ 5) reduce column by column to three rows. Below bit 112 two ternary adders run in parallel, X = P − C (= P + ~C + 1) and Y = X − 1; above it only the addend contributes and the low part's carry is 0 or 1, so one incrementer serves both. \|S\| is X, or ~Y when X < 0. The emin marker (below) is decoded from lim, as the AND of one-hots of lim[7:4] and lim[3:0]. |
+| E2 | Add (`tg_fpu_fma_add`): the six tile outputs and the aligned addend (complemented inside the column counters for an effective subtraction; column height ≤ 5) reduce column by column to three rows. Below bit 112 two ternary adders run in parallel, X = P − C (= P + ~C + 1) and Y = X − 1; above it only the addend contributes and the low part's carry is 0 or 1, so one incrementer serves both. That incrementer runs in two DSPs (`tg_fpu_dsp_add`, DR-123) on their own copy of E1's addend register, complemented there for an effective subtraction; the XOR shares its LUT with the addend's OR. \|S\| is X, or ~Y when X < 0. The emin marker (below) is decoded from lim, as the AND of one-hots of lim[7:4] and lim[3:0]. |
 | E3 | Normalise (`tg_fpu_fma_norm`): leading-zero count of \|S\| \| marker, then the left shift in four radix-4 stages; each stage keeps only the bits that can still reach the top 55 (significand, guard, round) and ORs the rest into the sticky. |
 | E4 | Round (T, G, S and one round bit below G for the tininess test), pack with the exponent (one adder for both formats: an S result occupies bits 59:29 of the D layout), exact zero (n = 0 with no sticky), special-case results, NaN boxing, flags. The response register. |
 
@@ -202,12 +202,10 @@ Operands are normalised in the first cycle after acceptance (leading-zero count 
 
 While round 1 runs, small DSPs compute an approximation ẽ0 of the round-1 error e0 from truncated operands, and ẽ0², ẽ0³:
 
-| Stage | Divide | Square root |
-|---|---|---|
 | Stage (cycle) | Divide | Square root |
 |---|---|---|
 | SM0 (t+3, 1 DSP) | D̃0 = mb[52:29] × s → ẽ0 = 1 − D̃0 | Y2 = y0² (exact; feeds M2 in round 1) |
-| SMa (t+4, 2 DSPs) | – | ũ0 = x[59:34] × Y2 → ẽ0 = 1 − ũ0 (t+5) |
+| SMa (t+4, 2 DSPs) | – | ũ0 = x[59:34] × Y2 → ẽ0 = 1 − ũ0 (t+5). The low tile subtracts its product from 2^44 in its own ALU, so only a 30-bit subtraction of the high tile is left in LUTs (DR-123). |
 | SMb (t+6, 1 DSP) | e2 = ẽ0 × (ẽ0 >> 9) ≈ ẽ0² | same |
 | SMc (t+7, 1 DSP) | e23 = (e2 >> 24) × (ẽ0 >> 9) + e2 ≈ ẽ0³ + ẽ0² | e23 = (5 (e2 >> 24)(ẽ0 >> 9) + 6 e2) / 16 ≈ 5/16 ẽ0³ + 3/8 ẽ0² |
 
@@ -256,7 +254,7 @@ Q2.58 (rather than the plan's 56-bit multiplier) is what makes the double-precis
    - R > 0: from c, S = 1;
    - R < 0: from c − u_g, S = 1.
 
-   Exact midpoints cannot occur for division or square root, so the sticky case never hides a tie. F0 runs in the c0 cycle after the remainder product: a 96-bit subtraction (the low bits of A·2^58 − p), its sign and zero test, and the choice of c or c − u_g.
+   Exact midpoints cannot occur for division or square root, so the sticky case never hides a tie. F0 runs in the c0 cycle after the remainder product: the remainder's sign and zero test, and the choice of c or c − u_g. The remainder is the low 96 bits of A·2^58 − p, small, so it is exact modulo 2^96. Its low 58 bits are −p[57:0], which only lends a borrow when p[57:0] ≠ 0: a 38-bit subtraction of the upper bits with that borrow gives the sign, and with the 58-bit test the zero test (DR-123; it replaced a 96-bit subtraction).
 4. **F1:** for a divide result below 2^emin, shift (T, G, S) right by k = emin − Eq (k ≤ 55, larger values clamp) in three radix-4 stages, each ORing the bits it drops into the sticky; the rounding decision; flags. The conditions that depend only on Eq (subnormal, k, the exponent field, Eq = emin − 1, Eq > emax, Eq = emax) are derived in S3 and travel with the operation.
    - Tininess after rounding uses the normal-precision (T, G, S) from F0: a result with Eq = emin − 1 is not tiny if it rounds up to 2^emin at *p* bits.
    - Overflow: Eq > emax, or Eq = emax and the significand rounds up from all ones.
@@ -381,7 +379,7 @@ The core instantiates `tg_fp_exec`, which contains `tg_fprf` and `tg_fpu`. The C
   - one store-data port, `fsd_tag` → `fsd_data`, combinational;
   - `NTR` trace ports (default `COMMIT_WIDTH`, as on the integer file).
   A read selects its bank after the LUTRAM. Read-during-write follows `tg_ram_lut`: the new value is visible after the write edge.
-- **Init port:** `init_we`/`init_bank`/`init_idx` writes zero, for the reset sequence's initial FP map (Spike resets every f register to 0).
+- **Init port** (on `tg_fp_exec`): `init_we`/`init_idx` writes zero into F0, for the reset sequence's initial FP map (Spike resets every f register to 0). The write takes the F0 port, whose stream is idle then, so the zero folds into the F0 stream's multiplexer and the banks need no zero multiplexer. `init_bank` must be 0 (asserted).
 
 ### P4 pipeline (`tg_fp_exec`)
 
@@ -446,7 +444,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - This costs 2 cycles on integer-to-FP moves of in-flight ALU results, about 0.4% of FP sources in the census. MUL (tag) and LLT producers wake late enough already.
 
 **FP loads** (F1):
-- `fld_valid`, `fld_idx`, `fld_single` and `fld_data` (raw 64 bits) write F1 at the end of the cycle. `tg_fp_exec` NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]}.
+- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself, from a `fld_single` flag; DR-123 dropped the flag and the port.
 - `fld_m2_will` and `fld_m2_idx` announce the write one cycle ahead, for the bypass select.
 - The core wakes the load's LLT and completes it, as for integer loads.
 
@@ -484,9 +482,9 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - each operation's wakeup column is in its range: a tag below NFX for FMA and FMISC FP results, NFX + llt for divides and integer results;
 - a divide does not retire early in a cycle when its thread is flushed. The flush is registered from an older commit, so nothing it kills can retire with it.
 
-Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) comes straight from the load result register, with no logic after it. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
+Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) comes straight from the load result register, with no logic after it, and `fld_data` is already NaN-boxed for FLW. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
 - The core agreed: `fld_data` and `fld_idx` come from the LSU's `r_data_q` and `r_dst_q`, which already drive the integer load bank at WB.
-- `fld_single` and `fld_valid` are flip-flops of the same stage.
+- `fld_valid` is a flip-flop of the same stage.
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -519,7 +517,7 @@ Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rt
 
 The per-module split comes from a synthesis that keeps the hierarchy. The trace ports cost 2 × 64 bits of LUTRAM per bank; without them `tg_fprf` would be about 850 LUTs.
 
-**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
+**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
 - The core writes the load bank at WB from its load result register ([core-lsu.md](core-lsu.md)), so these ports leave a register. 1.0 ns leaves about 0.9 ns for routing across the core. The contract above requires it.
 - **The complete module has no margin at 200 MHz.** The agreed RTL measures −0.145 ns (smt2) and +0.015 ns (st).
   - **smt2's worst path is inside the FMA's E2:** the tile outputs, the row sum and the roughly 120-bit adder, whose sign selects the magnitude (85 loads), into `mag_q`. It has 15 logic levels and 71% of its delay is routing. E3 follows at −0.062 ns.
@@ -572,7 +570,6 @@ The per-module split comes from a synthesis that keeps the hierarchy. The trace 
   - **Confirmed by synthesis** of the fd2 merge: the check after synthesis passes in smt2 and st. The queue is 71 bits in 6 RAM32M16, 2 fewer than before. Standalone `tg_fpu` stores 101 bits in 8 and passes too.
 
 ### Helpers (`tg_fpcore_pkg`)
-- `fp_box_load(data, single)`: the F1 value of FLW and FLD.
 - `fp_rm_resolve(rm_field, frm)`: the rounding mode and legality, Spike's RM rule.
 - `FPTAG_W`, the width of an FP tag. The tag helpers themselves are in `tg_core_pkg` (above).
 
@@ -717,7 +714,14 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | LUT pass, no latency or function change | **5,889** | −1,121 (FMA −510, FMISC −139, divider −472), under the nightly 6,800. WNS afterwards: +0.10 ns (FMA), +0.40 ns (FMISC), +0.15 ns (divider). |
 | Back end for F/D (P4) | units unchanged | `tg_fprf` 1,158 LUTs, P4 logic 1,085, `tg_fcsr` 46. The complete `tg_fp_exec` sits at 200 MHz with no margin: the agreed RTL measures −0.145 ns (smt2, inside the FMA's E2) and +0.015 ns (st), and runs vary between −0.15 and +0.10 ns. With the Explore directives it closes at +0.020 and +0.039 ns. Floorplanned into two clock regions, it closes at default effort at +0.113 and +0.100 ns. |
 | Seed ROM on `tg_rom` (DR-070) | 5,889 | Neutral: the divider is 2,651 LUTs at +0.16 ns. The primitive check counts the ROM. |
-| AR-8 no-IPC pass on P4 (step 1) | FMA −60 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. P4 after synthesis: 7,941 → 7,702 (smt2), 7,951 → 7,670 (st). FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
+| AR-8 no-IPC pass on P4 (step 1) | FMA −55 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. Budget flow (`-flatten none`): P4 7,954 → 7,823 (st), 7,977 → 7,846 (smt2), −131. Out-of-context synthesis with `rebuilt` flattening had shown −281/−239: it optimises across module boundaries, so it overstates. FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
+| DR-123 FPGA-native pass on P4 (step 2) | P4 −113 | The FMA's hi + 1 in 2 DSPs (−54), the divider's e0 subtraction in its SMa tile (−38) and the remainder's sign from a 38-bit subtraction (−22). Budget flow, standalone: P4 7,386 → 7,273 (st), 35 → 37 DSPs. Floorplanned P4 closes at default effort (+0.130 and +0.089 ns). Details below ("DR-123, FPGA-native pass"). |
+| DR-123, P4 step 3 | P4 −16 | The core's LSU NaN-boxes FLW before its load result register (core track, 3f9a227), so P4 drops its boxing multiplexer: `fld_data` goes straight into F1, the RF-stage capture and the EX0 bypass, one LUT level shorter. `fld_single` is ignored until the core drops the port. Budget flow: P4 7,273 → 7,257 (st), 7,294 → 7,278 (smt2). Floorplanned P4 closes at default effort (+0.089 ns smt2, +0.073 ns st); cycle-identical to main f46d871 (`make cycle-identical`, 798 of 798 programs in each configuration). |
+| DR-123, P4 step 4 | P4 −59 | The FP register file's bank select folds into the RF-stage operand multiplexer (one encoded 4:1 per port: bank 0, bank 1, the F1 write, the integer source), −28; FMISC's result is one encoded select per bit over a, b, the FCVT.I.F sum, the two sign-extension bits and a constant word, in place of three multiplexers in a row, −31. Budget flow: P4 7,257 → 7,198 (st), 7,278 → 7,219 (smt2). Floorplanned 200 MHz: +0.097 ns (smt2), +0.067 ns (st). Measured and not taken (T1/T4): the divide table and the B1 queue have 4 entries (about 35 and 10 LUTs of flip-flop logic; the B1 payload is LUTRAM already), and an SRL FIFO counts more LUTs before placement than LUTRAM (spikes' table, fpga_friendly.md §3.1). |
+| DR-123, execute step 2 | execute −17 | The divider's NM amount is `nz ? 64 : ~(lzd − lza)` on the original shifter (+58 against main's form, where the form that kept r and q at n = 0 was +75), and FX goes back to its original select. Execute 7,892 → 7,875 (st and smt2); it closes 200 MHz at +0.116 ns (st, the NM step now the worst path) and +0.033 ns (smt2). |
+| DR-133, execute's UltraRAM operand ports (behind `IRF_URAM`, default 0) | execute −597 when on | The 4 ALU operand ports read URAM copies of the register file: one per bank and port (12 URAM per core at N_ALU = 2), written like the banks and addressed in IS from tg_iq's `payload_sel` (the new inputs `is_src1`/`is_src2`, tg_issue's export, 748a133 on the core track's branch), so the data arrives in RF as the LUTRAM's does. The URAM read is read-first, so the write of the cycle before RF comes from that write's registers, picked once per port; one 4:1 per bit then selects the source's bank or that write. `tg_irf` keeps the other 5 ports. Gates (DR-133): (1) cycle-identical with the switch on, 798/798 in st and smt2 (and a mutant without the bypass mismatches on 262 of 293 riscv-tests), `make regress` passes; first on a local prototype of the core's port, then again on the core track's export (`is_src1`/`is_src2`, fn2 2952dbd, with u_ex wired in tg_core): 798/798 in st and smt2, and with execute step 3's RTL on fn2 65dce2e (base main f0a1207): 798/798 in st and smt2; (2) out of context next to a URAM column (`exec_pblock.tcl`, `exec_uram_io.tcl` with the tags at 2.5 ns): +0.019 ns (st), +0.002 ns (smt2), floorplanned into X2Y0–X2Y1 (12 URAM sites); (3) the full-chip placement check: asked of spikes-2 on a test branch with the switch on (claude/track-fpu-395911-dr133-gate3, not for merging). Budget flow: 7,875 → 7,278 LUTs (st), 12 URAM; a first form of the bypass (a 6:1 per bit) gave 7,532. |
+| DR-123, execute step 3 | execute −350 | Four changes, each cycle-identical (798/798 in st and smt2 against main f0a1207), measured in sequence: the integer divider aligns the divisor in NM, d = \|b\| << (n − 1), with one 64-bit shifter, where {r, q} = \|a\| << (64 − n) needed a 128-bit shift, and sets x / 0's all-ones quotient there, so FX has no override (−208); the Zbb unit's clz/ctz on `tg_fpu_lzc` and cpop as a tree of 6-bit group counts (−23); res_q[0] held at zero through the reset sequence, so bank 0's zero writes need no multiplexer (−31); the branch target's select in front of the JALR adder, which adds zero to the decoded target (−88). Execute 7,875 → 7,525 (st), 7,524 (smt2), 85 under its 7,610 with `IRF_URAM` off. 200 MHz: +0.163 ns (st), +0.204 ns (smt2), the worst paths now the shared read port's I/O. |
+| DR-123, P4 step 5 | P4 −64 | The reset sequence's zero writes take the F0 write port: the zero and its index fold into the F0 stream's multiplexers, and `tg_fprf` loses its init port with both banks' zero multiplexers. `init_bank` must be 0 (asserted; the core ties it to 0), and the back-end bench zeroes F1 registers through the load port. Budget flow: 7,198 → 7,134 (st), 7,219 → 7,156 (smt2). Floorplanned 200 MHz: +0.069 ns (st), +0.117 ns (smt2). |
 
 **What Goldschmidt really cost, and why.**
 - **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.
@@ -748,6 +752,82 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 - The bench now recycles 16 tags (4 in one stress setting) and models the bank-1 arbiter's claim, hold and write.
 - Three mutations are each caught at once: a wrong `cmp_wid`, the old B1 head that left on a flush, and a flushed FMA that still wakes its tag. The last woke a reused tag's new consumers two cycles early, which is the hazard tag reuse creates.
 
+**AR-8, Execute** (`rtl/core/exec`, handed over by the core track on 2026-10-14). Measured with the budget flow (`unit_synth.tcl`, `-flatten none`) and checked cycle for cycle against the previous build (`cyc_cmp.py`):
+- **The Zbb unit on P1** (clz, ctz, cpop, min/max, in the MUL slot):
+  - clz and ctz share one leading-zero count: ctz is the clz of the bit-reversed value, and the W forms put ones beside the low word;
+  - min/max use ALU1's compare flags, with its adder set to subtract for them in RF, instead of a comparator of their own.
+  - `tg_exec`: 8,722 → 8,550 LUTs (st), 8,727 → 8,555 (smt2).
+- **Cycle-identical:** st and smt2 each match the previous build on every passing ELF: 310 riscv-tests, CoreMark/Dhrystone and directed tests natively, 309 under memory stress, and 895 ACT4 tests.
+- **A new directed test,** `tests/isa/directed/zbb.S`, covers the bit counts and min/max in lockstep. The random generator has no Zbb, so riscv-tests' `rv64uzbb` was the only coverage before.
+- **The divider's leading-zero counts** use `tg_fpu_lzc`, the FPU's two-level tree, instead of a loop: 1,315 → 1,188 LUTs. In context the loop cost far more than the 71 against 57 of an isolated test.
+- **Execute after both steps:** 8,722 → 8,423 LUTs (st), 8,727 → 8,428 (smt2), against 7,610.
+- **Divider timing.** The divider's NM step is its critical path: two leading-zero counts, then the 128-bit shift, in one cycle.
+  - Alone at 200 MHz it measures +0.088 ns with the loop counts and +0.117 ns with the tree.
+  - In one out-of-context run of the whole `tg_exec` it fell to −0.365 ns; another run of the same RTL did not show it.
+  - So it depends on placement whichever count it uses. It belongs on the timing list with the floorplan.
+- **Dead ends, measured and reverted:**
+  - one shift mask for both directions in `tg_alu`: −5 and −0 LUTs;
+  - `bext` from the rotator: +1;
+  - the tree count in the Zbb unit: +77, because with `-flatten none` synthesis can no longer fold the bit-reverse multiplexer into the count.
+- **What is left is structural:** the register file (2,568: 9 read ports over 3 banks), two ALUs (≈1.17K each), the divider (1,315), and an 8-source bypass.
+- **Options that cost IPC** (estimates, not proposed): each needs the core's issue logic to change, so neither has a measured cycle cost. Execute is under its budget since step 3, so neither goes on the reserve list (DR-135: only the user adopts a lever that moves a cycle, one at a time, on its measured cost per suite):
+  - dropping the write-back level from the load/store base bypass: about −128 LUTs;
+  - unary and single-bit Zbb/Zbs ops on one ALU only: about −200 to −300.
+- **The trace read ports** move no cycle; dropping them is DR-121's reserve: −584.
+
+**DR-123, FPGA-native pass** (P4 and Execute, 2026-10-14, zero IPC).
+- **Method:**
+  - Areas come from the budget flow (`unit_synth.tcl`, `-flatten none -directive AreaOptimized_high`, DR-113), each unit synthesised alone.
+  - Timing is out of context at 200 MHz (`ooc.tcl`, default effort): P4 with its DR-119 floorplan, Execute with the load result arriving 1.0 ns after the clock (`exec_io.tcl`, the same assumption as P4's load write).
+  - Every change is cycle-identical to HEAD bf914f1. `cyc_cmp.py` compares simulators built from both on 310 ELFs natively, 309 under memory stress and 895 ACT4 tests, in st and smt2. The stressed `tanager-p-amo` fails identically on both, from its LR/SC retry bound (fixed on fd2).
+
+| Unit | Change (technique) | LUTs (st) | DSPs | Notes |
+|---|---|---|---|---|
+| FMA (P4) | E2's hi + 1 above bit 112 in 2 DSPs, fed by their own copy of E1's addend register (T6) | −54 | +2 | The XOR of an effective subtraction shares the addend's OR LUT in E1. |
+| Divider (P4) | 2^44 − x·y0²[16:0] in the SMa low tile's own ALU, so only (that >> 17) − hi is left for LUTs (T6, on a DSP already there) | −38 | 0 | |
+| Divider (P4) | F0: the remainder's sign and zero test from a 38-bit subtraction with the low 58 bits' borrow, not a 96-bit subtraction (T7) | −22 | 0 | A first version compared the truncated halves as plain numbers and lost the modular wrap; the back-end bench caught it (3,050 errors in f32_div). |
+| ALUs (Execute) | the logic ops and lui go through the adder, and the result is an encoded 4:1 select (T7) | −61 | 0 | 1,017 and 995 → 983 and 968 |
+| MUL (Execute) | M3's select folded into the bank-1 write multiplexer (T7) | −64 | 0 | +64 flip-flops: M3 now holds the whole product |
+| Branch unit (Execute) | pc + 2 or 4 in 2 DSPs holding their own copy of the RF → EX register (T6) | −50 | +2 | |
+| Zbb unit (Execute) | the bit counts and min/max computed a cycle later, since their result waits two cycles anyway | 0 | 0 | +64 flip-flops; takes the load bypass, the count and ALU1's flag out of one cycle |
+| Divider (Execute) | NM: the shift amount ~(lzd − lza), with no adder in front of the shifter; with no quotient bits, r and q keep their values and FX picks the remainder | +75 | 0 | timing |
+| Branch unit (Execute) | the misprediction test as taken ? target ≠ pred : seq ≠ pred, not after the next-PC multiplexer | +52 | 0 | timing |
+
+- **P4:** 7,386 → 7,273 LUTs (st) and 7,407 → 7,294 (smt2), with 35 → 37 DSPs. Floorplanned, it closes at default effort at +0.130 ns (smt2) and +0.089 ns (st), against +0.113 and +0.100 before.
+- **Execute:** 7,944 → 7,892 LUTs (st) and 7,925 → 7,892 (smt2), with 16 → 18 DSPs.
+- **Execute timing:**
+  - Before: HEAD fails 200 MHz in st by 0.286 ns over 159 endpoints. The failing paths were the Zbb unit from the bypass, ALU0 from the load result, the divider's NM step and the misprediction test.
+  - After: +0.025 ns (st) and +0.006 ns (smt2), with no failing endpoint. The worst paths are now the shared store-data read port, combinational from `sd_tag` through the register file to `isrc_data` and `sd_data`, which the out-of-context I/O delays decide.
+- **Measured and not adopted:**
+  - The divider's F2 pack adders in DSPs saved 4 LUTs for 3 DSPs, and c − grid saved 14 for 2. Incrementers and constant adds already cost almost nothing beyond their carry chain.
+  - ALU variants:
+    - a hand-instantiated CARRY8 chain, with propagate and generate per bit from a 3-bit mode: +129 per ALU alone, 0 in context;
+    - the logic ops in front of the adder alone: +212;
+    - a funnel shifter instead of the rotator and mask: +43.
+    - All passed the equivalence bench (3 million vectors against the old ALU, with Xilinx's CARRY8 model for the explicit chain).
+  - The divider's NM as two 64-bit shifts: +185. One shifter with the amount `nz ? 64 : ~(lzd − lza)` measured +58 in context, 17 below the adopted form (+75, verified end to end first): taken in execute step 2, then replaced by the divisor alignment of step 3.
+  - Step 3: the misprediction test back to next PC ≠ predicted saves 23 LUTs, but the slack falls from +0.16 to +0.03 ns; the ALU with the W extension as a fourth source above bit 31 (+3 alone), bit masks from the rotator (+99) or a funnel shifter (+58); x / 0 as q = 1 negated (+97 alone); P4's F0 source as an encoded select with the zero as a fourth state (−4, noise).
+- **What is left:** after P4 step 5 and execute step 3 (the history table above), P4 is 334 (st) and 356 (smt2) over its 6,800, and Execute 85 (st) and 86 (smt2) under its 7,610. The big blocks are:
+  - LUTRAM register files, sized by their read ports (2,568 and 1,143);
+  - the FMA's adder tree and normaliser, which must finish within E2 and E3;
+  - the divider's operand multiplexers into two 60 × 60 multipliers;
+  - two 1-cycle ALUs.
+  - The remaining levers cost IPC or are the coordinator's reserve: the options above, and DR-121's trace ports. For P4 these are its URAM operand ports (DR-133's reserve, about −240) and its two trace read ports per bank (an estimated −290 LUTRAM, from 55 to 37 RAM64M8 per bank, and −128 LUTs of bank select).
+- **Lessons:**
+  - **Adders are not equal in the budget's count.** An incrementer or a constant add costs almost nothing beyond its carry chain, so moving it into DSPs saves little (−4, −14). An adder whose operand bits come from LUT logic saves about a LUT per bit (hi + 1 of an XOR: −54; pc + 2 or 4: −50).
+  - **DSP inference needs the attribute on a module, with the operand register inside it.**
+    - `(* use_dsp = "yes" *)` on a signal inferred nothing.
+    - On a module, a 64-bit add took 2 DSPs and 0–1 LUTs, with +2.0 to 2.7 ns of slack.
+    - Under the kept hierarchy a parent's register cannot move into the DSP, so `tg_fpu_dsp_add` registers its own operands.
+  - **Synthesis already packs LUT functions well.** A hand-mapped carry chain needed a LUT for each bit's generate, where synthesis had shared it.
+  - **Under the kept hierarchy, put a select in the multiplexer downstream of it.** The MUL's M3 select cost 64 LUTs in its own module; folded into the write multiplexer, it costs none.
+  - **A timing fix can cost area.** Prefer a form that changes only the arithmetic in front of the critical logic. Two shifters for the NM step cost 185 LUTs; taking the adders out of the one shifter's amount fixed the same path for 75 LUTs.
+  - **A narrower form of a modular computation needs the same modular care.** The remainder is exact modulo 2^96. Comparing its truncated halves as plain numbers lost the wrap; a 38-bit subtraction with the low part's borrow keeps it.
+  - **A stale build hides a broken change.** The FPU unit run that passed had been built before the edit; the back-end bench, built after it, failed. Check the binary's time against the edit.
+  - **Change what the algorithm aligns before changing how it maps.** The integer divider's NM shifted the dividend into two registers (a 128-bit shift); aligning the divisor instead needs one 64-bit shifter, and saved 208 LUTs where every mapping of the old shift had cost LUTs.
+  - **A zero needs no multiplexer if a register can hold it.** The reset sequence's zero writes now take data that is zero then anyway (res_q[0], and P4's F0 stream), so the banks lose their zero multiplexers.
+  - **Judge small changes in context.** Equivalent forms of a module synthesised alone moved by up to ±100 LUTs (x / 0 as q = 1: +97); the budget flow with an A/B decides.
+
 **Integration on the core's F/D branch (fd2, 2026-10-14).**
 - **Results:** with F/D on, all four configurations pass `make regress` (riscv-tests 284/284 including rv64uf/ud, ACT4 rv64imafdc 895/895). P4 measures 7,861 LUTs in the st core (`tg_fpu` 5,832, `tg_fprf` 1,108).
 - **Assertions:** the wakeup-column assertion caught a core-side bug, an FP→int op with rd = x0 that had no LLT column.
@@ -764,6 +844,7 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - Selecting the data by the registered slot owners alone fixed it.
   - `fdiv_ret` still reached the LUTRAM write enable at +0.09 ns, and was then removed from that path as well.
 - **Constrain each input by where it comes from.** With every input at 1.5 ns, the only failing paths of `tg_fp_exec` started at the load write, which leaves a register in the core, and they moved by ±0.1 ns between runs. Constraining those ports from the core's design (1.0 ns) fixed the measurement, not the RTL. The contract now states the assumption.
+- **Measure area the way the budget does.** P4's first pass measured −281 LUTs with out-of-context `rebuilt` flattening, but −131 in the budget flow (`-flatten none`), which counts each module's own LUTs.
 - **When placement is the cost, floorplan before changing RTL.** The floorplan gave +0.10 ns in both configurations for no LUTs, where the E2 restructure spent 118 LUTs and moved the failure.
 - **At the edge, fixing the worst path moves the failure.** The E2 restructure gained 0.21 ns on the FMA, and the next run failed on the divider instead. A design with five path groups within 0.1 ns of zero needs margin on all of them, or a floorplan, not one fix at a time.
 - **Re-timing is not re-implementing.** Re-timing a routed design under a new constraint holds its placement fixed. It predicted +0.02 ns for smt2; implementing with the constraint measured −0.145 ns. On paths this close to zero, only a new run counts.

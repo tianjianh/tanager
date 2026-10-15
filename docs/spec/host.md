@@ -69,7 +69,7 @@ The PL side of that is the **host bridge**:
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
 | `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
 
-A 64-bit pair is written low half first. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
+A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
 ## RISC-V register map (`tg_hostctl`, offsets from `0x1000_1000`)
 
@@ -107,6 +107,8 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 3. Set `BOOT_ENTRY`, `DTB_ADDR` and the injector. Write `CTRL = 0x1`: release the uncore. Poll `STATUS[2]` (L2 initialised).
 4. Write `CTRL = 0x0`: release the cores. Bridge the console: pop `UART_TX` to the pty, push pty input to `UART_RX`. Watch `POWER` and `TOHOST`.
 
+Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 3 and 4. The uncore does not drain a core's TileLink transactions when its reset rises, so a core held in the middle of one leaves the L2 waiting for a `GrantAck` or for the rest of a `ReleaseData` burst. To stop a running system, hold both (`CTRL = 0x3`).
+
 ## `tanager-host` (A53 program)
 
 `sw/host/`: a single static aarch64 binary (C, built with GCC 15 from an external toolchain, sw/versions.sh). It runs as root on the KV260's Linux.
@@ -115,16 +117,20 @@ A 64-bit pair is written low half first. The bridge transfers configuration to `
 |---|---|
 | `tanager-host info` | print `ID`, `VERSION`, `CLK_HZ`, `CAPS`, `STATUS` |
 | `tanager-host load --fw F --kernel K --dtb D [--base A --size S]` | steps 1–3 of the loading sequence |
-| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value |
+| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value, and hold everything (`CTRL = 0x3`). Before it holds everything, it drains the console until the UART has been quiet for 20 ms, or for 0.5 s at most, so the RISC-V's last line is not cut off. A system that already runs (after `tg start`) keeps running; `run` only attaches the console |
 | `tanager-host boot …` | load, then run |
 | `tanager-host reset` | hold cores and uncore in reset |
 | `tanager-host inj [--rd N] [--wr N] [--mode M] [--bw R] [--stats]` | change or read the injector |
+| `tanager-host tg start [LINES] [--base A --size S]` | traffic-generator bitstreams ([soc.md](soc.md) §2.3): steps 1–3 without images (hold everything, set the window, release the uncore, wait for the L2), then `TG_LINES`, `TG_CTRL = 1`, `CTRL = 0x0` |
+| `tanager-host tg stop`, `tg status` | stop the generators; print passes, operations, errors and the first failing line |
 | `tanager-host peek/poke <off> [val]` | raw register access (bring-up) |
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
+  - **Guard:** before it maps the window, `tanager-host` checks that the overlay's node (`/axi/tanager@a0000000` for the default window) is in the live device tree, which holds only while the Tanager bitstream is loaded. A PL read that nothing answers hangs the ARM until a power cycle; the board session hung the board this way on 2026-10-14. `--force` skips the check.
+  - **Options** may come before or after the command.
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
-- **Bitstream:** loaded beforehand with the board's standard tool (`fpgautil`, or `xmutil` with a firmware package), and recorded in [soc.md](soc.md) §7.
+- **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.
 
 ## Parameters

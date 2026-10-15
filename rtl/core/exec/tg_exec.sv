@@ -17,11 +17,19 @@
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
-  localparam int NRP   = 2 * N_ALU + 3 + COMMIT_WIDTH,
-  localparam int P_LD  = 2 * N_ALU,
-  localparam int P_STA = 2 * N_ALU + 1,
-  localparam int P_SH  = 2 * N_ALU + 2,
-  localparam int P_TR  = 2 * N_ALU + 3,
+  // DR-133: the ALU operand ports read UltraRAM copies of the register file (gated: 0 until
+  // cycle identity, 200 MHz next to a URAM column and a full-chip placement check pass)
+`ifdef TG_IRF_URAM
+  parameter bit  IRF_URAM = 1'b1,
+`else
+  parameter bit  IRF_URAM = 1'b0,
+`endif
+  localparam int NAP   = IRF_URAM ? 0 : 2 * N_ALU,   // ALU operand ports in tg_irf
+  localparam int NRP   = NAP + 3 + COMMIT_WIDTH,
+  localparam int P_LD  = NAP,
+  localparam int P_STA = NAP + 1,
+  localparam int P_SH  = NAP + 2,
+  localparam int P_TR  = NAP + 3,
   localparam int NSRC  = 2 * (N_ALU + 1) + 2,
   localparam int SW    = idx_w(NSRC),
   localparam int S_RF  = 0,
@@ -40,6 +48,10 @@ module tg_exec
   // Issue (RF stage)
   input  logic [N_XQ-1:0]              iss_valid,
   input  iq_pl_t [N_XQ-1:0]            iss_pl,
+  // IS (tg_issue, DR-133): the source tags of the row each ALU queue grants now (RF's a cycle
+  // later), the URAM read address with IRF_URAM; unconnected until the core wires them
+  input  preg_t [N_ALU-1:0]            is_src1 = '0,
+  input  preg_t [N_ALU-1:0]            is_src2 = '0,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -125,11 +137,64 @@ module tg_exec
     .rdata(rd_data));
 
   // Read addresses: ALU operands, LD and STA bases (RF stage), store data, trace
-  for (genvar i = 0; i < N_ALU; i++) begin : g_rda
-    assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
-    assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
-    assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
-    assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+  logic [N_ALU-1:0][1:0][63:0] alu_rd;   // the ALU operands' register values in RF
+  if (!IRF_URAM) begin : g_rda
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
+      assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
+      assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
+      assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+      assign alu_rd[i][0]   = rd_data[2*i];
+      assign alu_rd[i][1]   = rd_data[2*i+1];
+    end
+    logic unused_isd;
+    assign unused_isd = ^{is_src1, is_src2};
+  end else begin : g_uram
+    // UltraRAM copies, one per bank and ALU operand port, written like the banks and read with
+    // the source tags of IS (is_src1/is_src2), so the data arrives in RF as tg_irf's does. The URAM
+    // read is read-first, so a write in the cycle before RF is taken from that write's
+    // registers instead (the LUTRAM banks show it to an RF read).
+    logic [INT_BANKS-1:0]             pw_we_q;
+    logic [INT_BANKS-1:0][PIDX_W-1:0] pw_wa_q;
+    logic [INT_BANKS-1:0][63:0]       pw_wd_q;
+    always_ff @(posedge clk) begin
+      pw_we_q <= rf_we;
+      pw_wa_q <= rf_wa;
+      pw_wd_q <= rf_wd;
+    end
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      for (genvar o = 0; o < 2; o++) begin : g_o
+        logic [INT_BANKS-1:0][63:0] urd;
+        for (genvar b = 0; b < INT_BANKS; b++) begin : g_b
+          tg_ram_sdp #(.DEPTH(INT_PREGS_PER_BANK), .WIDTH(64), .PRIM("ultra")) u_ur (
+            .clk, .we(rf_we[b]), .waddr(rf_wa[b]), .wdata(rf_wd[b]),
+            .re(1'b1), .raddr(preg_idx(o ? is_src2[i] : is_src1[i])), .rdata(urd[b]));
+        end
+        // One encoded select per bit: the source's bank, or that bank's write of the cycle before
+        // (picked once per port), so a bit is a 4:1 (with three banks) after a 3:1.
+        preg_t t;
+        assign t = o ? iss_pl[i].src2 : iss_pl[i].src1;
+        logic [BANK_W-1:0] tb;
+        logic [63:0]       pw;      // the source bank's write of the cycle before
+        logic              hit;
+        always_comb begin
+          tb  = preg_bank(t);
+          pw  = pw_wd_q[0];
+          hit = 1'b0;
+          for (int b = 0; b < INT_BANKS; b++) begin
+            if (tb == BANK_W'(b)) begin
+              pw  = pw_wd_q[b];
+              hit = pw_we_q[b] && pw_wa_q[b] == preg_idx(t);
+            end
+          end
+          alu_rd[i][o] = urd[0];
+          if (hit) alu_rd[i][o] = pw;
+          else begin
+            for (int b = 1; b < INT_BANKS; b++) if (tb == BANK_W'(b)) alu_rd[i][o] = urd[b];
+          end
+        end
+      end
+    end
   end
   assign rd_bank[P_LD]  = preg_bank(iss_pl[Q_LD].src1);
   assign rd_idx[P_LD]   = preg_idx(iss_pl[Q_LD].src1);
@@ -196,8 +261,8 @@ module tg_exec
             : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
       if (q < N_ALU) begin
-        ra[q] = rd_data[2*q];
-        rb[q] = rd_data[2*q+1];
+        ra[q] = alu_rd[(q < N_ALU) ? q : 0][0];   // (the index stays in range where q >= N_ALU)
+        rb[q] = alu_rd[(q < N_ALU) ? q : 0][1];
       end else if (q == Q_LD) begin
         ra[q] = rd_data[P_LD];
         rb[q] = '0;
@@ -254,6 +319,9 @@ module tg_exec
   logic        bt_taken;
   logic [63:0] bt_target, bt_npc, bt_seq;
   assign bp = ex_pl_q[0];
+  // bt_seq = bp.pc + 2 or 4, in DSPs that hold their own copy of the RF -> EX register (T6)
+  tg_fpu_dsp_add #(.W(64)) u_seq (
+    .clk, .ce(1'b1), .a(iss_pl[0].pc), .b(iss_pl[0].rvc ? 64'd2 : 64'd4), .ci(1'b0), .s(bt_seq));
   always_comb begin
     unique case (bp.br_f3)
       3'd0: bt_taken = f_eq[0];
@@ -264,11 +332,19 @@ module tg_exec
       default: bt_taken = !f_ltu[0];
     endcase
     if (bp.br_kind != BR_COND) bt_taken = 1'b1;
-    bt_target = (bp.br_kind == BR_JALR) ? ((opa[0] + {{52{bp.jalr_off[11]}}, bp.jalr_off}) & ~64'd1)
-                                        : bp.br_target;
-    bt_seq = bp.pc + (bp.rvc ? 64'd2 : 64'd4);
+    // One adder: JALR adds rs1 and its offset, the others zero to the decoded target (whose bit 0
+    // is zero), so the target select sits in the adder's LUTs (fpga_friendly.md T7)
+    bt_target = ((bp.br_kind == BR_JALR ? opa[0] : bp.br_target)
+               + (bp.br_kind == BR_JALR ? {{52{bp.jalr_off[11]}}, bp.jalr_off} : 64'd0)) & ~64'd1;
     bt_npc = bt_taken ? bt_target : bt_seq;
   end
+  // The misprediction test bt_npc != pred_npc as (taken ? target != pred : seq != pred): the
+  // taken flag (the end of ALU0's carry chain for conditional branches) then selects between two
+  // compares instead of going through the next-PC multiplexer and a compare (timing; one more
+  // 64-bit compare).
+  logic tgt_ne, seq_ne;
+  assign tgt_ne = bt_target != bp.pred_npc;
+  assign seq_ne = bt_seq != bp.pred_npc;
   logic ex_br;
   assign ex_br = ex_v_q[0] && bp.cls == C_BR;
 
@@ -336,38 +412,56 @@ module tg_exec
   logic [TAG_W-1:0] p1_tag;
   assign p1_tag = {p1.dst_en, preg_idx(p1.dst), p1.rob, p1.wid};
   logic              mul_ov;
-  logic [63:0]       mul_res;
+  logic [63:0]       mul_res;              // unused: the bank 1 write multiplexer selects from
+  logic [127:0]      mul_prod;             // the product itself (one LUT level less)
+  logic              mul_hi, mul_word;
   logic [TAG_W-1:0]  mul_tag;
   tg_mul #(.TAG_W(TAG_W)) u_mul (
     .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
-    .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag));
+    .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag),
+    .out_prod(mul_prod), .out_hi(mul_hi), .out_word(mul_word));
 
-  // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: computed in EX, delayed to the MUL's
-  // write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0)
+  // clz, ctz, cpop and min/max (Zbb) ride the MUL slot: their operands and ALU1's compare flag
+  // are registered at the end of EX and the result is computed in the next cycle, then delayed to
+  // the MUL's write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0; the
+  // count needs no bypass, so it may start a cycle late: this takes the load bypass, the count
+  // and the flag out of one cycle)
+  // - clz and ctz share one leading-zero count (tg_fpu_lzc), ctz(x) = clz(x bit-reversed). The W
+  //   forms put ones beside the low word (below it for clz, above it for ctz), so the count stops
+  //   at 32. cpop adds 3-bit counts of 6-bit groups in a tree.
+  // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
-  logic [2:0][63:0]  bc_q;
+  logic [2:1][63:0]  bc_q;
+  logic [63:0]       bca_q, bcb_q;             // the operands, registered at the end of EX
+  mul_op_e           bcop_q;
+  logic              bcw_q, bclt_q, bcmax_q;
+  logic [63:0]       bcx, bcy, bcw;
+  logic [6:0]        bc_lz, bc_pc;
   always_comb begin
-    logic [63:0] x;
-    int n;
-    logic lt;
-    x = p1.word ? {32'b0, opa[1][31:0]} : opa[1];
-    n = 0;
-    lt = p1.alu.cmp_unsigned ? opa[1] < opb[1] : $signed(opa[1]) < $signed(opb[1]);
-    unique case (p1.mul_op)
-      MUL_LO: begin                                  // clz
-        n = p1.word ? 32 : 64;
-        for (int i = 0; i < 64; i++) if (x[i] && (!p1.word || i < 32)) n = (p1.word ? 31 : 63) - i;
-      end
-      MUL_H: begin                                   // ctz
-        n = p1.word ? 32 : 64;
-        for (int i = 63; i >= 0; i--) if (x[i]) n = i;
-      end
-      MUL_HSU: for (int i = 0; i < 64; i++) n += int'(x[i]);   // cpop
-      default: n = 0;                                          // min/max below
-    endcase
-    bc_res = 64'(n);
-    if (p1.mul_op == MUL_HU) bc_res = (lt ^ p1.alu.cmp_max) ? opa[1] : opb[1];   // MIN(U), MAX(U)
+    bcx = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
+    bcw = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
+    bcy = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
+    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) bcy[i] = bcw[63 - i];  // ctz
+  end
+  tg_fpu_lzc #(.W(64)) u_bclz (.x(bcy), .cnt(bc_lz));                      // clz, ctz
+  // cpop: 3-bit counts of 6-bit groups, then a tree of adders
+  always_comb begin
+    logic [10:0][2:0] g3;
+    logic [5:0][3:0]  s4;
+    logic [2:0][4:0]  s5;
+    for (int g = 0; g < 11; g++) begin
+      g3[g] = '0;
+      for (int k = 0; k < 6; k++) if (6 * g + k < 64) g3[g] += 3'(bcx[6 * g + k]);
+    end
+    for (int j = 0; j < 5; j++) s4[j] = 4'(g3[2 * j]) + 4'(g3[2 * j + 1]);
+    s4[5] = 4'(g3[10]);
+    for (int j = 0; j < 3; j++) s5[j] = 5'(s4[2 * j]) + 5'(s4[2 * j + 1]);
+    bc_pc = 7'(6'(s5[0]) + 6'(s5[1])) + 7'(s5[2]);
+  end
+  always_comb begin
+    bc_res = 64'(bcop_q == MUL_HSU ? bc_pc : bc_lz);
+    if (bcop_q == MUL_HU) bc_res = (bclt_q ^ bcmax_q) ? bca_q : bcb_q;       // MIN(U), MAX(U)
   end
 
   logic              div_ov, div_ordy;
@@ -416,25 +510,45 @@ module tg_exec
   end
 
   // ---- Bank 1 write mux and completions ----
+  // The data is an encoded 8:1 select over ALU1, CSR, bit counts, the product's three forms,
+  // DIV and FP->int: the MUL's own M3 select folds in here (at most one writer is valid; see
+  // the assertion below).
+  typedef enum logic [2:0] { W1_ALU, W1_CSR, W1_BC, W1_MLO, W1_MHI, W1_MW, W1_DIV, W1_FPI } w1_e;
   logic        oth_we;
   logic [PIDX_W-1:0] oth_wa;
-  logic [63:0] oth_wd;
+  w1_e         w1s;
   always_comb begin
-    oth_we = 1'b0; oth_wa = '0; oth_wd = '0;
+    oth_we = 1'b0; oth_wa = '0; w1s = W1_ALU;
     oth_valid = 1'b0; oth_rob = '0; oth_exc = 1'b0; oth_tval = '0; oth_fflags = '0;
     if (csr_v_q) begin
       oth_valid = 1'b1; oth_rob = csr_rob_q; oth_exc = csr_ill_q; oth_tval = csr_tval_q;
-      oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; oth_wd = csr_res_q;
+      oth_we = csr_dv_q && !csr_ill_q; oth_wa = csr_dst_q; w1s = W1_CSR;
     end else if (mul_ov) begin
       oth_valid = 1'b1; oth_rob = mul_tag[COL_W +: ROBW];
       oth_we = mul_tag[TAG_W-1]; oth_wa = mul_tag[COL_W + ROBW +: PIDX_W];
-      oth_wd = bc_v_q[2] ? bc_q[2] : mul_res;
+      w1s = bc_v_q[2] ? W1_BC : mul_word ? W1_MW : mul_hi ? W1_MHI : W1_MLO;
     end else if (div_ov && div_ordy) begin
       oth_valid = 1'b1; oth_rob = div_tag[COL_W +: ROBW];
-      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; oth_wd = div_res;
+      oth_we = div_tag[TAG_W-1]; oth_wa = div_tag[COL_W + ROBW +: PIDX_W]; w1s = W1_DIV;
     end else if (fpi_wr) begin
       oth_valid = 1'b1; oth_rob = fpi_rob; oth_fflags = fpi_fflags;
-      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); oth_wd = fpi_data;
+      oth_we = fpi_dst_en; oth_wa = preg_idx(fpi_dst); w1s = W1_FPI;
+    end
+    if (!oth_we) w1s = W1_ALU;
+  end
+  logic [63:0] wd1;                        // bank 1 write data
+  always_comb begin
+    for (int i = 0; i < 64; i++) begin
+      unique case (w1s)
+        W1_ALU:  wd1[i] = res_q[1][i];
+        W1_CSR:  wd1[i] = csr_res_q[i];
+        W1_BC:   wd1[i] = bc_q[2][i];
+        W1_MLO:  wd1[i] = mul_prod[i];
+        W1_MHI:  wd1[i] = mul_prod[64 + i];
+        W1_MW:   wd1[i] = mul_prod[i < 32 ? i : 31];
+        W1_DIV:  wd1[i] = div_res[i];
+        default: wd1[i] = fpi_data[i];
+      endcase
     end
   end
 
@@ -446,15 +560,14 @@ module tg_exec
       cmp_valid[i] = wb_cmp_q[i];
       cmp_rob[i]   = wb_rob_q[i];
     end
+    rf_wd[1] = wd1;
     if (oth_we) begin
       rf_we[1] = 1'b1;
       rf_wa[1] = oth_wa;
-      rf_wd[1] = oth_wd;
     end
-    if (init_we) begin
+    if (init_we) begin                     // the data is res_q[0], zero then (below)
       rf_we[0] = 1'b1;
       rf_wa[0] = init_idx;
-      rf_wd[0] = '0;
     end
     rf_we[LD_BANK] = ld_res_valid;
     rf_wa[LD_BANK] = ld_res_dst;
@@ -487,6 +600,9 @@ module tg_exec
   always_ff @(posedge clk) begin
     // RF -> EX
     ex_pl_q <= iss_pl;
+    // min/max on P1's 2-cycle path read ALU1's compare flags, so its adder subtracts for them
+    if (iss_pl[1].cls == C_MUL && iss_pl[1].bcnt && iss_pl[1].mul_op == MUL_HU)
+      ex_pl_q[1].alu.sub <= 1'b1;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
     for (int q = 0; q < N_XQ; q++) begin
@@ -499,6 +615,9 @@ module tg_exec
       wb_dst_q[i] <= preg_idx(ex_pl_q[i].dst);
       wb_rob_q[i] <= ex_pl_q[i].rob;
     end
+    // res_q[0] is zero through the reset sequence (rst, then init_we, while nothing issues), so
+    // bank 0's zero writes take it as their data: no multiplexer in front of the bank (T7)
+    if (rst || init_we) res_q[0] <= '0;
     wbq_q    <= res_q;
     ld_wbq_q <= ld_res_data;
     // Branch WB state
@@ -510,7 +629,7 @@ module tg_exec
     bw_pred_q   <= bp.pred_npc;
     bw_rvc_q    <= bp.rvc;
     bw_exc_q    <= bt_taken && bt_target[1] && !misa_c;   // 4-byte alignment without C
-    bw_misp_q   <= bt_npc != bp.pred_npc;
+    bw_misp_q   <= bt_taken ? tgt_ne : seq_ne;    // bt_npc != bp.pred_npc
     bw_strong_q <= bp.br_kind != BR_COND || ctr_new[1];
     bw_hit_q    <= bp.ubtb_hit;
     bw_way_q    <= bp.ubtb_way;
@@ -525,7 +644,14 @@ module tg_exec
     csr_ill_q  <= csr_ex_ill;
     csr_dv_q   <= p1.dst_en;
     // Bit counts alongside the MUL pipeline
-    bc_q <= {bc_q[1:0], bc_res};
+    bc_q[1] <= bc_res;
+    bc_q[2] <= bc_q[1];
+    bca_q   <= opa[1];
+    bcb_q   <= opb[1];
+    bcop_q  <= p1.mul_op;
+    bcw_q   <= p1.word;
+    bclt_q  <= p1.alu.cmp_unsigned ? f_ltu[1] : f_lt[1];
+    bcmax_q <= p1.alu.cmp_max;
     // MUL wakeup ids
     mwk_id_q[0] <= iss_pl[1].wid;
     mwk_id_q[1] <= mwk_id_q[0];
@@ -571,7 +697,7 @@ module tg_exec
   end
 
   logic unused;
-  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD],
+  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS

@@ -58,12 +58,16 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **`tg_axi4_to_axil`:** from `M_AXI_HPM0_FPD` (AXI4, 32-bit data) to the host bridge.
 - **`tanager_soc`.**
 - **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The commit-trace stream writes through `S_AXI_HP3_FPD` (its read channels are tied off). The 40-bit addresses are zero-extended to the ports' 49.
-- **Fan:** pin A12 (`som240_1_c24`, `fan_en_b`, active low) is driven low, so the fan always runs at full speed while the design is loaded.
+- **Fan** (DR-129): pin A12 (`som240_1_c24`, `fan_en_b`, active low) carries the PS timer's PWM, so Linux's `pwm-fan` driver and its thermal zone keep regulating the fan whatever bitstream is loaded.
+  - The block design enables TTC<n>'s waveform outputs on EMIO (`PSU__TTC<n>__WAVEOUT__ENABLE`, `__IO = EMIO`, pins `emio_ttc<n>_wave_o[2:0]`), and `kv260_top` drives `fan_en_b` from the right bit, inverted if needed, as Kria's own PL design does.
+  - A bitstream loaded at run time does not reconfigure the PS, so the boot configuration already routes the waveform to EMIO; the PL only connects it.
+  - **As read from the board:** TTC0 channel 2 (`emio_ttc0_wave_o[2]`), to A12 uninverted. The facts are in `tools/tcl/tg_kv260_fan.tcl`, shared with spike S1 (`TG_FAN_TTC`, `TG_FAN_WAVE`, `TG_FAN_INVERT` override them).
+  - On the board, `fancontrol` maps the AMS's temp1 to pwm1, from 15/255 at 35 °C to 255 at 45 °C. The overlay keeps the `pwmfan` node.
 - **PMOD console** (`PMOD_UART`; `TG_PMOD_UART=1` in the build): the RISC-V console UART on the PMOD connector, for a USB-UART module (DR-126). The details are in [fpga/kv260/README.md](../../fpga/kv260/README.md).
   - The line runs 8N1 at the 16550's divisor (115 200 baud after OpenSBI), through `tg_uart_phy` ([uncore-periph.md](uncore-periph.md) §UART).
   - The host bridge keeps a copy of the output and can still send input.
   - Off, `pmod_uart_txd` is high-impedance.
-  - The pins default to PMOD J2 pins 2 and 3 (E10 for TXD, D10 for RXD). They are unconfirmed until the user names the module.
+  - The pins are PMOD J2 pins 1 and 2, where the board's CH340 USB UART sits (COM5 on the laptop): H12 for TXD (`som240_1_a17`) and B10 for RXD (`som240_1_b20`), as the board session read them.
 
 ### 2.2 PS configuration
 Block design `tg_ps` in Tcl (`fpga/kv260/tcl/ps_bd.tcl`), board part `xilinx.com:kv260_som:part0:1.4` with the board preset applied (DDR, MIO, clocks), then:
@@ -90,7 +94,7 @@ Non-project Tcl, run only through `tools/vivado_run.sh` (conventions §9):
 | `fpga/kv260/xdc/kv260.xdc` | pin and I/O standard of the fan; clocks come from the PS and MMCM (derived automatically) |
 | `fpga/kv260/xdc/timing.xdc` | asynchronous clock groups between `clk_core` and `clk_host` (the host bridge's crossings are XPM macros with their own constraints) |
 
-- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for `fpgautil`.
+- **Outputs kept:** `timing_summary.rpt`, `utilization.rpt` (hierarchical), `clock_utilization.rpt`, `cdc.rpt`, `drc.rpt`, the primitive-count check (`primitives.rpt`), and `tanager.bit.bin` (bootgen) for the FPGA manager (`xmutil`).
 - **Loading under Linux:** a bitstream loaded at run time does not reconfigure the PS. `fpga/kv260/dtbo/tanager.dtso` is the device-tree overlay that sets `pl_clk0`, the fabric-interface widths (`xlnx,afi-fpga`) and a UIO node for the host window. `fpga/kv260/README.md` is the build and bring-up runbook.
 - **Deleted after each run:** checkpoints, run directories and logs (conventions §9).
 - **Pblocks:** later (spike S6, plan §7.5).
@@ -154,8 +158,40 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 1. The KV260 boots its standard Ubuntu image from SD, on the network, reachable by SSH with a key.
 2. **Carve-out:** the RISC-V DRAM window must be invisible to A53 Linux. The default plan is to boot with `mem=3G`, which leaves the top 1 GiB of the high DDR bank (`0x8_4000_0000`–`0x8_7FFF_FFFF`) unused. A `reserved-memory` node with `no-map` is the alternative. Spike S1 confirms the method and the SMMU bypass (plan §5.5).
 3. **SMMU:** the HP ports pass through the SMMU. If the board's Linux makes unknown stream IDs fault, add `arm-smmu.disable_bypass=0` to the kernel command line. Spike S1 confirms whether this is needed.
-4. **Load:** `fpgautil -b tanager.bit.bin -o tanager.dtbo` (the overlay above), or `xmutil` with a firmware package.
+4. **Load:** as the PL app `tanager` through dfx-mgr's `xmutil`, as for spike S1. The app is `tanager.bit.bin`, `tanager.dtbo` (the overlay above) and `shell.json` in `/lib/firmware/xilinx/tanager/`; then `xmutil unloadapp` and `xmutil loadapp tanager`. `fpga/kv260/package.sh` puts the files together with `tanager-host`.
 5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
+
+### 7.1 Unanswered PL reads and the PS's AXI timeout block
+
+A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53 hangs until a power cycle. The board session hung the board this way on 2026-10-14 by running `tanager-host` with the default app loaded. `tanager-host` now refuses unless the overlay's node is in the live device tree (`check_overlay`). The PS also has a hardware guard for this, the AXI timeout block (ATB), which is not enabled on this board.
+
+- **What it is:** one ATB per PS-PL master path; it tracks transactions and, on a timeout, answers the PS master itself and raises an interrupt.
+  - **Registers:** `FPD_SLCR` at `0xFD61_6000` (AMD's `xfpd_slcr.h`, Vivado 2025.2's embeddedsw).
+  - **One bit per path** in each register: bit 0 FPDS (the switch to the SIOU slaves), bit 1 AFIFS0 (`M_AXI_HPM0_FPD`, our host bridge; UG1087, `ERR_ATB_ISR`) and bit 2 AFIFS1 (`M_AXI_HPM1_FPD`).
+  - **Register map:** `ERR_ATB_ISR` `+0x00` (sticky, write 1 to clear), `IMR`/`IER`/`IDR` `+0x04`/`+0x08`/`+0x0C`, `ATB_CMDSTORE` `+0x10` (reset 7), `ATB_RESP_EN` `+0x14` (reset 0: **off**), `ATB_RESPTYPE` `+0x18` (reset 7), `ATB_PRESCALE` `+0x20` (enable at bit 16, value in bits 15:0, reset `0x0000_FFFF`: **off**). The LPD has the same block at `0xFF41_6000`.
+- **How AMD's proposed Linux driver uses it** (`zynqmp_atb.c`, posted to the kernel lists in May 2025; not in the board's 6.8 kernel):
+  - **Sequence:** clear `ATB_RESP_EN`, set `ATB_RESPTYPE` and `ATB_CMDSTORE` to the chosen paths, set `ATB_PRESCALE = 0x10100` (enabled; "based on 100 MHz clock"), clear `ERR_ATB_ISR`, then set `ATB_RESP_EN` and `ERR_ATB_IER`.
+  - **Response:** on a timeout the ATB returns SLVERR, which the program sees as a bus fault. The driver logs "atb: Timeout detected".
+  - **Its stated limit:** "only a limited number of AXI timeouts can be registered before the bus will eventually stall".
+- **Option A: `tanager-host` enables the ATB on AFIFS0 before its first PL access** (the sequence above, for bit 1 only).
+  - **Pros:** an unanswered read becomes a bus fault (SIGBUS) instead of a hang. It also covers what the device-tree check cannot: a design that is loaded but does not answer (clock or reset stopped, a wedged bridge).
+  - **Cons:**
+    - It writes PS configuration registers from user space; a wrong address can disturb the PS.
+    - Whether `/dev/mem` may write `FPD_SLCR` on this firmware is unknown (an XPPU can block it).
+    - The timeout formula is not in the sources we have, so the prescaler value needs a measurement.
+    - The setting outlives the program, and applies to whatever design is in the PL, until reboot.
+    - By AMD's own note it absorbs only a few timeouts.
+- **Option B: enable it at boot**, through the proposed driver or a systemd unit that writes the same registers.
+  - **Pros:** it protects every program and logs every timeout.
+  - **Cons:** the driver is not in the board's kernel, and a boot unit changes the board's setup, which is the board session's area.
+- **Option C: the device-tree check alone** (what `tanager-host` does now, with the board session's `xmutil` check in `tg.sh`).
+  - **Pros:** it touches no PS registers.
+  - **Cons:** it does not protect a loaded design that stops answering.
+- **Recommendation:** keep C, and try A on the board once, behind an explicit `tanager-host` command rather than by default.
+  - **First step:** read the ATB registers (reads of PS registers are safe) and confirm the reset values above.
+  - **Then:** enable AFIFS0 only, and read `0xA000_0000` deliberately with the default app loaded. The expected result is a bus error, not a hang.
+  - **Needs the user's consent:** if the ATB does not engage, that read hangs the board, and only a power cycle recovers it.
+- **Sources:** `xfpd_slcr.h` and `xlpd_slcr.h` (AMD embeddedsw in the Vivado 2025.2 install); UG1087, `ERR_ATB_ISR (FPD_SLCR)`; the `zynqmp_atb` patch series (lwn.net/Articles/1022531, May 2025); a PYNQ forum thread with similar writes but a different prescaler encoding (`0x1020`; it does not report the result).
 
 ## 8. Board stages C and D (design draft, DR-126)
 
@@ -231,6 +267,14 @@ After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own
 - the A53's Linux re-gating clocks it thinks are unused.
 
 Each is checked on the board in stage D's first step, with the UART: the simplest controller, no DMA.
+
+**The fan in stage D** (DR-129). With the A53 parked, its Linux no longer regulates the fan: the TTC keeps its last duty cycle. Options:
+
+| Option | How | Pros | Cons |
+|---|---|---|---|
+| **F-a: PL controller** | A small controller reads the PL SYSMON's die temperature (SYSMONE4, DRP) and sets the PWM from a fixed curve. | Works without any OS, and keeps working if software hangs. | RTL (an estimated 200 LUTs plus the SYSMON primitive). A fixed curve. Our own thermal policy to get right. |
+| **F-b: RISC-V Linux** | The RISC-V's Linux drives the same TTC (the `pwm-cadence` driver over the PL-to-PS port) with `pwm-fan` and a thermal zone reading the PS's AMS or the PL SYSMON. | The same regulation as on the A53, in software. | Depends on the RISC-V's Linux running. If it hangs, the fan stays at the last duty, possibly low. Needs the TTC and a temperature sensor in the RISC-V's device tree. |
+| **F-c: both** (recommended) | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
@@ -308,11 +352,21 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 | `tanager_soc` with the real core in Verilator (`tests/unit/boot`) | OpenSBI's banner in 5.0 M cycles at 1×1 and 6.6 M at 2×1 |
 | Linux 6.18 on the real core | the kernel's early initcalls at 27 M cycles; there the boot found a core bug (below) |
 | Uncompressed built-in initramfs | saves an estimated hour or two of simulation per Linux boot |
+| L2: the MSHR state one-hot ([l2.md](l2.md)) | uncore −400 LUTs (19,439 st, 19,933 smt2 under DR-113's settings), cycle-identical |
+| The first M4 bitstream, one real `st` core ([fpga/kv260/results.md](../../fpga/kv260/results.md)) | 65.3K LUTs; closes at 60 MHz. At 100 MHz it misses by 3.8 ns on two cross-unit paths inside the core (load data and EX's writeback queue into the ROB, 35–38 levels), which per-unit timing runs cannot see |
+| M4 on the board (20435b1, 60 MHz; the board session) | first light passes; Linux 6.18 reaches TANAGER-BOOT-OK 8 s after the load, and runs a root shell at 250 injected read cycles; poweroff ends the run cleanly. The injector reads a native latency of 19.8 cycles on average (54 at most) |
 
 **Bugs found:**
 - **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.
   - Found from the commit trace (`+dump_pc`) and a testbench probe on the fetch unit. The race fired about 10 times in 27 M cycles, first inside OpenSBI.
   - Lockstep had not seen it: the test programs fit in the I$. Fixed by the core track.
+- **Host program, `tg start` (found by the board session, 2026-10-14):** it released the uncore without setting the DRAM window. The window resets to base 0, size 0, and size 0 denies every access, so the generators would have counted errors, not passes.
+  - `tb_soc` writes the window itself before it starts the generators, so no test ran `tanager-host`'s own sequence.
+  - Fixed: `tg start` writes the window from `--base`/`--size` while cores and uncore are held, as `load` does.
+- **Found on the board in stage B (2026-10-14):**
+  - **`tanager-host` read the PL with no design loaded.** The board session ran it after the default app was back; the read went unanswered and the ARM hung until a power cycle. `tanager-host` now refuses unless the overlay's node is in the live device tree (`--force` skips the check).
+  - **Options after the command were ignored:** the option string began with `+`, which stops getopt at the command. They now go anywhere.
+  - **The injector's native-latency average read 0.1 cycles.** A 32-bit cast around a 16-bit time difference made the subtraction 32 bits wide, so each read in flight across the time counter's wrap added 2^32 − 2^16. The unit test ran shorter than one wrap; it now runs past one and checks the average against the maximum.
 - **Interface margin:** a trace sink that stalls from registered occupancy needs 3 × `COMMIT_WIDTH` + `LLT_ENTRIES` of headroom, not `TRACE_STALL_HEADROOM`'s 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` (verification.md §2.9).
   - The SoC run with the test core overflowed a lane at 2 ×.
   - The unit test's core model now has the two-stage stall latency, so it catches the smaller margin.
@@ -321,6 +375,9 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 - **2026-10-14, core track (DR-120):** `tg_map_pkg::pma_of` matches its naturally aligned power-of-two regions by prefix: 10 LUTs per instance instead of 136 and 17 CARRY8, with identical results for every address. `tg_xbar`'s address decode uses it too. The range test is kept for any unaligned region, and `tg_core` warns at elaboration if one appears.
 
 **Lessons:**
+- **A test bench that repeats the host program's register sequence does not test the host program.** `tb_soc` took its sequence from this document, not from `tanager-host.c`, and only `tanager-host` had the bug.
+- **Take a difference of wrapping counters in their own width.** A wider cast around the subtraction widens the subtraction too. And run every counter-based statistic past its counter's wrap in its test.
+- **Time the whole core in context before planning its clock.** Each unit met its own timing run, yet two paths that cross four or five units are 13.5 ns long; the first full build found them.
 - **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
 - **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
 - **Run every queued Vivado or simulation job on a snapshot** (`git archive`). A job that starts later otherwise measures whatever the working tree holds by then.

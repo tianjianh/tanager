@@ -88,7 +88,7 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
 | MMU | — | 2 (L2 TLB) |
 | FPU | 37 (DR-110 35; the FMA's hi + 1 adder 2, DR-131) | 0.5 (seed ROM) |
 | **Core** | **73 / 91** | **42.5** |
-| Uncore | — | 18 |
+| Uncore | 140 (DR-136: registered selects in the crossbar, skid buffers, trace stream and L2) | 19 (DR-136: 2 RAMB18 for the host bridge) |
 
 - **LUTRAM and flip-flops** have budgets only where a unit is measured: the scheduler (LUTRAM 300 / 310, flip-flops 7,540 / 10,000 for st / smt2) and the FPU (flip-flops 4,100, DR-110). The scheduler's are the measurement plus about 10%; the FPU's were too (3,450 flip-flops, 32 DSPs) until DR-110 raised them to 4,100 and 35 so the FPU can trade LUTs for registers and DSPs.
 - **Everywhere else they are tracked, not judged.** The device-wide limits are about 57K LUTs of SLICEM sites for LUTRAM (plan §8.5) and 234K flip-flops.
@@ -168,6 +168,10 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 059a572 | interconnect: each arbiter over the ports that can reach it | 20,884 | 21,533 | 18,811 | 27 |
 | fca6fe8 | commit-trace streaming into DDR replaces the block-RAM ring | 21,797 | 22,265 | 18,304 | **18** |
 | fc1031e | L2: the write-history bypass back (the same-set rule moves to the reserve list, D18 step 1) | 22,315 | 22,783 | 18,493 | **18** |
+| 4d5ca13 | main's DR-120 (`pma_of` by prefix match) | 21,724 | 22,284 | 18,493 | **18** |
+| 4d5ca13 | the same under DR-113's settings (`-flatten none -directive AreaOptimized_high`; the budget flow's settings for the uncore since e7227d4, as for the core) | 20,066 | 20,560 | 18,479 | **18** |
+| 11bf523 | crossbar: the caches' A-channel data, corrupt and mask as constants (−249, measured on fc1031e; cycle-identical) | ≈21,475 | ≈22,035 | | **18** |
+| e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **By block** (smt2, 059a572):
@@ -236,6 +240,7 @@ No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the 
 - **DR-110: the FPU's flip-flop and DSP budgets raised.** Flip-flops 3,450 → 4,100 and DSPs 32 → 35, so the core's DSPs are 69 / 87 at st / smt2. LUTs are the scarce resource (D18: IPC first), so the FPU may spend registers and DSPs to save LUTs; its LUT budget stays 6,800.
 - **The reserve follows the user's decisions:** radix-4 is out (DR-118); release builds without the commit trace are its last lever (DR-121).
 - **DR-131: DSP lines for the T6 adders** (fpga_friendly.md T6): execute 16 → 18 (the branch unit's pc + 2/4, −50 LUTs) and the FPU 35 → 37 (the FMA's hi + 1, −54 LUTs), so the core's DSPs are 73 / 91. The table lines come with the FPU track's merge.
+- **DR-136: the uncore's DSP and block RAM lines** (fpga_friendly.md §4): DSPs — → 140 for registered selects (the crossbar ≈80, memory-path skid buffers ≈16, the trace stream's output select 20–30, the L2's selects ≈16), block RAM 18 → 19 for the host bridge's read multiplexer. The SoC track estimates −4.0K LUTs, cycle-identical; v1 then uses ≈322 of 1,248 DSPs.
 - **The 180 MHz fill test and v2's lines (§1.1).** The fill test closes v1 at up to 95.3% and v2 at up to 96.0% at 180 MHz. v2's per-unit lines go in at 180 MHz (AR-9, DR-117: 49,740 per core), tracked until v2 work starts. v1 stays at 200 MHz: its move to 180 MHz is the clock decision, after D18 step 1 (DR-116). The core's DSP lines follow DR-110 (69 / 87).
 - **The core built as DR-113 builds it.** The budget run now synthesises `tg_core` with the hierarchy kept plus `AreaOptimized_high`: at st 56,461 → 52,024 LUTs (−7.9%; every unit 5–14% smaller; flip-flops and LUTRAM unchanged). From the next nightly, the core and its derived units read about 8% lower for that reason alone.
 - **The core's memory, measured.** Sampled over Vivado's whole process tree, the st core peaks at 6.75 GB as built until now and 9.38 GB with the directive, against 6 GB declared. The core line now declares 12 GB, for the larger configurations. Vivado's log shows only the parent process, which is how 6 GB looked right.

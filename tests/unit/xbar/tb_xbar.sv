@@ -395,7 +395,8 @@ module tb_xbar;
         logic v;
         v = iq[i].size() > 0 && ($urandom_range(99) < 80);
         x = (iq[i].size() > 0) ? iq[i][0].hdr : '0;
-        x.data = {4{32'(i_beat[i])}};
+        // the caches send no data on A (interfaces.md §2.2, §2.3: Gets and Acquires), and drive zeros
+        x.data = (i < NC || (i >= 4 && i < 4 + NC)) ? '0 : {4{32'(i_beat[i])}};
         if (i < NC)                    begin l1d_a[i] <= x;   l1d_av[i] <= v;   end
         else if (i >= 4 && i < 4 + NC) begin l1i_a[i-4] <= x; l1i_av[i-4] <= v; end
         else if (i >= 8 && i < 8 + NC) begin mmio_a[i-8] <= x; mmio_av[i-8] <= v; end

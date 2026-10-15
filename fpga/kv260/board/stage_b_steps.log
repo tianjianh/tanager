@@ -1,0 +1,88 @@
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+== step 2: the host window
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 2 core(s) x 1 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+== step 3: fabric widths (FROMHOST is a 64-bit pair: the low half lands when the high half is written)
+$ tanager-host poke 0x68 0x12345678
+$ tanager-host poke 0x6c 0x9abcdef0
+$ tanager-host peek 0x68
+0x12345678
+$ tanager-host peek 0x6c
+0x9abcdef0
+$ tanager-host poke 0x68 0
+$ tanager-host poke 0x6c 0
+   and a 32-bit register (TG_LINES):
+$ tanager-host poke 0xc8 0x2468
+$ tanager-host peek 0xc8
+0x00002468
+$ tanager-host poke 0xc8 16384
+== step 4: the memory path, no core
+$ tanager-host tg start 16384
+traffic generators running over 16384 lines each; window 0x840000000 + 0x40000000
+   window read back (hi, lo; size hi, lo):
+$ tanager-host peek 0x24
+0x00000008
+$ tanager-host peek 0x20
+0x40000000
+$ tanager-host peek 0x2c
+0x00000000
+$ tanager-host peek 0x28
+0x40000000
+$ tanager-host tg status
+passes 203, lines checked 6651904, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 322, lines checked 10551296, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 441, lines checked 14450688, errors 0 (last at line 0x0000000)
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 2 core(s) x 1 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000002b
+  status          cores running, uncore running, L2 ready
+  window          base 0x840000000 size 0x40000000
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 30281053 reads, native latency avg 0.1 max 102 cycles
+  tohost          0x0000000000000000 (0 writes)
+== step 4, at 250 injected read cycles (tanager-host's options go before the command)
+$ tanager-host --inj-rd 250 inj
+$ tanager-host tg status
+passes 509, lines checked 16678912, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 535, lines checked 17530880, errors 0 (last at line 0x0000000)
+$ tanager-host tg status
+passes 561, lines checked 18382848, errors 0 (last at line 0x0000000)
+$ tanager-host --stats inj
+injector: rd 250 wr 0 ctrl 0x00000000; 37090113 reads, native latency avg 0.1 max 102 cycles
+$ tanager-host --inj-rd 0 inj
+== step 5: the console (two '.' per pass), also on the PMOD UART
+$ tanager-host --timeout 5 run
+[1670 dots]
+[tanager-host] timeout
+
+run exit 124
+$ tanager-host tg status
+passes 0, lines checked 0, errors 0 (last at line 0x0000000)
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 2 core(s) x 1 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x840000000 size 0x40000000
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 23:25:09
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active

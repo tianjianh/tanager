@@ -19,6 +19,7 @@ BUILD_JOBS=4            # a tg_core model compile peaks at 0.63 GB (smt2_w3, mea
 MEM_GB=12               # start no program while MemAvailable is under this
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
 SEEDS=400               # programs per configuration per round (about a minute)
+VM_PCT=33               # share of the programs that run in S-mode under Sv39 (tg_rand --vm)
 # Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
@@ -69,6 +70,8 @@ prepare() {
   # Older mains' random runner has no --mem-gate; the check between rounds still applies.
   if grep -q -- "--mem-gate" "$src/tests/random/run_random.py"; then echo "--mem-gate $MEM_GB"; else echo; fi \
     > "$SOAK/mem_gate"
+  # A third of the programs in S-mode under Sv39, once main's generator has --vm (verification.md §6.2)
+  if grep -q -- '"--vm"' "$src/tests/random/run_random.py"; then echo "--vm $VM_PCT"; else echo; fi > "$SOAK/vm"
   fingerprint "$commit" > "$SOAK/fingerprint"
   echo "$commit" > "$SOAK/commit"
 }
@@ -83,6 +86,7 @@ campaign() {
     python3 "$SOAK/src/tanager/tests/random/run_random.py" --sim "$sim" \
       --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa "$(cat "$SOAK/prog_isa")" \
       --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
+      $(cat "$SOAK/vm" 2>/dev/null) \
       --jobs "$JOBS" --timeout 1200 --workdir "$work" \
       --name "soak $cfg" -- $(spike_args) ) > "$work/out.txt" 2>&1
   local res pass fail gen
@@ -124,7 +128,7 @@ summarize() {
   [ -n "$(cat "$SOAK/trace_stall" 2>/dev/null)" ] || stall="off (main's tg_core build has no trace_stall_i yet)"
   { echo "# Soak of main (tools/ci/soak.sh)"
     echo
-    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)) with memory stress and timer interrupts on alternate rounds; trace back-pressure $stall"
+    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds; trace back-pressure $stall"
     echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free"
     echo "- findings are a triage list: they gate nothing until confirmed as core bugs (verification.md §4.4)"
     echo

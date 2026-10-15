@@ -170,6 +170,14 @@ module tg_xbar
       ia[SRC_L1I0 + c]   = l1i_a_i[c];
       ia_v[SRC_L1I0 + c] = l1i_a_valid_i[c];
       id_r[SRC_L1I0 + c] = l1i_d_ready_i[c];
+      // The caches send no data on A: l1i only Gets, l1d only AcquireBlock/AcquirePerm, whose mask
+      // is the whole beat (interfaces.md §2.2, §2.3). Constants here take those inputs out of the
+      // A arbiters' data multiplexers (docs/perf/fpga_friendly.md T7).
+      ia[SRC_L1D0 + c].data    = '0;
+      ia[SRC_L1D0 + c].corrupt = 1'b0;
+      ia[SRC_L1D0 + c].mask    = '1;
+      ia[SRC_L1I0 + c].data    = '0;
+      ia[SRC_L1I0 + c].corrupt = 1'b0;
       ia[SRC_MMIO0 + c]   = mmio_a_i[c];
       ia_v[SRC_MMIO0 + c] = mmio_a_valid_i[c];
       id_r[SRC_MMIO0 + c] = mmio_d_ready_i[c];

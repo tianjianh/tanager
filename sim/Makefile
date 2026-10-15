@@ -5,6 +5,9 @@
 #   make -C sim replay                 build tg_replay (Spike against Spike, no RTL)
 #   make -C sim lint CFG=st CORE=tcore lint the testbench and the test core
 #   make -C sim clean                  remove this worktree's sim build trees
+#   make -C sim CFG=st COV=1 [COV_UNITS="rename rob lsu"]   a separate build with line and expression
+#                                      coverage of those rtl/core units only (tg_vsim --cov=FILE;
+#                                      tools/ci/cov_report.py; verification.md §6.4)
 # The binary is $(BUILD)/tg_vsim; `make -C sim print-bin CFG=... CORE=...` prints its path.
 
 CFG  ?= st
@@ -16,7 +19,11 @@ ROOT     := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 WT       := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 BUILD_ROOT := $(TANAGER_BUILD)/$(WT)/sim
-BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)
+COV       ?=
+COV_UNITS ?= rename rob lsu
+empty    :=
+space    := $(empty) $(empty)
+BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
 VERILATOR ?= verilator
 CXX      ?= g++-15
 SPIKE_ROOT ?= $(HOME)/opt/tanager/spike
@@ -64,7 +71,12 @@ VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           -Wall -Wno-fatal -Wno-MULTITOP -Wno-DECLFILENAME $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
           -I$(ROOT)/rtl/common $(CORE_DEF) \
           -MAKEFLAGS "OPT_FAST=-O2 OPT_SLOW=-O1 OPT_GLOBAL=-O2" \
-          -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)"
+          -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)" $(if $(COV),--coverage-line --coverage-expr $(BUILD)/cov.vlt)
+
+# COV=1 instruments only the core units in COV_UNITS: Verilator's coverage_on does not undo a
+# coverage_off, so the configuration names everything else (the other units, the core's top files,
+# rtl/common and the testbench). Fewer points keep the build and the runs fast.
+COV_OFF := $(filter-out $(COV_UNITS),$(patsubst $(ROOT)/rtl/core/%/,%,$(wildcard $(ROOT)/rtl/core/*/)))
 
 .PHONY: all build lint replay clean print-bin print-build
 all: build
@@ -74,6 +86,8 @@ build: $(BUILD)/tg_vsim
 $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(lastword $(MAKEFILE_LIST))
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	@mkdir -p $(BUILD)
+	$(if $(COV),@{ printf '`verilator_config\n'; for d in $(COV_OFF); do printf 'coverage_off -file "*/rtl/core/%s/*"\n' $$d; done; \
+	  printf 'coverage_off -file "*/rtl/core/tg_core*"\ncoverage_off -file "*/rtl/common/*"\ncoverage_off -file "*/sim/*"\n'; } > $(BUILD)/cov.vlt)
 	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD) -o tg_vsim \
 	  $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv $(addprefix $(ROOT)/sim/src/,$(SRCS)) \
 	  > $(BUILD)/build.log 2>&1 || { tail -40 $(BUILD)/build.log; exit 1; }

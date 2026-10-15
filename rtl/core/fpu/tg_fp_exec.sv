@@ -25,7 +25,7 @@ module tg_fp_exec
   input  logic                         rst,
   input  logic                         flush,
   input  tid_t                         flush_tid,
-  // Reset sequence: zero into the initial FP map
+  // Reset sequence: zero into the initial FP map, in bank F0 (init_bank must be 0)
   input  logic                         init_we,
   input  logic                         init_bank,
   input  logic [FPIDX_W-1:0]           init_idx,
@@ -42,8 +42,7 @@ module tg_fp_exec
   input  logic [FPIDX_W-1:0]           fld_m2_idx,
   input  logic                         fld_valid,
   input  logic [FPIDX_W-1:0]           fld_idx,
-  input  logic                         fld_single,
-  input  logic [63:0]                  fld_data,
+  input  logic [63:0]                  fld_data,     // the value F1 gets (FLW already boxed)
   // FP store data and trace reads (combinational)
   input  preg_t                        fsd_tag,
   output logic [63:0]                  fsd_data,
@@ -107,15 +106,16 @@ module tg_fp_exec
   logic                       f0_we;
   logic [FPIDX_W-1:0]         f0_wa;
   logic [63:0]                f0_wd;
-  logic [63:0]                fld_box;
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
   logic [NRP-1:0][63:0]        rdata;
-  assign fld_box = fp_box_load(fld_data, fld_single);
+  logic [1:0][NRP-1:0][63:0]   bank_rd;
+  // The reset sequence's zero writes take the F0 port: nothing else writes F0 then, and the zero
+  // and its index fold into the F0 stream's multiplexers (below)
   tg_fprf #(.NR(NRP)) u_rf (
-    .clk, .init_we, .init_bank, .init_idx,
-    .f0_we, .f0_waddr(f0_wa), .f0_wdata(f0_wd),
-    .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_box),
-    .rtag, .rdata);
+    .clk,
+    .f0_we(f0_we || init_we), .f0_waddr(f0_wa), .f0_wdata(f0_wd),
+    .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
+    .rtag, .rdata, .bank_rd);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
   logic rf_add;
   assign rf_add  = iss_pl.fop == FOP_FADD || iss_pl.fop == FOP_FSUB;
@@ -234,16 +234,28 @@ module tg_fp_exec
   logic [2:0][63:0] ex_rf_q;
   bsel_e [2:0]      ex_sel_q;
   logic [DQW-1:0]   ex_di_q;          // a divide's table entry
-  logic [2:0][63:0] rf_val;           // the register's value in RF, with this cycle's F1 write
+  // The operands in RF: the register's value with this cycle's F1 write, or (port 0) the integer
+  // source. The register file's bank select is folded in here, so each port is one encoded 4:1
+  // select (bank 0, bank 1, the F1 write, the integer source) in one module (fpga_friendly.md
+  // T7; in tg_fprf it was a level of its own).
+  logic [2:0][63:0] rf_val;
   for (genvar k = 0; k < 3; k++) begin : g_rfv
-    assign rf_val[k] = (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0]) ?
-                       fld_box : rdata[k];
+    logic [1:0] rs;                   // 0: bank 0, 1: bank 1, 2: the F1 write, 3: integer source
+    always_comb begin
+      if (k == 0 && !iss_pl.src1_fp)                                                rs = 2'd3;
+      else if (rtag[k][FPIDX_W] && fld_valid && fld_idx == rtag[k][FPIDX_W-1:0])   rs = 2'd2;
+      else                                                                         rs = {1'b0, rtag[k][FPIDX_W]};
+      unique case (rs)
+        2'd0:    rf_val[k] = bank_rd[0][k];
+        2'd1:    rf_val[k] = bank_rd[1][k];
+        2'd2:    rf_val[k] = fld_data;
+        default: rf_val[k] = isrc_data;
+      endcase
+    end
   end
   always_ff @(posedge clk) begin
     ex_pl_q     <= iss_pl;
-    ex_rf_q[0]  <= iss_pl.src1_fp ? rf_val[0] : isrc_data;
-    ex_rf_q[1]  <= rf_val[1];
-    ex_rf_q[2]  <= rf_val[2];
+    ex_rf_q     <= rf_val;
     ex_sel_q[0] <= iss_pl.src1_fp ? bsel(rtag[0], nx_we, nx_idx, f0_we, f0_wa) : BP_RF;
     ex_sel_q[1] <= bsel(rtag[1], nx_we, nx_idx, f0_we, f0_wa);
     ex_sel_q[2] <= bsel(rtag[2], nx_we, nx_idx, f0_we, f0_wa);
@@ -277,7 +289,7 @@ module tg_fp_exec
       unique case (ex_sel_q[k])
         BP_F0X:  opnd[k] = f0_wd;
         BP_F0W:  opnd[k] = f0_wb_q;
-        BP_F1X:  opnd[k] = fld_box;
+        BP_F1X:  opnd[k] = fld_data;
         default: opnd[k] = ex_rf_q[k];
       endcase
     end
@@ -390,6 +402,7 @@ module tg_fp_exec
     if (fma_s.v)                     begin f0_wa = fma_s.idx;  f0_wd = fma_resp.result;  end
     else if (misc_s.v && misc_s.fpd) begin f0_wa = misc_s.idx; f0_wd = misc_resp.result; end
     else                             begin f0_wa = dv_e.idx;   f0_wd = dv_res_q;         end
+    if (init_we)                     begin f0_wa = init_idx;   f0_wd = '0;               end
   end
   always_comb begin
     f0_we = 1'b0;
@@ -568,7 +581,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{init_bank, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
@@ -597,6 +610,8 @@ module tg_fp_exec
           else $error("tg_fp_exec: an integer result from a unit other than FMISC");
       end
       assert (!dq_in_v || dq_in_rdy) else $error("tg_fp_exec: divide queue overflow");
+      assert (!init_we || (!init_bank && !iss_valid && !f0_we))
+        else $error("tg_fp_exec: an init write outside F0, or beside an operation");
       // A flush is registered from the commit before it, so nothing it kills retires with it
       assert (!(fdiv_ret_valid && flush && fdiv_ret_tid == flush_tid))
         else $error("tg_fp_exec: early retirement in its thread's flush cycle");
