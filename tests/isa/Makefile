@@ -16,6 +16,7 @@ MAKEOVERRIDES :=
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
+include $(ROOT)/sim/profile.mk
 EXCL := --exclude $(ROOT)/tests/isa/exclude/tanager.txt $(if $(filter tcore,$(CORE)),--exclude $(ROOT)/tests/isa/exclude/tcore.txt) \
         $(if $(wildcard $(ROOT)/tests/isa/exclude/$(CFG).txt),--exclude $(ROOT)/tests/isa/exclude/$(CFG).txt)
 
@@ -25,9 +26,9 @@ DIR_ELF := $(patsubst $(ROOT)/tests/isa/directed/%.S,$(DIR_OUT)/tanager-p-%,$(DI
 
 .PHONY: run replay directed build-directed
 run:
-	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build
-	python3 $(ROOT)/tests/isa/run_isa.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim --suites "$(SUITES)" \
-	  $(EXCL) --jobs $(JOBS) --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE) --name "$(CFG) $(CORE)" -- --lat=$(LAT) $(SIMARGS)
+	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build
+	python3 $(ROOT)/tests/isa/run_isa.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim --suites "$(SUITES)" \
+	  $(EXCL) --jobs $(JOBS) --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE)$(TC_SUFFIX) --name "$(CFG) $(CORE)$(TC_SUFFIX)" -- --lat=$(LAT) $(SIMARGS)
 
 replay:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim replay
@@ -43,7 +44,7 @@ $(DIR_OUT)/tanager-p-%: $(ROOT)/tests/isa/directed/%.S $(ROOT)/tests/isa/directe
 
 # Interrupt tests run with random external-interrupt pulses as well.
 directed: build-directed
-	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build
-	python3 $(ROOT)/tests/isa/run_isa.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim --tests-dir $(DIR_OUT) \
-	  --suites tanager-p --jobs $(JOBS) --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE) \
+	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build
+	python3 $(ROOT)/tests/isa/run_isa.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim --tests-dir $(DIR_OUT) \
+	  --suites tanager-p --jobs $(JOBS) --logdir $(TANAGER_BUILD)/$(WT)/isa-logs/$(CFG)-$(CORE)$(TC_SUFFIX) \
 	  --name "directed $(CFG) $(CORE)" -- --lat=$(LAT) --irq-rand=5 $(SIMARGS)

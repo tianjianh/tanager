@@ -2,6 +2,7 @@
 # Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make -C sim CFG=st                 build tg_vsim for the product core (rtl/core)
 #   make -C sim CFG=st CORE=tcore      build it around the test core (sim/tcore)
+#   make -C sim CFG=st TIMING_CUTS=0   the core's other profile (DR-140; sim/profile.mk), in its own directory
 #   make -C sim replay                 build tg_replay (Spike against Spike, no RTL)
 #   make -C sim lint CFG=st CORE=tcore lint the testbench and the test core
 #   make -C sim lockstep               tanager-lockstep for this host (FPGA lockstep, verification.md §3.9)
@@ -25,7 +26,8 @@ COV       ?=
 COV_UNITS ?= rename rob lsu
 empty    :=
 space    := $(empty) $(empty)
-BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
+include $(ROOT)/sim/profile.mk
+BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(TC_SUFFIX)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
 VERILATOR ?= verilator
 CXX      ?= g++-15
 SPIKE_ROOT ?= $(HOME)/opt/tanager/spike
@@ -71,7 +73,7 @@ LDFLAGS_TB  := -L$(SPIKE_ROOT)/lib -Wl,-rpath,$(SPIKE_ROOT)/lib -lriscv
 VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           --x-assign unique --x-initial unique --trace-fst --trace-structs \
           -Wall -Wno-fatal -Wno-MULTITOP -Wno-DECLFILENAME $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-          -I$(ROOT)/rtl/common $(CORE_DEF) \
+          -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) \
           -MAKEFLAGS "OPT_FAST=-O2 OPT_SLOW=-O1 OPT_GLOBAL=-O2" \
           -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)" $(if $(COV),--coverage-line --coverage-expr $(BUILD)/cov.vlt)
 
@@ -101,7 +103,7 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-	  -I$(ROOT)/rtl/common $(CORE_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
+	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
 	@echo "sim lint OK: $(CFG) $(CORE)"
 
 REPLAY := $(BUILD_ROOT)/replay/tg_replay

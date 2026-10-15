@@ -412,7 +412,11 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4):
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0] [TIMING_CUTS=0|1]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4).
+
+`TIMING_CUTS` picks the core's timing-cut profile (DR-140; `sim/profile.mk`). The core's three switches (#2, #4 and #5) are on together or off together, and the core package's default is the shipping profile. `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`. It builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs the default and `TIMING_CUTS=0`, the verified fallback; with Spike lockstep, the profiles differ only in cycles.
+
+The steps:
 1. builds `tg_vsim` for the configuration and `tg_replay`;
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
@@ -433,7 +437,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - every extension switch of `tg_core_pkg` (`EXT_*`) is on, as the core track tests them. Spike uses the M3 configuration (§3.2). Once the core has `EXT_FD`, Spike's ISA adds `f` and `d` and the programs are `rv64gc`, with the F/D templates; before that they are `rv64imac`;
   - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes, the two denied pages), and a third also stall the trace (§2.9);
   - a third run in S-mode under Sv39 (`tg_rand --vm 33`, §6.2), once main's generator has the option;
-  - timer interrupts are on in every other round;
+  - timer interrupts are on in every other round. Once main has the core's timing-cut switch (DR-140), both profiles are built: the profile alternates every round and the interrupts every second round, so four rounds cover all four pairs. Tallies and failures name the profile (`st-tc0`, `st-tc1`);
   - 48 programs per configuration per round, with new seeds each time.
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
 - **Strictly in the background:**
@@ -454,7 +458,10 @@ The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fp
 
 ```
 make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
+                     [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
 ```
+
+- **Profiles (DR-140).** `TIMING_CUTS` builds both sides' `tg_vsim` in that timing-cut profile, so a change is checked in each profile CI runs. `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key. The boot suite builds the package's default.
 
 - **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
   - the commit records and writebacks of the window: their number and a hash of them, each with its cycle and its slot or port;
