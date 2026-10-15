@@ -700,14 +700,16 @@ module tg_lsu
   end
 
   // ================= Store data capture =================
+  // The oldest store whose data is ready captures it, unless it is an integer store while P4 takes
+  // the shared read port (sd_busy, late: P4's issue), which gates only cap_v
   logic           cap_v;
   logic [SIW-1:0] cap_idx;
   always_comb begin
     logic [SQ_ENTRIES-1:0] cc;
     for (int i = 0; i < SQ_ENTRIES; i++)
-      cc[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i] && !(sd_busy && !sq_fp_q[i]);
-    cap_v   = |cc && !flush;
+      cc[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
     cap_idx = sq_oldest(cc, sq_head_q[SIW-1:0]);
+    cap_v   = |cc && !flush && !(sd_busy && !sq_fp_q[cap_idx]);
   end
   assign sd_tag  = sq_tag_q[cap_idx];
   assign fsd_tag = sq_tag_q[cap_idx];
