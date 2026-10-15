@@ -585,7 +585,10 @@ module tg_lsu
   logic m2_okw;
   assign m2_okw = m2_v_q && !m2_pt_q && m2_out_w == O_OK && !flush;
   assign m2_ok  = m2_okw && !l_den;
-  assign lm_req = m2_v_q && !flush && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out == O_MISS);
+  // The miss request does not wait for the PMP checker either (timing: it feeds the D$'s port
+  // arbitration): a load it denies faults, and only the line's refill may go ahead, a cacheable
+  // line (device and unmapped addresses never reach M2's miss), its data written to no register
+  assign lm_req = m2_v_q && !flush && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out_w == O_MISS);
   assign lm_pa  = m2_pa_q;
   assign ld_m2_will  = m2_okw && lqc_rd[0].dv && !lqc_rd[0].fp;
   assign ld_m2_dst   = lqc_rd[0].dst;
