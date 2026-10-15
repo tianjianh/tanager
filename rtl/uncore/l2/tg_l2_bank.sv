@@ -429,8 +429,20 @@ module tg_l2_bank
   logic [6:0]       h0_plru_q, h1_plru_q;
   wire [SET_W-1:0]  set2 = set_of(p2_q.line);
   wire [TAG_W-1:0]  tag2 = tag_of(p2_q.line);
-  wire              h0_hit = h0_set_q == set2;
-  wire              h1_hit = h1_set_q == set2;
+  // The set compares S2 needs are made in S1, one cycle early, and registered (200 MHz, DR-137):
+  // every operand is a register in the cycle before S2, so the result is the same compare, exactly
+  // (always_ff below, checked by assertions).
+  //   h0_hit: the newest history entry will be the S2 now in flight (dir_waddr is set2 every cycle);
+  //   h1_hit: the older entry will be the newest now;
+  //   sm1:    each MSHR's set against the next S2's. The MSHR the S2 in flight allocates takes that
+  //           S2's line, whose compare is h0_hit's (newm_q marks it); one it frees drops out of
+  //           m_valid;
+  //   cin_seq: the C message's set; cin_q holds still while it is in CI_PIPE or CI_WRITE.
+  wire [SET_W-1:0]   set1 = set_of(p1_q.line);
+  logic              h0_hit_q, h1_hit_q, cin_seq_q;
+  logic [N_MSHR-1:0] sm1_q, newm_q;
+  wire               h0_hit = h0_hit_q;
+  wire               h1_hit = h1_hit_q;
   row_t row2;
   always_comb begin
     row2 = dir_rdata;
@@ -475,11 +487,11 @@ module tg_l2_bank
     end
     resv = '0;
     for (int m = 0; m < N_MSHR; m++) begin
-      smatch[m] = m_valid[m] && set_of(m_line[m]) == set2;
+      smatch[m] = m_valid[m] && (newm_q[m] ? h0_hit_q : sm1_q[m]);
       if (smatch[m]) resv[m_way[m]] = 1'b1;
     end
     // The way a Release/ProbeAck is still writing data into is not a victim candidate yet.
-    if (cin_st_q == CI_WRITE && set_of(cin_line) == set2) resv[cin_way_q] = 1'b1;
+    if (cin_st_q == CI_WRITE && cin_seq_q) resv[cin_way_q] = 1'b1;
     hit2 = |hitv;
     hw2  = lowest8(hitv);
     vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
@@ -714,6 +726,14 @@ module tg_l2_bank
       endcase
     end
     dir_went = e;
+  end
+
+  always_ff @(posedge clk) begin
+    h0_hit_q  <= set2 == set1;
+    h1_hit_q  <= h0_set_q == set1;
+    cin_seq_q <= set_of(cin_line) == set1;
+    for (int m = 0; m < N_MSHR; m++) sm1_q[m] <= set_of(m_line[m]) == set1;
+    newm_q    <= s2_alloc ? N_MSHR'(1) << m_new : '0;
   end
 
   // ---------------------------------------------------------------------------------------------
@@ -1480,6 +1500,14 @@ module tg_l2_bank
       if (a_valid_i) assert (a_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: A address %h of the other bank", BANK, a_i.address);
       if (c_valid_i) assert (c_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: C address %h of the other bank", BANK, c_i.address);
       for (int m = 0; m < N_MSHR; m++) assert ($onehot(ms[m])) else $error("tg_l2_bank%0d: MSHR %0d state %b", BANK, m, ms[m]);
+      // The S1 set compares are the S2 compares, registered
+      assert (h0_hit_q == (h0_set_q == set2) && h1_hit_q == (h1_set_q == set2))
+        else $error("tg_l2_bank%0d: history set compare made in S1 differs", BANK);
+      for (int m = 0; m < N_MSHR; m++)
+        assert (smatch[m] == (m_valid[m] && set_of(m_line[m]) == set2))
+          else $error("tg_l2_bank%0d: MSHR %0d set compare made in S1 differs", BANK, m);
+      if (cin_st_q == CI_WRITE) assert (cin_seq_q == (set_of(cin_line) == set2))
+        else $error("tg_l2_bank%0d: C set compare made in S1 differs", BANK);
       // Each MSHR event finds its MSHR in the one state the transition logic expects
       if (s2_alloc)  assert (m_st[m_new] == MS_IDLE) else $error("tg_l2_bank%0d: allocation of busy MSHR %0d", BANK, m_new);
       if (s0_take_m) assert (m_st[mcmd_pick] inside {MS_RESUME, MS_INVAL}) else $error("tg_l2_bank%0d: MCMD state", BANK);
