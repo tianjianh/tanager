@@ -424,8 +424,9 @@ module tg_exec
   // the MUL's write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0; the
   // count needs no bypass, so it may start a cycle late: this takes the load bypass, the count
   // and the flag out of one cycle)
-  // - clz and ctz share one leading-zero count, ctz(x) = clz(x bit-reversed). The W forms put ones
-  //   beside the low word (below it for clz, above it for ctz), so the count stops at 32.
+  // - clz and ctz share one leading-zero count (tg_fpu_lzc), ctz(x) = clz(x bit-reversed). The W
+  //   forms put ones beside the low word (below it for clz, above it for ctz), so the count stops
+  //   at 32. cpop adds 3-bit counts of 6-bit groups in a tree.
   // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
@@ -433,20 +434,31 @@ module tg_exec
   logic [63:0]       bca_q, bcb_q;             // the operands, registered at the end of EX
   mul_op_e           bcop_q;
   logic              bcw_q, bclt_q, bcmax_q;
+  logic [63:0]       bcx, bcy, bcw;
+  logic [6:0]        bc_lz, bc_pc;
   always_comb begin
-    logic [63:0] x, y, w;
-    int n;
-    x = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
-    w = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
-    y = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
-    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) y[i] = w[63 - i];      // ctz
-    n = 64;
-    for (int i = 0; i < 64; i++) if (y[i]) n = 63 - i;                       // clz, ctz
-    if (bcop_q == MUL_HSU) begin                                             // cpop
-      n = 0;
-      for (int i = 0; i < 64; i++) n += int'(x[i]);
+    bcx = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
+    bcw = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
+    bcy = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
+    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) bcy[i] = bcw[63 - i];  // ctz
+  end
+  tg_fpu_lzc #(.W(64)) u_bclz (.x(bcy), .cnt(bc_lz));                      // clz, ctz
+  // cpop: 3-bit counts of 6-bit groups, then a tree of adders
+  always_comb begin
+    logic [10:0][2:0] g3;
+    logic [5:0][3:0]  s4;
+    logic [2:0][4:0]  s5;
+    for (int g = 0; g < 11; g++) begin
+      g3[g] = '0;
+      for (int k = 0; k < 6; k++) if (6 * g + k < 64) g3[g] += 3'(bcx[6 * g + k]);
     end
-    bc_res = 64'(n);
+    for (int j = 0; j < 5; j++) s4[j] = 4'(g3[2 * j]) + 4'(g3[2 * j + 1]);
+    s4[5] = 4'(g3[10]);
+    for (int j = 0; j < 3; j++) s5[j] = 5'(s4[2 * j]) + 5'(s4[2 * j + 1]);
+    bc_pc = 7'(6'(s5[0]) + 6'(s5[1])) + 7'(s5[2]);
+  end
+  always_comb begin
+    bc_res = 64'(bcop_q == MUL_HSU ? bc_pc : bc_lz);
     if (bcop_q == MUL_HU) bc_res = (bclt_q ^ bcmax_q) ? bca_q : bcb_q;       // MIN(U), MAX(U)
   end
 
