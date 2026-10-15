@@ -426,18 +426,22 @@ module tg_lsu
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
   assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
-  logic [1:0][26:0] dt_vpn;
-  logic [1:0]       dt_hit;
-  tlb_pte_t [1:0]   dt_pte;
+  logic [2:0][26:0] dt_vpn;
+  logic [2:0]       dt_hit;
+  tlb_pte_t [2:0]   dt_pte;
   logic             dt_fill;
   logic [26:0]      pw_vpn;
   logic [1:0]       pw_lvl;
   tlb_pte_t         pw_pte;
   logic [63:0]      hd_va;
-  // Two lookups: the LD port, and the STA port (the ROB head's check when STA is idle)
+  // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
+  // port of its own (timing: on a shared port the head VA and the store's address reached each
+  // other's checks, paths that are never live together), and still counts only when STA is
+  // idle, as when it shared STA's port.
   assign dt_vpn[0] = ld_ag_addr[38:12];
-  assign dt_vpn[1] = sta_ag_valid ? sta_ag_addr[38:12] : hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2), .CAM(1'b1)) u_dtlb (
+  assign dt_vpn[1] = sta_ag_addr[38:12];
+  assign dt_vpn[2] = hd_va[38:12];
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
@@ -801,7 +805,7 @@ module tg_lsu
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
-  assign hd_tok   = !sta_ag_valid && dt_hit[1] && pte_ok(dt_pte[1], hd_at, priv_d, sum, mxr);
+  assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
   assign hd_retry = hd_need && hd_tok;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
