@@ -434,6 +434,7 @@ module tg_lsu
   logic [1:0]       pw_lvl;
   tlb_pte_t         pw_pte;
   logic [63:0]      hd_va;
+  logic [26:0]      hd_vpn_q;                     // the head's VPN, registered for its DTLB check
   // The stage that translates, checks and decides for a new load (ln_*) and a store address
   // (sn_*): AG on its own signals, or with the address-stage split (DR-140 #4, LSU_AG_SPLIT;
   // core-lsu.md) M1, a cycle after AG, on registers. g_split / g_nosplit (below) drive these.
@@ -448,7 +449,7 @@ module tg_lsu
   // idle, as when it shared STA's port.
   assign dt_vpn[0] = ln_va[38:12];
   assign dt_vpn[1] = sn_va[38:12];
-  assign dt_vpn[2] = hd_va[38:12];
+  assign dt_vpn[2] = hd_vpn_q;                      // the ROB head's, registered (below)
   tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
@@ -824,15 +825,21 @@ module tg_lsu
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
-  assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
-  // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
-  // leaves the commit redirect). The head is the same op in both cycles: a TLB-missed head leaves
-  // only through a flush.
-  logic hd_tok_q, hd_need_q;
+  // The head's DTLB check looks up its VA as registered a cycle earlier (hd_vpn_q), so the lookup,
+  // hd_tok and the walk request start from flip-flops (reserve lever: one cycle per DTLB-missed op
+  // at the head). The head is the same op in consecutive cycles that both need a translation: a
+  // TLB-missed head leaves only through a flush. So the check counts from the second such cycle.
+  acc_e        hd_at_q;
+  logic        hd_tok_q, hd_need_q;
   always_ff @(posedge clk) begin
-    hd_tok_q  <= hd_tok;
+    hd_vpn_q  <= hd_va[38:12];
+    hd_at_q   <= hd_at;
     hd_need_q <= hd_need;
+    hd_tok_q  <= hd_tok;
   end
+  assign hd_tok   = hd_need_q && !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at_q, priv_d, sum, mxr);
+  // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
+  // leaves the commit redirect)
   assign hd_retry = hd_need && hd_need_q && hd_tok_q;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
@@ -855,7 +862,7 @@ module tg_lsu
   priv_e [2:0]      pw_mode;
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
-  assign pw_req[0]  = hd_need && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
+  assign pw_req[0]  = hd_need && hd_need_q && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d;
