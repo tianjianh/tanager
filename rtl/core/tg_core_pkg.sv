@@ -30,11 +30,11 @@ package tg_core_pkg;
 `else
   localparam bit TIMING_CUTS = 1'b1;
 `endif
-  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
+  localparam bit ROB_STORE_REPORT_LATE = 1'b1; // #2: store completions and the ordering
                                                       // replay mark reach the ROB a cycle later
-  localparam bit LSU_AG_SPLIT          = TIMING_CUTS; // #4: a new load's and a store address's
+  localparam bit LSU_AG_SPLIT          = 1'b0; // #4: a new load's and a store address's
                                                       // DTLB, PMP and decisions in M1 (core-lsu.md)
-  localparam bit DC_AMO_READ_REG       = TIMING_CUTS; // #5: an atomic's D$ read data is registered
+  localparam bit DC_AMO_READ_REG       = 1'b0; // #5: an atomic's D$ read data is registered
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
   localparam bit DE_STAGE = `TG_DE_STAGE;
