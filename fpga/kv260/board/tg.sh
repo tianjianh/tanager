@@ -11,6 +11,9 @@
 #   tg.sh linux       core, step 7: boot fw_jump.bin, Image, tanager-kv260.dtb from TG_DIR until
 #                     TANAGER-BOOT-OK, power-off or LINUX_S seconds (default 1200); log in TG_DIR
 #   tg.sh shell       core: boot (INJ_RD cycles), log in on the console, run CMDS, poweroff
+#   tg.sh ls-soc      core, FPGA lockstep steps 2-3: the SoC test traced to a file and checked, then live
+#   tg.sh ls-linux    core, FPGA lockstep steps 4-5: Linux live through the checker (INJ_RD, LINUX_S)
+#   tg.sh ls-plant    core: the lockstep failure path, a planted fault (PLANT) on the live SoC test
 #   tg.sh restore     unload TG_APP and reload k26-starter-kits
 #   tg.sh status      the apps, the FPGA manager state, the PL clock and the fan
 #   tg.sh th ARGS     one tanager-host call, refused unless TG_APP is loaded
@@ -197,6 +200,97 @@ case "${1:-}" in
     echo "boot exit $rc; console in $log ($(wc -l < "$log") lines)"
     fan
     ;;
+  ls-soc)
+    # FPGA lockstep (verification track's RUNBOOK, steps 2 and 3): the SoC test's commit trace into a
+    # file, checked offline, then live through a FIFO. Needs the core app; the checker is in LS_DIR.
+    L=${LS_DIR:-$HOME/tanager/lockstep}
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    cd "$L" || exit 1
+    echo "== step 2: the trace into a file"
+    rm -f soc_board.trace
+    th boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace "$L/soc_board.trace" --timeout 60 < /dev/null
+    echo "boot exit $?; trace file $(stat -c %s soc_board.trace 2>/dev/null) bytes"
+    ./tanager-lockstep --fw soc_test.bin soc_board.trace 2>&1 | tail -2
+    echo "== step 3: live through a FIFO"
+    rm -f tg.trace; mkfifo tg.trace
+    ./tanager-lockstep --fw soc_test.bin --stats=5 tg.trace 2> ls_soc.log &
+    lpid=$!
+    th boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout 120 < /dev/null
+    echo "boot exit $?"
+    wait "$lpid"; echo "checker exit $?"; tail -3 ls_soc.log
+    fan
+    ;;
+  ls-linux)
+    # FPGA lockstep (RUNBOOK steps 4 and 5): Linux live through the checker, INJ_RD injected read
+    # cycles (default 0), the 768 MiB device tree for both. At the prompt: root, then poweroff.
+    # LINUX_S bounds the whole run (default 5400 s). Logs in LS_DIR: console_linuxINJ.txt, ls_linuxINJ.log.
+    L=${LS_DIR:-$HOME/tanager/lockstep}
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    cd "$L" || exit 1
+    inj=${INJ_RD:-0}; lim=${LINUX_S:-5400}
+    con=$L/console_linux$inj.txt; lsl=$L/ls_linux$inj.log; cin=$L/console.in
+    rm -f tg.trace "$cin"; mkfifo tg.trace "$cin"
+    cp "$D/Image" "$L/Image" 2>/dev/null
+    # ZERO_MB: zero the first ZERO_MB MiB of the RISC-V window before the boot, so memory nobody wrote
+    # reads 0 as in Spike (board/tg_zero.c: mmap of the carve-out, 8-byte stores; dd cannot write there).
+    if [ "${ZERO_MB:-0}" -gt 0 ]; then
+      sudo "$HOME/tanager/tg_zero" 0x840000000 "$ZERO_MB" || exit 1
+    fi
+    dtb=${LS_DTB:-tanager-kv260-768m.dtb}   # the RUNBOOK's padded tree: LS_DTB=tanager-kv260-768m-pad.dtb
+    ./tanager-lockstep --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
+    lpid=$!
+    active "$APP" || exit 1
+    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
+    t0=$(date +%s)
+    sudo "$TH" boot --inj-rd "$inj" --fw fw_jump.bin --kernel Image --dtb "$dtb" \
+      --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout "$lim" < "$cin" > "$con" 2>&1 &
+    pid=$!
+    exec 3> "$cin"
+    tok=""; tlog=""
+    while kill -0 "$pid" 2>/dev/null; do
+      el=$(( $(date +%s) - t0 ))
+      if [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$con"; then tok=$el; echo "TANAGER-BOOT-OK at $el s"; fi
+      if [ -z "$tlog" ] && grep -q "tanager login:" "$con"; then
+        tlog=$el; echo "login prompt at $el s"
+        sleep 2; printf 'root\r' >&3
+        # the root shell may take minutes under the checker: wait for its prompt, then poweroff
+        for i in $(seq 1 360); do
+          tail -c 4 "$con" | grep -q '# ' && break
+          kill -0 "$pid" 2>/dev/null || break; sleep 5
+        done
+        echo "shell prompt at $(( $(date +%s) - t0 )) s"; printf 'poweroff\r' >&3
+      fi
+      sleep 5
+    done
+    wait "$pid"; rc=$?
+    exec 3>&-
+    echo "boot exit $rc after $(( $(date +%s) - t0 )) s (TANAGER-BOOT-OK ${tok:-never} s, prompt ${tlog:-never} s)"
+    wait "$lpid"; echo "checker exit $?"
+    grep "records (" "$lsl" | tail -1; tail -2 "$lsl"
+    rm -f "$cin"
+    fan
+    ;;
+  ls-plant)
+    # The failure path, live: the checker gets a fault planted at record PLANT (default 1000) and
+    # stops with exit 2; tanager-host (6466df0 and later) should then end with exit 4, not stall.
+    L=${LS_DIR:-$HOME/tanager/lockstep}
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    cd "$L" || exit 1
+    rm -f tg.trace; mkfifo tg.trace
+    ./tanager-lockstep --fw soc_test.bin --plant="${PLANT:-1000}" tg.trace > ls_plant.log 2>&1 &
+    lpid=$!
+    th boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout 60 < /dev/null
+    echo "boot exit $? (expect 4: the checker stopped)"
+    wait "$lpid"; echo "checker exit $? (expect 2)"; grep -m1 "MISMATCH at" ls_plant.log
+    rm -f tg.trace
+    fan
+    ;;
   restore)
     if [ "${2:-}" = deadman ]; then echo "dead-man restore at $(date +%T)" >> "$D/deadman.log"; else deadman_cancel; fi
     sudo xmutil unloadapp
@@ -212,6 +306,6 @@ case "${1:-}" in
     sudo xmutil listapps; echo "fpga0: $(cat /sys/class/fpga_manager/fpga0/state)"; plclk; fan
     ;;
   *)
-    sed -n '2,18p' "$ME"; exit 2
+    sed -n '2,21p' "$ME"; exit 2
     ;;
 esac

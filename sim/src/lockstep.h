@@ -55,6 +55,10 @@ class lockstep_t {
   // Spike's architectural memory, by physical address.
   uint64_t read_mem64(uint64_t paddr) const;
   uint64_t steps() const;
+  // Whether the checker compares a retire record's destination value with Spike's: not for values it
+  // adopts from the RTL (mmio_ld, nondet, reads of the CSRs on its list; §3.4), nor while one is
+  // deferred (its writeback is compared instead).
+  static bool compares_value(const tr_rec_t& r);
 
  private:
   std::unique_ptr<lockstep_impl_t> impl_;

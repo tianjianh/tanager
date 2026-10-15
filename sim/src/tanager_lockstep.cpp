@@ -45,7 +45,7 @@ struct opts_t {
   std::string isa = TG_DEFAULT_ISA, priv = "MSU";
   unsigned harts = 1, pmp = 16, history = 64;
   uint64_t mem_mb = 768;          // the RISC-V window: the 1 GiB carve-out less tanager-host's 256 MiB ring
-  int64_t plant = -1;             // self-test: corrupt the first value-carrying record at or after this one
+  int64_t plant = -1;             // self-test: corrupt the first compared value at or after this record
   double stats = 10;              // seconds between progress lines (0: none)
   uint64_t max = 0;               // stop after this many records (0: at the end of the input)
   uint64_t stale = 10000000;      // a deferred writeback pending this many cycles is a mismatch
@@ -61,8 +61,9 @@ struct opts_t {
           "  --stats=S         a progress line every S seconds on stderr (0: none; default 10)\n"
           "  --max=N           stop after N records\n"
           "  --stale=N         a deferred writeback still pending after N cycles is a mismatch (default 10M)\n"
-          "  --plant=N         self-test: corrupt the value of the first value-carrying record at or after\n"
-          "                    record N (from 0); the run must stop there with a mismatch\n",
+          "  --plant=N         self-test: flip bit 0 of the first value the checker compares at or after\n"
+          "                    record N (from 0): a register write or a deferred writeback, not a value it\n"
+          "                    adopts (an MMIO load, a nondet CSR read); the run must stop there\n",
           TG_DEFAULT_ISA);
   exit(EXIT_HARNESS);
 }
@@ -271,13 +272,21 @@ int main(int argc, char** argv) {
       uint8_t* p = buf.data() + off;
       decoded_t d = decode(p);
       uint64_t cyc = clk.full(d.cycle32);
-      if (o.plant >= 0 && !planted && n >= uint64_t(o.plant) &&
-          ((!d.wb && d.r.kind == TR_RETIRE && d.r.rd_we && !d.r.rd_deferred) || d.wb)) {
-        if (d.wb) d.w.value ^= 1;
-        else d.r.rd_value ^= 1;
+      // Only a value the checker compares: one it adopts (an MMIO load polling a UART, say) would
+      // never show, and the self-test would pass without testing anything.
+      if (o.plant >= 0 && !planted && n >= uint64_t(o.plant) && (d.wb || lockstep_t::compares_value(d.r))) {
+        std::string what;
+        if (d.wb) {
+          d.w.value ^= 1;
+          what = strfmt("the writeback of %c%u (tag %u)", d.w.rd_fp ? 'f' : 'x', d.w.rd, d.w.wb_tag);
+        } else {
+          d.r.rd_value ^= 1;
+          what = strfmt("%c%u of %s at %016llx", d.r.rd_fp ? 'f' : 'x', d.r.rd, ls.disasm(d.r.insn).c_str(),
+                        (unsigned long long)d.r.pc);
+        }
         planted = true;
-        fprintf(stderr, "tanager-lockstep: planted a wrong value (bit 0 flipped) in record %llu\n",
-                (unsigned long long)n);
+        fprintf(stderr, "tanager-lockstep: planted a wrong value (bit 0 flipped) in record %llu: %s\n",
+                (unsigned long long)n, what.c_str());
       }
       recs.clear();
       wbs.clear();
@@ -325,6 +334,6 @@ int main(int argc, char** argv) {
                   "writebacks) in %.1f s, %.0f records/s%s\n",
           status == EXIT_PASS ? "PASS" : "MISMATCH", (unsigned long long)n, (unsigned long long)retired,
           (unsigned long long)traps, (unsigned long long)irqs, (unsigned long long)nwb, t, t > 0 ? n / t : 0.0,
-          o.plant >= 0 && !planted ? "; nothing was planted (no value-carrying record from there on)" : "");
+          o.plant >= 0 && !planted ? "; nothing was planted (no compared value from there on)" : "");
   return status;
 }
