@@ -20,8 +20,11 @@ module tg_l2_bank
   parameter     DATA_PRIM = "ultra",
   parameter int DATA_LAT  = 2,        // data-array read latency, >= 2 (4 for the URAM cascade at 200 MHz)
   parameter bit RSLICE_DSP = 1'b0,    // the R slice's data register in DSP48E2s (tg_skid DSP; DR-136)
-  parameter bit MWAY_OH    = 1'b1     // each MSHR's way kept one-hot in flip-flops (else binary), so the
+  parameter bit MWAY_OH    = 1'b1,    // each MSHR's way kept one-hot in flip-flops (else binary), so the
                                       // reservations and the ProbeAck search take it with no decode (DR-142)
+  parameter bit DIR_S3     = 1'b1     // the directory RAM written a cycle after S2, from the newest history
+                                      // entry, with a third entry in the bypass: no S2 path ends at the RAM's
+                                      // pins (DR-142; cycle-identical either way)
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -401,7 +404,9 @@ module tg_l2_bank
     end
   end
 
-  // Directory RAM: one row per set, read at S0, data at S2 (output register), written at S2.
+  // Directory RAM: one row per set, read at S0, data at S2 (output register), written at S2, or with
+  // DIR_S3 a cycle later (S3) from the newest history entry, which holds S2's write: the RAM's
+  // write port then starts at flip-flops, and S2's paths end at flip-flops near its logic.
   // Each way entry and the PLRU bits fill whole bytes with their own write enables: S2 writes the
   // one entry it changes (and the PLRU), never a rebuilt row.
   localparam int WAY_W  = $bits(way_t);
@@ -410,6 +415,7 @@ module tg_l2_bank
   logic [WAYS-1:0]      dir_wway;                       // way entries written
   logic                 dir_wplru;                      // PLRU written
   logic [SET_W-1:0]     dir_waddr;
+  logic [SET_W-1:0]     dir_ws;                         // the RAM's write address
   way_t                 dir_went;                       // the entry written (every written way)
   logic [6:0]           dir_wplru_v;
   logic [WAYS*WAYB:0]   dir_be;
@@ -418,20 +424,37 @@ module tg_l2_bank
   logic [DROW_W-1:0]    dir_rraw;
   /* verilator lint_on UNUSEDSIGNAL */
   row_t                 dir_rdata;
+  // Write history (below): S2's writes, newest first
+  logic [WAYS-1:0]  h0_way_q, h1_way_q;
+  logic             h0_pl_q, h1_pl_q;
+  logic [SET_W-1:0] h0_set_q, h1_set_q;
+  way_t             h0_ent_q, h1_ent_q, h2_ent_q;
+  logic [6:0]       h0_plru_q, h1_plru_q, h2_plru_q;
   always_comb begin
+    logic [WAYS-1:0]  rw_way;                           // the RAM's write: S2's, or S3's (h0)
+    logic             rw_pl;
+    logic [SET_W-1:0] rw_set;
+    way_t             rw_ent;
+    logic [6:0]       rw_plru;
+    if (DIR_S3) begin
+      rw_way = h0_way_q;  rw_pl = h0_pl_q;   rw_set = h0_set_q;  rw_ent = h0_ent_q; rw_plru = h0_plru_q;
+    end else begin
+      rw_way = dir_wway;  rw_pl = dir_wplru; rw_set = dir_waddr; rw_ent = dir_went; rw_plru = dir_wplru_v;
+    end
     dir_be   = '0;
     dir_wraw = '0;
     for (int w = 0; w < WAYS; w++) begin
-      dir_be[w*WAYB +: WAYB]       = {WAYB{dir_wway[w]}};
-      dir_wraw[w*WAYB*8 +: WAY_W]  = dir_went;
+      dir_be[w*WAYB +: WAYB]       = {WAYB{rw_way[w]}};
+      dir_wraw[w*WAYB*8 +: WAY_W]  = rw_ent;
       dir_rdata.way[w]             = dir_rraw[w*WAYB*8 +: WAY_W];
     end
-    dir_be[WAYS*WAYB]              = dir_wplru;
-    dir_wraw[WAYS*WAYB*8 +: 7]     = dir_wplru_v;
+    dir_be[WAYS*WAYB]              = rw_pl;
+    dir_wraw[WAYS*WAYB*8 +: 7]     = rw_plru;
     dir_rdata.plru                 = dir_rraw[WAYS*WAYB*8 +: 7];
+    dir_ws                         = rw_set;
   end
   tg_ram_sdp #(.DEPTH(SETS), .WIDTH(DROW_W), .BYTE_W(8), .OUT_REG(1'b1), .PRIM("block")) u_dir (
-    .clk, .we (dir_be), .waddr (dir_waddr), .wdata (dir_wraw),
+    .clk, .we (dir_be), .waddr (dir_ws), .wdata (dir_wraw),
     .re (s0_v), .raddr (set_of(s0.line)), .rdata (dir_rraw)
   );
 
@@ -447,12 +470,9 @@ module tg_l2_bank
     p2_q <= p1_q;
   end
 
-  // Write history: the last two S2 writes, newest first, bypass the RAM's stale read
-  logic [WAYS-1:0]  h0_way_q, h1_way_q;
-  logic             h0_pl_q, h1_pl_q;
-  logic [SET_W-1:0] h0_set_q, h1_set_q;
-  way_t             h0_ent_q, h1_ent_q;
-  logic [6:0]       h0_plru_q, h1_plru_q;
+  // Write history: S2's last writes, newest first, bypass the RAM's stale read. A request in S2
+  // read the RAM at S0, two cycles ago, and missed the RAM writes of the last two cycles: S2's last
+  // two writes, or with DIR_S3 (each a cycle late) its last three.
   wire [SET_W-1:0]  set2 = set_of(p2_q.line);
   wire [TAG_W-1:0]  tag2 = tag_of(p2_q.line);
   // The set compares S2 needs are made in S1, one cycle early, and registered (200 MHz, DR-137):
@@ -465,21 +485,33 @@ module tg_l2_bank
   //           m_valid;
   //   cin_seq: the C message's set; cin_q holds still while it is in CI_PIPE or CI_WRITE.
   wire [SET_W-1:0]   set1 = set_of(p1_q.line);
-  //   sel0, sel1, spl0, spl1: the bypass's per-way and PLRU selects themselves (the hit and the
-  //           history entry's way enable, both known in S1), so row2 is one 3:1 select per bit.
+  wire [TAG_W-1:0]   tag1 = tag_of(p1_q.line);
+  //   bsel, bpl: the bypass's per-way and PLRU selects themselves, binary: 0 the RAM, 1-3 the
+  //           newest of h0-h2 that writes the way (the set compares and the history entries' way
+  //           enables are known in S1), so row2 is one 4:1 select per bit;
+  //   hc1, hc2: the hit compares of h1 and h2, which are entries already in S1 (h0 and h1 then);
+  //           h0's is made in S2.
   logic              h0_hit_q, h1_hit_q, cin_seq_q;
   logic [N_MSHR-1:0] sm1_q, newm_q;
-  logic [WAYS-1:0]   sel0_q, sel1_q;
-  logic              spl0_q, spl1_q;
+  logic [1:0]        bsel_q [WAYS];
+  logic [1:0]        bpl_q;
+  logic              hc1_q, hc2_q;
   row_t row2;
   always_comb begin
     row2 = dir_rdata;
-    for (int w = 0; w < WAYS; w++) begin
-      if (sel1_q[w]) row2.way[w] = h1_ent_q;
-      if (sel0_q[w]) row2.way[w] = h0_ent_q;
-    end
-    if (spl1_q) row2.plru = h1_plru_q;
-    if (spl0_q) row2.plru = h0_plru_q;
+    for (int w = 0; w < WAYS; w++)
+      unique case (bsel_q[w])
+        2'd1:    row2.way[w] = h0_ent_q;
+        2'd2:    row2.way[w] = h1_ent_q;
+        2'd3:    if (DIR_S3) row2.way[w] = h2_ent_q;
+        default: ;
+      endcase
+    unique case (bpl_q)
+      2'd1:    row2.plru = h0_plru_q;
+      2'd2:    row2.plru = h1_plru_q;
+      2'd3:    if (DIR_S3) row2.plru = h2_plru_q;
+      default: ;
+    endcase
   end
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -499,21 +531,27 @@ module tg_l2_bank
     h1_set_q  <= h0_set_q;
     h1_ent_q  <= h0_ent_q;
     h1_plru_q <= h0_plru_q;
+    h2_ent_q  <= h1_ent_q;
+    h2_plru_q <= h1_plru_q;
   end
 
   // ---------------------------------------------------------------------------------------------
   // S2: directory decision
   // ---------------------------------------------------------------------------------------------
-  logic [WAYS-1:0] hitv, held, resv;
+  logic [WAYS-1:0] hitv, dhit, held, resv;
   logic [N_MSHR-1:0] smatch;           // active MSHRs in the S2 request's set
   logic            hit2;
   logic [2:0]      hw2, vw2;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
-      // compare, then select: the RAM's entry and the two history entries are compared at once
-      hitv[w] = sel0_q[w] ? (h0_ent_q.valid && h0_ent_q.tag == tag2) :
-                sel1_q[w] ? (h1_ent_q.valid && h1_ent_q.tag == tag2) :
-                            (dir_rdata.way[w].valid && dir_rdata.way[w].tag == tag2);
+      // compare, then select: the RAM's entry and h0 are compared at once, h1's and h2's in S1
+      dhit[w] = dir_rdata.way[w].valid && dir_rdata.way[w].tag == tag2;
+      unique case (bsel_q[w])
+        2'd1:    hitv[w] = h0_ent_q.valid && h0_ent_q.tag == tag2;
+        2'd2:    hitv[w] = hc1_q;
+        2'd3:    hitv[w] = DIR_S3 ? hc2_q : dhit[w];
+        default: hitv[w] = dhit[w];
+      endcase
       held[w] = |row2.way[w].pres;
     end
     resv = '0;
@@ -768,16 +806,19 @@ module tg_l2_bank
     h0_hit_q  <= set2 == set1;
     h1_hit_q  <= h0_set_q == set1;
     if (rst) begin                     // as h0_way_q, h1_way_q, h0_pl_q and h1_pl_q
-      sel0_q <= '0;
-      sel1_q <= '0;
-      spl0_q <= 1'b0;
-      spl1_q <= 1'b0;
+      for (int w = 0; w < WAYS; w++) bsel_q[w] <= 2'd0;
+      bpl_q <= 2'd0;
     end else begin
-      sel0_q <= (set2 == set1) ? dir_wway : '0;
-      sel1_q <= (h0_set_q == set1) ? h0_way_q : '0;
-      spl0_q <= (set2 == set1) && dir_wplru;
-      spl1_q <= (h0_set_q == set1) && h0_pl_q;
+      for (int w = 0; w < WAYS; w++)
+        bsel_q[w] <= (set2 == set1 && dir_wway[w])               ? 2'd1 :
+                     (h0_set_q == set1 && h0_way_q[w])           ? 2'd2 :
+                     (DIR_S3 && h1_set_q == set1 && h1_way_q[w]) ? 2'd3 : 2'd0;
+      bpl_q <= (set2 == set1 && dir_wplru)               ? 2'd1 :
+               (h0_set_q == set1 && h0_pl_q)             ? 2'd2 :
+               (DIR_S3 && h1_set_q == set1 && h1_pl_q)   ? 2'd3 : 2'd0;
     end
+    hc1_q     <= h0_ent_q.valid && h0_ent_q.tag == tag1;
+    hc2_q     <= h1_ent_q.valid && h1_ent_q.tag == tag1;
     cin_seq_q <= set_of(cin_line) == set1;
     for (int m = 0; m < N_MSHR; m++) sm1_q[m] <= set_of(m_line[m]) == set1;
     newm_q    <= s2_alloc ? N_MSHR'(1) << m_new : '0;
@@ -1538,6 +1579,19 @@ module tg_l2_bank
 `ifndef SYNTHESIS
   logic [2:0] m_way_ref [N_MSHR];        // the allocated way, binary, for the check of m_way_oh
   always_ff @(posedge clk) if (!rst && s2_alloc) m_way_ref[m_new] <= s2_alloc_way;
+  logic [WAYS-1:0]  h2_way_ref;          // h2's way and PLRU enables and set, for the checks of the
+  logic             h2_pl_ref;           // bypass selects
+  logic [SET_W-1:0] h2_set_ref;
+  always_ff @(posedge clk) begin
+    h2_way_ref <= rst ? '0 : h1_way_q;
+    h2_pl_ref  <= !rst && h1_pl_q;
+    h2_set_ref <= h1_set_q;
+  end
+  row_t dir_ref [SETS];                  // the directory as S2 writes it, at once
+  always_ff @(posedge clk) begin
+    for (int w = 0; w < WAYS; w++) if (dir_wway[w]) dir_ref[set2].way[w] <= dir_went;
+    if (dir_wplru) dir_ref[set2].plru <= dir_wplru_v;
+  end
   // ---- Invariants (docs/spec/l2.md §Verification) ----
   always_ff @(posedge clk) begin
     if (!rst && init_done_q) begin
@@ -1571,9 +1625,18 @@ module tg_l2_bank
       // The S1 set compares are the S2 compares, registered
       assert (h0_hit_q == (h0_set_q == set2) && h1_hit_q == (h1_set_q == set2))
         else $error("tg_l2_bank%0d: history set compare made in S1 differs", BANK);
-      assert (sel0_q == (h0_hit_q ? h0_way_q : '0) && sel1_q == (h1_hit_q ? h1_way_q : '0) &&
-              spl0_q == (h0_hit_q && h0_pl_q) && spl1_q == (h1_hit_q && h1_pl_q))
-        else $error("tg_l2_bank%0d: history bypass select made in S1 differs", BANK);
+      for (int w = 0; w < WAYS; w++)
+        assert (bsel_q[w] == ((h0_hit_q && h0_way_q[w]) ? 2'd1 : (h1_hit_q && h1_way_q[w]) ? 2'd2 :
+                              (DIR_S3 && h2_set_ref == set2 && h2_way_ref[w]) ? 2'd3 : 2'd0))
+          else $error("tg_l2_bank%0d: history bypass select of way %0d made in S1 differs", BANK, w);
+      assert (bpl_q == ((h0_hit_q && h0_pl_q) ? 2'd1 : (h1_hit_q && h1_pl_q) ? 2'd2 :
+                        (DIR_S3 && h2_set_ref == set2 && h2_pl_ref) ? 2'd3 : 2'd0))
+        else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
+      assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
+        else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The bypassed row is the directory as S2 has written it, either RAM write timing
+      if (p2_v_q && p2_q.kind != PK_INIT) assert (row2 == dir_ref[set2])
+        else $error("tg_l2_bank%0d: S2 row of set %0d differs from the directory written", BANK, set2);
       for (int w = 0; w < WAYS; w++)
         assert (hitv[w] == (row2.way[w].valid && row2.way[w].tag == tag2))
           else $error("tg_l2_bank%0d: way %0d hit differs", BANK, w);

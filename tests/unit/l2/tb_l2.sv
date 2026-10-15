@@ -13,6 +13,7 @@ module tb_l2;
   parameter int SETS   = 16;
   parameter int N_MSHR = 8;
   parameter int DATA_LAT = 2;
+  parameter bit DIR_S3 = 1'b1;       // the directory RAM written at S3 (else S2)
   parameter int NSETS_USED = 4;      // sets the line pool covers
   parameter int NTAGS  = 12;         // lines per set in the pool (> 8 ways forces evictions)
   parameter int CAP    = 6;          // lines an agent caches at most
@@ -35,7 +36,8 @@ module tb_l2;
   axi_b_t  bresp; logic bresp_valid, bresp_ready;
   logic    init_done, ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
-  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT)) dut (
+  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT),
+               .DIR_S3(DIR_S3)) dut (
     .clk, .rst,
     .a_i (a), .a_valid_i (a_valid), .a_ready_o (a_ready),
     .b_o (b), .b_valid_o (b_valid), .b_ready_i (b_ready),
