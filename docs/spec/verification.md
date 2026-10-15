@@ -679,6 +679,8 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
     - the replay flag's XOR-banked tables saw no two valid setters at one entry, and no dispatch clear meeting a set, the two cases the core track expects never;
     - their guard's condition met an invalid second setter 257 times, which it handles;
     - an interrupt was taken with a CSR instruction at the head 12 times, 10 of them while it was in EX: the case the CSR unit's cold registers (xepc, xcause and xtval, written over three cycles) must handle.
+  - **Steered (the core track asked):** `t_csr_burst` gives programs with timer interrupts runs of CSR accesses. These execute one at a time at the head, so interrupts meet them there: 80 per 200 programs (67 in EX), against 12.
+  - **Confirmed on fn3** (the core track's 1c0eaca, which replaces the replay flag's guards with an assertion over valid writers): the two events stay at 0, and the 200 programs pass.
 
 ### 6.3 Snapshots
 
