@@ -327,6 +327,39 @@ Two independent ways, both in `make regress`:
 
 The checker found its first real bug the same day: the test core lost deferred writebacks when two deferred records left its trace queue in one cycle.
 
+### 3.9 FPGA lockstep on the board (`tanager-lockstep`)
+
+M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into DDR (uncore-trace.md) is checked on the KV260's A53 against Spike, record by record, by the checker of §3.1–3.6.
+
+**Two programs, one pipe.**
+- **`tanager-host`** (sw/host, the SoC track) does every board access: the overlay guard, the ring, `TRS_RP`, the console and the injector. `--trace FILE` writes each 64-byte record to `FILE` in order. While `FILE` does not take them, the ring fills and the cores stall on `trace_stall_i`, so nothing is lost.
+- **`tanager-lockstep`** (`sim/src/tanager_lockstep.cpp`) reads that stream from a file, a FIFO or stdin and feeds `lockstep_t`. It never opens `/dev/mem`.
+  - **Spike's memory** starts as `tanager-host load` leaves the board's (soc.md §3): the boot ROM at `0x1000`, as `tg_bootrom_img_pkg.sv` holds it (`gen_bootrom_h.py` makes a header of it); `--fw` at `0x8000_0000`; `--kernel` at `+0x20_0000`; `--dtb` at `+0x220_0000`. Everything else is zero. The platform is `tg_vsim`'s: device loads are adopted (§3.4).
+  - **Options:** `--isa`, `--priv`, `--harts` and `--pmp` default to the configuration's (§3.2). `--mem-mb` defaults to 768: the 1 GiB carve-out less the default ring of 2^22 records. `--stats=S` prints a progress line every S seconds. `--max=N` stops after N records. `--stale=C` flags a deferred writeback still pending after C cycles. `--plant=N` is a self-test: it flips bit 0 of the value of the first record at or after N that carries one.
+  - **Decoding** (host.md, commit trace): kind 3 is a writeback (`tr_wb_t`). A retire's value, address and data words are `rd_value`, `mem_vaddr` and `mem_wdata`; a trap's or interrupt's are `cause` and `tval`. The record's cycle is 32 bits; the checker widens it for `--stale`.
+  - **Exit:** 0 when the stream ends with nothing pending (PASS); 2 at the first mismatch, after the record number, its cycle, the raw record and §3.6's report on stderr.
+- **A FIFO, not stdout:** `tanager-host` prints its own messages and the stdio console on stdout. Given a FIFO, `--trace` opens it like a file, so stdout keeps the console and nothing in `tanager-host` changes. When the checker stops at a mismatch, `tanager-host` dies of SIGPIPE at its next write. The cores then stall on the full ring, a stdio console stays raw until `stty sane`, and the next `load` resets everything.
+
+**Building it: cross-compiled, measured against native.**
+- `make -C sim lockstep-aarch64` cross-builds Spike at `SPIKE_SHA` with the aarch64 musl toolchain `tanager-host` uses (`sw/versions.sh`), then links the checker statically and strips it. The result is a 9.9 MB binary with no packages needed on the board. Spike's source comes through `sw/fetch.sh spike` (GitHub's archive of the commit, its SHA-256 recorded on first fetch); nothing is vendored.
+- **Measured on the 5950X:** 2 min 43 s with `-j8` (17.2 CPU-minutes). What it keeps is the libraries and headers, 39 MB. Spike's own flags include `-g`: with it, `libriscv.a` alone was 973 MB and the object tree 2 GB. The rule passes `-g0` and deletes the tree.
+- **Native on the board, estimated** (no build there: the board is the board session's): an A53 at 1.33 GHz compiles about 5–7 times slower per core than the 5950X, so 17 CPU-minutes become about 1.5–2 hours of CPU. With 4 cores and 4 GB, and Spike's larger files needing up to about 1 GB each, that is half an hour to an hour. It also needs a compiler and Spike's build dependencies installed on the board's Ubuntu.
+
+**Speed.** Per record, the checker steps Spike once with commit logging on, and logging is costly in two ways.
+- **Spike formats a log line at every step,** about ten `fprintf` calls, even into `/dev/null`. That was half the checker's time. The log file is now opened read-only: glibc's and musl's `fprintf` return at once, and nothing reads the log anyway.
+- **With logging on, Spike caches no translations** (`refill_tlb`), so every fetch, load and store runs Spike's PMP check over all 16 entries. The checker's own fetch, which compares the instruction bits, was one of about 3.4 such accesses per record. It now goes through Spike's instruction cache, which Spike's own fetch refills at every step, and a difference is confirmed with a fresh fetch before it is reported. Spike's PTE cache keeps Sv39 walks cheap.
+- **Result:** on the 5950X, the OpenSBI trace below went from 0.93 M to 1.92 M records/s (3.4 to 1.6 CPU-seconds). The PMP checks inside Spike's step, about half of what remains, cannot change without patching Spike, which we don't. The A53's rate is the board's first measurement (runbook step 1).
+
+**The proof in simulation** (deliverable 3). `tb_boot` with `+trace_out=FILE` streams `tanager_soc`'s trace into a 4,096-record ring in `tb_axi_mem`, as `tanager-host` does. Every 2,000 cycles it reads `TRS_WP` over the host's AXI-Lite port, copies the new records with `peek_beat`, and writes `TRS_RP`. One real `st` core:
+- **`soc_test.bin`:** 230,255 records stream and PASS. With `--plant=100000`, the checker stops at record 100,000 with the full report (`x15` of a `mul`: RTL `…4d`, Spike `…4c`).
+- **OpenSBI** (`fw_jump.bin`) to its banner: 20 M cycles, 3,087,220 records with 6 traps, PASS.
+
+**On the board** (the board session runs it; Linux's fan control stays on for every run):
+1. **Offline, no PL:** `tanager-lockstep --fw soc_test.bin soc.trace` (PASS, 230,255 records), the same with `--plant=100000` (exit 2 at record 100,000), and the OpenSBI trace (PASS). These give the A53's records per second.
+2. **The trace path, no checker:** `tanager-host boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace /tmp/soc.trace`. The hardware writes a trace for the first time. Then check `/tmp/soc.trace` offline as in step 1.
+3. **Live, the SoC test:** `mkfifo /tmp/tg.trace`; start `tanager-lockstep --fw soc_test.bin --stats=5 /tmp/tg.trace` in the background, then run step 2's `boot` with `--trace /tmp/tg.trace`.
+4. **Live, Linux to the root shell,** at native latency and at 250 injected cycles. Use the traced runs' 768 MiB device tree (`make -C sw/dts MEM=0x30000000`) and give the checker the same three files. `tg.sh linux` stops after `LINUX_S` seconds (default 1,200), so raise it. Report the wall time against the unchecked boot (TANAGER-BOOT-OK 8 s after the load; at 250 cycles, the login prompt after 14 s), records per second from `--stats`, and any mismatch with its report.
+
 ## 4. Test suites and runners
 
 ### 4.1 riscv-tests
@@ -647,6 +680,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 10. **The Linux boot in the cycle-identical check (§4.5):** built (`BOOT=N`). `sim/tb/tg_soc_sig.sv` is bound into `tanager_soc`, so `tb_boot` does not change. It can run from main once the SoC track merges `tb_boot`; until then `--boot-tree` takes it from the SoC branch. The bind names the SoC's ports, the trace AXI port the SoC branch added included, so a port rename in `tanager_soc` needs the same rename in `tg_soc_sig_bind.sv` (the build fails otherwise, and says so).
 11. **`tg_replay` and translated device loads:** the replay marks a device load `mmio` only when it is untranslated, so under Sv39 a CLINT load reads different values in its two Spikes, and the pre-check of a random program would fail. The generator keeps device loads out of `--vm` programs (lockstep against the RTL is not affected: the RTL marks the load itself). Checking the translated physical address in the replay would lift it.
 12. **Coverage gaps for the core track (§6.4):** which instructions report an exception on the ROB's "other" completion port, whether a completion for a squashed entry and the `mret` path in the head's next-PC selection can occur, and whether rename can run out of long-latency tags in any configuration. Programs for the reachable ones can then follow.
+13. **FPGA lockstep and the SoC track's files (§3.9):** asked of the SoC track, which owns them. First, `tanager-host load` should zero the RISC-V window: Spike's memory starts at zero, but the board's DDR holds old data, and Linux may read some it never wrote (a simulated boot through the checker is to show whether it does). Second, an orderly exit when the checker stops, in place of SIGPIPE. Third, `tb_boot`'s `+trace_out` for the simulation proof: about 40 lines, waiting for their OK. Also, the `spike` item in `sw/fetch.sh`.
 
 ## 10. Provenance
 
@@ -695,6 +729,12 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - The XOR-banked rename map was already fully covered. The real hole was address translation: no random program ever ran under Sv39, so the LSU's DTLB, page walks and page faults and the ROB's DTLB-miss handling went untested by random programs. `--vm`, store bursts, port collisions, MMIO, denied pages and fetch faults took the LSU from 88.4% to 98.3% of its reachable expression points and the ROB from 87.4% to 92.3%.
   - The new programs found two harness bugs, both in how denied memory is modelled (a denied Grant's permissions; denied DRAM as non-reservable), and no core bug.
   - **Lesson:** measure before writing tests. The intuition (stress the rename map) was wrong about where the gap was.
+
+- **FPGA lockstep, the checker on the A53 (2026-10-14, §3.9):**
+  - **Built and proven in simulation:** cross-built as a static musl binary (9.9 MB, under 3 minutes). In simulation it checked the SoC test, stopped exactly on a planted wrong value, and checked OpenSBI to its banner (3.09 M records).
+  - **Profiled before the port,** since the A53 is several times slower than the build host. Half the checker's time went into Spike formatting a commit log for `/dev/null`. One in three of Spike's PMP-checked accesses was the checker's own compare fetch. Both fixes together made it 2.1× faster.
+  - **The cross build first came out at 3 GB:** Spike's own flags carry `-g`.
+  - **Lesson:** profile before porting to a slower machine. The time went where nobody looked: into a log file opened for writing that no one reads.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
