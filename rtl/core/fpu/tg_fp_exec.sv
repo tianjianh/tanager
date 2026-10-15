@@ -366,7 +366,8 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   logic      fma_ov, misc_ov;
   fpu_resp_t fma_resp, misc_resp;
-  tg_fpu #(.DIV_RADIX4(DIV_RADIX4), .DIV_TAG_W(DQW)) u_fpu (
+  // The FMA and FMISC take the one request ex_req, so tg_fpu unpacks its operands once for both
+  tg_fpu #(.DIV_RADIX4(DIV_RADIX4), .DIV_TAG_W(DQW), .SHARE_UNPACK(1'b1)) u_fpu (
     .clk, .rst,
     .fma_valid_i (ex_v_q && ex_unit == FU_FMA), .fma_req_i (ex_req),
     .fma_valid_o (fma_ov), .fma_resp_o (fma_resp),

@@ -19,12 +19,16 @@ module tg_fpu_fma
 #(
   // 5: E0..E4 as specified. 4: the E3/E4 boundary is removed (the plan's 4-cycle option,
   // kept for timing experiments; the core's FMA_LAT must match).
-  parameter int STAGES = FMA_LAT
+  parameter int STAGES = FMA_LAT,
+  // 1: a and b come unpacked (ua_i, ub_i, from tg_fpu, shared with FMISC)
+  parameter bit SHARED = 1'b0
 ) (
   input  logic       clk,
   input  logic       rst,
   input  logic       valid_i,
   input  fpu_req_t   req_i,
+  input  fp_unp_t    ua_i = '0,
+  input  fp_unp_t    ub_i = '0,
   output logic       valid_o,
   output fpu_resp_t  resp_o
 );
@@ -49,8 +53,8 @@ module tg_fpu_fma
   assign neg_add  = (q.op == FOP_FSUB) || (q.op == FOP_FMSUB) || (q.op == FOP_FNMADD);
 
   fp_unp_t ua, ub, uc, ub_raw, uc_raw;
-  assign ua     = unpack(q.a, sdbl);
-  assign ub_raw = unpack(q.b, sdbl);
+  assign ua     = SHARED ? ua_i : unpack(q.a, sdbl);
+  assign ub_raw = SHARED ? ub_i : unpack(q.b, sdbl);
   assign uc_raw = unpack(q.c, sdbl);
   always_comb begin
     // FADD/FSUB: a x 1.0 + c (P4 reads rs2 into c); FCVT.F.F: a x 1.0
