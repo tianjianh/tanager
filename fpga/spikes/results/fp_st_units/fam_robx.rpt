@@ -1,0 +1,97 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Thu Oct 15 10:05:55 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -of_objects [get_timing_paths -quiet -max_paths 1 -nworst 1 -setup -to {{u_fetch/u_cmp/head_q_reg[1]_replica/C --> u_rn/rn_uop_q_reg[1][pred_npc][59]/D}}] -input_pins -file fam_robx.rpt
+| Design            : tg_core
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Physopt postRoute
+| Temperature Grade : C
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -2.818ns  (required time - arrival time)
+  Source:                 u_rob/flush_reg/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            u_rob/exr_tval_q_reg[12]/CE
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        7.444ns  (logic 1.206ns (16.200%)  route 6.238ns (83.800%))
+  Logic Levels:           8  (LUT3=1 LUT4=1 LUT5=2 LUT6=4)
+  Clock Path Skew:        -0.258ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.563ns = ( 6.563 - 5.000 ) 
+    Source Clock Delay      (SCD):    1.923ns
+    Clock Pessimism Removal (CPR):    0.102ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=30473, unset)        1.923     1.923                         u_rob/clk
+    SLICE_X50Y155        FDRE                                         r  rob                  u_rob/flush_reg/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X50Y155        FDRE (Prop_HFF2_SLICEL_C_Q)
+                                                      0.115     2.038 f  rob                  u_rob/flush_reg/Q
+                         net (fo=316, routed)         1.714     3.752                         u_ex/flush
+    SLICE_X26Y132                                                     f  exec                 u_ex/fpi_ready_INST_0_i_1/I3
+    SLICE_X26Y132        LUT4 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.151     3.903 r  exec                 u_ex/fpi_ready_INST_0_i_1/O
+                         net (fo=24, routed)          0.396     4.300                         u_ex/fpi_ready_INST_0_i_1_n_0
+    SLICE_X27Y137                                                     r  exec                 u_ex/oth_rob[2]_INST_0_i_1/I3
+    SLICE_X27Y137        LUT6 (Prop_G6LUT_SLICEL_I3_O)
+                                                      0.137     4.437 r  exec                 u_ex/oth_rob[2]_INST_0_i_1/O
+                         net (fo=1, routed)           0.643     5.080                         u_ex/oth_rob[2]_INST_0_i_1_n_0
+    SLICE_X32Y144                                                     r  exec                 u_ex/oth_rob[2]_INST_0/I0
+    SLICE_X32Y144        LUT3 (Prop_H6LUT_SLICEM_I0_O)
+                                                      0.228     5.308 r  exec                 u_ex/oth_rob[2]_INST_0/O
+                         net (fo=66, routed)          1.394     6.701                         u_rob/oth_rob[2]
+    SLICE_X56Y152                                                     r  rob                  u_rob/exr_cause_q[1]_i_16/I0
+    SLICE_X56Y152        LUT6 (Prop_H6LUT_SLICEL_I0_O)
+                                                      0.137     6.838 f  rob                  u_rob/exr_cause_q[1]_i_16/O
+                         net (fo=1, routed)           0.057     6.895                         u_rob/exr_cause_q[1]_i_16_n_0
+    SLICE_X56Y152                                                     f  rob                  u_rob/exr_cause_q[1]_i_7/I4
+    SLICE_X56Y152        LUT6 (Prop_C6LUT_SLICEL_I4_O)
+                                                      0.187     7.082 f  rob                  u_rob/exr_cause_q[1]_i_7/O
+                         net (fo=1, routed)           0.107     7.189                         u_rob/exr_cause_q[1]_i_7_n_0
+    SLICE_X56Y152                                                     f  rob                  u_rob/exr_cause_q[1]_i_4/I0
+    SLICE_X56Y152        LUT6 (Prop_D6LUT_SLICEL_I0_O)
+                                                      0.136     7.325 f  rob                  u_rob/exr_cause_q[1]_i_4/O
+                         net (fo=2, routed)           0.104     7.429                         u_rob/exr_cause_q[1]_i_4_n_0
+    SLICE_X56Y153                                                     f  rob                  u_rob/exr_tval_q[31]_i_4/I1
+    SLICE_X56Y153        LUT5 (Prop_E6LUT_SLICEL_I1_O)
+                                                      0.057     7.486 f  rob                  u_rob/exr_tval_q[31]_i_4/O
+                         net (fo=35, routed)          0.352     7.838                         u_rob/exr_tval_q[31]_i_4_n_0
+    SLICE_X52Y155                                                     f  rob                  u_rob/exr_tval_q[31]_i_1/I4
+    SLICE_X52Y155        LUT5 (Prop_B6LUT_SLICEL_I4_O)
+                                                      0.058     7.896 r  rob                  u_rob/exr_tval_q[31]_i_1/O
+                         net (fo=64, routed)          1.470     9.367                         u_rob/exr_tval_q[31]_i_1_n_0
+    SLICE_X40Y156        FDRE                                         r  rob                  u_rob/exr_tval_q_reg[12]/CE
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)        5.000     5.000 r                       
+                                                      0.000     5.000 r                       clk (IN)
+                         net (fo=30473, unset)        1.563     6.563                         u_rob/clk
+    SLICE_X40Y156        FDRE                                         r  rob                  u_rob/exr_tval_q_reg[12]/C
+                         clock pessimism              0.102     6.665                           
+                         clock uncertainty           -0.035     6.629                           
+    SLICE_X40Y156        FDRE (Setup_HFF_SLICEM_C_CE)
+                                                     -0.081     6.548    rob                    u_rob/exr_tval_q_reg[12]
+  -------------------------------------------------------------------
+                         required time                          6.548                           
+                         arrival time                          -9.367                           
+  -------------------------------------------------------------------
+                         slack                                 -2.818                           
+
+
+
+

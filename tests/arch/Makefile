@@ -17,6 +17,7 @@ ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc)
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
+include $(ROOT)/sim/profile.mk
 TANAGER_OPT   ?= $(HOME)/opt/tanager
 ARCH_TEST ?= $(HOME)/src/tanager/riscv-arch-test
 VENV := $(TANAGER_OPT)/act-venv
@@ -44,10 +45,10 @@ GEN_EXT := $(subst $() ,$(comma),$(strip $(GEN_PLANS) $(subst $(comma), ,$(shell
 
 .PHONY: run elfs tests replay clean
 run: elfs
-	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) build
-	python3 $(ROOT)/tests/arch/run_arch.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)/tg_vsim \
+	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=$(CFG) CORE=$(CORE) $(TC_ARG) build
+	python3 $(ROOT)/tests/arch/run_arch.py --sim $(TANAGER_BUILD)/$(WT)/sim/$(CFG)-$(CORE)$(TC_SUFFIX)/tg_vsim \
 	  --elfs $(WORK)/$(ACTCFG)/elfs --exclude $(ROOT)/tests/arch/exclude/$(ACTCFG).txt --jobs $(JOBS) \
-	  --logdir $(WORK)/logs/$(ACTCFG)-$(CFG)-$(CORE) --name "ACT4 $(ACTCFG) on $(CFG) $(CORE)" -- $(SPIKE_ARGS) $(SIMARGS)
+	  --logdir $(WORK)/logs/$(ACTCFG)-$(CFG)-$(CORE)$(TC_SUFFIX) --name "ACT4 $(ACTCFG) on $(CFG) $(CORE)$(TC_SUFFIX)" -- $(SPIKE_ARGS) $(SIMARGS)
 
 replay: elfs
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim replay

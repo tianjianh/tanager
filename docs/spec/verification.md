@@ -412,7 +412,11 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4):
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0] [TIMING_CUTS=0|1]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4).
+
+`TIMING_CUTS` picks the core's timing-cut profile (DR-140; `sim/profile.mk`). The core's three switches (#2, #4 and #5) are on together or off together, and the core package's default is the shipping profile. `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`. It builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs both of DR-140's profiles: "default" (unset: #2, #4 and #5 on) and "fallback" (`TIMING_CUTS=0`: all three off). #8 is off in both. With Spike lockstep, the profiles differ only in cycles. #8 (one more decode stage, `DE_STAGE=0|1`, `+define+TG_DE_STAGE`) is for lint only: `make lint` takes it, a build that runs programs refuses it. `make lint-all` elaborates every configuration three ways: the fallback, the default, and #8 on top of the default. That is about two minutes in all.
+
+The steps:
 1. builds `tg_vsim` for the configuration and `tg_replay`;
 2. runs the riscv-tests suites with lockstep (default `rv64ui-p rv64um-p rv64mi-p`, the M2 set);
 3. runs the directed tests with lockstep (§4.1);
@@ -433,7 +437,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - every extension switch of `tg_core_pkg` (`EXT_*`) is on, as the core track tests them. Spike uses the M3 configuration (§3.2). Once the core has `EXT_FD`, Spike's ISA adds `f` and `d` and the programs are `rv64gc`, with the F/D templates; before that they are `rv64imac`;
   - every program draws its own memory stress (latency 30, 90, 120 or 250 cycles, jitter, back-pressure, D gaps, `toB` grants, probes, the two denied pages), and a third also stall the trace (§2.9);
   - a third run in S-mode under Sv39 (`tg_rand --vm 33`, §6.2), once main's generator has the option;
-  - timer interrupts are on in every other round;
+  - timer interrupts are on in every other round. Once main has the core's timing-cut switch (DR-140), both profiles are built: the profile alternates every round and the interrupts every second round, so four rounds cover all four pairs. Tallies and failures name the profile (`st-tc0`, `st-tc1`);
   - 48 programs per configuration per round, with new seeds each time.
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
 - **Strictly in the background:**
@@ -454,7 +458,10 @@ The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fp
 
 ```
 make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
+                     [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
 ```
+
+- **Profiles (DR-140).** `TIMING_CUTS` builds both sides' `tg_vsim` in that timing-cut profile, so a change is checked in each profile CI runs. `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key. The boot suite builds the package's default.
 
 - **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
   - the commit records and writebacks of the window: their number and a hash of them, each with its cycle and its slot or port;
@@ -539,6 +546,38 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   - **On the board,** that shows only after a warm reset. At power-up the content is the INIT value, zero, the same as in the default runs.
   - **The base already depends on such state:** `rv64ui-p-add` takes 1,389 cycles from zeros and 1,468 with most random seeds. A branch at its first loop exit is predicted differently, which points to a predictor table without a reset. Such results need reading, so `reset` is not a default suite.
 - **Configurations:** `CFG="st smt2 st_w3 smt2_w3"` checks each in turn. A rewrite must be identical in every configuration it builds in.
+
+### 4.6 Linux workload set (`tests/bench/linux`, DR-141)
+
+Linux is the reference workload (DR-141): the core's switch profiles are compared on the board under real Linux. The set is static rv64 user programs plus one run script. It goes into the initramfs the board already boots, so no new boot flow is needed.
+
+- **Programs** (`make -C tests/bench/linux`; our own code, plus the CoreMark and Dhrystone sources of `perfmodel/third_party`, DR-138):
+  - `tg-lbench`, one subcommand per measurement:
+    - `forkexec`: 1,000 × fork, exec `/bin/true`, wait;
+    - `syscall`: 1,000,000 `getpid` calls;
+    - `memcpy` and `memset` at 64 B, 4 KiB and 1 MiB, 64 MiB moved per run;
+    - `pipe` and `tmpfs` (write, then read back): kernel copies, 16 MiB in 64 KiB calls;
+    - `pagefault`: 64 MiB mapped and written once per page;
+    - `tlbwalk`: a dependent pointer chase, 1,000,000 steps through a random cycle over 64 MiB of pages;
+    - `exec` times other commands: BusyBox's `gzip` and `sha256sum` over 4 MiB of generated text in `/tmp`.
+  - `coremark-a` and `coremark-b`, with plan §10.2's flag sets, and `dhrystone`, the same sources and flags as the bare-metal runs (§4.2). CoreMark scales itself to at least 10 s, its condition for a valid result; the line reports the iteration count.
+- **Run:** `tg-lbench.sh [RUNS]` runs everything RUNS times (3). With `tanager.bench=1` on the kernel command line, `/etc/init.d/S99tglbench` runs it after the boot marker and powers off, so a board run ends by itself.
+- **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=… perf_events=… perf_errno=…` line and one line per measurement:
+  ```
+  TGLB <test> run=<k> cycles=<n|-> instret=<n|-> ticks=<n> ns=<n> ops=<n> [key=value ...]
+  ```
+  - `cycles` and `instret` come from `rdcycle` and `rdinstret` over the measured region. `ticks` come from `rdtime`, at the `timebase` the info line gives (10 MHz). `ns` comes from `CLOCK_MONOTONIC`, and `ops` is the operations counted, so per-operation values are `cycles/ops`.
+  - A test that fails prints `TGLB-FAIL <command>`, and the end line says `status=1`.
+  - `counters=cycle,instret,time` on the info line means the cycle counts are real. `counters=time` means every line says `cycles=-`; then `perf_events` (counter events opened, 2 per hart) and `perf_errno` (the first error) say why.
+- **User-mode cycle counts need three things** (Linux 6.18, OpenSBI 1.9). The SoC track's bench image has all three:
+  1. **The SBI PMU driver** (`CONFIG_PERF_EVENTS`, `CONFIG_RISCV_PMU`, `CONFIG_RISCV_PMU_SBI`). Linux itself lets user mode read only `time` (`scounteren` = 0x2, `head.S`). With `kernel.perf_user_access` = 2 (legacy access, which the script sets), the driver also opens `cycle` and `instret`. Without the driver, `rdcycle` traps, and `tg-lbench` notices (a SIGILL probe).
+  2. **Running counters.** The driver stops every counter at boot, and only a perf event starts one. So `tglb.h` opens a pinned system-wide cycles event and instructions event on every hart, which legacy mode places on the fixed `mcycle` and `minstret`, and keeps them open while the program runs (this needs root). Without them, `rdcycle` reads a stopped counter.
+  3. **A `riscv,pmu` device-tree node** mapping CPU_CYCLES to counter 0 and INSTRUCTIONS to counter 2 (`make -C sw/dts PMU=1`). With SBI v3, the driver asks OpenSBI about each event at boot (`PMU_EVENT_GET_INFO`), and OpenSBI reports only the events the node maps; it does not count the fixed counters as present. Without the node, both events are unsupported and `perf_event_open` fails (`perf_errno=2`, ENOENT). The core has no `mhpmcounter`s (OpenSBI prints "MHPM Info: 0"), so the map names only the fixed counters.
+  - The probe also checks that both counters advance. The counts include kernel time, since the fixed counters cannot filter by privilege mode on this core.
+  - Each hart's counters start at their own time, so each program pins itself, and the programs it starts, to the hart it first measures on. The bench image has one hart.
+- **The bench image** is the SoC track's `tanager_lp64d_bench`. It is the reference image plus the PMU driver (`board/tanager/linux-bench.fragment`), the `tg-lbench` package (it builds `tests/bench/linux` with the image's toolchain, `make install DESTDIR=…`), and a device tree built with `PMU=1` and `tanager.bench=1` in its boot arguments. The reference image and its device trees stay byte-identical (`tb_boot`, lockstep, the cycle-identical boot). `make -C tests/bench/linux initrd` makes the set an extra initrd instead; it overlays the image's copy, so a change can be tried in QEMU without rebuilding the image.
+- **Checked in QEMU** (the bench image and its device tree, Sscofpmf off like Tanager): boot, every test with cycle counts, `TGLB-END status=0` and power-off in 211 s; every CoreMark run reports "Correct operation validated". On two harts (the same image, a 2-hart `PMU=1` tree): `perf_events=4`, `TGLB-END status=0` and power-off in 259 s, and a check program's affinity narrowed to its own hart. With no `mhpmcounter`s as well (`pmu-mask=0`), OpenSBI's extension and MHPM lines match the board's, Linux sees 2 hardware counters, and the counts work. QEMU's cycle and instret counters both count host time, so only the board's counts mean anything.
+- **Comparing runs:** `tglb_compare.py [NAME=]LOG ...` reads console logs, one per profile say, and prints a Markdown table. Per test it gives the median per operation (`--metric cycles`, `instret` or `ns`), the change against the first log, and the spread of the runs, so a change within the spread is not a finding. It lists any log that did not finish, had a failing test, or has no cycle counts.
 
 ## 5. The test core (`tg_tcore`)
 
@@ -773,6 +812,10 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **The board also tested the test:** `--plant` had landed on an MMIO load, whose value the checker adopts, so nothing could show and the run passed. It now plants only where the checker compares. On the board, `--plant=1000` then stopped live at record 1002, the `andi` after the UART poll. The checker exited 2, and `tanager-host` reported "trace consumer stopped" and exited 4.
   - **Lesson:** a self-test must aim where the checker looks, and say where it aimed.
   - **Lesson:** a simulated boot of the same images is worth running before the board, even at 4 K records/s. It named the board's first stop, and its cause, before the board reached it.
+
+- **The Linux workload set (2026-10-15, §4.6, DR-141):** static programs and a run script in the initramfs, checked in QEMU on the SoC track's bench image.
+  - **User-mode cycle counts took three layers, found one at a time.** Without the PMU driver, `rdcycle` trapped. With it, `rdcycle` read 0: the driver stops every counter at boot. With a perf event to start them, `perf_event_open` failed: OpenSBI 1.9 tells Linux only about the events the device tree maps (SBI v3's event-info call). A `riscv,pmu` node with two entries fixed the last (the SoC track's `PMU=1`).
+  - **Lesson:** a counter that reads without trapping is not a counter that counts. The probe now checks that both counters advance, and the info line says how many events opened, and if none did, why.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
