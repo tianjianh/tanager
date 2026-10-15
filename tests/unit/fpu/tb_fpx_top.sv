@@ -105,12 +105,19 @@ module tb_fpx_top
   assign fpi_data   = fpi.data;
   assign fpi_fflags = fpi.fflags;
 
+  // The core's side of the store-data and trace ports: P4 hands out both banks and the user picks
+  // one by the tag's bank (tg_core's trace multiplexer, the LSU's store-data multiplexer)
+  logic [1:0][63:0]      fsd_b;
+  logic [1:0][0:0][63:0] tr_b;
+  assign fsd_data = fsd_b[fsd_tag[FPIDX_W]];
+  assign tr_data  = tr_b[tr_tag[FPIDX_W]][0];
+
   tg_fp_exec #(.NTR(1), .DIV_RADIX4(DIV_RADIX4)) u_dut (
     .clk, .rst, .flush, .flush_tid, .init_we, .init_bank, .init_idx,
     .iss_valid, .iss_pl(pl), .fmisc_block,
     .isrc_valid, .isrc_tag, .isrc_data,
     .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_data,
-    .fsd_tag, .fsd_data, .tr_tag(tr_tag), .tr_data(tr_data),
+    .fsd_tag, .fsd_data(fsd_b), .tr_tag(tr_tag), .tr_data(tr_b),
     .f0_we_o, .f0_widx_o, .wake_reg, .llt_done,
     .cmp_valid, .cmp_tid, .cmp_rob, .cmp_wid, .cmp_fflags,
     .fpi_valid, .fpi_ready, .fpi_o(fpi), .fpi_kill, .fpi_pop,

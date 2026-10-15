@@ -43,11 +43,12 @@ module tg_fp_exec
   input  logic                         fld_valid,
   input  logic [FPIDX_W-1:0]           fld_idx,
   input  logic [63:0]                  fld_data,     // the value F1 gets (FLW already boxed)
-  // FP store data and trace reads (combinational)
+  // FP store data and trace reads (combinational), from both banks: the user selects by the tag's
+  // bank, folding that select into its own multiplexer (fpga_friendly.md T7)
   input  preg_t                        fsd_tag,
-  output logic [63:0]                  fsd_data,
+  output logic [1:0][63:0]             fsd_data,
   input  preg_t [NTR-1:0]              tr_tag,
-  output logic [NTR-1:0][63:0]         tr_data,
+  output logic [1:0][NTR-1:0][63:0]    tr_data,
   // F0 writes, for the core's FP ready table
   output logic                         f0_we_o,
   output logic [FPIDX_W-1:0]           f0_widx_o,
@@ -107,7 +108,6 @@ module tg_fp_exec
   logic [FPIDX_W-1:0]         f0_wa;
   logic [63:0]                f0_wd;
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
-  logic [NRP-1:0][63:0]        rdata;
   logic [1:0][NRP-1:0][63:0]   bank_rd;
   // The reset sequence's zero writes take the F0 port: nothing else writes F0 then, and the zero
   // and its index fold into the F0 stream's multiplexers (below)
@@ -115,7 +115,7 @@ module tg_fp_exec
     .clk,
     .f0_we(f0_we || init_we), .f0_waddr(f0_wa), .f0_wdata(f0_wd),
     .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
-    .rtag, .rdata, .bank_rd);
+    .rtag, .bank_rd);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
   logic rf_add;
   assign rf_add  = iss_pl.fop == FOP_FADD || iss_pl.fop == FOP_FSUB;
@@ -123,10 +123,11 @@ module tg_fp_exec
   assign rtag[1] = FPTAG_W'(iss_pl.src2);
   assign rtag[2] = FPTAG_W'(rf_add ? iss_pl.src2 : iss_pl.src3);
   assign rtag[3] = FPTAG_W'(fsd_tag);
-  assign fsd_data = rdata[3];
+  assign fsd_data = {bank_rd[1][3], bank_rd[0][3]};
   for (genvar j = 0; j < NTR; j++) begin : g_tr
-    assign rtag[4+j]  = FPTAG_W'(tr_tag[j]);
-    assign tr_data[j] = rdata[4+j];
+    assign rtag[4+j]     = FPTAG_W'(tr_tag[j]);
+    assign tr_data[0][j] = bank_rd[0][4+j];
+    assign tr_data[1][j] = bank_rd[1][4+j];
   end
 
   // ------------------------------------------------------------------------------------------
@@ -366,7 +367,8 @@ module tg_fp_exec
   // ------------------------------------------------------------------------------------------
   logic      fma_ov, misc_ov;
   fpu_resp_t fma_resp, misc_resp;
-  tg_fpu #(.DIV_RADIX4(DIV_RADIX4), .DIV_TAG_W(DQW)) u_fpu (
+  // The FMA and FMISC take the one request ex_req, so tg_fpu unpacks its operands once for both
+  tg_fpu #(.DIV_RADIX4(DIV_RADIX4), .DIV_TAG_W(DQW), .SHARE_UNPACK(1'b1)) u_fpu (
     .clk, .rst,
     .fma_valid_i (ex_v_q && ex_unit == FU_FMA), .fma_req_i (ex_req),
     .fma_valid_o (fma_ov), .fma_resp_o (fma_resp),
@@ -581,7 +583,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{init_bank, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{init_bank, dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
