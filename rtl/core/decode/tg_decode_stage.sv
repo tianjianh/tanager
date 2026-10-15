@@ -1,10 +1,17 @@
-// Decode stage (DE, docs/spec/core-pipeline.md §3.4, §4): decodes the DECODE_WIDTH instructions
-// at the instruction-queue head and forms the group rename takes, all or nothing.
+// Decode stages (DE1, DE2; docs/spec/core-pipeline.md §3.4, §4). Measurement of a reserve lever
+// (DR-135; branch tmp/core-cut-de, not for merge): decode takes a stage of its own.
+//   DE1 decodes the DECODE_WIDTH instructions at the instruction-queue head into its registers,
+//       as many as there is room for: the slots DE2 does not hand on are kept, moved to the front.
+//   DE2 forms the group rename takes, all or nothing, from DE1's registers, and checks the
+//       predictions (decode-time redirects).
 // Group rules: a serialising instruction or one with a decode-time exception goes alone, in
 // slot 0; a decode-time redirect ends the group after its instruction.
 // Redirects: JAL not predicted to its target, a branch predicted taken to a wrong target, or a
 // prediction on something that is not a branch or jump. The redirect is registered (dred) and
-// flushes the front end in the next cycle; decode takes nothing in that cycle.
+// flushes the front end and DE1 in the next cycle; decode takes nothing in that cycle.
+// The queue's take depends only on DE1's registers and rename's take: for it, a group ends only
+// at serialising and exception instructions. The instructions after a redirect in it are dropped,
+// as the redirect drops what DE1 holds.
 // Timing: whether the predicted target is the branch's is checked without a carry chain: the
 // target is block address + offset + immediate, and "a + b + c == k" holds when every bit of
 // the carry-save sum matches the carry k needs there (Cortadella and Llaberia, IEEE Trans.
@@ -52,10 +59,9 @@ module tg_decode_stage
     return (s ^ y ^ k) == cin;
   endfunction
 
-  dec_t [W-1:0]        d;
-  logic [W-1:0]        redir;
-  logic [W-1:0][63:0]  npc;
-  logic [W-1:0]        dfix;
+  // ================= DE1: decode the queue head =================
+  dec_t [W-1:0]       d;
+  logic [W-1:0][20:0] bimm;            // the branch's immediate (JAL or conditional), sign at 20
   for (genvar j = 0; j < W; j++) begin : g_dec
     // Compressed instructions are expanded first; without C they are illegal (tval is the
     // 16-bit encoding, which the ROB keeps).
@@ -68,71 +74,139 @@ module tg_decode_stage
                      .len2(iq_insn[j].rvc),
                      .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
+    // as tg_decode adds it for d.br_target
+    assign bimm[j] = (d[j].br_kind == BR_JAL) ? {xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
+                                              : {{8{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0};
+  end
+
+  // DE1's registers: a prefix of the slots is valid
+  logic [W-1:0]       v1_q;
+  fe_insn_t [W-1:0]   i1_q;
+  dec_t [W-1:0]       d1_q;
+  logic [W-1:0][20:0] b1_q;
+
+  // ================= DE2: checks and the group, from DE1's registers =================
+  logic [W-1:0]        redir;
+  logic [W-1:0][63:0]  npc;
+  logic [W-1:0]        dfix;
+  for (genvar j = 0; j < W; j++) begin : g_chk
     logic [63:0] seq, pbase, poff, imm;
     logic        pt, hit;
     logic [63:0] ptg;
-    assign pbase = {iq_insn[j].blk, 4'b0};
-    assign poff  = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
-    assign seq   = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
-    assign pt    = iq_insn[j].pred_taken;
-    assign ptg   = iq_insn[j].pred_target;
-    // the branch's immediate (JAL or conditional), as tg_decode adds it for d.br_target
-    assign imm   = (d[j].br_kind == BR_JAL) ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
-                                            : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0};
-    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == d[j].br_target
+    assign pbase = {i1_q[j].blk, 4'b0};
+    assign poff  = i1_q[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, i1_q[j].pc[3:0]};
+    assign seq   = pbase + poff + (i1_q[j].rvc ? 64'd2 : 64'd4);
+    assign pt    = i1_q[j].pred_taken;
+    assign ptg   = i1_q[j].pred_target;
+    assign imm   = {{43{b1_q[j][20]}}, b1_q[j]};
+    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == d1_q[j].br_target
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
       dfix[j]  = 1'b0;
-      if (!d[j].exc) begin
-        if (d[j].cls == C_BR && d[j].br_kind == BR_JAL) begin
+      if (!d1_q[j].exc) begin
+        if (d1_q[j].cls == C_BR && d1_q[j].br_kind == BR_JAL) begin
           if (!pt || !hit) begin
-            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
+            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d1_q[j].br_target;
           end
-        end else if (d[j].cls == C_BR && d[j].br_kind == BR_COND) begin
+        end else if (d1_q[j].cls == C_BR && d1_q[j].br_kind == BR_COND) begin
           if (pt && !hit) begin
-            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d[j].br_target;
+            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = d1_q[j].br_target;
           end
-        end else if (d[j].cls != C_BR && pt) begin
+        end else if (d1_q[j].cls != C_BR && pt) begin
           redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = seq;
         end
       end
     end
   end
 
-  // Group: a prefix of the queue head
-  logic [TKW-1:0] n;
+  // Group: a prefix of DE1 (n); for the queue's take, the same without the redirects (nq)
+  logic [TKW-1:0] n, nq;
   always_comb begin
-    logic stop;
-    stop = 1'b0;
-    n = '0;
+    logic stop, stopq;
+    stop  = 1'b0;
+    stopq = 1'b0;
+    n  = '0;
+    nq = '0;
     for (int j = 0; j < W; j++) begin
       if (!stop) begin
-        if (!iq_valid[j]) stop = 1'b1;
-        else if ((d[j].serial || d[j].exc) && j > 0) stop = 1'b1;
+        if (!v1_q[j]) stop = 1'b1;
+        else if ((d1_q[j].serial || d1_q[j].exc) && j > 0) stop = 1'b1;
         else begin
           n = TKW'(j + 1);
-          if (d[j].serial || d[j].exc || redir[j]) stop = 1'b1;
+          if (d1_q[j].serial || d1_q[j].exc || redir[j]) stop = 1'b1;
+        end
+      end
+      if (!stopq) begin
+        if (!v1_q[j]) stopq = 1'b1;
+        else if ((d1_q[j].serial || d1_q[j].exc) && j > 0) stopq = 1'b1;
+        else begin
+          nq = TKW'(j + 1);
+          if (d1_q[j].serial || d1_q[j].exc) stopq = 1'b1;
         end
       end
     end
-    if (dred || flush) n = '0;
+    if (dred || flush) begin
+      n  = '0;
+      nq = '0;
+    end
   end
 
-  assign iq_take = de_take ? n : '0;
   for (genvar j = 0; j < W; j++) begin : g_out
     assign de_valid[j] = TKW'(j) < n;
     always_comb begin
       de_uop[j]          = '0;
-      de_uop[j].pc       = iq_insn[j].pc;
-      de_uop[j].insn     = iq_insn[j].insn;
-      de_uop[j].rvc      = iq_insn[j].rvc;
+      de_uop[j].pc       = i1_q[j].pc;
+      de_uop[j].insn     = i1_q[j].insn;
+      de_uop[j].rvc      = i1_q[j].rvc;
       de_uop[j].pred_npc = npc[j];
-      de_uop[j].ubtb_hit = iq_insn[j].ubtb_hit;
-      de_uop[j].ubtb_way = iq_insn[j].ubtb_way;
+      de_uop[j].ubtb_hit = i1_q[j].ubtb_hit;
+      de_uop[j].ubtb_way = i1_q[j].ubtb_way;
       de_uop[j].dfix     = dfix[j];
-      de_uop[j].tid      = iq_insn[j].tid;
-      de_uop[j].d        = d[j];
+      de_uop[j].tid      = i1_q[j].tid;
+      de_uop[j].d        = d1_q[j];
+    end
+  end
+
+  // ================= The queue's take and DE1's next contents =================
+  // DE2 hands on `used` slots (counted without redirects); the `left` after them move to the
+  // front, and the queue fills the rest.
+  int used, left, acc;
+  always_comb begin
+    int cnt1, iqn;
+    cnt1 = 0;
+    iqn  = 0;
+    for (int j = 0; j < W; j++) begin
+      cnt1 += int'(v1_q[j]);
+      iqn  += int'(iq_valid[j]);
+    end
+    used = de_take ? int'(nq) : 0;
+    left = cnt1 - used;
+    acc  = (dred || flush) ? 0 : ((iqn < W - left) ? iqn : W - left);
+  end
+  assign iq_take = TKW'(acc);
+
+  always_ff @(posedge clk) begin
+    if (rst || flush || dred) begin
+      v1_q <= '0;
+    end else begin
+      for (int k = 0; k < W; k++) begin
+        v1_q[k] <= 1'b0;
+        for (int s = 0; s < W; s++) begin
+          if (k < left && s == k + used) begin                 // kept: slot s moves to k
+            v1_q[k] <= 1'b1;
+            i1_q[k] <= i1_q[s];
+            d1_q[k] <= d1_q[s];
+            b1_q[k] <= b1_q[s];
+          end
+          if (k >= left && s == k - left && s < acc) begin     // new: queue entry s
+            v1_q[k] <= 1'b1;
+            i1_q[k] <= iq_insn[s];
+            d1_q[k] <= d[s];
+            b1_q[k] <= bimm[s];
+          end
+        end
+      end
     end
   end
 
@@ -150,4 +224,14 @@ module tg_decode_stage
       end
     end
   end
+
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      for (int j = 1; j < W; j++)
+        assert (!v1_q[j] || v1_q[j-1]) else $error("tg_decode_stage: DE1's valid slots are not a prefix");
+      assert (n <= nq) else $error("tg_decode_stage: the group is longer than the queue's count");
+    end
+  end
+`endif
 endmodule
