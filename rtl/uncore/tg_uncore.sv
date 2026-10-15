@@ -36,6 +36,10 @@ module tg_uncore
   // uncore's longest path at 200 MHz, for a cycle on every fill (DR-135; on by default, the user's
   // decision of 10-15: +0.056% cycles at st, +0.134% at smt2 over the first 20M of the Linux boot)
   parameter bit          AR_SLICE        = 1'b1,
+  // A register slice on each bank's TileLink B (probes), before the crossbar: it would cut the probe
+  // handshake (the L2's probe pick, the destination, the crossbar's per-core B arbiter, ready back
+  // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, being measured
+  parameter bit          B_SLICE         = 1'b0,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
@@ -161,6 +165,19 @@ module tg_uncore
   // ---------------------------------------------------------------------------------------------
   tl_a_t [N_BANKS-1:0] l2_a; logic [N_BANKS-1:0] l2_av, l2_ar;
   tl_b_t [N_BANKS-1:0] l2_b; logic [N_BANKS-1:0] l2_bv, l2_br;
+  tl_b_t [N_BANKS-1:0] xb_b; logic [N_BANKS-1:0] xb_bv, xb_br;   // B into the crossbar (B_SLICE)
+  for (genvar b = 0; b < N_BANKS; b++) begin : g_bsl
+    if (B_SLICE) begin : g_s
+      tg_skid #(.T (tl_b_t)) u_bs (
+        .clk, .rst (uncore_rst), .in_valid (l2_bv[b]), .in_ready (l2_br[b]), .in_data (l2_b[b]),
+        .out_valid (xb_bv[b]), .out_ready (xb_br[b]), .out_data (xb_b[b])
+      );
+    end else begin : g_w
+      assign xb_b[b]  = l2_b[b];
+      assign xb_bv[b] = l2_bv[b];
+      assign l2_br[b] = xb_br[b];
+    end
+  end
   tl_c_t [N_BANKS-1:0] l2_c; logic [N_BANKS-1:0] l2_cv, l2_cr;
   tl_d_t [N_BANKS-1:0] l2_d; logic [N_BANKS-1:0] l2_dv, l2_dr;
   tl_e_t [N_BANKS-1:0] l2_e; logic [N_BANKS-1:0] l2_ev, l2_er;
@@ -178,7 +195,7 @@ module tg_uncore
     .hdma_a_i ('0), .hdma_a_valid_i (1'b0), .hdma_a_ready_o (hdma_ar),
     .hdma_d_o (hdma_d), .hdma_d_valid_o (hdma_dv), .hdma_d_ready_i (1'b1),
     .l2_a_o (l2_a), .l2_a_valid_o (l2_av), .l2_a_ready_i (l2_ar),
-    .l2_b_i (l2_b), .l2_b_valid_i (l2_bv), .l2_b_ready_o (l2_br),
+    .l2_b_i (xb_b), .l2_b_valid_i (xb_bv), .l2_b_ready_o (xb_br),
     .l2_c_o (l2_c), .l2_c_valid_o (l2_cv), .l2_c_ready_i (l2_cr),
     .l2_d_i (l2_d), .l2_d_valid_i (l2_dv), .l2_d_ready_o (l2_dr),
     .l2_e_o (l2_e), .l2_e_valid_o (l2_ev), .l2_e_ready_i (l2_er),
