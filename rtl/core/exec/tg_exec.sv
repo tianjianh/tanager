@@ -186,25 +186,49 @@ module tg_exec
     return SW'(S_RF);
   endfunction
 
-  logic [N_XQ-1:0][SW-1:0] sa, sb;
-  logic [N_XQ-1:0][63:0]   ra, rb;
+  // The LD and STA bases take their write-back-level bypass here: res_q and the load result are now
+  // what wbq_q and ld_wbq_q hold in EX. Each base then has two small encoded selects, rbs here
+  // (the register value, or ALU i's or the load's write-back-level value) and ex_bs_q in EX (the
+  // register, or ALU i's or the load's EX-level value): one LUT level in front of the address adder
+  // (cycle-identical).
+  localparam int BSW = idx_w(N_ALU + 2);
+  logic [N_XQ-1:0][SW-1:0]  sa, sb;
+  logic [N_XQ-1:0][63:0]    ra, rb;
+  // LD (0) and STA (1): RF-stage and EX-stage selects, kept as nets so each data bit takes the
+  // decoded select (one LUT6) rather than re-decoding the bypass code
+  (* keep = "true" *) logic [1:0][BSW-1:0] rbs, ebs;
+  logic [1:0][BSW-1:0]      ex_bs_q;
   for (genvar q = 0; q < N_XQ; q++) begin : g_sel
+    localparam int BK = (q >= N_ALU) ? q - N_ALU : 0;   // LD (0) or STA (1); in range elsewhere
     always_comb begin
       sa[q] = bsel(iss_pl[q].src1, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
       sb[q] = iss_pl[q].b_imm ? SW'(S_IMM)
             : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
+    end
+    always_comb begin
       if (q < N_ALU) begin
         ra[q] = rd_data[2*q];
         rb[q] = rd_data[2*q+1];
-      end else if (q == Q_LD) begin
-        ra[q] = rd_data[P_LD];
-        rb[q] = '0;
       end else begin
-        ra[q] = rd_data[P_STA];
         rb[q] = '0;
+        unique case (int'(rbs[BK]))
+          0:         ra[q] = rd_data[(q == Q_LD) ? P_LD : P_STA];
+          N_ALU + 1: ra[q] = ld_res_data;
+          default:   ra[q] = res_q[(int'(rbs[BK]) - 1) % N_ALU];
+        endcase
       end
+    end
+  end
+  for (genvar k = 0; k < 2; k++) begin : g_bs
+    always_comb begin
+      int s;
+      s = int'(sa[N_ALU + k]);
+      rbs[k] = '0;
+      ebs[k] = '0;
+      if (s >= S_WB && s <= S_WB + N_ALU)      rbs[k] = BSW'(s - S_WB + 1);  // write-back level
+      else if (s >= S_EX && s <= S_EX + N_ALU) ebs[k] = BSW'(s - S_EX + 1);  // EX level
     end
   end
 
@@ -228,6 +252,7 @@ module tg_exec
 
   logic [N_XQ-1:0][63:0] opa, opb;
   for (genvar q = 0; q < N_XQ; q++) begin : g_op
+    localparam int BK = (q >= N_ALU) ? q - N_ALU : 0;
     always_comb begin
       logic [NSRC-1:0][63:0] s1, s2;
       s1 = src_common;
@@ -238,6 +263,13 @@ module tg_exec
       s2[S_IMM] = ex_pl_q[q].imm;
       opa[q] = opmux(s1, ex_sa_q[q]);
       opb[q] = opmux(s2, ex_sb_q[q]);
+      if (q >= N_ALU) begin                // LD, STA: the register value or an EX-level source
+        unique case (int'(ex_bs_q[BK]))
+          0:         opa[q] = ex_a_q[q];
+          N_ALU + 1: opa[q] = ld_res_data;
+          default:   opa[q] = res_q[(int'(ex_bs_q[BK]) - 1) % N_ALU];
+        endcase
+      end
     end
   end
 
@@ -540,6 +572,7 @@ module tg_exec
       ex_pl_q[1].alu.sub <= 1'b1;
     ex_sa_q <= sa;
     ex_sb_q <= sb;
+    ex_bs_q <= ebs;
     for (int q = 0; q < N_XQ; q++) begin
       ex_a_q[q] <= ra[q];
       ex_b_q[q] <= rb[q];
