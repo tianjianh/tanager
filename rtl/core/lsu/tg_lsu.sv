@@ -275,17 +275,17 @@ module tg_lsu
   // ---- SQ ----
   logic   [SQ_ENTRIES-1:0]           sq_v_q;
   // The ROB index and size, written at STA and read only by index, live in LUTRAM (u_sqrob,
-  // u_sqsz): the store-data completion and the head's DTLB retry read the index; the trace and
-  // forwarding read the size
+  // u_sqsz): the store-data completion and the head's DTLB retry read the index; the trace reads
+  // the size (forwarding reads its own copies, u_sqf)
   logic [1:0][SIW-1:0]               sqrob_ra;     // the captured store, the commit point
   robid_t [1:0]                      sqrob_rd;
-  logic [COMMIT_WIDTH:0][SIW-1:0]    sqsz_ra;      // the trace's stores, the forwarding store
-  logic [COMMIT_WIDTH:0][1:0]        sqsz_rd;
+  logic [COMMIT_WIDTH-1:0][SIW-1:0]  sqsz_ra;      // the trace's stores
+  logic [COMMIT_WIDTH-1:0][1:0]      sqsz_rd;
   logic   [SQ_ENTRIES-1:0]           sq_av_q, sq_dv_q, sq_mmio_q, sq_exc_q;
   // VA and data in LUTRAM: the VA for the trace, the head's walk and tval; the data for the
-  // trace, forwarding, the drain and atomics. The CAMs use the PA and masks in flip-flops.
+  // trace, the drain and atomics (forwarding: u_sqf). The CAMs use the PA and masks in flip-flops.
   localparam int SVR = COMMIT_WIDTH + 1;          // SQ VA reads: trace, the commit point (head walk, atomic)
-  localparam int SDR = COMMIT_WIDTH + 2;          // SQ data reads: trace, forwarding, the head (drain, atomic)
+  localparam int SDR = COMMIT_WIDTH + 1;          // SQ data reads: trace, the head (drain, atomic)
   logic [SVR-1:0][SIW-1:0]           sqva_ra;
   logic [SVR-1:0][63:0]              sqva_rd;
   logic [SDR-1:0][SIW-1:0]           sqd_ra;
@@ -297,6 +297,7 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0][PA_W-1:0] sq_pa_q;
   logic   [SQ_ENTRIES-1:0]           sq_tlb_q;     // DTLB miss: no address (ROB replay)
   logic   [SQ_ENTRIES-1:0][7:0]      sq_mask_q;
+  logic   [SQ_ENTRIES-1:0][1:0]      sq_sz_q;      // the size, from dispatch (for the forwarding copies)
   preg_t  [SQ_ENTRIES-1:0]           sq_tag_q;
   logic   [SQ_ENTRIES-1:0]           sq_fp_q;      // the data is an f register (EXT_FD)
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
@@ -509,13 +510,16 @@ module tg_lsu
   logic [7:0]        m1_mask;
   assign m1_mask = bmask(m1pa[2:0], lq_size_q[m1_lq_q]);
 
-  // Youngest older store with a byte overlap in the same dword
-  logic              f_hit, f_cover, f_data;
-  logic [SIW-1:0]    f_idx;
+  // Byte-wise forwarding (prototype, not for merge): each byte of the load takes the youngest older
+  // store that writes it; the bytes no older store writes come from the D$
+  logic              f_hit, f_cover, f_data, f_ydat;
+  logic [SIW-1:0]    f_idx;                         // the youngest overlapping store (a wait's)
   logic [63:0]       f_dword;
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
   logic [SQ_ENTRIES-1:0] fc_sq, fc;                 // overlapping older stores: in the SQ; all of them
-  logic [7:0]            f_smask;                   // the youngest one's byte mask
+  logic [SQ_ENTRIES-1:0][7:0] fm;                   // their byte masks (with the split, M1's store's)
+  logic [7:0]            fh, fd;                    // per byte: an older store writes it; its data is in
+  logic [7:0][SIW-1:0]   fi;                        // ... the youngest such store
   assign f_lim = lq_sq_q[m1_lq_q];
   always_comb begin
     for (int i = 0; i < SQ_ENTRIES; i++)
@@ -524,18 +528,63 @@ module tg_lsu
   end
   always_comb begin
     logic [SQ_ENTRIES-1:0] fc_lo;
+    logic [7:0][SQ_ENTRIES-1:0] l, llo;
     for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc[i] && i < int'(f_lim[SIW-1:0]);
-    f_hit   = |fc;
-    f_idx   = |fc_lo ? sq_last(fc_lo) : sq_last(fc);
-    f_cover = (f_smask & m1_mask) == m1_mask;
-    f_data  = sq_dv_q[f_idx];
+    f_hit = |fc;
+    f_idx = |fc_lo ? sq_last(fc_lo) : sq_last(fc);
+    for (int b = 0; b < 8; b++) begin
+      for (int i = 0; i < SQ_ENTRIES; i++) begin
+        l[b][i]   = fc[i] && fm[i][b] && m1_mask[b];
+        llo[b][i] = l[b][i] && i < int'(f_lim[SIW-1:0]);
+      end
+      fh[b] = |l[b];
+      fi[b] = |llo[b] ? sq_last(llo[b]) : sq_last(l[b]);
+      fd[b] = sq_dv_q[fi[b]];
+    end
+    f_cover = &(fh | ~m1_mask);                    // every byte from a store
+    f_data  = &(fd | ~fh);                         // ... and each such store's data is in
+    f_ydat  = sq_dv_q[f_idx];
   end
 
-  assign sqsz_ra[COMMIT_WIDTH] = f_idx;
-  assign f_dword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at f_idx
+  // The forwarding copies of the store data, one per byte lane, each read at its lane's store: the
+  // store's size (from dispatch) and the data bytes that can land in the lane. Stores are naturally
+  // aligned, so lane b holds data byte b mod 2^size: the candidates b mod 1, 2, 4 and 8, each once.
+  function automatic int fl_slot(input int b, input int sz);   // lane b's slot for size sz
+    int k;
+    k = 0;
+    if (sz >= 1 && (b & 1) != 0) k++;
+    if (sz >= 2 && (b & 3) != (b & 1)) k++;
+    if (sz >= 3 && b != (b & 3)) k++;
+    return k;
+  endfunction
+  for (genvar b = 0; b < 8; b++) begin : g_sqf
+    localparam int NB = fl_slot(b, 3) + 1;
+    logic [0:0][SIW-1:0]    ra;
+    logic [0:0][1+8*NB:0]   rd;                     // {data bytes, size}
+    logic [1+8*NB:0]        wd;
+    always_comb begin
+      wd      = '0;
+      wd[1:0] = sq_sz_q[sqd_wa];
+      for (int z = 0; z < 4; z++) wd[2 + 8*fl_slot(b, z) +: 8] = sqd_wd[8*(b & ((1 << z) - 1)) +: 8];
+    end
+    assign ra[0] = fi[b];
+    tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2 + 8*NB), .NR(1)) u_sqf (
+      .clk, .we(sqd_we), .waddr(sqd_wa), .wdata(wd), .raddr(ra), .rdata(rd));
+    logic [7:0] fv;
+    always_comb begin
+      unique case (rd[0][1:0])
+        2'd0:    fv = rd[0][2 + 8*fl_slot(b, 0) +: 8];
+        2'd1:    fv = rd[0][2 + 8*fl_slot(b, 1) +: 8];
+        2'd2:    fv = rd[0][2 + 8*fl_slot(b, 2) +: 8];
+        default: fv = rd[0][2 + 8*fl_slot(b, 3) +: 8];
+      endcase
+    end
+    assign f_dword[8*b +: 8] = fv;
+  end
 
   // ================= M2 =================
-  logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
+  logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_fydat_q, m2_pt_q;
+  logic [7:0]        m2_fsel_q;                     // per byte: from the forwarded data
   logic [LIW-1:0]    m2_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
   logic [63:0]       m2_dword_q, m2_fdword_q;
@@ -549,14 +598,12 @@ module tg_lsu
   always_comb begin
     logic [63:0] dw;
     m2_out = O_OK;
-    dw = m2_dword_q;
-    if (m2_fhit_q) begin
-      if (m2_fcov_q && m2_fdat_q) dw = m2_fdword_q;
-      else                        m2_out = O_STQ;
-    end else if (m2_clash_q) begin
-      m2_out = O_RETRY;
-    end else if (!m2_hit_q) begin
-      m2_out = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
+    for (int b = 0; b < 8; b++) dw[8*b +: 8] = m2_fsel_q[b] ? m2_fdword_q[8*b +: 8] : m2_dword_q[8*b +: 8];
+    if (m2_fhit_q && !m2_fdat_q) begin
+      m2_out = O_STQ;                                 // a store's data is not in yet
+    end else if (!(m2_fhit_q && m2_fcov_q)) begin     // some bytes come from the D$
+      if (m2_clash_q)     m2_out = O_RETRY;
+      else if (!m2_hit_q) m2_out = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
     end
     m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
@@ -608,7 +655,7 @@ module tg_lsu
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
-  assign st_wdata = rep(sqd_rd[COMMIT_WIDTH+1], sqh.size);
+  assign st_wdata = rep(sqd_rd[COMMIT_WIDTH], sqh.size);
   logic dr_pop;
   assign dr_pop = (st_req && st_ack) || dr_amo ||
                   (xs_q == X_WAIT && x_st_q && mmio_d_valid_i);
@@ -682,7 +729,7 @@ module tg_lsu
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush;
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
-  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sqd_rd[COMMIT_WIDTH+1]);
+  assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, sqd_rd[COMMIT_WIDTH]);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
@@ -967,7 +1014,7 @@ module tg_lsu
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_sqrob (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_pl.rob), .raddr(sqrob_ra),
     .rdata(sqrob_rd));
-  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2), .NR(COMMIT_WIDTH + 1)) u_sqsz (
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2), .NR(COMMIT_WIDTH)) u_sqsz (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_pl.mem_size), .raddr(sqsz_ra),
     .rdata(sqsz_rd));
   assign sqva_ra[COMMIT_WIDTH]   = hs;            // at an atomic, hs is its entry and the head
@@ -975,8 +1022,7 @@ module tg_lsu
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_addr), .raddr(sqva_ra),
     .rdata(sqva_rd));
   // Data: captured from the register file, or written by an atomic (the value it stored)
-  assign sqd_ra[COMMIT_WIDTH]   = f_idx;
-  assign sqd_ra[COMMIT_WIDTH+1] = dh;
+  assign sqd_ra[COMMIT_WIDTH]   = dh;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? dh : cap_idx;
   assign sqd_wd = (am_req && am_ack) ? am_new : (EXT_FD && sq_fp_q[cap_idx]) ? fsd_data : sd_data;
@@ -1026,7 +1072,7 @@ module tg_lsu
             x_st_q    <= 1'b1;
             x_pa_q    <= sqh.pa;
             x_size_q  <= sqh.size;
-            x_wdata_q <= sqd_rd[COMMIT_WIDTH+1];
+            x_wdata_q <= sqd_rd[COMMIT_WIDTH];
           end else if (mm_go) begin
             xs_q      <= X_REQ;
             x_st_q    <= 1'b0;
@@ -1118,7 +1164,7 @@ module tg_lsu
           O_STQ: begin
             lq_st_q[m2_lq_q]   <= L_STQ;
             lq_blk_q[m2_lq_q]  <= m2_fid;
-            lq_part_q[m2_lq_q] <= !m2_fcov_q;
+            lq_part_q[m2_lq_q] <= m2_fydat_q;       // the youngest's data is in, an older one's not: until it leaves
           end
           O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
@@ -1137,6 +1183,8 @@ module tg_lsu
       m2_fcov_q   <= f_cover;
       m2_fdat_q   <= f_data;
       m2_fdword_q <= f_dword;
+      m2_fsel_q   <= fh;
+      m2_fydat_q  <= f_ydat;
       m2_fidx_q   <= f_idx;
       m2_pt_q     <= m1_pt_q;
 
@@ -1214,6 +1262,7 @@ module tg_lsu
             sq_exc_q[i]  <= 1'b0;
             sq_mmio_q[i] <= 1'b0;
             sq_tag_q[i]  <= ds_ren[k].src2;
+            sq_sz_q[i]   <= ds_uop[k].d.mem_size;
             sq_fp_q[i]   <= EXT_FD && ds_uop[k].d.rs2_fp;
             sq_dr_q[i]   <= ds_src2_rdy[k] ||
                             ((EXT_FD && ds_uop[k].d.rs2_fp) ? fsnoop(ds_ren[k].src2, fp_we, fp_widx)
@@ -1318,7 +1367,9 @@ module tg_lsu
     always_comb begin
       for (int i = 0; i < SQ_ENTRIES; i++) fc[i] = fc_sq[i] || (byp && i == int'(sa_idx));
     end
-    assign f_smask = (byp && f_idx == sa_idx) ? sa_mask : sq_mask_q[f_idx];
+    always_comb begin
+      for (int i = 0; i < SQ_ENTRIES; i++) fm[i] = (byp && i == int'(sa_idx)) ? sa_mask : sq_mask_q[i];
+    end
   end else begin : g_nosplit
     // AG, on its own signals
     assign ln_v    = ld_ag_valid;
@@ -1341,7 +1392,7 @@ module tg_lsu
     assign m1_go    = m1_v_q;
     assign ln_lq    = ld_ag_pl.lq[LIW-1:0];
     assign fc       = fc_sq;
-    assign f_smask  = sq_mask_q[f_idx];
+    assign fm       = sq_mask_q;
   end
 
   logic unused;
