@@ -371,10 +371,12 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
   - Dhrystone in the default, st: rv64im +1.57%, rv64gcb +2.97% (native latency).
   - #2 alone: +0.87% / +0.59%. #4 alone: +0.74% / +0.34%. #5 alone: identical.
   - Together they are superlinear on rv64gcb.
-- **The cause:** `memcpy` writes the strings' tails with byte stores, and `strcmp` then reads them a doubleword at a time.
-  - That load is only partly covered by several stores, so it waits for them to drain to the D$, and a store drains only after it commits.
-  - #2 and #4 each delay a store's completion by a cycle.
+- **The cause** (measured with commit and rename counters, st, rv64gcb): stores wait at the ROB head for their completion report, and #4 and #2 each delay that report by a cycle.
+  - Cycles in which the head is a store not yet complete: 2,744 in the fallback, 7,129 with #4 and #5, 13,196 in the default.
+  - A mispredict is recovered when its branch commits, so it waits behind those stores. The default also mispredicts 4% more often on rv64gcb (10,786 flushes against 10,347), which makes the pair superlinear there.
+  - Not store-to-load forwarding: Dhrystone's loads that meet older stores are each fully covered by one store (1,499 forwards, none partial; `strcmp` stops at the first difference). A byte-wise forwarding prototype changed no bench program.
   - CoreMark moves by −0.3% to +0.45%.
+  - The user's options (DR-140): the default without #2, or a bypass at the commit slots that keeps #2's register and takes its cycle back.
 
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
