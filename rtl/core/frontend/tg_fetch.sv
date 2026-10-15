@@ -232,10 +232,16 @@ module tg_fetch
   for (genvar w = 0; w < WAYS; w++) begin : g_cmp
     assign way_hit[w] = f2_wv_q[w] && f2_tag_q[w] == f2_pa_q[12 +: TAG_W];
   end
+  // The block from the hit way's index: one multiplexer per bit on an encoded select (two LUT6
+  // and a MUXF7 for 8 ways) rather than an AND-OR over the one-hot hits. At most one way hits
+  // (asserted below); a block delivered without a hit is a fault block, whose parcels and
+  // pre-decode results are not used, and a missed block is never delivered.
+  logic [WAY_W-1:0] hit_way;
   always_comb begin
-    blk = '0;
-    for (int w = 0; w < WAYS; w++) blk |= {128{way_hit[w]}} & way_data[w];
+    hit_way = '0;
+    for (int w = 0; w < WAYS; w++) if (way_hit[w]) hit_way |= WAY_W'(w);
   end
+  assign blk = way_data[hit_way];
 
   // Refill / fault state
   logic        miss_q;             // fetch is parked on miss_pc_q (I$ miss)
@@ -694,7 +700,7 @@ module tg_fetch
       assert (!way_hit[stale_way_q]) else $error("tg_fetch: I$ hit on a row the refill rewrote");
   end
   always_ff @(posedge clk) begin
-    if (!rst && f2v && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
+    if (!rst && f2v && !f2_bfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
     if (!rst && (miss_q || am_go || wk_q)) assert (!f2v) else $error("tg_fetch: F2 holds a block while fetch is parked");
   end
 `endif
