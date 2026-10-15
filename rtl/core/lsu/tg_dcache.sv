@@ -16,8 +16,9 @@
 //         They take B only while no Release is being sent (C beats are contiguous), and block
 //         the MSHR from starting and the store path from writing while they run.
 //   Atomics: the line is acquired with T like a store's; then one port B read and, the next
-//         cycle, the write (am_ack). Nothing else uses port B, the MSHR does not start and no
-//         probe is accepted across the two cycles, so the read-modify-write is atomic.
+//         cycle, the write (am_ack). With DC_AMO_READ_REG (DR-140 #5) a cycle between them
+//         registers the read data. Nothing else uses port B, the MSHR does not start and no probe
+//         is accepted across these cycles, so the read-modify-write is atomic.
 //   lose_v reports a line that left the cache or lost T (probe, eviction): it ends an LR
 //         reservation on that line.
 module tg_dcache
@@ -227,11 +228,13 @@ module tg_dcache
   assign ctl_pa = probe_active ? p_pa_q : lm_pa;
 
   // ---- Atomic read-modify-write ----
-  logic             pb_amr, amw_q;       // read cycle; write cycle
+  logic             pb_amr, amh_q, amw_q;   // read cycle; the data registered (#5); write cycle
+  logic [63:0]      am_rd_q;
   logic [WAY_W-1:0] am_way_q;
   logic [ROW_W-1:0] am_row_q;
   logic             am_hi_q;
-  assign pb_amr = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amw_q;
+  assign pb_amr = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amh_q &&
+                  !amw_q;
   assign am_ack = amw_q;
 
   // ---- Allocation (from M_IDLE) ----
@@ -240,7 +243,7 @@ module tg_dcache
     alloc_st = 1'b0;
     alloc_ld = 1'b0;
     // A load allocates only if its line is still absent (it may have been filled since M1).
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !amw_q && ready) begin
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !amh_q && !amw_q && ready) begin
       if (sx_req && !s_hit_t)    alloc_st = 1'b1;
       else if (lm_req && !(|ch)) alloc_ld = 1'b1;
     end
@@ -293,7 +296,7 @@ module tg_dcache
   logic [WAY_W-1:0] brd_way, brd_way_q;
   logic [127:0]     brow;
   assign brow       = b_rdata[brd_way_q];
-  assign am_rdata   = am_hi_q ? brow[127:64] : brow[63:0];
+  assign am_rdata   = DC_AMO_READ_REG ? am_rd_q : am_hi_q ? brow[127:64] : brow[63:0];
   assign st_ack     = pb_st || st_drop;
   logic st_drop;
   assign st_dropped = st_drop;
@@ -347,8 +350,8 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !amw_q &&
-                  ready;
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !amh_q &&
+                  !amw_q && ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -443,13 +446,17 @@ module tg_dcache
       ms_q   <= M_IDLE;
       ps_q   <= P_IDLE;
       dn_v_q <= 1'b0;
+      amh_q  <= 1'b0;
       amw_q  <= 1'b0;
       lose_v_q <= 1'b0;
     end else begin
       if (!ready) init_q <= init_q + 1'b1;
       if (brd_en) brd_way_q <= brd_way;
-      // Atomic: read now, write next cycle
-      amw_q <= pb_amr;
+      // Atomic: read now, write next cycle (or, with #5, register the data next cycle and write
+      // the cycle after)
+      amh_q <= DC_AMO_READ_REG && pb_amr;
+      amw_q <= DC_AMO_READ_REG ? amh_q : pb_amr;
+      if (amh_q) am_rd_q <= am_hi_q ? brow[127:64] : brow[63:0];
       if (pb_amr) begin
         am_way_q <= sh_way;
         am_row_q <= am_pa[4 +: ROW_W];
@@ -595,11 +602,11 @@ module tg_dcache
       assert ($onehot0(lh)) else $error("tg_dcache: multiple way hits");
       assert ($onehot0({pb_probe, pb_grant, pb_ev, pb_st, pb_amr, pb_amw})) else $error("tg_dcache: port B conflict");
       assert (!(st_req && am_req)) else $error("tg_dcache: store and atomic requests together");
-      if (amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
+      if (amh_q || amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
       // port B's read data belongs to the way its reader expects
       if (ps_q == P_SEND) assert (brd_way_q == p_way_q) else $error("tg_dcache: probe data from another way");
       if (ms_q == M_EV_SEND && m_vdirty_q) assert (brd_way_q == m_way_q) else $error("tg_dcache: release data from another way");
-      if (amw_q) assert (brd_way_q == am_way_q) else $error("tg_dcache: atomic data from another way");
+      if (DC_AMO_READ_REG ? amh_q : amw_q) assert (brd_way_q == am_way_q) else $error("tg_dcache: atomic data from another way");
     end
   end
 `endif
