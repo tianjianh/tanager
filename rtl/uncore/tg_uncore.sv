@@ -24,8 +24,13 @@ module tg_uncore
   //   [31:0]  tg_xbar DSP_SKID (D per initiator, A per target, C per bank, B per core);
   //   [41:32] memory port p's tg_axi_slice: bit 32 + 5p + {0 AR, 1 AW, 2 W, 3 R, 4 B};
   //   [43:42] L2 bank b's R slice; [63:44] reserved.
-  // The B slices (a few bits) stay in fabric.
-  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b11, 5'b01111, 5'b01111, 32'hFFFF_FFFF},
+  // The default keeps in DSPs only the sites whose DSP form met 200 MHz in two out-of-context
+  // placements of the whole uncore (docs/perf/budgets.md §4): the device bus's A slice (bit 19 with
+  // two banks), the banks' C slices and the memory ports' W slices. A DSP input passes through its
+  // ALU, so the slices behind arbiters (D, B, the banks' A, memory AR) stay in fabric; memory AW, the
+  // memory R slices (their slower clock-to-out) and the L2 R slices failed in one placement and stay
+  // there too; the AXI B slices (a few bits) always do.
+  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,

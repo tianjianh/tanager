@@ -53,7 +53,10 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
 - About 600 LUTs and 1 BRAM36 per port (32 × 4 × 130 bits, plan §5.6: "1–2 BRAM36 per port"); measured 700–900 LUTs in the traffic-generator build.
 - Storage: the beat buffer in block RAM. The fields written once per burst and read by index (issue and arrival times, IDs, the ID → slot table, the issue-order queue, the per-ID AW times and the 32-entry B queue) are in LUTRAM through `tg_ram_lut`. The flags and beat counters with several writers are flip-flops.
 - The release decision is a 10-bit subtract-compare on the head slot only.
-- **200 MHz** (DR-137): the release decision (`issue`) arrives late, after two LUTRAM reads (the issue-order queue, then the head's time stamps) and the compare. So the token bucket's next value is computed both ways from registers (with the rate added, with and without the 256 a beat costs, each saturated at 1024), and `issue` only selects one. This is the same arithmetic as before, cycle for cycle. Before the change, the bucket's adder and saturation came after `issue`, which was the uncore's worst path (−0.738 ns, 13 levels).
+- **200 MHz** (DR-137): the release decision (`issue`) arrives late, after the head's time stamps (a LUTRAM read) and the compare.
+  - **The token bucket's next value** is computed both ways from registers (with the rate added, with and without the 256 a beat costs, each saturated at 1024), and `issue` only selects one. This is the same arithmetic as before, cycle for cycle. Before the change, the bucket's adder and saturation came after `issue`, which was the uncore's worst path (−0.738 ns, 13 levels).
+  - **The head slot is a register** (`head_q`), not a read of the issue-order queue. So the time stamps are read straight from a register, one LUTRAM read earlier than before. `head_q` is the queue entry at the read pointer after each cycle's pop and write. A write lands at the head when the queue is empty, and right behind it when the queue holds one entry. The queue's read port looks one entry ahead, for the head after a pop. A full queue has no free slot, so no write then.
+  - An assertion checks `head_q` against a model of the queue whenever it is not empty.
 
 ### Verification
 `tests/unit/lat_inj`:
@@ -61,7 +64,8 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
 - delivered latency checked per transaction against `max(native, rd_delay)` (mode 0) and `native + rd_delay` (mode 1);
 - data, IDs and `RLAST` intact; issue order of R bursts;
 - B delay; bandwidth cap rate over 10⁴ beats;
-- statistics against the model's own latency record.
+- statistics against the model's own latency record;
+- a sparse-read phase after the dense ones. The issue-order queue then holds stale slots, and a burst often finishes as the next arrives, which exercises the head after a pop with one entry. Without this phase, a head register that ignored the write behind it passed the test.
 
 ### Provenance
 Plan §2.5 and §5.6. XiangShan's FPGA prototype used a latency injector for the same purpose; that idea comes from its published papers and documentation (literature review), not its RTL. AXI4 per the AMBA AXI protocol specification (ARM IHI 0022).
