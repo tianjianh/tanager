@@ -117,7 +117,7 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 | `scripts/smt_tables.py` (or `smt.py --tables`) | generated SMT2 tables → `docs/perf/smt2_tables.md` |
 | `scripts/area.py` | the area-recovery study (plan §8.5, D18): each IPC-costing lever alone on v1 (`smt2`) and v2 (`smt2_w3`), at 30/120/250 cycles, on the 42 pairs and the single-thread suite → `results/area_recovery.json`. Other modes:<br>`--combos`: the levers that pass the reverse rule, added greedily (each saving recomputed on top of the levers taken), the v2 re-plan options, window growth with wakeup tags, and the single-thread variants;<br>`--census`: the dependency census on v1 and v2 (pairs and single-thread suite);<br>`--tables`: generated tables → `results/area_tables.md` (used by `docs/perf/area_recovery.md`).<br>About 3 hours on 8 threads from an empty cache. |
 | `scripts/area_fit.py --core <run>/latest.json --uncore <run>/latest.json [--cfg smt2]` | the device fit from per-unit budget runs (`docs/perf/area_recovery.md` §7). It reads the budget flow's `latest.json` for a core configuration and for the uncore, and adds hart 1's state (estimated) until M7 builds it. It prints each unit against `fpga/budget/budgets.tsv`, and the dual-core total against the 200 MHz and 180 MHz fill limits. It keeps §7.7's gap table current. |
-| `scripts/clock.py` | the clock sweep (`docs/perf/area_recovery.md` §6.1): v1's single-thread suite at 150–200 MHz and the NaxRiscv-like control at 137 and 150 MHz, each with its clock's cycle latencies (DRAM 184 ns and 3.2 GB/s from spike S1, the L2's `DATA_LAT`) → `results/clock_rv64gc.json` |
+| `scripts/clock.py` | the clock sweep (`docs/perf/area_recovery.md` §6.1): v1's single-thread suite at 150–200 MHz and the NaxRiscv-like control at 137 and 150 MHz, each with its clock's cycle latencies (DRAM 184 ns and 3.2 GB/s from spike S1, the L2's `DATA_LAT`), and one extra pipeline stage at each unit boundary at 200 and 150 MHz → `results/clock_rv64gc.json` |
 | `scripts/stats.py <isa> <workload> <preset> [k=v ...]` | every statistic of one run, per cycle and per 1,000 instructions |
 | `scripts/quick.sh`, `scripts/sweep1.sh`, `scripts/pairs.sh`, `scripts/dbg.sh` | quick comparisons, one-parameter sweeps, opcode mix and dependent pairs, functional runs (`TGSIM_TRACE=N`) |
 
@@ -198,6 +198,16 @@ Options for the IPC-costing levers. All are off by default; with them off, resul
 | `iq_bank_llt` | with `iq_bank` | each bank also sees only half of the long-latency tags; a tag comes from its producer's half |
 | `wake_tags` | wakeup tags | rows wake on a pool of this many tags instead of one column per ROB entry. A uop that writes a register and is neither a 1-cycle ALU-queue op (MX) nor an LLT producer takes a tag at dispatch, and dispatch waits if none is free (`disp_stall_wtag`). A tag is free again 2 cycles after its result wakes |
 | `census` | (measurement) | counts every dispatched uop's sources by what its row would wait on (value ready, MX row, ROB column, LLT column, other thread) and adds a `census` record to the JSON |
+
+**Pipeline-stage ablations** (`docs/perf/area_recovery.md` §6.1). All are 0 by default; at 0 every result is identical, so `MODEL_VERSION` stays 3.
+
+| Parameter | One extra stage at |
+|---|---|
+| `abl_ld_use` | load-to-use: every load result (hit, forward or miss) reaches its dependents this many cycles later; the speculative-wakeup shadow moves with it |
+| `abl_alu` | the integer bypass and wakeup loop: a 1-cycle result wakes its dependents this many cycles later (completion unchanged) |
+| `abl_done` | execute completion to the ROB: every uop is marked complete this many cycles later, so commit slips |
+
+The mispredict penalty and the L2 hit have their own parameters (`redirect_lat`, `commit_redirect`, `l2_lat`).
 
 ## Scoring
 

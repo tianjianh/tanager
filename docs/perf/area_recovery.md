@@ -587,6 +587,31 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
   - no fill test exists below 180 MHz;
   - `DATA_LAT` 2 would also shorten the L2's read pipeline.
 
+**One extra pipeline stage at a unit boundary** (the user's question, 2026-10-14).
+- **The method:** each point alone, against v1 at that clock's latencies (DRAM 184 ns), at 200 MHz and at 150 MHz.
+- **"Same performance at"** is the clock that, without the stage, loses as much: 200 MHz × (1 + the suite IPC change).
+- **The model points** name the knobs and code, so the core track can map each one to its RTL path.
+
+| Point | Model change | Suite IPC at 200 | CoreMark/MHz A / B at 200 | Same performance at | Suite IPC at 150 |
+|---|---|---|---|---|---|
+| 1. Load-to-use | Every load result (hit, forward or miss) reaches its dependents a cycle later.<br>`abl_ld_use` (`Core::exec_load`'s result time); the speculative-wakeup shadow moves with it. | −1.88% | −5.69% / −5.23% | 196.2 MHz | −1.97% |
+| 2. Branch mispredict penalty | The redirect reaches IF1 a cycle later, at execute and at commit.<br>`redirect_lat` and `commit_redirect` 1 → 2. | −0.28% | −0.16% / −0.19% | 199.4 MHz | −0.23% |
+| 3. Execute completion to the ROB | Every uop is marked complete a cycle later, so commit and everything that waits for it slips.<br>`abl_done` (every completion time). | −0.10% | −0.01% / −0.01% | 199.8 MHz | −0.10% |
+| 4. Exception or fault reporting only | No model point: `tgsim` takes no traps, and the suite raises none in its timed regions. | 0 | 0 | — | 0 |
+| 5. Integer bypass and wakeup loop (upper bound) | A 1-cycle result wakes its dependents a cycle later, so dependent single-cycle ops lose back-to-back issue. Completion is unchanged.<br>`abl_alu` (`Core::do_issue`'s 1-cycle case). | −8.04% | −10.91% / −9.79% | 183.9 MHz | −8.31% |
+| 6. L2 hit +2 (`DATA_LAT` 4 against 2) | `l2_lat` 12 against 10. | −0.65% | 0.00% / 0.00% | 198.7 MHz | −0.73% |
+
+CoreMark/MHz moves the same at 150 MHz as at 200 MHz, because CoreMark stays in the L1s.
+
+**Reading it:**
+- **Loops cost; boundaries off the loops cost little.**
+  - A stage at completion costs −0.10%, at the mispredict redirect −0.28%, and two in the L2 hit −0.65%.
+  - Each is worth 0.2–1.3 MHz at 200 MHz.
+- **Load-to-use is the expensive real candidate:** −1.9% on the suite and −5.2 to −5.7% on CoreMark, worth about 4 MHz at 200 MHz.
+- **The integer wakeup loop is the upper bound:** −8.0% on the suite and about −10% on CoreMark. That is as much as running at 184 MHz, and 200 → 180 MHz costs 8.9% (above).
+- **Exceptions:** a stage that only delays a fault's report costs nothing in the model. In hardware it costs as rarely as faults occur.
+- **The knobs** (`abl_ld_use`, `abl_alu`, `abl_done`) default to 0. At 0 the model reproduces every earlier result exactly: the clock sweep, re-simulated from an empty cache with the new build, gives identical numbers.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
