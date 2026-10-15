@@ -381,6 +381,9 @@ package tg_core_pkg;
     logic          dexc_hi;
     lqid_t         lq;
     sqid_t         sq;
+    // Flags at dispatch: each is the parity of its reporting ports' toggle tables then, XOR the
+    // flag's initial value (tg_rob)
+    logic          f_cmp, f_exc, f_misp, f_mmio;
   } rob_pl_t;
   localparam int ROB_PL_W = $bits(rob_pl_t);
 

@@ -93,7 +93,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
 
 ## Timing and area
-- **Queues:** the fields the searches compare (physical address, byte masks, state, SQ bound, size) are flip-flops. Fields read only by index are in LUTRAM (cold storage, lever R7): virtual addresses, store data, and the LQ's ROB index and result fields.
+- **Queues:** the fields the searches compare (physical address, byte masks, state, SQ bound, size) are flip-flops. Fields read only by index are in LUTRAM (cold storage, lever R7; FPGA-friendly T1): virtual addresses, store data, the LQ's ROB index and result fields, and the SQ's ROB index (`u_sqrob`: read at the captured store and the commit point) and size (`u_sqsz`: read by the trace and forwarding).
 - **Age searches:** the replay pick, store-data capture, forwarding and the ordering check are each two priority encoders over a mask of slots, with no ID arithmetic.
   - A queue's entries lie in [head, tail). So the oldest of a set of slots is the first at or after the head's slot, else the first from slot 0.
   - The youngest store older than a load is the last match below the load's `lq_sq` slot, else the last match overall.
@@ -103,6 +103,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 - **Reads by index of CAM fields** come from LUTRAM copies written with them: a replay's PA, and the MMIO load's (`u_lqa`), and the SQ head's PA, mask and size (`u_sqh`). The flip-flops stay for the searches.
 - **Atomics** read their SQ entry through the head's ports. An atomic runs only as the SQ head and commit point, and the drain has nothing to do meanwhile (asserted).
 - **MMIO loads** are picked at the LQ head. A load at the ROB head is the oldest in the window, so it is the LQ head.
+- **D$ port B's byte write enables** are shared by the ways. Port B enables one way at most per cycle, and its enables are zero for reads, so the block RAM's port enable already keeps the other ways from writing.
 - Per-unit LUT counts: core-pipeline.md §16.
 
 ## Verification

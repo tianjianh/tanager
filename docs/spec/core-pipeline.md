@@ -62,6 +62,11 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
+  - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
+  - **It starts at zero after configuration:** the primitives' INIT is zero, and so is the simulator's default. So the first run after configuration matches simulation.
+  - **A core reset keeps the trained counters.**
+  - **Its start value changes timing only.** A counter decides only whether a branch trains the micro-BTB, and execute checks every prediction.
+  - **Under `--rand-reset`, programs take a few more mispredictions:** rv64ui-p-add takes 1,389, 1,468 or 1,561 cycles. Verilator 5.052 fills the whole array with one random value, so there are only three outcomes.
 - **Training at execute (P0).** For each resolved branch or jump: the counter moves toward the outcome; the block should be predicted taken if the instruction is JAL/JALR or the new counter is ≥ 2. If it should and the micro-BTB did not predict this target at this slot, the entry is written (the way that hit, else a pseudo-random way); if it should not and the micro-BTB predicted it taken, the entry is invalidated. Wrong-path branches also train (accepted in M2).
 
 ### 3.3 Instruction queue
@@ -91,8 +96,12 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Initial map:** x*i* → bank 0, index *i* (written with 0 by the reset sequence, as Spike resets every register to 0).
 
 ### 5.2 RN stage (`tg_rename`)
-- **RAT** (speculative) and **CRAT** (committed) in LUTRAM (plan §8.5 R3). A RAT entry holds the mapping and, for sources, the producer: its wakeup column, or for a 1-cycle op its ROB index (MX naming, §5.3), and its rename slot. Each RAT bank belongs to one rename slot and each CRAT bank to one commit slot, so every write port is a LUTRAM write port; live-value tables (flip-flops, `log2` of the width per register) name the bank with each register's latest entry. Reads: rs1, rs2 and rd (the old mapping) per slot.
-- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 (32 cycles, alongside the free lists' initialisation).
+- **RAT** (speculative) and **CRAT** (committed) in LUTRAM (plan §8.5 R3). A RAT entry holds the mapping and, for sources, the producer: its wakeup column, or for a 1-cycle op its ROB index (MX naming, §5.3), and its rename slot. Each RAT bank belongs to one rename slot and each CRAT bank to one commit slot, so every write port is a LUTRAM write port.
+  - **The banks are XOR-banked (FPGA-friendly T2; LaForest et al., FPGA 2012).** A register's entry is the XOR of its banks. A slot writes its own bank with the new value XOR the other banks' entries at that register, which costs one more read port per bank, at the other slots' write registers.
+  - Of several slots writing one register in a cycle, only the last writes (a later slot wins).
+  - No live-value table names the bank that holds the latest entry. The flip-flop LVTs, with a 32:1 read at every port, are gone (6f8c99e).
+  - Reads: rs1, rs2 and rd (the old mapping) per slot.
+- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
 - **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
 - **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
@@ -100,12 +109,26 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - **Tag:** MUL and the P1 bit counts (C_MUL) with a destination, from a pool of `IQ_TAGS`; RN waits when it runs short. A tag returns 2 cycles after its producer's register-file write (`tag_free` from `tg_exec`): by then no group in RN or DS can see the register as unwritten. Its column is then cleared in every queue row (`col_clr`), so a returned tag needs no guard. A flush returns every tag.
   - **No column:** 1-cycle ops, which consumers name by row (MX) while the row is held. Once it is freed (2 cycles after the select), the value is in the bypass or the register file before any later consumer can issue. Serialised ops end in a flush, so their consumers find the value written.
 - **Ready table:** one bit per physical register, cleared when RN allocates it, set when the register file is written (each bank's write port).
+  - **Form (`tg_rdytab`, LUTRAM, FPGA-friendly T2):** each register is two phase bits, and it is ready when they are equal (A == S).
+    - S, the set phase, has one table per bank, written only by that bank's register-file port: S := A.
+    - A, the allocation phase, is XOR-banked into W tables (A = A⁰ ⊕ A¹ …). A clear of p through Aᶜ writes Aᶜ := ¬S′ ⊕ (the other A), where S′ is S after this cycle's set. So a set and a clear of one register in the same cycle leave it not ready, exactly as the flip-flop vector did.
+    - **The clears do not wait for rename (cc1f679).** Every cycle, each bank's next W free registers are cleared, candidate c through Aᶜ, whether or not rename takes them; the free list's head and count give their indices.
+      - A free register's ready bit is never read: no map holds it, and every reader of its last value read it before it was freed. So the early clears are invisible.
+      - A register is still cleared in the cycle it is allocated. No write waits for rn_fire.
+    - A sweep zeroes the tables in 64 cycles after reset. Only rn_fire waits for it, and that sweep ends with the D$'s, so no earlier than `start`. rename's `ready` (decode may hand a group over) does not wait for it.
+  - **Why not flip-flops:** a 192-bit (st) vector read through 3W 192:1 multiplexers, and 128 FP bits through 4W.
+  - **Rejected:**
+    - A live-value table needs a multi-write table of its own in flip-flops.
+    - Toggle-only phases go wrong for a register that a flush frees before it is written.
+  - **Source:** XOR-based multi-ported memories, LaForest et al., FPGA 2012.
 - **Sources:** an earlier slot of the same group that writes the register (intra-group, generated for any width), else RAT; pending if produced in the group or its ready bit is clear; a pending source waits on its producer's column, or on its row (MX), or on nothing (a 1-cycle producer whose row is freed).
 - **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, wakeup tags, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
 - **Serialising instructions** wait at RN until the ROB and `ds_q` are empty; after one is renamed, RN accepts nothing until the next flush (every serialising instruction ends in a flush, §8).
 
 ### 5.3 DS stage (also in `tg_rename`)
 - Writes the ROB entries (§8.1), the issue-queue rows (`tg_iq` dispatch port *k* = group slot *k*) and the LQ/SQ entries.
+- **The DS payload** (`ds_uop_q`, `ds_ren_q`) loads RN's group whenever DS is free (c02be92), not only when RN fires, so its enable does not wait for rn_fire, the end of rename's longest path. `ds_valid_q` says whether RN fired; every reader of the payload is gated by a valid slot or `ds_fire`.
+- **MX row destinations** (`rowdst`, the destination of the op each ALU-queue row holds) are LUTRAM, one bank per DS slot. A row's value is the XOR of the banks: each slot writes only its own bank, at the row it takes (917189a).
 - **Dependency vector** = one-hot of the pending sources' columns **AND NOT W**. A column is only reallocated after its producer has set its W bit and written the register file (a tag 2 cycles after the write, an LLT when released), so a W bit seen at DS still belongs to the producer RN saw; dropping it closes the window between RN and DS that the stale-dependency rule does not cover.
 - **Allocation (AR-1):** RN gives out tags with the LLTs, from a free pool, and clears their W bits (`wid_alloc`).
 - **IQ room:** dispatch waits until every uop of the group finds a free row in its queue's bank (`bank_free_q`).
@@ -145,7 +168,19 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
-- Flip-flops per entry: `complete`, `exc`, `mispredict`, `replay`, `mmio`.
+- **Flags per entry: `complete`, `exc`, `mispredict`, `mmio`** are toggle tables in LUTRAM (FPGA-friendly T2).
+  - Each reporting port has a one-bit table of its own, indexed by ROB entry, and toggles it at the entry it reports. Every table therefore has one writer: 11 for `complete` at st, 6 for `exc`, and one each for `mispredict` and `mmio`.
+  - A flag is the parity of its ports' tables XOR a bit the payload took at dispatch: that parity then, XOR the flag's initial value. Dispatch writes none of the tables, and they need no reset.
+  - **The condition:** every live entry gets at most one report per flag per lap, and none as it is dispatched. Reports in a flush cycle are dropped, as the flip-flop flags dropped them. Later reports for squashed entries arrive before those entries are dispatched again (the flip-flop design relied on that too).
+  - **Checked:** in simulation, a shadow copy of the old flip-flop flags checks the condition, and checks every cycle that the head's flags equal the old ones.
+  - **Why:** the flags were 4 × `ROB_ENTRIES` flip-flops with up to 13 writers each (dispatch and every report port), each port through its own index decoder: about 900 LUT cells at st.
+- **`replay` is XOR-banked LUTRAM (FPGA-friendly T2).** It can't be a toggle table: an entry can be marked more than once (two ordering violations).
+  - **Writers:** dispatch clears it, one table per slot. The LSU's replay report and its two TLB-miss reports set it, a table each.
+  - **Writing:** a writer stores its value XOR the other tables at its entry, read in the same cycle. The flag is the XOR of all the tables.
+  - **Same-entry writes:** two writers at one entry would cancel. So of several setters there, only the first writes, and a dispatch clear yields to a set: the order the flip-flops had.
+  - **Size:** at st, five 48 × 1 tables with six read ports each (the four other writers' entries and the two commit slots'), one RAM64M8 apiece. The tables need no reset, because dispatch clears an entry before anything reads it.
+  - **Checked:** a shadow copy of the flip-flop flag, in simulation, must equal the tables' flag at every live commit slot.
+- **One adder on the head's PC** serves both a serial instruction's next PC (+2 or +4) and the `tval` of a fetch fault on an instruction's second half (+2). The fault is a decode exception, which traps, so one instruction never needs both (asserted).
 - **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
@@ -195,8 +230,36 @@ Exception or interrupt: `mepc` ← PC, `mcause`, `mtval` (0 for interrupts), `ms
 ### 9.4 Interrupts
 Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. Taken at commit before the head instruction (TR_IRQ with `pc` = its PC), except when the head is a WFI (it retires first, and the interrupt is taken at the next instruction) or an MMIO load whose request is out. Nothing is taken while the ROB is empty.
 
+### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
+- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
+  - They replace ten 64-bit registers with their write multiplexers, ten inputs of the CSR read multiplexer, and the trap vector's M/S multiplexer.
+  - `stimecmp` and `satp` stay flip-flops: the timer compare and the MMU read them every cycle.
+- **Two read ports:**
+  - **Port 0** serves the CSR read in P1's EX. While an MRET or SRET is in flight, it serves that instruction's xepc (`xepc_o`) for the ROB's redirect.
+    - The ROB registers which xRET is in flight when it dispatches it (`xret_v`, `xret_s`).
+    - Both instructions are serial, so no CSR instruction executes meanwhile (asserted in `tg_csr`). The ROB asserts that each xRET it commits is the one named.
+  - **Port 1** serves the trap vector, addressed by the delegation decision.
+- **One write port,** taken by:
+  - **the reset sweep:** PMP's 16-cycle counter (§10);
+  - **trap entry:** xepc, xcause and xtval are written in the three cycles after the trap, from registers taken in the trap cycle. The privilege and status fields still change in the trap cycle.
+  - **a CSR write** at commit.
+- **Why the trap's writes may lag:** the trap's flush leaves the window empty longer than three cycles. In that time nothing commits, no trap or interrupt is taken (the ROB is empty), and no CSR instruction executes (asserted).
+  - A CSR instruction can still be in EX in the flush cycle itself (`ex_v_q` clears at its end). It reads before the writes, but it is killed there: its result is never written back, and its pending write is dropped.
+
 ## 10. Reset sequence
-After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB. Everything else resets through control state (valid bits, pointers).
+After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
+- **Other tables have their own sweeps, run alongside:**
+  - the I$ valid bits (§3.1);
+  - the D$ state (core-lsu);
+  - the maps' committed banks and the ready tables (§5.2);
+  - the DTLB's CAM tables (core-mmu);
+  - the cold CSRs (§9.5), on PMP's 16-cycle counter.
+- **Everything else** resets through control state (valid bits, pointers), or holds data that is written before it is read.
+- **The exception is the direction counters (§3.2),** which keep whatever they held.
+- **Measured (2026-10-14, st, 9b14471):**
+  - Under `--rand-reset` (every register without a reset random), 99 of the 176 riscv-tests `-p` programs take other cycle counts than from zero (seeds 1 and 2).
+  - With only the counters started at zero, all 176 match, for seeds 1–3.
+  - So no other state left out of the reset changes timing.
 
 ## 11. Commit trace
 Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
@@ -213,9 +276,15 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 |---|---|---|
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
-| R1 counters in DSP48E2 | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero), in a block of their own with `use_dsp` | partly: Vivado maps the adders (2 DSPs, −30 LUTs) but keeps the counters in flip-flops; a hand-built DSP48E2 accumulator would take the rest (about 110 LUTs, 128 flip-flops) |
-| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
+| R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
+| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
+| ROB replay flag XOR-banked (T2) | `tg_rob` (§8.1): a table per writer (dispatch clears, the LSU's three setters) | done (9646d13): cycle-identical, shadow-checked; ROB 2,083 → 1,891 at st |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
+| Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |
+| Rename maps XOR-banked (T2) | `tg_rmap`: no live-value tables; a register's entry is the XOR of its banks | done: cycle-identical |
+| MX row destinations in LUTRAM (T2) | `tg_rename`: `rowdst` banked by DS slot, XORed | done: cycle-identical |
+| TLB match as a LUTRAM CAM (T5) | `tg_tlb` (`CAM`): six slice tables, a key store, a three-cycle table update behind a one-cycle fill | DTLB: done, cycle-identical. ITLB: rejected (LUT-neutral), flip-flops kept (9b14471; core-mmu) |
+| ROB flags as toggle tables (T2) | `tg_rob`: `complete`, `exc`, `mispredict`, `mmio` as one-writer LUTRAM tables per report port, XORed with a dispatch-time parity bit in the payload | done: cycle-identical (shadow-checked in simulation) |
 | R6 set-associative TLBs | `tg_tlb` | not adopted (IPC); M6 decision |
 | R7 cold storage | `tg_lsu`: LQ/SQ virtual addresses and SQ data in LUTRAM (the CAMs keep physical addresses); ROB payload in LUTRAM; FTQ PCs | done, FTQ with M6 |
 | TLB entries | `tg_tlb`: no ASID tags (satp changes and SFENCE.VMA flush), a 22-bit PPN (`PA_W` = 34), the leaf in LUTRAM read at the encoded match (the match stays in flip-flops) | done |
@@ -227,6 +296,12 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 **Reserve (D18: sharing, or a function cut; not taken):**
 - The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
+
+**Follow-ups (functional, with deadlines):**
+- **LR/SC forward progress under read probes. Deadline: M8 (dual core).**
+  - **The problem:** a probe that only takes away T (toB, from another core's read) also ends the reservation. The spec's eventual-success guarantee for a constrained LR/SC loop covers contention that is only reads, so two cores could starve an SC.
+  - **The fix:** a reservation hold. Probes to the reserved line wait a bounded number of cycles after an LR, and nothing in that wait depends on A-channel progress.
+  - **Found by:** the directed `amo` test under `--probe-rate=150 --bp=20`. It needed up to about 30 tries, and its bound is now 1,024 (bae805e).
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
 
@@ -374,7 +449,10 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - **Result at 583e41e** (with DR-120 and main's P4 pass):
   - st 49,097 LUTs and smt2 51,839, against 56,461 and 62,501 on main cb8ff6c: −7.4K and −10.7K, of which −0.13K is P4's.
   - st_w3 62,199, smt2_w3 66,773.
-  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks, and through 59 M cycles of the Linux boot (the same instruction count and PC at 58 M and 59 M cycles).
+  - Cycle-identical to main 3711a41 on the riscv-tests and benchmarks. The Linux boot also matched main's per-million-cycle counts through 59 M cycles.
+    - **Later finding:** that boot match is not evidence of cycle identity. The SoC boot test bench draws its AXI memory latencies and ready stalls from one shared `$urandom` stream (`tb_axi_mem`). Its cycle counts therefore depend on the order Verilator evaluates the memory models in, which changes from build to build.
+    - Main's own core (41bc3f6) gave 1,063,470 instructions at 1 M cycles in one build and 1,062,353 in another; the only difference was a `$display` in the test bench.
+    - Cycle identity is proved with `tg_vsim` (deterministic memory, `--x-assign unique`). The boot is a functional check: no oops, no assertion, userspace reached.
 - **With DR-113's settings** (the budget flow from main fd54e65: hierarchy kept plus `AreaOptimized_high`), at cc5e962 (0e3f639's RTL):
   - st 46,132 against main cb8ff6c's 52,024 with the same settings (−5.9K, −11.3%): lsu_mmu 16,157 → 10,932, rob_csr 4,793 → 4,390, fe 4,966 → 4,738; rename 4,324 unchanged.
   - smt2 49,022.
@@ -389,3 +467,56 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 - The divider's normalisation as a 64-bit rotation plus a mask (8ed931c, reverted in a32d2aa): +102 LUTs.
 - One AG report per LSU port into the ROB (935dc2b, reverted in a926037): level.
 - The walker on the STA port's checker (4b85114, reverted in 5c124f2): −0.83K, but not exclusive (D18); it is in the reserve (§13).
+
+**FPGA-friendly rewrite, first pass (2026-10-14, DR-123/125; branch `claude/track-core-adb715-fn`):**
+- **Method:** a LUT attribution of the whole core (hierarchy kept, DR-113's settings, every LUT grouped by the signal it drives). Each structure found was rewritten in an FPGA form, and each step was checked with `make cycle-identical` against main: st, smt2, st_w3 and smt2_w3, 796 programs each.
+
+| Step | Commit | Form | Measured (st, DR-113's settings) |
+|---|---|---|---|
+| Ready tables: a set phase per bank, an allocation phase XOR-banked; the free lists' next registers cleared every cycle | 9cbbc67, cc1f679 | T2 | rename 4,324 → 3,340; the 192:1 and 128:1 read multiplexers were 1.4K LUT cells |
+| `rowdst` (MX) in LUTRAM, XOR-banked by DS slot | 917189a | T2 | rename, with the next step: 3,340 → 2,780 |
+| The maps' banks XOR-banked, no live-value tables | 6f8c99e | T2 | (above) |
+| The DS payload loads whenever DS is free | c02be92 | timing | — |
+| The TLB match as a LUTRAM CAM: six level-aligned slice tables, a key store, a bypass comparator behind a three-cycle update | 7863a25 | T5 | DTLB 1,470 → 1,104 LUTs (−819 flip-flops); ITLB 486 → 480 (−392 flip-flops) |
+| The ROB's `complete`, `exc`, `mispredict`, `mmio` as per-port toggle tables with a dispatch-time parity | cb67ebc | T2 | ROB 2,696 → 2,042 |
+| The SQ's ROB index and size in LUTRAM | 8a18f6c | T1 | small |
+| D$ port B's byte enables shared by the ways | 7ad53ea | — | small |
+| `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | CSR 1,694 → 1,615, DSPs +2 |
+
+- **Result at f18704e (the final RTL):**
+  - **st:** 46,132 → **43,342** (−2,790, −6.0%):
+    - rename 4,324 → 2,816;
+    - lsu_mmu 10,932 → 10,390, of which the D$ is 2,609 → 2,483, from the shared byte enables;
+    - rob_csr 4,390 → 3,656, of which the ROB is 2,696 → 2,041.
+    - Flip-flops −2.2K, LUTRAM +1.0K, DSPs 53 → 55.
+  - **smt2 (7ad53ea, before the counters, −79):** 49,022 → **45,992**, under its 46,120 core budget. rob_csr 4,461 is under its 4,840.
+- **Timing, out of context at 200 MHz (reg-to-reg):**
+  - **Rename:** in one clock region, 41bc3f6 −2.233 ns and 7ad53ea −0.517 ns. Unconstrained the two vary run to run by about 0.3 ns around main's −0.154. The worst path is main's own: the free-list counts, steering and resource checks into rn_fire.
+  - **ROB:** −0.954 → −0.372 ns; in one clock region, −0.660 → −0.278.
+  - **LSU:** −4.751 → −4.163 ns. That is M3's AG stage (TLB, PMP and the access decision in one cycle), whose fix is M6's.
+- **Lessons:**
+  - The flip-flop structures had a reader cost, not a storage cost. The ready bits, ROB flags and MX row destinations were cheap to store but read through wide multiplexers or written through many index decoders.
+  - XOR banking and per-port toggle tables give one writer per LUTRAM without a live-value table. They need either an exact old value at the write address, or a one-report-per-lap invariant; the ROB checks its invariant with a shadow copy of the old flags in simulation.
+  - A LUTRAM CAM is a LUT lever for a TLB with two lookups and an overlap check (−366), but not with one lookup (−6). The spikes track's single-lookup pricing (76 LUTs at 32 entries) did not see the second port.
+  - A change that is invisible in the core test bench can still show in the SoC boot's cycle counts: `tb_axi_mem`'s random draws move with the build at four Verilator threads (verification.md §4.5). Use `make cycle-identical`.
+  - Clearing a free list's next registers early is invisible, because nobody reads a free register's ready bit. Rewriting a structure exactly is easier when it is clear who can observe what, and when.
+
+**FPGA-friendly rewrite, second pass (2026-10-14; branch `claude/track-core-adb715-fn2`):**
+
+| Step | Commit | Form | Measured (st, DR-113's settings) |
+|---|---|---|---|
+| The ITLB back on flip-flop comparators (`tg_tlb` `CAM = 0`) | 9b14471 | — | fe 4,732 → 4,738 LUTs, −160 LUTRAM, +392 flip-flops |
+| The cold CSRs in one LUTRAM; trap entry's three writes in the cycles after the trap | 50746f6 | T1 | with the next step |
+| The xRET's xepc through the CSR read port (the ROB names the xRET in flight) | 43c2d0f | T1 | CSR 1,615 → 1,368 (`u_cold` is 80 LUTRAM LUTs), −500 flip-flops |
+| One adder on the head's PC | 2952dbd | T7 | ROB −68 out of context (`flush_pc` 260 → 194) |
+| `replay` as XOR-banked LUTRAM | 9646d13 | T2 | ROB 2,083 → 1,891, −48 flip-flops |
+
+- **Result at e5c2b4f, against 4eb7ce0** (the first pass with main 89d8001 merged):
+  - **st:** 43,005 → **42,607** (−398); rob_csr 3,658 → 3,259.
+  - **smt2:** 45,637 → **45,055** (−582); rob_csr 4,381 → 3,799.
+  - Flip-flops: st −546, smt2 −578.
+- **Lessons:**
+  - The CSRs' cost was their write multiplexers and read-multiplexer inputs, not their storage. One write port suffices when writes that arrive together can be spread over cycles nobody observes: the trap's flush leaves the window empty.
+  - Serial instructions free ports. Two users of a port that never overlap (a CSR read in EX, an xRET's xepc at commit) can share it through a registered steering bit.
+  - On a 6-input LUT, taking one input out of a 3:1 multiplexer saves nothing, and the shared xepc saved nothing in the ROB. Taking out a whole adder does (−66).
+  - The `--rand-reset` cycle difference was the BHT, LUTRAM by design (§3.2). Verilator fills a whole array with one random value, so a LUTRAM's random start covers only a few states.

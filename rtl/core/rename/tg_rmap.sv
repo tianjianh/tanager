@@ -1,11 +1,15 @@
 // Rename map of 32 architectural registers in LUTRAM (plan §8.5 R3; docs/spec/core-pipeline.md
 // §5.2). The speculative map has one bank per rename slot and the committed map one per commit
-// slot, so every write port is a LUTRAM's; live-value tables in flip-flops name the bank that
-// holds each register's latest entry. sv_q[r]: r was renamed since the last flush; otherwise the
-// committed map answers, and its producer has committed (so the caller does not read the
-// producer fields). A flush clears sv_q: the committed map is current in the next cycle, with
-// no copy. After reset a sweep writes the identity (register r -> physical register r, bank 0)
-// into committed bank 0; `ready` rises when it is done.
+// slot, so every write port is a LUTRAM's. The banks are XOR-banked (FPGA-friendly T2; LaForest
+// et al., "Multi-ported memories for FPGAs via XOR", FPGA 2012): a register's entry is the XOR
+// of its banks, and a slot writes its own bank with the new value XOR the other banks' entries
+// at that register, so no live-value table names the bank that holds it. Of several slots
+// writing one register in a cycle, only the last writes (a later slot wins). sv_q[r]: r was
+// renamed since the last flush; otherwise the committed map answers, and its producer has
+// committed (so the caller does not read the producer fields). A flush clears sv_q: the
+// committed map is current in the next cycle, with no copy. After reset a sweep writes the
+// identity (register r -> physical register r) into committed bank 0 and zeros into the other
+// committed banks; `ready` rises when it is done.
 // tg_rename has one for the integer registers and, with EXT_FD, one for the FP registers.
 module tg_rmap
   import tg_pkg::*;
@@ -15,9 +19,7 @@ module tg_rmap
   parameter int PW  = 8,         // mapping width
   parameter int DW  = 8,         // producer fields width
   parameter int NR  = 6,         // mapping read ports
-  parameter int NRD = 4,         // producer read ports: the first NRD mapping ports
-  localparam int KSW = idx_w(W),
-  localparam int CSW = idx_w(CW)
+  parameter int NRD = 4          // producer read ports: the first NRD mapping ports
 ) (
   input  logic                   clk,
   input  logic                   rst,
@@ -35,65 +37,121 @@ module tg_rmap
   input  logic [CW-1:0][PW-1:0]  cwd
 );
   logic [31:0]            sv_q;           // renamed since the last flush
-  logic [31:0][KSW-1:0]   lvt_q;          // speculative bank with the latest entry
-  logic [31:0][CSW-1:0]   lvtc_q;         // committed bank with the latest entry
-  logic [5:0]             cinit_q;        // reset sweep into committed bank 0
+  logic [5:0]             cinit_q;        // reset sweep into the committed banks
   assign ready = cinit_q[5];
 
-  logic [W-1:0][NR-1:0][PW-1:0]   ms_rd;
-  logic [W-1:0][NRD-1:0][DW-1:0]  mp_rd;
-  logic [CW-1:0][NR-1:0][PW-1:0]  mc_rd;
-  for (genvar k = 0; k < W; k++) begin : g_ms
-    tg_ram_lut #(.DEPTH(32), .WIDTH(PW), .NR(NR)) u_map (
-      .clk, .we(we[k]), .waddr(wa[k]), .wdata(wd_p[k]), .raddr(ra), .rdata(ms_rd[k]));
-    tg_ram_lut #(.DEPTH(32), .WIDTH(DW), .NR(NRD)) u_prod (
-      .clk, .we(we[k]), .waddr(wa[k]), .wdata(wd_d[k]), .raddr(ra[NRD-1:0]), .rdata(mp_rd[k]));
+  // The last writer of each register in a cycle (earlier slots on the same register drop out)
+  logic [W-1:0]  wl;
+  logic [CW-1:0] cwl;
+  always_comb begin
+    for (int k = 0; k < W; k++) begin
+      wl[k] = we[k];
+      for (int j = k + 1; j < W; j++) if (we[j] && wa[j] == wa[k]) wl[k] = 1'b0;
+    end
+    for (int k = 0; k < CW; k++) begin
+      cwl[k] = cwe[k];
+      for (int j = k + 1; j < CW; j++) if (cwe[j] && cwa[j] == cwa[k]) cwl[k] = 1'b0;
+    end
   end
-  for (genvar j = 0; j < CW; j++) begin : g_mc
-    logic cw;
-    logic [4:0] cwa_j;
-    logic [PW-1:0] cwd_j;
-    always_comb begin
-      cw    = cwe[j];
-      cwa_j = cwa[j];
-      cwd_j = cwd[j];
-      if (j == 0 && !cinit_q[5]) begin
-        cw    = 1'b1;
-        cwa_j = cinit_q[4:0];
-        cwd_j = PW'(cinit_q[4:0]);
+
+  // ---- Speculative banks: read ports 0..NR-1 (mapping) / 0..NRD-1 (producer), then the other
+  // slots' write registers (for the XOR), in slot order ----
+  localparam int NRS = NR + W - 1;
+  localparam int NDS = NRD + W - 1;
+  logic [W-1:0][NRS-1:0][PW-1:0] ms_rd;
+  logic [W-1:0][NDS-1:0][DW-1:0] mp_rd;
+  for (genvar k = 0; k < W; k++) begin : g_ms
+    logic [NRS-1:0][4:0] ar;
+    logic [NDS-1:0][4:0] dr;
+    for (genvar i = 0; i < NR; i++) begin : g_ar
+      assign ar[i] = ra[i];
+    end
+    for (genvar i = 0; i < NRD; i++) begin : g_dr
+      assign dr[i] = ra[i];
+    end
+    for (genvar o = 0; o < W; o++) begin : g_o
+      if (o != k) begin : g_x
+        assign ar[NR + (o < k ? o : o - 1)]  = wa[o];
+        assign dr[NRD + (o < k ? o : o - 1)] = wa[o];
       end
     end
-    tg_ram_lut #(.DEPTH(32), .WIDTH(PW), .NR(NR)) u_cmap (
-      .clk, .we(cw), .waddr(cwa_j), .wdata(cwd_j), .raddr(ra), .rdata(mc_rd[j]));
+    logic [PW-1:0] xp;
+    logic [DW-1:0] xd;
+    always_comb begin
+      xp = wd_p[k];
+      xd = wd_d[k];
+      for (int o = 0; o < W; o++) begin
+        if (o != k) begin
+          xp ^= ms_rd[o][NR + (k < o ? k : k - 1)];
+          xd ^= mp_rd[o][NRD + (k < o ? k : k - 1)];
+        end
+      end
+    end
+    tg_ram_lut #(.DEPTH(32), .WIDTH(PW), .NR(NRS)) u_map (
+      .clk, .we(wl[k]), .waddr(wa[k]), .wdata(xp), .raddr(ar), .rdata(ms_rd[k]));
+    tg_ram_lut #(.DEPTH(32), .WIDTH(DW), .NR(NDS)) u_prod (
+      .clk, .we(wl[k]), .waddr(wa[k]), .wdata(xd), .raddr(dr), .rdata(mp_rd[k]));
   end
+
+  // ---- Committed banks: read ports 0..NR-1, then the other commit slots' write registers ----
+  localparam int NRC = NR + CW - 1;
+  logic [CW-1:0][NRC-1:0][PW-1:0] mc_rd;
+  for (genvar j = 0; j < CW; j++) begin : g_mc
+    logic [NRC-1:0][4:0] ar;
+    for (genvar i = 0; i < NR; i++) begin : g_ar
+      assign ar[i] = ra[i];
+    end
+    for (genvar o = 0; o < CW; o++) begin : g_o
+      if (o != j) begin : g_x
+        assign ar[NR + (o < j ? o : o - 1)] = cwa[o];
+      end
+    end
+    logic          cw;
+    logic [4:0]    cwa_j;
+    logic [PW-1:0] cwd_j;
+    always_comb begin
+      cw    = cwl[j];
+      cwa_j = cwa[j];
+      cwd_j = cwd[j];
+      for (int o = 0; o < CW; o++)
+        if (o != j) cwd_j ^= mc_rd[o][NR + (j < o ? j : j - 1)];
+      if (!cinit_q[5]) begin
+        cw    = 1'b1;
+        cwa_j = cinit_q[4:0];
+        cwd_j = (j == 0) ? PW'(cinit_q[4:0]) : '0;
+      end
+    end
+    tg_ram_lut #(.DEPTH(32), .WIDTH(PW), .NR(NRC)) u_cmap (
+      .clk, .we(cw), .waddr(cwa_j), .wdata(cwd_j), .raddr(ar), .rdata(mc_rd[j]));
+  end
+
   for (genvar i = 0; i < NR; i++) begin : g_rd
     always_comb begin
-      logic [4:0] r;
-      r = ra[i];
-      rd_p[i] = sv_q[r] ? ms_rd[lvt_q[r]][i] : mc_rd[lvtc_q[r]][i];
+      logic [PW-1:0] s, c;
+      s = '0;
+      c = '0;
+      for (int k = 0; k < W; k++)  s ^= ms_rd[k][i];
+      for (int j = 0; j < CW; j++) c ^= mc_rd[j][i];
+      rd_p[i] = sv_q[ra[i]] ? s : c;
     end
     if (i < NRD) begin : g_pd
-      assign rd_d[i] = mp_rd[lvt_q[ra[i]]][i];
+      always_comb begin
+        rd_d[i] = '0;
+        for (int k = 0; k < W; k++) rd_d[i] ^= mp_rd[k][i];
+      end
     end
   end
 
   always_ff @(posedge clk) begin
     if (rst) begin
       sv_q    <= '0;
-      lvtc_q  <= '0;
       cinit_q <= '0;
     end else begin
       if (!cinit_q[5]) cinit_q <= cinit_q + 1'b1;
-      for (int j = 0; j < CW; j++) if (cwe[j]) lvtc_q[cwa[j]] <= CSW'(j);
       if (flush) begin
         sv_q <= '0;
       end else begin
-        for (int k = 0; k < W; k++) begin
-          if (we[k]) begin
-            sv_q[wa[k]]  <= 1'b1;
-            lvt_q[wa[k]] <= KSW'(k);
-          end
-        end
+        for (int k = 0; k < W; k++) if (we[k]) sv_q[wa[k]] <= 1'b1;
       end
     end
   end

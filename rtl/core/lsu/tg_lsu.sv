@@ -56,7 +56,6 @@ module tg_lsu
   output logic [FPIDX_W-1:0]           fld_m2_idx,
   output logic                         fld_valid,
   output logic [FPIDX_W-1:0]           fld_idx,
-  output logic                         fld_single,
   output logic [63:0]                  fld_data,
   // Store data: the shared integer port (busy while P4 reads an integer source) or, for FP
   // stores, the FP file's store-data port; FP register writes are snooped for FP store data
@@ -275,7 +274,13 @@ module tg_lsu
 
   // ---- SQ ----
   logic   [SQ_ENTRIES-1:0]           sq_v_q;
-  robid_t [SQ_ENTRIES-1:0]           sq_rob_q;
+  // The ROB index and size, written at STA and read only by index, live in LUTRAM (u_sqrob,
+  // u_sqsz): the store-data completion and the head's DTLB retry read the index; the trace and
+  // forwarding read the size
+  logic [1:0][SIW-1:0]               sqrob_ra;     // the captured store, the commit point
+  robid_t [1:0]                      sqrob_rd;
+  logic [COMMIT_WIDTH:0][SIW-1:0]    sqsz_ra;      // the trace's stores, the forwarding store
+  logic [COMMIT_WIDTH:0][1:0]        sqsz_rd;
   logic   [SQ_ENTRIES-1:0]           sq_av_q, sq_dv_q, sq_mmio_q, sq_exc_q;
   // VA and data in LUTRAM: the VA for the trace, the head's walk and tval; the data for the
   // trace, forwarding, the drain and atomics. The CAMs use the PA and masks in flip-flops.
@@ -291,7 +296,6 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_dr_q;      // the data's register is written (snooped)
   logic   [SQ_ENTRIES-1:0][PA_W-1:0] sq_pa_q;
   logic   [SQ_ENTRIES-1:0]           sq_tlb_q;     // DTLB miss: no address (ROB replay)
-  logic   [SQ_ENTRIES-1:0][1:0]      sq_size_q;
   logic   [SQ_ENTRIES-1:0][7:0]      sq_mask_q;
   preg_t  [SQ_ENTRIES-1:0]           sq_tag_q;
   logic   [SQ_ENTRIES-1:0]           sq_fp_q;      // the data is an f register (EXT_FD)
@@ -371,7 +375,8 @@ module tg_lsu
     assign sqd_ra[j]     = tr_sq[j][SIW-1:0];
     assign tr_st_va[j]   = sqva_rd[j];
     assign tr_st_data[j] = sqd_rd[j];
-    assign tr_st_size[j] = sq_size_q[tr_sq[j][SIW-1:0]];
+    assign sqsz_ra[j]    = tr_sq[j][SIW-1:0];
+    assign tr_st_size[j] = sqsz_rd[j];
     assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
   end
 
@@ -432,7 +437,7 @@ module tg_lsu
   // Two lookups: the LD port, and the STA port (the ROB head's check when STA is idle)
   assign dt_vpn[0] = ld_ag_addr[38:12];
   assign dt_vpn[1] = sta_ag_valid ? sta_ag_addr[38:12] : hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2)) u_dtlb (
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
@@ -507,7 +512,8 @@ module tg_lsu
     f_data  = sq_dv_q[f_idx];
   end
 
-  assign f_dword = rep(sqd_rd[COMMIT_WIDTH], sq_size_q[f_idx]);   // LUTRAM read at f_idx
+  assign sqsz_ra[COMMIT_WIDTH] = f_idx;
+  assign f_dword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at f_idx
 
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
@@ -604,7 +610,7 @@ module tg_lsu
   // An FLW's word arrives zero-extended (FP loads take their bytes raw) and is NaN-boxed as the
   // register is written, so fld_data is the value P4 writes to F1 with no logic after the register.
   logic            r_v_q, r_dv_q, r_mmio_q;
-  logic            r_fv_q, r_fs_q;            // the result writes F1 (EXT_FD); an FLW
+  logic            r_fv_q;                    // the result writes F1 (EXT_FD)
   logic [PIDX_W-1:0] r_dst_q;
   logic [63:0]     r_data_q;
   robid_t          r_rob_q;
@@ -612,7 +618,6 @@ module tg_lsu
   assign ld_res_valid = r_v_q && r_dv_q && !r_fv_q;
   assign fld_valid    = r_fv_q;
   assign fld_idx      = FPIDX_W'(r_dst_q);
-  assign fld_single   = r_fs_q;
   assign fld_data     = r_data_q;
   assign ld_res_dst   = r_dst_q;
   assign ld_res_data  = r_data_q;
@@ -782,7 +787,7 @@ module tg_lsu
     end
     if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) begin
       st_cmp_valid[1] = 1'b1;
-      st_cmp_rob[1]   = sq_rob_q[cap_idx];
+      st_cmp_rob[1]   = sqrob_rd[0];
     end
   end
 
@@ -796,7 +801,7 @@ module tg_lsu
   acc_e           hd_at;
   assign hs       = sq_cmt_q[SIW-1:0];
   assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lqc_rd[2].rob == rob_head;
-  assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sq_rob_q[hs] == rob_head && sq_cmt_q != sq_tail_q;
+  assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sqrob_rd[1] == rob_head && sq_cmt_q != sq_tail_q;
   assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[COMMIT_WIDTH];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
@@ -930,6 +935,14 @@ module tg_lsu
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx),
     .wdata(sqh_t'{pa: sa_pa, mask: sa_mask, size: sta_ag_pl.mem_size}), .raddr(sqh_ra), .rdata(sqh_rd));
   assign sqh = sqh_rd[0];
+  assign sqrob_ra[0] = cap_idx;
+  assign sqrob_ra[1] = hs;
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_sqrob (
+    .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx), .wdata(sta_ag_pl.rob), .raddr(sqrob_ra),
+    .rdata(sqrob_rd));
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2), .NR(COMMIT_WIDTH + 1)) u_sqsz (
+    .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx), .wdata(sta_ag_pl.mem_size), .raddr(sqsz_ra),
+    .rdata(sqsz_rd));
   assign sqva_ra[COMMIT_WIDTH]   = hs;            // at an atomic, hs is its entry and the head
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SVR)) u_sqva (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx), .wdata(sta_ag_addr), .raddr(sqva_ra),
@@ -1045,7 +1058,6 @@ module tg_lsu
         r_v_q    <= 1'b1;
         r_dv_q   <= lqc_rd[0].dv;
         r_fv_q   <= EXT_FD && lqc_rd[0].dv && lqc_rd[0].fp;
-        r_fs_q   <= lq_size_q[m2_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[0].dst;
         r_data_q <= m2_val | {{32{EXT_FD && lqc_rd[0].fp && lq_size_q[m2_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[0].rob;
@@ -1055,7 +1067,6 @@ module tg_lsu
         r_v_q    <= 1'b1;
         r_dv_q   <= lqc_rd[1].dv;
         r_fv_q   <= EXT_FD && lqc_rd[1].dv && lqc_rd[1].fp;
-        r_fs_q   <= lq_size_q[x_lq_q] == 2'd2;
         r_dst_q  <= lqc_rd[1].dst;
         r_data_q <= xr_data_q | {{32{EXT_FD && lqc_rd[1].fp && lq_size_q[x_lq_q] == 2'd2}}, 32'b0};
         r_rob_q  <= lqc_rd[1].rob;
@@ -1142,9 +1153,7 @@ module tg_lsu
       end
 
       // ---- STA ----
-      if (sta_ag_valid && !flush) begin                // (rob and size: nothing reads them before)
-        sq_rob_q[sa_idx]  <= sta_ag_pl.rob;
-        sq_size_q[sa_idx] <= sta_ag_pl.mem_size;
+      if (sta_ag_valid && !flush) begin                // (rob and size: u_sqrob, u_sqsz)
         sq_av_q[sa_idx]   <= !sa_exc && !sa_tm;
         sq_exc_q[sa_idx]  <= sa_exc;
         sq_tlb_q[sa_idx]  <= sa_tm;
@@ -1231,7 +1240,7 @@ module tg_lsu
 
   logic unused;
   assign unused = ^{ld_ag_pl, sta_ag_pl, m2_fidx_q, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
-                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q, sq_rob_q, x_lq_q, pw_ack[0], pw_who[2],
+                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld, pmp_hit_st, pmp_rwx_st};
 
 `ifndef SYNTHESIS
