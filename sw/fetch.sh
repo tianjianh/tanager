@@ -1,9 +1,11 @@
 #!/bin/bash
 # Downloads the pinned sources of sw/versions.sh into $SOC_DL and checks them against sw/sha256sums.
 # A file with no recorded sum is recorded on first download (trust on first use; commit the change).
-#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc ...]     (default: all)
+#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc|spike ...]     (default: all but spike)
 # aatc (the aarch64 toolchain for sw/host) is unpacked under $SOC_BUILD/tc after the check, and its
 # archive deleted; it is fetched again only if the unpacked copy is missing.
+# spike is Spike's source at tools/versions.sh's SPIKE_SHA, for tanager-lockstep on the A53
+# (sim/Makefile lockstep-aarch64; docs/spec/verification.md §3.9).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 source "$here/env.sh"
@@ -49,6 +51,9 @@ for i in "${items[@]}"; do
         rm -f "$SOC_DL/toolchain-aarch64/$AATC_TAR"
         echo "[fetch] unpacked $AATC_NAME into $SOC_BUILD/tc (archive deleted)"
       fi ;;
+    spike)
+      SPIKE_SHA="$(source "$here/../tools/versions.sh" && echo "$SPIKE_SHA")"
+      fetch "https://github.com/riscv-software-src/riscv-isa-sim/archive/$SPIKE_SHA.tar.gz" spike "spike-$SPIKE_SHA.tar.gz" ;;
     *) echo "unknown item $i" >&2; exit 2 ;;
   esac
 done
