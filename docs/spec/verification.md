@@ -740,6 +740,8 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - The XOR-banked rename map was already fully covered. The real hole was address translation: no random program ever ran under Sv39, so the LSU's DTLB, page walks and page faults and the ROB's DTLB-miss handling went untested by random programs. `--vm`, store bursts, port collisions, MMIO, denied pages and fetch faults took the LSU from 88.4% to 98.3% of its reachable expression points and the ROB from 87.4% to 92.3%.
   - The new programs found two harness bugs, both in how denied memory is modelled (a denied Grant's permissions; denied DRAM as non-reservable), and no core bug.
   - **Lesson:** measure before writing tests. The intuition (stress the rename map) was wrong about where the gap was.
+  - **The follow-up (the same day):** two of the four gaps I sent the core track were the tool's, not the programs'. An `if` reassigns its own condition's terms, so Verilator counts the combinations after the branch has changed them. A riscv-test that certainly reaches the point showed it in seconds. `cov_report.py` now flags such points. The other two were real: `tag_short.S` and two generator templates reach them now.
+  - **Lesson:** "never reached" is a claim about the instrument as well. Before asking another track whether something can happen, run a program that surely makes it happen.
 
 - **FPGA lockstep, the checker on the A53 (2026-10-14, §3.9):**
   - **Built and proven in simulation:** cross-built as a static musl binary (9.9 MB, under 3 minutes). In simulation it checked the SoC test, stopped exactly on a planted wrong value, and checked OpenSBI to its banner (3.09 M records).
