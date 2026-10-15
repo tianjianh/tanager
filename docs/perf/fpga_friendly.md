@@ -62,7 +62,7 @@ Much of the core still holds state in flip-flops and builds lookups, searches an
 | LSU/MMU (core) | +6.8K after the second pass | TLB entries as LUTRAM CAMs (T5); PMP and PMA tables in LUTRAM; the remaining queue payload in LUTRAM (T1); address compares in DSPs where their operands are registered (T6) |
 | Rename (core) | +4.3K | Map table and free list in LUTRAM with LVT or replication (T1, T2). Checkpoints as LUTRAM copies selected by a version pointer, not flip-flop snapshots: a restore must stay one cycle. |
 | ROB and CSRs (core) | +3.2K | ROB payload (PC, destination, exception and trace fields) in LUTRAM or block RAM, read ahead of commit (T1, T3); rarely written CSRs in LUTRAM behind the serialized CSR port (T1) |
-| P4 and execute (FPU agent) | measured 10-14: P4 +334 (st), execute −85 | P4: its URAM operand ports (DR-133's reserve) or the trace ports (DR-121); execute: none needed |
+| P4 and execute (FPU agent) | measured 10-14: P4 +215 (st), execute −85 | P4: the FP bank select in the core's trace and store-data multiplexers (−96, proposed to the core track), its URAM operand ports (DR-133's reserve) or the trace ports (DR-121); execute: none needed |
 | Crossbar (SoC) | +4.4K | One-hot AND-OR selects with F7/F8 (T7); request payload in LUTRAM FIFOs (T1) |
 | Trace (SoC and core) | +2.9K uncore, 1.5K per core | Trace FIFOs in block RAM or SRL (T3, T4); dropping it in release builds is the last reserve lever (DR-121) |
 | Host bridge (SoC) | +1.7K | Buffers in block RAM (T3) |
@@ -228,6 +228,12 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 | 2026-10-14 | Execute (divider) | x / 0 as q = 1 negated, so q's other bits load by reset | +97 alone | — | — | (unit test) | — | **Rejected.** |
 | 2026-10-14 | P4 (register file) | the reset sequence's zero writes take the F0 port: the zero folds into the F0 stream's multiplexer, and `tg_fprf` drops both banks' zero multiplexers (T7) | −64 (st), −63 (smt2) | 0 | — | yes | P4: +0.069 (st), +0.117 (smt2) | **Adopted.** Pros: −64 LUTs. Cons: `init_bank` must be 0 (asserted; the core ties it to 0). |
 | 2026-10-14 | P4 (register file) | the F0 source as a 2-bit encoded select with the zero as its fourth state | −4 | — | — | — | — | **Not taken:** within run-to-run variation. |
+| 2026-10-14 | P4 (divider) | the four multiplier operands as one encoded select each: a bit is one 4:1, where the round's control was decoded per bit; an unused product's operands take the select's default (T7) | −81 | 0 | — | yes | P4: +0.143 (st), +0.095 (smt2) | **Adopted.** Pros: −81 LUTs, one LUT level in front of the multipliers. Cons: idle multipliers multiply whatever the defaults select (their products are not used). |
+| 2026-10-14 | P4 (FMA) | E0's zeros (an S significand's bits 28:0, b = 1.0, no addend) through the registers' synchronous resets, `direct_reset` (T7) | −23 | 0 | — | yes | P4: +0.114 (st), +0.091 (smt2), with the next row | **Adopted.** Pros: −23 LUTs. Cons: the zeros now depend on the reset mapping, which the attribute asks for. |
+| 2026-10-14 | P4 (FMISC) | the FCVT.I.F range check from six shared reductions of the shifted value | −15 | 0 | — | yes | as above | **Adopted.** Pros: −15 LUTs. Cons: none found. |
+| 2026-10-14 | P4 (FMA) | E2: X and X − 1 as one 3:2 layer and a compound adder, one propagate LUT per bit feeding two carry chains (explicit CARRY8, or behavioural) | +67, +80 alone | — | — | (bench) | — | **Rejected.** Synthesis's two ternary adders already cost one LUT per bit each, with the column counters folded in. |
+| 2026-10-14 | P4 (FMA, FMISC) | E3's normalised value and FMISC's S significand zeroed through register resets | +8 | — | — | — | — | **Rejected:** within run-to-run variation. |
+| 2026-10-14 | P4 (register file) | the bank select of the store-data and trace ports moves into the core's multiplexers (the LSU's store-data 3:1 and tg_core's trace 2:1), P4 hands out both banks | −96 in P4, about 0 in the core | 0 | — | (by construction) | — | **Proposed** to the core track: their two multiplexers must take the bank as a select (an encoded 2-bit select in the LSU). |
 
 ## 5. History and lessons
 
@@ -244,3 +250,4 @@ The flip-flop array at 64 × 32 with 4 writers and 8 readers is 9,808 LUTs and 2
 - **2026-10-14, FPU track, third round:** Execute 7,875 → 7,525 LUTs (st) and 7,524 (smt2), 85 under its 7,610; P4 7,198 → 7,134 (st) and 7,219 → 7,156 (smt2), 334 and 356 over its 6,800. Every change is cycle-identical (`make cycle-identical`, 798 of 798 programs in st and smt2 against main f0a1207).
   - The divider's −208 came from changing which value is aligned (the divisor, with one shifter, not the dividend into two registers), not from mapping.
   - A small module synthesised alone varies by up to ±100 LUTs between equivalent forms (the x / 0 form measured +97 alone). Judge in the budget flow with an A/B.
+- **2026-10-14, FPU track, P4 step 6:** P4 7,134 → 7,015 (st) and 7,156 → 7,037 (smt2), cycle-identical, 215 and 237 over its 6,800. The largest saving (−81) came from decoding the divider's round once per operand instead of in every bit of its multiplexers. A compound adder hand-built from CARRY8s lost to synthesis's two ternary adders (+67).
