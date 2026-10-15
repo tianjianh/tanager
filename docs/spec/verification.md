@@ -412,9 +412,17 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 
 ### 4.3 `make regress`
 
-`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0] [TIMING_CUTS=0|1]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, and `ARCH=1 [ACTCFG=...]` for ACT4).
+`make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0] [JOBS=N] [TIMING_CUTS=0|1]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, `ARCH=1 [ACTCFG=...]` for ACT4, and `TIMING_CUTS=both`, which is `make regress-profiles`).
 
-`TIMING_CUTS` picks the core's timing-cut profile (DR-140; `sim/profile.mk`). The core's three switches (#2, #4 and #5) are on together or off together, and the core package's default is the shipping profile. `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`. It builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs both of DR-140's profiles: "default" (unset: #2, #4 and #5 on) and "fallback" (`TIMING_CUTS=0`: all three off). #8 is off in both. With Spike lockstep, the profiles differ only in cycles. #8 (one more decode stage, `DE_STAGE=0|1`, `+define+TG_DE_STAGE`) is for lint only: `make lint` takes it, a build that runs programs refuses it. `make lint-all` elaborates every configuration three ways: the fallback, the default, and #8 on top of the default. That is about two minutes in all.
+`TIMING_CUTS` picks the core's timing-cut profile (DR-140; `sim/profile.mk`). The core's three switches (#2, #4 and #5) are on together or off together, and the core package's default is the shipping profile. `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`. It builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs both of DR-140's profiles: "default" (unset: #2, #4 and #5 on) and "fallback" (`TIMING_CUTS=0`: all three off). #8 is off in both. With Spike lockstep, the profiles differ only in cycles. #8 (one more decode stage, `DE_STAGE=0|1`, `+define+TG_DE_STAGE`) is for lint only: `make lint` takes it, a build that runs programs refuses it. `make lint-all` elaborates every configuration three ways: the fallback, the default, and #8 on top of the default. The twelve elaborations run six at a time (`LINT_JOBS`; one thread and about 0.6 GB each; `tools/ci/lint_all.sh`), and an elaboration whose define no RTL file mentions is the default's, so it is skipped. On core-2's fn5, which has all three defines, the twelve take 25 s, against about two minutes one at a time. On main before the switches land, four take 18 s.
+
+**`make regress-profiles CFG=<cfg>`** runs both profiles side by side, with half the jobs each (`regress.sh TIMING_CUTS=both`), so that the profile checks stay quick while the timing work lands (DR-142):
+- It first builds what both runs read: `tg_replay`, the directed tests, the benchmarks, and the ACT4 tests with `ARCH=1`. Neither run then builds a file the other reads.
+- The Spike-only steps (the checker self-test and the random F/D programs) run once, in the default's run.
+- It prints both summaries and one verdict, `REGRESS PASS: both profiles, …` or `REGRESS FAIL: <profile>`. Its own logs are in `regress/<cfg>-<core>-both/` (`shared.log`, `default.log`, `fallback.log`); each run's step logs are where `make regress` puts them.
+- If no RTL file mentions `TG_TIMING_CUTS`, the two profiles are one build, and only the default runs.
+- **Cost:** for `st` on core-2's fn5 (ccache off, load average about 25), 230 s, against 358 s for the two profiles one after the other. The builds and the long single tests overlap, and the Spike-only steps run once.
+- Each run is a process group of its own: Ctrl-C, or `kill` of the script, stops both runs with their builds and simulations.
 
 The steps:
 1. builds `tg_vsim` for the configuration and `tg_replay`;
@@ -816,6 +824,9 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 - **The Linux workload set (2026-10-15, §4.6, DR-141):** static programs and a run script in the initramfs, checked in QEMU on the SoC track's bench image.
   - **User-mode cycle counts took three layers, found one at a time.** Without the PMU driver, `rdcycle` trapped. With it, `rdcycle` read 0: the driver stops every counter at boot. With a perf event to start them, `perf_event_open` failed: OpenSBI 1.9 tells Linux only about the events the device tree maps (SBI v3's event-info call). A `riscv,pmu` node with two entries fixed the last (the SoC track's `PMU=1`).
   - **Lesson:** a counter that reads without trapping is not a counter that counts. The probe now checks that both counters advance, and the info line says how many events opened, and if none did, why.
+
+- **Cheaper profile checks (2026-10-15, §4.3, DR-142):** `lint-all` runs its elaborations six at a time (twelve in 25 s, from about two minutes), and `make regress-profiles` runs both profiles side by side (230 s for `st`, against 358 s one after the other).
+  - **Lesson:** the first timing said side by side was slower: 268 s against 246 s. The serial run came second, after a `touch`, and rebuilt C++ identical to the first run's, so ccache served its compiles. With ccache off for both, side by side was a third faster. Compare build timings only with both sides equally cold.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
