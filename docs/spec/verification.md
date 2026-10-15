@@ -375,6 +375,10 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
      - **Slowdown:** TANAGER-BOOT-OK came 2,336 s after the load, against 8 s unchecked (292 times); init ran at 731 s of kernel time, against 2.1 s.
      - **Console:** the login prompt came at 2,396 s and the root shell at 2,493 s. One RCU stall report appeared (the timer keeps running while the cores wait for the checker).
      - **Without zeroing,** the first try stopped at record 8,204,496, on the device tree's unwritten space (RTL `0x40`, Spike `0`), as simulation had predicted.
+   - **Result at 250 injected read cycles** (the same build, the padded device tree, the window zeroed): PASS. Linux booted to a root shell and powered off: 355,612,637 records (12,810 traps, 15,045 interrupts), no mismatch, in 3,642.8 s at 97,620 records/s.
+     - **Slowdown:** the login prompt came 2,561 s after the load, against 14 s unchecked (183 times); TANAGER-BOOT-OK at 2,491 s; init at 776 s of kernel time. The injected latency costs a checked boot little (2,491 s against 2,336 s for TANAGER-BOOT-OK), because the checker sets the pace.
+     - **Console:** one RCU stall report again; nothing else.
+   - **All five steps pass, and with steps 4 and 5 M4's FPGA-lockstep criterion is met** at 0 and 250 injected cycles (2026-10-14). The board session's logs, the first try's mismatch report included, are in `fpga/kv260/board/lockstep/`, and its account in `fpga/kv260/README.md`, "FPGA lockstep".
 
 ## 4. Test suites and runners
 
@@ -763,7 +767,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **Profiled before the port,** since the A53 is several times slower than the build host. Half the checker's time went into Spike formatting a commit log for `/dev/null`. One in three of Spike's PMP-checked accesses was the checker's own compare fetch. Both fixes together made it 2.1× faster.
   - **The cross build first came out at 3 GB:** Spike's own flags carry `-g`.
   - **Lesson:** profile before porting to a slower machine. The time went where nobody looked: into a log file opened for writing that no one reads.
-  - **On the board (the board session, the same evening):** the A53 checks 141–166 K records/s, 13.6 times slower than the 5950X. The first hardware trace (4.4 M records) had no AXI error, and the SoC test passed live. Linux stopped in the device tree's checksum, at the byte simulation had named (offset 0x90a: OpenSBI's unwritten free space). With the window zeroed, it booted to a root shell and powered off under lockstep: 335.8 M records, no mismatch, 57 minutes, about 290 times slower than unchecked.
+  - **On the board (the board session, the same evening):** the A53 checks 141–166 K records/s, 13.6 times slower than the 5950X. The first hardware trace (4.4 M records) had no AXI error, and the SoC test passed live. Linux stopped in the device tree's checksum, at the byte simulation had named (offset 0x90a: OpenSBI's unwritten free space). With the window zeroed, it booted to a root shell and powered off under lockstep: 335.8 M records, no mismatch, 57 minutes, about 290 times slower than unchecked. At 250 injected read cycles it did again: 355.6 M records, no mismatch, 61 minutes. That met M4's lockstep criterion.
   - **Lesson:** a simulated boot of the same images is worth running before the board, even at 4 K records/s. It named the board's first stop, and its cause, before the board reached it.
 
 **Breaks at merges, and their fixes.**
