@@ -539,25 +539,48 @@ module tg_rob
     end
   end
 
-  // Oldest exception after this cycle's reports
+  // Oldest exception after this cycle's reports. Candidates, in priority order: the register,
+  // CSR (oth), branch, then the LSU's four ports. The oldest valid one wins, the first in that
+  // order on a tie. Computed in parallel rather than as a chain: every pair's age compare uses
+  // only ROB indices, which arrive early (the LSU's AG ports send their payload's index whether
+  // or not they fault), and the late valid bits only gate a one-hot select. tval: an LSU winner
+  // takes the head's VA at the trap (ex_m), so ex_t is the best of the first three alone, as
+  // the chain left it.
+  localparam int NEX = 7;
   logic        ex_v;
   robid_t      ex_r;
   logic [3:0]  ex_c;
   logic [63:0] ex_t;
   logic        ex_m;
+  logic [NEX-1:0]             xc_v, xc_win;
+  robid_t [NEX-1:0]           xc_r;
+  logic [NEX-1:0][3:0]        xc_c;
+  logic [NEX-1:0][NEX-1:0]    xc_o;     // xc_o[i][j]: candidate i is strictly older than j
   always_comb begin
-    ex_v = exr_v_q; ex_r = exr_rob_q; ex_c = exr_cause_q; ex_t = exr_tval_q; ex_m = exr_mem_q;
-    if (oth_cmp && oth_exc && (!ex_v || rob_older(oth_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = oth_rob; ex_c = EXC_ILLEGAL; ex_t = oth_tval; ex_m = 1'b0;
-    end
-    if (br_valid && br_exc && (!ex_v || rob_older(br_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = br_rob; ex_c = EXC_IMISALIGN; ex_t = br_tval; ex_m = 1'b0;
-    end
-    for (int i = 0; i < 4; i++) begin
-      if (lx_valid[i] && (!ex_v || rob_older(lx_rob[i], ex_r))) begin
-        ex_v = 1'b1; ex_r = lx_rob[i]; ex_c = lx_cause[i]; ex_m = 1'b1;
+    xc_v = {lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q};
+    xc_r = {lx_rob, br_rob, oth_rob, exr_rob_q};
+    xc_c = {lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q};
+    for (int i = 0; i < NEX; i++)
+      for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
+    for (int i = 0; i < NEX; i++) begin
+      xc_win[i] = xc_v[i];
+      for (int j = 0; j < NEX; j++) begin
+        if (j < i && xc_v[j] && !xc_o[i][j]) xc_win[i] = 1'b0;    // an earlier one as old
+        if (j > i && xc_v[j] && xc_o[j][i])  xc_win[i] = 1'b0;    // a later one older
       end
     end
+    ex_v = |xc_v;
+    ex_r = '0;
+    ex_c = '0;
+    for (int i = 0; i < NEX; i++) begin
+      ex_r |= {$bits(robid_t){xc_win[i]}} & xc_r[i];
+      ex_c |= {4{xc_win[i]}} & xc_c[i];
+    end
+    ex_m = |xc_win[NEX-1:3] || (xc_win[0] && exr_mem_q);
+    // tval of the best of the register, CSR and branch candidates
+    ex_t = exr_tval_q;
+    if (xc_v[1] && (!xc_v[0] || xc_o[1][0])) ex_t = oth_tval;
+    if (xc_v[2] && (!xc_v[0] || xc_o[2][0]) && (!xc_v[1] || xc_o[2][1])) ex_t = br_tval;
   end
 
   // ---- Sequential ----
@@ -689,6 +712,32 @@ module tg_rob
             else $error("tg_rob: the replay tables' flag of %0d differs from the shadow flag", hid[j]);
         end
       end
+    end
+  end
+  // The oldest-exception chain the parallel select replaces: same winner, cause, tval and kind
+  logic        sx_v, sx_m;
+  robid_t      sx_r;
+  logic [3:0]  sx_c;
+  logic [63:0] sx_t;
+  always_comb begin
+    sx_v = exr_v_q; sx_r = exr_rob_q; sx_c = exr_cause_q; sx_t = exr_tval_q; sx_m = exr_mem_q;
+    if (oth_cmp && oth_exc && (!sx_v || rob_older(oth_rob, sx_r))) begin
+      sx_v = 1'b1; sx_r = oth_rob; sx_c = EXC_ILLEGAL; sx_t = oth_tval; sx_m = 1'b0;
+    end
+    if (br_valid && br_exc && (!sx_v || rob_older(br_rob, sx_r))) begin
+      sx_v = 1'b1; sx_r = br_rob; sx_c = EXC_IMISALIGN; sx_t = br_tval; sx_m = 1'b0;
+    end
+    for (int i = 0; i < 4; i++) begin
+      if (lx_valid[i] && (!sx_v || rob_older(lx_rob[i], sx_r))) begin
+        sx_v = 1'b1; sx_r = lx_rob[i]; sx_c = lx_cause[i]; sx_m = 1'b1;
+      end
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!rst && !flush) begin
+      assert (ex_v == sx_v && (!sx_v || (ex_r == sx_r && ex_c == sx_c && ex_m == sx_m && (sx_m || ex_t == sx_t))))
+        else $error("tg_rob: the parallel oldest-exception select differs from the chain");
+      assert ($onehot0(xc_win)) else $error("tg_rob: more than one oldest exception");
     end
   end
   always_ff @(posedge clk) begin

@@ -751,17 +751,18 @@ module tg_lsu
   // ================= ROB reports =================
   always_comb begin
     exc_valid = '0; exc_rob = '0; exc_cause = '0;      // (tval: the VA at the head, hd_lva/hd_sva)
+    // The AG and M2 ports' ROB indices and causes do not wait for their fault decision: the ROB
+    // reads them only with exc_valid, and its age compares then start early
+    exc_rob[0]   = ld_ag_pl.rob;
+    exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
+    exc_rob[1]   = lqc_rd[0].rob;
+    exc_cause[1] = EXC_LACCESS;
+    exc_rob[3]   = sta_ag_pl.rob;
+    exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
+                   sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
     // loads: AG checks of a new load, or a denied line at M2
-    if (ld_ag_valid && !flush && nl_exc) begin
-      exc_valid[0] = 1'b1;
-      exc_rob[0]   = ld_ag_pl.rob;
-      exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
-    end
-    if (m2_v_q && m2_out == O_FAULT && !flush) begin
-      exc_valid[1] = 1'b1;
-      exc_rob[1]   = lqc_rd[0].rob;
-      exc_cause[1] = EXC_LACCESS;
-    end
+    if (ld_ag_valid && !flush && nl_exc) exc_valid[0] = 1'b1;
+    if (m2_v_q && m2_out == O_FAULT && !flush) exc_valid[1] = 1'b1;
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
       exc_valid[2] = 1'b1;
@@ -772,12 +773,7 @@ module tg_lsu
       exc_rob[2]   = am_rob_q;
       exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
     end
-    if (sta_ag_valid && !flush && sa_exc) begin
-      exc_valid[3] = 1'b1;
-      exc_rob[3]   = sta_ag_pl.rob;
-      exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
-                     sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
-    end
+    if (sta_ag_valid && !flush && sa_exc) exc_valid[3] = 1'b1;
     // store completion: address arrives with the data present, or data arrives after the address
     st_cmp_valid = '0;
     st_cmp_rob   = '0;
