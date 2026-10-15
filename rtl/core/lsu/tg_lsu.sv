@@ -598,7 +598,10 @@ module tg_lsu
   // The wakeups do not wait for the PMP checker (m2_okw): a load it denies faults, and the dependents
   // it woke read a stale value and go with the trap's flush (the flush frees its LLT)
   logic m2_okw;
-  assign m2_okw = m2_v_q && !m2_pt_q && m2_out_w == O_OK && !flush;
+  // (m2_out_w == O_OK, written out: the denied-line compare only chooses between two outcomes that
+  // are not O_OK, so it stays off the wakeup path)
+  assign m2_okw = m2_v_q && !m2_pt_q && !flush &&
+                  (m2_fhit_q ? m2_fcov_q && m2_fdat_q : !m2_clash_q && m2_hit_q);
   assign m2_ok  = m2_okw && !l_den;
   // The miss request does not wait for the PMP checker either (timing: it feeds the D$'s port
   // arbitration): a load it denies faults, and only the line's refill may go ahead, a cacheable
