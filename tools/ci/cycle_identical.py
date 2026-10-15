@@ -15,8 +15,8 @@ Suites of tg_vsim, the core with TileLink models (default isa,stress,bench,rando
   isa     riscv-tests (the regression's suites) and our directed tests, at native latency
   stress  the same programs with memory stress and trace back-pressure (settings drawn per test)
   bench   CoreMark A/B and Dhrystone, rv64im and rv64gcb, at native latency and latency 120
-  random  RANDN tg_rand programs (rv64gc with F/D, else rv64imac), memory stress, timer interrupts on
-          odd seeds, trace back-pressure on some
+  random  RANDN tg_rand programs (rv64gc with F/D, else rv64imac), a third in S-mode under Sv39, memory
+          stress, timer interrupts on odd seeds, trace back-pressure on some
   reset   riscv-tests with random initial values in every register without a reset (--rand-reset)
 With --boot N, also the Linux boot's first N million cycles on the whole SoC: tests/unit/boot's tb_boot
 (--boot-tree REF for another tree's), with sim/tb/tg_soc_sig.sv bound into tanager_soc, for the uncore
@@ -50,6 +50,7 @@ NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load
 BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
 BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
 AUTO_BOOT = 3                            # million cycles, when the change reaches the uncore
+RANDOM_VM = 33                           # share of the random programs in S-mode under Sv39 (as the soak's)
 UNCORE_PATHS = ("rtl/uncore/", "rtl/soc/", "rtl/common/")
 
 sys.path.insert(0, os.path.join(ROOT, "tests", "isa"))
@@ -310,7 +311,7 @@ def random_programs(n, jobs):
         if not os.path.exists(elf):
             s = elf[:-4] + ".S"
             subprocess.run([sys.executable, gen, "--seed", str(seed), "--isa", isa, "--irq", str(irq),
-                            "--length", "400", "-o", s], check=True, capture_output=True)
+                            "--length", "400", "--vm", str(RANDOM_VM), "-o", s], check=True, capture_output=True)
             subprocess.run(["riscv-none-elf-gcc", *run_random.MARCH[isa].split(), "-nostdlib", "-nostartfiles",
                             "-static", "-mcmodel=medany", "-T", ld, s, "-o", elf + ".tmp"], check=True,
                            capture_output=True)

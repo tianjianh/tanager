@@ -1,0 +1,28 @@
+# tg.sh console, 2026-10-14 23:26:52 board time: does the host console (UART_TX pops) follow the
+# generators? Each case is a 3-second `tanager-host --timeout 5 run` after `tg start`;
+# UART_TX_LEVEL (0x104) is the number of bytes waiting for the host when run starts.
+== A: tg start, 2 s, run 3 s
+$ tanager-host tg start 16384
+traffic generators running over 16384 lines each; window 0x840000000 + 0x40000000
+$ tanager-host tg status
+passes 119, lines checked 3887534, errors 0 (last at line 0x0000000)
+$ tanager-host peek 0x104
+0x00000116
+run A: exit 124, 614 dots;  [tanager-host] timeout
+== B: tg start, 2 s, injector 250 for 2 s, back to 0, run 3 s
+$ tanager-host tg start 16384
+traffic generators running over 16384 lines each; window 0x840000000 + 0x40000000
+$ tanager-host --inj-rd 250 inj
+$ tanager-host --inj-rd 0 inj
+$ tanager-host tg status
+passes 167, lines checked 5447063, errors 0 (last at line 0x0000000)
+$ tanager-host peek 0x104
+0x00000176
+run B: exit 124, 710 dots;  [tanager-host] timeout
+== C: tg start, run at once
+$ tanager-host tg start 16384
+traffic generators running over 16384 lines each; window 0x840000000 + 0x40000000
+$ tanager-host peek 0x104
+0x0000002a
+run C: exit 124, 376 dots;  [tanager-host] timeout
+# COM5 (PMOD UART, CH340, 115200 8N1) over the steps run and this diagnostic: 3,371 bytes, all '.'.

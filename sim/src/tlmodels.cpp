@@ -417,7 +417,7 @@ void l1d_model_t::send_grant(const partial_t& p) {
   m.blocked = [this, idx] { return lines_[idx].probe_inflight; };
   m.on_start = [this, idx, addr, cap, block, ok](d_msg_t& msg) {
     line_t& l = lines_[idx];
-    l.perm = cap == CAP_TO_T ? PERM_T : PERM_B;
+    if (ok) l.perm = cap == CAP_TO_T ? PERM_T : PERM_B;  // a denied Grant transfers no permission
     l.grant_unacked = true;
     if (block) {
       msg.beats.resize(LINE_BEATS);

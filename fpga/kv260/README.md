@@ -161,3 +161,32 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - ICS's DHCP stopped answering once: nothing listened on UDP 67, although the sharing service was running. Restarting ICS on the laptop fixed it.
   - Without DHCP, the board still answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet.
 - **Clock.** The board shows a wrong date until NTP reaches it through the laptop's connection sharing.
+
+## Bring-up on the board (2026-10-14)
+
+The board track ran bring-up steps 1–5 on [the board](#the-board) on 2026-10-14. All five pass.
+- **Build:** the traffic-generator build: `st`, 2 generators, 100 MHz, commit `5048957`, PMOD console on H12/B10, fan TTC0 wave 2 → A12. Bitstream sha256 `5706b857…`, `tanager-host` `24da9717…`.
+- **How:** [`board/tg.sh`](board/tg.sh) (`stage`, `load`, `steps`, `restore`), run as `ubuntu` on the board.
+- **Logs:** [`board/stage_b_steps.log`](board/stage_b_steps.log), the passing run. [`board/stage_b_first.log`](board/stage_b_first.log), the first try, with the README's command forms. [`board/stage_b_console.log`](board/stage_b_console.log), a console diagnostic.
+
+| Step | Result |
+|---|---|
+| 1. Load | `xmutil loadapp tanager` loads it in slot 0; the FPGA manager reports `operating`. `pl0_ref` reads 99,999,999 Hz. The fan stayed at 15/255 under `fancontrol`, and the user heard it stay quiet. |
+| 2. `info` | v1.0, `st`, 2 cores × 1 thread, capabilities `0x2b`, everything in reset, window 0/0 |
+| 3. Widths | `FROMHOST` as a 64-bit pair reads back `0x12345678`/`0x9abcdef0`. `TG_LINES` (32-bit) reads back `0x2468`. |
+| 4. Memory path | `tg start` sets the window 0x840000000 + 0x40000000, and it reads back exactly. About 60 passes/s for generator 0. 14.4 M lines checked, **0 errors**. |
+| 4, at 250 cycles | `INJ_RD` reads 250. Passes slow to about 13/s. 3.9 M lines checked, **0 errors**. |
+| 5. Console | `run` showed 1,681 dots through `tanager-host` in its 5 s. COM5 (the PMOD UART) received 3,371 bytes over the session, all `.`, two per pass. `UART_TX_LEVEL` agrees with the passes. |
+
+**What the steps above need on this build** (reported to the SoC track):
+- **Options before the command.**
+  - `tanager-host` parses its options with `getopt_long("+vh")`, which stops at the first word that is not an option. So `inj --inj-rd 250` and `run --timeout 5` silently ignore their options: the injector stayed at 0, and `run` never timed out.
+  - The forms that work are `tanager-host --inj-rd 250 inj`, `--stats inj` and `--timeout 5 run`.
+  - Step 6's `boot --fw … --kernel … --dtb …` and step 7's `run --trace FILE` are affected the same way.
+- **Step 3's check:** `poke 0x68` alone reads back 0. `FROMHOST` is a 64-bit pair, and its low half lands only when the high half is written, so write `0x6c` too, or use a 32-bit register.
+- **The injector's native latency:** `info` reports avg 0.1–0.2 cycles over 20–40 M reads, with a max of 98–102. The average is not plausible: spike S1 implies about 18 cycles at 100 MHz at the PS port, before the uncore's own path. `INJ_RD_LATSUM` or the count looks wrong, so step 4 does not yet give the SoC's native-latency number.
+
+**Never read the host window without the design.**
+- With `k26-starter-kits` (or nothing) in the PL, nothing answers at `0xA000_0000`, and a `tanager-host` read hangs the A53 until a power cycle. This happened once, from a status command after the automatic restore.
+- `tg.sh` now refuses every `tanager-host` call unless `xmutil listapps` shows `tanager` in the slot.
+- Proposed for `tanager-host` itself: refuse to start unless the overlay's `tanager@a0000000` node is present in the live device tree.
