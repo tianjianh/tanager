@@ -119,7 +119,6 @@ module tg_rob
 
   robid_t head_q, tail_q;
   assign head_o = head_q;
-  logic [ROB_ENTRIES-1:0] rpl_q;
   logic                   xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
   logic          exr_v_q;
@@ -305,6 +304,60 @@ module tg_rob
     assign fp_mmio_d[k] = ft_rd[NFT-1][CW + k];
   end
 
+  // ---- Replay flag: XOR-banked LUTRAM (FPGA-friendly T2) ----
+  // Cleared at dispatch; set by the LSU's replay report and its two TLB-miss reports, possibly
+  // more than once a lap (so not a toggle table). One table per writer, and the flag is the XOR
+  // of the tables: a writer stores its value XOR the other tables at its entry, read in the same
+  // cycle. Two writers at one entry would cancel, so of several setters there only the first
+  // writes, and a dispatch clear yields to a set (the order the flip-flops had).
+  localparam int NRW = DISPATCH_WIDTH + 3;       // dispatch slots, then replay, TLB miss LD, STA
+  localparam int NRR = NRW - 1 + CW;             // read ports: the other writers', then the head's
+  logic [NRW-1:0]           rw_v;
+  logic [NRW-1:0][RIW-1:0]  rw_a;
+  logic [NRW-1:0]           rw_d;
+  logic [NRW-1:0][NRR-1:0]  rw_rd;
+  always_comb begin
+    logic [2:0]          sv;
+    logic [2:0][RIW-1:0] sa;
+    sv = {tlbm_valid[1], tlbm_valid[0], replay_valid};
+    sa = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
+    for (int i = 0; i < 3; i++) begin
+      rw_v[DISPATCH_WIDTH + i] = sv[i];
+      for (int t = 0; t < i; t++) if (sv[t] && sa[t] == sa[i]) rw_v[DISPATCH_WIDTH + i] = 1'b0;
+      rw_a[DISPATCH_WIDTH + i] = sa[i];
+      rw_d[DISPATCH_WIDTH + i] = 1'b1;
+    end
+    for (int k = 0; k < DISPATCH_WIDTH; k++) begin
+      rw_v[k] = ds_fire && ds_valid[k];
+      for (int i = 0; i < 3; i++) if (sv[i] && sa[i] == ds_ren[k].rob[RIW-1:0]) rw_v[k] = 1'b0;
+      rw_a[k] = ds_ren[k].rob[RIW-1:0];
+      rw_d[k] = 1'b0;
+    end
+  end
+  for (genvar b = 0; b < NRW; b++) begin : g_rw
+    logic [NRR-1:0][RIW-1:0] ra;
+    for (genvar p = 0; p < NRW - 1; p++) begin : g_ro
+      assign ra[p] = rw_a[(p < b) ? p : p + 1];
+    end
+    for (genvar j = 0; j < CW; j++) begin : g_rh
+      assign ra[NRW - 1 + j] = hid[j][RIW-1:0];
+    end
+    logic wd;
+    always_comb begin
+      wd = rw_d[b];
+      for (int w = 0; w < NRW; w++) if (w != b) wd ^= rw_rd[w][(b < w) ? b : b - 1];
+    end
+    tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NRR)) u_rw (
+      .clk, .we(rw_v[b] && !flush && !rst), .waddr(rw_a[b]), .wdata(wd), .raddr(ra), .rdata(rw_rd[b]));
+  end
+  logic [CW-1:0] rpl_h;                          // the flag of each commit slot's entry
+  always_comb begin
+    for (int j = 0; j < CW; j++) begin
+      rpl_h[j] = 1'b0;
+      for (int b = 0; b < NRW; b++) rpl_h[j] ^= rw_rd[b][NRW - 1 + j];
+    end
+  end
+
   // ---- Commit decision ----
   int cnt;
   assign cnt = rob_cnt(tail_q, head_q);
@@ -330,8 +383,6 @@ module tg_rob
     if (rst || flush || cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q <= '0;
     else if (int'(wfi_cnt_q) != WFI_MAX) wfi_cnt_q <= wfi_cnt_q + 1'b1;
   end
-  logic [RIW-1:0] i0;
-  assign i0 = hid[0][RIW-1:0];
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
   // exception, which traps, so one instruction never needs both.
@@ -352,7 +403,7 @@ module tg_rob
         do_irq = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;
-      end else if (rpl_q[i0]) begin
+      end else if (rpl_h[0]) begin
         if (!hd_tlb || hd_retry) begin
           do_flush = 1'b1;
           nf_pc = hp[0].pc;
@@ -395,7 +446,7 @@ module tg_rob
         stop = 1'b0;
         for (int j = 0; j < CW; j++) begin
           if (!stop) begin
-            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_q[hid[j][RIW-1:0]]) begin
+            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j]) begin
               ret[j] = 1'b1;
               if (misp_h[j]) begin
                 do_flush = 1'b1;
@@ -545,18 +596,10 @@ module tg_rob
             if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q <= 1'b1;
             if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q <= 1'b1;
           end
-          for (int k = 0; k < DISPATCH_WIDTH; k++) begin
-            if (ds_valid[k]) rpl_q[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
-          end
           tail_q <= rob_add(tail_q, $countones(ds_valid));
         end
-        // Completions, exceptions, mispredicts and MMIO loads: the toggle tables (above)
-        if (replay_valid) rpl_q[replay_rob[RIW-1:0]] <= 1'b1;
-        for (int i = 0; i < 2; i++) begin
-          if (tlbm_valid[i]) begin
-            rpl_q[tlbm_rob[i][RIW-1:0]] <= 1'b1;
-          end
-        end
+        // Completions, exceptions, mispredicts and MMIO loads: the toggle tables; replay: the
+        // XOR-banked tables (above)
 
         // Oldest exception: the current register and this cycle's reports
         exr_v_q <= ex_v && !do_trap; exr_rob_q <= ex_r; exr_cause_q <= ex_c; exr_tval_q <= ex_t;
@@ -591,7 +634,7 @@ module tg_rob
   // Shadow flags as flip-flops (the form the toggle tables replace): the head's flags must
   // match them, and the tables' condition must hold (no second report for a live entry, none
   // for an entry as it is dispatched).
-  logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s;
+  logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s, rpl_s;
   function automatic logic live(input robid_t e);
     return rob_cnt(e, head_q) < rob_cnt(tail_q, head_q);
   endfunction
@@ -604,9 +647,12 @@ module tg_rob
             exc_s[ds_ren[k].rob[RIW-1:0]]  <= ds_uop[k].d.exc;
             misp_s[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
             mmio_s[ds_ren[k].rob[RIW-1:0]] <= 1'b0;
+            rpl_s[ds_ren[k].rob[RIW-1:0]]  <= 1'b0;
           end
         end
       end
+      if (replay_valid) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
+      for (int i = 0; i < 2; i++) if (tlbm_valid[i]) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
       for (int t = 0; t < NFT; t++) begin
         if (ft_v[t]) begin
           if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;
@@ -639,6 +685,8 @@ module tg_rob
           assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
                   misp_h[j] == misp_s[hid[j][RIW-1:0]] && mmio_h[j] == mmio_s[hid[j][RIW-1:0]])
             else $error("tg_rob: the toggle-table flags of %0d differ from the shadow flags", hid[j]);
+          assert (rpl_h[j] == rpl_s[hid[j][RIW-1:0]])
+            else $error("tg_rob: the replay tables' flag of %0d differs from the shadow flag", hid[j]);
         end
       end
     end
