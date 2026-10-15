@@ -426,9 +426,9 @@ module tg_lsu
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
   assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
-  logic [2:0][26:0] dt_vpn;
-  logic [2:0]       dt_hit;
-  tlb_pte_t [2:0]   dt_pte;
+  logic [3:0][26:0] dt_vpn;
+  logic [3:0]       dt_hit;
+  tlb_pte_t [3:0]   dt_pte;
   logic             dt_fill;
   logic [26:0]      pw_vpn;
   logic [1:0]       pw_lvl;
@@ -448,8 +448,11 @@ module tg_lsu
   // idle, as when it shared STA's port.
   assign dt_vpn[0] = ln_va[38:12];
   assign dt_vpn[1] = sn_va[38:12];
-  assign dt_vpn[2] = hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1)) u_dtlb (
+  // The ROB head's check looks up both candidates, the LQ head's VA (2) and the committing
+  // store's (3), and picks by hd_ld last, so the lookups do not wait for the head's selection
+  assign dt_vpn[2] = lqc_rd[2].va[38:12];
+  assign dt_vpn[3] = sqva_rd[COMMIT_WIDTH][38:12];
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(4), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
@@ -824,7 +827,11 @@ module tg_lsu
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
-  assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
+  // (hd_at for the store's lookup, without hd_ld: an LR checks as a load)
+  assign hd_tok   = !sta_ag_valid &&
+                    (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d, sum, mxr)
+                           : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q == AMO_LR) ? ACC_R : ACC_W,
+                                                 priv_d, sum, mxr));
   // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
   // leaves the commit redirect). The head is the same op in both cycles: a TLB-missed head leaves
   // only through a flush.
