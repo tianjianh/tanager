@@ -35,6 +35,9 @@ module tg_uncore
   // handshake (pick, MSHR LUTRAM, the window's range check, ready back into the pick), the
   // uncore's longest path at 200 MHz, for a cycle on every fill (a DR-135 reserve item)
   parameter bit          AR_SLICE        = 1'b0,
+  // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
+  // them without a decode, on the S2 path (DR-142; cycle-identical either way)
+  parameter bit          L2_MWAY_OH      = 1'b1,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -205,7 +208,7 @@ module tg_uncore
   logic    [N_BANKS-1:0] ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
   tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM),
-          .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]})) u_l2 (
+          .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]}), .MWAY_OH (L2_MWAY_OH)) u_l2 (
     .clk, .rst (uncore_rst),
     .a_i (l2_a), .a_valid_i (l2_av), .a_ready_o (l2_ar),
     .b_o (l2_b), .b_valid_o (l2_bv), .b_ready_i (l2_br),

@@ -19,7 +19,9 @@ module tg_l2_bank
   parameter int N_PUTBUF = 4,
   parameter     DATA_PRIM = "ultra",
   parameter int DATA_LAT  = 2,        // data-array read latency, >= 2 (4 for the URAM cascade at 200 MHz)
-  parameter bit RSLICE_DSP = 1'b0     // the R slice's data register in DSP48E2s (tg_skid DSP; DR-136)
+  parameter bit RSLICE_DSP = 1'b0,    // the R slice's data register in DSP48E2s (tg_skid DSP; DR-136)
+  parameter bit MWAY_OH    = 1'b1     // each MSHR's way kept one-hot in flip-flops (else binary), so the
+                                      // reservations and the ProbeAck search take it with no decode (DR-142)
 ) (
   input  logic    clk,
   input  logic    rst,
@@ -189,7 +191,7 @@ module tg_l2_bank
   logic [NMS-1:0]       ms_d      [N_MSHR];
   mstate_e              m_st      [N_MSHR];
   logic [LINE_W-1:0]    m_line    [N_MSHR];
-  logic [2:0]           m_way     [N_MSHR];
+  logic [WAYS-1:0]      m_way_oh  [N_MSHR];     // the way, one-hot: stored (MWAY_OH), else decoded
   logic [N_MSHR-1:0]    m_hit;
   logic [N_MSHR-1:0]    m_grant_t;              // Grant param toT (else toB)
   logic [N_AGENTS-1:0]  m_ppend   [N_MSHR];     // probes awaiting ProbeAck
@@ -493,7 +495,7 @@ module tg_l2_bank
     resv = '0;
     for (int m = 0; m < N_MSHR; m++) begin
       smatch[m] = m_valid[m] && (newm_q[m] ? h0_hit_q : sm1_q[m]);
-      if (smatch[m]) resv[m_way[m]] = 1'b1;
+      if (smatch[m]) resv = resv | m_way_oh[m];
     end
     // The way a Release/ProbeAck is still writing data into is not a victim candidate yet.
     if (cin_st_q == CI_WRITE && cin_seq_q) resv[cin_way_q] = 1'b1;
@@ -631,7 +633,7 @@ module tg_l2_bank
             // its victim on a miss: the victim keeps its tag until resolved), and each (set, way)
             // belongs to at most one MSHR.
             for (int m = 0; m < N_MSHR; m++)
-              if (hit2 && smatch[m] && m_way[m] == hw2 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
+              if (hit2 && smatch[m] && (m_way_oh[m] & (WAYS'(1) << hw2)) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
                 s2_c_mok = 1'b1;
                 s2_c_m   = MW'(m);
               end
@@ -781,6 +783,17 @@ module tg_l2_bank
   end
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
+
+  // Each MSHR's way in flip-flops, for the compares that look at every MSHR at once (the reservations,
+  // the ProbeAck search). MWAY_OH stores it one-hot, so those compares take it without a decode; the
+  // binary form decodes it there. Written at allocation, like the MSHR's LUTRAM copy (rl_way).
+  if (MWAY_OH) begin : g_mway_oh
+    always_ff @(posedge clk) if (!rst && s2_alloc) m_way_oh[m_new] <= WAYS'(1) << s2_alloc_way;
+  end else begin : g_mway_bin
+    logic [2:0] m_way [N_MSHR];
+    always_ff @(posedge clk) if (!rst && s2_alloc) m_way[m_new] <= s2_alloc_way;
+    always_comb for (int m = 0; m < N_MSHR; m++) m_way_oh[m] = WAYS'(1) << m_way[m];
+  end
 
   // ---------------------------------------------------------------------------------------------
   // AXI read requests (fills)
@@ -1385,7 +1398,6 @@ module tg_l2_bank
       // Allocation at S2
       if (s2_alloc) begin
         m_line[m_new]      <= p2_q.line;
-        m_way[m_new]       <= s2_alloc_way;
         m_hit[m_new]       <= s2_alloc_hit;
         m_grant_t[m_new]   <= s2_alloc_grant_t;
         m_ppend[m_new]     <= s2_alloc_probe;
@@ -1500,6 +1512,8 @@ module tg_l2_bank
                   cin_hit_q, r_s.id, bresp_i.id, e_i.sink};
 
 `ifndef SYNTHESIS
+  logic [2:0] m_way_ref [N_MSHR];        // the allocated way, binary, for the check of m_way_oh
+  always_ff @(posedge clk) if (!rst && s2_alloc) m_way_ref[m_new] <= s2_alloc_way;
   // ---- Invariants (docs/spec/l2.md §Verification) ----
   always_ff @(posedge clk) begin
     if (!rst && init_done_q) begin
@@ -1509,8 +1523,8 @@ module tg_l2_bank
           if (m_valid[i] && m_valid[j]) begin
             assert (m_line[i] != m_line[j])
               else $error("tg_l2_bank%0d: two MSHRs on line %h", BANK, m_line[i]);
-            assert (set_of(m_line[i]) != set_of(m_line[j]) || m_way[i] != m_way[j])
-              else $error("tg_l2_bank%0d: MSHRs %0d and %0d on set %0d way %0d", BANK, i, j, set_of(m_line[i]), m_way[i]);
+            assert (set_of(m_line[i]) != set_of(m_line[j]) || m_way_oh[i] != m_way_oh[j])
+              else $error("tg_l2_bank%0d: MSHRs %0d and %0d on set %0d way %b", BANK, i, j, set_of(m_line[i]), m_way_oh[i]);
           end
       // Directory rows written by S2 keep the MESI invariant: tip implies exactly one holder
       if (dir_wway != '0 && p2_q.kind != PK_INIT && dir_went.valid && dir_went.tip)
@@ -1521,6 +1535,10 @@ module tg_l2_bank
       if (a_valid_i) assert (a_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: A address %h of the other bank", BANK, a_i.address);
       if (c_valid_i) assert (c_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: C address %h of the other bank", BANK, c_i.address);
       for (int m = 0; m < N_MSHR; m++) assert ($onehot(ms[m])) else $error("tg_l2_bank%0d: MSHR %0d state %b", BANK, m, ms[m]);
+      // The way in flip-flops, either form, is the allocated way
+      for (int m = 0; m < N_MSHR; m++)
+        if (m_valid[m]) assert (m_way_oh[m] == WAYS'(1) << m_way_ref[m])
+          else $error("tg_l2_bank%0d: MSHR %0d way %b, allocated as %0d", BANK, m, m_way_oh[m], m_way_ref[m]);
       // The S1 set compares are the S2 compares, registered
       assert (h0_hit_q == (h0_set_q == set2) && h1_hit_q == (h1_set_q == set2))
         else $error("tg_l2_bank%0d: history set compare made in S1 differs", BANK);
