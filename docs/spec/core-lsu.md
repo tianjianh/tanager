@@ -83,11 +83,53 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 - **Verification:** `rv64ua-p` (19 tests), `tests/isa/directed/amo.S` (ordering against the SQ, rd = x0/rs1/rs2, reservation rules, every fault cause), and `tests/random` with `--isa rv64ima`, each with `--probe-rate`, `--grant-b`, `--bp` and long latencies.
 
 ### L1 data cache (`tg_dcache`)
-- **Arrays:** per way a `tg_ram_tdp` of 256 × 128 bits with byte enables. Port A: load reads. Port B: refill writes, store writes, Release and ProbeAck data reads. Tags: one `tg_ram_lut` per way (64 × (`PA_W` − 12) bits) with read ports for the load pipe, the store drain and the controller. State per set in `tg_ram_lut`s (no flip-flop arrays, plan §8.3): the round-robin victim pointer and, per way, valid, T and dirty (M = T + dirty, E = T, S = valid without T). The valid bits have four read ports (load, store/atomic, controller, the set being written); the rest is a second RAM, written with them, without the load port (the load pipe reads only valid); one write per cycle, a read-modify-write of one set, in priority order: the reset sweep (`SETS` cycles, during which rename does not start and probes wait), a probe update, an MSHR install (waits a cycle behind a probe update), an allocation, a store or atomic setting dirty (a store write waits while an install or allocation has the port).
+- **Arrays:** per way a `tg_ram_tdp` of 256 × 128 bits with byte enables. Port A: load reads, enabled for every AG operation whether or not it goes on to M1. Only M1 of the operation that read uses the data, and M1 and M2 never hold, so a read for an operation that stops is never seen. This keeps the new load's TLB, PMP and fault decision off the block RAM's enable. Port B: refill writes, store writes, Release and ProbeAck data reads. Tags: one `tg_ram_lut` per way (64 × (`PA_W` − 12) bits) with read ports for the load pipe, the store drain and the controller. State per set in `tg_ram_lut`s (no flip-flop arrays, plan §8.3): the round-robin victim pointer and, per way, valid, T and dirty (M = T + dirty, E = T, S = valid without T). The valid bits have four read ports (load, store/atomic, controller, the set being written); the rest is a second RAM, written with them, without the load port (the load pipe reads only valid); one write per cycle, a read-modify-write of one set, in priority order: the reset sweep (`SETS` cycles, during which rename does not start and probes wait), a probe update, an MSHR install (waits a cycle behind a probe update), an allocation, a store or atomic setting dirty (a store write waits while an install or allocation has the port).
 - **MSHR (one):** owns one line at a time, for a load miss (`AcquireBlock NtoB`) or a store (`NtoT`/`BtoT`). Victim: an invalid way, else round robin per set. A valid victim is released first: `Release` (clean, `TtoN`/`BtoN`) or `ReleaseData` (dirty, 4 beats read through port B); its state is cleared when the Release starts, and the Acquire waits for `ReleaseAck`. Grant data beats are written through port B; `GrantAck` follows the last beat; the tag and state are written last (`toT` → T clean, `toB` → valid). A `denied` Grant leaves the line invalid; loads waiting on it then take an access fault on replay.
 - **Probes:** answered without waiting for any A-channel progress (TL-C rule 4), at the line's current permission: not present → `ProbeAck NtoN`; T with cap toT → `TtoT`; T to B or N → `ProbeAckData` if dirty, else `ProbeAck`, with `TtoB`/`TtoN`; B to N → `BtoN`; B otherwise → `BtoB`. `ProbePerm` never carries data. A probe waits only for a C-channel message already in progress (beats are contiguous).
 - **Port B arbitration:** probe reads, then Grant writes, then Release reads, then store writes; an atomic's read and write take port B only when nothing else can (above). `d_ready` is held low while port B is busy with a probe; B and D are always eventually accepted.
 - **Ordering of a hart's own accesses** is kept by the LQ/SQ rules above. Snoop marking of executed loads (plan §4.9, same-address load-load ordering across harts) is M8.
+
+## Design: the address-stage split (reserve lever, DR-135; on branch `claude/track-core-adb715-agsplit`, not for merge before the user decides)
+
+**Why.** M3 translates in AG: the address add, the DTLB, PMP and every access decision share one cycle. That is the core's worst path family at 200 MHz in the whole-core run (about 11.7 ns, 25–32 levels, core-pipeline §16). Its endpoints are in the ROB and inside the LSU, so cutting only the reports to the ROB cannot fix it. DR-057's plan had the DTLB in M1.
+
+**The pipes after the split** (load-to-use unchanged):
+
+| Stage | Load | STA |
+|---|---|---|
+| AG | VA = base + imm; misaligned; D$ data read issued at row VA[11:4] (the page offset, VIPT); VA into the LQ; enter `L_PIPE` | VA; misaligned; byte mask |
+| M1 | DTLB (LD port) on the registered VA → PA; PMA, PMP, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
+| M2 | unchanged | — |
+
+**Ordering stays exact.** Take a load at AG in cycle t_L and a store at AG in cycle t_S.
+- Today, either the load's M1 search sees the store's address (t_S ≤ t_L), or the store's ordering search sees the load's PA in `L_PIPE` (t_S ≥ t_L + 1).
+- After the split, both PAs reach their queues at the end of M1. Every case keeps its outcome except t_S = t_L, where both are in M1 together and neither queue holds the other.
+- The bypass covers that case: the load's M1 forwarding search compares the store in M1 as if it were in the SQ. That is what it sees today, one stage earlier.
+
+**Moved with the PA:**
+- the AG row clash with a store write (registered and compared in M1; the M2 outcome is unchanged);
+- the LQ's PA-valid bit;
+- the walker's PTE reads and LQ replays, which need no translation and simply pass M1.
+
+**What moves a cycle (the cost to measure):**
+- page and access faults, TLB misses (the replay mark and the walk prefetch) and MMIO marks: the fault-reporting row;
+- the STA's completion and its ordering replay mark: the completion → ROB row.
+- Measured separately as cuts F1 and F2/F5 (§13), which this split subsumes: about 0, and +0.10% to +0.43% by suite.
+
+**Timing risk.** The new M1 holds the DTLB, the tag compare and the forwarding search. If it still misses 5 ns, the forwarding search moves into M2 on the registered PA, with M2's data select after it.
+
+**Measured** (27e069a against fn4's head 028f45e, `make cycle-identical`, change in cycles per suite):
+
+| Config | isa | stress | bench | random |
+|---|---|---|---|---|
+| st | +0.696% | +0.282% | +0.160% | −0.151% |
+| smt2 | +0.476% | +0.014% | +0.088% | +0.123% |
+| st_w3 | +0.489% | −0.258% | +0.118% | +0.239% |
+| smt2_w3 | +1.565% | +0.273% | +0.006% | +0.257% |
+
+- No program fails: 800 per configuration, the base's harness and lockstep.
+- The isa cost is the `-v` tests' page-table setup: their walks report a cycle later, about +95 cycles per test.
+- The whole-core timing run is queued.
 
 ## Parameters
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
