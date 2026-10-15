@@ -83,6 +83,12 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 **Timing:**
 - **No add waits for another.** An instruction's PC is its block's address plus its offset in the block (`pc[3:0]`, or −2 for a straddler). The PC-relative values (the targets, AUIPC, the link value, the next PC) are each one three-input add of block address, offset and operand: a carry-save step and one carry chain. Only a straddler's PC needs a decrement of the block address.
 - **The redirect decision uses no add at all.** "The predicted target is the branch's" is checked carry-free, as `a + b + c == k` (Cortadella and Llabería, IEEE Trans. Computers, 1992). Every bit of the carry-save sum must match the carry that k needs there. The sums themselves feed only registers.
+- **Nor does it wait for the decoder.**
+  - **The class:** the instruction's pre-decode marks (conditional branch, JAL, JALR), which the queue carries from F2. For an instruction without a decode-time exception they are decode's class. Pre-decode reads the same opcode bits, and every encoding the two could disagree on is illegal: JALR with funct3 ≠ 0, a branch with funct3 2 or 3, a compressed instruction without C or reserved.
+  - **The offset:** from the raw encoding (B, J, CB or CJ format), chosen by the JAL mark.
+  - **The exception that gates it:** from the raw encoding too. A 32-bit instruction's comes from a second decoder of which only that output and "serialising" are kept. A compressed instruction's: illegal as such, C.EBREAK, or an FP load or store (C.FLD, C.FSD, C.FLDSP, C.FSDSP) with the FP unit off.
+  - **The group** (who goes alone) uses the same bits, so the RVC expander feeds only the uop's fields.
+  - **Checks:** simulation asserts every one of these against the decoder's own results.
 
 ## 4. Decode (`tg_decode`)
 
