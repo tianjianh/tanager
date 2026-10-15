@@ -239,4 +239,4 @@ The verification track's checker, `tanager-lockstep`, checks every commit record
 - **A gap in the checker's `--plant` self-test** ([notes](board/lockstep/plant_selftest.txt)):
   - **What happens:** `--plant=1000` puts the fault in the board trace's record 1,001, which is an MMIO load: the SoC test polling the real UART's transmit-ready bit. The checker takes MMIO load values from the RTL, so it passes the run.
   - **Not a checker fault:** the same plant stops correctly on the simulation trace, and at record 100,000 on the board trace.
-  - **Proposed fix:** the self-test should skip MMIO and nondeterministic records. Reported to the verification track.
+  - **Fixed** in the verification track's `98a05ff` (checker sha256 `d0cfb7b0…`): `--plant` now corrupts only values the checker compares. On the board, `--plant=1000` plants in record 1,002, "x15 of `andi a5, a5, 32` at 0x80000034", the instruction after the UART poll. The checker stops there (exit 2), and `tanager-host` exits 4 ([log](board/lockstep/ls_plant1000_98a05ff.txt)).
