@@ -775,16 +775,12 @@ module tg_lsu
     end
     if (sta_ag_valid && !flush && sa_exc) exc_valid[3] = 1'b1;
     // store completion: address arrives with the data present, or data arrives after the address
-    st_cmp_valid = '0;
-    st_cmp_rob   = '0;
-    if (sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx))) begin
-      st_cmp_valid[0] = 1'b1;
-      st_cmp_rob[0]   = sta_ag_pl.rob;
-    end
-    if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) begin
-      st_cmp_valid[1] = 1'b1;
-      st_cmp_rob[1]   = sqrob_rd[0];
-    end
+    // (the ROB indices go whether or not they complete: the ROB's tables take them as addresses)
+    st_cmp_valid    = '0;
+    st_cmp_rob[0]   = sta_ag_pl.rob;
+    st_cmp_rob[1]   = sqrob_rd[0];
+    if (sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx))) st_cmp_valid[0] = 1'b1;
+    if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) st_cmp_valid[1] = 1'b1;
   end
 
   // ================= Translation: the ROB head and the walker =================
