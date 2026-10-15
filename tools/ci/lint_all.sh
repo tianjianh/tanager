@@ -39,8 +39,12 @@ lint_one() {
 }
 export -f lint_one
 export ROOT LOGS
-results=$(printf '%s\n' "${tasks[@]}" | xargs -P "$JOBS" -I{} bash -c 'lint_one "$1"' _ {} | tee /dev/stderr)
-fails=$(grep '^FAIL' <<< "$results")
+# The lines go to stdout as they come, and to a file for the summary. (tee /dev/stderr would reopen
+# a log that stderr is redirected to, truncating it and writing over the other stream.)
+results=$(mktemp "$LOGS/.results.XXXXXX")
+trap 'rm -f "$results"' EXIT
+printf '%s\n' "${tasks[@]}" | xargs -P "$JOBS" -I{} bash -c 'lint_one "$1"' _ {} | tee "$results"
+fails=$(grep '^FAIL' "$results")
 if [ -n "$fails" ]; then
   sed 's/.*(log: \(.*\))$/\1/' <<< "$fails" | while read -r log; do
     echo "---- $log"; { grep -E '^%(Error|Warning)' "$log" || tail -5 "$log"; } | head -20
