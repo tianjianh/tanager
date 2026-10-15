@@ -34,7 +34,8 @@ module tg_csr
   input  logic                   mret,
   input  logic                   sret,
   // State for commit, decode, fetch and the MMU
-  output logic [63:0]            trap_target,  // for tr_* given this cycle
+  output logic [63:0]            trap_target,  // an exception's, for tr_code given this cycle
+  output logic [63:0]            irq_target,   // the pending interrupt's (irq_code)
   input  logic                   xret_v,       // an MRET or SRET is in flight (registered) ...
   input  logic                   xret_s,       // ... and it is SRET
   output logic [63:0]            xepc_o,       // its xepc (mepc or sepc), for its commit
@@ -109,7 +110,8 @@ module tg_csr
   // xtvec, xscratch, xepc, xcause and xtval of M and S: one 16 x 64 tg_ram_lut at
   // {csr[9], csr[2:0]}, M (csr[9] = 1) or S, then scratch 0, epc 1, cause 2, tval 3, tvec 5.
   // Read ports: the CSR read (EX), or xepc while an MRET or SRET is in flight (it is serial, so
-  // no CSR instruction executes meanwhile: asserted); the trap vector (the trap's target).
+  // no CSR instruction executes meanwhile: asserted); an exception's trap vector; the pending
+  // interrupt's trap vector.
   // One write port, taken by
   //   - the reset sweep (PMP's counter, 16 cycles: nothing reads these before fetch starts),
   //   - trap entry: xepc, xcause and xtval in the three cycles after the trap, from registers,
@@ -131,9 +133,9 @@ module tg_csr
   logic             cw_we;
   logic [3:0]       cw_wa;
   logic [63:0]      cw_wd;
-  logic [1:0][3:0]  cw_ra;              // CSR read or xepc, trap vector
-  logic [1:0][63:0] cw_rd;
-  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(2)) u_cold (
+  logic [2:0][3:0]  cw_ra;              // CSR read or xepc, exception vector, interrupt vector
+  logic [2:0][63:0] cw_rd;
+  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(3)) u_cold (
     .clk, .we(cw_we), .waddr(cw_wa), .wdata(cw_wd), .raddr(cw_ra), .rdata(cw_rd));
 
   // ---- Interrupt pending bits ----
@@ -260,17 +262,21 @@ module tg_csr
   assign pmp_busy = psweep || |pdirty_q || pchg_q;
   assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0};
 
-  // Trap target: S when delegated from S or U
-  logic deleg;
+  // Trap targets: S's vector when delegated from S or U. An exception's target is its vector's
+  // base, chosen by its cause, which can arrive late (the ROB head's TLB check). An interrupt's
+  // adds 4 x its code in vectored mode, but its code and delegation are this file's own, early,
+  // so the add stays off the exception's path. The ROB picks one (do_irq); tr_code is irq_code
+  // when tr_irq.
+  logic deleg, deleg_e, deleg_i;
   always_comb begin
-    if (!SU || priv_q == PRIV_M)  deleg = 1'b0;
-    else if (tr_irq)              deleg = tr_code < 6'd12 && mideleg_q[tr_code[3:0]];
-    else                          deleg = tr_code < 6'd20 && medeleg_q[tr_code[4:0]];
+    deleg_e = SU && priv_q != PRIV_M && tr_code < 6'd20 && medeleg_q[tr_code[4:0]];
+    deleg_i = SU && priv_q != PRIV_M && irq_code < 6'd12 && mideleg_q[irq_code[3:0]];
+    deleg   = tr_irq ? deleg_i : deleg_e;
   end
-  logic [63:0] tvec;
-  assign cw_ra[1] = {!deleg, CX_TVEC};
-  assign tvec     = cw_rd[1];
-  assign trap_target = {tvec[63:2], 2'b00} + ((tr_irq && tvec[0]) ? {56'b0, tr_code, 2'b00} : 64'd0);
+  assign cw_ra[1]    = {!deleg_e, CX_TVEC};
+  assign cw_ra[2]    = {!deleg_i, CX_TVEC};
+  assign trap_target = {cw_rd[1][63:2], 2'b00};
+  assign irq_target  = {cw_rd[2][63:2], 2'b00} + (cw_rd[2][0] ? {56'b0, irq_code, 2'b00} : 64'd0);
 
   // ---- Status views ----
   logic [63:0] mstatus_rd, sstatus_rd, misa_rd;
@@ -690,5 +696,6 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, tvec[1], pcfg[6:5]};
+  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, cw_rd[1][1:0], cw_rd[2][1],
+                    pcfg[6:5]};
 endmodule

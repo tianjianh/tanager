@@ -1,6 +1,6 @@
 # Hart 1 in RAM form: a brief for M7
 
-*For the core track, from the area-recovery study (area_recovery.md §7.7), 2026-10-14.*
+*For the core track, from the area-recovery study (area_recovery.md §7.7), 2026-10-14; updated 2026-10-15 for DR-139's three checkers.*
 - **The rule:** conventions §7 (DR-125) builds new RTL with per-thread state as a RAM address bit, not a second copy in flip-flops.
 - **This page:** what M7 adds for hart 1, the form each structure should take, and what each should cost. SMT2 is then built once, and the budget run can check it.
 - **Status:** estimates, except where marked as measured. M7's first `smt2` synthesis with hart 1 replaces them.
@@ -40,14 +40,14 @@
 | | Hot CSRs: `priv`, mstatus, mie, mip's software bits, medeleg, mideleg, satp, stimecmp, fcsr, mcountinhibit | flip-flops per hart (about 200 bits); selects into the CSR read path and their users | ≈0.4K | read every cycle: status, satp, interrupts (judged) |
 | | Interrupt pending per hart; trap entry and xRET for the committing thread | logic; Sstc's compare per hart (a DSP candidate, T6) | ≈0.15K | judged |
 | | Counters: mcycle, minstret | DSP48E2 pairs per hart (R1, `tg_dsp_ctr`); the HPM counters read zero | 4 DSPs, ≈0.03K | R1 done |
-| | **PMP region descriptors** (16 × 72 bits) | flip-flops per hart; each of the four `tg_pmp` checkers selects the requesting hart's set | **+2.3K** | **measured**, below |
+| | **PMP region descriptors** (16 × 72 bits) | flip-flops per hart; each of the three `tg_pmp` checkers selects the requesting hart's set | **+1.7K** | **measured**, below |
 | LSU | LR reservation; sibling stores on the snoop path | per hart, flip-flops | ≈0.1K | |
 
 ## The PMP descriptors: the largest item
 
 **What they are.**
 - `tg_csr` precomputes 16 region descriptors of 72 bits (`pmp_d_t`: the mode and permission bits, then `mask` and `a`, 32 bits each).
-- All four `tg_pmp` checkers read them in parallel: fetch, LD, STA and the walker (core-mmu.md).
+- All three `tg_pmp` checkers read them in parallel: fetch, LD, and STA, which the walker shares since DR-139 (core-mmu.md).
 - LUTRAM can't serve state that is read all at once, so hart 1 needs its own 1,152 flip-flops.
 
 **The cost is the select (measured).** Out-of-context synthesis with DR-113's settings, one descriptor set against two selected by the requesting hart (2026-10-14):
@@ -57,22 +57,22 @@
 | LD, STA, walker (S = 1) | 891 | 1,467 | +576 |
 | Fetch block (S = 2) | 958 | 1,534 | +576 |
 
-- **Four checkers: +2,304 LUTs per core.** That is exactly one LUT per two select bits: synthesis merges none of it into the compares.
+- **Three checkers: +1,728 LUTs per core** (+2,304 with four, before DR-139). That is exactly one LUT per two select bits: synthesis merges none of it into the compares.
 - **Inside the checker is worse.** Flattened into it, the select cost more (1,878 at S = 1), so keep it a plain multiplexer in front.
 - **Neither earlier estimate itemised it.** It is the same in both forms.
 
 **Ways to cut it.** Each changes cycles or function, so each goes on the reserve list with its LUT saving and measured cycle cost, and only the user can adopt it (DR-135):
 - **Cache PMP results for bare and M-mode accesses too,** tagged by hart, as the TLBs already cache them for S and U. One shared checker then serves misses, at a cost in cycles on misses.
-- **Fewer checkers that see both harts.** Sharing the walker's checker with STA's was declined under D18 (DR-122).
+- **Fewer checkers that see both harts.** The walker now shares STA's checker (the user, DR-139), which took the select from four checkers to three.
 
 ## Expected total
 
 | | RAM form | Second copies |
 |---|---|---|
 | Everything but the PMP select | ≈2.0K (1.5–2.5K) | 4.2K (the budgets' SMT2 additions) |
-| PMP descriptor select (measured) | +2.3K | +2.3K |
-| **Hart 1, per core** | **≈4.3K** | **≈6.5K** |
-| v1 with today's cores and uncore (§7.7) | ≈117.2K | ≈121.7K |
+| PMP descriptor select (measured) | +1.7K | +1.7K |
+| **Hart 1, per core** | **≈3.7K** | **≈5.9K** |
+| v1 with today's cores and uncore (§7.7) | ≈115.7K | ≈120.2K |
 
 - **The RAM forms save ≈2.2K per core,** ≈4.5K per SoC, against copies.
 - **The PMP select is where a better form would pay most.**

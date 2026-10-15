@@ -4,11 +4,15 @@
 // or DYN while frm >= 5, is illegal in the instructions that round. Combinational. A compressed
 // instruction arrives already expanded by tg_rvc (len2 set: the link value is PC + 2);
 // misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the branch
-// and JAL targets) are computed here, so execute never adds the PC.
+// and JAL targets) are computed here, so execute never adds the PC. Each is the block address
+// plus the PC's offset in it plus the operand, one three-input add (a carry-save step and one
+// carry chain), so it doesn't wait for the PC's own decrement (a straddler's) (timing).
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 (
-  input  logic [63:0] pc,
+  input  logic [3:0]  pc_lo,      // the PC's low bits (none of its own adds need the rest)
+  input  logic [63:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad
+  input  logic        strad,
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
   input  logic        len2,       // the instruction is 2 bytes long
   input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
@@ -51,6 +55,9 @@ module tg_decode
   assign imm_b = {{51{insn[31]}}, insn[31], insn[7], insn[30:25], insn[11:8], 1'b0};
   assign imm_u = {{32{insn[31]}}, insn[31:12], 12'b0};
   assign imm_j = {{43{insn[31]}}, insn[31], insn[19:12], insn[20], insn[30:21], 1'b0};
+  logic [63:0] pbase, poff;
+  assign pbase = {blk, 4'b0};
+  assign poff  = strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, pc_lo};
 
   function automatic alu_ctl_t ctl(input logic [2:0] grp);
     alu_ctl_t c;
@@ -82,22 +89,22 @@ module tg_decode
           d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = imm_u;
         end
         7'b0010111: begin                                  // AUIPC
-          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + imm_u;
+          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + imm_u;
         end
         7'b1101111: begin                                  // JAL
           d.cls = C_BR; d.br_kind = BR_JAL; d.rd_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + (len2 ? 64'd2 : 64'd4);
-          d.br_target = pc + imm_j;
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + (len2 ? 64'd2 : 64'd4);
+          d.br_target = pbase + poff + imm_j;
         end
         7'b1100111: begin                                  // JALR
           if (f3 != 3'd0) ill = 1'b1;
           d.cls = C_BR; d.br_kind = BR_JALR; d.rd_en = 1'b1; d.rs1_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pc + (len2 ? 64'd2 : 64'd4);
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + (len2 ? 64'd2 : 64'd4);
         end
         7'b1100011: begin                                  // branches
           if (f3 == 3'd2 || f3 == 3'd3) ill = 1'b1;
           d.cls = C_BR; d.br_kind = BR_COND; d.rs1_en = 1'b1; d.rs2_en = 1'b1;
-          d.alu = ctl(3'(G_ADD)); d.alu.sub = 1'b1; d.br_target = pc + imm_b;
+          d.alu = ctl(3'(G_ADD)); d.alu.sub = 1'b1; d.br_target = pbase + poff + imm_b;
         end
         7'b0000011: begin                                  // loads
           if (f3 == 3'd7) ill = 1'b1;

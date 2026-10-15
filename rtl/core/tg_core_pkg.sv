@@ -212,7 +212,9 @@ package tg_core_pkg;
 
   // ---- Front end -> decode: one instruction from the instruction queue ----
   typedef struct packed {
-    logic [63:0]       pc;
+    logic [63:0]       pc;          // {blk, pc[3:0]}, or blk's address - 2 when strad
+    logic [63:4]       blk;         // the fetch block's address
+    logic              strad;       // a 32-bit instruction straddling in from the previous block
     logic [31:0]       insn;        // [31:16] zero when rvc
     logic              rvc;
     logic              fault;       // fetch fault at pc (access, or page with fault_pf)

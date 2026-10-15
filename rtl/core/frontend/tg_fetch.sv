@@ -598,9 +598,9 @@ module tg_fetch
     logic              strad;
     logic [SLOT_W:0]   first, last;     // parcel range, straddler from -1 (encoded as first = 0, strad)
     assign strad = slot == SLOT_W'(NP - 1) && !rvc;
-    logic [63:0] base, pc;
-    assign base = {m.base, 4'b0};
-    assign pc   = strad ? base - 64'd2 : base + {59'd0, slot, 1'b0};
+    logic [63:0] pc;
+    // pc[3:0] needs no carry; only a straddler's block address is decremented
+    assign pc   = strad ? {m.base - 1'b1, 4'hE} : {m.base, slot, 1'b0};
     assign first = (SLOT_W + 1)'(slot);
     assign last  = strad ? '0 : (rvc ? first : first + 1'b1);
     logic exit_here;
@@ -610,6 +610,8 @@ module tg_fetch
     always_comb begin
       iq_insn[j]             = '0;
       iq_insn[j].pc          = pc;
+      iq_insn[j].blk         = m.base;
+      iq_insn[j].strad       = strad;
       iq_insn[j].insn        = rvc ? {16'b0, lo} : {hi, lo};
       iq_insn[j].rvc         = rvc;
       iq_insn[j].fault       = m.fault;

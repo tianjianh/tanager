@@ -426,18 +426,22 @@ module tg_lsu
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
   assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
-  logic [1:0][26:0] dt_vpn;
-  logic [1:0]       dt_hit;
-  tlb_pte_t [1:0]   dt_pte;
+  logic [2:0][26:0] dt_vpn;
+  logic [2:0]       dt_hit;
+  tlb_pte_t [2:0]   dt_pte;
   logic             dt_fill;
   logic [26:0]      pw_vpn;
   logic [1:0]       pw_lvl;
   tlb_pte_t         pw_pte;
   logic [63:0]      hd_va;
-  // Two lookups: the LD port, and the STA port (the ROB head's check when STA is idle)
+  // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
+  // port of its own (timing: on a shared port the head VA and the store's address reached each
+  // other's checks, paths that are never live together), and still counts only when STA is
+  // idle, as when it shared STA's port.
   assign dt_vpn[0] = ld_ag_addr[38:12];
-  assign dt_vpn[1] = sta_ag_valid ? sta_ag_addr[38:12] : hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(2), .CAM(1'b1)) u_dtlb (
+  assign dt_vpn[1] = sta_ag_addr[38:12];
+  assign dt_vpn[2] = hd_va[38:12];
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1)) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
@@ -478,7 +482,10 @@ module tg_lsu
   assign ag_pa   = ld_ag_valid ? nl_pa : ag_pt ? pt_pa : lqa_rd[0].pa;
   assign ag_go   = ag_v && (!ld_ag_valid || nl_go);     // continues to M1
   assign pt_gnt  = ag_pt;
-  assign dc_rd_en = ag_go;
+  // The D$ reads for every AG op, whether or not it goes on to M1 (timing: ag_go waits for the new
+  // load's TLB, PMP and fault decision). Only M1 of the op that read uses port A's data, and M1
+  // and M2 never hold, so a read for an op that stops is never seen.
+  assign dc_rd_en = ag_v;
   assign dc_rd_pa = ag_pa;
 
   // A store write to the same 16-byte row in the AG cycle: the load read old data
@@ -723,9 +730,13 @@ module tg_lsu
   assign sa_pf   = xl_d && !sa_mis && !va_canon(sta_ag_addr);
   assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
   assign sa_pma  = pma_of(sa_pa);
-  tg_pmp #(.S(1)) u_pmp_st (.pa(sa_pa), .dbl(sta_ag_pl.mem_size == 2'd3), .acc(sa_at),
-                            .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st),
-                            .rwx(pmp_rwx_st));
+  // The STA port's checker also serves the walker's checks, in cycles without a store
+  logic [PA_W-1:0] pc_pa;
+  logic            pc_dbl;
+  tg_pmp #(.S(1)) u_pmp_st (.pa(sta_ag_valid ? sa_pa : pc_pa),
+                            .dbl(sta_ag_valid ? sta_ag_pl.mem_size == 2'd3 : pc_dbl),
+                            .acc(sta_ag_valid ? sa_at : ACC_R), .m_mode(sta_ag_valid && priv_d == PRIV_M),
+                            .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
   assign sa_pmp  = (xl_d && dt_pte[1].ph) ? (sa_lr ? dt_pte[1].pr : dt_pte[1].pw) : sa_chk[0];
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_d ? dt_pte[1].big : sta_ag_addr[63:PA_W] != '0) || !sa_pmp ||
@@ -751,17 +762,18 @@ module tg_lsu
   // ================= ROB reports =================
   always_comb begin
     exc_valid = '0; exc_rob = '0; exc_cause = '0;      // (tval: the VA at the head, hd_lva/hd_sva)
+    // The AG and M2 ports' ROB indices and causes do not wait for their fault decision: the ROB
+    // reads them only with exc_valid, and its age compares then start early
+    exc_rob[0]   = ld_ag_pl.rob;
+    exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
+    exc_rob[1]   = lqc_rd[0].rob;
+    exc_cause[1] = EXC_LACCESS;
+    exc_rob[3]   = sta_ag_pl.rob;
+    exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
+                   sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
     // loads: AG checks of a new load, or a denied line at M2
-    if (ld_ag_valid && !flush && nl_exc) begin
-      exc_valid[0] = 1'b1;
-      exc_rob[0]   = ld_ag_pl.rob;
-      exc_cause[0] = nl_mis ? EXC_LMISALIGN : nl_pf ? EXC_LPAGE : EXC_LACCESS;
-    end
-    if (m2_v_q && m2_out == O_FAULT && !flush) begin
-      exc_valid[1] = 1'b1;
-      exc_rob[1]   = lqc_rd[0].rob;
-      exc_cause[1] = EXC_LACCESS;
-    end
+    if (ld_ag_valid && !flush && nl_exc) exc_valid[0] = 1'b1;
+    if (m2_v_q && m2_out == O_FAULT && !flush) exc_valid[1] = 1'b1;
     if (xs_q == X_WAIT && !x_st_q && !x_kill_q && mmio_d_valid_i && (mmio_d_i.denied || mmio_d_i.corrupt)
         && !flush) begin
       exc_valid[2] = 1'b1;
@@ -772,23 +784,14 @@ module tg_lsu
       exc_rob[2]   = am_rob_q;
       exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
     end
-    if (sta_ag_valid && !flush && sa_exc) begin
-      exc_valid[3] = 1'b1;
-      exc_rob[3]   = sta_ag_pl.rob;
-      exc_cause[3] = sa_mis ? (sa_lr ? EXC_LMISALIGN : EXC_SMISALIGN) :
-                     sa_pf  ? (sa_lr ? EXC_LPAGE : EXC_SPAGE) : (sa_lr ? EXC_LACCESS : EXC_SACCESS);
-    end
+    if (sta_ag_valid && !flush && sa_exc) exc_valid[3] = 1'b1;
     // store completion: address arrives with the data present, or data arrives after the address
-    st_cmp_valid = '0;
-    st_cmp_rob   = '0;
-    if (sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx))) begin
-      st_cmp_valid[0] = 1'b1;
-      st_cmp_rob[0]   = sta_ag_pl.rob;
-    end
-    if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) begin
-      st_cmp_valid[1] = 1'b1;
-      st_cmp_rob[1]   = sqrob_rd[0];
-    end
+    // (the ROB indices go whether or not they complete: the ROB's tables take them as addresses)
+    st_cmp_valid    = '0;
+    st_cmp_rob[0]   = sta_ag_pl.rob;
+    st_cmp_rob[1]   = sqrob_rd[0];
+    if (sa_ok && !sa_amo && (sq_dv_q[sa_idx] || (cap_v && cap_idx == sa_idx))) st_cmp_valid[0] = 1'b1;
+    if (cap_v && sq_av_q[cap_idx] && !sq_exc_q[cap_idx] && !sq_amo_q[cap_idx]) st_cmp_valid[1] = 1'b1;
   end
 
   // ================= Translation: the ROB head and the walker =================
@@ -806,7 +809,7 @@ module tg_lsu
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
-  assign hd_tok   = !sta_ag_valid && dt_hit[1] && pte_ok(dt_pte[1], hd_at, priv_d, sum, mxr);
+  assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
   assign hd_retry = hd_need && hd_tok;
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
@@ -842,7 +845,9 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al,
+    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_al,
+    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_gnt(!sta_ag_valid), .chk_ok(sa_chk[0]), .chk_hit(pmp_hit_st),
+    .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
@@ -1255,7 +1260,7 @@ module tg_lsu
   logic unused;
   assign unused = ^{ld_ag_pl, sta_ag_pl, m2_fidx_q, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
-                    pmp_hit_ld, pmp_rwx_ld, pmp_hit_st, pmp_rwx_st};
+                    pmp_hit_ld, pmp_rwx_ld};
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin

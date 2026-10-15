@@ -218,7 +218,6 @@ module tg_core
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
-  preg_t [N_ALU-1:0] is_src1, is_src2;    // IS-stage ALU source tags (DR-133: execute's operand copy)
   assign wake_reg = wake_x | wake_l | wake_p4;
   assign tag_free = tag_free_x | tag_free_p4;
   // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
@@ -229,7 +228,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .is_src1, .is_src2, .iss_valid, .iss_pl);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -322,14 +321,14 @@ module tg_core
   logic             cm_csr, tr_valid, tr_irq, mret, sret, irq_take, wfi_wake;
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
-  logic [63:0]      tr_epc, tr_tval, trap_target, xepc;
+  logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
-    .trap_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
     .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr, .pmp_busy,
@@ -349,7 +348,7 @@ module tg_core
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
 
   // ---- Unused in M2 ----
@@ -468,6 +467,5 @@ module tg_core
 
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
-                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    is_src1, is_src2};            // DR-133 rejected: the core track removes the export
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
 endmodule
