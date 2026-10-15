@@ -65,6 +65,7 @@ The SQ entries older than the load (allocated before it, from the head up to the
 LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are serialising: each is dispatched into an empty window and performed at the ROB head, after every older store has drained (plan §5.3: atomics with .aq or .rl are fully ordering in v1, and serialising them makes every atomic so). Built behind `EXT_A` (with `misa.A`).
 - **Issue:** one `C_ST` uop with `amo` set, on the store-address port (address = rs1, no offset) and with an SQ entry whose data is rs2 (x0 for LR). The destination is in the load bank with an LLT, like a load's (plan §4.7: B2 takes SC/AMO results).
 - **The SQ entry** never forwards to a load, does not complete the ROB entry at STA or data capture, and leaves the SQ without a write once committed (the atomic wrote the D$ before it committed). It holds the value written, for the trace.
+- **The read-modify-write:** one port B read and, the next cycle, the write. With `DC_AMO_READ_REG` (DR-140 #5) a cycle between them registers the read data.
 - **Faults** at AG (Spike's types):
   - LR: misaligned is cause 4; an address that is not `PMA_MEM` (device, ROM, none, above `PA_W`) is cause 5.
   - SC and AMO: misaligned is cause 6; not `PMA_MEM` is cause 7 (interfaces.md §2.4; the checker makes Spike refuse device AMOs).
@@ -89,7 +90,9 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 - **Port B arbitration:** probe reads, then Grant writes, then Release reads, then store writes; an atomic's read and write take port B only when nothing else can (above). `d_ready` is held low while port B is busy with a probe; B and D are always eventually accepted.
 - **Ordering of a hart's own accesses** is kept by the LQ/SQ rules above. Snoop marking of executed loads (plan §4.9, same-address load-load ordering across harts) is M8.
 
-## Design: the address-stage split (reserve lever, DR-135; on branch `claude/track-core-adb715-agsplit`, not for merge before the user decides)
+## The address-stage split (`LSU_AG_SPLIT`, DR-140 #4: a build switch, off by default)
+
+The two forms share one implementation. The stage that translates and decides reads its operands through `ln_*` (a new load) and `sn_*` (a store address): M1's registers with the split, AG's own signals without. A handful of selects (AG's PA and go, M1's PA, go and clash, the forwarding bypass) differ.
 
 **Why.** M3 translates in AG: the address add, the DTLB, PMP and every access decision share one cycle. That is the core's worst path family at 200 MHz in the whole-core run (about 11.7 ns, 25–32 levels, core-pipeline §16). Its endpoints are in the ROB and inside the LSU, so cutting only the reports to the ROB cannot fix it. DR-057's plan had the DTLB in M1.
 
