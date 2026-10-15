@@ -439,19 +439,21 @@ module tg_l2_bank
   //           m_valid;
   //   cin_seq: the C message's set; cin_q holds still while it is in CI_PIPE or CI_WRITE.
   wire [SET_W-1:0]   set1 = set_of(p1_q.line);
+  //   sel0, sel1, spl0, spl1: the bypass's per-way and PLRU selects themselves (the hit and the
+  //           history entry's way enable, both known in S1), so row2 is one 3:1 select per bit.
   logic              h0_hit_q, h1_hit_q, cin_seq_q;
   logic [N_MSHR-1:0] sm1_q, newm_q;
-  wire               h0_hit = h0_hit_q;
-  wire               h1_hit = h1_hit_q;
+  logic [WAYS-1:0]   sel0_q, sel1_q;
+  logic              spl0_q, spl1_q;
   row_t row2;
   always_comb begin
     row2 = dir_rdata;
     for (int w = 0; w < WAYS; w++) begin
-      if (h1_hit && h1_way_q[w]) row2.way[w] = h1_ent_q;
-      if (h0_hit && h0_way_q[w]) row2.way[w] = h0_ent_q;
+      if (sel1_q[w]) row2.way[w] = h1_ent_q;
+      if (sel0_q[w]) row2.way[w] = h0_ent_q;
     end
-    if (h1_hit && h1_pl_q) row2.plru = h1_plru_q;
-    if (h0_hit && h0_pl_q) row2.plru = h0_plru_q;
+    if (spl1_q) row2.plru = h1_plru_q;
+    if (spl0_q) row2.plru = h0_plru_q;
   end
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -482,7 +484,10 @@ module tg_l2_bank
   logic [2:0]      hw2, vw2;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
-      hitv[w] = row2.way[w].valid && row2.way[w].tag == tag2;
+      // compare, then select: the RAM's entry and the two history entries are compared at once
+      hitv[w] = sel0_q[w] ? (h0_ent_q.valid && h0_ent_q.tag == tag2) :
+                sel1_q[w] ? (h1_ent_q.valid && h1_ent_q.tag == tag2) :
+                            (dir_rdata.way[w].valid && dir_rdata.way[w].tag == tag2);
       held[w] = |row2.way[w].pres;
     end
     resv = '0;
@@ -736,6 +741,17 @@ module tg_l2_bank
   always_ff @(posedge clk) begin
     h0_hit_q  <= set2 == set1;
     h1_hit_q  <= h0_set_q == set1;
+    if (rst) begin                     // as h0_way_q, h1_way_q, h0_pl_q and h1_pl_q
+      sel0_q <= '0;
+      sel1_q <= '0;
+      spl0_q <= 1'b0;
+      spl1_q <= 1'b0;
+    end else begin
+      sel0_q <= (set2 == set1) ? dir_wway : '0;
+      sel1_q <= (h0_set_q == set1) ? h0_way_q : '0;
+      spl0_q <= (set2 == set1) && dir_wplru;
+      spl1_q <= (h0_set_q == set1) && h0_pl_q;
+    end
     cin_seq_q <= set_of(cin_line) == set1;
     for (int m = 0; m < N_MSHR; m++) sm1_q[m] <= set_of(m_line[m]) == set1;
     newm_q    <= s2_alloc ? N_MSHR'(1) << m_new : '0;
@@ -1508,6 +1524,12 @@ module tg_l2_bank
       // The S1 set compares are the S2 compares, registered
       assert (h0_hit_q == (h0_set_q == set2) && h1_hit_q == (h1_set_q == set2))
         else $error("tg_l2_bank%0d: history set compare made in S1 differs", BANK);
+      assert (sel0_q == (h0_hit_q ? h0_way_q : '0) && sel1_q == (h1_hit_q ? h1_way_q : '0) &&
+              spl0_q == (h0_hit_q && h0_pl_q) && spl1_q == (h1_hit_q && h1_pl_q))
+        else $error("tg_l2_bank%0d: history bypass select made in S1 differs", BANK);
+      for (int w = 0; w < WAYS; w++)
+        assert (hitv[w] == (row2.way[w].valid && row2.way[w].tag == tag2))
+          else $error("tg_l2_bank%0d: way %0d hit differs", BANK, w);
       for (int m = 0; m < N_MSHR; m++)
         assert (smatch[m] == (m_valid[m] && set_of(m_line[m]) == set2))
           else $error("tg_l2_bank%0d: MSHR %0d set compare made in S1 differs", BANK, m);
