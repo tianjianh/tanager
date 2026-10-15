@@ -2,24 +2,74 @@
 # Regression for one configuration (docs/spec/verification.md §4.3). Run after `source tools/env.sh`.
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
 #                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
-#                       [TIMING_CUTS=0|1]   (the core's other profile, DR-140; sim/profile.mk)
+#                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk)
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay).
-# Prints a summary and exits non-zero on any failure.
+# Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
+# fallback side by side (make regress-profiles; below).
 set -u
 CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS=""
 for kv in "$@"; do
   case "$kv" in
     CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1]"; exit 5 ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both]"; exit 5 ;;
   esac
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WT="$(basename "$ROOT")"
 BUILD="${TANAGER_BUILD:-$HOME/tanager-build}/$WT"
+
+# TIMING_CUTS=both: DR-140's two profiles side by side, the default (unset) and the fallback (0), with
+# half the jobs each. What both runs read is built first (tg_replay, the directed tests, the
+# benchmarks and, with ARCH=1, the ACT4 tests), so that neither builds it while the other reads it.
+# The Spike-only steps (the checker self-test and the random F/D programs) run once, in the
+# default's run. If no RTL file mentions TG_TIMING_CUTS, the profiles are one build: only the default runs.
+if [ "$TIMING_CUTS" = both ]; then
+  args=()
+  for kv in "$@"; do case "$kv" in TIMING_CUTS=*|JOBS=*) ;; *) args+=("$kv") ;; esac; done
+  if ! grep -rqsw TG_TIMING_CUTS "$ROOT/rtl" --include='*.sv' --include='*.svh'; then
+    echo "no RTL mentions TG_TIMING_CUTS, so the two profiles are one build: running the default only"
+    exec "$0" "${args[@]}" JOBS="$JOBS"
+  fi
+  : "${RISCV_TESTS:?source tools/env.sh first}"
+  BOTH="$BUILD/regress/$CFG-$CORE-both"
+  mkdir -p "$BOTH"
+  half=$(( JOBS > 1 ? JOBS / 2 : 1 ))
+  t0=$SECONDS
+  echo "== tg_replay and the test programs both profiles read"
+  shared() {
+    make -C "$ROOT/sim" JOBS="$JOBS" replay &&
+      make -C "$ROOT/tests/isa" build-directed &&
+      make -C "$ROOT/tests/bench" build MARCH="${MARCH:-rv64im}" &&
+      { [ "$ARCH" != 1 ] || make -C "$ROOT/tests/arch" elfs CORE="$CORE" ${ACTCFG:+ACTCFG="$ACTCFG"}; }
+  }
+  shared > "$BOTH/shared.log" 2>&1 || { echo "   FAIL, log: $BOTH/shared.log"; exit 1; }
+  echo "== the default and the fallback (TIMING_CUTS=0) side by side, $half jobs each"
+  # Each run is a process group of its own, so that an interrupt stops its builds and simulations too.
+  pd="" pf=""
+  trap 'kill -TERM -- ${pd:+-$pd} ${pf:+-$pf} 2>/dev/null; exit 130' INT TERM HUP
+  setsid "$0" "${args[@]}" JOBS="$half" > "$BOTH/default.log" 2>&1 < /dev/null & pd=$!
+  setsid "$0" "${args[@]}" JOBS="$half" TIMING_CUTS=0 SELFTEST=0 RANDFD=0 > "$BOTH/fallback.log" 2>&1 < /dev/null & pf=$!
+  wait $pd; rd=$?
+  wait $pf; rf=$?
+  trap - INT TERM HUP
+  for p in default fallback; do
+    r=$rd; [ $p = fallback ] && r=$rf
+    echo
+    echo "#### $p ($BOTH/$p.log)"
+    if [ "$r" = 0 ]; then sed -n '/^==== regression summary/,$p' "$BOTH/$p.log"; else cat "$BOTH/$p.log"; fi
+  done
+  echo
+  if [ "$rd" = 0 ] && [ "$rf" = 0 ]; then
+    echo "REGRESS PASS: both profiles, the default and TIMING_CUTS=0 ($((SECONDS - t0)) s)"
+    exit 0
+  fi
+  echo "REGRESS FAIL:$([ "$rd" = 0 ] || echo " the default")$([ "$rf" = 0 ] || echo " TIMING_CUTS=0") ($((SECONDS - t0)) s)"
+  exit 1
+fi
 TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}"   # the profile's directory suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
