@@ -478,7 +478,10 @@ module tg_lsu
   assign ag_pa   = ld_ag_valid ? nl_pa : ag_pt ? pt_pa : lqa_rd[0].pa;
   assign ag_go   = ag_v && (!ld_ag_valid || nl_go);     // continues to M1
   assign pt_gnt  = ag_pt;
-  assign dc_rd_en = ag_go;
+  // The D$ reads for every AG op, whether or not it goes on to M1 (timing: ag_go waits for the new
+  // load's TLB, PMP and fault decision). Only M1 of the op that read uses port A's data, and M1
+  // and M2 never hold, so a read for an op that stops is never seen.
+  assign dc_rd_en = ag_v;
   assign dc_rd_pa = ag_pa;
 
   // A store write to the same 16-byte row in the AG cycle: the load read old data
