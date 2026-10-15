@@ -161,6 +161,38 @@ These steps need a person. The coordinator collects them ([host.md](host.md) for
 4. **Load:** as the PL app `tanager` through dfx-mgr's `xmutil`, as for spike S1. The app is `tanager.bit.bin`, `tanager.dtbo` (the overlay above) and `shell.json` in `/lib/firmware/xilinx/tanager/`; then `xmutil unloadapp` and `xmutil loadapp tanager`. `fpga/kv260/package.sh` puts the files together with `tanager-host`.
 5. **Host program:** `tanager-host` is copied to the board and run as root. The bring-up steps and their expected results are in `fpga/kv260/README.md`.
 
+### 7.1 Unanswered PL reads and the PS's AXI timeout block
+
+A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53 hangs until a power cycle. The board session hung the board this way on 2026-10-14 by running `tanager-host` with the default app loaded. `tanager-host` now refuses unless the overlay's node is in the live device tree (`check_overlay`). The PS also has a hardware guard for this, the AXI timeout block (ATB), which is not enabled on this board.
+
+- **What it is:** one ATB per PS-PL master path; it tracks transactions and, on a timeout, answers the PS master itself and raises an interrupt.
+  - **Registers:** `FPD_SLCR` at `0xFD61_6000` (AMD's `xfpd_slcr.h`, Vivado 2025.2's embeddedsw).
+  - **One bit per path** in each register: bit 0 FPDS (the switch to the SIOU slaves), bit 1 AFIFS0 (`M_AXI_HPM0_FPD`, our host bridge; UG1087, `ERR_ATB_ISR`) and bit 2 AFIFS1 (`M_AXI_HPM1_FPD`).
+  - **Register map:** `ERR_ATB_ISR` `+0x00` (sticky, write 1 to clear), `IMR`/`IER`/`IDR` `+0x04`/`+0x08`/`+0x0C`, `ATB_CMDSTORE` `+0x10` (reset 7), `ATB_RESP_EN` `+0x14` (reset 0: **off**), `ATB_RESPTYPE` `+0x18` (reset 7), `ATB_PRESCALE` `+0x20` (enable at bit 16, value in bits 15:0, reset `0x0000_FFFF`: **off**). The LPD has the same block at `0xFF41_6000`.
+- **How AMD's proposed Linux driver uses it** (`zynqmp_atb.c`, posted to the kernel lists in May 2025; not in the board's 6.8 kernel):
+  - **Sequence:** clear `ATB_RESP_EN`, set `ATB_RESPTYPE` and `ATB_CMDSTORE` to the chosen paths, set `ATB_PRESCALE = 0x10100` (enabled; "based on 100 MHz clock"), clear `ERR_ATB_ISR`, then set `ATB_RESP_EN` and `ERR_ATB_IER`.
+  - **Response:** on a timeout the ATB returns SLVERR, which the program sees as a bus fault. The driver logs "atb: Timeout detected".
+  - **Its stated limit:** "only a limited number of AXI timeouts can be registered before the bus will eventually stall".
+- **Option A: `tanager-host` enables the ATB on AFIFS0 before its first PL access** (the sequence above, for bit 1 only).
+  - **Pros:** an unanswered read becomes a bus fault (SIGBUS) instead of a hang. It also covers what the device-tree check cannot: a design that is loaded but does not answer (clock or reset stopped, a wedged bridge).
+  - **Cons:**
+    - It writes PS configuration registers from user space; a wrong address can disturb the PS.
+    - Whether `/dev/mem` may write `FPD_SLCR` on this firmware is unknown (an XPPU can block it).
+    - The timeout formula is not in the sources we have, so the prescaler value needs a measurement.
+    - The setting outlives the program, and applies to whatever design is in the PL, until reboot.
+    - By AMD's own note it absorbs only a few timeouts.
+- **Option B: enable it at boot**, through the proposed driver or a systemd unit that writes the same registers.
+  - **Pros:** it protects every program and logs every timeout.
+  - **Cons:** the driver is not in the board's kernel, and a boot unit changes the board's setup, which is the board session's area.
+- **Option C: the device-tree check alone** (what `tanager-host` does now, with the board session's `xmutil` check in `tg.sh`).
+  - **Pros:** it touches no PS registers.
+  - **Cons:** it does not protect a loaded design that stops answering.
+- **Recommendation:** keep C, and try A on the board once, behind an explicit `tanager-host` command rather than by default.
+  - **First step:** read the ATB registers (reads of PS registers are safe) and confirm the reset values above.
+  - **Then:** enable AFIFS0 only, and read `0xA000_0000` deliberately with the default app loaded. The expected result is a bus error, not a hang.
+  - **Needs the user's consent:** if the ATB does not engage, that read hangs the board, and only a power cycle recovers it.
+- **Sources:** `xfpd_slcr.h` and `xlpd_slcr.h` (AMD embeddedsw in the Vivado 2025.2 install); UG1087, `ERR_ATB_ISR (FPD_SLCR)`; the `zynqmp_atb` patch series (lwn.net/Articles/1022531, May 2025); a PYNQ forum thread with similar writes but a different prescaler encoding (`0x1020`; it does not report the result).
+
 ## 8. Board stages C and D (design draft, DR-126)
 
 Status: draft for review, 2026-10-14. No RTL yet: stages A (the ARM side) and B (the real core booting Linux, M4) come first. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked.
