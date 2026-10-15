@@ -71,9 +71,11 @@ class spike_env_t final : public simif_t {
       if (c.rom_size) copy(base, p, c.rom_base, c.rom_size, rom_.data());
     });
 
-    log_ = fopen("/dev/null", "w");
+    // Spike formats a commit-log line into this file at every step (about ten fprintf calls). Nothing reads
+    // it, so it is opened read-only: glibc's and musl's fprintf then return at once, which halves the
+    // checker's time per record (verification.md §3.9).
+    log_ = fopen("/dev/null", "r");
     if (!log_) fatal("Spike: cannot open /dev/null");
-    setvbuf(log_, nullptr, _IOFBF, 1 << 16);
     for (uint32_t id : c.hartids) {
       auto* p = new processor_t(cfg_.isa, cfg_.priv, &cfg_, this, id, false, log_, null_os_);
       // The MMU mode must be known before reset: CSR write masks (mstatus.SUM, MXR) depend on it.
@@ -220,10 +222,13 @@ inline spike_step_t spike_step(processor_t* p, uint32_t insn) {
   return st;
 }
 
-// Instruction bits at pc as Spike fetches them, or false if the fetch faults.
-inline bool spike_fetch(processor_t* p, uint64_t pc, uint32_t& bits) {
+// Instruction bits at pc as Spike fetches them, or false if the fetch faults. By default through Spike's
+// instruction cache: Spike's own fetch refills it at every step, and it is flushed with Spike's TLB (traps,
+// xRET, satp, mstatus and PMP writes, SFENCE.VMA) and at FENCE.I. fresh = true translates and reads again.
+inline bool spike_fetch(processor_t* p, uint64_t pc, uint32_t& bits, bool fresh = false) {
   try {
-    bits = uint32_t(p->get_mmu()->load_insn(pc).insn.bits());
+    mmu_t* m = p->get_mmu();
+    bits = uint32_t((fresh ? m->load_insn(pc) : m->access_icache(pc)->data).insn.bits());
   } catch (trap_t&) {
     return false;
   }

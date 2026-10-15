@@ -263,18 +263,21 @@ module tg_fpu_div
     fac_sum = k + ~src + 60'd1 + (use_e ? 60'(e23) : 60'd0);
   end
 
+  logic [2:0]  nn;
+  logic [59:0] seedq, cand, grid;
+  logic        rem_rnd;            // the remainder round (repeated while the output queue is full)
   always_comb begin
-    logic [2:0]  nn;
-    logic [59:0] seedq, cand, grid;
+    grid    = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
+    seedq   = {2'b0, r4_q.seed, 48'b0};
+    nn      = fin ? r4_q.rnd : r4_q.rnd + 3'd1;
+    cand    = fin ? r4_q.c : (m1 + (grid >> 1)) & ~(grid - 60'd1);
+    rem_rnd = nn == n_last(r4_q.info.sqrt, r4_q.info.dbl);
+  end
+
+  always_comb begin
     r1_d  = r4_q;
     r1_vd = 1'b0;
-    x1 = '0; y1 = '0; x2 = '0; y2 = '0;
-    grid  = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
-    seedq = {2'b0, r4_q.seed, 48'b0};
-    nn    = fin ? r4_q.rnd : r4_q.rnd + 3'd1;
-    cand  = fin ? r4_q.c : (m1 + (grid >> 1)) & ~(grid - 60'd1);
     if (s4_v) begin
-      // round 1: N0 = A s, D0 = mb s; or q0 = x y0, u0 = x y0^2
       r1_vd     = 1'b1;
       r1_d      = '0;
       r1_d.info = s4_info;
@@ -282,38 +285,72 @@ module tg_fpu_div
       r1_d.opa  = s4_opa;
       r1_d.opb  = s4_opb;
       r1_d.seed = s4_seed;
-      x1 = s4_opa;
-      y1 = {2'b0, s4_seed, 48'b0};
-      x2 = s4_info.sqrt ? s4_opa : s4_opb;
-      y2 = s4_info.sqrt ? {2'b0, sm0_q[19:0], 38'b0} : {2'b0, s4_seed, 48'b0};
     end else if (cont) begin
       r1_vd    = 1'b1;
       r1_d.rnd = nn;
-      if (nn == n_last(r4_q.info.sqrt, r4_q.info.dbl)) begin
-        // remainder round: mb * c or c * c (repeated while the output queue is full)
-        r1_d.c = cand;
-        x1 = r4_q.info.sqrt ? cand : r4_q.opb;
-        y1 = cand;
-      end else if (!r4_q.info.sqrt) begin
-        // 2 - D0 + e23 (~ 1/D0 to third order) or 2 - D1
-        x1 = m1; y1 = fac_sum;
-        x2 = m2; y2 = fac_sum;
-      end else begin
-        unique case (nn)
-          3'd2: begin                                // P = 3/2 - u0/2 + 3/8 e2 + 5/16 e3
-            x1 = m1; y1 = fac_sum;
-            x2 = seedq; y2 = fac_sum;
-          end
-          3'd3: begin                                // w1 = q1 y1; keep q1
-            r1_d.opb = m1;
-            x1 = m1; y1 = m2;
-          end
-          default: begin                             // q2 = q1 (3/2 - w1/2)
-            x1 = r4_q.opb; y1 = fac_sum;
-          end
-        endcase
-      end
+      if (rem_rnd)                                  r1_d.c   = cand;
+      else if (r4_q.info.sqrt && nn == 3'd3)        r1_d.opb = m1;      // keep q1
     end
+  end
+
+  // The multipliers' operands, as one encoded select per operand (fpga_friendly.md T7), so a bit
+  // is one 4:1. A product no round uses (an idle slot; M2 in the remainder round and in square-root
+  // rounds 3 and 4) takes whichever operands the selects default to.
+  //   round 1:    N0 = A s, D0 = mb s; or q0 = x y0, u0 = x y0^2
+  //   remainder:  mb * c or c * c
+  //   division:   x (2 - D0 + e23) (~ 1/D0 to third order), then x (2 - D1), on M1 and M2
+  //   sqrt 2:     q1 = q0 P and y1 = y0 P, P = 3/2 - u0/2 + 3/8 e2 + 5/16 e3
+  //   sqrt 3:     w1 = q1 y1 (q1 kept)
+  //   sqrt 4:     q2 = q1 (3/2 - w1/2)
+  typedef enum logic [1:0] { X1_OPA, X1_CAND, X1_OPB, X1_M1 } x1s_e;
+  typedef enum logic [1:0] { Y1_SEED, Y1_CAND, Y1_FAC, Y1_M2 } y1s_e;
+  typedef enum logic [1:0] { X2_OPA, X2_OPB, X2_M2, X2_SEED } x2s_e;
+  typedef enum logic [1:0] { Y2_SM0, Y2_SEED, Y2_FAC } y2s_e;
+  x1s_e x1s;
+  y1s_e y1s;
+  x2s_e x2s;
+  y2s_e y2s;
+  always_comb begin
+    x1s = X1_M1; y1s = Y1_FAC; x2s = X2_M2; y2s = Y2_FAC;       // division
+    if (s4_v) begin
+      x1s = X1_OPA; y1s = Y1_SEED;
+      x2s = s4_info.sqrt ? X2_OPA : X2_OPB;
+      y2s = s4_info.sqrt ? Y2_SM0 : Y2_SEED;
+    end else if (rem_rnd) begin
+      x1s = r4_q.info.sqrt ? X1_CAND : X1_OPB;
+      y1s = Y1_CAND;
+    end else if (r4_q.info.sqrt) begin
+      unique case (nn)
+        3'd2:    x2s = X2_SEED;
+        3'd3:    y1s = Y1_M2;
+        default: x1s = X1_OPB;
+      endcase
+    end
+  end
+  always_comb begin
+    unique case (x1s)
+      X1_OPA:  x1 = s4_opa;
+      X1_CAND: x1 = cand;
+      X1_OPB:  x1 = r4_q.opb;
+      default: x1 = m1;
+    endcase
+    unique case (y1s)
+      Y1_SEED: y1 = {2'b0, s4_seed, 48'b0};
+      Y1_CAND: y1 = cand;
+      Y1_FAC:  y1 = fac_sum;
+      default: y1 = m2;
+    endcase
+    unique case (x2s)
+      X2_OPA:  x2 = s4_opa;
+      X2_OPB:  x2 = s4_opb;
+      X2_M2:   x2 = m2;
+      default: x2 = seedq;
+    endcase
+    unique case (y2s)
+      Y2_SM0:  y2 = {2'b0, sm0_q[19:0], 38'b0};
+      Y2_SEED: y2 = {2'b0, s4_seed, 48'b0};
+      default: y2 = fac_sum;
+    endcase
   end
 
   always_ff @(posedge clk) begin
@@ -338,13 +375,11 @@ module tg_fpu_div
   always_comb begin
     logic        lo_nz;
     logic [37:0] rh;
-    logic [59:0] grid;
     lo_nz   = |p1[57:0];
     rh      = r4_q.opa[37:0] - p1[95:58] - 38'(lo_nz);   // the remainder's bits 95:58
     rem_neg = rh[37];
     rem_nz  = lo_nz || rh != '0;
-    grid    = r4_q.info.dbl ? 60'(1) << 5 : 60'(1) << 34;
-    f       = rem_neg ? r4_q.c - grid : r4_q.c;
+    f       = rem_neg ? r4_q.c - grid : r4_q.c;          // grid: the ring's, above
   end
 
   // ------------------------------------------------------------------------------------------

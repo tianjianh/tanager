@@ -1,6 +1,6 @@
 # Tanager: area-recovery study, synthesis side
 
-*Plan §8.5, the area-recovery study under D18: IPC first. Step 1 is implementation tricks that cost no IPC; step 2 a lower clock, down to about 180 MHz, rather than smaller structures; step 3 the IPC-costing levers. This page is the synthesis side: what the no-IPC tricks save on the over-budget units, and how full the XCK26 may get at 180 MHz.*
+*Plan §8.5, the area-recovery study under D18: IPC first. Step 1 is implementation tricks that cost no IPC; step 2 a lower clock, down to about 180 MHz, rather than smaller structures, which only the user can approve (DR-137); step 3 the IPC-costing levers. This page is the synthesis side: what the no-IPC tricks save on the over-budget units, and how full the XCK26 may get at 180 MHz (measurements: the target stays 200 MHz unless the user approves a lower clock, DR-137).*
 
 | | |
 |---|---|
@@ -153,6 +153,8 @@ So no queue wakes at select. Multi-cycle ops wake their tag through the delay li
 - **Memory:** this synthesis peaks at 9.4 GB with its helper processes (2 threads), against 6.8 GB without the directive (§6).
 
 ## 5. Fill test at 180 MHz
+
+**These are measurements only:** the target clock stays 200 MHz unless the user approves a lower one (DR-137), and gate 3 and every v1 full-chip check run at 200 MHz.
 
 **Method:** the S6 full-device design ([spikes.md](spikes.md) §8): two cores of spike structures plus the uncore, a synthetic filler sized to the target fill of the XCK26's 117,120 LUTs, implemented at 5.556 ns (180 MHz). D18 asks how full the device can get at about 180 MHz before IPC-costing levers are needed. The cores take the spike verdicts (min/max off the 1-cycle ALU, alignment in M2, MX everywhere), unlike the 200 MHz runs of spikes.md §8; "with tags" means the AR-1 scheduler (`S2_WTAGS = 16`).
 
