@@ -33,8 +33,9 @@ module tg_uncore
   parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},
   // A register slice on each bank's AXI AR, before the latency injector: it cuts the L2's AR
   // handshake (pick, MSHR LUTRAM, the window's range check, ready back into the pick), the
-  // uncore's longest path at 200 MHz, for a cycle on every fill (a DR-135 reserve item)
-  parameter bit          AR_SLICE        = 1'b0,
+  // uncore's longest path at 200 MHz, for a cycle on every fill (DR-135; on by default, the user's
+  // decision of 10-15: +0.056% cycles at st, +0.134% at smt2 over the first 20M of the Linux boot)
+  parameter bit          AR_SLICE        = 1'b1,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
