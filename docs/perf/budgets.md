@@ -172,7 +172,20 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 4d5ca13 | the same under DR-113's settings (`-flatten none -directive AreaOptimized_high`; the budget flow's settings for the uncore since e7227d4, as for the core) | 20,066 | 20,560 | 18,479 | **18** |
 | 11bf523 | crossbar: the caches' A-channel data, corrupt and mask as constants (−249, measured on fc1031e; cycle-identical) | ≈21,475 | ≈22,035 | | **18** |
 | e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
+| 44767a1 | register slices in DSPs (DR-136): the crossbar's, the memory paths' AR, AW, W and R, the L2 banks' R; 83 DSPs; cycle-identical | 18,047 | 18,603 | 16,092 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
+
+**The uncore at 200 MHz** (44767a1, st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip):
+
+| Run | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
+|---|---|---|---|---|---|
+| all slices in fabric, DR-113's settings | 19,796 | 19,057 | 1 | −1.779 ns | −4,146 ns (7,044) |
+| all slices in fabric, Vivado's default directive | 21,150 | 19,107 | 1 | −1.150 ns | −1,664 ns (3,962) |
+| slices in DSPs (the default), DR-113's settings | 18,465 | 16,056 | 84 | −2.004 ns | −7,964 ns (10,601) |
+
+- The worst paths are the L2's S2 decision into the directory's block RAM (14–23 levels) in every run. The latency injectors, the memory windows, the crossbar and the memory slices also fail by 0.4–1.8 ns.
+- `AreaOptimized_high` costs about 0.6 ns here for its 1.35K LUTs, and the DSP slices another 0.2 ns and about 3,500 failing endpoints: the slices behind the crossbar's arbiters (B −1.9, D −0.8 to −1.6, memory AR −1.3 to −1.5, A 0 and 1 −0.6 to −0.9 ns).
+- So the uncore needs timing work for 200 MHz with or without the DSPs. The board builds run at 60–100 MHz, where every slice has slack. The full-chip fit decides per site through `UNCORE_DSP`.
 
 **By block** (smt2, 059a572):
 
