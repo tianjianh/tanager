@@ -8,6 +8,9 @@
 # TG_PMOD_TXD / TG_PMOD_RXD override them.
 lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
+# TG_XBAR_DSP (hex, e.g. 0xFFFFFFFF): which crossbar slices use DSPs (tg_xbar DSP_SKID; default all)
+set xbar_gen {}
+if {[info exists ::env(TG_XBAR_DSP)]} { lappend xbar_gen -generic "XBAR_DSP=32'h[format %08X $::env(TG_XBAR_DSP)]" }
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {
@@ -59,7 +62,7 @@ read_xdc [file join $root fpga kv260 xdc timing.xdc]
 stamp "synth_design"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
-  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$xbar_gen \
   -flatten_hierarchy rebuilt
 # PMOD console pins (xdc/kv260.xdc) can be overridden; they are asynchronous to clk_core
 if {[info exists ::env(TG_PMOD_TXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_TXD) [get_ports pmod_uart_txd] }

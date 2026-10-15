@@ -1,8 +1,11 @@
 // Two-entry register slice (skid buffer) with valid/ready on both sides.
 // Full throughput; out_valid, out_data and in_ready all come straight from flip-flops,
 // so the slice cuts every combinational path through it (docs/spec/uncore.md).
+// DSP = 1 puts the main data register into DSP48E2 slices (tg_dsp_reg2; DR-136): the same
+// register transfer, without the fabric's 2:1 select (about a LUT per two bits).
 module tg_skid #(
-  parameter type T = logic [7:0]
+  parameter type T   = logic [7:0],
+  parameter bit  DSP = 1'b0
 ) (
   input  logic clk,
   input  logic rst,
@@ -34,8 +37,15 @@ module tg_skid #(
     end
   end
 
-  always_ff @(posedge clk) begin
-    if (main_free) main_q <= skid_v_q ? skid_q : in_data;
+  always_ff @(posedge clk)
     if (!main_free && in_valid && !skid_v_q) skid_q <= in_data;
+
+  if (DSP) begin : g_dsp
+    tg_dsp_reg2 #(.W ($bits(T))) u_main (
+      .clk, .en (main_free), .sel_c (skid_v_q), .a (in_data), .c (skid_q), .q (main_q)
+    );
+  end else begin : g_fab
+    always_ff @(posedge clk)
+      if (main_free) main_q <= skid_v_q ? skid_q : in_data;
   end
 endmodule

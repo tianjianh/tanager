@@ -19,6 +19,7 @@ module tg_uncore
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (8N1), else host only
+  parameter logic [31:0] XBAR_DSP        = '1,         // tg_xbar DSP_SKID: slices whose data register is in DSPs
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -148,7 +149,7 @@ module tg_uncore
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
   tl_d_t hdma_d; logic hdma_ar, hdma_dv;
 
-  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1)) u_xbar (
+  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (XBAR_DSP)) u_xbar (
     .clk, .rst (uncore_rst),
     .l1i_a_i, .l1i_a_valid_i, .l1i_a_ready_o, .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
     .l1d_a_i, .l1d_a_valid_i, .l1d_a_ready_o, .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
