@@ -522,12 +522,11 @@ module tg_lsu
   // Youngest older store with a byte overlap in the same dword: the search over the SQ's stores
   // (q_*), and with the split, the store address in M1 selected last (g_split / g_nosplit)
   logic              f_hit, f_cover, f_data;
-  logic [SIW-1:0]    f_idx;
+  logic [SQ_ENTRIES-1:0] f_oh;                      // the forwarding store, one-hot (encoded in M2)
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
   logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
   logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
-  logic [SIW-1:0]    q_idx;                         // ... the youngest
-  logic [SQ_ENTRIES-1:0] q_oh;                      // ... as a one-hot vector
+  logic [SQ_ENTRIES-1:0] q_oh;                      // ... the youngest, one-hot
   assign f_lim = lq_sq_q[m1_lq_q];
   always_comb begin
     for (int i = 0; i < SQ_ENTRIES; i++)
@@ -535,8 +534,8 @@ module tg_lsu
                  sq_pa_q[i][PA_W-1:3] == m1pa[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
   end
   // The youngest as a one-hot vector selects the per-entry cover and data-valid bits, formed in
-  // parallel from flip-flops (timing: no index encode and multiplexer after the search); the index
-  // goes on only to m2_fidx_q
+  // parallel from flip-flops, and goes to M2 as it is, encoded there (timing: no index encode or
+  // multiplexer after the search)
   always_comb begin
     logic [SQ_ENTRIES-1:0] fc_lo, oh_lo, oh_all, cov;
     logic                  run_lo, run_all;
@@ -553,7 +552,6 @@ module tg_lsu
     q_hit   = |fc_sq;
     q_lo    = |fc_lo;
     q_oh    = q_lo ? oh_lo : oh_all;
-    q_idx   = q_lo ? sq_last(fc_lo) : sq_last(fc_sq);
     q_cover = |(q_oh & cov);
     q_data  = |(q_oh & sq_dv_q);
   end
@@ -564,13 +562,18 @@ module tg_lsu
   logic [LIW-1:0]    m2_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
   logic [63:0]       m2_dword_q, m2_fdword;
-  logic [SIW-1:0]    m2_fidx_q;
+  logic [SQ_ENTRIES-1:0] m2_foh_q;                  // the forwarding store, one-hot
+  logic [SIW-1:0]    m2_fidx;                       // ... its index
+  always_comb begin
+    m2_fidx = '0;
+    for (int i = 0; i < SQ_ENTRIES; i++) if (m2_foh_q[i]) m2_fidx |= SIW'(i);
+  end
   sqid_t             m2_fid;
-  assign m2_fid = sq_id(int'(m2_fidx_q), sq_head_q);
+  assign m2_fid = sq_id(int'(m2_fidx), sq_head_q);
   // The forwarded data, read in M2 at the forwarding store's index (timing: the M1 search ends at
-  // m2_fidx_q). Data that was in at M1 (m2_fdat_q) does not change; data captured since is not used.
-  assign sqsz_ra[COMMIT_WIDTH] = m2_fidx_q;
-  assign m2_fdword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at m2_fidx_q
+  // m2_foh_q). Data that was in at M1 (m2_fdat_q) does not change; data captured since is not used.
+  assign sqsz_ra[COMMIT_WIDTH] = m2_fidx;
+  assign m2_fdword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at m2_fidx
 
   typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
   m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
@@ -1031,7 +1034,7 @@ module tg_lsu
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_addr), .raddr(sqva_ra),
     .rdata(sqva_rd));
   // Data: captured from the register file, or written by an atomic (the value it stored)
-  assign sqd_ra[COMMIT_WIDTH]   = m2_fidx_q;
+  assign sqd_ra[COMMIT_WIDTH]   = m2_fidx;
   assign sqd_ra[COMMIT_WIDTH+1] = dh;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? dh : cap_idx;
@@ -1210,7 +1213,7 @@ module tg_lsu
       m2_fhit_q   <= f_hit;
       m2_fcov_q   <= f_cover;
       m2_fdat_q   <= f_data;
-      m2_fidx_q   <= f_idx;
+      m2_foh_q    <= f_oh;
       m2_pt_q     <= m1_pt_q;
 
       // ---- AG -> M1 ----
@@ -1413,7 +1416,7 @@ module tg_lsu
     always_comb for (int i = 0; i < SQ_ENTRIES; i++) below_sa[i] = i < int'(sa_idx);
     assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && |(q_oh & below_sa)));
     assign f_hit   = q_hit || byp;
-    assign f_idx   = sel_s ? sa_idx : q_idx;
+    assign f_oh    = sel_s ? SQ_ENTRIES'(1) << sa_idx : q_oh;
     assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
     assign f_data  = sel_s ? sq_dv_q[sa_idx] : q_data;
   end else begin : g_nosplit
@@ -1455,15 +1458,15 @@ module tg_lsu
     assign lm_lq   = m2_lq_q;
     assign mm_hold = (m1_mck_q && !nl_chk[0] && m1_lq_q == hl) || (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
-    assign f_idx    = q_idx;
+    assign f_oh     = q_oh;
     assign f_cover  = q_cover;
     assign f_data   = q_data;
     logic unused_q_lo;                             // read by the split's age compare only
-    assign unused_q_lo = ^{q_lo, q_oh};
+    assign unused_q_lo = q_lo;
   end
 
   logic unused;
-  assign unused = ^{ld_ag_pl, sta_ag_pl, m2_fidx_q, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
+  assign unused = ^{ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld};
 
