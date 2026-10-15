@@ -33,6 +33,13 @@ package tg_core_pkg;
   localparam bit LSU_AG_SPLIT          = TIMING_CUTS; // #4: a new load's and a store address's
                                                       // DTLB, PMP and decisions in M1 (core-lsu.md)
   localparam bit DC_AMO_READ_REG       = TIMING_CUTS; // #5: an atomic's D$ read data is registered
+  // #8, one more decode stage: off, outside the profiles, and not verified until the user turns it
+  // on (DR-140). `TG_DE_STAGE=1` elaborates it, for lint.
+`ifdef TG_DE_STAGE
+  localparam bit DE_STAGE = `TG_DE_STAGE;
+`else
+  localparam bit DE_STAGE = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
