@@ -18,7 +18,7 @@ import sys
 def parse(path):
     """Returns (header lines, problems, {test: [run dicts]}) for one log."""
     head, problems, tests = [], [], {}
-    began = ended = False
+    began = ended = stopped = False
     with open(path, errors='replace') as f:
         for raw in f:
             line = raw.strip()
@@ -49,6 +49,9 @@ def parse(path):
                     continue
                 kv = dict(p.split('=', 1) for p in parts[2:] if '=' in p)
                 tests.setdefault(parts[1], []).append(kv)
+                if kv.get('cycles') == '0' and not stopped:
+                    stopped = True  # a tg-lbench without the perf start (before 8fd41b3) reads stopped counters
+                    problems.append('cycles=0: the counters were not running: ' + line)
     if not began:
         problems.append('no TGLB-BEGIN line')
     elif not ended:
