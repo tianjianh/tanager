@@ -398,16 +398,18 @@ module tg_rob
         do_flush = 1'b1;
         use_tt = 1'b1;
       end else if (rpl_h[0]) begin
+        // The refetch PC, cause and tval don't wait for the head's TLB check (hd_retry, the
+        // LSU's DTLB lookup this cycle): they count only if it flushes or traps
+        nf_pc   = hp[0].pc;
+        t_cause = hd_cause;
+        t_tval  = hp[0].is_ld ? hd_lva : hd_sva;
         if (!hd_tlb || hd_retry) begin
           do_flush = 1'b1;
-          nf_pc = hp[0].pc;
         end else if (hd_fault) begin
           do_trap  = 1'b1;
           do_flush = 1'b1;
           use_tt   = 1'b1;
           tlbx     = 1'b1;
-          t_cause  = hd_cause;
-          t_tval   = hp[0].is_ld ? hd_lva : hd_sva;
         end
       end else if (cmp_h[0] && exc_h[0]) begin
         do_trap = 1'b1;
