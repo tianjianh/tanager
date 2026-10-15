@@ -313,13 +313,24 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 **Reserve (DR-135: each one moves cycles, and only the user adopts it; not taken):**
 
-Cycle costs are from `make cycle-identical` against fn3's head (1c0eaca), as change in cycles per suite, st / smt2. Each lever's RTL is kept on a local branch.
+Cycle costs are from `make cycle-identical`, as change in cycles per suite, st / smt2: F1 to F3 against fn3's head (1c0eaca), the rest against fn4's (028f45e). Each lever's RTL is kept on a local branch.
 
 | Lever | Gain | isa | stress | bench | random | Branch |
 |---|---|---|---|---|---|---|
 | F1 cut: the LSU's fault reports reach the ROB a cycle later. It is the "fault reporting" row of smt2-study's ablation. | timing: the AG fault decision leaves the exception register's paths (whole core: see §16) | +0.000% / +0.000% | +0.000% / +0.000% | 0 / 0 | +0.032% / +0.024% | `tmp/core-cut-fault` |
 | F2/F5 cut: the store reports (completions and the ordering replay mark) reach the ROB a cycle later, together. It is the "completion → ROB" row. | timing: the STA's TLB and PMP decision and the LQ ordering search leave the ROB's completion and replay tables | +0.428% / +0.369% | +0.217% / −0.053% | +0.100% / +0.188% | −0.150% / +0.018% | `tmp/core-cut-store` |
 | F3 cut: the ROB head's DTLB retry reaches the ROB a cycle later | timing: the head's DTLB lookup leaves the commit redirect | +0.002% / +0.006% | +0.198% / −0.031% | 0 / 0 | −0.057% / +0.046% | `tmp/core-cut-head` |
+| LSU address-stage split (core-lsu.md, "Design: the address-stage split"): a new load's and a store address's DTLB, PMP and access decisions move to M1; AG adds the address and reads the D$ at the page-offset row, so load-to-use is unchanged. It subsumes F1 and F2/F5. | timing: the address add leaves the LSU's AG family (TLB, PMP, decisions, reports to the ROB) | +0.696% / +0.476% | +0.282% / +0.014% | +0.160% / +0.088% | −0.151% / +0.123% | `claude/track-core-adb715-agsplit` |
+| Atomic read-data register: an atomic's D$ read data is registered before the modify and write, one cycle more per atomic | timing: the D$ atomic family (block RAM → AMO ALU → block RAM) | +0.113% / +0.135% | −0.021% / −0.016% | 0 / 0 | −0.180% / +0.089% | `tmp/core-cut-amo` |
+| Fetch PMP check a cycle later on translated pages that a PMP region boundary splits: F1 waits a cycle, and the block checker reads the address the ITLB gave. Bare mode checks the fetch PC itself; homogeneous pages keep the ITLB's cached result. | timing: F1's ITLB → PMP → F2 path | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | `tmp/core-cut-fpmp` |
+| F2's actions on F1 registered: parking on an I$ or ITLB miss, the refetches (PMP cut, dropped prediction, install race) and the stop after a fault block take effect a cycle later and drop the blocks F1 and F2 took meanwhile. The refill and the walk still start as early. | timing: the F2 family (tag compare, pre-decode and the PMP cut into the fetch PC and F2's enables) | +0.003% / +0.006% | −0.015% / +0.011% | −0.003% / +0.032% | +0.005% / +0.014% | `tmp/core-cut-f2` |
+| DE stage: decode takes a stage of its own. DE1 decodes the queue head into registers; DE2 forms the group and checks the predictions from them. Every redirect costs one more front-end cycle. | timing: the DE family (queue head → decode → group → take, the redirect and the next PC) | +0.885% / +0.799% | +0.394% / +0.284% | +2.505% / +2.308% | +0.159% / +0.535% | `tmp/core-cut-de` |
+
+- **The split in the w3 configurations** (st_w3 / smt2_w3): isa +0.489% / +1.565%, stress −0.258% / +0.273%, bench +0.118% / +0.006%, random +0.239% / +0.257%. Its isa cost is the `-v` tests' page-table setup, whose walks report a cycle later (about +95 cycles per test). No program fails in any of the four configurations.
+- **The fetch PMP check is identical in every suite:** no program fetches from a translated page that a PMP boundary splits. It is listed because such a page would cost a cycle per fetch block.
+- **Timing, whole core (st, out of context at 200 MHz):** F1, F2/F5 and F3 together take fn3's head from −7.071 to −5.464 ns (6d0523e). The worst families are then level at about −5.4 ns: the D$ atomic path, the LQ head → the replay register, F2 → the fetch PC, the LSU's address stage and DE, each with a lever above.
+  - Families that none of the three touch moved by up to 1.7 ns as well, so placement noise between runs is about 1 ns.
+  - The split alone and every lever together (`tmp/core-cuts-all`) are queued.
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 **Follow-ups (functional, with deadlines):**

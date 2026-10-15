@@ -118,6 +118,19 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 
 **Timing risk.** The new M1 holds the DTLB, the tag compare and the forwarding search. If it still misses 5 ns, the forwarding search moves into M2 on the registered PA, with M2's data select after it.
 
+**Measured** (27e069a against fn4's head 028f45e, `make cycle-identical`, change in cycles per suite):
+
+| Config | isa | stress | bench | random |
+|---|---|---|---|---|
+| st | +0.696% | +0.282% | +0.160% | −0.151% |
+| smt2 | +0.476% | +0.014% | +0.088% | +0.123% |
+| st_w3 | +0.489% | −0.258% | +0.118% | +0.239% |
+| smt2_w3 | +1.565% | +0.273% | +0.006% | +0.257% |
+
+- No program fails: 800 per configuration, the base's harness and lockstep.
+- The isa cost is the `-v` tests' page-table setup: their walks report a cycle later, about +95 cycles per test.
+- The whole-core timing run is queued.
+
 ## Parameters
 `LQ_ENTRIES`, `SQ_ENTRIES`, `L1D_KIB`, `L1_WAYS`, `PA_W` from `tg_pkg`. One load pipe and one store-address pipe in every configuration (plan §4.15: width-independent).
 
