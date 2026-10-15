@@ -30,6 +30,8 @@ package tg_core_pkg;
 `endif
   localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
                                                       // replay mark reach the ROB a cycle later
+  localparam bit LSU_AG_SPLIT          = TIMING_CUTS; // #4: a new load's and a store address's
+                                                      // DTLB, PMP and decisions in M1 (core-lsu.md)
   localparam bit DC_AMO_READ_REG       = TIMING_CUTS; // #5: an atomic's D$ read data is registered
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
