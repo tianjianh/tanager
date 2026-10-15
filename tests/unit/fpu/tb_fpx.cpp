@@ -160,16 +160,18 @@ class Bench {
     clear_inputs();
     for (int i = 0; i < 4; i++) { top->clk = 1; top->eval(); top->clk = 0; top->eval(); }
     top->rst = 0;
-    // Reset sequence: zero into a few registers of each bank through the init port
+    // Reset sequence: zero into a few registers of F0 through the init port (the core's sequence
+    // writes only F0), and of F1 through the load write port
     for (int b = 0; b < 2; b++) {
       for (int i = 0; i < 8; i++) {
-        top->init_we = 1; top->init_bank = b; top->init_idx = i;
+        if (b == 0) { top->init_we = 1; top->init_bank = 0; top->init_idx = i; }
+        else        { top->fld_valid = 1; top->fld_idx = i; top->fld_data = 0; }
         top->clk = 1; top->eval(); top->clk = 0; top->eval();
         FReg &f = fr[b][i];
         f.busy = true; f.known = true; f.val = 0; f.avail = 0; f.in_rf = 0;
       }
     }
-    top->init_we = 0;
+    top->init_we = 0; top->fld_valid = 0;
   }
   void clear_inputs() {
     top->flush = 0; top->flush_tid = 0; top->init_we = 0;

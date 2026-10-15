@@ -25,7 +25,7 @@ module tg_fp_exec
   input  logic                         rst,
   input  logic                         flush,
   input  tid_t                         flush_tid,
-  // Reset sequence: zero into the initial FP map
+  // Reset sequence: zero into the initial FP map, in bank F0 (init_bank must be 0)
   input  logic                         init_we,
   input  logic                         init_bank,
   input  logic [FPIDX_W-1:0]           init_idx,
@@ -111,9 +111,11 @@ module tg_fp_exec
   logic [NRP-1:0][FPTAG_W-1:0] rtag;
   logic [NRP-1:0][63:0]        rdata;
   logic [1:0][NRP-1:0][63:0]   bank_rd;
+  // The reset sequence's zero writes take the F0 port: nothing else writes F0 then, and the zero
+  // and its index fold into the F0 stream's multiplexers (below)
   tg_fprf #(.NR(NRP)) u_rf (
-    .clk, .init_we, .init_bank, .init_idx,
-    .f0_we, .f0_waddr(f0_wa), .f0_wdata(f0_wd),
+    .clk,
+    .f0_we(f0_we || init_we), .f0_waddr(f0_wa), .f0_wdata(f0_wd),
     .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
     .rtag, .rdata, .bank_rd);
   // FADD/FSUB take their second operand in c (docs/spec/fpu.md, "Interface"): port 2 reads rs2
@@ -402,6 +404,7 @@ module tg_fp_exec
     if (fma_s.v)                     begin f0_wa = fma_s.idx;  f0_wd = fma_resp.result;  end
     else if (misc_s.v && misc_s.fpd) begin f0_wa = misc_s.idx; f0_wd = misc_resp.result; end
     else                             begin f0_wa = dv_e.idx;   f0_wd = dv_res_q;         end
+    if (init_we)                     begin f0_wa = init_idx;   f0_wd = '0;               end
   end
   always_comb begin
     f0_we = 1'b0;
@@ -580,7 +583,7 @@ module tg_fp_exec
   end
 
   logic unused;
-  assign unused = ^{fld_single, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
+  assign unused = ^{fld_single, init_bank, rdata[2:0], bank_rd[1][NRP-1:3], bank_rd[0][NRP-1:3], dq_in_rdy, misc_resp.int_dest, fma_resp.int_dest, fdv_resp.int_dest,
                     fdv_resp.tag[FPU_TAG_W-1:DQW], fma_resp.tag, misc_resp.tag, fma_t.fp_int,
                     fma_t.dst_en, fma_t.dst, fma_t.llt, misc_t.fp_int,
                     ex_pl_q.src1, ex_pl_q.src2, ex_pl_q.src3, ex_pl_q.src1_fp, ex_pl_q.fp_div,
@@ -609,6 +612,8 @@ module tg_fp_exec
           else $error("tg_fp_exec: an integer result from a unit other than FMISC");
       end
       assert (!dq_in_v || dq_in_rdy) else $error("tg_fp_exec: divide queue overflow");
+      assert (!init_we || (!init_bank && !iss_valid && !f0_we))
+        else $error("tg_fp_exec: an init write outside F0, or beside an operation");
       // A flush is registered from the commit before it, so nothing it kills retires with it
       assert (!(fdiv_ret_valid && flush && fdiv_ret_tid == flush_tid))
         else $error("tg_fp_exec: early retirement in its thread's flush cycle");
