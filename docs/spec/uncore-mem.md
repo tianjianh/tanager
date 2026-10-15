@@ -53,6 +53,7 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
 - About 600 LUTs and 1 BRAM36 per port (32 × 4 × 130 bits, plan §5.6: "1–2 BRAM36 per port"); measured 700–900 LUTs in the traffic-generator build.
 - Storage: the beat buffer in block RAM. The fields written once per burst and read by index (issue and arrival times, IDs, the ID → slot table, the issue-order queue, the per-ID AW times and the 32-entry B queue) are in LUTRAM through `tg_ram_lut`. The flags and beat counters with several writers are flip-flops.
 - The release decision is a 10-bit subtract-compare on the head slot only.
+- **200 MHz** (DR-137): the release decision (`issue`) arrives late, after two LUTRAM reads (the issue-order queue, then the head's time stamps) and the compare. So the token bucket's next value is computed both ways from registers (with the rate added, with and without the 256 a beat costs, each saturated at 1024), and `issue` only selects one. This is the same arithmetic as before, cycle for cycle. Before the change, the bucket's adder and saturation came after `issue`, which was the uncore's worst path (−0.738 ns, 13 levels).
 
 ### Verification
 `tests/unit/lat_inj`:
@@ -90,7 +91,10 @@ Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the
 `AXI_EXT_ADDR_W` = 40, `AXI_ID_W` = 6.
 
 ### Timing and area
-One 40-bit adder and compare per address channel, registered. About 200 LUTs per port.
+- One 40-bit adder and compare per address channel, registered. About 200 LUTs per port.
+- **The range check feeds `s_ar_ready_o`**, so it ends the L2's AR handshake path: the L2's pick, then its MSHR LUTRAM for the address, then this check, then the injector, then back into the L2's AR pointer (−0.700 ns at 200 MHz, all fabric).
+  - `DRAM_BASE` is 2³¹, so synthesis already reduces `a − DRAM_BASE` to a short decrement of the top bits.
+  - Comparing against `size + DRAM_BASE` instead was tried together with a one-hot L2 pick (ca1aece reverts both). The window's error registers went from −0.20 to −0.60 ns.
 
 ### Verification
 `tests/unit/axi_window`: random in- and out-of-range bursts against a memory model, checking remapped addresses, that out-of-range transactions never appear downstream, the error responses, and same-ID ordering.
