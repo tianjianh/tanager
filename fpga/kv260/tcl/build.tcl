@@ -8,6 +8,15 @@
 # TG_PMOD_TXD / TG_PMOD_RXD override them.
 lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
+# The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
+# A snapshot without git (git archive, README) names it in TG_COMMIT.
+if {[info exists ::env(TG_COMMIT)]} {
+  set commit $::env(TG_COMMIT)
+} elseif {[catch {exec git -C $root rev-parse --short=12 HEAD} commit]} {
+  set commit unknown
+} elseif {![catch {exec git -C $root status --porcelain --untracked-files=no -- rtl fpga tools} dirty] && $dirty ne ""} {
+  append commit "+dirty"
+}
 # The fan stays under Linux's control (DR-129): A12 carries the PS TTC waveform that Linux's pwm-fan
 # drives, as Kria's own PL design routes it. The facts live in tools/tcl/tg_kv260_fan.tcl, shared with
 # spike S1 (TTC0 channel 2, uninverted); TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override them.
@@ -92,11 +101,6 @@ set fh [open $rep/summary.txt w]
 puts $fh "cfg=$cfg kind=$kind core_mhz=$core_mhz n_cores=$n_cores"
 puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
-# What the bitstream holds, for the board files (fpga/kv260/package.sh)
-if {[catch {exec git -C $root rev-parse --short=12 HEAD} commit]} { set commit unknown }
-if {![catch {exec git -C $root status --porcelain --untracked-files=no -- rtl fpga tools} dirty] && $dirty ne ""} {
-  append commit "+dirty"
-}
 puts $fh "commit=$commit"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"

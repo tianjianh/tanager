@@ -26,7 +26,7 @@ Emulates longer DRAM latency on the board, so Linux-scale workloads run at the 9
   - `rd_delay[9:0]`, `wr_delay[9:0]`;
   - `mode` (0 = target latency from issue, 1 = added to the native latency);
   - `bw_rate[8:0]` (beats per cycle × 256; 0 = no cap).
-- Statistics: read count, sum and maximum of native read latency (cycles, from AR issue to the last R beat at the injector's downstream side).
+- Statistics: read count, sum and maximum of native read latency (cycles, from AR issue to the last R beat at the injector's downstream side). Each latency is taken modulo 2^16, like the time stamps, so a read in flight across the time counter's wrap counts its true latency.
 
 ### Behaviour
 - **Reads.** Each AR accepted from the L2:

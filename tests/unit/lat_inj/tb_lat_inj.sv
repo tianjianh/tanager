@@ -214,8 +214,12 @@ module tb_lat_inj;
       $display("bandwidth cap: %0d beats in %0d cycles = %f beats/cycle (cap 0.25)", n_beats_window, cyc - win_start, rate);
       if (rate > 0.26) fail("bandwidth cap exceeded");
     end
+    // Past a wrap of the injector's 16-bit time stamps (the board found the sum broken there)
+    if (cyc < 70000) run_phase(5, 70000 - int'(cyc), 10'd0, 10'd0, 1'b0, 9'd0);
     $display("statistics: %0d reads, latency sum %0d, max %0d (writes %0d)", st_cnt, st_sum, st_max, n_wr);
     if (st_max < 6) fail("statistics: max latency implausible");
+    if (st_cnt == 0 || st_sum / st_cnt > 32'(st_max) || st_sum / st_cnt < 6)
+      fail($sformatf("statistics: average latency %0d against max %0d", (st_cnt != 0) ? st_sum / st_cnt : 0, st_max));
     if (errors == 0) $display("TEST PASSED (seed %0d)", seed); else $display("TEST FAILED (seed %0d)", seed);
     $finish;
   end

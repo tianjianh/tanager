@@ -69,7 +69,7 @@ The PL side of that is the **host bridge**:
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
 | `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
 
-A 64-bit pair is written low half first. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
+A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
 ## RISC-V register map (`tg_hostctl`, offsets from `0x1000_1000`)
 
@@ -117,7 +117,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 |---|---|
 | `tanager-host info` | print `ID`, `VERSION`, `CLK_HZ`, `CAPS`, `STATUS` |
 | `tanager-host load --fw F --kernel K --dtb D [--base A --size S]` | steps 1–3 of the loading sequence |
-| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value, and hold everything (`CTRL = 0x3`). A system that already runs (after `tg start`) keeps running; `run` only attaches the console |
+| `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value, and hold everything (`CTRL = 0x3`). Before it holds everything, it drains the console until the UART has been quiet for 20 ms, or for 0.5 s at most, so the RISC-V's last line is not cut off. A system that already runs (after `tg start`) keeps running; `run` only attaches the console |
 | `tanager-host boot …` | load, then run |
 | `tanager-host reset` | hold cores and uncore in reset |
 | `tanager-host inj [--rd N] [--wr N] [--mode M] [--bw R] [--stats]` | change or read the injector |
@@ -127,6 +127,8 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
+  - **Guard:** before it maps the window, `tanager-host` checks that the overlay's node (`/axi/tanager@a0000000` for the default window) is in the live device tree, which holds only while the Tanager bitstream is loaded. A PL read that nothing answers hangs the ARM until a power cycle; the board session hung the board this way on 2026-10-14. `--force` skips the check.
+  - **Options** may come before or after the command.
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
 - **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.
