@@ -133,6 +133,12 @@ module tg_axi_lat_inj
   logic [10:0] tokens_q;
   wire         bw_cap  = bw_rate_i != '0;
   wire         tok_ok  = !bw_cap || tokens_q >= 11'd256;
+  // The bucket's next value either way (12-bit sums, saturated at 1024), so the late issue only
+  // selects (200 MHz, DR-137): the same arithmetic as adding rate and subtracting 256 on issue
+  wire [11:0]  tok_sum  = 12'(tokens_q) + 12'(bw_rate_i);
+  wire [11:0]  tok_sub  = tok_sum - 12'd256;
+  wire [10:0]  tok_idle = (tok_sum > 12'd1024) ? 11'd1024 : tok_sum[10:0];
+  wire [10:0]  tok_iss  = (tok_sub > 12'd1024) ? 11'd1024 : tok_sub[10:0];
 
   wire [15:0] el_iss = now_q - t_iss_rd[0];
   // Native latency of the burst whose last beat arrives, modulo 2^16 like the time stamps (a cast
@@ -266,14 +272,9 @@ module tg_axi_lat_inj
         free_q[head] <= 1'b1;        // its last beat is read this cycle; a new burst cannot
         oq_rp_q      <= oq_rp_q + 1'b1;  // land in it before the next cycle
       end
-      // tokens
-      if (bw_cap) begin
-        logic [11:0] t;
-        t = 12'(tokens_q) + 12'(bw_rate_i) - ((issue) ? 12'd256 : 12'd0);
-        tokens_q <= (t > 12'd1024) ? 11'd1024 : t[10:0];
-      end else begin
-        tokens_q <= 11'd1024;
-      end
+      // tokens: the two next values come from registers; issue, which arrives late, picks one
+      if (bw_cap) tokens_q <= issue ? tok_iss : tok_idle;
+      else        tokens_q <= 11'd1024;
     end
   end
 
