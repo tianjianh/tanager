@@ -1159,7 +1159,7 @@ module tg_lsu
       if (ln_v && !flush) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
-        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
+        lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : nl_mmio ? L_MMIO : L_PIPE;  // (split: M1 holds L_PIPE)
       end
 
       // ---- Waiting loads re-check their condition ----
