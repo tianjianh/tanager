@@ -527,20 +527,35 @@ module tg_lsu
   logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
   logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
   logic [SIW-1:0]    q_idx;                         // ... the youngest
+  logic [SQ_ENTRIES-1:0] q_oh;                      // ... as a one-hot vector
   assign f_lim = lq_sq_q[m1_lq_q];
   always_comb begin
     for (int i = 0; i < SQ_ENTRIES; i++)
       fc_sq[i] = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
                  sq_pa_q[i][PA_W-1:3] == m1pa[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
   end
+  // The youngest as a one-hot vector selects the per-entry cover and data-valid bits, formed in
+  // parallel from flip-flops (timing: no index encode and multiplexer after the search); the index
+  // goes on only to m2_fidx_q
   always_comb begin
-    logic [SQ_ENTRIES-1:0] fc_lo;
+    logic [SQ_ENTRIES-1:0] fc_lo, oh_lo, oh_all, cov;
+    logic                  run_lo, run_all;
     for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
+    run_lo  = 1'b0;
+    run_all = 1'b0;
+    for (int i = SQ_ENTRIES - 1; i >= 0; i--) begin
+      oh_lo[i]  = fc_lo[i] && !run_lo;
+      oh_all[i] = fc_sq[i] && !run_all;
+      run_lo    = run_lo || fc_lo[i];
+      run_all   = run_all || fc_sq[i];
+    end
+    for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
     q_hit   = |fc_sq;
     q_lo    = |fc_lo;
-    q_idx   = |fc_lo ? sq_last(fc_lo) : sq_last(fc_sq);
-    q_cover = (sq_mask_q[q_idx] & m1_mask) == m1_mask;
-    q_data  = sq_dv_q[q_idx];
+    q_oh    = q_lo ? oh_lo : oh_all;
+    q_idx   = q_lo ? sq_last(fc_lo) : sq_last(fc_sq);
+    q_cover = |(q_oh & cov);
+    q_data  = |(q_oh & sq_dv_q);
   end
 
 
@@ -1382,7 +1397,9 @@ module tg_lsu
                    sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
                    sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
     assign s_lo  = sa_idx < f_lim[SIW-1:0];
-    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && sa_idx > q_idx));
+    logic [SQ_ENTRIES-1:0] below_sa;               // the slots below the M1 store's
+    always_comb for (int i = 0; i < SQ_ENTRIES; i++) below_sa[i] = i < int'(sa_idx);
+    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && |(q_oh & below_sa)));
     assign f_hit   = q_hit || byp;
     assign f_idx   = sel_s ? sa_idx : q_idx;
     assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
@@ -1430,7 +1447,7 @@ module tg_lsu
     assign f_cover  = q_cover;
     assign f_data   = q_data;
     logic unused_q_lo;                             // read by the split's age compare only
-    assign unused_q_lo = q_lo;
+    assign unused_q_lo = ^{q_lo, q_oh};
   end
 
   logic unused;
