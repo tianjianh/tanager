@@ -77,11 +77,15 @@ module tg_axi_lat_inj
     for (int i = SLOTS - 1; i >= 0; i--) if (free_q[i]) alloc = SW'(i);
   end
 
-  // Issue-order queue of slots
+  // Issue-order queue of slots. The head slot is a register, head_q: the queue entry at oq_rp_q
+  // while the queue is not empty, so the release decision starts with the head's time stamps
+  // rather than with a queue read before them (200 MHz, DR-137). The queue's read port looks one
+  // entry ahead, for the head after a pop.
   logic [SW:0]   oq_wp_q, oq_rp_q;
   wire           oq_empty = oq_wp_q == oq_rp_q;
-  logic [0:0][SW-1:0] oq_rd;
-  wire [SW-1:0]  head     = oq_rd[0];
+  logic [0:0][SW-1:0] oq_rd;          // the entry behind the head
+  logic [SW-1:0] head_q;
+  wire [SW-1:0]  head     = head_q;
 
   assign m_ar_o       = s_ar_i;
   assign m_ar_valid_o = s_ar_valid_i && |free_q;
@@ -112,8 +116,12 @@ module tg_axi_lat_inj
     .clk, .we (ar_fire), .waddr (s_ar_i.id), .wdata (alloc), .raddr (m_r_i.id), .rdata (id2slot_rd)
   );
   tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(SW), .NR(1)) u_oq (
-    .clk, .we (ar_fire), .waddr (oq_wp_q[SW-1:0]), .wdata (alloc), .raddr (oq_rp_q[SW-1:0]), .rdata (oq_rd)
+    .clk, .we (ar_fire), .waddr (oq_wp_q[SW-1:0]), .wdata (alloc), .raddr (oq_rp_q[SW-1:0] + 1'b1), .rdata (oq_rd)
   );
+  // This cycle's write lands at the head (the queue is empty) or right behind it (one entry). A
+  // full queue has no free slot, so no write then.
+  wire oq_at_rp = ar_fire && oq_wp_q[SW-1:0] == oq_rp_q[SW-1:0];
+  wire oq_at_r1 = ar_fire && oq_wp_q[SW-1:0] == oq_rp_q[SW-1:0] + 1'b1;
 
   logic                 buf_we;
   logic [SW+BW-1:0]     buf_waddr, buf_raddr;
@@ -272,6 +280,9 @@ module tg_axi_lat_inj
         free_q[head] <= 1'b1;        // its last beat is read this cycle; a new burst cannot
         oq_rp_q      <= oq_rp_q + 1'b1;  // land in it before the next cycle
       end
+      // the head: the queue entry at the read pointer after this cycle's pop and write
+      if (issue && last_now) head_q <= oq_at_r1 ? alloc : oq_rd[0];
+      else if (oq_at_rp)     head_q <= alloc;
       // tokens: the two next values come from registers; issue, which arrives late, picks one
       if (bw_cap) tokens_q <= issue ? tok_iss : tok_idle;
       else        tokens_q <= 11'd1024;
@@ -281,6 +292,11 @@ module tg_axi_lat_inj
   wire unused = ^{ob_in_r};
 
 `ifndef SYNTHESIS
+  // A model of the issue-order queue: head_q is its entry at the read pointer
+  logic [SW-1:0] oq_model [SLOTS];
+  always_ff @(posedge clk) if (ar_fire) oq_model[oq_wp_q[SW-1:0]] <= alloc;
+  always_ff @(posedge clk) if (!rst && !oq_empty)
+    assert (head_q == oq_model[oq_rp_q[SW-1:0]]) else $error("tg_axi_lat_inj: head slot register differs from the queue");
   always_ff @(posedge clk) if (!rst) begin
     if (ar_fire) assert (int'(s_ar_i.len) < BEATS) else $error("tg_axi_lat_inj: burst longer than BEATS");
     if (r_fire)  assert (!free_q[r_slot] && !done_q[r_slot]) else $error("tg_axi_lat_inj: R beat for no outstanding read (id %0d)", m_r_i.id);

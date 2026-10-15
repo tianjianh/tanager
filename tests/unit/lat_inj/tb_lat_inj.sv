@@ -1,6 +1,8 @@
 // Latency injector test (docs/spec/uncore-mem.md §Verification). A stub master issues random
 // 4-beat reads and writes with unique IDs; tb_axi_mem answers with random latency, out of order.
-// Phases: pass-through; mode 0 (target latency); mode 1 (added latency); write delay; bandwidth cap.
+// Phases: pass-through; mode 0 (target latency); mode 1 (added latency); write delay; bandwidth cap;
+// sparse reads after the dense phases (the issue-order queue then holds stale slots from them, and
+// a burst often finishes as the next arrives: the head after a pop with one entry).
 // Checks data, issue order of R bursts, delivered latency per burst, B delay, beat rate, statistics.
 module tb_lat_inj;
   import tg_pkg::*, tg_uncore_pkg::*, tb_axi_mem_pkg::*;
@@ -62,6 +64,7 @@ module tb_lat_inj;
   int    wbeat;
   int unsigned seed;
   bit    stop_issue;
+  int    ar_pct = 30;                    // chance per cycle of a new read
 
   function automatic logic [511:0] model_line(input longint unsigned l);
     return model.exists(l) ? model[l] : init_line(l);
@@ -135,7 +138,7 @@ module tb_lat_inj;
       // ---- issue ----
       if (!(s_ar_v && !s_ar_r)) begin           // no AR waiting: maybe present a new one
         s_ar_v <= 1'b0;
-        if (!stop_issue && $urandom_range(99) < 30) begin
+        if (!stop_issue && $urandom_range(99) < ar_pct) begin
           int id;
           longint unsigned l;
           bit clash;
@@ -214,6 +217,10 @@ module tb_lat_inj;
       $display("bandwidth cap: %0d beats in %0d cycles = %f beats/cycle (cap 0.25)", n_beats_window, cyc - win_start, rate);
       if (rate > 0.26) fail("bandwidth cap exceeded");
     end
+    // Sparse reads: often one burst in the queue, finishing as the next arrives
+    ar_pct = 4;
+    run_phase(6, 6000, 10'd0, 10'd0, 1'b0, 9'd0);
+    ar_pct = 30;
     // Past a wrap of the injector's 16-bit time stamps (the board found the sum broken there)
     if (cyc < 70000) run_phase(5, 70000 - int'(cyc), 10'd0, 10'd0, 1'b0, 9'd0);
     $display("statistics: %0d reads, latency sum %0d, max %0d (writes %0d)", st_cnt, st_sum, st_max, n_wr);

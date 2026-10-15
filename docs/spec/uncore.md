@@ -83,6 +83,8 @@ All channels are the `tg_tl_pkg` structs with `valid`/`ready` (conventions §3).
 **Register slices.** A two-entry skid buffer (`tg_skid`) sits on every target-side A, C and E output and every initiator-side D and B output. Each adds one cycle and registers both `valid` and `ready`, so the arbiters' paths end at flip-flops. `SLICE = 0` removes them for unit tests that want zero latency.
 
 **Slices in DSPs** (DR-136). A slice's main data register can sit in DSP48E2 slices (`tg_skid` `DSP`, through `tg_dsp_reg2`): per 48 bits one DSP, whose OPMODE picks the incoming data or the skid entry and whose clock enable is the slice's load. It is the same register transfer, cycle for cycle, without the fabric's 2:1 select, which costs about a LUT per two bits. `DSP_SKID` sets it per site; `tg_uncore`'s `UNCORE_DSP` carries this mask with the memory paths' slices and the L2 banks' R slices, so a placement check can return any site to fabric without new RTL. `tests/unit/dsp_reg` checks the mapping on the vendor's DSP48E2 model.
+- **The default** (`64'h84_0308_0000`) keeps in DSPs only the sites whose DSP form met 200 MHz in every out-of-context placement of the whole uncore that had them in DSPs ([budgets.md](../perf/budgets.md) §4): the device bus's A slice, the L2 banks' C slices, and the memory ports' W slices.
+- A DSP's input passes through its ALU, which needs more setup than a flip-flop, and its clock-to-out is slower. So the slices fed by arbiters stay in fabric: D, B, the L2 banks' A slices and memory AR. Memory AW, memory R and the L2 banks' R slices each failed in one placement, and stay in fabric too.
 
 ### Device bus (`tg_tl_dev`)
 
