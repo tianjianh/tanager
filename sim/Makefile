@@ -4,6 +4,8 @@
 #   make -C sim CFG=st CORE=tcore      build it around the test core (sim/tcore)
 #   make -C sim replay                 build tg_replay (Spike against Spike, no RTL)
 #   make -C sim lint CFG=st CORE=tcore lint the testbench and the test core
+#   make -C sim lockstep               tanager-lockstep for this host (FPGA lockstep, verification.md §3.9)
+#   make -C sim lockstep-aarch64       the same, static for the A53 (Spike cross-built from sw/fetch.sh)
 #   make -C sim clean                  remove this worktree's sim build trees
 #   make -C sim CFG=st COV=1 [COV_UNITS="rename rob lsu"]   a separate build with line and expression
 #                                      coverage of those rtl/core units only (tg_vsim --cov=FILE;
@@ -78,7 +80,7 @@ VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
 # rtl/common and the testbench). Fewer points keep the build and the runs fast.
 COV_OFF := $(filter-out $(COV_UNITS),$(patsubst $(ROOT)/rtl/core/%/,%,$(wildcard $(ROOT)/rtl/core/*/)))
 
-.PHONY: all build lint replay clean print-bin print-build
+.PHONY: all build lint replay lockstep lockstep-aarch64 clean print-bin print-build
 all: build
 
 build: $(BUILD)/tg_vsim
@@ -107,6 +109,62 @@ $(REPLAY): $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/s
 	$(CXX) -std=c++20 -O2 -g -Wall -Wextra -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include \
 	  $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/src/elfload.cpp \
 	  -o $@ $(LDFLAGS_TB)
+	@echo "built $@"
+
+# ---- FPGA lockstep (verification.md §3.9): tanager-lockstep checks the board's commit-trace stream ----
+LS_SRCS := $(addprefix $(ROOT)/sim/src/,tanager_lockstep.cpp lockstep.cpp elfload.cpp)
+LS_DIR  := $(BUILD_ROOT)/lockstep
+LS_HDR  := $(LS_DIR)/tanager_bootrom.h
+LS_DEFS := -DTG_DEFAULT_ISA=\"$(ISA)\"
+$(LS_HDR): $(ROOT)/rtl/uncore/bootrom/tg_bootrom_img_pkg.sv $(ROOT)/sim/src/gen_bootrom_h.py
+	@mkdir -p $(LS_DIR)
+	python3 -I $(ROOT)/sim/src/gen_bootrom_h.py $< > $@
+
+lockstep: $(LS_DIR)/tanager-lockstep
+$(LS_DIR)/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR)
+	$(CXX) -std=c++20 -O2 -Wall -Wextra -I$(ROOT)/sim/src -I$(LS_DIR) -I$(SPIKE_ROOT)/include $(LS_DEFS) \
+	  $(LS_SRCS) -o $@ $(LDFLAGS_TB)
+	@echo "built $@"
+
+# The A53 build: Spike at tools/versions.sh's SPIKE_SHA, cross-built with sw/versions.sh's aarch64 musl
+# toolchain, linked statically (a static musl binary runs on the board's Ubuntu, as tanager-host does).
+# Spike's own flags carry -g (libriscv.a would be 973 MB; the user flags come last, so -g0 wins), and
+# only the libraries and headers are kept (the object tree is 2 GB).
+SPIKE_SHA := $(shell . $(ROOT)/tools/versions.sh && echo $$SPIKE_SHA)
+SOC_DL    ?= $(TANAGER_BUILD)/$(WT)/dl
+SPIKE_TAR ?= $(SOC_DL)/spike/spike-$(SPIKE_SHA).tar.gz
+A64_TRIP  := aarch64-buildroot-linux-musl
+AATC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$AATC_NAME)
+A64_TC    ?= $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin
+A64_SPIKE := $(BUILD_ROOT)/aarch64/spike-$(SPIKE_SHA)
+A64_LIBS  := libriscv.a libdisasm.a libsoftfloat.a libfesvr.a libfdt.a
+
+$(SPIKE_TAR):
+	bash $(ROOT)/sw/fetch.sh spike
+$(A64_TC)/$(A64_TRIP)-g++:
+	bash $(ROOT)/sw/fetch.sh aatc
+
+$(A64_SPIKE)/install/lib/libriscv.a: $(SPIKE_TAR) | $(A64_TC)/$(A64_TRIP)-g++
+	rm -rf $(A64_SPIKE) && mkdir -p $(A64_SPIKE)/src $(A64_SPIKE)/build
+	tar -xzf $(SPIKE_TAR) -C $(A64_SPIKE)/src --strip-components=1
+	cd $(A64_SPIKE)/build && PATH=$(A64_TC):$$PATH ../src/configure --host=$(A64_TRIP) --prefix=$(A64_SPIKE)/install \
+	  --without-boost --without-boost-asio --without-boost-regex \
+	  CC=$(A64_TRIP)-gcc CXX=$(A64_TRIP)-g++ AR=$(A64_TRIP)-ar RANLIB=$(A64_TRIP)-ranlib \
+	  > configure.log 2>&1 || { tail -20 configure.log; exit 1; }
+	PATH=$(A64_TC):$$PATH $(MAKE) -C $(A64_SPIKE)/build -j$(JOBS) CFLAGS="-O2 -g0" CXXFLAGS="-O2 -g0" $(A64_LIBS) \
+	  > $(A64_SPIKE)/build/make.log 2>&1 || { tail -20 $(A64_SPIKE)/build/make.log; exit 1; }
+	PATH=$(A64_TC):$$PATH $(MAKE) -C $(A64_SPIKE)/build install-hdrs > /dev/null
+	mkdir -p $(A64_SPIKE)/install/lib && cp $(addprefix $(A64_SPIKE)/build/,$(A64_LIBS)) $(A64_SPIKE)/install/lib/
+	rm -rf $(A64_SPIKE)/build $(A64_SPIKE)/src
+
+lockstep-aarch64: $(LS_DIR)/aarch64/tanager-lockstep
+$(LS_DIR)/aarch64/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(A64_SPIKE)/install/lib/libriscv.a
+	@mkdir -p $(dir $@)
+	$(A64_TC)/$(A64_TRIP)-g++ -std=c++20 -O2 -Wall -Wextra -static -I$(ROOT)/sim/src -I$(LS_DIR) \
+	  -I$(A64_SPIKE)/install/include \
+	  $(LS_DEFS) $(LS_SRCS) -o $@ -L$(A64_SPIKE)/install/lib -lriscv -ldisasm -lsoftfloat -lfesvr -lfdt -lpthread
+	$(A64_TC)/$(A64_TRIP)-strip $@
+	@file $@
 	@echo "built $@"
 
 print-bin:
