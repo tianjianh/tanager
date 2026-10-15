@@ -607,6 +607,41 @@ module tg_l2_bank
   wire [AGENT_W-1:0] a2_ag    = agent_of(p2_q.a_src);
   wire               a2_growt = p2_q.a_param == TL_GROW_N_TO_T || p2_q.a_param == TL_GROW_B_TO_T;
   wire [MW-1:0]      mc2      = p2_q.mshr;
+  wire [N_AGENTS-1:0] me2     = N_AGENTS'(1) << a2_ag;
+  wire               full_put2 = p2_q.a_op == A_PUT_FULL && p2_q.a_size == 3'd6;
+
+  // An allocation's consequences, per way, ahead of the late selects (200 MHz, DR-142): what a hit
+  // in each way would probe, and whether each way as the victim is held by agents or dirty, are
+  // made from row2 while the hit and the victim pick still form; the hit way and the victim then
+  // select them, and the state the allocation enters is made from the selected bits directly
+  // (one-hot, no state decode). The decision block below makes the same values from e2 and vic
+  // (checked by assertions).
+  logic [WAYS-1:0] hp_w, vp_w, vd_w;   // per way: a hit there probes; as the victim: held, dirty
+  logic            hp_s, vp_s, vd_s;   // the hit way's and the victim's
+  logic [NMS-1:0]  alloc_oh;           // the state an allocating request's MSHR enters
+  always_comb begin
+    for (int w = 0; w < WAYS; w++) begin
+      logic [N_AGENTS-1:0] pw;
+      unique case (p2_q.kind)
+        PK_ACQ:  pw = a2_growt ? (row2.way[w].pres & ~me2) :
+                      (row2.way[w].tip && row2.way[w].pres != me2) ? (row2.way[w].pres & ~me2) : '0;
+        PK_GET:  pw = row2.way[w].tip ? row2.way[w].pres : '0;
+        default: pw = row2.way[w].pres;
+      endcase
+      hp_w[w] = pw != '0;
+      vp_w[w] = row2.way[w].valid && row2.way[w].pres != '0;
+      vd_w[w] = row2.way[w].valid && row2.way[w].dirty;
+    end
+    hp_s = hp_w[hw2];
+    vp_s = vp_w[vw2];
+    vd_s = vd_w[vw2];
+    alloc_oh = '0;
+    alloc_oh[MS_PROBE] = hit2 ? hp_s : vp_s;
+    alloc_oh[MS_RESP]  = hit2 && !hp_s && p2_q.kind != PK_PUT;
+    alloc_oh[MS_PUTW]  = hit2 ? (!hp_s && p2_q.kind == PK_PUT) : (!vp_s && !vd_s && full_put2);
+    alloc_oh[MS_VREAD] = !hit2 && !vp_s && vd_s;
+    alloc_oh[MS_FILL]  = !hit2 && !vp_s && !vd_s && !full_put2;
+  end
 
   // Decision outputs
   logic                s2_alloc;        // allocate MSHR m_new for an A request
@@ -628,7 +663,7 @@ module tg_l2_bank
   always_comb begin
     way_t   e;
     logic [N_AGENTS-1:0] me, p;
-    logic   grow_t, full_put;
+    logic   grow_t;
     // Every S2 request writes back its selected entry and the PLRU bits, changed or not, so the
     // RAM's write enables depend only on p2_v_q (the decision logic feeds the data inputs only).
     dir_wway         = '0;
@@ -660,9 +695,8 @@ module tg_l2_bank
     s2_err           = 1'b0;
     ev_hit_o         = 1'b0;
     ev_miss_o        = 1'b0;
-    me               = N_AGENTS'(1) << a2_ag;
+    me               = me2;
     grow_t           = 1'b0;
-    full_put         = 1'b0;
     e                = e2;
     p                = '0;
 
@@ -743,7 +777,6 @@ module tg_l2_bank
         default: begin   // PK_ACQ, PK_GET, PK_PUT: allocate MSHR m_new
           s2_alloc     = 1'b1;
           s2_alloc_hit = hit2;
-          full_put     = p2_q.a_op == A_PUT_FULL && p2_q.a_size == 3'd6;
           if (hit2) begin
             ev_hit_o     = 1'b1;
             s2_alloc_way = hw2;
@@ -754,7 +787,7 @@ module tg_l2_bank
             endcase
             s2_alloc_probe  = p;
             s2_alloc_pcap_n = !(p2_q.kind == PK_GET || (p2_q.kind == PK_ACQ && !a2_growt));
-            if (p != '0) begin
+            if (hp_s) begin                 // p != '0
               s2_alloc_st = MS_PROBE;
             end else begin
               unique case (p2_q.kind)
@@ -773,9 +806,9 @@ module tg_l2_bank
           end else begin
             ev_miss_o     = 1'b1;
             s2_alloc_way  = vw2;
-            s2_alloc_fill = !full_put;
+            s2_alloc_fill = !full_put2;
             s2_alloc_vline = line_of(vic.tag, set2);
-            if (vic.valid && vic.pres != '0) begin
+            if (vp_s) begin                 // vic.valid && vic.pres != '0
               // The victim is held by agents: probe them first; its tag stays until resolved.
               e               = vic;
               s2_alloc_probe  = vic.pres;
@@ -784,9 +817,9 @@ module tg_l2_bank
               s2_alloc_vact   = 1'b1;
               s2_alloc_st     = MS_PROBE;
             end else begin
-              s2_alloc_wb   = vic.valid && vic.dirty;
-              s2_alloc_vact = vic.valid && vic.dirty;
-              s2_alloc_st   = (vic.valid && vic.dirty) ? MS_VREAD : full_put ? MS_PUTW : MS_FILL;
+              s2_alloc_wb   = vd_s;           // vic.valid && vic.dirty
+              s2_alloc_vact = vd_s;
+              s2_alloc_st   = vd_s ? MS_VREAD : full_put2 ? MS_PUTW : MS_FILL;
               e.tag   = tag2;               // every field: the new entry does not depend on the victim's
               e.valid = 1'b1;
               e.dirty = p2_q.kind == PK_PUT;
@@ -1512,7 +1545,6 @@ module tg_l2_bank
   wire ev_pack = cin_st_q == CI_ACK && !cin_rel && cin_mok_q;    // a ProbeAck has been processed
   wire ev_vrf  = rt_out.v && rt_out.to_wb && rt_out.vr_last;     // victim read out
   wire ev_fill = f_wr && r_s.last;                               // last fill beat written
-  wire [NMS-1:0] alloc_oh = NMS'(1) << s2_alloc_st;
   wire [NMS-1:0] mcmd_oh  = NMS'(1) << s2_mcmd_st;
   wire           fill_put = rl_kind[2].kind == K_PUT;
   always_comb begin
@@ -1634,6 +1666,19 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The victim pick is the nested form's; the late-selected consequences are e2's and vic's
+      assert (vw2 == pick_victim_ref({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
+                                      row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
+                                     held, resv, row2.plru))
+        else $error("tg_l2_bank%0d: victim pick differs from the nested form's", BANK);
+      if (s2_alloc) begin
+        assert (alloc_oh == NMS'(1) << s2_alloc_st)
+          else $error("tg_l2_bank%0d: allocation state %b, decided %0d", BANK, alloc_oh, s2_alloc_st);
+        if (hit2) assert (hp_s == (s2_alloc_probe != '0))
+          else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
+        if (!hit2) assert (vp_s == (vic.valid && vic.pres != '0) && vd_s == (vic.valid && vic.dirty))
+          else $error("tg_l2_bank%0d: victim's flags differ", BANK);
+      end
       // The bypassed row is the directory as S2 has written it, either RAM write timing
       if (p2_v_q && p2_q.kind != PK_INIT) assert (row2 == dir_ref[set2])
         else $error("tg_l2_bank%0d: S2 row of set %0d differs from the directory written", BANK, set2);
