@@ -47,12 +47,12 @@ proc tg_fp_pblock {name cells args} {
   set luts 0
   foreach c $cells {
     if {[get_property IS_PRIMITIVE $c]} {
-      if {[get_property PRIMITIVE_GROUP $c] in {LUT DISTRAM}} { incr luts }
+      if {[string match CLB.LUT* [get_property PRIMITIVE_TYPE $c]]} { incr luts }
       continue
     }
     set n [get_property NAME $c]
     incr luts [llength [get_cells -quiet -hierarchical -filter \
-      "NAME =~ ${n}/* && (PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DISTRAM)"]]
+      "NAME =~ ${n}/* && (PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*)"]]
   }
   set slices [llength [get_sites -quiet -of_objects $pb -filter {NAME =~ SLICE_*}]]
   set names [expr {[llength $cells] > 12 ? "[llength $cells] cells" : [join [get_property NAME $cells] " "]}]

@@ -138,7 +138,7 @@ foreach blk [get_cells -filter {!IS_PRIMITIVE}] {
   current_instance -quiet $blk
   set cnt [dict create]
   foreach cr [get_property CLOCK_REGION [get_sites -quiet -of_objects \
-      [get_cells -quiet -hierarchical -filter {PRIMITIVE_GROUP == LUT || PRIMITIVE_GROUP == DISTRAM}]]] {
+      [get_cells -quiet -hierarchical -filter {PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*}]]] {
     if {$cr ne ""} { dict incr cnt $cr }
   }
   current_instance -quiet
