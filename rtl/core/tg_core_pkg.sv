@@ -28,7 +28,7 @@ package tg_core_pkg;
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
-  localparam bit TIMING_CUTS = 1'b1;
+  localparam bit TIMING_CUTS = 1'b0;
 `endif
   localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
                                                       // replay mark reach the ROB a cycle later
