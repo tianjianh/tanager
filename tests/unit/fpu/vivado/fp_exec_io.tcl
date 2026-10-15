@@ -4,4 +4,4 @@
 # written from the load result register"), so it arrives at clock-to-out plus routing, not after
 # the core's operand bypass. 1.0 ns leaves about 0.9 ns for routing across the core. The contract
 # (docs/spec/fpu.md, "The core's side of the contract") requires fld_* straight from that register.
-set_input_delay -clock clk 1.0 [get_ports {fld_valid fld_idx[*] fld_single fld_data[*]}]
+set_input_delay -clock clk 1.0 [get_ports {fld_valid fld_idx[*] fld_data[*]}]
