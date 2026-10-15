@@ -77,6 +77,7 @@ module tg_decode_stage
   endfunction
 
   dec_t [W-1:0]        d;
+  logic [W-1:0][63:0]  seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset
   logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
   logic [W-1:0]        redir;
   logic [W-1:0][63:0]  npc;
@@ -91,8 +92,18 @@ module tg_decode_stage
     assign xi = iq_insn[j].rvc ? xinsn : iq_insn[j].insn;
     logic pre_ill;
     assign pre_ill = iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill);
+    // The next sequential PC (the link value) and the target of a JAL or branch: one add each,
+    // for the decoder's uop and the checks (the offset from the raw encoding, by the JAL mark)
+    logic [63:0] pbase, poff, imm;
+    logic [20:0] bimm;
+    assign pbase   = {iq_insn[j].blk, 4'b0};
+    assign poff    = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
+    assign bimm    = bimm_of(iq_insn[j].insn, iq_insn[j].marks[1]);
+    assign imm     = {{43{bimm[20]}}, bimm};
+    assign seq_d[j] = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
+    assign tgt_d[j] = pbase + poff + imm;
     tg_decode u_dec (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
-                     .len2(iq_insn[j].rvc),
+                     .link(seq_d[j]), .tgt(tgt_d[j]),
                      .pre_ill,
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
     // Exception and going alone from the raw encoding. A compressed instruction raises one only when
@@ -100,7 +111,8 @@ module tg_decode_stage
     // C.FSDSP: their D-less forms are pre_ill) with the FP unit off; none is serialising.
     dec_t dr;
     tg_decode u_decr (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad),
-                      .insn(iq_insn[j].insn), .len2(1'b0), .pre_ill(1'b0), .fault(iq_insn[j].fault),
+                      .insn(iq_insn[j].insn), .link('0), .tgt('0), .pre_ill(1'b0),
+                      .fault(iq_insn[j].fault),
                       .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b,
                       .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(dr));
     logic [15:0] c16;
@@ -114,10 +126,17 @@ module tg_decode_stage
     logic unused_dr;
     assign unused_dr = ^dr;                     // only exc and serial are kept
 `ifndef SYNTHESIS
+    // The raw encoding's offset is the expanded instruction's (the target decode used to add)
+    logic [63:0] xtgt;
+    assign xtgt = pbase + poff + ((d[j].br_kind == BR_JAL)
+                    ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
+                    : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0});
     always_ff @(posedge clk) begin
       if (!rst && iq_valid[j])
         assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
           else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
+      if (!rst && iq_valid[j] && !d[j].exc && d[j].cls == C_BR && d[j].br_kind != BR_JALR)
+        assert (tgt_d[j] == xtgt) else $error("tg_decode_stage: the raw offset gives another target than decode's");
     end
 `endif
   end
@@ -127,13 +146,14 @@ module tg_decode_stage
   logic [W-1:0]     xv, xe, xa;
   fe_insn_t [W-1:0] xq;
   dec_t [W-1:0]     xd;
+  logic [W-1:0][63:0] xseq, xtgt;
   for (genvar j = 0; j < W; j++) begin : g_chk
     logic [63:0] seq, pbase, poff, imm, tgt;
     logic        pt, hit, mbr, mjal, mjalr;
     logic [63:0] ptg;
     assign pbase = {xq[j].blk, 4'b0};
     assign poff  = xq[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, xq[j].pc[3:0]};
-    assign seq   = pbase + poff + (xq[j].rvc ? 64'd2 : 64'd4);
+    assign seq   = xseq[j];
     assign pt    = xq[j].pred_taken;
     assign ptg   = xq[j].pred_target;
     // the class from the queue's pre-decode marks, the offset from the raw encoding
@@ -141,7 +161,7 @@ module tg_decode_stage
     logic [20:0] bimm;
     assign bimm  = bimm_of(xq[j].insn, mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
-    assign tgt   = pbase + poff + imm;               // d[j].br_target for a branch or JAL
+    assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
     assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
     always_comb begin
       npc[j]   = pt ? ptg : seq;
@@ -169,8 +189,6 @@ module tg_decode_stage
                 mbr == (xd[j].cls == C_BR && xd[j].br_kind == BR_COND) &&
                 mjalr == (xd[j].cls == C_BR && xd[j].br_kind == BR_JALR))
           else $error("tg_decode_stage: pre-decode marks differ from decode's class");
-        if (mjal || mbr) assert (tgt == xd[j].br_target)
-          else $error("tg_decode_stage: the raw offset gives another target than decode's");
       end
     end
 `endif
@@ -217,11 +235,14 @@ module tg_decode_stage
     logic [W-1:0]     v1_q, e1_q, a1_q;
     fe_insn_t [W-1:0] i1_q;
     dec_t [W-1:0]     d1_q;
+    logic [W-1:0][63:0] s1_q, t1_q;
     assign xv = v1_q;
     assign xe = e1_q;
     assign xa = a1_q;
     assign xq = i1_q;
     assign xd = d1_q;
+    assign xseq = s1_q;
+    assign xtgt = t1_q;
     // The queue's count of the group: the same without the redirects
     logic [TKW-1:0] nq;
     always_comb begin
@@ -268,6 +289,8 @@ module tg_decode_stage
               d1_q[k] <= d1_q[s];
               e1_q[k] <= e1_q[s];
               a1_q[k] <= a1_q[s];
+              s1_q[k] <= s1_q[s];
+              t1_q[k] <= t1_q[s];
             end
             if (k >= left && s == k - left && s < acc) begin     // new: queue entry s
               v1_q[k] <= 1'b1;
@@ -275,6 +298,8 @@ module tg_decode_stage
               d1_q[k] <= d[s];
               e1_q[k] <= exc_f[s];
               a1_q[k] <= alone_f[s];
+              s1_q[k] <= seq_d[s];
+              t1_q[k] <= tgt_d[s];
             end
           end
         end
@@ -293,6 +318,8 @@ module tg_decode_stage
     assign xa = alone_f;
     assign xq = iq_insn;
     assign xd = d;
+    assign xseq = seq_d;
+    assign xtgt = tgt_d;
     assign iq_take = de_take ? n : '0;
   end
 
