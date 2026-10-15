@@ -898,7 +898,7 @@ bool Core::can_issue(Uop& u) {
     }
   }
   if (c_.prf_banked && u.q == Q_A1) {
-    const uint64_t lat = u.cls == Cls::MUL ? (uint64_t)c_.lat_mul : u.cls == Cls::DIV ? 0 : 1;
+    const uint64_t lat = u.cls == Cls::MUL ? (uint64_t)c_.lat_mul : u.cls == Cls::DIV ? 0 : 1 + (uint64_t)c_.abl_alu;
     if (lat && wb_b1_[(t_ + lat) % wb_b1_.size()] == t_ + lat) return false;
   }
   return true;
@@ -920,6 +920,7 @@ void Core::resolve_branch(Uop& u, uint64_t when) {
 void Core::exec_load(Uop& u) {
   Thread& T = th(u);
   const uint64_t t = t_, t_ag = t + 2;
+  const uint64_t d = (uint64_t)c_.abl_ld_use, dn = (uint64_t)c_.abl_done;
   T.st.loads++;
   bool violated = false;
   for (auto it = T.sq.rbegin(); it != T.sq.rend(); ++it) {
@@ -938,9 +939,9 @@ void Core::exec_load(Uop& u) {
           return;
         }
         u.t_ag = t_ag;
-        if (dt <= t + 3) { u.t_ready = t + 3; T.st.ld_fwd++; }
-        else { u.t_ready = dt + 3; T.st.ld_fwd_wait++; }
-        u.t_done = u.t_ready + 1;
+        if (dt <= t + 3) { u.t_ready = t + 3 + d; T.st.ld_fwd++; }
+        else { u.t_ready = dt + 3 + d; T.st.ld_fwd_wait++; }
+        u.t_done = u.t_ready + 1 + dn;
         return;
       }
       T.st.ld_partial++;  // partial overlap: wait for the store to drain
@@ -968,25 +969,25 @@ void Core::exec_load(Uop& u) {
   if (hit) { if (hp < 3) hp++; T.st.ld_l1_hit++; }
   else { if (hp > 0) hp--; T.st.ld_l1_miss++; }
   if (hit) {
-    u.t_ready = (c_.spec_wakeup && pred_hit) ? t + 3 : t + 5;
+    u.t_ready = (c_.spec_wakeup && pred_hit) ? t + 3 + d : t + 5 + d;
   } else {
-    u.t_ready = ready + 2;
+    u.t_ready = ready + 2 + d;
     if (c_.spec_wakeup && pred_hit) {
       T.st.hitpred_wrong++;
       if (c_.hitmiss_flush) {
         if (!T.pflush.v || u.id + 1 < T.pflush.from_id) {
-          T.pflush.v = true; T.pflush.at = t + 4; T.pflush.from_id = u.id + 1; T.pflush.resume = u.seq_next;
+          T.pflush.v = true; T.pflush.at = t + 4 + d; T.pflush.from_id = u.id + 1; T.pflush.resume = u.seq_next;
         }
       } else if (c_.shadow > 0) {
         // The shadow cancel is not selective: it cancels whatever any thread issues in the shadow.
-        if (cancel_from_ == NEVER || t + 3 > cancel_to_) cancel_from_ = t + 3;
-        cancel_to_ = std::max(cancel_to_, t + 2 + (uint64_t)c_.shadow);
+        if (cancel_from_ == NEVER || t + 3 + d > cancel_to_) cancel_from_ = t + 3 + d;
+        cancel_to_ = std::max(cancel_to_, t + 2 + d + (uint64_t)c_.shadow);
         cancel_tid_ = T.tid;
         T.st.shadow_cancels++;
       }
     }
   }
-  u.t_done = u.t_ready + 1;
+  u.t_done = u.t_ready + 1 + dn;
   mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 3);
 }
 
@@ -1008,7 +1009,7 @@ void Core::exec_store(Uop& u) {
   }
   if (c_.rfo_pf) mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 2);  // store streams prefetch ownership ahead
   u.t_ready = t + 1;
-  u.t_done = t + 3;  // address done; data readiness is checked at commit
+  u.t_done = t + 3 + (uint64_t)c_.abl_done;  // address done; data readiness is checked at commit
 }
 
 void Core::do_issue(Uop& u, int /*port*/) {
@@ -1018,6 +1019,7 @@ void Core::do_issue(Uop& u, int /*port*/) {
   const uint64_t t = t_;
   auto reserve_b1 = [&](uint64_t when) { if (c_.prf_banked) wb_b1_[when % wb_b1_.size()] = when; };
   const bool fp_d = u.di->d->fmt == 1;
+  bool one_cycle = false;
   switch (u.cls) {
     case Cls::LD: case Cls::FLD: exec_load(u); return;
     case Cls::ST: case Cls::FST: exec_store(u); return;
@@ -1040,11 +1042,12 @@ void Core::do_issue(Uop& u, int /*port*/) {
     case Cls::FTOI: u.t_ready = t + (uint64_t)c_.lat_fmisc; reserve_b1(u.t_ready); break;
     case Cls::FMISC: case Cls::ITOF: u.t_ready = t + (uint64_t)c_.lat_fmisc; break;
     default:
-      u.t_ready = t + 1;
+      u.t_ready = t + 1 + (uint64_t)c_.abl_alu;
+      one_cycle = true;
       if (u.q == Q_A1) reserve_b1(u.t_ready);
       break;
   }
-  u.t_done = u.t_ready + 2;
+  u.t_done = u.t_ready - (one_cycle ? (uint64_t)c_.abl_alu : 0) + 2 + (uint64_t)c_.abl_done;
   if (u.is_ctrl) resolve_branch(u, t + 2 + (u.fused_br ? 1 : 0));
 }
 
@@ -1279,7 +1282,7 @@ int Core::commit_thread(Thread& T, int width) {
           lat = res == MemSys::Res::HIT ? 4 : res == MemSys::Res::MISS ? (r - t_) + 4 : 16;
         }
         u.t_ready = t_ + lat;
-        u.t_done = t_ + lat;
+        u.t_done = t_ + lat + (uint64_t)c_.abl_done;
         if (u.is_store)
           for (auto& s : T.sq) if (s.id == u.id) { s.t_addr = t_; s.data_now = true; break; }
         break;

@@ -540,6 +540,78 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
   - **So v2 runs at 180–190 MHz with full structures,** provided the device can be filled to 92–96% at that clock (AR-5).
 - **v2 at a lower clock still beats v1 at 200 MHz.** At 190 MHz, v2 with the free levers is +15.6% throughput and +9.3% single thread over v1 at 200 MHz; at 180 MHz, +9.5% and +3.5%. The trade is between versions of v2, not between v2 and v1.
 
+### 6.1 Each clock with its own latencies (measured in the model, 2026-10-14)
+
+*The user asked whether 200 MHz is the right target for v1, since NaxRiscv reaches 135–150 MHz on this class of device without tuning. This is a measurement only: the target stays 200 MHz until the user decides (DR-137). `scripts/clock.py` reproduces it (`results/clock_rv64gc.json`). Its first run reproduces v1's single-thread suite IPC at 120 cycles from the area study exactly.*
+
+**The setup.**
+- **v1:** the release configuration (`smt2`, wakeup tags), running the single-thread suite with SMT off.
+- **NaxRiscv:** the control (`nax`), on the same uncore, at 137 MHz (its RV64 figure, Artix-7 -3) and at 150 MHz.
+- **What scales with the clock:** the DRAM latency, 184 ns (S1's idle 64-byte read), and the bandwidth, 3.2 GB/s per port (20 ns per line), both in that clock's cycles. The L2 hit is 2 cycles shorter at 150 MHz and below (`DATA_LAT` 2 instead of 4).
+- **What stays fixed in cycles:** everything else.
+  - The 4-cycle FMA missed 200 MHz by 1.88 ns, so it would close only below about 145 MHz; no clock here gains it.
+  - No other 200 MHz pipelining is recorded as clock-dependent.
+
+| Core | Clock (MHz) | DRAM / L2 hit (cycles) | Suite IPC | IPC × MHz | ÷ NaxRiscv at 137 | ÷ NaxRiscv at 150 | CoreMark/MHz (A / B) | CoreMark/s (A) ÷ NaxRiscv at 137 / 150 |
+|---|---|---|---|---|---|---|---|---|
+| v1 | 200 | 37 / 12 | 1.229 | 246 | **2.26** | **2.10** | 5.31 / 5.17 | 2.13 / 1.95 |
+| v1 | 180 | 33 / 12 | 1.244 | 224 | 2.06 | 1.92 | 5.31 / 5.17 | 1.92 / 1.75 |
+| v1 | 170 | 31 / 12 | 1.265 | 215 | 1.98 | 1.84 | 5.31 / 5.17 | 1.81 / 1.66 |
+| v1 | 160 | 29 / 12 | 1.275 | 204 | 1.88 | 1.75 | 5.31 / 5.17 | 1.71 / 1.56 |
+| v1 | 150 | 28 / 10 | 1.289 | 193 | 1.78 | 1.66 | 5.31 / 5.17 | 1.60 / 1.46 |
+| NaxRiscv | 150 | 28 / 10 | 0.779 | 117 | 1.07 | 1.00 | 3.64 / 3.86 | 1.09 / 1.00 |
+| NaxRiscv | 137 | 25 / 10 | 0.793 | 109 | 1.00 | 0.93 | 3.64 / 3.86 | 1.00 / 0.91 |
+
+**Reading it:**
+- **Performance follows the clock.** Fewer cycles of memory latency raise the suite IPC by only 1.3% at 180 MHz and 4.9% at 150 MHz. So IPC × MHz falls:
+
+  | Clock | Change |
+  |---|---|
+  | 180 MHz | −8.9% |
+  | 170 MHz | −12.5% |
+  | 160 MHz | −17.0% |
+  | 150 MHz | −21.3% |
+
+  §6's table assumed fixed cycles (−10.0% at 180 MHz); with S1's latency the step is a little smaller.
+- **Only the memory suite moves.** Kernels and Embench stay in the caches, so their IPC is the same at every clock (1.851 and 1.687). The memory suite's IPC rises from 0.594 at 200 MHz to 0.686 at 150 MHz.
+- **CoreMark/MHz does not move** (5.31 / 5.17), so CoreMark/s scales with the clock alone.
+- **Against NaxRiscv,** on suite performance:
+  - at 200 MHz v1 is 2.26× the control at 137 MHz and 2.10× at 150 MHz;
+  - at 150 MHz it is still 1.78× and 1.66×.
+
+  The CoreMark/MHz ratio is 1.46× (A) and 1.34× (B) at every clock, D11's measure.
+- **At the stress point** (1,250 ns: 250 cycles at 200 MHz, 188 at 150), latency tolerance widens the ratios a little. v1 at 200 MHz is 2.28× and 2.13× the control at 137 and 150 MHz, and −18.9% at 150 MHz.
+- **Single thread only.** SMT2's throughput gain (WS_ref 1.43 at 120 cycles) comes on top at every clock. It was not rerun per clock.
+- **The clock's area side is §7.7:**
+  - the 180 MHz fill limit gives 8.6K more LUTs than 200 MHz's;
+  - no fill test exists below 180 MHz;
+  - `DATA_LAT` 2 would also shorten the L2's read pipeline.
+
+**One extra pipeline stage at a unit boundary** (the user's question, 2026-10-14).
+- **The method:** each point alone, against v1 at that clock's latencies (DRAM 184 ns), at 200 MHz and at 150 MHz.
+- **"Same performance at"** is the clock that, without the stage, loses as much: 200 MHz × (1 + the suite IPC change).
+- **The model points** name the knobs and code, so the core track can map each one to its RTL path.
+
+| Point | Model change | Suite IPC at 200 | CoreMark/MHz A / B at 200 | Same performance at | Suite IPC at 150 |
+|---|---|---|---|---|---|
+| 1. Load-to-use | Every load result (hit, forward or miss) reaches its dependents a cycle later.<br>`abl_ld_use` (`Core::exec_load`'s result time); the speculative-wakeup shadow moves with it. | −1.88% | −5.69% / −5.23% | 196.2 MHz | −1.97% |
+| 2. Branch mispredict penalty | The redirect reaches IF1 a cycle later, at execute and at commit.<br>`redirect_lat` and `commit_redirect` 1 → 2. | −0.28% | −0.16% / −0.19% | 199.4 MHz | −0.23% |
+| 3. Execute completion to the ROB | Every uop is marked complete a cycle later, so commit and everything that waits for it slips.<br>`abl_done` (every completion time). | −0.10% | −0.01% / −0.01% | 199.8 MHz | −0.10% |
+| 4. Exception or fault reporting only | No model point: `tgsim` takes no traps, and the suite raises none in its timed regions. | 0 | 0 | — | 0 |
+| 5. Integer bypass and wakeup loop (upper bound) | A 1-cycle result wakes its dependents a cycle later, so dependent single-cycle ops lose back-to-back issue. Completion is unchanged.<br>`abl_alu` (`Core::do_issue`'s 1-cycle case). | −8.04% | −10.91% / −9.79% | 183.9 MHz | −8.31% |
+| 6. L2 hit +2 (`DATA_LAT` 4 against 2) | `l2_lat` 12 against 10. | −0.65% | 0.00% / 0.00% | 198.7 MHz | −0.73% |
+
+CoreMark/MHz moves the same at 150 MHz as at 200 MHz, because CoreMark stays in the L1s.
+
+**Reading it:**
+- **Loops cost; boundaries off the loops cost little.**
+  - A stage at completion costs −0.10%, at the mispredict redirect −0.28%, and two in the L2 hit −0.65%.
+  - Each is worth 0.2–1.3 MHz at 200 MHz.
+- **Load-to-use is the expensive real candidate:** −1.9% on the suite and −5.2 to −5.7% on CoreMark, worth about 4 MHz at 200 MHz.
+- **The integer wakeup loop is the upper bound:** −8.0% on the suite and about −10% on CoreMark. That is as much as running at 184 MHz, and 200 → 180 MHz costs 8.9% (above).
+- **Exceptions:** a stage that only delays a fault's report costs nothing in the model. In hardware it costs as rarely as faults occur.
+- **The knobs** (`abl_ld_use`, `abl_alu`, `abl_done`) default to 0. At 0 the model reproduces every earlier result exactly: the clock sweep, re-simulated from an empty cache with the new build, gives identical numbers.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
