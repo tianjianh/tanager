@@ -14,6 +14,8 @@
 # TG_OOC_IO="<script.tcl> ..." sources constraint scripts after the default I/O delays (paths
 # relative to the root), e.g. tests/unit/fpu/vivado/fp_exec_io.tcl for ports the core drives
 # from registers.
+# TG_OOC_POST="<script.tcl> ..." sources report scripts after routing (paths relative to the root),
+# e.g. tests/unit/fpu/vivado/exec_ag_report.tcl for the address-generation outputs' paths.
 # Inputs are constrained to arrive 1.5 ns after the clock (the core's operand bypass in front of
 # the FPU); outputs leave from registers and must reach the core's writeback within 1.0 ns.
 lassign $argv root cfg top period defines generics
@@ -78,6 +80,9 @@ report_control_sets -file control_sets.rpt
 report_timing_summary -file timing.rpt -max_paths 20
 report_timing -max_paths 30 -nworst 1 -unique_pins -file paths.rpt
 report_design_analysis -logic_level_distribution -file levels.rpt
+if {[info exists ::env(TG_OOC_POST)]} {
+  foreach f $::env(TG_OOC_POST) { source [file join $root $f] }
+}
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -setup]]
 set lut [llength [get_cells -hier -filter {PRIMITIVE_GROUP == CLB && REF_NAME =~ LUT*}]]
 puts "OOC_RESULT top=$top period=$period wns=$wns"

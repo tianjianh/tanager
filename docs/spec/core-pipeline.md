@@ -80,6 +80,10 @@ For each instruction, `pred_exit` = the block was predicted taken and the predic
 
 The redirecting instruction stays in the group; younger slots are dropped. Its `pred_npc` (the next PC the front end followed) is what execute compares against.
 
+**Timing:**
+- **No add waits for another.** An instruction's PC is its block's address plus its offset in the block (`pc[3:0]`, or −2 for a straddler). The PC-relative values (the targets, AUIPC, the link value, the next PC) are each one three-input add of block address, offset and operand: a carry-save step and one carry chain. Only a straddler's PC needs a decrement of the block address.
+- **The redirect decision uses no add at all.** "The predicted target is the branch's" is checked carry-free, as `a + b + c == k` (Cortadella and Llabería, IEEE Trans. Computers, 1992). Every bit of the carry-save sum must match the carry that k needs there. The sums themselves feed only registers.
+
 ## 4. Decode (`tg_decode`)
 
 `DECODE_WIDTH` copies of a combinational RV64IM + Zicsr + Zifencei + system decoder. Output: `dec_t` (`tg_core_pkg`): class (ALU, BR, MUL, DIV, LD, ST, CSR, SYS), sources and destination, ALU control (`alu_ctl_t`), 64-bit immediate (AUIPC, JAL and JALR link values are precomputed: PC + imm, PC + 4), branch fields, memory size and sign, MUL/DIV op, CSR op, and a decode-time exception (illegal 2 with `tval` = instruction bits, 16-bit for a compressed encoding; ECALL 11 with `tval` 0; EBREAK 3 with `tval` = PC; fetch fault 1 with `tval` = PC).
@@ -103,6 +107,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - Reads: rs1, rs2 and rd (the old mapping) per slot.
 - **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
 - **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
+  - **The free count is a register,** not tail − head: it is updated by the pushes and pops. A second register, tail − committed head, is the count a flush takes. Rename's steering and resource checks then start from flip-flops, not a subtraction (timing; the same values, asserted).
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
 - **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
   - **LLT:** loads, atomics and DIV/REM with a destination.
@@ -177,13 +182,25 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **`replay` is XOR-banked LUTRAM (FPGA-friendly T2).** It can't be a toggle table: an entry can be marked more than once (two ordering violations).
   - **Writers:** dispatch clears it, one table per slot. The LSU's replay report and its two TLB-miss reports set it, a table each.
   - **Writing:** a writer stores its value XOR the other tables at its entry, read in the same cycle. The flag is the XOR of all the tables.
-  - **Same-entry writes:** two writers at one entry would cancel. So of several setters there, only the first writes, and a dispatch clear yields to a set: the order the flip-flops had.
+  - **Same-entry writes:** two writers at one entry in one cycle would cancel, and none occur (asserted). A setter's entry is live, so it is never one being dispatched. A TLB miss is a new access at AG, never a load the ordering search finds (that load already has its value). The LD and STA ports carry different instructions.
+    - An earlier version guarded these cases with comparators. That put the LSU's late replay report on every dispatch table's write enable: the whole core's second-worst path (§13).
   - **Size:** at st, five 48 × 1 tables with six read ports each (the four other writers' entries and the two commit slots'), one RAM64M8 apiece. The tables need no reset, because dispatch clears an entry before anything reads it.
   - **Checked:** a shadow copy of the flip-flop flag, in simulation, must equal the tables' flag at every live commit slot.
 - **One adder on the head's PC** serves both a serial instruction's next PC (+2 or +4) and the `tval` of a fetch fault on an instruction's second half (+2). The fault is a decode exception, which traps, so one instruction never needs both (asserted).
 - **Whether a replay at the head is a DTLB miss:** the LSU says so (`hd_tlb`: the head is a load in `L_TLB` or a store with its `tlb` bit), so the ROB keeps no `tlb` bit. A missed load never gets an ordering replay, because it has no value.
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
+  - **The exception is chosen in parallel, not by a chain of compares.**
+    - **Candidates:** the register, the CSR port, the branch port and the LSU's four ports. Every pair is compared by ROB index.
+    - **Why it is fast:** the indices arrive early, since the LSU sends each port's payload index whether or not it faults. The late valid bits only gate a one-hot select.
+    - **Same result as the chain:** the oldest wins, the first candidate in the old order on a tie. `tval` is the best of the first three alone, as the chain left it.
+    - **Checked:** in simulation the old chain runs beside it and must agree every cycle.
+    - **Why:** the chain was the end of the whole core's worst paths at 100 MHz (§13), and the ROB's own worst path (−0.350 ns at 200 MHz out of context).
+- **The trap target comes in two parts** (`tg_csr`):
+  - **An exception's** is its vector's base, chosen by its cause's delegation.
+  - **An interrupt's** adds 4 × its code in vectored mode. Its code and delegation are the CSR file's own and arrive early, so the 64-bit add stays off the exception's path.
+  - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
+- **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
 ### 8.2 Commit
@@ -292,9 +309,28 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | ROB tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`) | done: ROB 3,308 → 2,920 at st |
 | Region decode (DR-120) | `tg_map_pkg::pma_of`: naturally aligned power-of-two regions matched by prefix, with the range test kept for any other region | done: 136 → 10 LUTs per instance (fetch, load AG, STA, walker; the crossbar) |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
+| The walker's PMP checks on the STA port's checker (adopted by the user: DR-139, superseding DR-122) | `tg_ptw` (no checker of its own), `tg_lsu` (the STA checker's input multiplexer: the walker's address in a cycle without a store address) | done: −0.83K LUTs per core. Cycle cost from `make cycle-identical` against fn3's head, st / smt2: isa +0.052% / +0.228%, stress +0.098% / −0.098%, bench 0 / 0, random +0.003% / −0.018% |
 
-**Reserve (D18: sharing, or a function cut; not taken):**
-- The walker's PMP checks on the STA port's checker: −0.83K at st (`tg_ptw` 1,073 → 193, the STA checker +50 for its input mux). It is not exclusive: a walk step waits a cycle whenever a store address is in AG, which cost +0.11% cycles on the walk-heavy `-v` tests (4b85114, reverted in 5c124f2). In AR-6's order it comes after R9/R10.
+**Reserve (DR-135: each one moves cycles, and only the user adopts it; not taken):**
+
+Cycle costs are from `make cycle-identical`, as change in cycles per suite, st / smt2: F1 to F3 against fn3's head (1c0eaca), the rest against fn4's (028f45e). Each lever's RTL is kept on a local branch.
+
+| Lever | Gain | isa | stress | bench | random | Branch |
+|---|---|---|---|---|---|---|
+| F1 cut: the LSU's fault reports reach the ROB a cycle later. It is the "fault reporting" row of smt2-study's ablation. | timing: the AG fault decision leaves the exception register's paths (whole core: see §16) | +0.000% / +0.000% | +0.000% / +0.000% | 0 / 0 | +0.032% / +0.024% | `tmp/core-cut-fault` |
+| F2/F5 cut: the store reports (completions and the ordering replay mark) reach the ROB a cycle later, together. It is the "completion → ROB" row. | timing: the STA's TLB and PMP decision and the LQ ordering search leave the ROB's completion and replay tables | +0.428% / +0.369% | +0.217% / −0.053% | +0.100% / +0.188% | −0.150% / +0.018% | `tmp/core-cut-store` |
+| F3 cut: the ROB head's DTLB retry reaches the ROB a cycle later | timing: the head's DTLB lookup leaves the commit redirect | +0.002% / +0.006% | +0.198% / −0.031% | 0 / 0 | −0.057% / +0.046% | `tmp/core-cut-head` |
+| LSU address-stage split (core-lsu.md, "Design: the address-stage split"): a new load's and a store address's DTLB, PMP and access decisions move to M1; AG adds the address and reads the D$ at the page-offset row, so load-to-use is unchanged. It subsumes F1 and F2/F5. | timing: the address add leaves the LSU's AG family (TLB, PMP, decisions, reports to the ROB) | +0.696% / +0.476% | +0.282% / +0.014% | +0.160% / +0.088% | −0.151% / +0.123% | `claude/track-core-adb715-agsplit` |
+| Atomic read-data register: an atomic's D$ read data is registered before the modify and write, one cycle more per atomic | timing: the D$ atomic family (block RAM → AMO ALU → block RAM) | +0.113% / +0.135% | −0.021% / −0.016% | 0 / 0 | −0.180% / +0.089% | `tmp/core-cut-amo` |
+| Fetch PMP check a cycle later on translated pages that a PMP region boundary splits: F1 waits a cycle, and the block checker reads the address the ITLB gave. Bare mode checks the fetch PC itself; homogeneous pages keep the ITLB's cached result. | timing: F1's ITLB → PMP → F2 path | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | `tmp/core-cut-fpmp` |
+| F2's actions on F1 registered: parking on an I$ or ITLB miss, the refetches (PMP cut, dropped prediction, install race) and the stop after a fault block take effect a cycle later and drop the blocks F1 and F2 took meanwhile. The refill and the walk still start as early. | timing: the F2 family (tag compare, pre-decode and the PMP cut into the fetch PC and F2's enables) | +0.003% / +0.006% | −0.015% / +0.011% | −0.003% / +0.032% | +0.005% / +0.014% | `tmp/core-cut-f2` |
+| DE stage: decode takes a stage of its own. DE1 decodes the queue head into registers; DE2 forms the group and checks the predictions from them. Every redirect costs one more front-end cycle. | timing: the DE family (queue head → decode → group → take, the redirect and the next PC) | +0.885% / +0.799% | +0.394% / +0.284% | +2.505% / +2.308% | +0.159% / +0.535% | `tmp/core-cut-de` |
+
+- **The split in the w3 configurations** (st_w3 / smt2_w3): isa +0.489% / +1.565%, stress −0.258% / +0.273%, bench +0.118% / +0.006%, random +0.239% / +0.257%. Its isa cost is the `-v` tests' page-table setup, whose walks report a cycle later (about +95 cycles per test). No program fails in any of the four configurations.
+- **The fetch PMP check is identical in every suite:** no program fetches from a translated page that a PMP boundary splits. It is listed because such a page would cost a cycle per fetch block.
+- **Timing, whole core (st, out of context at 200 MHz):** F1, F2/F5 and F3 together take fn3's head from −7.071 to −5.464 ns (6d0523e). The worst families are then level at about −5.4 ns: the D$ atomic path, the LQ head → the replay register, F2 → the fetch PC, the LSU's address stage and DE, each with a lever above.
+  - Families that none of the three touch moved by up to 1.7 ns as well, so placement noise between runs is about 1 ns.
+  - The split alone and every lever together (`tmp/core-cuts-all`) are queued.
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 **Follow-ups (functional, with deadlines):**
