@@ -1,0 +1,11 @@
+# FPGA lockstep, verification track's RUNBOOK step 1 (offline, no PL), on the KV260's A53
+# (2026-10-15 03:17 board time; package c166794, tanager-lockstep sha256 in the package's SHA256SUMS).
+$ ./tanager-lockstep --fw soc_test.bin soc.trace
+tanager-lockstep: PASS after 230255 records (230255 retired, 0 traps, 0 interrupts, 0 writebacks) in 1.5 s, 149648 records/s
+exit 0
+$ ./tanager-lockstep --fw soc_test.bin --plant=100000 soc.trace          (full output: plant.log)
+tanager-lockstep: MISMATCH at record 100000 (cycle 655562): x15 value: RTL 9accca8c50d69f4d, Spike 9accca8c50d69f4c
+exit 2
+$ time ./tanager-lockstep --fw fw_jump.bin --dtb osbi-sim.dtb osbi.trace  (output: osbi_time.log)
+tanager-lockstep: PASS after 3087220 records (3087214 retired, 6 traps, 0 interrupts, 0 writebacks) in 21.8 s, 141504 records/s
+exit 0; wall 21.84 s; max RSS 6.5 MB. The A53 checks about 141-150 k records/s (the 5950X: 1.9 M/s).
