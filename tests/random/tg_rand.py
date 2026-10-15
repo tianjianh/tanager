@@ -20,8 +20,8 @@ results. It aims at the plan's risk areas (§9, §4.5, §4.9, §4.15):
     on the rename maps (one register written twice in a group, flushes in between), store bursts
     past the store queue's depth, every completion port in the same cycle, CLINT loads (MMIO), more
     long-latency operations than the core has tags, more multiplies and FP-to-FP operations waiting
-    on a missing load than rename has wakeup tags, WFI, illegal CSR writes, fetch faults and
-    accesses to a page the runs deny (--deny);
+    on a missing load than rename has wakeup tags, WFI, runs of CSR accesses for timer interrupts to
+    meet at the head, illegal CSR writes, fetch faults and accesses to a page the runs deny (--deny);
   - with --vm PCT, that share of the programs runs its body in S-mode under Sv39: an identity map in
     4 KiB pages (TLB misses and page walks on every template), plus page faults, SFENCE.VMA and
     SRET (staying in S).
@@ -610,6 +610,28 @@ class Gen:
         self.emit("sret")
         self.place(lab)
 
+    def t_csr_burst(self):
+        """Programs with --irq: a run of CSR accesses. They execute one at a time at the ROB's head, so a
+        timer interrupt taken meanwhile meets a CSR instruction there, usually still in EX. That is when
+        trap entry's writes of xepc, xcause and xtval to the CSR unit's cold registers (written over
+        three cycles) meet the instruction's own access (the core track's fn2). The scratch register is
+        the only one written; the trap handler never uses it."""
+        scratch = "sscratch" if self.vm else "mscratch"
+        reads = ["sstatus", "sie", "sscratch", "stvec", "sepc"] if self.vm else \
+                ["mstatus", "mie", "mscratch", "mtvec", "mcause", "mepc", "mtval"]
+        for _ in range(self.r.randrange(8, 25)):
+            k = self.r.randrange(6)
+            if k == 0:
+                self.emit(f"csrw {scratch}, {x(self.rd_any())}")
+            elif k == 1:
+                self.emit(f"csrrs {x(self.wr())}, {scratch}, {x(self.rd_any())}")
+            elif k == 2:
+                self.emit(f"csrrc {x(self.wr())}, {scratch}, {x(self.rd_any())}")
+            elif k == 3:
+                self.emit(f"csrrwi {x(self.wr())}, {scratch}, {self.r.randrange(32)}")
+            else:
+                self.emit(f"csrr {x(self.wr())}, {self.r.choice(reads)}")
+
     def t_wfi(self):
         """WFI: wakes on the timer interrupt (programs with --irq), else retires after the core's
         time-out."""
@@ -904,7 +926,7 @@ class Gen:
         if not self.vm:  # tg_replay's pre-check adopts device loads only untranslated (verification.md §9)
             templates.append((self.t_mmio, 1))
         if self.irq:
-            templates.append((self.t_wfi, 1))
+            templates += [(self.t_wfi, 1), (self.t_csr_burst, 6)]
         if self.vm:
             templates += [(self.t_vm, 4), (self.t_sret, 1)]
         if self.has_m:
