@@ -79,6 +79,8 @@ VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
 # coverage_off, so the configuration names everything else (the other units, the core's top files,
 # rtl/common and the testbench). Fewer points keep the build and the runs fast.
 COV_OFF := $(filter-out $(COV_UNITS),$(patsubst $(ROOT)/rtl/core/%/,%,$(wildcard $(ROOT)/rtl/core/*/)))
+# and binds event points into the product core: conditions none of the core's own expressions shows
+COV_EVENTS := $(if $(and $(COV),$(filter core,$(CORE))),$(ROOT)/sim/cov/tg_core_events.sv)
 
 .PHONY: all build lint replay lockstep lockstep-aarch64 clean print-bin print-build
 all: build
@@ -89,9 +91,9 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	@mkdir -p $(BUILD)
 	$(if $(COV),@{ printf '`verilator_config\n'; for d in $(COV_OFF); do printf 'coverage_off -file "*/rtl/core/%s/*"\n' $$d; done; \
-	  printf 'coverage_off -file "*/rtl/core/tg_core*"\ncoverage_off -file "*/rtl/common/*"\ncoverage_off -file "*/sim/*"\n'; } > $(BUILD)/cov.vlt)
+	  printf 'coverage_off -file "*/rtl/core/tg_core*"\ncoverage_off -file "*/rtl/common/*"\ncoverage_off -file "*/sim/tb/*"\ncoverage_off -file "*/sim/tcore/*"\n'; } > $(BUILD)/cov.vlt)
 	$(VERILATOR) $(VFLAGS) --Mdir $(BUILD) -o tg_vsim \
-	  $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv $(addprefix $(ROOT)/sim/src/,$(SRCS)) \
+	  $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv $(COV_EVENTS) $(addprefix $(ROOT)/sim/src/,$(SRCS)) \
 	  > $(BUILD)/build.log 2>&1 || { tail -40 $(BUILD)/build.log; exit 1; }
 	@grep -E '^%Warning' $(BUILD)/build.log | head -20 || true
 	@touch $@  # Verilator does not relink when the generated code is unchanged
