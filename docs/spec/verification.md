@@ -357,7 +357,9 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 **On the board** (the board session runs it; Linux's fan control stays on for every run):
 1. **Offline, no PL:** `tanager-lockstep --fw soc_test.bin soc.trace` (PASS, 230,255 records), the same with `--plant=100000` (exit 2 at record 100,000), and the OpenSBI trace (PASS). These give the A53's records per second.
 2. **The trace path, no checker:** `tanager-host boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace /tmp/soc.trace`. The hardware writes a trace for the first time. Then check `/tmp/soc.trace` offline as in step 1.
-3. **Live, the SoC test:** `mkfifo /tmp/tg.trace`; start `tanager-lockstep --fw soc_test.bin --stats=5 /tmp/tg.trace` in the background, then run step 2's `boot` with `--trace /tmp/tg.trace`.
+3. **Live, the SoC test:** make a FIFO in the user's home directory, start `tanager-lockstep --fw soc_test.bin --stats=5 FIFO` in the background, then run step 2's `boot` with `--trace-log2 16 --trace FIFO`.
+   - **Not in `/tmp`:** Ubuntu's `fs.protected_fifos` stops root (`sudo tanager-host`) from opening another user's FIFO there with `O_CREAT`, which `fopen(…, "wb")` uses.
+   - **A small ring:** `tanager-host` copies everything between `RP` and `WP` in one poll, at the checker's pace. With the default 2^22 records, one poll can last many seconds, with the console unserviced. 2^16 records keep polls short. Linux still uses only the 768 MiB its device tree gives it.
 4. **Live, Linux to the root shell,** at native latency and at 250 injected cycles. Use the traced runs' 768 MiB device tree (`make -C sw/dts MEM=0x30000000`) and give the checker the same three files. `tg.sh linux` stops after `LINUX_S` seconds (default 1,200), so raise it. Report the wall time against the unchecked boot (TANAGER-BOOT-OK 8 s after the load; at 250 cycles, the login prompt after 14 s), records per second from `--stats`, and any mismatch with its report.
 
 ## 4. Test suites and runners
