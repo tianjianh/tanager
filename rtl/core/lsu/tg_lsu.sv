@@ -510,13 +510,15 @@ module tg_lsu
   logic [7:0]        m1_mask;
   assign m1_mask = bmask(m1pa[2:0], lq_size_q[m1_lq_q]);
 
-  // Youngest older store with a byte overlap in the same dword
+  // Youngest older store with a byte overlap in the same dword: the search over the SQ's stores
+  // (q_*), and with the split, the store address in M1 selected last (g_split / g_nosplit)
   logic              f_hit, f_cover, f_data;
   logic [SIW-1:0]    f_idx;
   logic [63:0]       f_dword;
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
-  logic [SQ_ENTRIES-1:0] fc_sq, fc;                 // overlapping older stores: in the SQ; all of them
-  logic [7:0]            f_smask;                   // the youngest one's byte mask
+  logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
+  logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
+  logic [SIW-1:0]    q_idx;                         // ... the youngest
   assign f_lim = lq_sq_q[m1_lq_q];
   always_comb begin
     for (int i = 0; i < SQ_ENTRIES; i++)
@@ -525,11 +527,12 @@ module tg_lsu
   end
   always_comb begin
     logic [SQ_ENTRIES-1:0] fc_lo;
-    for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc[i] && i < int'(f_lim[SIW-1:0]);
-    f_hit   = |fc;
-    f_idx   = |fc_lo ? sq_last(fc_lo) : sq_last(fc);
-    f_cover = (f_smask & m1_mask) == m1_mask;
-    f_data  = sq_dv_q[f_idx];
+    for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
+    q_hit   = |fc_sq;
+    q_lo    = |fc_lo;
+    q_idx   = |fc_lo ? sq_last(fc_lo) : sq_last(fc_sq);
+    q_cover = (sq_mask_q[q_idx] & m1_mask) == m1_mask;
+    q_data  = sq_dv_q[q_idx];
   end
 
   assign sqsz_ra[COMMIT_WIDTH] = f_idx;
@@ -1328,13 +1331,21 @@ module tg_lsu
     assign ln_lqw   = m1_lq_q;
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
-    logic byp;
-    assign byp = sa_ok && !sa_mmio && !sa_amo && sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
-                 sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
-    always_comb begin
-      for (int i = 0; i < SQ_ENTRIES; i++) fc[i] = fc_sq[i] || (byp && i == int'(sa_idx));
-    end
-    assign f_smask = (byp && f_idx == sa_idx) ? sa_mask : sq_mask_q[f_idx];
+    // It does not wait for its access-fault checks (PMP, PMA, the high bits): a store that faults
+    // traps at commit, and the younger load goes with the flush. It is not in the SQ search (its
+    // sq_av_q is written at the end of M1), and the search's result picks it last: it is the youngest
+    // when it is in f_lim's region below the slot and the SQ's youngest is not, or in the same region
+    // above it (fpu-2's Shannon expansion: byp, the store's DTLB lookup and compare, comes last)
+    logic byp, s_lo, sel_s;
+    assign byp   = sn_v && !sa_mis && !sa_pf && !sa_tm && !flush && !sa_mmio && !sa_amo &&
+                   sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
+                   sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
+    assign s_lo  = sa_idx < f_lim[SIW-1:0];
+    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && sa_idx > q_idx));
+    assign f_hit   = q_hit || byp;
+    assign f_idx   = sel_s ? sa_idx : q_idx;
+    assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
+    assign f_data  = sel_s ? sq_dv_q[sa_idx] : q_data;
   end else begin : g_nosplit
     // AG, on its own signals
     assign ln_v    = ld_ag_valid;
@@ -1357,8 +1368,12 @@ module tg_lsu
     assign m1_go    = m1_v_q;
     assign ln_lq    = ld_ag_pl.lq[LIW-1:0];
     assign ln_lqw   = ag_lq;                       // = ln_lq while a new load decides: one decoder with AG's writes
-    assign fc       = fc_sq;
-    assign f_smask  = sq_mask_q[f_idx];
+    assign f_hit    = q_hit;
+    assign f_idx    = q_idx;
+    assign f_cover  = q_cover;
+    assign f_data   = q_data;
+    logic unused_q_lo;                             // read by the split's age compare only
+    assign unused_q_lo = q_lo;
   end
 
   logic unused;
