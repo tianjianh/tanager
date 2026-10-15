@@ -1,0 +1,40 @@
+# TG_APP=tanager-m4 tg.sh firstlight with tanager-host c68bc6e (sha256 231fab53...: run drains the console
+# before it resets), 2026-10-15 01:20. COM5 received the same lines, ending 'PASS\n', with no bad byte.
+fan: pwm1 16/255, AMS temp1 34 C, fancontrol active
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 1 core(s) x 1 thread(s)
+  core clock      60.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+$ tanager-host load --fw /home/ubuntu/tanager/m4/soc_test.bin --kernel /dev/null --dtb /dev/null
+loaded: fw 1544 B, kernel 0 B, dtb 0 B into 0x840000000 (RISC-V 0x80000000)
+$ tanager-host run --timeout 10
+tanager soc test: hart 0, dtb 0000000082200000
+aclint ok
+memory ok
+one hart: coherence skipped
+PASS
+
+[tanager-host] tohost 0x1: PASS
+
+run exit 0
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 1 core(s) x 1 thread(s)
+  core clock      60.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x840000000 size 0x40000000
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000001 (1 writes)
+fan: pwm1 18/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 01:20:28
+fan: pwm1 18/255, AMS temp1 33 C, fancontrol active
