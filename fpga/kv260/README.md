@@ -52,7 +52,7 @@ TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/viva
 - **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
 
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
-- `core` builds the real `tg_core`. The M4 bitstream is one `st` core with the PMOD console at 100 MHz (`st core 100 1 bit` with `TG_PMOD_UART=1`), about 43K LUTs of core and 21K of uncore.
+- `core` builds the real `tg_core`. The M4 bitstream is one `st` core with the PMOD console, about 44K LUTs of core and 21K of uncore. At 100 MHz two cross-unit paths in the core miss by 3.8 ns ([results.md](results.md)), so the first one runs at 60 MHz (`st core 60 1 bit` with `TG_PMOD_UART=1`, `TANAGER_VIVADO_MEM_GB=22`).
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).
 
 | Output (in the run directory) | Use |
@@ -88,7 +88,7 @@ For a core bitstream, name the images too: the first-light program (bring-up ste
 ```bash
 make -C sw/dts O=$SOC_BUILD/dts-c1 CORES=1
 make -C tests/unit/soc prog
-fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_100_pmod $SOC_BUILD/board/m4 $SOC_BUILD/tests/soc_sw/soc_test.bin \
+fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_60_pmod $SOC_BUILD/board/m4 $SOC_BUILD/tests/soc_sw/soc_test.bin \
   $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
 ```
 
@@ -124,7 +124,7 @@ Each step's expected result is in brackets.
    - A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
 6. **First light on the core** (core bitstream; steps 4 and 5 need the traffic-generator one): `sudo tanager-host load --fw soc_test.bin --kernel /dev/null --dtb /dev/null && sudo tanager-host run --timeout 10`.
    - [The console, and COM5 with the PMOD console, shows `tanager soc test: hart 0, dtb 0000000082200000`, `aclint ok`, `memory ok`, `one hart: coherence skipped` (with one core), `PASS`; `run` ends with `tohost 0x1: PASS`].
-   - `soc_test.bin` comes from `make -C tests/unit/soc prog` (`tests/unit/soc/sw`). In simulation it takes 0.29 M cycles on one core (3 ms at 100 MHz).
+   - `soc_test.bin` comes from `make -C tests/unit/soc prog` (`tests/unit/soc/sw`). In simulation it takes 0.29 M cycles on one core (5 ms at 60 MHz). `tanager-host info` shows the core clock the bitstream was built for (60.0 MHz for the first M4 one).
 7. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb

@@ -320,6 +320,8 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 | `tanager_soc` with the real core in Verilator (`tests/unit/boot`) | OpenSBI's banner in 5.0 M cycles at 1×1 and 6.6 M at 2×1 |
 | Linux 6.18 on the real core | the kernel's early initcalls at 27 M cycles; there the boot found a core bug (below) |
 | Uncompressed built-in initramfs | saves an estimated hour or two of simulation per Linux boot |
+| L2: the MSHR state one-hot ([l2.md](l2.md)) | uncore −400 LUTs (19,439 st, 19,933 smt2 under DR-113's settings), cycle-identical |
+| The first M4 bitstream, one real `st` core ([fpga/kv260/results.md](../../fpga/kv260/results.md)) | 65.3K LUTs; closes at 60 MHz. At 100 MHz it misses by 3.8 ns on two cross-unit paths inside the core (load data and EX's writeback queue into the ROB, 35–38 levels), which per-unit timing runs cannot see |
 
 **Bugs found:**
 - **Core, `tg_fetch`:** an I$ refill that outlives a redirect rewrote the victim way while its old tag stayed valid. Linux executed 4 instructions of another line and oopsed.
@@ -337,6 +339,7 @@ Since R15 the worst path is the L2's S2 decision into the directory RAM. Builds 
 
 **Lessons:**
 - **A test bench that repeats the host program's register sequence does not test the host program.** `tb_soc` took its sequence from this document, not from `tanager-host.c`, and only `tanager-host` had the bug.
+- **Time the whole core in context before planning its clock.** Each unit met its own timing run, yet two paths that cross four or five units are 13.5 ns long; the first full build found them.
 - **Measure the uncore as its own unit.** A traffic-generator bitstream trims every port its generators leave idle (14.7K LUTs against 22K measured).
 - **Group LUTRAM fields by the engine that reads them.** `opt_design` removes primitives behind unused read ports, which failed the primitive check.
 - **Run every queued Vivado or simulation job on a snapshot** (`git archive`). A job that starts later otherwise measures whatever the working tree holds by then.
