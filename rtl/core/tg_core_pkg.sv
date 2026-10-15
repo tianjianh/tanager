@@ -21,12 +21,13 @@ package tg_core_pkg;
 
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
-  // They are verified as two profiles, all three on or all three off; no other combination is
-  // supported. `TG_TIMING_CUTS=0|1` forces a profile; unset, the default below applies.
+  // They are verified as two profiles: all three on (the default and the shipping profile, the
+  // user's choice) or all three off (the verified fallback, the core without them); no other
+  // combination is supported. `TG_TIMING_CUTS=0|1` forces a profile.
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
-  localparam bit TIMING_CUTS = 1'b0;
+  localparam bit TIMING_CUTS = 1'b1;
 `endif
   localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS; // #2: store completions and the ordering
                                                       // replay mark reach the ROB a cycle later
