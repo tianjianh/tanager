@@ -17,8 +17,9 @@
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
-  // DR-133: the ALU operand ports read UltraRAM copies of the register file (gated: 0 until
-  // cycle identity, 200 MHz next to a URAM column and a full-chip placement check pass)
+  // DR-133: the ALU operand ports read UltraRAM copies of the register file. Off: cycle-identical
+  // and 200 MHz out of context, but in the v1 full chip the issue grant misses the URAM column's
+  // read address by about 5 ns of wire (gate 3, spikes.md §8.1)
 `ifdef TG_IRF_URAM
   parameter bit  IRF_URAM = 1'b1,
 `else

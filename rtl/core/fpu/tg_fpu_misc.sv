@@ -174,26 +174,32 @@ module tg_fpu_misc
   logic        ovf;
   logic [4:0]  fi_fl;
   always_comb begin
-    logic inc, nv;
+    logic inc, nv, o_h, o_l, a_h, a_l;
     inc = round_up(m.rm, m.a_sign, so[0], so_g, so_s);
     sum = (m.a_sign ? ~so : so) + 64'(m.a_sign ? !inc : inc);
-    // the rounded magnitude so + inc against the format's range, without another adder
+    // the rounded magnitude so + inc against the format's range, without another adder, from six
+    // shared reductions of so (bits 63, 62:32, 31 and 30:0)
+    o_h = |so[62:32];  a_h = &so[62:32];
+    o_l = |so[30:0];   a_l = &so[30:0];
     unique case (m.ifmt)
       IFMT_W: begin
-        ovf  = m.a_sign ? ((|so[63:32]) || (so[31] && ((|so[30:0]) || inc)))
-                        : ((|so[63:31]) || ((&so[30:0]) && inc));
+        ovf  = m.a_sign ? (so[63] || o_h || (so[31] && (o_l || inc)))
+                        : (so[63] || o_h || so[31] || (a_l && inc));
         maxv = 64'h0000_0000_7FFF_FFFF; minv = 64'hFFFF_FFFF_8000_0000;
       end
       IFMT_WU: begin
-        ovf  = m.a_sign ? ((|so) || inc) : ((|so[63:32]) || ((&so[31:0]) && inc));
+        ovf  = m.a_sign ? (so[63] || o_h || so[31] || o_l || inc)
+                        : (so[63] || o_h || (so[31] && a_l && inc));
         maxv = 64'hFFFF_FFFF_FFFF_FFFF; minv = 64'h0;
       end
       IFMT_L: begin
-        ovf  = m.a_sign ? (so[63] && ((|so[62:0]) || inc)) : (so[63] || ((&so[62:0]) && inc));
+        ovf  = m.a_sign ? (so[63] && (o_h || so[31] || o_l || inc))
+                        : (so[63] || (a_h && so[31] && a_l && inc));
         maxv = 64'h7FFF_FFFF_FFFF_FFFF; minv = 64'h8000_0000_0000_0000;
       end
       default: begin
-        ovf  = m.a_sign ? ((|so) || inc) : ((&so) && inc);
+        ovf  = m.a_sign ? (so[63] || o_h || so[31] || o_l || inc)
+                        : (so[63] && a_h && so[31] && a_l && inc);
         maxv = 64'hFFFF_FFFF_FFFF_FFFF; minv = 64'h0;
       end
     endcase
