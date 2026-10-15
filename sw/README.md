@@ -8,6 +8,7 @@ Run everything after `source tools/env.sh && source sw/env.sh`. Build trees go t
 |---|---|---|
 | `versions.sh`, `sha256sums` | pinned OpenSBI, Linux, Buildroot, Bootlin toolchains, with checksums | `bash sw/fetch.sh` |
 | `buildroot/` | Buildroot external tree: `tanager_lp64d` (OpenSBI 1.9 fw_jump, Linux 6.18.56, busybox initramfs built in) | `bash sw/build_linux.sh` |
+| `buildroot/configs/tanager_lp64d_bench_defconfig` | the bench image (DR-141): `tanager_lp64d` plus the SBI PMU driver (user-mode `rdcycle`, `board/tanager/linux-bench.fragment`) and the verification track's Linux workload set (package `tg-lbench`, from `tests/bench/linux`; it runs at boot with `tanager.bench=1` and powers off). `tanager_lp64d` stays the reference image for tb_boot, lockstep and the cycle-identical boot | `bash sw/build_linux.sh tanager_lp64d_bench` |
 | `dts/` | device trees for the plan §5.4 map: `tanager-kv260.dts`, `tanager-qemu.dts` | `make -C sw/dts CORES=2 THREADS=1 MEM=0x40000000 FPU=1` |
 | `qemu/boot_test.sh` | boots the images on QEMU virt with the Tanager tree; PASS/FAIL | `bash sw/qemu/boot_test.sh 2 1` |
 | `bootrom/` | boot ROM source; regenerates `rtl/uncore/bootrom/tg_bootrom_img_pkg.sv` | `make -C sw/bootrom` / `make -C sw/bootrom check` |

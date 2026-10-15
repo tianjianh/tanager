@@ -1,0 +1,53 @@
+# Tanager bench image (DR-141): tanager_lp64d plus user-mode cycle counters (the SBI PMU driver)
+# and the Linux workload set (tests/bench/linux, package tg-lbench). The reference image,
+# tanager_lp64d, stays unchanged for tb_boot, lockstep and the cycle-identical boot.
+BR2_riscv=y
+BR2_RISCV_64=y
+BR2_riscv_g=y
+BR2_RISCV_ISA_RVC=y
+BR2_RISCV_ABI_LP64D=y
+BR2_JLEVEL=8
+BR2_CCACHE=n
+# External prebuilt toolchain (sw/versions.sh): Bootlin, GCC 15.3, glibc 2.44, headers 5.10
+BR2_TOOLCHAIN_EXTERNAL=y
+BR2_TOOLCHAIN_EXTERNAL_CUSTOM=y
+BR2_TOOLCHAIN_EXTERNAL_DOWNLOAD=y
+BR2_TOOLCHAIN_EXTERNAL_URL="https://toolchains.bootlin.com/downloads/releases/toolchains/riscv64-lp64d/tarballs/riscv64-lp64d--glibc--stable-2026.08-1.tar.xz"
+BR2_TOOLCHAIN_EXTERNAL_CUSTOM_PREFIX="riscv64-buildroot-linux-gnu"
+BR2_TOOLCHAIN_EXTERNAL_GCC_15=y
+BR2_TOOLCHAIN_EXTERNAL_HEADERS_5_10=y
+BR2_TOOLCHAIN_EXTERNAL_CUSTOM_GLIBC=y
+BR2_TOOLCHAIN_EXTERNAL_CXX=y
+BR2_TOOLCHAIN_EXTERNAL_OPENMP=y
+# BR2_TOOLCHAIN_EXTERNAL_INET_RPC is not set
+# System
+BR2_TARGET_GENERIC_HOSTNAME="tanager"
+BR2_TARGET_GENERIC_ISSUE="Tanager Linux"
+BR2_ROOTFS_DEVICE_CREATION_DYNAMIC_DEVTMPFS=y
+BR2_TARGET_GENERIC_GETTY_PORT="ttyS0"
+BR2_TARGET_GENERIC_GETTY_BAUDRATE_115200=y
+BR2_SYSTEM_DHCP=""
+BR2_ROOTFS_OVERLAY="$(BR2_EXTERNAL_TANAGER_PATH)/board/tanager/overlay"
+BR2_ROOTFS_POST_IMAGE_SCRIPT="$(BR2_EXTERNAL_TANAGER_PATH)/board/tanager/post-image.sh"
+# Kernel: longterm 6.18.56, our own small config, initramfs built in
+BR2_LINUX_KERNEL=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION=y
+BR2_LINUX_KERNEL_CUSTOM_VERSION_VALUE="6.18.56"
+BR2_LINUX_KERNEL_USE_CUSTOM_CONFIG=y
+BR2_LINUX_KERNEL_CUSTOM_CONFIG_FILE="$(BR2_EXTERNAL_TANAGER_PATH)/board/tanager/linux.config"
+BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="$(BR2_EXTERNAL_TANAGER_PATH)/board/tanager/linux-bench.fragment"
+BR2_LINUX_KERNEL_IMAGE=y
+# Root filesystem: busybox initramfs, embedded in the kernel Image
+BR2_TARGET_ROOTFS_CPIO=y
+BR2_TARGET_ROOTFS_CPIO_GZIP=y
+BR2_TARGET_ROOTFS_INITRAMFS=y
+# BR2_TARGET_ROOTFS_TAR is not set
+# OpenSBI 1.9, generic platform, fw_jump: kernel at 0x8020_0000, FDT relocated to 0x8220_0000
+BR2_TARGET_OPENSBI=y
+BR2_TARGET_OPENSBI_CUSTOM_VERSION=y
+BR2_TARGET_OPENSBI_CUSTOM_VERSION_VALUE="1.9"
+BR2_TARGET_OPENSBI_PLAT="generic"
+BR2_TARGET_OPENSBI_INSTALL_JUMP_IMG=y
+# BR2_TARGET_OPENSBI_INSTALL_DYNAMIC_IMG is not set
+# The Linux workload set (DR-141; tests/bench/linux, the verification track's)
+BR2_PACKAGE_TG_LBENCH=y
