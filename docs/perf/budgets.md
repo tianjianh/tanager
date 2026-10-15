@@ -175,15 +175,25 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 44767a1 | register slices in DSPs (DR-136): the crossbar's, the memory paths' AR, AW, W and R, the L2 banks' R; 83 DSPs; cycle-identical | 18,047 | 18,603 | 16,092 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
-**The uncore at 200 MHz** (44767a1, st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip):
+**The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
 
-| Run | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
-|---|---|---|---|---|---|
-| all slices in fabric, DR-113's settings | 19,796 | 19,057 | 1 | −1.779 ns | −4,146 ns (7,044) |
-| all slices in fabric, Vivado's default directive | 21,150 | 19,107 | 1 | −1.150 ns | −1,664 ns (3,962) |
-| slices in DSPs (the default), DR-113's settings | 18,465 | 16,056 | 84 | −2.004 ns | −7,964 ns (10,601) |
+| Commit | Run | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
+|---|---|---|---|---|---|---|
+| 44767a1 | all slices in fabric, DR-113's settings | 19,796 | 19,057 | 1 | −1.779 ns | −4,146 ns (7,044) |
+| 44767a1 | all slices in fabric, Vivado's default directive | 21,150 | 19,107 | 1 | −1.150 ns | −1,664 ns (3,962) |
+| 44767a1 | slices in DSPs (the default), DR-113's settings | 18,465 | 16,056 | 84 | −2.004 ns | −7,964 ns (10,601) |
+| 028a480 | the L2's S2 restructured (A + B + D, [l2.md](../spec/l2.md)), all fabric | 19,944 | 19,114 | 1 | −0.738 ns | −876 ns (2,824) |
+| 028a480 | the same, slices in DSPs | 18,670 | 16,448 | 84 | −1.551 ns | −3,881 ns (6,590) |
+| 0a29936 | + the injector's token bucket, one-hot L2 AR/probe picks and the window's single compare (the last two reverted in ca1aece), all fabric | 20,009 | 19,147 | 1 | −0.903 ns | −1,182 ns (3,101) |
+| ca1aece | A + B + D and the token bucket, all fabric | 19,921 | 19,124 | 1 | −0.908 ns | −1,013 ns (2,984) |
 
-- The worst paths are the L2's S2 decision into the directory's block RAM (14–23 levels) in every run. The latency injectors, the memory windows, the crossbar and the memory slices also fail by 0.4–1.8 ns.
+- At 44767a1 the worst paths were the L2's S2 decision into the directory's block RAM (14–23 levels) in every run. The latency injectors, the memory windows, the crossbar and the memory slices also failed by 0.4–1.8 ns.
+- **After the L2's S2 rework** (028a480; [l2.md](../spec/l2.md) §Timing), three all-fabric placements of the same S2 RTL gave WNS −0.738, −0.903 and −0.908 ns. An unconstrained out-of-context placement of the whole uncore varies by about 0.2 ns from run to run, so a single run's difference below that is not a result. Across the runs:
+  - the injector's token bucket: −0.738 ns, then −0.17 ns in both runs after acec41c;
+  - S2 into the directory RAM: −0.66 to −0.91 ns, the worst path in two of the three runs;
+  - the L2's AR handshake (pick, MSHR LUTRAM, the window's range check, `ar_ready_i`, the AR pointer): about −0.70 ns, 60–70% of it wire. Cutting it needs the LUTRAM address from a register, which adds a cycle (a reserve item, DR-135);
+  - the crossbar's B slices, the memory AR slices and the injector's AR-side writes: −0.5 to −0.85 ns.
+- For reference only (DR-137: the clock is the user's decision): 180 MHz lengthens the period by 0.556 ns. At first order, the all-fabric uncore after the S2 rework would still miss 180 MHz by about 0.2–0.35 ns. Before the rework it missed by about 1.2 ns.
 - `AreaOptimized_high` costs about 0.6 ns here for its 1.35K LUTs, and the DSP slices another 0.2 ns and about 3,500 failing endpoints: the slices behind the crossbar's arbiters (B −1.9, D −0.8 to −1.6, memory AR −1.3 to −1.5, A 0 and 1 −0.6 to −0.9 ns).
 - So the uncore needs timing work for 200 MHz with or without the DSPs. The board builds run at 60–100 MHz, where every slice has slack. The full-chip fit decides per site through `UNCORE_DSP`.
 
