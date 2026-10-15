@@ -99,6 +99,21 @@ static void *map_phys(uint64_t pa, size_t len) {
   return (uint8_t *)p + off;
 }
 
+/* Touch the PL only while our design is loaded: a read that nothing answers hangs the ARM until a
+ * power cycle (the board session's hang, 2026-10-14). The overlay that loads the bitstream adds the
+ * host bridge's node to the live device tree, and dfx-mgr removes it with the bitstream. */
+static void check_overlay(uint64_t regs_pa) {
+  static const char *const bus[] = { "axi", "amba" };
+  char path[96];
+  for (int i = 0; i < 2; i++) {
+    snprintf(path, sizeof path, "/sys/firmware/devicetree/base/%s/tanager@%" PRIx64, bus[i], regs_pa);
+    if (access(path, F_OK) == 0) return;
+  }
+  die("no Tanager design is loaded (no /sys/firmware/devicetree/base/axi/tanager@%" PRIx64 "). "
+      "Load it first (sudo xmutil loadapp tanager): reading the PL without it hangs the board. "
+      "--force skips this check", regs_pa);
+}
+
 static void sleep_us(long us) {
   struct timespec ts = { us / 1000000, (us % 1000000) * 1000 };
   nanosleep(&ts, NULL);
@@ -138,7 +153,9 @@ static void usage(void) {
     "  --regs PA        host bridge window (default 0xA0000000)\n"
     "  --base PA        carve-out start in PS address space (default 0x840000000)\n"
     "  --size BYTES     carve-out size (default 0x40000000)\n"
+    "  --force          touch the register window without the overlay check (see check_overlay)\n"
     "  -v               verbose\n"
+    "Options may come before or after the command.\n"
     "commands:\n"
     "  info                                   identity and status\n"
     "  reset                                  hold cores and uncore in reset\n"
@@ -480,10 +497,12 @@ int main(int argc, char **argv) {
     { "inj-rd", 1, 0, 1 }, { "inj-wr", 1, 0, 2 }, { "inj-mode", 1, 0, 3 }, { "inj-bw", 1, 0, 4 },
     { "stats", 0, 0, 5 }, { "trace", 1, 0, 6 }, { "trace-log2", 1, 0, 7 }, { "trace-wrap", 0, 0, 8 },
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
-    { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
+    { "force", 0, 0, 12 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
-  int c;
-  while ((c = getopt_long(argc, argv, "+vh", lo, NULL)) != -1) {
+  int c, force = 0;
+  /* Options anywhere (getopt_long's argument permutation): `run --timeout 5` as well as
+   * `--timeout 5 run`; the command's own arguments keep their order. */
+  while ((c = getopt_long(argc, argv, "vh", lo, NULL)) != -1) {
     switch (c) {
       case 'R': o.regs_pa = num(optarg); break;
       case 'B': o.base = num(optarg); break;
@@ -506,12 +525,14 @@ int main(int argc, char **argv) {
       case 9: o.trace_start = 1; o.trace_start_pc = num(optarg); break;
       case 10: o.trace_stop = 1; o.trace_stop_pc = num(optarg); break;
       case 11: o.trace_post = (uint32_t)num(optarg); break;
+      case 12: force = 1; break;
       case 'v': verbose = 1; break;
       default: usage();
     }
   }
   if (optind >= argc) usage();
   const char *cmd = argv[optind++];
+  if (!force) check_overlay(o.regs_pa);
   regs = map_phys(o.regs_pa, 0x10000);
 
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }

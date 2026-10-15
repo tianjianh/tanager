@@ -127,6 +127,8 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
+  - **Guard:** before it maps the window, `tanager-host` checks that the overlay's node (`/axi/tanager@a0000000` for the default window) is in the live device tree, which holds only while the Tanager bitstream is loaded. A PL read that nothing answers hangs the ARM until a power cycle; the board session hung the board this way on 2026-10-14. `--force` skips the check.
+  - **Options** may come before or after the command.
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
 - **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.

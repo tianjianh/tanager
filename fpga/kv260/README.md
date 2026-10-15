@@ -108,6 +108,7 @@ fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_60_pmod $SOC_BUILD/board/m4 $SOC
    sudo xmutil listapps
    ```
    [`tanager` is in the list; if not, `sudo systemctl restart dfx-mgr` and list again].
+   - `tanager-host` runs only while the `tanager` app is loaded: it looks for the overlay's node in the live device tree first, because a PL read that nothing answers hangs the board. Its options may come before or after the command.
 5. **The default PL app.** The Kria image loads `k26-starter-kits` at boot. It routes Linux's fan PWM to the fan pin, and so does every Tanager bitstream (DR-129), so the fan follows the temperature with either loaded. When a run ends, reload the default app (`sudo xmutil unloadapp && sudo xmutil loadapp k26-starter-kits`), or let the board session's auto-restore timer do it (see [The board](#the-board), fan).
 
 ## Bring-up sequence
