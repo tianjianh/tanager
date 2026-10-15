@@ -1,0 +1,81 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version      : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date              : Thu Oct 15 10:05:56 2026
+| Host              : DESKTOP-TOJ3UPG running 64-bit Ubuntu 24.04.1 LTS
+| Command           : report_timing -of_objects [get_timing_paths -quiet -max_paths 1 -nworst 1 -setup -to {{u_fetch/u_cmp/head_q_reg[1]_replica/C --> u_rn/rn_uop_q_reg[1][pred_npc][59]/D}}] -input_pins -file fam_robft.rpt
+| Design            : tg_core
+| Device            : xck26-sfvc784
+| Speed File        : -2LV  PRODUCTION 1.30 05-15-2022
+| Design State      : Physopt postRoute
+| Temperature Grade : C
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+Timing Report
+
+Slack (VIOLATED) :        -1.035ns  (required time - arrival time)
+  Source:                 u_rob/flush_reg/C
+                            (rising edge-triggered cell FDRE clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Destination:            u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+                            (rising edge-triggered cell RAMD64E clocked by clk  {rise@0.000ns fall@2.500ns period=5.000ns})
+  Path Group:             clk
+  Path Type:              Setup (Max at Slow Process Corner)
+  Requirement:            5.000ns  (clk rise@5.000ns - clk rise@0.000ns)
+  Data Path Delay:        5.738ns  (logic 0.710ns (12.374%)  route 5.028ns (87.626%))
+  Logic Levels:           4  (LUT1=1 LUT4=1 LUT6=1 RAMD64E=1)
+  Clock Path Skew:        -0.125ns (DCD - SCD + CPR)
+    Destination Clock Delay (DCD):    1.689ns = ( 6.689 - 5.000 ) 
+    Source Clock Delay      (SCD):    1.923ns
+    Clock Pessimism Removal (CPR):    0.108ns
+  Clock Uncertainty:      0.035ns  ((TSJ^2 + TIJ^2)^1/2 + DJ) / 2 + PE
+    Total System Jitter     (TSJ):    0.071ns
+    Total Input Jitter      (TIJ):    0.000ns
+    Discrete Jitter          (DJ):    0.000ns
+    Phase Error              (PE):    0.000ns
+
+    Location             Delay type                Incr(ns)  Path(ns)    PBlock               Netlist Resource(s)
+  -------------------------------------------------------------------    ----------------------------------------
+                         (clock clk rise edge)        0.000     0.000 r                       
+                                                      0.000     0.000 r                       clk (IN)
+                         net (fo=30473, unset)        1.923     1.923                         u_rob/clk
+    SLICE_X50Y155        FDRE                                         r  rob                  u_rob/flush_reg/C
+  -------------------------------------------------------------------    ----------------------------------------
+    SLICE_X50Y155        FDRE (Prop_HFF2_SLICEL_C_Q)
+                                                      0.115     2.038 f  rob                  u_rob/flush_reg/Q
+                         net (fo=316, routed)         2.082     4.120                         g_p4.u_p4/flush
+    SLICE_X16Y127                                                     f  p4                   g_p4.u_p4/llt_done[15]_INST_0_i_4/I1
+    SLICE_X16Y127        LUT4 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.137     4.257 r  p4                   g_p4.u_p4/llt_done[15]_INST_0_i_4/O
+                         net (fo=33, routed)          0.369     4.626                         g_p4.u_p4/llt_done[15]_INST_0_i_4_n_0
+    SLICE_X19Y130                                                     r  p4                   g_p4.u_p4/cmp_rob[4]_INST_0/I1
+    SLICE_X19Y130        LUT6 (Prop_H6LUT_SLICEL_I1_O)
+                                                      0.153     4.779 r  p4                   g_p4.u_p4/cmp_rob[4]_INST_0/O
+                         net (fo=34, routed)          2.190     6.969                         u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/ADDRE4
+    SLICE_X45Y152                                                     r  rob                  u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAME/RADR4
+    SLICE_X45Y152        RAMD64E (Prop_E6LUT_SLICEM_RADR4_O)
+                                                      0.083     7.052 f  rob                  u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAME/O
+                         net (fo=1, routed)           0.121     7.173                         u_rob/g_ft[3].u_ft_n_0
+    SLICE_X44Y152                                                     f  rob                  u_rob/g_ft[3].u_ft_i_2/I0
+    SLICE_X44Y152        LUT1 (Prop_E5LUT_SLICEL_I0_O)
+                                                      0.222     7.395 r  rob                  u_rob/g_ft[3].u_ft_i_2/O
+                         net (fo=5, routed)           0.266     7.660                         u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/DIA
+    SLICE_X45Y152        RAMD64E                                      r  rob                  u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+  -------------------------------------------------------------------    ----------------------------------------
+
+                         (clock clk rise edge)        5.000     5.000 r                       
+                                                      0.000     5.000 r                       clk (IN)
+                         net (fo=30473, unset)        1.689     6.689                         u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/WCLK
+    SLICE_X45Y152        RAMD64E                                      r  rob                  u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/CLK
+                         clock pessimism              0.108     6.797                           
+                         clock uncertainty           -0.035     6.762                           
+    SLICE_X45Y152        RAMD64E (Setup_A6LUT_SLICEM_CLK_I)
+                                                     -0.137     6.625    rob                    u_rob/g_ft[3].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA
+  -------------------------------------------------------------------
+                         required time                          6.625                           
+                         arrival time                          -7.660                           
+  -------------------------------------------------------------------
+                         slack                                 -1.035                           
+
+
+
+

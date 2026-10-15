@@ -1,0 +1,14 @@
+s2_wakeup_loop         slack   3.643 levels  1 logic 0.249 net 1.551  g_core[0].u_core/u_s2/wake_reg_q_reg[22]/C -> g_core[0].u_core/u_s2/u_wake/g_one.w_q_reg[22]/D
+s2_issue               slack   1.865 levels  3 logic 0.641 net 2.899  g_core[0].u_core/u_s2/g_q[4].u_iq/g_late.grant_q_reg[4]/C -> g_core[0].u_core/u_s2/iss_payload_o_reg[4][52]/D
+s3_alu_loop            slack   0.622 levels  8 logic 1.285 net 3.459  g_core[0].u_core/u_s3/ex_sel_q_reg[0][0][0]/C -> g_core[0].u_core/u_s3/res_q_reg[0][58]/D
+s3_rf_read             slack   0.843 levels  2 logic 0.523 net 4.026  g_core[0].u_core/u_fill/g_tile[82].in_q_reg[2]/C -> g_core[0].u_core/u_s3/rf_q_reg[6][60]/D
+s4_m2                  slack   0.100 levels  7 logic 1.349 net 3.719  g_core[0].u_core/u_s4/m2_tag_q_reg[7][2]/C -> g_core[0].u_core/u_s4/ld_data_o_reg[60]/S
+s4_ag_bram             slack   0.860 levels  4 logic 0.688 net 3.459  g_core[0].u_core/u_fill/g_tile[113].in_q_reg[3]/C -> g_core[0].u_core/u_s4/g_way[4].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_byte_narrow.for_mem_cols[1].mem_reg/ADDRARDADDR[14]
+s4_dtlb                slack   0.547 levels  7 logic 0.999 net 4.020  g_core[0].u_core/u_s4/m1_va_q_reg[37]/C -> g_core[0].u_core/u_s4/m2_ppn_q_reg[19]/D
+s5_nextpc              slack   1.019 levels  7 logic 1.076 net 3.308  g_core[0].u_core/u_s5/fpc_q_reg[5]/C -> g_core[0].u_core/u_s5/fpc_q_reg[12]/D
+s5_icache_addr         slack   0.441 levels  7 logic 1.188 net 3.372  g_core[0].u_core/u_s5/fpc_q_reg[5]/C -> g_core[0].u_core/u_s5/g_way[0].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_1/ADDRARDADDR[10]
+s5_if3                 slack   0.194 levels  8 logic 1.282 net 3.631  g_core[0].u_core/u_s5/if3_start_q_reg[0]/C -> g_core[0].u_core/u_s5/u_cmp/g_bank[0].u_ram/g_m32.g_prim[3].u_ram/RAMA/WE
+l2_resp                slack   2.235 levels  1 logic 0.268 net 2.785  u_l2/cin_q_reg[1][6]/C -> u_l2/c_out_reg[1][207]/D
+l2_uram                slack   1.766 levels  1 logic 0.404 net 2.443  u_l2/cin_q_reg[1][6]/C -> u_l2/g_bank[1].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_uram_9/CAS_IN_ADDR_A[6]
+core_l2_bus            slack   3.507 levels  0 logic 0.114 net 1.834  g_core[1].u_core/u_fill/g_tile[169].tq_reg[169][14]/C -> to_l2_q_reg[1][227]/D
+filler                 slack   0.512 levels  4 logic 0.802 net 4.060  g_core[0].u_core/u_fill/g_tile[791].in_q_reg[12]/C -> g_core[0].u_core/u_fill/g_tile[791].tq_reg[791][9]/D

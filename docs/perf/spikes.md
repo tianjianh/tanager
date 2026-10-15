@@ -485,6 +485,25 @@ Named paths, slack in ns (the worst over both cores):
 - **Verdict:** `IRF_URAM = 1` does not close 200 MHz in the v1 full chip as built: keep `IRF_URAM = 0`. A floorplan that puts each core's issue and execute logic against its UltraRAM region could recover part of the 5 ns, but the grant still has to reach a fixed column in one cycle, and tg_exec alone had only +0.002 to +0.019 ns out of context.
 - Peak memory 11.1 GB (20 declared).
 
+### 8.2 Floorplanning the real core (2026-10-15)
+
+**Question (the core track's floorplan brief):** the whole st core misses 200 MHz out of context by 5–7 ns, with wire at 65–75% of every deep path. Do per-unit pblocks shorten that wire?
+
+**Method:** [`fp_core.tcl`](../../fpga/spikes/tcl/fp_core.tcl) opens the core track's routed checkpoint of `tg_core` (st at 6d0523e, its unit timing flow: DR-113's settings, one clock from a BUFGCE in X1Y2; WNS −5.464 ns), clears placement and routing, applies a floorplan, then places, routes and reports the core track's path families. The floorplans use [`fp_lib.tcl`](../../fpga/spikes/tcl/fp_lib.tcl): pblocks by clock-region column and CLB row.
+- **XCK26 regions (3 × 4), per region:** X0 has 11,040 LUTs and 144 DSPs and no block RAM; X1 has 8,640 LUTs, 12 RAMB36 and 144 DSPs; X2 has 9,600 LUTs, 24 RAMB36, 16 URAM and 24 DSPs.
+
+| Floorplan | WNS ns | Failing endpoints | Cross-unit paths in the 2,000 worst | Median levels | Wire per hop (median) |
+|---|---|---|---|---|---|
+| none (re-placed: the control) | −5.353 | 31,750 of 110K | 707 | 25 | 0.233 ns |
+| compact: the whole core in X1Y1:X2Y3 (78% full) | −5.235 | 31,650 | 409 | 26 | 0.216 ns |
+| units: one pblock per unit after the brief's adjacency (62–78% full) | −5.536 | 30,826 | 379 | 26 | 0.228 ns |
+
+- **The worst paths are deep, not long.** In every run the 2,000 worst have a median of 25–26 logic levels (p90 28–29), with 0.22–0.23 ns of wire per hop and 0.14 ns of logic per level. Wire is 63–64% of the delay because every level adds a hop. S6's paths that close at 200 MHz have 7 levels at 0.31–0.44 ns per hop, so their hops are longer.
+- **So floorplanning moves WNS by ±0.2 ns** (the control itself is 0.1 ns from the core track's run). At about 0.36 ns per level a 5 ns cycle holds about 12 levels, so 200 MHz needs the deep families at about half their depth.
+- **Per-unit pblocks halve the cross-unit paths among the worst** (707 → 379), but most of the worst endpoints are inside one unit: in the control, 756 are in fetch and 537 in the LSU, of 2,000.
+- **The core track's conclusion (core-2):** restructure the deep families and choose pipeline cuts (DR-135, DR-137). No more floorplan variants for now; a placement check follows once a family's levels come down.
+- Results: `fpga/spikes/results/fp_st_{none,compact,units}/` (summary, `paths.tsv`, family reports, per-pblock utilisation).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
@@ -649,6 +668,8 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - The synthetic filler is local wiring, hence the planning limit of 85% with a ceiling of 88–90%.
   - **At 180 MHz with wakeup tags** ([area_synth.md](area_synth.md) §5; measurements only, since a 180 MHz target is the user's decision, DR-137): v1 closes at 93.4% and 95.3% fill, v2 at 90.0%, 94.2% and 96.0%, all with +0.05 to +0.14 ns and no trend with fill. The limits are S3's ALU loop, S5's IF2 → IF3 step and S4's M2 stage, not the scheduler and not congestion. So at 180 MHz v1 fits at least 111.6K LUTs (95.3%), against about 103K (88%) at 200 MHz.
   - **Without tags, v1 did not route at 93.4%** in over 2 hours; with tags the same fill routed in 15 minutes. Tags matter for routability as well as for LUTs.
+  - **At five clocks** ([area_synth.md](area_synth.md) §5.1, 2026-10-15; measurements for the user's clock decision, DR-137): v1 with tags closes the whole device (99.3%, 116.3K LUTs) at 150, 160, 170 and 180 MHz, and about 94% at 200 MHz (93.4% closes by +0.037 ns; 95.3% misses by 0.037 on a harness path). A lower clock buys about 7K LUTs, all of it by 180 MHz.
+- **Floorplanning the real core (§8.2, 2026-10-15).** Neither a compact block nor one pblock per unit closes the st core at 200 MHz (−5.235 and −5.536 ns against −5.353 re-placed without pblocks). Its worst paths are 25–26 levels deep at only 0.23 ns of wire per hop, so 200 MHz needs about half the depth, not shorter wires.
 - **min/max off the 1-cycle ALU.** With them, 2 ALUs had +0.014 ns under the pblock and 3 ALUs failed (−0.086). Without them the 2-ALU loop has +0.47 and 3 ALUs close.
 - **The real core's first synthesis (82.5K LUTs, st).** Seven PMP checkers take 21.8K of it, a quarter of the core. Keeping the hierarchy alone took 5.5K off the flattened 88K.
 
@@ -689,8 +710,12 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - Never edit a running bash script: hand over to a new runner instead.
   - **Memory, not slots, is the limit (2026-10-14).** A synthesis with the hierarchy kept forks one Vivado process per thread, so a job's memory is the parent plus its children. Two full-device S6 runs (8–10 GB each) and a budget synthesis with 8 threads (14.5 GB) exhausted the host, and the kernel killed an S6 run (rc 137) after 19 minutes of thrashing. The spike flow now synthesises with 2 threads (`TANAGER_SYNTH_THREADS`), and the workers declare 15 GB per S6 run and 4 GB per out-of-context run to `vivado_run.sh`. The 15 is measured: sampled over the whole process tree, an S6 synthesis at 90–96% fill peaks at 12.9–14.3 GB, while Vivado's log, which shows only the parent, suggested 10 ([area_synth.md](area_synth.md) §6).
   - A worker that is killed leaves its Vivado job running: adopt it or kill the job by its own PIDs, never by a pattern your own shell's command line also matches.
+  - A worker's job count must count jobs, not processes: a running `vivado_run.sh` forks subshells with the same command line, and counting those held the track to one job at a time (2026-10-15).
 - **Disk.** Verilator objects reached 4.2 GB; tests now keep only their logs.
 - **S1 on the board.** A clock request just below the reachable rate rounds down a whole divider step (100 MHz asked as 99,999,001 Hz gave 90.9 MHz); ask for the round number and check the measured clock. And a test's own write stream can corrupt the data its latency probe walks: keep them in disjoint pages.
 - **Primitive models.** Hand-written models of vendor primitives can share the author's misreading. The DSP48E2 mapping ran on the vendor's own model under Icarus, which Verilator cannot compile, and found that the 48-bit carry out means "no borrow".
-- **Reports.** `report_utilization -hierarchical` hides instances under 50 cells by default, which silently dropped half the price run's instances.
+- **Reports.**
+  - `report_utilization -hierarchical` hides instances under 50 cells by default, which silently dropped half the price run's instances.
+  - `report_utilization -pblocks` takes one pblock: given seven, it failed a floorplan run after routing. The floorplan flow now writes the routed checkpoint before any report.
+  - On UltraScale a LUT's `PRIMITIVE_GROUP` is `CLB`, so filters on `PRIMITIVE_GROUP == LUT` match nothing (S6's per-block region counts were empty); `PRIMITIVE_TYPE =~ CLB.LUT.*` and `CLB.LUTRAM.*` work.
 - **Synthesis counts are not placed counts for shift registers.** Before placement each SRL16E takes a LUT; placement pairs them, so a 16-deep shift-register FIFO costs half of what the synthesis count says.
