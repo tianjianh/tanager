@@ -158,9 +158,24 @@ class Side:
     def built(self):
         return os.path.exists(self.bin)
 
+    def hold(self):
+        """A shared lock on this build for the rest of the check, and the build marked as used. Another
+        worktree's check prunes the cache by taking the lock exclusively without waiting, so it skips a
+        build that a check holds (it once removed one between this check's look and its first run)."""
+        os.makedirs(os.path.dirname(self.dir), exist_ok=True)
+        self._lk = open(self.dir + ".lock", "a")
+        fcntl.flock(self._lk, fcntl.LOCK_SH)
+        if os.path.isdir(self.dir):
+            os.utime(self.dir)
+
+    def release(self):
+        if getattr(self, "_lk", None):
+            self._lk.close()  # closing the file drops the lock
+            self._lk = None
+
     def build(self, jobs):
         os.makedirs(os.path.dirname(self.dir), exist_ok=True)
-        with open(self.dir + ".lock", "w") as lk:
+        with open(self.dir + ".lock", "a") as lk:
             fcntl.flock(lk, fcntl.LOCK_EX)  # another check may be building the same tree
             if self.built():
                 return None
@@ -208,38 +223,57 @@ class Side:
 
 
 def build_all(sides, jobs, cfg):
-    need = list({s.key: s for s in sides if not s.built()}.values())
+    """Holds every build the check uses (Side.hold) and builds the missing ones. The sides of one key
+    share a Side's lock: flock conflicts between two open files even in one process."""
+    uniq = {}
+    for s in sides:
+        uniq.setdefault(s.key, s)
+    for s in uniq.values():
+        s.hold()
+    need = [s for s in uniq.values() if not s.built()]
     if need:
         t0 = time.time()
         each = max(1, jobs // len(need))
         log(f"[{cfg}] building {', '.join(f'{s.kind} for {s.name}' for s in need)} (-j{each} each)...")
+        for s in need:
+            s.release()  # building takes the lock exclusively
         with cf.ThreadPoolExecutor(max_workers=len(need)) as ex:
             errs = list(ex.map(lambda s: s.build(each), need))
         for s, e in zip(need, errs):
             if e:
                 fail(f"[{cfg}] {s.kind} for {s.name}: {e}")
+            s.hold()
         log(f"[{cfg}] built in {time.time() - t0:.0f} s")
-    for s in sides:
-        os.utime(s.dir)  # most recently used
 
 
 def prune_builds(keep_keys):
-    """Keep the KEEP_BUILDS most recently used builds, and any used in the last hour: a check marks its
-    builds when it starts, so a running check never loses its binary."""
+    """Keep the KEEP_BUILDS most recently used builds, any used in the last hour, and any that a running
+    check holds (Side.hold): a build is removed only under its lock, taken exclusively without waiting,
+    and only if it was not used since the listing. Lock files stay: removing one would let two checks
+    lock different files of the same name."""
     bdir = os.path.join(CACHE, "build")
-    dirs = [d for d in os.listdir(bdir) if os.path.isdir(os.path.join(bdir, d))]
-    dirs.sort(key=lambda d: os.path.getmtime(os.path.join(bdir, d)), reverse=True)
-    for d in dirs[KEEP_BUILDS:]:
-        if d in keep_keys or time.time() - os.path.getmtime(os.path.join(bdir, d)) < 3600:
+    age = lambda d: time.time() - os.path.getmtime(os.path.join(bdir, d))
+    ages = {}
+    for d in os.listdir(bdir):
+        try:
+            if os.path.isdir(os.path.join(bdir, d)):
+                ages[d] = age(d)
+        except FileNotFoundError:
+            pass  # another check's prune removed it meanwhile
+    for d in sorted(ages, key=ages.get)[KEEP_BUILDS:]:
+        if d in keep_keys:
             continue
-        lock = os.path.join(bdir, d + ".lock")
-        with open(lock, "w") as lk:
+        with open(os.path.join(bdir, d + ".lock"), "a") as lk:
             try:
                 fcntl.flock(lk, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
+                continue  # held or being built
+            try:
+                if age(d) < 3600:
+                    continue
+            except FileNotFoundError:
                 continue
             shutil.rmtree(os.path.join(bdir, d), ignore_errors=True)
-        os.remove(lock)
 
 
 # ---- Programs: (suite, name, kind, payload); payload (elf, args) for vsim, (plusargs, files) for boot ----
