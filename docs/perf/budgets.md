@@ -174,6 +174,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
 | 44767a1 | register slices in DSPs (DR-136): the crossbar's, the memory paths' AR, AW, W and R, the L2 banks' R; 83 DSPs; cycle-identical | 18,047 | 18,603 | 16,092 | **18** |
 | ca1aece | L2: the S2 restructure for 200 MHz (A + B + D, DR-137; +129 to +181 LUTs per bank), the injector's late select; cycle-identical | 18,359 | 18,903 | 16,190 | **18** |
+| cd1f584 | `UNCORE_DSP` defaults to the sites that meet 200 MHz as DSPs (21 DSPs: −373 LUTs and −767 FFs against all fabric at `st`, 19,604; +872 against every site in DSPs), the ACLINT's compares in DSPs (−62), the injector's head slot (+32); cycle-identical | 19,231 | 19,664 | 18,249 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
@@ -229,6 +230,7 @@ The default is `64'h84_0308_0000`, with 21 DSPs at the sites, plus 4 for the ACL
 | the first default | 19,441 (−484) | 18,097 (−1,095) | 32 | −0.858 ns | −961 ns (2,771) |
 
 - Neither run's worst path is a DSP site. Both are the L2's AR handshake or S2, as in the all-fabric runs.
+- In the budget flow (cd1f584, `st`), all fabric is 19,604 LUTs, 18,740 FFs and 5 DSPs, and the default is 19,231 LUTs, 17,973 FFs and 26 DSPs: the default saves 373 LUTs and 767 FFs for its 21 site DSPs. Every site in DSPs saved about 1,390 at 44767a1, so the per-site check gives back about 1,020 LUTs to hold 200 MHz at the sites.
 
 **By block** (smt2, 059a572):
 
