@@ -770,10 +770,10 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - `bext` from the rotator: +1;
   - the tree count in the Zbb unit: +77, because with `-flatten none` synthesis can no longer fold the bit-reverse multiplexer into the count.
 - **What is left is structural:** the register file (2,568: 9 read ports over 3 banks), two ALUs (≈1.17K each), the divider (1,315), and an 8-source bypass.
-- **Options that cost IPC** (report only):
+- **Options that cost IPC** (estimates, not proposed): each needs the core's issue logic to change, so neither has a measured cycle cost. Execute is under its budget since step 3, so neither goes on the reserve list (DR-135: only the user adopts a lever that moves a cycle, one at a time, on its measured cost per suite):
   - dropping the write-back level from the load/store base bypass: about −128 LUTs;
-  - unary and single-bit Zbb/Zbs ops on one ALU only: about −200 to −300;
-  - the trace read ports, which are the coordinator's reserve: −584.
+  - unary and single-bit Zbb/Zbs ops on one ALU only: about −200 to −300.
+- **The trace read ports** move no cycle; dropping them is DR-121's reserve: −584.
 
 **DR-123, FPGA-native pass** (P4 and Execute, 2026-10-14, zero IPC).
 - **Method:**
