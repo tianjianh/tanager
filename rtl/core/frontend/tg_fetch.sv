@@ -7,6 +7,9 @@
 //     prediction is checked against the pre-decode marks: an exit slot that is not the last
 //     parcel of a branch or jump is dropped (the block continues sequentially, the next block
 //     is refetched, and the entry is invalidated). A miss parks fetch; the refill restarts it.
+//     F2's actions on F1 (park on a miss, refetch, stop after a fault block) are registered: they
+//     take effect a cycle later and drop the blocks F1 and F2 took meanwhile. A miss's refill and
+//     an ITLB miss's walk start from the registered decision, as early as before.
 // F3: tg_fetch_compact (spike S5) writes whole instructions into the queue.
 // One l1i Get is outstanding at a time (the plan's 4 MSHRs and prefetch are M6). A fetch from
 // a PC above PA_W or outside PMA_MEM/PMA_ROM, or a denied refill, produces a one-instruction
@@ -215,6 +218,14 @@ module tg_fetch
   logic [SLOT_W-1:0] f2_slot_q;
   logic [WAYS-1:0]   f2_wv_q;                 // valid bits of the set, read in F1
   logic [WAYS-1:0][TAG_W-1:0] f2_tag_q;
+  // F2's action on its block, registered (ka_q): park on an I$ miss (k_miss_q) or an ITLB miss
+  // (k_walk_q), stop after a fault block (k_stop_q), else refetch: at the PMP cut (k_cut_q, fp_q),
+  // the next block after a dropped prediction (k_ovr_q), or the block itself (its line was
+  // installed meanwhile). The blocks F2 and F1 hold in that cycle came after it: dropped.
+  logic              ka_q, k_miss_q, k_walk_q, k_stop_q, k_cut_q, k_ovr_q;
+  logic [SLOT_W-1:0] fp_q;
+  logic              f2v;                     // F2 holds a block it has not acted on
+  assign f2v = f2_valid_q && !ka_q;
 
   logic [WAYS-1:0] way_hit;
   logic [127:0]    blk;
@@ -235,8 +246,8 @@ module tg_fetch
   logic        f2_cache_hit, f2_bfault, f2_isfault, f2_miss, f2_wmiss;
   assign f2_bfault    = f2_fault_q || (!f2_tm_q && fline_v_q && f2_pa_q[PA_W-1:6] == fline_q);
   assign f2_cache_hit = |way_hit;
-  assign f2_wmiss     = f2_valid_q && f2_tm_q && !f2_bfault;
-  assign f2_miss      = f2_valid_q && !f2_tm_q && !f2_bfault && !f2_cache_hit;
+  assign f2_wmiss     = f2v && f2_tm_q && !f2_bfault;
+  assign f2_miss      = f2v && !f2_tm_q && !f2_bfault && !f2_cache_hit;
 
   // Pre-decode over the whole block, from the entry point
   logic [NP-1:0][15:0] parcel;
@@ -281,7 +292,7 @@ module tg_fetch
     pmp_e = 1'b0;
     pmp_hi = 1'b0;
     pmp_cut = 1'b0;
-    if (f2_valid_q && !f2_tm_q && !f2_bfault && f2_cache_hit) begin
+    if (f2v && !f2_tm_q && !f2_bfault && f2_cache_hit) begin
       if (carry_q && f2_pc_q[SLOT_W:1] == '0 && dslot[0]) begin
         pmp_e = 1'b1;                              // the carried instruction's second half
       end else if (fp_v) begin
@@ -337,10 +348,11 @@ module tg_fetch
     .blk_ready, .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
   // ---- Pipeline control ----
-  // F2 delivers when it is valid, not missing, and F3 can take the block.
+  // F2 delivers when it is valid, not missing, and F3 can take the block. It holds while F3
+  // cannot, missing or not: its action is registered anyway.
   logic f2_deliver, f2_hold;
-  assign f2_deliver = f2_valid_q && !f2_miss && !f2_wmiss && f3_accept;
-  assign f2_hold    = f2_valid_q && !f2_miss && !f2_wmiss && !f3_accept;
+  assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept;
+  assign f2_hold    = f2v && !f3_accept;
   // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
   // PMP descriptors, the valid-bit sweep or its own PMP check (f1_pwait).
   logic f1_base, f1_live, ivs_done;
@@ -349,11 +361,23 @@ module tg_fetch
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
   assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
-  assign iw_req = wk_q && !wk_sent_q;
+  logic am_go, aw_go;                    // F2's miss or ITLB miss of last cycle parks fetch now
+  assign am_go  = ka_q && k_miss_q;
+  assign aw_go  = ka_q && k_walk_q;
+  assign iw_req = (wk_q && !wk_sent_q) || aw_go;
   assign iw_va  = miss_pc_q;
-  assign f2_inval     = f2_override;
-  assign f2_inval_pc  = f2_pc_q[38:4];
-  assign f2_inval_way = f2_way_q;
+  // The micro-BTB entry of a dropped prediction is invalidated a cycle later
+  logic        ainv_q, ainv_way_q;
+  logic [38:4] ainv_pc_q;
+  always_ff @(posedge clk) begin
+    if (rst) ainv_q <= 1'b0;
+    else     ainv_q <= f2_override;
+    ainv_pc_q  <= f2_pc_q[38:4];
+    ainv_way_q <= f2_way_q;
+  end
+  assign f2_inval     = ainv_q;
+  assign f2_inval_pc  = ainv_pc_q;
+  assign f2_inval_way = ainv_way_q;
 
   // ---- Refill engine (one Get at a time) ----
   typedef enum logic [1:0] { R_IDLE, R_REQ, R_DATA } rstate_e;
@@ -383,7 +407,7 @@ module tg_fetch
   logic [SET_W:0]        ivs_q;             // sweep: the next set to clear; done at SETS
   logic                  r_start;           // the refill of miss_pa_q's line starts
   assign ivs_done = ivs_q[SET_W];
-  assign r_start  = rs_q == R_IDLE && miss_q && !rst;
+  assign r_start  = rs_q == R_IDLE && (miss_q || am_go) && !rst;
   assign iv_ra[0] = fpc_q[6 +: SET_W];
   assign iv_ra[1] = (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
@@ -447,7 +471,7 @@ module tg_fetch
       fline_v_q <= 1'b0;
     end else begin
       unique case (rs_q)
-        R_IDLE: if (miss_q) begin
+        R_IDLE: if (miss_q || am_go) begin
           rs_q      <= R_REQ;
           rline_q   <= miss_pa_q[PA_W-1:6];
           rway_q    <= victim;
@@ -498,6 +522,7 @@ module tg_fetch
       carry_q    <= 1'b0;
       f2_valid_q <= 1'b0;
       f3_valid_q <= 1'b0;
+      ka_q       <= 1'b0;
     end else if (redirect) begin
       f1_valid_q <= 1'b1;
       fpc_q      <= flush ? flush_pc : dred_pc;
@@ -510,16 +535,16 @@ module tg_fetch
       carry_q    <= 1'b0;
       f2_valid_q <= 1'b0;
       f3_valid_q <= 1'b0;
+      ka_q       <= 1'b0;
     end else begin
       // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
       if (f1_base && f1_pwait) begin
         pw_q    <= 1'b1;
         pw_pa_q <= f1_pa[PA_W-1:4];
       end
-      // F3
+      // F3: the data registers take whatever block F2 offers; only the valid bit waits for its hit
       if (f3_accept) f3_valid_q <= 1'b0;
-      if (f2_deliver) begin
-        f3_valid_q  <= 1'b1;
+      if (f2v && f3_accept) begin
         f3_parcel_q <= f2_isfault ? '0 : parcel;
         f3_start_q  <= blk_start;
         f3_marks_q  <= blk_marks;
@@ -527,46 +552,35 @@ module tg_fetch
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: f2_slot_q,
                          target: f2_tgt_q, fault: f2_isfault, fpf: f2_bfault && f2_fpf_q,
                          fhi: !f2_bfault && pmp_hi};
+      end
+      if (f2_deliver) begin
+        f3_valid_q  <= 1'b1;
         carry_q     <= blk_carry;
         if (f2_isfault) stop_q <= 1'b1;
       end
-      // F2 <- F1
-      if (f2_miss && ((refill_done && f2_pa_q[PA_W-1:6] == rline_q) ||
-                      (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q))) begin
-        // The line was installed this cycle or while F1 read the tags: fetch it again rather
-        // than refilling it twice.
+      // F2 <- F1, unless F2 acted last cycle
+      if (ka_q) begin
         f2_valid_q <= 1'b0;
-        f1_valid_q <= 1'b1;
-        fpc_q      <= f2_pc_q;
-        pw_q       <= 1'b0;
-      end else if (f2_miss) begin
-        // Park on the missed block; the refill restarts fetch there (carry_q is kept).
-        miss_q     <= 1'b1;
-        miss_pc_q  <= f2_pc_q;
-        miss_pa_q  <= f2_pa_q;
-        f2_valid_q <= 1'b0;
-        f1_valid_q <= 1'b0;
-      end else if (f2_wmiss) begin
-        // ITLB miss: park and walk; the walk's end restarts fetch here
-        wk_q       <= 1'b1;
-        wk_sent_q  <= 1'b0;
-        miss_pc_q  <= f2_pc_q;
-        f2_valid_q <= 1'b0;
-        f1_valid_q <= 1'b0;
-      end else if (f2_deliver && pmp_cut) begin
-        // A later instruction touches a PMP-denied word: fetch it as its own block
-        f2_valid_q <= 1'b0;
-        f1_valid_q <= 1'b1;
-        fpc_q      <= {f2_pc_q[63:4], fp, 1'b0};
-        pw_q       <= 1'b0;
-      end else if (f2_override) begin
-        // Drop the prediction: F1 holds the predicted target; fetch the next block instead.
-        f2_valid_q <= 1'b0;
-        f1_valid_q <= 1'b1;
-        fpc_q      <= {f2_pc_q[63:4] + 60'd1, 4'b0};
-        pw_q       <= 1'b0;
+        if (k_miss_q) begin
+          // Park on the missed block; the refill restarts fetch there (carry_q is kept).
+          miss_q     <= 1'b1;
+          f1_valid_q <= 1'b0;
+        end else if (k_walk_q) begin
+          // ITLB miss: park and walk; the walk's end restarts fetch here
+          wk_q       <= 1'b1;
+          wk_sent_q  <= 1'b0;
+          f1_valid_q <= 1'b0;
+        end else if (!k_stop_q) begin
+          // Refetch: a later instruction touches a PMP-denied word (fetched as its own block); the
+          // prediction was dropped (the next block); or the line was installed while F2 missed it
+          // (the block again, rather than refilling it twice)
+          f1_valid_q <= 1'b1;
+          fpc_q      <= k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
+                      : k_ovr_q ? {miss_pc_q[63:4] + 60'd1, 4'b0} : miss_pc_q;
+          pw_q       <= 1'b0;
+        end
       end else if (f2_go) begin
-        f2_valid_q <= f1_live && !(f2_deliver && f2_isfault);
+        f2_valid_q <= f1_live;
         f2_pc_q    <= fpc_q;
         f2_pa_q    <= f1_pa;
         f2_fault_q <= f1_fault;
@@ -584,15 +598,28 @@ module tg_fetch
           pw_q  <= 1'b0;
         end
       end
-      // Restart after the refill
-      if (miss_q && refill_done && !f2_miss) begin
+      // F2's action on this cycle's block, taken next cycle; miss_pc_q and miss_pa_q name the block
+      ka_q     <= f2_miss || f2_wmiss || (f2_deliver && (pmp_cut || f2_override || f2_isfault));
+      k_miss_q <= f2_miss && !((refill_done && f2_pa_q[PA_W-1:6] == rline_q) ||
+                               (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q));
+      k_walk_q <= f2_wmiss;
+      k_stop_q <= f2_deliver && f2_isfault;
+      k_cut_q  <= pmp_cut;
+      k_ovr_q  <= f2_override;
+      fp_q     <= fp;
+      if (f2v) begin
+        miss_pc_q <= f2_pc_q;
+        miss_pa_q <= f2_pa_q;
+      end
+      // Restart after the refill (F2 holds nothing then; a registered miss parks in this cycle)
+      if ((miss_q || am_go) && refill_done) begin
         miss_q     <= 1'b0;
         f1_valid_q <= 1'b1;
         fpc_q      <= miss_pc_q;
         pw_q       <= 1'b0;
       end
       // Restart after the walk (a fault: the page's blocks fault until a redirect)
-      if (wk_q && iw_ack) wk_sent_q <= 1'b1;
+      if ((wk_q || aw_go) && iw_ack) wk_sent_q <= 1'b1;
       if (wk_q && wk_sent_q && iw_done) begin
         wk_q       <= 1'b0;
         f1_valid_q <= 1'b1;
@@ -662,11 +689,12 @@ module tg_fetch
                      (fpc_q[5:4] < rbeat_q || (fpc_q[5:4] == rbeat_q && rf_we));
       stale_way_q <= rway_q;
     end
-    if (!rst && f2_valid_q && stale_q)
+    if (!rst && f2v && stale_q)
       assert (!way_hit[stale_way_q]) else $error("tg_fetch: I$ hit on a row the refill rewrote");
   end
   always_ff @(posedge clk) begin
-    if (!rst && f2_valid_q && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
+    if (!rst && f2v && !f2_isfault) assert ($onehot0(way_hit)) else $error("tg_fetch: multiple way hits");
+    if (!rst && (miss_q || am_go || wk_q)) assert (!f2v) else $error("tg_fetch: F2 holds a block while fetch is parked");
   end
 `endif
 endmodule
