@@ -48,8 +48,10 @@ module tg_exec
   // Issue (RF stage)
   input  logic [N_XQ-1:0]              iss_valid,
   input  iq_pl_t [N_XQ-1:0]            iss_pl,
-  // IS: the ALU queues' selected sources ({src1, src2}), the URAM read address (IRF_URAM)
-  input  preg_t [N_ALU-1:0][1:0]       iss_src_d = '0,
+  // IS (tg_issue, DR-133): the source tags of the row each ALU queue grants now (RF's a cycle
+  // later), the URAM read address with IRF_URAM; unconnected until the core wires them
+  input  preg_t [N_ALU-1:0]            is_src1 = '0,
+  input  preg_t [N_ALU-1:0]            is_src2 = '0,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -146,10 +148,10 @@ module tg_exec
       assign alu_rd[i][1]   = rd_data[2*i+1];
     end
     logic unused_isd;
-    assign unused_isd = ^iss_src_d;
+    assign unused_isd = ^{is_src1, is_src2};
   end else begin : g_uram
     // UltraRAM copies, one per bank and ALU operand port, written like the banks and read with
-    // the source tags of IS (iss_src_d), so the data arrives in RF as tg_irf's does. The URAM
+    // the source tags of IS (is_src1/is_src2), so the data arrives in RF as tg_irf's does. The URAM
     // read is read-first, so a write in the cycle before RF is taken from that write's
     // registers instead (the LUTRAM banks show it to an RF read).
     logic [INT_BANKS-1:0]             pw_we_q;
@@ -166,7 +168,7 @@ module tg_exec
         for (genvar b = 0; b < INT_BANKS; b++) begin : g_b
           tg_ram_sdp #(.DEPTH(INT_PREGS_PER_BANK), .WIDTH(64), .PRIM("ultra")) u_ur (
             .clk, .we(rf_we[b]), .waddr(rf_wa[b]), .wdata(rf_wd[b]),
-            .re(1'b1), .raddr(preg_idx(iss_src_d[i][o])), .rdata(urd[b]));
+            .re(1'b1), .raddr(preg_idx(o ? is_src2[i] : is_src1[i])), .rdata(urd[b]));
         end
         // One encoded select per bit: the source's bank, or that bank's write of the cycle before
         // (picked once per port), so a bit is a 4:1 (with three banks) after a 3:1.
