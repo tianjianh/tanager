@@ -249,7 +249,7 @@ int main(int argc, char** argv) {
     r.priv = uint8_t(s->prv);
     r.pc = s->pc;
     uint32_t bits = 0;
-    spike_fetch(p, s->pc, bits);
+    spike_fetch(p, s->pc, bits, true);  // what this Spike's step will execute
 
     // Platform interrupt levels; the SIG's SEIP and SSIP only on a change.
     if (++steps_total % o.mtime_div == 0) mtime++;
