@@ -9,7 +9,10 @@ that some run reached, and the ones none did.
 A point is a line block or one combination of an expression's terms (Verilator's --coverage-expr,
 for example "(we[1]==1 && wa[1]==wa[0]) => 1"); its count is the sum over every instance and run.
 Points that no program can reach are counted apart: combinations of constants only (a parameter,
-an elaboration-time comparison) and the failing side of assertions. --save keeps the merged counts;
+an elaboration-time comparison) and the failing side of assertions. So are points Verilator cannot
+measure: on a line whose branch was taken while none of its "=> 1" combinations was ever counted,
+which happens when the expression reads a variable its own block reassigns inside the branch
+(Verilator samples the terms afterwards); they are listed apart. --save keeps the merged counts;
 --compare prints, per file, how a later campaign moved them, and the points it newly reached.
 """
 import argparse
@@ -33,7 +36,7 @@ def points_of(path):
                     k, v = item.split("\x02", 1)
                     kv[k] = v
             f_ = kv.get("f", "?")
-            m = re.search(r"(rtl/.*)$", f_)
+            m = re.search(r"/((?:rtl|sim)/.*)$", f_)
             yield (m.group(1) if m else f_, int(kv.get("l", 0)), kv.get("n", ""), kv.get("t", ""),
                    kv.get("o", "")), int(count)
 
@@ -62,6 +65,42 @@ def unreachable(key, src_line):
         return False
     terms = SIZED.sub("", key[4].split("=>")[0])
     return all(t.isupper() or t.startswith("tg_") for t in IDENT.findall(terms))
+
+
+def if_condition(src):
+    """The condition of the if statement on a source line ("" if there is none)."""
+    m = re.search(r"\bif\s*\(", src)
+    if not m:
+        return ""
+    depth, i = 1, m.end()
+    while i < len(src) and depth:
+        depth += {"(": 1, ")": -1}.get(src[i], 0)
+        i += 1
+    return src[m.end():i - 1]
+
+
+def terms(text):
+    return set(IDENT.findall(SIZED.sub("", text)))
+
+
+def unmeasured(total, src_line):
+    """Expression points Verilator cannot measure: an if was taken, yet none of the "=> 1"
+    combinations of its condition was ever counted. A taken if needs one of them, so the terms were
+    sampled after the block reassigned one inside the branch (tg_rob's ex_v and ex_r, for example).
+    Only combinations that share a term with the if's own condition count, so an expression in the
+    branch's body on the same line is left alone."""
+    by_line = defaultdict(list)
+    for k, c in total.items():
+        by_line[(k[0], k[1])].append((k, c))
+    out = set()
+    for (f, n), pts in by_line.items():
+        if not any(k[3] == "branch" and k[4] == "if" and c > 0 for k, c in pts):
+            continue
+        cond = terms(if_condition(src_line(f, n)))
+        ones = [k for k, c in pts if k[3] == "expr" and k[4].rstrip().endswith("=> 1")]
+        if ones and all(total[k] == 0 and cond & terms(k[4].split("=>")[0]) for k in ones):
+            out.update(ones)
+    return out
 
 
 def per_file(total, skip=lambda k: False):
@@ -123,14 +162,16 @@ def main():
         lines = src_cache[f]
         return lines[n - 1].strip() if 0 < n <= len(lines) else ""
 
+    blind = unmeasured(total, src_line)
+
     def skip(k):
-        return unreachable(k, src_line(k[0], k[1]))
+        return k in blind or unreachable(k, src_line(k[0], k[1]))
 
     files = per_file(total, skip)
     old = per_file(before, skip) if before else {}
-    nskip = sum(1 for k in total if skip(k))
+    nskip = sum(1 for k in total if skip(k) and k not in blind)
     print(f"coverage of {runs or 'saved'} run(s): {len(total)} points, {nskip} of them unreachable by construction "
-          f"(constants, assertions) and left out below")
+          f"(constants, assertions) and {len(blind)} not measurable, left out below")
     print(f"{'file':44s} {'lines':>11s} {'':>6s} {'expressions':>13s} {'':>6s}" + ("   before: lines, expressions" if old else ""))
     for f in sorted(files):
         l, lh, e, eh = files[f]
@@ -155,6 +196,10 @@ def main():
                 print(f"  {k[1]:5d} {k[3] or 'line':5s} {k[4][:70]:70s} | {src_line(f, k[1])[:80]}")
             if len(miss) > a.uncovered:
                 print(f"  ... {len(miss) - a.uncovered} more")
+    if blind:
+        print(f"\nnot measurable ({len(blind)}): the branch was taken, but the block reassigns a term")
+        for k in sorted(blind)[:a.uncovered]:
+            print(f"  {k[0]}:{k[1]} {k[4][:70]:70s} | {src_line(k[0], k[1])[:60]}")
     return 0
 
 

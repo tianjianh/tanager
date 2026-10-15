@@ -31,9 +31,9 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 
 ### 1.1 At 180 MHz: v2's budget, and v1's for reference
 
-D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that cost IPC. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at 90.0%, 94.2% and 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
+D18 puts IPC first: the no-IPC work, then a lower clock (about 180 MHz), then the levers that cost IPC. Lowering the clock is the user's decision (DR-137), so the 180 MHz figures here are references, not a plan. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at 90.0%, 94.2% and 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
 
-**v1 stays on its 200 MHz lines.** Moving them to 180 MHz would be the clock decision, which comes after D18 step 1 (the no-IPC work, DR-116). For reference only, v1 at 180 MHz and 95% would be:
+**v1 stays on its 200 MHz lines.** Moving them to 180 MHz would lower the target clock, which needs the user's approval (DR-137) and comes after D18 step 1 at the earliest (DR-116). For reference only, v1 at 180 MHz and 95% would be:
 
 | v1 (smt2) | 200 MHz (the budget) | 180 MHz at 95% (reference) |
 |---|---|---|
@@ -41,7 +41,7 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
 | Uncore | 10,800 | 10,800 |
 | Core | 46,120 | 50,230 |
 
-**v2 (smt2_w3) has its own lines at 180 MHz** (AR-9, DR-117; [area_recovery.md](area_recovery.md) §7.4): per core (110,280 − 10,800) / 2 = **49,740**, from the 94.2% fill with the uncore on budget. Each line is v1's plus the 3-wide increment:
+**v2 (smt2_w3) has its own lines at 180 MHz** (AR-9, DR-117; [area_recovery.md](area_recovery.md) §7.4): per core (110,280 − 10,800) / 2 = **49,740**, from the 94.2% fill with the uncore on budget. They assume v2 runs at 180 MHz, which is the user's decision (DR-137). Each line is v1's plus the 3-wide increment:
 
 | Unit | v1 (smt2) | v2 (smt2_w3) | Increment, and its source |
 |---|---|---|---|
@@ -172,7 +172,20 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 4d5ca13 | the same under DR-113's settings (`-flatten none -directive AreaOptimized_high`; the budget flow's settings for the uncore since e7227d4, as for the core) | 20,066 | 20,560 | 18,479 | **18** |
 | 11bf523 | crossbar: the caches' A-channel data, corrupt and mask as constants (−249, measured on fc1031e; cycle-identical) | ≈21,475 | ≈22,035 | | **18** |
 | e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
+| 44767a1 | register slices in DSPs (DR-136): the crossbar's, the memory paths' AR, AW, W and R, the L2 banks' R; 83 DSPs; cycle-identical | 18,047 | 18,603 | 16,092 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
+
+**The uncore at 200 MHz** (44767a1, st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip):
+
+| Run | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
+|---|---|---|---|---|---|
+| all slices in fabric, DR-113's settings | 19,796 | 19,057 | 1 | −1.779 ns | −4,146 ns (7,044) |
+| all slices in fabric, Vivado's default directive | 21,150 | 19,107 | 1 | −1.150 ns | −1,664 ns (3,962) |
+| slices in DSPs (the default), DR-113's settings | 18,465 | 16,056 | 84 | −2.004 ns | −7,964 ns (10,601) |
+
+- The worst paths are the L2's S2 decision into the directory's block RAM (14–23 levels) in every run. The latency injectors, the memory windows, the crossbar and the memory slices also fail by 0.4–1.8 ns.
+- `AreaOptimized_high` costs about 0.6 ns here for its 1.35K LUTs, and the DSP slices another 0.2 ns and about 3,500 failing endpoints: the slices behind the crossbar's arbiters (B −1.9, D −0.8 to −1.6, memory AR −1.3 to −1.5, A 0 and 1 −0.6 to −0.9 ns).
+- So the uncore needs timing work for 200 MHz with or without the DSPs. The board builds run at 60–100 MHz, where every slice has slack. The full-chip fit decides per site through `UNCORE_DSP`.
 
 **By block** (smt2, 059a572):
 
@@ -207,7 +220,7 @@ No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the 
 | Option | Saves (smt2) | Cost |
 |---|---|---|
 | Release build without the latency injectors and trace streaming (build parameters; verification and latency builds keep them) | ≈ 4.3K (stream 2.85K measured, injectors 1.5K) | no lockstep or latency sweeps on release bitstreams. The trace part is DR-121 (the user, 10-14): the last reserve lever, release bitstreams only. The injector part is still open |
-| Remove the interconnect and memory-port register slices | ≈ 2.4K | timing: 200 MHz at risk; per D18 a clock down to about 180 MHz comes before IPC cuts |
+| Remove the interconnect and memory-port register slices | ≈ 2.4K | timing: 200 MHz at risk; per D18 a lower clock (about 180 MHz, the user's decision, DR-137) comes before IPC cuts |
 | L2 MSHRs 24 → 16 per bank | ≈ 2.0K | IPC at the long latency points (the last resort under D18) |
 | L2 MSHRs 24 → 8 per bank | ≈ 3.9K | IPC (more) |
 | Raise the uncore budget to the measured floor (≈ 18K for a release build) | — | about 7K over 10.8K: v1 lands at about 94% of the XCK26 (110K) instead of 88%, unless the core or the reserve gives it back |

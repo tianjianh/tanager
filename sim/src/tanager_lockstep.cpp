@@ -1,0 +1,330 @@
+// tanager-lockstep: FPGA lockstep (plan §9 "FPGA lockstep"; docs/spec/verification.md §3.9). It checks the
+// commit trace that the uncore streams into DDR (docs/spec/uncore-trace.md: 64-byte records) against
+// Spike, record by record, with the simulation's checker (lockstep.cpp, §3). Spike starts at the boot ROM,
+// with the images that `tanager-host load` copies into the carve-out at the same RISC-V addresses.
+//
+//   mkfifo /tmp/tg.trace; tanager-lockstep --fw F --kernel K --dtb D /tmp/tg.trace &
+//   tanager-host boot --fw F --kernel K --dtb D --lossless --trace /tmp/tg.trace
+//   tanager-lockstep --fw F --kernel K --dtb D TRACE     (a trace recorded with `tanager-host run --trace TRACE`)
+//
+// It never touches the hardware: tanager-host owns the board (overlay guard, ring, TRS_RP, console),
+// and a checker that falls behind stalls the cores through the FIFO (uncore-trace.md, flow control). A
+// FIFO rather than `--trace -` and a pipe: tanager-host's stdout carries its messages and the console.
+// Exit status: 0 when every record matched; 2 at the first mismatch, after its report; 5 for a usage or
+// input error.
+#include <fcntl.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <chrono>
+#include <cinttypes>
+#include <cstring>
+#include <string>
+#include <vector>
+
+#include "common.h"
+#include "lockstep.h"
+#include "mem.h"
+#include "tanager_bootrom.h"  // generated from rtl/uncore/bootrom/tg_bootrom_img_pkg.sv (sim/Makefile)
+
+#ifndef TG_DEFAULT_ISA
+#define TG_DEFAULT_ISA "rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs"
+#endif
+
+using namespace tg;
+
+namespace {
+
+// docs/spec/soc.md §3 and tanager-host: where the images go, and the boot ROM (tg_map_pkg)
+constexpr uint64_t DRAM_BASE = 0x80000000ull, OFF_FW = 0x0, OFF_KERNEL = 0x200000, OFF_DTB = 0x2200000;
+constexpr uint64_t BOOTROM_BASE = 0x1000;
+constexpr size_t REC = 64;  // bytes per record in the ring
+
+struct opts_t {
+  std::string fw, kernel, dtb, input = "-";
+  std::string isa = TG_DEFAULT_ISA, priv = "MSU";
+  unsigned harts = 1, pmp = 16, history = 64;
+  uint64_t mem_mb = 768;          // the RISC-V window: the 1 GiB carve-out less tanager-host's 256 MiB ring
+  int64_t plant = -1;             // self-test: corrupt the first value-carrying record at or after this one
+  double stats = 10;              // seconds between progress lines (0: none)
+  uint64_t max = 0;               // stop after this many records (0: at the end of the input)
+  uint64_t stale = 10000000;      // a deferred writeback pending this many cycles is a mismatch
+};
+
+[[noreturn]] void usage() {
+  fprintf(stderr,
+          "usage: tanager-lockstep --fw F [--kernel K] [--dtb D] [options] [TRACE|-]\n"
+          "  checks a commit-trace stream (64-byte records, uncore-trace.md) against Spike, which starts at the\n"
+          "  boot ROM with the images at 0x8000_0000 (fw), +0x20_0000 (kernel) and +0x220_0000 (dtb)\n"
+          "  --isa=STR --priv=STR --harts=N --pmp=N   Spike's configuration (default %s, MSU, 1, 16)\n"
+          "  --mem-mb=N        the RISC-V DRAM window (default 768)\n"
+          "  --stats=S         a progress line every S seconds on stderr (0: none; default 10)\n"
+          "  --max=N           stop after N records\n"
+          "  --stale=N         a deferred writeback still pending after N cycles is a mismatch (default 10M)\n"
+          "  --plant=N         self-test: corrupt the value of the first value-carrying record at or after\n"
+          "                    record N (from 0); the run must stop there with a mismatch\n",
+          TG_DEFAULT_ISA);
+  exit(EXIT_HARNESS);
+}
+
+uint64_t num(const std::string& s, const char* what) {
+  char* end = nullptr;
+  errno = 0;
+  uint64_t v = strtoull(s.c_str(), &end, 0);
+  if (s.empty() || *end || errno) fatal("bad number for %s: '%s'", what, s.c_str());
+  return v;
+}
+
+opts_t parse(int argc, char** argv) {
+  opts_t o;
+  bool input_set = false;
+  for (int i = 1; i < argc; i++) {
+    std::string a = argv[i];
+    if (a.rfind("--", 0) != 0 || a == "-") {
+      if (input_set) usage();
+      o.input = a;
+      input_set = true;
+      continue;
+    }
+    std::string k = a.substr(2), v;
+    size_t eq = k.find('=');
+    bool has_v = eq != std::string::npos;
+    if (has_v) { v = k.substr(eq + 1); k = k.substr(0, eq); }
+    else if (k != "help" && i + 1 < argc) { v = argv[++i]; has_v = true; }  // "--fw F" as well as "--fw=F"
+    if (k == "help") usage();
+    else if (!has_v) fatal("--%s needs a value", k.c_str());
+    else if (k == "fw") o.fw = v;
+    else if (k == "kernel") o.kernel = v;
+    else if (k == "dtb") o.dtb = v;
+    else if (k == "isa") o.isa = v;
+    else if (k == "priv") o.priv = v;
+    else if (k == "harts") o.harts = unsigned(num(v, "--harts"));
+    else if (k == "pmp") o.pmp = unsigned(num(v, "--pmp"));
+    else if (k == "mem-mb") o.mem_mb = num(v, "--mem-mb");
+    else if (k == "stats") o.stats = double(num(v, "--stats"));
+    else if (k == "max") o.max = num(v, "--max");
+    else if (k == "stale") o.stale = num(v, "--stale");
+    else if (k == "plant") o.plant = int64_t(num(v, "--plant"));
+    else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
+  }
+  if (o.fw.empty()) usage();
+  if (o.harts < 1 || o.harts > 4) fatal("--harts must be 1..4 (the record's hart field is 2 bits)");
+  return o;
+}
+
+size_t load(mem_t& mem, const std::string& path, uint64_t addr, uint64_t room) {
+  FILE* f = fopen(path.c_str(), "rb");
+  if (!f) fatal("cannot open %s: %s", path.c_str(), strerror(errno));
+  std::vector<uint8_t> buf(1 << 20);
+  size_t done = 0, n;
+  while ((n = fread(buf.data(), 1, buf.size(), f)) > 0) {
+    if (done + n > room) fatal("%s does not fit its slot (%llu bytes)", path.c_str(), (unsigned long long)room);
+    mem.write(addr + done, n, buf.data());
+    done += n;
+  }
+  fclose(f);
+  return done;
+}
+
+// One 64-byte record (uncore-trace.md §Records in DDR; host.md §Commit trace for the fields).
+struct decoded_t {
+  bool wb = false;
+  tr_rec_t r;
+  tr_wb_t w;
+  uint32_t cycle32 = 0;
+};
+
+decoded_t decode(const uint8_t* p) {
+  uint64_t q[6];
+  memcpy(q, p, sizeof q);  // little-endian on both ends
+  uint32_t h = uint32_t(q[0]);
+  decoded_t d;
+  d.cycle32 = uint32_t(q[5]);
+  unsigned kind = h & 3;
+  uint32_t hart = (h >> 2) & 3;
+  bool rd_fp = (h >> 8) & 1;
+  uint8_t rd = uint8_t((h >> 9) & 31);
+  uint32_t tag = (h >> 15) & 31;
+  if (kind == 3) {
+    d.wb = true;
+    d.w.hart = hart;
+    d.w.wb_tag = tag;
+    d.w.rd_fp = rd_fp;
+    d.w.rd = rd;
+    d.w.value = q[2];
+    return d;
+  }
+  tr_rec_t& r = d.r;
+  r.kind = uint8_t(kind);
+  r.hart = hart;
+  r.priv = uint8_t((h >> 4) & 3);
+  r.rvc = (h >> 6) & 1;
+  r.rd_we = (h >> 7) & 1;
+  r.rd_fp = rd_fp;
+  r.rd = rd;
+  r.rd_deferred = (h >> 14) & 1;
+  r.wb_tag = tag;
+  r.mem_st = (h >> 20) & 1;
+  r.mem_size = uint8_t((h >> 21) & 3);
+  r.mmio_ld = (h >> 23) & 1;
+  r.nondet = (h >> 24) & 1;
+  r.insn = uint32_t(q[0] >> 32);
+  r.pc = q[1];
+  if (kind == TR_RETIRE) {
+    r.rd_value = q[2];
+    r.mem_vaddr = q[3];
+    r.mem_wdata = q[4];
+  } else {
+    r.cause = q[2];
+    r.tval = q[3];
+  }
+  return d;
+}
+
+// The records carry the low 32 bits of the core-clock cycle; the stream is in arrival order, which is
+// cycle order give or take the few cycles by which the cores' arbiter reorders them.
+struct cycle_clock_t {
+  uint64_t last = 0;
+  uint64_t full(uint32_t c32) {
+    uint64_t c = (last & ~0xffffffffull) | c32;
+    if (c + 0x80000000ull < last) c += 1ull << 32;                           // wrapped
+    else if (c > last + 0x80000000ull && c >= (1ull << 32)) c -= 1ull << 32;  // just before a wrap
+    if (c > last) last = c;
+    return c;
+  }
+};
+
+double now_s() {
+  using namespace std::chrono;
+  return duration<double>(steady_clock::now().time_since_epoch()).count();
+}
+
+std::string hex_record(const uint8_t* p) {
+  std::string s;
+  for (size_t i = 0; i < 48; i += 8) {
+    uint64_t v;
+    memcpy(&v, p + i, 8);
+    s += strfmt("%s%016llx", i ? " " : "", (unsigned long long)v);
+  }
+  return s;
+}
+
+}  // namespace
+
+int main(int argc, char** argv) {
+  opts_t o = parse(argc, argv);
+
+  // ---- Spike's memory: the boot ROM and the images, as tanager-host loads them ----
+  mem_t mem;
+  mem.write(BOOTROM_BASE, sizeof TANAGER_BOOTROM, TANAGER_BOOTROM);
+  size_t n_fw = load(mem, o.fw, DRAM_BASE + OFF_FW, OFF_KERNEL - OFF_FW);
+  size_t n_k = o.kernel.empty() ? 0 : load(mem, o.kernel, DRAM_BASE + OFF_KERNEL, OFF_DTB - OFF_KERNEL);
+  size_t n_d = o.dtb.empty() ? 0 : load(mem, o.dtb, DRAM_BASE + OFF_DTB, 0x10000);
+
+  lockstep_cfg_t lc;
+  lc.isa = o.isa;
+  lc.priv = o.priv;
+  lc.hartids.clear();
+  for (unsigned i = 0; i < o.harts; i++) lc.hartids.push_back(i);
+  lc.boot_pc = BOOTROM_BASE;
+  lc.pmp_regions = o.pmp;
+  lc.history = o.history;
+  lc.dram_base = DRAM_BASE;
+  lc.dram_size = o.mem_mb << 20;
+  lc.rom_base = BOOTROM_BASE;
+  lc.rom_size = 0x1000;
+  // Device regions of tg_map_pkg (PMA_DEVICE), as in tg_vsim
+  lc.dev_regions = {{0x02000000ull, 0x10000}, {0x0C000000ull, 0x4000000}, {0x10000000ull, 0x1000},
+                    {0x10001000ull, 0x1000},  {0x10010000ull, 0x4000},    {0x11000000ull, 0x10000}};
+  lockstep_t ls(lc, mem, nullptr);
+  fprintf(stderr, "tanager-lockstep: Spike %s, %s, %u hart(s), %llu MiB; fw %zu B, kernel %zu B, dtb %zu B; "
+                  "reading %s\n", o.isa.c_str(), o.priv.c_str(), o.harts, (unsigned long long)o.mem_mb, n_fw, n_k,
+          n_d, o.input == "-" ? "stdin" : o.input.c_str());
+
+  int fd = o.input == "-" ? 0 : open(o.input.c_str(), O_RDONLY);
+  if (fd < 0) fatal("cannot open %s: %s", o.input.c_str(), strerror(errno));
+
+  std::vector<uint8_t> buf(REC * 4096);
+  size_t have = 0;                 // bytes in buf, from its start
+  std::vector<tr_rec_t> recs;
+  std::vector<tr_wb_t> wbs;
+  recs.reserve(1);
+  wbs.reserve(1);
+  cycle_clock_t clk;
+  uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0;
+  bool planted = false;
+  double t0 = now_s(), t_last = t0;
+  uint64_t n_last = 0;
+  int status = EXIT_PASS;
+  bool eof = false;
+
+  while (!eof && (!o.max || n < o.max)) {
+    ssize_t got = read(fd, buf.data() + have, buf.size() - have);
+    if (got < 0) {
+      if (errno == EINTR) continue;
+      fatal("read: %s", strerror(errno));
+    }
+    if (got == 0) eof = true;
+    have += size_t(got);
+    size_t off = 0;
+    for (; off + REC <= have && (!o.max || n < o.max); off += REC, n++) {
+      uint8_t* p = buf.data() + off;
+      decoded_t d = decode(p);
+      uint64_t cyc = clk.full(d.cycle32);
+      if (o.plant >= 0 && !planted && n >= uint64_t(o.plant) &&
+          ((!d.wb && d.r.kind == TR_RETIRE && d.r.rd_we && !d.r.rd_deferred) || d.wb)) {
+        if (d.wb) d.w.value ^= 1;
+        else d.r.rd_value ^= 1;
+        planted = true;
+        fprintf(stderr, "tanager-lockstep: planted a wrong value (bit 0 flipped) in record %llu\n",
+                (unsigned long long)n);
+      }
+      recs.clear();
+      wbs.clear();
+      if (d.wb) {
+        d.w.cycle = cyc;
+        wbs.push_back(d.w);
+        nwb++;
+      } else {
+        d.r.cycle = cyc;
+        recs.push_back(d.r);
+        if (d.r.kind == TR_RETIRE) retired++;
+        else if (d.r.kind == TR_TRAP) traps++;
+        else irqs++;
+      }
+      if (!ls.cycle(recs, wbs) || ((n & 4095) == 0 && !ls.check_stale(cyc, o.stale))) {
+        fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu (cycle %llu): %s\n  raw record: %s\n",
+                (unsigned long long)n, (unsigned long long)cyc, ls.error().c_str(), hex_record(p).c_str());
+        ls.report(stderr);
+        status = EXIT_MISMATCH;
+        break;
+      }
+    }
+    if (status != EXIT_PASS) break;
+    memmove(buf.data(), buf.data() + off, have - off);  // a partial record waits for the rest
+    have -= off;
+    if (o.stats > 0 && now_s() - t_last >= o.stats) {
+      double t = now_s();
+      fprintf(stderr, "tanager-lockstep: %llu records (%.0f/s; %.0f/s overall), %llu retired, %llu traps, "
+                      "%llu interrupts, %zu writebacks pending\n",
+              (unsigned long long)n, (n - n_last) / (t - t_last), n / (t - t0), (unsigned long long)retired,
+              (unsigned long long)traps, (unsigned long long)irqs, ls.pending_wbs());
+      t_last = t;
+      n_last = n;
+    }
+  }
+  if (status == EXIT_PASS && have % REC && eof)
+    fprintf(stderr, "tanager-lockstep: the stream ended inside a record (%zu bytes left over)\n", have % REC);
+  if (status == EXIT_PASS && eof && !ls.finish()) {
+    fprintf(stderr, "tanager-lockstep: MISMATCH at the end: %s\n", ls.error().c_str());
+    ls.report(stderr);
+    status = EXIT_MISMATCH;
+  }
+  double t = now_s() - t0;
+  fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
+                  "writebacks) in %.1f s, %.0f records/s%s\n",
+          status == EXIT_PASS ? "PASS" : "MISMATCH", (unsigned long long)n, (unsigned long long)retired,
+          (unsigned long long)traps, (unsigned long long)irqs, (unsigned long long)nwb, t, t > 0 ? n / t : 0.0,
+          o.plant >= 0 && !planted ? "; nothing was planted (no value-carrying record from there on)" : "");
+  return status;
+}

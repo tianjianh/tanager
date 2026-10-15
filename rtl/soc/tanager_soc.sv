@@ -17,6 +17,7 @@ module tanager_soc
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (tg_uncore)
+  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b11, 5'b01111, 5'b01111, 32'hFFFF_FFFF},  // slices in DSPs (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -177,7 +178,8 @@ module tanager_soc
   tg_uncore #(
     .N_CORES (N_CORES), .CLK_HZ (CLK_HZ), .L2_SETS (L2_SETS), .L2_MSHR (L2_MSHR), .L2_PRIM (L2_PRIM),
     .L2_DATA_LAT (L2_DATA_LAT), .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
+    .UNCORE_DSP (UNCORE_DSP)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,

@@ -3,7 +3,7 @@
 // uncore uses: INCR bursts of 128-bit beats, WLAST on the last beat, IDs unique among outstanding
 // reads and among outstanding writes (STRICT_ID), and no read of a line whose write is still
 // outstanding. Unwritten memory reads as init_beat(beat address), which tb_axi_mem_pkg exports so a
-// reference model can agree.
+// reference model can agree, or as zeros with +mem_zero (below).
 module tb_axi_mem
   import tg_uncore_pkg::*, tb_axi_mem_pkg::*;
 #(
@@ -35,8 +35,18 @@ module tb_axi_mem
 );
   logic [127:0] mem [longint unsigned];
 
+  // Unwritten memory reads as init_beat, or as zeros under +mem_zero or after zero_unwritten(1): the
+  // board's window as tanager-host zeroes it for a traced run, so that a lockstep checker, whose memory
+  // starts at zero, agrees on memory that software reads before writing (verification.md §3.9). Off by
+  // default: the unit tests' reference models rely on init_beat.
+  bit zero_fill = 1'b0;
+  initial if ($test$plusargs("mem_zero")) zero_fill = 1'b1;
+  function automatic void zero_unwritten(input bit on);
+    zero_fill = on;
+  endfunction
+
   function automatic logic [127:0] rd_beat(input longint unsigned ba);
-    return mem.exists(ba) ? mem[ba] : init_beat(ba);
+    return mem.exists(ba) ? mem[ba] : zero_fill ? '0 : init_beat(ba);
   endfunction
 
   typedef struct { axi_ax_t a; longint unsigned t_ready; longint unsigned t_issue; } rq_t;

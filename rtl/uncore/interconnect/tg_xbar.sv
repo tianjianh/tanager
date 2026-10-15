@@ -3,12 +3,17 @@
 // responder. Requests are routed by address (tg_map_pkg) and initiator type, C by address, E by
 // sink; D and B return by source[9:6], which the interconnect sets on A and C.
 // Arbiters lock onto multi-beat messages; register slices sit on every output when SLICE = 1.
+// DSP_SKID sets, per slice, whether its main data register sits in DSP48E2s (tg_skid DSP; DR-136),
+// so a placement check can return one site to fabric without new RTL: bit i the D slice of
+// initiator i (0-15), bit 16 + t the A slice of target t, bit 24 + b the C slice of bank b,
+// bit 28 + c the B slice of core c. The E slices hold a few bits and stay in fabric.
 module tg_xbar
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
-  parameter int N_CORES  = NUM_CORES,
-  parameter bit HOST_DMA = 1'b0,
-  parameter bit SLICE    = 1'b1
+  parameter int          N_CORES  = NUM_CORES,
+  parameter bit          HOST_DMA = 1'b0,
+  parameter bit          SLICE    = 1'b1,
+  parameter logic [31:0] DSP_SKID = '1
 ) (
   input  logic                 clk,
   input  logic                 rst,
@@ -85,6 +90,9 @@ module tg_xbar
   localparam int TW = idx_w(N_TGT);
   localparam int IW = SRC_HI_W;
 
+  if (N_TGT > 8 || N_BANKS > 4) begin : g_bad_dsp_map
+    $error("tg_xbar: DSP_SKID maps at most 8 targets and 4 banks");
+  end
   if (N_CORES < 1 || N_CORES > MAX_CORES) begin : g_bad_cores
     $error("tg_xbar: N_CORES must be 1..4");
   end
@@ -261,7 +269,7 @@ module tg_xbar
   logic  [N_TGT-1:0] to_a_v, to_a_r;
   for (genvar t = 0; t < N_TGT; t++) begin : g_ta_slice
     if (SLICE) begin : g_s
-      tg_skid #(.T(tl_a_t)) u_s (.clk, .rst, .in_valid (ta_v[t]), .in_ready (ta_r[t]), .in_data (ta[t]),
+      tg_skid #(.T(tl_a_t), .DSP(DSP_SKID[16 + t])) u_s (.clk, .rst, .in_valid (ta_v[t]), .in_ready (ta_r[t]), .in_data (ta[t]),
                                  .out_valid (to_a_v[t]), .out_ready (to_a_r[t]), .out_data (to_a[t]));
     end else begin : g_w
       assign to_a[t]   = ta[t];
@@ -351,7 +359,7 @@ module tg_xbar
         for (int k = 0; k < NT; k++) id_in_r[i][tgt_of(i, k)] = rdy[k];
       end
       if (SLICE) begin : g_s
-        tg_skid #(.T(tl_d_t)) u_s (.clk, .rst, .in_valid (ida_v[i]), .in_ready (ida_r[i]), .in_data (ida[i]),
+        tg_skid #(.T(tl_d_t), .DSP(DSP_SKID[i])) u_s (.clk, .rst, .in_valid (ida_v[i]), .in_ready (ida_r[i]), .in_data (ida[i]),
                                    .out_valid (id_v[i]), .out_ready (id_r[i]), .out_data (id[i]));
       end else begin : g_w
         assign id[i]    = ida[i];
@@ -411,7 +419,7 @@ module tg_xbar
       .out_valid (cout_v), .out_data (cout), .out_idx (), .out_ready (cout_r)
     );
     if (SLICE) begin : g_s
-      tg_skid #(.T(tl_c_t)) u_s (.clk, .rst, .in_valid (cout_v), .in_ready (cout_r), .in_data (cout),
+      tg_skid #(.T(tl_c_t), .DSP(DSP_SKID[24 + b])) u_s (.clk, .rst, .in_valid (cout_v), .in_ready (cout_r), .in_data (cout),
                                  .out_valid (l2_c_valid_o[b]), .out_ready (l2_c_ready_i[b]), .out_data (l2_c_o[b]));
     end else begin : g_w
       assign l2_c_o[b]       = cout;
@@ -486,7 +494,7 @@ module tg_xbar
       .out_valid (bout_v), .out_data (bout), .out_idx (), .out_ready (bout_r)
     );
     if (SLICE) begin : g_s
-      tg_skid #(.T(tl_b_t)) u_s (.clk, .rst, .in_valid (bout_v), .in_ready (bout_r), .in_data (bout),
+      tg_skid #(.T(tl_b_t), .DSP(DSP_SKID[28 + c])) u_s (.clk, .rst, .in_valid (bout_v), .in_ready (bout_r), .in_data (bout),
                                  .out_valid (l1d_b_valid_o[c]), .out_ready (l1d_b_ready_i[c]), .out_data (l1d_b_o[c]));
     end else begin : g_w
       assign l1d_b_o[c]       = bout;

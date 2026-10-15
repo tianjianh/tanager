@@ -155,7 +155,9 @@ class lockstep_impl_t {
       return mismatch(&h, &r, strfmt("privilege: RTL %c, Spike %c", priv_char(r.priv), priv_char(unsigned(s->prv))));
     if (r.kind != TR_IRQ) {
       uint32_t sbits = 0;
-      if (spike_fetch(h.p, r.pc, sbits)) {
+      bool fetched = spike_fetch(h.p, r.pc, sbits);
+      if (fetched && sbits != r.insn) fetched = spike_fetch(h.p, r.pc, sbits, true);  // a difference counts uncached
+      if (fetched) {
         if (sbits != r.insn)
           return mismatch(&h, &r, strfmt("instruction: RTL %08x, Spike %08x (%s)", r.insn, sbits, disasm(sbits).c_str()));
         if (r.rvc != ((r.insn & 3) != 3))
