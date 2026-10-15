@@ -505,6 +505,7 @@ module tg_lsu
   logic [PA_W-1:0]   m1pa;                           // M1's PA (with the split: a new load's from the DTLB)
   logic              m1_clash, m1_go;                // the AG row clash; M1 goes on to M2
   logic [LIW-1:0]    ln_lq;                          // a new load's LQ entry where it decides
+  logic [LIW-1:0]    ln_lqw;                         // ... as its LQ flip-flops are written (no split: AG's index)
   assign m1_pa    = m1pa;
   logic [7:0]        m1_mask;
   assign m1_mask = bmask(m1pa[2:0], lq_size_q[m1_lq_q]);
@@ -1170,9 +1171,9 @@ module tg_lsu
       // A new load's PA and outcome where it decides: in AG (over the lines above), or in M1 with
       // the split
       if (ln_v && !flush) begin
-        lq_pa_q[ln_lq]  <= nl_pa;
-        lq_pav_q[ln_lq] <= !nl_exc && !nl_tm;
-        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lq] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
+        lq_pa_q[ln_lqw]  <= nl_pa;
+        lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
+        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
       end
 
       // ---- Waiting loads re-check their condition ----
@@ -1324,6 +1325,7 @@ module tg_lsu
     assign m1_clash = cl_v_q && cl_row_q == m1pa[PA_W-1:4];
     assign m1_go    = m1_v_q && (!ln_v_q || nl_go);
     assign ln_lq    = m1_lq_q;
+    assign ln_lqw   = m1_lq_q;
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
     logic byp;
@@ -1354,6 +1356,7 @@ module tg_lsu
     assign m1_clash = m1_clash_q;
     assign m1_go    = m1_v_q;
     assign ln_lq    = ld_ag_pl.lq[LIW-1:0];
+    assign ln_lqw   = ag_lq;                       // = ln_lq while a new load decides: one decoder with AG's writes
     assign fc       = fc_sq;
     assign f_smask  = sq_mask_q[f_idx];
   end
