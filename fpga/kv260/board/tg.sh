@@ -239,12 +239,13 @@ case "${1:-}" in
     if [ "${ZERO_MB:-0}" -gt 0 ]; then
       sudo "$HOME/tanager/tg_zero" 0x840000000 "$ZERO_MB" || exit 1
     fi
-    ./tanager-lockstep --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb --stats=30 tg.trace 2> "$lsl" &
+    dtb=${LS_DTB:-tanager-kv260-768m.dtb}   # the RUNBOOK's padded tree: LS_DTB=tanager-kv260-768m-pad.dtb
+    ./tanager-lockstep --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
     lpid=$!
     active "$APP" || exit 1
-    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
+    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
     t0=$(date +%s)
-    sudo "$TH" boot --inj-rd "$inj" --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb \
+    sudo "$TH" boot --inj-rd "$inj" --fw fw_jump.bin --kernel Image --dtb "$dtb" \
       --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout "$lim" < "$cin" > "$con" 2>&1 &
     pid=$!
     exec 3> "$cin"
