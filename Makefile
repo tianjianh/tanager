@@ -1,6 +1,6 @@
 # Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
-#   make lint CFG=st         lint all product RTL for one configuration
-#   make lint-all            lint all four configurations
+#   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
+#   make lint-all            lint all four configurations, each in DR-140's three elaborations
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
 # Track-specific targets live in their areas (sim/, tests/, fpga/); see docs/spec/conventions.md.
@@ -12,15 +12,19 @@ VERILATOR ?= verilator
 RTL_CFG := rtl/common/cfg/tg_cfg_$(CFG).sv
 RTL_F   := rtl/rtl.f
 LINT_FLAGS := --lint-only -Wall -Wno-MULTITOP --timing -Irtl/common rtl/lint.vlt
+include sim/profile.mk
 
 .PHONY: lint lint-all regress cycle-identical
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(RTL_CFG) -F $(RTL_F)
-	@echo "lint OK: $(CFG)"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(DE_DEF) $(RTL_CFG) -F $(RTL_F)
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DE_STAGE), DE_STAGE=$(DE_STAGE))"
 
+# DR-140's elaborations, so that every switch's branches compile: the fallback (#2, #4, #5 off), the
+# default (on), and #8 on top of the default (lint only; never run in CI or the soak).
 lint-all:
-	@set -e; for c in $(CFGS); do $(MAKE) --no-print-directory lint CFG=$$c; done
+	@set -e; for c in $(CFGS); do for p in TIMING_CUTS=0 "" DE_STAGE=1; do \
+	  $(MAKE) --no-print-directory lint CFG=$$c $$p; done; done
 
 # Verification regression for one configuration (docs/spec/verification.md §4.3).
 CORE ?= core

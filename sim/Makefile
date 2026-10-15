@@ -91,6 +91,7 @@ build: $(BUILD)/tg_vsim
 
 $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(lastword $(MAKEFILE_LIST))
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
+	@test -z "$(DE_STAGE)" || { echo "DE_STAGE is for lint only (DR-140: #8 is not verified)"; exit 2; }
 	@mkdir -p $(BUILD)
 	$(if $(COV),@{ printf '`verilator_config\n'; for d in $(COV_OFF); do printf 'coverage_off -file "*/rtl/core/%s/*"\n' $$d; done; \
 	  printf 'coverage_off -file "*/rtl/core/tg_core*"\ncoverage_off -file "*/rtl/common/*"\ncoverage_off -file "*/sim/tb/*"\ncoverage_off -file "*/sim/tcore/*"\n'; } > $(BUILD)/cov.vlt)
@@ -103,7 +104,7 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
+	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(DE_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
 	@echo "sim lint OK: $(CFG) $(CORE)"
 
 REPLAY := $(BUILD_ROOT)/replay/tg_replay
