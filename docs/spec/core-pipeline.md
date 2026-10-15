@@ -277,7 +277,8 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
-| R2 cold CSRs in LUTRAM | `tg_csr` | with SMT2 (M7), when the state doubles. At one hart, banks for {mcause, scause}, {mtval, stval} and the scratch registers save about 0.4K flip-flops, but only ~0.05K LUTs, because each 64-bit LUTRAM read port costs about 40 LUTs. mepc and sepc stay flip-flops (MRET/SRET read them) |
+| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
+| ROB replay flag XOR-banked (T2) | `tg_rob` (§8.1): a table per writer (dispatch clears, the LSU's three setters) | done (9646d13): cycle-identical, shadow-checked; ROB 2,083 → 1,891 at st |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |
 | Rename maps XOR-banked (T2) | `tg_rmap`: no live-value tables; a register's entry is the XOR of its banks | done: cycle-identical |
@@ -481,7 +482,6 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
 | The SQ's ROB index and size in LUTRAM | 8a18f6c | T1 | small |
 | D$ port B's byte enables shared by the ways | 7ad53ea | — | small |
 | `mcycle`/`minstret` in DSP48E2 pairs, OPMODE registered in the slices | 2300494, f18704e | T6 | CSR 1,694 → 1,615, DSPs +2 |
-| The ITLB back on flip-flop comparators (`tg_tlb` `CAM = 0`); the DTLB keeps the CAM | 9b14471 | — | ITLB about 486 again (T5 saved it 6 LUTs for 160 LUTRAM) |
 
 - **Result at f18704e (the final RTL):**
   - **st:** 46,132 → **43,342** (−2,790, −6.0%):
@@ -500,3 +500,23 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
   - A LUTRAM CAM is a LUT lever for a TLB with two lookups and an overlap check (−366), but not with one lookup (−6). The spikes track's single-lookup pricing (76 LUTs at 32 entries) did not see the second port.
   - A change that is invisible in the core test bench can still show in the SoC boot's cycle counts: `tb_axi_mem`'s random draws move with the build at four Verilator threads (verification.md §4.5). Use `make cycle-identical`.
   - Clearing a free list's next registers early is invisible, because nobody reads a free register's ready bit. Rewriting a structure exactly is easier when it is clear who can observe what, and when.
+
+**FPGA-friendly rewrite, second pass (2026-10-14; branch `claude/track-core-adb715-fn2`):**
+
+| Step | Commit | Form | Measured (st, DR-113's settings) |
+|---|---|---|---|
+| The ITLB back on flip-flop comparators (`tg_tlb` `CAM = 0`) | 9b14471 | — | fe 4,732 → 4,738 LUTs, −160 LUTRAM, +392 flip-flops |
+| The cold CSRs in one LUTRAM; trap entry's three writes in the cycles after the trap | 50746f6 | T1 | with the next step |
+| The xRET's xepc through the CSR read port (the ROB names the xRET in flight) | 43c2d0f | T1 | CSR 1,615 → 1,368 (`u_cold` is 80 LUTRAM LUTs), −500 flip-flops |
+| One adder on the head's PC | 2952dbd | T7 | ROB −68 out of context (`flush_pc` 260 → 194) |
+| `replay` as XOR-banked LUTRAM | 9646d13 | T2 | ROB 2,083 → 1,891, −48 flip-flops |
+
+- **Result at e5c2b4f, against 4eb7ce0** (the first pass with main 89d8001 merged):
+  - **st:** 43,005 → **42,607** (−398); rob_csr 3,658 → 3,259.
+  - **smt2:** 45,637 → **45,055** (−582); rob_csr 4,381 → 3,799.
+  - Flip-flops: st −546, smt2 −578.
+- **Lessons:**
+  - The CSRs' cost was their write multiplexers and read-multiplexer inputs, not their storage. One write port suffices when writes that arrive together can be spread over cycles nobody observes: the trap's flush leaves the window empty.
+  - Serial instructions free ports. Two users of a port that never overlap (a CSR read in EX, an xRET's xepc at commit) can share it through a registered steering bit.
+  - On a 6-input LUT, taking one input out of a 3:1 multiplexer saves nothing, and the shared xepc saved nothing in the ROB. Taking out a whole adder does (−66).
+  - The `--rand-reset` cycle difference was the BHT, LUTRAM by design (§3.2). Verilator fills a whole array with one random value, so a LUTRAM's random start covers only a few states.
