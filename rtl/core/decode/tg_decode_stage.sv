@@ -12,6 +12,9 @@
 // The check needs neither the RVC expander nor the decoder's class and immediate: the queue
 // brings the instruction's pre-decode marks (decode's class unless decode raises an exception,
 // which the check excludes), and the offset comes from the raw encoding.
+// Nor does the group wait for the expander: whether an instruction raises an exception or goes
+// alone comes from the raw encoding too, from a second decoder (only these outputs are kept) for a
+// 32-bit instruction, and from its 16 bits for a compressed one.
 module tg_decode_stage
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -67,6 +70,7 @@ module tg_decode_stage
   endfunction
 
   dec_t [W-1:0]        d;
+  logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
   logic [W-1:0]        redir;
   logic [W-1:0][63:0]  npc;
   logic [W-1:0]        dfix;
@@ -78,10 +82,30 @@ module tg_decode_stage
     tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(EXT_FD && misa_d), .insn(xinsn), .ill(rvc_ill));
     logic [31:0] xi;
     assign xi = iq_insn[j].rvc ? xinsn : iq_insn[j].insn;
+    logic pre_ill;
+    assign pre_ill = iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill);
     tg_decode u_dec (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
                      .len2(iq_insn[j].rvc),
-                     .pre_ill(iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill)),
+                     .pre_ill,
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
+    // Exception and going alone from the raw encoding. A compressed instruction raises one only when
+    // it is illegal as such (pre_ill), is C.EBREAK, or is an FP load/store (C.FLD, C.FSD, C.FLDSP,
+    // C.FSDSP: their D-less forms are pre_ill) with the FP unit off; none is serialising.
+    dec_t dr;
+    tg_decode u_decr (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad),
+                      .insn(iq_insn[j].insn), .len2(1'b0), .pre_ill(1'b0), .fault(iq_insn[j].fault),
+                      .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b,
+                      .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(dr));
+    logic [15:0] c16;
+    logic        c_exc;
+    assign c16   = iq_insn[j].insn[15:0];
+    assign c_exc = iq_insn[j].fault || pre_ill || c16 == 16'h9002 ||
+                   (c16[1:0] != 2'b01 && c16[14:13] == 2'b01 &&
+                    !(EXT_FD && misa_f && fs != 2'd0 && misa_d));
+    assign exc_f[j]   = iq_insn[j].rvc ? c_exc : dr.exc;
+    assign alone_f[j] = iq_insn[j].rvc ? c_exc : (dr.exc || dr.serial);
+    logic unused_dr;
+    assign unused_dr = ^dr;                     // only exc and serial are kept
     logic [63:0] seq, pbase, poff, imm, tgt;
     logic        pt, hit, mbr, mjal, mjalr;
     logic [63:0] ptg;
@@ -101,7 +125,7 @@ module tg_decode_stage
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
       dfix[j]  = 1'b0;
-      if (!d[j].exc) begin
+      if (!exc_f[j]) begin
         if (mjal) begin
           if (!pt || !hit) begin
             redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = tgt;
@@ -118,6 +142,9 @@ module tg_decode_stage
 `ifndef SYNTHESIS
     // The marks and the offset are decode's class and target wherever the check uses them
     always_ff @(posedge clk) begin
+      if (!rst && iq_valid[j])
+        assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
+          else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
       if (!rst && iq_valid[j] && !d[j].exc) begin
         assert (mjal == (d[j].cls == C_BR && d[j].br_kind == BR_JAL) &&
                 mbr == (d[j].cls == C_BR && d[j].br_kind == BR_COND) &&
@@ -139,10 +166,10 @@ module tg_decode_stage
     for (int j = 0; j < W; j++) begin
       if (!stop) begin
         if (!iq_valid[j]) stop = 1'b1;
-        else if ((d[j].serial || d[j].exc) && j > 0) stop = 1'b1;
+        else if (alone_f[j] && j > 0) stop = 1'b1;
         else begin
           n = TKW'(j + 1);
-          if (d[j].serial || d[j].exc || redir[j]) stop = 1'b1;
+          if (alone_f[j] || redir[j]) stop = 1'b1;
         end
       end
     end
