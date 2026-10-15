@@ -1,0 +1,2 @@
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 1 hart(s), 768 MiB; fw 1544 B, kernel 0 B, dtb 0 B; reading tg.trace
+tanager-lockstep: PASS after 334491 records (334491 retired, 0 traps, 0 interrupts, 0 writebacks) in 2.3 s, 146066 records/s

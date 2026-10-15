@@ -1,0 +1,34 @@
+== step 2: the trace into a file
+$ tanager-host boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace /home/ubuntu/tanager/lockstep/soc_board.trace --timeout 60
+loaded: fw 1544 B, kernel 0 B, dtb 0 B into 0x840000000 (RISC-V 0x80000000)
+tanager soc test: hart 0, dtb 0000000082200000
+aclint ok
+memory ok
+one hart: coherence skipped
+PASS
+
+[tanager-host] tohost 0x1: PASS
+[tanager-host] trace: 4435137 records written
+boot exit 0; trace file 283848768 bytes
+tanager-lockstep: 3313664 records (167898/s; 165558/s overall), 3313664 retired, 0 traps, 0 interrupts, 0 writebacks pending
+tanager-lockstep: PASS after 4435137 records (4435137 retired, 0 traps, 0 interrupts, 0 writebacks) in 26.7 s, 166168 records/s
+== step 3: live through a FIFO
+$ tanager-host boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace-log2 16 --trace /home/ubuntu/tanager/lockstep/tg.trace --timeout 120
+loaded: fw 1544 B, kernel 0 B, dtb 0 B into 0x840000000 (RISC-V 0x80000000)
+tanager soc test: hart 0, dtb 0000000082200000
+aclint ok
+memory ok
+one hart: coherence skipped
+PASS
+
+[tanager-host] tohost 0x1: PASS
+[tanager-host] trace: 334491 records written
+boot exit 0
+checker exit 0
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 1 hart(s), 768 MiB; fw 1544 B, kernel 0 B, dtb 0 B; reading tg.trace
+tanager-lockstep: PASS after 334491 records (334491 retired, 0 traps, 0 interrupts, 0 writebacks) in 2.3 s, 146066 records/s
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 03:19:53
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active

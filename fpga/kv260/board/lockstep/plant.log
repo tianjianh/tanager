@@ -1,0 +1,142 @@
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 1 hart(s), 768 MiB; fw 1544 B, kernel 0 B, dtb 0 B; reading soc.trace
+tanager-lockstep: planted a wrong value (bit 0 flipped) in record 100000
+tanager-lockstep: MISMATCH at record 100000 (cycle 655562): x15 value: RTL 9accca8c50d69f4d, Spike 9accca8c50d69f4c
+  raw record: 02b787b300001eb0 00000000800002d0 9accca8c50d69f4c 0000000000000000 0000000000000000 00000000000a00ca
+
+==== LOCKSTEP MISMATCH ====
+x15 value: RTL 9accca8c50d69f4d, Spike 9accca8c50d69f4c
+RTL record:     655562 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9accca8c50d69f4d
+
+---- last 64 RTL records, hart 0 (cycle, hart, privilege, kind) ----
+    655168 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9f90fba4d37fc5b1
+    655168 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9f90fba02ff81897
+    655169 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004fc87dd26
+    655169 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9f90fba02ff81897
+    655211 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655211 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e42
+    655212 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007850
+    655212 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655213 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c76
+    655213 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9ee2ab7cc0d5527e
+    655249 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9ee2ab7837c00998
+    655249 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004f7155be6
+    655250 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9ee2ab7837c00998
+    655250 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655251 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e43
+    655251 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007858
+    655290 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655290 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c77
+    655291 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9e345b54ae2adf4b
+    655291 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9e345b505f8805ee
+    655292 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004f1a2daa5
+    655292 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9e345b505f8805ee
+    655332 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655332 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e44
+    655333 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007860
+    655333 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655334 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c70
+    655334 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a2f88c6d30d405b0
+    655368 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a2f88c68271066d9
+    655368 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 0000000517c46369
+    655369 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a2f88c68271066d9
+    655369 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655370 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e45
+    655370 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007868
+    655407 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655407 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c71
+    655408 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a24a3c451e29927d
+    655408 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a24a3c400c787055
+    655409 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 000000051251e228
+    655409 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a24a3c400c787055
+    655445 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655445 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e46
+    655446 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007870
+    655446 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655447 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c72
+    655447 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a19bec1d0b7f1f4a
+    655484 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a19bec1807a07fa2
+    655484 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 000000050cdf60e8
+    655485 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a19bec1807a07fa2
+    655485 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655486 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e47
+    655486 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007878
+    655521 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655521 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c73
+    655522 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a0ed9bf4f8d4ac17
+    655522 h0 M retire pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a0ed9bf1ffb873b0
+    655523 h0 M retire pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000005076cdfa7
+    655523 h0 M retire pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a0ed9bf1ffb873b0
+    655560 h0 M retire pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+    655560 h0 M retire pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e48
+    655561 h0 M retire pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007880
+    655561 h0 M retire pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+    655562 h0 M retire pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c7c
+    655562 h0 M retire pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9accca8c50d69f4d
+
+---- last 64 Spike steps, hart 0 (step 100001 is the last) ----
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9f90fba4d37fc5b1
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9f90fba02ff81897
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004fc87dd26
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9f90fba02ff81897
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e42
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007850
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c76
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9ee2ab7cc0d5527e
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9ee2ab7837c00998
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004f7155be6
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9ee2ab7837c00998
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e43
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007858
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c77
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9e345b54ae2adf4b
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- 9e345b505f8805ee
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000004f1a2daa5
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- 9e345b505f8805ee
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e44
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007860
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c70
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a2f88c6d30d405b0
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a2f88c68271066d9
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 0000000517c46369
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a2f88c68271066d9
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e45
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007868
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c71
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a24a3c451e29927d
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a24a3c400c787055
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 000000051251e228
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a24a3c400c787055
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e46
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007870
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c72
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a19bec1d0b7f1f4a
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a19bec1807a07fa2
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 000000050cdf60e8
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a19bec1807a07fa2
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e47
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007878
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c73
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- a0ed9bf4f8d4ac17
+M pc=00000000800002d4 (0006b503) ld      a0, 0(a3)            x10 <- a0ed9bf1ffb873b0
+M pc=00000000800002d8 (01d7d813) srli    a6, a5, 29           x16 <- 00000005076cdfa7
+M pc=00000000800002dc (0107c7b3) xor     a5, a5, a6           x15 <- a0ed9bf1ffb873b0
+M pc=00000000800002e0 (fef500e3) beq     a0, a5, pc - 32     
+M pc=00000000800002c0 (0017071b) addiw   a4, a4, 1            x14 <- 0000000000000e48
+M pc=00000000800002c4 (00868693) addi    a3, a3, 8            x13 <- 0000000080007880
+M pc=00000000800002c8 (03c70863) beq     a4, t3, pc + 48     
+M pc=00000000800002cc (011747b3) xor     a5, a4, a7           x15 <- 0000000000001c7c
+M pc=00000000800002d0 (02b787b3) mul     a5, a5, a1           x15 <- 9accca8c50d69f4c
+==== END OF REPORT ====
+tanager-lockstep: MISMATCH after 100000 records (100001 retired, 0 traps, 0 interrupts, 0 writebacks) in 0.7 s, 149570 records/s
