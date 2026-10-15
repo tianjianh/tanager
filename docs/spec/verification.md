@@ -562,17 +562,22 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
     - `exec` times other commands: BusyBox's `gzip` and `sha256sum` over 4 MiB of generated text in `/tmp`.
   - `coremark-a` and `coremark-b`, with plan §10.2's flag sets, and `dhrystone`, the same sources and flags as the bare-metal runs (§4.2). CoreMark scales itself to at least 10 s, its condition for a valid result; the line reports the iteration count.
 - **Run:** `tg-lbench.sh [RUNS]` runs everything RUNS times (3). With `tanager.bench=1` on the kernel command line, `/etc/init.d/S99tglbench` runs it after the boot marker and powers off, so a board run ends by itself.
-- **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=…` line and one line per measurement:
+- **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=… perf_events=… perf_errno=…` line and one line per measurement:
   ```
   TGLB <test> run=<k> cycles=<n|-> instret=<n|-> ticks=<n> ns=<n> ops=<n> [key=value ...]
   ```
   - `cycles` and `instret` come from `rdcycle` and `rdinstret` over the measured region. `ticks` come from `rdtime`, at the `timebase` the info line gives (10 MHz). `ns` comes from `CLOCK_MONOTONIC`, and `ops` is the operations counted, so per-operation values are `cycles/ops`.
   - A test that fails prints `TGLB-FAIL <command>`, and the end line says `status=1`.
-- **The cycle counter needs the kernel's help.** Linux 6.18 lets user mode read only `time` (`scounteren` = 0x2, `head.S`). The SBI PMU driver opens `cycle` and `instret` when `kernel.perf_user_access` is 2, and the script sets that.
-  - So the image needs `CONFIG_PERF_EVENTS`, `CONFIG_RISCV_PMU` and `CONFIG_RISCV_PMU_SBI`; this has been asked of the SoC track.
-  - Without them, `rdcycle` traps. `tg-lbench` notices (a SIGILL probe) and prints `cycles=-`, and the `ticks` still give time.
-- **Checked in QEMU** (the SoC track's image, the set as an extra initrd): boot, all tests, `TGLB-END status=0` and power-off in 242 s. Every CoreMark run reports "Correct operation validated". In QEMU, as on today's image, `cycles=-`.
-- **Building the image:** a Buildroot package in the SoC track's external tree builds `tests/bench/linux` with the image's toolchain and installs it (`make install DESTDIR=…`). `make … initrd` makes the set an extra initrd instead, for QEMU without rebuilding the image.
+  - `counters=cycle,instret,time` on the info line means the cycle counts are real. `counters=time` means every line says `cycles=-`; then `perf_events` (counter events opened, 2 per hart) and `perf_errno` (the first error) say why.
+- **User-mode cycle counts need three things** (Linux 6.18, OpenSBI 1.9). The SoC track's bench image has all three:
+  1. **The SBI PMU driver** (`CONFIG_PERF_EVENTS`, `CONFIG_RISCV_PMU`, `CONFIG_RISCV_PMU_SBI`). Linux itself lets user mode read only `time` (`scounteren` = 0x2, `head.S`). With `kernel.perf_user_access` = 2 (legacy access, which the script sets), the driver also opens `cycle` and `instret`. Without the driver, `rdcycle` traps, and `tg-lbench` notices (a SIGILL probe).
+  2. **Running counters.** The driver stops every counter at boot, and only a perf event starts one. So `tglb.h` opens a pinned system-wide cycles event and instructions event on every hart, which legacy mode places on the fixed `mcycle` and `minstret`, and keeps them open while the program runs (this needs root). Without them, `rdcycle` reads a stopped counter.
+  3. **A `riscv,pmu` device-tree node** mapping CPU_CYCLES to counter 0 and INSTRUCTIONS to counter 2 (`make -C sw/dts PMU=1`). With SBI v3, the driver asks OpenSBI about each event at boot (`PMU_EVENT_GET_INFO`), and OpenSBI reports only the events the node maps; it does not count the fixed counters as present. Without the node, both events are unsupported and `perf_event_open` fails (`perf_errno=2`, ENOENT). The core has no `mhpmcounter`s (OpenSBI prints "MHPM Info: 0"), so the map names only the fixed counters.
+  - The probe also checks that both counters advance. The counts include kernel time, since the fixed counters cannot filter by privilege mode on this core.
+  - Each hart's counters start at their own time, so each program pins itself, and the programs it starts, to the hart it first measures on. The bench image has one hart.
+- **The bench image** is the SoC track's `tanager_lp64d_bench`. It is the reference image plus the PMU driver (`board/tanager/linux-bench.fragment`), the `tg-lbench` package (it builds `tests/bench/linux` with the image's toolchain, `make install DESTDIR=…`), and a device tree built with `PMU=1` and `tanager.bench=1` in its boot arguments. The reference image and its device trees stay byte-identical (`tb_boot`, lockstep, the cycle-identical boot). `make -C tests/bench/linux initrd` makes the set an extra initrd instead; it overlays the image's copy, so a change can be tried in QEMU without rebuilding the image.
+- **Checked in QEMU** (the bench image and its device tree, Sscofpmf off like Tanager): boot, every test with cycle counts, `TGLB-END status=0` and power-off in 211 s; every CoreMark run reports "Correct operation validated". On two harts (the same image, a 2-hart `PMU=1` tree): `perf_events=4`, `TGLB-END status=0` and power-off in 259 s, and a check program's affinity narrowed to its own hart. QEMU's cycle and instret counters both count host time, so only the board's counts mean anything.
+- **Comparing runs:** `tglb_compare.py [NAME=]LOG ...` reads console logs, one per profile say, and prints a Markdown table. Per test it gives the median per operation (`--metric cycles`, `instret` or `ns`), the change against the first log, and the spread of the runs, so a change within the spread is not a finding. It lists any log that did not finish, had a failing test, or has no cycle counts.
 
 ## 5. The test core (`tg_tcore`)
 
@@ -807,6 +812,10 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **The board also tested the test:** `--plant` had landed on an MMIO load, whose value the checker adopts, so nothing could show and the run passed. It now plants only where the checker compares. On the board, `--plant=1000` then stopped live at record 1002, the `andi` after the UART poll. The checker exited 2, and `tanager-host` reported "trace consumer stopped" and exited 4.
   - **Lesson:** a self-test must aim where the checker looks, and say where it aimed.
   - **Lesson:** a simulated boot of the same images is worth running before the board, even at 4 K records/s. It named the board's first stop, and its cause, before the board reached it.
+
+- **The Linux workload set (2026-10-15, §4.6, DR-141):** static programs and a run script in the initramfs, checked in QEMU on the SoC track's bench image.
+  - **User-mode cycle counts took three layers, found one at a time.** Without the PMU driver, `rdcycle` trapped. With it, `rdcycle` read 0: the driver stops every counter at boot. With a perf event to start them, `perf_event_open` failed: OpenSBI 1.9 tells Linux only about the events the device tree maps (SBI v3's event-info call). A `riscv,pmu` node with two entries fixed the last (the SoC track's `PMU=1`).
+  - **Lesson:** a counter that reads without trapping is not a counter that counts. The probe now checks that both counters advance, and the info line says how many events opened, and if none did, why.
 
 **Breaks at merges, and their fixes.**
 - **`trace_stall_i`:**
