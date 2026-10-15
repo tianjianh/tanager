@@ -63,7 +63,7 @@ module tg_lsu
   input  logic [63:0]                  sd_data,
   input  logic                         sd_busy,
   output preg_t                        fsd_tag,
-  input  logic [63:0]                  fsd_data,
+  input  logic [1:0][63:0]             fsd_data,   // both FP banks (P4): fsd_tag's bank picks one
   input  logic [1:0]                   fp_we,
   input  logic [1:0][FPIDX_W-1:0]      fp_widx,
   input  logic [DISPATCH_WIDTH-1:0]    ds_src2_rdy,   // DS: the store data's register is written
@@ -979,7 +979,21 @@ module tg_lsu
   assign sqd_ra[COMMIT_WIDTH+1] = dh;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? dh : cap_idx;
-  assign sqd_wd = (am_req && am_ack) ? am_new : (EXT_FD && sq_fp_q[cap_idx]) ? fsd_data : sd_data;
+  // The source as one encoded select from early terms, so a data bit is one LUT6 (P4's FP bank
+  // select folds in here): 0 the atomic's value, 1 integer, 2 FP bank 0, 3 FP bank 1
+  logic [1:0] sqd_s;
+  assign sqd_s = (am_req && am_ack) ? 2'd0
+               : (EXT_FD && sq_fp_q[cap_idx]) ? {1'b1, fpreg_bank(fsd_tag)} : 2'd1;
+  always_comb begin
+    for (int i = 0; i < 64; i++) begin
+      unique case (sqd_s)
+        2'd0:    sqd_wd[i] = am_new[i];
+        2'd1:    sqd_wd[i] = sd_data[i];
+        2'd2:    sqd_wd[i] = fsd_data[0][i];
+        default: sqd_wd[i] = fsd_data[1][i];
+      endcase
+    end
+  end
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SDR)) u_sqd (
     .clk, .we(sqd_we), .waddr(sqd_wa), .wdata(sqd_wd), .raddr(sqd_ra), .rdata(sqd_rd));
 
