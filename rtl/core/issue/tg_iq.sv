@@ -125,9 +125,6 @@ module tg_iq
   input  tid_t                          flush_tid,
   input  logic                          flush_all,
   input  logic [ROBW-1:0]               flush_rob,
-  // Select cycle: the early payload of the row granted now (zero without a grant), which
-  // iss_payload carries in the next cycle
-  output logic [EARLY_W-1:0]            sel_early,
   // Issue, in the cycle after the select
   output logic                          iss_valid_q,
   output logic [PAYLOAD_W-1:0]          iss_payload
@@ -280,7 +277,6 @@ module tg_iq
     early_q <= payload_sel;
   end
   assign iss_payload[EARLY_W-1:0] = early_q;
-  assign sel_early = payload_sel;
 
   if (EARLY_W < PAYLOAD_W) begin : g_late
     localparam int LW = PAYLOAD_W - EARLY_W;
