@@ -7,8 +7,10 @@
 //       the magnitudes |a|, |b|.
 //   NM  n = msb(|a|) - msb(|b|) + 1 quotient bits are left to compute; n = 0 when b = 0 or
 //       |a| has fewer significant bits than |b| (|a| = 0 included). The leading zero
-//       quotient bits are skipped by starting from {r, q} = |a| << (64 - n).
-//   IT  n cycles, one quotient bit each: {r, q} shifts left; r - |b| replaces r if >= 0.
+//       quotient bits are skipped by aligning the divisor to the dividend's leading one:
+//       d = |b| << (n - 1), r = |a|, q = 0.
+//   IT  n cycles, one quotient bit each: r - d replaces r if >= 0, the bit enters q from the
+//       right, and d shifts right.
 //   FX  quotient or remainder, sign fix-up, division by zero, W sign extension, into the
 //       result register (FX waits while it is full). The next request's LD overlaps FX.
 // Latency from in_valid to out_valid with the unit idle: n + 4 cycles, so at most 68 for a
@@ -61,9 +63,9 @@ module tg_div
   // ---- Divider state ----
   typedef enum logic [1:0] { S_IDLE, S_NM, S_IT, S_FX } state_e;
   state_e           st_q;
-  logic [63:0]      d_q;        // |b|
-  logic [63:0]      r_q;        // partial remainder (< |b| from NM on)
-  logic [63:0]      q_q;        // |a| after LD; then dividend bits not yet used, quotient bits below
+  logic [63:0]      d_q;        // |b|; from NM on |b| << (quotient bits left - 1)
+  logic [63:0]      r_q;        // |a|, then the partial remainder
+  logic [63:0]      q_q;        // quotient bits so far
   logic [6:0]       n_q;        // quotient bits left to compute
   logic             rem_q, word_q, neg_q;
   logic [TAG_W-1:0] tag_q;
@@ -85,39 +87,33 @@ module tg_div
   assign an    = sgn && ea[63];
   assign bn    = sgn && eb[63];
 
-  // ---- NM: quotient bits to compute (|a| is in q_q) ----
-  // {r, q} = {0, |a|} << (64 - n): r = |a| >> n is below |b|, and q holds the dividend bits still
-  // to use. For n > 0 the amount 64 - n is 63 - (n - 1) = ~(lzd - lza), 6 bits, so no adder sits
-  // in front of the shifter (n = lzd - lza + 1 and then 64 - n made this the divider's longest
-  // path). With no quotient bits (n = 0: |a| < |b| or b = 0) r and q keep their values and FX
-  // takes the quotient 0 and the remainder |a| from q (nz_q), so the shifter has no case 64.
-  logic         dz, nz, nz_q;
+  // ---- NM: quotient bits to compute (|a| is in r_q) ----
+  // One left shift of the divisor by n - 1 = lzd - lza (one 64-bit shifter; a shift of the
+  // dividend by 64 - n into {r, q} took two). When n = 0 the shifted divisor is not used.
+  logic         dz, nz;
   logic [6:0]   lza, lzd, nq;     // leading zeros of |a| and |b|, 64 for 0
   logic [5:0]   s1;
-  logic [127:0] rq0;
   assign dz  = d_q == '0;
-  tg_fpu_lzc #(.W(64)) u_lza (.x(q_q), .cnt(lza));
+  tg_fpu_lzc #(.W(64)) u_lza (.x(r_q), .cnt(lza));
   tg_fpu_lzc #(.W(64)) u_lzd (.x(d_q), .cnt(lzd));
   assign nz  = dz || lzd < lza;
   assign nq  = nz ? 7'd0 : lzd - lza + 7'd1;
   assign s1  = 6'(lzd - lza);                  // n - 1 when !nz (lzd <= 63 then)
-  assign rq0 = {64'b0, q_q} << ~s1;
 
   // ---- IT: one restoring step ----
-  logic [64:0] r2, diff;
+  // d = |b| << k with k from n - 1 down to 0, so r < 2d at each step, and d's leading one is
+  // where |a|'s is: r - d fits 64 bits.
+  logic [63:0] diff;
   logic        borrow;
-  assign r2 = {r_q, q_q[63]};
-  assign {borrow, diff} = {1'b0, r2} - {2'b0, d_q};
-  logic unused;
-  assign unused = diff[64];   // r2 - |b| < |b| when there is no borrow
+  assign {borrow, diff} = {1'b0, r_q} - {1'b0, d_q};
 
   // ---- FX: result and sign fix-up ----
+  // x / 0 = -1 comes from NM (q all ones, no negation); x % 0 = x falls out of r.
   logic [63:0] mag, fx;
-  assign mag = rem_q ? (nz_q ? q_q : r_q) : (nz_q ? '0 : q_q);
+  assign mag = rem_q ? r_q : q_q;
   always_comb begin
     fx = neg_q ? -mag : mag;
-    if (dz && !rem_q) fx = '1;                   // x / 0 = -1; x % 0 = x falls out of r
-    if (word_q)       fx = {{32{fx[31]}}, fx[31:0]};
+    if (word_q) fx = {{32{fx[31]}}, fx[31:0]};
   end
 
   always_ff @(posedge clk) begin
@@ -134,19 +130,21 @@ module tg_div
 
   always_ff @(posedge clk) begin
     if (load) begin
-      q_q    <= an ? -ea : ea;
+      r_q    <= an ? -ea : ea;
       d_q    <= bn ? -eb : eb;
       rem_q  <= h_rem;
       word_q <= hd.word;
       neg_q  <= h_rem ? an : an ^ bn;    // the remainder takes the dividend's sign
       tag_q  <= hd.tag;
     end else if (st_q == S_NM) begin
-      if (!nz) {r_q, q_q} <= rq0;
-      n_q  <= nq;
-      nz_q <= nz;
+      d_q <= d_q << s1;
+      q_q <= {64{dz}};                       // x / 0: all ones
+      n_q <= nq;
+      if (dz && !rem_q) neg_q <= 1'b0;
     end else if (st_q == S_IT) begin
-      r_q <= borrow ? r2[63:0] : diff[63:0];
+      if (!borrow) r_q <= diff;
       q_q <= {q_q[62:0], !borrow};
+      d_q <= {1'b0, d_q[63:1]};
       n_q <= n_q - 7'd1;
     end
   end

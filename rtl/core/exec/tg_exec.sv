@@ -17,11 +17,19 @@
 module tg_exec
   import tg_pkg::*, tg_alu_pkg::*, tg_core_pkg::*;
 #(
-  localparam int NRP   = 2 * N_ALU + 3 + COMMIT_WIDTH,
-  localparam int P_LD  = 2 * N_ALU,
-  localparam int P_STA = 2 * N_ALU + 1,
-  localparam int P_SH  = 2 * N_ALU + 2,
-  localparam int P_TR  = 2 * N_ALU + 3,
+  // DR-133: the ALU operand ports read UltraRAM copies of the register file (gated: 0 until
+  // cycle identity, 200 MHz next to a URAM column and a full-chip placement check pass)
+`ifdef TG_IRF_URAM
+  parameter bit  IRF_URAM = 1'b1,
+`else
+  parameter bit  IRF_URAM = 1'b0,
+`endif
+  localparam int NAP   = IRF_URAM ? 0 : 2 * N_ALU,   // ALU operand ports in tg_irf
+  localparam int NRP   = NAP + 3 + COMMIT_WIDTH,
+  localparam int P_LD  = NAP,
+  localparam int P_STA = NAP + 1,
+  localparam int P_SH  = NAP + 2,
+  localparam int P_TR  = NAP + 3,
   localparam int NSRC  = 2 * (N_ALU + 1) + 2,
   localparam int SW    = idx_w(NSRC),
   localparam int S_RF  = 0,
@@ -40,6 +48,10 @@ module tg_exec
   // Issue (RF stage)
   input  logic [N_XQ-1:0]              iss_valid,
   input  iq_pl_t [N_XQ-1:0]            iss_pl,
+  // IS (tg_issue, DR-133): the source tags of the row each ALU queue grants now (RF's a cycle
+  // later), the URAM read address with IRF_URAM; unconnected until the core wires them
+  input  preg_t [N_ALU-1:0]            is_src1 = '0,
+  input  preg_t [N_ALU-1:0]            is_src2 = '0,
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -125,11 +137,64 @@ module tg_exec
     .rdata(rd_data));
 
   // Read addresses: ALU operands, LD and STA bases (RF stage), store data, trace
-  for (genvar i = 0; i < N_ALU; i++) begin : g_rda
-    assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
-    assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
-    assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
-    assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+  logic [N_ALU-1:0][1:0][63:0] alu_rd;   // the ALU operands' register values in RF
+  if (!IRF_URAM) begin : g_rda
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      assign rd_bank[2*i]   = preg_bank(iss_pl[i].src1);
+      assign rd_idx[2*i]    = preg_idx(iss_pl[i].src1);
+      assign rd_bank[2*i+1] = preg_bank(iss_pl[i].src2);
+      assign rd_idx[2*i+1]  = preg_idx(iss_pl[i].src2);
+      assign alu_rd[i][0]   = rd_data[2*i];
+      assign alu_rd[i][1]   = rd_data[2*i+1];
+    end
+    logic unused_isd;
+    assign unused_isd = ^{is_src1, is_src2};
+  end else begin : g_uram
+    // UltraRAM copies, one per bank and ALU operand port, written like the banks and read with
+    // the source tags of IS (is_src1/is_src2), so the data arrives in RF as tg_irf's does. The URAM
+    // read is read-first, so a write in the cycle before RF is taken from that write's
+    // registers instead (the LUTRAM banks show it to an RF read).
+    logic [INT_BANKS-1:0]             pw_we_q;
+    logic [INT_BANKS-1:0][PIDX_W-1:0] pw_wa_q;
+    logic [INT_BANKS-1:0][63:0]       pw_wd_q;
+    always_ff @(posedge clk) begin
+      pw_we_q <= rf_we;
+      pw_wa_q <= rf_wa;
+      pw_wd_q <= rf_wd;
+    end
+    for (genvar i = 0; i < N_ALU; i++) begin : g_a
+      for (genvar o = 0; o < 2; o++) begin : g_o
+        logic [INT_BANKS-1:0][63:0] urd;
+        for (genvar b = 0; b < INT_BANKS; b++) begin : g_b
+          tg_ram_sdp #(.DEPTH(INT_PREGS_PER_BANK), .WIDTH(64), .PRIM("ultra")) u_ur (
+            .clk, .we(rf_we[b]), .waddr(rf_wa[b]), .wdata(rf_wd[b]),
+            .re(1'b1), .raddr(preg_idx(o ? is_src2[i] : is_src1[i])), .rdata(urd[b]));
+        end
+        // One encoded select per bit: the source's bank, or that bank's write of the cycle before
+        // (picked once per port), so a bit is a 4:1 (with three banks) after a 3:1.
+        preg_t t;
+        assign t = o ? iss_pl[i].src2 : iss_pl[i].src1;
+        logic [BANK_W-1:0] tb;
+        logic [63:0]       pw;      // the source bank's write of the cycle before
+        logic              hit;
+        always_comb begin
+          tb  = preg_bank(t);
+          pw  = pw_wd_q[0];
+          hit = 1'b0;
+          for (int b = 0; b < INT_BANKS; b++) begin
+            if (tb == BANK_W'(b)) begin
+              pw  = pw_wd_q[b];
+              hit = pw_we_q[b] && pw_wa_q[b] == preg_idx(t);
+            end
+          end
+          alu_rd[i][o] = urd[0];
+          if (hit) alu_rd[i][o] = pw;
+          else begin
+            for (int b = 1; b < INT_BANKS; b++) if (tb == BANK_W'(b)) alu_rd[i][o] = urd[b];
+          end
+        end
+      end
+    end
   end
   assign rd_bank[P_LD]  = preg_bank(iss_pl[Q_LD].src1);
   assign rd_idx[P_LD]   = preg_idx(iss_pl[Q_LD].src1);
@@ -196,8 +261,8 @@ module tg_exec
             : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
       if (q < N_ALU) begin
-        ra[q] = rd_data[2*q];
-        rb[q] = rd_data[2*q+1];
+        ra[q] = alu_rd[(q < N_ALU) ? q : 0][0];   // (the index stays in range where q >= N_ALU)
+        rb[q] = alu_rd[(q < N_ALU) ? q : 0][1];
       end else if (q == Q_LD) begin
         ra[q] = rd_data[P_LD];
         rb[q] = '0;
@@ -267,8 +332,10 @@ module tg_exec
       default: bt_taken = !f_ltu[0];
     endcase
     if (bp.br_kind != BR_COND) bt_taken = 1'b1;
-    bt_target = (bp.br_kind == BR_JALR) ? ((opa[0] + {{52{bp.jalr_off[11]}}, bp.jalr_off}) & ~64'd1)
-                                        : bp.br_target;
+    // One adder: JALR adds rs1 and its offset, the others zero to the decoded target (whose bit 0
+    // is zero), so the target select sits in the adder's LUTs (fpga_friendly.md T7)
+    bt_target = ((bp.br_kind == BR_JALR ? opa[0] : bp.br_target)
+               + (bp.br_kind == BR_JALR ? {{52{bp.jalr_off[11]}}, bp.jalr_off} : 64'd0)) & ~64'd1;
     bt_npc = bt_taken ? bt_target : bt_seq;
   end
   // The misprediction test bt_npc != pred_npc as (taken ? target != pred : seq != pred): the
@@ -359,8 +426,9 @@ module tg_exec
   // the MUL's write cycle (spike S3: min/max out of the 1-cycle ALU loop, tg_alu MINMAX = 0; the
   // count needs no bypass, so it may start a cycle late: this takes the load bypass, the count
   // and the flag out of one cycle)
-  // - clz and ctz share one leading-zero count, ctz(x) = clz(x bit-reversed). The W forms put ones
-  //   beside the low word (below it for clz, above it for ctz), so the count stops at 32.
+  // - clz and ctz share one leading-zero count (tg_fpu_lzc), ctz(x) = clz(x bit-reversed). The W
+  //   forms put ones beside the low word (below it for clz, above it for ctz), so the count stops
+  //   at 32. cpop adds 3-bit counts of 6-bit groups in a tree.
   // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
@@ -368,20 +436,31 @@ module tg_exec
   logic [63:0]       bca_q, bcb_q;             // the operands, registered at the end of EX
   mul_op_e           bcop_q;
   logic              bcw_q, bclt_q, bcmax_q;
+  logic [63:0]       bcx, bcy, bcw;
+  logic [6:0]        bc_lz, bc_pc;
   always_comb begin
-    logic [63:0] x, y, w;
-    int n;
-    x = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
-    w = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
-    y = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
-    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) y[i] = w[63 - i];      // ctz
-    n = 64;
-    for (int i = 0; i < 64; i++) if (y[i]) n = 63 - i;                       // clz, ctz
-    if (bcop_q == MUL_HSU) begin                                             // cpop
-      n = 0;
-      for (int i = 0; i < 64; i++) n += int'(x[i]);
+    bcx = bcw_q ? {32'b0, bca_q[31:0]} : bca_q;
+    bcw = bcw_q ? {32'hFFFF_FFFF, bca_q[31:0]} : bca_q;
+    bcy = bcw_q ? {bca_q[31:0], 32'hFFFF_FFFF} : bca_q;
+    if (bcop_q == MUL_H) for (int i = 0; i < 64; i++) bcy[i] = bcw[63 - i];  // ctz
+  end
+  tg_fpu_lzc #(.W(64)) u_bclz (.x(bcy), .cnt(bc_lz));                      // clz, ctz
+  // cpop: 3-bit counts of 6-bit groups, then a tree of adders
+  always_comb begin
+    logic [10:0][2:0] g3;
+    logic [5:0][3:0]  s4;
+    logic [2:0][4:0]  s5;
+    for (int g = 0; g < 11; g++) begin
+      g3[g] = '0;
+      for (int k = 0; k < 6; k++) if (6 * g + k < 64) g3[g] += 3'(bcx[6 * g + k]);
     end
-    bc_res = 64'(n);
+    for (int j = 0; j < 5; j++) s4[j] = 4'(g3[2 * j]) + 4'(g3[2 * j + 1]);
+    s4[5] = 4'(g3[10]);
+    for (int j = 0; j < 3; j++) s5[j] = 5'(s4[2 * j]) + 5'(s4[2 * j + 1]);
+    bc_pc = 7'(6'(s5[0]) + 6'(s5[1])) + 7'(s5[2]);
+  end
+  always_comb begin
+    bc_res = 64'(bcop_q == MUL_HSU ? bc_pc : bc_lz);
     if (bcop_q == MUL_HU) bc_res = (bclt_q ^ bcmax_q) ? bca_q : bcb_q;       // MIN(U), MAX(U)
   end
 
@@ -486,10 +565,9 @@ module tg_exec
       rf_we[1] = 1'b1;
       rf_wa[1] = oth_wa;
     end
-    if (init_we) begin
+    if (init_we) begin                     // the data is res_q[0], zero then (below)
       rf_we[0] = 1'b1;
       rf_wa[0] = init_idx;
-      rf_wd[0] = '0;
     end
     rf_we[LD_BANK] = ld_res_valid;
     rf_wa[LD_BANK] = ld_res_dst;
@@ -537,6 +615,9 @@ module tg_exec
       wb_dst_q[i] <= preg_idx(ex_pl_q[i].dst);
       wb_rob_q[i] <= ex_pl_q[i].rob;
     end
+    // res_q[0] is zero through the reset sequence (rst, then init_we, while nothing issues), so
+    // bank 0's zero writes take it as their data: no multiplexer in front of the bank (T7)
+    if (rst || init_we) res_q[0] <= '0;
     wbq_q    <= res_q;
     ld_wbq_q <= ld_res_data;
     // Branch WB state

@@ -379,7 +379,7 @@ The core instantiates `tg_fp_exec`, which contains `tg_fprf` and `tg_fpu`. The C
   - one store-data port, `fsd_tag` → `fsd_data`, combinational;
   - `NTR` trace ports (default `COMMIT_WIDTH`, as on the integer file).
   A read selects its bank after the LUTRAM. Read-during-write follows `tg_ram_lut`: the new value is visible after the write edge.
-- **Init port:** `init_we`/`init_bank`/`init_idx` writes zero, for the reset sequence's initial FP map (Spike resets every f register to 0).
+- **Init port** (on `tg_fp_exec`): `init_we`/`init_idx` writes zero into F0, for the reset sequence's initial FP map (Spike resets every f register to 0). The write takes the F0 port, whose stream is idle then, so the zero folds into the F0 stream's multiplexer and the banks need no zero multiplexer. `init_bank` must be 0 (asserted).
 
 ### P4 pipeline (`tg_fp_exec`)
 
@@ -444,7 +444,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 - This costs 2 cycles on integer-to-FP moves of in-flight ALU results, about 0.4% of FP sources in the census. MUL (tag) and LLT producers wake late enough already.
 
 **FP loads** (F1):
-- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself; since DR-123 it ignores `fld_single`, and the port goes when the core drops its connection.
+- `fld_valid`, `fld_idx` and `fld_data` write F1 at the end of the cycle. `fld_data` is the value F1 gets: the core's LSU NaN-boxes an FLW value as {0xFFFFFFFF, data[31:0]} before its load result register (3f9a227). `tg_fp_exec` used to do it itself, from a `fld_single` flag; DR-123 dropped the flag and the port.
 - `fld_m2_will` and `fld_m2_idx` announce the write one cycle ahead, for the bypass select.
 - The core wakes the load's LLT and completes it, as for integer loads.
 
@@ -484,7 +484,7 @@ The F0 write of the next cycle is always known one cycle ahead (FMA and FMISC fr
 
 Not checkable by an assertion: the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) comes straight from the load result register, with no logic after it, and `fld_data` is already NaN-boxed for FLW. It feeds the F1 bypass into the units' first stage, and the timing below assumes it.
 - The core agreed: `fld_data` and `fld_idx` come from the LSU's `r_data_q` and `r_dst_q`, which already drive the integer load bank at WB.
-- `fld_valid` is a flip-flop of the same stage. (`fld_single` is still connected and ignored.)
+- `fld_valid` is a flip-flop of the same stage.
 
 ### `fcsr` (`tg_fcsr`)
 - **State per hart:** `frm` and `fflags`.
@@ -517,7 +517,7 @@ Out of context at 200 MHz, as for the units ("Timing and area"; `TG_OOC_FILES=rt
 
 The per-module split comes from a synthesis that keeps the hierarchy. The trace ports cost 2 × 64 bits of LUTRAM per bank; without them `tg_fprf` would be about 850 LUTs.
 
-**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_single`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
+**Timing.** Inputs arrive 1.5 ns after the clock, as for the units, except the F1 load write (`fld_valid`, `fld_idx`, `fld_data`) at 1.0 ns (`TG_OOC_IO=tests/unit/fpu/vivado/fp_exec_io.tcl`).
 - The core writes the load bank at WB from its load result register ([core-lsu.md](core-lsu.md)), so these ports leave a register. 1.0 ns leaves about 0.9 ns for routing across the core. The contract above requires it.
 - **The complete module has no margin at 200 MHz.** The agreed RTL measures −0.145 ns (smt2) and +0.015 ns (st).
   - **smt2's worst path is inside the FMA's E2:** the tile outputs, the row sum and the roughly 120-bit adder, whose sign selects the magnitude (85 loads), into `mag_q`. It has 15 logic levels and 71% of its delay is routing. E3 follows at −0.062 ns.
@@ -717,6 +717,11 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
 | AR-8 no-IPC pass on P4 (step 1) | FMA −55 | FADD/FSUB's rs2 into `c` (the FMA's b/c multiplexer goes) and a four-source EX0 bypass. Budget flow (`-flatten none`): P4 7,954 → 7,823 (st), 7,977 → 7,846 (smt2), −131. Out-of-context synthesis with `rebuilt` flattening had shown −281/−239: it optimises across module boundaries, so it overstates. FMA slack +0.103 → +0.159 ns. Floorplanned P4 still closes at default effort (+0.096 and +0.056 ns). |
 | DR-123 FPGA-native pass on P4 (step 2) | P4 −113 | The FMA's hi + 1 in 2 DSPs (−54), the divider's e0 subtraction in its SMa tile (−38) and the remainder's sign from a 38-bit subtraction (−22). Budget flow, standalone: P4 7,386 → 7,273 (st), 35 → 37 DSPs. Floorplanned P4 closes at default effort (+0.130 and +0.089 ns). Details below ("DR-123, FPGA-native pass"). |
 | DR-123, P4 step 3 | P4 −16 | The core's LSU NaN-boxes FLW before its load result register (core track, 3f9a227), so P4 drops its boxing multiplexer: `fld_data` goes straight into F1, the RF-stage capture and the EX0 bypass, one LUT level shorter. `fld_single` is ignored until the core drops the port. Budget flow: P4 7,273 → 7,257 (st), 7,294 → 7,278 (smt2). Floorplanned P4 closes at default effort (+0.089 ns smt2, +0.073 ns st); cycle-identical to main f46d871 (`make cycle-identical`, 798 of 798 programs in each configuration). |
+| DR-123, P4 step 4 | P4 −59 | The FP register file's bank select folds into the RF-stage operand multiplexer (one encoded 4:1 per port: bank 0, bank 1, the F1 write, the integer source), −28; FMISC's result is one encoded select per bit over a, b, the FCVT.I.F sum, the two sign-extension bits and a constant word, in place of three multiplexers in a row, −31. Budget flow: P4 7,257 → 7,198 (st), 7,278 → 7,219 (smt2). Floorplanned 200 MHz: +0.097 ns (smt2), +0.067 ns (st). Measured and not taken (T1/T4): the divide table and the B1 queue have 4 entries (about 35 and 10 LUTs of flip-flop logic; the B1 payload is LUTRAM already), and an SRL FIFO counts more LUTs before placement than LUTRAM (spikes' table, fpga_friendly.md §3.1). |
+| DR-123, execute step 2 | execute −17 | The divider's NM amount is `nz ? 64 : ~(lzd − lza)` on the original shifter (+58 against main's form, where the form that kept r and q at n = 0 was +75), and FX goes back to its original select. Execute 7,892 → 7,875 (st and smt2); it closes 200 MHz at +0.116 ns (st, the NM step now the worst path) and +0.033 ns (smt2). |
+| DR-133, execute's UltraRAM operand ports (behind `IRF_URAM`, default 0) | execute −597 when on | The 4 ALU operand ports read URAM copies of the register file: one per bank and port (12 URAM per core at N_ALU = 2), written like the banks and addressed in IS from tg_iq's `payload_sel` (the new inputs `is_src1`/`is_src2`, tg_issue's export, 748a133 on the core track's branch), so the data arrives in RF as the LUTRAM's does. The URAM read is read-first, so the write of the cycle before RF comes from that write's registers, picked once per port; one 4:1 per bit then selects the source's bank or that write. `tg_irf` keeps the other 5 ports. Gates (DR-133): (1) cycle-identical with the switch on, 798/798 in st and smt2 (and a mutant without the bypass mismatches on 262 of 293 riscv-tests), `make regress` passes; first on a local prototype of the core's port, then again on the core track's export (`is_src1`/`is_src2`, fn2 2952dbd, with u_ex wired in tg_core): 798/798 in st and smt2, and with execute step 3's RTL on fn2 65dce2e (base main f0a1207): 798/798 in st and smt2; (2) out of context next to a URAM column (`exec_pblock.tcl`, `exec_uram_io.tcl` with the tags at 2.5 ns): +0.019 ns (st), +0.002 ns (smt2), floorplanned into X2Y0–X2Y1 (12 URAM sites); (3) the full-chip placement check: asked of spikes-2 on a test branch with the switch on (claude/track-fpu-395911-dr133-gate3, not for merging). Budget flow: 7,875 → 7,278 LUTs (st), 12 URAM; a first form of the bypass (a 6:1 per bit) gave 7,532. |
+| DR-123, execute step 3 | execute −350 | Four changes, each cycle-identical (798/798 in st and smt2 against main f0a1207), measured in sequence: the integer divider aligns the divisor in NM, d = \|b\| << (n − 1), with one 64-bit shifter, where {r, q} = \|a\| << (64 − n) needed a 128-bit shift, and sets x / 0's all-ones quotient there, so FX has no override (−208); the Zbb unit's clz/ctz on `tg_fpu_lzc` and cpop as a tree of 6-bit group counts (−23); res_q[0] held at zero through the reset sequence, so bank 0's zero writes need no multiplexer (−31); the branch target's select in front of the JALR adder, which adds zero to the decoded target (−88). Execute 7,875 → 7,525 (st), 7,524 (smt2), 85 under its 7,610 with `IRF_URAM` off. 200 MHz: +0.163 ns (st), +0.204 ns (smt2), the worst paths now the shared read port's I/O. |
+| DR-123, P4 step 5 | P4 −64 | The reset sequence's zero writes take the F0 write port: the zero and its index fold into the F0 stream's multiplexers, and `tg_fprf` loses its init port with both banks' zero multiplexers. `init_bank` must be 0 (asserted; the core ties it to 0), and the back-end bench zeroes F1 registers through the load port. Budget flow: 7,198 → 7,134 (st), 7,219 → 7,156 (smt2). Floorplanned 200 MHz: +0.069 ns (st), +0.117 ns (smt2). |
 
 **What Goldschmidt really cost, and why.**
 - **The estimate:** about the radix-4 unit's LUTs plus 0.2K, on the reasoning that its multipliers are DSPs.
@@ -765,10 +770,10 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - `bext` from the rotator: +1;
   - the tree count in the Zbb unit: +77, because with `-flatten none` synthesis can no longer fold the bit-reverse multiplexer into the count.
 - **What is left is structural:** the register file (2,568: 9 read ports over 3 banks), two ALUs (≈1.17K each), the divider (1,315), and an 8-source bypass.
-- **Options that cost IPC** (report only):
+- **Options that cost IPC** (estimates, not proposed): each needs the core's issue logic to change, so neither has a measured cycle cost. Execute is under its budget since step 3, so neither goes on the reserve list (DR-135: only the user adopts a lever that moves a cycle, one at a time, on its measured cost per suite):
   - dropping the write-back level from the load/store base bypass: about −128 LUTs;
-  - unary and single-bit Zbb/Zbs ops on one ALU only: about −200 to −300;
-  - the trace read ports, which are the coordinator's reserve: −584.
+  - unary and single-bit Zbb/Zbs ops on one ALU only: about −200 to −300.
+- **The trace read ports** move no cycle; dropping them is DR-121's reserve: −584.
 
 **DR-123, FPGA-native pass** (P4 and Execute, 2026-10-14, zero IPC).
 - **Method:**
@@ -800,13 +805,14 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
     - the logic ops in front of the adder alone: +212;
     - a funnel shifter instead of the rotator and mask: +43.
     - All passed the equivalence bench (3 million vectors against the old ALU, with Xilinx's CARRY8 model for the explicit chain).
-  - The divider's NM as two 64-bit shifts: +185. One shifter with the amount `nz ? 64 : ~(lzd − lza)` measured +58 in context, 17 below the adopted form (+75, verified end to end first): a candidate for the next pass.
-- **What is left:** P4 is 457 (st) and 478 (smt2) over its 6,800 after step 3 (the history table above), and Execute 282 over its 7,610 in both. The big blocks are:
+  - The divider's NM as two 64-bit shifts: +185. One shifter with the amount `nz ? 64 : ~(lzd − lza)` measured +58 in context, 17 below the adopted form (+75, verified end to end first): taken in execute step 2, then replaced by the divisor alignment of step 3.
+  - Step 3: the misprediction test back to next PC ≠ predicted saves 23 LUTs, but the slack falls from +0.16 to +0.03 ns; the ALU with the W extension as a fourth source above bit 31 (+3 alone), bit masks from the rotator (+99) or a funnel shifter (+58); x / 0 as q = 1 negated (+97 alone); P4's F0 source as an encoded select with the zero as a fourth state (−4, noise).
+- **What is left:** after P4 step 5 and execute step 3 (the history table above), P4 is 334 (st) and 356 (smt2) over its 6,800, and Execute 85 (st) and 86 (smt2) under its 7,610. The big blocks are:
   - LUTRAM register files, sized by their read ports (2,568 and 1,143);
   - the FMA's adder tree and normaliser, which must finish within E2 and E3;
   - the divider's operand multiplexers into two 60 × 60 multipliers;
   - two 1-cycle ALUs.
-  - The remaining levers cost IPC or are the coordinator's reserve: the options above, and DR-121's trace ports.
+  - The remaining levers cost IPC or are the coordinator's reserve: the options above, and DR-121's trace ports. For P4 these are its URAM operand ports (DR-133's reserve, about −240) and its two trace read ports per bank (an estimated −290 LUTRAM, from 55 to 37 RAM64M8 per bank, and −128 LUTs of bank select).
 - **Lessons:**
   - **Adders are not equal in the budget's count.** An incrementer or a constant add costs almost nothing beyond its carry chain, so moving it into DSPs saves little (−4, −14). An adder whose operand bits come from LUT logic saves about a LUT per bit (hi + 1 of an XOR: −54; pc + 2 or 4: −50).
   - **DSP inference needs the attribute on a module, with the operand register inside it.**
@@ -818,6 +824,9 @@ Review and the bench found three errors in `tg_fp_exec`, all fixed:
   - **A timing fix can cost area.** Prefer a form that changes only the arithmetic in front of the critical logic. Two shifters for the NM step cost 185 LUTs; taking the adders out of the one shifter's amount fixed the same path for 75 LUTs.
   - **A narrower form of a modular computation needs the same modular care.** The remainder is exact modulo 2^96. Comparing its truncated halves as plain numbers lost the wrap; a 38-bit subtraction with the low part's borrow keeps it.
   - **A stale build hides a broken change.** The FPU unit run that passed had been built before the edit; the back-end bench, built after it, failed. Check the binary's time against the edit.
+  - **Change what the algorithm aligns before changing how it maps.** The integer divider's NM shifted the dividend into two registers (a 128-bit shift); aligning the divisor instead needs one 64-bit shifter, and saved 208 LUTs where every mapping of the old shift had cost LUTs.
+  - **A zero needs no multiplexer if a register can hold it.** The reset sequence's zero writes now take data that is zero then anyway (res_q[0], and P4's F0 stream), so the banks lose their zero multiplexers.
+  - **Judge small changes in context.** Equivalent forms of a module synthesised alone moved by up to ±100 LUTs (x / 0 as q = 1: +97); the budget flow with an A/B decides.
 
 **Integration on the core's F/D branch (fd2, 2026-10-14).**
 - **Results:** with F/D on, all four configurations pass `make regress` (riscv-tests 284/284 including rv64uf/ud, ACT4 rv64imafdc 895/895). P4 measures 7,861 LUTs in the st core (`tg_fpu` 5,832, `tg_fprf` 1,108).
