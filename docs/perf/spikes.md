@@ -462,6 +462,29 @@ Named paths, slack in ns (the worst over both cores):
 
 ---
 
+### 8.1 DR-133 gate 3: the UltraRAM register file in a v1 full chip (2026-10-14)
+
+**Question (the FPU track, DR-133):** with execute's register-file operand ports in UltraRAM (`IRF_URAM = 1`: 12 URAM288 per core, one per bank and ALU operand port), do both cores' UltraRAMs and the L2's 32 share the device's URAM sites with v1 still closing 200 MHz?
+
+**Method:** [`tg_g3_top`](../../fpga/spikes/rtl/tg_g3_top.sv): two real smt2 cores from the test branch `claude/track-fpu-395911-dr133-gate3` (4d32933) and the S6 L2 stand-in (its 1 MiB L2 in 32 UltraRAMs), placed and routed out of context at **200 MHz** with DR-113's settings. The cores' inputs are random registers and their outputs feed the L2 stand-in (the S6 method), since real v1 (about 127K LUTs) does not fit the device. For this gate only, two known cross-unit core path families were cut (`g3_false_paths.tcl`): LSU `r_data_q` → ROB `exr_*` (matched 128 → 78 cells per core), and execute `wbq_q` → ROB `cmp_q` (matched no `cmp_q` cells, so it cut nothing). The core track owns those paths.
+
+**Result** (92,542 LUTs, 79%; 56 of 64 URAM; 118 DSP; 114 block-RAM tiles):
+
+| Path (slack in ns at 5.0 ns) | Core 0 | Core 1 |
+|---|---|---|
+| Issue (`u_is`, the wakeup/grant) → UltraRAM read address | **−4.833** (10 levels, 7.2 ns of wire) | **−5.476** (8 levels, 8.2 ns of wire) |
+| Worst UltraRAM input of the core | −6.332 (from P4's `iq_rd_q`, 9.5 ns of wire) | −5.476 |
+| UltraRAM data → `ex_a_q` | +0.971 (2 levels) | +1.163 |
+| UltraRAM data → `ex_b_q` | +1.003 | +1.429 |
+| Anything → `ex_a_q` | −0.547 (from the issue queue's `early_q`) | — |
+| L2: into its UltraRAMs / its responses | +1.175 / +1.816 | |
+
+- **Placement:** the XCK26's 64 UltraRAMs are all in clock-region column X2, 16 per region. The L2 took X2Y0 and X2Y1 (32), and the cores' 24 went to X2Y2 and X2Y3 (12 each). Each core's issue and execute logic is spread over the device, so its read address crosses up to a region to reach its UltraRAMs.
+- **So the input side fails by about 5 ns, all of it wire;** the output side passes with about 1 ns.
+- **The chip's WNS is −10.923 ns**, set by the cores' own deep paths (16–48 levels in the worst 2,000 endpoints, the worst `u_ex/ex_sa_q` → `u_rob/exr_rob_q` at 48 levels), not by the UltraRAMs. Those failures also steer the placer, so this run is pessimistic for the UltraRAM paths; but they fail on wire length, which a column the L2 shares does not shorten.
+- **Verdict:** `IRF_URAM = 1` does not close 200 MHz in the v1 full chip as built: keep `IRF_URAM = 0`. A floorplan that puts each core's issue and execute logic against its UltraRAM region could recover part of the 5 ns, but the grant still has to reach a fixed column in one cycle, and tg_exec alone had only +0.002 to +0.019 ns out of context.
+- Peak memory 11.1 GB (20 declared).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
