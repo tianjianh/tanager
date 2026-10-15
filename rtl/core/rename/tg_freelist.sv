@@ -6,6 +6,9 @@
 //   tail:        pushes of freed registers at commit.
 // A flush returns every register allocated by squashed instructions: spec head <- commit head.
 // After reset an init sequence writes FIRST .. DEPTH-1 (NB entries per cycle); `ready` then rises.
+// The free count (tail - spec head) is a register, kept with the commit count (tail - commit
+// head) that it takes on a flush, so rename's resource checks start from flip-flops rather than
+// a subtraction (timing; the same values, asserted).
 module tg_freelist
   import tg_pkg::*;
 #(
@@ -38,10 +41,11 @@ module tg_freelist
   end
 
   logic [PW-1:0] head_q, chead_q, tail_q;
+  logic [PW-1:0] count_q, ccount_q;           // tail - head, tail - commit head
   logic [PW-1:0] init_q;
   localparam logic [PW-1:0] NINIT = PW'(DEPTH - FIRST);
   assign ready = init_q >= NINIT;
-  assign count = tail_q - head_q;
+  assign count = count_q;
 
   // ---- Writes: init sequence or pushes, at tail + rank ----
   logic [NB-1:0]          we;
@@ -101,18 +105,30 @@ module tg_freelist
 
   always_ff @(posedge clk) begin
     if (rst) begin
-      head_q  <= '0;
-      chead_q <= '0;
-      tail_q  <= '0;
-      init_q  <= '0;
+      head_q   <= '0;
+      chead_q  <= '0;
+      tail_q   <= '0;
+      count_q  <= '0;
+      ccount_q <= '0;
+      init_q   <= '0;
     end else if (!ready) begin
       init_q <= init_q + PW'(NB);
-      if (init_q + PW'(NB) >= NINIT) tail_q <= NINIT;
+      if (init_q + PW'(NB) >= NINIT) begin
+        tail_q   <= NINIT;
+        count_q  <= NINIT;
+        ccount_q <= NINIT;
+      end
     end else begin
-      tail_q  <= tail_q + PW'(npush);
-      chead_q <= chead_q + PW'(commit_n);
-      if (flush) head_q <= chead_q + PW'(commit_n);
-      else       head_q <= head_q + PW'(pop_n);
+      tail_q   <= tail_q + PW'(npush);
+      chead_q  <= chead_q + PW'(commit_n);
+      ccount_q <= ccount_q + PW'(npush) - PW'(commit_n);
+      if (flush) begin
+        head_q  <= chead_q + PW'(commit_n);
+        count_q <= ccount_q + PW'(npush) - PW'(commit_n);
+      end else begin
+        head_q  <= head_q + PW'(pop_n);
+        count_q <= count_q + PW'(npush) - PW'(pop_n);
+      end
     end
   end
 
@@ -120,6 +136,8 @@ module tg_freelist
   always_ff @(posedge clk) begin
     if (!rst && ready) begin
       assert (PW'(pop_n) <= count) else $error("tg_freelist: pop beyond the free registers");
+      assert (count_q == PW'(tail_q - head_q) && ccount_q == PW'(tail_q - chead_q))
+        else $error("tg_freelist: the free counts differ from the pointers");
       assert (int'(count) + int'(npush) <= DEPTH) else $error("tg_freelist: overflow");
     end
   end

@@ -82,12 +82,37 @@ module tg_aclint
     rsp_o.err   <= 1'b0;
   end
 
-  always_ff @(posedge clk) begin
-    if (rst) irq_mti_o <= '0;
-    else for (int h = 0; h < N_HARTS; h++) irq_mti_o[h] <= mtime_q >= cmp_q[h];
+  // MTIP: mtime >= mtimecmp, registered, per hart in two DSP48E2 compares (tg_dsp_cmp at latency 1,
+  // whose P register is the irq register; DR-136): the high words' lt and eq and the low words' lt,
+  // combined after the registers. rst_q keeps the synchronous reset: irq is 0 the cycle after rst.
+  // From the first clock edge on, irq is the register it replaced, cycle for cycle.
+  logic rst_q;
+  always_ff @(posedge clk) rst_q <= rst;
+  for (genvar h = 0; h < N_HARTS; h++) begin : g_mti
+    logic hi_eq, hi_lt, lo_eq, lo_lt;
+    tg_dsp_cmp #(.W (32), .LAT (1)) u_hi (
+      .clk, .ce (1'b1), .opa (mtime_q[63:32]), .opb (cmp_q[h][63:32]), .is_eq (hi_eq), .is_lt (hi_lt)
+    );
+    tg_dsp_cmp #(.W (32), .LAT (1)) u_lo (
+      .clk, .ce (1'b1), .opa (mtime_q[31:0]), .opb (cmp_q[h][31:0]), .is_eq (lo_eq), .is_lt (lo_lt)
+    );
+    assign irq_mti_o[h] = !rst_q && !(hi_lt || (hi_eq && lo_lt));
+    wire unused_eq = lo_eq;
   end
   assign irq_msi_o = msip_q;
   assign mtime_o   = mtime_q;
 
   wire unused = ^{req_i.addr[PA_W-1:16], off[2:0], req_i.size};
+
+`ifndef SYNTHESIS
+  // MTIP is the registered compare it replaced
+  logic [N_HARTS-1:0] mti_ref_q;
+  always_ff @(posedge clk) begin
+    if (rst) mti_ref_q <= '0;
+    else for (int h = 0; h < N_HARTS; h++) mti_ref_q[h] <= mtime_q >= cmp_q[h];
+  end
+  logic started_q;                      // past the first edge (before it, no register has loaded)
+  always_ff @(posedge clk) started_q <= 1'b1;
+  always_ff @(posedge clk) if (started_q === 1'b1) assert (irq_mti_o == mti_ref_q) else $error("tg_aclint: MTIP differs from mtime >= mtimecmp");
+`endif
 endmodule

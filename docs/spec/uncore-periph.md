@@ -41,10 +41,13 @@ Device-bus port; `irq_msi_o[NUM_HARTS]`, `irq_mti_o[NUM_HARTS]`, `mtime_o[63:0]`
 `N_HARTS` (= `NUM_HARTS`), `CLK_HZ` (SoC parameter: the core clock, from `tanager_soc`).
 
 ### Timing and area
-`N_HARTS` 64-bit comparators and one 64-bit incrementer. About 400 LUTs and 400 FFs at 4 harts. Everything is registered.
+- One 64-bit incrementer, and the `N_HARTS` comparators in DSP48E2s (DR-136): two `tg_dsp_cmp` per hart at latency 1, on the high and low words. The DSPs' P registers are the irq registers; their lt and eq bits are combined after them.
+- A registered `rst` keeps the synchronous reset of the register it replaced, so MTIP is cycle-identical from the first clock edge on (an assertion checks it against `mtime ≥ mtimecmp`, registered).
+- 2 DSPs per hart (4 at `st`, 8 at `smt2`). That replaces about 32 LUTs and 8 CARRY8s per hart.
+- About 400 LUTs and 400 FFs at 4 harts before the move.
 
 ### Verification
-`tests/unit/aclint`: tick rate over 10⁶ cycles (exact count), compare and interrupt timing, 32- and 64-bit accesses, the msip bits, writes to `mtime`.
+`tests/unit/periph` (its ACLINT part): tick rate over 10⁶ cycles (exact count), compare and interrupt timing, 32- and 64-bit accesses, the msip bits, writes to `mtime`.
 
 ### Provenance
 RISC-V ACLINT specification v1.0 (MSWI and MTIMER devices, CLINT-compatible layout). Implemented as written.
