@@ -462,6 +462,29 @@ Named paths, slack in ns (the worst over both cores):
 
 ---
 
+### 8.1 DR-133 gate 3: the UltraRAM register file in a v1 full chip (2026-10-14)
+
+**Question (the FPU track, DR-133):** with execute's register-file operand ports in UltraRAM (`IRF_URAM = 1`: 12 URAM288 per core, one per bank and ALU operand port), do both cores' UltraRAMs and the L2's 32 share the device's URAM sites with v1 still closing 200 MHz?
+
+**Method:** [`tg_g3_top`](../../fpga/spikes/rtl/tg_g3_top.sv): two real smt2 cores from the test branch `claude/track-fpu-395911-dr133-gate3` (4d32933) and the S6 L2 stand-in (its 1 MiB L2 in 32 UltraRAMs), placed and routed out of context at **200 MHz** with DR-113's settings. The cores' inputs are random registers and their outputs feed the L2 stand-in (the S6 method), since real v1 (about 127K LUTs) does not fit the device. For this gate only, two known cross-unit core path families were cut (`g3_false_paths.tcl`): LSU `r_data_q` → ROB `exr_*` (matched 128 → 78 cells per core), and execute `wbq_q` → ROB `cmp_q` (matched no `cmp_q` cells, so it cut nothing). The core track owns those paths.
+
+**Result** (92,542 LUTs, 79%; 56 of 64 URAM; 118 DSP; 114 block-RAM tiles):
+
+| Path (slack in ns at 5.0 ns) | Core 0 | Core 1 |
+|---|---|---|
+| Issue (`u_is`, the wakeup/grant) → UltraRAM read address | **−4.833** (10 levels, 7.2 ns of wire) | **−5.476** (8 levels, 8.2 ns of wire) |
+| Worst UltraRAM input of the core | −6.332 (from P4's `iq_rd_q`, 9.5 ns of wire) | −5.476 |
+| UltraRAM data → `ex_a_q` | +0.971 (2 levels) | +1.163 |
+| UltraRAM data → `ex_b_q` | +1.003 | +1.429 |
+| Anything → `ex_a_q` | −0.547 (from the issue queue's `early_q`) | — |
+| L2: into its UltraRAMs / its responses | +1.175 / +1.816 | |
+
+- **Placement:** the XCK26's 64 UltraRAMs are all in clock-region column X2, 16 per region. The L2 took X2Y0 and X2Y1 (32), and the cores' 24 went to X2Y2 and X2Y3 (12 each). Each core's issue and execute logic is spread over the device, so its read address crosses up to a region to reach its UltraRAMs.
+- **So the input side fails by about 5 ns, all of it wire;** the output side passes with about 1 ns.
+- **The chip's WNS is −10.923 ns**, set by the cores' own deep paths (16–48 levels in the worst 2,000 endpoints, the worst `u_ex/ex_sa_q` → `u_rob/exr_rob_q` at 48 levels), not by the UltraRAMs. Those failures also steer the placer, so this run is pessimistic for the UltraRAM paths; but they fail on wire length, which a column the L2 shares does not shorten.
+- **Verdict:** `IRF_URAM = 1` does not close 200 MHz in the v1 full chip as built: keep `IRF_URAM = 0`. A floorplan that puts each core's issue and execute logic against its UltraRAM region could recover part of the 5 ns, but the grant still has to reach a fixed column in one cycle, and tg_exec alone had only +0.002 to +0.019 ns out of context.
+- Peak memory 11.1 GB (20 declared).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
@@ -624,7 +647,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - v1 holds 200 MHz from 79% to 88% fill with no trend: +0.043 / +0.105 / +0.007 ns.
   - The limits are the protected loops, not congestion (level 5 at 88%). v2 at 89% ran at 191 MHz.
   - The synthetic filler is local wiring, hence the planning limit of 85% with a ceiling of 88–90%.
-  - **At 180 MHz with wakeup tags** ([area_synth.md](area_synth.md) §5): v1 closes at 93.4% and 95.3% fill, v2 at 90.0%, 94.2% and 96.0%, all with +0.05 to +0.14 ns and no trend with fill. The limits are S3's ALU loop, S5's IF2 → IF3 step and S4's M2 stage, not the scheduler and not congestion. So at 180 MHz v1 fits at least 111.6K LUTs (95.3%), against about 103K (88%) at 200 MHz.
+  - **At 180 MHz with wakeup tags** ([area_synth.md](area_synth.md) §5; measurements only, since a 180 MHz target is the user's decision, DR-137): v1 closes at 93.4% and 95.3% fill, v2 at 90.0%, 94.2% and 96.0%, all with +0.05 to +0.14 ns and no trend with fill. The limits are S3's ALU loop, S5's IF2 → IF3 step and S4's M2 stage, not the scheduler and not congestion. So at 180 MHz v1 fits at least 111.6K LUTs (95.3%), against about 103K (88%) at 200 MHz.
   - **Without tags, v1 did not route at 93.4%** in over 2 hours; with tags the same fill routed in 15 minutes. Tags matter for routability as well as for LUTs.
 - **min/max off the 1-cycle ALU.** With them, 2 ALUs had +0.014 ns under the pblock and 3 ALUs failed (−0.086). Without them the 2-ALU loop has +0.47 and 3 ALUs close.
 - **The real core's first synthesis (82.5K LUTs, st).** Seven PMP checkers take 21.8K of it, a quarter of the core. Keeping the hierarchy alone took 5.5K off the flattened 88K.
