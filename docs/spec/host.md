@@ -69,7 +69,7 @@ The PL side of that is the **host bridge**:
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
 | `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
 
-A 64-bit pair is written low half first. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
+A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
 ## RISC-V register map (`tg_hostctl`, offsets from `0x1000_1000`)
 
