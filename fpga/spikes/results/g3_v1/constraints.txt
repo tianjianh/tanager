@@ -1,0 +1,5 @@
+false paths (DR-133 gate 3 only; the core track owns these paths):
+  core 0: u_lsu*r_data_q_reg*  (  128 cells) -> u_rob*exr_*      (   78 cells)
+  core 0: u_ex*wbq_q_reg*      (  192 cells) -> u_rob*cmp_q_reg* (    0 cells)
+  core 1: u_lsu*r_data_q_reg*  (  128 cells) -> u_rob*exr_*      (   78 cells)
+  core 1: u_ex*wbq_q_reg*      (  192 cells) -> u_rob*cmp_q_reg* (    0 cells)

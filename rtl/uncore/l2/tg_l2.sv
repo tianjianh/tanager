@@ -10,7 +10,8 @@ module tg_l2
   parameter int N_WB      = 4,
   parameter int N_PUTBUF  = 4,
   parameter     DATA_PRIM = "ultra",
-  parameter int DATA_LAT  = 2
+  parameter int DATA_LAT  = 2,
+  parameter logic [3:0] RSLICE_DSP = '0   // per bank: its R slice in DSP48E2s (tg_l2_bank)
 ) (
   input  logic                  clk,
   input  logic                  rst,
@@ -56,7 +57,7 @@ module tg_l2
   for (genvar b = 0; b < N_BANKS; b++) begin : g_bank
     tg_l2_bank #(
       .BANK (b), .N_AGENTS (N_AGENTS), .SETS (SETS), .N_MSHR (N_MSHR), .N_WB (N_WB),
-      .N_PUTBUF (N_PUTBUF), .DATA_PRIM (DATA_PRIM), .DATA_LAT (DATA_LAT)
+      .N_PUTBUF (N_PUTBUF), .DATA_PRIM (DATA_PRIM), .DATA_LAT (DATA_LAT), .RSLICE_DSP (RSLICE_DSP[b])
     ) u_bank (
       .clk, .rst,
       .a_i (a_i[b]), .a_valid_i (a_valid_i[b]), .a_ready_o (a_ready_o[b]),

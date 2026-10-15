@@ -72,7 +72,7 @@
 | Everything but the PMP select | ≈2.0K (1.5–2.5K) | 4.2K (the budgets' SMT2 additions) |
 | PMP descriptor select (measured) | +2.3K | +2.3K |
 | **Hart 1, per core** | **≈4.3K** | **≈6.5K** |
-| v1 with today's cores and uncore (§7.7) | ≈118.6K | ≈123.1K |
+| v1 with today's cores and uncore (§7.7) | ≈117.2K | ≈121.7K |
 
 - **The RAM forms save ≈2.2K per core,** ≈4.5K per SoC, against copies.
 - **The PMP select is where a better form would pay most.**
