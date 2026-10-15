@@ -353,10 +353,10 @@ module tg_fpu_fma
   // ------------------------------------------------------------------------------------------
   fpu_resp_t r;
   always_comb begin
-    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn, zero;
+    logic s, g, st, lsb, inc, inexact, tiny, ovf, tn_ones, gn, sn, zero, use_k;
     logic signed [13:0] ef;      // exponent in the result format's bias
     logic [62:0] pk_b, pk;
-    logic [63:0] res;
+    logic [63:0] kw;
     s = rsign4_q;
     zero = (n_q == '0) && !st_q;
     if (c4_q.dbl) begin
@@ -380,22 +380,27 @@ module tg_fpu_fma
     pk   = ({49'b0, 14'(ef - 14'sd1)} << 52) + pk_b + 63'(inc);
     if (c4_q.dbl) ovf = (ef >= 14'sd2047) || (&pk[62:52]);
     else          ovf = (ef >= 14'sd255) || (&pk[59:52]);
-    res = c4_q.dbl ? {s, pk} : box_s({s, pk[59:29]});
+    // The result as one select per bit (T7): the packed sum in its D or S position, or a constant
+    // word kw (a special, zero or overflow value; for a normal result the sign and S's NaN box)
+    use_k = (c4_q.spec != SPEC_NONE) || zero || ovf;
+    if (c4_q.spec != SPEC_NONE) kw = spec_value(c4_q.spec, c4_q.dbl, c4_q.spec_sign);
+    else if (zero)              kw = zero_value(c4_q.dbl, c4_q.rm == RM_RDN);   // exact cancellation
+    else if (ovf)               kw = ovf_value(c4_q.dbl, s, ovf_to_inf(c4_q.rm, s));
+    else                        kw = c4_q.dbl ? {s, 63'b0} : box_s({s, 31'b0});
+    r.result[63] = kw[63];
+    for (int i = 31; i < 63; i++) r.result[i] = (use_k || !c4_q.dbl) ? kw[i] : pk[i];
+    for (int i = 0; i < 31; i++)  r.result[i] = use_k ? kw[i] : c4_q.dbl ? pk[i] : pk[i + 29];
     r.fflags = '0;
     r.int_dest = 1'b0;
     r.tag = c4_q.tag;
     if (c4_q.spec != SPEC_NONE) begin
-      r.result = spec_value(c4_q.spec, c4_q.dbl, c4_q.spec_sign);
       r.fflags[FL_NV] = c4_q.spec_nv;
     end else if (zero) begin
-      // exact cancellation (sticky bits make any inexact difference non-zero)
-      r.result = zero_value(c4_q.dbl, c4_q.rm == RM_RDN);
+      // exact cancellation (sticky bits make any inexact difference non-zero): no flags
     end else if (ovf) begin
-      r.result = ovf_value(c4_q.dbl, s, ovf_to_inf(c4_q.rm, s));
       r.fflags[FL_OF] = 1'b1;
       r.fflags[FL_NX] = 1'b1;
     end else begin
-      r.result = res;
       r.fflags[FL_NX] = inexact;
       r.fflags[FL_UF] = tiny && inexact;
     end
