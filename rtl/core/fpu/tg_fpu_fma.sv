@@ -171,8 +171,8 @@ module tg_fpu_fma
   // the C ports of two tiles.
   logic [25:0] a0_q, a1_q;
   logic [16:0] b0_q, b1_q, b2_q;
-  logic [51:0] fa_q, fb_q;
-  logic        ha_q, hb_q;
+  logic [51:0] g1_q, g2_q, g3_q;    // the rows' terms (below): fa gated by fb[51], fb by ha, fa by hb
+  logic        hh_q;                // ha && hb
   logic [52:0] mc_q;
   logic [63:0] x_q;
   // Zeros come from the registers' synchronous resets, not LUTs (fpga_friendly.md T7): an S
@@ -189,12 +189,10 @@ module tg_fpu_fma
     b0_q <= zsb ? '0 : q.b[16:0];
     b1_q <= ub.sig[33:17];
     b2_q <= ub.sig[50:34];
-    fa_q[28:0]  <= zs ? '0 : q.a[28:0];
-    fa_q[51:29] <= ua.sig[51:29];
-    fb_q[28:0]  <= zsb ? '0 : q.b[28:0];
-    fb_q[51:29] <= ub.sig[51:29];
-    ha_q <= ua.sig[52];
-    hb_q <= ub.sig[52];
+    g1_q <= ub.sig[51] ? ua.sig[51:0] : '0;
+    g2_q <= ua.sig[52] ? ub.sig[51:0] : '0;
+    g3_q <= ub.sig[52] ? ua.sig[51:0] : '0;
+    hh_q <= ua.sig[52] && ub.sig[52];
     mc_q[28:0]  <= zsc ? '0 : q.c[28:0];
     mc_q[52:29] <= zc ? '0 : uc.sig[52:29];
     x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
@@ -205,11 +203,10 @@ module tg_fpu_fma
   // E1: DSP tiles (A x B + C in one cycle) and addend alignment
   // ------------------------------------------------------------------------------------------
   // rows = fb[51]*fa + 2*(ha*fb + hb*fa) + 2^53*ha*hb, in units of 2^51 of the product: three
-  // operands (the 2^53 bit sits above 2*ha*fb in the same operand), so one ternary adder
+  // operands (the 2^53 bit sits above 2*ha*fb in the same operand), so one ternary adder. Its
+  // terms are gated in E0 and registered (fpga_friendly.md T7), so the adder takes registers.
   logic [54:0] rows;
-  assign rows = ({3'b0, fb_q[51] ? fa_q : 52'b0})
-              + ({1'b0, ha_q && hb_q, ha_q ? fb_q : 52'b0, 1'b0})
-              + ({2'b0, hb_q ? fa_q : 52'b0, 1'b0});
+  assign rows = {3'b0, g1_q} + {1'b0, hh_q, g2_q, 1'b0} + {2'b0, g3_q, 1'b0};
 
   // The tiles' output registers are reset (the DSP48E2 P-register reset) when the product does
   // not take part: FCVT.F.I, or an addend that dominates (the product is only a sticky).
