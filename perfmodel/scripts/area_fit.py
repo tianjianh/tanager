@@ -18,20 +18,23 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 BUDGETS = ROOT / "fpga" / "budget" / "budgets.tsv"
 DEVICE = 117120
-# 88% is S6's 200 MHz result and the sum of v1's budgets; 90% is the plan's ceiling (DR-011); the 180 MHz
-# figures are the full fill test's (area_synth.md section 5). AR-9's v2 budget came from the earlier 94.2% (110,280).
-LIMITS = (("200 MHz, 88% (S6)", 103040), ("200 MHz, 90% (DR-011)", 105408),
-          ("180 MHz, v1 closes at 95.3%", 111633), ("180 MHz, v2 closes at 96.0%", 112441))
+# 103,040 is the sum of v1's budgets (S6's 88% at 200 MHz). The others are the fill test by clock (S6 method, v1
+# with wakeup tags, 2026-10-15; plan section 8.5): which clock and fill to plan for is the user's decision (DR-137).
+# v2's 180 MHz figure (96.0%) is a tracking target only. AR-9's v2 budget came from the earlier 94.2% (110,280).
+LIMITS = (("the budgets' sum (S6's 88% at 200 MHz)", 103040),
+          ("200 MHz, 93.4% closes", 109407), ("200 MHz, 95.3% misses only on a harness path", 111652),
+          ("180 MHz, 98.3% closes", 115174), ("170 MHz, 98.3% closes", 115175), ("150 MHz, 99.3% closes", 116301),
+          ("180 MHz, v2 closes at 96.0% (tracking)", 112441))
 UNITS = ("fe", "dec", "ren", "iq", "ex", "lsu_mmu", "rob_csr", "p4")
 BUDGET_ROW = {"p4": "fpu"}  # P4 (tg_fp_exec) is judged against the FPU line; it also holds the FP register file
 # Hart 1's state per unit, until M7 builds it (area_recovery.md 7.1 and 7.7):
 # - budgets (default): budgets.md's SMT2 additions after R1 and R2, which cost second copies; the rows up to
 #   2026-10-14 16:31 use it.
-# - copies: the same plus the PMP descriptor select, measured at +576 LUTs at each of the four tg_pmp checkers
-#   (fetch in fe; LD, STA and the walker in lsu_mmu), which neither earlier estimate counted.
+# - copies: the same plus the PMP descriptor select, measured at +576 LUTs at each tg_pmp checker, which neither
+#   earlier estimate counted. Since DR-139 there are three: fetch (fe), and LD and STA with the walker (lsu_mmu).
 # - ram: per-thread state as a RAM address bit (conventions section 7; docs/perf/hart1_ram_form.md), with the same
 #   PMP select; worked out for v1 only.
-PMP_SELECT = {"fe": 576, "lsu_mmu": 3 * 576}
+PMP_SELECT = {"fe": 576, "lsu_mmu": 2 * 576}
 HART1 = {"smt2": {"fe": 1000, "dec": 150, "ren": 1300, "rob_csr": 1650, "lsu_mmu": 100},
          "smt2_w3": {"fe": 1000, "dec": 200, "ren": 1450, "rob_csr": 1650, "lsu_mmu": 100}}
 HART1_RAM = {"smt2": {"fe": 600, "dec": 100, "ren": 580, "rob_csr": 580, "lsu_mmu": 100}}
