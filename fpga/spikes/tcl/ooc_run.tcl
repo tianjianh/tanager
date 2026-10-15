@@ -13,6 +13,9 @@
 #   -extra 1  congestion and control-set reports (full-device runs)
 #   -flatten M  synth_design -flatten_hierarchy M (default rebuilt; none keeps each module apart)
 #   -synth_directive D  synth_design -directive D (default Default; e.g. AreaOptimized_high)
+#   -rtl 1  read all product RTL (rtl/rtl.f) rather than rtl/common/common.f alone, for tops
+#           that instantiate real units (e.g. tg_g3_top's tg_core)
+#   -file F an extra source, relative to the repo root (repeatable), e.g. a top not in spikes.f
 #   -pblock R  keep the design in clock-region range R (e.g. X0Y2:X1Y3), next to the clock
 #           source, so placement scatter does not decide the result
 # Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
@@ -34,6 +37,8 @@ set extra 0
 set pblock ""
 set flatten rebuilt
 set synth_dir Default
+set read_rtl 0
+set extra_files {}
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -50,6 +55,8 @@ while {[llength $rest]} {
     -pblock     { set pblock $v }
     -flatten    { set flatten $v }
     -synth_directive { set synth_dir $v }
+    -rtl        { set read_rtl $v }
+    -file       { lappend extra_files $v }
     default { error "ooc_run.tcl: unknown option $k" }
   }
 }
@@ -67,8 +74,13 @@ proc tg_kv {fh k v} { puts $fh [format "%-24s %s" $k $v] }
 
 set t0 [clock seconds]
 read_verilog -sv [file join $root rtl common cfg tg_cfg_${cfg}.sv]
-tg_read_f [file join $root rtl common common.f]
+if {$read_rtl} {
+  tg_read_f [file join $root rtl rtl.f]
+} else {
+  tg_read_f [file join $root rtl common common.f]
+}
 tg_read_f [file join $root fpga spikes spikes.f]
+foreach f $extra_files { read_verilog -sv [file join $root $f] }
 
 set gargs {}
 foreach g $generics { lappend gargs -generic $g }
