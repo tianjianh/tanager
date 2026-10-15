@@ -36,6 +36,11 @@ struct pending_wb_t {
   uint32_t insn = 0;
 };
 
+// The destination value the RTL reports is taken over rather than compared (§3.4).
+bool adopts_value(const tr_rec_t& r) {
+  return r.mmio_ld || r.nondet || (!r.rvc && is_csr_insn(r.insn) && adopted_csr(r.insn >> 20));
+}
+
 struct hart_state_t {
   processor_t* p = nullptr;
   uint32_t id = 0;
@@ -214,7 +219,7 @@ class lockstep_impl_t {
                                      dst(s_we, st.rd_fp, st.rd).c_str()));
     }
     if (r.rd_we) {
-      if (r.mmio_ld || r.nondet || csr_adopt) {
+      if (adopts_value(r)) {
         state_t* s = h.p->get_state();
         if (r.rd_fp) {
           freg_t v;
@@ -407,5 +412,8 @@ void lockstep_t::report(FILE* f) const { impl_->report(f); }
 std::string lockstep_t::disasm(uint32_t insn) const { return impl_->disasm(insn); }
 uint64_t lockstep_t::read_mem64(uint64_t pa) const { return impl_->read_mem64(pa); }
 uint64_t lockstep_t::steps() const { return impl_->steps(); }
+bool lockstep_t::compares_value(const tr_rec_t& r) {
+  return r.kind == TR_RETIRE && r.rd_we && !r.rd_deferred && !adopts_value(r);
+}
 
 }  // namespace tg
