@@ -206,7 +206,7 @@ The board track then took steps 6 and 7 on the SoC track's first core bitstream.
 - **What Linux reports:** `isa: rv64imafdc_zicntr_zicond_zicsr_zifencei_zaamo_zalrsc_zca_zcd_zba_zbb_zbs_sstc`, `mmu: sv39`, `uarch: tanager,tanager`. MemTotal is 1,016,492 kB.
 - **The injector, read while Linux ran:** 1.53 M reads, native latency **avg 19.8, max 54 cycles** at 60 MHz (330 ns on average). That is from the L2's request to its response, through the window and the PS port. It is consistent with spike S1's 184 ns at the PS port, once the uncore path, the PL-PS crossing at 60 MHz and the line's last beat are added.
 - **The PMOD console** (COM5, 115200 8N1) carried both boots and the whole session: 22,403 bytes. The only bad byte is described next.
-- **One nit, for the SoC track:** first light's last line shows as `PAS`, on both consoles. `run` writes `CTRL = 3` as soon as `tohost` arrives, while the UART is still sending `S` and the newline. `run` should drain the console, including the PMOD serialiser, before it resets.
+- **The console tail:** first light's last line first showed as `PAS` on both consoles, because `run` wrote `CTRL = 3` as soon as `tohost` arrived, while the UART was still sending. `tanager-host` `c68bc6e` drains the console until it has been quiet for 20 ms (0.5 s at most) before it resets. On the board, both consoles now end in `PASS` ([log](board/m4_firstlight_c68bc6e.log)).
 - **M4's exit criteria** (plan §11):
   - **Linux boots at 0 and 250 injected cycles:** met, at 60 MHz.
   - **Linux at ≥ 100 MHz:** waits for the core's timing.
