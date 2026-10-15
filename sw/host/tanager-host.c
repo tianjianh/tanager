@@ -138,6 +138,7 @@ struct opts {
   int trace_log2;         /* ring of 2^n records */
   int trace_wrap;         /* post-mortem: the ring wraps, dumped at exit */
   int trace_start, trace_stop;
+  int zero;               /* load: zero the RISC-V window first (also with --trace) */
   uint64_t trace_start_pc, trace_stop_pc;
   uint32_t trace_post;
 };
@@ -159,7 +160,8 @@ static void usage(void) {
     "commands:\n"
     "  info                                   identity and status\n"
     "  reset                                  hold cores and uncore in reset\n"
-    "  load --fw F --kernel K --dtb D         reset, set the window, copy images (soc.md §3)\n"
+    "  load --fw F --kernel K --dtb D [--zero] reset, set the window, copy images (soc.md §3); --zero\n"
+    "                                         (implied by --trace) zeroes the window first\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
     "                                         release reset (a running system keeps running), bridge the\n"
@@ -168,7 +170,8 @@ static void usage(void) {
     "                                         the cores while it falls behind (with --trace-wrap: the last\n"
     "                                         2^N records, at exit). The ring takes the top 64 B << N of the\n"
     "                                         carve-out (default N 22: 256 MiB); the device tree's memory must\n"
-    "                                         fit in the rest\n"
+    "                                         fit in the rest. --trace - writes the records to stdout and\n"
+    "                                         everything else to stderr; if the reader stops, run exits 4\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
@@ -248,7 +251,18 @@ static void cmd_load(const struct opts *o) {
   cmd_reset();
   wr64(R_DRAM_BASE, o->base);
   wr64(R_DRAM_SIZE, dram_bytes(o));
-  uint8_t *mem = map_phys(o->base, OFF_DTB + 0x10000);
+  /* A lockstep checker's memory starts at zero, but the DDR outside the images holds old data, and
+   * Linux can copy uninitialised bytes into registers (padding in a memcpy): with --trace, or
+   * --zero, the window (not the trace ring above it) is zeroed first. 8-byte stores: the mapping
+   * is uncached device memory, which takes no DC ZVA. */
+  int zero = o->zero || o->trace;
+  uint8_t *mem = map_phys(o->base, zero ? dram_bytes(o) : OFF_DTB + 0x10000);
+  if (zero) {
+    double t0 = now_s();
+    volatile uint64_t *z = (volatile uint64_t *)mem;
+    for (uint64_t i = 0; i < dram_bytes(o) / 8; i++) z[i] = 0;
+    fprintf(stderr, "zeroed the RISC-V window: %" PRIu64 " MiB in %.1f s\n", dram_bytes(o) >> 20, now_s() - t0);
+  }
   size_t n1 = load_file(o->fw, mem + OFF_FW, OFF_KERNEL - OFF_FW);
   size_t n2 = load_file(o->kernel, mem + OFF_KERNEL, OFF_DTB - OFF_KERNEL);
   size_t n3 = load_file(o->dtb, mem + OFF_DTB, 0x10000);
@@ -256,8 +270,9 @@ static void cmd_load(const struct opts *o) {
   if (verbose) fprintf(stderr, "loaded fw %zu, kernel %zu, dtb %zu bytes\n", n1, n2, n3);
   wr64(R_BOOT_ENTRY, DRAM_BASE_RV + OFF_FW);
   wr64(R_DTB_ADDR, DRAM_BASE_RV + OFF_DTB);
-  printf("loaded: fw %zu B, kernel %zu B, dtb %zu B into 0x%" PRIx64 " (RISC-V 0x%llx)\n", n1, n2, n3, o->base,
-         (unsigned long long)DRAM_BASE_RV);
+  /* stderr: with --trace -, stdout carries only trace records */
+  fprintf(stderr, "loaded: fw %zu B, kernel %zu B, dtb %zu B into 0x%" PRIx64 " (RISC-V 0x%llx)\n", n1, n2, n3,
+          o->base, (unsigned long long)DRAM_BASE_RV);
 }
 
 static void set_inj(const struct opts *o) {
@@ -275,6 +290,7 @@ static void set_inj(const struct opts *o) {
 static uint8_t *trace_ring;
 static FILE *trace_out;
 static uint64_t trace_rp;
+static int      trace_broken;           /* a trace write failed: the consumer has gone (run exits 4) */
 
 static void trace_status(void) {
   uint32_t st = rd(R_TRS_STATUS), info = rd(R_TRS_INFO);
@@ -294,7 +310,12 @@ static void trace_copy(const struct opts *o, uint64_t from, uint64_t to) {
   for (uint64_t n = from; n < to; n++) {
     volatile uint64_t *src = (volatile uint64_t *)(trace_ring + (n & mask) * TRS_REC_BYTES);
     for (unsigned k = 0; k < TRS_REC_BYTES / 8; k++) rec[k] = src[k];   /* uncached: 8-byte loads */
-    if (fwrite(rec, TRS_REC_BYTES, 1, trace_out) != 1) die("trace write: %s", strerror(errno));
+    if (trace_broken) return;
+    if (fwrite(rec, TRS_REC_BYTES, 1, trace_out) != 1) {
+      fprintf(stderr, "\r\n[%s] trace write: %s\r\n", prog, strerror(errno));
+      trace_broken = 1;
+      return;
+    }
   }
 }
 
@@ -320,12 +341,16 @@ static void trace_begin(const struct opts *o) {
   if (verbose) fprintf(stderr, "trace ring at 0x%" PRIx64 ", 2^%d records\n", pa, o->trace_log2);
 }
 
-/* While running (no wrap): hand everything written to the output and free it. */
+/* While running (no wrap): hand what has been written to the output and free it, at most 4,096
+ * records per call, so the console, POWER and TOHOST stay serviced while the consumer lags. */
+#define TRACE_POLL_MAX 4096u
 static int trace_poll(const struct opts *o) {
-  if (o->trace_wrap) return 0;
+  if (o->trace_wrap || trace_broken) return 0;
   uint64_t wp = rd64(R_TRS_WP);
   if (wp == trace_rp) return 0;
+  if (wp - trace_rp > TRACE_POLL_MAX) wp = trace_rp + TRACE_POLL_MAX;
   trace_copy(o, trace_rp, wp);
+  if (trace_broken) return 0;
   trace_rp = wp;
   wr64(R_TRS_RP, trace_rp);
   return 1;
@@ -348,8 +373,9 @@ static void trace_end(const struct opts *o) {
     uint64_t n = (uint64_t)1 << o->trace_log2;
     trace_copy(o, wp > n ? wp - n : 0, wp);
   } else {
-    trace_poll(o);
+    while (trace_poll(o)) { }
   }
+  if (!trace_broken) fflush(trace_out);
   if (trace_out != stdout) fclose(trace_out);
   fprintf(stderr, "[%s] trace: %" PRIu64 " records written%s\n", prog, wp,
           rd(R_TRS_STATUS) & TRS_ST_AXI_ERR ? " (AXI ERROR)" : "");
@@ -395,12 +421,11 @@ static int cmd_run(const struct opts *o) {
   if (o->console == 1) {
     int m = posix_openpt(O_RDWR | O_NOCTTY);
     if (m < 0 || grantpt(m) || unlockpt(m)) die("pty: %s", strerror(errno));
-    printf("console on %s\n", ptsname(m));
-    fflush(stdout);
+    fprintf(stderr, "console on %s\n", ptsname(m));   /* stderr: stdout may carry trace records */
     in_fd = out_fd = m;
   } else if (o->console == 0) {
     in_fd = 0;
-    out_fd = 1;
+    out_fd = (o->trace && !strcmp(o->trace, "-")) ? 2 : 1;   /* --trace -: records alone on stdout */
     if (isatty(0) && tcgetattr(0, &saved_tio) == 0) {
       struct termios t = saved_tio;
       cfmakeraw(&t);
@@ -410,6 +435,7 @@ static int cmd_run(const struct opts *o) {
       atexit(restore_tty);
     }
   }
+  signal(SIGPIPE, SIG_IGN);                 /* a trace consumer that exits ends the run (rc 4) */
   signal(SIGINT, on_sig);
   signal(SIGTERM, on_sig);
 
@@ -457,6 +483,7 @@ static int cmd_run(const struct opts *o) {
       seq0 = rd(R_TOHOST_SEQ);
     }
     if (o->trace && trace_poll(o)) idle = 0;
+    if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
     if (idle) sleep_us(200);
@@ -511,7 +538,7 @@ int main(int argc, char **argv) {
     { "inj-rd", 1, 0, 1 }, { "inj-wr", 1, 0, 2 }, { "inj-mode", 1, 0, 3 }, { "inj-bw", 1, 0, 4 },
     { "stats", 0, 0, 5 }, { "trace", 1, 0, 6 }, { "trace-log2", 1, 0, 7 }, { "trace-wrap", 0, 0, 8 },
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
-    { "force", 0, 0, 12 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
+    { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
   /* Options anywhere (getopt_long's argument permutation): `run --timeout 5` as well as
@@ -540,6 +567,7 @@ int main(int argc, char **argv) {
       case 10: o.trace_stop = 1; o.trace_stop_pc = num(optarg); break;
       case 11: o.trace_post = (uint32_t)num(optarg); break;
       case 12: force = 1; break;
+      case 13: o.zero = 1; break;
       case 'v': verbose = 1; break;
       default: usage();
     }

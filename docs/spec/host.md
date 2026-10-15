@@ -116,7 +116,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 | Command | Action |
 |---|---|
 | `tanager-host info` | print `ID`, `VERSION`, `CLK_HZ`, `CAPS`, `STATUS` |
-| `tanager-host load --fw F --kernel K --dtb D [--base A --size S]` | steps 1–3 of the loading sequence |
+| `tanager-host load --fw F --kernel K --dtb D [--base A --size S] [--zero]` | steps 1–3 of the loading sequence. `--zero`, implied by `--trace`, first zeroes the RISC-V window (not the trace ring above it), so a lockstep checker whose memory starts at zero sees the same bytes |
 | `tanager-host run [--console] [--timeout T] [--inj-rd N --inj-wr N --inj-mode M --inj-bw R]` | step 4: release reset, bridge the console to a pty (or stdio), exit on a power request or `TOHOST`, with its value, and hold everything (`CTRL = 0x3`). Before it holds everything, it drains the console until the UART has been quiet for 20 ms, or for 0.5 s at most, so the RISC-V's last line is not cut off. A system that already runs (after `tg start`) keeps running; `run` only attaches the console |
 | `tanager-host boot …` | load, then run |
 | `tanager-host reset` | hold cores and uncore in reset |
@@ -129,6 +129,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
   - **Guard:** before it maps the window, `tanager-host` checks that the overlay's node (`/axi/tanager@a0000000` for the default window) is in the live device tree, which holds only while the Tanager bitstream is loaded. A PL read that nothing answers hangs the ARM until a power cycle; the board session hung the board this way on 2026-10-14. `--force` skips the check.
   - **Options** may come before or after the command.
+  - **`--trace -`** (FPGA lockstep: `tanager-host boot ... --lossless --trace - | tanager-lockstep ...`, the verification track's checker): stdout carries only the 64-byte records; the console and every message go to stderr or the pty. Each poll copies at most 4,096 records, so the console, `POWER` and `TOHOST` stay serviced while the reader lags; a reader that falls behind fills the pipe, `TRS_RP` stops advancing and the cores stall (lossless). If the reader exits, the write fails (SIGPIPE is ignored), and `run` ends as for a power-off: it drains the console, holds everything and exits 4, "trace consumer stopped".
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
 - **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.
