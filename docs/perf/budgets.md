@@ -169,8 +169,9 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | fca6fe8 | commit-trace streaming into DDR replaces the block-RAM ring | 21,797 | 22,265 | 18,304 | **18** |
 | fc1031e | L2: the write-history bypass back (the same-set rule moves to the reserve list, D18 step 1) | 22,315 | 22,783 | 18,493 | **18** |
 | 4d5ca13 | main's DR-120 (`pma_of` by prefix match) | 21,724 | 22,284 | 18,493 | **18** |
-| 4d5ca13 | the same under DR-113's settings (`-flatten none -directive AreaOptimized_high`; not the flow's default for the uncore) | 20,066 | 20,560 | 18,479 | **18** |
+| 4d5ca13 | the same under DR-113's settings (`-flatten none -directive AreaOptimized_high`; the budget flow's settings for the uncore since e7227d4, as for the core) | 20,066 | 20,560 | 18,479 | **18** |
 | 11bf523 | crossbar: the caches' A-channel data, corrupt and mask as constants (−249, measured on fc1031e; cycle-identical) | ≈21,475 | ≈22,035 | | **18** |
+| e7227d4 | L2: the MSHR state one-hot (54800a2, about −400; cycle-identical), with the crossbar change; DR-113's settings | 19,439 | 19,933 | 18,911 | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **By block** (smt2, 059a572):

@@ -135,6 +135,9 @@ module tg_axi_lat_inj
   wire         tok_ok  = !bw_cap || tokens_q >= 11'd256;
 
   wire [15:0] el_iss = now_q - t_iss_rd[0];
+  // Native latency of the burst whose last beat arrives, modulo 2^16 like the time stamps (a cast
+  // of the difference to 32 bits would subtract in 32 bits and add 2^32 - 2^16 across a wrap)
+  wire [15:0] lat_r  = now_q - t_iss_rd[1];
   wire [15:0] el_arr = now_q - t_arr_rd[0];
   wire        due    = mode_i ? (el_arr >= 16'(rd_delay_i)) : (el_iss >= 16'(rd_delay_i));
 
@@ -247,8 +250,8 @@ module tg_axi_lat_inj
         if (m_r_i.last) begin
           done_q[r_slot]  <= 1'b1;
           st_rd_count_o   <= st_rd_count_o + 1'b1;
-          st_lat_sum_o    <= st_lat_sum_o + 32'(now_q - t_iss_rd[1]);
-          if (now_q - t_iss_rd[1] > st_lat_max_o) st_lat_max_o <= now_q - t_iss_rd[1];
+          st_lat_sum_o    <= st_lat_sum_o + 32'(lat_r);
+          if (lat_r > st_lat_max_o) st_lat_max_o <= lat_r;
         end
       end
       // release

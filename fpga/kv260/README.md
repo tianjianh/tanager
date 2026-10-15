@@ -10,6 +10,13 @@ Vivado runs only through `tools/vivado_run.sh` (conventions §9). From the repos
 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 fpga/kv260/tcl/build.tcl $PWD st trafgen 100 2 bit
 ```
 
+**From a snapshot.** A run that waits for a slot reads the tree only when it starts, so build a commit from a snapshot of it. `summary.txt` records the commit: from `TG_COMMIT`, or from git when the build runs in a checkout.
+
+```bash
+S=$SOC_BUILD/snap-build; rm -rf $S; mkdir -p $S; git archive HEAD | tar -x -C $S
+TG_COMMIT=$(git rev-parse --short=12 HEAD) TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/vivado/st_trafgen_100 $S/fpga/kv260/tcl/build.tcl $S st trafgen 100 2 bit
+```
+
 **The fan** (DR-129): every board bitstream leaves the fan to Linux, which regulates it through `fancontrol`: the AMS's temp1 drives pwm1, from 15/255 at 35 °C to 255 at 45 °C. A12 carries the PS TTC waveform Kria's own PL design uses, as read from the running board: TTC0 (`0xFF11_0000`) channel 2, 25 kHz, reaching A12 through EMIO `emio_ttc0_wave_o[2]`. The 25 kHz PWM is inverted in Linux's view; the routing itself is not. The facts live in `tools/tcl/tg_kv260_fan.tcl`, shared with spike S1. `build.tcl` sources it, and the variables override it:
 
 | Variable | Meaning | Default |
@@ -45,7 +52,7 @@ TG_PMOD_UART=1 TANAGER_VIVADO_MEM_GB=20 bash tools/vivado_run.sh $SOC_BUILD/viva
 - **Host copy:** with the option on, the host bridge still receives a copy of every character, so `tanager-host`'s console shows the output too. Input from either side reaches the RISC-V.
 
 Arguments: configuration (`st`, `smt2`, `st_w3`, `smt2_w3`), core kind, core clock in MHz, number of cores, and the stage to stop at (`synth`, `impl` or `bit`).
-- `core` builds the real `tg_core`. A bitstream with it waits for the core track's area work (the coordinator's call).
+- `core` builds the real `tg_core`. The M4 bitstream is one `st` core with the PMOD console, about 44K LUTs of core and 21K of uncore. At 100 MHz two cross-unit paths in the core miss by 3.8 ns ([results.md](results.md)), so the first one runs at 60 MHz (`st core 60 1 bit` with `TG_PMOD_UART=1`, `TANAGER_VIVADO_MEM_GB=22`).
 - `trafgen` puts traffic generators in the cores' place, for bring-up and uncore timing ([soc.md](../../docs/spec/soc.md) §2.3).
 
 | Output (in the run directory) | Use |
@@ -76,6 +83,15 @@ The board loads a build as the PL app `tanager` through dfx-mgr's `xmutil`, as f
 fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/stage-b
 ```
 
+For a core bitstream, name the images too: the first-light program (bring-up step 6), OpenSBI, the kernel, and a device tree for the bitstream's cores (`sw/dts`; one core here).
+
+```bash
+make -C sw/dts O=$SOC_BUILD/dts-c1 CORES=1
+make -C tests/unit/soc prog
+fpga/kv260/package.sh $SOC_BUILD/vivado/st_core_60_pmod $SOC_BUILD/board/m4 $SOC_BUILD/tests/soc_sw/soc_test.bin \
+  $SOC_BUILD/opensbi/platform/generic/firmware/fw_jump.bin $SOC_BUILD/br-tanager_lp64d/images/Image $SOC_BUILD/dts-c1/tanager-kv260.dtb
+```
+
 ## Board setup (one-time; needs a person)
 
 1. **OS.** Write the standard Kria Ubuntu image (22.04 or 24.04 for Kria) to the SD card. Boot the KV260 and put it on the network. Install an SSH public key for the user that will run the tests. The user needs `sudo`.
@@ -92,6 +108,7 @@ fpga/kv260/package.sh $SOC_BUILD/vivado/st_trafgen_100_pmod $SOC_BUILD/board/sta
    sudo xmutil listapps
    ```
    [`tanager` is in the list; if not, `sudo systemctl restart dfx-mgr` and list again].
+   - `tanager-host` runs only while the `tanager` app is loaded: it looks for the overlay's node in the live device tree first, because a PL read that nothing answers hangs the board. Its options may come before or after the command.
 5. **The default PL app.** The Kria image loads `k26-starter-kits` at boot. It routes Linux's fan PWM to the fan pin, and so does every Tanager bitstream (DR-129), so the fan follows the temperature with either loaded. When a run ends, reload the default app (`sudo xmutil unloadapp && sudo xmutil loadapp k26-starter-kits`), or let the board session's auto-restore timer do it (see [The board](#the-board), fan).
 
 ## Bring-up sequence
@@ -100,18 +117,21 @@ Each step's expected result is in brackets.
 
 1. **Load the bitstream.** `sudo xmutil unloadapp && sudo xmutil loadapp tanager` [`xmutil` reports the app loaded; `dmesg` shows the FPGA manager loading `tanager.bit.bin` and the overlay applied; the fan keeps following the temperature, at 15/255 when cool, not full speed. If it stops or runs flat out, `sudo xmutil unloadapp` at once].
 2. **Host window and clock.** `sudo tanager-host info` [ID `TNGR`, configuration, cores and uncore in reset; its 100.0 MHz is the design's `CLK_HZ` constant, not a measurement]. The PL clock as Linux set it: `sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate` [`99999999`; `90909090` means the overlay's request rounded down a divider step, as spike S1's once did].
-3. **Fabric widths and clock.** `sudo tanager-host poke 0x68 0x12345678; sudo tanager-host peek 0x68` [reads back `0x12345678`; a garbled value means the AXI width (overlay `afi0`) is wrong].
+3. **Fabric widths.** `FROMHOST` (`0x68`/`0x6C`) is a 64-bit pair: a low-half write waits in a shadow register and lands together with the high half, so write both, low half first: `sudo tanager-host poke 0x68 0x12345678; sudo tanager-host poke 0x6c 0x9abcdef0; sudo tanager-host peek 0x68; sudo tanager-host peek 0x6c` [reads back `0x12345678` and `0x9abcdef0`; a garbled value means the AXI width (overlay `afi0`) is wrong]. Clear it afterwards (`poke 0x68 0; poke 0x6c 0`). The other 64-bit pairs (`DRAM_BASE`, `DRAM_SIZE`, `BOOT_ENTRY`, `DTB_ADDR`) behave the same way.
 4. **Memory path, without a core** (traffic-generator bitstream): `sudo tanager-host tg start 16384` [it prints the DRAM window it set, `0x840000000 + 0x40000000` by default], wait a few seconds, `sudo tanager-host tg status` [passes counting up, errors 0]. Then `sudo tanager-host info` [injector reads > 0, native latency avg and max: the spike S1 number seen from the SoC].
    - **At 250 cycles:** `sudo tanager-host inj --inj-rd 250`, wait, `tg status` again [errors still 0].
 5. **Console path.** Each traffic generator prints one `.` per pass on the UART, or `E` after a pass with an error: `sudo tanager-host run --timeout 5` [dots appear; `run` attaches to the running generators, and holds everything when it exits].
    - **With the PMOD console** (`TG_PMOD_UART=1`): the same dots appear on COM5 at 115200 8N1 from the moment `tg start` runs, whether or not `tanager-host` reads the console. A clean line also rules out a `pl_clk0` that rounded down to 90.9 MHz: 9% slow garbles it.
    - A key pressed on COM5 reaches the RISC-V's UART; the generators ignore it.
-6. **Linux** (once the core exists, with F/D from M3; the lp64d image):
+6. **First light on the core** (core bitstream; steps 4 and 5 need the traffic-generator one): `sudo tanager-host load --fw soc_test.bin --kernel /dev/null --dtb /dev/null && sudo tanager-host run --timeout 10`.
+   - [The console, and COM5 with the PMOD console, shows `tanager soc test: hart 0, dtb 0000000082200000`, `aclint ok`, `memory ok`, `one hart: coherence skipped` (with one core), `PASS`; `run` ends with `tohost 0x1: PASS`].
+   - `soc_test.bin` comes from `make -C tests/unit/soc prog` (`tests/unit/soc/sw`). In simulation it takes 0.29 M cycles on one core (5 ms at 60 MHz). `tanager-host info` shows the core clock the bitstream was built for (60.0 MHz for the first M4 one).
+7. **Linux** (once the core exists, with F/D from M3; the lp64d image):
    ```bash
    sudo tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb
    ```
    [OpenSBI banner, Linux boot, `TANAGER-BOOT-OK`; Ctrl-A x leaves].
-7. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
+8. **Commit trace** (FPGA lockstep, docs/spec/uncore-trace.md): add `--trace FILE` to `run` or `boot`. Every commit record (64 bytes) goes to `FILE` while the run goes, and the cores slow to the stream's and the reader's pace. [`trace: N records written`, no AXI error].
    - **Ring placement:** the ring takes the top `64 B << --trace-log2` of the carve-out (default 256 MiB), and the RISC-V memory window shrinks by that much. Build the device tree for traced runs with `make -C sw/dts MEM=0x30000000` (768 MiB).
    - **Post-mortem:** `--trace-wrap --trace-stop PC --trace-post N` keeps the last records up to N after the first commit at `PC`, written to `FILE` at exit.
    - **Starting late:** `--trace-start PC` lets the run reach `PC` at full speed and traces from there.

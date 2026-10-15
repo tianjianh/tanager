@@ -99,6 +99,21 @@ static void *map_phys(uint64_t pa, size_t len) {
   return (uint8_t *)p + off;
 }
 
+/* Touch the PL only while our design is loaded: a read that nothing answers hangs the ARM until a
+ * power cycle (the board session's hang, 2026-10-14). The overlay that loads the bitstream adds the
+ * host bridge's node to the live device tree, and dfx-mgr removes it with the bitstream. */
+static void check_overlay(uint64_t regs_pa) {
+  static const char *const bus[] = { "axi", "amba" };
+  char path[96];
+  for (int i = 0; i < 2; i++) {
+    snprintf(path, sizeof path, "/sys/firmware/devicetree/base/%s/tanager@%" PRIx64, bus[i], regs_pa);
+    if (access(path, F_OK) == 0) return;
+  }
+  die("no Tanager design is loaded (no /sys/firmware/devicetree/base/axi/tanager@%" PRIx64 "). "
+      "Load it first (sudo xmutil loadapp tanager): reading the PL without it hangs the board. "
+      "--force skips this check", regs_pa);
+}
+
 static void sleep_us(long us) {
   struct timespec ts = { us / 1000000, (us % 1000000) * 1000 };
   nanosleep(&ts, NULL);
@@ -138,7 +153,9 @@ static void usage(void) {
     "  --regs PA        host bridge window (default 0xA0000000)\n"
     "  --base PA        carve-out start in PS address space (default 0x840000000)\n"
     "  --size BYTES     carve-out size (default 0x40000000)\n"
+    "  --force          touch the register window without the overlay check (see check_overlay)\n"
     "  -v               verbose\n"
+    "Options may come before or after the command.\n"
     "commands:\n"
     "  info                                   identity and status\n"
     "  reset                                  hold cores and uncore in reset\n"
@@ -344,6 +361,20 @@ static void restore_tty(void) { if (tio_saved) tcsetattr(0, TCSANOW, &saved_tio)
 static volatile sig_atomic_t stop_req;
 static void on_sig(int s) { (void)s; stop_req = 1; }
 
+/* Copy what the RISC-V's UART has sent to out_fd (if any); returns the number of bytes. */
+static int console_out(int out_fd) {
+  int n = 0;
+  for (; n < 256; n++) {
+    uint32_t v = rd(R_UART_TX);
+    if (!(v & 0x100)) break;
+    if (out_fd >= 0) {
+      char c = (char)(v & 0xff);
+      if (write(out_fd, &c, 1) < 0 && errno != EAGAIN) die("console write: %s", strerror(errno));
+    }
+  }
+  return n;
+}
+
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
@@ -386,18 +417,10 @@ static int cmd_run(const struct opts *o) {
   wr(R_CTRL, ctrl);                         /* release the cores */
   double t_end = o->timeout > 0 ? now_s() + o->timeout : 0;
   int rc = 0, ctrl_a = 0;
+  char why[96] = "";                        /* the exit reason, printed after the console drains */
   for (;;) {
     int idle = 1;
-    /* console out */
-    for (int k = 0; k < 256; k++) {
-      uint32_t v = rd(R_UART_TX);
-      if (!(v & 0x100)) break;
-      if (out_fd >= 0) {
-        char c = (char)(v & 0xff);
-        if (write(out_fd, &c, 1) < 0 && errno != EAGAIN) die("console write: %s", strerror(errno));
-      }
-      idle = 0;
-    }
+    if (console_out(out_fd)) idle = 0;
     /* console in (stdio: ctrl-a x quits) */
     if (in_fd >= 0) {
       struct pollfd p = { in_fd, POLLIN, 0 };
@@ -420,14 +443,14 @@ static int cmd_run(const struct opts *o) {
     if (pw & 0x80000000u) {
       uint32_t v = pw & 0xffff;
       wr(R_POWER, 0x80000000u);
-      if (v == POWER_OFF)         { fprintf(stderr, "\r\n[%s] RISC-V requested power-off\r\n", prog); rc = 0; break; }
-      if (v == POWER_REBOOT)      { fprintf(stderr, "\r\n[%s] RISC-V requested reboot\r\n", prog); rc = 3; break; }
-      if ((v & 0xffff) == POWER_FAIL) { fprintf(stderr, "\r\n[%s] RISC-V reported failure\r\n", prog); rc = 1; break; }
+      if (v == POWER_OFF)         { snprintf(why, sizeof why, "RISC-V requested power-off"); rc = 0; break; }
+      if (v == POWER_REBOOT)      { snprintf(why, sizeof why, "RISC-V requested reboot"); rc = 3; break; }
+      if ((v & 0xffff) == POWER_FAIL) { snprintf(why, sizeof why, "RISC-V reported failure"); rc = 1; break; }
     }
     if (rd(R_TOHOST_SEQ) != seq0) {
       uint64_t th = rd64(R_TOHOST);
       if (th & 1) {                         /* riscv-tests convention: 1 = pass, else (code << 1) | 1 */
-        fprintf(stderr, "\r\n[%s] tohost 0x%" PRIx64 ": %s\r\n", prog, th, th == 1 ? "PASS" : "FAIL");
+        snprintf(why, sizeof why, "tohost 0x%" PRIx64 ": %s", th, th == 1 ? "PASS" : "FAIL");
         rc = th == 1 ? 0 : 1;
         break;
       }
@@ -435,9 +458,17 @@ static int cmd_run(const struct opts *o) {
     }
     if (o->trace && trace_poll(o)) idle = 0;
     if (stop_req) { rc = 130; break; }
-    if (t_end && now_s() > t_end) { fprintf(stderr, "\r\n[%s] timeout\r\n", prog); rc = 124; break; }
+    if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
     if (idle) sleep_us(200);
   }
+  /* Drain the console before holding everything: the RISC-V's last line is often still in its UART
+   * (the board's first light lost "S\n" of "PASS"), and on the PMOD line each byte takes 87 us at
+   * 115200. Done once the UART has been quiet for 20 ms, or after 500 ms for a talkative program. */
+  for (double t0 = now_s(), quiet = now_s(); now_s() - quiet < 0.02 && now_s() - t0 < 0.5; ) {
+    if (console_out(out_fd)) quiet = now_s();
+    else sleep_us(1000);
+  }
+  if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
   if (o->trace) trace_end(o);
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
@@ -480,10 +511,12 @@ int main(int argc, char **argv) {
     { "inj-rd", 1, 0, 1 }, { "inj-wr", 1, 0, 2 }, { "inj-mode", 1, 0, 3 }, { "inj-bw", 1, 0, 4 },
     { "stats", 0, 0, 5 }, { "trace", 1, 0, 6 }, { "trace-log2", 1, 0, 7 }, { "trace-wrap", 0, 0, 8 },
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
-    { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
+    { "force", 0, 0, 12 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
-  int c;
-  while ((c = getopt_long(argc, argv, "+vh", lo, NULL)) != -1) {
+  int c, force = 0;
+  /* Options anywhere (getopt_long's argument permutation): `run --timeout 5` as well as
+   * `--timeout 5 run`; the command's own arguments keep their order. */
+  while ((c = getopt_long(argc, argv, "vh", lo, NULL)) != -1) {
     switch (c) {
       case 'R': o.regs_pa = num(optarg); break;
       case 'B': o.base = num(optarg); break;
@@ -506,12 +539,14 @@ int main(int argc, char **argv) {
       case 9: o.trace_start = 1; o.trace_start_pc = num(optarg); break;
       case 10: o.trace_stop = 1; o.trace_stop_pc = num(optarg); break;
       case 11: o.trace_post = (uint32_t)num(optarg); break;
+      case 12: force = 1; break;
       case 'v': verbose = 1; break;
       default: usage();
     }
   }
   if (optind >= argc) usage();
   const char *cmd = argv[optind++];
+  if (!force) check_overlay(o.regs_pa);
   regs = map_phys(o.regs_pa, 0x10000);
 
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }
