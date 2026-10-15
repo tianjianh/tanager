@@ -7,10 +7,16 @@
 # board build's flow (opt, place, phys_opt, route; default directives).
 # Run it only through tools/vivado_run.sh (conventions §9), e.g. by fpga/spikes/scripts/run_g4.sh:
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
-#       <uncore_dsp> [-n_cores N] [-constraints T] [-flatten M] [-synth_directive D] [-dcp 0|1]
+#       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
+#       [-dcp 0|1] [-synth_dcp D]
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
+#   -floorplan   a floorplan (fpga/spikes/tcl/fp/g4_*.tcl, with fp_lib.tcl's helpers), sourced after
+#                the constraints; floorplan.txt and util_pblocks.rpt record it
+#   -dcp 1       keep post_synth.dcp (after synthesis, before any constraint) and routed.dcp
+#   -synth_dcp D start from such a post-synthesis checkpoint instead of synthesising (the same
+#                design for every floorplan; its uncore_dsp argument must match the checkpoint's)
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
 # sites.txt (per register-slice site: its UNCORE_DSP bit, form, and the worst slack into and out
 # of its main data register and into its control flops), sites_paths.rpt, uncore_paths.rpt,
@@ -24,6 +30,8 @@ set constraints ""
 set flatten none
 set synth_dir AreaOptimized_high
 set keep_dcp 0
+set floorplan ""
+set synth_dcp ""
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -33,6 +41,8 @@ while {[llength $rest]} {
     -flatten         { set flatten $v }
     -synth_directive { set synth_dir $v }
     -dcp             { set keep_dcp $v }
+    -floorplan       { set floorplan $v }
+    -synth_dcp       { set synth_dcp $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
 }
@@ -44,33 +54,44 @@ set synth_threads [expr {[info exists ::env(TANAGER_SYNTH_THREADS)] ? $::env(TAN
 proc tg_kv {fh k v} { puts $fh [format "%-24s %s" $k $v] }
 set t0 [clock seconds]
 
-create_project -in_memory -part $part
-set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
-set_param general.maxThreads $synth_threads
-
-# ---- the board top's sources, as build.tcl reads them ----
 source [file join $root tools tcl tg_kv260_fan.tcl]
-source [file join $root fpga kv260 tcl ps_bd.tcl]
-tg_make_ps_bd [file normalize ./bd] $core_mhz
-read_verilog $::tg_ps_wrapper
-source [file join $root tools tcl tg_files.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
-tg_read_rtl $root $cfg
-tg_read_f [file join $root fpga kv260 kv260.f]
-read_xdc [file join $root fpga kv260 xdc kv260.xdc]
-read_xdc [file join $root fpga kv260 xdc timing.xdc]
+if {$synth_dcp ne ""} {
+  set_param general.maxThreads 8
+  open_checkpoint $synth_dcp
+} else {
+  create_project -in_memory -part $part
+  set_property board_part xilinx.com:kv260_som:part0:1.4 [current_project]
+  set_param general.maxThreads $synth_threads
 
-synth_design -top kv260_top -part $part \
-  -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"core\" \
-  -generic PMOD_UART=1 -generic FAN_WAVE=$::tg_kv260_fan_bit -generic FAN_INVERT=$::tg_kv260_fan_invert \
-  -generic "UNCORE_DSP=64'h$mask" \
-  -flatten_hierarchy $flatten -directive $synth_dir
-set_param general.maxThreads 8
+  # ---- the board top's sources, as build.tcl reads them ----
+  source [file join $root fpga kv260 tcl ps_bd.tcl]
+  tg_make_ps_bd [file normalize ./bd] $core_mhz
+  read_verilog $::tg_ps_wrapper
+  source [file join $root tools tcl tg_files.tcl]
+  tg_read_rtl $root $cfg
+  tg_read_f [file join $root fpga kv260 kv260.f]
+  read_xdc [file join $root fpga kv260 xdc kv260.xdc]
+  read_xdc [file join $root fpga kv260 xdc timing.xdc]
+
+  synth_design -top kv260_top -part $part \
+    -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"core\" \
+    -generic PMOD_UART=1 -generic FAN_WAVE=$::tg_kv260_fan_bit -generic FAN_INVERT=$::tg_kv260_fan_invert \
+    -generic "UNCORE_DSP=64'h$mask" \
+    -flatten_hierarchy $flatten -directive $synth_dir
+  set_param general.maxThreads 8
+  if {$keep_dcp} { write_checkpoint -force post_synth.dcp }
+}
 # as build.tcl: the console pins and the fan are asynchronous to the PL clocks
 set_false_path -from [get_ports pmod_uart_rxd]
 set_false_path -to [get_ports pmod_uart_txd]
 set_false_path -to [get_ports fan_en_b]
 if {$constraints ne ""} { source [file join $root $constraints] }
+close [open floorplan.txt w]
+if {$floorplan ne ""} {
+  source [file join $root fpga spikes tcl fp_lib.tcl]
+  source [file join $root $floorplan]
+}
 
 set fh [open summary.txt w]
 tg_kv $fh top kv260_top
@@ -78,7 +99,9 @@ tg_kv $fh cfg $cfg
 tg_kv $fh n_cores $n_cores
 tg_kv $fh core_mhz $core_mhz
 tg_kv $fh uncore_dsp 0x$mask
-tg_kv $fh synth "-flatten_hierarchy $flatten -directive $synth_dir"
+tg_kv $fh synth [expr {$synth_dcp ne "" ? "from $synth_dcp" : "-flatten_hierarchy $flatten -directive $synth_dir"}]
+tg_kv $fh floorplan [expr {$floorplan ne "" ? $floorplan : "none"}]
+tg_kv $fh pblocks [llength [get_pblocks -quiet]]
 report_utilization -file util_synth.rpt
 tg_kv $fh prim_fail_synth [tg_prim_check -file prim_synth.txt -fail 0]
 tg_kv $fh synth_s [expr {[clock seconds] - $t0}]
@@ -109,6 +132,36 @@ route_design
 tg_kv $fh route_s [expr {[clock seconds] - $t2}]
 tg_kv $fh impl_s [expr {[clock seconds] - $t0}]
 tg_util $fh impl
+# the routed design first, so a failing report does not cost the implementation
+if {$keep_dcp} { write_checkpoint -force routed.dcp }
+close [open util_pblocks.rpt w]
+foreach pb [get_pblocks -quiet] { report_utilization -pblocks $pb -append -file util_pblocks.rpt }
+# each block's LUTs per clock region (the cores, the uncore's blocks, the PS wrapper)
+set rf [open regions.txt w]
+foreach blk [concat [get_cells -quiet -filter {!IS_PRIMITIVE} u_soc/*] [get_cells -quiet -filter {!IS_PRIMITIVE} u_soc/u_uncore/*]] {
+  current_instance -quiet
+  current_instance -quiet $blk
+  set cnt [dict create]
+  foreach c [get_cells -quiet -hierarchical -filter {PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*}] {
+    set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+    if {$cr ne ""} { dict incr cnt $cr }
+  }
+  current_instance -quiet
+  set line [format "%-40s" [get_property NAME $blk]]
+  foreach k [lsort [dict keys $cnt]] { append line [format " %s:%d" $k [dict get $cnt $k]] }
+  puts $rf $line
+}
+foreach ref {URAM288 RAMB36E2 RAMB18E2 DSP48E2} {
+  set cnt [dict create]
+  foreach c [get_cells -quiet -hier -filter "REF_NAME == $ref"] {
+    set cr [get_property CLOCK_REGION [get_sites -quiet -of_objects $c]]
+    if {$cr ne ""} { dict incr cnt $cr }
+  }
+  set line [format "%-40s" $ref]
+  foreach k [lsort [dict keys $cnt]] { append line [format " %s:%d" $k [dict get $cnt $k]] }
+  puts $rf $line
+}
+close $rf
 
 report_utilization -file util.rpt
 report_utilization -hierarchical -hierarchical_depth 5 -hierarchical_min_primitive_count 0 -file util_hier.rpt
@@ -319,7 +372,6 @@ foreach r [lsort -dictionary -index 0 $rows] {
 close $sf
 if {[llength $spaths]} { report_timing -of_objects $spaths -input_pins -file sites_paths.rpt }
 tg_kv $fh sites [llength $sites]
-if {$keep_dcp} { write_checkpoint -force routed.dcp }
 tg_kv $fh total_s [expr {[clock seconds] - $t0}]
 close $fh
 puts "G4_FIT_DONE $cfg $core_mhz 0x$mask"
