@@ -1,0 +1,14 @@
+# --plant self-test, offline on the A53 (2026-10-15 06:16). soc_board.trace is the board's SoC-test trace from
+# tanager-host 6466df0 (612,363 records); soc.trace is the verification track's simulation trace.
+# Board record 1001 is an MMIO load: lbu a5,0(a4) at pc 0x80000030 (header mmio_ld=1), the test polling the
+# UART's THRE bit, which on the board's real 115200-baud UART is not ready yet. The checker takes MMIO load values
+# from the RTL, so a fault planted there cannot show: --plant should skip mmio_ld/nondet records.
+== board trace, --plant=1000
+tanager-lockstep: planted a wrong value (bit 0 flipped) in record 1001
+tanager-lockstep: PASS after 612363 records (612363 retired, 0 traps, 0 interrupts, 0 writebacks) in 3.9 s, 155797 records/s
+== board trace, --plant=100000
+tanager-lockstep: planted a wrong value (bit 0 flipped) in record 100000
+tanager-lockstep: MISMATCH at record 100000 (cycle 5901037): x11 value: RTL 0000000276fd5efa, Spike 0000000276fd5efb
+== simulation trace, --plant=1000
+tanager-lockstep: planted a wrong value (bit 0 flipped) in record 1001
+tanager-lockstep: MISMATCH at record 1001 (cycle 6771): x15 value: RTL 0000000000000071, Spike 0000000000000070
