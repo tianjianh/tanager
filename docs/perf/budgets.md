@@ -31,9 +31,9 @@ LUTs in thousands. "Before" is the unit with no area recovery. "Levers" are the 
 
 ### 1.1 At 180 MHz: v2's budget, and v1's for reference
 
-D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that cost IPC. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at 90.0%, 94.2% and 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
+D18 puts IPC first: the no-IPC work, then a lower clock (about 180 MHz), then the levers that cost IPC. Lowering the clock is the user's decision (DR-137), so the 180 MHz figures here are references, not a plan. The 180 MHz fill test ([area_synth.md](area_synth.md) §5) closes v1 with wakeup tags at 93.4% and 95.3% fill, and v2 at 90.0%, 94.2% and 96.0%, with no trend with fill, so the ceiling is above the highest fill tested.
 
-**v1 stays on its 200 MHz lines.** Moving them to 180 MHz would be the clock decision, which comes after D18 step 1 (the no-IPC work, DR-116). For reference only, v1 at 180 MHz and 95% would be:
+**v1 stays on its 200 MHz lines.** Moving them to 180 MHz would lower the target clock, which needs the user's approval (DR-137) and comes after D18 step 1 at the earliest (DR-116). For reference only, v1 at 180 MHz and 95% would be:
 
 | v1 (smt2) | 200 MHz (the budget) | 180 MHz at 95% (reference) |
 |---|---|---|
@@ -41,7 +41,7 @@ D18 puts IPC first: the no-IPC work, then about 180 MHz, then the levers that co
 | Uncore | 10,800 | 10,800 |
 | Core | 46,120 | 50,230 |
 
-**v2 (smt2_w3) has its own lines at 180 MHz** (AR-9, DR-117; [area_recovery.md](area_recovery.md) §7.4): per core (110,280 − 10,800) / 2 = **49,740**, from the 94.2% fill with the uncore on budget. Each line is v1's plus the 3-wide increment:
+**v2 (smt2_w3) has its own lines at 180 MHz** (AR-9, DR-117; [area_recovery.md](area_recovery.md) §7.4): per core (110,280 − 10,800) / 2 = **49,740**, from the 94.2% fill with the uncore on budget. They assume v2 runs at 180 MHz, which is the user's decision (DR-137). Each line is v1's plus the 3-wide increment:
 
 | Unit | v1 (smt2) | v2 (smt2_w3) | Increment, and its source |
 |---|---|---|---|
@@ -207,7 +207,7 @@ No-IPC work cannot reach 10.8K: the floor is set by features, the clock and the 
 | Option | Saves (smt2) | Cost |
 |---|---|---|
 | Release build without the latency injectors and trace streaming (build parameters; verification and latency builds keep them) | ≈ 4.3K (stream 2.85K measured, injectors 1.5K) | no lockstep or latency sweeps on release bitstreams. The trace part is DR-121 (the user, 10-14): the last reserve lever, release bitstreams only. The injector part is still open |
-| Remove the interconnect and memory-port register slices | ≈ 2.4K | timing: 200 MHz at risk; per D18 a clock down to about 180 MHz comes before IPC cuts |
+| Remove the interconnect and memory-port register slices | ≈ 2.4K | timing: 200 MHz at risk; per D18 a lower clock (about 180 MHz, the user's decision, DR-137) comes before IPC cuts |
 | L2 MSHRs 24 → 16 per bank | ≈ 2.0K | IPC at the long latency points (the last resort under D18) |
 | L2 MSHRs 24 → 8 per bank | ≈ 3.9K | IPC (more) |
 | Raise the uncore budget to the measured floor (≈ 18K for a release build) | — | about 7K over 10.8K: v1 lands at about 94% of the XCK26 (110K) instead of 88%, unless the core or the reserve gives it back |
