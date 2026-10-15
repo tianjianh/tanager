@@ -155,9 +155,33 @@ module tg_l2_bank
     return N_AGENTS'(1) << a;
   endfunction
 
-  // Round-robin pick over a request vector: the first request at or after ptr, wrapping. Two
-  // priority encoders (requests at or above ptr, and all requests) instead of a rotation.
+  // Round-robin pick over a request vector: the first request at or after ptr, wrapping. Two lowest-
+  // index searches (requests at or above ptr, and all requests) instead of a rotation. Each search is
+  // a two-level tree, the lowest request in each group of four (a LUT per bit), then the lowest group,
+  // because synthesis built the flat priority encoder (rr_pick_ref, kept for the assertions) 9 levels
+  // deep, and the pick heads the L2's AR and probe handshakes (200 MHz, DR-142). The same function.
+  localparam int NG = N_MSHR / 4;
+  if (N_MSHR % 4 != 0) begin : g_bad_mshr
+    $error("tg_l2_bank: N_MSHR must be a multiple of 4 (rr_pick's groups)");
+  end
+  function automatic logic [MW-1:0] lowest_idx(input logic [N_MSHR-1:0] v);
+    logic [NG-1:0] any;
+    logic [1:0]    off [NG];
+    logic [MW-1:0] r;
+    for (int g = 0; g < NG; g++) begin
+      any[g] = |v[4*g +: 4];
+      off[g] = v[4*g] ? 2'd0 : v[4*g + 1] ? 2'd1 : v[4*g + 2] ? 2'd2 : 2'd3;
+    end
+    r = '0;
+    for (int g = NG - 1; g >= 0; g--) if (any[g]) r = MW'(4 * g) | MW'(off[g]);
+    return r;
+  endfunction
   function automatic logic [MW-1:0] rr_pick(input logic [N_MSHR-1:0] v, input logic [MW-1:0] ptr);
+    logic [N_MSHR-1:0] hi;
+    for (int i = 0; i < N_MSHR; i++) hi[i] = v[i] && i >= int'(ptr);
+    return (hi != '0) ? lowest_idx(hi) : lowest_idx(v);
+  endfunction
+  function automatic logic [MW-1:0] rr_pick_ref(input logic [N_MSHR-1:0] v, input logic [MW-1:0] ptr);
     logic [MW-1:0] r_hi, r_all;
     logic          any_hi;
     r_hi   = '0;
@@ -1535,6 +1559,11 @@ module tg_l2_bank
       if (a_valid_i) assert (a_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: A address %h of the other bank", BANK, a_i.address);
       if (c_valid_i) assert (c_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: C address %h of the other bank", BANK, c_i.address);
       for (int m = 0; m < N_MSHR; m++) assert ($onehot(ms[m])) else $error("tg_l2_bank%0d: MSHR %0d state %b", BANK, m, ms[m]);
+      // The tree picks are the flat priority encoders' picks
+      assert (ar_m == rr_pick_ref(ar_req, ar_ptr_q) && pr_m == rr_pick_ref(pr_req, pr_ptr_q) &&
+              mcmd_pick == rr_pick_ref(mcmd_req, mcmd_ptr_q) && pw_m == rr_pick_ref(pw_req, pw_ptr_q) &&
+              vr_m == rr_pick_ref(vr_req, vr_ptr_q) && rs_m == rr_pick_ref(rs_req, rs_ptr_q))
+        else $error("tg_l2_bank%0d: a round-robin pick differs from the flat encoder's", BANK);
       // The way in flip-flops, either form, is the allocated way
       for (int m = 0; m < N_MSHR; m++)
         if (m_valid[m]) assert (m_way_oh[m] == WAYS'(1) << m_way_ref[m])
