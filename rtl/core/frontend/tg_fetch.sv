@@ -285,51 +285,64 @@ module tg_fetch
   // instruction starts before the entry (pd_start), so it is at the entry exactly when
   // pq[entry] is set, and the parcels before it are those with no pq at or below them (a
   // prefix OR). Only the refetch slot (fp_q) waits for the encoding.
+  // They are formed for both outcomes of the prediction check (hp: the predicted exit stands,
+  // which limits pq to the parcels up to it) and hp picks last, so the check runs beside them.
   logic [SLOT_W-1:0] fp, f2_ent;
-  logic              pmp_e, pmp_hi, pmp_cut, f2_chk, f2_carried;
-  logic [NP-1:0]     dslot, pq, pq_run;      // pq_run[p]: an instruction at or before p touches one
+  logic              pmp_hi, pmp_cut, f2_chk, f2_carried, hp;
+  logic [NP-1:0]     dslot, pq;
   for (genvar p = 0; p < NP; p++) begin : g_ds
     assign dslot[p] = f2_pmpd_q[p / 2];
   end
-  assign f2_ent = f2_pc_q[SLOT_W:1];
-  always_comb begin
-    logic run;
-    run = 1'b0;
-    for (int p = 0; p < NP; p++) begin
-      pq[p] = pd_start[p] && (!(f2_hit_q && pred_ok) || SLOT_W'(p) <= f2_slot_q) &&
-              (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]));
-      run = run || pq[p];
-      pq_run[p] = run;
-    end
-    fp = '0;
-    for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
-  end
+  assign f2_ent     = f2_pc_q[SLOT_W:1];
   assign f2_chk     = f2v && !f2_tm_q && !f2_bfault && f2_cache_hit;
   assign f2_carried = carry_q && f2_ent == '0 && dslot[0];   // the carried instruction's second half
-  assign pmp_e      = f2_chk && (f2_carried || pq[f2_ent]);
-  assign pmp_hi     = f2_chk && !f2_carried && pq[f2_ent] && !dslot[f2_ent];
-  assign pmp_cut    = f2_chk && !f2_carried && |pq && !pq[f2_ent];
-  assign f2_isfault = f2_bfault || pmp_e;
+  assign hp         = f2_hit_q && pred_ok;
 
   logic              f2_taken;            // the block ends at f2_slot_q and fetch went to f2_tgt_q
-  assign f2_taken = f2_hit_q && pred_ok && !f2_isfault && !pmp_cut;
-
-  // The block's instructions: those before a PMP cut, else up to a taken exit, else all of them;
-  // a fault block is one pseudo-instruction at the entry slot
   logic [NP-1:0]      blk_start;
   logic [NP-1:0][2:0] blk_marks;
   logic               blk_carry;
+  logic [1:0][NP-1:0] pq_h, bs_h;
+  logic [1:0]         pe_h, phi_h, pcut_h, isf_h, tk_h, bc_h;
+  for (genvar h = 0; h < 2; h++) begin : g_hp
+    always_comb begin
+      logic          run;
+      logic [NP-1:0] pq_run;                 // an instruction at or before p touches a denied word
+      run = 1'b0;
+      for (int p = 0; p < NP; p++) begin
+        pq_h[h][p] = pd_start[p] && (h == 0 || SLOT_W'(p) <= f2_slot_q) &&
+                     (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+        run = run || pq_h[h][p];
+        pq_run[p] = run;
+      end
+      pe_h[h]   = f2_chk && (f2_carried || pq_h[h][f2_ent]);
+      phi_h[h]  = f2_chk && !f2_carried && pq_h[h][f2_ent] && !dslot[f2_ent];
+      pcut_h[h] = f2_chk && !f2_carried && |pq_h[h] && !pq_h[h][f2_ent];
+      isf_h[h]  = f2_bfault || pe_h[h];
+      tk_h[h]   = h == 1 && !isf_h[h] && !pcut_h[h];
+      // The block's instructions: those before a PMP cut, else up to a taken exit, else all of
+      // them; a fault block is one pseudo-instruction at the entry slot
+      for (int p = 0; p < NP; p++)
+        bs_h[h][p] = pd_start[p] && (pcut_h[h] ? !pq_run[p] : (!tk_h[h] || SLOT_W'(p) <= f2_slot_q));
+      bc_h[h] = pd_carry && !tk_h[h] && !pcut_h[h];
+      if (isf_h[h]) begin
+        bs_h[h] = '0;
+        bs_h[h][f2_ent] = 1'b1;
+        bc_h[h] = 1'b0;
+      end
+    end
+  end
+  assign pq         = pq_h[hp];
+  assign pmp_hi     = phi_h[hp];
+  assign pmp_cut    = pcut_h[hp];
+  assign f2_isfault = isf_h[hp];
+  assign f2_taken   = tk_h[hp];
+  assign blk_start  = bs_h[hp];
+  assign blk_carry  = bc_h[hp];
   always_comb begin
-    for (int p = 0; p < NP; p++) begin
-      blk_start[p] = pd_start[p] && (pmp_cut ? !pq_run[p] : (!f2_taken || SLOT_W'(p) <= f2_slot_q));
-      blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
-    end
-    blk_carry = pd_carry && !f2_taken && !pmp_cut;
-    if (f2_isfault) begin                          // one pseudo-instruction at the entry slot
-      blk_start = '0;
-      blk_start[f2_ent] = 1'b1;
-      blk_carry = 1'b0;
-    end
+    fp = '0;
+    for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
+    for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
   end
 
   // ---- F3: compaction ----
