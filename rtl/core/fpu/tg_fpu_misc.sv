@@ -114,21 +114,22 @@ module tg_fpu_misc
     any_snan = m.a_snan || m.b_snan;
   end
 
-  logic [63:0] simple_res;
+  // FSGNJ*'s sign, the FMIN/FMAX choice, the class and the flags of the simple operations
+  logic        sj, pick_b, mm_nan;
+  logic [9:0]  cls;
   logic [4:0]  simple_fl;
   always_comb begin
-    logic sj, pick_a;
-    logic [9:0] cls;
-    logic [30:0] a_mag_s;       // S: magnitude of a as read (the canonical NaN's if not boxed)
-    simple_res = '0;
-    simple_fl  = '0;
+    logic pick_a;
     unique case (m.op)
       FOP_FSGNJN: sj = !m.b_sign;
       FOP_FSGNJX: sj = m.a_sign ^ m.b_sign;
       default:    sj = m.b_sign;
     endcase
-    // FMIN/FMAX per F 2.2 (IEEE 754-2019 minimumNumber/maximumNumber): -0 < +0; a NaN loses
+    // FMIN/FMAX per F 2.2 (IEEE 754-2019 minimumNumber/maximumNumber): -0 < +0; a NaN loses.
+    // The result is an operand that is not a NaN, so (S) properly boxed: the raw value.
     pick_a = (a_lt_b || (a_eq_b && m.a_sign)) ^ (m.op == FOP_FMAX);
+    mm_nan = m.a_nan && m.b_nan;                     // both NaN: the canonical NaN
+    pick_b = m.a_nan || (!m.b_nan && !pick_a);
     cls = '0;
     cls[0] = m.a_inf && m.a_sign;
     cls[1] = !m.a_inf && !m.a_nan && !m.a_zero && !m.a_sub && m.a_sign;
@@ -140,23 +141,10 @@ module tg_fpu_misc
     cls[7] = m.a_inf && !m.a_sign;
     cls[8] = m.a_snan;
     cls[9] = m.a_nan && !m.a_snan;
-    a_mag_s = m.a_box ? m.a_raw[30:0] : CNAN_S32[30:0];
+    simple_fl = '0;
     unique case (m.op)
-      FOP_FSGNJ, FOP_FSGNJN, FOP_FSGNJX:
-        simple_res = m.dbl ? {sj, m.a_raw[62:0]} : box_s({sj, a_mag_s});
-      FOP_FMIN, FOP_FMAX: begin
-        // the result is an operand that is not a NaN, so (S) properly boxed: the raw value
-        if (m.a_nan && m.b_nan) simple_res = cnan(m.dbl);
-        else if (m.a_nan || (!m.b_nan && !pick_a)) simple_res = m.b_raw;
-        else simple_res = m.a_raw;
-        simple_fl[FL_NV] = any_snan;
-      end
-      FOP_FEQ: begin simple_res = {63'b0, !any_nan && a_eq_b};             simple_fl[FL_NV] = any_snan; end
-      FOP_FLT: begin simple_res = {63'b0, !any_nan && a_lt_b};             simple_fl[FL_NV] = any_nan;  end
-      FOP_FLE: begin simple_res = {63'b0, !any_nan && (a_lt_b || a_eq_b)}; simple_fl[FL_NV] = any_nan;  end
-      FOP_FCLASS: simple_res = {54'b0, cls};
-      FOP_FMV_X_F: simple_res = m.dbl ? m.a_raw : {{32{m.a_raw[31]}}, m.a_raw[31:0]};
-      FOP_FMV_F_X: simple_res = m.dbl ? m.a_raw : box_s(m.a_raw[31:0]);
+      FOP_FMIN, FOP_FMAX, FOP_FEQ: simple_fl[FL_NV] = any_snan;
+      FOP_FLT, FOP_FLE:            simple_fl[FL_NV] = any_nan;
       default: ;
     endcase
   end
@@ -182,11 +170,11 @@ module tg_fpu_misc
     so_s = st1 || st2 || st3 || st4;
   end
 
-  logic [63:0] fi_res;
+  logic [63:0] sum, maxv, minv;
+  logic        ovf;
   logic [4:0]  fi_fl;
   always_comb begin
-    logic inc, ovf, nv;
-    logic [63:0] sum, maxv, minv;
+    logic inc, nv;
     inc = round_up(m.rm, m.a_sign, so[0], so_g, so_s);
     sum = (m.a_sign ? ~so : so) + 64'(m.a_sign ? !inc : inc);
     // the rounded magnitude so + inc against the format's range, without another adder
@@ -211,22 +199,87 @@ module tg_fpu_misc
     endcase
     ovf = ovf || m.fi_big;
     nv  = m.a_nan || ovf;
-    if (m.a_nan)       fi_res = maxv;
-    else if (ovf)      fi_res = m.a_sign ? minv : maxv;
-    else if (m.ifmt == IFMT_W || m.ifmt == IFMT_WU) fi_res = {{32{sum[31]}}, sum[31:0]};
-    else               fi_res = sum;
     fi_fl = '0;
     fi_fl[FL_NV] = nv;
     fi_fl[FL_NX] = !nv && (so_g || so_s);
   end
 
-  // ---- Result select and output register ----
+  // ---- Result: one encoded select per bit (fpga_friendly.md T7) ----
+  // The sources are a, b, the FCVT.I.F sum, sum[31] (the W forms' sign extension), a[31]
+  // (FMV.X.W's) and a constant word kw: the canonical NaNs, the saturation values, the NaN box,
+  // FSGNJ*'s sign, the compare and class results. Each op chooses a source per bit range
+  // (30:0, 31, 62:32, 63), so a bit is one 4:1 select below bit 32 and a 6:1 above it, in place
+  // of the simple results' multiplexer, FCVT.I.F's and the final choice between them.
+  typedef enum logic [2:0] { RS_A, RS_B, RS_SUM, RS_SUMW, RS_AW, RS_K } rs_e;
+  rs_e         rs_lo, rs_31, rs_hi, rs_63;
+  logic [63:0] kw;
+  always_comb begin
+    rs_lo = RS_K; rs_31 = RS_K; rs_hi = RS_K; rs_63 = RS_K;
+    kw = '0;
+    unique case (m.op)
+      FOP_FSGNJ, FOP_FSGNJN, FOP_FSGNJX: begin
+        if (m.dbl) begin
+          rs_lo = RS_A; rs_31 = RS_A; rs_hi = RS_A;
+          kw[63] = sj;
+        end else begin
+          // NaN-boxed: the sign at bit 31, and an operand that is not boxed reads as the
+          // canonical NaN's magnitude
+          rs_lo = m.a_box ? RS_A : RS_K;
+          kw    = {32'hFFFF_FFFF, sj, CNAN_S32[30:0]};
+        end
+      end
+      FOP_FMIN, FOP_FMAX: begin
+        rs_lo = mm_nan ? RS_K : pick_b ? RS_B : RS_A;
+        rs_31 = rs_lo; rs_hi = rs_lo; rs_63 = rs_lo;
+        kw    = cnan(m.dbl);
+      end
+      FOP_FEQ:    kw = {63'b0, !any_nan && a_eq_b};
+      FOP_FLT:    kw = {63'b0, !any_nan && a_lt_b};
+      FOP_FLE:    kw = {63'b0, !any_nan && (a_lt_b || a_eq_b)};
+      FOP_FCLASS: kw = {54'b0, cls};
+      FOP_FMV_X_F: begin
+        rs_lo = RS_A; rs_31 = RS_A;
+        rs_hi = m.dbl ? RS_A : RS_AW; rs_63 = rs_hi;
+      end
+      FOP_FMV_F_X: begin
+        rs_lo = RS_A; rs_31 = RS_A;
+        rs_hi = m.dbl ? RS_A : RS_K; rs_63 = rs_hi;
+        kw    = {32'hFFFF_FFFF, 32'b0};
+      end
+      FOP_FCVT_I_F: begin
+        if (m.a_nan || ovf) begin
+          kw = (ovf && !m.a_nan && m.a_sign) ? minv : maxv;   // a NaN saturates to the maximum
+        end else begin
+          rs_lo = RS_SUM; rs_31 = RS_SUM;
+          rs_hi = (m.ifmt == IFMT_W || m.ifmt == IFMT_WU) ? RS_SUMW : RS_SUM; rs_63 = rs_hi;
+        end
+      end
+      default: ;
+    endcase
+  end
+  logic [63:0] res;
+  always_comb begin
+    for (int i = 0; i < 64; i++) begin
+      rs_e rs;
+      rs = (i == 63) ? rs_63 : (i >= 32) ? rs_hi : (i == 31) ? rs_31 : rs_lo;
+      unique case (rs)
+        RS_A:    res[i] = m.a_raw[i];
+        RS_B:    res[i] = m.b_raw[i];
+        RS_SUM:  res[i] = sum[i];
+        RS_SUMW: res[i] = sum[31];
+        RS_AW:   res[i] = m.a_raw[31];
+        default: res[i] = kw[i];
+      endcase
+    end
+  end
+
+  // ---- Output register ----
   fpu_resp_t r;
   always_comb begin
-    r.tag = m.tag;
+    r.tag      = m.tag;
     r.int_dest = (m.op inside {FOP_FEQ, FOP_FLT, FOP_FLE, FOP_FCLASS, FOP_FCVT_I_F, FOP_FMV_X_F});
-    if (m.op == FOP_FCVT_I_F) begin r.result = fi_res;     r.fflags = fi_fl;     end
-    else                      begin r.result = simple_res; r.fflags = simple_fl; end
+    r.result   = res;
+    r.fflags   = (m.op == FOP_FCVT_I_F) ? fi_fl : simple_fl;
   end
 
   fpu_resp_t resp_q;
