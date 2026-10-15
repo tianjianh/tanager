@@ -429,17 +429,31 @@ module tg_l2_bank
   logic [6:0]       h0_plru_q, h1_plru_q;
   wire [SET_W-1:0]  set2 = set_of(p2_q.line);
   wire [TAG_W-1:0]  tag2 = tag_of(p2_q.line);
-  wire              h0_hit = h0_set_q == set2;
-  wire              h1_hit = h1_set_q == set2;
+  // The set compares S2 needs are made in S1, one cycle early, and registered (200 MHz, DR-137):
+  // every operand is a register in the cycle before S2, so the result is the same compare, exactly
+  // (always_ff below, checked by assertions).
+  //   h0_hit: the newest history entry will be the S2 now in flight (dir_waddr is set2 every cycle);
+  //   h1_hit: the older entry will be the newest now;
+  //   sm1:    each MSHR's set against the next S2's. The MSHR the S2 in flight allocates takes that
+  //           S2's line, whose compare is h0_hit's (newm_q marks it); one it frees drops out of
+  //           m_valid;
+  //   cin_seq: the C message's set; cin_q holds still while it is in CI_PIPE or CI_WRITE.
+  wire [SET_W-1:0]   set1 = set_of(p1_q.line);
+  //   sel0, sel1, spl0, spl1: the bypass's per-way and PLRU selects themselves (the hit and the
+  //           history entry's way enable, both known in S1), so row2 is one 3:1 select per bit.
+  logic              h0_hit_q, h1_hit_q, cin_seq_q;
+  logic [N_MSHR-1:0] sm1_q, newm_q;
+  logic [WAYS-1:0]   sel0_q, sel1_q;
+  logic              spl0_q, spl1_q;
   row_t row2;
   always_comb begin
     row2 = dir_rdata;
     for (int w = 0; w < WAYS; w++) begin
-      if (h1_hit && h1_way_q[w]) row2.way[w] = h1_ent_q;
-      if (h0_hit && h0_way_q[w]) row2.way[w] = h0_ent_q;
+      if (sel1_q[w]) row2.way[w] = h1_ent_q;
+      if (sel0_q[w]) row2.way[w] = h0_ent_q;
     end
-    if (h1_hit && h1_pl_q) row2.plru = h1_plru_q;
-    if (h0_hit && h0_pl_q) row2.plru = h0_plru_q;
+    if (spl1_q) row2.plru = h1_plru_q;
+    if (spl0_q) row2.plru = h0_plru_q;
   end
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -470,16 +484,19 @@ module tg_l2_bank
   logic [2:0]      hw2, vw2;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
-      hitv[w] = row2.way[w].valid && row2.way[w].tag == tag2;
+      // compare, then select: the RAM's entry and the two history entries are compared at once
+      hitv[w] = sel0_q[w] ? (h0_ent_q.valid && h0_ent_q.tag == tag2) :
+                sel1_q[w] ? (h1_ent_q.valid && h1_ent_q.tag == tag2) :
+                            (dir_rdata.way[w].valid && dir_rdata.way[w].tag == tag2);
       held[w] = |row2.way[w].pres;
     end
     resv = '0;
     for (int m = 0; m < N_MSHR; m++) begin
-      smatch[m] = m_valid[m] && set_of(m_line[m]) == set2;
+      smatch[m] = m_valid[m] && (newm_q[m] ? h0_hit_q : sm1_q[m]);
       if (smatch[m]) resv[m_way[m]] = 1'b1;
     end
     // The way a Release/ProbeAck is still writing data into is not a victim candidate yet.
-    if (cin_st_q == CI_WRITE && set_of(cin_line) == set2) resv[cin_way_q] = 1'b1;
+    if (cin_st_q == CI_WRITE && cin_seq_q) resv[cin_way_q] = 1'b1;
     hit2 = |hitv;
     hw2  = lowest8(hitv);
     vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
@@ -495,15 +512,19 @@ module tg_l2_bank
   end
 
   // The way S2 reads and may write: the hit way, the MSHR's way for MCMD, the victim on a miss
-  logic [2:0] sw2;
-  way_t       e2;
+  // The victim is the slowest of the three (it waits for the reservations and the PLRU), so it is
+  // selected late (200 MHz, DR-137): the updates read e2, the entry of the fast choice (the hit way,
+  // or the MCMD's way), and a miss reads only what it needs of the victim's entry (vic): whether
+  // agents hold it, its tag and its dirty bit. A miss writes either the victim's entry unchanged or
+  // a new one made from the request alone.
+  logic [2:0] sw2, swf;
+  way_t       e2, vic;
+  wire        s2_miss = (p2_q.kind == PK_ACQ || p2_q.kind == PK_GET || p2_q.kind == PK_PUT) && !hit2;
   always_comb begin
-    unique case (p2_q.kind)
-      PK_MCMD:                sw2 = rl_way[0];
-      PK_ACQ, PK_GET, PK_PUT: sw2 = hit2 ? hw2 : vw2;
-      default:                sw2 = hw2;        // PK_REL, PK_PACK; PK_INIT writes every way
-    endcase
-    e2 = row2.way[sw2];
+    swf = (p2_q.kind == PK_MCMD) ? rl_way[0] : hw2;   // PK_REL, PK_PACK, a hit: the hit way
+    sw2 = s2_miss ? vw2 : swf;
+    e2  = row2.way[swf];
+    vic = row2.way[vw2];
   end
   wire [WAYS-1:0] sw2_oh = WAYS'(1) << sw2;
 
@@ -689,19 +710,20 @@ module tg_l2_bank
             ev_miss_o     = 1'b1;
             s2_alloc_way  = vw2;
             s2_alloc_fill = !full_put;
-            s2_alloc_vline = line_of(e.tag, set2);
-            if (e.valid && e.pres != '0) begin
+            s2_alloc_vline = line_of(vic.tag, set2);
+            if (vic.valid && vic.pres != '0) begin
               // The victim is held by agents: probe them first; its tag stays until resolved.
-              s2_alloc_probe  = e.pres;
+              e               = vic;
+              s2_alloc_probe  = vic.pres;
               s2_alloc_pcap_n = 1'b1;
               s2_alloc_pvict  = 1'b1;
               s2_alloc_vact   = 1'b1;
               s2_alloc_st     = MS_PROBE;
             end else begin
-              s2_alloc_wb   = e.valid && e.dirty;
-              s2_alloc_vact = e.valid && e.dirty;
-              s2_alloc_st   = (e.valid && e.dirty) ? MS_VREAD : full_put ? MS_PUTW : MS_FILL;
-              e.tag   = tag2;
+              s2_alloc_wb   = vic.valid && vic.dirty;
+              s2_alloc_vact = vic.valid && vic.dirty;
+              s2_alloc_st   = (vic.valid && vic.dirty) ? MS_VREAD : full_put ? MS_PUTW : MS_FILL;
+              e.tag   = tag2;               // every field: the new entry does not depend on the victim's
               e.valid = 1'b1;
               e.dirty = p2_q.kind == PK_PUT;
               e.pres  = (p2_q.kind == PK_ACQ) ? me : '0;
@@ -714,6 +736,25 @@ module tg_l2_bank
       endcase
     end
     dir_went = e;
+  end
+
+  always_ff @(posedge clk) begin
+    h0_hit_q  <= set2 == set1;
+    h1_hit_q  <= h0_set_q == set1;
+    if (rst) begin                     // as h0_way_q, h1_way_q, h0_pl_q and h1_pl_q
+      sel0_q <= '0;
+      sel1_q <= '0;
+      spl0_q <= 1'b0;
+      spl1_q <= 1'b0;
+    end else begin
+      sel0_q <= (set2 == set1) ? dir_wway : '0;
+      sel1_q <= (h0_set_q == set1) ? h0_way_q : '0;
+      spl0_q <= (set2 == set1) && dir_wplru;
+      spl1_q <= (h0_set_q == set1) && h0_pl_q;
+    end
+    cin_seq_q <= set_of(cin_line) == set1;
+    for (int m = 0; m < N_MSHR; m++) sm1_q[m] <= set_of(m_line[m]) == set1;
+    newm_q    <= s2_alloc ? N_MSHR'(1) << m_new : '0;
   end
 
   // ---------------------------------------------------------------------------------------------
@@ -1480,6 +1521,20 @@ module tg_l2_bank
       if (a_valid_i) assert (a_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: A address %h of the other bank", BANK, a_i.address);
       if (c_valid_i) assert (c_i.address[6] == 1'(BANK)) else $error("tg_l2_bank%0d: C address %h of the other bank", BANK, c_i.address);
       for (int m = 0; m < N_MSHR; m++) assert ($onehot(ms[m])) else $error("tg_l2_bank%0d: MSHR %0d state %b", BANK, m, ms[m]);
+      // The S1 set compares are the S2 compares, registered
+      assert (h0_hit_q == (h0_set_q == set2) && h1_hit_q == (h1_set_q == set2))
+        else $error("tg_l2_bank%0d: history set compare made in S1 differs", BANK);
+      assert (sel0_q == (h0_hit_q ? h0_way_q : '0) && sel1_q == (h1_hit_q ? h1_way_q : '0) &&
+              spl0_q == (h0_hit_q && h0_pl_q) && spl1_q == (h1_hit_q && h1_pl_q))
+        else $error("tg_l2_bank%0d: history bypass select made in S1 differs", BANK);
+      for (int w = 0; w < WAYS; w++)
+        assert (hitv[w] == (row2.way[w].valid && row2.way[w].tag == tag2))
+          else $error("tg_l2_bank%0d: way %0d hit differs", BANK, w);
+      for (int m = 0; m < N_MSHR; m++)
+        assert (smatch[m] == (m_valid[m] && set_of(m_line[m]) == set2))
+          else $error("tg_l2_bank%0d: MSHR %0d set compare made in S1 differs", BANK, m);
+      if (cin_st_q == CI_WRITE) assert (cin_seq_q == (set_of(cin_line) == set2))
+        else $error("tg_l2_bank%0d: C set compare made in S1 differs", BANK);
       // Each MSHR event finds its MSHR in the one state the transition logic expects
       if (s2_alloc)  assert (m_st[m_new] == MS_IDLE) else $error("tg_l2_bank%0d: allocation of busy MSHR %0d", BANK, m_new);
       if (s0_take_m) assert (m_st[mcmd_pick] inside {MS_RESUME, MS_INVAL}) else $error("tg_l2_bank%0d: MCMD state", BANK);

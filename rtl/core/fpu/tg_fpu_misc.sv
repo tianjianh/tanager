@@ -12,11 +12,14 @@ module tg_fpu_misc
   import tg_pkg::*;
   import tg_fpu_pkg::*;
   import tg_fpu_util_pkg::*;
+#(parameter bit SHARED = 1'b0)       // 1: a and b come unpacked (ua_i, ub_i, from tg_fpu)
 (
   input  logic       clk,
   input  logic       rst,
   input  logic       valid_i,
   input  fpu_req_t   req_i,
+  input  fp_unp_t    ua_i = '0,
+  input  fp_unp_t    ub_i = '0,
   output logic       valid_o,
   output fpu_resp_t  resp_o
 );
@@ -31,8 +34,8 @@ module tg_fpu_misc
   assign dbl = (q.fmt == FMT_D);
 
   fp_unp_t ua, ub;
-  assign ua = unpack(q.a, dbl);
-  assign ub = unpack(q.b, dbl);
+  assign ua = SHARED ? ua_i : unpack(q.a, dbl);
+  assign ub = SHARED ? ub_i : unpack(q.b, dbl);
 
   // Magnitudes for the compares, from the raw encodings: a NaN operand (an improperly boxed S
   // operand included) decides every result through its class, so its bits do not matter.
