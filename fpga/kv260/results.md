@@ -18,6 +18,7 @@ directories under `$SOC_BUILD/vivado/`; no checkpoints are kept.
 | 2026-10-14 | st | 2 (`tg_trafgen`), stage B: fan on TTC0, PMOD console on H12/B10 from `kv260.xdc` (5048957, `TG_PMOD_UART=1`) | 100 MHz | +1.104 / +0.011 | 21,567 (18.4%) | 14,068 | 32 | 16 / 4 | 14 min |
 | 2026-10-14 | st | 1 (`tg_core`), M4: PMOD console, fan on TTC0 (db8aced, `TG_PMOD_UART=1`) | 100 MHz | **−3.761** / +0.011 | 66,066 (56.4%) | 36,991 | 32 | 64 / 5 | 44 min |
 | 2026-10-14 | st | 1 (`tg_core`), M4, the same sources | 60 MHz | +1.114 / +0.010 | 65,324 (55.8%) | 36,889 | 32 | 64 / 5 | 33 min |
+| 2026-10-14 | st | 1 (`tg_core`), M4 with the L2's one-hot MSHR state and the injector's statistic fix (20435b1) | 60 MHz | +0.153 / +0.010 | 64,921 (55.4%) | 37,321 | 32 | 64 / 5 | 24 min |
 
 Notes:
 - **Stub build:** the stub cores drive nothing, so synthesis removes the parts of the uncore that
@@ -65,7 +66,8 @@ Notes:
     - `u_lsu/r_data_q` → `u_rob/exr_cause_q`, `exr_rob_q`, `exr_mem_q`: 38 levels, 13.4–13.7 ns routed (41 levels, 11.5 ns after synthesis). From the load data into EX, then through what looks like the page-table walker's leaf logic, the DTLB, the load PMP check and the CSR file into the ROB's exception record.
     - `u_ex/wbq_q` → `u_rob/cmp_q`: 35 levels, about 13.3 ns, back and forth between EX, the LSU, the CSR file and rename.
     - Reported to the core track with the reports (`$SOC_BUILD/vivado/st_core_100_pmod/reports/timing_summary.rpt`); its bitstream is not for the board.
-  - **At 60 MHz it closes** (+1.114 ns). This is the first M4 bitstream; the core returns to 100 MHz once those paths are cut. Both builds: DRC without errors (DSP pipelining warnings, RTSTAT-10), primitive check clean (160 instances after synthesis and after `opt_design`), CDC all safe (913 endpoints between the two clocks at 60 MHz, plus the RXD input). Both peaked at 18.3 GB; a core build declares 22.
+  - **At 60 MHz it closes**: +1.114 ns at db8aced, +0.153 ns at 20435b1 (the same core; placement moves its long paths by about 1 ns between runs). The core returns to 100 MHz once those paths are cut.
+  - **20435b1 is the board's M4 bitstream:** the MR head's RTL, with the L2's one-hot MSHR state (−403 LUTs, +432 flip-flops against db8aced, as out of context) and the injector's latency sum fixed. Both builds: DRC without errors (DSP pipelining warnings, RTSTAT-10), primitive check clean (160 instances after synthesis and after `opt_design`), CDC all safe (913 endpoints between the two clocks at 60 MHz, plus the RXD input). Both peaked at 18.3 GB; a core build declares 22.
   - **Board files:** `$SOC_BUILD/board/m4/` (`package.sh`): the bitstream, overlay, `shell.json`, `tanager-host`, `soc_test.bin` (first light), `fw_jump.bin`, `Image` and the one-core device tree.
 - **Worst paths:**
   - **Stub build:** L2 MSHR state -> `RREADY` -> injector buffer read enable (6.6 ns, 86% routing).
