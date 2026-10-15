@@ -547,6 +547,33 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   - **The base already depends on such state:** `rv64ui-p-add` takes 1,389 cycles from zeros and 1,468 with most random seeds. A branch at its first loop exit is predicted differently, which points to a predictor table without a reset. Such results need reading, so `reset` is not a default suite.
 - **Configurations:** `CFG="st smt2 st_w3 smt2_w3"` checks each in turn. A rewrite must be identical in every configuration it builds in.
 
+### 4.6 Linux workload set (`tests/bench/linux`, DR-141)
+
+Linux is the reference workload (DR-141): the core's switch profiles are compared on the board under real Linux. The set is static rv64 user programs plus one run script. It goes into the initramfs the board already boots, so no new boot flow is needed.
+
+- **Programs** (`make -C tests/bench/linux`; our own code, plus the CoreMark and Dhrystone sources of `perfmodel/third_party`, DR-138):
+  - `tg-lbench`, one subcommand per measurement:
+    - `forkexec`: 1,000 × fork, exec `/bin/true`, wait;
+    - `syscall`: 1,000,000 `getpid` calls;
+    - `memcpy` and `memset` at 64 B, 4 KiB and 1 MiB, 64 MiB moved per run;
+    - `pipe` and `tmpfs` (write, then read back): kernel copies, 16 MiB in 64 KiB calls;
+    - `pagefault`: 64 MiB mapped and written once per page;
+    - `tlbwalk`: a dependent pointer chase, 1,000,000 steps through a random cycle over 64 MiB of pages;
+    - `exec` times other commands: BusyBox's `gzip` and `sha256sum` over 4 MiB of generated text in `/tmp`.
+  - `coremark-a` and `coremark-b`, with plan §10.2's flag sets, and `dhrystone`, the same sources and flags as the bare-metal runs (§4.2). CoreMark scales itself to at least 10 s, its condition for a valid result; the line reports the iteration count.
+- **Run:** `tg-lbench.sh [RUNS]` runs everything RUNS times (3). With `tanager.bench=1` on the kernel command line, `/etc/init.d/S99tglbench` runs it after the boot marker and powers off, so a board run ends by itself.
+- **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=…` line and one line per measurement:
+  ```
+  TGLB <test> run=<k> cycles=<n|-> instret=<n|-> ticks=<n> ns=<n> ops=<n> [key=value ...]
+  ```
+  - `cycles` and `instret` come from `rdcycle` and `rdinstret` over the measured region. `ticks` come from `rdtime`, at the `timebase` the info line gives (10 MHz). `ns` comes from `CLOCK_MONOTONIC`, and `ops` is the operations counted, so per-operation values are `cycles/ops`.
+  - A test that fails prints `TGLB-FAIL <command>`, and the end line says `status=1`.
+- **The cycle counter needs the kernel's help.** Linux 6.18 lets user mode read only `time` (`scounteren` = 0x2, `head.S`). The SBI PMU driver opens `cycle` and `instret` when `kernel.perf_user_access` is 2, and the script sets that.
+  - So the image needs `CONFIG_PERF_EVENTS`, `CONFIG_RISCV_PMU` and `CONFIG_RISCV_PMU_SBI`; this has been asked of the SoC track.
+  - Without them, `rdcycle` traps. `tg-lbench` notices (a SIGILL probe) and prints `cycles=-`, and the `ticks` still give time.
+- **Checked in QEMU** (the SoC track's image, the set as an extra initrd): boot, all tests, `TGLB-END status=0` and power-off in 242 s. Every CoreMark run reports "Correct operation validated". In QEMU, as on today's image, `cycles=-`.
+- **Building the image:** a Buildroot package in the SoC track's external tree builds `tests/bench/linux` with the image's toolchain and installs it (`make install DESTDIR=…`). `make … initrd` makes the set an extra initrd instead, for QEMU without rebuilding the image.
+
 ## 5. The test core (`tg_tcore`)
 
 Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job is to exercise the harness and the checker before `tg_core` exists, and to keep doing so as a reference afterwards.
