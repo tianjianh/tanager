@@ -2,8 +2,11 @@
 # placed-and-routed timing (SoC track; the uncore's DSP-select pass, DR-136).
 #   TANAGER_VIVADO_MEM_GB=17 tools/vivado_run.sh <run-dir> fpga/kv260/tcl/ooc_impl.tcl <repo-root> <cfg> <top> <mhz> [GEN=VAL ...]
 # (tg_uncore at st peaked at 14.4 GB.) TG_OOC_SLACK=1 also writes reports/ooc_failing.txt: the failing
-# setup endpoints counted per instance two levels down and per cell kind, with each group's worst slack.
+# setup endpoints counted per instance two levels down and per cell kind, with each group's worst slack;
+# and reports/ooc_dsp_sites.txt: per instance two levels down, the worst setup slack into its DSPs and out
+# of them (the per-site check of UNCORE_DSP, DR-136: a site's DSP form passes when both are positive).
 # TG_OOC_DIRECTIVE overrides the synthesis directive (default AreaOptimized_high; "Default" for Vivado's).
+# TG_OOC_DCP=1 keeps the routed checkpoint (routed.dcp, about 100 MB for tg_uncore) for later timing queries.
 # clk runs at <mhz>; a clk_host port, if the module has one, at 100 MHz, asynchronous to clk.
 # Writes reports/ooc_utilization.rpt (hierarchical), ooc_timing.rpt and a TG_OOC_IMPL summary line.
 set root [lindex $argv 0]
@@ -29,6 +32,7 @@ opt_design
 place_design
 phys_opt_design
 route_design
+if {[info exists ::env(TG_OOC_DCP)] && $::env(TG_OOC_DCP)} { write_checkpoint -force routed.dcp }
 report_utilization -hierarchical -hierarchical_depth 3 -file reports/ooc_utilization.rpt
 report_utilization -file reports/ooc_utilization_flat.rpt
 report_timing_summary -max_paths 20 -file reports/ooc_timing.rpt
@@ -59,5 +63,23 @@ if {[info exists ::env(TG_OOC_SLACK)] && $::env(TG_OOC_SLACK)} {
   dict for {k n} $cnt { lappend rows [list $k $n [dict get $worst $k]] }
   set fh [open reports/ooc_failing.txt w]
   foreach r [lsort -real -index 2 $rows] { puts $fh [format "%-64s %6d %8.3f" {*}$r] }
+  close $fh
+  set dsite [dict create]
+  foreach c [get_cells -hierarchical -quiet -filter {REF_NAME =~ DSP*}] {
+    set key [join [lrange [split [get_property NAME $c] /] 0 1] /]
+    if {![dict exists $dsite $key]} { dict set dsite $key [list 0 1e9 1e9] }
+    lassign [dict get $dsite $key] n sin sout
+    set pin  [get_timing_paths -setup -max_paths 1 -nworst 1 -to $c]
+    set pout [get_timing_paths -setup -max_paths 1 -nworst 1 -from $c]
+    if {[llength $pin]  && [get_property SLACK $pin]  ne "" && [get_property SLACK $pin]  < $sin}  { set sin  [get_property SLACK $pin] }
+    if {[llength $pout] && [get_property SLACK $pout] ne "" && [get_property SLACK $pout] < $sout} { set sout [get_property SLACK $pout] }
+    dict set dsite $key [list [expr {$n + 1}] $sin $sout]
+  }
+  set fh [open reports/ooc_dsp_sites.txt w]
+  puts $fh [format "%-64s %5s %9s %9s" site DSPs "in (ns)" "out (ns)"]
+  dict for {k v} $dsite {
+    lassign $v n sin sout
+    puts $fh [format "%-64s %5d %9s %9s" $k $n [expr {$sin < 1e8 ? $sin : "-"}] [expr {$sout < 1e8 ? $sout : "-"}]]
+  }
   close $fh
 }
