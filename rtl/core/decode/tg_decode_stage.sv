@@ -15,7 +15,8 @@
 // Nor does the group wait for the expander: whether an instruction raises an exception or goes
 // alone comes from the raw encoding too, from a second decoder (only these outputs are kept) for a
 // 32-bit instruction, and from its 16 bits for a compressed one.
-// DE_STAGE (DR-140 #8; off, and not verified until turned on): decode takes a stage of its own.
+// DE_STAGE (DR-140 #8; off in both profiles, and lint-only on top of the default until the user
+// turns it on): decode takes a stage of its own.
 // DE1 decodes the queue head into registers, as many as there is room for (the slots DE2 does not
 // hand on move to the front); DE2 forms the group and checks the predictions from them. The
 // queue's take then counts a group as ending only at instructions that go alone: those after a

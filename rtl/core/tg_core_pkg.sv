@@ -21,9 +21,10 @@ package tg_core_pkg;
 
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
-  // They are verified as two profiles: all three on (the default and the shipping profile, the
-  // user's choice) or all three off (the verified fallback, the core without them); no other
-  // combination is supported. `TG_TIMING_CUTS=0|1` forces a profile.
+  // Two profiles are verified, and no other combination is supported:
+  //   default:  #2, #4 and #5 on, #8 off (the shipping profile, the user's choice);
+  //   fallback: #2, #4 and #5 off, #8 off (TG_TIMING_CUTS=0: the core without them).
+  // #8 on is lint-only, on top of the default, until the user turns it on (TG_DE_STAGE=1).
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
@@ -34,8 +35,7 @@ package tg_core_pkg;
   localparam bit LSU_AG_SPLIT          = TIMING_CUTS; // #4: a new load's and a store address's
                                                       // DTLB, PMP and decisions in M1 (core-lsu.md)
   localparam bit DC_AMO_READ_REG       = TIMING_CUTS; // #5: an atomic's D$ read data is registered
-  // #8, one more decode stage: off, outside the profiles, and not verified until the user turns it
-  // on (DR-140). `TG_DE_STAGE=1` elaborates it, for lint.
+  // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
   localparam bit DE_STAGE = `TG_DE_STAGE;
 `else

@@ -96,7 +96,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - **The exception that gates it:** from the raw encoding too. A 32-bit instruction's comes from a second decoder of which only that output and "serialising" are kept. A compressed instruction's: illegal as such, C.EBREAK, or an FP load or store (C.FLD, C.FSD, C.FLDSP, C.FSDSP) with the FP unit off.
   - **The group** (who goes alone) uses the same bits, so the RVC expander feeds only the uop's fields.
   - **Checks:** simulation asserts every one of these against the decoder's own results.
-- **One more stage, a switch** (DR-140 #8, `DE_STAGE`; off, and not verified until the user turns it on):
+- **One more stage, a switch** (DR-140 #8, `DE_STAGE`): off in both profiles, and lint-only on top of the default until the user turns it on.
   - DE1 decodes the queue head into registers. DE2 forms the group and checks the predictions from them.
   - The queue's take then counts a group as ending only at the instructions that go alone.
   - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
@@ -219,7 +219,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
   - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
 - **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
 - **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
-  - With `ROB_STORE_REPORT_LATE` (#2), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
+  - With `ROB_STORE_REPORT_LATE` (#2, on in the default profile, off in the fallback), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
 ### 8.2 Commit
