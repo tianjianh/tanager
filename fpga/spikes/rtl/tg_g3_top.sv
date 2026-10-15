@@ -5,7 +5,9 @@
 // Every core input is a register fed by a random shift chain, and every core output feeds a
 // fold into the L2 stand-in's input bus, so nothing is constant and nothing is trimmed (the
 // S6 method, docs/perf/spikes.md §8). The design is not functional; it is for placement and
-// timing. Not in spikes.f: fpga/spikes/tcl/ooc_run.tcl reads it with -rtl 1 -file <this>.
+// timing. Not in spikes.f: fpga/spikes/tcl/ooc_run.tcl reads it with -rtl 1 and -file for
+// it, fpga/spikes/rtl/tg_s6_fill.sv and tg_s6_l2.sv (not spikes.f, whose spike modules share
+// names with the production units).
 module tg_g3_top
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*;
 #(

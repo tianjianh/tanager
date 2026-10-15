@@ -13,8 +13,10 @@
 #   -extra 1  congestion and control-set reports (full-device runs)
 #   -flatten M  synth_design -flatten_hierarchy M (default rebuilt; none keeps each module apart)
 #   -synth_directive D  synth_design -directive D (default Default; e.g. AreaOptimized_high)
-#   -rtl 1  read all product RTL (rtl/rtl.f) rather than rtl/common/common.f alone, for tops
-#           that instantiate real units (e.g. tg_g3_top's tg_core)
+#   -rtl 1  read all product RTL (rtl/rtl.f) and not fpga/spikes/spikes.f, for tops that
+#           instantiate real units (e.g. tg_g3_top's tg_core): several spike modules share names
+#           with the production units they became (tg_iq, tg_alu, tg_irf, tg_ubtb, ...), so the
+#           spike files the top needs are listed with -file instead
 #   -file F an extra source, relative to the repo root (repeatable), e.g. a top not in spikes.f
 #   -pblock R  keep the design in clock-region range R (e.g. X0Y2:X1Y3), next to the clock
 #           source, so placement scatter does not decide the result
@@ -78,8 +80,8 @@ if {$read_rtl} {
   tg_read_f [file join $root rtl rtl.f]
 } else {
   tg_read_f [file join $root rtl common common.f]
+  tg_read_f [file join $root fpga spikes spikes.f]
 }
-tg_read_f [file join $root fpga spikes spikes.f]
 foreach f $extra_files { read_verilog -sv [file join $root $f] }
 
 set gargs {}
