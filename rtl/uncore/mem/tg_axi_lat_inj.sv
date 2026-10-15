@@ -118,10 +118,12 @@ module tg_axi_lat_inj
   tg_ram_lut #(.DEPTH(SLOTS), .WIDTH(SW), .NR(1)) u_oq (
     .clk, .we (ar_fire), .waddr (oq_wp_q[SW-1:0]), .wdata (alloc), .raddr (oq_rp_q[SW-1:0] + 1'b1), .rdata (oq_rd)
   );
-  // This cycle's write lands at the head (the queue is empty) or right behind it (one entry). A
-  // full queue has no free slot, so no write then.
-  wire oq_at_rp = ar_fire && oq_wp_q[SW-1:0] == oq_rp_q[SW-1:0];
-  wire oq_at_r1 = ar_fire && oq_wp_q[SW-1:0] == oq_rp_q[SW-1:0] + 1'b1;
+  // A write this cycle lands at the head when the queue is empty, and right behind it when the queue
+  // holds one entry (a full queue has no free slot, so no write then); with no write, the queue is
+  // or becomes empty, and the head is not used until a write arrives. So in those two cases the head
+  // takes alloc whether or not a write happens, and head_q does not wait for ar_fire, which ends the
+  // L2's AR handshake path.
+  wire oq_one = (oq_wp_q - oq_rp_q) == (SW + 1)'(1);
 
   logic                 buf_we;
   logic [SW+BW-1:0]     buf_waddr, buf_raddr;
@@ -281,8 +283,8 @@ module tg_axi_lat_inj
         oq_rp_q      <= oq_rp_q + 1'b1;  // land in it before the next cycle
       end
       // the head: the queue entry at the read pointer after this cycle's pop and write
-      if (issue && last_now) head_q <= oq_at_r1 ? alloc : oq_rd[0];
-      else if (oq_at_rp)     head_q <= alloc;
+      if (issue && last_now) head_q <= oq_one ? alloc : oq_rd[0];
+      else if (oq_empty)     head_q <= alloc;
       // tokens: the two next values come from registers; issue, which arrives late, picks one
       if (bw_cap) tokens_q <= issue ? tok_iss : tok_idle;
       else        tokens_q <= 11'd1024;
