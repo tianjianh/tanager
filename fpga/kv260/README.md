@@ -211,3 +211,25 @@ The board track then took steps 6 and 7 on the SoC track's first core bitstream.
   - **Linux boots at 0 and 250 injected cycles:** met, at 60 MHz.
   - **Linux at ≥ 100 MHz:** waits for the core's timing.
   - **FPGA lockstep:** waits for step 8, the commit trace.
+
+### FPGA lockstep (2026-10-15)
+
+The verification track's checker, `tanager-lockstep`, checks every commit record of the core against Spike, which runs the same images from the same boot ROM. The board track ran its RUNBOOK on the M4 bitstream:
+- **Package:** verification track `c166794`, the 768 MiB device tree, and later its zero-padded copy.
+- **How:** `board/tg.sh ls-soc` and `ls-linux`, with `tanager-host` `231fab53` (`--lossless --trace-log2 16`, the trace through a FIFO in `~/tanager/lockstep`).
+- **Zeroing:** the RISC-V window was zeroed before each Linux run with `board/tg_zero` (768 MiB in 1.3 s).
+- **Logs:** in [`board/lockstep/`](board/lockstep/).
+
+| Run | Result |
+|---|---|
+| 1. Offline on the A53, simulation traces | SoC test: PASS, 230,255 records. A planted fault is caught at exactly record 100,000 (exit 2). OpenSBI: PASS, 3,087,220 records in 21.8 s. **The A53 checks 141 k records/s** (the 5950X 1.9 M/s). |
+| 2. The board's first commit trace (SoC test, to a file) | 4,435,137 records written, no AXI error; checked offline: **PASS** |
+| 3. SoC test, live through the FIFO | **PASS**, 334,491 records |
+| 4. Linux, native latency, live | **PASS after 335,786,888 records** (335,761,726 retired, 12,658 traps, 12,504 interrupts), 97.9 k records/s. `TANAGER-BOOT-OK` at 2,336 s (unchecked: 8 s); login prompt 2,396 s; root shell 2,493 s; `poweroff` reported to the host at 3,435 s. |
+| 5. Linux, 250 injected read cycles, live | **PASS after 355,612,637 records** (355,584,782 retired, 12,810 traps, 15,045 interrupts), 97.6 k records/s. `TANAGER-BOOT-OK` at 2,491 s (unchecked: login in 14 s); root shell 2,664 s; `poweroff` at 3,646 s. |
+
+- **The first live Linux try stopped, on a gap in the test setup, not in the core.**
+  - **The stop:** at record 8,204,496 ([report](board/lockstep/ls_linux0_attempt1.log)), Linux's crc32 over its device tree read offset 0x90a. That is past the 2,087-byte file, in free space OpenSBI added for its reserved-memory nodes and never wrote. On the board, that space held old DDR data (0x40); in Spike it holds 0.
+  - **The fixes:** zeroing the window fixed it. The verification track has since supplied a zero-padded device tree (64 KiB), and `tanager-host` `6466df0` zeroes the window itself whenever `--trace` is given.
+- **Each Linux run logs one RCU stall report** in early init (289 s and 307 s of kernel time). The RUNBOOK expects it: the RISC-V timer keeps counting while the checker holds the core. Nothing else in the logs: no oops and no lockup.
+- **M4's exit criteria** (plan §11): FPGA lockstep, and Linux at 0 and 250 injected cycles, are now met, at 60 MHz. What remains is Linux at ≥ 100 MHz.
