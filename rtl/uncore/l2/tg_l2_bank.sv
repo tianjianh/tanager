@@ -507,15 +507,19 @@ module tg_l2_bank
   end
 
   // The way S2 reads and may write: the hit way, the MSHR's way for MCMD, the victim on a miss
-  logic [2:0] sw2;
-  way_t       e2;
+  // The victim is the slowest of the three (it waits for the reservations and the PLRU), so it is
+  // selected late (200 MHz, DR-137): the updates read e2, the entry of the fast choice (the hit way,
+  // or the MCMD's way), and a miss reads only what it needs of the victim's entry (vic): whether
+  // agents hold it, its tag and its dirty bit. A miss writes either the victim's entry unchanged or
+  // a new one made from the request alone.
+  logic [2:0] sw2, swf;
+  way_t       e2, vic;
+  wire        s2_miss = (p2_q.kind == PK_ACQ || p2_q.kind == PK_GET || p2_q.kind == PK_PUT) && !hit2;
   always_comb begin
-    unique case (p2_q.kind)
-      PK_MCMD:                sw2 = rl_way[0];
-      PK_ACQ, PK_GET, PK_PUT: sw2 = hit2 ? hw2 : vw2;
-      default:                sw2 = hw2;        // PK_REL, PK_PACK; PK_INIT writes every way
-    endcase
-    e2 = row2.way[sw2];
+    swf = (p2_q.kind == PK_MCMD) ? rl_way[0] : hw2;   // PK_REL, PK_PACK, a hit: the hit way
+    sw2 = s2_miss ? vw2 : swf;
+    e2  = row2.way[swf];
+    vic = row2.way[vw2];
   end
   wire [WAYS-1:0] sw2_oh = WAYS'(1) << sw2;
 
@@ -701,19 +705,20 @@ module tg_l2_bank
             ev_miss_o     = 1'b1;
             s2_alloc_way  = vw2;
             s2_alloc_fill = !full_put;
-            s2_alloc_vline = line_of(e.tag, set2);
-            if (e.valid && e.pres != '0) begin
+            s2_alloc_vline = line_of(vic.tag, set2);
+            if (vic.valid && vic.pres != '0) begin
               // The victim is held by agents: probe them first; its tag stays until resolved.
-              s2_alloc_probe  = e.pres;
+              e               = vic;
+              s2_alloc_probe  = vic.pres;
               s2_alloc_pcap_n = 1'b1;
               s2_alloc_pvict  = 1'b1;
               s2_alloc_vact   = 1'b1;
               s2_alloc_st     = MS_PROBE;
             end else begin
-              s2_alloc_wb   = e.valid && e.dirty;
-              s2_alloc_vact = e.valid && e.dirty;
-              s2_alloc_st   = (e.valid && e.dirty) ? MS_VREAD : full_put ? MS_PUTW : MS_FILL;
-              e.tag   = tag2;
+              s2_alloc_wb   = vic.valid && vic.dirty;
+              s2_alloc_vact = vic.valid && vic.dirty;
+              s2_alloc_st   = (vic.valid && vic.dirty) ? MS_VREAD : full_put ? MS_PUTW : MS_FILL;
+              e.tag   = tag2;               // every field: the new entry does not depend on the victim's
               e.valid = 1'b1;
               e.dirty = p2_q.kind == PK_PUT;
               e.pres  = (p2_q.kind == PK_ACQ) ? me : '0;
