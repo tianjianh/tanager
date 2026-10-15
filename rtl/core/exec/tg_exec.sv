@@ -186,10 +186,7 @@ module tg_exec
     return SW'(S_RF);
   endfunction
 
-  // The LD and STA bases take their write-back-level bypass here: res_q and the load result are now
-  // what wbq_q and ld_wbq_q hold in EX, so their EX multiplexer keeps only the register value and the
-  // EX-level sources, one LUT level in front of the address adder (cycle-identical).
-  logic [N_XQ-1:0][SW-1:0] sa, sb, sa_x;
+  logic [N_XQ-1:0][SW-1:0] sa, sb;
   logic [N_XQ-1:0][63:0]   ra, rb;
   for (genvar q = 0; q < N_XQ; q++) begin : g_sel
     always_comb begin
@@ -198,16 +195,15 @@ module tg_exec
       sb[q] = iss_pl[q].b_imm ? SW'(S_IMM)
             : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
-      sa_x[q] = sa[q];
       if (q < N_ALU) begin
         ra[q] = rd_data[2*q];
         rb[q] = rd_data[2*q+1];
-      end else begin
-        ra[q] = rd_data[(q == Q_LD) ? P_LD : P_STA];
+      end else if (q == Q_LD) begin
+        ra[q] = rd_data[P_LD];
         rb[q] = '0;
-        for (int i = 0; i < N_ALU; i++) if (sa[q] == SW'(S_WB + i)) ra[q] = res_q[i];
-        if (sa[q] == SW'(S_WB + N_ALU)) ra[q] = ld_res_data;
-        if (int'(sa[q]) >= S_WB && int'(sa[q]) <= S_WB + N_ALU) sa_x[q] = SW'(S_RF);
+      end else begin
+        ra[q] = rd_data[P_STA];
+        rb[q] = '0;
       end
     end
   end
@@ -242,11 +238,6 @@ module tg_exec
       s2[S_IMM] = ex_pl_q[q].imm;
       opa[q] = opmux(s1, ex_sa_q[q]);
       opb[q] = opmux(s2, ex_sb_q[q]);
-      if (q >= N_ALU) begin                // LD, STA: the register value or an EX-level source
-        opa[q] = ex_a_q[q];
-        for (int i = 0; i < N_ALU; i++) if (ex_sa_q[q] == SW'(S_EX + i)) opa[q] = res_q[i];
-        if (ex_sa_q[q] == SW'(S_EX + N_ALU)) opa[q] = ld_res_data;
-      end
     end
   end
 
@@ -547,7 +538,7 @@ module tg_exec
     // min/max on P1's 2-cycle path read ALU1's compare flags, so its adder subtracts for them
     if (iss_pl[1].cls == C_MUL && iss_pl[1].bcnt && iss_pl[1].mul_op == MUL_HU)
       ex_pl_q[1].alu.sub <= 1'b1;
-    ex_sa_q <= sa_x;
+    ex_sa_q <= sa;
     ex_sb_q <= sb;
     for (int q = 0; q < N_XQ; q++) begin
       ex_a_q[q] <= ra[q];
