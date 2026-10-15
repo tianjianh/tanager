@@ -170,7 +170,8 @@ module tg_core
   // FP loads and FP store data between the LSU and P4
   logic                             fld_m2_will, fld_valid, sd_busy;
   logic [FPIDX_W-1:0]               fld_m2_idx, fld_idx;
-  logic [63:0]                      fld_data, fsd_data;
+  logic [63:0]                      fld_data;
+  logic [1:0][63:0]                 fsd_data;   // both FP banks (P4): the LSU picks by fsd_tag's bank
   preg_t                            fsd_tag;
   // P4's integer source and FP->int results (driven by P4 with the FP back end)
   logic                             isrc_valid, fpi_valid, fpi_kill, fpi_ready, fpi_dst_en;
@@ -246,9 +247,10 @@ module tg_core
   preg_t            sd_tag;
   logic [63:0]      sd_data;
   preg_t [CW-1:0]   tr_tag;
-  logic [CW-1:0][63:0] tr_data, tr_data_x, tr_data_p4;
+  logic [CW-1:0][63:0] tr_data, tr_data_x;
+  logic [1:0][CW-1:0][63:0] tr_data_p4;          // both FP banks (P4): the bank select folds in here
   for (genvar j = 0; j < CW; j++) begin : g_trd
-    assign tr_data[j] = (EXT_FD && cm_rd_fp[j]) ? tr_data_p4[j] : tr_data_x[j];
+    assign tr_data[j] = !(EXT_FD && cm_rd_fp[j]) ? tr_data_x[j] : tr_data_p4[fpreg_bank(tr_tag[j])][j];
   end
   logic [N_ALU-1:0] alu_cmp;
   robid_t [N_ALU-1:0] alu_rob;
