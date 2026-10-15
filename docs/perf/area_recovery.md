@@ -23,20 +23,20 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
 - **v2:** SMT2 + 3-wide.
 - **st_w3:** 3-wide without SMT2.
 
-**Real RTL (AR-7 and since, 2026-10-14; §7).** The core track's no-IPC passes took the `st` core from 88K to **43,005 LUTs with F/D and AR-1, against its 38,220 budget** (+13%). The last pass was the first FPGA-friendly one (DR-123), measured with DR-113's synthesis settings (the core track's next branch at 4eb7ce0, with main's FPU pass). AR-7 measured 56.5K after the first pass.
-- **v1 today: ≈119.6K,** all measured with DR-113's settings:
-  - two `smt2` cores at 45,637 each (the core track's next branch, 4eb7ce0);
-  - the uncore at 19,933 (the SoC track's e7227d4);
+**Real RTL (AR-7 and since, 2026-10-14; §7).** The core track's no-IPC passes took the `st` core from 88K to **42,607 LUTs with F/D and AR-1, against its 38,220 budget** (+11%). The last two passes were FPGA-friendly (DR-123), measured with DR-113's synthesis settings (main 7d60948). AR-7 measured 56.5K after the first pass.
+- **v1 today: ≈118.4K,** all measured with DR-113's settings:
+  - two `smt2` cores at 45,055 each (main 7d60948);
+  - the uncore at 19,933 (main 9be0707);
   - plus hart 1's state at the budgets' 4.2K per core.
 
   The limits are 103,040 at 200 MHz (88%) and 111,633 at 180 MHz (95.3%, the full fill test).
 - **Hart 1's basis.** The budgets' 4.2K assumes second copies and leaves out the PMP descriptor select, which measures +2.3K per core.
-  - In RAM form (conventions §7), hart 1 is ≈4.4K with that select, and v1 is ≈119.9K.
-  - As second copies, hart 1 is ≈6.5K and v1 is ≈124.2K.
+  - In RAM form (conventions §7), hart 1 is ≈4.3K with that select, and v1 is ≈118.6K.
+  - As second copies, hart 1 is ≈6.5K and v1 is ≈123.1K.
 
   See §7.7 and the M7 brief, [hart1_ram_form.md](hart1_ram_form.md).
 - **Verdict:** v1 does not fit today, at 200 MHz or at 180 MHz. It fits at 200 MHz when its units meet their budgets, which sum to 103,040.
-- **Closing the gap:** the remaining 16.6K is D18 step-1 work, unit by unit (52.6K at AR-7, 38.5K after the second pass, 24.0K after the third). 9.1K of it is the uncore, whose timing under DR-113's settings is not yet checked. The clock (step 2) is worth 8.6K (§7.7). The reserve (step 3) is ≈8.0K, ≈5.8K of it from release builds without the commit trace, its last lever (DR-121).
+- **Closing the gap:** the remaining 15.4K is D18 step-1 work, unit by unit (52.6K at AR-7, 38.5K after the second pass, 24.0K after the third). 9.1K of it is the uncore, whose timing under DR-113's settings is not yet checked. The clock (step 2) is worth 8.6K (§7.7). The reserve (step 3) is ≈8.0K, ≈5.8K of it from release builds without the commit trace, its last lever (DR-121).
 - **v2 (the third pass, old settings): 164.6K, 52.2K over its 180 MHz limit (112,441, 96.0%).** It needs a per-core budget (≈49.7K at 180 MHz; AR-9) and its own no-IPC pass on the 3-wide structures, which add +14.9K per core today.
 - **How to read this study:**
   - its verdicts are stated against the per-unit budgets of [budgets.md](budgets.md);
@@ -87,14 +87,14 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **With SMT off,** 1–4% of waits cross the two ROB halves. Steering around them costs 8–10% single-thread IPC.
    - **Rejected.** Wakeup tags save more, at no cost.
 5. **Measured RTL (AR-7 and since, §7): v1 does not fit today. It fits at 200 MHz once its units meet their budgets.**
-   - **Today v1 is ≈119.6K** (120.9K at 2cf1cd9, 127.0K after the third pass, 141.5K after the second, 155.7K at AR-7), against 103,040 at 200 MHz and 111,633 at 180 MHz. All its parts use DR-113's settings:
-     - two `smt2` cores at 45,637 each (the core track's next branch, 4eb7ce0);
+   - **Today v1 is ≈118.4K** (119.6K at 4eb7ce0, 120.9K at 2cf1cd9, 127.0K after the third pass, 141.5K after the second, 155.7K at AR-7), against 103,040 at 200 MHz and 111,633 at 180 MHz. All its parts use DR-113's settings:
+     - two `smt2` cores at 45,055 each (the core's FPGA-friendly passes, main 7d60948);
      - hart 1's state at the budgets' 4.2K per core;
-     - the uncore at 19,933 (the SoC track's e7227d4).
+     - the uncore at 19,933 (main 9be0707).
 
-     With hart 1 in RAM form and the measured PMP select (≈4.4K per core) it is ≈119.9K.
+     With hart 1 in RAM form and the measured PMP select (≈4.3K per core) it is ≈118.6K.
    - **The budgets sum to 103,040,** so meeting them is the fit.
-     - With hart 1 on the budgets' basis, each core is 3.7K over its budget: LSU and MMU, rename, ROB and CSRs, then P4 and Execute.
+     - With hart 1 on the budgets' basis, each core is 3.1K over its budget: LSU and MMU, rename, then ROB and CSRs, P4 and Execute.
      - Without hart 1, each core is under its budget.
      - The uncore is 9.1K over.
    - **Wakeup tags put the issue queues under budget:** 4,922 at `st` and 5,261 at `smt2`, against 6,030 and 8,350.
@@ -105,7 +105,7 @@ Every IPC figure here is a model result. LUT savings are measured where a spike 
    - **IPC still favours v2 at a lower clock:** at 190 MHz it beats v1 at 200 MHz by +15.6% throughput and +9.3% single thread.
 7. **D18's order holds, and the measured gap makes it sharper** (§6, §7.5).
    - In the model, every trim costs less IPC than the clock it replaces.
-   - But against the measured gap, step 2 (180 MHz, 8.6K) and the whole reserve (step 3, ≈8.0K with trace-free release builds, DR-121) together (16.6K) about match step 1's remaining 16.6K. D18 still takes step 1 first.
+   - But against the measured gap, step 2 (180 MHz, 8.6K) and the whole reserve (step 3, ≈8.0K with trace-free release builds, DR-121) together (16.6K) now exceed step 1's remaining 15.4K. D18 still takes step 1 first, and each reserve lever is the user's decision (DR-135).
    - **Radix-4 is out of the reserve** (user, DR-118). It saves only 1.04K, measured after the FPU's no-IPC pass, and fails the rule.
 
 ### 1.2 What the levers add up to
@@ -565,7 +565,7 @@ AR-7's first measurement (c898f1e, cb8ff6c) was `st` 56,461 and `smt2` 62,501 (�
 | Second CSR file and counters (3.0K, less 1.35K from R1 and R2) | 1.65K | 1.65K |
 | Sibling snoops and LR | 0.1K | 0.1K |
 
-This estimate costs second copies and leaves out the PMP descriptor select (+2.3K per core, measured). §7.7 and the M7 brief ([hart1_ram_form.md](hart1_ram_form.md)) give the corrected bases: ≈4.4K per core in RAM form, ≈6.5K as copies.
+This estimate costs second copies and leaves out the PMP descriptor select (+2.3K per core, measured). §7.7 and the M7 brief ([hart1_ram_form.md](hart1_ram_form.md)) give the corrected bases: ≈4.3K per core in RAM form, ≈6.5K as copies.
 
 ### 7.2 Per unit, against the budgets (per core, 5c124f2)
 
@@ -720,44 +720,50 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
 | 2026-10-14 13:02 | The uncore with DR-113's settings: the SoC track's MR at 4d5ca13 (`budget_mr3_dr113`), with the 11:25 cores | DR-113 (cores and uncore) | 46,132 | 49,022 | 127.0K (108.4%) | −1.7K (the uncore's settings) | +24.0K / +21.6K | +15.4K |
 | 2026-10-14 15:13 | The core track's FPGA-friendly pass (DR-123, DR-125; MR pending at 2cf1cd9): `out29_st`, `out28_smt2`, with the 13:02 uncore | DR-113 | 43,342 | 45,992 | 120.9K (103.3%) | −6.1K | +17.9K / +15.5K | +9.3K |
 | 2026-10-14 16:31 | Estimate with main's merges since: the FPU's DR-123 pass (4c60319), measured in the core at `st` (`out30_st` at 4eb7ce0, the core track's next branch: −337) and applied to `smt2`; the crossbar (89d8001: −249, measured with the old flow) | DR-113 (est.) | 43,005 | ≈45,655 | ≈120.0K (102.5%) | ≈−0.9K | ≈+17.0K / ≈+14.6K | ≈+8.4K |
-| 2026-10-14 17:21 | Measured: the core track's next branch (4eb7ce0: the FPGA-friendly pass and main's merges; `out30_st`, `out30_smt2`) and the SoC track's uncore pass (e7227d4: the crossbar's constants and one-hot L2 MSHR state; `budget_onehot`) | **DR-113** | **43,005** | **45,637** | **119.6K** (102.1%) | −0.4K | **+16.6K** / +14.2K | **+8.0K** |
+| 2026-10-14 17:21 | Measured: the core track's next branch (4eb7ce0: the FPGA-friendly pass and main's merges; `out30_st`, `out30_smt2`) and the SoC track's uncore pass (e7227d4: the crossbar's constants and one-hot L2 MSHR state; `budget_onehot`) | DR-113 | 43,005 | 45,637 | 119.6K (102.1%) | −0.4K | +16.6K / +14.2K | +8.0K |
+| 2026-10-14 17:46 | Measured, both merged: the core's second FPGA-friendly pass, fn2 (main 7d60948; `out33_st`, `out33_smt2` at e5c2b4f, the same RTL), with the 17:21 uncore (main 9be0707) | **DR-113** | **42,607** | **45,055** | **118.4K** (101.1%) | −1.2K | **+15.4K** / +13.0K | **+6.8K** |
 
-**The latest cores, per unit at `smt2` against the v1 budgets.** Measured at the core track's next branch, 4eb7ce0 (`out30_smt2`: the FPGA-friendly pass and main's merges), with DR-113's settings. Hart 1 is added on the budgets' basis, by `area_fit.py`.
+**The latest cores, per unit at `smt2` against the v1 budgets.** Measured at the core's second FPGA-friendly pass as merged (main 7d60948; `out33_smt2`), with DR-113's settings. Hart 1 is added on the budgets' basis, by `area_fit.py`.
 
-| Unit | Measured | + hart 1 (budgets) | Budget | Over | At 2cf1cd9 | After the third pass | At 5c124f2 (old settings) |
+| Unit | Measured | + hart 1 (budgets) | Budget | Over | At 4eb7ce0 | After the third pass | At 5c124f2 (old settings) |
 |---|---|---|---|---|---|---|---|
-| Front end | 4,738 | +1.0K | 6,480 | −742 | −748 | −742 | −476 |
+| Front end | 4,738 | +1.0K | 6,480 | −742 | −742 | −742 | −476 |
 | Decode | 1,437 | +0.15K | 1,640 | −53 | −53 | −53 | +187 |
 | Rename | 3,032 | +1.3K | 1,830 | **+2,502** | +2,502 | +3,973 | +4,259 |
-| Issue queues and wakeup | 5,261 | — | 8,350 | −3,089 | −3,084 | −3,082 | −2,920 |
-| Execute | 7,822 | — | 7,610 | +212 | +408 | +408 | +1,021 |
-| LSU and MMU | 11,698 | +0.1K | 8,560 | **+3,238** | +3,189 | +3,916 | +6,955 |
-| ROB, commit, traps, CSRs, PMP | 4,381 | +1.65K | 4,840 | **+1,191** | +1,271 | +2,095 | +3,173 |
-| FPU (P4) | 7,096 | — | 6,800 | +296 | +425 | +425 | +1,153 |
-| **Core** (with glue) | **45,637** | **+4.2K** | **46,120** | **+3,717** (+8%) | +4,072 | +7,102 | +13,516 |
+| Issue queues and wakeup | 5,261 | — | 8,350 | −3,089 | −3,089 | −3,082 | −2,920 |
+| Execute | 7,822 | — | 7,610 | +212 | +212 | +408 | +1,021 |
+| LSU and MMU | 11,698 | +0.1K | 8,560 | **+3,238** | +3,238 | +3,916 | +6,955 |
+| ROB, commit, traps, CSRs, PMP | 3,799 | +1.65K | 4,840 | +609 | +1,191 | +2,095 | +3,173 |
+| FPU (P4) | 7,096 | — | 6,800 | +296 | +296 | +425 | +1,153 |
+| **Core** (with glue) | **45,055** | **+4.2K** | **46,120** | **+3,135** (+7%) | +3,717 | +7,102 | +13,516 |
 
 **Reading it:**
-- **Since the 15:13 row, each `smt2` core lost 355 more LUTs** (45,992 → 45,637). Main's FPU pass took P4 −129 and Execute −196 in the core, and the ROB and CSRs lost 80. Without hart 1 the core is 483 under its line.
-- **What is left per core, +3.7K with hart 1 on the budgets' basis:**
+- **fn2 took 582 more LUTs off each `smt2` core, all in the ROB and CSRs** (4,381 → 3,799):
+  - the cold CSRs in one LUTRAM (R2), with xepc through the CSR read port;
+  - the ROB's replay flag XOR-banked;
+  - one PC adder at the ROB head.
+
+  Since the 15:13 row, main's FPU pass took P4 −129 and Execute −196. Without hart 1 the core is 1,065 under its line.
+- **What is left per core, +3.1K with hart 1 on the budgets' basis:**
   - the LSU and MMU +3.2K;
   - rename +2.5K;
-  - the ROB and CSRs +1.2K;
+  - the ROB and CSRs +0.6K;
   - P4 +0.3K and Execute +0.2K.
 
   The issue queues (−3.1K) and the front end (−0.7K) are under budget.
-- **The uncore pass, measured: 19,933 at `smt2`** (the SoC track's e7227d4, `budget_onehot`, DR-113's settings).
+- **The uncore pass, measured: 19,933 at `smt2`** (the SoC track's e7227d4, `budget_onehot`, DR-113's settings; merged in 9be0707).
   - It brings the crossbar's A-channel constants and one-hot L2 MSHR state: −627 since 4d5ca13.
   - It is +9.1K over its 10,800 budget, over half of v1's gap.
 - **Open risk: the uncore's timing under DR-113's settings is not checked.**
   - Its numbers since 13:02 assume `-flatten none -directive AreaOptimized_high`, as the core's do. The directive alone cost the core's scheduler 0.265 ns.
   - If the uncore has to keep the old settings, add back ≈1.7K per SoC (7.7%, as measured at 4d5ca13).
 - **Pending, gated: DR-133,** execute's operand ports in UltraRAM: about −630 per core, −1.3K per SoC. It is in no row.
-- **D18's steps against the remaining 16.6K:**
+- **D18's steps against the remaining 15.4K:**
   - 180 MHz (step 2) is worth 8.6K;
   - the reserve (step 3) is ≈8.0K, in old-settings figures.
 
-  Together (16.6K) they about match it. But D18 takes step 1 first, and hart 1's basis moves the target (below).
-- **`st`, for reference:** 43,005 against 38,220 (+4.8K): the LSU and MMU +3.0K, rename +1.6K, the ROB and CSRs +1.5K.
+  Together (16.6K) they now exceed it. But D18 takes step 1 first, each reserve lever is the user's decision (DR-135), and hart 1's basis moves the target (below).
+- **`st`, for reference:** 42,607 against 38,220 (+4.4K): the LSU and MMU +3.0K, rename +1.6K, the ROB and CSRs +1.1K.
 
 **Hart 1: three bases** (v1, per core). The M7 brief, [hart1_ram_form.md](hart1_ram_form.md), has the detail for each structure.
 - **The budgets' basis** (4.2K, used in every row above) costs second copies. The SMT2 study (§8.3) priced flip-flop maps with 64-entry read selects, and second FTQ and RAS tables with their own ports. R1 and R2 were already off the CSRs.
@@ -765,16 +771,16 @@ python3 perfmodel/scripts/area_fit.py --core <core budget run>/latest.json --unc
   - The 16 region descriptors (72 bits each) are read in parallel by the four `tg_pmp` checkers. So hart 1 needs its own 1,152 flip-flops, and every checker needs a select of the requesting hart's set.
   - Out of context with DR-113's settings, a checker grows from 891 to 1,467 LUTs (S = 1); fetch's (S = 2) grows from 958 to 1,534. That is +576 each, +2,304 for four: one LUT per two select bits.
   - Neither earlier estimate counted it, and it is the same in both forms.
-- **RAM form** (conventions §7): the per-thread tables take `tid` as an address bit. The rest comes to ≈2.1K, plus the PMP select.
+- **RAM form** (conventions §7): the per-thread tables take `tid` as an address bit. The rest comes to ≈2.0K, plus the PMP select. fn2 built R2's cold-CSR table (xtvec, xscratch, xepc, xcause, xtval), so mepc and sepc no longer count as hot state.
 
-| Basis | Hart 1 per core | v1 (4eb7ce0 cores, e7227d4 uncore) | Over 103,040 | Over 105,408 | Over 111,633 |
+| Basis | Hart 1 per core | v1 (7d60948 cores, 9be0707 uncore) | Over 103,040 | Over 105,408 | Over 111,633 |
 |---|---|---|---|---|---|
-| Budgets (second copies, no PMP select) | 4.2K | 119.6K (102.1%) | +16.6K | +14.2K | +8.0K |
-| Second copies with the PMP select | ≈6.5K | 124.2K (106.1%) | +21.2K | +18.8K | +12.6K |
-| RAM form with the PMP select | ≈4.4K | **119.9K** (102.4%) | **+16.9K** | +14.5K | **+8.3K** |
-| RAM form with the PMP select, plus DR-133 (pending) | ≈4.4K | 118.7K (101.3%) | +15.6K | +13.3K | +7.0K |
+| Budgets (second copies, no PMP select) | 4.2K | 118.4K (101.1%) | +15.4K | +13.0K | +6.8K |
+| Second copies with the PMP select | ≈6.5K | 123.1K (105.1%) | +20.0K | +17.6K | +11.4K |
+| RAM form with the PMP select | ≈4.3K | **118.6K** (101.2%) | **+15.5K** | +13.2K | **+6.9K** |
+| RAM form with the PMP select, plus DR-133 (pending) | ≈4.3K | 117.3K (100.2%) | +14.3K | +11.9K | +5.7K |
 
-- **The RAM forms still save ≈2.1K per core** (≈4.2K per SoC) against copies. The earlier ≈2.4K-per-core figure, and its v1 of ≈116.4K, left out the PMP select.
+- **The RAM forms save ≈2.2K per core** (≈4.5K per SoC) against copies. The earlier ≈2.4K-per-core figure, and its v1 of ≈116.4K, left out the PMP select.
 - **The PMP select is now hart 1's largest item.** The brief lists ways to cut it. Each costs cycles or function, so each would go on the reserve list for the user to decide (DR-135).
 - **M7 replaces every estimate** with the first `smt2` synthesis that has hart 1's state (`area_fit.py --hart1 budgets|copies|ram` until then).
 
@@ -810,7 +816,7 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
   The core is +21.4K over 49,740. Its 3-wide increment is +14.9K (`smt2_w3` − `smt2`, old settings), with rename +4.48K of it.
 
 **Next rows:**
-- the core and SoC tracks' branches once merged (4eb7ce0, e7227d4), and the SoC track's host-bridge rewrite;
+- the uncore's block-RAM-first pass (DR-135) and the SoC track's host-bridge rewrite;
 - the uncore's timing under DR-113's settings (the open risk above);
 - the 3-wide configurations under DR-113's settings, then §7.1–7.5 move to the latest pass;
 - hart 1 at M7, which replaces every estimate.
@@ -942,6 +948,14 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
   - It corrects the RAM-form estimate for hart 1 from ≈2.4K to ≈4.4K per core: v1 ≈119.9K, not ≈116.4K.
   - As copies, hart 1 would be ≈6.5K.
 - **The M7 brief** ([hart1_ram_form.md](hart1_ram_form.md)) gives the form and cost of each per-thread structure.
+
+**2026-10-14: the core's second FPGA-friendly pass (fn2), merged** (7d60948):
+- **The cores:** `st` 42,607 and `smt2` 45,055. The −582 per core is all in the ROB and CSRs: the cold CSRs in one LUTRAM (R2), xepc through the CSR read port, the ROB's replay flag XOR-banked, and one PC adder at the ROB head.
+- **v1 on each hart-1 basis:**
+  - ≈118.4K on the budgets' basis;
+  - ≈118.6K in RAM form with the PMP select (hart 1 ≈4.3K, mepc and sepc now cold);
+  - ≈117.3K with DR-133;
+  - ≈123.1K as copies.
 
 **Lessons:**
 - **Ask which consumers actually wait on a structure before sizing it.** The census turned a 4–5K "overrun" into an exact redesign. The same question asked of the window, the queues and the checkpoints only found IPC.

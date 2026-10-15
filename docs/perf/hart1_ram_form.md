@@ -35,9 +35,9 @@
 | Rename | RAT and CRAT, integer and FP, every bank | LUTRAM, {tid, register}: 32 → 64 deep | **+0.43K** | **measured:** 432 LUTs of 32-deep RAM32M16 at `smt2` (2cf1cd9), doubled |
 | | Renamed-since-flush bits, live-value tables | flip-flops per hart | ≈0.05K | 32 bits per hart each |
 | | Checkpoints (M6) | LUTRAM versions behind a version pointer, {tid, version, register}; or shared (R10, reserve) | ≈0.1K, or 0 with R10 | a restore must stay one cycle (fpga_friendly.md §3) |
-| CSRs (`tg_csr`) | Cold CSRs: mscratch, sscratch, mcause, scause, mtval, stval, mtvec, stvec, menvcfg, senvcfg, mcounteren, scounteren, mcontext | one LUTRAM, {tid, CSR} (R2) | ≈0 | one 64-bit read port, about 40 LUTs, serves both harts (core-pipeline §13) |
+| CSRs (`tg_csr`) | Cold CSRs: xtvec, xscratch, xepc, xcause, xtval of M and S (built in fn2: one 16 × 64 LUTRAM, two read ports) | the same table, {tid, CSR}: 16 → 32 deep | 0 | fits RAM32M16; "at M7, hart 1's set is one more address bit" (core-pipeline §13). menvcfg, senvcfg, mcounteren, scounteren and mcontext can join it |
 | | `pmpaddr0–15` | the existing LUTRAM, {tid, entry} | 0 | 16 → 32 deep fits RAM32M16 |
-| | Hot CSRs: `priv`, mstatus, mie, mip's software bits, medeleg, mideleg, satp, mepc, sepc, stimecmp, fcsr, mcountinhibit | flip-flops per hart (about 330 bits); selects into the CSR read path and their users | ≈0.5K | read every cycle (status, satp, interrupts) or by xRET (judged) |
+| | Hot CSRs: `priv`, mstatus, mie, mip's software bits, medeleg, mideleg, satp, stimecmp, fcsr, mcountinhibit | flip-flops per hart (about 200 bits); selects into the CSR read path and their users | ≈0.4K | read every cycle: status, satp, interrupts (judged) |
 | | Interrupt pending per hart; trap entry and xRET for the committing thread | logic; Sstc's compare per hart (a DSP candidate, T6) | ≈0.15K | judged |
 | | Counters: mcycle, minstret | DSP48E2 pairs per hart (R1, `tg_dsp_ctr`); the HPM counters read zero | 4 DSPs, ≈0.03K | R1 done |
 | | **PMP region descriptors** (16 × 72 bits) | flip-flops per hart; each of the four `tg_pmp` checkers selects the requesting hart's set | **+2.3K** | **measured**, below |
@@ -69,12 +69,12 @@
 
 | | RAM form | Second copies |
 |---|---|---|
-| Everything but the PMP select | ≈2.1K (1.6–2.6K) | 4.2K (the budgets' SMT2 additions) |
+| Everything but the PMP select | ≈2.0K (1.5–2.5K) | 4.2K (the budgets' SMT2 additions) |
 | PMP descriptor select (measured) | +2.3K | +2.3K |
-| **Hart 1, per core** | **≈4.4K** | **≈6.5K** |
-| v1 with today's cores and uncore (§7.7) | ≈119.9K | ≈124.2K |
+| **Hart 1, per core** | **≈4.3K** | **≈6.5K** |
+| v1 with today's cores and uncore (§7.7) | ≈118.6K | ≈123.1K |
 
-- **The RAM forms save ≈2.1K per core,** ≈4.2K per SoC, against copies.
+- **The RAM forms save ≈2.2K per core,** ≈4.5K per SoC, against copies.
 - **The PMP select is where a better form would pay most.**
 - `area_fit.py --hart1 ram` and `--hart1 copies` reproduce the two columns.
 
