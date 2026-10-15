@@ -881,6 +881,23 @@ module tg_l2_bank
   end
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
+  // The probe handshake's effects (200 MHz, DR-142): the crossbar's ready arrives last (its B
+  // arbiter weighs both banks' probes), so the flag each probe sets is selected ahead of it and kept
+  // apart (synthesis merged the select with the ready and the allocation's clear, 3 LUT levels past
+  // the ready), and the ready enters one LUT before each flag's enable; the pointer takes the
+  // handshake as its clock enable. The probe on B is MSHR pr_m's, for its lowest agent still to
+  // probe, so each MSHR's select is the pick's decode and that MSHR's own lowest agent (no 24:1
+  // select of the agent).
+  (* direct_enable = "yes" *) wire pr_fire = b_valid_o && b_ready_i;
+  (* keep = "true" *) logic [N_MSHR-1:0]                ps_hit;   // the probe on B is MSHR m's
+  (* keep = "true" *) logic [N_MSHR-1:0][N_AGENTS-1:0]  ps_sel;   // ... and for agent a
+  always_comb
+    for (int m = 0; m < N_MSHR; m++) begin
+      logic [N_AGENTS-1:0] todo_m;
+      todo_m    = m_ppend[m] & ~m_psent[m];
+      ps_hit[m] = b_valid_o && pr_m == MW'(m);
+      ps_sel[m] = ps_hit[m] ? todo_m & ~(todo_m - 1'b1) : '0;    // the lowest bit of todo_m
+    end
 
   // Each MSHR's way in flip-flops, for the compares that look at every MSHR at once (the reservations,
   // the ProbeAck search). MWAY_OH stores it one-hot, so those compares take it without a decode; the
@@ -1438,7 +1455,7 @@ module tg_l2_bank
 
       // ---- engine pointers and busy flags ----
       if (s0_take_m)                  mcmd_ptr_q <= rr_next(mcmd_pick);
-      if (b_valid_o && b_ready_i)     pr_ptr_q   <= rr_next(pr_m);
+      if (pr_fire)                    pr_ptr_q   <= rr_next(pr_m);
       if (ar_valid_o && ar_ready_i)   ar_ptr_q   <= rr_next(ar_m);
 
       if (!pw_busy_q && |pw_req) begin
@@ -1521,7 +1538,7 @@ module tg_l2_bank
         end
       end
       // Probes sent and acknowledged
-      if (b_valid_o && b_ready_i) m_psent[pr_m] <= m_psent[pr_m] | onehot_ag(pr_ag);
+      for (int m = 0; m < N_MSHR; m++) if (b_ready_i && ps_hit[m]) m_psent[m] <= m_psent[m] | ps_sel[m];
       if (ev_pack) m_ppend[cin_m_q] <= m_ppend[cin_m_q] & ~onehot_ag(cin_ag);
       // AXI reads
       if (ar_valid_o && ar_ready_i) m_ar_sent[ar_m] <= 1'b1;
@@ -1666,6 +1683,9 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // A probe presented is a request's, and its flag select is the agent the probe names
+      if (b_valid_o) assert (pr_req[pr_m] && ps_sel[pr_m] == onehot_ag(pr_ag))
+        else $error("tg_l2_bank%0d: probe of MSHR %0d agent %0d, flag select %b", BANK, pr_m, pr_ag, ps_sel[pr_m]);
       // The victim pick is the nested form's; the late-selected consequences are e2's and vic's
       assert (vw2 == pick_victim_ref({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
                                       row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
