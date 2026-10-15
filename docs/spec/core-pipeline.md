@@ -309,6 +309,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | ROB tables | `tg_rob`: FP flags in two one-port LUTRAMs, no `tlb` bit (the LSU's `hd_tlb`) | done: ROB 3,308 → 2,920 at st |
 | Region decode (DR-120) | `tg_map_pkg::pma_of`: naturally aligned power-of-two regions matched by prefix, with the range test kept for any other region | done: 136 → 10 LUTs per instance (fetch, load AG, STA, walker; the crossbar) |
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
+| The walker's PMP checks on the STA port's checker (adopted by the user: DR-139, superseding DR-122) | `tg_ptw` (no checker of its own), `tg_lsu` (the STA checker's input multiplexer: the walker's address in a cycle without a store address) | done: −0.83K LUTs per core. Cycle cost from `make cycle-identical` against fn3's head, st / smt2: isa +0.052% / +0.228%, stress +0.098% / −0.098%, bench 0 / 0, random +0.003% / −0.018% |
 
 **Reserve (DR-135: each one moves cycles, and only the user adopts it; not taken):**
 
@@ -316,7 +317,6 @@ Cycle costs are from `make cycle-identical` against fn3's head (1c0eaca), as cha
 
 | Lever | Gain | isa | stress | bench | random | Branch |
 |---|---|---|---|---|---|---|
-| The walker's PMP checks on the STA port's checker. A walk step waits a cycle whenever a store address is in AG. | −0.83K LUTs at st (`tg_ptw` 1,073 → 193, the STA checker +50) | +0.052% / +0.228% | +0.098% / −0.098% | 0 / 0 | +0.003% / −0.018% | `tmp/core-pmp-share` |
 | F1 cut: the LSU's fault reports reach the ROB a cycle later. It is the "fault reporting" row of smt2-study's ablation. | timing: the AG fault decision leaves the exception register's paths (whole core: see §16) | +0.000% / +0.000% | +0.000% / +0.000% | 0 / 0 | +0.032% / +0.024% | `tmp/core-cut-fault` |
 | F2/F5 cut: the store reports (completions and the ordering replay mark) reach the ROB a cycle later, together. It is the "completion → ROB" row. | timing: the STA's TLB and PMP decision and the LQ ordering search leave the ROB's completion and replay tables | +0.428% / +0.369% | +0.217% / −0.053% | +0.100% / +0.188% | −0.150% / +0.018% | `tmp/core-cut-store` |
 | F3 cut: the ROB head's DTLB retry reaches the ROB a cycle later | timing: the head's DTLB lookup leaves the commit redirect | +0.002% / +0.006% | +0.198% / −0.031% | 0 / 0 | −0.057% / +0.046% | `tmp/core-cut-head` |

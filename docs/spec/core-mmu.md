@@ -95,7 +95,9 @@ A success fills the requester's TLB with the leaf and its level.
       - Pros: one comparator per entry and no update state machine, for the same LUTs; the 160 LUTRAM LUTs stay free.
       - Cons: 392 more flip-flops; two TLB forms to maintain, one parameter apart.
   - **Source:** the spikes track's `tg_cam_lut` (slice tables, key store), extended for superpage levels, two lookups and the overlap check.
-- **The walker keeps its own checker.** Sharing the STA port's would save about 0.83K, but a walk step would then wait whenever a store address is in AG: the two are not exclusive. Under D18 that is a reserve lever, not a free one (core-pipeline.md §13).
+- **The walker's checks use the STA port's checker** (DR-139, the user's decision, superseding DR-122).
+  - The walker checks the PTE address (W_CHK) and the leaf's page base (W_PMP) in a cycle without a store address (`chk_gnt = !sta_ag_valid`), so a walk step waits a cycle whenever a store address is in AG.
+  - −0.83K LUTs per core. Cost by `make cycle-identical`, st / smt2: isa +0.05% / +0.23%, bench 0.
 - The plan's lever R6 (set-associative LUTRAM TLBs) is an M6 decision.
 
 ## Verification
