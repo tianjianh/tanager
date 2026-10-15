@@ -540,6 +540,53 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
   - **So v2 runs at 180–190 MHz with full structures,** provided the device can be filled to 92–96% at that clock (AR-5).
 - **v2 at a lower clock still beats v1 at 200 MHz.** At 190 MHz, v2 with the free levers is +15.6% throughput and +9.3% single thread over v1 at 200 MHz; at 180 MHz, +9.5% and +3.5%. The trade is between versions of v2, not between v2 and v1.
 
+### 6.1 Each clock with its own latencies (measured in the model, 2026-10-14)
+
+*The user asked whether 200 MHz is the right target for v1, since NaxRiscv reaches 135–150 MHz on this class of device without tuning. This is a measurement only: the target stays 200 MHz until the user decides (DR-137). `scripts/clock.py` reproduces it (`results/clock_rv64gc.json`). Its first run reproduces v1's single-thread suite IPC at 120 cycles from the area study exactly.*
+
+**The setup.**
+- **v1:** the release configuration (`smt2`, wakeup tags), running the single-thread suite with SMT off.
+- **NaxRiscv:** the control (`nax`), on the same uncore, at 137 MHz (its RV64 figure, Artix-7 -3) and at 150 MHz.
+- **What scales with the clock:** the DRAM latency, 184 ns (S1's idle 64-byte read), and the bandwidth, 3.2 GB/s per port (20 ns per line), both in that clock's cycles. The L2 hit is 2 cycles shorter at 150 MHz and below (`DATA_LAT` 2 instead of 4).
+- **What stays fixed in cycles:** everything else.
+  - The 4-cycle FMA missed 200 MHz by 1.88 ns, so it would close only below about 145 MHz; no clock here gains it.
+  - No other 200 MHz pipelining is recorded as clock-dependent.
+
+| Core | Clock (MHz) | DRAM / L2 hit (cycles) | Suite IPC | IPC × MHz | ÷ NaxRiscv at 137 | ÷ NaxRiscv at 150 | CoreMark/MHz (A / B) | CoreMark/s (A) ÷ NaxRiscv at 137 / 150 |
+|---|---|---|---|---|---|---|---|---|
+| v1 | 200 | 37 / 12 | 1.229 | 246 | **2.26** | **2.10** | 5.31 / 5.17 | 2.13 / 1.95 |
+| v1 | 180 | 33 / 12 | 1.244 | 224 | 2.06 | 1.92 | 5.31 / 5.17 | 1.92 / 1.75 |
+| v1 | 170 | 31 / 12 | 1.265 | 215 | 1.98 | 1.84 | 5.31 / 5.17 | 1.81 / 1.66 |
+| v1 | 160 | 29 / 12 | 1.275 | 204 | 1.88 | 1.75 | 5.31 / 5.17 | 1.71 / 1.56 |
+| v1 | 150 | 28 / 10 | 1.289 | 193 | 1.78 | 1.66 | 5.31 / 5.17 | 1.60 / 1.46 |
+| NaxRiscv | 150 | 28 / 10 | 0.779 | 117 | 1.07 | 1.00 | 3.64 / 3.86 | 1.09 / 1.00 |
+| NaxRiscv | 137 | 25 / 10 | 0.793 | 109 | 1.00 | 0.93 | 3.64 / 3.86 | 1.00 / 0.91 |
+
+**Reading it:**
+- **Performance follows the clock.** Fewer cycles of memory latency raise the suite IPC by only 1.3% at 180 MHz and 4.9% at 150 MHz. So IPC × MHz falls:
+
+  | Clock | Change |
+  |---|---|
+  | 180 MHz | −8.9% |
+  | 170 MHz | −12.5% |
+  | 160 MHz | −17.0% |
+  | 150 MHz | −21.3% |
+
+  §6's table assumed fixed cycles (−10.0% at 180 MHz); with S1's latency the step is a little smaller.
+- **Only the memory suite moves.** Kernels and Embench stay in the caches, so their IPC is the same at every clock (1.851 and 1.687). The memory suite's IPC rises from 0.594 at 200 MHz to 0.686 at 150 MHz.
+- **CoreMark/MHz does not move** (5.31 / 5.17), so CoreMark/s scales with the clock alone.
+- **Against NaxRiscv,** on suite performance:
+  - at 200 MHz v1 is 2.26× the control at 137 MHz and 2.10× at 150 MHz;
+  - at 150 MHz it is still 1.78× and 1.66×.
+
+  The CoreMark/MHz ratio is 1.46× (A) and 1.34× (B) at every clock, D11's measure.
+- **At the stress point** (1,250 ns: 250 cycles at 200 MHz, 188 at 150), latency tolerance widens the ratios a little. v1 at 200 MHz is 2.28× and 2.13× the control at 137 and 150 MHz, and −18.9% at 150 MHz.
+- **Single thread only.** SMT2's throughput gain (WS_ref 1.43 at 120 cycles) comes on top at every clock. It was not rerun per clock.
+- **The clock's area side is §7.7:**
+  - the 180 MHz fill limit gives 8.6K more LUTs than 200 MHz's;
+  - no fill test exists below 180 MHz;
+  - `DATA_LAT` 2 would also shorten the L2's read pipeline.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
