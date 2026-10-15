@@ -96,7 +96,8 @@ module tg_rob
   output logic                         mret,
   output logic                         sret,
   output logic                         sfence,       // SFENCE.VMA retires: flush the TLBs
-  input  logic [63:0]                  trap_target,
+  input  logic [63:0]                  trap_target,  // an exception's target
+  input  logic [63:0]                  irq_target,   // an interrupt's
   output logic                         xret_v,       // an MRET or SRET is in flight (registered) ...
   output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
   input  logic [63:0]                  xepc,
@@ -592,7 +593,7 @@ module tg_rob
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
       flush     <= do_flush;
-      flush_pc  <= use_tt ? trap_target : nf_pc;
+      flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
       head_q    <= rob_add(head_q, int'(cm_n));
 
