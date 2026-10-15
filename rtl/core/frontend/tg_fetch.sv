@@ -249,11 +249,14 @@ module tg_fetch
   assign f2_wmiss     = f2v && f2_tm_q && !f2_bfault;
   assign f2_miss      = f2v && !f2_tm_q && !f2_bfault && !f2_cache_hit;
 
-  // Pre-decode over the whole block, from the entry point
+  // Pre-decode over the whole block, from the entry point. It reads the block as fetched: for a
+  // fault block (f2_bfault) every result below is overridden or unused (the block is one
+  // pseudo-instruction, its parcels and marks registered as zero), so the fault check, which
+  // compares the whole line address, does not wait in front of it.
   logic [NP-1:0][15:0] parcel;
   logic [NP-1:0] pd_start, pd_is32, pd_br, pd_jal, pd_jalr, pd_call, pd_ret;
   logic          pd_carry;
-  assign parcel = f2_bfault ? '0 : blk;
+  assign parcel = blk;
   tg_predecode u_pd (
     .parcel, .entry_slot(f2_pc_q[SLOT_W:1]), .exit_slot(SLOT_W'(NP - 1)), .carry_in(carry_q),
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
@@ -547,7 +550,7 @@ module tg_fetch
       if (f2v && f3_accept) begin
         f3_parcel_q <= f2_isfault ? '0 : parcel;
         f3_start_q  <= blk_start;
-        f3_marks_q  <= blk_marks;
+        f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: f2_slot_q,
                          target: f2_tgt_q, fault: f2_isfault, fpf: f2_bfault && f2_fpf_q,
