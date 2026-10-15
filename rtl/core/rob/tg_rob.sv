@@ -96,7 +96,8 @@ module tg_rob
   output logic                         mret,
   output logic                         sret,
   output logic                         sfence,       // SFENCE.VMA retires: flush the TLBs
-  input  logic [63:0]                  trap_target,
+  input  logic [63:0]                  trap_target,  // an exception's target
+  input  logic [63:0]                  irq_target,   // an interrupt's
   output logic                         xret_v,       // an MRET or SRET is in flight (registered) ...
   output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
   input  logic [63:0]                  xepc,
@@ -308,8 +309,9 @@ module tg_rob
   // Cleared at dispatch; set by the LSU's replay report and its two TLB-miss reports, possibly
   // more than once a lap (so not a toggle table). One table per writer, and the flag is the XOR
   // of the tables: a writer stores its value XOR the other tables at its entry, read in the same
-  // cycle. Two writers at one entry would cancel, so of several setters there only the first
-  // writes, and a dispatch clear yields to a set (the order the flip-flops had).
+  // cycle. Two writers at one entry in a cycle would cancel; none do (asserted): a setter's entry
+  // is live, so never one being dispatched; a TLB miss is a new access at AG, never a load the
+  // ordering search finds (it has a value); the LD and STA ports carry different instructions.
   localparam int NRW = DISPATCH_WIDTH + 3;       // dispatch slots, then replay, TLB miss LD, STA
   localparam int NRR = NRW - 1 + CW;             // read ports: the other writers', then the head's
   logic [NRW-1:0]           rw_v;
@@ -317,19 +319,11 @@ module tg_rob
   logic [NRW-1:0]           rw_d;
   logic [NRW-1:0][NRR-1:0]  rw_rd;
   always_comb begin
-    logic [2:0]          sv;
-    logic [2:0][RIW-1:0] sa;
-    sv = {tlbm_valid[1], tlbm_valid[0], replay_valid};
-    sa = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
-    for (int i = 0; i < 3; i++) begin
-      rw_v[DISPATCH_WIDTH + i] = sv[i];
-      for (int t = 0; t < i; t++) if (sv[t] && sa[t] == sa[i]) rw_v[DISPATCH_WIDTH + i] = 1'b0;
-      rw_a[DISPATCH_WIDTH + i] = sa[i];
-      rw_d[DISPATCH_WIDTH + i] = 1'b1;
-    end
+    rw_v[DISPATCH_WIDTH +: 3] = {tlbm_valid[1], tlbm_valid[0], replay_valid};
+    rw_a[DISPATCH_WIDTH +: 3] = {tlbm_rob[1][RIW-1:0], tlbm_rob[0][RIW-1:0], replay_rob[RIW-1:0]};
+    rw_d[DISPATCH_WIDTH +: 3] = '1;
     for (int k = 0; k < DISPATCH_WIDTH; k++) begin
       rw_v[k] = ds_fire && ds_valid[k];
-      for (int i = 0; i < 3; i++) if (sv[i] && sa[i] == ds_ren[k].rob[RIW-1:0]) rw_v[k] = 1'b0;
       rw_a[k] = ds_ren[k].rob[RIW-1:0];
       rw_d[k] = 1'b0;
     end
@@ -404,16 +398,18 @@ module tg_rob
         do_flush = 1'b1;
         use_tt = 1'b1;
       end else if (rpl_h[0]) begin
+        // The refetch PC, cause and tval don't wait for the head's TLB check (hd_retry, the
+        // LSU's DTLB lookup this cycle): they count only if it flushes or traps
+        nf_pc   = hp[0].pc;
+        t_cause = hd_cause;
+        t_tval  = hp[0].is_ld ? hd_lva : hd_sva;
         if (!hd_tlb || hd_retry) begin
           do_flush = 1'b1;
-          nf_pc = hp[0].pc;
         end else if (hd_fault) begin
           do_trap  = 1'b1;
           do_flush = 1'b1;
           use_tt   = 1'b1;
           tlbx     = 1'b1;
-          t_cause  = hd_cause;
-          t_tval   = hp[0].is_ld ? hd_lva : hd_sva;
         end
       end else if (cmp_h[0] && exc_h[0]) begin
         do_trap = 1'b1;
@@ -539,25 +535,48 @@ module tg_rob
     end
   end
 
-  // Oldest exception after this cycle's reports
+  // Oldest exception after this cycle's reports. Candidates, in priority order: the register,
+  // CSR (oth), branch, then the LSU's four ports. The oldest valid one wins, the first in that
+  // order on a tie. Computed in parallel rather than as a chain: every pair's age compare uses
+  // only ROB indices, which arrive early (the LSU's AG ports send their payload's index whether
+  // or not they fault), and the late valid bits only gate a one-hot select. tval: an LSU winner
+  // takes the head's VA at the trap (ex_m), so ex_t is the best of the first three alone, as
+  // the chain left it.
+  localparam int NEX = 7;
   logic        ex_v;
   robid_t      ex_r;
   logic [3:0]  ex_c;
   logic [63:0] ex_t;
   logic        ex_m;
+  logic [NEX-1:0]             xc_v, xc_win;
+  robid_t [NEX-1:0]           xc_r;
+  logic [NEX-1:0][3:0]        xc_c;
+  logic [NEX-1:0][NEX-1:0]    xc_o;     // xc_o[i][j]: candidate i is strictly older than j
   always_comb begin
-    ex_v = exr_v_q; ex_r = exr_rob_q; ex_c = exr_cause_q; ex_t = exr_tval_q; ex_m = exr_mem_q;
-    if (oth_cmp && oth_exc && (!ex_v || rob_older(oth_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = oth_rob; ex_c = EXC_ILLEGAL; ex_t = oth_tval; ex_m = 1'b0;
-    end
-    if (br_valid && br_exc && (!ex_v || rob_older(br_rob, ex_r))) begin
-      ex_v = 1'b1; ex_r = br_rob; ex_c = EXC_IMISALIGN; ex_t = br_tval; ex_m = 1'b0;
-    end
-    for (int i = 0; i < 4; i++) begin
-      if (lx_valid[i] && (!ex_v || rob_older(lx_rob[i], ex_r))) begin
-        ex_v = 1'b1; ex_r = lx_rob[i]; ex_c = lx_cause[i]; ex_m = 1'b1;
+    xc_v = {lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q};
+    xc_r = {lx_rob, br_rob, oth_rob, exr_rob_q};
+    xc_c = {lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q};
+    for (int i = 0; i < NEX; i++)
+      for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
+    for (int i = 0; i < NEX; i++) begin
+      xc_win[i] = xc_v[i];
+      for (int j = 0; j < NEX; j++) begin
+        if (j < i && xc_v[j] && !xc_o[i][j]) xc_win[i] = 1'b0;    // an earlier one as old
+        if (j > i && xc_v[j] && xc_o[j][i])  xc_win[i] = 1'b0;    // a later one older
       end
     end
+    ex_v = |xc_v;
+    ex_r = '0;
+    ex_c = '0;
+    for (int i = 0; i < NEX; i++) begin
+      ex_r |= {$bits(robid_t){xc_win[i]}} & xc_r[i];
+      ex_c |= {4{xc_win[i]}} & xc_c[i];
+    end
+    ex_m = |xc_win[NEX-1:3] || (xc_win[0] && exr_mem_q);
+    // tval of the best of the register, CSR and branch candidates
+    ex_t = exr_tval_q;
+    if (xc_v[1] && (!xc_v[0] || xc_o[1][0])) ex_t = oth_tval;
+    if (xc_v[2] && (!xc_v[0] || xc_o[2][0]) && (!xc_v[1] || xc_o[2][1])) ex_t = br_tval;
   end
 
   // ---- Sequential ----
@@ -576,7 +595,7 @@ module tg_rob
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
       flush     <= do_flush;
-      flush_pc  <= use_tt ? trap_target : nf_pc;
+      flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
       head_q    <= rob_add(head_q, int'(cm_n));
 
@@ -653,6 +672,10 @@ module tg_rob
       end
       if (replay_valid) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
       for (int i = 0; i < 2; i++) if (tlbm_valid[i]) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+      for (int a = 0; a < NRW; a++)
+        for (int b = a + 1; b < NRW; b++)
+          assert (!(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
+            else $error("tg_rob: two replay-table writers at entry %0d", rw_a[a]);
       for (int t = 0; t < NFT; t++) begin
         if (ft_v[t]) begin
           if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;
@@ -689,6 +712,32 @@ module tg_rob
             else $error("tg_rob: the replay tables' flag of %0d differs from the shadow flag", hid[j]);
         end
       end
+    end
+  end
+  // The oldest-exception chain the parallel select replaces: same winner, cause, tval and kind
+  logic        sx_v, sx_m;
+  robid_t      sx_r;
+  logic [3:0]  sx_c;
+  logic [63:0] sx_t;
+  always_comb begin
+    sx_v = exr_v_q; sx_r = exr_rob_q; sx_c = exr_cause_q; sx_t = exr_tval_q; sx_m = exr_mem_q;
+    if (oth_cmp && oth_exc && (!sx_v || rob_older(oth_rob, sx_r))) begin
+      sx_v = 1'b1; sx_r = oth_rob; sx_c = EXC_ILLEGAL; sx_t = oth_tval; sx_m = 1'b0;
+    end
+    if (br_valid && br_exc && (!sx_v || rob_older(br_rob, sx_r))) begin
+      sx_v = 1'b1; sx_r = br_rob; sx_c = EXC_IMISALIGN; sx_t = br_tval; sx_m = 1'b0;
+    end
+    for (int i = 0; i < 4; i++) begin
+      if (lx_valid[i] && (!sx_v || rob_older(lx_rob[i], sx_r))) begin
+        sx_v = 1'b1; sx_r = lx_rob[i]; sx_c = lx_cause[i]; sx_m = 1'b1;
+      end
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!rst && !flush) begin
+      assert (ex_v == sx_v && (!sx_v || (ex_r == sx_r && ex_c == sx_c && ex_m == sx_m && (sx_m || ex_t == sx_t))))
+        else $error("tg_rob: the parallel oldest-exception select differs from the chain");
+      assert ($onehot0(xc_win)) else $error("tg_rob: more than one oldest exception");
     end
   end
   always_ff @(posedge clk) begin
