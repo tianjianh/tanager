@@ -13,6 +13,7 @@
 #   tg.sh shell       core: boot (INJ_RD cycles), log in on the console, run CMDS, poweroff
 #   tg.sh ls-soc      core, FPGA lockstep steps 2-3: the SoC test traced to a file and checked, then live
 #   tg.sh ls-linux    core, FPGA lockstep steps 4-5: Linux live through the checker (INJ_RD, LINUX_S)
+#   tg.sh ls-plant    core: the lockstep failure path, a planted fault (PLANT) on the live SoC test
 #   tg.sh restore     unload TG_APP and reload k26-starter-kits
 #   tg.sh status      the apps, the FPGA manager state, the PL clock and the fan
 #   tg.sh th ARGS     one tanager-host call, refused unless TG_APP is loaded
@@ -273,6 +274,23 @@ case "${1:-}" in
     rm -f "$cin"
     fan
     ;;
+  ls-plant)
+    # The failure path, live: the checker gets a fault planted at record PLANT (default 1000) and
+    # stops with exit 2; tanager-host (6466df0 and later) should then end with exit 4, not stall.
+    L=${LS_DIR:-$HOME/tanager/lockstep}
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    cd "$L" || exit 1
+    rm -f tg.trace; mkfifo tg.trace
+    ./tanager-lockstep --fw soc_test.bin --plant="${PLANT:-1000}" tg.trace > ls_plant.log 2>&1 &
+    lpid=$!
+    th boot --fw soc_test.bin --kernel /dev/null --dtb /dev/null --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout 60 < /dev/null
+    echo "boot exit $? (expect 4: the checker stopped)"
+    wait "$lpid"; echo "checker exit $? (expect 2)"; grep -m1 "MISMATCH at" ls_plant.log
+    rm -f tg.trace
+    fan
+    ;;
   restore)
     if [ "${2:-}" = deadman ]; then echo "dead-man restore at $(date +%T)" >> "$D/deadman.log"; else deadman_cancel; fi
     sudo xmutil unloadapp
@@ -288,6 +306,6 @@ case "${1:-}" in
     sudo xmutil listapps; echo "fpga0: $(cat /sys/class/fpga_manager/fpga0/state)"; plclk; fan
     ;;
   *)
-    sed -n '2,20p' "$ME"; exit 2
+    sed -n '2,21p' "$ME"; exit 2
     ;;
 esac

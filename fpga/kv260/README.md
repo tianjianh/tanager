@@ -233,3 +233,10 @@ The verification track's checker, `tanager-lockstep`, checks every commit record
   - **The fixes:** zeroing the window fixed it. The verification track has since supplied a zero-padded device tree (64 KiB), and `tanager-host` `6466df0` zeroes the window itself whenever `--trace` is given.
 - **Each Linux run logs one RCU stall report** in early init (289 s and 307 s of kernel time). The RUNBOOK expects it: the RISC-V timer keeps counting while the checker holds the core. Nothing else in the logs: no oops and no lockup.
 - **M4's exit criteria** (plan §11): FPGA lockstep, and Linux at 0 and 250 injected cycles, are now met, at 60 MHz. What remains is Linux at ≥ 100 MHz.
+- **`tanager-host` `6466df0` on the board** (sha256 `47552f27…`), after the Linux runs:
+  - **Zero-on-load:** `--trace` now zeroes the window itself: "zeroed the RISC-V window: 768 MiB in 1.0 s", or 1020 MiB in 1.4 s with `--trace-log2 16`. Steps 2 and 3 pass with it and without `tg_zero` ([log](board/lockstep/ls_soc_6466df0.txt)).
+  - **The failure path, live:** with a fault planted at record 100,000, the checker stops with `MISMATCH at record 100000 … x11` (exit 2). `tanager-host` then reports "trace consumer stopped" and exits 4, without stalling ([log](board/lockstep/ls_plant100000_6466df0.txt)).
+- **A gap in the checker's `--plant` self-test** ([notes](board/lockstep/plant_selftest.txt)):
+  - **What happens:** `--plant=1000` puts the fault in the board trace's record 1,001, which is an MMIO load: the SoC test polling the real UART's transmit-ready bit. The checker takes MMIO load values from the RTL, so it passes the run.
+  - **Not a checker fault:** the same plant stops correctly on the simulation trace, and at record 100,000 on the board trace.
+  - **Proposed fix:** the self-test should skip MMIO and nondeterministic records. Reported to the verification track.
