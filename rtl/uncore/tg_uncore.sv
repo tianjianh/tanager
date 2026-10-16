@@ -56,6 +56,11 @@ module tg_uncore
   // bit 3 the l1d E; each costs a cycle on every message of its channel. Off: DR-135 reserve items,
   // being measured
   parameter logic [3:0]  XBAR_IN_SLICE   = 4'b0000,
+  // The crossbar's own register slices (every target-side A, C and E output, every initiator-side D
+  // and B output) and the memory ports' AXI slices toward the PS. On, as built for 200 MHz; off
+  // they cost no cycle and no area: a timing study at the lower clock of DR-145
+  parameter bit          XBAR_SLICE      = 1'b1,
+  parameter bit          MEM_SLICE       = 1'b1,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
@@ -265,7 +270,7 @@ module tg_uncore
     end
   end
 
-  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
+  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (XBAR_SLICE), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
     .l1i_a_i (x_l1i_a), .l1i_a_valid_i (x_l1i_av), .l1i_a_ready_o (x_l1i_ar), .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
     .l1d_a_i (x_l1d_a), .l1d_a_valid_i (x_l1d_av), .l1d_a_ready_o (x_l1d_ar), .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
@@ -393,7 +398,7 @@ module tg_uncore
       .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b])
     );
     // register slice toward the PS port: the window's adder and the long route end at flip-flops
-    tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5])) u_slice (
+    tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5]), .ON (MEM_SLICE)) u_slice (
       .clk, .rst (uncore_rst),
       .s_ar_i (wn_ar[b]), .s_ar_valid_i (wn_arv[b]), .s_ar_ready_o (wn_arr[b]),
       .s_r_o (wn_r[b]), .s_r_valid_o (wn_rv[b]), .s_r_ready_i (wn_rr[b]),
