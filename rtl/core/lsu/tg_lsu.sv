@@ -512,7 +512,8 @@ module tg_lsu
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
   logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
-  logic [LIW-1:0] lm_lq;                          // ... the MMIO load's LQ entry
+  logic        lm_st;                             // ... MMIO issue held; the denied MMIO load's state write,
+  logic [LIW-1:0] lm_lq;                          // ... and its LQ entry
   pma_e        nl_pma;
   assign nl_pa   = xl_d ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
   assign nl_mis  = misal(ln_va[2:0], ln_size);
@@ -1404,7 +1405,7 @@ module tg_lsu
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
       end
-      if (lm_den && !flush) lq_st_q[lm_lq] <= L_EXC;   // an MMIO load the PMP checker denied
+      if (lm_st && !flush) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
@@ -1610,8 +1611,24 @@ module tg_lsu
     assign lck_dbl = m2_dbl_q;
     assign l_den   = m2_pck_q && !nl_chk[0];
     assign lm_den  = m2_mck_q && !nl_chk[0];
-    assign lm_lq   = m2_lq_q;
-    assign mm_hold = lm_den && m2_lq_q == hl;
+    if (LSU_MMIO_PMP_REG) begin : g_mreg
+      // #10: the verdict registered, for the state a cycle later; the head's issue waits while its
+      // load checks, then on the registered denial (timing: the checker leaves the LQ state's
+      // enables, through the issue)
+      logic           lm_den_q;
+      logic [LIW-1:0] lm_lq_q;
+      always_ff @(posedge clk) begin
+        lm_den_q <= !rst && !flush && lm_den;
+        lm_lq_q  <= m2_lq_q;
+      end
+      assign lm_st   = lm_den_q;
+      assign lm_lq   = lm_lq_q;
+      assign mm_hold = (m2_mck_q && m2_lq_q == hl) || (lm_den_q && lm_lq_q == hl);
+    end else begin : g_mnow
+      assign lm_st   = lm_den;
+      assign lm_lq   = m2_lq_q;
+      assign mm_hold = lm_den && m2_lq_q == hl;
+    end
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
     // It does not wait for its access-fault checks (PMP, PMA, the high bits): a store that faults
@@ -1667,8 +1684,11 @@ module tg_lsu
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
+    assign lm_st   = m2_mden_q;
     assign lm_lq   = m2_lq_q;
-    assign mm_hold = (m1_mck_q && !nl_chk[0] && m1_lq_q == hl) || (m2_mden_q && m2_lq_q == hl);
+    // (#10 here: the hold in M1 does not wait for the verdict)
+    assign mm_hold = (m1_mck_q && (LSU_MMIO_PMP_REG || !nl_chk[0]) && m1_lq_q == hl) ||
+                     (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
     assign f_oh     = q_oh;
     assign f_cover  = q_cover;
