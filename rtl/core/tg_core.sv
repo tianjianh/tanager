@@ -128,12 +128,32 @@ module tg_core
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take;
+  // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
+  // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
+  // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
+  // registers are far from F1's PMP select; any difference falls in a flush cycle, asserted)
+  priv_e priv_f_q;
+  logic  xl_f_q;
+  always_ff @(posedge clk) begin
+    priv_f_q <= rst ? PRIV_M : priv;
+    xl_f_q   <= !rst && EXT_SU && satp_sv39 && priv != PRIV_M;
+  end
+`ifndef SYNTHESIS
+  logic rs_fq;
+  initial rs_fq = 1'b0;
+  always @(posedge clk) begin
+    if (rst) rs_fq <= 1'b1;
+    if (rs_fq && !rst)
+      assert (flush || (priv_f_q == priv && xl_f_q == (EXT_SU && satp_sv39 && priv != PRIV_M)))
+        else $error("tg_core: fetch's privilege copy differs outside a flush");
+  end
+`endif
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .pmp_d, .pmp_busy, .tlb_flush,
+    .xl_i(xl_f_q), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);

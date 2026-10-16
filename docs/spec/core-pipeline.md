@@ -66,6 +66,8 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - The refill and the walk start from the registered decision, as early as before.
 - **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
+- **Fetch's privilege** (timing, DR-145): F1 reads its own copy of the privilege and of whether it translates, registered a cycle behind `tg_csr`'s. They change only as a trap, an xRET or a serialising CSR write commits, and the flush follows in the next cycle, so fetch resumes after the copy has caught up (asserted: any difference falls in a flush cycle). The CSR's registers sit far from F1's PMP select in the full chip (fpu-2's 125 MHz study: −4.2 ns, mostly wire).
+
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
