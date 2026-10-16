@@ -1,0 +1,18 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 200
+uncore_dsp               0x0000008403080000
+synth                    -flatten_hierarchy none -directive AreaOptimized_high
+floorplan                none
+pblocks                  0
+prim_fail_synth          0
+synth_s                  2308
+synth_lut_total          110496
+synth_lut_logic          90722
+synth_lut_mem            19774
+synth_ff                 59187
+synth_bram_tile          115
+synth_uram               32
+synth_dsp                144
+total_s                  2309
