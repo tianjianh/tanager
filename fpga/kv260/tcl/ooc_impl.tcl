@@ -7,6 +7,8 @@
 # of them (the per-site check of UNCORE_DSP, DR-136: a site's DSP form passes when both are positive).
 # TG_OOC_DIRECTIVE overrides the synthesis directive (default AreaOptimized_high; "Default" for Vivado's).
 # TG_OOC_DCP=1 keeps the routed checkpoint (routed.dcp, about 100 MB for tg_uncore) for later timing queries.
+# TG_OOC_PLACE sets place_design's directive (default: Vivado's). Vivado is deterministic: two runs of the
+# same sources and settings give the same placement, so a second sample of one design needs another directive.
 # clk runs at <mhz>; a clk_host port, if the module has one, at 100 MHz, asynchronous to clk.
 # Writes reports/ooc_utilization.rpt (hierarchical), ooc_timing.rpt and a TG_OOC_IMPL summary line.
 set root [lindex $argv 0]
@@ -29,7 +31,7 @@ if {[llength [get_ports -quiet clk_host]]} {
   set_clock_groups -asynchronous -group clk -group clk_host
 }
 opt_design
-place_design
+if {[info exists ::env(TG_OOC_PLACE)]} { place_design -directive $::env(TG_OOC_PLACE) } else { place_design }
 phys_opt_design
 route_design
 if {[info exists ::env(TG_OOC_DCP)] && $::env(TG_OOC_DCP)} { write_checkpoint -force routed.dcp }
