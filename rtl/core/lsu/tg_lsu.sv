@@ -362,6 +362,22 @@ module tg_lsu
     for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? sq_first(hi) : sq_first(v);
   endfunction
+  // sq_oldest as a one-hot vector, from the head's mask (hge[i]: slot i at or after the head)
+  function automatic logic [SQ_ENTRIES-1:0] sq_oldest_oh(input logic [SQ_ENTRIES-1:0] v,
+                                                         input logic [SQ_ENTRIES-1:0] hge);
+    logic [SQ_ENTRIES-1:0] hi, oh_hi, oh_v;
+    logic                  seen_hi, seen_v;
+    hi      = v & hge;
+    seen_hi = 1'b0;
+    seen_v  = 1'b0;
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      oh_hi[i] = hi[i] && !seen_hi;
+      oh_v[i]  = v[i] && !seen_v;
+      seen_hi  = seen_hi || hi[i];
+      seen_v   = seen_v || v[i];
+    end
+    return |hi ? oh_hi : oh_v;
+  endfunction
   // whether SQ slot i lies in the window [h, e) of IDs (every slot when e is h + SQ_ENTRIES)
   function automatic logic sq_inwin(input int i, input sqid_t h, input sqid_t e);
     return (h[SIW] == e[SIW]) ? i >= int'(h[SIW-1:0]) && i < int'(e[SIW-1:0])
@@ -779,21 +795,34 @@ module tg_lsu
   // formed without sd_busy, which picks between them last. Each read tag takes its own choice:
   // sd_tag is read only when the port is free, and fsd_tag's value is used only when an FP store
   // captures, which is then the oldest ready FP store in either case.
-  logic           cap_v;
-  logic [SIW-1:0] cap_idx, cap_ia, cap_if;
+  // The choices are one-hot (from the head's mask, sq_hge_q, a register), and each tag is an
+  // AND-OR over them, so the read address waits for neither the head's decoding nor an encoder;
+  // the encoded slot is formed beside it for the capture's own writes. With no store ready a tag
+  // reads as zero (before, slot 0's tag): the read is unused then.
+  logic                  cap_v;
+  logic [SIW-1:0]        cap_idx, cap_ia, cap_if;
+  logic [SQ_ENTRIES-1:0] sq_hge_q, oh_a, oh_f;
   always_comb begin
     logic [SQ_ENTRIES-1:0] ca, cf;
     for (int i = 0; i < SQ_ENTRIES; i++) begin
       ca[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
       cf[i] = ca[i] && sq_fp_q[i];
     end
-    cap_ia  = sq_oldest(ca, sq_head_q[SIW-1:0]);
-    cap_if  = sq_oldest(cf, sq_head_q[SIW-1:0]);
+    oh_a = sq_oldest_oh(ca, sq_hge_q);
+    oh_f = sq_oldest_oh(cf, sq_hge_q);
+    cap_ia  = '0;
+    cap_if  = '0;
+    sd_tag  = '0;
+    fsd_tag = '0;
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      cap_ia  |= oh_a[i] ? SIW'(i) : '0;
+      cap_if  |= oh_f[i] ? SIW'(i) : '0;
+      sd_tag  |= oh_a[i] ? sq_tag_q[i] : '0;
+      fsd_tag |= oh_f[i] ? sq_tag_q[i] : '0;
+    end
     cap_v   = (sd_busy ? |cf : |ca) && !flush;
     cap_idx = sd_busy ? cap_if : cap_ia;
   end
-  assign sd_tag  = sq_tag_q[cap_ia];
-  assign fsd_tag = sq_tag_q[cap_if];
 
   // ================= STA =================
   logic [SIW-1:0] sa_idx;
@@ -1122,6 +1151,7 @@ module tg_lsu
       lq_tail_q <= '0;
       sq_v_q    <= '0;
       sq_head_q <= '0;
+      sq_hge_q  <= '1;
       sq_cmt_q  <= '0;
       sq_tail_q <= '0;
       m1_v_q    <= 1'b0;
@@ -1147,6 +1177,8 @@ module tg_lsu
       if (dr_pop) begin
         sq_v_q[dh] <= 1'b0;
         sq_head_q  <= sq_add(sq_head_q, 1);
+        // the head's mask follows: the old head's slot leaves it, and a wrap refills it
+        sq_hge_q   <= (int'(dh) == SQ_ENTRIES - 1) ? '1 : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
       end
 
       // ---- MMIO ----
@@ -1539,6 +1571,8 @@ module tg_lsu
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx_ag]) else $error("tg_lsu: STA for a free SQ entry");
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
+      for (int i = 0; i < SQ_ENTRIES; i++)
+        assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
