@@ -1,7 +1,7 @@
 # Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
-#                            [ROB_STORE_REPORT_LATE=0|1] [COMMIT_TRACE=0|1]
-#   make lint-all            lint all four configurations, each in DR-140's and DR-146's five elaborations [LINT_JOBS=6]
+#                            [ROB_STORE_REPORT_LATE=0|1] [COMMIT_TRACE=0|1] [SYNTH=1]
+#   make lint-all            lint all four configurations, each in six elaborations, the synthesis view included [LINT_JOBS=6]
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make regress-profiles CFG=st   the same for both of DR-140's profiles at once
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
@@ -15,16 +15,26 @@ RTL_CFG := rtl/common/cfg/tg_cfg_$(CFG).sv
 RTL_F   := rtl/rtl.f
 LINT_FLAGS := --lint-only -Wall -Wno-MULTITOP --timing -Irtl/common rtl/lint.vlt
 include sim/profile.mk
+# SYNTH=1: the synthesis view (+define+SYNTHESIS, the RTL as Vivado elaborates it), with stand-ins for the
+# Xilinx primitives it instantiates. A signal that synthesized logic reads but only simulation-only code
+# drives is an error there (UNDRIVEN); unused signals are not, since simulation-only code reads many.
+SYNTH ?=
+ifneq ($(filter-out 1,$(SYNTH)),)
+  $(error SYNTH must be 1 or unset (got "$(SYNTH)"))
+endif
+SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64X8SW.sv SRL16E.sv SRLC32E.sv)
+SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
+                 tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
 .PHONY: lint lint-all regress regress-profiles cycle-identical
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
-# never run in CI or the soak).
+# never run in CI or the soak); and the default's synthesis view (SYNTH=1).
 # LINT_JOBS run at a time, and one whose define no RTL file mentions is skipped (tools/ci/lint_all.sh).
 LINT_JOBS ?= 6
 lint-all:
