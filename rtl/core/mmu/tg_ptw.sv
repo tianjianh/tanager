@@ -10,7 +10,8 @@
 // strictly inside the page (checked here against every entry). A flush ends the walk; its PTE
 // read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
-// port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req).
+// port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req). The request
+// and its address come from flip-flops, set as the walk enters those states.
 module tg_ptw
   import tg_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 (
@@ -88,11 +89,15 @@ module tg_ptw
     endcase
   end
   assign pte_pa = {base_q, vpn_i, 3'b000};
-  // The checks: the PTE address (8 bytes), or in W_PMP the leaf page's base
-  logic pa_ok;
-  assign chk_pa  = (st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0];
+  // The checks: the PTE address (8 bytes), or in W_PMP the leaf page's base. The request (W_CHK
+  // with a canonical VA, or W_PMP) and the address are registered, each loaded with the value it
+  // takes in the next cycle, so the checker's paths start at flip-flops, not at the VA (asserted
+  // below)
+  logic            pa_ok, chk_req_q;
+  logic [PA_W-1:0] chk_pa_q;
+  assign chk_pa  = chk_pa_q;
   assign chk_dbl = st_q != W_PMP;
-  assign chk_req = (st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP;
+  assign chk_req = chk_req_q;
   assign pa_ok   = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && chk_ok;
   assign pt_req = st_q == W_REQ;
   // The leaf page is PMP-homogeneous when no active region boundary lies strictly inside it: no
@@ -204,6 +209,36 @@ module tg_ptw
         default: st_q <= W_IDLE;                   // W_DONE
       endcase
     end
+  end
+
+  // The request in the next cycle: a new walk with a canonical VA, a check still waiting for the
+  // port, or a PTE read whose result enters W_CHK (the VA passed its check) or W_PMP. The address:
+  // the first PTE's, else the next level's PTE or the leaf page's base, from the read's PTE
+  logic [2:0] req_cn;
+  always_comb for (int i = 0; i < 3; i++) req_cn[i] = va_canon(req_va[i]);
+  always_ff @(posedge clk) begin
+    if (rst || flush) begin
+      chk_req_q <= 1'b0;
+    end else begin
+      unique case (st_q)
+        W_IDLE:  chk_req_q <= |(ack & req_cn);
+        W_CHK:   chk_req_q <= chk_req_q && !chk_gnt;
+        W_WAIT:  chk_req_q <= pt_rsp && pt_hit && !flt;
+        W_PMP:   chk_req_q <= !chk_gnt;
+        default: chk_req_q <= 1'b0;
+      endcase
+    end
+    if (st_q == W_IDLE)
+      chk_pa_q <= PA_W'({satp_ppn, req_va[k][38:30], 3'b000});
+    else if (st_q == W_WAIT)
+      chk_pa_q <= nonleaf ? PA_W'({ppn, (lvl_q == 2'd2) ? va_q[29:21] : va_q[20:12], 3'b000})
+                          : PA_W'({ppn, 12'b0});
+  end
+  always_ff @(posedge clk) begin
+    if (!rst)
+      assert (chk_req_q == ((st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP) &&
+              (!chk_req_q || chk_pa_q == ((st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0])))
+        else $error("tg_ptw: the registered check request or address differs from the walk's state");
   end
 
   assign done       = st_q == W_DONE && !flush;
