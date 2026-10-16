@@ -814,28 +814,32 @@ module tg_lsu
   assign sa_pf   = xl_d && !sa_mis && !va_canon(sn_va);
   assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
   assign sa_pma  = pma_of(sa_pa);
-  // A translated store to a PMP-homogeneous page decides with the DTLB's cached PMP result (plan
-  // §4.10); else it decides as if PMP allowed it, and the checker looks at its registered PA in
-  // S2, the next cycle (below)
+  // PMP: a translated store to a PMP-homogeneous page decides with the DTLB's cached result
+  // (plan §4.10), and a bare-mode store with the checker on its VA (a register with the split; no
+  // walk runs in bare mode, so the walker never wants the checker then). A translated store to a
+  // page with a region boundary inside decides as if PMP allowed it, and the checker looks at its
+  // registered PA in S2, the next cycle (below).
   assign sa_pmpc = xl_d && dt_pte[1].ph;
   // atomics only in main memory (interfaces.md §2.4)
   assign sa_acc  = (xl_d ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
-                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) ||
+                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!xl_d && !sa_chk[0]) ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
   assign sa_ok   = sn_v && !sa_exc && !sa_tm && !flush;
 
-  // ---- S2: a store's PMP check after its decision ----
+  // ---- S2: a translated store's PMP check after its decision ----
   // The timing: the checker leaves the path from the DTLB through the decision. The store has
   // decided and may have completed (st_cmp_valid[0]); a denial reaches the ROB as an exception
-  // alone, a cycle later (S3: spx_valid; the store's completion comes as before, with its data),
-  // and until the exception shows, the ROB retires nothing from the store on (sth_v: S2, while
-  // the check runs or is pending; S3). An atomic, which retires only after it runs, is marked
-  // instead (sq_pden_q): it faults as it starts, as for a denied line.
+  // alone, a cycle later (S3: spx_valid; the store's completion comes as before, with its data).
+  // The ROB retires nothing from the store on while it is in S2 (sth_v[0], registered: the
+  // verdict stays off the commit path) and, if denied, in S3 until the exception shows
+  // (sth_v[1]). An atomic, which retires only after it runs, is marked instead (sq_pden_q): it
+  // faults as it starts, as for a denied line.
   // The checker is shared with the walker, which takes it as before, in a cycle without a store
   // at the decision (chk_gnt; so walks keep their timing). The S2 check then waits a cycle; the
-  // walker never checks two cycles running, and no store comes to S2 meanwhile.
+  // walker never checks two cycles running, and no store comes to S2 meanwhile. A bare-mode
+  // store uses the checker at its decision: data are bare, so no walk runs.
   logic [PA_W-1:0] pc_pa;
   logic            pc_dbl, pw_chk, w_use;
   logic            s2_amo_q, s2_m_q, s2_dbl_q, s3_den_q;
@@ -845,11 +849,13 @@ module tg_lsu
   assign w_use  = pw_chk && !sn_v;
   assign s2_go  = s2_v_q && !w_use;
   assign s2_den = s2_go && !sa_chk[0] && !flush;
-  tg_pmp #(.S(1)) u_pmp_st (.pa(w_use ? pc_pa : s2_pa_q), .dbl(w_use ? pc_dbl : s2_dbl_q),
-                            .acc(w_use ? ACC_R : s2_at_q), .m_mode(!w_use && s2_m_q),
+  tg_pmp #(.S(1)) u_pmp_st (.pa(!xl_d ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
+                            .dbl(!xl_d ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
+                            .acc(!xl_d ? sa_at : w_use ? ACC_R : s2_at_q),
+                            .m_mode(!xl_d ? priv_d == PRIV_M : !w_use && s2_m_q),
                             .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
   always_ff @(posedge clk) begin
-    s2_v_q   <= !rst && !flush && ((sa_ok && !sa_pmpc) || (s2_v_q && !s2_go));
+    s2_v_q   <= !rst && !flush && ((sa_ok && xl_d && !sa_pmpc) || (s2_v_q && !s2_go));
     if (sn_v) begin                                // (never while S2 waits: then no store decided)
       s2_pa_q  <= sa_pa;
       s2_dbl_q <= sn_size == 2'd3;
@@ -864,7 +870,7 @@ module tg_lsu
   end
   assign spx_valid  = s3_den_q;
   assign spx_rob    = s3_rob_q;
-  assign sth_v[0]   = s2_v_q && !s2_amo_q && (!s2_go || !sa_chk[0]);
+  assign sth_v[0]   = s2_v_q && !s2_amo_q;
   assign sth_rob[0] = s2_rob_q;
   assign sth_v[1]   = s3_den_q;
   assign sth_rob[1] = s3_rob_q;
