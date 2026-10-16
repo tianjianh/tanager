@@ -1009,7 +1009,7 @@ void Core::exec_store(Uop& u) {
   }
   if (c_.rfo_pf) mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 2);  // store streams prefetch ownership ahead
   u.t_ready = t + 1;
-  u.t_done = t + 3 + (uint64_t)c_.abl_done;  // address done; data readiness is checked at commit
+  u.t_done = t + 3 + (uint64_t)c_.abl_done + (uint64_t)c_.abl_st_done;  // address done; data readiness is checked at commit
 }
 
 void Core::do_issue(Uop& u, int /*port*/) {
