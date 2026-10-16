@@ -1,0 +1,6 @@
+bank 0: 5 rs_cur_q cells, 312 ms cells
+  rs_to_ms     -1.229 levels  9 logic 1.198 net 4.872 u_soc/u_uncore/u_l2/g_bank[0].u_bank/rs_cur_q_reg[2]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[19][0]/D
+  any_to_ms    -5.469 levels 14 logic 1.942 net 8.405 u_soc/u_uncore/u_l2/g_bank[0].u_bank/p2_q_reg[line][17]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[1][8]/D
+bank 1: 5 rs_cur_q cells, 312 ms cells
+  rs_to_ms     -1.493 levels 10 logic 1.656 net 4.685 u_soc/u_uncore/u_l2/g_bank[1].u_bank/rs_cur_q_reg[1]/C -> u_soc/u_uncore/u_l2/g_bank[1].u_bank/ms_reg[22][0]/D
+  any_to_ms    -4.689 levels 19 logic 2.615 net 6.895 u_soc/u_uncore/u_l2/g_bank[1].u_bank/ms_reg[5][0]/C -> u_soc/u_uncore/u_l2/g_bank[1].u_bank/ms_reg[6][1]/D
