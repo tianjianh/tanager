@@ -975,12 +975,28 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // AXI read requests (fills)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] ar_req;
-  logic [MW-1:0]     ar_ptr_q, ar_m;
+  // The AR pick is made a cycle ahead and held in ar_m_q (200 MHz, DR-142), so the AR's ID and the
+  // MSHR LUTRAMs' read for its address start at a register (the full chip's bank-side AR slices:
+  // -3.87 / -3.31 ns with the pick in front of them). The requests change from one cycle to the next
+  // only when the AR is taken (its MSHR stops requesting, and the pointer moves past it) or when an
+  // allocation needs a fill (m_new, one new requester; an MSHR is freed only after its fill). So
+  // the next pick is the current one or the pick past the taken AR, either with m_new merged by its
+  // round-robin place. It is rr_pick(ar_req, ar_ptr_q) every cycle (checked).
+  logic [N_MSHR-1:0] ar_req, ar_req_f;
+  logic [MW-1:0]     ar_ptr_q, ar_m_q;
+  wire  [MW-1:0]     ar_m = ar_m_q;
+  logic [MW-1:0]     ar_ptr_f, ar_pick_f, ar_pick_fa, ar_pick_na;
   always_comb begin
     for (int m = 0; m < N_MSHR; m++) ar_req[m] = m_valid[m] && m_need_fill[m] && !m_ar_sent[m];
-    ar_m = rr_pick(ar_req, ar_ptr_q);
+    ar_req_f       = ar_req;
+    ar_req_f[ar_m] = 1'b0;
+    ar_ptr_f       = rr_next(ar_m);
+    ar_pick_f      = rr_pick(ar_req_f, ar_ptr_f);
+    ar_pick_fa     = (ar_req_f == '0 || rr_before(m_new, ar_pick_f, ar_ptr_f)) ? m_new : ar_pick_f;
+    ar_pick_na     = (ar_req == '0 || rr_before(m_new, ar_m, ar_ptr_q)) ? m_new : ar_m;
   end
+  wire ar_alloc = s2_alloc && s2_alloc_fill;          // m_new starts requesting
+  wire ar_fire  = ar_valid_o && ar_ready_i;
   always_comb begin
     ar_o       = '0;
     ar_o.id    = AXI_ID_W'(ar_m);
@@ -1456,6 +1472,7 @@ module tg_l2_bank
       mcmd_ptr_q  <= '0;
       pr_ptr_q    <= '0;
       pr_m_q      <= '0;                 // rr_pick of no requests
+      ar_m_q      <= '0;
       ar_ptr_q    <= '0;
       pw_ptr_q    <= '0;
       vr_ptr_q    <= '0;
@@ -1529,7 +1546,8 @@ module tg_l2_bank
       if (s0_take_m)                  mcmd_ptr_q <= rr_next(mcmd_pick);
       if (pr_fire)                    pr_ptr_q   <= rr_next(pr_m);
       pr_m_q <= pr_fire ? (pr_alloc ? pr_pick_fa : pr_pick_f) : (pr_alloc ? pr_pick_na : pr_m_q);
-      if (ar_valid_o && ar_ready_i)   ar_ptr_q   <= rr_next(ar_m);
+      if (ar_fire)                    ar_ptr_q   <= rr_next(ar_m);
+      ar_m_q <= ar_fire ? (ar_alloc ? ar_pick_fa : ar_pick_f) : (ar_alloc ? ar_pick_na : ar_m_q);
 
       if (!pw_busy_q && |pw_req) begin
         pw_busy_q <= 1'b1;
