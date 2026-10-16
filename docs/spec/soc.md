@@ -317,7 +317,7 @@ After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own
 | **D-b: bounce buffers** | An uncached alias of part of the carve-out: a PMA region the L2 does not cache, routed straight to the memory port. Linux's `restricted-dma-pool` (swiotlb) bounces all peripheral DMA through it. | No core changes; ready for M5. | Every DMA buffer is copied once. The pool's size limits the I/O in flight. A small uncore change: an uncached route in the crossbar. |
 | **D-c: DMA through the PL into the L2** | `dma-ranges` points the controllers at a PS bus address inside an HPM window (PS to PL), which the host bridge forwards into the coherent host DMA port of §8.1. The controllers' DMA then reaches the L2 like the A53's back-end does. | Coherent, with no core changes and no copies. Reuses stage C's DMA path. | DMA bandwidth is that of the HPM port and the L2's `hdma` initiator, enough for SD, USB 2 and 1 GbE but not for USB 3 at full speed. Longer latency. The HPM window is shared with the host window (decoded by address). **To confirm** in the ZynqMP TRM and on the board: that these IOU masters can target an HPM window at all. |
 
-  Recommendation: start with D-c if stage C's DMA port takes bursts well, else D-b. Move to D-a when Zicbom lands (M9).
+  Decided (DR-147): D-c. Debian's kernel drives no non-coherent DMA device without Zicbom, so D-b, whose uncached pool needs a core PMA change, and D-a wait. D-a becomes possible when Zicbom lands (M9).
 
 **The handover sequence** (what the A53 leaves configured):
 1. **Boot:** the PMU firmware and FSBL set up the PLLs, MIO pins, resets and DDR. ATF, U-Boot and the A53's Linux follow.
@@ -353,13 +353,23 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 |---|---|---|---|
 | **F-a: PL controller** | A small controller reads the PL SYSMON's die temperature (SYSMONE4, DRP) and sets the PWM from a fixed curve. | Works without any OS, and keeps working if software hangs. | RTL (an estimated 200 LUTs plus the SYSMON primitive). A fixed curve. Our own thermal policy to get right. |
 | **F-b: RISC-V Linux** | The RISC-V's Linux drives the same TTC (the `pwm-cadence` driver over the PL-to-PS port) with `pwm-fan` and a thermal zone reading the PS's AMS or the PL SYSMON. | The same regulation as on the A53, in software. | Depends on the RISC-V's Linux running. If it hangs, the fan stays at the last duty, possibly low. Needs the TTC and a temperature sensor in the RISC-V's device tree. |
-| **F-c: both** (recommended) | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
+| **F-c: both** | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
+
+**Chosen (DR-147): F-a as a full regulator** that keeps the A53's control while it is there.
+- **Duty:** the PL drives `fan_en_b` with its own 25 kHz PWM. Its duty is the larger of two:
+  - a fixed curve of the PL SYSMON's die temperature (SYSMONE4 over DRP, piecewise-linear with hysteresis, full speed above a top threshold);
+  - the A53's TTC duty, which the PL measures from `emio_ttc0_wave_o[2]`.
+- **Stages B and C:** the A53's `fancontrol` stays in charge whenever it asks for more than the curve. DR-129 holds: the TTC waveform still reaches the fan.
+- **Stage D, or if any OS hangs:** the curve regulates alone.
+- **Why not F-b or F-c:** Debian's kernel has no `pwm-fan`, no TTC PWM driver and no temperature driver for this chip. So the RISC-V's Linux would need two or three of our own modules before it could regulate, and the fan would still depend on that Linux running. With F-a the fan never depends on the RISC-V's software, and no new driver is needed.
+- **Monitoring:** a read-only register (temperature, duty, source) can be added later for a small driver.
+- **Clean room:** no SiFive-compatible PWM is needed. If one is ever added, it is built only from SiFive's published register manual (DR-138).
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
 **Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.
 
-**Stage D's drivers.** Debian's kernel has MACB, PHYLIB and DP83867, as modules. It lacks `sdhci-of-arasan`, `dwc3`, `xilinx_uartps`, any TTC PWM, `pwm-fan` and the AMS driver. Those are our own modules, using generic compatibles and no ZynqMP firmware calls. For the fan, a PL PWM register-compatible with `sifive,pwm0` would be driven by Debian's `pwm-sifive`.
+**Stage D's drivers.** Debian's kernel has MACB, PHYLIB and DP83867, as modules. It lacks `sdhci-of-arasan`, `dwc3`, `xilinx_uartps`, any TTC PWM, `pwm-fan` and the AMS driver. Those are our own modules, using generic compatibles and no ZynqMP firmware calls. The fan needs none: the PL regulates it (below).
 
 ### 8.3 PL cost of stages C and D (estimate, DR-147)
 
@@ -382,10 +392,9 @@ The uncore's block RAM is at 18 of its 19, so the new FIFOs are LUTRAM. Timing r
 | `S_AXI_LPD` register master (stage D) | 150–250 | 200–300 | 0 | low / low, behind an AXI-Lite slice |
 | PS-to-PL interrupts (8 sources into the PLIC's free ones) | 10–20 | 16–32 | 0 | none (synchronizers) |
 | D-c on top of the DMA port: the PS bus window and its address remap | 50–150 | 50–150 | 0 | low / low |
-| F-c floor: SYSMONE4 (a hard block), a DRP poller, a comparator, the fan multiplexer | 80–120 | 80–100 | 0 | none (slow clock) |
-| A `sifive,pwm0`-compatible PWM for the RISC-V's fan driver | 150–250 | 150–200 | 0 | none |
-| **Stage D** (with D-c, F-c and the PWM) | **0.45–0.8K** | **0.5–0.8K** | **0** | |
-| **C and D** | **about 1.7–2.6K** | **2.0–3.0K** | **0** | |
+| F-a fan regulator: SYSMONE4 (a hard block), a DRP poller, the curve, the TTC duty measurement, the PWM | 150–200 | 100–150 | 0 | none (slow clock) |
+| **Stage D** (with D-c and the fan regulator) | **0.35–0.6K** | **0.35–0.6K** | **0** | |
+| **C and D** | **about 1.6–2.4K** | **1.9–2.8K** | **0** | |
 
 - **D-b instead of D-c:** an uncached route in the crossbar would cost 100–200 LUTs, but it needs an uncached PMA region in the core as well. Debian's kernel can't treat it as non-coherent DMA anyway.
 - **In the final v1** these compete with the 4-miss data cache and hart 1. A performance build without the commit trace frees 3,066 LUTs in the uncore alone (`TG_COMMIT_TRACE=0`, [budgets.md](../perf/budgets.md) §4), about the size of stages C and D together. A board build that keeps board lockstep keeps the trace.
