@@ -347,7 +347,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
 
-*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, each `=0|1`).
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, each `=0|1`).
 
 | # | Switch | What | Timing |
 |---|---|---|---|
@@ -355,10 +355,11 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #4 | `LSU_AG_SPLIT` | the address-stage split (core-lsu.md) | the address add leaves the address stage's decisions |
 | #5 | `DC_AMO_READ_REG` | an atomic's D$ read data is registered (core-lsu.md) | the D$ atomic path, block RAM to block RAM |
 | #8 | `DE_STAGE` | one more decode stage (§3.4) | the DE family |
+| #9 | `ROB_HEAD_TLB_LATE` | the ROB head's DTLB check looks up the head's VA as registered a cycle earlier, from the head's second cycle (DR-144, B3). Off: a second lookup takes the committing store's VA beside the LQ head's, and the head's selection picks last (B2, cycle-exact; the DTLB has four ports) | the head's selection and its VA reads leave the walker's start |
 
 *Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
-- **default** (the shipping profile): #4 and #5 on, #2 and #8 off.
-- **fallback** (`TG_TIMING_CUTS=0`): all four off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each.
+- **default** (the shipping profile): #4, #5 and #9 on, #2 and #8 off.
+- **fallback** (`TG_TIMING_CUTS=0`): all five off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
 - **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
 
 *Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
@@ -371,6 +372,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | smt2_w3 | +0.145% / +0.014% / 0.000% / +0.210% | +0.645% / +0.126% / +0.004% / +0.132% |
 
 - **The fallback costs exactly what the hardwired cuts sum to** (st and smt2 to the 0.001%).
+- **#9 (DR-144)**, the default against the default without it: st +0.008% / +0.085% / 0 / −0.019%, smt2 +0.022% / +0.065% / 0 / +0.132% (isa / stress / bench / random). Where the suites show 0, the Linux boot (`BOOT=20`, 20.09M cycles) shows the cost: one core retires 0.017% fewer records in st (13,991,941 against 13,994,292) and 0.007% fewer in smt2 (15,670,286 against 15,671,361); two cores 0.003% fewer in st (15,712,385 against 15,712,834) and the same in smt2. Its timing: the walker-start family from 19–20 logic levels to 14 (B2 in the fallback: 12–14). LSU LUTs (st, budget flow, synthesised alone, which varies by about ±100): about 0 in the default plus 29 flip-flops; the fallback's second lookup +194 to +342, of which +104 is LUTRAM.
 - **The Linux boot** (instructions retired in the first 20.09M cycles, `make cycle-identical BOOT=20`): the default retires 0.084% fewer than the fallback in st (13,994,292 against 14,006,018) and 0.117% fewer in smt2 (15,671,361 against 15,689,643). With #2 on it was 0.153% and 0.172% fewer.
 - **Why #2 is off.** On the board (DR-141), #2 alone cost syscall +3.4% and Dhrystone +0.7%; #4 and #5 together cost memcpy (1 MiB) +1.9%, tlbwalk +1.1% and Dhrystone +1.5%. In simulation, the default with #2 cost st +1.313% / +0.465% / +0.419% / −0.045% against fn4's head, its bench cost above the switches' separate costs, through Dhrystone:
   - Dhrystone in that default, st: rv64im +1.57%, rv64gcb +2.97% (native latency).
