@@ -1,7 +1,7 @@
 # Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
-#                            [ROB_STORE_REPORT_LATE=0|1]
-#   make lint-all            lint all four configurations, each in DR-140's four elaborations [LINT_JOBS=6]
+#                            [ROB_STORE_REPORT_LATE=0|1] [COMMIT_TRACE=0|1]
+#   make lint-all            lint all four configurations, each in DR-140's and DR-146's five elaborations [LINT_JOBS=6]
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make regress-profiles CFG=st   the same for both of DR-140's profiles at once
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
@@ -23,7 +23,8 @@ lint:
 	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
-# default (#4, #5 on), and #2 and #8 each on top of the default (lint only; never run in CI or the soak).
+# default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
+# never run in CI or the soak).
 # LINT_JOBS run at a time, and one whose define no RTL file mentions is skipped (tools/ci/lint_all.sh).
 LINT_JOBS ?= 6
 lint-all:

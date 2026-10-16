@@ -11,7 +11,7 @@
 // and a checker that falls behind stalls the cores through the FIFO (uncore-trace.md, flow control). A
 // FIFO rather than `--trace -` and a pipe: tanager-host's stdout carries its messages and the console.
 // Exit status: 0 when every record matched; 2 at the first mismatch, after its report; 5 for a usage or
-// input error.
+// input error, an empty stream included (a bitstream without the commit trace, DR-146, streams nothing).
 #include <fcntl.h>
 #include <unistd.h>
 
@@ -329,10 +329,16 @@ int main(int argc, char** argv) {
     ls.report(stderr);
     status = EXIT_MISMATCH;
   }
+  if (status == EXIT_PASS && n == 0) {  // nothing was checked, which is not a pass
+    fprintf(stderr, "tanager-lockstep: the stream held no records, so nothing was checked. A bitstream built "
+                    "without the commit trace (DR-146, TG_COMMIT_TRACE=0) streams none; lockstep needs it on.\n");
+    status = EXIT_HARNESS;
+  }
   double t = now_s() - t0;
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
-          status == EXIT_PASS ? "PASS" : "MISMATCH", (unsigned long long)n, (unsigned long long)retired,
+          status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",
+          (unsigned long long)n, (unsigned long long)retired,
           (unsigned long long)traps, (unsigned long long)irqs, (unsigned long long)nwb, t, t > 0 ? n / t : 0.0,
           o.plant >= 0 && !planted ? "; nothing was planted (no compared value from there on)" : "");
   return status;
