@@ -79,6 +79,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
     .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
     .trs_wp_i (64'h0000_0001_2345_6789), .trs_flags_i (5'b01011), .trs_buffered_i (16'd17), .trs_stalls_i (32'd999),
+    .dbg_sel_o (), .dbg_val_i (32'h0),
     .con_tx_valid_i (ctx_v), .con_tx_ready_o (ctx_r), .con_tx_byte_i (ctx_b),
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );

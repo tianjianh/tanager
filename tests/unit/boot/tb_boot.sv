@@ -24,6 +24,8 @@ module tb_boot;
   parameter int MEM_READY_PCT = 95;
   parameter bit MEM_OOO       = 1'b1;
   parameter int MEM_R_PCT     = 85;
+  parameter int L2_SETS_TB    = 64;      // the board has 1024 (tanager_soc's default)
+  parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -60,7 +62,7 @@ module tb_boot;
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_v;
 
   tanager_soc #(
-    .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (64), .L2_MSHR (24),
+    .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
@@ -367,6 +369,15 @@ module tb_boot;
       trace_poll();
       $fclose(trace_fd);
       $display("\n[tb_boot] trace: %0d records", trace_rp);
+    end
+    if (DEBUG_CNT_TB && $test$plusargs("dbg_dump")) begin
+      logic [31:0] dv;
+      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 1; i++) begin
+        hw(16'h1200, 32'(i));
+        repeat (200) @(posedge clk);
+        hr(16'h1204, dv);
+        $display("[tb_boot] debug counter %0d: %0d (0x%08h)", i, dv, dv);
+      end
     end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);

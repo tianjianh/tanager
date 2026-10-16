@@ -27,6 +27,7 @@ module tanager_soc
   parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
   parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
+  parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -189,7 +190,7 @@ module tanager_soc
     .L2_DATA_LAT (L2_DATA_LAT), .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
     .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
-    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
+    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,
