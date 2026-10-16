@@ -380,8 +380,12 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !(ms_q == M_IDLE && (alloc_st || alloc_ld)) && !am_busy &&
-                  ready;
+    // A probe is taken when the probe unit is idle and neither an eviction nor an atomic has the
+    // line state. An MSHR allocation never competes: it yields to a probe on offer (alloc_*), so
+    // the ready comes from state registers alone (timing: the store drain's and the load miss's
+    // tag lookups left the crossbar's B slice; the handshakes are the same, as ready only counts
+    // with b_valid_i)
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
