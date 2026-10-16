@@ -721,8 +721,12 @@ module tg_lsu
     if (r_v_q && r_dv_q) llt_done[r_llt_q] = 1'b1;
   end
   // An MMIO response takes the result register when M2 does not
+  // The MMIO and atomic results take the result register when no M2 load completes, its PMP
+  // verdict aside (m2_okw): a load the checker denies leaves the register empty that cycle, and
+  // they take it the next (timing, DR-145: G6's load PMP checker -> the result take -> the
+  // wakeup, -1.56 ns; a cycle only when one waits beside a PMP-denied load in M2)
   logic xr_take;
-  assign xr_take = xr_v_q && !m2_ok && !flush;
+  assign xr_take = xr_v_q && !m2_okw && !flush;
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -772,7 +776,7 @@ module tg_lsu
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
   assign am_wdata = rep(am_new, am_size);
-  assign am_take  = am_st_q == AM_RES && !m2_ok && !xr_take && !flush;
+  assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !flush;
 
   logic            rsv_v_d;
   logic [PA_W-1:6] rsv_line_d;
