@@ -219,7 +219,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
   - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
 - **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
 - **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
-  - With `ROB_STORE_REPORT_LATE` (#2, on in the default profile, off in the fallback), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
+  - With `ROB_STORE_REPORT_LATE` (#2, off in both profiles: lint-only, DR-140), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 
 ### 8.2 Commit
@@ -343,7 +343,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
 
-*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile, and `TG_DE_STAGE=1` elaborates #8.
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, each `=0|1`).
 
 | # | Switch | What | Timing |
 |---|---|---|---|
@@ -352,23 +352,24 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #5 | `DC_AMO_READ_REG` | an atomic's D$ read data is registered (core-lsu.md) | the D$ atomic path, block RAM to block RAM |
 | #8 | `DE_STAGE` | one more decode stage (§3.4) | the DE family |
 
-*Profiles* (only these are supported):
-- **default** (the shipping profile): #2, #4 and #5 on, #8 off.
-- **fallback** (`TG_TIMING_CUTS=0`): #2, #4 and #5 off, #8 off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each.
-- **#8 on** is lint-only, on top of the default, until the user turns it on. It cost bench +2.5% / +2.3% when measured.
+*Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
+- **default** (the shipping profile): #4 and #5 on, #2 and #8 off.
+- **fallback** (`TG_TIMING_CUTS=0`): all four off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each.
+- **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
 
-*Costs against fn4's head* (isa / stress / bench / random):
+*Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
 
 | Config | fallback | default |
 |---|---|---|
-| st | +0.163% / +0.041% / −0.003% / −0.009% | +1.313% / +0.465% / +0.419% / −0.045% |
-| smt2 | −0.198% / −0.023% / +0.032% / +0.152% | +0.971% / +0.121% / +0.488% / +0.270% |
-| st_w3 | +0.041% / +0.027% / 0.000% / +0.194% | +1.301% / −0.043% / +0.497% / +0.166% |
-| smt2_w3 | +0.145% / +0.014% / 0.000% / +0.210% | +1.321% / +0.293% / +0.439% / +0.400% |
+| st | +0.163% / +0.041% / −0.003% / −0.009% | +0.636% / +0.353% / +0.123% / +0.065% |
+| smt2 | −0.198% / −0.023% / +0.032% / +0.152% | +0.764% / +0.053% / +0.066% / −0.104% |
+| st_w3 | +0.041% / +0.027% / 0.000% / +0.194% | +0.743% / +0.074% / +0.105% / +0.043% |
+| smt2_w3 | +0.145% / +0.014% / 0.000% / +0.210% | +0.645% / +0.126% / +0.004% / +0.132% |
 
 - **The fallback costs exactly what the hardwired cuts sum to** (st and smt2 to the 0.001%).
-- **The default's bench cost exceeds the switches' separate costs, through Dhrystone:**
-  - Dhrystone in the default, st: rv64im +1.57%, rv64gcb +2.97% (native latency).
+- **The Linux boot** (instructions retired in the first 20.09M cycles, `make cycle-identical BOOT=20`): the default retires 0.084% fewer than the fallback in st (13,994,292 against 14,006,018) and 0.117% fewer in smt2 (15,671,361 against 15,689,643). With #2 on it was 0.153% and 0.172% fewer.
+- **Why #2 is off.** On the board (DR-141), #2 alone cost syscall +3.4% and Dhrystone +0.7%; #4 and #5 together cost memcpy (1 MiB) +1.9%, tlbwalk +1.1% and Dhrystone +1.5%. In simulation, the default with #2 cost st +1.313% / +0.465% / +0.419% / −0.045% against fn4's head, its bench cost above the switches' separate costs, through Dhrystone:
+  - Dhrystone in that default, st: rv64im +1.57%, rv64gcb +2.97% (native latency).
   - #2 alone: +0.87% / +0.59%. #4 alone: +0.74% / +0.34%. #5 alone: identical.
   - Together they are superlinear on rv64gcb.
 - **The cause** (measured with commit and rename counters, st, rv64gcb): stores wait at the ROB head for their completion report, and #4 and #2 each delay that report by a cycle.
@@ -376,7 +377,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
   - A mispredict is recovered when its branch commits, so it waits behind those stores. The default also mispredicts 4% more often on rv64gcb (10,786 flushes against 10,347), which makes the pair superlinear there.
   - Not store-to-load forwarding: Dhrystone's loads that meet older stores are each fully covered by one store (1,499 forwards, none partial; `strcmp` stops at the first difference). A byte-wise forwarding prototype changed no bench program.
   - CoreMark moves by −0.3% to +0.45%.
-  - The user's options (DR-140): the default without #2, or a bypass at the commit slots that keeps #2's register and takes its cycle back.
+  - The user's options were the default without #2, or a bypass at the commit slots that keeps #2's register and takes its cycle back. They chose the first (DR-140).
 
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
