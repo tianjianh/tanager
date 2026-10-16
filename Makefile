@@ -1,6 +1,7 @@
 # Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
-#   make lint-all            lint all four configurations, each in DR-140's three elaborations [LINT_JOBS=6]
+#                            [ROB_STORE_REPORT_LATE=0|1]
+#   make lint-all            lint all four configurations, each in DR-140's four elaborations [LINT_JOBS=6]
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make regress-profiles CFG=st   the same for both of DR-140's profiles at once
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
@@ -18,12 +19,12 @@ include sim/profile.mk
 .PHONY: lint lint-all regress regress-profiles cycle-identical
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(DE_DEF) $(RTL_CFG) -F $(RTL_F)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DE_STAGE), DE_STAGE=$(DE_STAGE))"
+	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F)
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))"
 
-# DR-140's elaborations, so that every switch's branches compile: the fallback (#2, #4, #5 off), the
-# default (on), and #8 on top of the default (lint only; never run in CI or the soak). LINT_JOBS run at
-# a time, and one whose define no RTL file mentions is skipped (tools/ci/lint_all.sh).
+# DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
+# default (#4, #5 on), and #2 and #8 each on top of the default (lint only; never run in CI or the soak).
+# LINT_JOBS run at a time, and one whose define no RTL file mentions is skipped (tools/ci/lint_all.sh).
 LINT_JOBS ?= 6
 lint-all:
 	@tools/ci/lint_all.sh JOBS=$(LINT_JOBS) CFGS="$(CFGS)"

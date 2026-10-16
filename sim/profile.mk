@@ -1,6 +1,7 @@
 # The core's build profile, shared by sim/Makefile and the test Makefiles that run tg_vsim
 # (docs/spec/verification.md §4.3): DR-140's timing cuts. TIMING_CUTS=0 or 1 forces the profile
 # (+define+TG_TIMING_CUTS=0|1, read by rtl/core/tg_core_pkg.sv); unset builds the package's default.
+# The default has #4, #5 and the walker start's B3 form on; the fallback (0) has every switch off.
 # A forced profile builds in a directory of its own, so the two profiles never overwrite each other.
 TIMING_CUTS ?=
 ifneq ($(filter-out 0 1,$(TIMING_CUTS)),)
@@ -16,3 +17,12 @@ ifneq ($(filter-out 0 1,$(DE_STAGE)),)
   $(error DE_STAGE must be 0, 1 or unset (got "$(DE_STAGE)"))
 endif
 DE_DEF    := $(if $(DE_STAGE),+define+TG_DE_STAGE=$(DE_STAGE))
+# #2, store completions reported to the ROB a cycle late (+define+TG_ROB_STORE_REPORT_LATE=0|1): off in
+# both profiles since the user's DR-140 update, so it is for lint only too, on top of the default.
+ROB_STORE_REPORT_LATE ?=
+ifneq ($(filter-out 0 1,$(ROB_STORE_REPORT_LATE)),)
+  $(error ROB_STORE_REPORT_LATE must be 0, 1 or unset (got "$(ROB_STORE_REPORT_LATE)"))
+endif
+# The lint-only switches together, for the lint targets; a build that runs programs refuses them.
+LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE))
+LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE))
