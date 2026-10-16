@@ -96,7 +96,8 @@ A success fills the requester's TLB with the leaf and its level.
       - Cons: 392 more flip-flops; two TLB forms to maintain, one parameter apart.
   - **Source:** the spikes track's `tg_cam_lut` (slice tables, key store), extended for superpage levels, two lookups and the overlap check.
 - **The walker's checks use the STA port's checker** (DR-139, the user's decision, superseding DR-122).
-  - The walker checks the PTE address (W_CHK) and the leaf's page base (W_PMP) in a cycle without a store address (`chk_gnt = !sta_ag_valid`), so a walk step waits a cycle whenever a store address is in AG.
+  - The walker checks the PTE address (W_CHK) and the leaf's page base (W_PMP) in a cycle without a store address at the decision (`chk_gnt`: AG without the split, M1 with it), so a walk step waits a cycle whenever a store address decides.
+  - The store's own check runs a cycle after its decision (S2, core-lsu), on the same checker. When the walker takes it (`chk_req` and the grant), the S2 check waits a cycle. The walker never checks two cycles running, and no store reaches S2 in the cycle after the walker's grant, so the wait is one cycle and walks keep their timing.
   - −0.83K LUTs per core. Cost by `make cycle-identical`, st / smt2: isa +0.05% / +0.23%, bench 0.
 - The plan's lever R6 (set-associative LUTRAM TLBs) is an M6 decision.
 

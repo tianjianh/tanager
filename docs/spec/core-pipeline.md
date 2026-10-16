@@ -208,7 +208,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
   - **The exception is chosen in parallel, not by a chain of compares.**
-    - **Candidates:** the register, the CSR port, the branch port and the LSU's four ports. Every pair is compared by ROB index.
+    - **Candidates:** the register, the CSR port, the branch port, the LSU's four ports and its store PMP port (below). Every pair is compared by ROB index.
     - **Why it is fast:** the indices arrive early, since the LSU sends each port's payload index whether or not it faults. The late valid bits only gate a one-hot select.
     - **Same result as the chain:** the oldest wins, the first candidate in the old order on a tie. `tval` is the best of the first three alone, as the chain left it.
     - **Checked:** in simulation the old chain runs beside it and must agree every cycle.
@@ -221,6 +221,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
   - With `ROB_STORE_REPORT_LATE` (#2, off in both profiles: lint-only, DR-140), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
+- **A store's PMP denial after it completed** (core-lsu: the check a cycle after the store's decision, S2) arrives on an exception-only port: its own exception table, no completion, the cause `EXC_SACCESS`, the head's store VA as `tval`. Until it can show, the LSU holds commit at that store (`sth_v`/`sth_rob`: the check's cycle and the report's). Commit stops before a held entry; the holds cut the retire group last, after the slots' own conditions, because the check's verdict arrives late.
 
 ### 8.2 Commit
 Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT update; the old physical register goes to its bank's free list (through the deferred-free stage, a pass-through in M2); the free list's committed head advances for the new one; LQ head or SQ commit mark; `minstret`; a trace record (§11).
@@ -230,6 +231,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
+- **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come.
 
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
