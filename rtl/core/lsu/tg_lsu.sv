@@ -1423,10 +1423,10 @@ module tg_lsu
       end
       // A new load's PA and outcome where it decides: in AG (over the lines above), or in M1 with
       // the split
+      // (its state, when the decision stops it, is written last in this block: below)
       if (ln_v && !flush) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
-        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
       end
 
       // ---- Waiting loads re-check their condition ----
@@ -1505,6 +1505,13 @@ module tg_lsu
         lq_tail_q <= lq_add(lq_tail_q, nld_ds());
         sq_tail_q <= sq_add(sq_tail_q, nst_ds());
       end
+
+      // ---- A new load that its decision stops (exception, TLB miss, MMIO) ----
+      // Its state is written after every other writer of lq_st_q: those after its decision never
+      // write its entry in that cycle (asserted), so the order changes nothing, and its decision,
+      // the late DTLB, PMA and PMP results, picks last rather than inside each entry's writers
+      if (ln_v && !flush && (nl_exc || nl_tm || nl_mmio))
+        lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
 
       // ---- Flush: uncommitted loads and stores go ----
       if (flush) begin
@@ -1681,6 +1688,17 @@ module tg_lsu
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx_ag]) else $error("tg_lsu: STA for a free SQ entry");
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
+      // The new load's state write, last in its block, shares its entry with no later writer
+      if (ln_v && !flush) begin
+        assert (!(mm_go && mm_idx == ln_lqw)) else $error("tg_lsu: MMIO issue and a new load write one LQ entry");
+        assert (!(lq_v_q[ln_lqw] && !(ag_v && !ag_pt && ag_lq == ln_lqw) &&
+                  !(m2_v_q && !m2_pt_q && m2_lq_q == ln_lqw) &&
+                  (lq_st_q[ln_lqw] == L_MISS || lq_st_q[ln_lqw] == L_STQ)))
+          else $error("tg_lsu: a waiting load's re-check and a new load write one LQ entry");
+        for (int k = 0; k < DISPATCH_WIDTH; k++)
+          assert (!(ds_fire && ds_valid[k] && ds_uop[k].d.cls == C_LD && ds_ren[k].lq[LIW-1:0] == ln_lqw))
+            else $error("tg_lsu: dispatch and a new load write one LQ entry");
+      end
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
