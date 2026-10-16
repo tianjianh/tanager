@@ -186,7 +186,7 @@ case "${1:-}" in
     pid=$!
     exec 3> "$fifo"
     waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; kill -0 "$pid" 2>/dev/null || return 1; sleep 1; done; return 1; }
-    if waitfor "tanager login:" 800; then
+    if waitfor "tanager login:" "${LOGIN_S:-800}"; then
       echo "login prompt $(( $(date +%s) - t0 )) s after the load"
       sleep 1; printf 'root\r' >&3; sleep 4
       # the marker is computed, so the console's echo of the typed line cannot match it early
@@ -341,7 +341,10 @@ case "${1:-}" in
     trap '"$ME" restore' EXIT
     tf=$D/boot.trace; con=$D/trace_console.txt; rm -f "$tf"
     fw=${TF_FW:-fw_jump.bin}; kern=${TF_KERNEL:-Image}; dtb=${TF_DTB:-tanager-kv260-768m.dtb}
-    th boot --fw "$D/$fw" --kernel "$D/$kern" --dtb "$D/$dtb" --lossless --trace "$tf" --timeout "${TRACE_S:-60}" < /dev/null > "$con" 2>&1
+    # TRACE_WRAP=N keeps only the last 2^N records (--trace-wrap, written at exit): a bounded file even
+    # if the system boots; without it every record streams to the file (fine for a hang, huge for a boot).
+    wrap=""; [ -n "${TRACE_WRAP:-}" ] && wrap="--trace-wrap --trace-log2 $TRACE_WRAP"
+    th boot --fw "$D/$fw" --kernel "$D/$kern" --dtb "$D/$dtb" --lossless --trace "$tf" $wrap --timeout "${TRACE_S:-60}" < /dev/null > "$con" 2>&1
     echo "boot exit $?; console $(wc -c < "$con") bytes; trace $(stat -c %s "$tf" 2>/dev/null) bytes"
     tr -d '\r' < "$con" | tail -5
     python3 - "$tf" <<'PYTF'
