@@ -180,6 +180,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | c972c58 | L2: the allocation's probes and Grant cap selected late, each MSHR's next probe agent (0449256, reverted in 5d9fef2); the trace's stop count from valid records; together −1; cycle-identical | 19,664 | | 18,443 at `st` | **18** |
 | 5d9fef2 | 0449256 reverted: 2dc6eba's L2 plus the trace's stop count (both LUT-neutral); cycle-identical | 19,664 | | 18,443 at `st` | **18** |
 | c91ac34 | L2: the response engine's shape in flip-flops (6670546: −18 LUTs, +100 FFs), the probe pick made a cycle ahead (+35, +10 FFs); cycle-identical | 19,681 | | 18,553 at `st` | **18** |
+| 916fef5 | L2: the `ProbeAck` search on the one-hot hit way (−42); `D_SLICE`, `W_SLICE` and `XBAR_IN_SLICE`, off (0; reserve items: +160, +182 and +307 / +499 LUTs on, [soc.md](../spec/soc.md)); cycle-identical | 19,639 | | 18,553 at `st` | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
