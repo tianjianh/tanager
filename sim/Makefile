@@ -27,10 +27,11 @@ COV_UNITS ?= rename rob lsu
 empty    :=
 space    := $(empty) $(empty)
 include $(ROOT)/sim/profile.mk
-# The lint-only switches (#2, #8) never reach a model that runs programs (DR-140), even an up-to-date one.
+# The lint-only switches (#2, #8; the commit trace off) never reach a model that runs programs, even an
+# up-to-date one (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the trace).
 ifneq ($(strip $(LINT_ONLY_SET)),)
   ifneq ($(filter-out lint,$(or $(MAKECMDGOALS),all)),)
-    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified))
+    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the commit trace))
   endif
 endif
 BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(TC_SUFFIX)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))

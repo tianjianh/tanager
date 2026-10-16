@@ -197,6 +197,11 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 - **The sink's rule:** assert `trace_stall_i` whenever its free space is below `tg_trace_pkg::TRACE_STALL_HEADROOM` (= 2 × `COMMIT_WIDTH` + `LLT_ENTRIES` records). No record is ever lost.
 - **Tie-offs:** the simulation harness ties it to 0, or drives random stalls to exercise the path. Builds without trace streaming tie it to 0.
 
+**Build switch: `TG_COMMIT_TRACE`** (DR-146; proposed by the verification track, the name to be agreed with the core and SoC tracks).
+- `tg_trace_pkg::COMMIT_TRACE`, from `+define+TG_COMMIT_TRACE=0|1`, is 1 by default. The core, the trace stream and the testbenches all read this one package value.
+- With 0, the core keeps its trace ports but drives `trace_valid_o` and `trace_wb_valid_o` low, and leaves out the trace assembly and its register-file read ports; the stream leaves out its logic. Commit behaviour and cycles are the same.
+- Lockstep, the cycle-identical check and board lockstep need the trace. The simulation testbenches stop at time 0 on a model built without it, and `make` refuses `COMMIT_TRACE=0` for anything but lint.
+
 **Future fields.** These are additive, and the struct changes only when they are scheduled.
 - **Instruction count:** with the fusion, SFB or jump-folding options enabled, a record may stand for more than one instruction. A count field will be added when one of those options is scheduled; none is in v1.
 - **M7:** load addresses (for multi-hart lockstep) and a physical store address (for `tohost` detection under virtual memory).
