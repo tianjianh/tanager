@@ -89,7 +89,7 @@ module tg_fetch
     logic              fhi;      // on the entry instruction's second half
   } meta_t;
   localparam int META_W = $bits(meta_t);
-  localparam int IB_W   = 32 + 1 + SLOT_W + 3 + META_W;
+  localparam int IB_W   = 32 + 1 + SLOT_W + 3 + META_W + 16;   // tg_fetch_compact's entry
 
   // ---- Reset sequence: invalidate the micro-BTB (2 ways x its sets) ----
   localparam int UB_SETS = UBTB_ENTRIES / 2;
@@ -656,12 +656,13 @@ module tg_fetch
 
   // ---- Instruction queue output ----
   for (genvar j = 0; j < DECODE_WIDTH; j++) begin : g_out
-    logic [15:0]       lo, hi;
+    logic [31:0]       x32;             // what decode decodes (a compressed one expanded)
+    logic [15:0]       c16;             // a compressed instruction's own bits
     logic              rvc;
     logic [SLOT_W-1:0] slot;
     logic [2:0]        marks;
     meta_t             m;
-    assign {m, marks, slot, rvc, hi, lo} = cq_insn[j];
+    assign {m, marks, slot, rvc, x32, c16} = cq_insn[j];
     logic              strad;
     logic [SLOT_W:0]   first, last;     // parcel range, straddler from -1 (encoded as first = 0, strad)
     assign strad = slot == SLOT_W'(NP - 1) && !rvc;
@@ -679,7 +680,8 @@ module tg_fetch
       iq_insn[j].pc          = pc;
       iq_insn[j].blk         = m.base;
       iq_insn[j].strad       = strad;
-      iq_insn[j].insn        = rvc ? {16'b0, lo} : {hi, lo};
+      iq_insn[j].insn        = rvc ? {16'b0, c16} : x32;
+      iq_insn[j].xinsn       = x32;
       iq_insn[j].rvc         = rvc;
       iq_insn[j].fault       = m.fault;
       iq_insn[j].fault_pf    = m.fpf;

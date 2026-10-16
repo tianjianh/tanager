@@ -9,12 +9,12 @@
 // target is block address + offset + immediate, and "a + b + c == k" holds when every bit of
 // the carry-save sum matches the carry k needs there (Cortadella and Llaberia, IEEE Trans.
 // Computers, 1992). The sums themselves (the targets, the next PC) feed only registers.
-// The check needs neither the RVC expander nor the decoder's class and immediate: the queue
-// brings the instruction's pre-decode marks (decode's class unless decode raises an exception,
-// which the check excludes), and the offset comes from the raw encoding.
-// Nor does the group wait for the expander: whether an instruction raises an exception or goes
-// alone comes from the raw encoding too, from a second decoder (only these outputs are kept) for a
-// 32-bit instruction, and from its 16 bits for a compressed one.
+// The check needs neither the decoder's class nor its immediate: the queue brings the
+// instruction's pre-decode marks (decode's class unless decode raises an exception, which the
+// check excludes), and the offset comes from the encoding.
+// The queue holds compressed instructions expanded (tg_fetch_compact), so decode reads 32-bit
+// encodings only (xinsn), and the group's exception and going-alone bits come from the decoder
+// itself; insn keeps a compressed instruction's 16 bits for tval and the commit trace.
 // DE_STAGE (DR-140 #8; off in both profiles, and lint-only on top of the default until the user
 // turns it on): decode takes a stage of its own.
 // DE1 decodes the queue head into registers, as many as there is room for (the slots DE2 does not
@@ -55,15 +55,11 @@ module tg_decode_stage
   output logic                dred,
   output logic [63:0]         dred_pc
 );
-  // The offset of a branch (jal = 0) or JAL (jal = 1), bits 20:0 with the sign at 20, from the raw
-  // encoding: B and J types, or RVC's CB (c.beqz, c.bnez) and CJ (c.j); as decode adds it to the PC
-  function automatic logic [20:0] bimm_of(input logic [31:0] x, input logic jal);
-    if (x[1:0] == 2'b11)
-      return jal ? {x[31], x[19:12], x[20], x[30:21], 1'b0}
-                 : {{8{x[31]}}, x[31], x[7], x[30:25], x[11:8], 1'b0};
-    else
-      return jal ? {{9{x[12]}}, x[12], x[8], x[10:9], x[6], x[7], x[2], x[11], x[5:3], 1'b0}
-                 : {{12{x[12]}}, x[12], x[6:5], x[2], x[11:10], x[4:3], 1'b0};
+  // The offset of a branch (jal = 0) or JAL (jal = 1), bits 20:0 with the sign at 20, from the
+  // encoding (B and J types; the queue expands c.beqz, c.bnez and c.j to them), as decode adds it
+  function automatic logic [20:0] bimm_of(input logic [31:7] x, input logic jal);
+    return jal ? {x[31], x[19:12], x[20], x[30:21], 1'b0}
+               : {{8{x[31]}}, x[31], x[7], x[30:25], x[11:8], 1'b0};
   endfunction
 
   // a + b + c == k, carry-free
@@ -78,27 +74,25 @@ module tg_decode_stage
 
   dec_t [W-1:0]        d;
   logic [W-1:0][63:0]  seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset
-  logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
+  logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc
   logic [W-1:0]        redir;
   logic [W-1:0][63:0]  npc;
   logic [W-1:0]        dfix;
   for (genvar j = 0; j < W; j++) begin : g_dec
-    // Compressed instructions are expanded first; without C they are illegal (tval is the
-    // 16-bit encoding, which the ROB keeps).
-    logic [31:0] xinsn;
-    logic        rvc_ill;
-    tg_rvc u_rvc (.c(iq_insn[j].insn[15:0]), .has_d(EXT_FD && misa_d), .insn(xinsn), .ill(rvc_ill));
+    // Compressed instructions come expanded; without C, or with a reserved encoding (left as its
+    // 16 bits, so not ending in 11), they are illegal (tval is the 16-bit encoding, which the ROB
+    // keeps). The FP loads and stores expand as with D; decode checks misa.D and mstatus.FS.
     logic [31:0] xi;
-    assign xi = iq_insn[j].rvc ? xinsn : iq_insn[j].insn;
+    assign xi = iq_insn[j].xinsn;
     logic pre_ill;
-    assign pre_ill = iq_insn[j].rvc && (!(EXT_C && misa_c) || rvc_ill);
+    assign pre_ill = iq_insn[j].rvc && (!(EXT_C && misa_c) || xi[1:0] != 2'b11);
     // The next sequential PC (the link value) and the target of a JAL or branch: one add each,
     // for the decoder's uop and the checks (the offset from the raw encoding, by the JAL mark)
     logic [63:0] pbase, poff, imm;
     logic [20:0] bimm;
     assign pbase   = {iq_insn[j].blk, 4'b0};
     assign poff    = iq_insn[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, iq_insn[j].pc[3:0]};
-    assign bimm    = bimm_of(iq_insn[j].insn, iq_insn[j].marks[1]);
+    assign bimm    = bimm_of(xi[31:7], iq_insn[j].marks[1]);
     assign imm     = {{43{bimm[20]}}, bimm};
     assign seq_d[j] = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
     assign tgt_d[j] = pbase + poff + imm;
@@ -106,35 +100,35 @@ module tg_decode_stage
                      .link(seq_d[j]), .tgt(tgt_d[j]),
                      .pre_ill,
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
-    // Exception and going alone from the raw encoding. A compressed instruction raises one only when
-    // it is illegal as such (pre_ill), is C.EBREAK, or is an FP load/store (C.FLD, C.FSD, C.FLDSP,
-    // C.FSDSP: their D-less forms are pre_ill) with the FP unit off; none is serialising.
-    dec_t dr;
-    tg_decode u_decr (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad),
-                      .insn(iq_insn[j].insn), .link('0), .tgt('0), .pre_ill(1'b0),
-                      .fault(iq_insn[j].fault),
-                      .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b,
-                      .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(dr));
+    assign exc_f[j]   = d[j].exc;
+    assign alone_f[j] = d[j].exc || d[j].serial;
+`ifndef SYNTHESIS
+    // A compressed instruction raises an exception exactly when it is illegal as such, is
+    // C.EBREAK, or is an FP load/store (C.FLD, C.FSD, C.FLDSP, C.FSDSP) without D or with the FP
+    // unit off, and none is serialising: the rule decode applied to the 16 bits before the queue
+    // expanded them
     logic [15:0] c16;
-    logic        c_exc;
+    logic        c_exc, c_ill;
+    logic [31:0] c_x;
+    tg_rvc u_rvc_chk (.c(c16), .has_d(EXT_FD && misa_d), .insn(c_x), .ill(c_ill));
     assign c16   = iq_insn[j].insn[15:0];
-    assign c_exc = iq_insn[j].fault || pre_ill || c16 == 16'h9002 ||
+    assign c_exc = iq_insn[j].fault || !(EXT_C && misa_c) || c_ill || c16 == 16'h9002 ||
                    (c16[1:0] != 2'b01 && c16[14:13] == 2'b01 &&
                     !(EXT_FD && misa_f && fs != 2'd0 && misa_d));
-    assign exc_f[j]   = iq_insn[j].rvc ? c_exc : dr.exc;
-    assign alone_f[j] = iq_insn[j].rvc ? c_exc : (dr.exc || dr.serial);
-    logic unused_dr;
-    assign unused_dr = ^dr;                     // only exc and serial are kept
-`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+      if (!rst && iq_valid[j] && iq_insn[j].rvc) begin
+        assert (exc_f[j] == c_exc && alone_f[j] == c_exc)
+          else $error("tg_decode_stage: a compressed instruction's exception or serialisation differs");
+        if (!c_ill)
+          assert (xi == c_x) else $error("tg_decode_stage: the queue's expansion differs from tg_rvc's");
+      end
+    end
     // The raw encoding's offset is the expanded instruction's (the target decode used to add)
     logic [63:0] xtgt;
     assign xtgt = pbase + poff + ((d[j].br_kind == BR_JAL)
                     ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
                     : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0});
     always_ff @(posedge clk) begin
-      if (!rst && iq_valid[j])
-        assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
-          else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
       if (!rst && iq_valid[j] && !d[j].exc && d[j].cls == C_BR && d[j].br_kind != BR_JALR)
         assert (tgt_d[j] == xtgt) else $error("tg_decode_stage: the raw offset gives another target than decode's");
     end
@@ -159,7 +153,7 @@ module tg_decode_stage
     // the class from the queue's pre-decode marks, the offset from the raw encoding
     assign {mbr, mjal, mjalr} = xq[j].marks;
     logic [20:0] bimm;
-    assign bimm  = bimm_of(xq[j].insn, mjal);
+    assign bimm  = bimm_of(xq[j].xinsn[31:7], mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
     assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt

@@ -253,7 +253,9 @@ package tg_core_pkg;
     logic [63:0]       pc;          // {blk, pc[3:0]}, or blk's address - 2 when strad
     logic [63:4]       blk;         // the fetch block's address
     logic              strad;       // a 32-bit instruction straddling in from the previous block
-    logic [31:0]       insn;        // [31:16] zero when rvc
+    logic [31:0]       insn;        // [31:16] zero when rvc (tval, the commit trace)
+    logic [31:0]       xinsn;       // what decode decodes: insn, or a compressed one's expansion
+                                    // (its 16 bits when the encoding is reserved)
     logic              rvc;
     logic              fault;       // fetch fault at pc (access, or page with fault_pf)
     logic              fault_pf;

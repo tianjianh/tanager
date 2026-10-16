@@ -10,8 +10,12 @@
 // compaction selects directly into banks: bank b takes the instruction of rank r with
 // (tail + r - done) mod WR == b, so no rotation stage follows it.
 // Reads: RD instructions per cycle from the head (DECODE_WIDTH), rotated out of the banks.
+// A compressed instruction is expanded on its way into a bank (tg_rvc, one per bank), so the
+// queue holds what decode decodes: the 32-bit instruction or expansion (the 16 bits themselves
+// when the encoding is reserved), with the 16 bits beside it for tval and the commit trace. The
+// expansion assumes D (EXT_FD); decode applies misa and mstatus.FS to the expanded instruction.
 module tg_fetch_compact
-  import tg_pkg::*;
+  import tg_pkg::*, tg_core_pkg::EXT_FD;
 #(
   parameter int WR    = 4,               // queue write ports = banks (power of two)
   parameter int RD    = DECODE_WIDTH,
@@ -19,7 +23,8 @@ module tg_fetch_compact
   parameter int META_W = 8,              // per-instruction metadata from the front end
   localparam int NP   = FETCH_BYTES / 2,
   localparam int SW   = idx_w(NP),
-  localparam int IB_W = 32 + 1 + SW + 3 + META_W,  // insn, rvc, parcel, marks, metadata
+  localparam int IN_W = 32 + 1 + SW + 3 + META_W,  // a candidate: insn, rvc, parcel, marks, metadata
+  localparam int IB_W = IN_W + 16,                 // an entry: the insn expanded, its 16 bits beside
   localparam int QW   = idx_w(DEPTH),
   localparam int ROWS = DEPTH / WR,
   localparam int RW   = idx_w(ROWS),
@@ -47,7 +52,7 @@ module tg_fetch_compact
   logic [15:0]           half_q;
   logic [2:0]            half_marks_q;
   logic [NP:0]           inst_v;
-  logic [NP:0][IB_W-1:0] inst;
+  logic [NP:0][IN_W-1:0] inst;
   for (genvar p = 0; p < NP; p++) begin : g_inst
     logic [15:0] hi;
     assign hi = (p + 1 < NP) ? parcel[(p + 1) % NP] : 16'h0;
@@ -96,10 +101,17 @@ module tg_fetch_compact
                    && BW'(tail_q[BW-1:0] + BW'(k)) == BW'(b);
       /* verilator lint_on CMPCONST */
     end
+    logic [IN_W-1:0] cand;
     always_comb begin
-      bwdata[b] = '0;
-      for (int p = 0; p <= NP; p++) bwdata[b] |= {IB_W{sel[p]}} & inst[p];
+      cand = '0;
+      for (int p = 0; p <= NP; p++) cand |= {IN_W{sel[p]}} & inst[p];
     end
+    // The candidate's 32 bits, expanded if it is compressed: {meta, marks, slot, rvc, x32, c16}
+    logic [31:0] cx;
+    logic        cill;
+    tg_rvc u_rvc (.c(cand[15:0]), .has_d(EXT_FD), .insn(cx), .ill(cill));
+    assign bwdata[b] = {cand[IN_W-1:32],
+                        cand[32] ? (cill ? {16'b0, cand[15:0]} : cx) : cand[31:0], cand[15:0]};
     // Entry index tail + k; its row: (tail + k) / WR, where k = (b - tail) mod WR
     logic [QW-1:0] idx;
     assign idx = tail_q + QW'(BW'(BW'(b) - tail_q[BW-1:0]));

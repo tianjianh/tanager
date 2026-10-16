@@ -1,7 +1,8 @@
 // RVC expander (RV64C, unprivileged ISA 20240411 ch. "C" and the Zca subset): maps a 16-bit
 // encoding to the 32-bit instruction it stands for. Combinational. Reserved encodings and the
 // FP forms (C.FLD, C.FSD, C.FLDSP, C.FSDSP) without D are `ill`; HINTs expand to their base
-// instruction (Spike executes them that way). Wired into decode when the ISA gains C (M3).
+// instruction (Spike executes them that way). The instruction queue expands with it as it writes
+// (tg_fetch_compact); decode keeps one for a check in simulation.
 module tg_rvc
   import tg_pkg::*;
 (
