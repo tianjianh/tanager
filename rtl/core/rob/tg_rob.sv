@@ -664,6 +664,14 @@ module tg_rob
     if (!rst && ret[0] && hp[0].serial)
       assert (!hp[0].dexc) else $error("tg_rob: a serial instruction with a decode exception retires");
   end
+  // The registered timer-pending bit (tg_csr, DR-146) settles two cycles after a CSR write, which
+  // retires alone and flushes: no interrupt may be taken within that margin
+  logic [1:0] csr_ago_q;                  // a CSR instruction retired one / two cycles ago
+  always_ff @(posedge clk) begin
+    csr_ago_q <= rst ? '0 : {csr_ago_q[0], do_csr};
+    if (!rst && do_irq)
+      assert (csr_ago_q == '0) else $error("tg_rob: an interrupt within two cycles of a CSR write");
+  end
 `endif
 
   logic unused;

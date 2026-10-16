@@ -139,8 +139,21 @@ module tg_csr
     .clk, .we(cw_we), .waddr(cw_wa), .wdata(cw_wd), .raddr(cw_ra), .rdata(cw_rd));
 
   // ---- Interrupt pending bits ----
+  // Time is a core-local snapshot of the ACLINT's mtime (DR-146): mtime_q, mtime a cycle earlier,
+  // so the ACLINT reaches the core register to register. The Sstc compare runs between registers
+  // and its result is registered (stip_q), so the 64-bit compare leaves the interrupt selection
+  // and the commit decision. STIP shows two cycles after mtime crosses stimecmp, and a cycle after
+  // a write to stimecmp, menvcfg or mip; such a write retires alone and flushes, so no instruction
+  // reaches the ROB head before STIP has settled (tg_rob asserts the margin). `time` reads the
+  // snapshot too: monotonic, a cycle behind the ACLINT (a nondeterministic read in lockstep).
+  logic [63:0] mtime_q;
+  logic        stip_q;
+  always_ff @(posedge clk) begin
+    mtime_q <= mtime;
+    stip_q  <= !rst && SU && (menv_stce_q ? (mtime_q >= stimecmp_q) : stip_sw_q);
+  end
   logic        stip;
-  assign stip = SU && (menv_stce_q ? (mtime >= stimecmp_q) : stip_sw_q);
+  assign stip = stip_q;
   logic [11:0] mip;
   always_comb begin
     mip = '0;
@@ -343,7 +356,7 @@ module tg_csr
       12'hB00: rval = mcycle_q;
       12'hB02: rval = minstret_q;
       12'hC00: rval = mcycle_q;
-      12'hC01: rval = mtime;
+      12'hC01: rval = mtime_q;
       12'hC02: rval = minstret_q;
       12'hF11, 12'hF12, 12'hF13, 12'hF15: rval = '0;
       12'hF14: rval = HARTID;

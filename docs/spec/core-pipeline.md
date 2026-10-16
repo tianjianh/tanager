@@ -251,7 +251,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mepc` | bit 0 cleared on write; reads mask bit 1 too (no C) |
 | `mcountinhibit` | CY and IR writable |
 | `mcycle`, `minstret` | read/write; a write to `minstret` replaces that instruction's increment |
-| `cycle`, `time`, `instret` | read-only aliases; `time` = `mtime_i`; cycle and time reads are `nondet` |
+| `cycle`, `time`, `instret` | read-only aliases; `time` = the core's snapshot of the ACLINT's `mtime` (`mtime_q`, a cycle behind `mtime_i`; monotonic; DR-146); cycle and time reads are `nondet` |
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
@@ -267,6 +267,10 @@ Exception or interrupt: `mepc` ← PC, `mcause`, `mtval` (0 for interrupts), `ms
 
 ### 9.4 Interrupts
 Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. Taken at commit before the head instruction (TR_IRQ with `pc` = its PC), except when the head is a WFI (it retires first, and the interrupt is taken at the next instruction) or an MMIO load whose request is out. Nothing is taken while the ROB is empty.
+- **The timer's pending bit is registered (DR-146).** The core keeps a snapshot of the ACLINT's `mtime` (`mtime_q`), so the ACLINT reaches the core register to register. The Sstc compare `mtime_q >= stimecmp` runs between registers into `stip_q`, which `mip.STIP` reads. The 64-bit compare thus leaves the interrupt selection and the commit decision: the full chip's "ACLINT timer → rename" path.
+  - STIP shows two cycles after `mtime` crosses `stimecmp`, and a cycle after a write to `stimecmp`, `menvcfg` or `mip`. An interrupt is asynchronous, so the delay is legal.
+  - Such a write retires alone and flushes, so no instruction reaches the ROB head before STIP has settled: no spurious interrupt after a write that clears it, none late after one that sets it. `tg_rob` asserts that no interrupt is taken within two cycles of a CSR instruction's retirement.
+  - `time`, `mip` and `sip` reads are nondeterministic in lockstep, so the checker takes the RTL's values.
 
 ### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
 - **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
