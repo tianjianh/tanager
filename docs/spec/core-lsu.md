@@ -103,7 +103,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 | Stage | Load | STA |
 |---|---|---|
 | AG | VA = base + imm; misaligned; D$ data read issued at row VA[11:4] (the page offset, VIPT); VA into the LQ; enter `L_PIPE` | VA; misaligned; byte mask |
-| M1 | DTLB (LD port) on the registered VA → PA; PMA, the DTLB's cached PMP result, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; PMA, the DTLB's cached PMP result, faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
+| M1 | DTLB (LD port) on the registered VA → PA (its match read at AG, core-mmu); PMA, the DTLB's cached PMP result, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port; its match read at AG) → PA; PMA, the DTLB's cached PMP result, faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
 | M2 | as before, and the PMP checker on the registered PA where the decision had no cached result (below) | the PMP checker on the registered PA where the decision had no cached result (S2, below) |
 
 **Ordering stays exact.** Take a load at AG in cycle t_L and a store at AG in cycle t_S.

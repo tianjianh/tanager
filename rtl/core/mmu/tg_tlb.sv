@@ -26,17 +26,24 @@
 //     at least six cycles apart (one walk at a time, asserted). After reset a sweep zeroes the
 //     tables (32 cycles); every entry is invalid until filled, and the key store needs no reset
 //     (clearing a never-filled entry's bits is a no-op).
+//   EARLY ports (CAM = 1): the lookup's VPN comes a cycle ahead (vpn_e; vpn is the same VPN a
+//     cycle later), so the tables are read and matched a cycle ahead and the match registered.
+//     The cycle of the lookup corrects it for the clock edge between: the valid bits now (a flush,
+//     a fill's overlap), and a fill's entry (T_CLEAR now) by the fill's VPN, compared a cycle
+//     ahead too. The lookup's answer is the same; its paths start at flip-flops (timing, DR-145).
 module tg_tlb
   import tg_pkg::*, tg_core_pkg::*;
 #(
   parameter int NE  = 16,
   parameter int NR  = 1,
   parameter bit CAM = 1'b0,
+  parameter logic [NR-1:0] EARLY = '0,      // lookups whose VPN comes a cycle ahead (CAM only)
   localparam int EW = idx_w(NE)
 ) (
   input  logic                clk,
   input  logic                rst,
   input  logic [NR-1:0][26:0] vpn,          // VA[38:12]
+  input  logic [NR-1:0][26:0] vpn_e,        // an EARLY port's VPN a cycle ahead
   output logic [NR-1:0]       hit,
   output tlb_pte_t [NR-1:0]   pte,
   input  logic                fill,
@@ -51,6 +58,8 @@ module tg_tlb
   logic [EW-1:0]         fv;
   logic [NR-1:0][NE-1:0] m;                 // each lookup's matching entries
   logic [NE-1:0]         ov;                // entries the fill's page overlaps
+  logic                  unused_vpn_e;      // read by EARLY ports only
+  assign unused_vpn_e = ^vpn_e;
 
   // a VPN in the page of (k, l)
   function automatic logic vmatch(input logic [26:0] a, input logic [26:0] k, input logic [1:0] l);
@@ -97,7 +106,7 @@ module tg_tlb
       logic [NR:0][NE-1:0]   rd;
       logic [SW-1:0]         ma;            // maintenance address
       for (genvar r = 0; r < NR; r++) begin : g_ra
-        assign ra[r] = vpn[r][LO +: SW];
+        assign ra[r] = EARLY[r] ? vpn_e[r][LO +: SW] : vpn[r][LO +: SW];
         assign w[s][r] = rd[r];
       end
       always_comb begin
@@ -129,13 +138,30 @@ module tg_tlb
     endfunction
 
     for (genvar r = 0; r < NR; r++) begin : g_m
+      logic [26:0]   lv;                     // the VPN the tables are read at
+      logic [NE-1:0] mt;                     // their match
+      assign lv = EARLY[r] ? vpn_e[r] : vpn[r];
       always_comb begin
         logic [NS-1:0][NE-1:0] x;
         for (int s = 0; s < NS; s++) x[s] = w[s][r];
-        m[r] = v_q & tmatch(x, lvl_q, 2'd0);
+        mt = v_q & tmatch(x, lvl_q, 2'd0);
         if (upd) begin                       // the entry being written: its new VPN, compared
-          m[r][uf_q] = v_q[uf_q] && vmatch(vpn[r], uk_q, ul_q);
+          mt[uf_q] = v_q[uf_q] && vmatch(lv, uk_q, ul_q);
         end
+      end
+      if (EARLY[r]) begin : g_early
+        logic [NE-1:0] mq;                   // the match a cycle ahead
+        logic          fq;                   // the VPN in the page a fill writes at that edge
+        always_ff @(posedge clk) begin
+          mq <= mt;
+          fq <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+        end
+        always_comb begin
+          m[r] = mq & v_q;
+          if (ts_q == T_CLEAR) m[r][uf_q] = v_q[uf_q] && fq;
+        end
+      end else begin : g_now
+        assign m[r] = mt;
       end
     end
     assign ov = v_q & tmatch(wm, lvl_q, fill_lvl);
@@ -165,6 +191,16 @@ module tg_tlb
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
       if (!rst) assert (!fill || ts_q == T_IDLE) else $error("tg_tlb: a fill while the tables are busy");
+    end
+    // Every lookup matches what the flip-flop form would (each entry's VPN kept here)
+    logic [NE-1:0][26:0] vs_q;
+    always_ff @(posedge clk) begin
+      if (fill) vs_q[fv] <= fill_vpn;
+      if (!rst && ts_q != T_SWEEP)
+        for (int r = 0; r < NR; r++)
+          for (int e = 0; e < NE; e++)
+            assert (m[r][e] == (v_q[e] && vmatch(vpn[r], vs_q[e], lvl_q[e])))
+              else $error("tg_tlb: lookup %0d's match of entry %0d differs from the entry's VPN", r, e);
     end
 `endif
   end else begin : g_ff

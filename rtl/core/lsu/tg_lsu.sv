@@ -469,8 +469,12 @@ module tg_lsu
   assign dt_vpn[0] = ln_va[38:12];
   assign dt_vpn[1] = sn_va[38:12];
   assign dt_vpn[2] = hd_va[38:12];
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1)) u_dtlb (
-    .clk, .rst, .vpn(dt_vpn), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
+  // With the split, the LD and STA lookups read and match the CAM a cycle ahead, at AG, on the
+  // addresses M1 registers (tg_tlb's EARLY ports: the same answer, from flip-flops in M1)
+  logic [2:0][26:0] dt_vpn_e;
+  assign dt_vpn_e = {27'b0, sta_ag_addr[38:12], ld_ag_addr[38:12]};
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? 3'b011 : 3'b000)) u_dtlb (
+    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
