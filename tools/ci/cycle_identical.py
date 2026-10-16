@@ -23,10 +23,11 @@ With --boot N, also the Linux boot's first N million cycles on the whole SoC: te
 and anything the programs miss. Without --boot, a change to rtl/uncore, rtl/soc or rtl/common (whose
 packages and primitives the uncore uses too) boots 3 million cycles with two cores; --boot 0 skips it.
 
-TIMING_CUTS=0|1 (--timing-cuts) builds both sides' tg_vsim in that profile of the core's timing cuts
-(DR-140; sim/profile.mk); BRANCH_TIMING_CUTS (--branch-timing-cuts) sets this side's only, for example 0
-to show the all-off fallback is cycle-identical to a base without the switches. The boot suite builds the
-package's default.
+TIMING_CUTS=0|1 (--timing-cuts) builds both sides in that profile of the core's timing cuts (DR-140;
+sim/profile.mk), tg_vsim and the boot's tb_boot alike; BRANCH_TIMING_CUTS (--branch-timing-cuts) sets this
+side's only, for example 0 to show the all-off fallback is cycle-identical to a base without the switches.
+The boot takes the profile through tests/unit/boot's Makefile, which reads sim/profile.mk (DR-141 rule 1:
+a cycle cost is reported on the Linux boot by profile).
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -150,13 +151,16 @@ class Side:
 
     def __init__(self, name, kind, cfg, tool, rtl_src, harness_src, tb_src=None, cores=1, tc=None):
         self.name, self.kind, self.cfg, self.cores = name, kind, cfg, cores
-        # The core's timing-cut profile (DR-140; sim/profile.mk): tg_vsim only, None for the package's
-        # default. Part of the key only when forced, so the default's cached builds stay valid.
-        self.tc = tc if kind == "vsim" else None
+        # The core's timing-cut profile (DR-140; sim/profile.mk), None for the package's default. Part of
+        # the key only when forced, so the default's cached builds stay valid. The boot reads the profile
+        # through tests/unit/boot's Makefile, which includes sim/profile.mk: archived when forced.
+        self.tc = tc
         if kind == "vsim":
             self.srcs = [(rtl_src, "rtl"), (harness_src, "sim")]
         else:
             self.srcs = [(rtl_src, "rtl"), (harness_src, "sim/tb"), (tb_src, "tests/unit")]
+            if tc is not None:
+                self.srcs.append((harness_src, "sim/profile.mk"))
         trees = [git("rev-parse", f"{src}:{path}") for src, path in self.srcs]
         self.key = sha1(kind, *trees, cfg, cores, tool, *([f"tc{self.tc}"] if self.tc is not None else []))[:16]
         self.dir = os.path.join(CACHE, "build", self.key)
@@ -208,7 +212,8 @@ class Side:
                 tb = " ".join(os.path.join(src, f) for f in ("tests/unit/boot/tb_boot.sv", "sim/tb/tg_soc_sig.sv",
                                                               "sim/tb/tg_soc_sig_bind.sv"))
                 cmd = ["make", "-s", "-C", bdir, f"CFG={self.cfg}", f"CORES={self.cores}", "VTHREADS=1",
-                       f"JOBS={jobs}", f"SOC_BUILD={obj}", f"TB={tb}", "build"]
+                       f"JOBS={jobs}", f"SOC_BUILD={obj}", f"TB={tb}",
+                       *([f"TIMING_CUTS={self.tc}"] if self.tc is not None else []), "build"]
             p = subprocess.run(cmd, env=env, capture_output=True, text=True)
             made = (glob.glob(os.path.join(obj, "tg_vsim")) if self.kind == "vsim" else
                     glob.glob(os.path.join(obj, "tests", "*", "tb_boot")))
@@ -572,8 +577,8 @@ def main():
     ap.add_argument("--branch-args", default="",
                     help="extra tg_vsim options for this tree's side only (to check that the tool sees a difference)")
     ap.add_argument("--timing-cuts", type=int, choices=(0, 1), default=None,
-                    help="build both sides' tg_vsim with this profile of the core's timing cuts (DR-140; "
-                         "default: the core package's)")
+                    help="build both sides (tg_vsim and the boot) with this profile of the core's timing cuts "
+                         "(DR-140; default: the core package's)")
     ap.add_argument("--branch-timing-cuts", type=int, choices=(0, 1), default=None,
                     help="this side's profile only: 0 checks the all-off fallback against a base without the switches")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
@@ -623,7 +628,12 @@ def main():
             fail("--timing-cuts needs --harness branch: the profile is a make variable of this tree's sim/")
         prof = lambda t: "the package's default" if t is None else f"TIMING_CUTS={t}"
         log(f"  timing cuts (DR-140): base {prof(tc_base)}, this side {prof(tc_branch)}"
-            f"{'; the boot suite builds the default' if a.boot else ''}")
+            f"{', on the boot too' if a.boot else ''}")
+        # tests/unit/boot reads sim/profile.mk only if it is there (soc-2's 97b528a), so a boot tree
+        # without the hook would build the default without a word: refuse it instead.
+        if a.boot and "TC_DEF" not in git("show", f"{tb_src}:tests/unit/boot/Makefile"):
+            fail("--timing-cuts with the boot needs a tests/unit/boot whose Makefile takes TIMING_CUTS: "
+                 "give --boot-tree with a ref that has it, or --boot 0")
     if not changed and tc_base == tc_branch:
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
     if auto_note:
@@ -639,8 +649,9 @@ def main():
             sides["vsim"] = (Side("base", "vsim", cfg, tool, base_commit, harness_base, tc=tc_base),
                              Side("branch", "vsim", cfg, tool, branch_rtl, tree, tc=tc_branch))
         if a.boot:
-            sides["boot"] = (Side("base", "boot", cfg, tool, base_commit, harness_base, tb_src, a.boot_cores),
-                             Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores))
+            sides["boot"] = (Side("base", "boot", cfg, tool, base_commit, harness_base, tb_src, a.boot_cores,
+                                  tc=tc_base),
+                             Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores, tc=tc_branch))
         if not sides:
             fail("nothing to run: no suites and no --boot")
         build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
