@@ -614,15 +614,10 @@ module tg_l2_bank
   // in each way would probe, and whether each way as the victim is held by agents or dirty, are
   // made from row2 while the hit and the victim pick still form; the hit way and the victim then
   // select them, and the state the allocation enters is made from the selected bits directly
-  // (one-hot, no state decode). So are the agents the allocation probes and its Grant's cap, which
-  // its MSHR's flags take. The decision block below makes the same values from e2 and vic (checked
-  // by assertions).
+  // (one-hot, no state decode). The decision block below makes the same values from e2 and vic
+  // (checked by assertions).
   logic [WAYS-1:0] hp_w, vp_w, vd_w;   // per way: a hit there probes; as the victim: held, dirty
-  logic [WAYS-1:0][N_AGENTS-1:0] ph_w, pv_w;   // per way: the agents a hit there probes; the victim's holders
-  logic [WAYS-1:0] gt_w;               // per way: an Acquire hit there without probes is granted T
   logic            hp_s, vp_s, vd_s;   // the hit way's and the victim's
-  logic [N_AGENTS-1:0] probe_s;        // the agents the allocation probes (s2_alloc_probe)
-  logic            grant_s;            // its Grant's cap is T (s2_alloc_grant_t)
   logic [NMS-1:0]  alloc_oh;           // the state an allocating request's MSHR enters
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
@@ -633,18 +628,13 @@ module tg_l2_bank
         PK_GET:  pw = row2.way[w].tip ? row2.way[w].pres : '0;
         default: pw = row2.way[w].pres;
       endcase
-      ph_w[w] = pw;
       hp_w[w] = pw != '0;
       vp_w[w] = row2.way[w].valid && row2.way[w].pres != '0;
       vd_w[w] = row2.way[w].valid && row2.way[w].dirty;
-      pv_w[w] = row2.way[w].valid ? row2.way[w].pres : '0;
-      gt_w[w] = a2_growt || (row2.way[w].pres & ~me2) == '0;   // acq_final's tip
     end
     hp_s = hp_w[hw2];
     vp_s = vp_w[vw2];
     vd_s = vd_w[vw2];
-    probe_s = hit2 ? ph_w[hw2] : pv_w[vw2];
-    grant_s = hit2 ? (p2_q.kind == PK_ACQ && !hp_s && gt_w[hw2]) : !vp_s;
     alloc_oh = '0;
     alloc_oh[MS_PROBE] = hit2 ? hp_s : vp_s;
     alloc_oh[MS_RESP]  = hit2 && !hp_s && p2_q.kind != PK_PUT;
@@ -870,23 +860,16 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // Probe sender (B)
   // ---------------------------------------------------------------------------------------------
-  // The probe goes to the picked MSHR's lowest agent still to probe. Each MSHR's is made from its
-  // own flags ahead of the pick, which then selects one (200 MHz, DR-142: the agent sets the
-  // probe's destination, which the crossbar's B arbiter weighs before it answers either bank).
   logic [N_MSHR-1:0] pr_req;
   logic [MW-1:0]     pr_ptr_q, pr_m;
   logic [AGENT_W-1:0] pr_ag;
-  logic [N_MSHR-1:0][AGENT_W-1:0] pr_nag;   // per MSHR: its lowest agent still to probe
   always_comb begin
-    for (int m = 0; m < N_MSHR; m++) begin
-      logic [N_AGENTS-1:0] todo;
-      todo      = m_ppend[m] & ~m_psent[m];
-      pr_req[m] = ms[m][MS_PROBE] && todo != '0;
-      pr_nag[m] = '0;
-      for (int a = N_AGENTS - 1; a >= 0; a--) if (todo[a]) pr_nag[m] = AGENT_W'(a);
-    end
+    logic [N_AGENTS-1:0] todo;
+    for (int m = 0; m < N_MSHR; m++) pr_req[m] = ms[m][MS_PROBE] && (m_ppend[m] & ~m_psent[m]) != '0;
     pr_m  = rr_pick(pr_req, pr_ptr_q);
-    pr_ag = pr_nag[pr_m];
+    todo  = m_ppend[pr_m] & ~m_psent[pr_m];
+    pr_ag = '0;
+    for (int a = N_AGENTS - 1; a >= 0; a--) if (todo[a]) pr_ag = AGENT_W'(a);
   end
   always_comb begin
     b_o         = '0;
@@ -1531,8 +1514,8 @@ module tg_l2_bank
       if (s2_alloc) begin
         m_line[m_new]      <= p2_q.line;
         m_hit[m_new]       <= s2_alloc_hit;
-        m_grant_t[m_new]   <= grant_s;           // s2_alloc_grant_t
-        m_ppend[m_new]     <= probe_s;           // s2_alloc_probe
+        m_grant_t[m_new]   <= s2_alloc_grant_t;
+        m_ppend[m_new]     <= s2_alloc_probe;
         m_psent[m_new]     <= '0;
         m_pcap_n[m_new]    <= s2_alloc_pcap_n;
         m_pvict[m_new]     <= s2_alloc_pvict;
@@ -1700,10 +1683,6 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
-      // The MSHR flags an allocation writes are the decision's
-      if (s2_alloc) assert (probe_s == s2_alloc_probe && grant_s == s2_alloc_grant_t)
-        else $error("tg_l2_bank%0d: allocation probes %b grant_t %b, decided %b %b", BANK, probe_s, grant_s,
-                    s2_alloc_probe, s2_alloc_grant_t);
       // A probe presented is a request's, and its flag select is the agent the probe names
       if (b_valid_o) assert (pr_req[pr_m] && ps_sel[pr_m] == onehot_ag(pr_ag))
         else $error("tg_l2_bank%0d: probe of MSHR %0d agent %0d, flag select %b", BANK, pr_m, pr_ag, ps_sel[pr_m]);
