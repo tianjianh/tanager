@@ -13,7 +13,8 @@ module tg_host_bridge
   parameter bit          CORE_RST_INIT   = 1'b1,
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
-  parameter logic [39:0] DRAM_SIZE_INIT  = '0
+  parameter logic [39:0] DRAM_SIZE_INIT  = '0,
+  parameter bit          TRACE           = 1'b1          // the trace stream is built (tg_uncore TRACE; DR-146)
 ) (
   // ---- host domain ----
   input  logic        clk_host,
@@ -169,7 +170,7 @@ module tg_host_bridge
       16'h000: rd_mux = ID;
       16'h004: rd_mux = {VER_MAJ, VER_MIN, 4'(N_CORES_SOC), 4'(1 << TID_W), CFG_CODE};
       16'h008: rd_mux = 32'(CLK_HZ);
-      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), 4'b1011};    // [0] L2, [1] injector, [3] trace streaming
+      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), TRACE, 3'b011};  // [0] L2, [1] injector, [3] trace streaming
       16'h010: rd_mux = {29'd0, ctrl_q};
       16'h014: rd_mux = {28'd0, pwr_pend_q, st_h.l2_init, st_h.uncore_rst, st_h.cores_rst};
       16'h018: rd_mux = {pwr_pend_q, 15'd0, st_h.power_val};
@@ -283,14 +284,14 @@ module tg_host_bridge
           16'h0C0: tg_en_q <= wd[0];
           16'h0C4: tg_base_q <= wd[27:0];
           16'h0C8: tg_lines_q <= wd[23:0];
-          16'h1000: trs_ctrl_q <= {wd[9:8], 6'd0, wd[1:0]};
+          16'h1000: if (TRACE) trs_ctrl_q <= {wd[9:8], 6'd0, wd[1:0]};
           16'h1008, 16'h1018, 16'h1020, 16'h1030: lo_shadow_q <= wd;
-          16'h100C: trs_stop_pc_q  <= {wd, lo_shadow_q};
-          16'h1010: trs_post_q     <= wd[15:0];
-          16'h101C: trs_start_pc_q <= {wd, lo_shadow_q};
-          16'h1024: trs_base_q     <= {wd, lo_shadow_q};
-          16'h1028: trs_size_q     <= wd[4:0];
-          16'h1034: trs_rp_q       <= {wd, lo_shadow_q};
+          16'h100C: if (TRACE) trs_stop_pc_q  <= {wd, lo_shadow_q};
+          16'h1010: if (TRACE) trs_post_q     <= wd[15:0];
+          16'h101C: if (TRACE) trs_start_pc_q <= {wd, lo_shadow_q};
+          16'h1024: if (TRACE) trs_base_q     <= {wd, lo_shadow_q};
+          16'h1028: if (TRACE) trs_size_q     <= wd[4:0];
+          16'h1034: if (TRACE) trs_rp_q       <= {wd, lo_shadow_q};
           default: ;
         endcase
       end else if (s_bvalid && s_bready) begin

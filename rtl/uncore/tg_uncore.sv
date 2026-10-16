@@ -67,6 +67,11 @@ module tg_uncore
   // The L2 directory RAM written a cycle after S2, from the bypass's newest history entry (with a
   // third entry), so S2's paths end at flip-flops, not the RAM's pins (DR-142; cycle-identical)
   parameter bit          L2_DIR_S3       = 1'b1,
+  // The commit-trace stream to the PS (tg_trace_stream and the host bridge's trace registers), built
+  // when the trace is (tg_trace_pkg COMMIT_TRACE, +define+TG_COMMIT_TRACE; DR-146). Off, the trace inputs are
+  // ignored, trace_stall_o is 0, the trace master stays idle (AWVALID = WVALID = 0, BREADY = 1) and
+  // the host bridge's capability bit 3 (trace streaming) reads 0
+  parameter bit          TRACE           = COMMIT_TRACE,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -528,25 +533,44 @@ module tg_uncore
   logic [39:0]  trs_base;
   logic [4:0]   trs_size, trs_flags;
   logic [31:0]  trs_stalls;
-  tg_trace_stream #(.N_CORES (N_CORES)) u_trace (
-    .clk, .rst (uncore_rst),
-    .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i, .trace_stall_o,
-    .enable_i (trs_en), .wrap_i (trs_wrap), .stop_arm_i (trs_stop_arm), .stop_pc_i (trs_stop_pc),
-    .post_i (trs_post), .start_arm_i (trs_start_arm), .start_pc_i (trs_start_pc), .base_i (trs_base),
-    .size_log2_i (trs_size), .rp_i (trs_rp),
-    .wp_o (trs_wp), .capturing_o (trs_flags[0]), .started_o (trs_flags[1]), .stopped_o (trs_flags[2]),
-    .full_o (trs_flags[3]), .axi_err_o (trs_flags[4]), .buffered_o (trs_buffered), .stall_cycles_o (trs_stalls),
-    .aw_o (m_axi_trace_aw), .aw_valid_o (m_axi_trace_aw_valid), .aw_ready_i (m_axi_trace_aw_ready),
-    .w_o (m_axi_trace_w), .w_valid_o (m_axi_trace_w_valid), .w_ready_i (m_axi_trace_w_ready),
-    .b_i (m_axi_trace_b), .b_valid_i (m_axi_trace_b_valid), .b_ready_o (m_axi_trace_b_ready)
-  );
+  if (TRACE) begin : g_trace
+    tg_trace_stream #(.N_CORES (N_CORES)) u_trace (
+      .clk, .rst (uncore_rst),
+      .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i, .trace_stall_o,
+      .enable_i (trs_en), .wrap_i (trs_wrap), .stop_arm_i (trs_stop_arm), .stop_pc_i (trs_stop_pc),
+      .post_i (trs_post), .start_arm_i (trs_start_arm), .start_pc_i (trs_start_pc), .base_i (trs_base),
+      .size_log2_i (trs_size), .rp_i (trs_rp),
+      .wp_o (trs_wp), .capturing_o (trs_flags[0]), .started_o (trs_flags[1]), .stopped_o (trs_flags[2]),
+      .full_o (trs_flags[3]), .axi_err_o (trs_flags[4]), .buffered_o (trs_buffered), .stall_cycles_o (trs_stalls),
+      .aw_o (m_axi_trace_aw), .aw_valid_o (m_axi_trace_aw_valid), .aw_ready_i (m_axi_trace_aw_ready),
+      .w_o (m_axi_trace_w), .w_valid_o (m_axi_trace_w_valid), .w_ready_i (m_axi_trace_w_ready),
+      .b_i (m_axi_trace_b), .b_valid_i (m_axi_trace_b_valid), .b_ready_o (m_axi_trace_b_ready)
+    );
+  end else begin : g_no_trace
+    // no trace stream: the cores' records are dropped (they send none in such a build), and the
+    // trace master toward the PS never starts a write
+    assign trace_stall_o        = '0;
+    assign m_axi_trace_aw       = '0;
+    assign m_axi_trace_aw_valid = 1'b0;
+    assign m_axi_trace_w        = '0;
+    assign m_axi_trace_w_valid  = 1'b0;
+    assign m_axi_trace_b_ready  = 1'b1;
+    assign trs_wp       = '0;
+    assign trs_flags    = '0;
+    assign trs_buffered = '0;
+    assign trs_stalls   = '0;
+    wire unused_trace = ^{trace_i, trace_valid_i, trace_wb_i, trace_wb_valid_i, m_axi_trace_aw_ready,
+                          m_axi_trace_w_ready, m_axi_trace_b, m_axi_trace_b_valid, trs_en, trs_wrap,
+                          trs_stop_arm, trs_stop_pc, trs_post, trs_start_arm, trs_start_pc, trs_base,
+                          trs_size, trs_rp};
+  end
 
   localparam logic [7:0] CFG_CODE = (CFG_NAME == "smt2") ? 8'd1 : (CFG_NAME == "st_w3") ? 8'd2 :
                                     (CFG_NAME == "smt2_w3") ? 8'd3 : 8'd0;
   tg_host_bridge #(
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
