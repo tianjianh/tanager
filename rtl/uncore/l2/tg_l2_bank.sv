@@ -944,15 +944,15 @@ module tg_l2_bank
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
   // The probe handshake's effects (200 MHz, DR-142): the crossbar's ready arrives last (its B
-  // arbiter weighs both banks' probes), so the flag each probe sets is selected ahead of it and kept
-  // apart (synthesis merged the select with the ready and the allocation's clear, 3 LUT levels past
-  // the ready), and the ready enters one LUT before each flag's enable; the pointer takes the
-  // handshake as its clock enable. The probe on B is MSHR pr_m's, for its lowest agent still to
+  // arbiter weighs both banks' probes), so the flag each probe sets is selected ahead of it, and the
+  // ready enters one LUT before each flag's enable; the pointer takes the handshake as its clock
+  // enable. Since the pick is a register (pr_m_q) the selects are early without a keep (which had
+  // cost 157 LUTs at st by stopping synthesis from sharing them). The probe on B is MSHR pr_m's, for its lowest agent still to
   // probe, so each MSHR's select is the pick's decode and that MSHR's own lowest agent (no 24:1
   // select of the agent).
   (* direct_enable = "yes" *) wire pr_fire = b_valid_o && b_ready_i;
-  (* keep = "true" *) logic [N_MSHR-1:0]                ps_hit;   // the probe on B is MSHR m's
-  (* keep = "true" *) logic [N_MSHR-1:0][N_AGENTS-1:0]  ps_sel;   // ... and for agent a
+  logic [N_MSHR-1:0]                ps_hit;   // the probe on B is MSHR m's
+  logic [N_MSHR-1:0][N_AGENTS-1:0]  ps_sel;   // ... and for agent a
   always_comb
     for (int m = 0; m < N_MSHR; m++) begin
       logic [N_AGENTS-1:0] todo_m;
