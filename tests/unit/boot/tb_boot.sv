@@ -17,6 +17,13 @@ module tb_boot;
 
   parameter int N_CORES = 1;
   parameter bit UART_SERIAL_TB = 1'b0;   // console on the serial line; the host keeps a copy
+  // The DDR models' timing: random by default; MEM_LAT_MIN = MEM_LAT_MAX with every *_PCT at 100 and
+  // MEM_OOO 0 gives the board's fixed latency, where the cores run in step from reset
+  parameter int MEM_LAT_MIN   = 4;
+  parameter int MEM_LAT_MAX   = 12;
+  parameter int MEM_READY_PCT = 95;
+  parameter bit MEM_OOO       = 1'b1;
+  parameter int MEM_R_PCT     = 85;
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -77,7 +84,8 @@ module tb_boot;
   );
 
   for (genvar k = 0; k < N_BANKS; k++) begin : g_mem
-    tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(12), .READY_PCT(95), .OOO(1'b1), .NAME($sformatf("ddr%0d", k))) u_mem (
+    tb_axi_mem #(.LAT_MIN(MEM_LAT_MIN), .LAT_MAX(MEM_LAT_MAX), .READY_PCT(MEM_READY_PCT), .OOO(MEM_OOO),
+                 .R_PCT(MEM_R_PCT), .NAME($sformatf("ddr%0d", k))) u_mem (
       .clk, .rst,
       .ar_i (ar[k]), .ar_valid_i (arv[k]), .ar_ready_o (arr[k]),
       .r_o (r[k]), .r_valid_o (rv[k]), .r_ready_i (rr[k]),
@@ -299,6 +307,7 @@ module tb_boot;
     if (!$value$plusargs("expect=%s", expect_s)) expect_s = "";
     if (!$value$plusargs("max_mcycles=%d", max_m)) max_m = 20;
     max_cycles = longint'(max_m) * 1_000_000;
+    if ($value$plusargs("max_kcycles=%d", max_m)) max_cycles = longint'(max_m) * 1_000;   // a short run
     $display("tb_boot: %0d core(s) x %0d thread(s), expect \"%s\", up to %0d M cycles", N_CORES, NUM_THREADS, expect_s, max_m);
     for (int h = 0; h < NH_TB; h++) last_n[h] = 0;
 
