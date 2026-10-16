@@ -380,7 +380,9 @@ module tg_fetch
   assign f1_live = f1_base && !f1_pwait;
   assign f2_go   = !f2_hold && !redirect;
   logic f2_override;                     // F2 drops the prediction: refetch the next block
-  assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !f2_isfault;
+  // (isf_h[0], not f2_isfault: when the prediction stands, the term is zero anyway, and otherwise
+  // f2_isfault is isf_h[0]; so the override does not wait for the pick by hp)
+  assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !isf_h[0];
   logic am_go, aw_go;                    // F2's miss or ITLB miss of last cycle parks fetch now
   assign am_go  = ka_q && k_miss_q;
   assign aw_go  = ka_q && k_walk_q;
