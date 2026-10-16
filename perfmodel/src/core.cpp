@@ -1009,7 +1009,7 @@ void Core::exec_store(Uop& u) {
   }
   if (c_.rfo_pf) mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 2);  // store streams prefetch ownership ahead
   u.t_ready = t + 1;
-  u.t_done = t + 3 + (uint64_t)c_.abl_done;  // address done; data readiness is checked at commit
+  u.t_done = t + 3 + (uint64_t)c_.abl_done + (uint64_t)c_.abl_st_done;  // address done; data readiness is checked at commit
 }
 
 void Core::do_issue(Uop& u, int /*port*/) {
@@ -1331,6 +1331,7 @@ bool Core::drain_thread(Thread& T) {
     uint64_t r;
     mem_.l1d(pa(T, s.addr), t_, MemSys::STORE, r);
     T.sq.pop_front();
+    T.drain_wait = NEVER;
     return true;
   }
   // With SMT, the line requested for the store can be evicted before the store drains (the sibling's misses churn
@@ -1339,10 +1340,25 @@ bool Core::drain_thread(Thread& T) {
   const bool lost = s.rfo && !mem_.l1d_has(pa(T, s.addr));
   if (!s.rfo || (nthr_ > 1 && lost)) {
     uint64_t r;
-    if (mem_.l1d(pa(T, s.addr), t_, MemSys::STORE, r) != MemSys::Res::NO_MSHR) s.rfo = true;
+    if (mem_.l1d(pa(T, s.addr), t_, MemSys::STORE, r) != MemSys::Res::NO_MSHR) {
+      s.rfo = true;
+      T.drain_wait = NEVER;
+    } else if (T.drain_wait == NEVER) {
+      T.drain_wait = t_;
+    }
     return true;
   }
   return false;
+}
+
+// With one L1D MSHR, loads book it at their access time (issue + 3) while the drain asks at the current cycle, so a
+// sibling thread's stream of misses can hold off a committed store for good. With `drain_guard` set, a store that has
+// waited that long makes loads and prefetches leave it an MSHR.
+int Core::drain_reserve() const {
+  if (c_.drain_guard <= 0) return 0;
+  for (auto& Tp : th_)
+    if (Tp->drain_wait != NEVER && t_ >= Tp->drain_wait + (uint64_t)c_.drain_guard) return 1;
+  return 0;
 }
 
 // ---------------------------------------------------------------- flush (memory-order violation, NaxRiscv hit flush)
@@ -1493,6 +1509,7 @@ bool Core::run() {
     if (c_.mdp_clear > 0 && t_ % (uint64_t)c_.mdp_clear == 0) waittab_.reset();
     commit();
     drain_stores();
+    mem_.drain_reserve = drain_reserve();
     issue();
     dispatch();
     decode();

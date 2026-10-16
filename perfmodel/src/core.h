@@ -175,6 +175,7 @@ class Core {
     Stats st, st_start, st_end;
     MemStats ms_start, ms_end;
     uint64_t last_commit_t = 0;
+    uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
     // multithreaded runs
     int lap = 0;                   // completed runs of the program
     bool first_done = false;
@@ -200,6 +201,7 @@ class Core {
   int commit_thread(Thread& T, int width);
   void drain_stores();
   bool drain_thread(Thread& T);
+  int drain_reserve() const;  // 1 while a committed store has waited `drain_guard` cycles for an L1D MSHR
   // helpers
   bool predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t block_start, bool ubtb_hit,
                     uint64_t ubtb_tgt, int& bubble);
