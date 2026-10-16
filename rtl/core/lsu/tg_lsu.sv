@@ -104,7 +104,8 @@ module tg_lsu
   input  logic                         satp_sv39,
   input  logic [43:0]                  satp_ppn,
   input  pmp_d_t [15:0]                pmp_d,
-  input  logic [15:0][2:0]             pmp_pal,
+  input  logic [2:0]                   pmp_al,
+  input  logic [15:0]                  pmp_p2m,
   input  logic                         tlb_flush,
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,
@@ -1009,7 +1010,7 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
+    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,
     .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),

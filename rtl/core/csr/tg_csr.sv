@@ -61,7 +61,8 @@ module tg_csr
   output logic [43:0]            satp_ppn,
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
   output pmp_d_t [15:0]          pmp_d,        // PMP region descriptors (registered)
-  output logic [15:0][2:0]       pmp_pal,      // each entry's address is aligned to a 1G / 2M / 4K page
+  output logic [2:0]             pmp_al,       // every 1G / 2M / 4K page is PMP-homogeneous
+  output logic [15:0]            pmp_p2m,      // each entry's address is aligned to a 2M page
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
   output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
   // Interrupt inputs and time
@@ -207,10 +208,13 @@ module tg_csr
   // pmp_al follows a cycle later. pmp_busy holds fetch meanwhile: the write's flush has emptied
   // the window, so nothing else checks PMP until fetch resumes. After reset a sweep writes the
   // reset values (entry 0: NAPOT over everything), then every entry is computed.
-  // pmp_pal[i]: entry i's address is aligned to a 1G / 2M / 4K page (or above every PA), for the
-  // walker's check of the leaf page (tg_ptw: is it PMP-homogeneous?).
+  // pmp_al[j]: no active region boundary lies strictly inside a page of 2^k granules (k = 28, 19,
+  // 10: 1G, 2M, 4K), so every such page can cache one result; the walker takes it for 4K and 1G
+  // leaves. pmp_p2m[i]: entry i's address is aligned to a 2M page (or above every PA), for the
+  // walker's check of a 2M leaf (tg_ptw: is that page PMP-homogeneous?).
   pmp_d_t [NPMP-1:0]     pmp_d_q;
   logic [NPMP-1:0][2:0]  pal_top_q;     // entry's address aligned to 1G / 2M / 4K pages
+  logic [2:0]            pmp_al_n, pmp_al_q;
   logic [NPMP-1:0]       pdirty_q;
   logic                  pchg_q;        // a descriptor changed last cycle: pmp_al follows
   logic [4:0]            psw_q;         // reset sweep of the pmpaddr LUTRAM
@@ -254,14 +258,24 @@ module tg_csr
               pd_n.hi || (pd_n.a & AL4K) == '0};
   end
   assign pa_ra[1] = pj;
+  always_comb begin
+    pmp_al_n = '1;
+    for (int i = 0; i < NPMP; i++) begin
+      if (pmp_d_q[i].tor) pmp_al_n &= pal_top_q[i] & ((i == 0) ? 3'b111 : pal_top_q[(i + NPMP - 1) % NPMP]);
+      if (pmp_d_q[i].nap && !pmp_d_q[i].above)
+        pmp_al_n &= ~{pmp_d_q[i].mask[27], pmp_d_q[i].mask[18], pmp_d_q[i].mask[9]};
+    end
+  end
   always_ff @(posedge clk) begin
     if (pcalc) begin
       pmp_d_q[pj]   <= pd_n;
       pal_top_q[pj] <= ptop_n;
     end
+    pmp_al_q <= pmp_al_n;
   end
   assign pmp_d    = pmp_d_q;
-  assign pmp_pal  = pal_top_q;
+  assign pmp_al   = pmp_al_q;
+  always_comb for (int i = 0; i < NPMP; i++) pmp_p2m[i] = pal_top_q[i][1];
   assign pmp_busy = psweep || |pdirty_q || pchg_q;
   assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0};
 
