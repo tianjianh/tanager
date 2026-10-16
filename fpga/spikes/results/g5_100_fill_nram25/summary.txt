@@ -1,0 +1,19 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 100
+uncore_dsp               0x0000008403080000
+synth                    -flatten_hierarchy none -directive AreaOptimized_high
+floorplan                fpga/spikes/tcl/fp/g4_uncore.tcl
+generics                 -generic FILL_TILES=47 -generic FILL_NRAM=25
+pblocks                  3
+prim_fail_synth          0
+synth_s                  2657
+synth_lut_total          118832
+synth_lut_logic          95132
+synth_lut_mem            23700
+synth_ff                 63062
+synth_bram_tile          115
+synth_uram               32
+synth_dsp                144
+prim_fail_opt            0
