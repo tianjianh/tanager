@@ -23,6 +23,14 @@ ROB_STORE_REPORT_LATE ?=
 ifneq ($(filter-out 0 1,$(ROB_STORE_REPORT_LATE)),)
   $(error ROB_STORE_REPORT_LATE must be 0, 1 or unset (got "$(ROB_STORE_REPORT_LATE)"))
 endif
+# The commit trace (DR-146, +define+TG_COMMIT_TRACE=0|1, rtl/common/tg_trace_pkg.sv): on by default, and
+# everything that runs programs here checks it, so off is for lint only.
+COMMIT_TRACE ?=
+ifneq ($(filter-out 0 1,$(COMMIT_TRACE)),)
+  $(error COMMIT_TRACE must be 0, 1 or unset (got "$(COMMIT_TRACE)"))
+endif
 # The lint-only switches together, for the lint targets; a build that runs programs refuses them.
-LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE))
-LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE))
+LINT_ONLY_DEF := $(DE_DEF) $(if $(ROB_STORE_REPORT_LATE),+define+TG_ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
+                 $(if $(COMMIT_TRACE),+define+TG_COMMIT_TRACE=$(COMMIT_TRACE))
+LINT_ONLY_SET := $(if $(DE_STAGE),DE_STAGE=$(DE_STAGE)) $(if $(ROB_STORE_REPORT_LATE),ROB_STORE_REPORT_LATE=$(ROB_STORE_REPORT_LATE)) \
+                 $(if $(filter 0,$(COMMIT_TRACE)),COMMIT_TRACE=0)
