@@ -1018,12 +1018,15 @@ module tg_l2_bank
   logic [RAW-1:0]   da_raddr;
   logic [255:0]     da_rdata;
   // Read latency DATA_LAT: the output register (2), plus cascade pipeline stages above 2 (4 for the
-  // 4-deep URAM cascade at 200 MHz). The read-tag pipeline below follows it.
+  // 4-deep URAM cascade at 200 MHz). The read-tag pipeline below follows it. The write port stays
+  // enabled (WR_PORT_ON): its enable was the OR of the 32 byte enables, 3 LUT levels at the end of
+  // the C, Put and fill selects, then through every URAM of the cascade (-0.87 ns at 125 MHz in the
+  // full chip, G5R); the same bytes are written
   if (DATA_LAT < 2) begin : g_bad_lat
     $error("tg_l2_bank: DATA_LAT must be at least 2 (output register)");
   end
   tg_ram_sdp #(.DEPTH(SETS * WAYS * 2), .WIDTH(256), .BYTE_W(8), .OUT_REG(1'b1), .RD_LAT(DATA_LAT),
-               .PRIM(DATA_PRIM)) u_data (
+               .PRIM(DATA_PRIM), .WR_PORT_ON(1'b1)) u_data (
     .clk, .we (da_we), .waddr (da_waddr), .wdata (da_wdata), .re (da_re), .raddr (da_raddr), .rdata (da_rdata)
   );
 

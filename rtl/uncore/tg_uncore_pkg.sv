@@ -119,4 +119,16 @@ package tg_uncore_pkg;
   function automatic logic [1:0] tl_d_last(input tl_d_op_e op, input logic [TL_SIZE_W-1:0] size);
     return tl_d_has_data(op) ? tl_last_beat(size) : 2'd0;
   endfunction
+
+  // ---- Build switches' defaults: tg_uncore's, which tanager_soc and kv260_top pass on (DR-146) ----
+  // (each switch's meaning is at its parameter in tg_uncore)
+  localparam logic [63:0] UNCORE_DSP_DEF    = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000};
+  localparam int          L2_DATA_LAT_DEF   = 2;
+  localparam bit          AR_SLICE_DEF      = 1'b1;     // on since 10-15 (the user, DR-143)
+  localparam bit          B_SLICE_DEF       = 1'b0;
+  localparam bit          D_SLICE_DEF       = 1'b0;
+  localparam bit          W_SLICE_DEF       = 1'b0;
+  localparam logic [3:0]  XBAR_IN_SLICE_DEF = 4'b0000;
+  localparam bit          XBAR_SLICE_DEF    = 1'b1;
+  localparam bit          MEM_SLICE_DEF     = 1'b1;
 endpackage

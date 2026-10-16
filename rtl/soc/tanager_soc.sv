@@ -11,13 +11,22 @@ module tanager_soc
   parameter int          L2_SETS         = 1024,
   parameter int          L2_MSHR         = 24,
   parameter              L2_PRIM         = "ultra",
-  parameter int          L2_DATA_LAT     = 2,          // 4 for the URAM cascade at 200 MHz
+  parameter int          L2_DATA_LAT     = L2_DATA_LAT_DEF,  // 2; 4 for the URAM cascade at 200 MHz
   parameter bit          CORE_RST_INIT   = 1'b1,
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          UART_SERIAL     = 1'b0,       // console on uart_txd_o/uart_rxd_i (tg_uncore)
-  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},  // slices in DSPs (tg_uncore)
+  parameter logic [63:0] UNCORE_DSP      = UNCORE_DSP_DEF,    // slices in DSPs (tg_uncore)
+  // tg_uncore's register slices (DR-135, DR-146): each switch's meaning is at tg_uncore's parameter,
+  // and the defaults are tg_uncore_pkg's
+  parameter bit          AR_SLICE        = AR_SLICE_DEF,
+  parameter bit          B_SLICE         = B_SLICE_DEF,
+  parameter bit          D_SLICE         = D_SLICE_DEF,
+  parameter bit          W_SLICE         = W_SLICE_DEF,
+  parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
+  parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
+  parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -179,7 +188,8 @@ module tanager_soc
     .N_CORES (N_CORES), .CLK_HZ (CLK_HZ), .L2_SETS (L2_SETS), .L2_MSHR (L2_MSHR), .L2_PRIM (L2_PRIM),
     .L2_DATA_LAT (L2_DATA_LAT), .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
-    .UNCORE_DSP (UNCORE_DSP)
+    .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
+    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,

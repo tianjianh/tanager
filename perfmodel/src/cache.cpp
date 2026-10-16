@@ -156,7 +156,7 @@ MemSys::Res MemSys::l1d(uint64_t addr, uint64_t t, Kind kind, uint64_t& ready) {
     if (demand) for (auto& m : l1d_m_) if (m.line == line && m.ready > t) m.demand = true;
     return Res::MISS;
   }
-  const int reserve = (kind == PREFETCH || kind == RFO_PF) ? 2 : 0;
+  const int reserve = ((kind == PREFETCH || kind == RFO_PF) ? 2 : 0) + (kind == STORE ? 0 : drain_reserve);
   if ((int)l1d_m_.size() - busy(l1d_m_, t) <= reserve || l1d_capped(t)) {
     if (demand) CNT(l1d_no_mshr);
     return Res::NO_MSHR;

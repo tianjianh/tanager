@@ -184,6 +184,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | c4f7350 | L2: the allocation's held and dirty flags without the victim pick (c244fd6, 0dbdd58), the victim read-out's set in a register (26c16ce), the `ProbeAck` search's matches kept apart (c4f7350); together +10; cycle-identical | 19,649 | | 18,573 at `st` | **18** |
 | cb7bb99 | L2: the AR pick made a cycle ahead (+115); cycle-identical | 19,764 | | 18,583 at `st` | **18** |
 | 944728f | L2: the probe flags' selects without their `keep` (−157: the no-IPC offset for cb7bb99 under DR-145's margin of about 0.3K); `XBAR_SLICE` and `MEM_SLICE` (9759d22), on (0: measured on the same RTL without the switches; all off with the AR slice, −1,174, [soc.md](../spec/soc.md)); cycle-identical | 19,607 | | 18,583 at `st` | **18** |
+| dbc3105 | tanager_soc and kv260_top pass on the slice switches (f08881c, 0); the commit trace as a build switch (DR-146): on by default (0); off (`TG_COMMIT_TRACE=0`): 16,541 LUTs and 16,559 FFs (−3,066 and −2,024: the trace stream 2,904 and 391, the host bridge's trace registers 130 and 1,637); cycle-identical | 19,607 | | 18,583 at `st` | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
@@ -299,6 +300,20 @@ The default is `64'h84_0308_0000`, with 21 DSPs at the sites, plus 4 for the ACL
 - Whole design: every site in DSPs is 18,754 LUTs, 16,521 FFs and 90 DSPs; every site in fabric 20,064, 19,349 and 5; the default 19,764, 18,583 and 26. So every site in DSPs saves 1,010 LUTs and 2,062 FFs against the default for 64 more DSPs (the default saves 300 and 766 against fabric). The instances add up to 1,480 LUTs against the whole design's 1,310: synthesis moves the rest around the slices.
 - Per DSP, the D, A (banks and device bus), C, memory W and R and L2 R sites save 16–23 LUTs; memory AR and AW 11–12; the B slices, the ROM's and error responder's A slices and memory B 4–8.
 - Timing: at 200 MHz (028a480 and ca1aece, above) the sites failed in DSPs by up to 1.55 ns (B), 1.36 ns (memory AR) and 0.99 ns (D, MMIO), so at first order 125 MHz's 3 ns more leaves every site at least about 1.4 ns out of context. Not timed at 125 MHz: in the chip a DSP site sits in a DSP column, so the full-chip fit decides.
+
+**DR-145: the uncore inside the chip at 125 MHz** (the study's item 4, from spikes-2's G5R checkpoint: the full chip at 125 MHz, core-2's fn10 in the performance build, hart 1's area emulated, 96% full, the L2 banks in pblocks; [architecture_plan.md](../architecture_plan.md) §8.5; worst path into each block):
+
+| Block | Worst slack | Levels | Logic / route | Path |
+|---|---|---|---|---|
+| L2 bank 1 | −1.320 ns | 13 | 2.35 / 6.74 ns | the directory RAM, the way's hit compare, the hit way, the `ProbeAck` match, the MSHR state update (fan-out 24, a 1.23 ns net) |
+| L2 bank 0 | −0.956 ns | 14 | 2.64 / 6.03 ns | `h0_hit_q` into the victim-tag LUTRAM's data, the two ends 6 sites apart |
+| L2 bank 0, data array | −0.868 ns | 14 | 2.38 / 5.90 ns | the Put write's MSHR, the Put buffer LUTRAM, the R slice's ready (fan-out 173), a byte enable, the 3-level OR into the write enable (`tg_ram_sdp`), 3 URAMs of cascade. Cut by `WR_PORT_ON` (d2ad739, [l2.md](../spec/l2.md) §Timing) |
+| crossbar | −0.342 ns | 11 | 1.53 / 6.28 ns | core 1's fetch into an initiator's lock counter, 103 rows apart |
+| memory ports | +0.406 / +0.764 ns | 7 | | the banks' write-back into the injectors |
+| host bridge, devices, trace stream | +1.25 to +3.20 ns | | | |
+
+- **Placement, not logic.** The worst path is 74% route; the same S2 logic met 200 MHz out of context (under 5 ns in all). In the chip, at 96% full, its route alone is 6.7 ns.
+- **Not the chip's limit.** G5R reaches about 94 MHz, set by the cores. As placed, the uncore's worst path passes 100 MHz with about 0.7 ns to spare (first order).
 
 **By block** (smt2, 059a572):
 
