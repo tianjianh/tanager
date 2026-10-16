@@ -2,7 +2,10 @@
 
 Design: [docs/spec/soc.md](../docs/spec/soc.md) §3–§6, [docs/spec/host.md](../docs/spec/host.md).
 Run everything after `source tools/env.sh && source sw/env.sh`. Build trees go to `$SOC_BUILD`
-(`$TANAGER_BUILD/<worktree>`), downloads to `$SOC_DL`.
+(`$TANAGER_BUILD/<worktree>`), downloads to `$SOC_DL`. The Bootlin toolchains are unpacked once: a worktree
+uses its own `$SOC_BUILD/tc` if it has one, else the shared `$TANAGER_BUILD/tc` (`sw/env.sh` `SOC_AATC`,
+`SOC_RVTC`), so other worktrees and CI build `tanager-host` and OpenSBI without a copy of their own;
+`SOC_TC_DIR=$TANAGER_BUILD/tc bash sw/fetch.sh aatc` installs into the shared directory.
 
 | Path | What | Command |
 |---|---|---|
