@@ -50,6 +50,12 @@ module tg_uncore
   // the memory W slices at -2.3 / -2.4 ns with the banks at the URAM column), for a cycle on every
   // write-back. Off: a DR-135 reserve item, being measured
   parameter bit          W_SLICE         = 1'b0,
+  // Register slices on the cores' request channels, between the core ports and the crossbar: the
+  // interface register stage on the uncore's side (G4-FP: core -> A slices -2.87 ns, core -> C
+  // -3.05 ns, mostly wire). Bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C,
+  // bit 3 the l1d E; each costs a cycle on every message of its channel. Off: DR-135 reserve items,
+  // being measured
+  parameter logic [3:0]  XBAR_IN_SLICE   = 4'b0000,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
@@ -211,13 +217,61 @@ module tg_uncore
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
   tl_d_t hdma_d; logic hdma_ar, hdma_dv;
 
+  // The cores' requests into the crossbar, through a slice where XBAR_IN_SLICE says so. The caches'
+  // A data, mask and corrupt are constants inside the crossbar, so their slice bits have no loads.
+  tl_a_t [N_CORES-1:0] x_l1i_a, x_l1d_a, x_mmio_a;
+  logic  [N_CORES-1:0] x_l1i_av, x_l1i_ar, x_l1d_av, x_l1d_ar, x_mmio_av, x_mmio_ar;
+  tl_c_t [N_CORES-1:0] x_l1d_c;
+  logic  [N_CORES-1:0] x_l1d_cv, x_l1d_cr;
+  tl_e_t [N_CORES-1:0] x_l1d_e;
+  logic  [N_CORES-1:0] x_l1d_ev, x_l1d_er;
+  for (genvar c = 0; c < N_CORES; c++) begin : g_isl
+    if (XBAR_IN_SLICE[0]) begin : g_ca
+      tg_skid #(.T (tl_a_t)) u_l1i (
+        .clk, .rst (uncore_rst), .in_valid (l1i_a_valid_i[c]), .in_ready (l1i_a_ready_o[c]), .in_data (l1i_a_i[c]),
+        .out_valid (x_l1i_av[c]), .out_ready (x_l1i_ar[c]), .out_data (x_l1i_a[c])
+      );
+      tg_skid #(.T (tl_a_t)) u_l1d (
+        .clk, .rst (uncore_rst), .in_valid (l1d_a_valid_i[c]), .in_ready (l1d_a_ready_o[c]), .in_data (l1d_a_i[c]),
+        .out_valid (x_l1d_av[c]), .out_ready (x_l1d_ar[c]), .out_data (x_l1d_a[c])
+      );
+    end else begin : g_caw
+      assign x_l1i_a[c] = l1i_a_i[c];  assign x_l1i_av[c] = l1i_a_valid_i[c];  assign l1i_a_ready_o[c] = x_l1i_ar[c];
+      assign x_l1d_a[c] = l1d_a_i[c];  assign x_l1d_av[c] = l1d_a_valid_i[c];  assign l1d_a_ready_o[c] = x_l1d_ar[c];
+    end
+    if (XBAR_IN_SLICE[1]) begin : g_ma
+      tg_skid #(.T (tl_a_t)) u_mmio (
+        .clk, .rst (uncore_rst), .in_valid (mmio_a_valid_i[c]), .in_ready (mmio_a_ready_o[c]), .in_data (mmio_a_i[c]),
+        .out_valid (x_mmio_av[c]), .out_ready (x_mmio_ar[c]), .out_data (x_mmio_a[c])
+      );
+    end else begin : g_maw
+      assign x_mmio_a[c] = mmio_a_i[c];  assign x_mmio_av[c] = mmio_a_valid_i[c];  assign mmio_a_ready_o[c] = x_mmio_ar[c];
+    end
+    if (XBAR_IN_SLICE[2]) begin : g_c
+      tg_skid #(.T (tl_c_t)) u_c (
+        .clk, .rst (uncore_rst), .in_valid (l1d_c_valid_i[c]), .in_ready (l1d_c_ready_o[c]), .in_data (l1d_c_i[c]),
+        .out_valid (x_l1d_cv[c]), .out_ready (x_l1d_cr[c]), .out_data (x_l1d_c[c])
+      );
+    end else begin : g_cw
+      assign x_l1d_c[c] = l1d_c_i[c];  assign x_l1d_cv[c] = l1d_c_valid_i[c];  assign l1d_c_ready_o[c] = x_l1d_cr[c];
+    end
+    if (XBAR_IN_SLICE[3]) begin : g_e
+      tg_skid #(.T (tl_e_t)) u_e (
+        .clk, .rst (uncore_rst), .in_valid (l1d_e_valid_i[c]), .in_ready (l1d_e_ready_o[c]), .in_data (l1d_e_i[c]),
+        .out_valid (x_l1d_ev[c]), .out_ready (x_l1d_er[c]), .out_data (x_l1d_e[c])
+      );
+    end else begin : g_ew
+      assign x_l1d_e[c] = l1d_e_i[c];  assign x_l1d_ev[c] = l1d_e_valid_i[c];  assign l1d_e_ready_o[c] = x_l1d_er[c];
+    end
+  end
+
   tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
-    .l1i_a_i, .l1i_a_valid_i, .l1i_a_ready_o, .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
-    .l1d_a_i, .l1d_a_valid_i, .l1d_a_ready_o, .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
-    .l1d_c_i, .l1d_c_valid_i, .l1d_c_ready_o, .l1d_d_o, .l1d_d_valid_o, .l1d_d_ready_i,
-    .l1d_e_i, .l1d_e_valid_i, .l1d_e_ready_o,
-    .mmio_a_i, .mmio_a_valid_i, .mmio_a_ready_o, .mmio_d_o, .mmio_d_valid_o, .mmio_d_ready_i,
+    .l1i_a_i (x_l1i_a), .l1i_a_valid_i (x_l1i_av), .l1i_a_ready_o (x_l1i_ar), .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
+    .l1d_a_i (x_l1d_a), .l1d_a_valid_i (x_l1d_av), .l1d_a_ready_o (x_l1d_ar), .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
+    .l1d_c_i (x_l1d_c), .l1d_c_valid_i (x_l1d_cv), .l1d_c_ready_o (x_l1d_cr), .l1d_d_o, .l1d_d_valid_o, .l1d_d_ready_i,
+    .l1d_e_i (x_l1d_e), .l1d_e_valid_i (x_l1d_ev), .l1d_e_ready_o (x_l1d_er),
+    .mmio_a_i (x_mmio_a), .mmio_a_valid_i (x_mmio_av), .mmio_a_ready_o (x_mmio_ar), .mmio_d_o, .mmio_d_valid_o, .mmio_d_ready_i,
     .hdma_a_i ('0), .hdma_a_valid_i (1'b0), .hdma_a_ready_o (hdma_ar),
     .hdma_d_o (hdma_d), .hdma_d_valid_o (hdma_dv), .hdma_d_ready_i (1'b1),
     .l2_a_o (l2_a), .l2_a_valid_o (l2_av), .l2_a_ready_i (l2_ar),
