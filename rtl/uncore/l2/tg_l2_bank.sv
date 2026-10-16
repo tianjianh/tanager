@@ -621,6 +621,7 @@ module tg_l2_bank
   // (one-hot, no state decode). The decision block below makes the same values from e2 and vic
   // (checked by assertions).
   logic [WAYS-1:0] hp_w, vp_w, vd_w;   // per way: a hit there probes; as the victim: held, dirty
+  logic [WAYS-1:0] vld_w;              // per way: valid
   logic            hp_s, vp_s, vd_s;   // the hit way's and the victim's
   logic [NMS-1:0]  alloc_oh;           // the state an allocating request's MSHR enters
   always_comb begin
@@ -635,9 +636,15 @@ module tg_l2_bank
       hp_w[w] = pw != '0;
       vp_w[w] = row2.way[w].valid && row2.way[w].pres != '0;
       vd_w[w] = row2.way[w].valid && row2.way[w].dirty;
+      vld_w[w] = row2.way[w].valid;
     end
-    hp_s = hp_w[hw2];
-    vp_s = vp_w[vw2];
+    hp_s = (hp_w & hoh) != '0;           // hp_w[hw2] whenever a way hits, the only time it is used
+    // The victim needs probes exactly when every unreserved way is valid and held: the pick takes an
+    // invalid unreserved way if there is one, else an unheld one, else some unreserved way, which is
+    // then valid and held. So the flag waits for the reservations, not for the pick (200 MHz,
+    // DR-142: it heads the allocation's state and the probe pick's merge). With every way reserved
+    // (never for an allocation: admission guarantees a way) the pick is way 0, and so is the flag.
+    vp_s = (resv != '1) ? ((~resv & ~(vld_w & held)) == '0) : vp_w[0];
     vd_s = vd_w[vw2];
     alloc_oh = '0;
     alloc_oh[MS_PROBE] = hit2 ? hp_s : vp_s;
@@ -1733,6 +1740,9 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The victim's probe flag without the pick is the picked way's; the hit way's, when a way hits
+      assert (vp_s == vp_w[vw2]) else $error("tg_l2_bank%0d: victim probe flag %b, picked way %0d's %b", BANK, vp_s, vw2, vp_w[vw2]);
+      if (hit2) assert (hp_s == hp_w[hw2]) else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
       // The one-hot hit way is hw2's
       if (hit2) assert (hoh == WAYS'(1) << hw2) else $error("tg_l2_bank%0d: hit way %b against %0d", BANK, hoh, hw2);
       // The response shape in registers is the one its MSHR's fields give
