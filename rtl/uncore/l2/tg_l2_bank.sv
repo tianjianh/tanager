@@ -545,6 +545,9 @@ module tg_l2_bank
   logic [2:0]      hw2, vw2;
   logic [WAYS-1:0] hoh;                // the hit way one-hot (the lowest hit, as hw2): no encode and decode
                                        // on the ProbeAck search, which ends in the error flag (DR-142)
+  // The ProbeAck search's per-MSHR matches, kept apart: the error flag needs only their OR, which
+  // synthesis had shared with the matching MSHR's index encoder, 6 LUT levels past the matches
+  (* keep = "true" *) logic [N_MSHR-1:0] pk_match;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       // compare, then select: the RAM's entry and h0 are compared at once, h1's and h2's in S1
@@ -567,6 +570,8 @@ module tg_l2_bank
     hit2 = |hitv;
     hw2  = lowest8(hitv);
     hoh  = hitv & ~(hitv - 1'b1);
+    for (int m = 0; m < N_MSHR; m++)
+      pk_match[m] = smatch[m] && (m_way_oh[m] & hoh) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0;
     vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
                         row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
                        held, resv, row2.plru);
@@ -621,6 +626,7 @@ module tg_l2_bank
   // (one-hot, no state decode). The decision block below makes the same values from e2 and vic
   // (checked by assertions).
   logic [WAYS-1:0] hp_w, vp_w, vd_w;   // per way: a hit there probes; as the victim: held, dirty
+  logic [WAYS-1:0] vld_w;              // per way: valid
   logic            hp_s, vp_s, vd_s;   // the hit way's and the victim's
   logic [NMS-1:0]  alloc_oh;           // the state an allocating request's MSHR enters
   always_comb begin
@@ -635,10 +641,31 @@ module tg_l2_bank
       hp_w[w] = pw != '0;
       vp_w[w] = row2.way[w].valid && row2.way[w].pres != '0;
       vd_w[w] = row2.way[w].valid && row2.way[w].dirty;
+      vld_w[w] = row2.way[w].valid;
     end
-    hp_s = hp_w[hw2];
-    vp_s = vp_w[vw2];
-    vd_s = vd_w[vw2];
+    hp_s = (hp_w & hoh) != '0;           // hp_w[hw2] whenever a way hits, the only time it is used
+    // The victim needs probes exactly when every unreserved way is valid and held: the pick takes an
+    // invalid unreserved way if there is one, else an unheld one, else some unreserved way, which is
+    // then valid and held. So the flag waits for the reservations, not for the pick (200 MHz,
+    // DR-142: it heads the allocation's state and the probe pick's merge). With every way reserved
+    // (never for an allocation: admission guarantees a way) the pick is way 0, and so is the flag.
+    vp_s = (resv != '1) ? ((~resv & ~(vld_w & held)) == '0) : vp_w[0];
+    // The victim's dirty flag matters only when the victim is not held (!vp_s): then the victim is
+    // an invalid unreserved way (not dirty) if there is one, else the PLRU's way if it is unreserved
+    // and unheld, else the lowest unreserved unheld way. Those need the reservations and the PLRU,
+    // not the whole pick (200 MHz, DR-142: the allocation's VREAD, FILL and PUTW states waited for
+    // it). With every way reserved the pick is way 0, and so is the flag.
+    begin
+      logic [WAYS-1:0] vinv, vcz;
+      logic [2:0]      vpv;
+      vinv = ~vld_w & ~resv;
+      vcz  = ~resv & ~held;
+      vpv  = plru_victim(row2.plru);
+      if (resv == '1)      vd_s = vd_w[0];
+      else if (vinv != '0) vd_s = 1'b0;
+      else if (vcz[vpv])   vd_s = vd_w[vpv];
+      else                 vd_s = (vd_w & vcz & ~(vcz - 1'b1)) != '0;   // the lowest unheld way's
+    end
     alloc_oh = '0;
     alloc_oh[MS_PROBE] = hit2 ? hp_s : vp_s;
     alloc_oh[MS_RESP]  = hit2 && !hp_s && p2_q.kind != PK_PUT;
@@ -732,11 +759,8 @@ module tg_l2_bank
             // The probing MSHR owns the way that holds the probed line (its request line on a hit,
             // its victim on a miss: the victim keeps its tag until resolved), and each (set, way)
             // belongs to at most one MSHR.
-            for (int m = 0; m < N_MSHR; m++)
-              if (hit2 && smatch[m] && (m_way_oh[m] & hoh) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
-                s2_c_mok = 1'b1;
-                s2_c_m   = MW'(m);
-              end
+            s2_c_mok = hit2 && pk_match != '0;
+            for (int m = 0; m < N_MSHR; m++) if (hit2 && pk_match[m]) s2_c_m = MW'(m);
             if (!s2_c_mok) s2_err = 1'b1;
           end
         end
@@ -920,15 +944,15 @@ module tg_l2_bank
   assign b_valid_o  = |pr_req;
   assign ev_probe_o = b_valid_o && b_ready_i;
   // The probe handshake's effects (200 MHz, DR-142): the crossbar's ready arrives last (its B
-  // arbiter weighs both banks' probes), so the flag each probe sets is selected ahead of it and kept
-  // apart (synthesis merged the select with the ready and the allocation's clear, 3 LUT levels past
-  // the ready), and the ready enters one LUT before each flag's enable; the pointer takes the
-  // handshake as its clock enable. The probe on B is MSHR pr_m's, for its lowest agent still to
+  // arbiter weighs both banks' probes), so the flag each probe sets is selected ahead of it, and the
+  // ready enters one LUT before each flag's enable; the pointer takes the handshake as its clock
+  // enable. Since the pick is a register (pr_m_q) the selects are early without a keep (which had
+  // cost 157 LUTs at st by stopping synthesis from sharing them). The probe on B is MSHR pr_m's, for its lowest agent still to
   // probe, so each MSHR's select is the pick's decode and that MSHR's own lowest agent (no 24:1
   // select of the agent).
   (* direct_enable = "yes" *) wire pr_fire = b_valid_o && b_ready_i;
-  (* keep = "true" *) logic [N_MSHR-1:0]                ps_hit;   // the probe on B is MSHR m's
-  (* keep = "true" *) logic [N_MSHR-1:0][N_AGENTS-1:0]  ps_sel;   // ... and for agent a
+  logic [N_MSHR-1:0]                ps_hit;   // the probe on B is MSHR m's
+  logic [N_MSHR-1:0][N_AGENTS-1:0]  ps_sel;   // ... and for agent a
   always_comb
     for (int m = 0; m < N_MSHR; m++) begin
       logic [N_AGENTS-1:0] todo_m;
@@ -951,12 +975,28 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // AXI read requests (fills)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] ar_req;
-  logic [MW-1:0]     ar_ptr_q, ar_m;
+  // The AR pick is made a cycle ahead and held in ar_m_q (200 MHz, DR-142), so the AR's ID and the
+  // MSHR LUTRAMs' read for its address start at a register (the full chip's bank-side AR slices:
+  // -3.87 / -3.31 ns with the pick in front of them). The requests change from one cycle to the next
+  // only when the AR is taken (its MSHR stops requesting, and the pointer moves past it) or when an
+  // allocation needs a fill (m_new, one new requester; an MSHR is freed only after its fill). So
+  // the next pick is the current one or the pick past the taken AR, either with m_new merged by its
+  // round-robin place. It is rr_pick(ar_req, ar_ptr_q) every cycle (checked).
+  logic [N_MSHR-1:0] ar_req, ar_req_f;
+  logic [MW-1:0]     ar_ptr_q, ar_m_q;
+  wire  [MW-1:0]     ar_m = ar_m_q;
+  logic [MW-1:0]     ar_ptr_f, ar_pick_f, ar_pick_fa, ar_pick_na;
   always_comb begin
     for (int m = 0; m < N_MSHR; m++) ar_req[m] = m_valid[m] && m_need_fill[m] && !m_ar_sent[m];
-    ar_m = rr_pick(ar_req, ar_ptr_q);
+    ar_req_f       = ar_req;
+    ar_req_f[ar_m] = 1'b0;
+    ar_ptr_f       = rr_next(ar_m);
+    ar_pick_f      = rr_pick(ar_req_f, ar_ptr_f);
+    ar_pick_fa     = (ar_req_f == '0 || rr_before(m_new, ar_pick_f, ar_ptr_f)) ? m_new : ar_pick_f;
+    ar_pick_na     = (ar_req == '0 || rr_before(m_new, ar_m, ar_ptr_q)) ? m_new : ar_m;
   end
+  wire ar_alloc = s2_alloc && s2_alloc_fill;          // m_new starts requesting
+  wire ar_fire  = ar_valid_o && ar_ready_i;
   always_comb begin
     ar_o       = '0;
     ar_o.id    = AXI_ID_W'(ar_m);
@@ -1066,6 +1106,7 @@ module tg_l2_bank
   logic [MW-1:0]     vr_cur_q;
   logic [WBW-1:0]    vr_buf_q;
   logic              vr_row_q;              // next row to read
+  logic [SET_W-1:0]  vr_set_q;              // the victim's set, read at the start (an MSHR's set is fixed)
   always_comb begin
     for (int m = 0; m < N_MSHR; m++) vr_req[m] = ms[m][MS_VREAD];
     vr_m = rr_pick(vr_req, vr_ptr_q);
@@ -1197,7 +1238,7 @@ module tg_l2_bank
     da_raddr = '0;
     if (vr_rd) begin
       da_re    = 1'b1;
-      da_raddr = {rl_set[LP_VR], rl_way[3], vr_row_q};
+      da_raddr = {vr_set_q, rl_way[3], vr_row_q};
     end else if (rs_issue && rs_tag.use_ram) begin
       da_re    = 1'b1;
       da_raddr = {rl_set[LP_RS], rl_way[4], rs_two ? rs_row_q : rl_rsp[0].off[1]};
@@ -1375,8 +1416,10 @@ module tg_l2_bank
     mrsp_new.size   = p2_q.a_size;
     mrsp_new.off    = p2_q.a_off[5:4];
   end
-  // The victim read-out reads its MSHR's set at the start (vr_m) and during the read-out (vr_cur_q).
-  wire [MW-1:0] vr_ra = vr_busy_q ? vr_cur_q : vr_m;
+  // The victim read-out reads its MSHR's set at the start (vr_m) and keeps it in vr_set_q for the
+  // data array's address (200 MHz, DR-142: a port shared with vr_cur_q put the pick, through the
+  // port's address select, ahead of the data array's address, a path the read-out never uses).
+  wire [MW-1:0] vr_ra = vr_m;
   tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(SET_W), .NR(7)) u_mset (
     .clk, .we (s2_alloc), .waddr (m_new), .wdata (set2),
     .raddr ({rs_cur_q, vr_ra, r_m, pw_cur_q, ar_m, pr_m, mcmd_pick}), .rdata (rl_set)
@@ -1429,6 +1472,7 @@ module tg_l2_bank
       mcmd_ptr_q  <= '0;
       pr_ptr_q    <= '0;
       pr_m_q      <= '0;                 // rr_pick of no requests
+      ar_m_q      <= '0;
       ar_ptr_q    <= '0;
       pw_ptr_q    <= '0;
       vr_ptr_q    <= '0;
@@ -1502,7 +1546,8 @@ module tg_l2_bank
       if (s0_take_m)                  mcmd_ptr_q <= rr_next(mcmd_pick);
       if (pr_fire)                    pr_ptr_q   <= rr_next(pr_m);
       pr_m_q <= pr_fire ? (pr_alloc ? pr_pick_fa : pr_pick_f) : (pr_alloc ? pr_pick_na : pr_m_q);
-      if (ar_valid_o && ar_ready_i)   ar_ptr_q   <= rr_next(ar_m);
+      if (ar_fire)                    ar_ptr_q   <= rr_next(ar_m);
+      ar_m_q <= ar_fire ? (ar_alloc ? ar_pick_fa : ar_pick_f) : (ar_alloc ? ar_pick_na : ar_m_q);
 
       if (!pw_busy_q && |pw_req) begin
         pw_busy_q <= 1'b1;
@@ -1517,6 +1562,7 @@ module tg_l2_bank
       if (vr_start) begin
         vr_busy_q             <= 1'b1;
         vr_cur_q              <= vr_m;
+        vr_set_q              <= rl_set[LP_VR];
         vr_buf_q              <= wb_slot;
         vr_row_q              <= 1'b0;
         vr_ptr_q              <= rr_next(vr_m);
@@ -1733,6 +1779,14 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The victim's dirty flag without the pick is the picked way's whenever it is used
+      if (!vp_s) assert (vd_s == vd_w[vw2]) else $error("tg_l2_bank%0d: victim dirty flag %b, picked way %0d's %b", BANK, vd_s, vw2, vd_w[vw2]);
+      // The victim's probe flag without the pick is the picked way's; the hit way's, when a way hits
+      assert (vp_s == vp_w[vw2]) else $error("tg_l2_bank%0d: victim probe flag %b, picked way %0d's %b", BANK, vp_s, vw2, vp_w[vw2]);
+      if (hit2) assert (hp_s == hp_w[hw2]) else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
+      // The victim's set in vr_set_q is its MSHR's
+      if (vr_busy_q) assert (vr_set_q == set_of(m_line[vr_cur_q]))
+        else $error("tg_l2_bank%0d: victim read-out set %0d, MSHR %0d's %0d", BANK, vr_set_q, vr_cur_q, set_of(m_line[vr_cur_q]));
       // The one-hot hit way is hw2's
       if (hit2) assert (hoh == WAYS'(1) << hw2) else $error("tg_l2_bank%0d: hit way %b against %0d", BANK, hoh, hw2);
       // The response shape in registers is the one its MSHR's fields give
@@ -1752,7 +1806,7 @@ module tg_l2_bank
           else $error("tg_l2_bank%0d: allocation state %b, decided %0d", BANK, alloc_oh, s2_alloc_st);
         if (hit2) assert (hp_s == (s2_alloc_probe != '0))
           else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
-        if (!hit2) assert (vp_s == (vic.valid && vic.pres != '0) && vd_s == (vic.valid && vic.dirty))
+        if (!hit2) assert (vp_s == (vic.valid && vic.pres != '0) && (vp_s || vd_s == (vic.valid && vic.dirty)))
           else $error("tg_l2_bank%0d: victim's flags differ", BANK);
       end
       // The bypassed row is the directory as S2 has written it, either RAM write timing
