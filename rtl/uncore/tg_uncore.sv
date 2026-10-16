@@ -13,7 +13,7 @@ module tg_uncore
   parameter int          L2_SETS         = 1024,
   parameter int          L2_MSHR         = 24,
   parameter              L2_PRIM         = "ultra",
-  parameter int          L2_DATA_LAT     = 2,          // 4 for the URAM cascade at 200 MHz
+  parameter int          L2_DATA_LAT     = L2_DATA_LAT_DEF,  // 2; 4 for the URAM cascade at 200 MHz
   parameter bit          CORE_RST_INIT   = 1'b1,
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
@@ -30,37 +30,37 @@ module tg_uncore
   // ALU, so the slices behind arbiters (D, B, the banks' A, memory AR) stay in fabric; memory AW, the
   // memory R slices (their slower clock-to-out) and the L2 R slices failed in one placement and stay
   // there too; the AXI B slices (a few bits) always do.
-  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},
+  parameter logic [63:0] UNCORE_DSP      = UNCORE_DSP_DEF,
   // A register slice on each bank's AXI AR, before the latency injector: it cuts the L2's AR
   // handshake (pick, MSHR LUTRAM, the window's range check, ready back into the pick), the
   // uncore's longest path at 200 MHz, for a cycle on every fill (DR-135; on by default, the user's
   // decision of 10-15: +0.056% cycles at st, +0.134% at smt2 over the first 20M of the Linux boot)
-  parameter bit          AR_SLICE        = 1'b1,
+  parameter bit          AR_SLICE        = AR_SLICE_DEF,
   // A register slice on each bank's TileLink B (probes), before the crossbar: it would cut the probe
   // handshake (the L2's probe pick, the destination, the crossbar's per-core B arbiter, ready back
-  // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, being measured
-  parameter bit          B_SLICE         = 1'b0,
+  // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          B_SLICE         = B_SLICE_DEF,
   // A register slice on each bank's TileLink D (responses), before the crossbar: it would cut the D
   // channel's handshake (a bank's D queue and output arbiter, the crossbar's per-initiator D arbiter,
   // which weighs both banks, then the ready back into the bank's queue and credit), for a cycle on
-  // every L2 response. Off: a DR-135 reserve item, being measured
-  parameter bit          D_SLICE         = 1'b0,
+  // every L2 response. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          D_SLICE         = D_SLICE_DEF,
   // Register slices on each bank's AXI AW and W, before the latency injector, as the AR slice is on
   // AR: they would cut the write-back path from the L2 to the memory path by the PS ports (G4-FP:
   // the memory W slices at -2.3 / -2.4 ns with the banks at the URAM column), for a cycle on every
-  // write-back. Off: a DR-135 reserve item, being measured
-  parameter bit          W_SLICE         = 1'b0,
+  // write-back. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          W_SLICE         = W_SLICE_DEF,
   // Register slices on the cores' request channels, between the core ports and the crossbar: the
   // interface register stage on the uncore's side (G4-FP: core -> A slices -2.87 ns, core -> C
   // -3.05 ns, mostly wire). Bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C,
   // bit 3 the l1d E; each costs a cycle on every message of its channel. Off: DR-135 reserve items,
-  // being measured
-  parameter logic [3:0]  XBAR_IN_SLICE   = 4'b0000,
+  // measured in docs/spec/soc.md
+  parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
   // The crossbar's own register slices (every target-side A, C and E output, every initiator-side D
   // and B output) and the memory ports' AXI slices toward the PS. On, as built for 200 MHz; off
   // they cost no cycle and no area: a timing study at the lower clock of DR-145
-  parameter bit          XBAR_SLICE      = 1'b1,
-  parameter bit          MEM_SLICE       = 1'b1,
+  parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
+  parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,

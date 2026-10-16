@@ -33,10 +33,11 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `N_CORES` | `NUM_CORES` | 1 for M4 (single agent), 2 from M8 |
 | `BOOT_ADDR` | `BOOTROM_BASE` | `boot_addr_i` of every core; bare-metal simulation passes `DRAM_BASE` |
 | `CLK_HZ` | 100 000 000 | core clock (ACLINT tick, UART timeout, reported to the host) |
-| `L2_SETS`, `L2_MSHR`, `L2_DATA_LAT` | 1024, 24, 2 | [l2.md](l2.md); `kv260_top` sets `L2_DATA_LAT = 4` above 150 MHz |
+| `L2_SETS`, `L2_MSHR`, `L2_DATA_LAT` | 1024, 24, 2 | [l2.md](l2.md). `kv260_top` passes its own `L2_DATA_LAT` (`build.tcl` `TG_L2_DATA_LAT`), whose default 0 picks 4 above 150 MHz and 2 otherwise; any other value is used as it is (DR-146) |
 | `CORE_RST_INIT`, `UNCORE_RST_INIT` | 1, 1 | host `CTRL` reset value; simulation testbenches use 0, 0 |
 | `DRAM_BASE_INIT`, `DRAM_SIZE_INIT` | 0, 0 | DRAM window at reset; simulation uses base 0 and the model's size |
 | `UNCORE_DSP` | `64'h84_0308_0000`: the sites that met 200 MHz as DSPs (the device bus's A slice, the L2 banks' C slices, the memory ports' W slices) | register slices whose main data register sits in DSP48E2s, one bit per site (`tg_uncore`; [uncore.md](uncore.md), DR-136): bits 31:0 the crossbar's, 41:32 the memory ports' AR, AW, W, R and B, 43:42 the L2 banks' R slices. `build.tcl` takes it from `TG_UNCORE_DSP` |
+| `AR_SLICE`, `B_SLICE`, `D_SLICE`, `W_SLICE`, `XBAR_IN_SLICE`, `XBAR_SLICE`, `MEM_SLICE` | 1, 0, 0, 0, `4'b0000`, 1, 1 | `tg_uncore`'s register slices ([uncore.md](uncore.md), [uncore-mem.md](uncore-mem.md); what each costs and buys is in §Reserve levers). `tanager_soc` and `kv260_top` pass them on, so a build or a fit sets them without RTL edits (DR-146); `build.tcl` takes each from `TG_` and its name (`TG_XBAR_IN_SLICE` 0–15). The defaults live in `tg_uncore_pkg`, with `UNCORE_DSP`'s |
 | `CORE_KIND` | `"core"` | `"core"`: `tg_core` (the stub until the core track's RTL lands); `"trafgen"`: `tg_trafgen` traffic generators in the cores' place, for bring-up and timing runs before the core exists (§2.3) |
 
 ### Behaviour

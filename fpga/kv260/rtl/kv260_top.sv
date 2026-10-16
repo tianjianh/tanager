@@ -16,7 +16,18 @@ module kv260_top
   parameter bit    PMOD_UART = 1'b0,
   parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
   parameter bit    FAN_INVERT = 1'b0,
-  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000}  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
+  parameter logic [63:0] UNCORE_DSP = UNCORE_DSP_DEF,     // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
+  // The L2's data latency and tg_uncore's register slices, each settable on its own (DR-146; build.tcl
+  // TG_L2_DATA_LAT, TG_AR_SLICE ... TG_MEM_SLICE). L2_DATA_LAT 0 picks it by the clock: 4 above
+  // 150 MHz (the URAM cascade pipelined), else 2. The slices' defaults are tg_uncore_pkg's.
+  parameter int          L2_DATA_LAT   = 0,
+  parameter bit          AR_SLICE      = AR_SLICE_DEF,
+  parameter bit          B_SLICE       = B_SLICE_DEF,
+  parameter bit          D_SLICE       = D_SLICE_DEF,
+  parameter bit          W_SLICE       = W_SLICE_DEF,
+  parameter logic [3:0]  XBAR_IN_SLICE = XBAR_IN_SLICE_DEF,
+  parameter bit          XBAR_SLICE    = XBAR_SLICE_DEF,
+  parameter bit          MEM_SLICE     = MEM_SLICE_DEF
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -149,8 +160,10 @@ module kv260_top
   logic uart_txd;
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (CORE_MHZ * 1_000_000), .CORE_KIND (CORE_KIND), .UART_SERIAL (PMOD_UART),
-    .L2_DATA_LAT (CORE_MHZ > 150 ? 4 : 2),   // pipeline the URAM cascade above 150 MHz
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP)
+    .L2_DATA_LAT (L2_DATA_LAT != 0 ? L2_DATA_LAT : CORE_MHZ > 150 ? 4 : 2),
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP),
+    .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
+    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE)
   ) u_soc (
     .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),
