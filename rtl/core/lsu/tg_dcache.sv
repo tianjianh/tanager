@@ -2,7 +2,9 @@
 // TL-C client on l1d.
 //   Data: per way a tg_ram_tdp of SETS*4 rows x 128 bits with byte enables. Port A: load reads
 //         (address in AG, data in M1). Port B: Grant writes, store writes, Release and
-//         ProbeAckData reads.
+//         ProbeAckData reads. With DC_PORTB_WREG (DR-148 #11) port B's writes reach the RAMs a
+//         cycle later from a register, its reads wait while one does, and the LSU retries a load
+//         that read the row in either cycle.
 //   Tags: per way a tg_ram_lut, read ports: load (M1), store drain, controller (probe/victim).
 //   State per set in one tg_ram_lut: the round-robin victim pointer and valid, T (M/E) and
 //   dirty per way. Four read ports (load, store/atomic, controller, the set being written) and
@@ -85,16 +87,21 @@ module tg_dcache
 );
 
   // ---- Arrays ----
-  logic [WAYS-1:0]        b_en;
+  logic [WAYS-1:0]        b_en;          // port B's access as decided
   logic [15:0]            b_we;
   logic [ROW_W-1:0]       b_addr;
   logic [127:0]           b_wdata;
+  logic [WAYS-1:0]        rb_en;         // ... at the RAMs (#11: the writes a cycle later)
+  logic [15:0]            rb_we;
+  logic [ROW_W-1:0]       rb_addr;
+  logic [127:0]           rb_wdata;
+  logic                   bw_busy;       // #11: a registered write takes port B this cycle
   logic [WAYS-1:0][127:0] a_rdata, b_rdata;
   for (genvar w = 0; w < WAYS; w++) begin : g_data
     tg_ram_tdp #(.DEPTH(ROWS), .WIDTH(128), .BYTE_W(8), .OUT_REG(1'b0), .PRIM("block")) u_data (
       .clk,
       .en_a(ld_rd_en), .we_a('0), .addr_a(ld_rd_pa[4 +: ROW_W]), .wdata_a('0), .rdata_a(a_rdata[w]),
-      .en_b(b_en[w]), .we_b(b_we), .addr_b(b_addr), .wdata_b(b_wdata),
+      .en_b(rb_en[w]), .we_b(rb_we), .addr_b(rb_addr), .wdata_b(rb_wdata),
       .rdata_b(b_rdata[w]));
   end
 
@@ -305,8 +312,8 @@ module tg_dcache
   // ---- Port B arbitration ----
   logic pb_probe, pb_grant, pb_ev, pb_st, pb_amw;
   logic grant_beat;                      // a GrantData beat is accepted this cycle
-  assign pb_probe   = ps_q == P_RD;
-  assign pb_ev      = ms_q == M_EV_RD;
+  assign pb_probe   = ps_q == P_RD && !bw_busy;
+  assign pb_ev      = ms_q == M_EV_RD && !bw_busy;
   // Port B's read register must hold while a beat waits on C, so nothing else enables port B
   // during P_SEND or M_EV_SEND.
   assign grant_beat = ms_q == M_GRANT && d_valid_i && !(ps_q == P_RD || ps_q == P_SEND) &&
@@ -332,7 +339,7 @@ module tg_dcache
   if (DC_AMO_READ_REG) begin : g_amo_reg
     logic        amh_q;
     logic [63:0] am_rd_q;
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amh_q &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !bw_busy && !amh_q &&
                       !amw_q;
     assign am_busy  = amh_q || amw_q;
     assign amw_d    = amh_q;
@@ -349,7 +356,7 @@ module tg_dcache
     end
 `endif
   end else begin : g_amo_now
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amw_q;
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !bw_busy && !amw_q;
     assign am_busy  = amw_q;
     assign amw_d    = pb_amr;
     assign am_rdata = am_hi_q ? brow[127:64] : brow[63:0];
@@ -400,6 +407,42 @@ module tg_dcache
   assign b_wdata = pb_grant ? d_i.data : amw_q ? {2{am_wdata}} : {2{st_wdata}};
   assign brd_en  = pb_probe || pb_ev || pb_amr;
   assign brd_way = pb_probe ? p_way_q : pb_ev ? m_way_q : sh_way;
+  // #11 (DC_PORTB_WREG): the writes (a grant beat, a store, an atomic) reach the RAMs from a
+  // register a cycle later, and the reads (probe, eviction, atomic) wait while one does (bw_busy;
+  // no write is decided while port B's output holds a read: P_RD/P_SEND, M_EV_RD/M_EV_SEND and an
+  // atomic's read exclude them). Timing, DR-148: the RAMs' write inputs start at flip-flops
+  if (DC_PORTB_WREG) begin : g_bwreg
+    logic             wr_v_q;
+    logic [WAYS-1:0]  wr_en_q;
+    logic [15:0]      wr_we_q;
+    logic [ROW_W-1:0] wr_addr_q;
+    logic [127:0]     wr_data_q;
+    logic             b_wr;
+    assign b_wr = pb_grant || pb_st || pb_amw;
+    always_ff @(posedge clk) begin
+      wr_v_q    <= !rst && b_wr;
+      wr_en_q   <= (!rst && b_wr) ? b_en : '0;
+      wr_we_q   <= (!rst && b_wr) ? b_we : '0;
+      wr_addr_q <= b_addr;
+      wr_data_q <= b_wdata;
+    end
+    assign bw_busy  = wr_v_q;
+    assign rb_en    = wr_en_q | (brd_en ? b_en : '0);
+    assign rb_we    = wr_we_q;
+    assign rb_addr  = wr_v_q ? wr_addr_q : b_addr;
+    assign rb_wdata = wr_data_q;
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || ms_q == M_EV_SEND || brd_en)))
+        else $error("tg_dcache: a registered write lands while port B's output holds a read");
+`endif
+  end else begin : g_bwnow
+    assign bw_busy  = 1'b0;
+    assign rb_en    = b_en;
+    assign rb_we    = b_we;
+    assign rb_addr  = b_addr;
+    assign rb_wdata = b_wdata;
+  end
 
   // ---- Channels ----
   always_comb begin
@@ -565,7 +608,7 @@ module tg_dcache
             end
           end
         end
-        M_EV_RD: ms_q <= M_EV_SEND;                 // port B read of beat m_beat_q
+        M_EV_RD: if (pb_ev) ms_q <= M_EV_SEND;      // port B read of beat m_beat_q (#11: not beside a write)
         M_EV_SEND: if (c_ready_i) begin
           if (!m_vdirty_q || m_beat_q == 2'd3) begin
             m_beat_q <= '0;
@@ -635,7 +678,7 @@ module tg_dcache
           end
           ps_q <= (hit && t && p_cap_q != TL_CAP_TO_T && d && !p_perm_q) ? P_RD : P_ACK;
         end
-        P_RD: ps_q <= P_SEND;
+        P_RD: if (pb_probe) ps_q <= P_SEND;         // (#11: not beside a write)
         P_SEND: if (c_ready_i) begin
           if (p_beat_q == 2'd3) ps_q <= P_UPD;
           else begin

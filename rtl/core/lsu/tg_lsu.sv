@@ -1563,6 +1563,8 @@ module tg_lsu
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
+    logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
+    logic [PA_W-1:4] cl2_row_q;
     always_ff @(posedge clk) begin
       ln_v_q    <= !rst && !flush && ld_ag_valid;
       sn_v_q    <= !rst && !flush && sta_ag_valid;
@@ -1575,6 +1577,8 @@ module tg_lsu
       sn_size_q <= sta_ag_pl.mem_size;
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
       cl_row_q  <= st_pa[PA_W-1:4];
+      cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
+      cl2_row_q <= cl_row_q;
     end
     assign ln_v    = ln_v_q;
     assign ln_va   = ln_va_q;
@@ -1590,7 +1594,7 @@ module tg_lsu
     assign ag_pa    = ld_ag_valid ? ld_ag_addr[PA_W-1:0] : ag_pt ? pt_pa : lqa_rd[0].pa;
     assign ag_go    = ag_v;
     assign m1pa     = ln_v_q ? nl_pa : m1_pa_q;
-    assign m1_clash = cl_v_q && cl_row_q == m1pa[PA_W-1:4];
+    assign m1_clash = (cl_v_q && cl_row_q == m1pa[PA_W-1:4]) || (cl2_v_q && cl2_row_q == m1pa[PA_W-1:4]);
     assign m1_go    = m1_v_q && (!ln_v_q || nl_go);
     assign ln_lq    = m1_lq_q;
     assign ln_lqw   = m1_lq_q;
@@ -1664,7 +1668,14 @@ module tg_lsu
     assign ag_go   = ag_v && (!ld_ag_valid || nl_go);
     // A store write to the same 16-byte row in the AG cycle: the load read old data
     logic ag_clash, m1_clash_q;
-    assign ag_clash = st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4];
+    logic st_wr_q;                                 // #11: a store wrote the cycle before (its RAM write is now)
+    logic [PA_W-1:4] st_row_q;
+    always_ff @(posedge clk) begin
+      st_wr_q  <= !rst && DC_PORTB_WREG && st_ack && !st_dropped;
+      st_row_q <= st_pa[PA_W-1:4];
+    end
+    assign ag_clash = (st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4]) ||
+                      (st_wr_q && st_row_q == ag_pa[PA_W-1:4]);
     always_ff @(posedge clk) m1_clash_q <= ag_clash;
     assign m1pa     = m1_pa_q;
     assign m1_clash = m1_clash_q;

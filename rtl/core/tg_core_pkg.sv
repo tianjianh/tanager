@@ -22,12 +22,12 @@ package tg_core_pkg;
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
   // Two profiles are verified (DR-140, as the user set it after DR-141's board runs):
-  //   default:  #4, #5, #9 and #10 on; #2 and #8 off (the shipping profile);
-  //   fallback: #2, #4, #5, #8, #9 and #10 off (TG_TIMING_CUTS=0: the core without them).
+  //   default:  #4, #5, #9, #10 and #11 on; #2 and #8 off (the shipping profile);
+  //   fallback: #2, #4, #5, #8, #9, #10 and #11 off (TG_TIMING_CUTS=0: the core without them).
   // #2 and #8 are lint-only switches until the user turns one on: TG_ROB_STORE_REPORT_LATE=1 and
   // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT, TG_DC_AMO_READ_REG,
-  // TG_ROB_HEAD_TLB_LATE and TG_LSU_MMIO_PMP_REG =0|1 override their profile value; other
-  // combinations are not verified.
+  // TG_ROB_HEAD_TLB_LATE, TG_LSU_MMIO_PMP_REG and TG_DC_PORTB_WREG =0|1 override their profile
+  // value; other combinations are not verified.
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
@@ -67,6 +67,14 @@ package tg_core_pkg;
   localparam bit LSU_MMIO_PMP_REG = `TG_LSU_MMIO_PMP_REG;
 `else
   localparam bit LSU_MMIO_PMP_REG = TIMING_CUTS;
+`endif
+  // #11 (DR-148): the D$'s port-B block-RAM writes are registered: a grant beat's, a store's or an
+  // atomic's write reaches the RAM a cycle later, port B's reads wait while one does, and a load
+  // that reads the row in either cycle retries (the LSU's clash)
+`ifdef TG_DC_PORTB_WREG
+  localparam bit DC_PORTB_WREG = `TG_DC_PORTB_WREG;
+`else
+  localparam bit DC_PORTB_WREG = TIMING_CUTS;
 `endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
