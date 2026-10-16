@@ -908,9 +908,15 @@ module tg_lsu
   always_ff @(posedge clk) begin
     rp_v_q  <= !rst && !flush && rp_v_c;
     rp_ra_q <= rp_ra_c;
-    if (!rst && !flush && rp_v_c && ld_ag_valid)
-      assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
   end
+`ifndef SYNTHESIS
+  logic rs_q;                       // the core has been reset: the checks wait for it (tg_rob)
+  initial rs_q = 1'b0;
+  always @(posedge clk) if (rst) rs_q <= 1'b1;
+  always_ff @(posedge clk)
+    if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
+      assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
+`endif
   assign lqr_ra[0]    = rp_ra_q;
   assign replay_valid = rp_v_q;
   assign replay_rob   = lqr_rd[0];
@@ -1483,9 +1489,12 @@ module tg_lsu
       m2_pck_q <= !rst && !flush && ln_v_q && nl_pmpd && nl_go;
       m2_mck_q <= !rst && !flush && ln_v_q && nl_pmpd && !nl_exc && !nl_tm && nl_mmio;
       m2_dbl_q <= lq_size_q[m1_lq_q] == 2'd3;
-      if (!rst && (m2_pck_q || m2_mck_q))
-        assert (m2_dbl_q == (lq_size_q[m2_lq_q] == 2'd3)) else $error("tg_lsu: M2's 8-byte flag is stale");
     end
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (rs_q && !rst && (m2_pck_q || m2_mck_q))
+        assert (m2_dbl_q == (lq_size_q[m2_lq_q] == 2'd3)) else $error("tg_lsu: M2's 8-byte flag is stale");
+`endif
     assign lck_pa  = m2_pa_q;
     assign lck_dbl = m2_dbl_q;
     assign l_den   = m2_pck_q && !nl_chk[0];
