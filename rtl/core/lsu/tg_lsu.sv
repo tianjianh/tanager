@@ -307,6 +307,7 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
   logic   [SQ_ENTRIES-1:0]           sq_amw_q;     // ... the atomic wrote memory (trace)
   sqid_t                             sq_head_q, sq_cmt_q, sq_tail_q;
+  logic   [SQ_ENTRIES-1:0]           sq_hge_q;     // the head's mask: slot i at or after its slot
 
   assign lq_head_o = lq_head_q;
   logic [LIW-1:0] hl;                             // the LQ head's slot
@@ -357,9 +358,11 @@ module tg_lsu
     for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? lq_first(hi) : lq_first(v);
   endfunction
-  function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
+  // the oldest slot of v, from the head's mask (hge[i]: slot i at or after the head's slot)
+  function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v,
+                                               input logic [SQ_ENTRIES-1:0] hge);
     logic [SQ_ENTRIES-1:0] hi;
-    for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
+    hi = v & hge;
     return |hi ? sq_first(hi) : sq_first(v);
   endfunction
   // whether SQ slot i lies in the window [h, e) of IDs (every slot when e is h + SQ_ENTRIES)
@@ -776,7 +779,8 @@ module tg_lsu
   // ================= Store data capture =================
   // The oldest store whose data is ready captures it; while P4 takes the shared read port
   // (sd_busy, late: P4's issue) only an FP store can, the oldest ready one. Both choices are
-  // formed without sd_busy, which picks between them last. Each read tag takes its own choice:
+  // formed without sd_busy, which picks between them last, and "oldest" reads the head's mask,
+  // a register (sq_hge_q), not the head pointer's decoding. Each read tag takes its own choice:
   // sd_tag is read only when the port is free, and fsd_tag's value is used only when an FP store
   // captures, which is then the oldest ready FP store in either case.
   logic           cap_v;
@@ -787,8 +791,8 @@ module tg_lsu
       ca[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
       cf[i] = ca[i] && sq_fp_q[i];
     end
-    cap_ia  = sq_oldest(ca, sq_head_q[SIW-1:0]);
-    cap_if  = sq_oldest(cf, sq_head_q[SIW-1:0]);
+    cap_ia  = sq_oldest(ca, sq_hge_q);
+    cap_if  = sq_oldest(cf, sq_hge_q);
     cap_v   = (sd_busy ? |cf : |ca) && !flush;
     cap_idx = sd_busy ? cap_if : cap_ia;
   end
@@ -1122,6 +1126,7 @@ module tg_lsu
       lq_tail_q <= '0;
       sq_v_q    <= '0;
       sq_head_q <= '0;
+      sq_hge_q  <= '1;
       sq_cmt_q  <= '0;
       sq_tail_q <= '0;
       m1_v_q    <= 1'b0;
@@ -1147,6 +1152,7 @@ module tg_lsu
       if (dr_pop) begin
         sq_v_q[dh] <= 1'b0;
         sq_head_q  <= sq_add(sq_head_q, 1);
+        sq_hge_q   <= (int'(dh) == SQ_ENTRIES - 1) ? '1 : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
       end
 
       // ---- MMIO ----
@@ -1539,6 +1545,8 @@ module tg_lsu
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx_ag]) else $error("tg_lsu: STA for a free SQ entry");
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
+      for (int i = 0; i < SQ_ENTRIES; i++)
+        assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
