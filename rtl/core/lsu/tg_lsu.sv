@@ -733,11 +733,12 @@ module tg_lsu
   assign am_lr    = am_op_q == AMO_LR;
   assign am_sc    = am_op_q == AMO_SC;
   assign am_go    = am_v_q && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
-                    sq_head_q == am_sq_q && rob_head == am_rob_q && !(s2_v_q && !s2_go && s2_idx_q == dh) &&
-                    !flush;
-  // Its PMP check denied it (S2, possibly this cycle): it faults as it starts, without an access
+                    sq_head_q == am_sq_q && rob_head == am_rob_q && !(s2_v_q && s2_idx_q == dh) && !flush;
+  // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
+  // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
+  // the atomic's start)
   logic            pden_go, am_pden_q;
-  assign pden_go  = sq_pden_q[dh] || (s2_den && s2_idx_q == dh);
+  assign pden_go  = sq_pden_q[dh];
   // The reservation covers the SC's line and has not just been lost (probe, eviction)
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
