@@ -8,7 +8,7 @@
 # Run it only through tools/vivado_run.sh (conventions §9), e.g. by fpga/spikes/scripts/run_g4.sh:
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
 #       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
-#       [-dcp 0|1] [-synth_dcp D]
+#       [-dcp 0|1] [-synth_dcp D] [-impl 0|1]
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
@@ -17,6 +17,7 @@
 #   -dcp 1       keep post_synth.dcp (after synthesis, before any constraint) and routed.dcp
 #   -synth_dcp D start from such a post-synthesis checkpoint instead of synthesising (the same
 #                design for every floorplan; its uncore_dsp argument must match the checkpoint's)
+#   -impl 0      stop after synthesis (with -dcp 1: the checkpoint for later floorplans)
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
 # sites.txt (per register-slice site: its UNCORE_DSP bit, form, and the worst slack into and out
 # of its main data register and into its control flops), sites_paths.rpt, uncore_paths.rpt,
@@ -32,6 +33,7 @@ set synth_dir AreaOptimized_high
 set keep_dcp 0
 set floorplan ""
 set synth_dcp ""
+set do_impl 1
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -43,6 +45,7 @@ while {[llength $rest]} {
     -dcp             { set keep_dcp $v }
     -floorplan       { set floorplan $v }
     -synth_dcp       { set synth_dcp $v }
+    -impl            { set do_impl $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
 }
@@ -119,6 +122,12 @@ proc tg_util {fh tag} {
   }
 }
 tg_util $fh synth
+if {!$do_impl} {
+  tg_kv $fh total_s [expr {[clock seconds] - $t0}]
+  close $fh
+  puts "G4_FIT_DONE (synthesis only) $cfg $core_mhz 0x$mask"
+  exit 0
+}
 
 # ---- implementation, as build.tcl ----
 set t1 [clock seconds]
