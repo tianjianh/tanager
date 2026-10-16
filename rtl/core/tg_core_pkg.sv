@@ -21,13 +21,12 @@ package tg_core_pkg;
 
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
-  // Two profiles are verified:
-  //   default:  #2, #4 and #5 on, #8 off (the shipping profile, the user's choice);
-  //   fallback: #2, #4 and #5 off, #8 off (TG_TIMING_CUTS=0: the core without them).
-  // A switch's own define overrides its profile value (TG_ROB_STORE_REPORT_LATE, TG_LSU_AG_SPLIT,
-  // TG_DC_AMO_READ_REG =0|1); the default without #2 (TG_ROB_STORE_REPORT_LATE=0) is being measured
-  // for the user (DR-140, DR-141). Other combinations are not verified.
-  // #8 on is lint-only, on top of the default, until the user turns it on (TG_DE_STAGE=1).
+  // Two profiles are verified (DR-140, as the user set it after DR-141's board runs):
+  //   default:  #4 and #5 on; #2 and #8 off (the shipping profile);
+  //   fallback: #2, #4, #5 and #8 off (TG_TIMING_CUTS=0: the core without them).
+  // #2 and #8 are lint-only switches until the user turns one on: TG_ROB_STORE_REPORT_LATE=1 and
+  // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT and TG_DC_AMO_READ_REG =0|1 override
+  // their profile value; other combinations are not verified.
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
@@ -37,7 +36,7 @@ package tg_core_pkg;
 `ifdef TG_ROB_STORE_REPORT_LATE
   localparam bit ROB_STORE_REPORT_LATE = `TG_ROB_STORE_REPORT_LATE;
 `else
-  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS;
+  localparam bit ROB_STORE_REPORT_LATE = 1'b0;    // off in both profiles (DR-140)
 `endif
   // #4: a new load's and a store address's DTLB, PMP and decisions in M1 (core-lsu.md)
 `ifdef TG_LSU_AG_SPLIT
