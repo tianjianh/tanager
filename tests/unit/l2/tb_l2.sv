@@ -13,6 +13,7 @@ module tb_l2;
   parameter int SETS   = 16;
   parameter int N_MSHR = 8;
   parameter int DATA_LAT = 2;
+  parameter bit DIR_S3 = 1'b1;       // the directory RAM written at S3 (else S2)
   parameter int NSETS_USED = 4;      // sets the line pool covers
   parameter int NTAGS  = 12;         // lines per set in the pool (> 8 ways forces evictions)
   parameter int CAP    = 6;          // lines an agent caches at most
@@ -35,7 +36,8 @@ module tb_l2;
   axi_b_t  bresp; logic bresp_valid, bresp_ready;
   logic    init_done, ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
 
-  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT)) dut (
+  tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT),
+               .DIR_S3(DIR_S3)) dut (
     .clk, .rst,
     .a_i (a), .a_valid_i (a_valid), .a_ready_o (a_ready),
     .b_o (b), .b_valid_o (b_valid), .b_ready_i (b_ready),
@@ -552,8 +554,8 @@ module tb_l2;
         $display("ain_st %0d ain line %h op %0d | cin_st %0d cin line %h op %0d", dut.ain_st_q, dut.ain_q.address >> 6,
                  dut.ain_q.opcode, dut.cin_st_q, dut.cin_q.address >> 6, dut.cin_q.opcode);
         for (int m = 0; m < N_MSHR; m++)
-          $display("mshr %0d v%0d st %0d kind %h line %h way %0d hit %0d ppend %b psent %b vact %0d vtag %h wb %0d/%0d fill %0d ar %0d",
-                   m, dut.m_valid[m], dut.m_st[m], dut.u_mkind.mem[m], dut.m_line[m], dut.m_way[m], dut.m_hit[m],
+          $display("mshr %0d v%0d st %0d kind %h line %h way %b hit %0d ppend %b psent %b vact %0d vtag %h wb %0d/%0d fill %0d ar %0d",
+                   m, dut.m_valid[m], dut.m_st[m], dut.u_mkind.mem[m], dut.m_line[m], dut.m_way_oh[m], dut.m_hit[m],
                    dut.m_ppend[m], dut.m_psent[m], dut.m_vact[m], dut.m_vtag[m], dut.m_need_wb[m], dut.m_wb_done[m],
                    dut.m_need_fill[m], dut.m_ar_sent[m]);
         $display("aq %0d cq %0d eq %0d | mem outstanding %0d | dq %0d credit %0d | vr_busy %0d rs_busy %0d pw_busy %0d ws_busy %0d",
