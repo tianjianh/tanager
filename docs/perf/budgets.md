@@ -301,6 +301,20 @@ The default is `64'h84_0308_0000`, with 21 DSPs at the sites, plus 4 for the ACL
 - Per DSP, the D, A (banks and device bus), C, memory W and R and L2 R sites save 16–23 LUTs; memory AR and AW 11–12; the B slices, the ROM's and error responder's A slices and memory B 4–8.
 - Timing: at 200 MHz (028a480 and ca1aece, above) the sites failed in DSPs by up to 1.55 ns (B), 1.36 ns (memory AR) and 0.99 ns (D, MMIO), so at first order 125 MHz's 3 ns more leaves every site at least about 1.4 ns out of context. Not timed at 125 MHz: in the chip a DSP site sits in a DSP column, so the full-chip fit decides.
 
+**DR-145: the uncore inside the chip at 125 MHz** (the study's item 4, from spikes-2's G5R checkpoint: the full chip at 125 MHz, core-2's fn10 in the performance build, hart 1's area emulated, 96% full, the L2 banks in pblocks; [architecture_plan.md](../architecture_plan.md) §8.5; worst path into each block):
+
+| Block | Worst slack | Levels | Logic / route | Path |
+|---|---|---|---|---|
+| L2 bank 1 | −1.320 ns | 13 | 2.35 / 6.74 ns | the directory RAM, the way's hit compare, the hit way, the `ProbeAck` match, the MSHR state update (fan-out 24, a 1.23 ns net) |
+| L2 bank 0 | −0.956 ns | 14 | 2.64 / 6.03 ns | `h0_hit_q` into the victim-tag LUTRAM's data, the two ends 6 sites apart |
+| L2 bank 0, data array | −0.868 ns | 14 | 2.38 / 5.90 ns | the Put write's MSHR, the Put buffer LUTRAM, the R slice's ready (fan-out 173), a byte enable, the 3-level OR into the write enable (`tg_ram_sdp`), 3 URAMs of cascade. Cut by `WR_PORT_ON` (d2ad739, [l2.md](../spec/l2.md) §Timing) |
+| crossbar | −0.342 ns | 11 | 1.53 / 6.28 ns | core 1's fetch into an initiator's lock counter, 103 rows apart |
+| memory ports | +0.406 / +0.764 ns | 7 | | the banks' write-back into the injectors |
+| host bridge, devices, trace stream | +1.25 to +3.20 ns | | | |
+
+- **Placement, not logic.** The worst path is 74% route; the same S2 logic met 200 MHz out of context (under 5 ns in all). In the chip, at 96% full, its route alone is 6.7 ns.
+- **Not the chip's limit.** G5R reaches about 94 MHz, set by the cores. As placed, the uncore's worst path passes 100 MHz with about 0.7 ns to spare (first order).
+
 **By block** (smt2, 059a572):
 
 | Block | LUTs | FFs | RAMB36 | Notes |
