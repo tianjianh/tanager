@@ -6,8 +6,9 @@
 // reserved bits, non-leaf flags, the U rule, invalid encodings, superpage alignment, the
 // access permission and Svade's A/D (each a page fault). A success returns the leaf for the
 // requester's TLB, with the page's PMP result cached (plan §4.10): one more cycle checks the
-// page base, and the result holds for the whole page when tg_csr says pages of its size are
-// PMP-homogeneous (pmp_al). A flush ends the walk; its PTE read, if any, dies in the load pipe.
+// page base, and the result holds for the whole page when no active PMP region boundary lies
+// strictly inside the page (checked here against every entry). A flush ends the walk; its PTE
+// read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
 // port leaves it free (chk_gnt); W_CHK and W_PMP wait for one.
 module tg_ptw
@@ -19,7 +20,8 @@ module tg_ptw
   input  logic [43:0]       satp_ppn,
   input  logic              sum,
   input  logic              mxr,
-  input  logic [2:0]        pmp_al,
+  input  pmp_d_t [15:0]     pmp_d,
+  input  logic [15:0][2:0]  pmp_pal,      // each entry's address is aligned to a 1G / 2M / 4K page
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
@@ -91,6 +93,28 @@ module tg_ptw
   assign chk_dbl = st_q != W_PMP;
   assign pa_ok   = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && chk_ok;
   assign pt_req = st_q == W_REQ;
+  // The leaf page is PMP-homogeneous when no active region boundary lies strictly inside it: no
+  // NAPOT region smaller than the page within it, and no TOR bound (an entry's address that tops
+  // its TOR range or bottoms the next entry's) unaligned to the page within it
+  logic leaf_nh;
+  always_comb begin
+    logic [PMP_GW-1:0] pg, km;
+    logic              in_pg, sub_pg, bound;
+    pg = PMP_GW'({leaf_q.ppn, 10'b0});            // the page base in 4-byte granules
+    unique case (lvl_q)
+      2'd2:    km = ~PMP_GW'((64'd1 << 28) - 1);
+      2'd1:    km = ~PMP_GW'((64'd1 << 19) - 1);
+      default: km = ~PMP_GW'((64'd1 << 10) - 1);
+    endcase
+    leaf_nh = 1'b0;
+    for (int i = 0; i < 16; i++) begin
+      in_pg = ((pmp_d[i].a ^ pg) & km) == '0;
+      sub_pg = pmp_d[i].nap && !pmp_d[i].above &&
+              ((lvl_q == 2'd2) ? pmp_d[i].mask[27] : (lvl_q == 2'd1) ? pmp_d[i].mask[18] : pmp_d[i].mask[9]);
+      bound = (pmp_d[i].tor || (i < 15 && pmp_d[(i + 1) % 16].tor)) && !pmp_pal[i][lvl_q];
+      if (in_pg && (sub_pg || bound)) leaf_nh = 1'b1;
+    end
+  end
   assign pt_pa  = pte_pa[PA_W-1:0];
 
   // The PTE read
@@ -171,7 +195,7 @@ module tg_ptw
         end
         W_MISS: if (mshr_idle) st_q <= W_REQ;
         W_PMP: if (chk_gnt) begin                  // the page's PMP result, for S and U
-          leaf_q.ph <= pmp_al[lvl_q] && !leaf_q.big;
+          leaf_q.ph <= !leaf_nh && !leaf_q.big;
           {leaf_q.pr, leaf_q.pw, leaf_q.px} <= chk_hit ? chk_rwx : 3'b000;
           st_q <= W_DONE;
         end
