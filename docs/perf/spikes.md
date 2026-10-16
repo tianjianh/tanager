@@ -504,6 +504,65 @@ Named paths, slack in ns (the worst over both cores):
 - **The core track's conclusion (core-2):** restructure the deep families and choose pipeline cuts (DR-135, DR-137). No more floorplan variants for now; a placement check follows once a family's levels come down.
 - Results: `fpga/spikes/results/fp_st_{none,compact,units}/` (summary, `paths.tsv`, family reports, per-pblock utilisation).
 
+### 8.3 G4: the v1 full chip in the board's top (2026-10-15)
+
+**Question (the SoC track, DR-136):** in the real placement, which of the uncore's register slices close 200 MHz with their main data register in DSPs, and what are the uncore's LUTs, DSPs and WNS? Also, how do the crossbar's paths from and to the cores look? Out-of-context uncore runs don't time those.
+
+**Method:** [`g4_fit.tcl`](../../fpga/spikes/tcl/g4_fit.tcl) builds `kv260_top` as the board build does: the PS block design, the MMCM and both clocks, the PMOD console and the fan rule.
+- **Design:** two real smt2 cores at 200 MHz, from main at 759ea6a.
+- **Mask:** main's `UNCORE_DSP` default, 64'h84_0308_0000. That puts the device bus's A slice, the L2 banks' C slices and the memory W slices in DSPs.
+- **Synthesis:** DR-113's settings, without which v1 doesn't fit.
+- **Implementation:** the board build's place-and-route flow.
+- **False paths:** the two known core families are cut, as in gate 3.
+
+**Size** (107,536 LUTs, 91.8%; 115 block-RAM tiles; 32 URAM; 144 DSPs): each core has 44.6K LUTs and 59 DSPs. The uncore has 18,344 LUTs, 16,856 flip-flops, 26 DSPs (21 in the five DSP sites, 4 in the ACLINT's timers and 1 in the UART), 16 RAMB36, 4 RAMB18 and 32 URAM. Synthesis took 47 minutes, placement 26 and routing 2 h 25: the timing passes took WNS from −12.8 to −10.0 ns.
+
+| Path group (slack in ns at 5.0 ns) | Worst | Its path |
+|---|---|---|
+| The chip | **−10.041** | core 1: the LSU's `r_data_q` → the ROB's `g_ft` write enable, 32 levels |
+| Uncore, internal | **−7.145** | L2 bank 0: response tag RAM → MSHR state, 8 levels, 10.6 of 12.0 ns wire |
+| Cores → uncore | −4.963 | core 0's LSU `sq_head_q` → the crossbar's B slice, 14 levels |
+| Uncore → cores | −6.476 | an ACLINT timer → core 1's rename free-list count, 20 levels (in the core) |
+| Uncore → PS | −4.045 | the trace stream → HP3 write data, 7 levels, 7.2 ns of wire |
+| PS → uncore | −0.801 | |
+
+**Per site** (in: into the main data register; out: from it):
+
+| Site (bit) | Form | In | Out | Worst in from |
+|---|---|---|---|---|
+| A, device bus (19) | DSP | −3.603 | −0.443 | core 0's LSU `x_pa_q`, 7 levels |
+| C, bank 0 (24) | DSP | −3.623 | +0.513 | core 0's D$ controller, 4 levels |
+| C, bank 1 (25) | DSP | −4.651 | +0.132 | core 0's D$ controller, 6 levels |
+| W, port 0 (34) | DSP | −0.868 | +2.452 | L2 bank 0's `ws_buf_q`, 4 levels |
+| W, port 1 (39) | DSP | −0.141 | +2.996 | L2 bank 1's `ws_buf_q`, 4 levels |
+| AW, ports 0 / 1 (33, 38) | fabric | +1.193 / +1.060 | +3.2 / +3.3 | the same `ws_buf_q` |
+| D (l1d, l1i, mmio of both cores) | fabric | −2.45 to −3.90 | −0.80 to −2.50 | the L2's D queues; the cores' D$ |
+| A, L2 banks / ROM / error | fabric | −3.66, −2.91 / −1.69 / −1.52 | +1.6 to +2.4 | the cores' LSUs, 7–9 levels |
+| B, cores 0 / 1 | fabric | −5.140 / −4.962 | +3.2 / +2.8 | the L2's probe state, 14–15 levels |
+| AR, ports 0 / 1 | fabric | −2.981 / −3.371 | +3.4 / +3.1 | the L2's MSHRs, 14–16 levels |
+| L2 R, banks 0 / 1 | fabric | −4.710 / −5.342 | −4.3 / −2.5 | the L2's put-write state |
+| R, B (memory), E | fabric | +1.97 to +2.60 | | |
+
+**The crossbar and the cores:**
+- cores → A slices: −3.954 (7 levels; 1.1 ns logic, 7.6 ns wire);
+- cores → A arbiters: −2.580 (7 levels; 6.2 ns wire);
+- cores → C slices: −4.651 (6 levels; 7.9 ns wire);
+- cores → E slices: +1.778;
+- D slices → cores: −3.173 (8 levels; 5.9 ns wire);
+- B slices → cores: −3.052 (14 levels).
+
+**Findings:**
+- **No DSP site closes here, but neither do most fabric sites.** What fails is the logic and distance in front of the slices: the cores' LSUs and the L2. The DSP form itself isn't the cause.
+  - Where the source is the same, the DSP form costs what it did out of context. The memory W slices in DSPs have 1.3–2.1 ns less than the AW slices in fabric, fed from the same L2 register: −0.87 and −0.14 against +1.19 and +1.06.
+- **The crossbar's core-side paths are mostly wire.** For A and C they carry 6–8 ns of wire on 1.1–1.5 ns of logic over 6–7 levels.
+  - An earlier A decode would remove levels. The time, though, is in the distance between the cores' LSUs and the crossbar. That points to a register on each side of the interface.
+- **The L2 bank is split across the device.**
+  - Its MSHR state sits in rows 0–3 at the bottom left; its response-tag RAM is in rows 89–106, near the cores.
+  - Its worst path crosses that span twice: 4.7 and 1.4 ns of wire.
+  - Out of context the same bank's worst path is −0.7 to −1.0 ns. L2 endpoints make up about 3,900 of the uncore's (at least) 5,000 failing ones. The rest are the injectors, the AR, B and C slices, the trace stream and the windows.
+- **Caveat:** the cores miss 200 MHz by 10 ns in this chip, and the placer works on their paths first. The uncore's figures are therefore pessimistic: they are what it gets in today's full chip.
+- **Results:** `fpga/spikes/results/g4_v1_dflt/` (`sites.txt`, `xbar_core.txt`, `uncore_failing.txt`, the summary and the path reports).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
