@@ -151,7 +151,7 @@ module tg_rename
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
                   .FIRST(b == 0 ? 32 : 0)) u_fl (
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_idx(fl_pop[b]),
-      .pop_n(fl_pop_n[b]), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
+      .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
       .commit_n(fl_cmt_n[b]), .flush);
   end
 
@@ -169,7 +169,7 @@ module tg_rename
       tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
                     .FIRST(b == FPB_F0 ? 32 : 0)) u_fl (
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_idx(ffl_pop[b]),
-        .pop_n(ffl_pop_n[b]), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
+        .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
         .commit_n(ffl_cmt_n[b]), .flush);
     end
   end else begin : g_noffl
@@ -512,10 +512,11 @@ module tg_rename
                    irdy_ready && frdy_ready && (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
 
-  assign ffl_pop_n[0] = rn_fire ? fpops[0] : '0;
-  assign ffl_pop_n[1] = rn_fire ? fpops[1] : '0;
+  // The pops each free list takes when rename fires (the free list applies rn_fire last)
+  assign ffl_pop_n[0] = fpops[0];
+  assign ffl_pop_n[1] = fpops[1];
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_pops
-    assign fl_pop_n[b] = rn_fire ? pops[b] : '0;
+    assign fl_pop_n[b] = pops[b];
   end
 
   always_comb begin
