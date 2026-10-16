@@ -153,12 +153,15 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - A denial faults the load in M2. An MMIO load moves from `L_MMIO` to `L_EXC`, its issue held until the verdict.
   - The wakeups and the miss request do not wait for the checker. A denied load that misses may refill its line, a cacheable line whose data reaches no register.
   - Cycles change only for loads the PMP denies (`tanager-p-pmp`: +1 cycle).
-- **A store's PMP check comes after its decision too (S2).** A store that decides without the DTLB's cached result decides as if PMP allowed it. The STA port's checker looks at its registered PA (and size, access, M mode) the next cycle, S2.
-  - The store may have completed already (its data was in). A denial therefore reaches the ROB as an exception alone, on a port of its own, a cycle after S2 (S3: `spx_valid`). The store completes as before, when its data comes.
-  - Until the exception can show, the ROB retires nothing from the store on: the LSU names it in S2 (`sth_v[0]`: the check runs and denies, or waits) and in S3 (`sth_v[1]`). The ROB cuts its retire group there last, because the S2 verdict arrives late.
-  - An atomic retires only after it runs, so it is marked instead (`sq_pden_q`) and faults as it starts (Atomics, above).
-  - The walker keeps its grant (core-mmu: shared checker). An S2 check it takes the checker from waits a cycle and holds the store meanwhile.
-  - Cycles change only for denied stores, and for a store that would retire in the cycle its check waits for the walker.
+- **A store's PMP check leaves the DTLB's path.** The checker is never behind the DTLB at the store's decision:
+  - **A translated store to a page with the DTLB's cached result** decides with it, as before.
+  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Data are bare, so no walk runs and the walker never wants the shared checker then.
+  - **A translated store to a page without a cached result** (a page that a PMP region boundary splits, which the walker's per-page check makes rare) decides as if PMP allowed it. The checker looks at its registered PA (and size, access, M mode) the next cycle, S2.
+    - The store may have completed already (its data was in). A denial reaches the ROB as an exception alone, on a port of its own, a cycle after S2 (S3: `spx_valid`). The store completes as before, when its data comes.
+    - The ROB retires nothing from the store on while it is in S2 (`sth_v[0]`, a registered hold, so the checker's verdict stays off the commit path) and, if it is denied, in S3 until the exception shows (`sth_v[1]`).
+    - An atomic retires only after it runs: it is marked instead (`sq_pden_q`), starts only after its own S2 check, and faults as it starts (Atomics, above).
+    - The walker keeps its grant (core-mmu: shared checker). An S2 check that the walker takes the checker from waits a cycle and holds the store meanwhile.
+  - Cycles: identical on the suites in all four configurations and on the Linux boot (st, smt2) with the per-page PMP check. Only stores to split pages pay, a cycle when they would retire at once.
 - **Forwarding** (M1, then M2):
   - The search runs over the SQ's stores alone. With the split, the store address in M1 is picked last, by an age compare against the SQ's result (a Shannon expansion), without waiting for its own access-fault checks: a store that faults traps at commit, and the younger load goes with the flush.
   - The youngest matching store is a one-hot vector, formed from flip-flops, that selects the per-entry cover and data-valid bits. It goes to M2 as that vector and is encoded there for the LUTRAM reads (the store's data and size) and the waiting load's store ID. The forwarded data is read in M2.
