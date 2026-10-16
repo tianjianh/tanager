@@ -1,11 +1,14 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [MEM=0x40000000] [FPU=1] [PMU=0] [BOOTARGS="..."]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [BOOTARGS="..."]
+# RUN_THREADS=1 with THREADS=2: an SMT2 build that runs thread 0 of each core (until M7, DR-147),
+# so the tree describes harts 0 and 2.
 # PMU=1 adds OpenSBI's riscv,pmu event map, so Linux's PMU driver can count cycles and instructions
 # (the bench image, DR-141).
 # Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O.
 O       ?= $(SOC_BUILD)/dts
 CORES   ?= 2
 THREADS ?= 1
+RUN_THREADS ?= $(THREADS)
 MEM     ?= 0x40000000
 FPU     ?= 1
 PMU     ?= 0
@@ -13,7 +16,7 @@ BOOTARGS ?= console=ttyS0,115200 earlycon
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) \
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) \
         -DTG_BOOTARGS='"$(BOOTARGS)"'
 
 .PHONY: all clean

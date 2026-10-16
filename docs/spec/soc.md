@@ -195,9 +195,9 @@ A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53
   - **Needs the user's consent:** if the ATB does not engage, that read hangs the board, and only a power cycle recovers it.
 - **Sources:** `xfpd_slcr.h` and `xlpd_slcr.h` (AMD embeddedsw in the Vivado 2025.2 install); UG1087, `ERR_ATB_ISR (FPD_SLCR)`; the `zynqmp_atb` patch series (lwn.net/Articles/1022531, May 2025); a PYNQ forum thread with similar writes but a different prescaler encoding (`0x1020`; it does not report the result).
 
-## 8. Board stages C and D (design draft, DR-126)
+## 8. Board stages C and D (DR-126, DR-147)
 
-Status: draft for review, 2026-10-14. No RTL yet: stages A (the ARM side) and B (the real core booting Linux, M4) come first. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked.
+Status: stage C planned, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). No RTL yet. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
 
 ### 8.1 Stage C: the board's peripherals through the ARM (virtio)
 
@@ -208,15 +208,92 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 | Option | How | Pros | Cons |
 |---|---|---|---|
 | **C-a: registers in the uncore** | The virtio-mmio register set per slot in RTL (features, queue select, sizes, addresses, ready, status, interrupt status and ACK, configuration space). The host reads and writes the registers through its window. | Register reads at bus speed. | About 1–2K LUTs for four slots against an uncore already over budget. RTL for every new field or device type. |
-| **C-b: a forwarded window** (recommended) | RISC-V accesses to a slot become requests in a small queue the A53 serves. Reads wait for the answer; writes are posted. Interrupt status and ACK stay in RTL, so taking an interrupt needs no round trip. | Little RTL: a request FIFO, a response register and the interrupt bits. Every virtio device type is software in `tanager-host`. | A register read waits for the A53, about 10–100 µs. Linux's driver reads registers at probe time; at run time it writes QueueNotify (posted) and handles interrupts locally. The device-bus path must tolerate long stalls (it has no timeout). |
+| **C-b: a forwarded window** (chosen, DR-147) | RISC-V accesses to a slot become requests in a small queue the A53 serves. Reads wait for the answer; writes are posted. Interrupt status and ACK stay in RTL, so taking an interrupt needs no round trip. | Little RTL: a request FIFO, a response register and the interrupt bits. Every virtio device type is software in `tanager-host`. | A register read waits for the A53, about 10–100 µs. Linux's driver reads registers at probe time; at run time it writes QueueNotify (posted) and handles interrupts locally. The device-bus path must tolerate long stalls (it has no timeout). |
 
-**Data path.** Virtqueues and buffers are in RISC-V memory.
-- The back-end reaches them through the **coherent host DMA port**: an AXI path from the A53 (an HPM port) into the crossbar's `hdma` initiator, then the L2. The L2 serves the A53's reads and writes coherently, so neither side does cache maintenance.
-- `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used for this.
-- **Notification:** a QueueNotify write reaches the A53 as a forwarded request, through a host interrupt (`pl_ps_irq0`).
-- **Completion:** the back-end updates the used ring through the DMA port and sets the slot's interrupt bit (PLIC level source), which the driver's InterruptACK clears.
+**The forwarded window (C-b).** A device-bus target at `0x1001_0000`–`0x1001_3FFF`, four 4 KiB slots.
+- **Accesses:**
+  - The control registers are 32-bit.
+  - The configuration space also takes 8- and 16-bit accesses (virtio-mmio requires them for narrow fields), so a request carries its size.
+- **Forwarded:** every access except two registers of each slot. A queue entry is {slot[1:0], offset[11:0], size[1:0], we, wdata[31:0]}.
+  - Writes are posted: the device bus acknowledges at once.
+  - A read waits in the same queue behind earlier writes, and holds the device-bus response until the host answers. The device bus has no timeout.
+  - The queue (16 entries, LUTRAM, an asynchronous FIFO into `clk_host`) back-pressures the device bus when full.
+- **Local:** InterruptStatus (`0x060`) and InterruptACK (`0x064`) of each slot are answered in RTL, so taking an interrupt needs no round trip.
+  - Each slot has two status bits: bit 0, used buffer; bit 1, configuration change.
+  - The host sets the bits through a register, and the driver's InterruptACK clears them.
+  - The bits' OR is the slot's PLIC source, 1–4, level-triggered.
+- **Host registers** (host bridge, `clk_host`):
+  - `VQ_STATUS`: queue count;
+  - `VQ_REQ`: two words, the second read pops the entry;
+  - `VQ_RSP`: a write completes the waiting read with its data;
+  - `VQ_IRQ`: sets or clears a slot's status bits.
+  - A host interrupt bit (`pl_ps_irq0`) is raised while the queue is not empty.
+- **Switch:** `tg_uncore` `VIRTIO_WINDOW` (off by default, cycle-identical when off). The slots then answer as today.
 
-**Order of work:** virtio-blk first, on a file or the RISC-V's SD partition seen from the A53. Then virtio-rng, then virtio-net (a TAP device on the A53).
+**The coherent host DMA port.** Virtqueues and buffers are in RISC-V memory, and the back-end reaches them through this port, so neither side does cache maintenance. `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used.
+- **Path:** `M_AXI_HPM1_FPD` (128-bit, clocked by `clk_core`, its own PS address window onto the carve-out), then an AXI4-to-TileLink bridge (TL-UH: Get, PutFull, PutPartial, at most one 64-byte line per message), then the crossbar's `hdma` initiator (`tg_xbar` `HOST_DMA`), then the L2.
+- **AXI4 rules:** INCR bursts. IDs are remapped to a few bits, and responses are in order per ID.
+- **Coherence:**
+  - The L2 serves the port coherently. A read sees the cores' dirty lines (the L2 probes the owner first).
+  - A write completes, with AXI B, only after the L2's AccessAck, which follows the invalidation of every L1 copy.
+- **Lockstep:** the bridge latches the trace stream's cycle counter (the one the records carry) at each write's AccessAck into a 16-entry completion FIFO, {AXI ID, cycle}, which the host pops through the host bridge. `tanager-host` hands (address, data, cycle) to `tanager-lockstep`, so the checker can accept a load that sees the A53's write (the verification track's DMA rule). No DMA data enters the trace stream.
+- **Switch:** `tg_uncore` `HOST_DMA` (off by default, cycle-identical when off).
+
+**Notification and completion.** A QueueNotify write reaches the A53 as a forwarded request. The back-end then works the virtqueue through the DMA port, updates the used ring, and sets the slot's status bit with `VQ_IRQ`. The driver's InterruptACK clears it.
+
+**`tanager-host` back-ends** (a virtio-mmio device model per slot, version 2 registers), in this order:
+1. **virtio-blk** on an image file on the A53's filesystem: `tanager-host run --blk <image>`. Later the RISC-V's own SD partition (below).
+2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN. The bridge is an A53 OS change: approved in advance (DR-147), set up with an automatic rollback, and logged with its undo in `fpga/kv260/README.md`, as every A53 change of stages C and D is.
+3. **virtio-rng:** from the A53's `getrandom()`.
+
+The console stays the 16550 UART (PMOD, with the host's copy). Debian's kernel has no SBI console tty, so the console must be a UART.
+
+**The boot chain** (a standard SBC's):
+- **OpenSBI `fw_jump`**, as today: the next stage at `0x8020_0000`, the device tree at `0x8220_0000`.
+- **U-Boot in S-mode** at `0x8020_0000`:
+  - a `tanager` board derived from `qemu-riscv64_smode`;
+  - it runs on the device tree OpenSBI passes (`OF_BOARD`), with the 16550 console on the PMOD UART;
+  - drivers: virtio-mmio and virtio-blk;
+  - standard boot: extlinux first, then EFI.
+  - Its version is pinned in `sw/versions.sh`, and it's built by `sw/build_uboot.sh`.
+- **Debian 13's kernel and initrd** from the image's `/boot`:
+  - Debian's `u-boot-menu` rewrites `/boot/extlinux/extlinux.conf` on every kernel install or upgrade, as on any Debian SBC. GRUB-EFI (`grub-efi-riscv64`) is the alternative.
+  - The kernel gets the device tree U-Boot runs on: Debian ships none for Tanager.
+  - The kernel is Debian's `linux-image-riscv64` (6.12): virtio-mmio, -blk, -net and -rng as modules, 8250 with OF, the PLIC, SBI and the EFI stub (the verification track's check).
+- **Loading:** `tanager-host` loads `fw_jump.bin`, `u-boot.bin` (in the kernel's place) and the device tree, then serves the disk.
+
+**The Debian 13 riscv64 root filesystem**, built on the 5950X by `sw/build_debian.sh`:
+- `mmdebstrap --mode=unshare --architectures=riscv64 trixie`, with qemu-user and binfmt_misc, from a pinned snapshot.debian.org date.
+- Packages: `linux-image-riscv64`, `u-boot-menu`, `initramfs-tools`, `systemd-sysv`, `openssh-server`, `sudo`.
+- Configuration:
+  - `virtio_mmio` and `virtio_blk` in `/etc/initramfs-tools/modules`, since the root is on virtio-blk and both are modules;
+  - `u-boot-menu`'s command line: `console=ttyS0,115200 root=LABEL=tanager-root rw`;
+  - a serial getty on `ttyS0`, the hostname, and a user with sudo and an SSH key.
+- Packed into an 8 GiB ext4 image and copied onto the A53's root filesystem.
+
+**The RISC-V's own SD partition** (repartitioning approved, DR-147). The card is 16 GB with an MBR:
+- `p1` is the A53's boot (1 GiB FAT32).
+- `p2` is the A53's root (13.6 GiB ext4, 2.9 GB used), to the end of the card.
+
+The plan:
+1. The image file on `p2` first. It needs no repartitioning.
+2. Then a full backup of the card to the laptop.
+3. Then an offline shrink of `p2` to about 6 GiB, from an initramfs hook at the A53's next boot (ext4 shrinks only unmounted).
+4. Then `p3` for the RISC-V, served raw as virtio-blk.
+
+A bigger cloned card is the alternative if the user prefers it. The board session does the work on the board, and the A53's Ubuntu stays intact and bootable.
+
+**Tests** (with the verification track):
+- **The window:** a testbench host serves the queue with random delays up to about 100K cycles, checks posted writes in order, and sets and clears the status bits. RISC-V programs probe the slots and take the interrupts.
+- **The DMA port:** a testbench AXI master (lifted from `tb_host_bridge`'s) runs virtio-like producer and consumer traffic with checksums. Its reads must see the cores' dirty lines, and the cores must see its writes once the used ring and the interrupt follow.
+- **Lockstep with DMA:** the checker learns each external write and its AccessAck cycle, from DPI in simulation and from the completion FIFO on the board.
+
+**Order of work:**
+1. Phase 0 and 1: the two-core platform bitstream, and two-hart Linux on the board.
+2. The window and the DMA port, as RTL with host registers, each switchable and off by default, with their tests.
+3. virtio-blk, U-Boot and the Debian image: Debian 13 boots from the image file.
+4. virtio-net (bridged), then virtio-rng.
+5. The RISC-V's own SD partition.
 
 ### 8.2 Stage D: dual boot, the RISC-V drives the PS's peripherals
 
@@ -240,7 +317,7 @@ After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own
 | **D-b: bounce buffers** | An uncached alias of part of the carve-out: a PMA region the L2 does not cache, routed straight to the memory port. Linux's `restricted-dma-pool` (swiotlb) bounces all peripheral DMA through it. | No core changes; ready for M5. | Every DMA buffer is copied once. The pool's size limits the I/O in flight. A small uncore change: an uncached route in the crossbar. |
 | **D-c: DMA through the PL into the L2** | `dma-ranges` points the controllers at a PS bus address inside an HPM window (PS to PL), which the host bridge forwards into the coherent host DMA port of §8.1. The controllers' DMA then reaches the L2 like the A53's back-end does. | Coherent, with no core changes and no copies. Reuses stage C's DMA path. | DMA bandwidth is that of the HPM port and the L2's `hdma` initiator, enough for SD, USB 2 and 1 GbE but not for USB 3 at full speed. Longer latency. The HPM window is shared with the host window (decoded by address). **To confirm** in the ZynqMP TRM and on the board: that these IOU masters can target an HPM window at all. |
 
-  Recommendation: start with D-c if stage C's DMA port takes bursts well, else D-b. Move to D-a when Zicbom lands (M9).
+  Decided (DR-147): D-c. Debian's kernel drives no non-coherent DMA device without Zicbom, so D-b, whose uncached pool needs a core PMA change, and D-a wait. D-a becomes possible when Zicbom lands (M9).
 
 **The handover sequence** (what the A53 leaves configured):
 1. **Boot:** the PMU firmware and FSBL set up the PLLs, MIO pins, resets and DDR. ATF, U-Boot and the A53's Linux follow.
@@ -276,9 +353,51 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 |---|---|---|---|
 | **F-a: PL controller** | A small controller reads the PL SYSMON's die temperature (SYSMONE4, DRP) and sets the PWM from a fixed curve. | Works without any OS, and keeps working if software hangs. | RTL (an estimated 200 LUTs plus the SYSMON primitive). A fixed curve. Our own thermal policy to get right. |
 | **F-b: RISC-V Linux** | The RISC-V's Linux drives the same TTC (the `pwm-cadence` driver over the PL-to-PS port) with `pwm-fan` and a thermal zone reading the PS's AMS or the PL SYSMON. | The same regulation as on the A53, in software. | Depends on the RISC-V's Linux running. If it hangs, the fan stays at the last duty, possibly low. Needs the TTC and a temperature sensor in the RISC-V's device tree. |
-| **F-c: both** (recommended) | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
+| **F-c: both** | F-b regulates, and a minimal F-a acts as a floor: full speed above a temperature threshold, else the TTC's PWM passes through. | Normal regulation from Linux, and safety if either OS hangs. It also protects stage B, should the A53's Linux stop. | Both pieces exist: a comparator and a multiplexer on top of SYSMON in the PL, plus the RISC-V's drivers. |
+
+**Chosen (DR-147): F-a as a full regulator** that keeps the A53's control while it is there.
+- **Duty:** the PL drives `fan_en_b` with its own 25 kHz PWM. Its duty is the larger of two:
+  - a fixed curve of the PL SYSMON's die temperature (SYSMONE4 over DRP, piecewise-linear with hysteresis, full speed above a top threshold);
+  - the A53's TTC duty, which the PL measures from `emio_ttc0_wave_o[2]`.
+- **Stages B and C:** the A53's `fancontrol` stays in charge whenever it asks for more than the curve. DR-129 holds: the TTC waveform still reaches the fan.
+- **Stage D, or if any OS hangs:** the curve regulates alone.
+- **Why not F-b or F-c:** Debian's kernel has no `pwm-fan`, no TTC PWM driver and no temperature driver for this chip. So the RISC-V's Linux would need two or three of our own modules before it could regulate, and the fan would still depend on that Linux running. With F-a the fan never depends on the RISC-V's software, and no new driver is needed.
+- **Monitoring:** a read-only register (temperature, duty, source) can be added later for a small driver.
+- **Clean room:** no SiFive-compatible PWM is needed. If one is ever added, it is built only from SiFive's published register manual (DR-138).
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
+
+**Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.
+
+**Stage D's drivers.** Debian's kernel has MACB, PHYLIB and DP83867, as modules. It lacks `sdhci-of-arasan`, `dwc3`, `xilinx_uartps`, any TTC PWM, `pwm-fan` and the AMS driver. Those are our own modules, using generic compatibles and no ZynqMP firmware calls. The fan needs none: the PL regulates it (below).
+
+### 8.3 PL cost of stages C and D (estimate, DR-147)
+
+These are estimates from measured blocks of today's uncore, in the budget flow at `st`:
+- the host bridge's asynchronous FIFOs: 174–203 LUTs, 304–362 FFs and one 18 Kb block RAM each;
+- the crossbar's per-initiator D arbiter: 181–213 LUTs;
+- an L2 bank's A arbiter: 280 LUTs;
+- a D slice: 80 LUTs and 310 FFs;
+- the memory ports' AXI slices: 134–199 LUTs and 609–738 FFs;
+- the PLIC: 324 LUTs and 280 FFs for 31 sources.
+
+The uncore's block RAM is at 18 of its 19, so the new FIFOs are LUTRAM. Timing risk comes from G5R, the full chip at 125 MHz: the uncore's PS-side crossings passed by +0.4 to +0.8 ns, and the core-to-crossbar crossing missed by 0.34 ns.
+
+| Block | LUTs | FFs | Block RAM | Timing risk at 90 / 125 MHz |
+|---|---|---|---|---|
+| Forwarded window (C-b): the queue, the response, the slots' status bits, the host registers | 300–400 | 400–500 | 0 | low / low |
+| Host DMA port: AXI4 slave, the AXI4-to-TileLink bridge, the completion FIFO | 600–1,000 | 800–1,300 | 0 | low / moderate (a 128-bit path into the crossbar) |
+| The crossbar's `hdma` initiator: a D arbiter and D slice, one more input on the banks' A arbiters | 300–400 | 300–350 | 0 | low / moderate (one more level at the L2 banks' A arbiters) |
+| **Stage C** | **1.2–1.8K** | **1.5–2.2K** | **0** | |
+| `S_AXI_LPD` register master (stage D) | 150–250 | 200–300 | 0 | low / low, behind an AXI-Lite slice |
+| PS-to-PL interrupts (8 sources into the PLIC's free ones) | 10–20 | 16–32 | 0 | none (synchronizers) |
+| D-c on top of the DMA port: the PS bus window and its address remap | 50–150 | 50–150 | 0 | low / low |
+| F-a fan regulator: SYSMONE4 (a hard block), a DRP poller, the curve, the TTC duty measurement, the PWM | 150–200 | 100–150 | 0 | none (slow clock) |
+| **Stage D** (with D-c and the fan regulator) | **0.35–0.6K** | **0.35–0.6K** | **0** | |
+| **C and D** | **about 1.6–2.4K** | **1.9–2.8K** | **0** | |
+
+- **D-b instead of D-c:** an uncached route in the crossbar would cost 100–200 LUTs, but it needs an uncached PMA region in the core as well. Debian's kernel can't treat it as non-coherent DMA anyway.
+- **In the final v1** these compete with the 4-miss data cache and hart 1. A performance build without the commit trace frees 3,066 LUTs in the uncore alone (`TG_COMMIT_TRACE=0`, [budgets.md](../perf/budgets.md) §4), about the size of stages C and D together. A board build that keeps board lockstep keeps the trace.
 
 ## Verification
 
