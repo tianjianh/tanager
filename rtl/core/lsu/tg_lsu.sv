@@ -429,7 +429,7 @@ module tg_lsu
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
-  logic              am_req, am_ack, am_den, lose_v;
+  logic              am_req, am_sel, am_ack, am_den, lose_v;
   logic [PA_W-1:0]   am_pa;
   logic [15:0]       am_wmask;
   logic [63:0]       am_wdata;
@@ -440,7 +440,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
-    .am_req, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
+    .am_req, .am_sel, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
@@ -788,6 +788,7 @@ module tg_lsu
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush && !am_pden_q;
+  assign am_sel   = am_st_q == AM_REQ;              // the D$ store port's address: the state alone
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
   assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, am_b_q);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
