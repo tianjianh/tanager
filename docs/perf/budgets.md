@@ -184,6 +184,7 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | c4f7350 | L2: the allocation's held and dirty flags without the victim pick (c244fd6, 0dbdd58), the victim read-out's set in a register (26c16ce), the `ProbeAck` search's matches kept apart (c4f7350); together +10; cycle-identical | 19,649 | | 18,573 at `st` | **18** |
 | cb7bb99 | L2: the AR pick made a cycle ahead (+115); cycle-identical | 19,764 | | 18,583 at `st` | **18** |
 | 944728f | L2: the probe flags' selects without their `keep` (−157: the no-IPC offset for cb7bb99 under DR-145's margin of about 0.3K); `XBAR_SLICE` and `MEM_SLICE` (9759d22), on (0: measured on the same RTL without the switches; all off with the AR slice, −1,174, [soc.md](../spec/soc.md)); cycle-identical | 19,607 | | 18,583 at `st` | **18** |
+| dbc3105 | tanager_soc and kv260_top pass on the slice switches (f08881c, 0); the commit trace as a build switch (DR-146): on by default (0); off (`TG_COMMIT_TRACE=0`): 16,541 LUTs and 16,559 FFs (−3,066 and −2,024: the trace stream 2,904 and 391, the host bridge's trace registers 130 and 1,637); cycle-identical | 19,607 | | 18,583 at `st` | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):

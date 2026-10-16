@@ -51,6 +51,7 @@ enum {
 #define TRS_ST_FULL      0x8u
 #define TRS_ST_AXI_ERR   0x10u
 #define TRS_REC_BYTES  64u
+#define CAPS_TRACE     0x8u            /* CAPS[3]: the commit-trace stream is built (DR-146) */
 #define TG_ID          0x54474E52u     /* "TNGR" */
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
@@ -201,7 +202,8 @@ static void cmd_info(void) {
   printf("Tanager host bridge v%u.%u\n", ver >> 24, (ver >> 16) & 0xff);
   printf("  configuration   %s, %u core(s) x %u thread(s)\n", cfgs[ver & 3], (ver >> 12) & 0xf, (ver >> 8) & 0xf);
   printf("  core clock      %.1f MHz\n", rd(R_CLK_HZ) / 1e6);
-  printf("  capabilities    0x%08x\n", rd(R_CAPS));
+  printf("  capabilities    0x%08x%s\n", rd(R_CAPS),
+         rd(R_CAPS) & CAPS_TRACE ? "" : " (no commit-trace stream: built with TG_COMMIT_TRACE=0)");
   printf("  status          cores %s, uncore %s, L2 %s%s\n",
          st & ST_CORES_RST ? "in reset" : "running", st & ST_UNC_RST ? "in reset" : "running",
          st & ST_L2_INIT ? "ready" : "not ready", st & ST_POWER_REQ ? ", power request pending" : "");
@@ -291,6 +293,16 @@ static uint8_t *trace_ring;
 static FILE *trace_out;
 static uint64_t trace_rp;
 static int      trace_broken;           /* a trace write failed: the consumer has gone (run exits 4) */
+
+/* A bitstream built without the commit trace (TG_COMMIT_TRACE=0, DR-146) has no trace stream and reads
+ * CAPS[3] = 0: --trace stops at once, before anything is loaded or released, instead of waiting on a
+ * ring that never fills. */
+static int trace_built(void) { return (rd(R_CAPS) & CAPS_TRACE) != 0; }
+static void check_trace(const struct opts *o) {
+  if (o->trace && !trace_built())
+    die("--trace: this bitstream has no commit-trace stream (CAPS[3] = 0: built with TG_COMMIT_TRACE=0, "
+        "DR-146); lockstep needs a bitstream built with the trace");
+}
 
 static void trace_status(void) {
   uint32_t st = rd(R_TRS_STATUS), info = rd(R_TRS_INFO);
@@ -579,9 +591,9 @@ int main(int argc, char **argv) {
 
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }
   if (!strcmp(cmd, "reset"))      { check_id(); cmd_reset(); return 0; }
-  if (!strcmp(cmd, "load"))       { check_id(); cmd_load(&o); return 0; }
-  if (!strcmp(cmd, "run"))        return cmd_run(&o);
-  if (!strcmp(cmd, "boot"))       { check_id(); cmd_load(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "load"))       { check_id(); check_trace(&o); cmd_load(&o); return 0; }
+  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); cmd_load(&o); return cmd_run(&o); }
   if (!strcmp(cmd, "inj"))        {
     check_id();
     set_inj(&o);
@@ -595,6 +607,10 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "trace"))      {
     check_id();
     if (optind >= argc || strcmp(argv[optind], "status")) usage();
+    if (!trace_built()) {
+      printf("trace: no commit-trace stream in this bitstream (CAPS[3] = 0: built with TG_COMMIT_TRACE=0, DR-146)\n");
+      return 1;
+    }
     trace_status();
     return 0;
   }
