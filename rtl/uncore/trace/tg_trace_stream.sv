@@ -154,7 +154,10 @@ module tg_trace_stream
       end
   end
 
-  // Stop trigger (cycle granularity: the cycle that reaches POST is kept whole)
+  // Stop trigger (cycle granularity: the cycle that reaches POST is kept whole). The trigger and the
+  // post-trigger count act only while live, when every valid record is taken (no start cycle then:
+  // started_q is set), so they count valid records directly and skip the start compare (200 MHz,
+  // DR-142: it put the start PC's compare, start_from and the take vector ahead of the stop count).
   logic       stop_hit;
   logic [7:0] n_taken;
   always_comb begin
@@ -162,8 +165,9 @@ module tg_trace_stream
     n_taken  = '0;
     for (int c = 0; c < N_CORES; c++) begin
       for (int k = 0; k < CW; k++)
-        if (take[c][k] && trace_i[c][k].pc == stop_pc_i) stop_hit = 1'b1;
-      for (int l = 0; l < NL; l++) n_taken = n_taken + 8'(take[c][l]);
+        if (trace_valid_i[c][k] && trace_i[c][k].pc == stop_pc_i) stop_hit = 1'b1;
+      for (int l = 0; l < NL; l++)
+        n_taken = n_taken + 8'((l < CW) ? trace_valid_i[c][l] : trace_wb_valid_i[c][(l < CW) ? 0 : l - CW]);
     end
   end
 
@@ -442,6 +446,20 @@ module tg_trace_stream
 `ifndef SYNTHESIS
   always_ff @(posedge clk) if (!rst) begin
     if (b_valid_i) assert (out_q != '0) else $error("tg_trace_stream: B without an outstanding write");
+  end
+  // While live every valid record is taken: the stop trigger's hit and count are the taken records'
+  always_ff @(posedge clk) if (!rst && live) begin
+    int   nt;
+    logic sh;
+    nt = 0;
+    sh = 1'b0;
+    for (int c = 0; c < N_CORES; c++)
+      for (int l = 0; l < NL; l++) begin
+        nt += int'(take[c][l]);
+        if (l < CW && take[c][l] && trace_i[c][(l < CW) ? l : 0].pc == stop_pc_i) sh = 1'b1;
+      end
+    assert (int'(n_taken) == nt && stop_hit == sh)
+      else $error("tg_trace_stream: stop count %0d hit %b, taken %0d hit %b", n_taken, stop_hit, nt, sh);
   end
 `endif
 endmodule
