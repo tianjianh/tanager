@@ -1,7 +1,9 @@
 #!/bin/bash
-# make lint-all (docs/spec/verification.md §4.3): every configuration in DR-140's four elaborations,
-# so that every switch's branches compile: the fallback (TIMING_CUTS=0), the default, and #2 and #8 each
-# on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1; both lint only). They run JOBS at a time
+# make lint-all (docs/spec/verification.md §4.3): every configuration in six elaborations, so that
+# every switch's branches compile: the fallback (TIMING_CUTS=0), the default, and #2, #8 and the commit
+# trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
+# DR-140, DR-146); and the default's synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
+# synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
 #   tools/ci/lint_all.sh [JOBS=6] [CFGS="st smt2 st_w3 smt2_w3"]
@@ -24,6 +26,8 @@ if mentioned TG_TIMING_CUTS; then profiles+=("TIMING_CUTS=0"); else echo "lint-a
 profiles+=("")
 if mentioned TG_ROB_STORE_REPORT_LATE; then profiles+=("ROB_STORE_REPORT_LATE=1"); else echo "lint-all: no RTL mentions TG_ROB_STORE_REPORT_LATE; skipping ROB_STORE_REPORT_LATE=1"; fi
 if mentioned TG_DE_STAGE; then profiles+=("DE_STAGE=1"); else echo "lint-all: no RTL mentions TG_DE_STAGE; skipping DE_STAGE=1"; fi
+if mentioned TG_COMMIT_TRACE; then profiles+=("COMMIT_TRACE=0"); else echo "lint-all: no RTL mentions TG_COMMIT_TRACE; skipping COMMIT_TRACE=0"; fi
+profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
