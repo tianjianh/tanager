@@ -29,6 +29,11 @@ struct lockstep_cfg_t {
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
   std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny ranges: Spike faults on them too
+  // External writes (§3.10): a hart may still read a write's old bytes for this many of its own records
+  // after the write's cycle (a load that read before the write commits later: at most a ROB's worth), and
+  // its new bytes from this many cycles before (the L2 may serve them before its AccessAck).
+  unsigned ext_window = 512;
+  uint64_t ext_early = 256;
 };
 
 class lockstep_impl_t;
@@ -45,6 +50,13 @@ class lockstep_t {
   bool finish();
   // A deferred writeback pending for more than `limit` cycles at cycle `now` is a mismatch.
   bool check_stale(uint64_t now, uint64_t limit);
+  // A write into main memory by another master (the host's DMA through the L2, soc.md §8.1), visible from
+  // `cycle` on: `len` bytes (at most 32) from physical address `paddr`, byte i written when bit i of `mask`
+  // is set. It must arrive before any record of `cycle` or later (§3.10).
+  bool external_write(uint64_t paddr, const uint8_t* data, uint32_t mask, unsigned len, uint64_t cycle);
+  // Loads that returned an external write's new bytes, and the writes still in a hart's window.
+  uint64_t ext_loads_new() const;
+  size_t ext_pending() const;
 
   size_t pending_wbs() const;
   bool failed() const;
