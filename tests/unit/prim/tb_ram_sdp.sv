@@ -1,12 +1,13 @@
 // Unit test of tg_ram_sdp's behavioural model: read-first, byte enables, read latency 1, 2
-// and 4 (RD_LAT), against a reference array.
+// and 4 (RD_LAT), with the write port enabled by its byte enables or always (WR_PORT_ON), against a
+// reference array.
 //   Vtb_ram_sdp +seed=<n> +cycles=<n>
 module tb_ram_sdp;
   logic clk = 1'b0;
   always #5 clk = ~clk;
   int seed = 1, cycles = 20000, errors = 0;
 
-  `define TG_SDP(NAME, D, W, BW, LAT)                                                      \
+  `define TG_SDP(NAME, D, W, BW, LAT, WPO)                                                    \
     localparam int NAME``_AW = $clog2(D);                                                 \
     logic [W/BW-1:0]      NAME``_we;                                                      \
     logic [NAME``_AW-1:0] NAME``_wa, NAME``_ra;                                           \
@@ -15,7 +16,7 @@ module tb_ram_sdp;
     logic [W-1:0]         NAME``_mem [D];                                                 \
     logic [LAT-1:0][W-1:0] NAME``_exp;                                                    \
     logic [LAT-1:0]        NAME``_v;                                                      \
-    tg_ram_sdp #(.DEPTH(D), .WIDTH(W), .BYTE_W(BW), .RD_LAT(LAT)) u_``NAME (              \
+    tg_ram_sdp #(.DEPTH(D), .WIDTH(W), .BYTE_W(BW), .RD_LAT(LAT), .WR_PORT_ON(WPO)) u_``NAME (\
       .clk, .we(NAME``_we), .waddr(NAME``_wa), .wdata(NAME``_wd), .re(NAME``_re),          \
       .raddr(NAME``_ra), .rdata(NAME``_rd));                                              \
     initial begin                                                                         \
@@ -42,8 +43,11 @@ module tb_ram_sdp;
         if (NAME``_we[b]) NAME``_mem[NAME``_wa][b*BW +: BW] <= NAME``_wd[b*BW +: BW];     \
     end
 
-  `TG_SDP(l2, 64, 72, 8, 2)
-  `TG_SDP(l4, 128, 64, 64, 4)
+  `TG_SDP(l2, 64, 72, 8, 2, 0)
+  `TG_SDP(l4, 128, 64, 64, 4, 0)
+  // the write port always enabled, as the L2's data array (byte enables, latency 2 and 4)
+  `TG_SDP(l2p, 64, 72, 8, 2, 1)
+  `TG_SDP(l4p, 128, 256, 8, 4, 1)
 
   // Latency 1 uses no shift register
   localparam int A1 = 5;
