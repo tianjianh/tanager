@@ -1452,13 +1452,17 @@ module tg_lsu
     assign ln_lqw   = m1_lq_q;
     // A new load's PMP checker runs in M2 on m2_pa_q: for a load in the pipe, or an MMIO load parked
     // in M1 (check only; its issue can come no earlier than this cycle)
-    logic m2_pck_q, m2_mck_q;
+    // The 8-byte flag comes from M1's LQ read, registered (its AG wrote the size a cycle before)
+    logic m2_pck_q, m2_mck_q, m2_dbl_q;
     always_ff @(posedge clk) begin
       m2_pck_q <= !rst && !flush && ln_v_q && nl_pmpd && nl_go;
       m2_mck_q <= !rst && !flush && ln_v_q && nl_pmpd && !nl_exc && !nl_tm && nl_mmio;
+      m2_dbl_q <= lq_size_q[m1_lq_q] == 2'd3;
+      if (!rst && (m2_pck_q || m2_mck_q))
+        assert (m2_dbl_q == (lq_size_q[m2_lq_q] == 2'd3)) else $error("tg_lsu: M2's 8-byte flag is stale");
     end
     assign lck_pa  = m2_pa_q;
-    assign lck_dbl = lq_size_q[m2_lq_q] == 2'd3;
+    assign lck_dbl = m2_dbl_q;
     assign l_den   = m2_pck_q && !nl_chk[0];
     assign lm_den  = m2_mck_q && !nl_chk[0];
     assign lm_lq   = m2_lq_q;
