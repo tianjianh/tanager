@@ -1,7 +1,8 @@
 // FMA normalisation (docs/spec/fpu.md, "FMA unit", E3): leading-zero count of x | marker (the
 // marker limits the count at emin) and the left shift x << lz, keeping only the top K bits plus
 // a sticky. The shift runs in four radix-4 stages; each stage keeps just the bits that can still
-// reach the top K and ORs the rest into the sticky, so no wide OR follows the last stage.
+// reach the top K and ORs the rest into the sticky, so no wide OR follows the last stage. The
+// count is tg_fpu_lzc's radix-4 tree, whose bits come out in the order the stages use them.
 module tg_fpu_fma_norm #(
   parameter int W = 165,
   parameter int K = 55
@@ -16,7 +17,7 @@ module tg_fpu_fma_norm #(
   localparam int W2 = K + 15;   // after lz[5:4] * 16
   localparam int W3 = K + 3;    // after lz[3:2] * 4
 
-  tg_fpu_lzc #(.W(W)) u_lzc (.x(x | marker), .cnt(lz));
+  tg_fpu_lzc #(.W(W), .R4(1'b1)) u_lzc (.x(x | marker), .cnt(lz));
 
   logic [W-1:0]  s1;
   logic [W1-1:0] s2;

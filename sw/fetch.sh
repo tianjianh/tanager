@@ -2,8 +2,9 @@
 # Downloads the pinned sources of sw/versions.sh into $SOC_DL and checks them against sw/sha256sums.
 # A file with no recorded sum is recorded on first download (trust on first use; commit the change).
 #   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc|spike ...]     (default: all but spike)
-# aatc (the aarch64 toolchain for sw/host) is unpacked under $SOC_BUILD/tc after the check, and its
-# archive deleted; it is fetched again only if the unpacked copy is missing.
+# aatc (the aarch64 toolchain for sw/host) is unpacked after the check, into $SOC_TC_DIR (default
+# $SOC_BUILD/tc; $SOC_TC_SHARED to share it), and its archive deleted; it is fetched again only if
+# neither this worktree nor the shared directory has it (sw/env.sh SOC_AATC).
 # spike is Spike's source at tools/versions.sh's SPIKE_SHA, for tanager-lockstep on the A53
 # (sim/Makefile lockstep-aarch64; docs/spec/verification.md §3.9).
 set -euo pipefail
@@ -42,14 +43,15 @@ for i in "${items[@]}"; do
     buildroot) fetch "$BUILDROOT_URL" buildroot                 "$BUILDROOT_TAR" ;;
     rvtc)      fetch "$RVTC_URL"      toolchain-external-custom "$RVTC_TAR" ;;
     aatc)
-      if [ -x "$SOC_BUILD/tc/$AATC_NAME/bin/aarch64-buildroot-linux-musl-gcc" ]; then
-        echo "[fetch] ok $AATC_NAME (unpacked)"
+      if [ -x "$SOC_AATC/bin/aarch64-buildroot-linux-musl-gcc" ]; then
+        echo "[fetch] ok $AATC_NAME (unpacked in $(dirname "$SOC_AATC"))"
       else
+        dest="${SOC_TC_DIR:-$SOC_BUILD/tc}"
         fetch "$AATC_URL" toolchain-aarch64 "$AATC_TAR"
-        mkdir -p "$SOC_BUILD/tc"
-        tar -xf "$SOC_DL/toolchain-aarch64/$AATC_TAR" -C "$SOC_BUILD/tc"
+        mkdir -p "$dest"
+        tar -xf "$SOC_DL/toolchain-aarch64/$AATC_TAR" -C "$dest"
         rm -f "$SOC_DL/toolchain-aarch64/$AATC_TAR"
-        echo "[fetch] unpacked $AATC_NAME into $SOC_BUILD/tc (archive deleted)"
+        echo "[fetch] unpacked $AATC_NAME into $dest (archive deleted)"
       fi ;;
     spike)
       SPIKE_SHA="$(source "$here/../tools/versions.sh" && echo "$SPIKE_SHA")"

@@ -35,6 +35,7 @@ make -j"$(nproc)"                          # builds build/tgsim with g++-15 -std
 bash tests/run_sanity.sh                   # hello.c on 4 ISAs vs a native g++-15 build
 bash bench/build_all.sh                    # the DSE suite, 33 workloads per ISA -> build/bench/<isa>/manifest.jsonl
 bash bench/build_extra.sh                  # targeted kernels and coremark_N -> build/bench/<isa>/extra.jsonl
+bash bench/build_ws.sh                     # working-set kernels, 0.5-4 MiB -> build/bench/<isa>/ws.jsonl
 bash scripts/verify_all.sh                 # functional check of every workload (CRCs, outputs, exit codes)
 ```
 
@@ -63,6 +64,15 @@ run `sed -i 's/\r$//' <script>`.
 | `tk_histo` | a store-to-load aliasing histogram | memory-dependence prediction |
 | `tk_dgemm` | an L1-resident, 4×4-blocked double matrix multiply | FP issue width, FP queue |
 | `coremark_N` | CoreMark built the way NaxRiscv's published RV64 score was (`ee_u32` signed) | the CoreMark cross-check only; never a valid score |
+
+**Working-set kernels** (`bench/build_ws.sh`; not in the suite geomean). DR-141's Linux-like working sets of 0.5–4 MiB, which the suite lacks: its kernels fit the L1s, and its memsuite needs 8–32 MiB. Each runs without fast-forward and touches its data before the region, so the region starts with as much of the working set cached as fits.
+
+| Workload (`<k>` = 512, 1024, 2048, 4096 KiB) | What it is |
+|---|---|
+| `ws_chase1_<k>` | one random pointer chain over `<k>` KiB of 64-byte nodes (latency) |
+| `ws_chase8_<k>` | eight chains over `<k>` KiB (memory-level parallelism) |
+| `ws_hash_<k>` | lookups in a half-full `<k>` KiB open-addressing hash table (random reads, branches) |
+| `ws_copy_<k>` | memcpy within `<k>` KiB (source and destination half each), about 2 MiB copied per region |
 
 **How workloads are measured.** Each workload brackets its timed region with MMIO marker stores (`bsp/tgsim.h`), and only the region is measured.
 
@@ -117,6 +127,7 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 | `scripts/smt_tables.py` (or `smt.py --tables`) | generated SMT2 tables → `docs/perf/smt2_tables.md` |
 | `scripts/area.py` | the area-recovery study (plan §8.5, D18): each IPC-costing lever alone on v1 (`smt2`) and v2 (`smt2_w3`), at 30/120/250 cycles, on the 42 pairs and the single-thread suite → `results/area_recovery.json`. Other modes:<br>`--combos`: the levers that pass the reverse rule, added greedily (each saving recomputed on top of the levers taken), the v2 re-plan options, window growth with wakeup tags, and the single-thread variants;<br>`--census`: the dependency census on v1 and v2 (pairs and single-thread suite);<br>`--tables`: generated tables → `results/area_tables.md` (used by `docs/perf/area_recovery.md`).<br>About 3 hours on 8 threads from an empty cache. |
 | `scripts/area_fit.py --core <run>/latest.json --uncore <run>/latest.json [--cfg smt2]` | the device fit from per-unit budget runs (`docs/perf/area_recovery.md` §7). It reads the budget flow's `latest.json` for a core configuration and for the uncore, and adds hart 1's state (estimated) until M7 builds it. It prints each unit against `fpga/budget/budgets.tsv`, and the dual-core total against the 200 MHz and 180 MHz fill limits. It keeps §7.7's gap table current. |
+| `scripts/clock_low.py` | the DR-145 clocks (`docs/perf/area_recovery.md` §6.2): v1 calibrated to the RTL as built (one L1D miss in flight, one I-cache refill, no prefetchers) at 94, 100, 125 and 150 MHz with L2 `DATA_LAT` 2, in the default profile with 1, 2 or 4 L1D misses in flight and in the fallback, against the NaxRiscv-like control at 135 and 150 MHz. One thread (the suite and the working-set kernels, one core alone) and four threads (two busy cores × SMT2 on smt.py's 42 pairs and 16 working-set pairs; each core with half the L2 and one HP port). At most 8 runs at a time → `results/clock_low_rv64gc.json` |
 | `scripts/clock.py` | the clock sweep (`docs/perf/area_recovery.md` §6.1): v1's single-thread suite at 150–200 MHz and the NaxRiscv-like control at 137 and 150 MHz, each with its clock's cycle latencies (DRAM 184 ns and 3.2 GB/s from spike S1, the L2's `DATA_LAT`), and one extra pipeline stage at each unit boundary at 200 and 150 MHz → `results/clock_rv64gc.json` |
 | `scripts/stats.py <isa> <workload> <preset> [k=v ...]` | every statistic of one run, per cycle and per 1,000 instructions |
 | `scripts/quick.sh`, `scripts/sweep1.sh`, `scripts/pairs.sh`, `scripts/dbg.sh` | quick comparisons, one-parameter sweeps, opcode mix and dependent pairs, functional runs (`TGSIM_TRACE=N`) |
@@ -208,6 +219,13 @@ Options for the IPC-costing levers. All are off by default; with them off, resul
 | `abl_done` | execute completion to the ROB: every uop is marked complete this many cycles later, so commit slips |
 
 The mispredict penalty and the L2 hit have their own parameters (`redirect_lat`, `commit_redirect`, `l2_lat`).
+
+**The DR-145 study's points** (`docs/perf/area_recovery.md` §6.2). Both are 0 by default (for `abl_st_done`, the fallback profile); at 0 every result is identical, so `MODEL_VERSION` stays 3.
+
+| Parameter | Model point |
+|---|---|
+| `abl_st_done` | a store's address completes in the ROB this many cycles later: cut #4 (the LSU address-stage split) is 1, and #2 would add another. #5 and B3 have no model point (no atomics in the workloads, no TLBs) |
+| `drain_guard` | a committed store that has waited this many cycles for an L1D MSHR gets the next one: loads and prefetches leave it free. Without it, a model with one L1D MSHR and SMT2 can starve a thread's store drain for good, because loads book the MSHR at issue + 3 while the drain asks at the current cycle. §6.2 uses 16 |
 
 ## Scoring
 

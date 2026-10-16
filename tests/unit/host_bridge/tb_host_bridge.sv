@@ -2,8 +2,9 @@
 // tg_axi4_to_axil into tg_host_bridge on clk_host, unrelated to the core clock. Checks register
 // reset values and access, 64-bit commits, the configuration and status crossings, reset levels,
 // POWER/TOHOST/DOORBELL/MBOX events both ways, console streams both ways (drop and lossless),
-// and host interrupt masking.
-module tb_host_bridge;
+// and host interrupt masking. TRACE = 0 (make ... COMMIT_TRACE=0) checks the bridge built without the trace
+// stream (DR-146): the capability bit clear, the trace registers ignoring writes.
+module tb_host_bridge #(parameter bit TRACE = 1'b1);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
@@ -59,7 +60,7 @@ module tb_host_bridge;
   logic [7:0]  ctx_b, crx_b;
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
-                   .UNCORE_RST_INIT (1'b1)) dut (
+                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),
@@ -195,6 +196,7 @@ module tb_host_bridge;
     hr(16'h004, v);
     if (v[7:0] != 8'd1 || v[15:12] != 4'd2) fail($sformatf("VERSION %h", v));
     expect_h(16'h008, 32'd100_000_000, "CLK_HZ");
+    expect_h(16'h00C, {24'd0, 4'(N_BANKS), TRACE, 3'b011}, "CAPS");
     expect_h(16'h010, 32'h3, "CTRL");
     expect_h(16'h030, 32'h8000_0000, "BOOT_ENTRY lo");
     expect_h(16'h038, 32'h8220_0000, "DTB_ADDR lo");
@@ -242,12 +244,21 @@ module tb_host_bridge;
     hw(16'h1030, 32'h0000_0400); hw(16'h1034, 32'h1);        // TRS_RP
     hw(16'h1000, 32'h303);                                   // enable, wrap, both triggers
     repeat (60) @(posedge clk);
-    if (!trs_en || !trs_wrap || !trs_stop_arm || !trs_start_arm) fail("TRS_CTRL crossing");
-    if (trs_base != 40'h8_4100_0000 || trs_size != 5'd22) fail("TRS_BASE / TRS_SIZE_LOG2 crossing");
-    if (trs_stop_pc != 64'h8000_1234 || trs_post != 16'd100 || trs_start_pc != 64'h8000_0100) fail("trigger crossing");
-    if (trs_rp != 64'h1_0000_0400) fail("TRS_RP crossing");
-    expect_h(16'h1000, 32'h303, "TRS_CTRL");
-    expect_h(16'h1034, 32'h1, "TRS_RP high");
+    if (TRACE) begin
+      if (!trs_en || !trs_wrap || !trs_stop_arm || !trs_start_arm) fail("TRS_CTRL crossing");
+      if (trs_base != 40'h8_4100_0000 || trs_size != 5'd22) fail("TRS_BASE / TRS_SIZE_LOG2 crossing");
+      if (trs_stop_pc != 64'h8000_1234 || trs_post != 16'd100 || trs_start_pc != 64'h8000_0100) fail("trigger crossing");
+      if (trs_rp != 64'h1_0000_0400) fail("TRS_RP crossing");
+      expect_h(16'h1000, 32'h303, "TRS_CTRL");
+      expect_h(16'h1034, 32'h1, "TRS_RP high");
+    end else begin
+      // no trace stream: the registers keep 0 and nothing crosses
+      if (trs_en || trs_wrap || trs_stop_arm || trs_start_arm || trs_base != '0 || trs_size != '0 ||
+          trs_stop_pc != '0 || trs_post != '0 || trs_start_pc != '0 || trs_rp != '0)
+        fail("trace registers written in a bridge without the trace");
+      expect_h(16'h1000, 32'h0, "TRS_CTRL without the trace");
+      expect_h(16'h1034, 32'h0, "TRS_RP high without the trace");
+    end
     expect_h(16'h1038, 32'h2345_6789, "TRS_WP low");
     expect_h(16'h103C, 32'h1, "TRS_WP high");
     expect_h(16'h1040, {16'd17, 11'd0, 5'b01011}, "TRS_STATUS");

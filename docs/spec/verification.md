@@ -467,7 +467,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
 - **Strictly in the background:**
   - `nice 19` and idle I/O priority, at most 8 simulations (Verilator builds at `-j4`), never Vivado;
   - memory first (conventions §9): no program starts while `MemAvailable` is under 12 GB, and no build under 16 GB (a `tg_core` model compile peaks at 0.63 GB, measured on `smt2_w3`, so `-j4` takes about 3 GB). A simulation takes about 12 MB. While a new main cannot be built for lack of memory, the soak keeps running the previous build. It runs with `oom_score_adj` 900, so the host's memory guard and the kernel stop it before anything else;
-  - holds while the host drive C: has under 20 GB free, and before a round while more than 20 tasks are runnable (the tracks are busy).
+  - holds while the host drive C: has under 12 GB free (it holds WSL's virtual disk, which grows into C: once WSL passes its high-water mark and shrinks only when compacted) or WSL's own root filesystem has under 15 GB free (`df /`, which binds only if the virtual disk is capped; today it reports the 1 TB nominal size), and before a round while more than 20 tasks are runnable (the tracks are busy).
 - **Output:** `$TANAGER_BUILD/soak/summary.md` lists main's commit, the programs run per day and configuration, and the failures to triage.
   - Each failure keeps its program, the last 80 lines of its log and a one-line repro in `soak/fail/<time>-<cfg>-s<seed>/`; the newest 100 are kept.
   - The loop's own log rotates at 1 MB.
