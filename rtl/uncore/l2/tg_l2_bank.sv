@@ -1073,6 +1073,7 @@ module tg_l2_bank
   logic [MW-1:0]     vr_cur_q;
   logic [WBW-1:0]    vr_buf_q;
   logic              vr_row_q;              // next row to read
+  logic [SET_W-1:0]  vr_set_q;              // the victim's set, read at the start (an MSHR's set is fixed)
   always_comb begin
     for (int m = 0; m < N_MSHR; m++) vr_req[m] = ms[m][MS_VREAD];
     vr_m = rr_pick(vr_req, vr_ptr_q);
@@ -1204,7 +1205,7 @@ module tg_l2_bank
     da_raddr = '0;
     if (vr_rd) begin
       da_re    = 1'b1;
-      da_raddr = {rl_set[LP_VR], rl_way[3], vr_row_q};
+      da_raddr = {vr_set_q, rl_way[3], vr_row_q};
     end else if (rs_issue && rs_tag.use_ram) begin
       da_re    = 1'b1;
       da_raddr = {rl_set[LP_RS], rl_way[4], rs_two ? rs_row_q : rl_rsp[0].off[1]};
@@ -1382,8 +1383,10 @@ module tg_l2_bank
     mrsp_new.size   = p2_q.a_size;
     mrsp_new.off    = p2_q.a_off[5:4];
   end
-  // The victim read-out reads its MSHR's set at the start (vr_m) and during the read-out (vr_cur_q).
-  wire [MW-1:0] vr_ra = vr_busy_q ? vr_cur_q : vr_m;
+  // The victim read-out reads its MSHR's set at the start (vr_m) and keeps it in vr_set_q for the
+  // data array's address (200 MHz, DR-142: a port shared with vr_cur_q put the pick, through the
+  // port's address select, ahead of the data array's address, a path the read-out never uses).
+  wire [MW-1:0] vr_ra = vr_m;
   tg_ram_lut #(.DEPTH(N_MSHR), .WIDTH(SET_W), .NR(7)) u_mset (
     .clk, .we (s2_alloc), .waddr (m_new), .wdata (set2),
     .raddr ({rs_cur_q, vr_ra, r_m, pw_cur_q, ar_m, pr_m, mcmd_pick}), .rdata (rl_set)
@@ -1524,6 +1527,7 @@ module tg_l2_bank
       if (vr_start) begin
         vr_busy_q             <= 1'b1;
         vr_cur_q              <= vr_m;
+        vr_set_q              <= rl_set[LP_VR];
         vr_buf_q              <= wb_slot;
         vr_row_q              <= 1'b0;
         vr_ptr_q              <= rr_next(vr_m);
@@ -1743,6 +1747,9 @@ module tg_l2_bank
       // The victim's probe flag without the pick is the picked way's; the hit way's, when a way hits
       assert (vp_s == vp_w[vw2]) else $error("tg_l2_bank%0d: victim probe flag %b, picked way %0d's %b", BANK, vp_s, vw2, vp_w[vw2]);
       if (hit2) assert (hp_s == hp_w[hw2]) else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
+      // The victim's set in vr_set_q is its MSHR's
+      if (vr_busy_q) assert (vr_set_q == set_of(m_line[vr_cur_q]))
+        else $error("tg_l2_bank%0d: victim read-out set %0d, MSHR %0d's %0d", BANK, vr_set_q, vr_cur_q, set_of(m_line[vr_cur_q]));
       // The one-hot hit way is hw2's
       if (hit2) assert (hoh == WAYS'(1) << hw2) else $error("tg_l2_bank%0d: hit way %b against %0d", BANK, hoh, hw2);
       // The response shape in registers is the one its MSHR's fields give
