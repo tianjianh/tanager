@@ -11,7 +11,7 @@ tg_l2_bank ──AXI4──► tg_axi_lat_inj ──AXI4──► tg_axi_window 
 
 A register slice (`tg_axi_slice`: a skid buffer on each channel) follows the window, so the window's adder and the route to the PS port end at flip-flops. It may present a W beat before its AW, which AXI4 allows.
 
-Before the injector, a skid buffer on AR alone (`tg_uncore` `AR_SLICE`, on by default since 10-15, the user's decision, DR-135) cuts the L2's AR handshake: without it, the L2's pick, its MSHR LUTRAM read, this window's range check and the ready back into the pick made the uncore's second-longest path at 200 MHz (−0.70 to −0.98 ns). It costs one cycle on every L2 fill (+0.056% cycles at `st`, +0.134% at `smt2`, first 20M cycles of the 2-core Linux boot).
+Before the injector, a skid buffer on AR alone (`tg_uncore` `AR_SLICE`, on by default since 10-15, the user's decision, DR-135) cuts the L2's AR handshake: without it, the L2's pick, its MSHR LUTRAM read, this window's range check and the ready back into the pick made the uncore's second-longest path at 200 MHz (−0.70 to −0.98 ns). It costs one cycle on every L2 fill (+0.056% cycles at `st`, +0.134% at `smt2`, first 20M cycles of the 2-core Linux boot). `W_SLICE` (off by default; a DR-135 reserve item, [soc.md](soc.md) §Reserve levers) puts skid buffers on AW and W in the same place, for the write-back path from the banks to the memory path by the PS ports, at a cycle per write-back.
 
 Both are board-independent and simulate with the rest of `tanager_soc`. The carve-out location and size are run-time values from the host ([host.md](host.md)), so the L2 sees a generic memory (plan §5.5).
 
