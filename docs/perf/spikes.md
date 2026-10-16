@@ -655,6 +655,66 @@ Named paths, slack in ns (the worst over both cores):
 - **The uncore's failing endpoints are still mostly the L2 banks':** 3,476 of at least 5,000. The worst runs from the directory RAM into the MSHR state, 14 levels.
 - Results: `fpga/spikes/results/g4r_fpa/` (and `g4r_synth/`). The routed checkpoint is in the build tree (`fp/g4r_fpa_routed.dcp`).
 
+### 8.6 G5 and G5R: the full chip at DR-145's targets, 125 and 100 MHz (2026-10-16)
+
+**Question (the coordinator, DR-145):** the user's new target is 125 MHz preferred, 100 MHz minimum, for v1 as scoped (2 cores × SMT2). How fast does the full chip run at those targets, with hart 1's area emulated at the final fill?
+
+**Method:** G4's flow and constraints, with the clock changed and two measurement-only patches.
+- **Clock:** `CORE_MHZ` sets the MMCM, the PS ports' clocks and the L2's URAM latency (2 stages below 150 MHz), so every clock is its own synthesis.
+  - The board's `tg_clkgen` made only clocks that divide 1200 MHz, so G5's snapshot gives it a 1000 MHz VCO for 125 MHz ([`g5_clkgen_patch.py`](../../fpga/spikes/scripts/g5_clkgen_patch.py)). The SoC track has since made the same change on main (a301c14).
+  - No timed path crosses between the core clock (125 MHz) and the host clock (100 MHz): the inter-clock table is empty, and the asynchronous clock group holds.
+- **Hart 1's area:** until M7 builds it, the smt2 cores run hart 0 only. [`g5_fill_patch.py`](../../fpga/spikes/scripts/g5_fill_patch.py) adds two blocks of S6 filler to the snapshot's `kv260_top`, one per core.
+  - Each block is 47 LUT tiles and 20 LUTRAM blocks, 3,714 LUTs placed: the RAM-form estimate of about 3.7K per core (area_recovery.md §7.7).
+  - The filler is clocked by the core clock and fed from an LFSR. It is placed freely, and its own paths pass by about 3 ns.
+- **Trees:**
+  - **G5:** the G4 refresh's tree (main 4a0be01 + 50fee76).
+  - **G5R:** core-2's fn10 head 63e51b4. It adds fn8–fn10, the timer registration, A1–A12 and the SoC track's uncore, and is built as the performance build (`TG_COMMIT_TRACE=0`: about −1.1K LUTs per core).
+- **Floorplan:** G4-FP (a)'s L2 and crossbar pblocks, with the board flow's directives, unless noted.
+
+| Run | Tree, clock, fill | Placed LUTs | WNS ns (clock reached) | Cores | Uncore | Core → / → core | Failing endpoints |
+|---|---|---|---|---|---|---|---|
+| `g5_125` | G5, 125 MHz, no filler | 108,123 (92.3%) | −4.135 (82 MHz) | −4.135 / −4.114 | −2.577 | −0.844 / −1.368 | 23,827 |
+| `g5_125_fill` | G5, 125 MHz, filler | 117,851 after synthesis (100.6%) | **did not route** (congestion level 6, 14,655 nets) | | | | |
+| `g5_125_fill_spread` | the same, free placement, `AltSpreadLogic_high` | 115,221 (98.4%) | −7.502 (64.5 MHz) | −7.502 / −7.187 | −2.971 | −3.952 / −2.966 | 40,475 |
+| `g5_100_fill` | G5, 100 MHz, filler | | stopped after 3 h 10 of routing (stalled) | | | | |
+| `g5_100_fill_spread` | the same, free placement, spread | | stopped after 2.5 h of routing: its first pass was still at about 3,000 overlaps | | | | |
+| `g5r_100_fill` | G5R, 100 MHz, filler | 112,393 (96.0%) | −2.683 at 10 ns (79 MHz; see below) | −2.683 / −2.642 | **+0.474** | **+1.509 / +0.371** | 4,707 (all in the cores) |
+| `g6_125_fill` | **G6** (main 7c99e84 + core-2 764e3ad + soc-2 b46e893), 125 MHz, filler | 110,516 (94.4%) | **−1.646 (104 MHz)** | −1.646 / −1.640 | −1.062 | **+0.245** / −0.658 | 11,644 |
+| `g5r_125` | G5R, 125 MHz, no filler | 105,863 (90.4%) | **−2.198 (98 MHz)** | −2.198 / −2.191 | −0.666 | +0.223 / −1.609 | 12,534 |
+| `g5r_125_fill` | G5R, 125 MHz, filler | 112,572 (96.1%) | **−2.607 (94 MHz)** | −2.607 / −2.535 | −1.320 | −0.342 / −0.848 | 16,650 |
+
+The first filler attempt, with 25 LUTRAM blocks per core, came to 8.3K LUTs. v1 was then about 117K after `opt_design`, and placement failed on CLB packing: 10,040 CLBs needed, 9,929 free (`results/g5_100_fill_nram25/`).
+
+**The worst paths** (G5R, 125 MHz):
+- **Cores:** the LSU's DTLB → M2 forwarding family (`m2_fdat_q`, `m2_fcov_q`, `rp_ra_q`): 24–29 levels, 60–70% of the delay in wire, about 10.2–10.6 ns long.
+- **Uncore:** the L2 bank: hit → victim-tag table (no filler), and directory RAM onward (filler), 13–14 levels.
+- **Uncore → core:** the ACLINT's timer into rename's free list or a CSR enable, 15–18 levels, all inside the core.
+- **Core → uncore:** fetch's line register into the crossbar's initiator counter, 11–12 levels.
+- **PS:** passes both ways (+1.0 to +5.0 ns).
+- **Failing endpoints:** almost all in the cores. With the filler, core 0 has 8,543, core 1 7,136 and the uncore 971.
+
+**G6** is the day's last tree: fn10 plus A10b, A4 and two wire fixes from the FPU track's query of `g5r_125_fill`, and the SoC track's write-enable fix to the L2 data array.
+- Its 20 worst paths are all in the LSU, within 0.06 ns of each other.
+  - **Depth-dominated:** DTLB → M2 forwarding (`m2_foh_q`, `m2_fcov_q`): 28 levels in core 0, 24 in core 1, 59–60% wire.
+  - **Wire-dominated:** M2's address (a replicated register) → the LQ's store-tag enable (`lq_st_q`), and DTLB → the replay registers (`rp_ra_q`, `rp_v_q`): 19–20 levels, 68–71% wire.
+- Every crossbar path passes, as does the PS.
+
+**At a 100 MHz constraint the placer under-works the cores.** `g5r_100_fill`'s pre-route estimate was +0.614 ns, so the placer saw no failing paths. The cores' LSU paths then routed with 8.5–8.7 ns of wire, against 6.4–7.3 ns at 125 MHz.
+- So the 125 MHz runs measure each tree's speed: a design routed at 125 MHz with a 9.65 ns worst path (G6) also meets 10 ns.
+- The 100 MHz figures to read are the uncore's and the interfaces': they pass (+0.37 to +1.51 ns).
+
+**Findings:**
+- **With today's RTL (G6) the chip reaches about 104 MHz with hart 1's area at 94% fill.** Its routed design meets 100 MHz with 0.35 ns to spare. 125 MHz needs 1.65 ns more on the cores' LSU paths and 1.06 ns on the uncore's L2 bank (S2 → MSHR state, 14 levels).
+- **On G5R's tree the chip reaches about 98 MHz, and about 94 MHz with hart 1's area at 96% fill.** The cores are the limit.
+  - 100 MHz needs about 0.2 ns more on the cores without hart 1 and 0.6 ns with it. 125 MHz needs about 2.2–2.6 ns.
+  - The uncore needs 0.7–1.3 ns for 125 MHz. The interfaces are within 0.85 ns, and the PS passes.
+- **fn8–fn10 and the trace switch took the chip from 82 to 98 MHz** (G5 → G5R, no filler): the cores' worst went from 12.1 to 10.2 ns.
+- **Hart 1's area costs about 0.4 ns on G5R** (−2.198 → −2.607 ns, the same flow). On G5's tree at 98.4% fill it cost 3.4 ns, but that run needed free placement and spread logic to route, so its figure mixes fill with the flow.
+- **The fill limit is about 97–98% for this design.**
+  - At 100.6% after synthesis (G5 with the filler), the pblock flow does not route. Free placement with `AltSpreadLogic_high` does, in 2 h 19 of routing.
+  - At 99.45% after synthesis (G5R with the filler: 96.1% placed), the pblock flow routes in 1 h 16.
+  - The first filler, at about 117K after optimisation, did not pack.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
