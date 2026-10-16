@@ -861,17 +861,51 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // Probe sender (B)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] pr_req;
-  logic [MW-1:0]     pr_ptr_q, pr_m;
+  // The pick is made a cycle ahead and held in pr_m_q (200 MHz, DR-142): the probe loop (the pick,
+  // its agent, the crossbar's per-core B arbiter weighing both banks' probes, then the ready into
+  // the probe flags and the pointer) ran 17-18 levels across both banks in the full chip. The
+  // requests change from one cycle to the next only when the probe on B is taken (its MSHR keeps
+  // requesting only if it has another agent to probe, and the pointer moves past it) or when an
+  // allocation enters the probe state (m_new, one new requester). A ProbeAck only clears an agent
+  // already probed, and the last one leaves an MSHR with nothing to probe. So the next pick is the
+  // current one, or the pick past the taken probe, either with m_new merged by its place in the
+  // round-robin order, and the late handshake and allocation only select among them. It is
+  // rr_pick(pr_req, pr_ptr_q) every cycle (checked).
+  logic [N_MSHR-1:0]  pr_req, pr_more;    // per MSHR: an agent to probe; more than one
+  logic [MW-1:0]      pr_ptr_q, pr_m_q;
+  wire  [MW-1:0]      pr_m = pr_m_q;
   logic [AGENT_W-1:0] pr_ag;
   always_comb begin
     logic [N_AGENTS-1:0] todo;
-    for (int m = 0; m < N_MSHR; m++) pr_req[m] = ms[m][MS_PROBE] && (m_ppend[m] & ~m_psent[m]) != '0;
-    pr_m  = rr_pick(pr_req, pr_ptr_q);
+    for (int m = 0; m < N_MSHR; m++) begin
+      logic [N_AGENTS-1:0] t;
+      t          = m_ppend[m] & ~m_psent[m];
+      pr_req[m]  = ms[m][MS_PROBE] && t != '0;
+      pr_more[m] = (t & (t - 1'b1)) != '0;
+    end
     todo  = m_ppend[pr_m] & ~m_psent[pr_m];
     pr_ag = '0;
     for (int a = N_AGENTS - 1; a >= 0; a--) if (todo[a]) pr_ag = AGENT_W'(a);
   end
+  // n before w in the round-robin order from p: both at or above p, or both below, the lower;
+  // otherwise the one at or above p
+  function automatic logic rr_before(input logic [MW-1:0] n, input logic [MW-1:0] w, input logic [MW-1:0] p);
+    logic n_ge, w_ge;
+    n_ge = n >= p;
+    w_ge = w >= p;
+    return (n_ge == w_ge) ? (n < w) : n_ge;
+  endfunction
+  logic [N_MSHR-1:0] pr_req_f;            // the requests once the probe on B is taken
+  logic [MW-1:0]     pr_ptr_f, pr_pick_f, pr_pick_fa, pr_pick_na;
+  always_comb begin
+    pr_req_f       = pr_req;
+    pr_req_f[pr_m] = pr_more[pr_m];
+    pr_ptr_f       = rr_next(pr_m);
+    pr_pick_f      = rr_pick(pr_req_f, pr_ptr_f);
+    pr_pick_fa     = (pr_req_f == '0 || rr_before(m_new, pr_pick_f, pr_ptr_f)) ? m_new : pr_pick_f;
+    pr_pick_na     = (pr_req == '0 || rr_before(m_new, pr_m, pr_ptr_q)) ? m_new : pr_m;
+  end
+  wire pr_alloc = s2_alloc && alloc_oh[MS_PROBE];   // m_new enters the probe state
   always_comb begin
     b_o         = '0;
     b_o.opcode  = B_PROBE_BLOCK;
@@ -1391,6 +1425,7 @@ module tg_l2_bank
       wb_ready_q  <= '0;
       mcmd_ptr_q  <= '0;
       pr_ptr_q    <= '0;
+      pr_m_q      <= '0;                 // rr_pick of no requests
       ar_ptr_q    <= '0;
       pw_ptr_q    <= '0;
       vr_ptr_q    <= '0;
@@ -1463,6 +1498,7 @@ module tg_l2_bank
       // ---- engine pointers and busy flags ----
       if (s0_take_m)                  mcmd_ptr_q <= rr_next(mcmd_pick);
       if (pr_fire)                    pr_ptr_q   <= rr_next(pr_m);
+      pr_m_q <= pr_fire ? (pr_alloc ? pr_pick_fa : pr_pick_f) : (pr_alloc ? pr_pick_na : pr_m_q);
       if (ar_valid_o && ar_ready_i)   ar_ptr_q   <= rr_next(ar_m);
 
       if (!pw_busy_q && |pw_req) begin
