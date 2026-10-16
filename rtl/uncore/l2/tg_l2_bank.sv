@@ -543,6 +543,8 @@ module tg_l2_bank
   logic [N_MSHR-1:0] smatch;           // active MSHRs in the S2 request's set
   logic            hit2;
   logic [2:0]      hw2, vw2;
+  logic [WAYS-1:0] hoh;                // the hit way one-hot (the lowest hit, as hw2): no encode and decode
+                                       // on the ProbeAck search, which ends in the error flag (DR-142)
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       // compare, then select: the RAM's entry and h0 are compared at once, h1's and h2's in S1
@@ -564,6 +566,7 @@ module tg_l2_bank
     if (cin_st_q == CI_WRITE && cin_seq_q) resv[cin_way_q] = 1'b1;
     hit2 = |hitv;
     hw2  = lowest8(hitv);
+    hoh  = hitv & ~(hitv - 1'b1);
     vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
                         row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
                        held, resv, row2.plru);
@@ -730,7 +733,7 @@ module tg_l2_bank
             // its victim on a miss: the victim keeps its tag until resolved), and each (set, way)
             // belongs to at most one MSHR.
             for (int m = 0; m < N_MSHR; m++)
-              if (hit2 && smatch[m] && (m_way_oh[m] & (WAYS'(1) << hw2)) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
+              if (hit2 && smatch[m] && (m_way_oh[m] & hoh) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
                 s2_c_mok = 1'b1;
                 s2_c_m   = MW'(m);
               end
@@ -1730,6 +1733,8 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The one-hot hit way is hw2's
+      if (hit2) assert (hoh == WAYS'(1) << hw2) else $error("tg_l2_bank%0d: hit way %b against %0d", BANK, hoh, hw2);
       // The response shape in registers is the one its MSHR's fields give
       if (rs_busy_q) assert (rs_two_q == (rs_data && rs_size == 3'd6) &&
                              rs_nb == (!rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2))

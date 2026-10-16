@@ -6,6 +6,7 @@
 #                                                   script), with the FPU in the device tree
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
 #   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
+#   TIMING_CUTS=0|1 builds the core in that DR-140 profile (unset: the package's default)
 # Images: OpenSBI fw_jump from sw/build_opensbi.sh (pinned source; built on first use), a device
 # tree built here for CORES x threads of the configuration, 128 MiB, no FPU.
 # The core builds with its own switches: every M3 feature, F and D included, is on by default (main b53b0a5).
@@ -21,10 +22,19 @@ TAG    ?=
 # SERIAL=1: the console on the UART's serial line (tg_uart_phy), decoded by the testbench and checked
 # against the host's copy
 SERIAL ?= 0
-NAME   := boot$(TAG)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
+# TIMING_CUTS=0|1: the core's DR-140 profile (sim/profile.mk), each in a directory of its own; unset
+# builds the package's default. Optional: the cycle-identical tool builds this test from an archive
+# with sim/tb only, where the default applies.
+-include ../../../sim/profile.mk
+ifneq ($(TIMING_CUTS),)
+  ifeq ($(TC_DEF),)
+    $(error TIMING_CUTS needs sim/profile.mk, which this tree lacks)
+  endif
+endif
+NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL)
-EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS))
+EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF)
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
