@@ -75,6 +75,9 @@ module tg_soc_sig
   initial begin
     string path;
     if ($value$plusargs("sig=%s", path)) begin
+      // DR-146: the signature hashes the commit trace; a model without it would sign nothing.
+      if (!COMMIT_TRACE)
+        $fatal(1, "tg_soc_sig: this SoC was built with TG_COMMIT_TRACE=0 (DR-146): it has no commit trace to sign; build it with the trace on");
       fd = $fopen(path, "w");
       if (fd == 0) $fatal(1, "tg_soc_sig: cannot open %s", path);
       if ($value$plusargs("sig_window=%d", window) && window == 0) window = 1;

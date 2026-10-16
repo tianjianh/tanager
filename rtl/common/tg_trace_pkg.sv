@@ -44,4 +44,14 @@ package tg_trace_pkg;
   // (interfaces.md §5): one cycle of retirement after the stall plus one in flight, and every
   // deferred writeback that can still arrive.
   localparam int TRACE_STALL_HEADROOM = 2 * COMMIT_WIDTH + LLT_ENTRIES;
+
+  // The commit trace as a build switch (DR-146; interfaces.md §5): on by default, as lockstep, the
+  // cycle-identical check and board lockstep need it. TG_COMMIT_TRACE=0 builds the core and the SoC
+  // without it (timing, fit and performance builds): commit behaviour is the same, the trace outputs
+  // stay idle, and the testbenches refuse to run such a model.
+`ifdef TG_COMMIT_TRACE
+  localparam bit COMMIT_TRACE = `TG_COMMIT_TRACE;
+`else
+  localparam bit COMMIT_TRACE = 1'b1;
+`endif
 endpackage

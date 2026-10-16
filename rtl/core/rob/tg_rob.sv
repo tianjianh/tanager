@@ -511,8 +511,8 @@ module tg_rob
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
-      tr_sq[j]    = hp[j].sq;
-      tr_tag[j]   = hp[j].dst;
+      tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
+      tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
       if (ret[j]) begin
         n++;
         if (hp[j].is_ld) nl++;
@@ -623,7 +623,7 @@ module tg_rob
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     // Trace leaves one cycle after commit
-    trace_o <= rec;
+    trace_o <= COMMIT_TRACE ? rec : '0;   // without the commit trace (DR-146) the assembly is dead logic
     if (rst) begin
       trace_valid_o <= '0;
       head_q   <= '0;
@@ -634,7 +634,7 @@ module tg_rob
       mpr_v_q  <= 1'b0;
       xr_v_q   <= 1'b0;
     end else begin
-      for (int j = 0; j < CW; j++) trace_valid_o[j] <= ret[j] || (j == 0 && (do_trap || do_irq));
+      for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
       flush     <= do_flush;
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
