@@ -105,7 +105,7 @@ module tg_core
   logic [15:0] satp_asid;
   logic [43:0] satp_ppn;
   pmp_d_t [15:0]     pmp_d;
-  logic [2:0]        pmp_al;
+  logic [15:0][2:0]  pmp_pal;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
   // write (the TLBs cache PMP results)
@@ -282,9 +282,41 @@ module tg_core
   robid_t           ld_cmp_rob, replay_rob;
   logic [1:0]       st_cmp;
   robid_t [1:0]     st_cmp_rob;
-  logic [3:0]       lx_valid;
-  robid_t [3:0]     lx_rob;
-  logic [3:0][3:0]  lx_cause;
+  // The store reports as the ROB takes them: with ROB_STORE_REPORT_LATE (DR-140 #2) a cycle later,
+  // together with the ordering replay mark, so a replayed load never commits first. Timing: the
+  // store address's TLB and PMP decision and the LQ's ordering search leave the ROB's tables.
+  logic [1:0]       st_cmp_r;
+  robid_t [1:0]     st_cmp_rob_r;
+  logic             replay_valid_r;
+  robid_t           replay_rob_r;
+  if (ROB_STORE_REPORT_LATE) begin : g_store_late
+    always_ff @(posedge clk) begin
+      st_cmp_r       <= (rst || flush) ? '0 : st_cmp;
+      st_cmp_rob_r   <= st_cmp_rob;
+      replay_valid_r <= !(rst || flush) && replay_valid;
+      replay_rob_r   <= replay_rob;
+    end
+  end else begin : g_store_now
+    assign st_cmp_r       = st_cmp;
+    assign st_cmp_rob_r   = st_cmp_rob;
+    assign replay_valid_r = replay_valid;
+    assign replay_rob_r   = replay_rob;
+  end
+  logic             spx_valid;            // a store's PMP denial after it decided (exception only) ...
+  robid_t           spx_rob;
+  logic [1:0]       sth_v;                // ... and the stores commit stops before meanwhile
+  robid_t [1:0]     sth_rob;
+  logic [3:0]       lx_valid, lx_valid_q;
+  robid_t [3:0]     lx_rob, lx_rob_q;
+  logic [3:0][3:0]  lx_cause, lx_cause_q;
+  // The LSU's fault reports reach the ROB a cycle later (DR-140 #1). Timing: the address stage's
+  // fault decision leaves the ROB's exception register. A fault is taken only at the head, so the
+  // cycle costs about nothing (random +0.03%).
+  always_ff @(posedge clk) begin
+    lx_valid_q <= (rst || flush) ? '0 : lx_valid;
+    lx_rob_q   <= lx_rob;
+    lx_cause_q <= lx_cause;
+  end
   logic [NCW-1:0]   cm_nld, cm_nst;
   sqid_t [CW-1:0]   tr_sq;
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
@@ -305,10 +337,10 @@ module tg_core
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
-    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause),
+    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
+    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_pal, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
@@ -331,7 +363,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_wr, .pmp_busy,
+    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_pal, .pmp_wr, .pmp_busy,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 
@@ -341,8 +373,10 @@ module tg_core
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
-    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp, .st_rob(st_cmp_rob),
-    .lx_valid, .lx_rob, .lx_cause, .replay_valid, .replay_rob,
+    .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob, .sth_v, .sth_rob,
+    .replay_valid(replay_valid_r),
+    .replay_rob(replay_rob_r),
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,

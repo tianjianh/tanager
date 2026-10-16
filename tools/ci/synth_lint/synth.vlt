@@ -1,0 +1,13 @@
+`verilator_config
+// Waivers of the synthesis-view lint (make lint SYNTH=1; tools/ci/lint_all.sh; verification.md §4.3).
+// That view elaborates the RTL with +define+SYNTHESIS, as Vivado sees it, to catch a signal that the
+// synthesized logic reads but only simulation-only code drives (UNDRIVEN). Keep each waiver justified.
+
+// The stand-ins for Xilinx primitives and the primitive models are not ours to lint.
+lint_off -file "*tools/ci/synth_lint/*"
+lint_off -file "*tests/unit/prim/models/*"
+// Primitive outputs left open on purpose: error-correction flags, cascade outputs, FIFO status we
+// do not use.
+lint_off -rule PINCONNECTEMPTY -file "*rtl/common/prim/*"
+lint_off -rule PINCONNECTEMPTY -file "*rtl/uncore/lib/*"
+lint_off -rule PINCONNECTEMPTY -file "*rtl/core/csr/tg_dsp_ctr.sv"

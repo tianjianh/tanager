@@ -424,7 +424,13 @@ Two switches are for lint only, each on top of the default, until the user turns
 
 **The commit trace (DR-146)** is a build switch too, `COMMIT_TRACE=0|1` (`+define+TG_COMMIT_TRACE`, read once in `tg_trace_pkg`; interfaces.md §5). It is on by default and everything that runs programs here needs it. So `COMMIT_TRACE=0` is lint-only as well, and a model built without the trace stops at time 0 in `tg_tb_top`, or in `tg_soc_sig` when a boot signature is asked for. That keeps such a model from passing on no records or signing an empty trace.
 
-`make lint-all` elaborates every configuration five ways: the fallback, the default, and #2, #8 and the trace off each on top of the default. The twenty elaborations run six at a time (`LINT_JOBS`; one thread and about 0.6 GB each; `tools/ci/lint_all.sh`). An elaboration whose define no RTL file mentions is the default's, so it is skipped. On core-2's fn7 (b331397) the sixteen of #2, #8 and the profiles took 39 s. On main before the timing switches land, the default and the trace off take 24 s for eight.
+`make lint-all` elaborates every configuration six ways: the fallback, the default, #2, #8 and the trace off each on top of the default, and the default's synthesis view. The 24 elaborations run six at a time (`LINT_JOBS`; one thread and about 0.6 GB each; `tools/ci/lint_all.sh`): 69 s on main at 486e87a, with every switch in the RTL. An elaboration whose define no RTL file mentions is the default's, so it is skipped.
+
+**The synthesis view** (`make lint SYNTH=1`) elaborates the RTL with `+define+SYNTHESIS`, as Vivado does. It catches a signal that synthesized logic reads but only simulation-only code (`` `ifndef SYNTHESIS ``) drives: simulation and the ordinary lint are fine, and synthesis leaves the signal undriven. The core track found one by hand.
+- **There, `UNDRIVEN` is an error and `UNUSED` is off,** since simulation-only code reads many signals that synthesis drops.
+- **The Xilinx primitives** that the RTL instantiates under `SYNTHESIS` come from `tools/ci/synth_lint/xilinx_stubs.sv`, port-only stand-ins whose outputs are zero (`DSP48E2` and the XPM memories, FIFO and CDC macros). The LUT and SRL primitives come from the models in `tests/unit/prim/models`.
+- **Waivers** are in `tools/ci/synth_lint/synth.vlt`: the stand-ins and models themselves, and primitive outputs left open on purpose. A genuinely simulation-only signal that synthesized logic reads would be waived there by name, with its reason; there are none today.
+- **Checked:** a test tree that moves `tg_mul`'s `tag3_q <= tag2_q` into its `` `ifndef SYNTHESIS `` block passes the ordinary lint. The synthesis view stops on `Signal is not driven: 'tag3_q'`, and `lint-all` fails its four synthesis-view elaborations.
 
 **`make regress-profiles CFG=<cfg>`** runs both profiles side by side, with half the jobs each (`regress.sh TIMING_CUTS=both`), so that the profile checks stay quick while the timing work lands (DR-142):
 - It first builds what both runs read: `tg_replay`, the directed tests, the benchmarks, and the ACT4 tests with `ARCH=1`. Neither run then builds a file the other reads.
@@ -477,6 +483,7 @@ The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fp
 ```
 make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
                      [BOOT_CORES=1|2] [BOOT_TREE=<ref>] [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
+                     [HARNESS=auto|branch|own]
 ```
 
 - **Profiles (DR-140).** `TIMING_CUTS` builds both sides in that timing-cut profile, `tg_vsim` and the boot's `tb_boot` alike, so a change is checked in each profile CI runs, and its Linux-boot cost is reported by profile (DR-141 rule 1). `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key.
@@ -496,7 +503,9 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
 - **The two sides:**
   - **The branch** is the working tree as it is, uncommitted and untracked files in `rtl/`, `sim/` and `tests/unit/` included. It is read through a temporary git index, so the worktree and its index are not touched. `BRANCH=<ref>` takes the branch side's `rtl/` from a ref instead, so a track's branch can be checked from another checkout (main's, for a merge) without checking it out.
   - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
-  - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs; `--harness own` builds the base side with BASE's.
+  - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs.
+    - **When the base's RTL does not build with it,** the base side takes BASE's own `sim/`, and the log says so. This happens when a change gives an RTL package something new and the harness uses it, as `tg_tb_top` began reading `tg_trace_pkg::COMMIT_TRACE` (DR-146) before main had it. The sides then differ in harness as well as RTL: a difference may come from either, and an old base harness may not write this tool's signatures (the run is reported BROKEN).
+    - `HARNESS=branch` forbids that fallback, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`.
   - **Programs** are built once and shared by both sides.
 - **Suites** (the defaults are the first four):
 

@@ -18,6 +18,44 @@ package tg_core_pkg;
   localparam bit EXT_B      = 1'b1;      // Zba, Zbb, Zbs
   localparam bit EXT_ZICOND = 1'b1;
   localparam bit EXT_FD     = 1'b1;      // F and D: FP rename, IQ-FP and P4, fcsr (core-fp.md)
+
+  // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
+  // elaboration parameter that selects generate branches, so a setting builds only its own logic.
+  // Two profiles are verified (DR-140, as the user set it after DR-141's board runs):
+  //   default:  #4 and #5 on; #2 and #8 off (the shipping profile);
+  //   fallback: #2, #4, #5 and #8 off (TG_TIMING_CUTS=0: the core without them).
+  // #2 and #8 are lint-only switches until the user turns one on: TG_ROB_STORE_REPORT_LATE=1 and
+  // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT and TG_DC_AMO_READ_REG =0|1 override
+  // their profile value; other combinations are not verified.
+`ifdef TG_TIMING_CUTS
+  localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
+`else
+  localparam bit TIMING_CUTS = 1'b1;
+`endif
+  // #2: store completions and the ordering replay mark reach the ROB a cycle later
+`ifdef TG_ROB_STORE_REPORT_LATE
+  localparam bit ROB_STORE_REPORT_LATE = `TG_ROB_STORE_REPORT_LATE;
+`else
+  localparam bit ROB_STORE_REPORT_LATE = 1'b0;    // off in both profiles (DR-140)
+`endif
+  // #4: a new load's and a store address's DTLB, PMP and decisions in M1 (core-lsu.md)
+`ifdef TG_LSU_AG_SPLIT
+  localparam bit LSU_AG_SPLIT = `TG_LSU_AG_SPLIT;
+`else
+  localparam bit LSU_AG_SPLIT = TIMING_CUTS;
+`endif
+  // #5: an atomic's D$ read data is registered
+`ifdef TG_DC_AMO_READ_REG
+  localparam bit DC_AMO_READ_REG = `TG_DC_AMO_READ_REG;
+`else
+  localparam bit DC_AMO_READ_REG = TIMING_CUTS;
+`endif
+  // #8, one more decode stage: off in both profiles (DR-140)
+`ifdef TG_DE_STAGE
+  localparam bit DE_STAGE = `TG_DE_STAGE;
+`else
+  localparam bit DE_STAGE = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -226,6 +264,8 @@ package tg_core_pkg;
     logic              ubtb_hit;    // the micro-BTB predicted taken at this instruction
     logic              ubtb_way;
     tid_t              tid;
+    logic [2:0]        marks;       // pre-decode: {conditional branch, JAL, JALR}; decode's class
+                                    // unless decode raises an exception
   } fe_insn_t;
 
   // ---- Decoded micro-op ----

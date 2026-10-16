@@ -2,11 +2,13 @@
 // instructions, and (with their switches) A, F/D, Zba/Zbb/Zbs/Zicond. F and D follow Spike:
 // legal only with misa.F (and misa.D for D) and mstatus.FS != Off; a rounding mode of 5 or 6,
 // or DYN while frm >= 5, is illegal in the instructions that round. Combinational. A compressed
-// instruction arrives already expanded by tg_rvc (len2 set: the link value is PC + 2);
+// instruction arrives already expanded by tg_rvc (its link value, PC + 2, comes in as `link`);
 // misa.M gates MUL/DIV. Immediates that need the PC (AUIPC, the JAL/JALR link value, the branch
-// and JAL targets) are computed here, so execute never adds the PC. Each is the block address
+// and JAL targets) are made in decode, so execute never adds the PC. Each is the block address
 // plus the PC's offset in it plus the operand, one three-input add (a carry-save step and one
-// carry chain), so it doesn't wait for the PC's own decrement (a straddler's) (timing).
+// carry chain), so it doesn't wait for the PC's own decrement (a straddler's) (timing). AUIPC's
+// is added here; the link value and the target come in (`link`, `tgt`): the decode stage adds
+// them once, for its own next PC and redirect too (area).
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 (
@@ -14,7 +16,8 @@ module tg_decode
   input  logic [63:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad
   input  logic        strad,
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
-  input  logic        len2,       // the instruction is 2 bytes long
+  input  logic [63:0] link,       // pc + 2 or 4
+  input  logic [63:0] tgt,        // pc + the JAL's or branch's offset
   input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
   input  logic        fault,      // fetch fault at pc: access, or page (fault_pf)
   input  logic        fault_pf,
@@ -46,15 +49,13 @@ module tg_decode
   logic [6:0] op;
   logic [2:0] f3;
   logic [6:0] f7;
-  logic [63:0] imm_i, imm_s, imm_b, imm_u, imm_j;
+  logic [63:0] imm_i, imm_s, imm_u;
   assign op = insn[6:0];
   assign f3 = insn[14:12];
   assign f7 = insn[31:25];
   assign imm_i = {{52{insn[31]}}, insn[31:20]};
   assign imm_s = {{52{insn[31]}}, insn[31:25], insn[11:7]};
-  assign imm_b = {{51{insn[31]}}, insn[31], insn[7], insn[30:25], insn[11:8], 1'b0};
   assign imm_u = {{32{insn[31]}}, insn[31:12], 12'b0};
-  assign imm_j = {{43{insn[31]}}, insn[31], insn[19:12], insn[20], insn[30:21], 1'b0};
   logic [63:0] pbase, poff;
   assign pbase = {blk, 4'b0};
   assign poff  = strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, pc_lo};
@@ -93,18 +94,18 @@ module tg_decode
         end
         7'b1101111: begin                                  // JAL
           d.cls = C_BR; d.br_kind = BR_JAL; d.rd_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + (len2 ? 64'd2 : 64'd4);
-          d.br_target = pbase + poff + imm_j;
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = link;
+          d.br_target = tgt;
         end
         7'b1100111: begin                                  // JALR
           if (f3 != 3'd0) ill = 1'b1;
           d.cls = C_BR; d.br_kind = BR_JALR; d.rd_en = 1'b1; d.rs1_en = 1'b1;
-          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + (len2 ? 64'd2 : 64'd4);
+          d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = link;
         end
         7'b1100011: begin                                  // branches
           if (f3 == 3'd2 || f3 == 3'd3) ill = 1'b1;
           d.cls = C_BR; d.br_kind = BR_COND; d.rs1_en = 1'b1; d.rs2_en = 1'b1;
-          d.alu = ctl(3'(G_ADD)); d.alu.sub = 1'b1; d.br_target = pbase + poff + imm_b;
+          d.alu = ctl(3'(G_ADD)); d.alu.sub = 1'b1; d.br_target = tgt;
         end
         7'b0000011: begin                                  // loads
           if (f3 == 3'd7) ill = 1'b1;
