@@ -165,6 +165,52 @@ foreach r [lsort -real -index 2 $rows] { puts $ff [format "%-64s %6d %8.3f" {*}$
 close $ff
 report_timing -max_paths 20 -nworst 1 -setup -from $useq -to $useq -input_pins -file uncore_internal.rpt
 
+# ---- the worst path per owner, and failing endpoints by owner (DR-145's study): each core, the
+# uncore, the interfaces between them and the PS, and G5's filler if present. Written to
+# summary.txt as owner_* lines; a failure here leaves the other reports intact.
+if {[catch {
+  set oc0 [get_cells -quiet -hierarchical -filter {NAME =~ u_soc/g_core?0?* && IS_SEQUENTIAL}]
+  set oc1 [get_cells -quiet -hierarchical -filter {NAME =~ u_soc/g_core?1?* && IS_SEQUENTIAL}]
+  set ofl [get_cells -quiet -hierarchical -filter {NAME =~ g_fill* && IS_SEQUENTIAL}]
+  foreach {tag targs} [list \
+      core0         [list -from $oc0 -to $oc0] \
+      core1         [list -from $oc1 -to $oc1] \
+      uncore        [list -from $useq -to $useq] \
+      core_uncore   [list -from [concat $oc0 $oc1] -to $useq] \
+      uncore_core   [list -from $useq -to [concat $oc0 $oc1]] \
+      ps_uncore     [list -from $ps -to $useq] \
+      uncore_ps     [list -from $useq -to $ps] \
+      filler        [list -from $ofl -to $ofl]] {
+    if {[lsearch -exact $targs {}] >= 0} { tg_kv $fh owner_$tag none; continue }
+    set q [tg_worst {*}$targs]
+    if {$q eq ""} { tg_kv $fh owner_$tag none; continue }
+    set lg [get_property DATAPATH_LOGIC_DELAY $q]; set nt [get_property DATAPATH_NET_DELAY $q]
+    tg_kv $fh owner_$tag [format "%.3f levels %d logic %.3f net %.3f wire %.0f%% %s -> %s" [get_property SLACK $q] \
+      [get_property LOGIC_LEVELS $q] $lg $nt [expr {($lg + $nt) > 0 ? 100.0 * $nt / ($lg + $nt) : 0}] \
+      [get_property NAME [get_property STARTPOINT_PIN $q]] [get_property NAME [get_property ENDPOINT_PIN $q]]]
+  }
+  set r [report_timing_summary -no_detailed_paths -no_check_timing -return_string]
+  if {[regexp {WNS\(ns\)\s+TNS\(ns\)\s+TNS Failing Endpoints[^\n]*\n\s*-[- ]+\n\s*(-?[0-9.]+)\s+(-?[0-9.]+)\s+([0-9]+)\s+([0-9]+)} \
+        $r -> - tns nfail nend]} {
+    tg_kv $fh tns_ns $tns
+    tg_kv $fh failing_endpoints "$nfail of $nend"
+  }
+  set cnt [dict create core0 0 core1 0 uncore 0 ps 0 filler 0 other 0]
+  set fails [get_timing_paths -quiet -max_paths 20000 -nworst 1 -setup -slack_lesser_than 0]
+  foreach q $fails {
+    set e [get_property NAME [get_property ENDPOINT_PIN $q]]
+    if {[string match {u_soc/g_core?0?*} $e]} { dict incr cnt core0 } \
+    elseif {[string match {u_soc/g_core?1?*} $e]} { dict incr cnt core1 } \
+    elseif {[string match {u_soc/u_uncore/*} $e]} { dict incr cnt uncore } \
+    elseif {[string match {u_ps/*} $e]} { dict incr cnt ps } \
+    elseif {[string match {g_fill*} $e]} { dict incr cnt filler } \
+    else { dict incr cnt other }
+  }
+  tg_kv $fh failing_by_owner "[join [lmap {k v} $cnt {format %s=%d $k $v}] { }] (of the [llength $fails] worst, at most 20,000)"
+} err]} {
+  tg_kv $fh owner_report_error [string range $err 0 200]
+}
+
 # ---- per register-slice site (tg_skid) ----
 proc tg_ini {i} {
   foreach {base kind} {12 hdma 8 mmio 4 l1i 0 l1d} { if {$i >= $base} { return "$kind[expr {$i - $base}]" } }
