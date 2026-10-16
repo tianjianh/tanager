@@ -229,6 +229,7 @@ module tg_l2_bank
   logic [TAG_W-1:0]     m_vtag    [N_MSHR];     // victim tag (the victim is in the request's set)
   logic [N_MSHR-1:0]    m_need_wb, m_wb_done;
   logic [N_MSHR-1:0]    m_need_fill, m_ar_sent, m_ferr;
+  logic [N_MSHR-1:0]    m_rnb2, m_rtwo;         // its response's shape: 2 beats a row, 2 rows (fixed at allocation)
 
   // LUTRAM read ports (instances near the end of the module, once the indices are declared).
   // Each LUTRAM holds the fields that the same engines read, so every read port uses every bit it
@@ -1125,8 +1126,13 @@ module tg_l2_bank
   wire          rs_data   = (rs_acq && rl_rsp[0].block) || rl_kind[1].kind == K_GET;
   wire          rs_den    = m_ferr[rs_cur_q];
   wire [2:0]    rs_size   = rl_rsp[0].size;
-  wire          rs_two    = rs_data && rs_size == 3'd6;          // two rows
-  wire [1:0]    rs_nb     = !rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2;
+  // The shape (beats per row, rows) is the request's, fixed at allocation, so each MSHR keeps it
+  // in flip-flops and the engine loads it with rs_cur_q (200 MHz, DR-142): the completion, which
+  // ends in the MSHR state, then starts at registers, not at the MSHR LUTRAMs' read through
+  // rs_cur_q (the full chip's worst uncore path in G4, where the bank was split).
+  logic         rs_nb2_q, rs_two_q;
+  wire          rs_two    = rs_two_q;                               // two rows
+  wire [1:0]    rs_nb     = rs_nb2_q ? 2'd2 : 2'd1;
   wire          rs_lastrow = !rs_two || rs_row_q;
   logic         rs_issue;
   rtag_t        rs_tag;
@@ -1324,6 +1330,7 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   mkind_t mkind_new;
   mrsp_t  mrsp_new;
+  wire    rsh_data_new = (mkind_new.kind == K_ACQ && mrsp_new.block) || mkind_new.kind == K_GET;   // as rs_data
   always_comb begin
     mkind_new.grow  = a2_growt;
     mkind_new.kind  = (p2_q.kind == PK_ACQ) ? K_ACQ : (p2_q.kind == PK_GET) ? K_GET : K_PUT;
@@ -1501,6 +1508,8 @@ module tg_l2_bank
       if (!rs_busy_q && |rs_req) begin
         rs_busy_q <= 1'b1;
         rs_cur_q  <= rs_m;
+        rs_nb2_q  <= m_rnb2[rs_m];
+        rs_two_q  <= m_rtwo[rs_m];
         rs_row_q  <= 1'b0;
         rs_ptr_q  <= rr_next(rs_m);
       end else if (rs_issue) begin
@@ -1526,6 +1535,8 @@ module tg_l2_bank
         m_need_fill[m_new] <= s2_alloc_fill;
         m_ar_sent[m_new]   <= 1'b0;
         m_ferr[m_new]      <= 1'b0;
+        m_rnb2[m_new]      <= rsh_data_new && !(mrsp_new.size <= 3'd4);
+        m_rtwo[m_new]      <= rsh_data_new && mrsp_new.size == 3'd6;
       end
       // MCMD result
       if (s2_mcmd) begin
@@ -1683,6 +1694,10 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The response shape in registers is the one its MSHR's fields give
+      if (rs_busy_q) assert (rs_two_q == (rs_data && rs_size == 3'd6) &&
+                             rs_nb == (!rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2))
+        else $error("tg_l2_bank%0d: response shape of MSHR %0d differs from its fields", BANK, rs_cur_q);
       // A probe presented is a request's, and its flag select is the agent the probe names
       if (b_valid_o) assert (pr_req[pr_m] && ps_sel[pr_m] == onehot_ag(pr_ag))
         else $error("tg_l2_bank%0d: probe of MSHR %0d agent %0d, flag select %b", BANK, pr_m, pr_ag, ps_sel[pr_m]);
