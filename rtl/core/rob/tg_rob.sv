@@ -187,17 +187,36 @@ module tg_rob
       end
     end
   end
+  // The commit slots' entries (head + j), their banks and the banks' read rows are registered
+  // with the head, chosen by the commit count from the values for each count (timing: the
+  // payload, flag and FP-flag reads start at flip-flops, not at adders on the head; asserted)
+  localparam int BKW = idx_w(NB);
+  typedef struct packed {
+    robid_t [CW-1:0]                hid;
+    logic [CW-1:0][BKW-1:0]         bk;
+    logic [NB-1:0][idx_w(ROWS)-1:0] pa;
+  } hwin_t;
+  function automatic hwin_t hwin(input robid_t h, input int k);   // the window at head h + k
+    hwin_t w;
+    w = '0;
+    for (int j = 0; j < CW; j++) begin
+      w.hid[j] = rob_add(h, k + j);
+      w.bk[j]  = BKW'(bank_of(w.hid[j][RIW-1:0]));
+      w.pa[bank_of(w.hid[j][RIW-1:0])] = idx_w(ROWS)'(row_of(w.hid[j][RIW-1:0]));
+    end
+    return w;
+  endfunction
+  hwin_t [CW:0] hw_n;               // after committing k
+  hwin_t        hw_q;
+  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q, k);
   robid_t [CW-1:0]  hid;              // head + j
   rob_pl_t [CW-1:0] hp;
   logic [NB-1:0][idx_w(ROWS)-1:0] pr_a;
   logic [NB-1:0][ROB_PL_W-1:0]    pr_d;
+  assign hid  = hw_q.hid;
+  assign pr_a = hw_q.pa;
   for (genvar j = 0; j < CW; j++) begin : g_hid
-    assign hid[j] = rob_add(head_q, j);
-    assign hp[j]  = rob_pl_t'(pr_d[bank_of(hid[j][RIW-1:0])]);
-  end
-  always_comb begin
-    pr_a = '0;
-    for (int j = 0; j < CW; j++) pr_a[bank_of(hid[j][RIW-1:0])] = idx_w(ROWS)'(row_of(hid[j][RIW-1:0]));
+    assign hp[j] = rob_pl_t'(pr_d[hw_q.bk[j]]);
   end
   for (genvar b = 0; b < NB; b++) begin : g_pl
     logic [0:0][idx_w(ROWS)-1:0] ra;
@@ -619,7 +638,7 @@ module tg_rob
       flush     <= do_flush;
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
-      head_q    <= rob_add(head_q, int'(cm_n));
+      head_q    <= hw_n[cm_n].hid[0];
 
       if (flush) begin
         tail_q  <= head_q;
@@ -658,6 +677,11 @@ module tg_rob
   assign xret_v    = xr_v_q;
   assign xret_s    = xr_s_q;
 `ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
+    if (!rst)
+      assert (hw_q == hwin(head_q, 0)) else $error("tg_rob: the registered head window differs from the head");
+  end
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))
       assert (xr_v_q && xr_s_q == do_sret) else $error("tg_rob: an xRET commits that xret_v/xret_s do not name");
