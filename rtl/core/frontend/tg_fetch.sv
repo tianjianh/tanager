@@ -151,7 +151,7 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .flush(tlb_flush));
   logic [PA_W-1:0] f1_pa;
@@ -268,13 +268,20 @@ module tg_fetch
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
     .is_call(pd_call), .is_ret(pd_ret), .carry_out(pd_carry));
 
-  // Check the prediction: the predicted exit slot must be the last parcel of a branch or jump
+  // Check the prediction: the predicted exit slot must be the last parcel of a branch or jump.
+  // Where an instruction starts, it is 32-bit exactly when its parcel's low bits are 11 (wide),
+  // so the terms read wide, not the pre-decoder's is32 (start && wide), and only the final AND
+  // with the start waits for the start chain; likewise pq below.
+  logic [NP-1:0] wide;
+  for (genvar p = 0; p < NP; p++) begin : g_wide
+    assign wide[p] = parcel[p][1:0] == 2'b11;
+  end
   logic pred_ok;
   always_comb begin
     pred_ok = 1'b0;
     for (int p = 0; p < NP; p++) begin
       if (pd_start[p] && (pd_br[p] || pd_jal[p] || pd_jalr[p]) &&
-          SLOT_W'(pd_is32[p] ? p + 1 : p) == f2_slot_q && (!pd_is32[p] || p + 1 < NP))
+          SLOT_W'(wide[p] ? p + 1 : p) == f2_slot_q && (!wide[p] || p + 1 < NP))
         pred_ok = 1'b1;
     end
   end
@@ -287,9 +294,11 @@ module tg_fetch
   // prefix OR). Only the refetch slot (fp_q) waits for the encoding.
   // They are formed for both outcomes of the prediction check (hp: the predicted exit stands,
   // which limits pq to the parcels up to it) and hp picks last, so the check runs beside them.
+  // The fault decisions at the entry need no pick: a prediction stands only on a micro-BTB hit,
+  // whose exit slot is at or after the entry (pred_hit), so pq is the same there either way.
   logic [SLOT_W-1:0] fp, f2_ent;
   logic              pmp_hi, pmp_cut, f2_chk, f2_carried, hp;
-  logic [NP-1:0]     dslot, pq;
+  logic [NP-1:0]     dslot;
   for (genvar p = 0; p < NP; p++) begin : g_ds
     assign dslot[p] = f2_pmpd_q[p / 2];
   end
@@ -311,7 +320,7 @@ module tg_fetch
       run = 1'b0;
       for (int p = 0; p < NP; p++) begin
         pq_h[h][p] = pd_start[p] && (h == 0 || SLOT_W'(p) <= f2_slot_q) &&
-                     (dslot[p] || (pd_is32[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+                     (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
         run = run || pq_h[h][p];
         pq_run[p] = run;
       end
@@ -332,18 +341,31 @@ module tg_fetch
       end
     end
   end
-  assign pq         = pq_h[hp];
-  assign pmp_hi     = phi_h[hp];
+  assign pmp_hi     = phi_h[0];
   assign pmp_cut    = pcut_h[hp];
-  assign f2_isfault = isf_h[hp];
+  assign f2_isfault = isf_h[0];
   assign f2_taken   = tk_h[hp];
   assign blk_start  = bs_h[hp];
   assign blk_carry  = bc_h[hp];
+  // The refetch slot: pq's first parcel, encoded for both outcomes, hp picking last
+  logic [1:0][SLOT_W-1:0] fp_h;
   always_comb begin
-    fp = '0;
-    for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
+    for (int h = 0; h < 2; h++) begin
+      fp_h[h] = '0;
+      for (int p = NP - 1; p >= 0; p--) if (pq_h[h][p]) fp_h[h] = SLOT_W'(p);
+    end
+    fp = fp_h[hp];
     for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst && f2v && f2_hit_q)
+      assert (f2_slot_q >= f2_ent) else $error("tg_fetch: a micro-BTB hit's exit slot before the entry");
+    if (!rst && f2v && hp)
+      assert (isf_h[1] == isf_h[0] && phi_h[1] == phi_h[0])
+        else $error("tg_fetch: the entry's fault decision depends on the prediction");
+  end
+`endif
 
   // ---- F3: compaction ----
   logic                 f3_valid_q, f3_carry_q;
@@ -697,7 +719,7 @@ module tg_fetch
   end
 
   logic unused;
-  assign unused = ^{upd_pc[63:39], upd_pc[3:0], upd_target[63:39], upd_target[0], pd_call, pd_ret, l1i_d_i.opcode, l1i_d_i.param, l1i_d_i.size,
+  assign unused = ^{upd_pc[63:39], upd_pc[3:0], upd_target[63:39], upd_target[0], pd_is32, pd_call, pd_ret, l1i_d_i.opcode, l1i_d_i.param, l1i_d_i.size,
                     l1i_d_i.source, l1i_d_i.sink, rf_we && 1'b0, miss_pa_q[5:0], pmp_hit_u, pmp_rwx_u};
 
 `ifndef SYNTHESIS

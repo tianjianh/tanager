@@ -6,7 +6,7 @@
 //   whether its bits hold a one and counts the zeros above its first one: the index of its
 //   first non-zero child, then that child's count. A node's index needs only its children's
 //   ORs, so the count's top bits, from the widest ORs, come out first: the order in which the
-//   FMA's normaliser shifts by them.
+//   FMA's normaliser and the divider's S1 shift by them.
 module tg_fpu_lzc #(
   parameter int  W  = 64,
   parameter bit  R4 = 1'b0,

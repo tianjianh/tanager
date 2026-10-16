@@ -105,7 +105,8 @@ module tg_core
   logic [15:0] satp_asid;
   logic [43:0] satp_ppn;
   pmp_d_t [15:0]     pmp_d;
-  logic [15:0][2:0]  pmp_pal;
+  logic [2:0]        pmp_al;
+  logic [15:0]       pmp_p2m;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
   // write (the TLBs cache PMP results)
@@ -127,12 +128,32 @@ module tg_core
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
   logic [idx_w(DECODE_WIDTH + 1)-1:0] iq_take;
+  // Fetch's own copy of the privilege and of whether it translates, a cycle behind tg_csr's: they
+  // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
+  // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
+  // registers are far from F1's PMP select; any difference falls in a flush cycle, asserted)
+  priv_e priv_f_q;
+  logic  xl_f_q;
+  always_ff @(posedge clk) begin
+    priv_f_q <= rst ? PRIV_M : priv;
+    xl_f_q   <= !rst && EXT_SU && satp_sv39 && priv != PRIV_M;
+  end
+`ifndef SYNTHESIS
+  logic rs_fq;
+  initial rs_fq = 1'b0;
+  always @(posedge clk) begin
+    if (rst) rs_fq <= 1'b1;
+    if (rs_fq && !rst)
+      assert (flush || (priv_f_q == priv && xl_f_q == (EXT_SU && satp_sv39 && priv != PRIV_M)))
+        else $error("tg_core: fetch's privilege copy differs outside a flush");
+  end
+`endif
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(EXT_SU && satp_sv39 && priv != PRIV_M), .priv, .pmp_d, .pmp_busy, .tlb_flush,
+    .xl_i(xl_f_q), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -284,28 +305,31 @@ module tg_core
   robid_t [1:0]     st_cmp_rob;
   // The store reports as the ROB takes them: with ROB_STORE_REPORT_LATE (DR-140 #2) a cycle later,
   // together with the ordering replay mark, so a replayed load never commits first. Timing: the
-  // store address's TLB and PMP decision and the LQ's ordering search leave the ROB's tables.
+  // store address's TLB and PMP decision leave the ROB's tables.
+  // The ordering replay mark comes from the LSU a cycle after the store's search in either case
+  // (registered there: the LQ's search leaves the ROB's replay tables). Without #2, for that cycle
+  // the ROB holds commit at the replayed load, where the mark would have stopped it: cycle-
+  // identical (the load cannot reach the head sooner, as the store that found it completes in the
+  // cycle of its search at the earliest).
   logic [1:0]       st_cmp_r;
   robid_t [1:0]     st_cmp_rob_r;
-  logic             replay_valid_r;
-  robid_t           replay_rob_r;
   if (ROB_STORE_REPORT_LATE) begin : g_store_late
     always_ff @(posedge clk) begin
-      st_cmp_r       <= (rst || flush) ? '0 : st_cmp;
-      st_cmp_rob_r   <= st_cmp_rob;
-      replay_valid_r <= !(rst || flush) && replay_valid;
-      replay_rob_r   <= replay_rob;
+      st_cmp_r     <= (rst || flush) ? '0 : st_cmp;
+      st_cmp_rob_r <= st_cmp_rob;
     end
   end else begin : g_store_now
-    assign st_cmp_r       = st_cmp;
-    assign st_cmp_rob_r   = st_cmp_rob;
-    assign replay_valid_r = replay_valid;
-    assign replay_rob_r   = replay_rob;
+    assign st_cmp_r     = st_cmp;
+    assign st_cmp_rob_r = st_cmp_rob;
   end
   logic             spx_valid;            // a store's PMP denial after it decided (exception only) ...
   robid_t           spx_rob;
   logic [1:0]       sth_v;                // ... and the stores commit stops before meanwhile
   robid_t [1:0]     sth_rob;
+  logic [2:0]       cmh_v;                // commit holds: those stores, and the replayed load while
+  robid_t [2:0]     cmh_rob;              // its mark is on its way (a harmless hold with #2)
+  assign cmh_v   = {replay_valid, sth_v};
+  assign cmh_rob = {replay_rob, sth_rob};
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
@@ -340,7 +364,7 @@ module tg_core
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_pal, .tlb_flush,
+    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
@@ -363,7 +387,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_pal, .pmp_wr, .pmp_busy,
+    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_p2m, .pmp_wr, .pmp_busy,
     .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 
@@ -374,9 +398,10 @@ module tg_core
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
-    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid(replay_valid_r),
-    .replay_rob(replay_rob_r),
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob,
+    .cmh_v, .cmh_rob,
+    .replay_valid,
+    .replay_rob,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
