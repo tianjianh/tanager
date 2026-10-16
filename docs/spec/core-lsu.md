@@ -92,7 +92,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 
 ## The address-stage split (`LSU_AG_SPLIT`, DR-140 #4: on in the default profile, off in the fallback)
 
-- **The switch:** an elaboration parameter that selects generate branches, so each setting builds only its own logic. `TIMING_CUTS` sets it together with #2 and #5.
+- **The switch:** an elaboration parameter that selects generate branches, so each setting builds only its own logic. `TIMING_CUTS` sets it together with #5 (core-pipeline §13).
 - **What the two forms share:** the translation, the checks, the reports and the queue writes. They read the deciding stage's operands through `ln_*` (a new load) and `sn_*` (a store address).
 - **What each branch drives:** those operands (M1's registers with the split, AG's own signals without), AG's PA and go, M1's PA, go and row clash, and with the split the forwarding bypass.
 
@@ -103,8 +103,8 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 | Stage | Load | STA |
 |---|---|---|
 | AG | VA = base + imm; misaligned; D$ data read issued at row VA[11:4] (the page offset, VIPT); VA into the LQ; enter `L_PIPE` | VA; misaligned; byte mask |
-| M1 | DTLB (LD port) on the registered VA → PA; PMA, PMP, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
-| M2 | unchanged | — |
+| M1 | DTLB (LD port) on the registered VA → PA; PMA, the DTLB's cached PMP result, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
+| M2 | as before, and the PMP checker on the registered PA where the decision had no cached result (below) | — |
 
 **Ordering stays exact.** Take a load at AG in cycle t_L and a store at AG in cycle t_S.
 - Today, either the load's M1 search sees the store's address (t_S ≤ t_L), or the store's ordering search sees the load's PA in `L_PIPE` (t_S ≥ t_L + 1).
@@ -148,7 +148,15 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 - **Store bytes:** forwarding, the drain and atomics use the store's bytes copied into every aligned slot of their size, instead of shifting them to the address. Stores are naturally aligned, so their own byte lanes hold the copy that a byte-masked write or a covered load reads.
 - **Loaded elements** (M2, MMIO loads, an atomic's old value) are extracted for their alignment (`ext_al`). Misaligned accesses trap at AG, so result byte 0 selects among 8 offsets, byte 1 among 4, bytes 2–3 between 2, and the upper half has one source. A byte shifter would offer all 8 everywhere.
 - **Reads by index of CAM fields** come from LUTRAM copies written with them: a replay's PA, and the MMIO load's (`u_lqa`), and the SQ head's PA, mask and size (`u_sqh`). The flip-flops stay for the searches.
-- **Atomics** read their SQ entry through the head's ports. An atomic runs only as the SQ head and commit point, and the drain has nothing to do meanwhile (asserted).
+- **Atomics** read their SQ entry through the head's ports. An atomic runs only as the SQ head and commit point, and the drain has nothing to do meanwhile (asserted). Its address, size and operand are registered as it starts, so the read-modify-write starts at flip-flops.
+- **A new load's PMP check comes after its decision.** A translated access to a PMP-homogeneous page decides with the DTLB's cached result (core-mmu). Bare mode, and a page that a region boundary splits, use the LD port's checker on the registered PA after the decision: in M2 with the split, M1 without it, the verdict taking effect in M2 either way.
+  - A denial faults the load in M2. An MMIO load moves from `L_MMIO` to `L_EXC`, its issue held until the verdict.
+  - The wakeups and the miss request do not wait for the checker. A denied load that misses may refill its line, a cacheable line whose data reaches no register.
+  - Cycles change only for loads the PMP denies (`tanager-p-pmp`: +1 cycle).
+- **Forwarding** (M1, then M2):
+  - The search runs over the SQ's stores alone. With the split, the store address in M1 is picked last, by an age compare against the SQ's result (a Shannon expansion), without waiting for its own access-fault checks: a store that faults traps at commit, and the younger load goes with the flush.
+  - The youngest matching store is a one-hot vector, formed from flip-flops, that selects the per-entry cover and data-valid bits. It goes to M2 as that vector and is encoded there for the LUTRAM reads (the store's data and size) and the waiting load's store ID. The forwarded data is read in M2.
+  - The wakeup's "M2 completes" term is a boolean of its own (forwarded with cover and data, or no older store, no clash and a hit), not a compare on the encoded outcome.
 - **MMIO loads** are picked at the LQ head. A load at the ROB head is the oldest in the window, so it is the LQ head.
 - **D$ port B's byte write enables** are shared by the ways. Port B enables one way at most per cycle, and its enables are zero for reads, so the block RAM's port enable already keeps the other ways from writing.
 - Per-unit LUT counts: core-pipeline.md §16.
