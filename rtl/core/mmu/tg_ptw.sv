@@ -9,7 +9,7 @@
 // page base, and the result holds for the whole page when tg_csr says pages of its size are
 // PMP-homogeneous (pmp_al). A flush ends the walk; its PTE read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
-// port leaves it free (chk_gnt); W_CHK and W_PMP wait for one.
+// port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req).
 module tg_ptw
   import tg_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 (
@@ -23,6 +23,7 @@ module tg_ptw
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
+  output logic              chk_req,      // a check is wanted this cycle (used if granted)
   input  logic              chk_gnt,      // the checker's result below is for chk_pa this cycle
   input  logic              chk_ok,
   input  logic              chk_hit,
@@ -89,6 +90,7 @@ module tg_ptw
   logic pa_ok;
   assign chk_pa  = (st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0];
   assign chk_dbl = st_q != W_PMP;
+  assign chk_req = (st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP;
   assign pa_ok   = pte_pa[55:PA_W] == '0 && pma_of(pte_pa[PA_W-1:0]) == PMA_MEM && chk_ok;
   assign pt_req = st_q == W_REQ;
   assign pt_pa  = pte_pa[PA_W-1:0];

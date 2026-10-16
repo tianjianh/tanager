@@ -302,6 +302,10 @@ module tg_core
     assign replay_valid_r = replay_valid;
     assign replay_rob_r   = replay_rob;
   end
+  logic             spx_valid;            // a store's PMP denial after it decided (exception only) ...
+  robid_t           spx_rob;
+  logic [1:0]       sth_v;                // ... and the stores commit stops before meanwhile
+  robid_t [1:0]     sth_rob;
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
@@ -333,7 +337,7 @@ module tg_core
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
-    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause),
+    .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .tlb_flush,
@@ -370,7 +374,8 @@ module tg_core
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
-    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .replay_valid(replay_valid_r),
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob, .sth_v, .sth_rob,
+    .replay_valid(replay_valid_r),
     .replay_rob(replay_rob_r),
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
