@@ -137,7 +137,17 @@ module tg_dcache
   assign st_ra[0] = ld_m1_pa[6 +: SET_W];
   assign st_ra[1] = sx_pa[6 +: SET_W];
   assign st_ra[2] = ctl_pa[6 +: SET_W];
-  assign st_ra[3] = st_wa;
+  // Port 3 reads the set of a write whose set is a register: a probe update, an install, an
+  // atomic's write. An allocation and a store take their set's state from their own ports (sa,
+  // ss), which read it in the same cycle (timing, DR-145: the late arbitration selects the write
+  // and no longer addresses a read before it; the data is the same, checked in simulation)
+  logic [SET_W-1:0] ew_a;
+  always_comb begin
+    if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
+    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
+    else                          ew_a = am_row_q[ROW_W-1:2];
+  end
+  assign st_ra[3] = ew_a;
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(4)) u_valid (
     .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd.v), .raddr(st_ra), .rdata(sv_rd));
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(SM_W), .NR(3)) u_meta (
@@ -455,15 +465,15 @@ module tg_dcache
     end else if (al_go && !(alloc_st && al_hb)) begin
       st_we = 1'b1;
       st_wa = al_pa[6 +: SET_W];
-      st_wd = sw;
-      st_wd.rr = sw.rr + 1'b1;
+      st_wd = sa;
+      st_wd.rr = sa.rr + 1'b1;
       st_wd.v[victim] = 1'b0;                   // the victim is released (or was invalid)
       st_wd.t[victim] = 1'b0;
       st_wd.d[victim] = 1'b0;
     end else if (pb_st) begin
       st_we = 1'b1;
       st_wa = sx_pa[6 +: SET_W];
-      st_wd = sw;
+      st_wd = ss;
       st_wd.d[sh_way] = 1'b1;
     end else if (pb_amw) begin
       st_we = 1'b1;
@@ -636,6 +646,19 @@ module tg_dcache
       // port B's read data belongs to the way its reader expects
       if (ps_q == P_SEND) assert (brd_way_q == p_way_q) else $error("tg_dcache: probe data from another way");
       if (ms_q == M_EV_SEND && m_vdirty_q) assert (brd_way_q == m_way_q) else $error("tg_dcache: release data from another way");
+    end
+  end
+  // A state write starts from its set's state: a shadow of the state RAMs, written alike
+  sst_t sh_q [SETS];
+  always_ff @(posedge clk) begin
+    if (st_we) sh_q[st_wa] <= st_wd;
+    if (!rst && ready) begin
+      if ((ps_q == P_UPD && p_hit_q) || inst_go || (pb_amw && !al_go && !pb_st))
+        assert (!st_we || sw == sh_q[st_wa]) else $error("tg_dcache: port 3 read another set than the write's");
+      else if (al_go && !(alloc_st && al_hb))
+        assert (sa == sh_q[st_wa]) else $error("tg_dcache: an allocation's state is not its set's");
+      else if (pb_st)
+        assert (ss == sh_q[st_wa]) else $error("tg_dcache: a store's state is not its set's");
     end
   end
 `endif
