@@ -381,6 +381,23 @@ module tg_rename
     return r;
   endfunction
 
+  // Room for n more of each counted resource, n = 0..W, from registers, so the group's needs pick
+  // one at the end; the free lists' are icv / fcv (timing: no compare after the steering)
+  logic [W:0] rob_room, lq_room, sq_room, div_room, fdiv_room, fpi_room;
+  always_comb begin
+    for (int n = 0; n <= W; n++) begin
+      rob_room[n]  = rob_cnt(rtail_q, rob_head) + n <= ROB_ENTRIES;
+      lq_room[n]   = lq_cnt(ltail_q, lq_head) + n <= LQ_ENTRIES;
+      sq_room[n]   = sq_cnt(stail_q, sq_head) + n <= SQ_ENTRIES;
+      div_room[n]  = int'(div_cnt_q) + n <= DIV_INFLIGHT;
+      fdiv_room[n] = int'(fdiv_pre_q) + int'(fdiv_post_q) + n <= FDIV_INFLIGHT;
+      fpi_room[n]  = int'(fpi_pre_q) + int'(fpi_post_q) + n <= FPI_INFLIGHT;
+    end
+  end
+`ifndef SYNTHESIS
+  logic          rn_ok_ref;         // the compares the flags replace (checked below)
+`endif
+
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
@@ -407,7 +424,7 @@ module tg_rename
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && iq_bank_free[p][k] && int'(fl_count[p]) > int'(pops[p])) begin
+            if (!found && iq_bank_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
               port = p;
               found = 1'b1;
             end
@@ -513,21 +530,25 @@ module tg_rename
         end
       end
     end
-    // Resources
+    // Resources: the room flags above, picked by the group's needs
     rn_ok = 1'b1;
-    if (rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES) rn_ok = 1'b0;
-    if (lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES) rn_ok = 1'b0;
-    if (sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES) rn_ok = 1'b0;
+    if (!rob_room[nrob] || !lq_room[nld] || !sq_room[nst]) rn_ok = 1'b0;
     if (llt_short || tag_short) rn_ok = 1'b0;
-    if (int'(div_cnt_q) + ndiv > DIV_INFLIGHT) rn_ok = 1'b0;
-    if (int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT) rn_ok = 1'b0;
-    if (int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT) rn_ok = 1'b0;
+    if (!div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi]) rn_ok = 1'b0;
     for (int i = 0; i < 2; i++) begin
-      if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok = 1'b0;
+      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) rn_ok = 1'b0;     // fpops > ffl_count
     end
     for (int i = 0; i < INT_BANKS; i++) begin
-      if (int'(pops[i]) > int'(fl_count[i])) rn_ok = 1'b0;
+      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
     end
+`ifndef SYNTHESIS
+    rn_ok_ref = !(rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES || lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES ||
+                  sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES || llt_short || tag_short ||
+                  int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
+                  int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
+    for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok_ref = 1'b0;
+    for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i])) rn_ok_ref = 1'b0;
+`endif
   end
 
   // Serialising and exception uops: alone, into an empty window; then block until the flush.
@@ -866,6 +887,10 @@ module tg_rename
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
     end
+  end
+  // The resource check's flags give what the compares gave
+  always_ff @(posedge clk) begin
+    if (!rst) assert (rn_ok == rn_ok_ref) else $error("tg_rename: the resource flags differ from the compares");
   end
   // The parallel picks give what the in-order loop gave: each slot the first free column left
   // by the slots before it
