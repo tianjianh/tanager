@@ -5,19 +5,24 @@
 # 144 DSPs; X2 9,600 LUTs, 24 RAMB36, 16 URAM, 24 DSPs. A region is 60 CLB rows high, so a
 # column has rows 0-239 from the bottom. The core's clock buffer sits in X1Y2 (rows 120-179).
 #
-#   tg_fp_rows <col> <lo> <hi>      pblock ranges for rows lo..hi (0-239) of clock-region column
+#   tg_fp_rows <col> <lo> <hi> ?types?
+#                                   pblock ranges for rows lo..hi (0-239) of clock-region column
 #                                   col (X0, X1 or X2), full column width: SLICE, RAMB36, RAMB18,
-#                                   DSP48E2 and URAM288 ranges, each scaled to its own row pitch
+#                                   DSP48E2 and URAM288 ranges (or only the given types), each
+#                                   scaled to its own row pitch
+#   tg_fp_cell <name>               a cell by its full name, matched exactly
 #   tg_fp_pblock <name> <cells> <ranges...>
 #                                   a pblock over the ranges with those cells; logs it, with the
 #                                   cells' LUTs against the pblock's, to floorplan.txt
 #
-# Columns are not split across their width, so neighbouring pblocks never share a site.
+# Columns are not split across their width, so neighbouring pblocks never share a site. A pblock
+# only bounds its own cells: other cells may still use its free sites (Vivado's default), which a
+# floorplan of a nearly full device relies on.
 
-proc tg_fp_rows {col lo hi} {
+proc tg_fp_rows {col lo hi {types {SLICE RAMB36 RAMB18 DSP48E2 URAM288}}} {
   set crs [get_clock_regions [list ${col}Y0 ${col}Y1 ${col}Y2 ${col}Y3]]
   set ranges {}
-  foreach pre {SLICE RAMB36 RAMB18 DSP48E2 URAM288} {
+  foreach pre $types {
     set s [get_sites -quiet -of_objects $crs -filter "NAME =~ ${pre}_X*"]
     if {![llength $s]} { continue }
     set xs {}; set ys {}
@@ -36,23 +41,32 @@ proc tg_fp_rows {col lo hi} {
   return $ranges
 }
 
+# A cell by its full name, matched exactly (names with brackets need no glob)
+proc tg_fp_cell {name} {
+  set c [get_cells -quiet -hierarchical -filter "NAME == \"$name\""]
+  if {![llength $c]} { error "tg_fp_cell: no cell $name" }
+  return $c
+}
+
 proc tg_fp_pblock {name cells args} {
   set ranges [concat {*}$args]
   set pb [create_pblock $name]
   resize_pblock $pb -add $ranges
   set cells [get_cells -quiet $cells]
-  if {[llength $cells]} { add_cells_to_pblock $pb $cells }
-  # the cells' LUTs (logic and LUTRAM), by name under each hierarchical cell (unit names have no
-  # brackets, which -filter globs would read as character classes)
+  if {![llength $cells]} { error "tg_fp_pblock $name: no cells" }
+  add_cells_to_pblock $pb $cells
+  # the cells' LUTs (logic and LUTRAM), counted from each hierarchical cell (current_instance, so
+  # names with brackets need no -filter glob)
   set luts 0
   foreach c $cells {
     if {[get_property IS_PRIMITIVE $c]} {
       if {[string match CLB.LUT* [get_property PRIMITIVE_TYPE $c]]} { incr luts }
       continue
     }
-    set n [get_property NAME $c]
-    incr luts [llength [get_cells -quiet -hierarchical -filter \
-      "NAME =~ ${n}/* && (PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*)"]]
+    current_instance -quiet
+    current_instance -quiet $c
+    incr luts [llength [get_cells -quiet -hierarchical -filter {PRIMITIVE_TYPE =~ CLB.LUT.* || PRIMITIVE_TYPE =~ CLB.LUTRAM.*}]]
+    current_instance -quiet
   }
   set slices [llength [get_sites -quiet -of_objects $pb -filter {NAME =~ SLICE_*}]]
   set names [expr {[llength $cells] > 12 ? "[llength $cells] cells" : [join [get_property NAME $cells] " "]}]
