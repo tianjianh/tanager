@@ -9,6 +9,7 @@
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
 #       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
 #       [-dcp 0|1] [-synth_dcp D] [-impl 0|1] [-g NAME=VALUE]... [-file F]...
+#       [-place_directive D] [-route_directive D]
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
@@ -20,6 +21,8 @@
 #   -impl 0      stop after synthesis (with -dcp 1: the checkpoint for later floorplans)
 #   -g           an extra kv260_top generic (repeatable), e.g. a measurement patch's FILL_TILES
 #   -file F      an extra source, relative to the repo root (repeatable), e.g. fpga/spikes/rtl/tg_s6_fill.sv
+#   -place_directive / -route_directive  place_design / route_design directives (default Default,
+#                as the board build); e.g. AltSpreadLogic_high for a congested, nearly full device
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
 # sites.txt (per register-slice site: its UNCORE_DSP bit, form, and the worst slack into and out
 # of its main data register and into its control flops), sites_paths.rpt, uncore_paths.rpt,
@@ -38,6 +41,8 @@ set synth_dcp ""
 set do_impl 1
 set generics {}
 set extra_files {}
+set place_dir Default
+set route_dir Default
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -52,6 +57,8 @@ while {[llength $rest]} {
     -impl            { set do_impl $v }
     -g               { lappend generics -generic $v }
     -file            { lappend extra_files $v }
+    -place_directive { set place_dir $v }
+    -route_directive { set route_dir $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
 }
@@ -112,6 +119,7 @@ tg_kv $fh uncore_dsp 0x$mask
 tg_kv $fh synth [expr {$synth_dcp ne "" ? "from $synth_dcp" : "-flatten_hierarchy $flatten -directive $synth_dir"}]
 tg_kv $fh floorplan [expr {$floorplan ne "" ? $floorplan : "none"}]
 tg_kv $fh generics [join $generics " "]
+tg_kv $fh directives "place $place_dir route $route_dir"
 tg_kv $fh pblocks [llength [get_pblocks -quiet]]
 report_utilization -file util_synth.rpt
 tg_kv $fh prim_fail_synth [tg_prim_check -file prim_synth.txt -fail 0]
@@ -141,11 +149,11 @@ if {!$do_impl} {
 set t1 [clock seconds]
 opt_design
 tg_kv $fh prim_fail_opt [tg_prim_check -file prim_opt.txt -fail 0]
-place_design
+place_design -directive $place_dir
 tg_kv $fh place_s [expr {[clock seconds] - $t1}]
 phys_opt_design
 set t2 [clock seconds]
-route_design
+route_design -directive $route_dir
 tg_kv $fh route_s [expr {[clock seconds] - $t2}]
 tg_kv $fh impl_s [expr {[clock seconds] - $t0}]
 tg_util $fh impl
