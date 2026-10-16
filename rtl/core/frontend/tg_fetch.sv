@@ -146,6 +146,11 @@ module tg_fetch
   assign seq_pc   = {fpc_q[63:4] + 60'd1, 4'b0};
 
   // ---- Translation and fetchability of fpc_q ----
+  function automatic logic pma_x(input paddr_t a);    // fetchable: main memory or the boot ROM
+    pma_e k;
+    k = pma_of(a);
+    return k == PMA_MEM || k == PMA_ROM;
+  endfunction
   logic [0:0][26:0] it_vpn;
   logic [0:0]       it_hit;
   tlb_pte_t [0:0]   it_pte;
@@ -160,13 +165,13 @@ module tg_fetch
   logic         xf_v_q, xf_pf_q;
   logic [63:12] xf_page_q;
   logic f1_xf, f1_pf, f1_tm, f1_acc, f1_fault, f1_fpf;
-  pma_e f1_pma;
   assign f1_xf    = xl_i && xf_v_q && fpc_q[63:12] == xf_page_q;
   assign f1_pf    = xl_i && !va_canon(fpc_q);
   assign f1_tm    = xl_i && !f1_pf && !f1_xf && !(it_hit[0] && pte_ok(it_pte[0], ACC_X, priv, 1'b0, 1'b0));
-  assign f1_pma   = pma_of(f1_pa);
-  assign f1_acc   = (xl_i ? it_pte[0].big : fpc_q[63:PA_W] != '0) ||
-                    (f1_pma != PMA_MEM && f1_pma != PMA_ROM);
+  // The access check in each translation mode, xl_i picking last: a translated block's PMA check
+  // reads the ITLB's PPN, not f1_pa, whose select would sit between them
+  assign f1_acc   = xl_i ? (it_pte[0].big || !pma_x({it_pte[0].ppn, fpc_q[11:0]}))
+                         : (fpc_q[63:PA_W] != '0 || !pma_x(fpc_q[PA_W-1:0]));
   assign f1_fault = f1_pf || f1_xf || (!f1_tm && f1_acc);     // the whole block
   assign f1_fpf   = f1_pf || (f1_xf && xf_pf_q);
   // PMP per word (used in F2, where instruction boundaries are known)
@@ -531,10 +536,30 @@ module tg_fetch
   end
 
   // ---- Sequential: F1, F2, F3 ----
+  // fpc_q's next value. F1's own advance, to the predicted target or the next block, waits for
+  // its translation (f1_pwait, f1_fault: the ITLB, its PTE and the PMA check), the latest of its
+  // inputs, so every other case is formed first and those two pick last.
+  logic        rs_refill, rs_walk;       // fetch restarts after the refill, after the walk
+  logic        f1_adv;                   // F1 moves on, unless it waits for its PMP check
+  logic [63:0] fpc_e, fpc_n;
+  assign rs_refill = (miss_q || am_go) && refill_done;
+  assign rs_walk   = wk_q && wk_sent_q && iw_done;
+  always_comb begin
+    f1_adv = !rst && !ka_q && f2_go && f1_base && !rs_refill && !rs_walk;
+    fpc_e  = fpc_q;
+    if (ka_q && !k_miss_q && !k_walk_q && !k_stop_q)
+      fpc_e = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
+            : k_ovr_q ? {miss_pc_q[63:4] + 60'd1, 4'b0} : miss_pc_q;
+    if (rs_refill || rs_walk) fpc_e = miss_pc_q;
+    if (redirect) fpc_e = flush ? flush_pc : dred_pc;
+    if (rst)      fpc_e = boot_pc;
+    fpc_n = (f1_adv && !f1_pwait) ? ((pred_hit && !f1_fault) ? pred_tgt : seq_pc) : fpc_e;
+  end
+  always_ff @(posedge clk) fpc_q <= fpc_n;
+
   always_ff @(posedge clk) begin
     if (rst) begin
       f1_valid_q <= 1'b1;
-      fpc_q      <= boot_pc;
       pw_q       <= 1'b0;
       stop_q     <= 1'b0;
       miss_q     <= 1'b0;
@@ -547,7 +572,6 @@ module tg_fetch
       ka_q       <= 1'b0;
     end else if (redirect) begin
       f1_valid_q <= 1'b1;
-      fpc_q      <= flush ? flush_pc : dred_pc;
       pw_q       <= 1'b0;
       stop_q     <= 1'b0;
       miss_q     <= 1'b0;
@@ -597,8 +621,6 @@ module tg_fetch
           // prediction was dropped (the next block); or the line was installed while F2 missed it
           // (the block again, rather than refilling it twice)
           f1_valid_q <= 1'b1;
-          fpc_q      <= k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                      : k_ovr_q ? {miss_pc_q[63:4] + 60'd1, 4'b0} : miss_pc_q;
           pw_q       <= 1'b0;
         end
       end else if (f2_go) begin
@@ -615,10 +637,7 @@ module tg_fetch
         f2_tgt_q   <= pred_tgt;
         f2_tag_q   <= tag_rd;
         f2_wv_q    <= iv_rd[0];
-        if (f1_live) begin
-          fpc_q <= (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
-          pw_q  <= 1'b0;
-        end
+        if (f1_live) pw_q <= 1'b0;
       end
       // F2's action on this cycle's block, taken next cycle; miss_pc_q and miss_pa_q name the block
       ka_q     <= f2_miss || f2_wmiss || (f2_deliver && (pmp_cut || f2_override || f2_isfault));
@@ -634,18 +653,16 @@ module tg_fetch
         miss_pa_q <= f2_pa_q;
       end
       // Restart after the refill (F2 holds nothing then; a registered miss parks in this cycle)
-      if ((miss_q || am_go) && refill_done) begin
+      if (rs_refill) begin
         miss_q     <= 1'b0;
         f1_valid_q <= 1'b1;
-        fpc_q      <= miss_pc_q;
         pw_q       <= 1'b0;
       end
       // Restart after the walk (a fault: the page's blocks fault until a redirect)
       if ((wk_q || aw_go) && iw_ack) wk_sent_q <= 1'b1;
-      if (wk_q && wk_sent_q && iw_done) begin
+      if (rs_walk) begin
         wk_q       <= 1'b0;
         f1_valid_q <= 1'b1;
-        fpc_q      <= miss_pc_q;
         pw_q       <= 1'b0;
         if (!iw_ok) begin
           xf_v_q    <= 1'b1;
