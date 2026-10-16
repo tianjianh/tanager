@@ -182,7 +182,8 @@ struct spike_step_t {
   uint64_t st_addr = 0, st_val = 0;
   unsigned st_size = 0;
   int nld = 0;
-  uint64_t ld_addr = 0;
+  uint64_t ld_addr = 0;  // virtual
+  unsigned ld_size = 0;
 };
 
 // Steps one hart by one instruction or one trap and reads back what happened.
@@ -218,8 +219,37 @@ inline spike_step_t spike_step(processor_t* p, uint32_t insn) {
   for (auto& [addr, val, size] : s->log_mem_write) {
     st.nst++; st.st_addr = addr; st.st_val = val; st.st_size = size;
   }
-  for (auto& e : s->log_mem_read) { st.nld++; st.ld_addr = std::get<0>(e); }
+  for (auto& e : s->log_mem_read) { st.nld++; st.ld_addr = std::get<0>(e); st.ld_size = std::get<2>(e); }
   return st;
+}
+
+// The physical address of a data access (or, with fetch, an instruction fetch) at `va` by hart p as its state stands: Spike's translation
+// (MPRV, Sv39/48/57 and superpages), read-only (no A/D updates) and without permission checks, which
+// the instruction's own step made (verification.md §3.10).
+inline bool spike_data_paddr(processor_t* p, const spike_env_t& env, uint64_t va, uint64_t& pa, bool fetch = false) {
+  state_t* s = p->get_state();
+  reg_t prv = s->prv;
+  const reg_t ms = s->mstatus->read();
+  if (!fetch && prv == PRV_M && (ms & MSTATUS_MPRV)) prv = get_field(ms, MSTATUS_MPP);  // fetches ignore MPRV
+  const uint64_t satp = p->extension_enabled('S') ? p->get_csr(CSR_SATP) : 0;
+  const unsigned mode = unsigned(satp >> 60);
+  if (prv == PRV_M || mode == 0) { pa = va; return true; }
+  const int levels = mode == 8 ? 3 : mode == 9 ? 4 : mode == 10 ? 5 : 0;
+  if (!levels) return false;
+  const uint64_t ppn_mask = (1ull << 44) - 1;
+  uint64_t a = (satp & ppn_mask) << 12;
+  for (int i = levels - 1; i >= 0; i--) {
+    const uint64_t pte = env.read64(a + ((va >> (12 + 9 * i)) & 0x1ff) * 8);
+    if (!(pte & 1)) return false;
+    const uint64_t ppn = (pte >> 10) & ppn_mask;
+    if (pte & 0xa) {  // R or X: a leaf, perhaps a superpage
+      const uint64_t off = (1ull << (12 + 9 * i)) - 1;
+      pa = ((ppn << 12) & ~off) | (va & off);
+      return true;
+    }
+    a = ppn << 12;
+  }
+  return false;
 }
 
 // Instruction bits at pc as Spike fetches them, or false if the fetch faults. By default through Spike's

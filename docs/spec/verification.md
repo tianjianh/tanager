@@ -380,6 +380,46 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
      - **Console:** one RCU stall report again; nothing else.
    - **All five steps pass, and with steps 4 and 5 M4's FPGA-lockstep criterion is met** at 0 and 250 injected cycles (2026-10-14). The board session's logs, the first try's mismatch report included, are in `fpga/kv260/board/lockstep/`, and its account in `fpga/kv260/README.md`, "FPGA lockstep".
 
+### 3.10 External writes (DR-147 stage C)
+
+In stage C the A53's virtio back-end writes into the RISC-V's memory through the coherent host DMA port (soc.md §8.1). Every load of those bytes then differs from Spike's memory. Linux puts virtio buffers anywhere, so adopting loads by address range would not do. The checker instead learns each write and when it became visible, and accepts what an out-of-order core may legally read. Built and tested before the RTL (`sim/src/lockstep.cpp`; `tg_replay --ext`).
+
+**What the checker learns:** `external_write(paddr, data, mask, len, cycle)`, up to 32 bytes, visible from `cycle`, the cycle of the L2's AccessAck.
+- **In simulation** the testbench's host-DMA model will report it through DPI, once the SoC track's hdma port exists.
+- **On the board,** `tanager-host` inserts a record for each DMA write into the trace stream `tanager-lockstep` reads.
+  - The record: byte 63 = `0xE1`; bytes 0–7 the physical address; 8–39 the data; 40–43 the AccessAck cycle, from the hdma bridge's completion FIFO (the trace's own counter); 44–47 the byte mask. Hardware records keep bytes 44–63 zero, so the two cannot be confused.
+  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, so the record arrives before any trace record of its cycle or later. A write that arrives later is reported as an ordering error.
+
+**What a load may return.** Each external write is held with its new bytes and, once applied to Spike's memory, the old bytes it replaced. A load that commits at cycle C is accepted if each byte it returned is one of:
+- Spike's memory;
+- the new byte of a write visible by C (from 256 cycles before its AccessAck, since the L2 may serve it a little earlier) and not applied yet;
+- the old byte of an applied write while the hart's window is open.
+
+**The window** is 512 of the hart's own records after the write's cycle (`ext_window`), counted in records, not cycles.
+- A load that read before the write's invalidation was already in the ROB, so it commits within a ROB's worth of the hart's records.
+- Cycles would not bound it: trace back-pressure can hold commit for as long as the checker likes.
+
+**When a write becomes Spike's memory** (it is applied, with every earlier write to the same bytes first):
+- a load or instruction fetch returns its new bytes: the hart has seen it;
+- a store commits to its bytes at or after its cycle: the write, then the store. Those bytes are then the core's and leave the write;
+- any hart's window closes: that hart can read only the new bytes from then on.
+A write every hart is past is dropped.
+
+**AMOs and fetches:**
+- An AMO that read an external write's bytes is accepted as a load would be, and its store data must be the operation on the value the RTL read.
+- An instruction whose bits are an external write's new bytes (code that arrived by DMA) is accepted, and Spike's instruction cache is flushed.
+
+**Known limits:**
+- A fetch of old bytes after the write was applied is reported. Software runs DMA'd code only after FENCE.I.
+- A deferred load's writeback is not checked against external writes. `tg_core` does not defer, and `tg_replay` refuses `--ext` with `--defer`.
+- A store and an external write racing on the same bytes is a data race, which the virtio protocol excludes. The checker takes the order of the store's commit.
+
+**Tested without RTL** (`tg_replay --ext=PERMILLE`): another master writes 8 bytes the program recently loaded, chosen by physical address. `tg_replay`'s Spike, standing for the core, sees each write 0–64 cycles after the checker hears of it, so loads in between return old bytes.
+- **Faults:** `--inject=ext-unannounced` hides the writes from the checker, and `ext-stale` hides them from the core. Both must be reported: the first when a load reads a new byte, the second when one reads an old byte after the window.
+- **40 random rv64gc programs, a third under Sv39:** all passed, with 7–33 loads per program returning new bytes. All 80 hidden-write faults were reported.
+- **Wider and multi-hart runs** (width 4, two harts, with interrupts and failed SCs) passed or reached the step limit. Random new bytes can send a program into an endless loop, on both sides alike.
+- **The checker self-test** (§3.8) now runs six of these programs in each mode.
+
 ## 4. Test suites and runners
 
 ### 4.1 riscv-tests
