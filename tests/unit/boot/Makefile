@@ -26,6 +26,11 @@ SERIAL ?= 0
 # builds the package's default. Optional: the cycle-identical tool builds this test from an archive
 # with sim/tb only, where the default applies.
 -include ../../../sim/profile.mk
+ifneq ($(TIMING_CUTS),)
+  ifeq ($(TC_DEF),)
+    $(error TIMING_CUTS needs sim/profile.mk, which this tree lacks)
+  endif
+endif
 NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
 PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL)
