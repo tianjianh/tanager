@@ -545,6 +545,9 @@ module tg_l2_bank
   logic [2:0]      hw2, vw2;
   logic [WAYS-1:0] hoh;                // the hit way one-hot (the lowest hit, as hw2): no encode and decode
                                        // on the ProbeAck search, which ends in the error flag (DR-142)
+  // The ProbeAck search's per-MSHR matches, kept apart: the error flag needs only their OR, which
+  // synthesis had shared with the matching MSHR's index encoder, 6 LUT levels past the matches
+  (* keep = "true" *) logic [N_MSHR-1:0] pk_match;
   always_comb begin
     for (int w = 0; w < WAYS; w++) begin
       // compare, then select: the RAM's entry and h0 are compared at once, h1's and h2's in S1
@@ -567,6 +570,8 @@ module tg_l2_bank
     hit2 = |hitv;
     hw2  = lowest8(hitv);
     hoh  = hitv & ~(hitv - 1'b1);
+    for (int m = 0; m < N_MSHR; m++)
+      pk_match[m] = smatch[m] && (m_way_oh[m] & hoh) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0;
     vw2  = pick_victim({row2.way[7].valid, row2.way[6].valid, row2.way[5].valid, row2.way[4].valid,
                         row2.way[3].valid, row2.way[2].valid, row2.way[1].valid, row2.way[0].valid},
                        held, resv, row2.plru);
@@ -754,11 +759,8 @@ module tg_l2_bank
             // The probing MSHR owns the way that holds the probed line (its request line on a hit,
             // its victim on a miss: the victim keeps its tag until resolved), and each (set, way)
             // belongs to at most one MSHR.
-            for (int m = 0; m < N_MSHR; m++)
-              if (hit2 && smatch[m] && (m_way_oh[m] & hoh) != '0 && ms[m][MS_PROBE] && (m_ppend[m] & onehot_ag(cin_ag)) != '0) begin
-                s2_c_mok = 1'b1;
-                s2_c_m   = MW'(m);
-              end
+            s2_c_mok = hit2 && pk_match != '0;
+            for (int m = 0; m < N_MSHR; m++) if (hit2 && pk_match[m]) s2_c_m = MW'(m);
             if (!s2_c_mok) s2_err = 1'b1;
           end
         end
