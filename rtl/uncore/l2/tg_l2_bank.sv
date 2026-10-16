@@ -229,6 +229,7 @@ module tg_l2_bank
   logic [TAG_W-1:0]     m_vtag    [N_MSHR];     // victim tag (the victim is in the request's set)
   logic [N_MSHR-1:0]    m_need_wb, m_wb_done;
   logic [N_MSHR-1:0]    m_need_fill, m_ar_sent, m_ferr;
+  logic [N_MSHR-1:0]    m_rnb2, m_rtwo;         // its response's shape: 2 beats a row, 2 rows (fixed at allocation)
 
   // LUTRAM read ports (instances near the end of the module, once the indices are declared).
   // Each LUTRAM holds the fields that the same engines read, so every read port uses every bit it
@@ -860,17 +861,51 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // Probe sender (B)
   // ---------------------------------------------------------------------------------------------
-  logic [N_MSHR-1:0] pr_req;
-  logic [MW-1:0]     pr_ptr_q, pr_m;
+  // The pick is made a cycle ahead and held in pr_m_q (200 MHz, DR-142): the probe loop (the pick,
+  // its agent, the crossbar's per-core B arbiter weighing both banks' probes, then the ready into
+  // the probe flags and the pointer) ran 17-18 levels across both banks in the full chip. The
+  // requests change from one cycle to the next only when the probe on B is taken (its MSHR keeps
+  // requesting only if it has another agent to probe, and the pointer moves past it) or when an
+  // allocation enters the probe state (m_new, one new requester). A ProbeAck only clears an agent
+  // already probed, and the last one leaves an MSHR with nothing to probe. So the next pick is the
+  // current one, or the pick past the taken probe, either with m_new merged by its place in the
+  // round-robin order, and the late handshake and allocation only select among them. It is
+  // rr_pick(pr_req, pr_ptr_q) every cycle (checked).
+  logic [N_MSHR-1:0]  pr_req, pr_more;    // per MSHR: an agent to probe; more than one
+  logic [MW-1:0]      pr_ptr_q, pr_m_q;
+  wire  [MW-1:0]      pr_m = pr_m_q;
   logic [AGENT_W-1:0] pr_ag;
   always_comb begin
     logic [N_AGENTS-1:0] todo;
-    for (int m = 0; m < N_MSHR; m++) pr_req[m] = ms[m][MS_PROBE] && (m_ppend[m] & ~m_psent[m]) != '0;
-    pr_m  = rr_pick(pr_req, pr_ptr_q);
+    for (int m = 0; m < N_MSHR; m++) begin
+      logic [N_AGENTS-1:0] t;
+      t          = m_ppend[m] & ~m_psent[m];
+      pr_req[m]  = ms[m][MS_PROBE] && t != '0;
+      pr_more[m] = (t & (t - 1'b1)) != '0;
+    end
     todo  = m_ppend[pr_m] & ~m_psent[pr_m];
     pr_ag = '0;
     for (int a = N_AGENTS - 1; a >= 0; a--) if (todo[a]) pr_ag = AGENT_W'(a);
   end
+  // n before w in the round-robin order from p: both at or above p, or both below, the lower;
+  // otherwise the one at or above p
+  function automatic logic rr_before(input logic [MW-1:0] n, input logic [MW-1:0] w, input logic [MW-1:0] p);
+    logic n_ge, w_ge;
+    n_ge = n >= p;
+    w_ge = w >= p;
+    return (n_ge == w_ge) ? (n < w) : n_ge;
+  endfunction
+  logic [N_MSHR-1:0] pr_req_f;            // the requests once the probe on B is taken
+  logic [MW-1:0]     pr_ptr_f, pr_pick_f, pr_pick_fa, pr_pick_na;
+  always_comb begin
+    pr_req_f       = pr_req;
+    pr_req_f[pr_m] = pr_more[pr_m];
+    pr_ptr_f       = rr_next(pr_m);
+    pr_pick_f      = rr_pick(pr_req_f, pr_ptr_f);
+    pr_pick_fa     = (pr_req_f == '0 || rr_before(m_new, pr_pick_f, pr_ptr_f)) ? m_new : pr_pick_f;
+    pr_pick_na     = (pr_req == '0 || rr_before(m_new, pr_m, pr_ptr_q)) ? m_new : pr_m;
+  end
+  wire pr_alloc = s2_alloc && alloc_oh[MS_PROBE];   // m_new enters the probe state
   always_comb begin
     b_o         = '0;
     b_o.opcode  = B_PROBE_BLOCK;
@@ -1125,8 +1160,13 @@ module tg_l2_bank
   wire          rs_data   = (rs_acq && rl_rsp[0].block) || rl_kind[1].kind == K_GET;
   wire          rs_den    = m_ferr[rs_cur_q];
   wire [2:0]    rs_size   = rl_rsp[0].size;
-  wire          rs_two    = rs_data && rs_size == 3'd6;          // two rows
-  wire [1:0]    rs_nb     = !rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2;
+  // The shape (beats per row, rows) is the request's, fixed at allocation, so each MSHR keeps it
+  // in flip-flops and the engine loads it with rs_cur_q (200 MHz, DR-142): the completion, which
+  // ends in the MSHR state, then starts at registers, not at the MSHR LUTRAMs' read through
+  // rs_cur_q (the full chip's worst uncore path in G4, where the bank was split).
+  logic         rs_nb2_q, rs_two_q;
+  wire          rs_two    = rs_two_q;                               // two rows
+  wire [1:0]    rs_nb     = rs_nb2_q ? 2'd2 : 2'd1;
   wire          rs_lastrow = !rs_two || rs_row_q;
   logic         rs_issue;
   rtag_t        rs_tag;
@@ -1324,6 +1364,7 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   mkind_t mkind_new;
   mrsp_t  mrsp_new;
+  wire    rsh_data_new = (mkind_new.kind == K_ACQ && mrsp_new.block) || mkind_new.kind == K_GET;   // as rs_data
   always_comb begin
     mkind_new.grow  = a2_growt;
     mkind_new.kind  = (p2_q.kind == PK_ACQ) ? K_ACQ : (p2_q.kind == PK_GET) ? K_GET : K_PUT;
@@ -1384,6 +1425,7 @@ module tg_l2_bank
       wb_ready_q  <= '0;
       mcmd_ptr_q  <= '0;
       pr_ptr_q    <= '0;
+      pr_m_q      <= '0;                 // rr_pick of no requests
       ar_ptr_q    <= '0;
       pw_ptr_q    <= '0;
       vr_ptr_q    <= '0;
@@ -1456,6 +1498,7 @@ module tg_l2_bank
       // ---- engine pointers and busy flags ----
       if (s0_take_m)                  mcmd_ptr_q <= rr_next(mcmd_pick);
       if (pr_fire)                    pr_ptr_q   <= rr_next(pr_m);
+      pr_m_q <= pr_fire ? (pr_alloc ? pr_pick_fa : pr_pick_f) : (pr_alloc ? pr_pick_na : pr_m_q);
       if (ar_valid_o && ar_ready_i)   ar_ptr_q   <= rr_next(ar_m);
 
       if (!pw_busy_q && |pw_req) begin
@@ -1501,6 +1544,8 @@ module tg_l2_bank
       if (!rs_busy_q && |rs_req) begin
         rs_busy_q <= 1'b1;
         rs_cur_q  <= rs_m;
+        rs_nb2_q  <= m_rnb2[rs_m];
+        rs_two_q  <= m_rtwo[rs_m];
         rs_row_q  <= 1'b0;
         rs_ptr_q  <= rr_next(rs_m);
       end else if (rs_issue) begin
@@ -1526,6 +1571,8 @@ module tg_l2_bank
         m_need_fill[m_new] <= s2_alloc_fill;
         m_ar_sent[m_new]   <= 1'b0;
         m_ferr[m_new]      <= 1'b0;
+        m_rnb2[m_new]      <= rsh_data_new && !(mrsp_new.size <= 3'd4);
+        m_rtwo[m_new]      <= rsh_data_new && mrsp_new.size == 3'd6;
       end
       // MCMD result
       if (s2_mcmd) begin
@@ -1683,6 +1730,10 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The response shape in registers is the one its MSHR's fields give
+      if (rs_busy_q) assert (rs_two_q == (rs_data && rs_size == 3'd6) &&
+                             rs_nb == (!rs_data ? 2'd1 : (rs_size <= 3'd4) ? 2'd1 : 2'd2))
+        else $error("tg_l2_bank%0d: response shape of MSHR %0d differs from its fields", BANK, rs_cur_q);
       // A probe presented is a request's, and its flag select is the agent the probe names
       if (b_valid_o) assert (pr_req[pr_m] && ps_sel[pr_m] == onehot_ag(pr_ag))
         else $error("tg_l2_bank%0d: probe of MSHR %0d agent %0d, flag select %b", BANK, pr_m, pr_ag, ps_sel[pr_m]);
