@@ -55,8 +55,8 @@ module tg_rob
   input  logic [3:0][3:0]              lx_cause,
   input  logic                         spx_valid,    // a store's PMP denial, after it completed: exception only
   input  robid_t                       spx_rob,
-  input  logic [1:0]                   sth_v,        // commit stops before these stores (that denial may come)
-  input  robid_t [1:0]                 sth_rob,
+  input  logic [2:0]                   cmh_v,        // commit stops at these entries: the LSU's held stores
+  input  robid_t [2:0]                 cmh_rob,      // (a PMP denial may come), a load whose replay mark is late
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
   input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports): replay
@@ -367,14 +367,15 @@ module tg_rob
   logic [63:0]   t_tval;
   logic          stop;
   logic [CW-1:0] mf;                // the slot whose mispredict ends the group
-  // The LSU's commit holds (sth_*): a store whose PMP check comes after it completed retires only
-  // once a denial would show; the group stops before it. hold_le[j]: slot j or an older one is held.
+  // Commit holds (cmh_*): a store whose PMP check comes after it completed retires only once a
+  // denial would show, and a load whose ordering replay mark is a cycle late does not retire before
+  // it; the group stops at the held entry. hold_le[j]: slot j or an older one is held.
   logic [CW-1:0] hold_le;
   always_comb begin
     logic any;
     any = 1'b0;
     for (int j = 0; j < CW; j++) begin
-      for (int h = 0; h < 2; h++) if (sth_v[h] && sth_rob[h] == hid[j]) any = 1'b1;
+      for (int h = 0; h < 3; h++) if (cmh_v[h] && cmh_rob[h] == hid[j]) any = 1'b1;
       hold_le[j] = any;
     end
   end

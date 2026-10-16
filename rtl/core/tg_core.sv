@@ -285,6 +285,10 @@ module tg_core
   // The store reports as the ROB takes them: with ROB_STORE_REPORT_LATE (DR-140 #2) a cycle later,
   // together with the ordering replay mark, so a replayed load never commits first. Timing: the
   // store address's TLB and PMP decision and the LQ's ordering search leave the ROB's tables.
+  // Without #2 the ordering replay mark still comes a cycle later (timing: the LQ's search leaves
+  // the ROB's replay tables), and for that cycle the ROB holds commit at the replayed load, where
+  // the mark would have stopped it: cycle-identical (the load cannot reach the head sooner, as the
+  // store that found it completes in the cycle of its search at the earliest).
   logic [1:0]       st_cmp_r;
   robid_t [1:0]     st_cmp_rob_r;
   logic             replay_valid_r;
@@ -299,13 +303,19 @@ module tg_core
   end else begin : g_store_now
     assign st_cmp_r       = st_cmp;
     assign st_cmp_rob_r   = st_cmp_rob;
-    assign replay_valid_r = replay_valid;
-    assign replay_rob_r   = replay_rob;
+    always_ff @(posedge clk) begin
+      replay_valid_r <= !(rst || flush) && replay_valid;
+      replay_rob_r   <= replay_rob;
+    end
   end
   logic             spx_valid;            // a store's PMP denial after it decided (exception only) ...
   robid_t           spx_rob;
   logic [1:0]       sth_v;                // ... and the stores commit stops before meanwhile
   robid_t [1:0]     sth_rob;
+  logic [2:0]       cmh_v;                // commit holds: those stores, and the replayed load while
+  robid_t [2:0]     cmh_rob;              // its mark is on its way (a harmless hold with #2)
+  assign cmh_v   = {replay_valid_r, sth_v};
+  assign cmh_rob = {replay_rob_r, sth_rob};
   logic [3:0]       lx_valid, lx_valid_q;
   robid_t [3:0]     lx_rob, lx_rob_q;
   logic [3:0][3:0]  lx_cause, lx_cause_q;
@@ -374,7 +384,8 @@ module tg_core
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
-    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob, .sth_v, .sth_rob,
+    .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob,
+    .cmh_v, .cmh_rob,
     .replay_valid(replay_valid_r),
     .replay_rob(replay_rob_r),
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
