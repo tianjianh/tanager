@@ -22,11 +22,11 @@ package tg_core_pkg;
   // Timing cuts that cost cycles, as build switches (DR-140; core-pipeline §13). Each is an
   // elaboration parameter that selects generate branches, so a setting builds only its own logic.
   // Two profiles are verified (DR-140, as the user set it after DR-141's board runs):
-  //   default:  #4 and #5 on; #2 and #8 off (the shipping profile);
-  //   fallback: #2, #4, #5 and #8 off (TG_TIMING_CUTS=0: the core without them).
+  //   default:  #4, #5 and #9 on; #2 and #8 off (the shipping profile);
+  //   fallback: #2, #4, #5, #8 and #9 off (TG_TIMING_CUTS=0: the core without them).
   // #2 and #8 are lint-only switches until the user turns one on: TG_ROB_STORE_REPORT_LATE=1 and
-  // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT and TG_DC_AMO_READ_REG =0|1 override
-  // their profile value; other combinations are not verified.
+  // TG_DE_STAGE=1, each on top of the default. TG_LSU_AG_SPLIT, TG_DC_AMO_READ_REG and
+  // TG_ROB_HEAD_TLB_LATE =0|1 override their profile value; other combinations are not verified.
 `ifdef TG_TIMING_CUTS
   localparam bit TIMING_CUTS = `TG_TIMING_CUTS;
 `else
