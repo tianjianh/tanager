@@ -996,9 +996,17 @@ module tg_lsu
   assign tlbm_rob[0]   = ln_rob;
   assign tlbm_valid[1] = sn_v && !flush && sa_tm;
   assign tlbm_rob[1]   = sn_rob;
-  logic        dpf_v_q;
-  logic [63:0] dpf_va_q;
-  acc_e        dpf_at_q;
+  // The walk prefetch's request: a DTLB miss is taken when the slot is free or the walker takes
+  // it this cycle. Its address and access type live in two slots: every miss writes the slot not
+  // presented, and the pointer moves to it when the miss is taken (timing, DR-145: the data's
+  // enable does not wait for the walker's ack; the request is the one-slot form's, asserted)
+  logic           dpf_v_q, dpf_p_q;
+  logic [1:0][63:0] dpf_vas_q;
+  acc_e [1:0]     dpf_ats_q;
+  logic [63:0]    dpf_va_q;
+  acc_e           dpf_at_q;
+  assign dpf_va_q = dpf_vas_q[dpf_p_q];
+  assign dpf_at_q = dpf_ats_q[dpf_p_q];
 
   // The walker: the head's deciding walk, fetch, data prefetch
   logic [2:0]       pw_req, pw_ack, pw_who;
@@ -1047,19 +1055,34 @@ module tg_lsu
         hdc_q <= pw_cause;
       end
       if (pw_ack[2]) dpf_v_q <= 1'b0;
-      if (!dpf_v_q || pw_ack[2]) begin
-        if (tlbm_valid[0]) begin
-          dpf_v_q  <= 1'b1;
-          dpf_va_q <= ln_va;
-          dpf_at_q <= ACC_R;
-        end else if (tlbm_valid[1]) begin
-          dpf_v_q  <= 1'b1;
-          dpf_va_q <= sn_va;
-          dpf_at_q <= sa_at;
-        end
+      if ((!dpf_v_q || pw_ack[2]) && (tlbm_valid[0] || tlbm_valid[1])) begin
+        dpf_v_q <= 1'b1;
+        dpf_p_q <= !dpf_p_q;
       end
     end
+    // The slot not presented takes every miss
+    if (tlbm_valid[0]) begin
+      dpf_vas_q[!dpf_p_q] <= ln_va;
+      dpf_ats_q[!dpf_p_q] <= ACC_R;
+    end else if (tlbm_valid[1]) begin
+      dpf_vas_q[!dpf_p_q] <= sn_va;
+      dpf_ats_q[!dpf_p_q] <= sa_at;
+    end
   end
+
+`ifndef SYNTHESIS
+  // The one-slot form: the request presents what it would have
+  logic [63:0] dpf_va_o;
+  acc_e        dpf_at_o;
+  always @(posedge clk) begin
+    if (!(rst || flush) && (!dpf_v_q || pw_ack[2])) begin
+      if (tlbm_valid[0])      begin dpf_va_o <= ln_va; dpf_at_o <= ACC_R; end
+      else if (tlbm_valid[1]) begin dpf_va_o <= sn_va; dpf_at_o <= sa_at; end
+    end
+    if (rs_q && !rst && dpf_v_q)
+      assert (dpf_va_q == dpf_va_o && dpf_at_q == dpf_at_o) else $error("tg_lsu: the walk prefetch's slot differs from the one-slot form");
+  end
+`endif
 
   // Replay or PTE read pending: block IQ-LD's select so the AG slot frees
   always_ff @(posedge clk) begin
