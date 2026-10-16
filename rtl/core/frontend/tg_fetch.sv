@@ -179,8 +179,8 @@ module tg_fetch
   logic [2:0]         pmp_rwx_u;
   logic               pw_q, f1_pwait;
   logic [PA_W-1:4]    pw_pa_q;                // fpc_q's translated block address, while pw_q
-  assign f1_pwait = xl_i && it_hit[0] && !it_pte[0].ph && !pw_q;
-  tg_pmp #(.S(2)) u_pmp (.pa(xl_i ? {pw_pa_q, 4'b0} : fpc_q[PA_W-1:0]), .dbl(1'b0), .acc(ACC_X),
+  assign f1_pwait = 1'b0 && xl_i && it_hit[0] && !it_pte[0].ph && !pw_q;   // MEASUREMENT: #6 off
+  tg_pmp #(.S(2)) u_pmp (.pa(f1_pa), .dbl(1'b0), .acc(ACC_X),
                          .m_mode(priv == PRIV_M), .d(pmp_d), .ok(pmp_okw), .hit(pmp_hit_u),
                          .rwx(pmp_rwx_u));
   assign f1_pmpd = (xl_i && it_pte[0].ph) ? {NW{!it_pte[0].px}} : ~pmp_okw;
