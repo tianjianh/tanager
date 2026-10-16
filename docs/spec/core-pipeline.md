@@ -238,6 +238,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 - **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
+- **The commit gate** is the flush and the trace's stall alone (timing, DR-145: in G6 the FP free list's init flag → rename's ready → commit → the free-list count and the CSR file, −1.40 ns). Rename's ready and the init flags are one-time flags after reset, and the ROB holds an entry only after rename fired, which needed them (asserted).
 
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
@@ -357,7 +358,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
 
-*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, each `=0|1`).
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, `TG_LSU_MMIO_PMP_REG`, `TG_DC_PORTB_WREG`, each `=0|1`).
 
 | # | Switch | What | Timing |
 |---|---|---|---|
@@ -366,10 +367,12 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #5 | `DC_AMO_READ_REG` | an atomic's D$ read data is registered (core-lsu.md) | the D$ atomic path, block RAM to block RAM |
 | #8 | `DE_STAGE` | one more decode stage (§3.4) | the DE family |
 | #9 | `ROB_HEAD_TLB_LATE` | the ROB head's DTLB check looks up the head's VA as registered a cycle earlier, from the head's second cycle (DR-144, B3). Off: a second lookup takes the committing store's VA beside the LQ head's, and the head's selection picks last (B2, cycle-exact; the DTLB has four ports) | the head's selection and its VA reads leave the walker's start |
+| #10 | `LSU_MMIO_PMP_REG` | an MMIO load's PMP verdict is registered before its state takes it: the LQ head's MMIO issue waits while its load checks (bare and M mode, or a page that a region boundary splits); the fault reports in the check's cycle (DR-148; core-lsu.md) | the load PMP checker leaves the LQ state's enables, through the MMIO issue |
+| #11 | `DC_PORTB_WREG` | the D$'s port-B block-RAM writes come from a register a cycle later; port B's reads wait a cycle while one lands, and a load that read the row in the write's second cycle retries (DR-148; core-lsu.md) | the store port's decision leaves port B's address, byte enables and data into the 32 data block RAMs |
 
 *Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
-- **default** (the shipping profile): #4, #5 and #9 on, #2 and #8 off.
-- **fallback** (`TG_TIMING_CUTS=0`): all five off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
+- **default** (the shipping profile): #4, #5, #9, #10 and #11 on, #2 and #8 off (#10 and #11 added under DR-148, the 115 MHz target).
+- **fallback** (`TG_TIMING_CUTS=0`): all seven off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
 - **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
 
 *Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
