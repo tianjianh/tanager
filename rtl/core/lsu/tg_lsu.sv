@@ -278,18 +278,21 @@ module tg_lsu
 
   // ---- SQ ----
   logic   [SQ_ENTRIES-1:0]           sq_v_q;
+  // The trace's read ports (one per commit slot) exist only with the commit trace (DR-146,
+  // TG_COMMIT_TRACE); TRP is where the other ports start
+  localparam int TRP = tg_trace_pkg::COMMIT_TRACE ? COMMIT_WIDTH : 0;
   // The ROB index and size, written at STA and read only by index, live in LUTRAM (u_sqrob,
   // u_sqsz): the store-data completion and the head's DTLB retry read the index; the trace and
   // forwarding read the size
   logic [1:0][SIW-1:0]               sqrob_ra;     // the captured store, the commit point
   robid_t [1:0]                      sqrob_rd;
-  logic [COMMIT_WIDTH:0][SIW-1:0]    sqsz_ra;      // the trace's stores, the forwarding store
-  logic [COMMIT_WIDTH:0][1:0]        sqsz_rd;
+  logic [TRP:0][SIW-1:0]             sqsz_ra;      // the trace's stores, the forwarding store
+  logic [TRP:0][1:0]                 sqsz_rd;
   logic   [SQ_ENTRIES-1:0]           sq_av_q, sq_dv_q, sq_mmio_q, sq_exc_q;
   // VA and data in LUTRAM: the VA for the trace, the head's walk and tval; the data for the
   // trace, forwarding, the drain and atomics. The CAMs use the PA and masks in flip-flops.
-  localparam int SVR = COMMIT_WIDTH + 1;          // SQ VA reads: trace, the commit point (head walk, atomic)
-  localparam int SDR = COMMIT_WIDTH + 2;          // SQ data reads: trace, forwarding, the head (drain, atomic)
+  localparam int SVR = TRP + 1;                   // SQ VA reads: trace, the commit point (head walk, atomic)
+  localparam int SDR = TRP + 2;                   // SQ data reads: trace, forwarding, the head (drain, atomic)
   logic [SVR-1:0][SIW-1:0]           sqva_ra;
   logic [SVR-1:0][63:0]              sqva_rd;
   logic [SDR-1:0][SIW-1:0]           sqd_ra;
@@ -374,15 +377,24 @@ module tg_lsu
     return sq_inwin(int'(p[SIW-1:0]), h, t) && p[SIW] == w;
   endfunction
 
-  // ---- Commit-side trace reads ----
-  for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_tr
-    assign sqva_ra[j]    = tr_sq[j][SIW-1:0];
-    assign sqd_ra[j]     = tr_sq[j][SIW-1:0];
-    assign tr_st_va[j]   = sqva_rd[j];
-    assign tr_st_data[j] = sqd_rd[j];
-    assign sqsz_ra[j]    = tr_sq[j][SIW-1:0];
-    assign tr_st_size[j] = sqsz_rd[j];
-    assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
+  // ---- Commit-side trace reads (only with the commit trace) ----
+  if (tg_trace_pkg::COMMIT_TRACE) begin : g_trace
+    for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_tr
+      assign sqva_ra[j]    = tr_sq[j][SIW-1:0];
+      assign sqd_ra[j]     = tr_sq[j][SIW-1:0];
+      assign tr_st_va[j]   = sqva_rd[j];
+      assign tr_st_data[j] = sqd_rd[j];
+      assign sqsz_ra[j]    = tr_sq[j][SIW-1:0];
+      assign tr_st_size[j] = sqsz_rd[j];
+      assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
+    end
+  end else begin : g_notrace
+    assign tr_st_va   = '0;
+    assign tr_st_data = '0;
+    assign tr_st_size = '0;
+    assign tr_st_wr   = '0;
+    logic unused_tr;
+    assign unused_tr = ^{tr_sq, sq_amw_q};             // sq_amw_q: an atomic wrote memory, for the trace
   end
 
   // ---- D$ ----
@@ -579,8 +591,8 @@ module tg_lsu
   assign m2_fid = sq_id(int'(m2_fidx), sq_head_q);
   // The forwarded data, read in M2 at the forwarding store's index (timing: the M1 search ends at
   // m2_foh_q). Data that was in at M1 (m2_fdat_q) does not change; data captured since is not used.
-  assign sqsz_ra[COMMIT_WIDTH] = m2_fidx;
-  assign m2_fdword = rep(sqd_rd[COMMIT_WIDTH], sqsz_rd[COMMIT_WIDTH]);   // LUTRAM reads at m2_fidx
+  assign sqsz_ra[TRP] = m2_fidx;
+  assign m2_fdword = rep(sqd_rd[TRP], sqsz_rd[TRP]);   // LUTRAM reads at m2_fidx
 
   typedef enum logic [2:0] { O_OK, O_STQ, O_MISS, O_RETRY, O_FAULT } m2_out_e;
   m2_out_e   m2_out, m2_out_w;                      // the outcome; ... before the PMP checker's verdict
@@ -658,7 +670,7 @@ module tg_lsu
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
-  assign st_wdata = rep(sqd_rd[COMMIT_WIDTH+1], sqh.size);
+  assign st_wdata = rep(sqd_rd[TRP+1], sqh.size);
   logic dr_pop;
   assign dr_pop = (st_req && st_ack) || dr_amo ||
                   (xs_q == X_WAIT && x_st_q && mmio_d_valid_i);
@@ -936,7 +948,7 @@ module tg_lsu
   assign hs       = sq_cmt_q[SIW-1:0];
   assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lqc_rd[2].rob == rob_head;
   assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sqrob_rd[1] == rob_head && sq_cmt_q != sq_tail_q;
-  assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[COMMIT_WIDTH];
+  assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[TRP];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
@@ -953,7 +965,7 @@ module tg_lsu
   assign hd_fault = hd_need && hdf_q;
   assign hd_cause = hdc_q;
   assign hd_lva   = lqc_rd[2].va;
-  assign hd_sva   = sqva_rd[COMMIT_WIDTH];
+  assign hd_sva   = sqva_rd[TRP];
 
   // A DTLB miss at AG: the ROB entry replays at the head; the walker prefetches the translation
   assign tlbm_valid[0] = ln_v && !flush && nl_tm;
@@ -1084,16 +1096,16 @@ module tg_lsu
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_sqrob (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_pl.rob), .raddr(sqrob_ra),
     .rdata(sqrob_rd));
-  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2), .NR(COMMIT_WIDTH + 1)) u_sqsz (
+  tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(2), .NR(TRP + 1)) u_sqsz (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_pl.mem_size), .raddr(sqsz_ra),
     .rdata(sqsz_rd));
-  assign sqva_ra[COMMIT_WIDTH]   = hs;            // at an atomic, hs is its entry and the head
+  assign sqva_ra[TRP]   = hs;            // at an atomic, hs is its entry and the head
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(64), .NR(SVR)) u_sqva (
     .clk, .we(sta_ag_valid && !flush), .waddr(sa_idx_ag), .wdata(sta_ag_addr), .raddr(sqva_ra),
     .rdata(sqva_rd));
   // Data: captured from the register file, or written by an atomic (the value it stored)
-  assign sqd_ra[COMMIT_WIDTH]   = m2_fidx;
-  assign sqd_ra[COMMIT_WIDTH+1] = dh;
+  assign sqd_ra[TRP]   = m2_fidx;
+  assign sqd_ra[TRP+1] = dh;
   assign sqd_we = (am_req && am_ack) || cap_v;
   assign sqd_wa = (am_req && am_ack) ? dh : cap_idx;
   // The source as one encoded select from early terms, so a data bit is one LUT6 (P4's FP bank
@@ -1157,7 +1169,7 @@ module tg_lsu
             x_st_q    <= 1'b1;
             x_pa_q    <= sqh.pa;
             x_size_q  <= sqh.size;
-            x_wdata_q <= sqd_rd[COMMIT_WIDTH+1];
+            x_wdata_q <= sqd_rd[TRP+1];
           end else if (mm_go) begin
             xs_q      <= X_REQ;
             x_st_q    <= 1'b0;
@@ -1193,7 +1205,7 @@ module tg_lsu
         AM_IDLE: if (am_go) begin
           am_pa_q   <= sqh.pa;
           am_size_q <= sqh.size;
-          am_b_q    <= sqd_rd[COMMIT_WIDTH+1];
+          am_b_q    <= sqd_rd[TRP+1];
           am_pden_q <= pden_go;
           if (am_sc && !rsv_ok_go && !pden_go) begin
             am_res_q <= 64'd1;                    // SC without a reservation: fails, no access
