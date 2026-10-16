@@ -181,6 +181,9 @@ As the core track merges each unit, it gets a line in `units.tsv`; its budget is
 | 5d9fef2 | 0449256 reverted: 2dc6eba's L2 plus the trace's stop count (both LUT-neutral); cycle-identical | 19,664 | | 18,443 at `st` | **18** |
 | c91ac34 | L2: the response engine's shape in flip-flops (6670546: −18 LUTs, +100 FFs), the probe pick made a cycle ahead (+35, +10 FFs); cycle-identical | 19,681 | | 18,553 at `st` | **18** |
 | 916fef5 | L2: the `ProbeAck` search on the one-hot hit way (−42); `D_SLICE`, `W_SLICE` and `XBAR_IN_SLICE`, off (0; reserve items: +160, +182 and +307 / +499 LUTs on, [soc.md](../spec/soc.md)); cycle-identical | 19,639 | | 18,553 at `st` | **18** |
+| c4f7350 | L2: the allocation's held and dirty flags without the victim pick (c244fd6, 0dbdd58), the victim read-out's set in a register (26c16ce), the `ProbeAck` search's matches kept apart (c4f7350); together +10; cycle-identical | 19,649 | | 18,573 at `st` | **18** |
+| cb7bb99 | L2: the AR pick made a cycle ahead (+115); cycle-identical | 19,764 | | 18,583 at `st` | **18** |
+| 944728f | L2: the probe flags' selects without their `keep` (−157: the no-IPC offset for cb7bb99 under DR-145's margin of about 0.3K); `XBAR_SLICE` and `MEM_SLICE` (9759d22), on (0: measured on the same RTL without the switches; all off with the AR slice, −1,174, [soc.md](../spec/soc.md)); cycle-identical | 19,607 | | 18,583 at `st` | **18** |
 | **budget** | | **11,300** | **10,800** | | **18** |
 
 **The uncore at 200 MHz** (st, out of context, placed and routed with `fpga/kv260/tcl/ooc_impl.tcl`; the placement is unconstrained, which DR-089 says can cost up to about 1 ns against the full chip; LUT counts after placement include `phys_opt_design`'s replication, so the budget table above is the one for area):
@@ -254,13 +257,48 @@ The default is `64'h84_0308_0000`, with 21 DSPs at the sites, plus 4 for the ACL
 | 5d9fef2 | the same, `ExtraTimingOpt` | 20,094 | 18,831 | 26 | −0.573 ns | −414 ns (1,894) |
 | c91ac34 | + the response engine's shape in flip-flops, the probe pick made a cycle ahead; default placement | 19,979 | 18,961 | 26 | −0.322 ns | −33 ns (413) |
 | c91ac34 | the same, `ExtraTimingOpt` | 19,998 | 18,940 | 26 | **+0.030 ns** | 0 (0) |
+| c4f7350 | + the allocation's flags without the victim pick, the read-out's set in a register, the `ProbeAck` search's matches kept apart; default placement | 19,887 | 18,958 | 26 | **+0.014 ns** | 0 (0) |
+| c4f7350 | the same, `ExtraTimingOpt` | 19,991 | 18,960 | 26 | −0.293 ns | −70 ns (740) |
 
 - db8d1bf's worst paths were S2 into the directory RAM's pins (−0.49, 400 endpoints in the `ExtraTimingOpt` run) and the probe flags; 2dc6eba's are the probe loop (`m_psent`, `pr_ptr_q`: about 55% of the worst 150 endpoints), S2 into the MSHR flags (`m_ppend`, `m_vtag`, `m_grant_t`: about 30%), the data array's URAM cascade inputs and the directory's read address, at −0.21 to −0.46 ns. The directory's pins no longer fail. c972c58's `ExtraTimingOpt` run fails at −0.52 ns in the data array's cascaded read address (the victim read-out's pick, its MSHR's set and way from the LUTRAM, then three URAMs of cascade), −0.49 ns in the probe loop and −0.48 ns at the L2's error flag: within the two placements' spread of 2dc6eba, with no single structure leading.
 - The directory written at S3 alone moved S2's failing endpoints from the RAM's pins to the MSHR state (`sm1_q` → `ms`, 17 levels, −0.812 ns in that run) and left the probe flags (−0.695 ns) worst after it; the next two commits, which cut exactly those, bring the same placement settings to −0.460 ns. One sample each, so the attribution is approximate.
 - **c91ac34 closes 200 MHz in the `ExtraTimingOpt` placement** (+0.030 ns, no failing endpoint), the first uncore run that does. Its default placement fails at −0.322 ns, TNS −33 ns over 413 endpoints: the L2 error flag (−0.32), the allocation's entry into the probe pick register (−0.30), the D channel's cross-bank credit (a bank's D queue and output arbiter, the crossbar's per-initiator D arbiter, the other bank's ready: −0.30) and the victim read-out's pick into the data array's address (−0.25).
+- **c4f7350 closes 200 MHz in the default placement** (+0.014 ns, no failing endpoint) after cutting three of those four ([l2.md](../spec/l2.md) §Timing); its `ExtraTimingOpt` placement fails at −0.293 ns (the banks' LUTRAM writes, the L2 error flag, the banks' flags). DR-145 then moved the target to 125 MHz, and the 200 MHz runs stopped: cb7bb99 and 944728f were not timed at 200 MHz.
 - **The spread between runs.** 2dc6eba and 5d9fef2 differ only by the trace's stop count, a few LUTs off the L2, yet measure −0.263 / −0.460 and −0.333 / −0.573 ns. c972c58 and 5d9fef2, with and without 0449256, cross over between the two placements. So a single design varies by 0.1–0.2 ns per placement setting, and the two settings differ by 0.2–0.5 ns: below about 0.2 ns, two samples per design don't separate two designs. 0449256 was reverted for its structure (per-way logic that bought no level), not for its slack.
 - The tree picks' run lost 0.24 ns against its base in the same placement, while the S2 path, which they don't touch, lost as much: placement, not the picks ([l2.md](../spec/l2.md) §Timing).
 - In the budget flow (cd1f584, `st`), all fabric is 19,604 LUTs, 18,740 FFs and 5 DSPs, and the default is 19,231 LUTs, 17,973 FFs and 26 DSPs: the default saves 373 LUTs and 767 FFs for its 21 site DSPs. Every site in DSPs saved about 1,390 at 44767a1, so the per-site check gives back about 1,020 LUTs to hold 200 MHz at the sites.
+
+**DR-145: the uncore at 125 MHz** (the study's items 2 and 3, out of context; the boot cycles each slice costs are in [soc.md](../spec/soc.md) §Reserve levers):
+
+| Commit | Run | LUTs | FFs | DSP | WNS | TNS (failing endpoints) |
+|---|---|---|---|---|---|---|
+| 9759d22 | the AR, crossbar and memory slices off; default placement, 125 MHz | 18,171 | 13,818 | 5 | **+1.026 ns** | 0 (0) |
+
+- Without any of the three, the uncore closes 125 MHz out of context with 1 ns to spare, so out of context none of them is needed at 125 MHz or at 100 MHz. The worst paths are inside the latency injectors (the head pointer into the free list, 10 levels, 78% wire: +1.03 to +1.19 ns) and from the directory RAM into the L2 error flag (17 levels, +1.11 ns); no crossbar path is near. Out of context the cores' ports have no input delay, so the crossbar's core-side paths look shorter than they are in the chip, where a fit decides.
+- In the budget flow (`st`), the three off: 18,590 LUTs, 13,817 FFs and 5 DSPs, against 19,764, 18,583 and 26 with them (9759d22): −1,174 LUTs, −4,766 FFs and −21 DSPs.
+- The head with its slices was not timed at 125 MHz (withdrawn, to keep the queue free for spikes-2's full-chip runs): it differs only by the slices, which only shorten paths.
+
+**Slices in DSPs, per site, for DR-145** (budget flow, `st`, on 9759d22: every site in DSPs against every site in fabric, each instance from the hierarchy):
+
+| Site (`UNCORE_DSP` bits) | Count | LUTs each, fabric → DSP | FFs each | DSPs each | Default |
+|---|---|---|---|---|---|
+| D slices (0, 1, 4, 5, 8, 9) | 6 | 80 → 3 (−77) | −154 | 4 | fabric |
+| A slices, L2 banks (16, 17) | 2 | 99 → 3 (−96) | −187 | 5 | fabric |
+| A slice, device bus (19) | 1 | 99 → 3 (−96) | −187 | 5 | DSP |
+| A slice, boot ROM (18) | 1 | 15 → 3 (−12) | +7 | 2 | fabric |
+| A slice, error responder (20) | 1 | 11 → 3 (−8) | +23 | 2 | fabric |
+| C slices (24, 25) | 2 | 89 → 3 (−86) | −165 | 4 | DSP |
+| B slices (28, 29) | 2 | 19 → 3 (−16) | −31 | 2 | fabric |
+| memory AR (32, 37) | 2 | 26 → 3 (−23) | −45 | 2 | fabric |
+| memory AW (33, 38) | 2 | 26 → 3 (−23) | −45 | 2 | fabric |
+| memory W (34, 39) | 2 | 68 → 3 (−65) | −129 | 4 | DSP |
+| memory R (35, 40) | 2 | 72 → 3 (−69) | −137 | 3 | fabric |
+| memory B (36, 41) | 2 | 7 → 3 (−4) | −8 | 1 | fabric |
+| L2 R slices (42, 43) | 2 | 72 → 3 (−69) | −137 | 3 | fabric |
+
+- Whole design: every site in DSPs is 18,754 LUTs, 16,521 FFs and 90 DSPs; every site in fabric 20,064, 19,349 and 5; the default 19,764, 18,583 and 26. So every site in DSPs saves 1,010 LUTs and 2,062 FFs against the default for 64 more DSPs (the default saves 300 and 766 against fabric). The instances add up to 1,480 LUTs against the whole design's 1,310: synthesis moves the rest around the slices.
+- Per DSP, the D, A (banks and device bus), C, memory W and R and L2 R sites save 16–23 LUTs; memory AR and AW 11–12; the B slices, the ROM's and error responder's A slices and memory B 4–8.
+- Timing: at 200 MHz (028a480 and ca1aece, above) the sites failed in DSPs by up to 1.55 ns (B), 1.36 ns (memory AR) and 0.99 ns (D, MMIO), so at first order 125 MHz's 3 ns more leaves every site at least about 1.4 ns out of context. Not timed at 125 MHz: in the chip a DSP site sits in a DSP column, so the full-chip fit decides.
 
 **By block** (smt2, 059a572):
 
