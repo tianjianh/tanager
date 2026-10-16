@@ -27,6 +27,13 @@ COV_UNITS ?= rename rob lsu
 empty    :=
 space    := $(empty) $(empty)
 include $(ROOT)/sim/profile.mk
+# The lint-only switches (#2, #8; the commit trace off) never reach a model that runs programs, even an
+# up-to-date one (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the trace).
+ifneq ($(strip $(LINT_ONLY_SET)),)
+  ifneq ($(filter-out lint,$(or $(MAKECMDGOALS),all)),)
+    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the commit trace))
+  endif
+endif
 BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(TC_SUFFIX)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
 VERILATOR ?= verilator
 CXX      ?= g++-15
@@ -91,7 +98,6 @@ build: $(BUILD)/tg_vsim
 
 $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/sim/tb/tb.vlt $(lastword $(MAKEFILE_LIST))
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
-	@test -z "$(DE_STAGE)" || { echo "DE_STAGE is for lint only (DR-140: #8 is not verified)"; exit 2; }
 	@mkdir -p $(BUILD)
 	$(if $(COV),@{ printf '`verilator_config\n'; for d in $(COV_OFF); do printf 'coverage_off -file "*/rtl/core/%s/*"\n' $$d; done; \
 	  printf 'coverage_off -file "*/rtl/core/tg_core*"\ncoverage_off -file "*/rtl/common/*"\ncoverage_off -file "*/sim/tb/*"\ncoverage_off -file "*/sim/tcore/*"\n'; } > $(BUILD)/cov.vlt)
@@ -104,7 +110,7 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(DE_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
+	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
 	@echo "sim lint OK: $(CFG) $(CORE)"
 
 REPLAY := $(BUILD_ROOT)/replay/tg_replay

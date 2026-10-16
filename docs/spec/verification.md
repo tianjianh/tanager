@@ -333,7 +333,7 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 
 **Two programs, one pipe.**
 - **`tanager-host`** (sw/host, the SoC track) does every board access: the overlay guard, the ring, `TRS_RP`, the console and the injector. `--trace FILE` writes each 64-byte record to `FILE` in order. While `FILE` does not take them, the ring fills and the cores stall on `trace_stall_i`, so nothing is lost.
-- **`tanager-lockstep`** (`sim/src/tanager_lockstep.cpp`) reads that stream from a file, a FIFO or stdin and feeds `lockstep_t`. It never opens `/dev/mem`.
+- **`tanager-lockstep`** (`sim/src/tanager_lockstep.cpp`) reads that stream from a file, a FIFO or stdin and feeds `lockstep_t`. It never opens `/dev/mem`. A stream with no records is not a pass: it reports "NOTHING CHECKED" and exits 5, since a bitstream built without the commit trace (DR-146) streams none. `tanager-host --trace` refuses such a bitstream at the start: its `CAPS[3]` reads 0 (the SoC track's DR-146 MR).
   - **Spike's memory** starts as `tanager-host load` leaves the board's (soc.md §3): the boot ROM at `0x1000`, as `tg_bootrom_img_pkg.sv` holds it (`gen_bootrom_h.py` makes a header of it); `--fw` at `0x8000_0000`; `--kernel` at `+0x20_0000`; `--dtb` at `+0x220_0000`. Everything else is zero. The platform is `tg_vsim`'s: device loads are adopted (§3.4).
   - **Options:** `--isa`, `--priv`, `--harts` and `--pmp` default to the configuration's (§3.2). `--mem-mb` defaults to 768: the 1 GiB carve-out less the default ring of 2^22 records. `--stats=S` prints a progress line every S seconds. `--max=N` stops after N records. `--stale=C` flags a deferred writeback still pending after C cycles. `--plant=N` is a self-test: it flips bit 0 of the first value at or after record N that the checker compares. That is a register write or a deferred writeback, never a value it adopts (an MMIO load, a `nondet` CSR read). On the board, a plant had landed on the SoC test's poll of the UART, an adopted MMIO load, so it could never fire and the run passed. The checker's `compares_value` now decides, and the message names the register and instruction it corrupted.
   - **Decoding** (host.md, commit trace): kind 3 is a writeback (`tr_wb_t`). A retire's value, address and data words are `rd_value`, `mem_vaddr` and `mem_wdata`; a trap's or interrupt's are `cause` and `tval`. The record's cycle is 32 bits; the checker widens it for `--stale`.
@@ -414,7 +414,23 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 
 `make regress CFG=<cfg> [CORE=core|tcore] [LAT=...] [SUITES=...] [MARCH=...] [SELFTEST=0] [JOBS=N] [TIMING_CUTS=0|1]` (top-level target; `tools/ci/regress.sh` takes the same `KEY=value` arguments plus `SIMARGS="..."` for extra tg_vsim options, `ARCH=1 [ACTCFG=...]` for ACT4, and `TIMING_CUTS=both`, which is `make regress-profiles`).
 
-`TIMING_CUTS` picks the core's timing-cut profile (DR-140; `sim/profile.mk`). The core's three switches (#2, #4 and #5) are on together or off together, and the core package's default is the shipping profile. `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`. It builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs both of DR-140's profiles: "default" (unset: #2, #4 and #5 on) and "fallback" (`TIMING_CUTS=0`: all three off). #8 is off in both. With Spike lockstep, the profiles differ only in cycles. #8 (one more decode stage, `DE_STAGE=0|1`, `+define+TG_DE_STAGE`) is for lint only: `make lint` takes it, a build that runs programs refuses it. `make lint-all` elaborates every configuration three ways: the fallback, the default, and #8 on top of the default. The twelve elaborations run six at a time (`LINT_JOBS`; one thread and about 0.6 GB each; `tools/ci/lint_all.sh`), and an elaboration whose define no RTL file mentions is the default's, so it is skipped. On core-2's fn5, which has all three defines, the twelve take 25 s, against about two minutes one at a time. On main before the switches land, four take 18 s.
+`TIMING_CUTS` picks the core's timing-cut profile (DR-140, as the user set it after DR-141's board runs; `sim/profile.mk`). `TIMING_CUTS=0` or `1` passes `+define+TG_TIMING_CUTS=0|1`; unset builds the core package's default, the shipping profile. A forced profile builds in a directory of its own (`<cfg>-<core>-tc0`, `-tc1`) and logs to one (`regress/<cfg>-<core>-tc0`). The tests' Makefiles take it too. CI runs both profiles:
+- **default** (unset, or `TIMING_CUTS=1`): #4 (`LSU_AG_SPLIT`) and #5 (`DC_AMO_READ_REG`) on, #2 and #8 off. With fpu-2's switch (DR-144, `TG_ROB_HEAD_TLB_LATE`), the walker start takes its B3 form.
+- **fallback** (`TIMING_CUTS=0`): every switch off, and the walker start's B2 form, so the fallback stays cycle-identical to the RTL before the switches.
+
+With Spike lockstep, the profiles differ only in cycles. A switch that follows the profile can also be set on its own (`TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_ROB_HEAD_TLB_LATE` =0|1). Those combinations are not verified, and no make variable sets them.
+
+Two switches are for lint only, each on top of the default, until the user turns one on: #2 (store completions reported to the ROB a cycle late, `ROB_STORE_REPORT_LATE=1`, `+define+TG_ROB_STORE_REPORT_LATE`) and #8 (one more decode stage, `DE_STAGE=1`, `+define+TG_DE_STAGE`). `make lint` takes them. `sim/Makefile` refuses them for any other goal, even when the model is up to date, so they never reach a run.
+
+**The commit trace (DR-146)** is a build switch too, `COMMIT_TRACE=0|1` (`+define+TG_COMMIT_TRACE`, read once in `tg_trace_pkg`; interfaces.md §5). It is on by default and everything that runs programs here needs it. So `COMMIT_TRACE=0` is lint-only as well, and a model built without the trace stops at time 0 in `tg_tb_top`, or in `tg_soc_sig` when a boot signature is asked for. That keeps such a model from passing on no records or signing an empty trace.
+
+`make lint-all` elaborates every configuration six ways: the fallback, the default, #2, #8 and the trace off each on top of the default, and the default's synthesis view. The 24 elaborations run six at a time (`LINT_JOBS`; one thread and about 0.6 GB each; `tools/ci/lint_all.sh`): 69 s on main at 486e87a, with every switch in the RTL. An elaboration whose define no RTL file mentions is the default's, so it is skipped.
+
+**The synthesis view** (`make lint SYNTH=1`) elaborates the RTL with `+define+SYNTHESIS`, as Vivado does. It catches a signal that synthesized logic reads but only simulation-only code (`` `ifndef SYNTHESIS ``) drives: simulation and the ordinary lint are fine, and synthesis leaves the signal undriven. The core track found one by hand.
+- **There, `UNDRIVEN` is an error and `UNUSED` is off,** since simulation-only code reads many signals that synthesis drops.
+- **The Xilinx primitives** that the RTL instantiates under `SYNTHESIS` come from `tools/ci/synth_lint/xilinx_stubs.sv`, port-only stand-ins whose outputs are zero (`DSP48E2` and the XPM memories, FIFO and CDC macros). The LUT and SRL primitives come from the models in `tests/unit/prim/models`.
+- **Waivers** are in `tools/ci/synth_lint/synth.vlt`: the stand-ins and models themselves, and primitive outputs left open on purpose. A genuinely simulation-only signal that synthesized logic reads would be waived there by name, with its reason; there are none today.
+- **Checked:** a test tree that moves `tg_mul`'s `tag3_q <= tag2_q` into its `` `ifndef SYNTHESIS `` block passes the ordinary lint. The synthesis view stops on `Signal is not driven: 'tag3_q'`, and `lint-all` fails its four synthesis-view elaborations.
 
 **`make regress-profiles CFG=<cfg>`** runs both profiles side by side, with half the jobs each (`regress.sh TIMING_CUTS=both`), so that the profile checks stay quick while the timing work lands (DR-142):
 - It first builds what both runs read: `tg_replay`, the directed tests, the benchmarks, and the ACT4 tests with `ARCH=1`. Neither run then builds a file the other reads.
@@ -466,10 +482,17 @@ The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fp
 
 ```
 make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
-                     [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
+                     [BOOT_CORES=1|2] [BOOT_TREE=<ref>] [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
+                     [HARNESS=auto|branch|own]
 ```
 
-- **Profiles (DR-140).** `TIMING_CUTS` builds both sides' `tg_vsim` in that timing-cut profile, so a change is checked in each profile CI runs. `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key. The boot suite builds the package's default.
+- **Profiles (DR-140).** `TIMING_CUTS` builds both sides in that timing-cut profile, `tg_vsim` and the boot's `tb_boot` alike, so a change is checked in each profile CI runs, and its Linux-boot cost is reported by profile (DR-141 rule 1). `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key.
+  - The boot takes the profile through `tests/unit/boot`'s Makefile (the SoC track's hook), which reads `sim/profile.mk`; the tool archives that file with `sim/tb` when a profile is forced. A boot tree whose Makefile lacks the hook is refused, since it would build the default without a word (`BOOT_TREE=<ref>`, `--boot-tree`, with a ref that has it, or `BOOT=0`).
+  - **Checked on core-2's fn7** (51810c3, with the SoC track's hook from 97b528a as `--boot-tree`), 3 M cycles of the 1-core boot. Before this, the two profiles were one boot build, so a boot by profile was identical by construction.
+    - The fallback against the default: they differ from cycle 430, and the fallback needs 0.165% fewer cycles.
+    - The fallback against its own base, da48d96 (the RTL before the switches): identical.
+    - The fallback against main 5862fdd: −0.102% (fewer cycles) over the first 3 M cycles, first differing at cycle 307,200 in instruction fetch. It is fn's work up to and including da48d96, which no switch covers (the fallback equals da48d96).
+    - Over 20 M cycles the sign turns: core-2 measured the fallback about 2.2% slower than main, nearly all of it cut #6, fetch's one-cycle PMP wait on translated pages a PMP boundary splits (+2.218%: 14,003,908 records against the base's 14,314,478 in 20.09 M cycles). #6 acts once paging is on, from about 5.5 M cycles, so a 3 M window cannot show it: a boot cost needs a window past the kernel's start.
 
 - **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
   - the commit records and writebacks of the window: their number and a hash of them, each with its cycle and its slot or port;
@@ -480,7 +503,9 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
 - **The two sides:**
   - **The branch** is the working tree as it is, uncommitted and untracked files in `rtl/`, `sim/` and `tests/unit/` included. It is read through a temporary git index, so the worktree and its index are not touched. `BRANCH=<ref>` takes the branch side's `rtl/` from a ref instead, so a track's branch can be checked from another checkout (main's, for a merge) without checking it out.
   - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
-  - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs; `--harness own` builds the base side with BASE's.
+  - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs.
+    - **When the base's RTL does not build with it,** the base side takes BASE's own `sim/`, and the log says so. This happens when a change gives an RTL package something new and the harness uses it, as `tg_tb_top` began reading `tg_trace_pkg::COMMIT_TRACE` (DR-146) before main had it. The sides then differ in harness as well as RTL: a difference may come from either, and an old base harness may not write this tool's signatures (the run is reported BROKEN).
+    - `HARNESS=branch` forbids that fallback, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`.
   - **Programs** are built once and shared by both sides.
 - **Suites** (the defaults are the first four):
 
@@ -588,7 +613,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
 - **Comparing runs:** `tglb_compare.py [NAME=]LOG[,LOG...] ...` reads console logs, one NAME per profile say, and prints a Markdown table in ASCII. Several logs for one NAME (one per boot) are pooled.
   - Per test it gives the median per operation (`--metric cycles`, `instret` or `ns`), the change against the first NAME, and the spread of the runs, so a change within the spread is not a finding.
   - It lists any log that did not finish, had a failing test, or has no cycle counts. When the logs carry the kernel's timestamps, it also gives the median boot time to `/init` per NAME.
-- **On the board (2026-10-15, the board session):** the three DR-140 bitstreams, fallback, default and the default without #2, three boots each. All nine logs pass the checks: `perf_events=2`, 54 lines with cycles, CoreMark validated, `status=0`. Each boot runs 504–507 s to power-off. Changes beyond the spread, against the fallback, pooling 9 runs per profile:
+- **On the board (2026-10-15, the board session):** the three DR-140 bitstreams of the time: the fallback, the default then (#2, #4 and #5 on), and the default without #2, which the user then made the default (§4.3). Three boots each. All nine logs pass the checks: `perf_events=2`, 54 lines with cycles, CoreMark validated, `status=0`. Each boot runs 504–507 s to power-off. Changes beyond the spread, against the fallback, pooling 9 runs per profile:
   - **default:** memcpy 1 MiB +2.4%, Dhrystone +2.3%, tlbwalk +1.1%, syscall +0.9%, memcpy 64 B −1.1%;
   - **default without #2:** memcpy 1 MiB +1.9%, Dhrystone +1.5%, tlbwalk +1.1%, syscall −2.4%;
   - CoreMark A and B within ±0.1%, inside the spread. Instructions per operation are identical across the profiles, so the differences are the core's cycles.

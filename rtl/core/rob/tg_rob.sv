@@ -53,6 +53,10 @@ module tg_rob
   input  logic [3:0]                   lx_valid,
   input  robid_t [3:0]                 lx_rob,
   input  logic [3:0][3:0]              lx_cause,
+  input  logic                         spx_valid,    // a store's PMP denial, after it completed: exception only
+  input  robid_t                       spx_rob,
+  input  logic [1:0]                   sth_v,        // commit stops before these stores (that denial may come)
+  input  robid_t [1:0]                 sth_rob,
   input  logic                         replay_valid,
   input  robid_t                       replay_rob,
   input  logic [1:0]                   tlbm_valid,   // DTLB misses (LD and STA ports): replay
@@ -236,7 +240,7 @@ module tg_rob
   // Read ports per table: the commit slots' entries, the dispatched entries, and its own write
   // entry (the toggle).
   localparam int NCP = N_ALU + 9;                // completion ports
-  localparam int NXP = 6;                        // exception ports
+  localparam int NXP = 7;                        // exception ports
   localparam int NFT = NCP + NXP + 2;            // tables: completions, exceptions, mispredict, MMIO
   localparam int NFR = CW + DISPATCH_WIDTH + 1;
   logic [NFT-1:0]          ft_v;
@@ -263,6 +267,7 @@ module tg_rob
     end
     ft_v[NCP]     = oth_cmp && oth_exc;    ft_e[NCP]     = oth_rob;
     ft_v[NCP + 1] = br_valid && br_exc;    ft_e[NCP + 1] = br_rob;
+    ft_v[NCP + 6] = spx_valid;             ft_e[NCP + 6] = spx_rob;
     // mispredict and MMIO load
     ft_v[NFT - 2] = br_valid && !br_exc && br_misp;  ft_e[NFT - 2] = br_rob;
     ft_v[NFT - 1] = ld_cmp && ld_mmio;               ft_e[NFT - 1] = ld_rob;
@@ -361,6 +366,18 @@ module tg_rob
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
   logic          stop;
+  logic [CW-1:0] mf;                // the slot whose mispredict ends the group
+  // The LSU's commit holds (sth_*): a store whose PMP check comes after it completed retires only
+  // once a denial would show; the group stops before it. hold_le[j]: slot j or an older one is held.
+  logic [CW-1:0] hold_le;
+  always_comb begin
+    logic any;
+    any = 1'b0;
+    for (int j = 0; j < CW; j++) begin
+      for (int h = 0; h < 2; h++) if (sth_v[h] && sth_rob[h] == hid[j]) any = 1'b1;
+      hold_le[j] = any;
+    end
+  end
   // WFI retires when a locally enabled interrupt is pending, or after WFI_MAX cycles (the ISA
   // lets WFI complete at any time; Spike treats it as a no-op), so it never hangs the hart.
   localparam int WFI_MAX = 4096;
@@ -392,6 +409,7 @@ module tg_rob
     t_cause = '0;
     t_tval = '0;
     stop = 1'b0;
+    mf = '0;
     if (!flush && ready && cnt > 0) begin
       if (irq_take && hp[0].sys != SYS_WFI && !mmio_busy) begin
         do_irq = 1'b1;
@@ -445,8 +463,7 @@ module tg_rob
             if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j]) begin
               ret[j] = 1'b1;
               if (misp_h[j]) begin
-                do_flush = 1'b1;
-                nf_pc = mpr_npc_q;
+                mf[j] = 1'b1;
                 stop = 1'b1;
               end
             end else begin
@@ -454,6 +471,10 @@ module tg_rob
             end
           end
         end
+        // The holds cut the group last (timing: the LSU's S2 verdict arrives late)
+        ret      = ret & ~hold_le;
+        do_flush = |(mf & ~hold_le);
+        nf_pc    = mpr_npc_q;                       // (read only with do_flush)
       end
     end
   end
@@ -536,13 +557,13 @@ module tg_rob
   end
 
   // Oldest exception after this cycle's reports. Candidates, in priority order: the register,
-  // CSR (oth), branch, then the LSU's four ports. The oldest valid one wins, the first in that
+  // CSR (oth), branch, then the LSU's four ports and its store PMP port. The oldest valid one wins, the first in that
   // order on a tie. Computed in parallel rather than as a chain: every pair's age compare uses
   // only ROB indices, which arrive early (the LSU's AG ports send their payload's index whether
   // or not they fault), and the late valid bits only gate a one-hot select. tval: an LSU winner
   // takes the head's VA at the trap (ex_m), so ex_t is the best of the first three alone, as
   // the chain left it.
-  localparam int NEX = 7;
+  localparam int NEX = 8;
   logic        ex_v;
   robid_t      ex_r;
   logic [3:0]  ex_c;
@@ -553,9 +574,9 @@ module tg_rob
   logic [NEX-1:0][3:0]        xc_c;
   logic [NEX-1:0][NEX-1:0]    xc_o;     // xc_o[i][j]: candidate i is strictly older than j
   always_comb begin
-    xc_v = {lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q};
-    xc_r = {lx_rob, br_rob, oth_rob, exr_rob_q};
-    xc_c = {lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q};
+    xc_v = {spx_valid, lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q};
+    xc_r = {spx_rob, lx_rob, br_rob, oth_rob, exr_rob_q};
+    xc_c = {4'(EXC_SACCESS), lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q};
     for (int i = 0; i < NEX; i++)
       for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
     for (int i = 0; i < NEX; i++) begin
@@ -731,6 +752,9 @@ module tg_rob
       if (lx_valid[i] && (!sx_v || rob_older(lx_rob[i], sx_r))) begin
         sx_v = 1'b1; sx_r = lx_rob[i]; sx_c = lx_cause[i]; sx_m = 1'b1;
       end
+    end
+    if (spx_valid && (!sx_v || rob_older(spx_rob, sx_r))) begin
+      sx_v = 1'b1; sx_r = spx_rob; sx_c = EXC_SACCESS; sx_m = 1'b1;
     end
   end
   always_ff @(posedge clk) begin

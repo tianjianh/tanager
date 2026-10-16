@@ -80,6 +80,10 @@ module tg_lsu
   output logic [3:0][3:0]              exc_cause,
   output logic                         replay_valid,
   output robid_t                       replay_rob,
+  output logic                         spx_valid,     // a store's PMP denial, found after it decided (S3)
+  output robid_t                       spx_rob,
+  output logic [1:0]                   sth_v,         // commit stops before these stores: S2, S3
+  output robid_t [1:0]                 sth_rob,
   // From the ROB / commit
   input  robid_t                       rob_head,
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nld,  // loads retiring this cycle
@@ -100,7 +104,7 @@ module tg_lsu
   input  logic                         satp_sv39,
   input  logic [43:0]                  satp_ppn,
   input  pmp_d_t [15:0]                pmp_d,
-  input  logic [2:0]                   pmp_al,
+  input  logic [15:0][2:0]             pmp_pal,
   input  logic                         tlb_flush,
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,
@@ -296,6 +300,7 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_dr_q;      // the data's register is written (snooped)
   logic   [SQ_ENTRIES-1:0][PA_W-1:0] sq_pa_q;
   logic   [SQ_ENTRIES-1:0]           sq_tlb_q;     // DTLB miss: no address (ROB replay)
+  logic   [SQ_ENTRIES-1:0]           sq_pden_q;    // an atomic that its PMP check (S2) denied
   logic   [SQ_ENTRIES-1:0][7:0]      sq_mask_q;
   preg_t  [SQ_ENTRIES-1:0]           sq_tag_q;
   logic   [SQ_ENTRIES-1:0]           sq_fp_q;      // the data is an f register (EXT_FD)
@@ -444,6 +449,8 @@ module tg_lsu
   robid_t      ln_rob, sn_rob;
   logic [1:0]  ln_size, sn_size;
   logic [SIW-1:0] sn_sq;
+  logic        s2_v_q, s2_go, s2_den;            // S2: a store's PMP check, the cycle after it decides (STA)
+  logic [SIW-1:0] s2_idx_q;
   // Three lookups: the LD port, the STA port, and the ROB head's check. The head's check has a
   // port of its own (timing: on a shared port the head VA and the store's address reached each
   // other's checks, paths that are never live together), and still counts only when STA is
@@ -728,11 +735,16 @@ module tg_lsu
   assign am_lr    = am_op_q == AMO_LR;
   assign am_sc    = am_op_q == AMO_SC;
   assign am_go    = am_v_q && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
-                    sq_head_q == am_sq_q && rob_head == am_rob_q && !flush;
+                    sq_head_q == am_sq_q && rob_head == am_rob_q && !(s2_v_q && s2_idx_q == dh) && !flush;
+  // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
+  // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
+  // the atomic's start)
+  logic            pden_go, am_pden_q;
+  assign pden_go  = sq_pden_q[dh];
   // The reservation covers the SC's line and has not just been lost (probe, eviction)
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
-  assign am_req   = am_st_q == AM_REQ && !flush;
+  assign am_req   = am_st_q == AM_REQ && !flush && !am_pden_q;
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
   assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, am_b_q);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
@@ -751,7 +763,7 @@ module tg_lsu
       rsv_line_d = am_pa[PA_W-1:6];
     end
     // every SC ends it
-    if ((am_go && am_sc && !rsv_ok_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
+    if ((am_go && am_sc && !rsv_ok_go && !pden_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
     if (lose_v && lose_line == rsv_line_d) rsv_v_d = 1'b0;
     if (rsv_clr) rsv_v_d = 1'b0;
   end
@@ -789,7 +801,7 @@ module tg_lsu
   logic [SIW-1:0] sa_idx;
   logic [7:0]     sa_mask;
   pma_e           sa_pma;
-  logic           sa_mis, sa_pf, sa_tm, sa_acc, sa_exc, sa_mmio, sa_ok, sa_amo, sa_lr, sa_pmp;
+  logic           sa_mis, sa_pf, sa_tm, sa_acc, sa_exc, sa_mmio, sa_ok, sa_amo, sa_lr, sa_pmpc;
   logic [0:0]     sa_chk;
   logic [PA_W-1:0] sa_pa;
   acc_e           sa_at;
@@ -805,20 +817,66 @@ module tg_lsu
   assign sa_pf   = xl_d && !sa_mis && !va_canon(sn_va);
   assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
   assign sa_pma  = pma_of(sa_pa);
-  // The STA port's checker also serves the walker's checks, in cycles without a store
-  logic [PA_W-1:0] pc_pa;
-  logic            pc_dbl;
-  tg_pmp #(.S(1)) u_pmp_st (.pa(sn_v ? sa_pa : pc_pa),
-                            .dbl(sn_v ? sn_size == 2'd3 : pc_dbl),
-                            .acc(sn_v ? sa_at : ACC_R), .m_mode(sn_v && priv_d == PRIV_M),
-                            .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
-  assign sa_pmp  = (xl_d && dt_pte[1].ph) ? (sa_lr ? dt_pte[1].pr : dt_pte[1].pw) : sa_chk[0];
+  // PMP: a translated store to a PMP-homogeneous page decides with the DTLB's cached result
+  // (plan §4.10), and a bare-mode store with the checker on its VA (a register with the split; no
+  // walk runs in bare mode, so the walker never wants the checker then). A translated store to a
+  // page with a region boundary inside decides as if PMP allowed it, and the checker looks at its
+  // registered PA in S2, the next cycle (below).
+  assign sa_pmpc = xl_d && dt_pte[1].ph;
   // atomics only in main memory (interfaces.md §2.4)
-  assign sa_acc  = (xl_d ? dt_pte[1].big : sn_va[63:PA_W] != '0) || !sa_pmp ||
+  assign sa_acc  = (xl_d ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
+                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!xl_d && !sa_chk[0]) ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
   assign sa_ok   = sn_v && !sa_exc && !sa_tm && !flush;
+
+  // ---- S2: a translated store's PMP check after its decision ----
+  // The timing: the checker leaves the path from the DTLB through the decision. The store has
+  // decided and may have completed (st_cmp_valid[0]); a denial reaches the ROB as an exception
+  // alone, a cycle later (S3: spx_valid; the store's completion comes as before, with its data).
+  // The ROB retires nothing from the store on while it is in S2 (sth_v[0], registered: the
+  // verdict stays off the commit path) and, if denied, in S3 until the exception shows
+  // (sth_v[1]). An atomic, which retires only after it runs, is marked instead (sq_pden_q): it
+  // faults as it starts, as for a denied line.
+  // The checker is shared with the walker, which takes it as before, in a cycle without a store
+  // at the decision (chk_gnt; so walks keep their timing). The S2 check then waits a cycle; the
+  // walker never checks two cycles running, and no store comes to S2 meanwhile. A bare-mode
+  // store uses the checker at its decision: data are bare, so no walk runs.
+  logic [PA_W-1:0] pc_pa;
+  logic            pc_dbl, pw_chk, w_use;
+  logic            s2_amo_q, s2_m_q, s2_dbl_q, s3_den_q;
+  acc_e            s2_at_q;
+  logic [PA_W-1:0] s2_pa_q;
+  robid_t          s2_rob_q, s3_rob_q;
+  assign w_use  = pw_chk && !sn_v;
+  assign s2_go  = s2_v_q && !w_use;
+  assign s2_den = s2_go && !sa_chk[0] && !flush;
+  tg_pmp #(.S(1)) u_pmp_st (.pa(!xl_d ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
+                            .dbl(!xl_d ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
+                            .acc(!xl_d ? sa_at : w_use ? ACC_R : s2_at_q),
+                            .m_mode(!xl_d ? priv_d == PRIV_M : !w_use && s2_m_q),
+                            .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+  always_ff @(posedge clk) begin
+    s2_v_q   <= !rst && !flush && ((sa_ok && xl_d && !sa_pmpc) || (s2_v_q && !s2_go));
+    if (sn_v) begin                                // (never while S2 waits: then no store decided)
+      s2_pa_q  <= sa_pa;
+      s2_dbl_q <= sn_size == 2'd3;
+      s2_at_q  <= sa_at;
+      s2_m_q   <= priv_d == PRIV_M;
+      s2_amo_q <= sa_amo;
+      s2_rob_q <= sn_rob;
+      s2_idx_q <= sa_idx;
+    end
+    s3_den_q <= !rst && !flush && s2_den && !s2_amo_q;
+    s3_rob_q <= s2_rob_q;
+  end
+  assign spx_valid  = s3_den_q;
+  assign spx_rob    = s3_rob_q;
+  assign sth_v[0]   = s2_v_q && !s2_amo_q;
+  assign sth_rob[0] = s2_rob_q;
+  assign sth_v[1]   = s3_den_q;
+  assign sth_rob[1] = s3_rob_q;
 
   // Ordering check: the oldest younger load that has its value (or is in M1/M2) and overlaps
   // (a load is younger than the store when the store is in [head, the load's lq_sq))
@@ -854,7 +912,7 @@ module tg_lsu
       exc_valid[2] = 1'b1;
       exc_rob[2]   = lqc_rd[1].rob;
       exc_cause[2] = EXC_LACCESS;
-    end else if (am_req && am_den) begin               // an atomic's line was denied
+    end else if ((am_req && am_den) || (am_st_q == AM_REQ && am_pden_q && !flush)) begin  // its line or PMP denied it
       exc_valid[2] = 1'b1;
       exc_rob[2]   = am_rob_q;
       exc_cause[2] = am_lr ? EXC_LACCESS : EXC_SACCESS;
@@ -953,9 +1011,9 @@ module tg_lsu
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
   tg_ptw u_ptw (
-    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_al,
-    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]), .chk_hit(pmp_hit_st),
-    .chk_rwx(pmp_rwx_st),
+    .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_pal,
+    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
+    .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
@@ -1163,14 +1221,17 @@ module tg_lsu
           am_pa_q   <= sqh.pa;
           am_size_q <= sqh.size;
           am_b_q    <= sqd_rd[COMMIT_WIDTH+1];
-          if (am_sc && !rsv_ok_go) begin
+          am_pden_q <= pden_go;
+          if (am_sc && !rsv_ok_go && !pden_go) begin
             am_res_q <= 64'd1;                    // SC without a reservation: fails, no access
             am_st_q  <= AM_RES;
           end else begin
             am_st_q  <= AM_REQ;
           end
         end
-        AM_REQ: if (am_ack) begin
+        AM_REQ: if (am_pden_q) begin
+          am_st_q <= AM_DONE;                     // PMP denied it: access fault
+        end else if (am_ack) begin
           am_res_q        <= am_sc ? {63'b0, !am_wr} : am_old;
           sq_amw_q[dh]    <= am_wr;
           am_st_q         <= AM_RES;
@@ -1296,6 +1357,7 @@ module tg_lsu
         sq_mask_q[sa_idx] <= sa_mask;
         sq_mmio_q[sa_idx] <= sa_mmio;
       end
+      if (s2_den && s2_amo_q) sq_pden_q[s2_idx_q] <= 1'b1;
 
       // ---- Dispatch: new LQ / SQ entries ----
       if (ds_fire) begin
@@ -1324,6 +1386,7 @@ module tg_lsu
             sq_amo_q[i]  <= ds_uop[k].d.amo;
             sq_amw_q[i]  <= 1'b0;
             sq_tlb_q[i]  <= 1'b0;
+            sq_pden_q[i] <= 1'b0;
             if (ds_uop[k].d.amo) begin
               am_v_q   <= 1'b1;
               am_rob_q <= ds_ren[k].rob;

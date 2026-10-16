@@ -56,7 +56,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 - **Next PC (F1).** `fpc_d` = flush redirect, else decode redirect, else miss restart, else stall (`fpc_q`), else micro-BTB target on a hit, else the next 16-byte block. Spike S5's loop, with 64-bit PCs.
 - **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way. Valid bits: one `tg_ram_lut` row of 8 bits per set (plan §8.3), read by F1 and by the refill (victim choice, then a read-modify-write with the tag); after reset and FENCE.I a 64-cycle sweep clears them while F1 waits.
 - **Physical address.** In M (and Bare), PA = PC[`PA_W`-1:0]; with `EXT_SU` in S and U under Sv39, F1 translates the PC through the ITLB (core-mmu.md: misses park fetch for a walk). A PA with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill; PMP is checked per 4-byte word.
-  - **On a translated page that a PMP region boundary splits, F1 waits a cycle for the check** (DR-140 #6). The block checker reads the address the ITLB gave then, so the ITLB and the checker are never in one cycle.
+  - **On a translated page that a PMP region boundary splits, F1 waits a cycle for the check** (DR-140 #6). The block checker reads the address the ITLB gave then, so the ITLB and the checker are never in one cycle. The walker judges each page on its own (core-mmu, PMP), so under OpenSBI only a page holding a firmware-region boundary waits.
   - Bare mode checks the fetch PC itself, and homogeneous pages use the ITLB's cached result.
 - **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (an invalid way, else a round-robin pointer shared by the sets); the victim's valid bit is cleared when the refill starts, because the refill rewrites its rows beat by beat and outlives redirects (its old line must miss meanwhile); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
 - **F2's actions on F1 are registered** (DR-140 #7). They take effect a cycle later and drop the blocks F1 and F2 took meanwhile:
@@ -208,7 +208,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
   - **The exception is chosen in parallel, not by a chain of compares.**
-    - **Candidates:** the register, the CSR port, the branch port and the LSU's four ports. Every pair is compared by ROB index.
+    - **Candidates:** the register, the CSR port, the branch port, the LSU's four ports and its store PMP port (below). Every pair is compared by ROB index.
     - **Why it is fast:** the indices arrive early, since the LSU sends each port's payload index whether or not it faults. The late valid bits only gate a one-hot select.
     - **Same result as the chain:** the oldest wins, the first candidate in the old order on a tie. `tval` is the best of the first three alone, as the chain left it.
     - **Checked:** in simulation the old chain runs beside it and must agree every cycle.
@@ -221,6 +221,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
   - With `ROB_STORE_REPORT_LATE` (#2, off in both profiles: lint-only, DR-140), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
+- **A store's PMP denial after it completed** (core-lsu: the check a cycle after the store's decision, S2) arrives on an exception-only port: its own exception table, no completion, the cause `EXC_SACCESS`, the head's store VA as `tval`. Until it can show, the LSU holds commit at that store (`sth_v`/`sth_rob`, registered: the check's cycle, held for any store in it, and the report's). Commit stops before a held entry.
 
 ### 8.2 Commit
 Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT update; the old physical register goes to its bank's free list (through the deferred-free stage, a pass-through in M2); the free list's committed head advances for the new one; LQ head or SQ commit mark; `minstret`; a trace record (§11).
@@ -230,6 +231,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
+- **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come.
 
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
@@ -310,7 +312,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 | Lever | Where | State |
 |---|---|---|
-| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
+| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page base, and against every entry that no region boundary lies inside the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
 | R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
@@ -339,6 +341,8 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | #1 | The LSU's fault reports reach the ROB a cycle later (§8.1) | the address stage's fault decision leaves the ROB's exception register | 0 / 0 | 0 / 0 | 0 / 0 | −0.005% / +0.074% |
 | #3 | The ROB head's DTLB retry reaches the ROB a cycle later (§8.1) | the head's DTLB lookup leaves the commit redirect | +0.161% / −0.197% | +0.051% / +0.012% | 0 / 0 | +0.002% / +0.072% |
 | #6 | The fetch PMP check a cycle later, on translated pages that a PMP region boundary splits (§3.1) | F1's ITLB → PMP path | identical | identical | identical | identical |
+
+- **#6 under Linux:** identical on the suites, but with the walker's PMP check per page size (until fn7) the Linux boot was +2.218% slower in st and +1.648% in smt2 (`make cycle-identical BOOT=20`, records retired in 20.09M cycles), because every 2M kernel page counted as split. With the per-page check, #6 costs 0 on the boot: identical with and without it, in both profiles.
 | #7 | F2's actions on F1 registered (§3.1) | the F2 family into the fetch PC and F2's enables | +0.001% / −0.002% | −0.010% / −0.035% | −0.003% / +0.032% | −0.006% / +0.006% |
 
 - #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.

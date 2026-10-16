@@ -563,6 +563,98 @@ Named paths, slack in ns (the worst over both cores):
 - **Caveat:** the cores miss 200 MHz by 10 ns in this chip, and the placer works on their paths first. The uncore's figures are therefore pessimistic: they are what it gets in today's full chip.
 - **Results:** `fpga/spikes/results/g4_v1_dflt/` (`sites.txt`, `xbar_core.txt`, `uncore_failing.txt`, the summary and the path reports).
 
+### 8.4 G4-FP: what floorplanning buys the uncore (2026-10-15)
+
+**Question (the coordinator, DR-142):** how much of G4's uncore failure is placement, at zero cycle cost, and how much needs RTL or interface registers? The uncore failure means the −7.1 ns inside an L2 bank and the 6–8 ns of wire on the crossbar's core-side paths.
+
+**Method:** G4's design and synthesis exactly (759ea6a, `UNCORE_DSP` 64'h84_0308_0000), with pblocks added after synthesis ([`fp/g4_uncore.tcl`](../../fpga/spikes/tcl/fp/g4_uncore.tcl)).
+- **(a) Uncore only.** Each L2 bank gets its own pblock in the X2 column, which holds every URAM.
+  - It holds the bank's 16 URAMs in 64 rows of the URAM column (17–18 sites), its logic in the 40 rows in the middle of those, and its 6.5 block-RAM tiles in 20 rows.
+  - Bank 0 sits below bank 1, around the clock root's row. The crossbar sits in X1 beside both. The cores and the rest of the uncore are free.
+  - Fill: the banks use 4.4K of 6,400 LUTs each, and the crossbar 2.5K of 4,032.
+- **(b) Full.** (a) plus each core's LSU against the crossbar. One pblock per whole core doesn't fit: a core is 38% of the device. (b) runs from (a)'s post-synthesis checkpoint.
+
+**(a), against G4** (slack in ns at 5.0 ns):
+
+| | G4 | (a) |
+|---|---|---|
+| Chip | −10.041 | −9.382 (the cores' paths) |
+| Uncore, internal | −7.145 | −6.803 |
+| Its worst path | bank 0: response tag RAM → MSHR state, 8 levels, 10.6 ns wire (the bank split across the device) | bank 0: probe pending → probe sent, of both banks, 17–18 levels (3.0 ns logic, 8.3–8.5 ns wire) |
+| Cores → crossbar A slices / C slices | −3.954 (7.6 ns wire) / −4.651 (7.9) | **−2.868** (5.9) / **−3.052** (4.6) |
+| Cores → crossbar, worst | −4.963 (14 levels: LSU → B slice enable) | −4.991 (the same) |
+| D / B slices → cores | −3.173 / −3.052 | −2.781 / −2.743 |
+| L2 R slices | −4.710 / −5.342 | **−1.870 / −2.137** |
+| Memory AR slices | −2.981 / −3.371 | **−4.671 / −4.132** (worse) |
+| Memory W slices (DSP) / AW slices | −0.868, −0.141 / +1.193, +1.060 | **−2.252, −2.398 / −0.729, +0.128** (worse) |
+| PS → uncore / uncore → PS | −0.801 / −4.045 | +0.561 / −4.231 |
+| Uncore failing endpoints in the L2 banks | 3,927 | 3,113 |
+
+**Findings (a):**
+- **The split bank was placement.** With each bank compact, G4's worst path (response tag RAM → MSHR state) goes from −7.1 ns to −1.23 and −1.49 ns in banks 0 and 1. That is 9–10 levels with 4.7–4.9 ns of wire, measured on the routed checkpoint. The L2 R slices gain about 3 ns.
+  - The SoC track's registered response shape (cycle-identical, about 72 flip-flops) would take the rest of that path.
+  - Other paths into the MSHR state are deeper: −5.47 ns from bank 0's `p2_q` (14 levels) and −4.69 ns from MSHR state to MSHR state in bank 1 (19 levels).
+- **The uncore's worst path is now logic depth.** Bank 0's probe-pending state reaches the probe-sent state of both banks through 17–18 levels. At about 0.36 ns per level, 200 MHz holds about 12, so it needs RTL. Placing the banks apart lengthens its wire.
+- **Placement recovers 1–3 ns of the crossbar's core-side wire, but not enough:** cores → A slices go from 7.6 to 5.9 ns of wire, and cores → C from 7.9 to 4.6, so these paths still miss by 2.9–3.1 ns. The LSU → B-slice enable path (14 levels) doesn't move.
+- **The memory path gets worse.** The injectors, windows and AXI slices end up in X0, near the PS's ports, two region columns from the banks in X2. The AR slices lose 1–2 ns and the W slices 1.4–2.3. With the banks fixed at the URAM column, the bank-to-PS path needs a register stage or a floorplan of its own.
+- (a) ran in 51 minutes of synthesis, 25 of placement and 2 h 28 of routing, and peaked at 14.0 GB of 17 declared.
+- **(b) did not finish.** Its LSU pblocks were 88–90% full (LUT cells against sites). After 4 hours of routing, its second timing pass had run for 2 hours at about 500 overlapping nodes. It was stopped to free memory for core-2's runs. Its only figure is the chip's −10.49 ns after the first routing pass, against (a)'s −10.99 at the same point. So the G4 refresh (§8.5) uses (a)'s floorplan.
+- Results: `fpga/spikes/results/g4fp_uncore/`. The routed checkpoint is in the build tree (`fp/g4fp_uncore_routed.dcp`), for the SoC track's queries.
+
+### 8.5 The G4 refresh: the full chip with today's timing work (2026-10-16)
+
+**Question (the coordinator, for the user's clock decision):** the v1 full chip at 200 MHz with all of the day's timing work, in the same tables as §8.3 and §8.4.
+
+**Method:**
+- **Tree:** a measurement snapshot, not for merging: main 4a0be01 merged with the FPU track's DR-144 branch at 50fee76. The merge was clean (tree a1b2c69).
+- **What the snapshot brings:**
+  - core-2's fn5–fn7 timing work;
+  - the new default profile: #4, #5 and #9 (B3) on, #2 and #8 off (DR-140, DR-144);
+  - the SoC track's DR-143 switches (`AR_SLICE` and one-hot MSHR ways on) and its S3 directory write.
+- **Settings:** G4's synthesis and constraints, `UNCORE_DSP` at main's default, `B_SLICE` off (its default), and G4-FP (a)'s floorplan (the L2 banks and the crossbar).
+- **Flow:** synthesis wrote a checkpoint first (`-impl 0`, 38 minutes, 14.6 GB). Placement and routing then ran from it (2 h 39, 5.2 GB).
+
+**Size:** 108,564 LUTs (cores 44,786 and 44,986, uncore 18,748), 115 block-RAM tiles, 32 URAM and 144 DSPs: +1.0K against G4.
+
+| Worst slack (ns at 5.0 ns) | G4 | G4-FP (a) | **Refresh** |
+|---|---|---|---|
+| **Chip (the cores)** | −10.041 | −9.382 | **−7.978** (core 0: DTLB valid → ROB write enable, 28 levels) |
+| **Uncore, internal** | −7.145 | −6.803 | **−5.194** (L2 bank 0: directory RAM → MSHR state, 14 levels, 7.5 ns wire) |
+| Cores → uncore | −4.963 | −4.991 | −4.732 (LSU `sq_head_q` → crossbar B slice enable, 14 levels) |
+| Uncore → cores | −6.476 | −5.675 | −4.167 (ACLINT `mtime` → core 1's rename free-list count, 21 levels, in the core) |
+| PS → uncore / uncore → PS | −0.801 / −4.045 | +0.561 / −4.231 | +0.783 / −3.215 |
+| The 2,000 worst endpoints' levels | 22–31 mostly | | 15–23 mostly (17 the mode) |
+
+**Per site** (in / out, slack in ns):
+
+| Site | G4 | (a) | Refresh |
+|---|---|---|---|
+| A.dev (DSP) | −3.60 / −0.44 | −1.85 / −0.51 | −3.03 / −0.03 |
+| C, banks 0 / 1 (DSP) | −3.62, −4.65 | −3.05, −3.02 | −3.63, −3.91 |
+| W, ports 0 / 1 (DSP) | −0.87, −0.14 | −2.25, −2.40 | −2.31, −1.61 |
+| B, cores 0 / 1 | −5.14, −4.96 | −5.15, −4.59 | −4.73, −4.16 |
+| D (six) | −2.45 to −3.90 | −2.35 to −3.51 | −2.21 to −3.48 |
+| A, L2 banks | −3.66, −2.91 | −2.32, −2.23 | −2.50, −2.58 |
+| Memory AR (at the PS) | −2.98, −3.37 | −4.67, −4.13 | **+0.40, +0.72** |
+| The new AR slices at the banks (`AR_SLICE`) | — | — | −3.87, −3.31 |
+| L2 R | −4.71, −5.34 | −1.87, −2.14 | −2.51, −2.53 |
+
+**The crossbar and the cores:**
+- cores → A slices: −3.03 (5 levels, 6.2 ns wire);
+- cores → A arbiters: −2.17;
+- cores → C slices: −3.91 (6 levels, 5.5 ns wire);
+- D slices → cores: −2.91;
+- B slices → cores: −3.07.
+
+**Findings:**
+- **The chip gains 2.1 ns over G4,** from −10.04 to −7.98, and the uncore 2.0 ns, from −7.15 to −5.19. The worst 2,000 paths are 15–23 levels deep instead of 22–31.
+  - At about 0.36 ns per level, 200 MHz holds about 12 levels.
+  - At the refresh's −7.98 ns the chip would run at about 77 MHz. The cores' deep paths remain the limit.
+- **`AR_SLICE` moves the memory AR problem from the PS side to the bank.** The AXI slices at the PS now pass (+0.40, +0.72). The new slices at the banks fail by 3.3–3.9 ns, on the bank → slice path across the device.
+- **The B slices (−4.2 to −4.7) and the cores' LSU → B-slice enable path (14 levels) are unchanged.** `B_SLICE` (off here) is the SoC track's fix for the probe path.
+- **The uncore's failing endpoints are still mostly the L2 banks':** 3,476 of at least 5,000. The worst runs from the directory RAM into the MSHR state, 14 levels.
+- Results: `fpga/spikes/results/g4r_fpa/` (and `g4r_synth/`). The routed checkpoint is in the build tree (`fp/g4r_fpa_routed.dcp`).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

@@ -70,7 +70,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - LR: misaligned is cause 4; an address that is not `PMA_MEM` (device, ROM, none, above `PA_W`) is cause 5.
   - SC and AMO: misaligned is cause 6; not `PMA_MEM` is cause 7 (interfaces.md §2.4; the checker makes Spike refuse device AMOs).
   - A denied fill of the atomic's line is an access fault (5 or 7) at the head.
-  - Page faults (13, 15) and PMP come with the MMU (core-mmu.md).
+  - Page faults (13, 15) and PMP come with the MMU (core-mmu.md). A PMP denial found after the decision (S2, below) marks the SQ entry: the atomic faults as it starts (5 or 7), without an access, and an SC keeps its reservation, as when the fault came at AG.
 - **Performing it** (an FSM in the LSU): it starts when the uop is the ROB head, its SQ entry has the address and the data, and the SQ head is that entry (every older store drained).
   1. The D$ holds the line with T: the MSHR acquires it (`AcquireBlock NtoT`, or `BtoT` in place) if needed, as for a store.
   2. With T held, the MSHR idle and no probe active or waiting, the D$ reads the row through port B; the next cycle the LSU computes the new value (AMO ALU; .W forms on the addressed word, results sign-extended) and the D$ writes it with the byte mask (`am_ack`). Across these two cycles nothing else uses port B, the MSHR does not start and no probe is accepted, so no probe can see the line between the read and the write.
@@ -103,8 +103,8 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
 | Stage | Load | STA |
 |---|---|---|
 | AG | VA = base + imm; misaligned; D$ data read issued at row VA[11:4] (the page offset, VIPT); VA into the LQ; enter `L_PIPE` | VA; misaligned; byte mask |
-| M1 | DTLB (LD port) on the registered VA → PA; PMA, the DTLB's cached PMP result, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
-| M2 | as before, and the PMP checker on the registered PA where the decision had no cached result (below) | — |
+| M1 | DTLB (LD port) on the registered VA → PA; PMA, the DTLB's cached PMP result, page and access faults, TLB miss, MMIO; tag compare; forwarding search with the PA, **including the STA in M1 this cycle**; PA into the LQ | DTLB (STA port) → PA; PMA, the DTLB's cached PMP result, faults, TLB miss, MMIO; PA and mask into the SQ; ordering search; completion |
+| M2 | as before, and the PMP checker on the registered PA where the decision had no cached result (below) | the PMP checker on the registered PA where the decision had no cached result (S2, below) |
 
 **Ordering stays exact.** Take a load at AG in cycle t_L and a store at AG in cycle t_S.
 - Today, either the load's M1 search sees the store's address (t_S ≤ t_L), or the store's ordering search sees the load's PA in `L_PIPE` (t_S ≥ t_L + 1).
@@ -153,6 +153,15 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - A denial faults the load in M2. An MMIO load moves from `L_MMIO` to `L_EXC`, its issue held until the verdict.
   - The wakeups and the miss request do not wait for the checker. A denied load that misses may refill its line, a cacheable line whose data reaches no register.
   - Cycles change only for loads the PMP denies (`tanager-p-pmp`: +1 cycle).
+- **A store's PMP check leaves the DTLB's path.** The checker is never behind the DTLB at the store's decision:
+  - **A translated store to a page with the DTLB's cached result** decides with it, as before.
+  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Data are bare, so no walk runs and the walker never wants the shared checker then.
+  - **A translated store to a page without a cached result** (a page that a PMP region boundary splits, which the walker's per-page check makes rare) decides as if PMP allowed it. The checker looks at its registered PA (and size, access, M mode) the next cycle, S2.
+    - The store may have completed already (its data was in). A denial reaches the ROB as an exception alone, on a port of its own, a cycle after S2 (S3: `spx_valid`). The store completes as before, when its data comes.
+    - The ROB retires nothing from the store on while it is in S2 (`sth_v[0]`, a registered hold, so the checker's verdict stays off the commit path) and, if it is denied, in S3 until the exception shows (`sth_v[1]`).
+    - An atomic retires only after it runs: it is marked instead (`sq_pden_q`), starts only after its own S2 check, and faults as it starts (Atomics, above).
+    - The walker keeps its grant (core-mmu: shared checker). An S2 check that the walker takes the checker from waits a cycle and holds the store meanwhile.
+  - Cycles: identical on the suites in all four configurations and on the Linux boot (st, smt2) with the per-page PMP check. Only stores to split pages pay, a cycle when they would retire at once.
 - **Forwarding** (M1, then M2):
   - The search runs over the SQ's stores alone. With the split, the store address in M1 is picked last, by an age compare against the SQ's result (a Shannon expansion), without waiting for its own access-fault checks: a store that faults traps at commit, and the younger load goes with the flush.
   - The youngest matching store is a one-hot vector, formed from flip-flops, that selects the per-entry cover and data-valid bits. It goes to M2 as that vector and is encoded there for the LUTRAM reads (the store's data and size) and the waiting load's store ID. The forwarded data is read in M2.
