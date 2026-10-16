@@ -444,9 +444,11 @@ module tg_lsu
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
   assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
-  logic [2:0][26:0] dt_vpn;
-  logic [2:0]       dt_hit;
-  tlb_pte_t [2:0]   dt_pte;
+  // the ROB head's check takes one port (#9 on, ROB_HEAD_TLB_LATE) or two (off)
+  localparam int DT_NR = ROB_HEAD_TLB_LATE ? 3 : 4;
+  logic [DT_NR-1:0][26:0] dt_vpn;
+  logic [DT_NR-1:0]       dt_hit;
+  tlb_pte_t [DT_NR-1:0]   dt_pte;
   logic             dt_fill;
   logic [26:0]      pw_vpn;
   logic [1:0]       pw_lvl;
@@ -468,12 +470,16 @@ module tg_lsu
   // idle, as when it shared STA's port.
   assign dt_vpn[0] = ln_va[38:12];
   assign dt_vpn[1] = sn_va[38:12];
-  assign dt_vpn[2] = hd_va[38:12];
+  // (the head's ports: g_hd_late / g_hd_two, with the head's check below)
   // With the split, the LD and STA lookups read and match the CAM a cycle ahead, at AG, on the
   // addresses M1 registers (tg_tlb's EARLY ports: the same answer, from flip-flops in M1)
-  logic [2:0][26:0] dt_vpn_e;
-  assign dt_vpn_e = {27'b0, sta_ag_addr[38:12], ld_ag_addr[38:12]};
-  tg_tlb #(.NE(DTLB_ENTRIES), .NR(3), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? 3'b011 : 3'b000)) u_dtlb (
+  logic [DT_NR-1:0][26:0] dt_vpn_e;
+  always_comb begin
+    dt_vpn_e    = '0;
+    dt_vpn_e[0] = ld_ag_addr[38:12];
+    dt_vpn_e[1] = sta_ag_addr[38:12];
+  end
+  tg_tlb #(.NE(DTLB_ENTRIES), .NR(DT_NR), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? DT_NR'(3) : DT_NR'(0))) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
 
@@ -976,11 +982,36 @@ module tg_lsu
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
-  assign hd_tok   = !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], hd_at, priv_d, sum, mxr);
+  // The head's DTLB check (DR-144, #9). The head is the same op in consecutive cycles that both
+  // need a translation: a TLB-missed head leaves only through a flush.
+  logic hd_tok_q, hd_need_q, hd_walk;
+  if (ROB_HEAD_TLB_LATE) begin : g_hd_late
+    // B3: the lookup takes the head's VA as registered a cycle earlier, so it starts from
+    // flip-flops; the check, and the walk request that waits for it, count from the second cycle
+    logic [26:0] hd_vpn_q;
+    acc_e        hd_at_q;
+    always_ff @(posedge clk) begin
+      hd_vpn_q <= hd_va[38:12];
+      hd_at_q  <= hd_at;
+    end
+    assign dt_vpn[2] = hd_vpn_q;
+    assign hd_tok    = hd_need_q && !sta_ag_valid && dt_hit[2] &&
+                       pte_ok(dt_pte[2], hd_at_q, priv_d, sum, mxr);
+    assign hd_walk   = hd_need_q;
+  end else begin : g_hd_two
+    // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
+    // (port 3), and hd_ld picks last, so the lookups do not wait for the head's selection (an LR
+    // checks as a load)
+    assign dt_vpn[2] = lqc_rd[2].va[38:12];
+    assign dt_vpn[3] = sqva_rd[TRP][38:12];
+    assign hd_tok    = !sta_ag_valid &&
+                       (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d, sum, mxr)
+                              : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q == AMO_LR) ? ACC_R : ACC_W,
+                                                    priv_d, sum, mxr));
+    assign hd_walk   = 1'b1;
+  end
   // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
-  // leaves the commit redirect). The head is the same op in both cycles: a TLB-missed head leaves
-  // only through a flush.
-  logic hd_tok_q, hd_need_q;
+  // leaves the commit redirect)
   always_ff @(posedge clk) begin
     hd_tok_q  <= hd_tok;
     hd_need_q <= hd_need;
@@ -1015,7 +1046,7 @@ module tg_lsu
   priv_e [2:0]      pw_mode;
   logic             pw_done, pw_ok;
   logic [3:0]       pw_cause;
-  assign pw_req[0]  = hd_need && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
+  assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
   assign pw_mode[0] = priv_d;
