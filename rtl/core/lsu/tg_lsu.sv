@@ -361,6 +361,23 @@ module tg_lsu
     for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? lq_first(hi) : lq_first(v);
   endfunction
+  // The same search on a carry chain (timing, DR-145: in G6 the ordering check's select took seven
+  // LUT levels after its address compares): the set twice over, the slots at or after the head's
+  // in the low half, so the lowest set bit of the 2N is the oldest (u & -u, whose chain carries
+  // "no set bit below"); the halves' one-hot bits merge, then an OR encode. Exactly lq_oldest, an
+  // empty set giving 0 (asserted against it)
+  function automatic logic [LIW-1:0] lq_oldest_c(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    logic [LQ_ENTRIES-1:0]   ge, e;
+    logic [2*LQ_ENTRIES-1:0] u, oh;
+    logic [LIW-1:0]          r;
+    for (int i = 0; i < LQ_ENTRIES; i++) ge[i] = i >= int'(h);
+    u  = {v, v & ge};
+    oh = u & -u;
+    e  = oh[LQ_ENTRIES-1:0] | oh[2*LQ_ENTRIES-1:LQ_ENTRIES];
+    r  = '0;
+    for (int i = 0; i < LQ_ENTRIES; i++) if (e[i]) r = r | LIW'(i);
+    return r;
+  endfunction
   function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
     logic [SQ_ENTRIES-1:0] hi;
     for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
@@ -439,7 +456,7 @@ module tg_lsu
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
   assign rp_any = |rp_ready;
-  assign rp_idx = lq_oldest(rp_ready, lqi(lq_head_q));
+  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -907,6 +924,9 @@ module tg_lsu
   // (a load is younger than the store when the store is in [head, the load's lq_sq))
   logic           rp_v_c, rp_v_q;
   logic [LIW-1:0] rp_ra_c, rp_ra_q;
+`ifndef SYNTHESIS
+  logic [LQ_ENTRIES-1:0] oc_s;      // the search's set, for the select's check
+`endif
   always_comb begin
     logic [LQ_ENTRIES-1:0] oc;
     for (int i = 0; i < LQ_ENTRIES; i++)
@@ -915,7 +935,10 @@ module tg_lsu
               lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
               |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
     rp_v_c  = sa_ok && |oc;
-    rp_ra_c = lq_oldest(oc, lqi(lq_head_q));
+    rp_ra_c = lq_oldest_c(oc, lqi(lq_head_q));
+`ifndef SYNTHESIS
+    oc_s    = oc;
+`endif
   end
   // The report goes out a cycle later from flip-flops: the load's LQ index, whose ROB index the
   // LUTRAM reads then (timing: the read leaves the search). No AG load writes that entry in the
@@ -931,6 +954,10 @@ module tg_lsu
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
+  always_ff @(posedge clk) begin    // the carry-chain selects against the reference (same values)
+    assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q))) else $error("tg_lsu: the ordering check's oldest select differs");
+    assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q))) else $error("tg_lsu: the replay pick differs");
+  end
 `endif
   assign lqr_ra[0]    = rp_ra_q;
   assign replay_valid = rp_v_q;
