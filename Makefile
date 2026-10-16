@@ -46,9 +46,10 @@ regress-profiles:
 # (docs/spec/verification.md §4.5; DR-123). CFG takes a list ("st smt2"); SUITES=isa,stress,bench,random,reset
 # or none; BOOT=N adds the Linux boot's first N million cycles on the SoC (BOOT_CORES=1|2; BOOT_TREE=<ref>
 # takes tests/unit and sw/dts from another tree); TIMING_CUTS=0|1 or BRANCH_TIMING_CUTS=0|1 picks the
-# core's timing-cut profile (DR-140), on the boot too.
+# core's timing-cut profile (DR-140), on the boot too; HARNESS=auto|branch|own picks the base side's sim/.
 cycle-identical:
 	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") $(if $(BRANCH),--branch "$(BRANCH)") \
 	  $(if $(SUITES),--suites "$(SUITES)") $(if $(RANDN),--randn $(RANDN)) $(if $(JOBS),--jobs $(JOBS)) \
 	  $(if $(BOOT),--boot $(BOOT)) $(if $(BOOT_CORES),--boot-cores $(BOOT_CORES)) $(if $(BOOT_TREE),--boot-tree "$(BOOT_TREE)") \
-	  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(BRANCH_TIMING_CUTS),--branch-timing-cuts $(BRANCH_TIMING_CUTS))
+	  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(BRANCH_TIMING_CUTS),--branch-timing-cuts $(BRANCH_TIMING_CUTS)) \
+	  $(if $(HARNESS),--harness $(HARNESS))
