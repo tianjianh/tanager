@@ -78,8 +78,8 @@ module tg_lsu
   output logic [3:0]                   exc_valid,     // new load (AG), denied line (M2), MMIO load, store
   output robid_t [3:0]                 exc_rob,
   output logic [3:0][3:0]              exc_cause,
-  output logic                         replay_valid,
-  output robid_t                       replay_rob,
+  output logic                         replay_valid,  // a store's ordering violation (its oldest load), a
+  output robid_t                       replay_rob,    // cycle after the store's search
   output logic                         spx_valid,     // a store's PMP denial, found after it decided (S3)
   output robid_t                       spx_rob,
   output logic [1:0]                   sth_v,         // commit stops before these stores: S2, S3
@@ -256,7 +256,7 @@ module tg_lsu
   logic [2:0][LIW-1:0]               lqc_ra;       // M2, the MMIO load, the LQ head
   lqc_t [2:0]                        lqc_rd;
   lqc_t                              lqc_wd;
-  logic [0:0][LIW-1:0]               lqr_ra;       // the oldest ordering violation's ROB index
+  logic [0:0][LIW-1:0]               lqr_ra;       // the ordering violation's ROB index
   robid_t [0:0]                      lqr_rd;
   typedef struct packed {
     logic [PA_W-1:0] pa;
@@ -878,6 +878,8 @@ module tg_lsu
 
   // Ordering check: the oldest younger load that has its value (or is in M1/M2) and overlaps
   // (a load is younger than the store when the store is in [head, the load's lq_sq))
+  logic           rp_v_c, rp_v_q;
+  logic [LIW-1:0] rp_ra_c, rp_ra_q;
   always_comb begin
     logic [LQ_ENTRIES-1:0] oc;
     for (int i = 0; i < LQ_ENTRIES; i++)
@@ -885,10 +887,21 @@ module tg_lsu
               sq_inwin(int'(sa_idx), sq_head_q, lq_sq_q[i]) &&
               lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
               |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
-    replay_valid = sa_ok && |oc;
-    lqr_ra[0]    = lq_oldest(oc, lqi(lq_head_q));
+    rp_v_c  = sa_ok && |oc;
+    rp_ra_c = lq_oldest(oc, lqi(lq_head_q));
   end
-  assign replay_rob = lqr_rd[0];
+  // The report goes out a cycle later from flip-flops: the load's LQ index, whose ROB index the
+  // LUTRAM reads then (timing: the read leaves the search). No AG load writes that entry in the
+  // search's cycle, as the load is live (asserted)
+  always_ff @(posedge clk) begin
+    rp_v_q  <= !rst && !flush && rp_v_c;
+    rp_ra_q <= rp_ra_c;
+    if (!rst && !flush && rp_v_c && ld_ag_valid)
+      assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
+  end
+  assign lqr_ra[0]    = rp_ra_q;
+  assign replay_valid = rp_v_q;
+  assign replay_rob   = lqr_rd[0];
 
   // ================= ROB reports =================
   always_comb begin
