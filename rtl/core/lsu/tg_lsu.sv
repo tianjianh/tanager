@@ -1108,13 +1108,34 @@ module tg_lsu
   tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH($bits(lqa_t)), .NR(2)) u_lqa (
     .clk, .we(ln_v && !flush), .waddr(ln_lq),
     .wdata(lqa_t'{pa: nl_pa, size: ln_size}), .raddr(lqa_ra), .rdata(lqa_rd));
+  // The SQ head's fields are kept in flip-flops (timing, DR-145: the drain's address into the D$
+  // starts at a register, not at the LUTRAM's read): loaded with the entry that is the head in the
+  // next cycle, the LUTRAM's read of the entry after the head when the drain pops, the STA's write
+  // in this cycle bypassed (simulation checks them against the entry whenever the head is valid)
   logic [0:0][SIW-1:0] sqh_ra;
   sqh_t [0:0]          sqh_rd;
-  assign sqh_ra[0] = dh;
+  sqh_t                sqh_wd, sqh_q;
+  logic                sqh_we;
+  logic [SIW-1:0]      dh1;
+  assign dh1       = SIW'(int'(dh) + 1 == SQ_ENTRIES ? 0 : int'(dh) + 1);
+  assign sqh_ra[0] = dh1;
+  assign sqh_we    = sn_v && !flush;
+  assign sqh_wd    = sqh_t'{pa: sa_pa, mask: sa_mask, size: sn_size};
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH($bits(sqh_t)), .NR(1)) u_sqh (
-    .clk, .we(sn_v && !flush), .waddr(sa_idx),
-    .wdata(sqh_t'{pa: sa_pa, mask: sa_mask, size: sn_size}), .raddr(sqh_ra), .rdata(sqh_rd));
-  assign sqh = sqh_rd[0];
+    .clk, .we(sqh_we), .waddr(sa_idx), .wdata(sqh_wd), .raddr(sqh_ra), .rdata(sqh_rd));
+  always_ff @(posedge clk) begin
+    if (dr_pop) sqh_q <= (sqh_we && sa_idx == dh1) ? sqh_wd : sqh_rd[0];
+    else        sqh_q <= (sqh_we && sa_idx == dh)  ? sqh_wd : sqh_q;
+  end
+  assign sqh = sqh_q;
+`ifndef SYNTHESIS
+  sqh_t sqh_s [SQ_ENTRIES];                // the SQ's address fields, as the LUTRAM holds them
+  always @(posedge clk) begin
+    if (sqh_we) sqh_s[sa_idx] <= sqh_wd;
+    if (rs_q && !rst && sq_v_q[dh])
+      assert (sqh_q == sqh_s[dh]) else $error("tg_lsu: the SQ head's registered fields differ from the entry");
+  end
+`endif
   assign sqrob_ra[0] = cap_idx;
   assign sqrob_ra[1] = hs;
   tg_ram_lut #(.DEPTH(SQ_ENTRIES), .WIDTH(ROBW), .NR(2)) u_sqrob (
