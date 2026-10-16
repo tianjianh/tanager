@@ -194,6 +194,16 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
   - Without DHCP, the board still answers on its IPv6 link-local address, `fe80::48ff:2967:7216:51ee`, on the laptop's Ethernet.
 - **Clock.** The board shows a wrong date until NTP reaches it through the laptop's connection sharing.
 
+### A53 OS changes (change log)
+
+The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-16): packages, a network bridge and boot settings. Each change is listed here with how to undo it.
+- **Rules:** the laptop's SSH path to the board is never cut. Network changes are applied so that they revert on their own if contact is lost (`netplan try`, or a timed rollback).
+- **Kernel updates** happen only when we choose, after re-running the power-up checks: boot, command line, `k26-starter-kits` plus `fancontrol`, and disk.
+
+| Date | Change | Why | Undo |
+|---|---|---|---|
+| 2026-10-16 | `sudo apt-mark hold linux-xilinx linux-image-xilinx linux-headers-xilinx linux-image-6.8.0-1036-xilinx linux-modules-6.8.0-1036-xilinx linux-headers-6.8.0-1036-xilinx linux-xilinx-headers-6.8.0-1036 flash-kernel` | Unattended upgrades replaced the kernel (1015 → 1036) while the board was off. The hold keeps the A53's kernel and boot script fixed through stages C and D. Userland security updates continue. | `sudo apt-mark unhold` with the same list; check with `apt-mark showhold` |
+
 ## Bring-up on the board (2026-10-14)
 
 The board track ran bring-up steps 1–5 on [the board](#the-board) on 2026-10-14. All five pass.
