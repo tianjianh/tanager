@@ -8,7 +8,7 @@
 # this directory. The flags are the Makefile's own on purpose: the benchmarks keep plan §10.2's flag
 # sets, the same as the bare-metal runs (tests/bench), and every program links statically; CFLAGS is
 # not used. Standalone, the compiler is sw/versions.sh's RVTC unpacked under
-# $(TANAGER_BUILD)/<worktree>/tc. CoreMark and Dhrystone come from perfmodel/third_party
+# $(TANAGER_BUILD)/<worktree>/tc, else the shared $(TANAGER_BUILD)/tc. CoreMark and Dhrystone come from perfmodel/third_party
 # (perfmodel/scripts/fetch_deps.sh), as for tests/bench.
 ROOT ?= $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 WT   := $(notdir $(ROOT))
@@ -17,7 +17,8 @@ TANAGER_BUILD ?= $(HOME)/tanager-build
 OUT  ?= $(TANAGER_BUILD)/$(WT)/linux-bench
 ifeq ($(origin CC),default)
   RVTC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$RVTC_NAME)
-  CC := $(TANAGER_BUILD)/$(WT)/tc/$(RVTC_NAME)/bin/riscv64-buildroot-linux-gnu-gcc
+  RVTC_GCC := tc/$(RVTC_NAME)/bin/riscv64-buildroot-linux-gnu-gcc
+  CC := $(firstword $(wildcard $(TANAGER_BUILD)/$(WT)/$(RVTC_GCC) $(TANAGER_BUILD)/$(RVTC_GCC)) $(TANAGER_BUILD)/$(WT)/$(RVTC_GCC))
 endif
 TP   ?= $(firstword $(patsubst %/coremark/core_main.c,%,$(wildcard $(ROOT)/perfmodel/third_party/coremark/core_main.c \
            $(HOME)/tanager/perfmodel/third_party/coremark/core_main.c)))

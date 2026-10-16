@@ -15,6 +15,9 @@ module tb_soc;
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
   localparam logic [39:0] TR_BASE = 40'h8_4800_0000;    // the trace stream's ring
+  // Built without the trace (make ... COMMIT_TRACE=0, +define+TG_COMMIT_TRACE=0; DR-146): the program still runs,
+  // the capability bit reads 0 and the trace master never starts a write.
+  localparam bit TRACE = tg_trace_pkg::COMMIT_TRACE;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
   always #5    clk      = ~clk;        // 100 MHz
@@ -37,6 +40,8 @@ module tb_soc;
   axi_w_t  tw;
   axi_b_t  tb;
   logic    tawv, tawr, twv, twr, tbv, tbr;
+  bit      taw_seen = 1'b0;                 // the trace master started a write
+  always @(posedge clk) if (tawv || twv) taw_seen <= 1'b1;
 
   tg_trace_pkg::tr_rec_t [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
@@ -193,7 +198,7 @@ module tb_soc;
       $fclose(fd);
       $display("loaded %0d bytes of %s", a, path);
     end
-    if (KIND == "tcore") begin
+    if (KIND == "tcore" && TRACE) begin
       // commit-trace streaming into its memory: everything the cores retire (uncore-trace.md)
       hw64(16'h1020, 64'(TR_BASE));
       hw(16'h1028, 32'd16);                     // a ring of 64K records: no wrap in this test
@@ -228,7 +233,8 @@ module tb_soc;
         drain_console();
         hr(16'h088, seq);
         // the trace consumer: check the first record once, then release everything written
-        hr(16'h1038, lo);
+        if (TRACE) hr(16'h1038, lo);
+        else lo = '0;
         if (lo != 0 && !first_ok) begin
           logic [127:0] b0;
           b0 = u_tmem.peek_beat(longint'(TR_BASE));
@@ -236,7 +242,7 @@ module tb_soc;
             fail($sformatf("first trace record: kind %0d pc %h, want the boot ROM's first instruction", b0[1:0], b0[127:64]));
           first_ok = 1;
         end
-        hw(16'h1030, lo); hw(16'h1034, 32'h0);    // TRS_RP = WP (records consumed)
+        if (TRACE) begin hw(16'h1030, lo); hw(16'h1034, 32'h0); end   // TRS_RP = WP (records consumed)
         t++;
       end while (seq == 0 && t < 20000);         // streaming slows the cores to the trace rate
       drain_console();
@@ -251,7 +257,12 @@ module tb_soc;
         if (!found) fail("no PASS on the console");
       end
       // the stream: everything retired went to the trace memory, starting at the boot ROM
-      begin
+      if (!TRACE) begin
+        hr(16'h00C, lo);
+        if (lo[3]) fail("capability bit 3 (trace streaming) set in a build without the trace");
+        if (taw_seen) fail("the trace master started a write in a build without the trace");
+        $display("trace stream: not built (TG_COMMIT_TRACE=0)");
+      end else begin
         logic [31:0] wpl, st, stl;
         hw(16'h1000, 32'h0);                    // stop capturing; the lanes drain
         repeat (2000) @(posedge clk);

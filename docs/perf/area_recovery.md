@@ -548,9 +548,9 @@ IPC × Fmax at 120 cycles, against full structures at 200 MHz. "Full structures"
 *The user asked whether 200 MHz is the right target for v1, since NaxRiscv reaches 135–150 MHz on this class of device without tuning. This is a measurement only: the target stays 200 MHz until the user decides (DR-137). `scripts/clock.py` reproduces it (`results/clock_rv64gc.json`). Its first run reproduces v1's single-thread suite IPC at 120 cycles from the area study exactly.*
 
 **The setup.**
-- **v1:** the release configuration (`smt2`, wakeup tags), running the single-thread suite with SMT off.
+- **v1:** the release configuration (`smt2`, wakeup tags), running the single-thread suite with SMT off. It has the plan's L1D (16 MSHRs, with prefetchers); §6.2 models v1 as built.
 - **NaxRiscv:** the control (`nax`), on the same uncore, at 137 MHz (its RV64 figure, Artix-7 -3) and at 150 MHz.
-- **What scales with the clock:** the DRAM latency, 184 ns (S1's idle 64-byte read), and the bandwidth, 3.2 GB/s per port (20 ns per line), both in that clock's cycles. The L2 hit is 2 cycles shorter at 150 MHz and below (`DATA_LAT` 2 instead of 4).
+- **What scales with the clock:** the DRAM latency, 184 ns (S1's idle 64-byte read), and the bandwidth, 3.2 GB/s per port (20 ns per line), both in that clock's cycles. The L2 hit is 2 cycles shorter at 150 MHz and below (`DATA_LAT` 2 instead of 4). §6.2 corrects the bandwidth: a port moves 16 bytes per cycle at any clock, so a line takes 4 cycles.
 - **What stays fixed in cycles:** everything else.
   - The 4-cycle FMA missed 200 MHz by 1.88 ns, so it would close only below about 145 MHz; no clock here gains it.
   - No other 200 MHz pipelining is recorded as clock-dependent.
@@ -614,6 +614,113 @@ CoreMark/MHz moves the same at 150 MHz as at 200 MHz, because CoreMark stays in 
 - **The integer wakeup loop is the upper bound:** −8.0% on the suite and about −10% on CoreMark. That is as much as running at 184 MHz, and 200 → 180 MHz costs 8.9% (above).
 - **Exceptions:** a stage that only delays a fault's report costs nothing in the model. In hardware it costs as rarely as faults occur.
 - **The knobs** (`abl_ld_use`, `abl_alu`, `abl_done`) default to 0. At 0 the model reproduces every earlier result exactly: the clock sweep, re-simulated from an empty cache with the new build, gives identical numbers.
+
+### 6.2 The DR-145 clocks: v1 as built, at 94–150 MHz (measured in the model, 2026-10-16)
+
+*DR-145 (the user, 10-16) makes 125 MHz the preferred clock and 100 MHz the minimum for v1 as scoped (2 cores × SMT2), after a study. Every resulting change needs the user's approval. This is the model's part of the study. `scripts/clock_low.py` reproduces it on the build host (`results/clock_low_rv64gc.json`), and its first run reproduces v1's single-thread suite IPC at 120 cycles from the area study exactly.*
+
+**The setup.**
+- **v1 as built.** The model is calibrated to the RTL, not to the plan:
+  - one L1D miss in flight and one I-cache refill at a time (core-lsu.md, core-pipeline.md; the plan's 16 and 4 MSHRs are M6);
+  - no prefetcher in the L1s or the L2;
+  - the release configuration's window, queues and predictors (`smt2`, wakeup tags).
+
+  The rows with 2 or 4 L1D misses in flight are the non-blocking-cache option.
+- **One fix to the model.** With one L1D MSHR and SMT2, the model starved one thread's store drain for good. Loads book the MSHR at their access time (issue + 3), while the drain asks at the current cycle, so a sibling's stream of misses always got there first. After 500K cycles of no commits, the deadlock check stopped runs such as stride+spmv and chase8+copy.
+  - `drain_guard` 16 now gives a committed store that has waited 16 cycles the next MSHR.
+  - At 0 (the default) every earlier result is identical.
+  - How the RTL arbitrates its one MSHR between the load pipe and the drain is not documented (core-lsu.md). Whether a thread's drain can starve behind its sibling's misses in `smt2` is a question for the core track.
+- **NaxRiscv:** the control (`nax`), on the same uncore (so without an L2 prefetcher either), at 135 and 150 MHz.
+  - Its core follows NaxRiscv's README and RTD pages, with 2 L1D refill slots. It matches NaxRiscv's published RV32 IPC within 9%, and its published RV64 DMIPS/MHz and Embench score within 2% ([dse_report.md](dse_report.md) §3).
+  - NaxRiscv's published RV64 Fmax is 137 MHz on Artix-7 -3 (its RTD Performance page). 135 and 150 MHz on the XCK26 are the points asked for, not published figures.
+- **1 thread:** one core alone, with the whole L2 and both HP ports.
+- **4 threads:** both cores busy, each running SMT2 pairs (`smt.py`'s 42 suite pairs, and 16 working-set pairs). The model has one core, so each core gets half the L2's ways and MSHRs and one HP port.
+  - NaxRiscv runs the 4 threads on a dual-core without SMT, each core time-slicing the same pairs: its throughput on a pair is the mean of the two programs' IPC.
+  - Dual-core is the largest NaxRiscv SMP build published to meet timing: the 37C3 demo ran two RV64GC cores at 100 MHz, and NaxRiscv issue #89 reports trouble above two.
+- **Memory at each clock:**
+  - DRAM 184 ns (S1's idle read): 17, 18, 23, 25 and 28 cycles at 94, 100, 125, 135 and 150 MHz;
+  - bandwidth: each HP port moves 16 bytes per cycle (S1's 3.2 GB/s per port is 128 bits at 200 MHz), so a line takes 4 cycles at any clock;
+  - the L2 hit: 10 cycles (`DATA_LAT` 2, allowed up to 150 MHz).
+- **The profiles** (DR-140, DR-144):
+  - **the default:** the LSU's address-stage split (its TLB and PMP check a stage later) and a register on the atomics' read data are on. The extra store-completion cycle is off. The ROB head's TLB lookup comes a cycle later, from a register;
+  - **the fallback:** none of these;
+  - **the model** has one point for them: the address-stage split's extra cycle on a store's completion (`abl_st_done`). The atomics register and the ROB head's lookup have none, since the workloads use no atomics and the model has no TLBs.
+- **Workloads:**
+  - the suite: kernels, Embench and memsuite (8–32 MiB);
+  - new working-set kernels (DR-141's 0.5–4 MiB, `bench/build_ws.sh`): a pointer chase on 1 and on 8 chains, hash-table lookups and memcpy, at 0.5, 1, 2 and 4 MiB, each warmed before its region.
+- **Performance** is IPC × MHz, and the 4-thread figure is both cores' throughput × MHz. Each cell below is v1's figure divided by NaxRiscv's at 135 MHz / at 150 MHz.
+
+| Clock | L1D misses in flight | 1 thread: suite | 1 thread: memsuite | 1 thread: 0.5–4 MiB | 4 threads: suite | 4 threads: memsuite | 4 threads: 0.5–4 MiB |
+|---|---|---|---|---|---|---|---|
+| 94 MHz | 1 (as built) | 0.82 / 0.75 | 0.58 / 0.55 | 0.62 / 0.58 | 0.96 / 0.89 | 0.53 / 0.51 | 0.68 / 0.64 |
+| 94 MHz | 2 | 0.97 / 0.89 | 0.95 / 0.91 | 0.82 / 0.76 | 1.21 / 1.12 | 0.99 / 0.96 | 1.17 / 1.10 |
+| 94 MHz | 4 | 1.07 / 0.99 | 1.29 / 1.24 | 0.97 / 0.90 | 1.44 / 1.34 | 1.66 / 1.60 | 1.55 / 1.46 |
+| **100 MHz** | 1 (as built) | 0.86 / 0.79 | 0.60 / 0.58 | 0.66 / 0.61 | 1.00 / 0.93 | 0.53 / 0.51 | 0.69 / 0.65 |
+| **100 MHz** | 2 | 1.02 / 0.94 | 0.98 / 0.94 | 0.86 / 0.80 | 1.26 / 1.17 | 1.00 / 0.97 | 1.21 / 1.14 |
+| **100 MHz** | 4 | 1.13 / 1.04 | 1.34 / 1.29 | 1.02 / 0.95 | 1.51 / 1.40 | 1.71 / 1.64 | 1.61 / 1.52 |
+| **125 MHz** | 1 (as built) | 1.03 / 0.95 | 0.64 / 0.62 | 0.77 / 0.71 | 1.19 / 1.10 | 0.57 / 0.55 | 0.76 / 0.71 |
+| **125 MHz** | 2 | 1.21 / 1.12 | 1.06 / 1.02 | 1.01 / 0.94 | 1.50 / 1.39 | 1.09 / 1.05 | 1.33 / 1.25 |
+| **125 MHz** | 4 | 1.36 / 1.25 | 1.49 / 1.44 | 1.20 / 1.11 | 1.82 / 1.68 | 1.88 / 1.82 | 1.80 / 1.69 |
+| 150 MHz (reference) | 1 (as built) | 1.18 / 1.09 | 0.68 / 0.65 | 0.87 / 0.81 | 1.36 / 1.26 | 0.60 / 0.58 | 0.81 / 0.77 |
+| 150 MHz (reference) | 2 | 1.40 / 1.29 | 1.12 / 1.08 | 1.15 / 1.07 | 1.71 / 1.59 | 1.13 / 1.09 | 1.42 / 1.33 |
+| 150 MHz (reference) | 4 | 1.57 / 1.45 | 1.60 / 1.55 | 1.37 / 1.27 | 2.10 / 1.94 | 2.02 / 1.95 | 1.95 / 1.83 |
+| NaxRiscv, 135 MHz | 2 (refill slots) | 1.00 / 0.92 | 1.00 / 0.96 | 1.00 / 0.93 | 1.00 / 0.93 | 1.00 / 0.96 | 1.00 / 0.94 |
+| NaxRiscv, 150 MHz | 2 (refill slots) | 1.09 / 1.00 | 1.04 / 1.00 | 1.08 / 1.00 | 1.08 / 1.00 | 1.04 / 1.00 | 1.06 / 1.00 |
+
+Every v1 row uses the default profile. The fallback changes nothing measurable (below).
+
+**Reading it:**
+- **As built, v1 loses to NaxRiscv on memory work at every clock here.** Its L1D takes one miss at a time, against NaxRiscv's two refill slots.
+  - With one thread it reaches 0.58–0.68× NaxRiscv at 135 MHz on memsuite, and 0.62–0.87× on the working sets. Even working sets that fit in the L2 (0.5–1 MiB) run at 0.87× NaxRiscv's IPC.
+  - On the suite it is 0.82× at 94 MHz, 0.86× at 100 MHz and 1.03× at 125 MHz.
+  - Per clock, its lead is 1.11× on the suite and 0.69× on memsuite. DR-145 put the lead needed to win at 100–125 MHz at about 1.2–1.5×.
+  - On code that stays in the caches (the kernels and Embench) its lead is 1.37–1.43×. So the core is ahead; the L1D's one miss at a time holds it back.
+- **Misses in flight are worth more than the clock.**
+  - At 125 MHz, a second L1D miss in flight adds 18% on the suite and 65% on memsuite with one thread, and 27% and 91% with four threads.
+  - Four in flight add 32% and 132% with one thread, and 53% and 230% with four threads.
+  - Going from 100 to 125 MHz adds 19–20% on the suite and 8–11% on memsuite. Going from 94 to 100 MHz adds 5–6% and 3–4%.
+- **With four misses in flight, v1 leads NaxRiscv at 100 MHz and above, against NaxRiscv at 135 and at 150 MHz:**
+  - one thread on the suite: 1.13 / 1.04 at 100 MHz, 1.36 / 1.25 at 125 MHz;
+  - four threads on the suite: 1.51 / 1.40 and 1.82 / 1.68.
+
+  Only one thread's working sets at 100 MHz stay at NaxRiscv's level (1.02 / 0.95). With two misses in flight, v1 leads at 125 MHz (1.21 / 1.12 on the suite), but at 100 MHz it falls behind NaxRiscv at 150 MHz (0.94).
+- **What the RTL would cost is not measured here.** Earlier studies assumed the plan's L1D, which has 16 MSHRs and a stride prefetcher (M6). The LUTs and timing of 2 or 4 misses in flight are a question for the core track.
+- **Four threads:**
+  - SMT2 adds to v1's lead on compute: 1.19 / 1.10 on the suite at 125 MHz as built, against 1.03 / 0.95 with one thread.
+  - As built, the two threads share the one miss at a time, so memsuite with four threads is 0.57 / 0.55. With four misses in flight it is 1.88 / 1.82.
+- **The profiles.** In the model, the default's extra store-completion cycle changes the results only within noise:
+  - one thread: under 0.01%;
+  - four threads, the suite and memsuite: at most 0.3%;
+  - four threads, the working sets: −0.8% to +2.1%. That is the pair method's noise: a few pairs that chase pointers through the one MSHR swing by up to 43%, while 46–48 of the 58 pairs move by under 0.1%.
+
+  The measured costs below are the better guide.
+- **CoreMark:**
+  - v1 gets 5.31 CoreMark/MHz at every MSHR count, since CoreMark stays in the L1s.
+  - The model's NaxRiscv gets 3.63 on the same binary, so v1 is 1.46× per MHz.
+  - NaxRiscv's published 4.94 CoreMark/MHz comes from a modified build ([dse_report.md](dse_report.md) §3.2), so it doesn't compare directly.
+
+**What this means for the choice** (each change is the user's call, DR-145):
+- **As built,** 125 MHz roughly ties NaxRiscv at 135 MHz on the suite and loses on memory work. 100 MHz loses on both.
+- **The L1D's misses in flight decide whether v1 leads.** With four, v1 leads at 100 MHz, and clearly at 125 MHz, with one thread or four.
+- **The profiles don't move the clock choice.** They cost under 0.3% here and 0.25% on the board under Linux.
+
+**The profiles, as measured outside the model.** The model has a point only for the store-completion cycle, and only on bare-metal code. These are the measured costs of the default against the fallback, as extra cycles (DR-140, DR-141, DR-144):
+- **The cuts:**
+  - **The LSU's address-stage split** (TLB and PMP check moved a stage later, so a store completes a cycle later) costs +0.16% / +0.09% on the RTL's benchmarks (`st` / `smt2`). The ISA tests cost up to +1.6%, in their page-table setup walks.
+  - **The register on the atomics' read data** costs 0 on the benchmarks and +0.14% on the ISA tests.
+  - **The ROB head's TLB lookup a cycle later, from a register** costs 0 on CoreMark and Dhrystone, and up to +0.16% on the stress tests.
+- **The simulated Linux boot** (first 20M cycles): the default costs +0.08% / +0.12%, plus 0.013% / 0.005% for the ROB head's TLB lookup.
+- **The board under Linux** (one `st` core at 60 MHz, 18 tests):
+  - the default costs 0.25% on average;
+  - the address-stage split and the atomics register together cost memcpy 1 MiB 1.9%, Dhrystone 1.5% and tlbwalk 1.1%, and syscall runs 2.4% faster.
+- **In neither profile:** DR-143's register slice on the L2's memory reads adds a cycle to every L2 fill, +0.06% / +0.13% on the boot. The model leaves it out for v1 and NaxRiscv alike.
+
+**Notes.**
+- **The guard's own effect.** With one MSHR, `drain_guard` raises one thread's results by 0.4% on the suite and 1.1–1.3% on memsuite and the working sets. With four MSHRs it changes nothing.
+- **§6.1's bandwidth was optimistic.**
+  - It took 20 ns per line. But an HP port moves 16 bytes per cycle at any clock, so a line takes 4 cycles; at 150–170 MHz §6.1 used 3.
+  - It also modelled one port, where one core alone has two.
+- **§6.1's v1 had the plan's L1D, 16 MSHRs with prefetchers.** It put v1 at 1.78× NaxRiscv at 137 MHz on the suite at 150 MHz. As built, the same comparison is 1.18× at 135 MHz.
 
 ---
 
@@ -1085,6 +1192,15 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **DR-133's basis is gone** (rejected at gate 3).
 - **Watch:** the SoC's per-site DSP check (cd1f584, not merged) puts the uncore at 19,664 (+761).
 
+**2026-10-16: the DR-145 clocks, v1 as built** (§6.2; `scripts/clock_low.py`, run on the build host):
+- **The model is calibrated to the RTL as built:** one L1D miss in flight, one I-cache refill at a time, and no prefetchers. Clocks: 94, 100, 125 and 150 MHz; NaxRiscv at 135 and 150 MHz; one thread, and four (two cores × SMT2).
+- **As built, v1 loses to NaxRiscv on memory work at every clock.** It reaches 0.58–0.68× on memsuite, with NaxRiscv's two refill slots against its one. On the suite it is 0.86× at 100 MHz and 1.03× at 125 MHz, against NaxRiscv at 135 MHz.
+- **Two or four L1D misses in flight are worth more than the clock.** With four, v1 is 1.13 / 1.04× NaxRiscv at 135 / 150 MHz on one thread's suite at 100 MHz, and 1.36 / 1.25× at 125 MHz. With four threads it is 1.51 / 1.40× and 1.82 / 1.68×.
+- **The profiles move nothing measurable in the model.**
+- **The model needed an anti-starvation rule for one MSHR with SMT2** (`drain_guard`). Without it, a sibling's misses starved a thread's store drain for good. How the RTL arbitrates its MSHR is a question for the core track.
+- **New working-set kernels** (`bench/build_ws.sh`, DR-141's 0.5–4 MiB).
+- **§6.1's bandwidth was optimistic** below 200 MHz.
+
 **Lessons:**
 - **Ask which consumers actually wait on a structure before sizing it.** The census turned a 4–5K "overrun" into an exact redesign. The same question asked of the window, the queues and the checkpoints only found IPC.
 - **A fit is only as good as its per-unit inputs.** The first projections used planning estimates for every unit but the scheduler and the FPU. The first real synthesis was 88K at `st` against 38.2K, so the levers this study ranked were a small part of the real gap (§7).
@@ -1095,3 +1211,6 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **Price the selects, not just the storage.** A per-thread table in RAM costs its storage. Per-thread state read in parallel costs a select at every reader. The PMP descriptors' four selects (+2.3K) outweigh every table in hart 1.
 - **Mark the synthesis settings with every figure.** The third pass measured 51,839 at `smt2` with the old settings and 49,022 with DR-113's. Mixing the two misstates v1 by 5.6K.
 - **A unit run's saving is an upper bound in the core.** P4's steps since fn2 saved 241 LUTs in their unit runs and 86 in the core.
+- **Calibrate the model to the RTL as built before comparing designs.** With the plan's L1D (16 MSHRs, prefetchers) the model put v1 at 1.78× NaxRiscv at 150 MHz on the suite. As built, with one miss in flight, it is 1.18×, and it loses on memory work.
+- **A one-sided clock skew in a model can starve a requester for good.** Loads booked the one MSHR three cycles ahead of the store drain. Any shared resource with requesters at different pipeline times needs a fairness rule in the model, and the same question goes to the RTL.
+- **Run compute only on the build host.** The study's first runs used the laptop's WSL, because the checkout was there. The laptop only edits and commits.

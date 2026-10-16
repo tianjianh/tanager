@@ -52,6 +52,7 @@ class MemSys {
   MemStats st;                // all threads
   MemStats tst[MAX_THREADS];  // per hardware thread
   int tid = 0;                // hardware thread making the current request (set by the core before each call)
+  int drain_reserve = 0;      // L1D MSHRs that loads and prefetches must leave free (`drain_guard`; set by the core)
 
  private:
   struct Mshr { uint64_t line = 0, ready = 0; bool demand = false; int tid = 0; };
