@@ -194,9 +194,12 @@ module tg_tlb
     end
     // Every lookup matches what the flip-flop form would (each entry's VPN kept here)
     logic [NE-1:0][26:0] vs_q;
-    always_ff @(posedge clk) begin
+    logic                rs_q;      // the TLB has been reset: the check waits for it
+    initial rs_q = 1'b0;
+    always @(posedge clk) begin
+      if (rst) rs_q <= 1'b1;
       if (fill) vs_q[fv] <= fill_vpn;
-      if (!rst && ts_q != T_SWEEP)
+      if (rs_q && !rst && ts_q != T_SWEEP)
         for (int r = 0; r < NR; r++)
           for (int e = 0; e < NE; e++)
             assert (m[r][e] == (v_q[e] && vmatch(vpn[r], vs_q[e], lvl_q[e])))

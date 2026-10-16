@@ -650,9 +650,12 @@ module tg_dcache
   end
   // A state write starts from its set's state: a shadow of the state RAMs, written alike
   sst_t sh_q [SETS];
-  always_ff @(posedge clk) begin
+  logic rs_q;                     // the cache has been reset: the check waits for it
+  initial rs_q = 1'b0;
+  always @(posedge clk) begin
+    if (rst) rs_q <= 1'b1;
     if (st_we) sh_q[st_wa] <= st_wd;
-    if (!rst && ready) begin
+    if (rs_q && !rst && ready) begin
       if ((ps_q == P_UPD && p_hit_q) || inst_go || (pb_amw && !al_go && !pb_st))
         assert (!st_we || sw == sh_q[st_wa]) else $error("tg_dcache: port 3 read another set than the write's");
       else if (al_go && !(alloc_st && al_hb))
