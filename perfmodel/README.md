@@ -220,11 +220,12 @@ Options for the IPC-costing levers. All are off by default; with them off, resul
 
 The mispredict penalty and the L2 hit have their own parameters (`redirect_lat`, `commit_redirect`, `l2_lat`).
 
-**DR-140's profiles** (`docs/perf/area_recovery.md` §6.2). 0 by default, which is the fallback profile; at 0 every result is identical, so `MODEL_VERSION` stays 3.
+**The DR-145 study's points** (`docs/perf/area_recovery.md` §6.2). Both are 0 by default (for `abl_st_done`, the fallback profile); at 0 every result is identical, so `MODEL_VERSION` stays 3.
 
 | Parameter | Model point |
 |---|---|
 | `abl_st_done` | a store's address completes in the ROB this many cycles later: cut #4 (the LSU address-stage split) is 1, and #2 would add another. #5 and B3 have no model point (no atomics in the workloads, no TLBs) |
+| `drain_guard` | a committed store that has waited this many cycles for an L1D MSHR gets the next one: loads and prefetches leave it free. Without it, a model with one L1D MSHR and SMT2 can starve a thread's store drain for good, because loads book the MSHR at issue + 3 while the drain asks at the current cycle. §6.2 uses 16 |
 
 ## Scoring
 

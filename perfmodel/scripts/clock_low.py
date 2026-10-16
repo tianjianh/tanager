@@ -7,6 +7,10 @@ is the model's part of it. Every resulting change needs the user's approval.
 v1 is calibrated to the RTL as built, not to the plan: one L1D miss in flight and one I-cache refill at a time
 (core-lsu.md, core-pipeline.md; the plan's 16 and 4 MSHRs are M6), and no prefetcher (none in the L1s or the L2).
 `l1d_mshr` 2 and 4, with the default profile, are the non-blocking-cache option.
+With one L1D MSHR and SMT2 the model can starve a thread's store drain for good: loads book the MSHR at their access
+time (issue + 3), the drain asks at the current cycle, and a sibling's stream of misses always gets there first.
+`drain_guard` 16 gives a committed store that has waited 16 cycles the next MSHR. How the RTL arbitrates its MSHR
+between the load pipe and the drain is not documented (core-lsu.md).
 
 Each clock gets its own cycle latencies:
   DRAM latency    S1's idle 64-byte read from the PL port, 184 ns, as `dram_lat` (17 / 18 / 23 / 25 / 28 cycles
@@ -56,7 +60,7 @@ DRAM_NS = 184.0
 CLOCKS = (94, 100, 125, 150)
 NAX_CLOCKS = (135, 150)
 L2_LAT = 10  # DATA_LAT = 2
-RTL = {"l1i_mshr": 1, "fdip": 0, "pf_i_nextline": 0, "pf_stride": 0, "rfo_pf": 0, "pf_stream": 0}
+RTL = {"l1i_mshr": 1, "fdip": 0, "pf_i_nextline": 0, "pf_stride": 0, "rfo_pf": 0, "pf_stream": 0, "drain_guard": 16}
 MSHRS = (1, 2, 4)
 PROFILES = {"fallback": {}, "default": {"abl_st_done": 1}}
 L2 = {"l2_kb": V1.get("l2_kb", 1024), "l2_ways": V1.get("l2_ways", 8), "l2_mshr": V1.get("l2_mshr", 32)}

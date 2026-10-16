@@ -138,7 +138,8 @@ namespace tg {
   X(abl_alu, 0, "extra cycles before a 1-cycle result wakes its dependents (completion unchanged)") \
   X(abl_done, 0, "extra cycles from execute completion to the ROB's complete mark (commit slips)") \
   /* DR-140's profiles (area_recovery.md 6.2): 0 = the fallback, the model as before */                 \
-  X(abl_st_done, 0, "extra cycles before a store's address completes in the ROB (cut #4; #2 adds another)")
+  X(abl_st_done, 0, "extra cycles before a store's address completes in the ROB (cut #4; #2 adds another)") \
+  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)")
 
 constexpr int MAX_THREADS = 2;
 
