@@ -40,6 +40,22 @@ module tg_uncore
   // handshake (the L2's probe pick, the destination, the crossbar's per-core B arbiter, ready back
   // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, being measured
   parameter bit          B_SLICE         = 1'b0,
+  // A register slice on each bank's TileLink D (responses), before the crossbar: it would cut the D
+  // channel's handshake (a bank's D queue and output arbiter, the crossbar's per-initiator D arbiter,
+  // which weighs both banks, then the ready back into the bank's queue and credit), for a cycle on
+  // every L2 response. Off: a DR-135 reserve item, being measured
+  parameter bit          D_SLICE         = 1'b0,
+  // Register slices on each bank's AXI AW and W, before the latency injector, as the AR slice is on
+  // AR: they would cut the write-back path from the L2 to the memory path by the PS ports (G4-FP:
+  // the memory W slices at -2.3 / -2.4 ns with the banks at the URAM column), for a cycle on every
+  // write-back. Off: a DR-135 reserve item, being measured
+  parameter bit          W_SLICE         = 1'b0,
+  // Register slices on the cores' request channels, between the core ports and the crossbar: the
+  // interface register stage on the uncore's side (G4-FP: core -> A slices -2.87 ns, core -> C
+  // -3.05 ns, mostly wire). Bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C,
+  // bit 3 the l1d E; each costs a cycle on every message of its channel. Off: DR-135 reserve items,
+  // being measured
+  parameter logic [3:0]  XBAR_IN_SLICE   = 4'b0000,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
@@ -183,24 +199,85 @@ module tg_uncore
   end
   tl_c_t [N_BANKS-1:0] l2_c; logic [N_BANKS-1:0] l2_cv, l2_cr;
   tl_d_t [N_BANKS-1:0] l2_d; logic [N_BANKS-1:0] l2_dv, l2_dr;
+  tl_d_t [N_BANKS-1:0] xb_d; logic [N_BANKS-1:0] xb_dv, xb_dr;   // D into the crossbar (D_SLICE)
+  for (genvar b = 0; b < N_BANKS; b++) begin : g_dsl
+    if (D_SLICE) begin : g_s
+      tg_skid #(.T (tl_d_t)) u_ds (
+        .clk, .rst (uncore_rst), .in_valid (l2_dv[b]), .in_ready (l2_dr[b]), .in_data (l2_d[b]),
+        .out_valid (xb_dv[b]), .out_ready (xb_dr[b]), .out_data (xb_d[b])
+      );
+    end else begin : g_w
+      assign xb_d[b]  = l2_d[b];
+      assign xb_dv[b] = l2_dv[b];
+      assign l2_dr[b] = xb_dr[b];
+    end
+  end
   tl_e_t [N_BANKS-1:0] l2_e; logic [N_BANKS-1:0] l2_ev, l2_er;
   tl_a_t rom_a, dev_a; logic rom_av, rom_ar, dev_av, dev_ar;
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
   tl_d_t hdma_d; logic hdma_ar, hdma_dv;
 
+  // The cores' requests into the crossbar, through a slice where XBAR_IN_SLICE says so. The caches'
+  // A data, mask and corrupt are constants inside the crossbar, so their slice bits have no loads.
+  tl_a_t [N_CORES-1:0] x_l1i_a, x_l1d_a, x_mmio_a;
+  logic  [N_CORES-1:0] x_l1i_av, x_l1i_ar, x_l1d_av, x_l1d_ar, x_mmio_av, x_mmio_ar;
+  tl_c_t [N_CORES-1:0] x_l1d_c;
+  logic  [N_CORES-1:0] x_l1d_cv, x_l1d_cr;
+  tl_e_t [N_CORES-1:0] x_l1d_e;
+  logic  [N_CORES-1:0] x_l1d_ev, x_l1d_er;
+  for (genvar c = 0; c < N_CORES; c++) begin : g_isl
+    if (XBAR_IN_SLICE[0]) begin : g_ca
+      tg_skid #(.T (tl_a_t)) u_l1i (
+        .clk, .rst (uncore_rst), .in_valid (l1i_a_valid_i[c]), .in_ready (l1i_a_ready_o[c]), .in_data (l1i_a_i[c]),
+        .out_valid (x_l1i_av[c]), .out_ready (x_l1i_ar[c]), .out_data (x_l1i_a[c])
+      );
+      tg_skid #(.T (tl_a_t)) u_l1d (
+        .clk, .rst (uncore_rst), .in_valid (l1d_a_valid_i[c]), .in_ready (l1d_a_ready_o[c]), .in_data (l1d_a_i[c]),
+        .out_valid (x_l1d_av[c]), .out_ready (x_l1d_ar[c]), .out_data (x_l1d_a[c])
+      );
+    end else begin : g_caw
+      assign x_l1i_a[c] = l1i_a_i[c];  assign x_l1i_av[c] = l1i_a_valid_i[c];  assign l1i_a_ready_o[c] = x_l1i_ar[c];
+      assign x_l1d_a[c] = l1d_a_i[c];  assign x_l1d_av[c] = l1d_a_valid_i[c];  assign l1d_a_ready_o[c] = x_l1d_ar[c];
+    end
+    if (XBAR_IN_SLICE[1]) begin : g_ma
+      tg_skid #(.T (tl_a_t)) u_mmio (
+        .clk, .rst (uncore_rst), .in_valid (mmio_a_valid_i[c]), .in_ready (mmio_a_ready_o[c]), .in_data (mmio_a_i[c]),
+        .out_valid (x_mmio_av[c]), .out_ready (x_mmio_ar[c]), .out_data (x_mmio_a[c])
+      );
+    end else begin : g_maw
+      assign x_mmio_a[c] = mmio_a_i[c];  assign x_mmio_av[c] = mmio_a_valid_i[c];  assign mmio_a_ready_o[c] = x_mmio_ar[c];
+    end
+    if (XBAR_IN_SLICE[2]) begin : g_c
+      tg_skid #(.T (tl_c_t)) u_c (
+        .clk, .rst (uncore_rst), .in_valid (l1d_c_valid_i[c]), .in_ready (l1d_c_ready_o[c]), .in_data (l1d_c_i[c]),
+        .out_valid (x_l1d_cv[c]), .out_ready (x_l1d_cr[c]), .out_data (x_l1d_c[c])
+      );
+    end else begin : g_cw
+      assign x_l1d_c[c] = l1d_c_i[c];  assign x_l1d_cv[c] = l1d_c_valid_i[c];  assign l1d_c_ready_o[c] = x_l1d_cr[c];
+    end
+    if (XBAR_IN_SLICE[3]) begin : g_e
+      tg_skid #(.T (tl_e_t)) u_e (
+        .clk, .rst (uncore_rst), .in_valid (l1d_e_valid_i[c]), .in_ready (l1d_e_ready_o[c]), .in_data (l1d_e_i[c]),
+        .out_valid (x_l1d_ev[c]), .out_ready (x_l1d_er[c]), .out_data (x_l1d_e[c])
+      );
+    end else begin : g_ew
+      assign x_l1d_e[c] = l1d_e_i[c];  assign x_l1d_ev[c] = l1d_e_valid_i[c];  assign l1d_e_ready_o[c] = x_l1d_er[c];
+    end
+  end
+
   tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
-    .l1i_a_i, .l1i_a_valid_i, .l1i_a_ready_o, .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
-    .l1d_a_i, .l1d_a_valid_i, .l1d_a_ready_o, .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
-    .l1d_c_i, .l1d_c_valid_i, .l1d_c_ready_o, .l1d_d_o, .l1d_d_valid_o, .l1d_d_ready_i,
-    .l1d_e_i, .l1d_e_valid_i, .l1d_e_ready_o,
-    .mmio_a_i, .mmio_a_valid_i, .mmio_a_ready_o, .mmio_d_o, .mmio_d_valid_o, .mmio_d_ready_i,
+    .l1i_a_i (x_l1i_a), .l1i_a_valid_i (x_l1i_av), .l1i_a_ready_o (x_l1i_ar), .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
+    .l1d_a_i (x_l1d_a), .l1d_a_valid_i (x_l1d_av), .l1d_a_ready_o (x_l1d_ar), .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
+    .l1d_c_i (x_l1d_c), .l1d_c_valid_i (x_l1d_cv), .l1d_c_ready_o (x_l1d_cr), .l1d_d_o, .l1d_d_valid_o, .l1d_d_ready_i,
+    .l1d_e_i (x_l1d_e), .l1d_e_valid_i (x_l1d_ev), .l1d_e_ready_o (x_l1d_er),
+    .mmio_a_i (x_mmio_a), .mmio_a_valid_i (x_mmio_av), .mmio_a_ready_o (x_mmio_ar), .mmio_d_o, .mmio_d_valid_o, .mmio_d_ready_i,
     .hdma_a_i ('0), .hdma_a_valid_i (1'b0), .hdma_a_ready_o (hdma_ar),
     .hdma_d_o (hdma_d), .hdma_d_valid_o (hdma_dv), .hdma_d_ready_i (1'b1),
     .l2_a_o (l2_a), .l2_a_valid_o (l2_av), .l2_a_ready_i (l2_ar),
     .l2_b_i (xb_b), .l2_b_valid_i (xb_bv), .l2_b_ready_o (xb_br),
     .l2_c_o (l2_c), .l2_c_valid_o (l2_cv), .l2_c_ready_i (l2_cr),
-    .l2_d_i (l2_d), .l2_d_valid_i (l2_dv), .l2_d_ready_o (l2_dr),
+    .l2_d_i (xb_d), .l2_d_valid_i (xb_dv), .l2_d_ready_o (xb_dr),
     .l2_e_o (l2_e), .l2_e_valid_o (l2_ev), .l2_e_ready_i (l2_er),
     .rom_a_o (rom_a), .rom_a_valid_o (rom_av), .rom_a_ready_i (rom_ar),
     .rom_d_i (rom_d), .rom_d_valid_i (rom_dv), .rom_d_ready_o (rom_dr),
@@ -266,14 +343,35 @@ module tg_uncore
       assign ar_sv     = l2_arv[b];
       assign l2_arr[b] = ar_sr;
     end
+    axi_ax_t aw_s;
+    logic    aw_sv, aw_sr;
+    axi_w_t  w_s;
+    logic    w_sv, w_sr;
+    if (W_SLICE) begin : g_wsl
+      tg_skid #(.T (axi_ax_t)) u_aws (
+        .clk, .rst (uncore_rst), .in_valid (l2_awv[b]), .in_ready (l2_awr[b]), .in_data (l2_aw_ch[b]),
+        .out_valid (aw_sv), .out_ready (aw_sr), .out_data (aw_s)
+      );
+      tg_skid #(.T (axi_w_t)) u_ws (
+        .clk, .rst (uncore_rst), .in_valid (l2_wv[b]), .in_ready (l2_wr[b]), .in_data (l2_w_ch[b]),
+        .out_valid (w_sv), .out_ready (w_sr), .out_data (w_s)
+      );
+    end else begin : g_wsw
+      assign aw_s      = l2_aw_ch[b];
+      assign aw_sv     = l2_awv[b];
+      assign l2_awr[b] = aw_sr;
+      assign w_s       = l2_w_ch[b];
+      assign w_sv      = l2_wv[b];
+      assign l2_wr[b]  = w_sr;
+    end
     tg_axi_lat_inj u_inj (
       .clk, .rst (uncore_rst),
       .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
       .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
       .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
       .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
-      .s_aw_i (l2_aw_ch[b]), .s_aw_valid_i (l2_awv[b]), .s_aw_ready_o (l2_awr[b]),
-      .s_w_i (l2_w_ch[b]), .s_w_valid_i (l2_wv[b]), .s_w_ready_o (l2_wr[b]),
+      .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
+      .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
       .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
       .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
       .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
