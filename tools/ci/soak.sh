@@ -80,6 +80,8 @@ prepare() {
     > "$SOAK/mem_gate"
   # A third of the programs in S-mode under Sv39, once main's generator has --vm (verification.md §6.2)
   if grep -q -- '"--vm"' "$src/tests/random/run_random.py"; then echo "--vm $VM_PCT"; else echo; fi > "$SOAK/vm"
+  # Miss-heavy rounds (DR-149: misses in flight, probes against them), once main's generator has --miss
+  if grep -q -- '"--miss"' "$src/tests/random/run_random.py"; then echo 1; else echo; fi > "$SOAK/miss_ok"
   echo "$tcs" > "$SOAK/timing_cuts"
   fingerprint "$commit" > "$SOAK/fingerprint"
   echo "$commit" > "$SOAK/commit"
@@ -87,7 +89,7 @@ prepare() {
 
 # One configuration's campaign; failures keep the program, the end of the log and a repro line.
 campaign() {
-  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} work="$SOAK/work/$2"
+  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} miss=${7:-} work="$SOAK/work/$2"
   local sim="$SOAK/build/tanager/sim/$cfg-core${tc:+-tc$tc}/tg_vsim" label="$cfg${tc:+-tc$tc}"
   rm -rf "$work"
   mkdir -p "$work"
@@ -95,7 +97,7 @@ campaign() {
     python3 "$SOAK/src/tanager/tests/random/run_random.py" --sim "$sim" \
       --replay "$SOAK/build/tanager/sim/replay/tg_replay" --n "$SEEDS" --seed "$seed" --isa "$(cat "$SOAK/prog_isa")" \
       --irq "$irq" --length 400 --stress $(cat "$SOAK/trace_stall") $(cat "$SOAK/mem_gate" 2>/dev/null) \
-      $(cat "$SOAK/vm" 2>/dev/null) \
+      $(cat "$SOAK/vm" 2>/dev/null) ${miss:+--miss $miss} \
       --jobs "$JOBS" --timeout 1200 --workdir "$work" \
       --name "soak $label" -- $(spike_args) ) > "$work/out.txt" 2>&1
   local res pass fail gen
@@ -230,11 +232,14 @@ run() {
     else
       irq=$(( r % 2 * 200 ))
     fi
-    log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq${tc:+, timing cuts $tc}"
+    # Every third round mostly keeps misses in flight (tg_rand --miss 12; DR-149).
+    local miss=""
+    [ -n "$(cat "$SOAK/miss_ok" 2>/dev/null)" ] && [ $(( r % 3 )) = 2 ] && miss=12
+    log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq${tc:+, timing cuts $tc}${miss:+, miss-heavy}"
     summarize "$commit" "running${state_note:+; $state_note}"
     local i=0 cfg day; day=$(date +%F)
     for cfg in $CFGS; do
-      campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" "$tc" &
+      campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" "$tc" "$miss" &
       i=$((i + 1))
     done
     wait

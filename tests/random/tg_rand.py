@@ -41,6 +41,7 @@ DATA_SIZE = 16384          # main data region, at gp
 ALIAS_PAGES = 4            # tp = gp + ALIAS_PAGES * 4 KiB: same page offsets, different pages
 DATA_BYTES = ALIAS_PAGES * 4096 + 4096   # gp region plus the alias page tp addresses (offsets < 2 KiB)
 STREAM_SIZE = 65536        # cache-miss stream region (bigger than a 32 KiB L1); four times that under --vm
+SET_STRIDE = 4096          # lines this far apart share an L1D set (32 KiB, 8 ways, 64-byte lines: every configuration)
 PTR_SLOTS = 32             # table of known offsets at gp + 0, for late store addresses
 PTR_STEP = 48              # the table holds slot * PTR_STEP + 256 (all below 2 KiB)
 SPECIAL = [0, 1, 2, -1, -2, 0x7FFFFFFFFFFFFFFF, -0x8000000000000000, 0xFFFFFFFF, 0x80000000, -0x80000000,
@@ -68,7 +69,7 @@ def x(r):
 
 
 class Gen:
-    def __init__(self, seed, isa, irq, length, group3, vm=0):
+    def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2):
         self.r = random.Random(seed)
         self.seed = seed
         self.isa = isa
@@ -78,6 +79,7 @@ class Gen:
         self.has_fd = "f" in base and "d" in base
         self.irq = irq
         self.length = length
+        self.miss = miss
         self.group3 = group3
         self.lines = []
         self.nlabel = 0
@@ -250,6 +252,59 @@ class Gen:
         self.emit(f"add {x(ptr)}, {x(ptr)}, {x(v)}")
         self.emit(f"addi {x(cnt)}, {x(cnt)}, -1")
         self.emit(f"bnez {x(cnt)}, {top}")
+
+    def t_miss_burst(self):
+        """Back-to-back accesses to distinct lines of the stream region, none waiting on another's data, so that
+        a core with several L1D MSHRs keeps 2-4 misses in flight (DR-149): lines in different sets; lines of
+        one set (up to 12, past the 8 ways: evictions inside the burst); two accesses to one line (an MSHR
+        merge); store misses among the loads; and stores that dirty lines of a set followed by loads that evict
+        them (a Release beside new Acquires). Each address is a cheap ALU step from a base."""
+        kind = self.r.choice(["spread", "same_set", "merge", "dirty_evict", "mixed"])
+        per_set = self.stream_size // SET_STRIDE          # lines of the region in one set
+        b = self.wr()
+        p = self.wr((b,))
+        t = self.wr((b, p))
+        acc = self.wr((b, p, t))
+        fixed = (b, p, t, acc)
+        self.emit(f"la {x(b)}, stream")
+        self.emit(f"andi {x(acc)}, {x(self.rd_any())}, 0")
+        loads = ["ld", "lw", "lwu", "lh", "lbu"]
+        stores = ["sd", "sw", "sh", "sb"]
+        if kind in ("same_set", "dirty_evict"):
+            st = self.r.randrange(SET_STRIDE // 64) * 64
+            picks = self.r.sample(range(per_set), self.r.randrange(4, min(per_set, 12) + 1))
+            offs = [k * SET_STRIDE + st for k in picks]
+        else:
+            offs = [l * 64 for l in self.r.sample(range(self.stream_size // 64), self.r.randrange(2, 7))]
+        ops = []
+        for i, off in enumerate(offs):
+            if kind == "dirty_evict":
+                op = self.r.choice(stores) if i < max(1, len(offs) // 3) else self.r.choice(loads)
+            elif kind == "mixed":
+                op = self.r.choice(loads + stores)
+            else:
+                op = self.r.choice(loads)
+            ops.append((off, op))
+            if kind == "merge" and i == 0:
+                ops.append((off, self.r.choice(loads)))      # the same line again: an MSHR merge
+        vals = []
+        for off, op in ops:
+            self.emit(f"li {x(t)}, {off}")
+            self.emit(f"add {x(p)}, {x(b)}, {x(t)}")
+            imm = self.r.randrange(0, 64, 8)
+            if op in stores:
+                self.emit(f"{op} {x(self.rd_any())}, {imm}({x(p)})")
+            else:
+                v = self.wr(fixed)
+                self.emit(f"{op} {x(v)}, {imm}({x(p)})")
+                vals.append(v)
+        for v in vals[-3:]:                                   # consumers behind the misses, and a branch on them
+            self.emit(f"add {x(acc)}, {x(acc)}, {x(v)}")
+        if vals and self.r.randrange(2):
+            skip = self.label()
+            self.emit(f"bnez {x(acc)}, {skip}")
+            self.emit(f"addi {x(self.wr(fixed))}, {x(acc)}, 1")
+            self.place(skip)
 
     def t_long_then_flush(self):
         """A long-latency result (divide or missing load), its consumers, and a data-dependent branch or a
@@ -920,7 +975,7 @@ class Gen:
         if self.vm:  # from here on S-mode under Sv39; the registers keep their values
             self.vm_setup()
         templates = [(self.t_alu_burst, 6), (self.t_forwarding, 5), (self.t_alias, 2), (self.t_late_store, 4),
-                     (self.t_miss_stream, 2), (self.t_long_then_flush, 5), (self.t_trap, 2), (self.t_amo, 2),
+                     (self.t_miss_stream, 2), (self.t_miss_burst, self.miss), (self.t_long_then_flush, 5), (self.t_trap, 2), (self.t_amo, 2),
                      (self.t_csr, 1), (self.t_call, 2), (self.t_reg_pressure, 5), (self.t_store_burst, 4),
                      (self.t_all_ports, 3), (self.t_long_burst, 2)]
         if not self.vm:  # tg_replay's pre-check adopts device loads only untranslated (verification.md §9)
@@ -999,11 +1054,13 @@ def main():
     ap.add_argument("--irq", type=int, default=0, help="timer interrupt period in mtime ticks (0: none)")
     ap.add_argument("--length", type=int, default=200, help="number of templates")
     ap.add_argument("--no-group3", action="store_true", help="leave out the width-3 groups")
+    ap.add_argument("--miss", type=int, default=2, help="weight of the miss-burst template (DR-149; the default "
+                    "mix weighs the others 1-6): 12 makes misses in flight the program's main business")
     ap.add_argument("--vm", type=int, default=0, help="percentage of programs that run in S-mode under Sv39 "
                                                       "(needs S-mode and Sv39: Spike --priv=MSU)")
     ap.add_argument("-o", "--output", default="-")
     a = ap.parse_args()
-    text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm).program()
+    text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss).program()
     if a.output == "-":
         sys.stdout.write(text)
     else:
