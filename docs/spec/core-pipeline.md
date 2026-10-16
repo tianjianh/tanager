@@ -56,7 +56,14 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 - **Next PC (F1).** `fpc_d` = flush redirect, else decode redirect, else miss restart, else stall (`fpc_q`), else micro-BTB target on a hit, else the next 16-byte block. Spike S5's loop, with 64-bit PCs.
 - **I$.** `L1I_KIB` (32 KiB), `L1_WAYS` (8) ways, 64-byte lines, 64 sets, index PC[11:6] (VIPT-ready). Data: one `tg_ram_sdp` per way, 256 rows × 128 bits, output register (read address = `fpc_d`). Tags: one `tg_ram_lut` per way. Valid bits: one `tg_ram_lut` row of 8 bits per set (plan §8.3), read by F1 and by the refill (victim choice, then a read-modify-write with the tag); after reset and FENCE.I a 64-cycle sweep clears them while F1 waits.
 - **Physical address.** In M (and Bare), PA = PC[`PA_W`-1:0]; with `EXT_SU` in S and U under Sv39, F1 translates the PC through the ITLB (core-mmu.md: misses park fetch for a walk). A PA with nonzero bits above `PA_W`, or whose PMA is not `PMA_MEM`/`PMA_ROM`, faults without a refill; PMP is checked per 4-byte word.
+  - **On a translated page that a PMP region boundary splits, F1 waits a cycle for the check** (DR-140 #6). The block checker reads the address the ITLB gave then, so the ITLB and the checker are never in one cycle. The walker judges each page on its own (core-mmu, PMP), so under OpenSBI only a page holding a firmware-region boundary waits.
+  - Bare mode checks the fetch PC itself, and homogeneous pages use the ITLB's cached result.
 - **Miss (F2).** The F1/F2 contents are dropped, fetch parks, and one `Get` (size 6) goes out on `l1i` (one outstanding request; the plan's 4 MSHRs and prefetch are M6). The four `AccessAckData` beats are written into the victim way (an invalid way, else a round-robin pointer shared by the sets); the victim's valid bit is cleared when the refill starts, because the refill rewrites its rows beat by beat and outlives redirects (its old line must miss meanwhile); the tag and valid bit are written with the last beat; then fetch restarts at the missed PC. `denied` or `corrupt` leaves the line invalid and records a fetch fault for the PC.
+- **F2's actions on F1 are registered** (DR-140 #7). They take effect a cycle later and drop the blocks F1 and F2 took meanwhile:
+  - parking on an I$ or ITLB miss;
+  - a refetch: at a PMP cut, after a dropped prediction, or of a line installed while F2 missed it;
+  - the stop after a fault block.
+  - The refill and the walk start from the registered decision, as early as before.
 - **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
 ### 3.2 Prediction
@@ -83,6 +90,16 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 **Timing:**
 - **No add waits for another.** An instruction's PC is its block's address plus its offset in the block (`pc[3:0]`, or −2 for a straddler). The PC-relative values (the targets, AUIPC, the link value, the next PC) are each one three-input add of block address, offset and operand: a carry-save step and one carry chain. Only a straddler's PC needs a decrement of the block address.
 - **The redirect decision uses no add at all.** "The predicted target is the branch's" is checked carry-free, as `a + b + c == k` (Cortadella and Llabería, IEEE Trans. Computers, 1992). Every bit of the carry-save sum must match the carry that k needs there. The sums themselves feed only registers.
+- **Nor does it wait for the decoder.**
+  - **The class:** the instruction's pre-decode marks (conditional branch, JAL, JALR), which the queue carries from F2. For an instruction without a decode-time exception they are decode's class. Pre-decode reads the same opcode bits, and every encoding the two could disagree on is illegal: JALR with funct3 ≠ 0, a branch with funct3 2 or 3, a compressed instruction without C or reserved.
+  - **The offset:** from the raw encoding (B, J, CB or CJ format), chosen by the JAL mark.
+  - **The exception that gates it:** from the raw encoding too. A 32-bit instruction's comes from a second decoder of which only that output and "serialising" are kept. A compressed instruction's: illegal as such, C.EBREAK, or an FP load or store (C.FLD, C.FSD, C.FLDSP, C.FSDSP) with the FP unit off.
+  - **The group** (who goes alone) uses the same bits, so the RVC expander feeds only the uop's fields.
+  - **Checks:** simulation asserts every one of these against the decoder's own results.
+- **One more stage, a switch** (DR-140 #8, `DE_STAGE`): off in both profiles, and lint-only on top of the default until the user turns it on.
+  - DE1 decodes the queue head into registers. DE2 forms the group and checks the predictions from them.
+  - The queue's take then counts a group as ending only at the instructions that go alone.
+  - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
 
 ## 4. Decode (`tg_decode`)
 
@@ -191,7 +208,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **FP exception flags (EXT_FD):** two LUTRAM tables by ROB entry, one per completion port. P4's F0 results write one and FP→int results (bank 1) the other; at commit, the op's result file picks the table.
 - **Oldest-exception register** {ROB index, cause, `tval`} for exceptions found after dispatch (LSU, branch target, CSR); the oldest wins by ROB age (index plus wrap bit). **Oldest-mispredict register** {ROB index, target}, same rule. Both reset on a flush.
   - **The exception is chosen in parallel, not by a chain of compares.**
-    - **Candidates:** the register, the CSR port, the branch port and the LSU's four ports. Every pair is compared by ROB index.
+    - **Candidates:** the register, the CSR port, the branch port, the LSU's four ports and its store PMP port (below). Every pair is compared by ROB index.
     - **Why it is fast:** the indices arrive early, since the LSU sends each port's payload index whether or not it faults. The late valid bits only gate a one-hot select.
     - **Same result as the chain:** the oldest wins, the first candidate in the old order on a tie. `tval` is the best of the first three alone, as the chain left it.
     - **Checked:** in simulation the old chain runs beside it and must agree every cycle.
@@ -201,7 +218,10 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
   - **An interrupt's** adds 4 × its code in vectored mode. Its code and delegation are the CSR file's own and arrive early, so the 64-bit add stays off the exception's path.
   - The ROB picks one with `do_irq` in its redirect multiplexer, still one LUT6 per bit.
 - **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
+- **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
+  - With `ROB_STORE_REPORT_LATE` (#2, off in both profiles: lint-only, DR-140), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
+- **A store's PMP denial after it completed** (core-lsu: the check a cycle after the store's decision, S2) arrives on an exception-only port: its own exception table, no completion, the cause `EXC_SACCESS`, the head's store VA as `tval`. Until it can show, the LSU holds commit at that store (`sth_v`/`sth_rob`, registered: the check's cycle, held for any store in it, and the report's). Commit stops before a held entry.
 
 ### 8.2 Commit
 Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT update; the old physical register goes to its bank's free list (through the deferred-free stage, a pass-through in M2); the free list's committed head advances for the new one; LQ head or SQ commit mark; `minstret`; a trace record (§11).
@@ -211,6 +231,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
+- **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come.
 
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
@@ -291,7 +312,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 
 | Lever | Where | State |
 |---|---|---|
-| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
+| PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page base, and against every entry that no region boundary lies inside the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
 | R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
@@ -311,26 +332,59 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | R14 implementation | the budget flow keeps the hierarchy (`-flatten none`) | datapath registers mostly reset-free; area directives not applied yet |
 | The walker's PMP checks on the STA port's checker (adopted by the user: DR-139, superseding DR-122) | `tg_ptw` (no checker of its own), `tg_lsu` (the STA checker's input multiplexer: the walker's address in a cycle without a store address) | done: −0.83K LUTs per core. Cycle cost from `make cycle-identical` against fn3's head, st / smt2: isa +0.052% / +0.228%, stress +0.098% / −0.098%, bench 0 / 0, random +0.003% / −0.018% |
 
-**Reserve (DR-135: each one moves cycles, and only the user adopts it; not taken):**
+**Timing cuts that cost cycles (DR-140: the user decided each one, under DR-135).** Cycle costs are from `make cycle-identical`, as change in cycles per suite, st / smt2. Each is measured against the commit before it on fn5, whose base is fn4's head (028f45e).
 
-Cycle costs are from `make cycle-identical`, as change in cycles per suite, st / smt2: F1 to F3 against fn3's head (1c0eaca), the rest against fn4's (028f45e). Each lever's RTL is kept on a local branch.
+*Hardwired:*
 
-| Lever | Gain | isa | stress | bench | random | Branch |
+| # | Cut | Timing | isa | stress | bench | random |
 |---|---|---|---|---|---|---|
-| F1 cut: the LSU's fault reports reach the ROB a cycle later. It is the "fault reporting" row of smt2-study's ablation. | timing: the AG fault decision leaves the exception register's paths (whole core: see §16) | +0.000% / +0.000% | +0.000% / +0.000% | 0 / 0 | +0.032% / +0.024% | `tmp/core-cut-fault` |
-| F2/F5 cut: the store reports (completions and the ordering replay mark) reach the ROB a cycle later, together. It is the "completion → ROB" row. | timing: the STA's TLB and PMP decision and the LQ ordering search leave the ROB's completion and replay tables | +0.428% / +0.369% | +0.217% / −0.053% | +0.100% / +0.188% | −0.150% / +0.018% | `tmp/core-cut-store` |
-| F3 cut: the ROB head's DTLB retry reaches the ROB a cycle later | timing: the head's DTLB lookup leaves the commit redirect | +0.002% / +0.006% | +0.198% / −0.031% | 0 / 0 | −0.057% / +0.046% | `tmp/core-cut-head` |
-| LSU address-stage split (core-lsu.md, "Design: the address-stage split"): a new load's and a store address's DTLB, PMP and access decisions move to M1; AG adds the address and reads the D$ at the page-offset row, so load-to-use is unchanged. It subsumes F1 and F2/F5. | timing: the address add leaves the LSU's AG family (TLB, PMP, decisions, reports to the ROB) | +0.696% / +0.476% | +0.282% / +0.014% | +0.160% / +0.088% | −0.151% / +0.123% | `claude/track-core-adb715-agsplit` |
-| Atomic read-data register: an atomic's D$ read data is registered before the modify and write, one cycle more per atomic | timing: the D$ atomic family (block RAM → AMO ALU → block RAM) | +0.113% / +0.135% | −0.021% / −0.016% | 0 / 0 | −0.180% / +0.089% | `tmp/core-cut-amo` |
-| Fetch PMP check a cycle later on translated pages that a PMP region boundary splits: F1 waits a cycle, and the block checker reads the address the ITLB gave. Bare mode checks the fetch PC itself; homogeneous pages keep the ITLB's cached result. | timing: F1's ITLB → PMP → F2 path | 0 / 0 | 0 / 0 | 0 / 0 | 0 / 0 | `tmp/core-cut-fpmp` |
-| F2's actions on F1 registered: parking on an I$ or ITLB miss, the refetches (PMP cut, dropped prediction, install race) and the stop after a fault block take effect a cycle later and drop the blocks F1 and F2 took meanwhile. The refill and the walk still start as early. | timing: the F2 family (tag compare, pre-decode and the PMP cut into the fetch PC and F2's enables) | +0.003% / +0.006% | −0.015% / +0.011% | −0.003% / +0.032% | +0.005% / +0.014% | `tmp/core-cut-f2` |
-| DE stage: decode takes a stage of its own. DE1 decodes the queue head into registers; DE2 forms the group and checks the predictions from them. Every redirect costs one more front-end cycle. | timing: the DE family (queue head → decode → group → take, the redirect and the next PC) | +0.885% / +0.799% | +0.394% / +0.284% | +2.505% / +2.308% | +0.159% / +0.535% | `tmp/core-cut-de` |
+| #1 | The LSU's fault reports reach the ROB a cycle later (§8.1) | the address stage's fault decision leaves the ROB's exception register | 0 / 0 | 0 / 0 | 0 / 0 | −0.005% / +0.074% |
+| #3 | The ROB head's DTLB retry reaches the ROB a cycle later (§8.1) | the head's DTLB lookup leaves the commit redirect | +0.161% / −0.197% | +0.051% / +0.012% | 0 / 0 | +0.002% / +0.072% |
+| #6 | The fetch PMP check a cycle later, on translated pages that a PMP region boundary splits (§3.1) | F1's ITLB → PMP path | identical | identical | identical | identical |
 
-- **The split in the w3 configurations** (st_w3 / smt2_w3): isa +0.489% / +1.565%, stress −0.258% / +0.273%, bench +0.118% / +0.006%, random +0.239% / +0.257%. Its isa cost is the `-v` tests' page-table setup, whose walks report a cycle later (about +95 cycles per test). No program fails in any of the four configurations.
-- **The fetch PMP check is identical in every suite:** no program fetches from a translated page that a PMP boundary splits. It is listed because such a page would cost a cycle per fetch block.
-- **Timing, whole core (st, out of context at 200 MHz):** F1, F2/F5 and F3 together take fn3's head from −7.071 to −5.464 ns (6d0523e). The worst families are then level at about −5.4 ns: the D$ atomic path, the LQ head → the replay register, F2 → the fetch PC, the LSU's address stage and DE, each with a lever above.
-  - Families that none of the three touch moved by up to 1.7 ns as well, so placement noise between runs is about 1 ns.
-  - The split alone and every lever together (`tmp/core-cuts-all`) are queued.
+- **#6 under Linux:** identical on the suites, but with the walker's PMP check per page size (until fn7) the Linux boot was +2.218% slower in st and +1.648% in smt2 (`make cycle-identical BOOT=20`, records retired in 20.09M cycles), because every 2M kernel page counted as split. With the per-page check, #6 costs 0 on the boot: identical with and without it, in both profiles.
+| #7 | F2's actions on F1 registered (§3.1) | the F2 family into the fetch PC and F2's enables | +0.001% / −0.002% | −0.010% / −0.035% | −0.003% / +0.032% | −0.006% / +0.006% |
+
+- #3's cost differs from its first measurement, which was made on fn3. Since fn4 the head's check has its own DTLB lookup.
+
+*Build switches* (`tg_core_pkg`): generate branches, chosen at elaboration, so each setting builds only its own logic. `TG_TIMING_CUTS=0|1` forces a profile. Each switch also has its own define over its profile value (`TG_ROB_STORE_REPORT_LATE`, `TG_LSU_AG_SPLIT`, `TG_DC_AMO_READ_REG`, `TG_DE_STAGE`, `TG_ROB_HEAD_TLB_LATE`, each `=0|1`).
+
+| # | Switch | What | Timing |
+|---|---|---|---|
+| #2 | `ROB_STORE_REPORT_LATE` | the store completions and the ordering replay mark reach the ROB a cycle later, together (§8.1) | the store address's TLB and PMP decision and the LQ's ordering search leave the ROB's tables |
+| #4 | `LSU_AG_SPLIT` | the address-stage split (core-lsu.md) | the address add leaves the address stage's decisions |
+| #5 | `DC_AMO_READ_REG` | an atomic's D$ read data is registered (core-lsu.md) | the D$ atomic path, block RAM to block RAM |
+| #8 | `DE_STAGE` | one more decode stage (§3.4) | the DE family |
+| #9 | `ROB_HEAD_TLB_LATE` | the ROB head's DTLB check looks up the head's VA as registered a cycle earlier, from the head's second cycle (DR-144, B3). Off: a second lookup takes the committing store's VA beside the LQ head's, and the head's selection picks last (B2, cycle-exact; the DTLB has four ports) | the head's selection and its VA reads leave the walker's start |
+
+*Profiles* (only these are supported; DR-140 as the user decided it after DR-141's board runs):
+- **default** (the shipping profile): #4, #5 and #9 on, #2 and #8 off.
+- **fallback** (`TG_TIMING_CUTS=0`): all five off. It is cycle-identical to the core without the switches (fn5's da48d96) in all four configurations, 800 of 800 programs each; with #9 off it was checked again against fn7's fallback (fcd9298), also 800 of 800 in all four.
+- **#2 on** (`TG_ROB_STORE_REPORT_LATE=1`) and **#8 on** (`TG_DE_STAGE=1`) are lint-only, on top of the default. Each is verified again only if the user turns it on. #8 cost bench +2.5% / +2.3% when measured; #2's cost is below.
+
+*Costs* (isa / stress / bench / random): the fallback against fn4's head, and the default against the fallback (6857589 against 3735313).
+
+| Config | fallback | default |
+|---|---|---|
+| st | +0.163% / +0.041% / −0.003% / −0.009% | +0.636% / +0.353% / +0.123% / +0.065% |
+| smt2 | −0.198% / −0.023% / +0.032% / +0.152% | +0.764% / +0.053% / +0.066% / −0.104% |
+| st_w3 | +0.041% / +0.027% / 0.000% / +0.194% | +0.743% / +0.074% / +0.105% / +0.043% |
+| smt2_w3 | +0.145% / +0.014% / 0.000% / +0.210% | +0.645% / +0.126% / +0.004% / +0.132% |
+
+- **The fallback costs exactly what the hardwired cuts sum to** (st and smt2 to the 0.001%).
+- **#9 (DR-144)**, the default against the default without it: st +0.008% / +0.085% / 0 / −0.019%, smt2 +0.022% / +0.065% / 0 / +0.132% (isa / stress / bench / random). Where the suites show 0, the Linux boot (`BOOT=20`, 20.09M cycles) shows the cost: one core retires 0.017% fewer records in st (13,991,941 against 13,994,292) and 0.007% fewer in smt2 (15,670,286 against 15,671,361); two cores 0.003% fewer in st (15,712,385 against 15,712,834) and the same in smt2. Its timing: the walker-start family from 19–20 logic levels to 14 (B2 in the fallback: 12–14). LSU LUTs (st, budget flow, synthesised alone, which varies by about ±100): about 0 in the default plus 29 flip-flops; the fallback's second lookup +194 to +342, of which +104 is LUTRAM.
+- **The Linux boot** (instructions retired in the first 20.09M cycles, `make cycle-identical BOOT=20`): the default retires 0.084% fewer than the fallback in st (13,994,292 against 14,006,018) and 0.117% fewer in smt2 (15,671,361 against 15,689,643). With #2 on it was 0.153% and 0.172% fewer.
+- **Why #2 is off.** On the board (DR-141), #2 alone cost syscall +3.4% and Dhrystone +0.7%; #4 and #5 together cost memcpy (1 MiB) +1.9%, tlbwalk +1.1% and Dhrystone +1.5%. In simulation, the default with #2 cost st +1.313% / +0.465% / +0.419% / −0.045% against fn4's head, its bench cost above the switches' separate costs, through Dhrystone:
+  - Dhrystone in that default, st: rv64im +1.57%, rv64gcb +2.97% (native latency).
+  - #2 alone: +0.87% / +0.59%. #4 alone: +0.74% / +0.34%. #5 alone: identical.
+  - Together they are superlinear on rv64gcb.
+- **The cause** (measured with commit and rename counters, st, rv64gcb): stores wait at the ROB head for their completion report, and #4 and #2 each delay that report by a cycle.
+  - Cycles in which the head is a store not yet complete: 2,744 in the fallback, 7,129 with #4 and #5, 13,196 in the default.
+  - A mispredict is recovered when its branch commits, so it waits behind those stores. The default also mispredicts 4% more often on rv64gcb (10,786 flushes against 10,347), which makes the pair superlinear there.
+  - Not store-to-load forwarding: Dhrystone's loads that meet older stores are each fully covered by one store (1,499 forwards, none partial; `strcmp` stops at the first difference). A byte-wise forwarding prototype changed no bench program.
+  - CoreMark moves by −0.3% to +0.45%.
+  - The user's options were the default without #2, or a bypass at the commit slots that keeps #2's register and takes its cycle back. They chose the first (DR-140).
+
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 **Follow-ups (functional, with deadlines):**

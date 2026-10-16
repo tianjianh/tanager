@@ -10,14 +10,32 @@ lassign $argv root cfg kind core_mhz n_cores stop
 set pmod_uart [expr {[info exists ::env(TG_PMOD_UART)] ? $::env(TG_PMOD_UART) : 0}]
 # TG_UNCORE_DSP (hex, e.g. 0x8403080000, the default): which register slices keep their data in DSPs
 # (tg_uncore UNCORE_DSP, one bit per site; 0 is all fabric, 0xDEFFFFFFFFF every site but the AXI B slices)
-set xbar_gen {}
+set unc_gen {}; set unc_set {}
 # TG_DEFINES (space-separated NAME=VALUE): Verilog defines for synthesis, e.g. the core's timing-cut
 # profile (TG_TIMING_CUTS=0|1, DR-140). TG_PROFILE labels the build in summary.txt (and so the package).
 set def_args {}
 set defines [expr {[info exists ::env(TG_DEFINES)] ? $::env(TG_DEFINES) : ""}]
 foreach d $defines { lappend def_args -verilog_define $d }
 set profile [expr {[info exists ::env(TG_PROFILE)] ? $::env(TG_PROFILE) : "-"}]
-if {[info exists ::env(TG_UNCORE_DSP)]} { lappend xbar_gen -generic "UNCORE_DSP=64'h[format %016llX $::env(TG_UNCORE_DSP)]" }
+if {[info exists ::env(TG_UNCORE_DSP)]} {
+  lappend unc_gen -generic "UNCORE_DSP=64'h[format %016llX $::env(TG_UNCORE_DSP)]"
+  lappend unc_set "UNCORE_DSP=$::env(TG_UNCORE_DSP)"
+}
+# The L2's data latency and the uncore's register slices, each on its own (kv260_top, DR-146): TG_L2_DATA_LAT
+# (2 and up; unset or 0 picks by the clock: 4 above 150 MHz, else 2), TG_AR_SLICE, TG_B_SLICE, TG_D_SLICE,
+# TG_W_SLICE, TG_XBAR_SLICE, TG_MEM_SLICE (0 or 1) and TG_XBAR_IN_SLICE (0-15, a bit per channel). Unset
+# keeps tg_uncore_pkg's default; summary.txt lists the ones set.
+foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE B_SLICE 1 TG_D_SLICE D_SLICE 1
+                  TG_W_SLICE W_SLICE 1 TG_XBAR_IN_SLICE XBAR_IN_SLICE 15 TG_XBAR_SLICE XBAR_SLICE 1 TG_MEM_SLICE MEM_SLICE 1} {
+  if {![info exists ::env($v)]} continue
+  set val $::env($v)
+  if {![string is integer -strict $val] || $val < 0 || $val > $hi || ($g eq "L2_DATA_LAT" && $val == 1)} {
+    puts "ERROR: $v must be 0-$hi[expr {$g eq {L2_DATA_LAT} ? { but not 1} : {}}] (fpga/kv260/README.md)"
+    exit 1
+  }
+  lappend unc_gen -generic "$g=$val"
+  lappend unc_set "$g=$val"
+}
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {
@@ -69,7 +87,7 @@ read_xdc [file join $root fpga kv260 xdc timing.xdc]
 stamp "synth_design"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
-  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$xbar_gen {*}$def_args \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$unc_gen {*}$def_args \
   -flatten_hierarchy rebuilt
 # PMOD console pins (xdc/kv260.xdc) can be overridden; they are asynchronous to clk_core
 if {[info exists ::env(TG_PMOD_TXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_TXD) [get_ports pmod_uart_txd] }
@@ -113,6 +131,7 @@ puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}]"
+puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
 close $fh

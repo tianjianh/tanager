@@ -35,7 +35,7 @@ The PL side of that is the **host bridge**:
 | `0x000` | `ID` | RO | `0x5447_4E52` | "TNGR" |
 | `0x004` | `VERSION` | RO | | `[31:24]` major, `[23:16]` minor, `[15:12]` cores, `[11:8]` threads per core, `[7:0]` configuration (0 st, 1 smt2, 2 st_w3, 3 smt2_w3) |
 | `0x008` | `CLK_HZ` | RO | | `clk_core` frequency |
-| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[3]` commit-trace streaming, `[7:4]` memory ports |
+| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports |
 | `0x010` | `CTRL` | RW | `0x3` (FPGA) | `[0]` hold cores in reset; `[1]` hold the uncore (L2, interconnect, devices, injector) in reset; `[2]` console lossless (0: TX bytes are dropped while the host FIFO is full, so the console never stalls the RISC-V side) |
 | `0x014` | `STATUS` | RO | | `[0]` cores in reset; `[1]` uncore in reset; `[2]` L2 initialised; `[3]` power request pending |
 | `0x018` | `POWER` | RO, W1C | 0 | `[31]` request pending; `[15:0]` value the RISC-V side wrote (`0x5555` power-off, `0x7777` reboot, `0x3333 \| code << 16` failure). A write with bit 31 set clears it |
@@ -130,6 +130,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
   - **Guard:** before it maps the window, `tanager-host` checks that the overlay's node (`/axi/tanager@a0000000` for the default window) is in the live device tree, which holds only while the Tanager bitstream is loaded. A PL read that nothing answers hangs the ARM until a power cycle; the board session hung the board this way on 2026-10-14. `--force` skips the check.
   - **Options** may come before or after the command.
   - **`--trace -`** (FPGA lockstep: `tanager-host boot ... --lossless --trace - | tanager-lockstep ...`, the verification track's checker): stdout carries only the 64-byte records; the console and every message go to stderr or the pty. Each poll copies at most 4,096 records, so the console, `POWER` and `TOHOST` stay serviced while the reader lags; a reader that falls behind fills the pipe, `TRS_RP` stops advancing and the cores stall (lossless). If the reader exits, the write fails (SIGPIPE is ignored), and `run` ends as for a power-off: it drains the console, holds everything and exits 4, "trace consumer stopped".
+  - **A bitstream without the commit trace** (`TG_COMMIT_TRACE=0`, DR-146; `CAPS[3]` = 0): `load`, `run` and `boot` with `--trace` stop at once, before anything is loaded or released, naming DR-146, instead of waiting on a ring that never fills; `trace status` says the stream is not built and exits 1; `info` notes it next to the capabilities. `--lossless` (the console's) still works.
   - **Carve-out:** `/dev/mem` with `O_SYNC`. The carve-out is reserved from A53 Linux by the board's boot setup ([soc.md](soc.md) §7).
 - **Bitstream:** loaded beforehand as the PL app `tanager` with `xmutil` ([soc.md](soc.md) §7, `fpga/kv260/README.md`).
 - **M4 additions:** trace streaming to the lockstep checker, and the latency sweep commands.

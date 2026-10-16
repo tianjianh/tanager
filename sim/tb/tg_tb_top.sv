@@ -71,6 +71,9 @@ module tg_tb_top
 
   paddr_t boot_addr;
   initial begin
+    // DR-146: without the commit trace there is nothing to check, so refuse rather than pass on nothing.
+    if (!COMMIT_TRACE)
+      $fatal(1, "tg_tb_top: this model was built with TG_COMMIT_TRACE=0 (DR-146): it has no commit trace, so lockstep cannot run; build it with the trace on");
     tg_dpi_config(CFG_NAME, COMMIT_WIDTH, NUM_THREADS, CORE_ID, HART_W, WB_TAG_W,
                   TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM);
     boot_addr = paddr_t'(tg_dpi_boot_addr());

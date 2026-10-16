@@ -12,8 +12,14 @@
 #ifndef FOOTPRINT_MB
 #define FOOTPRINT_MB 32
 #endif
+#ifndef FOOTPRINT_KB
+#define FOOTPRINT_KB (FOOTPRINT_MB * 1024)
+#endif
 #ifndef HOPS
 #define HOPS 6000
+#endif
+#ifndef WARM
+#define WARM 0  /* full passes over every chain before the region, for runs without fast-forward */
 #endif
 
 typedef struct node { struct node *next; uint64_t pad[7]; } node;
@@ -33,7 +39,7 @@ static inline void filler(uint64_t *a, uint64_t *b) {
 }
 
 int main(void) {
-  const uint32_t per_chain = (uint32_t)((FOOTPRINT_MB << 20) / sizeof(node) / CHAINS);
+  const uint32_t per_chain = (uint32_t)(((uint64_t)FOOTPRINT_KB << 10) / sizeof(node) / CHAINS);
   node *heads[CHAINS];
   uint32_t *perm = (uint32_t *)malloc(per_chain * sizeof(uint32_t));
   for (int c = 0; c < CHAINS; c++) {
@@ -45,6 +51,11 @@ int main(void) {
   uint64_t fa = 0, fb = 0;
   node *p[CHAINS];
   for (int c = 0; c < CHAINS; c++) p[c] = heads[c];
+#if WARM > 0
+  for (int w = 0; w < WARM; w++)
+    for (uint32_t h = 0; h < per_chain; h++)
+      for (int c = 0; c < CHAINS; c++) p[c] = p[c]->next;  /* each chain is one cycle: back at its head */
+#endif
   tg_region_start();
   for (int h = 0; h < HOPS; h++) {
 #pragma GCC unroll 16

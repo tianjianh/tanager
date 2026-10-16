@@ -8,7 +8,9 @@
 // After reset an init sequence writes FIRST .. DEPTH-1 (NB entries per cycle); `ready` then rises.
 // The free count (tail - spec head) is a register, kept with the commit count (tail - commit
 // head) that it takes on a flush, so rename's resource checks start from flip-flops rather than
-// a subtraction (timing; the same values, asserted).
+// a subtraction (timing; the same values, asserted). Rename's fire (`pop`) arrives last, after
+// its own resource checks: the next head and count are formed with and without the pops, and
+// `pop` picks one (timing: the add leaves rename's count -> fire -> count loop).
 module tg_freelist
   import tg_pkg::*;
 #(
@@ -30,7 +32,8 @@ module tg_freelist
   output logic                      ready,
   output logic [PW-1:0]             count,      // free registers after the spec head
   output logic [NPOP-1:0][IW-1:0]   pop_idx,    // the next NPOP free registers
-  input  logic [NPW-1:0]            pop_n,
+  input  logic [NPW-1:0]            pop_n,      // the pops, taken when `pop`
+  input  logic                      pop,
   input  logic [NPUSH-1:0]          push_v,     // any subset; written in slot order
   input  logic [NPUSH-1:0][IW-1:0]  push_idx,
   input  logic [NUW-1:0]            commit_n,
@@ -126,8 +129,8 @@ module tg_freelist
         head_q  <= chead_q + PW'(commit_n);
         count_q <= ccount_q + PW'(npush) - PW'(commit_n);
       end else begin
-        head_q  <= head_q + PW'(pop_n);
-        count_q <= count_q + PW'(npush) - PW'(pop_n);
+        head_q  <= pop ? head_q + PW'(pop_n) : head_q;
+        count_q <= pop ? count_q + PW'(npush) - PW'(pop_n) : count_q + PW'(npush);
       end
     end
   end
@@ -135,7 +138,7 @@ module tg_freelist
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst && ready) begin
-      assert (PW'(pop_n) <= count) else $error("tg_freelist: pop beyond the free registers");
+      assert (!pop || PW'(pop_n) <= count) else $error("tg_freelist: pop beyond the free registers");
       assert (count_q == PW'(tail_q - head_q) && ccount_q == PW'(tail_q - chead_q))
         else $error("tg_freelist: the free counts differ from the pointers");
       assert (int'(count) + int'(npush) <= DEPTH) else $error("tg_freelist: overflow");

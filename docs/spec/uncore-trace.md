@@ -11,6 +11,8 @@ It replaces the block-RAM trace ring (`tg_trace_ring`, [host.md](host.md) §Trac
 - **Block RAM:** the ring takes 9 RAMB36 at 2-wide; the uncore's whole block-RAM budget is 18 ([docs/perf/budgets.md](../perf/budgets.md)), of which the L2 directories take 13 and the latency injectors 4. The stream's buffers are LUTRAM.
 - **Depth:** the DDR ring holds millions of records instead of 1,024.
 
+**A build switch** (DR-146): `+define+TG_COMMIT_TRACE=0` (`tg_trace_pkg` `COMMIT_TRACE`; FPGA builds through `build.tcl`'s `TG_DEFINES`) builds the SoC without the trace, for timing, fit and performance builds; unset or 1 builds it, as lockstep, the cycle-identical tool and the board's lockstep need. Without it, `tg_uncore` (`TRACE`) has no `tg_trace_stream`: the trace inputs are ignored, `trace_stall_o` is 0, the trace master stays idle (`AWVALID` and `WVALID` 0, `BREADY` 1), so the path to `S_AXI_HP3_FPD` is constants and the port, still in the block design, never sees a write; the host bridge's `CAPS[3]` reads 0 and its `TRS_*` registers read 0 and ignore writes. Commit behaviour is the same: a core retires the same instructions in the same cycles, unless the stream was slowing it (`trace_stall_i`), which it can only while the host has it enabled (`TRS_CTRL[0]`). The cores' side (no trace records, no extra register-file read ports) is the core track's.
+
 The price is speed while tracing: the stream writes one 64-byte record per four beats of a 128-bit port, about 25 million records per second at 100 MHz, so a core that retires faster is slowed to that rate. The A53 checker is slower still. Capture can therefore start at a trigger, so a run reaches the point of interest at full speed (§Behaviour).
 
 ## Interface

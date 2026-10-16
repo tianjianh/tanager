@@ -6,7 +6,7 @@
 # Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
 # (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
 # no program while MemAvailable is under 12 GB (no build under 16 GB), and holds while the host
-# drive C: has under 20 GB free or the machine is busy.
+# drive C: has under 12 GB free, WSL's own root filesystem has under 15 GB free, or the machine is busy.
 #   tools/ci/soak.sh start     start it (also at every boot, from main's checkout: an @reboot crontab entry)
 #   tools/ci/soak.sh stop      stop it until the next start or boot
 #   tools/ci/soak.sh disable   stop it and remove the @reboot entry
@@ -17,6 +17,8 @@ CFGS="st st_w3 smt2 smt2_w3"
 JOBS=2                  # simulations per configuration: 4 x 2 = 8 at most
 BUILD_JOBS=4            # a tg_core model compile peaks at 0.63 GB (smt2_w3, measured): -j4 needs ~3 GB
 MEM_GB=12               # start no program while MemAvailable is under this
+C_MIN_GB=12             # hold while the host drive C:, which holds WSL's virtual disk, has less free
+WSL_MIN_GB=15           # or WSL's root filesystem has less free (df /: it binds once the disk is capped)
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
 SEEDS=400               # programs per configuration per round (about a minute)
 VM_PCT=33               # share of the programs that run in S-mode under Sv39 (tg_rand --vm)
@@ -136,7 +138,7 @@ summarize() {
   { echo "# Soak of main (tools/ci/soak.sh)"
     echo
     echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds$([ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ] && echo " (alternate pairs of rounds), the core's timing cuts (DR-140) off and on in alternate rounds"); trace back-pressure $stall"
-    echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free"
+    echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free, WSL $(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9') GB"
     echo "- findings are a triage list: they gate nothing until confirmed as core bugs (verification.md §4.4)"
     echo
     echo "## Programs per day and configuration"
@@ -171,15 +173,20 @@ run() {
   [ -s "$SOAK/spike_isa" ] && [ -s "$SOAK/prog_isa" ] || rm -f "$SOAK/commit"
   [ -s "$SOAK/commit" ] && [ ! -s "$SOAK/fingerprint" ] && fingerprint "$(cat "$SOAK/commit")" > "$SOAK/fingerprint"
   trap 'rm -f "$SOAK/soak.pid"; exit 0' TERM INT
-  local commit seed free load irq
+  local commit seed free wfree load irq
   while :; do
     state_note=""
     [ -f "$SOAK/logs/soak.log" ] && [ "$(stat -c %s "$SOAK/logs/soak.log")" -gt 1000000 ] &&
       mv "$SOAK/logs/soak.log" "$SOAK/logs/soak.log.1"
     commit=$(git --git-dir="$SOAK_GIT" rev-parse --short main 2>/dev/null) || { sleep 600; continue; }
     free=$(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9')
-    if [ -n "$free" ] && [ "$free" -lt 20 ]; then
-      log "holding: C: has $free GB free"; summarize "$commit" "holding (C: under 20 GB free)"; sleep 1800; continue
+    if [ -n "$free" ] && [ "$free" -lt "$C_MIN_GB" ]; then
+      log "holding: C: has $free GB free"; summarize "$commit" "holding (C: under $C_MIN_GB GB free)"; sleep 1800; continue
+    fi
+    wfree=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')
+    if [ -n "$wfree" ] && [ "$wfree" -lt "$WSL_MIN_GB" ]; then
+      log "holding: WSL's root filesystem has $wfree GB free"
+      summarize "$commit" "holding (WSL under $WSL_MIN_GB GB free)"; sleep 1800; continue
     fi
     if [ "$(mem_gb)" -lt "$MEM_GB" ]; then
       summarize "$commit" "waiting (MemAvailable $(mem_gb) GB, under $MEM_GB)"; sleep 120; continue

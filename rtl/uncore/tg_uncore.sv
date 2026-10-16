@@ -13,7 +13,7 @@ module tg_uncore
   parameter int          L2_SETS         = 1024,
   parameter int          L2_MSHR         = 24,
   parameter              L2_PRIM         = "ultra",
-  parameter int          L2_DATA_LAT     = 2,          // 4 for the URAM cascade at 200 MHz
+  parameter int          L2_DATA_LAT     = L2_DATA_LAT_DEF,  // 2; 4 for the URAM cascade at 200 MHz
   parameter bit          CORE_RST_INIT   = 1'b1,
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
@@ -30,38 +30,48 @@ module tg_uncore
   // ALU, so the slices behind arbiters (D, B, the banks' A, memory AR) stay in fabric; memory AW, the
   // memory R slices (their slower clock-to-out) and the L2 R slices failed in one placement and stay
   // there too; the AXI B slices (a few bits) always do.
-  parameter logic [63:0] UNCORE_DSP      = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},
+  parameter logic [63:0] UNCORE_DSP      = UNCORE_DSP_DEF,
   // A register slice on each bank's AXI AR, before the latency injector: it cuts the L2's AR
   // handshake (pick, MSHR LUTRAM, the window's range check, ready back into the pick), the
   // uncore's longest path at 200 MHz, for a cycle on every fill (DR-135; on by default, the user's
   // decision of 10-15: +0.056% cycles at st, +0.134% at smt2 over the first 20M of the Linux boot)
-  parameter bit          AR_SLICE        = 1'b1,
+  parameter bit          AR_SLICE        = AR_SLICE_DEF,
   // A register slice on each bank's TileLink B (probes), before the crossbar: it would cut the probe
   // handshake (the L2's probe pick, the destination, the crossbar's per-core B arbiter, ready back
-  // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, being measured
-  parameter bit          B_SLICE         = 1'b0,
+  // into the probe flags), for a cycle on every probe. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          B_SLICE         = B_SLICE_DEF,
   // A register slice on each bank's TileLink D (responses), before the crossbar: it would cut the D
   // channel's handshake (a bank's D queue and output arbiter, the crossbar's per-initiator D arbiter,
   // which weighs both banks, then the ready back into the bank's queue and credit), for a cycle on
-  // every L2 response. Off: a DR-135 reserve item, being measured
-  parameter bit          D_SLICE         = 1'b0,
+  // every L2 response. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          D_SLICE         = D_SLICE_DEF,
   // Register slices on each bank's AXI AW and W, before the latency injector, as the AR slice is on
   // AR: they would cut the write-back path from the L2 to the memory path by the PS ports (G4-FP:
   // the memory W slices at -2.3 / -2.4 ns with the banks at the URAM column), for a cycle on every
-  // write-back. Off: a DR-135 reserve item, being measured
-  parameter bit          W_SLICE         = 1'b0,
+  // write-back. Off: a DR-135 reserve item, measured in docs/spec/soc.md
+  parameter bit          W_SLICE         = W_SLICE_DEF,
   // Register slices on the cores' request channels, between the core ports and the crossbar: the
   // interface register stage on the uncore's side (G4-FP: core -> A slices -2.87 ns, core -> C
   // -3.05 ns, mostly wire). Bit 0 the caches' A (l1d, l1i), bit 1 the MMIO A, bit 2 the l1d C,
   // bit 3 the l1d E; each costs a cycle on every message of its channel. Off: DR-135 reserve items,
-  // being measured
-  parameter logic [3:0]  XBAR_IN_SLICE   = 4'b0000,
+  // measured in docs/spec/soc.md
+  parameter logic [3:0]  XBAR_IN_SLICE   = XBAR_IN_SLICE_DEF,
+  // The crossbar's own register slices (every target-side A, C and E output, every initiator-side D
+  // and B output) and the memory ports' AXI slices toward the PS. On, as built for 200 MHz; off
+  // they cost no cycle and no area: a timing study at the lower clock of DR-145
+  parameter bit          XBAR_SLICE      = XBAR_SLICE_DEF,
+  parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
   // The L2 directory RAM written a cycle after S2, from the bypass's newest history entry (with a
   // third entry), so S2's paths end at flip-flops, not the RAM's pins (DR-142; cycle-identical)
   parameter bit          L2_DIR_S3       = 1'b1,
+  // The commit-trace stream to the PS (tg_trace_stream and the host bridge's trace registers), built
+  // when the trace is (tg_trace_pkg COMMIT_TRACE, +define+TG_COMMIT_TRACE; DR-146). Off, the trace inputs are
+  // ignored, trace_stall_o is 0, the trace master stays idle (AWVALID = WVALID = 0, BREADY = 1) and
+  // the host bridge's capability bit 3 (trace streaming) reads 0
+  parameter bit          TRACE           = COMMIT_TRACE,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -265,7 +275,7 @@ module tg_uncore
     end
   end
 
-  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (1'b1), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
+  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (XBAR_SLICE), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
     .l1i_a_i (x_l1i_a), .l1i_a_valid_i (x_l1i_av), .l1i_a_ready_o (x_l1i_ar), .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
     .l1d_a_i (x_l1d_a), .l1d_a_valid_i (x_l1d_av), .l1d_a_ready_o (x_l1d_ar), .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
@@ -393,7 +403,7 @@ module tg_uncore
       .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b])
     );
     // register slice toward the PS port: the window's adder and the long route end at flip-flops
-    tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5])) u_slice (
+    tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5]), .ON (MEM_SLICE)) u_slice (
       .clk, .rst (uncore_rst),
       .s_ar_i (wn_ar[b]), .s_ar_valid_i (wn_arv[b]), .s_ar_ready_o (wn_arr[b]),
       .s_r_o (wn_r[b]), .s_r_valid_o (wn_rv[b]), .s_r_ready_i (wn_rr[b]),
@@ -523,25 +533,44 @@ module tg_uncore
   logic [39:0]  trs_base;
   logic [4:0]   trs_size, trs_flags;
   logic [31:0]  trs_stalls;
-  tg_trace_stream #(.N_CORES (N_CORES)) u_trace (
-    .clk, .rst (uncore_rst),
-    .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i, .trace_stall_o,
-    .enable_i (trs_en), .wrap_i (trs_wrap), .stop_arm_i (trs_stop_arm), .stop_pc_i (trs_stop_pc),
-    .post_i (trs_post), .start_arm_i (trs_start_arm), .start_pc_i (trs_start_pc), .base_i (trs_base),
-    .size_log2_i (trs_size), .rp_i (trs_rp),
-    .wp_o (trs_wp), .capturing_o (trs_flags[0]), .started_o (trs_flags[1]), .stopped_o (trs_flags[2]),
-    .full_o (trs_flags[3]), .axi_err_o (trs_flags[4]), .buffered_o (trs_buffered), .stall_cycles_o (trs_stalls),
-    .aw_o (m_axi_trace_aw), .aw_valid_o (m_axi_trace_aw_valid), .aw_ready_i (m_axi_trace_aw_ready),
-    .w_o (m_axi_trace_w), .w_valid_o (m_axi_trace_w_valid), .w_ready_i (m_axi_trace_w_ready),
-    .b_i (m_axi_trace_b), .b_valid_i (m_axi_trace_b_valid), .b_ready_o (m_axi_trace_b_ready)
-  );
+  if (TRACE) begin : g_trace
+    tg_trace_stream #(.N_CORES (N_CORES)) u_trace (
+      .clk, .rst (uncore_rst),
+      .trace_i, .trace_valid_i, .trace_wb_i, .trace_wb_valid_i, .trace_stall_o,
+      .enable_i (trs_en), .wrap_i (trs_wrap), .stop_arm_i (trs_stop_arm), .stop_pc_i (trs_stop_pc),
+      .post_i (trs_post), .start_arm_i (trs_start_arm), .start_pc_i (trs_start_pc), .base_i (trs_base),
+      .size_log2_i (trs_size), .rp_i (trs_rp),
+      .wp_o (trs_wp), .capturing_o (trs_flags[0]), .started_o (trs_flags[1]), .stopped_o (trs_flags[2]),
+      .full_o (trs_flags[3]), .axi_err_o (trs_flags[4]), .buffered_o (trs_buffered), .stall_cycles_o (trs_stalls),
+      .aw_o (m_axi_trace_aw), .aw_valid_o (m_axi_trace_aw_valid), .aw_ready_i (m_axi_trace_aw_ready),
+      .w_o (m_axi_trace_w), .w_valid_o (m_axi_trace_w_valid), .w_ready_i (m_axi_trace_w_ready),
+      .b_i (m_axi_trace_b), .b_valid_i (m_axi_trace_b_valid), .b_ready_o (m_axi_trace_b_ready)
+    );
+  end else begin : g_no_trace
+    // no trace stream: the cores' records are dropped (they send none in such a build), and the
+    // trace master toward the PS never starts a write
+    assign trace_stall_o        = '0;
+    assign m_axi_trace_aw       = '0;
+    assign m_axi_trace_aw_valid = 1'b0;
+    assign m_axi_trace_w        = '0;
+    assign m_axi_trace_w_valid  = 1'b0;
+    assign m_axi_trace_b_ready  = 1'b1;
+    assign trs_wp       = '0;
+    assign trs_flags    = '0;
+    assign trs_buffered = '0;
+    assign trs_stalls   = '0;
+    wire unused_trace = ^{trace_i, trace_valid_i, trace_wb_i, trace_wb_valid_i, m_axi_trace_aw_ready,
+                          m_axi_trace_w_ready, m_axi_trace_b, m_axi_trace_b_valid, trs_en, trs_wrap,
+                          trs_stop_arm, trs_stop_pc, trs_post, trs_start_arm, trs_start_pc, trs_base,
+                          trs_size, trs_rp};
+  end
 
   localparam logic [7:0] CFG_CODE = (CFG_NAME == "smt2") ? 8'd1 : (CFG_NAME == "st_w3") ? 8'd2 :
                                     (CFG_NAME == "smt2_w3") ? 8'd3 : 8'd0;
   tg_host_bridge #(
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),

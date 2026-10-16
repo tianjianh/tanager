@@ -27,6 +27,17 @@ TG_COMMIT=$(git rev-parse --short=12 HEAD) TANAGER_VIVADO_MEM_GB=20 bash tools/v
 
 The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 
+**The uncore's build switches** (DR-146): `build.tcl` passes each of these, when set, to `kv260_top`, and lists the ones set in `summary.txt` (`uncore=`). Unset keeps the default; their effects are in [docs/spec/soc.md](../../docs/spec/soc.md) §Reserve levers.
+
+| Variable | Meaning | Default |
+|---|---|---|
+| `TG_UNCORE_DSP` | which register slices keep their data in DSPs, one bit per site (hex) | `0x8403080000` |
+| `TG_L2_DATA_LAT` | the L2 data array's read latency, 2 and up; 0 picks by the clock | 0: 4 above 150 MHz, else 2 |
+| `TG_AR_SLICE` | the AR slices at the L2 banks (0 or 1) | 1 |
+| `TG_B_SLICE`, `TG_D_SLICE`, `TG_W_SLICE` | the banks' B, D, and AW and W slices (0 or 1 each) | 0 |
+| `TG_XBAR_IN_SLICE` | the core-side request slices, a bit per channel (0–15: caches' A, MMIO A, l1d C, l1d E) | 0 |
+| `TG_XBAR_SLICE`, `TG_MEM_SLICE` | the crossbar's own slices and the memory ports' AXI slices (0 or 1 each) | 1 |
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)

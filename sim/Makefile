@@ -27,10 +27,11 @@ COV_UNITS ?= rename rob lsu
 empty    :=
 space    := $(empty) $(empty)
 include $(ROOT)/sim/profile.mk
-# The lint-only switches (#2, #8) never reach a model that runs programs (DR-140), even an up-to-date one.
+# The lint-only switches (#2, #8; the commit trace off) never reach a model that runs programs, even an
+# up-to-date one (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the trace).
 ifneq ($(strip $(LINT_ONLY_SET)),)
   ifneq ($(filter-out lint,$(or $(MAKECMDGOALS),all)),)
-    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified))
+    $(error $(strip $(LINT_ONLY_SET)) is for lint only (DR-140: #2 and #8 are not verified; DR-146: lockstep needs the commit trace))
   endif
 endif
 BUILD    := $(BUILD_ROOT)/$(CFG)-$(CORE)$(TC_SUFFIX)$(if $(COV),-cov-$(subst $(space),+,$(strip $(COV_UNITS))))
@@ -145,7 +146,10 @@ SOC_DL    ?= $(TANAGER_BUILD)/$(WT)/dl
 SPIKE_TAR ?= $(SOC_DL)/spike/spike-$(SPIKE_SHA).tar.gz
 A64_TRIP  := aarch64-buildroot-linux-musl
 AATC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$AATC_NAME)
-A64_TC    ?= $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin
+# The worktree's own unpacked toolchain, else the shared one in $(TANAGER_BUILD)/tc (as sw/env.sh's
+# SOC_AATC), else the worktree's again, where sw/fetch.sh aatc unpacks it.
+A64_TC    ?= $(firstword $(wildcard $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin $(TANAGER_BUILD)/tc/$(AATC_NAME)/bin) \
+               $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin)
 A64_SPIKE := $(BUILD_ROOT)/aarch64/spike-$(SPIKE_SHA)
 A64_LIBS  := libriscv.a libdisasm.a libsoftfloat.a libfesvr.a libfdt.a
 
