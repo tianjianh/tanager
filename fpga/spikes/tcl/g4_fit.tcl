@@ -9,7 +9,7 @@
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
 #       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
 #       [-dcp 0|1] [-synth_dcp D] [-impl 0|1] [-g NAME=VALUE]... [-file F]...
-#       [-place_directive D] [-route_directive D]
+#       [-place_directive D] [-route_directive D] [-define NAME=VALUE]...
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
@@ -21,6 +21,7 @@
 #   -impl 0      stop after synthesis (with -dcp 1: the checkpoint for later floorplans)
 #   -g           an extra kv260_top generic (repeatable), e.g. a measurement patch's FILL_TILES
 #   -file F      an extra source, relative to the repo root (repeatable), e.g. fpga/spikes/rtl/tg_s6_fill.sv
+#   -define      a Verilog define for synthesis (repeatable), e.g. TG_COMMIT_TRACE=0 (the performance build)
 #   -place_directive / -route_directive  place_design / route_design directives (default Default,
 #                as the board build); e.g. AltSpreadLogic_high for a congested, nearly full device
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
@@ -43,6 +44,7 @@ set generics {}
 set extra_files {}
 set place_dir Default
 set route_dir Default
+set defines {}
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -59,6 +61,7 @@ while {[llength $rest]} {
     -file            { lappend extra_files $v }
     -place_directive { set place_dir $v }
     -route_directive { set route_dir $v }
+    -define          { lappend defines -verilog_define $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
 }
@@ -94,7 +97,7 @@ if {$synth_dcp ne ""} {
   synth_design -top kv260_top -part $part \
     -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"core\" \
     -generic PMOD_UART=1 -generic FAN_WAVE=$::tg_kv260_fan_bit -generic FAN_INVERT=$::tg_kv260_fan_invert \
-    -generic "UNCORE_DSP=64'h$mask" {*}$generics \
+    -generic "UNCORE_DSP=64'h$mask" {*}$generics {*}$defines \
     -flatten_hierarchy $flatten -directive $synth_dir
   set_param general.maxThreads 8
   if {$keep_dcp} { write_checkpoint -force post_synth.dcp }
@@ -120,6 +123,7 @@ tg_kv $fh synth [expr {$synth_dcp ne "" ? "from $synth_dcp" : "-flatten_hierarch
 tg_kv $fh floorplan [expr {$floorplan ne "" ? $floorplan : "none"}]
 tg_kv $fh generics [join $generics " "]
 tg_kv $fh directives "place $place_dir route $route_dir"
+tg_kv $fh defines [join $defines " "]
 tg_kv $fh pblocks [llength [get_pblocks -quiet]]
 report_utilization -file util_synth.rpt
 tg_kv $fh prim_fail_synth [tg_prim_check -file prim_synth.txt -fail 0]
