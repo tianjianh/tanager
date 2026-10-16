@@ -7,6 +7,9 @@ like a base commit's, cycle by cycle?
 
 Builds the simulators twice with this tree's harness (sim/): once with this tree's rtl/ (the working tree
 as it is, uncommitted and untracked files included; or --branch REF's) and once with the base's rtl/.
+If the base's rtl/ does not build with this harness (the harness uses something new in an RTL package),
+the base side takes the base's own sim/ instead and says so (--harness auto, the default; branch forbids
+the fallback, own always uses the base's).
 Runs the same programs with the same options on both and compares each run's cycle signature: per 1,024
 cycles, a hash of the commit trace and of the design's outputs. For a run that differs, it reruns the
 first differing window with full logs and prints the first differing line.
@@ -151,6 +154,8 @@ class Side:
 
     def __init__(self, name, kind, cfg, tool, rtl_src, harness_src, tb_src=None, cores=1, tc=None):
         self.name, self.kind, self.cfg, self.cores = name, kind, cfg, cores
+        self.args = (kind, cfg, tool, rtl_src, harness_src, tb_src, cores, tc)  # to rebuild with another harness
+        self.harness_src = harness_src
         # The core's timing-cut profile (DR-140; sim/profile.mk), None for the package's default. Part of
         # the key only when forced, so the default's cached builds stay valid. The boot reads the profile
         # through tests/unit/boot's Makefile, which includes sim/profile.mk: archived when forced.
@@ -237,8 +242,9 @@ class Side:
 
 
 def build_all(sides, jobs, cfg):
-    """Holds every build the check uses (Side.hold) and builds the missing ones. The sides of one key
-    share a Side's lock: flock conflicts between two open files even in one process."""
+    """Holds every build the check uses (Side.hold) and builds the missing ones; returns {key: error} for
+    the builds that failed. The sides of one key share a Side's lock: flock conflicts between two open
+    files even in one process."""
     uniq = {}
     for s in sides:
         uniq.setdefault(s.key, s)
@@ -253,11 +259,15 @@ def build_all(sides, jobs, cfg):
             s.release()  # building takes the lock exclusively
         with cf.ThreadPoolExecutor(max_workers=len(need)) as ex:
             errs = list(ex.map(lambda s: s.build(each), need))
+        failed = {}
         for s, e in zip(need, errs):
             if e:
-                fail(f"[{cfg}] {s.kind} for {s.name}: {e}")
-            s.hold()
-        log(f"[{cfg}] built in {time.time() - t0:.0f} s")
+                failed[s.key] = f"{s.kind} for {s.name}: {e}"
+            else:
+                s.hold()
+        log(f"[{cfg}] built in {time.time() - t0:.0f} s{f' ({len(failed)} failed)' if failed else ''}")
+        return failed
+    return {}
 
 
 def prune_builds(keep_keys):
@@ -572,8 +582,9 @@ def main():
     ap.add_argument("--boot-seed", type=int, default=1, help="the memory models' random seed (+verilator+seed+)")
     ap.add_argument("--boot-tree", default="", help="take tests/unit (tb_boot) and sw/dts from this ref")
     ap.add_argument("--jobs", type=int, default=8, help="parallel runs, and make jobs across the builds")
-    ap.add_argument("--harness", choices=("branch", "own"), default="branch",
-                    help="the base side's sim/: this tree's (default) or the base commit's")
+    ap.add_argument("--harness", choices=("auto", "branch", "own"), default="auto",
+                    help="the base side's sim/: this tree's (branch), the base commit's (own), or this tree's "
+                         "unless the base's RTL does not build with it, then the base's own (auto, the default)")
     ap.add_argument("--branch-args", default="",
                     help="extra tg_vsim options for this tree's side only (to check that the tool sees a difference)")
     ap.add_argument("--timing-cuts", type=int, choices=(0, 1), default=None,
@@ -624,8 +635,9 @@ def main():
     tc_base = a.timing_cuts
     tc_branch = a.branch_timing_cuts if a.branch_timing_cuts is not None else a.timing_cuts
     if tc_base is not None or tc_branch is not None:
-        if a.harness != "branch":
-            fail("--timing-cuts needs --harness branch: the profile is a make variable of this tree's sim/")
+        if a.harness == "own":
+            fail("--timing-cuts needs this tree's harness (--harness auto or branch): the profile is a make "
+                 "variable of this tree's sim/")
         prof = lambda t: "the package's default" if t is None else f"TIMING_CUTS={t}"
         log(f"  timing cuts (DR-140): base {prof(tc_base)}, this side {prof(tc_branch)}"
             f"{', on the boot too' if a.boot else ''}")
@@ -643,7 +655,7 @@ def main():
     t_start = time.time()
     all_ok, any_broken = True, False
     for cfg in cfgs:
-        harness_base = tree if a.harness == "branch" else base_commit
+        harness_base = base_commit if a.harness == "own" else tree
         sides = {}  # kind -> (base, branch)
         if suites:
             sides["vsim"] = (Side("base", "vsim", cfg, tool, base_commit, harness_base, tc=tc_base),
@@ -654,7 +666,27 @@ def main():
                              Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores, tc=tc_branch))
         if not sides:
             fail("nothing to run: no suites and no --boot")
-        build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
+        failed = build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
+        if failed and a.harness == "auto":
+            # The base's RTL may not build with this tree's harness: the harness can use something only
+            # this tree's packages have (tg_tb_top read tg_trace_pkg::COMMIT_TRACE before main had it).
+            # That side then takes the base's own harness, and the two sides differ in harness as well.
+            retry = {}
+            for kind, (b, br) in sides.items():
+                if b.key in failed and br.key not in failed and b.harness_src != base_commit:
+                    if b.args[7] is not None and not git("ls-tree", "--name-only", base_commit, "sim/profile.mk"):
+                        continue  # the base's own sim/ cannot force a profile: leave the failure standing
+                    log(f"[{cfg}] the base's RTL does not build with this tree's harness ({failed.pop(b.key)}); "
+                        f"building the base's {kind} with the base's own sim/ instead, so the sides differ in "
+                        f"harness as well as RTL (HARNESS=branch to forbid this)")
+                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, tc_ = b.args
+                    retry[kind] = Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, tc=tc_)
+            if retry:
+                failed.update(build_all(list(retry.values()), a.jobs, cfg))
+                for kind, nb in retry.items():
+                    sides[kind] = (nb, sides[kind][1])
+        if failed:
+            fail(f"[{cfg}] " + "; ".join(failed.values()))
         prune_builds({s.key for pair in sides.values() for s in pair})
 
         # The boot first: it is long, and the programs run beside it
@@ -722,8 +754,8 @@ def main():
         for p, why, side in broken:
             any_broken = True
             out(f"[{cfg}] BROKEN {p[0]}/{p[1]}: the {side} run gave no signature: {why}"
-                + (" (a base harness older than the signatures? drop --harness own)"
-                   if side == "base" and a.harness == "own" else ""))
+                + (" (a base harness older than the signatures? the base used its own sim/)"
+                   if side == "base" and sides[p[2]][0].harness_src == base_commit else ""))
         for k, (p, sa, sb) in enumerate(diffs):
             suite, name, kind, _ = p
             base, branch = sides[kind]
