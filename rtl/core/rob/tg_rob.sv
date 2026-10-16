@@ -676,10 +676,15 @@ module tg_rob
   assign flush_tid = '0;
   assign xret_v    = xr_v_q;
   assign xret_s    = xr_s_q;
+  always_ff @(posedge clk) hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
 `ifndef SYNTHESIS
+  // Checks of registers against each other wait for the core's first reset: in the SoC the reset
+  // comes from a register (the host bridge's), so the first cycle may see it low before any reset
+  logic rs_q;
+  initial rs_q = 1'b0;
+  always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
-    hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
-    if (!rst)
+    if (rs_q && !rst)
       assert (hw_q == hwin(head_q, 0)) else $error("tg_rob: the registered head window differs from the head");
   end
   always_ff @(posedge clk) begin
@@ -693,7 +698,7 @@ module tg_rob
   logic [1:0] csr_ago_q;                  // a CSR instruction retired one / two cycles ago
   always_ff @(posedge clk) begin
     csr_ago_q <= rst ? '0 : {csr_ago_q[0], do_csr};
-    if (!rst && do_irq)
+    if (rs_q && !rst && do_irq)
       assert (csr_ago_q == '0) else $error("tg_rob: an interrupt within two cycles of a CSR write");
   end
 `endif

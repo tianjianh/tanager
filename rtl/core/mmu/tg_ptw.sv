@@ -234,12 +234,17 @@ module tg_ptw
       chk_pa_q <= nonleaf ? PA_W'({ppn, (lvl_q == 2'd2) ? va_q[29:21] : va_q[20:12], 3'b000})
                           : PA_W'({ppn, 12'b0});
   end
+`ifndef SYNTHESIS
+  logic rs_q;                     // the core has been reset: the check waits for it (tg_rob)
+  initial rs_q = 1'b0;
+  always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
-    if (!rst)
+    if (rs_q && !rst)
       assert (chk_req_q == ((st_q == W_CHK && va_canon(va_q)) || st_q == W_PMP) &&
               (!chk_req_q || chk_pa_q == ((st_q == W_PMP) ? {leaf_q.ppn, 12'b0} : pte_pa[PA_W-1:0])))
         else $error("tg_ptw: the registered check request or address differs from the walk's state");
   end
+`endif
 
   assign done       = st_q == W_DONE && !flush;
   assign done_who   = who_q;
