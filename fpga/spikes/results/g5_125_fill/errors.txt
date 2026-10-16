@@ -1,0 +1,3 @@
+CRITICAL WARNING: [Route 35-162] 14655 signals failed to route due to routing congestion. Please run report_route_status to get a full summary of the design's routing.
+ERROR: [Route 35-2] Design is not legally routed. There are 15258 node overlaps.
+ERROR: [Common 17-39] 'route_design' failed due to earlier errors.
