@@ -51,6 +51,15 @@ package tg_core_pkg;
 `else
   localparam bit DC_AMO_READ_REG = TIMING_CUTS;
 `endif
+  // #9 (DR-144): the ROB head's DTLB check looks up the head's VA as registered a cycle earlier
+  // (B3); off, a second lookup takes the committing store's VA beside the LQ head's, so the
+  // check does not wait for the head's selection (B2, cycle-exact). On in the default, off in
+  // the fallback; its own define is TG_ROB_HEAD_TLB_LATE=0|1.
+`ifdef TG_ROB_HEAD_TLB_LATE
+  localparam bit ROB_HEAD_TLB_LATE = `TG_ROB_HEAD_TLB_LATE;
+`else
+  localparam bit ROB_HEAD_TLB_LATE = TIMING_CUTS;
+`endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
   localparam bit DE_STAGE = `TG_DE_STAGE;
