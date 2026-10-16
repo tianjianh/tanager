@@ -166,7 +166,8 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
 |---|---|
 | Kit | KV260 Starter Kit: SOM SMK-K26-XCL2G rev 2 (XCK26), carrier SCK-KV-G rev 2 |
 | Boot firmware (QSPI) | Kria 2023.2: FSBL and PMU firmware 2023.2, TF-A v2.8 (`xlnx_rebase_v2.8_2023.2`), U-Boot 2023.01 |
-| OS | Ubuntu 24.04.2 LTS for Kria (image of 2025-04-23), kernel `6.8.0-1015-xilinx` |
+| OS | Ubuntu 24.04.2 LTS for Kria (image of 2025-04-23). The kernel was `6.8.0-1015-xilinx` at setup and `6.8.0-1036-xilinx` from 2026-10-16. Unattended upgrades installed the newer one, and `flash-kernel` kept the command line. It also has no MMU-500 driver (`# CONFIG_ARM_SMMU is not set`), and the SMMU node is still disabled. |
+| Boot firmware slots (QSPI) | `xmutil bootfw_status` (2026-10-16): A and B both bootable, A requested and last booted. Both hold `K26-BootFW-01.02-06140626` (`XilinxSom_QspiImage-k26-v2.1-06140636`), so B is a known-good fallback. |
 | User | `ubuntu`, passwordless sudo (`/etc/sudoers.d/90-tanager`); host name `kria` |
 | Network | a direct cable to the laptop's USB Ethernet adapter, with Windows connection sharing; DHCP lease `192.168.137.177` (`kria.mshome.net`) |
 | SSH (from the laptop) | `ssh -F ~/.ssh/tanager_kv260.conf kv260` (key `~/.ssh/tanager_kv260_ed25519`) |
