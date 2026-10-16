@@ -243,7 +243,7 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 
 **`tanager-host` back-ends** (a virtio-mmio device model per slot, version 2 registers), in this order:
 1. **virtio-blk** on an image file on the A53's filesystem: `tanager-host run --blk <image>`. Later the RISC-V's own SD partition (below).
-2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN.
+2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN. The bridge is an A53 OS change: approved in advance (DR-147), set up with an automatic rollback, and logged with its undo in `fpga/kv260/README.md`, as every A53 change of stages C and D is.
 3. **virtio-rng:** from the A53's `getrandom()`.
 
 The console stays the 16550 UART (PMOD, with the host's copy). Debian's kernel has no SBI console tty, so the console must be a UART.
