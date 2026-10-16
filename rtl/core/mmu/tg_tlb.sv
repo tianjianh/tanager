@@ -26,17 +26,24 @@
 //     at least six cycles apart (one walk at a time, asserted). After reset a sweep zeroes the
 //     tables (32 cycles); every entry is invalid until filled, and the key store needs no reset
 //     (clearing a never-filled entry's bits is a no-op).
+//   EARLY ports (CAM = 1): the lookup's VPN comes a cycle ahead (vpn_e; vpn is the same VPN a
+//     cycle later), so the tables are read and matched a cycle ahead and the match registered.
+//     The cycle of the lookup corrects it for the clock edge between: the valid bits now (a flush,
+//     a fill's overlap), and a fill's entry (T_CLEAR now) by the fill's VPN, compared a cycle
+//     ahead too. The lookup's answer is the same; its paths start at flip-flops (timing, DR-145).
 module tg_tlb
   import tg_pkg::*, tg_core_pkg::*;
 #(
   parameter int NE  = 16,
   parameter int NR  = 1,
   parameter bit CAM = 1'b0,
+  parameter logic [NR-1:0] EARLY = '0,      // lookups whose VPN comes a cycle ahead (CAM only)
   localparam int EW = idx_w(NE)
 ) (
   input  logic                clk,
   input  logic                rst,
   input  logic [NR-1:0][26:0] vpn,          // VA[38:12]
+  input  logic [NR-1:0][26:0] vpn_e,        // an EARLY port's VPN a cycle ahead
   output logic [NR-1:0]       hit,
   output tlb_pte_t [NR-1:0]   pte,
   input  logic                fill,
@@ -50,7 +57,20 @@ module tg_tlb
   logic [EW-1:0]         rr_q;
   logic [EW-1:0]         fv;
   logic [NR-1:0][NE-1:0] m;                 // each lookup's matching entries
+  logic [NR-1:0][EW-1:0] mi;                // ... their index (OR-encoded: one match at most)
+  logic [NR-1:0]         mh;                // ... and whether there is one
+  function automatic logic [EW-1:0] enc(input logic [NE-1:0] x);
+    enc = '0;
+    for (int e = 0; e < NE; e++) if (x[e]) enc |= EW'(e);
+  endfunction
   logic [NE-1:0]         ov;                // entries the fill's page overlaps
+`ifndef SYNTHESIS
+  logic                  rs_tq;             // the TLB has been reset: the checks wait for it
+  initial rs_tq = 1'b0;
+  always @(posedge clk) if (rst) rs_tq <= 1'b1;
+`endif
+  logic                  unused_vpn_e;      // read by EARLY ports only
+  assign unused_vpn_e = ^vpn_e;
 
   // a VPN in the page of (k, l)
   function automatic logic vmatch(input logic [26:0] a, input logic [26:0] k, input logic [1:0] l);
@@ -97,7 +117,7 @@ module tg_tlb
       logic [NR:0][NE-1:0]   rd;
       logic [SW-1:0]         ma;            // maintenance address
       for (genvar r = 0; r < NR; r++) begin : g_ra
-        assign ra[r] = vpn[r][LO +: SW];
+        assign ra[r] = EARLY[r] ? vpn_e[r][LO +: SW] : vpn[r][LO +: SW];
         assign w[s][r] = rd[r];
       end
       always_comb begin
@@ -128,14 +148,49 @@ module tg_tlb
                     (l[e] != 2'd0 || fl != 2'd0 || (x[0][e] && x[1][e]));
     endfunction
 
+    // The valid bits less a just-filled entry, registered with them: an EARLY port ANDs its match
+    // a cycle ahead with them, and takes the filled entry from the fill's own compare (fq)
+    logic [NE-1:0] kv_q;
+    logic          fok_q;                    // a fill wrote an entry at the last edge (no flush)
+    always_ff @(posedge clk) begin
+      kv_q  <= (rst || flush) ? '0 : fill ? (v_q & ~ov & ~(NE'(1) << fv)) : v_q;
+      fok_q <= !rst && !flush && fill;
+    end
+    if (EARLY == '0) begin : g_nokv
+      logic unused_kv;                       // no EARLY port: synthesis drops them
+      assign unused_kv = ^{kv_q, fok_q};
+    end
     for (genvar r = 0; r < NR; r++) begin : g_m
+      logic [26:0]   lv;                     // the VPN the tables are read at
+      logic [NE-1:0] mt;                     // their match
+      assign lv = EARLY[r] ? vpn_e[r] : vpn[r];
       always_comb begin
         logic [NS-1:0][NE-1:0] x;
         for (int s = 0; s < NS; s++) x[s] = w[s][r];
-        m[r] = v_q & tmatch(x, lvl_q, 2'd0);
+        mt = v_q & tmatch(x, lvl_q, 2'd0);
         if (upd) begin                       // the entry being written: its new VPN, compared
-          m[r][uf_q] = v_q[uf_q] && vmatch(vpn[r], uk_q, ul_q);
+          mt[uf_q] = v_q[uf_q] && vmatch(lv, uk_q, ul_q);
         end
+      end
+      if (EARLY[r]) begin : g_early
+        logic [NE-1:0] mq, mk;               // the match a cycle ahead; less the entries gone since
+        logic          fq, fqc;              // the VPN in the page a fill writes at that edge
+        always_ff @(posedge clk) begin
+          mq <= mt;
+          fq <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+        end
+        assign mk  = mq & kv_q;
+        assign fqc = fok_q && fq;            // the filled entry (uf_q) matches; then no other does
+        always_comb begin
+          m[r] = mk;
+          if (fqc) m[r][uf_q] = 1'b1;
+          mi[r] = enc(mk) | (fqc ? uf_q : '0);   // the index without the per-entry override
+          mh[r] = |mk || fqc;
+        end
+      end else begin : g_now
+        assign m[r]  = mt;
+        assign mi[r] = enc(mt);
+        assign mh[r] = |mt;
       end
     end
     assign ov = v_q & tmatch(wm, lvl_q, fill_lvl);
@@ -166,6 +221,19 @@ module tg_tlb
     always_ff @(posedge clk) begin
       if (!rst) assert (!fill || ts_q == T_IDLE) else $error("tg_tlb: a fill while the tables are busy");
     end
+    // Every lookup matches what the flip-flop form would (each entry's VPN kept here)
+    logic [NE-1:0][26:0] vs_q;
+    logic                rs_q;      // the TLB has been reset: the check waits for it
+    initial rs_q = 1'b0;
+    always @(posedge clk) begin
+      if (rst) rs_q <= 1'b1;
+      if (fill) vs_q[fv] <= fill_vpn;
+      if (rs_q && !rst && ts_q != T_SWEEP)
+        for (int r = 0; r < NR; r++)
+          for (int e = 0; e < NE; e++)
+            assert (m[r][e] == (v_q[e] && vmatch(vpn[r], vs_q[e], lvl_q[e])))
+              else $error("tg_tlb: lookup %0d's match of entry %0d differs from the entry's VPN", r, e);
+    end
 `endif
   end else begin : g_ff
     logic [NE-1:0][26:0] vpn_q;
@@ -173,6 +241,8 @@ module tg_tlb
       for (genvar e = 0; e < NE; e++) begin : g_e
         assign m[r][e] = v_q[e] && vmatch(vpn[r], vpn_q[e], lvl_q[e]);
       end
+      assign mi[r] = enc(m[r]);
+      assign mh[r] = |m[r];
     end
     for (genvar e = 0; e < NE; e++) begin : g_ov
       assign ov[e] = v_q[e] && vpn_q[e][26:18] == fill_vpn[26:18] &&
@@ -191,20 +261,20 @@ module tg_tlb
     .clk, .we(fill), .waddr(fv), .wdata({fill_lvl, fill_pte}), .raddr(ra), .rdata(rd));
 
   for (genvar r = 0; r < NR; r++) begin : g_rd
-    always_comb begin
-      ra[r] = '0;
-      for (int e = 0; e < NE; e++) if (m[r][e]) ra[r] |= EW'(e);
-    end
+    assign ra[r] = mi[r];
     always_comb begin
       logic [1:0] l;
       {l, pte[r]} = rd[r];
       if (l != 2'd0) pte[r].ppn[8:0]  = vpn[r][8:0];
       if (l == 2'd2) pte[r].ppn[17:9] = vpn[r][17:9];
     end
-    assign hit[r] = |m[r];
+    assign hit[r] = mh[r];
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
-      if (!rst) assert ($onehot0(m[r])) else $error("tg_tlb: more than one entry matches a lookup");
+      if (rs_tq && !rst) begin
+        assert ($onehot0(m[r])) else $error("tg_tlb: more than one entry matches a lookup");
+        assert (mi[r] == enc(m[r]) && mh[r] == |m[r]) else $error("tg_tlb: lookup %0d's index or hit differs from its match", r);
+      end
     end
 `endif
   end

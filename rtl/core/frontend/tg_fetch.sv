@@ -151,7 +151,7 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .vpn(it_vpn), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .flush(tlb_flush));
   logic [PA_W-1:0] f1_pa;

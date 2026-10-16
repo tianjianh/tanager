@@ -323,23 +323,91 @@ module tg_rename
   assign ready = &fl_ready && imap_ready && &ffl_ready && fmap_ready;
 
   // ---- RN ----
+  // Wakeup columns: an LLT for loads, atomics and divides with a destination, a tag for MUL and
+  // the bit counts (P1's MUL slot), none for 1-cycle and serialised ops. The slot after c users
+  // takes the (c+1)-th free one from the bottom, all slots at once: one-hot picks from the free
+  // vector with its lowest c bits cleared (timing: no slot waits for the one before)
+  logic [W-1:0]                  u_llt, u_tag;
+  logic [W-1:0][LLT_ENTRIES-1:0] llt_oh;
+  logic [W-1:0][IQ_TAGS-1:0]     tag_oh;
+  logic                          llt_short, tag_short;
+  always_comb begin
+    for (int k = 0; k < W; k++) begin
+      u_llt[k] = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
+                 (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo ||
+                  (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)));
+      u_tag[k] = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
+                 (rn_uop_q[k].d.cls == C_MUL ||
+                  (rn_uop_q[k].d.cls == C_FP && !rn_uop_q[k].d.fp_div && !rn_uop_q[k].d.fp_int));
+    end
+  end
+  always_comb begin
+    logic [W-1:0][LLT_ENTRIES-1:0] lf;   // the free vectors less their lowest c bits
+    logic [W-1:0][IQ_TAGS-1:0]     tf;
+    logic [LLT_ENTRIES-1:0]        l;
+    logic [IQ_TAGS-1:0]            t;
+    int cl, ct;
+    l = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
+    t = ~tag_busy_q;
+    for (int c = 0; c < W; c++) begin
+      lf[c] = l;
+      tf[c] = t;
+      l = l & (l - 1'b1);
+      t = t & (t - 1'b1);
+    end
+    llt_short = 1'b0;
+    tag_short = 1'b0;
+    cl = 0;
+    ct = 0;
+    for (int k = 0; k < W; k++) begin
+      llt_oh[k] = '0;
+      tag_oh[k] = '0;
+      if (u_llt[k]) begin
+        llt_oh[k] = lf[cl] & (~lf[cl] + 1'b1);
+        if (lf[cl] == '0) llt_short = 1'b1;
+        cl++;
+      end
+      if (u_tag[k]) begin
+        tag_oh[k] = tf[ct] & (~tf[ct] + 1'b1);
+        if (tf[ct] == '0) tag_short = 1'b1;
+        ct++;
+      end
+    end
+  end
+  function automatic int oh_enc(input logic [NCOL-1:0] x);   // the set bit's index (0 if none)
+    int r;
+    r = 0;
+    for (int t = 0; t < NCOL; t++) if (x[t]) r |= t;
+    return r;
+  endfunction
+
+  // Room for n more of each counted resource, n = 0..W, from registers, so the group's needs pick
+  // one at the end; the free lists' are icv / fcv (timing: no compare after the steering)
+  logic [W:0] rob_room, lq_room, sq_room, div_room, fdiv_room, fpi_room;
+  always_comb begin
+    for (int n = 0; n <= W; n++) begin
+      rob_room[n]  = rob_cnt(rtail_q, rob_head) + n <= ROB_ENTRIES;
+      lq_room[n]   = lq_cnt(ltail_q, lq_head) + n <= LQ_ENTRIES;
+      sq_room[n]   = sq_cnt(stail_q, sq_head) + n <= SQ_ENTRIES;
+      div_room[n]  = int'(div_cnt_q) + n <= DIV_INFLIGHT;
+      fdiv_room[n] = int'(fdiv_pre_q) + int'(fdiv_post_q) + n <= FDIV_INFLIGHT;
+      fpi_room[n]  = int'(fpi_pre_q) + int'(fpi_post_q) + n <= FPI_INFLIGHT;
+    end
+  end
+`ifndef SYNTHESIS
+  logic          rn_ok_ref;         // the compares the flags replace (checked below)
+`endif
+
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
     int nrob, nld, nst, ndiv, nfdiv, nfpi, port, pref, p, b, fb;
-    logic [LLT_ENTRIES-1:0] lfree;
-    logic [IQ_TAGS-1:0]     tfree;
-    logic llt_short, tag_short, found, got;
+    logic found;
     pops = '0;
     fpops = '0;
     nld = 0; nst = 0; ndiv = 0; nfdiv = 0; nfpi = 0; nrob = 0;
     port = 0; pref = 0; p = 0; b = 0; fb = 0;
-    lfree = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
-    tfree = ~tag_busy_q;
-    llt_short = 1'b0;
-    tag_short = 1'b0;
     found = 1'b0;
-    got = 1'b0;
     for (int k = 0; k < W; k++) begin
       ren[k] = '0;
       // Steering
@@ -356,7 +424,7 @@ module tg_rename
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && iq_bank_free[p][k] && int'(fl_count[p]) > int'(pops[p])) begin
+            if (!found && iq_bank_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
               port = p;
               found = 1'b1;
             end
@@ -437,40 +505,17 @@ module tg_rename
             ren[k].old = ren[i].dst;
         end
       end
-      // Wakeup column: an LLT for loads, atomics and divides with a destination, a tag for MUL
-      // and the bit counts (P1's MUL slot), none for 1-cycle and serialised ops
-      ren[k].use_llt = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
-                       (rn_uop_q[k].d.cls == C_LD || rn_uop_q[k].d.cls == C_DIV || rn_uop_q[k].d.amo ||
-                        (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)));
-      ren[k].use_tag = rn_uop_q[k].d.rd_en && rn_valid_q[k] &&
-                       (rn_uop_q[k].d.cls == C_MUL ||
-                        (rn_uop_q[k].d.cls == C_FP && !rn_uop_q[k].d.fp_div && !rn_uop_q[k].d.fp_int));
+      // Wakeup column (the picks above)
+      ren[k].use_llt = u_llt[k];
+      ren[k].use_tag = u_tag[k];
       ren[k].wid = '0;
       if (ren[k].use_llt) begin
-        got = 1'b0;
-        for (int t = 0; t < LLT_ENTRIES; t++) begin
-          if (!got && lfree[t]) begin
-            got = 1'b1;
-            lfree[t] = 1'b0;
-            ren[k].llt = llt_t'(t);
-          end
-        end
-        if (!got) llt_short = 1'b1;
+        ren[k].llt = llt_t'(oh_enc(NCOL'(llt_oh[k])));
         ren[k].wid = llt_col(int'(ren[k].llt));
       end else if (rn_uop_q[k].d.cls == C_FP && (rn_uop_q[k].d.fp_div || rn_uop_q[k].d.fp_int)) begin
         ren[k].wid = llt_col(0);          // rd = x0: no LLT, but P4 expects an LLT column
       end
-      if (ren[k].use_tag) begin
-        got = 1'b0;
-        for (int t = 0; t < IQ_TAGS; t++) begin
-          if (!got && tfree[t]) begin
-            got = 1'b1;
-            tfree[t] = 1'b0;
-            ren[k].wid = wid_t'(t);
-          end
-        end
-        if (!got) tag_short = 1'b1;
-      end
+      if (ren[k].use_tag) ren[k].wid = wid_t'(oh_enc(NCOL'(tag_oh[k])));
       // Destination from the port's bank (atomics: the load bank, written by the LSU; FP->int
       // results: bank 1); an f register from F0 (P4) or F1 (FP loads)
       if (rn_uop_q[k].d.rd_en && rn_valid_q[k]) begin
@@ -485,21 +530,25 @@ module tg_rename
         end
       end
     end
-    // Resources
+    // Resources: the room flags above, picked by the group's needs
     rn_ok = 1'b1;
-    if (rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES) rn_ok = 1'b0;
-    if (lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES) rn_ok = 1'b0;
-    if (sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES) rn_ok = 1'b0;
+    if (!rob_room[nrob] || !lq_room[nld] || !sq_room[nst]) rn_ok = 1'b0;
     if (llt_short || tag_short) rn_ok = 1'b0;
-    if (int'(div_cnt_q) + ndiv > DIV_INFLIGHT) rn_ok = 1'b0;
-    if (int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT) rn_ok = 1'b0;
-    if (int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT) rn_ok = 1'b0;
+    if (!div_room[ndiv] || !fdiv_room[nfdiv] || !fpi_room[nfpi]) rn_ok = 1'b0;
     for (int i = 0; i < 2; i++) begin
-      if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok = 1'b0;
+      if (fpops[i] != '0 && !fcv[i][idx_w(W)'(fpops[i] - 1'b1)]) rn_ok = 1'b0;     // fpops > ffl_count
     end
     for (int i = 0; i < INT_BANKS; i++) begin
-      if (int'(pops[i]) > int'(fl_count[i])) rn_ok = 1'b0;
+      if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
     end
+`ifndef SYNTHESIS
+    rn_ok_ref = !(rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES || lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES ||
+                  sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES || llt_short || tag_short ||
+                  int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
+                  int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
+    for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok_ref = 1'b0;
+    for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i])) rn_ok_ref = 1'b0;
+`endif
   end
 
   // Serialising and exception uops: alone, into an empty window; then block until the flush.
@@ -519,11 +568,12 @@ module tg_rename
     assign fl_pop_n[b] = pops[b];
   end
 
-  always_comb begin
+  always_comb begin                  // the picks' columns (each slot's vectors are 0 unless it uses one)
     wid_alloc = '0;
     if (rn_fire) begin
       for (int k = 0; k < W; k++) begin
-        if (ren[k].use_tag || ren[k].use_llt) wid_alloc[ren[k].wid] = 1'b1;
+        wid_alloc[0 +: IQ_TAGS]           |= tag_oh[k];
+        wid_alloc[IQ_TAGS +: LLT_ENTRIES] |= llt_oh[k];
       end
     end
   end
@@ -836,6 +886,41 @@ module tg_rename
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
+    end
+  end
+  // The resource check's flags give what the compares gave
+  always_ff @(posedge clk) begin
+    if (!rst) assert (rn_ok == rn_ok_ref) else $error("tg_rename: the resource flags differ from the compares");
+  end
+  // The parallel picks give what the in-order loop gave: each slot the first free column left
+  // by the slots before it
+  always_ff @(posedge clk) begin
+    logic [LLT_ENTRIES-1:0] lfr;
+    logic [IQ_TAGS-1:0]     tfr;
+    logic                   ls, ts, got;
+    int                     li, ti;
+    if (!rst) begin
+      lfr = ~llt_busy_q & ~busy[IQ_TAGS +: LLT_ENTRIES];
+      tfr = ~tag_busy_q;
+      ls = 1'b0;
+      ts = 1'b0;
+      for (int k = 0; k < W; k++) begin
+        if (u_llt[k]) begin
+          got = 1'b0; li = 0;
+          for (int t = 0; t < LLT_ENTRIES; t++)
+            if (!got && lfr[t]) begin got = 1'b1; lfr[t] = 1'b0; li = t; end
+          if (!got) ls = 1'b1;
+          assert (llt_oh[k] == (got ? LLT_ENTRIES'(1) << li : '0)) else $error("tg_rename: slot %0d's LLT pick", k);
+        end
+        if (u_tag[k]) begin
+          got = 1'b0; ti = 0;
+          for (int t = 0; t < IQ_TAGS; t++)
+            if (!got && tfr[t]) begin got = 1'b1; tfr[t] = 1'b0; ti = t; end
+          if (!got) ts = 1'b1;
+          assert (tag_oh[k] == (got ? IQ_TAGS'(1) << ti : '0)) else $error("tg_rename: slot %0d's tag pick", k);
+        end
+      end
+      assert (ls == llt_short && ts == tag_short) else $error("tg_rename: the picks' shortage flags");
     end
   end
 `endif

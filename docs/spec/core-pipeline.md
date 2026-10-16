@@ -66,6 +66,8 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - The refill and the walk start from the registered decision, as early as before.
 - **Fetch fault.** A faulting PC produces a one-instruction block whose metadata carries `fault`; decode turns it into an instruction access fault (cause 1) or page fault (cause 12), `tval` = PC, or PC + 2 when only the second half of a 32-bit instruction faults. Fetch then waits for a redirect.
 
+- **Fetch's privilege** (timing, DR-145): F1 reads its own copy of the privilege and of whether it translates, registered a cycle behind `tg_csr`'s. They change only as a trap, an xRET or a serialising CSR write commits, and the flush follows in the next cycle, so fetch resumes after the copy has caught up (asserted: any difference falls in a flush cycle). The CSR's registers sit far from F1's PMP select in the full chip (fpu-2's 125 MHz study: −4.2 ns, mostly wire).
+
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
@@ -145,6 +147,8 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - **Source:** XOR-based multi-ported memories, LaForest et al., FPGA 2012.
 - **Sources:** an earlier slot of the same group that writes the register (intra-group, generated for any width), else RAT; pending if produced in the group or its ready bit is clear; a pending source waits on its producer's column, or on its row (MX), or on nothing (a 1-cycle producer whose row is freed).
 - **Allocation (all or nothing per group):** ROB entries (tail + slot order), LQ/SQ entries, LLTs, wakeup tags, free-list registers per bank, and a DIV slot (at most `DIV_INFLIGHT` divides between RN and the divider). If any is short, the group waits.
+  - **The counts:** each counted resource's room for 0..W more (ROB, LQ, SQ, the divides, FP divides and FP→int ops) and each free list's count against 1..W are flags from registers; the group's needs pick one at the end (timing, DR-145: no carry-chain compare after the steering; the compares are a simulation reference, asserted).
+  - **LLTs and wakeup tags:** the slot after *c* users takes the (*c*+1)-th free one from the bottom, all slots at once: the free vector with its lowest *c* bits cleared (x & (x − 1)), then its lowest bit (x & −x), both carry chains. The one-hot picks also set the wakeup allocation. Same columns as an in-order loop, where each slot waited for the one before (timing, DR-145); that loop is a simulation reference, asserted every cycle.
 - **Serialising instructions** wait at RN until the ROB and `ds_q` are empty; after one is renamed, RN accepts nothing until the next flush (every serialising instruction ends in a flush, §8).
 
 ### 5.3 DS stage (also in `tg_rename`)
@@ -190,6 +194,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 
 ### 8.1 Entries
 - `ROB_ENTRIES` (48), `ROB_BANKS`-way interleaved LUTRAM payload written at DS: PC, instruction bits and `rvc`, rd, new and old physical register, kind (load, store, branch, CSR, FENCE, FENCE.I, WFI, MRET), decode-time exception cause, LQ/SQ index.
+- **The commit slots' reads start at flip-flops** (timing, DR-145): the slots' entries (head + j), their payload banks and the banks' read rows are registered with the head, chosen by the commit count from the values for each count, and the head's own update takes the same choice. The payload, flag and FP-flag reads at the head need no adder or bank multiplexer before the LUTRAM (asserted equal to the head's window every cycle).
 - **Flags per entry: `complete`, `exc`, `mispredict`, `mmio`** are toggle tables in LUTRAM (FPGA-friendly T2).
   - Each reporting port has a one-bit table of its own, indexed by ROB entry, and toggles it at the entry it reports. Every table therefore has one writer: 11 for `complete` at st, 6 for `exc`, and one each for `mispredict` and `mmio`.
   - A flag is the parity of its ports' tables XOR a bit the payload took at dispatch: that parity then, XOR the flag's initial value. Dispatch writes none of the tables, and they need no reset.
@@ -220,6 +225,7 @@ ALU1 writes at *s*+3, CSR at *s*+3 (it occupies an A1 select), MUL at *s*+5, DIV
 - **A replay at the head:** the refetch PC, the cause and `tval` are set before the head's TLB check (`hd_retry`, the LSU's DTLB lookup that cycle). They count only if the instruction flushes or traps.
 - **Reports a cycle later** (DR-140, timing): the LSU's fault reports (#1) and the head's DTLB retry (#3).
   - With `ROB_STORE_REPORT_LATE` (#2, off in both profiles: lint-only, DR-140), the store completions and the ordering replay mark also arrive a cycle later, together, so a replayed load never commits first.
+  - The ordering replay mark comes a cycle after the store's search in every profile: the LSU registers the violating load's LQ index and reads its ROB index then (timing, DR-145: the LQ's search and that read leave the ROB's replay tables). Without #2 the ROB holds commit at the replayed load for that cycle (`cmh_v`/`cmh_rob`), where the mark would have stopped it. Cycle-identical: the load cannot reach the head sooner, as the store that found it completes in the cycle of its search at the earliest.
 - **Completion ports:** each ALU port, bank 1's write mux (MUL/DIV/CSR), the load pipe, the store queue (address and data both present), and dispatch.
 - **A store's PMP denial after it completed** (core-lsu: the check a cycle after the store's decision, S2) arrives on an exception-only port: its own exception table, no completion, the cause `EXC_SACCESS`, the head's store VA as `tval`. Until it can show, the LSU holds commit at that store (`sth_v`/`sth_rob`, registered: the check's cycle, held for any store in it, and the report's). Commit stops before a held entry.
 
@@ -231,7 +237,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Replay** (ordering violation): nothing retires; flush and refetch at the entry's PC. A replay marked `tlb` waits for the LSU instead: refetch once the DTLB translates the entry, or trap if the deciding walk faults (core-mmu.md).
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
-- **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come.
+- **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
 
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
@@ -251,7 +257,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mepc` | bit 0 cleared on write; reads mask bit 1 too (no C) |
 | `mcountinhibit` | CY and IR writable |
 | `mcycle`, `minstret` | read/write; a write to `minstret` replaces that instruction's increment |
-| `cycle`, `time`, `instret` | read-only aliases; `time` = `mtime_i`; cycle and time reads are `nondet` |
+| `cycle`, `time`, `instret` | read-only aliases; `time` = the core's snapshot of the ACLINT's `mtime` (`mtime_q`, a cycle behind `mtime_i`; monotonic; DR-146); cycle and time reads are `nondet` |
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
@@ -267,6 +273,10 @@ Exception or interrupt: `mepc` ← PC, `mcause`, `mtval` (0 for interrupts), `ms
 
 ### 9.4 Interrupts
 Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. Taken at commit before the head instruction (TR_IRQ with `pc` = its PC), except when the head is a WFI (it retires first, and the interrupt is taken at the next instruction) or an MMIO load whose request is out. Nothing is taken while the ROB is empty.
+- **The timer's pending bit is registered (DR-146).** The core keeps a snapshot of the ACLINT's `mtime` (`mtime_q`), so the ACLINT reaches the core register to register. The Sstc compare `mtime_q >= stimecmp` runs between registers into `stip_q`, which `mip.STIP` reads. The 64-bit compare thus leaves the interrupt selection and the commit decision: the full chip's "ACLINT timer → rename" path.
+  - STIP shows two cycles after `mtime` crosses `stimecmp`, and a cycle after a write to `stimecmp`, `menvcfg` or `mip`. An interrupt is asynchronous, so the delay is legal.
+  - Such a write retires alone and flushes, so no instruction reaches the ROB head before STIP has settled: no spurious interrupt after a write that clears it, none late after one that sets it. `tg_rob` asserts that no interrupt is taken within two cycles of a CSR instruction's retirement.
+  - `time`, `mip` and `sip` reads are nondeterministic in lockstep, so the checker takes the RTL's values.
 
 ### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
 - **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
