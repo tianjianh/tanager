@@ -361,6 +361,29 @@ module tg_lsu
     for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? lq_first(hi) : lq_first(v);
   endfunction
+  // The highest set slot of x, one-hot, as a two-level tree: a slot is the highest when no slot
+  // above it in its block of SQ_FB is set and no block above has one
+  localparam int SQ_FB = 4;
+  localparam int SQ_NB = (SQ_ENTRIES + SQ_FB - 1) / SQ_FB;
+  function automatic logic [SQ_ENTRIES-1:0] sq_top1(input logic [SQ_ENTRIES-1:0] x);
+    logic [SQ_NB-1:0]      b, above;
+    logic [SQ_ENTRIES-1:0] r;
+    for (int k = 0; k < SQ_NB; k++) begin
+      b[k] = 1'b0;
+      for (int j = k * SQ_FB; j < (k + 1) * SQ_FB && j < SQ_ENTRIES; j++) b[k] |= x[j];
+    end
+    for (int k = 0; k < SQ_NB; k++) begin
+      above[k] = 1'b0;
+      for (int k2 = k + 1; k2 < SQ_NB; k2++) above[k] |= b[k2];
+    end
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      logic hi;
+      hi = above[i / SQ_FB];
+      for (int j = i + 1; j < (i / SQ_FB + 1) * SQ_FB && j < SQ_ENTRIES; j++) hi |= x[j];
+      r[i] = x[i] && !hi;
+    end
+    return r;
+  endfunction
   function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
     logic [SQ_ENTRIES-1:0] hi;
     for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
@@ -565,25 +588,22 @@ module tg_lsu
   end
   // The youngest as a one-hot vector selects the per-entry cover and data-valid bits, formed in
   // parallel from flip-flops, and goes to M2 as it is, encoded there (timing: no index encode or
-  // multiplexer after the search)
+  // multiplexer after the search). The youngest of a region is its highest candidate, picked by
+  // a two-level tree (sq_top1), not a running OR along the queue; cover and data are formed for
+  // both regions and q_lo picks last.
+  logic [SQ_ENTRIES-1:0] fc_lo;                     // the candidates below f_lim's slot
+  logic [SQ_ENTRIES-1:0] oh_lo, oh_all;             // ... and of all, the highest one-hot
   always_comb begin
-    logic [SQ_ENTRIES-1:0] fc_lo, oh_lo, oh_all, cov;
-    logic                  run_lo, run_all;
+    logic [SQ_ENTRIES-1:0] cov;
     for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
-    run_lo  = 1'b0;
-    run_all = 1'b0;
-    for (int i = SQ_ENTRIES - 1; i >= 0; i--) begin
-      oh_lo[i]  = fc_lo[i] && !run_lo;
-      oh_all[i] = fc_sq[i] && !run_all;
-      run_lo    = run_lo || fc_lo[i];
-      run_all   = run_all || fc_sq[i];
-    end
+    oh_lo  = sq_top1(fc_lo);
+    oh_all = sq_top1(fc_sq);
     for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
     q_hit   = |fc_sq;
     q_lo    = |fc_lo;
     q_oh    = q_lo ? oh_lo : oh_all;
-    q_cover = |(q_oh & cov);
-    q_data  = |(q_oh & sq_dv_q);
+    q_cover = q_lo ? |(oh_lo & cov) : |(oh_all & cov);
+    q_data  = q_lo ? |(oh_lo & sq_dv_q) : |(oh_all & sq_dv_q);
   end
 
 
@@ -1593,9 +1613,13 @@ module tg_lsu
                    sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
                    sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
     assign s_lo  = sa_idx < f_lim[SIW-1:0];
-    logic [SQ_ENTRIES-1:0] below_sa;               // the slots below the M1 store's
-    always_comb for (int i = 0; i < SQ_ENTRIES; i++) below_sa[i] = i < int'(sa_idx);
-    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && |(q_oh & below_sa)));
+    // The SQ's youngest lies below the M1 store's slot when its region has no candidate at or
+    // above that slot (from the candidates, not the one-hot)
+    logic [SQ_ENTRIES-1:0] ab_sa;                  // the slots at or above the M1 store's
+    logic                  yb;
+    always_comb for (int i = 0; i < SQ_ENTRIES; i++) ab_sa[i] = i >= int'(sa_idx);
+    assign yb    = q_lo ? !(|(fc_lo & ab_sa)) : !(|(fc_sq & ab_sa));
+    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && yb));
     assign f_hit   = q_hit || byp;
     assign f_oh    = sel_s ? SQ_ENTRIES'(1) << sa_idx : q_oh;
     assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
