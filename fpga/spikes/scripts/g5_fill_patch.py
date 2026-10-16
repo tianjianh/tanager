@@ -14,13 +14,28 @@ import sys
 
 p = sys.argv[1]
 s = open(p).read()
-params_old = "  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000}  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)\n) ("
-params_new = ("  parameter logic [63:0] UNCORE_DSP = {20'd0, 2'b00, 5'b00100, 5'b00100, 32'h0308_0000},  // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)\n"
-              "  parameter int    FILL_TILES = 0,     // measurement only (spike G5): filler tiles per core\n"
-              "  parameter int    FILL_NRAM  = 0      // measurement only (spike G5): filler LUTRAM blocks per core\n"
-              ") (")
-assert params_old in s, "kv260_top's parameter list changed"
-s = s.replace(params_old, params_new, 1)
+# The filler's two parameters go at the end of kv260_top's parameter list, whatever its last
+# parameter is (the list grows, e.g. DR-146's slice generics): a comma goes after the last one,
+# before its comment if it has one.
+head, sep, rest = s.partition("module kv260_top")
+assert sep, "no module kv260_top"
+plist_end = rest.index("\n) (")
+plist, tail = rest[:plist_end], rest[plist_end:]
+lines = plist.split("\n")
+for i in range(len(lines) - 1, -1, -1):
+    code = lines[i].split("//", 1)[0]
+    if "parameter" in code:
+        if "//" in lines[i]:
+            c, comment = lines[i].split("//", 1)
+            lines[i] = c.rstrip() + ",  //" + comment
+        else:
+            lines[i] = lines[i].rstrip() + ","
+        break
+else:
+    raise SystemExit("no parameter in kv260_top's parameter list")
+lines.append("  parameter int    FILL_TILES = 0,     // measurement only (spike G5): filler tiles per core")
+lines.append("  parameter int    FILL_NRAM  = 0      // measurement only (spike G5): filler LUTRAM blocks per core")
+s = head + sep + "\n".join(lines) + tail
 txd_old = "  assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;\nendmodule"
 txd_new = """  // ---- measurement only (spike G5, DR-145): hart 1's area as synthetic filler ----
   logic fill_bit;
