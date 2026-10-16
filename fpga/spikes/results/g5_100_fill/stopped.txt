@@ -1,0 +1,7 @@
+ Number of Nodes with overlaps = 7945
+ Number of Nodes with overlaps = 6907
+ Number of Nodes with overlaps = 6257
+ Number of Nodes with overlaps = 5681
+ Number of Nodes with overlaps = 5328
+ Number of Nodes with overlaps = 4922
+Stopped 2026-10-16 09:06 after 3 h 10 min of routing (L2 pblocks, default directives): the second timing pass fell from 5,328 to 4,922 overlaps in 30 minutes; it was legally routed once (the first pass reached 0) before the timing passes. Rerun as g5_100_fill_spread.
