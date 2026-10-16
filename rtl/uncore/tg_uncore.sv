@@ -45,6 +45,11 @@ module tg_uncore
   // which weighs both banks, then the ready back into the bank's queue and credit), for a cycle on
   // every L2 response. Off: a DR-135 reserve item, being measured
   parameter bit          D_SLICE         = 1'b0,
+  // Register slices on each bank's AXI AW and W, before the latency injector, as the AR slice is on
+  // AR: they would cut the write-back path from the L2 to the memory path by the PS ports (G4-FP:
+  // the memory W slices at -2.3 / -2.4 ns with the banks at the URAM column), for a cycle on every
+  // write-back. Off: a DR-135 reserve item, being measured
+  parameter bit          W_SLICE         = 1'b0,
   // The L2 MSHRs' way flip-flops one-hot (else binary): the reservations and the ProbeAck search take
   // them without a decode, on the S2 path (DR-142; cycle-identical either way)
   parameter bit          L2_MWAY_OH      = 1'b1,
@@ -284,14 +289,35 @@ module tg_uncore
       assign ar_sv     = l2_arv[b];
       assign l2_arr[b] = ar_sr;
     end
+    axi_ax_t aw_s;
+    logic    aw_sv, aw_sr;
+    axi_w_t  w_s;
+    logic    w_sv, w_sr;
+    if (W_SLICE) begin : g_wsl
+      tg_skid #(.T (axi_ax_t)) u_aws (
+        .clk, .rst (uncore_rst), .in_valid (l2_awv[b]), .in_ready (l2_awr[b]), .in_data (l2_aw_ch[b]),
+        .out_valid (aw_sv), .out_ready (aw_sr), .out_data (aw_s)
+      );
+      tg_skid #(.T (axi_w_t)) u_ws (
+        .clk, .rst (uncore_rst), .in_valid (l2_wv[b]), .in_ready (l2_wr[b]), .in_data (l2_w_ch[b]),
+        .out_valid (w_sv), .out_ready (w_sr), .out_data (w_s)
+      );
+    end else begin : g_wsw
+      assign aw_s      = l2_aw_ch[b];
+      assign aw_sv     = l2_awv[b];
+      assign l2_awr[b] = aw_sr;
+      assign w_s       = l2_w_ch[b];
+      assign w_sv      = l2_wv[b];
+      assign l2_wr[b]  = w_sr;
+    end
     tg_axi_lat_inj u_inj (
       .clk, .rst (uncore_rst),
       .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
       .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
       .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
       .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
-      .s_aw_i (l2_aw_ch[b]), .s_aw_valid_i (l2_awv[b]), .s_aw_ready_o (l2_awr[b]),
-      .s_w_i (l2_w_ch[b]), .s_w_valid_i (l2_wv[b]), .s_w_ready_o (l2_wr[b]),
+      .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
+      .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
       .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
       .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
       .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
