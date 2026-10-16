@@ -17,8 +17,13 @@ bash "$root/tools/vivado_run.sh" "$build" "$root/fpga/spikes/tcl/g4_fit.tcl" \
 rc=$?
 for f in summary.txt sites.txt sites_paths.rpt uncore_paths.rpt xbar_core.txt xbar_core_paths.rpt \
          uncore_failing.txt uncore_internal.rpt prim_synth.txt prim_opt.txt util_hier.rpt \
-         util.rpt timing_summary.rpt timing.rpt levels.rpt clock_utilization.rpt constraints.txt; do
+         util.rpt timing_summary.rpt timing.rpt levels.rpt clock_utilization.rpt constraints.txt \
+         floorplan.txt util_pblocks.rpt regions.txt; do
   [ -f "$build/$f" ] && cp "$build/$f" "$res/"
+done
+# the checkpoints (-dcp 1), for queries and later floorplans (outside git)
+for d in post_synth routed; do
+  [ -f "$build/$d.dcp" ] && cp "$build/$d.dcp" "$TANAGER_BUILD/$(basename "$root")/fp/${name}_$d.dcp"
 done
 grep -E '^(ERROR|CRITICAL WARNING)' "$build/vivado.log" 2>/dev/null | head -20 > "$res/errors.txt"
 [ -s "$res/errors.txt" ] || rm -f "$res/errors.txt"
