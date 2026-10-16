@@ -645,7 +645,22 @@ module tg_l2_bank
     // DR-142: it heads the allocation's state and the probe pick's merge). With every way reserved
     // (never for an allocation: admission guarantees a way) the pick is way 0, and so is the flag.
     vp_s = (resv != '1) ? ((~resv & ~(vld_w & held)) == '0) : vp_w[0];
-    vd_s = vd_w[vw2];
+    // The victim's dirty flag matters only when the victim is not held (!vp_s): then the victim is
+    // an invalid unreserved way (not dirty) if there is one, else the PLRU's way if it is unreserved
+    // and unheld, else the lowest unreserved unheld way. Those need the reservations and the PLRU,
+    // not the whole pick (200 MHz, DR-142: the allocation's VREAD, FILL and PUTW states waited for
+    // it). With every way reserved the pick is way 0, and so is the flag.
+    begin
+      logic [WAYS-1:0] vinv, vcz;
+      logic [2:0]      vpv;
+      vinv = ~vld_w & ~resv;
+      vcz  = ~resv & ~held;
+      vpv  = plru_victim(row2.plru);
+      if (resv == '1)      vd_s = vd_w[0];
+      else if (vinv != '0) vd_s = 1'b0;
+      else if (vcz[vpv])   vd_s = vd_w[vpv];
+      else                 vd_s = (vd_w & vcz & ~(vcz - 1'b1)) != '0;   // the lowest unheld way's
+    end
     alloc_oh = '0;
     alloc_oh[MS_PROBE] = hit2 ? hp_s : vp_s;
     alloc_oh[MS_RESP]  = hit2 && !hp_s && p2_q.kind != PK_PUT;
@@ -1744,6 +1759,8 @@ module tg_l2_bank
         else $error("tg_l2_bank%0d: history PLRU select made in S1 differs", BANK);
       assert (hc1_q == (h1_ent_q.valid && h1_ent_q.tag == tag2) && hc2_q == (h2_ent_q.valid && h2_ent_q.tag == tag2))
         else $error("tg_l2_bank%0d: history hit compare made in S1 differs", BANK);
+      // The victim's dirty flag without the pick is the picked way's whenever it is used
+      if (!vp_s) assert (vd_s == vd_w[vw2]) else $error("tg_l2_bank%0d: victim dirty flag %b, picked way %0d's %b", BANK, vd_s, vw2, vd_w[vw2]);
       // The victim's probe flag without the pick is the picked way's; the hit way's, when a way hits
       assert (vp_s == vp_w[vw2]) else $error("tg_l2_bank%0d: victim probe flag %b, picked way %0d's %b", BANK, vp_s, vw2, vp_w[vw2]);
       if (hit2) assert (hp_s == hp_w[hw2]) else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
@@ -1769,7 +1786,7 @@ module tg_l2_bank
           else $error("tg_l2_bank%0d: allocation state %b, decided %0d", BANK, alloc_oh, s2_alloc_st);
         if (hit2) assert (hp_s == (s2_alloc_probe != '0))
           else $error("tg_l2_bank%0d: hit way's probe flag differs", BANK);
-        if (!hit2) assert (vp_s == (vic.valid && vic.pres != '0) && vd_s == (vic.valid && vic.dirty))
+        if (!hit2) assert (vp_s == (vic.valid && vic.pres != '0) && (vp_s || vd_s == (vic.valid && vic.dirty)))
           else $error("tg_l2_bank%0d: victim's flags differ", BANK);
       end
       // The bypassed row is the directory as S2 has written it, either RAM write timing
