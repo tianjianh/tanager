@@ -482,7 +482,7 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   - **Checked on core-2's fn7** (51810c3, with the SoC track's hook from 97b528a as `--boot-tree`), 3 M cycles of the 1-core boot. Before this, the two profiles were one boot build, so a boot by profile was identical by construction.
     - The fallback against the default: they differ from cycle 430, and the fallback needs 0.165% fewer cycles.
     - The fallback against its own base, da48d96 (the RTL before the switches): identical.
-    - The fallback against main 5862fdd: −0.102%, first at cycle 307,200, in instruction fetch. That is fn's fetch work before da48d96 (not switched), which the boot sees and the program suites did not.
+    - The fallback against main 5862fdd: −0.102%, first at cycle 307,200, in instruction fetch. That is fn's fetch work up to and including da48d96, which no switch covers; the boot sees it, and the program suites did not.
 
 - **What is compared.** Both sides run the same programs with the same options and seeds. For each run, `tg_vsim --sig` (`sim/src/sig.h`) writes one line per 1,024 cycles:
   - the commit records and writebacks of the window: their number and a hash of them, each with its cycle and its slot or port;
