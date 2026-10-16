@@ -333,9 +333,31 @@ bool l1d_model_t::coherent_read_ready(uint64_t addr) {
   return true;
 }
 
+// DR-149's probe stress: a probe ahead of the Grant, to the Acquire's own line when the agent holds it
+// (only for AcquireBlock, whose Grant carries the data back), else to a held line of its set.
+void l1d_model_t::probe_for_miss(uint64_t idx, bool own_line_ok) {
+  static const uint8_t caps[] = {CAP_TO_N, CAP_TO_B, CAP_TO_T};
+  const line_t& l = lines_[idx];
+  if (own_line_ok && l.perm != PERM_N && !l.probe_inflight && !l.grant_unacked) {
+    probe(idx * LINE_BYTES, caps[ctx_.rng.below(3)]);
+    return;
+  }
+  std::vector<uint64_t> cands;
+  for (auto& [j, m] : lines_)
+    if (j != idx && same_set(j, idx) && m.perm != PERM_N && !m.probe_inflight && !m.grant_unacked) cands.push_back(j);
+  if (!cands.empty()) probe(cands[ctx_.rng.below(cands.size())] * LINE_BYTES, caps[ctx_.rng.below(3)]);
+}
+
 void l1d_model_t::probe(uint64_t addr, uint8_t cap, bool block) {
   line_t& l = line(addr);
   if (l.probe_inflight) return;
+  const uint64_t pidx = addr / LINE_BYTES;
+  if (l.acquire_inflight) {
+    probes_on_acquire++;
+  } else {
+    for (uint64_t o : acq_lines_)
+      if (same_set(o, pidx)) { probes_same_set++; break; }
+  }
   l.probe_inflight = true;
   l.probe_cap = cap;
   tl_b_t b;
@@ -388,6 +410,7 @@ void l1d_model_t::accept_e(uint32_t sink) {
   line_t& l = lines_[it->second.first];
   l.grant_unacked = false;
   l.acquire_inflight = false;
+  acq_lines_.erase(it->second.first);
   sinks_.erase(it);
 }
 
@@ -468,8 +491,16 @@ void l1d_model_t::finish_a(partial_t& p) {
       if (p.opcode == A_ACQUIRE_PERM && p.param == GROW_B_TO_T && l.perm == PERM_N)
         fprintf(stderr, "tg: warning: l1d AcquirePerm BtoT for line 0x%llx after a probe took it to N: "
                 "the agent gets T without data\n", (unsigned long long)p.address);
+      const uint64_t idx = p.address / LINE_BYTES;
+      for (uint64_t o : acq_lines_)
+        if (same_set(o, idx)) { acquires_same_set++; break; }
+      acq_lines_.insert(idx);
+      const unsigned n = unsigned(acq_lines_.size());
+      acq_by_inflight[std::min(n, 4u) - 1]++;
+      max_inflight = std::max(max_inflight, n);
       l.acquire_inflight = true;
       acquires++;
+      if (ctx_.cfg.probe_miss && ctx_.rng.percent(ctx_.cfg.probe_miss)) probe_for_miss(idx, p.opcode == A_ACQUIRE_BLOCK);
       send_grant(p);
       break;
     }
@@ -605,6 +636,7 @@ void l1d_model_t::finish_c(partial_t& p) {
       return;
     }
     releases++;
+    if (!acq_lines_.empty()) releases_during_acquire++;
     l.perm = to;
     l.release_inflight = true;
     d_msg_t m;
