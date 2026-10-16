@@ -146,7 +146,10 @@ SOC_DL    ?= $(TANAGER_BUILD)/$(WT)/dl
 SPIKE_TAR ?= $(SOC_DL)/spike/spike-$(SPIKE_SHA).tar.gz
 A64_TRIP  := aarch64-buildroot-linux-musl
 AATC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$AATC_NAME)
-A64_TC    ?= $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin
+# The worktree's own unpacked toolchain, else the shared one in $(TANAGER_BUILD)/tc (as sw/env.sh's
+# SOC_AATC), else the worktree's again, where sw/fetch.sh aatc unpacks it.
+A64_TC    ?= $(firstword $(wildcard $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin $(TANAGER_BUILD)/tc/$(AATC_NAME)/bin) \
+               $(TANAGER_BUILD)/$(WT)/tc/$(AATC_NAME)/bin)
 A64_SPIKE := $(BUILD_ROOT)/aarch64/spike-$(SPIKE_SHA)
 A64_LIBS  := libriscv.a libdisasm.a libsoftfloat.a libfesvr.a libfdt.a
 
