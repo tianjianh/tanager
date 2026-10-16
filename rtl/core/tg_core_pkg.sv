@@ -37,7 +37,7 @@ package tg_core_pkg;
 `ifdef TG_ROB_STORE_REPORT_LATE
   localparam bit ROB_STORE_REPORT_LATE = `TG_ROB_STORE_REPORT_LATE;
 `else
-  localparam bit ROB_STORE_REPORT_LATE = TIMING_CUTS;
+  localparam bit ROB_STORE_REPORT_LATE = 1'b0;   // measurement: the user's default, #2 off
 `endif
   // #4: a new load's and a store address's DTLB, PMP and decisions in M1 (core-lsu.md)
 `ifdef TG_LSU_AG_SPLIT
