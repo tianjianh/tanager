@@ -22,7 +22,7 @@
 
 [`../ctl-m4/`](../ctl-m4/README.md): `tanager-m4` (tree `20435b1`, one `st` core at 60 MHz), with the same `fw_jump.bin` and `Image`, the M4 768 MiB tree, today's `tanager-host` (`9774b126`) and today's A53 kernel. It was traced for 2 s, unwrapped.
 - **The same first instructions are right:** `mv s1, a1` = `0x82200000`, `mv a0, s0` = 0, `mv a2, s2` = 0.
-- **The OpenSBI banner prints.**
+- **The OpenSBI banner prints,** and on the PMOD console the core went on to Linux's login prompt before the restore.
 - **The checker passes all 5,050,605 records** (38.9 s on the A53).
 - **The board's timing is the same** for both builds: the two MMIO loads 10 cycles apart, the first line fill about 60 cycles. So the board, the host and the images are fine. The fault is in the RTL between `3eed95f` (DR-141's builds, which booted Linux 9 times on 10-15) and `379aebb` (p0).
 

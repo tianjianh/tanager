@@ -13,5 +13,6 @@ The question: does a tree that booted on this board still boot today, with the s
   - `mv a0, s0` = 0;
   - `mv a2, s2` = 0.
 - **The checker** ([`lockstep_ctl.txt`](lockstep_ctl.txt)): `PASS after 5050605 records (5050599 retired, 6 traps, …) in 38.8 s, 130283 records/s`.
+- **The PMOD console** ([`uart_COM5.txt`](uart_COM5.txt), logged on the laptop's COM5 from st2's first run on). st2's runs printed nothing. The control's core kept running after `tanager-host` stopped at 2 s, through Linux to `TANAGER-BOOT-OK 6.18.56-tanager harts=1` and the login prompt, until the restore unloaded it about 70 s later.
 
 **So:** the board, the host and the images are fine. See [`../st2/README.md`](../st2/README.md) for the cause.
