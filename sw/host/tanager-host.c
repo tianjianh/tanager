@@ -317,9 +317,23 @@ static volatile uint64_t *dma_map(const struct opts *o, uint64_t off, uint64_t l
   return map_phys(o->dma_pa + off, (size_t)len);
 }
 
+/* The DMA port goes through the L2, so its accesses need the uncore out of reset with the L2 ready. After
+ * a load both are held: release the uncore, the cores stay held (a running system is left alone). */
+static void uncore_up(void) {
+  uint32_t st = rd(R_STATUS);
+  if (!(st & ST_UNC_RST) && (st & ST_L2_INIT)) return;
+  wr(R_CTRL, CTRL_CORE_RST);
+  for (int i = 0; !(rd(R_STATUS) & ST_L2_INIT); i++) {
+    if (i > 10000) die("L2 never finished its initialisation");
+    sleep_us(100);
+  }
+  fprintf(stderr, "released the uncore (the cores stay held)\n");
+}
+
 static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (argc < 1) usage();
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
+  if (strcmp(argv[0], "status")) uncore_up();
   if (!strcmp(argv[0], "status")) {
     printf("host DMA port: completions %s, %u waiting; %u lines read, %u written; %u write bursts dropped in part\n",
            rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
@@ -336,7 +350,6 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     uint64_t ram = rd64(R_DRAM_SIZE);
     uint64_t len = argc > 2 ? num(argv[2]) : 0x10000, off = argc > 1 ? num(argv[1]) : ram - len;
     uint32_t st = rd(R_STATUS);
-    if ((st & ST_UNC_RST) || !(st & ST_L2_INIT)) die("dma check: the uncore must run with the L2 ready (load first)");
     if (!(st & ST_CORES_RST)) fprintf(stderr, "dma check: the cores are running; 0x%" PRIx64 "+0x%" PRIx64 " gets overwritten\n", off, len);
     volatile uint64_t *p = dma_map(o, off, len);
     uint64_t n = len / 8, bad = 0, drops0 = rd(R_HDMA_WR_DROPS);
