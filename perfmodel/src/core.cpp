@@ -1027,8 +1027,8 @@ void Core::exec_load(Uop& u) {
           return;
         }
         u.t_ag = t_ag;
-        if (dt <= t + 3) { u.t_ready = t + 3 + d; T.st.ld_fwd++; }
-        else { u.t_ready = dt + 3 + d; T.st.ld_fwd_wait++; }
+        if (dt <= t + 3) { u.t_ready = t + (uint64_t)c_.ld_fwd_lat + d; T.st.ld_fwd++; }
+        else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; }
         u.t_done = u.t_ready + 1 + dn;
         return;
       }

@@ -95,6 +95,8 @@ namespace tg {
   X(mdp_entries, 1024, "wait table entries")                                                       \
   X(mdp_clear, 65536, "wait table clear interval (cycles)")                                        \
   X(fwd_strict, 0, "forward only from a store of the same address and size")                      \
+  X(ld_fwd_lat, 3, "load-to-use of a load forwarded from an older store whose data is ready")    \
+  X(ld_fwd_wait, 3, "cycles from an older store's data to the result of a load waiting to forward it") \
   X(sta_split, 1, "store address issues alone; data captured in the SQ")                           \
   X(rfo_pf, 1, "request ownership when a store address resolves")                                 \
   X(ld_ports, 1, "load pipes")                                                                     \
