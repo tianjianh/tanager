@@ -172,12 +172,18 @@ module tg_core
                         sv39_l_q == satp_sv39 && satp_ppn_l_q == satp_ppn))
         else $error("tg_core: the LSU's privilege copy differs outside a flush");
 `endif
+  // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
+  // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
+  // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
+  dec_state_t de_state;
+  assign de_state = '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a, misa_f: misa_f,
+                      misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
+    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);

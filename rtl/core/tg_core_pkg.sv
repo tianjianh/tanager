@@ -90,6 +90,16 @@ package tg_core_pkg;
 `else
   localparam bit DE_STAGE = 1'b0;
 `endif
+  // The instruction queue's decode bits (core-pipeline §12): each entry also carries illegal, a
+  // decode-time exception and serialising, from a decoder per bank as it is written, and decode reads
+  // them instead of decoding again (timing: the queue's take loop, decode -> rename; about +0.23K
+  // LUTs st, +0.34K smt2). Cycle-exact either way. Off in both profiles until the user decides with
+  // G7's full-chip numbers; TG_QUEUE_DECODE=1 turns it on
+`ifdef TG_QUEUE_DECODE
+  localparam bit QUEUE_DECODE = `TG_QUEUE_DECODE;
+`else
+  localparam bit QUEUE_DECODE = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -300,7 +310,19 @@ package tg_core_pkg;
     tid_t              tid;
     logic [2:0]        marks;       // pre-decode: {conditional branch, JAL, JALR}; decode's class
                                     // unless decode raises an exception
+    logic              q_ill;       // decode bits the queue wrote with it (tg_fetch_compact):
+    logic              q_exc;       //   illegal; a decode-time exception (illegal, ECALL, EBREAK;
+    logic              q_ser;       //   not a fetch fault); serialising
   } fe_insn_t;
+
+  // The state the decoders read (CSRs): the queue's write-side decoders and decode get the same
+  typedef struct packed {
+    logic        misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
+    logic [1:0]  fs;
+    logic [2:0]  frm;
+    priv_e       priv;
+    logic        tvm, tw, tsr;
+  } dec_state_t;
 
   // ---- Decoded micro-op ----
   typedef struct packed {

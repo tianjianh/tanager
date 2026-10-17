@@ -36,10 +36,19 @@ struct model_cfg_t {
   // allows (toN or toB): an agent must still make progress, so it holds the probe until its store or
   // atomic has used the line (the two-core boot lottery's livelock, 2026-10-16)
   unsigned probe_grant = 0;
+  // percent of voluntary Releases whose line the manager probes while the Release is in flight (the
+  // probe crosses it, before the ReleaseAck): the agent no longer has the line and answers NtoN without
+  // data. With it on, random probes and --probe-miss may also pick a line being released (DR-149: the
+  // 4-miss L1D releases its victim from a buffer at allocation, before the Grant)
+  unsigned probe_release = 0;
+  // which ready response the L1D's D channel sends next: 0 the oldest (in time order), 1 any at random,
+  // 2 the youngest, so Grants for different Acquires come in any order (DR-149); a message's beats stay
+  // together, and a ReleaseAck may come between Grants
+  unsigned grant_order = 0;
   unsigned set_stride = 4096; // the L1D's sets x 64-byte lines, for same-set probes and the counters
   unsigned d_stall_max = 10000;
   // Memory map (tg_map_pkg)
-  uint64_t dram_base = 0x80000000ull, dram_size = 2048ull << 20;
+  uint64_t dram_base = 0x80000000ull, dram_size = 1024ull << 20;  // the PMA's memory region (DR-151)
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   uint64_t uart_base = 0x10000000ull, uart_size = 0x1000;
   uint64_t clint_base = 0x02000000ull, clint_size = 0x10000;
@@ -116,6 +125,7 @@ struct d_msg_t {
 class d_sender_t {
  public:
   void push(d_msg_t m) { m.seq = seq_++; q_.push_back(std::move(m)); }
+  unsigned pick = 0;  // among the ready messages: 0 the oldest, 1 any at random, 2 the youngest
   // Resolves the handshake of the cycle that ended, then chooses the beat for the next cycle.
   void cycle(model_ctx_t& ctx, bool d_ready, const char* port, bool& valid_out, tl_d_t& d_out);
   bool idle() const { return q_.empty() && !valid_; }
@@ -227,6 +237,11 @@ class l1d_model_t {
   uint64_t acq_by_inflight[4] = {};
   uint64_t probes_on_acquire = 0, probes_same_set = 0, releases_during_acquire = 0, acquires_same_set = 0;
   uint64_t probes_on_grant = 0;
+  // DR-149: Grants sent while an older Acquire's Grant was still to come, probes of a line whose Release
+  // was in flight, A and C requests per source (core bits [5:0]; 8 and up counted together), and the
+  // most sources in flight at once
+  uint64_t grants_ooo = 0, probes_on_release = 0, src_req[9] = {};
+  unsigned max_src_inflight = 0;
   unsigned max_inflight = 0;
 
  private:
@@ -241,6 +256,12 @@ class l1d_model_t {
   bool same_set(uint64_t a, uint64_t b) const { return ((a ^ b) & (ctx_.cfg.set_stride / 64 - 1)) == 0; }
   void probe_for_miss(uint64_t idx, bool own_line_ok);
   std::set<uint64_t> acq_lines_;  // lines with an Acquire in flight
+  uint64_t acq_order_ = 0;         // Acquires in arrival order, for the Grants' order
+  std::set<uint64_t> grants_due_;  // the arrival numbers of Acquires whose Grant has not started
+  void note_src(uint32_t src) {
+    src_req[src < 8 ? src : 8]++;
+    max_src_inflight = std::max(max_src_inflight, unsigned(inflight_src_.size()));
+  }
   struct partial_t {  // a multi-beat A or C message being received
     bool active = false;
     unsigned beats = 0, got = 0;
@@ -258,7 +279,7 @@ class l1d_model_t {
   void finish_a(partial_t& p);
   void finish_c(partial_t& p);
   void accept_e(uint32_t sink);
-  void send_grant(const partial_t& p);
+  void send_grant(const partial_t& p, uint64_t order);
   void maybe_random_probe();
 
   model_ctx_t& ctx_;
