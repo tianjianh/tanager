@@ -21,11 +21,17 @@ QUEUE_DECODE ?=
 ifneq ($(filter-out 0 1,$(QUEUE_DECODE)),)
   $(error QUEUE_DECODE must be 0, 1 or unset (got "$(QUEUE_DECODE)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))
+# M6's speculative load wakeup, 0 or 1 (+define+TG_SPEC_WAKE, tg_core_pkg::SPEC_WAKE; the FPU track's feature,
+# DR-153): off by default; a performance feature, so not cycle-exact; runs programs like DC_MSHRS.
+SPEC_WAKE ?=
+ifneq ($(filter-out 0 1,$(SPEC_WAKE)),)
+  $(error SPEC_WAKE must be 0, 1 or unset (got "$(SPEC_WAKE)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
-                     $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)))
+                     $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
-                     $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)))
+                     $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=
