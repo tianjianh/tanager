@@ -8,7 +8,8 @@
 # Run it only through tools/vivado_run.sh (conventions §9), e.g. by fpga/spikes/scripts/run_g4.sh:
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
 #       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
-#       [-dcp 0|1] [-synth_dcp D] [-impl 0|1]
+#       [-dcp 0|1] [-synth_dcp D] [-impl 0|1] [-g NAME=VALUE]... [-file F]...
+#       [-place_directive D] [-route_directive D] [-define NAME=VALUE]...
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
@@ -18,6 +19,11 @@
 #   -synth_dcp D start from such a post-synthesis checkpoint instead of synthesising (the same
 #                design for every floorplan; its uncore_dsp argument must match the checkpoint's)
 #   -impl 0      stop after synthesis (with -dcp 1: the checkpoint for later floorplans)
+#   -g           an extra kv260_top generic (repeatable), e.g. a measurement patch's FILL_TILES
+#   -file F      an extra source, relative to the repo root (repeatable), e.g. fpga/spikes/rtl/tg_s6_fill.sv
+#   -define      a Verilog define for synthesis (repeatable), e.g. TG_COMMIT_TRACE=0 (the performance build)
+#   -place_directive / -route_directive  place_design / route_design directives (default Default,
+#                as the board build); e.g. AltSpreadLogic_high for a congested, nearly full device
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
 # sites.txt (per register-slice site: its UNCORE_DSP bit, form, and the worst slack into and out
 # of its main data register and into its control flops), sites_paths.rpt, uncore_paths.rpt,
@@ -34,6 +40,11 @@ set keep_dcp 0
 set floorplan ""
 set synth_dcp ""
 set do_impl 1
+set generics {}
+set extra_files {}
+set place_dir Default
+set route_dir Default
+set defines {}
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
   set rest [lassign $rest k v]
@@ -46,6 +57,11 @@ while {[llength $rest]} {
     -floorplan       { set floorplan $v }
     -synth_dcp       { set synth_dcp $v }
     -impl            { set do_impl $v }
+    -g               { lappend generics -generic $v }
+    -file            { lappend extra_files $v }
+    -place_directive { set place_dir $v }
+    -route_directive { set route_dir $v }
+    -define          { lappend defines -verilog_define $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
 }
@@ -59,7 +75,10 @@ set t0 [clock seconds]
 
 source [file join $root tools tcl tg_kv260_fan.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
+source [file join $root fpga spikes tcl synth_check.tcl]
 if {$synth_dcp ne ""} {
+  # the checkpoint's own synthesis was checked by the run that wrote it (tg_synth_check runs before
+  # write_checkpoint); checkpoints from before 2026-10-17 were not
   set_param general.maxThreads 8
   open_checkpoint $synth_dcp
 } else {
@@ -74,14 +93,18 @@ if {$synth_dcp ne ""} {
   source [file join $root tools tcl tg_files.tcl]
   tg_read_rtl $root $cfg
   tg_read_f [file join $root fpga kv260 kv260.f]
+  foreach f $extra_files { read_verilog -sv [file join $root $f] }
   read_xdc [file join $root fpga kv260 xdc kv260.xdc]
   read_xdc [file join $root fpga kv260 xdc timing.xdc]
 
+  set synth_mark [tg_synth_check_mark]
   synth_design -top kv260_top -part $part \
     -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"core\" \
     -generic PMOD_UART=1 -generic FAN_WAVE=$::tg_kv260_fan_bit -generic FAN_INVERT=$::tg_kv260_fan_invert \
-    -generic "UNCORE_DSP=64'h$mask" \
+    -generic "UNCORE_DSP=64'h$mask" {*}$generics {*}$defines \
     -flatten_hierarchy $flatten -directive $synth_dir
+  # an implicit net in our sources (Synth 8-11241, 8-605) fails the run here
+  tg_synth_check $synth_mark
   set_param general.maxThreads 8
   if {$keep_dcp} { write_checkpoint -force post_synth.dcp }
 }
@@ -104,6 +127,9 @@ tg_kv $fh core_mhz $core_mhz
 tg_kv $fh uncore_dsp 0x$mask
 tg_kv $fh synth [expr {$synth_dcp ne "" ? "from $synth_dcp" : "-flatten_hierarchy $flatten -directive $synth_dir"}]
 tg_kv $fh floorplan [expr {$floorplan ne "" ? $floorplan : "none"}]
+tg_kv $fh generics [join $generics " "]
+tg_kv $fh directives "place $place_dir route $route_dir"
+tg_kv $fh defines [join $defines " "]
 tg_kv $fh pblocks [llength [get_pblocks -quiet]]
 report_utilization -file util_synth.rpt
 tg_kv $fh prim_fail_synth [tg_prim_check -file prim_synth.txt -fail 0]
@@ -133,11 +159,11 @@ if {!$do_impl} {
 set t1 [clock seconds]
 opt_design
 tg_kv $fh prim_fail_opt [tg_prim_check -file prim_opt.txt -fail 0]
-place_design
+place_design -directive $place_dir
 tg_kv $fh place_s [expr {[clock seconds] - $t1}]
 phys_opt_design
 set t2 [clock seconds]
-route_design
+route_design -directive $route_dir
 tg_kv $fh route_s [expr {[clock seconds] - $t2}]
 tg_kv $fh impl_s [expr {[clock seconds] - $t0}]
 tg_util $fh impl
