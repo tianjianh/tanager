@@ -37,6 +37,7 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_B_SLICE`, `TG_D_SLICE`, `TG_W_SLICE` | the banks' B, D, and AW and W slices (0 or 1 each) | 0 |
 | `TG_XBAR_IN_SLICE` | the core-side request slices, a bit per channel (0–15: caches' A, MMIO A, l1d C, l1d E) | 0 |
 | `TG_XBAR_SLICE`, `TG_MEM_SLICE` | the crossbar's own slices and the memory ports' AXI slices (0 or 1 each) | 1 |
+| `TG_DEBUG_CNT` | the board debug counters, read with `tanager-host dbg` ([uncore.md](../../docs/spec/uncore.md) §Board debug counters) | 0 |
 
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 

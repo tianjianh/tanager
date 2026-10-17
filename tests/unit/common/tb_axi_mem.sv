@@ -12,6 +12,7 @@ module tb_axi_mem
   parameter int READY_PCT = 80,
   parameter bit OOO       = 1'b1,
   parameter bit STRICT_ID = 1'b1,
+  parameter int R_PCT     = 85,          // the chance, in percent, that a read beat goes out in a cycle
   parameter longint unsigned ERR_BASE = 64'hFFFF_FFFF_FFFF_FFFF,  // reads at/above answer SLVERR
   parameter string NAME   = "mem"
 ) (
@@ -41,6 +42,20 @@ module tb_axi_mem
   // default: the unit tests' reference models rely on init_beat.
   bit zero_fill = 1'b0;
   initial if ($test$plusargs("mem_zero")) zero_fill = 1'b1;
+
+  // The timing, from the parameters; a DDR model (NAME "ddr*") also takes run-time overrides,
+  // +mem_lat_min= +mem_lat_max= +mem_ready_pct= +mem_r_pct= +mem_ooo=, to sweep a board's timing
+  // without rebuilding
+  int t_lat_min = LAT_MIN, t_lat_max = LAT_MAX, ready_pct = READY_PCT, r_pct = R_PCT;
+  bit ooo = OOO;
+  initial if (NAME.substr(0, 2) == "ddr") begin
+    int v;
+    if ($value$plusargs("mem_lat_min=%d", v))   t_lat_min = v;
+    if ($value$plusargs("mem_lat_max=%d", v))   t_lat_max = v;
+    if ($value$plusargs("mem_ready_pct=%d", v)) ready_pct = v;
+    if ($value$plusargs("mem_r_pct=%d", v))     r_pct     = v;
+    if ($value$plusargs("mem_ooo=%d", v))       ooo       = v != 0;
+  end
   function automatic void zero_unwritten(input bit on);
     zero_fill = on;
   endfunction
@@ -83,8 +98,8 @@ module tb_axi_mem
       lat_max    = 0;
     end else begin
       now        <= now + 1;
-      ar_ready_o <= ($urandom_range(99) < READY_PCT);
-      aw_ready_o <= ($urandom_range(99) < READY_PCT);
+      ar_ready_o <= ($urandom_range(99) < ready_pct);
+      aw_ready_o <= ($urandom_range(99) < ready_pct);
 
       // ---- AR ----
       if (ar_valid_i && ar_ready_o) begin
@@ -99,7 +114,7 @@ module tb_axi_mem
         assert (!wr_line_cnt.exists(line)) else $error("%s: read of line %h while its write is outstanding", NAME, line);
         x.a       = ar_i;
         x.t_issue = now;
-        x.t_ready = now + longint'($urandom_range(LAT_MAX, LAT_MIN));
+        x.t_ready = now + longint'($urandom_range(t_lat_max, t_lat_min));
         rq.push_back(x);
         n_reads++;
       end
@@ -119,8 +134,8 @@ module tb_axi_mem
         int pick;
         pick = -1;
         foreach (rq[k]) begin
-          if (rq[k].t_ready <= now && (pick < 0 || (OOO && $urandom_range(1) == 1))) pick = k;
-          if (pick >= 0 && !OOO) break;
+          if (rq[k].t_ready <= now && (pick < 0 || (ooo && $urandom_range(1) == 1))) pick = k;
+          if (pick >= 0 && !ooo) break;
         end
         if (pick >= 0) begin
           cur   = rq[pick];
@@ -131,7 +146,7 @@ module tb_axi_mem
       end
       if (cur_v && (r_valid_o && !r_ready_i)) begin
         // hold the current beat
-      end else if (cur_v && $urandom_range(99) < 85) begin
+      end else if (cur_v && $urandom_range(99) < r_pct) begin
         longint unsigned ba;
         ba = (cur.a.addr >> 4) + longint'(beat);
         r_valid_o <= 1'b1;
@@ -173,7 +188,7 @@ module tb_axi_mem
             bq_t x;
             x.b.id   = a.id;
             x.b.resp = AXI_OKAY;
-            x.t      = now + longint'($urandom_range(LAT_MAX, LAT_MIN));
+            x.t      = now + longint'($urandom_range(t_lat_max, t_lat_min));
             x.line   = a.addr >> 6;
             bq.push_back(x);
             void'(wq.pop_front());
@@ -186,7 +201,7 @@ module tb_axi_mem
       end
 
       // WREADY only with an address in hand: AXI lets W come before AW, and lets a slave wait for AW.
-      w_ready_o <= ($urandom_range(99) < READY_PCT) && (wq.size() > 0);
+      w_ready_o <= ($urandom_range(99) < ready_pct) && (wq.size() > 0);
 
       // ---- B ----
       if (b_valid_o && b_ready_i) b_valid_o <= 1'b0;

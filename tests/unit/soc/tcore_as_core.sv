@@ -4,7 +4,8 @@
 module tg_core
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*;
 #(
-  parameter int unsigned CORE_ID = 0  // used for mhartid and trace hart IDs
+  parameter int unsigned CORE_ID  = 0,     // used for mhartid and trace hart IDs
+  parameter bit          DBG_WORD = 1'b0   // tg_core's board-debug word: the test core has none
 ) (
   input  logic                         clk,
   input  logic                         rst,
@@ -58,7 +59,10 @@ module tg_core
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
-  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o
+  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
+  // tg_core's board-debug port (tanager_soc's DEBUG_CNT); tg_tcore drives dbg_o with 0
+  input  logic [4:0]                   dbg_sel_i,
+  output logic [31:0]                  dbg_o
 );
 
   tg_tcore #(.CORE_ID (CORE_ID)) u_tcore (.*);

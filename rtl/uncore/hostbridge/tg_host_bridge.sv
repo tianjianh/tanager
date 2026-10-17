@@ -14,7 +14,8 @@ module tg_host_bridge
   parameter bit          UNCORE_RST_INIT = 1'b1,
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
-  parameter bit          TRACE           = 1'b1          // the trace stream is built (tg_uncore TRACE; DR-146)
+  parameter bit          TRACE           = 1'b1,         // the trace stream is built (tg_uncore TRACE; DR-146)
+  parameter bit          DEBUG           = 1'b0          // DBG_SEL / DBG_VAL reach tg_uncore's debug counters
 ) (
   // ---- host domain ----
   input  logic        clk_host,
@@ -79,6 +80,9 @@ module tg_host_bridge
   input  logic [4:0]  trs_flags_i,     // capturing, started, stopped, full, AXI error
   input  logic [15:0] trs_buffered_i,
   input  logic [31:0] trs_stalls_i,
+  // board debug (tg_uncore DEBUG_CNT): the counter the host selects, and its value (core domain)
+  output logic [7:0]  dbg_sel_o,
+  input  logic [31:0] dbg_val_i,
   // console streams (tg_uart side)
   input  logic        con_tx_valid_i,
   output logic        con_tx_ready_o,
@@ -108,6 +112,7 @@ module tg_host_bridge
   logic [63:0] trs_stop_pc_q, trs_start_pc_q, trs_base_q, trs_rp_q;
   logic [15:0] trs_post_q;
   logic [4:0]  trs_size_q;
+  logic [7:0]  dbg_sel_q;
   logic        pwr_pend_q, mbox_in_q, tohost_new_q;
 
   // status mirrored from the core domain
@@ -129,6 +134,7 @@ module tg_host_bridge
     logic [4:0]  trs_flags;
     logic [15:0] trs_buffered;
     logic [31:0] trs_stalls;
+    logic [31:0] dbg_val;
   } status_t;
   status_t st_h;
 
@@ -219,6 +225,8 @@ module tg_host_bridge
       16'h1040: rd_mux = {st_h.trs_buffered, 11'd0, st_h.trs_flags};
       16'h1044: rd_mux = st_h.trs_stalls;
       16'h1048: rd_mux = {16'd0, 8'(N_CORES_SOC), 8'd64};
+      16'h1200: rd_mux = {24'd0, dbg_sel_q};
+      16'h1204: rd_mux = st_h.dbg_val;
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
       16'h104: rd_mux = {20'd0, txh_level};
       16'h10C: rd_mux = 32'(512) - 32'(rxh_wlevel);
@@ -251,6 +259,7 @@ module tg_host_bridge
       tg_en_q      <= 1'b0;
       tg_base_q    <= 28'(DRAM_BASE >> 6);
       tg_lines_q   <= 24'd16384;          // 1 MiB per generator: twice the L2
+      dbg_sel_q    <= '0;
       trs_ctrl_q     <= '0;
       trs_stop_pc_q  <= '0;
       trs_start_pc_q <= '0;
@@ -292,6 +301,7 @@ module tg_host_bridge
           16'h1024: if (TRACE) trs_base_q     <= {wd, lo_shadow_q};
           16'h1028: if (TRACE) trs_size_q     <= wd[4:0];
           16'h1034: if (TRACE) trs_rp_q       <= {wd, lo_shadow_q};
+          16'h1200: if (DEBUG) dbg_sel_q <= wd[7:0];
           default: ;
         endcase
       end else if (s_bvalid && s_bready) begin
@@ -336,6 +346,7 @@ module tg_host_bridge
     logic [39:0] trs_base;
     logic [4:0]  trs_size;
     logic [63:0] trs_rp;
+    logic [7:0]  dbg_sel;
   } cfg_t;
   cfg_t cfg_h, cfg_c;
   localparam cfg_t CFG_INIT = '{dram_base: DRAM_BASE_INIT, dram_size: DRAM_SIZE_INIT, entry: 64'(DRAM_BASE),
@@ -343,7 +354,7 @@ module tg_host_bridge
                                 inj_mode: 1'b0, inj_bw: '0, lossless: 1'b0, tg_en: 1'b0,
                                 tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384,
                                 trs_ctrl: '0, trs_stop_pc: '0, trs_post: '0, trs_start_pc: '0,
-                                trs_base: '0, trs_size: '0, trs_rp: '0};
+                                trs_base: '0, trs_size: '0, trs_rp: '0, dbg_sel: '0};
   always_comb begin
     cfg_h.dram_base = dram_base_q[39:0];
     cfg_h.dram_size = dram_size_q[39:0];
@@ -365,6 +376,7 @@ module tg_host_bridge
     cfg_h.trs_base     = trs_base_q[39:0];
     cfg_h.trs_size     = trs_size_q;
     cfg_h.trs_rp       = trs_rp_q;
+    cfg_h.dbg_sel      = dbg_sel_q;
   end
   tg_cdc_mirror #(.W ($bits(cfg_t)), .INIT (CFG_INIT)) u_cfg (
     .src_clk (clk_host), .src_rst (rst_host), .src_in (cfg_h),
@@ -482,6 +494,7 @@ module tg_host_bridge
     st_c.trs_flags    = trs_flags_i;
     st_c.trs_buffered = trs_buffered_i;
     st_c.trs_stalls   = trs_stalls_i;
+    st_c.dbg_val      = DEBUG ? dbg_val_i : '0;
   end
   tg_cdc_mirror #(.W ($bits(status_t))) u_status (
     .src_clk (clk), .src_rst (rst), .src_in (st_c),
@@ -526,6 +539,7 @@ module tg_host_bridge
   assign trs_base_o      = cfg_c.trs_base;
   assign trs_size_log2_o = cfg_c.trs_size;
   assign trs_rp_o        = cfg_c.trs_rp;
+  assign dbg_sel_o       = cfg_c.dbg_sel;
 
   wire unused = ^{s_awaddr[1:0], s_araddr[1:0], s_wstrb[2:1], rxh_ready, req_i.addr[PA_W-1:12], req_i.size, off[2:0],
                   txc_level, rxc_level, cfg_c.trs_ctrl[7:2]};

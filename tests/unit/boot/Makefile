@@ -33,7 +33,10 @@ ifneq ($(TIMING_CUTS),)
 endif
 NAME   := boot$(TAG)$(TC_SUFFIX)$(if $(filter 1,$(SERIAL)),_ser)_c$(CORES)_t$(VTHREADS)
 TB     := $(CURDIR)/tb_boot.sv
-PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL)
+# MEM_PARAMS: the DDR models' timing (tb_boot MEM_*), for example the board's fixed latency:
+#   MEM_PARAMS="-GMEM_LAT_MIN=22 -GMEM_LAT_MAX=22 -GMEM_READY_PCT=100 -GMEM_OOO=0 -GMEM_R_PCT=100" TAG=_lat22
+MEM_PARAMS ?=
+PARAMS := -GN_CORES=$(CORES) -GUART_SERIAL_TB=$(SERIAL) $(MEM_PARAMS)
 EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREADS)) $(TC_DEF)
 include ../common/unit.mk
 

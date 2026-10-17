@@ -68,6 +68,10 @@ The PL side of that is the **host bridge**:
 | `0x108` | `UART_RX` | WO | | push one byte to the console input |
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
 | `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
+| `0x1200` | `DBG_SEL` | RW | 0 | `[7:0]` the debug counter or core word `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
+| `0x1204` | `DBG_VAL` | RO | | that counter, a few dozen cycles after `DBG_SEL` is written |
+
+`DBG_SEL` and `DBG_VAL` read 0 and ignore writes in a build without the counters.
 
 A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
@@ -124,6 +128,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 | `tanager-host tg start [LINES] [--base A --size S]` | traffic-generator bitstreams ([soc.md](soc.md) §2.3): steps 1–3 without images (hold everything, set the window, release the uncore, wait for the L2), then `TG_LINES`, `TG_CTRL = 1`, `CTRL = 0x0` |
 | `tanager-host tg stop`, `tg status` | stop the generators; print passes, operations, errors and the first failing line |
 | `tanager-host peek/poke <off> [val]` | raw register access (bring-up) |
+| `tanager-host dbg` | print the board debug counters (`TG_DEBUG_CNT=1` builds), one per line, through `DBG_SEL` and `DBG_VAL`; then each core's status word, decoded, and its dispatch and commit logs |
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).

@@ -3,3 +3,5 @@
 
 // MULH* keep only the upper half of the 128-bit product.
 lint_off -rule UNUSEDSIGNAL -file "*sim/tcore/tg_tcore.sv" -match "*'prod'*"
+// tg_core's board-debug select: the test core has no debug word to pick from.
+lint_off -rule UNUSEDSIGNAL -file "*sim/tcore/tg_tcore.sv" -match "*'dbg_sel_i'*"

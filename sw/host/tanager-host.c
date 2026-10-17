@@ -40,6 +40,7 @@ enum {
   R_TRS_CTRL = 0x1000, R_TRS_TRIG_PC = 0x1008, R_TRS_POST = 0x1010, R_TRS_START_PC = 0x1018,
   R_TRS_BASE = 0x1020, R_TRS_SIZE = 0x1028, R_TRS_RP = 0x1030, R_TRS_WP = 0x1038,
   R_TRS_STATUS = 0x1040, R_TRS_STALLS = 0x1044, R_TRS_INFO = 0x1048,
+  R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
 };
 #define TRS_EN         0x001u
 #define TRS_WRAP       0x002u
@@ -178,7 +179,8 @@ static void usage(void) {
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
-    "  peek OFF | poke OFF VAL                raw register access\n", prog);
+    "  dbg                                    the board debug counters (a bitstream built with TG_DEBUG_CNT=1)\n"
+  "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
 
@@ -191,6 +193,70 @@ static uint64_t num(const char *s) {
 }
 
 /* ---- Commands ---- */
+/* The board debug counters (tg_uncore DEBUG_CNT): each L2 bank's coherence messages, misses, AXI reads and
+ * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels. The
+ * index crosses into the core clock and the value back, so each read waits a millisecond. */
+static void cmd_dbg(void) {
+  static const char *bk[] = { "A in", "B out (probes)", "C in", "D out", "E in (GrantAck)", "misses", "AXI reads", "fills" };
+  static const char *ck[] = { "A out", "B in (probes)", "C out", "D in", "E out (GrantAck)" };
+  unsigned ncores = (rd(R_VERSION) >> 12) & 0xf, nbanks = (rd(R_CAPS) >> 4) & 0xf;
+  wr(R_DBG_SEL, 5);
+  if (rd(R_DBG_SEL) != 5) die("dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)");
+  unsigned n = 8 * nbanks + 5 * ncores + 1;
+  for (unsigned i = 0; i <= n; i++) {
+    wr(R_DBG_SEL, i);
+    sleep_us(1000);
+    uint32_t v = rd(R_DBG_VAL);
+    if (i < 8 * nbanks)       printf("  L2 bank %u %-18s %10u\n", i / 8, bk[i % 8], v);
+    else if (i < n - 1)       printf("  core %u l1d %-16s %10u\n", (i - 8 * nbanks) / 5, ck[(i - 8 * nbanks) % 5], v);
+    else if (i == n - 1)      printf("  L2 error events          %10u\n", v);
+    else {
+      printf("  levels 0x%08x:", v);
+      static const char *lv[] = { "e_r", "e_v", "d_r", "d_v", "c_r", "c_v", "b_r", "b_v", "a_r", "a_v" };
+      for (unsigned b = 0; b < nbanks && b < 2; b++) {
+        printf(" bank%u[", b);
+        for (int k = 9; k >= 0; k--) if (v >> (10 * b + k) & 1) printf(" %s", lv[k]);
+        printf(" ]");
+      }
+      static const char *st[] = { "E", "D", "C", "B", "A" };
+      for (unsigned c = 0; c < ncores && c < 2; c++) {
+        printf(" core%u stalled[", c);
+        for (int k = 4; k >= 0; k--) if (v >> (20 + 5 * c + k) & 1) printf(" %s", st[k]);
+        printf(" ]");
+      }
+      printf("%s\n", v >> 30 & 1 ? " L2_ERR" : "");
+    }
+  }
+  /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
+   * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none.
+   * A bitstream without them has a 6-bit DBG_SEL, which would wrap 128 + 32c + w onto the counters: it
+   * reads back 0 for 128. */
+  wr(R_DBG_SEL, 128);
+  if (rd(R_DBG_SEL) != 128) { printf("  (no core debug words in this bitstream)\n"); return; }
+  for (unsigned c = 0; c < ncores; c++) {
+    uint32_t w[32];
+    for (unsigned k = 0; k < 32; k++) { wr(R_DBG_SEL, 128 + 32 * c + k); sleep_us(1000); w[k] = rd(R_DBG_VAL); }
+    if (w[0] == 0xDEB00000u) { if (c == 0) printf("  (no core debug words in this bitstream)\n"); break; }
+    uint32_t s = w[0];
+    static const char *am[] = { "IDLE", "REQ", "RES", "DONE" };
+    printf("  core %u status 0x%08x: rename v%u ser%u empty%u blk%u res%u fire%u dsbusy%u rdy%u; rob %u; atomic %s%s;"
+           " sq head v%u addr%u data%u dreg%u nonempty%u; d$ probe %u mshr %u ready%u; trace stall%u flush%u\n",
+           c, s, s & 1, s >> 1 & 1, s >> 2 & 1, s >> 3 & 1, s >> 4 & 1, s >> 5 & 1, s >> 6 & 1, s >> 7 & 1,
+           s >> 8 & 0x3f, am[s >> 14 & 3], s >> 16 & 1 ? " (in window)" : "", s >> 17 & 1, s >> 18 & 1, s >> 19 & 1,
+           s >> 20 & 1, s >> 21 & 1, s >> 22 & 7, s >> 25 & 15, s >> 29 & 1, s >> 30 & 1, s >> 31 & 1);
+    for (unsigned k = 1; k < 32; k++) {
+      if (!w[k]) continue;
+      printf("  core %u %s %2u:", c, k < 16 ? "dispatch" : "commit  ", k < 16 ? k : k - 16);
+      for (unsigned sl = 0; sl < 2; sl++) {
+        uint32_t e = w[k] >> (16 * sl) & 0x7fff;          /* {writes rd, fp, rd[4:0], preg[7:0]} */
+        if (e >> 14 & 1) printf("  slot%u %c%-2u -> p%-3u", sl, e >> 13 & 1 ? 'f' : 'x', e >> 8 & 31, e & 0xff);
+        else             printf("  slot%u -           ", sl);
+      }
+      printf("\n");
+    }
+  }
+}
+
 static void check_id(void) {
   uint32_t id = rd(R_ID);
   if (id != TG_ID) die("no Tanager host bridge at the register window (ID 0x%08x); is the bitstream loaded?", id);
@@ -614,6 +680,7 @@ int main(int argc, char **argv) {
     trace_status();
     return 0;
   }
+  if (!strcmp(cmd, "dbg"))        { check_id(); cmd_dbg(); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

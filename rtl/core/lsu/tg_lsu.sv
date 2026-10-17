@@ -148,7 +148,8 @@ module tg_lsu
   input  logic                         mmio_a_ready_i,
   input  tl_d_t                        mmio_d_i,
   input  logic                         mmio_d_valid_i,
-  output logic                         mmio_d_ready_o
+  output logic                         mmio_d_ready_o,
+  output logic [15:0]                  dbg_o          // board debug: atomic, SQ head, D$ (tg_core's dbg_o)
 );
   // ---- Helpers ----
   function automatic logic [7:0] bmask(input logic [2:0] off, input logic [1:0] size);
@@ -439,6 +440,7 @@ module tg_lsu
   logic [63:0]       am_wdata;
   logic [63:0]       am_rdata;
   logic [PA_W-1:6]   lose_line;
+  logic [7:0] dc_dbg;
   tg_dcache u_dc (
     .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
@@ -449,7 +451,7 @@ module tg_lsu
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
     .d_i(l1d_d_i), .d_valid_i(l1d_d_valid_i), .d_ready_o(l1d_d_ready_o),
-    .e_o(l1d_e_o), .e_valid_o(l1d_e_valid_o), .e_ready_i(l1d_e_ready_i));
+    .e_o(l1d_e_o), .e_valid_o(l1d_e_valid_o), .e_ready_i(l1d_e_ready_i), .dbg_o(dc_dbg));
 
   // ================= AG =================
   // A replay takes the AG slot when the LD port has nothing in EX.
@@ -1823,4 +1825,7 @@ module tg_lsu
             else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
   end
 `endif
+  // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word
+  assign dbg_o = {dc_dbg, sq_head_q != sq_tail_q, sq_dr_q[dh], sq_dv_q[dh], sq_av_q[dh], sq_v_q[dh],
+                  am_v_q, 2'(am_st_q)};
 endmodule

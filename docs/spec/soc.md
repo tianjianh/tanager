@@ -38,6 +38,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `DRAM_BASE_INIT`, `DRAM_SIZE_INIT` | 0, 0 | DRAM window at reset; simulation uses base 0 and the model's size |
 | `UNCORE_DSP` | `64'h84_0308_0000`: the sites that met 200 MHz as DSPs (the device bus's A slice, the L2 banks' C slices, the memory ports' W slices) | register slices whose main data register sits in DSP48E2s, one bit per site (`tg_uncore`; [uncore.md](uncore.md), DR-136): bits 31:0 the crossbar's, 41:32 the memory ports' AR, AW, W, R and B, 43:42 the L2 banks' R slices. `build.tcl` takes it from `TG_UNCORE_DSP` |
 | `AR_SLICE`, `B_SLICE`, `D_SLICE`, `W_SLICE`, `XBAR_IN_SLICE`, `XBAR_SLICE`, `MEM_SLICE` | 1, 0, 0, 0, `4'b0000`, 1, 1 | `tg_uncore`'s register slices ([uncore.md](uncore.md), [uncore-mem.md](uncore-mem.md); what each costs and buys is in §Reserve levers). `tanager_soc` and `kv260_top` pass them on, so a build or a fit sets them without RTL edits (DR-146); `build.tcl` takes each from `TG_` and its name (`TG_XBAR_IN_SLICE` 0–15). The defaults live in `tg_uncore_pkg`, with `UNCORE_DSP`'s |
+| `DEBUG_CNT` | 0 | the board debug counters and the cores' board-debug words (`tg_core` `DBG_WORD`) ([uncore.md](uncore.md) §Board debug counters; `build.tcl` `TG_DEBUG_CNT`) |
 | `CORE_KIND` | `"core"` | `"core"`: `tg_core` (the stub until the core track's RTL lands); `"trafgen"`: `tg_trafgen` traffic generators in the cores' place, for bring-up and timing runs before the core exists (§2.3) |
 
 ### Behaviour

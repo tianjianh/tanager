@@ -72,6 +72,10 @@ module tg_uncore
   // ignored, trace_stall_o is 0, the trace master stays idle (AWVALID = WVALID = 0, BREADY = 1) and
   // the host bridge's capability bit 3 (trace streaming) reads 0
   parameter bit          TRACE           = COMMIT_TRACE,
+  // Board debug (DR-147): message counters per L2 bank and per core's data cache, and a snapshot of
+  // every coherence channel's valid and ready, which the host reads one at a time (host bridge DBG_SEL,
+  // DBG_VAL; tanager-host dbg). Off by default: no logic
+  parameter bit          DEBUG_CNT       = 1'b0,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -181,7 +185,12 @@ module tg_uncore
   output logic        uart_txd_o,
   input  logic        uart_rxd_i,
 
-  output logic [7:0]  status_o
+  output logic [7:0]  status_o,
+
+  // the cores' board-debug words (DEBUG_CNT): the word each core shows (tg_core dbg_sel_i), and those
+  // words (dbg_o); 0 and unused without the counters
+  output logic [4:0]               core_dbg_sel_o,
+  input  logic [N_CORES-1:0][31:0] core_dbg_i
 );
   if (N_CORES < 1 || N_CORES > NUM_CORES) begin : g_bad_cores
     $error("tg_uncore: N_CORES must be 1..NUM_CORES");
@@ -512,6 +521,12 @@ module tg_uncore
   // ---------------------------------------------------------------------------------------------
   // Host bridge (host control is the device bus's fourth device)
   // ---------------------------------------------------------------------------------------------
+  // The debug counters' select and value (DEBUG_CNT, below), declared before the bridge connects them:
+  // a name used before its declaration becomes an implicit one-bit net in synthesis (Vivado Synth
+  // 8-11241), though Verilator finds the later declaration
+  logic [7:0]  dbg_sel;
+  logic [31:0] dbg_val;
+
   logic [31:0] tg_ops_all;
   logic [15:0] tg_errs_all;
   logic [27:0] tg_err_line_any;
@@ -570,7 +585,7 @@ module tg_uncore
   tg_host_bridge #(
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
@@ -592,6 +607,7 @@ module tg_uncore
     .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
     .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
     .trs_wp_i (trs_wp), .trs_flags_i (trs_flags), .trs_buffered_i (trs_buffered), .trs_stalls_i (trs_stalls),
+    .dbg_sel_o (dbg_sel), .dbg_val_i (dbg_val),
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );
@@ -605,6 +621,65 @@ module tg_uncore
     else if (|ev_err) l2_err_q <= 1'b1;
   end
   assign status_o = {2'b00, |tg_errs_all, l2_err_q, con_tx_v, l2_init_done, uncore_rst, core_rst_o};
+
+  // ---------------------------------------------------------------------------------------------
+  // Debug counters (DEBUG_CNT): index 8b+k for bank b counts its A, B, C, D, E messages, misses, AXI
+  // reads and fills (R last beats); 8*N_BANKS + 5c + k for core c's data cache its A, B, C, D, E;
+  // then the L2 error events; the index after holds the channels' valid/ready levels now; 128 + 32c + w
+  // is core c's board-debug word w (tg_core dbg_o, built with DBG_WORD = DEBUG_CNT)
+  // ---------------------------------------------------------------------------------------------
+  if (DEBUG_CNT) begin : g_dbg
+    localparam int NCNT = 8 * N_BANKS + 5 * N_CORES + 1;
+    logic [31:0]     cnt_q [NCNT];
+    logic [NCNT-1:0] inc;
+    logic [31:0]     lv;
+    always_comb begin
+      inc = '0;
+      lv  = '0;
+      for (int b = 0; b < N_BANKS; b++) begin
+        inc[8*b+0] = l2_av[b] && l2_ar[b];
+        inc[8*b+1] = l2_bv[b] && l2_br[b];
+        inc[8*b+2] = l2_cv[b] && l2_cr[b];
+        inc[8*b+3] = l2_dv[b] && l2_dr[b];
+        inc[8*b+4] = l2_ev[b] && l2_er[b];
+        inc[8*b+5] = ev_miss[b];
+        inc[8*b+6] = l2_arv[b] && l2_arr[b];
+        inc[8*b+7] = m_axi_r_valid[b] && m_axi_r_ready[b] && m_axi_r[b].last;
+        lv[10*b +: 10] = {l2_av[b], l2_ar[b], l2_bv[b], l2_br[b], l2_cv[b], l2_cr[b], l2_dv[b], l2_dr[b],
+                          l2_ev[b], l2_er[b]};
+      end
+      for (int c = 0; c < N_CORES; c++) begin
+        inc[8*N_BANKS+5*c+0] = l1d_a_valid_i[c] && l1d_a_ready_o[c];
+        inc[8*N_BANKS+5*c+1] = l1d_b_valid_o[c] && l1d_b_ready_i[c];
+        inc[8*N_BANKS+5*c+2] = l1d_c_valid_i[c] && l1d_c_ready_o[c];
+        inc[8*N_BANKS+5*c+3] = l1d_d_valid_o[c] && l1d_d_ready_i[c];
+        inc[8*N_BANKS+5*c+4] = l1d_e_valid_i[c] && l1d_e_ready_o[c];
+        if (c < 2) lv[20+5*c +: 5] = {l1d_a_valid_i[c] && !l1d_a_ready_o[c], l1d_b_valid_o[c] && !l1d_b_ready_i[c],
+                                       l1d_c_valid_i[c] && !l1d_c_ready_o[c], l1d_d_valid_o[c] && !l1d_d_ready_i[c],
+                                       l1d_e_valid_i[c] && !l1d_e_ready_o[c]};
+      end
+      inc[NCNT-1] = |ev_err;
+      lv[30] = l2_err_q;
+    end
+    always_ff @(posedge clk)
+      for (int i = 0; i < NCNT; i++)
+        if (uncore_rst) cnt_q[i] <= '0;
+        else if (inc[i]) cnt_q[i] <= cnt_q[i] + 32'd1;
+    localparam int IW = $clog2(NCNT);
+    // the core words: every core shows word dbg_sel[4:0], a register a cycle behind the select
+    logic [3:0][31:0] cw;
+    always_comb begin
+      cw = {4{32'hDEB0_0000}};
+      for (int c = 0; c < N_CORES; c++) cw[c] = core_dbg_i[c];
+    end
+    assign core_dbg_sel_o = dbg_sel[4:0];
+    assign dbg_val = dbg_sel[7] ? cw[dbg_sel[6:5]] :
+                     (int'(dbg_sel) < NCNT) ? cnt_q[IW'(dbg_sel)] : (int'(dbg_sel) == NCNT) ? lv : 32'hDEB0_0000;
+  end else begin : g_no_dbg
+    assign dbg_val        = '0;
+    assign core_dbg_sel_o = '0;
+    wire unused_dbg = ^{dbg_sel, core_dbg_i};
+  end
 
   wire unused = ^{hdma_ar, hdma_d, hdma_dv, ev_hit, ev_miss, ev_wb, ev_probe, tg_pass_i};
 endmodule
