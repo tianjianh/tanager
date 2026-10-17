@@ -1,0 +1,48 @@
+loaded tanager-p0f at 08:28:03; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+dead-man: k26-starter-kits comes back at 08:38:03 unless 'steps' or 'restore' runs first
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 900 < console
+login prompt 6 s after the load
+commands done 108 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 1701411 reads, native latency avg 21.7 max 61 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                 54609171
+  L2 bank 0 B out (probes)         194258
+  L2 bank 0 C in                  6996381
+  L2 bank 0 D out               221084584
+  L2 bank 0 E in (GrantAck)       2783849
+  L2 bank 0 misses                 854182
+  L2 bank 0 AXI reads              854182
+  L2 bank 0 fills                  854182
+  L2 bank 1 A in                 51502896
+  L2 bank 1 B out (probes)         296635
+  L2 bank 1 C in                  6627720
+  L2 bank 1 D out               208320005
+  L2 bank 1 E in (GrantAck)       2558875
+  L2 bank 1 misses                 847234
+  L2 bank 1 AXI reads              847234
+  L2 bank 1 fills                  847234
+  core 0 l1d A out               3354395
+  core 0 l1d B in (probes)        223710
+  core 0 l1d C out               9024431
+  core 0 l1d D in               16578553
+  core 0 l1d E out (GrantAck)    3354395
+  core 1 l1d A out               1988329
+  core 1 l1d B in (probes)        267183
+  core 1 l1d C out               4599670
+  core 1 l1d D in                9748664
+  core 1 l1d E out (GrantAck)    1988329
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+power-off reached the host 113 s after the load
+boot exit 0; console in /home/ubuntu/tanager/p0f/linux_shell.txt (234 lines)
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 08:29:59
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

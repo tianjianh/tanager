@@ -1,0 +1,17 @@
+$ tanager-host boot --fw /home/ubuntu/tanager/ctl-m4/fw_jump.bin --kernel /home/ubuntu/tanager/ctl-m4/Image --dtb /home/ubuntu/tanager/ctl-m4/tanager-kv260-768m.dtb --lossless --trace /home/ubuntu/tanager/ctl-m4/boot.trace --timeout 2
+zeroed the RISC-V window: 768 MiB in 1.0 s
+loaded: fw 277856 B, kernel 21449216 B, dtb 2087 B into 0x840000000 (RISC-V 0x80000000)
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+
+[tanager-host] timeout
+[tanager-host] trace: 5050605 records written
