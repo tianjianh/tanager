@@ -81,6 +81,9 @@ module tb_boot;
     .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
+    .s_axi_dma_aw ('0), .s_axi_dma_aw_valid (1'b0), .s_axi_dma_aw_ready (), .s_axi_dma_w ('0), .s_axi_dma_w_valid (1'b0),
+    .s_axi_dma_w_ready (), .s_axi_dma_b (), .s_axi_dma_b_valid (), .s_axi_dma_b_ready (1'b1), .s_axi_dma_ar ('0),
+    .s_axi_dma_ar_valid (1'b0), .s_axi_dma_ar_ready (), .s_axi_dma_r (), .s_axi_dma_r_valid (), .s_axi_dma_r_ready (1'b1),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );

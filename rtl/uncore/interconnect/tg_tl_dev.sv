@@ -1,9 +1,14 @@
 // Device bus (docs/spec/uncore.md): turns single-beat TL-UL accesses (size <= 3) into one register
-// access at a time on the devices of the plan §5.4 map. Devices answer in the cycle after req_valid.
-// Absent devices (virtio, debug until M5/M9), sizes above 3 and misaligned accesses answer denied.
+// access at a time on the devices of the plan §5.4 map. Devices answer in the cycle after req_valid,
+// or later: a device holds its wait_i bit high from that cycle on, and the bus takes its response
+// in the first cycle with the bit low (the forwarded virtio window, which waits for the host).
+// Absent devices (virtio unless VIRTIO, debug until M9), sizes above 3 and misaligned accesses
+// answer denied.
 module tg_tl_dev
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
-(
+#(
+  parameter bit VIRTIO = 1'b0             // the virtio slots are a device (tg_uncore VIRTIO_WINDOW)
+) (
   input  logic                 clk,
   input  logic                 rst,
   input  tl_a_t                a_i,
@@ -12,10 +17,11 @@ module tg_tl_dev
   output tl_d_t                d_o,
   output logic                 d_valid_o,
   input  logic                 d_ready_i,
-  // Devices: 0 ACLINT, 1 PLIC, 2 UART, 3 host control
+  // Devices: 0 ACLINT, 1 PLIC, 2 UART, 3 host control, 4 the virtio window
   output dev_req_t             req_o,
   output logic [DEV_N-1:0]     req_valid_o,
-  input  dev_rsp_t [DEV_N-1:0] rsp_i
+  input  dev_rsp_t [DEV_N-1:0] rsp_i,
+  input  logic [DEV_N-1:0]     wait_i
 );
   typedef enum logic [1:0] { S_IDLE, S_REQ, S_WAIT, S_RESP } state_e;
   state_e            st_q;
@@ -32,6 +38,7 @@ module tg_tl_dev
     if (a >= PLIC_BASE    && a - PLIC_BASE    < PLIC_SIZE)    return (DEV_W+1)'(DEV_PLIC);
     if (a >= UART_BASE    && a - UART_BASE    < UART_SIZE)    return (DEV_W+1)'(DEV_UART);
     if (a >= HOSTCTL_BASE && a - HOSTCTL_BASE < HOSTCTL_SIZE) return (DEV_W+1)'(DEV_HOSTCTL);
+    if (VIRTIO && a >= VIRTIO_BASE && a - VIRTIO_BASE < VIRTIO_SIZE) return (DEV_W+1)'(DEV_VIRTIO);
     return (DEV_W+1)'(DEV_N);
   endfunction
 
@@ -44,6 +51,7 @@ module tg_tl_dev
                           ((a_i.address[2:0] & amask) != 3'b000) || !(is_put || is_get);
 
   assign a_ready_o = st_q == S_IDLE;
+  wire   wait_dev  = !err_q && wait_i[dev_q];
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -52,7 +60,7 @@ module tg_tl_dev
       unique case (st_q)
         S_IDLE: if (a_valid_i) st_q <= S_REQ;
         S_REQ:  st_q <= S_WAIT;
-        S_WAIT: st_q <= S_RESP;
+        S_WAIT: if (!wait_dev) st_q <= S_RESP;
         S_RESP: if (d_ready_i) st_q <= S_IDLE;
         default: st_q <= S_IDLE;
       endcase
@@ -66,13 +74,13 @@ module tg_tl_dev
       req_q.wdata <= a_i.data[{a_i.address[3], 6'd0} +: 64];
       req_q.be    <= a_i.mask[{a_i.address[3], 3'd0} +: 8];
       req_q.size  <= a_i.size[1:0];
-      dev_q       <= dev_a[DEV_W-1:0];
+      dev_q       <= bad ? '0 : dev_a[DEV_W-1:0];
       err_q       <= bad;
       get_q       <= is_get;
       size_q      <= a_i.size;
       src_q       <= a_i.source;
     end
-    if (st_q == S_WAIT) begin
+    if (st_q == S_WAIT && !wait_dev) begin
       rdata_q  <= err_q ? 64'd0 : rsp_i[dev_q].rdata;
       denied_q <= err_q || rsp_i[dev_q].err;
     end
