@@ -492,7 +492,7 @@ A write every hart is past is dropped.
 - **Results:** a run passes when lockstep passes, the program exits with code 0, its console output matches a Spike reference run of the same ELF (`tg_replay`), and CoreMark prints `Correct operation validated`. The runner prints CoreMark/MHz = iterations × 10⁶ / region cycles and DMIPS/MHz = runs × 10⁶ / (region cycles × 1757). These are not EEMBC-valid scores (run length), only correlation points for the model (plan §10.1).
 - **Unexpected traps** in a benchmark end it with exit code `0x1000 + mcause` (`bsp/crt0.S`).
 - **Which cycles:** CoreMark/MHz counts CoreMark's timed region only (its iterations, between `start_time` and `stop_time`), as CoreMark defines it; the whole run adds its initialisation and report. `cycle-identical`'s `cycles` column is the whole run, so it is no score: on main at 4bb4426 (rv64im, `ITER=2`) CoreMark A's whole run is 733,270 cycles, but its timed region is 659,278 cycles, 3.034 CM/MHz, the same as M2's 3.04 (2026-10-14). Two iterations read about 0.7% low against warm caches (`ITER=10`: 3.055).
-- **ISA:** the instruction count per iteration is the same with `MARCH=rv64im` and `rv64gc`, but compressed code costs CoreMark B 3.6% (2.791 against 2.896 CM/MHz, `ITER=10`) and Dhrystone 11% (1.484 against 1.667 DMIPS/MHz); CoreMark A does not change. The board's Linux runs are `rv64gc`.
+- **ISA:** the instruction count per iteration is the same with `MARCH=rv64im` and `rv64gc`, but compressed code costs CoreMark B 3.6% (2.791 against 2.896 CM/MHz, `ITER=10`) and Dhrystone 11% (1.484 against 1.667 DMIPS/MHz); CoreMark A does not change. The board's Linux runs were `rv64imafd` until 2026-10-17, without compressed code (§4.6), and are `rv64gc` since.
 
 **Per-feature measurement (M6, DR-153): `make perf`** (`tools/ci/perf.py`). Both sides build as `cycle-identical`'s do (its build cache, this tree's harness, the profile switches), and CoreMark A and B and Dhrystone run in `tg_vsim` with lockstep. The table gives each program's timed-region cycles and IPC on both sides, the change in cycles (negative is faster) and the score, with their geometric mean.
 ```
@@ -708,6 +708,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
     - `tlbwalk`: a dependent pointer chase, 1,000,000 steps through a random cycle over 64 MiB of pages;
     - `exec` times other commands: BusyBox's `gzip` and `sha256sum` over 4 MiB of generated text in `/tmp`.
   - `coremark-a` and `coremark-b`, with plan §10.2's flag sets, and `dhrystone`, the same sources and flags as the bare-metal runs (§4.2). CoreMark scales itself to at least 10 s, its condition for a valid result; the line reports the iteration count.
+- **ISA:** the programs build for `MARCH=rv64gc`, `lp64d` (the coordinator's call under DR-154, 2026-10-17), as Debian's userland and the model's suite do. Until then they took the Buildroot toolchain's default, `rv64imafd`, without compressed code. `BRIDGE=1` also builds that earlier form as `coremark-a-imafd`, `coremark-b-imafd` and `dhrystone-imafd`, which `tg-lbench.sh` then runs too, so one board run measures both forms and the series stays continuous; after it, `rv64gc` only. Every CoreMark and Dhrystone line carries `march=`.
 - **Run:** `tg-lbench.sh [RUNS]` runs everything RUNS times (3). With `tanager.bench=1` on the kernel command line, `/etc/init.d/S99tglbench` runs it after the boot marker and powers off, so a board run ends by itself.
 - **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=… perf_events=… perf_errno=…` line and one line per measurement:
   ```
@@ -765,7 +766,7 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 | its handler running 32 KiB and loading 32 KiB, the whole L1s (latency 30, 90, 120) | +13%, +38%, +51% | +9%, +30%, +41% |
 | the board, Linux | 364.3K (+10.5%) | 440.7K (+24.1%) |
 
-- **The Linux binaries are rv64imafd** (the Buildroot toolchain's default; `tests/bench/linux` sets no `-march`), with no compressed code, so their bare-metal match is `MARCH=rv64im`, not `rv64gc`.
+- **The Linux binaries measured here are rv64imafd** (the Buildroot toolchain's default, before `tests/bench/linux` set `-march`), with no compressed code, so their bare-metal match is `MARCH=rv64im`, not `rv64gc`. The set builds `rv64gc` since (above).
 - **The code is not the cause:** the same object code runs the same instructions per iteration bare-metal (−0.3%). So the board's +1.6% to +1.8% instructions are kernel time inside the counters, about one tick's work per iteration.
 - **The tick's pollution, at the board's miss latency, spans the loss:** from a few percent to half, depending on how much of the L1s the kernel evicts and how far a miss goes. What the model does not reproduce is B losing twice A's share; the candidates are TLB misses under Sv39 (not modeled bare-metal) and B's larger unrolled code refilling after a real kernel's evictions. The board's own counters (cache and TLB misses, user against kernel) or a run with a slower tick would separate them.
 
