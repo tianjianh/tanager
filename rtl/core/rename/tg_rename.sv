@@ -139,6 +139,12 @@ module tg_rename
   end
   assign rob_tail  = rtail_q;
 
+  // Rename's fire, declared ahead of the free lists that take it: inside their generate blocks a
+  // not-yet-declared name becomes a new implicit net in synthesis (Vivado: Synth 8-11241), which
+  // left `pop` undriven, so no free list's head ever moved and every allocation of a bank got the
+  // same register (the board's register corruption; simulation resolves the name to this one)
+  logic         rn_fire;
+
   // ---- Free lists, one per bank (bank 0 keeps preg 0 as the zero register, and x1..x31) ----
   logic [INT_BANKS-1:0]                 fl_ready;
   logic [INT_BANKS-1:0][FPW-1:0]        fl_count;
@@ -196,7 +202,6 @@ module tg_rename
     assign map_ra[2*W + k] = rn_uop_q[k].d.rd;
   end
   ren_t [W-1:0] ren;
-  logic         rn_fire;
   logic [W-1:0]                im_we;
   logic [W-1:0][4:0]           im_wa;
   logic [W-1:0][PRW-1:0]       im_wdp;
