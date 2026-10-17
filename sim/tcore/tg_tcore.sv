@@ -60,10 +60,14 @@ module tg_tcore
   output tr_rec_t [COMMIT_WIDTH-1:0]   trace_o,
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
-  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o
+  output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
+  // tg_core's board-debug port (DBG_WORD); the test core has no debug word
+  input  logic [4:0]                   dbg_sel_i,
+  output logic [31:0]                  dbg_o
 );
 
   localparam hart_t HART   = hart_t'(CORE_ID * NUM_THREADS);
+  assign dbg_o = '0;
   localparam int    NLINES = 8;
   localparam int    IDX_W  = 3;
   localparam int    LTAG_W = PA_W - 6;           // line number
