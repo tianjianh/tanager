@@ -26,7 +26,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | 0 … 3 | `l1d` of core 0 … 3 | TL-C: these are the coherence **agents**; agent index = `source[7:6]` |
 | 4 … 7 | `l1i` of core 0 … 3 | TL-UL `Get` |
 | 8 … 11 | `mmio` of core 0 … 3 | TL-UL `Get`, `PutFullData`, `PutPartialData` |
-| 12 | host DMA (plan §5.4: coherent A53 access, M5) | TL-UL |
+| 12 | host DMA (`tg_uncore` `HOST_DMA`: `tg_hdma`, the A53's coherent access, [soc.md](soc.md) §8.1) | TL-UH: `Get`, `PutFullData`, `PutPartialData` of a 64-byte line |
 | 13 … 15 | reserved | |
 
 - Up to 4 cores; `NUM_CORES` (2) of them exist today. The L2 directory has one presence bit per agent (plan §6.1: "room for 2 more agents").
@@ -52,7 +52,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | `l1i_*` | core | A in, D out |
 | `l1d_*` | core | A in, B out, C in, D out, E in |
 | `mmio_*` | core | A in, D out |
-| `hdma_*` | 1, when `HOST_DMA = 1` | A in, D out |
+| `hdma_*` | 1, when `HOST_DMA = 1` (`tg_uncore` `HOST_DMA` drives it from `tg_hdma`) | A in, D out |
 | `l2_*` | L2 bank (2) | A out, B in, C out, D in, E out |
 | `rom_*` | 1 | A out, D in |
 | `dev_*` | 1 | A out, D in |

@@ -29,6 +29,7 @@ module tanager_soc
   parameter bit          MEM_SLICE       = MEM_SLICE_DEF,
   parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter bit          VIRTIO_WINDOW   = 1'b0,              // the forwarded virtio window (tg_uncore)
+  parameter bit          HOST_DMA        = 1'b0,              // the coherent host DMA port (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -83,6 +84,23 @@ module tanager_soc
   input  axi_b_t                m_axi_trace_b,
   input  logic                  m_axi_trace_b_valid,
   output logic                  m_axi_trace_b_ready,
+
+  // the coherent host DMA port's AXI4 slave (clk; HOST_DMA, else ignored with its outputs 0)
+  input  hdma_ax_t              s_axi_dma_aw,
+  input  logic                  s_axi_dma_aw_valid,
+  output logic                  s_axi_dma_aw_ready,
+  input  axi_w_t                s_axi_dma_w,
+  input  logic                  s_axi_dma_w_valid,
+  output logic                  s_axi_dma_w_ready,
+  output hdma_b_t               s_axi_dma_b,
+  output logic                  s_axi_dma_b_valid,
+  input  logic                  s_axi_dma_b_ready,
+  input  hdma_ax_t              s_axi_dma_ar,
+  input  logic                  s_axi_dma_ar_valid,
+  output logic                  s_axi_dma_ar_ready,
+  output hdma_r_t               s_axi_dma_r,
+  output logic                  s_axi_dma_r_valid,
+  input  logic                  s_axi_dma_r_ready,
 
   // commit trace of every core, also to the simulation harness
   output tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_o,
@@ -192,7 +210,7 @@ module tanager_soc
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
     .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
-    .VIRTIO_WINDOW (VIRTIO_WINDOW)
+    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,
@@ -216,6 +234,9 @@ module tanager_soc
     .trace_stall_o (trace_stall),
     .m_axi_trace_aw, .m_axi_trace_aw_valid, .m_axi_trace_aw_ready, .m_axi_trace_w, .m_axi_trace_w_valid,
     .m_axi_trace_w_ready, .m_axi_trace_b, .m_axi_trace_b_valid, .m_axi_trace_b_ready,
+    .s_axi_dma_aw, .s_axi_dma_aw_valid, .s_axi_dma_aw_ready, .s_axi_dma_w, .s_axi_dma_w_valid, .s_axi_dma_w_ready,
+    .s_axi_dma_b, .s_axi_dma_b_valid, .s_axi_dma_b_ready, .s_axi_dma_ar, .s_axi_dma_ar_valid, .s_axi_dma_ar_ready,
+    .s_axi_dma_r, .s_axi_dma_r_valid, .s_axi_dma_r_ready,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,

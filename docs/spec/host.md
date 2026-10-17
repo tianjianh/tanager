@@ -35,7 +35,7 @@ The PL side of that is the **host bridge**:
 | `0x000` | `ID` | RO | `0x5447_4E52` | "TNGR" |
 | `0x004` | `VERSION` | RO | | `[31:24]` major, `[23:16]` minor, `[15:12]` cores, `[11:8]` threads per core, `[7:0]` configuration (0 st, 1 smt2, 2 st_w3, 3 smt2_w3) |
 | `0x008` | `CLK_HZ` | RO | | `clk_core` frequency |
-| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[2]` the forwarded virtio window (`TG_VIRTIO_WINDOW=1`, [soc.md](soc.md) §8.1), `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports |
+| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[2]` the forwarded virtio window (`TG_VIRTIO_WINDOW=1`, [soc.md](soc.md) §8.1), `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports, `[8]` the coherent host DMA port (`TG_HOST_DMA=1`, [soc.md](soc.md) §8.1) |
 | `0x010` | `CTRL` | RW | `0x3` (FPGA) | `[0]` hold cores in reset; `[1]` hold the uncore (L2, interconnect, devices, injector) in reset; `[2]` console lossless (0: TX bytes are dropped while the host FIFO is full, so the console never stalls the RISC-V side) |
 | `0x014` | `STATUS` | RO | | `[0]` cores in reset; `[1]` uncore in reset; `[2]` L2 initialised; `[3]` power request pending |
 | `0x018` | `POWER` | RO, W1C | 0 | `[31]` request pending; `[15:0]` value the RISC-V side wrote (`0x5555` power-off, `0x7777` reboot, `0x3333 \| code << 16` failure). A write with bit 31 set clears it |
@@ -74,10 +74,17 @@ The PL side of that is the **host bridge**:
 | `0x110C` | `VQ_REQ1` | RO | | its write value from bit 0 (0 for a read). Reading it pops the request |
 | `0x1110` | `VQ_RSP` | WO | | the waiting read's value, from bit 0 (the bytes of its size are used) |
 | `0x1114` | `VQ_IRQ` | WO | | `[7:0]` set and `[15:8]` clear status bits, bit 2s + b for slot s's bit b (0 used buffer, 1 configuration change). A set wins over a clear in the same cycle, the driver's `InterruptACK` included |
+| `0x1300` | `HDMA_CTRL` | RW | 0 | `[0]` record completions: each line the host DMA port writes queues {line, cycle} at its AccessAck, and a write waits while the queue (16) is full. For lockstep with external writes ([verification.md](verification.md) §3.10) |
+| `0x1304` | `HDMA_STATUS` | RO | | `[4:0]` completions waiting |
+| `0x1308` | `HDMA_RD_LINES` | RO | 0 | lines the port has read (one `Get` each), wrapping |
+| `0x130C` | `HDMA_WR_LINES` | RO | 0 | lines it has written (one `PutFullData` or `PutPartialData` each), wrapping |
+| `0x1318` | `HDMA_WR_DROPS` | RO | 0 | write bursts not done in full (answered OKAY all the same), wrapping |
+| `0x1310` | `HDMA_CPL0` | RO | | the oldest completion: `[31]` valid, `[25:0]` the line (its window offset ÷ 64) |
+| `0x1314` | `HDMA_CPL1` | RO | | its AccessAck cycle: core-clock cycles since the uncore reset, the trace records' capture count (bytes 40–43). Reading it pops the completion |
 | `0x1200` | `DBG_SEL` | RW | 0 | the debug counter `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
 | `0x1204` | `DBG_VAL` | RO | | that counter, a few dozen cycles after `DBG_SEL` is written |
 
-The `VQ_*` registers read 0 and ignore writes in a build without the window (`CAPS[2]` = 0), and so do `DBG_SEL` and `DBG_VAL` without the counters.
+The `VQ_*` registers read 0 and ignore writes in a build without the window (`CAPS[2]` = 0), the `HDMA_*` registers without the host DMA port (`CAPS[8]` = 0), and `DBG_SEL` and `DBG_VAL` without the counters.
 
 A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
@@ -115,6 +122,12 @@ A 64-bit pair is written low half first. The low half waits in a shadow register
   - **Not served** (`VQ_CTRL.EN` = 0, the reset value): the window answers every access itself, reads with 0 and writes by dropping them. A driver then finds no device (`MagicValue` 0) instead of waiting forever for a host that isn't there.
   - **64-bit accesses** answer denied; virtio-mmio uses 8-, 16- and 32-bit ones.
   - **Reset:** both queues empty on the uncore reset (the event queue's host side on `CTRL[1]`).
+- **The coherent host DMA port** (`tg_hdma` in the uncore, `TG_HOST_DMA=1`; [soc.md](soc.md) §8.1). The A53 reads and writes the RISC-V's RAM through `M_AXI_HPM1_FPD`, 2 GiB at `0x5_0000_0000`: offset o there is RISC-V physical address `0x8000_0000` + o, up to `DRAM_SIZE`. The L2 serves it coherently, so the host never does cache maintenance:
+  - **A read** sees the cores' dirty lines: the L2 probes the owner first.
+  - **A write's B** comes after the L2's `AccessAck`, which follows the invalidation of every L1 copy. To order a write before a later signal (a `VQ_IRQ` through HPM0, a separate port), the host waits for B, which an ARM store to a non-bufferable mapping (`Device-nGnRnE`, `/dev/mem` with `O_SYNC`) gives with a `DSB`.
+  - **Errors:** a read beat beyond `DRAM_SIZE` answers `DECERR`, a denied line `SLVERR`, and a FIXED or WRAP burst `SLVERR` on every beat; the A53 takes them as a synchronous abort (SIGBUS to the reader). **A write always answers OKAY:** on the A53 an error on a posted write is an asynchronous SError, which panics its Linux (the Cortex-A53 has no RAS extension). A write burst not done in full (a beat beyond `DRAM_SIZE`, a denied line, FIXED or WRAP) counts in `HDMA_WR_DROPS` instead; nothing outside the window is forwarded.
+  - **Completions** (`HDMA_CTRL[0]`): one per written line, {line, cycle}, in order. `tanager-host` turns them into lockstep's external-write records.
+  - **Without the port** the PL still answers HPM1 (`kv260_top`'s `tg_axi_absent`): reads with `DECERR`, writes by dropping them with OKAY, so a stray access fails instead of hanging the ARM. `tanager-host` checks `CAPS[8]` before it touches HPM1.
 - **Simulation equivalents.** The `xpm_*` primitives are used under `SYNTHESIS`. The simulation models (`rtl/uncore/lib/tg_cdc_*`) have the same ports and conservative latencies.
 
 ### Loading sequence (what `tanager-host` does)
@@ -178,8 +191,10 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
   - reset sequencing;
   - console bytes in both directions under back-pressure, and drop mode;
   - doorbells, `TOHOST` and power requests, interrupt status and masking;
+  - `HDMA=1`, the host DMA port's registers: completions recorded only while `HDMA_CTRL` says so, read in order while a producer pushes them, a full queue holding the producer, the line counters, the uncore reset emptying the queue;
   - `VIRTIO=1`, the forwarded virtio window: answered locally while `EN` is clear; a full queue holding the device bus; 400 random accesses served by a host model with random delays (posted writes in order, reads given the host's value); the status bits, `InterruptStatus` and `InterruptACK`; 64-bit accesses denied; the uncore reset emptying the queue. The build without the window keeps the port signatures of the build before it.
-- **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)). With `VIRTIO=1` it serves the window, and the RISC-V program reads through it and takes a slot's interrupt through the PLIC.
+- **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)). With `VIRTIO=1` it serves the window, and the RISC-V program reads through it and takes a slot's interrupt through the PLIC. With `HOST_DMA=1` it reads a buffer the program left dirty in its cache, writes one the program holds copies of, and checks the completions; the program checks that it reads the host's bytes.
+- **`tests/unit/hdma`:** `tg_hdma` alone, between an AXI4 master and a TileLink memory model, both with random back-pressure ([soc.md](soc.md) §8.1).
 - **On the board:** `tanager-host info`, `peek`/`poke` and a console loopback are the first bring-up checks.
 
 ## History and lessons

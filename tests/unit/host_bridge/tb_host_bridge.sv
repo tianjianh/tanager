@@ -8,7 +8,10 @@
 // host doesn't serve it, random accesses served by a host model with random delays (posted writes in
 // order, reads waiting for the host's value), a full queue holding the device bus, the status bits,
 // InterruptStatus and InterruptACK, 64-bit accesses denied, and the uncore reset emptying the queue.
-module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0);
+// HDMA = 1 (make ... HDMA=1) adds the host DMA port's registers: completions recorded only while
+// HDMA_CTRL says so, read in order through HDMA_CPL0/1 while a producer pushes them with gaps, a full
+// queue holding the producer, the line counters, the uncore reset emptying the queue.
+module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0, parameter bit HDMA = 1'b0);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
@@ -48,6 +51,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
   logic core_rst, uncore_rst, mbox_irq, host_irq;
   dev_req_t req; logic req_v; dev_rsp_t rsp;
   logic vreq_v, vwait; dev_rsp_t vrsp; logic [VIO_SLOTS-1:0] virq;     // the virtio window
+  logic cpl_en, cpl_v = 1'b0, cpl_r; logic [57:0] cpl = '0;              // the host DMA port's completions
   logic [39:0] dbase, dsize;
   // trace-stream configuration and status
   logic        trs_en, trs_wrap, trs_stop_arm, trs_start_arm;
@@ -65,7 +69,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
   logic [7:0]  ctx_b, crx_b;
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
-                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO)) dut (
+                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),
@@ -87,6 +91,8 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
     .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
     .trs_wp_i (64'h0000_0001_2345_6789), .trs_flags_i (5'b01011), .trs_buffered_i (16'd17), .trs_stalls_i (32'd999),
     .dbg_sel_o (), .dbg_val_i (32'h0),
+    .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i (cpl), .hdma_cpl_ready_o (cpl_r),
+    .hdma_rd_lines_i (32'd4321), .hdma_wr_lines_i (32'd8765), .hdma_wr_drops_i (32'd31),
     .con_tx_valid_i (ctx_v), .con_tx_ready_o (ctx_r), .con_tx_byte_i (ctx_b),
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );
@@ -109,6 +115,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
     h = fnv(h, 256'({trs_stop_pc, trs_start_pc, trs_rp}));
     h = fnv(h, 256'(rsp));
     if (VIRTIO) h = fnv(h, 256'({vwait, virq, vrsp}));
+    if (HDMA) h = fnv(h, 256'({cpl_en, cpl_r}));
     csig <= h;
   end
 
@@ -343,6 +350,64 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
     $display("virtio window: ok");
   endtask
 
+  // ---- the host DMA port's completions (HDMA) ----
+  task automatic test_hdma();
+    logic [31:0] v, v1;
+    int unsigned seed;
+    if (!$value$plusargs("seed=%d", seed)) seed = 1;
+    void'($urandom(seed));
+    expect_h(16'h1300, 32'h0, "HDMA_CTRL at reset");
+    expect_h(16'h1308, 32'd4321, "HDMA_RD_LINES");
+    expect_h(16'h130C, 32'd8765, "HDMA_WR_LINES");
+    expect_h(16'h1318, 32'd31, "HDMA_WR_DROPS");
+    if (cpl_en) fail("completions recorded at reset");
+    hw(16'h1300, 32'h1);
+    expect_h(16'h1300, 32'h1, "HDMA_CTRL");
+    repeat (60) @(posedge clk);
+    if (!cpl_en) fail("HDMA_CTRL did not reach the core side");
+    // 200 completions pushed with gaps and a full queue while the host pauses, read back in order
+    fork
+      for (int i = 0; i < 200; i++) begin
+        @(negedge clk);
+        cpl = {26'(i * 7 + 1), 32'(i * 1000 + 5)};
+        cpl_v = 1;
+        do @(posedge clk); while (!cpl_r);
+        @(negedge clk) cpl_v = 0;
+        repeat ($urandom_range(5)) @(negedge clk);
+      end
+      begin
+        repeat (3000) @(posedge clk_host);                   // the queue fills; the producer waits
+        hr(16'h1304, v);
+        if (v != 32'd16) fail($sformatf("HDMA_STATUS %0d with a full queue", v));
+        for (int i = 0; i < 200; i++) begin
+          do hr(16'h1310, v); while (!v[31]);
+          hr(16'h1314, v1);
+          if (v != {1'b1, 5'd0, 26'(i * 7 + 1)} || v1 != 32'(i * 1000 + 5))
+            fail($sformatf("completion %0d: %h %h", i, v, v1));
+        end
+      end
+    join
+    hr(16'h1310, v);
+    if (v[31]) fail("a completion left over");
+    // the uncore reset empties the queue
+    for (int i = 0; i < 3; i++) begin
+      @(negedge clk); cpl = 58'(i); cpl_v = 1;
+      do @(posedge clk); while (!cpl_r);
+      @(negedge clk) cpl_v = 0;
+    end
+    repeat (60) @(posedge clk);
+    expect_h(16'h1304, 32'd3, "HDMA_STATUS with 3 queued");
+    hw(16'h010, 32'h2);
+    repeat (40) @(posedge clk);
+    hw(16'h010, 32'h0);
+    repeat (80) @(posedge clk);
+    expect_h(16'h1304, 32'd0, "HDMA_STATUS after the uncore reset");
+    hw(16'h1300, 32'h0);
+    repeat (60) @(posedge clk);
+    if (cpl_en) fail("HDMA_CTRL clear did not reach the core side");
+    $display("host DMA completions: ok");
+  endtask
+
   // ---- console endpoints ----
   logic [7:0] tx_sent[$], rx_got[$];
   bit         tx_push;
@@ -368,7 +433,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
     hr(16'h004, v);
     if (v[7:0] != 8'd1 || v[15:12] != 4'd2) fail($sformatf("VERSION %h", v));
     expect_h(16'h008, 32'd100_000_000, "CLK_HZ");
-    expect_h(16'h00C, {24'd0, 4'(N_BANKS), TRACE, VIRTIO, 2'b11}, "CAPS");
+    expect_h(16'h00C, {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, 2'b11}, "CAPS");
     expect_h(16'h010, 32'h3, "CTRL");
     expect_h(16'h030, 32'h8000_0000, "BOOT_ENTRY lo");
     expect_h(16'h038, 32'h8220_0000, "DTB_ADDR lo");
@@ -550,6 +615,13 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
     foreach (rx_got[i]) if (rx_got[i] != 8'(i * 5)) begin fail($sformatf("console input byte %0d", i)); break; end
     $display("host_bridge: port signatures %016h (host) %016h (core)", hsig, csig);
     // after the signatures, which stay comparable with builds before the window
+    if (HDMA) begin
+      test_hdma();
+    end else begin
+      hw(16'h1300, 32'h1);                                   // no port: HDMA_CTRL ignores writes
+      expect_h(16'h1300, 32'h0, "HDMA_CTRL without the port");
+      expect_h(16'h1308, 32'h0, "HDMA_RD_LINES without the port");
+    end
     if (VIRTIO) test_virtio();
     else begin
       hw(16'h1100, 32'h1);                                   // no window: VQ_CTRL ignores writes

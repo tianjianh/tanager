@@ -69,6 +69,29 @@ package tg_uncore_pkg;
   localparam logic [1:0] AXI_OKAY = 2'b00, AXI_SLVERR = 2'b10, AXI_DECERR = 2'b11;
   localparam logic [1:0] AXI_INCR = 2'b01;
 
+  // ---- The coherent host DMA port (docs/spec/soc.md §8.1, tg_hdma): an AXI4 slave for the PS ----
+  localparam int HDMA_ID_W = 16;                // M_AXI_HPM1_FPD's ID width
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [AXI_ADDR_W-1:0] addr;
+    logic [7:0]            len;
+    logic [2:0]            size;
+    logic [1:0]            burst;
+  } hdma_ax_t;                                  // AR and AW (W is axi_w_t)
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [1:0]            resp;
+  } hdma_b_t;
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [AXI_DATA_W-1:0] data;
+    logic [1:0]            resp;
+    logic                  last;
+  } hdma_r_t;
+
   // ---- Device bus (tg_tl_dev -> devices) ----
   localparam int DEV_ACLINT  = 0;
   localparam int DEV_PLIC    = 1;

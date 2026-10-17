@@ -40,6 +40,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `AR_SLICE`, `B_SLICE`, `D_SLICE`, `W_SLICE`, `XBAR_IN_SLICE`, `XBAR_SLICE`, `MEM_SLICE` | 1, 0, 0, 0, `4'b0000`, 1, 1 | `tg_uncore`'s register slices ([uncore.md](uncore.md), [uncore-mem.md](uncore-mem.md); what each costs and buys is in §Reserve levers). `tanager_soc` and `kv260_top` pass them on, so a build or a fit sets them without RTL edits (DR-146); `build.tcl` takes each from `TG_` and its name (`TG_XBAR_IN_SLICE` 0–15). The defaults live in `tg_uncore_pkg`, with `UNCORE_DSP`'s |
 | `DEBUG_CNT` | 0 | the board debug counters ([uncore.md](uncore.md) §Board debug counters; `build.tcl` `TG_DEBUG_CNT`) |
 | `VIRTIO_WINDOW` | 0 | the forwarded virtio window (§8.1, [host.md](host.md); `build.tcl` `TG_VIRTIO_WINDOW`). Off, the virtio slots answer denied |
+| `HOST_DMA` | 0 | the coherent host DMA port, `s_axi_dma_*` (§8.1, [host.md](host.md); `build.tcl` `TG_HOST_DMA`). Off, the port is ignored and its outputs are 0 |
 | `CORE_KIND` | `"core"` | `"core"`: `tg_core` (the stub until the core track's RTL lands); `"trafgen"`: `tg_trafgen` traffic generators in the cores' place, for bring-up and timing runs before the core exists (§2.3) |
 
 ### Behaviour
@@ -62,6 +63,7 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 - **`tg_axi4_to_axil`:** from `M_AXI_HPM0_FPD` (AXI4, 32-bit data) to the host bridge.
 - **`tanager_soc`.**
 - **Memory ports:** the SoC's two AXI4 masters drive `S_AXI_HP1_FPD` and `S_AXI_HP2_FPD` (128-bit, clocked by `clk_core`). The commit-trace stream writes through `S_AXI_HP3_FPD` (its read channels are tied off). The 40-bit addresses are zero-extended to the ports' 49.
+- **Host DMA:** `M_AXI_HPM1_FPD` (128-bit, clocked by `clk_core`, 2 GiB at `0x5_0000_0000`) goes to the SoC's DMA port when `HOST_DMA` is set, and to `tg_axi_absent` otherwise (§8.1).
 - **Fan** (DR-129): pin A12 (`som240_1_c24`, `fan_en_b`, active low) carries the PS timer's PWM, so Linux's `pwm-fan` driver and its thermal zone keep regulating the fan whatever bitstream is loaded.
   - The block design enables TTC<n>'s waveform outputs on EMIO (`PSU__TTC<n>__WAVEOUT__ENABLE`, `__IO = EMIO`, pins `emio_ttc<n>_wave_o[2:0]`), and `kv260_top` drives `fan_en_b` from the right bit, inverted if needed, as Kria's own PL design does.
   - A bitstream loaded at run time does not reconfigure the PS, so the boot configuration already routes the waveform to EMIO; the PL only connects it.
@@ -201,7 +203,7 @@ A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53
 
 ## 8. Board stages C and D (DR-126, DR-147)
 
-Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window is RTL with its tests (`VIRTIO_WINDOW`, off by default); the host DMA port is next. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
+Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window and the host DMA port are RTL with their tests (`VIRTIO_WINDOW`, `HOST_DMA`, off by default); the `tanager-host` back-ends are next. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
 
 ### 8.1 Stage C: the board's peripherals through the ARM (virtio)
 
@@ -239,13 +241,18 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 - **Switch:** `tg_uncore` `VIRTIO_WINDOW` (`TG_VIRTIO_WINDOW=1`; off by default, cycle-identical when off). The slots then answer denied, as before. `CAPS[2]` says which.
 
 **The coherent host DMA port.** Virtqueues and buffers are in RISC-V memory, and the back-end reaches them through this port, so neither side does cache maintenance. `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used.
-- **Path:** `M_AXI_HPM1_FPD` (128-bit, clocked by `clk_core`, its own PS address window onto the carve-out), then an AXI4-to-TileLink bridge (TL-UH: Get, PutFull, PutPartial, at most one 64-byte line per message), then the crossbar's `hdma` initiator (`tg_xbar` `HOST_DMA`), then the L2.
-- **AXI4 rules:** INCR bursts. IDs are remapped to a few bits, and responses are in order per ID.
+- **Path:** `M_AXI_HPM1_FPD` (128-bit, clocked by `clk_core`; 2 GiB at `0x5_0000_0000` in the block design, so AXI address bits [31:0] are the offset into the RISC-V's RAM, below `DRAM_SIZE`), then the AXI4-to-TileLink bridge `tg_hdma` (TL-UH: `Get`, `PutFullData`, `PutPartialData`, one 64-byte line per message), then the crossbar's `hdma` initiator (`tg_xbar` `HOST_DMA`), then the L2.
+- **AXI4 rules:** INCR bursts; FIXED and WRAP answer `SLVERR`. One read burst and one write burst at a time, each with one line message in flight, so responses are in order.
+  - **A read** takes each line its burst touches with one `Get` and returns the beats in order (a narrow beat carries its 16-byte lane).
+  - **A write** gathers each line by byte strobe, then sends it as one `PutFullData` (all 64 bytes written) or `PutPartialData` (with the masks), and takes the next line's beats after the `AccessAck`.
+  - Beyond `DRAM_SIZE` nothing is forwarded: a read beat answers `DECERR`, a write beat is dropped.
+  - **Writes always answer OKAY.** On the A53 an error on a posted write is an asynchronous SError, which panics its Linux (the Cortex-A53 has no RAS extension); a read's error is a synchronous abort, a SIGBUS to the reader. A write burst not done in full counts in `HDMA_WR_DROPS` ([host.md](host.md)).
+- **Without the port** (`HOST_DMA` = 0) the block design still has HPM1, and `kv260_top`'s `tg_axi_absent` answers it: reads with `DECERR`, writes dropped with OKAY. A stray A53 access then fails instead of hanging the ARM.
 - **Coherence:**
   - The L2 serves the port coherently. A read sees the cores' dirty lines (the L2 probes the owner first).
   - A write completes, with AXI B, only after the L2's AccessAck, which follows the invalidation of every L1 copy.
-- **Lockstep:** the bridge latches the trace stream's cycle counter (the one the records carry) at each write's AccessAck into a 16-entry completion FIFO, {AXI ID, cycle}, which the host pops through the host bridge. `tanager-host` hands (address, data, cycle) to `tanager-lockstep`, so the checker can accept a load that sees the A53's write (the verification track's DMA rule). No DMA data enters the trace stream.
-- **Switch:** `tg_uncore` `HOST_DMA` (off by default, cycle-identical when off).
+- **Lockstep:** with `HDMA_CTRL[0]` set, each written line's `AccessAck` queues a completion, {line, cycle}, in a 16-entry queue the host pops through the host bridge (`HDMA_CPL0`, `HDMA_CPL1`); a write waits while the queue is full. The cycle is the trace records' capture count: `tg_hdma` keeps its own copy, which a simulation assertion checks against the trace stream's. `tanager-host` hands (address, data, cycle) to `tanager-lockstep` as external-write records ([verification.md](verification.md) §3.10). No DMA data enters the trace stream.
+- **Switch:** `tg_uncore` `HOST_DMA` (`TG_HOST_DMA=1`; off by default, cycle-identical when off). `CAPS[8]` says which.
 
 **Notification and completion.** A QueueNotify write reaches the A53 as a forwarded request. The back-end then works the virtqueue through the DMA port, updates the used ring, and sets the slot's status bit with `VQ_IRQ`. The driver's InterruptACK clears it.
 
@@ -293,7 +300,7 @@ A bigger cloned card is the alternative if the user prefers it. The board sessio
 
 **Tests** (with the verification track):
 - **The window** (done): `tests/unit/host_bridge` `VIRTIO=1` serves the queue from a host model with random delays (one read waits 100K host cycles), checks posted writes in order, a full queue holding the device bus, and the status bits. `tests/unit/periph` `VIRTIO=1` checks the device bus's wait with a stub that answers garbage until it stops waiting. `tests/unit/soc` `VIRTIO=1`: the RISC-V program reads through the window and takes a slot's interrupt through the PLIC.
-- **The DMA port:** a testbench AXI master (lifted from `tb_host_bridge`'s) runs virtio-like producer and consumer traffic with checksums. Its reads must see the cores' dirty lines, and the cores must see its writes once the used ring and the interrupt follow.
+- **The DMA port** (done): `tests/unit/hdma` runs `tg_hdma` between an AXI4 master and a TileLink memory model (random bursts, narrow and unaligned beats, partial strobes, denied lines, the window's end, FIXED and WRAP, a read and a write at once, completions). `tests/unit/soc` `HOST_DMA=1`: the host reads a buffer the program left dirty in its cache and writes one it holds copies of; the program then reads the host's bytes. `tests/unit/host_bridge` `HDMA=1` checks the completion registers.
 - **Lockstep with DMA:** the checker learns each external write and its AccessAck cycle, from DPI in simulation and from the completion FIFO on the board.
 
 **Order of work:**

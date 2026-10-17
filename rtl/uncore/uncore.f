@@ -23,6 +23,7 @@ uart/tg_uart_phy.sv
 uart/tg_uart.sv
 bootrom/tg_bootrom.sv
 hostbridge/tg_vio_window.sv
+hostbridge/tg_hdma.sv
 hostbridge/tg_host_bridge.sv
 hostbridge/tg_axi4_to_axil.sv
 trace/tg_trace_stream.sv

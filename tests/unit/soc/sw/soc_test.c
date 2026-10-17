@@ -1,9 +1,11 @@
 /* SoC integration test, run by tg_tcore cores inside tanager_soc (tests/unit/soc, KIND=tcore).
  * Exercises: boot ROM hand-off (a0, a1), host control, the 16550 console, ACLINT mtime/mtimecmp,
  * the L2 (a region larger than the test L2, so lines are evicted and refetched), coherence between
- * two harts without atomics (flags and data handed over through the caches), and TOHOST. When the
- * host serves the forwarded virtio window (FROMHOST = "vio", tb_soc VIRTIO=1): reads the host answers,
- * and a QueueNotify whose answer is an interrupt through the PLIC, claimed and acknowledged.
+ * two harts without atomics (flags and data handed over through the caches), and TOHOST. FROMHOST
+ * = 0x7467_0000 | flags selects more (tb_soc): bit 0 the forwarded virtio window (VIRTIO=1: reads the
+ * host answers, and a QueueNotify whose answer is an interrupt through the PLIC, claimed and
+ * acknowledged); bit 1 the host DMA port (HOST_DMA=1: the host reads a buffer still dirty in this
+ * hart's data cache, and writes one it holds copies of, both of which must be coherent).
  * Pass: TOHOST = 1; failure: TOHOST = (code << 1) | 1. With one hart (the one-core KV260 bitstream's
  * first light, fpga/kv260/README.md) the coherence part is skipped. */
 #include <stdint.h>
@@ -39,6 +41,10 @@ static uint64_t region[8192] __attribute__((aligned(64)));   /* 64 KiB, larger t
 
 static uint64_t mix(uint64_t x) { x ^= x >> 33; x *= 0xff51afd7ed558ccdull; x ^= x >> 29; return x; }
 
+/* The host DMA port's buffers: fixed addresses in RAM above the program (tb_soc knows them) */
+#define DMA_A ((volatile uint64_t *)0x80100000ul)   /* written here, read by the host */
+#define DMA_B ((volatile uint64_t *)0x80101000ul)   /* read here, written by the host, read again */
+
 int main(uint64_t hartid, uint64_t dtb) {
   if (hartid == 0) {
     puts_("tanager soc test: hart 0, dtb ");
@@ -66,7 +72,8 @@ int main(uint64_t hartid, uint64_t dtb) {
     /* The forwarded virtio window (docs/spec/soc.md §8.1): the host answers a read with "virt" at
      * offset 0, else (slot << 16) | offset; a QueueNotify of slot 3 makes it set the slot's used-buffer
      * bit, PLIC source 4. InterruptStatus and InterruptACK are answered in the uncore. */
-    if (REG64(HOSTCTL + 0x30) == 0x6f6976) {
+    uint64_t fh = REG64(HOSTCTL + 0x30);
+    if ((fh >> 16) == 0x7467 && (fh & 1)) {
       if (REG32(VIRTIO + 0x000) != 0x74726976) fail(0x400);
       if (REG32(VIRTIO + 0x1008) != 0x00010008) fail(0x401);
       if (REG8(VIRTIO + 0x2101) != 0x01) fail(0x402);
@@ -85,6 +92,22 @@ int main(uint64_t hartid, uint64_t dtb) {
       if (REG32(VIRTIO + 0x3060) != 0) fail(0x408);
       if (REG32(PLIC + 0x1000) & (1u << 4)) fail(0x409);
       puts_("virtio ok\n");
+    }
+
+    /* The host DMA port (docs/spec/soc.md §8.1): DMA_A is left dirty in this hart's cache for the host
+     * to read; DMA_B is cached here, then the host overwrites it. The doorbell hands over, MBOX_OUT
+     * answers. Coherence: the host reads the dirty bytes, and this hart then reads the host's. */
+    if ((fh >> 16) == 0x7467 && (fh & 2)) {
+      uint64_t sum = 0;
+      REG64(HOSTCTL + 0x40) = 1;                       /* MBOX_PENDING: clear the earlier test's */
+      for (int i = 0; i < 64; i++) DMA_A[i] = mix((uint64_t)i ^ 0xA5);
+      for (int i = 0; i < 64; i++) sum += DMA_B[i];    /* copies of DMA_B in the cache */
+      mailbox[15] = sum;
+      REG64(HOSTCTL + 0x38) = 1;                       /* DOORBELL: the host's turn */
+      while (!(REG64(HOSTCTL + 0x40) & 1)) { }         /* MBOX_OUT: the host is done */
+      REG64(HOSTCTL + 0x40) = 1;
+      for (int i = 0; i < 64; i++) if (DMA_B[i] != mix((uint64_t)i ^ 0xB6)) fail(0x510 + i);
+      puts_("dma ok\n");
     }
 
     /* Coherence: hand data to hart 1 and get its answer back (no atomics: flags in memory). Hart 1

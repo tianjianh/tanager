@@ -4,7 +4,8 @@
 //   cores -> tg_xbar -> L2 banks -> latency injector -> DRAM window -> AXI slice -> m_axi_*
 //                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control, the virtio window)
 //   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
-//   commit-trace streaming into DDR (its own AXI master).
+//   commit-trace streaming into DDR (its own AXI master);
+//   the coherent host DMA port (HOST_DMA): an AXI4 slave from the host -> tg_hdma -> the crossbar's hdma.
 module tg_uncore
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
@@ -81,6 +82,11 @@ module tg_uncore
   // registers, with InterruptStatus and InterruptACK in RTL and PLIC sources 1-4. Off by default:
   // the slots answer denied, as before
   parameter bit          VIRTIO_WINDOW   = 1'b0,
+  // The coherent host DMA port (docs/spec/soc.md §8.1, DR-147 stage C): s_axi_dma_* (the PS's
+  // M_AXI_HPM1_FPD) reaches the RISC-V's RAM through tg_hdma and the crossbar's hdma initiator, so the
+  // L2 serves the host's reads and writes coherently; each write line's AccessAck cycle can be recorded
+  // for lockstep (host bridge HDMA_*). Off by default: no logic, s_axi_dma_* ignored and its outputs 0
+  parameter bit          HOST_DMA        = 1'b0,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -177,6 +183,23 @@ module tg_uncore
   input  logic                                      m_axi_trace_b_valid,
   output logic                                      m_axi_trace_b_ready,
 
+  // the coherent host DMA port's AXI4 slave (clk; HOST_DMA): window offsets in address bits [31:0]
+  input  hdma_ax_t                                  s_axi_dma_aw,
+  input  logic                                      s_axi_dma_aw_valid,
+  output logic                                      s_axi_dma_aw_ready,
+  input  axi_w_t                                    s_axi_dma_w,
+  input  logic                                      s_axi_dma_w_valid,
+  output logic                                      s_axi_dma_w_ready,
+  output hdma_b_t                                   s_axi_dma_b,
+  output logic                                      s_axi_dma_b_valid,
+  input  logic                                      s_axi_dma_b_ready,
+  input  hdma_ax_t                                  s_axi_dma_ar,
+  input  logic                                      s_axi_dma_ar_valid,
+  output logic                                      s_axi_dma_ar_ready,
+  output hdma_r_t                                   s_axi_dma_r,
+  output logic                                      s_axi_dma_r_valid,
+  input  logic                                      s_axi_dma_r_ready,
+
   // traffic-generator controls and results (host registers; tied off with real cores)
   output logic                    tg_en_o,
   output logic [27:0]             tg_base_o,
@@ -234,7 +257,8 @@ module tg_uncore
   tl_e_t [N_BANKS-1:0] l2_e; logic [N_BANKS-1:0] l2_ev, l2_er;
   tl_a_t rom_a, dev_a; logic rom_av, rom_ar, dev_av, dev_ar;
   tl_d_t rom_d, dev_d; logic rom_dv, rom_dr, dev_dv, dev_dr;
-  tl_d_t hdma_d; logic hdma_ar, hdma_dv;
+  tl_a_t hdma_a; logic hdma_av, hdma_ar;
+  tl_d_t hdma_d; logic hdma_dv, hdma_dr;
 
   // The cores' requests into the crossbar, through a slice where XBAR_IN_SLICE says so. The caches'
   // A data, mask and corrupt are constants inside the crossbar, so their slice bits have no loads.
@@ -284,15 +308,15 @@ module tg_uncore
     end
   end
 
-  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (1'b0), .SLICE (XBAR_SLICE), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
+  tg_xbar #(.N_CORES (N_CORES), .HOST_DMA (HOST_DMA), .SLICE (XBAR_SLICE), .DSP_SKID (UNCORE_DSP[31:0])) u_xbar (
     .clk, .rst (uncore_rst),
     .l1i_a_i (x_l1i_a), .l1i_a_valid_i (x_l1i_av), .l1i_a_ready_o (x_l1i_ar), .l1i_d_o, .l1i_d_valid_o, .l1i_d_ready_i,
     .l1d_a_i (x_l1d_a), .l1d_a_valid_i (x_l1d_av), .l1d_a_ready_o (x_l1d_ar), .l1d_b_o, .l1d_b_valid_o, .l1d_b_ready_i,
     .l1d_c_i (x_l1d_c), .l1d_c_valid_i (x_l1d_cv), .l1d_c_ready_o (x_l1d_cr), .l1d_d_o, .l1d_d_valid_o, .l1d_d_ready_i,
     .l1d_e_i (x_l1d_e), .l1d_e_valid_i (x_l1d_ev), .l1d_e_ready_o (x_l1d_er),
     .mmio_a_i (x_mmio_a), .mmio_a_valid_i (x_mmio_av), .mmio_a_ready_o (x_mmio_ar), .mmio_d_o, .mmio_d_valid_o, .mmio_d_ready_i,
-    .hdma_a_i ('0), .hdma_a_valid_i (1'b0), .hdma_a_ready_o (hdma_ar),
-    .hdma_d_o (hdma_d), .hdma_d_valid_o (hdma_dv), .hdma_d_ready_i (1'b1),
+    .hdma_a_i (hdma_a), .hdma_a_valid_i (hdma_av), .hdma_a_ready_o (hdma_ar),
+    .hdma_d_o (hdma_d), .hdma_d_valid_o (hdma_dv), .hdma_d_ready_i (hdma_dr),
     .l2_a_o (l2_a), .l2_a_valid_o (l2_av), .l2_a_ready_i (l2_ar),
     .l2_b_i (xb_b), .l2_b_valid_i (xb_bv), .l2_b_ready_o (xb_br),
     .l2_c_o (l2_c), .l2_c_valid_o (l2_cv), .l2_c_ready_i (l2_cr),
@@ -442,6 +466,61 @@ module tg_uncore
   end
 
   // ---------------------------------------------------------------------------------------------
+  // The coherent host DMA port (HOST_DMA): the host's AXI4 reads and writes as Gets and Puts on the
+  // crossbar's hdma initiator; completions and line counts go to the host bridge
+  // ---------------------------------------------------------------------------------------------
+  logic        cpl_en, cpl_v, cpl_r;
+  logic [25:0] cpl_line;
+  logic [31:0] cpl_cycle, hdma_rd_lines, hdma_wr_lines, hdma_wr_drops;
+  if (HOST_DMA) begin : g_hdma
+    tg_hdma #(.ID_W (HDMA_ID_W)) u_hdma (
+      .clk, .rst (uncore_rst),
+      .s_awid (s_axi_dma_aw.id), .s_awaddr (s_axi_dma_aw.addr), .s_awlen (s_axi_dma_aw.len),
+      .s_awsize (s_axi_dma_aw.size), .s_awburst (s_axi_dma_aw.burst), .s_awvalid (s_axi_dma_aw_valid),
+      .s_awready (s_axi_dma_aw_ready),
+      .s_wdata (s_axi_dma_w.data), .s_wstrb (s_axi_dma_w.strb), .s_wlast (s_axi_dma_w.last),
+      .s_wvalid (s_axi_dma_w_valid), .s_wready (s_axi_dma_w_ready),
+      .s_bid (s_axi_dma_b.id), .s_bresp (s_axi_dma_b.resp), .s_bvalid (s_axi_dma_b_valid), .s_bready (s_axi_dma_b_ready),
+      .s_arid (s_axi_dma_ar.id), .s_araddr (s_axi_dma_ar.addr), .s_arlen (s_axi_dma_ar.len),
+      .s_arsize (s_axi_dma_ar.size), .s_arburst (s_axi_dma_ar.burst), .s_arvalid (s_axi_dma_ar_valid),
+      .s_arready (s_axi_dma_ar_ready),
+      .s_rid (s_axi_dma_r.id), .s_rdata (s_axi_dma_r.data), .s_rresp (s_axi_dma_r.resp), .s_rlast (s_axi_dma_r.last),
+      .s_rvalid (s_axi_dma_r_valid), .s_rready (s_axi_dma_r_ready),
+      .ram_size_i (win_size),
+      .a_o (hdma_a), .a_valid_o (hdma_av), .a_ready_i (hdma_ar),
+      .d_i (hdma_d), .d_valid_i (hdma_dv), .d_ready_o (hdma_dr),
+      .cpl_en_i (cpl_en), .cpl_valid_o (cpl_v), .cpl_line_o (cpl_line), .cpl_cycle_o (cpl_cycle), .cpl_ready_i (cpl_r),
+      .rd_lines_o (hdma_rd_lines), .wr_lines_o (hdma_wr_lines), .wr_drops_o (hdma_wr_drops)
+    );
+  end else begin : g_no_hdma
+    assign hdma_a             = '0;
+    assign hdma_av            = 1'b0;
+    assign hdma_dr            = 1'b1;
+    assign s_axi_dma_aw_ready = 1'b0;
+    assign s_axi_dma_w_ready  = 1'b0;
+    assign s_axi_dma_b        = '0;
+    assign s_axi_dma_b_valid  = 1'b0;
+    assign s_axi_dma_ar_ready = 1'b0;
+    assign s_axi_dma_r        = '0;
+    assign s_axi_dma_r_valid  = 1'b0;
+    assign cpl_v              = 1'b0;
+    assign cpl_line           = '0;
+    assign cpl_cycle          = '0;
+    assign hdma_rd_lines      = '0;
+    assign hdma_wr_lines      = '0;
+    assign hdma_wr_drops      = '0;
+    wire unused_hdma = ^{s_axi_dma_aw, s_axi_dma_aw_valid, s_axi_dma_w, s_axi_dma_w_valid, s_axi_dma_b_ready,
+                         s_axi_dma_ar, s_axi_dma_ar_valid, s_axi_dma_r_ready, hdma_ar, hdma_d, hdma_dv, cpl_en, cpl_r};
+  end
+`ifndef SYNTHESIS
+  // the completions' cycle is the trace stream's capture count (both count clk from the uncore reset)
+  if (HOST_DMA && TRACE) begin : g_cyc_check
+    always_ff @(posedge clk) if (!uncore_rst)
+      assert (g_hdma.u_hdma.cycle_q == g_trace.u_trace.cycle_q) else $error("tg_uncore: tg_hdma's cycle count differs from the trace stream's");
+  end
+`endif
+
+  // ---------------------------------------------------------------------------------------------
   // Boot ROM and the device bus
   // ---------------------------------------------------------------------------------------------
   tg_bootrom u_rom (
@@ -587,7 +666,7 @@ module tg_uncore
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
-    .VIRTIO (VIRTIO_WINDOW)
+    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
@@ -612,6 +691,8 @@ module tg_uncore
     .trs_base_o (trs_base), .trs_size_log2_o (trs_size), .trs_rp_o (trs_rp),
     .trs_wp_i (trs_wp), .trs_flags_i (trs_flags), .trs_buffered_i (trs_buffered), .trs_stalls_i (trs_stalls),
     .dbg_sel_o (dbg_sel), .dbg_val_i (dbg_val),
+    .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i ({cpl_line, cpl_cycle}), .hdma_cpl_ready_o (cpl_r),
+    .hdma_rd_lines_i (hdma_rd_lines), .hdma_wr_lines_i (hdma_wr_lines), .hdma_wr_drops_i (hdma_wr_drops),
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );
@@ -677,5 +758,5 @@ module tg_uncore
     wire unused_dbg = ^dbg_sel;
   end
 
-  wire unused = ^{hdma_ar, hdma_d, hdma_dv, ev_hit, ev_miss, ev_wb, ev_probe, tg_pass_i};
+  wire unused = ^{ev_hit, ev_miss, ev_wb, ev_probe, tg_pass_i};
 endmodule
