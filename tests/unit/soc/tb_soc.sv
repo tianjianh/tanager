@@ -341,8 +341,14 @@ module tb_soc;
       dma_write(DMA_B + 32'(128 * b), beats, r);
       if (r != 2'b00) fail($sformatf("DMA write response %0d", r));
     end
-    // one completion per line written, in order, with rising cycles
-    hr(16'h1304, v);
+    // one completion per line written, in order, with rising cycles. The count is the queue's level as the
+    // host side sees it, a few clk_host cycles behind the last AccessAck (the asynchronous FIFO's pointer
+    // synchronizer), while the last write's B comes in clk: poll it
+    begin
+      int t;
+      t = 0;
+      do begin hr(16'h1304, v); t++; end while (v != 32'd8 && t < 20);
+    end
     if (v != 32'd8) fail($sformatf("HDMA_STATUS %0d completions, want 8", v));
     begin
       logic [31:0] last;
