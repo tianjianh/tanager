@@ -205,6 +205,7 @@ class Core {
   // helpers
   bool predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t block_start, bool ubtb_hit,
                     uint64_t ubtb_tgt, int& bubble);
+  void fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end);
   bool sfb_shape(Thread& T, const DynInst& di, const Decoded** shadow);
   Uop& new_uop(Thread& T, const FetchRec& r);
   void add_srcs(Uop& u, const Decoded& d, bool skip_store_data);
@@ -258,6 +259,7 @@ class Core {
   std::unique_ptr<DirPred> dir_;
   Btb btb_;
   MicroBtb ubtb_;
+  M2Ubtb m2_;  // fe_m2: the RTL's micro-BTB and its training counters
   PcCounters sfb_tab_;
   PcTable hitpred_, waittab_;
 

@@ -74,7 +74,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     : c_(c), nthr_((int)std::clamp<int64_t>(c.threads, 1, MAX_THREADS)), mem_(c),
       btb_((int)c.btb_sets, (int)c.btb_ways, (int)std::max<int64_t>(1, c.btb_slots), (int)c.fetch_bytes,
            c.btb_block != 0),
-      ubtb_((int)c.ubtb), sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
+      ubtb_((int)c.ubtb), m2_((int)std::max<int64_t>(1, c.ubtb), (int)c.ubtb_ways, (int)c.m2_ctr),
+      sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
       waittab_((int)std::max<int64_t>(1, c.mdp_entries), 0) {
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
@@ -358,6 +359,67 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
   return ok;
 }
 
+// The M2 RTL's front end (fe_m2; core-pipeline.md §3.2-§3.4). The micro-BTB predicts the block taken at its slot,
+// else it falls through. Decode repairs a JAL's target, a predicted-taken branch's wrong target and a bogus
+// prediction, each at predecode_bubble; anything else is a mispredict, recovered at commit with ckpt = 0. The model
+// follows the correct path only, so the training the RTL does at execute happens here, with the fetch-time lookup.
+void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
+  const uint64_t fb = (uint64_t)c_.fetch_bytes;
+  const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
+  const M2Ubtb::Look l = m2_.lookup(key);
+  const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
+  int bubble = 0;
+  int n = 0;
+  while ((int64_t)T.fetchq.size() < c_.fetchq) {
+    const DynInst* di = get(T, T.fetch_seq);
+    if (!di) break;
+    if (di->pc >= blk_end || di->pc < start) break;
+    if (n > 0 && di->pc + di->d->len > blk_end) break;
+    const Decoded& d = *di->d;
+    FetchRec r;
+    r.seq = T.fetch_seq;
+    r.di = di;
+    r.avail = t_ + (uint64_t)c_.if_stages;
+    r.hist = T.ghr;
+    const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
+    const bool here = hit && slot == l.slot;
+    bool ok = true;
+    if (!d.is_ctrl()) {
+      if (here) {  // bogus: decode redirects to the next instruction and clears the entry
+        T.st.predecode_redirects++;
+        bubble = std::max(bubble, (int)c_.predecode_bubble);
+        m2_.invalidate(key, l);
+      }
+    } else {
+      if (d.cls == Cls::BR) T.st.br_cond++;
+      else if (d.cls == Cls::JAL) T.st.br_jal++;
+      else if (d.is_ret()) T.st.br_ret++;
+      else T.st.br_jalr++;
+      const uint64_t tgt = d.cls == Cls::JALR ? di->next_pc : di->pc + (uint64_t)d.imm;  // the taken target
+      bool pred_taken = here, fixed = false;
+      uint64_t pred_tgt = here ? l.target : 0;
+      if (d.cls == Cls::JAL && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+      else if (d.cls == Cls::BR && here && l.target != tgt) { pred_tgt = tgt; fixed = true; }
+      if (fixed) { T.st.predecode_redirects++; bubble = std::max(bubble, (int)c_.predecode_bubble); }
+      if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
+        ok = false;
+        r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
+      }
+      m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
+      T.ghr.push(di->taken, di->pc);
+    }
+    r.mispred = !ok;
+    T.fetchq.push_back(r);
+    T.fetch_seq++;
+    n++;
+    if (!ok) { T.fe_blocked = true; break; }
+    if (here || (d.is_ctrl() && di->taken)) break;
+    if (di->pc + d.len >= blk_end) break;
+  }
+  T.st.taken_bubbles += (uint64_t)bubble;
+  T.fe_resume = t_ + 1 + (uint64_t)bubble;
+}
+
 // One thread fetches per cycle (one I$ access): the first in priority order that can. The others record why
 // they could not.
 void Core::fetch() {
@@ -411,6 +473,7 @@ void Core::fetch_thread(Thread& T) {
     return;
   }
 
+  if (c_.fe_m2) { fetch_block_m2(T, start, blk_end); return; }
   bool ubtb_hit = false;
   uint64_t ubtb_tgt = 0;
   if (c_.ubtb) ubtb_hit = ubtb_.lookup(start ^ T.salt, ubtb_tgt);

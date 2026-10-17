@@ -16,6 +16,9 @@ namespace tg {
   X(decode_width, 2, "instructions decoded per cycle (decode slots)")                              \
   X(dec_to_disp, 2, "cycles from decode to dispatch (rename + dispatch stages)")                   \
   X(ubtb, 32, "micro-BTB entries (0 = none)")                                                      \
+  X(fe_m2, 0, "the M2 RTL's front end: the micro-BTB (ubtb entries, ubtb_ways) is the only predictor; no RAS; decode repairs JAL and predicted-taken targets (predecode_bubble)") \
+  X(ubtb_ways, 2, "micro-BTB ways with fe_m2")                                                     \
+  X(m2_ctr, 512, "2-bit counters (PC[10:2]) that gate the micro-BTB's training with fe_m2")       \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
