@@ -32,6 +32,8 @@ VARIANTS = {
     "A: the stack as ranked (decode redirects)": A,
     "B: core-2's front end, F2 bubble 1": {**A, "m2_f2": 1, "m2_f2_bubble": 1},
     "B: core-2's front end, F2 bubble 2": {**A, "m2_f2": 1, "m2_f2_bubble": 2},
+    "B with returns repaired at F2, bubble 1": {**A, "m2_f2": 1, "m2_f2_bubble": 1, "m2_ras_f2": 1},
+    "B with returns repaired at F2, bubble 2": {**A, "m2_f2": 1, "m2_f2_bubble": 2, "m2_ras_f2": 1},
     "C: the plan's front end": C,
     "C without fetch-directed prefetch": {**C, "fdip": 0},
     "C with returns repaired at decode": {**C, "ras_at_decode": 1},

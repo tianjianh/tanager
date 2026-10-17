@@ -417,7 +417,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         T.ras.pop();
         if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
       }
-      if (fixed && c_.m2_f2 && !ras_fix) f2 = true;  // direct targets from F2's pre-decode
+      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) f2 = true;  // from F2's pre-decode (returns: m2_ras_f2)
       else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;

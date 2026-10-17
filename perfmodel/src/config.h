@@ -23,6 +23,7 @@ namespace tg {
   X(m2_dir, 0, "fe_m2: the direction predictor (dirpred) decides branches; decode supplies missing targets")   \
   X(m2_f2, 0, "fe_m2: direct targets and direction overrides come from F2's pre-decode (core-2's TAGE front end), not decode") \
   X(m2_f2_bubble, 1, "fe_m2 with m2_f2: fetch bubble of an F2 redirect (cycles)")                    \
+  X(m2_ras_f2, 0, "fe_m2 with m2_f2 and ras: returns are repaired from the RAS at F2 (pre-decode), not at decode") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
