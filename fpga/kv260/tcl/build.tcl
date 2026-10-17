@@ -87,11 +87,16 @@ read_xdc [file join $root fpga kv260 xdc kv260.xdc]
 read_xdc [file join $root fpga kv260 xdc timing.xdc]
 
 # ---- synthesis ----
-stamp "synth_design"
+# TG_SYNTH_DIRECTIVE: synth_design's directive, AreaOptimized_high unless set (the coordinator, 10-16, DR-150:
+# the two-core board build with the commit trace did not fit under Default, and spikes' full-chip fits and the
+# area numbers already use AreaOptimized_high; at the board's clocks its timing cost is nil). Default gives the
+# flow of the builds before 10-16 20:20. summary.txt records it.
+set synth_dir [expr {[info exists ::env(TG_SYNTH_DIRECTIVE)] ? $::env(TG_SYNTH_DIRECTIVE) : "AreaOptimized_high"}]
+stamp "synth_design ($synth_dir)"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
   -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$unc_gen {*}$def_args \
-  -flatten_hierarchy rebuilt
+  -flatten_hierarchy rebuilt -directive $synth_dir
 # PMOD console pins (xdc/kv260.xdc) can be overridden; they are asynchronous to clk_core
 if {[info exists ::env(TG_PMOD_TXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_TXD) [get_ports pmod_uart_txd] }
 if {[info exists ::env(TG_PMOD_RXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_RXD) [get_ports pmod_uart_rxd] }
@@ -133,7 +138,7 @@ puts $fh "cfg=$cfg kind=$kind core_mhz=$core_mhz n_cores=$n_cores"
 puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
-puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}]"
+puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"

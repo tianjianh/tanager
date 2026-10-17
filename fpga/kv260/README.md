@@ -41,6 +41,8 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_VIRTIO_WINDOW` | the forwarded virtio window, served by `tanager-host` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[2]`) | 0 |
 | `TG_HOST_DMA` | the coherent host DMA port on `M_AXI_HPM1_FPD`, 2 GiB at `0x5_0000_0000` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[8]`). Without it HPM1 still answers: reads `DECERR`, writes dropped | 0 |
 
+**Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)

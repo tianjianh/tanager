@@ -374,7 +374,11 @@ module tb_boot;
       $display("\n[tb_boot] trace: %0d records", trace_rp);
     end
     if (DEBUG_CNT_TB && $test$plusargs("dbg_dump")) begin
+      // the cores held first (CTRL[0]), so the counters stop and the dump is one moment (the verification
+      // track's note); a transaction left open in the L2 does not matter once the test is over
       logic [31:0] dv;
+      hw(16'h010, 32'h1);
+      repeat (100) @(posedge clk);
       for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 1; i++) begin
         hw(16'h1200, 32'(i));
         repeat (200) @(posedge clk);
