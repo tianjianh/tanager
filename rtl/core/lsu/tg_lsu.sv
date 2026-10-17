@@ -1419,15 +1419,18 @@ module tg_lsu
       if (m2_v_q && !m2_pt_q && !flush) begin
         unique case (m2_out)
           O_OK:    lq_st_q[m2_lq_q] <= L_DONE;
-          O_STQ: begin
-            lq_st_q[m2_lq_q]   <= L_STQ;
-            lq_blk_q[m2_lq_q]  <= m2_fid;
-            lq_part_q[m2_lq_q] <= !m2_fcov_q;
-          end
+          O_STQ:   lq_st_q[m2_lq_q] <= L_STQ;
           O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
+        // The blocking store's fields go in on the outcome before the PMP checker's verdict (timing:
+        // l_den stays out of their enables): a load the checker denies goes to L_EXC in this cycle,
+        // and they are read only in L_STQ (checked against the verdict's in simulation)
+        if (m2_out_w == O_STQ) begin
+          lq_blk_q[m2_lq_q]  <= m2_fid;
+          lq_part_q[m2_lq_q] <= !m2_fcov_q;
+        end
       end
       if (lm_st && !flush) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
 
@@ -1789,6 +1792,21 @@ module tg_lsu
         assert (sq_head_q == am_sq_q && sq_cmt_q == am_sq_q && !misal(am_pa[2:0], am_size))
           else $error("tg_lsu: an atomic that is not the SQ head and commit point, or misaligned");
     end
+  end
+  // Shadows of the blocking store's fields, written on the verdict as before (m2_out == O_STQ),
+  // match the fields wherever these are read (in L_STQ)
+  sqid_t [LQ_ENTRIES-1:0] blk_chk_q;
+  logic  [LQ_ENTRIES-1:0] part_chk_q;
+  always_ff @(posedge clk) begin
+    if (m2_v_q && !m2_pt_q && !flush && m2_out == O_STQ) begin
+      blk_chk_q[m2_lq_q]  <= m2_fid;
+      part_chk_q[m2_lq_q] <= !m2_fcov_q;
+    end
+    if (!rst)
+      for (int i = 0; i < LQ_ENTRIES; i++)
+        if (lq_v_q[i] && lq_st_q[i] == L_STQ)
+          assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
+            else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
   end
 `endif
 endmodule
