@@ -1,10 +1,11 @@
 #!/bin/bash
-# lockstep.sh APP DIR NAME HARTS: load APP, then Linux live through the checker with DIR's 768 MiB tree
-# (copied into ~/tanager/lockstep as NAME-768m.dtb) and --harts=HARTS; logs renamed with NAME
-app=$1; dir=$2; name=$3; harts=$4
+# lockstep.sh APP DIR NAME HARTS [DTB]: load APP, then Linux live through the checker with DIR's 768 MiB
+# tree (DTB, default tanager-kv260-768m.dtb; copied into ~/tanager/lockstep as NAME-768m.dtb) and
+# --harts=HARTS; logs renamed with NAME
+app=$1; dir=$2; name=$3; harts=$4; dtb=${5:-tanager-kv260-768m.dtb}
 cd ~/tanager/tg || exit 1
 L=$HOME/tanager/lockstep
-cp $dir/tanager-kv260-768m.dtb $L/$name-768m.dtb || exit 1
+cp $dir/$dtb $L/$name-768m.dtb || exit 1
 cmp $dir/fw_jump.bin $L/fw_jump.bin || { echo "fw_jump.bin differs from the lockstep set's"; exit 1; }
 export TG_APP=$app TG_DIR=$dir
 ./tg.sh load > $dir/load_ls.txt 2>&1 || { echo "load failed"; cat $dir/load_ls.txt; exit 1; }
