@@ -278,13 +278,15 @@ The console stays the 16550 UART (PMOD, with the host's copy). Debian's kernel h
 - **Loading:** `tanager-host` loads `fw_jump.bin`, `u-boot.bin` (in the kernel's place) and the device tree, then serves the disk.
 
 **The Debian 13 riscv64 root filesystem**, built on the 5950X by `sw/build_debian.sh`:
-- `mmdebstrap --mode=unshare --architectures=riscv64 trixie`, with qemu-user and binfmt_misc, from a pinned snapshot.debian.org date.
-- Packages: `linux-image-riscv64`, `u-boot-menu`, `initramfs-tools`, `systemd-sysv`, `openssh-server`, `sudo`.
+- `mmdebstrap --mode=unshare --architectures=riscv64 --variant=important trixie`, with qemu-user and binfmt_misc, from a pinned snapshot.debian.org date (`DEBIAN_SNAPSHOT`).
+- Every download is verified: the build host's Debian keyring (through bookworm) verifies bookworm's signed Release, bookworm's `debian-archive-keyring` package from it carries the trixie keys, and those verify trixie's Release files ([sw/README.md](../../sw/README.md)).
+- Packages: `linux-image-riscv64`, `u-boot-menu`, `initramfs-tools`, `zstd`, `systemd-sysv`, `dbus`, `libpam-systemd`, `openssh-server`, `sudo`, `ca-certificates`.
 - Configuration:
   - `virtio_mmio` and `virtio_blk` in `/etc/initramfs-tools/modules`, since the root is on virtio-blk and both are modules;
-  - `u-boot-menu`'s command line: `console=ttyS0,115200 root=LABEL=tanager-root rw`;
-  - a serial getty on `ttyS0`, the hostname, and a user with sudo and an SSH key.
-- Packed into an 8 GiB ext4 image and copied onto the A53's root filesystem.
+  - `u-boot-menu`'s command line: `console=ttyS0,115200 earlycon rw`, with `root=LABEL=tanager-root` from `/etc/fstab`; no `fdtdir`, so the kernel gets U-Boot's device tree;
+  - user `tanager`, logged in automatically on `ttyS0`, sudo without a password, SSH with a key if one is given; the hostname in `/etc/hosts`; no `/etc/resolv.conf` from the build host.
+- Packed into an 8 GiB ext4 image (sparse: about 410 MiB written) and copied onto the A53's root filesystem.
+- `sw/qemu/debian_test.sh` boots it on QEMU virt through OpenSBI, U-Boot's extlinux menu and Debian's kernel to the automatic login, then powers off (QEMU's own device tree: it checks the image and U-Boot, not the board's tree).
 
 **The RISC-V's own SD partition** (repartitioning approved, DR-147). The card is 16 GB with an MBR:
 - `p1` is the A53's boot (1 GiB FAT32).
