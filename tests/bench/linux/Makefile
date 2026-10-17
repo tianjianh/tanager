@@ -15,10 +15,18 @@ WT   := $(notdir $(ROOT))
 L    := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 OUT  ?= $(TANAGER_BUILD)/$(WT)/linux-bench
-ifeq ($(origin CC),default)
+# The compiler: CC from the make command line (the Buildroot package passes its TARGET_CC so), else
+# sw/versions.sh's RVTC; never a CC from the environment, which tools/env.sh sets to the host's.
+ifneq ($(origin CC),command line)
   RVTC_NAME := $(shell . $(ROOT)/sw/versions.sh && echo $$RVTC_NAME)
   RVTC_GCC := tc/$(RVTC_NAME)/bin/riscv64-buildroot-linux-gnu-gcc
   CC := $(firstword $(wildcard $(TANAGER_BUILD)/$(WT)/$(RVTC_GCC) $(TANAGER_BUILD)/$(RVTC_GCC)) $(TANAGER_BUILD)/$(WT)/$(RVTC_GCC))
+endif
+ifneq ($(filter-out clean,$(or $(MAKECMDGOALS),all)),)
+  CC_MACHINE := $(shell $(CC) -dumpmachine 2>/dev/null)
+  ifeq ($(findstring riscv64,$(CC_MACHINE)),)
+    $(error CC=$(CC) does not build for riscv64 (it targets "$(CC_MACHINE)"): unpack sw/versions.sh's RVTC under $(TANAGER_BUILD)/tc, or pass CC=<a riscv64 compiler>)
+  endif
 endif
 TP   ?= $(firstword $(patsubst %/coremark/core_main.c,%,$(wildcard $(ROOT)/perfmodel/third_party/coremark/core_main.c \
            $(HOME)/tanager/perfmodel/third_party/coremark/core_main.c)))
