@@ -38,8 +38,14 @@ plclk() {
   echo "pl0_ref (pl_clk0): $(sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate) Hz"
 }
 active() { sudo xmutil listapps | awk -v a="$1" '$1 == a && $NF ~ /^0->/ { f = 1 } END { exit !f }'; }
+# The dead-man is `bash -c "sleep; restore"`: kill that bash first (so the restore cannot run), then
+# its sleep, which would otherwise stay behind as an orphan. Only a sleep: a restore already under way
+# is left to finish, so the PL never stays without an app (and the fan without its PWM).
 deadman_cancel() {
-  [ -f "$D/deadman.pid" ] && kill "$(cat "$D/deadman.pid")" 2>/dev/null
+  if [ -f "$D/deadman.pid" ]; then
+    local p kids; p=$(cat "$D/deadman.pid"); kids=$(pgrep -x -P "$p" sleep)
+    kill "$p" 2>/dev/null; [ -n "$kids" ] && kill $kids 2>/dev/null
+  fi
   rm -f "$D/deadman.pid"
 }
 # Every tanager-host call first checks that the tanager app holds the PL. With another design (or
