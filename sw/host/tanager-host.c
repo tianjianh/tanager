@@ -155,6 +155,7 @@ struct opts {
   long inj_rd, inj_wr, inj_mode, inj_bw;
   int lossless;
   int freeze_time;        /* CTRL.TFREEZE: mtime holds while the commit trace stalls a core */
+  int dbg_exit;           /* run: print the debug counters before the exit's hold (they read 0 after it) */
   /* commit trace (docs/spec/uncore-trace.md): a ring at the top of the carve-out */
   const char *trace;      /* output file ("-" = stdout); NULL = no tracing */
   int trace_log2;         /* ring of 2^n records */
@@ -186,7 +187,7 @@ static void usage(void) {
     "                                         (implied by --trace) zeroes the window first\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
-    "      [--freeze-time]\n"
+    "      [--freeze-time] [--dbg]\n"
     "                                         release reset (a running system keeps running), bridge the\n"
     "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
@@ -197,7 +198,8 @@ static void usage(void) {
     "                                         everything else to stderr; if the reader stops, run exits 4\n"
     "                                         --freeze-time holds mtime while the trace stalls the cores\n"
     "                                         (CTRL.TFREEZE), so Linux under the checker does not drown in\n"
-    "                                         timer ticks\n"
+    "                                         timer ticks; --dbg prints the debug counters (dbg) before the\n"
+    "                                         exit's hold, which clears them\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
@@ -374,7 +376,8 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
   if (strcmp(argv[0], "status")) uncore_up();
   if (!strcmp(argv[0], "status")) {
-    printf("host DMA port: completions %s, %u waiting; %u lines read, %u written; %u write bursts dropped in part\n",
+    printf("host DMA port: completions %s, %u waiting; %u line reads, %u line writes (one per burst within a line, "
+           "an 8-byte store is one); %u write bursts dropped in part\n",
            rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
            rd(R_HDMA_WR_LINES), rd(R_HDMA_WR_DROPS));
   } else if (!strcmp(argv[0], "read") && argc >= 2) {
@@ -816,6 +819,11 @@ static int cmd_run(const struct opts *o) {
               rx, tx, dr);
     }
   }
+  if (o->dbg_exit) {                        /* the hold below resets the uncore, and the counters with it */
+    wr(R_DBG_SEL, 5);
+    if (rd(R_DBG_SEL) == 5) cmd_dbg();
+    else fprintf(stderr, "[%s] --dbg: this bitstream has no debug counters\r\n", prog);
+  }
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
 }
@@ -859,7 +867,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
-    { "freeze-time", 0, 0, 21 },
+    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -896,6 +904,7 @@ int main(int argc, char **argv) {
       case 17: o.rng = 1; break;
       case 18: o.net = optarg; break;
       case 21: o.freeze_time = 1; break;
+      case 22: o.dbg_exit = 1; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];

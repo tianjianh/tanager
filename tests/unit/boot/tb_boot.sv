@@ -379,7 +379,8 @@ module tb_boot;
       logic [31:0] dv;
       hw(16'h010, 32'h1);
       repeat (100) @(posedge clk);
-      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 1; i++) begin
+      // the counters, the levels word, then the DRAM windows' refusals and the first L2 error and refusal
+      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 6; i++) begin
         hw(16'h1200, 32'(i));
         repeat (200) @(posedge clk);
         hr(16'h1204, dv);
