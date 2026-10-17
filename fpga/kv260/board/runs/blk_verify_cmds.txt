@@ -1,0 +1,1 @@
+lsblk /dev/vda; ls -la /var/tmp/blktest*; sha256sum -c /var/tmp/blktest.sha256; cat /var/tmp/blktest.sha256
