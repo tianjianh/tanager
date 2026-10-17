@@ -97,6 +97,29 @@ synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
   -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$unc_gen {*}$def_args \
   -flatten_hierarchy rebuilt -directive $synth_dir
+# Implicit nets in our own RTL fail the build (the coordinator, DR-150): a name used before its declaration
+# becomes a one-bit wire in synthesis (Synth 8-11241 "undeclared symbol", 8-605 "same-named implicit nets"),
+# while Verilator finds the later declaration. tg_rename's rn_fire did this on the first smt2 board builds,
+# and tg_uncore's dbg_sel/dbg_val too. Messages about files outside the source tree ($root), such as
+# Xilinx's generated IP in the run directory, are not ours and pass.
+proc tg_check_implicit_nets {root logf} {
+  if {![file exists $logf]} { puts "WARNING: no $logf to check for implicit nets"; return }
+  set fh [open $logf r]
+  set lines [split [read $fh] "\n"]
+  close $fh
+  set src [file normalize $root]
+  set bad {}
+  foreach l $lines {
+    if {[regexp {\[Synth 8-(11241|605)\]} $l] && [string first "$src/" $l] >= 0} { lappend bad $l }
+  }
+  if {[llength $bad]} {
+    foreach l [lsort -unique $bad] { puts "ERROR: implicit net in our RTL: $l" }
+    puts "ERROR: [llength $bad] implicit-net message(s) in our RTL: declare every name before its first use"
+    exit 1
+  }
+  puts "TG_CHECK no implicit nets in our RTL"
+}
+tg_check_implicit_nets $root [file join [pwd] vivado.log]
 # PMOD console pins (xdc/kv260.xdc) can be overridden; they are asynchronous to clk_core
 if {[info exists ::env(TG_PMOD_TXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_TXD) [get_ports pmod_uart_txd] }
 if {[info exists ::env(TG_PMOD_RXD)]} { set_property PACKAGE_PIN $::env(TG_PMOD_RXD) [get_ports pmod_uart_rxd] }

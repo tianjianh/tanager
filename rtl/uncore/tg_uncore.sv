@@ -607,6 +607,12 @@ module tg_uncore
   // ---------------------------------------------------------------------------------------------
   // Host bridge (host control is the device bus's fourth device, the virtio window its fifth)
   // ---------------------------------------------------------------------------------------------
+  // The debug counters' select and value (DEBUG_CNT, below), declared before the bridge connects them:
+  // a name used before its declaration becomes an implicit one-bit net in synthesis (Vivado Synth
+  // 8-11241), though Verilator finds the later declaration
+  logic [5:0]  dbg_sel;
+  logic [31:0] dbg_val;
+
   logic [31:0] tg_ops_all;
   logic [15:0] tg_errs_all;
   logic [27:0] tg_err_line_any;
@@ -712,8 +718,6 @@ module tg_uncore
   // reads and fills (R last beats); 8*N_BANKS + 5c + k for core c's data cache its A, B, C, D, E;
   // then the L2 error events; the index after holds the channels' valid/ready levels now
   // ---------------------------------------------------------------------------------------------
-  logic [5:0]  dbg_sel;
-  logic [31:0] dbg_val;
   if (DEBUG_CNT) begin : g_dbg
     localparam int NCNT = 8 * N_BANKS + 5 * N_CORES + 1;
     logic [31:0]     cnt_q [NCNT];
