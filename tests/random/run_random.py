@@ -56,6 +56,8 @@ def stress_args(seed, irq, trace_stall=False):
         args.append(f"--trace-stall={r.choice([10, 50, 200])}")
     if r.randrange(2):  # DR-149: probes against in-flight misses (drawn last: earlier choices stay as they were)
         args.append(f"--probe-miss={r.choice([20, 50, 100])}")
+    if r.randrange(3) == 0:  # probes at the GrantAck, before the line's first use (drawn after the rest, likewise)
+        args.append(f"--probe-grant={r.choice([20, 50])}")
     args.append(f"--seed={seed}")
     return args
 
@@ -201,8 +203,9 @@ def main():
     if tot.get("acquires"):
         print(f"{label}l1d: {tot['acquires']} Acquires by misses in flight with them "
               f"{tot['inflight1']}/{tot['inflight2']}/{tot['inflight3']}/{tot['inflight4']} (1/2/3/4+, max "
-              f"{tot['max_inflight']}); probes on a miss's line {tot['probe_acq']}, in its set {tot['probe_set']}; "
-              f"Releases during a miss {tot['rel_acq']}; same-set misses {tot['acq_set']}")
+              f"{tot['max_inflight']}); probes on a miss's line {tot['probe_acq']}, in its set {tot['probe_set']}, "
+              f"on a line at its GrantAck {tot.get('probe_grant', 0)}; Releases during a miss {tot['rel_acq']}; "
+              f"same-set misses {tot['acq_set']}")
     return 1 if fails else 0
 
 
