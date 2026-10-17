@@ -1,0 +1,139 @@
+/dts-v1/;
+
+/ {
+	#address-cells = <0x02>;
+	#size-cells = <0x02>;
+	compatible = "tanager,soc";
+	model = "Tanager on KV260";
+
+	cpus {
+		#address-cells = <0x01>;
+		#size-cells = <0x00>;
+		timebase-frequency = <0x3b9aca00>;
+
+		cpu@0 {
+			device_type = "cpu";
+			reg = <0x00>;
+			compatible = "tanager,tanager\0riscv";
+			riscv,isa = "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i\0m\0a\0f\0d\0c\0zicsr\0zifencei\0zba\0zbb\0zbs\0zicond\0sstc";
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			phandle = <0x01>;
+
+			interrupt-controller {
+				#interrupt-cells = <0x01>;
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				phandle = <0x03>;
+			};
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			reg = <0x02>;
+			compatible = "tanager,tanager\0riscv";
+			riscv,isa = "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc";
+			riscv,isa-base = "rv64i";
+			riscv,isa-extensions = "i\0m\0a\0f\0d\0c\0zicsr\0zifencei\0zba\0zbb\0zbs\0zicond\0sstc";
+			mmu-type = "riscv,sv39";
+			status = "okay";
+			phandle = <0x02>;
+
+			interrupt-controller {
+				#interrupt-cells = <0x01>;
+				compatible = "riscv,cpu-intc";
+				interrupt-controller;
+				phandle = <0x04>;
+			};
+		};
+
+		cpu-map {
+
+			cluster0 {
+
+				core0 {
+
+					thread0 {
+						cpu = <0x01>;
+					};
+				};
+
+				core1 {
+
+					thread0 {
+						cpu = <0x02>;
+					};
+				};
+			};
+		};
+	};
+
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x00 0x80000000 0x00 0x30000000>;
+	};
+
+	soc {
+		#address-cells = <0x02>;
+		#size-cells = <0x02>;
+		compatible = "simple-bus";
+		ranges;
+
+		clint@2000000 {
+			compatible = "riscv,clint0";
+			reg = <0x00 0x2000000 0x00 0x10000>;
+			interrupts-extended = <0x03 0x03 0x03 0x07 0x04 0x03 0x04 0x07>;
+		};
+
+		interrupt-controller@c000000 {
+			compatible = "riscv,plic0";
+			reg = <0x00 0xc000000 0x00 0x4000000>;
+			#address-cells = <0x00>;
+			#interrupt-cells = <0x01>;
+			interrupt-controller;
+			riscv,ndev = <0x1f>;
+			interrupts-extended = <0x03 0x0b 0x03 0x09 0x03 0xffffffff 0x03 0xffffffff 0x04 0x0b 0x04 0x09 0x04 0xffffffff 0x04 0xffffffff>;
+			phandle = <0x05>;
+		};
+
+		serial@10000000 {
+			compatible = "ns16550a";
+			reg = <0x00 0x10000000 0x00 0x1000>;
+			reg-shift = <0x00>;
+			reg-io-width = <0x01>;
+			clock-frequency = "\08@";
+			current-speed = <0x1c200>;
+			interrupt-parent = <0x05>;
+			interrupts = <0x0a>;
+		};
+
+		syscon@10001000 {
+			compatible = "tanager,hostctl\0syscon";
+			reg = <0x00 0x10001000 0x00 0x1000>;
+			interrupt-parent = <0x05>;
+			interrupts = <0x0b>;
+			phandle = <0x06>;
+		};
+	};
+
+	poweroff {
+		compatible = "syscon-poweroff";
+		regmap = <0x06>;
+		offset = <0x20>;
+		value = <0x5555>;
+	};
+
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <0x06>;
+		offset = <0x20>;
+		value = <0x7777>;
+	};
+
+	chosen {
+		bootargs = "console=ttyS0,115200 earlycon";
+		stdout-path = "/soc/serial@10000000";
+	};
+};

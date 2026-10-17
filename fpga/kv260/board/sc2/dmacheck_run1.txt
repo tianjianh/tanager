@@ -1,0 +1,18 @@
+loaded tanager-sc2 at 11:38:34; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+$ tanager-host(2fc4a71) load --fw /home/ubuntu/tanager/sc2/fw_jump.bin --kernel /home/ubuntu/tanager/sc2/Image --dtb /home/ubuntu/tanager/sc2/tanager-kv260-virtio.dtb
+loaded: fw 277856 B, kernel 21449216 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+$ tanager-host(2fc4a71) dma check
+released the uncore (the cores stay held)
+dma check 0x3fff0000+0x10000: ok; writes 21.4 MB/s, reads 23.6 MB/s; 16384 lines read, 16384 written, 0 drops
+$ tanager-host(2fc4a71) dma check
+dma check 0x3fff0000+0x10000: ok; writes 25.0 MB/s, reads 23.6 MB/s; 16384 lines read, 16384 written, 0 drops
+$ tanager-host(2fc4a71) dma status
+host DMA port: completions not recorded, 0 waiting; 32768 line reads, 32768 line writes (one per burst within a line, an 8-byte store is one); 0 write bursts dropped in part
+  capabilities    0x0000012f (virtio window)
+  status          cores in reset, uncore running, L2 ready
+  virtio window   not served (reads 0); 0 request(s) and 0 event(s) queued; status bits 0x00
+$ tanager-host(2fc4a71) vq
+  virtio window   not served (reads 0); 0 request(s) and 0 event(s) queued; status bits 0x00
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0

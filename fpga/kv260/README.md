@@ -282,3 +282,28 @@ The verification track's checker, `tanager-lockstep`, checks every commit record
   - **What happens:** `--plant=1000` puts the fault in the board trace's record 1,001, which is an MMIO load: the SoC test polling the real UART's transmit-ready bit. The checker takes MMIO load values from the RTL, so it passes the run.
   - **Not a checker fault:** the same plant stops correctly on the simulation trace, and at record 100,000 on the board trace.
   - **Fixed** in the verification track's `98a05ff` (checker sha256 `d0cfb7b0…`): `--plant` now corrupts only values the checker compares. On the board, `--plant=1000` plants in record 1,002, "x15 of `andi a5, a5, 32` at 0x80000034", the instruction after the UART poll. The checker stops there (exit 2), and `tanager-host` exits 4 ([log](board/lockstep/ls_plant1000_98a05ff.txt)).
+
+### Two cores and Debian 13 (2026-10-16/17, DR-150 and DR-147)
+
+The board track ran the SoC track's two-core and stage C bitstreams. Each run's README has the details.
+
+**The two-core hang:** p0, p0d2, c1s and st2.
+- **The symptom:** every build after `3eed95f` hung before OpenSBI printed, with one or two cores, `smt2` or `st` ([p0](board/p0/README.md), [p0d2](board/p0d2/README.md), [c1s](board/c1s/README.md), [st2](board/st2/README.md)).
+- **What the checker found:** on c1s's 20-record trace it stopped at the 7th instruction, where `mv s1, a1` read another register's value.
+- **The control:** the M4 bitstream on the same board passed ([control](board/ctl-m4/README.md)), which pinned the fault to the RTL.
+- **The cause:** Vivado's logs had `rn_fire` (rename's pop to the free lists) as an undriven implicit net. It was used in generate blocks before its declaration; Verilator resolves it, Vivado follows the standard. Fixed in the core track's `24ada50`, and `build.tcl` now fails on implicit nets.
+
+**P0, two cores boot Linux** ([p0f](board/p0f/README.md)): two `smt2` cores (harts 0 and 2) at 70 MHz.
+- **Boot:** "smp: Brought up 1 node, 2 CPUs", with the login prompt 6 s after the load.
+- **SMP test:** two busy loops in parallel take as long as one.
+- **The workload set:** 54/54 measurements, CoreMark 6/6.
+- **Lockstep:** two-core Linux passes the checker from boot to power-off: 408,432,254 records, 14,594 traps, 19,840 interrupts.
+  - **What it took:** a device tree that tells Linux the timer runs at 1 GHz. On the real 10 MHz clock the first run had no mismatch in 425,955,311 records, but the boot could not finish. The timer counts in real time while trace backpressure throttles the cores, so the periodic tick's catch-up loop never ends.
+  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores.
+
+**Stage C, Debian 13 through U-Boot** ([sc2](board/sc2/README.md)): two `smt2` cores with the virtio window and the host DMA port.
+- **Buildroot:** virtio-blk (the md5 matches the host's) and virtio-rng work.
+- **Debian:** U-Boot 2026.07 loads Debian's own kernel `6.12.111+deb13-riscv64` from a virtio-blk disk image.
+  - systemd reaches `multi-user.target` with no failed units, in 3 min 42 s, with `nproc` 2.
+  - `sudo poweroff` ends it cleanly.
+- **Open:** the L2 logs error events under heavy traffic: 68 in the Debian run, 5,928 in the lockstep run. The SoC track is identifying them.
