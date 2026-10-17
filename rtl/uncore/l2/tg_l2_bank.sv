@@ -1459,6 +1459,8 @@ module tg_l2_bank
   // ---------------------------------------------------------------------------------------------
   // Sequential state: holding registers, engines and the MSHR file
   // ---------------------------------------------------------------------------------------------
+  logic ev_pack;                 // a ProbeAck has been processed (driven with the MSHR transitions below;
+                                 // declared before the block that reads it, as every name is)
   assign pb_we    = a_accept && a_is_put;
   assign pb_waddr = (ain_st_q == AI_EMPTY) ? {pb_slot, a_i.address[5:4]} : {ain_pb_q, ain_beat_q};
   assign pb_wdata = {a_i.mask, a_i.data};
@@ -1658,7 +1660,7 @@ module tg_l2_bank
   // MSHR state transitions. Every event applies to an MSHR in one state only, so the next state is
   // selected by the current state, without priority among the event sources. In the one-hot state
   // each event is qualified by its source state's bit, clears it and sets its target's.
-  wire ev_pack = cin_st_q == CI_ACK && !cin_rel && cin_mok_q;    // a ProbeAck has been processed
+  assign ev_pack = cin_st_q == CI_ACK && !cin_rel && cin_mok_q;  // a ProbeAck has been processed
   wire ev_vrf  = rt_out.v && rt_out.to_wb && rt_out.vr_last;     // victim read out
   wire ev_fill = f_wr && r_s.last;                               // last fill beat written
   wire [NMS-1:0] mcmd_oh  = NMS'(1) << s2_mcmd_st;
