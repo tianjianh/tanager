@@ -361,6 +361,23 @@ module tg_lsu
     for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? lq_first(hi) : lq_first(v);
   endfunction
+  // The same search on a carry chain (timing, DR-145: in G6 the ordering check's select took seven
+  // LUT levels after its address compares): the set twice over, the slots at or after the head's
+  // in the low half, so the lowest set bit of the 2N is the oldest (u & -u, whose chain carries
+  // "no set bit below"); the halves' one-hot bits merge, then an OR encode. Exactly lq_oldest, an
+  // empty set giving 0 (asserted against it)
+  function automatic logic [LIW-1:0] lq_oldest_c(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    logic [LQ_ENTRIES-1:0]   ge, e;
+    logic [2*LQ_ENTRIES-1:0] u, oh;
+    logic [LIW-1:0]          r;
+    for (int i = 0; i < LQ_ENTRIES; i++) ge[i] = i >= int'(h);
+    u  = {v, v & ge};
+    oh = u & -u;
+    e  = oh[LQ_ENTRIES-1:0] | oh[2*LQ_ENTRIES-1:LQ_ENTRIES];
+    r  = '0;
+    for (int i = 0; i < LQ_ENTRIES; i++) if (e[i]) r = r | LIW'(i);
+    return r;
+  endfunction
   function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
     logic [SQ_ENTRIES-1:0] hi;
     for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
@@ -412,7 +429,7 @@ module tg_lsu
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
-  logic              am_req, am_ack, am_den, lose_v;
+  logic              am_req, am_sel, am_ack, am_den, lose_v;
   logic              pr_hold;                     // the D$'s probes wait: a young LR reservation
   logic [PA_W-1:0]   am_pa;
   logic [15:0]       am_wmask;
@@ -424,7 +441,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
-    .am_req, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
+    .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
@@ -440,7 +457,7 @@ module tg_lsu
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
   assign rp_any = |rp_ready;
-  assign rp_idx = lq_oldest(rp_ready, lqi(lq_head_q));
+  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -496,7 +513,8 @@ module tg_lsu
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
   logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
-  logic [LIW-1:0] lm_lq;                          // ... the MMIO load's LQ entry
+  logic        lm_st;                             // ... MMIO issue held; the denied MMIO load's state write,
+  logic [LIW-1:0] lm_lq;                          // ... and its LQ entry
   pma_e        nl_pma;
   assign nl_pa   = xl_d ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
   assign nl_mis  = misal(ln_va[2:0], ln_size);
@@ -722,8 +740,12 @@ module tg_lsu
     if (r_v_q && r_dv_q) llt_done[r_llt_q] = 1'b1;
   end
   // An MMIO response takes the result register when M2 does not
+  // The MMIO and atomic results take the result register when no M2 load completes, its PMP
+  // verdict aside (m2_okw): a load the checker denies leaves the register empty that cycle, and
+  // they take it the next (timing, DR-145: G6's load PMP checker -> the result take -> the
+  // wakeup, -1.56 ns; a cycle only when one waits beside a PMP-denied load in M2)
   logic xr_take;
-  assign xr_take = xr_v_q && !m2_ok && !flush;
+  assign xr_take = xr_v_q && !m2_okw && !flush;
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -767,13 +789,14 @@ module tg_lsu
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush && !am_pden_q;
+  assign am_sel   = am_st_q == AM_REQ;              // the D$ store port's address: the state alone
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
   assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, am_b_q);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
   assign am_wdata = rep(am_new, am_size);
-  assign am_take  = am_st_q == AM_RES && !m2_ok && !xr_take && !flush;
+  assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !flush;
 
   logic            rsv_v_d;
   logic [PA_W-1:6] rsv_line_d;
@@ -916,6 +939,9 @@ module tg_lsu
   // (a load is younger than the store when the store is in [head, the load's lq_sq))
   logic           rp_v_c, rp_v_q;
   logic [LIW-1:0] rp_ra_c, rp_ra_q;
+`ifndef SYNTHESIS
+  logic [LQ_ENTRIES-1:0] oc_s;      // the search's set, for the select's check
+`endif
   always_comb begin
     logic [LQ_ENTRIES-1:0] oc;
     for (int i = 0; i < LQ_ENTRIES; i++)
@@ -924,7 +950,10 @@ module tg_lsu
               lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
               |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
     rp_v_c  = sa_ok && |oc;
-    rp_ra_c = lq_oldest(oc, lqi(lq_head_q));
+    rp_ra_c = lq_oldest_c(oc, lqi(lq_head_q));
+`ifndef SYNTHESIS
+    oc_s    = oc;
+`endif
   end
   // The report goes out a cycle later from flip-flops: the load's LQ index, whose ROB index the
   // LUTRAM reads then (timing: the read leaves the search). No AG load writes that entry in the
@@ -940,6 +969,10 @@ module tg_lsu
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
+  always_ff @(posedge clk) begin    // the carry-chain selects against the reference (same values)
+    assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q))) else $error("tg_lsu: the ordering check's oldest select differs");
+    assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q))) else $error("tg_lsu: the replay pick differs");
+  end
 `endif
   assign lqr_ra[0]    = rp_ra_q;
   assign replay_valid = rp_v_q;
@@ -1386,7 +1419,7 @@ module tg_lsu
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
       end
-      if (lm_den && !flush) lq_st_q[lm_lq] <= L_EXC;   // an MMIO load the PMP checker denied
+      if (lm_st && !flush) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
@@ -1543,6 +1576,8 @@ module tg_lsu
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
+    logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
+    logic [PA_W-1:4] cl2_row_q;
     always_ff @(posedge clk) begin
       ln_v_q    <= !rst && !flush && ld_ag_valid;
       sn_v_q    <= !rst && !flush && sta_ag_valid;
@@ -1555,6 +1590,8 @@ module tg_lsu
       sn_size_q <= sta_ag_pl.mem_size;
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
       cl_row_q  <= st_pa[PA_W-1:4];
+      cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
+      cl2_row_q <= cl_row_q;
     end
     assign ln_v    = ln_v_q;
     assign ln_va   = ln_va_q;
@@ -1570,7 +1607,7 @@ module tg_lsu
     assign ag_pa    = ld_ag_valid ? ld_ag_addr[PA_W-1:0] : ag_pt ? pt_pa : lqa_rd[0].pa;
     assign ag_go    = ag_v;
     assign m1pa     = ln_v_q ? nl_pa : m1_pa_q;
-    assign m1_clash = cl_v_q && cl_row_q == m1pa[PA_W-1:4];
+    assign m1_clash = (cl_v_q && cl_row_q == m1pa[PA_W-1:4]) || (cl2_v_q && cl2_row_q == m1pa[PA_W-1:4]);
     assign m1_go    = m1_v_q && (!ln_v_q || nl_go);
     assign ln_lq    = m1_lq_q;
     assign ln_lqw   = m1_lq_q;
@@ -1592,8 +1629,24 @@ module tg_lsu
     assign lck_dbl = m2_dbl_q;
     assign l_den   = m2_pck_q && !nl_chk[0];
     assign lm_den  = m2_mck_q && !nl_chk[0];
-    assign lm_lq   = m2_lq_q;
-    assign mm_hold = lm_den && m2_lq_q == hl;
+    if (LSU_MMIO_PMP_REG) begin : g_mreg
+      // #10: the verdict registered, for the state a cycle later; the head's issue waits while its
+      // load checks, then on the registered denial (timing: the checker leaves the LQ state's
+      // enables, through the issue)
+      logic           lm_den_q;
+      logic [LIW-1:0] lm_lq_q;
+      always_ff @(posedge clk) begin
+        lm_den_q <= !rst && !flush && lm_den;
+        lm_lq_q  <= m2_lq_q;
+      end
+      assign lm_st   = lm_den_q;
+      assign lm_lq   = lm_lq_q;
+      assign mm_hold = (m2_mck_q && m2_lq_q == hl) || (lm_den_q && lm_lq_q == hl);
+    end else begin : g_mnow
+      assign lm_st   = lm_den;
+      assign lm_lq   = m2_lq_q;
+      assign mm_hold = lm_den && m2_lq_q == hl;
+    end
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
     // It does not wait for its access-fault checks (PMP, PMA, the high bits): a store that faults
@@ -1628,7 +1681,14 @@ module tg_lsu
     assign ag_go   = ag_v && (!ld_ag_valid || nl_go);
     // A store write to the same 16-byte row in the AG cycle: the load read old data
     logic ag_clash, m1_clash_q;
-    assign ag_clash = st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4];
+    logic st_wr_q;                                 // #11: a store wrote the cycle before (its RAM write is now)
+    logic [PA_W-1:4] st_row_q;
+    always_ff @(posedge clk) begin
+      st_wr_q  <= !rst && DC_PORTB_WREG && st_ack && !st_dropped;
+      st_row_q <= st_pa[PA_W-1:4];
+    end
+    assign ag_clash = (st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4]) ||
+                      (st_wr_q && st_row_q == ag_pa[PA_W-1:4]);
     always_ff @(posedge clk) m1_clash_q <= ag_clash;
     assign m1pa     = m1_pa_q;
     assign m1_clash = m1_clash_q;
@@ -1649,8 +1709,11 @@ module tg_lsu
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
+    assign lm_st   = m2_mden_q;
     assign lm_lq   = m2_lq_q;
-    assign mm_hold = (m1_mck_q && !nl_chk[0] && m1_lq_q == hl) || (m2_mden_q && m2_lq_q == hl);
+    // (#10 here: the hold in M1 does not wait for the verdict)
+    assign mm_hold = (m1_mck_q && (LSU_MMIO_PMP_REG || !nl_chk[0]) && m1_lq_q == hl) ||
+                     (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
     assign f_oh     = q_oh;
     assign f_cover  = q_cover;
