@@ -75,7 +75,10 @@ set t0 [clock seconds]
 
 source [file join $root tools tcl tg_kv260_fan.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
+source [file join $root fpga spikes tcl synth_check.tcl]
 if {$synth_dcp ne ""} {
+  # the checkpoint's own synthesis was checked by the run that wrote it (tg_synth_check runs before
+  # write_checkpoint); checkpoints from before 2026-10-17 were not
   set_param general.maxThreads 8
   open_checkpoint $synth_dcp
 } else {
@@ -94,11 +97,14 @@ if {$synth_dcp ne ""} {
   read_xdc [file join $root fpga kv260 xdc kv260.xdc]
   read_xdc [file join $root fpga kv260 xdc timing.xdc]
 
+  set synth_mark [tg_synth_check_mark]
   synth_design -top kv260_top -part $part \
     -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"core\" \
     -generic PMOD_UART=1 -generic FAN_WAVE=$::tg_kv260_fan_bit -generic FAN_INVERT=$::tg_kv260_fan_invert \
     -generic "UNCORE_DSP=64'h$mask" {*}$generics {*}$defines \
     -flatten_hierarchy $flatten -directive $synth_dir
+  # an implicit net in our sources (Synth 8-11241, 8-605) fails the run here
+  tg_synth_check $synth_mark
   set_param general.maxThreads 8
   if {$keep_dcp} { write_checkpoint -force post_synth.dcp }
 }
