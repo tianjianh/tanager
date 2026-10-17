@@ -417,7 +417,7 @@ In stage C the A53's virtio back-end writes into the RISC-V's memory through the
   - `run_coh.py` refuses the mode with a `tb_boot` that has no `+hdma_lines` option, rather than letting every program hang.
 - **On the board,** `tanager-host` inserts a record for each DMA write into the trace stream `tanager-lockstep` reads.
   - The record: byte 63 = `0xE1`; bytes 0–7 the physical address; 8–39 the data; 40–43 the AccessAck cycle, from the hdma bridge's completion FIFO (the trace's own counter); 44–47 the byte mask. Hardware records keep bytes 44–63 zero, so the two cannot be confused.
-  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, so the record arrives before any trace record of its cycle or later. A write that arrives later is reported as an ordering error.
+  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, from its issue to its completion, so the record arrives before every trace record that could have read the write, a load the L2 served up to 256 cycles before the AccessAck included. `tb_boot`'s model does the same. The checker registers each record as it arrives, not at its cycle: the record carries its own visibility. A record that comes after a load of its new bytes leaves that load unexplained, which is a mismatch.
 
 **What a load may return.** Each external write is held with its new bytes and, once applied to Spike's memory, the old bytes it replaced. A load that commits at cycle C is accepted if each byte it returned is one of:
 - Spike's memory;
@@ -448,6 +448,11 @@ A write every hart is past is dropped.
 - **40 random rv64gc programs, a third under Sv39:** all passed, with 7–33 loads per program returning new bytes. All 80 hidden-write faults were reported.
 - **Wider and multi-hart runs** (width 4, two harts, with interrupts and failed SCs) passed or reached the step limit. Random new bytes can send a program into an endless loop, on both sides alike.
 - **The checker self-test** (§3.8) now runs six of these programs in each mode.
+
+**Tested on a real two-hart trace** (2026-10-17, before the host-DMA model): records inserted into a two-core `lottery` trace (7,105 records) over the `msg_pass` string that hart 0 prints at the end, some with that load's value edited to the new byte, as if the RTL had read it.
+- A no-op write (the bytes memory holds) passes. New bytes the RTL never read pass inside hart 0's window and stop the run after it (RTL `C`, Spike `X`).
+- A new byte the RTL read passes when the write is announced 2,000 cycles before the load, and when its AccessAck is 100 cycles after the load (the margin); it stops the run when the AccessAck is 1,000 cycles after, or when no write is announced.
+- **It found a checker bug:** with several harts, `tanager-lockstep` queued each record by its AccessAck's cycle in the harts' merge, so a load inside the margin was checked before the write was known (the 100-cycle case stopped). Records are now registered as they arrive.
 
 ## 4. Test suites and runners
 
