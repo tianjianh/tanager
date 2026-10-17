@@ -116,7 +116,7 @@ module tg_fetch_compact
     dec_t        qd;
     logic        q_ill32, q_illc, q_cfp, q_ill, q_exc, q_ser;
     logic [31:0] q_cx;
-    tg_decode u_qdec (.pc_lo('0), .blk('0), .strad(1'b0), .insn(cand[31:0]), .link('0), .tgt('0),
+    tg_decode u_qdec (.pc_lo('0), .blk('0), .strad(1'b0), .insn(cand[31:0]), .link('0), .tgt('0), .raw('0),
                       .pre_ill(1'b0), .fault(1'b0), .fault_pf(1'b0), .fault_hi(1'b0),
                       .misa_m(dst.misa_m), .misa_b(dst.misa_b), .misa_a(dst.misa_a),
                       .misa_f(dst.misa_f), .misa_d(dst.misa_d), .fs(dst.fs), .frm(dst.frm),

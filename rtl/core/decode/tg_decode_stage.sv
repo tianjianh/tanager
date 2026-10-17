@@ -110,7 +110,7 @@ module tg_decode_stage
     logic dec_ill;                              // the decoder's own illegal decision (checked)
     tg_decode #(.ILL_Q(1'b1)) u_dec (
                      .pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
-                     .link(seq_d[j]), .tgt(tgt_d[j]),
+                     .link(seq_d[j]), .tgt(tgt_d[j]), .raw(iq_insn[j].insn),
                      .pre_ill,
                      .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
                      .ill_q(iq_insn[j].q_ill), .d(d[j]), .ill_o(dec_ill));
@@ -137,6 +137,10 @@ module tg_decode_stage
           else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
       if (!rst && iq_valid[j] && !d[j].exc && d[j].cls == C_BR && d[j].br_kind != BR_JALR)
         assert (tgt_d[j] == xtgt) else $error("tg_decode_stage: the raw offset gives another target than decode's");
+      // An AUIPC is never compressed: its raw immediate is the decoded one
+      if (!rst && iq_valid[j] && xi[6:0] == 7'b0010111)
+        assert (!iq_insn[j].rvc && iq_insn[j].insn[31:12] == xi[31:12])
+          else $error("tg_decode_stage: an AUIPC's raw immediate differs from its decoded one");
     end
 `endif
   end
