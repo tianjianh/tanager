@@ -370,19 +370,24 @@ module tg_lsu
   // The same search on a carry chain (timing, DR-145: in G6 the ordering check's select took seven
   // LUT levels after its address compares): the set twice over, the slots at or after the head's
   // in the low half, so the lowest set bit of the 2N is the oldest (u & -u, whose chain carries
-  // "no set bit below"); the halves' one-hot bits merge, then an OR encode. Exactly lq_oldest, an
-  // empty set giving 0 (asserted against it)
-  function automatic logic [LIW-1:0] lq_oldest_c(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
-    logic [LQ_ENTRIES-1:0]   ge, e;
+  // "no set bit below"); the halves' one-hot bits merge (lq_oldest_oh), then an OR encode. Exactly
+  // lq_oldest, an empty set giving 0 (asserted against it)
+  function automatic logic [LQ_ENTRIES-1:0] lq_oldest_oh(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    logic [LQ_ENTRIES-1:0]   ge;
     logic [2*LQ_ENTRIES-1:0] u, oh;
-    logic [LIW-1:0]          r;
     for (int i = 0; i < LQ_ENTRIES; i++) ge[i] = i >= int'(h);
     u  = {v, v & ge};
     oh = u & -u;
-    e  = oh[LQ_ENTRIES-1:0] | oh[2*LQ_ENTRIES-1:LQ_ENTRIES];
-    r  = '0;
+    return oh[LQ_ENTRIES-1:0] | oh[2*LQ_ENTRIES-1:LQ_ENTRIES];
+  endfunction
+  function automatic logic [LIW-1:0] lq_enc(input logic [LQ_ENTRIES-1:0] e);
+    logic [LIW-1:0] r;
+    r = '0;
     for (int i = 0; i < LQ_ENTRIES; i++) if (e[i]) r = r | LIW'(i);
     return r;
+  endfunction
+  function automatic logic [LIW-1:0] lq_oldest_c(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    return lq_enc(lq_oldest_oh(v, h));
   endfunction
   // the oldest slot of v, from the head's mask (hge[i]: slot i at or after the head's slot)
   function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v,
@@ -468,8 +473,10 @@ module tg_lsu
   end
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
-  assign rp_any = |rp_ready;
-  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q));
+  logic [LQ_ENTRIES-1:0] rp_oh;                 // the pick one-hot, for its entry's LQ writes (timing:
+  assign rp_any = |rp_ready;                    // no encode and decode between the head and them)
+  assign rp_oh  = lq_oldest_oh(rp_ready, lqi(lq_head_q));
+  assign rp_idx = lq_enc(rp_oh);
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -559,6 +566,15 @@ module tg_lsu
   assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !flush;
   assign ag_v    = (ld_ag_valid || ag_pt || ag_rp) && !flush;
   assign ag_lq   = ld_ag_valid ? ld_ag_pl.lq[LIW-1:0] : rp_idx;
+  // The AG op's LQ entry, for the per-entry writes and checks: a new load's from its own index, a
+  // replay's from the pick's one-hot (the same entry as ag_lq; timing: the pick's encode leaves
+  // the entries' enables)
+  logic [LIW-1:0]        ag_nlq;                // a new load's entry
+  logic [LQ_ENTRIES-1:0] ag_at;                 // the entry an AG load or replay is at (ag_v && !ag_pt)
+  assign ag_nlq = ld_ag_pl.lq[LIW-1:0];
+  always_comb
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      ag_at[i] = (ld_ag_valid && !flush && ag_nlq == LIW'(i)) || (ag_rp && rp_oh[i]);
   // ag_pa and ag_go (it continues to M1) depend on where a new load decides: g_split / g_nosplit
   assign pt_gnt  = ag_pt;
   // The D$ reads for every AG op, whether or not it goes on to M1 (timing: ag_go waits for the new
@@ -1004,6 +1020,9 @@ module tg_lsu
   always_ff @(posedge clk) begin    // the carry-chain selects against the reference (same values)
     assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q))) else $error("tg_lsu: the ordering check's oldest select differs");
     assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q))) else $error("tg_lsu: the replay pick differs");
+    assert (rp_oh == (rp_any ? LQ_ENTRIES'(1) << rp_idx : '0)) else $error("tg_lsu: the replay pick's one-hot differs");
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      assert (ag_at[i] == (ag_v && !ag_pt && ag_lq == LIW'(i))) else $error("tg_lsu: AG's entry %0d differs", i);
   end
 `endif
   assign lqr_ra[0]    = rp_ra_q;
@@ -1487,12 +1506,12 @@ module tg_lsu
       m1_lq_q    <= ag_lq;
       m1_pa_q    <= ag_pa;
       if (ld_ag_valid && !flush) begin                 // AG: into the pipe
-        lq_pav_q[ag_lq]  <= 1'b0;
-        lq_st_q[ag_lq]   <= L_PIPE;
-        lq_sq_q[ag_lq]   <= ld_ag_pl.sq;               // (the cold fields: u_lqc)
-        lq_size_q[ag_lq] <= ld_ag_pl.mem_size;
+        lq_pav_q[ag_nlq]  <= 1'b0;
+        lq_st_q[ag_nlq]   <= L_PIPE;
+        lq_sq_q[ag_nlq]   <= ld_ag_pl.sq;              // (the cold fields: u_lqc)
+        lq_size_q[ag_nlq] <= ld_ag_pl.mem_size;
       end else if (ag_rp) begin
-        lq_st_q[ag_lq]  <= L_PIPE;
+        for (int i = 0; i < LQ_ENTRIES; i++) if (rp_oh[i]) lq_st_q[i] <= L_PIPE;
       end
       // A new load's PA and outcome where it decides: in AG (over the lines above), or in M1 with
       // the split. The outcome is the state write's data, not its enable, so nl_exc (after the PMA
@@ -1517,7 +1536,7 @@ module tg_lsu
 
       // ---- Waiting loads re-check their condition ----
       for (int i = 0; i < LQ_ENTRIES; i++) begin
-        if (lq_v_q[i] && !(ag_v && !ag_pt && ag_lq == LIW'(i)) && !(m2_v_q && !m2_pt_q && m2_lq_q == LIW'(i))) begin
+        if (lq_v_q[i] && !ag_at[i] && !(m2_v_q && !m2_pt_q && m2_lq_q == LIW'(i))) begin
           if (lq_st_q[i] == L_MISS && (DC_MSHRS == 1 ? mshr_idle :
                                        lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
             lq_st_q[i] <= L_READY;
@@ -1788,7 +1807,7 @@ module tg_lsu
     assign m1_clash = m1_clash_q;
     assign m1_go    = m1_v_q;
     assign ln_lq    = ld_ag_pl.lq[LIW-1:0];
-    assign ln_lqw   = ag_lq;                       // = ln_lq while a new load decides: one decoder with AG's writes
+    assign ln_lqw   = ag_nlq;                      // = ln_lq: one decoder with AG's writes
     // A new load's PMP checker runs in M1 on m1_pa_q (a load going on, or an MMIO load parked at AG:
     // its issue can come from this cycle, so it is held on the verdict here and in M2), and the
     // verdict takes effect in M2
