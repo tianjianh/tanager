@@ -1,0 +1,8 @@
+cfg=smt2 kind=core core_mhz=100 n_cores=2
+WNS=0.347 WHS=0.010
+runtime_s=3056
+commit=5172c6a
+profile=sc3-smt2-trace defines=- synth=AreaOptimized_high
+uncore=VIRTIO_WINDOW=1 HOST_DMA=1
+pmod_uart=1 txd=H12 rxd=B10
+fan=ttc0.wave2 invert=0 pin=A12

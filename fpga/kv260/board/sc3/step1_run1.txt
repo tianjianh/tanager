@@ -1,0 +1,20 @@
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc3/vblk-test.img --rng --timeout 900 < console
+login prompt 9 s after the load
+commands done 18 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 2253084 reads, native latency avg 26.3 max 78 cycles
+debug counters after the boot:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+$ tanager-host dma status
+host DMA port: completions not recorded, 0 waiting; 1339 line reads, 2098819 line writes (one per burst within a line, an 8-byte store is one); 0 write bursts dropped in part
+power-off reached the host 23 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc3/linux_shell.txt (208 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 19:27:22
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
