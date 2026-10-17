@@ -1,8 +1,8 @@
 # Vivado's own reading of the RTL for lint-all (DR-150; docs/spec/verification.md §4.3): its simulator's
 # parser (xvlog) and its RTL elaboration (synth_design -rtl) of the board top and the core. Verilator
-# resolves a name used before its declaration to the later declaration; in a port connection inside a
-# generate block Vivado makes a new implicit net instead, undriven: the board's two-core hang of
-# 2026-10-16 (rn_fire in tg_rename). Only Vivado sees that, so this runs it, and
+# resolves a name used before its declaration to the later declaration; for a whole name in a port
+# connection Vivado makes a new implicit net instead, undriven: the board's two-core hang of 2026-10-16
+# (rn_fire in tg_rename's generate blocks). Only Vivado sees that, so this runs it, and
 # tools/ci/vivado_rtl_lint.sh reads the messages. Run through tools/vivado_run.sh:
 #   vivado_run.sh <run-dir> tools/ci/vivado_rtl_lint.tcl <repo-root> <top>:<cfg>[:<cores>] ...
 # <top> is kv260_top (with the PS block design, as fpga/kv260/tcl/build.tcl makes it) or tg_core.

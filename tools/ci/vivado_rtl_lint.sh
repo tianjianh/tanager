@@ -2,13 +2,13 @@
 # Vivado's own reading of the RTL as a lint (beside lint-all's elaborations; DR-150;
 # docs/spec/verification.md §4.3): its simulator's parser (xvlog) and its RTL elaboration of the board
 # top and the core. Verilator, and so every simulation and Verilator lint here, resolves a name used
-# before its declaration to the later declaration. In a port connection inside a generate block Vivado
-# makes it a new implicit net instead, undriven, and says so only in an INFO (Synth 8-11241). That was
-# the board's two-core hang of 2026-10-16: rn_fire in tg_rename, every free list's pop undriven,
-# invisible to the soak. This fails on the parser's errors and on those messages for our own files
+# before its declaration to the later declaration. For a whole name in a port connection Vivado makes a
+# new implicit net instead, undriven (inside a generate block, a net of that block), and says so only
+# in an INFO (Synth 8-11241). That was the board's two-core hang of 2026-10-16: rn_fire in tg_rename,
+# every free list's pop undriven, invisible to the soak. This fails on the parser's errors and on those messages for our own files
 # (rtl/, fpga/kv260/).
-# It runs through the Vivado admission (tools/vivado_run.sh): one ticket for every configuration, about
-# 6 GB declared and 8 minutes once admitted.
+# It runs through the Vivado admission (tools/vivado_run.sh): one ticket for every configuration, 6 GB
+# declared (4.6 GB at its peak) and about 5 minutes once admitted.
 #   tools/ci/vivado_rtl_lint.sh [TREE=<repo root>] [SPECS="kv260_top:st:1 kv260_top:smt2:2 tg_core:st tg_core:smt2"]
 #                               [MEM=GB] [CHECK=<run dir>: only read that earlier run's logs again]
 set -u
