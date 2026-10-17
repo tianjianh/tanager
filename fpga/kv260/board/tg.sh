@@ -337,7 +337,9 @@ case "${1:-}" in
       wait "$pid"; rc=$?
       echo "boot exit $rc after $(( $(date +%s) - t0 )) s (TANAGER-BOOT-OK ${tok:-never} s, TGLB-BEGIN ${tbeg:-never} s)"
       tr -d '\r' < "$log" | grep -m1 "TGLB-INFO" || echo "CHECK: no TGLB-INFO line"
-      tr -d '\r' < "$log" | grep -q "TGLB-INFO.*counters=cycle,instret,time.*perf_events=2" || echo "CHECK: info line lacks counters=cycle,instret,time / perf_events=2 (old image?)"
+      # two perf events per hart (TGLB-BEGIN names the harts)
+      h=$(tr -d '\r' < "$log" | grep -m1 -o "TGLB-BEGIN.* harts=[0-9]*" | grep -o "[0-9]*$")
+      tr -d '\r' < "$log" | grep -q "TGLB-INFO.*counters=cycle,instret,time.*perf_events=$(( 2 * ${h:-1} )) " || echo "CHECK: info line lacks counters=cycle,instret,time / perf_events=$(( 2 * ${h:-1} )) for ${h:-1} hart(s) (old image?)"
       n=$(tr -d '\r' < "$log" | grep -c "^TGLB [a-z]")
       echo "measurement lines: $n (expect 54); CoreMark validated: $(grep -c "Correct operation validated" "$log") (expect 6)"
       tr -d '\r' < "$log" | grep -m1 "TGLB-END" || echo "CHECK: no TGLB-END line"
