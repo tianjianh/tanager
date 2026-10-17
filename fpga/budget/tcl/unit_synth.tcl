@@ -10,8 +10,12 @@
 #   -directive  synth_design -directive (default Default)
 # Synthesis, then opt_design (which trims logic with no load), no placement: the counts are
 # what the unit costs, not how it routes. The primitive check runs after both steps.
-# Writes to the run directory: summary.txt (key value lines), prim_synth.txt, prim_opt.txt,
-# util.rpt and util_hier.rpt (after opt_design).
+# After synthesis, an implicit or undriven net in our sources (Synth 8-11241, 8-605, 8-3848: a
+# name used inside a generate block before its declaration becomes a new, undriven net) fails the
+# unit before its counts are taken (fpga/spikes/tcl/synth_check.tcl). From fn6 (0c4b011) to
+# 24ada50 rename's free-list pop was one, tied off, in every count from this flow.
+# Writes to the run directory: summary.txt (key value lines), synth_check.txt, prim_synth.txt,
+# prim_opt.txt, util.rpt and util_hier.rpt (after opt_design).
 
 set root [lindex $argv 0]
 set cfg  [lindex $argv 1]
@@ -39,6 +43,7 @@ set part xck26-sfvc784-2LV-c
 set_param general.maxThreads [expr {[info exists ::env(TANAGER_SYNTH_THREADS)] ? $::env(TANAGER_SYNTH_THREADS) : 2}]
 source [file join $root tools tcl tg_files.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
+source [file join $root fpga spikes tcl synth_check.tcl]
 
 proc tg_kv {fh k v} { puts $fh [format "%-20s %s" $k $v] }
 
@@ -67,7 +72,19 @@ foreach f $files { read_verilog -sv [file join $root $f] }
 set opts [list -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
               -directive $directive]
 if {[llength $generics]} { lappend opts -generic $generics }
+set synth_mark [tg_synth_check_mark]
 synth_design {*}$opts
+# synth_check: ok, unchecked (the log did not yet reach the end of RTL elaboration; run_budget.py
+# then scans the finished log), or fail (the unit stops here)
+if {[catch {tg_synth_check $synth_mark} msg]} {
+  tg_kv $fh synth_check fail
+  close $fh
+  error $msg
+}
+set scf [open synth_check.txt r]
+set sct [read $scf]
+close $scf
+tg_kv $fh synth_check [expr {[string match "not checked*" $sct] ? "unchecked" : "ok"}]
 if {[llength [get_ports -quiet clk]]} {
   create_clock -name clk -period 5.0 [get_ports clk]
 }
