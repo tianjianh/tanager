@@ -14,9 +14,18 @@ DC_MSHRS ?=
 ifneq ($(filter-out 1 4,$(DC_MSHRS)),)
   $(error DC_MSHRS must be 1, 4 or unset (got "$(DC_MSHRS)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))
-TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)))
-TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)))
+# G8's instruction-queue decode bits, 0 or 1 (+define+TG_QUEUE_DECODE, tg_core_pkg::QUEUE_DECODE); unset
+# builds the package's default (off in both profiles until the user decides with G7). Cycle-exact either
+# way, so it runs programs too, in a directory of its own, passed on like DC_MSHRS.
+QUEUE_DECODE ?=
+ifneq ($(filter-out 0 1,$(QUEUE_DECODE)),)
+  $(error QUEUE_DECODE must be 0, 1 or unset (got "$(QUEUE_DECODE)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))
+TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
+                     $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)))
+TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
+                     $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=
