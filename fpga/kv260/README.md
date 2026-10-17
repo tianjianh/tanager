@@ -310,4 +310,4 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
   - `sudo poweroff` ends it cleanly.
 - **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
   - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
-  - virtio-net is slow so far (84 kB/s).
+  - virtio-net carries 1.3 MB/s (a 112 MB download), limited by the guest at 70 MHz, not by the link ([A/B](board/sc2netc/README.md)).

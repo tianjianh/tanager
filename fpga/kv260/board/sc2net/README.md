@@ -41,7 +41,7 @@
 - **From the A53:** `tanager0` was in `br0` with `eth0`. The RISC-V at 192.168.137.64 answered 3/3, about 1.1 ms.
 - **The exit:** `virtio: 14367 requests, 115 MiB read, 209 MiB written`; `virtio-net: 11596 frames received, 486 sent, 11 dropped`. Login at 280 s, commands done at 653 s, power-off at 685 s (`boot exit 0`). L2 error events 188 (DR-151's refused fills).
 - **For the SoC track:**
-  - virtio-net's rate is low (84 kB/s for apt).
+  - virtio-net looked slow (84 kB/s for `apt-get update`). The A/B in [sc2netc](../sc2netc/README.md) shows that is apt's index processing at 70 MHz: a bulk download runs at 1.3 MB/s.
   - About 10 frames are dropped per boot.
   - `systemd-networkd` takes about 1 min 54 s to start at 70 MHz, close to its 2 min 30 s limit.
 - **State after the run:** `br0` stays up in memory for further network runs; `tanager0` is gone.
