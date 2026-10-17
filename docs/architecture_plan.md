@@ -747,7 +747,7 @@ Both options are measured at width 3 in spike S3.
 | `0x1000_1000` | 4 KiB | Host mailbox, control, latency-injector registers |
 | `0x1001_0000` | 4 × 4 KiB | virtio-mmio slots (console, block, network, rng) |
 | `0x1100_0000` | 64 KiB | Debug module, trace and performance-counter windows |
-| `0x8000_0000` | 1–2 GiB | DRAM window, remapped onto the PS DDR carve-out |
+| `0x8000_0000` | 1 GiB | DRAM window, remapped onto the PS DDR carve-out; the PMA's memory region is exactly this (DR-151, `tg_map_pkg::DRAM_REGION`, a power of two), so nothing past RAM is memory |
 
 The A53 host reaches RISC-V memory through a coherent DMA port on the L2, so virtio needs no software cache maintenance.
 
