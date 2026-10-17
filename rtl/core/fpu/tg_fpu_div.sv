@@ -158,6 +158,20 @@ module tg_fpu_div
     s4_seed <= seed10;
   end
 
+  // The ring's slots (the ring is below; SMa..SMc read r1, r3 and r4), declared ahead of every use
+  typedef struct packed {
+    div_info_t       info;
+    logic [2:0]  rnd;          // round in the multipliers
+    logic [59:0] opa;          // A or x
+    logic [59:0] opb;          // division: mb; square root: q1 from round 3
+    logic [9:0]  seed;
+    logic [59:0] c;            // candidate of the remainder round
+  } slot_t;
+
+  logic  r1_v, r2_v, r3_v, r4_v, r1_vd;
+  (* shreg_extract = "no" *) slot_t r1_q, r2_q, r3_q, r4_q;
+  slot_t r1_d;
+
   // ------------------------------------------------------------------------------------------
   // SMa..SMc: e0 ~ 1 - D0 (or 1 - x y0^2), e2 ~ e0^2 and e23 = e2 + e3 (division) or
   // 3/8 e2 + 5/16 e3 (square root), in lockstep with the slot: an operation entering in t+4 is
@@ -214,19 +228,6 @@ module tg_fpu_div
   // ------------------------------------------------------------------------------------------
   // Ring
   // ------------------------------------------------------------------------------------------
-  typedef struct packed {
-    div_info_t       info;
-    logic [2:0]  rnd;          // round in the multipliers
-    logic [59:0] opa;          // A or x
-    logic [59:0] opb;          // division: mb; square root: q1 from round 3
-    logic [9:0]  seed;
-    logic [59:0] c;            // candidate of the remainder round
-  } slot_t;
-
-  logic  r1_v, r2_v, r3_v, r4_v, r1_vd;
-  (* shreg_extract = "no" *) slot_t r1_q, r2_q, r3_q, r4_q;
-  slot_t r1_d;
-
   logic [119:0] p1, p2;
   logic [59:0]  x1, y1, x2, y2;
   tg_fpu_div_mul u_m1 (.clk, .x(x1), .y(y1), .p(p1));
