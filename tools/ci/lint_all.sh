@@ -2,7 +2,8 @@
 # make lint-all (docs/spec/verification.md §4.3): every configuration in six elaborations, so that
 # every switch's branches compile: the fallback (TIMING_CUTS=0), the default, and #2, #8 and the commit
 # trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
-# DR-140, DR-146); and the default's synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
+# DR-140, DR-146); the 4-miss L1D on top of the default (DC_MSHRS=4, DR-149); and the default's
+# synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
@@ -31,6 +32,7 @@ profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
+if mentioned TG_DC_MSHRS; then profiles+=("DC_MSHRS=4"); else echo "lint-all: no RTL mentions TG_DC_MSHRS; skipping DC_MSHRS=4"; fi
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
