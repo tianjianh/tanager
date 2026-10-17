@@ -1150,7 +1150,8 @@ module tg_dcache
   assign tag_wd  = mi_line[PA_W-1:12];
 
   logic unused;
-  assign unused = ^{b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
+  assign unused = ^{m_holdb,                    // m_holdb: read by #11's check only
+                    b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
                     ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], mi_cap[2], al_pa[5:0],
                     sx_pa[5:0], am_pa[2:0]};
 
