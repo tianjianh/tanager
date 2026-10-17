@@ -36,7 +36,7 @@
 
 ## c. Two-core lockstep with `--freeze-time` on the plain 10 MHz tree
 
-Running: `runs/lockstep.sh` with `LS_HOST_ARGS=--freeze-time` (`tg.sh ls-linux` passes it to `tanager-host`), checker `694aff2`, `--harts=4`.
+Run: `runs/lockstep.sh` with `LS_HOST_ARGS=--freeze-time` (`tg.sh ls-linux` passes it to `tanager-host`), checker `694aff2`, `--harts=4`.
 
 **Result: pass** ([`ls_run1.txt`](ls_run1.txt), [`ls_p0g-ft.log`](ls_p0g-ft.log), [`ls_console_p0g-ft.txt`](ls_console_p0g-ft.txt)).
 - **Verdict:** `PASS after 395612106 records (395596818 retired, 13052 traps, 2236 interrupts, 0 writebacks) in 4165.8 s, 94966 records/s`, with `126 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them`.

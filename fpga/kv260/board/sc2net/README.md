@@ -22,3 +22,26 @@
   - **The symptom:** `tg.sh shell` gave up one second after the load ("no login prompt"), so the commands were typed through the console FIFO by hand, and the poweroff with them.
   - **The cause:** its liveness check `kill -0` on the `sudo` process can fail with EPERM while `sudo` sets up.
   - **The fix:** `tg.sh` now checks `/proc/PID` (`alive`).
+
+## Step 2: bridged onto the laptop's link: pass
+
+**The bridge on the A53** (an approved A53 change; [the change log](../../README.md#a53-os-changes-change-log), [`bridge.log`](bridge.log)): `br0` over `eth0`, made in memory with NetworkManager, the A53's renderer.
+- **The connections:** `tg-br0` with `eth0`'s MAC and DHCP client ID `mac`, and `tg-br0-eth0`, both `save no`.
+- **How it was applied:** [`../runs/net_bridge_up.sh`](../runs/net_bridge_up.sh), run detached under a NetworkManager checkpoint that rolls everything back in 180 s. It was confirmed from a fresh SSH session ([`../runs/net_bridge_confirm.sh`](../runs/net_bridge_confirm.sh)).
+- **The switch:** `br0` came up in 2 s with the same lease (192.168.137.177), and the laptop's SSH was back within about 7 s.
+- **The undo:** [`../runs/net_bridge_down.sh`](../runs/net_bridge_down.sh), or any reboot.
+- **Why not `netplan try`:** it does not revert bridges.
+
+**The run** ([`net2_run1.txt`](net2_run1.txt), console [`linux_shell_net2.txt`](linux_shell_net2.txt); `runs/sc2_net2.sh`: `--net tanager0 --net-bridge br0`):
+- **The lease:** `eth0 192.168.137.64/24`, "Address: 192.168.137.64 (DHCPv4 via 192.168.137.1)", networkd "routable (configured)".
+- **Reaching the A53:** `ping 192.168.137.177` 3/3, 0.9–2.7 ms.
+- **DNS:** `resolvectl query deb.debian.org` resolves `146.75.94.132` and `2a04:4e42:87::644`.
+- **The clock:** `timedatectl`: "System clock synchronized: yes", NTP active, the right UTC time.
+- **Debian's mirror:** `sudo apt-get update`: "Fetched 16.5 MB in 3min 16s (84.4 kB/s)", "Reading package lists...". Package lists only; nothing was installed.
+- **From the A53:** `tanager0` was in `br0` with `eth0`. The RISC-V at 192.168.137.64 answered 3/3, about 1.1 ms.
+- **The exit:** `virtio: 14367 requests, 115 MiB read, 209 MiB written`; `virtio-net: 11596 frames received, 486 sent, 11 dropped`. Login at 280 s, commands done at 653 s, power-off at 685 s (`boot exit 0`). L2 error events 188 (DR-151's refused fills).
+- **For the SoC track:**
+  - virtio-net's rate is low (84 kB/s for apt).
+  - About 10 frames are dropped per boot.
+  - `systemd-networkd` takes about 1 min 54 s to start at 70 MHz, close to its 2 min 30 s limit.
+- **State after the run:** `br0` stays up in memory for further network runs; `tanager0` is gone.

@@ -1,0 +1,24 @@
+=== 13:39:21 bridge up: before
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             UP             192.168.137.177/24 fe80::48ff:2967:7216:51ee/64 
+default via 192.168.137.1 dev eth0 proto dhcp src 192.168.137.177 metric 100 
+192.168.137.0/24 dev eth0 proto kernel scope link src 192.168.137.177 metric 100 
+Wired connection 1:eth0:yes
+lo:lo:yes
+checkpoint /org/freedesktop/NetworkManager/Checkpoint/1: everything rolls back at 13:42:21 unless confirmed
+Connection 'tg-br0' (80a92080-e33b-4951-8e24-94dd9f1ccd8c) successfully added.
+Connection 'tg-br0-eth0' (1aa7bb56-1834-47ae-9462-28233f59ae2a) successfully added.
+Connection successfully activated (master waiting for slaves) (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/4)
+Connection successfully activated (D-Bus active path: /org/freedesktop/NetworkManager/ActiveConnection/5)
+=== 13:39:23 after (2 s)
+lo               UNKNOWN        127.0.0.1/8 ::1/128 
+eth0             UP             
+br0              UP             192.168.137.177/24 fe80::2d82:d29e:13b4:4927/64 
+default via 192.168.137.1 dev br0 proto dhcp src 192.168.137.177 metric 425 
+192.168.137.0/24 dev br0 proto kernel scope link src 192.168.137.177 metric 425 
+eth0             UP             00:0a:35:2a:df:d8 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+tg-br0:br0:yes
+tg-br0-eth0:eth0:yes
+lo:lo:yes
+Wired connection 1::no
+=== 13:39:35 confirmed
