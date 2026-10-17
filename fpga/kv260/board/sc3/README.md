@@ -140,5 +140,5 @@
 - **TCP is clean at both clocks:** no loss, no retransmits, no out-of-order segments, no drops at either end of the virtio link.
 - **The two slow runs at 100 MHz** (623 and 632 kB/s) used the same 62 s of user CPU as this fast run, but over 198 s, so the packets came slower. That points to the internet path or the mirror at that time (`deb.debian.org` is a CDN), not to the core or the virtio link.
 - **Gaps in the capture:**
-  - The image has no `sysctl` (procps is not installed), so the congestion-control lines are missing. `ss` shows cubic, window scale 9 and 7.
-  - `sc_bench.sh` does not run `ss`, so if a slow download comes back it will show only the rate.
+  - `sysctl` printed "command not found", so the congestion-control lines are missing. The image does have it (procps, as `/usr/sbin/sysctl`), but `/usr/sbin` isn't on the `tanager` user's PATH (the SoC track). `ss` shows cubic, window scale 9 and 7.
+  - Since then, the bench's download step captures the same way: `ss -ti` every 5 s while the download runs, then `nstat` and `ip -s link` ([`../runs/bench_cmds.txt`](../runs/bench_cmds.txt)). A slow run now shows at once whether it is the path.
