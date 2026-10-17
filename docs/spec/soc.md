@@ -203,7 +203,7 @@ A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53
 
 ## 8. Board stages C and D (DR-126, DR-147)
 
-Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window and the host DMA port are RTL with their tests (`VIRTIO_WINDOW`, `HOST_DMA`, off by default), and `tanager-host` has the virtio-blk and virtio-rng back-ends (`--blk`, `--rng`, tested against a fake window). Next: a board bitstream with both, then Debian's image. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
+Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window and the host DMA port are RTL with their tests (`VIRTIO_WINDOW`, `HOST_DMA`, off by default), and `tanager-host` has the virtio-blk, virtio-net and virtio-rng back-ends (`--blk`, `--net`, `--rng`, tested against a fake window). The first board bitstream with both (sc2, 2026-10-17) is on the board, with Debian's image (`sw/build_debian.sh`, checked on QEMU). Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
 
 ### 8.1 Stage C: the board's peripherals through the ARM (virtio)
 
@@ -258,7 +258,7 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 
 **`tanager-host` back-ends** (a virtio-mmio device model per slot, version 2 registers), in this order:
 1. **virtio-blk** on an image file on the A53's filesystem: `tanager-host run --blk <image>`. Later the RISC-V's own SD partition (below).
-2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN. The bridge is an A53 OS change: approved in advance (DR-147), set up with an automatic rollback, and logged with its undo in `fpga/kv260/README.md`, as every A53 change of stages C and D is.
+2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN: `tanager-host run --net tanager0 --net-bridge br0` ([host.md](host.md)). The bridge is an A53 OS change: approved in advance (DR-147), set up with an automatic rollback, and logged with its undo in `fpga/kv260/README.md`, as every A53 change of stages C and D is. Debian's image takes its address by DHCP (systemd-networkd), with systemd-resolved and systemd-timesyncd.
 3. **virtio-rng:** from the A53's `getrandom()`.
 
 The console stays the 16550 UART (PMOD, with the host's copy). Debian's kernel has no SBI console tty, so the console must be a UART.

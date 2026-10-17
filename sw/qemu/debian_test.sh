@@ -4,6 +4,7 @@
 # root file system on virtio-blk, to the serial console's automatic login; then a few commands and a power-off.
 # QEMU's own device tree is used (its virtio-mmio slots are not the board's), so this checks the image and
 # U-Boot, not the board's tree. The image is not written: QEMU runs on a throwaway copy-on-write overlay.
+# QEMU's virtio-net, on its user network with no way out (restrict=on), checks the image's DHCP and DNS setup.
 #   bash sw/qemu/debian_test.sh [image] [fw_jump.bin] [u-boot.bin]
 # Exit status 0 on pass.
 set -euo pipefail
@@ -23,7 +24,8 @@ mkfifo "$fifo"
 exec 3<>"$fifo"                       # the console's input, held open for the whole run
 
 qemu-system-riscv64 -M virt -smp 2 -m 2G -nographic -no-reboot -bios "$fw" -kernel "$ub" \
-  -drive file="$ov",format=qcow2,if=none,id=hd0 -device virtio-blk-device,drive=hd0 < "$fifo" > "$log" 2>&1 &
+  -drive file="$ov",format=qcow2,if=none,id=hd0 -device virtio-blk-device,drive=hd0 \
+  -netdev user,id=n0,restrict=on -device virtio-net-device,netdev=n0 < "$fifo" > "$log" 2>&1 &
 qpid=$!
 # The automatic login's shell prompt, within 15 minutes (systemd under TCG); then the commands and power-off
 prompt='tanager@tanager:~\$'
@@ -33,7 +35,7 @@ for _ in $(seq 1 900); do
   sleep 1
 done
 if grep -q "$prompt" "$log"; then
-  printf 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; sudo poweroff\n' >&3
+  printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
   for _ in $(seq 1 300); do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
 fi
 kill "$qpid" 2>/dev/null && echo "QEMU killed (no power-off)" || true
@@ -57,6 +59,8 @@ check 'tanager login: tanager \(automatic login\)'  "automatic login on the seri
 check '^13\.[0-9]+'                                 "/etc/debian_version is 13.x"
 check '^/dev/vda1$'                                 "the root is /dev/vda1"
 check '^SUDO-OK'                                    "sudo without a password"
+check '^\.\./run/systemd/resolve/stub-resolv\.conf$'   "/etc/resolv.conf is systemd-resolved's stub"
+check ' 10\.0\.2\.15/24'                             "DHCP from QEMU's user network (systemd-networkd)"
 check 'reboot: Power down'                          "power-off"
 none  '\[FAILED\]'                                  "no systemd unit fails"
 none  'unable to resolve host'                      "the hostname resolves (/etc/hosts)"

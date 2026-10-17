@@ -54,17 +54,22 @@ gpg --no-default-keyring --keyring "$keyring" --list-keys 2>/dev/null | grep -q 
 # - u-boot-menu's command line: the 16550 console with earlycon, read-write; u-boot-update adds the root
 #   from fstab (by label) and writes /boot/extlinux/extlinux.conf now and on every kernel install. No fdtdir
 #   line (U_BOOT_FDT_DIR names no directory): U-Boot hands the kernel the device tree OpenSBI gave it
-# - the hostname, in /etc/hosts too; no /etc/resolv.conf (mmdebstrap copies the build host's in)
+# - the hostname, in /etc/hosts too
+# - the network (virtio-net, slot 2: tanager-host --net): systemd-networkd with DHCP on any Ethernet
+#   interface, systemd-resolved for DNS (/etc/resolv.conf its stub, in place of the build host's, which
+#   mmdebstrap copies in), systemd-timesyncd for the clock (the board has no RTC, and apt refuses Release
+#   files from the future)
 # - user tanager with its password locked: an automatic login on the serial console (ttyS0), sudo
 #   without a password, SSH with the key given (none: console only)
 # - apt on the normal mirrors (the image updates as any Debian machine does)
 mmdebstrap --mode=unshare --architectures=riscv64 --variant=important --keyring="$keyring" \
-  --include=linux-image-riscv64,u-boot-menu,initramfs-tools,zstd,systemd-sysv,dbus,libpam-systemd,openssh-server,sudo,ca-certificates \
+  --include=linux-image-riscv64,u-boot-menu,initramfs-tools,zstd,systemd-sysv,dbus,libpam-systemd,systemd-resolved,systemd-timesyncd,openssh-server,sudo,ca-certificates \
   --customize-hook='printf "virtio_mmio\nvirtio_blk\n" >> "$1/etc/initramfs-tools/modules"' \
   --customize-hook='printf "U_BOOT_PARAMETERS=\"console=ttyS0,115200 earlycon rw\"\nU_BOOT_FDT_DIR=\"none\"\n" > "$1/etc/default/u-boot"' \
   --customize-hook='echo tanager > "$1/etc/hostname"' \
   --customize-hook='printf "127.0.0.1\tlocalhost\n127.0.1.1\ttanager\n::1\t\tlocalhost ip6-localhost ip6-loopback\nff02::1\t\tip6-allnodes\nff02::2\t\tip6-allrouters\n" > "$1/etc/hosts"' \
-  --customize-hook='rm -f "$1/etc/resolv.conf"' \
+  --customize-hook='ln -sf ../run/systemd/resolve/stub-resolv.conf "$1/etc/resolv.conf"' \
+  --customize-hook='printf "[Match]\nType=ether\n\n[Network]\nDHCP=yes\n" > "$1/etc/systemd/network/80-tanager.network" && chroot "$1" systemctl enable systemd-networkd' \
   --customize-hook='printf "LABEL=tanager-root / ext4 defaults 0 1\n" > "$1/etc/fstab"' \
   --customize-hook='chroot "$1" systemctl enable serial-getty@ttyS0.service' \
   --customize-hook='mkdir -p "$1/etc/systemd/system/serial-getty@ttyS0.service.d" && printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin tanager --keep-baud 115200 %%I \$TERM\n" > "$1/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf"' \
