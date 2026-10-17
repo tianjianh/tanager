@@ -407,11 +407,18 @@ void l1d_model_t::accept_e(uint32_t sink) {
     ctx_.fail(strfmt("l1d E: GrantAck (sink %u) before the last beat of its Grant", sink));
     return;
   }
-  line_t& l = lines_[it->second.first];
+  const uint64_t idx = it->second.first;
+  line_t& l = lines_[idx];
   l.grant_unacked = false;
   l.acquire_inflight = false;
-  acq_lines_.erase(it->second.first);
+  acq_lines_.erase(idx);
   sinks_.erase(it);
+  // --probe-grant: take the line straight back, before the agent can have used it
+  if (ctx_.cfg.probe_grant && l.perm != PERM_N && !l.probe_inflight && ctx_.rng.percent(ctx_.cfg.probe_grant)) {
+    static const uint8_t caps[] = {CAP_TO_N, CAP_TO_B};
+    probes_on_grant++;
+    probe(idx * LINE_BYTES, caps[ctx_.rng.below(2)]);
+  }
 }
 
 void l1d_model_t::send_grant(const partial_t& p) {

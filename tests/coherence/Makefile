@@ -5,6 +5,7 @@
 # Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make -C tests/coherence [CFG=st|smt2] [N=40] [SEED=1] [MODES=lottery,amo] [LAT=default] [LOCKSTEP=1]
 #   make -C tests/coherence gen SEED=1 [MODE=lottery] [HARTS=0,1]    one program to stdout
+#   make -C tests/coherence prog SEED=1 [MODE=lottery] [HARTS=0,1]   one program built for tb_boot's +fw
 # CFG=st runs harts 0 and 1 (two cores); smt2 runs harts 0 and 2, thread 0 of each core, which is the
 # board's shape (smt2 cores run one thread until M7). LAT=fixed|jitter|board sets the DDR timing (18-26
 # cycles; run_coh.py) and needs tb_boot's DDR options (soc-2's 8882e79). MODES=mix,lrsc,lottery-lrsc add
@@ -31,7 +32,9 @@ TB   := $(TANAGER_BUILD)/$(WT)/tests/boot$(TC_SUFFIX)_c2_t1_$(CFG)/tb_boot
 LS   := $(TANAGER_BUILD)/$(WT)/sim/lockstep/tanager-lockstep
 WORK := $(TANAGER_BUILD)/$(WT)/coherence/$(CFG)$(TC_SUFFIX)
 
-.PHONY: run gen
+PROG := $(WORK)/prog/c$(SEED)-$(MODE)-h$(subst $(comma),,$(HARTS))
+
+.PHONY: run gen prog
 run:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/tests/unit/boot build CFG=$(CFG) CORES=2 VTHREADS=1 JOBS=$(JOBS) $(TC_ARG)
 	$(if $(filter 1,$(LOCKSTEP)),@$(MAKE) --no-print-directory -s -C $(ROOT)/sim lockstep)
@@ -41,3 +44,11 @@ run:
 
 gen:
 	@python3 $(ROOT)/tests/coherence/gen_coh.py --seed $(SEED) --mode $(MODE) --harts $(HARTS)
+
+prog:
+	@mkdir -p $(dir $(PROG))
+	@python3 $(ROOT)/tests/coherence/gen_coh.py --seed $(SEED) --mode $(MODE) --harts $(HARTS) -o $(PROG).S
+	@riscv-none-elf-gcc -march=rv64imac_zicsr -mabi=lp64 -nostdlib -nostartfiles -static -mcmodel=medany \
+	  -Wl,--no-warn-rwx-segments -T $(ROOT)/tests/coherence/link.ld $(PROG).S -o $(PROG).elf
+	@riscv-none-elf-objcopy -O binary $(PROG).elf $(PROG).bin
+	@echo "$(PROG).bin: run it with tb_boot (CORES=2) +fw=$(PROG).bin +expect=COH-END +mem_zero"
