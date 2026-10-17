@@ -1,0 +1,52 @@
+br0 is up: br0              UP             192.168.137.177/24 
+loaded tanager-sc2 at 14:50:23; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 9000 < console
+login prompt 277 s after the load
+commands done 4008 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 520368091 reads, native latency avg 4.8 max 83 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in               1722442293
+  L2 bank 0 B out (probes)       24609769
+  L2 bank 0 C in               1614345051
+  L2 bank 0 D out              2891562097
+  L2 bank 0 E in (GrantAck)     719060830
+  L2 bank 0 misses              260378301
+  L2 bank 0 AXI reads           260378301
+  L2 bank 0 fills               260378272
+  L2 bank 1 A in               1699476933
+  L2 bank 1 B out (probes)       22705378
+  L2 bank 1 C in               1584895387
+  L2 bank 1 D out              2794337663
+  L2 bank 1 E in (GrantAck)     709162390
+  L2 bank 1 misses              259990008
+  L2 bank 1 AXI reads           259990008
+  L2 bank 1 fills               259990001
+  core 0 l1d A out             636949559
+  core 0 l1d B in (probes)      24438555
+  core 0 l1d C out            1437869816
+  core 0 l1d D in             3172007872
+  core 0 l1d E out (GrantAck)  636949559
+  core 1 l1d A out             791273661
+  core 1 l1d B in (probes)      22876592
+  core 1 l1d C out            1761370622
+  core 1 l1d D in             3943719321
+  core 1 l1d E out (GrantAck)  791273661
+  L2 error events                 144
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+power-off reached the host 4036 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (809 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 15:57:42
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0
