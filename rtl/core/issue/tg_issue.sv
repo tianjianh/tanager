@@ -47,7 +47,9 @@ module tg_issue
   input  logic                         fp_misc_block,   // EXT_FD: P4's F0 slot is taken
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
-  output iq_pl_t [N_IQ-1:0]            iss_pl
+  output iq_pl_t [N_IQ-1:0]            iss_pl,
+  // Speculative wakeup's shadow cancel (SPEC_WAKE; registered): tg_exec kills its RF and EX stages
+  output logic                         spec_cancel
 );
   function automatic int rows_of(input int q);
     if (q == 0) return IQ_A0;
@@ -423,4 +425,5 @@ module tg_issue
     end
   end
 `endif
+  assign spec_cancel = 1'b0;                   // (SPEC_WAKE: the FPU track drives it)
 endmodule
