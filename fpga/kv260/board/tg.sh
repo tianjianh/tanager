@@ -182,7 +182,8 @@ case "${1:-}" in
     # options (stage C: --blk IMG --rng), and TH_DURING runs ';'-separated tanager-host commands from a
     # second session once the commands are done (stage C: "vq;dma status"). For Debian through U-Boot:
     # SH_KERNEL=u-boot.bin, SH_TIMEOUT (tanager-host's, default 900 s), SH_USER=- (autologin: type no
-    # user name) and SH_POWEROFF="sudo poweroff".
+    # user name) and SH_POWEROFF="sudo poweroff". A53_DURING runs a shell command on the A53 after the
+    # commands (stage C's network: an IPv6 ping on the TAP).
     deadman_cancel
     active "$APP" || { echo "$APP is not loaded"; exit 1; }
     trap '"$ME" restore' EXIT
@@ -214,6 +215,8 @@ case "${1:-}" in
         IFS=';' read -r -a during <<< "$TH_DURING"
         for c in "${during[@]}"; do th $c; done   # unquoted: each entry is a command and its options
       fi
+      # A53_DURING: a shell command on the A53 while the system runs (stage C: ping -6 ... %tanager0)
+      [ -n "${A53_DURING:-}" ] && { echo "\$ (A53) $A53_DURING"; bash -c "$A53_DURING"; }
       printf '%s\r' "${SH_POWEROFF:-poweroff}" >&3
       waitfor "requested power-off" "${OFF_S:-120}" && echo "power-off reached the host $(( $(date +%s) - t0 )) s after the load"
     else
