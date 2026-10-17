@@ -30,7 +30,7 @@ spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
-COH_MODES=lottery,amo   # LR/SC loops hang on today's RTL (no LR/SC hold yet), so they stay out
+COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation
 
 log() { echo "$(date '+%F %T') soak: $*"; }
 # What the soak builds from a commit: a main that changes none of it needs no rebuild.
