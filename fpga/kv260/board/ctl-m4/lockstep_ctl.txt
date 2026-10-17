@@ -1,0 +1,5 @@
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 1 hart(s), 768 MiB; fw 277856 B, kernel 21449216 B, dtb 2087 B; reading boot.trace
+tanager-lockstep: 1323008 records (132003/s; 132003/s overall), 1323002 retired, 6 traps, 0 interrupts, 0 writebacks pending
+tanager-lockstep: 2617344 records (129305/s; 130655/s overall), 2617338 retired, 6 traps, 0 interrupts, 0 writebacks pending
+tanager-lockstep: 3923968 records (130640/s; 130650/s overall), 3923962 retired, 6 traps, 0 interrupts, 0 writebacks pending
+tanager-lockstep: PASS after 5050605 records (5050599 retired, 6 traps, 0 interrupts, 0 writebacks) in 38.8 s, 130283 records/s

@@ -1,0 +1,39 @@
+loaded tanager-m4 at 07:31:57; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   st, 1 core(s) x 1 thread(s)
+  core clock      60.0 MHz
+  capabilities    0x0000002b
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+boot exit 124; console 752 bytes; trace 323238720 bytes
+        |_|
+
+
+[tanager-host] timeout
+[tanager-host] trace: 5050605 records written
+5050605 records
+hart lane 0: 5050605 records; last ones (record, kind 0 retire/1 trap/2 irq/3 wb, priv, pc, insn, value):
+   5050593 k0 p3 pc=0x000000008000c27c insn=0xfec71ae3 val=0x0000000000000000
+   5050594 k0 p3 pc=0x000000008000c270 insn=0x0005c783 val=0x000000000000007a
+   5050595 k0 p3 pc=0x000000008000c274 insn=0x0000167d val=0x00000000822001dd
+   5050596 k0 p3 pc=0x000000008000c276 insn=0x000015fd val=0x00000000822001c1
+   5050597 k0 p3 pc=0x000000008000c278 insn=0x00f600a3 val=0x0000000000000000
+   5050598 k0 p3 pc=0x000000008000c27c insn=0xfec71ae3 val=0x0000000000000000
+   5050599 k0 p3 pc=0x000000008000c270 insn=0x0005c783 val=0x000000000000005f
+   5050600 k0 p3 pc=0x000000008000c274 insn=0x0000167d val=0x00000000822001dc
+   5050601 k0 p3 pc=0x000000008000c276 insn=0x000015fd val=0x00000000822001c0
+   5050602 k0 p3 pc=0x000000008000c278 insn=0x00f600a3 val=0x0000000000000000
+   5050603 k0 p3 pc=0x000000008000c27c insn=0xfec71ae3 val=0x0000000000000000
+   5050604 k0 p3 pc=0x000000008000c270 insn=0x0005c783 val=0x0000000000000062
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 07:33:07
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0

@@ -1,0 +1,27 @@
+tanager-lockstep: Spike rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs, MSU, 2 hart(s), 768 MiB; fw 277856 B, kernel 21449216 B, dtb 2547 B; reading boot_st2.trace
+tanager-lockstep: MISMATCH at record 11 (cycle 130779): x9 value: RTL 0000000080000000, Spike 0000000082200000
+  raw record: 000584b3000012b0 0000000080000004 0000000080000000 0000000000000000 0000000000000000 000000000001fedb
+
+==== LOCKSTEP MISMATCH ====
+x9 value: RTL 0000000080000000, Spike 0000000082200000
+RTL record:     130779 h0 M retire pc=0000000080000004 (000584b3) add     s1, a1, zero         x9  <- 0000000080000000
+
+---- last 7 RTL records, hart 0 (cycle, hart, privilege, kind) ----
+    130684 h0 M retire pc=0000000000001000 (f1402573) csrr    a0, mhartid          x10 <- 0000000000000000
+    130696 h0 M retire pc=0000000000001004 (100012b7) lui     t0, 0x10001          x5  <- 0000000010001000
+    130706 h0 M retire pc=0000000000001008 (0102b583) ld      a1, 16(t0)           x11 <- 0000000082200000 mmio
+    130716 h0 M retire pc=000000000000100c (0082b303) ld      t1, 8(t0)            x6  <- 0000000080000000 mmio
+    130719 h0 M retire pc=0000000000001010 (00030067) jr      t1                  
+    130779 h0 M retire pc=0000000080000000 (00050433) add     s0, a0, zero         x8  <- 0000000000000000
+    130779 h0 M retire pc=0000000080000004 (000584b3) add     s1, a1, zero         x9  <- 0000000080000000
+
+---- last 7 Spike steps, hart 0 (step 7 is the last) ----
+M pc=0000000000001000 (f1402573) csrr    a0, mhartid          x10 <- 0000000000000000
+M pc=0000000000001004 (100012b7) lui     t0, 0x10001          x5  <- 0000000010001000
+M pc=0000000000001008 (0102b583) ld      a1, 16(t0)           x11 <- 0000000082200000 (adopted)
+M pc=000000000000100c (0082b303) ld      t1, 8(t0)            x6  <- 0000000080000000 (adopted)
+M pc=0000000000001010 (00030067) jr      t1                  
+M pc=0000000080000000 (00050433) add     s0, a0, zero         x8  <- 0000000000000000
+M pc=0000000080000004 (000584b3) add     s1, a1, zero         x9  <- 0000000082200000
+==== END OF REPORT ====
+tanager-lockstep: MISMATCH after 13 records (12 retired, 0 traps, 0 interrupts, 0 writebacks) in 0.0 s, 17811 records/s
