@@ -21,11 +21,11 @@ done
 grep -E '^(ERROR|CRITICAL WARNING)' "$build/vivado.log" 2>/dev/null | head -20 > "$res/errors.txt"
 [ -s "$res/errors.txt" ] || rm -f "$res/errors.txt"
 # The synthesis check's backstop (fpga/spikes/tcl/synth_check.tcl): an implicit or undriven net in our
-# sources (Synth 8-11241, 8-605, 8-3848 about any file outside the run directory and the Xilinx installation) fails
+# sources (Synth 8-11241, 8-605, 8-3848, 8-8895 about any file outside the run directory and the Xilinx installation) fails
 # the run even if the check inside the run could not read the log.
-imp=$(grep -E '\[Synth 8-(11241|605|3848)\]' "$build/vivado.log" 2>/dev/null | grep -vF "[$(realpath -m "$build")/" | grep -v '/Xilinx/' | sort -u)
+imp=$(grep -E '\[Synth 8-(11241|605|3848|8895)\]' "$build/vivado.log" 2>/dev/null | grep -vF "[$(realpath -m "$build")/" | grep -v '/Xilinx/' | sort -u)
 if [ -n "$imp" ]; then
-  { echo "implicit or undriven nets in our sources (Synth 8-11241, 8-605, 8-3848): declare each signal before its first use, and drive it"; echo "$imp"; } > "$res/synth_check_failed.txt"
+  { echo "implicit or undriven nets in our sources (Synth 8-11241, 8-605, 8-3848, 8-8895): declare each signal before its first use, and drive it"; echo "$imp"; } > "$res/synth_check_failed.txt"
   [ $rc -ne 0 ] || rc=1
 fi
 echo "$name rc=$rc $(grep -E '^(wns_ns|impl_lut_total|worst_levels)' "$res/summary.txt" 2>/dev/null | awk '{printf "%s=%s ", $1, $2}')"
