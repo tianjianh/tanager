@@ -99,10 +99,11 @@ synth_design -top kv260_top -part $part \
   -flatten_hierarchy rebuilt -directive $synth_dir
 # Implicit and undriven nets in our own RTL fail the build (the coordinator, DR-150): a name used before its
 # declaration becomes a one-bit wire in synthesis (Synth 8-11241 "undeclared symbol", 8-605 "same-named
-# implicit nets"), while Verilator finds the later declaration; tg_rename's rn_fire did this on the first
-# smt2 board builds, and tg_uncore's dbg_sel/dbg_val too. A net with no driver (8-3848) fails as well, as in
-# spikes' synth_check.tcl. Messages about files outside the source tree ($root), such as Xilinx's generated
-# PS IP in the run directory (dp_audio_ref_clk, irq_ipi_pl_*), are not ours and pass.
+# implicit nets", 8-8895 "already implicitly declared" at the real declaration), while Verilator finds the
+# later declaration; tg_rename's rn_fire did this on the first smt2 board builds, and tg_uncore's
+# dbg_sel/dbg_val too. A net with no driver (8-3848) fails as well, as in spikes' synth_check.tcl. Messages
+# about files outside the source tree ($root), such as Xilinx's generated PS IP in the run directory
+# (dp_audio_ref_clk, irq_ipi_pl_*), are not ours and pass.
 proc tg_check_implicit_nets {root logf} {
   if {![file exists $logf]} { puts "WARNING: no $logf to check for implicit nets"; return }
   set fh [open $logf r]
@@ -111,7 +112,7 @@ proc tg_check_implicit_nets {root logf} {
   set src [file normalize $root]
   set bad {}
   foreach l $lines {
-    if {[regexp {\[Synth 8-(11241|605|3848)\]} $l] && [string first "$src/" $l] >= 0} { lappend bad $l }
+    if {[regexp {\[Synth 8-(11241|605|8895|3848)\]} $l] && [string first "$src/" $l] >= 0} { lappend bad $l }
   }
   if {[llength $bad]} {
     foreach l [lsort -unique $bad] { puts "ERROR: implicit or undriven net in our RTL: $l" }
