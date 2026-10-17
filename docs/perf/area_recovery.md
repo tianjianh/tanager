@@ -619,6 +619,8 @@ CoreMark/MHz moves the same at 150 MHz as at 200 MHz, because CoreMark stays in 
 
 *DR-145 (the user, 10-16) makes 125 MHz the preferred clock and 100 MHz the minimum for v1 as scoped (2 cores × SMT2), after a study. Every resulting change needs the user's approval. This is the model's part of the study. `scripts/clock_low.py` reproduces it on the build host (`results/clock_low_rv64gc.json`), and its first run reproduces v1's single-thread suite IPC at 120 cycles from the area study exactly.*
 
+> **Superseded in part by §6.3 (2026-10-17).** "v1 as built" here was built only on the memory side: the L1D's misses in flight and the prefetchers. It kept the plan's front end, recovery and latencies, which the RTL does not have yet. Calibrated to the RTL, v1 with 4 misses in flight at 100 MHz reaches about half of NaxRiscv's single-thread performance at 135–150 MHz, not the 1.13× / 1.04× below. The relative effects of the clock and of the misses in flight still stand.
+
 **The setup.**
 - **v1 as built.** The model is calibrated to the RTL, not to the plan:
   - one L1D miss in flight and one I-cache refill at a time (core-lsu.md, core-pipeline.md; the plan's 16 and 4 MSHRs are M6);
@@ -721,6 +723,113 @@ Every v1 row uses the default profile. The fallback changes nothing measurable (
   - It took 20 ns per line. But an HP port moves 16 bytes per cycle at any clock, so a line takes 4 cycles; at 150–170 MHz §6.1 used 3.
   - It also modelled one port, where one core alone has two.
 - **§6.1's v1 had the plan's L1D, 16 MSHRs with prefetchers.** It put v1 at 1.78× NaxRiscv at 137 MHz on the suite at 150 MHz. As built, the same comparison is 1.18× at 135 MHz.
+
+### 6.3 tgsim calibrated to the RTL as built (measured, 2026-10-17)
+
+*The user asked why the hardware runs at about half the model's IPC. The RTL measures 2.73 CoreMark/MHz (flag set A) and about 1.39 DMIPS/MHz; the model's v1 gave 5.31 and 3.98. The model ran the plan's core. §6.2's "v1 as built" changed only the memory side, and kept a front end, a recovery and latencies the RTL does not have yet.*
+
+*This section calibrates tgsim to the RTL program by program, then adds the M6 features back one at a time. It is a measurement only: no RTL or decision changes. `scripts/rtlcal.py` and `scripts/m6_steps.py` reproduce it on the build host.*
+
+**The core as built, now a preset (`rtl_m2`).** The RTL (core-pipeline.md §1, §3, §5; core-lsu.md) has:
+- **M2's front end:** the 64-entry, 2-way micro-BTB is the only predictor. 512 2-bit counters only decide whether it learns a branch. Decode repairs JAL targets and wrong targets of predicted-taken branches. There is no TAGE, block BTB, RAS or FTQ (`fe_m2`).
+- **Recovery and wakeup:**
+  - every mispredict recovers at commit;
+  - loads wake their dependants on the confirmed result, 5 cycles;
+  - MUL-to-use is 5, through a tag delay line with no MUL bypass;
+  - no early retirement or completion buffer.
+- **Memory side:** one L1D miss and one I$ refill at a time, no prefetchers, a radix-2 divider, and DR-140's default profile.
+
+**Method: the same binaries in both simulators.**
+- **tgsim's ISS runs the RTL platform's ELFs:** the 16550 console, `tohost` and `tg_marker`.
+- **The RTL:** tg_vsim at main 6b0cbd8 (`st`, the default profile), the core on a flat memory of 30 cycles ("native") or 120, without an L2.
+- **The programs:**
+  - the RTL bench: CoreMark A and B with 2 iterations, and Dhrystone with 500 runs, on rv64im and rv64gcb;
+  - 11 of the model's suite programs built with the RTL's runtime (`bench/build_rtl.sh`, rv64gc): 8 Embench programs and three 0.5 MiB working-set kernels.
+
+**What the comparison calibrated** (from the RTL's commit trace and `scripts/rtl_mpcmp.py`):
+- **The flush acts the cycle after commit.** A mispredict's refill, from its retire to the next retire, takes 13.5 cycles in the RTL against 11.9 in the model (`commit_redirect` 2).
+- **The RTL trains its predictor on the wrong path too.**
+  - Past a loop's exit it runs the loop again until the commit flush, and those copies of the branch train it not taken (`m2_wp_train` 2).
+  - Found as loop branches that mispredict twice per entry in the RTL: CoreMark B's `bltu` at 0x80002eac, 1,297 against 653.
+- **An L1 refill costs 13 cycles beyond the memory's latency** (`l1_fill_extra` 13). A dependent miss takes the latency plus 18 cycles in the RTL, against plus 5 in the model; the pointer chase now matches to 0.0%.
+- **Store-to-load forwarding:** a forward completes at M2 like a hit (5), and a load waiting for the store's data replays (8).
+- **MUL-to-use is 5,** from the spec. crc32's loop carries its dependence through a multiply.
+
+**The result**, region cycles at native latency. At 120 cycles every program is within 2 points of these, except the copy and hash kernels.
+
+| Program | Build | RTL | Model (`rtl_m2`) | Model's error |
+|---|---|---|---|---|
+| CoreMark A | rv64im | 659,278 | 622,706 | −5.5% |
+| CoreMark B | rv64im | 694,227 | 686,747 | −1.1% |
+| Dhrystone | rv64im | 170,736 | 155,952 | −8.7% |
+| CoreMark A | rv64gcb | 758,871 | 722,094 | −4.8% |
+| CoreMark B | rv64gcb | 682,060 | 686,698 | +0.7% |
+| Dhrystone | rv64gcb | 191,865 | 162,443 | **−15.3%** |
+| Embench crc32 | rv64gc | 2,621,397 | 2,364,400 | −9.8% |
+| Embench edn | rv64gc | 2,322,031 | 2,298,473 | −1.0% |
+| Embench huffbench | rv64gc | 2,908,025 | 2,773,471 | −4.6% |
+| Embench matmult-int | rv64gc | 3,003,049 | 2,829,049 | −5.8% |
+| Embench minver (FP) | rv64gc | 879,179 | 1,016,337 | **+15.6%** |
+| Embench nsichneu | rv64gc | 5,359,581 | 4,955,210 | −7.5% |
+| Embench statemate | rv64gc | 1,309,877 | 1,019,953 | **−22.1%** |
+| Embench ud | rv64gc | 3,852,798 | 4,110,472 | +6.7% |
+| Pointer chase, 1 chain, 0.5 MiB | rv64gc | 192,100 | 192,058 | 0.0% |
+| memcpy, 0.5 MiB | rv64gc | 3,280,466 | 3,011,439 | −8.2% (−2.9% at 120) |
+| Hash lookups, 0.5 MiB | rv64gc | 4,959,153 | 5,503,455 | +11.0% (+2.9% at 120) |
+
+**Reading it:**
+- **13 of the 17 programs are within 10%.** CoreMark is within 6% on both builds. Over all 17, the model is 4% optimistic on the geometric mean, with a mean absolute error of 7.6%.
+- **Dhrystone on rv64gcb and statemate (the model is 15–22% optimistic): the RTL mispredicts more.**
+  - It trains at execute on the wrong path, and with recovery at commit the wrong paths are long.
+  - Dhrystone's always-taken `beq a4,a5,pc+6` (0x8000021c) mispredicts on all 500 calls in the RTL and 3 times in the model.
+  - statemate takes 10% more refills on its data-dependent branches.
+  - A correct-path model can follow wrong paths only for the loop-exit case above.
+  - Between mispredicts, statemate also runs about 30% slower in the RTL. The cause is not found.
+- **minver (the model is 16% pessimistic): FP.** The FPU's latencies match the RTL's (FMA 5, FMISC 2, divide 19 / 23), so the cause is in the model's FP issue path. Not found yet.
+- **Why the model's v1 was twice the RTL,** largest first:
+  - the front end: M2's micro-BTB alone predicts far worse than TAGE-lite with a block BTB and a RAS, and with recovery at commit each mispredict costs about 13 cycles;
+  - one L1D miss in flight;
+  - the latencies above.
+
+**The M6 features, from the core as built.** Single-thread suite (rv64gc) at 115 MHz's latencies with the SoC's L2 (hit 10 cycles, DRAM 21 cycles, no L2 prefetcher). LUTs are the plan's estimates (feature_ledger.md: shares of the ≈41K-LUT core; DR-149 for 4 misses in flight), not measurements.
+
+| Feature, alone on the core as built | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | Plan's LUTs per core | Suite gain per 1K LUTs |
+|---|---|---|---|---|---|
+| The core as built (`rtl_m2`) | 0.465 | 2.33 | 1.81 | — | — |
+| RAS (32; repaired at decode on M2's front end) | +3.2% | +1.4% | +24.1% | not estimated | — |
+| TAGE-lite (4 × 4K) | +38.6% | +76.7% | +20.8% | 0.82K, +6 BRAM36 | +47% |
+| Block BTB and FTQ (1K × 4, 32; fetch-directed prefetch) | +23.9% | +46.1% | +25.6% | not estimated | — |
+| Checkpoint recovery (4) | +14.9% | +10.7% | +20.3% | 0.5K | +30% |
+| Speculative wakeup (hit predictor, 2-cycle shadow) | +5.3% | +15.9% | +8.3% | 0.5K | +11% |
+| 4 L1D misses in flight (DR-149) | +24.5% | 0 | 0 | 0.45–0.6K | +45% |
+| 16 L1D and 4 L1I MSHRs (the plan's M6) | +33.9% | 0 | 0 | ≈1.2K | +28% |
+| Prefetchers (L1D stride, ownership, L2 stream, I$ next-line) | +3.7% | 0 | 0 | ≈0.95K | +4% |
+
+| In the plan's order, cumulative | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | Step's suite gain |
+|---|---|---|---|---|
+| The core as built | 0.465 | 2.33 | 1.81 | — |
+| + RAS | 0.480 | 2.37 | 2.25 | +3.2% |
+| + TAGE-lite | 0.673 | 4.24 | 2.86 | +40.2% |
+| + block BTB and FTQ (the plan's whole front end) | 0.735 | 4.68 | 3.72 | +9.3% |
+| + checkpoint recovery | 0.743 | 4.72 | 3.72 | +1.1% |
+| + speculative wakeup | 0.767 | 5.30 | 3.79 | +3.3% |
+| + 16 L1D and 4 L1I MSHRs | 1.082 | 5.31 | 3.79 | +41.0% |
+| + prefetchers | 1.165 | 5.31 | 3.79 | +7.6% |
+
+**Reading it:**
+- **The front end is most of the gap.**
+  - TAGE-lite alone adds 39% on the suite and 77% on CoreMark. The block BTB and FTQ alone add 24%.
+  - With the RAS (+3% alone, but +24% on Dhrystone) they take the suite from 0.465 to 0.735, and CoreMark from 2.33 to 4.68.
+- **Checkpoint recovery is worth 15% alone, but 1% once the front end predicts well.**
+- **Misses in flight:** 4 (DR-149) add 24.5%, and 16 add 34%. They add nothing on CoreMark and Dhrystone, which fit in the L1.
+- **Per LUT, where the plan has an estimate:** TAGE-lite (+47% per 1K LUTs) and 4 misses in flight (+45%) lead, then checkpoints (+30%), 16 MSHRs (+28%), speculative wakeup (+11%) and the prefetchers (+4%).
+- **The plan's whole M6 core** is 2.5× the core as built on the suite, 2.3× on CoreMark and 2.1× on Dhrystone.
+
+**§6.2 and DR-149 with the core as built** (one core alone, the same uncore and NaxRiscv model as §6.2):
+- **At 100 MHz with 4 misses in flight,** v1 reaches 0.56× NaxRiscv at 135 MHz and 0.52× at 150 MHz on the suite, and 0.72× / 0.69× on memsuite.
+- **With 1 miss** it reaches 0.45× / 0.42×.
+- **So §6.2's "v1 leads NaxRiscv at 100 MHz with 4 misses" does not hold for the core as built.** It assumed the plan's front end and recovery.
+- **Per clock,** v1 as built with 4 misses in flight does 0.76× NaxRiscv's work on the suite.
 
 ---
 
@@ -1201,6 +1310,18 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **New working-set kernels** (`bench/build_ws.sh`, DR-141's 0.5–4 MiB).
 - **§6.1's bandwidth was optimistic** below 200 MHz.
 
+**2026-10-17: tgsim calibrated to the RTL as built** (§6.3; `scripts/rtlcal.py`, `scripts/m6_steps.py`, run on the build host):
+- **Why the hardware runs at half the model's IPC:** the model ran the plan's core. §6.2's "as built" changed only the memory side.
+- **The new preset `rtl_m2`:**
+  - M2's front end (the micro-BTB alone), recovery at commit, and wakeup on confirmed hits;
+  - MUL-to-use 5, one L1D miss and one I$ refill;
+  - calibrated on identical ELFs in tg_vsim and tgsim: the flush's extra cycle, wrong-path training at loop exits, a 13-cycle refill overhead, and the forwarding latencies.
+- **Agreement:** 13 of 17 programs within 10% (CoreMark within 6%). The outliers are Dhrystone rv64gcb and statemate (the RTL's wrong-path training) and minver (FP; not found).
+- **From the core as built:**
+  - TAGE-lite alone is worth +39% on the suite, the block BTB and FTQ +24%, checkpoints +15%, 4 misses in flight +25%;
+  - the plan's whole M6 core is 2.5× the suite.
+- **§6.2's lead over NaxRiscv at 100 MHz does not hold for the core as built:** 0.56× / 0.52× of NaxRiscv at 135 / 150 MHz with 4 misses in flight.
+
 **Lessons:**
 - **Ask which consumers actually wait on a structure before sizing it.** The census turned a 4–5K "overrun" into an exact redesign. The same question asked of the window, the queues and the checkpoints only found IPC.
 - **A fit is only as good as its per-unit inputs.** The first projections used planning estimates for every unit but the scheduler and the FPU. The first real synthesis was 88K at `st` against 38.2K, so the levers this study ranked were a small part of the real gap (§7).
@@ -1214,3 +1335,5 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **Calibrate the model to the RTL as built before comparing designs.** With the plan's L1D (16 MSHRs, prefetchers) the model put v1 at 1.78× NaxRiscv at 150 MHz on the suite. As built, with one miss in flight, it is 1.18×, and it loses on memory work.
 - **A one-sided clock skew in a model can starve a requester for good.** Loads booked the one MSHR three cycles ahead of the store drain. Any shared resource with requesters at different pipeline times needs a fairness rule in the model, and the same question goes to the RTL.
 - **Run compute only on the build host.** The study's first runs used the laptop's WSL, because the checkout was there. The laptop only edits and commits.
+- **"As built" means every structure, not the one under study.** §6.2 calibrated the memory side and inherited the plan's front end, so its comparison with NaxRiscv was 2× too kind. Calibrate against the RTL's own cycles on identical binaries before any comparison.
+- **The commit trace says where a model is wrong.** Counting refill gaps per branch in tg_vsim's trace, against the model's mispredicts per PC, found the flush cycle, the wrong-path training and the always-taken branch the RTL mispredicts. A whole-program error alone could not.
