@@ -3,7 +3,7 @@
 # sysbench from Debian's mirror, build and time a small C program, and a short sysbench set
 # (runs/debian_work_cmds.txt); then sudo poweroff
 cd ~/tanager/tg || exit 1
-export TG_APP=tanager-sc2 TG_DIR=$HOME/tanager/sc2net
+export TG_APP=tanager-sc2 TG_DIR=$HOME/tanager/sc2netc
 D=$TG_DIR
 $HOME/tanager/runs/net_bridge_ensure.sh || { echo "no working br0: stopping"; exit 1; }
 ./tg.sh load > $D/load_work.txt 2>&1 || { echo "load failed"; cat $D/load_work.txt; exit 1; }
