@@ -6,6 +6,7 @@
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make regress-profiles CFG=st   the same for both of DR-140's profiles at once
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
+#   make perf [BASE=main] [BRANCH=<ref>] [MARCH=rv64gc] [ITER=10]   the benchmarks' cycles and IPC against BASE (M6)
 # Track-specific targets live in their areas (sim/, tests/, fpga/); see docs/spec/conventions.md.
 
 CFG  ?= st
@@ -27,7 +28,7 @@ SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
-.PHONY: lint lint-all regress regress-profiles cycle-identical
+.PHONY: lint lint-all regress regress-profiles cycle-identical perf
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
@@ -71,3 +72,14 @@ cycle-identical:
 	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
 	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
+
+# M6's per-feature measurement (DR-153; docs/spec/verification.md §4.2): CoreMark A/B and Dhrystone, each
+# program's timed-region cycles and IPC on this tree's RTL (or BRANCH's) and on BASE (default main), and the
+# change; MARCH and LAT take lists; the profile switches as cycle-identical's (BRANCH_* for this side only).
+perf:
+	@python3 tools/ci/perf.py $(if $(BASE),--base "$(BASE)") $(if $(BRANCH),--branch "$(BRANCH)") --cfg "$(CFG)" \
+	  $(if $(MARCH),--march "$(MARCH)") $(if $(ITER),--iter $(ITER)) $(if $(RUNS),--runs $(RUNS)) \
+	  $(if $(LAT),--lat "$(LAT)") $(if $(JOBS),--jobs $(JOBS)) $(if $(HARNESS),--harness $(HARNESS)) \
+	  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(BRANCH_TIMING_CUTS),--branch-timing-cuts $(BRANCH_TIMING_CUTS)) \
+	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
+	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE))

@@ -490,6 +490,19 @@ A write every hart is past is dropped.
 - **Determinism:** CoreMark's ticks are retired instructions and Dhrystone's `time()` counts its calls, so the console text is the same in the RTL and in Spike. Cycles come from the `tg_marker` region.
 - **Results:** a run passes when lockstep passes, the program exits with code 0, its console output matches a Spike reference run of the same ELF (`tg_replay`), and CoreMark prints `Correct operation validated`. The runner prints CoreMark/MHz = iterations × 10⁶ / region cycles and DMIPS/MHz = runs × 10⁶ / (region cycles × 1757). These are not EEMBC-valid scores (run length), only correlation points for the model (plan §10.1).
 - **Unexpected traps** in a benchmark end it with exit code `0x1000 + mcause` (`bsp/crt0.S`).
+- **Which cycles:** CoreMark/MHz counts CoreMark's timed region only (its iterations, between `start_time` and `stop_time`), as CoreMark defines it; the whole run adds its initialisation and report. `cycle-identical`'s `cycles` column is the whole run, so it is no score: on main at 4bb4426 (rv64im, `ITER=2`) CoreMark A's whole run is 733,270 cycles, but its timed region is 659,278 cycles, 3.034 CM/MHz, the same as M2's 3.04 (2026-10-14). Two iterations read about 0.7% low against warm caches (`ITER=10`: 3.055).
+- **ISA:** the instruction count per iteration is the same with `MARCH=rv64im` and `rv64gc`, but compressed code costs CoreMark B 3.6% (2.791 against 2.896 CM/MHz, `ITER=10`) and Dhrystone 11% (1.484 against 1.667 DMIPS/MHz); CoreMark A does not change. The board's Linux runs are `rv64gc`.
+
+**Per-feature measurement (M6, DR-153): `make perf`** (`tools/ci/perf.py`). Both sides build as `cycle-identical`'s do (its build cache, this tree's harness, the profile switches), and CoreMark A and B and Dhrystone run in `tg_vsim` with lockstep. The table gives each program's timed-region cycles and IPC on both sides, the change in cycles (negative is faster) and the score, with their geometric mean.
+```
+make perf [BASE=main] [BRANCH=<ref>] [CFG=st] [MARCH=rv64gc] [ITER=10] [RUNS=500] [LAT=native] [JOBS=8]
+          [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE=...] [BRANCH_TIMING_CUTS|BRANCH_DC_MSHRS|BRANCH_QUEUE_DECODE=...]
+```
+- A feature branch against main: `make perf BRANCH=<ref>`; this tree's RTL: `make perf`. A feature behind a switch, on one commit: `make perf BASE=HEAD BRANCH_DC_MSHRS=4`.
+- `MARCH` and `LAT` take lists (`MARCH=rv64im,rv64gc`, `LAT=native,120`). The defaults are the board's ISA and warm caches.
+- Results are cached per build and program, so a second measurement against the same `BASE` runs only this side (about 3.5 minutes with a build). The board's Linux workload set (§4.6) measures the same programs in batches of features.
+- An older commit whose RTL does not fit this tree's harness (a port it lacks) builds with its own `sim/`, and the table says so; one whose own `sim/profile.mk` cannot take a forced switch is refused, since it would build without it unseen (merge main into the branch first).
+- **Checked on main at 4bb4426** (`rv64gc`, `ITER=10`): `QUEUE_DECODE=1` against off, a cycle-exact switch, +0.00% on all three programs (CoreMark A 3.055, B 2.791 CM/MHz; Dhrystone 1.484 DMIPS/MHz). The timing cuts off (`BRANCH_TIMING_CUTS=0`) against the default: CoreMark A −0.14%, B −0.01%, Dhrystone −1.31%, geometric mean −0.49%, so the default profile's cuts cost about half a percent here.
 
 ### 4.3 `make regress`
 
