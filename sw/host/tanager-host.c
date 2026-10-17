@@ -282,8 +282,9 @@ static void cmd_dbg(void) {
     uint32_t e = x[2], k = e & 7;
     uint64_t line = x[3] & 0x1fffffffu;
     if (x[3] >> 31) {
-      printf("  first L2 error: bank %u, %s, line 0x%" PRIx64 " (address 0x%" PRIx64 ")", x[3] >> 29 & 3, ek[k], line,
-             line << 6);
+      printf("  first L2 error: bank %u, %s", x[3] >> 29 & 3, ek[k]);
+      if (k >= 1 && k <= 3)                      /* an AXI error carries no line: see the first refused burst */
+        printf(", line 0x%" PRIx64 " (address 0x%" PRIx64 ")", line, line << 6);
       if (k >= 1 && k <= 3)
         printf("; C %s %s from source 0x%03x; directory %s: valid %u dirty %u tip %u pres 0x%x; MSHR %u",
                cop[e >> 3 & 7], cpar[e >> 6 & 7], e >> 9 & 0x3ff, e >> 19 & 1 ? "hit" : "miss", e >> 20 & 1,
