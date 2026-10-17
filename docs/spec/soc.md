@@ -317,11 +317,17 @@ A bigger cloned card is the alternative if the user prefers it. The board sessio
 After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own drivers then run the PS's SD, GEM Ethernet, USB and UART controllers. Each OS has its own SD partition.
 
 **The PL-to-PS path.**
-- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`; to confirm in the TRM that `S_AXI_LPD` reaches them).
+- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`).
+- **Confirmed in the PS IP's own address map** (Vivado 2025.2, `zynq_ultra_ps_e` v3.5, memory map `SAXIGP6`; 10-17):
+  - by default `S_AXI_LPD` reaches the lower LPS slaves, `0xFF00_0000`–`0xFFFF_FFFF`, as one 16 MiB block (`LPD_LPS_OCM`). That block holds the IOP (UART0/1 `0xFF00/0xFF01_0000`, GPIO `0xFF0A_0000`, GEM3 `0xFF0E_0000`, TTC1 `0xFF12_0000`, SD1 `0xFF17_0000`, IOU_SLCR `0xFF18_0000`), USB0's glue registers (`0xFF9D_0000`) and the LPD DMA (`0xFFA8_0000`);
+  - with `PSU__EXPAND__UPPER_LPS_SLAVES` = 1 it also reaches the upper LPS slaves, `0xFE00_0000`–`0xFEFF_FFFF`, which hold USB0's DWC3 core at `0xFE20_0000`;
+  - the port's address is 49 bits wide and its ID 6 bits.
 - Device accesses are at most 8 bytes, so AXI4-Lite suffices.
 - The XPPU must allow that master to reach these peripherals.
 
 **Interrupts.** The PS routes the four peripherals' interrupts to the PL (the PS-to-PL interrupt signals, enabled in the PS configuration). They go to free PLIC sources, for example 20–27.
+- The signals, from the same IP: `ps_pl_irq_uart1`, `ps_pl_irq_sdio1`, `ps_pl_irq_enet3`, and `ps_pl_irq_usb3_0_endpoint[0]` (the DWC3 host line of `[3:0]`). Each is enabled by its `PSU__IRQ_P2F_<NAME>__INT` parameter (`UART1`, `SDIO1`, `ENT3`, `USB3_ENDPOINT__INT0`).
+- D1's test uses `ps_pl_irq_ttc1_0` (`PSU__IRQ_P2F_TTC1__INT0`). `ps_pl_irq_adma_chan[7:0]` is there too.
 
 **Peripheral DMA.**
 - The SD, GEM and USB controllers are bus masters that write DDR through the PS interconnect, behind the RISC-V's L2.
@@ -405,15 +411,15 @@ Each is checked on the board in stage D's first step, with the UART: the simples
      - the USB5744 hub's reset;
      - which controller the micro-SD is on (SD1);
      - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
-  4. **From the TRM (soc-2):** that `S_AXI_LPD` reaches the IOP's and USB's registers, and the PS-to-PL interrupt signals of the four controllers.
+  4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
 - **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
   - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
     - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
     - an AXI4-Lite master into `S_AXI_LPD`, on `clk_core`;
-    - only USB0 (`0xFE20_0000`, 1 MiB) and the IOP (`0xFF00_0000`–`0xFF1F_FFFF`) pass;
+    - only USB0 (its DWC3 core, `0xFE20_0000`, 1 MiB; its glue, `0xFF9D_0000`, 64 KiB) and the IOP (`0xFF00_0000`–`0xFF1F_FFFF`) pass;
     - **every failure is an access fault:** another address, an error response, or no response within 2^16 cycles. An unclocked peripheral can stall the PS interconnect, and the RISC-V must not hang behind it.
   - **Interrupts:** the four controllers' PS-to-PL interrupts go to PLIC sources 20–23 (UART1, SD1, GEM3, USB0's host line).
-  - **Block design:** `S_AXI_LPD` (GP6) and the PS-to-PL interrupts on.
+  - **Block design:** `S_AXI_LPD` (GP6) on, with `PSU__EXPAND__UPPER_LPS_SLAVES` for USB's core and both LPS blocks assigned to the port, and the PS-to-PL interrupts on.
   - **Approval:** `tg_map_pkg`'s new region and `kv260_top`'s ports are an interface change, a DR for the coordinator.
   - **Area:** about +0.2–0.4K LUTs. If 100 MHz or the area gets tight, stage D builds can leave out the virtio window: they need only the host DMA port.
   - **Tests:** `tests/unit/soc` `PS_WINDOW=1`: an AXI4-Lite slave model with random delays, errors and a silent address, and the interrupts into the PLIC. Then the 100 MHz board build.
