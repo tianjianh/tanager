@@ -40,6 +40,7 @@ struct FetchRec {
   bool sfb = false;              // predicated short forward branch
   bool synthetic = false;        // shadow instruction of a taken predicated branch (not executed)
   uint8_t mp_kind = 0;           // 1 direction, 2 target, 3 return, 4 cold (no BTB entry)
+  bool de_redirect = false;      // fe_m2: decode redirects fetch after this instruction (fetch waits for it)
   Hist hist;                     // global history before this instruction
   RasUndo ras;
 };
@@ -92,7 +93,8 @@ struct SqEntry {
   X(cycles) X(instr) X(uops)                                                                       \
   X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
-  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong)                                            \
+  X(mp_refills) X(mp_refill_cycles)                                                                \
+  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides)                            \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -175,6 +177,7 @@ class Core {
     Stats st, st_start, st_end;
     MemStats ms_start, ms_end;
     uint64_t last_commit_t = 0;
+    uint64_t refill_from = ~0ull;  // commit cycle of a mispredict recovered at commit, until the next retire
     uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
     // multithreaded runs
     int lap = 0;                   // completed runs of the program
@@ -205,6 +208,7 @@ class Core {
   // helpers
   bool predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t block_start, bool ubtb_hit,
                     uint64_t ubtb_tgt, int& bubble);
+  void fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end);
   bool sfb_shape(Thread& T, const DynInst& di, const Decoded** shadow);
   Uop& new_uop(Thread& T, const FetchRec& r);
   void add_srcs(Uop& u, const Decoded& d, bool skip_store_data);
@@ -258,6 +262,7 @@ class Core {
   std::unique_ptr<DirPred> dir_;
   Btb btb_;
   MicroBtb ubtb_;
+  M2Ubtb m2_;  // fe_m2: the RTL's micro-BTB and its training counters
   PcCounters sfb_tab_;
   PcTable hitpred_, waittab_;
 
@@ -277,6 +282,7 @@ class Core {
   std::array<uint64_t, 128> wb_b1_{};
   // early-retired uop id -> t_ready
   std::unordered_map<uint64_t, uint64_t> pending_;
+  std::unordered_map<uint64_t, uint32_t> mp_pc_;  // mispredicts by PC in the region (TGSIM_MPDUMP=file writes them)
   // Dependency census (census = 1): each dispatched uop's sources, by what its row would wait on.
   // READY: the value exists; MX: a 1-cycle producer still in an ALU-queue row; ROB: a ROB-indexed wakeup
   // (multi-cycle or not yet woken); LLT: a long-latency tag; XTHREAD: a producer of the other thread.

@@ -1,0 +1,97 @@
+TG-SHRINK: start; the table before:
+label: dos
+label-id: 0xde90fb12
+device: /dev/mmcblk1
+unit: sectors
+sector-size: 512
+
+/dev/mmcblk1p1 : start=        2048, size=     2097152, type=c, bootable
+/dev/mmcblk1p2 : start=     2099200, size=    28436447, type=83
+e2fsck 1.47.0 (5-Feb-2023)
+Superblock last write time is in the future.
+	(by less than a day, probably due to the hardware clock being incorrectly set)
+Pass 1: Checking inodes, blocks, and sizes
+Inodes that were part of a corrupted orphan linked list found.  Fix? yes
+
+Inode 25671 was part of the orphaned inode list.  FIXED.
+Inode 26423 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 26841 was part of the orphaned inode list.  FIXED.
+Inode 27283 was part of the orphaned inode list.  FIXED.
+Pass 1E: Optimizing extent trees
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 3A: Optimizing directories
+Inode 29631 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 35103 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 35337 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 46784 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 48730 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 50087 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Inode 50646 extent tree (at level 1) could be shorter.  Optimize? yes
+
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+
+writable: ***** FILE SYSTEM WAS MODIFIED *****
+writable: 125596/891184 files (0.2% non-contiguous), 940130/3554555 blocks
+TG-SHRINK: e2fsck ok; resize2fs to 6094 MiB (minutes)
+resize2fs 1.47.0 (5-Feb-2023)
+Resizing the filesystem on /dev/mmcblk1p2 to 1560064 (4k) blocks.
+The filesystem on /dev/mmcblk1p2 is now 1560064 (4k) blocks long.
+
+e2fsck 1.47.0 (5-Feb-2023)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+writable: 125596/392448 files (0.4% non-contiguous), 908139/1560064 blocks
+TG-SHRINK: resize2fs ok (4096 x 1560064 bytes); p2 to 12582912 sectors from 2099200
+Disk /dev/mmcblk1: 14.56 GiB, 15634268160 bytes, 30535680 sectors
+Units: sectors of 1 * 512 = 512 bytes
+Sector size (logical/physical): 512 bytes / 512 bytes
+I/O size (minimum/optimal): 512 bytes / 512 bytes
+Disklabel type: dos
+Disk identifier: 0xde90fb12
+
+Old situation:
+
+Device         Boot   Start      End  Sectors  Size Id Type
+/dev/mmcblk1p1 *       2048  2099199  2097152    1G  c W95 FAT32 (LBA)
+/dev/mmcblk1p2      2099200 30535646 28436447 13.6G 83 Linux
+
+/dev/mmcblk1p2: 
+New situation:
+Disklabel type: dos
+Disk identifier: 0xde90fb12
+
+Device         Boot   Start      End  Sectors Size Id Type
+/dev/mmcblk1p1 *       2048  2099199  2097152   1G  c W95 FAT32 (LBA)
+/dev/mmcblk1p2      2099200 14682111 12582912   6G 83 Linux
+
+The partition table has been altered.
+Calling ioctl() to re-read partition table.
+Syncing disks.
+e2fsck 1.47.0 (5-Feb-2023)
+Pass 1: Checking inodes, blocks, and sizes
+Pass 2: Checking directory structure
+Pass 3: Checking directory connectivity
+Pass 4: Checking reference counts
+Pass 5: Checking group summary information
+writable: 125596/392448 files (0.4% non-contiguous), 908139/1560064 blocks
+TG-SHRINK: done: p2 is 12582912 sectors from 2099200, the filesystem 6094 MiB; the boot continues
+label: dos
+label-id: 0xde90fb12
+device: /dev/mmcblk1
+unit: sectors
+sector-size: 512
+
+/dev/mmcblk1p1 : start=        2048, size=     2097152, type=c, bootable
+/dev/mmcblk1p2 : start=     2099200, size=    12582912, type=83

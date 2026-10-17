@@ -9,7 +9,7 @@
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/g4_fit.tcl <repo-root> <cfg> <core_mhz> \
 #       <uncore_dsp> [-n_cores N] [-constraints T] [-floorplan F] [-flatten M] [-synth_directive D]
 #       [-dcp 0|1] [-synth_dcp D] [-impl 0|1] [-g NAME=VALUE]... [-file F]...
-#       [-place_directive D] [-route_directive D] [-define NAME=VALUE]...
+#       [-place_directive D] [-route_directive D] [-define NAME=VALUE]... [-pre_report F]
 #   uncore_dsp   tg_uncore's UNCORE_DSP mask (e.g. 0xDCE03000000): one bit per register-slice site
 #   -constraints a Tcl file sourced after synthesis (e.g. fpga/spikes/tcl/g3_false_paths.tcl); it
 #                may write constraints.txt
@@ -22,6 +22,8 @@
 #   -g           an extra kv260_top generic (repeatable), e.g. a measurement patch's FILL_TILES
 #   -file F      an extra source, relative to the repo root (repeatable), e.g. fpga/spikes/rtl/tg_s6_fill.sv
 #   -define      a Verilog define for synthesis (repeatable), e.g. TG_COMMIT_TRACE=0 (the performance build)
+#   -pre_report  a Tcl file sourced after routing, before the reports: e.g. fpga/spikes/tcl/seed_unc_off.tcl
+#                takes back a placement-only perturbation (seed_unc.tcl) so the reports compare
 #   -place_directive / -route_directive  place_design / route_design directives (default Default,
 #                as the board build); e.g. AltSpreadLogic_high for a congested, nearly full device
 # Writes to the run directory: summary.txt (key value lines, with the uncore's figures),
@@ -44,6 +46,7 @@ set generics {}
 set extra_files {}
 set place_dir Default
 set route_dir Default
+set pre_report ""
 set defines {}
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
@@ -61,6 +64,7 @@ while {[llength $rest]} {
     -file            { lappend extra_files $v }
     -place_directive { set place_dir $v }
     -route_directive { set route_dir $v }
+    -pre_report      { set pre_report $v }
     -define          { lappend defines -verilog_define $v }
     default { error "g4_fit.tcl: unknown option $k" }
   }
@@ -129,6 +133,7 @@ tg_kv $fh synth [expr {$synth_dcp ne "" ? "from $synth_dcp" : "-flatten_hierarch
 tg_kv $fh floorplan [expr {$floorplan ne "" ? $floorplan : "none"}]
 tg_kv $fh generics [join $generics " "]
 tg_kv $fh directives "place $place_dir route $route_dir"
+if {$pre_report ne ""} { tg_kv $fh pre_report $pre_report }
 tg_kv $fh defines [join $defines " "]
 tg_kv $fh pblocks [llength [get_pblocks -quiet]]
 report_utilization -file util_synth.rpt
@@ -169,5 +174,6 @@ tg_kv $fh impl_s [expr {[clock seconds] - $t0}]
 tg_util $fh impl
 # the routed design first, so a failing report does not cost the implementation
 if {$keep_dcp} { write_checkpoint -force routed.dcp }
+if {$pre_report ne ""} { source [file join $root $pre_report] }
 source [file join $root fpga spikes tcl g4_reports.tcl]
 puts "G4_FIT_DONE $cfg $core_mhz 0x$mask"
