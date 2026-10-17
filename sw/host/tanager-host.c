@@ -227,6 +227,30 @@ static void cmd_dbg(void) {
       printf("%s\n", v >> 30 & 1 ? " L2_ERR" : "");
     }
   }
+  /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
+   * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none. */
+  for (unsigned c = 0; c < ncores; c++) {
+    uint32_t w[32];
+    for (unsigned k = 0; k < 32; k++) { wr(R_DBG_SEL, 128 + 32 * c + k); sleep_us(1000); w[k] = rd(R_DBG_VAL); }
+    if (w[0] == 0xDEB00000u) { if (c == 0) printf("  (no core debug words in this bitstream)\n"); break; }
+    uint32_t s = w[0];
+    static const char *am[] = { "IDLE", "REQ", "RES", "DONE" };
+    printf("  core %u status 0x%08x: rename v%u ser%u empty%u blk%u res%u fire%u dsbusy%u rdy%u; rob %u; atomic %s%s;"
+           " sq head v%u addr%u data%u dreg%u nonempty%u; d$ probe %u mshr %u ready%u; trace stall%u flush%u\n",
+           c, s, s & 1, s >> 1 & 1, s >> 2 & 1, s >> 3 & 1, s >> 4 & 1, s >> 5 & 1, s >> 6 & 1, s >> 7 & 1,
+           s >> 8 & 0x3f, am[s >> 14 & 3], s >> 16 & 1 ? " (in window)" : "", s >> 17 & 1, s >> 18 & 1, s >> 19 & 1,
+           s >> 20 & 1, s >> 21 & 1, s >> 22 & 7, s >> 25 & 15, s >> 29 & 1, s >> 30 & 1, s >> 31 & 1);
+    for (unsigned k = 1; k < 32; k++) {
+      if (!w[k]) continue;
+      printf("  core %u %s %2u:", c, k < 16 ? "dispatch" : "commit  ", k < 16 ? k : k - 16);
+      for (unsigned sl = 0; sl < 2; sl++) {
+        uint32_t e = w[k] >> (16 * sl) & 0x7fff;          /* {writes rd, fp, rd[4:0], preg[7:0]} */
+        if (e >> 14 & 1) printf("  slot%u %c%-2u -> p%-3u", sl, e >> 13 & 1 ? 'f' : 'x', e >> 8 & 31, e & 0xff);
+        else             printf("  slot%u -           ", sl);
+      }
+      printf("\n");
+    }
+  }
 }
 
 static void check_id(void) {

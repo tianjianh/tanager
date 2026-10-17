@@ -95,6 +95,21 @@ It converts the device-bus target's TL-UL traffic (single beat, size ≤ 3, natu
 
 It decodes the device from the address: ACLINT, PLIC, UART and host control are present. The virtio and debug windows answer `denied` until those devices exist (M5, M9), as do sizes above 3 and misaligned accesses. Devices answer in the cycle after the request. The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
 
+### Board debug counters (`DEBUG_CNT`)
+
+Built only with `tg_uncore` `DEBUG_CNT` (`TG_DEBUG_CNT=1`; off by default, no logic), for the two-core board hang of DR-147. 32-bit counters of handshakes, and the cores' board-debug words, which the host reads one at a time: it writes an index to `DBG_SEL` and reads `DBG_VAL` ([host.md](host.md)), and `tanager-host dbg` prints them all.
+
+| Index | Counts |
+|---|---|
+| 8b + 0 … 7 | L2 bank b: its A, B, C, D and E handshakes, its misses, its AXI reads (AR) and its fills (R last beats) |
+| 8·N_BANKS + 5c + 0 … 4 | core c's data cache: its A, B, C, D and E handshakes at the uncore's ports |
+| 8·N_BANKS + 5·N_CORES | the L2's error events |
+| 8·N_BANKS + 5·N_CORES + 1 | now, not a count: `[10b+9:10b]` bank b's channels' valid and ready (A valid, A ready, then B, C, D and E, from the top bit down); `[20+5c+4:20+5c]` which of core c's data-cache channels wait, valid without ready (A, B, C, D, E from the top; cores 0 and 1); `[30]` the L2's sticky error |
+| 128 + 32c + w | core c's board-debug word w (`tg_core` `dbg_o`, built with `DBG_WORD`, which `tanager_soc` sets from `DEBUG_CNT`; every core shows the word `DBG_SEL[4:0]` picks, a register a cycle behind): w = 0 the status (rename, the ROB's count, the atomic, the store queue's head, the data cache, the trace stall, a flush); 1–15 the first 15 dispatch groups after reset and 16–31 the first 16 commit cycles that retire, per slot {writes rd, rd is FP, rd, the physical register}: the new destination at dispatch, the freed one at commit (`rtl/core/tg_core.sv` has the bits) |
+| any other | `0xDEB0_0000` |
+
+The host reads one counter at a time while the system runs, so counters read later have moved on. In a hang they stop, and the levels word shows which handshake waits.
+
 ## Parameters
 
 | Parameter | Default | Meaning |

@@ -185,7 +185,12 @@ module tg_uncore
   output logic        uart_txd_o,
   input  logic        uart_rxd_i,
 
-  output logic [7:0]  status_o
+  output logic [7:0]  status_o,
+
+  // the cores' board-debug words (DEBUG_CNT): the word each core shows (tg_core dbg_sel_i), and those
+  // words (dbg_o); 0 and unused without the counters
+  output logic [4:0]               core_dbg_sel_o,
+  input  logic [N_CORES-1:0][31:0] core_dbg_i
 );
   if (N_CORES < 1 || N_CORES > NUM_CORES) begin : g_bad_cores
     $error("tg_uncore: N_CORES must be 1..NUM_CORES");
@@ -519,7 +524,7 @@ module tg_uncore
   // The debug counters' select and value (DEBUG_CNT, below), declared before the bridge connects them:
   // a name used before its declaration becomes an implicit one-bit net in synthesis (Vivado Synth
   // 8-11241), though Verilator finds the later declaration
-  logic [5:0]  dbg_sel;
+  logic [7:0]  dbg_sel;
   logic [31:0] dbg_val;
 
   logic [31:0] tg_ops_all;
@@ -620,7 +625,8 @@ module tg_uncore
   // ---------------------------------------------------------------------------------------------
   // Debug counters (DEBUG_CNT): index 8b+k for bank b counts its A, B, C, D, E messages, misses, AXI
   // reads and fills (R last beats); 8*N_BANKS + 5c + k for core c's data cache its A, B, C, D, E;
-  // then the L2 error events; the index after holds the channels' valid/ready levels now
+  // then the L2 error events; the index after holds the channels' valid/ready levels now; 128 + 32c + w
+  // is core c's board-debug word w (tg_core dbg_o, built with DBG_WORD = DEBUG_CNT)
   // ---------------------------------------------------------------------------------------------
   if (DEBUG_CNT) begin : g_dbg
     localparam int NCNT = 8 * N_BANKS + 5 * N_CORES + 1;
@@ -660,10 +666,19 @@ module tg_uncore
         if (uncore_rst) cnt_q[i] <= '0;
         else if (inc[i]) cnt_q[i] <= cnt_q[i] + 32'd1;
     localparam int IW = $clog2(NCNT);
-    assign dbg_val = (int'(dbg_sel) < NCNT) ? cnt_q[IW'(dbg_sel)] : (int'(dbg_sel) == NCNT) ? lv : 32'hDEB0_0000;
+    // the core words: every core shows word dbg_sel[4:0], a register a cycle behind the select
+    logic [3:0][31:0] cw;
+    always_comb begin
+      cw = {4{32'hDEB0_0000}};
+      for (int c = 0; c < N_CORES; c++) cw[c] = core_dbg_i[c];
+    end
+    assign core_dbg_sel_o = dbg_sel[4:0];
+    assign dbg_val = dbg_sel[7] ? cw[dbg_sel[6:5]] :
+                     (int'(dbg_sel) < NCNT) ? cnt_q[IW'(dbg_sel)] : (int'(dbg_sel) == NCNT) ? lv : 32'hDEB0_0000;
   end else begin : g_no_dbg
-    assign dbg_val = '0;
-    wire unused_dbg = ^dbg_sel;
+    assign dbg_val        = '0;
+    assign core_dbg_sel_o = '0;
+    wire unused_dbg = ^{dbg_sel, core_dbg_i};
   end
 
   wire unused = ^{hdma_ar, hdma_d, hdma_dv, ev_hit, ev_miss, ev_wb, ev_probe, tg_pass_i};

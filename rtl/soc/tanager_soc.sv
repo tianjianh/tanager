@@ -128,6 +128,11 @@ module tanager_soc
   logic [N_CORES-1:0][31:0] tg_ops;
   logic [N_CORES-1:0][15:0] tg_errs, tg_pass;
   logic [N_CORES-1:0][27:0] tg_err_line;
+  // The cores' board-debug words (tg_core dbg_o: the word dbg_sel_i picks, built with DBG_WORD = DEBUG_CNT;
+  // DR-150), which the uncore's debug counters read (index 128 + 32c + w). Declared ahead of the cores that
+  // drive them: a name used before its declaration is an implicit net in synthesis.
+  logic [4:0]               core_dbg_sel;
+  logic [N_CORES-1:0][31:0] core_dbg;
 
   for (genvar c = 0; c < N_CORES; c++) begin : g_core
     logic [NT-1:0] mei, sei, mt, ms, me;
@@ -157,8 +162,9 @@ module tanager_soc
         .tg_en_i (tg_en), .tg_base_i (tg_base + 28'(c) * 28'(tg_lines)), .tg_lines_i (tg_lines),
         .tg_ops_o (tg_ops[c]), .tg_errs_o (tg_errs[c]), .tg_err_line_o (tg_err_line[c]), .tg_pass_o (tg_pass[c])
       );
+      assign core_dbg[c] = '0;
     end else begin : g_tgc
-      tg_core #(.CORE_ID (c)) u_core (
+      tg_core #(.CORE_ID (c), .DBG_WORD (DEBUG_CNT)) u_core (
         .clk, .rst (core_rst), .boot_addr_i (BOOT_ADDR),
         .irq_mei_i (mei), .irq_sei_i (sei), .irq_mti_i (mt), .irq_msi_i (ms), .irq_ssi_i ('0),
         .mtime_i (mtime), .debug_req_i ('0), .merr_o (me),
@@ -173,7 +179,8 @@ module tanager_soc
         .mmio_d_i (mmio_d[c]), .mmio_d_valid_i (mmio_dv[c]), .mmio_d_ready_o (mmio_dr[c]),
         .trace_o (trace_o[c]), .trace_valid_o (trace_valid_o[c]),
         .trace_wb_o (trace_wb_o[c]), .trace_wb_valid_o (trace_wb_valid_o[c]),
-        .trace_stall_i (trace_stall[c])
+        .trace_stall_i (trace_stall[c]),
+        .dbg_sel_i (core_dbg_sel), .dbg_o (core_dbg[c])
       );
       assign tg_ops[c]      = '0;
       assign tg_errs[c]     = '0;
@@ -193,6 +200,7 @@ module tanager_soc
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
+    .core_dbg_sel_o (core_dbg_sel), .core_dbg_i (core_dbg),
     .s_axil_awaddr, .s_axil_awvalid, .s_axil_awready, .s_axil_wdata, .s_axil_wstrb, .s_axil_wvalid,
     .s_axil_wready, .s_axil_bresp, .s_axil_bvalid, .s_axil_bready, .s_axil_araddr, .s_axil_arvalid,
     .s_axil_arready, .s_axil_rdata, .s_axil_rresp, .s_axil_rvalid, .s_axil_rready, .host_irq_o,
