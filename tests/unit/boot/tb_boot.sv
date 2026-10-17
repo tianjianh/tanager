@@ -17,6 +17,15 @@ module tb_boot;
 
   parameter int N_CORES = 1;
   parameter bit UART_SERIAL_TB = 1'b0;   // console on the serial line; the host keeps a copy
+  // The DDR models' timing: random by default; MEM_LAT_MIN = MEM_LAT_MAX with every *_PCT at 100 and
+  // MEM_OOO 0 gives the board's fixed latency, where the cores run in step from reset
+  parameter int MEM_LAT_MIN   = 4;
+  parameter int MEM_LAT_MAX   = 12;
+  parameter int MEM_READY_PCT = 95;
+  parameter bit MEM_OOO       = 1'b1;
+  parameter int MEM_R_PCT     = 85;
+  parameter int L2_SETS_TB    = 64;      // the board has 1024 (tanager_soc's default)
+  parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -53,7 +62,7 @@ module tb_boot;
   logic [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb_v;
 
   tanager_soc #(
-    .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (64), .L2_MSHR (24),
+    .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
@@ -72,12 +81,16 @@ module tb_boot;
     .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
+    .s_axi_dma_aw ('0), .s_axi_dma_aw_valid (1'b0), .s_axi_dma_aw_ready (), .s_axi_dma_w ('0), .s_axi_dma_w_valid (1'b0),
+    .s_axi_dma_w_ready (), .s_axi_dma_b (), .s_axi_dma_b_valid (), .s_axi_dma_b_ready (1'b1), .s_axi_dma_ar ('0),
+    .s_axi_dma_ar_valid (1'b0), .s_axi_dma_ar_ready (), .s_axi_dma_r (), .s_axi_dma_r_valid (), .s_axi_dma_r_ready (1'b1),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
 
   for (genvar k = 0; k < N_BANKS; k++) begin : g_mem
-    tb_axi_mem #(.LAT_MIN(4), .LAT_MAX(12), .READY_PCT(95), .OOO(1'b1), .NAME($sformatf("ddr%0d", k))) u_mem (
+    tb_axi_mem #(.LAT_MIN(MEM_LAT_MIN), .LAT_MAX(MEM_LAT_MAX), .READY_PCT(MEM_READY_PCT), .OOO(MEM_OOO),
+                 .R_PCT(MEM_R_PCT), .NAME($sformatf("ddr%0d", k))) u_mem (
       .clk, .rst,
       .ar_i (ar[k]), .ar_valid_i (arv[k]), .ar_ready_o (arr[k]),
       .r_o (r[k]), .r_valid_o (rv[k]), .r_ready_i (rr[k]),
@@ -299,6 +312,7 @@ module tb_boot;
     if (!$value$plusargs("expect=%s", expect_s)) expect_s = "";
     if (!$value$plusargs("max_mcycles=%d", max_m)) max_m = 20;
     max_cycles = longint'(max_m) * 1_000_000;
+    if ($value$plusargs("max_kcycles=%d", max_m)) max_cycles = longint'(max_m) * 1_000;   // a short run
     $display("tb_boot: %0d core(s) x %0d thread(s), expect \"%s\", up to %0d M cycles", N_CORES, NUM_THREADS, expect_s, max_m);
     for (int h = 0; h < NH_TB; h++) last_n[h] = 0;
 
@@ -358,6 +372,27 @@ module tb_boot;
       trace_poll();
       $fclose(trace_fd);
       $display("\n[tb_boot] trace: %0d records", trace_rp);
+    end
+    if (DEBUG_CNT_TB && $test$plusargs("dbg_dump")) begin
+      // the cores held first (CTRL[0]), so the counters stop and the dump is one moment (the verification
+      // track's note); a transaction left open in the L2 does not matter once the test is over
+      logic [31:0] dv;
+      hw(16'h010, 32'h1);
+      repeat (100) @(posedge clk);
+      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 1; i++) begin
+        hw(16'h1200, 32'(i));
+        repeat (200) @(posedge clk);
+        hr(16'h1204, dv);
+        $display("[tb_boot] debug counter %0d: %0d (0x%08h)", i, dv, dv);
+      end
+      // the cores' board-debug words: 128 + 32c + w
+      for (int c = 0; c < N_CORES; c++)
+        for (int k = 0; k < 32; k++) begin
+          hw(16'h1200, 32'(128 + 32 * c + k));
+          repeat (200) @(posedge clk);
+          hr(16'h1204, dv);
+          if (k == 0 || dv != 0) $display("[tb_boot] core %0d debug word %0d: 0x%08h", c, k, dv);
+        end
     end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);

@@ -4,9 +4,12 @@
 // pointer through its synchronizer). DEPTH: power of two, >= 16.
 // The reset is synchronous to wr_clk, as xpm_fifo_async requires; the read side follows it.
 // xpm_fifo_async under SYNTHESIS; a Gray-code pointer FIFO with the same contract in simulation.
+// MEM is xpm_fifo_async's FIFO_MEMORY_TYPE: "auto" lets synthesis choose, "distributed" keeps a
+// small FIFO in LUTRAM where block RAM is short.
 module tg_afifo #(
   parameter int  W     = 8,
   parameter int  DEPTH = 16,
+  parameter      MEM   = "auto",
   localparam int AW    = $clog2(DEPTH)
 ) (
   input  logic         wr_clk,
@@ -27,7 +30,7 @@ module tg_afifo #(
     .CDC_SYNC_STAGES     (3),
     .DOUT_RESET_VALUE    ("0"),
     .ECC_MODE            ("no_ecc"),
-    .FIFO_MEMORY_TYPE    ("auto"),
+    .FIFO_MEMORY_TYPE    (MEM),
     .FIFO_READ_LATENCY   (0),
     .FIFO_WRITE_DEPTH    (DEPTH),
     .FULL_RESET_VALUE    (0),
@@ -65,6 +68,7 @@ module tg_afifo #(
   assign in_ready  = !full && !wr_busy;
   assign out_valid = !empty && !rd_busy;
 `else
+  wire unused_mem = MEM == "";
   logic [W-1:0] mem [DEPTH];
   logic [AW:0]  wbin_q, wgray_q, rbin_q, rgray_q;
   logic [AW:0]  rgray_w1, rgray_w2, wgray_r1, wgray_r2;   // synchronizers

@@ -20,7 +20,14 @@ board's case when the harts are in step. Then, by mode:
                   windows for other harts' writes, verification.md §3.7);
   race            a write race on one word, for lockstep alone: the first hart stores to it, the second
                   applies AMOs with rd = x0 and LR/SC increments to it, and after the barrier the first
-                  hart loads it (its value is whichever write came last, so the program checks nothing).
+                  hart loads it (its value is whichever write came last, so the program checks nothing);
+  dma             lines another master writes (DR-147 stage C, verification.md §3.10): the host writes
+                  rounds 1..R of DMA_LINES lines at DMA_BASE through the hdma port, each line whole, word
+                  w of line i in round k being k << 32 | i << 8 | w; every hart polls the lines until each
+                  is at round R, reading each with a seqlock (word 0, FENCE R,R, the line, FENCE R,R,
+                  word 0 again) and counting a line seen with words of two rounds or a wrong word. It
+                  needs tb_boot's host-DMA model: the program's "# hdma:" line gives its plusargs, which
+                  run_coh.py passes on (lockstep learns the writes from the trace's 0xE1 records).
 In the other modes every read of a word another hart writes is an atomic. The barrier is on a line of its own: a hart spinning on the contended line with AMOs could starve
 another's LR/SC loop, which the ISA allows (its forward-progress guarantee excludes other harts'
 stores and AMOs to the reservation set). The first hart listed prints COH-PASS, or COH-FAIL and the slot
@@ -33,7 +40,8 @@ import sys
 
 UART = 0x10000000
 SLOTS = 8             # 8-byte words in the contended line
-MODES = ("mix", "amo", "lrsc", "lottery", "lottery-lrsc", "mp", "race")
+MODES = ("mix", "amo", "lrsc", "lottery", "lottery-lrsc", "mp", "race", "dma")
+DMA_BASE, DMA_LINES = 0x80100000, 16   # the host's DMA region (link.ld's .dma, not loaded: zero at the start)
 T0, PERIOD = 3000, 600   # lottery k >= 1 starts at mcycle T0 + k * PERIOD (+ the hart's offset)
 
 
@@ -319,6 +327,63 @@ def race_body(r, e, nh):
     return desc, checks
 
 
+def dma_body(r, e, nh):
+    """The dma mode: every hart polls lines the host writes through the hdma port (see the docstring)."""
+    rounds = r.choice([4, 8, 16])
+    e("  la s0, dmabuf")
+    e(f"  li s2, {rounds}")
+    e("  li s6, 0")                    # lines this hart saw torn or wrong
+    e("1:")                            # a sweep over the lines
+    e("  li s8, 0")                    # lines at the last round in this sweep
+    e("  li s9, 0")                    # the line's index
+    e("  mv s10, s0")                  # its address
+    e("2:")
+    e("  ld t1, 0(s10)")               # word 0: the round in bits 63:32
+    e("  fence r, r")
+    e("  srli t2, t1, 32")
+    e("  beqz t2, 4f")                 # not written yet
+    e("  slli t3, t2, 32")
+    e("  slli t5, s9, 8")
+    e("  or t3, t3, t5")               # word w should be t3 + w
+    e("  bne t1, t3, 6f")
+    for w in range(1, 8):
+        e(f"  ld t4, {8 * w}(s10)")
+        e(f"  addi t5, t3, {w}")
+        e("  bne t4, t5, 6f")
+    e("  fence r, r")
+    e("  ld t6, 0(s10)")
+    e("  bne t6, t1, 2b")              # written again while it was read: read it again
+    e("  j 5f")
+    e("6:")                            # a wrong word: a retry if word 0 moved meanwhile, else an error
+    e("  fence r, r")
+    e("  ld t6, 0(s10)")
+    e("  bne t6, t1, 2b")
+    e("  addi s6, s6, 1")
+    e("5:")
+    e("  bne t2, s2, 4f")
+    e("  addi s8, s8, 1")
+    e("4:")
+    e("  addi s9, s9, 1")
+    e("  addi s10, s10, 64")
+    e(f"  li t0, {DMA_LINES}")
+    e("  bltu s9, t0, 2b")
+    e("  bltu s8, t0, 1b")             # until every line is at the last round
+    e("  la t1, dmaerr")
+    e("  slli t2, a4, 3")
+    e("  add t1, t1, t2")
+    e("  sd s6, 0(t1)")
+    desc = "%d rounds of host DMA writes to %d lines, read by every hart" % (rounds, DMA_LINES)
+    hdma = "+hdma_base=%#x +hdma_lines=%d +hdma_rounds=%d" % (DMA_BASE, DMA_LINES, rounds)
+
+    def checks():
+        e("  la t2, dmaerr")
+        e("  li t4, 13")               # the slot named in a failure: 0d for the DMA lines
+        for i in range(nh):
+            e(f"  ld t3, {8 * i}(t2)")
+            e("  bnez t3, fail")
+    return desc, checks, hdma
+
+
 def program(seed, mode, harts):
     nh = len(harts)
     r = random.Random(seed * 1000003 + 11 + 7919 * MODES.index(mode) + 104729 * sum(1 << h for h in harts))
@@ -353,6 +418,8 @@ def program(seed, mode, harts):
         desc, checks = mp_body(r, e, nh)
     elif mode == "race":
         desc, checks = race_body(r, e, nh)
+    elif mode == "dma":
+        desc, checks, hdma = dma_body(r, e, nh)
     else:
         desc, checks = rounds_body(r, e, mode, nh)
     # Each hart's win mask to its slot of `res`, then the barrier
@@ -418,6 +485,13 @@ def program(seed, mode, harts):
         e("  .balign 64")
         e("line:")
         e(f"  .zero {SLOTS * 8}")
+    if mode == "dma":
+        e("dmaerr:")
+        e(f"  .zero {nh * 8}")
+        e("  .section .dma, \"aw\", @nobits")
+        e("dmabuf:")
+        e(f"  .zero {64 * DMA_LINES}")
+        e("  .section .data")
     if mode == "mp":
         e("  .balign 64")
         e("mpdata:")
@@ -440,6 +514,8 @@ def program(seed, mode, harts):
     e("msg_end: .string \"COH-END\\n\"")
     head = "# gen_coh seed %d, mode %s, harts %s: %s, %s" % (
         seed, mode, ",".join(map(str, harts)), desc, "delay of hart %d: %d" % delay if delay else "no delay")
+    if mode == "dma":
+        head += "\n# hdma: " + hdma     # the host traffic the program waits for, as tb_boot plusargs
     return head + "\n" + "\n".join(L) + "\n"
 
 

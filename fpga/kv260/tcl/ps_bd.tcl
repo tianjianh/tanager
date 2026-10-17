@@ -2,6 +2,8 @@
 # inside an in-memory project whose board_part is kv260_som. Creates block design `tg_ps` in
 # $bd_dir and its wrapper; returns the wrapper path in ::tg_ps_wrapper.
 #   M_AXI_HPM0_FPD  32-bit AXI4 master to the host bridge, at 0xA000_0000 (clocked by clk_host)
+#   M_AXI_HPM1_FPD  128-bit AXI4 master to the host DMA port, 2 GiB at 0x5_0000_0000, the RISC-V's RAM
+#                   from offset 0 (clocked by clk_core; without HOST_DMA kv260_top's tg_axi_absent answers)
 #   S_AXI_HP1_FPD   128-bit AXI4 slave from L2 bank 0 (clocked by clk_core)
 #   S_AXI_HP2_FPD   128-bit AXI4 slave from L2 bank 1 (clocked by clk_core)
 #   S_AXI_HP3_FPD   128-bit AXI4 slave from the commit-trace stream, writes only (clocked by clk_core)
@@ -15,7 +17,8 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   set_property -dict [list \
     CONFIG.PSU__USE__M_AXI_GP0 {1} \
     CONFIG.PSU__MAXIGP0__DATA_WIDTH {32} \
-    CONFIG.PSU__USE__M_AXI_GP1 {0} \
+    CONFIG.PSU__USE__M_AXI_GP1 {1} \
+    CONFIG.PSU__MAXIGP1__DATA_WIDTH {128} \
     CONFIG.PSU__USE__M_AXI_GP2 {0} \
     CONFIG.PSU__USE__S_AXI_GP0 {0} \
     CONFIG.PSU__USE__S_AXI_GP1 {0} \
@@ -39,6 +42,10 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   set_property -dict [list CONFIG.PROTOCOL {AXI4} CONFIG.DATA_WIDTH {32} CONFIG.ADDR_WIDTH {40} \
     CONFIG.FREQ_HZ {100000000}] $m_hpm0
   connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM0_FPD] $m_hpm0
+  set m_hpm1 [create_bd_intf_port -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M_AXI_HPM1]
+  set_property -dict [list CONFIG.PROTOCOL {AXI4} CONFIG.DATA_WIDTH {128} CONFIG.ADDR_WIDTH {40} \
+    CONFIG.FREQ_HZ [expr {int($core_mhz * 1000000)}]] $m_hpm1
+  connect_bd_intf_net [get_bd_intf_pins $ps/M_AXI_HPM1_FPD] $m_hpm1
 
   foreach {port pin} {S_AXI_HP1 S_AXI_HP1_FPD S_AXI_HP2 S_AXI_HP2_FPD S_AXI_HP3 S_AXI_HP3_FPD} {
     set s [create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 $port]
@@ -53,7 +60,8 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_HPM0} $clk_host
   connect_bd_net $clk_host [get_bd_pins $ps/maxihpm0_fpd_aclk]
   set clk_core [create_bd_port -dir I -type clk -freq_hz [expr {int($core_mhz * 1000000)}] clk_core]
-  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2:S_AXI_HP3} $clk_core
+  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2:S_AXI_HP3:M_AXI_HPM1} $clk_core
+  connect_bd_net $clk_core [get_bd_pins $ps/maxihpm1_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp1_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp2_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp3_fpd_aclk]
@@ -67,13 +75,19 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   set fan_wave [create_bd_port -dir O -from 2 -to 0 fan_wave]
   connect_bd_net $fan_pin $fan_wave
 
-  # Address map: the host bridge's 64 KiB at the start of the HPM0 aperture; the HP ports see all
-  # of DDR (the carve-out is chosen at run time, docs/spec/host.md).
+  # Address map: the host bridge's 64 KiB at the start of the HPM0 aperture; the host DMA port's 2 GiB
+  # at the start of HPM1's high aperture, so AXI address bits [31:0] are the offset into the RISC-V's RAM
+  # (tg_hdma); the HP ports see all of DDR (the carve-out is chosen at run time, docs/spec/host.md).
   assign_bd_address
   set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces $ps/Data] -filter {NAME =~ "*M_AXI_HPM0*"}]
   if {$seg ne ""} {
     set_property offset 0xA0000000 $seg
     set_property range 64K $seg
+  }
+  set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces $ps/Data] -filter {NAME =~ "*M_AXI_HPM1*"}]
+  if {$seg ne ""} {
+    set_property offset 0x500000000 $seg
+    set_property range 2G $seg
   }
   validate_bd_design
   save_bd_design

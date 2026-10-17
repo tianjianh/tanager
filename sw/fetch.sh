@@ -1,7 +1,7 @@
 #!/bin/bash
 # Downloads the pinned sources of sw/versions.sh into $SOC_DL and checks them against sw/sha256sums.
 # A file with no recorded sum is recorded on first download (trust on first use; commit the change).
-#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc|spike ...]     (default: all but spike)
+#   bash sw/fetch.sh [opensbi|linux|buildroot|rvtc|aatc|uboot|spike ...]     (default: all but uboot and spike)
 # aatc (the aarch64 toolchain for sw/host) is unpacked after the check, into $SOC_TC_DIR (default
 # $SOC_BUILD/tc; $SOC_TC_SHARED to share it), and its archive deleted; it is fetched again only if
 # neither this worktree nor the shared directory has it (sw/env.sh SOC_AATC).
@@ -42,6 +42,7 @@ for i in "${items[@]}"; do
     linux)     fetch "$LINUX_URL"     linux                     "$LINUX_TAR" ;;
     buildroot) fetch "$BUILDROOT_URL" buildroot                 "$BUILDROOT_TAR" ;;
     rvtc)      fetch "$RVTC_URL"      toolchain-external-custom "$RVTC_TAR" ;;
+    uboot)     fetch "$UBOOT_URL"     uboot                     "$UBOOT_TAR" ;;
     aatc)
       if [ -x "$SOC_AATC/bin/aarch64-buildroot-linux-musl-gcc" ]; then
         echo "[fetch] ok $AATC_NAME (unpacked in $(dirname "$SOC_AATC"))"

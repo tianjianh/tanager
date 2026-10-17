@@ -37,6 +37,9 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_B_SLICE`, `TG_D_SLICE`, `TG_W_SLICE` | the banks' B, D, and AW and W slices (0 or 1 each) | 0 |
 | `TG_XBAR_IN_SLICE` | the core-side request slices, a bit per channel (0–15: caches' A, MMIO A, l1d C, l1d E) | 0 |
 | `TG_XBAR_SLICE`, `TG_MEM_SLICE` | the crossbar's own slices and the memory ports' AXI slices (0 or 1 each) | 1 |
+| `TG_DEBUG_CNT` | the board debug counters, read with `tanager-host dbg` ([uncore.md](../../docs/spec/uncore.md) §Board debug counters) | 0 |
+| `TG_VIRTIO_WINDOW` | the forwarded virtio window, served by `tanager-host` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[2]`) | 0 |
+| `TG_HOST_DMA` | the coherent host DMA port on `M_AXI_HPM1_FPD`, 2 GiB at `0x5_0000_0000` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[8]`). Without it HPM1 still answers: reads `DECERR`, writes dropped | 0 |
 
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 
@@ -314,4 +317,4 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
   - `sudo poweroff` ends it cleanly.
 - **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
   - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
-  - virtio-net is slow so far (84 kB/s).
+  - virtio-net carries 1.3 MB/s (a 112 MB download), limited by the guest at 70 MHz, not by the link ([A/B](board/sc2netc/README.md)).

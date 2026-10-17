@@ -26,7 +26,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | 0 … 3 | `l1d` of core 0 … 3 | TL-C: these are the coherence **agents**; agent index = `source[7:6]` |
 | 4 … 7 | `l1i` of core 0 … 3 | TL-UL `Get` |
 | 8 … 11 | `mmio` of core 0 … 3 | TL-UL `Get`, `PutFullData`, `PutPartialData` |
-| 12 | host DMA (plan §5.4: coherent A53 access, M5) | TL-UL |
+| 12 | host DMA (`tg_uncore` `HOST_DMA`: `tg_hdma`, the A53's coherent access, [soc.md](soc.md) §8.1) | TL-UH: `Get`, `PutFullData`, `PutPartialData` of a 64-byte line |
 | 13 … 15 | reserved | |
 
 - Up to 4 cores; `NUM_CORES` (2) of them exist today. The L2 directory has one presence bit per agent (plan §6.1: "room for 2 more agents").
@@ -40,7 +40,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 
 | Source | Device |
 |---|---|
-| 1 … 4 | virtio-mmio slots 0 … 3 (M5; tied 0 until then) |
+| 1 … 4 | virtio-mmio slots 0 … 3: the forwarded virtio window's status bits (`tg_uncore` `VIRTIO_WINDOW`, [host.md](host.md); tied 0 without it) |
 | 10 | UART (the number QEMU `virt` uses, so both device trees agree) |
 | 11 | host-control mailbox doorbell ([host.md](host.md)) |
 | 16 + h | `merr_o` of hart h (edge-triggered; plan §4.5) |
@@ -52,7 +52,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | `l1i_*` | core | A in, D out |
 | `l1d_*` | core | A in, B out, C in, D out, E in |
 | `mmio_*` | core | A in, D out |
-| `hdma_*` | 1, when `HOST_DMA = 1` | A in, D out |
+| `hdma_*` | 1, when `HOST_DMA = 1` (`tg_uncore` `HOST_DMA` drives it from `tg_hdma`) | A in, D out |
 | `l2_*` | L2 bank (2) | A out, B in, C out, D in, E out |
 | `rom_*` | 1 | A out, D in |
 | `dev_*` | 1 | A out, D in |
@@ -93,7 +93,25 @@ It converts the device-bus target's TL-UL traffic (single beat, size ≤ 3, natu
 - request: address, write, 64-bit write data and byte strobes in their address lanes;
 - response: 64-bit read data, error.
 
-It decodes the device from the address: ACLINT, PLIC, UART and host control are present. The virtio and debug windows answer `denied` until those devices exist (M5, M9), as do sizes above 3 and misaligned accesses. Devices answer in the cycle after the request. The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
+It decodes the device from the address: ACLINT, PLIC, UART and host control are present, and the virtio slots when `VIRTIO` is set (`tg_uncore` `VIRTIO_WINDOW`: the forwarded virtio window, the fifth device, [host.md](host.md)). Without it the virtio slots answer `denied`, as do the debug window (until M9), sizes above 3 and misaligned accesses.
+- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Only the virtio window waits, for the host's answer to a read or for room in its queue; every other device ties its bit to 0, so they answer as before.
+- **No timeout:** the bus waits as long as the device does, and so does the core's access.
+- The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
+
+### Board debug counters (`DEBUG_CNT`)
+
+Built only with `tg_uncore` `DEBUG_CNT` (`TG_DEBUG_CNT=1`; off by default, no logic), for the two-core board hang of DR-147. 32-bit counters of handshakes, and the cores' board-debug words, which the host reads one at a time: it writes an index to `DBG_SEL` and reads `DBG_VAL` ([host.md](host.md)), and `tanager-host dbg` prints them all.
+
+| Index | Counts |
+|---|---|
+| 8b + 0 … 7 | L2 bank b: its A, B, C, D and E handshakes, its misses, its AXI reads (AR) and its fills (R last beats) |
+| 8·N_BANKS + 5c + 0 … 4 | core c's data cache: its A, B, C, D and E handshakes at the uncore's ports |
+| 8·N_BANKS + 5·N_CORES | the L2's error events |
+| 8·N_BANKS + 5·N_CORES + 1 | now, not a count: `[10b+9:10b]` bank b's channels' valid and ready (A valid, A ready, then B, C, D and E, from the top bit down); `[20+5c+4:20+5c]` which of core c's data-cache channels wait, valid without ready (A, B, C, D, E from the top; cores 0 and 1); `[30]` the L2's sticky error |
+| 128 + 32c + w | core c's board-debug word w (`tg_core` `dbg_o`, built with `DBG_WORD`, which `tanager_soc` sets from `DEBUG_CNT`; every core shows the word `DBG_SEL[4:0]` picks, a register a cycle behind): w = 0 the status (rename, the ROB's count, the atomic, the store queue's head, the data cache, the trace stall, a flush); 1–15 the first 15 dispatch groups after reset and 16–31 the first 16 commit cycles that retire, per slot {writes rd, rd is FP, rd, the physical register}: the new destination at dispatch, the freed one at commit (`rtl/core/tg_core.sv` has the bits) |
+| any other | `0xDEB0_0000` |
+
+The host reads one counter at a time while the system runs, so counters read later have moved on. In a hang they stop, and the levels word shows which handshake waits.
 
 ## Parameters
 

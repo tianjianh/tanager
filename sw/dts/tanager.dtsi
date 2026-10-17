@@ -168,6 +168,35 @@
 			interrupts = <10>;
 		};
 
+#if TG_VIRTIO
+		// The forwarded virtio window (docs/spec/soc.md §8.1): four virtio-mmio slots whose registers
+		// tanager-host serves, PLIC sources 1-4. Only for bitstreams built with it (TG_VIRTIO_WINDOW=1,
+		// CAPS[2]): without it the slots answer denied. A slot the host doesn't serve reads 0, no device.
+		virtio_mmio@10010000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10010000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <1>;
+		};
+		virtio_mmio@10011000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10011000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <2>;
+		};
+		virtio_mmio@10012000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10012000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <3>;
+		};
+		virtio_mmio@10013000 {
+			compatible = "virtio,mmio";
+			reg = <0x0 0x10013000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <4>;
+		};
+#endif
 	};
 
 	poweroff {

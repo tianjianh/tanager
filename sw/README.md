@@ -15,9 +15,33 @@ uses its own `$SOC_BUILD/tc` if it has one, else the shared `$TANAGER_BUILD/tc` 
 | `dts/` | device trees for the plan §5.4 map: `tanager-kv260.dts`, `tanager-qemu.dts` | `make -C sw/dts CORES=2 THREADS=1 MEM=0x40000000 FPU=1` |
 | `qemu/boot_test.sh` | boots the images on QEMU virt with the Tanager tree; PASS/FAIL | `bash sw/qemu/boot_test.sh 2 1` |
 | `bootrom/` | boot ROM source; regenerates `rtl/uncore/bootrom/tg_bootrom_img_pkg.sv` | `make -C sw/bootrom` / `make -C sw/bootrom check` |
-| `host/` | `tanager-host`, the A53 control program | `make -C sw/host` (aarch64) / `make -C sw/host native` |
+| `dts/` `VIRTIO=1` | the same trees with the forwarded virtio window's four slots (soc.md §8.1), for bitstreams built with `TG_VIRTIO_WINDOW=1` | `make -C sw/dts CORES=2 THREADS=2 RUN_THREADS=1 VIRTIO=1` |
+| `uboot/`, `build_uboot.sh` | U-Boot 2026.07 in S-mode after OpenSBI (DR-147): `qemu-riscv64_smode_defconfig` plus `uboot/tanager.config` | `bash sw/build_uboot.sh` |
+| `build_debian.sh` | Debian 13 riscv64 disk image for stage C (DR-147): Debian's kernel and initrd booted by U-Boot's extlinux menu, root on virtio-blk, from a pinned snapshot.debian.org date with every download verified (below). Needs the build-host packages below | `bash sw/build_debian.sh [OUT] [GiB] [ssh.pub]` |
+| `qemu/debian_test.sh` | boots that image on QEMU virt through OpenSBI, U-Boot's extlinux menu and Debian's kernel to the serial autologin, then powers off (QEMU's own device tree: checks the image and U-Boot, not the board's tree); PASS/FAIL | `bash sw/qemu/debian_test.sh [image]` |
+| `host/` | `tanager-host`, the A53 control program, with the virtio back-ends (`virtio.c`: blk, net on a TAP device, rng) | `make -C sw/host` (aarch64) / `make -C sw/host native` / `make -C sw/host test` |
+
+**Build-host packages for the Debian image** (installed 2026-10-17, the user's OK through the coordinator, DR-147):
+`sudo apt install mmdebstrap qemu-user-static binfmt-support` gave mmdebstrap 1.4.3-6, qemu-user-static
+1:8.2.2+ds-0ubuntu1.18 and binfmt-support 2.2.2-7, with arch-test 0.21-1 and uidmap 1:4.13+dfsg1-4ubuntu3.2 as
+dependencies; then `sudo apt install debian-archive-keyring` (2023.4ubuntu1; the user's OK of 10-17), Debian's archive
+public keys through bookworm (12).
+- **Trust path:** the host's keyring verifies bookworm's signed Release file on the snapshot; `build_debian.sh` takes
+  bookworm's own `debian-archive-keyring` from it (2023.3+deb12u2, which adds the trixie keys), unpacks it without
+  running anything, and verifies trixie's and trixie-security's Release files with its keyring. apt checks every
+  package against the signed indices, so nothing unverified enters the image.
+- **Handlers:** only `qemu-riscv64` is registered, with flags `POF` (the interpreter is opened at registration,
+  so it works inside mmdebstrap's user namespace), by `sudo /usr/lib/systemd/systemd-binfmt
+  /usr/lib/binfmt.d/qemu-riscv64.conf`. systemd-binfmt does not run in this WSL instance, so the other qemu
+  architectures' files in `/usr/lib/binfmt.d` stay unregistered, and after a WSL restart that command has to be
+  run again (`build_debian.sh` stops with this hint when the handler is missing).
+- **Undo:** `echo -1 | sudo tee /proc/sys/fs/binfmt_misc/qemu-riscv64`, then `sudo apt remove mmdebstrap
+  qemu-user-static binfmt-support arch-test uidmap debian-archive-keyring`.
 
 Image layout in the carve-out (soc.md §3): `fw_jump.bin` at +0, `Image` at +0x20_0000, DTB at
 +0x220_0000. The kernel's effective size must stay below 32 MiB (`build_linux.sh` checks it).
 
-QEMU results (2026-10-13): PASS for 1 core x 1 thread, 2 x 1 (`st`) and 2 x 2 (`smt2`).
+QEMU results (2026-10-13): PASS for 1 core x 1 thread, 2 x 1 (`st`) and 2 x 2 (`smt2`). The Debian image
+(2026-10-17, snapshot 20261015, kernel 6.12.111+deb13): `debian_test.sh` PASS, from U-Boot to the login in about
+25 s of emulated time. The image is 8 GiB sparse, about 410 MiB written; U-Boot loads 72 MB (the 31 MB kernel and
+a 41 MB initrd, 32 MB of it the xz-compressed modules of `MODULES=most`).

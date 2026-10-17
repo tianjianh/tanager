@@ -25,3 +25,15 @@ RVTC_TAR=${RVTC_NAME}.tar.xz
 AATC_NAME=aarch64--musl--stable-2026.08-1
 AATC_URL=https://toolchains.bootlin.com/downloads/releases/toolchains/aarch64/tarballs/${AATC_NAME}.tar.xz
 AATC_TAR=${AATC_NAME}.tar.xz
+
+# U-Boot in S-mode after OpenSBI's fw_jump (DR-147: OpenSBI, U-Boot, Debian 13's own kernel), the
+# Tanager fragment sw/uboot/tanager.config over qemu-riscv64_smode_defconfig; sw/build_uboot.sh
+UBOOT_VER=2026.07
+UBOOT_URL=https://ftp.denx.de/pub/u-boot/u-boot-${UBOOT_VER}.tar.bz2
+UBOOT_TAR=u-boot-${UBOOT_VER}.tar.bz2
+
+# Debian 13 (trixie) riscv64 for the board's stage C image (sw/build_debian.sh, DR-147): a pinned
+# snapshot.debian.org date, so a rebuild gets the same packages. The image's own apt then uses the
+# normal mirrors.
+DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20261015T000000Z
+DEBIAN_SNAPSHOT_SECURITY=https://snapshot.debian.org/archive/debian-security/20261015T000000Z

@@ -92,7 +92,8 @@ module tg_dcache
   output logic              d_ready_o,
   output tl_e_t             e_o,
   output logic              e_valid_o,
-  input  logic              e_ready_i
+  input  logic              e_ready_i,
+  output logic [7:0]        dbg_o         // board debug: {ready, the miss side, ps_q} (tg_core's dbg_o)
 );
 
   // ---- Arrays ----
@@ -254,6 +255,8 @@ module tg_dcache
   logic             c_req;               // the load miss the controller port looks up: lm_req, or
   logic [PA_W-1:0]  c_pa;                // DR-149's request register
   logic             dn_hit;              // the store port's line: its last fill was denied
+  logic [3:0]       m_dbg;               // board debug: the MSHR's state (DC_MSHRS = 1), or the release
+                                         // engine busy and the number of busy entries
   assign mshr_idle = m_none;
 
   // ---- Probe FSM ----
@@ -796,6 +799,7 @@ module tg_dcache
     assign m_holdb    = rel_send;
     assign m_free_st  = m_none;
     assign m_free_ld  = m_none;
+    assign m_dbg      = 4'(ms_q);
     assign c_req      = lm_req;
     assign c_pa       = lm_pa;
     assign dn_hit     = dn_v_q && dn_line_q == sx_pa[PA_W-1:6];
@@ -1007,6 +1011,7 @@ module tg_dcache
     assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (rs_q == R_IDLE || !ev_c);
     assign c_req      = rq_v_q;
     assign c_pa       = rq_pa_q;
+    assign m_dbg      = {rs_q != R_IDLE, 3'($countones(busy))};
     assign dn_hit     = |dn_s;
     assign lm_fdn     = |dn_l;
     // The request register's answer: its line is present (the controller port hits, outside a
@@ -1324,4 +1329,5 @@ module tg_dcache
     end
   end
 `endif
+  assign dbg_o = {ready, m_dbg, 3'(ps_q)};
 endmodule

@@ -1,0 +1,2 @@
+987124342716128a728d8f8c3d995a89c9778a45 + spikes 523edb5; kv260_top patched by g5_fill_patch.py, tg_clkgen by g7_clkgen_patch.py (115.315 MHz): measurement only; options -impl 0
+tree 987124342716128a728d8f8c3d995a89c9778a45 = main 82463e2 + fn11 none (2026-10-17 03:19:26) — commit 82463e2 is main with the rename fix (24ada50) and core-2's forward-reference fixes (d73a15d), no fn11

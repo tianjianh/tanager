@@ -6,11 +6,18 @@
 //                     latency injector and the window (L2 shrunk so the region spills to memory),
 //                     at injected latencies 0 and 250; console output ('.' per pass) read back by
 //                     the host; every memory access must land inside the carve-out.
+//   VIRTIO = 1 (make ... VIRTIO=1, KIND = "tcore"): the forwarded virtio window (soc.md §8.1); the host
+//                     serves its queue and the program checks reads, a QueueNotify and the interrupt.
+//   HOST_DMA = 1 (make ... HOST_DMA=1, KIND = "tcore"): the coherent host DMA port (soc.md §8.1); the
+//                     host reads a buffer the program left dirty in its cache and writes one the
+//                     program holds copies of, records the writes' completions, and both sides check.
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   parameter string KIND = "core";       // "core" (stub cores), "trafgen", or "tcore" (tg_core is the
                                         // test core: tests/unit/soc/tcore_as_core.sv)
+  parameter bit    VIRTIO = 1'b0;       // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
+  parameter bit    HOST_DMA = 1'b0;     // the coherent host DMA port (tg_uncore HOST_DMA)
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
@@ -43,6 +50,13 @@ module tb_soc;
   bit      taw_seen = 1'b0;                 // the trace master started a write
   always @(posedge clk) if (tawv || twv) taw_seen <= 1'b1;
 
+  // the host DMA port (HOST_DMA): the host's AXI4 master
+  hdma_ax_t dma_aw = '0, dma_ar = '0;
+  axi_w_t   dma_w = '0;
+  hdma_b_t  dma_b;
+  hdma_r_t  dma_r;
+  logic     dma_awv = 1'b0, dma_awr, dma_wv = 1'b0, dma_wr, dma_bv, dma_br = 1'b0, dma_arv = 1'b0, dma_arr, dma_rv, dma_rr = 1'b0;
+
   tg_trace_pkg::tr_rec_t [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
   tg_trace_pkg::tr_wb_t  [NUM_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb;
@@ -50,7 +64,8 @@ module tb_soc;
 
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core")
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (1'b1),
     .clk, .rst, .clk_host, .rst_host,
@@ -68,6 +83,11 @@ module tb_soc;
     .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
+    .s_axi_dma_aw (dma_aw), .s_axi_dma_aw_valid (dma_awv), .s_axi_dma_aw_ready (dma_awr),
+    .s_axi_dma_w (dma_w), .s_axi_dma_w_valid (dma_wv), .s_axi_dma_w_ready (dma_wr),
+    .s_axi_dma_b (dma_b), .s_axi_dma_b_valid (dma_bv), .s_axi_dma_b_ready (dma_br),
+    .s_axi_dma_ar (dma_ar), .s_axi_dma_ar_valid (dma_arv), .s_axi_dma_ar_ready (dma_arr),
+    .s_axi_dma_r (dma_r), .s_axi_dma_r_valid (dma_rv), .s_axi_dma_r_ready (dma_rr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -151,6 +171,120 @@ module tb_soc;
     end while (v[8]);
   endtask
 
+  // Serve the virtio window's queue the way tanager-host's back-ends will: a read gets "virt" at
+  // offset 0, else (slot << 16) | offset; a QueueNotify of slot 3 sets its used-buffer bit
+  int vio_reads = 0, vio_notify = 0;
+  task automatic serve_virtio();
+    logic [31:0] h, d, val;
+    forever begin
+      hr(16'h1108, h);                          // VQ_REQ0
+      if (!h[31]) break;
+      hr(16'h110C, d);                          // VQ_REQ1 pops
+      if (h[18]) begin
+        if (h[13:12] == 2'd3 && h[11:0] == 12'h050) begin
+          vio_notify++;
+          hw(16'h1114, 32'h40);                 // VQ_IRQ: set slot 3's bit 0
+        end
+      end else begin
+        val = (h[11:0] == 12'h000) ? 32'h7472_6976 : {14'd0, h[13:12], 4'd0, h[11:0]};
+        val &= (h[17:16] == 2'd2) ? 32'hFFFF_FFFF : (h[17:16] == 2'd1) ? 32'h0000_FFFF : 32'h0000_00FF;
+        hw(16'h1110, val);                      // VQ_RSP
+        vio_reads++;
+      end
+    end
+  endtask
+
+  // The host DMA port: the host's AXI4 master (clk), 8-beat bursts at window offsets
+  function automatic logic [63:0] mix(input logic [63:0] x);
+    x ^= x >> 33;
+    x *= 64'hff51afd7ed558ccd;
+    x ^= x >> 29;
+    return x;
+  endfunction
+  localparam logic [31:0] DMA_A = 32'h0010_0000, DMA_B = 32'h0010_1000;   // RISC-V 0x8010_0000, 0x8010_1000
+  task automatic dma_read(input logic [31:0] off, output logic [127:0] beats [8], output logic [1:0] worst);
+    @(negedge clk);
+    dma_ar = '{id: 16'h0A1, addr: 40'h5_0000_0000 | 40'(off), len: 8'd7, size: 3'd4, burst: AXI_INCR};
+    dma_arv = 1;
+    do @(posedge clk); while (!dma_arr);
+    @(negedge clk) dma_arv = 0;
+    worst = 2'b00;
+    for (int k = 0; k < 8; k++) begin
+      dma_rr = 1;
+      do @(posedge clk); while (!dma_rv);
+      beats[k] = dma_r.data;
+      if (dma_r.resp != 2'b00) worst = dma_r.resp;
+      if (dma_r.last != (k == 7) || dma_r.id != 16'h0A1) fail("DMA read: RLAST or RID");
+      @(negedge clk) dma_rr = 0;
+    end
+  endtask
+  task automatic dma_write(input logic [31:0] off, input logic [127:0] beats [8], output logic [1:0] resp);
+    @(negedge clk);
+    dma_aw = '{id: 16'h0B2, addr: 40'h5_0000_0000 | 40'(off), len: 8'd7, size: 3'd4, burst: AXI_INCR};
+    dma_awv = 1;
+    do @(posedge clk); while (!dma_awr);
+    @(negedge clk) dma_awv = 0;
+    for (int k = 0; k < 8; k++) begin
+      dma_w = '{data: beats[k], strb: '1, last: (k == 7)};
+      dma_wv = 1;
+      do @(posedge clk); while (!dma_wr);
+      @(negedge clk) dma_wv = 0;
+    end
+    dma_br = 1;
+    do @(posedge clk); while (!dma_bv);
+    resp = dma_b.resp;
+    if (dma_b.id != 16'h0B2) fail("DMA write: BID");
+    @(negedge clk) dma_br = 0;
+  endtask
+
+  // When the program rings the doorbell: read DMA_A (dirty in its cache), write DMA_B (cached there),
+  // check the completions, then answer through MBOX_OUT
+  bit dma_done = 0;
+  task automatic serve_dma();
+    logic [31:0] v, v1;
+    logic [127:0] beats [8];
+    logic [1:0] r;
+    hr(16'h070, v);                             // MBOX_IN: the program's doorbell
+    if (!v[0]) return;
+    hw(16'h070, 32'h1);
+    for (int b = 0; b < 4; b++) begin           // DMA_A: 512 bytes in four 128-byte bursts
+      dma_read(DMA_A + 32'(128 * b), beats, r);
+      if (r != 2'b00) fail($sformatf("DMA read response %0d", r));
+      for (int k = 0; k < 8; k++)
+        for (int h = 0; h < 2; h++)
+          if (beats[k][64*h +: 64] != mix(64'(16 * b + 2 * k + h) ^ 64'hA5))
+            fail($sformatf("DMA read of the dirty buffer, word %0d: %h", 16 * b + 2 * k + h, beats[k][64*h +: 64]));
+    end
+    for (int b = 0; b < 4; b++) begin           // DMA_B: overwritten while the program holds copies
+      for (int k = 0; k < 8; k++)
+        for (int h = 0; h < 2; h++) beats[k][64*h +: 64] = mix(64'(16 * b + 2 * k + h) ^ 64'hB6);
+      dma_write(DMA_B + 32'(128 * b), beats, r);
+      if (r != 2'b00) fail($sformatf("DMA write response %0d", r));
+    end
+    // one completion per line written, in order, with rising cycles
+    hr(16'h1304, v);
+    if (v != 32'd8) fail($sformatf("HDMA_STATUS %0d completions, want 8", v));
+    begin
+      logic [31:0] last;
+      last = 0;
+      for (int i = 0; i < 8; i++) begin
+        hr(16'h1310, v);
+        hr(16'h1314, v1);
+        if (!v[31] || v[25:0] != 26'((DMA_B >> 6) + 32'(i)) || (i > 0 && v1 <= last))
+          fail($sformatf("completion %0d: %h cycle %0d", i, v, v1));
+        last = v1;
+      end
+    end
+    hr(16'h1308, v);
+    if (v != 32'd8) fail($sformatf("HDMA_RD_LINES %0d, want 8", v));
+    hr(16'h130C, v);
+    if (v != 32'd8) fail($sformatf("HDMA_WR_LINES %0d, want 8", v));
+    hr(16'h1318, v);
+    if (v != 32'd0) fail($sformatf("HDMA_WR_DROPS %0d, want 0", v));
+    hw(16'h074, 32'h1);                         // MBOX_OUT: the program reads DMA_B
+    dma_done = 1;
+  endtask
+
   // =============================================================================================
   initial begin
     logic [31:0] v;
@@ -205,6 +339,10 @@ module tb_soc;
       hw(16'h1000, 32'h1);                      // enable
       do hr(16'h1040, v); while (!v[0]);        // capturing in the core domain before the cores start
     end
+    if (KIND == "tcore" && VIRTIO) hw(16'h1100, 32'h1);     // VQ_CTRL: the host serves the window
+    if (KIND == "tcore" && HOST_DMA) hw(16'h1300, 32'h1);   // HDMA_CTRL: record the completions
+    if (KIND == "tcore" && (VIRTIO || HOST_DMA))             // FROMHOST: which parts the program runs
+      hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1));
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -231,6 +369,8 @@ module tb_soc;
       do begin
         repeat (500) @(posedge clk);
         drain_console();
+        if (VIRTIO) serve_virtio();
+        if (HOST_DMA && !dma_done) serve_dma();
         hr(16'h088, seq);
         // the trace consumer: check the first record once, then release everything written
         if (TRACE) hr(16'h1038, lo);
@@ -256,6 +396,9 @@ module tb_soc;
         for (int i = 0; i + 4 <= console.len(); i++) if (console.substr(i, i + 3) == "PASS") found = 1;
         if (!found) fail("no PASS on the console");
       end
+      if (HOST_DMA && !dma_done) fail("the host DMA test never ran");
+      if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
+        fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
       // the stream: everything retired went to the trace memory, starting at the boot ROM
       if (!TRACE) begin
         hr(16'h00C, lo);
