@@ -1,0 +1,49 @@
+loaded tanager-sc2 at 17:37:54; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --dbg --timeout 270000 < console
+login prompt 270 s after the load
+commands done 3987 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 297001434 reads, native latency avg 7.0 max 88 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in               1606904545
+  L2 bank 0 B out (probes)      451236113
+  L2 bank 0 C in               2707783546
+  L2 bank 0 D out              2401609469
+  L2 bank 0 E in (GrantAck)     862032484
+  L2 bank 0 misses              149849213
+  L2 bank 0 AXI reads           149849213
+  L2 bank 0 fills               149849212
+  L2 bank 1 A in               1717841196
+  L2 bank 1 B out (probes)      596497133
+  L2 bank 1 C in               3153737345
+  L2 bank 1 D out              2824206191
+  L2 bank 1 E in (GrantAck)     985456338
+  L2 bank 1 misses              147152236
+  L2 bank 1 AXI reads           147152236
+  L2 bank 1 fills               147152233
+  core 0 l1d A out             928513244
+  core 0 l1d B in (probes)     523241162
+  core 0 l1d C out            2942697680
+  core 0 l1d D in             4129854785
+  core 0 l1d E out (GrantAck)  928513244
+  core 1 l1d A out             918975578
+  core 1 l1d B in (probes)     524492084
+  core 1 l1d C out            2918823211
+  core 1 l1d D in             4082134171
+  core 1 l1d E out (GrantAck)  918975578
+  L2 error events                  16
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+power-off reached the host 4013 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (789 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 18:44:50
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

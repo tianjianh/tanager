@@ -19,3 +19,15 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
 **Run s1** stopped after pass 1, which found that `make` is not installed (`ERR 127`); the `t` and `mt` results were right. Fixed with `xargs -P 2`.
 
 **Run s2** started 17:37 (board time). Passes 1–2 were clean: 146–147 s each; sysbench cpu 53.8 events/s, memory 67.2 MiB/s, threads about 1,035 events.
+
+**Result of run s2: 25 of 25 passes clean, 66 minutes of two-core load** ([`stress_s2.txt`](stress_s2.txt), monitor [`stress_monitor_s2.txt`](stress_monitor_s2.txt), console [`linux_shell_stress_s2.txt`](linux_shell_stress_s2.txt)).
+- **Every result matched x86:** `t`, `mt` (exact atomic and mutex counts every pass), and the project. There were no `STRESS FAIL` or `STRESS DMESG` lines, and no oops, BUG, panic, RCU stall, lockup or hung task.
+- **Steady numbers:**
+  - sysbench cpu on 2 threads: average 53.95 events/s (53.79–54.67);
+  - memory on 2 threads: 67.32 MiB/s;
+  - threads: 1,036 events per 30 s;
+  - 145–147 s per pass; load average about 1.9.
+- **The L2 error events stayed at 16 all run:** DR-151's refused fills, since sc2 predates the memory-region change.
+- **Fan:** 15/255 at 33–34 °C throughout.
+- **How it ended:** stopped cleanly with `q` at 18:44 when soc-2's sc3 package appeared, as planned. The guest finished pass 25 and powered off (`boot exit 0`, power-off at 4,013 s).
+- **For the SoC track:** the injector's native-latency average reads 21.5 cycles after 164 M reads and 6.0 after 277 M. 277 M × 21.5 is more than 2³², so the latency sum probably wraps at 32 bits.
