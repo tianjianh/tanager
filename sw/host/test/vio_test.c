@@ -6,8 +6,13 @@
  * a SOCK_SEQPACKET socket pair in place of the TAP device (one frame per read and write): its two
  * queues, frames sent in one or two descriptors, a runt, frames received into buffers, a frame that
  * waits for a buffer, a buffer too small, NO_INTERRUPT, and frames before the driver is ready.
+ * `vio_test xw` runs it all again with the stores recorded for lockstep (extwrite.c) against a fake
+ * completion queue of 16 that refuses a store while it is full: every store must come back as one record
+ * (address, data, mask, its completion's cycle) by the end of each vio_poll() and xw_drain(), with at most
+ * XW_OUTSTANDING completions waiting; a completion that never comes, or comes for another line, must fail.
  *   make -C sw/host test        (native build; sw/host/Makefile) */
 #define _GNU_SOURCE
+#include "../extwrite.h"
 #include "../virtio.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,8 +29,65 @@ static int req_v, rsp_v, errors, narrow_idx;
 #define CHECK(c, ...) do { if (!(c)) { errors++; fprintf(stderr, "FAIL %s:%d: ", __FILE__, __LINE__); \
                            fprintf(stderr, __VA_ARGS__); fputc('\n', stderr); } } while (0)
 
+/* ---- xw mode: the completion queue (16, in order) and the stores still owed a record ---- */
+static int xw_mode, cq_drop, cq_skew, n_fail;
+static struct { uint32_t line, cyc; } cq[16];
+static unsigned cq_n, cq_head, cq_max;
+static uint32_t cyc_now = 1000;
+static struct { uint64_t off, v; unsigned size; uint32_t cyc; } owed[64];
+static unsigned owed_n, owed_head;
+static uint64_t n_stores, n_checked;
+
+static void stored(uint64_t off, uint64_t v, unsigned size) {
+  if (!xw_mode) return;
+  n_stores++;
+  cyc_now += 7;
+  CHECK(cq_n < 16, "a store to %llx with the completion queue full: the A53 would wait on it", (unsigned long long)off);
+  if (cq_n < 16 && !cq_drop) {
+    unsigned t = (cq_head + cq_n++) % 16;
+    cq[t].line = (uint32_t)(off >> 6) + (uint32_t)cq_skew;
+    cq[t].cyc = cyc_now;
+    if (cq_n > cq_max) cq_max = cq_n;
+  }
+  cq_drop = cq_skew = 0;
+  CHECK(owed_n < 64, "64 stores without their records");
+  if (owed_n < 64) {
+    unsigned t = (owed_head + owed_n++) % 64;
+    owed[t].off = off; owed[t].v = v; owed[t].size = size; owed[t].cyc = cyc_now;
+  }
+}
+/* the record of the oldest store owed one (bytes as on the board: this host is little-endian too) */
+static void t_emit(const uint8_t rec[XW_REC_BYTES]) {
+  CHECK(owed_n > 0, "a record with no store");
+  if (!owed_n) return;
+  unsigned i = owed_head;
+  owed_head = (owed_head + 1) % 64;
+  owed_n--;
+  uint8_t want[XW_REC_BYTES];
+  uint64_t pa = PA(owed[i].off);
+  uint32_t mask = (1u << owed[i].size) - 1;
+  memset(want, 0, sizeof want);
+  memcpy(want, &pa, 8);
+  memcpy(want + 8, &owed[i].v, owed[i].size);
+  memcpy(want + 40, &owed[i].cyc, 4);
+  memcpy(want + 44, &mask, 4);
+  want[63] = XW_MARK;
+  CHECK(!memcmp(rec, want, XW_REC_BYTES), "record %llu: not that of the %u-byte store of %llx to %llx at cycle %u",
+        (unsigned long long)n_checked, owed[i].size, (unsigned long long)owed[i].v, (unsigned long long)pa, owed[i].cyc);
+  n_checked++;
+}
+static void t_fail(const char *msg) { n_fail++; printf("  (expected) %s\n", msg); }
+
 /* ---- the fake host bridge and RAM ---- */
 static uint32_t f_rd(unsigned off) {
+  if (off == HDMA_CPL0) return cq_n ? 0x80000000u | (cq[cq_head].line & 0x3ffffffu) : 0;
+  if (off == HDMA_CPL1) {
+    if (!cq_n) return 0;
+    uint32_t c = cq[cq_head].cyc;
+    cq_head = (cq_head + 1) % 16;
+    cq_n--;
+    return c;
+  }
   if (off == VQ_REQ0) return req_v ? req0 | 0x80000000u : 0;
   if (off == VQ_REQ1) { req_v = 0; return req1; }
   return 0;
@@ -43,30 +105,45 @@ static uint64_t f_rd64(uint64_t off) {
 static void f_wr64(uint64_t off, uint64_t v) {
   CHECK(!(off & 7) && off + 8 <= RAM_BYTES, "wr64 at %llx", (unsigned long long)off);
   if (off + 8 <= RAM_BYTES) memcpy(ram + off, &v, 8);
+  stored(off, v, 8);
 }
 static void f_wr32(uint64_t off, uint32_t v) {
   CHECK(!(off & 3) && off + 4 <= RAM_BYTES, "wr32 at %llx", (unsigned long long)off);
   if (off + 4 <= RAM_BYTES) memcpy(ram + off, &v, 4);
+  stored(off, v, 4);
 }
 static void f_wr8(uint64_t off, uint8_t v) {
   CHECK(off < RAM_BYTES, "wr8 at %llx", (unsigned long long)off);
   if (off < RAM_BYTES) ram[off] = v;
+  stored(off, v, 1);
   if ((off >= 0x3000 && off < 0x3004) || (off >= 0x7000 && off < 0x7004))
     narrow_idx = 1;                                     /* used.flags/idx must go in one store */
 }
 static void f_bar(void) {}
 
+/* vio_poll(), then in xw mode xw_drain(), after which no store may still be owed its record (tanager-host
+ * forwards the trace only then) */
+static int vpoll(void) {
+  int n = vio_poll();
+  if (xw_mode) {
+    xw_drain();
+    CHECK(owed_n == 0 && cq_n == 0, "after vio_poll and xw_drain: %u stores owed records, %u completions waiting",
+          owed_n, cq_n);
+  }
+  return n;
+}
+
 /* ---- the driver's accesses through the window ---- */
 static unsigned lg(unsigned size) { return size == 4 ? 2 : size == 2 ? 1 : 0; }
 static uint32_t mr(unsigned slot, unsigned off, unsigned size) {
   req0 = (slot << 12) | off | (lg(size) << 16); req1 = 0; req_v = 1; rsp_v = 0;
-  int n = vio_poll();
+  int n = vpoll();
   CHECK(n == 1 && rsp_v && !req_v, "read slot %u off %x: %d served", slot, off, n);
   return rsp;
 }
 static void mw(unsigned slot, unsigned off, uint32_t v) {
   req0 = (slot << 12) | off | (2u << 16) | (1u << 18); req1 = v; req_v = 1; rsp_v = 0;
-  int n = vio_poll();
+  int n = vpoll();
   CHECK(n == 1 && !rsp_v, "write slot %u off %x", slot, off);
 }
 
@@ -139,7 +216,8 @@ static void blk_hdr(uint64_t off, uint32_t type, uint64_t sector) {
   memcpy(ram + off, &type, 4); memcpy(ram + off + 4, &z, 4); memcpy(ram + off + 8, &sector, 8);
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+  xw_mode = argc > 1 && !strcmp(argv[1], "xw");
   char path[512];
   snprintf(path, sizeof path, "%s/vio_test_XXXXXX", getenv("TMPDIR") ? getenv("TMPDIR") : ".");
   int fd = mkstemp(path);
@@ -148,6 +226,10 @@ int main(void) {
   for (unsigned i = 0; i < sizeof img; i++) img[i] = (uint8_t)(i * 7 + (i >> 9));
   if (write(fd, img, sizeof img) != (ssize_t)sizeof img) { perror("write"); return 2; }
   struct vio_hooks h = { f_rd, f_wr, f_rd64, f_wr64, f_wr32, f_wr8, f_bar, RAM_BYTES };
+  if (xw_mode) {
+    struct xw_hooks xh = { t_emit, t_fail, 100 };
+    xw_wrap(&h, &xh);
+  }
   int sv[2];                                     /* sv[0] the back-end's "TAP device", sv[1] the network */
   if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, sv)) { perror("socketpair"); return 2; }
   static const uint8_t mac[6] = { 0x02, 0x74, 0x6e, 0x67, 0x72, 0x01 };
@@ -283,7 +365,7 @@ int main(void) {
   memset(ram + 0x40000, 0xee, 12);
   send(sv[1], fr + 3, 100, 0);
   irq_set = 0;
-  CHECK(vio_poll() == 1, "one frame received");
+  CHECK(vpoll() == 1, "one frame received");
   usedq(0, 0, 112, 2, 1);
   static const uint8_t hdr[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 };   /* num_buffers 1 */
   CHECK(!memcmp(ram + 0x40000, hdr, 12) && !memcmp(ram + 0x40000 + 12, fr + 3, 100), "the received frame");
@@ -291,10 +373,10 @@ int main(void) {
   send(sv[1], fr, 64, 0);
   send(sv[1], fr + 1, 1514, 0);
   irq_set = 0;
-  CHECK(vio_poll() == 1, "one buffer, one frame");
+  CHECK(vpoll() == 1, "one buffer, one frame");
   usedq(0, 1, 76, 2, 1);
   irq_set = 0;
-  CHECK(vio_poll() == 0 && irq_set == 0, "a frame received without a buffer");
+  CHECK(vpoll() == 0 && irq_set == 0, "a frame received without a buffer");
   descq(0, 2, 0x42000, 12 + 1514, 2, 0);
   submitq(2, 0, 2);
   usedq(0, 2, 12 + 1514, 2, 1);
@@ -304,14 +386,14 @@ int main(void) {
   submitq(2, 0, 3);
   send(sv[1], fr, 200, 0);
   irq_set = 0;
-  vio_poll();
+  vpoll();
   usedq(0, 3, 0, 2, 1);
   descq(0, 4, 0x44000, 16, 0, 5);
   descq(0, 5, 0x44100, 12 + 1514, 2, 0);
   submitq(2, 0, 4);
   send(sv[1], fr, 60, 0);
   irq_set = 0;
-  vio_poll();
+  vpoll();
   usedq(0, 4, 0, 2, 1);
   /* no interrupt while the receiveq's avail.flags says NO_INTERRUPT */
   ram[QA[0]] = 1;
@@ -319,13 +401,13 @@ int main(void) {
   submitq(2, 0, 6);
   send(sv[1], fr, 60, 0);
   irq_set = 0;
-  vio_poll();
+  vpoll();
   usedq(0, 6, 72, 2, 0);
   ram[QA[0]] = 0;
   /* frames that come after a reset, before the driver is ready again, are dropped */
   mw(2, 0x070, 0);
   send(sv[1], fr, 60, 0);
-  vio_poll();
+  vpoll();
   CHECK(recv(sv[0], got, sizeof got, 0) < 0, "a frame left waiting after the reset");
   uint64_t rx, tx, dr;
   vio_net_stats(&rx, &tx, &dr);
@@ -333,6 +415,22 @@ int main(void) {
         (unsigned long long)rx, (unsigned long long)tx, (unsigned long long)dr);
 
   CHECK(!narrow_idx, "the used ring's index was written in pieces");
+  if (xw_mode) {
+    CHECK(n_checked == n_stores && xw_records() == n_stores, "%llu stores, %llu records checked, %llu emitted",
+          (unsigned long long)n_stores, (unsigned long long)n_checked, (unsigned long long)xw_records());
+    CHECK(cq_max <= XW_OUTSTANDING, "%u completions waiting at once", cq_max);
+    printf("vio_test xw: %llu stores, each one record; at most %u completions waiting\n",
+           (unsigned long long)n_stores, cq_max);
+    /* a completion that never comes, then one for another line: both fail, as the board's die() would */
+    cq_drop = 1;
+    h.ram_wr64(0x50000, 1);
+    CHECK(xw_drain() == -1 && n_fail == 1, "a missing completion passed");
+    owed_n = 0;
+    cq_skew = 1;
+    h.ram_wr64(0x50040, 2);
+    CHECK(xw_drain() == -1 && n_fail == 2, "a completion for another line passed");
+    owed_n = 0;
+  }
   vio_close();
   close(sv[0]);
   close(sv[1]);

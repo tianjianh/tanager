@@ -1,0 +1,2 @@
+implicit or undriven nets in our sources (Synth 8-11241, 8-605, 8-3848, 8-8895): 0
+forward references in our sources (Synth 8-6901; Vivado resolves them): 0

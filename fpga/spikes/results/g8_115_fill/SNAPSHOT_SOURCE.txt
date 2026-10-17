@@ -1,0 +1,2 @@
+e3fcf84f028e32ae6eb67f274e503fa19e0a4416 + spikes 058b498; kv260_top patched by g5_fill_patch.py, tg_clkgen by g7_clkgen_patch.py (115.315 MHz): measurement only; options -synth_dcp /home/w/tanager-build/track-spikes-72f833/fp/g8_synth_post_synth.dcp
+tree e3fcf84f028e32ae6eb67f274e503fa19e0a4416 = main 5172c6a + fn11 none (2026-10-17 08:43:35) — commit 5172c6a is main with fn11, fpu-2's G8, soc-2's MR1 (DR-151), MR2 and MR3 (their features off by default)

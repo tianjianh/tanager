@@ -251,7 +251,7 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 - **Coherence:**
   - The L2 serves the port coherently. A read sees the cores' dirty lines (the L2 probes the owner first).
   - A write completes, with AXI B, only after the L2's AccessAck, which follows the invalidation of every L1 copy.
-- **Lockstep:** with `HDMA_CTRL[0]` set, each written line's `AccessAck` queues a completion, {line, cycle}, in a 16-entry queue the host pops through the host bridge (`HDMA_CPL0`, `HDMA_CPL1`); a write waits while the queue is full. The cycle is the trace records' capture count: `tg_hdma` keeps its own copy, which a simulation assertion checks against the trace stream's. `tanager-host` hands (address, data, cycle) to `tanager-lockstep` as external-write records ([verification.md](verification.md) §3.10). No DMA data enters the trace stream.
+- **Lockstep:** with `HDMA_CTRL[0]` set, each written line's `AccessAck` queues a completion, {line, cycle}, in a 16-entry queue the host pops through the host bridge (`HDMA_CPL0`, `HDMA_CPL1`); a write waits while the queue is full. The cycle is the trace records' capture count: `tg_hdma` keeps its own copy, which a simulation assertion checks against the trace stream's. `tanager-host run --trace` hands (address, data, cycle) to `tanager-lockstep` as external-write records, one per store into the RISC-V's RAM. They go between the ring's records in its trace output, each ahead of every record captured after its store (`sw/host/extwrite.c`; [verification.md](verification.md) §3.10; [host.md](host.md)). No DMA data enters the hardware's trace stream.
 - **Switch:** `tg_uncore` `HOST_DMA` (`TG_HOST_DMA=1`; off by default, cycle-identical when off). `CAPS[8]` says which.
 
 **Notification and completion.** A QueueNotify write reaches the A53 as a forwarded request. The back-end then works the virtqueue through the DMA port, updates the used ring, and sets the slot's status bit with `VQ_IRQ`. The driver's InterruptACK clears it.
@@ -259,6 +259,11 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
 **`tanager-host` back-ends** (a virtio-mmio device model per slot, version 2 registers), in this order:
 1. **virtio-blk** on an image file on the A53's filesystem: `tanager-host run --blk <image>`. Later the RISC-V's own SD partition (below).
 2. **virtio-net:** a TAP device on the A53, bridged with its Ethernet (`br0`), so the RISC-V gets its own address on the LAN: `tanager-host run --net tanager0 --net-bridge br0` ([host.md](host.md)). The bridge is an A53 OS change: approved in advance (DR-147), set up with an automatic rollback, and logged with its undo in `fpga/kv260/README.md`, as every A53 change of stages C and D is. Debian's image takes its address by DHCP (systemd-networkd), with systemd-resolved and systemd-timesyncd. On the board (sc2, 70 MHz, 2026-10-17): ping to the A53 1.3 ms with 1400-byte frames; a 112 MB `apt-get download` at 1.3 MB/s, with apt's http method at a whole core, so the guest sets the rate, not the back-end (its idle wait in `ppoll` gained 9% over a 200 µs sleep). `apt-get update` moves 85 kB/s: apt's index work at 70 MHz.
+   - **At 100 MHz (sc3, board session, 10-17):** the same download back to back, from the frozen bench image, measured 1,811 kB/s against sc2's 1,287 kB/s at 70 MHz. That is 1.41×, the clock ratio.
+     - **CPU-bound at both clocks:** user plus system time is 96–97% of the wall time.
+     - **TCP is clean at both clocks:** no retransmits, timeouts or out-of-order or receive-queue drops (nstat), and no packets dropped by eth0, the A53's TAP or the bridge.
+     - **GRO** merges 7–10 wire segments per batch.
+     - **The earlier slow runs:** two at 100 MHz moved about 630 kB/s, with apt using the same CPU time spread over three times as long. So packets were arriving slower: the internet path or the mirror at that time, not the core or the virtio device (`fpga/kv260/board/sc3`, "TCP look").
 3. **virtio-rng:** from the A53's `getrandom()`.
 
 The console stays the 16550 UART (PMOD, with the host's copy). Debian's kernel has no SBI console tty, so the console must be a UART.
@@ -296,7 +301,14 @@ The plan:
 1. The image file on `p2` first. It needs no repartitioning.
 2. Then a full backup of the card to the laptop.
 3. Then an offline shrink of `p2` to about 6 GiB, from an initramfs hook at the A53's next boot (ext4 shrinks only unmounted).
-4. Then `p3` for the RISC-V, served raw as virtio-blk.
+4. Then `p3` for the RISC-V, served raw as virtio-blk. It holds the image's file system alone, with no partition table of its own, so stage D can mount the same partition natively (§8.2, the RISC-V's partition).
+
+**Done on the board** (the board session, 10-17, `fpga/kv260/board/sdcard`):
+- **The layout:** the A53's root is now 6 GiB, and `p3` is 7,741 MiB (sectors 14,682,112–30,535,679).
+- **The move:** `debian_to_partition.sh` moved the bench image (gcc and sysbench) onto it. It shrank the file system 8,191 → 7,741 MiB in place, copied 380,780 blocks in 3 min 4 s (8 MB/s, the card's write rate), and ended "checks clean, 8 backup superblocks".
+- **The boot:** sc3 at 100 MHz with `--blk /dev/mmcblk1p3`. U-Boot found extlinux on the whole disk at once, Debian mounted `/dev/vda`, and login came at 191 s, as from the image file.
+- **The check:** a 64 MiB file written with fsync survived the power-off and verified on the next boot, and `e2fsck -fn` on the A53 was clean.
+- **The A53's cloud-init regrew its root:** Ubuntu's `growpart` and `resizefs` modules run at every boot ("frequency always"), and they took the freed space back 16 s into the boot after the first shrink. A `/etc/cloud/cloud.cfg.d` file now turns both off. Any A53 image that gives card space away needs the same.
 
 A bigger cloned card is the alternative if the user prefers it. The board session does the work on the board, and the A53's Ubuntu stays intact and bootable.
 
@@ -317,11 +329,17 @@ A bigger cloned card is the alternative if the user prefers it. The board sessio
 After the A53 boots it hands the board to the RISC-V and parks. The RISC-V's own drivers then run the PS's SD, GEM Ethernet, USB and UART controllers. Each OS has its own SD partition.
 
 **The PL-to-PS path.**
-- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`; to confirm in the TRM that `S_AXI_LPD` reaches them).
+- An uncore target window (a device region of the RISC-V map) with an AXI4-Lite master into `S_AXI_LPD` reaches the IOP peripherals' registers (`0xFF00_0000`–`0xFFFF_FFFF`).
+- **Confirmed in the PS IP's own address map** (Vivado 2025.2, `zynq_ultra_ps_e` v3.5, memory map `SAXIGP6`; 10-17):
+  - by default `S_AXI_LPD` reaches the lower LPS slaves, `0xFF00_0000`–`0xFFFF_FFFF`, as one 16 MiB block (`LPD_LPS_OCM`). That block holds the IOP (UART0/1 `0xFF00/0xFF01_0000`, GPIO `0xFF0A_0000`, GEM3 `0xFF0E_0000`, TTC1 `0xFF12_0000`, SD1 `0xFF17_0000`, IOU_SLCR `0xFF18_0000`), USB0's glue registers (`0xFF9D_0000`) and the LPD DMA (`0xFFA8_0000`);
+  - with `PSU__EXPAND__UPPER_LPS_SLAVES` = 1 it also reaches the upper LPS slaves, `0xFE00_0000`–`0xFEFF_FFFF`, which hold USB0's DWC3 core at `0xFE20_0000`;
+  - the port's address is 49 bits wide and its ID 6 bits.
 - Device accesses are at most 8 bytes, so AXI4-Lite suffices.
 - The XPPU must allow that master to reach these peripherals.
 
 **Interrupts.** The PS routes the four peripherals' interrupts to the PL (the PS-to-PL interrupt signals, enabled in the PS configuration). They go to free PLIC sources, for example 20–27.
+- The signals, from the same IP: `ps_pl_irq_uart1`, `ps_pl_irq_sdio1`, `ps_pl_irq_enet3`, and `ps_pl_irq_usb3_0_endpoint[0]` (the DWC3 host line of `[3:0]`). Each is enabled by its `PSU__IRQ_P2F_<NAME>__INT` parameter (`UART1`, `SDIO1`, `ENT3`, `USB3_ENDPOINT__INT0`).
+- D1's test uses `ps_pl_irq_ttc1_0` (`PSU__IRQ_P2F_TTC1__INT0`). `ps_pl_irq_adma_chan[7:0]` is there too.
 
 **Peripheral DMA.**
 - The SD, GEM and USB controllers are bus masters that write DDR through the PS interconnect, behind the RISC-V's L2.
@@ -387,6 +405,81 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 **Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.
 
 **Stage D's drivers.** Debian's kernel has MACB, PHYLIB and DP83867, as modules. It lacks `sdhci-of-arasan`, `dwc3`, `xilinx_uartps`, any TTC PWM, `pwm-fan` and the AMS driver. Those are our own modules, using generic compatibles and no ZynqMP firmware calls. The fan needs none: the PL regulates it (below).
+- **Checked in the image's kernel** (6.12.111+deb13-riscv64, 10-17): `MMC_SDHCI_OF_ARASAN`, `USB_DWC3` and `SERIAL_XILINX_PS_UART` are not set. `MMC_SDHCI`, `MMC_SDHCI_PLTFM`, `USB_XHCI_PLATFORM`, `MACB` and `DP83867_PHY` are modules. The ZynqMP-only options (`GPIO_ZYNQ`, `PWM_CADENCE`, `ZYNQMP_FIRMWARE`) don't exist on riscv64.
+- `DMA_RESTRICTED_POOL` is not set either, so D-b would need a kernel of our own as well as its PMA change. That leaves D-c as the only option with Debian's kernel until Zicbom (`RISCV_ISA_ZICBOM` is built, but the core lacks the extension).
+
+**Order of work** (soc-2's plan, 10-17, DR-153: M5 runs alongside the core tracks' M6). Cheap board probes come first, because one answer can change D-c. Next comes the PL-to-PS path, tried on the simplest controller with no handover. Then come the steps that need the A53 off the card, in order of value: the root file system, the network, USB. The board session runs the board steps.
+
+- **D0: probes on sc3, before any new RTL.** sc3's host DMA port is already D-c's path.
+  1. **Can a PS master other than the A53 write through HPM1?** An LPD DMA channel (ADMA, an LPD master like the IOU's GEM, SD and USB) copies a buffer from the A53's memory to `0x5_0000_0000` + o. `tanager-host dma read` must then show it, and a RISC-V program that held the line in its cache must read the new bytes.
+     - If it fails, which block refused (SMMU, XMPU or the address decode) decides what follows.
+     - If IOU masters cannot reach HPM1 at all, D-c falls, and stage D waits for Zicbom (D-a, M9): Debian's kernel has no restricted pool for D-b.
+  2. **What the A53's boot leaves:**
+     - the SMMU's state: the `arm-smmu` bypass setting, and which streams it attaches;
+     - whether the XPPU and the XMPUs are enabled;
+     - the clock rates of UART1, SD1, GEM3 and USB0 (`clk_summary`).
+  3. **The board's wiring:**
+     - the DP83867's MDIO address and its reset;
+     - the USB5744 hub's reset;
+     - which controller the micro-SD is on (SD1);
+     - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
+  4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
+- **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
+  - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
+    - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
+    - an AXI4-Lite master into `S_AXI_LPD`, on `clk_core`;
+    - only USB0 (its DWC3 core, `0xFE20_0000`, 1 MiB; its glue, `0xFF9D_0000`, 64 KiB) and the IOP (`0xFF00_0000`–`0xFF1F_FFFF`) pass;
+    - **every failure is an access fault:** another address, an error response, or no response within 2^16 cycles. An unclocked peripheral can stall the PS interconnect, and the RISC-V must not hang behind it.
+  - **Interrupts:** the four controllers' PS-to-PL interrupts go to PLIC sources 20–23 (UART1, SD1, GEM3, USB0's host line).
+  - **Block design:** `S_AXI_LPD` (GP6) on, with `PSU__EXPAND__UPPER_LPS_SLAVES` for USB's core and both LPS blocks assigned to the port, and the PS-to-PL interrupts on.
+  - **Approval:** `tg_map_pkg`'s new region and `kv260_top`'s ports are an interface change, a DR for the coordinator.
+  - **Area:** about +0.2–0.4K LUTs. If 100 MHz or the area gets tight, stage D builds can leave out the virtio window: they need only the host DMA port.
+  - **Tests:** `tests/unit/soc` `PS_WINDOW=1`: an AXI4-Lite slave model with random delays, errors and a silent address, and the interrupts into the PLIC. Then the 100 MHz board build.
+  - **On the board, a bare-metal RISC-V program,** while the A53's Linux runs on:
+    - writes a line into UART1's transmit FIFO, which appears on the board's USB console among the A53's output;
+    - reads UART1's status and an IOU register;
+    - takes a PS interrupt through its PLIC, from a peripheral the A53 does not use: a TTC1 interval, or UART0 in local loopback if it is clocked;
+    - gets an access fault from a denied address.
+  - **Met when** all four happen and the A53's Linux is unharmed.
+- **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
+  - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
+  - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.
+- **D3: the handover, and the RISC-V's console** (with the board session).
+  - **The A53's handover boot:** a U-Boot menu entry on `p1`. It has Ubuntu's kernel and an initramfs with `tanager-host`, the bitstream and the RISC-V's boot images.
+    - Its device tree disables UART1, SD1, GEM3 and USB0; the command line has `clk_ignore_unused` and SMMU bypass.
+    - It loads the bitstream and starts the RISC-V, and never touches the card again after reading the images.
+  - **The console on UART1** (`cdns,uart-r1p12`):
+    - OpenSBI's Cadence driver gives the early output;
+    - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
+    - Until then the console stays on the PL UART through `tanager-host` (stage C's path), so the RISC-V never runs without one.
+  - **Met when** Buildroot's login prompt appears on the board's USB serial port, with the A53 in the handover boot.
+- **D4: the SD, with Debian on its own partition natively.**
+  - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
+  - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
+  - **Boot:**
+    - the handover boot reads Debian's kernel and initrd from `p3`'s `/boot` and loads them with the device tree;
+    - OpenSBI jumps to the kernel: U-Boot has no SD driver for this controller on RISC-V;
+    - the root is `root=LABEL=tanager-root`.
+  - **Met when** Debian 13 reaches its login from `p3` with no virtio disk, and its read rate is measured against stage C's.
+- **D5: Ethernet.**
+  - Debian's own `macb` and `dp83867`, with `cdns,gem` on D-c. The PHY stays out of reset, as the A53 left it.
+  - The GEM's transmit clock stays at the 125 MHz the A53 left. So the PHY advertises only 1000 Mb/s (`max-speed`) until there is a clock path for 100 Mb/s.
+  - It replaces stage C's bridged virtio-net. **Met when** apt runs over it, with its rate against stage C's 9.9 MB/s.
+- **D6: USB 2.**
+  - `dwc3`, our DKMS module, in host mode through Debian's `xhci-plat`. The USB5744 hub stays out of reset, as the A53 left it.
+  - USB 3 (PS-GTR) only if the A53's PHY setup survives the handover. **Met when** a USB stick mounts.
+- **D7: park.**
+  - The secondary A53s go off (CPU hotplug). The boot core idles in `tanager-host`'s loop, which still serves power-off and reboot requests.
+  - Stage C stays as the fallback, and the whole flow is documented.
+
+**The RISC-V's partition, for stages C and D:**
+- **Format:** `p3` holds a plain ext4 file system, `LABEL=tanager-root`, with no partition table of its own. Then the same partition is the virtio disk in stage C and `mmcblk1p3` in stage D.
+- **U-Boot:** its distro boot finds no partition 1 on such a disk ("No partition table"), but `sysboot virtio 0:0 any ${scriptaddr} /boot/extlinux/extlinux.conf` boots it. So our U-Boot's boot command tries the whole disk first, then distro boot (`sw/uboot/tanager.config`). On a partitioned disk the first try costs one "Error reading config file" line.
+  - **Checked in QEMU** (`sw/qemu/debian_test.sh`, 10-17), each PASS with root on `/dev/vda` or `vda1`: the disk image, partitioned (through distro boot); its file system alone (through the whole-disk try); and the 7,840 MiB partition that `debian_to_partition.sh` made from it.
+- **Size:** the 8 GiB image doesn't fit beside 1 + 6 GiB on a 16 GB card (about 14.8 GiB). So the move shrinks its file system, copies it, and grows it to fill `p3` (`sw/debian_to_partition.sh`; the board runs it).
+  - The shrink is in place: the image stays bootable, and `resize2fs` grows it back.
+  - `e2image -ra` copies only the used blocks and the metadata, keeping the UUID. It writes only the primary superblock and group descriptors, so `debugfs` (`dirty`, `close -a`) then writes the backups. On the first try, without that, the backups were zeros, and the kernel warned of their checksums at boot. debugfs leaves the primary marked not clean, so `e2fsck -f -y` marks it clean (otherwise the kernel warns of an unchecked file system). Both file systems are checked, every backup superblock included.
+  - **Checked on files:** 8,191 MiB into 7,840 MiB, and into 9 GiB (grown). A 256 MiB target is refused, since the base image needs 663 MiB. So is a target holding another file system, without `--force`.
 
 ### 8.3 PL cost of stages C and D (estimate, DR-147)
 

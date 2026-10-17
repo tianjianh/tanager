@@ -95,6 +95,16 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 - `v1_freeze`: the approved M1 freeze (plan draft 0.4, `docs/perf/feature_ledger.md`).
 - `nax`: the NaxRiscv-like control, with NaxRiscv's core structures on the same uncore.
 - `nax_cal`: `nax` with NaxRiscv's own memory system, meaning no L2 and 30-cycle DRAM. Used only for calibration.
+- `rtl_m2`: **the core as built**, calibrated against the RTL (`docs/perf/area_recovery.md` §6.3):
+  - M2's front end: the micro-BTB is the only predictor;
+  - recovery at commit, wakeup on confirmed hits;
+  - one L1D miss and one I$ refill, no prefetchers;
+  - the RTL's latencies;
+  - the memory of `tg_vsim`: no L2, a flat 30 cycles.
+
+  With `--set l2_kb=1024 ...` it runs on the SoC's uncore.
+
+**The RTL platform's ELFs.** tgsim also runs ELFs built with `tests/bench/bsp`, as tg_vsim does. Their 16550's status register reads as ready, and stores to the ELF's `tohost` and `tg_marker` symbols exit and mark the region. `bench/build_rtl.sh` builds some of the suite that way, so both simulators run the same binaries (`scripts/rtlcal.py`).
 
 `--set name=value` overrides any parameter after the preset is applied; `--json FILE` writes all statistics.
 
@@ -127,6 +137,8 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 | `scripts/smt_tables.py` (or `smt.py --tables`) | generated SMT2 tables → `docs/perf/smt2_tables.md` |
 | `scripts/area.py` | the area-recovery study (plan §8.5, D18): each IPC-costing lever alone on v1 (`smt2`) and v2 (`smt2_w3`), at 30/120/250 cycles, on the 42 pairs and the single-thread suite → `results/area_recovery.json`. Other modes:<br>`--combos`: the levers that pass the reverse rule, added greedily (each saving recomputed on top of the levers taken), the v2 re-plan options, window growth with wakeup tags, and the single-thread variants;<br>`--census`: the dependency census on v1 and v2 (pairs and single-thread suite);<br>`--tables`: generated tables → `results/area_tables.md` (used by `docs/perf/area_recovery.md`).<br>About 3 hours on 8 threads from an empty cache. |
 | `scripts/area_fit.py --core <run>/latest.json --uncore <run>/latest.json [--cfg smt2]` | the device fit from per-unit budget runs (`docs/perf/area_recovery.md` §7). It reads the budget flow's `latest.json` for a core configuration and for the uncore, and adds hart 1's state (estimated) until M7 builds it. It prints each unit against `fpga/budget/budgets.tsv`, and the dual-core total against the 200 MHz and 180 MHz fill limits. It keeps §7.7's gap table current. |
+| `scripts/rtlcal.py --vsim <tg_vsim> ELF...` | the calibration (`docs/perf/area_recovery.md` §6.3): the same ELFs in tg_vsim and in tgsim with `rtl_m2`, at native and 120-cycle latency, with region cycles per program. RTL results are cached in `results/rtlcal_rtl.json`. At most 8 runs at a time. `TGSIM_MPDUMP=file` makes tgsim write its mispredicts by PC, and `scripts/rtl_mpcmp.py` sets them against the RTL's commit-trace refills |
+| `scripts/m6_steps.py` | the M6 features from the core as built (§6.3), at 100 MHz's latencies with the SoC's L2 and 115 MHz's alongside: each feature alone; stacked greedily by suite gain per LUT with the running LUT total; and in the plan's order. Then one core at 100 MHz against NaxRiscv at 135 and 150 MHz → `results/m6_steps_rv64gc.json` |
 | `scripts/clock_low.py` | the DR-145 clocks (`docs/perf/area_recovery.md` §6.2): v1 calibrated to the RTL as built (one L1D miss in flight, one I-cache refill, no prefetchers) at 94, 100, 125 and 150 MHz with L2 `DATA_LAT` 2, in the default profile with 1, 2 or 4 L1D misses in flight and in the fallback, against the NaxRiscv-like control at 135 and 150 MHz. One thread (the suite and the working-set kernels, one core alone) and four threads (two busy cores × SMT2 on smt.py's 42 pairs and 16 working-set pairs; each core with half the L2 and one HP port). At most 8 runs at a time → `results/clock_low_rv64gc.json` |
 | `scripts/clock.py` | the clock sweep (`docs/perf/area_recovery.md` §6.1): v1's single-thread suite at 150–200 MHz and the NaxRiscv-like control at 137 and 150 MHz, each with its clock's cycle latencies (DRAM 184 ns and 3.2 GB/s from spike S1, the L2's `DATA_LAT`), and one extra pipeline stage at each unit boundary at 200 and 150 MHz → `results/clock_rv64gc.json` |
 | `scripts/stats.py <isa> <workload> <preset> [k=v ...]` | every statistic of one run, per cycle and per 1,000 instructions |
@@ -225,6 +237,11 @@ The mispredict penalty and the L2 hit have their own parameters (`redirect_lat`,
 | Parameter | Model point |
 |---|---|
 | `abl_st_done` | a store's address completes in the ROB this many cycles later: cut #4 (the LSU address-stage split) is 1, and #2 would add another. #5 and B3 have no model point (no atomics in the workloads, no TLBs) |
+| `fe_m2`, `ubtb_ways`, `m2_ctr` | M2's front end: the micro-BTB (`ubtb` entries, 2 ways, keyed by the 16-byte block with the taken parcel's slot) is the only predictor. A table of 2-bit counters (`m2_ctr`, PC[10:2]) only decides whether a resolved branch writes or clears its entry. Decode repairs JAL targets, wrong targets of predicted-taken branches and bogus predictions, and fetch waits for that instruction's decode. Everything else is a mispredict |
+| `m2_wp_train` | with `fe_m2`: extra not-taken trainings of a loop branch mispredicted at its exit. They stand for the RTL training on the wrong path, which runs the loop again until the commit flush |
+| `m2_dir`; `ras` with `fe_m2` | M6 steps on M2's front end. The direction predictor (`dirpred`) decides branches, and decode supplies missing targets. A return the micro-BTB got wrong is repaired at decode from the RAS |
+| `l1_fill_extra` | cycles added to every L1 refill: the RTL's miss overhead beyond the memory's latency (13 in `rtl_m2`) |
+| `ld_fwd_lat`, `ld_fwd_wait` | store-to-load forwarding: the load-to-use of a forward whose data is ready (3; 5 in `rtl_m2`, which forwards at M2), and the cycles from the store's data to a waiting load's result (3; 8 in `rtl_m2`, which replays) |
 | `drain_guard` | a committed store that has waited this many cycles for an L1D MSHR gets the next one: loads and prefetches leave it free. Without it, a model with one L1D MSHR and SMT2 can starve a thread's store drain for good, because loads book the MSHR at issue + 3 while the drain asks at the current cycle. §6.2 uses 16 |
 
 ## Scoring
