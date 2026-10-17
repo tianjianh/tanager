@@ -247,7 +247,11 @@ static void cmd_dbg(void) {
     }
   }
   /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
-   * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none. */
+   * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none.
+   * A bitstream without them has a 6-bit DBG_SEL, which would wrap 128 + 32c + w onto the counters: it
+   * reads back 0 for 128. */
+  wr(R_DBG_SEL, 128);
+  if (rd(R_DBG_SEL) != 128) { printf("  (no core debug words in this bitstream)\n"); return; }
   for (unsigned c = 0; c < ncores; c++) {
     uint32_t w[32];
     for (unsigned k = 0; k < 32; k++) { wr(R_DBG_SEL, 128 + 32 * c + k); sleep_us(1000); w[k] = rd(R_DBG_VAL); }
