@@ -80,7 +80,8 @@ module tg_dcache
   output logic              d_ready_o,
   output tl_e_t             e_o,
   output logic              e_valid_o,
-  input  logic              e_ready_i
+  input  logic              e_ready_i,
+  output logic [7:0]        dbg_o         // board debug: {ready, ms_q, ps_q} (tg_core's dbg_o)
 );
 
   // ---- Arrays ----
@@ -692,4 +693,5 @@ module tg_dcache
     end
   end
 `endif
+  assign dbg_o = {ready, 4'(ms_q), 3'(ps_q)};
 endmodule

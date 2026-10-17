@@ -61,7 +61,13 @@ module tg_core
   output logic    [COMMIT_WIDTH-1:0]   trace_valid_o,
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
-  input  logic                         trace_stall_i     // interfaces.md v1.3: hold commit
+  input  logic                         trace_stall_i,    // interfaces.md v1.3: hold commit
+  // Board debug, a register (tanager-host dbg; DR-150): bits [7:0] rename (slot 0 valid, serial,
+  // window empty, blocked after a serial uop, resources OK, fire, DS busy, ready && start); [13:8]
+  // the ROB's count; [16:14] the atomic (am_st, am_v); [21:17] the SQ head (valid, address, data,
+  // data ready, SQ non-empty); [29:22] the D$ (probe state, MSHR state, ready); [30] the trace
+  // stall; [31] a flush this cycle
+  output logic [31:0]                  dbg_o
 );
   // DR-120: pma_of's region tests are prefix matches only while every region in tg_map_pkg is a
   // naturally aligned power of two; an unaligned one falls back to the range test (~0.13K LUTs
@@ -85,6 +91,10 @@ module tg_core
   //      interrupt; deferred writebacks (none in M3) would continue ----
   logic trace_stall_q;
   always_ff @(posedge clk) trace_stall_q <= !rst && trace_stall_i;
+  // Board debug (dbg_o, above)
+  logic [7:0]  rn_dbg;
+  logic [15:0] lsu_dbg;
+  logic [31:0] dbg_q;
 
   // ---- Flush and redirect from commit ----
   logic        flush, icinv;
@@ -232,7 +242,7 @@ module tg_core
     .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ds_src2_rdy, .rob_tail);
+    .ds_src2_rdy, .rob_tail, .dbg_o(rn_dbg));
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
@@ -371,7 +381,8 @@ module tg_core
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
-    .mmio_a_o, .mmio_a_valid_o, .mmio_a_ready_i, .mmio_d_i, .mmio_d_valid_i, .mmio_d_ready_o);
+    .mmio_a_o, .mmio_a_valid_o, .mmio_a_ready_i, .mmio_d_i, .mmio_d_valid_i, .mmio_d_ready_o,
+    .dbg_o(lsu_dbg));
 
   // ---- CSRs ----
   logic             cm_csr, tr_valid, tr_irq, mret, sret, irq_take, wfi_wake;
@@ -527,4 +538,7 @@ module tg_core
   logic unused;
   assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
                     st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+  always_ff @(posedge clk)
+    dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail, rob_head)), rn_dbg};
+  assign dbg_o = dbg_q;
 endmodule

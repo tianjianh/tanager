@@ -97,7 +97,8 @@ module tg_rename
   input  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc,  // rows written next
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
-  output robid_t                           rob_tail     // next ROB entry RN gives out
+  output robid_t                           rob_tail,    // next ROB entry RN gives out
+  output logic [7:0]                       dbg_o        // board debug: RN's stall flags (tg_core's dbg_o)
 );
   if (W != DISPATCH_WIDTH) begin : g_bad
     $error("tg_rename: RENAME_WIDTH must equal DISPATCH_WIDTH");
@@ -594,6 +595,10 @@ module tg_rename
   assign ds_fire  = (|ds_valid_q) && ds_ok && !flush;
   assign ds_free  = !(|ds_valid_q) || ds_fire;
   assign ds_valid = ds_valid_q;
+  // Board debug (tg_core's dbg_o): slot 0 valid, serial, the empty window, the block after a
+  // serial uop, resources, fire, DS busy, and ready && start
+  assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q, window_empty, rn_serial,
+                  rn_valid_q[0]};
   assign ds_uop   = ds_uop_q;
   assign ds_ren   = ds_ren_q;
 
