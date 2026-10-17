@@ -38,6 +38,10 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_XBAR_IN_SLICE` | the core-side request slices, a bit per channel (0–15: caches' A, MMIO A, l1d C, l1d E) | 0 |
 | `TG_XBAR_SLICE`, `TG_MEM_SLICE` | the crossbar's own slices and the memory ports' AXI slices (0 or 1 each) | 1 |
 
+**Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
+
+**Synthesis check:** the build fails when synthesis reports an implicit, undriven or forward-referenced net in our own RTL (Synth 8-11241, 8-605, 8-8895, 8-6901, 8-3848); `vivado.log` then names them. Messages about Xilinx's generated IP pass.
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)
