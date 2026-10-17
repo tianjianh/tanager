@@ -1,0 +1,4 @@
+9234:INFO: [Route 35-448] Estimated Global/Short routing congestion is level 6 (64x64). Congestion levels of 5 and greater can reduce routability and impact timing closure.
+9381:CRITICAL WARNING: [Route 35-162] 14655 signals failed to route due to routing congestion. Please run report_route_status to get a full summary of the design's routing.
+9484:ERROR: [Route 35-2] Design is not legally routed. There are 15258 node overlaps.
+9509:ERROR: [Common 17-39] 'route_design' failed due to earlier errors.

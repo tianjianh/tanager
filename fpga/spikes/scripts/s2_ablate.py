@@ -52,6 +52,26 @@ ABLATIONS = {
 }
 
 
+def implicit_nets(rd):
+    """Synth 8-11241 and 8-605 (implicit nets: a name used in a generate block before its declaration
+    is a new, undriven net in Vivado only) about our sources: any file outside the run directory and
+    the Xilinx installation (fpga/spikes/tcl/synth_check.tcl)."""
+    run = os.path.realpath(rd) + "/"
+    hits = set()
+    try:
+        with open(os.path.join(rd, "vivado.log"), errors="replace") as f:
+            for line in f:
+                if not re.search(r"\[Synth 8-(11241|605)\]", line):
+                    continue
+                m = re.search(r"\[([^\[\]]+):[0-9]+\]\s*$", line)
+                if m and (os.path.realpath(m.group(1)).startswith(run) or "/Xilinx/" in m.group(1)):
+                    continue
+                hits.add(line.rstrip())
+    except OSError:
+        pass
+    return sorted(hits)
+
+
 def synth(name, cfg, files, out, flatten="rebuilt"):
     rd = os.path.join(out, "runs", name)
     shutil.rmtree(rd, ignore_errors=True)
@@ -63,6 +83,12 @@ def synth(name, cfg, files, out, flatten="rebuilt"):
     for f in files:
         cmd += ["-file", f]
     subprocess.run(cmd, cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    imp = implicit_nets(rd)
+    if imp:
+        # fails the variant and keeps its run directory for the diagnosis
+        print(f"{name}: implicit nets in our sources (declare each signal before its first use):",
+              *imp, sep="\n  ", file=sys.stderr)
+        return None
     vals = {}
     try:
         with open(os.path.join(rd, "summary.txt")) as f:
