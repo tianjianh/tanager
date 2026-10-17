@@ -29,6 +29,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "extwrite.h"
 #include "virtio.h"
 
 /* ---- Host register map (docs/spec/host.md) ---- */
@@ -207,7 +208,9 @@ static void usage(void) {
     "                                         built with TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1, a device tree with VIRTIO=1)\n"
     "      [--net TAP [--net-bridge BR] [--net-mac MAC]]\n"
     "                                         and virtio-net (slot 2) on the TAP device TAP, made and brought up if\n"
-    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01)\n"
+    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01).\n"
+    "                                         With --trace (not --trace-wrap), each store into the RISC-V's RAM\n"
+    "                                         goes into the trace as an external-write record for the checker\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
@@ -376,6 +379,10 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (argc < 1) usage();
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
   if (strcmp(argv[0], "status")) uncore_up();
+  if (strcmp(argv[0], "status") && (rd(R_HDMA_CTRL) & 1)) {   /* a write would wait once 16 had completed */
+    fprintf(stderr, "dma: completions were being recorded (a lockstep run's, killed?); recording off\n");
+    wr(R_HDMA_CTRL, 0);
+  }
   if (!strcmp(argv[0], "status")) {
     printf("host DMA port: completions %s, %u waiting; %u line reads, %u line writes (one per burst within a line, "
            "an 8-byte store is one); %u write bursts dropped in part\n",
@@ -656,6 +663,28 @@ static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vi
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
 static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
 
+/* Board lockstep with the back-ends (extwrite.h; docs/spec/verification.md §3.10): with --trace, every store
+ * through the DMA port becomes an external-write record in the trace, between the ring's records. The port
+ * queues each written line's completion while HDMA_CTRL[0] is set, and a write waits while the queue is
+ * full, so the bit must not outlive the run: an exit of any kind clears it. */
+static int xw_on;
+static void h_emit(const uint8_t rec[XW_REC_BYTES]) {
+  if (trace_broken) return;
+  if (fwrite(rec, XW_REC_BYTES, 1, trace_out) != 1) {
+    fprintf(stderr, "\r\n[%s] trace write: %s\r\n", prog, strerror(errno));
+    trace_broken = 1;
+  }
+}
+static void h_xw_fail(const char *msg) { die("%s (HDMA_STATUS 0x%x)", msg, rd(R_HDMA_STATUS)); }
+static void hdma_rec_off(void) { if (xw_on) wr(R_HDMA_CTRL, 0); }
+static void hdma_rec_on(void) {
+  wr(R_HDMA_CTRL, 0);
+  for (int i = 0; i < 64 && (rd(R_HDMA_STATUS) & 0x1f); i++) (void)rd(R_HDMA_CPL1);   /* an earlier run's */
+  wr(R_HDMA_CTRL, 1);
+  xw_on = 1;
+  atexit(hdma_rec_off);
+}
+
 /* --blk/--rng/--net need the window (CAPS[2]) and the DMA port (CAPS[8]) */
 static void check_virtio(const struct opts *o) {
   if (!o->blk && !o->rng && !o->net) return;
@@ -738,6 +767,13 @@ static int cmd_run(const struct opts *o) {
     vio_ram = (volatile uint8_t *)dma_map(o, 0, ram);
     if (o->net) net_fd = tap_open(o->net, o->net_bridge);
     struct vio_hooks hk = { rd, wr, h_ram_rd64, h_ram_wr64, h_ram_wr32, h_ram_wr8, h_barrier, ram };
+    if (o->trace && !o->trace_wrap) {
+      hdma_rec_on();
+      struct xw_hooks xh = { h_emit, h_xw_fail, 0 };
+      xw_wrap(&hk, &xh);
+    } else {
+      wr(R_HDMA_CTRL, 0);                   /* left set by a lockstep run that was killed */
+    }
     if (vio_open(&hk, o->blk, o->blk_ro, o->rng, net_fd, o->net_mac)) die("virtio back-ends failed to open");
     fprintf(stderr, "virtio:%s%s%s", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
     if (o->net)
@@ -745,6 +781,7 @@ static int cmd_run(const struct opts *o) {
               o->net_bridge ? o->net_bridge : "", o->net_mac[0], o->net_mac[1], o->net_mac[2], o->net_mac[3],
               o->net_mac[4], o->net_mac[5]);
     fputc('\n', stderr);
+    if (xw_on) fprintf(stderr, "virtio: the DMA port's stores go into the trace as external-write records\n");
   } else if ((rd(R_CAPS) & CAPS_VIRTIO) && (rd(R_VQ_CTRL) & 1)) {
     fprintf(stderr, "warning: the virtio window is enabled but this run serves nothing; its reads will wait\n");
   }
@@ -795,6 +832,7 @@ static int cmd_run(const struct opts *o) {
     }
     if (o->trace && trace_poll(o)) idle = 0;
     if (vio && vio_poll()) idle = 0;
+    if (xw_on) xw_drain();                  /* the stores' records go out before any later trace record */
     if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
@@ -816,6 +854,7 @@ static int cmd_run(const struct opts *o) {
     else sleep_us(1000);
   }
   if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
+  if (xw_on) xw_drain();
   if (o->trace) trace_end(o);
   if (vio) {
     uint64_t n, rb, wb;
@@ -823,6 +862,11 @@ static int cmd_run(const struct opts *o) {
     vio_close();
     fprintf(stderr, "[%s] virtio: %" PRIu64 " requests, %" PRIu64 " MiB read, %" PRIu64 " MiB written\r\n", prog, n,
             rb >> 20, wb >> 20);
+    if (xw_on) {
+      fprintf(stderr, "[%s] trace: %" PRIu64 " external-write records\r\n", prog, xw_records());
+      wr(R_HDMA_CTRL, 0);
+      xw_on = 0;
+    }
     if (net_fd >= 0) {
       uint64_t rx, tx, dr;
       vio_net_stats(&rx, &tx, &dr);
