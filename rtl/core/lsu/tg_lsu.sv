@@ -584,14 +584,17 @@ module tg_lsu
       fc_sq[i] = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
                  sq_pa_q[i][PA_W-1:3] == m1pa[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
   end
-  // The youngest as a one-hot vector selects the per-entry cover and data-valid bits, formed in
-  // parallel from flip-flops, and goes to M2 as it is, encoded there (timing: no index encode or
+  // The youngest goes to M2 as a one-hot vector, encoded there (timing: no index encode or
   // multiplexer after the search). The youngest is the highest candidate below f_lim's slot, else
   // the highest of all: the highest set bit of {below, all}, found by carry chain on the reversed
   // vector (y & -y, as lq_oldest_c) and folded over the halves, so no running OR along the queue.
+  // Its cover and data-valid bits need no one-hot: w's highest set bit lies in w & b, for the
+  // per-entry bits b, exactly when (w & b) > (w & ~b), the two being disjoint; a compare is one
+  // carry chain (timing: no OR over the one-hot after the search).
   logic [SQ_ENTRIES-1:0] fc_lo;                     // the candidates below f_lim's slot
+  logic [SQ_ENTRIES-1:0] cov;                       // per store: its bytes cover the load's
+  always_comb for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
   always_comb begin
-    logic [SQ_ENTRIES-1:0]   cov;
     logic [2*SQ_ENTRIES-1:0] w, y, ly;
     for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
     w  = {fc_lo, fc_sq};
@@ -599,12 +602,18 @@ module tg_lsu
     ly = y & -y;
     for (int i = 0; i < SQ_ENTRIES; i++)
       q_oh[i] = ly[2 * SQ_ENTRIES - 1 - i] | ly[SQ_ENTRIES - 1 - i];
-    for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
     q_hit   = |fc_sq;
     q_lo    = |fc_lo;
-    q_cover = |(q_oh & cov);
-    q_data  = |(q_oh & sq_dv_q);
+    q_cover = (w & {cov, cov}) > (w & ~{cov, cov});
+    q_data  = (w & {sq_dv_q, sq_dv_q}) > (w & ~{sq_dv_q, sq_dv_q});
   end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst)
+      assert (q_cover == |(q_oh & cov) && q_data == |(q_oh & sq_dv_q))
+        else $error("tg_lsu: the forwarding compare differs from the youngest's bits");
+  end
+`endif
 
 
   // ================= M2 =================
