@@ -194,10 +194,16 @@ case "${1:-}" in
       if waitfor "TG-42-DONE" "${CMDS_S:-120}"; then echo "commands done $(( $(date +%s) - t0 )) s after the load"
       else echo "commands not done within ${CMDS_S:-120} s"; fi
       echo "injector while Linux runs (a second tanager-host, register reads only):"; th inj --stats
+      [ -n "${DBG:-}" ] && { echo "debug counters after the boot:"; th dbg; }
       printf 'poweroff\r' >&3
       waitfor "requested power-off" 120 && echo "power-off reached the host $(( $(date +%s) - t0 )) s after the load"
     else
       echo "no login prompt"
+      # DBG=1: read the SoC's debug counters (tanager-host dbg) while the system is still stuck
+      if [ -n "${DBG:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "debug counters during the hang:"; th dbg; sleep 2; echo "and 2 s later:"; th dbg
+        th inj --stats
+      fi
     fi
     kill -0 "$pid" 2>/dev/null && { sleep 2; sudo kill -INT "$pid"; }
     wait "$pid"; rc=$?
