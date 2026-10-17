@@ -7,6 +7,9 @@
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
+# With them, the forward-reference check (tools/ci/fwdref.sh: Verilator's JSON dump of the synthesis
+# view, about 7 s) for each configuration with the timing cuts on and off (FWDREF=1|0): it fails on a
+# whole name in a port connection above its declaration, an undriven implicit net in Vivado (DR-150).
 # Beside them, with VIVADO=1 (the default), Vivado's own reading of the RTL (tools/ci/vivado_rtl_lint.sh,
 # DR-150): its simulator's parser and its RTL elaboration of the board top and the core, failing on a
 # name used before its declaration and on implicit or undriven nets, which Verilator resolves its own
@@ -37,13 +40,20 @@ profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
+  tasks+=("$c FWDREF=1" "$c FWDREF=0")
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
 lint_one() {
   set -- $1
   local log="$LOGS/$1${2:+-${2/=/}}.log"
-  if make --no-print-directory -C "$ROOT" lint CFG="$1" ${2:+"$2"} > "$log" 2>&1; then
+  local cmd=(make --no-print-directory -C "$ROOT" lint CFG="$1" ${2:+"$2"})
+  # FWDREF=1|0: the forward-reference check with the timing cuts on (the default) or off
+  case "${2:-}" in
+    FWDREF=1) cmd=("$ROOT/tools/ci/fwdref.sh" CFG="$1") ;;
+    FWDREF=0) cmd=("$ROOT/tools/ci/fwdref.sh" CFG="$1" DEFS=+define+TG_TIMING_CUTS=0) ;;
+  esac
+  if "${cmd[@]}" > "$log" 2>&1; then
     echo "PASS $*"
   else
     echo "FAIL $* (log: $log)"
@@ -69,7 +79,7 @@ fi
 fails=$(grep '^FAIL' "$results")
 if [ -n "$fails" ]; then
   sed 's/.*(log: \(.*\))$/\1/' <<< "$fails" | while read -r log; do
-    echo "---- $log"; { grep -E '^%(Error|Warning)' "$log" || tail -5 "$log"; } | head -20
+    echo "---- $log"; { grep -E '^%(Error|Warning)|IMPLICIT NET' "$log" || tail -5 "$log"; } | head -20
   done
 fi
 vsum=""
