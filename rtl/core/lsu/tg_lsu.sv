@@ -387,6 +387,26 @@ module tg_lsu
     hi = v & hge;
     return |hi ? sq_first(hi) : sq_first(v);
   endfunction
+  // The same search as a one-hot on a carry chain (as lq_oldest_c): v twice over, the slots at or
+  // after the head's in the low half, so the lowest set bit of the 2N is the oldest (u & -u); an
+  // empty set gives slot 0, as sq_oldest does (asserted against it)
+  function automatic logic [SQ_ENTRIES-1:0] sq_oldest_oh(input logic [SQ_ENTRIES-1:0] v,
+                                                        input logic [SQ_ENTRIES-1:0] hge);
+    logic [2*SQ_ENTRIES-1:0] u, oh;
+    logic [SQ_ENTRIES-1:0]   e;
+    u    = {v, v & hge};
+    oh   = u & -u;
+    e    = oh[SQ_ENTRIES-1:0] | oh[2*SQ_ENTRIES-1:SQ_ENTRIES];
+    e[0] = e[0] || !(|v);
+    return e;
+  endfunction
+  // a one-hot's slot, an OR encode
+  function automatic logic [SIW-1:0] sq_enc(input logic [SQ_ENTRIES-1:0] e);
+    logic [SIW-1:0] r;
+    r = '0;
+    for (int i = 0; i < SQ_ENTRIES; i++) if (e[i]) r = r | SIW'(i);
+    return r;
+  endfunction
   // whether SQ slot i lies in the window [h, e) of IDs (every slot when e is h + SQ_ENTRIES)
   function automatic logic sq_inwin(input int i, input sqid_t h, input sqid_t e);
     return (h[SIW] == e[SIW]) ? i >= int'(h[SIW-1:0]) && i < int'(e[SIW-1:0])
@@ -860,22 +880,40 @@ module tg_lsu
   // formed without sd_busy, which picks between them last, and "oldest" reads the head's mask,
   // a register (sq_hge_q), not the head pointer's decoding. Each read tag takes its own choice:
   // sd_tag is read only when the port is free, and fsd_tag's value is used only when an FP store
-  // captures, which is then the oldest ready FP store in either case.
-  logic           cap_v;
-  logic [SIW-1:0] cap_idx, cap_ia, cap_if;
+  // captures, which is then the oldest ready FP store in either case. The choices are one-hots
+  // from a carry chain, and the read tags and the FP flag are AND-ORs over them (timing: no
+  // priority ripple, encoder or decoder on the way to the register file and u_sqd's data); the
+  // slots, an OR encode beside them, serve the capture's writes and reports
+  logic                  cap_v, cap_fp;
+  logic [SIW-1:0]        cap_idx, cap_ia, cap_if;
+  logic [SQ_ENTRIES-1:0] cap_ea, cap_ef;
+`ifndef SYNTHESIS
+  logic [SQ_ENTRIES-1:0] ca_s, cf_s;      // the candidate sets, for the choices' check
+`endif
   always_comb begin
     logic [SQ_ENTRIES-1:0] ca, cf;
     for (int i = 0; i < SQ_ENTRIES; i++) begin
       ca[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
       cf[i] = ca[i] && sq_fp_q[i];
     end
-    cap_ia  = sq_oldest(ca, sq_hge_q);
-    cap_if  = sq_oldest(cf, sq_hge_q);
+    cap_ea  = sq_oldest_oh(ca, sq_hge_q);
+    cap_ef  = sq_oldest_oh(cf, sq_hge_q);
+    cap_ia  = sq_enc(cap_ea);
+    cap_if  = sq_enc(cap_ef);
     cap_v   = (sd_busy ? |cf : |ca) && !flush;
     cap_idx = sd_busy ? cap_if : cap_ia;
+    cap_fp  = sd_busy ? |(cap_ef & sq_fp_q) : |(cap_ea & sq_fp_q);
+    sd_tag  = '0;
+    fsd_tag = '0;
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      if (cap_ea[i]) sd_tag  = sd_tag  | sq_tag_q[i];
+      if (cap_ef[i]) fsd_tag = fsd_tag | sq_tag_q[i];
+    end
+`ifndef SYNTHESIS
+    ca_s    = ca;
+    cf_s    = cf;
+`endif
   end
-  assign sd_tag  = sq_tag_q[cap_ia];
-  assign fsd_tag = sq_tag_q[cap_if];
 
   // ================= STA =================
   logic [SIW-1:0] sa_idx;
@@ -1280,7 +1318,7 @@ module tg_lsu
   // select folds in here): 0 the atomic's value, 1 integer, 2 FP bank 0, 3 FP bank 1
   logic [1:0] sqd_s;
   assign sqd_s = (am_req && am_ack) ? 2'd0
-               : (EXT_FD && sq_fp_q[cap_idx]) ? {1'b1, fpreg_bank(fsd_tag)} : 2'd1;
+               : (EXT_FD && cap_fp) ? {1'b1, fpreg_bank(fsd_tag)} : 2'd1;
   always_comb begin
     for (int i = 0; i < 64; i++) begin
       unique case (sqd_s)
@@ -1824,6 +1862,12 @@ module tg_lsu
           assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
             else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
   end
+  // The store-data capture's one-hot choices are sq_oldest's, and its tags and FP flag theirs
+  always_ff @(posedge clk)
+    if (rs_q && !rst)
+      assert (cap_ia == sq_oldest(ca_s, sq_hge_q) && cap_if == sq_oldest(cf_s, sq_hge_q) &&
+              sd_tag == sq_tag_q[cap_ia] && fsd_tag == sq_tag_q[cap_if] && cap_fp == sq_fp_q[cap_idx])
+        else $error("tg_lsu: the store-data capture's one-hot choices differ from sq_oldest's");
 `endif
   // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word
   assign dbg_o = {dc_dbg, sq_head_q != sq_tail_q, sq_dr_q[dh], sq_dv_q[dh], sq_av_q[dh], sq_v_q[dh],
