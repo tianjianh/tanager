@@ -56,6 +56,7 @@ valid masks  ──► order FIFO (64) ───────────┘
 - **Record:** 64 bytes, written as one 4-beat burst.
   - Bytes 0–39: the 320-bit record of [host.md](host.md) §Trace ring (header, insn, pc, value, address, store data); writebacks use kind 3.
   - Bytes 40–43: the low 32 bits of the `clk` cycle count when the record was captured.
+  - **Order across harts:** each core's records keep their order, but the arbiter takes one record from each core in turn, so the stream is not in cycle order across cores. One hart's records can arrive a few hundred cycles behind another's. A consumer that needs the global order sorts by the capture cycle; `tanager-lockstep` merges the harts' records by cycle (`--reorder`).
   - Bytes 44–63: zero (reserved).
 - **Ring:** `2^SIZE_LOG2` records from `BASE` (PS physical address, 64-byte aligned, inside the carve-out). Record n goes to `BASE + (n mod 2^SIZE_LOG2) × 64`.
 - **Pointers:** 64-bit record counters.
