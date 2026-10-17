@@ -11,9 +11,11 @@
 //   one write per cycle, a read-modify-write of one set, by priority: the reset sweep, a probe
 //   update, an MSHR install, an allocation, a store or atomic setting dirty. The sweep clears
 //   the sets after reset (SETS cycles, `ready`); probes wait for it.
-//   MSHR: one line at a time, for a load miss (AcquireBlock NtoB) or a store (NtoT, or BtoT for
-//         a line held in B). A valid victim is released first (state cleared when the Release
-//         starts, so probes and stores see the line as gone); the Acquire waits for ReleaseAck.
+//   MSHR: one line at a time (DC_MSHRS = 1), for a load miss (AcquireBlock NtoB) or a store
+//         (NtoT, or BtoT for a line held in B). A valid victim is released first (state cleared
+//         when the Release starts, so probes and stores see the line as gone); the Acquire waits
+//         for ReleaseAck. With DC_MSHRS = 4 (DR-149) four lines are in flight: the entries, the
+//         release engine and the loads' request register of g_mn (below; core-lsu.md).
 //   Probes: answered at the line's current permission, without waiting on A-channel progress.
 //         They take B only while no Release is being sent (C beats are contiguous), and block
 //         the MSHR from starting and the store path from writing while they run.
