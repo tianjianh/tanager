@@ -821,19 +821,21 @@ module tg_lsu
   assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !flush;
 
   logic            rsv_v_d;
+  (* keep = "true" *) logic rsv_v_e;       // all but a trap's or xRET's clear, kept as a net
   logic [PA_W-1:6] rsv_line_d;
   always_comb begin
-    rsv_v_d    = rsv_v_q;
+    rsv_v_e    = rsv_v_q;
     rsv_line_d = rsv_line_q;
     if (am_req && am_ack && am_lr) begin
-      rsv_v_d    = 1'b1;
+      rsv_v_e    = 1'b1;
       rsv_line_d = am_pa[PA_W-1:6];
     end
     // every SC ends it
-    if ((am_go && am_sc && !rsv_ok_go && !pden_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
-    if (lose_v && lose_line == rsv_line_d) rsv_v_d = 1'b0;
-    if (rsv_clr) rsv_v_d = 1'b0;
+    if ((am_go && am_sc && !rsv_ok_go && !pden_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_e = 1'b0;
+    if (lose_v && lose_line == rsv_line_d) rsv_v_e = 1'b0;
   end
+  // A trap or xRET ends it too, in the last LUT (timing: the commit's trap decision is late)
+  assign rsv_v_d = rsv_v_e && !rsv_clr;
   // A young reservation holds the D$'s probes, up to RSV_HOLD cycles after its LR or until it ends
   // (its SC, the line lost, a trap or xRET), so an LR/SC pair completes under another core's probes:
   // a read probe that takes T away also ends it (forward progress, core-pipeline §13). Bounded and
