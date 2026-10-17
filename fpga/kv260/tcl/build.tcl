@@ -39,6 +39,19 @@ foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE
   lappend unc_gen -generic "$g=$val"
   lappend unc_set "$g=$val"
 }
+# TG_PS_WINDOW=1: the PS window (stage D's D1, docs/spec/soc.md §8.2), the PS's peripheral registers through
+# S_AXI_LPD. A map option (tg_map_pkg PS_WINDOW), so a define every file sees, the cores' PMA included. The
+# block design has S_AXI_LPD and the PS's interrupts in every build, idle without the window.
+if {[info exists ::env(TG_PS_WINDOW)]} {
+  if {$::env(TG_PS_WINDOW) ni {0 1}} {
+    puts "ERROR: TG_PS_WINDOW must be 0 or 1 (fpga/kv260/README.md)"
+    exit 1
+  }
+  if {$::env(TG_PS_WINDOW)} {
+    lappend def_args -verilog_define TG_PS_WINDOW=1
+    lappend unc_set "PS_WINDOW=1"
+  }
+}
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {

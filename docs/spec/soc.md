@@ -448,6 +448,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - takes a PS interrupt through its PLIC, from a peripheral the A53 does not use: a TTC1 interval, or UART0 in local loopback if it is clocked;
     - gets an access fault from a denied address.
   - **Met when** all four happen and the A53's Linux is unharmed.
+  - **Built (10-17):**
+    - **The device:** `rtl/uncore/ps/tg_ps_window.sv`, the device bus's sixth device. The region is in `tg_map_pkg` behind `TG_PS_WINDOW=1`, a define: `build.tcl` sets it from `TG_PS_WINDOW=1` and records it in `summary.txt`.
+    - **Interrupts:** PLIC sources 20–24 take UART1, SD1, GEM3, USB0's host line and TTC1.
+    - **The block design** has `S_AXI_LPD` (128-bit, `clk_core`) and the five interrupts in every build, idle without the window: the board's PS is configured by the SOM's firmware, not by our block design. TTC1 is enabled in it so its interrupt pin exists.
+    - **The overlay** sets `S_AXI_LPD`'s AFI to 128 bits (`config-afi` entries 12 and 13). D0's `psrd` of AFI FM6 shows whether it takes.
+    - **The window's AXI attributes:** unprivileged, non-secure data accesses; cache bits 0000 (device, non-bufferable).
+    - **Tests:** `tests/unit/soc` `PS_WINDOW=1` (in `short`), against a model of the PS. Every access size, three denials without a transaction, an error response, a response 70,000 cycles late (the timeout, then the recovery), and TTC1's interrupt through the PLIC: 15 transactions, all checked. The window also passes lint (st and smt2, the synthesis view too) and the forward-reference check, with and without it.
+    - **The board program:** `tests/unit/soc/sw/ps_d1.c` (`ps_d1.bin`) runs the four checks above on the real PS.
 - **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
   - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
   - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.

@@ -5,7 +5,8 @@
 //                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control, the virtio window)
 //   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
 //   commit-trace streaming into DDR (its own AXI master);
-//   the coherent host DMA port (HOST_DMA): an AXI4 slave from the host -> tg_hdma -> the crossbar's hdma.
+//   the coherent host DMA port (HOST_DMA): an AXI4 slave from the host -> tg_hdma -> the crossbar's hdma;
+//   the PS window (tg_map_pkg PS_WINDOW): device bus -> tg_ps_window -> an AXI4 master into the PS.
 module tg_uncore
   import tg_pkg::*, tg_tl_pkg::*, tg_trace_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
@@ -199,6 +200,26 @@ module tg_uncore
   output hdma_r_t                                   s_axi_dma_r,
   output logic                                      s_axi_dma_r_valid,
   input  logic                                      s_axi_dma_r_ready,
+
+  // the PS window's AXI4 master (clk; tg_map_pkg PS_WINDOW, docs/spec/soc.md §8.2): the PS's peripheral
+  // registers at their own addresses (S_AXI_LPD on the KV260), and their controllers' interrupts (PS
+  // levels, PS_IRQ_*; PLIC sources IRQ_PS0 on). Without the window the outputs are 0 and BREADY/RREADY 1
+  output axi_ax_t                                   m_axi_ps_aw,
+  output logic                                      m_axi_ps_aw_valid,
+  input  logic                                      m_axi_ps_aw_ready,
+  output axi_w_t                                    m_axi_ps_w,
+  output logic                                      m_axi_ps_w_valid,
+  input  logic                                      m_axi_ps_w_ready,
+  input  axi_b_t                                    m_axi_ps_b,
+  input  logic                                      m_axi_ps_b_valid,
+  output logic                                      m_axi_ps_b_ready,
+  output axi_ax_t                                   m_axi_ps_ar,
+  output logic                                      m_axi_ps_ar_valid,
+  input  logic                                      m_axi_ps_ar_ready,
+  input  axi_r_t                                    m_axi_ps_r,
+  input  logic                                      m_axi_ps_r_valid,
+  output logic                                      m_axi_ps_r_ready,
+  input  logic [PS_IRQS-1:0]                        ps_irq_i,
 
   // traffic-generator controls and results (host registers; tied off with real cores)
   output logic                    tg_en_o,
@@ -546,9 +567,11 @@ module tg_uncore
   dev_rsp_t [DEV_N-1:0] drsp;
   logic               vio_wait;
   logic [VIO_SLOTS-1:0] vio_irq;
+  logic               ps_wait;
   always_comb begin
-    dwait             = '0;                      // only the virtio window waits
+    dwait             = '0;                      // the virtio window and the PS window wait
     dwait[DEV_VIRTIO] = vio_wait;
+    dwait[DEV_PSWIN]  = ps_wait;
   end
   tg_tl_dev #(.VIRTIO (VIRTIO_WINDOW)) u_dev (
     .clk, .rst (uncore_rst),
@@ -566,6 +589,43 @@ module tg_uncore
     .irq_msi_o (msi_o), .irq_mti_o (mti_o), .mtime_o, .freeze_i (time_freeze)
   );
 
+  // The PS window (docs/spec/soc.md §8.2, stage D's D1): the device bus's accesses to the PS's peripheral
+  // registers become AXI4 transactions into the PS, and the PS's interrupt levels, synchronized, are PLIC
+  // sources IRQ_PS0 on. Without it (the default) the device answers nothing, as it is never addressed: the
+  // range is no region (tg_map_pkg), and the master stays idle
+  logic [PS_IRQS-1:0] ps_irq;
+  if (PS_WINDOW) begin : g_pswin
+    logic ps_timeout;
+    tg_ps_window u_pswin (
+      .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_PSWIN]), .rsp_o (drsp[DEV_PSWIN]),
+      .wait_o (ps_wait),
+      .m_aw_o (m_axi_ps_aw), .m_aw_valid_o (m_axi_ps_aw_valid), .m_aw_ready_i (m_axi_ps_aw_ready),
+      .m_w_o (m_axi_ps_w), .m_w_valid_o (m_axi_ps_w_valid), .m_w_ready_i (m_axi_ps_w_ready),
+      .m_b_i (m_axi_ps_b), .m_b_valid_i (m_axi_ps_b_valid), .m_b_ready_o (m_axi_ps_b_ready),
+      .m_ar_o (m_axi_ps_ar), .m_ar_valid_o (m_axi_ps_ar_valid), .m_ar_ready_i (m_axi_ps_ar_ready),
+      .m_r_i (m_axi_ps_r), .m_r_valid_i (m_axi_ps_r_valid), .m_r_ready_o (m_axi_ps_r_ready),
+      .timeout_o (ps_timeout)
+    );
+    for (genvar k = 0; k < PS_IRQS; k++) begin : g_irq
+      tg_cdc_bit u_sync (.src_in (ps_irq_i[k]), .dst_clk (clk), .dst_out (ps_irq[k]));
+    end
+    wire unused_pswin = ps_timeout;
+  end else begin : g_no_pswin
+    assign drsp[DEV_PSWIN]   = '0;
+    assign ps_wait           = 1'b0;
+    assign ps_irq            = '0;
+    assign m_axi_ps_aw       = '0;
+    assign m_axi_ps_aw_valid = 1'b0;
+    assign m_axi_ps_w        = '0;
+    assign m_axi_ps_w_valid  = 1'b0;
+    assign m_axi_ps_b_ready  = 1'b1;
+    assign m_axi_ps_ar       = '0;
+    assign m_axi_ps_ar_valid = 1'b0;
+    assign m_axi_ps_r_ready  = 1'b1;
+    wire unused_pswin = ^{m_axi_ps_aw_ready, m_axi_ps_w_ready, m_axi_ps_b, m_axi_ps_b_valid, m_axi_ps_ar_ready,
+                          m_axi_ps_r, m_axi_ps_r_valid, ps_irq_i, dreq_v[DEV_PSWIN]};
+  end
+
   logic uart_irq, mbox_irq;
   logic [PLIC_NSRC-1:0] plic_src;
   localparam logic [PLIC_NSRC-1:0] EDGE_SRC = PLIC_NSRC'(((1 << NH) - 1) << IRQ_MERR0);
@@ -575,6 +635,7 @@ module tg_uncore
     plic_src[IRQ_HOSTCTL] = mbox_irq;
     for (int s = 0; s < VIO_SLOTS; s++) plic_src[IRQ_VIRTIO0 + s] = vio_irq[s];
     for (int h = 0; h < NH; h++) plic_src[IRQ_MERR0 + h] = merr_i[h];
+    for (int k = 0; k < PS_IRQS; k++) plic_src[IRQ_PS0 + k] = ps_irq[k];
   end
   tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .EDGE_SRC (EDGE_SRC)) u_plic (
     .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_PLIC]), .rsp_o (drsp[DEV_PLIC]),
