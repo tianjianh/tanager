@@ -1,0 +1,24 @@
+u_soc/g_core[0].g_tgc.u_core             X0Y0:12826 X0Y1:7455 X0Y2:51 X1Y0:10728 X1Y1:6554 X1Y2:582 X1Y3:181 X2Y0:11255 X2Y1:4727 X2Y2:146 X2Y3:1
+u_soc/g_core[1].g_tgc.u_core             X0Y1:1349 X0Y2:12416 X0Y3:3679 X1Y0:120 X1Y1:1061 X1Y2:9667 X1Y3:8001 X2Y1:1315 X2Y2:5842 X2Y3:11047
+u_soc/u_uncore                           X0Y1:2907 X0Y2:1449 X0Y3:160 X1Y1:3368 X1Y2:1134 X1Y3:302 X2Y1:5847 X2Y2:5852 X2Y3:68
+u_soc/u_uncore/g_mem[0].g_ars.u_ars      X0Y1:35
+u_soc/u_uncore/g_mem[0].u_inj            X0Y1:718 X0Y2:1 X1Y1:85 X2Y1:112
+u_soc/u_uncore/g_mem[0].u_slice          X0Y2:251
+u_soc/u_uncore/g_mem[0].u_win            X0Y2:362
+u_soc/u_uncore/g_mem[1].g_ars.u_ars      X0Y2:35
+u_soc/u_uncore/g_mem[1].u_inj            X0Y1:627 X0Y2:92 X1Y2:136 X2Y1:27 X2Y2:34
+u_soc/u_uncore/g_mem[1].u_slice          X0Y2:251
+u_soc/u_uncore/g_mem[1].u_win            X0Y2:363
+u_soc/u_uncore/g_serial.u_phy            X0Y1:124
+u_soc/u_uncore/u_aclint                  X0Y1:71 X1Y1:235
+u_soc/u_uncore/u_dev                     X0Y1:45 X1Y1:172
+u_soc/u_uncore/u_host                    X0Y1:491 X0Y2:94 X0Y3:160 X1Y3:302
+u_soc/u_uncore/u_l2                      X0Y1:1 X1Y1:525 X1Y2:255 X2Y1:5540 X2Y2:5771 X2Y3:68
+u_soc/u_uncore/u_plic                    X0Y1:488
+u_soc/u_uncore/u_rom                     X1Y1:28
+u_soc/u_uncore/u_uart                    X0Y1:205 X1Y1:15
+u_soc/u_uncore/u_xbar                    X0Y1:1 X1Y1:2302 X1Y2:743 X2Y1:168 X2Y2:47
+URAM288                                  X2Y1:16 X2Y2:16
+RAMB36E2                                 X1Y0:12 X1Y1:12 X1Y2:12 X1Y3:10 X2Y0:20 X2Y1:8 X2Y2:16 X2Y3:22
+RAMB18E2                                 X1Y3:2 X2Y0:1 X2Y1:1 X2Y2:1 X2Y3:1
+DSP48E2                                  X0Y0:2 X0Y1:1 X0Y2:10 X1Y0:23 X1Y1:26 X1Y2:3 X1Y3:24 X2Y0:18 X2Y1:8 X2Y2:16 X2Y3:13

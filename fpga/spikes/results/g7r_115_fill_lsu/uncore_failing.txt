@@ -1,0 +1,5 @@
+# the uncore's failing endpoints (at most 5,000) by block, with the worst slack (ns)
+u_l2/g_bank[1].u_bank                                               306   -0.887
+u_l2/g_bank[0].u_bank                                                 7   -0.486
+u_xbar/g_tc[1].g_s.u_s                                               45   -0.254
+u_xbar/g_tc[0].g_s.u_s                                               45   -0.184
