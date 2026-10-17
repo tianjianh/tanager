@@ -164,7 +164,7 @@ module tg_l2_bank
   // because synthesis built the flat priority encoder (rr_pick_ref, kept for the assertions) 9 levels
   // deep, and the pick heads the L2's AR and probe handshakes (200 MHz, DR-142). The same function.
   localparam int NG = N_MSHR / 4;
-  if (N_MSHR % 4 != 0) begin : g_bad_mshr
+  if (N_MSHR % 4 != 0) begin : g_bad_mshr_grp
     $error("tg_l2_bank: N_MSHR must be a multiple of 4 (rr_pick's groups)");
   end
   function automatic logic [MW-1:0] lowest_idx(input logic [N_MSHR-1:0] v);
