@@ -60,11 +60,19 @@ module tg_issue
     return IQ_FP;
   endfunction
 
-  // SPEC_WAKE: a tracked load (below), its LLT's column, and whether a flush drops it
+  // SPEC_WAKE: a tracked load (below), its LLT's column, and whether a flush drops it; the hit
+  // predictor's index, a hash of the load's PC kept in the LD format (one bit when off)
+  localparam int SW_HW  = 6;
+  localparam int SW_HPW = SPEC_WAKE ? SW_HW : 1;
+  function automatic logic [SW_HPW-1:0] sw_hash(input logic [2*SW_HW:1] pc);
+    return SPEC_WAKE ? SW_HPW'(pc[SW_HW:1] ^ pc[2*SW_HW:SW_HW+1]) : '0;
+  endfunction
   typedef struct packed {
-    logic v;
-    tid_t tid;
-    llt_t llt;
+    logic              v;
+    logic              sp;          // woken speculatively (the hit predictor's choice)
+    tid_t              tid;
+    llt_t              llt;
+    logic [SW_HPW-1:0] hp;
   } sw_t;
   function automatic logic [NCOL-1:0] sw_col(input llt_t t);
     logic [NCOL-1:0] c;
@@ -75,6 +83,7 @@ module tg_issue
   function automatic logic sw_drop(input tid_t t);
     return flush && t == flush_tid;
   endfunction
+  logic [SW_HPW-1:0]          ld_hp;        // the LD port's RF-stage load: its PC's hash
   logic [N_IQ-1:0][NCOL-1:0]  qbusy;
   logic [RA-1:0]              mx_issued, mx_free, mx_valid;
   logic [DW-1:0][NCOL-1:0]    no_ph;
@@ -149,6 +158,7 @@ module tg_issue
     logic [PIDX_W-1:0]   dst;           // the destination's index (an FP load: F1's)
     llt_t                llt;
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
+    logic [SW_HPW-1:0]   hp;            // SPEC_WAKE: its PC's hash, the hit predictor's index
     preg_t               src1;
   } f_ld_t;
   typedef struct packed {
@@ -306,7 +316,8 @@ module tg_issue
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
                                 dst_en: disp_pl[k].dst_en, dst_fp: fp,
                                 dst: fp ? PIDX_W'(fpreg_idx(disp_pl[k].dst)) : preg_idx(disp_pl[k].dst),
-                                llt: disp_pl[k].llt, tid: disp_pl[k].tid, src1: disp_pl[k].src1};
+                                llt: disp_pl[k].llt, tid: disp_pl[k].tid, hp: sw_hash(disp_pl[k].pc[2*SW_HW:1]),
+                                src1: disp_pl[k].src1};
       end
       f_ld_t b;
       assign b = pl;
@@ -325,6 +336,7 @@ module tg_issue
         up.tid      = b.tid;
         up.src1     = b.src1;
       end
+      assign ld_hp = b.hp;
     end else if (q == Q_STA) begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
         assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,
@@ -442,8 +454,20 @@ module tg_issue
   if (SPEC_WAKE) begin : g_sw
     sw_t             sw_rf, sw_ag_q, sw_m1_q, sw_m2_q;
     logic [NCOL-1:0] col_ag, col_m1, col_m2;
+    // The hit predictor (plan §4.6): a 2-bit counter per PC hash, read in RF; a load wakes its
+    // dependants early only while its counter is 2 or 3. Every tracked load trains it at M2: a
+    // completion counts up, anything else clears it (a cancel costs the shadow on every port)
+    logic [(1 << SW_HW)-1:0][1:0] hpc_q;
+    logic                         m2_hit;
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
-                     tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt};
+                     sp: hpc_q[ld_hp][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, hp: ld_hp};
+    assign m2_hit = |(wake_reg & col_m2);
+    always_ff @(posedge clk) begin
+      if (rst)
+        hpc_q <= '1;
+      else if (sw_m2_q.v && !sw_drop(sw_m2_q.tid))
+        hpc_q[sw_m2_q.hp] <= !m2_hit ? 2'd0 : (hpc_q[sw_m2_q.hp] == 2'd3) ? 2'd3 : hpc_q[sw_m2_q.hp] + 2'd1;
+    end
     always_ff @(posedge clk) begin
       if (rst) begin
         sw_ag_q.v <= 1'b0;
@@ -454,20 +478,22 @@ module tg_issue
         sw_ag_q.v <= sw_rf.v   && !sw_cancel && !sw_drop(sw_rf.tid);
         sw_m1_q.v <= sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid);
         sw_m2_q.v <= sw_m1_q.v && !sw_drop(sw_m1_q.tid);
-        sw_cancel <= sw_m2_q.v && !sw_drop(sw_m2_q.tid) && !(|(wake_reg & col_m2));
+        sw_cancel <= sw_m2_q.v && sw_m2_q.sp && !sw_drop(sw_m2_q.tid) && !m2_hit;
       end
-      {sw_ag_q.tid, sw_ag_q.llt} <= {sw_rf.tid, sw_rf.llt};
-      {sw_m1_q.tid, sw_m1_q.llt} <= {sw_ag_q.tid, sw_ag_q.llt};
-      {sw_m2_q.tid, sw_m2_q.llt} <= {sw_m1_q.tid, sw_m1_q.llt};
+      {sw_ag_q.sp, sw_ag_q.tid, sw_ag_q.llt, sw_ag_q.hp} <= {sw_rf.sp, sw_rf.tid, sw_rf.llt, sw_rf.hp};
+      {sw_m1_q.sp, sw_m1_q.tid, sw_m1_q.llt, sw_m1_q.hp} <= {sw_ag_q.sp, sw_ag_q.tid, sw_ag_q.llt, sw_ag_q.hp};
+      {sw_m2_q.sp, sw_m2_q.tid, sw_m2_q.llt, sw_m2_q.hp} <= {sw_m1_q.sp, sw_m1_q.tid, sw_m1_q.llt, sw_m1_q.hp};
       sw_cancel_col <= col_m2;
     end
     assign col_ag    = sw_col(sw_ag_q.llt);
     assign col_m1    = sw_col(sw_m1_q.llt);
     assign col_m2    = sw_col(sw_m2_q.llt);
-    assign wake_spec = (sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
-    assign spec_pend = (sw_m1_q.v ? col_m1 : '0) | (sw_m2_q.v ? col_m2 : '0) |
+    assign wake_spec = (sw_ag_q.v && sw_ag_q.sp && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
+    assign spec_pend = (sw_m1_q.v && sw_m1_q.sp ? col_m1 : '0) | (sw_m2_q.v && sw_m2_q.sp ? col_m2 : '0) |
                        (sw_cancel ? sw_cancel_col : '0);
   end else begin : g_nosw
+    logic unused_hp;
+    assign unused_hp     = ^ld_hp;
     assign wake_spec     = '0;
     assign spec_pend     = '0;
     assign sw_cancel     = 1'b0;
