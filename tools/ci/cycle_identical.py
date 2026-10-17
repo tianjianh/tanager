@@ -30,7 +30,10 @@ TIMING_CUTS=0|1 (--timing-cuts) builds both sides in that profile of the core's 
 sim/profile.mk), tg_vsim and the boot's tb_boot alike; BRANCH_TIMING_CUTS (--branch-timing-cuts) sets this
 side's only, for example 0 to show the all-off fallback is cycle-identical to a base without the switches.
 The boot takes the profile through tests/unit/boot's Makefile, which reads sim/profile.mk (DR-141 rule 1:
-a cycle cost is reported on the Linux boot by profile).
+a cycle cost is reported on the Linux boot by profile). DC_MSHRS=1|4 (--dc-mshrs) and BRANCH_DC_MSHRS
+(--branch-dc-mshrs) do the same for the L1D's misses in flight (DR-149; sim/profile.mk): BRANCH_DC_MSHRS=4
+against a base of one MSHR measures the 4-miss L1D. Neither name reaches a build from the environment,
+only as a make variable, which the cache key and the build's info file name.
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -88,6 +91,12 @@ def git(*args, env=None):
     return p.stdout.strip()
 
 
+def takes_dc_mshrs(ref):
+    """Whether ref's sim/profile.mk takes DC_MSHRS (DR-149); one without it would drop it without a word."""
+    return (git("ls-tree", "--name-only", ref, "sim/profile.mk") != "" and
+            "DC_MSHRS" in git("show", f"{ref}:sim/profile.mk"))
+
+
 def worktree_tree():
     """The working tree's rtl/, sim/ and tests/unit/ as a tree object, written through a temporary
     index (the worktree's own index and files are not touched)."""
@@ -143,7 +152,7 @@ def clean_env(**extra):
     """The environment for a sub-make: no variables from a calling make (MAKEFLAGS carries its command
     line) and none of the names the sim build reads from its own command line only."""
     env = dict(os.environ, **extra)
-    for v in ("ISA", "PRIV", "PMP", "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"):
+    for v in ("ISA", "PRIV", "PMP", "TIMING_CUTS", "DC_MSHRS", "MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES"):
         env.pop(v, None)
     return env
 
@@ -152,22 +161,25 @@ class Side:
     """One side of the comparison for one configuration: tg_vsim ("vsim"), or tests/unit/boot's tb_boot
     with tg_soc_sig bound into the SoC ("boot"). `srcs` are (tree-ish, path) pairs for git archive."""
 
-    def __init__(self, name, kind, cfg, tool, rtl_src, harness_src, tb_src=None, cores=1, tc=None):
+    def __init__(self, name, kind, cfg, tool, rtl_src, harness_src, tb_src=None, cores=1, tc=None, dcm=None):
         self.name, self.kind, self.cfg, self.cores = name, kind, cfg, cores
-        self.args = (kind, cfg, tool, rtl_src, harness_src, tb_src, cores, tc)  # to rebuild with another harness
+        self.args = (kind, cfg, tool, rtl_src, harness_src, tb_src, cores, tc, dcm)  # to rebuild with another harness
         self.harness_src = harness_src
-        # The core's timing-cut profile (DR-140; sim/profile.mk), None for the package's default. Part of
-        # the key only when forced, so the default's cached builds stay valid. The boot reads the profile
-        # through tests/unit/boot's Makefile, which includes sim/profile.mk: archived when forced.
-        self.tc = tc
+        # The core's timing-cut profile (DR-140) and the L1D's misses in flight (DR-149), both make
+        # variables of sim/profile.mk, None for the package's default. Part of the key only when forced, so
+        # the default's cached builds stay valid. The boot reads them through tests/unit/boot's Makefile,
+        # which includes sim/profile.mk: archived when either is forced.
+        self.tc, self.dcm = tc, dcm
+        self.prof = ([f"TIMING_CUTS={tc}"] if tc is not None else []) + ([f"DC_MSHRS={dcm}"] if dcm is not None else [])
         if kind == "vsim":
             self.srcs = [(rtl_src, "rtl"), (harness_src, "sim")]
         else:
             self.srcs = [(rtl_src, "rtl"), (harness_src, "sim/tb"), (tb_src, "tests/unit")]
-            if tc is not None:
+            if self.prof:
                 self.srcs.append((harness_src, "sim/profile.mk"))
         trees = [git("rev-parse", f"{src}:{path}") for src, path in self.srcs]
-        self.key = sha1(kind, *trees, cfg, cores, tool, *([f"tc{self.tc}"] if self.tc is not None else []))[:16]
+        self.key = sha1(kind, *trees, cfg, cores, tool, *([f"tc{self.tc}"] if self.tc is not None else []),
+                        *([f"dcm{self.dcm}"] if self.dcm is not None else []))[:16]
         self.dir = os.path.join(CACHE, "build", self.key)
         self.bin = os.path.join(self.dir, "tg_vsim" if kind == "vsim" else "tb_boot")
         self.sigdir = os.path.join(self.dir, "sig")
@@ -209,7 +221,7 @@ class Side:
             t0 = time.time()
             if self.kind == "vsim":
                 cmd = ["make", "-s", "-C", os.path.join(src, "sim"), f"CFG={self.cfg}", "CORE=core", f"JOBS={jobs}",
-                       f"BUILD={obj}", *([f"TIMING_CUTS={self.tc}"] if self.tc is not None else []), "build"]
+                       f"BUILD={obj}", *self.prof, "build"]
             else:
                 # One Verilator thread: a threaded model maps the memory models' random draws to threads
                 # by its own partition, which a change elsewhere in the design can move.
@@ -218,7 +230,7 @@ class Side:
                                                               "sim/tb/tg_soc_sig_bind.sv"))
                 cmd = ["make", "-s", "-C", bdir, f"CFG={self.cfg}", f"CORES={self.cores}", "VTHREADS=1",
                        f"JOBS={jobs}", f"SOC_BUILD={obj}", f"TB={tb}",
-                       *([f"TIMING_CUTS={self.tc}"] if self.tc is not None else []), "build"]
+                       *self.prof, "build"]
             p = subprocess.run(cmd, env=env, capture_output=True, text=True)
             made = (glob.glob(os.path.join(obj, "tg_vsim")) if self.kind == "vsim" else
                     glob.glob(os.path.join(obj, "tests", "*", "tb_boot")))
@@ -237,7 +249,7 @@ class Side:
             with open(os.path.join(self.dir, "info"), "w") as f:
                 f.write("".join(f"{path} from {treeish}\n" for treeish, path in self.srcs) +
                         f"{self.kind} cfg {self.cfg} cores {self.cores}"
-                        f"{'' if self.tc is None else f' TIMING_CUTS={self.tc}'}\nbuilt in {time.time() - t0:.0f} s\n")
+                        f"{''.join(' ' + p for p in self.prof)}\nbuilt in {time.time() - t0:.0f} s\n")
             return None
 
 
@@ -592,6 +604,10 @@ def main():
                          "(DR-140; default: the core package's)")
     ap.add_argument("--branch-timing-cuts", type=int, choices=(0, 1), default=None,
                     help="this side's profile only: 0 checks the all-off fallback against a base without the switches")
+    ap.add_argument("--dc-mshrs", type=int, choices=(1, 4), default=None,
+                    help="build both sides with this many L1D misses in flight (DR-149; default: the core package's)")
+    ap.add_argument("--branch-dc-mshrs", type=int, choices=(1, 4), default=None,
+                    help="this side's only: 4 against a base of one MSHR measures the 4-miss L1D")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -634,19 +650,24 @@ def main():
         f"{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}{' ...' if len(changed) > 6 else ''}")
     tc_base = a.timing_cuts
     tc_branch = a.branch_timing_cuts if a.branch_timing_cuts is not None else a.timing_cuts
-    if tc_base is not None or tc_branch is not None:
+    dcm_base = a.dc_mshrs
+    dcm_branch = a.branch_dc_mshrs if a.branch_dc_mshrs is not None else a.dc_mshrs
+    if any(v is not None for v in (tc_base, tc_branch, dcm_base, dcm_branch)):
         if a.harness == "own":
-            fail("--timing-cuts needs this tree's harness (--harness auto or branch): the profile is a make "
-                 "variable of this tree's sim/")
-        prof = lambda t: "the package's default" if t is None else f"TIMING_CUTS={t}"
-        log(f"  timing cuts (DR-140): base {prof(tc_base)}, this side {prof(tc_branch)}"
+            fail("--timing-cuts and --dc-mshrs need this tree's harness (--harness auto or branch): the profile "
+                 "is a make variable of this tree's sim/")
+        if (dcm_base is not None or dcm_branch is not None) and not takes_dc_mshrs(tree):
+            fail("--dc-mshrs needs a sim/profile.mk that takes DC_MSHRS (DR-149)")
+        prof = lambda t, d: ", ".join(([f"TIMING_CUTS={t}"] if t is not None else []) +
+                                      ([f"DC_MSHRS={d}"] if d is not None else [])) or "the package's default"
+        log(f"  profile (DR-140, DR-149): base {prof(tc_base, dcm_base)}, this side {prof(tc_branch, dcm_branch)}"
             f"{', on the boot too' if a.boot else ''}")
         # tests/unit/boot reads sim/profile.mk only if it is there (soc-2's 97b528a), so a boot tree
         # without the hook would build the default without a word: refuse it instead.
         if a.boot and "TC_DEF" not in git("show", f"{tb_src}:tests/unit/boot/Makefile"):
-            fail("--timing-cuts with the boot needs a tests/unit/boot whose Makefile takes TIMING_CUTS: "
-                 "give --boot-tree with a ref that has it, or --boot 0")
-    if not changed and tc_base == tc_branch:
+            fail("--timing-cuts or --dc-mshrs with the boot needs a tests/unit/boot whose Makefile takes the "
+                 "profile: give --boot-tree with a ref that has it, or --boot 0")
+    if not changed and (tc_base, dcm_base) == (tc_branch, dcm_branch):
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
     if auto_note:
         log(auto_note)
@@ -658,12 +679,13 @@ def main():
         harness_base = base_commit if a.harness == "own" else tree
         sides = {}  # kind -> (base, branch)
         if suites:
-            sides["vsim"] = (Side("base", "vsim", cfg, tool, base_commit, harness_base, tc=tc_base),
-                             Side("branch", "vsim", cfg, tool, branch_rtl, tree, tc=tc_branch))
+            sides["vsim"] = (Side("base", "vsim", cfg, tool, base_commit, harness_base, tc=tc_base, dcm=dcm_base),
+                             Side("branch", "vsim", cfg, tool, branch_rtl, tree, tc=tc_branch, dcm=dcm_branch))
         if a.boot:
             sides["boot"] = (Side("base", "boot", cfg, tool, base_commit, harness_base, tb_src, a.boot_cores,
-                                  tc=tc_base),
-                             Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores, tc=tc_branch))
+                                  tc=tc_base, dcm=dcm_base),
+                             Side("branch", "boot", cfg, tool, branch_rtl, tree, tb_src, a.boot_cores,
+                                  tc=tc_branch, dcm=dcm_branch))
         if not sides:
             fail("nothing to run: no suites and no --boot")
         failed = build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
@@ -676,11 +698,13 @@ def main():
                 if b.key in failed and br.key not in failed and b.harness_src != base_commit:
                     if b.args[7] is not None and not git("ls-tree", "--name-only", base_commit, "sim/profile.mk"):
                         continue  # the base's own sim/ cannot force a profile: leave the failure standing
+                    if b.args[8] is not None and not takes_dc_mshrs(base_commit):
+                        continue  # nor DC_MSHRS, which its profile.mk would drop without a word
                     log(f"[{cfg}] the base's RTL does not build with this tree's harness ({failed.pop(b.key)}); "
                         f"building the base's {kind} with the base's own sim/ instead, so the sides differ in "
                         f"harness as well as RTL (HARNESS=branch to forbid this)")
-                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, tc_ = b.args
-                    retry[kind] = Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, tc=tc_)
+                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, tc_, dcm_ = b.args
+                    retry[kind] = Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, tc=tc_, dcm=dcm_)
             if retry:
                 failed.update(build_all(list(retry.values()), a.jobs, cfg))
                 for kind, nb in retry.items():
