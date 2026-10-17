@@ -111,6 +111,7 @@ namespace tg {
   X(l2_mshr, 32, "L2 MSHRs (both banks)")                                                          \
   X(dram_lat, 120, "DRAM round trip seen from the L2 (cycles)")                                    \
   X(dram_line_cyc, 4, "DRAM cycles per 64-byte line (bandwidth)")                                  \
+  X(l1_fill_extra, 0, "cycles added to every L1 refill (the RTL's request, beats, install and replay)") \
   X(pf_stride, 1, "L1D PC-stride prefetcher")                                                      \
   X(pf_stride_entries, 16, "stride table entries")                                                 \
   X(pf_stride_dist, 4, "stride prefetch distance (strides ahead)")                                 \
