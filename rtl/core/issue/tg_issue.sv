@@ -84,6 +84,10 @@ module tg_issue
     return flush && t == flush_tid;
   endfunction
   logic [SW_HPW-1:0]          ld_hp;        // the LD port's RF-stage load: its PC's hash
+  // SPEC_WAKE (below): W with the speculative bits, the cancel, and the queues' view of them,
+  // declared ahead of the queues that connect them
+  logic [NCOL-1:0]            w_all, wake_spec, spec_pend, sw_cancel_col;
+  logic                       sw_cancel;
   logic [N_IQ-1:0][NCOL-1:0]  qbusy;
   logic [RA-1:0]              mx_issued, mx_free, mx_valid;
   logic [DW-1:0][NCOL-1:0]    no_ph;
@@ -449,8 +453,6 @@ module tg_issue
   // still speculative (the loads in M1 and M2, and a cancelled one) are left out of the W that
   // rename and IQ-FP see: rename keeps the dependency of a source it dispatches meanwhile, and
   // P4, which reads integer sources from the register file, waits for the result as before.
-  logic [NCOL-1:0] w_all, wake_spec, spec_pend, sw_cancel_col;
-  logic            sw_cancel;
   if (SPEC_WAKE) begin : g_sw
     sw_t             sw_rf, sw_ag_q, sw_m1_q, sw_m2_q;
     logic [NCOL-1:0] col_ag, col_m1, col_m2;
