@@ -4,7 +4,9 @@
 Synthesises every unit of units.tsv out of context in each of its configurations, one at a
 time through tools/vivado_run.sh (declaring each unit's memory: -mem N in units.tsv, default
 4 GB; synthesis runs with at most 2 processes), then compares LUTs, LUTRAM, FFs, DSP and block RAM with
-budgets.tsv and with the previous run, and runs the memory-primitive check.
+budgets.tsv and with the previous run, and runs the memory-primitive check. An implicit or
+undriven net in our sources (Synth 8-11241, 8-605, 8-3848: unit_synth.tcl's check after synthesis)
+fails the unit.
 
   python3 -I fpga/budget/run_budget.py [--root R] [--out DIR] [--units a,b] [--cfgs c,d]
                                        [--commit SHA] [--keep] [--dry-run]
@@ -12,8 +14,9 @@ budgets.tsv and with the previous run, and runs the memory-primitive check.
 Output in --out (default $TANAGER_BUILD/budget): latest.md (the report), latest.json,
 history/<time>_<commit>.json (one per run, for the deltas), reports/<unit>_<cfg>/ (the
 primitive check and hierarchical utilisation of the last run). Run directories are deleted.
-Exit status: 0 every enforced unit within budget and primitive-clean; 1 a unit over budget
-or a primitive failure; 2 a synthesis that did not finish.
+Exit status: 0 every enforced unit within budget, primitive-clean and free of implicit nets;
+1 a unit over budget, a primitive failure or an implicit or undriven net; 2 a synthesis that did
+not finish.
 """
 import argparse
 import datetime
@@ -112,6 +115,36 @@ def num(s):
         return None
 
 
+def implicit_nets(rd):
+    """Implicit- or undriven-net messages (Synth 8-11241, 8-605, 8-3848) about our sources in a
+    unit's run: the count unit_synth.tcl's check wrote to synth_check.txt, else (the check could
+    not yet read the log) from the finished vivado.log, by the check's rules
+    (fpga/spikes/tcl/synth_check.tcl): a file outside the run directory and the Xilinx
+    installation, or no file. None: no log to read."""
+    try:
+        with open(os.path.join(rd, "synth_check.txt")) as f:
+            m = re.search(r"nets in our sources \(Synth 8-11241[^)]*\): (\d+)", f.read())
+            if m:
+                return int(m.group(1))
+    except OSError:
+        pass
+    xil = os.path.dirname(os.environ.get("TANAGER_VIVADO_SETTINGS", "/nonexistent/settings64.sh"))
+    skip = [os.path.abspath(rd) + os.sep, os.path.abspath(xil) + os.sep]
+    found = set()
+    try:
+        with open(os.path.join(rd, "vivado.log"), errors="replace") as f:
+            for line in f:
+                if not re.search(r"\[Synth 8-(11241|605|3848)\]", line):
+                    continue
+                m = re.search(r"\[([^][]+):[0-9]+\]\s*$", line)
+                if m and any(os.path.abspath(m.group(1)).startswith(p) for p in skip):
+                    continue
+                found.add(line.strip())
+    except OSError:
+        return None
+    return len(found)
+
+
 def fmt(v):
     if v is None:
         return "–"
@@ -202,21 +235,24 @@ def main():
                     summ[k] = v.strip()
         except OSError:
             pass
-        ok = rc == 0 and "opt_lut" in summ
-        if not ok:
+        imp = implicit_nets(rd)                # (unit_synth.tcl stops a unit with one: no counts)
+        ok = rc == 0 and "opt_lut" in summ and not imp
+        if not ok and not imp:
             infra += 1
         r = dict(unit=j["unit"], cfg=j["cfg"], top=j["top"], generics=j["generics"], ok=ok,
                  minutes=round((datetime.datetime.now() - t0).total_seconds() / 60, 1),
                  values={k: num(summ.get(k)) for k, _, _ in METRICS},
                  prim_fail=(num(summ.get("prim_fail_synth")) or 0) + (num(summ.get("prim_fail_opt")) or 0),
-                 prim_stray=num(summ.get("prim_stray")) or 0)
+                 prim_stray=num(summ.get("prim_stray")) or 0, implicit=imp or 0)
         results.append(r)
-        print(f"  {name:16s} {'ok' if ok else 'FAILED rc=%d' % rc:8s} LUTs {fmt(r['values']['opt_lut'])}"
+        state = "ok" if ok else (f"FAILED: {imp} implicit or undriven nets" if imp else "FAILED rc=%d" % rc)
+        print(f"  {name:16s} {state:8s} LUTs {fmt(r['values']['opt_lut'])}"
               f" ({r['minutes']} min)", flush=True)
         keep = os.path.join(a.out, "reports", name)
         shutil.rmtree(keep, ignore_errors=True)
         os.makedirs(keep, exist_ok=True)
-        for f in ("summary.txt", "prim_synth.txt", "prim_opt.txt", "util_hier.rpt", "vivado.log"):
+        for f in ("summary.txt", "synth_check.txt", "prim_synth.txt", "prim_opt.txt", "util_hier.rpt",
+                  "vivado.log"):
             if os.path.exists(os.path.join(rd, f)) and (f != "vivado.log" or not ok):
                 shutil.copy(os.path.join(rd, f), keep)
         if not a.keep:
@@ -241,7 +277,7 @@ def main():
                         "opt_bram": sum(f["bram"] for f in found)}
         results.append(dict(unit=d["unit"], cfg=d["cfg"], top="@" + d["parent"] + ":" +
                             "+".join(d["insts"]), generics=[], ok=ok, minutes=0, values=vals,
-                            prim_fail=0, prim_stray=0, derived=True))
+                            prim_fail=0, prim_stray=0, implicit=0, derived=True))
 
     # Previous run, for the deltas
     prev = {}
@@ -253,7 +289,7 @@ def main():
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M")
 
     # Report
-    over, primbad, lines = 0, 0, []
+    over, primbad, impbad, lines = 0, 0, 0, []
     lines.append(f"# Per-unit budget run, {stamp}, commit {commit}\n")
     lines.append("Budgets: fpga/budget/budgets.tsv (derivation: docs/perf/budgets.md). Values after "
                  "opt_design, out of context, per core. Δ is the change since the previous run.\n")
@@ -285,7 +321,11 @@ def main():
             prim = "(from " + r["top"][1:] + ")"
         if r["prim_stray"]:
             prim += f", {r['prim_stray']} stray"
-        if not r["ok"]:
+        if r.get("implicit"):
+            prim += f", {r['implicit']} implicit or undriven nets (synth_check.txt)"
+            status = "IMPLICIT NETS"
+            impbad += 1
+        elif not r["ok"]:
             status = "NOT BUILT"
         elif r["prim_fail"]:
             status = "PRIM FAIL" if status == "OK" else status + ", PRIM FAIL"
@@ -314,8 +354,9 @@ def main():
             json.dump(doc, f, indent=1)
     print(report)
     print(f"budget run: {len(results)} built, {over} over budget, {primbad} with primitive "
-          f"failures, {infra} not built; report in {os.path.join(a.out, 'latest.md')}")
-    return 2 if infra else (1 if over or primbad else 0)
+          f"failures, {impbad} with implicit or undriven nets, {infra} not built; report in "
+          f"{os.path.join(a.out, 'latest.md')}")
+    return 2 if infra else (1 if over or primbad or impbad else 0)
 
 
 if __name__ == "__main__":
