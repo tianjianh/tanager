@@ -400,6 +400,11 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
      - **Console:** one RCU stall report again; nothing else.
    - **All five steps pass, and with steps 4 and 5 M4's FPGA-lockstep criterion is met** at 0 and 250 injected cycles (2026-10-14). The board session's logs, the first try's mismatch report included, are in `fpga/kv260/board/lockstep/`, and its account in `fpga/kv260/README.md`, "FPGA lockstep".
 
+**Two cores, live (DR-150, 2026-10-17):** the p0f build (two `smt2` cores, harts 0 and 2, 70 MHz, aae33dc) against the checker at 694aff2, with `--harts=4` (Spike's harts 1 and 3 never step: no record names them) and the default `--reorder` and `--hart-window` (§3.7).
+- **Result:** no mismatch in 425,955,311 records (83 traps, 10,976 interrupts), in 4,519 s at 94,251 records/s, through OpenSBI's two-hart boot and Linux's SMP bring-up to the clocksource switch. 16,406 loads read bytes another hart's recent write had replaced, and 2 atomics read past a store, which then followed them (§3.7's windows at work).
+- **Why it stopped short:** the RISC-V time counts in real time, while trace back-pressure holds each hart to about 47 K instructions/s. Every next tick was already due, so both harts stayed in `tick_handle_periodic`'s catch-up loop with interrupts off.
+- **Next:** a lockstep device tree with `timebase-frequency` at 1 GHz, so that time runs 100 times slower for Linux (the cell is 32 bits: up to about 430 times). The checker adopts every read of `time` and `mtime` (§3.4), so it needs only the same device tree (`--dtb`). The SoC track's proper fix freezes `mtime` during trace stalls.
+
 ### 3.10 External writes (DR-147 stage C)
 
 In stage C the A53's virtio back-end writes into the RISC-V's memory through the coherent host DMA port (soc.md §8.1). Every load of those bytes then differs from Spike's memory. Linux puts virtio buffers anywhere, so adopting loads by address range would not do. The checker instead learns each write and when it became visible, and accepts what an out-of-order core may legally read. Built and tested before the RTL (`sim/src/lockstep.cpp`; `tg_replay --ext`).
