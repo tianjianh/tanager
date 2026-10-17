@@ -291,6 +291,34 @@ module tg_rob
     ft_v[NFT - 2] = br_valid && !br_exc && br_misp;  ft_e[NFT - 2] = br_rob;
     ft_v[NFT - 1] = ld_cmp && ld_mmio;               ft_e[NFT - 1] = ld_rob;
   end
+  // The store ports' completion reports write their toggle tables a cycle later, from registers,
+  // and the commit slots' reads add the pending toggle in that cycle, so every flag reads as
+  // before: asserted against the shadow flags below, which take the reports when they come (timing,
+  // DR-148 fn12: in G7 the STA's PMP check -> sa_exc -> st_cmp -> those tables' WE was -0.76 ns at
+  // 21 levels, 70% wire). A flush in the write's cycle keeps it, since the report came before it.
+  // The dispatched entries' reads need no correction: a reported entry is live, so it is never
+  // being dispatched in the write's cycle (asserted)
+  localparam int SCT = N_ALU + 3;                // the store ports' completion tables: SCT, SCT + 1
+  logic [1:0]       sp_v_q;
+  robid_t [1:0]     sp_e_q;
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < 2; i++) begin
+      sp_v_q[i] <= st_cmp[i] && !flush && !rst;
+      sp_e_q[i] <= st_rob[i];
+    end
+  end
+  logic [NFT-1:0]   fw_v;                        // the tables' writes: the reports, the store ports' late
+  robid_t [NFT-1:0] fw_e;
+  always_comb begin
+    for (int t = 0; t < NFT; t++) begin
+      fw_v[t] = ft_v[t] && !flush && !rst;
+      fw_e[t] = ft_e[t];
+    end
+    for (int i = 0; i < 2; i++) begin
+      fw_v[SCT + i] = sp_v_q[i] && !rst;
+      fw_e[SCT + i] = sp_e_q[i];
+    end
+  end
   logic [NFT-1:0][NFR-1:0] ft_rd;
   for (genvar t = 0; t < NFT; t++) begin : g_ft
     logic [NFR-1:0][RIW-1:0] ra;
@@ -300,9 +328,9 @@ module tg_rob
     for (genvar k = 0; k < DISPATCH_WIDTH; k++) begin : g_rd
       assign ra[CW + k] = ds_ren[k].rob[RIW-1:0];
     end
-    assign ra[NFR-1] = ft_e[t][RIW-1:0];
+    assign ra[NFR-1] = fw_e[t][RIW-1:0];
     tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NFR)) u_ft (
-      .clk, .we(ft_v[t] && !flush && !rst), .waddr(ft_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
+      .clk, .we(fw_v[t]), .waddr(fw_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
       .raddr(ra), .rdata(ft_rd[t]));
   end
   // The completion and exception parities at each read port
@@ -314,6 +342,10 @@ module tg_rob
       for (int t = 0; t < NCP; t++)         par_c[p] ^= ft_rd[t][p];
       for (int t = NCP; t < NCP + NXP; t++) par_x[p] ^= ft_rd[t][p];
     end
+    // the commit slots: the store tables' pending toggles (above)
+    for (int j = 0; j < CW; j++)
+      for (int i = 0; i < 2; i++)
+        par_c[j] ^= sp_v_q[i] && sp_e_q[i][RIW-1:0] == hid[j][RIW-1:0];
   end
   logic [CW-1:0] cmp_h, exc_h, misp_h, mmio_h;   // the flags of the commit slots' entries
   for (genvar j = 0; j < CW; j++) begin : g_fh
@@ -762,6 +794,12 @@ module tg_rob
                 else $error("tg_rob: a report for entry %0d as it is dispatched", ft_e[t]);
         end
       end
+      // the store tables' late writes: never at an entry being dispatched
+      for (int i = 0; i < 2; i++)
+        if (sp_v_q[i] && ds_fire)
+          for (int k = 0; k < DISPATCH_WIDTH; k++)
+            assert (!(ds_valid[k] && ds_ren[k].rob[RIW-1:0] == sp_e_q[i][RIW-1:0]))
+              else $error("tg_rob: a store table's late write at entry %0d as it is dispatched", sp_e_q[i]);
       for (int j = 0; j < CW; j++) begin
         if (j < cnt) begin
           assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
