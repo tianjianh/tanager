@@ -59,6 +59,8 @@ gpg --no-default-keyring --keyring "$keyring" --list-keys 2>/dev/null | grep -q 
 #   interface, systemd-resolved for DNS (/etc/resolv.conf its stub, in place of the build host's, which
 #   mmdebstrap copies in), systemd-timesyncd for the clock (the board has no RTC, and apt refuses Release
 #   files from the future)
+# - systemd's default start and stop timeouts at 10 and 5 minutes: at the board's 70 MHz about 40 units start on
+#   two harts, and networkd took 1 min 54 s against its 2 min 30 s limit (the board's first networked boots)
 # - user tanager with its password locked: an automatic login on the serial console (ttyS0), sudo
 #   without a password, SSH with the key given (none: console only)
 # - apt on the normal mirrors (the image updates as any Debian machine does)
@@ -71,6 +73,7 @@ mmdebstrap --mode=unshare --architectures=riscv64 --variant=important --keyring=
   --customize-hook='ln -sf ../run/systemd/resolve/stub-resolv.conf "$1/etc/resolv.conf"' \
   --customize-hook='printf "[Match]\nType=ether\n\n[Network]\nDHCP=yes\n" > "$1/etc/systemd/network/80-tanager.network" && chroot "$1" systemctl enable systemd-networkd' \
   --customize-hook='printf "LABEL=tanager-root / ext4 defaults 0 1\n" > "$1/etc/fstab"' \
+  --customize-hook='mkdir -p "$1/etc/systemd/system.conf.d" && printf "[Manager]\nDefaultTimeoutStartSec=10min\nDefaultTimeoutStopSec=5min\n" > "$1/etc/systemd/system.conf.d/50-tanager-slow-clock.conf"' \
   --customize-hook='chroot "$1" systemctl enable serial-getty@ttyS0.service' \
   --customize-hook='mkdir -p "$1/etc/systemd/system/serial-getty@ttyS0.service.d" && printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin tanager --keep-baud 115200 %%I \$TERM\n" > "$1/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf"' \
   --customize-hook='chroot "$1" useradd -m -s /bin/bash -G sudo tanager && chroot "$1" passwd -l tanager' \
