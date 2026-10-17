@@ -123,7 +123,7 @@ package tg_core_pkg;
 `ifdef TG_TAGE
   localparam bit TAGE_ON = `TG_TAGE;
 `else
-  localparam bit TAGE_ON = 1'b1;
+  localparam bit TAGE_ON = 1'b0;
 `endif
   localparam int FTQW = idx_w(FTQ_ENTRIES);   // the configuration's FTQ_ENTRIES
   localparam int RAS_PW = idx_w(RAS_ENTRIES);  // the return-address stack's pointer bits
