@@ -12,9 +12,10 @@
 // The check needs neither the RVC expander nor the decoder's class and immediate: the queue
 // brings the instruction's pre-decode marks (decode's class unless decode raises an exception,
 // which the check excludes), and the offset comes from the raw encoding.
-// Nor does the group wait for the expander: whether an instruction raises an exception or goes
-// alone comes from the raw encoding too, from a second decoder (only these outputs are kept) for a
-// 32-bit instruction, and from its 16 bits for a compressed one.
+// With QUEUE_DECODE the group does not wait for a decoder either: whether an instruction raises an
+// exception or goes alone comes with it from the queue, which decodes those bits as it writes the
+// instruction (tg_fetch_compact), and the decoders clear their fields by the queue's illegal bit
+// too. Without it a second decoder (u_decr) and a 16-bit rule give them from the raw encoding.
 // DE_STAGE (DR-140 #8; off in both profiles, and lint-only on top of the default until the user
 // turns it on): decode takes a stage of its own.
 // DE1 decodes the queue head into registers, as many as there is room for (the slots DE2 does not
@@ -77,6 +78,11 @@ module tg_decode_stage
   endfunction
 
   dec_t [W-1:0]        d;
+`ifndef SYNTHESIS
+  logic rs_seen_q;                              // reset has been seen (the checks wait for it)
+  initial rs_seen_q = 1'b0;
+  always @(posedge clk) if (rst) rs_seen_q <= 1'b1;
+`endif
   logic [W-1:0][63:0]  seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset
   logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
   logic [W-1:0]        redir;
@@ -102,29 +108,49 @@ module tg_decode_stage
     assign imm     = {{43{bimm[20]}}, bimm};
     assign seq_d[j] = pbase + poff + (iq_insn[j].rvc ? 64'd2 : 64'd4);
     assign tgt_d[j] = pbase + poff + imm;
-    tg_decode u_dec (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
-                     .link(seq_d[j]), .tgt(tgt_d[j]),
+    logic dec_ill;                              // the decoder's own illegal decision (checked)
+    tg_decode #(.ILL_Q(QUEUE_DECODE)) u_dec (
+                     .pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad), .insn(xi),
+                     .link(seq_d[j]), .tgt(tgt_d[j]), .raw(iq_insn[j].insn),
                      .pre_ill,
-                     .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(d[j]));
-    // Exception and going alone from the raw encoding. A compressed instruction raises one only when
-    // it is illegal as such (pre_ill), is C.EBREAK, or is an FP load/store (C.FLD, C.FSD, C.FLDSP,
-    // C.FSDSP: their D-less forms are pre_ill) with the FP unit off; none is serialising.
-    dec_t dr;
-    tg_decode u_decr (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad),
-                      .insn(iq_insn[j].insn), .link('0), .tgt('0), .pre_ill(1'b0),
-                      .fault(iq_insn[j].fault),
-                      .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b,
-                      .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(dr));
-    logic [15:0] c16;
-    logic        c_exc;
-    assign c16   = iq_insn[j].insn[15:0];
-    assign c_exc = iq_insn[j].fault || pre_ill || c16 == 16'h9002 ||
-                   (c16[1:0] != 2'b01 && c16[14:13] == 2'b01 &&
-                    !(EXT_FD && misa_f && fs != 2'd0 && misa_d));
-    assign exc_f[j]   = iq_insn[j].rvc ? c_exc : dr.exc;
-    assign alone_f[j] = iq_insn[j].rvc ? c_exc : (dr.exc || dr.serial);
-    logic unused_dr;
-    assign unused_dr = ^dr;                     // only exc and serial are kept
+                     .fault(iq_insn[j].fault), .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
+                     .ill_q(iq_insn[j].q_ill), .d(d[j]), .ill_o(dec_ill));
+    if (QUEUE_DECODE) begin : g_qd
+      // Exception and going alone: the queue's bits, with a fetch fault from the entry's own flag
+      assign exc_f[j]   = iq_insn[j].fault || iq_insn[j].q_exc;
+      assign alone_f[j] = exc_f[j] || iq_insn[j].q_ser;
+`ifndef SYNTHESIS
+      // The queue's illegal bit is the decoder's own decision (the fault overrides both): from the
+      // first reset on, as the queue's entries hold nothing written before it, and outside the flush
+      // cycle, where entries written before a state change (a serialising instruction or a trap just
+      // committed) wait to be dropped and decode takes nothing
+      always_ff @(posedge clk) begin
+        if (rs_seen_q && !rst && !flush && iq_valid[j] && !iq_insn[j].fault)
+          assert (iq_insn[j].q_ill == dec_ill) else $error("tg_decode_stage: the queue's illegal bit differs from decode's");
+      end
+`endif
+    end else begin : g_rd
+      // Exception and going alone from the raw encoding. A compressed instruction raises one only when
+      // it is illegal as such (pre_ill), is C.EBREAK, or is an FP load/store (C.FLD, C.FSD, C.FLDSP,
+      // C.FSDSP: their D-less forms are pre_ill) with the FP unit off; none is serialising.
+      dec_t dr;
+      logic dr_ill;
+      tg_decode u_decr (.pc_lo(iq_insn[j].pc[3:0]), .blk(iq_insn[j].blk), .strad(iq_insn[j].strad),
+                        .insn(iq_insn[j].insn), .link('0), .tgt('0), .raw('0), .pre_ill(1'b0),
+                        .fault(iq_insn[j].fault),
+                        .fault_pf(iq_insn[j].fault_pf), .fault_hi(iq_insn[j].fault_hi), .misa_m, .misa_b,
+                        .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr, .d(dr), .ill_o(dr_ill));
+      logic [15:0] c16;
+      logic        c_exc;
+      assign c16   = iq_insn[j].insn[15:0];
+      assign c_exc = iq_insn[j].fault || pre_ill || c16 == 16'h9002 ||
+                     (c16[1:0] != 2'b01 && c16[14:13] == 2'b01 &&
+                      !(EXT_FD && misa_f && fs != 2'd0 && misa_d));
+      assign exc_f[j]   = iq_insn[j].rvc ? c_exc : dr.exc;
+      assign alone_f[j] = iq_insn[j].rvc ? c_exc : (dr.exc || dr.serial);
+      logic unused_dr;                            // only exc and serial are kept; no queue bits
+      assign unused_dr = ^{dr, dr_ill, dec_ill, iq_insn[j].q_exc, iq_insn[j].q_ser};
+    end
 `ifndef SYNTHESIS
     // The raw encoding's offset is the expanded instruction's (the target decode used to add)
     logic [63:0] xtgt;
@@ -132,11 +158,15 @@ module tg_decode_stage
                     ? {{43{xi[31]}}, xi[31], xi[19:12], xi[20], xi[30:21], 1'b0}
                     : {{51{xi[31]}}, xi[31], xi[7], xi[30:25], xi[11:8], 1'b0});
     always_ff @(posedge clk) begin
-      if (!rst && iq_valid[j])
+      if (rs_seen_q && !rst && iq_valid[j])
         assert (exc_f[j] == d[j].exc && alone_f[j] == (d[j].exc || d[j].serial))
           else $error("tg_decode_stage: the raw encoding's exception or serialisation differs from decode's");
       if (!rst && iq_valid[j] && !d[j].exc && d[j].cls == C_BR && d[j].br_kind != BR_JALR)
         assert (tgt_d[j] == xtgt) else $error("tg_decode_stage: the raw offset gives another target than decode's");
+      // An AUIPC is never compressed: its raw immediate is the decoded one
+      if (!rst && iq_valid[j] && xi[6:0] == 7'b0010111)
+        assert (!iq_insn[j].rvc && iq_insn[j].insn[31:12] == xi[31:12])
+          else $error("tg_decode_stage: an AUIPC's raw immediate differs from its decoded one");
     end
 `endif
   end

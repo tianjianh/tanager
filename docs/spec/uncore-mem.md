@@ -77,7 +77,7 @@ Plan §2.5 and §5.6. XiangShan's FPGA prototype used a latency injector for the
 ## DRAM window (`tg_axi_window`)
 
 ### Purpose
-Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the PS DDR carve-out. It also guarantees that nothing the RISC-V side does can touch A53 memory outside the carve-out (plan §5.5).
+Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the PS DDR carve-out. The cores' memory region (`tg_map_pkg::DRAM_REGION`, 1 GiB, DR-151) is no larger than the board's window, so only a lockstep build's smaller window (768 MiB) ever refuses a wrong-path line fill. It also guarantees that nothing the RISC-V side does can touch A53 memory outside the carve-out (plan §5.5).
 
 ### Interface
 - AXI4 slave (from the injector, `PA_W` address) and AXI4 master (to the PS port, `AXI_EXT_ADDR_W` = 40).

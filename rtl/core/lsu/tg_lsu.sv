@@ -312,6 +312,7 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
   logic   [SQ_ENTRIES-1:0]           sq_amw_q;     // ... the atomic wrote memory (trace)
   sqid_t                             sq_head_q, sq_cmt_q, sq_tail_q;
+  logic   [SQ_ENTRIES-1:0]           sq_hge_q;     // the head's mask: slot i at or after its slot
 
   assign lq_head_o = lq_head_q;
   logic [LIW-1:0] hl;                             // the LQ head's slot
@@ -362,9 +363,28 @@ module tg_lsu
     for (int i = 0; i < LQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
     return |hi ? lq_first(hi) : lq_first(v);
   endfunction
-  function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v, input logic [SIW-1:0] h);
+  // The same search on a carry chain (timing, DR-145: in G6 the ordering check's select took seven
+  // LUT levels after its address compares): the set twice over, the slots at or after the head's
+  // in the low half, so the lowest set bit of the 2N is the oldest (u & -u, whose chain carries
+  // "no set bit below"); the halves' one-hot bits merge, then an OR encode. Exactly lq_oldest, an
+  // empty set giving 0 (asserted against it)
+  function automatic logic [LIW-1:0] lq_oldest_c(input logic [LQ_ENTRIES-1:0] v, input logic [LIW-1:0] h);
+    logic [LQ_ENTRIES-1:0]   ge, e;
+    logic [2*LQ_ENTRIES-1:0] u, oh;
+    logic [LIW-1:0]          r;
+    for (int i = 0; i < LQ_ENTRIES; i++) ge[i] = i >= int'(h);
+    u  = {v, v & ge};
+    oh = u & -u;
+    e  = oh[LQ_ENTRIES-1:0] | oh[2*LQ_ENTRIES-1:LQ_ENTRIES];
+    r  = '0;
+    for (int i = 0; i < LQ_ENTRIES; i++) if (e[i]) r = r | LIW'(i);
+    return r;
+  endfunction
+  // the oldest slot of v, from the head's mask (hge[i]: slot i at or after the head's slot)
+  function automatic logic [SIW-1:0] sq_oldest(input logic [SQ_ENTRIES-1:0] v,
+                                               input logic [SQ_ENTRIES-1:0] hge);
     logic [SQ_ENTRIES-1:0] hi;
-    for (int i = 0; i < SQ_ENTRIES; i++) hi[i] = v[i] && i >= int'(h);
+    hi = v & hge;
     return |hi ? sq_first(hi) : sq_first(v);
   endfunction
   // whether SQ slot i lies in the window [h, e) of IDs (every slot when e is h + SQ_ENTRIES)
@@ -413,7 +433,7 @@ module tg_lsu
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
-  logic              am_req, am_ack, am_den, lose_v;
+  logic              am_req, am_sel, am_ack, am_den, lose_v;
   logic              pr_hold;                     // the D$'s probes wait: a young LR reservation
   logic [PA_W-1:0]   am_pa;
   logic [15:0]       am_wmask;
@@ -426,7 +446,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
-    .am_req, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
+    .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
@@ -442,7 +462,7 @@ module tg_lsu
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
   assign rp_any = |rp_ready;
-  assign rp_idx = lq_oldest(rp_ready, lqi(lq_head_q));
+  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -498,13 +518,16 @@ module tg_lsu
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
   logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
-  logic [LIW-1:0] lm_lq;                          // ... the MMIO load's LQ entry
+  logic        lm_st;                             // ... MMIO issue held; the denied MMIO load's state write,
+  logic [LIW-1:0] lm_lq;                          // ... and its LQ entry
   pma_e        nl_pma;
   assign nl_pa   = xl_d ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
   assign nl_mis  = misal(ln_va[2:0], ln_size);
   assign nl_pf   = xl_d && !nl_mis && !va_canon(ln_va);
   assign nl_tm   = xl_d && !nl_mis && !nl_pf && !(dt_hit[0] && pte_ok(dt_pte[0], ACC_R, priv_d, sum, mxr));
-  assign nl_pma  = pma_of(nl_pa);
+  // The region class of both PAs, picked by xl_d last (timing: the translated PA's class does not
+  // wait for the mode's select)
+  assign nl_pma  = xl_d ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
   tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
@@ -558,36 +581,51 @@ module tg_lsu
   logic [SQ_ENTRIES-1:0] f_oh;                      // the forwarding store, one-hot (encoded in M2)
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
   logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
-  logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
+  logic              q_hit, q_cover, q_data;        // ... any; the youngest covers; its data is there
   logic [SQ_ENTRIES-1:0] q_oh;                      // ... the youngest, one-hot
   assign f_lim = lq_sq_q[m1_lq_q];
+  // A store's terms that do not wait for the load's translation (its state, the window, the byte
+  // overlap) go into the PA compare as one more bit, so the compare's carry chain can end in the
+  // candidate bit itself (timing: core-2's form for lq_oldest_c)
   always_comb begin
-    for (int i = 0; i < SQ_ENTRIES; i++)
-      fc_sq[i] = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
-                 sq_pa_q[i][PA_W-1:3] == m1pa[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
-  end
-  // The youngest as a one-hot vector selects the per-entry cover and data-valid bits, formed in
-  // parallel from flip-flops, and goes to M2 as it is, encoded there (timing: no index encode or
-  // multiplexer after the search)
-  always_comb begin
-    logic [SQ_ENTRIES-1:0] fc_lo, oh_lo, oh_all, cov;
-    logic                  run_lo, run_all;
-    for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
-    run_lo  = 1'b0;
-    run_all = 1'b0;
-    for (int i = SQ_ENTRIES - 1; i >= 0; i--) begin
-      oh_lo[i]  = fc_lo[i] && !run_lo;
-      oh_all[i] = fc_sq[i] && !run_all;
-      run_lo    = run_lo || fc_lo[i];
-      run_all   = run_all || fc_sq[i];
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      logic early;
+      early    = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
+                 |(sq_mask_q[i] & m1_mask);
+      fc_sq[i] = {sq_pa_q[i][PA_W-1:3], early} == {m1pa[PA_W-1:3], 1'b1};
     end
-    for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
-    q_hit   = |fc_sq;
-    q_lo    = |fc_lo;
-    q_oh    = q_lo ? oh_lo : oh_all;
-    q_cover = |(q_oh & cov);
-    q_data  = |(q_oh & sq_dv_q);
   end
+  // The youngest goes to M2 as a one-hot vector, encoded there (timing: no index encode or
+  // multiplexer after the search). The youngest is the highest candidate below f_lim's slot, else
+  // the highest of all: the highest set bit of {below, all}, found by carry chain on the reversed
+  // vector (y & -y, as lq_oldest_c) and folded over the halves, so no running OR along the queue.
+  // Its cover and data-valid bits need no one-hot: w's highest set bit lies in w & b, for the
+  // per-entry bits b, exactly when (w & b) > (w & ~b), the two being disjoint; a compare is one
+  // carry chain (timing: no OR over the one-hot after the search).
+  logic [SQ_ENTRIES-1:0] fc_lo;                     // the candidates below f_lim's slot
+  logic [2*SQ_ENTRIES-1:0] fc_w;                    // {below, all}: the youngest is its highest bit
+  logic [SQ_ENTRIES-1:0] cov;                       // per store: its bytes cover the load's
+  always_comb for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
+  always_comb begin
+    logic [2*SQ_ENTRIES-1:0] w, y, ly;
+    for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
+    w  = {fc_lo, fc_sq};
+    fc_w = w;
+    for (int i = 0; i < 2 * SQ_ENTRIES; i++) y[i] = w[2 * SQ_ENTRIES - 1 - i];
+    ly = y & -y;
+    for (int i = 0; i < SQ_ENTRIES; i++)
+      q_oh[i] = ly[2 * SQ_ENTRIES - 1 - i] | ly[SQ_ENTRIES - 1 - i];
+    q_hit   = |fc_sq;
+    q_cover = (w & {cov, cov}) > (w & ~{cov, cov});
+    q_data  = (w & {sq_dv_q, sq_dv_q}) > (w & ~{sq_dv_q, sq_dv_q});
+  end
+`ifndef SYNTHESIS
+  always_ff @(posedge clk) begin
+    if (!rst)
+      assert (q_cover == |(q_oh & cov) && q_data == |(q_oh & sq_dv_q))
+        else $error("tg_lsu: the forwarding compare differs from the youngest's bits");
+  end
+`endif
 
 
   // ================= M2 =================
@@ -724,8 +762,12 @@ module tg_lsu
     if (r_v_q && r_dv_q) llt_done[r_llt_q] = 1'b1;
   end
   // An MMIO response takes the result register when M2 does not
+  // The MMIO and atomic results take the result register when no M2 load completes, its PMP
+  // verdict aside (m2_okw): a load the checker denies leaves the register empty that cycle, and
+  // they take it the next (timing, DR-145: G6's load PMP checker -> the result take -> the
+  // wakeup, -1.56 ns; a cycle only when one waits beside a PMP-denied load in M2)
   logic xr_take;
-  assign xr_take = xr_v_q && !m2_ok && !flush;
+  assign xr_take = xr_v_q && !m2_okw && !flush;
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -769,13 +811,14 @@ module tg_lsu
   assign rsv_ok   = rsv_v_q && rsv_line_q == am_pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign rsv_ok_go = rsv_v_q && rsv_line_q == sqh.pa[PA_W-1:6] && !(lose_v && lose_line == rsv_line_q);
   assign am_req   = am_st_q == AM_REQ && !flush && !am_pden_q;
+  assign am_sel   = am_st_q == AM_REQ;              // the D$ store port's address: the state alone
   assign am_old   = ext_al(am_rdata, am_pa[2:0], am_size, 1'b0);
   assign am_new   = amo_alu(am_op_q, am_size == 2'd2, am_old, am_b_q);
   assign am_wr    = !am_lr && (!am_sc || rsv_ok);
   assign am_wmask = (am_req && am_ack && am_wr) ? {8'b0, bmask(am_pa[2:0], am_size)} << {am_pa[3], 3'b000}
                                                  : 16'h0;
   assign am_wdata = rep(am_new, am_size);
-  assign am_take  = am_st_q == AM_RES && !m2_ok && !xr_take && !flush;
+  assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !flush;
 
   logic            rsv_v_d;
   logic [PA_W-1:6] rsv_line_d;
@@ -814,7 +857,8 @@ module tg_lsu
   // ================= Store data capture =================
   // The oldest store whose data is ready captures it; while P4 takes the shared read port
   // (sd_busy, late: P4's issue) only an FP store can, the oldest ready one. Both choices are
-  // formed without sd_busy, which picks between them last. Each read tag takes its own choice:
+  // formed without sd_busy, which picks between them last, and "oldest" reads the head's mask,
+  // a register (sq_hge_q), not the head pointer's decoding. Each read tag takes its own choice:
   // sd_tag is read only when the port is free, and fsd_tag's value is used only when an FP store
   // captures, which is then the oldest ready FP store in either case.
   logic           cap_v;
@@ -825,8 +869,8 @@ module tg_lsu
       ca[i] = sq_v_q[i] && !sq_dv_q[i] && sq_dr_q[i];
       cf[i] = ca[i] && sq_fp_q[i];
     end
-    cap_ia  = sq_oldest(ca, sq_head_q[SIW-1:0]);
-    cap_if  = sq_oldest(cf, sq_head_q[SIW-1:0]);
+    cap_ia  = sq_oldest(ca, sq_hge_q);
+    cap_if  = sq_oldest(cf, sq_hge_q);
     cap_v   = (sd_busy ? |cf : |ca) && !flush;
     cap_idx = sd_busy ? cap_if : cap_ia;
   end
@@ -918,6 +962,9 @@ module tg_lsu
   // (a load is younger than the store when the store is in [head, the load's lq_sq))
   logic           rp_v_c, rp_v_q;
   logic [LIW-1:0] rp_ra_c, rp_ra_q;
+`ifndef SYNTHESIS
+  logic [LQ_ENTRIES-1:0] oc_s;      // the search's set, for the select's check
+`endif
   always_comb begin
     logic [LQ_ENTRIES-1:0] oc;
     for (int i = 0; i < LQ_ENTRIES; i++)
@@ -926,7 +973,10 @@ module tg_lsu
               lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
               |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
     rp_v_c  = sa_ok && |oc;
-    rp_ra_c = lq_oldest(oc, lqi(lq_head_q));
+    rp_ra_c = lq_oldest_c(oc, lqi(lq_head_q));
+`ifndef SYNTHESIS
+    oc_s    = oc;
+`endif
   end
   // The report goes out a cycle later from flip-flops: the load's LQ index, whose ROB index the
   // LUTRAM reads then (timing: the read leaves the search). No AG load writes that entry in the
@@ -942,6 +992,10 @@ module tg_lsu
   always_ff @(posedge clk)
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
+  always_ff @(posedge clk) begin    // the carry-chain selects against the reference (same values)
+    assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q))) else $error("tg_lsu: the ordering check's oldest select differs");
+    assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q))) else $error("tg_lsu: the replay pick differs");
+  end
 `endif
   assign lqr_ra[0]    = rp_ra_q;
   assign replay_valid = rp_v_q;
@@ -1248,6 +1302,7 @@ module tg_lsu
       lq_tail_q <= '0;
       sq_v_q    <= '0;
       sq_head_q <= '0;
+      sq_hge_q  <= '1;
       sq_cmt_q  <= '0;
       sq_tail_q <= '0;
       m1_v_q    <= 1'b0;
@@ -1273,6 +1328,7 @@ module tg_lsu
       if (dr_pop) begin
         sq_v_q[dh] <= 1'b0;
         sq_head_q  <= sq_add(sq_head_q, 1);
+        sq_hge_q   <= (int'(dh) == SQ_ENTRIES - 1) ? '1 : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
       end
 
       // ---- MMIO ----
@@ -1378,17 +1434,20 @@ module tg_lsu
       if (m2_v_q && !m2_pt_q && !flush) begin
         unique case (m2_out)
           O_OK:    lq_st_q[m2_lq_q] <= L_DONE;
-          O_STQ: begin
-            lq_st_q[m2_lq_q]   <= L_STQ;
-            lq_blk_q[m2_lq_q]  <= m2_fid;
-            lq_part_q[m2_lq_q] <= !m2_fcov_q;
-          end
+          O_STQ:   lq_st_q[m2_lq_q] <= L_STQ;
           O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
+        // The blocking store's fields go in on the outcome before the PMP checker's verdict (timing:
+        // l_den stays out of their enables): a load the checker denies goes to L_EXC in this cycle,
+        // and they are read only in L_STQ (checked against the verdict's in simulation)
+        if (m2_out_w == O_STQ) begin
+          lq_blk_q[m2_lq_q]  <= m2_fid;
+          lq_part_q[m2_lq_q] <= !m2_fcov_q;
+        end
       end
-      if (lm_den && !flush) lq_st_q[lm_lq] <= L_EXC;   // an MMIO load the PMP checker denied
+      if (lm_st && !flush) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
@@ -1417,11 +1476,14 @@ module tg_lsu
         lq_st_q[ag_lq]  <= L_PIPE;
       end
       // A new load's PA and outcome where it decides: in AG (over the lines above), or in M1 with
-      // the split
+      // the split. The outcome is the state write's data, not its enable, so nl_exc (after the PMA
+      // and fault checks) stays out of each entry's enable (timing). A load going on keeps L_PIPE,
+      // the state it has here: its AG write gave it, in this cycle without the split, the cycle
+      // before with it (nothing else writes the entry in between: asserted in g_split)
       if (ln_v && !flush) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
-        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
+        lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
 
       // ---- Waiting loads re-check their condition ----
@@ -1545,6 +1607,8 @@ module tg_lsu
     logic [SIW-1:0] sn_sq_q;               // (the index; the wrap bit is not read)
     logic        cl_v_q;                   // a store wrote the D$ in the AG cycle of M1's op ...
     logic [PA_W-1:4] cl_row_q;             // ... this row
+    logic        cl2_v_q;                  // #11: ... or a cycle before it (the RAM is written a cycle late)
+    logic [PA_W-1:4] cl2_row_q;
     always_ff @(posedge clk) begin
       ln_v_q    <= !rst && !flush && ld_ag_valid;
       sn_v_q    <= !rst && !flush && sta_ag_valid;
@@ -1557,6 +1621,8 @@ module tg_lsu
       sn_size_q <= sta_ag_pl.mem_size;
       sn_sq_q   <= sta_ag_pl.sq[SIW-1:0];
       cl_row_q  <= st_pa[PA_W-1:4];
+      cl2_v_q   <= !rst && DC_PORTB_WREG && cl_v_q;
+      cl2_row_q <= cl_row_q;
     end
     assign ln_v    = ln_v_q;
     assign ln_va   = ln_va_q;
@@ -1572,7 +1638,7 @@ module tg_lsu
     assign ag_pa    = ld_ag_valid ? ld_ag_addr[PA_W-1:0] : ag_pt ? pt_pa : lqa_rd[0].pa;
     assign ag_go    = ag_v;
     assign m1pa     = ln_v_q ? nl_pa : m1_pa_q;
-    assign m1_clash = cl_v_q && cl_row_q == m1pa[PA_W-1:4];
+    assign m1_clash = (cl_v_q && cl_row_q == m1pa[PA_W-1:4]) || (cl2_v_q && cl2_row_q == m1pa[PA_W-1:4]);
     assign m1_go    = m1_v_q && (!ln_v_q || nl_go);
     assign ln_lq    = m1_lq_q;
     assign ln_lqw   = m1_lq_q;
@@ -1594,8 +1660,24 @@ module tg_lsu
     assign lck_dbl = m2_dbl_q;
     assign l_den   = m2_pck_q && !nl_chk[0];
     assign lm_den  = m2_mck_q && !nl_chk[0];
-    assign lm_lq   = m2_lq_q;
-    assign mm_hold = lm_den && m2_lq_q == hl;
+    if (LSU_MMIO_PMP_REG) begin : g_mreg
+      // #10: the verdict registered, for the state a cycle later; the head's issue waits while its
+      // load checks, then on the registered denial (timing: the checker leaves the LQ state's
+      // enables, through the issue)
+      logic           lm_den_q;
+      logic [LIW-1:0] lm_lq_q;
+      always_ff @(posedge clk) begin
+        lm_den_q <= !rst && !flush && lm_den;
+        lm_lq_q  <= m2_lq_q;
+      end
+      assign lm_st   = lm_den_q;
+      assign lm_lq   = lm_lq_q;
+      assign mm_hold = (m2_mck_q && m2_lq_q == hl) || (lm_den_q && lm_lq_q == hl);
+    end else begin : g_mnow
+      assign lm_st   = lm_den;
+      assign lm_lq   = m2_lq_q;
+      assign mm_hold = lm_den && m2_lq_q == hl;
+    end
     // The store address in M1 this cycle counts as if it were in the SQ already: without the split
     // it would be (written at its AG), so this keeps ordering exact
     // It does not wait for its access-fault checks (PMP, PMA, the high bits): a store that faults
@@ -1608,9 +1690,41 @@ module tg_lsu
                    sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
                    sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
     assign s_lo  = sa_idx < f_lim[SIW-1:0];
-    logic [SQ_ENTRIES-1:0] below_sa;               // the slots below the M1 store's
-    always_comb for (int i = 0; i < SQ_ENTRIES; i++) below_sa[i] = i < int'(sa_idx);
-    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && |(q_oh & below_sa)));
+    // The M1 store is the youngest when no candidate is younger: fc_w has no bit at or above the
+    // store's own position in it (its slot, in the upper half when the store is below f_lim's
+    // slot), so fc_w < (1 << that position), one carry chain against a bit made from registers
+    // (timing: no ORs over the candidates before the final select). SAT-proven equal to the
+    // per-region form it replaces (no candidate at or above the store's slot in the youngest's
+    // region) for slots below SQ_ENTRIES, and checked against it in simulation
+    logic [SIW:0]            s_pos;
+    logic [2*SQ_ENTRIES-1:0] s_bit;
+    assign s_pos = s_lo ? (SIW+1)'(SQ_ENTRIES) + (SIW+1)'(sa_idx) : (SIW+1)'(sa_idx);
+    assign s_bit = (2*SQ_ENTRIES)'(1) << s_pos;
+    assign sel_s = byp && (fc_w < s_bit);
+`ifndef SYNTHESIS
+    logic [SQ_ENTRIES-1:0] ab_sa;                  // the slots at or above the M1 store's
+    logic                  r_lo;
+    always_comb for (int i = 0; i < SQ_ENTRIES; i++) ab_sa[i] = i >= int'(sa_idx);
+    assign r_lo = |fc_lo;
+    always_ff @(posedge clk) begin
+      if (rs_q && !rst && m1_v_q && sn_v) begin
+        assert (int'(sa_idx) < SQ_ENTRIES && int'(f_lim[SIW-1:0]) < SQ_ENTRIES)
+          else $error("tg_lsu: an SQ slot beyond SQ_ENTRIES");
+        assert (sel_s == (byp && (!q_hit || (s_lo && !r_lo) ||
+                                  (s_lo == r_lo && (r_lo ? !(|(fc_lo & ab_sa)) : !(|(fc_sq & ab_sa)))))))
+          else $error("tg_lsu: the M1 store's age compare differs from the per-region form");
+      end
+      // A new load's state write takes its outcome as data: where it decides in M1, its entry is
+      // in L_PIPE and no earlier write in the LQ block meets it in this cycle
+      if (rs_q && !rst && ln_v && !flush)
+        assert (lq_st_q[ln_lqw] == L_PIPE &&
+                !(((ld_ag_valid && !flush) || ag_rp) && ag_lq == ln_lqw) &&
+                !(m2_v_q && !m2_pt_q && m2_lq_q == ln_lqw) && !(lm_st && lm_lq == ln_lqw) &&
+                !(xr_take && x_lq_q == ln_lqw) &&
+                !(xs_q == X_WAIT && !x_st_q && !x_kill_q && x_lq_q == ln_lqw))
+          else $error("tg_lsu: another LQ state write meets a new load's where it decides");
+    end
+`endif
     assign f_hit   = q_hit || byp;
     assign f_oh    = sel_s ? SQ_ENTRIES'(1) << sa_idx : q_oh;
     assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
@@ -1630,7 +1744,14 @@ module tg_lsu
     assign ag_go   = ag_v && (!ld_ag_valid || nl_go);
     // A store write to the same 16-byte row in the AG cycle: the load read old data
     logic ag_clash, m1_clash_q;
-    assign ag_clash = st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4];
+    logic st_wr_q;                                 // #11: a store wrote the cycle before (its RAM write is now)
+    logic [PA_W-1:4] st_row_q;
+    always_ff @(posedge clk) begin
+      st_wr_q  <= !rst && DC_PORTB_WREG && st_ack && !st_dropped;
+      st_row_q <= st_pa[PA_W-1:4];
+    end
+    assign ag_clash = (st_ack && !st_dropped && st_pa[PA_W-1:4] == ag_pa[PA_W-1:4]) ||
+                      (st_wr_q && st_row_q == ag_pa[PA_W-1:4]);
     always_ff @(posedge clk) m1_clash_q <= ag_clash;
     assign m1pa     = m1_pa_q;
     assign m1_clash = m1_clash_q;
@@ -1651,14 +1772,17 @@ module tg_lsu
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
+    assign lm_st   = m2_mden_q;
     assign lm_lq   = m2_lq_q;
-    assign mm_hold = (m1_mck_q && !nl_chk[0] && m1_lq_q == hl) || (m2_mden_q && m2_lq_q == hl);
+    // (#10 here: the hold in M1 does not wait for the verdict)
+    assign mm_hold = (m1_mck_q && (LSU_MMIO_PMP_REG || !nl_chk[0]) && m1_lq_q == hl) ||
+                     (m2_mden_q && m2_lq_q == hl);
     assign f_hit    = q_hit;
     assign f_oh     = q_oh;
     assign f_cover  = q_cover;
     assign f_data   = q_data;
-    logic unused_q_lo;                             // read by the split's age compare only
-    assign unused_q_lo = q_lo;
+    logic unused_fc_w;                             // read by the split's age compare only
+    assign unused_fc_w = ^fc_w;
   end
 
   logic unused;
@@ -1672,6 +1796,9 @@ module tg_lsu
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx_ag]) else $error("tg_lsu: STA for a free SQ entry");
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
+      if (rs_q)                     // two registers: from the first reset on (the SoC's core reset is a register)
+        for (int i = 0; i < SQ_ENTRIES; i++)
+          assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
@@ -1681,6 +1808,21 @@ module tg_lsu
         assert (sq_head_q == am_sq_q && sq_cmt_q == am_sq_q && !misal(am_pa[2:0], am_size))
           else $error("tg_lsu: an atomic that is not the SQ head and commit point, or misaligned");
     end
+  end
+  // Shadows of the blocking store's fields, written on the verdict as before (m2_out == O_STQ),
+  // match the fields wherever these are read (in L_STQ)
+  sqid_t [LQ_ENTRIES-1:0] blk_chk_q;
+  logic  [LQ_ENTRIES-1:0] part_chk_q;
+  always_ff @(posedge clk) begin
+    if (m2_v_q && !m2_pt_q && !flush && m2_out == O_STQ) begin
+      blk_chk_q[m2_lq_q]  <= m2_fid;
+      part_chk_q[m2_lq_q] <= !m2_fcov_q;
+    end
+    if (rs_q && !rst)
+      for (int i = 0; i < LQ_ENTRIES; i++)
+        if (lq_v_q[i] && lq_st_q[i] == L_STQ)
+          assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
+            else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
   end
 `endif
   // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word

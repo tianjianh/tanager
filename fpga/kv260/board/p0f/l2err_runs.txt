@@ -1,0 +1,121 @@
+===== case A: 768m DTB, window 0x30000000, no trace
+loaded tanager-p0f at 10:15:01; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb --size 0x30000000 --timeout 900 < console
+dbg at about +3 s:
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+login prompt 7 s after the load
+dbg at about +8 s:
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+commands done 13 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 1502856 reads, native latency avg 21.8 max 69 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+  (no core debug words in this bitstream)
+power-off reached the host 18 s after the load
+boot exit 0; console in /home/ubuntu/tanager/p0f/linux_shell.txt (200 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 10:15:22
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0
+===== case B: 768m DTB, window 0x3fc00000, no trace
+loaded tanager-p0f at 10:15:25; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260-768m.dtb --size 0x3fc00000 --timeout 900 < console
+dbg at about +3 s:
+  L2 error events                   0
+  levels 0x00044755: bank0[ a_v a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+login prompt 6 s after the load
+dbg at about +8 s:
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+commands done 12 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 1495784 reads, native latency avg 21.8 max 62 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+  (no core debug words in this bitstream)
+power-off reached the host 17 s after the load
+boot exit 0; console in /home/ubuntu/tanager/p0f/linux_shell.txt (200 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 10:15:46
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
+===== case C1: trace into a wrapped ring, no --lossless
+loaded tanager-p0f at 10:16:16; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+dbg at about +3 s:
+  L2 error events                6008
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+dbg at about +10 s:
+  L2 error events                6100
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+boot exit 124
+tanager login: 
+[tanager-host] timeout
+[tanager-host] trace: 278345658 records written
+  L2 error events                   0
+  levels 0x00000445: bank0[ b_r d_r e_r ] bank1[ e_r ] core0 stalled[ ] core1 stalled[ ]
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
+===== case C2: trace into a wrapped ring, --lossless
+loaded tanager-p0f at 10:16:44; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+dbg at about +3 s:
+  L2 error events                5884
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+dbg at about +10 s:
+  L2 error events                5972
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+boot exit 124
+tanager login: 
+[tanager-host] timeout
+[tanager-host] trace: 278392826 records written
+  L2 error events                   0
+  levels 0x00000445: bank0[ b_r d_r e_r ] bank1[ e_r ] core0 stalled[ ] core1 stalled[ ]
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0
+loaded tanager-p0f at 10:17:49; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+dbg:
+  L2 error events                   0
+dbg:
+  L2 error events                   0
+boot exit 124
+zeroed the RISC-V window: 1020 MiB in 1.4 s
+loaded: fw 277856 B, kernel 21449216 B, dtb 2611 B into 0x840000000 (RISC-V 0x80000000)
+tanager login: 
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+orphan sleeps: 0
+loaded tanager-p0f at 11:37:45; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+--- at about +6 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 18606184, consumed 0, in the lanes 53, stalled 75870866 cycles, capturing, started
+  L2 error events                5932
+--- at about +10 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 72583953, consumed 0, in the lanes 111, stalled 309963958 cycles, capturing, started
+  L2 error events                6004
+--- at about +17 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 169816368, consumed 0, in the lanes 112, stalled 763517110 cycles, capturing, started
+  L2 error events                6088
+boot exit 124
+[tanager-host] timeout
+[tanager-host] trace: 278325917 records written
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

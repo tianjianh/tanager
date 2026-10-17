@@ -726,6 +726,74 @@ The first filler attempt, with 25 LUTRAM blocks per core, came to 8.3K LUTs. v1 
   - At 99.45% after synthesis (G5R with the filler: 96.1% placed), the pblock flow routes in 1 h 16.
   - The first filler, at about 117K after optimisation, did not pack.
 
+### 8.7 G7: the full chip at 115 MHz on the fixed rename, with fn11 and an LSU placement (2026-10-17)
+
+**Question (the coordinator, DR-148):** v1's target is 115 MHz. On a correctly synthesized rename (§8.6's caveat), how fast is the full chip, and what do the core track's fn11 timing work and an LSU-beside-D$ placement each buy?
+
+**Method:** G6's flow (§8.6), with the clock at 115 MHz and one synthesis per tree.
+- **Clock:** with `clk_host` at 100 MHz, `tg_clkgen` cannot make 115 MHz from a VCO at a multiple of 100 MHz. The snapshots build it as 1600 / 13.875 = **115.315 MHz** ([`g7_clkgen_patch.py`](../../fpga/spikes/scripts/g7_clkgen_patch.py)), so the target period is 8.672 ns. Measurement only.
+- **The rest as G6:** hart 1's filler (47 LUT tiles and 20 LUTRAM blocks per core), the performance build (`TG_COMMIT_TRACE=0`), the default profile.
+- **One synthesis per tree,** checked by [`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl) (no implicit or undriven net in either). Placement and routing start from its checkpoint, so the two fn11 runs share one netlist.
+- **Trees:**
+  - **G7m:** main 82463e2, with the rename fix (24ada50) and the core track's forward-reference fixes (d73a15d); no fn11.
+  - **G7r:** the core track's fn11 MR head 2ea6a8d (main 0c95492 merged). Against 82463e2 its RTL adds fn11 (+474/−147, mostly the D$: `tg_dcache`, `tg_lsu`, `tg_core`, `tg_core_pkg`) and one declaration-order change in `tg_fpu_div`.
+- **Floorplans:** G4-FP (a)'s L2 and crossbar pblocks. The LSU variant adds each core's LSU beside its D$ block RAMs and the crossbar ([`fp/g7_lsu.tcl`](../../fpga/spikes/tcl/fp/g7_lsu.tcl)).
+- The first G7 pair (2da5b0f and 6605657, both with the rename bug) gave no result: the host crash of 10-16 20:17 lost the plain run while it was routing, and the bug stopped the retry.
+
+| Run | Tree, floorplan | Placed LUTs | WNS ns at 8.672 (clock reached) | TNS ns | Failing endpoints (core 0 / core 1 / uncore) |
+|---|---|---|---|---|---|
+| `g7m_115_fill` | G7m, L2 + crossbar | 110,504 (94.4%) | **−0.622 (107.6 MHz)** | −428 | 2,296 (1,502 / 788 / 6) |
+| `g7r_115_fill` | G7r (+ fn11), L2 + crossbar | 110,565 (94.4%) | **−0.817 (105.4 MHz)** | −262 | 1,175 (776 / 300 / 99) |
+| `g7r_115_fill_lsu` | G7r, + the LSU pblocks | 110,418 (94.3%) | **−1.671 (96.7 MHz)** | −1,355 | 3,506 (1,476 / 1,627 / 403) |
+
+| Run | Core 0 | Core 1 | Uncore | Core → uncore | Uncore → core |
+|---|---|---|---|---|---|
+| `g7m_115_fill` | −0.622 (17 levels, 66% wire) | −0.613 (14, 74%) | −0.314 (14, 75%) | +0.930 | +0.714 |
+| `g7r_115_fill` | −0.817 (13, 80%) | −0.701 (17, 73%) | −0.684 (13, 79%) | −0.485 | −0.692 |
+| `g7r_115_fill_lsu` | −1.671 (19, 73%) | −1.448 (22, 68%) | −0.887 (14, 73%) | −0.254 | +0.345 |
+
+The PS paths pass by 5.5–6.2 ns and the filler's by 4.1–4.4 ns in all three. Placement took 17–19 minutes and routing 77 minutes (G7m), 2 h (G7r) and 2 h 25 (LSU).
+
+**What fails:**
+- **G7m:** the 20 worst paths are within 0.03 ns of each other, across both cores:
+  - the D$ access-state register → the data RAMs' byte write enables;
+  - DTLB → M2 forwarding (`m2_fcov_q`, `m2_foh_q`);
+  - the LQ head → the reservation hold and the CSR's trap updates;
+  - the SQ head → the store-data RAM;
+  - CSR privilege → the ROB field table's write enables;
+  - PMP → issue wakeup.
+- **G7r:** the 20 worst are all in core 0's LSU, −0.72 to −0.82 ns:
+  - the D$ state register → the data RAMs' byte write enables (13 levels, 80% wire);
+  - DTLB → the replay address (`rp_ra_q`);
+  - the split-access register (`g_split.sn_v_q`) → the ROB field table's write enables;
+  - M2's address → the LQ's store-tag enables (`lq_st_q`);
+  - `lose_line_q` → a data RAM's address.
+- G6's families (§8.6) are still there, joined by the D$ write enables. The worst paths are wire-dominated: 66–80% of their delay is routing, at 13–17 levels.
+
+**Findings:**
+- **On the fixed rename the full chip reaches about 105–108 MHz at 94% fill; 115 MHz needs another 0.6–0.8 ns.**
+  - G7m's 9.29 ns worst path is 0.35 ns shorter than G6's 9.65 ns at the same fill, but both the tree and the target (8.672 against 8 ns) differ.
+- **The rename fix costs 54 LUTs per core.**
+  - Rename (`u_rn`) is 3,031 / 3,027 LUTs against G6's bugged 2,977 / 2,972, with the same flip-flops and LUTRAM. Chip LUTs after synthesis moved by under 200.
+  - No rename path is among the worst. The closest is ACLINT → core 1's free-list RAM write address (+0.714 ns in G7m).
+- **fn11 halves the failing endpoints and cuts the TNS by 39%; its WNS change is within the noise.**
+  - Failing endpoints 2,296 → 1,175 (in the cores 2,290 → 1,076), TNS −428 → −262 ns.
+  - The worst path moved 0.2 ns the wrong way. But the uncore, the same RTL in both trees, moved 0.37 ns (−0.314 → −0.684), so a single run's WNS moves by up to about 0.4 ns with placement alone.
+  - The core ↔ uncore paths moved 1.4 ns each way. fn11 changes the D$ at one of their ends, so that move is not noise alone.
+  - fn11 adds 186 LUTs and 482 flip-flops after synthesis.
+- **The LSU pblocks lose 0.85 ns** (−0.817 → −1.671 ns, three times the failing endpoints).
+  - Their worst paths stay inside core 0's LSU at 19–22 levels: DTLB → LQ state and M2 forwarding, the split-access register → the ROB's write enables, DTLB → the PTW.
+  - The pblocks hold about 11.5K LUTs per core in 17,888 LUT sites: about 65% by physical LUTs, as sized. That is 85% by LUT cells (a dual-output LUT counts twice), close to G4-FP (b)'s 88–90% by the same count, which did not route.
+  - Placing the LSU beside its D$ is not worth a floorplan.
+- **For 115 MHz, the core-side families to fix are:**
+  - the D$ write-enable cone;
+  - DTLB → replay, M2 forwarding and LQ enables;
+  - the ROB field table's write enables from the LSU and the CSR.
+
+  The L2 bank's internal paths need about 0.3–0.7 ns.
+
+Results: `fpga/spikes/results/g7m_synth/`, `g7m_115_fill/`, `g7r_synth/`, `g7r_115_fill/` and `g7r_115_fill_lsu/`. Their `SNAPSHOT_SOURCE.txt` files name the trees. The routed checkpoints are in the build tree (`fp/<run>_routed.dcp`), and the post-synthesis ones are kept for more placements.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
@@ -932,6 +1000,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - The flows now fail on it ([`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl)) and list the Synth 8-6901 forward references, which Vivado resolves.
   - A port connection to a name declared later makes the same undriven net even at module scope (the FPU track's `de_state` in 470e9f9: Synth 8-11241, then 8-8895).
   - The core track's `fwdref.sh` finds the generate-block case without Vivado, from Verilator's JSON view, in about 7 s, and the G7 rerun runs it before synthesizing. It lists the module-scope case only as a forward reference, so the synthesis check is what catches that one.
+- **Placement noise (G7, 2026-10-17).** Between two runs of identical uncore RTL, the uncore's worst slack moved 0.37 ns. So single-run WNS differences under about 0.4 ns do not attribute a change. TNS and the failing-endpoint count were the steadier measures of fn11.
 - **Machine sharing.**
   - `vivado_run.sh` waiters lose slots to fresh launches. The track now runs fair-share workers that use one slot while others wait, launch the moment a slot is free, and run from snapshots of committed HEAD.
   - Never edit a running bash script: hand over to a new runner instead.

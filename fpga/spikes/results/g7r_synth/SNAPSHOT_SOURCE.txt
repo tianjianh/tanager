@@ -1,0 +1,2 @@
+d573db415d98dc21b05b76ecbe2b848ecfb97060 + spikes bf8f63a; kv260_top patched by g5_fill_patch.py, tg_clkgen by g7_clkgen_patch.py (115.315 MHz): measurement only; options -impl 0
+tree d573db415d98dc21b05b76ecbe2b848ecfb97060 = main 2ea6a8d + fn11 none (2026-10-17 04:53:31) — commit 2ea6a8d is core-2's fn11 MR head with main 0c95492 merged, as the coordinator named it

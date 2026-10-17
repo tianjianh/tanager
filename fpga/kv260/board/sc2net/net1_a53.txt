@@ -1,0 +1,27 @@
+$ (A53) ip -br link show tanager0; ip -6 -br addr show dev tanager0
+tanager0         UNKNOWN        da:26:7e:71:d6:47 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+tanager0         UNKNOWN        fe80::dc64:69ff:fe64:da58/64 
+$ (A53) ping -6 -c3 -W2 ff02::1%tanager0
+PING ff02::1%tanager0 (ff02::1%tanager0) 56 data bytes
+64 bytes from fe80::dc64:69ff:fe64:da58%tanager0: icmp_seq=1 ttl=64 time=0.212 ms
+64 bytes from fe80::74:6eff:fe67:7201%tanager0: icmp_seq=1 ttl=64 time=1.65 ms
+64 bytes from fe80::dc64:69ff:fe64:da58%tanager0: icmp_seq=2 ttl=64 time=0.088 ms
+64 bytes from fe80::74:6eff:fe67:7201%tanager0: icmp_seq=2 ttl=64 time=1.13 ms
+64 bytes from fe80::dc64:69ff:fe64:da58%tanager0: icmp_seq=3 ttl=64 time=0.092 ms
+
+--- ff02::1%tanager0 ping statistics ---
+3 packets transmitted, 3 received, +2 duplicates, 0% packet loss, time 2002ms
+rtt min/avg/max/mdev = 0.088/0.632/1.646/0.637 ms
+$ (A53) ping -6 -c3 fe80::74:6eff:fe67:7201%tanager0
+PING fe80::74:6eff:fe67:7201%tanager0 (fe80::74:6eff:fe67:7201%tanager0) 56 data bytes
+64 bytes from fe80::74:6eff:fe67:7201%tanager0: icmp_seq=1 ttl=64 time=1.12 ms
+64 bytes from fe80::74:6eff:fe67:7201%tanager0: icmp_seq=2 ttl=64 time=1.15 ms
+64 bytes from fe80::74:6eff:fe67:7201%tanager0: icmp_seq=3 ttl=64 time=1.13 ms
+
+--- fe80::74:6eff:fe67:7201%tanager0 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2003ms
+rtt min/avg/max/mdev = 1.122/1.134/1.150/0.011 ms
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+eth0:ethernet:connected
+tanager0:tun:unmanaged

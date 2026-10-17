@@ -43,6 +43,8 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 
+**Synthesis check:** the build fails when synthesis reports an implicit, undriven or forward-referenced net in our own RTL (Synth 8-11241, 8-605, 8-8895, 8-6901, 8-3848); `vivado.log` then names them. Messages about Xilinx's generated IP pass.
+
 A full build declares 20 GB, about 1.2 × its measured peak (16.6 GB for the two-core traffic-generator build, IP generation's child processes included; `~/tanager-build/.locks/vivado_peaks.log`). `vivado_run.sh` admits jobs within the host's declared-memory budget. Out-of-context unit runs (`tcl/ooc_synth.tcl`) peak at 3.1–3.4 GB and declare 4.
 
 ### PMOD console (RISC-V UART on the PMOD connector)
@@ -208,6 +210,7 @@ The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-1
 | Date | Change | Why | Undo |
 |---|---|---|---|
 | 2026-10-16 | `sudo apt-mark hold linux-xilinx linux-image-xilinx linux-headers-xilinx linux-image-6.8.0-1036-xilinx linux-modules-6.8.0-1036-xilinx linux-headers-6.8.0-1036-xilinx linux-xilinx-headers-6.8.0-1036 flash-kernel` | Unattended upgrades replaced the kernel (1015 → 1036) while the board was off. The hold keeps the A53's kernel and boot script fixed through stages C and D. Userland security updates continue. | `sudo apt-mark unhold` with the same list; check with `apt-mark showhold` |
+| 2026-10-17 | A bridge `br0` over `eth0`, **in memory only**: NetworkManager connections `tg-br0` (bridge, `eth0`'s MAC `00:0a:35:2a:df:d8`, DHCP client ID `mac`, STP off) and `tg-br0-eth0` (eth0 as its port), both `save no`. [`board/runs/net_bridge_up.sh`](board/runs/net_bridge_up.sh), run detached under a NetworkManager checkpoint (180 s rollback), then confirmed from a fresh SSH session ([`net_bridge_confirm.sh`](board/runs/net_bridge_confirm.sh)). The laptop's lease came back the same (192.168.137.177); SSH dropped for about 7 s. | Stage C's network: the RISC-V's virtio-net TAP (`tanager-host --net tanager0 --net-bridge br0`) joins the laptop's link and takes its own lease. | [`board/runs/net_bridge_down.sh`](board/runs/net_bridge_down.sh) (deletes both connections and brings back "Wired connection 1", under a checkpoint again). A reboot or a NetworkManager restart also undoes it, since nothing was saved. |
 
 ## Bring-up on the board (2026-10-14)
 
@@ -287,3 +290,31 @@ The verification track's checker, `tanager-lockstep`, checks every commit record
   - **What happens:** `--plant=1000` puts the fault in the board trace's record 1,001, which is an MMIO load: the SoC test polling the real UART's transmit-ready bit. The checker takes MMIO load values from the RTL, so it passes the run.
   - **Not a checker fault:** the same plant stops correctly on the simulation trace, and at record 100,000 on the board trace.
   - **Fixed** in the verification track's `98a05ff` (checker sha256 `d0cfb7b0…`): `--plant` now corrupts only values the checker compares. On the board, `--plant=1000` plants in record 1,002, "x15 of `andi a5, a5, 32` at 0x80000034", the instruction after the UART poll. The checker stops there (exit 2), and `tanager-host` exits 4 ([log](board/lockstep/ls_plant1000_98a05ff.txt)).
+
+### Two cores and Debian 13 (2026-10-16/17, DR-150 and DR-147)
+
+The board track ran the SoC track's two-core and stage C bitstreams. Each run's README has the details.
+
+**The two-core hang:** p0, p0d2, c1s and st2.
+- **The symptom:** every build after `3eed95f` hung before OpenSBI printed, with one or two cores, `smt2` or `st` ([p0](board/p0/README.md), [p0d2](board/p0d2/README.md), [c1s](board/c1s/README.md), [st2](board/st2/README.md)).
+- **What the checker found:** on c1s's 20-record trace it stopped at the 7th instruction, where `mv s1, a1` read another register's value.
+- **The control:** the M4 bitstream on the same board passed ([control](board/ctl-m4/README.md)), which pinned the fault to the RTL.
+- **The cause:** Vivado's logs had `rn_fire` (rename's pop to the free lists) as an undriven implicit net. It was used in generate blocks before its declaration; Verilator resolves it, Vivado follows the standard. Fixed in the core track's `24ada50`, and `build.tcl` now fails on implicit nets.
+
+**P0, two cores boot Linux** ([p0f](board/p0f/README.md)): two `smt2` cores (harts 0 and 2) at 70 MHz.
+- **Boot:** "smp: Brought up 1 node, 2 CPUs", with the login prompt 6 s after the load.
+- **SMP test:** two busy loops in parallel take as long as one.
+- **The workload set:** 54/54 measurements, CoreMark 6/6.
+- **Lockstep:** two-core Linux passes the checker from boot to power-off: 408,432,254 records, 14,594 traps, 19,840 interrupts.
+  - **What it took:** a device tree that tells Linux the timer runs at 1 GHz. On the real 10 MHz clock the first run had no mismatch in 425,955,311 records, but the boot could not finish. The timer counts in real time while trace backpressure throttles the cores, so the periodic tick's catch-up loop never ends.
+  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores. With it, [p0g](board/p0g/README.md) passes on the normal 10 MHz tree: 395,612,106 records from boot to power-off, with kernel timestamps as in an unchecked boot.
+- **The L2 error events** of traced and busy runs are speculative line fills beyond the 1 GiB DRAM window, which it refuses: refusals × 4 beats = the events. They are harmless. DR-151 shrinks the core's memory region to the real 1 GiB.
+
+**Stage C, Debian 13 through U-Boot** ([sc2](board/sc2/README.md)): two `smt2` cores with the virtio window and the host DMA port.
+- **Buildroot:** virtio-blk (the md5 matches the host's) and virtio-rng work.
+- **Debian:** U-Boot 2026.07 loads Debian's own kernel `6.12.111+deb13-riscv64` from a virtio-blk disk image.
+  - systemd reaches `multi-user.target` with no failed units, in 3 min 42 s, with `nproc` 2.
+  - `sudo poweroff` ends it cleanly.
+- **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
+  - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
+  - virtio-net carries 1.3 MB/s (a 112 MB download), limited by the guest at 70 MHz, not by the link ([A/B](board/sc2netc/README.md)).

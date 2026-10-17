@@ -38,8 +38,17 @@ plclk() {
   echo "pl0_ref (pl_clk0): $(sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate) Hz"
 }
 active() { sudo xmutil listapps | awk -v a="$1" '$1 == a && $NF ~ /^0->/ { f = 1 } END { exit !f }'; }
+# Is a process we started with sudo still there? /proc, not kill -0: sudo's real uid changes while it sets
+# up, and kill -0 from ubuntu then fails (EPERM), which made shell give up on a boot that was running.
+alive() { [ -n "$1" ] && [ -d "/proc/$1" ]; }
+# The dead-man is `bash -c "sleep; restore"`: kill that bash first (so the restore cannot run), then
+# its sleep, which would otherwise stay behind as an orphan. Only a sleep: a restore already under way
+# is left to finish, so the PL never stays without an app (and the fan without its PWM).
 deadman_cancel() {
-  [ -f "$D/deadman.pid" ] && kill "$(cat "$D/deadman.pid")" 2>/dev/null
+  if [ -f "$D/deadman.pid" ]; then
+    local p kids; p=$(cat "$D/deadman.pid"); kids=$(pgrep -x -P "$p" sleep)
+    kill "$p" 2>/dev/null; [ -n "$kids" ] && kill $kids 2>/dev/null
+  fi
   rm -f "$D/deadman.pid"
 }
 # Every tanager-host call first checks that the tanager app holds the PL. With another design (or
@@ -157,7 +166,7 @@ case "${1:-}" in
     t0=$(date +%s)
     sudo "$TH" boot --fw "$D/fw_jump.bin" --kernel "$D/Image" --dtb "$D/tanager-kv260.dtb"       --timeout "$lim" < /dev/null > "$log" 2>&1 &
     pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
+    while alive "$pid"; do
       if grep -q "TANAGER-BOOT-OK" "$log"; then
         echo "TANAGER-BOOT-OK seen $(( $(date +%s) - t0 )) s after the load"
         sleep 5; sudo kill -INT "$pid"; break
@@ -172,6 +181,12 @@ case "${1:-}" in
   shell)
     # Linux with a console session: boot (INJ_RD injected read cycles, default 0), log in as root at
     # the prompt, run CMDS, then poweroff, which the RISC-V reports to the host (syscon-poweroff).
+    # SH_DTB names the device tree in TG_DIR (default tanager-kv260.dtb), SH_ARGS adds tanager-host
+    # options (stage C: --blk IMG --rng), and TH_DURING runs ';'-separated tanager-host commands from a
+    # second session once the commands are done (stage C: "vq;dma status"). For Debian through U-Boot:
+    # SH_KERNEL=u-boot.bin, SH_TIMEOUT (tanager-host's, default 900 s), SH_USER=- (autologin: type no
+    # user name) and SH_POWEROFF="sudo poweroff". A53_DURING runs a shell command on the A53 after the
+    # commands (stage C's network: an IPv6 ping on the TAP).
     deadman_cancel
     active "$APP" || { echo "$APP is not loaded"; exit 1; }
     trap '"$ME" restore' EXIT
@@ -179,33 +194,43 @@ case "${1:-}" in
     rm -f "$fifo"; mkfifo "$fifo"
     inj=${INJ_RD:-0}
     cmds=${CMDS:-"uname -a; cat /proc/cpuinfo; head -3 /proc/meminfo; uptime"}
-    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 900 < console"
+    dtb=${SH_DTB:-tanager-kv260.dtb}; kern=${SH_KERNEL:-Image}; tmo=${SH_TIMEOUT:-900}
+    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel $kern --dtb $dtb ${SH_ARGS:+$SH_ARGS }--timeout $tmo < console"
     active "$APP" || exit 1
     t0=$(date +%s)
-    sudo "$TH" boot --inj-rd "$inj" --fw "$D/fw_jump.bin" --kernel "$D/Image" --dtb "$D/tanager-kv260.dtb" --timeout 900 < "$fifo" > "$log" 2>&1 &
+    # SH_ARGS unquoted on purpose: it holds several options
+    sudo "$TH" boot --inj-rd "$inj" --fw "$D/fw_jump.bin" --kernel "$D/$kern" --dtb "$D/$dtb" ${SH_ARGS:-} --timeout "$tmo" < "$fifo" > "$log" 2>&1 &
     pid=$!
     exec 3> "$fifo"
-    waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; kill -0 "$pid" 2>/dev/null || return 1; sleep 1; done; return 1; }
+    waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; alive "$pid" || return 1; sleep 1; done; return 1; }
     if waitfor "tanager login:" "${LOGIN_S:-800}"; then
       echo "login prompt $(( $(date +%s) - t0 )) s after the load"
-      sleep 1; printf 'root\r' >&3; sleep 4
+      user=${SH_USER:-root}
+      if [ "$user" != - ]; then sleep 1; printf '%s\r' "$user" >&3; fi
+      sleep 4
       # the marker is computed, so the console's echo of the typed line cannot match it early
       printf '%s; echo TG-$((40+2))-DONE\r' "$cmds" >&3
       if waitfor "TG-42-DONE" "${CMDS_S:-120}"; then echo "commands done $(( $(date +%s) - t0 )) s after the load"
       else echo "commands not done within ${CMDS_S:-120} s"; fi
       echo "injector while Linux runs (a second tanager-host, register reads only):"; th inj --stats
       [ -n "${DBG:-}" ] && { echo "debug counters after the boot:"; th dbg; }
-      printf 'poweroff\r' >&3
-      waitfor "requested power-off" 120 && echo "power-off reached the host $(( $(date +%s) - t0 )) s after the load"
+      if [ -n "${TH_DURING:-}" ]; then
+        IFS=';' read -r -a during <<< "$TH_DURING"
+        for c in "${during[@]}"; do th $c; done   # unquoted: each entry is a command and its options
+      fi
+      # A53_DURING: a shell command on the A53 while the system runs (stage C: ping -6 ... %tanager0)
+      [ -n "${A53_DURING:-}" ] && { echo "\$ (A53) $A53_DURING"; bash -c "$A53_DURING"; }
+      printf '%s\r' "${SH_POWEROFF:-poweroff}" >&3
+      waitfor "requested power-off" "${OFF_S:-120}" && echo "power-off reached the host $(( $(date +%s) - t0 )) s after the load"
     else
       echo "no login prompt"
       # DBG=1: read the SoC's debug counters (tanager-host dbg) while the system is still stuck
-      if [ -n "${DBG:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      if [ -n "${DBG:-}" ] && alive "$pid"; then
         echo "debug counters during the hang:"; th dbg; sleep 5; echo "and 5 s later:"; th dbg
         th inj --stats
       fi
     fi
-    kill -0 "$pid" 2>/dev/null && { sleep 2; sudo kill -INT "$pid"; }
+    alive "$pid" && { sleep 2; sudo kill -INT "$pid"; }
     wait "$pid"; rc=$?
     exec 3>&-; rm -f "$fifo"
     echo "boot exit $rc; console in $log ($(wc -l < "$log") lines)"
@@ -256,14 +281,16 @@ case "${1:-}" in
     ./tanager-lockstep ${LS_ARGS:-} --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
     lpid=$!
     active "$APP" || exit 1
-    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
+    # LS_HOST_ARGS: extra tanager-host options, e.g. --freeze-time (p0g and later: mtime held while the
+    # trace stalls the cores, so the plain 10 MHz tree works under the checker)
+    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace ${LS_HOST_ARGS:+$LS_HOST_ARGS }--timeout $lim"
     t0=$(date +%s)
     sudo "$TH" boot --inj-rd "$inj" --fw fw_jump.bin --kernel Image --dtb "$dtb" \
-      --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout "$lim" < "$cin" > "$con" 2>&1 &
+      --lossless --trace-log2 16 --trace "$L/tg.trace" ${LS_HOST_ARGS:-} --timeout "$lim" < "$cin" > "$con" 2>&1 &
     pid=$!
     exec 3> "$cin"
     tok=""; tlog=""
-    while kill -0 "$pid" 2>/dev/null; do
+    while alive "$pid"; do
       el=$(( $(date +%s) - t0 ))
       if [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$con"; then tok=$el; echo "TANAGER-BOOT-OK at $el s"; fi
       if [ -z "$tlog" ] && grep -q "tanager login:" "$con"; then
@@ -272,7 +299,7 @@ case "${1:-}" in
         # the root shell may take minutes under the checker: wait for its prompt, then poweroff
         for i in $(seq 1 360); do
           tail -c 4 "$con" | grep -q '# ' && break
-          kill -0 "$pid" 2>/dev/null || break; sleep 5
+          alive "$pid" || break; sleep 5
         done
         echo "shell prompt at $(( $(date +%s) - t0 )) s"; printf 'poweroff\r' >&3
       fi
@@ -322,7 +349,7 @@ case "${1:-}" in
         < /dev/null > "$log" 2>&1 &
       pid=$!
       tok=""; tbeg=""
-      while kill -0 "$pid" 2>/dev/null; do
+      while alive "$pid"; do
         el=$(( $(date +%s) - t0 ))
         [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$log" && { tok=$el; echo "TANAGER-BOOT-OK at $el s"; }
         [ -z "$tbeg" ] && grep -q "TGLB-BEGIN" "$log" && { tbeg=$el; echo "TGLB-BEGIN at $el s"; }
@@ -331,7 +358,9 @@ case "${1:-}" in
       wait "$pid"; rc=$?
       echo "boot exit $rc after $(( $(date +%s) - t0 )) s (TANAGER-BOOT-OK ${tok:-never} s, TGLB-BEGIN ${tbeg:-never} s)"
       tr -d '\r' < "$log" | grep -m1 "TGLB-INFO" || echo "CHECK: no TGLB-INFO line"
-      tr -d '\r' < "$log" | grep -q "TGLB-INFO.*counters=cycle,instret,time.*perf_events=2" || echo "CHECK: info line lacks counters=cycle,instret,time / perf_events=2 (old image?)"
+      # two perf events per hart (TGLB-BEGIN names the harts)
+      h=$(tr -d '\r' < "$log" | grep -m1 -o "TGLB-BEGIN.* harts=[0-9]*" | grep -o "[0-9]*$")
+      tr -d '\r' < "$log" | grep -q "TGLB-INFO.*counters=cycle,instret,time.*perf_events=$(( 2 * ${h:-1} )) " || echo "CHECK: info line lacks counters=cycle,instret,time / perf_events=$(( 2 * ${h:-1} )) for ${h:-1} hart(s) (old image?)"
       n=$(tr -d '\r' < "$log" | grep -c "^TGLB [a-z]")
       echo "measurement lines: $n (expect 54); CoreMark validated: $(grep -c "Correct operation validated" "$log") (expect 6)"
       tr -d '\r' < "$log" | grep -m1 "TGLB-END" || echo "CHECK: no TGLB-END line"
