@@ -22,23 +22,49 @@ done
   echo "$0: no riscv64 binfmt handler; register it with: sudo /usr/lib/systemd/systemd-binfmt /usr/lib/binfmt.d/qemu-riscv64.conf (sw/README.md)" >&2
   exit 1; }
 
-work=$(mktemp -d "${TMPDIR:-/tmp}/tanager-debian.XXXXXX")
+# The working directory must be reachable by the subordinate uids mmdebstrap's unshare mode runs as: a home
+# directory (0750) or a private temp directory (0700) is not, so it sits under /tmp (TANAGER_DEBIAN_TMP
+# overrides), mode 0711, and goes when the script ends. mmdebstrap's own temp directory goes inside it.
+work=$(mktemp -d "${TANAGER_DEBIAN_TMP:-/tmp}/tanager-debian.XXXXXX")
+chmod 0711 "$work"
 trap 'rm -rf "$work"' EXIT
+export TMPDIR="$work"
 mkdir -p "$(dirname "$out")"
+
+# Debian's archive keys for trixie. The host's keyring (Ubuntu's debian-archive-keyring) stops at bookworm, and
+# trixie's Release files are signed by newer keys. bookworm's own debian-archive-keyring package carries them:
+# fetched from the snapshot with bookworm's signed Release file checked against the host's bookworm keys (named
+# with --keyring: mmdebstrap otherwise takes the host apt's trusted keys, Ubuntu's own), and unpacked without
+# running anything (variant extract), its keyring then verifies the trixie run.
+host_keyring=${DEBIAN_HOST_KEYRING:-/usr/share/keyrings/debian-archive-keyring.gpg}
+[ -r "$host_keyring" ] || { echo "$0: no $host_keyring (debian-archive-keyring, sw/README.md)" >&2; exit 1; }
+mmdebstrap --mode=unshare --variant=extract --architectures=amd64 --include=debian-archive-keyring \
+  --keyring="$host_keyring" bookworm "$work/keyring.tar" "deb $DEBIAN_SNAPSHOT bookworm main"
+mkdir "$work/kr"
+tar -C "$work/kr" -xf "$work/keyring.tar" ./usr/share/keyrings/debian-archive-keyring.gpg
+keyring="$work/kr/usr/share/keyrings/debian-archive-keyring.gpg"
+gpg --no-default-keyring --keyring "$keyring" --list-keys 2>/dev/null | grep -q "13/trixie" ||
+  { echo "$0: bookworm's keyring package has no trixie keys" >&2; exit 1; }
 
 # The root file system as a tarball: the packages, then our settings in a customize hook
 # - virtio_mmio and virtio_blk in the initramfs: the root is on virtio-blk and both are modules
-#   (docs/spec/debian-kernel.md)
-# - u-boot-menu's command line: the 16550 console and the root by label; u-boot-update writes
-#   /boot/extlinux/extlinux.conf now and on every kernel install
-# - the hostname; user tanager with its password locked: an automatic login on the serial console
-#   (ttyS0), sudo without a password, SSH with the key given (none: console only)
+#   (docs/spec/debian-kernel.md); zstd, so the initramfs is zstd (Debian's default; without it, gzip,
+#   slower to unpack at the board's clock); dbus and libpam-systemd, which mmdebstrap leaves out as
+#   recommendations (systemctl and logind want the system bus)
+# - u-boot-menu's command line: the 16550 console with earlycon, read-write; u-boot-update adds the root
+#   from fstab (by label) and writes /boot/extlinux/extlinux.conf now and on every kernel install. No fdtdir
+#   line (U_BOOT_FDT_DIR names no directory): U-Boot hands the kernel the device tree OpenSBI gave it
+# - the hostname, in /etc/hosts too; no /etc/resolv.conf (mmdebstrap copies the build host's in)
+# - user tanager with its password locked: an automatic login on the serial console (ttyS0), sudo
+#   without a password, SSH with the key given (none: console only)
 # - apt on the normal mirrors (the image updates as any Debian machine does)
-mmdebstrap --mode=unshare --architectures=riscv64 --variant=important \
-  --include=linux-image-riscv64,u-boot-menu,initramfs-tools,systemd-sysv,openssh-server,sudo,ca-certificates \
+mmdebstrap --mode=unshare --architectures=riscv64 --variant=important --keyring="$keyring" \
+  --include=linux-image-riscv64,u-boot-menu,initramfs-tools,zstd,systemd-sysv,dbus,libpam-systemd,openssh-server,sudo,ca-certificates \
   --customize-hook='printf "virtio_mmio\nvirtio_blk\n" >> "$1/etc/initramfs-tools/modules"' \
-  --customize-hook='printf "U_BOOT_PARAMETERS=\"console=ttyS0,115200 root=LABEL=tanager-root rw\"\nU_BOOT_FDT_DIR=\"none\"\n" > "$1/etc/default/u-boot"' \
+  --customize-hook='printf "U_BOOT_PARAMETERS=\"console=ttyS0,115200 earlycon rw\"\nU_BOOT_FDT_DIR=\"none\"\n" > "$1/etc/default/u-boot"' \
   --customize-hook='echo tanager > "$1/etc/hostname"' \
+  --customize-hook='printf "127.0.0.1\tlocalhost\n127.0.1.1\ttanager\n::1\t\tlocalhost ip6-localhost ip6-loopback\nff02::1\t\tip6-allnodes\nff02::2\t\tip6-allrouters\n" > "$1/etc/hosts"' \
+  --customize-hook='rm -f "$1/etc/resolv.conf"' \
   --customize-hook='printf "LABEL=tanager-root / ext4 defaults 0 1\n" > "$1/etc/fstab"' \
   --customize-hook='chroot "$1" systemctl enable serial-getty@ttyS0.service' \
   --customize-hook='mkdir -p "$1/etc/systemd/system/serial-getty@ttyS0.service.d" && printf "[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin tanager --keep-baud 115200 %%I \$TERM\n" > "$1/etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf"' \
@@ -55,6 +81,7 @@ part_mib=$((img_mib - 1))
 mkdir "$work/root"
 fakeroot sh -c 'tar -C "$1" -xpf "$2" && mke2fs -q -t ext4 -L tanager-root -d "$1" "$3" "$4"' sh \
   "$work/root" "$work/rootfs.tar" "$work/part.ext4" "${part_mib}M"
+rm -f "$out"                          # a fresh sparse file: dd's sparse copy skips the zero runs
 truncate -s "${img_mib}M" "$out"
 printf 'label: dos\nstart=2048, type=83, bootable\n' | sfdisk -q "$out"
 dd if="$work/part.ext4" of="$out" bs=1M seek=1 conv=notrunc,sparse status=none
