@@ -56,6 +56,7 @@ module tg_dcache
   output logic              st_dropped,   // acked without writing (denied Grant)
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
+  input  logic              pr_hold,      // probes wait: an LR's reservation is young (a register)
   input  logic [PA_W-1:0]   am_pa,
   input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
   input  logic [63:0]       am_wdata,     // as st_wdata
@@ -246,13 +247,29 @@ module tg_dcache
   logic             am_hi_q;
   assign am_ack = amw_q;
 
+  // ---- Forward progress under probes ----
+  // A line installed for a store or an atomic keeps its first access: probes and other allocations
+  // wait from the install until the store writes or the atomic reads it (am_busy then holds probes
+  // until the atomic's write), at most FU_ST cycles. A load's line holds probes for FU_LD cycles,
+  // its replay's time to M1. An LR's young reservation holds them too (pr_hold, the LSU's, up to
+  // its SC). The holds come from registers, so b_ready_o stays a register function, and each wait
+  // is bounded and independent of A-channel progress (TL-C rule 4). Without them, two cores whose
+  // atomics or stores meet on one line could take it from each other forever: the probe for the
+  // other's Acquire came in the install cycle, before the first access (the board's two-core
+  // boot lottery, OpenSBI's amoswap)
+  localparam int FU_ST = 8, FU_LD = 4;
+  logic [3:0] fu_st_q, fu_ld_q;
+  logic       fu_st, fu_hold;
+  assign fu_st   = fu_st_q != '0;
+  assign fu_hold = ms_q == M_INSTALL || fu_st || fu_ld_q != '0 || pr_hold;
+
   // ---- Allocation (from M_IDLE) ----
   logic alloc_st, alloc_ld;
   always_comb begin
     alloc_st = 1'b0;
     alloc_ld = 1'b0;
     // A load allocates only if its line is still absent (it may have been filled since M1).
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && ready) begin
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
       if (sx_req && !s_hit_t)    alloc_st = 1'b1;
       else if (lm_req && !(|ch)) alloc_ld = 1'b1;
     end
@@ -310,7 +327,7 @@ module tg_dcache
   if (DC_AMO_READ_REG) begin : g_amo_reg
     logic        amh_q;
     logic [63:0] am_rd_q;
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amh_q &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !amh_q &&
                       !amw_q;
     assign am_busy  = amh_q || amw_q;
     assign amw_d    = amh_q;
@@ -327,7 +344,7 @@ module tg_dcache
     end
 `endif
   end else begin : g_amo_now
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !amw_q;
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !amw_q;
     assign am_busy  = amw_q;
     assign amw_d    = pb_amr;
     assign am_rdata = am_hi_q ? brow[127:64] : brow[63:0];
@@ -390,12 +407,12 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    // A probe is taken when the probe unit is idle and neither an eviction nor an atomic has the
-    // line state. An MSHR allocation never competes: it yields to a probe on offer (alloc_*), so
-    // the ready comes from state registers alone (timing: the store drain's and the load miss's
-    // tag lookups left the crossbar's B slice; the handshakes are the same, as ready only counts
-    // with b_valid_i)
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && ready;
+    // A probe is taken when the probe unit is idle, neither an eviction nor an atomic has the line
+    // state, and no forward-progress hold is on (above). An MSHR allocation never competes: it
+    // yields to a probe on offer (alloc_*), and an atomic's read to one that is taken, so the ready
+    // comes from state registers alone (timing: the store drain's and the load miss's tag lookups
+    // left the crossbar's B slice; the handshakes are the same, as ready only counts with b_valid_i)
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && !fu_hold && ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -492,7 +509,17 @@ module tg_dcache
       dn_v_q <= 1'b0;
       amw_q  <= 1'b0;
       lose_v_q <= 1'b0;
+      fu_st_q  <= '0;
+      fu_ld_q  <= '0;
     end else begin
+      // The holds after an install (forward progress, above)
+      if (inst_go && !m_den_q) begin
+        fu_st_q <= m_st_q ? 4'(FU_ST) : '0;
+        fu_ld_q <= m_st_q ? '0 : 4'(FU_LD);
+      end else begin
+        if (fu_st) fu_st_q <= (pb_st || pb_amr) ? '0 : fu_st_q - 1'b1;
+        if (fu_ld_q != '0) fu_ld_q <= fu_ld_q - 1'b1;
+      end
       if (!ready) init_q <= init_q + 1'b1;
       if (brd_en) brd_way_q <= brd_way;
       // Atomic: read now, write next cycle (or the cycle after: DC_AMO_READ_REG)
@@ -632,7 +659,7 @@ module tg_dcache
   assign tag_wd  = m_line_q[PA_W-1:12];
 
   logic unused;
-  assign unused = ^{m_st_q, b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
+  assign unused = ^{b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
                     ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
                     sx_pa[5:0], am_pa[2:0]};
 
