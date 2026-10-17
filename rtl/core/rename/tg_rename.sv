@@ -203,6 +203,7 @@ module tg_rename
   end
   ren_t [W-1:0] ren;
   logic [W-1:0]                im_we;
+  logic [W-1:0]                fm_we;                      // (declared ahead of the loop that drives it)
   logic [W-1:0][4:0]           im_wa;
   logic [W-1:0][PRW-1:0]       im_wdp;
   logic [W-1:0][PDW-1:0]       im_wdd;
@@ -242,7 +243,6 @@ module tg_rename
   logic [FNMR-1:0][FRW-1:0]    fmap_p;
   logic [3*W-1:0][COL_W-1:0]   fmap_w;
   logic                        fmap_ready;
-  logic [W-1:0]                fm_we;
   logic [COMMIT_WIDTH-1:0]     fcm_we;
   logic [COMMIT_WIDTH-1:0][FRW-1:0] fcm_wd;
   for (genvar k = 0; k < W; k++) begin : g_fmra
