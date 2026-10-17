@@ -31,3 +31,9 @@ AATC_TAR=${AATC_NAME}.tar.xz
 UBOOT_VER=2026.07
 UBOOT_URL=https://ftp.denx.de/pub/u-boot/u-boot-${UBOOT_VER}.tar.bz2
 UBOOT_TAR=u-boot-${UBOOT_VER}.tar.bz2
+
+# Debian 13 (trixie) riscv64 for the board's stage C image (sw/build_debian.sh, DR-147): a pinned
+# snapshot.debian.org date, so a rebuild gets the same packages. The image's own apt then uses the
+# normal mirrors.
+DEBIAN_SNAPSHOT=https://snapshot.debian.org/archive/debian/20261015T000000Z
+DEBIAN_SNAPSHOT_SECURITY=https://snapshot.debian.org/archive/debian-security/20261015T000000Z

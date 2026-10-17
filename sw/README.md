@@ -15,7 +15,10 @@ uses its own `$SOC_BUILD/tc` if it has one, else the shared `$TANAGER_BUILD/tc` 
 | `dts/` | device trees for the plan §5.4 map: `tanager-kv260.dts`, `tanager-qemu.dts` | `make -C sw/dts CORES=2 THREADS=1 MEM=0x40000000 FPU=1` |
 | `qemu/boot_test.sh` | boots the images on QEMU virt with the Tanager tree; PASS/FAIL | `bash sw/qemu/boot_test.sh 2 1` |
 | `bootrom/` | boot ROM source; regenerates `rtl/uncore/bootrom/tg_bootrom_img_pkg.sv` | `make -C sw/bootrom` / `make -C sw/bootrom check` |
-| `host/` | `tanager-host`, the A53 control program | `make -C sw/host` (aarch64) / `make -C sw/host native` |
+| `dts/` `VIRTIO=1` | the same trees with the forwarded virtio window's four slots (soc.md §8.1), for bitstreams built with `TG_VIRTIO_WINDOW=1` | `make -C sw/dts CORES=2 THREADS=2 RUN_THREADS=1 VIRTIO=1` |
+| `uboot/`, `build_uboot.sh` | U-Boot 2026.07 in S-mode after OpenSBI (DR-147): `qemu-riscv64_smode_defconfig` plus `uboot/tanager.config` | `bash sw/build_uboot.sh` |
+| `build_debian.sh` | Debian 13 riscv64 disk image for stage C (DR-147): Debian's kernel and initrd booted by U-Boot's extlinux menu, root on virtio-blk. Needs `mmdebstrap` and `qemu-user-static` (binfmt), not yet on the build host | `bash sw/build_debian.sh [OUT] [GiB] [ssh.pub]` |
+| `host/` | `tanager-host`, the A53 control program, with the virtio back-ends (`virtio.c`) | `make -C sw/host` (aarch64) / `make -C sw/host native` / `make -C sw/host test` |
 
 Image layout in the carve-out (soc.md §3): `fw_jump.bin` at +0, `Image` at +0x20_0000, DTB at
 +0x220_0000. The kernel's effective size must stay below 32 MiB (`build_linux.sh` checks it).
