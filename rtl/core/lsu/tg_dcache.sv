@@ -948,8 +948,12 @@ module tg_dcache
     end
     assign f_i     = first(~busy);
     assign f_any   = |(~busy);
-    assign a_i     = first(acq);
-    assign g_i     = first(gack);
+    // A and E keep the entry they present until it is taken (TileLink: a valid message's payload
+    // holds until ready; a lower entry turning ready meanwhile waits)
+    logic           a_hold_q, e_hold_q;
+    logic [MSW-1:0] a_cur_q, e_cur_q;
+    assign a_i     = a_hold_q ? a_cur_q : first(acq);
+    assign g_i     = e_hold_q ? e_cur_q : first(gack);
     assign i_i     = first(insv);
     assign rq_e    = first(rq_m);
     // TL-C: no Acquire for a block while its Release is outstanding, so a line the release engine
@@ -1038,7 +1042,13 @@ module tg_dcache
         none_q  <= 1'b1;
         rack_q  <= 1'b0;
         ans_v_q <= 1'b0;
+        a_hold_q <= 1'b0;
+        e_hold_q <= 1'b0;
       end else begin
+        a_hold_q <= a_valid && !a_ready_i;
+        a_cur_q  <= a_i;
+        e_hold_q <= e_valid && !e_ready_i;
+        e_cur_q  <= g_i;
         rq_v_q  <= lm_req;                       // M2's miss: decided the next cycle
         rq_pa_q <= lm_pa;
         ans_v_q <= rq_v_q && (a_retry || a_wait);
