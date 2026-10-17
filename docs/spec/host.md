@@ -81,7 +81,7 @@ The PL side of that is the **host bridge**:
 | `0x1318` | `HDMA_WR_DROPS` | RO | 0 | write bursts not done in full (answered OKAY all the same), wrapping |
 | `0x1310` | `HDMA_CPL0` | RO | | the oldest completion: `[31]` valid, `[25:0]` the line (its window offset ÷ 64) |
 | `0x1314` | `HDMA_CPL1` | RO | | its AccessAck cycle: core-clock cycles since the uncore reset, the trace records' capture count (bytes 40–43). Reading it pops the completion |
-| `0x1200` | `DBG_SEL` | RW | 0 | the debug counter `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
+| `0x1200` | `DBG_SEL` | RW | 0 | `[7:0]` the debug counter or core word `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
 | `0x1204` | `DBG_VAL` | RO | | that counter, a few dozen cycles after `DBG_SEL` is written |
 
 The `VQ_*` registers read 0 and ignore writes in a build without the window (`CAPS[2]` = 0), the `HDMA_*` registers without the host DMA port (`CAPS[8]` = 0), and `DBG_SEL` and `DBG_VAL` without the counters.
@@ -162,7 +162,7 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 | `tanager-host tg start [LINES] [--base A --size S]` | traffic-generator bitstreams ([soc.md](soc.md) §2.3): steps 1–3 without images (hold everything, set the window, release the uncore, wait for the L2), then `TG_LINES`, `TG_CTRL = 1`, `CTRL = 0x0` |
 | `tanager-host tg stop`, `tg status` | stop the generators; print passes, operations, errors and the first failing line |
 | `tanager-host peek/poke <off> [val]` | raw register access (bring-up) |
-| `tanager-host dbg` | print the board debug counters (`TG_DEBUG_CNT=1` builds), one per line, through `DBG_SEL` and `DBG_VAL` |
+| `tanager-host dbg` | print the board debug counters (`TG_DEBUG_CNT=1` builds), one per line, through `DBG_SEL` and `DBG_VAL`; then each core's status word, decoded, and its dispatch and commit logs |
 | `tanager-host dma status`, `dma read OFF [N]`, `dma write OFF VAL`, `dma check [OFF [BYTES]]` | the coherent host DMA port (`TG_HOST_DMA=1`; `--dma PA`, default `0x5_0000_0000`), at offsets into the RISC-V's RAM: the counters; raw 64-bit reads and writes; a self-check that writes a pattern over BYTES (64 KiB) at OFF (the RAM's last 64 KiB), reads it back, repeats with 32-bit stores, and reports MB/s, the line counts and any dropped write. It overwrites that RAM, so hold the cores first (after `load`, or `tg start`). Nothing touches HPM1 unless `CAPS[8]` says the port is there |
 | `tanager-host vq` | the forwarded virtio window's state (`TG_VIRTIO_WINDOW=1` builds): served or not, the queues' counts, a waiting read, the status bits, and the oldest request without popping it. `info` prints the same lines |
 

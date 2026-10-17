@@ -89,7 +89,7 @@ module tg_host_bridge
   input  logic [15:0] trs_buffered_i,
   input  logic [31:0] trs_stalls_i,
   // board debug (tg_uncore DEBUG_CNT): the counter the host selects, and its value (core domain)
-  output logic [5:0]  dbg_sel_o,
+  output logic [7:0]  dbg_sel_o,
   input  logic [31:0] dbg_val_i,
   // host DMA port (tg_hdma, core domain): completions {line, AccessAck cycle} while recording, line counts
   output logic        hdma_cpl_en_o,
@@ -130,7 +130,7 @@ module tg_host_bridge
   logic [63:0] trs_stop_pc_q, trs_start_pc_q, trs_base_q, trs_rp_q;
   logic [15:0] trs_post_q;
   logic [4:0]  trs_size_q;
-  logic [5:0]  dbg_sel_q;
+  logic [7:0]  dbg_sel_q;
   logic        pwr_pend_q, mbox_in_q, tohost_new_q;
 
   // status mirrored from the core domain
@@ -270,7 +270,7 @@ module tg_host_bridge
       16'h1310: rd_mux = {cpl_h_valid, 5'd0, cpl_h[57:32]};
       16'h1314: rd_mux = cpl_h[31:0];
       16'h1318: rd_mux = st_h.hdma_drops;
-      16'h1200: rd_mux = {26'd0, dbg_sel_q};
+      16'h1200: rd_mux = {24'd0, dbg_sel_q};
       16'h1204: rd_mux = st_h.dbg_val;
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
       16'h104: rd_mux = {20'd0, txh_level};
@@ -357,7 +357,7 @@ module tg_host_bridge
           16'h1034: if (TRACE) trs_rp_q       <= {wd, lo_shadow_q};
           16'h1100: if (VIRTIO) vq_en_q <= wd[0];
           16'h1300: if (HDMA) hdma_cpl_en_q <= wd[0];
-          16'h1200: if (DEBUG) dbg_sel_q <= wd[5:0];
+          16'h1200: if (DEBUG) dbg_sel_q <= wd[7:0];
           default: ;
         endcase
       end else if (s_bvalid && s_bready) begin
@@ -402,7 +402,7 @@ module tg_host_bridge
     logic [39:0] trs_base;
     logic [4:0]  trs_size;
     logic [63:0] trs_rp;
-    logic [5:0]  dbg_sel;
+    logic [7:0]  dbg_sel;
     logic        vq_en;
     logic        hdma_cpl_en;
   } cfg_t;

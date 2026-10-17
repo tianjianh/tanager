@@ -385,6 +385,14 @@ module tb_boot;
         hr(16'h1204, dv);
         $display("[tb_boot] debug counter %0d: %0d (0x%08h)", i, dv, dv);
       end
+      // the cores' board-debug words: 128 + 32c + w
+      for (int c = 0; c < N_CORES; c++)
+        for (int k = 0; k < 32; k++) begin
+          hw(16'h1200, 32'(128 + 32 * c + k));
+          repeat (200) @(posedge clk);
+          hr(16'h1204, dv);
+          if (k == 0 || dv != 0) $display("[tb_boot] core %0d debug word %0d: 0x%08h", c, k, dv);
+        end
     end
     $display("\n[tb_boot] %0d cycles, %0d instructions retired", cyc, instret);
     $display("[tb_boot] trace signature %016h", tsig);
