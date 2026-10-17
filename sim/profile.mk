@@ -7,9 +7,16 @@ TIMING_CUTS ?=
 ifneq ($(filter-out 0 1,$(TIMING_CUTS)),)
   $(error TIMING_CUTS must be 0, 1 or unset (got "$(TIMING_CUTS)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))
-TC_DEF    := $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS))
-TC_ARG    := $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
+# DR-149: the L1D's misses in flight, 1 or 4 (+define+TG_DC_MSHRS, tg_core_pkg::DC_MSHRS); unset builds
+# the package's default (1 in both profiles until the user decides). Like the profile, a build with it
+# set has a directory of its own, and the test makefiles pass it on with the profile (TC_ARG).
+DC_MSHRS ?=
+ifneq ($(filter-out 1 4,$(DC_MSHRS)),)
+  $(error DC_MSHRS must be 1, 4 or unset (got "$(DC_MSHRS)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))
+TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)))
+TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=

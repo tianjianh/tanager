@@ -3,6 +3,7 @@
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
 #                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
 #                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk) [COHN=20] [PGN=12]
+#                       [DC_MSHRS=1|4]           (the L1D's misses in flight, DR-149; sim/profile.mk)
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
@@ -13,11 +14,11 @@
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4]"; exit 5 ;;
   esac
 done
 
@@ -73,7 +74,9 @@ if [ "$TIMING_CUTS" = both ]; then
   echo "REGRESS FAIL:$([ "$rd" = 0 ] || echo " the default")$([ "$rf" = 0 ] || echo " TIMING_CUTS=0") ($((SECONDS - t0)) s)"
   exit 1
 fi
-TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}"   # the profile's directory suffix (sim/profile.mk)
+# DR-149's switch reaches every make below through the environment (sim/profile.mk reads it)
+[ -n "$DC_MSHRS" ] && export DC_MSHRS
+TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}"   # the build directories' suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
 : "${RISCV_TESTS:?source tools/env.sh first}"
