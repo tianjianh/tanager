@@ -54,6 +54,8 @@ def stress_args(seed, irq, trace_stall=False):
         args.append(f"--probe-rate={r.choice([5, 50, 200])}")
     if trace_stall and r.randrange(3) == 0:
         args.append(f"--trace-stall={r.choice([10, 50, 200])}")
+    if r.randrange(2):  # DR-149: probes against in-flight misses (drawn last: earlier choices stay as they were)
+        args.append(f"--probe-miss={r.choice([20, 50, 100])}")
     args.append(f"--seed={seed}")
     return args
 
@@ -110,6 +112,8 @@ def main():
     ap.add_argument("--spike-isa", default=None, help="Spike ISA for the tg_replay pre-check")
     ap.add_argument("--irq", type=int, default=0, help="timer interrupt period (ticks); 0 = none")
     ap.add_argument("--length", type=int, default=300)
+    ap.add_argument("--miss", type=int, default=2, help="weight of tg_rand's miss-burst template (DR-149; 12: mostly "
+                                                       "misses in flight)")
     ap.add_argument("--vm", type=int, default=0, help="percentage of programs in S-mode under Sv39 (tg_rand --vm; "
                                                       "the core needs S-mode)")
     ap.add_argument("--stress", action="store_true")
@@ -133,7 +137,8 @@ def main():
         wait_for_memory(a.mem_gate)
         base = os.path.join(a.workdir, f"r{seed}")
         gen = [sys.executable, os.path.join(HERE, "tg_rand.py"), "--seed", str(seed), "--isa", a.isa,
-               "--irq", str(a.irq), "--length", str(a.length), "--vm", str(a.vm), "-o", base + ".S"]
+               "--irq", str(a.irq), "--length", str(a.length), "--vm", str(a.vm), "--miss", str(a.miss),
+               "-o", base + ".S"]
         rc, out = run(gen, 120)
         if rc:
             return seed, "GEN-FAIL", out.strip().splitlines()[-1] if out.strip() else "generator failed", ""
@@ -157,6 +162,8 @@ def main():
                 simargs.append(f"--cov={os.path.join(a.cov, f'r{seed}.dat')}")
         cmd = [sim, "--quiet"] + simargs + [base + ".elf"]
         rc, out = run(cmd, a.timeout, base + ".log")
+        l1d_line = next((l for l in out.splitlines() if l.startswith("TG-L1D")), "")
+        l1d.append(dict(kv.split("=") for kv in l1d_line.split()[1:]))
         res = next((l for l in out.splitlines() if l.startswith(("TG-RESULT", "TG-REPLAY"))), "")
         status = res.split("status=")[1].split()[0] if "status=" in res else "FAIL"
         if status == "PASS":
@@ -172,6 +179,7 @@ def main():
         return seed, status, detail[:200], repro
 
     t0 = time.time()
+    l1d = []  # each tg_vsim run's TG-L1D counters (DR-149 coverage)
     seeds = list(range(a.seed, a.seed + a.n))
     with cf.ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
         results = list(ex.map(one, seeds))
@@ -186,6 +194,15 @@ def main():
           f"(seeds {a.seed}..{a.seed + a.n - 1}, isa {a.isa}{', stress' if a.stress else ''}"
           f"{', replay only' if a.replay_only else ''}), {time.time() - t0:.0f} s"
           + (f"; failures kept in {faildir}" if fails else ""))
+    tot = {}
+    for d in l1d:
+        for k, v in d.items():
+            tot[k] = max(tot.get(k, 0), int(v)) if k == "max_inflight" else tot.get(k, 0) + int(v)
+    if tot.get("acquires"):
+        print(f"{label}l1d: {tot['acquires']} Acquires by misses in flight with them "
+              f"{tot['inflight1']}/{tot['inflight2']}/{tot['inflight3']}/{tot['inflight4']} (1/2/3/4+, max "
+              f"{tot['max_inflight']}); probes on a miss's line {tot['probe_acq']}, in its set {tot['probe_set']}; "
+              f"Releases during a miss {tot['rel_acq']}; same-set misses {tot['acq_set']}")
     return 1 if fails else 0
 
 
