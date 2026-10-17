@@ -411,10 +411,13 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 In stage C the A53's virtio back-end writes into the RISC-V's memory through the coherent host DMA port (soc.md §8.1). Every load of those bytes then differs from Spike's memory. Linux puts virtio buffers anywhere, so adopting loads by address range would not do. The checker instead learns each write and when it became visible, and accepts what an out-of-order core may legally read. Built and tested before the RTL (`sim/src/lockstep.cpp`; `tg_replay --ext`).
 
 **What the checker learns:** `external_write(paddr, data, mask, len, cycle)`, up to 32 bytes, visible from `cycle`, the cycle of the L2's AccessAck.
-- **In simulation** the testbench's host-DMA model will report it through DPI, once the SoC track's hdma port exists.
+- **In simulation** `tb_boot`'s host-DMA model (the SoC track's file; its model is to come) writes the lines that `gen_coh`'s `dma` mode polls, and puts the same 0xE1 record as the board's into `+trace_out` for each write's AccessAck, holding the later trace records until it is written.
+  - The program says what it waits for in its `# hdma:` line, which `run_coh.py` passes on as plusargs: `+hdma_base=0x80100000 +hdma_lines=16 +hdma_rounds=R`. The host writes rounds 1 to R of every line, each line whole (one 64-byte write), word w of line i in round k being `k << 32 | i << 8 | w`.
+  - Every hart polls the lines until each is at round R. It reads a line with a seqlock (word 0, FENCE R,R, the line, FENCE R,R, word 0 again), so a line seen with words of two rounds is a failure, not a race. Lockstep checks every load against Spike and the writes (below).
+  - `run_coh.py` refuses the mode with a `tb_boot` that has no `+hdma_lines` option, rather than letting every program hang. `tests/coherence` builds `tb_boot` with the model (`HOST_DMA_TB=1`, in a directory of its own) when `MODES` names `dma` (`HDMA=1` forces it); without it the port stays tied off, so the default builds are unchanged.
 - **On the board,** `tanager-host` inserts a record for each DMA write into the trace stream `tanager-lockstep` reads.
   - The record: byte 63 = `0xE1`; bytes 0–7 the physical address; 8–39 the data; 40–43 the AccessAck cycle, from the hdma bridge's completion FIFO (the trace's own counter); 44–47 the byte mask. Hardware records keep bytes 44–63 zero, so the two cannot be confused.
-  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, so the record arrives before any trace record of its cycle or later. A write that arrives later is reported as an ordering error.
+  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, from its issue to its completion, so the record arrives before every trace record that could have read the write, a load the L2 served up to 256 cycles before the AccessAck included. `tb_boot`'s model does the same. The checker registers each record as it arrives, not at its cycle: the record carries its own visibility. A record that comes after a load of its new bytes leaves that load unexplained, which is a mismatch.
 
 **What a load may return.** Each external write is held with its new bytes and, once applied to Spike's memory, the old bytes it replaced. A load that commits at cycle C is accepted if each byte it returned is one of:
 - Spike's memory;
@@ -445,6 +448,11 @@ A write every hart is past is dropped.
 - **40 random rv64gc programs, a third under Sv39:** all passed, with 7–33 loads per program returning new bytes. All 80 hidden-write faults were reported.
 - **Wider and multi-hart runs** (width 4, two harts, with interrupts and failed SCs) passed or reached the step limit. Random new bytes can send a program into an endless loop, on both sides alike.
 - **The checker self-test** (§3.8) now runs six of these programs in each mode.
+
+**Tested on a real two-hart trace** (2026-10-17, before the host-DMA model): records inserted into a two-core `lottery` trace (7,105 records) over the `msg_pass` string that hart 0 prints at the end, some with that load's value edited to the new byte, as if the RTL had read it.
+- A no-op write (the bytes memory holds) passes. New bytes the RTL never read pass inside hart 0's window and stop the run after it (RTL `C`, Spike `X`).
+- A new byte the RTL read passes when the write is announced 2,000 cycles before the load, and when its AccessAck is 100 cycles after the load (the margin); it stops the run when the AccessAck is 1,000 cycles after, or when no write is announced.
+- **It found a checker bug:** with several harts, `tanager-lockstep` queued each record by its AccessAck's cycle in the harts' merge, so a load inside the margin was checked before the write was known (the 100-cycle case stopped). Records are now registered as they arrive.
 
 ## 4. Test suites and runners
 
@@ -543,7 +551,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - timer interrupts are on in every other round. Once main has the core's timing-cut switch (DR-140), both profiles are built: the profile alternates every round and the interrupts every second round, so four rounds cover all four pairs. Tallies and failures name the profile (`st-tc0`, `st-tc1`);
   - 48 programs per configuration per round, with new seeds each time.
 - **Main only, no checkout:** when main moves, the script exports it with `git archive` (as `fpga/budget/nightly.sh` does), turns the M3 switches on in that copy and builds `tg_vsim` there, without ccache, so the tracks' cache entries stay.
-  - **At most one build every 4 hours** (`REBUILD_MIN_H`): a build writes about 0.5 GB anew, and WSL's virtual disk keeps every block it once held until it is compacted (it grew about 3 GB an hour under the tracks' build load, 2026-10-17). A newer main waits, and the summary's state says until when; the soak's own files stay about 0.5 GB.
+  - **Builds in RAM, at most one every 4 hours** (`BUILD_TMP=/dev/shm`, `REBUILD_MIN_H`). WSL's virtual disk keeps every block it once held until it is compacted (it grew about 3 GB an hour under the tracks' build load, 2026-10-17), and one build of the soak's eight `tg_vsim` models and two `tb_boot`s is 2.7 GB, 2.1 GB of it Verilator's precompiled headers, for 4 MB binaries. So the models build in tmpfs, one at a time, and `soak/build` keeps only what the rounds run: the binaries, and `tb_boot`'s Verilator C++, where `run_coh.py` looks for its plusargs (about 170 MB). A newer main waits for the next build, and the summary's state says until when.
   - The coherence rounds' `tb_boot` has the board's 1,024 L2 sets (`L2_SETS_TB`), once main's testbench takes the count.
 - **Strictly in the background:**
   - `nice 19` and idle I/O priority, at most 8 simulations (Verilator builds at `-j4`), never Vivado;
@@ -891,6 +899,7 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 - **The checker's part, for plain loads and stores:** done, as §3.7's windows for other harts' writes. Plain stores of two harts to the same bytes (a write race) stay outside the programs.
 - **Write races (`race`, 2026-10-16), for lockstep alone:** the first hart stores to one word, the second applies AMOs with `rd = x0` and LR/SC increments to it, and after the barrier the first hart loads it. The load's value is whichever write came last, so the program checks nothing itself; lockstep checks that Spike's memory followed the core's order.
 - **Message passing (`mp`, 2026-10-16):** the first two harts take turns. One writes six data words, `FENCE W,W` and a flag; the other spins on the flag with plain loads, `FENCE R,R`, checks the data and answers with a flag of its own; data and flags share a line or not. On main's RTL and on a0631fb, `st` and `smt2`, at default, fixed and jittered timing: 120 programs pass, with lockstep (mixed with the other modes).
+- **Host DMA (`dma`, 2026-10-17), DR-147 stage C:** every hart polls 16 lines that the host writes through the coherent host DMA port, round by round, and checks each line with a seqlock read (§3.10). It needs `tb_boot`'s host-DMA model and is not in the default modes until that exists; `run_coh.py` refuses it before then.
 
 ### 6.3 Snapshots
 
