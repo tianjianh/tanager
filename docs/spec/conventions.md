@@ -14,6 +14,7 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
   - Host C/C++: `g++-15`.
   - RISC-V bare metal: `riscv-none-elf-gcc` 15.2 (xPack).
   - Linux-target toolchains come from Buildroot, later.
+- **System packages beyond the base install:** `mmdebstrap`, `qemu-user-static` and `binfmt-support`, for the SoC track's Debian image (2026-10-17, the user's OK); the versions, the one registered binfmt handler (`qemu-riscv64`) and the undo are in [sw/README.md](../../sw/README.md).
 - **Vivado:** 2025.2 at `~/Xilinx/2025.2/Vivado`, licensed. Never call `vivado` directly; use `tools/vivado_run.sh` (§9).
 - **Build trees:** go under `$TANAGER_BUILD/<worktree-name>/` (default `~/tanager-build`, Linux filesystem). Never put them in the repository, and never under `/mnt/c`: builds there run several times slower.
 

@@ -20,6 +20,18 @@ uses its own `$SOC_BUILD/tc` if it has one, else the shared `$TANAGER_BUILD/tc` 
 | `build_debian.sh` | Debian 13 riscv64 disk image for stage C (DR-147): Debian's kernel and initrd booted by U-Boot's extlinux menu, root on virtio-blk. Needs `mmdebstrap` and `qemu-user-static` (binfmt), not yet on the build host | `bash sw/build_debian.sh [OUT] [GiB] [ssh.pub]` |
 | `host/` | `tanager-host`, the A53 control program, with the virtio back-ends (`virtio.c`) | `make -C sw/host` (aarch64) / `make -C sw/host native` / `make -C sw/host test` |
 
+**Build-host packages for the Debian image** (installed 2026-10-17, the user's OK through the coordinator, DR-147):
+`sudo apt install mmdebstrap qemu-user-static binfmt-support` gave mmdebstrap 1.4.3-6, qemu-user-static
+1:8.2.2+ds-0ubuntu1.18 and binfmt-support 2.2.2-7, with arch-test 0.21-1 and uidmap 1:4.13+dfsg1-4ubuntu3.2 as
+dependencies.
+- **Handlers:** only `qemu-riscv64` is registered, with flags `POF` (the interpreter is opened at registration,
+  so it works inside mmdebstrap's user namespace), by `sudo /usr/lib/systemd/systemd-binfmt
+  /usr/lib/binfmt.d/qemu-riscv64.conf`. systemd-binfmt does not run in this WSL instance, so the other qemu
+  architectures' files in `/usr/lib/binfmt.d` stay unregistered, and after a WSL restart that command has to be
+  run again (`build_debian.sh` stops with this hint when the handler is missing).
+- **Undo:** `echo -1 | sudo tee /proc/sys/fs/binfmt_misc/qemu-riscv64`, then `sudo apt remove mmdebstrap
+  qemu-user-static binfmt-support arch-test uidmap`.
+
 Image layout in the carve-out (soc.md §3): `fw_jump.bin` at +0, `Image` at +0x20_0000, DTB at
 +0x220_0000. The kernel's effective size must stay below 32 MiB (`build_linux.sh` checks it).
 

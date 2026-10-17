@@ -18,7 +18,9 @@ pubkey=${3:-}
 for t in mmdebstrap mke2fs fakeroot sfdisk; do
   command -v "$t" >/dev/null || { echo "$0: $t is missing (see the header)" >&2; exit 1; }
 done
-[ -e /proc/sys/fs/binfmt_misc/qemu-riscv64 ] || { echo "$0: no riscv64 binfmt handler (qemu-user-static)" >&2; exit 1; }
+[ -e /proc/sys/fs/binfmt_misc/qemu-riscv64 ] || {
+  echo "$0: no riscv64 binfmt handler; register it with: sudo /usr/lib/systemd/systemd-binfmt /usr/lib/binfmt.d/qemu-riscv64.conf (sw/README.md)" >&2
+  exit 1; }
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/tanager-debian.XXXXXX")
 trap 'rm -rf "$work"' EXIT
