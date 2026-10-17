@@ -1,6 +1,7 @@
 // KV260 board top (docs/spec/soc.md §2.1): the PS block design, the clock generator, reset
 // synchronizers, the AXI4 -> AXI4-Lite converter for the host window, and tanager_soc.
 //   M_AXI_HPM0_FPD (clk_host, 32-bit) -> tg_axi4_to_axil -> host bridge
+//   M_AXI_HPM1_FPD (clk_core, 128-bit) -> the host DMA port (HOST_DMA), else tg_axi_absent
 //   L2 banks 0/1 (clk_core, 128-bit)  -> S_AXI_HP1_FPD / S_AXI_HP2_FPD
 //   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
 //   host_irq -> pl_ps_irq0[0];  fan_en_b = the PS TTC waveform Linux's pwm-fan drives (DR-129):
@@ -29,7 +30,8 @@ module kv260_top
   parameter bit          XBAR_SLICE    = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE     = MEM_SLICE_DEF,
   parameter bit          DEBUG_CNT     = 1'b0,            // board debug counters (build.tcl TG_DEBUG_CNT)
-  parameter bit          VIRTIO_WINDOW = 1'b0             // the forwarded virtio window (build.tcl TG_VIRTIO_WINDOW)
+  parameter bit          VIRTIO_WINDOW = 1'b0,            // the forwarded virtio window (build.tcl TG_VIRTIO_WINDOW)
+  parameter bit          HOST_DMA      = 1'b0             // the coherent host DMA port on HPM1 (build.tcl TG_HOST_DMA)
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -49,6 +51,16 @@ module kv260_top
   logic [3:0]  hpm_wstrb;
   logic        hpm_wlast, hpm_wvalid, hpm_wready, hpm_bvalid, hpm_bready, hpm_rlast, hpm_rvalid, hpm_rready;
   logic [1:0]  hpm_bresp, hpm_rresp;
+
+  // M_AXI_HPM1_FPD: the host DMA port
+  hdma_ax_t dma_aw, dma_ar;
+  axi_w_t   dma_w;
+  hdma_b_t  dma_b;
+  hdma_r_t  dma_r;
+  logic     dma_awv, dma_awr, dma_wv, dma_wr, dma_bv, dma_br, dma_arv, dma_arr, dma_rv, dma_rr;
+  hdma_b_t  soc_b;                      // tanager_soc's side of the port
+  hdma_r_t  soc_r;
+  logic     soc_awr, soc_wr, soc_bv, soc_arr, soc_rv;
 
   axi_ax_t [N_BANKS-1:0] ar, aw;
   axi_r_t  [N_BANKS-1:0] r;
@@ -79,6 +91,18 @@ module kv260_top
     .M_AXI_HPM0_rresp (hpm_rresp), .M_AXI_HPM0_rvalid (hpm_rvalid),
     .M_AXI_HPM0_wdata (hpm_wdata), .M_AXI_HPM0_wlast (hpm_wlast), .M_AXI_HPM0_wready (hpm_wready),
     .M_AXI_HPM0_wstrb (hpm_wstrb), .M_AXI_HPM0_wvalid (hpm_wvalid),
+    // host DMA port
+    .M_AXI_HPM1_araddr (dma_ar.addr), .M_AXI_HPM1_arburst (dma_ar.burst), .M_AXI_HPM1_arcache (), .M_AXI_HPM1_arid (dma_ar.id),
+    .M_AXI_HPM1_arlen (dma_ar.len), .M_AXI_HPM1_arlock (), .M_AXI_HPM1_arprot (), .M_AXI_HPM1_arqos (),
+    .M_AXI_HPM1_arready (dma_arr), .M_AXI_HPM1_arsize (dma_ar.size), .M_AXI_HPM1_aruser (), .M_AXI_HPM1_arvalid (dma_arv),
+    .M_AXI_HPM1_awaddr (dma_aw.addr), .M_AXI_HPM1_awburst (dma_aw.burst), .M_AXI_HPM1_awcache (), .M_AXI_HPM1_awid (dma_aw.id),
+    .M_AXI_HPM1_awlen (dma_aw.len), .M_AXI_HPM1_awlock (), .M_AXI_HPM1_awprot (), .M_AXI_HPM1_awqos (),
+    .M_AXI_HPM1_awready (dma_awr), .M_AXI_HPM1_awsize (dma_aw.size), .M_AXI_HPM1_awuser (), .M_AXI_HPM1_awvalid (dma_awv),
+    .M_AXI_HPM1_bid (dma_b.id), .M_AXI_HPM1_bready (dma_br), .M_AXI_HPM1_bresp (dma_b.resp), .M_AXI_HPM1_bvalid (dma_bv),
+    .M_AXI_HPM1_rdata (dma_r.data), .M_AXI_HPM1_rid (dma_r.id), .M_AXI_HPM1_rlast (dma_r.last), .M_AXI_HPM1_rready (dma_rr),
+    .M_AXI_HPM1_rresp (dma_r.resp), .M_AXI_HPM1_rvalid (dma_rv),
+    .M_AXI_HPM1_wdata (dma_w.data), .M_AXI_HPM1_wlast (dma_w.last), .M_AXI_HPM1_wready (dma_wr),
+    .M_AXI_HPM1_wstrb (dma_w.strb), .M_AXI_HPM1_wvalid (dma_wv),
     // memory port of L2 bank 0
     .S_AXI_HP1_araddr (49'(ar[0].addr)), .S_AXI_HP1_arburst (ar[0].burst), .S_AXI_HP1_arcache (4'b0011),
     .S_AXI_HP1_arid (ar[0].id), .S_AXI_HP1_arlen (ar[0].len), .S_AXI_HP1_arlock (1'b0), .S_AXI_HP1_arprot (3'b000),
@@ -166,7 +190,7 @@ module kv260_top
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP),
     .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
-    .VIRTIO_WINDOW (VIRTIO_WINDOW)
+    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA)
   ) u_soc (
     .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),
@@ -183,10 +207,37 @@ module kv260_top
     .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
+    .s_axi_dma_aw (HOST_DMA ? dma_aw : '0), .s_axi_dma_aw_valid (HOST_DMA && dma_awv), .s_axi_dma_aw_ready (soc_awr),
+    .s_axi_dma_w (HOST_DMA ? dma_w : '0), .s_axi_dma_w_valid (HOST_DMA && dma_wv), .s_axi_dma_w_ready (soc_wr),
+    .s_axi_dma_b (soc_b), .s_axi_dma_b_valid (soc_bv), .s_axi_dma_b_ready (HOST_DMA && dma_br),
+    .s_axi_dma_ar (HOST_DMA ? dma_ar : '0), .s_axi_dma_ar_valid (HOST_DMA && dma_arv), .s_axi_dma_ar_ready (soc_arr),
+    .s_axi_dma_r (soc_r), .s_axi_dma_r_valid (soc_rv), .s_axi_dma_r_ready (HOST_DMA && dma_rr),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
   );
+
+  // ---- HPM1: the host DMA port, or nothing (reads DECERR, writes dropped) ----
+  if (HOST_DMA) begin : g_hdma
+    assign dma_awr = soc_awr;
+    assign dma_wr  = soc_wr;
+    assign dma_b   = soc_b;
+    assign dma_bv  = soc_bv;
+    assign dma_arr = soc_arr;
+    assign dma_r   = soc_r;
+    assign dma_rv  = soc_rv;
+  end else begin : g_absent
+    tg_axi_absent #(.ID_W (HDMA_ID_W), .DATA_W (AXI_DATA_W)) u_absent (
+      .clk (clk_core), .rst (rst_core),
+      .s_awid (dma_aw.id), .s_awvalid (dma_awv), .s_awready (dma_awr),
+      .s_wlast (dma_w.last), .s_wvalid (dma_wv), .s_wready (dma_wr),
+      .s_bid (dma_b.id), .s_bresp (dma_b.resp), .s_bvalid (dma_bv), .s_bready (dma_br),
+      .s_arid (dma_ar.id), .s_arlen (dma_ar.len), .s_arvalid (dma_arv), .s_arready (dma_arr),
+      .s_rid (dma_r.id), .s_rdata (dma_r.data), .s_rresp (dma_r.resp), .s_rlast (dma_r.last), .s_rvalid (dma_rv),
+      .s_rready (dma_rr)
+    );
+    wire unused_dma = ^{soc_awr, soc_wr, soc_b, soc_bv, soc_arr, soc_r, soc_rv};
+  end
 
   assign fan_en_b      = fan_wave[FAN_WAVE] ^ FAN_INVERT;
   assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
