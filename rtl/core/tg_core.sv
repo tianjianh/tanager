@@ -62,11 +62,16 @@ module tg_core
   output tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb_o,
   output logic    [TRACE_WB_PORTS-1:0] trace_wb_valid_o,
   input  logic                         trace_stall_i,    // interfaces.md v1.3: hold commit
-  // Board debug, a register (tanager-host dbg; DR-150): bits [7:0] rename (slot 0 valid, serial,
-  // window empty, blocked after a serial uop, resources OK, fire, DS busy, ready && start); [13:8]
-  // the ROB's count; [16:14] the atomic (am_st, am_v); [21:17] the SQ head (valid, address, data,
-  // data ready, SQ non-empty); [29:22] the D$ (probe state, MSHR state, ready); [30] the trace
-  // stall; [31] a flush this cycle
+  // Board debug (tanager-host dbg; DR-150), a register: the word dbg_sel_i picks.
+  //   0: the status: bits [7:0] rename (slot 0 valid, serial, window empty, blocked after a serial
+  //      uop, resources OK, fire, DS busy, ready && start); [13:8] the ROB's count; [16:14] the
+  //      atomic (am_st, am_v); [21:17] the SQ head (valid, address, data, data ready, SQ non-empty);
+  //      [29:22] the D$ (probe state, MSHR state, ready); [30] the trace stall; [31] a flush.
+  //   1-15: the first 15 dispatch groups after reset; 16-31: the first 16 commit cycles that
+  //      retire something. A word per group or cycle: per slot 15 bits {writes rd, rd is FP,
+  //      rd[4:0], the physical register[7:0]}, slot 0 in [14:0] and slot 1 in [30:16]; for
+  //      dispatch the register is the new destination, for commit the old one, which is freed.
+  input  logic [4:0]                   dbg_sel_i,
   output logic [31:0]                  dbg_o
 );
   // DR-120: pma_of's region tests are prefix matches only while every region in tg_map_pkg is a
@@ -540,5 +545,45 @@ module tg_core
                     st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
   always_ff @(posedge clk)
     dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail, rob_head)), rn_dbg};
-  assign dbg_o = dbg_q;
+  // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
+  function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
+                                        input preg_t p);
+    return {v, fp, rd, 8'(p)};
+  endfunction
+  logic [15:0][31:0] dlog_q;                      // (word 0 is the status: entry 0 unused)
+  logic [15:0][31:0] clog_q;
+  logic [3:0]        dn_q;                          // the next dispatch word, 0: full
+  logic [4:0]        cn_q;                          // the next commit word, 16: full
+  logic [31:0]       dbg_w, dbg_o_q;
+  logic [1:0][14:0]  ds_e, cm_e;
+  always_comb begin
+    ds_e = '0;
+    cm_e = '0;
+    for (int k = 0; k < 2 && k < DISPATCH_WIDTH; k++)
+      ds_e[k] = dslot(ds_valid[k] && ds_uop[k].d.rd_en, ds_uop[k].d.rd_fp, ds_uop[k].d.rd, ds_ren[k].dst);
+    for (int j = 0; j < 2 && j < CW; j++)
+      cm_e[j] = dslot(cm_valid[j] && cm_rd_en[j], cm_rd_fp[j], cm_rd[j], cm_old[j]);
+  end
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      dn_q <= 4'd1;
+      cn_q <= '0;
+    end else begin
+      if (ds_fire && |ds_valid && dn_q != '0) begin
+        dlog_q[dn_q] <= {1'b0, ds_e[1], 1'b0, ds_e[0]};
+        dn_q <= dn_q + 1'b1;                        // 15 -> 0: full
+      end
+      if (|cm_valid && !cn_q[4]) begin
+        clog_q[cn_q[3:0]] <= {1'b0, cm_e[1], 1'b0, cm_e[0]};
+        cn_q <= cn_q + 1'b1;
+      end
+    end
+  end
+  always_comb begin
+    if (dbg_sel_i == '0)    dbg_w = dbg_q;
+    else if (!dbg_sel_i[4]) dbg_w = dlog_q[dbg_sel_i[3:0]];
+    else                    dbg_w = clog_q[dbg_sel_i[3:0]];
+  end
+  always_ff @(posedge clk) dbg_o_q <= dbg_w;
+  assign dbg_o = dbg_o_q;
 endmodule
