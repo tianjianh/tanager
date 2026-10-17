@@ -278,15 +278,18 @@ int main(int argc, char** argv) {
   // Several harts share Spike's memory, so their records are applied in cycle order (§3.7): each hart's
   // wait in a queue of their own, and the earliest head goes once no hart can still send an earlier
   // record, because every hart has one waiting or has sent none in the last --reorder records (it is
-  // idle: in WFI, parked, or a thread that never runs). External writes take their place by the cycle
-  // of their AccessAck. One hart's records go straight through, as before.
+  // idle: in WFI, parked, or a thread that never runs). One hart's records go straight through, as
+  // before. External writes are registered as they arrive, not at their cycle: each carries its own
+  // visibility (from 256 cycles before its AccessAck, §3.10), and a load the L2 served that early has a
+  // cycle before the AccessAck's; the producer puts the record ahead of every trace record that could
+  // have read the write (it holds the trace while the write is in flight).
   struct pending_t {
     uint64_t idx, cyc;  // stream position; full cycle
     bool ext;
     decoded_t d;
     uint8_t raw[REC];
   };
-  std::vector<std::deque<pending_t>> q(o.harts + 1);  // one per hart, then the external writes
+  std::vector<std::deque<pending_t>> q(o.harts);  // one per hart
   std::vector<uint64_t> last_seen(o.harts, 0);        // stream position + 1 of each hart's last record
   uint64_t applied_cyc = 0;
 
@@ -368,7 +371,12 @@ int main(int argc, char** argv) {
         memcpy(&c32, p + 40, 4);
         pr.ext = true;
         pr.cyc = clk.full(c32);
-        qi = o.harts;
+        n++;
+        if (!apply(pr)) {  // registered now (see above)
+          status = EXIT_MISMATCH;
+          break;
+        }
+        continue;
       } else {
         decoded_t d = decode(p);
         // Only a value the checker compares: one it adopts (an MMIO load polling a UART, say) would
