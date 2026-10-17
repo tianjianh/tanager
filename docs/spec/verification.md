@@ -751,6 +751,24 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 
 ## 6. M3 items
 
+
+**Against the bare-metal runs (2026-10-17, the user's question):** CoreMark under Linux on the board (p0f) takes 364.3K and 440.7K cycles per iteration (A, B), against 327.3K and 345.3K bare-metal in simulation (`st`, `ITER=10`, rv64im). Measured in simulation, step by step:
+
+| step | A cycles/iteration | B cycles/iteration |
+|---|---|---|
+| our build (xPack gcc 15.2, rv64im) | 327.3K | 345.3K |
+| the Linux build's compiler and flags (gcc 15.3, rv64imafd, stack protector), linked bare-metal | 329.8K (+0.8%) | 355.1K (+2.9%) |
+| its code placed at 16 offsets 4 bytes apart | ±0.9% | ±1.0% |
+| on an `smt2` core (thread 1 idle) | ±0.0% | ±0.0% |
+| a 250 Hz timer interrupt (70 MHz), the interrupt alone | +0.0% | +0.1% |
+| its handler also running 16 KiB of code and loading 16 KiB of data (latency 30 to 120) | +0.9% to +2.7% | −1.1% to −0.1% |
+| its handler running 32 KiB and loading 32 KiB, the whole L1s (latency 30, 90, 120) | +13%, +38%, +51% | +9%, +30%, +41% |
+| the board, Linux | 364.3K (+10.5%) | 440.7K (+24.1%) |
+
+- **The Linux binaries are rv64imafd** (the Buildroot toolchain's default; `tests/bench/linux` sets no `-march`), with no compressed code, so their bare-metal match is `MARCH=rv64im`, not `rv64gc`.
+- **The code is not the cause:** the same object code runs the same instructions per iteration bare-metal (−0.3%). So the board's +1.6% to +1.8% instructions are kernel time inside the counters, about one tick's work per iteration.
+- **The tick's pollution, at the board's miss latency, spans the loss:** from a few percent to half, depending on how much of the L1s the kernel evicts and how far a miss goes. What the model does not reproduce is B losing twice A's share; the candidates are TLB misses under Sv39 (not modeled bare-metal) and B's larger unrolled code refilling after a real kernel's evictions. The board's own counters (cache and TLB misses, user against kernel) or a run with a slower tick would separate them.
+
 ### 6.1 riscv-arch-test (ACT4) with Sail
 
 **Status (2026-10-13):** implemented. Four configurations; all their tests pass Spike against Spike, the test core passes its configuration in `tg_vsim` with lockstep, and the core track's M2 core passes 241 of its 243 (two fail on a fetch bug, below).
