@@ -31,6 +31,8 @@
 //     The cycle of the lookup corrects it for the clock edge between: the valid bits now (a flush,
 //     a fill's overlap), and a fill's entry (T_CLEAR now) by the fill's VPN, compared a cycle
 //     ahead too. The lookup's answer is the same; its paths start at flip-flops (timing, DR-145).
+//     The leaf's index is encoded a cycle ahead too, in part (fn12): the read is one LUT after
+//     flip-flops. It names the match's entry whenever the lookup hits.
 module tg_tlb
   import tg_pkg::*, tg_core_pkg::*;
 #(
@@ -175,18 +177,44 @@ module tg_tlb
       if (EARLY[r]) begin : g_early
         logic [NE-1:0] mq, mk;               // the match a cycle ahead; less the entries gone since
         logic          fq, fqc;              // the VPN in the page a fill writes at that edge
+        // The leaf index is encoded from the match a cycle ahead as well, as partial ORs of GS
+        // entries per index bit (mg_q), so the leaf read is one LUT after flip-flops: the ORs and the
+        // filled entry (timing, fn12: G8's M1 paths from the DTLB had four or five LUTs before the
+        // read). The index is the match's whenever the lookup hits. Without a hit it may name an
+        // entry the edge removed (the leaf is undefined then, as the header says; asserted)
+        localparam int GS = 6;
+        localparam int NG = (NE / 2 + GS - 1) / GS;
+        logic [EW-1:0][NG-1:0] mg_d, mg_q;
+        always_comb begin
+          mg_d = '0;
+          for (int b = 0; b < EW; b++) begin
+            int n;
+            n = 0;
+            for (int e = 0; e < NE; e++)
+              if (((e >> b) & 1) != 0) begin
+                mg_d[b][n / GS] = mg_d[b][n / GS] | mt[e];
+                n++;
+              end
+          end
+        end
         always_ff @(posedge clk) begin
-          mq <= mt;
-          fq <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+          mq   <= mt;
+          fq   <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+          mg_q <= mg_d;
         end
         assign mk  = mq & kv_q;
         assign fqc = fok_q && fq;            // the filled entry (uf_q) matches; then no other does
         always_comb begin
           m[r] = mk;
           if (fqc) m[r][uf_q] = 1'b1;
-          mi[r] = enc(mk) | (fqc ? uf_q : '0);   // the index without the per-entry override
+          for (int b = 0; b < EW; b++) mi[r][b] = fqc ? uf_q[b] : |mg_q[b];
           mh[r] = |mk || fqc;
         end
+`ifndef SYNTHESIS
+        always_ff @(posedge clk)
+          if (rs_tq && !rst) assert (mi[r] == (fqc ? uf_q : enc(mq)))
+            else $error("tg_tlb: lookup %0d's registered index differs from its match a cycle ahead", r);
+`endif
       end else begin : g_now
         assign m[r]  = mt;
         assign mi[r] = enc(mt);
@@ -273,7 +301,8 @@ module tg_tlb
     always_ff @(posedge clk) begin
       if (rs_tq && !rst) begin
         assert ($onehot0(m[r])) else $error("tg_tlb: more than one entry matches a lookup");
-        assert (mi[r] == enc(m[r]) && mh[r] == |m[r]) else $error("tg_tlb: lookup %0d's index or hit differs from its match", r);
+        // (the index only with a hit: an EARLY port's may name an entry the edge removed)
+        assert ((!mh[r] || mi[r] == enc(m[r])) && mh[r] == |m[r]) else $error("tg_tlb: lookup %0d's index or hit differs from its match", r);
       end
     end
 `endif
