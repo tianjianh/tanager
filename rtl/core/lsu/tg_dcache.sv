@@ -142,12 +142,7 @@ module tg_dcache
   // atomic's write. An allocation and a store take their set's state from their own ports (sa,
   // ss), which read it in the same cycle (timing, DR-145: the late arbitration selects the write
   // and no longer addresses a read before it; the data is the same, checked in simulation)
-  logic [SET_W-1:0] ew_a;
-  always_comb begin
-    if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
-    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
-    else                          ew_a = am_row_q[ROW_W-1:2];
-  end
+  logic [SET_W-1:0] ew_a;                   // (formed below the registers it reads)
   assign st_ra[3] = ew_a;
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(4)) u_valid (
     .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd.v), .raddr(st_ra), .rdata(sv_rd));
@@ -246,6 +241,13 @@ module tg_dcache
   logic [ROW_W-1:0] am_row_q;
   logic             am_hi_q;
   assign am_ack = amw_q;
+
+  // Port 3's address (above): the set of a probe update, an install or an atomic's write
+  always_comb begin
+    if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
+    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
+    else                          ew_a = am_row_q[ROW_W-1:2];
+  end
 
   // ---- Forward progress under probes ----
   // A line installed for a store or an atomic keeps its first access: probes and other allocations
@@ -354,8 +356,8 @@ module tg_dcache
     end
 `endif
   end
-  assign st_ack     = pb_st || st_drop;
   logic st_drop;
+  assign st_ack     = pb_st || st_drop;
   assign st_dropped = st_drop;
 
   always_comb begin
