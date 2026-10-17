@@ -44,4 +44,6 @@ Image layout in the carve-out (soc.md §3): `fw_jump.bin` at +0, `Image` at +0x2
 QEMU results (2026-10-13): PASS for 1 core x 1 thread, 2 x 1 (`st`) and 2 x 2 (`smt2`). The Debian image
 (2026-10-17, snapshot 20261015, kernel 6.12.111+deb13): `debian_test.sh` PASS, from U-Boot to the login in about
 25 s of emulated time. The image is 8 GiB sparse, about 410 MiB written; U-Boot loads 72 MB (the 31 MB kernel and
-a 41 MB initrd, 32 MB of it the xz-compressed modules of `MODULES=most`).
+a 41 MB initrd, 32 MB of it the xz-compressed modules of `MODULES=most`). On the board (sc2, 70 MHz) it reaches
+the autologin about 240 s after the load, and networkd brings eth0 up a minute or two later: a script waits with
+`systemd-networkd-wait-online -i eth0 -4` before network work.

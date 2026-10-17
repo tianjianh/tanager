@@ -35,7 +35,7 @@ for _ in $(seq 1 900); do
   sleep 1
 done
 if grep -q "$prompt" "$log"; then
-  printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
+  printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; systemctl show -p DefaultTimeoutStartUSec; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
   for _ in $(seq 1 300); do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
 fi
 kill "$qpid" 2>/dev/null && echo "QEMU killed (no power-off)" || true
@@ -61,6 +61,7 @@ check '^/dev/vda1$'                                 "the root is /dev/vda1"
 check '^SUDO-OK'                                    "sudo without a password"
 check '^\.\./run/systemd/resolve/stub-resolv\.conf$'   "/etc/resolv.conf is systemd-resolved's stub"
 check ' 10\.0\.2\.15/24'                             "DHCP from QEMU's user network (systemd-networkd)"
+check '^DefaultTimeoutStartUSec=10min$'              "systemd's start timeout raised for the board's clock"
 check 'reboot: Power down'                          "power-off"
 none  '\[FAILED\]'                                  "no systemd unit fails"
 none  'unable to resolve host'                      "the hostname resolves (/etc/hosts)"

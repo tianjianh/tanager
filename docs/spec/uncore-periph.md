@@ -34,6 +34,7 @@ Device-bus port; `irq_msi_o[NUM_HARTS]`, `irq_mti_o[NUM_HARTS]`, `mtime_o[63:0]`
 | `0xBFF8` | `mtime` | 64-bit RW, reset 0 |
 
 - **Tick:** `mtime` increments at `TIMEBASE_HZ` (10 MHz, `tg_map_pkg`) from `clk`, by a phase accumulator: `acc += TIMEBASE_HZ` every cycle; on `acc ≥ CLK_HZ`, `acc -= CLK_HZ` and `mtime++`. The average rate is exact for any `CLK_HZ ≥ TIMEBASE_HZ`; jitter is one `clk` period.
+- **Freeze:** `freeze_i` holds the accumulator and `mtime` (a write still lands). `tg_uncore` raises it while the commit trace stalls a core, if the host sets `CTRL.TFREEZE` ([host.md](host.md)): under board lockstep the trace's back-pressure slows the harts about a thousandfold while time would run on, and Linux would spend its time catching up on ticks. Off by default.
 - **Outputs:** `irq_mti_o[h] = (mtime ≥ mtimecmp[h])`, registered. A write to `mtime` or `mtimecmp` takes effect on the next compare.
 - **Width:** harts beyond `NUM_HARTS` read 0 and ignore writes.
 
