@@ -144,6 +144,7 @@ module tb_l2;
   int  ops, ops_target, errors, checks;
   int  n_probe, n_pack_data, n_grant_b, n_grant_t, n_upgrade, n_perm, n_rel_data, n_put, n_get_ul, n_denied;
   int  max_acq;                      // the most Acquires one agent had outstanding at once
+  int  n_pr_upg, n_pr_fill;          // probes answered while that line's upgrade (B held) or fill is in flight
   longint unsigned cyc, last_progress;
   bit  draining, final_phase, done;
   int  final_idx;
@@ -337,6 +338,10 @@ module tb_l2;
           int     s;
           p = pq[ag].pop_front();
           s = st_of(ag, p.line);
+          if (acq_on(ag, p.line)) begin   // core-2's cases: an upgrade keeps B until its Grant, a fill holds nothing
+            if (s == 1) n_pr_upg++;
+            else        n_pr_fill++;
+          end
           m.hdr = '0;
           m.hdr.size    = 3'd6;
           m.hdr.source  = TL_SRC_W'({4'(ag), 6'd0});
@@ -569,8 +574,8 @@ module tb_l2;
           done = 1'b1;
           $display("tb_l2: %0d ops, %0d data checks, %0d memory reads, %0d writes, %0d errors",
                    ops, checks, mem.n_reads, mem.n_writes, errors);
-          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData, %0d denied, up to %0d Acquires outstanding per agent",
-                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data, n_denied, max_acq);
+          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData, %0d denied, up to %0d Acquires outstanding per agent, probes during an upgrade %0d / a fill %0d",
+                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data, n_denied, max_acq, n_pr_upg, n_pr_fill);
           if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
           else             $display("TEST FAILED (seed %0d)", seed);
           $finish;
@@ -665,7 +670,7 @@ module tb_l2;
   initial begin
     cyc = 0; last_progress = 0; errors = 0; checks = 0; ops = 0;
     n_probe = 0; n_pack_data = 0; n_grant_b = 0; n_grant_t = 0; n_upgrade = 0; n_perm = 0; n_rel_data = 0; n_denied = 0;
-    draining = 0; final_phase = 0; done = 0; max_acq = 0;
+    draining = 0; final_phase = 0; done = 0; max_acq = 0; n_pr_upg = 0; n_pr_fill = 0;
     for (int ag = 0; ag < NA; ag++) begin
       for (int k = 0; k < ACQ_N; k++) begin acq_busy[ag][k] = 0; acq_beats[ag][k] = 0; end
       rel_busy[ag] = 0;
