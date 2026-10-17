@@ -857,6 +857,36 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **The LUT figures decide the order**, and two are this study's estimates. If the RAS cost 0.3K it would still return 14% per 1K LUTs. If the block BTB and FTQ cost 1K, they would fall to about +9%.
 - **The plan's whole M6 core** is 2.5× the core as built on the suite, 2.3× on CoreMark and 2.1× on Dhrystone.
 
+**The block BTB and FTQ step, broken down** (core-2's question before building it, 2026-10-17; `scripts/m6_btb.py`). These start from the recommended stack before that step (TAGE-lite, 4 misses in flight, the RAS), at 100 MHz:
+
+| Front end | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz |
+|---|---|---|---|
+| As ranked: TAGE-lite's and the RAS's redirects at decode | 0.895 | 4.24 | 2.86 |
+| core-2's (c48b1ce): TAGE-lite overrides at F2 with pre-decoded direct targets (1-cycle bubble); returns at decode | 0.965 | 4.56 | 3.27 |
+| The same, with a 2-cycle bubble | 0.948 | 4.50 | 3.18 |
+| core-2's, with returns also repaired from the RAS at F2 (1-cycle bubble) | **0.981** | 4.58 | **3.72** |
+| The same, with a 2-cycle bubble | 0.966 | 4.52 | 3.67 |
+| The plan's: block BTB (1K × 4), FTQ with fetch-directed prefetch, RAS at fetch | 0.979 | **4.68** | 3.72 |
+| The plan's, without fetch-directed prefetch | 0.979 | 4.68 | 3.72 |
+
+**Reading it:**
+- **Most of the step's gain came from the ranking's decode-time redirects.**
+  - These were TAGE-lite's taken branches without a micro-BTB target (36 decode redirects per 1,000 instructions on CoreMark) and the RAS's returns.
+  - Repairing both at F2 from pre-decode, as core-2's front end already does for branches, gets all of it on the suite and on Dhrystone.
+  - On Dhrystone the returns alone are 3.27 → 3.72. Repaired at decode, each of the 17.5 returns per 1,000 instructions that the micro-BTB misses waits about 7 cycles behind a backed-up instruction queue.
+- **What a block BTB adds after that is indirect jumps' targets.** CoreMark goes from 4.58 to 4.68 (+2.2%): its 0.9 indirect mispredicts per 1,000 instructions don't fit in the 64-entry micro-BTB. The suite as a whole gains nothing.
+- **Not from these:**
+  - zero-bubble taken prediction beyond 64 blocks: the model's main BTB costs a 2-cycle bubble, which is more bubble cycles than a 1-cycle F2 override;
+  - fetch-directed prefetch: 0, because one I$ refill at a time leaves it nothing to issue and the suite fits the I$;
+  - prediction running ahead of fetch: not modelled.
+- **The F2 bubble:** 2 cycles instead of 1 costs about 1.6% on the suite.
+- **Checked against core-2's c48b1ce counters** (CoreMark A, the bench's rv64im ELF, native), with the model running core-2's structure:
+  - mispredicts: 4.9 per 1,000 instructions in the RTL against 2.5 in the model (the RTL's wrong-path training again);
+  - F2 overrides: 21.6 against 14.9;
+  - decode redirects: 2.0 against 1.4.
+
+  The RTL's counts may include wrong-path fetch.
+
 **§6.2 and DR-149 with the core as built** (one core alone, the same uncore and NaxRiscv model as §6.2):
 - **At 100 MHz with 4 misses in flight,** v1 reaches 0.56× NaxRiscv at 135 MHz and 0.52× at 150 MHz on the suite, and 0.72× / 0.69× on memsuite.
 - **With 1 miss** it reaches 0.45× / 0.42×.
