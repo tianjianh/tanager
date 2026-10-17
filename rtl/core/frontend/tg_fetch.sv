@@ -90,7 +90,7 @@ module tg_fetch
     logic              fhi;      // on the entry instruction's second half
   } meta_t;
   localparam int META_W = $bits(meta_t);
-  localparam int IB_W   = 3 + 32 + 1 + SLOT_W + 3 + META_W;   // tg_fetch_compact's entry
+  localparam int IB_W   = (QUEUE_DECODE ? 3 : 0) + 32 + 1 + SLOT_W + 3 + META_W;   // tg_fetch_compact's entry
 
   // ---- Reset sequence: invalidate the micro-BTB (2 ways x its sets) ----
   localparam int UB_SETS = UBTB_ENTRIES / 2;
@@ -686,8 +686,13 @@ module tg_fetch
     logic [SLOT_W-1:0] slot;
     logic [2:0]        marks;
     meta_t             m;
-    logic              qill, qexc, qser;   // the queue's decode bits
-    assign {qill, qexc, qser, m, marks, slot, rvc, hi, lo} = cq_insn[j];
+    logic              qill, qexc, qser;   // the queue's decode bits (QUEUE_DECODE; else none)
+    if (QUEUE_DECODE) begin : g_qd
+      assign {qill, qexc, qser, m, marks, slot, rvc, hi, lo} = cq_insn[j];
+    end else begin : g_nqd
+      assign {m, marks, slot, rvc, hi, lo} = cq_insn[j];
+      assign {qill, qexc, qser} = '0;
+    end
     logic              strad;
     logic [SLOT_W:0]   first, last;     // parcel range, straddler from -1 (encoded as first = 0, strad)
     assign strad = slot == SLOT_W'(NP - 1) && !rvc;

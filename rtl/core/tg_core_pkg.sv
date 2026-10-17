@@ -82,6 +82,16 @@ package tg_core_pkg;
 `else
   localparam bit DE_STAGE = 1'b0;
 `endif
+  // The instruction queue's decode bits (core-pipeline §12): each entry also carries illegal, a
+  // decode-time exception and serialising, from a decoder per bank as it is written, and decode reads
+  // them instead of decoding again (timing: the queue's take loop, decode -> rename; about +0.23K
+  // LUTs st, +0.34K smt2). Cycle-exact either way. Off in both profiles until the user decides with
+  // G7's full-chip numbers; TG_QUEUE_DECODE=1 turns it on
+`ifdef TG_QUEUE_DECODE
+  localparam bit QUEUE_DECODE = `TG_QUEUE_DECODE;
+`else
+  localparam bit QUEUE_DECODE = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
