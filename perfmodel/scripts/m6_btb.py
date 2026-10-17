@@ -42,7 +42,7 @@ KINDS = ("mp_dir", "mp_cold", "mp_ret", "mp_target", "f2_overrides", "predecode_
 
 
 def per_k(reg, k):
-    return reg[k] * 1000.0 / max(1, reg["instr"])
+    return reg.get(k, 0) * 1000.0 / max(1, reg["instr"])  # runs cached before a counter existed have none
 
 
 def main():
