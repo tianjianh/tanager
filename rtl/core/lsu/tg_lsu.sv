@@ -837,15 +837,19 @@ module tg_lsu
   // A young reservation holds the D$'s probes, up to RSV_HOLD cycles after its LR or until it ends
   // (its SC, the line lost, a trap or xRET), so an LR/SC pair completes under another core's probes:
   // a read probe that takes T away also ends it (forward progress, core-pipeline §13). Bounded and
-  // independent of A-channel progress (TL-C rule 4)
+  // independent of A-channel progress (TL-C rule 4). The count runs from the LR whatever the
+  // reservation does, and the hold is the count while the registered reservation holds, so its end
+  // (a trap's clear above all) stays out of the count's reset (timing). The same hold as clearing the
+  // count at the end: a reservation starts only with an LR's ack, which sets the count (k-induction;
+  // checked against that form in simulation)
   localparam int RSV_HOLD = 64;
   logic [6:0] rsv_hold_q;
   always_ff @(posedge clk) begin
-    if (rst || !rsv_v_d)             rsv_hold_q <= '0;
+    if (rst)                            rsv_hold_q <= '0;
     else if (am_req && am_ack && am_lr) rsv_hold_q <= 7'(RSV_HOLD);
-    else if (rsv_hold_q != '0)        rsv_hold_q <= rsv_hold_q - 1'b1;
+    else if (rsv_hold_q != '0)          rsv_hold_q <= rsv_hold_q - 1'b1;
   end
-  assign pr_hold = rsv_hold_q != '0;
+  assign pr_hold = rsv_v_q && rsv_hold_q != '0;
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin
     wake_ld = '0;
@@ -1823,6 +1827,15 @@ module tg_lsu
         if (lq_v_q[i] && lq_st_q[i] == L_STQ)
           assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
             else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
+  end
+  // The probe hold is the one a count cleared at the reservation's end gives
+  logic [6:0] rsv_hold_chk_q;
+  always_ff @(posedge clk) begin
+    if (rst || !rsv_v_d)                rsv_hold_chk_q <= '0;
+    else if (am_req && am_ack && am_lr) rsv_hold_chk_q <= 7'(RSV_HOLD);
+    else if (rsv_hold_chk_q != '0)      rsv_hold_chk_q <= rsv_hold_chk_q - 1'b1;
+    if (rs_q && !rst)
+      assert (pr_hold == (rsv_hold_chk_q != '0)) else $error("tg_lsu: the probe hold differs from the cleared count's");
   end
 `endif
   // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word
