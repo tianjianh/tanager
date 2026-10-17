@@ -115,7 +115,7 @@ package tg_core_pkg;
 `ifdef TG_RAS
   localparam bit RAS_ON = `TG_RAS;
 `else
-  localparam bit RAS_ON = 1'b1;
+  localparam bit RAS_ON = 1'b0;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
