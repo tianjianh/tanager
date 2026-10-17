@@ -44,7 +44,10 @@ bool Config::apply_preset(const std::string& name) {
     // The core as built (core-pipeline.md §1, the plan's M2 row), with the v1 freeze's sizes that the RTL's `st`
     // build uses (tg_cfg_st.sv) and DR-140's default profile, on tg_vsim's memory: no L2 and a flat latency
     // (`native` = 30 cycles; --set dram_lat=120 for the other point).
-    ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; ras = 0; fdip = 0; pf_i_nextline = 0;
+    // Calibrated against tg_vsim on the same ELFs (scripts/rtlcal.py, area_recovery.md §6.3): the flush acts the
+    // cycle after commit (commit_redirect 2), and the wrong path past a loop's exit trains its branch twice more.
+    ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0; pf_i_nextline = 0;
+    commit_redirect = 2;
     fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;
     rob = 48; iq_a0 = 10; iq_a1 = 10; iq_ld = 6; iq_fp = 10; iq_sta = 4; wake_tags = 16;
     lq = 16; sq = 12; lqcb = 0; llt = 16; ckpt = 0; early_retire = 0;
