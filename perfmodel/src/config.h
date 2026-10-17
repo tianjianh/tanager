@@ -16,6 +16,14 @@ namespace tg {
   X(decode_width, 2, "instructions decoded per cycle (decode slots)")                              \
   X(dec_to_disp, 2, "cycles from decode to dispatch (rename + dispatch stages)")                   \
   X(ubtb, 32, "micro-BTB entries (0 = none)")                                                      \
+  X(fe_m2, 0, "the M2 RTL's front end: the micro-BTB (ubtb entries, ubtb_ways) is the only predictor; no RAS; decode repairs JAL and predicted-taken targets (predecode_bubble)") \
+  X(ubtb_ways, 2, "micro-BTB ways with fe_m2")                                                     \
+  X(m2_ctr, 512, "2-bit counters (PC[10:2]) that gate the micro-BTB's training with fe_m2")       \
+  X(m2_wp_train, 0, "fe_m2: extra not-taken trainings of a loop branch mispredicted at its exit (the RTL's wrong path)") \
+  X(m2_dir, 0, "fe_m2: the direction predictor (dirpred) decides branches; decode supplies missing targets")   \
+  X(m2_f2, 0, "fe_m2: direct targets and direction overrides come from F2's pre-decode (core-2's TAGE front end), not decode") \
+  X(m2_f2_bubble, 1, "fe_m2 with m2_f2: fetch bubble of an F2 redirect (cycles)")                    \
+  X(m2_ras_f2, 0, "fe_m2 with m2_f2 and ras: returns are repaired from the RAS at F2 (pre-decode), not at decode") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
@@ -33,6 +41,7 @@ namespace tg {
   X(tage_hmax, 64, "TAGE longest history (<= 128)")                                                \
   X(ras, 32, "return address stack entries")                                                       \
   X(ras_at_decode, 0, "returns use the BTB target at fetch; the RAS corrects at decode (NaxRiscv)") \
+  X(ret_btb, 0, "with ras = 0: returns are predicted by the BTB's stored target (0 = every return mispredicts)") \
   X(fdip, 1, "fetch-directed I-cache prefetch")                                                    \
   X(ftq, 32, "fetch target queue blocks (FDIP lookahead)")                                         \
   X(fusion, 1, "macro-op fusion")                                                                  \
@@ -90,6 +99,8 @@ namespace tg {
   X(mdp_entries, 1024, "wait table entries")                                                       \
   X(mdp_clear, 65536, "wait table clear interval (cycles)")                                        \
   X(fwd_strict, 0, "forward only from a store of the same address and size")                      \
+  X(ld_fwd_lat, 3, "load-to-use of a load forwarded from an older store whose data is ready")    \
+  X(ld_fwd_wait, 3, "cycles from an older store's data to the result of a load waiting to forward it") \
   X(sta_split, 1, "store address issues alone; data captured in the SQ")                           \
   X(rfo_pf, 1, "request ownership when a store address resolves")                                 \
   X(ld_ports, 1, "load pipes")                                                                     \
@@ -106,6 +117,7 @@ namespace tg {
   X(l2_mshr, 32, "L2 MSHRs (both banks)")                                                          \
   X(dram_lat, 120, "DRAM round trip seen from the L2 (cycles)")                                    \
   X(dram_line_cyc, 4, "DRAM cycles per 64-byte line (bandwidth)")                                  \
+  X(l1_fill_extra, 0, "cycles added to every L1 refill (the RTL's request, beats, install and replay)") \
   X(pf_stride, 1, "L1D PC-stride prefetcher")                                                      \
   X(pf_stride_entries, 16, "stride table entries")                                                 \
   X(pf_stride_dist, 4, "stride prefetch distance (strides ahead)")                                 \
