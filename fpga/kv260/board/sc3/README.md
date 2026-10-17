@@ -53,4 +53,6 @@
 
 ## Step 3: two-core lockstep
 
-Running: `runs/lockstep.sh` with p0f's 1 GHz-timebase 768 MiB tree. Main has no `--freeze-time` yet; it comes with the SoC track's MR4.
+`runs/lockstep.sh` with p0f's 1 GHz-timebase 768 MiB tree (main has no `--freeze-time` yet; it comes with the SoC track's MR4), checker `694aff2`, `--harts=4` ([`ls_run1.txt`](ls_run1.txt), [`ls_sc3-tb1g.log`](ls_sc3-tb1g.log), [`ls_console_sc3-tb1g.txt`](ls_console_sc3-tb1g.txt)).
+
+**Pass:** `PASS after 409133336 records (409098612 retired, 14550 traps, 20174 interrupts, 0 writebacks) in 4777.7 s, 85634 records/s`, with `967 loads read bytes another hart's recent write had replaced; 0 atomics read past a store`. Boot to the root shell and power-off, checker exit 0. Main's tree at 100 MHz (stage C, DR-151) matches Spike through a whole two-core Linux boot.
