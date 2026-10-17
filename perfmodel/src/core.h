@@ -93,6 +93,7 @@ struct SqEntry {
   X(cycles) X(instr) X(uops)                                                                       \
   X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
+  X(mp_refills) X(mp_refill_cycles)                                                                \
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong)                                            \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
@@ -176,6 +177,7 @@ class Core {
     Stats st, st_start, st_end;
     MemStats ms_start, ms_end;
     uint64_t last_commit_t = 0;
+    uint64_t refill_from = ~0ull;  // commit cycle of a mispredict recovered at commit, until the next retire
     uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
     // multithreaded runs
     int lap = 0;                   // completed runs of the program
@@ -280,6 +282,7 @@ class Core {
   std::array<uint64_t, 128> wb_b1_{};
   // early-retired uop id -> t_ready
   std::unordered_map<uint64_t, uint64_t> pending_;
+  std::unordered_map<uint64_t, uint32_t> mp_pc_;  // mispredicts by PC in the region (TGSIM_MPDUMP=file writes them)
   // Dependency census (census = 1): each dispatched uop's sources, by what its row would wait on.
   // READY: the value exists; MX: a 1-cycle producer still in an ALU-queue row; ROB: a ROB-indexed wakeup
   // (multi-cycle or not yet woken); LLT: a long-latency tag; XTHREAD: a producer of the other thread.

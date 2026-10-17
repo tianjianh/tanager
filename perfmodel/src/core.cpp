@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 
 namespace tg {
@@ -1231,6 +1232,12 @@ void Core::region_event(Thread& T, bool start) {
     T.st_end = T.st;
     T.ms_end = ms;
     T.r_end_cycle = t_;
+    if (const char* f = std::getenv("TGSIM_MPDUMP")) {  // calibration: mispredicts by PC (scripts/rtlcal.py)
+      if (FILE* o = std::fopen(f, "w")) {
+        for (auto& kv : mp_pc_) std::fprintf(o, "%llx %u\n", (unsigned long long)kv.first, kv.second);
+        std::fclose(o);
+      }
+    }
   }
   if (nthr_ == 1) return;
   if (start) overlap_check_start();
@@ -1261,6 +1268,11 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if (T.refill_from != NEVER) {  // the first retire after a mispredict recovered at commit: the refill
+    T.st.mp_refill_cycles += t_ - T.refill_from;
+    T.st.mp_refills++;
+    T.refill_from = NEVER;
+  }
   if (u.di && u.di->marker && T.lap == 0) {  // later runs of a restarted program are not measured
     if (u.di->marker == 1 && !T.in_region) region_event(T, true);
     else if (u.di->marker == 2 && T.in_region) region_event(T, false);
@@ -1271,7 +1283,9 @@ void Core::retire(Uop& u, bool early) {
         T.fe_blocked = false;
         T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
         T.st.mp_resolved_commit++;
+        T.refill_from = t_;
       }
+      if (T.in_region && u.di) mp_pc_[u.di->pc]++;
       switch (u.mp_kind) {
         case 1: T.st.mp_dir++; break;
         case 2: T.st.mp_target++; break;
