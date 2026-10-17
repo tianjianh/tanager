@@ -5,7 +5,7 @@
 cd ~/tanager/tg || exit 1
 export TG_APP=tanager-sc2 TG_DIR=$HOME/tanager/sc2net
 D=$TG_DIR
-ip -br link show br0 > /dev/null 2>&1 || { echo "no br0: run net_bridge_up.sh first"; exit 1; }
+$HOME/tanager/runs/net_bridge_ensure.sh || { echo "no working br0: stopping"; exit 1; }
 ./tg.sh load > $D/load_net2.txt 2>&1 || { echo "load failed"; cat $D/load_net2.txt; exit 1; }
 grep -E "^loaded|^fan|^pl0" $D/load_net2.txt
 LOGIN_S=${LOGIN_S:-2400} DBG=1 CMDS_S=${CMDS_S:-2400} OFF_S=${OFF_S:-900} SH_KERNEL=u-boot.bin \

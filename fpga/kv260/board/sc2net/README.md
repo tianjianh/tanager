@@ -45,3 +45,16 @@
   - About 10 frames are dropped per boot.
   - `systemd-networkd` takes about 1 min 54 s to start at 70 MHz, close to its 2 min 30 s limit.
 - **State after the run:** `br0` stays up in memory for further network runs; `tanager0` is gone.
+
+## Real work under Debian, try 1: apt could not install (network not ready, or no IPv4 route yet)
+
+[`work_run1.txt`](work_run1.txt), console [`linux_shell_work.txt`](linux_shell_work.txt); `runs/sc2_work.sh` with [`../runs/debian_work_cmds.txt`](../runs/debian_work_cmds.txt). It installs `gcc`, `libc6-dev` and `sysbench`, builds and times a small C program, and runs a short `sysbench` set.
+- **The bridge:** `br0` was already up (`runs/net_bridge_ensure.sh`, now each network run's first step).
+- **The failure:** `apt-get install` failed: `E: Failed to fetch … Cannot initiate the connection to deb.debian.org:80 (2a04:4e42:87::644). - connect (101: Network is unreachable)` for three packages, so nothing was installed. The rest found no `gcc` or `sysbench`.
+- **Reading:**
+  - The laptop's sharing gives IPv4 only. The RISC-V has just a link-local IPv6, so apt's IPv6 tries fail at once, and apt should fall back to IPv4.
+  - The commands ran right at the login, and this script did not print the address first. So the IPv4 lease was most likely not up yet.
+- **The fix for the next try:**
+  - wait for `systemd-networkd-wait-online -i eth0 -4`;
+  - print the address and the route;
+  - give apt `-o Acquire::ForceIPv4=true`.
