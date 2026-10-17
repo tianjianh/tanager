@@ -424,6 +424,13 @@ Each is checked on the board in stage D's first step, with the UART: the simples
      - which controller the micro-SD is on (SD1);
      - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
   4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
+  - **The tools:** `tanager-host dma adma` (item 1) and `tanager-host psrd` (item 2's register reads), with the procedure in the board package `d0-probes-20261017` ([host.md](host.md)).
+  - **The coordinator's conditions** (10-17): sc3 loaded; read-only on PS state, except the ADMA copies, which stay inside the RISC-V's carve-out; the fan stays with the A53's `fancontrol`. The results come before D1's RTL is final.
+  - **From the upstream device trees** (to confirm on the live one):
+    - the KV260's SOM tree (`zynqmp-smk-k26-revA`) disables SD0, so there is no eMMC, and the A53's handover boot needs an initramfs;
+    - TTC0 is the fan's PWM;
+    - TTC1 and UART0 are not enabled. TTC1 runs on `lpd_lsbus`, which UART1 needs too, so it is D1's interrupt test once the live tree and `/proc/interrupts` confirm it is unused;
+    - the eight ADMA channels are enabled, under runtime power management.
 - **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
   - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
     - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
