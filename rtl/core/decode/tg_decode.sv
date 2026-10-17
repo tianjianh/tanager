@@ -11,6 +11,13 @@
 // them once, for its own next PC and redirect too (area).
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
+#(
+  // 1: the fields are cleared by ill_q, the instruction queue's illegal bit (decoded as it was
+  // written, with the same state: every change of it ends in a flush), not by this decoder's own,
+  // so the fields do not wait for the illegal decision (timing); the own one is then checked
+  // against it in simulation
+  parameter bit ILL_Q = 1'b0
+)
 (
   input  logic [3:0]  pc_lo,      // the PC's low bits (none of its own adds need the rest)
   input  logic [63:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad
@@ -33,7 +40,9 @@ module tg_decode
   input  logic        tvm,
   input  logic        tw,
   input  logic        tsr,
-  output dec_t        d
+  input  logic        ill_q = 1'b0,   // with ILL_Q: the queue's illegal bit
+  output dec_t        d,
+  output logic        ill_o       // this decoder's illegal decision (before the fault override)
 );
   logic xb, xf, xd;
   assign xb = EXT_B && misa_b;
@@ -67,8 +76,9 @@ module tg_decode
     return c;
   endfunction
 
+  logic ill;
+  assign ill_o = ill;
   always_comb begin
-    logic ill;
     d = '0;
     d.cls = C_ALU;
     d.rs1 = insn[19:15];
@@ -369,7 +379,7 @@ module tg_decode
       d = '0;
       d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = fault_pf ? EXC_IPAGE : EXC_IACCESS;
       d.exc_hi = fault_hi;
-    end else if (ill) begin
+    end else if (ILL_Q ? ill_q : ill) begin
       d = '0;
       d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = EXC_ILLEGAL;
     end

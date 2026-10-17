@@ -292,7 +292,19 @@ package tg_core_pkg;
     tid_t              tid;
     logic [2:0]        marks;       // pre-decode: {conditional branch, JAL, JALR}; decode's class
                                     // unless decode raises an exception
+    logic              q_ill;       // decode bits the queue wrote with it (tg_fetch_compact):
+    logic              q_exc;       //   illegal; a decode-time exception (illegal, ECALL, EBREAK;
+    logic              q_ser;       //   not a fetch fault); serialising
   } fe_insn_t;
+
+  // The state the decoders read (CSRs): the queue's write-side decoders and decode get the same
+  typedef struct packed {
+    logic        misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
+    logic [1:0]  fs;
+    logic [2:0]  frm;
+    priv_e       priv;
+    logic        tvm, tw, tsr;
+  } dec_state_t;
 
   // ---- Decoded micro-op ----
   typedef struct packed {

@@ -55,6 +55,7 @@ module tg_fetch
   input  logic [TKW-1:0]            iq_take,
   // Translation and PMP (M3)
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
+  input  dec_state_t  dst,            // decode's state, for the queue's decode bits
   input  priv_e       priv,
   input  pmp_d_t [15:0]     pmp_d,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
@@ -89,7 +90,7 @@ module tg_fetch
     logic              fhi;      // on the entry instruction's second half
   } meta_t;
   localparam int META_W = $bits(meta_t);
-  localparam int IB_W   = 32 + 1 + SLOT_W + 3 + META_W;
+  localparam int IB_W   = 3 + 32 + 1 + SLOT_W + 3 + META_W;   // tg_fetch_compact's entry
 
   // ---- Reset sequence: invalidate the micro-BTB (2 ways x its sets) ----
   localparam int UB_SETS = UBTB_ENTRIES / 2;
@@ -385,7 +386,7 @@ module tg_fetch
   logic                              redirect;
   assign redirect = flush || dred;
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush(redirect), .blk_valid(f3_valid_q), .parcel(f3_parcel),
+    .clk, .rst, .flush(redirect), .dst, .blk_valid(f3_valid_q), .parcel(f3_parcel),
     .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
     .blk_ready, .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -685,7 +686,8 @@ module tg_fetch
     logic [SLOT_W-1:0] slot;
     logic [2:0]        marks;
     meta_t             m;
-    assign {m, marks, slot, rvc, hi, lo} = cq_insn[j];
+    logic              qill, qexc, qser;   // the queue's decode bits
+    assign {qill, qexc, qser, m, marks, slot, rvc, hi, lo} = cq_insn[j];
     logic              strad;
     logic [SLOT_W:0]   first, last;     // parcel range, straddler from -1 (encoded as first = 0, strad)
     assign strad = slot == SLOT_W'(NP - 1) && !rvc;
@@ -715,6 +717,9 @@ module tg_fetch
       iq_insn[j].ubtb_way    = m.way;
       iq_insn[j].tid         = '0;
       iq_insn[j].marks       = marks;
+      iq_insn[j].q_ill       = qill;
+      iq_insn[j].q_exc       = qexc;
+      iq_insn[j].q_ser       = qser;
     end
   end
 
