@@ -100,6 +100,7 @@ module tg_tb_top
   tr_wb_t  [TRACE_WB_PORTS-1:0] trace_wb;
   logic    [TRACE_WB_PORTS-1:0] trace_wb_valid;
   logic                         trace_stall_q;
+  logic    [31:0]               core_dbg;       // the board-debug word (tg_core DBG_WORD), unused here
 
 `ifdef TG_TCORE
   tg_tcore #(.CORE_ID(CORE_ID)) u_core (
@@ -147,7 +148,9 @@ module tg_tb_top
     .trace_o          (trace),
     .trace_valid_o    (trace_valid),
     .trace_wb_o       (trace_wb),
-    .trace_wb_valid_o (trace_wb_valid)
+    .trace_wb_valid_o (trace_wb_valid),
+    .dbg_sel_i        ('0),
+    .dbg_o            (core_dbg)
   );
 
   // ---- One DPI exchange per port per rising edge ----
