@@ -407,6 +407,10 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
       }
       m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
+      // The RTL trains at execute on the wrong path too. Past a loop's exit it runs the loop again until the
+      // commit flush, and the wrong path's copies of the branch resolve not taken: m2_wp_train more such updates.
+      if (!ok && d.cls == Cls::BR && pred_taken && !di->taken && tgt <= di->pc)
+        for (int k = 0; k < c_.m2_wp_train; k++) m2_.train(key, di->pc, slot, false, false, tgt, m2_.lookup(key));
       T.ghr.push(di->taken, di->pc);
     }
     r.mispred = !ok;
