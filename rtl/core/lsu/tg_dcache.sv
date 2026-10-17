@@ -868,8 +868,246 @@ module tg_dcache
       end
     end
   end else begin : g_mn
-    // DR-149: DC_MSHRS entries (next)
-    initial $fatal(1, "tg_dcache: DC_MSHRS = %0d: the entries are not built yet", DC_MSHRS);
+    // DC_MSHRS entries (DR-149). Each holds one line in flight from its allocation to its install:
+    // a load's (AcquireBlock NtoB), or a store's or an atomic's (NtoT, or BtoT for a line held in
+    // B, which stays valid in B meanwhile). A valid victim goes through the one release engine:
+    // its state is cleared at the allocation (probes and stores see the line as gone; its way is
+    // the entry's), the engine reads and sends its beats, and the entry's Acquire goes out after
+    // the last one. The engine alone waits for ReleaseAck (source DC_MSHRS); another allocation with
+    // a valid victim waits for it. A way an entry holds is no other allocation's victim. Loads'
+    // misses come through a request register: the next cycle each merges with the entry holding
+    // its line, finds the line present, allocates, or gets no answer, and the answer is registered
+    // (lm_ans_*, two cycles after lm_req). Grants come back in any order, demultiplexed by source
+    // (the entry's index); a Grant's beats are contiguous, so port B writes one Grant at a time.
+    // Installs take the state port one at a time, the lowest entry first, after a probe update, and
+    // no allocation shares a cycle with one. An atomic's read waits until nothing is in flight
+    localparam int N = DC_MSHRS;
+    typedef enum logic [2:0] { E_IDLE, E_EV, E_ACQ, E_GRANT, E_GACK, E_INSTALL } estate_e;
+    typedef enum logic [1:0] { R_IDLE, R_RD, R_SEND, R_WAIT } rstate_e;
+    estate_e [N-1:0]                es_q;      // per entry: its state, line, way, growth, kind
+    logic    [N-1:0][PA_W-1:6]      el_q;
+    logic    [N-1:0][WAY_W-1:0]     ew_q;
+    logic    [N-1:0][2:0]           eg_q;
+    logic    [N-1:0]                est_q;     // for a store or an atomic
+    logic    [N-1:0][1:0]           eb_q;      // the Grant's beat
+    logic    [N-1:0]                eden_q;    // the Grant was denied (or corrupt)
+    logic    [N-1:0][2:0]           ecap_q;
+    logic    [N-1:0][TL_SINK_W-1:0] esk_q;
+    rstate_e                        rs_q;      // the release engine: the victim's line, way,
+    logic    [PA_W-1:6]             rl_q;      //   dirty and T bits, its beat, and the entry whose
+    logic    [WAY_W-1:0]            rw_q;      //   Acquire waits for the send
+    logic                           rd_q, rt_q;
+    logic    [1:0]                  rb_q;
+    logic    [MSW-1:0]              re_q;
+    logic                           rq_v_q;    // the loads' request register
+    logic    [PA_W-1:0]             rq_pa_q;
+    logic    [N-1:0]                dn_v_q;    // denied fills, one line per entry
+    logic    [N-1:0][PA_W-1:6]      dn_l_q;
+    logic    [N-1:0]                done_q;    // entry e installed last cycle
+    logic                           none_q;    // nothing was in flight last cycle
+    logic                           rack_q;    // ReleaseAck came last cycle
+    logic                           ans_v_q, ans_w_q;
+    logic    [MSW-1:0]              ans_e_q;
+    function automatic logic [MSW-1:0] first(input logic [N-1:0] v);   // the lowest one set
+      logic [MSW-1:0] r;
+      r = '0;
+      for (int i = N - 1; i >= 0; i--) if (v[i]) r = MSW'(i);
+      return r;
+    endfunction
+    logic [N-1:0] busy, acq, gnt, gack, insv, st_m, rq_m, dn_s, dn_l;
+    logic [MSW-1:0] f_i, a_i, g_i, i_i, rq_e, d_e;
+    logic f_any, st_busy, rq_busy, d_for_e, ev_go, ev_dirty;
+    always_comb begin
+      for (int e = 0; e < N; e++) begin
+        busy[e] = es_q[e] != E_IDLE;
+        acq[e]  = es_q[e] == E_ACQ;
+        gnt[e]  = es_q[e] == E_GRANT;
+        gack[e] = es_q[e] == E_GACK;
+        insv[e] = es_q[e] == E_INSTALL;
+        st_m[e] = busy[e] && el_q[e] == sx_pa[PA_W-1:6];
+        rq_m[e] = busy[e] && el_q[e] == rq_pa_q[PA_W-1:6];
+        dn_s[e] = dn_v_q[e] && dn_l_q[e] == sx_pa[PA_W-1:6];
+        dn_l[e] = dn_v_q[e] && dn_l_q[e] == lm_pa[PA_W-1:6];
+      end
+      // The ways the entries hold in the store port's and the controller's sets
+      res_s = '0;
+      res_c = '0;
+      for (int e = 0; e < N; e++) begin
+        if (busy[e] && el_q[e][6 +: SET_W] == sx_pa[6 +: SET_W]) res_s[ew_q[e]] = 1'b1;
+        if (busy[e] && el_q[e][6 +: SET_W] == rq_pa_q[6 +: SET_W]) res_c[ew_q[e]] = 1'b1;
+      end
+    end
+    assign f_i     = first(~busy);
+    assign f_any   = |(~busy);
+    assign a_i     = first(acq);
+    assign g_i     = first(gack);
+    assign i_i     = first(insv);
+    assign rq_e    = first(rq_m);
+    assign st_busy = |st_m;
+    assign rq_busy = |rq_m;
+    assign d_e     = d_i.source[MSW-1:0];
+    assign d_for_e = (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT) && d_i.source[2:0] < 3'(N) &&
+                     es_q[d_e] == E_GRANT;
+    assign ev_go    = !al_up && (alloc_st ? ev_s : ev_c);
+    assign ev_dirty = alloc_st ? ss.d[evw_s] : sc.d[evw_c];
+
+    assign m_none     = !(|busy) && rs_q == R_IDLE;
+    assign m_on_c     = rs_q == R_RD || rs_q == R_SEND;
+    assign m_inst     = |insv;
+    assign inst_go    = m_inst && !(ps_q == P_UPD && p_hit_q);    // a probe update goes first
+    assign mi_line    = el_q[i_i];
+    assign mi_way     = ew_q[i_i];
+    assign mi_den     = eden_q[i_i];
+    assign mi_st      = est_q[i_i];
+    assign mi_cap     = ecap_q[i_i];
+    assign pb_ev      = rs_q == R_RD && !bw_busy;       // (#11: not beside a write)
+    assign mv_way     = rw_q;
+    assign mv_set     = rl_q[6 +: SET_W];
+    assign mv_beat    = rb_q;
+    assign m_gwait    = |gnt;
+    assign grant_beat = d_valid_i && d_i.opcode == D_GRANT_DATA && d_for_e && !(ps_q == P_RD || ps_q == P_SEND);
+    assign mg_way     = ew_q[d_e];
+    assign mg_set     = el_q[d_e][6 +: SET_W];
+    assign mg_beat    = eb_q[d_e];
+    assign a_valid    = |acq;
+    assign a_line     = el_q[a_i];
+    assign a_grow     = eg_q[a_i];
+    assign a_src      = TL_SRC_W'(a_i);
+    assign e_valid    = |gack;
+    assign e_sink     = esk_q[g_i];
+    assign rel_send   = rs_q == R_SEND;
+    assign rel_dirty  = rd_q;
+    assign rel_t      = rt_q;
+    assign rel_line   = rl_q;
+    assign rel_src    = TL_SRC_W'(N);
+    // An allocation needs a free entry, no entry for its line, no install this cycle (the state
+    // port), and the release engine when its victim is valid
+    assign m_free_st  = f_any && !m_inst && !st_busy && (rs_q == R_IDLE || s_hit || !ev_s);
+    assign m_free_ld  = f_any && !m_inst && !rq_busy && (rs_q == R_IDLE || !ev_c);
+    assign c_req      = rq_v_q;
+    assign c_pa       = rq_pa_q;
+    assign dn_hit     = |dn_s;
+    assign lm_fdn     = |dn_l;
+    // The request register's answer: its line is present (the controller port hits, outside a
+    // probe), in an entry (wait for it; one installing now: retry), or allocated now; else none
+    logic a_retry, a_wait;
+    logic [MSW-1:0] a_e;
+    always_comb begin
+      a_retry = 1'b0;
+      a_wait  = 1'b0;
+      a_e     = f_i;
+      if (!probe_active && |ch) begin
+        a_retry = 1'b1;
+      end else if (rq_busy) begin
+        a_e = rq_e;
+        if (insv[rq_e]) a_retry = 1'b1;
+        else            a_wait  = 1'b1;
+      end else if (alloc_ld) begin
+        a_wait = 1'b1;
+      end
+    end
+    assign lm_ans_v    = ans_v_q;
+    assign lm_ans_wait = ans_w_q;
+    assign lm_ans_e    = ans_e_q;
+    assign m_done      = done_q;
+    assign m_wake_any  = |done_q || rack_q || none_q;
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        for (int e = 0; e < N; e++) es_q[e] <= E_IDLE;
+        rs_q    <= R_IDLE;
+        rq_v_q  <= 1'b0;
+        dn_v_q  <= '0;
+        done_q  <= '0;
+        none_q  <= 1'b1;
+        rack_q  <= 1'b0;
+        ans_v_q <= 1'b0;
+      end else begin
+        rq_v_q  <= lm_req;                       // M2's miss: decided the next cycle
+        rq_pa_q <= lm_pa;
+        ans_v_q <= rq_v_q && (a_retry || a_wait);
+        ans_w_q <= a_wait;
+        ans_e_q <= a_e;
+        done_q  <= '0;
+        rack_q  <= 1'b0;
+        none_q  <= m_none;
+        // The first free entry's fields load in every cycle it is free (read only once it is
+        // busy), so only its state waits for the allocation
+        if (f_any) begin
+          el_q[f_i]   <= al_pa[PA_W-1:6];
+          est_q[f_i]  <= alloc_st;
+          eb_q[f_i]   <= '0;
+          eden_q[f_i] <= 1'b0;
+          ew_q[f_i]   <= al_up ? sh_way : victim;
+          eg_q[f_i]   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
+          if (al_go) es_q[f_i] <= ev_go ? E_EV : E_ACQ;
+        end
+        // The release engine takes a valid victim at its allocation
+        if (al_go && ev_go) begin
+          rs_q <= ev_dirty ? R_RD : R_SEND;
+          rl_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+          rw_q <= victim;
+          rd_q <= ev_dirty;
+          rt_q <= alloc_st ? ss.t[evw_s] : sc.t[evw_c];
+          rb_q <= '0;
+          re_q <= f_i;
+        end
+        unique case (rs_q)
+          R_RD: if (pb_ev) rs_q <= R_SEND;      // port B read of beat rb_q
+          R_SEND: if (c_ready_i) begin
+            if (!rd_q || rb_q == 2'd3) begin
+              rs_q       <= R_WAIT;
+              es_q[re_q] <= E_ACQ;               // its line's Acquire may go
+            end else begin
+              rb_q <= rb_q + 1'b1;
+              rs_q <= R_RD;
+            end
+          end
+          R_WAIT: if (d_fire && d_i.opcode == D_RELEASE_ACK) begin
+            rs_q   <= R_IDLE;
+            rack_q <= 1'b1;
+          end
+          default: ;
+        endcase
+        if (a_valid && a_ready_i) begin
+          es_q[a_i] <= E_GRANT;
+          eb_q[a_i] <= '0;
+        end
+        if (d_fire && d_for_e) begin
+          ecap_q[d_e] <= {1'b0, d_i.param};
+          esk_q[d_e]  <= d_i.sink;
+          if (d_i.denied || d_i.corrupt) eden_q[d_e] <= 1'b1;
+          if (d_i.opcode == D_GRANT || eb_q[d_e] == 2'd3) es_q[d_e] <= E_GACK;
+          eb_q[d_e] <= eb_q[d_e] + 1'b1;
+        end
+        if (e_valid && e_ready_i) es_q[g_i] <= E_INSTALL;
+        if (inst_go) begin                       // the state write is in the comb block above
+          es_q[i_i]   <= E_IDLE;
+          done_q[i_i] <= 1'b1;
+          if (mi_den) begin
+            dn_v_q[i_i] <= 1'b1;
+            dn_l_q[i_i] <= mi_line;
+          end else begin
+            for (int k = 0; k < N; k++) if (dn_v_q[k] && dn_l_q[k] == mi_line) dn_v_q[k] <= 1'b0;
+          end
+        end
+      end
+    end
+    logic unused_mn;
+    assign unused_mn = ^{rq_pa_q[5:0], d_i.source, al_w};   // al_w: the one-MSHR reference model's
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+      if (!rst) begin
+        for (int e = 0; e < N; e++)
+          for (int k = e + 1; k < N; k++)
+            assert (!(busy[e] && busy[k] && el_q[e] == el_q[k])) else $error("tg_dcache: two entries for one line");
+        if (d_valid_i && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT))
+          assert (d_for_e) else $error("tg_dcache: a Grant for no waiting entry (source %0d)", d_i.source);
+        if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
+          assert (rs_q == R_WAIT) else $error("tg_dcache: ReleaseAck with no Release outstanding");
+        if (al_go) assert (f_any && !m_inst) else $error("tg_dcache: an allocation with no free entry, or beside an install");
+      end
+    end
+`endif
   end
 
   // Tag write at install

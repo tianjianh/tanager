@@ -275,6 +275,10 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
   logic   [LQ_ENTRIES-1:0]           lq_part_q;    // ... partial overlap (wait until it leaves)
+  // DR-149 (DC_MSHRS > 1): an L_MISS load waits for its entry's install (lq_we_q), or, while it
+  // has none (lq_wany_q), for any install or the miss side going idle
+  logic   [LQ_ENTRIES-1:0]           lq_wany_q;
+  logic   [LQ_ENTRIES-1:0][idx_w(DC_MSHRS)-1:0] lq_we_q;
   lqid_t                             lq_head_q, lq_tail_q;
 
   // ---- SQ ----
@@ -612,6 +616,8 @@ module tg_lsu
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
   logic [LIW-1:0]    m2_lq_q;
+  logic              ma3_v_q, ma4_v_q;           // DR-149: a load's miss, carried to the D$'s answer
+  logic [LIW-1:0]    ma3_lq_q, ma4_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
   logic [63:0]       m2_dword_q, m2_fdword;
   logic [SQ_ENTRIES-1:0] m2_foh_q;                  // the forwarding store, one-hot
@@ -1112,7 +1118,8 @@ module tg_lsu
     .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
-    .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
+    .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
+    .mshr_idle(DC_MSHRS == 1 ? mshr_idle : m_wake_any),   // (DR-149: any install, or none busy)
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
   assign dt_fill      = pw_done && pw_ok && !pw_who[1];
@@ -1286,6 +1293,8 @@ module tg_lsu
       sq_tail_q <= '0;
       m1_v_q    <= 1'b0;
       m2_v_q    <= 1'b0;
+      ma3_v_q   <= 1'b0;
+      ma4_v_q   <= 1'b0;
       r_v_q     <= 1'b0;
       r_fv_q    <= 1'b0;
       xs_q      <= X_IDLE;
@@ -1417,7 +1426,10 @@ module tg_lsu
             lq_blk_q[m2_lq_q]  <= m2_fid;
             lq_part_q[m2_lq_q] <= !m2_fcov_q;
           end
-          O_MISS:  lq_st_q[m2_lq_q] <= L_MISS;
+          O_MISS: begin
+            lq_st_q[m2_lq_q]   <= L_MISS;
+            lq_wany_q[m2_lq_q] <= 1'b1;                // until the D$ answers (DC_MSHRS > 1)
+          end
           O_RETRY: lq_st_q[m2_lq_q] <= L_READY;
           default: lq_st_q[m2_lq_q] <= L_EXC;
         endcase
@@ -1426,6 +1438,10 @@ module tg_lsu
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
+      ma3_v_q     <= lm_req && !m2_pt_q;            // (lm_req is not set under a flush)
+      ma3_lq_q    <= m2_lq_q;
+      ma4_v_q     <= ma3_v_q && !flush;
+      ma4_lq_q    <= ma3_lq_q;
       m2_lq_q     <= m1_lq_q;
       m2_pa_q     <= m1pa;
       m2_clash_q  <= m1_clash;
@@ -1458,10 +1474,22 @@ module tg_lsu
         if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
       end
 
+      // ---- DR-149 (DC_MSHRS > 1): the D$'s answer to a load's miss, two cycles after it ----
+      if (DC_MSHRS > 1 && lm_ans_v && ma4_v_q && !flush && lq_st_q[ma4_lq_q] == L_MISS) begin
+        if (lm_ans_wait) begin
+          lq_wany_q[ma4_lq_q] <= 1'b0;
+          lq_we_q[ma4_lq_q]   <= lm_ans_e;
+        end else begin
+          lq_st_q[ma4_lq_q]   <= L_READY;           // its line is in, or installs now
+        end
+      end
+
       // ---- Waiting loads re-check their condition ----
       for (int i = 0; i < LQ_ENTRIES; i++) begin
         if (lq_v_q[i] && !(ag_v && !ag_pt && ag_lq == LIW'(i)) && !(m2_v_q && !m2_pt_q && m2_lq_q == LIW'(i))) begin
-          if (lq_st_q[i] == L_MISS && mshr_idle) lq_st_q[i] <= L_READY;
+          if (lq_st_q[i] == L_MISS && (DC_MSHRS == 1 ? mshr_idle :
+                                       lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
+            lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
             if (!sq_live(lq_blk_q[i], sq_head_q, sq_tail_q) || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
@@ -1726,7 +1754,7 @@ module tg_lsu
   end
 
   logic unused;
-  assign unused = ^{lm_ans_v, lm_ans_wait, lm_ans_e, m_done, m_wake_any,   // DR-149's, read with DC_MSHRS > 1
+  assign unused = ^{lm_ans_v, lm_ans_wait, lm_ans_e, m_done, m_wake_any, mshr_idle,  // DR-149's (one is read per DC_MSHRS)
                     ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld};
