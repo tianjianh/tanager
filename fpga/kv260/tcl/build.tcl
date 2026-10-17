@@ -151,15 +151,29 @@ tg_prim_check -file $rep/prim_check_synth.txt -fail 0
 if {$stop eq "synth"} { stamp "done (synth)"; exit 0 }
 
 # ---- implementation ----
+# Placement and routing aim at a tighter core clock: TG_PR_UNC ns (default 1.0; 0 turns it off) of setup
+# uncertainty on clk_core from placement through routing, taken back before the reports, which give the
+# slack at the real period (DR-154, the coordinator, 10-17). At a plain 100 MHz target the placer
+# under-works the cores; with 1.0 ns, spikes-2's headroom baseline closed main plus hart 1's filler with
+# +1.065 ns (fpga/spikes/tcl/over_unc.tcl, the same method). summary.txt records it. timing.xdc sets no
+# uncertainty of its own.
+set pr_unc [expr {[info exists ::env(TG_PR_UNC)] ? $::env(TG_PR_UNC) : 1.0}]
+if {![string is double -strict $pr_unc] || $pr_unc < 0 || $pr_unc > 3} {
+  puts "ERROR: TG_PR_UNC must be 0-3 ns (fpga/kv260/README.md)"
+  exit 1
+}
+set core_clk [get_clocks -of_objects [get_pins u_clkgen/u_mmcm/CLKOUT0]]
 stamp "opt_design"
 opt_design
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
+if {$pr_unc > 0} { set_clock_uncertainty -setup $pr_unc $core_clk }
 stamp "place_design"
 place_design
 stamp "phys_opt_design"
 phys_opt_design
 stamp "route_design"
 route_design
+if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }
 stamp "reports"
 report_timing_summary -max_paths 20 -report_unconstrained -file $rep/timing_summary.rpt
 report_utilization -file $rep/utilization.rpt
@@ -179,6 +193,7 @@ puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
+puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)"
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
