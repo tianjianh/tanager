@@ -303,6 +303,13 @@ The plan:
 3. Then an offline shrink of `p2` to about 6 GiB, from an initramfs hook at the A53's next boot (ext4 shrinks only unmounted).
 4. Then `p3` for the RISC-V, served raw as virtio-blk. It holds the image's file system alone, with no partition table of its own, so stage D can mount the same partition natively (§8.2, the RISC-V's partition).
 
+**Done on the board** (the board session, 10-17, `fpga/kv260/board/sdcard`):
+- **The layout:** the A53's root is now 6 GiB, and `p3` is 7,741 MiB (sectors 14,682,112–30,535,679).
+- **The move:** `debian_to_partition.sh` moved the bench image (gcc and sysbench) onto it. It shrank the file system 8,191 → 7,741 MiB in place, copied 380,780 blocks in 3 min 4 s (8 MB/s, the card's write rate), and ended "checks clean, 8 backup superblocks".
+- **The boot:** sc3 at 100 MHz with `--blk /dev/mmcblk1p3`. U-Boot found extlinux on the whole disk at once, Debian mounted `/dev/vda`, and login came at 191 s, as from the image file.
+- **The check:** a 64 MiB file written with fsync survived the power-off and verified on the next boot, and `e2fsck -fn` on the A53 was clean.
+- **The A53's cloud-init regrew its root:** Ubuntu's `growpart` and `resizefs` modules run at every boot ("frequency always"), and they took the freed space back 16 s into the boot after the first shrink. A `/etc/cloud/cloud.cfg.d` file now turns both off. Any A53 image that gives card space away needs the same.
+
 A bigger cloned card is the alternative if the user prefers it. The board session does the work on the board, and the A53's Ubuntu stays intact and bootable.
 
 **Tests** (with the verification track):
