@@ -67,6 +67,17 @@
   - (a) stop `mtime` while trace backpressure stalls the cores: virtual time in lockstep;
   - (b) a lockstep-only device tree with `timebase-frequency` 1 GHz while `mtime` counts 10 MHz, so kernel time runs 100× slower.
 - **The L2 logged 5,928 error events** during this run (sticky `L2_ERR`). The plain boot had 0. Both reads during the stall show the same count ([`dbg_during_stall.txt`](dbg_during_stall.txt)), so they happened earlier. The SoC track is identifying them.
+
+**The retry passes: two-core Linux under the checker, boot to power-off** ([`ls_run4.txt`](ls_run4.txt), [`ls_p0f-tb1g.log`](ls_p0f-tb1g.log), [`ls_console_p0f-tb1g.txt`](ls_console_p0f-tb1g.txt)).
+- **The device tree:** the same 768 MiB tree with `timebase-frequency` 1 GHz ([`tanager-kv260-768m-tb1g.dts`](tanager-kv260-768m-tb1g.dts)), while the timer counts 10 MHz. Kernel time runs 100× slower, and a tick has about 19k instructions per hart.
+- **OpenSBI:** shows `aclint-mtimer @ 1000000000Hz`.
+- **The checker:** `PASS after 408432254 records (408397820 retired, 14594 traps, 19840 interrupts, 0 writebacks) in 4596.2 s, 88863 records/s`, with `947 loads read bytes another hart's recent write had replaced; 3 atomics read past a store, which then followed them`.
+- **The path:**
+  - `TANAGER-BOOT-OK … harts=2` at 2,994 s (kernel time: `/init` at 9.8 s);
+  - the login prompt at 3,074 s, the root shell at 3,197 s;
+  - `poweroff`, then `reboot: Power down` at kernel time 42.7 s; boot exit 0, checker exit 0.
+- **No RCU stall reports,** unlike M4's one-core run on the real-time clock.
+- **The proper fix:** the SoC track's next build (p0g) adds `--freeze-time` (`mtime` held while the trace stalls the cores), so the normal tree works under the checker.
 - **During the stall** each core's L1D took about 900 probes and sent about 900 requests per 5 s: the timekeeping lock's line passing between the two harts.
 
 ## 4. Where the L2 error events come from: the commit trace being on
@@ -82,7 +93,12 @@ At the SoC track's request, each case was booted on the 768m tree, and `tanager-
 | C2 | 1020 MiB | wrapped 2^16 ring, `--lossless` | yes | **5,884** at +3 s, **5,972** at +10 s |
 | lockstep retry | 1020 MiB | `--lossless`, through the checker | yes | 5,912 after 90 s, still in early boot |
 
-- **So:** about 6,000 events come in a traced boot's first seconds, then about 13 per second, whether or not the trace stalls the cores. With the trace off there are none, whatever the window or the zeroing.
+- **So:** about 6,000 events come in a traced boot's first seconds, then about 13 per second, with or without `--lossless`. With the trace off there are none, whatever the window or the zeroing.
+- **But "trace on" also means "stalled".** C1 run again with `trace status` during the boot (case C3, [`../runs/l2err_stall.sh`](../runs/l2err_stall.sh)):
+  - At +6 s: 18.6 M records written, 75.9 M stall cycles, 5,932 errors.
+  - At +10 s: 72.6 M records, 310 M stall cycles, 6,004 errors.
+  - At +17 s: 169.8 M records, 763.5 M stall cycles, 6,088 errors.
+  - The writer stalls the cores about 73% of the time even without `--lossless`. So this setup cannot separate the trace from its stalls. The errors come early, though, not in proportion to the stalls.
 - **Lockstep's window** is 1020 MiB with `--trace-log2 16`, not 768 MiB.
 - **A second source:** sc2's Debian run had 68 events with the trace off ([sc2](../sc2/README.md)).
 - **With the SoC track:** its next build captures the first error's kind, line and address.

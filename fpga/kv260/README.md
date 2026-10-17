@@ -297,7 +297,9 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
 - **Boot:** "smp: Brought up 1 node, 2 CPUs", with the login prompt 6 s after the load.
 - **SMP test:** two busy loops in parallel take as long as one.
 - **The workload set:** 54/54 measurements, CoreMark 6/6.
-- **Lockstep:** no mismatch in 425,955,311 checked records. Linux cannot finish booting under the checker, though: the RISC-V timer counts in real time while trace backpressure throttles the cores, and the periodic tick's catch-up loop never ends. Virtual time in lockstep is with the SoC track.
+- **Lockstep:** two-core Linux passes the checker from boot to power-off: 408,432,254 records, 14,594 traps, 19,840 interrupts.
+  - **What it took:** a device tree that tells Linux the timer runs at 1 GHz. On the real 10 MHz clock the first run had no mismatch in 425,955,311 records, but the boot could not finish. The timer counts in real time while trace backpressure throttles the cores, so the periodic tick's catch-up loop never ends.
+  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores.
 
 **Stage C, Debian 13 through U-Boot** ([sc2](board/sc2/README.md)): two `smt2` cores with the virtio window and the host DMA port.
 - **Buildroot:** virtio-blk (the md5 matches the host's) and virtio-rng work.

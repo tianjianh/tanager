@@ -9,7 +9,7 @@
 
 | Step | Result |
 |---|---|
-| 1. `dma check` and `vq` with the cores held | **Not run as written.** After `load` the uncore stays in reset ("cores in reset, uncore in reset, L2 not ready"), and `dma check` answers "the uncore must run with the L2 ready (load first)". `vq`: "served", no requests. Sent to the SoC track. ([`step1_run1.txt`](step1_run1.txt)) |
+| 1. `dma check` and `vq` with the cores held | **Pass with `tanager-host` `2fc4a71`** (`a2ce5e0b…`), which releases the uncore itself for `dma` with the cores held: `dma check 0x3fff0000+0x10000: ok; writes 21.4 MB/s, reads 23.6 MB/s; 16384 lines read, 16384 written, 0 drops`; a second check gave 25.0 and 23.6 MB/s. ([`dmacheck_run1.txt`](dmacheck_run1.txt)) The first try with `1cda3c33` could not run it: `load` left the uncore in reset. ([`step1_run1.txt`](step1_run1.txt)) |
 | 2. Buildroot with `--blk` (16 MiB random image) and `--rng` | **Pass.** `virtio_blk virtio0: [vda] 32768 512-byte logical blocks`; `md5sum /dev/vda` = `39d5e266b010796028907f801b07c39d`, the host's; `/dev/hwrng` gives 64 random bytes; interrupts virtio1 72, virtio0 9. Login at 6 s, power-off at 22 s, L2 errors 0. ([`step2_run1.txt`](step2_run1.txt), [`linux_shell_step2.txt`](linux_shell_step2.txt)) |
 | 3. Debian 13 via U-Boot, `--blk tanager-trixie.img` | **Pass.** See below. ([`debian_run1.txt`](debian_run1.txt), [`linux_shell_debian.txt`](linux_shell_debian.txt)) |
 

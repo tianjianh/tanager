@@ -100,3 +100,22 @@ loaded: fw 277856 B, kernel 21449216 B, dtb 2611 B into 0x840000000 (RISC-V 0x80
 tanager login: 
 fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
 orphan sleeps: 0
+loaded tanager-p0f at 11:37:45; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+--- at about +6 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 18606184, consumed 0, in the lanes 53, stalled 75870866 cycles, capturing, started
+  L2 error events                5932
+--- at about +10 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 72583953, consumed 0, in the lanes 111, stalled 309963958 cycles, capturing, started
+  L2 error events                6004
+--- at about +17 s:
+trace: ctrl 0x003, ring 0x87fc00000 of 2^16 records (64 B each, 2 core(s))
+       written 169816368, consumed 0, in the lanes 112, stalled 763517110 cycles, capturing, started
+  L2 error events                6088
+boot exit 124
+[tanager-host] timeout
+[tanager-host] trace: 278325917 records written
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0
