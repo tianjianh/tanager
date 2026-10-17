@@ -36,6 +36,7 @@ if [ "$size" != "$PART" ]; then
   say "the table on disk is right, but the kernel still has the old one ($size): rebooting to read it"
   savelog; sync; $REBOOT
 fi
+udevadm settle 2>/dev/null   # the re-read recreated the partition devices: let udev finish before savelog mounts p1
 e2fsck -f -n $ROOT >> $L 2>&1 || shell "WARNING: e2fsck -n on the new p2 is not clean"
 say "done: p2 is $PART sectors from $start, the filesystem ${FS_MIB} MiB; the boot continues"; sfdisk -d $DISK >> $L 2>&1
 savelog; exit 0
