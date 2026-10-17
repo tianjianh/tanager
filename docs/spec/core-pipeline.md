@@ -401,9 +401,9 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 - The commit trace off in production builds: −1,466 LUTs, −740 flip-flops and −888 LUTRAM at st, measured with `trace_o` unconnected. It removes a function, the M4 trace ring, and FPGA lockstep. This is the user's option (DR-121).
 
 **Follow-ups (functional, with deadlines):**
-- **LR/SC forward progress under read probes. Deadline: M8 (dual core).**
+- **LR/SC forward progress under read probes. Deadline: M8 (dual core). Done, with the two-core forward-progress holds (core-lsu.md, the D$'s probes):** an LR's young reservation holds probes until its SC, at most 64 cycles.
   - **The problem:** a probe that only takes away T (toB, from another core's read) also ends the reservation. The spec's eventual-success guarantee for a constrained LR/SC loop covers contention that is only reads, so two cores could starve an SC.
-  - **The fix:** a reservation hold. Probes to the reserved line wait a bounded number of cycles after an LR, and nothing in that wait depends on A-channel progress.
+  - **The fix:** a reservation hold. Probes wait while an LR's reservation is young, until its SC or for at most 64 cycles. All probes wait, not only the reserved line's: one register, bounded either way. Nothing in that wait depends on A-channel progress.
   - **Found by:** the directed `amo` test under `--probe-rate=150 --bp=20`. It needed up to about 30 tries, and its bound is now 1,024 (bae805e).
 
 Remaining M2/M3 costs: 64-bit PCs in the ROB and queue payloads (FTQ, M6), the trace read ports (§11), D$ data rows of 128 bits (4 block RAMs per way at a quarter of their depth).
