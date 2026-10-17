@@ -802,38 +802,52 @@ Every v1 row uses the default profile. The fallback changes nothing measurable (
   - one L1D miss in flight;
   - the latencies above.
 
-**The M6 features, from the core as built.** Single-thread suite (rv64gc) at 115 MHz's latencies with the SoC's L2 (hit 10 cycles, DRAM 21 cycles, no L2 prefetcher). LUTs are the plan's estimates (feature_ledger.md: shares of the ≈41K-LUT core; DR-149 for 4 misses in flight), not measurements.
+**The M6 features, from the core as built** (DR-152 sets the clock to 100 MHz, and DR-153 starts M6, so this ranking sets M6's build order).
+- **Workload:** the single-thread suite (rv64gc) at 100 MHz's latencies, with 115 MHz's alongside.
+- **The SoC's uncore:** an L2 hit of 10 cycles, DRAM of 18 cycles at 100 MHz (21 at 115), and no L2 prefetcher.
+- **The LUTs** are estimates per core, not measurements:
+  - the plan's (feature_ledger.md: shares of the ≈41K-LUT core; DR-149 for 4 misses in flight);
+  - for the RAS and the block BTB with FTQ, which the plan never estimated, this study's.
 
-| Feature, alone on the core as built | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | Plan's LUTs per core | Suite gain per 1K LUTs |
-|---|---|---|---|---|---|
-| The core as built (`rtl_m2`) | 0.465 | 2.33 | 1.81 | — | — |
-| RAS (32; repaired at decode on M2's front end) | +3.2% | +1.4% | +24.1% | not estimated | — |
-| TAGE-lite (4 × 4K) | +38.6% | +76.7% | +20.8% | 0.82K, +6 BRAM36 | +47% |
-| Block BTB and FTQ (1K × 4, 32; fetch-directed prefetch) | +23.9% | +46.1% | +25.6% | not estimated | — |
-| Checkpoint recovery (4) | +14.9% | +10.7% | +20.3% | 0.5K | +30% |
-| Speculative wakeup (hit predictor, 2-cycle shadow) | +5.3% | +15.9% | +8.3% | 0.5K | +11% |
-| 4 L1D misses in flight (DR-149) | +24.5% | 0 | 0 | 0.45–0.6K | +45% |
-| 16 L1D and 4 L1I MSHRs (the plan's M6) | +33.9% | 0 | 0 | ≈1.2K | +28% |
-| Prefetchers (L1D stride, ownership, L2 stream, I$ next-line) | +3.7% | 0 | 0 | ≈0.95K | +4% |
+| Feature, alone on the core as built (100 MHz) | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | Suite at 115 MHz | LUTs per core | Suite gain per 1K LUTs |
+|---|---|---|---|---|---|---|
+| The core as built (`rtl_m2`) | 0.474 | 2.34 | 1.81 | 0.465 | — | — |
+| TAGE-lite (4 × 4K) | +38.8% | +76.7% | +20.8% | +38.6% | 0.82K (+6 BRAM36) | +47% |
+| 4 L1D misses in flight (DR-149) | +24.3% | 0 | 0 | +24.5% | 0.55K | +44% |
+| Block BTB and FTQ (1K × 4, 32; fetch-directed prefetch) | +24.1% | +46.1% | +25.6% | +23.9% | ≈0.6K (this study's estimate) | +40% |
+| RAS (32) | +3.2% | +1.4% | +24.1% | +3.2% | ≈0.1K (this study's estimate) | +32% |
+| Checkpoint recovery (4) | +15.1% | +10.7% | +20.3% | +14.9% | 0.5K | +30% |
+| 16 L1D and 4 L1I MSHRs (from 1) | +33.5% | 0 | 0 | +33.9% | ≈1.2K | +28% |
+| Speculative wakeup (hit predictor, 2-cycle shadow) | +5.3% | +15.9% | +8.3% | +5.3% | 0.5K | +11% |
+| Prefetchers (L1D stride, ownership, L2 stream, I$ next-line) | +3.2% | 0 | 0 | +3.7% | ≈0.95K | +3% |
 
-| In the plan's order, cumulative | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | Step's suite gain |
-|---|---|---|---|---|
-| The core as built | 0.465 | 2.33 | 1.81 | — |
-| + RAS | 0.480 | 2.37 | 2.25 | +3.2% |
-| + TAGE-lite | 0.673 | 4.24 | 2.86 | +40.2% |
-| + block BTB and FTQ (the plan's whole front end) | 0.735 | 4.68 | 3.72 | +9.3% |
-| + checkpoint recovery | 0.743 | 4.72 | 3.72 | +1.1% |
-| + speculative wakeup | 0.767 | 5.30 | 3.79 | +3.3% |
-| + 16 L1D and 4 L1I MSHRs | 1.082 | 5.31 | 3.79 | +41.0% |
-| + prefetchers | 1.165 | 5.31 | 3.79 | +7.6% |
+**Stacked in the recommended order.** Each step adds the remaining feature with the best suite gain per LUT on top of the stack (100 MHz):
+
+| Step | Suite IPC | CoreMark/MHz (A) | Dhrystone DMIPS/MHz | LUTs added | Running LUT total | Step's suite gain per 1K LUTs |
+|---|---|---|---|---|---|---|
+| The core as built | 0.474 | 2.34 | 1.81 | — | 0 | — |
+| + TAGE-lite | 0.658 | 4.13 | 2.19 | 0.82K | 0.82K | +47% |
+| + 4 misses in flight | 0.858 | 4.13 | 2.19 | 0.55K | 1.37K | +55% |
+| + RAS | 0.895 | 4.24 | 2.86 | 0.10K | 1.47K | +44% |
+| + block BTB and FTQ | 0.979 | 4.68 | 3.72 | 0.60K | 2.07K | +16% |
+| + 16 L1D and 4 L1I MSHRs | 1.053 | 4.69 | 3.72 | 0.65K | 2.72K | +12% |
+| + prefetchers | 1.130 | 4.69 | 3.72 | 0.95K | 3.67K | +8% |
+| + speculative wakeup | 1.166 | 5.27 | 3.79 | 0.50K | 4.17K | +6% |
+| + checkpoint recovery | 1.182 | 5.31 | 3.79 | 0.50K | 4.67K | +3% |
+
+In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) → 0.751 (block BTB and FTQ) → 0.759 (checkpoints) → 0.784 (speculative wakeup) → 1.024 (4 misses) → 1.101 (16 MSHRs) → 1.182 (prefetchers). Both orders end at the same core.
 
 **Reading it:**
-- **The front end is most of the gap.**
-  - TAGE-lite alone adds 39% on the suite and 77% on CoreMark. The block BTB and FTQ alone add 24%.
-  - With the RAS (+3% alone, but +24% on Dhrystone) they take the suite from 0.465 to 0.735, and CoreMark from 2.33 to 4.68.
-- **Checkpoint recovery is worth 15% alone, but 1% once the front end predicts well.**
-- **Misses in flight:** 4 (DR-149) add 24.5%, and 16 add 34%. They add nothing on CoreMark and Dhrystone, which fit in the L1.
-- **Per LUT, where the plan has an estimate:** TAGE-lite (+47% per 1K LUTs) and 4 misses in flight (+45%) lead, then checkpoints (+30%), 16 MSHRs (+28%), speculative wakeup (+11%) and the prefetchers (+4%).
+- **Where IPC per LUT runs out: after the first three steps.**
+  - TAGE-lite, 4 misses in flight and the RAS cost about 1.5K LUTs. They take the suite from 0.474 to 0.895 (+89%), CoreMark from 2.34 to 4.24 and Dhrystone from 1.81 to 2.86.
+  - Every later step returns 16% per 1K LUTs or less: the block BTB and FTQ +16%, 16 MSHRs +12%, the prefetchers +8%, speculative wakeup +6% and checkpoints +3%.
+  - The remaining 3.2K LUTs add another 32% on the suite.
+- **The front end matters most for CoreMark and Dhrystone.** TAGE-lite alone adds 77% on CoreMark. The block BTB and FTQ, with the RAS, add the rest: CoreMark 4.68 and Dhrystone 3.72.
+- **Checkpoint recovery is worth 15% alone but 1–3% once the front end predicts well,** so it goes last.
+- **Misses in flight do nothing for CoreMark and Dhrystone,** which fit in the L1. But they are the largest gain on the suite after TAGE-lite.
+- **The RAS is cheap and helps Dhrystone most** (+24% alone, +31% after TAGE-lite and the misses). Starting M6 with it, as core-2 has, costs little whatever comes next.
+- **100 against 115 MHz:** every feature's gain is within 0.5 points at both clocks.
+- **The LUT figures decide the order**, and two are this study's estimates. If the RAS cost 0.3K it would still return 14% per 1K LUTs. If the block BTB and FTQ cost 1K, they would fall to about +9%.
 - **The plan's whole M6 core** is 2.5× the core as built on the suite, 2.3× on CoreMark and 2.1× on Dhrystone.
 
 **§6.2 and DR-149 with the core as built** (one core alone, the same uncore and NaxRiscv model as §6.2):
@@ -1328,8 +1342,10 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
   - MUL-to-use 5, one L1D miss and one I$ refill;
   - calibrated on identical ELFs in tg_vsim and tgsim: the flush's extra cycle, wrong-path training at loop exits, a 13-cycle refill overhead, and the forwarding latencies.
 - **Agreement:** 13 of 17 programs within 10% (CoreMark within 6%). The outliers are Dhrystone rv64gcb and statemate (the RTL's wrong-path training) and minver (FP; not found).
-- **From the core as built:**
-  - TAGE-lite alone is worth +39% on the suite, the block BTB and FTQ +24%, checkpoints +15%, 4 misses in flight +25%;
+- **From the core as built, at 100 MHz (DR-152):**
+  - TAGE-lite alone is worth +39% on the suite, the block BTB and FTQ +24%, checkpoints +15%, 4 misses in flight +24%;
+  - stacked by gain per LUT the order is TAGE-lite, 4 misses in flight, the RAS, the block BTB and FTQ, 16 MSHRs, prefetchers, speculative wakeup, then checkpoints;
+  - IPC per LUT runs out after the first three (1.5K LUTs, the suite +89%); the rest returns 16% per 1K LUTs or less;
   - the plan's whole M6 core is 2.5× the suite.
 - **§6.2's lead over NaxRiscv at 100 MHz does not hold for the core as built:** 0.56× / 0.52× of NaxRiscv at 135 / 150 MHz with 4 misses in flight.
 
