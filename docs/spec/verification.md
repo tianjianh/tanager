@@ -525,6 +525,7 @@ A continuous random campaign on main that uses the build host's idle threads (co
   - `tools/ci/soak.sh start` runs it under `nohup` from a private copy, so editing the script does not disturb it. It also installs an `@reboot` crontab entry with main's copy of the script, so the soak starts again after a WSL restart (as `tools/memguard.sh` does).
   - `stop` stops it, with everything it started, until the next start or boot; `disable` also removes the `@reboot` entry; `status` shows its state.
 - **Miss-heavy rounds** (DR-149): every third round generates its programs with `--miss 12`, so misses in flight and the probes against them (`--probe-miss`, in half the stressed seeds) make up most of the traffic. They start once main's generator has `--miss`.
+- **Coherence programs** (§6.5): after each round's random programs, 20 programs of `tests/coherence` (`lottery` and `amo`) per configuration on the two-core SoC, in `st` (harts 0 and 1) and `smt2` (harts 0 and 2), with lockstep for every hart. They use the board's DDR timing once `tb_axi_mem` takes it at run time, and the testbench's own timing before. They start once main has `tests/coherence`. The soak then also builds `tb_boot` with `CORES=2` for both configurations, in the default profile. Tallies and failures are named `coh-st` and `coh-smt2`. The LR/SC modes join when the core holds a line after an LR (§6.5).
 
 ### 4.5 Cycle-identical check (`make cycle-identical`)
 
