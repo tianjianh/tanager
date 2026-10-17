@@ -755,6 +755,17 @@ Every v1 row uses the default profile. The fallback changes nothing measurable (
 - **Store-to-load forwarding:** a forward completes at M2 like a hit (5), and a load waiting for the store's data replays (8).
 - **MUL-to-use is 5,** from the spec. crc32's loop carries its dependence through a multiply.
 
+**What the model cannot express, and what stands in for it:**
+- **The wrong path.**
+  - tgsim follows the correct path only. The RTL fetches, executes and trains its predictor on the wrong path until the commit flush.
+  - The model stands in for this only at loop exits (`m2_wp_train`). Everywhere else it is missing, which leaves Dhrystone on rv64gcb and statemate 15–22% optimistic.
+  - Wrong-path work taking issue slots, the one L1D MSHR or cache lines is not modelled either.
+- **Recovery at commit itself is expressed** (`ckpt` 0 with `commit_redirect` 2). What it costs through the long wrong path is the item above.
+- **When training happens.** The RTL trains the micro-BTB and its counters at execute; the model trains them at fetch, on the correct path.
+- **The L1 refill is one lumped number** (`l1_fill_extra` 13) for the RTL's request, beats, install and load replay, fitted on the pointer chase. In the model, those parts cannot overlap other work the way they might in the RTL.
+- **A load waiting for a store's data** replays in the RTL. The model charges a fixed 8 cycles from the data (`ld_fwd_wait`); no program here is sensitive enough to fit it.
+- **Not found:** minver's FP path, where the model is 16% slow, and statemate's 30% slower execution between mispredicts.
+
 **The result**, region cycles at native latency. At 120 cycles every program is within 2 points of these, except the copy and hash kernels.
 
 | Program | Build | RTL | Model (`rtl_m2`) | Model's error |
