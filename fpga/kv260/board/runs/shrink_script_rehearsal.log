@@ -1,0 +1,19 @@
+TG-SHRINK: done: p2 is 2189312 sectors from 133120, the filesystem 1019 MiB; the boot continues
+script exit 0
+p2 now 2189312 sectors (want 2189312)
+e2fsck -n exit 0
+grow exit 0
+DATA IDENTICAL
+tg-shrink-root.log
+tg-shrink-root.ran
+-- log on p1:
+TG-SHRINK: start; the table before:
+/dev/loop8p2 : start=      133120, size=     4061184, type=83
+TG-SHRINK: e2fsck ok; resize2fs to 1019 MiB (minutes)
+TG-SHRINK: resize2fs ok (4096 x 260864 bytes); p2 to 2189312 sectors from 133120
+TG-SHRINK: done: p2 is 2189312 sectors from 133120, the filesystem 1019 MiB; the boot continues
+/dev/loop8p2 : start=      133120, size=     2189312, type=83
+===== run 2 (the flag is gone: must do nothing)
+script exit 0
+ls: cannot access '/tmp/tgs2.log': No such file or directory
+rehearsal done
