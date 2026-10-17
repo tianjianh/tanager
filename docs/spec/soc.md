@@ -426,6 +426,17 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
   - **The tools:** `tanager-host dma adma` (item 1) and `tanager-host psrd` (item 2's register reads), with the procedure in the board package `d0-probes-20261017` ([host.md](host.md)).
   - **The coordinator's conditions** (10-17): sc3 loaded; read-only on PS state, except the ADMA copies, which stay inside the RISC-V's carve-out; the fan stays with the A53's `fancontrol`. The results come before D1's RTL is final.
+  - **Done on the board** (the board session, 10-17, `fpga/kv260/board/d0`):
+    - **D-c stands:** ADMA channel 8 copied 4 KiB DDR → HPM1 → DDR, both ways ok, 0 words wrong. The host DMA port's line counters moved by exactly the ADMA's 64 lines each way. The cores were held, so the RISC-V's cache side wasn't exercised. It is the same port and L2 path whose coherence stage C's virtio already relies on.
+    - **The SMMU is disabled** in the live tree (`iommu@fd800000`), so no PS master is translated.
+    - **`S_AXI_LPD`'s AFI** (FM6) is out of reset (`RST_LPD_TOP` bit 19 clear) at its reset width, 128 bits (`RDCTRL`/`WRCTRL` = `0x3B0`), which D1's port uses.
+    - **The XPPU** refuses a non-secure reader its registers, so its enable can't be read from Linux. D1's first access shows whether it lets the PL master through: if not, a fault, not a hang.
+    - **Clocks on:** UART1 100 MHz, SD1 166.7 MHz, GEM3 125 MHz (TSU 250), USB0's bus 250 MHz, and `lpd_lsbus` 100 MHz, which also runs TTC1. UART0, SD0 and the ADMA's `adma_ref` are off; the ADMA is runtime-gated and its power domain off while idle.
+    - **No eMMC:** SD0 is disabled and the card is `mmcblk1` (SD1). TTC0 is the fan's. TTC1, TTC2 and TTC3 are disabled, with no interrupt.
+    - **The wiring, for D5 and D6:**
+      - GEM3 is `rgmii-id` to a DP83867 at MDIO address 1, reset on MIO38 (active low; 100 µs asserted, 280 µs after). It needs `ti,rx-internal-delay` 8, `ti,tx-internal-delay` 10, `ti,fifo-depth` 1 and the `rxctrl-strap-quirk`.
+      - USB0 is `usb@ff9d0000` with its DWC3 at `0xFE20_0000`, reset by the firmware's mode-pin GPIO. Its USB2744 and USB5744 hubs reset on MIO44, the 5744 configured over I2C1.
+  - **Still to check before D1's interrupt test:** TTC1's own reset (`RST_LPD_IOU2`, CRL_APB `0xFF5E_0238`), with `tanager-host psrd`.
   - **From the upstream device trees** (to confirm on the live one):
     - the KV260's SOM tree (`zynqmp-smk-k26-revA`) disables SD0, so there is no eMMC, and the A53's handover boot needs an initramfs;
     - TTC0 is the fan's PWM;
