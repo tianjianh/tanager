@@ -50,14 +50,17 @@ def main():
     os.makedirs(a.workdir, exist_ok=True)
     faildir = os.path.join(a.workdir, "failures")
     modes = a.modes.split(",")
-    if a.lat != "default" or a.max_kcycles:
+    if a.lat != "default" or a.max_kcycles or "dma" in modes:
         # An older tb_boot ignores options it does not know. Look for them in the binary, or in Verilator's
         # C++ beside it (the compiler may build a short string from immediates).
         srcs = [a.tb] + [os.path.join(os.path.dirname(a.tb), f) for f in sorted(os.listdir(os.path.dirname(a.tb)))
                          if f.startswith("V") and f.endswith(".cpp")]
-        for opt in ([b"mem_lat_min="] if a.lat != "default" else []) + ([b"max_kcycles="] if a.max_kcycles else []):
+        need = (([(b"mem_lat_min=", "soc-2's 8882e79 or later")] if a.lat != "default" else []) +
+                ([(b"max_kcycles=", "soc-2's 8882e79 or later")] if a.max_kcycles else []) +
+                ([(b"hdma_lines=", "with the host-DMA model")] if "dma" in modes else []))
+        for opt, which in need:
             if not any(opt in open(f, "rb").read() for f in srcs):
-                sys.exit(f"run_coh: {a.tb} has no +{opt.decode()} option (tb_boot from soc-2's 8882e79 or later)")
+                sys.exit(f"run_coh: {a.tb} has no +{opt.decode()} option (tb_boot {which})")
     limit = f"+max_kcycles={a.max_kcycles}" if a.max_kcycles else f"+max_mcycles={a.max_mcycles}"
     limit_s = f"{a.max_kcycles} K" if a.max_kcycles else f"{a.max_mcycles} M"
 
@@ -85,7 +88,10 @@ def main():
             rc, out = run(cmd, 120)
             if rc:
                 return seed, "GEN-FAIL", out.strip().splitlines()[-1] if out.strip() else "?", ""
-        plus = ["+expect=COH-END", limit, "+mem_zero"] + timing(seed) + list(a.extra)
+        # The host traffic a dma program waits for: its "# hdma:" line, as tb_boot plusargs
+        with open(base + ".S") as f:
+            hdma = next((l.split(":", 1)[1].split() for l in f if l.startswith("# hdma:")), [])
+        plus = ["+expect=COH-END", limit, "+mem_zero"] + timing(seed) + hdma + list(a.extra)
         cmd = [a.tb, f"+fw={base}.bin"] + plus + ([f"+trace_out={base}.trace"] if a.lockstep else [])
         rc, out = run(cmd, a.timeout)
         with open(base + ".log", "w") as f:
