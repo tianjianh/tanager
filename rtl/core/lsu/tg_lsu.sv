@@ -576,13 +576,19 @@ module tg_lsu
   logic [SQ_ENTRIES-1:0] f_oh;                      // the forwarding store, one-hot (encoded in M2)
   sqid_t                 f_lim;                     // the stores in [head, f_lim) are older
   logic [SQ_ENTRIES-1:0] fc_sq;                     // overlapping older stores in the SQ
-  logic              q_hit, q_lo, q_cover, q_data;  // ... any; the youngest is below f_lim's slot; covers; data
+  logic              q_hit, q_cover, q_data;        // ... any; the youngest covers; its data is there
   logic [SQ_ENTRIES-1:0] q_oh;                      // ... the youngest, one-hot
   assign f_lim = lq_sq_q[m1_lq_q];
+  // A store's terms that do not wait for the load's translation (its state, the window, the byte
+  // overlap) go into the PA compare as one more bit, so the compare's carry chain can end in the
+  // candidate bit itself (timing: core-2's form for lq_oldest_c)
   always_comb begin
-    for (int i = 0; i < SQ_ENTRIES; i++)
-      fc_sq[i] = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
-                 sq_pa_q[i][PA_W-1:3] == m1pa[PA_W-1:3] && |(sq_mask_q[i] & m1_mask);
+    for (int i = 0; i < SQ_ENTRIES; i++) begin
+      logic early;
+      early    = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
+                 |(sq_mask_q[i] & m1_mask);
+      fc_sq[i] = {sq_pa_q[i][PA_W-1:3], early} == {m1pa[PA_W-1:3], 1'b1};
+    end
   end
   // The youngest goes to M2 as a one-hot vector, encoded there (timing: no index encode or
   // multiplexer after the search). The youngest is the highest candidate below f_lim's slot, else
@@ -592,18 +598,19 @@ module tg_lsu
   // per-entry bits b, exactly when (w & b) > (w & ~b), the two being disjoint; a compare is one
   // carry chain (timing: no OR over the one-hot after the search).
   logic [SQ_ENTRIES-1:0] fc_lo;                     // the candidates below f_lim's slot
+  logic [2*SQ_ENTRIES-1:0] fc_w;                    // {below, all}: the youngest is its highest bit
   logic [SQ_ENTRIES-1:0] cov;                       // per store: its bytes cover the load's
   always_comb for (int i = 0; i < SQ_ENTRIES; i++) cov[i] = (sq_mask_q[i] & m1_mask) == m1_mask;
   always_comb begin
     logic [2*SQ_ENTRIES-1:0] w, y, ly;
     for (int i = 0; i < SQ_ENTRIES; i++) fc_lo[i] = fc_sq[i] && i < int'(f_lim[SIW-1:0]);
     w  = {fc_lo, fc_sq};
+    fc_w = w;
     for (int i = 0; i < 2 * SQ_ENTRIES; i++) y[i] = w[2 * SQ_ENTRIES - 1 - i];
     ly = y & -y;
     for (int i = 0; i < SQ_ENTRIES; i++)
       q_oh[i] = ly[2 * SQ_ENTRIES - 1 - i] | ly[SQ_ENTRIES - 1 - i];
     q_hit   = |fc_sq;
-    q_lo    = |fc_lo;
     q_cover = (w & {cov, cov}) > (w & ~{cov, cov});
     q_data  = (w & {sq_dv_q, sq_dv_q}) > (w & ~{sq_dv_q, sq_dv_q});
   end
@@ -1660,13 +1667,32 @@ module tg_lsu
                    sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
                    sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
     assign s_lo  = sa_idx < f_lim[SIW-1:0];
-    // The SQ's youngest lies below the M1 store's slot when its region has no candidate at or
-    // above that slot (from the candidates, beside the youngest's select rather than after it)
+    // The M1 store is the youngest when no candidate is younger: fc_w has no bit at or above the
+    // store's own position in it (its slot, in the upper half when the store is below f_lim's
+    // slot), so fc_w < (1 << that position), one carry chain against a bit made from registers
+    // (timing: no ORs over the candidates before the final select). SAT-proven equal to the
+    // per-region form it replaces (no candidate at or above the store's slot in the youngest's
+    // region) for slots below SQ_ENTRIES, and checked against it in simulation
+    logic [SIW:0]            s_pos;
+    logic [2*SQ_ENTRIES-1:0] s_bit;
+    assign s_pos = s_lo ? (SIW+1)'(SQ_ENTRIES) + (SIW+1)'(sa_idx) : (SIW+1)'(sa_idx);
+    assign s_bit = (2*SQ_ENTRIES)'(1) << s_pos;
+    assign sel_s = byp && (fc_w < s_bit);
+`ifndef SYNTHESIS
     logic [SQ_ENTRIES-1:0] ab_sa;                  // the slots at or above the M1 store's
-    logic                  yb;
+    logic                  r_lo;
     always_comb for (int i = 0; i < SQ_ENTRIES; i++) ab_sa[i] = i >= int'(sa_idx);
-    assign yb    = q_lo ? !(|(fc_lo & ab_sa)) : !(|(fc_sq & ab_sa));
-    assign sel_s = byp && (!q_hit || (s_lo && !q_lo) || (s_lo == q_lo && yb));
+    assign r_lo = |fc_lo;
+    always_ff @(posedge clk) begin
+      if (!rst && m1_v_q && sn_v) begin
+        assert (int'(sa_idx) < SQ_ENTRIES && int'(f_lim[SIW-1:0]) < SQ_ENTRIES)
+          else $error("tg_lsu: an SQ slot beyond SQ_ENTRIES");
+        assert (sel_s == (byp && (!q_hit || (s_lo && !r_lo) ||
+                                  (s_lo == r_lo && (r_lo ? !(|(fc_lo & ab_sa)) : !(|(fc_sq & ab_sa)))))))
+          else $error("tg_lsu: the M1 store's age compare differs from the per-region form");
+      end
+    end
+`endif
     assign f_hit   = q_hit || byp;
     assign f_oh    = sel_s ? SQ_ENTRIES'(1) << sa_idx : q_oh;
     assign f_cover = sel_s ? (sa_mask & m1_mask) == m1_mask : q_cover;
@@ -1723,8 +1749,8 @@ module tg_lsu
     assign f_oh     = q_oh;
     assign f_cover  = q_cover;
     assign f_data   = q_data;
-    logic unused_q_lo;                             // read by the split's age compare only
-    assign unused_q_lo = q_lo;
+    logic unused_fc_w;                             // read by the split's age compare only
+    assign unused_fc_w = ^fc_w;
   end
 
   logic unused;
