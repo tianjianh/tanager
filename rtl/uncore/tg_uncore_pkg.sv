@@ -69,13 +69,37 @@ package tg_uncore_pkg;
   localparam logic [1:0] AXI_OKAY = 2'b00, AXI_SLVERR = 2'b10, AXI_DECERR = 2'b11;
   localparam logic [1:0] AXI_INCR = 2'b01;
 
+  // ---- The coherent host DMA port (docs/spec/soc.md §8.1, tg_hdma): an AXI4 slave for the PS ----
+  localparam int HDMA_ID_W = 16;                // M_AXI_HPM1_FPD's ID width
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [AXI_ADDR_W-1:0] addr;
+    logic [7:0]            len;
+    logic [2:0]            size;
+    logic [1:0]            burst;
+  } hdma_ax_t;                                  // AR and AW (W is axi_w_t)
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [1:0]            resp;
+  } hdma_b_t;
+
+  typedef struct packed {
+    logic [HDMA_ID_W-1:0]  id;
+    logic [AXI_DATA_W-1:0] data;
+    logic [1:0]            resp;
+    logic                  last;
+  } hdma_r_t;
+
   // ---- Device bus (tg_tl_dev -> devices) ----
   localparam int DEV_ACLINT  = 0;
   localparam int DEV_PLIC    = 1;
   localparam int DEV_UART    = 2;
   localparam int DEV_HOSTCTL = 3;
-  localparam int DEV_N       = 4;
-  localparam int DEV_W       = 2;
+  localparam int DEV_VIRTIO  = 4;               // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
+  localparam int DEV_N       = 5;
+  localparam int DEV_W       = 3;
 
   typedef struct packed {
     logic [PA_W-1:0] addr;     // full physical address; devices use the bits inside their window
@@ -89,6 +113,22 @@ package tg_uncore_pkg;
     logic [63:0]     rdata;    // the addressed doubleword
     logic            err;
   } dev_rsp_t;
+
+  // ---- The forwarded virtio window (docs/spec/soc.md §8.1, tg_vio_window) ----
+  localparam int VIO_SLOTS = 4;                 // 4 KiB virtio-mmio slots from VIRTIO_BASE
+
+  typedef struct packed {                       // a RISC-V access the host serves (request queue)
+    logic [1:0]      slot;
+    logic [11:0]     off;      // byte offset in the slot
+    logic [1:0]      size;     // log2 bytes: 0, 1 or 2
+    logic            we;
+    logic [31:0]     wdata;    // a write's value from bit 0 (0 for a read)
+  } vio_req_t;
+
+  typedef struct packed {                       // from the host (event queue)
+    logic            irq;      // 0: the waiting read's value; 1: status bits, data[7:0] set, data[15:8] clear
+    logic [31:0]     data;
+  } vio_ev_t;
 
   // ---- TileLink helpers ----
   function automatic logic tl_a_has_data(input tl_a_op_e op);

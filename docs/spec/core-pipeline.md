@@ -313,19 +313,6 @@ After `rst`, an init counter runs for 64 cycles before fetch starts: it fills th
 ## 11. Commit trace
 Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
 
-### 11.1 Board-debug word (`DBG_WORD`; DR-150)
-A register per core that `tanager-host dbg` reads on the board, through `dbg_sel_i[4:0]`. `dbg_o[31:0]` is the word `dbg_sel_i` picked the cycle before. It is built only with the `tg_core` parameter `DBG_WORD` (default 0), which tanager_soc sets from its `DEBUG_CNT`. Without it `dbg_o` is 0, and neither the status register nor the logs are built (about 1K flip-flops per core). The ports are the same in every build.
-- **Word 0, the status** (registered each cycle):
-  - [7:0] rename: slot 0 valid, serial, window empty, blocked after a serial uop, resources OK, fire, DS busy, `ready && start`;
-  - [13:8] the ROB's count;
-  - [16:14] the atomic (`am_st`, `am_v`);
-  - [21:17] the SQ head (valid, address, data, data ready) and SQ non-empty;
-  - [29:22] the D$ (probe state, MSHR state, ready);
-  - [30] the trace stall; [31] a flush.
-- **Words 1-15: the allocation log of the first 15 dispatch groups after reset.** Per slot, 15 bits: {writes rd, rd is FP, rd[4:0], the new destination register[7:0]}. Slot 0 is in [14:0], slot 1 in [30:16].
-- **Words 16-31: the first 16 commit cycles that retire something.** The same per-slot layout, with the old register, which is freed.
-- **What it found:** on the board, two live architectural registers shared one physical register from the first instructions. That was rn_fire, an implicit net in Vivado only (§16).
-
 ## 12. Parameters and builds
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).
 
@@ -636,21 +623,3 @@ Spike lockstep on every test (verification.md): riscv-tests, the directed interr
   - Serial instructions free ports. Two users of a port that never overlap (a CSR read in EX, an xRET's xepc at commit) can share it through a registered steering bit.
   - On a 6-input LUT, taking one input out of a 3:1 multiplexer saves nothing, and the shared xepc saved nothing in the ROB. Taking out a whole adder does (−66).
   - The `--rand-reset` cycle difference was the BHT, LUTRAM by design (§3.2). Verilator fills a whole array with one random value, so a LUTRAM's random start covers only a few states.
-
-**The board's register corruption (2026-10-16/17, DR-150).** The first two-core boots hung, and so did st2 and a one-core smt2 build. Every simulation passed.
-- **What the board showed:** soc-2 compared the board's commit trace with a simulation of the same build. Two live architectural registers shared one physical register from the first instructions (a1/t1 after the boot ROM's two loads). The debug word (§11.1) confirmed it.
-- **Cause:** fn6 (0c4b011) connected the free lists' `.pop(rn_fire)` inside their generate blocks, about 45 lines above `rn_fire`'s declaration.
-  - Vivado made a new implicit net in each generate block: Synth 8-11241 (an INFO), 8-605, and 8-3848 ("does not have driver"). It tied the net to 0.
-  - So no free list's head ever moved, and every allocation of a bank got the same register.
-  - Verilator linked the later declaration. Lint, `make lint SYNTH=1`, every suite and the TG_SIM_PRIMS runs all passed.
-  - Every synthesis from fn6 on had it, including the budget runs and the timing spikes: their LUT and timing numbers had rename's allocation logic optimised away.
-- **Fix:** 24ada50 declares `rn_fire` above the free lists. The cleanup 73e88bd moves the three other uses above their declarations (fm_we, ew_a's block, st_drop). Vivado resolved those, but xvlog rejects them.
-- **Measured with the pop driven:** rename st 2,823 LUTs, against 2,779 with it tied off. The core's st total was 42,865 at 159eb8e.
-- **Checks now:**
-  - `fwdref.sh` (Verilator's JSON dump, 5 s) lists uses above their declaration and fails on a whole name in a port connection inside a generate block.
-  - The spikes runs and the budget flow (`synth_check.tcl`) fail any synthesis with Synth 8-11241/8-605/8-3848 in our sources.
-  - verif-2's lint-all gains a Vivado parse and elaboration step.
-- **Lessons:**
-  - Inside a generate block, a name declared later is a different net in Vivado: declare first.
-  - The synthesis log's INFO lines matter. The core track's own whole-core logs had carried the 8-3848 lines since fn6, and no one searched them.
-  - When the board and simulation disagree, read the synthesis log for the units involved before theorising about primitives or timing.
