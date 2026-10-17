@@ -19,7 +19,7 @@ uses its own `$SOC_BUILD/tc` if it has one, else the shared `$TANAGER_BUILD/tc` 
 | `uboot/`, `build_uboot.sh` | U-Boot 2026.07 in S-mode after OpenSBI (DR-147): `qemu-riscv64_smode_defconfig` plus `uboot/tanager.config` | `bash sw/build_uboot.sh` |
 | `build_debian.sh` | Debian 13 riscv64 disk image for stage C (DR-147): Debian's kernel and initrd booted by U-Boot's extlinux menu, root on virtio-blk, from a pinned snapshot.debian.org date with every download verified (below). Needs the build-host packages below | `bash sw/build_debian.sh [OUT] [GiB] [ssh.pub]` |
 | `qemu/debian_test.sh` | boots that image on QEMU virt through OpenSBI, U-Boot's extlinux menu and Debian's kernel to the serial autologin, then powers off (QEMU's own device tree: checks the image and U-Boot, not the board's tree); PASS/FAIL | `bash sw/qemu/debian_test.sh [image]` |
-| `host/` | `tanager-host`, the A53 control program, with the virtio back-ends (`virtio.c`) | `make -C sw/host` (aarch64) / `make -C sw/host native` / `make -C sw/host test` |
+| `host/` | `tanager-host`, the A53 control program, with the virtio back-ends (`virtio.c`: blk, net on a TAP device, rng) | `make -C sw/host` (aarch64) / `make -C sw/host native` / `make -C sw/host test` |
 
 **Build-host packages for the Debian image** (installed 2026-10-17, the user's OK through the coordinator, DR-147):
 `sudo apt install mmdebstrap qemu-user-static binfmt-support` gave mmdebstrap 1.4.3-6, qemu-user-static

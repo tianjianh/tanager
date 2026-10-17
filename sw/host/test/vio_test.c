@@ -2,13 +2,17 @@
  * test fills the way a virtio-mmio driver's accesses would, and 1 MiB of fake RISC-V RAM. Checks the
  * register sets of every slot, feature negotiation, a queue's setup, virtio-blk reads, writes, flush,
  * GET_ID, a request out of range, an unknown type and a request whose header and data share a
- * descriptor, virtio-rng, the used ring and the interrupt bits, and a device reset.
+ * descriptor, virtio-rng, the used ring and the interrupt bits, and a device reset. virtio-net runs on
+ * a SOCK_SEQPACKET socket pair in place of the TAP device (one frame per read and write): its two
+ * queues, frames sent in one or two descriptors, a runt, frames received into buffers, a frame that
+ * waits for a buffer, a buffer too small, NO_INTERRUPT, and frames before the driver is ready.
  *   make -C sw/host test        (native build; sw/host/Makefile) */
 #define _GNU_SOURCE
 #include "../virtio.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 
 #define RAM_BYTES (1u << 20)
@@ -47,7 +51,8 @@ static void f_wr32(uint64_t off, uint32_t v) {
 static void f_wr8(uint64_t off, uint8_t v) {
   CHECK(off < RAM_BYTES, "wr8 at %llx", (unsigned long long)off);
   if (off < RAM_BYTES) ram[off] = v;
-  if (off >= 0x3000 && off < 0x3004) narrow_idx = 1;    /* used.flags/idx must go in one store */
+  if ((off >= 0x3000 && off < 0x3004) || (off >= 0x7000 && off < 0x7004))
+    narrow_idx = 1;                                     /* used.flags/idx must go in one store */
 }
 static void f_bar(void) {}
 
@@ -65,51 +70,67 @@ static void mw(unsigned slot, unsigned off, uint32_t v) {
   CHECK(n == 1 && !rsp_v, "write slot %u off %x", slot, off);
 }
 
-/* ---- a split virtqueue in fake RAM: desc 0x1000, avail 0x2000, used 0x3000 ---- */
-enum { DESC = 0x1000, AVAIL = 0x2000, USED = 0x3000, NUM = 8 };
-static uint16_t avail_idx, used_seen;
-static void desc(unsigned i, uint64_t off, uint32_t len, uint16_t flags, uint16_t next) {
+/* ---- split virtqueues in fake RAM: queue 0 desc 0x1000, avail 0x2000, used 0x3000; queue 1 (virtio-net's
+ * transmitq) at 0x5000, 0x6000, 0x7000 ---- */
+enum { NUM = 8 };
+static const uint32_t QD[2] = { 0x1000, 0x5000 }, QA[2] = { 0x2000, 0x6000 }, QU[2] = { 0x3000, 0x7000 };
+static uint16_t avail_idx[2], used_seen[2];
+static void descq(unsigned qi, unsigned i, uint64_t off, uint32_t len, uint16_t flags, uint16_t next) {
   uint64_t pa = PA(off);
-  memcpy(ram + DESC + 16 * i, &pa, 8);
-  memcpy(ram + DESC + 16 * i + 8, &len, 4);
-  memcpy(ram + DESC + 16 * i + 12, &flags, 2);
-  memcpy(ram + DESC + 16 * i + 14, &next, 2);
+  memcpy(ram + QD[qi] + 16 * i, &pa, 8);
+  memcpy(ram + QD[qi] + 16 * i + 8, &len, 4);
+  memcpy(ram + QD[qi] + 16 * i + 12, &flags, 2);
+  memcpy(ram + QD[qi] + 16 * i + 14, &next, 2);
 }
-static void submit(unsigned slot, uint16_t head) {
-  memcpy(ram + AVAIL + 4 + 2 * (avail_idx % NUM), &head, 2);
-  avail_idx++;
-  memcpy(ram + AVAIL + 2, &avail_idx, 2);
+static void submitq(unsigned slot, unsigned qi, uint16_t head) {
+  memcpy(ram + QA[qi] + 4 + 2 * (avail_idx[qi] % NUM), &head, 2);
+  avail_idx[qi]++;
+  memcpy(ram + QA[qi] + 2, &avail_idx[qi], 2);
   irq_set = 0;
-  mw(slot, 0x050, 0);                            /* QueueNotify */
+  mw(slot, 0x050, qi);                           /* QueueNotify */
 }
-static void used(uint16_t head, uint32_t len, unsigned slot) {
+/* the next used element is {head, len}, with the slot's interrupt bit set or (irq 0) not */
+static void usedq(unsigned qi, uint16_t head, uint32_t len, unsigned slot, int irq) {
   uint16_t idx;
   uint32_t id, l;
-  memcpy(&idx, ram + USED + 2, 2);
-  CHECK(idx == (uint16_t)(used_seen + 1), "used.idx %u, want %u", idx, used_seen + 1);
-  memcpy(&id, ram + USED + 4 + 8 * (used_seen % NUM), 4);
-  memcpy(&l, ram + USED + 8 + 8 * (used_seen % NUM), 4);
-  CHECK(id == head && l == len, "used element %u: id %u len %u, want %u %u", used_seen, id, l, head, len);
-  CHECK(irq_set == (1u << (2 * slot)), "VQ_IRQ set 0x%x, want 0x%x", irq_set, 1u << (2 * slot));
-  used_seen = idx;
+  memcpy(&idx, ram + QU[qi] + 2, 2);
+  CHECK(idx == (uint16_t)(used_seen[qi] + 1), "queue %u used.idx %u, want %u", qi, idx, used_seen[qi] + 1);
+  memcpy(&id, ram + QU[qi] + 4 + 8 * (used_seen[qi] % NUM), 4);
+  memcpy(&l, ram + QU[qi] + 8 + 8 * (used_seen[qi] % NUM), 4);
+  CHECK(id == head && l == len, "queue %u used element %u: id %u len %u, want %u %u", qi, used_seen[qi], id, l,
+        head, len);
+  CHECK(irq_set == (irq ? 1u << (2 * slot) : 0), "VQ_IRQ set 0x%x, want 0x%x", irq_set, irq ? 1u << (2 * slot) : 0);
+  used_seen[qi] = idx;
+}
+static uint16_t used_idx(unsigned qi) { uint16_t i; memcpy(&i, ram + QU[qi] + 2, 2); return i; }
+static void desc(unsigned i, uint64_t off, uint32_t len, uint16_t flags, uint16_t next) {
+  descq(0, i, off, len, flags, next);
+}
+static void submit(unsigned slot, uint16_t head) { submitq(slot, 0, head); }
+static void used(uint16_t head, uint32_t len, unsigned slot) { usedq(0, head, len, slot, 1); }
+static void queue(unsigned slot, unsigned qi) {
+  mw(slot, 0x030, qi);
+  CHECK(mr(slot, 0x034, 4) == 256, "QueueNumMax");
+  mw(slot, 0x038, NUM);
+  mw(slot, 0x080, (uint32_t)PA(QD[qi])); mw(slot, 0x084, 0);
+  mw(slot, 0x090, (uint32_t)PA(QA[qi])); mw(slot, 0x094, 0);
+  mw(slot, 0x0a0, (uint32_t)PA(QU[qi])); mw(slot, 0x0a4, 0);
+  mw(slot, 0x044, 1);
+  CHECK(mr(slot, 0x044, 4) == 1, "QueueReady");
 }
 static void setup(unsigned slot, uint64_t features) {
-  memset(ram, 0, 0x4000);
-  avail_idx = used_seen = 0;
+  memset(ram, 0, 0x8000);
+  avail_idx[0] = avail_idx[1] = used_seen[0] = used_seen[1] = 0;
   mw(slot, 0x070, 0);                            /* reset */
   mw(slot, 0x070, 1 | 2);                        /* ACKNOWLEDGE, DRIVER */
   mw(slot, 0x024, 0); mw(slot, 0x020, (uint32_t)features);
   mw(slot, 0x024, 1); mw(slot, 0x020, (uint32_t)(features >> 32));
   mw(slot, 0x070, 1 | 2 | 8);                    /* FEATURES_OK */
   CHECK(mr(slot, 0x070, 4) == (1 | 2 | 8), "FEATURES_OK refused");
-  mw(slot, 0x030, 0);
-  CHECK(mr(slot, 0x034, 4) == 256, "QueueNumMax");
-  mw(slot, 0x038, NUM);
-  mw(slot, 0x080, (uint32_t)PA(DESC));  mw(slot, 0x084, 0);
-  mw(slot, 0x090, (uint32_t)PA(AVAIL)); mw(slot, 0x094, 0);
-  mw(slot, 0x0a0, (uint32_t)PA(USED));  mw(slot, 0x0a4, 0);
-  mw(slot, 0x044, 1);
-  CHECK(mr(slot, 0x044, 4) == 1, "QueueReady");
+  queue(slot, 0);
+  if (slot == 2) queue(slot, 1);                 /* virtio-net's transmitq */
+  mw(slot, 0x030, slot == 2 ? 2 : 1);
+  CHECK(mr(slot, 0x034, 4) == 0, "a queue past the device's last");
   mw(slot, 0x070, 1 | 2 | 8 | 4);                /* DRIVER_OK */
 }
 
@@ -127,15 +148,18 @@ int main(void) {
   for (unsigned i = 0; i < sizeof img; i++) img[i] = (uint8_t)(i * 7 + (i >> 9));
   if (write(fd, img, sizeof img) != (ssize_t)sizeof img) { perror("write"); return 2; }
   struct vio_hooks h = { f_rd, f_wr, f_rd64, f_wr64, f_wr32, f_wr8, f_bar, RAM_BYTES };
-  CHECK(vio_open(&h, path, 0, 1) == 0, "vio_open");
+  int sv[2];                                     /* sv[0] the back-end's "TAP device", sv[1] the network */
+  if (socketpair(AF_UNIX, SOCK_SEQPACKET | SOCK_NONBLOCK, 0, sv)) { perror("socketpair"); return 2; }
+  static const uint8_t mac[6] = { 0x02, 0x74, 0x6e, 0x67, 0x72, 0x01 };
+  CHECK(vio_open(&h, path, 0, 1, sv[0], mac) == 0, "vio_open");
 
   /* ---- every slot's identity ---- */
   for (unsigned s = 0; s < 4; s++) {
     CHECK(mr(s, 0x000, 4) == 0x74726976, "slot %u MagicValue", s);
     CHECK(mr(s, 0x004, 4) == 2, "slot %u Version", s);
   }
-  CHECK(mr(0, 0x008, 4) == 0 && mr(2, 0x008, 4) == 0, "slots 0 and 2 are empty");
-  CHECK(mr(1, 0x008, 4) == 2 && mr(3, 0x008, 4) == 4, "slot 1 block, slot 3 rng");
+  CHECK(mr(0, 0x008, 4) == 0, "slot 0 is empty");
+  CHECK(mr(1, 0x008, 4) == 2 && mr(2, 0x008, 4) == 1 && mr(3, 0x008, 4) == 4, "slot 1 block, 2 network, 3 rng");
   /* features: VERSION_1, BLK_SIZE, FLUSH */
   mw(1, 0x014, 0); uint32_t f0 = mr(1, 0x010, 4);
   mw(1, 0x014, 1); uint32_t f1 = mr(1, 0x010, 4);
@@ -205,11 +229,11 @@ int main(void) {
   submit(1, 0); used(0, 1, 1);
   CHECK(ram[0x12005] == 2, "unknown type: UNSUPP");
   /* no interrupt while avail.flags says NO_INTERRUPT */
-  ram[AVAIL] = 1;
+  ram[QA[0]] = 1;
   blk_hdr(0x10600, 4, 0); desc(0, 0x10600, 16, 1, 1); desc(1, 0x12006, 1, 2, 0);
   submit(1, 0);
   CHECK(irq_set == 0, "an interrupt despite NO_INTERRUPT");
-  ram[AVAIL] = 0;
+  ram[QA[0]] = 0;
 
   /* ---- virtio-rng ---- */
   setup(3, 1ull << 32);
@@ -221,12 +245,102 @@ int main(void) {
   for (int i = 0; i < 64; i++) nz += ram[0x20000 + i] != 0;
   CHECK(nz > 32, "rng bytes look random (%d of 64 non-zero)", nz);
 
+  /* ---- virtio-net ---- */
+  mw(2, 0x014, 0); f0 = mr(2, 0x010, 4);
+  mw(2, 0x014, 1); f1 = mr(2, 0x010, 4);
+  CHECK(f0 == ((1u << 5) | (1u << 16)) && f1 == 1, "network features 0x%x 0x%x", f0, f1);
+  CHECK(mr(2, 0x100, 4) == 0x676e7402 && mr(2, 0x104, 2) == 0x0172 && mr(2, 0x106, 2) == 1, "mac and link up");
+  setup(2, (1ull << 32) | (1u << 5) | (1u << 16));
+  uint8_t fr[1600], got[2048];
+  for (unsigned i = 0; i < sizeof fr; i++) fr[i] = (uint8_t)(i * 3 + 1);
+  /* transmitq: a frame after its header in a second descriptor, then both in one */
+  memset(ram + 0x30000, 0, 12);
+  memcpy(ram + 0x30100, fr, 60);
+  descq(1, 0, 0x30000, 12, 1, 1);
+  descq(1, 1, 0x30100, 60, 0, 0);
+  submitq(2, 1, 0);
+  usedq(1, 0, 0, 2, 1);
+  ssize_t n = recv(sv[1], got, sizeof got, 0);
+  CHECK(n == 60 && !memcmp(got, fr, 60), "sent a frame from two descriptors (%zd bytes)", n);
+  memset(ram + 0x30200, 0, 12);
+  memcpy(ram + 0x30200 + 12, fr + 7, 1514);
+  descq(1, 2, 0x30200, 12 + 1514, 0, 0);
+  submitq(2, 1, 2);
+  usedq(1, 2, 0, 2, 1);
+  n = recv(sv[1], got, sizeof got, 0);
+  CHECK(n == 1514 && !memcmp(got, fr + 7, 1514), "sent a full-size frame from one descriptor (%zd bytes)", n);
+  /* a runt (no Ethernet header) goes back unsent */
+  descq(1, 3, 0x30800, 12 + 10, 0, 0);
+  submitq(2, 1, 3);
+  usedq(1, 3, 0, 2, 1);
+  CHECK(recv(sv[1], got, sizeof got, 0) < 0, "a runt went out");
+  /* receiveq: two buffers wait, then a frame comes */
+  descq(0, 0, 0x40000, 12 + 1514, 2, 0);
+  descq(0, 1, 0x41000, 12 + 1514, 2, 0);
+  submitq(2, 0, 0);
+  submitq(2, 0, 1);
+  CHECK(used_idx(0) == 0 && irq_set == 0, "a buffer used with nothing received");
+  memset(ram + 0x40000, 0xee, 12);
+  send(sv[1], fr + 3, 100, 0);
+  irq_set = 0;
+  CHECK(vio_poll() == 1, "one frame received");
+  usedq(0, 0, 112, 2, 1);
+  static const uint8_t hdr[12] = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0 };   /* num_buffers 1 */
+  CHECK(!memcmp(ram + 0x40000, hdr, 12) && !memcmp(ram + 0x40000 + 12, fr + 3, 100), "the received frame");
+  /* two frames, one buffer: the second waits until the driver adds a buffer */
+  send(sv[1], fr, 64, 0);
+  send(sv[1], fr + 1, 1514, 0);
+  irq_set = 0;
+  CHECK(vio_poll() == 1, "one buffer, one frame");
+  usedq(0, 1, 76, 2, 1);
+  irq_set = 0;
+  CHECK(vio_poll() == 0 && irq_set == 0, "a frame received without a buffer");
+  descq(0, 2, 0x42000, 12 + 1514, 2, 0);
+  submitq(2, 0, 2);
+  usedq(0, 2, 12 + 1514, 2, 1);
+  CHECK(!memcmp(ram + 0x42000 + 12, fr + 1, 1514), "the frame that waited");
+  /* a buffer too small goes back empty, its frame dropped; a buffer the device would have to read too */
+  descq(0, 3, 0x43000, 64, 2, 0);
+  submitq(2, 0, 3);
+  send(sv[1], fr, 200, 0);
+  irq_set = 0;
+  vio_poll();
+  usedq(0, 3, 0, 2, 1);
+  descq(0, 4, 0x44000, 16, 0, 5);
+  descq(0, 5, 0x44100, 12 + 1514, 2, 0);
+  submitq(2, 0, 4);
+  send(sv[1], fr, 60, 0);
+  irq_set = 0;
+  vio_poll();
+  usedq(0, 4, 0, 2, 1);
+  /* no interrupt while the receiveq's avail.flags says NO_INTERRUPT */
+  ram[QA[0]] = 1;
+  descq(0, 6, 0x45000, 12 + 1514, 2, 0);
+  submitq(2, 0, 6);
+  send(sv[1], fr, 60, 0);
+  irq_set = 0;
+  vio_poll();
+  usedq(0, 6, 72, 2, 0);
+  ram[QA[0]] = 0;
+  /* frames that come after a reset, before the driver is ready again, are dropped */
+  mw(2, 0x070, 0);
+  send(sv[1], fr, 60, 0);
+  vio_poll();
+  CHECK(recv(sv[0], got, sizeof got, 0) < 0, "a frame left waiting after the reset");
+  uint64_t rx, tx, dr;
+  vio_net_stats(&rx, &tx, &dr);
+  CHECK(rx == 4 && tx == 2 && dr == 4, "network counters: %llu received, %llu sent, %llu dropped",
+        (unsigned long long)rx, (unsigned long long)tx, (unsigned long long)dr);
+
   CHECK(!narrow_idx, "the used ring's index was written in pieces");
   vio_close();
+  close(sv[0]);
+  close(sv[1]);
   unlink(path);
   uint64_t r, rb, wb;
   vio_stats(&r, &rb, &wb);
-  printf("vio_test: %llu requests, %llu bytes read, %llu written: %s\n", (unsigned long long)r,
-         (unsigned long long)rb, (unsigned long long)wb, errors ? "FAIL" : "PASS");
+  printf("vio_test: %llu requests, %llu bytes read, %llu written; %llu frames received, %llu sent: %s\n",
+         (unsigned long long)r, (unsigned long long)rb, (unsigned long long)wb, (unsigned long long)rx,
+         (unsigned long long)tx, errors ? "FAIL" : "PASS");
   return errors ? 1 : 0;
 }

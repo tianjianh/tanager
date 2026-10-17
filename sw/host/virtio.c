@@ -1,8 +1,8 @@
 /* The forwarded virtio window's back-ends (docs/spec/soc.md §8.1; virtio.h). Written from the OASIS
  * virtio 1.2 specification: virtio-mmio version 2 registers (§4.2.2), split virtqueues (§2.7),
- * virtio-blk (§5.2) and virtio-rng (§5.4). The A53 reaches the virtqueues and buffers through the host
- * DMA port, an uncached device mapping, so every access is aligned: 8-byte reads, and 8-, 4- or 1-byte
- * writes. */
+ * virtio-net (§5.1), virtio-blk (§5.2) and virtio-rng (§5.4). The A53 reaches the virtqueues and
+ * buffers through the host DMA port, an uncached device mapping, so every access is aligned: 8-byte
+ * reads, and 8-, 4- or 1-byte writes. */
 #define _GNU_SOURCE
 #include "virtio.h"
 #include <errno.h>
@@ -14,15 +14,20 @@
 #include <unistd.h>
 
 #define NSLOTS      4
+#define NQ          2                            /* queues per device at most: virtio-net's two */
 #define QMAX        256u                         /* QueueNumMax */
 #define RAM_BASE    0x80000000ull                /* the RISC-V's RAM, physical */
 #define SLOT_BLK    1
+#define SLOT_NET    2
 #define SLOT_RNG    3
 
 /* status bits (§2.1) */
+#define ST_DRIVER_OK    4u
 #define ST_FEATURES_OK  8u
 /* features */
 #define F_VERSION_1     (1ull << 32)
+#define NET_F_MAC       (1ull << 5)
+#define NET_F_STATUS    (1ull << 16)
 #define BLK_F_RO        (1ull << 5)
 #define BLK_F_BLK_SIZE  (1ull << 6)
 #define BLK_F_FLUSH     (1ull << 9)
@@ -38,6 +43,10 @@
 #define BLK_S_OK     0u
 #define BLK_S_IOERR  1u
 #define BLK_S_UNSUPP 2u
+/* virtio-net (§5.1.6): every buffer starts with struct virtio_net_hdr, 12 bytes with VERSION_1; no
+ * offloads are offered, so it is all zero but num_buffers (bytes 10-11), 1 */
+#define NET_HDR      12u
+#define NET_FRAME    65536u                      /* the largest frame read from or written to the TAP device */
 
 struct vq {
   uint32_t num, ready;
@@ -46,10 +55,11 @@ struct vq {
 };
 
 struct vdev {
-  uint32_t id;                                   /* DeviceID: 0 none, 2 block, 4 rng */
+  uint32_t id;                                   /* DeviceID: 0 none, 1 network, 2 block, 4 rng */
   uint64_t features, drv_features;
   uint32_t dev_sel, drv_sel, qsel, status, cfg_gen;
-  struct vq q;                                   /* one queue each */
+  unsigned nq;                                   /* its queues: one; virtio-net receiveq 0 and transmitq 1 */
+  struct vq q[NQ];
   uint8_t  config[32];
   unsigned cfg_len;
 };
@@ -59,6 +69,10 @@ static struct vdev dev[NSLOTS];
 static int blk_fd = -1, blk_ro;
 static uint64_t blk_sectors;
 static uint64_t n_reqs, n_rd, n_wr;
+static int net_fd = -1;
+static uint8_t net_rx_buf[NET_HDR + NET_FRAME];
+static uint32_t net_rx_len;                      /* a frame read from the TAP device, waiting for a buffer */
+static uint64_t n_rx, n_tx, n_drop;
 
 /* ---- the RISC-V's RAM through the DMA port ---- */
 static int ram_ok(uint64_t pa, uint64_t len) {
@@ -196,17 +210,93 @@ static void rng_one(const struct chain *c, uint32_t *written) {
   *written = (uint32_t)len;
 }
 
-/* QueueNotify: every new available buffer, then one interrupt unless the driver asked for none */
-static void notify(unsigned slot) {
-  struct vdev *v = &dev[slot];
-  struct vq *q = &v->q;
-  if (!q->ready || !q->num || !(v->status & ST_FEATURES_OK)) return;
+/* The next available buffer's head, or -1 when the driver has none for us */
+static int avail_next(const struct vq *q) {
   uint64_t a = q->avail - RAM_BASE;
+  if (q->last_avail == (uint16_t)ram_rd(a + 2, 2)) return -1;
+  return (uint16_t)ram_rd(a + 4 + 2ull * (q->last_avail % q->num), 2);
+}
+static int irq_wanted(const struct vq *q) { return !(ram_rd(q->avail - RAM_BASE, 2) & 1); }  /* NO_INTERRUPT */
+static int q_live(const struct vdev *v, const struct vq *q) {
+  return q->ready && q->num && (v->status & ST_FEATURES_OK);
+}
+
+/* ---- virtio-net ---- */
+/* transmitq: each buffer is a header and a frame, which goes to the TAP device as it is */
+static void net_tx(struct vq *q) {
+  static uint8_t buf[NET_FRAME];
   int did = 0;
-  for (;;) {
-    uint16_t idx = (uint16_t)ram_rd(a + 2, 2);
-    if (q->last_avail == idx) break;
-    uint16_t head = (uint16_t)ram_rd(a + 4 + 2ull * (q->last_avail % q->num), 2);
+  for (int head; (head = avail_next(q)) >= 0; ) {
+    struct chain c;
+    walk(q, (uint16_t)head, &c);
+    uint64_t len = c.rlen >= NET_HDR ? c.rlen - NET_HDR : 0;
+    if (!c.bad && len >= 14 && len <= sizeof buf) {           /* at least an Ethernet header */
+      stream_read(c.r, c.nr, NET_HDR, buf, len);
+      if (write(net_fd, buf, len) == (ssize_t)len) n_tx++;
+      else n_drop++;                                          /* the TAP queue is full: as on a wire */
+    } else {
+      n_drop++;
+    }
+    used_push(q, (uint16_t)head, 0);
+    q->last_avail++;
+    did = 1;
+  }
+  if (did && irq_wanted(q)) irq(SLOT_NET, 0);
+}
+/* receiveq: the frames waiting on the TAP device into the driver's buffers, while both last (at most 64
+ * per call, so the window's requests are not kept waiting). A frame without a buffer waits, and the TAP
+ * device's queue behind it; frames that come before the driver is ready are dropped. Returns the frames
+ * received. */
+static int net_rx(void) {
+  struct vdev *v = &dev[SLOT_NET];
+  struct vq *q = &v->q[0];
+  int moved = 0;
+  for (int k = 0; k < 64; k++) {
+    if (!net_rx_len) {
+      ssize_t n = read(net_fd, net_rx_buf + NET_HDR, NET_FRAME);
+      if (n <= 0) break;
+      net_rx_len = (uint32_t)n;
+    }
+    if (!q_live(v, q) || !(v->status & ST_DRIVER_OK)) { net_rx_len = 0; n_drop++; continue; }
+    int head = avail_next(q);
+    if (head < 0) break;
+    struct chain c;
+    walk(q, (uint16_t)head, &c);
+    uint32_t len = NET_HDR + net_rx_len;
+    net_rx_len = 0;
+    if (c.bad || c.nr || c.wlen < len) {         /* a malformed or short buffer goes back empty */
+      used_push(q, (uint16_t)head, 0);
+      q->last_avail++;
+      n_drop++;
+      moved++;
+      continue;
+    }
+    memset(net_rx_buf, 0, NET_HDR);
+    net_rx_buf[10] = 1;                          /* num_buffers */
+    stream_write(c.w, c.nw, 0, net_rx_buf, len);
+    used_push(q, (uint16_t)head, len);
+    q->last_avail++;
+    n_rx++;
+    moved++;
+  }
+  if (moved && irq_wanted(q)) irq(SLOT_NET, 0);
+  return moved;
+}
+
+/* QueueNotify: every new available buffer, then one interrupt unless the driver asked for none */
+static void notify(unsigned slot, unsigned qi) {
+  struct vdev *v = &dev[slot];
+  if (qi >= v->nq) return;
+  struct vq *q = &v->q[qi];
+  if (!q_live(v, q)) return;
+  if (v->id == 1) {                              /* virtio-net: new receive buffers, or frames to send */
+    if (qi == 1) net_tx(q);
+    else         net_rx();
+    return;
+  }
+  int did = 0;
+  for (int h; (h = avail_next(q)) >= 0; ) {
+    uint16_t head = (uint16_t)h;
     struct chain c;
     uint32_t written = 0;
     walk(q, head, &c);
@@ -224,13 +314,13 @@ static void notify(unsigned slot) {
     did = 1;
     n_reqs++;
   }
-  if (did && !(ram_rd(a, 2) & 1)) irq(slot, 0);   /* avail.flags NO_INTERRUPT */
+  if (did && irq_wanted(q)) irq(slot, 0);
 }
 
 static void dev_reset(unsigned slot) {
   struct vdev *v = &dev[slot];
   v->drv_features = 0; v->dev_sel = v->drv_sel = v->qsel = v->status = 0;
-  memset(&v->q, 0, sizeof v->q);
+  memset(v->q, 0, sizeof v->q);
   H.wr(VQ_IRQ, 3u << (8 + 2 * slot));           /* clear the slot's status bits */
 }
 
@@ -250,8 +340,8 @@ static uint32_t reg_read(unsigned slot, unsigned off, unsigned size) {
   case 0x008: return v->id;
   case 0x00c: return 0x52474E54;                 /* "TNGR" */
   case 0x010: return v->dev_sel < 2 ? (uint32_t)(v->features >> (32 * v->dev_sel)) : 0;
-  case 0x034: return v->qsel == 0 ? QMAX : 0;
-  case 0x044: return v->qsel == 0 ? v->q.ready : 0;
+  case 0x034: return v->qsel < v->nq ? QMAX : 0;
+  case 0x044: return v->qsel < v->nq ? v->q[v->qsel].ready : 0;
   case 0x070: return v->status;
   case 0x0b0: case 0x0b4: case 0x0b8: case 0x0bc: return 0xffffffffu;   /* no shared memory */
   case 0x0fc: return v->cfg_gen;
@@ -265,8 +355,8 @@ static void set_hi(uint64_t *x, uint32_t v) { *x = (*x & 0xffffffffull) | ((uint
 static void reg_write(unsigned slot, unsigned off, uint32_t val) {
   struct vdev *v = &dev[slot];
   if (!v->id || off >= 0x100) return;            /* no device; the configuration space is read-only */
-  struct vq *q = &v->q;
-  int qok = v->qsel == 0;
+  int qok = v->qsel < v->nq;
+  struct vq *q = &v->q[qok ? v->qsel : 0];
   switch (off) {
   case 0x014: v->dev_sel = val; break;
   case 0x020:
@@ -282,7 +372,7 @@ static void reg_write(unsigned slot, unsigned off, uint32_t val) {
       if (q->ready) { q->last_avail = 0; q->used_idx = 0; }
     }
     break;
-  case 0x050: if (val == 0) notify(slot); break;
+  case 0x050: notify(slot, val); break;
   case 0x070:
     if (val == 0) { dev_reset(slot); break; }
     /* FEATURES_OK holds only for a subset of what is offered that includes VERSION_1 */
@@ -300,8 +390,8 @@ static void reg_write(unsigned slot, unsigned off, uint32_t val) {
   default: break;
   }
   /* a queue the driver makes ready must lie in RAM */
-  if (q->ready && (!ram_ok(q->desc, 16ull * q->num) || !ram_ok(q->avail, 6 + 2ull * q->num) ||
-                   !ram_ok(q->used, 6 + 8ull * q->num))) {
+  if (qok && q->ready && (!ram_ok(q->desc, 16ull * q->num) || !ram_ok(q->avail, 6 + 2ull * q->num) ||
+                          !ram_ok(q->used, 6 + 8ull * q->num))) {
     q->ready = 0;
     v->status |= 0x40;                           /* DEVICE_NEEDS_RESET */
     irq(slot, 1);
@@ -320,13 +410,16 @@ int vio_poll(void) {
     else                H.wr(VQ_RSP, reg_read(slot, off, size));
     n++;
   }
+  if (net_fd >= 0) n += net_rx();
   return n;
 }
 
-int vio_open(const struct vio_hooks *h, const char *blk_image, int readonly, int rng) {
+int vio_open(const struct vio_hooks *h, const char *blk_image, int readonly, int rng, int netfd,
+             const uint8_t mac[6]) {
   H = *h;
   memset(dev, 0, sizeof dev);
-  n_reqs = n_rd = n_wr = 0;
+  for (unsigned s = 0; s < NSLOTS; s++) dev[s].nq = 1;
+  n_reqs = n_rd = n_wr = n_rx = n_tx = n_drop = 0;
   if (blk_image) {
     blk_fd = open(blk_image, readonly ? O_RDONLY : O_RDWR);
     struct stat sb;
@@ -345,13 +438,29 @@ int vio_open(const struct vio_hooks *h, const char *blk_image, int readonly, int
     dev[SLOT_RNG].id = 4;
     dev[SLOT_RNG].features = F_VERSION_1;
   }
+  net_fd = netfd;
+  net_rx_len = 0;
+  if (netfd >= 0) {
+    struct vdev *v = &dev[SLOT_NET];
+    v->id = 1;
+    v->nq = 2;
+    v->features = F_VERSION_1 | NET_F_MAC | NET_F_STATUS;
+    memcpy(v->config, mac, 6);                   /* mac, then status: VIRTIO_NET_S_LINK_UP */
+    v->config[6] = 1;
+    v->cfg_len = 8;
+  }
   return 0;
 }
 
 void vio_close(void) {
   if (blk_fd >= 0) { fsync(blk_fd); close(blk_fd); blk_fd = -1; }
+  net_fd = -1;
 }
 
 void vio_stats(uint64_t *reqs, uint64_t *rd_bytes, uint64_t *wr_bytes) {
   *reqs = n_reqs; *rd_bytes = n_rd; *wr_bytes = n_wr;
+}
+
+void vio_net_stats(uint64_t *rx, uint64_t *tx, uint64_t *drops) {
+  *rx = n_rx; *tx = n_tx; *drops = n_drop;
 }

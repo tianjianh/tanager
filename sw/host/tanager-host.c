@@ -19,7 +19,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <linux/if_tun.h>
+#include <linux/sockios.h>
+#include <net/if.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <termios.h>
 #include <time.h>
@@ -140,6 +145,9 @@ struct opts {
   uint64_t dma_pa;        /* the host DMA port's window (M_AXI_HPM1_FPD): the RISC-V's RAM from offset 0 */
   const char *blk;        /* virtio-blk image (slot 1), served through the window and the DMA port */
   int blk_ro, rng;        /* the image read-only; virtio-rng (slot 3) */
+  const char *net;        /* virtio-net (slot 2) on this TAP device, made if missing */
+  const char *net_bridge; /* and the bridge it joins (the A53's br0, docs/spec/soc.md §8.1), or NULL */
+  uint8_t net_mac[6];     /* the RISC-V's MAC address */
   const char *fw, *kernel, *dtb;
   int console;            /* 0 stdio, 1 pty, -1 none */
   double timeout;
@@ -189,6 +197,9 @@ static void usage(void) {
     "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
     "                                         (slot 3) through the virtio window and the host DMA port (a bitstream\n"
     "                                         built with TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1, a device tree with VIRTIO=1)\n"
+    "      [--net TAP [--net-bridge BR] [--net-mac MAC]]\n"
+    "                                         and virtio-net (slot 2) on the TAP device TAP, made and brought up if\n"
+    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01)\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
@@ -419,7 +430,7 @@ static void cmd_load(const struct opts *o) {
   wr64(R_DRAM_BASE, o->base);
   wr64(R_DRAM_SIZE, dram_bytes(o));
   /* the virtio window: served (EN) only by a run with back-ends; set while the uncore is held */
-  if (rd(R_CAPS) & CAPS_VIRTIO) wr(R_VQ_CTRL, (o->blk || o->rng) ? 1 : 0);
+  if (rd(R_CAPS) & CAPS_VIRTIO) wr(R_VQ_CTRL, (o->blk || o->rng || o->net) ? 1 : 0);
   /* A lockstep checker's memory starts at zero, but the DDR outside the images holds old data, and
    * Linux can copy uninitialised bytes into registers (padding in a memcpy): with --trace, or
    * --zero, the window (not the trace ring above it) is zeroed first. 8-byte stores: the mapping
@@ -589,13 +600,40 @@ static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vi
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
 static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
 
-/* --blk/--rng need the window (CAPS[2]) and the DMA port (CAPS[8]) */
+/* --blk/--rng/--net need the window (CAPS[2]) and the DMA port (CAPS[8]) */
 static void check_virtio(const struct opts *o) {
-  if (!o->blk && !o->rng) return;
+  if (!o->blk && !o->rng && !o->net) return;
   uint32_t caps = rd(R_CAPS);
   if (!(caps & CAPS_VIRTIO) || !(caps & CAPS_HDMA))
-    die("--blk/--rng: this bitstream lacks the virtio window or the host DMA port (CAPS 0x%x; build with "
+    die("--blk/--rng/--net: this bitstream lacks the virtio window or the host DMA port (CAPS 0x%x; build with "
         "TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1)", caps);
+}
+
+/* The TAP device for --net (made if missing; it goes when the run ends unless it was made persistent),
+ * brought up, and added to --net-bridge's bridge if given. Returns a non-blocking descriptor. */
+static int tap_open(const char *name, const char *bridge) {
+  int fd = open("/dev/net/tun", O_RDWR | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) die("--net: /dev/net/tun: %s", strerror(errno));
+  struct ifreq ifr;
+  memset(&ifr, 0, sizeof ifr);
+  ifr.ifr_flags = IFF_TAP | IFF_NO_PI;
+  snprintf(ifr.ifr_name, IFNAMSIZ, "%s", name);
+  if (ioctl(fd, TUNSETIFF, &ifr)) die("--net %s: %s", name, strerror(errno));
+  int s = socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+  if (s < 0) die("--net: socket: %s", strerror(errno));
+  if (bridge) {
+    struct ifreq br;
+    memset(&br, 0, sizeof br);
+    snprintf(br.ifr_name, IFNAMSIZ, "%s", bridge);
+    br.ifr_ifindex = (int)if_nametoindex(ifr.ifr_name);
+    if (ioctl(s, SIOCBRADDIF, &br) && errno != EBUSY)   /* EBUSY: already a port of it */
+      die("--net-bridge %s: adding %s: %s", bridge, ifr.ifr_name, strerror(errno));
+  }
+  if (ioctl(s, SIOCGIFFLAGS, &ifr)) die("--net %s: %s", ifr.ifr_name, strerror(errno));
+  ifr.ifr_flags |= IFF_UP;
+  if (ioctl(s, SIOCSIFFLAGS, &ifr)) die("--net %s: bringing it up: %s", ifr.ifr_name, strerror(errno));
+  close(s);
+  return fd;
 }
 
 static int cmd_run(const struct opts *o) {
@@ -637,14 +675,20 @@ static int cmd_run(const struct opts *o) {
   signal(SIGTERM, on_sig);
 
   if (o->trace) trace_begin(o);
-  int vio = o->blk || o->rng;
+  int vio = o->blk || o->rng || o->net, net_fd = -1;
   if (vio) {
     uint64_t ram = rd64(R_DRAM_SIZE);
-    if (!(rd(R_VQ_CTRL) & 1)) die("--blk/--rng: the window is not enabled; load with the same options first");
+    if (!(rd(R_VQ_CTRL) & 1)) die("--blk/--rng/--net: the window is not enabled; load with the same options first");
     vio_ram = (volatile uint8_t *)dma_map(o, 0, ram);
+    if (o->net) net_fd = tap_open(o->net, o->net_bridge);
     struct vio_hooks hk = { rd, wr, h_ram_rd64, h_ram_wr64, h_ram_wr32, h_ram_wr8, h_barrier, ram };
-    if (vio_open(&hk, o->blk, o->blk_ro, o->rng)) die("virtio back-ends failed to open");
-    fprintf(stderr, "virtio:%s%s%s\n", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
+    if (vio_open(&hk, o->blk, o->blk_ro, o->rng, net_fd, o->net_mac)) die("virtio back-ends failed to open");
+    fprintf(stderr, "virtio:%s%s%s", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
+    if (o->net)
+      fprintf(stderr, " net %s%s%s %02x:%02x:%02x:%02x:%02x:%02x", o->net, o->net_bridge ? " in " : "",
+              o->net_bridge ? o->net_bridge : "", o->net_mac[0], o->net_mac[1], o->net_mac[2], o->net_mac[3],
+              o->net_mac[4], o->net_mac[5]);
+    fputc('\n', stderr);
   } else if ((rd(R_CAPS) & CAPS_VIRTIO) && (rd(R_VQ_CTRL) & 1)) {
     fprintf(stderr, "warning: the virtio window is enabled but this run serves nothing; its reads will wait\n");
   }
@@ -712,6 +756,13 @@ static int cmd_run(const struct opts *o) {
     vio_close();
     fprintf(stderr, "[%s] virtio: %" PRIu64 " requests, %" PRIu64 " MiB read, %" PRIu64 " MiB written\r\n", prog, n,
             rb >> 20, wb >> 20);
+    if (net_fd >= 0) {
+      uint64_t rx, tx, dr;
+      vio_net_stats(&rx, &tx, &dr);
+      close(net_fd);
+      fprintf(stderr, "[%s] virtio-net: %" PRIu64 " frames received, %" PRIu64 " sent, %" PRIu64 " dropped\r\n", prog,
+              rx, tx, dr);
+    }
   }
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
@@ -745,7 +796,7 @@ static void cmd_tg(const struct opts *o, int argc, char **argv) {
 int main(int argc, char **argv) {
   struct opts o = { .regs_pa = 0xA0000000ull, .base = 0x840000000ull, .size = 0x40000000ull, .dma_pa = 0x500000000ull,
                     .console = 0, .inj_rd = -1, .inj_wr = -1, .inj_mode = -1, .inj_bw = -1,
-                    .trace_log2 = 22 };
+                    .trace_log2 = 22, .net_mac = { 0x02, 0x74, 0x6e, 0x67, 0x72, 0x01 } };   /* "tngr", local */
   int stats = 0;
   static const struct option lo[] = {
     { "regs", 1, 0, 'R' }, { "base", 1, 0, 'B' }, { "size", 1, 0, 'S' },
@@ -755,7 +806,8 @@ int main(int argc, char **argv) {
     { "stats", 0, 0, 5 }, { "trace", 1, 0, 6 }, { "trace-log2", 1, 0, 7 }, { "trace-wrap", 0, 0, 8 },
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
-    { "rng", 0, 0, 17 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
+    { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
+    { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
   /* Options anywhere (getopt_long's argument permutation): `run --timeout 5` as well as
@@ -789,6 +841,16 @@ int main(int argc, char **argv) {
       case 15: o.blk = optarg; break;
       case 16: o.blk_ro = 1; break;
       case 17: o.rng = 1; break;
+      case 18: o.net = optarg; break;
+      case 19: o.net_bridge = optarg; break;
+      case 20: {
+        unsigned m[6];
+        if (sscanf(optarg, "%x:%x:%x:%x:%x:%x", &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6 ||
+            (m[0] & 1) || m[0] > 255 || m[1] > 255 || m[2] > 255 || m[3] > 255 || m[4] > 255 || m[5] > 255)
+          die("--net-mac: six hex bytes a:b:c:d:e:f, unicast (the first byte even)");
+        for (int i = 0; i < 6; i++) o.net_mac[i] = (uint8_t)m[i];
+        break;
+      }
       case 'v': verbose = 1; break;
       default: usage();
     }
