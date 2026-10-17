@@ -1,0 +1,101 @@
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 900 < console
+login prompt 6 s after the load
+commands done 108 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 1705655 reads, native latency avg 21.8 max 58 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                 53929934
+  L2 bank 0 B out (probes)         151879
+  L2 bank 0 C in                  5923055
+  L2 bank 0 D out               217773279
+  L2 bank 0 E in (GrantAck)       2190397
+  L2 bank 0 misses                 856803
+  L2 bank 0 AXI reads              856803
+  L2 bank 0 fills                  856803
+  L2 bank 1 A in                 51182279
+  L2 bank 1 B out (probes)         288561
+  L2 bank 1 C in                  6372346
+  L2 bank 1 D out               206924838
+  L2 bank 1 E in (GrantAck)       2447704
+  L2 bank 1 misses                 848853
+  L2 bank 1 AXI reads              848853
+  L2 bank 1 fills                  848853
+  core 0 l1d A out               3185511
+  core 0 l1d B in (probes)        207164
+  core 0 l1d C out               9038155
+  core 0 l1d D in               15733160
+  core 0 l1d E out (GrantAck)    3185511
+  core 1 l1d A out               1452590
+  core 1 l1d B in (probes)        233276
+  core 1 l1d C out               3257246
+  core 1 l1d D in                7068509
+  core 1 l1d E out (GrantAck)    1452590
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+  DRAM window refusals              0 reads, 0 writes
+  no L2 error since the uncore reset
+  core 0 status 0x201c0199: rename v1 ser0 empty0 blk1 res1 fire0 dsbusy0 rdy1; rob 1; atomic IDLE; sq head v0 addr1 data1 dreg1 nonempty0; d$ probe 0 mshr 0 ready1; trace stall0 flush0
+  core 0 dispatch  1:  slot0 x10 -> p64   slot1 -           
+  core 0 dispatch  2:  slot0 x5  -> p32   slot1 x11 -> p128
+  core 0 dispatch  3:  slot0 x6  -> p129  slot1 -           
+  core 0 dispatch  4:  slot0 x8  -> p33   slot1 x9  -> p65 
+  core 0 dispatch  5:  slot0 x18 -> p34   slot1 x1  -> p35 
+  core 0 dispatch  6:  slot0 x10 -> p36   slot1 -           
+  core 0 dispatch  9:  slot0 x10 -> p37   slot1 x10 -> p66 
+  core 0 dispatch 10:  slot0 x16 -> p37   slot1 x10 -> p66 
+  core 0 dispatch 11:  slot0 x11 -> p38   slot1 x12 -> p67 
+  core 0 dispatch 12:  slot0 x17 -> p39   slot1 -           
+  core 0 dispatch 13:  slot0 -             slot1 x16 -> p68 
+  core 0 dispatch 14:  slot0 x16 -> p40   slot1 x17 -> p69 
+  core 0 dispatch 15:  slot0 x16 -> p40   slot1 -           
+  core 0 commit    0:  slot0 x10 -> p10   slot1 -           
+  core 0 commit    1:  slot0 x5  -> p5    slot1 -           
+  core 0 commit    2:  slot0 x11 -> p11   slot1 -           
+  core 0 commit    3:  slot0 x6  -> p6    slot1 -           
+  core 0 commit    5:  slot0 x8  -> p8    slot1 x9  -> p9  
+  core 0 commit    6:  slot0 x18 -> p18   slot1 -           
+  core 0 commit    7:  slot0 x1  -> p1    slot1 -           
+  core 0 commit    8:  slot0 x10 -> p64   slot1 -           
+  core 0 commit   10:  slot0 x16 -> p16   slot1 x10 -> p36 
+  core 0 commit   11:  slot0 x11 -> p128  slot1 x12 -> p12 
+  core 0 commit   12:  slot0 x17 -> p17   slot1 -           
+  core 0 commit   13:  slot0 -             slot1 -           
+  core 0 commit   14:  slot0 x16 -> p37   slot1 -           
+  core 0 commit   15:  slot0 x16 -> p40   slot1 x17 -> p39 
+  core 1 status 0x201c0094: rename v0 ser0 empty1 blk0 res1 fire0 dsbusy0 rdy1; rob 0; atomic IDLE; sq head v0 addr1 data1 dreg1 nonempty0; d$ probe 0 mshr 0 ready1; trace stall0 flush0
+  core 1 dispatch  1:  slot0 x10 -> p64   slot1 -           
+  core 1 dispatch  2:  slot0 x5  -> p32   slot1 x11 -> p128
+  core 1 dispatch  3:  slot0 x6  -> p129  slot1 -           
+  core 1 dispatch  4:  slot0 x8  -> p33   slot1 x9  -> p65 
+  core 1 dispatch  5:  slot0 x18 -> p34   slot1 x1  -> p35 
+  core 1 dispatch  6:  slot0 x10 -> p36   slot1 -           
+  core 1 dispatch  9:  slot0 x10 -> p37   slot1 x10 -> p66 
+  core 1 dispatch 10:  slot0 x16 -> p37   slot1 x10 -> p66 
+  core 1 dispatch 11:  slot0 x11 -> p38   slot1 x12 -> p67 
+  core 1 dispatch 12:  slot0 x17 -> p39   slot1 -           
+  core 1 dispatch 13:  slot0 -             slot1 x16 -> p68 
+  core 1 dispatch 14:  slot0 x16 -> p40   slot1 x17 -> p69 
+  core 1 dispatch 15:  slot0 x16 -> p40   slot1 -           
+  core 1 commit    0:  slot0 x10 -> p10   slot1 -           
+  core 1 commit    1:  slot0 x5  -> p5    slot1 -           
+  core 1 commit    2:  slot0 x11 -> p11   slot1 -           
+  core 1 commit    3:  slot0 x6  -> p6    slot1 -           
+  core 1 commit    5:  slot0 x8  -> p8    slot1 x9  -> p9  
+  core 1 commit    6:  slot0 x18 -> p18   slot1 -           
+  core 1 commit    7:  slot0 x1  -> p1    slot1 -           
+  core 1 commit    8:  slot0 x10 -> p64   slot1 -           
+  core 1 commit   10:  slot0 x16 -> p16   slot1 x10 -> p36 
+  core 1 commit   11:  slot0 x11 -> p128  slot1 x12 -> p12 
+  core 1 commit   12:  slot0 x17 -> p17   slot1 -           
+  core 1 commit   13:  slot0 -             slot1 -           
+  core 1 commit   14:  slot0 x16 -> p37   slot1 -           
+  core 1 commit   15:  slot0 x16 -> p40   slot1 x17 -> p39 
+power-off reached the host 113 s after the load
+boot exit 0; console in /home/ubuntu/tanager/p0g/linux_shell.txt (234 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 12:03:52
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active

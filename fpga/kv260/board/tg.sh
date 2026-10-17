@@ -275,10 +275,12 @@ case "${1:-}" in
     ./tanager-lockstep ${LS_ARGS:-} --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
     lpid=$!
     active "$APP" || exit 1
-    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
+    # LS_HOST_ARGS: extra tanager-host options, e.g. --freeze-time (p0g and later: mtime held while the
+    # trace stalls the cores, so the plain 10 MHz tree works under the checker)
+    echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace ${LS_HOST_ARGS:+$LS_HOST_ARGS }--timeout $lim"
     t0=$(date +%s)
     sudo "$TH" boot --inj-rd "$inj" --fw fw_jump.bin --kernel Image --dtb "$dtb" \
-      --lossless --trace-log2 16 --trace "$L/tg.trace" --timeout "$lim" < "$cin" > "$con" 2>&1 &
+      --lossless --trace-log2 16 --trace "$L/tg.trace" ${LS_HOST_ARGS:-} --timeout "$lim" < "$cin" > "$con" 2>&1 &
     pid=$!
     exec 3> "$cin"
     tok=""; tlog=""
