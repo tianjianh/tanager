@@ -77,6 +77,11 @@ module tg_decode_stage
   endfunction
 
   dec_t [W-1:0]        d;
+`ifndef SYNTHESIS
+  logic rs_seen_q;                              // reset has been seen (the checks wait for it)
+  initial rs_seen_q = 1'b0;
+  always @(posedge clk) if (rst) rs_seen_q <= 1'b1;
+`endif
   logic [W-1:0][63:0]  seq_d, tgt_d;      // per queue slot: pc + 2 or 4, pc + the offset
   logic [W-1:0]        exc_f, alone_f;    // d.exc and d.serial || d.exc, from the raw encoding
   logic [W-1:0]        redir;
@@ -113,9 +118,12 @@ module tg_decode_stage
     assign exc_f[j]   = iq_insn[j].fault || iq_insn[j].q_exc;
     assign alone_f[j] = exc_f[j] || iq_insn[j].q_ser;
 `ifndef SYNTHESIS
-    // The queue's illegal bit is the decoder's own decision (the fault overrides both)
+    // The queue's illegal bit is the decoder's own decision (the fault overrides both): from the
+    // first reset on, as the queue's entries hold nothing written before it, and outside the flush
+    // cycle, where entries written before a state change (a serialising instruction or a trap just
+    // committed) wait to be dropped and decode takes nothing
     always_ff @(posedge clk) begin
-      if (!rst && iq_valid[j] && !iq_insn[j].fault)
+      if (rs_seen_q && !rst && !flush && iq_valid[j] && !iq_insn[j].fault)
         assert (iq_insn[j].q_ill == dec_ill) else $error("tg_decode_stage: the queue's illegal bit differs from decode's");
     end
     // The raw encoding's offset is the expanded instruction's (the target decode used to add)
