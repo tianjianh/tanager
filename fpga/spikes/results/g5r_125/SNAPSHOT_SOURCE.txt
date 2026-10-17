@@ -1,0 +1,1 @@
+63e51b4 (core-2's fn10 head = 70290bc: main 486e87a + fn9/fn10) + spikes f67fdbb, kv260_top patched by g5_fill_patch.py (measurement only); tg_clkgen from the tree (125 MHz native)
