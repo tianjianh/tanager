@@ -126,6 +126,10 @@ package tg_core_pkg;
   localparam bit TAGE_ON = 1'b1;
 `endif
   localparam int FTQW = idx_w(FTQ_ENTRIES);   // the configuration's FTQ_ENTRIES
+  localparam int RAS_PW = idx_w(RAS_ENTRIES);  // the return-address stack's pointer bits
+  // Where the stack's speculative side moves: at decode, or with TAGE at fetch (F2, its exits)
+  localparam bit RAS_DEC = RAS_ON && !TAGE_ON;
+  localparam bit RAS_FE  = RAS_ON && TAGE_ON;
   localparam int GH_W = 64;               // the global history's bits (TAGE)
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block

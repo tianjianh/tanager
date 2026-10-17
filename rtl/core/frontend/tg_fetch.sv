@@ -42,8 +42,10 @@ module tg_fetch
   input  logic        icinv,          // FENCE.I, together with flush
   input  logic        dred,
   input  logic [63:0] dred_pc,
-  input  logic [FTQW-1:0]   dred_ftq,   // TAGE_ON: dred's instruction's FTQ entry and last slot
+  input  logic [FTQW-1:0]   dred_ftq,   // TAGE_ON: dred's instruction's FTQ entry and last slot,
   input  logic [SLOT_W-1:0] dred_slot,
+  input  logic [1:0]        dred_rop,   // ... its own stack operation and link (RAS_FE)
+  input  logic [38:1]       dred_rlink,
   // TAGE (TAGE_ON) from commit, in slot order: the conditional branches it trains on (their outcome,
   // fetch-time direction, FTQ entry and slot), and the youngest retiring instruction's FTQ entry
   input  logic [COMMIT_WIDTH-1:0]             c_cbr,
@@ -53,6 +55,21 @@ module tg_fetch
   input  logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] c_slot,
   input  logic                                c_hv,
   input  logic [FTQW-1:0]                     c_hftq,
+  // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
+  // block's exit's operation; the repair at decode's redirect (the pointer, count and top before the
+  // redirecting block, from its FTQ entry)
+  input  logic                ras_v,
+  input  logic [38:1]         ras_top,
+  input  logic [RAS_PW-1:0]   ras_tos,
+  input  logic [RAS_PW:0]     ras_cnt,
+  output logic                ras_push,
+  output logic                ras_pop,
+  output logic [38:1]         ras_link,
+  output logic                ras_rv,
+  output logic                ras_rwr,
+  output logic [RAS_PW-1:0]   ras_rtos,
+  output logic [RAS_PW:0]     ras_rcnt,
+  output logic [38:1]         ras_rtop,
   // Micro-BTB training from execute
   input  logic        upd_valid,
   input  logic        upd_way,
@@ -242,6 +259,8 @@ module tg_fetch
   // TAGE_ON: the override refetches at the exit's target (kt_q): the block's address, the exit's
   // parcel (kp_q) and its offset (kimm_q), added in the action's cycle
   logic              kt_q;
+  logic              kr_q;                // RAS_FE: ... at the stack's top, krt_q
+  logic [63:0]       krt_q;
   logic [SLOT_W-1:0] kp_q;
   logic [20:0]       kimm_q;
   logic [63:0]       kt_tgt;
@@ -282,13 +301,13 @@ module tg_fetch
   // pseudo-instruction, its parcels and marks registered as zero), so the fault check, which
   // compares the whole line address, does not wait in front of it.
   logic [NP-1:0][15:0] parcel;
-  logic [NP-1:0] pd_start, pd_is32, pd_br, pd_jal, pd_jalr, pd_call, pd_ret;
+  logic [NP-1:0] pd_start, pd_is32, pd_br, pd_jal, pd_jalr, pd_call, pd_ret, pd_pop;
   logic          pd_carry;
   assign parcel = blk;
   tg_predecode u_pd (
     .parcel, .entry_slot(f2_pc_q[SLOT_W:1]), .exit_slot(SLOT_W'(NP - 1)), .carry_in(carry_q),
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
-    .is_call(pd_call), .is_ret(pd_ret), .carry_out(pd_carry));
+    .is_call(pd_call), .is_ret(pd_ret), .is_pop(pd_pop), .carry_out(pd_carry));
 
   // Check the prediction: the predicted exit slot must be the last parcel of a branch or jump.
   // Where an instruction starts, it is 32-bit exactly when its parcel's low bits are 11 (wide),
@@ -341,6 +360,10 @@ module tg_fetch
   logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
   logic [SLOT_W-1:0]  ovr_p;              //     or else at the next block
   logic               uok;                // the micro-BTB's prediction is a real exit
+  logic [63:0]        fx_tgt;             // the exit's target in the queue (a JALR's)
+  logic               ovr_ras;            // RAS_FE: ... the exit is a return to the stack's top
+  logic               f2_rpush, f2_rpop;  // RAS_FE: the exit's stack operation, and a push's link
+  logic [38:1]        f2_rlink;
   assign uok = hp;
   logic [1:0]         gh_n, gh_b;         // TAGE_ON: the history bits the block adds (count, values)
   logic [NP-1:0]      gh_cm, gh_pk;       // ... its conditional branches' slots and directions
@@ -412,8 +435,13 @@ module tg_fetch
     assign gh_b    = '0;
     assign gh_cm   = '0;
     assign gh_pk   = '0;
+    assign fx_tgt  = f2_tgt_q;
+    assign ovr_ras = 1'b0;
+    assign f2_rpush = 1'b0;
+    assign f2_rpop  = 1'b0;
+    assign f2_rlink = '0;
     logic unused_tdir;
-    assign unused_tdir = ^tdir;
+    assign unused_tdir = ^{tdir, pd_pop};
   end else begin : g_f2t
     // ---- TAGE's decision (TAGE_ON) ----
     // Each instruction that starts at parcel p (at or after the entry) has its last parcel's slot
@@ -426,6 +454,11 @@ module tg_fetch
     logic [NP-1:0]             cbr, tkn;
     logic [SLOT_W-1:0]         fe_p, c3_p;
     logic                      fe_v, c3_v;
+    // A return the stack predicts (RAS_FE: a pop while the stack is not empty) is a candidate too,
+    // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
+    logic [NP-1:0] rp;
+    logic [63:0]   rtgt;
+    assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
     always_comb begin
       int   nb;
       logic seen;
@@ -437,7 +470,8 @@ module tg_fetch
         outp   = wide[p] && p == NP - 1;
         lsl[p] = SLOT_W'(wide[p] ? p + 1 : p);
         cbr[p] = pd_start[p] && pd_br[p] && !outp;
-        ujx    = pd_start[p] && !outp && (pd_jal[p] || (pd_jalr[p] && uok && f2_slot_q == lsl[p]));
+        rp[p]  = RAS_FE && pd_pop[p] && ras_v;
+        ujx    = pd_start[p] && !outp && (pd_jal[p] || (pd_jalr[p] && (rp[p] || (uok && f2_slot_q == lsl[p]))));
         tkn[p] = ujx || (cbr[p] && tdir[lsl[p]]);
         if (!seen && cbr[p] && nb == 2) begin
           seen = 1'b1; c3_v = 1'b1; c3_p = SLOT_W'(p);
@@ -497,9 +531,20 @@ module tg_fetch
     // F1 followed the micro-BTB (its target on f2_hit_q, else the next block). They differ when the
     // exit is at another slot than the micro-BTB's, or there is none against its hit; at the same slot
     // the micro-BTB's target is taken as right (decode checks it). Faults and cuts refetch on their own
-    assign f2_ovr  = !isf && !pcut && !ccut && (tk ? !(f2_hit_q && f2_slot_q == lsl[fe_p]) : f2_hit_q);
+    // (a return the stack predicts: also when the micro-BTB's target is not the stack's top)
+    logic fe_ras;
+    assign fe_ras  = tk && rp[fe_p];
+    assign f2_ovr  = !isf && !pcut && !ccut &&
+                     (tk ? !(f2_hit_q && f2_slot_q == lsl[fe_p] && (!fe_ras || f2_tgt_q == rtgt)) : f2_hit_q);
     assign ovr_tk  = tk;
     assign ovr_p   = fe_p;
+    assign ovr_ras = fe_ras;
+    assign fx_tgt  = fe_ras ? rtgt : f2_tgt_q;
+    // The stack's operation at the block's exit (made as the block is delivered, below): a call's
+    // push of its link, a return's pop (the commit side does the same, ras_op)
+    assign f2_rpush = RAS_FE && tk && pd_call[fe_p];
+    assign f2_rpop  = RAS_FE && tk && pd_pop[fe_p];
+    assign f2_rlink = {f2_pc_q[38:4], 3'b000} + 38'(fe_p) + (wide[fe_p] ? 38'd2 : 38'd1);
     // History: the block's conditional branches up to its exit or cut, as predicted (newest in bit 0)
     always_comb begin
       int k;
@@ -607,12 +652,43 @@ module tg_fetch
     assign ft_full = ft_t_q[FTQW] != ft_h_q[FTQW] && ft_t_q[FTQW-1:0] == ft_h_q[FTQW-1:0];
     assign ft_tail = ft_t_q[FTQW-1:0];
     assign ft_we   = f2_deliver && !redirect;
-    localparam int RW = GH_W + 2 * NP;
+    // (and the return-address stack's pointer, count and top before the block, RAS_FE)
+    localparam int RW = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
     logic [0:0][FTQW-1:0] fr_ra;
     logic [0:0][RW-1:0]   fr_rd;
     assign fr_ra[0] = dred_ftq;
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(RW), .NR(1)) u_fgh (
-      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_q, gh_cm, gh_pk}), .raddr(fr_ra), .rdata(fr_rd));
+      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_q, gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}), .raddr(fr_ra),
+      .rdata(fr_rd));
+    // the stack's operation at a delivered block's exit, and its repair at decode's redirect
+    assign ras_push = ft_we && !f2_isfault && f2_rpush;
+    assign ras_pop  = ft_we && !f2_isfault && f2_rpop;
+    assign ras_link = f2_rlink;
+    assign ras_rv   = RAS_FE && dred && !flush;
+    // the repair: the stack before the redirecting instruction's block (its exit's operation is the
+    // instruction's own or comes after it), then the instruction's own operation (decode's): this
+    // covers a call or return no block's exit carried, such as one that straddles into its block
+    always_comb begin
+      logic [RAS_PW-1:0] t;
+      logic [RAS_PW:0]   c;
+      logic [38:1]       v;
+      {t, c, v} = fr_rd[0][RAS_PW + RAS_PW + 1 + 38 - 1:0];
+      ras_rwr = 1'b1;
+      if (dred_rop[0]) begin                         // a pop: the entry below stays as it is
+        t = t - 1'b1;
+        if (c != '0) c = c - 1'b1;
+        ras_rwr = 1'b0;
+      end
+      if (dred_rop[1]) begin                         // a push: its link on top
+        t = t + 1'b1;
+        if (c != (RAS_PW + 1)'(RAS_ENTRIES)) c = c + 1'b1;
+        v = dred_rlink;
+        ras_rwr = 1'b1;
+      end
+      ras_rtos = t;
+      ras_rcnt = c;
+      ras_rtop = v;
+    end
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(COMMIT_WIDTH)) u_fix (
       .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(c_ftq), .rdata(fx_rd));
     // the history after decode's redirect at slot dred_slot of block dred_ftq
@@ -620,7 +696,7 @@ module tg_fetch
     always_comb begin
       logic [GH_W-1:0] g;
       logic [NP-1:0]   cm, pk;
-      {g, cm, pk} = fr_rd[0];
+      {g, cm, pk} = fr_rd[0][RW-1 -: GH_W + 2 * NP];
       for (int k = 0; k < NP; k++)
         if (cm[k] && SLOT_W'(k) <= dred_slot) g = {g[GH_W-2:0], pk[k]};
       r_gh = g;
@@ -666,9 +742,18 @@ module tg_fetch
     assign tdir    = '0;
     assign ovr_imm = '0;
     assign kt_tgt  = '0;
+    assign ras_push = 1'b0;
+    assign ras_pop  = 1'b0;
+    assign ras_link = '0;
+    assign ras_rv   = 1'b0;
+    assign ras_rwr  = 1'b0;
+    assign ras_rtos = '0;
+    assign ras_rcnt = '0;
+    assign ras_rtop = '0;
     logic unused_tage;
-    assign unused_tage = ^{dred_ftq, dred_slot, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
-                           gh_cm, gh_pk, kp_q, kimm_q};
+    assign unused_tage = ^{dred_ftq, dred_slot, dred_rop, dred_rlink, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
+                           gh_cm, gh_pk, kp_q, kimm_q, ras_v, ras_top, ras_tos, ras_cnt, f2_rpush, f2_rpop,
+                           f2_rlink, krt_q};
   end
 
   // ---- Refill engine (one Get at a time) ----
@@ -842,7 +927,7 @@ module tg_fetch
         f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
         f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: fx_slot,
-                         target: f2_tgt_q, tsrc: fx_tsrc,
+                         target: fx_tgt, tsrc: fx_tsrc,
                          uhit: TAGE_ON ? uok && !f2_isfault : f2_taken, uslot: f2_slot_q, ftq: ft_tail,
                          fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
       end
@@ -869,7 +954,7 @@ module tg_fetch
           // (the block again, rather than refilling it twice)
           f1_valid_q <= 1'b1;
           fpc_q      <= k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                      : k_ovr_q ? (kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0}) : miss_pc_q;
+                      : k_ovr_q ? (kr_q ? krt_q : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0}) : miss_pc_q;
           pw_q       <= 1'b0;
         end
       end else if (f2_go) begin
@@ -902,6 +987,8 @@ module tg_fetch
       kt_q     <= ovr_tk;
       kp_q     <= ovr_p;
       kimm_q   <= ovr_imm;
+      kr_q     <= ovr_ras;
+      krt_q    <= fx_tgt;
       fp_q     <= fp;
       if (f2v) begin
         miss_pc_q <= f2_pc_q;

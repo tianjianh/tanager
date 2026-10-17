@@ -19,7 +19,12 @@
 //
 // The stack is circular (NE a power of two): a push past NE entries overwrites the oldest; the
 // count saturates at NE and at 0, and the pointer always moves.
-// Decode does at most one operation per cycle (a group holds at most one, tg_decode_stage).
+// The speculative side's operations come from decode, or with TAGE (TAGE_ON) from fetch's F2, as
+// each block is delivered (its exit's call or return); fetch then also repairs it at decode's
+// redirect, from the redirecting block's FTQ entry: the pointer, count and top entry before the
+// block (r_*). Deeper entries a dropped path overwrote stay wrong until the next flush.
+// The speculative side does at most one operation per cycle (decode: a group holds at most one;
+// fetch: one block's exit).
 // Commit does any number of pops and at most one push per cycle (tg_rob ends a group before a
 // second push), in slot order, a slot's pop before its push.
 module tg_ras
@@ -32,12 +37,20 @@ module tg_ras
   input  logic                clk,
   input  logic                rst,
   input  logic                flush,
-  // Decode: the top; one operation, of a group rename takes
+  // The speculative side: the top; one operation (of a group rename takes, or a delivered block)
   output logic                top_v,      // the stack is not empty
   output logic [38:1]         top,
+  output logic [PW-1:0]       s_tos,      // its pointer and count (TAGE_ON: the FTQ's snapshot)
+  output logic [PW:0]         s_cnt,
   input  logic                d_push,
   input  logic                d_pop,
   input  logic [38:1]         d_link,
+  // A repair (TAGE_ON: decode's redirect): pointer, count and top entry (written when r_wr)
+  input  logic                r_v,
+  input  logic                r_wr,
+  input  logic [PW-1:0]       r_tos,
+  input  logic [PW:0]         r_cnt,
+  input  logic [38:1]         r_top,
   // Commit, in slot order
   input  logic [CW-1:0]       c_push,
   input  logic [CW-1:0]       c_pop,
@@ -95,11 +108,14 @@ module tg_ras
   logic [0:0][38:1]   s_rd, a_rd;
   assign ra[0] = s_tos_q;
   tg_ram_lut #(.DEPTH(NE), .WIDTH(38), .NR(1)) u_spec (
-    .clk, .we(d_push && !flush && !rst), .waddr(s_tos_n), .wdata(d_link), .raddr(ra), .rdata(s_rd));
+    .clk, .we(((r_v && r_wr) || d_push) && !flush && !rst), .waddr(r_v ? r_tos : s_tos_n), .wdata(r_v ? r_top : d_link),
+    .raddr(ra), .rdata(s_rd));
   tg_ram_lut #(.DEPTH(NE), .WIDTH(38), .NR(1)) u_comm (
     .clk, .we(a_we && !rst), .waddr(a_wa), .wdata(a_wd), .raddr(ra), .rdata(a_rd));
   assign top   = sv_q[s_tos_q] ? s_rd[0] : a_rd[0];
   assign top_v = s_cnt_q != '0;
+  assign s_tos = s_tos_q;
+  assign s_cnt = s_cnt_q;
   // the pointer after decode's operation: a pop, then a push
   assign s_tos_n = s_tos_q - PW'(d_pop) + PW'(d_push);
   always_ff @(posedge clk) begin
@@ -111,6 +127,10 @@ module tg_ras
       s_tos_q <= a_tos_d;
       s_cnt_q <= a_cnt_d;
       sv_q    <= '0;
+    end else if (r_v) begin
+      s_tos_q <= r_tos;
+      s_cnt_q <= r_cnt;
+      if (r_wr) sv_q[r_tos] <= 1'b1;
     end else begin
       logic [PW:0] c;
       c = s_cnt_q;
@@ -127,7 +147,7 @@ module tg_ras
   always_ff @(posedge clk) begin
     if (!rst) begin
       assert ($countones(c_push) <= 1) else $error("tg_ras: two pushes in one commit cycle");
-      assert (!(flush && (d_push || d_pop))) else $error("tg_ras: decode moves the stack in a flush cycle");
+      assert (!((flush || r_v) && (d_push || d_pop))) else $error("tg_ras: an operation in a flush's or a repair's cycle");
     end
   end
 `endif
