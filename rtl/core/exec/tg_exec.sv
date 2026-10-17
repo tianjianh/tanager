@@ -33,6 +33,7 @@ module tg_exec
   input  logic                         clk,
   input  logic                         rst,
   input  logic                         flush,
+  input  logic                         spec_cancel, // speculative wakeup's shadow cancel (SPEC_WAKE; tg_issue)
   input  logic                         misa_c,      // C: jump targets need only 2-byte alignment
   // Reset sequence: zero writes into bank 0
   input  logic                         init_we,
@@ -665,7 +666,7 @@ module tg_exec
   end
 
   logic unused;
-  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
+  assign unused = ^{spec_cancel, SPEC_WAKE, wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS
