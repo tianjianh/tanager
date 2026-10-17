@@ -370,7 +370,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
   const M2Ubtb::Look l = m2_.lookup(key);
   const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
-  int n = 0;
+  int n = 0, bubble = 0;
   while ((int64_t)T.fetchq.size() < c_.fetchq) {
     const DynInst* di = get(T, T.fetch_seq);
     if (!di) break;
@@ -384,11 +384,11 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     r.hist = T.ghr;
     const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
     const bool here = hit && slot == l.slot;
-    bool ok = true;
+    bool ok = true, f2 = false;  // f2 (m2_f2): F2's pre-decode redirects fetch, at m2_f2_bubble cycles
     if (!d.is_ctrl()) {
-      if (here) {  // bogus: decode redirects to the next instruction and clears the entry
-        T.st.predecode_redirects++;
-        r.de_redirect = true;
+      if (here) {  // bogus: decode (F2 with m2_f2) redirects to the next instruction and clears the entry
+        if (c_.m2_f2) f2 = true;
+        else { T.st.predecode_redirects++; r.de_redirect = true; }
         m2_.invalidate(key, l);
       }
     } else {
@@ -397,26 +397,28 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       else if (d.is_ret()) T.st.br_ret++;
       else T.st.br_jalr++;
       const uint64_t tgt = d.cls == Cls::JALR ? di->next_pc : di->pc + (uint64_t)d.imm;  // the taken target
-      bool pred_taken = here, fixed = false;
+      bool pred_taken = here, fixed = false, ras_fix = false;
       uint64_t pred_tgt = here ? l.target : 0;
       if (d.cls == Cls::JAL && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
       else if (d.cls == Cls::BR && here && l.target != tgt) { pred_tgt = tgt; fixed = true; }
       // M6 steps on the M2 front end (DSE of area_recovery.md §6.3), each off by default:
       // m2_dir: the direction predictor (dirpred) decides a branch; a taken guess without the micro-BTB's target
-      // is redirected at decode to PC + imm, a not-taken guess against a micro-BTB hit falls through.
+      // is redirected at decode to PC + imm, a not-taken guess against a micro-BTB hit falls through. With m2_f2
+      // (core-2's front end), both redirects come from F2's pre-decode, at m2_f2_bubble cycles.
       if (c_.m2_dir && d.cls == Cls::BR) {
         const bool dp = dir_->predict(di->pc ^ T.salt, T.ghr);  // trained at commit (train_predictors)
         if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
-        else if (!dp) { pred_taken = false; fixed = false; }
+        else if (!dp) { pred_taken = false; fixed = false; if (here && c_.m2_f2) f2 = true; }
       }
       // ras: calls push at fetch; a return the micro-BTB did not predict is redirected at decode to the RAS's top.
       if (c_.ras && d.is_call()) T.ras.push(di->pc + d.len);
       if (c_.ras && d.is_ret()) {
         const uint64_t top = T.ras.top();
         T.ras.pop();
-        if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+        if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
       }
-      if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
+      if (fixed && c_.m2_f2 && !ras_fix) f2 = true;  // direct targets from F2's pre-decode
+      else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;
         r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
@@ -429,15 +431,17 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       T.ghr.push(di->taken, di->pc);
     }
     r.mispred = !ok;
-    if (!ok) r.de_redirect = false;  // the mispredict's recovery restarts fetch
+    if (!ok) { r.de_redirect = false; f2 = false; }  // the mispredict's recovery restarts fetch
     T.fetchq.push_back(r);
     T.fetch_seq++;
     n++;
     if (!ok || r.de_redirect) { T.fe_blocked = true; break; }
+    if (f2) { T.st.f2_overrides++; bubble = (int)c_.m2_f2_bubble; break; }
     if (here || (d.is_ctrl() && di->taken)) break;
     if (di->pc + d.len >= blk_end) break;
   }
-  T.fe_resume = t_ + 1;
+  T.st.taken_bubbles += (uint64_t)bubble;
+  T.fe_resume = t_ + 1 + (uint64_t)bubble;
 }
 
 // One thread fetches per cycle (one I$ access): the first in priority order that can. The others record why

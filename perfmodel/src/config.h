@@ -21,6 +21,8 @@ namespace tg {
   X(m2_ctr, 512, "2-bit counters (PC[10:2]) that gate the micro-BTB's training with fe_m2")       \
   X(m2_wp_train, 0, "fe_m2: extra not-taken trainings of a loop branch mispredicted at its exit (the RTL's wrong path)") \
   X(m2_dir, 0, "fe_m2: the direction predictor (dirpred) decides branches; decode supplies missing targets")   \
+  X(m2_f2, 0, "fe_m2: direct targets and direction overrides come from F2's pre-decode (core-2's TAGE front end), not decode") \
+  X(m2_f2_bubble, 1, "fe_m2 with m2_f2: fetch bubble of an F2 redirect (cycles)")                    \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \

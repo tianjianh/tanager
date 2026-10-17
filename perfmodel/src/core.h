@@ -94,7 +94,7 @@ struct SqEntry {
   X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
   X(mp_refills) X(mp_refill_cycles)                                                                \
-  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong)                                            \
+  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides)                            \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
