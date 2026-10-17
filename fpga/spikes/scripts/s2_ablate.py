@@ -53,15 +53,15 @@ ABLATIONS = {
 
 
 def implicit_nets(rd):
-    """Synth 8-11241 and 8-605 (implicit nets: a name used in a generate block before its declaration
-    is a new, undriven net in Vivado only) about our sources: any file outside the run directory and
+    """Synth 8-11241, 8-605 and 8-3848 (implicit and undriven nets: a name used in a generate block before
+    its declaration is a new, undriven net in Vivado only) about our sources: any file outside the run directory and
     the Xilinx installation (fpga/spikes/tcl/synth_check.tcl)."""
     run = os.path.realpath(rd) + "/"
     hits = set()
     try:
         with open(os.path.join(rd, "vivado.log"), errors="replace") as f:
             for line in f:
-                if not re.search(r"\[Synth 8-(11241|605)\]", line):
+                if not re.search(r"\[Synth 8-(11241|605|3848)\]", line):
                     continue
                 m = re.search(r"\[([^\[\]]+):[0-9]+\]\s*$", line)
                 if m and (os.path.realpath(m.group(1)).startswith(run) or "/Xilinx/" in m.group(1)):
@@ -86,7 +86,7 @@ def synth(name, cfg, files, out, flatten="rebuilt"):
     imp = implicit_nets(rd)
     if imp:
         # fails the variant and keeps its run directory for the diagnosis
-        print(f"{name}: implicit nets in our sources (declare each signal before its first use):",
+        print(f"{name}: implicit or undriven nets in our sources (declare each signal before its first use):",
               *imp, sep="\n  ", file=sys.stderr)
         return None
     vals = {}

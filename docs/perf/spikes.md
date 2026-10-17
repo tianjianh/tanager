@@ -666,7 +666,7 @@ Named paths, slack in ns (the worst over both cores):
 - **Affected:** the G4 refresh, G5, G5R and G6, and G7's first runs (stopped before any result). G7 re-measures on main with the fix and fn11.
 - **Not affected:** G3 (10-14), the §8.2 floorplans (6d0523e), G4 and G4-FP (759ea6a), and the S6 fill tests, whose cores are spike structures without rename.
 - **What it changes:** rename's free-list paths were shorter, and its LUTs fewer, than in a correct build. Only a fixed run measures by how much, and whether a rename path then joins the worst ones.
-- **The check:** the spike flows now fail on Synth 8-11241 or 8-605 in our sources ([`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl) after synthesis, and a scan of the finished log in the wrappers). Vivado files 8-11241 as an INFO, so the logs' ERROR and CRITICAL WARNING scans never saw it.
+- **The check:** the spike flows now fail on Synth 8-11241, 8-605 or 8-3848 ("does not have driver") in our sources ([`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl) after synthesis, and a scan of the finished log in the wrappers). Vivado files 8-11241 as an INFO, so the logs' ERROR and CRITICAL WARNING scans never saw it.
 
 **Question (the coordinator, DR-145):** the user's new target is 125 MHz preferred, 100 MHz minimum, for v1 as scoped (2 cores × SMT2). How fast does the full chip run at those targets, with hart 1's area emulated at the final fill?
 
@@ -927,9 +927,10 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - An unsigned 27 × 18 multiply took two DSPs.
   - A per-tile LUT cost measured before that fix misled the first fill runs.
   - The spikes measure the same inside S6 as out of context, within 2%, which validates the out-of-context budget numbers.
-- **Synthesis-only implicit nets (2026-10-17).** A name used inside a generate block before its declaration is a new, undriven net in Vivado (INFO Synth 8-11241, WARNING Synth 8-605), while Verilator resolves it, so neither lint nor any simulation catches it.
+- **Synthesis-only implicit nets (2026-10-17).** A name used inside a generate block before its declaration is a new, undriven net in Vivado (INFO Synth 8-11241, WARNING Synth 8-605 and 8-3848), while Verilator resolves it, so neither lint nor any simulation catches it.
   - It tied off rename's free-list pop from fn6 to 24ada50, which skews the G4 refresh through G6 (§8.6).
   - The flows now fail on it ([`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl)) and list the Synth 8-6901 forward references, which Vivado resolves.
+  - The core track's `fwdref.sh` finds the same thing without Vivado, from Verilator's JSON view, in about 7 s. The G7 rerun runs it before synthesizing.
 - **Machine sharing.**
   - `vivado_run.sh` waiters lose slots to fresh launches. The track now runs fair-share workers that use one slot while others wait, launch the moment a slot is free, and run from snapshots of committed HEAD.
   - Never edit a running bash script: hand over to a new runner instead.
