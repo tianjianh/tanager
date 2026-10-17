@@ -423,8 +423,11 @@ module tg_lsu
   logic [63:0]       dc_dword;
   logic              lm_req;
   logic [PA_W-1:0]   lm_pa;
-  logic              mshr_idle, deny_v;
-  logic [PA_W-1:6]   deny_line;
+  logic              mshr_idle, lm_fdn;            // lm_fdn: the miss's line, its last fill denied
+  logic              lm_ans_v, lm_ans_wait;      // DR-149 (DC_MSHRS > 1): the miss's answer, its entry
+  logic [idx_w(DC_MSHRS)-1:0] lm_ans_e;
+  logic [DC_MSHRS-1:0] m_done;                   // ... the entries' installs, and any (or none busy)
+  logic              m_wake_any;
   logic              st_req, st_ack;
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
@@ -439,7 +442,7 @@ module tg_lsu
   tg_dcache u_dc (
     .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
-    .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
+    .lm_req, .lm_pa, .mshr_idle, .lm_fdn, .lm_ans_v, .lm_ans_wait, .lm_ans_e, .m_done, .m_wake_any,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
     .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
@@ -637,7 +640,7 @@ module tg_lsu
     end else if (m2_clash_q) begin
       m2_out_w = O_RETRY;
     end else if (!m2_hit_q) begin
-      m2_out_w = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
+      m2_out_w = lm_fdn ? O_FAULT : O_MISS;   // (lm_pa is m2_pa_q: its line's last fill was denied)
     end
     m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
@@ -646,7 +649,7 @@ module tg_lsu
   logic m2_ok, pt_rsp, pt_hit, pt_den;
   assign pt_rsp = m2_v_q && m2_pt_q && !flush;
   assign pt_hit = m2_hit_q && !m2_clash_q;
-  assign pt_den = !m2_hit_q && deny_v && deny_line == m2_pa_q[PA_W-1:6];
+  assign pt_den = !m2_hit_q && lm_fdn;
   // The wakeups do not wait for the PMP checker (m2_okw): a load it denies faults, and the dependents
   // it woke read a stale value and go with the trap's flush (the flush frees its LLT)
   logic m2_okw;
@@ -1723,7 +1726,8 @@ module tg_lsu
   end
 
   logic unused;
-  assign unused = ^{ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
+  assign unused = ^{lm_ans_v, lm_ans_wait, lm_ans_e, m_done, m_wake_any,   // DR-149's, read with DC_MSHRS > 1
+                    ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld};
 
