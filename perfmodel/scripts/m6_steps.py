@@ -84,6 +84,34 @@ def main():
     for name, _, r in res["cumulative"]:
         print(f"| + {name} | {r['suite_ipc']:.3f} | {r['coremark_A']:.2f} | {r['dmips']:.2f} | {g(r, prev, 'suite_ipc'):+.1%} |")
         prev = r
+    nax_check(res)
+
+
+def nax_check(res):
+    """§6.2's claim with the core as built: one core alone at 100 MHz against NaxRiscv at 135 and 150 MHz, with the
+    DR-145 study's uncore (one core: the whole L2, both ports, no L2 prefetcher; DRAM 184 ns)."""
+    def soc(f):
+        return {"l2_kb": 1024, "l2_ways": 8, "l2_mshr": 48, "l2_lat": 10, "dram_line_cyc": 2, "pf_stream": 0,
+                "dram_lat": int(184 * f / 1000 + 0.5)}
+    rows = {}
+    for m in (1, 4):
+        cfg = ("rtl_m2", {**soc(100), "l1d_mshr": m})
+        rows[f"v1 as built, {m} L1D miss{'es' if m > 1 else ''}, 100 MHz"] = (100, dse.summarize(
+            dse.collect([cfg], ISA, workers=WORKERS)[dse.key(ISA, *cfg)[0]]))
+    for f in (135, 150):
+        cfg = ("nax", soc(f))
+        rows[f"NaxRiscv, {f} MHz"] = (f, dse.summarize(dse.collect([cfg], ISA, workers=WORKERS)[dse.key(ISA, *cfg)[0]]))
+    nx = [rows["NaxRiscv, 135 MHz"], rows["NaxRiscv, 150 MHz"]]
+    print("\n| One core alone | Suite IPC x MHz | ÷ NaxRiscv 135 / 150 | Memsuite IPC x MHz | ÷ NaxRiscv 135 / 150 |")
+    print("|---|---|---|---|---|")
+    for name, (f, s) in rows.items():
+        ps, pm = s["suite_ipc"] * f, s["memsuite_ipc"] * f
+        rs = " / ".join(f"{ps / (n['suite_ipc'] * nf):.2f}" for nf, n in nx)
+        rm = " / ".join(f"{pm / (n['memsuite_ipc'] * nf):.2f}" for nf, n in nx)
+        print(f"| {name} | {ps:.0f} | {rs} | {pm:.0f} | {rm} |")
+    res["nax_check"] = {k: {"mhz": f, "suite_ipc": s["suite_ipc"], "memsuite_ipc": s["memsuite_ipc"]}
+                        for k, (f, s) in rows.items()}
+    OUT.write_text(json.dumps(res, indent=1, default=str) + "\n")
 
 
 if __name__ == "__main__":
