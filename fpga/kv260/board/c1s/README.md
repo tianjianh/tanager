@@ -63,3 +63,8 @@
 - **Not the synthesis strategy:** c1s used `AreaOptimized_high`; p0 and p0d2 used the default (their synthesis logs on the 5950X have no directive), and hang the same way. p0's trace shows the same wrong values on both harts.
 - **Candidates since the last one-core tree that booted here** (DR-141's `3eed95f`/`c129d19`, an `st` core): the core track's fn6 change "rename's free lists take their pop last" (`0c4b011`, via `4c904a4`), and the atomic path (`41a4eb7`, `755fe6b`). The simulation of this tree gets the values right, so the difference to look for is in timing the board has (MMIO answers in 10 cycles, line fills in about 60) or in how the hardware realizes a memory (read during write).
 - **Reported** to soc-2, core-2 and verif-2, with the logs (`~/tanager-build/board/c1s-board/` on the 5950X).
+
+**Later the same night: the cause.** [st2](../st2/README.md), two `st` cores of this tree, hangs the same way, and the M4 bitstream on the same board gets these values right ([control](../ctl-m4/README.md)).
+- **Vivado's logs:** every hanging build has rename's free lists' `rn_fire` as an undriven net; no build that booted does.
+- **Why:** `tg_rename.sv` uses `rn_fire` in generate blocks before declaring it, so Vivado makes implicit nets there (`0c4b011`, fn6).
+- **So** it is renaming, as read above, but it is neither the read-during-write semantics nor the board's timing. It is an implicit net that Verilator does not make.
