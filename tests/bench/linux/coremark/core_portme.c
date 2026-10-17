@@ -48,12 +48,16 @@ void portable_init(core_portable *p, int *argc, char *argv[]) {
 #ifndef TGLB_NAME
 #define TGLB_NAME "coremark"
 #endif
+#ifndef TGLB_MARCH
+#define TGLB_MARCH "default"
+#endif
 
 void portable_fini(core_portable *p) {
   /* p is results[0].port: the results hold the iteration count CoreMark settled on. */
   const core_results *res = (const core_results *)((const char *)p - offsetof(core_results, port));
-  char extra[64];
-  snprintf(extra, sizeof extra, " iterations=%u crc=0x%04x", (unsigned)res->iterations, (unsigned)res->crc);
+  char extra[96];
+  snprintf(extra, sizeof extra, " iterations=%u crc=0x%04x march=%s", (unsigned)res->iterations, (unsigned)res->crc,
+           TGLB_MARCH);
   tglb_report(TGLB_NAME, run_label, &m_start, &m_stop, (uint64_t)res->iterations, extra);
   p->portable_id = 0;
 }
