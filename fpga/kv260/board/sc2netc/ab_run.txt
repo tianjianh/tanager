@@ -1,0 +1,105 @@
+== A: image reset
+br0 is up: br0              UP             192.168.137.177/24 
+tanager-host for this run: 1e5fca512da04256 (tanager-host-1e5fca51)
+loaded tanager-sc2 at 14:11:38; fpga0 operating
+fan: pwm1 15/255, AMS temp1 31 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 7200 < console
+login prompt 297 s after the load
+commands done 787 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 124514078 reads, native latency avg 21.3 max 70 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                493690822
+  L2 bank 0 B out (probes)        5097995
+  L2 bank 0 C in                331603792
+  L2 bank 0 D out              1888297950
+  L2 bank 0 E in (GrantAck)     163597760
+  L2 bank 0 misses               62455525
+  L2 bank 0 AXI reads            62455525
+  L2 bank 0 fills                62455495
+  L2 bank 1 A in                485080929
+  L2 bank 1 B out (probes)        4446138
+  L2 bank 1 C in                319784043
+  L2 bank 1 D out              1847539551
+  L2 bank 1 E in (GrantAck)     158148656
+  L2 bank 1 misses               62058585
+  L2 bank 1 AXI reads            62058585
+  L2 bank 1 fills                62058578
+  core 0 l1d A out             131321112
+  core 0 l1d B in (probes)       4912389
+  core 0 l1d C out             272876339
+  core 0 l1d D in              654297893
+  core 0 l1d E out (GrantAck)  131321112
+  core 1 l1d A out             190425304
+  core 1 l1d B in (probes)       4631744
+  core 1 l1d C out             378511496
+  core 1 l1d D in              949920643
+  core 1 l1d E out (GrantAck)  190425304
+  L2 error events                 148
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+power-off reached the host 814 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (799 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 14:25:16
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 1
+== B: image reset
+br0 is up: br0              UP             192.168.137.177/24 
+tanager-host for this run: 5232908901445a67 (tanager-host)
+loaded tanager-sc2 at 14:25:56; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 7200 < console
+login prompt 293 s after the load
+commands done 772 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 116951210 reads, native latency avg 21.3 max 69 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                482500607
+  L2 bank 0 B out (probes)        4855556
+  L2 bank 0 C in                314937409
+  L2 bank 0 D out              1833697369
+  L2 bank 0 E in (GrantAck)     153603915
+  L2 bank 0 misses               58647918
+  L2 bank 0 AXI reads            58647918
+  L2 bank 0 fills                58647886
+  L2 bank 1 A in                470666591
+  L2 bank 1 B out (probes)        4234286
+  L2 bank 1 C in                306838177
+  L2 bank 1 D out              1780877359
+  L2 bank 1 E in (GrantAck)     149189072
+  L2 bank 1 misses               58303483
+  L2 bank 1 AXI reads            58303483
+  L2 bank 1 fills                58303476
+  core 0 l1d A out             127263859
+  core 0 l1d B in (probes)       4633339
+  core 0 l1d C out             262889915
+  core 0 l1d D in              634013381
+  core 0 l1d E out (GrantAck)  127263859
+  core 1 l1d A out             175529128
+  core 1 l1d B in (probes)       4456503
+  core 1 l1d C out             358885671
+  core 1 l1d D in              875396008
+  core 1 l1d E out (GrantAck)  175529128
+  L2 error events                 156
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+power-off reached the host 800 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (795 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 14:39:19
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 1
+A/B done at 14:39:19
