@@ -25,8 +25,11 @@ foreach dcp $argv {
         puts $fh [format "  core %d %-20s -> %-16s no cells (%d / %d)" $c $from $to [llength $f] [llength $t]]
         continue
       }
+      # structurally: the destination registers the sources' outputs reach at all (exceptions do not matter)
+      set eps [all_fanout -quiet -flat -endpoints_only -from [get_pins -quiet -of_objects $f -filter {DIRECTION == OUT}]]
+      set reach [llength [lsort -unique [get_cells -quiet -of_objects $eps -filter "NAME =~ *${core}/${to}"]]]
       set ps [get_timing_paths -quiet -from $f -to $t -setup -max_paths 1000 -nworst 1 -unique_pins]
-      if {![llength $ps]} { puts $fh "  core $c $from -> $to: no path"; continue }
+      if {![llength $ps]} { puts $fh [format "  core %d %-20s -> %-16s no timed path; %d of %d destination registers reachable" $c $from $to $reach [llength $t]]; continue }
       set worst ""; set wd -1; set over 0
       foreach p $ps {
         set d [get_property DATAPATH_DELAY $p]
