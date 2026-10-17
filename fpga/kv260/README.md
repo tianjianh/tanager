@@ -300,11 +300,14 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
 - **The workload set:** 54/54 measurements, CoreMark 6/6.
 - **Lockstep:** two-core Linux passes the checker from boot to power-off: 408,432,254 records, 14,594 traps, 19,840 interrupts.
   - **What it took:** a device tree that tells Linux the timer runs at 1 GHz. On the real 10 MHz clock the first run had no mismatch in 425,955,311 records, but the boot could not finish. The timer counts in real time while trace backpressure throttles the cores, so the periodic tick's catch-up loop never ends.
-  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores.
+  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores. With it, [p0g](board/p0g/README.md) passes on the normal 10 MHz tree: 395,612,106 records from boot to power-off, with kernel timestamps as in an unchecked boot.
+- **The L2 error events** of traced and busy runs are speculative line fills beyond the 1 GiB DRAM window, which it refuses: refusals × 4 beats = the events. They are harmless. DR-151 shrinks the core's memory region to the real 1 GiB.
 
 **Stage C, Debian 13 through U-Boot** ([sc2](board/sc2/README.md)): two `smt2` cores with the virtio window and the host DMA port.
 - **Buildroot:** virtio-blk (the md5 matches the host's) and virtio-rng work.
 - **Debian:** U-Boot 2026.07 loads Debian's own kernel `6.12.111+deb13-riscv64` from a virtio-blk disk image.
   - systemd reaches `multi-user.target` with no failed units, in 3 min 42 s, with `nproc` 2.
   - `sudo poweroff` ends it cleanly.
-- **Open:** the L2 logs error events under heavy traffic: 68 in the Debian run, 5,928 in the lockstep run. The SoC track is identifying them.
+- **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
+  - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
+  - virtio-net is slow so far (84 kB/s).
