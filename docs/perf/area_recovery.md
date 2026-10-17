@@ -797,6 +797,13 @@ Every v1 row uses the default profile. The fallback changes nothing measurable (
   - A correct-path model can follow wrong paths only for the loop-exit case above.
   - Between mispredicts, statemate also runs about 30% slower in the RTL. The cause is not found.
 - **minver (the model is 16% pessimistic): FP.** The FPU's latencies match the RTL's (FMA 5, FMISC 2, divide 19 / 23), so the cause is in the model's FP issue path. Not found yet.
+- **Checked against core-2's RTL counters** on its RAS head (f34b08a, `st`, native, the bench's rv64im ELFs):
+  - **CoreMark A with the RAS:** 15.8 mispredicts per 1,000 instructions in the model, against 16.3 flushes in the RTL.
+  - **The RAS's effect:**
+    - CoreMark: −1.9% (A) and −0.8% (B) cycles in the model, against −1% to −2.3% in the RTL.
+    - Dhrystone: +24% DMIPS/MHz in the model's suite build, against +22.7% in the RTL (1.667 → 2.046). On the bench ELFs the model takes 23% of the cycles off, against the RTL's 18.5%.
+  - **Dhrystone with the RAS:** 13.3 mispredicts per 1,000 instructions in the model, against 18.6 flushes in the RTL. This is the wrong-path training above.
+  - **How much runs on the wrong path:** the RTL resolves 37.6K conditional branches in Dhrystone, about 13K of them on the correct path. Most of its branch work is on the wrong path.
 - **Why the model's v1 was twice the RTL,** largest first:
   - the front end: M2's micro-BTB alone predicts far worse than TAGE-lite with a block BTB and a RAS, and with recovery at commit each mispredict costs about 13 cycles;
   - one L1D miss in flight;
