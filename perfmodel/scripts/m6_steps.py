@@ -25,7 +25,7 @@ FULL_FE = {"fe_m2": 0, "m2_dir": 0, "dirpred": 2, "tage_log": 12, "ras": 32, "bt
 STEPS = [
     ("RAS (32, decode repair)", {"ras": 32}, None, "not estimated (ledger: block BTB, RAS and FTQ not swept)"),
     ("TAGE-lite (4 x 4K)", {"m2_dir": 1, "dirpred": 2, "tage_log": 12}, 0.82, "ledger: 2.0% of the core, +6 BRAM36"),
-    ("Block BTB and FTQ (1K x 4, 32; FDIP)", {"fe_m2": 0, "dirpred": 0, "gshare_log": 9, "ras": 0, "btb_block": 1,
+    ("Block BTB and FTQ (1K x 4, 32; FDIP)", {"fe_m2": 0, "dirpred": 0, "gshare_log": 9, "ras": 0, "ret_btb": 1, "btb_block": 1,
                                               "fdip": 1, "ftq": 32}, None, "not estimated (ledger: not swept)"),
     ("Checkpoint recovery (4)", {"ckpt": 4}, 0.50, "ledger: 0 -> 4, 1.22%"),
     ("Speculative wakeup (hit predictor, shadow 2)", {"spec_wakeup": 1, "hit_pred": 1, "shadow": 2}, 0.50,

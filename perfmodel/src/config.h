@@ -38,6 +38,7 @@ namespace tg {
   X(tage_hmax, 64, "TAGE longest history (<= 128)")                                                \
   X(ras, 32, "return address stack entries")                                                       \
   X(ras_at_decode, 0, "returns use the BTB target at fetch; the RAS corrects at decode (NaxRiscv)") \
+  X(ret_btb, 0, "with ras = 0: returns are predicted by the BTB's stored target (0 = every return mispredicts)") \
   X(fdip, 1, "fetch-directed I-cache prefetch")                                                    \
   X(ftq, 32, "fetch target queue blocks (FDIP lookahead)")                                         \
   X(fusion, 1, "macro-op fusion")                                                                  \

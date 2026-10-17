@@ -336,7 +336,7 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
       if (d.is_call()) ras_push(pc + d.len);
       break;
     case Cls::JALR:
-      if (d.is_ret()) {
+      if (d.is_ret() && (c_.ras || !c_.ret_btb)) {  // ret_btb: without a RAS, returns use the BTB's target
         T.st.br_ret++;
         const uint64_t pt = T.ras.top();
         r.ras.op = true; r.ras.sp = T.ras.sp(); r.ras.slot = -1;
