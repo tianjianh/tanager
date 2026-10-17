@@ -7,13 +7,17 @@
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
 # An elaboration whose define no RTL file mentions is the default's, so it is skipped.
-#   tools/ci/lint_all.sh [JOBS=6] [CFGS="st smt2 st_w3 smt2_w3"]
+# Beside them, with VIVADO=1 (the default), Vivado's own reading of the RTL (tools/ci/vivado_rtl_lint.sh,
+# DR-150): its simulator's parser and its RTL elaboration of the board top and the core, failing on a
+# name used before its declaration and on implicit or undriven nets, which Verilator resolves its own
+# way (the board's two-core hang, rn_fire). It goes through the Vivado admission and may wait there.
+#   tools/ci/lint_all.sh [JOBS=6] [CFGS="st smt2 st_w3 smt2_w3"] [VIVADO=1]
 set -u
-JOBS=6 CFGS="st smt2 st_w3 smt2_w3"
+JOBS=6 CFGS="st smt2 st_w3 smt2_w3" VIVADO=1
 for kv in "$@"; do
   case "$kv" in
-    JOBS=*|CFGS=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [JOBS=N] [CFGS=\"st ...\"]"; exit 2 ;;
+    JOBS=*|CFGS=*|VIVADO=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [JOBS=N] [CFGS=\"st ...\"] [VIVADO=0|1]"; exit 2 ;;
   esac
 done
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -28,11 +32,11 @@ profiles+=("")
 if mentioned TG_ROB_STORE_REPORT_LATE; then profiles+=("ROB_STORE_REPORT_LATE=1"); else echo "lint-all: no RTL mentions TG_ROB_STORE_REPORT_LATE; skipping ROB_STORE_REPORT_LATE=1"; fi
 if mentioned TG_DE_STAGE; then profiles+=("DE_STAGE=1"); else echo "lint-all: no RTL mentions TG_DE_STAGE; skipping DE_STAGE=1"; fi
 if mentioned TG_COMMIT_TRACE; then profiles+=("COMMIT_TRACE=0"); else echo "lint-all: no RTL mentions TG_COMMIT_TRACE; skipping COMMIT_TRACE=0"; fi
+if mentioned TG_DC_MSHRS; then profiles+=("DC_MSHRS=4"); else echo "lint-all: no RTL mentions TG_DC_MSHRS; skipping DC_MSHRS=4"; fi
 profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
-if mentioned TG_DC_MSHRS; then profiles+=("DC_MSHRS=4"); else echo "lint-all: no RTL mentions TG_DC_MSHRS; skipping DC_MSHRS=4"; fi
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
@@ -51,13 +55,31 @@ export ROOT LOGS
 # a log that stderr is redirected to, truncating it and writing over the other stream.)
 results=$(mktemp "$LOGS/.results.XXXXXX")
 trap 'rm -f "$results"' EXIT
+vpid=""
+if [ "$VIVADO" = 1 ]; then
+  "$ROOT/tools/ci/vivado_rtl_lint.sh" > "$LOGS/vivado-rtl-lint.log" 2>&1 &
+  vpid=$!
+fi
 printf '%s\n' "${tasks[@]}" | xargs -P "$JOBS" -I{} bash -c 'lint_one "$1"' _ {} | tee "$results"
+vfail=0
+if [ -n "$vpid" ]; then
+  wait "$vpid" || vfail=1
+  grep '^vivado-rtl-lint: \|^    ' "$LOGS/vivado-rtl-lint.log"
+fi
 fails=$(grep '^FAIL' "$results")
 if [ -n "$fails" ]; then
   sed 's/.*(log: \(.*\))$/\1/' <<< "$fails" | while read -r log; do
     echo "---- $log"; { grep -E '^%(Error|Warning)' "$log" || tail -5 "$log"; } | head -20
   done
-  echo "lint-all FAIL: $(grep -c . <<< "$fails") of ${#tasks[@]} elaborations ($((SECONDS - t0)) s)"
+fi
+vsum=""
+if [ -n "$vpid" ]; then
+  if [ $vfail = 1 ]; then vsum=", Vivado's reading FAILED"
+  elif grep -q '^vivado-rtl-lint: SKIP' "$LOGS/vivado-rtl-lint.log"; then vsum=", Vivado's reading skipped (no Vivado)"
+  else vsum=", Vivado's reading clean"; fi
+fi
+if [ -n "$fails" ] || [ $vfail = 1 ]; then
+  echo "lint-all FAIL: $(grep -c . <<< "$fails") of ${#tasks[@]} elaborations$vsum ($((SECONDS - t0)) s)"
   exit 1
 fi
-echo "lint-all OK: ${#tasks[@]} elaborations ($((SECONDS - t0)) s)"
+echo "lint-all OK: ${#tasks[@]} elaborations$vsum ($((SECONDS - t0)) s)"

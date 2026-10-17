@@ -1,7 +1,8 @@
 # Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
 #   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
 #                            [ROB_STORE_REPORT_LATE=0|1] [COMMIT_TRACE=0|1] [SYNTH=1]
-#   make lint-all            lint all four configurations, each in six elaborations, the synthesis view included [LINT_JOBS=6]
+#   make lint-all            lint all four configurations, each in six elaborations, the synthesis view included, and
+#                            Vivado's own reading of the RTL (tools/ci/vivado_rtl_lint.sh) [LINT_JOBS=6] [VIVADO=0|1]
 #   make regress CFG=st      verification regression (tools/ci/regress.sh; CORE=tcore for the test core)
 #   make regress-profiles CFG=st   the same for both of DR-140's profiles at once
 #   make cycle-identical CFG=st [BASE=<commit>] [BOOT=N]   does this tree's RTL run cycle for cycle like BASE's?
@@ -36,9 +37,12 @@ lint:
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
 # never run in CI or the soak); and the default's synthesis view (SYNTH=1).
 # LINT_JOBS run at a time, and one whose define no RTL file mentions is skipped (tools/ci/lint_all.sh).
+# Beside them Vivado parses and elaborates the RTL (VIVADO=0 skips it): implicit and undriven nets, and
+# names used before their declaration, which Verilator resolves its own way (DR-150, rn_fire).
 LINT_JOBS ?= 6
+VIVADO    ?= 1
 lint-all:
-	@tools/ci/lint_all.sh JOBS=$(LINT_JOBS) CFGS="$(CFGS)"
+	@tools/ci/lint_all.sh JOBS=$(LINT_JOBS) CFGS="$(CFGS)" VIVADO=$(VIVADO)
 
 # Verification regression for one configuration (docs/spec/verification.md §4.3). regress-profiles runs
 # both of DR-140's profiles, the default and the fallback, side by side with half the jobs each.
