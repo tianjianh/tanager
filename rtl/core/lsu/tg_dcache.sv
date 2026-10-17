@@ -291,6 +291,8 @@ module tg_dcache
   assign alloc_ld = al_base && lm_req && !(|ch) && !am_req && !(st_req && !s_hit_t);
   logic [PA_W-1:0]  al_pa;
   assign al_pa = alloc_st ? sx_pa : lm_pa;
+  logic dn_v_q;                          // the last denied fill (registered below)
+  logic [PA_W-1:6] dn_line_q;
   logic dn_hit;                          // the store port's line: its last fill was denied
   logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
   logic al_go;                           // the MSHR allocates this cycle
@@ -509,8 +511,6 @@ module tg_dcache
     d_ready_o = 1'b1;
     if (ms_q == M_GRANT && (ps_q == P_RD || ps_q == P_SEND)) d_ready_o = 1'b0;
   end
-  logic dn_v_q;
-  logic [PA_W-1:6] dn_line_q;
   assign deny_v    = dn_v_q;
   assign deny_line = dn_line_q;
 
