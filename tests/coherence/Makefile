@@ -15,12 +15,13 @@
 # L2_SETS is the L2's sets in tb_boot (L2_SETS_TB): the board's 1024 by default, as tanager_soc builds it
 # for the KV260; 64 is tb_boot's own default, which the boot test keeps. Each count other than 64 builds
 # tb_boot in a directory of its own (the boot test's TAG). HDMA=1 builds tb_boot with the host-DMA model
-# (HOST_DMA_TB, the SoC track's), which the dma mode needs; it is the default when MODES names dma.
+# (HOST_DMA_TB, the SoC track's), which the dma mode needs; it is the default when MODES names dma, as
+# the default MODES does once tb_boot has the model.
 # Failures are kept, with a line that reproduces them, in $TANAGER_BUILD/<worktree>/coherence/<cfg>/failures.
 CFG      ?= st
 N        ?= 40
 SEED     ?= 1
-MODES    ?= lottery,amo,mix,lrsc,lottery-lrsc,mp,race
+MODES    ?= lottery,amo,mix,lrsc,lottery-lrsc,mp,race$(if $(HDMA_OK),$(comma)dma)
 MODE     ?= lottery
 LAT      ?= default
 LOCKSTEP ?= 1
@@ -36,6 +37,8 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 include $(ROOT)/sim/profile.mk
+# dma joins the default modes once tb_boot has the host-DMA model (the SoC track's HOST_DMA_TB)
+HDMA_OK := $(shell grep -qs HOST_DMA_TB $(ROOT)/tests/unit/boot/tb_boot.sv && echo 1)
 L2TAG := $(if $(filter 64,$(L2_SETS)),,_l2s$(L2_SETS))$(if $(filter 1,$(HDMA)),_hdma)
 TBPARAMS := $(strip $(if $(filter-out 64,$(L2_SETS)),-GL2_SETS_TB=$(L2_SETS)) $(if $(filter 1,$(HDMA)),-GHOST_DMA_TB=1))
 TB   := $(TANAGER_BUILD)/$(WT)/tests/boot$(L2TAG)$(TC_SUFFIX)_c2_t1_$(CFG)/tb_boot

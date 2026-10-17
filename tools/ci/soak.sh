@@ -35,7 +35,8 @@ spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
-COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation
+COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation;
+                                                      # dma too once tb_boot has the host-DMA model (HOST_DMA_TB)
 
 log() { echo "$(date '+%F %T') soak: $*"; }
 # What the soak builds from a commit: a main that changes none of it needs no rebuild.
@@ -108,15 +109,22 @@ prepare() {
   # coherence rounds off for this main and keeps the random rounds going.
   echo > "$SOAK/coh"
   # The board's L2 sets once tb_boot takes the count (L2_SETS_TB), in the boot test's tagged directory
-  local l2tag=""
-  grep -q "L2_SETS_TB" "$src/tests/unit/boot/tb_boot.sv" 2>/dev/null && l2tag="_l2s$COH_L2_SETS"
+  local l2tag="" params="" modes="$COH_MODES"
+  if grep -q "L2_SETS_TB" "$src/tests/unit/boot/tb_boot.sv" 2>/dev/null; then
+    l2tag="_l2s$COH_L2_SETS"; params="-GL2_SETS_TB=$COH_L2_SETS"
+  fi
+  # The host-DMA model's lines for the dma mode (DR-147 stage C, verification.md §3.10), once tb_boot has it
+  if grep -q "HOST_DMA_TB" "$src/tests/unit/boot/tb_boot.sv" 2>/dev/null; then
+    l2tag="${l2tag}_hdma"; params="$params -GHOST_DMA_TB=1"; modes="$modes,dma"
+  fi
   echo "$l2tag" > "$SOAK/coh_tag"
+  echo "$modes" > "$SOAK/coh_modes"
   if [ -n "$coh" ]; then
     if ( source "$src/tools/env.sh" >/dev/null 2>&1
          export CCACHE_DISABLE=1
          for cfg in $COH_CFGS; do
            make -s -C "$src/tests/unit/boot" build CFG="$cfg" CORES=2 VTHREADS=1 JOBS="$BUILD_JOBS" \
-             TANAGER_BUILD="$tmp" ${l2tag:+TAG=$l2tag MEM_PARAMS=-GL2_SETS_TB=$COH_L2_SETS} || exit 1
+             TANAGER_BUILD="$tmp" ${l2tag:+TAG=$l2tag} ${params:+MEM_PARAMS="$params"} || exit 1
            keep "$tmp" "tests/boot${l2tag}_c2_t1_$cfg" || exit 1
          done
          make -s -C "$src/sim" TANAGER_BUILD="$tmp" lockstep && keep "$tmp" sim/lockstep ) \
@@ -204,7 +212,8 @@ coh_campaign() {
   mkdir -p "$work"
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
     python3 "$SOAK/src/tanager/tests/coherence/run_coh.py" --tb "$tb" \
-      --lockstep "$SOAK/build/tanager/sim/lockstep/tanager-lockstep" --harts "$harts" --modes "$COH_MODES" \
+      --lockstep "$SOAK/build/tanager/sim/lockstep/tanager-lockstep" --harts "$harts" \
+      --modes "$(cat "$SOAK/coh_modes" 2>/dev/null || echo "$COH_MODES")" \
       $(cat "$SOAK/coh") --n "$COH_SEEDS" --seed "$seed" --jobs 4 --workdir "$work" --name "soak $label" \
   ) > "$work/out.txt" 2>&1
   local res pass failed hung lsm gen
