@@ -17,6 +17,9 @@ constexpr uint64_t MMIO_GETC = 0x10000004ull;    // load: next stdin byte, or -1
 constexpr uint64_t MMIO_EXIT = 0x10000008ull;    // store: exit with this code
 constexpr uint64_t MMIO_MARKER = 0x10000010ull;  // store: region marker (1 = start, 2 = stop)
 constexpr uint64_t MMIO_SIZE = 0x1000ull;
+// The RTL simulation platform's ELFs (tests/bench, verification.md §2.6) also run: their 16550 status register
+// reads as empty and ready, and stores to their `tohost` and `tg_marker` symbols exit and mark the region.
+constexpr uint64_t UART_LSR = 0x10000005ull;
 
 struct DynInst {
   uint64_t seq = 0;           // dynamic instruction number
@@ -86,6 +89,7 @@ class Iss {
   bool resv_valid_ = false;
   bool exited_ = false;
   int exit_code_ = 0;
+  uint64_t tohost_ = 0, marker_ = 0;  // RTL-platform ELFs: the `tohost` and `tg_marker` symbols (0 = none)
   std::string error_;
   std::string out_;
   std::string in_;

@@ -165,7 +165,7 @@ MemSys::Res MemSys::l1d(uint64_t addr, uint64_t t, Kind kind, uint64_t& ready) {
   if (demand) CNT(l1d_miss);
   else if (kind == PREFETCH) CNT(pf_l1_issued);
   else CNT(rfo_pf_issued);
-  const uint64_t done = l2_fill(line, t, demand);
+  const uint64_t done = l2_fill(line, t, demand) + (uint64_t)c_.l1_fill_extra;
   m->line = line; m->ready = done; m->demand = demand; m->tid = tid;
   l1d_.insert(line, done, kind == PREFETCH);
   ready = done;
@@ -205,7 +205,7 @@ MemSys::Res MemSys::l1i(uint64_t addr, uint64_t t, bool prefetch, uint64_t& read
   Mshr* m = free_slot(l1i_m_, t);
   if (!prefetch) CNT(l1i_miss);
   else CNT(pf_i_issued);
-  const uint64_t done = l2_fill(line, t, !prefetch);
+  const uint64_t done = l2_fill(line, t, !prefetch) + (uint64_t)c_.l1_fill_extra;
   m->line = line; m->ready = done; m->demand = !prefetch; m->tid = tid;
   l1i_.insert(line, done, prefetch);
   ready = done;

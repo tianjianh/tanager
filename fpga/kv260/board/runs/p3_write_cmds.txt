@@ -1,0 +1,1 @@
+findmnt -no SOURCE,FSTYPE,SIZE /; cat /proc/cmdline; lsblk /dev/vda; echo "vda sectors: $(cat /sys/block/vda/size)"; sudo dmesg | grep -E "vda|EXT4-fs \(vda"; df -h / | tail -1; sudo dd if=/dev/urandom of=/var/tmp/blktest bs=1M count=64 conv=fsync status=none && sha256sum /var/tmp/blktest | tee /var/tmp/blktest.sha256; sync; ls -la /var/tmp/blktest*

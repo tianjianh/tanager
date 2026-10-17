@@ -1,7 +1,10 @@
 // L2 bank random test against a reference memory (docs/spec/l2.md §Verification).
 //   NA agents: behavioural TL-C L1D models (MESI, small caches) issuing AcquireBlock/AcquirePerm,
 //              storing into owned lines, evicting with Release/ReleaseData, answering probes by the
-//              TileLink rules (a ProbeAck waits for a pending ReleaseAck on the same line).
+//              TileLink rules (a ProbeAck waits for a pending ReleaseAck on the same line). ACQ_N > 1:
+//              up to ACQ_N Acquires outstanding per agent (sources 0 .. ACQ_N-1, the Release source 4),
+//              to different lines, as the 4-miss L1D sends them (DR-149); Grants may come in any order,
+//              but one Grant's beats must not interleave with another's.
 //   l1i client: line Gets (source[9:6] = 4).  mmio client: Get/PutFull/PutPartial of every size (8).
 //   Memory: tb_axi_mem with random latency and out-of-order bursts.
 // Checks every GrantData and AccessAckData against the reference, permission rules, inclusive
@@ -17,6 +20,7 @@ module tb_l2;
   parameter int NSETS_USED = 4;      // sets the line pool covers
   parameter int NTAGS  = 12;         // lines per set in the pool (> 8 ways forces evictions)
   parameter int CAP    = 6;          // lines an agent caches at most
+  parameter int ACQ_N  = 1;          // Acquires an agent keeps outstanding at most (DR-149: 4)
 
   localparam int SET_W = $clog2(SETS);
   localparam int NLINES = NSETS_USED * NTAGS;
@@ -35,6 +39,11 @@ module tb_l2;
   axi_w_t  w;   logic w_valid, w_ready;
   axi_b_t  bresp; logic bresp_valid, bresp_ready;
   logic    init_done, ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
+  logic [31:0]     ev_err_info;
+  logic [PA_W-7:0] ev_err_line;
+  // the injected AXI errors are the only ones here: each comes described as a write or fill error
+  always @(posedge clk) if (ev_err)
+    assert (ev_err_info[2:0] == 3'd4 || ev_err_info[2:0] == 3'd5) else $error("L2 error described as kind %0d", ev_err_info[2:0]);
 
   tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT),
                .DIR_S3(DIR_S3)) dut (
@@ -50,7 +59,7 @@ module tb_l2;
     .w_o (w), .w_valid_o (w_valid), .w_ready_i (w_ready),
     .bresp_i (bresp), .bresp_valid_i (bresp_valid), .bresp_ready_o (bresp_ready),
     .init_done_o (init_done), .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb),
-    .ev_probe_o (ev_probe), .ev_err_o (ev_err)
+    .ev_probe_o (ev_probe), .ev_err_o (ev_err), .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)
   );
 
   // Lines at or above ERR_BASE answer SLVERR (the +errlines mode puts some pool lines there).
@@ -82,12 +91,26 @@ module tb_l2;
     return st.exists(key(ag, l)) ? st[key(ag, l)] : 0;
   endfunction
 
-  bit              acq_busy [NA];
-  longint unsigned acq_line [NA];
-  bit              acq_perm [NA];
-  logic [2:0]      acq_param[NA];
-  int              acq_beats[NA];
-  logic [511:0]    acq_buf  [NA];
+  bit              acq_busy [NA][ACQ_N];
+  longint unsigned acq_line [NA][ACQ_N];
+  bit              acq_perm [NA][ACQ_N];
+  logic [2:0]      acq_param[NA][ACQ_N];
+  int              acq_beats[NA][ACQ_N];
+  logic [511:0]    acq_buf  [NA][ACQ_N];
+  // an outstanding Acquire of agent ag: for line l; any; the first free slot (-1: none)
+  function automatic bit acq_on(input int ag, input longint unsigned l);
+    for (int k = 0; k < ACQ_N; k++) if (acq_busy[ag][k] && acq_line[ag][k] == l) return 1'b1;
+    return 1'b0;
+  endfunction
+  function automatic bit acq_any(input int ag);
+    for (int k = 0; k < ACQ_N; k++) if (acq_busy[ag][k]) return 1'b1;
+    return 1'b0;
+  endfunction
+  function automatic int acq_free(input int ag);
+    for (int k = 0; k < ACQ_N; k++) if (!acq_busy[ag][k]) return k;
+    return -1;
+  endfunction
+  localparam logic [5:0] REL_SRC = (ACQ_N > 1) ? 6'd4 : 6'd2;
   bit              rel_busy [NA];
   longint unsigned rel_line [NA];
   typedef struct { longint unsigned line; logic [2:0] cap; } probe_t;
@@ -120,6 +143,8 @@ module tb_l2;
   endfunction
   int  ops, ops_target, errors, checks;
   int  n_probe, n_pack_data, n_grant_b, n_grant_t, n_upgrade, n_perm, n_rel_data, n_put, n_get_ul, n_denied;
+  int  max_acq;                      // the most Acquires one agent had outstanding at once
+  int  n_pr_upg, n_pr_fill;          // probes answered while that line's upgrade (B held) or fill is in flight
   longint unsigned cyc, last_progress;
   bit  draining, final_phase, done;
   int  final_idx;
@@ -201,28 +226,38 @@ module tb_l2;
             rel_busy[ag] = 1'b0;
           end else if (d.opcode == D_GRANT || d.opcode == D_GRANT_DATA) begin
             longint unsigned l;
-            l = acq_line[ag];
-            if (!acq_busy[ag]) fail($sformatf("agent %0d: unexpected Grant", ag));
-            if (d.denied != is_err(l)) fail($sformatf("agent %0d: Grant for line %h denied=%0d", ag, l, d.denied));
-            if (d.opcode == D_GRANT_DATA) begin
-              acq_buf[ag][128*acq_beats[ag] +: 128] = d.data;
-              acq_beats[ag]++;
+            int k;
+            k = (ACQ_N > 1) ? int'(d.source[5:0]) : 0;     // the slot: the Acquire's source
+            if (k >= ACQ_N) begin
+              fail($sformatf("agent %0d: Grant to source %h", ag, d.source));
+              k = 0;
             end
-            if ((d.opcode == D_GRANT || acq_beats[ag] == 4) && d.denied) begin
+            l = acq_line[ag][k];
+            if (!acq_busy[ag][k]) fail($sformatf("agent %0d: unexpected Grant (slot %0d)", ag, k));
+            if (d.denied != is_err(l)) fail($sformatf("agent %0d: Grant for line %h denied=%0d", ag, l, d.denied));
+            for (int j = 0; j < ACQ_N; j++)                 // one Grant's beats stay together (DR-149)
+              if (j != k && acq_beats[ag][j] > 0 && acq_beats[ag][j] < 4)
+                fail($sformatf("agent %0d: a Grant beat for slot %0d inside slot %0d's GrantData", ag, k, j));
+            if (d.opcode == D_GRANT_DATA) begin
+              acq_buf[ag][k][128*acq_beats[ag][k] +: 128] = d.data;
+              acq_beats[ag][k]++;
+            end
+            if ((d.opcode == D_GRANT || acq_beats[ag][k] == 4) && d.denied) begin
               tl_e_t ge;
               n_denied++;
-              acq_busy[ag] = 1'b0;          // the line is not granted; GrantAck still goes back
+              acq_busy[ag][k]  = 1'b0;      // the line is not granted; GrantAck still goes back
+              acq_beats[ag][k] = 0;
               ge.sink = d.sink;
               eq.push_back(ge);
-            end else if (d.opcode == D_GRANT || acq_beats[ag] == 4) begin
+            end else if (d.opcode == D_GRANT || acq_beats[ag][k] == 4) begin
               tl_e_t ge;
               bit want_t;
-              want_t = acq_param[ag] != TL_GROW_N_TO_B;
+              want_t = acq_param[ag][k] != TL_GROW_N_TO_B;
               if (want_t && d.param != TL_CAP_TO_T[1:0]) fail($sformatf("agent %0d: Grant toB for a T request", ag));
               if (d.param == TL_CAP_TO_T[1:0]) n_grant_t++; else n_grant_b++;
-              if (acq_param[ag] == TL_GROW_B_TO_T) n_upgrade++;
-              if (acq_perm[ag]) n_perm++;
-              if (acq_perm[ag]) begin
+              if (acq_param[ag][k] == TL_GROW_B_TO_T) n_upgrade++;
+              if (acq_perm[ag][k]) n_perm++;
+              if (acq_perm[ag][k]) begin
                 if (d.opcode != D_GRANT) fail("AcquirePerm answered with data");
                 dat[key(ag, l)] = {$urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom(),
                                    $urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom(), $urandom()};
@@ -232,13 +267,14 @@ module tb_l2;
               end else begin
                 if (d.opcode != D_GRANT_DATA) fail("AcquireBlock answered without data");
                 checks++;
-                if (acq_buf[ag] !== ref_get(l))
-                  fail($sformatf("agent %0d: GrantData for line %h\n  got  %h\n  want %h", ag, l, acq_buf[ag], ref_get(l)));
-                dat[key(ag, l)] = acq_buf[ag];
+                if (acq_buf[ag][k] !== ref_get(l))
+                  fail($sformatf("agent %0d: GrantData for line %h\n  got  %h\n  want %h", ag, l, acq_buf[ag][k], ref_get(l)));
+                dat[key(ag, l)] = acq_buf[ag][k];
                 drt[key(ag, l)] = 1'b0;
                 st[key(ag, l)]  = (d.param == TL_CAP_TO_T[1:0]) ? 2 : 1;
               end
-              acq_busy[ag] = 1'b0;
+              acq_busy[ag][k]  = 1'b0;
+              acq_beats[ag][k] = 0;
               ge.sink = d.sink;
               eq.push_back(ge);
             end
@@ -302,6 +338,10 @@ module tb_l2;
           int     s;
           p = pq[ag].pop_front();
           s = st_of(ag, p.line);
+          if (acq_on(ag, p.line)) begin   // core-2's cases: an upgrade keeps B until its Grant, a fill holds nothing
+            if (s == 1) n_pr_upg++;
+            else        n_pr_fill++;
+          end
           m.hdr = '0;
           m.hdr.size    = 3'd6;
           m.hdr.source  = TL_SRC_W'({4'(ag), 6'd0});
@@ -328,7 +368,7 @@ module tb_l2;
         if (!draining) begin
           int r;
           r = int'($urandom_range(99));
-          if (r < 12 && !acq_busy[ag] && aq.size() < 6) begin
+          if (r < 12 && acq_free(ag) >= 0 && aq.size() < 6) begin
             // Acquire, or store into a T line
             longint unsigned l;
             int s, nheld;
@@ -342,13 +382,14 @@ module tb_l2;
               dat[key(ag, l)][8*byte_i +: 8] = 8'($urandom());
               drt[key(ag, l)] = 1'b1;
               refm[l] = dat[key(ag, l)];
-            end else if (!(rel_busy[ag] && rel_line[ag] == l) && (s == 1 || nheld < CAP)) begin
+            end else if (!(rel_busy[ag] && rel_line[ag] == l) && !acq_on(ag, l) && (s == 1 || nheld < CAP)) begin
               amsg_t m;
-              int k;
+              int k, slot;
               k = int'($urandom_range(99));
+              slot = acq_free(ag);
               m.hdr = '0;
               m.hdr.size    = 3'd6;
-              m.hdr.source  = TL_SRC_W'({4'(ag), 6'd1});
+              m.hdr.source  = TL_SRC_W'({4'(ag), (ACQ_N > 1) ? 6'(slot) : 6'd1});
               m.hdr.address = PA_W'(l << 6);
               m.hdr.mask    = '1;
               m.nbeats      = 1;
@@ -359,11 +400,17 @@ module tb_l2;
                 m.hdr.opcode = (k < 20) ? A_ACQUIRE_PERM : A_ACQUIRE_BLOCK;
                 m.hdr.param  = TL_GROW_B_TO_T;
               end
-              acq_busy[ag]  = 1'b1;
-              acq_line[ag]  = l;
-              acq_perm[ag]  = m.hdr.opcode == A_ACQUIRE_PERM;
-              acq_param[ag] = m.hdr.param;
-              acq_beats[ag] = 0;
+              acq_busy[ag][slot]  = 1'b1;
+              acq_line[ag][slot]  = l;
+              acq_perm[ag][slot]  = m.hdr.opcode == A_ACQUIRE_PERM;
+              acq_param[ag][slot] = m.hdr.param;
+              acq_beats[ag][slot] = 0;
+              begin
+                int nb;
+                nb = 0;
+                for (int j = 0; j < ACQ_N; j++) nb += int'(acq_busy[ag][j]);
+                if (nb > max_acq) max_acq = nb;
+              end
               aq.push_back(m);
               ops++;
             end
@@ -371,7 +418,7 @@ module tb_l2;
             // Evict a held line (not one with a Grant pending)
             longint unsigned cand [$];
             cand.delete();   // block-local variables are static in this process
-            foreach (pool[i]) if (st_of(ag, pool[i]) != 0 && !(acq_busy[ag] && acq_line[ag] == pool[i])) cand.push_back(pool[i]);
+            foreach (pool[i]) if (st_of(ag, pool[i]) != 0 && !acq_on(ag, pool[i])) cand.push_back(pool[i]);
             if (cand.size() > 0) begin
               longint unsigned l;
               int s;
@@ -380,7 +427,7 @@ module tb_l2;
               s = st_of(ag, l);
               m.hdr = '0;
               m.hdr.size    = 3'd6;
-              m.hdr.source  = TL_SRC_W'({4'(ag), 6'd2});
+              m.hdr.source  = TL_SRC_W'({4'(ag), REL_SRC});
               m.hdr.address = PA_W'(l << 6);
               m.nbeats      = 1;
               m.hdr.opcode  = C_RELEASE;
@@ -407,14 +454,14 @@ module tb_l2;
           // Draining: release everything (once Acquires have finished)
           longint unsigned cand [$];
           cand.delete();
-          foreach (pool[i]) if (st_of(ag, pool[i]) != 0 && !(acq_busy[ag] && acq_line[ag] == pool[i])) cand.push_back(pool[i]);
+          foreach (pool[i]) if (st_of(ag, pool[i]) != 0 && !acq_on(ag, pool[i])) cand.push_back(pool[i]);
           if (cand.size() > 0) begin
             longint unsigned l;
             cmsg_t m;
             l = cand[0];
             m.hdr = '0;
             m.hdr.size    = 3'd6;
-            m.hdr.source  = TL_SRC_W'({4'(ag), 6'd2});
+            m.hdr.source  = TL_SRC_W'({4'(ag), REL_SRC});
             m.hdr.address = PA_W'(l << 6);
             m.nbeats      = 1;
             m.hdr.opcode  = C_RELEASE;
@@ -513,7 +560,7 @@ module tb_l2;
         bit quiet;
         quiet = aq.size() == 0 && cq.size() == 0 && eq.size() == 0 && !mc_busy && !ic_busy[0] && !ic_busy[1];
         for (int ag = 0; ag < NA; ag++) begin
-          if (acq_busy[ag] || rel_busy[ag] || pq[ag].size() > 0) quiet = 1'b0;
+          if (acq_any(ag) || rel_busy[ag] || pq[ag].size() > 0) quiet = 1'b0;
           foreach (pool[i]) if (st_of(ag, pool[i]) != 0) quiet = 1'b0;
         end
         if (quiet) begin
@@ -527,8 +574,8 @@ module tb_l2;
           done = 1'b1;
           $display("tb_l2: %0d ops, %0d data checks, %0d memory reads, %0d writes, %0d errors",
                    ops, checks, mem.n_reads, mem.n_writes, errors);
-          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData, %0d denied",
-                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data, n_denied);
+          $display("tb_l2: coverage: %0d probes (%0d ProbeAckData), grants %0d toT / %0d toB, %0d upgrades, %0d AcquirePerm, %0d ReleaseData, %0d denied, up to %0d Acquires outstanding per agent, probes during an upgrade %0d / a fill %0d",
+                   n_probe, n_pack_data, n_grant_t, n_grant_b, n_upgrade, n_perm, n_rel_data, n_denied, max_acq, n_pr_upg, n_pr_fill);
           if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
           else             $display("TEST FAILED (seed %0d)", seed);
           $finish;
@@ -562,8 +609,11 @@ module tb_l2;
                  aq.size(), cq.size(), eq.size(), mem.outstanding(), dut.dq_cnt, dut.d_credit_q, dut.vr_busy_q,
                  dut.rs_busy_q, dut.pw_busy_q, dut.ws_busy_q);
         for (int ag = 0; ag < NA; ag++)
-          $display("agent %0d acq_busy %0d line %h | rel_busy %0d line %h | probes queued %0d", ag, acq_busy[ag],
-                   acq_line[ag], rel_busy[ag], rel_line[ag], pq[ag].size());
+        begin
+          $display("agent %0d rel_busy %0d line %h | probes queued %0d", ag, rel_busy[ag], rel_line[ag], pq[ag].size());
+          for (int k = 0; k < ACQ_N; k++)
+            if (acq_busy[ag][k]) $display("  acquire slot %0d line %h, %0d beats in", k, acq_line[ag][k], acq_beats[ag][k]);
+        end
         fail("no D progress for 20000 cycles (deadlock?)");
         $display("TEST FAILED (seed %0d)", seed);
         $finish;
@@ -620,8 +670,11 @@ module tb_l2;
   initial begin
     cyc = 0; last_progress = 0; errors = 0; checks = 0; ops = 0;
     n_probe = 0; n_pack_data = 0; n_grant_b = 0; n_grant_t = 0; n_upgrade = 0; n_perm = 0; n_rel_data = 0; n_denied = 0;
-    draining = 0; final_phase = 0; done = 0;
-    for (int ag = 0; ag < NA; ag++) begin acq_busy[ag] = 0; rel_busy[ag] = 0; end
+    draining = 0; final_phase = 0; done = 0; max_acq = 0; n_pr_upg = 0; n_pr_fill = 0;
+    for (int ag = 0; ag < NA; ag++) begin
+      for (int k = 0; k < ACQ_N; k++) begin acq_busy[ag][k] = 0; acq_beats[ag][k] = 0; end
+      rel_busy[ag] = 0;
+    end
     ic_busy[0] = 0; ic_busy[1] = 0; mc_busy = 0;
     repeat (5) @(posedge clk);
     rst = 1'b0;

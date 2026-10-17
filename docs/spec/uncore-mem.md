@@ -88,6 +88,7 @@ Maps the RISC-V DRAM window (`DRAM_BASE` = `0x8000_0000`, `tg_map_pkg`) onto the
 - **Out-of-range transactions** never leave:
   - a read is answered with its beats and `RRESP = SLVERR`;
   - a write's W beats are absorbed, then `BRESP = SLVERR`.
+  - Each refused burst pulses `oob_rd_o` or `oob_wr_o` with its address, which the board debug counters count and capture ([uncore.md](uncore.md) §Board debug counters).
 
   The L2 turns these into `denied` responses ([l2.md](l2.md)).
 - **Configuration changes:** `base` and `size` may change only while the uncore is held in reset ([host.md](host.md) loading sequence). Their reset value, size 0, denies everything until the host configures the window.

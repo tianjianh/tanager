@@ -1,0 +1,26 @@
+br0 is up: br0              UP             192.168.137.177/24 
+image reset from .bench
+fw b0094d235a36f8bd, dtb e68f4caf45976609, host 1e5fca512da04256
+loaded tanager-sc3 at 18:49:06; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000012f (virtio window)
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 7200 < console
+login prompt 191 s after the load
+commands done 502 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 74828929 reads, native latency avg 25.7 max 103 cycles
+debug counters after the boot:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+power-off reached the host 520 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (735 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 18:57:49
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0

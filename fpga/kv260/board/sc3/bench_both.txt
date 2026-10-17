@@ -1,0 +1,84 @@
+br0 is up: br0              UP             192.168.137.177/24 
+image reset from .bench
+fw b0094d235a36f8bd, dtb e68f4caf45976609, host 5232908901445a67
+loaded tanager-sc2 at 19:02:09; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      70.0 MHz
+  capabilities    0x0000012f (virtio window)
+A53 http server for the LAN test (pid 166419), blob64 a0eca43b945ba43c
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 7200 < console
+login prompt 276 s after the load
+commands done 580 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 86110100 reads, native latency avg 21.4 max 75 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                388329214
+  L2 bank 0 B out (probes)        4506385
+  L2 bank 0 C in                241038791
+  L2 bank 0 D out              1282290735
+  L2 bank 0 E in (GrantAck)     113783699
+  L2 bank 0 misses               43308130
+  L2 bank 0 AXI reads            43308130
+  L2 bank 0 fills                43308117
+  L2 bank 1 A in                378738502
+  L2 bank 1 B out (probes)        3957343
+  L2 bank 1 C in                233211019
+  L2 bank 1 D out              1235494123
+  L2 bank 1 E in (GrantAck)     110365727
+  L2 bank 1 misses               42802009
+  L2 bank 1 AXI reads            42802009
+  L2 bank 1 fills                42802004
+  core 0 l1d A out              98773537
+  core 0 l1d B in (probes)       4403174
+  core 0 l1d C out             209683894
+  core 0 l1d D in              491562624
+  core 0 l1d E out (GrantAck)   98773537
+  core 1 l1d A out             125375889
+  core 1 l1d B in (probes)       4060581
+  core 1 l1d C out             264566055
+  core 1 l1d D in              624613080
+  core 1 l1d E out (GrantAck)  125375889
+  L2 error events                  72
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+power-off reached the host 606 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (798 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 19:12:18
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0
+br0 is up: br0              UP             192.168.137.177/24 
+image reset from .bench
+fw b0094d235a36f8bd, dtb e68f4caf45976609, host 5232908901445a67
+loaded tanager-sc3 at 19:15:50; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000012f (virtio window)
+A53 http server for the LAN test (pid 169298), blob64 a0eca43b945ba43c
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2netc/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 7200 < console
+login prompt 191 s after the load
+commands done 557 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 97617712 reads, native latency avg 25.7 max 101 cycles
+debug counters after the boot:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+power-off reached the host 575 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2netc/linux_shell.txt (735 lines)
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 19:25:29
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
+both benches done at 19:25:29

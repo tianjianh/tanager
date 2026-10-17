@@ -1,0 +1,17 @@
+loaded tanager-sc3 at 21:33:47; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+  core clock      100.0 MHz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb bench-manual-h02.dtb --timeout 900 < console
+login prompt 5 s after the load
+commands done 49 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 1987322 reads, native latency avg 26.4 max 79 cycles
+power-off reached the host 53 s after the load
+boot exit 0; console in /home/ubuntu/tanager/bench/linux_shell.txt (232 lines)
+fan: pwm1 41/255, AMS temp1 36 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 21:34:44
+fan: pwm1 41/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

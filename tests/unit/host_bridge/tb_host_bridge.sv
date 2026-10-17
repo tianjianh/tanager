@@ -63,6 +63,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   logic        imode;
   logic [8:0]  ibw;
   logic        tg_en;
+  logic        tfreeze;
   logic [27:0] tg_base;
   logic [23:0] tg_lines;
   logic        ctx_v, ctx_r, crx_v, crx_r;
@@ -84,7 +85,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     .dram_base_o (dbase), .dram_size_o (dsize),
     .inj_rd_delay_o (ird), .inj_wr_delay_o (iwr), .inj_mode_o (imode), .inj_bw_o (ibw),
     .l2_init_done_i (1'b1), .inj_rd_count_i (32'd1234), .inj_lat_sum_i (32'd56789), .inj_lat_max_i (16'd77),
-    .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
+    .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines), .tfreeze_o (tfreeze),
     .tg_ops_i (32'd42), .tg_errs_i (16'd0), .tg_err_line_i (28'd0), .tg_pass_i (16'd3),
     .trs_enable_o (trs_en), .trs_wrap_o (trs_wrap), .trs_stop_arm_o (trs_stop_arm), .trs_stop_pc_o (trs_stop_pc),
     .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
@@ -515,6 +516,15 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     hw(16'h010, 32'h0);
     repeat (20) @(posedge clk);
     if (core_rst) fail("core release");
+    // CTRL.TFREEZE reaches the core side (tg_uncore holds mtime with it while the trace stalls a core)
+    if (tfreeze) fail("CTRL.TFREEZE set at reset");
+    hw(16'h010, 32'h8);
+    repeat (40) @(posedge clk);
+    if (!tfreeze || core_rst || uncore_rst) fail("CTRL.TFREEZE did not reach the core side alone");
+    expect_h(16'h010, 32'h8, "CTRL with TFREEZE");
+    hw(16'h010, 32'h0);
+    repeat (40) @(posedge clk);
+    if (tfreeze) fail("CTRL.TFREEZE stayed set");
 
     // ---- RISC-V -> host events ----
     hw(16'h084, 32'hF);                               // enable every host interrupt

@@ -728,6 +728,8 @@ The first filler attempt, with 25 LUTRAM blocks per core, came to 8.3K LUTs. v1 
 
 ### 8.7 G7: the full chip at 115 MHz on the fixed rename, with fn11 and an LSU placement (2026-10-17)
 
+**Correction (2026-10-17, §8.8):** two placements of one netlist (G8) differ by 1.5 ns of WNS, by 15 times in TNS and by 6 times in failing endpoints. So the single-run differences below are within placement noise: fn11's halving of the failing endpoints, its 0.2 ns of WNS, and the LSU pblocks' 0.85 ns loss. The LSU pblocks still show no gain, and by LUT cells they were as full as G4-FP (b)'s, which did not route, so they stay dropped.
+
 **Question (the coordinator, DR-148):** v1's target is 115 MHz. On a correctly synthesized rename (§8.6's caveat), how fast is the full chip, and what do the core track's fn11 timing work and an LSU-beside-D$ placement each buy?
 
 **Method:** G6's flow (§8.6), with the clock at 115 MHz and one synthesis per tree.
@@ -793,6 +795,52 @@ The PS paths pass by 5.5–6.2 ns and the filler's by 4.1–4.4 ns in all three.
   The L2 bank's internal paths need about 0.3–0.7 ns.
 
 Results: `fpga/spikes/results/g7m_synth/`, `g7m_115_fill/`, `g7r_synth/`, `g7r_115_fill/` and `g7r_115_fill_lsu/`. Their `SNAPSHOT_SOURCE.txt` files name the trees. The routed checkpoints are in the build tree (`fp/<run>_routed.dcp`), and the post-synthesis ones are kept for more placements.
+
+### 8.8 G8: main at 115 MHz in two placements, and how noisy one placement is (2026-10-17)
+
+**Question (the coordinator, DR-148):** what do the FPU track's G8 fixes, and the SoC track's MR1 to MR3, buy on top of fn11, judged against placement noise with two placements of one synthesis? The 115 MHz series ends here (DR-152 sets the target at 100 MHz).
+
+**Method:** G7's flow at 115.315 MHz, on main 5172c6a.
+- **Tree:** fn11 plus the FPU track's G8 fixes in fetch, decode and the LSU, and the SoC track's MR1 (DR-151's memory map), MR2 and MR3.
+  - MR2 and MR3's debug words, host DMA and virtio window are built only when switched on, and default to off. The block design's new HPM1 port is tied off.
+  - QUEUE_DECODE is off by default.
+  - Per unit, the logic is within 45 LUTs of G7r's. The synthesis check finds no implicit or undriven nets, and no forward references at all.
+- **Two placements:** Vivado's placer has no seed, and `-place_directive Explore` gave a placement identical to Default's (every report line equal).
+  - So the second sample placed and routed the same checkpoint with 0.05 ns of setup uncertainty on the core clock, taken back before the reports ([`seed_unc.tcl`](../../fpga/spikes/tcl/seed_unc.tcl), with `g4_fit.tcl -pre_report`).
+
+| Run | WNS ns at 8.672 (clock reached) | TNS ns | Failing endpoints (core 0 / core 1 / uncore) | Routing |
+|---|---|---|---|---|
+| `g8_115_fill` (Default; Explore identical) | −2.012 (93.6 MHz) | −1,399 | 2,948 (989 / 1,877 / 82) | 3 h 09 |
+| `g8_115_fill_unc` (the same netlist, seeded) | **−0.483 (109.2 MHz)** | −94 | 464 (86 / 337 / 41) | 2 h 20 |
+
+- **The bad sample:** core 1's LSU holds 1,632 failing endpoints. Its paths are DTLB → the replay address (24 levels), the LQ head → the LQ's store-tag enables (13 levels, 8.6 ns of wire) and DTLB → M2 forwarding, with 7.2–8.6 ns of wire against 6–7 ns in G7.
+- **The good sample:**
+  - core 0's DTLB → the replay address: −0.414 ns (20 levels, 67% wire);
+  - core 1's PTW → the ROB field table's write enables: −0.483 (17 levels, 75%);
+  - the L2's MSHR state → `m_vtag`: −0.429 (12 levels, 81%);
+  - the core ↔ uncore paths pass by 0.9–1.1 ns, the PS paths by 4.9 ns or more.
+
+**Findings:**
+- **One placement of this design is noisy by more than 1.5 ns.**
+  - With only 0.05 ns of placement-time uncertainty changed, the same netlist moved from −2.012 to −0.483 ns of WNS, from −1,399 to −94 ns of TNS, and from 2,948 to 464 failing endpoints.
+  - Single runs at 94% fill therefore rank trees only by differences well above 1 ns. That corrects §8.7.
+- **G8 is not measurably different from G7.** Its two samples are the best (−0.483) and the worst (−2.012) of all the 115 MHz runs.
+- **At 100 MHz, the samples would land on both sides of closure:** about +0.85 ns for the good one and about −0.68 ns for the bad one (DR-152). The headroom runs measure 100 MHz directly (§8.9).
+- **QUEUE_DECODE's paths fail at 115 MHz and pass at 100 MHz.**
+  - The path runs from the instruction queue's head (`u_fetch/u_cmp/head_q`) through decode to rename's uop register (`u_rn/rn_uop_q`): 16–19 levels, 65–69% wire.
+  - Failing at 115 MHz: G7m 276 endpoints at −0.44 ns, G7r 130 at −0.53, G8's bad sample 89 at −0.65.
+  - With 1.33 ns more at 10 ns they pass by about 0.7 ns, so under DR-152 the switch can stay off.
+  - The other failing fetch paths are fetch's own pipeline, not the queue: I$ stage 2 → stage 3, and the next-PC loop.
+- **Other families in G8's bad sample:**
+  - a cross-core path, core 0's fetch refill line → core 1's LSU state enable (13 levels, −0.934), through the crossbar's arbitration;
+  - the ROB head → rename's free-list count (−0.608);
+  - core 1's LSU → the FPU's P4 (58 endpoints, −0.865).
+- **The G3 false-path cut was empty.** `g3_false_paths.tcl`, applied in every G-run since G3, cut the LSU's `r_data_q` → the ROB's `exr_*`.
+  - In today's cores no `exr_*` register is reachable from `r_data_q` (all_fanout), and the second cut matches no cell ([`q_cut_paths.tcl`](../../fpga/spikes/tcl/query/q_cut_paths.tcl)). So no G-run hid a path.
+  - The 100 MHz runs drop the cut.
+- **Counting failing endpoints by unit** ([`q_fail_units.tcl`](../../fpga/spikes/tcl/query/q_fail_units.tcl), about 3 minutes per checkpoint) finds families that a run's 20 worst paths miss: in G7r the 20 worst were all core 0's LSU, while fetch → rename failed at 130 endpoints.
+
+Results: `fpga/spikes/results/g8_synth/`, `g8_115_fill/`, `g8_115_fill_unc/`, and `g8_115_fill_explore/` (its summary only: its reports equal `g8_115_fill`'s).
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
@@ -1000,7 +1048,7 @@ Routed at 200 MHz with the pblock unless marked; slack in ns. Each step is a mea
   - The flows now fail on it ([`synth_check.tcl`](../../fpga/spikes/tcl/synth_check.tcl)) and list the Synth 8-6901 forward references, which Vivado resolves.
   - A port connection to a name declared later makes the same undriven net even at module scope (the FPU track's `de_state` in 470e9f9: Synth 8-11241, then 8-8895).
   - The core track's `fwdref.sh` finds the generate-block case without Vivado, from Verilator's JSON view, in about 7 s, and the G7 rerun runs it before synthesizing. It lists the module-scope case only as a forward reference, so the synthesis check is what catches that one.
-- **Placement noise (G7, 2026-10-17).** Between two runs of identical uncore RTL, the uncore's worst slack moved 0.37 ns. So single-run WNS differences under about 0.4 ns do not attribute a change. TNS and the failing-endpoint count were the steadier measures of fn11.
+- **Placement noise (G7 and G8, 2026-10-17).** Between two runs of identical uncore RTL, the uncore's worst slack moved 0.37 ns (G7). Two placements of one whole netlist differed by 1.5 ns of WNS, 15 times in TNS and 6 times in failing endpoints (G8). So a single placement at 94% fill ranks two trees only by differences well over 1 ns. A second sample needs a perturbation the placer responds to, such as 0.05 ns of clock uncertainty: Vivado has no seed, and Explore converged to Default's placement.
 - **Machine sharing.**
   - `vivado_run.sh` waiters lose slots to fresh launches. The track now runs fair-share workers that use one slot while others wait, launch the moment a slot is free, and run from snapshots of committed HEAD.
   - Never edit a running bash script: hand over to a new runner instead.

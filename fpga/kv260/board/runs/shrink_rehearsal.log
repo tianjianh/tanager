@@ -1,0 +1,29 @@
+test disk /dev/loop8
+468M	/mnt/tgr
+e2fsck -f -y exit 0
+minimum 236985 blocks (925 MiB): filesystem target 1019 MiB, partition 1069 MiB
+resize2fs 1.47.0 (5-Feb-2023)
+Resizing the filesystem on /dev/loop8p2 to 260864 (4k) blocks.
+The filesystem on /dev/loop8p2 is now 260864 (4k) blocks long.
+
+
+real	0m44.926s
+user	0m0.820s
+sys	0m2.521s
+resize2fs exit 0
+filesystem 1068498944 bytes, new partition 1120927744 bytes
+p2 start 133120
+sfdisk exit 0
+p2 size now 2189312 (want 2189312)
+/dev/loop8p1 : start=        2048, size=      131072, type=c, bootable
+/dev/loop8p2 : start=      133120, size=     2189312, type=83
+e2fsck -n on the new partition: exit 0
+grow to the partition: exit 0
+/dev/loop8p2   1015M  468M  478M  50% /mnt/tgr
+DATA IDENTICAL after the shrink
+NAME        START  SIZE
+loop8                2G
+├─loop8p1    2048   64M
+├─loop8p2  133120    1G
+└─loop8p3 2322432  914M
+rehearsal done, test image removed

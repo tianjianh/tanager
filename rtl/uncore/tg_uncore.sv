@@ -352,6 +352,12 @@ module tg_uncore
   logic    [N_BANKS-1:0] l2_bvv, l2_brr, ij_bv, ij_br;
   logic                  l2_init_done;
   logic    [N_BANKS-1:0] ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
+  // with ev_err, the error (tg_l2_bank), and the bursts each DRAM window refuses (tg_axi_window), for
+  // the board debug counters (DEBUG_CNT)
+  logic    [N_BANKS-1:0][31:0]             ev_err_info;
+  logic    [N_BANKS-1:0][PA_W-7:0]         ev_err_line;
+  logic    [N_BANKS-1:0]                   oob_rd, oob_wr;
+  logic    [N_BANKS-1:0][AXI_ADDR_W-1:0]   oob_addr;
 
   tg_l2 #(.N_AGENTS (N_CORES), .SETS (L2_SETS), .N_MSHR (L2_MSHR), .DATA_PRIM (L2_PRIM),
           .DATA_LAT (L2_DATA_LAT), .RSLICE_DSP ({2'b00, UNCORE_DSP[43:42]}), .MWAY_OH (L2_MWAY_OH),
@@ -368,7 +374,8 @@ module tg_uncore
     .w_o (l2_w_ch), .w_valid_o (l2_wv), .w_ready_i (l2_wr),
     .bresp_i (l2_b_ch), .bresp_valid_i (l2_bvv), .bresp_ready_o (l2_brr),
     .init_done_o (l2_init_done),
-    .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb), .ev_probe_o (ev_probe), .ev_err_o (ev_err)
+    .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb), .ev_probe_o (ev_probe), .ev_err_o (ev_err),
+    .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)
   );
 
   logic [9:0]  inj_rd, inj_wr;
@@ -438,7 +445,8 @@ module tg_uncore
       .m_r_i (wn_r[b]), .m_r_valid_i (wn_rv[b]), .m_r_ready_o (wn_rr[b]),
       .m_aw_o (wn_aw[b]), .m_aw_valid_o (wn_awv[b]), .m_aw_ready_i (wn_awr[b]),
       .m_w_o (wn_w[b]), .m_w_valid_o (wn_wv[b]), .m_w_ready_i (wn_wr[b]),
-      .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b])
+      .m_b_i (wn_b[b]), .m_b_valid_i (wn_bv[b]), .m_b_ready_o (wn_br[b]),
+      .oob_rd_o (oob_rd[b]), .oob_wr_o (oob_wr[b]), .oob_addr_o (oob_addr[b])
     );
     // register slice toward the PS port: the window's adder and the long route end at flip-flops
     tg_axi_slice #(.DSP (UNCORE_DSP[32 + 5 * b +: 5]), .ON (MEM_SLICE)) u_slice (
@@ -548,9 +556,14 @@ module tg_uncore
     .req_o (dreq), .req_valid_o (dreq_v), .rsp_i (drsp), .wait_i (dwait)
   );
 
+  // mtime holds while the commit trace stalls a core, if the host asks (CTRL.TFREEZE, board lockstep:
+  // its back-pressure must not become timer ticks). tfreeze comes from the host bridge, below: declared
+  // here, before its first use
+  logic tfreeze;
+  wire  time_freeze = tfreeze && |trace_stall_o;
   tg_aclint #(.N_HARTS (NH), .CLK_HZ (CLK_HZ)) u_aclint (
     .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_ACLINT]), .rsp_o (drsp[DEV_ACLINT]),
-    .irq_msi_o (msi_o), .irq_mti_o (mti_o), .mtime_o
+    .irq_msi_o (msi_o), .irq_mti_o (mti_o), .mtime_o, .freeze_i (time_freeze)
   );
 
   logic uart_irq, mbox_irq;
@@ -695,7 +708,7 @@ module tg_uncore
     .inj_rd_delay_o (inj_rd), .inj_wr_delay_o (inj_wr), .inj_mode_o (inj_mode), .inj_bw_o (inj_bw),
     .l2_init_done_i (l2_init_done),
     .inj_rd_count_i (inj_cnt_all), .inj_lat_sum_i (inj_sum_all), .inj_lat_max_i (inj_max_all),
-    .tg_en_o, .tg_base_o, .tg_lines_o,
+    .tg_en_o, .tg_base_o, .tg_lines_o, .tfreeze_o (tfreeze),
     .tg_ops_i (tg_ops_all), .tg_errs_i (tg_errs_all), .tg_err_line_i (tg_err_line_any), .tg_pass_i (tg_pass_i[0]),
     .trs_enable_o (trs_en), .trs_wrap_o (trs_wrap), .trs_stop_arm_o (trs_stop_arm), .trs_stop_pc_o (trs_stop_pc),
     .trs_post_o (trs_post), .trs_start_arm_o (trs_start_arm), .trs_start_pc_o (trs_start_pc),
@@ -721,8 +734,9 @@ module tg_uncore
   // ---------------------------------------------------------------------------------------------
   // Debug counters (DEBUG_CNT): index 8b+k for bank b counts its A, B, C, D, E messages, misses, AXI
   // reads and fills (R last beats); 8*N_BANKS + 5c + k for core c's data cache its A, B, C, D, E;
-  // then the L2 error events; the index after holds the channels' valid/ready levels now; 128 + 32c + w
-  // is core c's board-debug word w (tg_core dbg_o, built with DBG_WORD = DEBUG_CNT)
+  // then the L2 error events; the index after holds the channels' valid/ready levels now, the five after
+  // that the DRAM windows' refusals and the first L2 error and refusal; 128 + 32c + w is core c's
+  // board-debug word w (tg_core dbg_o, built with DBG_WORD = DEBUG_CNT)
   // ---------------------------------------------------------------------------------------------
   if (DEBUG_CNT) begin : g_dbg
     localparam int NCNT = 8 * N_BANKS + 5 * N_CORES + 1;
@@ -762,6 +776,59 @@ module tg_uncore
         if (uncore_rst) cnt_q[i] <= '0;
         else if (inc[i]) cnt_q[i] <= cnt_q[i] + 32'd1;
     localparam int IW = $clog2(NCNT);
+    // The first L2 error, whole (the L2's error counter says how many), and the first burst a DRAM
+    // window refused, with the refusals counted (board lockstep's L2 errors, DR-150); the uncore reset
+    // clears them with the counters. The lowest bank wins a tie.
+    if (PA_W - 6 > 29) begin : g_bad_line_w
+      $error("tg_uncore: the debug words hold lines of at most 29 bits");
+    end
+    logic                 e1_v_q, o1_v_q, o1_wr_q;
+    logic [1:0]           e1_bank_q;
+    logic [31:0]          e1_info_q, n_ord_q, n_owr_q;
+    logic [PA_W-7:0]      e1_line_q, o1_line_q;
+    always_ff @(posedge clk)
+      if (uncore_rst) begin
+        e1_v_q    <= 1'b0;
+        e1_bank_q <= '0;
+        e1_info_q <= '0;
+        e1_line_q <= '0;
+        o1_v_q    <= 1'b0;
+        o1_wr_q   <= 1'b0;
+        o1_line_q <= '0;
+        n_ord_q   <= '0;
+        n_owr_q   <= '0;
+      end else begin
+        if (!e1_v_q && |ev_err) begin
+          e1_v_q <= 1'b1;
+          for (int b = N_BANKS - 1; b >= 0; b--)
+            if (ev_err[b]) begin
+              e1_bank_q <= 2'(b);
+              e1_info_q <= ev_err_info[b];
+              e1_line_q <= ev_err_line[b];
+            end
+        end
+        if (!o1_v_q && |(oob_rd | oob_wr)) begin
+          o1_v_q <= 1'b1;
+          for (int b = N_BANKS - 1; b >= 0; b--)
+            if (oob_rd[b] || oob_wr[b]) begin
+              o1_wr_q   <= !oob_rd[b];
+              o1_line_q <= oob_addr[b][PA_W-1:6];
+            end
+        end
+        n_ord_q <= n_ord_q + 32'($countones(oob_rd));
+        n_owr_q <= n_owr_q + 32'($countones(oob_wr));
+      end
+    // the words after the levels word: NCNT + 1 ...
+    logic [31:0] xw;
+    always_comb
+      unique case (int'(dbg_sel) - (NCNT + 1))
+        0:       xw = n_ord_q;
+        1:       xw = n_owr_q;
+        2:       xw = e1_info_q;
+        3:       xw = {e1_v_q, e1_bank_q, 29'(e1_line_q)};
+        4:       xw = {o1_v_q, o1_wr_q, 30'(o1_line_q)};
+        default: xw = 32'hDEB0_0000;
+      endcase
     // the core words: every core shows word dbg_sel[4:0], a register a cycle behind the select
     logic [3:0][31:0] cw;
     always_comb begin
@@ -770,11 +837,11 @@ module tg_uncore
     end
     assign core_dbg_sel_o = dbg_sel[4:0];
     assign dbg_val = dbg_sel[7] ? cw[dbg_sel[6:5]] :
-                     (int'(dbg_sel) < NCNT) ? cnt_q[IW'(dbg_sel)] : (int'(dbg_sel) == NCNT) ? lv : 32'hDEB0_0000;
+                     (int'(dbg_sel) < NCNT) ? cnt_q[IW'(dbg_sel)] : (int'(dbg_sel) == NCNT) ? lv : xw;
   end else begin : g_no_dbg
     assign dbg_val        = '0;
     assign core_dbg_sel_o = '0;
-    wire unused_dbg = ^{dbg_sel, core_dbg_i};
+    wire unused_dbg = ^{dbg_sel, core_dbg_i, ev_err_info, ev_err_line, oob_rd, oob_wr, oob_addr};
   end
 
   wire unused = ^{ev_hit, ev_miss, ev_wb, ev_probe, tg_pass_i};

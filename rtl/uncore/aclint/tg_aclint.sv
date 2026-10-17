@@ -1,6 +1,8 @@
 // ACLINT MSWI + MTIMER in the CLINT-compatible layout (docs/spec/uncore-periph.md):
 // msip[h] at 4h, mtimecmp[h] at 0x4000 + 8h, mtime at 0xBFF8. mtime ticks at TIMEBASE_HZ from clk
-// through a phase accumulator, and is broadcast to the cores.
+// through a phase accumulator, and is broadcast to the cores. freeze_i holds the time base (mtime and
+// the accumulator's phase): tg_uncore raises it while the commit trace stalls a core, if the host asks
+// (CTRL.TFREEZE), so that board lockstep's back-pressure does not turn into timer ticks.
 module tg_aclint
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
@@ -14,7 +16,8 @@ module tg_aclint
   output dev_rsp_t           rsp_o,
   output logic [N_HARTS-1:0] irq_msi_o,
   output logic [N_HARTS-1:0] irq_mti_o,
-  output logic [63:0]        mtime_o
+  output logic [63:0]        mtime_o,
+  input  logic               freeze_i
 );
   localparam logic [31:0] TB_HZ = 32'(TIMEBASE_HZ);
   localparam logic [31:0] CK_HZ = 32'(CLK_HZ);
@@ -47,9 +50,9 @@ module tg_aclint
       msip_q  <= '0;
       for (int h = 0; h < N_HARTS; h++) cmp_q[h] <= '1;
     end else begin
-      acc_q <= tick ? 32'(acc_sum - {1'b0, CK_HZ}) : acc_sum[31:0];
-      if (mtime_wr)  mtime_q <= merge(mtime_q, req_i.wdata, req_i.be);
-      else if (tick) mtime_q <= mtime_q + 64'd1;
+      if (!freeze_i) acc_q <= tick ? 32'(acc_sum - {1'b0, CK_HZ}) : acc_sum[31:0];
+      if (mtime_wr)                mtime_q <= merge(mtime_q, req_i.wdata, req_i.be);
+      else if (tick && !freeze_i) mtime_q <= mtime_q + 64'd1;
       for (int h = 0; h < N_HARTS; h++) begin
         // msip: one word per hart; the doubleword at 8k holds harts 2k (low) and 2k+1 (high)
         if (wr && off[15:14] == 2'b00 && off[13:3] == 11'(h / 2)) begin
