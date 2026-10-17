@@ -6,11 +6,14 @@
 //                     latency injector and the window (L2 shrunk so the region spills to memory),
 //                     at injected latencies 0 and 250; console output ('.' per pass) read back by
 //                     the host; every memory access must land inside the carve-out.
+//   VIRTIO = 1 (make ... VIRTIO=1, KIND = "tcore"): the forwarded virtio window (soc.md §8.1); the host
+//                     serves its queue and the program checks reads, a QueueNotify and the interrupt.
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   parameter string KIND = "core";       // "core" (stub cores), "trafgen", or "tcore" (tg_core is the
                                         // test core: tests/unit/soc/tcore_as_core.sv)
+  parameter bit    VIRTIO = 1'b0;       // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
@@ -50,7 +53,8 @@ module tb_soc;
 
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
-    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core")
+    .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
+    .VIRTIO_WINDOW (VIRTIO)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (1'b1),
     .clk, .rst, .clk_host, .rst_host,
@@ -151,6 +155,29 @@ module tb_soc;
     end while (v[8]);
   endtask
 
+  // Serve the virtio window's queue the way tanager-host's back-ends will: a read gets "virt" at
+  // offset 0, else (slot << 16) | offset; a QueueNotify of slot 3 sets its used-buffer bit
+  int vio_reads = 0, vio_notify = 0;
+  task automatic serve_virtio();
+    logic [31:0] h, d, val;
+    forever begin
+      hr(16'h1108, h);                          // VQ_REQ0
+      if (!h[31]) break;
+      hr(16'h110C, d);                          // VQ_REQ1 pops
+      if (h[18]) begin
+        if (h[13:12] == 2'd3 && h[11:0] == 12'h050) begin
+          vio_notify++;
+          hw(16'h1114, 32'h40);                 // VQ_IRQ: set slot 3's bit 0
+        end
+      end else begin
+        val = (h[11:0] == 12'h000) ? 32'h7472_6976 : {14'd0, h[13:12], 4'd0, h[11:0]};
+        val &= (h[17:16] == 2'd2) ? 32'hFFFF_FFFF : (h[17:16] == 2'd1) ? 32'h0000_FFFF : 32'h0000_00FF;
+        hw(16'h1110, val);                      // VQ_RSP
+        vio_reads++;
+      end
+    end
+  endtask
+
   // =============================================================================================
   initial begin
     logic [31:0] v;
@@ -205,6 +232,10 @@ module tb_soc;
       hw(16'h1000, 32'h1);                      // enable
       do hr(16'h1040, v); while (!v[0]);        // capturing in the core domain before the cores start
     end
+    if (KIND == "tcore" && VIRTIO) begin
+      hw(16'h1100, 32'h1);                      // VQ_CTRL: the host serves the window
+      hw64(16'h068, 64'h6f6976);                // FROMHOST "vio": the program checks it
+    end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -231,6 +262,7 @@ module tb_soc;
       do begin
         repeat (500) @(posedge clk);
         drain_console();
+        if (VIRTIO) serve_virtio();
         hr(16'h088, seq);
         // the trace consumer: check the first record once, then release everything written
         if (TRACE) hr(16'h1038, lo);
@@ -256,6 +288,8 @@ module tb_soc;
         for (int i = 0; i + 4 <= console.len(); i++) if (console.substr(i, i + 3) == "PASS") found = 1;
         if (!found) fail("no PASS on the console");
       end
+      if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
+        fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
       // the stream: everything retired went to the trace memory, starting at the boot ROM
       if (!TRACE) begin
         hr(16'h00C, lo);

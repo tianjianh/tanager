@@ -28,7 +28,8 @@ module kv260_top
   parameter logic [3:0]  XBAR_IN_SLICE = XBAR_IN_SLICE_DEF,
   parameter bit          XBAR_SLICE    = XBAR_SLICE_DEF,
   parameter bit          MEM_SLICE     = MEM_SLICE_DEF,
-  parameter bit          DEBUG_CNT     = 1'b0             // board debug counters (build.tcl TG_DEBUG_CNT)
+  parameter bit          DEBUG_CNT     = 1'b0,            // board debug counters (build.tcl TG_DEBUG_CNT)
+  parameter bit          VIRTIO_WINDOW = 1'b0             // the forwarded virtio window (build.tcl TG_VIRTIO_WINDOW)
 ) (
   output logic fan_en_b,
   output logic pmod_uart_txd,
@@ -164,7 +165,8 @@ module kv260_top
     .L2_DATA_LAT (L2_DATA_LAT != 0 ? L2_DATA_LAT : CORE_MHZ > 150 ? 4 : 2),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .UNCORE_DSP (UNCORE_DSP),
     .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
-    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT)
+    .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
+    .VIRTIO_WINDOW (VIRTIO_WINDOW)
   ) u_soc (
     .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),

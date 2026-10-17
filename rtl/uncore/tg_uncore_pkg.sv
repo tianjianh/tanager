@@ -74,8 +74,9 @@ package tg_uncore_pkg;
   localparam int DEV_PLIC    = 1;
   localparam int DEV_UART    = 2;
   localparam int DEV_HOSTCTL = 3;
-  localparam int DEV_N       = 4;
-  localparam int DEV_W       = 2;
+  localparam int DEV_VIRTIO  = 4;               // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
+  localparam int DEV_N       = 5;
+  localparam int DEV_W       = 3;
 
   typedef struct packed {
     logic [PA_W-1:0] addr;     // full physical address; devices use the bits inside their window
@@ -89,6 +90,22 @@ package tg_uncore_pkg;
     logic [63:0]     rdata;    // the addressed doubleword
     logic            err;
   } dev_rsp_t;
+
+  // ---- The forwarded virtio window (docs/spec/soc.md §8.1, tg_vio_window) ----
+  localparam int VIO_SLOTS = 4;                 // 4 KiB virtio-mmio slots from VIRTIO_BASE
+
+  typedef struct packed {                       // a RISC-V access the host serves (request queue)
+    logic [1:0]      slot;
+    logic [11:0]     off;      // byte offset in the slot
+    logic [1:0]      size;     // log2 bytes: 0, 1 or 2
+    logic            we;
+    logic [31:0]     wdata;    // a write's value from bit 0 (0 for a read)
+  } vio_req_t;
+
+  typedef struct packed {                       // from the host (event queue)
+    logic            irq;      // 0: the waiting read's value; 1: status bits, data[7:0] set, data[15:8] clear
+    logic [31:0]     data;
+  } vio_ev_t;
 
   // ---- TileLink helpers ----
   function automatic logic tl_a_has_data(input tl_a_op_e op);

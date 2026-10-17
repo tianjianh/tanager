@@ -1,7 +1,9 @@
 // MMIO peripheral tests through the device bus (docs/spec/uncore-periph.md, uncore.md):
 // tg_tl_dev with tg_aclint, tg_plic, tg_uart and a stub host-control register; tg_bootrom directly.
-// Directed checks per device plus a random PLIC test against a reference model.
-module tb_periph;
+// Directed checks per device plus a random PLIC test against a reference model. VIRTIO = 1 (make
+// ... VIRTIO=1) adds a stub device at the virtio slots that holds the bus's wait for 0-40 cycles at
+// random, the forwarded window's case, checked against a reference memory.
+module tb_periph #(parameter bit VIRTIO = 1'b0);
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*, tg_bootrom_img_pkg::*;
 
   localparam int NH = 4;                 // harts
@@ -15,10 +17,11 @@ module tb_periph;
   // ---- Device bus and devices ----
   tl_a_t a; logic a_v, a_r;
   tl_d_t d; logic d_v, d_r;
-  dev_req_t req; logic [DEV_N-1:0] req_v; dev_rsp_t [DEV_N-1:0] rsp;
+  dev_req_t req; logic [DEV_N-1:0] req_v, dwait; dev_rsp_t [DEV_N-1:0] rsp;
 
-  tg_tl_dev u_dev (.clk, .rst, .a_i (a), .a_valid_i (a_v), .a_ready_o (a_r), .d_o (d), .d_valid_o (d_v),
-                   .d_ready_i (d_r), .req_o (req), .req_valid_o (req_v), .rsp_i (rsp));
+  tg_tl_dev #(.VIRTIO (VIRTIO)) u_dev (.clk, .rst, .a_i (a), .a_valid_i (a_v), .a_ready_o (a_r), .d_o (d),
+                   .d_valid_o (d_v), .d_ready_i (d_r), .req_o (req), .req_valid_o (req_v), .rsp_i (rsp),
+                   .wait_i (dwait));
 
   logic [NH-1:0] msi, mti;
   logic [63:0] mtime;
@@ -47,6 +50,34 @@ module tb_periph;
       for (int b = 0; b < 8; b++) if (req.be[b]) hc_scratch[8*b +: 8] <= req.wdata[8*b +: 8];
     rsp[DEV_HOSTCTL].rdata <= (req.addr[11:3] == 9'h6) ? hc_scratch : 64'h0;
     rsp[DEV_HOSTCTL].err   <= 1'b0;
+  end
+
+  // stub virtio device: answers after 0-40 cycles of wait at random (often none), from 16 KiB of
+  // memory that starts as a pattern of the address and keeps what is written. While it waits its
+  // response is garbage and denied, so a response taken early fails the test
+  logic [63:0] vio_mem [2048];
+  logic [63:0] vio_rd;
+  int          vio_wait;
+  int          vio_waits = 0;
+  initial for (int i = 0; i < 2048; i++) vio_mem[i] = {32'(i) ^ 32'hA5A5_0000, 32'(i) ^ 32'h5A5A_0000};
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      vio_wait <= 0;
+    end else if (req_v[DEV_VIRTIO]) begin
+      vio_wait <= ($urandom_range(2) == 0) ? 0 : $urandom_range(40);
+      if (req.we)
+        for (int b = 0; b < 8; b++) if (req.be[b]) vio_mem[req.addr[13:3]][8*b +: 8] <= req.wdata[8*b +: 8];
+      vio_rd <= vio_mem[req.addr[13:3]];
+    end else if (vio_wait != 0) begin
+      vio_wait  <= vio_wait - 1;
+      vio_waits <= vio_waits + 1;
+    end
+  end
+  always_comb begin
+    dwait                 = '0;
+    dwait[DEV_VIRTIO]     = vio_wait != 0;
+    rsp[DEV_VIRTIO].rdata = (vio_wait != 0) ? 64'hBAD0_BAD0_BAD0_BAD0 : vio_rd;
+    rsp[DEV_VIRTIO].err   = vio_wait != 0;
   end
 
   // ---- Boot ROM, driven directly ----
@@ -137,8 +168,8 @@ module tb_periph;
   // =================================================================================================
   task automatic test_bus();
     logic [63:0] r; bit den;
-    tl(34'h1001_0000, 3'd2, 0, '0, r, den);                 // virtio window: absent in M4
-    if (!den) fail("absent device not denied");
+    tl(34'h1001_0000, 3'd2, 0, '0, r, den);                 // virtio window: absent unless VIRTIO
+    if (den != !VIRTIO) fail(VIRTIO ? "virtio stub denied" : "absent device not denied");
     tl(34'h1100_0000, 3'd3, 0, '0, r, den);                 // debug window: absent until M9
     if (!den) fail("debug window not denied");
     tl(34'h0200_0002, 3'd2, 0, '0, r, den);                 // misaligned word
@@ -152,6 +183,34 @@ module tb_periph;
       if (w != 32'h0123_4567) fail("upper word lane");
     end
     $display("device bus: ok");
+  endtask
+
+  // The virtio stub through the device bus: random sizes, offsets and waits against a reference copy
+  // of its memory, the response taken only once the wait drops
+  task automatic test_wait();
+    logic [63:0] ref_mem [2048];
+    logic [63:0] r, v;
+    logic [33:0] addr;
+    logic [2:0]  size;
+    bit          den, wr;
+    for (int i = 0; i < 2048; i++) ref_mem[i] = {32'(i) ^ 32'hA5A5_0000, 32'(i) ^ 32'h5A5A_0000};
+    for (int n = 0; n < 600; n++) begin
+      size = 3'($urandom_range(3));
+      addr = VIRTIO_BASE + 34'($urandom_range(16383) & ~((1 << size) - 1));
+      wr   = $urandom_range(1);
+      v    = {$urandom, $urandom};
+      tl(addr, size, wr, v, r, den);
+      if (den) fail($sformatf("virtio stub %h denied", addr));
+      if (wr) begin
+        for (int b = 0; b < (1 << size); b++)
+          ref_mem[addr[13:3]][8*(addr[2:0] + b) +: 8] = v[8*b +: 8];
+      end else if (lane(r, addr[2:0], size) != lane(ref_mem[addr[13:3]], addr[2:0], size)) begin
+        fail($sformatf("virtio stub read %h size %0d: %h, want %h", addr, size, lane(r, addr[2:0], size),
+                       lane(ref_mem[addr[13:3]], addr[2:0], size)));
+      end
+    end
+    if (vio_waits < 1000) fail($sformatf("only %0d cycles of wait", vio_waits));
+    $display("device bus wait: ok (%0d cycles held)", vio_waits);
   endtask
 
   task automatic test_aclint();
@@ -441,6 +500,7 @@ module tb_periph;
     rst = 1'b0;
     repeat (2) @(posedge clk);
     test_bus();
+    if (VIRTIO) test_wait();
     test_aclint();
     test_plic();
     test_uart();

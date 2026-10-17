@@ -3,6 +3,7 @@
 //   host -> core: configuration (one mirrored vector), core/uncore reset levels, MBOX_OUT pulse,
 //                 console input bytes (async FIFO)
 //   core -> host: status (mirrored vector), POWER / TOHOST / DOORBELL pulses, console output bytes
+//   the forwarded virtio window (VIRTIO, tg_vio_window): its request and event queues, VQ_* registers
 // 64-bit host registers commit when their high half is written, so a 64-bit value never crosses torn.
 module tg_host_bridge
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
@@ -15,7 +16,8 @@ module tg_host_bridge
   parameter logic [39:0] DRAM_BASE_INIT  = '0,
   parameter logic [39:0] DRAM_SIZE_INIT  = '0,
   parameter bit          TRACE           = 1'b1,         // the trace stream is built (tg_uncore TRACE; DR-146)
-  parameter bit          DEBUG           = 1'b0          // DBG_SEL / DBG_VAL reach tg_uncore's debug counters
+  parameter bit          DEBUG           = 1'b0,         // DBG_SEL / DBG_VAL reach tg_uncore's debug counters
+  parameter bit          VIRTIO          = 1'b0          // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
 ) (
   // ---- host domain ----
   input  logic        clk_host,
@@ -46,6 +48,10 @@ module tg_host_bridge
   input  dev_req_t    req_i,
   input  logic        req_valid_i,
   output dev_rsp_t    rsp_o,
+  input  logic        vio_req_valid_i,   // the virtio window: the device bus's fifth device
+  output dev_rsp_t    vio_rsp_o,
+  output logic        vio_wait_o,
+  output logic [VIO_SLOTS-1:0] vio_irq_o, // PLIC sources 1-4
   output logic        mbox_irq_o,        // PLIC source 11
   output logic [39:0] dram_base_o,
   output logic [39:0] dram_size_o,
@@ -104,7 +110,8 @@ module tg_host_bridge
   logic [9:0]  inj_rd_q, inj_wr_q;
   logic        inj_mode_q;
   logic [8:0]  inj_bw_q;
-  logic [3:0]  irq_en_q;
+  logic [4:0]  irq_en_q;                         // [4] only with VIRTIO
+  logic        vq_en_q;
   logic        tg_en_q;
   logic [27:0] tg_base_q;
   logic [23:0] tg_lines_q;
@@ -135,6 +142,8 @@ module tg_host_bridge
     logic [15:0] trs_buffered;
     logic [31:0] trs_stalls;
     logic [31:0] dbg_val;
+    logic [2*VIO_SLOTS-1:0] vq_stat;
+    logic        vq_wait;
   } status_t;
   status_t st_h;
 
@@ -148,6 +157,12 @@ module tg_host_bridge
 
   // pulses from the core domain
   logic pwr_pulse_h, tohost_pulse_h, bell_pulse_h, mbox_out_h;
+
+  // the virtio window's queues, host side
+  logic        vq_valid, vq_pop, vq_ev_valid, vq_ev_ready;
+  vio_req_t    vq_head;
+  vio_ev_t     vq_ev;
+  logic [4:0]  vq_level, vq_ev_level;
 
   // ---- AXI4-Lite write path: take AW and W together, answer OKAY ----
   logic        wr_go, b_pend_q;
@@ -176,7 +191,7 @@ module tg_host_bridge
       16'h000: rd_mux = ID;
       16'h004: rd_mux = {VER_MAJ, VER_MIN, 4'(N_CORES_SOC), 4'(1 << TID_W), CFG_CODE};
       16'h008: rd_mux = 32'(CLK_HZ);
-      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), TRACE, 3'b011};  // [0] L2, [1] injector, [3] trace streaming
+      16'h00C: rd_mux = {24'd0, 4'(N_BANKS), TRACE, VIRTIO, 2'b11};  // [0] L2, [1] injector, [2] virtio window, [3] trace streaming
       16'h010: rd_mux = {29'd0, ctrl_q};
       16'h014: rd_mux = {28'd0, pwr_pend_q, st_h.l2_init, st_h.uncore_rst, st_h.cores_rst};
       16'h018: rd_mux = {pwr_pend_q, 15'd0, st_h.power_val};
@@ -199,8 +214,8 @@ module tg_host_bridge
       16'h068: rd_mux = fromhost_q[31:0];
       16'h06C: rd_mux = fromhost_q[63:32];
       16'h070: rd_mux = {31'd0, mbox_in_q};
-      16'h080: rd_mux = {28'd0, tohost_new_q, pwr_pend_q, mbox_in_q, txh_v};
-      16'h084: rd_mux = {28'd0, irq_en_q};
+      16'h080: rd_mux = {27'd0, vq_valid, tohost_new_q, pwr_pend_q, mbox_in_q, txh_v};
+      16'h084: rd_mux = {27'd0, irq_en_q};
       16'h088: rd_mux = {16'd0, st_h.tohost_seq};
       16'h0C0: rd_mux = {31'd0, tg_en_q};
       16'h0C4: rd_mux = {4'd0, tg_base_q};
@@ -225,6 +240,10 @@ module tg_host_bridge
       16'h1040: rd_mux = {st_h.trs_buffered, 11'd0, st_h.trs_flags};
       16'h1044: rd_mux = st_h.trs_stalls;
       16'h1048: rd_mux = {16'd0, 8'(N_CORES_SOC), 8'd64};
+      16'h1100: rd_mux = {31'd0, vq_en_q};
+      16'h1104: rd_mux = {st_h.vq_stat, 7'd0, st_h.vq_wait, 3'd0, vq_ev_level, 3'd0, vq_level};
+      16'h1108: rd_mux = {vq_valid, 12'd0, vq_head.we, vq_head.size, 2'd0, vq_head.slot, vq_head.off};
+      16'h110C: rd_mux = vq_head.wdata;
       16'h1200: rd_mux = {26'd0, dbg_sel_q};
       16'h1204: rd_mux = st_h.dbg_val;
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
@@ -234,6 +253,12 @@ module tg_host_bridge
     endcase
   end
   assign txh_pop = rd_go && ra == 16'h100 && txh_v;
+  assign vq_pop  = rd_go && ra == 16'h110C && vq_valid;      // reading VQ_REQ1 pops the entry
+
+  // the virtio window's events: VQ_RSP answers the waiting read, VQ_IRQ sets and clears status bits
+  assign vq_ev_valid = VIRTIO && wr_go && (wa == 16'h1110 || wa == 16'h1114);
+  assign vq_ev.irq   = wa == 16'h1114;
+  assign vq_ev.data  = (wa == 16'h1114) ? {16'd0, wd[15:0]} : wd;
 
   // console input: one byte per write of UART_RX
   assign rxh_push = wr_go && wa == 16'h108 && s_wstrb[0];
@@ -256,6 +281,7 @@ module tg_host_bridge
       inj_mode_q   <= 1'b0;
       inj_bw_q     <= '0;
       irq_en_q     <= '0;
+      vq_en_q      <= 1'b0;
       tg_en_q      <= 1'b0;
       tg_base_q    <= 28'(DRAM_BASE >> 6);
       tg_lines_q   <= 24'd16384;          // 1 MiB per generator: twice the L2
@@ -289,7 +315,7 @@ module tg_host_bridge
           16'h048: begin inj_mode_q <= wd[0]; inj_bw_q <= wd[24:16]; end
           16'h070: if (s_wstrb[0] && wd[0]) mbox_in_q <= 1'b0;
           16'h080: if (s_wstrb[0] && wd[3]) tohost_new_q <= 1'b0;
-          16'h084: irq_en_q <= wd[3:0];
+          16'h084: irq_en_q <= {VIRTIO && wd[4], wd[3:0]};
           16'h0C0: tg_en_q <= wd[0];
           16'h0C4: tg_base_q <= wd[27:0];
           16'h0C8: tg_lines_q <= wd[23:0];
@@ -301,6 +327,7 @@ module tg_host_bridge
           16'h1024: if (TRACE) trs_base_q     <= {wd, lo_shadow_q};
           16'h1028: if (TRACE) trs_size_q     <= wd[4:0];
           16'h1034: if (TRACE) trs_rp_q       <= {wd, lo_shadow_q};
+          16'h1100: if (VIRTIO) vq_en_q <= wd[0];
           16'h1200: if (DEBUG) dbg_sel_q <= wd[5:0];
           default: ;
         endcase
@@ -320,7 +347,7 @@ module tg_host_bridge
     end
   end
 
-  assign host_irq_o = |({tohost_new_q, pwr_pend_q, mbox_in_q, txh_v} & irq_en_q);
+  assign host_irq_o = |({vq_valid, tohost_new_q, pwr_pend_q, mbox_in_q, txh_v} & irq_en_q);
 
   // =============================================================================================
   // Crossings
@@ -347,6 +374,7 @@ module tg_host_bridge
     logic [4:0]  trs_size;
     logic [63:0] trs_rp;
     logic [5:0]  dbg_sel;
+    logic        vq_en;
   } cfg_t;
   cfg_t cfg_h, cfg_c;
   localparam cfg_t CFG_INIT = '{dram_base: DRAM_BASE_INIT, dram_size: DRAM_SIZE_INIT, entry: 64'(DRAM_BASE),
@@ -354,7 +382,7 @@ module tg_host_bridge
                                 inj_mode: 1'b0, inj_bw: '0, lossless: 1'b0, tg_en: 1'b0,
                                 tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384,
                                 trs_ctrl: '0, trs_stop_pc: '0, trs_post: '0, trs_start_pc: '0,
-                                trs_base: '0, trs_size: '0, trs_rp: '0, dbg_sel: '0};
+                                trs_base: '0, trs_size: '0, trs_rp: '0, dbg_sel: '0, vq_en: 1'b0};
   always_comb begin
     cfg_h.dram_base = dram_base_q[39:0];
     cfg_h.dram_size = dram_size_q[39:0];
@@ -377,6 +405,7 @@ module tg_host_bridge
     cfg_h.trs_size     = trs_size_q;
     cfg_h.trs_rp       = trs_rp_q;
     cfg_h.dbg_sel      = dbg_sel_q;
+    cfg_h.vq_en        = vq_en_q;
   end
   tg_cdc_mirror #(.W ($bits(cfg_t)), .INIT (CFG_INIT)) u_cfg (
     .src_clk (clk_host), .src_rst (rst_host), .src_in (cfg_h),
@@ -474,6 +503,36 @@ module tg_host_bridge
   tg_cdc_pulse u_bel (.src_clk (clk), .src_rst (rst), .src_pulse (bell_pulse_c),
                       .dst_clk (clk_host), .dst_rst (rst_host), .dst_pulse (bell_pulse_h));
 
+  // =============================================================================================
+  // The forwarded virtio window (docs/spec/soc.md §8.1)
+  // =============================================================================================
+  logic [2*VIO_SLOTS-1:0] vq_stat_c;
+  logic                   vq_wait_c;
+  if (VIRTIO) begin : g_vio
+    // the event queue empties with the uncore: on the host's reset or its uncore reset request
+    logic vq_flush_q;
+    always_ff @(posedge clk_host) vq_flush_q <= rst_host || ctrl_q[1];
+    tg_vio_window u_vio (
+      .clk, .rst (urst_q), .req_i, .req_valid_i (vio_req_valid_i), .rsp_o (vio_rsp_o), .wait_o (vio_wait_o),
+      .en_i (cfg_c.vq_en), .irq_o (vio_irq_o), .stat_o (vq_stat_c), .rd_wait_o (vq_wait_c),
+      .clk_host, .rst_host (vq_flush_q),
+      .q_valid_o (vq_valid), .q_head_o (vq_head), .q_pop_i (vq_pop), .q_level_o (vq_level),
+      .ev_valid_i (vq_ev_valid), .ev_i (vq_ev), .ev_ready_o (vq_ev_ready), .ev_level_o (vq_ev_level)
+    );
+  end else begin : g_no_vio
+    assign vio_rsp_o   = '0;
+    assign vio_wait_o  = 1'b0;
+    assign vio_irq_o   = '0;
+    assign vq_stat_c   = '0;
+    assign vq_wait_c   = 1'b0;
+    assign vq_valid    = 1'b0;
+    assign vq_head     = '0;
+    assign vq_level    = '0;
+    assign vq_ev_ready = 1'b0;
+    assign vq_ev_level = '0;
+    wire unused_vio = ^{vio_req_valid_i, vq_pop, vq_ev_valid, vq_ev, cfg_c.vq_en};
+  end
+
   // Status to the host
   status_t st_c;
   always_comb begin
@@ -495,6 +554,8 @@ module tg_host_bridge
     st_c.trs_buffered = trs_buffered_i;
     st_c.trs_stalls   = trs_stalls_i;
     st_c.dbg_val      = DEBUG ? dbg_val_i : '0;
+    st_c.vq_stat      = vq_stat_c;
+    st_c.vq_wait      = vq_wait_c;
   end
   tg_cdc_mirror #(.W ($bits(status_t))) u_status (
     .src_clk (clk), .src_rst (rst), .src_in (st_c),
@@ -542,5 +603,5 @@ module tg_host_bridge
   assign dbg_sel_o       = cfg_c.dbg_sel;
 
   wire unused = ^{s_awaddr[1:0], s_araddr[1:0], s_wstrb[2:1], rxh_ready, req_i.addr[PA_W-1:12], req_i.size, off[2:0],
-                  txc_level, rxc_level, cfg_c.trs_ctrl[7:2]};
+                  txc_level, rxc_level, cfg_c.trs_ctrl[7:2], vq_ev_ready};
 endmodule

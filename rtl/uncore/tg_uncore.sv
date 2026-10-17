@@ -2,7 +2,7 @@
 // Its ports toward the cores are the cores' ports (interfaces.md), so it can also be synthesised
 // on its own, as the per-unit LUT budget run does (fpga/budget, unit "uncore").
 //   cores -> tg_xbar -> L2 banks -> latency injector -> DRAM window -> AXI slice -> m_axi_*
-//                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control)
+//                    -> boot ROM, device bus (ACLINT, PLIC, UART, host control, the virtio window)
 //   host bridge: AXI4-Lite from the host (clk_host), resets, configuration, console, mailbox;
 //   commit-trace streaming into DDR (its own AXI master).
 module tg_uncore
@@ -76,6 +76,11 @@ module tg_uncore
   // every coherence channel's valid and ready, which the host reads one at a time (host bridge DBG_SEL,
   // DBG_VAL; tanager-host dbg). Off by default: no logic
   parameter bit          DEBUG_CNT       = 1'b0,
+  // The forwarded virtio window (docs/spec/soc.md §8.1, DR-147 stage C): the virtio slots at
+  // VIRTIO_BASE become a device whose accesses the A53 serves through the host bridge's VQ_*
+  // registers, with InterruptStatus and InterruptACK in RTL and PLIC sources 1-4. Off by default:
+  // the slots answer denied, as before
+  parameter bit          VIRTIO_WINDOW   = 1'b0,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -445,12 +450,18 @@ module tg_uncore
   );
 
   dev_req_t           dreq;
-  logic [DEV_N-1:0]   dreq_v;
+  logic [DEV_N-1:0]   dreq_v, dwait;
   dev_rsp_t [DEV_N-1:0] drsp;
-  tg_tl_dev u_dev (
+  logic               vio_wait;
+  logic [VIO_SLOTS-1:0] vio_irq;
+  always_comb begin
+    dwait             = '0;                      // only the virtio window waits
+    dwait[DEV_VIRTIO] = vio_wait;
+  end
+  tg_tl_dev #(.VIRTIO (VIRTIO_WINDOW)) u_dev (
     .clk, .rst (uncore_rst),
     .a_i (dev_a), .a_valid_i (dev_av), .a_ready_o (dev_ar), .d_o (dev_d), .d_valid_o (dev_dv), .d_ready_i (dev_dr),
-    .req_o (dreq), .req_valid_o (dreq_v), .rsp_i (drsp)
+    .req_o (dreq), .req_valid_o (dreq_v), .rsp_i (drsp), .wait_i (dwait)
   );
 
   tg_aclint #(.N_HARTS (NH), .CLK_HZ (CLK_HZ)) u_aclint (
@@ -465,6 +476,7 @@ module tg_uncore
     plic_src = '0;
     plic_src[IRQ_UART]    = uart_irq;
     plic_src[IRQ_HOSTCTL] = mbox_irq;
+    for (int s = 0; s < VIO_SLOTS; s++) plic_src[IRQ_VIRTIO0 + s] = vio_irq[s];
     for (int h = 0; h < NH; h++) plic_src[IRQ_MERR0 + h] = merr_i[h];
   end
   tg_plic #(.N_SRC (PLIC_NSRC), .N_CTX (2 * NH), .EDGE_SRC (EDGE_SRC)) u_plic (
@@ -514,7 +526,7 @@ module tg_uncore
   end
 
   // ---------------------------------------------------------------------------------------------
-  // Host bridge (host control is the device bus's fourth device)
+  // Host bridge (host control is the device bus's fourth device, the virtio window its fifth)
   // ---------------------------------------------------------------------------------------------
   logic [31:0] tg_ops_all;
   logic [15:0] tg_errs_all;
@@ -574,7 +586,8 @@ module tg_uncore
   tg_host_bridge #(
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
-    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT)
+    .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
+    .VIRTIO (VIRTIO_WINDOW)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),
@@ -585,6 +598,8 @@ module tg_uncore
     .host_irq_o,
     .clk, .rst, .core_rst_o, .uncore_rst_o (uncore_rst),
     .req_i (dreq), .req_valid_i (dreq_v[DEV_HOSTCTL]), .rsp_o (drsp[DEV_HOSTCTL]),
+    .vio_req_valid_i (dreq_v[DEV_VIRTIO]), .vio_rsp_o (drsp[DEV_VIRTIO]), .vio_wait_o (vio_wait),
+    .vio_irq_o (vio_irq),
     .mbox_irq_o (mbox_irq),
     .dram_base_o (win_base), .dram_size_o (win_size),
     .inj_rd_delay_o (inj_rd), .inj_wr_delay_o (inj_wr), .inj_mode_o (inj_mode), .inj_bw_o (inj_bw),

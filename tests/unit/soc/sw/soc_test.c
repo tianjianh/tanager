@@ -1,7 +1,9 @@
 /* SoC integration test, run by tg_tcore cores inside tanager_soc (tests/unit/soc, KIND=tcore).
  * Exercises: boot ROM hand-off (a0, a1), host control, the 16550 console, ACLINT mtime/mtimecmp,
  * the L2 (a region larger than the test L2, so lines are evicted and refetched), coherence between
- * two harts without atomics (flags and data handed over through the caches), and TOHOST.
+ * two harts without atomics (flags and data handed over through the caches), and TOHOST. When the
+ * host serves the forwarded virtio window (FROMHOST = "vio", tb_soc VIRTIO=1): reads the host answers,
+ * and a QueueNotify whose answer is an interrupt through the PLIC, claimed and acknowledged.
  * Pass: TOHOST = 1; failure: TOHOST = (code << 1) | 1. With one hart (the one-core KV260 bitstream's
  * first light, fpga/kv260/README.md) the coherence part is skipped. */
 #include <stdint.h>
@@ -9,7 +11,12 @@
 #define UART      ((volatile uint8_t *)0x10000000ul)
 #define HOSTCTL   0x10001000ul
 #define ACLINT    0x02000000ul
+#define PLIC      0x0C000000ul
+#define VIRTIO    0x10010000ul
 #define REG64(a)  (*(volatile uint64_t *)(a))
+#define REG32(a)  (*(volatile uint32_t *)(a))
+#define REG16(a)  (*(volatile uint16_t *)(a))
+#define REG8(a)   (*(volatile uint8_t *)(a))
 
 static void putc_(char c) {
   while (!(UART[5] & 0x20)) { }      /* LSR.THRE */
@@ -55,6 +62,30 @@ int main(uint64_t hartid, uint64_t dtb) {
       for (int i = 0; i < 8192; i++)
         if (region[i] != mix((uint64_t)i ^ 0x1234)) fail(0x100 + pass);
     puts_("memory ok\n");
+
+    /* The forwarded virtio window (docs/spec/soc.md §8.1): the host answers a read with "virt" at
+     * offset 0, else (slot << 16) | offset; a QueueNotify of slot 3 makes it set the slot's used-buffer
+     * bit, PLIC source 4. InterruptStatus and InterruptACK are answered in the uncore. */
+    if (REG64(HOSTCTL + 0x30) == 0x6f6976) {
+      if (REG32(VIRTIO + 0x000) != 0x74726976) fail(0x400);
+      if (REG32(VIRTIO + 0x1008) != 0x00010008) fail(0x401);
+      if (REG8(VIRTIO + 0x2101) != 0x01) fail(0x402);
+      if (REG16(VIRTIO + 0x2102) != 0x0102) fail(0x403);
+      REG32(PLIC + 4 * 4) = 1;                       /* source 4: priority 1 */
+      REG32(PLIC + 0x2000) = 1u << 4;                /* enabled for context 0, hart 0's M-mode */
+      REG32(PLIC + 0x200000) = 0;                    /* threshold */
+      if (REG32(PLIC + 0x1000) & (1u << 4)) fail(0x404);
+      if (REG32(VIRTIO + 0x3060) != 0) fail(0x405);
+      REG32(VIRTIO + 0x3050) = 0;                    /* QueueNotify, queue 0 */
+      while (!(REG32(PLIC + 0x1000) & (1u << 4))) { }
+      if (REG32(PLIC + 0x200004) != 4) fail(0x406);  /* claim */
+      if (REG32(VIRTIO + 0x3060) != 1) fail(0x407);  /* InterruptStatus: used buffer */
+      REG32(VIRTIO + 0x3064) = 1;                    /* InterruptACK */
+      REG32(PLIC + 0x200004) = 4;                    /* complete */
+      if (REG32(VIRTIO + 0x3060) != 0) fail(0x408);
+      if (REG32(PLIC + 0x1000) & (1u << 4)) fail(0x409);
+      puts_("virtio ok\n");
+    }
 
     /* Coherence: hand data to hart 1 and get its answer back (no atomics: flags in memory). Hart 1
      * announces itself as it starts; with one hart, give up after 1 ms of mtime (10 MHz). */

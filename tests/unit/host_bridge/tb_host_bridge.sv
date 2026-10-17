@@ -3,8 +3,12 @@
 // reset values and access, 64-bit commits, the configuration and status crossings, reset levels,
 // POWER/TOHOST/DOORBELL/MBOX events both ways, console streams both ways (drop and lossless),
 // and host interrupt masking. TRACE = 0 (make ... COMMIT_TRACE=0) checks the bridge built without the trace
-// stream (DR-146): the capability bit clear, the trace registers ignoring writes.
-module tb_host_bridge #(parameter bit TRACE = 1'b1);
+// stream (DR-146): the capability bit clear, the trace registers ignoring writes. VIRTIO = 1 (make ...
+// VIRTIO=1) adds the forwarded virtio window (docs/spec/soc.md §8.1): accesses answered locally while the
+// host doesn't serve it, random accesses served by a host model with random delays (posted writes in
+// order, reads waiting for the host's value), a full queue holding the device bus, the status bits,
+// InterruptStatus and InterruptACK, 64-bit accesses denied, and the uncore reset emptying the queue.
+module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
@@ -43,6 +47,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
   // core side
   logic core_rst, uncore_rst, mbox_irq, host_irq;
   dev_req_t req; logic req_v; dev_rsp_t rsp;
+  logic vreq_v, vwait; dev_rsp_t vrsp; logic [VIO_SLOTS-1:0] virq;     // the virtio window
   logic [39:0] dbase, dsize;
   // trace-stream configuration and status
   logic        trs_en, trs_wrap, trs_stop_arm, trs_start_arm;
@@ -60,7 +65,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
   logic [7:0]  ctx_b, crx_b;
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
-                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE)) dut (
+                   .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO)) dut (
     .clk_host, .rst_host,
     .s_awaddr (l_awaddr), .s_awvalid (l_awvalid), .s_awready (l_awready),
     .s_wdata (l_wdata), .s_wstrb (l_wstrb), .s_wvalid (l_wvalid), .s_wready (l_wready),
@@ -69,7 +74,9 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     .s_rdata (l_rdata), .s_rresp (l_rresp), .s_rvalid (l_rvalid), .s_rready (l_rready),
     .host_irq_o (host_irq),
     .clk, .rst, .core_rst_o (core_rst), .uncore_rst_o (uncore_rst),
-    .req_i (req), .req_valid_i (req_v), .rsp_o (rsp), .mbox_irq_o (mbox_irq),
+    .req_i (req), .req_valid_i (req_v), .rsp_o (rsp),
+    .vio_req_valid_i (vreq_v), .vio_rsp_o (vrsp), .vio_wait_o (vwait), .vio_irq_o (virq),
+    .mbox_irq_o (mbox_irq),
     .dram_base_o (dbase), .dram_size_o (dsize),
     .inj_rd_delay_o (ird), .inj_wr_delay_o (iwr), .inj_mode_o (imode), .inj_bw_o (ibw),
     .l2_init_done_i (1'b1), .inj_rd_count_i (32'd1234), .inj_lat_sum_i (32'd56789), .inj_lat_max_i (16'd77),
@@ -101,6 +108,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     h = fnv(h, 256'({tg_en, tg_base, tg_lines, trs_en, trs_wrap, trs_stop_arm, trs_start_arm, trs_post, trs_size, trs_base}));
     h = fnv(h, 256'({trs_stop_pc, trs_start_pc, trs_rp}));
     h = fnv(h, 256'(rsp));
+    if (VIRTIO) h = fnv(h, 256'({vwait, virq, vrsp}));
     csig <= h;
   end
 
@@ -172,6 +180,168 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     rd = rsp.rdata;
   endtask
 
+  // ---- core-side access to the virtio window: the device bus's protocol, the response taken in the
+  // first cycle without wait (tg_tl_dev); `cycles` counts from the cycle after the request ----
+  task automatic vacc(input logic [1:0] slot, input logic [11:0] off, input logic [1:0] size, input bit we,
+                      input logic [31:0] val, output logic [63:0] rd, output bit err, output int cycles);
+    @(negedge clk);
+    req = '0;
+    req.addr  = VIRTIO_BASE + PA_W'({slot, off});
+    req.we    = we;
+    req.size  = size;
+    req.wdata = 64'(val) << (8 * off[2:0]);
+    req.be    = 8'(((1 << (1 << size)) - 1) << off[2:0]);
+    vreq_v = 1;
+    @(negedge clk);
+    vreq_v = 0;
+    cycles = 1;
+    forever begin
+      @(posedge clk);
+      if (!vwait) break;
+      cycles++;
+    end
+    rd  = vrsp.rdata;
+    err = vrsp.err;
+  endtask
+
+  function automatic logic [31:0] szmask(input logic [1:0] size);
+    return (size == 2'd2) ? 32'hFFFF_FFFF : (size == 2'd1) ? 32'h0000_FFFF : 32'h0000_00FF;
+  endfunction
+
+  typedef struct { logic [1:0] slot; logic [11:0] off; logic [1:0] size; bit we; logic [31:0] val; } vacc_t;
+
+  task automatic test_virtio();
+    vacc_t       acc [];
+    logic [63:0] rd;
+    logic [31:0] v;
+    bit          err;
+    int          cyc;
+    int unsigned seed;
+    if (!$value$plusargs("seed=%d", seed)) seed = 1;
+    void'($urandom(seed));                                   // after the signatures: SEED= varies only this part
+    expect_h(16'h1100, 32'h0, "VQ_CTRL at reset");
+    // not served (EN = 0): answered here at once, nothing queued
+    vacc(2'd0, 12'h000, 2'd2, 0, 32'd0, rd, err, cyc);
+    if (rd != 0 || err || cyc != 1) fail($sformatf("window off: MagicValue %h err %0d in %0d cycles", rd, err, cyc));
+    vacc(2'd1, 12'h070, 2'd2, 1, 32'h1, rd, err, cyc);
+    if (err || cyc != 1) fail("window off: a write");
+    repeat (40) @(posedge clk);
+    hr(16'h1104, v);
+    if (v[4:0] != 0) fail("window off: an access was queued");
+    hw(16'h1100, 32'h1);
+    expect_h(16'h1100, 32'h1, "VQ_CTRL");
+    repeat (60) @(posedge clk);
+
+    // a full queue holds the device bus: 24 posted writes while the host waits, then drains in order
+    fork
+      begin
+        for (int i = 0; i < 24; i++) begin
+          vacc(2'd3, 12'h050, 2'd2, 1, 32'(i), rd, err, cyc);
+          if (err) fail("QueueNotify denied");
+          if (i < 16 && cyc > 4) fail($sformatf("write %0d waited %0d cycles with room in the queue", i, cyc));
+          if (i == 16 && cyc < 1000) fail($sformatf("write %0d waited only %0d cycles for a full queue", i, cyc));
+        end
+      end
+      begin
+        repeat (4000) @(posedge clk_host);
+        hr(16'h1104, v);
+        if (v[4:0] != 5'd16) fail($sformatf("VQ_STATUS %h with a full queue", v));
+        for (int i = 0; i < 24; i++) begin
+          do hr(16'h1108, v); while (!v[31]);
+          if (v != {1'b1, 12'd0, 1'b1, 2'd2, 2'd0, 2'd3, 12'h050}) fail($sformatf("VQ_REQ0 %h", v));
+          hr(16'h110C, v);
+          if (v != 32'(i)) fail($sformatf("posted write %0d arrived as %0d", i, v));
+        end
+      end
+    join
+
+    // random accesses, the host serving them with random delays; reads wait for its value
+    acc = new[400];
+    foreach (acc[i]) begin
+      acc[i].size = 2'($urandom_range(2));
+      do acc[i].off = 12'($urandom_range(4095)) & ~12'((1 << acc[i].size) - 1);
+      while (acc[i].off[11:3] == 9'h00C);                  // InterruptStatus and InterruptACK are local
+      acc[i].slot = 2'($urandom_range(3));
+      acc[i].we   = 1'($urandom_range(1));
+      acc[i].val  = $urandom & szmask(acc[i].size);
+    end
+    hw(16'h084, 32'h10);                                     // the host interrupt for queued requests only
+    fork
+      begin
+        foreach (acc[i]) begin
+          vacc(acc[i].slot, acc[i].off, acc[i].size, acc[i].we, acc[i].we ? acc[i].val : 32'd0, rd, err, cyc);
+          if (err) fail($sformatf("virtio access %0d denied", i));
+          if (!acc[i].we && ((32'(rd >> (8 * acc[i].off[2:0]))) & szmask(acc[i].size)) != acc[i].val)
+            fail($sformatf("virtio read %0d (slot %0d off %h size %0d): %h, want %h", i, acc[i].slot, acc[i].off,
+                           acc[i].size, rd, acc[i].val));
+          repeat ($urandom_range(3)) @(posedge clk);
+        end
+      end
+      begin
+        foreach (acc[i]) begin
+          do hr(16'h1108, v); while (!v[31]);
+          if (!host_irq) fail("no host interrupt with a request queued");
+          if (v[11:0] != acc[i].off || v[13:12] != acc[i].slot || v[17:16] != acc[i].size || v[18] != acc[i].we ||
+              v[30:19] != 0 || v[15:14] != 0)
+            fail($sformatf("VQ_REQ0 %h for access %0d (slot %0d off %h size %0d we %0d)", v, i, acc[i].slot,
+                           acc[i].off, acc[i].size, acc[i].we));
+          hr(16'h110C, v);
+          if (v != (acc[i].we ? acc[i].val : 32'd0)) fail($sformatf("VQ_REQ1 %h for access %0d", v, i));
+          if (!acc[i].we) begin
+            repeat ($urandom_range(300)) @(posedge clk_host);
+            hw(16'h1110, acc[i].val);
+          end
+        end
+      end
+    join
+    hr(16'h1108, v);
+    if (v[31]) fail("an access left in the queue");
+    if (host_irq) fail("host interrupt with the queue empty");
+    $display("virtio window: %0d accesses served in order", acc.size());
+
+    // status bits: the host sets and clears them, the driver reads InterruptStatus and acknowledges
+    hw(16'h1114, 32'h0000_0010);                             // slot 2, used buffer
+    repeat (40) @(posedge clk);
+    if (virq != 4'b0100) fail($sformatf("VQ_IRQ set: %b", virq));
+    vacc(2'd2, 12'h060, 2'd2, 0, 32'd0, rd, err, cyc);
+    if (rd[31:0] != 32'h1 || err || cyc != 1) fail($sformatf("InterruptStatus %h in %0d cycles", rd, cyc));
+    vacc(2'd2, 12'h064, 2'd2, 1, 32'h1, rd, err, cyc);
+    if (virq != 4'b0000 || cyc != 1) fail("InterruptACK");
+    hw(16'h1114, 32'h0000_0082);                             // slot 0 and slot 3, configuration change
+    repeat (40) @(posedge clk);
+    if (virq != 4'b1001) fail($sformatf("VQ_IRQ set two: %b", virq));
+    hr(16'h1104, v);
+    if (v[31:24] != 8'h82 || v[16]) fail($sformatf("VQ_STATUS %h", v));
+    vacc(2'd3, 12'h060, 2'd0, 0, 32'd0, rd, err, cyc);       // a byte read
+    if (rd[7:0] != 8'h2) fail($sformatf("InterruptStatus byte %h", rd));
+    vacc(2'd3, 12'h061, 2'd0, 0, 32'd0, rd, err, cyc);       // the register's second byte
+    if (rd[15:8] != 8'h0) fail($sformatf("InterruptStatus second byte %h", rd));
+    hw(16'h1114, 32'h0000_8000);                             // the host clears slot 3's
+    repeat (40) @(posedge clk);
+    if (virq != 4'b0001) fail($sformatf("VQ_IRQ clear: %b", virq));
+    vacc(2'd0, 12'h064, 2'd2, 1, 32'h2, rd, err, cyc);
+    if (virq != 4'b0000) fail("InterruptACK of slot 0");
+    vacc(2'd1, 12'h100, 2'd3, 0, 32'd0, rd, err, cyc);       // 64-bit: denied
+    if (!err) fail("a 64-bit access not denied");
+    repeat (40) @(posedge clk);
+    hr(16'h1104, v);
+    if (v[4:0] != 0) fail("a local or denied access was queued");
+
+    // the uncore reset empties the queue
+    for (int i = 0; i < 3; i++) vacc(2'd1, 12'h050, 2'd2, 1, 32'(i), rd, err, cyc);
+    repeat (60) @(posedge clk);
+    hr(16'h1104, v);
+    if (v[4:0] != 3) fail($sformatf("VQ_STATUS %h with 3 queued", v));
+    hw(16'h010, 32'h2);
+    repeat (40) @(posedge clk);
+    hw(16'h010, 32'h0);
+    repeat (80) @(posedge clk);
+    hr(16'h1104, v);
+    if (v[4:0] != 0 || v[12:8] != 0) fail($sformatf("VQ_STATUS %h after the uncore reset", v));
+    expect_h(16'h1100, 32'h1, "VQ_CTRL after the uncore reset");
+    $display("virtio window: ok");
+  endtask
+
   // ---- console endpoints ----
   logic [7:0] tx_sent[$], rx_got[$];
   bit         tx_push;
@@ -187,7 +357,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     logic [31:0] v;
     logic [63:0] q;
     logic [31:0] d [];
-    awvalid = 0; wvalid = 0; bready = 0; arvalid = 0; rready = 0; req_v = 0; ctx_v = 0; ctx_b = 0;
+    awvalid = 0; wvalid = 0; bready = 0; arvalid = 0; rready = 0; req_v = 0; vreq_v = 0; ctx_v = 0; ctx_b = 0;
     repeat (8) @(posedge clk);
     rst = 0; rst_host = 0;
     repeat (8) @(posedge clk);
@@ -197,7 +367,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     hr(16'h004, v);
     if (v[7:0] != 8'd1 || v[15:12] != 4'd2) fail($sformatf("VERSION %h", v));
     expect_h(16'h008, 32'd100_000_000, "CLK_HZ");
-    expect_h(16'h00C, {24'd0, 4'(N_BANKS), TRACE, 3'b011}, "CAPS");
+    expect_h(16'h00C, {24'd0, 4'(N_BANKS), TRACE, VIRTIO, 2'b11}, "CAPS");
     expect_h(16'h010, 32'h3, "CTRL");
     expect_h(16'h030, 32'h8000_0000, "BOOT_ENTRY lo");
     expect_h(16'h038, 32'h8220_0000, "DTB_ADDR lo");
@@ -378,6 +548,14 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1);
     if (rx_got.size() != 700) fail($sformatf("console input: %0d of 700 bytes", rx_got.size()));
     foreach (rx_got[i]) if (rx_got[i] != 8'(i * 5)) begin fail($sformatf("console input byte %0d", i)); break; end
     $display("host_bridge: port signatures %016h (host) %016h (core)", hsig, csig);
+    // after the signatures, which stay comparable with builds before the window
+    if (VIRTIO) test_virtio();
+    else begin
+      hw(16'h1100, 32'h1);                                   // no window: VQ_CTRL ignores writes
+      expect_h(16'h1100, 32'h0, "VQ_CTRL without the window");
+      hw(16'h084, 32'h1F);
+      expect_h(16'h084, 32'hF, "IRQ_EN bit 4 without the window");
+    end
     if (errors == 0) $display("TEST PASSED");
     else $display("TEST FAILED: %0d errors", errors);
     $finish;
