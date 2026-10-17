@@ -1705,7 +1705,7 @@ module tg_lsu
     always_comb for (int i = 0; i < SQ_ENTRIES; i++) ab_sa[i] = i >= int'(sa_idx);
     assign r_lo = |fc_lo;
     always_ff @(posedge clk) begin
-      if (!rst && m1_v_q && sn_v) begin
+      if (rs_q && !rst && m1_v_q && sn_v) begin
         assert (int'(sa_idx) < SQ_ENTRIES && int'(f_lim[SIW-1:0]) < SQ_ENTRIES)
           else $error("tg_lsu: an SQ slot beyond SQ_ENTRIES");
         assert (sel_s == (byp && (!q_hit || (s_lo && !r_lo) ||
@@ -1714,7 +1714,7 @@ module tg_lsu
       end
       // A new load's state write takes its outcome as data: where it decides in M1, its entry is
       // in L_PIPE and no earlier write in the LQ block meets it in this cycle
-      if (!rst && ln_v && !flush)
+      if (rs_q && !rst && ln_v && !flush)
         assert (lq_st_q[ln_lqw] == L_PIPE &&
                 !(((ld_ag_valid && !flush) || ag_rp) && ag_lq == ln_lqw) &&
                 !(m2_v_q && !m2_pt_q && m2_lq_q == ln_lqw) && !(lm_st && lm_lq == ln_lqw) &&
@@ -1794,8 +1794,9 @@ module tg_lsu
       if (ld_ag_valid) assert (lq_v_q[ld_ag_pl.lq[LIW-1:0]]) else $error("tg_lsu: AG for a free LQ entry");
       if (sta_ag_valid) assert (sq_v_q[sa_idx_ag]) else $error("tg_lsu: STA for a free SQ entry");
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
-      for (int i = 0; i < SQ_ENTRIES; i++)
-        assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
+      if (rs_q)                     // two registers: from the first reset on (the SoC's core reset is a register)
+        for (int i = 0; i < SQ_ENTRIES; i++)
+          assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
@@ -1815,7 +1816,7 @@ module tg_lsu
       blk_chk_q[m2_lq_q]  <= m2_fid;
       part_chk_q[m2_lq_q] <= !m2_fcov_q;
     end
-    if (!rst)
+    if (rs_q && !rst)
       for (int i = 0; i < LQ_ENTRIES; i++)
         if (lq_v_q[i] && lq_st_q[i] == L_STQ)
           assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
