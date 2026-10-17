@@ -1,0 +1,30 @@
+loaded tanager-sc2 at 09:55:42; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      70.0 MHz
+  capabilities    0x0000012f (virtio window)
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+  virtio window   not served (reads 0); 0 request(s) and 0 event(s) queued; status bits 0x00
+$ tanager-host load --fw /home/ubuntu/tanager/sc2/fw_jump.bin --kernel /home/ubuntu/tanager/sc2/Image --dtb /home/ubuntu/tanager/sc2/tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2/vblk-test.img --rng
+loaded: fw 277856 B, kernel 21449216 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+$ tanager-host dma check
+tanager-host: dma check: the uncore must run with the L2 ready (load first)
+$ tanager-host dma status
+host DMA port: completions not recorded, 0 waiting; 0 lines read, 0 written; 0 write bursts dropped in part
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+  L2 error events                   0
+  levels 0x00000445: bank0[ b_r d_r e_r ] bank1[ e_r ] core0 stalled[ ] core1 stalled[ ]
+  (no core debug words in this bitstream)
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 09:55:49
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
