@@ -1,0 +1,8 @@
+cfg=smt2 kind=core core_mhz=70 n_cores=1
+WNS=2.852 WHS=0.010
+runtime_s=2011
+commit=be84cb83c375
+profile=smt2-1core-trace defines=- synth=AreaOptimized_high
+uncore=DEBUG_CNT=1
+pmod_uart=1 txd=H12 rxd=B10
+fan=ttc0.wave2 invert=0 pin=A12

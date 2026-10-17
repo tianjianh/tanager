@@ -1,0 +1,38 @@
+boot exit 124; console 418 bytes; trace 2560 bytes
+zeroed the RISC-V window: 768 MiB in 1.0 s
+loaded: fw 277856 B, kernel 21449216 B, dtb 2611 B into 0x840000000 (RISC-V 0x80000000)
+
+[tanager-host] timeout
+[tanager-host] trace: 40 records written
+40 records
+hart lane 0: 20 records; last ones (record, kind 0 retire/1 trap/2 irq/3 wb, priv, pc, insn, value):
+        15 k0 p3 pc=0x000000008000000c insn=0x79c000ef val=0x0000000080000010
+        18 k0 p3 pc=0x00000000800007a8 insn=0x0000557d val=0xffffffffffffffff
+        19 k0 p3 pc=0x00000000800007aa insn=0x00008082 val=0x0000000000000000
+        21 k0 p3 pc=0x0000000080000010 insn=0x00050833 val=0xffffffffffffffff
+        23 k0 p3 pc=0x0000000080000014 insn=0x00040533 val=0xffffffffffffffff
+        25 k0 p3 pc=0x0000000080000018 insn=0x000485b3 val=0x0000000080000000
+        27 k0 p3 pc=0x000000008000001c insn=0x00090633 val=0xffffffffffffffff
+        29 k0 p3 pc=0x0000000080000020 insn=0x000058fd val=0xffffffffffffffff
+        31 k0 p3 pc=0x0000000080000022 insn=0x01180463 val=0x0000000000000000
+        33 k0 p3 pc=0x000000008000002a insn=0x00040817 val=0x000000008004002a
+        35 k0 p3 pc=0x000000008000002e insn=0xfd680813 val=0x0000000080040000
+        37 k0 p3 pc=0x0000000080000032 insn=0x00004885 val=0x0000000000000001
+hart lane 2: 20 records; last ones (record, kind 0 retire/1 trap/2 irq/3 wb, priv, pc, insn, value):
+        17 k0 p3 pc=0x000000008000000c insn=0x79c000ef val=0x0000000080000010
+        20 k0 p3 pc=0x00000000800007a8 insn=0x0000557d val=0xffffffffffffffff
+        22 k0 p3 pc=0x00000000800007aa insn=0x00008082 val=0x0000000000000000
+        24 k0 p3 pc=0x0000000080000010 insn=0x00050833 val=0xffffffffffffffff
+        26 k0 p3 pc=0x0000000080000014 insn=0x00040533 val=0xffffffffffffffff
+        28 k0 p3 pc=0x0000000080000018 insn=0x000485b3 val=0x0000000080000000
+        30 k0 p3 pc=0x000000008000001c insn=0x00090633 val=0xffffffffffffffff
+        32 k0 p3 pc=0x0000000080000020 insn=0x000058fd val=0xffffffffffffffff
+        34 k0 p3 pc=0x0000000080000022 insn=0x01180463 val=0x0000000000000000
+        36 k0 p3 pc=0x000000008000002a insn=0x00040817 val=0x000000008004002a
+        38 k0 p3 pc=0x000000008000002e insn=0xfd680813 val=0x0000000080040000
+        39 k0 p3 pc=0x0000000080000032 insn=0x00004885 val=0x0000000000000001
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 23:09:37
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active

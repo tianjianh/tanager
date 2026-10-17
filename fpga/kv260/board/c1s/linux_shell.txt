@@ -1,0 +1,1 @@
+loaded: fw 277856 B, kernel 21449216 B, dtb 2119 B into 0x840000000 (RISC-V 0x80000000)
