@@ -21,8 +21,10 @@ MEM_GB=12               # start no program while MemAvailable is under this
 C_MIN_GB=12             # hold while the host drive C:, which holds WSL's virtual disk, has less free
 WSL_MIN_GB=15           # or WSL's root filesystem has less free (df /: it binds once the disk is capped)
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
-REBUILD_MIN_H=4         # a newer main is built at most this often: each build writes about 0.5 GB anew, and
-                        # WSL's virtual disk keeps every block it once held until it is compacted
+REBUILD_MIN_H=4         # a newer main is built at most this often, since WSL's virtual disk keeps every block
+                        # it once held until it is compacted
+BUILD_TMP=/dev/shm      # builds happen in RAM (tmpfs), and $SOAK/build keeps only what the rounds run: a model's
+                        # directory is about 260 MB, 210 of them precompiled headers, for a 4 MB binary
 COH_L2_SETS=1024        # the coherence testbench's L2 sets, the board's, once tb_boot takes the count
 SEEDS=400               # programs per configuration per round (about a minute)
 VM_PCT=33               # share of the programs that run in S-mode under Sv39 (tg_rand --vm)
@@ -45,6 +47,16 @@ fingerprint() {
 mem_gb() { awk '/^MemAvailable:/ {print int($2 / 1048576)}' /proc/meminfo; }
 # The PID must still be a soak: after a restart the old number can belong to anything.
 running() { [ -f "$SOAK/soak.pid" ] && grep -qa "soak.sh" "/proc/$(cat "$SOAK/soak.pid")/cmdline" 2>/dev/null; }
+
+# Keep what the rounds run of one directory of the tmpfs build (keep <tmp> <dir under tanager/>) in
+# $SOAK/build, at the same path: the binaries, and tb_boot's Verilator C++, where run_coh.py looks for its
+# plusargs; then free the directory in RAM.
+keep() {
+  ( cd "$1/tanager" &&
+    find "$2" -maxdepth 1 -type f \( -name tg_vsim -o -name tg_replay -o -name tanager-lockstep -o -name tb_boot \
+         -o \( -path 'tests/*' -name 'V*.cpp' \) \) -print0 | xargs -0 -r cp --parents -t "$SOAK/build/tanager" ) &&
+    rm -rf "${1:?}/tanager/$2"
+}
 
 # Export main into $SOAK/src (no checkout is touched), turn every M3 switch on, build.
 prepare() {
@@ -75,17 +87,23 @@ prepare() {
   # built and the rounds alternate between them (verification.md §4.4).
   local tcs=""
   if grep -q "TG_TIMING_CUTS" "$pkg" && [ -f "$src/sim/profile.mk" ]; then tcs="0 1"; fi
+  local tmp
+  rm -rf "$BUILD_TMP"/tanager-soak.*  # one soak at a time: whatever is there is a killed build's
+  tmp=$(mktemp -d "$BUILD_TMP/tanager-soak.XXXXXX") || return 1
+  mkdir -p "$SOAK/build/tanager"
   (
     source "$src/tools/env.sh" >/dev/null 2>&1
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
       for tc in ${tcs:-default}; do
-        make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$SOAK/build" \
+        make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" \
           ISA="$isa" PRIV=MSU PMP=16 $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
+        keep "$tmp" "sim/$cfg-core$([ "$tc" != default ] && echo "-tc$tc")" || exit 1
       done
     done
-    make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" replay || exit 1
-  ) > "$SOAK/logs/build.log" 2>&1 || return 1
+    make -s -C "$src/sim" TANAGER_BUILD="$tmp" replay || exit 1
+    keep "$tmp" sim/replay || exit 1
+  ) > "$SOAK/logs/build.log" 2>&1 || { rm -rf "$tmp"; return 1; }
   # The coherence programs' testbench (the default profile only) and checker. A failure here turns the
   # coherence rounds off for this main and keeps the random rounds going.
   echo > "$SOAK/coh"
@@ -98,9 +116,11 @@ prepare() {
          export CCACHE_DISABLE=1
          for cfg in $COH_CFGS; do
            make -s -C "$src/tests/unit/boot" build CFG="$cfg" CORES=2 VTHREADS=1 JOBS="$BUILD_JOBS" \
-             TANAGER_BUILD="$SOAK/build" ${l2tag:+TAG=$l2tag MEM_PARAMS=-GL2_SETS_TB=$COH_L2_SETS} || exit 1
+             TANAGER_BUILD="$tmp" ${l2tag:+TAG=$l2tag MEM_PARAMS=-GL2_SETS_TB=$COH_L2_SETS} || exit 1
+           keep "$tmp" "tests/boot${l2tag}_c2_t1_$cfg" || exit 1
          done
-         make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" lockstep ) > "$SOAK/logs/build-coh.log" 2>&1; then
+         make -s -C "$src/sim" TANAGER_BUILD="$tmp" lockstep && keep "$tmp" sim/lockstep ) \
+       > "$SOAK/logs/build-coh.log" 2>&1; then
       # The DDR timing: the board's (18-26 cycles, fixed and jittered) once tb_axi_mem takes it at run
       # time, the testbench's own before; and the cycle limit, short where tb_boot allows
       local lat=default limit="--max-mcycles 1"
@@ -127,6 +147,7 @@ prepare() {
   # Miss-heavy rounds (DR-149: misses in flight, probes against them), once main's generator has --miss
   if grep -q -- '"--miss"' "$src/tests/random/run_random.py"; then echo 1; else echo; fi > "$SOAK/miss_ok"
   echo "$tcs" > "$SOAK/timing_cuts"
+  rm -rf "$tmp"
   fingerprint "$commit" > "$SOAK/fingerprint"
   date +%s > "$SOAK/built_at"
   echo "$commit" > "$SOAK/commit"
