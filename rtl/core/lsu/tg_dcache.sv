@@ -242,10 +242,12 @@ module tg_dcache
   logic [TL_SRC_W-1:0] a_src;
   logic             e_valid;             // the GrantAck on E
   logic [TL_SINK_W-1:0] e_sink;
-  logic             rel_send;            // the Release on C: dirty, from T, its line and source
+  logic             rel_send;            // the Release on C: dirty, from T, its line, source, data
   logic             rel_dirty, rel_t;
   logic [PA_W-1:6]  rel_line;
   logic [TL_SRC_W-1:0] rel_src;
+  logic [127:0]     rel_data;
+  logic             m_holdb;             // the Release's beat is port B's read output (held)
   logic             m_free_st, m_free_ld; // the miss side can take the store port's / a load's miss
   logic             c_req;               // the load miss the controller port looks up: lm_req, or
   logic [PA_W-1:0]  c_pa;                // DR-149's request register
@@ -513,7 +515,7 @@ module tg_dcache
     assign rb_wdata = wr_data_q;
 `ifndef SYNTHESIS
     always_ff @(posedge clk)
-      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || rel_send || brd_en)))
+      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || m_holdb || brd_en)))
         else $error("tg_dcache: a registered write lands while port B's output holds a read");
 `endif
   end else begin : g_bwnow
@@ -562,7 +564,7 @@ module tg_dcache
       c_o.size    = 3'd6;
       c_o.source  = rel_src;
       c_o.address = {rel_line, 6'b0};
-      c_o.data    = rel_dirty ? brow : '0;
+      c_o.data    = rel_dirty ? rel_data : '0;
     end
 
     d_ready_o = 1'b1;
@@ -788,6 +790,8 @@ module tg_dcache
     assign rel_t      = m_vt_q;
     assign rel_line   = m_vline_q;
     assign rel_src    = TL_SRC_W'(1);
+    assign rel_data   = brow;                // held by port B's output while it waits on C
+    assign m_holdb    = rel_send;
     assign m_free_st  = m_none;
     assign m_free_ld  = m_none;
     assign c_req      = lm_req;
@@ -873,8 +877,10 @@ module tg_dcache
     // B, which stays valid in B meanwhile). A valid victim goes through the one release engine:
     // its state is cleared at the allocation (probes and stores see the line as gone; its way is
     // the entry's), the engine reads and sends its beats, and the entry's Acquire goes out after
-    // the last one. The engine alone waits for ReleaseAck (source DC_MSHRS); another allocation with
-    // a valid victim waits for it. A way an entry holds is no other allocation's victim. Loads'
+    // the last one. Each beat is read through port B, taken into the engine's own register the next
+    // cycle and sent from it, so Grants for other entries write port B meanwhile (no D waits on C).
+    // The engine alone waits for ReleaseAck (source DC_MSHRS); another allocation with a valid victim
+    // waits for it. A way an entry holds is no other allocation's victim. Loads'
     // misses come through a request register: the next cycle each merges with the entry holding
     // its line, finds the line present, allocates, or gets no answer, and the answer is registered
     // (lm_ans_*, two cycles after lm_req). Grants come back in any order, demultiplexed by source
@@ -883,7 +889,7 @@ module tg_dcache
     // no allocation shares a cycle with one. An atomic's read waits until nothing is in flight
     localparam int N = DC_MSHRS;
     typedef enum logic [2:0] { E_IDLE, E_EV, E_ACQ, E_GRANT, E_GACK, E_INSTALL } estate_e;
-    typedef enum logic [1:0] { R_IDLE, R_RD, R_SEND, R_WAIT } rstate_e;
+    typedef enum logic [2:0] { R_IDLE, R_RD, R_CAP, R_SEND, R_WAIT } rstate_e;
     estate_e [N-1:0]                es_q;      // per entry: its state, line, way, growth, kind
     logic    [N-1:0][PA_W-1:6]      el_q;
     logic    [N-1:0][WAY_W-1:0]     ew_q;
@@ -899,6 +905,7 @@ module tg_dcache
     logic                           rd_q, rt_q;
     logic    [1:0]                  rb_q;
     logic    [MSW-1:0]              re_q;
+    logic    [127:0]                rbeat_q;   //   and the beat it sends
     logic                           rq_v_q;    // the loads' request register
     logic    [PA_W-1:0]             rq_pa_q;
     logic    [N-1:0]                dn_v_q;    // denied fills, one line per entry
@@ -952,7 +959,7 @@ module tg_dcache
     assign ev_dirty = alloc_st ? ss.d[evw_s] : sc.d[evw_c];
 
     assign m_none     = !(|busy) && rs_q == R_IDLE;
-    assign m_on_c     = rs_q == R_RD || rs_q == R_SEND;
+    assign m_on_c     = rs_q == R_RD || rs_q == R_CAP || rs_q == R_SEND;
     assign m_inst     = |insv;
     assign inst_go    = m_inst && !(ps_q == P_UPD && p_hit_q);    // a probe update goes first
     assign mi_line    = el_q[i_i];
@@ -960,7 +967,7 @@ module tg_dcache
     assign mi_den     = eden_q[i_i];
     assign mi_st      = est_q[i_i];
     assign mi_cap     = ecap_q[i_i];
-    assign pb_ev      = rs_q == R_RD && !bw_busy;       // (#11: not beside a write)
+    assign pb_ev      = rs_q == R_RD && !bw_busy && !grant_beat;   // (not beside a write)
     assign mv_way     = rw_q;
     assign mv_set     = rl_q[6 +: SET_W];
     assign mv_beat    = rb_q;
@@ -980,6 +987,8 @@ module tg_dcache
     assign rel_t      = rt_q;
     assign rel_line   = rl_q;
     assign rel_src    = TL_SRC_W'(N);
+    assign rel_data   = rbeat_q;
+    assign m_holdb    = 1'b0;                // (the engine sends from its own register)
     // An allocation needs a free entry, no entry for its line, no install this cycle (the state
     // port), and the release engine when its victim is valid
     assign m_free_st  = f_any && !m_inst && !st_busy && (rs_q == R_IDLE || s_hit || !ev_s);
@@ -1043,7 +1052,7 @@ module tg_dcache
         end
         // The release engine takes a valid victim at its allocation
         if (al_go && ev_go) begin
-          rs_q <= ev_dirty ? R_RD : R_SEND;
+          rs_q <= ev_dirty ? R_RD : R_SEND;     // (a clean victim's Release has no data)
           rl_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
           rw_q <= victim;
           rd_q <= ev_dirty;
@@ -1052,7 +1061,11 @@ module tg_dcache
           re_q <= f_i;
         end
         unique case (rs_q)
-          R_RD: if (pb_ev) rs_q <= R_SEND;      // port B read of beat rb_q
+          R_RD: if (pb_ev) rs_q <= R_CAP;       // port B read of beat rb_q
+          R_CAP: begin                           // its data, taken before any later port-B access
+            rbeat_q <= brow;
+            rs_q    <= R_SEND;
+          end
           R_SEND: if (c_ready_i) begin
             if (!rd_q || rb_q == 2'd3) begin
               rs_q       <= R_WAIT;
