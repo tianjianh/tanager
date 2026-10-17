@@ -60,6 +60,21 @@ module tg_issue
     return IQ_FP;
   endfunction
 
+  // SPEC_WAKE: a tracked load (below), its LLT's column, and whether a flush drops it
+  typedef struct packed {
+    logic v;
+    tid_t tid;
+    llt_t llt;
+  } sw_t;
+  function automatic logic [NCOL-1:0] sw_col(input llt_t t);
+    logic [NCOL-1:0] c;
+    c = '0;
+    c[llt_col(int'(t))] = 1'b1;
+    return c;
+  endfunction
+  function automatic logic sw_drop(input tid_t t);
+    return flush && t == flush_tid;
+  endfunction
   logic [N_IQ-1:0][NCOL-1:0]  qbusy;
   logic [RA-1:0]              mx_issued, mx_free, mx_valid;
   logic [DW-1:0][NCOL-1:0]    no_ph;
@@ -133,6 +148,7 @@ module tg_issue
     logic                dst_en, dst_fp;
     logic [PIDX_W-1:0]   dst;           // the destination's index (an FP load: F1's)
     llt_t                llt;
+    tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
     preg_t               src1;
   } f_ld_t;
   typedef struct packed {
@@ -290,7 +306,7 @@ module tg_issue
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
                                 dst_en: disp_pl[k].dst_en, dst_fp: fp,
                                 dst: fp ? PIDX_W'(fpreg_idx(disp_pl[k].dst)) : preg_idx(disp_pl[k].dst),
-                                llt: disp_pl[k].llt, src1: disp_pl[k].src1};
+                                llt: disp_pl[k].llt, tid: disp_pl[k].tid, src1: disp_pl[k].src1};
       end
       f_ld_t b;
       assign b = pl;
@@ -306,6 +322,7 @@ module tg_issue
         up.dst_fp   = b.dst_fp;
         up.dst      = preg_t'(b.dst);            // the index only: the LSU knows the bank
         up.llt      = b.llt;
+        up.tid      = b.tid;
         up.src1     = b.src1;
       end
     end else if (q == Q_STA) begin : g_fs
@@ -374,7 +391,8 @@ module tg_issue
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
       .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
       .bank_free_q(bank_free[q]), .room_q(room),
-      .w(w), .w_next('0), .w1('0), .col_clr(col_clr), .cancel(1'b0), .sel_block(blk),
+      .w((q == Q_FP) ? w : w_all), .w_next('0), .w1('0), .col_clr(col_clr),
+      .cancel((q == Q_FP) ? 1'b0 : sw_cancel), .sel_block(blk),
       .disp_cblk(cblk), .cls_block(fp_misc_block),
       .wake_now(wn), .busy(qbusy[q]),
       .disp_mdep(MX ? disp_mdep : '0), .mx_issued(q == Q_FP ? '0 : mx_issued), .mx_free, .issued_o(iss_o), .free_o(free_o),
@@ -407,10 +425,61 @@ module tg_issue
     for (int q = 0; q < N_IQ; q++) busy |= qbusy[q];
   end
 
+  // ---- Speculative load wakeup (SPEC_WAKE, plan §4.6) ----
+  // An integer load IQ-LD issues at s wakes its LLT at s+2, in its AG, so its dependants issue
+  // from s+3 and take its result into EX from M2 (tg_exec's ld_m2_will bypass). The load pipe
+  // never holds a load between IS and M2, and the LSU wakes its LLT at s+4 exactly when it
+  // completes in M2 (wake_ld, in wake_reg; core-lsu.md). If it does not, a registered cancel at
+  // s+5 returns the rows the integer queues issued at s+3..s+5 to "not issued" (tg_iq holds rows
+  // two cycles after issue), clears the LLT's W bit (tg_wake) and kills tg_exec's RF and EX
+  // stages; the load replays from the LQ and wakes its LLT when it completes. The cancel also
+  // drops the loads it returns (in RF or AG), and a flush drops its thread's loads. W's bits
+  // still speculative (the loads in M1 and M2, and a cancelled one) are left out of the W that
+  // rename and IQ-FP see: rename keeps the dependency of a source it dispatches meanwhile, and
+  // P4, which reads integer sources from the register file, waits for the result as before.
+  logic [NCOL-1:0] w_all, wake_spec, spec_pend, sw_cancel_col;
+  logic            sw_cancel;
+  if (SPEC_WAKE) begin : g_sw
+    sw_t             sw_rf, sw_ag_q, sw_m1_q, sw_m2_q;
+    logic [NCOL-1:0] col_ag, col_m1, col_m2;
+    assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
+                     tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt};
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        sw_ag_q.v <= 1'b0;
+        sw_m1_q.v <= 1'b0;
+        sw_m2_q.v <= 1'b0;
+        sw_cancel <= 1'b0;
+      end else begin
+        sw_ag_q.v <= sw_rf.v   && !sw_cancel && !sw_drop(sw_rf.tid);
+        sw_m1_q.v <= sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid);
+        sw_m2_q.v <= sw_m1_q.v && !sw_drop(sw_m1_q.tid);
+        sw_cancel <= sw_m2_q.v && !sw_drop(sw_m2_q.tid) && !(|(wake_reg & col_m2));
+      end
+      {sw_ag_q.tid, sw_ag_q.llt} <= {sw_rf.tid, sw_rf.llt};
+      {sw_m1_q.tid, sw_m1_q.llt} <= {sw_ag_q.tid, sw_ag_q.llt};
+      {sw_m2_q.tid, sw_m2_q.llt} <= {sw_m1_q.tid, sw_m1_q.llt};
+      sw_cancel_col <= col_m2;
+    end
+    assign col_ag    = sw_col(sw_ag_q.llt);
+    assign col_m1    = sw_col(sw_m1_q.llt);
+    assign col_m2    = sw_col(sw_m2_q.llt);
+    assign wake_spec = (sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
+    assign spec_pend = (sw_m1_q.v ? col_m1 : '0) | (sw_m2_q.v ? col_m2 : '0) |
+                       (sw_cancel ? sw_cancel_col : '0);
+  end else begin : g_nosw
+    assign wake_spec     = '0;
+    assign spec_pend     = '0;
+    assign sw_cancel     = 1'b0;
+    assign sw_cancel_col = '0;
+  end
+  assign w           = w_all & ~spec_pend;        // the confirmed W: rename and IQ-FP
+  assign spec_cancel = sw_cancel;
+
   logic [NCOL-1:0] w1_unused, ph_unused, wd_unused;
   tg_wake #(.NCOL(NCOL), .NNOW(1), .STALE(STALE), .HIST(MX ? 1 : 2)) u_wake (
-    .clk, .rst, .wake_now('0), .wake_reg, .alloc, .cancel(1'b0), .cancel_ids('0),
-    .w_q(w), .w1_q(w1_unused), .phase_q(ph_unused), .w_d(wd_unused));
+    .clk, .rst, .wake_now('0), .wake_reg(wake_reg | wake_spec), .alloc, .cancel(sw_cancel),
+    .cancel_ids(sw_cancel_col), .w_q(w_all), .w1_q(w1_unused), .phase_q(ph_unused), .w_d(wd_unused));
 
   logic unused;
   assign unused = ^{w1_unused, ph_unused, wd_unused};
@@ -425,5 +494,4 @@ module tg_issue
     end
   end
 `endif
-  assign spec_cancel = 1'b0;                   // (SPEC_WAKE: the FPU track drives it)
 endmodule
