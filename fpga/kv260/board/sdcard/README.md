@@ -77,3 +77,5 @@
 - **During both boots:** Linux's fan control (pwm 15/255, 33–34 °C), then back to `k26-starter-kits`.
 
 **So:** the RISC-V boots Debian 13 from its own partition on the SD card, through the standard extlinux path, with its own kernel. Writes survive a clean power-off, and the filesystem checks clean on the A53. Stage D's root disk is in place.
+
+**Afterwards** (the coordinator, 2026-10-17): the step's leftovers on p1 are deleted: `image.fit.pre-shrink`, its two logs (kept here) and flash-kernel's `image.fit.bak`. p1 has 883 MB free. Stage C runs now use `--blk /dev/mmcblk1p3` instead of an image file.

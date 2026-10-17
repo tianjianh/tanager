@@ -1,0 +1,43 @@
+tanager-host 5bdd24e3ca39d793
+remove from slot 0 returns: 0 (Ok)
+tanager-sc3: Loaded with slot_handle 0
+loaded tanager-sc3 at 22:44:43; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 17 22:44:41 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 17 22:44:41 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 17 22:44:41 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 17 22:44:41 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 17 22:44:41 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 22:54:43 unless 'steps' or 'restore' runs first
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000012f (virtio window)
+== PS registers (read-only)
+$ tanager-host psrd 0xFF5E023C
+0x0ff5e023c: 0x00000a93  CRL_APB
+$ tanager-host psrd 0xFF980000
+0x0ff980000: bus error (refused to this reader)
+RST_LPD_TOP = 0x00000a93: AFI FM6 (bit 19) is out of reset; reading its registers
+$ tanager-host psrd 0xFF9B0000
+0x0ff9b0000: 0x000003b0  AFIFM6 (S_AXI_LPD)
+$ tanager-host psrd 0xFF9B0014
+0x0ff9b0014: 0x000003b0  AFIFM6 (S_AXI_LPD)
+== ADMA probe
+/sys/bus/platform/devices/ffaf0000.dma-controller before: control=auto runtime_status=suspended
+/sys/bus/platform/devices/ffaf0000.dma-controller with control=on: runtime_status=active
+$ tanager-host dma adma
+released the uncore (the cores stay held)
+tanager-host: dma adma: OFF + 3 * BYTES is beyond the RISC-V's RAM (0x0)
+dma adma exit 2
+/sys/bus/platform/devices/ffaf0000.dma-controller after: control=auto runtime_status=suspended
+$ tanager-host dma status
+host DMA port: completions not recorded, 0 waiting; 0 line reads, 0 line writes (one per burst within a line, an 8-byte store is one); 0 write bursts dropped in part
+dmesg: nothing about DMA, SMMU or bus errors in the last lines
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 22:44:50
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active

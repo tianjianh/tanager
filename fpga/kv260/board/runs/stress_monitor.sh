@@ -1,10 +1,10 @@
 #!/bin/bash
-# stress_monitor.sh LOG: while the boot runs, every 30 min (MON_S): the time, the guest's last stress line,
+# stress_monitor.sh LOG [CONSOLE]: while the boot runs, every 30 min (MON_S): the time, the guest's last stress line,
 # the count of failures and kernel trouble on the console, the L2 error events and levels, the injector and
 # the fan. Reads only (tanager-host dbg and inj through tg.sh's guard).
-log=$1; con=$HOME/tanager/sc2netc/linux_shell.txt; every=${MON_S:-1800}
+log=$1; con=${2:-$HOME/tanager/sc2netc/linux_shell.txt}; every=${MON_S:-1800}
 cd ~/tanager/tg || exit 1
-export TG_APP=tanager-sc2
+export TG_APP=${TG_APP:-tanager-sc2}
 sleep 60
 while pgrep -f "[t]anager-host boot" > /dev/null; do
   {
