@@ -952,6 +952,12 @@ module tg_dcache
     assign g_i     = first(gack);
     assign i_i     = first(insv);
     assign rq_e    = first(rq_m);
+    // TL-C: no Acquire for a block while its Release is outstanding, so a line the release engine
+    // holds (until ReleaseAck) is allocated to no entry: the store waits, the load gets no answer
+    // (ReleaseAck wakes it)
+    logic st_rel, rq_rel;
+    assign st_rel  = rs_q != R_IDLE && rl_q == sx_pa[PA_W-1:6];
+    assign rq_rel  = rs_q != R_IDLE && rl_q == rq_pa_q[PA_W-1:6];
     assign st_busy = |st_m;
     assign rq_busy = |rq_m;
     assign d_e     = d_i.source[MSW-1:0];
@@ -991,10 +997,10 @@ module tg_dcache
     assign rel_src    = TL_SRC_W'(N);
     assign rel_data   = rbeat_q;
     assign m_holdb    = 1'b0;                // (the engine sends from its own register)
-    // An allocation needs a free entry, no entry for its line, no install this cycle (the state
-    // port), and the release engine when its victim is valid
-    assign m_free_st  = f_any && !m_inst && !st_busy && (rs_q == R_IDLE || s_hit || !ev_s);
-    assign m_free_ld  = f_any && !m_inst && !rq_busy && (rs_q == R_IDLE || !ev_c);
+    // An allocation needs a free entry, no entry or Release for its line, no install this cycle (the
+    // state port), and the release engine when its victim is valid
+    assign m_free_st  = f_any && !m_inst && !st_busy && !st_rel && (rs_q == R_IDLE || s_hit || !ev_s);
+    assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (rs_q == R_IDLE || !ev_c);
     assign c_req      = rq_v_q;
     assign c_pa       = rq_pa_q;
     assign dn_hit     = |dn_s;
@@ -1120,6 +1126,8 @@ module tg_dcache
         if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
           assert (rs_q == R_WAIT) else $error("tg_dcache: ReleaseAck with no Release outstanding");
         if (al_go) assert (f_any && !m_inst) else $error("tg_dcache: an allocation with no free entry, or beside an install");
+        if (a_valid && rs_q != R_IDLE)
+          assert (a_line != rl_q) else $error("tg_dcache: an Acquire for the line being released");
       end
     end
 `endif
