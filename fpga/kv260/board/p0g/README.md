@@ -37,3 +37,10 @@
 ## c. Two-core lockstep with `--freeze-time` on the plain 10 MHz tree
 
 Running: `runs/lockstep.sh` with `LS_HOST_ARGS=--freeze-time` (`tg.sh ls-linux` passes it to `tanager-host`), checker `694aff2`, `--harts=4`.
+
+**Result: pass** ([`ls_run1.txt`](ls_run1.txt), [`ls_p0g-ft.log`](ls_p0g-ft.log), [`ls_console_p0g-ft.txt`](ls_console_p0g-ft.txt)).
+- **Verdict:** `PASS after 395612106 records (395596818 retired, 13052 traps, 2236 interrupts, 0 writebacks) in 4165.8 s, 94966 records/s`, with `126 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them`.
+- **The path:** `TANAGER-BOOT-OK` at 2,042 s, the login prompt at 2,132 s, the root shell at 2,214 s, then `poweroff`. Boot exit 0, checker exit 0.
+- **The kernel's clock behaves as in an unchecked boot:** `/init` at 0.368 s, against 9.8 s with p0f's 1 GHz-timebase workaround and 731 s on M4's real-time clock.
+- **Shorter than the workaround:** 395.6 M records against 408.4 M, and interrupts at the pace of execution (2,236 against 19,840).
+- **So the workaround tree is retired:** lockstep runs use `--freeze-time` with the normal tree.

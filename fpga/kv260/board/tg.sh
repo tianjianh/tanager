@@ -38,6 +38,9 @@ plclk() {
   echo "pl0_ref (pl_clk0): $(sudo cat /sys/kernel/debug/clk/pl0_ref/clk_rate) Hz"
 }
 active() { sudo xmutil listapps | awk -v a="$1" '$1 == a && $NF ~ /^0->/ { f = 1 } END { exit !f }'; }
+# Is a process we started with sudo still there? /proc, not kill -0: sudo's real uid changes while it sets
+# up, and kill -0 from ubuntu then fails (EPERM), which made shell give up on a boot that was running.
+alive() { [ -n "$1" ] && [ -d "/proc/$1" ]; }
 # The dead-man is `bash -c "sleep; restore"`: kill that bash first (so the restore cannot run), then
 # its sleep, which would otherwise stay behind as an orphan. Only a sleep: a restore already under way
 # is left to finish, so the PL never stays without an app (and the fan without its PWM).
@@ -163,7 +166,7 @@ case "${1:-}" in
     t0=$(date +%s)
     sudo "$TH" boot --fw "$D/fw_jump.bin" --kernel "$D/Image" --dtb "$D/tanager-kv260.dtb"       --timeout "$lim" < /dev/null > "$log" 2>&1 &
     pid=$!
-    while kill -0 "$pid" 2>/dev/null; do
+    while alive "$pid"; do
       if grep -q "TANAGER-BOOT-OK" "$log"; then
         echo "TANAGER-BOOT-OK seen $(( $(date +%s) - t0 )) s after the load"
         sleep 5; sudo kill -INT "$pid"; break
@@ -199,7 +202,7 @@ case "${1:-}" in
     sudo "$TH" boot --inj-rd "$inj" --fw "$D/fw_jump.bin" --kernel "$D/$kern" --dtb "$D/$dtb" ${SH_ARGS:-} --timeout "$tmo" < "$fifo" > "$log" 2>&1 &
     pid=$!
     exec 3> "$fifo"
-    waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; kill -0 "$pid" 2>/dev/null || return 1; sleep 1; done; return 1; }
+    waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; alive "$pid" || return 1; sleep 1; done; return 1; }
     if waitfor "tanager login:" "${LOGIN_S:-800}"; then
       echo "login prompt $(( $(date +%s) - t0 )) s after the load"
       user=${SH_USER:-root}
@@ -222,12 +225,12 @@ case "${1:-}" in
     else
       echo "no login prompt"
       # DBG=1: read the SoC's debug counters (tanager-host dbg) while the system is still stuck
-      if [ -n "${DBG:-}" ] && kill -0 "$pid" 2>/dev/null; then
+      if [ -n "${DBG:-}" ] && alive "$pid"; then
         echo "debug counters during the hang:"; th dbg; sleep 5; echo "and 5 s later:"; th dbg
         th inj --stats
       fi
     fi
-    kill -0 "$pid" 2>/dev/null && { sleep 2; sudo kill -INT "$pid"; }
+    alive "$pid" && { sleep 2; sudo kill -INT "$pid"; }
     wait "$pid"; rc=$?
     exec 3>&-; rm -f "$fifo"
     echo "boot exit $rc; console in $log ($(wc -l < "$log") lines)"
@@ -287,7 +290,7 @@ case "${1:-}" in
     pid=$!
     exec 3> "$cin"
     tok=""; tlog=""
-    while kill -0 "$pid" 2>/dev/null; do
+    while alive "$pid"; do
       el=$(( $(date +%s) - t0 ))
       if [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$con"; then tok=$el; echo "TANAGER-BOOT-OK at $el s"; fi
       if [ -z "$tlog" ] && grep -q "tanager login:" "$con"; then
@@ -296,7 +299,7 @@ case "${1:-}" in
         # the root shell may take minutes under the checker: wait for its prompt, then poweroff
         for i in $(seq 1 360); do
           tail -c 4 "$con" | grep -q '# ' && break
-          kill -0 "$pid" 2>/dev/null || break; sleep 5
+          alive "$pid" || break; sleep 5
         done
         echo "shell prompt at $(( $(date +%s) - t0 )) s"; printf 'poweroff\r' >&3
       fi
@@ -346,7 +349,7 @@ case "${1:-}" in
         < /dev/null > "$log" 2>&1 &
       pid=$!
       tok=""; tbeg=""
-      while kill -0 "$pid" 2>/dev/null; do
+      while alive "$pid"; do
         el=$(( $(date +%s) - t0 ))
         [ -z "$tok" ] && grep -q "TANAGER-BOOT-OK" "$log" && { tok=$el; echo "TANAGER-BOOT-OK at $el s"; }
         [ -z "$tbeg" ] && grep -q "TGLB-BEGIN" "$log" && { tbeg=$el; echo "TGLB-BEGIN at $el s"; }
