@@ -53,7 +53,7 @@ ABLATIONS = {
 
 
 def implicit_nets(rd):
-    """Synth 8-11241, 8-605 and 8-3848 (implicit and undriven nets: a name used in a generate block before
+    """Synth 8-11241, 8-605, 8-3848 and 8-8895 (implicit and undriven nets: a name used in a generate block before
     its declaration is a new, undriven net in Vivado only) about our sources: any file outside the run directory and
     the Xilinx installation (fpga/spikes/tcl/synth_check.tcl)."""
     run = os.path.realpath(rd) + "/"
@@ -61,7 +61,7 @@ def implicit_nets(rd):
     try:
         with open(os.path.join(rd, "vivado.log"), errors="replace") as f:
             for line in f:
-                if not re.search(r"\[Synth 8-(11241|605|3848)\]", line):
+                if not re.search(r"\[Synth 8-(11241|605|3848|8895)\]", line):
                     continue
                 m = re.search(r"\[([^\[\]]+):[0-9]+\]\s*$", line)
                 if m and (os.path.realpath(m.group(1)).startswith(run) or "/Xilinx/" in m.group(1)):
