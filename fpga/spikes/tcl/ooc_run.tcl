@@ -75,6 +75,7 @@ set synth_threads [expr {[info exists ::env(TANAGER_SYNTH_THREADS)] ? $::env(TAN
 set_param general.maxThreads $synth_threads
 source [file join $root tools tcl tg_files.tcl]
 source [file join $root tools tcl tg_prim_check.tcl]
+source [file join $root fpga spikes tcl synth_check.tcl]
 
 proc tg_kv {fh k v} { puts $fh [format "%-24s %s" $k $v] }
 
@@ -90,8 +91,11 @@ foreach f $extra_files { read_verilog -sv [file join $root $f] }
 
 set gargs {}
 foreach g $generics { lappend gargs -generic $g }
+set synth_mark [tg_synth_check_mark]
 synth_design -top $top -part $part -mode out_of_context -flatten_hierarchy $flatten \
   -directive $synth_dir {*}$gargs
+# an implicit net in our sources (Synth 8-11241, 8-605) fails the run here
+tg_synth_check $synth_mark
 set_param general.maxThreads 8
 
 # One 200 MHz-class clock from a global buffer near the middle of the device, so the

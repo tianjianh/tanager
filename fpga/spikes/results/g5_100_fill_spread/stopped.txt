@@ -1,0 +1,6 @@
+ Number of Nodes with overlaps = 4895
+ Number of Nodes with overlaps = 4333
+ Number of Nodes with overlaps = 3911
+ Number of Nodes with overlaps = 3471
+ Number of Nodes with overlaps = 3067
+Stopped 2026-10-16 12:08 after about 2.5 h of routing (free placement, AltSpreadLogic_high): its first pass was still at about 3,000 overlaps, falling about 400 per half hour. The 100 MHz point moved to G5R's tree (g5r_100_fill).
