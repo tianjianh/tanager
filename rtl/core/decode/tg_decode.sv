@@ -7,10 +7,21 @@
 // and JAL targets) are made in decode, so execute never adds the PC. Each is the block address
 // plus the PC's offset in it plus the operand, one three-input add (a carry-save step and one
 // carry chain), so it doesn't wait for the PC's own decrement (a straddler's) (timing). AUIPC's
-// is added here; the link value and the target come in (`link`, `tgt`): the decode stage adds
-// them once, for its own next PC and redirect too (area).
+// is added here, from the raw encoding's immediate (`raw`: an AUIPC is never compressed), so the
+// add does not wait for the RVC expander (timing); the link value and the target come in (`link`,
+// `tgt`): the decode stage adds them once, for its own next PC and redirect too (area).
+// `raw` is the whole word, not just the immediate's bits: with a slice of the queue's word there,
+// the lint's dataflow pass merges it with the uop's copy of that word in tg_decode_stage and
+// reports a false combinational loop through `d` (UNOPTFLAT in make lint SYNTH=1).
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
+#(
+  // 1: the fields are cleared by ill_q, the instruction queue's illegal bit (decoded as it was
+  // written, with the same state: every change of it ends in a flush), not by this decoder's own,
+  // so the fields do not wait for the illegal decision (timing); the own one is then checked
+  // against it in simulation
+  parameter bit ILL_Q = 1'b0
+)
 (
   input  logic [3:0]  pc_lo,      // the PC's low bits (none of its own adds need the rest)
   input  logic [63:4] blk,        // pc = {blk, 4'b0} + off: off = pc_lo, or -2 when strad
@@ -18,6 +29,7 @@ module tg_decode
   input  logic [31:0] insn,       // 32-bit encoding (a compressed one already expanded)
   input  logic [63:0] link,       // pc + 2 or 4
   input  logic [63:0] tgt,        // pc + the JAL's or branch's offset
+  input  logic [31:0] raw,        // the raw encoding (an AUIPC's immediate is read from it)
   input  logic        pre_ill,    // illegal before decode (a compressed encoding without C)
   input  logic        fault,      // fetch fault at pc: access, or page (fault_pf)
   input  logic        fault_pf,
@@ -33,7 +45,9 @@ module tg_decode
   input  logic        tvm,
   input  logic        tw,
   input  logic        tsr,
-  output dec_t        d
+  input  logic        ill_q = 1'b0,   // with ILL_Q: the queue's illegal bit
+  output dec_t        d,
+  output logic        ill_o       // this decoder's illegal decision (before the fault override)
 );
   logic xb, xf, xd;
   assign xb = EXT_B && misa_b;
@@ -56,6 +70,8 @@ module tg_decode
   assign imm_i = {{52{insn[31]}}, insn[31:20]};
   assign imm_s = {{52{insn[31]}}, insn[31:25], insn[11:7]};
   assign imm_u = {{32{insn[31]}}, insn[31:12], 12'b0};
+  logic unused_raw;                       // the whole word comes in; AUIPC reads its immediate
+  assign unused_raw = ^raw[11:0];
   logic [63:0] pbase, poff;
   assign pbase = {blk, 4'b0};
   assign poff  = strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, pc_lo};
@@ -67,8 +83,9 @@ module tg_decode
     return c;
   endfunction
 
+  logic ill;
+  assign ill_o = ill;
   always_comb begin
-    logic ill;
     d = '0;
     d.cls = C_ALU;
     d.rs1 = insn[19:15];
@@ -90,7 +107,7 @@ module tg_decode
           d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = imm_u;
         end
         7'b0010111: begin                                  // AUIPC
-          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + imm_u;
+          d.rd_en = 1'b1; d.alu = ctl(3'(G_PASSB)); d.b_imm = 1'b1; d.imm = pbase + poff + {{32{raw[31]}}, raw[31:12], 12'b0};
         end
         7'b1101111: begin                                  // JAL
           d.cls = C_BR; d.br_kind = BR_JAL; d.rd_en = 1'b1;
@@ -369,7 +386,7 @@ module tg_decode
       d = '0;
       d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = fault_pf ? EXC_IPAGE : EXC_IACCESS;
       d.exc_hi = fault_hi;
-    end else if (ill) begin
+    end else if (ILL_Q ? ill_q : ill) begin
       d = '0;
       d.cls = C_SYS; d.exc = 1'b1; d.exc_cause = EXC_ILLEGAL;
     end

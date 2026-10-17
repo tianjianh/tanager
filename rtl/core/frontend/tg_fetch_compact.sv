@@ -10,8 +10,16 @@
 // compaction selects directly into banks: bank b takes the instruction of rank r with
 // (tail + r - done) mod WR == b, so no rotation stage follows it.
 // Reads: RD instructions per cycle from the head (DECODE_WIDTH), rotated out of the banks.
+// With QUEUE_DECODE each entry also carries three decode bits, made as it is written (a decoder per
+// bank): illegal, a decode-time exception, serialising. Decode's group and its decoders' field
+// clearing read them instead of waiting for a decode of their own (timing: the queue's take loop,
+// decode -> rename).
+// The state they depend on (misa, mstatus.FS, frm, the mode, TVM/TW/TSR) changes only as a
+// serialising instruction or a trap commits, and the flush that follows empties the queue, so
+// they are what decode would find; decode checks them in simulation.
 module tg_fetch_compact
-  import tg_pkg::*;
+  import tg_pkg::*, tg_core_pkg::EXT_C, tg_core_pkg::EXT_FD, tg_core_pkg::dec_t,
+         tg_core_pkg::dec_state_t, tg_core_pkg::QUEUE_DECODE;
 #(
   parameter int WR    = 4,               // queue write ports = banks (power of two)
   parameter int RD    = DECODE_WIDTH,
@@ -19,7 +27,8 @@ module tg_fetch_compact
   parameter int META_W = 8,              // per-instruction metadata from the front end
   localparam int NP   = FETCH_BYTES / 2,
   localparam int SW   = idx_w(NP),
-  localparam int IB_W = 32 + 1 + SW + 3 + META_W,  // insn, rvc, parcel, marks, metadata
+  localparam int IN_W = 32 + 1 + SW + 3 + META_W,  // a candidate: insn, rvc, parcel, marks, metadata
+  localparam int IB_W = IN_W + (QUEUE_DECODE ? 3 : 0),  // an entry: the decode bits, then the candidate
   localparam int QW   = idx_w(DEPTH),
   localparam int ROWS = DEPTH / WR,
   localparam int RW   = idx_w(ROWS),
@@ -29,6 +38,7 @@ module tg_fetch_compact
   input  logic                    clk,
   input  logic                    rst,
   input  logic                    flush,
+  input  dec_state_t              dst,        // the decoders' state (decode's)
   // Block from IF2
   input  logic                    blk_valid,
   input  logic [NP-1:0][15:0]     parcel,
@@ -47,7 +57,7 @@ module tg_fetch_compact
   logic [15:0]           half_q;
   logic [2:0]            half_marks_q;
   logic [NP:0]           inst_v;
-  logic [NP:0][IB_W-1:0] inst;
+  logic [NP:0][IN_W-1:0] inst;
   for (genvar p = 0; p < NP; p++) begin : g_inst
     logic [15:0] hi;
     assign hi = (p + 1 < NP) ? parcel[(p + 1) % NP] : 16'h0;
@@ -96,9 +106,43 @@ module tg_fetch_compact
                    && BW'(tail_q[BW-1:0] + BW'(k)) == BW'(b);
       /* verilator lint_on CMPCONST */
     end
+    logic [IN_W-1:0] cand;
     always_comb begin
-      bwdata[b] = '0;
-      for (int p = 0; p <= NP; p++) bwdata[b] |= {IB_W{sel[p]}} & inst[p];
+      cand = '0;
+      for (int p = 0; p <= NP; p++) cand |= {IN_W{sel[p]}} & inst[p];
+    end
+    if (QUEUE_DECODE) begin : g_qd
+      // The decode bits: a 32-bit instruction's from a decoder (its fields unused), a compressed
+      // one's from its 16 bits (illegal: without C, reserved, or an FP load/store without D or with
+      // the FP unit off; an exception also as C.EBREAK; never serialising)
+      dec_t        qd;
+      logic        q_ill32, q_illc, q_cfp, q_ill, q_exc, q_ser;
+      logic [31:0] q_cx;
+      tg_decode u_qdec (.pc_lo('0), .blk('0), .strad(1'b0), .insn(cand[31:0]), .link('0), .tgt('0), .raw('0),
+                        .pre_ill(1'b0), .fault(1'b0), .fault_pf(1'b0), .fault_hi(1'b0),
+                        .misa_m(dst.misa_m), .misa_b(dst.misa_b), .misa_a(dst.misa_a),
+                        .misa_f(dst.misa_f), .misa_d(dst.misa_d), .fs(dst.fs), .frm(dst.frm),
+                        .priv(dst.priv), .tvm(dst.tvm), .tw(dst.tw), .tsr(dst.tsr), .d(qd),
+                        .ill_o(q_ill32));
+      tg_rvc u_qrvc (.c(cand[15:0]), .has_d(EXT_FD && dst.misa_d), .insn(q_cx), .ill(q_illc));
+      assign q_cfp = cand[1:0] != 2'b01 && cand[14:13] == 2'b01;
+      always_comb begin
+        if (cand[32]) begin                                // compressed
+          q_ill = !(EXT_C && dst.misa_c) || q_illc ||
+                  (q_cfp && !(EXT_FD && dst.misa_f && dst.fs != 2'd0 && dst.misa_d));
+          q_exc = q_ill || cand[15:0] == 16'h9002;
+          q_ser = 1'b0;
+        end else begin
+          q_ill = q_ill32;
+          q_exc = qd.exc;
+          q_ser = qd.serial;
+        end
+      end
+      assign bwdata[b] = {q_ill, q_exc, q_ser, cand};
+      logic unused_q;
+      assign unused_q = ^{qd, q_cx};
+    end else begin : g_nqd
+      assign bwdata[b] = cand;
     end
     // Entry index tail + k; its row: (tail + k) / WR, where k = (b - tail) mod WR
     logic [QW-1:0] idx;
@@ -107,6 +151,11 @@ module tg_fetch_compact
     logic unused;
     assign unused = ^idx[BW-1:0];   // equals b
     assign bwe[b] = blk_valid && room && |sel;
+  end
+
+  if (!QUEUE_DECODE) begin : g_nqd_dst
+    logic unused_dst;                     // the decoders' state, for the decode bits only
+    assign unused_dst = ^dst;
   end
 
   // ---- Banks ----
