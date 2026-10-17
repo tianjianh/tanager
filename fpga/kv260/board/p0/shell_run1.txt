@@ -1,0 +1,8 @@
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 900 < console
+no login prompt
+boot exit 130; console in /home/ubuntu/tanager/p0/linux_shell.txt (1 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 23:08:15
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
