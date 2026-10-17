@@ -1,0 +1,82 @@
+remove from slot 0 returns: 0 (Ok)
+tanager-st2: Loaded with slot_handle 0
+loaded tanager-st2 at 07:26:59; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 17 07:26:58 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 17 07:26:58 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 17 07:26:58 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 17 07:26:58 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 17 07:26:58 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 07:37:00 unless 'steps' or 'restore' runs first
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 900 < console
+no login prompt
+debug counters during the hang:
+$ tanager-host dbg
+  L2 bank 0 A in                        6
+  L2 bank 0 B out (probes)              0
+  L2 bank 0 C in                        0
+  L2 bank 0 D out                      24
+  L2 bank 0 E in (GrantAck)             0
+  L2 bank 0 misses                      3
+  L2 bank 0 AXI reads                   3
+  L2 bank 0 fills                       3
+  L2 bank 1 A in                        4
+  L2 bank 1 B out (probes)              0
+  L2 bank 1 C in                        0
+  L2 bank 1 D out                      16
+  L2 bank 1 E in (GrantAck)             0
+  L2 bank 1 misses                      2
+  L2 bank 1 AXI reads                   2
+  L2 bank 1 fills                       2
+  core 0 l1d A out                     0
+  core 0 l1d B in (probes)             0
+  core 0 l1d C out                     0
+  core 0 l1d D in                      0
+  core 0 l1d E out (GrantAck)          0
+  core 1 l1d A out                     0
+  core 1 l1d B in (probes)             0
+  core 1 l1d C out                     0
+  core 1 l1d D in                      0
+  core 1 l1d E out (GrantAck)          0
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+and 5 s later:
+$ tanager-host dbg
+  L2 bank 0 A in                        6
+  L2 bank 0 B out (probes)              0
+  L2 bank 0 C in                        0
+  L2 bank 0 D out                      24
+  L2 bank 0 E in (GrantAck)             0
+  L2 bank 0 misses                      3
+  L2 bank 0 AXI reads                   3
+  L2 bank 0 fills                       3
+  L2 bank 1 A in                        4
+  L2 bank 1 B out (probes)              0
+  L2 bank 1 C in                        0
+  L2 bank 1 D out                      16
+  L2 bank 1 E in (GrantAck)             0
+  L2 bank 1 misses                      2
+  L2 bank 1 AXI reads                   2
+  L2 bank 1 fills                       2
+  core 0 l1d A out                     0
+  core 0 l1d B in (probes)             0
+  core 0 l1d C out                     0
+  core 0 l1d D in                      0
+  core 0 l1d E out (GrantAck)          0
+  core 1 l1d A out                     0
+  core 1 l1d B in (probes)             0
+  core 1 l1d C out                     0
+  core 1 l1d D in                      0
+  core 1 l1d E out (GrantAck)          0
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 5 reads, native latency avg 20.4 max 22 cycles
+boot exit 130; console in /home/ubuntu/tanager/st2/linux_shell.txt (1 lines)
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 07:29:13
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
