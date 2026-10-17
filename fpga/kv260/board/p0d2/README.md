@@ -26,3 +26,5 @@
 - **Only instruction fetches happened:** neither core's data cache sent a request. The L2's 10 requests are the two cores' instruction-cache fetches (5 lines each, the second core hitting), which are the 5 DRAM reads.
 - **The stall is before any coherence traffic:** p0's trace shows the first data access of the boot is the lottery's `amoswap.w` at `0x80000034`. Here it never becomes a data-cache request, on either core. The stall is between the load/store unit and the data cache, so it is not the probe ping-pong that `a0631fb` fixes.
 - **Reported** to soc-2, core-2 and verif-2, with the logs (`~/tanager-build/board/p0d2-board/` on the 5950X).
+
+**Later (2026-10-17):** [c1s](../c1s/README.md), one `smt2` core with the trace and the counters, hangs the same way. Its trace goes wrong at the 7th instruction, so the fault is in one core's register values, before the AMO.

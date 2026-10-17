@@ -20,6 +20,10 @@
   - **Not seen in simulation:** the SoC track's model passed this design through "2 CPUs", probably because its harts reach the lottery at different times, or with a different memory latency.
 - **Reported** to the SoC track with the trace (`~/tanager-build/board/p0-board/` on the 5950X).
 
+**Later (2026-10-17): not a race between the cores.** [p0d2](../p0d2/README.md)'s counters show that neither data cache ever sent a request. [c1s](../c1s/README.md), one `smt2` core, hangs at the same instruction. This trace has the same wrong register values as c1s's, on both harts (decoded with [`../trace_dump.py`](../trace_dump.py)):
+- `mv s1, a1` gives `0x80000000`, t1's value, instead of the DTB address `0x82200000`.
+- `mv a0, s0` and `mv a2, s2` give −1, instead of the hart ID (0 or 2) and 0.
+
 **Files:**
 - `smp_cmds.txt`: the SMP sanity test meant for the console once Linux is up (both CPUs in `/proc/cpuinfo`, one busy loop alone against two in parallel, `/proc/stat` per CPU, the IPI counters).
 - `trace_console.txt`: the traced run's console.
