@@ -29,6 +29,7 @@ struct opts_t {
   unsigned defer = 0, defer_max = 200, irq = 0;
   bool defer_all = false, nondet = false, quiet = false;
   unsigned sc_fail = 0;  // percent of SCs the replaying Spike fails (as a core may, §3.4)
+  unsigned ext = 0, ext_delay = 64, ext_window = 512;  // external writes (§3.10): per mille of cycles, delay
   std::string inject;
   int64_t inject_at = -1;
   std::vector<uint64_t> tohost_va;
@@ -48,10 +49,13 @@ struct opts_t {
           "  --sc-fail=PCT    fail this share of SCs (the replaying Spike drops its reservation)\n"
           "  --mvendorid=N --marchid=N --mimpid=N   the core's ID CSR values (default 0, core-pipeline.md §9)\n"
           "  --irq=PERMILLE   random interrupts at boundaries where one is enabled\n"
+          "  --ext=PERMILLE   external writes (another master's DMA, §3.10) into bytes the program loads; the\n"
+          "                   replaying Spike sees each 0..N cycles after the checker hears of it (--ext-delay=N,\n"
+          "                   default 64); --ext-window=N the checker's window in records (default 512)\n"
           "  --inject=KIND    inject one fault the checker must report; --inject-at=N: at record N or later\n"
           "                   KIND: pc insn priv rd value nowrite store-data store-addr nostore cause tval\n"
           "                         trap-as-retire retire-as-trap wb-value wb-missing wb-extra tag-reuse\n"
-          "                         nondet-bad skip irq-cause\n");
+          "                         nondet-bad skip irq-cause ext-unannounced ext-stale (with --ext)\n");
   exit(EXIT_HARNESS);
 }
 
@@ -90,6 +94,9 @@ opts_t parse(int argc, char** argv) {
     else if (k == "marchid") o.ids[1] = num(v, "--marchid");
     else if (k == "mimpid") o.ids[2] = num(v, "--mimpid");
     else if (k == "irq") o.irq = unsigned(num(v, "--irq"));
+    else if (k == "ext") o.ext = unsigned(num(v, "--ext"));
+    else if (k == "ext-delay") o.ext_delay = unsigned(num(v, "--ext-delay"));
+    else if (k == "ext-window") o.ext_window = std::max(1u, unsigned(num(v, "--ext-window")));
     else if (k == "inject") o.inject = v;
     else if (k == "inject-at") o.inject_at = int64_t(num(v, "--inject-at"));
     else if (k == "tohost-va") o.tohost_va.push_back(num(v, "--tohost-va"));
@@ -110,6 +117,7 @@ const char* expected_phrase(const std::string& k) {
       {"trap-as-retire", "Spike trapped"}, {"retire-as-trap", "Spike retired"}, {"wb-value", "deferred"},
       {"wb-missing", "never arrived|reused while"}, {"wb-extra", "not pending"}, {"tag-reuse", "reused"},
       {"nondet-bad", "nondet on an instruction"}, {"irq-cause", "interrupt cause:|not enabled in Spike"},
+      {"ext-unannounced", "value:"}, {"ext-stale", "value:"},
   };
   for (auto& [kind, phrase] : t)
     if (k == kind) return phrase;
@@ -224,7 +232,27 @@ int main(int argc, char** argv) {
   lc.hartids = plat.hartids;
   lc.history = o.history;
   lc.dev_regions = plat.dev_regions;
+  lc.ext_window = o.ext_window;
   lockstep_t ls(lc, mem, &elf);
+  if (o.ext && o.defer) fatal("--ext with --defer: a deferred load's value is not checked against external writes");
+  if (o.inject.rfind("ext-", 0) == 0 && !o.ext) fatal("--inject=%s needs --ext", o.inject.c_str());
+
+  // External writes (§3.10): another master writes bytes the program recently loaded. The checker hears
+  // of each at its cycle; the replaying Spike, standing for the core, sees it up to ext_delay cycles
+  // later, as loads that read before the write may commit after it. A store the core makes meanwhile to
+  // the same bytes comes after the write: those bytes keep the store. --inject=ext-unannounced hides
+  // writes from the checker, ext-stale hides them from the core: both must be reported once a load reads
+  // the bytes (for ext-stale, after the window).
+  struct ext_inj_t {
+    uint64_t pa = 0, at = 0;
+    uint8_t data[8] = {};
+    uint32_t mask = 0;
+  };
+  std::deque<ext_inj_t> ext_q;                       // writes the replaying Spike has not seen yet
+  std::vector<uint64_t> recent_ld;                   // physical addresses of recent loads from main memory
+  std::vector<std::pair<uint64_t, uint64_t>> bad;    // injected faults: address, record count then
+  uint64_t ext_writes = 0, ext_last_at = 0;
+  bool ext_applicable = false;
 
   // Free wb_tags per hart and writebacks waiting for delivery.
   std::vector<std::vector<uint32_t>> free_tags(o.harts);
@@ -284,6 +312,18 @@ int main(int argc, char** argv) {
     spike_step_t st = spike_step(p, bits);
     dut.amo_step = false;
     if (forced) s->mip->backdoor_write_with_mask(forced, platform_levels(h) & forced & PLATFORM_MIP);
+    uint64_t xpa = 0;
+    if (o.ext && !st.trapped && st.nld && spike_data_paddr(p, dut, st.ld_addr, xpa) && dut.in_dram(xpa)) {
+      recent_ld.push_back(xpa);
+      if (recent_ld.size() > 64) recent_ld.erase(recent_ld.begin());
+      for (auto& [ba, at] : bad)
+        if (xpa < ba + 8 && ba < xpa + st.ld_size && (o.inject != "ext-stale" || nrec > at + 2 * o.ext_window))
+          ext_applicable = true;
+    }
+    if (o.ext && !st.trapped && st.nst && spike_data_paddr(p, dut, st.st_addr, xpa))
+      for (auto& q : ext_q)
+        for (unsigned i = 0; i < 8; i++)
+          if (xpa <= q.pa + i && q.pa + i < xpa + st.st_size) q.mask &= ~(1u << i);
 
     if (st.trapped && st.interrupt) {
       r.kind = TR_IRQ;
@@ -383,6 +423,33 @@ int main(int argc, char** argv) {
   while (status == EXIT_PASS) {
     recs.clear();
     wbs.clear();
+    if (o.ext) {
+      while (!ext_q.empty() && ext_q.front().at <= cycle) {  // the replaying Spike sees the write now
+        const ext_inj_t& q = ext_q.front();
+        uint8_t* m = reinterpret_cast<uint8_t*>(dut.addr_to_mem(q.pa));
+        for (unsigned i = 0; i < 8; i++)
+          if (q.mask >> i & 1) m[i] = q.data[i];
+        for (auto* pp : dut.procs) pp->get_mmu()->flush_icache();  // the bytes may be instructions
+        ext_q.pop_front();
+      }
+      if (!recent_ld.empty() && rng.permille(o.ext)) {
+        ext_inj_t q;
+        q.pa = recent_ld[rng.below(recent_ld.size())] & ~7ull;
+        for (auto& b : q.data) b = uint8_t(rng.next());
+        q.mask = 0xff;
+        q.at = ext_last_at = std::max(ext_last_at, cycle + rng.below(o.ext_delay + 1));  // in order
+        const bool fault = o.inject.rfind("ext-", 0) == 0 && int64_t(nrec) >= o.inject_at;
+        if (fault) {
+          injected = true;
+          bad.push_back({q.pa, nrec});
+        }
+        if (!(fault && o.inject == "ext-unannounced")) {
+          if (!ls.external_write(q.pa, q.data, q.mask, 8, cycle)) { status = EXIT_MISMATCH; why = ls.error(); break; }
+          ext_writes++;
+        }
+        if (!(fault && o.inject == "ext-stale")) ext_q.push_back(q);
+      }
+    }
     unsigned n = 1 + unsigned(rng.below(o.width));
     for (unsigned i = 0; i < n && !exit_seen; i++) {
       unsigned h = unsigned(rng.below(o.harts));
@@ -471,7 +538,7 @@ int main(int argc, char** argv) {
   if (!o.inject.empty()) {
     // Fault-injection mode: pass only if the checker reported the injected fault. A program with
     // no record the fault applies to reports NA (exit 0).
-    if (!injected) {
+    if (!injected || (o.inject.rfind("ext-", 0) == 0 && !ext_applicable && status != EXIT_MISMATCH)) {
       printf("TG-REPLAY inject=%s status=NA detected=0 records=%llu\n", o.inject.c_str(), (unsigned long long)nrec);
       return EXIT_PASS;
     }
@@ -493,7 +560,9 @@ int main(int argc, char** argv) {
   }
   if (status == EXIT_MISMATCH) ls.report(stderr);
   if (!why.empty()) fprintf(stderr, "tg_replay: %s\n", why.c_str());
-  printf("TG-REPLAY status=%s code=%d records=%llu instret=%llu cycles=%llu\n", exit_status_name(status), code,
-         (unsigned long long)nrec, (unsigned long long)instret, (unsigned long long)cycle);
+  printf("TG-REPLAY status=%s code=%d records=%llu instret=%llu cycles=%llu%s\n", exit_status_name(status), code,
+         (unsigned long long)nrec, (unsigned long long)instret, (unsigned long long)cycle,
+         o.ext ? strfmt(" ext_writes=%llu ext_loads_new=%llu", (unsigned long long)ext_writes,
+                        (unsigned long long)ls.ext_loads_new()).c_str() : "");
   return status;
 }

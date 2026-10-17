@@ -118,6 +118,14 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 - **Probes:** the manager can issue `ProbeBlock` / `ProbePerm` with `toN`, `toB` or `toT` on B, and takes `ProbeAck` / `ProbeAckData` on C (dirty data updates memory). They are used from M2 on:
   - **coherent instruction fetch:** an `l1i` `Get` of a line the agent holds with T is held back while the manager probes that line to `toB`, so the fetch sees dirty data (self-modifying code, `rv64ui-p-fence_i`; the L2 does the same later, plan §5.2). The core needs no write-back on FENCE.I;
   - `--probe-rate=<permille>` sends random `ProbeBlock`s to lines the agent holds (stress mode, default off). `ProbePerm` is never sent at random: it lets the agent drop dirty data;
+  - `--probe-miss=<percent>` (DR-149) answers that share of Acquires with a probe first: to the Acquire's own line when the agent holds it (an `AcquireBlock` upgrade, whose Grant then waits for the ProbeAck and carries the data back), else to a held line of its set (the likely victim of the refill), so probes meet misses in flight. `--set-stride` gives the L1D's sets × 64 bytes (4096 in every configuration);
+  - `--probe-grant=<percent>` probes that share of the lines just granted (toN or toB) as their GrantAck arrives, the first moment TL-C allows. That is what the L2 does when another core waits for the line, as in the board's two-core boot lottery. The agent must still make progress, so it holds such a probe until its store or atomic has used the line. Main's L1D does not yet: at 100% every random program hangs, at 50% they all pass. With the core track's holds (a0631fb) they pass at 100% too;
+  - **DR-149's coverage counters**, printed with the run's statistics and as a `TG-L1D` line on stderr (stdout is the program's console):
+    - Acquires by how many misses were in flight with them (1, 2, 3, 4+, and the maximum);
+    - probes to a line with an Acquire in flight, and to another line of such a line's set;
+    - Releases during an Acquire;
+    - Acquires to a set while another Acquire to it was in flight.
+    `run_random.py` adds them up;
   - a Grant for a line with a probe outstanding waits for the ProbeAck, as a real L2 would;
   - the API `l1d.probe(addr, cap)` is for later uses, for example the end-of-test flush for ACT4 signatures (§6.1).
 - **Coherence monitor:** the model tracks the agent's permission per line (N, B or T) and checks the TL-C rules of interfaces.md §2.3:
@@ -300,6 +308,7 @@ On the first mismatch the checker stops the run and prints:
 ### 3.7 Several harts
 
 - **Stepping:** one Spike per hart, stepped only by that hart's records, all on one Spike memory. Records of different harts in one cycle are applied in slot order.
+- **Order (`tanager-lockstep`, 2026-10-16):** the uncore's trace interleaves the harts' FIFOs one record each, so a hart that retires more per cycle than another falls behind it in the stream: by up to 200 cycles in `tb_boot`'s two-core runs, and 10,084 of the first 23,258 records of OpenSBI's two-hart boot arrive after a later cycle of the other hart. Applied in arrival order, two harts' AMOs on one word then reach Spike in the wrong order (`tests/coherence` found it). The checker therefore applies the records in cycle order: each hart's wait in a queue, and the earliest head goes once every hart has a record waiting or has sent none in the last `--reorder` records (1,024; it is idle, parked, or a thread that never runs). External writes (§3.10) take their place by their AccessAck cycle. A record that still arrives after a later cycle has been checked is counted and reported. `--reorder=0` restores arrival order.
 - **Limit (M7, M8):** a store of one hart becomes visible to the others in Spike when it retires, while in the RTL it may become visible later (store queue) and loads may be satisfied earlier. Lockstep will then report legal load-value differences on data shared between harts. The plan for M7: a per-address history of recent store values, with a load accepted (and adopted) if its value was current at some point between the load's issue and retirement, and memory-model correctness left to litmus tests and axe (plan §9). That needs the load's address in the trace; it will be requested from the coordinator then (interfaces.md §7).
 
 ### 3.8 Validating the checker
@@ -380,6 +389,46 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
      - **Console:** one RCU stall report again; nothing else.
    - **All five steps pass, and with steps 4 and 5 M4's FPGA-lockstep criterion is met** at 0 and 250 injected cycles (2026-10-14). The board session's logs, the first try's mismatch report included, are in `fpga/kv260/board/lockstep/`, and its account in `fpga/kv260/README.md`, "FPGA lockstep".
 
+### 3.10 External writes (DR-147 stage C)
+
+In stage C the A53's virtio back-end writes into the RISC-V's memory through the coherent host DMA port (soc.md §8.1). Every load of those bytes then differs from Spike's memory. Linux puts virtio buffers anywhere, so adopting loads by address range would not do. The checker instead learns each write and when it became visible, and accepts what an out-of-order core may legally read. Built and tested before the RTL (`sim/src/lockstep.cpp`; `tg_replay --ext`).
+
+**What the checker learns:** `external_write(paddr, data, mask, len, cycle)`, up to 32 bytes, visible from `cycle`, the cycle of the L2's AccessAck.
+- **In simulation** the testbench's host-DMA model will report it through DPI, once the SoC track's hdma port exists.
+- **On the board,** `tanager-host` inserts a record for each DMA write into the trace stream `tanager-lockstep` reads.
+  - The record: byte 63 = `0xE1`; bytes 0–7 the physical address; 8–39 the data; 40–43 the AccessAck cycle, from the hdma bridge's completion FIFO (the trace's own counter); 44–47 the byte mask. Hardware records keep bytes 44–63 zero, so the two cannot be confused.
+  - In lockstep mode `tanager-host` holds trace forwarding while a write is in flight, so the record arrives before any trace record of its cycle or later. A write that arrives later is reported as an ordering error.
+
+**What a load may return.** Each external write is held with its new bytes and, once applied to Spike's memory, the old bytes it replaced. A load that commits at cycle C is accepted if each byte it returned is one of:
+- Spike's memory;
+- the new byte of a write visible by C (from 256 cycles before its AccessAck, since the L2 may serve it a little earlier) and not applied yet;
+- the old byte of an applied write while the hart's window is open.
+
+**The window** is 512 of the hart's own records after the write's cycle (`ext_window`), counted in records, not cycles.
+- A load that read before the write's invalidation was already in the ROB, so it commits within a ROB's worth of the hart's records.
+- Cycles would not bound it: trace back-pressure can hold commit for as long as the checker likes.
+
+**When a write becomes Spike's memory** (it is applied, with every earlier write to the same bytes first):
+- a load or instruction fetch returns its new bytes: the hart has seen it;
+- a store commits to its bytes at or after its cycle: the write, then the store. Those bytes are then the core's and leave the write;
+- any hart's window closes: that hart can read only the new bytes from then on.
+A write every hart is past is dropped.
+
+**AMOs and fetches:**
+- An AMO that read an external write's bytes is accepted as a load would be, and its store data must be the operation on the value the RTL read.
+- An instruction whose bits are an external write's new bytes (code that arrived by DMA) is accepted, and Spike's instruction cache is flushed.
+
+**Known limits:**
+- A fetch of old bytes after the write was applied is reported. Software runs DMA'd code only after FENCE.I.
+- A deferred load's writeback is not checked against external writes. `tg_core` does not defer, and `tg_replay` refuses `--ext` with `--defer`.
+- A store and an external write racing on the same bytes is a data race, which the virtio protocol excludes. The checker takes the order of the store's commit.
+
+**Tested without RTL** (`tg_replay --ext=PERMILLE`): another master writes 8 bytes the program recently loaded, chosen by physical address. `tg_replay`'s Spike, standing for the core, sees each write 0–64 cycles after the checker hears of it, so loads in between return old bytes.
+- **Faults:** `--inject=ext-unannounced` hides the writes from the checker, and `ext-stale` hides them from the core. Both must be reported: the first when a load reads a new byte, the second when one reads an old byte after the window.
+- **40 random rv64gc programs, a third under Sv39:** all passed, with 7–33 loads per program returning new bytes. All 80 hidden-write faults were reported.
+- **Wider and multi-hart runs** (width 4, two harts, with interrupts and failed SCs) passed or reached the step limit. Random new bytes can send a program into an endless loop, on both sides alike.
+- **The checker self-test** (§3.8) now runs six of these programs in each mode.
+
 ## 4. Test suites and runners
 
 ### 4.1 riscv-tests
@@ -448,7 +497,8 @@ The steps:
 5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
 6. runs the riscv-tests and directed tests again with `--trace-stall=50` (§2.9); with `ARCH=1`, the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
 7. runs the checker self-test (§3.8; `SELFTEST=0` skips it) and 50 random F/D programs Spike against Spike (§6.2; `RANDFD=N`, 0 skips them);
-8. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+8. for `CORE=core`, runs 20 coherence programs on the two-core SoC (§6.5: AMOs and lotteries on one line from the same cycle, lockstep for every hart; `COHN=N`, 0 skips them). It builds `tb_boot` with `CORES=2` for the configuration, a few minutes the first time;
+9. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -475,6 +525,8 @@ A continuous random campaign on main that uses the build host's idle threads (co
 - **Control:**
   - `tools/ci/soak.sh start` runs it under `nohup` from a private copy, so editing the script does not disturb it. It also installs an `@reboot` crontab entry with main's copy of the script, so the soak starts again after a WSL restart (as `tools/memguard.sh` does).
   - `stop` stops it, with everything it started, until the next start or boot; `disable` also removes the `@reboot` entry; `status` shows its state.
+- **Miss-heavy rounds** (DR-149): every third round generates its programs with `--miss 12`, so misses in flight and the probes against them (`--probe-miss`, in half the stressed seeds) make up most of the traffic. They start once main's generator has `--miss`.
+- **Coherence programs** (§6.5): after each round's random programs, 20 programs of `tests/coherence` (`lottery` and `amo`) per configuration on the two-core SoC, in `st` (harts 0 and 1) and `smt2` (harts 0 and 2), with lockstep for every hart. They use the board's DDR timing once `tb_axi_mem` takes it at run time, and the testbench's own timing before. They start once main has `tests/coherence`. The soak then also builds `tb_boot` with `CORES=2` for both configurations, in the default profile. Tallies and failures are named `coh-st` and `coh-smt2`. The LR/SC modes join when the core holds a line after an LR (§6.5).
 
 ### 4.5 Cycle-identical check (`make cycle-identical`)
 
@@ -708,6 +760,13 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
 - **Templates** (weighted), aimed at the plan's risk areas:
   - LSU: a store followed by loads of the same, contained or partially overlapping bytes, through the same or the other base; the same page offset on two pages (`gp`/`tp`, 16 KiB apart); a store whose address comes from a slow load (or a divide) while younger loads hit or miss it (ordering violations);
   - cache-miss streams over a 64 KiB region (larger than a 32 KiB L1), with stores in them, so lines are evicted dirty;
+  - **miss bursts** (DR-149): back-to-back accesses to distinct lines of that region, none waiting on another's data, so that a core with several L1D MSHRs keeps 2–4 misses in flight. The bursts take five forms:
+    - lines in different sets;
+    - up to 12 lines of one set, past the 8 ways, so lines are evicted inside the burst;
+    - two accesses to one line, for an MSHR merge;
+    - store misses among the loads;
+    - stores that dirty lines of a set, then loads that evict them, so a Release meets new Acquires.
+    The template's weight is 2 by default; `--miss 12` (`MISS=12`) makes misses in flight most of the program. It changed every program from 2026-10-16 on;
   - early retirement: a divide or a missing load, its consumers, then a data-dependent branch and sometimes a trap right behind it ("flush storms over pending retired loads");
   - traps the handler skips: misaligned loads and stores, `unimp`, `ecall`, `ebreak`, access faults (addresses below the boot ROM);
   - **width 3:** groups of three instructions in one 16-byte fetch block with RAW, WAW or WAR dependencies, two branches, or a load-use and a store (plan §4.15);
@@ -725,7 +784,7 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - `--irq=<ticks>`: CLINT timer interrupts during all of it; the handler re-arms the timer.
 - **ISAs:** `rv64i`, `rv64im` (M2 and the test core), `rv64ima`, `rv64imac`, `rv64gc` (with the F/D templates). Programs for the integer ISAs are the same as before the F/D templates, seed for seed.
 - **Spike against Spike only:** `make -C tests/random replay ISA=rv64gc [N=...]` runs each program in `tg_replay` twice: plain, then with checker perturbations drawn from the seed (deferral of loads, FP loads, divides and FP divides and square roots, up to 4 records per cycle, perturbed `nondet` values, SCs the core fails). That is how the F/D templates are checked until a core runs them; `make regress` runs 50 seeds (`RANDFD=N`). On 2026-10-13, 500 seeds passed (about 250 FP instructions retired per program, 26 of them deferred in a typical one).
-- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1]`; `run_random.py --vm PCT` for programs under Sv39 (the pre-check then runs Spike with S-mode), `--cov DIR` for coverage (§6.4). Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes), and the two denied pages are denied. Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
+- **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1] [MISS=2]`; with `STRESS=1`, half the seeds also draw `--probe-miss` (20, 50 or 100) and a third `--probe-grant` (20 or 50); `run_random.py --vm PCT` for programs under Sv39 (the pre-check then runs Spike with S-mode), `--cov DIR` for coverage (§6.4). Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes), and the two denied pages are denied. Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
 - **Results on 2026-10-13 with the test core:** 1,000 seeds with memory stress, and 300 with timer interrupts, deferred writebacks and multi-slot trace, in both `st` and `st_w3`, all pass (about 60 programs per second).
 - **Does it find bugs?** Two bugs planted in the test core: an SRAIW that ignores shift-amount bit 4 failed 199 of 200 programs (riscv-tests: one test); a dirty eviction that sends the wrong data in its last beat failed all 200 programs, and every riscv-test still passed.
 - **2026-10-14, the extended generator on the real core:** 1,300 programs in `st` and 100 in `smt2` (a third to half under Sv39, half with timer interrupts, all with memory stress, trace back-pressure and the denied pages) pass. On the way they found two harness bugs and no core bug: the bus model gave the agent the permissions of a denied Grant, and the Spike environment made denied DRAM non-reservable, so an SC without a reservation faulted there while the core (rightly) only fails it.
@@ -760,6 +819,41 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
     - an interrupt was taken with a CSR instruction at the head 12 times, 10 of them while it was in EX: the case the CSR unit's cold registers (xepc, xcause and xtval, written over three cycles) must handle.
   - **Steered (the core track asked):** `t_csr_burst` gives programs with timer interrupts runs of CSR accesses. These execute one at a time at the head, so interrupts meet them there: 80 per 200 programs (67 in EX), against 12.
   - **Confirmed on fn3** (the core track's 1c0eaca, which replaces the replay flag's guards with an assertion over valid writers): the two events stay at 0, and the 200 programs pass.
+
+### 6.5 Tests for the L1D's misses in flight (DR-149)
+
+DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. These tests come first, and they run on today's one-MSHR RTL, so they are proven before the change.
+
+**Single core, with the TileLink model as the L2 (done):**
+- **Misses in flight:** the miss-burst template (§6.2) and miss-heavy programs (`MISS=12`).
+- **Probes against them:** `--probe-miss` (§2.4), crossing the miss's own upgrade, and hitting held lines of its set, which are the likely victims, during the refill. Random probes (`--probe-rate`) add the rest.
+- **Coverage, so a test shows it did its job:** misses in flight at once, probes on a miss's line or set, Releases during a miss, and same-set misses (§2.4).
+- **Where they run:** regress's random step (miss bursts in every program, `--probe-miss` in half the seeds), and the soak's miss-heavy rounds (§4.4).
+- **On today's RTL** (`st`, 40 programs with `MISS=12` and memory stress, lockstep): all pass.
+  - All 24,259 Acquires had one miss in flight, as they must with one MSHR.
+  - 1,189 probes crossed a miss's own line and 7,511 hit its set.
+  - Releases during a miss and same-set misses were 0: today's L1D serializes them.
+  - With 4 MSHRs, the same tests must show 2–4 in flight, same-set misses, and Releases beside Acquires (the release buffer).
+
+**Two cores: atomics on one line from the same cycle (`tests/coherence`, 2026-10-16).** The board's two-hart boot hung at OpenSBI's boot lottery: both harts, released together and in step, issue `amoswap.w` to one zeroed line, and neither completes. These programs make that a scenario of its own.
+- **Harness:** `tb_boot` with `CORES=2`, a bare-metal program as `+fw`, and its commit trace (`+trace_out`) checked by `tanager-lockstep` for every hart (§3.7). `make -C tests/coherence [CFG=st|smt2] [MODES=...] [LAT=...]`.
+- **Harts:** `st` runs harts 0 and 1. `smt2` runs harts 0 and 2, thread 0 of each core, which is the board's shape: `smt2` cores run one thread until M7 (core-pipeline.md), so threads 1 never fetch and the board's lottery has exactly two harts.
+- **Programs (`gen_coh.py`):** every hart leaves the boot ROM in the same cycle. The first thing each does, with no memory access before it, is the lottery: `amoswap.w` of 1 on a zeroed word. Then, by mode:
+  - `amo`: rounds of AMOs (add, or, maxu, swap; word and doubleword) on words of that one line;
+  - `lottery`: 15–63 more lotteries, each on a line no hart has touched (a miss in the L1D and the L2), each starting at a fixed `mcycle`, with the harts in step or one of them 1–48 cycles later; swap, add and or;
+  - `lrsc`, `mix`, `lottery-lrsc`: the same with constrained LR/SC loops (increments, or a test-and-set lottery).
+  - A barrier on a line of its own, then a check of every final value: one winner per lottery, each word's final value, every counter's sum. The program prints `COH-PASS` or `COH-FAIL` and the slot, then `COH-END`; the cycle limit catches a hang. The barrier is off the contended line because a hart spinning there with AMOs may starve another's LR/SC loop, which the ISA allows.
+- **DDR timing (`LAT`):** `fixed` is one latency per seed, 18–26 cycles, every ready and beat at once and in order, as on the board; `jitter` is 18–26 at random; `board` alternates them. They use `tb_axi_mem`'s run-time options (the SoC track's 8882e79); `default` keeps the build's 4–12.
+- **Results on main's RTL** (f454a7a with 8882e79's testbench):
+  - AMOs and lotteries: 300 programs, all pass, 120 of them with lockstep: `st` and `smt2`, fixed and jittered, and `smt2` in the fallback profile too. In every lottery the loser's AMO retires 37 cycles after the winner's: one line transfer.
+  - OpenSBI's own lottery (fw_jump, the board's two-hart device tree, `smt2`, fixed 18–26): both harts get through it at every latency, hart 0 winning at cycle 541–567, in the default profile and the fallback. **The board's hang is not reproduced in simulation.** Something the testbench does not model is involved: the bitstream's build, the PS's DDR port, or the host's sequence before the release.
+  - LR/SC: two harts in constrained LR/SC loops on one line can stay there for good. In `mix` programs (AMOs and LR/SC loops on one line), 3 of 10 hang on `st` and 6 of 10 on `smt2`, with the same seeds at fixed and jittered timing. The `lrsc` and `lottery-lrsc` programs pass (40 of 40). In every hang both harts sit in their loops: each LR takes the line from the other, whose SC then fails. The ISA promises eventual success here. That needs the L1D to hold a line for a while after an LR (the core track's "LR/SC hold"). Until then, `MODES` leaves LR/SC out by default.
+- **The core track's fix (a0631fb, 2026-10-16):** a line installed for a store or an atomic holds probes until its first access (at most 8 cycles; a load's line 4), and a young LR reservation holds them until its SC (at most 64). On it, every program passes, with lockstep: the LR/SC programs (130, every seed that hung on main among them) and the AMO and lottery programs (180). Single-core, `--probe-grant=100` (§2.4) hangs every program on main and none on a0631fb. Once it is on main, both become guards: the LR/SC modes join `MODES`' default, and `--probe-grant=100` programs join regress.
+- **Next:** miss traffic beside the atomics (false sharing, read sharing, locks), then the soak. Plain loads of data another hart writes wait for the store windows below.
+- **The checker's part, for plain loads and stores:** §3.7's limit (another hart's store visible later than Spike makes it) is lifted with §3.10's windows.
+  - A hart's committed plain store becomes, for the other harts, a write whose old bytes they may still read within their windows.
+  - An AMO may read a plain store's old side, and the store then follows it in Spike's memory. An AMO may not read another AMO's old side, so a lost atomic update is still caught.
+  - Plain stores of two harts to the same bytes (a write race) stay outside the programs.
 
 ### 6.3 Snapshots
 

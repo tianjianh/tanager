@@ -1,6 +1,8 @@
 // Tanager platform device tree: the plan §5.4 memory map (docs/spec/soc.md §4).
 // Preprocessed with cpp before dtc. The including .dts defines:
 //   TG_NUM_CORES (1|2), TG_NUM_THREADS (1|2)   harts = cores x threads, mhartid = core * threads + tid
+//   TG_RUN_THREADS (default TG_NUM_THREADS)     1 with TG_NUM_THREADS 2: an SMT2 build that runs thread 0
+//                                               of each core (until M7, DR-147): harts 0 and 2 only
 //   TG_MEM_SIZE                                 DRAM bytes at 0x8000_0000 (64-bit expression)
 //   TG_FPU (0|1)                                1 when the core implements F and D
 //   TG_POWER_NODE                               label of the syscon that takes the power-off/reboot writes
@@ -9,6 +11,10 @@
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
+#ifndef TG_RUN_THREADS
+#define TG_RUN_THREADS TG_NUM_THREADS
+#endif
+#define TG_T0ONLY (TG_NUM_THREADS == 2 && TG_RUN_THREADS == 1)
 
 #if TG_FPU
 #define TG_ISA_STR "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
@@ -46,12 +52,18 @@
 		timebase-frequency = <10000000>;	// ACLINT mtime: tg_map_pkg::TIMEBASE_HZ
 
 		TG_CPU(0);
+#if TG_T0ONLY
+#if TG_NUM_CORES > 1
+		TG_CPU(2);
+#endif
+#else
 #if TG_HARTS > 1
 		TG_CPU(1);
 #endif
 #if TG_HARTS > 2
 		TG_CPU(2);
 		TG_CPU(3);
+#endif
 #endif
 
 		cpu-map {
@@ -60,6 +72,11 @@
 				core0 { cpu = <&cpu0>; };
 #if TG_NUM_CORES > 1
 				core1 { cpu = <&cpu1>; };
+#endif
+#elif TG_T0ONLY
+				core0 { thread0 { cpu = <&cpu0>; }; };
+#if TG_NUM_CORES > 1
+				core1 { thread0 { cpu = <&cpu2>; }; };
 #endif
 #else
 				core0 {
@@ -94,12 +111,18 @@
 			compatible = "riscv,clint0";
 			reg = <0x0 0x02000000 0x0 0x10000>;
 			interrupts-extended = <&cpu0_intc 3 &cpu0_intc 7
+#if TG_T0ONLY
+#if TG_NUM_CORES > 1
+					       &cpu2_intc 3 &cpu2_intc 7
+#endif
+#else
 #if TG_HARTS > 1
 					       &cpu1_intc 3 &cpu1_intc 7
 #endif
 #if TG_HARTS > 2
 					       &cpu2_intc 3 &cpu2_intc 7
 					       &cpu3_intc 3 &cpu3_intc 7
+#endif
 #endif
 					      >;
 		};
@@ -114,12 +137,22 @@
 			interrupt-controller;
 			riscv,ndev = <31>;
 			interrupts-extended = <&cpu0_intc 11 &cpu0_intc 9
+#if TG_T0ONLY
+					       // an idle thread's contexts stay in the list, unused (-1), so the
+					       // hardware's context 2h, 2h+1 for hart h keeps its place
+					       &cpu0_intc 0xffffffff &cpu0_intc 0xffffffff
+#if TG_NUM_CORES > 1
+					       &cpu2_intc 11 &cpu2_intc 9
+					       &cpu2_intc 0xffffffff &cpu2_intc 0xffffffff
+#endif
+#else
 #if TG_HARTS > 1
 					       &cpu1_intc 11 &cpu1_intc 9
 #endif
 #if TG_HARTS > 2
 					       &cpu2_intc 11 &cpu2_intc 9
 					       &cpu3_intc 11 &cpu3_intc 9
+#endif
 #endif
 					      >;
 		};

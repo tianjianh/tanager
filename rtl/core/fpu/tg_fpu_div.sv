@@ -54,12 +54,21 @@ module tg_fpu_div
   assign ua = unpack_lean(s1_q.a, s1_dbl);
   assign ub = unpack_lean(s1_q.b, s1_dbl);
 
+  // The leading-zero counts are radix-4 trees (top bits first), and each shift takes them in
+  // that order, in three radix-4 stages, so the seed ROM's address does not wait for the
+  // whole count
+  function automatic logic [52:0] nshl(input logic [52:0] x, input logic [5:0] n);
+    logic [52:0] a, b;
+    a = x << {n[5:4], 4'b0};
+    b = a << {n[3:2], 2'b0};
+    return b << n[1:0];
+  endfunction
   logic [5:0]  lza, lzb;
-  tg_fpu_lzc #(.W(53)) u_lza (.x(ua.sig), .cnt(lza));
-  tg_fpu_lzc #(.W(53)) u_lzb (.x(ub.sig), .cnt(lzb));
+  tg_fpu_lzc #(.W(53), .R4(1'b1)) u_lza (.x(ua.sig), .cnt(lza));
+  tg_fpu_lzc #(.W(53), .R4(1'b1)) u_lzb (.x(ub.sig), .cnt(lzb));
   logic [52:0] ma, mb;                             // normalised significands (zero stays zero)
-  assign ma = ua.sig << lza;
-  assign mb = ub.sig << lzb;
+  assign ma = nshl(ua.sig, lza);
+  assign mb = nshl(ub.sig, lzb);
 
   div_info_t s1_info;
   assign s1_info = div_info_init(s1_sqrt, s1_dbl, s1_q.rm, s1_q.tag, ua, ub);

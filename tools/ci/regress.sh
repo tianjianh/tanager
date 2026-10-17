@@ -2,19 +2,21 @@
 # Regression for one configuration (docs/spec/verification.md §4.3). Run after `source tools/env.sh`.
 #   tools/ci/regress.sh [CFG=st] [CORE=core|tcore] [LAT=native] [SUITES="rv64ui-p ..."] [MARCH=rv64im]
 #                       [SIMARGS="..."] [SELFTEST=1] [RANDN=100] [RANDFD=50] [ARCH=0] [ACTCFG=...] [JOBS=8]
-#                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk)
+#                       [TIMING_CUTS=0|1|both]   (the core's profiles, DR-140; sim/profile.mk) [COHN=20]
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
-# core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay).
+# core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
+# for CORE=core, COHN coherence programs on the two-core SoC (tests/coherence: atomics on one line from
+# the same cycle, lockstep for every hart).
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N]"; exit 5 ;;
   esac
 done
 
@@ -41,7 +43,7 @@ if [ "$TIMING_CUTS" = both ]; then
   t0=$SECONDS
   echo "== tg_replay and the test programs both profiles read"
   shared() {
-    make -C "$ROOT/sim" JOBS="$JOBS" replay &&
+    make -C "$ROOT/sim" JOBS="$JOBS" replay lockstep &&
       make -C "$ROOT/tests/isa" build-directed &&
       make -C "$ROOT/tests/bench" build MARCH="${MARCH:-rv64im}" &&
       { [ "$ARCH" != 1 ] || make -C "$ROOT/tests/arch" elfs CORE="$CORE" ${ACTCFG:+ACTCFG="$ACTCFG"}; }
@@ -99,7 +101,7 @@ step() {  # step <name> <log> <command...>
     RESULTS+=("FAIL")
   fi
   NAMES+=("$name ($((SECONDS - t0)) s)")
-  grep -E "passed, [0-9]+ failed|self-test:|^  (FAIL|TIMEOUT|HANG|MISMATCH|PROTOCOL|MISSED|OUTPUT|REF-FAIL|GEN-FAIL|SELFCHECK|NO-SUMMARY)|repro:|^(coremark|dhrystone)" "$log" | sed 's/^/   /' | head -40
+  grep -E "passed, [0-9]+ failed|self-test:|^  (FAIL|TIMEOUT|HANG|MISMATCH|PROTOCOL|MISSED|OUTPUT|REF-FAIL|GEN-FAIL|SELFCHECK|NO-SUMMARY|LOCKSTEP)|repro:|^(coremark|dhrystone)" "$log" | sed 's/^/   /' | head -40
   [ "${RESULTS[-1]}" = PASS ] || echo "   log: $log"
 }
 
@@ -129,6 +131,10 @@ if [ "${RESULTS[0]}" = PASS ]; then
   if [ "$RANDN" != 0 ]; then
     step "random programs ($RANDN seeds, $MARCH, memory stress), lockstep" "$LOGS/random.log" \
       make -C "$ROOT/tests/random" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} N="$RANDN" SEED=1 ISA="$MARCH" JOBS="$JOBS" SIMARGS="$SIMARGS"
+  fi
+  if [ "$COHN" != 0 ] && [ "$CORE" = core ]; then
+    step "coherence programs ($COHN seeds, two cores, AMOs and lotteries on one line), lockstep" "$LOGS/coherence.log" \
+      make -C "$ROOT/tests/coherence" CFG="$CFG" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} N="$COHN" SEED=1 JOBS="$JOBS"
   fi
   if [ "$ARCH" = 1 ]; then
     step "riscv-arch-test (ACT4${ACTCFG:+ $ACTCFG}), self-check and lockstep, lat=$LAT" "$LOGS/arch.log" \
