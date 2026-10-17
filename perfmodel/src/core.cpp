@@ -361,14 +361,14 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
 
 // The M2 RTL's front end (fe_m2; core-pipeline.md §3.2-§3.4). The micro-BTB predicts the block taken at its slot,
 // else it falls through. Decode repairs a JAL's target, a predicted-taken branch's wrong target and a bogus
-// prediction, each at predecode_bubble; anything else is a mispredict, recovered at commit with ckpt = 0. The model
-// follows the correct path only, so the training the RTL does at execute happens here, with the fetch-time lookup.
+// prediction: fetch then waits until that instruction is decoded and starts again the next cycle (`fpc_d`). Anything
+// else is a mispredict, recovered at commit with ckpt = 0. The model follows the correct path only, so the training
+// the RTL does at execute happens here, with the fetch-time lookup.
 void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   const uint64_t fb = (uint64_t)c_.fetch_bytes;
   const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
   const M2Ubtb::Look l = m2_.lookup(key);
   const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
-  int bubble = 0;
   int n = 0;
   while ((int64_t)T.fetchq.size() < c_.fetchq) {
     const DynInst* di = get(T, T.fetch_seq);
@@ -387,7 +387,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     if (!d.is_ctrl()) {
       if (here) {  // bogus: decode redirects to the next instruction and clears the entry
         T.st.predecode_redirects++;
-        bubble = std::max(bubble, (int)c_.predecode_bubble);
+        r.de_redirect = true;
         m2_.invalidate(key, l);
       }
     } else {
@@ -400,7 +400,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       uint64_t pred_tgt = here ? l.target : 0;
       if (d.cls == Cls::JAL && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
       else if (d.cls == Cls::BR && here && l.target != tgt) { pred_tgt = tgt; fixed = true; }
-      if (fixed) { T.st.predecode_redirects++; bubble = std::max(bubble, (int)c_.predecode_bubble); }
+      if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;
         r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
@@ -409,15 +409,15 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       T.ghr.push(di->taken, di->pc);
     }
     r.mispred = !ok;
+    if (!ok) r.de_redirect = false;  // the mispredict's recovery restarts fetch
     T.fetchq.push_back(r);
     T.fetch_seq++;
     n++;
-    if (!ok) { T.fe_blocked = true; break; }
+    if (!ok || r.de_redirect) { T.fe_blocked = true; break; }
     if (here || (d.is_ctrl() && di->taken)) break;
     if (di->pc + d.len >= blk_end) break;
   }
-  T.st.taken_bubbles += (uint64_t)bubble;
-  T.fe_resume = t_ + 1 + (uint64_t)bubble;
+  T.fe_resume = t_ + 1;
 }
 
 // One thread fetches per cycle (one I$ access): the first in priority order that can. The others record why
@@ -745,6 +745,11 @@ int Core::decode_thread(Thread& T, int slots_avail) {
     last = &u;
     slots--;
     scanned++;
+    if (rr.de_redirect) {  // fe_m2: decode redirects fetch, which starts again next cycle; the group ends here
+      T.fe_blocked = false;
+      T.fe_resume = std::max(T.fe_resume, t_ + 1);
+      break;
+    }
   }
   return slots_avail - slots;
 }

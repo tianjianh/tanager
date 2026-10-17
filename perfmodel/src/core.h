@@ -40,6 +40,7 @@ struct FetchRec {
   bool sfb = false;              // predicated short forward branch
   bool synthetic = false;        // shadow instruction of a taken predicated branch (not executed)
   uint8_t mp_kind = 0;           // 1 direction, 2 target, 3 return, 4 cold (no BTB entry)
+  bool de_redirect = false;      // fe_m2: decode redirects fetch after this instruction (fetch waits for it)
   Hist hist;                     // global history before this instruction
   RasUndo ras;
 };
