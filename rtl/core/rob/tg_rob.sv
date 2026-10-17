@@ -78,6 +78,10 @@ module tg_rob
   output logic [CW-1:0][4:0]           cm_rd,
   output preg_t [CW-1:0]               cm_dst,
   output preg_t [CW-1:0]               cm_old,
+  // To the return-address stack's committed copy (tg_ras): each slot's operation and link
+  output logic [CW-1:0]                cm_ras_push,
+  output logic [CW-1:0]                cm_ras_pop,
+  output logic [CW-1:0][38:1]          cm_ras_link,
   // To the LSU
   output logic [NCW-1:0]               cm_nld,
   output logic [NCW-1:0]               cm_nst,
@@ -168,6 +172,7 @@ module tg_rob
       dpl[k].dexc_hi    = ds_uop[k].d.exc_hi;
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
+      {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
       dpl[k].f_cmp      = fp_cmp_d[k] ^ !ds_ren[k].has_q;   // complete at once without a queue
       dpl[k].f_exc      = fp_exc_d[k] ^ ds_uop[k].d.exc;
       dpl[k].f_misp     = fp_misp_d[k];
@@ -417,6 +422,7 @@ module tg_rob
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
   logic          stop;
+  logic          pushed;            // a return-address-stack push retires in the group (one per cycle)
   logic [CW-1:0] mf;                // the slot whose mispredict ends the group
   // Commit holds (cmh_*): a store whose PMP check comes after it completed retires only once a
   // denial would show, and a load whose ordering replay mark is a cycle late does not retire before
@@ -461,6 +467,7 @@ module tg_rob
     t_cause = '0;
     t_tval = '0;
     stop = 1'b0;
+    pushed = 1'b0;
     mf = '0;
     if (!flush && ready && cnt > 0) begin
       if (irq_take && hp[0].sys != SYS_WFI && !mmio_busy) begin
@@ -510,10 +517,12 @@ module tg_rob
         end
       end else begin
         stop = 1'b0;
+        pushed = 1'b0;
         for (int j = 0; j < CW; j++) begin
           if (!stop) begin
-            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j]) begin
+            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j] && !(pushed && hp[j].ras_push)) begin
               ret[j] = 1'b1;
+              if (hp[j].ras_push) pushed = 1'b1;
               if (misp_h[j]) begin
                 mf[j] = 1'b1;
                 stop = 1'b1;
@@ -543,6 +552,9 @@ module tg_rob
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
+      cm_ras_push[j] = ret[j] && hp[j].ras_push;
+      cm_ras_pop[j]  = ret[j] && hp[j].ras_pop;
+      cm_ras_link[j] = hp[j].pc[38:1] + (hp[j].rvc ? 38'd1 : 38'd2);
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
       if (ret[j]) begin
