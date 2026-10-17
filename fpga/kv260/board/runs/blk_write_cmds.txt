@@ -1,0 +1,1 @@
+lsblk /dev/vda; echo "vda sectors: $(cat /sys/block/vda/size)"; dmesg 2>/dev/null | grep -i vda; df -h / | tail -1; sudo dd if=/dev/urandom of=/var/tmp/blktest bs=1M count=64 conv=fsync status=none && sha256sum /var/tmp/blktest | tee /var/tmp/blktest.sha256; sync; ls -la /var/tmp/blktest*
