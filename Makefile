@@ -32,7 +32,7 @@ SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/s
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -62,7 +62,8 @@ regress-profiles:
 # or none; BOOT=N adds the Linux boot's first N million cycles on the SoC (BOOT_CORES=1|2; BOOT_TREE=<ref>
 # takes tests/unit and sw/dts from another tree); TIMING_CUTS=0|1 or BRANCH_TIMING_CUTS=0|1 picks the
 # core's timing-cut profile (DR-140), DC_MSHRS=1|4 or BRANCH_DC_MSHRS=1|4 the L1D's misses in flight
-# (DR-149), QUEUE_DECODE=0|1 or BRANCH_QUEUE_DECODE=0|1 G8's queue decode bits, on the boot too;
+# (DR-149), QUEUE_DECODE=0|1 or BRANCH_QUEUE_DECODE=0|1 G8's queue decode bits, SPEC_WAKE=0|1 or
+# BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, on the boot too;
 # HARNESS=auto|branch|own picks the base side's sim/.
 cycle-identical:
 	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") $(if $(BRANCH),--branch "$(BRANCH)") \
@@ -71,6 +72,7 @@ cycle-identical:
 	  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(BRANCH_TIMING_CUTS),--branch-timing-cuts $(BRANCH_TIMING_CUTS)) \
 	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
 	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE)) \
+	  $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) $(if $(BRANCH_SPEC_WAKE),--branch-spec-wake $(BRANCH_SPEC_WAKE)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
 
 # M6's per-feature measurement (DR-153; docs/spec/verification.md §4.2): CoreMark A/B and Dhrystone, each
@@ -82,4 +84,5 @@ perf:
 	  $(if $(LAT),--lat "$(LAT)") $(if $(JOBS),--jobs $(JOBS)) $(if $(HARNESS),--harness $(HARNESS)) \
 	  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(BRANCH_TIMING_CUTS),--branch-timing-cuts $(BRANCH_TIMING_CUTS)) \
 	  $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) $(if $(BRANCH_DC_MSHRS),--branch-dc-mshrs $(BRANCH_DC_MSHRS)) \
-	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE))
+	  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(BRANCH_QUEUE_DECODE),--branch-queue-decode $(BRANCH_QUEUE_DECODE)) \
+	  $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) $(if $(BRANCH_SPEC_WAKE),--branch-spec-wake $(BRANCH_SPEC_WAKE))
