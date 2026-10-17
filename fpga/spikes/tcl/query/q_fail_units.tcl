@@ -25,7 +25,8 @@ foreach dcp $argv {
     if {![dict exists $w $k] || $sl < [dict get $w $k]} {
       dict set w $k $sl
       set lg [get_property DATAPATH_LOGIC_DELAY $p]; set nt [get_property DATAPATH_NET_DELAY $p]
-      dict set wl $k [format "%2d levels, %3.0f%% wire" [get_property LOGIC_LEVELS $p] [expr {100.0 * $nt / ($lg + $nt)}]]
+      dict set wl $k [format "%2d levels, %3.0f%% wire  %s -> %s" [get_property LOGIC_LEVELS $p] [expr {100.0 * $nt / ($lg + $nt)}] \
+        [get_property NAME [get_property STARTPOINT_PIN $p]] [get_property NAME [get_property ENDPOINT_PIN $p]]]
     }
   }
   puts $fh "== $dcp: [llength $ps] failing endpoints"
@@ -33,7 +34,7 @@ foreach dcp $argv {
   set rows {}
   dict for {e c} $ends { lappend rows [list $e $c] }
   foreach r [lsort -integer -decreasing -index 1 $rows] { puts $fh [format "    %-24s %6d" {*}$r] }
-  puts $fh "  by start -> end unit (worst slack, its levels and wire share):"
+  puts $fh "  by start -> end unit (worst slack, its levels, wire share, start -> end):"
   set rows {}
   dict for {k c} $n { lappend rows [list $k $c [dict get $w $k] [dict get $wl $k]] }
   foreach r [lsort -real -index 2 $rows] { puts $fh [format "    %-44s %6d  %7.3f  %s" {*}$r] }
