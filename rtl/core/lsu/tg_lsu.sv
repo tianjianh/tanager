@@ -522,7 +522,9 @@ module tg_lsu
   assign nl_mis  = misal(ln_va[2:0], ln_size);
   assign nl_pf   = xl_d && !nl_mis && !va_canon(ln_va);
   assign nl_tm   = xl_d && !nl_mis && !nl_pf && !(dt_hit[0] && pte_ok(dt_pte[0], ACC_R, priv_d, sum, mxr));
-  assign nl_pma  = pma_of(nl_pa);
+  // The region class of both PAs, picked by xl_d last (timing: the translated PA's class does not
+  // wait for the mode's select)
+  assign nl_pma  = xl_d ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
   tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
@@ -1456,11 +1458,14 @@ module tg_lsu
         lq_st_q[ag_lq]  <= L_PIPE;
       end
       // A new load's PA and outcome where it decides: in AG (over the lines above), or in M1 with
-      // the split
+      // the split. The outcome is the state write's data, not its enable, so nl_exc (after the PMA
+      // and fault checks) stays out of each entry's enable (timing). A load going on keeps L_PIPE,
+      // the state it has here: its AG write gave it, in this cycle without the split, the cycle
+      // before with it (nothing else writes the entry in between: asserted in g_split)
       if (ln_v && !flush) begin
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
-        if (nl_exc || nl_tm || nl_mmio) lq_st_q[ln_lqw] <= nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO;
+        lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
 
       // ---- Waiting loads re-check their condition ----
@@ -1691,6 +1696,15 @@ module tg_lsu
                                   (s_lo == r_lo && (r_lo ? !(|(fc_lo & ab_sa)) : !(|(fc_sq & ab_sa)))))))
           else $error("tg_lsu: the M1 store's age compare differs from the per-region form");
       end
+      // A new load's state write takes its outcome as data: where it decides in M1, its entry is
+      // in L_PIPE and no earlier write in the LQ block meets it in this cycle
+      if (!rst && ln_v && !flush)
+        assert (lq_st_q[ln_lqw] == L_PIPE &&
+                !(((ld_ag_valid && !flush) || ag_rp) && ag_lq == ln_lqw) &&
+                !(m2_v_q && !m2_pt_q && m2_lq_q == ln_lqw) && !(lm_st && lm_lq == ln_lqw) &&
+                !(xr_take && x_lq_q == ln_lqw) &&
+                !(xs_q == X_WAIT && !x_st_q && !x_kill_q && x_lq_q == ln_lqw))
+          else $error("tg_lsu: another LQ state write meets a new load's where it decides");
     end
 `endif
     assign f_hit   = q_hit || byp;
