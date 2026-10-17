@@ -68,3 +68,22 @@
   - (b) a lockstep-only device tree with `timebase-frequency` 1 GHz while `mtime` counts 10 MHz, so kernel time runs 100× slower.
 - **The L2 logged 5,928 error events** during this run (sticky `L2_ERR`). The plain boot had 0. Both reads during the stall show the same count ([`dbg_during_stall.txt`](dbg_during_stall.txt)), so they happened earlier. The SoC track is identifying them.
 - **During the stall** each core's L1D took about 900 probes and sent about 900 requests per 5 s: the timekeeping lock's line passing between the two harts.
+
+## 4. Where the L2 error events come from: the commit trace being on
+
+At the SoC track's request, each case was booted on the 768m tree, and `tanager-host dbg` was read from a second session ([`l2err_runs.txt`](l2err_runs.txt); [`../runs/l2err.sh`](../runs/l2err.sh), [`../runs/l2err_trace.sh`](../runs/l2err_trace.sh)).
+
+| Case | Window | Trace | Window zeroed | L2 error events |
+|---|---|---|---|---|
+| A | 768 MiB (`--size 0x30000000`) | off | no | 0 at +3 s, +8 s and at the shell |
+| B | 1020 MiB (`--size 0x3fc00000`) | off | no | 0, 0, 0 |
+| D | 1020 MiB | off | yes (`--zero`) | 0 at +3 s and +10 s |
+| C1 | 1020 MiB (`--trace-log2 16`) | wrapped 2^16 ring, no `--lossless` | yes | **6,008** at +3 s, **6,100** at +10 s |
+| C2 | 1020 MiB | wrapped 2^16 ring, `--lossless` | yes | **5,884** at +3 s, **5,972** at +10 s |
+| lockstep retry | 1020 MiB | `--lossless`, through the checker | yes | 5,912 after 90 s, still in early boot |
+
+- **So:** about 6,000 events come in a traced boot's first seconds, then about 13 per second, whether or not the trace stalls the cores. With the trace off there are none, whatever the window or the zeroing.
+- **Lockstep's window** is 1020 MiB with `--trace-log2 16`, not 768 MiB.
+- **A second source:** sc2's Debian run had 68 events with the trace off ([sc2](../sc2/README.md)).
+- **With the SoC track:** its next build captures the first error's kind, line and address.
+- **Tooling:** `dbg` reads 0 once `tanager-host` has exited, because the uncore goes back to reset. Read it during the run.
