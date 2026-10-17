@@ -40,6 +40,8 @@ enum {
   R_TRS_CTRL = 0x1000, R_TRS_TRIG_PC = 0x1008, R_TRS_POST = 0x1010, R_TRS_START_PC = 0x1018,
   R_TRS_BASE = 0x1020, R_TRS_SIZE = 0x1028, R_TRS_RP = 0x1030, R_TRS_WP = 0x1038,
   R_TRS_STATUS = 0x1040, R_TRS_STALLS = 0x1044, R_TRS_INFO = 0x1048,
+  R_VQ_CTRL = 0x1100, R_VQ_STATUS = 0x1104, R_VQ_REQ0 = 0x1108, R_VQ_REQ1 = 0x110C,
+  R_VQ_RSP = 0x1110, R_VQ_IRQ = 0x1114,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
 };
 #define TRS_EN         0x001u
@@ -52,6 +54,7 @@ enum {
 #define TRS_ST_FULL      0x8u
 #define TRS_ST_AXI_ERR   0x10u
 #define TRS_REC_BYTES  64u
+#define CAPS_VIRTIO    0x4u            /* CAPS[2]: the forwarded virtio window (stage C, soc.md §8.1) */
 #define CAPS_TRACE     0x8u            /* CAPS[3]: the commit-trace stream is built (DR-146) */
 #define TG_ID          0x54474E52u     /* "TNGR" */
 #define CTRL_CORE_RST  0x1u
@@ -180,6 +183,7 @@ static void usage(void) {
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
     "  dbg                                    the board debug counters (a bitstream built with TG_DEBUG_CNT=1)\n"
+    "  vq                                     the virtio window's state (a bitstream built with TG_VIRTIO_WINDOW=1)\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -229,6 +233,23 @@ static void cmd_dbg(void) {
   }
 }
 
+/* The forwarded virtio window (CAPS[2]): whether the host serves it, its queues, the slots' status bits,
+ * and the oldest request, which stays queued (reading VQ_REQ1 would pop it) */
+static void print_vq(void) {
+  uint32_t vs = rd(R_VQ_STATUS), h = rd(R_VQ_REQ0);
+  printf("  virtio window   %s; %u request(s) and %u event(s) queued%s; status bits 0x%02x\n",
+         rd(R_VQ_CTRL) & 1 ? "served" : "not served (reads 0)", vs & 0x1f, (vs >> 8) & 0x1f,
+         vs >> 16 & 1 ? ", a RISC-V read waits" : "", vs >> 24);
+  if (h >> 31)
+    printf("  oldest request  slot %u offset 0x%03x: %s of %u byte(s)\n", (h >> 12) & 3, h & 0xfff,
+           h >> 18 & 1 ? "write" : "read", 1u << ((h >> 16) & 3));
+}
+
+static void cmd_vq(void) {
+  if (!(rd(R_CAPS) & CAPS_VIRTIO)) die("vq: this bitstream has no virtio window (build with TG_VIRTIO_WINDOW=1)");
+  print_vq();
+}
+
 static void check_id(void) {
   uint32_t id = rd(R_ID);
   if (id != TG_ID) die("no Tanager host bridge at the register window (ID 0x%08x); is the bitstream loaded?", id);
@@ -240,8 +261,9 @@ static void cmd_info(void) {
   printf("Tanager host bridge v%u.%u\n", ver >> 24, (ver >> 16) & 0xff);
   printf("  configuration   %s, %u core(s) x %u thread(s)\n", cfgs[ver & 3], (ver >> 12) & 0xf, (ver >> 8) & 0xf);
   printf("  core clock      %.1f MHz\n", rd(R_CLK_HZ) / 1e6);
-  printf("  capabilities    0x%08x%s\n", rd(R_CAPS),
-         rd(R_CAPS) & CAPS_TRACE ? "" : " (no commit-trace stream: built with TG_COMMIT_TRACE=0)");
+  printf("  capabilities    0x%08x%s%s\n", rd(R_CAPS),
+         rd(R_CAPS) & CAPS_TRACE ? "" : " (no commit-trace stream: built with TG_COMMIT_TRACE=0)",
+         rd(R_CAPS) & CAPS_VIRTIO ? " (virtio window)" : "");
   printf("  status          cores %s, uncore %s, L2 %s%s\n",
          st & ST_CORES_RST ? "in reset" : "running", st & ST_UNC_RST ? "in reset" : "running",
          st & ST_L2_INIT ? "ready" : "not ready", st & ST_POWER_REQ ? ", power request pending" : "");
@@ -251,6 +273,7 @@ static void cmd_info(void) {
          rd(R_INJ_RD), rd(R_INJ_WR), rd(R_INJ_CTRL), rd(R_INJ_CNT),
          rd(R_INJ_CNT) ? (double)rd(R_INJ_SUM) / rd(R_INJ_CNT) : 0.0, rd(R_INJ_MAX));
   printf("  tohost          0x%016" PRIx64 " (%u writes)\n", rd64(R_TOHOST), rd(R_TOHOST_SEQ));
+  if (rd(R_CAPS) & CAPS_VIRTIO) print_vq();
 }
 
 static void cmd_reset(void) {
@@ -653,6 +676,7 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (!strcmp(cmd, "dbg"))        { check_id(); cmd_dbg(); return 0; }
+  if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

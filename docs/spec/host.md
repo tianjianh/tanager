@@ -35,7 +35,7 @@ The PL side of that is the **host bridge**:
 | `0x000` | `ID` | RO | `0x5447_4E52` | "TNGR" |
 | `0x004` | `VERSION` | RO | | `[31:24]` major, `[23:16]` minor, `[15:12]` cores, `[11:8]` threads per core, `[7:0]` configuration (0 st, 1 smt2, 2 st_w3, 3 smt2_w3) |
 | `0x008` | `CLK_HZ` | RO | | `clk_core` frequency |
-| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports |
+| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[2]` the forwarded virtio window (`TG_VIRTIO_WINDOW=1`, [soc.md](soc.md) §8.1), `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports |
 | `0x010` | `CTRL` | RW | `0x3` (FPGA) | `[0]` hold cores in reset; `[1]` hold the uncore (L2, interconnect, devices, injector) in reset; `[2]` console lossless (0: TX bytes are dropped while the host FIFO is full, so the console never stalls the RISC-V side) |
 | `0x014` | `STATUS` | RO | | `[0]` cores in reset; `[1]` uncore in reset; `[2]` L2 initialised; `[3]` power request pending |
 | `0x018` | `POWER` | RO, W1C | 0 | `[31]` request pending; `[15:0]` value the RISC-V side wrote (`0x5555` power-off, `0x7777` reboot, `0x3333 \| code << 16` failure). A write with bit 31 set clears it |
@@ -53,8 +53,8 @@ The PL side of that is the **host bridge**:
 | `0x068`/`0x06C` | `FROMHOST` lo/hi | RW | 0 | value the RISC-V side reads |
 | `0x070` | `MBOX_IN` | RO, W1C | 0 | `[0]` RISC-V rang the host doorbell |
 | `0x074` | `MBOX_OUT` | WO | | write 1: ring the RISC-V doorbell (PLIC source 11) |
-| `0x080` | `IRQ_STATUS` | RO | | `[0]` console bytes waiting, `[1]` `MBOX_IN`, `[2]` power request, `[3]` `TOHOST` written |
-| `0x084` | `IRQ_ENABLE` | RW | 0 | mask for `host_irq_o` |
+| `0x080` | `IRQ_STATUS` | RO | | `[0]` console bytes waiting, `[1]` `MBOX_IN`, `[2]` power request, `[3]` `TOHOST` written, `[4]` virtio requests waiting (with the window; else 0) |
+| `0x084` | `IRQ_ENABLE` | RW | 0 | mask for `host_irq_o`, bit for bit; `[4]` only with the window |
 | `0x088` | `TOHOST_SEQ` | RO | 0 | count of `TOHOST` writes (wraps) |
 | `0x0C0` | `TG_CTRL` | RW | 0 | `[0]` run the traffic generators (bring-up builds, [soc.md](soc.md) §2.3) |
 | `0x0C4` | `TG_BASE` | RW | `0x200_0000` | first line of the test region (physical address ÷ 64); core c uses the c-th region of `TG_LINES` lines |
@@ -68,6 +68,16 @@ The PL side of that is the **host bridge**:
 | `0x108` | `UART_RX` | WO | | push one byte to the console input |
 | `0x10C` | `UART_RX_SPACE` | RO | | free entries (FIFO of 512) |
 | `0x1000`–`0x1048` | `TRS_*` | | | commit-trace streaming into a DDR ring: control, triggers, ring base and size, read and write pointers, status ([uncore-trace.md](uncore-trace.md) §Host registers) |
+| `0x1100` | `VQ_CTRL` | RW | 0 | `[0]` EN: the host serves the forwarded virtio window (below). Change it only while the uncore is in reset |
+| `0x1104` | `VQ_STATUS` | RO | | `[4:0]` requests waiting; `[12:8]` entries in use in the event queue (16: full, and `VQ_RSP` and `VQ_IRQ` writes are dropped); `[16]` a RISC-V read waits for `VQ_RSP`; `[31:24]` the slots' status bits, bit 24 + 2s + b for slot s's bit b |
+| `0x1108` | `VQ_REQ0` | RO | | the oldest request: `[31]` valid, `[18]` write, `[17:16]` size (log2 bytes: 0, 1 or 2), `[13:12]` slot, `[11:0]` byte offset in the slot |
+| `0x110C` | `VQ_REQ1` | RO | | its write value from bit 0 (0 for a read). Reading it pops the request |
+| `0x1110` | `VQ_RSP` | WO | | the waiting read's value, from bit 0 (the bytes of its size are used) |
+| `0x1114` | `VQ_IRQ` | WO | | `[7:0]` set and `[15:8]` clear status bits, bit 2s + b for slot s's bit b (0 used buffer, 1 configuration change). A set wins over a clear in the same cycle, the driver's `InterruptACK` included |
+| `0x1200` | `DBG_SEL` | RW | 0 | the debug counter `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
+| `0x1204` | `DBG_VAL` | RO | | that counter, a few dozen cycles after `DBG_SEL` is written |
+
+The `VQ_*` registers read 0 and ignore writes in a build without the window (`CAPS[2]` = 0), and so do `DBG_SEL` and `DBG_VAL` without the counters.
 
 A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 
@@ -96,6 +106,15 @@ A 64-bit pair is written low half first. The low half waits in a shadow register
 - **Configuration crossing.** All host-written configuration (DRAM window, boot entry, DTB, injector, `FROMHOST`, `CTRL[2]`) is one vector, copied to `clk` by `xpm_cdc_handshake` after each update. It is quasi-static by contract: the DRAM window is changed only while the uncore is in reset.
 - **Status crossing.** Statistics, `TOHOST`, the power request and the init flag cross back the same way, continuously.
 - **Streams.** Console bytes cross in asynchronous FIFOs (`xpm_fifo_async`: 2048 bytes RISC-V → host, 512 host → RISC-V). Doorbells and power requests cross as pulses (`xpm_cdc_pulse`).
+- **The forwarded virtio window** (`tg_vio_window`, `TG_VIRTIO_WINDOW=1`; [soc.md](soc.md) §8.1). The RISC-V's accesses to the four virtio-mmio slots at `0x1001_0000` become requests that `tanager-host` serves:
+  - **Requests** wait in a 16-entry queue (an asynchronous LUTRAM FIFO into `clk_host`). The host polls `VQ_REQ0`, or takes `IRQ_STATUS[4]`, then reads `VQ_REQ1` to pop.
+  - **Writes are posted:** the RISC-V's store completes once its request is queued. With the queue full, the device bus waits for room.
+  - **A read holds the device bus** until the host writes `VQ_RSP`. The device bus has no timeout, so the RISC-V core waits as long as the host takes.
+  - **In RTL:** `InterruptStatus` (`0x060`) and `InterruptACK` (`0x064`) of every slot, and the slots' status bits. The host sets and clears them with `VQ_IRQ`; the driver's `InterruptACK` clears the bits it writes. Each slot's bits, ORed, are its PLIC source (1–4, level).
+  - **Order:** `VQ_RSP` and `VQ_IRQ` writes cross in one 16-entry event queue, so the RISC-V side sees them in the host's order. A `VQ_RSP` with no read waiting is dropped.
+  - **Not served** (`VQ_CTRL.EN` = 0, the reset value): the window answers every access itself, reads with 0 and writes by dropping them. A driver then finds no device (`MagicValue` 0) instead of waiting forever for a host that isn't there.
+  - **64-bit accesses** answer denied; virtio-mmio uses 8-, 16- and 32-bit ones.
+  - **Reset:** both queues empty on the uncore reset (the event queue's host side on `CTRL[1]`).
 - **Simulation equivalents.** The `xpm_*` primitives are used under `SYNTHESIS`. The simulation models (`rtl/uncore/lib/tg_cdc_*`) have the same ports and conservative latencies.
 
 ### Loading sequence (what `tanager-host` does)
@@ -124,6 +143,8 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
 | `tanager-host tg start [LINES] [--base A --size S]` | traffic-generator bitstreams ([soc.md](soc.md) §2.3): steps 1–3 without images (hold everything, set the window, release the uncore, wait for the L2), then `TG_LINES`, `TG_CTRL = 1`, `CTRL = 0x0` |
 | `tanager-host tg stop`, `tg status` | stop the generators; print passes, operations, errors and the first failing line |
 | `tanager-host peek/poke <off> [val]` | raw register access (bring-up) |
+| `tanager-host dbg` | print the board debug counters (`TG_DEBUG_CNT=1` builds), one per line, through `DBG_SEL` and `DBG_VAL` |
+| `tanager-host vq` | the forwarded virtio window's state (`TG_VIRTIO_WINDOW=1` builds): served or not, the queues' counts, a waiting read, the status bits, and the oldest request without popping it. `info` prints the same lines |
 
 - **Access paths:**
   - **Registers:** `mmap` of `/dev/mem` at the HPM0 window (default `0xA000_0000`, option `--regs`).
@@ -156,8 +177,9 @@ Hold the cores alone (`CTRL = 0x1`) only while they are quiet, as between steps 
   - the configuration and status crossings (values arrive intact, with no torn multi-bit updates);
   - reset sequencing;
   - console bytes in both directions under back-pressure, and drop mode;
-  - doorbells, `TOHOST` and power requests, interrupt status and masking.
-- **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)).
+  - doorbells, `TOHOST` and power requests, interrupt status and masking;
+  - `VIRTIO=1`, the forwarded virtio window: answered locally while `EN` is clear; a full queue holding the device bus; 400 random accesses served by a host model with random delays (posted writes in order, reads given the host's value); the status bits, `InterruptStatus` and `InterruptACK`; 64-bit accesses denied; the uncore reset emptying the queue. The build without the window keeps the port signatures of the build before it.
+- **SoC simulation:** a testbench drives the host port the way `tanager-host` does ([soc.md](soc.md)). With `VIRTIO=1` it serves the window, and the RISC-V program reads through it and takes a slot's interrupt through the PLIC.
 - **On the board:** `tanager-host info`, `peek`/`poke` and a console loopback are the first bring-up checks.
 
 ## History and lessons

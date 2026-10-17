@@ -38,6 +38,8 @@ It is board-independent: the same top runs in Verilator with AXI memory models a
 | `DRAM_BASE_INIT`, `DRAM_SIZE_INIT` | 0, 0 | DRAM window at reset; simulation uses base 0 and the model's size |
 | `UNCORE_DSP` | `64'h84_0308_0000`: the sites that met 200 MHz as DSPs (the device bus's A slice, the L2 banks' C slices, the memory ports' W slices) | register slices whose main data register sits in DSP48E2s, one bit per site (`tg_uncore`; [uncore.md](uncore.md), DR-136): bits 31:0 the crossbar's, 41:32 the memory ports' AR, AW, W, R and B, 43:42 the L2 banks' R slices. `build.tcl` takes it from `TG_UNCORE_DSP` |
 | `AR_SLICE`, `B_SLICE`, `D_SLICE`, `W_SLICE`, `XBAR_IN_SLICE`, `XBAR_SLICE`, `MEM_SLICE` | 1, 0, 0, 0, `4'b0000`, 1, 1 | `tg_uncore`'s register slices ([uncore.md](uncore.md), [uncore-mem.md](uncore-mem.md); what each costs and buys is in §Reserve levers). `tanager_soc` and `kv260_top` pass them on, so a build or a fit sets them without RTL edits (DR-146); `build.tcl` takes each from `TG_` and its name (`TG_XBAR_IN_SLICE` 0–15). The defaults live in `tg_uncore_pkg`, with `UNCORE_DSP`'s |
+| `DEBUG_CNT` | 0 | the board debug counters ([uncore.md](uncore.md) §Board debug counters; `build.tcl` `TG_DEBUG_CNT`) |
+| `VIRTIO_WINDOW` | 0 | the forwarded virtio window (§8.1, [host.md](host.md); `build.tcl` `TG_VIRTIO_WINDOW`). Off, the virtio slots answer denied |
 | `CORE_KIND` | `"core"` | `"core"`: `tg_core` (the stub until the core track's RTL lands); `"trafgen"`: `tg_trafgen` traffic generators in the cores' place, for bring-up and timing runs before the core exists (§2.3) |
 
 ### Behaviour
@@ -119,9 +121,10 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 ## 4. Device tree
 
 `sw/dts/tanager.dtsi` describes the plan §5.4 map, preprocessed by cpp for:
-- cores (1 or 2) and threads per core (1 or 2);
+- cores (1 or 2) and threads per core (1 or 2), and the threads that run (`RUN_THREADS=1`: thread 0 of each core, harts 0 and 2);
 - DRAM size;
-- whether F and D exist (M4's core may lack them).
+- whether F and D exist (M4's core may lack them);
+- `VIRTIO=1`: the forwarded virtio window's slots (§8.1), for bitstreams built with it.
 
 | Node | Compatible | Notes |
 |---|---|---|
@@ -130,6 +133,7 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 | `plic@c000000` | `riscv,plic0` | `riscv,ndev` = 31; contexts M, S per hart |
 | `serial@10000000` | `ns16550a` | `clock-frequency` 3 686 400, PLIC 10 |
 | `syscon@10001000` | `tanager,hostctl`, `syscon` | host control (KV260 tree), PLIC 11 |
+| `virtio_mmio@10010000` … `@10013000` | `virtio,mmio` | with `VIRTIO=1`: the window's slots 0–3, PLIC 1–4 |
 | `poweroff`, `reboot` | `syscon-poweroff`, `syscon-reboot` | value `0x5555` / `0x7777` |
 | `chosen` | | `stdout-path` = the UART; `bootargs` = `console=ttyS0,115200 earlycon` |
 
@@ -197,7 +201,7 @@ A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53
 
 ## 8. Board stages C and D (DR-126, DR-147)
 
-Status: stage C planned, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). No RTL yet. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
+Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window is RTL with its tests (`VIRTIO_WINDOW`, off by default); the host DMA port is next. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
 
 ### 8.1 Stage C: the board's peripherals through the ARM (virtio)
 
@@ -215,20 +219,24 @@ The RISC-V's Linux uses storage, then network and entropy, through virtio-mmio d
   - The control registers are 32-bit.
   - The configuration space also takes 8- and 16-bit accesses (virtio-mmio requires them for narrow fields), so a request carries its size.
 - **Forwarded:** every access except two registers of each slot. A queue entry is {slot[1:0], offset[11:0], size[1:0], we, wdata[31:0]}.
-  - Writes are posted: the device bus acknowledges at once.
-  - A read waits in the same queue behind earlier writes, and holds the device-bus response until the host answers. The device bus has no timeout.
+  - Writes are posted: the device bus acknowledges once the entry is queued.
+  - A read waits in the same queue behind earlier writes, and holds the device-bus response until the host answers (`tg_tl_dev`'s wait input, [uncore.md](uncore.md) §Device bus). The device bus has no timeout.
   - The queue (16 entries, LUTRAM, an asynchronous FIFO into `clk_host`) back-pressures the device bus when full.
+  - 64-bit accesses answer denied: virtio-mmio uses 8-, 16- and 32-bit ones.
 - **Local:** InterruptStatus (`0x060`) and InterruptACK (`0x064`) of each slot are answered in RTL, so taking an interrupt needs no round trip.
   - Each slot has two status bits: bit 0, used buffer; bit 1, configuration change.
   - The host sets the bits through a register, and the driver's InterruptACK clears them.
   - The bits' OR is the slot's PLIC source, 1–4, level-triggered.
-- **Host registers** (host bridge, `clk_host`):
-  - `VQ_STATUS`: queue count;
-  - `VQ_REQ`: two words, the second read pops the entry;
+- **Host registers** (host bridge, `clk_host`, `0x1100`–`0x1114`; the layout is in [host.md](host.md)):
+  - `VQ_CTRL`: `EN`, the host serves the window;
+  - `VQ_STATUS`: the queues' counts, a read waiting, the slots' status bits;
+  - `VQ_REQ0`, `VQ_REQ1`: the oldest entry in two words; reading the second pops it;
   - `VQ_RSP`: a write completes the waiting read with its data;
-  - `VQ_IRQ`: sets or clears a slot's status bits.
-  - A host interrupt bit (`pl_ps_irq0`) is raised while the queue is not empty.
-- **Switch:** `tg_uncore` `VIRTIO_WINDOW` (off by default, cycle-identical when off). The slots then answer as today.
+  - `VQ_IRQ`: sets or clears the slots' status bits.
+  - `VQ_RSP` and `VQ_IRQ` cross in one 16-entry event queue, so the RISC-V side sees them in the host's order.
+  - A host interrupt bit (`IRQ_STATUS[4]`, on `pl_ps_irq0`) is raised while the queue is not empty.
+- **Not served** (`EN` = 0, its reset value): the window answers every access itself, reads with 0 and writes by dropping them. Linux's virtio-mmio driver then finds no device (`MagicValue` 0) instead of waiting forever for a host that isn't there, so a device tree can list the slots in every build that has the window.
+- **Switch:** `tg_uncore` `VIRTIO_WINDOW` (`TG_VIRTIO_WINDOW=1`; off by default, cycle-identical when off). The slots then answer denied, as before. `CAPS[2]` says which.
 
 **The coherent host DMA port.** Virtqueues and buffers are in RISC-V memory, and the back-end reaches them through this port, so neither side does cache maintenance. `/dev/mem` on the carve-out would read DDR behind the L2's dirty lines, so it can't be used.
 - **Path:** `M_AXI_HPM1_FPD` (128-bit, clocked by `clk_core`, its own PS address window onto the carve-out), then an AXI4-to-TileLink bridge (TL-UH: Get, PutFull, PutPartial, at most one 64-byte line per message), then the crossbar's `hdma` initiator (`tg_xbar` `HOST_DMA`), then the L2.
@@ -284,7 +292,7 @@ The plan:
 A bigger cloned card is the alternative if the user prefers it. The board session does the work on the board, and the A53's Ubuntu stays intact and bootable.
 
 **Tests** (with the verification track):
-- **The window:** a testbench host serves the queue with random delays up to about 100K cycles, checks posted writes in order, and sets and clears the status bits. RISC-V programs probe the slots and take the interrupts.
+- **The window** (done): `tests/unit/host_bridge` `VIRTIO=1` serves the queue from a host model with random delays (one read waits 100K host cycles), checks posted writes in order, a full queue holding the device bus, and the status bits. `tests/unit/periph` `VIRTIO=1` checks the device bus's wait with a stub that answers garbage until it stops waiting. `tests/unit/soc` `VIRTIO=1`: the RISC-V program reads through the window and takes a slot's interrupt through the PLIC.
 - **The DMA port:** a testbench AXI master (lifted from `tb_host_bridge`'s) runs virtio-like producer and consumer traffic with checksums. Its reads must see the cores' dirty lines, and the cores must see its writes once the used ring and the interrupt follow.
 - **Lockstep with DMA:** the checker learns each external write and its AccessAck cycle, from DPI in simulation and from the completion FIFO on the board.
 

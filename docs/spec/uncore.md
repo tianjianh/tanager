@@ -40,7 +40,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 
 | Source | Device |
 |---|---|
-| 1 … 4 | virtio-mmio slots 0 … 3 (M5; tied 0 until then) |
+| 1 … 4 | virtio-mmio slots 0 … 3: the forwarded virtio window's status bits (`tg_uncore` `VIRTIO_WINDOW`, [host.md](host.md); tied 0 without it) |
 | 10 | UART (the number QEMU `virt` uses, so both device trees agree) |
 | 11 | host-control mailbox doorbell ([host.md](host.md)) |
 | 16 + h | `merr_o` of hart h (edge-triggered; plan §4.5) |
@@ -93,7 +93,24 @@ It converts the device-bus target's TL-UL traffic (single beat, size ≤ 3, natu
 - request: address, write, 64-bit write data and byte strobes in their address lanes;
 - response: 64-bit read data, error.
 
-It decodes the device from the address: ACLINT, PLIC, UART and host control are present. The virtio and debug windows answer `denied` until those devices exist (M5, M9), as do sizes above 3 and misaligned accesses. Devices answer in the cycle after the request. The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
+It decodes the device from the address: ACLINT, PLIC, UART and host control are present, and the virtio slots when `VIRTIO` is set (`tg_uncore` `VIRTIO_WINDOW`: the forwarded virtio window, the fifth device, [host.md](host.md)). Without it the virtio slots answer `denied`, as do the debug window (until M9), sizes above 3 and misaligned accesses.
+- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Only the virtio window waits, for the host's answer to a read or for room in its queue; every other device ties its bit to 0, so they answer as before.
+- **No timeout:** the bus waits as long as the device does, and so does the core's access.
+- The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
+
+### Board debug counters (`DEBUG_CNT`)
+
+Built only with `tg_uncore` `DEBUG_CNT` (`TG_DEBUG_CNT=1`; off by default, no logic), for the two-core board hang of DR-147. 32-bit counters of handshakes, which the host reads one at a time: it writes an index to `DBG_SEL` and reads `DBG_VAL` ([host.md](host.md)), and `tanager-host dbg` prints them all.
+
+| Index | Counts |
+|---|---|
+| 8b + 0 … 7 | L2 bank b: its A, B, C, D and E handshakes, its misses, its AXI reads (AR) and its fills (R last beats) |
+| 8·N_BANKS + 5c + 0 … 4 | core c's data cache: its A, B, C, D and E handshakes at the uncore's ports |
+| 8·N_BANKS + 5·N_CORES | the L2's error events |
+| 8·N_BANKS + 5·N_CORES + 1 | now, not a count: `[10b+9:10b]` bank b's channels' valid and ready (A valid, A ready, then B, C, D and E, from the top bit down); `[20+5c+4:20+5c]` which of core c's data-cache channels wait, valid without ready (A, B, C, D, E from the top; cores 0 and 1); `[30]` the L2's sticky error |
+| higher | `0xDEB0_0000` |
+
+The host reads one counter at a time while the system runs, so counters read later have moved on. In a hang they stop, and the levels word shows which handshake waits.
 
 ## Parameters
 

@@ -265,6 +265,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
       acc[i].we   = 1'($urandom_range(1));
       acc[i].val  = $urandom & szmask(acc[i].size);
     end
+    acc[200].we = 1'b0;                                      // a read the host leaves waiting for 100K cycles
     hw(16'h084, 32'h10);                                     // the host interrupt for queued requests only
     fork
       begin
@@ -288,7 +289,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0)
           hr(16'h110C, v);
           if (v != (acc[i].we ? acc[i].val : 32'd0)) fail($sformatf("VQ_REQ1 %h for access %0d", v, i));
           if (!acc[i].we) begin
-            repeat ($urandom_range(300)) @(posedge clk_host);
+            repeat (i == 200 ? 100_000 : $urandom_range(300)) @(posedge clk_host);
             hw(16'h1110, acc[i].val);
           end
         end
