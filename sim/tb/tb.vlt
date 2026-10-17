@@ -11,3 +11,6 @@ lint_off -rule UNUSEDSIGNAL -file "*sim/tb/tg_tb_top.sv" -match "*_n'*"
 // The harness compiles rtl/rtl.f whole but instantiates only tg_core: the uncore's boot ROM image
 // package is not used here.
 lint_off -rule UNUSEDPARAM -file "*rtl/uncore/bootrom/tg_bootrom_img_pkg.sv"
+// tg_core's board-debug word (DBG_WORD, read on the board by tanager-host dbg) is 0 at its default and
+// nothing in simulation reads it.
+lint_off -rule UNUSEDSIGNAL -file "*sim/tb/tg_tb_top.sv" -match "*'core_dbg'*"
