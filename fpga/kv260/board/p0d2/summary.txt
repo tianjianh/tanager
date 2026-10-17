@@ -1,0 +1,8 @@
+cfg=smt2 kind=core core_mhz=70 n_cores=2
+WNS=2.887 WHS=0.010
+runtime_s=3827
+commit=05b45ce723ae
+profile=notrace defines=TG_COMMIT_TRACE=0
+uncore=DEBUG_CNT=1
+pmod_uart=1 txd=H12 rxd=B10
+fan=ttc0.wave2 invert=0 pin=A12
