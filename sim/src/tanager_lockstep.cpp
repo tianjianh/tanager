@@ -56,6 +56,7 @@ struct opts_t {
   uint64_t max = 0;               // stop after this many records (0: at the end of the input)
   uint64_t stale = 10000000;      // a deferred writeback pending this many cycles is a mismatch
   uint64_t reorder = 1024;        // records a hart may stay silent before it counts as idle (0: stream order)
+  unsigned hart_window = 512;     // other harts' writes: records a hart may still read their old bytes (0: off)
 };
 
 [[noreturn]] void usage() {
@@ -70,6 +71,8 @@ struct opts_t {
           "  --stale=N         a deferred writeback still pending after N cycles is a mismatch (default 10M)\n"
           "  --reorder=N       several harts: apply records in cycle order, waiting for a silent hart until\n"
           "                    N more records have arrived (default 1024; 0: in arrival order)\n"
+          "  --hart-window=N   several harts: a hart may read the bytes another hart's write replaced for N of\n"
+          "                    its own records after it (store queue, early loads; default 512; 0: off)\n"
           "  --plant=N         self-test: flip bit 0 of the first value the checker compares at or after\n"
           "                    record N (from 0): a register write or a deferred writeback, not a value it\n"
           "                    adopts (an MMIO load, a nondet CSR read); the run must stop there\n",
@@ -116,6 +119,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "stale") o.stale = num(v, "--stale");
     else if (k == "plant") o.plant = int64_t(num(v, "--plant"));
     else if (k == "reorder") o.reorder = num(v, "--reorder");
+    else if (k == "hart-window") o.hart_window = unsigned(num(v, "--hart-window"));
     else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.fw.empty()) usage();
@@ -241,6 +245,7 @@ int main(int argc, char** argv) {
   lc.boot_pc = BOOTROM_BASE;
   lc.pmp_regions = o.pmp;
   lc.history = o.history;
+  lc.hart_window = o.hart_window;
   lc.dram_base = DRAM_BASE;
   lc.dram_size = o.mem_mb << 20;
   lc.rom_base = BOOTROM_BASE;
@@ -441,6 +446,10 @@ int main(int argc, char** argv) {
   if (n_late)
     fprintf(stderr, "tanager-lockstep: %llu records came after later cycles had been checked\n",
             (unsigned long long)n_late);
+  if (ls.hart_loads_old())
+    fprintf(stderr, "tanager-lockstep: %llu loads read bytes another hart's recent write had replaced; %llu "
+                    "atomics read past a store, which then followed them\n",
+            (unsigned long long)ls.hart_loads_old(), (unsigned long long)ls.hart_reapplied());
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
           status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",

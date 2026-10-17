@@ -30,7 +30,7 @@ spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
-COH_MODES=lottery,amo   # LR/SC loops hang on today's RTL (no LR/SC hold yet), so they stay out
+COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation
 
 log() { echo "$(date '+%F %T') soak: $*"; }
 # What the soak builds from a commit: a main that changes none of it needs no rebuild.
@@ -82,23 +82,29 @@ prepare() {
       done
     done
     make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" replay || exit 1
-    if [ -n "$coh" ]; then  # the default profile only
-      for cfg in $COH_CFGS; do
-        make -s -C "$src/tests/unit/boot" build CFG="$cfg" CORES=2 VTHREADS=1 JOBS="$BUILD_JOBS" \
-          TANAGER_BUILD="$SOAK/build" || exit 1
-      done
-      make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" lockstep || exit 1
-    fi
   ) > "$SOAK/logs/build.log" 2>&1 || return 1
-  # The coherence rounds' DDR timing: the board's (18-26 cycles, fixed and jittered) once tb_axi_mem
-  # takes it at run time, the testbench's own before; and the cycle limit, short where tb_boot allows
+  # The coherence programs' testbench (the default profile only) and checker. A failure here turns the
+  # coherence rounds off for this main and keeps the random rounds going.
+  echo > "$SOAK/coh"
   if [ -n "$coh" ]; then
-    local lat=default limit="--max-mcycles 1"
-    grep -q "mem_lat_min" "$src/tests/unit/common/tb_axi_mem.sv" && lat=board
-    grep -q "max_kcycles" "$src/tests/unit/boot/tb_boot.sv" && limit="--max-kcycles 400"
-    echo "--lat $lat $limit" > "$SOAK/coh"
-  else
-    echo > "$SOAK/coh"
+    if ( source "$src/tools/env.sh" >/dev/null 2>&1
+         export CCACHE_DISABLE=1
+         for cfg in $COH_CFGS; do
+           make -s -C "$src/tests/unit/boot" build CFG="$cfg" CORES=2 VTHREADS=1 JOBS="$BUILD_JOBS" \
+             TANAGER_BUILD="$SOAK/build" || exit 1
+         done
+         make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" lockstep ) > "$SOAK/logs/build-coh.log" 2>&1; then
+      # The DDR timing: the board's (18-26 cycles, fixed and jittered) once tb_axi_mem takes it at run
+      # time, the testbench's own before; and the cycle limit, short where tb_boot allows
+      local lat=default limit="--max-mcycles 1"
+      grep -q "mem_lat_min" "$src/tests/unit/common/tb_axi_mem.sv" && lat=board
+      grep -q "max_kcycles" "$src/tests/unit/boot/tb_boot.sv" && limit="--max-kcycles 400"
+      echo "--lat $lat $limit" > "$SOAK/coh"
+    else
+      log "the coherence programs' build of $commit failed (logs/build-coh.log): no coherence rounds"
+      echo "$(date '+%F %T') coherence build of $commit failed: $(tail -1 "$SOAK/logs/build-coh.log" | cut -c1-160)" \
+        >> "$SOAK/errors.log"
+    fi
   fi
   # Trace back-pressure when tg_core's build has trace_stall_i: older mains report it through
   # print-trace-stall; newer ones always connect it.

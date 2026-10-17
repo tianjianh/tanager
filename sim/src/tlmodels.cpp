@@ -89,13 +89,23 @@ void d_sender_t::cycle(model_ctx_t& ctx, bool d_ready, const char* port, bool& v
     uint64_t next = ctx.now + 1;
     if (!cur_) {
       auto best = q_.end();
-      for (auto it = q_.begin(); it != q_.end(); ++it) {
-        if (it->ready_at > next) continue;
-        if (best != q_.end() && (it->ready_at > best->ready_at ||
-                                 (it->ready_at == best->ready_at && it->seq > best->seq)))
-          continue;
-        if (it->blocked && it->blocked()) continue;
-        best = it;
+      if (pick == 0) {
+        for (auto it = q_.begin(); it != q_.end(); ++it) {
+          if (it->ready_at > next) continue;
+          if (best != q_.end() && (it->ready_at > best->ready_at ||
+                                   (it->ready_at == best->ready_at && it->seq > best->seq)))
+            continue;
+          if (it->blocked && it->blocked()) continue;
+          best = it;
+        }
+      } else {  // any ready message at random, or the youngest (DR-149: Grants in any order)
+        std::vector<std::deque<d_msg_t>::iterator> ready;
+        for (auto it = q_.begin(); it != q_.end(); ++it)
+          if (it->ready_at <= next && !(it->blocked && it->blocked())) ready.push_back(it);
+        if (!ready.empty()) {
+          if (pick == 1) best = ready[ctx.rng.below(ready.size())];
+          else for (auto it : ready) if (best == q_.end() || it->seq > best->seq) best = it;
+        }
       }
       if (best != q_.end()) {
         cur_ = std::make_unique<d_msg_t>(std::move(*best));
@@ -344,7 +354,9 @@ void l1d_model_t::probe_for_miss(uint64_t idx, bool own_line_ok) {
   }
   std::vector<uint64_t> cands;
   for (auto& [j, m] : lines_)
-    if (j != idx && same_set(j, idx) && m.perm != PERM_N && !m.probe_inflight && !m.grant_unacked) cands.push_back(j);
+    if (j != idx && same_set(j, idx) && (m.perm != PERM_N || (ctx_.cfg.probe_release && m.release_inflight)) &&
+        !m.probe_inflight && !m.grant_unacked)
+      cands.push_back(j);
   if (!cands.empty()) probe(cands[ctx_.rng.below(cands.size())] * LINE_BYTES, caps[ctx_.rng.below(3)]);
 }
 
@@ -358,6 +370,7 @@ void l1d_model_t::probe(uint64_t addr, uint8_t cap, bool block) {
     for (uint64_t o : acq_lines_)
       if (same_set(o, pidx)) { probes_same_set++; break; }
   }
+  if (l.release_inflight) probes_on_release++;
   l.probe_inflight = true;
   l.probe_cap = cap;
   tl_b_t b;
@@ -388,7 +401,8 @@ void l1d_model_t::maybe_random_probe() {
   // Pick a random held line that may be probed now.
   std::vector<uint64_t> cands;
   for (auto& [idx, l] : lines_)
-    if (l.perm != PERM_N && !l.probe_inflight && !l.grant_unacked) cands.push_back(idx);
+    if ((l.perm != PERM_N || (ctx_.cfg.probe_release && l.release_inflight)) && !l.probe_inflight && !l.grant_unacked)
+      cands.push_back(idx);
   if (cands.empty()) return;
   uint64_t idx = cands[ctx_.rng.below(cands.size())];
   // ProbeBlock only: ProbePerm tells the agent it may drop dirty data, which only an L2 that is
@@ -421,7 +435,7 @@ void l1d_model_t::accept_e(uint32_t sink) {
   }
 }
 
-void l1d_model_t::send_grant(const partial_t& p) {
+void l1d_model_t::send_grant(const partial_t& p, uint64_t order) {
   uint64_t addr = p.address, idx = addr / LINE_BYTES;
   bool block = p.opcode == A_ACQUIRE_BLOCK;
   uint8_t cap = CAP_TO_T;
@@ -445,8 +459,10 @@ void l1d_model_t::send_grant(const partial_t& p) {
   m.nbeats = block ? LINE_BEATS : 1;
   // A real L2 holds a Grant back while it probes the same line; so does this one.
   m.blocked = [this, idx] { return lines_[idx].probe_inflight; };
-  m.on_start = [this, idx, addr, cap, block, ok](d_msg_t& msg) {
+  m.on_start = [this, idx, addr, cap, block, ok, order](d_msg_t& msg) {
     line_t& l = lines_[idx];
+    if (!grants_due_.empty() && *grants_due_.begin() != order) grants_ooo++;  // an older Acquire still waits
+    grants_due_.erase(order);
     if (ok) l.perm = cap == CAP_TO_T ? PERM_T : PERM_B;  // a denied Grant transfers no permission
     l.grant_unacked = true;
     if (block) {
@@ -508,7 +524,9 @@ void l1d_model_t::finish_a(partial_t& p) {
       l.acquire_inflight = true;
       acquires++;
       if (ctx_.cfg.probe_miss && ctx_.rng.percent(ctx_.cfg.probe_miss)) probe_for_miss(idx, p.opcode == A_ACQUIRE_BLOCK);
-      send_grant(p);
+      const uint64_t order = acq_order_++;
+      grants_due_.insert(order);
+      send_grant(p, order);
       break;
     }
     case A_GET: {
@@ -581,6 +599,7 @@ void l1d_model_t::accept_a(const tl_a_t& a) {
     ctx_.fail(strfmt("l1d A: source %u already in flight", a.source));
     return;
   }
+  note_src(a.source);
   pa_ = partial_t{};
   pa_.opcode = a.opcode; pa_.param = a.param; pa_.size = a.size; pa_.source = a.source;
   pa_.address = a.address;
@@ -642,6 +661,7 @@ void l1d_model_t::finish_c(partial_t& p) {
       ctx_.fail(strfmt("l1d C: Release source %u already in flight", p.source));
       return;
     }
+    note_src(p.source);
     releases++;
     if (!acq_lines_.empty()) releases_during_acquire++;
     l.perm = to;
@@ -658,6 +678,11 @@ void l1d_model_t::finish_c(partial_t& p) {
       inflight_src_.erase(src);
     };
     d_.push(std::move(m));
+    // --probe-release: a probe of the line that crosses its Release (the agent answers NtoN, no data)
+    if (ctx_.cfg.probe_release && ctx_.rng.percent(ctx_.cfg.probe_release)) {
+      static const uint8_t caps[] = {CAP_TO_N, CAP_TO_B, CAP_TO_T};
+      probe(idx * LINE_BYTES, caps[ctx_.rng.below(3)]);
+    }
   } else {
     if (!l.probe_inflight) {
       ctx_.fail(strfmt("l1d C: %s for line %s, which was not probed", c_op_name(p.opcode), addr_s().c_str()));
@@ -728,6 +753,7 @@ void l1d_model_t::cycle(const c_in_t& in, c_out_t& out) {
   if (in.a_valid && a_ready_) accept_a(in.a);
   maybe_random_probe();
 
+  d_.pick = ctx_.cfg.grant_order;
   d_.cycle(ctx_, in.d_ready, "l1d D", out.d_valid, out.d);
 
   if (!b_valid_) {
