@@ -2,7 +2,11 @@
 
 Synthesises each real unit out of context in each configuration and holds it to its budget:
 - LUTs, LUTRAM, flip-flops, DSP and block RAM, compared with [`budgets.tsv`](budgets.tsv) and with the previous run;
-- the memory-primitive check ([`tools/tcl/tg_prim_check.tcl`](../../tools/tcl/tg_prim_check.tcl)) after synthesis and after `opt_design`.
+- the memory-primitive check ([`tools/tcl/tg_prim_check.tcl`](../../tools/tcl/tg_prim_check.tcl)) after synthesis and after `opt_design`;
+- the implicit-net check ([`fpga/spikes/tcl/synth_check.tcl`](../spikes/tcl/synth_check.tcl)) after synthesis.
+  - A name used inside a generate block before its declaration becomes a new, undriven net in Vivado (Synth 8-11241, 8-605, 8-3848), while Verilator takes the later declaration.
+  - A unit with an implicit or undriven net in our sources fails and gets no counts.
+  - From fn6 (0c4b011) to 24ada50, every count from this flow had rename's free-list pop tied off this way.
 
 The budgets and how they are derived are in [docs/perf/budgets.md](../../docs/perf/budgets.md).
 
@@ -18,7 +22,7 @@ The nightly run, on main's latest commit.
   - `latest.md`, the report;
   - `latest.json`;
   - `history/`, one file per run, for the deltas;
-  - `reports/<unit>_<cfg>/`, the primitive check and hierarchical utilisation.
+  - `reports/<unit>_<cfg>/`, the implicit-net and primitive checks and hierarchical utilisation.
 
 ```bash
 source tools/env.sh
@@ -28,7 +32,7 @@ The same check on the current checkout, for some units (`--dry-run` lists what w
 
 **Exit status:**
 - 0: every enforced unit is within budget and primitive-clean;
-- 1: a unit is over budget, or there is a primitive failure;
+- 1: a unit is over budget, there is a primitive failure, or a unit has an implicit or undriven net (`reports/<unit>_<cfg>/synth_check.txt`);
 - 2: a synthesis did not finish;
 - 3 (nightly only): skipped for disk space.
 
@@ -40,7 +44,7 @@ The same check on the current checkout, for some units (`--dry-run` lists what w
 |---|---|
 | [`units.tsv`](units.tsv) | The units to build: name, configurations, top module, sources beyond `rtl/rtl.f`, generics. A line whose top module does not exist yet is skipped. |
 | [`budgets.tsv`](budgets.tsv) | Budget per unit and configuration (`*` for all). `enforce` judges it; `track` only reports it. |
-| [`tcl/unit_synth.tcl`](tcl/unit_synth.tcl) | The Vivado script: product RTL for the configuration, out-of-context synthesis, `opt_design`, primitive check, utilisation. |
+| [`tcl/unit_synth.tcl`](tcl/unit_synth.tcl) | The Vivado script: product RTL for the configuration, out-of-context synthesis, the implicit-net check, `opt_design`, primitive check, utilisation. |
 | [`run_budget.py`](run_budget.py) | Runs the syntheses, compares, writes the report. |
 | [`nightly.sh`](nightly.sh) | Exports main and runs `run_budget.py` on it. |
 
