@@ -58,7 +58,7 @@ struct opts_t {
   unsigned pmp = TG_DEFAULT_PMP, pmp_g = 4;
   bool pmp_reset_off = false;
   int harts = -1;
-  uint64_t mem_mb = 2048;
+  uint64_t mem_mb = 1024;  // the PMA's memory region, 1 GiB at 0x8000_0000 (tg_map_pkg DRAM_REGION; DR-151)
   std::string rom;
   std::vector<uint64_t> tohost_va;
   // Trace back-pressure (verification.md §2.9): -1 = trace_stall_i stays 0

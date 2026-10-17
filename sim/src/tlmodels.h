@@ -48,7 +48,7 @@ struct model_cfg_t {
   unsigned set_stride = 4096; // the L1D's sets x 64-byte lines, for same-set probes and the counters
   unsigned d_stall_max = 10000;
   // Memory map (tg_map_pkg)
-  uint64_t dram_base = 0x80000000ull, dram_size = 2048ull << 20;
+  uint64_t dram_base = 0x80000000ull, dram_size = 1024ull << 20;  // the PMA's memory region (DR-151)
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   uint64_t uart_base = 0x10000000ull, uart_size = 0x1000;
   uint64_t clint_base = 0x02000000ull, clint_size = 0x10000;
