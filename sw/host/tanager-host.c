@@ -24,6 +24,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "virtio.h"
 
 /* ---- Host register map (docs/spec/host.md) ---- */
 enum {
@@ -42,6 +43,8 @@ enum {
   R_TRS_STATUS = 0x1040, R_TRS_STALLS = 0x1044, R_TRS_INFO = 0x1048,
   R_VQ_CTRL = 0x1100, R_VQ_STATUS = 0x1104, R_VQ_REQ0 = 0x1108, R_VQ_REQ1 = 0x110C,
   R_VQ_RSP = 0x1110, R_VQ_IRQ = 0x1114,
+  R_HDMA_CTRL = 0x1300, R_HDMA_STATUS = 0x1304, R_HDMA_RD_LINES = 0x1308, R_HDMA_WR_LINES = 0x130C,
+  R_HDMA_CPL0 = 0x1310, R_HDMA_CPL1 = 0x1314, R_HDMA_WR_DROPS = 0x1318,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
 };
 #define TRS_EN         0x001u
@@ -56,6 +59,7 @@ enum {
 #define TRS_REC_BYTES  64u
 #define CAPS_VIRTIO    0x4u            /* CAPS[2]: the forwarded virtio window (stage C, soc.md §8.1) */
 #define CAPS_TRACE     0x8u            /* CAPS[3]: the commit-trace stream is built (DR-146) */
+#define CAPS_HDMA      0x100u          /* CAPS[8]: the coherent host DMA port (stage C, soc.md §8.1) */
 #define TG_ID          0x54474E52u     /* "TNGR" */
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
@@ -133,6 +137,9 @@ static double now_s(void) {
 /* ---- Options ---- */
 struct opts {
   uint64_t regs_pa, base, size;
+  uint64_t dma_pa;        /* the host DMA port's window (M_AXI_HPM1_FPD): the RISC-V's RAM from offset 0 */
+  const char *blk;        /* virtio-blk image (slot 1), served through the window and the DMA port */
+  int blk_ro, rng;        /* the image read-only; virtio-rng (slot 3) */
   const char *fw, *kernel, *dtb;
   int console;            /* 0 stdio, 1 pty, -1 none */
   double timeout;
@@ -179,11 +186,19 @@ static void usage(void) {
     "                                         everything else to stderr; if the reader stops, run exits 4\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
+    "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
+    "                                         (slot 3) through the virtio window and the host DMA port (a bitstream\n"
+    "                                         built with TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1, a device tree with VIRTIO=1)\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
     "  dbg                                    the board debug counters (a bitstream built with TG_DEBUG_CNT=1)\n"
     "  vq                                     the virtio window's state (a bitstream built with TG_VIRTIO_WINDOW=1)\n"
+    "  dma status | read OFF [N] | write OFF VAL | check [OFF [BYTES]]\n"
+    "                                         the coherent host DMA port (TG_HOST_DMA=1; --dma PA, default\n"
+    "                                         0x500000000): offsets into the RISC-V's RAM; check writes and\n"
+    "                                         reads back BYTES (64 KiB) at OFF (the RAM's last 64 KiB), which\n"
+    "                                         it overwrites: hold the cores (load, or tg start) first\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -250,6 +265,67 @@ static void cmd_vq(void) {
   print_vq();
 }
 
+/* The coherent host DMA port (CAPS[8]): the A53 reads and writes the RISC-V's RAM through HPM1, coherent
+ * with the L2. The mapping is uncached (O_SYNC: Device-nGnRnE), so each access is one AXI beat and a store's
+ * write response comes from the PL after the L2's AccessAck. Nothing touches HPM1 unless CAPS[8] says the
+ * port is there. */
+static volatile uint64_t *dma_map(const struct opts *o, uint64_t off, uint64_t len) {
+  if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
+  uint64_t ram = rd64(R_DRAM_SIZE);
+  if ((off | len) & 7) die("dma: offsets and lengths are multiples of 8");
+  if (off + len > ram) die("dma: 0x%" PRIx64 " + 0x%" PRIx64 " is beyond the RISC-V's RAM (DRAM_SIZE 0x%" PRIx64 ")",
+                           off, len, ram);
+  return map_phys(o->dma_pa + off, (size_t)len);
+}
+
+static void cmd_dma(const struct opts *o, int argc, char **argv) {
+  if (argc < 1) usage();
+  if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
+  if (!strcmp(argv[0], "status")) {
+    printf("host DMA port: completions %s, %u waiting; %u lines read, %u written; %u write bursts dropped in part\n",
+           rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
+           rd(R_HDMA_WR_LINES), rd(R_HDMA_WR_DROPS));
+  } else if (!strcmp(argv[0], "read") && argc >= 2) {
+    uint64_t off = num(argv[1]), n = argc > 2 ? num(argv[2]) : 1;
+    volatile uint64_t *p = dma_map(o, off, 8 * n);
+    for (uint64_t i = 0; i < n; i++) printf("0x%09" PRIx64 ": 0x%016" PRIx64 "\n", off + 8 * i, p[i]);
+  } else if (!strcmp(argv[0], "write") && argc >= 3) {
+    volatile uint64_t *p = dma_map(o, num(argv[1]), 8);
+    p[0] = num(argv[2]);
+    __asm__ volatile("dsb sy" ::: "memory");
+  } else if (!strcmp(argv[0], "check")) {
+    uint64_t ram = rd64(R_DRAM_SIZE);
+    uint64_t len = argc > 2 ? num(argv[2]) : 0x10000, off = argc > 1 ? num(argv[1]) : ram - len;
+    uint32_t st = rd(R_STATUS);
+    if ((st & ST_UNC_RST) || !(st & ST_L2_INIT)) die("dma check: the uncore must run with the L2 ready (load first)");
+    if (!(st & ST_CORES_RST)) fprintf(stderr, "dma check: the cores are running; 0x%" PRIx64 "+0x%" PRIx64 " gets overwritten\n", off, len);
+    volatile uint64_t *p = dma_map(o, off, len);
+    uint64_t n = len / 8, bad = 0, drops0 = rd(R_HDMA_WR_DROPS);
+    uint32_t rd0 = rd(R_HDMA_RD_LINES), wr0 = rd(R_HDMA_WR_LINES);
+    double t0 = now_s();
+    for (uint64_t i = 0; i < n; i++) p[i] = (off + 8 * i) * 0x9E3779B97F4A7C15ull;
+    __asm__ volatile("dsb sy" ::: "memory");
+    double t1 = now_s();
+    for (uint64_t i = 0; i < n; i++)
+      if (p[i] != (off + 8 * i) * 0x9E3779B97F4A7C15ull && bad++ < 4)
+        fprintf(stderr, "dma check: 0x%" PRIx64 " reads 0x%016" PRIx64 "\n", off + 8 * i, p[i]);
+    double t2 = now_s();
+    /* narrow stores: every other 32-bit half, then the whole words again */
+    volatile uint32_t *q = (volatile uint32_t *)p;
+    for (uint64_t i = 0; i < 2 * n; i += 2) q[i] = (uint32_t)i;
+    __asm__ volatile("dsb sy" ::: "memory");
+    for (uint64_t i = 0; i < n; i++) {
+      uint64_t want = (((off + 8 * i) * 0x9E3779B97F4A7C15ull) & ~0xffffffffull) | (uint32_t)(2 * i);
+      if (p[i] != want && bad++ < 8) fprintf(stderr, "dma check: 0x%" PRIx64 " reads 0x%016" PRIx64 " after a 32-bit store\n", off + 8 * i, p[i]);
+    }
+    uint32_t drops = rd(R_HDMA_WR_DROPS) - (uint32_t)drops0;
+    printf("dma check 0x%" PRIx64 "+0x%" PRIx64 ": %s; writes %.1f MB/s, reads %.1f MB/s; %u lines read, %u written, %u drops\n",
+           off, len, bad || drops ? "FAIL" : "ok", len / (t1 - t0) / 1e6, len / (t2 - t1) / 1e6,
+           rd(R_HDMA_RD_LINES) - rd0, rd(R_HDMA_WR_LINES) - wr0, drops);
+    if (bad || drops) exit(1);
+  } else usage();
+}
+
 static void check_id(void) {
   uint32_t id = rd(R_ID);
   if (id != TG_ID) die("no Tanager host bridge at the register window (ID 0x%08x); is the bitstream loaded?", id);
@@ -314,6 +390,8 @@ static void cmd_load(const struct opts *o) {
   cmd_reset();
   wr64(R_DRAM_BASE, o->base);
   wr64(R_DRAM_SIZE, dram_bytes(o));
+  /* the virtio window: served (EN) only by a run with back-ends; set while the uncore is held */
+  if (rd(R_CAPS) & CAPS_VIRTIO) wr(R_VQ_CTRL, (o->blk || o->rng) ? 1 : 0);
   /* A lockstep checker's memory starts at zero, but the DDR outside the images holds old data, and
    * Linux can copy uninitialised bytes into registers (padding in a memcpy): with --trace, or
    * --zero, the window (not the trace ring above it) is zeroed first. 8-byte stores: the mapping
@@ -474,6 +552,24 @@ static int console_out(int out_fd) {
   return n;
 }
 
+/* The virtio back-ends' hooks (virtio.h): the host bridge's registers, and the RISC-V's RAM through
+ * the host DMA port's uncached mapping, with aligned accesses only */
+static volatile uint8_t *vio_ram;
+static uint64_t h_ram_rd64(uint64_t off)             { return *(volatile uint64_t *)(vio_ram + off); }
+static void     h_ram_wr64(uint64_t off, uint64_t v) { *(volatile uint64_t *)(vio_ram + off) = v; }
+static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vio_ram + off) = v; }
+static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
+static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
+
+/* --blk/--rng need the window (CAPS[2]) and the DMA port (CAPS[8]) */
+static void check_virtio(const struct opts *o) {
+  if (!o->blk && !o->rng) return;
+  uint32_t caps = rd(R_CAPS);
+  if (!(caps & CAPS_VIRTIO) || !(caps & CAPS_HDMA))
+    die("--blk/--rng: this bitstream lacks the virtio window or the host DMA port (CAPS 0x%x; build with "
+        "TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1)", caps);
+}
+
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
@@ -513,6 +609,17 @@ static int cmd_run(const struct opts *o) {
   signal(SIGTERM, on_sig);
 
   if (o->trace) trace_begin(o);
+  int vio = o->blk || o->rng;
+  if (vio) {
+    uint64_t ram = rd64(R_DRAM_SIZE);
+    if (!(rd(R_VQ_CTRL) & 1)) die("--blk/--rng: the window is not enabled; load with the same options first");
+    vio_ram = (volatile uint8_t *)dma_map(o, 0, ram);
+    struct vio_hooks hk = { rd, wr, h_ram_rd64, h_ram_wr64, h_ram_wr32, h_ram_wr8, h_barrier, ram };
+    if (vio_open(&hk, o->blk, o->blk_ro, o->rng)) die("virtio back-ends failed to open");
+    fprintf(stderr, "virtio:%s%s%s\n", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
+  } else if ((rd(R_CAPS) & CAPS_VIRTIO) && (rd(R_VQ_CTRL) & 1)) {
+    fprintf(stderr, "warning: the virtio window is enabled but this run serves nothing; its reads will wait\n");
+  }
   wr(R_CTRL, ctrl);                         /* release the cores */
   double t_end = o->timeout > 0 ? now_s() + o->timeout : 0;
   int rc = 0, ctrl_a = 0;
@@ -556,6 +663,7 @@ static int cmd_run(const struct opts *o) {
       seq0 = rd(R_TOHOST_SEQ);
     }
     if (o->trace && trace_poll(o)) idle = 0;
+    if (vio && vio_poll()) idle = 0;
     if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
@@ -570,6 +678,13 @@ static int cmd_run(const struct opts *o) {
   }
   if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
   if (o->trace) trace_end(o);
+  if (vio) {
+    uint64_t n, rb, wb;
+    vio_stats(&n, &rb, &wb);
+    vio_close();
+    fprintf(stderr, "[%s] virtio: %" PRIu64 " requests, %" PRIu64 " MiB read, %" PRIu64 " MiB written\r\n", prog, n,
+            rb >> 20, wb >> 20);
+  }
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
 }
@@ -600,7 +715,7 @@ static void cmd_tg(const struct opts *o, int argc, char **argv) {
 }
 
 int main(int argc, char **argv) {
-  struct opts o = { .regs_pa = 0xA0000000ull, .base = 0x840000000ull, .size = 0x40000000ull,
+  struct opts o = { .regs_pa = 0xA0000000ull, .base = 0x840000000ull, .size = 0x40000000ull, .dma_pa = 0x500000000ull,
                     .console = 0, .inj_rd = -1, .inj_wr = -1, .inj_mode = -1, .inj_bw = -1,
                     .trace_log2 = 22 };
   int stats = 0;
@@ -611,7 +726,8 @@ int main(int argc, char **argv) {
     { "inj-rd", 1, 0, 1 }, { "inj-wr", 1, 0, 2 }, { "inj-mode", 1, 0, 3 }, { "inj-bw", 1, 0, 4 },
     { "stats", 0, 0, 5 }, { "trace", 1, 0, 6 }, { "trace-log2", 1, 0, 7 }, { "trace-wrap", 0, 0, 8 },
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
-    { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
+    { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
+    { "rng", 0, 0, 17 }, { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
   /* Options anywhere (getopt_long's argument permutation): `run --timeout 5` as well as
@@ -641,6 +757,10 @@ int main(int argc, char **argv) {
       case 11: o.trace_post = (uint32_t)num(optarg); break;
       case 12: force = 1; break;
       case 13: o.zero = 1; break;
+      case 14: o.dma_pa = num(optarg); break;
+      case 15: o.blk = optarg; break;
+      case 16: o.blk_ro = 1; break;
+      case 17: o.rng = 1; break;
       case 'v': verbose = 1; break;
       default: usage();
     }
@@ -652,9 +772,9 @@ int main(int argc, char **argv) {
 
   if (!strcmp(cmd, "info"))       { check_id(); cmd_info(); return 0; }
   if (!strcmp(cmd, "reset"))      { check_id(); cmd_reset(); return 0; }
-  if (!strcmp(cmd, "load"))       { check_id(); check_trace(&o); cmd_load(&o); return 0; }
-  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); return cmd_run(&o); }
-  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); cmd_load(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "load"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return 0; }
+  if (!strcmp(cmd, "run"))        { check_id(); check_trace(&o); check_virtio(&o); return cmd_run(&o); }
+  if (!strcmp(cmd, "boot"))       { check_id(); check_trace(&o); check_virtio(&o); cmd_load(&o); return cmd_run(&o); }
   if (!strcmp(cmd, "inj"))        {
     check_id();
     set_inj(&o);
@@ -677,6 +797,7 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(cmd, "dbg"))        { check_id(); cmd_dbg(); return 0; }
   if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
+  if (!strcmp(cmd, "dma"))        { check_id(); cmd_dma(&o, argc - optind, argv + optind); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

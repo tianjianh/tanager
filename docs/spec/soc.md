@@ -203,7 +203,7 @@ A read on `M_AXI_HPM0_FPD` that no PL slave answers never completes, and the A53
 
 ## 8. Board stages C and D (DR-126, DR-147)
 
-Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window and the host DMA port are RTL with their tests (`VIRTIO_WINDOW`, `HOST_DMA`, off by default); the `tanager-host` back-ends are next. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
+Status: stage C in progress, 2026-10-16 (DR-147: the board becomes a standard RISC-V SBC, OpenSBI then U-Boot then Debian 13's own kernel and modules; stages C then D start now, M7 later). The forwarded window and the host DMA port are RTL with their tests (`VIRTIO_WINDOW`, `HOST_DMA`, off by default), and `tanager-host` has the virtio-blk and virtio-rng back-ends (`--blk`, `--rng`, tested against a fake window). Next: a board bitstream with both, then Debian's image. Plan §7.3 and §11 (M5) set the frame: virtio back-ends in `tanager-host` on a coherent L2 DMA port, then the RISC-V driving the PS's peripherals with the ARM parked. Phase 0 is a two-core platform bitstream: v1's `smt2` cores with one thread each until M7, so the device tree lists harts 0 and 2 (`sw/dts` `RUN_THREADS=1`).
 
 ### 8.1 Stage C: the board's peripherals through the ARM (virtio)
 

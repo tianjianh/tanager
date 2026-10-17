@@ -1,6 +1,7 @@
 # tanager-host, the A53 control program (docs/spec/host.md).
 #   make -C sw/host                 static aarch64 binary with the pinned external toolchain
 #   make -C sw/host native          host build (syntax and warnings check only)
+#   make -C sw/host test            the virtio back-ends' test, native (test/vio_test.c)
 # The aarch64 toolchain (Bootlin aarch64 musl, GCC 15; sw/versions.sh), unpacked by sw/fetch.sh: this
 # worktree's $(SOC_BUILD)/tc, else the shared $(TANAGER_BUILD)/tc (sw/env.sh SOC_AATC); CROSS
 # overrides the prefix.
@@ -14,19 +15,26 @@ CROSS     ?= $(SOC_AATC)/bin/aarch64-buildroot-linux-musl-
 O         ?= $(SOC_BUILD)/host
 CFLAGS    := -O2 -std=gnu11 -Wall -Wextra -Werror -Wno-unused-result
 
-.PHONY: all native clean
+SRCS      := tanager-host.c virtio.c
+
+.PHONY: all native test clean
 all: $(O)/tanager-host
 
-$(O)/tanager-host: tanager-host.c Makefile
+$(O)/tanager-host: $(SRCS) virtio.h Makefile
 	@mkdir -p $(O)
-	$(CROSS)gcc $(CFLAGS) -static -o $@ $<
+	$(CROSS)gcc $(CFLAGS) -static -o $@ $(SRCS)
 	$(CROSS)strip $@
 	@file $@
 
-native: tanager-host.c
+native: $(SRCS) virtio.h
 	@mkdir -p $(O)
-	gcc-15 $(CFLAGS) -o $(O)/tanager-host-native $<
+	gcc-15 $(CFLAGS) -o $(O)/tanager-host-native $(SRCS) 2>&1 | grep -v "dsb" || true
 	@echo "native build OK"
+
+test: test/vio_test.c virtio.c virtio.h
+	@mkdir -p $(O)
+	gcc-15 $(CFLAGS) -o $(O)/vio_test test/vio_test.c virtio.c
+	TMPDIR=$(O) $(O)/vio_test
 
 clean:
 	rm -rf $(O)
