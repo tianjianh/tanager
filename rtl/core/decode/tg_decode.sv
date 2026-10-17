@@ -11,7 +11,7 @@
 // add does not wait for the RVC expander (timing); the link value and the target come in (`link`,
 // `tgt`): the decode stage adds them once, for its own next PC and redirect too (area).
 // `raw` is the whole word, not just the immediate's bits: with a slice of the queue's word there,
-// Verilator's dataflow pass merges it with the uop's copy of that word in tg_decode_stage and
+// the lint's dataflow pass merges it with the uop's copy of that word in tg_decode_stage and
 // reports a false combinational loop through `d` (UNOPTFLAT in make lint SYNTH=1).
 module tg_decode
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
