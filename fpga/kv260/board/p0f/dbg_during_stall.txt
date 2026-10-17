@@ -1,0 +1,29 @@
+$ tanager-host dbg|$ tanager-host dbg
+  L2 bank 0 A in                  2420758|  L2 bank 0 A in                  2421634
+  L2 bank 0 B out (probes)         538615|  L2 bank 0 B out (probes)         539441
+  L2 bank 0 C in                  3018832|  L2 bank 0 C in                  3020917
+  L2 bank 0 D out                10206859|  L2 bank 0 D out                10210371
+  L2 bank 0 E in (GrantAck)       1056489|  L2 bank 0 E in (GrantAck)       1057323
+  L2 bank 0 misses                 250514|  L2 bank 0 misses                 250515
+  L2 bank 0 AXI reads              250514|  L2 bank 0 AXI reads              250515
+  L2 bank 0 fills                  249098|  L2 bank 0 fills                  249099
+  L2 bank 1 A in                  2686481|  L2 bank 1 A in                  2687825
+  L2 bank 1 B out (probes)         612136|  L2 bank 1 B out (probes)         613111
+  L2 bank 1 C in                  3050049|  L2 bank 1 C in                  3052491
+  L2 bank 1 D out                11183014|  L2 bank 1 D out                11188393
+  L2 bank 1 E in (GrantAck)       1046610|  L2 bank 1 E in (GrantAck)       1047588
+  L2 bank 1 misses                 248166|  L2 bank 1 misses                 248166
+  L2 bank 1 AXI reads              248166|  L2 bank 1 AXI reads              248166
+  L2 bank 1 fills                  248100|  L2 bank 1 fills                  248100
+  core 0 l1d A out               1405298|  core 0 l1d A out               1406207
+  core 0 l1d B in (probes)        575952|  core 0 l1d B in (probes)        576855
+  core 0 l1d C out               5053418|  core 0 l1d C out               5056827
+  core 0 l1d D in                6455341|  core 0 l1d D in                6459014
+  core 0 l1d E out (GrantAck)    1405298|  core 0 l1d E out (GrantAck)    1406214
+  core 1 l1d A out                697801|  core 1 l1d A out                698707
+  core 1 l1d B in (probes)        574799|  core 1 l1d B in (probes)        575706
+  core 1 l1d C out               1015463|  core 1 l1d C out               1016600
+  core 1 l1d D in                2917972|  core 1 l1d D in                2921598
+  core 1 l1d E out (GrantAck)     697801|  core 1 l1d E out (GrantAck)     698707
+  L2 error events                5928|  L2 error events                5928
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR|  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR

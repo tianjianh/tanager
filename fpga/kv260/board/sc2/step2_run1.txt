@@ -1,0 +1,53 @@
+loaded tanager-sc2 at 09:56:50; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+host md5: 39d5e266b010796028907f801b07c39d  vblk-test.img
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2/vblk-test.img --rng --timeout 900 < console
+login prompt 6 s after the load
+commands done 16 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 2271744 reads, native latency avg 21.6 max 58 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                  8233417
+  L2 bank 0 B out (probes)          51995
+  L2 bank 0 C in                  4974188
+  L2 bank 0 D out                18958501
+  L2 bank 0 E in (GrantAck)       1804324
+  L2 bank 0 misses                1139693
+  L2 bank 0 AXI reads             1139693
+  L2 bank 0 fills                 1139693
+  L2 bank 1 A in                  8205415
+  L2 bank 1 B out (probes)          58095
+  L2 bank 1 C in                  4854662
+  L2 bank 1 D out                18790536
+  L2 bank 1 E in (GrantAck)       1749824
+  L2 bank 1 misses                1132060
+  L2 bank 1 AXI reads             1132060
+  L2 bank 1 fills                 1132060
+  core 0 l1d A out               2725046
+  core 0 l1d B in (probes)         53162
+  core 0 l1d C out               7612643
+  core 0 l1d D in               13585965
+  core 0 l1d E out (GrantAck)    2725639
+  core 1 l1d A out                829116
+  core 1 l1d B in (probes)         57045
+  core 1 l1d C out               2216464
+  core 1 l1d D in                4104267
+  core 1 l1d E out (GrantAck)     829122
+  L2 error events                   0
+  levels 0x00044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ]
+  (no core debug words in this bitstream)
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+$ tanager-host dma status
+host DMA port: completions not recorded, 0 waiting; 699 lines read, 2098563 written; 0 write bursts dropped in part
+power-off reached the host 22 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2/linux_shell.txt (210 lines)
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 09:57:15
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+orphan sleeps after the run: 0

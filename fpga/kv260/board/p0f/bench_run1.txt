@@ -1,0 +1,19 @@
+loaded tanager-p0f at 08:30:20; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      70.0 MHz
+== p0f boot 1: tanager-host boot --fw fw_jump.bin --kernel Image --dtb p0f-bench.dtb --lossless --timeout 3600
+TANAGER-BOOT-OK at 8 s
+TGLB-BEGIN at 8 s
+boot exit 0 after 436 s (TANAGER-BOOT-OK 8 s, TGLB-BEGIN 8 s)
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=4 perf_errno=0
+CHECK: info line lacks counters=cycle,instret,time / perf_events=2 (old image?)
+measurement lines: 54 (expect 54); CoreMark validated: 6 (expect 6)
+TGLB-END status=0
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 08:37:40
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0

@@ -1,0 +1,15 @@
+loaded tanager-p0f at 08:38:02; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb p0f-768m.dtb --lossless --trace-log2 16 --trace tg.trace --timeout 7200
+boot exit 130 after 4526 s (TANAGER-BOOT-OK never s, prompt never s)
+checker exit 0
+tanager-lockstep: PASS after 425955311 records (425944252 retired, 83 traps, 10976 interrupts, 0 writebacks) in 4519.4 s, 94251 records/s
+tanager-lockstep: 16406 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them
+tanager-lockstep: PASS after 425955311 records (425944252 retired, 83 traps, 10976 interrupts, 0 writebacks) in 4519.4 s, 94251 records/s
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 09:53:33
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+orphan sleeps after the run: 0
