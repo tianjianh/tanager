@@ -401,6 +401,21 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       uint64_t pred_tgt = here ? l.target : 0;
       if (d.cls == Cls::JAL && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
       else if (d.cls == Cls::BR && here && l.target != tgt) { pred_tgt = tgt; fixed = true; }
+      // M6 steps on the M2 front end (DSE of area_recovery.md §6.3), each off by default:
+      // m2_dir: the direction predictor (dirpred) decides a branch; a taken guess without the micro-BTB's target
+      // is redirected at decode to PC + imm, a not-taken guess against a micro-BTB hit falls through.
+      if (c_.m2_dir && d.cls == Cls::BR) {
+        const bool dp = dir_->predict(di->pc ^ T.salt, T.ghr);  // trained at commit (train_predictors)
+        if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+        else if (!dp) { pred_taken = false; fixed = false; }
+      }
+      // ras: calls push at fetch; a return the micro-BTB did not predict is redirected at decode to the RAS's top.
+      if (c_.ras && d.is_call()) T.ras.push(di->pc + d.len);
+      if (c_.ras && d.is_ret()) {
+        const uint64_t top = T.ras.top();
+        T.ras.pop();
+        if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+      }
       if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;
