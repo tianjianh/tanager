@@ -307,6 +307,7 @@ On the first mismatch the checker stops the run and prints:
 ### 3.7 Several harts
 
 - **Stepping:** one Spike per hart, stepped only by that hart's records, all on one Spike memory. Records of different harts in one cycle are applied in slot order.
+- **Order (`tanager-lockstep`, 2026-10-16):** the uncore's trace interleaves the harts' FIFOs one record each, so a hart that retires more per cycle than another falls behind it in the stream: by up to 200 cycles in `tb_boot`'s two-core runs, and 10,084 of the first 23,258 records of OpenSBI's two-hart boot arrive after a later cycle of the other hart. Applied in arrival order, two harts' AMOs on one word then reach Spike in the wrong order (`tests/coherence` found it). The checker therefore applies the records in cycle order: each hart's wait in a queue, and the earliest head goes once every hart has a record waiting or has sent none in the last `--reorder` records (1,024; it is idle, parked, or a thread that never runs). External writes (§3.10) take their place by their AccessAck cycle. A record that still arrives after a later cycle has been checked is counted and reported. `--reorder=0` restores arrival order.
 - **Limit (M7, M8):** a store of one hart becomes visible to the others in Spike when it retires, while in the RTL it may become visible later (store queue) and loads may be satisfied earlier. Lockstep will then report legal load-value differences on data shared between harts. The plan for M7: a per-address history of recent store values, with a load accepted (and adopted) if its value was current at some point between the load's issue and retirement, and memory-model correctness left to litmus tests and axe (plan §9). That needs the load's address in the trace; it will be requested from the coordinator then (interfaces.md §7).
 
 ### 3.8 Validating the checker
@@ -495,7 +496,8 @@ The steps:
 5. runs 100 constrained-random programs with memory stress (§6.2; `RANDN=N`, 0 skips them);
 6. runs the riscv-tests and directed tests again with `--trace-stall=50` (§2.9); with `ARCH=1`, the core's ACT4 configuration (§6.1: `tcore-rv64im` or `core-m2-rv64im`, or `ACTCFG=`); off by default until the coordinator makes it part of the core's merge gate (§9);
 7. runs the checker self-test (§3.8; `SELFTEST=0` skips it) and 50 random F/D programs Spike against Spike (§6.2; `RANDFD=N`, 0 skips them);
-8. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
+8. for `CORE=core`, runs 20 coherence programs on the two-core SoC (§6.5: AMOs and lotteries on one line from the same cycle, lockstep for every hart; `COHN=N`, 0 skips them). It builds `tb_boot` with `CORES=2` for the configuration, a few minutes the first time;
+9. prints one summary and exits non-zero if anything failed; logs of failing steps stay in `$TANAGER_BUILD/<worktree>/regress/<cfg>-<core>/`.
 
 The core track runs it for `st` and `st_w3` before each merge request (conventions §6), widening `SUITES` and `MARCH` as features land. It takes about as long as the slowest test, since tests run 8 at a time.
 
@@ -831,14 +833,21 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
   - Releases during a miss and same-set misses were 0: today's L1D serializes them.
   - With 4 MSHRs, the same tests must show 2–4 in flight, same-set misses, and Releases beside Acquires (the release buffer).
 
-**Two cores (next):** a coherence soak with heavy miss traffic on the SoC, two cores through the L2.
-- **Harness:** `tb_boot` with `CORES=2`, a bare-metal program as `+fw`, and its commit trace (`+trace_out`) checked by `tanager-lockstep --harts=2`.
-- **Programs, checked by lockstep and by themselves:**
-  - false sharing: each hart writes and reads its own bytes of shared lines, so there are no data races and plenty of coherence traffic;
-  - read sharing: one hart writes a buffer the other reads;
-  - LR/SC and AMO counters, whose final sum each program checks;
-  - critical sections under a lock taken and released with AMOs.
-- **The checker's part:** §3.7's limit (another hart's store visible later than Spike makes it) is lifted with §3.10's windows.
+**Two cores: atomics on one line from the same cycle (`tests/coherence`, 2026-10-16).** The board's two-hart boot hung at OpenSBI's boot lottery: both harts, released together and in step, issue `amoswap.w` to one zeroed line, and neither completes. These programs make that a scenario of its own.
+- **Harness:** `tb_boot` with `CORES=2`, a bare-metal program as `+fw`, and its commit trace (`+trace_out`) checked by `tanager-lockstep` for every hart (§3.7). `make -C tests/coherence [CFG=st|smt2] [MODES=...] [LAT=...]`.
+- **Harts:** `st` runs harts 0 and 1. `smt2` runs harts 0 and 2, thread 0 of each core, which is the board's shape: `smt2` cores run one thread until M7 (core-pipeline.md), so threads 1 never fetch and the board's lottery has exactly two harts.
+- **Programs (`gen_coh.py`):** every hart leaves the boot ROM in the same cycle. The first thing each does, with no memory access before it, is the lottery: `amoswap.w` of 1 on a zeroed word. Then, by mode:
+  - `amo`: rounds of AMOs (add, or, maxu, swap; word and doubleword) on words of that one line;
+  - `lottery`: 15–63 more lotteries, each on a line no hart has touched (a miss in the L1D and the L2), each starting at a fixed `mcycle`, with the harts in step or one of them 1–48 cycles later; swap, add and or;
+  - `lrsc`, `mix`, `lottery-lrsc`: the same with constrained LR/SC loops (increments, or a test-and-set lottery).
+  - A barrier on a line of its own, then a check of every final value: one winner per lottery, each word's final value, every counter's sum. The program prints `COH-PASS` or `COH-FAIL` and the slot, then `COH-END`; the cycle limit catches a hang. The barrier is off the contended line because a hart spinning there with AMOs may starve another's LR/SC loop, which the ISA allows.
+- **DDR timing (`LAT`):** `fixed` is one latency per seed, 18–26 cycles, every ready and beat at once and in order, as on the board; `jitter` is 18–26 at random; `board` alternates them. They use `tb_axi_mem`'s run-time options (the SoC track's 8882e79); `default` keeps the build's 4–12.
+- **Results on main's RTL** (f454a7a with 8882e79's testbench):
+  - AMOs and lotteries: 300 programs, all pass, 120 of them with lockstep: `st` and `smt2`, fixed and jittered, and `smt2` in the fallback profile too. In every lottery the loser's AMO retires 37 cycles after the winner's: one line transfer.
+  - OpenSBI's own lottery (fw_jump, the board's two-hart device tree, `smt2`, fixed 18–26): both harts get through it at every latency, hart 0 winning at cycle 541–567, in the default profile and the fallback. **The board's hang is not reproduced in simulation.** Something the testbench does not model is involved: the bitstream's build, the PS's DDR port, or the host's sequence before the release.
+  - LR/SC: two harts in constrained LR/SC loops on one line can stay there for good. In `mix` programs (AMOs and LR/SC loops on one line), 3 of 10 hang on `st` and 6 of 10 on `smt2`, with the same seeds at fixed and jittered timing. The `lrsc` and `lottery-lrsc` programs pass (40 of 40). In every hang both harts sit in their loops: each LR takes the line from the other, whose SC then fails. The ISA promises eventual success here. That needs the L1D to hold a line for a while after an LR (the core track's "LR/SC hold"). Until then, `MODES` leaves LR/SC out by default.
+- **Next:** miss traffic beside the atomics (false sharing, read sharing, locks), then the soak. Plain loads of data another hart writes wait for the store windows below.
+- **The checker's part, for plain loads and stores:** §3.7's limit (another hart's store visible later than Spike makes it) is lifted with §3.10's windows.
   - A hart's committed plain store becomes, for the other harts, a write whose old bytes they may still read within their windows.
   - An AMO may read a plain store's old side, and the store then follows it in Spike's memory. An AMO may not read another AMO's old side, so a lost atomic update is still caught.
   - Plain stores of two harts to the same bytes (a write race) stay outside the programs.
