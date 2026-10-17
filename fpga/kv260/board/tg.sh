@@ -15,6 +15,7 @@
 #   tg.sh ls-linux    core, FPGA lockstep steps 4-5: Linux live through the checker (INJ_RD, LINUX_S)
 #   tg.sh ls-plant    core: the lockstep failure path, a planted fault (PLANT) on the live SoC test
 #   tg.sh bench       core: the DR-141 Linux workload set, BOOTS boots of BENCH_DIR's image, logs NAME_bootK.txt
+#   tg.sh tracefile   core: boot with the commit trace into a file, show each hart's last records
 #   tg.sh restore     unload TG_APP and reload k26-starter-kits
 #   tg.sh status      the apps, the FPGA manager state, the PL clock and the fan
 #   tg.sh th ARGS     one tanager-host call, refused unless TG_APP is loaded
@@ -185,15 +186,24 @@ case "${1:-}" in
     pid=$!
     exec 3> "$fifo"
     waitfor() { local i; for i in $(seq 1 "$2"); do grep -q "$1" "$log" && return 0; kill -0 "$pid" 2>/dev/null || return 1; sleep 1; done; return 1; }
-    if waitfor "tanager login:" 800; then
+    if waitfor "tanager login:" "${LOGIN_S:-800}"; then
       echo "login prompt $(( $(date +%s) - t0 )) s after the load"
       sleep 1; printf 'root\r' >&3; sleep 4
-      printf '%s\r' "$cmds" >&3; sleep 6
+      # the marker is computed, so the console's echo of the typed line cannot match it early
+      printf '%s; echo TG-$((40+2))-DONE\r' "$cmds" >&3
+      if waitfor "TG-42-DONE" "${CMDS_S:-120}"; then echo "commands done $(( $(date +%s) - t0 )) s after the load"
+      else echo "commands not done within ${CMDS_S:-120} s"; fi
       echo "injector while Linux runs (a second tanager-host, register reads only):"; th inj --stats
+      [ -n "${DBG:-}" ] && { echo "debug counters after the boot:"; th dbg; }
       printf 'poweroff\r' >&3
       waitfor "requested power-off" 120 && echo "power-off reached the host $(( $(date +%s) - t0 )) s after the load"
     else
       echo "no login prompt"
+      # DBG=1: read the SoC's debug counters (tanager-host dbg) while the system is still stuck
+      if [ -n "${DBG:-}" ] && kill -0 "$pid" 2>/dev/null; then
+        echo "debug counters during the hang:"; th dbg; sleep 5; echo "and 5 s later:"; th dbg
+        th inj --stats
+      fi
     fi
     kill -0 "$pid" 2>/dev/null && { sleep 2; sudo kill -INT "$pid"; }
     wait "$pid"; rc=$?
@@ -242,7 +252,8 @@ case "${1:-}" in
       sudo "$HOME/tanager/tg_zero" 0x840000000 "$ZERO_MB" || exit 1
     fi
     dtb=${LS_DTB:-tanager-kv260-768m.dtb}   # the RUNBOOK's padded tree: LS_DTB=tanager-kv260-768m-pad.dtb
-    ./tanager-lockstep --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
+    # LS_ARGS: extra checker options, e.g. --harts=4 for two cores (harts 0 and 2: Spike harts 0..3)
+    ./tanager-lockstep ${LS_ARGS:-} --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
     lpid=$!
     active "$APP" || exit 1
     echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
@@ -328,6 +339,40 @@ case "${1:-}" in
     done
     fan
     ;;
+  tracefile)
+    # Diagnostic: boot with the commit trace into a file (TRACE_S seconds), then show each hart's last
+    # records. TF_FW/TF_KERNEL/TF_DTB name the images in TG_DIR (default fw_jump.bin, Image and
+    # tanager-kv260-768m.dtb: the trace ring takes the top 256 MiB of the carve-out).
+    deadman_cancel
+    active "$APP" || { echo "$APP is not loaded"; exit 1; }
+    trap '"$ME" restore' EXIT
+    tf=$D/boot.trace; con=$D/trace_console.txt; rm -f "$tf"
+    fw=${TF_FW:-fw_jump.bin}; kern=${TF_KERNEL:-Image}; dtb=${TF_DTB:-tanager-kv260-768m.dtb}
+    # TRACE_WRAP=N keeps only the last 2^N records (--trace-wrap, written at exit): a bounded file even
+    # if the system boots; without it every record streams to the file (fine for a hang, huge for a boot).
+    wrap=""; [ -n "${TRACE_WRAP:-}" ] && wrap="--trace-wrap --trace-log2 $TRACE_WRAP"
+    th boot --fw "$D/$fw" --kernel "$D/$kern" --dtb "$D/$dtb" --lossless --trace "$tf" $wrap --timeout "${TRACE_S:-60}" < /dev/null > "$con" 2>&1
+    echo "boot exit $?; console $(wc -c < "$con") bytes; trace $(stat -c %s "$tf" 2>/dev/null) bytes"
+    tr -d '\r' < "$con" | tail -5
+    python3 - "$tf" <<'PYTF'
+import struct, sys
+f = open(sys.argv[1], "rb"); data = f.read(); n = len(data) // 64
+print(f"{n} records")
+last = {}; count = {}
+for i in range(n):
+    hdr, insn = struct.unpack_from("<II", data, i * 64)
+    pc, val = struct.unpack_from("<QQ", data, i * 64 + 8)
+    hart = (hdr >> 2) & 3; kind = hdr & 3
+    count[hart] = count.get(hart, 0) + 1
+    last.setdefault(hart, []).append((i, kind, (hdr >> 4) & 3, pc, insn, val))
+    if len(last[hart]) > 12: last[hart].pop(0)
+for h in sorted(last):
+    print(f"hart lane {h}: {count[h]} records; last ones (record, kind 0 retire/1 trap/2 irq/3 wb, priv, pc, insn, value):")
+    for (i, k, p, pc, insn, val) in last[h]:
+        print(f"  {i:8d} k{k} p{p} pc={pc:#018x} insn={insn:#010x} val={val:#018x}")
+PYTF
+    fan
+    ;;
   restore)
     if [ "${2:-}" = deadman ]; then echo "dead-man restore at $(date +%T)" >> "$D/deadman.log"; else deadman_cancel; fi
     sudo xmutil unloadapp
@@ -343,6 +388,6 @@ case "${1:-}" in
     sudo xmutil listapps; echo "fpga0: $(cat /sys/class/fpga_manager/fpga0/state)"; plclk; fan
     ;;
   *)
-    sed -n '2,22p' "$ME"; exit 2
+    sed -n '2,23p' "$ME"; exit 2
     ;;
 esac

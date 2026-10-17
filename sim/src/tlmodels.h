@@ -32,6 +32,10 @@ struct model_cfg_t {
   // the agent holds it (an AcquireBlock upgrade; the Grant waits for the ProbeAck), else to a held line
   // of its set (the likely victim of the refill)
   unsigned probe_miss = 0;
+  // percent of GrantAcks after which the manager probes the line just granted, the first moment TL-C
+  // allows (toN or toB): an agent must still make progress, so it holds the probe until its store or
+  // atomic has used the line (the two-core boot lottery's livelock, 2026-10-16)
+  unsigned probe_grant = 0;
   unsigned set_stride = 4096; // the L1D's sets x 64-byte lines, for same-set probes and the counters
   unsigned d_stall_max = 10000;
   // Memory map (tg_map_pkg)
@@ -222,6 +226,7 @@ class l1d_model_t {
   // Acquires to a set, while an Acquire (to that set) was in flight.
   uint64_t acq_by_inflight[4] = {};
   uint64_t probes_on_acquire = 0, probes_same_set = 0, releases_during_acquire = 0, acquires_same_set = 0;
+  uint64_t probes_on_grant = 0;
   unsigned max_inflight = 0;
 
  private:

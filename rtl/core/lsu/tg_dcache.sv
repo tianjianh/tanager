@@ -60,6 +60,7 @@ module tg_dcache
   input  logic              am_req,       // held until am_ack or am_den
   input  logic              am_sel,       // the atomic holds the store port (its state: am_req
                                           // without the flush and its PMP flag)
+  input  logic              pr_hold,      // probes wait: an LR's reservation is young (a register)
   input  logic [PA_W-1:0]   am_pa,
   input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
   input  logic [63:0]       am_wdata,     // as st_wdata
@@ -153,12 +154,7 @@ module tg_dcache
   // atomic's write. An allocation and a store take their set's state from their own ports (sa,
   // ss), which read it in the same cycle (timing, DR-145: the late arbitration selects the write
   // and no longer addresses a read before it; the data is the same, checked in simulation)
-  logic [SET_W-1:0] ew_a;
-  always_comb begin
-    if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
-    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
-    else                          ew_a = am_row_q[ROW_W-1:2];
-  end
+  logic [SET_W-1:0] ew_a;                   // (formed below the registers it reads)
   assign st_ra[3] = ew_a;
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(4)) u_valid (
     .clk, .we(st_we), .waddr(st_wa), .wdata(st_wd.v), .raddr(st_ra), .rdata(sv_rd));
@@ -258,6 +254,29 @@ module tg_dcache
   logic             am_hi_q;
   assign am_ack = amw_q;
 
+  // Port 3's address (above): the set of a probe update, an install or an atomic's write
+  always_comb begin
+    if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
+    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
+    else                          ew_a = am_row_q[ROW_W-1:2];
+  end
+
+  // ---- Forward progress under probes ----
+  // A line installed for a store or an atomic keeps its first access: probes and other allocations
+  // wait from the install until the store writes or the atomic reads it (am_busy then holds probes
+  // until the atomic's write), at most FU_ST cycles. A load's line holds probes for FU_LD cycles,
+  // its replay's time to M1. An LR's young reservation holds them too (pr_hold, the LSU's, up to
+  // its SC). The holds come from registers, so b_ready_o stays a register function, and each wait
+  // is bounded and independent of A-channel progress (TL-C rule 4). Without them, two cores whose
+  // atomics or stores meet on one line could take it from each other forever: the probe for the
+  // other's Acquire came in the install cycle, before the first access (the board's two-core
+  // boot lottery, OpenSBI's amoswap)
+  localparam int FU_ST = 8, FU_LD = 4;
+  logic [3:0] fu_st_q, fu_ld_q;
+  logic       fu_st, fu_hold;
+  assign fu_st   = fu_st_q != '0;
+  assign fu_hold = ms_q == M_INSTALL || fu_st || fu_ld_q != '0 || pr_hold;
+
   // ---- Allocation (from M_IDLE) ----
   // A store's or an atomic's miss first, else a load's whose line is still absent (it may have
   // been filled since M1); never beside an atomic, which reads port B when it hits (pb_amr) and
@@ -267,11 +286,13 @@ module tg_dcache
   // checked in simulation against the earlier form)
   logic al_base;                         // the MSHR is free to allocate
   logic alloc_st, alloc_ld;
-  assign al_base  = ms_q == M_IDLE && ps_q == P_IDLE && !b_valid_i && !am_busy && ready;
+  assign al_base  = ms_q == M_IDLE && ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
   assign alloc_st = al_base && sx_req && !s_hit_t;
   assign alloc_ld = al_base && lm_req && !(|ch) && !am_req && !(st_req && !s_hit_t);
   logic [PA_W-1:0]  al_pa;
   assign al_pa = alloc_st ? sx_pa : lm_pa;
+  logic dn_v_q;                          // the last denied fill (registered below)
+  logic [PA_W-1:6] dn_line_q;
   logic dn_hit;                          // the store port's line: its last fill was denied
   logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
   logic al_go;                           // the MSHR allocates this cycle
@@ -339,7 +360,8 @@ module tg_dcache
   if (DC_AMO_READ_REG) begin : g_amo_reg
     logic        amh_q;
     logic [63:0] am_rd_q;
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !bw_busy && !amh_q &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+                      !amh_q &&
                       !amw_q;
     assign am_busy  = amh_q || amw_q;
     assign amw_d    = amh_q;
@@ -356,7 +378,8 @@ module tg_dcache
     end
 `endif
   end else begin : g_amo_now
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && !b_valid_i && ms_q == M_IDLE && !bw_busy && !amw_q;
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+                      !amw_q;
     assign am_busy  = amw_q;
     assign amw_d    = pb_amr;
     assign am_rdata = am_hi_q ? brow[127:64] : brow[63:0];
@@ -366,8 +389,8 @@ module tg_dcache
     end
 `endif
   end
-  assign st_ack     = pb_st || st_drop;
   logic st_drop;
+  assign st_ack     = pb_st || st_drop;
   assign st_dropped = st_drop;
 
   // One way at most is enabled, and the byte write enables are zero for reads, so they are
@@ -458,12 +481,12 @@ module tg_dcache
     e_o.sink    = m_sink_q;
     e_valid_o   = ms_q == M_GACK;
 
-    // A probe is taken when the probe unit is idle and neither an eviction nor an atomic has the
-    // line state. An MSHR allocation never competes: it yields to a probe on offer (alloc_*), so
-    // the ready comes from state registers alone (timing: the store drain's and the load miss's
-    // tag lookups left the crossbar's B slice; the handshakes are the same, as ready only counts
-    // with b_valid_i)
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && ready;
+    // A probe is taken when the probe unit is idle, neither an eviction nor an atomic has the line
+    // state, and no forward-progress hold is on (above). An MSHR allocation never competes: it
+    // yields to a probe on offer (alloc_*), and an atomic's read to one that is taken, so the ready
+    // comes from state registers alone (timing: the store drain's and the load miss's tag lookups
+    // left the crossbar's B slice; the handshakes are the same, as ready only counts with b_valid_i)
+    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && !fu_hold && ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -488,8 +511,6 @@ module tg_dcache
     d_ready_o = 1'b1;
     if (ms_q == M_GRANT && (ps_q == P_RD || ps_q == P_SEND)) d_ready_o = 1'b0;
   end
-  logic dn_v_q;
-  logic [PA_W-1:6] dn_line_q;
   assign deny_v    = dn_v_q;
   assign deny_line = dn_line_q;
 
@@ -570,7 +591,17 @@ module tg_dcache
       dn_v_q <= 1'b0;
       amw_q  <= 1'b0;
       lose_v_q <= 1'b0;
+      fu_st_q  <= '0;
+      fu_ld_q  <= '0;
     end else begin
+      // The holds after an install (forward progress, above)
+      if (inst_go && !m_den_q) begin
+        fu_st_q <= m_st_q ? 4'(FU_ST) : '0;
+        fu_ld_q <= m_st_q ? '0 : 4'(FU_LD);
+      end else begin
+        if (fu_st) fu_st_q <= (pb_st || pb_amr) ? '0 : fu_st_q - 1'b1;
+        if (fu_ld_q != '0) fu_ld_q <= fu_ld_q - 1'b1;
+      end
       if (!ready) init_q <= init_q + 1'b1;
       if (brd_en) brd_way_q <= brd_way;
       // Atomic: read now, write next cycle (or the cycle after: DC_AMO_READ_REG)
@@ -706,7 +737,7 @@ module tg_dcache
   assign tag_wd  = m_line_q[PA_W-1:12];
 
   logic unused;
-  assign unused = ^{m_st_q, b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
+  assign unused = ^{b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
                     ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
                     sx_pa[5:0], am_pa[2:0]};
 
@@ -744,7 +775,7 @@ module tg_dcache
     r_s_hit_t  = s_hit && ss.t[sh_way];
     r_alloc_st = 1'b0;
     r_alloc_ld = 1'b0;
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && ready) begin
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
       if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
       else if (lm_req && !(|ch)) r_alloc_ld = 1'b1;
     end

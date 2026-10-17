@@ -433,6 +433,7 @@ module tg_lsu
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
   logic              am_req, am_sel, am_ack, am_den, lose_v;
+  logic              pr_hold;                     // the D$'s probes wait: a young LR reservation
   logic [PA_W-1:0]   am_pa;
   logic [15:0]       am_wmask;
   logic [63:0]       am_wdata;
@@ -443,7 +444,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
-    .am_req, .am_sel, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
+    .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
     .c_o(l1d_c_o), .c_valid_o(l1d_c_valid_o), .c_ready_i(l1d_c_ready_i),
@@ -831,6 +832,18 @@ module tg_lsu
     if (lose_v && lose_line == rsv_line_d) rsv_v_d = 1'b0;
     if (rsv_clr) rsv_v_d = 1'b0;
   end
+  // A young reservation holds the D$'s probes, up to RSV_HOLD cycles after its LR or until it ends
+  // (its SC, the line lost, a trap or xRET), so an LR/SC pair completes under another core's probes:
+  // a read probe that takes T away also ends it (forward progress, core-pipeline §13). Bounded and
+  // independent of A-channel progress (TL-C rule 4)
+  localparam int RSV_HOLD = 64;
+  logic [6:0] rsv_hold_q;
+  always_ff @(posedge clk) begin
+    if (rst || !rsv_v_d)             rsv_hold_q <= '0;
+    else if (am_req && am_ack && am_lr) rsv_hold_q <= 7'(RSV_HOLD);
+    else if (rsv_hold_q != '0)        rsv_hold_q <= rsv_hold_q - 1'b1;
+  end
+  assign pr_hold = rsv_hold_q != '0;
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin
     wake_ld = '0;

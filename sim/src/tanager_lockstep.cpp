@@ -21,6 +21,7 @@
 #include <chrono>
 #include <cinttypes>
 #include <cstring>
+#include <deque>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,7 @@ struct opts_t {
   double stats = 10;              // seconds between progress lines (0: none)
   uint64_t max = 0;               // stop after this many records (0: at the end of the input)
   uint64_t stale = 10000000;      // a deferred writeback pending this many cycles is a mismatch
+  uint64_t reorder = 1024;        // records a hart may stay silent before it counts as idle (0: stream order)
 };
 
 [[noreturn]] void usage() {
@@ -66,6 +68,8 @@ struct opts_t {
           "  --stats=S         a progress line every S seconds on stderr (0: none; default 10)\n"
           "  --max=N           stop after N records\n"
           "  --stale=N         a deferred writeback still pending after N cycles is a mismatch (default 10M)\n"
+          "  --reorder=N       several harts: apply records in cycle order, waiting for a silent hart until\n"
+          "                    N more records have arrived (default 1024; 0: in arrival order)\n"
           "  --plant=N         self-test: flip bit 0 of the first value the checker compares at or after\n"
           "                    record N (from 0): a register write or a deferred writeback, not a value it\n"
           "                    adopts (an MMIO load, a nondet CSR read); the run must stop there\n",
@@ -111,6 +115,7 @@ opts_t parse(int argc, char** argv) {
     else if (k == "max") o.max = num(v, "--max");
     else if (k == "stale") o.stale = num(v, "--stale");
     else if (k == "plant") o.plant = int64_t(num(v, "--plant"));
+    else if (k == "reorder") o.reorder = num(v, "--reorder");
     else { fprintf(stderr, "tanager-lockstep: unknown option --%s\n", k.c_str()); usage(); }
   }
   if (o.fw.empty()) usage();
@@ -187,8 +192,9 @@ decoded_t decode(const uint8_t* p) {
   return d;
 }
 
-// The records carry the low 32 bits of the core-clock cycle; the stream is in arrival order, which is
-// cycle order give or take the few cycles by which the cores' arbiter reorders them.
+// The records carry the low 32 bits of the core-clock cycle. The stream is in arrival order: each hart's
+// records in its own order, but the uncore's trace interleaves the harts' FIFOs, so a hart that retires
+// more per cycle than another falls behind it in the stream, by 200 cycles in tb_boot's two-core runs.
 struct cycle_clock_t {
   uint64_t last = 0;
   uint64_t full(uint32_t c32) {
@@ -257,12 +263,85 @@ int main(int argc, char** argv) {
   recs.reserve(1);
   wbs.reserve(1);
   cycle_clock_t clk;
-  uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0, n_ext = 0;
+  uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0, n_ext = 0, n_applied = 0, n_late = 0;
   bool planted = false;
   double t0 = now_s(), t_last = t0;
   uint64_t n_last = 0;
   int status = EXIT_PASS;
   bool eof = false;
+
+  // Several harts share Spike's memory, so their records are applied in cycle order (§3.7): each hart's
+  // wait in a queue of their own, and the earliest head goes once no hart can still send an earlier
+  // record, because every hart has one waiting or has sent none in the last --reorder records (it is
+  // idle: in WFI, parked, or a thread that never runs). External writes take their place by the cycle
+  // of their AccessAck. One hart's records go straight through, as before.
+  struct pending_t {
+    uint64_t idx, cyc;  // stream position; full cycle
+    bool ext;
+    decoded_t d;
+    uint8_t raw[REC];
+  };
+  std::vector<std::deque<pending_t>> q(o.harts + 1);  // one per hart, then the external writes
+  std::vector<uint64_t> last_seen(o.harts, 0);        // stream position + 1 of each hart's last record
+  uint64_t applied_cyc = 0;
+
+  auto apply = [&](pending_t& pr) -> bool {
+    if (pr.ext) {
+      uint64_t pa;
+      uint32_t mask;
+      memcpy(&pa, pr.raw, 8);
+      memcpy(&mask, pr.raw + 44, 4);
+      unsigned len = 32;
+      while (len && !(mask >> (len - 1) & 1)) len--;
+      if (len && !ls.external_write(pa, pr.raw + 8, mask, len, pr.cyc)) {
+        fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu: %s\n  raw record: %s\n",
+                (unsigned long long)pr.idx, ls.error().c_str(), hex_record(pr.raw).c_str());
+        return false;
+      }
+      n_ext++;
+      return true;
+    }
+    recs.clear();
+    wbs.clear();
+    decoded_t& d = pr.d;
+    if (d.wb) {
+      d.w.cycle = pr.cyc;
+      wbs.push_back(d.w);
+      nwb++;
+    } else {
+      d.r.cycle = pr.cyc;
+      recs.push_back(d.r);
+      if (d.r.kind == TR_RETIRE) retired++;
+      else if (d.r.kind == TR_TRAP) traps++;
+      else irqs++;
+    }
+    if (!ls.cycle(recs, wbs) || ((++n_applied & 4095) == 0 && !ls.check_stale(pr.cyc, o.stale))) {
+      fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu (cycle %llu): %s\n  raw record: %s\n",
+              (unsigned long long)pr.idx, (unsigned long long)pr.cyc, ls.error().c_str(), hex_record(pr.raw).c_str());
+      ls.report(stderr);
+      return false;
+    }
+    return true;
+  };
+  // Applies every record that may go (all of them with `flush`); false at a mismatch
+  auto drain = [&](bool flush) -> bool {
+    for (;;) {
+      int best = -1;
+      for (size_t i = 0; i < q.size(); i++)
+        if (!q[i].empty() && (best < 0 || q[i].front().cyc < q[size_t(best)].front().cyc ||
+                              (q[i].front().cyc == q[size_t(best)].front().cyc &&
+                               q[i].front().idx < q[size_t(best)].front().idx)))
+          best = int(i);
+      if (best < 0) return true;
+      if (!flush && o.harts > 1)
+        for (unsigned h = 0; h < o.harts; h++)
+          if (q[h].empty() && n - last_seen[h] < o.reorder) return true;  // h may still send an earlier one
+      pending_t pr = std::move(q[size_t(best)].front());
+      q[size_t(best)].pop_front();
+      if (pr.cyc > applied_cyc) applied_cyc = pr.cyc;
+      if (!apply(pr)) return false;
+    }
+  };
 
   while (!eof && (!o.max || n < o.max)) {
     ssize_t got = read(fd, buf.data() + have, buf.size() - have);
@@ -273,60 +352,58 @@ int main(int argc, char** argv) {
     if (got == 0) eof = true;
     have += size_t(got);
     size_t off = 0;
-    for (; off + REC <= have && (!o.max || n < o.max); off += REC, n++) {
+    for (; off + REC <= have && (!o.max || n < o.max); off += REC) {
       uint8_t* p = buf.data() + off;
+      pending_t pr;
+      pr.idx = n;
+      memcpy(pr.raw, p, REC);
+      size_t qi;
       if (p[63] == EXT_WRITE_MARK) {  // tanager-host's record of a host DMA write (verification.md §3.10)
-        uint64_t pa;
-        uint32_t c32, mask;
-        memcpy(&pa, p, 8);
+        uint32_t c32;
         memcpy(&c32, p + 40, 4);
-        memcpy(&mask, p + 44, 4);
-        unsigned len = 32;
-        while (len && !(mask >> (len - 1) & 1)) len--;
-        if (len && !ls.external_write(pa, p + 8, mask, len, clk.full(c32))) {
-          fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu: %s\n  raw record: %s\n", (unsigned long long)n,
-                  ls.error().c_str(), hex_record(p).c_str());
-          status = EXIT_MISMATCH;
-          break;
-        }
-        n_ext++;
-        continue;
-      }
-      decoded_t d = decode(p);
-      uint64_t cyc = clk.full(d.cycle32);
-      // Only a value the checker compares: one it adopts (an MMIO load polling a UART, say) would
-      // never show, and the self-test would pass without testing anything.
-      if (o.plant >= 0 && !planted && n >= uint64_t(o.plant) && (d.wb || lockstep_t::compares_value(d.r))) {
-        std::string what;
-        if (d.wb) {
-          d.w.value ^= 1;
-          what = strfmt("the writeback of %c%u (tag %u)", d.w.rd_fp ? 'f' : 'x', d.w.rd, d.w.wb_tag);
-        } else {
-          d.r.rd_value ^= 1;
-          what = strfmt("%c%u of %s at %016llx", d.r.rd_fp ? 'f' : 'x', d.r.rd, ls.disasm(d.r.insn).c_str(),
-                        (unsigned long long)d.r.pc);
-        }
-        planted = true;
-        fprintf(stderr, "tanager-lockstep: planted a wrong value (bit 0 flipped) in record %llu: %s\n",
-                (unsigned long long)n, what.c_str());
-      }
-      recs.clear();
-      wbs.clear();
-      if (d.wb) {
-        d.w.cycle = cyc;
-        wbs.push_back(d.w);
-        nwb++;
+        pr.ext = true;
+        pr.cyc = clk.full(c32);
+        qi = o.harts;
       } else {
-        d.r.cycle = cyc;
-        recs.push_back(d.r);
-        if (d.r.kind == TR_RETIRE) retired++;
-        else if (d.r.kind == TR_TRAP) traps++;
-        else irqs++;
+        decoded_t d = decode(p);
+        // Only a value the checker compares: one it adopts (an MMIO load polling a UART, say) would
+        // never show, and the self-test would pass without testing anything.
+        if (o.plant >= 0 && !planted && n >= uint64_t(o.plant) && (d.wb || lockstep_t::compares_value(d.r))) {
+          std::string what;
+          if (d.wb) {
+            d.w.value ^= 1;
+            what = strfmt("the writeback of %c%u (tag %u)", d.w.rd_fp ? 'f' : 'x', d.w.rd, d.w.wb_tag);
+          } else {
+            d.r.rd_value ^= 1;
+            what = strfmt("%c%u of %s at %016llx", d.r.rd_fp ? 'f' : 'x', d.r.rd, ls.disasm(d.r.insn).c_str(),
+                          (unsigned long long)d.r.pc);
+          }
+          planted = true;
+          fprintf(stderr, "tanager-lockstep: planted a wrong value (bit 0 flipped) in record %llu: %s\n",
+                  (unsigned long long)n, what.c_str());
+        }
+        unsigned hart = d.wb ? d.w.hart : d.r.hart;
+        pr.ext = false;
+        pr.cyc = clk.full(d.cycle32);
+        pr.d = d;
+        if (hart >= o.harts) {  // the checker reports a hart Spike lacks, after the records before it
+          n++;
+          if (!drain(true) || !apply(pr)) {
+            status = EXIT_MISMATCH;
+            break;
+          }
+          continue;
+        }
+        qi = hart;
+        last_seen[hart] = n + 1;
       }
-      if (!ls.cycle(recs, wbs) || ((n & 4095) == 0 && !ls.check_stale(cyc, o.stale))) {
-        fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu (cycle %llu): %s\n  raw record: %s\n",
-                (unsigned long long)n, (unsigned long long)cyc, ls.error().c_str(), hex_record(p).c_str());
-        ls.report(stderr);
+      if (o.harts > 1 && pr.cyc < applied_cyc && n_late++ == 0 && o.reorder)
+        fprintf(stderr, "tanager-lockstep: record %llu (cycle %llu) came after records up to cycle %llu were "
+                        "checked; a larger --reorder keeps the cycle order\n",
+                (unsigned long long)n, (unsigned long long)pr.cyc, (unsigned long long)applied_cyc);
+      q[qi].push_back(std::move(pr));
+      n++;
+      if (!drain(false)) {
         status = EXIT_MISMATCH;
         break;
       }
@@ -344,6 +421,7 @@ int main(int argc, char** argv) {
       n_last = n;
     }
   }
+  if (status == EXIT_PASS && !drain(true)) status = EXIT_MISMATCH;  // the records still queued
   if (status == EXIT_PASS && have % REC && eof)
     fprintf(stderr, "tanager-lockstep: the stream ended inside a record (%zu bytes left over)\n", have % REC);
   if (status == EXIT_PASS && eof && !ls.finish()) {
@@ -360,6 +438,9 @@ int main(int argc, char** argv) {
   if (n_ext)
     fprintf(stderr, "tanager-lockstep: %llu external writes; %llu loads returned their new bytes\n",
             (unsigned long long)n_ext, (unsigned long long)ls.ext_loads_new());
+  if (n_late)
+    fprintf(stderr, "tanager-lockstep: %llu records came after later cycles had been checked\n",
+            (unsigned long long)n_late);
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
           status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",
