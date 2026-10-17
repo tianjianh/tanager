@@ -17,7 +17,10 @@ board's case when the harts are in step. Then, by mode:
                   first two harts take turns, one writing six data words, FENCE W,W and a flag, the other
                   spinning on the flag with plain loads, FENCE R,R, checking the data and answering with
                   a flag of its own; data and flags share a line or not (checked by lockstep with its
-                  windows for other harts' writes, verification.md §3.7).
+                  windows for other harts' writes, verification.md §3.7);
+  race            a write race on one word, for lockstep alone: the first hart stores to it, the second
+                  applies AMOs with rd = x0 and LR/SC increments to it, and after the barrier the first
+                  hart loads it (its value is whichever write came last, so the program checks nothing).
 In the other modes every read of a word another hart writes is an atomic. The barrier is on a line of its own: a hart spinning on the contended line with AMOs could starve
 another's LR/SC loop, which the ISA allows (its forward-progress guarantee excludes other harts'
 stores and AMOs to the reservation set). The first hart listed prints COH-PASS, or COH-FAIL and the slot
@@ -30,7 +33,7 @@ import sys
 
 UART = 0x10000000
 SLOTS = 8             # 8-byte words in the contended line
-MODES = ("mix", "amo", "lrsc", "lottery", "lottery-lrsc", "mp")
+MODES = ("mix", "amo", "lrsc", "lottery", "lottery-lrsc", "mp", "race")
 T0, PERIOD = 3000, 600   # lottery k >= 1 starts at mcycle T0 + k * PERIOD (+ the hart's offset)
 
 
@@ -280,6 +283,42 @@ def mp_body(r, e, nh):
     return desc, checks
 
 
+def race_body(r, e, nh):
+    """The race mode: plain stores against AMOs (rd = x0) and LR/SC on one word."""
+    rounds = r.choice([16, 32, 64])
+    e("  la s0, line")
+    e("  addi s0, s0, 8")             # slot 1 of the line
+    e(f"  li s2, {rounds}")
+    e("  li t0, 1")
+    e("  bgtu a4, t0, 9f")
+    e("  bnez a4, 7f")
+    e("6:")                           # the first hart: plain stores
+    e("  slli t1, s2, 32")
+    e("  sd t1, 0(s0)")
+    e("  addi s2, s2, -1")
+    e("  bnez s2, 6b")
+    e("  j 9f")
+    e("7:")                           # the second: AMOs with rd = x0 and an LR/SC increment
+    e("  li t1, 1")
+    e("  amoadd.d zero, t1, (s0)")
+    e("  slli t2, t1, 20")
+    e("  amoor.d zero, t2, (s0)")
+    e("5:")
+    e("  lr.d t2, (s0)")
+    e("  addi t2, t2, 1")
+    e("  sc.d t3, t2, (s0)")
+    e("  bnez t3, 5b")
+    e("  addi s2, s2, -1")
+    e("  bnez s2, 7b")
+    e("9:")
+    desc = "%d rounds of plain stores against amoadd/amoor (rd = x0) and LR/SC on one word" % rounds
+
+    def checks():
+        e("  la s0, line")
+        e("  ld t3, 8(s0)")           # whatever came last; lockstep checks the value against Spike's
+    return desc, checks
+
+
 def program(seed, mode, harts):
     nh = len(harts)
     r = random.Random(seed * 1000003 + 11 + 7919 * MODES.index(mode) + 104729 * sum(1 << h for h in harts))
@@ -312,6 +351,8 @@ def program(seed, mode, harts):
         desc, checks = lottery_body(r, e, mode, nh, harts)
     elif mode == "mp":
         desc, checks = mp_body(r, e, nh)
+    elif mode == "race":
+        desc, checks = race_body(r, e, nh)
     else:
         desc, checks = rounds_body(r, e, mode, nh)
     # Each hart's win mask to its slot of `res`, then the barrier

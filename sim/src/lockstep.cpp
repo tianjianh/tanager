@@ -129,11 +129,11 @@ struct hart_state_t {
   uint64_t steps = 0;
   uint64_t nrec = 0;                // records checked
   uint64_t last_wr[2][32] = {};     // the step that last wrote each x and f register
-  // An LR that read past other harts' stores: per byte, the first write it read past (HW_NONE: none)
-  bool lr_old = false;
-  uint64_t lr_pa = 0;
+  // The last LR, for its SC: its bytes and the writes since (lr_seq, the sequence number at its record), or
+  // since the first one it read past (lr_old)
+  bool lr_valid = false, lr_old = false;
+  uint64_t lr_pa = 0, lr_seq = 0, lr_from = 0;
   unsigned lr_n = 0;
-  uint64_t lr_seq[8] = {};
 };
 
 }  // namespace
@@ -311,7 +311,7 @@ class lockstep_impl_t {
     // RTL's address (a different address is a mismatch anyway). A new LR forgets what the last one read.
     hart_write_t hw;
     const bool hw_rec = r.mem_st && hw_before(h, r, amo || sc, hw);
-    if (lr) h.lr_old = false;
+    hw_moved_.clear();
     env_->amo_step = amo && !lr && !sc;
     const uint64_t rs2 = h.p->get_state()->XPR[(insn >> 20) & 31];  // before an AMO overwrites it
     spike_step_t st = step(h, insn);
@@ -328,6 +328,7 @@ class lockstep_impl_t {
     }
     if (st.nwr > 1) return done(false), mismatch(&h, &r, "Spike wrote more than one register (not supported by the checker)");
     if (st.nwr == 1) h.last_wr[st.rd_fp][st.rd & 31] = h.steps;
+    if (lr) hw_note_lr_start(h, st);
 
     // Destination register
     bool s_we = st.nwr == 1;
@@ -389,7 +390,9 @@ class lockstep_impl_t {
     if (r.mem_st) {
       unsigned bytes = 1u << r.mem_size;
       uint64_t m = size_mask(r.mem_size);
-      if (r.mem_vaddr != st.st_addr || bytes != st.st_size || (r.mem_wdata & m) != (st.st_val & m)) {
+      const bool amo_x0 = amo && !lr && !sc && !r.rd_we && hw_rec && r.mem_vaddr == st.st_addr && bytes == st.st_size;
+      if ((r.mem_vaddr != st.st_addr || bytes != st.st_size || (r.mem_wdata & m) != (st.st_val & m)) &&
+          !(amo_x0 && hw_amo_x0(h, r, st, rs2, hw))) {
         done(false);
         return mismatch(&h, &r, strfmt("store: RTL %u bytes %016llx at %016llx, Spike %u bytes %016llx at %016llx", bytes,
                                        (unsigned long long)(r.mem_wdata & m), (unsigned long long)r.mem_vaddr, st.st_size,
@@ -400,10 +403,11 @@ class lockstep_impl_t {
     if (r.mem_st && !ext_.empty()) ext_store(h, r, st);
     // A successful SC whose LR read past other harts' stores: in the core those stores came after it
     if (sc) {
-      if (r.mem_st && h.lr_old) hw_after_sc(h, st);
-      h.lr_old = false;
+      if (r.mem_st && h.lr_valid) hw_after_sc(h, st);
+      h.lr_valid = h.lr_old = false;
     }
     if (hw_rec) hw_push(hw);
+    if (!hw_moved_.empty()) hw_move_back();
     // A load the RTL calls mmio_ld must not read main memory when translation is off.
     if (r.mmio_ld && st.nld && bare_translation(h) && in_range(st.ld_addr, cfg_.dram_base, cfg_.dram_size)) {
       done(false);
@@ -652,23 +656,45 @@ class lockstep_impl_t {
     return true;
   }
 
-  // Byte b read past write `from` and the later ones: their new bytes go back on top, oldest first, for the
-  // plain stores of harts other than hi (in the core they reached memory after hi's access)
-  void hw_reapply_byte(size_t hi, uint64_t b, uint64_t from) {
+  // The first write an access read past (HW_NONE: none)
+  static uint64_t hw_from(const uint64_t* seq, unsigned n) {
+    uint64_t f = HW_NONE;
+    for (unsigned i = 0; i < n; i++) f = std::min(f, seq[i]);
+    return f;
+  }
+
+  // An access of hart hi that read past write `from` overlapping [pa, pa+n): in the core, that write and the
+  // later ones of other harts' plain stores there reached memory after it. A store is one access, so each
+  // goes back on top whole, oldest first, and keeps the bytes it now replaces as its old ones.
+  void hw_reapply(size_t hi, uint64_t pa, unsigned n, uint64_t from) {
     for (uint64_t q = std::max(from, hw_base_); q < hw_next(); q++) {
-      const hart_write_t& e = hw_[q - hw_base_];
-      if (e.hart != hi && !e.atomic && b >= e.pa && b < e.pa + e.len) *mem_at(b) = e.nw[b - e.pa];
+      hart_write_t& e = hw_[q - hw_base_];
+      if (e.hart == hi || e.atomic || e.pa >= pa + n || e.pa + e.len <= pa) continue;
+      uint8_t* m = mem_at(e.pa);
+      for (unsigned b = 0; b < e.len; b++) e.old[b] = m[b], m[b] = e.nw[b];
+      hw_moved_.push_back(q);
     }
   }
 
-  void hw_note_lr(hart_state_t& h, uint64_t pa, unsigned n, const uint64_t* seq) {
-    bool any = false;
-    for (unsigned i = 0; i < n; i++) any = any || seq[i] != HW_NONE;
-    if (!any) return;
+  // The writes re-applied after an atomic came after it in the core: they move behind its own write, so that
+  // later searches meet them first (it is a barrier for its own hart's)
+  void hw_move_back() {
+    std::sort(hw_moved_.begin(), hw_moved_.end());
+    hw_moved_.erase(std::unique(hw_moved_.begin(), hw_moved_.end()), hw_moved_.end());
+    std::vector<hart_write_t> moved;
+    for (uint64_t q : hw_moved_)
+      if (q >= hw_base_ && q < hw_next()) moved.push_back(hw_[q - hw_base_]);
+    for (size_t j = hw_moved_.size(); j-- > 0;)
+      if (hw_moved_[j] >= hw_base_ && hw_moved_[j] < hw_next()) hw_.erase(hw_.begin() + long(hw_moved_[j] - hw_base_));
+    for (auto& e : moved) hw_.push_back(e);
+    hw_moved_.clear();
+  }
+
+  void hw_note_lr(hart_state_t& h, const uint64_t* seq, unsigned n) {
+    const uint64_t from = hw_from(seq, n);
+    if (from == HW_NONE) return;
     h.lr_old = true;
-    h.lr_pa = pa;
-    h.lr_n = n;
-    memcpy(h.lr_seq, seq, n * sizeof *seq);
+    h.lr_from = from;
   }
 
   // A plain load or LR whose value differs from Spike's: accepted if it read bytes other harts' writes had
@@ -684,7 +710,7 @@ class lockstep_impl_t {
     if (extend_load(got, n, kind) != r.rd_value) return false;
     const size_t hi = size_t(&h - harts_.data());
     if (!hw_accept(hi, pa, n, got, mem_at(pa), lr, hw_next(), h.nrec, seq)) return false;
-    if (lr) hw_note_lr(h, pa, n, seq);
+    if (lr) hw_note_lr(h, seq, n);
     adopt_rd(h, r);
     hart_loads_old_++;
     return true;
@@ -704,8 +730,7 @@ class lockstep_impl_t {
     if (!hw_accept(hi, pa, n, got, before, true, hw_next(), h.nrec, seq) || !amo_result(r.insn, r.rd_value, rs2, res))
       return false;
     memcpy(mem_at(pa), &res, n);
-    for (unsigned i = 0; i < n; i++)
-      if (seq[i] != HW_NONE) hw_reapply_byte(hi, pa + i, seq[i]);
+    hw_reapply(hi, pa, n, hw_from(seq, n));
     st.st_val = res;  // the store data compare that follows checks the RTL's against it
     if (w) memcpy(w->old, got, n);
     adopt_rd(h, r);
@@ -714,16 +739,64 @@ class lockstep_impl_t {
     return true;
   }
 
-  // A successful SC after an LR that read past other harts' stores: those stores go back on top of its bytes
+  // An AMO with rd = x0 shows no value it read. If its store data differs from Spike's, the values its word
+  // held before other harts' recent plain stores are tried, newest first; the one whose result is the RTL's
+  // store data is what it read, and the stores it read past follow it into Spike's memory (oldest first)
+  bool hw_amo_x0(hart_state_t& h, const tr_rec_t& r, spike_step_t& st, uint64_t rs2, hart_write_t& w) {
+    const unsigned n = w.len;
+    if (!multi() || (n != 4 && n != 8)) return false;
+    const size_t hi = size_t(&h - harts_.data());
+    const uint64_t m = size_mask(r.mem_size);
+    uint8_t word[8] = {};
+    memcpy(word, w.old, n);  // Spike's memory before the AMO
+    std::vector<size_t> past;
+    for (size_t k = hw_.size(); k-- > 0;) {
+      const hart_write_t& e = hw_[k];
+      if (e.pa + e.len <= w.pa || e.pa >= w.pa + n) continue;
+      if (e.hart == hi || h.nrec - e.base[hi] >= cfg_.hart_window || e.atomic) break;
+      for (unsigned b = 0; b < e.len; b++)
+        if (e.pa + b >= w.pa && e.pa + b < w.pa + n) word[e.pa + b - w.pa] = e.old[b];
+      past.push_back(k);
+      uint64_t read = 0, res = 0;
+      memcpy(&read, word, n);
+      if (!amo_result(r.insn, read, rs2, res)) return false;
+      if ((res & m) != (r.mem_wdata & m)) continue;
+      memcpy(mem_at(w.pa), &res, n);
+      hw_reapply(hi, w.pa, n, hw_base_ + past.back());
+      memcpy(w.old, word, n);
+      st.st_val = res;
+      hart_loads_old_++;
+      hart_reapplied_++;
+      return true;
+    }
+    return false;
+  }
+
+  // A successful SC: no other hart's write reached its bytes between it and its LR, so the plain stores of
+  // other harts that Spike applied since the LR (or since the first one the LR read past) came after it in
+  // the core and go back on top
   void hw_after_sc(hart_state_t& h, const spike_step_t& st) {
     uint64_t pa = 0;
     if (!hw_paddr(h, st.st_addr, st.st_size, pa)) return;
-    const size_t hi = size_t(&h - harts_.data());
-    for (unsigned i = 0; i < h.lr_n; i++) {
-      const uint64_t b = h.lr_pa + i;
-      if (h.lr_seq[i] != HW_NONE && b >= pa && b < pa + st.st_size) hw_reapply_byte(hi, b, h.lr_seq[i]);
+    const uint64_t from = h.lr_old ? h.lr_from : h.lr_seq;
+    bool any = false;
+    for (uint64_t q = std::max(from, hw_base_); q < hw_next() && !any; q++) {
+      const hart_write_t& e = hw_[q - hw_base_];
+      any = e.hart != size_t(&h - harts_.data()) && !e.atomic && e.pa < pa + st.st_size && pa < e.pa + e.len;
     }
+    if (!any) return;
+    hw_reapply(size_t(&h - harts_.data()), pa, st.st_size, from);
     hart_reapplied_++;
+  }
+
+  // An LR: where its SC's window starts
+  void hw_note_lr_start(hart_state_t& h, const spike_step_t& st) {
+    uint64_t pa = 0;
+    h.lr_old = false;
+    h.lr_valid = multi() && st.nld == 1 && hw_paddr(h, st.ld_addr, st.ld_size, pa);
+    h.lr_pa = pa;
+    h.lr_n = st.ld_size;
+    h.lr_seq = hw_next();
   }
 
   // A deferred load or LR keeps its view, for its writeback
@@ -752,7 +825,7 @@ class lockstep_impl_t {
     if (extend_load(got, p.n, p.kind) != w.value) return false;
     const size_t hi = size_t(&h - harts_.data());
     if (!hw_accept(hi, p.pa, p.n, got, p.mem, p.atomic, p.seq, p.nrec, seq)) return false;
-    if (p.atomic) hw_note_lr(h, p.pa, p.n, seq);
+    if (p.atomic) hw_note_lr(h, seq, p.n);
     if (h.last_wr[p.rd_fp][p.rd & 31] == p.step) {
       state_t* s = h.p->get_state();
       if (p.rd_fp) {
@@ -852,8 +925,9 @@ class lockstep_impl_t {
   std::deque<ext_write_t> ext_;
   bool any_rec_ = false;
   uint64_t last_cycle_ = 0, ext_loads_new_ = 0;
-  std::deque<hart_write_t> hw_;  // other harts' writes still in a window, in record order
+  std::deque<hart_write_t> hw_;  // writes still in a window, in the order they reached memory in the core
   uint64_t hw_base_ = 0;         // the sequence number of hw_.front()
+  std::vector<uint64_t> hw_moved_;  // writes the current record re-applied
   uint64_t hart_loads_old_ = 0, hart_reapplied_ = 0;
 };
 
