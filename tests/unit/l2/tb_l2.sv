@@ -35,6 +35,11 @@ module tb_l2;
   axi_w_t  w;   logic w_valid, w_ready;
   axi_b_t  bresp; logic bresp_valid, bresp_ready;
   logic    init_done, ev_hit, ev_miss, ev_wb, ev_probe, ev_err;
+  logic [31:0]     ev_err_info;
+  logic [PA_W-7:0] ev_err_line;
+  // the injected AXI errors are the only ones here: each comes described as a write or fill error
+  always @(posedge clk) if (ev_err)
+    assert (ev_err_info[2:0] == 3'd4 || ev_err_info[2:0] == 3'd5) else $error("L2 error described as kind %0d", ev_err_info[2:0]);
 
   tg_l2_bank #(.BANK(0), .N_AGENTS(NA), .SETS(SETS), .N_MSHR(N_MSHR), .DATA_PRIM("block"), .DATA_LAT(DATA_LAT),
                .DIR_S3(DIR_S3)) dut (
@@ -50,7 +55,7 @@ module tb_l2;
     .w_o (w), .w_valid_o (w_valid), .w_ready_i (w_ready),
     .bresp_i (bresp), .bresp_valid_i (bresp_valid), .bresp_ready_o (bresp_ready),
     .init_done_o (init_done), .ev_hit_o (ev_hit), .ev_miss_o (ev_miss), .ev_wb_o (ev_wb),
-    .ev_probe_o (ev_probe), .ev_err_o (ev_err)
+    .ev_probe_o (ev_probe), .ev_err_o (ev_err), .ev_err_info_o (ev_err_info), .ev_err_line_o (ev_err_line)
   );
 
   // Lines at or above ERR_BASE answer SLVERR (the +errlines mode puts some pool lines there).

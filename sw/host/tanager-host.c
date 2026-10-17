@@ -69,6 +69,7 @@ enum {
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
 #define CTRL_LOSSLESS  0x4u
+#define CTRL_TFREEZE   0x8u            /* mtime holds while the commit trace stalls a core (board lockstep) */
 #define ST_CORES_RST   0x1u
 #define ST_UNC_RST     0x2u
 #define ST_L2_INIT     0x4u
@@ -153,6 +154,7 @@ struct opts {
   double timeout;
   long inj_rd, inj_wr, inj_mode, inj_bw;
   int lossless;
+  int freeze_time;        /* CTRL.TFREEZE: mtime holds while the commit trace stalls a core */
   /* commit trace (docs/spec/uncore-trace.md): a ring at the top of the carve-out */
   const char *trace;      /* output file ("-" = stdout); NULL = no tracing */
   int trace_log2;         /* ring of 2^n records */
@@ -184,6 +186,7 @@ static void usage(void) {
     "                                         (implied by --trace) zeroes the window first\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
+    "      [--freeze-time]\n"
     "                                         release reset (a running system keeps running), bridge the\n"
     "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
@@ -192,6 +195,9 @@ static void usage(void) {
     "                                         carve-out (default N 22: 256 MiB); the device tree's memory must\n"
     "                                         fit in the rest. --trace - writes the records to stdout and\n"
     "                                         everything else to stderr; if the reader stops, run exits 4\n"
+    "                                         --freeze-time holds mtime while the trace stalls the cores\n"
+    "                                         (CTRL.TFREEZE), so Linux under the checker does not drown in\n"
+    "                                         timer ticks\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
@@ -224,8 +230,9 @@ static uint64_t num(const char *s) {
 
 /* ---- Commands ---- */
 /* The board debug counters (tg_uncore DEBUG_CNT): each L2 bank's coherence messages, misses, AXI reads and
- * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels. The
- * index crosses into the core clock and the value back, so each read waits a millisecond. */
+ * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels, the
+ * DRAM windows' refusals and the first L2 error and refusal, whole. The index crosses into the core clock
+ * and the value back, so each read waits a millisecond. */
 static void cmd_dbg(void) {
   static const char *bk[] = { "A in", "B out (probes)", "C in", "D out", "E in (GrantAck)", "misses", "AXI reads", "fills" };
   static const char *ck[] = { "A out", "B in (probes)", "C out", "D in", "E out (GrantAck)" };
@@ -256,6 +263,38 @@ static void cmd_dbg(void) {
       }
       printf("%s\n", v >> 30 & 1 ? " L2_ERR" : "");
     }
+  }
+  /* index n + 1 ...: the refusals, then the first L2 error ({info}, {valid, bank, line}) and the first
+   * refusal ({valid, write, line}); 0xDEB00000 in a bitstream without them */
+  uint32_t x[5];
+  for (unsigned k = 0; k < 5; k++) { wr(R_DBG_SEL, n + 1 + k); sleep_us(1000); x[k] = rd(R_DBG_VAL); }
+  if (x[0] == 0xDEB00000u) {
+    printf("  (no L2 error capture in this bitstream)\n");
+  } else {
+    printf("  DRAM window refusals     %10u reads, %u writes\n", x[0], x[1]);
+    static const char *ek[] = { "?", "a Release or ProbeAck for a line not held", "a ProbeAck no probing MSHR waits for",
+                                "a victim still held after its probes", "a write response error", "a fill read error",
+                                "?", "?" };
+    static const char *cop[] = { "?0", "?1", "?2", "?3", "ProbeAck", "ProbeAckData", "Release", "ReleaseData" };
+    static const char *cpar[] = { "TtoB", "TtoN", "BtoN", "TtoT", "BtoB", "NtoN", "?6", "?7" };
+    uint32_t e = x[2], k = e & 7;
+    uint64_t line = x[3] & 0x1fffffffu;
+    if (x[3] >> 31) {
+      printf("  first L2 error: bank %u, %s, line 0x%" PRIx64 " (address 0x%" PRIx64 ")", x[3] >> 29 & 3, ek[k], line,
+             line << 6);
+      if (k >= 1 && k <= 3)
+        printf("; C %s %s from source 0x%03x; directory %s: valid %u dirty %u tip %u pres 0x%x; MSHR %u",
+               cop[e >> 3 & 7], cpar[e >> 6 & 7], e >> 9 & 0x3ff, e >> 19 & 1 ? "hit" : "miss", e >> 20 & 1,
+               e >> 21 & 1, e >> 22 & 1, e >> 23 & 0xf, e >> 27 & 0x1f);
+      else
+        printf("; AXI resp %u, ID %u", e >> 3 & 3, e >> 9 & 0x3ff);
+      printf("\n");
+    } else {
+      printf("  no L2 error since the uncore reset\n");
+    }
+    if (x[4] >> 31)
+      printf("  first refused burst: a %s at 0x%" PRIx64 "\n", x[4] >> 30 & 1 ? "write" : "read",
+             (uint64_t)(x[4] & 0x3fffffffu) << 6);
   }
   /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
    * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none.
@@ -652,7 +691,7 @@ static int tap_open(const char *name, const char *bridge) {
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
-  uint32_t ctrl = o->lossless ? CTRL_LOSSLESS : 0;
+  uint32_t ctrl = (o->lossless ? CTRL_LOSSLESS : 0) | (o->freeze_time ? CTRL_TFREEZE : 0);
   /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
    * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
    * transactions short and leave the L2 waiting for a GrantAck or the rest of a burst. */
@@ -820,6 +859,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
+    { "freeze-time", 0, 0, 21 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -855,6 +895,7 @@ int main(int argc, char **argv) {
       case 16: o.blk_ro = 1; break;
       case 17: o.rng = 1; break;
       case 18: o.net = optarg; break;
+      case 21: o.freeze_time = 1; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];

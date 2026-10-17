@@ -52,7 +52,9 @@ module tg_l2
   output logic    [N_BANKS-1:0] ev_miss_o,
   output logic    [N_BANKS-1:0] ev_wb_o,
   output logic    [N_BANKS-1:0] ev_probe_o,
-  output logic    [N_BANKS-1:0] ev_err_o
+  output logic    [N_BANKS-1:0] ev_err_o,
+  output logic    [N_BANKS-1:0][31:0]     ev_err_info_o,   // with ev_err_o: what it was (tg_l2_bank)
+  output logic    [N_BANKS-1:0][PA_W-7:0] ev_err_line_o
 );
   logic [N_BANKS-1:0] done;
 
@@ -75,7 +77,8 @@ module tg_l2
       .bresp_i (bresp_i[b]), .bresp_valid_i (bresp_valid_i[b]), .bresp_ready_o (bresp_ready_o[b]),
       .init_done_o (done[b]),
       .ev_hit_o (ev_hit_o[b]), .ev_miss_o (ev_miss_o[b]), .ev_wb_o (ev_wb_o[b]),
-      .ev_probe_o (ev_probe_o[b]), .ev_err_o (ev_err_o[b])
+      .ev_probe_o (ev_probe_o[b]), .ev_err_o (ev_err_o[b]),
+      .ev_err_info_o (ev_err_info_o[b]), .ev_err_line_o (ev_err_line_o[b])
     );
   end
 

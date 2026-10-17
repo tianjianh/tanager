@@ -4,7 +4,8 @@
 // size is in bytes, a multiple of 64; bursts are at most 64 bytes and 64-byte aligned (the L2's),
 // so a burst is in range exactly when its offset is below size. Error responses are merged with the
 // downstream ones; the L2's IDs are unique among outstanding transactions, so no same-ID ordering
-// is at stake.
+// is at stake. oob_rd_o and oob_wr_o pulse for each out-of-range burst accepted, with its address in
+// oob_addr_o (the read's when both come at once), for the board debug counters (tg_uncore DEBUG_CNT).
 module tg_axi_window
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 (
@@ -43,7 +44,11 @@ module tg_axi_window
   input  logic    m_w_ready_i,
   input  axi_b_t  m_b_i,
   input  logic    m_b_valid_i,
-  output logic    m_b_ready_o
+  output logic    m_b_ready_o,
+  // out-of-range bursts refused
+  output logic                  oob_rd_o,
+  output logic                  oob_wr_o,
+  output logic [AXI_ADDR_W-1:0] oob_addr_o
 );
   localparam logic [AXI_ADDR_W-1:0] DBASE = AXI_ADDR_W'(DRAM_BASE);
 
@@ -101,6 +106,10 @@ module tg_axi_window
     .out_valid (wf_out_v), .out_ready (s_w_valid_i && s_w_ready_o && s_w_i.last), .out_data (wf_out_d), .count (wf_cnt)
   );
   assign wf_out = wf_out_d.fwd;
+
+  assign oob_rd_o   = s_ar_valid_i && s_ar_ready_o && !ar_ok;
+  assign oob_wr_o   = aw_fire && !aw_ok;
+  assign oob_addr_o = oob_rd_o ? s_ar_i.addr : s_aw_i.addr;
 
   // Error B for absorbed writes
   logic   eb_v_q;
