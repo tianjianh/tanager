@@ -2,7 +2,7 @@
 #   make -C tests/unit/boot opensbi [CORES=1|2] [CFG=st|smt2]  boot ROM -> OpenSBI, passes on the full banner
 #   make -C tests/unit/boot linux-kernel [CORES=1]  Linux (Buildroot's lp64d Image) to "Run /init", with a
 #                                                   device tree without F/D: the kernel needs no FPU
-#   make -C tests/unit/boot linux [CORES=1|2]       the full lp64d boot to TANAGER-BOOT-OK (the init
+#   make -C tests/unit/boot linux [CORES=1|2] [CFG=smt2 RUN_THREADS=1]  the full lp64d boot to TANAGER-BOOT-OK (the init
 #                                                   script), with the FPU in the device tree
 #   make -C tests/unit/boot run CORES=2 ARGS="+fw=... +dtb=... +expect=... +max_mcycles=N"
 #   ARGS= adds plusargs to any of them, for example ARGS="+dump_pc=<hex> +dump_stop" (tb_boot.sv)
@@ -38,11 +38,15 @@ EXTRA_VFLAGS := -CFLAGS -O2 $(if $(filter-out 1,$(VTHREADS)),--threads $(VTHREAD
 include ../common/unit.mk
 
 THREADS := $(if $(filter smt2%,$(CFG)),2,1)
+# RUN_THREADS=1 with CFG=smt2: the device tree describes thread 0 of each core only (harts 0 and 2),
+# the board's shape until M7 (DR-147); each choice builds its trees in a directory of its own
+RUN_THREADS ?= $(THREADS)
+DTS_SFX := $(if $(filter-out $(THREADS),$(RUN_THREADS)),-r$(RUN_THREADS))
 # MCYC: the OpenSBI runs' cycle limit, in millions (the banner comes by 10.7 M cycles at 2x2)
 MCYC    ?= 20
 OSBI_FW := $(SOC_BUILD)/opensbi/platform/generic/firmware/fw_jump.bin
 FW      ?= $(OSBI_FW)
-DTB     := $(OUTDIR)/dts/tanager-kv260.dtb
+DTB     := $(OUTDIR)/dts$(DTS_SFX)/tanager-kv260.dtb
 
 CORE_DIR := $(REPO)/rtl/core
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f -F $(CORE_DIR)/core.f \
@@ -54,10 +58,10 @@ $(OUTDIR)/$(TOP): $(wildcard $(CORE_DIR)/*.sv $(CORE_DIR)/*/*.sv $(CORE_DIR)/*.f
 # BOOTARGS: the kernel command line in the device trees (earlycon=sbi prints through OpenSBI)
 BOOTARGS ?= console=ttyS0,115200 earlycon
 $(DTB): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=0 BOOTARGS="$(BOOTARGS)"
-DTB_FPU := $(OUTDIR)/dts-fpu/tanager-kv260.dtb
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=0 BOOTARGS="$(BOOTARGS)"
+DTB_FPU := $(OUTDIR)/dts-fpu$(DTS_SFX)/tanager-kv260.dtb
 $(DTB_FPU): $(REPO)/sw/dts/tanager-kv260.dts $(REPO)/sw/dts/tanager.dtsi Makefile
-	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu CORES=$(CORES) THREADS=$(THREADS) MEM=0x08000000 FPU=1 BOOTARGS="$(BOOTARGS)"
+	$(MAKE) --no-print-directory -B -C $(REPO)/sw/dts O=$(OUTDIR)/dts-fpu$(DTS_SFX) CORES=$(CORES) THREADS=$(THREADS) RUN_THREADS=$(RUN_THREADS) MEM=0x08000000 FPU=1 BOOTARGS="$(BOOTARGS)"
 
 KERNEL     ?= $(SOC_BUILD)/br-tanager_lp64d/images/Image
 LINUX_MCYC ?= 1500

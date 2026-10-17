@@ -10,6 +10,8 @@
 // It never touches the hardware: tanager-host owns the board (overlay guard, ring, TRS_RP, console),
 // and a checker that falls behind stalls the cores through the FIFO (uncore-trace.md, flow control). A
 // FIFO rather than `--trace -` and a pipe: tanager-host's stdout carries its messages and the console.
+// Records tanager-host inserts for its DMA writes into the RISC-V's memory (byte 63 = 0xE1) reach the
+// checker as external writes (verification.md §3.10).
 // Exit status: 0 when every record matched; 2 at the first mismatch, after its report; 5 for a usage or
 // input error, an empty stream included (a bitstream without the commit trace, DR-146, streams nothing).
 #include <fcntl.h>
@@ -39,6 +41,9 @@ namespace {
 constexpr uint64_t DRAM_BASE = 0x80000000ull, OFF_FW = 0x0, OFF_KERNEL = 0x200000, OFF_DTB = 0x2200000;
 constexpr uint64_t BOOTROM_BASE = 0x1000;
 constexpr size_t REC = 64;  // bytes per record in the ring
+// Byte 63 of a record tanager-host inserts for a host DMA write: address, up to 32 data bytes, the cycle
+// of the L2's AccessAck and a byte mask (bytes 0-7, 8-39, 40-43, 44-47). Hardware records keep 44-63 zero.
+constexpr uint8_t EXT_WRITE_MARK = 0xE1;
 
 struct opts_t {
   std::string fw, kernel, dtb, input = "-";
@@ -252,7 +257,7 @@ int main(int argc, char** argv) {
   recs.reserve(1);
   wbs.reserve(1);
   cycle_clock_t clk;
-  uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0;
+  uint64_t n = 0, retired = 0, traps = 0, irqs = 0, nwb = 0, n_ext = 0;
   bool planted = false;
   double t0 = now_s(), t_last = t0;
   uint64_t n_last = 0;
@@ -270,6 +275,23 @@ int main(int argc, char** argv) {
     size_t off = 0;
     for (; off + REC <= have && (!o.max || n < o.max); off += REC, n++) {
       uint8_t* p = buf.data() + off;
+      if (p[63] == EXT_WRITE_MARK) {  // tanager-host's record of a host DMA write (verification.md §3.10)
+        uint64_t pa;
+        uint32_t c32, mask;
+        memcpy(&pa, p, 8);
+        memcpy(&c32, p + 40, 4);
+        memcpy(&mask, p + 44, 4);
+        unsigned len = 32;
+        while (len && !(mask >> (len - 1) & 1)) len--;
+        if (len && !ls.external_write(pa, p + 8, mask, len, clk.full(c32))) {
+          fprintf(stderr, "tanager-lockstep: MISMATCH at record %llu: %s\n  raw record: %s\n", (unsigned long long)n,
+                  ls.error().c_str(), hex_record(p).c_str());
+          status = EXIT_MISMATCH;
+          break;
+        }
+        n_ext++;
+        continue;
+      }
       decoded_t d = decode(p);
       uint64_t cyc = clk.full(d.cycle32);
       // Only a value the checker compares: one it adopts (an MMIO load polling a UART, say) would
@@ -335,6 +357,9 @@ int main(int argc, char** argv) {
     status = EXIT_HARNESS;
   }
   double t = now_s() - t0;
+  if (n_ext)
+    fprintf(stderr, "tanager-lockstep: %llu external writes; %llu loads returned their new bytes\n",
+            (unsigned long long)n_ext, (unsigned long long)ls.ext_loads_new());
   fprintf(stderr, "tanager-lockstep: %s after %llu records (%llu retired, %llu traps, %llu interrupts, %llu "
                   "writebacks) in %.1f s, %.0f records/s%s\n",
           status == EXIT_PASS ? "PASS" : status == EXIT_MISMATCH ? "MISMATCH" : "NOTHING CHECKED",

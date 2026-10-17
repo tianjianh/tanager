@@ -85,7 +85,8 @@ void usage() {
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
           "               --pmp=N --pmp-g=BYTES --pmp-reset=spike|off\n"
           "  memory:      --lat=native|90|120|250|N --lat-jitter=N --bp=PCT --d-gap=PCT --grant-b=PCT\n"
-          "               --probe-rate=PERMILLE --mmio-lat=N --d-stall-max=N --mem-mb=N --rom=FILE\n"
+          "               --probe-rate=PERMILLE --probe-miss=PCT --set-stride=BYTES --mmio-lat=N --d-stall-max=N\n"
+          "               --mem-mb=N --rom=FILE\n"
           "               --deny=ADDR[:LEN] --boot=ADDR --tohost-va=ADDR\n"
           "  devices:     --mtime-div=N --irq-rand=PERMILLE\n"
           "  trace:       --trace-stall=PERMILLE [--trace-fifo=N]: a trace sink that drains at random, busy\n"
@@ -166,6 +167,11 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "d-gap") mc.d_gap = unsigned(num(need(), "--d-gap"));
     else if (k == "grant-b") mc.grant_b = unsigned(num(need(), "--grant-b"));
     else if (k == "probe-rate") mc.probe_rate = unsigned(num(need(), "--probe-rate"));
+    else if (k == "probe-miss") mc.probe_miss = unsigned(num(need(), "--probe-miss"));
+    else if (k == "set-stride") {
+      mc.set_stride = unsigned(num(need(), "--set-stride"));
+      if (mc.set_stride < 64 || (mc.set_stride & (mc.set_stride - 1))) fatal("--set-stride must be a power of two, at least 64");
+    }
     else if (k == "mmio-lat") mc.mmio_lat = std::max(1u, unsigned(num(need(), "--mmio-lat")));
     else if (k == "d-stall-max") mc.d_stall_max = unsigned(num(need(), "--d-stall-max"));
     else if (k == "mem-mb") o.mem_mb = num(need(), "--mem-mb");
@@ -543,6 +549,13 @@ int main(int argc, char** argv) {
             (unsigned long long)t.l1d.probes_sent, (unsigned long long)t.l1d.gets, (unsigned long long)t.l1d.puts,
             (unsigned long long)t.mmio.requests,
             t.merr_pulses ? strfmt("; merr_o pulsed %llu times", (unsigned long long)t.merr_pulses).c_str() : "");
+    if (t.l1d.acquires)
+      fprintf(stderr, "tg_vsim: l1d Acquires by misses in flight with them: %llu/%llu/%llu/%llu (1/2/3/4+, max %u); "
+                      "probes on a miss's line %llu, in its set %llu; Releases during a miss %llu; same-set misses %llu\n",
+              (unsigned long long)t.l1d.acq_by_inflight[0], (unsigned long long)t.l1d.acq_by_inflight[1],
+              (unsigned long long)t.l1d.acq_by_inflight[2], (unsigned long long)t.l1d.acq_by_inflight[3],
+              t.l1d.max_inflight, (unsigned long long)t.l1d.probes_on_acquire, (unsigned long long)t.l1d.probes_same_set,
+              (unsigned long long)t.l1d.releases_during_acquire, (unsigned long long)t.l1d.acquires_same_set);
     if (t.sink.enabled)
       fprintf(stderr, "tg_vsim: trace_stall_i high in %llu cycles (%llu stalls); sink peak %u of %u records, "
                       "stall below %u free%s\n",
@@ -554,6 +567,15 @@ int main(int argc, char** argv) {
          exit_status_name(status), code, (unsigned long long)cycle, (unsigned long long)instret,
          cycle ? double(instret) / double(cycle) : 0.0, secs > 0 ? cycle / secs / 1000 : 0.0,
          (unsigned long long)region_cycles, (unsigned long long)region_instret);
+  // DR-149's coverage, for runners that add it up (verification.md §2.4); on stderr, as stdout is the
+  // program's console (run_bench.py compares it with Spike's)
+  fprintf(stderr, "TG-L1D acquires=%llu inflight1=%llu inflight2=%llu inflight3=%llu inflight4=%llu max_inflight=%u "
+         "probe_acq=%llu probe_set=%llu rel_acq=%llu acq_set=%llu\n",
+         (unsigned long long)t.l1d.acquires, (unsigned long long)t.l1d.acq_by_inflight[0],
+         (unsigned long long)t.l1d.acq_by_inflight[1], (unsigned long long)t.l1d.acq_by_inflight[2],
+         (unsigned long long)t.l1d.acq_by_inflight[3], t.l1d.max_inflight, (unsigned long long)t.l1d.probes_on_acquire,
+         (unsigned long long)t.l1d.probes_same_set, (unsigned long long)t.l1d.releases_during_acquire,
+         (unsigned long long)t.l1d.acquires_same_set);
   fflush(stdout);
   return status;
 }
