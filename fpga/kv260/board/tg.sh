@@ -252,7 +252,8 @@ case "${1:-}" in
       sudo "$HOME/tanager/tg_zero" 0x840000000 "$ZERO_MB" || exit 1
     fi
     dtb=${LS_DTB:-tanager-kv260-768m.dtb}   # the RUNBOOK's padded tree: LS_DTB=tanager-kv260-768m-pad.dtb
-    ./tanager-lockstep --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
+    # LS_ARGS: extra checker options, e.g. --harts=4 for two cores (harts 0 and 2: Spike harts 0..3)
+    ./tanager-lockstep ${LS_ARGS:-} --fw fw_jump.bin --kernel Image --dtb "$dtb" --stats=30 tg.trace 2> "$lsl" &
     lpid=$!
     active "$APP" || exit 1
     echo "\$ tanager-host boot --inj-rd $inj --fw fw_jump.bin --kernel Image --dtb $dtb --lossless --trace-log2 16 --trace tg.trace --timeout $lim"
