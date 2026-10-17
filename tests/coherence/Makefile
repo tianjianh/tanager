@@ -3,18 +3,20 @@
 # lottery does on the board. Each program checks itself, the cycle limit catches a hang, and
 # tanager-lockstep checks every hart against Spike.
 # Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
-#   make -C tests/coherence [CFG=st|smt2] [N=40] [SEED=1] [MODES=lottery,amo] [LAT=default] [LOCKSTEP=1]
+#   make -C tests/coherence [CFG=st|smt2] [N=40] [SEED=1] [MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race] [LAT=default]
+#                           [LOCKSTEP=1]
 #   make -C tests/coherence gen SEED=1 [MODE=lottery] [HARTS=0,1]    one program to stdout
 #   make -C tests/coherence prog SEED=1 [MODE=lottery] [HARTS=0,1]   one program built for tb_boot's +fw
 # CFG=st runs harts 0 and 1 (two cores); smt2 runs harts 0 and 2, thread 0 of each core, which is the
 # board's shape (smt2 cores run one thread until M7). LAT=fixed|jitter|board sets the DDR timing (18-26
-# cycles; run_coh.py) and needs tb_boot's DDR options (soc-2's 8882e79). MODES=mix,lrsc,lottery-lrsc add
-# LR/SC loops, which hang on today's RTL: two harts in the same constrained loop never leave it.
+# cycles; run_coh.py) and needs tb_boot's DDR options (soc-2's 8882e79). The mix, lrsc and lottery-lrsc
+# modes run LR/SC loops, which need the L1D's hold of a young LR reservation (a0631fb): without it two
+# harts in the same constrained loop never leave it.
 # Failures are kept, with a line that reproduces them, in $TANAGER_BUILD/<worktree>/coherence/<cfg>/failures.
 CFG      ?= st
 N        ?= 40
 SEED     ?= 1
-MODES    ?= lottery,amo
+MODES    ?= lottery,amo,mix,lrsc,lottery-lrsc,mp,race
 MODE     ?= lottery
 LAT      ?= default
 LOCKSTEP ?= 1

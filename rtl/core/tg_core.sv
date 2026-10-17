@@ -148,12 +148,42 @@ module tg_core
         else $error("tg_core: fetch's privilege copy differs outside a flush");
   end
 `endif
+  // The LSU's own copy of the privilege, the data privilege, SUM, MXR and satp, a cycle behind
+  // tg_csr's, as fetch's: they change only as a trap, an xRET or a serialising CSR write commits,
+  // and the flush that follows the next cycle squashes the LSU's new accesses (the walker, S2, the
+  // head's check and the walk prefetch are flush-gated), which resume with the copy caught up
+  // (timing, DR-145: G6's tg_csr priv -> the LSU's translation mode -> the store's PMP checker ->
+  // the ROB, -1.53 ns, 70% wire; any difference falls in a flush cycle, asserted)
+  priv_e       priv_l_q, priv_dl_q;
+  logic        sum_l_q, mxr_l_q, sv39_l_q;
+  logic [43:0] satp_ppn_l_q;
+  always_ff @(posedge clk) begin
+    priv_l_q     <= rst ? PRIV_M : priv;
+    priv_dl_q    <= rst ? PRIV_M : priv_d;
+    sum_l_q      <= !rst && sum;
+    mxr_l_q      <= !rst && mxr;
+    sv39_l_q     <= !rst && satp_sv39;
+    satp_ppn_l_q <= satp_ppn;
+  end
+`ifndef SYNTHESIS
+  always @(posedge clk)
+    if (rs_fq && !rst)
+      assert (flush || (priv_l_q == priv && priv_dl_q == priv_d && sum_l_q == sum && mxr_l_q == mxr &&
+                        sv39_l_q == satp_sv39 && satp_ppn_l_q == satp_ppn))
+        else $error("tg_core: the LSU's privilege copy differs outside a flush");
+`endif
+  // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
+  // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
+  // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
+  dec_state_t de_state;
+  assign de_state = '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a, misa_f: misa_f,
+                      misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_pc, .icinv, .dred, .dred_pc,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
+    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -364,7 +394,8 @@ module tg_core
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
-    .priv, .priv_d, .sum, .mxr, .satp_sv39, .satp_ppn, .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
+    .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
+    .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
@@ -392,8 +423,17 @@ module tg_core
     .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
 
   // ---- ROB and commit ----
+  // The ROB's commit gate needs neither rename's ready nor the init flag: both are one-time
+  // initialisation flags, and the ROB holds an entry only after rename fired, which needed them
+  // (timing, DR-145: G6's FP free list's init flag -> rename's ready -> commit -> the free-list
+  // count and the CSR file, -1.40 and -1.01 ns; asserted below)
+`ifndef SYNTHESIS
+  always @(posedge clk)
+    if (rs_fq && !rst && (|cm_valid || flush))
+      assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
+`endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(init_done && rn_ready && !trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,

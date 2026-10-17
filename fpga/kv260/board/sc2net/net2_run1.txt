@@ -1,0 +1,63 @@
+loaded tanager-sc2 at 13:40:29; fpga0 operating
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /home/ubuntu/tanager/sc2net/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg --timeout 6000 < console
+login prompt 280 s after the load
+commands done 653 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 92360498 reads, native latency avg 21.3 max 70 cycles
+debug counters after the boot:
+$ tanager-host dbg
+  L2 bank 0 A in                377833299
+  L2 bank 0 B out (probes)        3880176
+  L2 bank 0 C in                259706188
+  L2 bank 0 D out              1506979516
+  L2 bank 0 E in (GrantAck)     126704219
+  L2 bank 0 misses               46350359
+  L2 bank 0 AXI reads            46350359
+  L2 bank 0 fills                46350323
+  L2 bank 1 A in                371705044
+  L2 bank 1 B out (probes)        3539876
+  L2 bank 1 C in                253623096
+  L2 bank 1 D out              1479700757
+  L2 bank 1 E in (GrantAck)     123635561
+  L2 bank 1 misses               46010362
+  L2 bank 1 AXI reads            46010362
+  L2 bank 1 fills                46010351
+  core 0 l1d A out             120688331
+  core 0 l1d B in (probes)       3722809
+  core 0 l1d C out             252446216
+  core 0 l1d D in              601526049
+  core 0 l1d E out (GrantAck)  120688331
+  core 1 l1d A out             129651449
+  core 1 l1d B in (probes)       3697243
+  core 1 l1d C out             260883068
+  core 1 l1d D in              646390107
+  core 1 l1d E out (GrantAck)  129651449
+  L2 error events                 188
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+  (no core debug words in this bitstream)
+$ tanager-host vq
+  virtio window   served; 0 request(s) and 0 event(s) queued; status bits 0x00
+$ (A53) ip -br link show master br0; ip=$(ip neigh show dev br0 | awk "/02:74:6e:67:72:01/ {print \$1}" | head -1); echo "the RISC-V at ${ip:-?}"; [ -n "$ip" ] && ping -c3 -W2 $ip
+eth0             UP             00:0a:35:2a:df:d8 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+tanager0         UNKNOWN        da:26:7e:71:d6:47 <BROADCAST,MULTICAST,UP,LOWER_UP> 
+the RISC-V at 192.168.137.64
+PING 192.168.137.64 (192.168.137.64) 56(84) bytes of data.
+64 bytes from 192.168.137.64: icmp_seq=1 ttl=64 time=1.38 ms
+64 bytes from 192.168.137.64: icmp_seq=2 ttl=64 time=1.07 ms
+64 bytes from 192.168.137.64: icmp_seq=3 ttl=64 time=1.04 ms
+
+--- 192.168.137.64 ping statistics ---
+3 packets transmitted, 3 received, 0% packet loss, time 2002ms
+rtt min/avg/max/mdev = 1.036/1.163/1.382/0.155 ms
+power-off reached the host 685 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sc2net/linux_shell.txt (803 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 13:51:58
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

@@ -32,7 +32,7 @@ struct spike_platform_t {
   unsigned pmp_regions = 16, pmp_granularity = 4;
   bool pmp_reset_off = false;
   unsigned vaddr_bits = 39;  // Sv39 when S-mode exists (plan §4.1); Spike otherwise takes it from a DTS
-  uint64_t dram_base = 0x80000000ull, dram_size = 2048ull << 20;
+  uint64_t dram_base = 0x80000000ull, dram_size = 1024ull << 20;  // the PMA's memory region (DR-151)
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
   std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny: accesses fault, as the RTL's do

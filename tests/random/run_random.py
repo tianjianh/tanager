@@ -58,6 +58,10 @@ def stress_args(seed, irq, trace_stall=False):
         args.append(f"--probe-miss={r.choice([20, 50, 100])}")
     if r.randrange(3) == 0:  # probes at the GrantAck, before the line's first use (drawn after the rest, likewise)
         args.append(f"--probe-grant={r.choice([20, 50])}")
+    if r.randrange(3) == 0:  # DR-149: probes crossing a voluntary Release (the agent answers NtoN), likewise last
+        args.append(f"--probe-release={r.choice([20, 50, 100])}")
+    if r.randrange(3) == 0:  # DR-149: responses, Grants included, in any order or youngest first, likewise last
+        args.append(f"--grant-order={r.choice(['random', 'youngest'])}")
     args.append(f"--seed={seed}")
     return args
 
@@ -199,13 +203,14 @@ def main():
     tot = {}
     for d in l1d:
         for k, v in d.items():
-            tot[k] = max(tot.get(k, 0), int(v)) if k == "max_inflight" else tot.get(k, 0) + int(v)
+            tot[k] = max(tot.get(k, 0), int(v)) if k in ("max_inflight", "max_src") else tot.get(k, 0) + int(v)
     if tot.get("acquires"):
         print(f"{label}l1d: {tot['acquires']} Acquires by misses in flight with them "
               f"{tot['inflight1']}/{tot['inflight2']}/{tot['inflight3']}/{tot['inflight4']} (1/2/3/4+, max "
               f"{tot['max_inflight']}); probes on a miss's line {tot['probe_acq']}, in its set {tot['probe_set']}, "
-              f"on a line at its GrantAck {tot.get('probe_grant', 0)}; Releases during a miss {tot['rel_acq']}; "
-              f"same-set misses {tot['acq_set']}")
+              f"on a line at its GrantAck {tot.get('probe_grant', 0)}, on a line being released {tot.get('probe_rel', 0)}; "
+              f"Releases during a miss {tot['rel_acq']}; same-set misses {tot['acq_set']}; Grants out of order "
+              f"{tot.get('grant_ooo', 0)}; sources in flight at most {tot.get('max_src', 0)}")
     return 1 if fails else 0
 
 

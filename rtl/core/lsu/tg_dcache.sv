@@ -2,7 +2,9 @@
 // TL-C client on l1d.
 //   Data: per way a tg_ram_tdp of SETS*4 rows x 128 bits with byte enables. Port A: load reads
 //         (address in AG, data in M1). Port B: Grant writes, store writes, Release and
-//         ProbeAckData reads.
+//         ProbeAckData reads. With DC_PORTB_WREG (DR-148 #11) port B's writes reach the RAMs a
+//         cycle later from a register, its reads wait while one does, and the LSU retries a load
+//         that read the row in either cycle.
 //   Tags: per way a tg_ram_lut, read ports: load (M1), store drain, controller (probe/victim).
 //   State per set in one tg_ram_lut: the round-robin victim pointer and valid, T (M/E) and
 //   dirty per way. Four read ports (load, store/atomic, controller, the set being written) and
@@ -56,6 +58,8 @@ module tg_dcache
   output logic              st_dropped,   // acked without writing (denied Grant)
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
+  input  logic              am_sel,       // the atomic holds the store port (its state: am_req
+                                          // without the flush and its PMP flag)
   input  logic              pr_hold,      // probes wait: an LR's reservation is young (a register)
   input  logic [PA_W-1:0]   am_pa,
   input  logic [15:0]       am_wmask,     // in the am_ack cycle: bytes to write (0: none)
@@ -84,16 +88,21 @@ module tg_dcache
 );
 
   // ---- Arrays ----
-  logic [WAYS-1:0]        b_en;
+  logic [WAYS-1:0]        b_en;          // port B's access as decided
   logic [15:0]            b_we;
   logic [ROW_W-1:0]       b_addr;
   logic [127:0]           b_wdata;
+  logic [WAYS-1:0]        rb_en;         // ... at the RAMs (#11: the writes a cycle later)
+  logic [15:0]            rb_we;
+  logic [ROW_W-1:0]       rb_addr;
+  logic [127:0]           rb_wdata;
+  logic                   bw_busy;       // #11: a registered write takes port B this cycle
   logic [WAYS-1:0][127:0] a_rdata, b_rdata;
   for (genvar w = 0; w < WAYS; w++) begin : g_data
     tg_ram_tdp #(.DEPTH(ROWS), .WIDTH(128), .BYTE_W(8), .OUT_REG(1'b0), .PRIM("block")) u_data (
       .clk,
       .en_a(ld_rd_en), .we_a('0), .addr_a(ld_rd_pa[4 +: ROW_W]), .wdata_a('0), .rdata_a(a_rdata[w]),
-      .en_b(b_en[w]), .we_b(b_we), .addr_b(b_addr), .wdata_b(b_wdata),
+      .en_b(rb_en[w]), .we_b(rb_we), .addr_b(rb_addr), .wdata_b(rb_wdata),
       .rdata_b(b_rdata[w]));
   end
 
@@ -107,7 +116,10 @@ module tg_dcache
   logic                         sx_req;     // store or atomic: port 1 lookup and NtoT/BtoT
   logic [PA_W-1:0]              sx_pa;
   assign sx_req    = st_req || am_req;
-  assign sx_pa     = am_req ? am_pa : st_pa;
+  // The store port's address follows the atomic's state alone (a register): no store drains while
+  // an atomic holds the port, and without a request the lookup is unused (timing, DR-145: in G6
+  // the flush and the atomic's PMP flag reached the tag reads through am_req, -1.48 ns)
+  assign sx_pa     = am_sel ? am_pa : st_pa;
   assign tag_ra[0] = ld_m1_pa[6 +: SET_W];
   assign tag_ra[1] = sx_pa[6 +: SET_W];
   assign tag_ra[2] = ctl_pa[6 +: SET_W];
@@ -190,7 +202,7 @@ module tg_dcache
   assign sh      = hits(1, sx_pa[12 +: TAG_W], tag_rd, ss.v);
   assign sh_way  = enc(sh);
   assign s_hit   = |sh;
-  assign s_hit_t = s_hit && ss.t[sh_way];
+  assign s_hit_t = |(sh & ss.t);           // one way at most hits (asserted): no way select
 
   // Controller lookup
   logic [WAYS-1:0]  ch;
@@ -266,56 +278,75 @@ module tg_dcache
   assign fu_hold = ms_q == M_INSTALL || fu_st || fu_ld_q != '0 || pr_hold;
 
   // ---- Allocation (from M_IDLE) ----
+  // A store's or an atomic's miss first, else a load's whose line is still absent (it may have
+  // been filled since M1); never beside an atomic, which reads port B when it hits (pb_amr) and
+  // allocates when it misses. Each port's victim and eviction fields come from its own state, and
+  // the store port's miss selects last (timing, DR-145: in G6 the store port's compare -> the
+  // allocation -> the MSHR's registers and the state write, -1.40 and -1.49 ns; the same decisions,
+  // checked in simulation against the earlier form)
+  logic al_base;                         // the MSHR is free to allocate
   logic alloc_st, alloc_ld;
-  always_comb begin
-    alloc_st = 1'b0;
-    alloc_ld = 1'b0;
-    // A load allocates only if its line is still absent (it may have been filled since M1).
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
-      if (sx_req && !s_hit_t)    alloc_st = 1'b1;
-      else if (lm_req && !(|ch)) alloc_ld = 1'b1;
-    end
-  end
+  assign al_base  = ms_q == M_IDLE && ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
+  assign alloc_st = al_base && sx_req && !s_hit_t;
+  assign alloc_ld = al_base && lm_req && !(|ch) && !am_req && !(st_req && !s_hit_t);
   logic [PA_W-1:0]  al_pa;
   assign al_pa = alloc_st ? sx_pa : lm_pa;
+  logic dn_v_q;                          // the last denied fill (registered below)
+  logic [PA_W-1:6] dn_line_q;
+  logic dn_hit;                          // the store port's line: its last fill was denied
   logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
   logic al_go;                           // the MSHR allocates this cycle
+  logic al_up;                           // ... a store's upgrade of its B line in place
+  logic al_w;                            // ... with a victim, writing the set's state
   logic inst_go;                         // the MSHR installs this cycle
-  assign al_go   = ms_q == M_IDLE && (alloc_st || alloc_ld) && !sx_drop;
+  assign dn_hit  = dn_v_q && dn_line_q == sx_pa[PA_W-1:6];
+  assign al_go   = (alloc_st && !dn_hit) || alloc_ld;
+  assign al_up   = alloc_st && !dn_hit && s_hit;
+  assign al_w    = (alloc_st && !dn_hit && !s_hit) || alloc_ld;
   assign inst_go = ms_q == M_INSTALL && !(ps_q == P_UPD && p_hit_q);   // a probe update goes first
-  logic [WAYS-1:0]  al_hit;
-  logic [WAY_W-1:0] al_hway, victim;
-  logic             al_hb;               // line held in B (store upgrade)
-  assign al_hit  = alloc_st ? sh : ch;
-  assign al_hway = enc(al_hit);
-  assign al_hb   = |al_hit;
-  sst_t sa;                              // the allocation set: store port or controller port
-  assign sa = alloc_st ? ss : sc;
-  always_comb begin
+  // The victim: the first invalid way, else the round-robin pointer's. It is valid only when every
+  // way is, so an eviction's way is the pointer's
+  function automatic logic [WAY_W-1:0] vict(input logic [WAY_W-1:0] rr, input logic [WAYS-1:0] v);
+    logic [WAY_W-1:0] r;
     logic found;
     found = 1'b0;
-    victim = sa.rr;
+    r = rr;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !sa.v[w]) begin
-        victim = WAY_W'(w);
+      if (!found && !v[w]) begin
+        r = WAY_W'(w);
         found = 1'b1;
       end
     end
-  end
+    return r;
+  endfunction
+  logic [WAY_W-1:0] victim_s, victim_c, victim;
+  logic             ev_s, ev_c;          // the victim is valid: an eviction (store port, controller)
+  logic [TAG_W-1:0] evt_s, evt_c;        // ... its tag
+  assign victim_s = vict(ss.rr, ss.v);
+  assign victim_c = vict(sc.rr, sc.v);
+  assign victim   = alloc_st ? victim_s : victim_c;
+  assign ev_s     = &ss.v;
+  assign ev_c     = &sc.v;
+  assign evt_s    = tag_rd[ss.rr][1];
+  assign evt_c    = tag_rd[sc.rr][2];
 
   // ---- Port B arbitration ----
   logic pb_probe, pb_grant, pb_ev, pb_st, pb_amw;
   logic grant_beat;                      // a GrantData beat is accepted this cycle
-  assign pb_probe   = ps_q == P_RD;
-  assign pb_ev      = ms_q == M_EV_RD;
+  assign pb_probe   = ps_q == P_RD && !bw_busy;
+  assign pb_ev      = ms_q == M_EV_RD && !bw_busy;
   // Port B's read register must hold while a beat waits on C, so nothing else enables port B
   // during P_SEND or M_EV_SEND.
   assign grant_beat = ms_q == M_GRANT && d_valid_i && !(ps_q == P_RD || ps_q == P_SEND) &&
                       d_i.opcode == D_GRANT_DATA;
   assign pb_grant   = grant_beat;
-  // A store writes when the state port is free too: no install or allocation this cycle
-  assign pb_st      = st_req && s_hit_t && !probe_active && !mshr_on_c && !pb_grant &&
-                      ms_q != M_INSTALL && !al_go;
+  // A store writes when the state port is free too: no install or allocation this cycle. A store
+  // that hits allocates nothing, so only a load's allocation can take the state port then, and the
+  // hit selects last
+  logic pst_ok;
+  assign pst_ok     = !probe_active && !mshr_on_c && !pb_grant && ms_q != M_INSTALL &&
+                      !(al_base && lm_req && !(|ch));
+  assign pb_st      = st_req && s_hit_t && pst_ok;
   assign pb_amw     = amw_q && |am_wmask;
   // Port B's read data, selected once by the way it last read: a probe, an eviction or an
   // atomic. Port B makes one access per cycle and holds its output while a C beat waits, so
@@ -329,7 +360,8 @@ module tg_dcache
   if (DC_AMO_READ_REG) begin : g_amo_reg
     logic        amh_q;
     logic [63:0] am_rd_q;
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !amh_q &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+                      !amh_q &&
                       !amw_q;
     assign am_busy  = amh_q || amw_q;
     assign amw_d    = amh_q;
@@ -346,7 +378,8 @@ module tg_dcache
     end
 `endif
   end else begin : g_amo_now
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !amw_q;
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+                      !amw_q;
     assign am_busy  = amw_q;
     assign amw_d    = pb_amr;
     assign am_rdata = am_hi_q ? brow[127:64] : brow[63:0];
@@ -360,39 +393,78 @@ module tg_dcache
   assign st_ack     = pb_st || st_drop;
   assign st_dropped = st_drop;
 
+  // One way at most is enabled, and the byte write enables are zero for reads, so they are
+  // shared by the ways: a disabled way neither reads nor writes. The accesses from registers and
+  // the D channel select first, the store port's (a store's write, an atomic's read: its lookup is
+  // late) last, and the address, byte enables and data default to the store port's, so only the
+  // ways' enables wait for its hit (timing, DR-145: in G6 port B's address, byte enables and data,
+  // -1.39, -1.34 and -1.17 ns; checked in simulation against the earlier form)
+  logic             e_any;               // an access from registers or the D channel
+  logic [WAYS-1:0]  e_en;
+  logic [15:0]      e_we;
+  logic [ROW_W-1:0] e_addr;
+  logic             pb_x;                // the store port's: its way is sh
+  assign e_any = pb_probe || pb_grant || pb_ev || pb_amw;
+  assign pb_x  = pb_st || pb_amr;
   always_comb begin
-    // One way at most is enabled, and the byte write enables are zero for reads, so they are
-    // shared by the ways: a disabled way neither reads nor writes
-    b_en = '0; b_we = '0; b_addr = '0; b_wdata = '0;
-    brd_en = 1'b0; brd_way = '0;
+    e_en = '0; e_we = '0; e_addr = sx_pa[4 +: ROW_W];
     if (pb_probe) begin
-      brd_en = 1'b1; brd_way = p_way_q;
-      b_en[p_way_q] = 1'b1;
-      b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
+      e_en[p_way_q] = 1'b1;
+      e_addr = {p_pa_q[6 +: SET_W], p_beat_q};
     end else if (pb_grant) begin
-      b_en[m_way_q] = 1'b1;
-      b_we = '1;
-      b_addr = {m_line_q[6 +: SET_W], m_beat_q};
-      b_wdata = d_i.data;
+      e_en[m_way_q] = 1'b1;
+      e_we = '1;
+      e_addr = {m_line_q[6 +: SET_W], m_beat_q};
     end else if (pb_ev) begin
-      brd_en = 1'b1; brd_way = m_way_q;
-      b_en[m_way_q] = 1'b1;
-      b_addr = {m_vline_q[6 +: SET_W], m_beat_q};
-    end else if (pb_st) begin
-      b_en[sh_way] = 1'b1;
-      b_we = st_mask;
-      b_addr = st_pa[4 +: ROW_W];
-      b_wdata = {2{st_wdata}};
-    end else if (pb_amr) begin
-      brd_en = 1'b1; brd_way = sh_way;
-      b_en[sh_way] = 1'b1;
-      b_addr = am_pa[4 +: ROW_W];
+      e_en[m_way_q] = 1'b1;
+      e_addr = {m_vline_q[6 +: SET_W], m_beat_q};
     end else if (pb_amw) begin
-      b_en[am_way_q] = 1'b1;
-      b_we = am_wmask;
-      b_addr = am_row_q;
-      b_wdata = {2{am_wdata}};
+      e_en[am_way_q] = 1'b1;
+      e_we = am_wmask;
+      e_addr = am_row_q;
     end
+  end
+  assign b_en    = e_en | (pb_x ? sh : '0);
+  assign b_we    = e_any ? e_we : st_req ? st_mask : '0;
+  assign b_addr  = e_addr;
+  assign b_wdata = pb_grant ? d_i.data : amw_q ? {2{am_wdata}} : {2{st_wdata}};
+  assign brd_en  = pb_probe || pb_ev || pb_amr;
+  assign brd_way = pb_probe ? p_way_q : pb_ev ? m_way_q : sh_way;
+  // #11 (DC_PORTB_WREG): the writes (a grant beat, a store, an atomic) reach the RAMs from a
+  // register a cycle later, and the reads (probe, eviction, atomic) wait while one does (bw_busy;
+  // no write is decided while port B's output holds a read: P_RD/P_SEND, M_EV_RD/M_EV_SEND and an
+  // atomic's read exclude them). Timing, DR-148: the RAMs' write inputs start at flip-flops
+  if (DC_PORTB_WREG) begin : g_bwreg
+    logic             wr_v_q;
+    logic [WAYS-1:0]  wr_en_q;
+    logic [15:0]      wr_we_q;
+    logic [ROW_W-1:0] wr_addr_q;
+    logic [127:0]     wr_data_q;
+    logic             b_wr;
+    assign b_wr = pb_grant || pb_st || pb_amw;
+    always_ff @(posedge clk) begin
+      wr_v_q    <= !rst && b_wr;
+      wr_en_q   <= (!rst && b_wr) ? b_en : '0;
+      wr_we_q   <= (!rst && b_wr) ? b_we : '0;
+      wr_addr_q <= b_addr;
+      wr_data_q <= b_wdata;
+    end
+    assign bw_busy  = wr_v_q;
+    assign rb_en    = wr_en_q | (brd_en ? b_en : '0);
+    assign rb_we    = wr_we_q;
+    assign rb_addr  = wr_v_q ? wr_addr_q : b_addr;
+    assign rb_wdata = wr_data_q;
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || ms_q == M_EV_SEND || brd_en)))
+        else $error("tg_dcache: a registered write lands while port B's output holds a read");
+`endif
+  end else begin : g_bwnow
+    assign bw_busy  = 1'b0;
+    assign rb_en    = b_en;
+    assign rb_we    = b_we;
+    assign rb_addr  = b_addr;
+    assign rb_wdata = b_wdata;
   end
 
   // ---- Channels ----
@@ -439,8 +511,6 @@ module tg_dcache
     d_ready_o = 1'b1;
     if (ms_q == M_GRANT && (ps_q == P_RD || ps_q == P_SEND)) d_ready_o = 1'b0;
   end
-  logic dn_v_q;
-  logic [PA_W-1:6] dn_line_q;
   assign deny_v    = dn_v_q;
   assign deny_line = dn_line_q;
 
@@ -449,8 +519,8 @@ module tg_dcache
   assign d_fire = d_valid_i && d_ready_o;
 
   // Store whose fill was denied: acknowledged without a write. An atomic: am_den (access fault).
-  assign sx_drop = sx_req && ms_q == M_IDLE && dn_v_q && dn_line_q == sx_pa[PA_W-1:6] && !s_hit_t
-                   && !alloc_ld && !probe_active;
+  // (a load's allocation never comes with a store port miss)
+  assign sx_drop = sx_req && ms_q == M_IDLE && dn_hit && !s_hit_t && !probe_active;
   assign st_drop = sx_drop && st_req;
   assign am_den  = sx_drop && am_req;
   logic            lose_v_q;
@@ -459,48 +529,58 @@ module tg_dcache
   assign lose_line = lose_line_q;
 
   // ---- State writes: one read-modify-write per cycle ----
+  // By priority: the reset sweep, a probe update, an install (registers); an allocation with a
+  // victim or a store hit setting dirty (the store port's lookup is late: they select last, each
+  // from its own port's state); else an atomic's write. The late writes exclude the others but
+  // the sweep (timing, DR-145: in G6 the store port's compare -> the write's source -> the state
+  // RAMs' data, -1.49 ns; checked in simulation against the earlier form)
+  logic             we_e;
+  logic [SET_W-1:0] wa_e;
+  sst_t             wd_e, wd_as, wd_ac, wd_s;
+  logic             w_as, w_ac, w_s;     // a store's or atomic's allocation, a load's, a store hit
   always_comb begin
-    st_we = 1'b0;
-    st_wa = '0;
-    st_wd = sw;
+    we_e = 1'b0;
+    wa_e = am_row_q[ROW_W-1:2];
+    wd_e = sw;
     if (!ready) begin
-      st_we = 1'b1;
-      st_wa = init_q[SET_W-1:0];
-      st_wd = '0;
+      we_e = 1'b1;
+      wa_e = init_q[SET_W-1:0];
+      wd_e = '0;
     end else if (ps_q == P_UPD && p_hit_q) begin
-      st_we = 1'b1;
-      st_wa = p_pa_q[6 +: SET_W];
-      st_wd = sw;
-      st_wd.v[p_way_q] = p_nv_q;
-      st_wd.t[p_way_q] = p_nt_q;
-      if (!p_nt_q) st_wd.d[p_way_q] = 1'b0;     // to B or N: dirty data went with the ack
-    end else if (inst_go) begin
-      st_we = 1'b1;
-      st_wa = m_line_q[6 +: SET_W];
-      st_wd = sw;
-      st_wd.v[m_way_q] = !m_den_q;
-      st_wd.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
-      st_wd.d[m_way_q] = 1'b0;
-    end else if (al_go && !(alloc_st && al_hb)) begin
-      st_we = 1'b1;
-      st_wa = al_pa[6 +: SET_W];
-      st_wd = sa;
-      st_wd.rr = sa.rr + 1'b1;
-      st_wd.v[victim] = 1'b0;                   // the victim is released (or was invalid)
-      st_wd.t[victim] = 1'b0;
-      st_wd.d[victim] = 1'b0;
-    end else if (pb_st) begin
-      st_we = 1'b1;
-      st_wa = sx_pa[6 +: SET_W];
-      st_wd = ss;
-      st_wd.d[sh_way] = 1'b1;
+      we_e = 1'b1;
+      wa_e = p_pa_q[6 +: SET_W];
+      wd_e.v[p_way_q] = p_nv_q;
+      wd_e.t[p_way_q] = p_nt_q;
+      if (!p_nt_q) wd_e.d[p_way_q] = 1'b0;     // to B or N: dirty data went with the ack
+    end else if (ms_q == M_INSTALL) begin      // inst_go
+      we_e = 1'b1;
+      wa_e = m_line_q[6 +: SET_W];
+      wd_e.v[m_way_q] = !m_den_q;
+      wd_e.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
+      wd_e.d[m_way_q] = 1'b0;
     end else if (pb_amw) begin
-      st_we = 1'b1;
-      st_wa = am_row_q[ROW_W-1:2];
-      st_wd = sw;
-      st_wd.d[am_way_q] = 1'b1;
+      we_e = 1'b1;
+      wd_e.d[am_way_q] = 1'b1;
     end
+    wd_as = ss;
+    wd_as.rr = ss.rr + 1'b1;
+    wd_as.v[victim_s] = 1'b0;                   // the victim is released (or was invalid)
+    wd_as.t[victim_s] = 1'b0;
+    wd_as.d[victim_s] = 1'b0;
+    wd_ac = sc;
+    wd_ac.rr = sc.rr + 1'b1;
+    wd_ac.v[victim_c] = 1'b0;
+    wd_ac.t[victim_c] = 1'b0;
+    wd_ac.d[victim_c] = 1'b0;
+    wd_s = ss;
+    wd_s.d = ss.d | sh;                         // the hit way's dirty bit (sh is one-hot)
   end
+  assign w_as  = alloc_st && !dn_hit && !s_hit;
+  assign w_ac  = alloc_ld;
+  assign w_s   = pb_st && ready;
+  assign st_we = we_e || w_as || w_ac || w_s;
+  assign st_wa = (w_as || w_s) ? sx_pa[6 +: SET_W] : w_ac ? lm_pa[6 +: SET_W] : wa_e;
+  assign st_wd = w_as ? wd_as : w_ac ? wd_ac : w_s ? wd_s : wd_e;
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
@@ -526,7 +606,7 @@ module tg_dcache
       if (brd_en) brd_way_q <= brd_way;
       // Atomic: read now, write next cycle (or the cycle after: DC_AMO_READ_REG)
       amw_q <= amw_d;
-      if (pb_amr) begin
+      if (!am_busy) begin                       // (held from the read, pb_amr, to the write)
         am_way_q <= sh_way;
         am_row_q <= am_pa[4 +: ROW_W];
         am_hi_q  <= am_pa[3];
@@ -535,35 +615,31 @@ module tg_dcache
 
       // ---- MSHR ----
       unique case (ms_q)
-        M_IDLE: if (al_go) begin
-          logic [SET_W-1:0] s;
-          s = al_pa[6 +: SET_W];
-          m_line_q <= al_pa[PA_W-1:6];
-          m_st_q   <= alloc_st;
-          m_beat_q <= '0;
-          m_den_q  <= 1'b0;
-          if (alloc_st && al_hb) begin
-            // Upgrade a B line in place
-            m_way_q  <= al_hway;
-            m_grow_q <= TL_GROW_B_TO_T;
-            ms_q     <= M_ACQ;
-          end else begin
-            m_way_q  <= victim;
-            m_grow_q <= alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
-            if (sa.v[victim]) begin
-              // Release the victim; it is gone for probes and stores from now on
-              m_vline_q  <= {tag_rd[victim][alloc_st ? 1 : 2], s};
+        M_IDLE: begin
+          // The request's fields load in every idle cycle (they are read only once the MSHR has
+          // left M_IDLE), so only the state and lose_v wait for the allocation (timing, DR-145).
+          // An upgrade keeps its B line's way; else the victim's, released first when valid: it
+          // is gone for probes and stores from then on
+          m_line_q   <= al_pa[PA_W-1:6];
+          m_st_q     <= alloc_st;
+          m_beat_q   <= '0;
+          m_den_q    <= 1'b0;
+          m_way_q    <= al_up ? sh_way : victim;
+          m_grow_q   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
+          m_vline_q  <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+          m_vdirty_q <= alloc_st ? ss.d[ss.rr] : sc.d[sc.rr];
+          m_vt_q     <= alloc_st ? ss.t[ss.rr] : sc.t[sc.rr];
+          if (al_go) begin
+            if (!al_up && (alloc_st ? ev_s : ev_c)) begin
               lose_v_q    <= 1'b1;
-              lose_line_q <= {tag_rd[victim][alloc_st ? 1 : 2], s};
-              m_vdirty_q <= sa.d[victim];
-              m_vt_q     <= sa.t[victim];
-              ms_q <= sa.d[victim] ? M_EV_RD : M_EV_SEND;
+              lose_line_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+              ms_q        <= (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) ? M_EV_RD : M_EV_SEND;
             end else begin
               ms_q <= M_ACQ;
             end
           end
         end
-        M_EV_RD: ms_q <= M_EV_SEND;                 // port B read of beat m_beat_q
+        M_EV_RD: if (pb_ev) ms_q <= M_EV_SEND;      // port B read of beat m_beat_q (#11: not beside a write)
         M_EV_SEND: if (c_ready_i) begin
           if (!m_vdirty_q || m_beat_q == 2'd3) begin
             m_beat_q <= '0;
@@ -633,7 +709,7 @@ module tg_dcache
           end
           ps_q <= (hit && t && p_cap_q != TL_CAP_TO_T && d && !p_perm_q) ? P_RD : P_ACK;
         end
-        P_RD: ps_q <= P_SEND;
+        P_RD: if (pb_probe) ps_q <= P_SEND;         // (#11: not beside a write)
         P_SEND: if (c_ready_i) begin
           if (p_beat_q == 2'd3) ps_q <= P_UPD;
           else begin
@@ -671,10 +747,147 @@ module tg_dcache
       assert ($onehot0(lh)) else $error("tg_dcache: multiple way hits");
       assert ($onehot0({pb_probe, pb_grant, pb_ev, pb_st, pb_amr, pb_amw})) else $error("tg_dcache: port B conflict");
       assert (!(st_req && am_req)) else $error("tg_dcache: store and atomic requests together");
+      assert (!(st_req && am_sel) && (!am_req || am_sel)) else $error("tg_dcache: a store drains while an atomic holds the store port");
+      assert ($onehot0(sh) && $onehot0(ch)) else $error("tg_dcache: multiple way hits (store port, controller)");
       if (amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
       // port B's read data belongs to the way its reader expects
       if (ps_q == P_SEND) assert (brd_way_q == p_way_q) else $error("tg_dcache: probe data from another way");
       if (ms_q == M_EV_SEND && m_vdirty_q) assert (brd_way_q == m_way_q) else $error("tg_dcache: release data from another way");
+    end
+  end
+  // The arbitration as written before DR-145's restructure, on the same lookups: its decisions,
+  // its port-B accesses, its state writes and its MSHR fields, checked against the restructured
+  // logic every cycle
+  sst_t             sa;                  // the allocation set: store port or controller port
+  logic             r_s_hit_t, r_alloc_st, r_alloc_ld, r_sx_drop, r_al_go, r_pb_st, r_al_hb;
+  logic [WAY_W-1:0] r_victim, r_al_hway;
+  logic [WAYS-1:0]  r_b_en;
+  logic [15:0]      r_b_we;
+  logic [ROW_W-1:0] r_b_addr;
+  logic [127:0]     r_b_wdata;
+  logic             r_brd_en;
+  logic [WAY_W-1:0] r_brd_way;
+  logic             r_st_we;
+  logic [SET_W-1:0] r_st_wa;
+  sst_t             r_st_wd;
+  always_comb begin
+    logic found;
+    r_s_hit_t  = s_hit && ss.t[sh_way];
+    r_alloc_st = 1'b0;
+    r_alloc_ld = 1'b0;
+    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
+      if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
+      else if (lm_req && !(|ch)) r_alloc_ld = 1'b1;
+    end
+    r_sx_drop = sx_req && ms_q == M_IDLE && dn_v_q && dn_line_q == sx_pa[PA_W-1:6] && !r_s_hit_t
+                && !r_alloc_ld && !probe_active;
+    r_al_go   = ms_q == M_IDLE && (r_alloc_st || r_alloc_ld) && !r_sx_drop;
+    r_pb_st   = st_req && r_s_hit_t && !probe_active && !mshr_on_c && !pb_grant &&
+                ms_q != M_INSTALL && !r_al_go;
+    r_al_hb   = r_alloc_st ? |sh : |ch;
+    r_al_hway = enc(r_alloc_st ? sh : ch);
+    sa = r_alloc_st ? ss : sc;
+    found = 1'b0;
+    r_victim = sa.rr;
+    for (int w = 0; w < WAYS; w++) begin
+      if (!found && !sa.v[w]) begin
+        r_victim = WAY_W'(w);
+        found = 1'b1;
+      end
+    end
+    r_b_en = '0; r_b_we = '0; r_b_addr = '0; r_b_wdata = '0;
+    r_brd_en = 1'b0; r_brd_way = '0;
+    if (pb_probe) begin
+      r_brd_en = 1'b1; r_brd_way = p_way_q;
+      r_b_en[p_way_q] = 1'b1;
+      r_b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
+    end else if (pb_grant) begin
+      r_b_en[m_way_q] = 1'b1;
+      r_b_we = '1;
+      r_b_addr = {m_line_q[6 +: SET_W], m_beat_q};
+      r_b_wdata = d_i.data;
+    end else if (pb_ev) begin
+      r_brd_en = 1'b1; r_brd_way = m_way_q;
+      r_b_en[m_way_q] = 1'b1;
+      r_b_addr = {m_vline_q[6 +: SET_W], m_beat_q};
+    end else if (r_pb_st) begin
+      r_b_en[sh_way] = 1'b1;
+      r_b_we = st_mask;
+      r_b_addr = st_pa[4 +: ROW_W];
+      r_b_wdata = {2{st_wdata}};
+    end else if (pb_amr) begin
+      r_brd_en = 1'b1; r_brd_way = sh_way;
+      r_b_en[sh_way] = 1'b1;
+      r_b_addr = am_pa[4 +: ROW_W];
+    end else if (pb_amw) begin
+      r_b_en[am_way_q] = 1'b1;
+      r_b_we = am_wmask;
+      r_b_addr = am_row_q;
+      r_b_wdata = {2{am_wdata}};
+    end
+    r_st_we = 1'b0;
+    r_st_wa = '0;
+    r_st_wd = sw;
+    if (!ready) begin
+      r_st_we = 1'b1;
+      r_st_wa = init_q[SET_W-1:0];
+      r_st_wd = '0;
+    end else if (ps_q == P_UPD && p_hit_q) begin
+      r_st_we = 1'b1;
+      r_st_wa = p_pa_q[6 +: SET_W];
+      r_st_wd = sw;
+      r_st_wd.v[p_way_q] = p_nv_q;
+      r_st_wd.t[p_way_q] = p_nt_q;
+      if (!p_nt_q) r_st_wd.d[p_way_q] = 1'b0;
+    end else if (inst_go) begin
+      r_st_we = 1'b1;
+      r_st_wa = m_line_q[6 +: SET_W];
+      r_st_wd = sw;
+      r_st_wd.v[m_way_q] = !m_den_q;
+      r_st_wd.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
+      r_st_wd.d[m_way_q] = 1'b0;
+    end else if (r_al_go && !(r_alloc_st && r_al_hb)) begin
+      r_st_we = 1'b1;
+      r_st_wa = (r_alloc_st ? sx_pa[6 +: SET_W] : lm_pa[6 +: SET_W]);
+      r_st_wd = sa;
+      r_st_wd.rr = sa.rr + 1'b1;
+      r_st_wd.v[r_victim] = 1'b0;
+      r_st_wd.t[r_victim] = 1'b0;
+      r_st_wd.d[r_victim] = 1'b0;
+    end else if (r_pb_st) begin
+      r_st_we = 1'b1;
+      r_st_wa = sx_pa[6 +: SET_W];
+      r_st_wd = ss;
+      r_st_wd.d[sh_way] = 1'b1;
+    end else if (pb_amw) begin
+      r_st_we = 1'b1;
+      r_st_wa = am_row_q[ROW_W-1:2];
+      r_st_wd = sw;
+      r_st_wd.d[am_way_q] = 1'b1;
+    end
+  end
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      assert (r_s_hit_t == s_hit_t && r_alloc_st == alloc_st && r_alloc_ld == alloc_ld &&
+              r_sx_drop == sx_drop && r_al_go == al_go && r_pb_st == pb_st &&
+              (r_al_go && !(r_alloc_st && r_al_hb)) == al_w && (r_al_go && r_alloc_st && r_al_hb) == al_up)
+        else $error("tg_dcache: the arbitration decides otherwise than its earlier form");
+      assert (r_b_en == b_en && r_brd_en == brd_en && (!brd_en || r_brd_way == brd_way))
+        else $error("tg_dcache: port B's enables differ from the earlier form");
+      if (|b_en) assert (r_b_addr == b_addr && r_b_we == b_we && (b_we == '0 || r_b_wdata == b_wdata))
+        else $error("tg_dcache: a port-B access differs from the earlier form");
+      assert (r_st_we == st_we && (!st_we || (r_st_wa == st_wa && r_st_wd == st_wd)))
+        else $error("tg_dcache: a state write differs from the earlier form");
+      if (al_go) begin
+        assert ((al_up ? sh_way : victim) == (r_alloc_st && r_al_hb ? r_al_hway : r_victim))
+          else $error("tg_dcache: the MSHR's way differs from the earlier form");
+        if (!al_up)
+          assert ((alloc_st ? ev_s : ev_c) == sa.v[r_victim] &&
+                  (!sa.v[r_victim] || ((alloc_st ? evt_s : evt_c) == tag_rd[r_victim][r_alloc_st ? 1 : 2] &&
+                                       (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) == sa.d[r_victim] &&
+                                       (alloc_st ? ss.t[ss.rr] : sc.t[sc.rr]) == sa.t[r_victim])))
+            else $error("tg_dcache: the victim's fields differ from the earlier form");
+      end
     end
   end
   // A state write starts from its set's state: a shadow of the state RAMs, written alike
@@ -687,7 +900,7 @@ module tg_dcache
     if (rs_q && !rst && ready) begin
       if ((ps_q == P_UPD && p_hit_q) || inst_go || (pb_amw && !al_go && !pb_st))
         assert (!st_we || sw == sh_q[st_wa]) else $error("tg_dcache: port 3 read another set than the write's");
-      else if (al_go && !(alloc_st && al_hb))
+      else if (al_w)
         assert (sa == sh_q[st_wa]) else $error("tg_dcache: an allocation's state is not its set's");
       else if (pb_st)
         assert (ss == sh_q[st_wa]) else $error("tg_dcache: a store's state is not its set's");

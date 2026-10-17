@@ -58,7 +58,7 @@ struct opts_t {
   unsigned pmp = TG_DEFAULT_PMP, pmp_g = 4;
   bool pmp_reset_off = false;
   int harts = -1;
-  uint64_t mem_mb = 2048;
+  uint64_t mem_mb = 1024;  // the PMA's memory region, 1 GiB at 0x8000_0000 (tg_map_pkg DRAM_REGION; DR-151)
   std::string rom;
   std::vector<uint64_t> tohost_va;
   // Trace back-pressure (verification.md §2.9): -1 = trace_stall_i stays 0
@@ -85,8 +85,8 @@ void usage() {
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
           "               --pmp=N --pmp-g=BYTES --pmp-reset=spike|off\n"
           "  memory:      --lat=native|90|120|250|N --lat-jitter=N --bp=PCT --d-gap=PCT --grant-b=PCT\n"
-          "               --probe-rate=PERMILLE --probe-miss=PCT --probe-grant=PCT --set-stride=BYTES --mmio-lat=N\n"
-          "               --d-stall-max=N\n"
+          "               --probe-rate=PERMILLE --probe-miss=PCT --probe-grant=PCT --probe-release=PCT\n"
+          "               --grant-order=oldest|random|youngest --set-stride=BYTES --mmio-lat=N --d-stall-max=N\n"
           "               --mem-mb=N --rom=FILE\n"
           "               --deny=ADDR[:LEN] --boot=ADDR --tohost-va=ADDR\n"
           "  devices:     --mtime-div=N --irq-rand=PERMILLE\n"
@@ -170,6 +170,14 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "probe-rate") mc.probe_rate = unsigned(num(need(), "--probe-rate"));
     else if (k == "probe-miss") mc.probe_miss = unsigned(num(need(), "--probe-miss"));
     else if (k == "probe-grant") mc.probe_grant = unsigned(num(need(), "--probe-grant"));
+    else if (k == "probe-release") mc.probe_release = unsigned(num(need(), "--probe-release"));
+    else if (k == "grant-order") {
+      std::string v = need();
+      if (v == "oldest") mc.grant_order = 0;
+      else if (v == "random") mc.grant_order = 1;
+      else if (v == "youngest") mc.grant_order = 2;
+      else { fprintf(stderr, "tg: --grant-order=%s: oldest, random or youngest\n", v.c_str()); usage(); }
+    }
     else if (k == "set-stride") {
       mc.set_stride = unsigned(num(need(), "--set-stride"));
       if (mc.set_stride < 64 || (mc.set_stride & (mc.set_stride - 1))) fatal("--set-stride must be a power of two, at least 64");
@@ -553,13 +561,15 @@ int main(int argc, char** argv) {
             t.merr_pulses ? strfmt("; merr_o pulsed %llu times", (unsigned long long)t.merr_pulses).c_str() : "");
     if (t.l1d.acquires)
       fprintf(stderr, "tg_vsim: l1d Acquires by misses in flight with them: %llu/%llu/%llu/%llu (1/2/3/4+, max %u); "
-                      "probes on a miss's line %llu, in its set %llu, on a line at its GrantAck %llu; Releases during a "
-                      "miss %llu; same-set misses %llu\n",
+                      "probes on a miss's line %llu, in its set %llu, on a line at its GrantAck %llu, on a line being "
+                      "released %llu; Releases during a miss %llu; same-set misses %llu; Grants out of order %llu; "
+                      "sources in flight at most %u\n",
               (unsigned long long)t.l1d.acq_by_inflight[0], (unsigned long long)t.l1d.acq_by_inflight[1],
               (unsigned long long)t.l1d.acq_by_inflight[2], (unsigned long long)t.l1d.acq_by_inflight[3],
               t.l1d.max_inflight, (unsigned long long)t.l1d.probes_on_acquire, (unsigned long long)t.l1d.probes_same_set,
-              (unsigned long long)t.l1d.probes_on_grant, (unsigned long long)t.l1d.releases_during_acquire,
-              (unsigned long long)t.l1d.acquires_same_set);
+              (unsigned long long)t.l1d.probes_on_grant, (unsigned long long)t.l1d.probes_on_release,
+              (unsigned long long)t.l1d.releases_during_acquire, (unsigned long long)t.l1d.acquires_same_set,
+              (unsigned long long)t.l1d.grants_ooo, t.l1d.max_src_inflight);
     if (t.sink.enabled)
       fprintf(stderr, "tg_vsim: trace_stall_i high in %llu cycles (%llu stalls); sink peak %u of %u records, "
                       "stall below %u free%s\n",
@@ -574,12 +584,19 @@ int main(int argc, char** argv) {
   // DR-149's coverage, for runners that add it up (verification.md §2.4); on stderr, as stdout is the
   // program's console (run_bench.py compares it with Spike's)
   fprintf(stderr, "TG-L1D acquires=%llu inflight1=%llu inflight2=%llu inflight3=%llu inflight4=%llu max_inflight=%u "
-         "probe_acq=%llu probe_set=%llu rel_acq=%llu acq_set=%llu probe_grant=%llu\n",
+         "probe_acq=%llu probe_set=%llu rel_acq=%llu acq_set=%llu probe_grant=%llu probe_rel=%llu grant_ooo=%llu "
+         "max_src=%u%s\n",
          (unsigned long long)t.l1d.acquires, (unsigned long long)t.l1d.acq_by_inflight[0],
          (unsigned long long)t.l1d.acq_by_inflight[1], (unsigned long long)t.l1d.acq_by_inflight[2],
          (unsigned long long)t.l1d.acq_by_inflight[3], t.l1d.max_inflight, (unsigned long long)t.l1d.probes_on_acquire,
          (unsigned long long)t.l1d.probes_same_set, (unsigned long long)t.l1d.releases_during_acquire,
-         (unsigned long long)t.l1d.acquires_same_set, (unsigned long long)t.l1d.probes_on_grant);
+         (unsigned long long)t.l1d.acquires_same_set, (unsigned long long)t.l1d.probes_on_grant,
+         (unsigned long long)t.l1d.probes_on_release, (unsigned long long)t.l1d.grants_ooo, t.l1d.max_src_inflight,
+         [&] {  // requests per source (DR-149), src8 for 8 and up
+           std::string v;
+           for (int i = 0; i < 9; i++) v += strfmt(" src%d=%llu", i, (unsigned long long)t.l1d.src_req[i]);
+           return v;
+         }().c_str());
   fflush(stdout);
   return status;
 }
