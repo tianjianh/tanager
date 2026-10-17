@@ -760,7 +760,8 @@ static int cmd_run(const struct opts *o) {
       struct pollfd p = { in_fd, POLLIN, 0 };
       if (poll(&p, 1, 0) > 0 && (p.revents & POLLIN)) {
         char c;
-        if (read(in_fd, &c, 1) == 1) {
+        ssize_t got = read(in_fd, &c, 1);
+        if (got == 1) {
           if (o->console == 0 && ctrl_a && c == 'x') { stop_req = 1; }
           else if (o->console == 0 && c == 1) { ctrl_a = 1; }
           else {
@@ -768,6 +769,8 @@ static int cmd_run(const struct opts *o) {
             while (rd(R_UART_RX_SPACE) == 0) sleep_us(50);
             wr(R_UART_RX, (uint8_t)c);
           }
+        } else if (got == 0 && o->console == 0) {
+          in_fd = -1;                       /* stdin at its end (a script, nohup): stop reading it, or the loop spins */
         }
         idle = 0;
       }
@@ -795,7 +798,15 @@ static int cmd_run(const struct opts *o) {
     if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
-    if (idle) sleep_us(200);
+    if (idle) {                             /* the console's input and the TAP device end the wait at once */
+      struct pollfd pf[2];
+      int npf = 0;
+      if (in_fd >= 0) pf[npf++] = (struct pollfd){ .fd = in_fd, .events = POLLIN };
+      if (net_fd >= 0) pf[npf++] = (struct pollfd){ .fd = net_fd, .events = POLLIN };
+      struct timespec ts = { 0, 200000 };   /* the registers (window, power, trace) are polled every 200 us */
+      if (npf) ppoll(pf, (nfds_t)npf, &ts, NULL);
+      else     sleep_us(200);
+    }
   }
   /* Drain the console before holding everything: the RISC-V's last line is often still in its UART
    * (the board's first light lost "S\n" of "PASS"), and on the PMOD line each byte takes 87 us at
