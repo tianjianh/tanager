@@ -1,0 +1,6 @@
+$ tanager-host boot --fw /home/ubuntu/tanager/c1s/fw_jump.bin --kernel /home/ubuntu/tanager/c1s/Image --dtb /home/ubuntu/tanager/c1s/tanager-kv260-768m.dtb --lossless --trace /home/ubuntu/tanager/c1s/boot.trace --trace-wrap --trace-log2 16 --timeout 30
+zeroed the RISC-V window: 1020 MiB in 1.4 s
+loaded: fw 277856 B, kernel 21449216 B, dtb 2119 B into 0x840000000 (RISC-V 0x80000000)
+
+[tanager-host] timeout
+[tanager-host] trace: 20 records written
