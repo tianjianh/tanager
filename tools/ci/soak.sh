@@ -21,6 +21,9 @@ MEM_GB=12               # start no program while MemAvailable is under this
 C_MIN_GB=12             # hold while the host drive C:, which holds WSL's virtual disk, has less free
 WSL_MIN_GB=15           # or WSL's root filesystem has less free (df /: it binds once the disk is capped)
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
+REBUILD_MIN_H=4         # a newer main is built at most this often: each build writes about 0.5 GB anew, and
+                        # WSL's virtual disk keeps every block it once held until it is compacted
+COH_L2_SETS=1024        # the coherence testbench's L2 sets, the board's, once tb_boot takes the count
 SEEDS=400               # programs per configuration per round (about a minute)
 VM_PCT=33               # share of the programs that run in S-mode under Sv39 (tg_rand --vm)
 # Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
@@ -86,12 +89,16 @@ prepare() {
   # The coherence programs' testbench (the default profile only) and checker. A failure here turns the
   # coherence rounds off for this main and keeps the random rounds going.
   echo > "$SOAK/coh"
+  # The board's L2 sets once tb_boot takes the count (L2_SETS_TB), in the boot test's tagged directory
+  local l2tag=""
+  grep -q "L2_SETS_TB" "$src/tests/unit/boot/tb_boot.sv" 2>/dev/null && l2tag="_l2s$COH_L2_SETS"
+  echo "$l2tag" > "$SOAK/coh_tag"
   if [ -n "$coh" ]; then
     if ( source "$src/tools/env.sh" >/dev/null 2>&1
          export CCACHE_DISABLE=1
          for cfg in $COH_CFGS; do
            make -s -C "$src/tests/unit/boot" build CFG="$cfg" CORES=2 VTHREADS=1 JOBS="$BUILD_JOBS" \
-             TANAGER_BUILD="$SOAK/build" || exit 1
+             TANAGER_BUILD="$SOAK/build" ${l2tag:+TAG=$l2tag MEM_PARAMS=-GL2_SETS_TB=$COH_L2_SETS} || exit 1
          done
          make -s -C "$src/sim" TANAGER_BUILD="$SOAK/build" lockstep ) > "$SOAK/logs/build-coh.log" 2>&1; then
       # The DDR timing: the board's (18-26 cycles, fixed and jittered) once tb_axi_mem takes it at run
@@ -121,6 +128,7 @@ prepare() {
   if grep -q -- '"--miss"' "$src/tests/random/run_random.py"; then echo 1; else echo; fi > "$SOAK/miss_ok"
   echo "$tcs" > "$SOAK/timing_cuts"
   fingerprint "$commit" > "$SOAK/fingerprint"
+  date +%s > "$SOAK/built_at"
   echo "$commit" > "$SOAK/commit"
 }
 
@@ -169,7 +177,7 @@ campaign() {
 # One configuration's coherence programs (tests/coherence); failures are kept as campaign()'s are.
 coh_campaign() {
   local commit=$1 cfg=$2 seed=$3 day=$4 work="$SOAK/work/coh-$2" label="coh-$2" harts=0,1
-  local tb="$SOAK/build/tanager/tests/boot_c2_t1_$2/tb_boot"
+  local tb="$SOAK/build/tanager/tests/boot$(cat "$SOAK/coh_tag" 2>/dev/null)_c2_t1_$2/tb_boot"
   [ "$cfg" = smt2 ] && harts=0,2
   rm -rf "$work"
   mkdir -p "$work"
@@ -286,7 +294,12 @@ run() {
       echo "$commit" > "$SOAK/commit"
     fi
     if [ "$(cat "$SOAK/commit" 2>/dev/null)" != "$commit" ]; then
-      if [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; then
+      local built=$(cat "$SOAK/built_at" 2>/dev/null || echo 0)
+      if [ -s "$SOAK/commit" ] && [ $(( $(date +%s) - built )) -lt $(( REBUILD_MIN_H * 3600 )) ]; then
+        # The build is younger than REBUILD_MIN_H: keep soaking it, and build the newer main after that
+        state_note="main $commit waits for the next build at $(date -d "@$(( built + REBUILD_MIN_H * 3600 ))" +%H:%M)"
+        commit=$(cat "$SOAK/commit")
+      elif [ "$(mem_gb)" -lt "$BUILD_MEM_GB" ]; then
         # Too little memory to build main now: keep soaking the previous build, if there is one
         # (programs take about 12 MB each), and try again after the round.
         if [ -s "$SOAK/commit" ]; then
