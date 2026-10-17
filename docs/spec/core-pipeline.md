@@ -75,6 +75,14 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
   - **Repair is exact.** Commit keeps a committed copy: a pointer, a count and a LUTRAM written by the committed pushes. The speculative entries are a LUTRAM with a valid bit each, and an entry without one reads the committed copy's. A flush clears the valid bits and takes the committed pointer and count. Decode is ahead of commit, so whatever commit writes after a flush, decode wrote at that entry first: an entry without a valid bit is unchanged in the committed copy. Every recovery is at commit, so the stack is exact after each one. A decode redirect needs none: only the groups rename takes move the stack.
   - **Limits:** a decode group holds at most one stack operation (a later one waits for the next group), and a commit group at most one push (§8.2). The stack is circular: a push past 32 overwrites the oldest entry, and the count saturates.
   - **Not yet:** one stack per core; per hart in M7.
+- **TAGE-lite** (`tg_tage`, M6; `TAGE_ON`, on; `TG_TAGE=0` turns it off, cycle for cycle): the direction predictor, per fetch block. Design and measurements: reports/m6-tage-design.md in the core track's build tree.
+  - **Tables** (block memory, 5 BRAM36): a base table of 2K blocks with a 2-bit counter per slot, and four tagged tables of 1K entries. A tagged entry holds two sub-entries {valid, slot, 9-bit tag, 3-bit counter, 2-bit useful}; a branch matches the sub-entry with its slot (its last parcel's, the micro-BTB's key) and the table's tag. History lengths 4, 9, 18 and 40 bits.
+  - **Lookup:** F1 reads every table on the block address hashed with the speculative history (`gh_q`), as the block moves into F2 (the I$ data's timing); the history does not wait for the block in F2, so a lookup misses at most the previous block's branches.
+  - **Decision (F2):** each conditional branch's direction comes from the longest-history match, else the base counter. The block's exit is its first JAL, JALR the micro-BTB predicts there, or conditional branch predicted taken. A block holds at most two conditional branches: it ends before a third (a cut, refetched there). When the exit differs from what F1 followed (the micro-BTB), F2 refetches: at the exit's target (PC + imm, added in the action's cycle) or at the next block. The micro-BTB's entry is invalidated only when its prediction is no branch's or jump's. A JAL or branch exit carries no target in the queue (`pred_tsrc`): decode takes its own.
+  - **History:** one bit per conditional branch, in program order. The speculative history takes each delivered block's branches as predicted; commit's takes each retiring branch's outcome (the same branches, on the right path). A flush copies commit's into it. Decode's redirect rebuilds it from the redirecting instruction's FTQ entry.
+  - **FTQ** (`FTQ_ENTRIES`, 32, LUTRAM): one entry per delivered block, with the history before the block, its branches' slots and directions, and the indices and tags it read TAGE with. Each instruction carries its block's entry to the ROB. Decode's redirect drops the later entries; commit frees the earlier ones; a flush empties it. F2 holds while it is full.
+  - **Training at commit:** each retiring conditional branch (not a straddler) sends its outcome, its fetch-time direction and its block's indices to a queue in `tg_tage`. Port B reads the entries and writes them back a cycle later (one update every two cycles; a full queue drops one). The provider's counter moves toward the outcome, its useful bits when it disagreed with the next match; without a provider, the base counter moves. A wrong fetch-time direction allocates a sub-entry (invalid or not useful) in a longer table, else ages the candidates.
+  - **Not yet:** a periodic reset of the useful bits; per-hart histories (M7).
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
   - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
   - **It starts at zero after configuration:** the primitives' INIT is zero, and so is the simulator's default. So the first run after configuration matches simulation.
@@ -91,6 +99,7 @@ For each instruction, `pred_exit` = the block was predicted taken and the predic
 - **JAL:** target = PC + imm. If it was not predicted taken here with that target, redirect to the target.
 - **Conditional branch** predicted taken here with a wrong target: redirect to PC + imm.
 - **A return** (a JALR that pops the return-address stack, §3.2) while the stack is not empty: its target is the stack's top. If the front end did not follow that target here, redirect to it. Execute then rewrites the micro-BTB entry, as for a JAL.
+- **TAGE's exits** (`pred_tsrc`, §3.2): a JAL or branch the front end took to its own target needs no check; its predicted next PC is decode's target. A redirect also names its instruction's FTQ entry and slot, for the history's repair.
 - **`pred_exit` on anything else, or a slot mismatch:** the prediction is bogus; redirect to the next sequential PC and invalidate the micro-BTB entry.
 
 The redirecting instruction stays in the group; younger slots are dropped. Its `pred_npc` (the next PC the front end followed) is what execute compares against.
@@ -245,6 +254,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Interrupts** (§9.4) are checked before the head retires.
 - **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
 - **Return-address stack** (§3.2): each retiring instruction's stack operation goes to the committed copy. A second push in a group ends the group before it, so the copy has one write port.
+- **TAGE** (§3.2): each retiring conditional branch moves commit's history and trains the tables; the youngest retiring instruction's FTQ entry frees the earlier ones. A conditional branch's mispredict is its direction (decode checks its taken target), so its outcome is its fetch-time direction XOR the mispredict.
 - **The commit gate** is the flush and the trace's stall alone (timing, DR-145: in G6 the FP free list's init flag → rename's ready → commit → the free-list count and the CSR file, −1.40 ns). Rename's ready and the init flags are one-time flags after reset, and the ROB holds an entry only after rename fired, which needed them (asserted).
 
 ### 8.3 Flush
@@ -325,6 +335,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 
 **M6 feature switches** (`tg_core_pkg`; each `=0|1`, for bisection and ablation):
 - `TG_RAS` (`RAS_ON`, on): the return-address stack (§3.2).
+- `TG_TAGE` (`TAGE_ON`, on): TAGE-lite and the FTQ (§3.2).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, off): speculative load wakeup (plan §4.6; the FPU track's `tg_issue` and `tg_exec`). The interface is in place, with `spec_cancel` from `tg_issue` to `tg_exec`; both ends are tied off until it is built.
 
 ## 13. Timing and area

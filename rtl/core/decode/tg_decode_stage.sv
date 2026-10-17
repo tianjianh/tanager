@@ -58,6 +58,8 @@ module tg_decode_stage
   // Decode-time redirect (registered)
   output logic                dred,
   output logic [63:0]         dred_pc,
+  output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
+  output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
   // Return-address stack (tg_ras; RAS_ON): its top, and the taken group's operation
   input  logic                ras_v,
   input  logic [38:1]         ras_top,
@@ -197,14 +199,15 @@ module tg_decode_stage
     assign poff  = xq[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, xq[j].pc[3:0]};
     assign seq   = xseq[j];
     assign pt    = xq[j].pred_taken;
-    assign ptg   = xq[j].pred_target;
+    // a branch or JAL the front end took to its own target (TAGE_ON) carries no target: it is tgt
+    assign ptg   = xq[j].pred_tsrc ? xtgt[j] : xq[j].pred_target;
     // the class from the queue's pre-decode marks, the offset from the raw encoding
     assign {mbr, mjal, mjalr} = xq[j].marks;
     logic [20:0] bimm;
     assign bimm  = bimm_of(xq[j].insn, mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
-    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
+    assign hit   = xq[j].pred_tsrc || eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
     assign rop[j] = ras_op(xd[j]);
     always_comb begin
       npc[j]   = pt ? ptg : seq;
@@ -288,6 +291,8 @@ module tg_decode_stage
       de_uop[j].ubtb_hit = xq[j].ubtb_hit;
       de_uop[j].ubtb_way = xq[j].ubtb_way;
       de_uop[j].dfix     = dfix[j];
+      de_uop[j].ptk      = xq[j].pred_taken;
+      de_uop[j].ftq      = xq[j].ftq;
       de_uop[j].tid      = xq[j].tid;
       de_uop[j].d        = xd[j];
     end
@@ -398,8 +403,10 @@ module tg_decode_stage
       dred <= 1'b0;
       for (int j = 0; j < W; j++) begin
         if (de_take && n == TKW'(j + 1) && redir[j]) begin
-          dred    <= 1'b1;
-          dred_pc <= npc[j];
+          dred      <= 1'b1;
+          dred_pc   <= npc[j];
+          dred_ftq  <= xq[j].ftq;
+          dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
         end
       end
     end

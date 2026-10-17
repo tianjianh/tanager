@@ -117,6 +117,16 @@ package tg_core_pkg;
 `else
   localparam bit RAS_ON = 1'b1;
 `endif
+  // TAGE-lite (plan §4.2, M6; tg_tage, core-pipeline.md §3.2): the direction predictor, read per
+  // fetch block in F1 and deciding in F2, with the FTQ (FTQ_ENTRIES blocks) keeping what commit
+  // trains it with. On by default; TG_TAGE=0 turns it off: the micro-BTB alone, cycle for cycle
+`ifdef TG_TAGE
+  localparam bit TAGE_ON = `TG_TAGE;
+`else
+  localparam bit TAGE_ON = 1'b1;
+`endif
+  localparam int FTQW = idx_w(FTQ_ENTRIES);   // the configuration's FTQ_ENTRIES
+  localparam int GH_W = 64;               // the global history's bits (TAGE)
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -324,6 +334,9 @@ package tg_core_pkg;
     logic              pred_bogus;  // unused in M2 (F2 checks predictions against pre-decode)
     logic              ubtb_hit;    // the micro-BTB predicted taken at this instruction
     logic              ubtb_way;
+    logic              pred_tsrc;   // TAGE_ON: the front end took this branch or JAL to its own
+                                    // target (PC + imm), which pred_target does not carry
+    logic [FTQW-1:0]   ftq;         // its fetch block's FTQ entry (TAGE_ON)
     tid_t              tid;
     logic [2:0]        marks;       // pre-decode: {conditional branch, JAL, JALR}; decode's class
                                     // unless decode raises an exception
@@ -380,6 +393,15 @@ package tg_core_pkg;
     logic          fp_int;      // C_FP with an integer result (bank B1)
     logic          fp_div;      // C_FP on the divide/sqrt unit
   } dec_t;
+  // A conditional branch's or JAL's offset from its raw encoding (B or J; RVC's CB or CJ), bits 20:0
+  function automatic logic [20:0] br_imm(input logic [31:0] x, input logic jal);
+    if (x[1:0] == 2'b11)
+      return jal ? {x[31], x[19:12], x[20], x[30:21], 1'b0}
+                 : {{8{x[31]}}, x[31], x[7], x[30:25], x[11:8], 1'b0};
+    else
+      return jal ? {{9{x[12]}}, x[12], x[8], x[10:9], x[6], x[7], x[2], x[11], x[5:3], 1'b0}
+                 : {{12{x[12]}}, x[12], x[6:5], x[2], x[11:10], x[4:3], 1'b0};
+  endfunction
   // The return-address stack's operation for a decoded instruction (tg_ras): {push, pop}, by the
   // RISC-V hints with x1 and x5 as links. A JAL or JALR with a link rd pushes; a JALR with a link rs1
   // pops, unless rd is the same register; with two different links it does both (pop, then push)
@@ -402,6 +424,8 @@ package tg_core_pkg;
     logic          ubtb_hit;    // the micro-BTB predicted taken here
     logic          ubtb_way;
     logic          dfix;        // decode redirected here (the micro-BTB entry is wrong)
+    logic          ptk;         // the front end followed a taken prediction here
+    logic [FTQW-1:0] ftq;       // the fetch block's FTQ entry (TAGE_ON)
     tid_t          tid;
     dec_t          d;
   } uop_t;
@@ -510,6 +534,9 @@ package tg_core_pkg;
     sqid_t         sq;
     logic          ras_push;    // the return-address stack's operation at commit (ras_op)
     logic          ras_pop;
+    logic          cbr;         // TAGE_ON: a conditional branch TAGE trains on (not a straddler)
+    logic          ptk;         // ... its fetch-time direction
+    logic [FTQW-1:0] ftq;       // ... its block's FTQ entry
     // Flags at dispatch: each is the parity of its reporting ports' toggle tables then, XOR the
     // flag's initial value (tg_rob)
     logic          f_cmp, f_exc, f_misp, f_mmio;

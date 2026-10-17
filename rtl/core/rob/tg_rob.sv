@@ -82,6 +82,15 @@ module tg_rob
   output logic [CW-1:0]                cm_ras_push,
   output logic [CW-1:0]                cm_ras_pop,
   output logic [CW-1:0][38:1]          cm_ras_link,
+  // To TAGE (TAGE_ON): each slot's conditional branch, its outcome and fetch-time direction, its
+  // block's FTQ entry and its slot; and the youngest retiring instruction's FTQ entry
+  output logic [CW-1:0]                cm_cbr,
+  output logic [CW-1:0]                cm_ctaken,
+  output logic [CW-1:0]                cm_cpred,
+  output logic [CW-1:0][FTQW-1:0]      cm_cftq,
+  output logic [CW-1:0][SLOT_W-1:0]    cm_cslot,
+  output logic                         cm_hv,
+  output logic [FTQW-1:0]              cm_hftq,
   // To the LSU
   output logic [NCW-1:0]               cm_nld,
   output logic [NCW-1:0]               cm_nst,
@@ -173,6 +182,12 @@ module tg_rob
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
       {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
+      // TAGE trains on the conditional branches its blocks predict: not a straddler (a 32-bit one at
+      // its block's last slot, which no block's prediction covers), nor one with a decode exception
+      dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc &&
+                          !(ds_uop[k].pc[SLOT_W:1] == SLOT_W'(NP - 1) && !ds_uop[k].rvc);
+      dpl[k].ptk        = ds_uop[k].ptk;
+      dpl[k].ftq        = ds_uop[k].ftq;
       dpl[k].f_cmp      = fp_cmp_d[k] ^ !ds_ren[k].has_q;   // complete at once without a queue
       dpl[k].f_exc      = fp_exc_d[k] ^ ds_uop[k].d.exc;
       dpl[k].f_misp     = fp_misp_d[k];
@@ -555,6 +570,12 @@ module tg_rob
       cm_ras_push[j] = ret[j] && hp[j].ras_push;
       cm_ras_pop[j]  = ret[j] && hp[j].ras_pop;
       cm_ras_link[j] = hp[j].pc[38:1] + (hp[j].rvc ? 38'd1 : 38'd2);
+      // a conditional branch's mispredict is its direction (its taken target is checked at decode)
+      cm_cbr[j]      = ret[j] && hp[j].cbr;
+      cm_ctaken[j]   = hp[j].ptk ^ misp_h[j];
+      cm_cpred[j]    = hp[j].ptk;
+      cm_cftq[j]     = hp[j].ftq;
+      cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
       if (ret[j]) begin
@@ -566,6 +587,9 @@ module tg_rob
     cm_nld = NCW'(nl);
     cm_nst = NCW'(ns);
     cm_n   = NCW'(n);
+    cm_hv   = ret[0];
+    cm_hftq = hp[0].ftq;
+    for (int j = 1; j < CW; j++) if (ret[j]) cm_hftq = hp[j].ftq;
   end
   assign cm_csr   = do_csr;
   assign mret     = do_mret;
