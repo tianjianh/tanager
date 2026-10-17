@@ -203,6 +203,7 @@ The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-1
 | Date | Change | Why | Undo |
 |---|---|---|---|
 | 2026-10-16 | `sudo apt-mark hold linux-xilinx linux-image-xilinx linux-headers-xilinx linux-image-6.8.0-1036-xilinx linux-modules-6.8.0-1036-xilinx linux-headers-6.8.0-1036-xilinx linux-xilinx-headers-6.8.0-1036 flash-kernel` | Unattended upgrades replaced the kernel (1015 → 1036) while the board was off. The hold keeps the A53's kernel and boot script fixed through stages C and D. Userland security updates continue. | `sudo apt-mark unhold` with the same list; check with `apt-mark showhold` |
+| 2026-10-17 | A bridge `br0` over `eth0`, **in memory only**: NetworkManager connections `tg-br0` (bridge, `eth0`'s MAC `00:0a:35:2a:df:d8`, DHCP client ID `mac`, STP off) and `tg-br0-eth0` (eth0 as its port), both `save no`. [`board/runs/net_bridge_up.sh`](board/runs/net_bridge_up.sh), run detached under a NetworkManager checkpoint (180 s rollback), then confirmed from a fresh SSH session ([`net_bridge_confirm.sh`](board/runs/net_bridge_confirm.sh)). The laptop's lease came back the same (192.168.137.177); SSH dropped for about 7 s. | Stage C's network: the RISC-V's virtio-net TAP (`tanager-host --net tanager0 --net-bridge br0`) joins the laptop's link and takes its own lease. | [`board/runs/net_bridge_down.sh`](board/runs/net_bridge_down.sh) (deletes both connections and brings back "Wired connection 1", under a checkpoint again). A reboot or a NetworkManager restart also undoes it, since nothing was saved. |
 
 ## Bring-up on the board (2026-10-14)
 
@@ -299,11 +300,14 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
 - **The workload set:** 54/54 measurements, CoreMark 6/6.
 - **Lockstep:** two-core Linux passes the checker from boot to power-off: 408,432,254 records, 14,594 traps, 19,840 interrupts.
   - **What it took:** a device tree that tells Linux the timer runs at 1 GHz. On the real 10 MHz clock the first run had no mismatch in 425,955,311 records, but the boot could not finish. The timer counts in real time while trace backpressure throttles the cores, so the periodic tick's catch-up loop never ends.
-  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores.
+  - **The proper fix:** the SoC track's `--freeze-time`, which holds the timer while the trace stalls the cores. With it, [p0g](board/p0g/README.md) passes on the normal 10 MHz tree: 395,612,106 records from boot to power-off, with kernel timestamps as in an unchecked boot.
+- **The L2 error events** of traced and busy runs are speculative line fills beyond the 1 GiB DRAM window, which it refuses: refusals × 4 beats = the events. They are harmless. DR-151 shrinks the core's memory region to the real 1 GiB.
 
 **Stage C, Debian 13 through U-Boot** ([sc2](board/sc2/README.md)): two `smt2` cores with the virtio window and the host DMA port.
 - **Buildroot:** virtio-blk (the md5 matches the host's) and virtio-rng work.
 - **Debian:** U-Boot 2026.07 loads Debian's own kernel `6.12.111+deb13-riscv64` from a virtio-blk disk image.
   - systemd reaches `multi-user.target` with no failed units, in 3 min 42 s, with `nproc` 2.
   - `sudo poweroff` ends it cleanly.
-- **Open:** the L2 logs error events under heavy traffic: 68 in the Debian run, 5,928 in the lockstep run. The SoC track is identifying them.
+- **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
+  - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
+  - virtio-net is slow so far (84 kB/s).
