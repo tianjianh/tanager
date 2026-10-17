@@ -97,12 +97,16 @@ module tg_xbar
     $error("tg_xbar: N_CORES must be 1..4");
   end
 
+  // The constant functions below (they size the arbiters) end in their one return: xsim's elaborator
+  // takes a function that returns early, or from inside a loop, as not constant
   function automatic logic present(input int i);
-    if (i >= SRC_L1D0  && i < SRC_L1D0  + N_CORES) return 1'b1;
-    if (i >= SRC_L1I0  && i < SRC_L1I0  + N_CORES) return 1'b1;
-    if (i >= SRC_MMIO0 && i < SRC_MMIO0 + N_CORES) return 1'b1;
-    if (i == SRC_HDMA) return HOST_DMA;
-    return 1'b0;
+    logic r;
+    if      (i >= SRC_L1D0  && i < SRC_L1D0  + N_CORES) r = 1'b1;
+    else if (i >= SRC_L1I0  && i < SRC_L1I0  + N_CORES) r = 1'b1;
+    else if (i >= SRC_MMIO0 && i < SRC_MMIO0 + N_CORES) r = 1'b1;
+    else if (i == SRC_HDMA)                             r = HOST_DMA;
+    else                                                r = 1'b0;
+    return r;
   endfunction
 
   // Which targets an initiator's requests can reach (route_a below): the L2 banks and the error
@@ -110,11 +114,13 @@ module tg_xbar
   // arbiter has only the inputs that can reach it, so no multiplexer spans the 16-entry
   // initiator index space.
   function automatic logic reaches(input int i, input int t);
-    if (!present(i)) return 1'b0;
-    if (t >= T_L2B0 && t < T_L2B0 + N_BANKS) return 1'b1;
-    if (t == T_ROM) return (i >= SRC_L1I0 && i < SRC_L1I0 + MAX_CORES) || (i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES);
-    if (t == T_DEV) return i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES;
-    return t == T_ERR;
+    logic r;
+    if      (!present(i))                         r = 1'b0;
+    else if (t >= T_L2B0 && t < T_L2B0 + N_BANKS) r = 1'b1;
+    else if (t == T_ROM) r = (i >= SRC_L1I0 && i < SRC_L1I0 + MAX_CORES) || (i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES);
+    else if (t == T_DEV) r = i >= SRC_MMIO0 && i < SRC_MMIO0 + MAX_CORES;
+    else                 r = t == T_ERR;
+    return r;
   endfunction
   function automatic int n_ini_of(input int t);       // initiators reaching target t
     int n;
@@ -122,15 +128,16 @@ module tg_xbar
     for (int i = 0; i < N_INIT; i++) if (reaches(i, t)) n++;
     return n;
   endfunction
-  function automatic int ini_of(input int t, input int k);   // the k-th of them
-    int n;
+  function automatic int ini_of(input int t, input int k);   // the k-th of them (0 if none)
+    int n, r;
     n = 0;
+    r = 0;
     for (int i = 0; i < N_INIT; i++)
       if (reaches(i, t)) begin
-        if (n == k) return i;
+        if (n == k) r = i;
         n++;
       end
-    return 0;
+    return r;
   endfunction
   function automatic int n_tgt_of(input int i);       // targets answering initiator i
     int n;
@@ -139,14 +146,15 @@ module tg_xbar
     return n;
   endfunction
   function automatic int tgt_of(input int i, input int k);
-    int n;
+    int n, r;
     n = 0;
+    r = 0;
     for (int t = 0; t < N_TGT; t++)
       if (reaches(i, t)) begin
-        if (n == k) return t;
+        if (n == k) r = t;
         n++;
       end
-    return 0;
+    return r;
   endfunction
 
   function automatic logic [TW-1:0] route_a(input int i, input paddr_t addr);

@@ -10,7 +10,18 @@ package tg_map_pkg;
   localparam paddr_t HOSTCTL_BASE = paddr_t'(64'h1000_1000);  localparam paddr_t HOSTCTL_SIZE = paddr_t'(64'h1000);
   localparam paddr_t VIRTIO_BASE = paddr_t'(64'h1001_0000);  localparam paddr_t VIRTIO_SIZE = paddr_t'(64'h4000);
   localparam paddr_t DEBUG_BASE = paddr_t'(64'h1100_0000);  localparam paddr_t DEBUG_SIZE = paddr_t'(64'h1_0000);
-  localparam paddr_t DRAM_BASE = paddr_t'(64'h8000_0000);  localparam paddr_t DRAM_SIZE_MAX = paddr_t'(64'h8000_0000);
+  localparam paddr_t DRAM_BASE = paddr_t'(64'h8000_0000);
+  // The memory region (DR-151): the board's RAM, 1 GiB at DRAM_BASE, and nothing past it is memory to the PMA.
+  // A wrong-path load beyond RAM then stays in the core (unmapped: it faults if it commits) instead of reaching
+  // the DRAM window, which refused it (the board's L2 error events, 2 GiB before). It must be a power of two,
+  // naturally aligned at DRAM_BASE, so pma_of keeps the prefix match (DR-120); TG_DRAM_REGION (bytes, e.g.
+  // TG_DEFINES="TG_DRAM_REGION=64'h8000_0000" in build.tcl) sets another for a board with more RAM. Lockstep
+  // builds, whose RISC-V window is 768 MiB, keep 1 GiB and see harmless refusals above it.
+`ifdef TG_DRAM_REGION
+  localparam paddr_t DRAM_REGION = paddr_t'(`TG_DRAM_REGION);
+`else
+  localparam paddr_t DRAM_REGION = paddr_t'(64'h4000_0000);
+`endif
 
   localparam logic [63:0] TIMEBASE_HZ = 64'd10_000_000;  // ACLINT mtime rate (plan §7.1)
 
@@ -36,14 +47,14 @@ package tg_map_pkg;
   // Every region takes the prefix match. tg_core checks this at elaboration, so a future
   // unaligned region shows up as a warning instead of a silently slower pma_of.
   function automatic logic map_prefix_only();
-    return rg_al(DRAM_BASE, DRAM_SIZE_MAX) && rg_al(BOOTROM_BASE, BOOTROM_SIZE) &&
+    return rg_al(DRAM_BASE, DRAM_REGION) && rg_al(BOOTROM_BASE, BOOTROM_SIZE) &&
            rg_al(ACLINT_BASE, ACLINT_SIZE) && rg_al(PLIC_BASE, PLIC_SIZE) &&
            rg_al(UART_BASE, UART_SIZE) && rg_al(HOSTCTL_BASE, HOSTCTL_SIZE) &&
            rg_al(VIRTIO_BASE, VIRTIO_SIZE) && rg_al(DEBUG_BASE, DEBUG_SIZE);
   endfunction
 
   function automatic pma_e pma_of(input paddr_t a);
-    if (in_rg(a, DRAM_BASE, DRAM_SIZE_MAX))     return PMA_MEM;
+    if (in_rg(a, DRAM_BASE, DRAM_REGION))       return PMA_MEM;
     if (in_rg(a, BOOTROM_BASE, BOOTROM_SIZE))   return PMA_ROM;
     if (in_rg(a, ACLINT_BASE, ACLINT_SIZE)   || in_rg(a, PLIC_BASE, PLIC_SIZE)       ||
         in_rg(a, UART_BASE, UART_SIZE)       || in_rg(a, HOSTCTL_BASE, HOSTCTL_SIZE) ||
