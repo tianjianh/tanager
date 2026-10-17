@@ -46,3 +46,25 @@
   - **Cycles per operation:** within ±2% for most tests. Faster: forkexec −7.5%, syscall −7.7%, memcpy-1 MiB −6.8%. Slower: memset-1 MiB +4.8% (spread 2.9%).
   - **Time per operation:** 13–21% shorter, mostly from the clock (70 against 60 MHz is −14.3%). Linux reaches `/init` in 1.73 s against 2.47 s.
   - **Not an IPC verdict:** the trees differ by the core track's fn6–fn8 and DR-144 work, and the core is `smt2` (one thread used) against `st`, with a second core sharing the L2. It shows that two cores cost the single-thread set nothing visible.
+
+## 3. Two-core lockstep: no mismatch, but the boot cannot finish under the checker
+
+[`ls_run1.txt`](ls_run1.txt), the checker's log [`ls_p0f.log`](ls_p0f.log) and the console [`ls_console_p0f.txt`](ls_console_p0f.txt): `runs/lockstep.sh` (`tg.sh ls-linux`). The verification track's checker `694aff2` ran live on the A53 with `--harts=4` (Spike harts 0–3; the RTL uses 0 and 2) and the default `--reorder=1024` and `--hart-window=512`, on p0f's 768 MiB tree with the window zeroed.
+- **No mismatch in 425,955,311 records**: `PASS after 425955311 records (425944252 retired, 83 traps, 10976 interrupts, 0 writebacks) in 4519.4 s, 94251 records/s`.
+  - It covered OpenSBI's two-hart boot (the lottery, the IPI that wakes hart 2) and Linux's SMP bring-up, to `iommu: DMA domain TLB invalidation policy` at kernel time 495 s.
+  - The checker's notes: `16406 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them` (within its window).
+- **The boot stalled.** From 90 M records (about 990 s), the trap and interrupt counts stopped (83, 10,976) and the console printed nothing more. Records kept coming at 95k/s. I stopped it at 4,526 s.
+- **Where the harts were** ([`../ring_snap.py`](../ring_snap.py), [`../trace_mem.py`](../trace_mem.py)):
+  - **Method:** I read the trace ring (2^16 records at `0x8_7FC0_0000`) from DDR twice, a few minutes apart. Its PCs were named with `/proc/kallsyms` from the same `Image` booted in QEMU on the 5950X.
+  - **The PCs:** both harts were in the periodic tick: `tick_handle_periodic` → `tick_periodic` (`update_process_times`, `sched_tick`, `rcu_sched_clock_irq`, `update_wall_time` → `__timekeeping_advance`) → `clockevents_program_event`, over and over.
+  - **Interrupts off:** every `sstatus` read gave SIE = 0, and there was no `wfi`.
+  - **The cycle:** each snapshot holds 32,768 records per hart, and the second's PCs are a subset of the first's.
+- **Why:** this is `tick_handle_periodic`'s catch-up loop.
+  - **The mechanism:** the RISC-V `time` counts at 10 MHz in real time, while trace backpressure holds each hart to about 47k instructions/s. Every next tick is already past when it is programmed, so the handler runs another tick, forever, with interrupts off.
+  - **Why one core got through:** M4's run on 10-15 had the same real-time clock (its kernel timestamps were inflated too, `/init` at 731 s) and one hart at the full checker rate. It kept up, with one RCU stall.
+  - **So:** this comes from lockstep's clock, not from the cores, which matched Spike throughout.
+- **The fix options** (sent to the SoC and verification tracks):
+  - (a) stop `mtime` while trace backpressure stalls the cores: virtual time in lockstep;
+  - (b) a lockstep-only device tree with `timebase-frequency` 1 GHz while `mtime` counts 10 MHz, so kernel time runs 100× slower.
+- **The L2 logged 5,928 error events** during this run (sticky `L2_ERR`). The plain boot had 0. Both reads during the stall show the same count ([`dbg_during_stall.txt`](dbg_during_stall.txt)), so they happened earlier. The SoC track is identifying them.
+- **During the stall** each core's L1D took about 900 probes and sent about 900 requests per 5 s: the timekeeping lock's line passing between the two harts.
