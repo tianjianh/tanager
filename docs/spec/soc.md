@@ -296,7 +296,7 @@ The plan:
 1. The image file on `p2` first. It needs no repartitioning.
 2. Then a full backup of the card to the laptop.
 3. Then an offline shrink of `p2` to about 6 GiB, from an initramfs hook at the A53's next boot (ext4 shrinks only unmounted).
-4. Then `p3` for the RISC-V, served raw as virtio-blk.
+4. Then `p3` for the RISC-V, served raw as virtio-blk. It holds the image's file system alone, with no partition table of its own, so stage D can mount the same partition natively (§8.2, the RISC-V's partition).
 
 A bigger cloned card is the alternative if the user prefers it. The board session does the work on the board, and the A53's Ubuntu stays intact and bootable.
 
@@ -387,6 +387,81 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 **Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.
 
 **Stage D's drivers.** Debian's kernel has MACB, PHYLIB and DP83867, as modules. It lacks `sdhci-of-arasan`, `dwc3`, `xilinx_uartps`, any TTC PWM, `pwm-fan` and the AMS driver. Those are our own modules, using generic compatibles and no ZynqMP firmware calls. The fan needs none: the PL regulates it (below).
+- **Checked in the image's kernel** (6.12.111+deb13-riscv64, 10-17): `MMC_SDHCI_OF_ARASAN`, `USB_DWC3` and `SERIAL_XILINX_PS_UART` are not set. `MMC_SDHCI`, `MMC_SDHCI_PLTFM`, `USB_XHCI_PLATFORM`, `MACB` and `DP83867_PHY` are modules. The ZynqMP-only options (`GPIO_ZYNQ`, `PWM_CADENCE`, `ZYNQMP_FIRMWARE`) don't exist on riscv64.
+- `DMA_RESTRICTED_POOL` is not set either, so D-b would need a kernel of our own as well as its PMA change. That leaves D-c as the only option with Debian's kernel until Zicbom (`RISCV_ISA_ZICBOM` is built, but the core lacks the extension).
+
+**Order of work** (soc-2's plan, 10-17, DR-153: M5 runs alongside the core tracks' M6). Cheap board probes come first, because one answer can change D-c. Next comes the PL-to-PS path, tried on the simplest controller with no handover. Then come the steps that need the A53 off the card, in order of value: the root file system, the network, USB. The board session runs the board steps.
+
+- **D0: probes on sc3, before any new RTL.** sc3's host DMA port is already D-c's path.
+  1. **Can a PS master other than the A53 write through HPM1?** An LPD DMA channel (ADMA, an LPD master like the IOU's GEM, SD and USB) copies a buffer from the A53's memory to `0x5_0000_0000` + o. `tanager-host dma read` must then show it, and a RISC-V program that held the line in its cache must read the new bytes.
+     - If it fails, which block refused (SMMU, XMPU or the address decode) decides what follows.
+     - If IOU masters cannot reach HPM1 at all, D-c falls, and stage D waits for Zicbom (D-a, M9): Debian's kernel has no restricted pool for D-b.
+  2. **What the A53's boot leaves:**
+     - the SMMU's state: the `arm-smmu` bypass setting, and which streams it attaches;
+     - whether the XPPU and the XMPUs are enabled;
+     - the clock rates of UART1, SD1, GEM3 and USB0 (`clk_summary`).
+  3. **The board's wiring:**
+     - the DP83867's MDIO address and its reset;
+     - the USB5744 hub's reset;
+     - which controller the micro-SD is on (SD1);
+     - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
+  4. **From the TRM (soc-2):** that `S_AXI_LPD` reaches the IOP's and USB's registers, and the PS-to-PL interrupt signals of the four controllers.
+- **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
+  - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
+    - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
+    - an AXI4-Lite master into `S_AXI_LPD`, on `clk_core`;
+    - only USB0 (`0xFE20_0000`, 1 MiB) and the IOP (`0xFF00_0000`–`0xFF1F_FFFF`) pass;
+    - **every failure is an access fault:** another address, an error response, or no response within 2^16 cycles. An unclocked peripheral can stall the PS interconnect, and the RISC-V must not hang behind it.
+  - **Interrupts:** the four controllers' PS-to-PL interrupts go to PLIC sources 20–23 (UART1, SD1, GEM3, USB0's host line).
+  - **Block design:** `S_AXI_LPD` (GP6) and the PS-to-PL interrupts on.
+  - **Approval:** `tg_map_pkg`'s new region and `kv260_top`'s ports are an interface change, a DR for the coordinator.
+  - **Area:** about +0.2–0.4K LUTs. If 100 MHz or the area gets tight, stage D builds can leave out the virtio window: they need only the host DMA port.
+  - **Tests:** `tests/unit/soc` `PS_WINDOW=1`: an AXI4-Lite slave model with random delays, errors and a silent address, and the interrupts into the PLIC. Then the 100 MHz board build.
+  - **On the board, a bare-metal RISC-V program,** while the A53's Linux runs on:
+    - writes a line into UART1's transmit FIFO, which appears on the board's USB console among the A53's output;
+    - reads UART1's status and an IOU register;
+    - takes a PS interrupt through its PLIC, from a peripheral the A53 does not use: a TTC1 interval, or UART0 in local loopback if it is clocked;
+    - gets an access fault from a denied address.
+  - **Met when** all four happen and the A53's Linux is unharmed.
+- **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
+  - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
+  - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.
+- **D3: the handover, and the RISC-V's console** (with the board session).
+  - **The A53's handover boot:** a U-Boot menu entry on `p1`. It has Ubuntu's kernel and an initramfs with `tanager-host`, the bitstream and the RISC-V's boot images.
+    - Its device tree disables UART1, SD1, GEM3 and USB0; the command line has `clk_ignore_unused` and SMMU bypass.
+    - It loads the bitstream and starts the RISC-V, and never touches the card again after reading the images.
+  - **The console on UART1** (`cdns,uart-r1p12`):
+    - OpenSBI's Cadence driver gives the early output;
+    - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
+    - Until then the console stays on the PL UART through `tanager-host` (stage C's path), so the RISC-V never runs without one.
+  - **Met when** Buildroot's login prompt appears on the board's USB serial port, with the A53 in the handover boot.
+- **D4: the SD, with Debian on its own partition natively.**
+  - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
+  - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
+  - **Boot:**
+    - the handover boot reads Debian's kernel and initrd from `p3`'s `/boot` and loads them with the device tree;
+    - OpenSBI jumps to the kernel: U-Boot has no SD driver for this controller on RISC-V;
+    - the root is `root=LABEL=tanager-root`.
+  - **Met when** Debian 13 reaches its login from `p3` with no virtio disk, and its read rate is measured against stage C's.
+- **D5: Ethernet.**
+  - Debian's own `macb` and `dp83867`, with `cdns,gem` on D-c. The PHY stays out of reset, as the A53 left it.
+  - The GEM's transmit clock stays at the 125 MHz the A53 left. So the PHY advertises only 1000 Mb/s (`max-speed`) until there is a clock path for 100 Mb/s.
+  - It replaces stage C's bridged virtio-net. **Met when** apt runs over it, with its rate against stage C's 9.9 MB/s.
+- **D6: USB 2.**
+  - `dwc3`, our DKMS module, in host mode through Debian's `xhci-plat`. The USB5744 hub stays out of reset, as the A53 left it.
+  - USB 3 (PS-GTR) only if the A53's PHY setup survives the handover. **Met when** a USB stick mounts.
+- **D7: park.**
+  - The secondary A53s go off (CPU hotplug). The boot core idles in `tanager-host`'s loop, which still serves power-off and reboot requests.
+  - Stage C stays as the fallback, and the whole flow is documented.
+
+**The RISC-V's partition, for stages C and D:**
+- **Format:** `p3` holds a plain ext4 file system, `LABEL=tanager-root`, with no partition table of its own. Then the same partition is the virtio disk in stage C and `mmcblk1p3` in stage D.
+- **U-Boot:** its distro boot finds no partition 1 on such a disk ("No partition table"), but `sysboot virtio 0:0 any ${scriptaddr} /boot/extlinux/extlinux.conf` boots it. So our U-Boot's boot command tries the whole disk first, then distro boot (`sw/uboot/tanager.config`). On a partitioned disk the first try costs one "Error reading config file" line.
+  - **Checked in QEMU** (`sw/qemu/debian_test.sh`, 10-17), each PASS with root on `/dev/vda` or `vda1`: the disk image, partitioned (through distro boot); its file system alone (through the whole-disk try); and the 7,840 MiB partition that `debian_to_partition.sh` made from it.
+- **Size:** the 8 GiB image doesn't fit beside 1 + 6 GiB on a 16 GB card (about 14.8 GiB). So the move shrinks its file system, copies it, and grows it to fill `p3` (`sw/debian_to_partition.sh`; the board runs it).
+  - The shrink is in place: the image stays bootable, and `resize2fs` grows it back.
+  - `e2image -ra` copies only the used blocks and the metadata, keeping the UUID. It writes only the primary superblock and group descriptors, so `debugfs` (`dirty`, `close -a`) then writes the backups. On the first try, without that, the backups were zeros, and the kernel warned of their checksums at boot. debugfs leaves the primary marked not clean, so `e2fsck -f -y` marks it clean (otherwise the kernel warns of an unchecked file system). Both file systems are checked, every backup superblock included.
+  - **Checked on files:** 8,191 MiB into 7,840 MiB, and into 9 GiB (grown). A 256 MiB target is refused, since the base image needs 663 MiB. So is a target holding another file system, without `--force`.
 
 ### 8.3 PL cost of stages C and D (estimate, DR-147)
 
