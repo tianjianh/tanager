@@ -28,11 +28,14 @@ P = ARGS["--prof"]
 # the f2cut tree's M6 set (as scripts/m6_fe.py)
 M6 = {"ras": 32, "m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1, "m2_btage": 1, "btage_nt": 2, "m2_cut": 1,
       "m2_f2_bubble": 2, "m2_ftq": 32, "m2_ras_f2": 1}
-VARS = {"rev 5": {"iq_steer_rn": 0}, "rev 6": {}, "rev 6, STA on its base": {"sta_split": 1}}
+# revision 6 as §6.8 ran it (revision 7 changes sta_split and iq_steer_rn, and adds fwd_wait_cancel and drain_delay)
+R6 = {"iq_steer_rn": 1, "sta_split": 0, "fwd_wait_cancel": 0, "drain_delay": 0}
+VARS = {"rev 5": {**R6, "iq_steer_rn": 0}, "rev 6": R6, "rev 6, STA on its base": {**R6, "sta_split": 1}}
 # for the predictions only: revision 5 with the lever, and revision 6 with rename counting the dispatch stage's group
 # when it reads the ALU queues' bank flags (iq_steer_rn 2), without and with the lever
-EXTRA = {"rev 5, STA on its base": {"iq_steer_rn": 0, "sta_split": 1}, "rev 6, steering fix": {"iq_steer_rn": 2},
-         "rev 6, steering fix, STA on its base": {"iq_steer_rn": 2, "sta_split": 1}}
+EXTRA = {"rev 5, STA on its base": {**R6, "iq_steer_rn": 0, "sta_split": 1},
+         "rev 6, steering fix": {**R6, "iq_steer_rn": 2},
+         "rev 6, steering fix, STA on its base": {**R6, "iq_steer_rn": 2, "sta_split": 1}}
 PERF = [(p, m) for m in ("rv64gc", "rv64im") for p in ("coremark_A", "coremark_B", "dhrystone")]
 SUITE = sorted(e[:-4] for e in os.listdir(f"{B}/rtlsuite") if e.endswith(".elf"))
 PROGS = [(f"{m}/{p}", f"{B}/{m}-i10-r500/{p}.elf", f"{P}/{p}_{m}.log") for p, m in PERF]
