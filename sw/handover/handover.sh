@@ -10,7 +10,7 @@
 #   sudo bash handover.sh --fw F --kernel K --initrd I --dtb D
 #       loads the RISC-V's images into the carve-out first (cores held), then the handover runs it
 # Run from a directory holding handover.dtb (handover_dtb.sh), handover.cpio.gz (mk_initramfs.sh) and
-# tanager-host, with the bitstream loaded (xmutil).
+# tanager-host, with a tanager app holding the PL (xmutil loadapp; d2's or later).
 set -euo pipefail
 dry=0 dry_s=900 fw= kernel= initrd= dtb=
 while [ $# -gt 0 ]; do
@@ -31,10 +31,19 @@ for f in handover.dtb handover.cpio.gz tanager-host; do [ -f "$f" ] || die "no $
 [ $dry = 1 ] || { [ -n "$fw" ] && [ -n "$kernel" ] && [ -n "$initrd" ] && [ -n "$dtb" ]; } \
   || die "--fw, --kernel, --initrd and --dtb, or --dry"
 
-# Checks: kexec-tools present and leaving reboots alone; the bitstream and D2's regulator there
+# Checks: kexec-tools present and leaving reboots alone. Noble's kexec-tools writes no LOAD_KEXEC line and
+# has no kexec-load service, so the safe state is that nothing loads a kernel at shutdown (the board session)
 command -v kexec >/dev/null || die "kexec-tools is not installed"
-grep -q '^LOAD_KEXEC=false' /etc/default/kexec 2>/dev/null || die "/etc/default/kexec must say LOAD_KEXEC=false"
+! grep -q '^LOAD_KEXEC=true' /etc/default/kexec 2>/dev/null || die "LOAD_KEXEC=true would kexec at every reboot"
+! systemctl is-enabled kexec-load.service >/dev/null 2>&1 || die "kexec-load.service would load a kernel at shutdown"
+[ "$(debconf-show kexec-tools 2>/dev/null | sed -n 's/^\* *kexec-tools\/load_kexec: //p')" != true ] \
+  || die "debconf says kexec-tools/load_kexec: true"
 [ "$(cat /sys/kernel/kexec_loaded)" = 0 ] || die "a kexec kernel is already loaded (kexec -u to drop it)"
+# Our app must hold the PL before anything reads it: a read without it (k26-starter-kits loaded, say) hangs
+# the A53, which only a power cycle ends (the board session)
+apps=$(xmutil listapps 2>/dev/null) || true     # whole, first: grep -q's early exit and pipefail don't mix
+grep -q -E '^ *tanager[-_A-Za-z0-9]* .* 0->' <<< "$apps" \
+  || die "a tanager app must hold the PL (xmutil loadapp, then xmutil listapps shows it active)"
 ./tanager-host info
 fan=$(./tanager-host fan)
 echo "$fan"
