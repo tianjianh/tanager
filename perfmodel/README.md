@@ -95,10 +95,11 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 - `v1_freeze`: the approved M1 freeze (plan draft 0.4, `docs/perf/feature_ledger.md`).
 - `nax`: the NaxRiscv-like control, with NaxRiscv's core structures on the same uncore.
 - `nax_cal`: `nax` with NaxRiscv's own memory system, meaning no L2 and 30-cycle DRAM. Used only for calibration.
-- `rtl_m2`: **the core as built**, calibrated against the RTL (`docs/perf/area_recovery.md` §6.3):
+- `rtl_m2`: **the core as built**, calibrated against the RTL (`docs/perf/area_recovery.md` §6.3, §6.4):
   - M2's front end: the micro-BTB is the only predictor;
   - recovery at commit, wakeup on confirmed hits;
-  - one L1D miss and one I$ refill, no prefetchers;
+  - four L1D misses in flight (main's default since DR-156) and one I$ refill, no prefetchers;
+  - the RTL's issue queues (rows in banks by dispatch slot, each held until two cycles after its select) and its store address, which issues only with the store's data;
   - the RTL's latencies;
   - the memory of `tg_vsim`: no L2, a flat 30 cycles.
 
@@ -138,6 +139,7 @@ build/tgsim --iss-only build/bench/rv64gc/coremark_A.elf # functional only
 | `scripts/area.py` | the area-recovery study (plan §8.5, D18): each IPC-costing lever alone on v1 (`smt2`) and v2 (`smt2_w3`), at 30/120/250 cycles, on the 42 pairs and the single-thread suite → `results/area_recovery.json`. Other modes:<br>`--combos`: the levers that pass the reverse rule, added greedily (each saving recomputed on top of the levers taken), the v2 re-plan options, window growth with wakeup tags, and the single-thread variants;<br>`--census`: the dependency census on v1 and v2 (pairs and single-thread suite);<br>`--tables`: generated tables → `results/area_tables.md` (used by `docs/perf/area_recovery.md`).<br>About 3 hours on 8 threads from an empty cache. |
 | `scripts/area_fit.py --core <run>/latest.json --uncore <run>/latest.json [--cfg smt2]` | the device fit from per-unit budget runs (`docs/perf/area_recovery.md` §7). It reads the budget flow's `latest.json` for a core configuration and for the uncore, and adds hart 1's state (estimated) until M7 builds it. It prints each unit against `fpga/budget/budgets.tsv`, and the dual-core total against the 200 MHz and 180 MHz fill limits. It keeps §7.7's gap table current. |
 | `scripts/rtlcal.py --vsim <tg_vsim> ELF...` | the calibration (`docs/perf/area_recovery.md` §6.3): the same ELFs in tg_vsim and in tgsim with `rtl_m2`, at native and 120-cycle latency, with region cycles per program. RTL results are cached in `results/rtlcal_rtl.json`. At most 8 runs at a time. `TGSIM_MPDUMP=file` makes tgsim write its mispredicts by PC, and `scripts/rtl_mpcmp.py` sets them against the RTL's commit-trace refills |
+| `scripts/m6_rtlcheck.py` | the first M6 stack against the RTL (`docs/perf/area_recovery.md` §6.4): core-2's stack on make perf's ELFs, with each correction to the model added in turn, against the RTL's scores; `--levers` measures two RTL questions (the store address on its base alone, rows freed at select). `scripts/rtlprof/` holds the measurement-only profile binds used to find the corrections (`make -C sim CFG=st COV_EVENTS=<file>` on a scratch tree; not for commit to `sim/`) |
 | `scripts/m6_steps.py` | the M6 features from the core as built (§6.3), at 100 MHz's latencies with the SoC's L2 and 115 MHz's alongside: each feature alone; stacked greedily by suite gain per LUT with the running LUT total; and in the plan's order. Then one core at 100 MHz against NaxRiscv at 135 and 150 MHz → `results/m6_steps_rv64gc.json` |
 | `scripts/clock_low.py` | the DR-145 clocks (`docs/perf/area_recovery.md` §6.2): v1 calibrated to the RTL as built (one L1D miss in flight, one I-cache refill, no prefetchers) at 94, 100, 125 and 150 MHz with L2 `DATA_LAT` 2, in the default profile with 1, 2 or 4 L1D misses in flight and in the fallback, against the NaxRiscv-like control at 135 and 150 MHz. One thread (the suite and the working-set kernels, one core alone) and four threads (two busy cores × SMT2 on smt.py's 42 pairs and 16 working-set pairs; each core with half the L2 and one HP port). At most 8 runs at a time → `results/clock_low_rv64gc.json` |
 | `scripts/clock.py` | the clock sweep (`docs/perf/area_recovery.md` §6.1): v1's single-thread suite at 150–200 MHz and the NaxRiscv-like control at 137 and 150 MHz, each with its clock's cycle latencies (DRAM 184 ns and 3.2 GB/s from spike S1, the L2's `DATA_LAT`), and one extra pipeline stage at each unit boundary at 200 and 150 MHz → `results/clock_rv64gc.json` |
@@ -243,6 +245,25 @@ The mispredict penalty and the L2 hit have their own parameters (`redirect_lat`,
 | `l1_fill_extra` | cycles added to every L1 refill: the RTL's miss overhead beyond the memory's latency (13 in `rtl_m2`) |
 | `ld_fwd_lat`, `ld_fwd_wait` | store-to-load forwarding: the load-to-use of a forward whose data is ready (3; 5 in `rtl_m2`, which forwards at M2), and the cycles from the store's data to a waiting load's result (3; 8 in `rtl_m2`, which replays) |
 | `drain_guard` | a committed store that has waited this many cycles for an L1D MSHR gets the next one: loads and prefetches leave it free. Without it, a model with one L1D MSHR and SMT2 can starve a thread's store drain for good, because loads book the MSHR at issue + 3 while the drain asks at the current cycle. §6.2 uses 16 |
+
+**The M6 front end and the RTL's backend, as built** (`docs/perf/area_recovery.md` §6.3, §6.4). All are off by default except as noted, and at their defaults every earlier result is identical, so `MODEL_VERSION` stays 3. `rtl_m2` sets `iq_slot_bank`, `iq_hold` and `sta_split` as the RTL has them; the M6 stack's knobs join it as each step lands on main.
+
+| Parameter | Model point |
+|---|---|
+| `m2_f2`, `m2_f2_bubble` | with `fe_m2` and `m2_dir`: core-2's front end. F2's pre-decode supplies direct targets and TAGE's overrides, which refetch after `m2_f2_bubble` cycles (the RTL: 2, as F2's action is registered) instead of redirecting at decode |
+| `m2_ras_f2` | with `m2_f2` and `ras`: returns are repaired from the RAS at F2, not at decode (593ddcd) |
+| `ret_btb` | without a RAS, returns are predicted by the BTB's stored target |
+| `m2_btage`, `btage_li`, `btage_bi`, `btage_tw` | with `m2_dir`: TAGE-lite as built (`tg_tage.sv`) instead of the model's per-branch TAGE. One read per 16-byte block on the block address and a history of conditional branches only (newest first); a base of 2^`btage_bi` blocks with a 2-bit counter per slot; four tables of 2^`btage_li` entries, each two slot-tagged sub-entries with `btage_tw`-bit tags, histories 4/9/18/40. Training reads the entries again with the fetch-time indices; a wrong fetch-time direction allocates one sub-entry above the provider |
+| `btage_lag` | (1) a block read right behind another lacks that block's history bits (F1 reads as F2 delivers); a read after a redirect, a flush or an I$ miss has them all |
+| `btage_tq` | (4) commit's requests reach TAGE through a queue of this many entries, one every two cycles; a full queue drops them. 0 trains at commit at once |
+| `m2_cut` | with `m2_f2`: a block ends before its third conditional branch and is refetched there after `m2_f2_bubble` cycles, so a block adds at most two history bits |
+| `m2_ftq` | with `fe_m2`: FTQ entries. A block holds one from fetch until an instruction of a later block commits; fetch waits while none is free, and a flush empties it |
+| `iq_slot_bank` | the issue queues' rows are banks by dispatch slot (plan §4.15, `tg_iq.sv`): decode slot k's uop takes a row of bank k, a decode group dispatches as one, and an ALU op goes to queue k mod 2 unless that queue's bank for slot k is full (`rtl_m2`: 1) |
+| `iq_hold` | cycles from a uop's issue until dispatch can reuse its row. The RTL frees a row two cycles after its select (the speculative-wakeup shadow, there with or without speculative wakeup), so `rtl_m2` sets 3; a flush frees rows at once |
+| `sta_split` | 1: a store's address issues on its base alone, with its data captured later. 0: it issues with its data as well, as in the RTL, where rename makes the store's IQ-STA row wait on its data register. A younger load to the same address can then run first and is replayed at commit (`rtl_m2`: 0) |
+| `whole_run` | the region's counters cover the whole run, as an RTL profile from reset does |
+
+Counters for comparing with an RTL profile (`--json`): F2 overrides by kind (`f2o_miss`, `f2o_slot`, `f2o_nt`, `f2o_ret`, `f2o_bogus`), `f2_cuts`, `bt_drops`, `fetch_blocks`, `ftq_full`, decode's take per cycle and its starved cycles (`dec_take0/1/2`, `dec_starved`), `rob_empty`, and `disp_stall_slot` (a group waiting for a slot's bank).
 
 ## Scoring
 
