@@ -8,6 +8,8 @@
 //   TG_POWER_NODE                               label of the syscon that takes the power-off/reboot writes
 //   TG_POWER_OFFSET                             byte offset of the power register in that syscon
 //   TG_PMU (0|1)                                1 adds the riscv,pmu node (the bench image, DR-141)
+//   TG_UART1 (0|1)                              1 adds the PS's UART1 through the PS window as the stdout
+//                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
@@ -15,6 +17,9 @@
 #define TG_RUN_THREADS TG_NUM_THREADS
 #endif
 #define TG_T0ONLY (TG_NUM_THREADS == 2 && TG_RUN_THREADS == 1)
+#ifndef TG_UART1
+#define TG_UART1 0
+#endif
 
 #if TG_FPU
 #define TG_ISA_STR "rv64imafdc_zicsr_zifencei_zba_zbb_zbs_zicond_sstc"
@@ -168,6 +173,21 @@
 			interrupts = <10>;
 		};
 
+#if TG_UART1
+		// The PS's UART1 through the PS window (docs/spec/soc.md §8.2, stage D's D3, DR-163): the board's
+		// USB serial port, once the A53 has released it; PLIC source 20. No clock-frequency, so OpenSBI
+		// keeps the baud rate the A53 set; Linux's driver takes the clocks below.
+		uart1: serial@ff010000 {
+			compatible = "xlnx,zynqmp-uart", "cdns,uart-r1p12";
+			reg = <0x0 0xff010000 0x0 0x1000>;
+			interrupt-parent = <&plic>;
+			interrupts = <20>;
+			clocks = <&uart1_ref>, <&lpd_lsbus>;
+			clock-names = "uart_clk", "pclk";
+			current-speed = <115200>;
+		};
+#endif
+
 #if TG_VIRTIO
 		// The forwarded virtio window (docs/spec/soc.md §8.1): four virtio-mmio slots whose registers
 		// tanager-host serves, PLIC sources 1-4. Only for bitstreams built with it (TG_VIRTIO_WINDOW=1,
@@ -224,8 +244,27 @@
 	};
 #endif
 
+#if TG_UART1
+	// UART1's clocks as the A53's clock tree reports them (uart1_ref and lpd_lsbus, 99,999,999 Hz; D0)
+	uart1_ref: clock-uart1-ref {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <99999999>;
+	};
+
+	lpd_lsbus: clock-lpd-lsbus {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <99999999>;
+	};
+
+#endif
 	chosen {
 		bootargs = TG_BOOTARGS;
+#if TG_UART1
+		stdout-path = "/soc/serial@ff010000";
+#else
 		stdout-path = "/soc/serial@10000000";
+#endif
 	};
 };

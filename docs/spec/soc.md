@@ -558,7 +558,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
     - Until then the console stays on the PL UART through `tanager-host` (stage C's path), so the RISC-V never runs without one.
   - **Met when** Buildroot's login prompt appears on the board's USB serial port, with the A53 in the handover boot.
-  - **Revised proposal (soc-2, 10-18, for the coordinator): the console first, with the A53's Ubuntu still running.** The handover boot moves to D4, where the card needs it.
+  - **Approved as revised (DR-163, the coordinator, 10-18): the console first, with the A53's Ubuntu still running.** The handover boot moves to D4, where the card needs it.
     - **Why:**
       - The handover boot above also disables GEM3, which would cut the laptop's SSH path to the board (the A53 OS rules), and D3 needs only UART1.
       - SD1 must leave the A53 in D4, since one controller serves the whole card. So the handover boot (an initramfs, no card access) belongs there.
@@ -576,7 +576,20 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **The kernel:** `CONFIG_SERIAL_XILINX_PS_UART=y` and `CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y` in `sw/buildroot/board/tanager/linux.config` (the driver depends only on OF).
     - **It lifts D1's condition** "never reconfigure UART1": the RISC-V's Linux programs UART1's baud generator, mode and interrupts while it owns the port.
     - **Met when** Buildroot's login prompt appears on the USB serial port (COM7) and a login works there, with the A53 unaffected (SSH, `fancontrol`). Then UART1 goes back to the A53.
+    - **The coordinator's conditions:**
+      - only run-time changes on the A53, with SSH over GEM3 and `fancontrol` up throughout;
+      - D1's "never reconfigure UART1" is lifted for D3 only, while the RISC-V owns the port;
+      - no A53 shutdown or reboot while the getty is masked and the RISC-V owns UART1: unmask first, and giving UART1 back is the last step.
+    - **Built (10-18):**
+      - **`sw/dts` `UART1=1`:** `serial@ff010000` (`xlnx,zynqmp-uart`, `cdns,uart-r1p12`) on PLIC source 20, with fixed clocks `uart_clk` and `pclk` at 99,999,999 Hz (D0's clock tree). `stdout-path` points at it, and the default boot arguments are `console=ttyPS0,115200 console=ttyS0,115200 earlycon`, so `/dev/console` stays the PL UART for the boot marker. With `UART1=0`, every tree is byte-identical to before.
+      - **The kernel:** `CONFIG_SERIAL_XILINX_PS_UART=y` and `_CONSOLE=y`. Without the node the driver binds to nothing.
+      - **The login:** `S99tanager` starts a getty on `ttyPS0` when the device exists. The PL UART keeps its own getty.
+      - **OpenSBI** reads only `clock-frequency`, which the node leaves out, so it keeps the A53's divisors. Its driver would compute them with a clock divisor of 1, which can't reach 115200 from 100 MHz. It shares the page with S-mode as it does the PL UART's.
 - **D4: the SD, with Debian on its own partition natively.**
+  - **The handover, planned before it runs** (the coordinator, 10-18). Once SD1 leaves the A53, the board session's SSH to the A53 goes away, and recovery may need a power cycle, which is the user's:
+    - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
+    - the plan spells out what the board session can still reach (UART1, the PL UART);
+    - the coordinator tells the user before it runs.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
   - **Boot:**

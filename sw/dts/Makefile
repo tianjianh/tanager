@@ -1,11 +1,15 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [BOOTARGS="..."]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [BOOTARGS="..."]
 # RUN_THREADS=1 with THREADS=2: an SMT2 build that runs thread 0 of each core (until M7, DR-147),
 # so the tree describes harts 0 and 2.
 # PMU=1 adds OpenSBI's riscv,pmu event map, so Linux's PMU driver can count cycles and instructions
 # (the bench image, DR-141).
 # VIRTIO=1 lists the forwarded virtio window's four virtio-mmio slots (bitstreams built with
 # TG_VIRTIO_WINDOW=1; docs/spec/soc.md §8.1).
+# UART1=1 adds the PS's UART1, the board's USB serial port, through the PS window and makes it the
+# stdout path: stage D's D3 (bitstreams built with TG_PS_WINDOW=1, after the A53 releases its getty;
+# docs/spec/soc.md §8.2, DR-163). Its default BOOTARGS list console=ttyPS0 first, so /dev/console stays
+# the PL UART (the boot marker the harnesses wait for) while UART1 gets the kernel's log and a login.
 # Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O.
 O       ?= $(SOC_BUILD)/dts
 CORES   ?= 2
@@ -15,11 +19,16 @@ MEM     ?= 0x40000000
 FPU     ?= 1
 PMU     ?= 0
 VIRTIO  ?= 0
+UART1   ?= 0
+ifeq ($(UART1),1)
+BOOTARGS ?= console=ttyPS0,115200 console=ttyS0,115200 earlycon
+else
 BOOTARGS ?= console=ttyS0,115200 earlycon
+endif
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) \
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) \
         -DTG_BOOTARGS='"$(BOOTARGS)"'
 
 .PHONY: all clean

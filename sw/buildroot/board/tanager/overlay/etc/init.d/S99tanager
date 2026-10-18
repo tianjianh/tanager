@@ -6,6 +6,11 @@
 case "$1" in
   start)
     echo "TANAGER-BOOT-OK $(uname -r) harts=$(grep -c ^processor /proc/cpuinfo)"
+    # Stage D's D3 (docs/spec/soc.md §8.2): a login on the PS's UART1 too, when the device tree has it
+    # (sw/dts UART1=1); the PL UART keeps its own getty from inittab.
+    if [ -c /dev/ttyPS0 ]; then
+      (while :; do /sbin/getty -L ttyPS0 115200 vt100; sleep 1; done) </dev/null >/dev/null 2>&1 &
+    fi
     if grep -q 'tanager.autotest=1' /proc/cmdline; then
       echo "TANAGER-AUTOTEST begin"
       cat /proc/cpuinfo | grep -E '^(processor|hart|isa|mmu)'
