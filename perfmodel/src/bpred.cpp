@@ -302,9 +302,9 @@ void MicroBtb::fallthrough(uint64_t start) {
 
 // ---------------------------------------------------------------- M2 micro-BTB (the RTL as built)
 
-M2Ubtb::M2Ubtb(int entries, int ways, int counters)
+M2Ubtb::M2Ubtb(int entries, int ways, int counters, bool rtl_way)
     : e_((size_t)std::max(1, entries)), ctr_((size_t)std::max(1, counters), 0),
-      sets_(std::max(1, entries / std::max(1, ways))), ways_(std::max(1, ways)) {}
+      sets_(std::max(1, entries / std::max(1, ways))), ways_(std::max(1, ways)), rtl_way_(rtl_way) {}
 
 M2Ubtb::Look M2Ubtb::lookup(uint64_t blk) const {
   Look l;
@@ -316,7 +316,8 @@ M2Ubtb::Look M2Ubtb::lookup(uint64_t blk) const {
 }
 
 // The counter moves toward the outcome. The block should be predicted taken if this is a jump or the new counter
-// is at least 2: then a missing or different entry is written (in the way that hit, else a pseudo-random way).
+// is at least 2: then a missing or different entry is written (in the way that hit the block, else a pseudo-random
+// way; rtl_way, as the RTL: in the way that predicted this instruction, else a pseudo-random way).
 // If it should not and the micro-BTB predicted this slot taken, the entry is cleared.
 void M2Ubtb::train(uint64_t blk, uint64_t pc, int slot, bool is_jump, bool taken, uint64_t target, const Look& l) {
   uint8_t& c = ctr_[(size_t)((pc >> 2) % ctr_.size())];
@@ -325,7 +326,7 @@ void M2Ubtb::train(uint64_t blk, uint64_t pc, int slot, bool is_jump, bool taken
   if (is_jump || c >= 2) {
     if (here && l.target == target) return;
     rng_ ^= rng_ << 13; rng_ ^= rng_ >> 7; rng_ ^= rng_ << 17;
-    E& e = at(blk, l.hit ? l.way : (int)(rng_ % (uint64_t)ways_));
+    E& e = at(blk, (rtl_way_ ? here : l.hit) ? l.way : (int)(rng_ % (uint64_t)ways_));
     e.v = true; e.tag = blk >> 4; e.target = target; e.slot = slot;
   } else if (here) {
     at(blk, l.way).v = false;

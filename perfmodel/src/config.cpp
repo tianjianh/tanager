@@ -54,6 +54,10 @@ bool Config::apply_preset(const std::string& name) {
     // one, each row held until two cycles after its select; and a store's address issuing only with its data, as
     // rename makes the store's IQ-STA row wait on the data register (younger loads to its address then replay).
     ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0; pf_i_nextline = 0;
+    // From the front-end profile of core-2's TAGE build (area_recovery.md §6.7): a 32-bit instruction straddling two
+    // blocks is decoded with the second, and the micro-BTB never predicts or trains it; training writes the way that
+    // predicted the instruction, else a pseudo-random one (tg_exec's upd_way).
+    m2_strad = 1; m2_ub_way = 1;
     iq_slot_bank = 1; iq_hold = 3; sta_split = 0;
     commit_redirect = 2; l1_fill_extra = 13; ld_fwd_lat = 5; ld_fwd_wait = 8; lat_mul = 5;
     fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;

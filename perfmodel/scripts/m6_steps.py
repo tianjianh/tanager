@@ -47,9 +47,9 @@ PLAN_ORDER = ["RAS", "TAGE-lite", "Block BTB and FTQ", "Checkpoints", "Speculati
 
 
 # rtl_m2 as this study ran it (its revision 1, area_recovery.md §6.3): one L1D miss, and neither the RTL's issue
-# queues nor its store-address rule, which §6.4's revision 2 adds, nor speculative wakeup (revision 3)
+# queues nor its store-address rule, which §6.4's revision 2 adds, nor speculative wakeup (revision 3), nor revisions 4-5
 REV1 = {"l1d_mshr": 1, "iq_slot_bank": 0, "iq_hold": 0, "sta_split": 1, "spec_wakeup": 0, "hit_pred": 0, "shadow": 0,
-        "spec_int_only": 0, "spec_fwd": 0, "dc_row_clash": 0}
+        "spec_int_only": 0, "spec_fwd": 0, "dc_row_clash": 0, "m2_strad": 0, "m2_ub_way": 0}
 
 
 def config(feats, mhz):
