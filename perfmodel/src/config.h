@@ -24,6 +24,14 @@ namespace tg {
   X(m2_f2, 0, "fe_m2: direct targets and direction overrides come from F2's pre-decode (core-2's TAGE front end), not decode") \
   X(m2_f2_bubble, 1, "fe_m2 with m2_f2: fetch bubble of an F2 redirect (cycles)")                    \
   X(m2_ras_f2, 0, "fe_m2 with m2_f2 and ras: returns are repaired from the RAS at F2 (pre-decode), not at decode") \
+  X(m2_btage, 0, "fe_m2 with m2_dir: core-2's TAGE as built (tg_tage.sv): one read per 16-byte block, slot-tagged sub-entries, conditional-branch history; 0 = the model's per-branch TAGE (dirpred)") \
+  X(btage_li, 10, "m2_btage: tagged tables' index bits (two sub-entries per entry)")             \
+  X(btage_bi, 11, "m2_btage: base table's index bits (blocks; a 2-bit counter per slot)")         \
+  X(btage_tw, 9, "m2_btage: tag bits")                                                             \
+  X(btage_lag, 1, "m2_btage: a block read right behind another lacks that block's history bits (F1 reads as F2 delivers)") \
+  X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
+  X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
+  X(m2_ftq, 0, "fe_m2: FTQ entries (core-2's TAGE front end): a block holds one from fetch until an instruction of a later block commits; fetch waits while none is free (0 = no FTQ)") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
@@ -59,6 +67,8 @@ namespace tg {
   X(iq_a1, 12, "IQ-A1 entries (ALU, MUL, DIV)")                                                    \
   X(iq_ld, 12, "IQ-LD entries")                                                                    \
   X(iq_sta, 8, "IQ-STA entries")                                                                   \
+  X(iq_hold, 0, "cycles from a uop's issue until dispatch can reuse its IQ row (0 = at once; core-2's RTL: 3, the row is freed two cycles after its select)") \
+  X(iq_slot_bank, 0, "IQ rows are banks by dispatch slot (plan §4.15; core-2's RTL): decode slot k's uop takes a row of bank k, and a group waits until each slot's bank has one") \
   X(iq_fp, 12, "IQ-FP entries")                                                                    \
   X(alu3, 0, "third simple-ALU port P5 with its own queue and register bank (DSE option)")         \
   X(iq_a2, 0, "IQ-A2 entries with alu3 (0 = same as IQ-A1)")                                       \
@@ -127,6 +137,7 @@ namespace tg {
   X(pf_i_nextline, 1, "L1I next-line prefetch")                                                    \
   X(max_cycles, 0, "stop after this many cycles (0 = no limit)")                                  \
   X(ff, 0, "fast-forward functionally to the region start marker (caches and predictors cold)")  \
+  X(whole_run, 0, "ignore the region markers: the region's counters cover the whole run (as an RTL profile does)") \
   /* multithreading (plan section 6); ignored when threads = 1 */                                  \
   X(threads, 1, "hardware threads: 1, or 2 (SMT2: two programs share the core)")                   \
   X(smt_fetch, 0, "front-end thread priority: 0 ICOUNT (fewest uops in IQ/rename/issue queues), 1 round robin") \
