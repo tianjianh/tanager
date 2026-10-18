@@ -467,6 +467,15 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - **The window's AXI attributes:** unprivileged, non-secure data accesses; cache bits 0000 (device, non-bufferable).
     - **Tests:** `tests/unit/soc` `PS_WINDOW=1` (in `short`), against a model of the PS. Every access size, three denials without a transaction, an error response, a response 70,000 cycles late (the timeout, then the recovery), and TTC1's interrupt through the PLIC: 15 transactions, all checked. The window also passes lint (st and smt2, the synthesis view too) and the forward-reference check, with and without it.
     - **The board program:** `tests/unit/soc/sw/ps_d1.c` (`ps_d1.bin`) runs the four checks above on the real PS.
+  - **Met on the board** (the board session, 10-17, `fpga/kv260/board/d1`; bitstream d1_100, tree a4bc643, WNS +0.650 ns at 100 MHz with the 1.0 ns place-and-route uncertainty, 110,980 LUTs, 94.8%):
+    - **Pre-check:** AFI FM6 at 128 bits. `RST_LPD_IOU2` = `0x000103AA`: TTC1, TTC2 and TTC3 are out of reset, and the set bits are all unused blocks (UART0, SPI0, SD0, CAN0/1, I2C0, NAND). So no PS change was needed.
+    - **"D1 PASS":**
+      - UART1's status read `0x0A`, and the line written into its FIFO appeared on the A53's console (`ttyPS1`, the board's USB serial port).
+      - IOU_SLCR read UART1's MIO 36 pin as `0xC0` and SD1's tap delays (`SD_ITAPDLY` `0x012A0000`, `SD_OTAPDLYSEL` `0x00050000`), the values D4 inherits.
+      - TTC1's interval interrupt arrived through PLIC source 24 after 821 ticks of 10 MHz (82 µs: 8,192 cycles of `lpd_lsbus` at 100 MHz).
+      - TTC0 and UART0 faulted.
+    - **The XPPU let the PL master through.**
+    - **The A53 was unharmed:** no new dmesg line, UART1's driver counters unchanged, its getty and `fancontrol` running.
 - **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
   - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
   - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.
