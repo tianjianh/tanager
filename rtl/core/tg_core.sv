@@ -240,7 +240,7 @@ module tg_core
     .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop, .ras_link);
   if (RAS_ON) begin : g_ras
-    tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH)) u_ras (
+    tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
       .clk, .rst, .flush, .top_v(ras_v), .top(ras_top), .s_tos(ras_tos), .s_cnt(ras_cnt),
       .d_push(RAS_FE ? fras_push : ras_push), .d_pop(RAS_FE ? fras_pop : ras_pop),
       .d_link(RAS_FE ? fras_link : ras_link),

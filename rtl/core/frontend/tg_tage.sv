@@ -192,19 +192,53 @@ module tg_tage
   end
 
   // ---- F2: each slot's direction ----
+  // Flat (timing: the BRAMs' outputs lead F2's decision): each sub-entry's tag is compared once
+  // (tmv), not within every slot's search; a slot's candidates are the sub-entries that match with
+  // its slot, in priority order (the longest table first, then way 0), and its direction is the
+  // first one's counter, else the base's: one function of the candidates' hits and counters
+  localparam int NK = 2 * NT;
+  logic [NK-1:0]   km;                      // candidate k (priority order): valid and its tag matches
+  logic [NK-1:0]   kc;                      // ... its counter's direction
+  logic [NK-1:0][SW-1:0] ks;                // ... its slot
+  always_comb
+    for (int t = 0; t < NT; t++)
+      for (int w = 0; w < 2; w++) begin
+        km[2 * (NT - 1 - t) + w] = ra[t][w].v && ra[t][w].tag == ix_tag(ix_q, t);
+        kc[2 * (NT - 1 - t) + w] = ra[t][w].ctr[2];
+        ks[2 * (NT - 1 - t) + w] = ra[t][w].slot;
+      end
   always_comb begin
     for (int s = 0; s < NP; s++) begin
-      logic found;
-      found  = 1'b0;
+      logic [NK-1:0] h;
+      logic          any;
+      for (int k = 0; k < NK; k++) h[k] = km[k] && ks[k] == SW'(s);
       dir[s] = bra[s][1];
-      for (int t = NT - 1; t >= 0; t--)
-        for (int w = 0; w < 2; w++)
-          if (!found && ra[t][w].v && ra[t][w].tag == ix_tag(ix_q, t) && ra[t][w].slot == SW'(s)) begin
-            found  = 1'b1;
-            dir[s] = ra[t][w].ctr[2];
-          end
+      any    = 1'b0;
+      for (int k = 0; k < NK; k++) begin
+        if (h[k] && !any) dir[s] = kc[k];
+        any = any || h[k];
+      end
     end
   end
+`ifndef SYNTHESIS
+  // the search as first built, per slot
+  always_ff @(posedge clk) begin
+    if (!rst) begin
+      for (int s = 0; s < NP; s++) begin
+        logic found, d;
+        found = 1'b0;
+        d     = bra[s][1];
+        for (int t = NT - 1; t >= 0; t--)
+          for (int w = 0; w < 2; w++)
+            if (!found && ra[t][w].v && ra[t][w].tag == ix_tag(ix_q, t) && ra[t][w].slot == SW'(s)) begin
+              found = 1'b1;
+              d     = ra[t][w].ctr[2];
+            end
+        assert (dir[s] == d) else $error("tg_tage: the flat direction differs from the search's");
+      end
+    end
+  end
+`endif
 
   // ---- T2: the update ----
   always_comb begin
