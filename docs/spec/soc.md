@@ -644,7 +644,10 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - SD1 is the ZynqMP variant without `#clock-cells`. Its phase calls then get no clocks, so the A53's tap delays stay, and its firmware query fails into a stub on RISC-V, so it makes no PMU calls.
         - Over plain `arasan,sdhci-8.9a`, it adds the A53's quirks: default speed at 19 MHz (the A53's high-speed taps stay during card set-up) and auto-CMD12 reads.
         - Plain `arasan,sdhci-8.9a` follows as the fallback compatible.
-      - **Still to come:** the board's live tree; `kexec-tools` on the A53. Then the DKMS package: `sdhci-of-arasan` and `xilinx_uartps` built from `linux-source-6.12` on the RISC-V's Debian in stage C, and `sdhci-of-arasan` added to its initrd. Last, the dry run, then the run.
+      - **The Debian side** (`sw/debian`): `tanager-ps-dkms` builds `sdhci-of-arasan` and `xilinx_uartps` with DKMS, from the running kernel's own `linux-source-6.12`. Debian's config has what they need: `MMC_SDHCI_PLTFM` and `MMC_CQHCI` as modules, `COMMON_CLK`, `MMC_SDHCI_IO_ACCESSORS`, `MODVERSIONS`.
+        - `stage_d_prep.sh`, run inside the RISC-V's Debian in stage C, installs it, puts `sdhci-of-arasan` into the initrd (the root is on the card), and gives UART1 the PL UART's automatic login (the user `tanager` has no password).
+        - Kconfig keeps a modular Cadence UART from being a console, so D4's kernel console stays on the PL UART (`console=ttyS0`, early output through the 8250), and UART1 carries the login.
+      - **Still to come:** the board's live tree and `kexec-tools` on the A53; `stage_d_prep.sh` in stage C. Then the dry run, then the run.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
