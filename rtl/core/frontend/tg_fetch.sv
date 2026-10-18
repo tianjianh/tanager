@@ -250,8 +250,8 @@ module tg_fetch
   logic [PA_W-1:0]   f2_pa_q;
   logic [NW-1:0]     f2_pmpd_q;
   logic [SLOT_W-1:0] f2_slot_q;
-  logic [WAYS-1:0]   f2_wv_q;                 // valid bits of the set, read in F1
-  logic [WAYS-1:0][TAG_W-1:0] f2_tag_q;
+  logic [WAYS-1:0]   f2_wh_q;                 // the ways that hit, compared in F1 (below)
+  logic [WAY_W-1:0]  f2_hw_q;                 // ... the hit way's index: the data select
   // F2's action on its block, registered (ka_q): park on an I$ miss (k_miss_q) or an ITLB miss
   // (k_walk_q), stop after a fault block (k_stop_q), else refetch: at the PMP cut (k_cut_q, fp_q),
   // the next block after a dropped prediction (k_ovr_q), or the block itself (its line was
@@ -272,19 +272,16 @@ module tg_fetch
 
   logic [WAYS-1:0] way_hit;
   logic [127:0]    blk;
-  for (genvar w = 0; w < WAYS; w++) begin : g_cmp
-    assign way_hit[w] = f2_wv_q[w] && f2_tag_q[w] == f2_pa_q[12 +: TAG_W];
-  end
   // The block from the hit way's index: one multiplexer per bit on an encoded select (two LUT6
   // and a MUXF7 for 8 ways) rather than an AND-OR over the one-hot hits. At most one way hits
   // (asserted below); a block delivered without a hit is a fault block, whose parcels and
   // pre-decode results are not used, and a missed block is never delivered.
-  logic [WAY_W-1:0] hit_way;
-  always_comb begin
-    hit_way = '0;
-    for (int w = 0; w < WAYS; w++) if (way_hit[w]) hit_way |= WAY_W'(w);
-  end
-  assign blk = way_data[hit_way];
+  // The tags are compared in F1 and the hits registered (timing: in F2 the compare, the select's
+  // encoding and its fanout led the pre-decode and the prediction, one chain): F2's select is a
+  // register. F1 compares what F2 did, the set's tags and valid bits as F1 reads them and fpc_q's
+  // PA, so the hits are the same.
+  assign way_hit = f2_wh_q;
+  assign blk     = way_data[f2_hw_q];
 
   // Refill / fault state
   logic        miss_q;             // fetch is parked on miss_pc_q (I$ miss)
@@ -359,6 +356,7 @@ module tg_fetch
   logic [SLOT_W-1:0]  fx_slot;            // the taken exit's last parcel
   logic               fx_tsrc;            // ... its target is the instruction's own (TAGE_ON)
   logic               f2_ovr;             // the prediction differs from what F1 followed: refetch,
+  logic               f2_ka;              // F2 acts on a delivered block: a cut, a fault or a refetch
   logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
   logic [SLOT_W-1:0]  ovr_p;              //     or else at the next block
   logic               uok;                // the micro-BTB's prediction is a real exit
@@ -433,6 +431,7 @@ module tg_fetch
     assign fx_slot = f2_slot_q;
     assign fx_tsrc = 1'b0;
     assign f2_ovr  = f2_hit_q && !pred_ok;
+    assign f2_ka   = pmp_cut || (f2_ovr && !f2_isf0) || f2_isfault;
     assign ovr_tk  = 1'b0;
     assign ovr_p   = '0;
     assign gh_n    = '0;
@@ -458,13 +457,18 @@ module tg_fetch
     // JALR the micro-BTB predicts here (its target); a conditional branch TAGE predicts taken. The
     // exit is the first candidate, unless the block's third conditional branch comes first: the
     // block then ends before it (a cut, refetched there), so a block adds at most two history bits.
+    // The decision is formed flat, as one-hot vectors (timing: a walk over the parcels chained the
+    // pre-decode, the search, the PMP cut, the block's parcels and the history in one path, about
+    // 40 levels in the full chip): per parcel, whether anything was decided before it (ns: a
+    // candidate, or a third branch), from prefix ORs and counts; the exit (feh) or the cut (c3h)
+    // where that first meets a candidate; and from those the block's limit (lim), its parcels and
+    // its history bits. The entry's fault decisions do not wait for the exit: the denied
+    // instruction at the entry is one whatever the exit (den_e). A simulation-only copy of the walk
+    // (g_ref, below) checks every output against this form.
     logic [NP-1:0][SLOT_W-1:0] lsl;
-    logic [NP-1:0]             cbr, tkn;
-    logic [SLOT_W-1:0]         fe_p, c3_p;
-    logic                      fe_v, c3_v;
+    logic [NP-1:0]             outp, cbr, rp, tkn;
     // A return the stack predicts (RAS_FE: a pop while the stack is not empty) is a candidate too,
     // to the stack's top; a JALR otherwise only where the micro-BTB predicts it
-    logic [NP-1:0] rp;
     logic [63:0]   rtgt;
     assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
     // A 32-bit instruction that straddles in from the previous block (its first half in sp_q) is the
@@ -487,62 +491,92 @@ module tg_fetch
       sx_jalr = sv && sx[6:0] == 7'b1100111;
       sx_call = (sx_jal || sx_jalr) && rdl;
       sx_pop  = sx_jalr && rsl && !(rdl && rd == rs1);
-      sx_tk   = (sx_br && tdir[0]) || sx_jal ||
-                (sx_jalr && ((RAS_FE && sx_pop && ras_v) || (uok && f2_slot_q == '0)));
+      // (the micro-BTB never takes a straddler: no parcel of its block starts at slot 0, so its
+      // prediction there is no real exit and uok is false; only the stack takes a straddling JALR)
+      sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v);
     end
+    assign fe_s = sx_tk;
+    for (genvar p = 0; p < NP; p++) begin : g_cand
+      assign outp[p] = wide[p] && p == NP - 1;
+      assign lsl[p]  = SLOT_W'(wide[p] ? p + 1 : p);
+      assign cbr[p]  = pd_start[p] && pd_br[p] && !outp[p];
+      assign rp[p]   = RAS_FE && pd_pop[p] && ras_v;
+      // A JALR at the micro-BTB's exit slot is a real exit by itself (pred_ok holds there), so the
+      // candidate does not wait for uok, the whole block's check
+      logic hs;
+      assign hs = f2_hit_q && (wide[p] ? f2_slot_q == SLOT_W'(p + 1) : f2_slot_q == SLOT_W'(p));
+      assign tkn[p]  = (pd_start[p] && !outp[p] && (pd_jal[p] || (pd_jalr[p] && (rp[p] || hs)))) ||
+                       (cbr[p] && (wide[p] ? tdir[(p + 1) % NP] : tdir[p]));
+    end
+    // ns[p]: nothing decided before p: no candidate there (tb) and no third conditional branch (at
+    // least three before p, the straddler counted); the cut at the third (c3h: two before it), else
+    // the exit at the first candidate (feh). lim[p]: p is in the block, up to the exit's last
+    // parcel or before the cut (a prefix of the parcels)
+    logic [NP-1:0] ns, feh, c3h, lim;
     always_comb begin
-      int   nb;
-      logic seen;
-      nb = sx_br ? 1 : 0;
-      seen = sx_tk;
-      fe_s = sx_tk;
-      fe_v = 1'b0; fe_p = '0; c3_v = 1'b0; c3_p = '0;
       for (int p = 0; p < NP; p++) begin
-        logic outp, ujx;
-        outp   = wide[p] && p == NP - 1;
-        lsl[p] = SLOT_W'(wide[p] ? p + 1 : p);
-        cbr[p] = pd_start[p] && pd_br[p] && !outp;
-        rp[p]  = RAS_FE && pd_pop[p] && ras_v;
-        ujx    = pd_start[p] && !outp && (pd_jal[p] || (pd_jalr[p] && (rp[p] || (uok && f2_slot_q == lsl[p]))));
-        tkn[p] = ujx || (cbr[p] && tdir[lsl[p]]);
-        if (!seen && cbr[p] && nb == 2) begin
-          seen = 1'b1; c3_v = 1'b1; c3_p = SLOT_W'(p);
-        end else if (!seen && tkn[p]) begin
-          seen = 1'b1; fe_v = 1'b1; fe_p = SLOT_W'(p);
+        logic a1, a2, a3, t;
+        a1 = sx_br;
+        a2 = 1'b0;
+        a3 = 1'b0;
+        t  = 1'b0;
+        for (int q = 0; q < p; q++) begin
+          a3 = a3 || (a2 && cbr[q]);
+          a2 = a2 || (a1 && cbr[q]);
+          a1 = a1 || cbr[q];
+          t  = t || tkn[q];
         end
-        if (cbr[p]) nb++;
+        ns[p]  = !sx_tk && !t && !a3;
+        c3h[p] = ns[p] && cbr[p] && a2;
+        feh[p] = ns[p] && tkn[p] && !(cbr[p] && a2);
+        lim[p] = (ns[p] && !c3h[p]) || (p > 0 && feh[(p + NP - 1) % NP] && wide[(p + NP - 1) % NP]);
       end
     end
-    // PMP inside the block, as in the micro-BTB form: the parcels up to the exit (or before the cut)
-    logic [NP-1:0] pq, pq_run, bs;
-    logic          pe, phi, pcut, ccut, isf, tk, bc;
+    logic              fe_v, c3_v;
+    logic [SLOT_W-1:0] fe_p, c3_p;
+    assign fe_v = |feh;
+    assign c3_v = |c3h;
+    always_comb begin
+      fe_p = '0;
+      c3_p = '0;
+      for (int p = 0; p < NP; p++) begin
+        if (feh[p]) fe_p |= SLOT_W'(p);
+        if (c3h[p]) c3_p |= SLOT_W'(p);
+      end
+    end
+    // PMP inside the block: den[p], the instruction starting at p touches a denied word; dr[p], one
+    // at or before p does. The walk's pq is lim & den. At the entry it is den_e whatever the exit
+    // (the entry's instruction starts there unless it is a straddler's second half), so the entry's
+    // decisions are early. A later one cuts the block when it lies within lim; then the block's
+    // parcels are those before it (~dr), and the refetch is at it (fd_p)
+    logic [NP-1:0]     den, dr, cutm;
+    logic              den_e, pe, phi, pcut, ccut, isf, tk;
+    logic [SLOT_W-1:0] fd_p;
     always_comb begin
       logic run;
-      run = 1'b0;
+      run  = 1'b0;
+      fd_p = '0;
       for (int p = 0; p < NP; p++) begin
-        logic lim;
-        lim   = fe_s ? 1'b0 : fe_v ? SLOT_W'(p) <= lsl[fe_p] : c3_v ? SLOT_W'(p) < c3_p : 1'b1;
-        pq[p] = pd_start[p] && lim && (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
-        run = run || pq[p];
-        pq_run[p] = run;
+        den[p] = pd_start[p] && (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+        run    = run || den[p];
+        dr[p]  = run;
       end
-      pe   = f2_chk && (f2_carried || pq[f2_ent]);
-      phi  = f2_chk && !f2_carried && pq[f2_ent] && !dslot[f2_ent];
-      pcut = f2_chk && !f2_carried && |pq && !pq[f2_ent];
-      // the branch cut, like the PMP cut, only on a block that hit (else its parcels are not its
-      // own: the refetch after a miss's line arrives must not take the cut)
-      ccut = f2_chk && c3_v && !pe;
-      isf  = f2_bfault || pe;
-      tk   = (fe_s || fe_v) && !isf && !pcut;
+      for (int p = NP - 1; p >= 0; p--) if (den[p]) fd_p = SLOT_W'(p);
+    end
+    assign den_e = !sv && (dslot[f2_ent] || (wide[f2_ent] && f2_ent != SLOT_W'(NP - 1) && dslot[f2_ent + 1'b1]));
+    assign pe    = f2_chk && (f2_carried || den_e);
+    assign phi   = f2_chk && !f2_carried && den_e && !dslot[f2_ent];
+    assign pcut  = f2_chk && !f2_carried && !den_e && |(lim & den);
+    assign ccut  = f2_chk && c3_v && !pe;
+    assign isf   = f2_bfault || pe;
+    assign tk    = (fe_s || fe_v) && !isf && !pcut;
+    assign cutm  = (f2_chk && !f2_carried && !den_e) ? dr : '0;
+    logic [NP-1:0] bs;
+    logic          bc;
+    always_comb begin
       for (int p = 0; p < NP; p++)
-        bs[p] = pd_start[p] && !(tk && fe_s) &&
-                (pcut ? !pq_run[p] : ccut ? SLOT_W'(p) < c3_p : (!tk || SLOT_W'(p) <= lsl[fe_p]));
-      bc = pd_carry && !tk && !pcut && !ccut;
-      if (isf) begin
-        bs = '0;
-        bs[f2_ent] = 1'b1;
-        bc = 1'b0;
-      end
+        bs[p] = isf ? SLOT_W'(p) == f2_ent : pd_start[p] && (lim[p] || (c3_v && !f2_chk)) && !cutm[p];
+      bc = !isf && pd_carry && !fe_s && !fe_v && !(c3_v && f2_chk) && !cutm[NP-1];
     end
     assign pmp_hi     = phi;
     assign pmp_cut    = pcut || ccut;                // either cut refetches at fp
@@ -552,62 +586,106 @@ module tg_fetch
     assign blk_start  = bs;
     assign blk_carry  = bc;
     always_comb begin
-      fp = c3_p;
-      if (pcut) begin
-        fp = '0;
-        for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
-      end
+      fp = pcut ? fd_p : c3_p;
       for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
     end
-    assign fx_slot = fe_s ? '0 : lsl[fe_p];
-    assign fx_tsrc = tk && (fe_s ? !sx_jalr : !pd_jalr[fe_p]);
+    // The exit's slot, kind and target (without an exit: the walk's default, the first parcel's)
+    logic xjalr, xras, xcall, xpop, xcbr, sm;
+    logic [3:0] xoff;                              // the exit's link, in halfwords from the block
+    always_comb begin
+      xjalr   = 1'b0;
+      xras    = 1'b0;
+      xcall   = 1'b0;
+      xpop    = 1'b0;
+      xcbr    = 1'b0;
+      sm      = 1'b0;
+      fx_slot = '0;
+      xoff    = '0;
+      for (int p = 0; p < NP; p++)
+        if (feh[p]) begin
+          xjalr   = xjalr || pd_jalr[p];
+          xras    = xras  || rp[p];
+          xcall   = xcall || pd_call[p];
+          xpop    = xpop  || pd_pop[p];
+          xcbr    = xcbr  || cbr[p];
+          sm      = sm    || lsl[p] == f2_slot_q;
+          fx_slot = fx_slot | lsl[p];
+          xoff    = xoff  | (4'(p) + (wide[p] ? 4'd2 : 4'd1));
+        end
+      if (fe_s) begin
+        xjalr   = sx_jalr;
+        xras    = RAS_FE && sx_pop && ras_v;
+        xcall   = sx_call;
+        xpop    = sx_pop;
+        xcbr    = sx_br;
+        sm      = f2_slot_q == '0;
+        fx_slot = '0;
+        xoff    = 4'd1;
+      end else if (!fe_v) begin
+        fx_slot = lsl[0];
+        xoff    = wide[0] ? 4'd2 : 4'd1;
+      end
+    end
+    assign fx_tsrc = tk && !xjalr;
     // F1 followed the micro-BTB (its target on f2_hit_q, else the next block). They differ when the
     // exit is at another slot than the micro-BTB's, or there is none against its hit; at the same slot
     // the micro-BTB's target is taken as right (decode checks it). Faults and cuts refetch on their own
-    // (a return the stack predicts: also when the micro-BTB's target is not the stack's top)
-    logic fe_ras;
-    assign fe_ras  = tk && (fe_s ? RAS_FE && sx_pop && ras_v : rp[fe_p]);
-    assign f2_ovr  = !isf && !pcut && !ccut &&
-                     (tk ? !(f2_hit_q && f2_slot_q == fx_slot && (!fe_ras || f2_tgt_q == rtgt)) : f2_hit_q);
+    // (a return the stack predicts: also when the micro-BTB's target is not the stack's top).
+    // f2_ka, F2's action without the delivery: its terms absorb f2_ovr's gates (timing)
+    logic fe_ras, xovr;
+    assign fe_ras  = tk && xras;
+    assign xovr    = (fe_s || fe_v) ? !(f2_hit_q && sm && (!xras || f2_tgt_q == rtgt)) : f2_hit_q;
+    assign f2_ovr  = !isf && !pcut && !ccut && xovr;
+    assign f2_ka   = pcut || ccut || isf || xovr;
     assign ovr_tk  = tk;
     assign ovr_p   = fe_p;
     assign ovr_s   = fe_s;
     // the exit's offset, for the refetch at its target
     always_comb begin
-      logic [31:0] x;
-      x = {parcel[(int'(fe_p) + 1) % NP], parcel[fe_p]};
-      ovr_imm = fe_s ? br_imm(sx, sx_jal) : br_imm(x, pd_jal[fe_p]);
+      logic [NP-1:0][20:0] im;
+      for (int p = 0; p < NP; p++) im[p] = br_imm({parcel[(p + 1) % NP], parcel[p]}, pd_jal[p]);
+      ovr_imm = im[0];
+      if (fe_v) begin
+        ovr_imm = '0;
+        for (int p = 0; p < NP; p++) if (feh[p]) ovr_imm = ovr_imm | im[p];
+      end
+      if (fe_s) ovr_imm = br_imm(sx, sx_jal);
     end
     assign ovr_ras = fe_ras;
     assign fx_tgt  = fe_ras ? rtgt : f2_tgt_q;
     // The stack's operation at the block's exit (made as the block is delivered, below): a call's
     // push of its link, a return's pop (the commit side does the same, ras_op)
-    assign f2_rpush = RAS_FE && tk && (fe_s ? sx_call : pd_call[fe_p]);
-    assign f2_rpop  = RAS_FE && tk && (fe_s ? sx_pop : pd_pop[fe_p]);
-    // (a straddler's link: its PC, the block - 2, + 4)
-    assign f2_rlink = fe_s ? {f2_pc_q[38:4], 3'b000} + 38'd1
-                           : {f2_pc_q[38:4], 3'b000} + 38'(fe_p) + (wide[fe_p] ? 38'd2 : 38'd1);
-    // History: the block's conditional branches up to its exit or cut, as predicted (newest in bit 0)
+    assign f2_rpush = RAS_FE && tk && xcall;
+    assign f2_rpop  = RAS_FE && tk && xpop;
+    // (the link: the block's halfword address plus xoff, 1 to 8; a straddler's: its PC, the block - 2, + 4)
+    logic [38:4] pc_n;
+    assign pc_n     = f2_pc_q[38:4] + 35'd1;
+    assign f2_rlink = xoff[3] ? {pc_n, 3'b000} : {f2_pc_q[38:4], xoff[2:0]};
+    // History: the block's conditional branches up to its exit or cut, as predicted (newest in bit 0).
+    // Only the exit can be taken, and it is the last branch counted, so the older bit is never set
     always_comb begin
-      int k;
-      k = 0;
-      gh_b  = '0;
+      logic [NP-1:0] bcb;
+      logic          sb, n1, n2;
+      sb  = !isf && sx_br;
+      bcb = '0;
+      for (int p = 0; p < NP; p++) bcb[p] = !isf && bs[p] && cbr[p];
+      n1 = sb;
+      n2 = 1'b0;
+      for (int p = 0; p < NP; p++) begin
+        n2 = n2 || (n1 && bcb[p]);
+        n1 = n1 || bcb[p];
+      end
+      gh_n  = n2 ? 2'd2 : n1 ? 2'd1 : 2'd0;
+      gh_b  = {1'b0, tk && xcbr};
       gh_cm = '0;
       gh_pk = '0;
-      if (!isf && sx_br) begin                     // the straddler first, at slot 0
-        gh_b = {gh_b[0], tk && fe_s};
-        gh_cm[0] = 1'b1;
-        gh_pk[0] = tk && fe_s;
-        k++;
-      end
+      gh_cm[0] = sb;
+      gh_pk[0] = sb && tk && fe_s;
       for (int p = 0; p < NP; p++)
-        if (!isf && bs[p] && cbr[p]) begin
-          gh_b = {gh_b[0], tk && SLOT_W'(p) == fe_p};
+        if (bcb[p]) begin
           gh_cm[lsl[p]] = 1'b1;
-          gh_pk[lsl[p]] = tk && SLOT_W'(p) == fe_p;
-          k++;
+          if (tk && feh[p]) gh_pk[lsl[p]] = 1'b1;
         end
-      gh_n = 2'(k);
     end
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
@@ -615,6 +693,130 @@ module tg_fetch
         assert (f2_slot_q >= f2_ent) else $error("tg_fetch: a micro-BTB hit's exit slot before the entry");
       if (!rst && f2v && fe_v)
         assert (fe_p >= f2_ent) else $error("tg_fetch: the exit before the entry");
+      if (!rst && f2v)
+        assert ($onehot0(feh | c3h)) else $error("tg_fetch: more than one exit or cut");
+    end
+    // ---- The walk over the parcels (the decision as first built), simulation only: every output of the
+    // flat form above equals its result (the history's on a delivered block: elsewhere the walk can count
+    // past two branches, on a block that is not delivered) ----
+    if (1) begin : g_ref
+      logic [NP-1:0]             r_cbr, r_tkn, r_rp;
+      logic [SLOT_W-1:0]         r_fe_p, r_c3_p, r_fp, r_fx_slot;
+      logic                      r_fe_v, r_c3_v;
+      always_comb begin
+        int   nb;
+        logic seen;
+        nb = sx_br ? 1 : 0;
+        seen = sx_tk;
+        r_fe_v = 1'b0; r_fe_p = '0; r_c3_v = 1'b0; r_c3_p = '0;
+        for (int p = 0; p < NP; p++) begin
+          logic o, ujx;
+          o        = wide[p] && p == NP - 1;
+          r_cbr[p] = pd_start[p] && pd_br[p] && !o;
+          r_rp[p]  = RAS_FE && pd_pop[p] && ras_v;
+          ujx      = pd_start[p] && !o && (pd_jal[p] || (pd_jalr[p] && (r_rp[p] || (uok && f2_slot_q == lsl[p]))));
+          r_tkn[p] = ujx || (r_cbr[p] && tdir[lsl[p]]);
+          if (!seen && r_cbr[p] && nb == 2) begin
+            seen = 1'b1; r_c3_v = 1'b1; r_c3_p = SLOT_W'(p);
+          end else if (!seen && r_tkn[p]) begin
+            seen = 1'b1; r_fe_v = 1'b1; r_fe_p = SLOT_W'(p);
+          end
+          if (r_cbr[p]) nb++;
+        end
+      end
+      logic [NP-1:0] r_pq, r_pq_run, r_bs;
+      logic          r_pe, r_phi, r_pcut, r_ccut, r_isf, r_tk, r_bc;
+      always_comb begin
+        logic run;
+        run = 1'b0;
+        for (int p = 0; p < NP; p++) begin
+          logic lm;
+          lm = fe_s ? 1'b0 : r_fe_v ? SLOT_W'(p) <= lsl[r_fe_p] : r_c3_v ? SLOT_W'(p) < r_c3_p : 1'b1;
+          r_pq[p] = pd_start[p] && lm && (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+          run = run || r_pq[p];
+          r_pq_run[p] = run;
+        end
+        r_pe   = f2_chk && (f2_carried || r_pq[f2_ent]);
+        r_phi  = f2_chk && !f2_carried && r_pq[f2_ent] && !dslot[f2_ent];
+        r_pcut = f2_chk && !f2_carried && |r_pq && !r_pq[f2_ent];
+        r_ccut = f2_chk && r_c3_v && !r_pe;
+        r_isf  = f2_bfault || r_pe;
+        r_tk   = (fe_s || r_fe_v) && !r_isf && !r_pcut;
+        for (int p = 0; p < NP; p++)
+          r_bs[p] = pd_start[p] && !(r_tk && fe_s) &&
+                    (r_pcut ? !r_pq_run[p] : r_ccut ? SLOT_W'(p) < r_c3_p : (!r_tk || SLOT_W'(p) <= lsl[r_fe_p]));
+        r_bc = pd_carry && !r_tk && !r_pcut && !r_ccut;
+        if (r_isf) begin
+          r_bs = '0;
+          r_bs[f2_ent] = 1'b1;
+          r_bc = 1'b0;
+        end
+        r_fp = r_c3_p;
+        if (r_pcut) begin
+          r_fp = '0;
+          for (int p = NP - 1; p >= 0; p--) if (r_pq[p]) r_fp = SLOT_W'(p);
+        end
+      end
+      assign r_fx_slot = fe_s ? '0 : lsl[r_fe_p];
+      logic        r_fx_tsrc, r_fe_ras, r_ovr, r_rpush, r_rpop;
+      logic [20:0] r_imm;
+      logic [38:1] r_rlink;
+      logic [63:0] r_tgt;
+      assign r_fx_tsrc = r_tk && (fe_s ? !sx_jalr : !pd_jalr[r_fe_p]);
+      assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
+      assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
+                         (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt)) : f2_hit_q);
+      always_comb begin
+        logic [31:0] x;
+        x = {parcel[(int'(r_fe_p) + 1) % NP], parcel[r_fe_p]};
+        r_imm = fe_s ? br_imm(sx, sx_jal) : br_imm(x, pd_jal[r_fe_p]);
+      end
+      assign r_tgt   = r_fe_ras ? rtgt : f2_tgt_q;
+      assign r_rpush = RAS_FE && r_tk && (fe_s ? sx_call : pd_call[r_fe_p]);
+      assign r_rpop  = RAS_FE && r_tk && (fe_s ? sx_pop : pd_pop[r_fe_p]);
+      assign r_rlink = fe_s ? {f2_pc_q[38:4], 3'b000} + 38'd1
+                            : {f2_pc_q[38:4], 3'b000} + 38'(r_fe_p) + (wide[r_fe_p] ? 38'd2 : 38'd1);
+      logic [1:0]    r_gh_n, r_gh_b;
+      logic [NP-1:0] r_gh_cm, r_gh_pk;
+      always_comb begin
+        int k;
+        k = 0;
+        r_gh_b  = '0;
+        r_gh_cm = '0;
+        r_gh_pk = '0;
+        if (!r_isf && sx_br) begin
+          r_gh_b = {r_gh_b[0], r_tk && fe_s};
+          r_gh_cm[0] = 1'b1;
+          r_gh_pk[0] = r_tk && fe_s;
+          k++;
+        end
+        for (int p = 0; p < NP; p++)
+          if (!r_isf && r_bs[p] && r_cbr[p]) begin
+            r_gh_b = {r_gh_b[0], r_tk && SLOT_W'(p) == r_fe_p};
+            r_gh_cm[lsl[p]] = 1'b1;
+            r_gh_pk[lsl[p]] = r_tk && SLOT_W'(p) == r_fe_p;
+            k++;
+          end
+        r_gh_n = 2'(k);
+      end
+      logic r_seen_q;                              // the first reset has come
+      initial r_seen_q = 1'b0;
+      always @(posedge clk) if (rst) r_seen_q <= 1'b1;
+      always_ff @(posedge clk) begin
+        if (r_seen_q && !rst && f2v) begin
+          assert (r_fe_v == fe_v && r_fe_p == fe_p && r_c3_v == c3_v && r_c3_p == c3_p && r_isf == isf &&
+                  r_phi == phi && r_pcut == pcut && r_ccut == ccut && r_tk == tk && r_bs == bs && r_bc == bc &&
+                  r_fp == fp && r_fx_slot == fx_slot && r_fx_tsrc == fx_tsrc && r_fe_ras == fe_ras &&
+                  r_ovr == f2_ovr && r_imm == ovr_imm && r_tgt == fx_tgt && r_rpush == f2_rpush &&
+                  r_rpop == f2_rpop && r_rlink == f2_rlink)
+            else $error("tg_fetch: the flat decision differs from the walk's");
+          assert (f2_ka == (r_pcut || r_ccut || r_isf || r_ovr) || !f2_deliver)
+            else $error("tg_fetch: F2's action differs from the walk's");
+          if (f2_deliver)
+            assert (r_gh_n == gh_n && r_gh_b == gh_b && r_gh_cm == gh_cm && r_gh_pk == gh_pk)
+              else $error("tg_fetch: the flat history bits differ from the walk's");
+        end
+      end
     end
 `endif
   end
@@ -864,6 +1066,17 @@ module tg_fetch
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
     .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
 
+  // F1's tag compare (for F2's way select, above): the set's valid bits and tags against fpc_q's PA
+  logic [WAYS-1:0]  f1_wh;
+  logic [WAY_W-1:0] f1_hw;
+  for (genvar w = 0; w < WAYS; w++) begin : g_cmp
+    assign f1_wh[w] = iv_rd[0][w] && tag_rd[w] == f1_pa[12 +: TAG_W];
+  end
+  always_comb begin
+    f1_hw = '0;
+    for (int w = 0; w < WAYS; w++) if (f1_wh[w]) f1_hw |= WAY_W'(w);
+  end
+
   // victim: first invalid way of the set, else round robin
   logic [WAY_W-1:0] victim;
   always_comb begin
@@ -1044,15 +1257,15 @@ module tg_fetch
         f2_way_q   <= ub_way;
         f2_slot_q  <= ub_slot;
         f2_tgt_q   <= pred_tgt;
-        f2_tag_q   <= tag_rd;
-        f2_wv_q    <= iv_rd[0];
+        f2_wh_q    <= f1_wh;
+        f2_hw_q    <= f1_hw;
         if (f1_live) begin
           fpc_q <= (pred_hit && !f1_fault) ? pred_tgt : seq_pc;
           pw_q  <= 1'b0;
         end
       end
       // F2's action on this cycle's block, taken next cycle; miss_pc_q and miss_pa_q name the block
-      ka_q     <= f2_miss || f2_wmiss || (f2_deliver && (pmp_cut || f2_override || f2_isfault));
+      ka_q     <= f2_miss || f2_wmiss || (f2_deliver && f2_ka);
       k_miss_q <= f2_miss && !((refill_done && f2_pa_q[PA_W-1:6] == rline_q) ||
                                (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q));
       k_walk_q <= f2_wmiss;
