@@ -33,6 +33,8 @@ namespace tg {
   X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
   X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
   X(m2_ftq, 0, "fe_m2: FTQ entries (core-2's TAGE front end): a block holds one from fetch until an instruction of a later block commits; fetch waits while none is free (0 = no FTQ)") \
+  X(m2_strad, 0, "fe_m2: a 32-bit instruction that straddles into the next block, reached in sequence, is decoded with that block (F2 holds its first half): no block of its own, the next block's TAGE read at slot 0, one of its branches; the micro-BTB never predicts or trains a straddler (the RTL as built)") \
+  X(m2_ub_way, 0, "fe_m2: training writes the micro-BTB way that predicted this instruction, else a pseudo-random way (the RTL as built); 0 = the way that hit the block") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \

@@ -75,7 +75,7 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     : c_(c), nthr_((int)std::clamp<int64_t>(c.threads, 1, MAX_THREADS)), mem_(c),
       btb_((int)c.btb_sets, (int)c.btb_ways, (int)std::max<int64_t>(1, c.btb_slots), (int)c.fetch_bytes,
            c.btb_block != 0),
-      ubtb_((int)c.ubtb), m2_((int)std::max<int64_t>(1, c.ubtb), (int)c.ubtb_ways, (int)c.m2_ctr),
+      ubtb_((int)c.ubtb), m2_((int)std::max<int64_t>(1, c.ubtb), (int)c.ubtb_ways, (int)c.m2_ctr, c.m2_ub_way != 0),
       sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
       waittab_((int)std::max<int64_t>(1, c.mdp_entries), 0) {
   if (c.fe_m2 && c.m2_dir && c.m2_btage)
@@ -385,12 +385,15 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
 // the RTL does at execute happens here, with the fetch-time lookup.
 void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   const uint64_t fb = (uint64_t)c_.fetch_bytes;
-  const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
+  const uint64_t base = blk_end - fb;  // the block read; m2_strad: a straddler at the start begins in the one before
+  const bool sx_in = start < base;
+  const uint64_t key = base ^ T.salt;
   const M2Ubtb::Look l = m2_.lookup(key);
-  const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
+  // a slot before the start predicts nothing; a straddler's last parcel is slot 0, which the micro-BTB never takes
+  const bool hit = l.hit && (uint64_t)l.slot * 2 >= (sx_in ? 2 : (start & (fb - 1)));
   // The rest of a block the fetch queue cut short is the same block to the RTL (F2 holds it until F3 takes it all):
   // it keeps the block's TAGE read and its count of conditional branches.
-  const uint64_t blk = ((start ^ T.salt) / fb) & ((1ull << 35) - 1);
+  const uint64_t blk = ((base ^ T.salt) / fb) & ((1ull << 35) - 1);
   const bool cont = T.bt_partial && T.bt_blk == blk;
   if (!cont) {
     // m2_ftq: a new block needs an FTQ entry; F2 holds it until one is free
@@ -413,14 +416,16 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   T.bt_blk = blk;
   T.bt_exact = false;
   T.bt_partial = false;
+  T.fe_seq = false;
   int n = 0, bubble = 0;
   bool ended = false;  // the block ended (else the fetch queue filled, or the stream ran out)
   while ((int64_t)T.fetchq.size() < c_.fetchq) {
     const DynInst* di = get(T, T.fetch_seq);
     if (!di) break;
     if (di->pc >= blk_end || di->pc < start) { ended = true; break; }
-    if (n > 0 && di->pc + di->d->len > blk_end) { ended = true; break; }
+    if (n > 0 && di->pc + di->d->len > blk_end) { ended = true; T.fe_seq = true; break; }
     const Decoded& d = *di->d;
+    const bool sx = c_.m2_strad && (di->pc & (fb - 1)) + d.len > fb;  // a straddler: the micro-BTB never trains it
     // m2_cut: F2 ends the block before its third conditional branch and refetches there, so a block adds at most
     // two bits of history.
     if (c_.m2_cut && c_.m2_f2 && d.cls == Cls::BR && T.bt_nbr == 2) {
@@ -490,8 +495,9 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         // as core-2's profile names them: a taken exit the micro-BTB missed, one at another slot than its hit,
         // a return at its slot to another target than the stack's top
         f2k = !hit ? &T.st.f2o_miss : !here ? &T.st.f2o_slot : &T.st.f2o_ret;
-        if (!hit) {  // the kind the micro-BTB missed
-          if (d.cls == Cls::BR) { T.st.f2o_miss_br++; f2c = FE_MISS_BR; }
+        if (!hit) {  // the kind the micro-BTB missed (m2_strad: a straddler, which it never holds, apart)
+          if (sx) { T.st.f2o_miss_strad++; f2c = FE_MISS_STRAD; }
+          else if (d.cls == Cls::BR) { T.st.f2o_miss_br++; f2c = FE_MISS_BR; }
           else if (d.is_ret()) { T.st.f2o_miss_ret++; f2c = FE_MISS_RET; }
           else { T.st.f2o_miss_jal++; f2c = FE_MISS_JAL; }
         } else {
@@ -502,10 +508,10 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         ok = false;
         r.mp_kind = d.cls == Cls::BR ? ((here || c_.m2_dir) ? 1 : 4) : d.is_ret() ? 3 : 2;  // m2_dir: all direction
       }
-      m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
+      if (!sx) m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
       // The RTL trains at execute on the wrong path too. Past a loop's exit it runs the loop again until the
       // commit flush, and the wrong path's copies of the branch resolve not taken: m2_wp_train more such updates.
-      if (!ok && d.cls == Cls::BR && pred_taken && !di->taken && tgt <= di->pc)
+      if (!sx && !ok && d.cls == Cls::BR && pred_taken && !di->taken && tgt <= di->pc)
         for (int k = 0; k < c_.m2_wp_train; k++) m2_.train(key, di->pc, slot, false, false, tgt, m2_.lookup(key));
       T.ghr.push(di->taken, di->pc);
     }
@@ -536,6 +542,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     if (di->pc + d.len >= blk_end) { ended = true; break; }
   }
   T.bt_partial = !ended;
+  if (!ended) T.fe_seq = true;
   T.st.taken_bubbles += (uint64_t)bubble;
   T.fe_resume = t_ + 1 + (uint64_t)bubble;
 }
@@ -567,11 +574,15 @@ void Core::fetch_thread(Thread& T) {
   const DynInst* first = get(T, T.fetch_seq);
   if (!first) return;
   const uint64_t fb = (uint64_t)c_.fetch_bytes;
-  const uint64_t start = first->pc, blk_end = (start & ~(fb - 1)) + fb;
+  const uint64_t start = first->pc;
+  uint64_t blk_end = (start & ~(fb - 1)) + fb;
+  // m2_strad: a straddler reached in sequence comes with the next block, which is the one read
+  const bool strad = c_.fe_m2 && c_.m2_strad && T.fe_seq && start + first->d->len > blk_end;
+  if (strad) blk_end += fb;
 
   mem_.tid = T.tid;
   uint64_t ready = t_;
-  const MemSys::Res res = mem_.l1i(pa(T, start), t_, false, ready);
+  const MemSys::Res res = mem_.l1i(pa(T, strad ? blk_end - fb : start), t_, false, ready);
   if (res != MemSys::Res::HIT) {
     T.fe_resume = std::max(ready, t_ + 1);
     T.st.fetch_stall_icache++;
@@ -794,13 +805,15 @@ int Core::decode_thread(Thread& T, int slots_avail) {
   }
   const bool blocked = T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
   const int took = decode_take(T, slots_avail);
+  if (blocked) T.st.dec_blocked++;  // rename cannot take a group (the RTL: !de_take)
   if (took == 0) T.st.dec_take0++;
   else if (took == 1) T.st.dec_take1++;
   else T.st.dec_take2++;
   if (took < c_.decode_width && took >= offer) T.st.dec_starved++;
   // Starved slots (rename could take a group, the queue offers fewer than the width), charged to the front end's
-  // last event, or to steady fetch when there was none in the last 32 cycles; not while fetch waits on a mispredict
-  if (!blocked && !T.fe_wait_mp && offer < c_.decode_width) {
+  // last event, or to steady fetch when there was none in the last 32 cycles; not while fetch waits on a mispredict,
+  // nor after a flush at commit until fetch restarts (the RTL decodes the wrong path until its flush acts)
+  if (!blocked && !T.fe_wait_mp && t_ >= T.fe_count_from && offer < c_.decode_width) {
     const uint64_t lost = (uint64_t)(c_.decode_width - offer);
     switch (t_ > T.fe_ev_t + 32 ? (int)FE_STEADY : T.fe_ev) {
       case FE_FLUSH: T.st.lost_flush += lost; break;
@@ -816,6 +829,7 @@ int Core::decode_thread(Thread& T, int slots_avail) {
       case FE_CUT: T.st.lost_cut += lost; break;
       case FE_ICMISS: T.st.lost_icmiss += lost; break;
       case FE_FTQ: T.st.lost_ftq += lost; break;
+      case FE_MISS_STRAD: T.st.lost_miss_strad += lost; break;
       default: T.st.lost_steady += lost; break;
     }
   }
@@ -1549,6 +1563,7 @@ void Core::retire(Uop& u, bool early) {
         T.refill_from = t_;
         T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
         T.fe_wait_mp = false;
+        T.fe_count_from = t_ + (uint64_t)c_.commit_redirect;
         fe_event(T, FE_FLUSH);
       }
       if (T.in_region && u.di) mp_pc_[u.di->pc]++;
@@ -1642,6 +1657,7 @@ int Core::commit_thread(Thread& T, int width) {
       waittab_.at(u.di->pc ^ T.salt) = 1;
       flush_from(T, u.id, u.seq);
       T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
+      T.fe_count_from = t_ + (uint64_t)c_.commit_redirect;
       T.last_commit_t = t_;
       return n;
     } else {
@@ -1749,6 +1765,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
   }
   T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
   T.fe_wait_mp = false;
+  T.fe_seq = false;
   for (auto& hq : held_)   // iq_hold: a flush frees the rows of the uops it kills at once
     hq.erase(std::remove_if(hq.begin(), hq.end(),
                             [&](const Held& h) { return h.id >= from_id && (h.id >> TID_SHIFT) == (from_id >> TID_SHIFT); }),

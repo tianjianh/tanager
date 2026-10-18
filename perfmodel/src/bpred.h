@@ -156,7 +156,8 @@ class PcCounters {
 // writes or clears its entry. A hit predicts the block taken at that slot; a miss falls through.
 class M2Ubtb {
  public:
-  M2Ubtb(int entries, int ways, int counters);
+  // rtl_way: training writes the way that predicted this instruction, else a pseudo-random way (the RTL)
+  M2Ubtb(int entries, int ways, int counters, bool rtl_way = false);
   struct Look { bool hit = false; int way = -1; uint64_t target = 0; int slot = -1; };
   Look lookup(uint64_t blk) const;
   // A resolved branch or jump of block blk at slot: train as the RTL does at execute.
@@ -171,6 +172,7 @@ class M2Ubtb {
   std::vector<E> e_;
   std::vector<uint8_t> ctr_;
   int sets_, ways_;
+  bool rtl_way_;
   uint64_t rng_ = 0x9e3779b97f4a7c15ull;
 };
 

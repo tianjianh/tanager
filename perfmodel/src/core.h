@@ -27,7 +27,7 @@ namespace tg {
 enum Queue : uint8_t { Q_A0, Q_A1, Q_LD, Q_STA, Q_FP, Q_UNI, Q_SERIAL, Q_ALU_ANY, Q_A2, NQ };
 // The front end's events that decode's starved slots are charged to (lost_* counters, area_recovery.md §6.7)
 enum FeEv : int { FE_STEADY, FE_FLUSH, FE_REPLAY, FE_DRED, FE_MISS_BR, FE_MISS_JAL, FE_MISS_RET, FE_SLOT, FE_RASTGT,
-                  FE_NT, FE_BOGUS, FE_CUT, FE_ICMISS, FE_FTQ };
+                  FE_NT, FE_BOGUS, FE_CUT, FE_ICMISS, FE_FTQ, FE_MISS_STRAD };
 constexpr uint64_t NEVER = ~0ull;
 // Micro-op ids carry the hardware thread in their top bits: unique across threads, and thread 0's ids are
 // exactly the single-thread ones.
@@ -115,12 +115,12 @@ struct SqEntry {
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
   X(fetch_blocks) X(ftq_full)                                                                      \
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
-  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
+  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_blocked) X(dec_starved) X(rob_empty) X(disp_stall_slot) \
   X(dc_clashes)                                                                                    \
-  X(f2o_miss_br) X(f2o_miss_jal) X(f2o_miss_ret)                                                  \
+  X(f2o_miss_br) X(f2o_miss_jal) X(f2o_miss_ret) X(f2o_miss_strad)                                 \
   X(lost_steady) X(lost_flush) X(lost_replay) X(lost_dred) X(lost_miss_br) X(lost_miss_jal)        \
   X(lost_miss_ret) X(lost_slot) X(lost_rastgt) X(lost_nt) X(lost_bogus) X(lost_cut) X(lost_icmiss) \
-  X(lost_ftq)                                                                                      \
+  X(lost_ftq) X(lost_miss_strad)                                                                   \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -199,6 +199,12 @@ class Core {
     int fe_ev = 0;
     uint64_t fe_ev_t = 0;
     bool fe_wait_mp = false;
+    // ... and from when, after a flush at commit: fetch restarts commit_redirect cycles later, and the RTL decodes
+    // the wrong path until its flush acts
+    uint64_t fe_count_from = 0;
+    // m2_strad: the last block ended in sequence (at a straddler, or cut short by a full fetch queue), so a
+    // straddler that starts the next fetch is decoded with its second block
+    bool fe_seq = false;
     // window (program order): decoded but not yet committed uops
     std::deque<Uop> win;
     uint64_t win_base = 1, next_id = 1, disp_next = 1;
