@@ -1,0 +1,2 @@
+f9352bbda558d90db6a4f45743687ebc10132fbd + spikes af28366; kv260_top patched by g5_fill_patch.py (47 tiles, 20 LUTRAM blocks per core): measurement only; options -impl 0 -define TG_DC_MSHRS=4 -define TG_SPEC_WAKE=1
+tree f9352bbda558d90db6a4f45743687ebc10132fbd = core-2's claude/track-core-adb715-ras 58674a7 (main c841a27 + the RAS f34b08a + fn12's two fixes), 100 MHz, -define TG_DC_MSHRS=4 -define TG_SPEC_WAKE=1 (both the defaults); the placement over-constrained by 1.0 ns, taken back before the reports

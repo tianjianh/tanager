@@ -113,6 +113,7 @@ struct SqEntry {
   X(fetch_blocks) X(ftq_full)                                                                      \
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
   X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
+  X(dc_clashes)                                                                                    \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -277,6 +278,11 @@ class Core {
   int64_t held(uint8_t q, int bank) const;
   int64_t slot_free(uint8_t q, int k) const;
   int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
+  // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
+  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
+  std::vector<AgRec> ag_recs_;
+  void row_clash(Thread& T, uint64_t addr);
+  void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
   bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
   int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken
