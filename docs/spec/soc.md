@@ -448,13 +448,21 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - **The A53 lost the PL SYSMON.** With d2 loaded, the AMS reads the PL SYSMON's temperature (`0xFFA5_0C00`) as 0, and hwmon's `temp3` shows −280.2 °C; the PS SYSMON (`temp1`, `fancontrol`'s sensor) reads normally.
     - The cause: instantiating SYSMONE4 gives the fabric the PL SYSMON's register port. The board read `AMS_PL_CSTS` (`0xFFA5_0044`): bit 0 (the PL SYSMON accessible) is 0 with d2 loaded and 1 on sc3. `AMS_PS_CSTS` stays `0x08010000`.
     - Effect: harmless to `fancontrol`, but every Tanager bitstream carries the regulator (DR-150), so the A53's PL channels (`xmutil platformstats`, the iio and hwmon nodes) read 0 while one is loaded. `tanager-host fan` shows the PL die instead.
+  - **The coordinator kept it** (option (a), 10-17, under DR-154: no area or IPC cost either way). With the D2 regulator loaded, the A53's PL temperature channel reads invalid; the PS channel and `fancontrol` are unaffected. This is in the A53 OS change log (`fpga/kv260/README.md`). Losing the A53's view of the PL temperature costs only monitoring, since `fancontrol` regulates on `temp1` and in stage D the A53 parks.
+    - The fallback stays documented: the regulator would read the PS SYSMON's temperature (`0xFFA5_0800`) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window and the XPPU's pass for the AMS (untested).
 - **Step 3, the regulator alone, passes** (fancontrol stopped for 5 minutes, then restarted):
   - pwm1 = 1: the A53's PWM read 0/255, and the duty held at the curve's 15/255 for all 10 samples. PL die 32.9–34.4 °C, `temp1` 33.4–36.4 °C.
   - pwm1 = 0 (the first try): `pwm-fan` disables the TTC's PWM, its output idles low, and the regulator reads that as the A53 asking for full speed. The fan ran full for the 5 minutes.
-  - **For D3:** the curve governs alone only while the A53's TTC waveform is high or keeps toggling (pwm1 ≥ 1). A disabled or reset TTC idling low runs the fan full: safe, but loud. So the handover boot leaves pwm1 at 1, or a later control bit lets the regulator ignore the TTC (an interface change for the coordinator).
-  - **The coordinator kept it** (option (a), 10-17, under DR-154: no area or IPC cost either way). With the D2 regulator loaded, the A53's PL temperature channel reads invalid; the PS channel and `fancontrol` are unaffected. This is in the A53 OS change log (`fpga/kv260/README.md`). Losing the A53's view of the PL temperature costs only monitoring, since `fancontrol` regulates on `temp1` and in stage D the A53 parks.
-    - The fallback stays documented: the regulator would read the PS SYSMON's temperature (`0xFFA5_0800`) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window and the XPPU's pass for the AMS (untested).
-    - **D3** (the coordinator): the handover boot leaves pwm1 at 1, so the TTC keeps running and the curve governs. A regulator bit to ignore the TTC can come later as an interface change, under DR-154 if small.
+  - **For D3** (the coordinator, 10-17): the curve governs alone only while the A53's TTC waveform is high or keeps toggling (pwm1 ≥ 1). A disabled or reset TTC idling low runs the fan full: safe, but loud. So the handover boot leaves pwm1 at 1. A regulator bit to ignore the TTC can come later as an interface change, under DR-154 if small.
+- **Step 4: DR-141's set on d2, three boots — DR-156's board confirmation** (the board session, `fpga/kv260/board/d2-reg/`). Compared against sc3's three boots: one miss, the same two smt2 cores at 100 MHz, the same image and device tree.
+  - **Every boot passes:** 54 of 54 measurement lines, CoreMark validated 6 times, `TGLB-END status=0`. Power-off 309–310 s after the load, against sc3's 323–326 s.
+  - **Cycles per operation with four misses:**
+    - memcpy 1 MiB −37.9%, tmpfs-write −24.7%, pipe −17.7%, tmpfs-read −13.7%, gzip −12.9%, tlbwalk −9.9%, forkexec −5.3%, pagefault −5.2%;
+    - memset 1 MiB −12.5%, inside its 20.5% spread;
+    - syscall and the 64-byte and 4 KiB copies within ±0.2%; CoreMark A and B, Dhrystone and sha256sum within 0.5%.
+  - **Instructions per operation** match within the spread. The memory-heavy tests run −0.1% to −2.6%, from fewer timer ticks in a shorter operation.
+  - **Linux reaches `/init`** in 1.181 s, against 1.289 s (−8.4%).
+  - **The fan during the run** (30 samples): PL die 33.9–35.4 °C, duty 15–38/255, never below the A53's PWM. One sample had duty 29 against the A53's 19 at 34.9 °C. That is the 1 °C fall hysteresis: the curve held the run's peak, code 40,637 (35.58 °C).
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
