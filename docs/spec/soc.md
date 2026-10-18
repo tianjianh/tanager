@@ -463,6 +463,11 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - **Instructions per operation** match within the spread. The memory-heavy tests run −0.1% to −2.6%, from fewer timer ticks in a shorter operation.
   - **Linux reaches `/init`** in 1.181 s, against 1.289 s (−8.4%).
   - **The fan during the run** (30 samples): PL die 33.9–35.4 °C, duty 15–38/255, never below the A53's PWM. One sample had duty 29 against the A53's 19 at 34.9 °C. That is the 1 °C fall hysteresis: the curve held the run's peak, code 40,637 (35.58 °C).
+- **Step 5 passes** (the board session, `fpga/kv260/board/d2-reg/`):
+  - **`ps_d1` on d2:** D1 PASS, line for line as on d1: the PS window with the four-miss core.
+  - **Stage C from `p3`:** Debian on d2, bridged. It checks the host DMA's coherence with four misses in flight:
+    - block: 64 MiB written with `conv=fsync`, the page cache dropped, and re-read with the same sha256;
+    - network: 64 MiB fetched from the A53 in 5.81 s (11.0 MB/s, against sc3's 9.9 MB/s), with a matching sha256.
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
@@ -553,6 +558,24 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
     - Until then the console stays on the PL UART through `tanager-host` (stage C's path), so the RISC-V never runs without one.
   - **Met when** Buildroot's login prompt appears on the board's USB serial port, with the A53 in the handover boot.
+  - **Revised proposal (soc-2, 10-18, for the coordinator): the console first, with the A53's Ubuntu still running.** The handover boot moves to D4, where the card needs it.
+    - **Why:**
+      - The handover boot above also disables GEM3, which would cut the laptop's SSH path to the board (the A53 OS rules), and D3 needs only UART1.
+      - SD1 must leave the A53 in D4, since one controller serves the whole card. So the handover boot (an initramfs, no card access) belongs there.
+      - GEM3 (D5) then needs its own answer for SSH.
+    - **The A53 releases UART1 at run time, with nothing persistent:**
+      - `systemctl mask --runtime --now serial-getty@ttyPS1.service`, then `dmesg -n 1`.
+      - With `ttyPS1` closed, `xilinx_uartps` frees its interrupt and stops reading the receiver. The kernel console still writes emergency messages only.
+      - Nothing on the A53 may open `ttyPS1` or `/dev/console` meanwhile. systemd does so at shutdown.
+      - **Undo:** `systemctl unmask --runtime serial-getty@ttyPS1.service` and start it again, or reboot.
+      - The A53 keeps `p2`, SSH, the card and `fancontrol`.
+    - **The RISC-V's side needs no RTL change.** The PS window passes UART1, and PLIC source 20 is its interrupt (d2's bitstream will do).
+      - **The device tree:** a variant in `sw/dts` with `serial@ff010000` (`cdns,uart-r1p12`), interrupt 20, and fixed clocks for `uart_clk` and `pclk` at the rates the A53's clock tree reports. It has `current-speed` 115200 and `stdout-path` on it.
+      - **The PL UART stays** as a second console (`console=ttyS0 console=ttyPS0`), so the RISC-V never runs without one.
+      - **OpenSBI 1.9's Cadence driver** (in the generic defconfig) gives the early output. Without `clock-frequency` it leaves the A53's 115200 baud setting alone.
+      - **The kernel:** `CONFIG_SERIAL_XILINX_PS_UART=y` and `CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y` in `sw/buildroot/board/tanager/linux.config` (the driver depends only on OF).
+    - **It lifts D1's condition** "never reconfigure UART1": the RISC-V's Linux programs UART1's baud generator, mode and interrupts while it owns the port.
+    - **Met when** Buildroot's login prompt appears on the USB serial port (COM7) and a login works there, with the A53 unaffected (SSH, `fancontrol`). Then UART1 goes back to the A53.
 - **D4: the SD, with Debian on its own partition natively.**
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
