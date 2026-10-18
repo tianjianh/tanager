@@ -1,14 +1,16 @@
-# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1]
+# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1]
 # COMMIT_TRACE=0 builds without the commit trace (+define+TG_COMMIT_TRACE=0, DR-146). VIRTIO=1: with the
 # forwarded virtio window, which the host serves (KIND=tcore; docs/spec/soc.md §8.1). HOST_DMA=1: with the
-# coherent host DMA port, which the host uses on the program's buffers (KIND=tcore).
+# coherent host DMA port, which the host uses on the program's buffers (KIND=tcore). PS_WINDOW=1: with stage D's
+# PS window (+define+TG_PS_WINDOW=1, a map option), against a model of the PS (KIND=tcore; soc.md §8.2).
 TOP    := tb_soc
 KIND   ?= core
 COMMIT_TRACE ?= 1
 VIRTIO ?= 0
 HOST_DMA ?= 0
-NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)
-EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0)
+PS_WINDOW ?= 0
+NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)
+EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW)),+define+TG_PS_WINDOW=1)
 TB     := $(CURDIR)/tb_soc.sv
 PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA)
 include ../common/unit.mk
@@ -30,4 +32,5 @@ short: prog
 	@$(MAKE) --no-print-directory run KIND=tcore COMMIT_TRACE=0 | grep -q "TEST PASSED" || { echo "FAIL tcore COMMIT_TRACE=0"; exit 1; }; echo "soc tcore without the trace: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore VIRTIO=1 | grep -q "TEST PASSED" || { echo "FAIL tcore VIRTIO=1"; exit 1; }; echo "soc tcore with the virtio window: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore HOST_DMA=1"; exit 1; }; echo "soc tcore with the host DMA port: PASS"
+	@$(MAKE) --no-print-directory run KIND=tcore PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore PS_WINDOW=1"; exit 1; }; echo "soc tcore with the PS window: PASS"
 long: short

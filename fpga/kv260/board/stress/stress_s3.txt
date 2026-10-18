@@ -1,0 +1,6 @@
+/dev/mmcblk1p3: 8117026816 bytes, label tanager-root; u-boot.bin be25ec4287f7a488, tanager-host 5232908901445a67
+loaded tanager-sc3 at 22:48:44; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /dev/mmcblk1p3 --rng --dbg --timeout 270000 < console
+login prompt 191 s after the load

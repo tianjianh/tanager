@@ -4,6 +4,8 @@
 //   M_AXI_HPM1_FPD (clk_core, 128-bit) -> the host DMA port (HOST_DMA), else tg_axi_absent
 //   L2 banks 0/1 (clk_core, 128-bit)  -> S_AXI_HP1_FPD / S_AXI_HP2_FPD
 //   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
+//   the PS window (clk_core, 128-bit)  -> S_AXI_LPD, the PS's peripheral registers (stage D, tg_map_pkg
+//   PS_WINDOW; idle without it), and the PS-to-PL interrupts of UART1, SD1, GEM3, USB0 and TTC1 back
 //   host_irq -> pl_ps_irq0[0];  fan_en_b = the PS TTC waveform Linux's pwm-fan drives (DR-129):
 //   fan_wave[FAN_WAVE] from the block design, inverted if FAN_INVERT
 //   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
@@ -71,6 +73,13 @@ module kv260_top
   axi_b_t  tb;
   logic    tawv, tawr, twv, twr, tbv, tbr;
   logic    [N_BANKS-1:0] arv, arr, rv, rr, awv, awr, wv, wr, bv, br;
+  axi_ax_t ps_aw, ps_ar;              // the PS window (tg_uncore idles it when not built)
+  axi_w_t  ps_w;
+  axi_b_t  ps_b;
+  axi_r_t  ps_r;
+  logic    ps_awv, ps_awr, ps_wv, ps_wr, ps_bv, ps_br, ps_arv, ps_arr, ps_rv, ps_rr;
+  logic [PS_IRQS-1:0] ps_irq;
+  logic [3:0]         usb0_ep_irq;    // USB0's endpoint interrupts: [0] is the host controller's line
 
   tg_ps_wrapper u_ps (
     .clk_core (clk_core),
@@ -143,8 +152,26 @@ module kv260_top
     .S_AXI_HP3_rdata (), .S_AXI_HP3_rid (), .S_AXI_HP3_rlast (), .S_AXI_HP3_rready (1'b1),
     .S_AXI_HP3_rresp (), .S_AXI_HP3_rvalid (),
     .S_AXI_HP3_wdata (tw.data), .S_AXI_HP3_wlast (tw.last), .S_AXI_HP3_wready (twr), .S_AXI_HP3_wstrb (tw.strb),
-    .S_AXI_HP3_wvalid (twv)
+    .S_AXI_HP3_wvalid (twv),
+    // the PS window: device non-bufferable, unprivileged non-secure data accesses
+    .S_AXI_LPD_araddr (49'(ps_ar.addr)), .S_AXI_LPD_arburst (ps_ar.burst), .S_AXI_LPD_arcache (4'b0000),
+    .S_AXI_LPD_arid (ps_ar.id), .S_AXI_LPD_arlen (ps_ar.len), .S_AXI_LPD_arlock (1'b0), .S_AXI_LPD_arprot (3'b010),
+    .S_AXI_LPD_arqos (4'd0), .S_AXI_LPD_arready (ps_arr), .S_AXI_LPD_arsize (ps_ar.size), .S_AXI_LPD_aruser (1'b0),
+    .S_AXI_LPD_arvalid (ps_arv),
+    .S_AXI_LPD_awaddr (49'(ps_aw.addr)), .S_AXI_LPD_awburst (ps_aw.burst), .S_AXI_LPD_awcache (4'b0000),
+    .S_AXI_LPD_awid (ps_aw.id), .S_AXI_LPD_awlen (ps_aw.len), .S_AXI_LPD_awlock (1'b0), .S_AXI_LPD_awprot (3'b010),
+    .S_AXI_LPD_awqos (4'd0), .S_AXI_LPD_awready (ps_awr), .S_AXI_LPD_awsize (ps_aw.size), .S_AXI_LPD_awuser (1'b0),
+    .S_AXI_LPD_awvalid (ps_awv),
+    .S_AXI_LPD_bid (ps_b.id), .S_AXI_LPD_bready (ps_br), .S_AXI_LPD_bresp (ps_b.resp), .S_AXI_LPD_bvalid (ps_bv),
+    .S_AXI_LPD_rdata (ps_r.data), .S_AXI_LPD_rid (ps_r.id), .S_AXI_LPD_rlast (ps_r.last), .S_AXI_LPD_rready (ps_rr),
+    .S_AXI_LPD_rresp (ps_r.resp), .S_AXI_LPD_rvalid (ps_rv),
+    .S_AXI_LPD_wdata (ps_w.data), .S_AXI_LPD_wlast (ps_w.last), .S_AXI_LPD_wready (ps_wr), .S_AXI_LPD_wstrb (ps_w.strb),
+    .S_AXI_LPD_wvalid (ps_wv),
+    .ps_pl_irq_uart1 (ps_irq[PS_IRQ_UART1]), .ps_pl_irq_sdio1 (ps_irq[PS_IRQ_SD1]),
+    .ps_pl_irq_enet3 (ps_irq[PS_IRQ_GEM3]), .ps_pl_irq_usb3_0_endpoint (usb0_ep_irq),
+    .ps_pl_irq_ttc1_0 (ps_irq[PS_IRQ_TTC1])
   );
+  assign ps_irq[PS_IRQ_USB0] = usb0_ep_irq[0];
 
   // ---- Clocks and resets ----
   tg_clkgen #(.CORE_MHZ (CORE_MHZ)) u_clkgen (
@@ -212,6 +239,11 @@ module kv260_top
     .s_axi_dma_b (soc_b), .s_axi_dma_b_valid (soc_bv), .s_axi_dma_b_ready (HOST_DMA && dma_br),
     .s_axi_dma_ar (HOST_DMA ? dma_ar : '0), .s_axi_dma_ar_valid (HOST_DMA && dma_arv), .s_axi_dma_ar_ready (soc_arr),
     .s_axi_dma_r (soc_r), .s_axi_dma_r_valid (soc_rv), .s_axi_dma_r_ready (HOST_DMA && dma_rr),
+    .m_axi_ps_aw (ps_aw), .m_axi_ps_aw_valid (ps_awv), .m_axi_ps_aw_ready (ps_awr),
+    .m_axi_ps_w (ps_w), .m_axi_ps_w_valid (ps_wv), .m_axi_ps_w_ready (ps_wr),
+    .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
+    .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
+    .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
@@ -239,6 +271,7 @@ module kv260_top
     wire unused_dma = ^{soc_awr, soc_wr, soc_b, soc_bv, soc_arr, soc_r, soc_rv};
   end
 
+  wire unused_usb0_ep = ^usb0_ep_irq[3:1];
   assign fan_en_b      = fan_wave[FAN_WAVE] ^ FAN_INVERT;
   assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
 endmodule

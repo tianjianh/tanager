@@ -40,6 +40,9 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 | `TG_DEBUG_CNT` | the board debug counters, read with `tanager-host dbg` ([uncore.md](../../docs/spec/uncore.md) §Board debug counters) | 0 |
 | `TG_VIRTIO_WINDOW` | the forwarded virtio window, served by `tanager-host` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[2]`) | 0 |
 | `TG_HOST_DMA` | the coherent host DMA port on `M_AXI_HPM1_FPD`, 2 GiB at `0x5_0000_0000` (stage C, [soc.md](../../docs/spec/soc.md) §8.1; `CAPS[8]`). Without it HPM1 still answers: reads `DECERR`, writes dropped | 0 |
+| `TG_PS_WINDOW` | the PS window: the PS's peripheral registers at `0xFE00_0000`–`0xFFFF_FFFF` through `S_AXI_LPD`, and their interrupts on PLIC 20–24 (stage D's D1, [soc.md](../../docs/spec/soc.md) §8.2). A define, because the cores' PMA sees the region. The block design has the port and the interrupts in every build, idle without it | 0 |
+
+**Placement and routing at a tighter clock:** `TG_PR_UNC` (ns, default 1.0; 0 turns it off) is setup uncertainty on the core clock from placement through routing, taken back before the reports. So `summary.txt` and the reports give the slack at the real period (DR-154, the coordinator, 10-17). At a plain 100 MHz target the placer under-works the cores, and spikes-2's headroom baseline closed with +1.065 ns this way. `summary.txt` records it (`pr_unc=`).
 
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 

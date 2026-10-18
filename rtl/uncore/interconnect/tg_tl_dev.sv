@@ -1,9 +1,10 @@
 // Device bus (docs/spec/uncore.md): turns single-beat TL-UL accesses (size <= 3) into one register
 // access at a time on the devices of the plan §5.4 map. Devices answer in the cycle after req_valid,
 // or later: a device holds its wait_i bit high from that cycle on, and the bus takes its response
-// in the first cycle with the bit low (the forwarded virtio window, which waits for the host).
-// Absent devices (virtio unless VIRTIO, debug until M9), sizes above 3 and misaligned accesses
-// answer denied.
+// in the first cycle with the bit low (the forwarded virtio window, which waits for the host, and the PS
+// window, which waits for the PS). Absent devices (virtio unless VIRTIO, debug until M9), sizes above 3
+// and misaligned accesses answer denied. The PS window is a region only when it is built (tg_map_pkg
+// PS_WINDOW), so its addresses reach this bus only then.
 module tg_tl_dev
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 #(
@@ -17,7 +18,7 @@ module tg_tl_dev
   output tl_d_t                d_o,
   output logic                 d_valid_o,
   input  logic                 d_ready_i,
-  // Devices: 0 ACLINT, 1 PLIC, 2 UART, 3 host control, 4 the virtio window
+  // Devices: 0 ACLINT, 1 PLIC, 2 UART, 3 host control, 4 the virtio window, 5 the PS window
   output dev_req_t             req_o,
   output logic [DEV_N-1:0]     req_valid_o,
   input  dev_rsp_t [DEV_N-1:0] rsp_i,
@@ -39,6 +40,7 @@ module tg_tl_dev
     if (a >= UART_BASE    && a - UART_BASE    < UART_SIZE)    return (DEV_W+1)'(DEV_UART);
     if (a >= HOSTCTL_BASE && a - HOSTCTL_BASE < HOSTCTL_SIZE) return (DEV_W+1)'(DEV_HOSTCTL);
     if (VIRTIO && a >= VIRTIO_BASE && a - VIRTIO_BASE < VIRTIO_SIZE) return (DEV_W+1)'(DEV_VIRTIO);
+    if (PS_WINDOW && a >= PSWIN_BASE && a - PSWIN_BASE < PSWIN_SIZE) return (DEV_W+1)'(DEV_PSWIN);
     return (DEV_W+1)'(DEV_N);
   endfunction
 
