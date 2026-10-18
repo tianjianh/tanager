@@ -1,0 +1,34 @@
+tanager-host f515c0f69b7be562; mode alone
+== step 3: the regulator alone (fancontrol stopped, at most 5 minutes)
+loaded tanager-d2 at 05:57:37; fpga0 operating
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+05:57:37 pwm1 15/255, temp1 35469, fancontrol active
+$ tanager-host fan
+fan: PL die 33.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+fancontrol stopped, pwm1 written 0 at 05:57:38
+05:58:08 pwm1 0/255, temp1 34505, fancontrol inactive
+fan: PL die 32.9 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+05:58:38 pwm1 0/255, temp1 33666, fancontrol inactive
+fan: PL die 33.4 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+05:59:09 pwm1 0/255, temp1 31459, fancontrol inactive
+fan: PL die 32.4 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+05:59:39 pwm1 0/255, temp1 32935, fancontrol inactive
+fan: PL die 31.9 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:00:10 pwm1 0/255, temp1 31614, fancontrol inactive
+fan: PL die 31.9 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:00:40 pwm1 0/255, temp1 31925, fancontrol inactive
+fan: PL die 31.4 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:01:11 pwm1 0/255, temp1 32780, fancontrol inactive
+fan: PL die 31.4 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:01:41 pwm1 0/255, temp1 33464, fancontrol inactive
+fan: PL die 31.9 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:02:12 pwm1 0/255, temp1 32904, fancontrol inactive
+fan: PL die 31.9 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+06:02:42 pwm1 0/255, temp1 32718, fancontrol inactive
+fan: PL die 31.4 C, duty 255/255 (the larger of the curve's and the A53's), the A53's PWM 255/255
+fancontrol started again at 06:02:49
+06:02:49 pwm1 15/255, temp1 31521, fancontrol active
+$ tanager-host fan
+fan: PL die 31.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+fan: pwm1 15/255, AMS temp1 32 C, fancontrol active
+06:02:52 pwm1 15/255, temp1 32469, fancontrol active
