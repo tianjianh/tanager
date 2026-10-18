@@ -65,3 +65,22 @@
   - 30 samples, PL die 33.9–35.4 °C;
   - duty 15–38/255, never below the A53's PWM (0 of 30 samples);
   - the duty followed fancontrol's PWM, or the curve when that was higher.
+
+## Step 5: D1's test, and stage C, on d2 (the SoC track's ask: four misses with the host DMA)
+
+- **`ps_d1` on d2** ([`d2_ps_d1.txt`](d2_ps_d1.txt)): **D1 PASS.** The same lines as on d1, including TTC1's interrupt after `0x335` ticks and TTC0 and UART0 denied. The PS window works the same with the four-miss core.
+- **Stage C, Debian from p3 on d2, bridged** ([`../runs/d2_stagec.sh`](../runs/d2_stagec.sh), [`../runs/d2_stagec_cmds.txt`](../runs/d2_stagec_cmds.txt)).
+  - **Run 1** ([`d2_stagec_run1.txt`](d2_stagec_run1.txt), [`linux_shell_stagec_run1.txt`](linux_shell_stagec_run1.txt)):
+    - The block checks passed: the file `p3_test` wrote on sc3 verified (`/var/tmp/blktest: OK`), and `BLOCK VERIFY OK`.
+    - The network fetch failed with "No route to host". `br0` had come up with a new lease, 192.168.137.214 (the A53 had been at .177), and the script still used .177. The board itself was fine, only unreachable at .177 until the ping sweep found it.
+    - **Fixed:**
+      - the script now takes `br0`'s address and binds the HTTP server to it;
+      - its `sed` replaces every placeholder;
+      - the SSH config uses the name `kria.mshome.net`.
+  - **Run 2** ([`d2_stagec_run2.txt`](d2_stagec_run2.txt), [`linux_shell_stagec_run2.txt`](linux_shell_stagec_run2.txt)): **pass.**
+    - Debian's own `6.12.113` booted from p3 (`/dev/vda`). The guest took 192.168.137.50.
+    - `/var/tmp/blktest: OK`.
+    - **Block DMA both ways:** 64 MiB written with `conv=fsync`, the page cache dropped, read back with the same sha256 (`BLOCK VERIFY OK`).
+    - **Network DMA:** 64 MiB fetched from the A53 over `br0` in 5.81 s, 11.0 MB/s, with the sha256 matching (`NET FETCH OK`). sc3 took 6.78 s, 9.9 MB/s, for the same transfer.
+    - The power-off came at 377 s, `boot exit 0`.
+  - **So:** the host DMA (virtio-blk and virtio-net) works with four L1D misses in flight, writes and reads alike, and the transfer is faster.
