@@ -84,3 +84,14 @@
     - **Network DMA:** 64 MiB fetched from the A53 over `br0` in 5.81 s, 11.0 MB/s, with the sha256 matching (`NET FETCH OK`). sc3 took 6.78 s, 9.9 MB/s, for the same transfer.
     - The power-off came at 377 s, `boot exit 0`.
   - **So:** the host DMA (virtio-blk and virtio-net) works with four L1D misses in flight, writes and reads alike, and the transfer is faster.
+
+## Two-core lockstep on d2: pass (DR-156's four-miss L1D against Spike)
+
+[`ls_run1.txt`](ls_run1.txt), the checker's log [`ls_d2-ft.log`](ls_d2-ft.log), the console [`ls_console_d2-ft.txt`](ls_console_d2-ft.txt): `runs/lockstep.sh` with `LS_HOST_ARGS=--freeze-time` on p0g's normal 10 MHz 768 MiB tree, checker `694aff2`, `--harts=4`.
+- **Pass:** `PASS after 444215607 records (444200616 retired, 13030 traps, 1961 interrupts, 0 writebacks) in 4631.2 s, 95919 records/s`, checker exit 0, `boot exit 0`.
+- **The checker's notes:** `93 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them`, within its window, as in the earlier passes.
+- **The path:** "smp: Brought up 1 node, 2 CPUs"; `TANAGER-BOOT-OK … harts=2` at 2,040 s; the root shell at 2,217 s; `reboot: Power down` at kernel time 3.34 s. The freeze keeps kernel time as in an unchecked boot.
+- **The shutdown took about 230 M of the 444 M records** (p0g: 395.6 M for the whole run).
+  - Under `--freeze-time` a kernel wait is spent in busy-waiting records, and a guest second is 1.43× more cycles at 100 MHz than p0g's 70 MHz.
+  - So a lockstep run on the 100 MHz builds takes about 77 minutes.
+- **So:** the four-miss L1D matches Spike through a whole two-core Linux boot to power-off.
