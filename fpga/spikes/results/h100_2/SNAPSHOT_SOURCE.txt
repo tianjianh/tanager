@@ -1,0 +1,2 @@
+c0c7673fc749927e6091583c037a75826e2b1060 + spikes 48090d3; kv260_top patched by g5_fill_patch.py (69 tiles, 20 LUTRAM blocks per core): measurement only; options -synth_dcp /home/w/tanager-build/track-spikes-72f833/fp/h100_2_synth_post_synth.dcp -constraints fpga/spikes/tcl/over_unc.tcl -pre_report fpga/spikes/tcl/over_unc_off.tcl
+tree c0c7673fc749927e6091583c037a75826e2b1060 = main 4bb4426 (DR-152), 100 MHz; the placement over-constrained by 1.0 ns of setup uncertainty on c0, taken back before the reports
