@@ -955,6 +955,45 @@ Results: `fpga/spikes/results/h100_m6r/`, `h100_m6t/` and their `_synth` runs; `
 
 Results: `fpga/spikes/results/h100_m6f/` (`place_failed.txt`, `util_synth.rpt`) and `h100_m6f_synth/`.
 
+### 8.12 The M6 set fits at 100 MHz: F2 restructured, and opt_design's ExploreArea (2026-10-18)
+
+**Question (the coordinator, DR-166):** §8.11's checkpoint placed once with `opt_design -directive ExploreArea`, which the FPU track measured at 1,275 fewer LUTs after optimisation with no RTL change (area_recovery §7.8). Does M6's set with the restructured F2 place, what does it reach, and does ExploreArea lengthen anything?
+
+**Method:** §8.11's synthesis checkpoint (1e4a503), placed and routed with §8.10's flow and `g4_fit.tcl -opt_directive ExploreArea`. Then the family query at a 1 ns threshold on this run and on `h100_m6t`.
+
+| | `h100_m6t` (tree (ii), the default optimisation) | `h100_m6fa` (F2 restructured, ExploreArea) |
+|---|---|---|
+| LUTs after optimisation | — | 116,511 (the default: 117,786) |
+| Placed LUTs (fill) | 115,185 (98.3%) | 113,673 (97.1%) |
+| WNS ns at 10 ns | −5.079 | **+0.725** |
+| TNS ns | −5,519 | 0 |
+| Endpoints below 0 / 0.3 / 0.5 / 1.0 ns | 3,521 / 4,889 / 6,054 / 10,662 | **0 / 0 / 0 / 174** |
+| Levels of the worst 2,000 paths | up to 44 (about 1,050 at 34 or more) | 9–23, mostly 15–21 |
+| Routing | 1 h 07 | 51 min |
+
+**The worst paths in `h100_m6fa`:**
+- **F2's cone**, now 19–21 levels: core 0's I$ data RAM → predecode's `krt_q`, +0.725 ns (21 levels, 55% wire), and `f3_meta_q`, `kimm_q`, the RAS's `p_push_q` and TAGE's history up to +1.0.
+- **The LSU**, +0.78 to +0.99 (13–23 levels, 63–80% wire): `lose_line_q`, `sq_av_q`, `m2_dword_q`, `lq_st_q` (from the PMP), `rp_ra_q` (23 levels), `m2_foh_q` and the PTW.
+- **Rename's uop register from the queue head**, +0.91 to +0.99 (17–20 levels). Decode's `dred_ftq`, +0.89. The ROB's `sp_v_q`, +0.88.
+- **The uncore**, +1.154 (the L2's command pointer → its directory RAM). Core ↔ uncore passes by 1.5–1.9, the PS by 6.6, the filler by 4.6.
+
+**Placed LUTs per core**, `h100_m6t` → `h100_m6fa` (the F2 change and ExploreArea together):
+- **Smaller:** fetch 6,049 → 5,900 (−150), the LSU 12,317 → 12,149 (−170 and −210), the issue queue 5,103 → 4,772 (−330), execute 6,881 → 6,846 (−35).
+- **Larger:** the RAS 255 → 287 (+32), the ROB 2,573 → 2,637 (+70), decode 2,000 → 2,026 (+26).
+- **Within 25:** rename and the CSR.
+- **Totals:** the uncore 15,851 → 15,770 (−81); the SoC 107,644 → 106,132 (−1,512).
+
+**Findings:**
+- **M6's set with the restructured F2 and hart 1's area fits, and meets 100 MHz with 0.73 ns to spare at 97.1% placed.** That is one placement, ±0.75 ns of noise (§8.8). No endpoint is within 0.5 ns.
+- **ExploreArea made the room:** 1,275 fewer LUTs after optimisation, and 1,512 fewer placed than tree (ii) with the F2 change counted in. Without it the same checkpoint did not pack (§8.11).
+- **ExploreArea did not lengthen paths systematically.**
+  - Of 20 families outside the front end, 8 lost one or two levels, 5 stayed the same and 7 gained one to three.
+  - The gains of two and three are paths from the queue head into decode and rename, which the F2 change touches too.
+  - The worst 2,000 paths reach 23 levels at most.
+- **F2's cone now leads at +0.73, with the LSU at +0.78.** The margin is spread across the core again, as before M6's features.
+
+Results: `fpga/spikes/results/h100_m6fa/`, and `near_families_m6fa_m6t.txt` (the 1 ns family query of both runs).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

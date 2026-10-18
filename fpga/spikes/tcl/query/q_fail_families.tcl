@@ -10,7 +10,9 @@
 # Finally the host bridge's core-reset replicas (u_host/crst_q*): their worst ten endpoints, passing or
 # not, to tell congestion from a design path. The core clock's setup uncertainty is taken back first
 # (the over-constrained checkpoints carry theirs). Writes fail_families.txt.
-#   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/query/q_fail_families.tcl <routed.dcp>...   (about 5 GB)
+#   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/query/q_fail_families.tcl [-slack T] <routed.dcp>...   (about 5 GB)
+# -slack T groups the endpoints below T ns instead of below 0 (a design that meets timing: its near-critical
+# families), and each checkpoint also gets a histogram of its endpoints' slack up to 1 ns.
 proc fam {name} {
   set n [regsub {^u_soc/g_core\[(\d)\]\.g_tgc\.u_core/} $name {c\1:}]
   set n [regsub {^u_soc/u_uncore/} $n {unc:}]
@@ -22,8 +24,10 @@ proc fam {name} {
   return $n
 }
 proc cell_of {pin} { return [join [lrange [split $pin /] 0 end-1] /] }
+set thr 0
+if {[lindex $argv 0] eq "-slack"} { set thr [lindex $argv 1]; set argv [lrange $argv 2 end] }
 proc families {fh title {top 0}} {
-  set ps [get_timing_paths -setup -max_paths 20000 -nworst 1 -unique_pins -slack_lesser_than 0]
+  set ps [get_timing_paths -setup -max_paths 20000 -nworst 1 -unique_pins -slack_lesser_than $::thr]
   set n [dict create]; set w [dict create]; set info [dict create]
   foreach p $ps {
     set e [fam [cell_of [get_property NAME [get_property ENDPOINT_PIN $p]]]]
@@ -36,7 +40,7 @@ proc families {fh title {top 0}} {
         [expr {100.0 * $nt / ($lg + $nt)}] [fam [cell_of [get_property NAME [get_property STARTPOINT_PIN $p]]]]]
     }
   }
-  puts $fh "  $title: [llength $ps] failing endpoints in [dict size $n] families"
+  puts $fh "  $title: [llength $ps] endpoints below $::thr ns in [dict size $n] families"
   set rows {}
   dict for {e c} $n { lappend rows [list $e $c [dict get $w $e] [dict get $info $e]] }
   set i 0
@@ -50,6 +54,10 @@ foreach dcp $argv {
   open_checkpoint $dcp
   set_clock_uncertainty -setup 0 [get_clocks c0]
   puts $fh "== $dcp (WNS [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]])"
+  set hs [get_timing_paths -setup -max_paths 50000 -nworst 1 -unique_pins -slack_lesser_than 1.0]
+  set hist {}
+  foreach b {0 0.1 0.2 0.3 0.5 1.0} { set c 0; foreach p $hs { if {[get_property SLACK $p] < $b} { incr c } }; lappend hist "< $b: $c" }
+  puts $fh "  endpoints by setup slack: [join $hist {, }]"
   families $fh "all"
   set f2   [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/f2_* && IS_SEQUENTIAL) || (NAME =~ *u_fetch/g_way* && (IS_SEQUENTIAL || PRIMITIVE_GROUP == BLOCKRAM))}]
   set f3t  [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/* || NAME =~ *g_ras*) && IS_SEQUENTIAL}]
