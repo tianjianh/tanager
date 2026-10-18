@@ -100,6 +100,15 @@ package tg_core_pkg;
 `else
   localparam bit QUEUE_DECODE = 1'b0;
 `endif
+  // Speculative load wakeup (plan §4.6, M6; the FPU track's tg_issue and tg_exec): a load IQ-LD
+  // issues sets its LLT's W bit at AG, so its dependants issue in time for the M2 bypass; one that
+  // does not complete in M2 cancels the shadow (spec_cancel). Off by default; TG_SPEC_WAKE=1 turns
+  // it on
+`ifdef TG_SPEC_WAKE
+  localparam bit SPEC_WAKE = `TG_SPEC_WAKE;
+`else
+  localparam bit SPEC_WAKE = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
