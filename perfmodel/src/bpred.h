@@ -74,7 +74,9 @@ class Tage : public DirPred {
 class BlockTage {
  public:
   struct Ix { uint16_t base = 0; uint16_t idx[4] = {}; uint16_t tag[4] = {}; };
-  BlockTage(int li, int tw, int bi, int slots);
+  // nt tagged tables (1-4), with the history lengths of core-2's size study (TAGE_NT): 12; 8/32; 5/14/40;
+  // 4/9/18/40
+  BlockTage(int li, int tw, int bi, int slots, int nt = 4);
   Ix hash(uint64_t blk, uint64_t gh) const;                  // blk: the fetch block's number (pc[38:4])
   bool dir(const Ix& x, int slot) const;
   void train(const Ix& x, int slot, bool taken, bool pred);  // pred: the fetch-time direction
@@ -83,7 +85,8 @@ class BlockTage {
   struct Ent { Sub w[2]; };
   std::vector<std::vector<Ent>> t_;
   std::vector<uint8_t> base_;
-  int li_, tw_, bi_, np_;
+  int li_, tw_, bi_, np_, nt_;
+  int hl_[4] = {};
 };
 
 struct BtbHit { bool hit = false; uint64_t target = 0; uint8_t kind = 0; };

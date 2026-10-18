@@ -26,7 +26,7 @@ FW=/lib/firmware/xilinx/$APP
 DEFAULT=k26-starter-kits
 TH=/usr/local/bin/tanager-host
 ME=$(readlink -f "$0")
-DEADMAN_S=600
+DEADMAN_S=${DEADMAN_S:-600}   # seconds; a longer manual session (D3) sets more
 
 fan() {
   echo "fan: pwm1 $(cat /sys/devices/platform/pwm-fan/hwmon/hwmon*/pwm1)/255," \

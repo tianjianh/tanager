@@ -999,6 +999,92 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **The first lever looks like the larger of the two.** Store data already has its own capture path, so the STA may not need to wait for it.
 - **The second only matters while speculative wakeup stays off.** M6's speculative wakeup needs the shadow.
 
+### 6.5 What M6's remaining pieces buy per 1K LUTs, from main with the RAS (modelled, 2026-10-18)
+
+*The user's next M6 choice is about area. DR-162 accepted a few MHz below 100, and TAGE-lite then measured at twice its estimate. This section estimates what each remaining piece buys per 1K LUTs, and what each further 1K buys when they are stacked. It starts from main as it is: four misses in flight, speculative wakeup, and the RAS. The model is `rtl_m2` revision 3 with the RAS (`scripts/m6_area.py`, on the build host).*
+
+**The base, checked against the RTL first.**
+- **The RTL:** core-2's RAS head (58674a7: the RAS at decode on main c841a27, speculative wakeup on).
+- **The model:** `rtl_m2` revision 3, which adds main's speculative wakeup:
+  - an integer load's dependants issue three cycles after it, with no hit predictor;
+  - a load that does not complete in M2 cancels the integer queues' issues of the next three cycles;
+  - FP loads wake on the confirmed result.
+
+  The RAS is added explicitly until it lands on main.
+- **The fit** (make perf's ELFs and the 11 RTL-built suite programs, native latency; `results/rtlcal_rashead_r3.json`):
+  - CoreMark within 3% (A −2.8% / −0.8%, B +3.0% / +1.6% cycles, rv64im / rv64gc);
+  - Dhrystone 6–10% optimistic;
+  - the mean over 17 programs is 7.7%. minver, ws_hash, ws_copy, matmult-int and ud are outside 10%, as in §6.4.
+
+  These runs reproduce core-2's RAS-head scores exactly: 3.461, 3.274 and 2.122.
+
+**Setup.**
+- **Suite:** the single-thread suite (rv64gc, 33 programs) on the SoC's uncore at 100 MHz, as §6.3 ran it: the 1 MiB L2 with a 10-cycle hit, and DRAM at 18 cycles.
+- **Bench:** make perf's ELFs (CoreMark 10 iterations, Dhrystone 500 runs; rv64im and rv64gc; latency 30 and 120). The geometric mean of cycles, as make perf reports it.
+- **TAGE-lite** is core-2's form at F2, with returns still repaired at decode, as in core-2's size study. Its 1–4 tables use that study's histories (`btage_nt`).
+- **LUTs per chip** are two smt2 cores; the L2 stream prefetcher counts once.
+  - **Measured where core-2 has measured:** TAGE-lite's whole-core estimates from `reports/m6-tage-size.md`, and the F2 return repair.
+  - **Estimated elsewhere:**
+    - more misses in flight: DR-149's measured +543 LUTs in the D$ for entries 1 → 4, per entry;
+    - everything else: the plan's ledger (feature_ledger.md).
+  - **Where measured since, the ledger ran 2–3× low:** TAGE-lite came in at 2.2× its estimate, and the four misses at 2.6–3×.
+
+**Each piece alone** (gain against main with the RAS; for the memory side and checkpoints, also on top of TAGE-lite 4 × 1K):
+
+| Piece | LUTs per chip (source) | Suite IPC | make perf cycles (model) | make perf (RTL, core-2) | Suite gain per 1K LUTs | After TAGE-lite 4 × 1K: suite gain |
+|---|---|---|---|---|---|---|
+| TAGE-lite 1 × 1K | 1,880 (measured) | +35.8% | −16.7% | −12.3% | +19.0% | — |
+| TAGE-lite 2 × 1K | 2,540 (measured) | +40.0% | −20.5% | −16.0% | +15.7% | — |
+| TAGE-lite 3 × 1K | 2,840 (measured) | +39.9% | −21.2% | −16.6% | +14.1% | — |
+| TAGE-lite 4 × 1K | 3,180 (measured) | +40.5% | −21.4% | −16.8% | +12.7% | — |
+| Returns repaired at F2 (with TAGE-lite) | 60 (measured, within noise) | +0.1% | −0.1% | | +1.7% | — |
+| 8 L1D misses in flight (from 4) | ≈1,200 (estimate) | +4.5% | 0 | | +3.8% | +4.6% |
+| 16 L1D misses in flight | ≈3,400 (estimate) | +6.1% | 0 | | +1.8% | +6.2% |
+| 4 I$ refills (from 1) | ≈500 (estimate) | 0 | 0 | | 0 | 0 |
+| L1D stride prefetcher | ≈600 (ledger) | +0.9% | 0 | | +1.5% | +0.8% |
+| Ownership prefetch for stores | ≈200 (ledger) | +0.2% | 0 | | +0.9% | +0.2% |
+| L2 stream prefetcher | ≈150 (ledger, once per chip) | +2.2% | 0 | | +14.9% | +2.2% |
+| I$ next-line prefetch | ≈200 (ledger) | 0 | 0 | | 0 | 0 |
+| Checkpoint recovery (4) | ≈1,000 (ledger) | +16.0% | −8.2% | | +16.0% | +2.1% |
+
+**Stacked, what each further 1K of LUTs buys.**
+- **Order:** each step is the piece with the best marginal suite gain per LUT from the runs above. Each step is measured on top of the ones before it.
+- **Suite IPC** is against main with the RAS's 0.613.
+- **The RTL column** is core-2's size study, at the same TAGE-lite size.
+
+| Step | LUTs added per chip | Running total per chip | Suite IPC | make perf cycles (model / RTL) | Step's suite gain per 1K LUTs | Step's bench speed-up per 1K LUTs |
+|---|---|---|---|---|---|---|
+| + TAGE-lite 1 × 1K | 1,880 | 1,880 | 0.832 (+35.8%) | −16.7% / −12.3% | +19.0% | +10.7% |
+| + L2 stream prefetcher | ≈150 | ≈2,030 | 0.851 (+38.8%) | −16.7% | +15.0% | 0 |
+| + TAGE-lite's second table | 660 | ≈2,690 | 0.877 (+43.1%) | −20.5% / −16.0% | +4.7% | +7.3% |
+| + 8 L1D misses in flight | ≈1,200 | ≈3,890 | 0.917 (+49.7%) | −20.5% | +3.8% | 0 |
+| + Checkpoint recovery (4) | ≈1,000 | ≈4,890 | 0.934 (+52.4%) | −21.7% | +1.8% | +1.5% |
+| + Returns repaired at F2 | 60 | ≈4,950 | 0.935 (+52.5%) | −21.7% | +1.3% | +0.6% |
+| + L1D stride prefetcher | ≈600 | ≈5,550 | 0.959 (+56.5%) | −21.7% | +4.3% | 0 |
+| + Ownership prefetch for stores | ≈200 | ≈5,750 | 0.957 (+56.2%) | −21.7% | −0.9% | 0 |
+| + 8 → 16 L1D misses in flight | ≈2,200 | ≈7,950 | 0.981 (+60.0%) | −21.7% | +1.1% | 0 |
+| + 4 I$ refills | ≈500 | ≈8,450 | 0.981 (+60.0%) | −21.7% | 0 | 0 |
+| + I$ next-line prefetch | ≈200 | ≈8,650 | 0.981 (+60.2%) | −22.0% | +0.4% | +1.7% |
+| + TAGE-lite's third table | 300 | ≈8,950 | 0.982 (+60.2%) | −22.7% / −16.6% | +0.2% | +3.0% |
+| + TAGE-lite's fourth table | 340 | ≈9,290 | 0.988 (+61.2%) | −22.7% / −16.8% | +1.8% | +0.1% |
+
+**Reading it.**
+- **TAGE-lite's first table buys the most per LUT.** It costs 1.9K LUTs per chip, measured, and the RTL gives −12.3% make perf cycles.
+  - The model says −16.7% on the bench and +36% on the suite. Its first step is optimistic by about 4.4 points on the bench, where the RTL's speed-up is 0.7× the model's, so expect the suite's real gain nearer +25%.
+  - The steps between sizes match the RTL: 1 → 2 tables −3.8 against −3.6 points, 2 → 3 −0.7 against −0.6, 3 → 4 −0.2 against −0.2.
+- **The second table is the next best measured buy.** 660 LUTs per chip give −3.6 points of make perf in RTL, and +3.1% on the suite in the model. The third and fourth tables add 640 LUTs per chip for −0.8 points in RTL: the least value of the TAGE-lite options.
+- **On the memory side,** 8 misses in flight (+4.5% on the suite, all of it memory-bound programs) and the L2 stream prefetcher (+2.2%) are the cheaper buys. 16 misses (+1.1% per 1K after 8) and the stride prefetcher come later.
+  - All their LUTs are estimates. If they run 2–3× high, as TAGE-lite and the four misses did, their gains per 1K halve or worse.
+  - The bench shows nothing for them: CoreMark and Dhrystone fit in the L1.
+- **Checkpoint recovery** is worth +16% alone but +2.1% after TAGE-lite, since fewer mispredicts are left to recover from quickly.
+- **The I-side pieces** (4 I$ refills, next-line prefetch) show nothing, because no suite program has more code than the L1I. Linux does: the ledger's exception E1 found +34% and +30% on a ~200 KiB-code kernel trace. They should be judged on the board's Linux runs.
+- **Where IPC per LUT drops:** after about 2.7K LUTs per chip (TAGE-lite with two tables and the L2 stream prefetcher), every further 1K buys under 5% on the suite. After about 5K, it buys under 2%, except the stride prefetcher, at 4%.
+
+**Limits.**
+- **Single-thread only:** SMT2's two threads, which raise the value of misses in flight, are not run.
+- **The suite is a proxy;** Linux is the workload.
+- **The clock:** the memory-side gains are at 100 MHz's DRAM latency. A few MHz less changes them by under a point.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1503,6 +1589,16 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **Two RTL questions for core-2,** in the model:
   - the store address issuing on its base alone, as core-lsu.md describes: the stack's Dhrystone +26–30% and CoreMark +3–6%;
   - rows freed at select while speculative wakeup is off: up to +5%.
+
+**2026-10-18: what M6's remaining pieces buy per 1K LUTs** (§6.5; `scripts/m6_area.py`, run on the build host):
+- **The base:** `rtl_m2` revision 3 adds main's speculative wakeup. With the RAS, it matches core-2's RAS head within 3% on CoreMark and 7.7% on average over 17 programs.
+- **TAGE-lite's first table buys the most:** 1.9K LUTs per chip, −12.3% make perf cycles in RTL. The second table adds −3.6 points for 660 LUTs; the third and fourth add −0.8 points for 640.
+  - The model's steps between sizes match the RTL.
+  - Its first step is about 4.4 points optimistic on the bench.
+- **The memory side:** 8 misses in flight and the L2 stream prefetcher come next, at +4.5% and +2.2% on the suite. Their LUTs are estimates.
+- **Checkpoints:** +2% after TAGE-lite.
+- **The I-side pieces:** nothing on the suite; Linux has to judge them.
+- **Where IPC per LUT drops:** after about 2.7K LUTs per chip, every further 1K buys under 5%.
 
 **Lessons:**
 - **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.

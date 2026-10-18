@@ -79,7 +79,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
       sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
       waittab_((int)std::max<int64_t>(1, c.mdp_entries), 0) {
   if (c.fe_m2 && c.m2_dir && c.m2_btage)
-    btage_ = std::make_unique<BlockTage>((int)c.btage_li, (int)c.btage_tw, (int)c.btage_bi, (int)c.fetch_bytes / 2);
+    btage_ = std::make_unique<BlockTage>((int)c.btage_li, (int)c.btage_tw, (int)c.btage_bi, (int)c.fetch_bytes / 2,
+                                         (int)c.btage_nt);
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
                                   (int)c.tage_hmin, (int)c.tage_hmax);
@@ -1182,7 +1183,8 @@ void Core::exec_load(Uop& u) {
   u.t_ag = t_ag;
   const bool hit = res == MemSys::Res::HIT;
   uint8_t& hp = hitpred_.at(u.di->pc ^ T.salt);
-  const bool pred_hit = !c_.hit_pred || hp >= 2;
+  // spec_int_only: as in the RTL, only integer loads wake their dependants early (IQ-FP sees confirmed results)
+  const bool pred_hit = (!c_.hit_pred || hp >= 2) && !(c_.spec_int_only && u.cls == Cls::FLD);
   if (hit) { if (hp < 3) hp++; T.st.ld_l1_hit++; }
   else { if (hp > 0) hp--; T.st.ld_l1_miss++; }
   if (hit) {

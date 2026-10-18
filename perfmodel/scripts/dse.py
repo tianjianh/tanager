@@ -180,8 +180,9 @@ SUITE_VERSION = 2
 
 
 # Presets redefined since their results were cached: the revision joins their key only, so other presets' caches
-# stay valid. rtl_m2 2: §6.4's recalibration (four misses in flight, the RTL's issue queues and store address).
-PRESET_REV = {"rtl_m2": 2}
+# stay valid. rtl_m2 2: §6.4's recalibration (four misses in flight, the RTL's issue queues and store address);
+# 3: speculative load wakeup on, as main has it (§6.5).
+PRESET_REV = {"rtl_m2": 3}
 
 
 def key(isa, preset, sets):

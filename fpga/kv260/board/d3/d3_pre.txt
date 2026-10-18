@@ -1,0 +1,23 @@
+loaded tanager-d2 at 08:20:47; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+dead-man: k26-starter-kits comes back at 09:00:47 unless 'steps' or 'restore' runs first
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000012f (virtio window)
+== step 0
+printk: 4	4	1	7
+08:20:47 fancontrol active, pwm1 15/255, temp1 34489, getty active, printk 4	4	1	7
+== the comparison boot, without UART1
+$ tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260.dtb --timeout 300
+[    0.556179] printk: legacy console [ttyS0] disabled
+[    0.564496] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    0.574177] printk: legacy console [ttyS0] enabled
+[    0.574177] printk: legacy console [ttyS0] enabled
+TANAGER-BOOT-OK 6.18.56-tanager harts=2
+tanager login: root
+ttyS0                -W- (EC    a)    4:64
+Requesting syst[    9.013461] reboot: Power down
+== step 1: release UART1
+Created symlink /run/systemd/system/serial-getty@ttyPS1.service → /dev/null.
+getty inactive; processes holding ttyPS1: 0
+08:21:02 fancontrol active, pwm1 15/255, temp1 32873, getty inactive, printk 1	4	1	7

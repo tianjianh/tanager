@@ -65,3 +65,33 @@
   - 30 samples, PL die 33.9–35.4 °C;
   - duty 15–38/255, never below the A53's PWM (0 of 30 samples);
   - the duty followed fancontrol's PWM, or the curve when that was higher.
+
+## Step 5: D1's test, and stage C, on d2 (the SoC track's ask: four misses with the host DMA)
+
+- **`ps_d1` on d2** ([`d2_ps_d1.txt`](d2_ps_d1.txt)): **D1 PASS.** The same lines as on d1, including TTC1's interrupt after `0x335` ticks and TTC0 and UART0 denied. The PS window works the same with the four-miss core.
+- **Stage C, Debian from p3 on d2, bridged** ([`../runs/d2_stagec.sh`](../runs/d2_stagec.sh), [`../runs/d2_stagec_cmds.txt`](../runs/d2_stagec_cmds.txt)).
+  - **Run 1** ([`d2_stagec_run1.txt`](d2_stagec_run1.txt), [`linux_shell_stagec_run1.txt`](linux_shell_stagec_run1.txt)):
+    - The block checks passed: the file `p3_test` wrote on sc3 verified (`/var/tmp/blktest: OK`), and `BLOCK VERIFY OK`.
+    - The network fetch failed with "No route to host". `br0` had come up with a new lease, 192.168.137.214 (the A53 had been at .177), and the script still used .177. The board itself was fine, only unreachable at .177 until the ping sweep found it.
+    - **Fixed:**
+      - the script now takes `br0`'s address and binds the HTTP server to it;
+      - its `sed` replaces every placeholder;
+      - the SSH config uses the name `kria.mshome.net`.
+  - **Run 2** ([`d2_stagec_run2.txt`](d2_stagec_run2.txt), [`linux_shell_stagec_run2.txt`](linux_shell_stagec_run2.txt)): **pass.**
+    - Debian's own `6.12.113` booted from p3 (`/dev/vda`). The guest took 192.168.137.50.
+    - `/var/tmp/blktest: OK`.
+    - **Block DMA both ways:** 64 MiB written with `conv=fsync`, the page cache dropped, read back with the same sha256 (`BLOCK VERIFY OK`).
+    - **Network DMA:** 64 MiB fetched from the A53 over `br0` in 5.81 s, 11.0 MB/s, with the sha256 matching (`NET FETCH OK`). sc3 took 6.78 s, 9.9 MB/s, for the same transfer.
+    - The power-off came at 377 s, `boot exit 0`.
+  - **So:** the host DMA (virtio-blk and virtio-net) works with four L1D misses in flight, writes and reads alike, and the transfer is faster.
+
+## Two-core lockstep on d2: pass (DR-156's four-miss L1D against Spike)
+
+[`ls_run1.txt`](ls_run1.txt), the checker's log [`ls_d2-ft.log`](ls_d2-ft.log), the console [`ls_console_d2-ft.txt`](ls_console_d2-ft.txt): `runs/lockstep.sh` with `LS_HOST_ARGS=--freeze-time` on p0g's normal 10 MHz 768 MiB tree, checker `694aff2`, `--harts=4`.
+- **Pass:** `PASS after 444215607 records (444200616 retired, 13030 traps, 1961 interrupts, 0 writebacks) in 4631.2 s, 95919 records/s`, checker exit 0, `boot exit 0`.
+- **The checker's notes:** `93 loads read bytes another hart's recent write had replaced; 2 atomics read past a store, which then followed them`, within its window, as in the earlier passes.
+- **The path:** "smp: Brought up 1 node, 2 CPUs"; `TANAGER-BOOT-OK … harts=2` at 2,040 s; the root shell at 2,217 s; `reboot: Power down` at kernel time 3.34 s. The freeze keeps kernel time as in an unchecked boot.
+- **The shutdown took about 230 M of the 444 M records** (p0g: 395.6 M for the whole run).
+  - Under `--freeze-time` a kernel wait is spent in busy-waiting records, and a guest second is 1.43× more cycles at 100 MHz than p0g's 70 MHz.
+  - So a lockstep run on the 100 MHz builds takes about 77 minutes.
+- **So:** the four-miss L1D matches Spike through a whole two-core Linux boot to power-off.
