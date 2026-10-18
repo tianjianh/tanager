@@ -469,6 +469,57 @@ module tg_issue
     assign wake_spec = (sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
     assign spec_pend = (sw_m1_q.v ? col_m1 : '0) | (sw_m2_q.v ? col_m2 : '0) |
                        (sw_cancel ? sw_cancel_col : '0);
+`ifndef SYNTHESIS
+    // Profile (+swprof, simulation only; the model's fit): the tracked loads, the speculative wakeups,
+    // and the cancels by the cause the LSU decided at M2 (s+4). The LSU's state is read through
+    // tg_core's u_lsu (an upward reference), so it needs tg_issue inside tg_core. Printed per core at
+    // the end of the run on stderr (the console is compared), with the grants the cancels suppressed
+    longint unsigned pf_cyc, pf_trk, pf_wake, pf_can, pf_notm2, pf_cov, pf_dat, pf_clash, pf_miss,
+                     pf_fault, pf_other, pf_gsup;
+    logic            pf_in_m2, pf_fail;
+    logic            pf_m1_mmio_q, pf_m1_tm_q, pf_m1_exc_q;   // the tracked load's M1 flags (s+3)
+    longint unsigned pf_mmio, pf_tlb, pf_exc;
+    logic [N_IQ-1:0] pf_gr;                       // the integer queues' grants this cycle
+    for (genvar q = 0; q < N_IQ; q++) begin : g_pfg
+      assign pf_gr[q] = (q != Q_FP) && (|g_q[q].u_iq.grant);
+    end
+    assign pf_in_m2 = u_lsu.m2_v_q && !u_lsu.m2_pt_q && u_lsu.lqc_rd[0].llt == sw_m2_q.llt;
+    assign pf_fail  = sw_m2_q.v && !sw_drop(sw_m2_q.tid) && !(|(wake_reg & col_m2));   // the cancel's term
+    always_ff @(posedge clk) begin
+      pf_m1_mmio_q <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_mmio;
+      pf_m1_tm_q   <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_tm;
+      pf_m1_exc_q  <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_exc;
+      if (rst) begin
+        {pf_cyc, pf_trk, pf_wake, pf_can, pf_notm2, pf_cov, pf_dat, pf_clash, pf_miss, pf_fault,
+         pf_other, pf_gsup, pf_mmio, pf_tlb, pf_exc} <= '0;
+      end else begin
+        pf_cyc <= pf_cyc + 1;
+        if (sw_rf.v)    pf_trk  <= pf_trk + 1;
+        if (|wake_spec) pf_wake <= pf_wake + 1;
+        if (sw_cancel)  pf_gsup <= pf_gsup + 64'($countones(pf_gr));
+        if (pf_fail) begin
+          pf_can <= pf_can + 1;
+          if (!pf_in_m2) begin                              // stopped in M1 (s+3): by its flags then
+            if (pf_m1_mmio_q)      pf_mmio  <= pf_mmio + 1;
+            else if (pf_m1_tm_q)   pf_tlb   <= pf_tlb + 1;
+            else if (pf_m1_exc_q)  pf_exc   <= pf_exc + 1;
+            else                   pf_notm2 <= pf_notm2 + 1;
+          end
+          else if (u_lsu.m2_fhit_q && !u_lsu.m2_fcov_q)       pf_cov   <= pf_cov + 1;
+          else if (u_lsu.m2_fhit_q && !u_lsu.m2_fdat_q)       pf_dat   <= pf_dat + 1;
+          else if (u_lsu.m2_clash_q)                          pf_clash <= pf_clash + 1;
+          else if (!u_lsu.m2_hit_q && u_lsu.lm_fdn)           pf_fault <= pf_fault + 1;
+          else if (!u_lsu.m2_hit_q)                           pf_miss  <= pf_miss + 1;
+          else                                                pf_other <= pf_other + 1;
+        end
+      end
+    end
+    final
+      if ($test$plusargs("swprof"))
+        $fdisplay(32'h8000_0002, "TG-SWPROF %m cycles=%0d tracked=%0d wakes=%0d cancels=%0d m1_mmio=%0d m1_tlb=%0d m1_exc=%0d m1_other=%0d fwd_cover=%0d fwd_data=%0d clash=%0d miss=%0d fault=%0d other=%0d grants_lost=%0d",
+                 pf_cyc, pf_trk, pf_wake, pf_can, pf_mmio, pf_tlb, pf_exc, pf_notm2, pf_cov, pf_dat, pf_clash,
+                 pf_miss, pf_fault, pf_other, pf_gsup);
+`endif
   end else begin : g_nosw
     assign wake_spec     = '0;
     assign spec_pend     = '0;

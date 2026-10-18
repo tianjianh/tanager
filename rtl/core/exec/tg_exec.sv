@@ -685,4 +685,20 @@ module tg_exec
     end
   end
 `endif
+`ifndef SYNTHESIS
+  // Profile (+swprof, simulation only; on stderr, as the harness's TG- lines): the ops speculative
+  // wakeup's cancels killed, in EX and in RF
+  longint unsigned pf_kex, pf_krf;
+  always_ff @(posedge clk) begin
+    if (rst) begin
+      pf_kex <= '0;
+      pf_krf <= '0;
+    end else if (sc && !flush) begin
+      pf_kex <= pf_kex + 64'($countones(ex_v_q));
+      pf_krf <= pf_krf + 64'($countones(iss_valid));
+    end
+  end
+  final
+    if ($test$plusargs("swprof")) $fdisplay(32'h8000_0002, "TG-SWPROF %m killed_ex=%0d killed_rf=%0d", pf_kex, pf_krf);
+`endif
 endmodule
