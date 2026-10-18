@@ -1,7 +1,7 @@
 #!/bin/bash
 # stress_monitor.sh LOG [CONSOLE]: while the boot runs, every 30 min (MON_S): the time, the guest's last stress line,
 # the count of failures and kernel trouble on the console, the L2 error events and levels, the injector and
-# the fan. Reads only (tanager-host dbg and inj through tg.sh's guard).
+# the fan (and the PL regulator's status if FAN_HOST names a tanager-host with `fan`). Reads only.
 log=$1; con=${2:-$HOME/tanager/sc2netc/linux_shell.txt}; every=${MON_S:-1800}
 cd ~/tanager/tg || exit 1
 export TG_APP=${TG_APP:-tanager-sc2}
@@ -14,6 +14,7 @@ while pgrep -f "[t]anager-host boot" > /dev/null; do
     ./tg.sh th dbg | grep -E "L2 error|levels"
     ./tg.sh th inj --stats | tail -1
     echo "fan: pwm1 $(cat /sys/devices/platform/pwm-fan/hwmon/hwmon*/pwm1)/255, AMS temp1 $(( $(cat /sys/devices/platform/ams/hwmon/hwmon*/temp1_input) / 1000 )) C"
+    [ -n "${FAN_HOST:-}" ] && sudo "$FAN_HOST" fan   # the PL regulator (d2 and later)
   } >> "$log" 2>&1
   for i in $(seq 1 $((every / 10))); do sleep 10; pgrep -f "[t]anager-host boot" > /dev/null || break; done
 done

@@ -1,0 +1,4 @@
+== step 3: boot with UART1 as the RISC-V's console
+$ tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260-uart1.dtb --timeout 900
+75578 sudo setsid /home/ubuntu/tanager/d3/tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260-uart1.dtb --timeout 900
+75580 /home/ubuntu/tanager/d3/tanager-host boot --fw fw_jump.bin --kernel Image --dtb tanager-kv260-uart1.dtb --timeout 900

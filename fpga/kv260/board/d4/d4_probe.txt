@@ -1,0 +1,145 @@
+== 1. kexec
+6.8.0-1036-xilinx
+ root=LABEL=writable rootwait earlycon console=ttyPS1,115200 console=tty1 clk_ignore_unused uio_pdrv_genirq.of_id=generic-uio xilinx_tsn_ep.st_pcp=4 cma=800M mem=3G arm-smmu.disable_bypass=0
+CONFIG_KEXEC_CORE=y
+CONFIG_KEXEC=y
+CONFIG_KEXEC_FILE=y
+CONFIG_KEXEC_SIG=y
+CONFIG_KEXEC_IMAGE_VERIFY_SIG=y
+CONFIG_CRASH_DUMP=y
+lockdown: [none] integrity confidentiality
+mokutil: bash: line 4: mokutil: command not found
+which kexec: 
+kexec_loaded: 0
+total 145646
+drwxr-xr-x  3 root root     4096 Oct 17 22:04 .
+drwxr-xr-x 25 root root     4096 Oct 18 06:59 ..
+-rw-------  1 root root  7160567 Apr 16  2025 System.map-6.8.0-1015-xilinx
+-rw-------  1 root root  7195303 Aug 24 02:54 System.map-6.8.0-1036-xilinx
+-rw-r--r--  1 root root   289381 Apr 16  2025 config-6.8.0-1015-xilinx
+-rw-r--r--  1 root root   288474 Aug 24 02:54 config-6.8.0-1036-xilinx
+drwxr-xr-x  2 root root     1536 Jan  1  1970 firmware
+lrwxrwxrwx  1 root root       28 Oct 15 07:07 initrd.img -> initrd.img-6.8.0-1036-xilinx
+-rw-r--r--  1 root root 46521745 Oct 15 06:59 initrd.img-6.8.0-1015-xilinx
+-rw-r--r--  1 root root 46840195 Oct 17 22:03 initrd.img-6.8.0-1036-xilinx
+lrwxrwxrwx  1 root root       28 Apr 23  2025 initrd.img.old -> initrd.img-6.8.0-1015-xilinx
+lrwxrwxrwx  1 root root       25 Oct 15 07:07 vmlinuz -> vmlinuz-6.8.0-1036-xilinx
+-rw-------  1 root root 20278816 Apr 16  2025 vmlinuz-6.8.0-1015-xilinx
+-rw-------  1 root root 20542418 Aug 24 02:54 vmlinuz-6.8.0-1036-xilinx
+lrwxrwxrwx  1 root root       25 Apr 23  2025 vmlinuz.old -> vmlinuz-6.8.0-1015-xilinx
+/boot/vmlinuz-6.8.0-1036-xilinx: regular file, no read permission
+== 2. SD1's mode and voltage
+total 0
+lrwxrwxrwx 1 root root 0 Jan  1  1970 mmc1 -> ../../devices/platform/axi/ff170000.mmc/mmc_host/mmc1
+-- mmc1 (/sys/devices/platform/axi/ff170000.mmc)
+clock:		50000000 Hz
+actual clock:	50000000 Hz
+vdd:		21 (3.3 ~ 3.4 V)
+bus mode:	2 (push-pull)
+chip select:	0 (don't care)
+power mode:	2 (on)
+bus width:	2 (4 bits)
+timing spec:	2 (sd high-speed)
+signal voltage:	0 (3.30 V)
+driver type:	0 (driver type B)
+mmcblk1 name: SD
+mmcblk1 type: SD
+mmcblk1 date: 05/2022
+mmcblk1 oemid: 0x3432
+mmcblk1 manfid: 0x0000fe
+mmcblk1 serial: 0x00000005
+mmcblk1 csd: 400e00325b590000747b7f800a400000
+[    1.252231] sdhci: Secure Digital Host Controller Interface driver
+[    1.252257] sdhci: Copyright(c) Pierre Ossman
+[    1.252269] sdhci-pltfm: SDHCI platform and OF driver helper
+[    6.458766] mmc1: SDHCI controller on ff170000.mmc [ff170000.mmc] using ADMA 64-bit
+[    6.529216] mmc1: new high speed SDHC card at address 0001
+== 3. the drivers for the handover initramfs
+CONFIG_OF_OVERLAY=y
+CONFIG_MACB=y
+CONFIG_DP83867_PHY=y
+CONFIG_SENSORS_PWM_FAN=y
+CONFIG_PWM_CADENCE=y
+CONFIG_PWM_XILINX=m
+which busybox dropbear: /usr/bin/busybox
+ii  busybox-initramfs                    1:1.36.1-6ubuntu3.1                    
+ii  busybox-static                       1:1.36.1-6ubuntu3.1                    
+ii  openssh-server                       1:9.6p1-3ubuntu13.20                   
+/boot/vmlinuz-6.8.0-1036-xilinx: gzip compressed data, max compression, from Unix, original size modulo 2^32 59585024
+CONFIG_KEXEC_IMAGE_VERIFY_SIG=y
+CONFIG_EFI=y
+# CONFIG_MODULE_SIG_FORCE is not set
+CONFIG_SECURITY_LOCKDOWN_LSM=y
+CONFIG_LOCK_DOWN_KERNEL_FORCE_NONE=y
+# CONFIG_LOCK_DOWN_KERNEL_FORCE_INTEGRITY is not set
+# CONFIG_LOCK_DOWN_KERNEL_FORCE_CONFIDENTIALITY is not set
+== 4. power management (read-only)
+CONFIG_PM_GENERIC_DOMAINS=y
+CONFIG_ZYNQMP_FIRMWARE_DEBUG=y
+CONFIG_UIO=y
+CONFIG_UIO_PDRV_GENIRQ=m
+CONFIG_ZYNQMP_PM_DOMAINS=y
+[    0.000000] Machine model: ZynqMP KV260 revB
+[    0.000000] psci: PSCIv1.1 detected in firmware.
+[    0.256604] zynqmp-ipi-mbox mailbox@ff9905c0: Registered ZynqMP IPI mbox with TX/RX channels.
+[    1.253390] zynqmp_firmware_probe Platform Management API v1.1
+[    1.253439] zynqmp_firmware_probe Trustzone version v1.0
+[    1.289538] zynqmp-aes zynqmp-aes.0: will run requests pump with realtime priority
+[    1.290066] zynqmp-sha3-384 zynqmp-sha3-384.0: will run requests pump with realtime priority
+[    1.297454] fpga_manager fpga0: Xilinx ZynqMP FPGA Manager registered
+[    3.632891] xilinx-zynqmp-dpdma fd4c0000.dma-controller: Xilinx DPDMA engine is probed
+[    4.120233] zynqmp-display fd4a0000.display: vtc bridge property not present
+[    4.592441] xilinx-dp-snd-codec fd4a0000.display:zynqmp-dp-snd-codec0: Xilinx DisplayPort Sound Codec probed
+[    4.602853] xilinx-dp-snd-pcm zynqmp_dp_snd_pcm0: Xilinx DisplayPort Sound PCM probed
+[    4.611177] xilinx-dp-snd-pcm zynqmp_dp_snd_pcm1: Xilinx DisplayPort Sound PCM probed
+[    4.621153] xilinx-dp-snd-card fd4a0000.display:zynqmp-dp-snd-card: Xilinx DisplayPort Sound Card probed
+[    4.631571] xlnx-drm xlnx-drm.0: bound fd4a0000.display (ops zynqmp_dpsub_component_ops)
+[    4.852058] zynqmp-display fd4a0000.display: [drm] fb0: xlnxdrmfb frame buffer device
+[    4.868055] zynqmp-display fd4a0000.display: ZynqMP DisplayPort Subsystem driver probed
+[    7.696897] rtc_zynqmp ffa60000.rtc: registered as rtc0
+[    7.703287] rtc_zynqmp ffa60000.rtc: setting system clock to 1970-01-01T00:00:11 UTC (11)
+[   19.553022] EDAC DEVICE0: Giving out device to module zynqmp-ocm-edac controller zynqmp_ocm: DEV ff960000.memory-controller (INTERRUPT)
+domain                          status          children        performance
+    /device                         runtime status
+------------------------------------------------------------------------------
+    fd4b0000.gpu                    suspended                   0
+domain11                        on                              0
+    ff0f0000.spi                    active                      0
+    ff030000.i2c                    suspended                   0
+domain9                         on                              0
+    ff170000.mmc                    unsupported                 0
+domain8                         on                              0
+    ff9d0000.usb                    active                      0
+domain7                         on                              0
+    ff0e0000.ethernet               active                      0
+    ff050000.spi                    suspended                   0
+domain5                         on                              0
+    fd4c0000.dma-controller         unsupported                 0
+    fd4a0000.display                active                      0
+    ffa80000.dma-controller         suspended                   0
+    ffa90000.dma-controller         suspended                   0
+    ffaa0000.dma-controller         suspended                   0
+    ffab0000.dma-controller         suspended                   0
+    ffac0000.dma-controller         suspended                   0
+    ffad0000.dma-controller         suspended                   0
+    ffae0000.dma-controller         suspended                   0
+    ffaf0000.dma-controller         suspended                   0
+    fd500000.dma-controller         suspended                   0
+    fd510000.dma-controller         suspended                   0
+    fd520000.dma-controller         suspended                   0
+    fd530000.dma-controller         suspended                   0
+    fd540000.dma-controller         suspended                   0
+    fd550000.dma-controller         suspended                   0
+    fd560000.dma-controller         suspended                   0
+    fd570000.dma-controller         suspended                   0
+domain2                         on                              0
+    ff110000.timer                  unsupported                 0
+domain1                         on                              0
+    ff0a0000.gpio                   active                      0
+domain0                         on                              0
+    ff010000.serial                 active                      0
+-- the PL holds tanager-d2
+0x0ff5e0238: 0x000103aa  CRL_APB
+0x0ff5e0070: 0x01010600  CRL_APB
+0x0ff5e0074: 0x01001800  CRL_APB
+0x0ff5e0078: 0x01010a00  CRL_APB
