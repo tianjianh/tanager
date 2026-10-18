@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <sstream>
 
 namespace tg {
@@ -74,7 +75,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     : c_(c), nthr_((int)std::clamp<int64_t>(c.threads, 1, MAX_THREADS)), mem_(c),
       btb_((int)c.btb_sets, (int)c.btb_ways, (int)std::max<int64_t>(1, c.btb_slots), (int)c.fetch_bytes,
            c.btb_block != 0),
-      ubtb_((int)c.ubtb), sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
+      ubtb_((int)c.ubtb), m2_((int)std::max<int64_t>(1, c.ubtb), (int)c.ubtb_ways, (int)c.m2_ctr),
+      sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
       waittab_((int)std::max<int64_t>(1, c.mdp_entries), 0) {
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
@@ -334,7 +336,7 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
       if (d.is_call()) ras_push(pc + d.len);
       break;
     case Cls::JALR:
-      if (d.is_ret()) {
+      if (d.is_ret() && (c_.ras || !c_.ret_btb)) {  // ret_btb: without a RAS, returns use the BTB's target
         T.st.br_ret++;
         const uint64_t pt = T.ras.top();
         r.ras.op = true; r.ras.sp = T.ras.sp(); r.ras.slot = -1;
@@ -356,6 +358,90 @@ bool Core::predict_ctrl(Thread& T, const DynInst& di, FetchRec& r, uint64_t /*bl
   }
   r.mispred = !ok;
   return ok;
+}
+
+// The M2 RTL's front end (fe_m2; core-pipeline.md §3.2-§3.4). The micro-BTB predicts the block taken at its slot,
+// else it falls through. Decode repairs a JAL's target, a predicted-taken branch's wrong target and a bogus
+// prediction: fetch then waits until that instruction is decoded and starts again the next cycle (`fpc_d`). Anything
+// else is a mispredict, recovered at commit with ckpt = 0. The model follows the correct path only, so the training
+// the RTL does at execute happens here, with the fetch-time lookup.
+void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
+  const uint64_t fb = (uint64_t)c_.fetch_bytes;
+  const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
+  const M2Ubtb::Look l = m2_.lookup(key);
+  const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
+  int n = 0, bubble = 0;
+  while ((int64_t)T.fetchq.size() < c_.fetchq) {
+    const DynInst* di = get(T, T.fetch_seq);
+    if (!di) break;
+    if (di->pc >= blk_end || di->pc < start) break;
+    if (n > 0 && di->pc + di->d->len > blk_end) break;
+    const Decoded& d = *di->d;
+    FetchRec r;
+    r.seq = T.fetch_seq;
+    r.di = di;
+    r.avail = t_ + (uint64_t)c_.if_stages;
+    r.hist = T.ghr;
+    const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
+    const bool here = hit && slot == l.slot;
+    bool ok = true, f2 = false;  // f2 (m2_f2): F2's pre-decode redirects fetch, at m2_f2_bubble cycles
+    if (!d.is_ctrl()) {
+      if (here) {  // bogus: decode (F2 with m2_f2) redirects to the next instruction and clears the entry
+        if (c_.m2_f2) f2 = true;
+        else { T.st.predecode_redirects++; r.de_redirect = true; }
+        m2_.invalidate(key, l);
+      }
+    } else {
+      if (d.cls == Cls::BR) T.st.br_cond++;
+      else if (d.cls == Cls::JAL) T.st.br_jal++;
+      else if (d.is_ret()) T.st.br_ret++;
+      else T.st.br_jalr++;
+      const uint64_t tgt = d.cls == Cls::JALR ? di->next_pc : di->pc + (uint64_t)d.imm;  // the taken target
+      bool pred_taken = here, fixed = false, ras_fix = false;
+      uint64_t pred_tgt = here ? l.target : 0;
+      if (d.cls == Cls::JAL && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+      else if (d.cls == Cls::BR && here && l.target != tgt) { pred_tgt = tgt; fixed = true; }
+      // M6 steps on the M2 front end (DSE of area_recovery.md §6.3), each off by default:
+      // m2_dir: the direction predictor (dirpred) decides a branch; a taken guess without the micro-BTB's target
+      // is redirected at decode to PC + imm, a not-taken guess against a micro-BTB hit falls through. With m2_f2
+      // (core-2's front end), both redirects come from F2's pre-decode, at m2_f2_bubble cycles.
+      if (c_.m2_dir && d.cls == Cls::BR) {
+        const bool dp = dir_->predict(di->pc ^ T.salt, T.ghr);  // trained at commit (train_predictors)
+        if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
+        else if (!dp) { pred_taken = false; fixed = false; if (here && c_.m2_f2) f2 = true; }
+      }
+      // ras: calls push at fetch; a return the micro-BTB did not predict is redirected at decode to the RAS's top.
+      if (c_.ras && d.is_call()) T.ras.push(di->pc + d.len);
+      if (c_.ras && d.is_ret()) {
+        const uint64_t top = T.ras.top();
+        T.ras.pop();
+        if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
+      }
+      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) f2 = true;  // from F2's pre-decode (returns: m2_ras_f2)
+      else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
+      if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
+        ok = false;
+        r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
+      }
+      m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
+      // The RTL trains at execute on the wrong path too. Past a loop's exit it runs the loop again until the
+      // commit flush, and the wrong path's copies of the branch resolve not taken: m2_wp_train more such updates.
+      if (!ok && d.cls == Cls::BR && pred_taken && !di->taken && tgt <= di->pc)
+        for (int k = 0; k < c_.m2_wp_train; k++) m2_.train(key, di->pc, slot, false, false, tgt, m2_.lookup(key));
+      T.ghr.push(di->taken, di->pc);
+    }
+    r.mispred = !ok;
+    if (!ok) { r.de_redirect = false; f2 = false; }  // the mispredict's recovery restarts fetch
+    T.fetchq.push_back(r);
+    T.fetch_seq++;
+    n++;
+    if (!ok || r.de_redirect) { T.fe_blocked = true; break; }
+    if (f2) { T.st.f2_overrides++; bubble = (int)c_.m2_f2_bubble; break; }
+    if (here || (d.is_ctrl() && di->taken)) break;
+    if (di->pc + d.len >= blk_end) break;
+  }
+  T.st.taken_bubbles += (uint64_t)bubble;
+  T.fe_resume = t_ + 1 + (uint64_t)bubble;
 }
 
 // One thread fetches per cycle (one I$ access): the first in priority order that can. The others record why
@@ -411,6 +497,7 @@ void Core::fetch_thread(Thread& T) {
     return;
   }
 
+  if (c_.fe_m2) { fetch_block_m2(T, start, blk_end); return; }
   bool ubtb_hit = false;
   uint64_t ubtb_tgt = 0;
   if (c_.ubtb) ubtb_hit = ubtb_.lookup(start ^ T.salt, ubtb_tgt);
@@ -682,6 +769,11 @@ int Core::decode_thread(Thread& T, int slots_avail) {
     last = &u;
     slots--;
     scanned++;
+    if (rr.de_redirect) {  // fe_m2: decode redirects fetch, which starts again next cycle; the group ends here
+      T.fe_blocked = false;
+      T.fe_resume = std::max(T.fe_resume, t_ + 1);
+      break;
+    }
   }
   return slots_avail - slots;
 }
@@ -939,8 +1031,8 @@ void Core::exec_load(Uop& u) {
           return;
         }
         u.t_ag = t_ag;
-        if (dt <= t + 3) { u.t_ready = t + 3 + d; T.st.ld_fwd++; }
-        else { u.t_ready = dt + 3 + d; T.st.ld_fwd_wait++; }
+        if (dt <= t + 3) { u.t_ready = t + (uint64_t)c_.ld_fwd_lat + d; T.st.ld_fwd++; }
+        else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; }
         u.t_done = u.t_ready + 1 + dn;
         return;
       }
@@ -1163,6 +1255,12 @@ void Core::region_event(Thread& T, bool start) {
     T.st_end = T.st;
     T.ms_end = ms;
     T.r_end_cycle = t_;
+    if (const char* f = std::getenv("TGSIM_MPDUMP")) {  // calibration: mispredicts by PC (scripts/rtlcal.py)
+      if (FILE* o = std::fopen(f, "w")) {
+        for (auto& kv : mp_pc_) std::fprintf(o, "%llx %u\n", (unsigned long long)kv.first, kv.second);
+        std::fclose(o);
+      }
+    }
   }
   if (nthr_ == 1) return;
   if (start) overlap_check_start();
@@ -1193,6 +1291,11 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if (T.refill_from != NEVER) {  // the first retire after a mispredict recovered at commit: the refill
+    T.st.mp_refill_cycles += t_ - T.refill_from;
+    T.st.mp_refills++;
+    T.refill_from = NEVER;
+  }
   if (u.di && u.di->marker && T.lap == 0) {  // later runs of a restarted program are not measured
     if (u.di->marker == 1 && !T.in_region) region_event(T, true);
     else if (u.di->marker == 2 && T.in_region) region_event(T, false);
@@ -1203,7 +1306,9 @@ void Core::retire(Uop& u, bool early) {
         T.fe_blocked = false;
         T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
         T.st.mp_resolved_commit++;
+        T.refill_from = t_;
       }
+      if (T.in_region && u.di) mp_pc_[u.di->pc]++;
       switch (u.mp_kind) {
         case 1: T.st.mp_dir++; break;
         case 2: T.st.mp_target++; break;

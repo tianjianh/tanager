@@ -25,9 +25,10 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
 
   logic [NH-1:0] msi, mti;
   logic [63:0] mtime;
+  logic        freeze = 1'b0;
   tg_aclint #(.N_HARTS (NH), .CLK_HZ (CLK_HZ)) u_aclint (
     .clk, .rst, .req_i (req), .req_valid_i (req_v[DEV_ACLINT]), .rsp_o (rsp[DEV_ACLINT]),
-    .irq_msi_o (msi), .irq_mti_o (mti), .mtime_o (mtime));
+    .irq_msi_o (msi), .irq_mti_o (mti), .mtime_o (mtime), .freeze_i (freeze));
 
   logic [31:0] src;
   logic [2*NH-1:0] eip;
@@ -250,6 +251,21 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     wr32(ACLINT_BASE + 34'h4, 32'h0);
     if (msi != 4'b1000) fail("msip clear");
     if (mtime != u_aclint.mtime_q) fail("mtime broadcast");
+    // freeze_i (tg_uncore: CTRL.TFREEZE while the trace stalls a core) holds mtime; a write still lands,
+    // and the rate is the same after
+    rd64(ACLINT_BASE + 34'hBFF8, t0);
+    freeze = 1'b1;
+    repeat (5000) @(posedge clk);
+    rd64(ACLINT_BASE + 34'hBFF8, t1);
+    if (t1 - t0 > 1) fail($sformatf("mtime advanced %0d while frozen", t1 - t0));
+    wr64(ACLINT_BASE + 34'hBFF8, 64'd5000);
+    repeat (100) @(posedge clk);
+    rd64(ACLINT_BASE + 34'hBFF8, v);
+    if (v != 64'd5000) fail($sformatf("mtime %0d after a write while frozen (want 5000)", v));
+    freeze = 1'b0;
+    repeat (10000) @(posedge clk);
+    rd64(ACLINT_BASE + 34'hBFF8, t1);
+    if (t1 - 64'd5000 < 999 || t1 - 64'd5000 > 1004) fail($sformatf("mtime advanced %0d in 10000 cycles after the freeze", t1 - 64'd5000));
     $display("aclint: ok");
   endtask
 

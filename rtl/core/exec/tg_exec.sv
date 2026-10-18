@@ -148,6 +148,13 @@ module tg_exec
 
   // ---- Pipeline state per port (ALU ports, then LD and STA) ----
   logic [N_XQ-1:0]              ex_v_q;
+  // SPEC_WAKE: a shadow cancel (tg_issue, registered) returns what the integer queues issued in
+  // this cycle and the two before it, so the RF and EX stages of every port die here: nothing in
+  // EX acts (write-back, branch, MUL, DIV, CSR, AG), and nothing in RF moves on
+  logic                         sc;
+  logic [N_XQ-1:0]              ex_lv;               // the EX stage's live ops
+  assign sc    = SPEC_WAKE && spec_cancel;
+  assign ex_lv = ex_v_q & {N_XQ{!sc}};
   iq_pl_t [N_XQ-1:0]            ex_pl_q;
   logic [N_XQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
   logic [N_XQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
@@ -202,10 +209,10 @@ module tg_exec
   for (genvar q = 0; q < N_XQ; q++) begin : g_sel
     localparam int BK = (q >= N_ALU) ? q - N_ALU : 0;   // LD (0) or STA (1); in range elsewhere
     always_comb begin
-      sa[q] = bsel(iss_pl[q].src1, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
+      sa[q] = bsel(iss_pl[q].src1, ex_lv, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
       sb[q] = iss_pl[q].b_imm ? SW'(S_IMM)
-            : bsel(iss_pl[q].src2, ex_v_q, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
+            : bsel(iss_pl[q].src2, ex_lv, ex_pl_q, wb_dv_q, wb_dst_q, ld_m2_will, ld_m2_dst,
                    ld_res_valid, ld_res_dst);
     end
     always_comb begin
@@ -314,7 +321,7 @@ module tg_exec
   assign tgt_ne = bt_target != bp.pred_npc;
   assign seq_ne = bt_seq != bp.pred_npc;
   logic ex_br;
-  assign ex_br = ex_v_q[0] && bp.cls == C_BR;
+  assign ex_br = ex_lv[0] && bp.cls == C_BR;
 
   // Direction counters (read in EX, written in WB)
   localparam int BHT_W = idx_w(BHT_ENTRIES);
@@ -370,9 +377,9 @@ module tg_exec
   iq_pl_t p1;
   assign p1 = ex_pl_q[1];
   logic ex_mul, ex_div, ex_csr;
-  assign ex_mul = ex_v_q[1] && p1.cls == C_MUL;
-  assign ex_div = ex_v_q[1] && p1.cls == C_DIV;
-  assign ex_csr = ex_v_q[1] && p1.cls == C_CSR;
+  assign ex_mul = ex_lv[1] && p1.cls == C_MUL;
+  assign ex_div = ex_lv[1] && p1.cls == C_DIV;
+  assign ex_csr = ex_lv[1] && p1.cls == C_CSR;
   assign csr_ex_valid = ex_csr;
   assign csr_ex_pl    = p1;
   assign csr_ex_src   = opa[1];
@@ -444,7 +451,7 @@ module tg_exec
   // Bank 1 write slots
   logic       a1_block_q;
   logic       rf_mul;                      // a MUL in RF claims slot +4
-  assign rf_mul = iss_valid[1] && iss_pl[1].cls == C_MUL;
+  assign rf_mul = iss_valid[1] && iss_pl[1].cls == C_MUL && !sc;
   logic       div_claim;                   // the finished divide claims slot +4
   logic [2:0] div_wait_q;                  // cycles to its slot (0: none)
   assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !flush;
@@ -557,10 +564,10 @@ module tg_exec
   end
 
   // ---- Address generation (EX) ----
-  assign ld_ag_valid  = ex_v_q[Q_LD];
+  assign ld_ag_valid  = ex_lv[Q_LD];
   assign ld_ag_pl     = ex_pl_q[Q_LD];
   assign ld_ag_addr   = opa[Q_LD] + ex_pl_q[Q_LD].imm;
-  assign sta_ag_valid = ex_v_q[Q_STA];
+  assign sta_ag_valid = ex_lv[Q_STA];
   assign sta_ag_pl    = ex_pl_q[Q_STA];
   assign sta_ag_addr  = opa[Q_STA] + ex_pl_q[Q_STA].imm;
 
@@ -644,16 +651,16 @@ module tg_exec
       fpi_wait_q <= '0;
       if (rst) lfsr_q <= 8'h5a;
     end else begin
-      ex_v_q <= iss_valid;
+      ex_v_q <= iss_valid & {N_XQ{!sc}};
       for (int i = 0; i < N_ALU; i++) begin
-        wb_v_q[i]   <= ex_v_q[i] && alu_class(i, ex_pl_q[i].cls);
-        wb_dv_q[i]  <= ex_v_q[i] && alu_class(i, ex_pl_q[i].cls) && ex_pl_q[i].dst_en;
-        wb_cmp_q[i] <= ex_v_q[i] && alu_class(i, ex_pl_q[i].cls);
+        wb_v_q[i]   <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls);
+        wb_dv_q[i]  <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls) && ex_pl_q[i].dst_en;
+        wb_cmp_q[i] <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls);
       end
       bw_v_q   <= ex_br;
       bht_we_q <= ex_br && bp.br_kind == BR_COND;
       csr_v_q  <= ex_csr;
-      mwk_v_q  <= {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
+      mwk_v_q  <= sc ? {mwk_v_q[1], 2'b00} : {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
       tf_v_q   <= {tf_v_q[0], !csr_v_q && mul_ov && mul_tag[TAG_W-1]};   // the MUL write slot
       bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
@@ -666,7 +673,7 @@ module tg_exec
   end
 
   logic unused;
-  assign unused = ^{spec_cancel, SPEC_WAKE, wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
+  assign unused = ^{wb_v_q, bw_taken_q, div_cnt, mul_tag[COL_W-1:WTAG_W], csr_ex_pl, opb[Q_LD], mul_res,
                     opb[Q_STA], f_eq, f_lt, f_ltu, bp};
 
 `ifndef SYNTHESIS

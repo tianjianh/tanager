@@ -1,0 +1,18 @@
+loaded tanager-sc3 at 19:27:44; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel Image --dtb sc3-tb1g-768m.dtb --lossless --trace-log2 16 --trace tg.trace --timeout 7200
+TANAGER-BOOT-OK at 3167 s
+login prompt at 3247 s
+shell prompt at 3370 s
+boot exit 0 after 4783 s (TANAGER-BOOT-OK 3167 s, prompt 3247 s)
+checker exit 0
+tanager-lockstep: PASS after 409133336 records (409098612 retired, 14550 traps, 20174 interrupts, 0 writebacks) in 4777.7 s, 85634 records/s
+tanager-lockstep: 967 loads read bytes another hart's recent write had replaced; 0 atomics read past a store, which then followed them
+tanager-lockstep: PASS after 409133336 records (409098612 retired, 14550 traps, 20174 interrupts, 0 writebacks) in 4777.7 s, 85634 records/s
+fan: pwm1 19/255, AMS temp1 33 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 20:47:32
+fan: pwm1 19/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

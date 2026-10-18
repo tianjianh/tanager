@@ -412,6 +412,7 @@ M4's exit criterion (plan §7.4, §9): the commit trace the uncore streams into 
 - **Why it stopped short:** the RISC-V time counts in real time, while trace back-pressure holds each hart to about 47 K instructions/s. Every next tick was already due, so both harts stayed in `tick_handle_periodic`'s catch-up loop with interrupts off.
 - **With a 1 GHz timebase: PASS, Linux to a root shell and power-off on two cores, every record checked.** The same device tree with only `timebase-frequency` at 1 GHz, while the timer counts 10 MHz, so time runs 100 times slower for Linux (the cell is 32 bits: up to about 430 times). The checker adopts every read of `time` and `mtime` (§3.4) and takes interrupts from the records, so it needs only the same device tree (`--dtb`). 408,432,254 records (14,594 traps, 19,840 interrupts), no mismatch, in 4,596 s at 88,863 records/s, through TANAGER-BOOT-OK, the login, a root shell and the power-off; 947 loads read bytes another hart's recent write had replaced, and 3 atomics read past a store. The board session's log is `fpga/kv260/board/p0f/ls_p0f-tb1g.log` on its branch.
 - **With `mtime` frozen during trace stalls (the SoC track's p0g build, `tanager-host --freeze-time`): PASS on the normal 10 MHz device tree,** which retires the timebase workaround: time follows execution. 395,612,106 records (13,052 traps, 2,236 interrupts), no mismatch, in 4,166 s at 94,966 records/s: TANAGER-BOOT-OK at 2,042 s, the root shell at 2,214 s, then the power-off; 126 loads read bytes another hart's recent write had replaced, and 2 atomics read past a store. The board session's log is `fpga/kv260/board/p0g/ls_p0g-ft.log` on its branch.
+- **At 100 MHz (DR-152) with stage C (sc3, main 5172c6a: two `smt2` cores, the coherent host DMA port and the virtio window built in, DR-151's 1 GiB memory region), 2026-10-17:** PASS with the 1 GHz-timebase device tree (main's `tanager-host` has no `--freeze-time` yet): 409,133,336 records (14,550 traps, 20,174 interrupts), no mismatch, in 4,778 s at 85,634 records/s, to a root shell and the power-off; 967 loads read bytes another hart's recent write had replaced. No host DMA ran under lockstep yet (§3.10 needs `tanager-host`'s 0xE1 records). The board session's log: `fpga/kv260/board/sc3/` on its branch.
 
 ### 3.10 External writes (DR-147 stage C)
 
@@ -490,6 +491,19 @@ A write every hart is past is dropped.
 - **Determinism:** CoreMark's ticks are retired instructions and Dhrystone's `time()` counts its calls, so the console text is the same in the RTL and in Spike. Cycles come from the `tg_marker` region.
 - **Results:** a run passes when lockstep passes, the program exits with code 0, its console output matches a Spike reference run of the same ELF (`tg_replay`), and CoreMark prints `Correct operation validated`. The runner prints CoreMark/MHz = iterations × 10⁶ / region cycles and DMIPS/MHz = runs × 10⁶ / (region cycles × 1757). These are not EEMBC-valid scores (run length), only correlation points for the model (plan §10.1).
 - **Unexpected traps** in a benchmark end it with exit code `0x1000 + mcause` (`bsp/crt0.S`).
+- **Which cycles:** CoreMark/MHz counts CoreMark's timed region only (its iterations, between `start_time` and `stop_time`), as CoreMark defines it; the whole run adds its initialisation and report. `cycle-identical`'s `cycles` column is the whole run, so it is no score: on main at 4bb4426 (rv64im, `ITER=2`) CoreMark A's whole run is 733,270 cycles, but its timed region is 659,278 cycles, 3.034 CM/MHz, the same as M2's 3.04 (2026-10-14). Two iterations read about 0.7% low against warm caches (`ITER=10`: 3.055).
+- **ISA:** the instruction count per iteration is the same with `MARCH=rv64im` and `rv64gc`, but compressed code costs CoreMark B 3.6% (2.791 against 2.896 CM/MHz, `ITER=10`) and Dhrystone 11% (1.484 against 1.667 DMIPS/MHz); CoreMark A does not change. The board's Linux runs were `rv64imafd` until 2026-10-17, without compressed code (§4.6), and are `rv64gc` since.
+
+**Per-feature measurement (M6, DR-153): `make perf`** (`tools/ci/perf.py`). Both sides build as `cycle-identical`'s do (its build cache, this tree's harness, the profile switches), and CoreMark A and B and Dhrystone run in `tg_vsim` with lockstep. The table gives each program's timed-region cycles and IPC on both sides, the change in cycles (negative is faster) and the score, with their geometric mean.
+```
+make perf [BASE=main] [BRANCH=<ref>] [CFG=st] [MARCH=rv64gc] [ITER=10] [RUNS=500] [LAT=native] [JOBS=8]
+          [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE=...] [BRANCH_TIMING_CUTS|..._SPEC_WAKE=...]
+```
+- A feature branch against main: `make perf BRANCH=<ref>`; this tree's RTL: `make perf`. A feature behind a switch, on one commit: `make perf BASE=HEAD BRANCH_DC_MSHRS=4`.
+- `MARCH` and `LAT` take lists (`MARCH=rv64im,rv64gc`, `LAT=native,120`). The defaults are the board's ISA and warm caches.
+- Results are cached per build and program, so a second measurement against the same `BASE` runs only this side (about 3.5 minutes with a build). The board's Linux workload set (§4.6) measures the same programs in batches of features.
+- An older commit whose RTL does not fit this tree's harness (a port it lacks) builds with its own `sim/`, and the table says so; one whose own `sim/profile.mk` cannot take a forced switch is refused, since it would build without it unseen (merge main into the branch first).
+- **Checked on main at 4bb4426** (`rv64gc`, `ITER=10`): `QUEUE_DECODE=1` against off, a cycle-exact switch, +0.00% on all three programs (CoreMark A 3.055, B 2.791 CM/MHz; Dhrystone 1.484 DMIPS/MHz). The timing cuts off (`BRANCH_TIMING_CUTS=0`) against the default: CoreMark A −0.14%, B −0.01%, Dhrystone −1.31%, geometric mean −0.49%, so the default profile's cuts cost about half a percent here.
 
 ### 4.3 `make regress`
 
@@ -503,7 +517,7 @@ With Spike lockstep, the profiles differ only in cycles. A switch that follows t
 
 Two switches are for lint only, each on top of the default, until the user turns one on: #2 (store completions reported to the ROB a cycle late, `ROB_STORE_REPORT_LATE=1`, `+define+TG_ROB_STORE_REPORT_LATE`) and #8 (one more decode stage, `DE_STAGE=1`, `+define+TG_DE_STAGE`). `make lint` takes them. `sim/Makefile` refuses them for any other goal, even when the model is up to date, so they never reach a run.
 
-**Runnable switches off in both profiles,** each on top of the default until the user decides: DR-149's 4-miss L1D, `DC_MSHRS=4` (`+define+TG_DC_MSHRS`, §6.5), and G8's instruction-queue decode bits, `QUEUE_DECODE=1` (`+define+TG_QUEUE_DECODE`; the FPU track's switch, at the core track's request; cycle-exact either way). Unlike #2 and #8 they run programs: `sim/profile.mk` builds each in a directory of its own and passes it to the test makefiles with the profile, `regress.sh` takes both, and `lint-all` elaborates each once the RTL mentions its define.
+**Runnable switches off in both profiles,** each on top of the default until the user decides: DR-149's 4-miss L1D, `DC_MSHRS=4` (`+define+TG_DC_MSHRS`, §6.5); G8's instruction-queue decode bits, `QUEUE_DECODE=1` (`+define+TG_QUEUE_DECODE`; the FPU track's switch, at the core track's request; cycle-exact either way); and M6's speculative load wakeup, `SPEC_WAKE=1` (`+define+TG_SPEC_WAKE`; the FPU track's feature behind the core track's interface, DR-153; a performance feature, so not cycle-exact). Unlike #2 and #8 they run programs: `sim/profile.mk` builds each in a directory of its own and passes it to the test makefiles with the profile, `regress.sh`, `cycle-identical` and `perf` take them, and `lint-all` elaborates each once the RTL mentions its define.
 
 **The commit trace (DR-146)** is a build switch too, `COMMIT_TRACE=0|1` (`+define+TG_COMMIT_TRACE`, read once in `tg_trace_pkg`; interfaces.md §5). It is on by default and everything that runs programs here needs it. So `COMMIT_TRACE=0` is lint-only as well, and a model built without the trace stops at time 0 in `tg_tb_top`, or in `tg_soc_sig` when a boot signature is asked for. That keeps such a model from passing on no records or signing an empty trace.
 
@@ -582,12 +596,12 @@ The FPGA-friendly rewrites must not move a single cycle (DR-123, DR-125; perf/fp
 make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,bench,random] [RANDN=200] [BOOT=N] [JOBS=8]
                      [BOOT_CORES=1|2] [BOOT_TREE=<ref>] [TIMING_CUTS=0|1] [BRANCH_TIMING_CUTS=0|1]
                      [DC_MSHRS=1|4] [BRANCH_DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [BRANCH_QUEUE_DECODE=0|1]
-                     [HARNESS=auto|branch|own]
+                     [SPEC_WAKE=0|1] [BRANCH_SPEC_WAKE=0|1] [HARNESS=auto|branch|own]
 ```
 
 - **Profiles (DR-140).** `TIMING_CUTS` builds both sides in that timing-cut profile, `tg_vsim` and the boot's `tb_boot` alike, so a change is checked in each profile CI runs, and its Linux-boot cost is reported by profile (DR-141 rule 1). `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key.
   - The boot takes the profile through `tests/unit/boot`'s Makefile (the SoC track's hook), which reads `sim/profile.mk`; the tool archives that file with `sim/tb` when a profile is forced. A boot tree whose Makefile lacks the hook is refused, since it would build the default without a word (`BOOT_TREE=<ref>`, `--boot-tree`, with a ref that has it, or `BOOT=0`).
-  - **`DC_MSHRS` (DR-149) and `QUEUE_DECODE` (G8's queue decode bits)** work the same way: `DC_MSHRS` builds both sides with that many L1D misses in flight, and `BRANCH_DC_MSHRS=4` against a base of one MSHR measures the 4-miss L1D; `BRANCH_QUEUE_DECODE=1` against the same commit checks the switch's other setting without a commit that flips its default. Neither name reaches a build from the environment, only as a make variable that the cache key and each build's `info` file name. Before this, a `DC_MSHRS=4` in the environment reached `tg_vsim` (which takes all of `sim/`) but not the boot, whose `sim/profile.mk` was archived only with `TIMING_CUTS`: one MSHR on both sides, IDENTICAL (the core track's find, 2026-10-17).
+  - **`DC_MSHRS` (DR-149), `QUEUE_DECODE` (G8's queue decode bits) and `SPEC_WAKE` (M6's speculative load wakeup)** work the same way: `DC_MSHRS` builds both sides with that many L1D misses in flight, and `BRANCH_DC_MSHRS=4` against a base of one MSHR measures the 4-miss L1D; `BRANCH_QUEUE_DECODE=1` against the same commit checks the switch's other setting without a commit that flips its default. Neither name reaches a build from the environment, only as a make variable that the cache key and each build's `info` file name. Before this, a `DC_MSHRS=4` in the environment reached `tg_vsim` (which takes all of `sim/`) but not the boot, whose `sim/profile.mk` was archived only with `TIMING_CUTS`: one MSHR on both sides, IDENTICAL (the core track's find, 2026-10-17).
   - **Checked on core-2's fn7** (51810c3, with the SoC track's hook from 97b528a as `--boot-tree`), 3 M cycles of the 1-core boot. Before this, the two profiles were one boot build, so a boot by profile was identical by construction.
     - The fallback against the default: they differ from cycle 430, and the fallback needs 0.165% fewer cycles.
     - The fallback against its own base, da48d96 (the RTL before the switches): identical.
@@ -605,7 +619,8 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
   - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs.
     - **When the base's RTL does not build with it,** the base side takes BASE's own `sim/`, and the log says so. This happens when a change gives an RTL package something new and the harness uses it, as `tg_tb_top` began reading `tg_trace_pkg::COMMIT_TRACE` (DR-146) before main had it. The sides then differ in harness as well as RTL: a difference may come from either, and an old base harness may not write this tool's signatures (the run is reported BROKEN).
-    - `HARNESS=branch` forbids that fallback, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`.
+    - **The boot's testbench too:** when the base's SoC does not build with the branch's `tests/unit/boot/tb_boot.sv`, which connects ports or parameters the base lacks (PINNOTFOUND), both sides' boot take BASE's `tests/unit/boot` and `sw/dts`, as `BOOT_TREE=<base>` does, and the base side its own `sim/`; the log says so. The boot then runs one testbench, the base's, on both sides (the coordinator's case: the SoC track's MR2, MR3 and MR6, the core track's DR-149). If the branch's RTL does not build with the base's testbench either, each side keeps its own, and the log says the testbenches differ (the SoC track's order).
+    - `HARNESS=branch` forbids those fallbacks, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`, and for the boot a base `tests/unit/boot` that takes it.
   - **Programs** are built once and shared by both sides.
 - **Suites** (the defaults are the first four):
 
@@ -694,6 +709,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
     - `tlbwalk`: a dependent pointer chase, 1,000,000 steps through a random cycle over 64 MiB of pages;
     - `exec` times other commands: BusyBox's `gzip` and `sha256sum` over 4 MiB of generated text in `/tmp`.
   - `coremark-a` and `coremark-b`, with plan §10.2's flag sets, and `dhrystone`, the same sources and flags as the bare-metal runs (§4.2). CoreMark scales itself to at least 10 s, its condition for a valid result; the line reports the iteration count.
+- **ISA:** the programs build for `MARCH=rv64gc`, `lp64d` (the coordinator's call under DR-154, 2026-10-17), as Debian's userland and the model's suite do. Until then they took the Buildroot toolchain's default, `rv64imafd`, without compressed code. `BRIDGE=1` also builds that earlier form as `coremark-a-imafd`, `coremark-b-imafd` and `dhrystone-imafd`, which `tg-lbench.sh` then runs too, so one board run measures both forms and the series stays continuous; after it, `rv64gc` only. Every CoreMark and Dhrystone line carries `march=`.
 - **Run:** `tg-lbench.sh [RUNS]` runs everything RUNS times (3). With `tanager.bench=1` on the kernel command line, `/etc/init.d/S99tglbench` runs it after the boot marker and powers off, so a board run ends by itself.
 - **Output:** between `TGLB-BEGIN version=1 kernel=… harts=… runs=…` and `TGLB-END status=0|1`, a `TGLB-INFO counters=… timebase=… pagesize=… perf_events=… perf_errno=…` line and one line per measurement:
   ```
@@ -736,6 +752,24 @@ Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job i
 - **Results:** `rv64ui-p`, `rv64um-p` and `rv64mi-p` (82 tests), the directed interrupt tests (2,000+ interrupts per run) and CoreMark A/B and Dhrystone pass in lockstep at 30, 120 and 250 cycles, also with jitter, backpressure, D-channel gaps, `toB` grants, random probes (CoreMark: about 100 K Acquires, 5 K Releases with data, 280 K probes), deferral and multi-slot trace.
 
 ## 6. M3 items
+
+
+**Against the bare-metal runs (2026-10-17, the user's question):** CoreMark under Linux on the board (p0f) takes 364.3K and 440.7K cycles per iteration (A, B), against 327.3K and 345.3K bare-metal in simulation (`st`, `ITER=10`, rv64im). Measured in simulation, step by step:
+
+| step | A cycles/iteration | B cycles/iteration |
+|---|---|---|
+| our build (xPack gcc 15.2, rv64im) | 327.3K | 345.3K |
+| the Linux build's compiler and flags (gcc 15.3, rv64imafd, stack protector), linked bare-metal | 329.8K (+0.8%) | 355.1K (+2.9%) |
+| its code placed at 16 offsets 4 bytes apart | ±0.9% | ±1.0% |
+| on an `smt2` core (thread 1 idle) | ±0.0% | ±0.0% |
+| a 250 Hz timer interrupt (70 MHz), the interrupt alone | +0.0% | +0.1% |
+| its handler also running 16 KiB of code and loading 16 KiB of data (latency 30 to 120) | +0.9% to +2.7% | −1.1% to −0.1% |
+| its handler running 32 KiB and loading 32 KiB, the whole L1s (latency 30, 90, 120) | +13%, +38%, +51% | +9%, +30%, +41% |
+| the board, Linux | 364.3K (+10.5%) | 440.7K (+24.1%) |
+
+- **The Linux binaries measured here are rv64imafd** (the Buildroot toolchain's default, before `tests/bench/linux` set `-march`), with no compressed code, so their bare-metal match is `MARCH=rv64im`, not `rv64gc`. The set builds `rv64gc` since (above).
+- **The code is not the cause:** the same object code runs the same instructions per iteration bare-metal (−0.3%). So the board's +1.6% to +1.8% instructions are kernel time inside the counters, about one tick's work per iteration.
+- **The tick's pollution, at the board's miss latency, spans the loss:** from a few percent to half, depending on how much of the L1s the kernel evicts and how far a miss goes. What the model does not reproduce is B losing twice A's share; the candidates are TLB misses under Sv39 (not modeled bare-metal) and B's larger unrolled code refilling after a real kernel's evictions. The board's own counters (cache and TLB misses, user against kernel) or a run with a slower tick would separate them.
 
 ### 6.1 riscv-arch-test (ACT4) with Sail
 

@@ -1,7 +1,8 @@
 // DRAM window test (docs/spec/uncore-mem.md §Verification): random in- and out-of-range 64-byte
 // reads and writes through tg_axi_window into a memory model. Checks that in-range bursts reach
 // base + offset with intact data, that out-of-range bursts never appear downstream, and that they
-// are answered with SLVERR (reads: all beats; writes: one B after the W beats).
+// are answered with SLVERR (reads: all beats; writes: one B after the W beats) and reported once each
+// on oob_rd_o/oob_wr_o with their address.
 module tb_axi_window;
   import tg_pkg::*, tg_uncore_pkg::*, tb_axi_mem_pkg::*;
 
@@ -17,6 +18,8 @@ module tb_axi_window;
   axi_b_t  s_b, m_b;
   logic s_ar_v, s_ar_r, s_r_v, s_r_r, s_aw_v, s_aw_r, s_w_v, s_w_r, s_b_v, s_b_r;
   logic m_ar_v, m_ar_r, m_r_v, m_r_r, m_aw_v, m_aw_r, m_w_v, m_w_r, m_b_v, m_b_r;
+  logic oob_rd, oob_wr;
+  logic [39:0] oob_addr;
 
   tg_axi_window dut (
     .clk, .rst, .base_i (BASE), .size_i (SIZE),
@@ -29,7 +32,8 @@ module tb_axi_window;
     .m_r_i (m_r), .m_r_valid_i (m_r_v), .m_r_ready_o (m_r_r),
     .m_aw_o (m_aw), .m_aw_valid_o (m_aw_v), .m_aw_ready_i (m_aw_r),
     .m_w_o (m_w), .m_w_valid_o (m_w_v), .m_w_ready_i (m_w_r),
-    .m_b_i (m_b), .m_b_valid_i (m_b_v), .m_b_ready_o (m_b_r)
+    .m_b_i (m_b), .m_b_valid_i (m_b_v), .m_b_ready_o (m_b_r),
+    .oob_rd_o (oob_rd), .oob_wr_o (oob_wr), .oob_addr_o (oob_addr)
   );
   tb_axi_mem #(.LAT_MIN(3), .LAT_MAX(30), .OOO(1'b1), .NAME("winmem")) mem (
     .clk, .rst,
@@ -46,7 +50,20 @@ module tb_axi_window;
     if (m_aw_v && m_aw_r) assert (m_aw.addr >= BASE && m_aw.addr + 64 <= BASE + SIZE) else $error("AW leaked: %h", m_aw.addr);
   end
 
-  int errors, n_ok_rd, n_err_rd, n_ok_wr, n_err_wr, beat;
+  int errors, n_ok_rd, n_err_rd, n_ok_wr, n_err_wr, beat, n_oob_rd, n_oob_wr;
+  // the refusal reports: one per out-of-range burst, with its address
+  always @(posedge clk) if (!rst) begin
+    if (oob_rd) begin
+      n_oob_rd++;
+      assert (oob_addr == s_ar.addr && !(s_ar.addr >= 40'h8000_0000 && s_ar.addr - 40'h8000_0000 < SIZE))
+        else $error("oob_rd for %h (AR %h)", oob_addr, s_ar.addr);
+    end
+    if (oob_wr) begin
+      n_oob_wr++;
+      assert (oob_rd || (oob_addr == s_aw.addr && !(s_aw.addr >= 40'h8000_0000 && s_aw.addr - 40'h8000_0000 < SIZE)))
+        else $error("oob_wr for %h (AW %h)", oob_addr, s_aw.addr);
+    end
+  end
   logic [511:0] model [longint unsigned];    // keyed by downstream line
   logic [511:0] rbuf;
   bit   rerr;
@@ -122,7 +139,7 @@ module tb_axi_window;
   initial begin
     if (!$value$plusargs("seed=%d", seed)) seed = 1;
     void'($urandom(seed));
-    errors = 0; n_ok_rd = 0; n_err_rd = 0; n_ok_wr = 0; n_err_wr = 0;
+    errors = 0; n_ok_rd = 0; n_err_rd = 0; n_ok_wr = 0; n_err_wr = 0; n_oob_rd = 0; n_oob_wr = 0;
     s_ar_v = 0; s_aw_v = 0; s_w_v = 0; s_r_r = 0; s_b_r = 0;
     repeat (4) @(posedge clk);
     rst = 1'b0;
@@ -136,6 +153,8 @@ module tb_axi_window;
       if ($urandom_range(1)) do_read(a);
       else                   do_write(a, {16{$urandom()}});
     end
+    if (n_oob_rd != n_err_rd || n_oob_wr != n_err_wr)
+      fail($sformatf("refusals reported: %0d reads, %0d writes (want %0d, %0d)", n_oob_rd, n_oob_wr, n_err_rd, n_err_wr));
     $display("window: %0d/%0d reads ok/denied, %0d/%0d writes ok/denied, %0d errors", n_ok_rd, n_err_rd, n_ok_wr, n_err_wr, errors);
     if (errors == 0 && n_err_rd > 0 && n_err_wr > 0) $display("TEST PASSED (seed %0d)", seed);
     else $display("TEST FAILED (seed %0d)", seed);

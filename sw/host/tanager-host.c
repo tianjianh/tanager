@@ -13,6 +13,7 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <poll.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -29,6 +30,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "extwrite.h"
 #include "virtio.h"
 
 /* ---- Host register map (docs/spec/host.md) ---- */
@@ -69,6 +71,7 @@ enum {
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
 #define CTRL_LOSSLESS  0x4u
+#define CTRL_TFREEZE   0x8u            /* mtime holds while the commit trace stalls a core (board lockstep) */
 #define ST_CORES_RST   0x1u
 #define ST_UNC_RST     0x2u
 #define ST_L2_INIT     0x4u
@@ -153,6 +156,8 @@ struct opts {
   double timeout;
   long inj_rd, inj_wr, inj_mode, inj_bw;
   int lossless;
+  int freeze_time;        /* CTRL.TFREEZE: mtime holds while the commit trace stalls a core */
+  int dbg_exit;           /* run: print the debug counters before the exit's hold (they read 0 after it) */
   /* commit trace (docs/spec/uncore-trace.md): a ring at the top of the carve-out */
   const char *trace;      /* output file ("-" = stdout); NULL = no tracing */
   int trace_log2;         /* ring of 2^n records */
@@ -184,6 +189,7 @@ static void usage(void) {
     "                                         (implied by --trace) zeroes the window first\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
+    "      [--freeze-time] [--dbg]\n"
     "                                         release reset (a running system keeps running), bridge the\n"
     "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
@@ -192,6 +198,10 @@ static void usage(void) {
     "                                         carve-out (default N 22: 256 MiB); the device tree's memory must\n"
     "                                         fit in the rest. --trace - writes the records to stdout and\n"
     "                                         everything else to stderr; if the reader stops, run exits 4\n"
+    "                                         --freeze-time holds mtime while the trace stalls the cores\n"
+    "                                         (CTRL.TFREEZE), so Linux under the checker does not drown in\n"
+    "                                         timer ticks; --dbg prints the debug counters (dbg) before the\n"
+    "                                         exit's hold, which clears them\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
@@ -199,7 +209,9 @@ static void usage(void) {
     "                                         built with TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1, a device tree with VIRTIO=1)\n"
     "      [--net TAP [--net-bridge BR] [--net-mac MAC]]\n"
     "                                         and virtio-net (slot 2) on the TAP device TAP, made and brought up if\n"
-    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01)\n"
+    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01).\n"
+    "                                         With --trace (not --trace-wrap), each store into the RISC-V's RAM\n"
+    "                                         goes into the trace as an external-write record for the checker\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
@@ -210,6 +222,13 @@ static void usage(void) {
     "                                         0x500000000): offsets into the RISC-V's RAM; check writes and\n"
     "                                         reads back BYTES (64 KiB) at OFF (the RAM's last 64 KiB), which\n"
     "                                         it overwrites: hold the cores (load, or tg start) first\n"
+    "  dma adma [CHAN_PA [OFF [BYTES]]]       stage D's probe D0 (soc.md §8.2): an LPD DMA channel (ADMA; default\n"
+    "                                         0xFFAF0000, channel 8) copies BYTES (4 KiB) from DDR in the carve-out\n"
+    "                                         to the RISC-V's RAM at OFF through the host DMA port, then back; the\n"
+    "                                         channel must be idle and kept powered by its driver first:\n"
+    "                                         echo on > /sys/bus/platform/devices/ffaf0000.dma-controller/power/control\n"
+    "  psrd ADDR [N]                          read N (1) 32-bit PS registers, only in always-on LPD control blocks:\n"
+    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR (stage D's D0)\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -224,8 +243,9 @@ static uint64_t num(const char *s) {
 
 /* ---- Commands ---- */
 /* The board debug counters (tg_uncore DEBUG_CNT): each L2 bank's coherence messages, misses, AXI reads and
- * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels. The
- * index crosses into the core clock and the value back, so each read waits a millisecond. */
+ * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels, the
+ * DRAM windows' refusals and the first L2 error and refusal, whole. The index crosses into the core clock
+ * and the value back, so each read waits a millisecond. */
 static void cmd_dbg(void) {
   static const char *bk[] = { "A in", "B out (probes)", "C in", "D out", "E in (GrantAck)", "misses", "AXI reads", "fills" };
   static const char *ck[] = { "A out", "B in (probes)", "C out", "D in", "E out (GrantAck)" };
@@ -256,6 +276,39 @@ static void cmd_dbg(void) {
       }
       printf("%s\n", v >> 30 & 1 ? " L2_ERR" : "");
     }
+  }
+  /* index n + 1 ...: the refusals, then the first L2 error ({info}, {valid, bank, line}) and the first
+   * refusal ({valid, write, line}); 0xDEB00000 in a bitstream without them */
+  uint32_t x[5];
+  for (unsigned k = 0; k < 5; k++) { wr(R_DBG_SEL, n + 1 + k); sleep_us(1000); x[k] = rd(R_DBG_VAL); }
+  if (x[0] == 0xDEB00000u) {
+    printf("  (no L2 error capture in this bitstream)\n");
+  } else {
+    printf("  DRAM window refusals     %10u reads, %u writes\n", x[0], x[1]);
+    static const char *ek[] = { "?", "a Release or ProbeAck for a line not held", "a ProbeAck no probing MSHR waits for",
+                                "a victim still held after its probes", "a write response error", "a fill read error",
+                                "?", "?" };
+    static const char *cop[] = { "?0", "?1", "?2", "?3", "ProbeAck", "ProbeAckData", "Release", "ReleaseData" };
+    static const char *cpar[] = { "TtoB", "TtoN", "BtoN", "TtoT", "BtoB", "NtoN", "?6", "?7" };
+    uint32_t e = x[2], k = e & 7;
+    uint64_t line = x[3] & 0x1fffffffu;
+    if (x[3] >> 31) {
+      printf("  first L2 error: bank %u, %s", x[3] >> 29 & 3, ek[k]);
+      if (k >= 1 && k <= 3)                      /* an AXI error carries no line: see the first refused burst */
+        printf(", line 0x%" PRIx64 " (address 0x%" PRIx64 ")", line, line << 6);
+      if (k >= 1 && k <= 3)
+        printf("; C %s %s from source 0x%03x; directory %s: valid %u dirty %u tip %u pres 0x%x; MSHR %u",
+               cop[e >> 3 & 7], cpar[e >> 6 & 7], e >> 9 & 0x3ff, e >> 19 & 1 ? "hit" : "miss", e >> 20 & 1,
+               e >> 21 & 1, e >> 22 & 1, e >> 23 & 0xf, e >> 27 & 0x1f);
+      else
+        printf("; AXI resp %u, ID %u", e >> 3 & 3, e >> 9 & 0x3ff);
+      printf("\n");
+    } else {
+      printf("  no L2 error since the uncore reset\n");
+    }
+    if (x[4] >> 31)
+      printf("  first refused burst: a %s at 0x%" PRIx64 "\n", x[4] >> 30 & 1 ? "write" : "read",
+             (uint64_t)(x[4] & 0x3fffffffu) << 6);
   }
   /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
    * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none.
@@ -330,12 +383,123 @@ static void uncore_up(void) {
   fprintf(stderr, "released the uncore (the cores stay held)\n");
 }
 
+/* Stage D's probe D0 (docs/spec/soc.md §8.2): can a PS master other than the A53 reach the host DMA port?
+ * An LPD DMA channel (ADMA, an LPD master like the IOU's SD, GEM and USB) runs two simple-mode copies, both
+ * within the RISC-V's carve-out: DDR (OFF + BYTES above OFF, written and read here through an uncached
+ * mapping, never the A53's memory) into the RISC-V's RAM at OFF through HPM1, then from there back into a
+ * second DDR buffer. The data and the port's line counters say whether the writes and reads went through
+ * the port. Registers as in Linux's zynqmp_dma driver (ZynqMP: no interrupt register offset).
+ * Safety: the channel's driver gates its clocks and power domain while it is idle, and a read of an
+ * unpowered block can hang the board, so the probe needs the channel's device runtime-active in sysfs
+ * (power/control "on") and the channel idle; it masks the channel's interrupts for the duration, so the
+ * A53's driver sees nothing, and restores CTRL0 and the mask at the end. */
+enum {
+  ZD_ISR = 0x100, ZD_IMR = 0x104, ZD_IER = 0x108, ZD_IDS = 0x10C, ZD_CTRL0 = 0x110, ZD_STATUS = 0x11C,
+  ZD_SRC0 = 0x128, ZD_SRC1 = 0x12C, ZD_SRC2 = 0x130, ZD_SRC3 = 0x134,
+  ZD_DST0 = 0x138, ZD_DST1 = 0x13C, ZD_DST2 = 0x140, ZD_DST3 = 0x144, ZD_TOTAL = 0x188, ZD_CTRL2 = 0x200,
+};
+#define ZD_DONE      (1u << 10)
+#define ZD_ERRS      0x3F9u              /* AXI write/read data, descriptor reads, accounting, overflow, APB */
+#define ZD_POINT_SG  (1u << 6)
+
+static int adma_powered(uint64_t pa) {
+  static const char *const suffix[] = { "dma-controller", "dma" };
+  for (int i = 0; i < 2; i++) {
+    char path[128], st[32] = "";
+    snprintf(path, sizeof path, "/sys/bus/platform/devices/%" PRIx64 ".%s/power/runtime_status", pa, suffix[i]);
+    FILE *f = fopen(path, "r");
+    if (!f) continue;
+    if (!fgets(st, sizeof st, f)) st[0] = 0;
+    fclose(f);
+    if (!strncmp(st, "active", 6)) return 1;
+    fprintf(stderr, "dma adma: %s reads \"%.*s\"\n", path, (int)strcspn(st, "\n"), st);
+    return 0;
+  }
+  fprintf(stderr, "dma adma: no /sys/bus/platform/devices/%" PRIx64 ".dma-controller (or .dma) to check\n", pa);
+  return 0;
+}
+
+/* One simple-mode copy of n bytes from PS address src to dst; returns ISR (0x... with DONE on success) */
+static uint32_t adma_copy(volatile uint32_t *ch, uint64_t src, uint64_t dst, uint32_t n, double *us) {
+  ch[ZD_ISR / 4] = ch[ZD_ISR / 4];                         /* write-one-to-clear */
+  ch[ZD_SRC0 / 4] = (uint32_t)src; ch[ZD_SRC1 / 4] = (uint32_t)(src >> 32); ch[ZD_SRC2 / 4] = n; ch[ZD_SRC3 / 4] = 0;
+  ch[ZD_DST0 / 4] = (uint32_t)dst; ch[ZD_DST1 / 4] = (uint32_t)(dst >> 32); ch[ZD_DST2 / 4] = n;
+  ch[ZD_DST3 / 4] = 0x4;                                    /* COMP_INT, as the driver's last descriptor (masked) */
+  ch[ZD_TOTAL / 4] = 0;
+  double t0 = now_s();
+  ch[ZD_CTRL2 / 4] = 1;                                     /* enable: the copy starts */
+  uint32_t isr = 0;
+  while (!((isr = ch[ZD_ISR / 4]) & (ZD_DONE | ZD_ERRS)) && now_s() - t0 < 1.0) { }
+  *us = (now_s() - t0) * 1e6;
+  if (!(isr & (ZD_DONE | ZD_ERRS))) ch[ZD_CTRL2 / 4] = 0;   /* timed out: stop the channel */
+  ch[ZD_ISR / 4] = isr;
+  return isr;
+}
+
+static void cmd_dma_adma(const struct opts *o, int argc, char **argv) {
+  uint64_t ram = rd64(R_DRAM_SIZE);
+  uint64_t pa = argc > 1 ? num(argv[1]) : 0xFFAF0000ull;
+  uint32_t n = argc > 3 ? (uint32_t)num(argv[3]) : 4096;
+  uint64_t off = argc > 2 ? num(argv[2]) : ram - 0x100000;  /* the RAM's last MiB */
+  if (pa < 0xFFA80000ull || pa > 0xFFAF0000ull || (pa & 0xFFFF)) die("dma adma: %" PRIx64 " is not an ADMA channel (0xFFA80000 + n * 0x10000, n < 8)", pa);
+  if (!n || (n & 63) || (off & 63)) die("dma adma: OFF and BYTES are multiples of 64");
+  if (off + 3ull * n > ram) die("dma adma: OFF + 3 * BYTES is beyond the RISC-V's RAM (0x%" PRIx64 ")", ram);
+  if (!adma_powered(pa))
+    die("dma adma: refusing to touch the channel: its driver may have gated its clocks or power, and reading an "
+        "unpowered block can hang the board. Keep it on first: echo on > /sys/bus/platform/devices/%" PRIx64
+        ".dma-controller/power/control (and back to auto after)", pa);
+  volatile uint32_t *ch = map_phys(pa, 0x1000);
+  if (ch[ZD_CTRL2 / 4] & 1) die("dma adma: the channel is running (CTRL2 0x%x): another user has it", ch[ZD_CTRL2 / 4]);
+  uint32_t ctrl0 = ch[ZD_CTRL0 / 4], imr = ch[ZD_IMR / 4] & 0xFFF;
+  ch[ZD_IDS / 4] = 0xFFF;                                   /* no interrupt reaches the A53's driver */
+  ch[ZD_CTRL0 / 4] = ctrl0 & ~ZD_POINT_SG;                   /* simple mode: the descriptor in registers */
+
+  /* three buffers of n bytes in the RISC-V's RAM: OFF (the copy's target through HPM1), OFF + n (its DDR
+   * source), OFF + 2n (the DDR target of the copy back) */
+  volatile uint64_t *ddr = map_phys(o->base + off, 3 * (size_t)n);
+  volatile uint64_t *hp = dma_map(o, off, n);
+  uint64_t w = n / 8;
+  for (uint64_t i = 0; i < w; i++) { ddr[w + i] = 0xD0D0000000000000ull ^ (off + 8 * i) * 0x9E3779B97F4A7C15ull; ddr[2 * w + i] = 0; hp[i] = 0; }
+  __asm__ volatile("dsb sy" ::: "memory");
+  uint32_t wr0 = rd(R_HDMA_WR_LINES), rd0 = rd(R_HDMA_RD_LINES), dr0 = rd(R_HDMA_WR_DROPS);
+  double us1, us2;
+  uint32_t isr1 = adma_copy(ch, o->base + off + n, o->dma_pa + off, n, &us1);
+  uint64_t bad1 = 0;
+  for (uint64_t i = 0; i < w; i++) bad1 += hp[i] != ddr[w + i];
+  uint32_t wr1 = rd(R_HDMA_WR_LINES), rd1 = rd(R_HDMA_RD_LINES);
+  uint32_t isr2 = adma_copy(ch, o->dma_pa + off, o->base + off + 2 * n, n, &us2);
+  uint64_t bad2 = 0;
+  for (uint64_t i = 0; i < w; i++) bad2 += ddr[2 * w + i] != ddr[w + i];
+  uint32_t rd2 = rd(R_HDMA_RD_LINES), dr2 = rd(R_HDMA_WR_DROPS);
+  uint32_t st = ch[ZD_STATUS / 4];
+
+  ch[ZD_CTRL0 / 4] = ctrl0;                                 /* put the channel back as it was */
+  ch[ZD_ISR / 4] = ch[ZD_ISR / 4];
+  ch[ZD_IER / 4] = ~imr & 0xFFF;
+  int ok1 = (isr1 & ZD_DONE) && !(isr1 & ZD_ERRS) && !bad1, ok2 = (isr2 & ZD_DONE) && !(isr2 & ZD_ERRS) && !bad2;
+  printf("dma adma 0x%" PRIx64 ": %u bytes, DDR 0x%" PRIx64 " -> HPM1 0x%" PRIx64 " (RISC-V 0x%" PRIx64 "): %s, ISR 0x%03x, "
+         "%.0f us, %" PRIu64 " words wrong; the port wrote %u lines, read %u\n", pa, n, o->base + off + n, o->dma_pa + off,
+         (uint64_t)(DRAM_BASE_RV + off), ok1 ? "ok" : "FAIL", isr1, us1, bad1, wr1 - wr0, rd1 - rd0);
+  printf("dma adma 0x%" PRIx64 ": %u bytes, HPM1 0x%" PRIx64 " -> DDR 0x%" PRIx64 ": %s, ISR 0x%03x, %.0f us, %" PRIu64
+         " words wrong; the port read %u lines; %u write bursts dropped; channel STATUS 0x%x\n", pa, n, o->dma_pa + off,
+         o->base + off + 2 * n, ok2 ? "ok" : "FAIL", isr2, us2, bad2, rd2 - rd1, dr2 - dr0, st);
+  if (isr1 & ZD_ERRS || isr2 & ZD_ERRS)
+    printf("  ISR errors: bit 9 AXI write data, 8 AXI read data, 7/6 descriptor reads, 5/4 accounting, 3 byte count "
+           "overflow, 0 invalid APB access\n");
+  if (!ok1 || !ok2) exit(1);
+}
+
 static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (argc < 1) usage();
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
   if (strcmp(argv[0], "status")) uncore_up();
+  if (strcmp(argv[0], "status") && (rd(R_HDMA_CTRL) & 1)) {   /* a write would wait once 16 had completed */
+    fprintf(stderr, "dma: completions were being recorded (a lockstep run's, killed?); recording off\n");
+    wr(R_HDMA_CTRL, 0);
+  }
   if (!strcmp(argv[0], "status")) {
-    printf("host DMA port: completions %s, %u waiting; %u lines read, %u written; %u write bursts dropped in part\n",
+    printf("host DMA port: completions %s, %u waiting; %u line reads, %u line writes (one per burst within a line, "
+           "an 8-byte store is one); %u write bursts dropped in part\n",
            rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
            rd(R_HDMA_WR_LINES), rd(R_HDMA_WR_DROPS));
   } else if (!strcmp(argv[0], "read") && argc >= 2) {
@@ -346,6 +510,8 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     volatile uint64_t *p = dma_map(o, num(argv[1]), 8);
     p[0] = num(argv[2]);
     __asm__ volatile("dsb sy" ::: "memory");
+  } else if (!strcmp(argv[0], "adma")) {
+    cmd_dma_adma(o, argc, argv);
   } else if (!strcmp(argv[0], "check")) {
     uint64_t ram = rd64(R_DRAM_SIZE);
     uint64_t len = argc > 2 ? num(argv[2]) : 0x10000, off = argc > 1 ? num(argv[1]) : ram - len;
@@ -376,6 +542,31 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
            rd(R_HDMA_RD_LINES) - rd0, rd(R_HDMA_WR_LINES) - wr0, drops);
     if (bad || drops) exit(1);
   } else usage();
+}
+
+/* Read-only PS registers for stage D's D0 probes (soc.md §8.2), limited to LPD control blocks that are
+ * always powered and clocked, so a read cannot stall the interconnect. A register the XPPU refuses to a
+ * non-secure reader answers SLVERR, a synchronous abort (SIGBUS here), reported instead of killing us. */
+static sigjmp_buf psrd_jmp;
+static void psrd_bus(int sig) { (void)sig; siglongjmp(psrd_jmp, 1); }
+static void cmd_psrd(int argc, char **argv) {
+  static const struct { uint64_t base, size; const char *name; } ok[] = {
+    { 0xFF980000ull, 0x10000, "LPD_XPPU" }, { 0xFF9B0000ull, 0x10000, "AFIFM6 (S_AXI_LPD)" },
+    { 0xFF5E0000ull, 0x10000, "CRL_APB" }, { 0xFF180000ull, 0x80000, "IOU_SLCR" }, { 0xFF410000ull, 0x10000, "LPD_SLCR" },
+  };
+  if (argc < 1) usage();
+  uint64_t a = num(argv[0]), n = argc > 1 ? num(argv[1]) : 1;
+  unsigned k = 0;
+  while (k < sizeof ok / sizeof ok[0] && !(a >= ok[k].base && a + 4 * n <= ok[k].base + ok[k].size)) k++;
+  if ((a & 3) || !n || k == sizeof ok / sizeof ok[0])
+    die("psrd: 0x%" PRIx64 " + %" PRIu64 " words is not inside one of the always-on blocks (see usage), or not aligned", a, n);
+  volatile uint32_t *r = map_phys(a, 4 * (size_t)n);
+  signal(SIGBUS, psrd_bus);
+  for (uint64_t i = 0; i < n; i++) {
+    if (sigsetjmp(psrd_jmp, 1)) { printf("0x%09" PRIx64 ": bus error (refused to this reader)\n", a + 4 * i); continue; }
+    printf("0x%09" PRIx64 ": 0x%08x  %s\n", a + 4 * i, r[i], ok[k].name);
+  }
+  signal(SIGBUS, SIG_DFL);
 }
 
 static void check_id(void) {
@@ -613,6 +804,28 @@ static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vi
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
 static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
 
+/* Board lockstep with the back-ends (extwrite.h; docs/spec/verification.md §3.10): with --trace, every store
+ * through the DMA port becomes an external-write record in the trace, between the ring's records. The port
+ * queues each written line's completion while HDMA_CTRL[0] is set, and a write waits while the queue is
+ * full, so the bit must not outlive the run: an exit of any kind clears it. */
+static int xw_on;
+static void h_emit(const uint8_t rec[XW_REC_BYTES]) {
+  if (trace_broken) return;
+  if (fwrite(rec, XW_REC_BYTES, 1, trace_out) != 1) {
+    fprintf(stderr, "\r\n[%s] trace write: %s\r\n", prog, strerror(errno));
+    trace_broken = 1;
+  }
+}
+static void h_xw_fail(const char *msg) { die("%s (HDMA_STATUS 0x%x)", msg, rd(R_HDMA_STATUS)); }
+static void hdma_rec_off(void) { if (xw_on) wr(R_HDMA_CTRL, 0); }
+static void hdma_rec_on(void) {
+  wr(R_HDMA_CTRL, 0);
+  for (int i = 0; i < 64 && (rd(R_HDMA_STATUS) & 0x1f); i++) (void)rd(R_HDMA_CPL1);   /* an earlier run's */
+  wr(R_HDMA_CTRL, 1);
+  xw_on = 1;
+  atexit(hdma_rec_off);
+}
+
 /* --blk/--rng/--net need the window (CAPS[2]) and the DMA port (CAPS[8]) */
 static void check_virtio(const struct opts *o) {
   if (!o->blk && !o->rng && !o->net) return;
@@ -652,7 +865,7 @@ static int tap_open(const char *name, const char *bridge) {
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
-  uint32_t ctrl = o->lossless ? CTRL_LOSSLESS : 0;
+  uint32_t ctrl = (o->lossless ? CTRL_LOSSLESS : 0) | (o->freeze_time ? CTRL_TFREEZE : 0);
   /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
    * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
    * transactions short and leave the L2 waiting for a GrantAck or the rest of a burst. */
@@ -695,6 +908,13 @@ static int cmd_run(const struct opts *o) {
     vio_ram = (volatile uint8_t *)dma_map(o, 0, ram);
     if (o->net) net_fd = tap_open(o->net, o->net_bridge);
     struct vio_hooks hk = { rd, wr, h_ram_rd64, h_ram_wr64, h_ram_wr32, h_ram_wr8, h_barrier, ram };
+    if (o->trace && !o->trace_wrap) {
+      hdma_rec_on();
+      struct xw_hooks xh = { h_emit, h_xw_fail, 0 };
+      xw_wrap(&hk, &xh);
+    } else {
+      wr(R_HDMA_CTRL, 0);                   /* left set by a lockstep run that was killed */
+    }
     if (vio_open(&hk, o->blk, o->blk_ro, o->rng, net_fd, o->net_mac)) die("virtio back-ends failed to open");
     fprintf(stderr, "virtio:%s%s%s", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
     if (o->net)
@@ -702,6 +922,7 @@ static int cmd_run(const struct opts *o) {
               o->net_bridge ? o->net_bridge : "", o->net_mac[0], o->net_mac[1], o->net_mac[2], o->net_mac[3],
               o->net_mac[4], o->net_mac[5]);
     fputc('\n', stderr);
+    if (xw_on) fprintf(stderr, "virtio: the DMA port's stores go into the trace as external-write records\n");
   } else if ((rd(R_CAPS) & CAPS_VIRTIO) && (rd(R_VQ_CTRL) & 1)) {
     fprintf(stderr, "warning: the virtio window is enabled but this run serves nothing; its reads will wait\n");
   }
@@ -717,7 +938,8 @@ static int cmd_run(const struct opts *o) {
       struct pollfd p = { in_fd, POLLIN, 0 };
       if (poll(&p, 1, 0) > 0 && (p.revents & POLLIN)) {
         char c;
-        if (read(in_fd, &c, 1) == 1) {
+        ssize_t got = read(in_fd, &c, 1);
+        if (got == 1) {
           if (o->console == 0 && ctrl_a && c == 'x') { stop_req = 1; }
           else if (o->console == 0 && c == 1) { ctrl_a = 1; }
           else {
@@ -725,6 +947,8 @@ static int cmd_run(const struct opts *o) {
             while (rd(R_UART_RX_SPACE) == 0) sleep_us(50);
             wr(R_UART_RX, (uint8_t)c);
           }
+        } else if (got == 0 && o->console == 0) {
+          in_fd = -1;                       /* stdin at its end (a script, nohup): stop reading it, or the loop spins */
         }
         idle = 0;
       }
@@ -749,10 +973,19 @@ static int cmd_run(const struct opts *o) {
     }
     if (o->trace && trace_poll(o)) idle = 0;
     if (vio && vio_poll()) idle = 0;
+    if (xw_on) xw_drain();                  /* the stores' records go out before any later trace record */
     if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
-    if (idle) sleep_us(200);
+    if (idle) {                             /* the console's input and the TAP device end the wait at once */
+      struct pollfd pf[2];
+      int npf = 0;
+      if (in_fd >= 0) pf[npf++] = (struct pollfd){ .fd = in_fd, .events = POLLIN };
+      if (net_fd >= 0) pf[npf++] = (struct pollfd){ .fd = net_fd, .events = POLLIN };
+      struct timespec ts = { 0, 200000 };   /* the registers (window, power, trace) are polled every 200 us */
+      if (npf) ppoll(pf, (nfds_t)npf, &ts, NULL);
+      else     sleep_us(200);
+    }
   }
   /* Drain the console before holding everything: the RISC-V's last line is often still in its UART
    * (the board's first light lost "S\n" of "PASS"), and on the PMOD line each byte takes 87 us at
@@ -762,6 +995,7 @@ static int cmd_run(const struct opts *o) {
     else sleep_us(1000);
   }
   if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
+  if (xw_on) xw_drain();
   if (o->trace) trace_end(o);
   if (vio) {
     uint64_t n, rb, wb;
@@ -769,6 +1003,11 @@ static int cmd_run(const struct opts *o) {
     vio_close();
     fprintf(stderr, "[%s] virtio: %" PRIu64 " requests, %" PRIu64 " MiB read, %" PRIu64 " MiB written\r\n", prog, n,
             rb >> 20, wb >> 20);
+    if (xw_on) {
+      fprintf(stderr, "[%s] trace: %" PRIu64 " external-write records\r\n", prog, xw_records());
+      wr(R_HDMA_CTRL, 0);
+      xw_on = 0;
+    }
     if (net_fd >= 0) {
       uint64_t rx, tx, dr;
       vio_net_stats(&rx, &tx, &dr);
@@ -776,6 +1015,11 @@ static int cmd_run(const struct opts *o) {
       fprintf(stderr, "[%s] virtio-net: %" PRIu64 " frames received, %" PRIu64 " sent, %" PRIu64 " dropped\r\n", prog,
               rx, tx, dr);
     }
+  }
+  if (o->dbg_exit) {                        /* the hold below resets the uncore, and the counters with it */
+    wr(R_DBG_SEL, 5);
+    if (rd(R_DBG_SEL) == 5) cmd_dbg();
+    else fprintf(stderr, "[%s] --dbg: this bitstream has no debug counters\r\n", prog);
   }
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
@@ -820,6 +1064,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
+    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -855,6 +1100,8 @@ int main(int argc, char **argv) {
       case 16: o.blk_ro = 1; break;
       case 17: o.rng = 1; break;
       case 18: o.net = optarg; break;
+      case 21: o.freeze_time = 1; break;
+      case 22: o.dbg_exit = 1; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];
@@ -901,6 +1148,7 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "dbg"))        { check_id(); cmd_dbg(); return 0; }
   if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
   if (!strcmp(cmd, "dma"))        { check_id(); cmd_dma(&o, argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "psrd"))       { check_id(); cmd_psrd(argc - optind, argv + optind); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);
