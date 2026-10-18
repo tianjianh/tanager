@@ -28,6 +28,7 @@ namespace tg {
   X(btage_li, 10, "m2_btage: tagged tables' index bits (two sub-entries per entry)")             \
   X(btage_bi, 11, "m2_btage: base table's index bits (blocks; a 2-bit counter per slot)")         \
   X(btage_tw, 9, "m2_btage: tag bits")                                                             \
+  X(btage_nt, 4, "m2_btage: tagged tables, 1-4 (histories 12; 8/32; 5/14/40; 4/9/18/40, as core-2's size study)") \
   X(btage_lag, 1, "m2_btage: a block read right behind another lacks that block's history bits (F1 reads as F2 delivers)") \
   X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
   X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
@@ -86,6 +87,7 @@ namespace tg {
   X(hit_pred, 1, "per-PC load hit predictor gates speculative wakeup")                             \
   X(shadow, 2, "load shadow cycles cancelled on a wrong hit guess")                                \
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
+  X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
   X(redirect_lat, 1, "cycles from branch resolution (end of EX) to the redirected IF1")            \
   X(commit_redirect, 1, "cycles from commit of a mispredicted branch to IF1 (no checkpoint)")      \
   X(lat_mul, 3, "multiply latency")                                                                \

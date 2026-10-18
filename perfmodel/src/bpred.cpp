@@ -138,12 +138,15 @@ void Tage::update(uint64_t pc, const Hist& h, bool taken) {
 // ---------------------------------------------------------------- core-2's block TAGE (tg_tage.sv)
 
 namespace {
-constexpr int kBtHl[4] = {4, 9, 18, 40};
+// the history lengths by table count (core-2's TAGE size study, tg_tage.sv hl())
+constexpr int kBtHl[4][4] = {{12, 0, 0, 0}, {8, 32, 0, 0}, {5, 14, 40, 0}, {4, 9, 18, 40}};
 }
 
-BlockTage::BlockTage(int li, int tw, int bi, int slots)
-    : t_(4, std::vector<Ent>(1ull << li)), base_((1ull << bi) * (size_t)slots, 0), li_(li), tw_(tw), bi_(bi),
-      np_(slots) {}
+BlockTage::BlockTage(int li, int tw, int bi, int slots, int nt)
+    : t_((size_t)std::clamp(nt, 1, 4), std::vector<Ent>(1ull << li)), base_((1ull << bi) * (size_t)slots, 0), li_(li),
+      tw_(tw), bi_(bi), np_(slots), nt_(std::clamp(nt, 1, 4)) {
+  for (int t = 0; t < nt_; t++) hl_[t] = kBtHl[nt_ - 1][t];
+}
 
 // The RTL's hash: the block address (35 bits) folded into the index, XORed with the history's first HL[t] bits
 // folded likewise; the tag is the address's low bits XORed with two foldings of the same history bits.
@@ -152,9 +155,9 @@ BlockTage::Ix BlockTage::hash(uint64_t blk, uint64_t gh) const {
   uint32_t ai = 0;
   for (int i = 0; i < 35; i++) ai ^= (uint32_t)((blk >> i) & 1) << (i % li_);
   x.base = (uint16_t)(blk & ((1ull << bi_) - 1));
-  for (int t = 0; t < 4; t++) {
+  for (int t = 0; t < nt_; t++) {
     uint32_t hf = 0, tf = 0, tf1 = 0;
-    for (int i = 0; i < kBtHl[t]; i++) {
+    for (int i = 0; i < hl_[t]; i++) {
       const uint32_t b = (uint32_t)((gh >> i) & 1);
       hf ^= b << (i % li_);
       tf ^= b << (i % tw_);
@@ -167,7 +170,7 @@ BlockTage::Ix BlockTage::hash(uint64_t blk, uint64_t gh) const {
 }
 
 bool BlockTage::dir(const Ix& x, int s) const {
-  for (int t = 3; t >= 0; t--)
+  for (int t = nt_ - 1; t >= 0; t--)
     for (const Sub& e : t_[(size_t)t][x.idx[t]].w)
       if (e.v && e.tag == x.tag[t] && e.slot == s) return e.ctr >= 4;
   return base_[(size_t)x.base * (size_t)np_ + (size_t)s] >= 2;
@@ -175,7 +178,7 @@ bool BlockTage::dir(const Ix& x, int s) const {
 
 void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
   int pt = -1, pw = 0, at = -1, aw = 0;
-  for (int t = 3; t >= 0; t--)
+  for (int t = nt_ - 1; t >= 0; t--)
     for (int w = 0; w < 2; w++) {
       const Sub& e = t_[(size_t)t][x.idx[t]].w[w];
       if (e.v && e.tag == x.tag[t] && e.slot == s) {
@@ -198,9 +201,9 @@ void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
     if (taken && bc != 3) bc++;
     if (!taken && bc != 0) bc--;
   }
-  if (pred != taken && pt < 3) {
+  if (pred != taken && pt < nt_ - 1) {
     bool done = false;
-    for (int t = pt + 1; t < 4 && !done; t++)
+    for (int t = pt + 1; t < nt_ && !done; t++)
       for (int w = 0; w < 2 && !done; w++) {
         Sub& e = t_[(size_t)t][x.idx[t]].w[w];
         if (!e.v || e.u == 0) {
@@ -209,7 +212,7 @@ void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
         }
       }
     if (!done)
-      for (int t = pt + 1; t < 4; t++)
+      for (int t = pt + 1; t < nt_; t++)
         for (Sub& e : t_[(size_t)t][x.idx[t]].w) if (e.u) e.u--;
   }
 }
