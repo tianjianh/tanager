@@ -135,6 +135,85 @@ void Tage::update(uint64_t pc, const Hist& h, bool taken) {
     for (auto& tab : t_) for (auto& e : tab) e.u >>= 1;
 }
 
+// ---------------------------------------------------------------- core-2's block TAGE (tg_tage.sv)
+
+namespace {
+constexpr int kBtHl[4] = {4, 9, 18, 40};
+}
+
+BlockTage::BlockTage(int li, int tw, int bi, int slots)
+    : t_(4, std::vector<Ent>(1ull << li)), base_((1ull << bi) * (size_t)slots, 0), li_(li), tw_(tw), bi_(bi),
+      np_(slots) {}
+
+// The RTL's hash: the block address (35 bits) folded into the index, XORed with the history's first HL[t] bits
+// folded likewise; the tag is the address's low bits XORed with two foldings of the same history bits.
+BlockTage::Ix BlockTage::hash(uint64_t blk, uint64_t gh) const {
+  Ix x;
+  uint32_t ai = 0;
+  for (int i = 0; i < 35; i++) ai ^= (uint32_t)((blk >> i) & 1) << (i % li_);
+  x.base = (uint16_t)(blk & ((1ull << bi_) - 1));
+  for (int t = 0; t < 4; t++) {
+    uint32_t hf = 0, tf = 0, tf1 = 0;
+    for (int i = 0; i < kBtHl[t]; i++) {
+      const uint32_t b = (uint32_t)((gh >> i) & 1);
+      hf ^= b << (i % li_);
+      tf ^= b << (i % tw_);
+      tf1 ^= b << (i % (tw_ - 1));
+    }
+    x.idx[t] = (uint16_t)((ai ^ hf) & ((1u << li_) - 1));
+    x.tag[t] = (uint16_t)(((uint32_t)blk ^ tf ^ (tf1 << 1)) & ((1u << tw_) - 1));
+  }
+  return x;
+}
+
+bool BlockTage::dir(const Ix& x, int s) const {
+  for (int t = 3; t >= 0; t--)
+    for (const Sub& e : t_[(size_t)t][x.idx[t]].w)
+      if (e.v && e.tag == x.tag[t] && e.slot == s) return e.ctr >= 4;
+  return base_[(size_t)x.base * (size_t)np_ + (size_t)s] >= 2;
+}
+
+void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
+  int pt = -1, pw = 0, at = -1, aw = 0;
+  for (int t = 3; t >= 0; t--)
+    for (int w = 0; w < 2; w++) {
+      const Sub& e = t_[(size_t)t][x.idx[t]].w[w];
+      if (e.v && e.tag == x.tag[t] && e.slot == s) {
+        if (pt < 0) { pt = t; pw = w; }
+        else if (at < 0 && t < pt) { at = t; aw = w; }
+      }
+    }
+  uint8_t& bc = base_[(size_t)x.base * (size_t)np_ + (size_t)s];
+  const bool adir = at >= 0 ? t_[(size_t)at][x.idx[at]].w[aw].ctr >= 4 : bc >= 2;
+  if (pt >= 0) {
+    Sub& e = t_[(size_t)pt][x.idx[pt]].w[pw];
+    const bool pdir = e.ctr >= 4;
+    if (taken && e.ctr != 7) e.ctr++;
+    if (!taken && e.ctr != 0) e.ctr--;
+    if (pdir != adir) {
+      if (pdir == taken && e.u != 3) e.u++;
+      if (pdir != taken && e.u != 0) e.u--;
+    }
+  } else {
+    if (taken && bc != 3) bc++;
+    if (!taken && bc != 0) bc--;
+  }
+  if (pred != taken && pt < 3) {
+    bool done = false;
+    for (int t = pt + 1; t < 4 && !done; t++)
+      for (int w = 0; w < 2 && !done; w++) {
+        Sub& e = t_[(size_t)t][x.idx[t]].w[w];
+        if (!e.v || e.u == 0) {
+          e = Sub{true, (uint8_t)s, x.tag[t], (uint8_t)(taken ? 4 : 3), 0};
+          done = true;
+        }
+      }
+    if (!done)
+      for (int t = pt + 1; t < 4; t++)
+        for (Sub& e : t_[(size_t)t][x.idx[t]].w) if (e.u) e.u--;
+  }
+}
+
 // ---------------------------------------------------------------- BTB / micro-BTB
 
 Btb::Btb(int sets, int ways, int slots, int block_bytes, bool block_mode)
