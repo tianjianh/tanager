@@ -119,6 +119,15 @@ package tg_core_pkg;
 `else
   localparam bit STA_BASE = 1'b1;
 `endif
+  // Rename's ALU-queue steering looks a group ahead (M6, DR-169; smt2-study's
+  // area_recovery.md §6.8): a bank's registered free flag misses the row the group in DS is taking,
+  // so rename also reads "at least two rows free" and counts the DS op in its slot. TG_STEER_LA=0
+  // steers on the one flag, cycle for cycle as before
+`ifdef TG_STEER_LA
+  localparam bit STEER_LA = `TG_STEER_LA;
+`else
+  localparam bit STEER_LA = 1'b1;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

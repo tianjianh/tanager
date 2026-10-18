@@ -62,6 +62,7 @@ module tg_rename
   input  sqid_t          sq_cmt,      // first uncommitted SQ entry
   // Issue state
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free,
+  input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free2,  // at least two rows free (STEER_LA)
   input  logic [NCOL-1:0] w_vec,
   input  logic [NCOL-1:0] busy,         // IDs a queued row still depends on: not reallocated
   // Register-file writes (ready bits), LLT releases, divides leaving the divider
@@ -404,6 +405,17 @@ module tg_rename
   logic          rn_ok_ref;         // the compares the flags replace (checked below)
 `endif
 
+  // The ALU-queue banks the steering may take (STEER_LA): the flags count a bank's free rows after the
+  // last dispatch, not the one in DS now, so a bank whose last free row the DS op in this slot takes
+  // is full for the group behind it: it needs a second free row (DS fires before RN's group reaches
+  // it; when DS holds, RN holds too and steers again)
+  logic [N_IQ-1:0][W-1:0] st_free;
+  always_comb
+    for (int p = 0; p < N_IQ; p++)
+      for (int k = 0; k < W; k++)
+        st_free[p][k] = !STEER_LA ? iq_bank_free[p][k]
+                      : iq_bank_free2[p][k] ||
+                        (iq_bank_free[p][k] && !(ds_valid_q[k] && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == p));
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
@@ -430,7 +442,7 @@ module tg_rename
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && iq_bank_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
+            if (!found && st_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
               port = p;
               found = 1'b1;
             end

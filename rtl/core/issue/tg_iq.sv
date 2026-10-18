@@ -100,6 +100,7 @@ module tg_iq
   input  logic [DW-1:0][ROBW-1:0]       disp_rob,
   input  logic [DW-1:0][PAYLOAD_W-1:0]  disp_payload,
   output logic [DW-1:0]                 bank_free_q,
+  output logic [DW-1:0]                 bank_free2_q,  // ... at least two rows of bank k are free
   output logic [NUM_THREADS-1:0][RMW-1:0] room_q,
   // Wakeup state
   input  logic [NCOL-1:0]               w,             // woken vector (phase 0 if STALE = 1)
@@ -471,16 +472,19 @@ module tg_iq
   // ---- Allocation for the next cycle, caps (off the select loop) ----
   always_ff @(posedge clk) begin
     for (int k = 0; k < DW; k++) begin
-      logic found;
-      found = 1'b0;
+      logic found, found2;
+      found  = 1'b0;
+      found2 = 1'b0;
       alloc_oh_q[k] <= '0;
       for (int r = 0; r < ROWS; r++) begin
-        if (bank_of(r) == k && !valid_d[r] && !found) begin
-          alloc_oh_q[k][r] <= 1'b1;
+        if (bank_of(r) == k && !valid_d[r]) begin
+          if (found) found2 = 1'b1;
+          if (!found) alloc_oh_q[k][r] <= 1'b1;
           found = 1'b1;
         end
       end
-      bank_free_q[k] <= found && !rst;
+      bank_free_q[k]  <= found && !rst;
+      bank_free2_q[k] <= found2 && !rst;
     end
   end
 
