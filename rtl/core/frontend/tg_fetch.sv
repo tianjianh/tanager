@@ -594,7 +594,7 @@ module tg_fetch
   logic [20:0]     ovr_imm;              // the exit's offset, for the refetch
   logic [FTQW-1:0] ft_tail;              // the FTQ entry a block delivered now takes
   if (TAGE_ON) begin : g_tage
-    localparam int IXW = 4 * (10 + 9) + 11;
+    localparam int IXW = TAGE_IXW;
     logic [IXW-1:0]  tix;
     logic [GH_W-1:0] gh_q, cgh_q;
     // FTQ pointers, with a wrap bit; a delivery takes the tail. TAGE's training queue names the
@@ -609,7 +609,8 @@ module tg_fetch
     logic [0:0][IXW-1:0]  fq_rd;
     always_comb
       for (int j = 0; j < COMMIT_WIDTH; j++) c_fp[j] = {(c_ftq[j] < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_ftq[j]};
-    tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .HW(GH_W), .FW(FTQW + 1)) u_tage (
+    tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .NT(TAGE_NT), .LI(TAGE_LI), .TW(TAGE_TW), .BI(TAGE_BI), .HW(GH_W),
+              .FW(FTQW + 1)) u_tage (
       .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_q), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
       .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]));

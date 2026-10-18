@@ -127,6 +127,29 @@ package tg_core_pkg;
 `endif
   localparam int FTQW = idx_w(FTQ_ENTRIES);   // the configuration's FTQ_ENTRIES
   localparam int GH_W = 64;               // the global history's bits (TAGE)
+  // TAGE-lite's sizes (tg_tage): tagged tables (1..4), their index and tag bits, the base table's index
+  // bits. TG_TAGE_NT, TG_TAGE_LI, TG_TAGE_TW and TG_TAGE_BI override them (the M6 size study)
+`ifdef TG_TAGE_NT
+  localparam int TAGE_NT = `TG_TAGE_NT;
+`else
+  localparam int TAGE_NT = 4;
+`endif
+`ifdef TG_TAGE_LI
+  localparam int TAGE_LI = `TG_TAGE_LI;
+`else
+  localparam int TAGE_LI = 10;
+`endif
+`ifdef TG_TAGE_TW
+  localparam int TAGE_TW = `TG_TAGE_TW;
+`else
+  localparam int TAGE_TW = 9;
+`endif
+`ifdef TG_TAGE_BI
+  localparam int TAGE_BI = `TG_TAGE_BI;
+`else
+  localparam int TAGE_BI = 11;
+`endif
+  localparam int TAGE_IXW = TAGE_NT * (TAGE_LI + TAGE_TW) + TAGE_BI;   // a block's indices and tags
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

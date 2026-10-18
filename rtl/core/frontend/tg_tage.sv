@@ -7,7 +7,7 @@
 //   branch matches the sub-entry with its slot (its last parcel's, as the micro-BTB keys it) and
 //   the table's tag for the block. ctr is 3 bits (taken: >= 4), u 2 bits.
 // The provider for a slot is the longest-history table that matches; without one, the base.
-// Index and tag: the block address folded with the history's first HL[t] bits (the newest
+// Index and tag: the block address folded with the history's first hl(t) bits (the newest
 // first), as in the behavioural model the design was chosen on (reports/m6-tage-design.md).
 //
 // Training (commit, in order): a queue of requests, each with its block's FTQ entry and the
@@ -53,7 +53,15 @@ module tg_tage
   input  logic [NT*(LI+TW)+BI-1:0] q_ix
 );
   localparam int IXW = NT * (LI + TW) + BI;
-  localparam int HL [4] = '{4, 9, 18, 40};
+  // history lengths, geometric to 40 bits: by table count (the M6 size study's first pass)
+  function automatic int hl(input int t);
+    case (NT)
+      1:       return 12;
+      2:       return (t == 0) ? 8 : 32;
+      3:       return (t == 0) ? 5 : (t == 1) ? 14 : 40;
+      default: return (t == 0) ? 4 : (t == 1) ? 9 : (t == 2) ? 18 : 40;
+    endcase
+  endfunction
   typedef struct packed {
     logic          v;
     logic [SW-1:0] slot;
@@ -95,8 +103,8 @@ module tg_tage
     for (int t = 0; t < NT; t++) begin
       logic [LI-1:0] i;
       logic [TW-1:0] tg;
-      i  = ai ^ hfold(h, HL[t]);
-      tg = a[4 +: TW] ^ tfold(h, HL[t], TW) ^ (tfold(h, HL[t], TW - 1) << 1);
+      i  = ai ^ hfold(h, hl(t));
+      tg = a[4 +: TW] ^ tfold(h, hl(t), TW) ^ (tfold(h, hl(t), TW - 1) << 1);
       r[t*(LI+TW) +: LI+TW] = {tg, i};
     end
     return r;
@@ -244,6 +252,6 @@ module tg_tage
   end
 
 `ifndef SYNTHESIS
-  initial if (NT != 4) $error("tg_tage: the history lengths are set for four tables");
+  initial if (NT < 1 || NT > 4) $error("tg_tage: one to four tagged tables");
 `endif
 endmodule
