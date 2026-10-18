@@ -612,6 +612,11 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - Debian's poweroff brings the A53 back to Ubuntu;
       - if SD1 runs at 1.8 V, the RISC-V's driver takes the same mode, with no voltage switch from the RISC-V side;
       - installing `kexec-tools`, if needed, is an A53 package change under DR-147, logged in the change log with its undo.
+    - **The risk in the handover kernel: SD1's and UART1's power and clocks** (soc-2, 10-18). Its tree disables both, so nothing in it requests their nodes, and the RISC-V can't turn them back on.
+      - Linux would gate their clocks and power off their domains as unused. `clk_ignore_unused` and `pd_ignore_unused` on the handover command line stop that.
+      - The PMU firmware may also reset or gate unrequested peripherals once the kernel reports start-up done. Under normal Ubuntu, TTC1 (disabled in the A53's tree) stayed out of reset (D1), which suggests it doesn't, but that must be checked.
+      - **So the first D4 step is a dry run:** the handover without the RISC-V. Over SSH, it reads `RST_LPD_IOU2` and `SDIO1_REF_CTRL` and `UART1_REF_CTRL` with `psrd`, against normal Ubuntu's values (SDIO1 and UART1 out of reset in `0x000103AA`), then reboots to Ubuntu.
+      - **If they were reset or gated:** the handover tree gives SD1 and UART1 to generic UIO, which only maps the registers, and the handover init holds both devices open. That keeps their nodes requested without the A53 driving them.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
