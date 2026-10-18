@@ -1,0 +1,2 @@
+4e3030aa1bb5ed9f0a6e60ee42682f83b468a2ce + spikes 6a82935; kv260_top patched by g5_fill_patch.py (47 tiles, 20 LUTRAM blocks per core): measurement only; options -impl 0 -define TG_DC_MSHRS=4 -define TG_SPEC_WAKE=1
+tree 4e3030aa1bb5ed9f0a6e60ee42682f83b468a2ce = fpu-2's claude/track-fpu-395911-f2cut 1e4a503 (tree (ii) c149fce with F2 restructured), 100 MHz, -define TG_DC_MSHRS=4 -define TG_SPEC_WAKE=1
