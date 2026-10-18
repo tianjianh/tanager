@@ -46,9 +46,14 @@ PLAN_ORDER = ["RAS", "TAGE-lite", "Block BTB and FTQ", "Checkpoints", "Speculati
               "16 MSHRs", "Prefetchers"]
 
 
+# rtl_m2 as this study ran it (its revision 1, area_recovery.md §6.3): one L1D miss, and neither the RTL's issue
+# queues nor its store-address rule, which §6.4's revision 2 adds
+REV1 = {"l1d_mshr": 1, "iq_slot_bank": 0, "iq_hold": 0, "sta_split": 1}
+
+
 def config(feats, mhz):
     """The model's settings for the core as built plus a set of M6 features."""
-    s = dict(soc(mhz))
+    s = {**REV1, **soc(mhz)}
     if "Block BTB and FTQ" in feats:  # the plan's front end, with or without TAGE-lite and the RAS
         s.update({"fe_m2": 0, "btb_block": 1, "fdip": 1, "ftq": 32})
         s.update({"dirpred": 2, "tage_log": 12} if "TAGE-lite" in feats else {"dirpred": 0, "gshare_log": 9})
