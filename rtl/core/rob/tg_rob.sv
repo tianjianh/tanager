@@ -182,10 +182,9 @@ module tg_rob
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
       {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
-      // TAGE trains on the conditional branches its blocks predict: not a straddler (a 32-bit one at
-      // its block's last slot, which no block's prediction covers), nor one with a decode exception
-      dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc &&
-                          !(ds_uop[k].pc[SLOT_W:1] == SLOT_W'(NP - 1) && !ds_uop[k].rvc);
+      // TAGE trains on the conditional branches its blocks predict (a straddler with the block its
+      // last parcel is in, at slot 0), not one with a decode exception
+      dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc;
       dpl[k].ptk        = ds_uop[k].ptk;
       dpl[k].ftq        = ds_uop[k].ftq;
       dpl[k].f_cmp      = fp_cmp_d[k] ^ !ds_ren[k].has_q;   // complete at once without a queue

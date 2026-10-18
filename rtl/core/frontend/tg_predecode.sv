@@ -9,7 +9,9 @@
 // of at most NP + 4 inputs per parcel. carry_out: the block's last parcel starts a 32-bit
 // instruction whose second half is in the next block.
 // Marks, per starting parcel: conditional branch, direct jump, indirect jump, call (link
-// register x1/x5), return (jalr to x1/x5 without link), for both encodings.
+// register x1/x5), return (jalr to x1/x5 without link), for both encodings; and the return-address
+// stack's pop (is_pop: a JALR reading a link, unless it writes the same one, as tg_core_pkg::ras_op;
+// a return, or a coroutine swap, which is_call also marks).
 module tg_predecode
   import tg_pkg::*;
 #(
@@ -27,6 +29,7 @@ module tg_predecode
   output logic [NP-1:0]       is_jalr,
   output logic [NP-1:0]       is_call,
   output logic [NP-1:0]       is_ret,
+  output logic [NP-1:0]       is_pop,
   output logic                carry_out
 );
   logic [NP-1:0] wide, inr;
@@ -75,18 +78,21 @@ module tg_predecode
         is_jalr[p] = lo[6:0] == 7'b1100111;
         is_call[p] = (is_jal[p] || is_jalr[p]) && link_rd;
         is_ret[p]  = is_jalr[p] && !link_rd && link_rs1;
+        is_pop[p]  = is_jalr[p] && link_rs1 && !(link_rd && rd == rs1);
       end else begin
         is_br[p]   = lo[1:0] == 2'b01 && lo[15:14] == 2'b11;
         is_jal[p]  = lo[1:0] == 2'b01 && lo[15:13] == 3'b101;
         is_jalr[p] = c_jr || c_jalr;
         is_call[p] = c_jalr;
         is_ret[p]  = c_jr && (lo[11:7] == 5'd1 || lo[11:7] == 5'd5);
+        is_pop[p]  = (c_jr || c_jalr) && (lo[11:7] == 5'd1 || lo[11:7] == 5'd5) && !(c_jalr && lo[11:7] == 5'd1);
       end
       is_br[p]   = is_br[p]   && start[p];
       is_jal[p]  = is_jal[p]  && start[p];
       is_jalr[p] = is_jalr[p] && start[p];
       is_call[p] = is_call[p] && start[p];
       is_ret[p]  = is_ret[p]  && start[p];
+      is_pop[p]  = is_pop[p]  && start[p];
     end
   end
 endmodule

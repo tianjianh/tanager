@@ -60,6 +60,8 @@ module tg_decode_stage
   output logic [63:0]         dred_pc,
   output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
   output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
+  output logic [1:0]          dred_rop,     // ... and its own return-address-stack operation and link,
+  output logic [38:1]         dred_rlink,   // for the stack's repair (RAS_FE)
   // Return-address stack (tg_ras; RAS_ON): its top, and the taken group's operation
   input  logic                ras_v,
   input  logic [38:1]         ras_top,
@@ -208,7 +210,7 @@ module tg_decode_stage
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
     assign hit   = xq[j].pred_tsrc || eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
-    assign rop[j] = ras_op(xd[j]);
+    assign rop[j] = RAS_DEC ? ras_op(xd[j]) : 2'b00;   // (RAS_FE: fetch predicts returns)
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
@@ -407,6 +409,9 @@ module tg_decode_stage
           dred_pc   <= npc[j];
           dred_ftq  <= xq[j].ftq;
           dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+          // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
+          dred_rop   <= RAS_FE ? ras_op(xd[j]) : 2'b00;
+          dred_rlink <= xseq[j][38:1];
         end
       end
     end
