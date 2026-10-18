@@ -6,11 +6,14 @@
 //   - The A53's PWM (the TTC waveform Linux's pwm-fan drives, low = on, after FAN_INVERT in kv260_top): its
 //     low time over each 2^18-cycle window (2.6 ms at 100 MHz, about 65 of its 40 us periods, so the window's
 //     edges move the duty by about 2/256). A level that stays put counts as 0 or 255.
-// So while the A53's fancontrol runs, the fan runs as it asks or faster; with the A53 parked, hung, or its
-// fancontrol stopped, the curve regulates alone.
+// So while the A53's fancontrol runs, the fan runs as it asks or faster; with fancontrol stopped and the TTC still
+// running (pwm1 1 or more), the curve regulates alone. A disabled or reset TTC idles low, which reads as full (the
+// board, 10-17), so D3's handover boot leaves pwm1 at 1.
 // The temperature is the SYSMONE4's register 00h, read over DRP every 2^20 cycles. Every INIT attribute is zero:
-// that is the state any bitstream load already leaves the PL SYSMON in (D2's probes, 10-17), so the A53's AMS
-// driver, which reads it through the APB, sees nothing new, and fancontrol follows the PS SYSMON anyway.
+// that is the state any bitstream load already leaves the PL SYSMON in (D2's probes, 10-17). The instance does
+// take the PL SYSMON from the PS: while the bitstream is loaded the A53's AMS reads the PL channels as 0
+// (AMS_PL_CSTS bit 0 is 0; the board, 10-17). fancontrol follows the PS SYSMON and is unaffected, so the
+// coordinator kept it (docs/spec/soc.md §8.2).
 // Until the first reading, and after a DRP read that never answers (2^16 cycles), the fan runs full.
 // The code converts as the AMS driver does: T (C) = code x 509.314 / 2^16 - 280.231.
 module tg_fan #(
