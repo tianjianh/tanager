@@ -376,7 +376,17 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   // it keeps the block's TAGE read and its count of conditional branches.
   const uint64_t blk = ((start ^ T.salt) / fb) & ((1ull << 35) - 1);
   const bool cont = T.bt_partial && T.bt_blk == blk;
-  if (!cont) T.bt_nbr = 0;
+  if (!cont) {
+    // m2_ftq: a new block needs an FTQ entry; F2 holds it until one is free
+    if (c_.m2_ftq && (int64_t)(T.blk_seq - T.blk_head) >= c_.m2_ftq) {
+      T.st.ftq_full++;
+      T.fe_resume = t_ + 1;
+      return;
+    }
+    T.blk_seq++;
+    T.st.fetch_blocks++;
+    T.bt_nbr = 0;
+  }
   if (btage_ && !cont) {
     // m2_btage: the block's read. F1 reads a block as F2 delivers the one before it, so a block right behind
     // another lacks that block's history bits (btage_lag); a read after a redirect, a flush or an I$ miss has them.
@@ -409,6 +419,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     r.avail = t_ + (uint64_t)c_.if_stages;
     r.hist = T.ghr;
     r.bt.gh = T.bgh;
+    r.blk = T.blk_seq;
     const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
     const bool here = hit && slot == l.slot;
     bool ok = true, f2 = false;  // f2 (m2_f2): F2's pre-decode redirects fetch, at m2_f2_bubble cycles
@@ -646,6 +657,7 @@ Uop& Core::new_uop(Thread& T, const FetchRec& r) {
   u.hist = r.hist;
   u.ras = r.ras;
   u.bt = r.bt;
+  u.blk = r.blk;
   u.mispred = r.mispred;
   u.mp_kind = r.mp_kind;
   u.is_ctrl = d.is_ctrl();
@@ -1354,12 +1366,13 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if (u.blk > T.blk_head + 1) T.blk_head = u.blk - 1;  // m2_ftq: commit frees the blocks before this one's
   if (T.refill_from != NEVER) {  // the first retire after a mispredict recovered at commit: the refill
     T.st.mp_refill_cycles += t_ - T.refill_from;
     T.st.mp_refills++;
     T.refill_from = NEVER;
   }
-  if (u.di && u.di->marker && T.lap == 0) {  // later runs of a restarted program are not measured
+  if (u.di && u.di->marker && T.lap == 0 && !c_.whole_run) {  // later runs of a restarted program are not measured
     if (u.di->marker == 1 && !T.in_region) region_event(T, true);
     else if (u.di->marker == 2 && T.in_region) region_event(T, false);
   }
@@ -1370,6 +1383,7 @@ void Core::retire(Uop& u, bool early) {
         T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
         T.st.mp_resolved_commit++;
         T.refill_from = t_;
+        T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
       }
       if (T.in_region && u.di) mp_pc_[u.di->pc]++;
       switch (u.mp_kind) {
@@ -1562,6 +1576,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
     T.bt_exact = true;
     T.bt_partial = false;
   }
+  T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
   T.next_id = from_id;
   T.disp_next = std::min(T.disp_next, from_id);
   T.rat.fill(0);

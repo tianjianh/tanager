@@ -53,6 +53,7 @@ struct FetchRec {
   Hist hist;                     // global history before this instruction
   RasUndo ras;
   BtRec bt;
+  uint64_t blk = 0;              // fe_m2: its fetch block's number (m2_ftq)
 };
 
 struct Uop {
@@ -82,6 +83,7 @@ struct Uop {
   Hist hist;
   RasUndo ras;
   BtRec bt;
+  uint64_t blk = 0;
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
   bool retired_early = false;
   int row = -1;
@@ -106,6 +108,7 @@ struct SqEntry {
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
   X(mp_refills) X(mp_refill_cycles)                                                                \
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
+  X(fetch_blocks) X(ftq_full)                                                                      \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -176,6 +179,9 @@ class Core {
     BlockTage::Ix bt_ix;
     uint64_t bt_blk = 0;
     int bt_nbr = 0;
+    // fe_m2: blocks fetched (numbered from 1), and blocks the youngest retired instruction's block follows: the
+    // FTQ (m2_ftq) holds blk_seq - blk_head of them
+    uint64_t blk_seq = 0, blk_head = 0;
     // window (program order): decoded but not yet committed uops
     std::deque<Uop> win;
     uint64_t win_base = 1, next_id = 1, disp_next = 1;

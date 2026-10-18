@@ -31,6 +31,7 @@ namespace tg {
   X(btage_lag, 1, "m2_btage: a block read right behind another lacks that block's history bits (F1 reads as F2 delivers)") \
   X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
   X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
+  X(m2_ftq, 0, "fe_m2: FTQ entries (core-2's TAGE front end): a block holds one from fetch until an instruction of a later block commits; fetch waits while none is free (0 = no FTQ)") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
@@ -134,6 +135,7 @@ namespace tg {
   X(pf_i_nextline, 1, "L1I next-line prefetch")                                                    \
   X(max_cycles, 0, "stop after this many cycles (0 = no limit)")                                  \
   X(ff, 0, "fast-forward functionally to the region start marker (caches and predictors cold)")  \
+  X(whole_run, 0, "ignore the region markers: the region's counters cover the whole run (as an RTL profile does)") \
   /* multithreading (plan section 6); ignored when threads = 1 */                                  \
   X(threads, 1, "hardware threads: 1, or 2 (SMT2: two programs share the core)")                   \
   X(smt_fetch, 0, "front-end thread priority: 0 ICOUNT (fewest uops in IQ/rename/issue queues), 1 round robin") \
