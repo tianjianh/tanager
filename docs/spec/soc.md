@@ -423,6 +423,19 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - a unit test against an AXI model of the AMS register (temperatures, an error, a silent read) and a TTC waveform generator;
   - on the board: with `fancontrol` running nothing changes at the board's 31–35 °C; with it stopped (pwm1 = 0) the fan keeps the curve's duty; the status word follows a stress run's heat.
 
+**D2 built (10-17):**
+- **The regulator:** `fpga/kv260/rtl/tg_fan.sv`, in `kv260_top` on `clk_core` with `rst_core` (the PL's reset and the MMCM's lock), in every board build. `TG_FAN_PL=0` builds today's passthrough.
+- **The temperature:** SYSMONE4 with every INIT attribute zero, register 00h read over DRP every 2^20 cycles (10.5 ms).
+- **The duty:**
+  - The curve takes fancontrol's thresholds as codes: 35 °C is code 40,562, 45 °C is 41,849, and 1 °C is 129 codes. The slope is 191/1,024 of a step per code.
+  - The A53's duty is its low time over 2^18 cycles (2.6 ms, about 65 of its periods, so the window's edges move it by about 2/256).
+  - The PWM has 256 steps of 16 cycles: 24.4 kHz at 100 MHz.
+- **Full speed** before the first reading, during the PL's reset, and after a DRP read without an answer (2^16 cycles).
+- **The status word** reaches the host bridge as `FAN` (`0x1400`; `board_status_i` through `tanager_soc` and `tg_uncore`, 0 elsewhere), and `tanager-host fan` decodes it.
+- **Tests:**
+  - **`tests/unit/fan`,** against a SYSMONE4 stand-in and an A53 PWM generator. It checks full speed before the first reading; 15/255 at 30 °C; 134 at 40 °C, kept at 39.4 °C (the hysteresis); 111 at 38 °C (the curve 1 °C above); 255 at 46 °C; the A53's 50% and 10% (127 and 25) and its held-low and held-high PWM; and full speed while the DRP is silent. Every duty is checked against the status word and against `fan_en_b`'s low time.
+  - **`tests/unit/host_bridge`** reads `FAN` across the status crossing, and `tests/unit/soc` reads it through the SoC.
+
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
 **Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.

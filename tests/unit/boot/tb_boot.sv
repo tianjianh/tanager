@@ -97,7 +97,7 @@ module tb_boot;
     .m_axi_ps_aw (), .m_axi_ps_aw_valid (), .m_axi_ps_aw_ready (1'b1), .m_axi_ps_w (), .m_axi_ps_w_valid (),
     .m_axi_ps_w_ready (1'b1), .m_axi_ps_b ('0), .m_axi_ps_b_valid (1'b0), .m_axi_ps_b_ready (), .m_axi_ps_ar (),
     .m_axi_ps_ar_valid (), .m_axi_ps_ar_ready (1'b1), .m_axi_ps_r ('0), .m_axi_ps_r_valid (1'b0), .m_axi_ps_r_ready (),
-    .ps_irq_i ('0),
+    .ps_irq_i ('0), .board_status_i ('0),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );

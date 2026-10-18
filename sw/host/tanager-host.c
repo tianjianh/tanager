@@ -53,6 +53,7 @@ enum {
   R_HDMA_CTRL = 0x1300, R_HDMA_STATUS = 0x1304, R_HDMA_RD_LINES = 0x1308, R_HDMA_WR_LINES = 0x130C,
   R_HDMA_CPL0 = 0x1310, R_HDMA_CPL1 = 0x1314, R_HDMA_WR_DROPS = 0x1318,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
+  R_FAN = 0x1400,
 };
 #define TRS_EN         0x001u
 #define TRS_WRAP       0x002u
@@ -229,6 +230,8 @@ static void usage(void) {
     "                                         echo on > /sys/bus/platform/devices/ffaf0000.dma-controller/power/control\n"
     "  psrd ADDR [N]                          read N (1) 32-bit PS registers, only in always-on LPD control blocks:\n"
     "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR, the AMS (stage D)\n"
+    "  fan                                    the fan's PL regulator (kv260_top's tg_fan, stage D's D2): the PL die's\n"
+    "                                         temperature, the duty and the A53's PWM duty\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -568,6 +571,19 @@ static void cmd_psrd(int argc, char **argv) {
     printf("0x%09" PRIx64 ": 0x%08x  %s\n", a + 4 * i, r[i], ok[k].name);
   }
   signal(SIGBUS, SIG_DFL);
+}
+
+/* The fan's PL regulator (docs/spec/soc.md §8.2, D2): FAN = {valid [27], DRP timeout [26], duty [25:18], the
+ * A53's duty [17:10], the PL SYSMON's temperature code [15:6] in [9:0]}; a bitstream without it reads 0 */
+static void cmd_fan(void) {
+  uint32_t v = rd(R_FAN);
+  if (!(v >> 27 & 1)) {
+    printf("fan: no temperature reading%s\n", v ? "" : " (0: a bitstream without the fan's PL regulator, or it just started)");
+    return;
+  }
+  double t = ((double)((v & 0x3ffu) << 6) + 32.0) * 509.314 / 65536.0 - 280.231;
+  printf("fan: PL die %.1f C, duty %u/255 (the larger of the curve's and the A53's), the A53's PWM %u/255%s\n", t,
+         (v >> 18) & 0xffu, (v >> 10) & 0xffu, v >> 26 & 1 ? "; the last SYSMON read timed out: full speed" : "");
 }
 
 static void check_id(void) {
@@ -1150,6 +1166,7 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
   if (!strcmp(cmd, "dma"))        { check_id(); cmd_dma(&o, argc - optind, argv + optind); return 0; }
   if (!strcmp(cmd, "psrd"))       { check_id(); cmd_psrd(argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "fan"))        { check_id(); cmd_fan(); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

@@ -101,6 +101,9 @@ module tg_host_bridge
   input  logic [31:0] hdma_rd_lines_i,
   input  logic [31:0] hdma_wr_lines_i,
   input  logic [31:0] hdma_wr_drops_i,   // write bursts not done in full (answered OKAY all the same)
+  // the board's status word (core domain), read-only at FAN (0x1400): the fan's PL regulator on the KV260
+  // (kv260_top's tg_fan, stage D's D2); 0 elsewhere
+  input  logic [31:0] board_status_i,
   // console streams (tg_uart side)
   input  logic        con_tx_valid_i,
   output logic        con_tx_ready_o,
@@ -160,6 +163,7 @@ module tg_host_bridge
     logic [31:0] hdma_rd;
     logic [31:0] hdma_wr;
     logic [31:0] hdma_drops;
+    logic [31:0] board;
   } status_t;
   status_t st_h;
 
@@ -272,6 +276,7 @@ module tg_host_bridge
       16'h1310: rd_mux = {cpl_h_valid, 5'd0, cpl_h[57:32]};
       16'h1314: rd_mux = cpl_h[31:0];
       16'h1318: rd_mux = st_h.hdma_drops;
+      16'h1400: rd_mux = st_h.board;
       16'h1200: rd_mux = {24'd0, dbg_sel_q};
       16'h1204: rd_mux = st_h.dbg_val;
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
@@ -618,6 +623,7 @@ module tg_host_bridge
     st_c.hdma_rd      = HDMA ? hdma_rd_lines_i : '0;
     st_c.hdma_wr      = HDMA ? hdma_wr_lines_i : '0;
     st_c.hdma_drops   = HDMA ? hdma_wr_drops_i : '0;
+    st_c.board        = board_status_i;
   end
   tg_cdc_mirror #(.W ($bits(status_t))) u_status (
     .src_clk (clk), .src_rst (rst), .src_in (st_c),
