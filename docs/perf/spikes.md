@@ -842,6 +842,35 @@ Results: `fpga/spikes/results/g7m_synth/`, `g7m_115_fill/`, `g7r_synth/`, `g7r_1
 
 Results: `fpga/spikes/results/g8_synth/`, `g8_115_fill/`, `g8_115_fill_unc/`, and `g8_115_fill_explore/` (its summary only: its reports equal `g8_115_fill`'s).
 
+### 8.9 Area headroom at 100 MHz: how much more logic the chip takes (2026-10-17)
+
+**Question (the coordinator, DR-152, DR-153):** M6 needs room on a device that is 94% full with two cores and hart 1's area. With today's main at 100 MHz, how much more logic can the chip take and still close?
+
+**Method:**
+- **Tree:** main 4bb4426 (the RTL of G8's 5172c6a) at 100 MHz, which the board's `tg_clkgen` makes directly. The performance build, the L2 and crossbar pblocks, and no G3 cut.
+- **Extra logic:** hart 1's filler, grown per core from 47 tiles (hart 1's area, 3.7K LUTs a core) to 69, 91 and 114 tiles. That is +2K, +4K and +6K LUTs on the chip: a tile is about 45 LUTs and 39 flip-flops, and the 20 LUTRAM blocks stay.
+- **One synthesis per point** (checked by `synth_check.tcl`) **and one placement from it.**
+- **Over-constraint:** at a 100 MHz constraint the placer under-works the cores (§8.6). So placement and routing see 1.0 ns of setup uncertainty on the core clock, taken back before the reports ([`over_unc.tcl`](../../fpga/spikes/tcl/over_unc.tcl)): they aim at 9 ns and report at 10. The board build now does the same (the coordinator, DR-154).
+
+| Point | Filler per core | Placed LUTs (fill) | WNS ns at 10 ns | Failing endpoints | Worst families (levels, wire share) | Routing |
+|---|---|---|---|---|---|---|
+| `h100_0` | 47 tiles (hart 1's area) | 110,414 (94.3%) | **+1.065** | 0 | The instruction queue's head → rename's uop (18, 66%). The privilege register → the ROB field table's write enables (18, 75%). | 1 h 21 |
+| `h100_2` | 69 (+2K) | 112,201 (95.8%) | **+0.590** | 0 | D$ state → the data RAMs' write enables (14, 76%). DTLB → M2 forwarding (18, 75%) and → the replay address (23, 64%). M2's address → the LQ's store-tag enables (18, 73%). | 2 h 12 |
+| `h100_4` | 91 (+4K) | 113,712 (97.1%) | **−0.636** | 28 (core 0 1, core 1 27) | The LSU's split access → the ROB field table's write enables (17, 74%). DTLB → the PTW (21, 72%). | 1 h 40 |
+| `h100_6` | 114 (+6K) | 119,572 after synthesis (102.1%) | — | — | Stopped in its first routing pass before a WSL compaction. Not rerun, since +4K already misses (DR-155). | — |
+
+**Findings:**
+- **100 MHz closes at +2K LUTs (95.8% placed) and misses at +4K (97.1%).**
+  - Interpolated, the boundary is about +3K: about 96.4%, or 112.9K LUTs placed.
+  - With one placement per point and about ±0.75 ns of placement noise (§8.8), that boundary is good to about ±1K.
+- **M6's budget: about 2K LUTs on the chip** (about 1K per core) above today's main with hart 1's area, for one placement to close at 100 MHz. Up to about 3K closes on average, but not reliably.
+- **The budget is optimistic.** The filler is self-contained (an LFSR feeds it, and it connects to nothing). It adds area and congestion, but none of the wiring that real logic adds between units.
+- **The slack falls about 0.3 ns per 1K LUTs up to 96%, and roughly 0.8 ns per 1K beyond.** One placement per point makes the slopes rough.
+- **What fails first are the families seen at 115 MHz:** the ROB field table's write enables (from the LSU, the CSR and the privilege register), the DTLB's paths, and the D$ write enables. They are wire-dominated (64–76%) at 14–23 levels, so added logic costs these paths their wire first.
+- Routing stays under 2.5 hours up to 97%. The +6K point's synthesis reached 102.1% of the device's LUTs and still placed.
+
+Results: `fpga/spikes/results/h100_0/`, `h100_2/`, `h100_4/` (and their `_synth` runs), and `h100_6/stopped.txt` with its synthesis.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

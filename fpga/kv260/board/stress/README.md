@@ -39,4 +39,15 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
 - **Pass 1:** clean in 129 s. sysbench on two threads gave cpu 78.81 events/s, memory 98.23 MiB/s and threads 1,517 events, each about 1.46× run s2's at 70 MHz, the clock ratio.
 - **The rules if it fails** (the coordinator): keep the console and dmesg, stop cleanly, and report the pass number and the first error line to the coordinator and the verification track.
 
-Results to follow.
+**How it ended: a mains power cut, not a failure.** 70 of 70 passes were clean over 2 h 36 min of two-core load ([`linux_shell_stress_s3.txt`](linux_shell_stress_s3.txt), monitor [`stress_monitor_s3.txt`](stress_monitor_s3.txt), run log [`stress_s3.txt`](stress_s3.txt)).
+- **Steady numbers:**
+  - 128.3 s per pass (128–129 s);
+  - sysbench on two threads: cpu 78.80 events/s (74.69–79.60), memory 98.18 MiB/s, threads 1,519 events;
+  - no `STRESS FAIL` or `STRESS DMESG` line, no oops, BUG, panic, RCU stall, lockup or hung task;
+  - fan 15/255 at 33–35 °C.
+- **The stop:** at 01:24 UTC the board lost power.
+  - The laptop's battery log shows AC off from 01:24:08 to 01:24:15; the KV260 has no battery; the laptop's Wi-Fi reconnected about 40 s later.
+  - Pass 70 had printed at 01:23:23, and pass 71 was due at about 01:25:31.
+  - The A53 came back on its own: no shutdown record, and its journal simply stops, at 01:21:18, before the cut.
+  - The A53's root mounted cleanly. p3 was left with `needs_recovery`; `e2fsck -p` replayed its journal, and `e2fsck -fn` then passed clean.
+- **So:** no Tanager or A53 fault. The 72-hour gate needs a fresh run.
