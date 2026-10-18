@@ -65,6 +65,30 @@ class Tage : public DirPred {
   uint64_t updates_ = 0, rng_ = 0x2545F4914F6CDD1Dull;
 };
 
+// core-2's TAGE-lite as built (rtl/core/frontend/tg_tage.sv; m2_btage): read once per fetch block, on the block's
+// address and the global history (a bit per conditional branch, the newest in bit 0). A base table holds a 2-bit
+// counter per halfword slot; four tagged tables (histories 4/9/18/40) hold entries of two sub-entries {slot, tag,
+// 3-bit counter, 2-bit useful}. A slot's provider is the longest-history match, else the base. Training reads the
+// entries again with the fetch-time indices and tags; a wrong fetch-time direction allocates one sub-entry above the
+// provider (invalid or not useful), else ages the candidates.
+class BlockTage {
+ public:
+  struct Ix { uint16_t base = 0; uint16_t idx[4] = {}; uint16_t tag[4] = {}; };
+  // nt tagged tables (1-4), with the history lengths of core-2's size study (TAGE_NT): 12; 8/32; 5/14/40;
+  // 4/9/18/40
+  BlockTage(int li, int tw, int bi, int slots, int nt = 4);
+  Ix hash(uint64_t blk, uint64_t gh) const;                  // blk: the fetch block's number (pc[38:4])
+  bool dir(const Ix& x, int slot) const;
+  void train(const Ix& x, int slot, bool taken, bool pred);  // pred: the fetch-time direction
+ private:
+  struct Sub { bool v = false; uint8_t slot = 0; uint16_t tag = 0; uint8_t ctr = 0, u = 0; };
+  struct Ent { Sub w[2]; };
+  std::vector<std::vector<Ent>> t_;
+  std::vector<uint8_t> base_;
+  int li_, tw_, bi_, np_, nt_;
+  int hl_[4] = {};
+};
+
 struct BtbHit { bool hit = false; uint64_t target = 0; uint8_t kind = 0; };
 
 // Branch target buffer: block-based (entries per fetch block, up to `slots` branches each) or
@@ -132,7 +156,8 @@ class PcCounters {
 // writes or clears its entry. A hit predicts the block taken at that slot; a miss falls through.
 class M2Ubtb {
  public:
-  M2Ubtb(int entries, int ways, int counters);
+  // rtl_way: training writes the way that predicted this instruction, else a pseudo-random way (the RTL)
+  M2Ubtb(int entries, int ways, int counters, bool rtl_way = false);
   struct Look { bool hit = false; int way = -1; uint64_t target = 0; int slot = -1; };
   Look lookup(uint64_t blk) const;
   // A resolved branch or jump of block blk at slot: train as the RTL does at execute.
@@ -147,6 +172,7 @@ class M2Ubtb {
   std::vector<E> e_;
   std::vector<uint8_t> ctr_;
   int sets_, ways_;
+  bool rtl_way_;
   uint64_t rng_ = 0x9e3779b97f4a7c15ull;
 };
 

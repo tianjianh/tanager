@@ -135,6 +135,88 @@ void Tage::update(uint64_t pc, const Hist& h, bool taken) {
     for (auto& tab : t_) for (auto& e : tab) e.u >>= 1;
 }
 
+// ---------------------------------------------------------------- core-2's block TAGE (tg_tage.sv)
+
+namespace {
+// the history lengths by table count (core-2's TAGE size study, tg_tage.sv hl())
+constexpr int kBtHl[4][4] = {{12, 0, 0, 0}, {8, 32, 0, 0}, {5, 14, 40, 0}, {4, 9, 18, 40}};
+}
+
+BlockTage::BlockTage(int li, int tw, int bi, int slots, int nt)
+    : t_((size_t)std::clamp(nt, 1, 4), std::vector<Ent>(1ull << li)), base_((1ull << bi) * (size_t)slots, 0), li_(li),
+      tw_(tw), bi_(bi), np_(slots), nt_(std::clamp(nt, 1, 4)) {
+  for (int t = 0; t < nt_; t++) hl_[t] = kBtHl[nt_ - 1][t];
+}
+
+// The RTL's hash: the block address (35 bits) folded into the index, XORed with the history's first HL[t] bits
+// folded likewise; the tag is the address's low bits XORed with two foldings of the same history bits.
+BlockTage::Ix BlockTage::hash(uint64_t blk, uint64_t gh) const {
+  Ix x;
+  uint32_t ai = 0;
+  for (int i = 0; i < 35; i++) ai ^= (uint32_t)((blk >> i) & 1) << (i % li_);
+  x.base = (uint16_t)(blk & ((1ull << bi_) - 1));
+  for (int t = 0; t < nt_; t++) {
+    uint32_t hf = 0, tf = 0, tf1 = 0;
+    for (int i = 0; i < hl_[t]; i++) {
+      const uint32_t b = (uint32_t)((gh >> i) & 1);
+      hf ^= b << (i % li_);
+      tf ^= b << (i % tw_);
+      tf1 ^= b << (i % (tw_ - 1));
+    }
+    x.idx[t] = (uint16_t)((ai ^ hf) & ((1u << li_) - 1));
+    x.tag[t] = (uint16_t)(((uint32_t)blk ^ tf ^ (tf1 << 1)) & ((1u << tw_) - 1));
+  }
+  return x;
+}
+
+bool BlockTage::dir(const Ix& x, int s) const {
+  for (int t = nt_ - 1; t >= 0; t--)
+    for (const Sub& e : t_[(size_t)t][x.idx[t]].w)
+      if (e.v && e.tag == x.tag[t] && e.slot == s) return e.ctr >= 4;
+  return base_[(size_t)x.base * (size_t)np_ + (size_t)s] >= 2;
+}
+
+void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
+  int pt = -1, pw = 0, at = -1, aw = 0;
+  for (int t = nt_ - 1; t >= 0; t--)
+    for (int w = 0; w < 2; w++) {
+      const Sub& e = t_[(size_t)t][x.idx[t]].w[w];
+      if (e.v && e.tag == x.tag[t] && e.slot == s) {
+        if (pt < 0) { pt = t; pw = w; }
+        else if (at < 0 && t < pt) { at = t; aw = w; }
+      }
+    }
+  uint8_t& bc = base_[(size_t)x.base * (size_t)np_ + (size_t)s];
+  const bool adir = at >= 0 ? t_[(size_t)at][x.idx[at]].w[aw].ctr >= 4 : bc >= 2;
+  if (pt >= 0) {
+    Sub& e = t_[(size_t)pt][x.idx[pt]].w[pw];
+    const bool pdir = e.ctr >= 4;
+    if (taken && e.ctr != 7) e.ctr++;
+    if (!taken && e.ctr != 0) e.ctr--;
+    if (pdir != adir) {
+      if (pdir == taken && e.u != 3) e.u++;
+      if (pdir != taken && e.u != 0) e.u--;
+    }
+  } else {
+    if (taken && bc != 3) bc++;
+    if (!taken && bc != 0) bc--;
+  }
+  if (pred != taken && pt < nt_ - 1) {
+    bool done = false;
+    for (int t = pt + 1; t < nt_ && !done; t++)
+      for (int w = 0; w < 2 && !done; w++) {
+        Sub& e = t_[(size_t)t][x.idx[t]].w[w];
+        if (!e.v || e.u == 0) {
+          e = Sub{true, (uint8_t)s, x.tag[t], (uint8_t)(taken ? 4 : 3), 0};
+          done = true;
+        }
+      }
+    if (!done)
+      for (int t = pt + 1; t < nt_; t++)
+        for (Sub& e : t_[(size_t)t][x.idx[t]].w) if (e.u) e.u--;
+  }
+}
+
 // ---------------------------------------------------------------- BTB / micro-BTB
 
 Btb::Btb(int sets, int ways, int slots, int block_bytes, bool block_mode)
@@ -220,9 +302,9 @@ void MicroBtb::fallthrough(uint64_t start) {
 
 // ---------------------------------------------------------------- M2 micro-BTB (the RTL as built)
 
-M2Ubtb::M2Ubtb(int entries, int ways, int counters)
+M2Ubtb::M2Ubtb(int entries, int ways, int counters, bool rtl_way)
     : e_((size_t)std::max(1, entries)), ctr_((size_t)std::max(1, counters), 0),
-      sets_(std::max(1, entries / std::max(1, ways))), ways_(std::max(1, ways)) {}
+      sets_(std::max(1, entries / std::max(1, ways))), ways_(std::max(1, ways)), rtl_way_(rtl_way) {}
 
 M2Ubtb::Look M2Ubtb::lookup(uint64_t blk) const {
   Look l;
@@ -234,7 +316,8 @@ M2Ubtb::Look M2Ubtb::lookup(uint64_t blk) const {
 }
 
 // The counter moves toward the outcome. The block should be predicted taken if this is a jump or the new counter
-// is at least 2: then a missing or different entry is written (in the way that hit, else a pseudo-random way).
+// is at least 2: then a missing or different entry is written (in the way that hit the block, else a pseudo-random
+// way; rtl_way, as the RTL: in the way that predicted this instruction, else a pseudo-random way).
 // If it should not and the micro-BTB predicted this slot taken, the entry is cleared.
 void M2Ubtb::train(uint64_t blk, uint64_t pc, int slot, bool is_jump, bool taken, uint64_t target, const Look& l) {
   uint8_t& c = ctr_[(size_t)((pc >> 2) % ctr_.size())];
@@ -243,7 +326,7 @@ void M2Ubtb::train(uint64_t blk, uint64_t pc, int slot, bool is_jump, bool taken
   if (is_jump || c >= 2) {
     if (here && l.target == target) return;
     rng_ ^= rng_ << 13; rng_ ^= rng_ >> 7; rng_ ^= rng_ << 17;
-    E& e = at(blk, l.hit ? l.way : (int)(rng_ % (uint64_t)ways_));
+    E& e = at(blk, (rtl_way_ ? here : l.hit) ? l.way : (int)(rng_ % (uint64_t)ways_));
     e.v = true; e.tag = blk >> 4; e.target = target; e.slot = slot;
   } else if (here) {
     at(blk, l.way).v = false;

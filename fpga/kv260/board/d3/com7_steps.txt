@@ -1,0 +1,14 @@
+# D3, step 3-4 on COM7 (UART1 = the RISC-V's console): OpenSBI's banner, Linux's log, the login, step 4, poweroff
+expect|OpenSBI|300
+expect|tanager login:|300
+send|root
+expect|# |30
+send|cat /proc/consoles ; grep -i -e ttyPS -e 20: /proc/interrupts ; uname -a ; ls /
+expect|# |30
+send|echo typed on COM7 at $(date) ; cat /proc/cmdline
+expect|# |15
+send|grep -i -e ttyPS -e 20: /proc/interrupts
+expect|# |15
+pause|60
+send|grep -i -e ttyPS -e 20: /proc/interrupts ; poweroff
+expect|reboot: Power down|180

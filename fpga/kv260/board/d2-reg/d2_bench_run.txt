@@ -1,0 +1,35 @@
+tanager-host f515c0f69b7be562; mode bench
+== step 4: DR-141's set on d2, 3 boots, the fan sampled every 30 s
+loaded tanager-d2 at 06:17:40; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+== d2 boot 1: tanager-host boot --fw fw_jump.bin --kernel Image --dtb d2-bench.dtb --lossless --timeout 3600
+TANAGER-BOOT-OK at 5 s
+TGLB-BEGIN at 5 s
+boot exit 0 after 310 s (TANAGER-BOOT-OK 5 s, TGLB-BEGIN 5 s)
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=4 perf_errno=0
+measurement lines: 54 (expect 54); CoreMark validated: 6 (expect 6)
+TGLB-END status=0
+== d2 boot 2: tanager-host boot --fw fw_jump.bin --kernel Image --dtb d2-bench.dtb --lossless --timeout 3600
+TANAGER-BOOT-OK at 4 s
+TGLB-BEGIN at 4 s
+boot exit 0 after 309 s (TANAGER-BOOT-OK 4 s, TGLB-BEGIN 4 s)
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=4 perf_errno=0
+measurement lines: 54 (expect 54); CoreMark validated: 6 (expect 6)
+TGLB-END status=0
+== d2 boot 3: tanager-host boot --fw fw_jump.bin --kernel Image --dtb d2-bench.dtb --lossless --timeout 3600
+TANAGER-BOOT-OK at 4 s
+TGLB-BEGIN at 4 s
+boot exit 0 after 309 s (TANAGER-BOOT-OK 4 s, TGLB-BEGIN 4 s)
+TGLB-INFO counters=cycle,instret,time timebase=10000000 pagesize=4096 perf_events=4 perf_errno=0
+measurement lines: 54 (expect 54); CoreMark validated: 6 (expect 6)
+TGLB-END status=0
+fan: pwm1 26/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 06:33:14
+fan: pwm1 15/255, AMS temp1 36 C, fancontrol active
+orphan sleeps after the run: 0
+06:33:22 pwm1 15/255, temp1 34785, fancontrol active

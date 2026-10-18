@@ -53,6 +53,7 @@ enum {
   R_HDMA_CTRL = 0x1300, R_HDMA_STATUS = 0x1304, R_HDMA_RD_LINES = 0x1308, R_HDMA_WR_LINES = 0x130C,
   R_HDMA_CPL0 = 0x1310, R_HDMA_CPL1 = 0x1314, R_HDMA_WR_DROPS = 0x1318,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
+  R_FAN = 0x1400,
 };
 #define TRS_EN         0x001u
 #define TRS_WRAP       0x002u
@@ -84,6 +85,8 @@ enum {
 #define OFF_FW         0x0ull          /* docs/spec/soc.md §3 */
 #define OFF_KERNEL     0x200000ull
 #define OFF_DTB        0x2200000ull
+#define OFF_INITRD     0x8000000ull    /* stage D's D4: an initrd at 0x8800_0000, the window sw/dts INITRD=1 */
+#define INITRD_ROOM    0x4000000ull    /* names (64 MiB): zero past the file, which Linux's unpacker skips */
 
 static volatile uint32_t *regs;
 static const char *prog = "tanager-host";
@@ -151,7 +154,7 @@ struct opts {
   const char *net;        /* virtio-net (slot 2) on this TAP device, made if missing */
   const char *net_bridge; /* and the bridge it joins (the A53's br0, docs/spec/soc.md §8.1), or NULL */
   uint8_t net_mac[6];     /* the RISC-V's MAC address */
-  const char *fw, *kernel, *dtb;
+  const char *fw, *kernel, *dtb, *initrd;
   int console;            /* 0 stdio, 1 pty, -1 none */
   double timeout;
   long inj_rd, inj_wr, inj_mode, inj_bw;
@@ -185,8 +188,9 @@ static void usage(void) {
     "commands:\n"
     "  info                                   identity and status\n"
     "  reset                                  hold cores and uncore in reset\n"
-    "  load --fw F --kernel K --dtb D [--zero] reset, set the window, copy images (soc.md §3); --zero\n"
-    "                                         (implied by --trace) zeroes the window first\n"
+    "  load --fw F --kernel K --dtb D [--initrd I] [--zero] reset, set the window, copy images (soc.md §3); --zero\n"
+    "                                         (implied by --trace) zeroes the window first; --initrd (stage D's D4)\n"
+    "                                         puts I at RISC-V 0x8800_0000, zeroed to 0x8C00_0000 (sw/dts INITRD=1)\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
     "      [--freeze-time] [--dbg]\n"
@@ -228,7 +232,9 @@ static void usage(void) {
     "                                         channel must be idle and kept powered by its driver first:\n"
     "                                         echo on > /sys/bus/platform/devices/ffaf0000.dma-controller/power/control\n"
     "  psrd ADDR [N]                          read N (1) 32-bit PS registers, only in always-on LPD control blocks:\n"
-    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR (stage D's D0)\n"
+    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR, the AMS (stage D)\n"
+    "  fan                                    the fan's PL regulator (kv260_top's tg_fan, stage D's D2): the PL die's\n"
+    "                                         temperature, the duty and the A53's PWM duty\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -553,6 +559,7 @@ static void cmd_psrd(int argc, char **argv) {
   static const struct { uint64_t base, size; const char *name; } ok[] = {
     { 0xFF980000ull, 0x10000, "LPD_XPPU" }, { 0xFF9B0000ull, 0x10000, "AFIFM6 (S_AXI_LPD)" },
     { 0xFF5E0000ull, 0x10000, "CRL_APB" }, { 0xFF180000ull, 0x80000, "IOU_SLCR" }, { 0xFF410000ull, 0x10000, "LPD_SLCR" },
+    { 0xFFA50000ull, 0x10000, "AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)" },
   };
   if (argc < 1) usage();
   uint64_t a = num(argv[0]), n = argc > 1 ? num(argv[1]) : 1;
@@ -567,6 +574,19 @@ static void cmd_psrd(int argc, char **argv) {
     printf("0x%09" PRIx64 ": 0x%08x  %s\n", a + 4 * i, r[i], ok[k].name);
   }
   signal(SIGBUS, SIG_DFL);
+}
+
+/* The fan's PL regulator (docs/spec/soc.md §8.2, D2): FAN = {valid [27], DRP timeout [26], duty [25:18], the
+ * A53's duty [17:10], the PL SYSMON's temperature code [15:6] in [9:0]}; a bitstream without it reads 0 */
+static void cmd_fan(void) {
+  uint32_t v = rd(R_FAN);
+  if (!(v >> 27 & 1)) {
+    printf("fan: no temperature reading%s\n", v ? "" : " (0: a bitstream without the fan's PL regulator, or it just started)");
+    return;
+  }
+  double t = ((double)((v & 0x3ffu) << 6) + 32.0) * 509.314 / 65536.0 - 280.231;
+  printf("fan: PL die %.1f C, duty %u/255 (the larger of the curve's and the A53's), the A53's PWM %u/255%s\n", t,
+         (v >> 18) & 0xffu, (v >> 10) & 0xffu, v >> 26 & 1 ? "; the last SYSMON read timed out: full speed" : "");
 }
 
 static void check_id(void) {
@@ -629,7 +649,20 @@ static size_t load_file(const char *path, uint8_t *dst, uint64_t room) {
 
 static void cmd_load(const struct opts *o) {
   if (!o->fw || !o->kernel || !o->dtb) die("load needs --fw, --kernel and --dtb");
-  if (dram_bytes(o) < OFF_DTB + 0x10000 || trace_bytes(o) >= o->size) die("carve-out too small");
+  uint64_t top = o->initrd ? OFF_INITRD + INITRD_ROOM : OFF_DTB + 0x10000;
+  if (dram_bytes(o) < top || trace_bytes(o) >= o->size) die("carve-out too small");
+  /* The kernel's whole image (its header's image_size, BSS included) must end below the DTB: the kernel
+   * clears its BSS before it reads the tree. Debian's 6.12 kernel takes 30.4 of the 32 MiB. */
+  {
+    uint8_t h[64];
+    int fd = open(o->kernel, O_RDONLY);
+    if (fd < 0 || read(fd, h, sizeof h) != (ssize_t)sizeof h) die("%s: %s", o->kernel, strerror(errno));
+    close(fd);
+    uint64_t isz;
+    memcpy(&isz, h + 16, 8);
+    if (!memcmp(h + 48, "RISCV\0\0\0", 8) && isz > OFF_DTB - OFF_KERNEL)
+      die("%s: image_size %" PRIu64 " reaches the DTB at +32 MiB", o->kernel, isz);
+  }
   cmd_reset();
   wr64(R_DRAM_BASE, o->base);
   wr64(R_DRAM_SIZE, dram_bytes(o));
@@ -640,7 +673,7 @@ static void cmd_load(const struct opts *o) {
    * --zero, the window (not the trace ring above it) is zeroed first. 8-byte stores: the mapping
    * is uncached device memory, which takes no DC ZVA. */
   int zero = o->zero || o->trace;
-  uint8_t *mem = map_phys(o->base, zero ? dram_bytes(o) : OFF_DTB + 0x10000);
+  uint8_t *mem = map_phys(o->base, zero ? dram_bytes(o) : top);
   if (zero) {
     double t0 = now_s();
     volatile uint64_t *z = (volatile uint64_t *)mem;
@@ -650,6 +683,14 @@ static void cmd_load(const struct opts *o) {
   size_t n1 = load_file(o->fw, mem + OFF_FW, OFF_KERNEL - OFF_FW);
   size_t n2 = load_file(o->kernel, mem + OFF_KERNEL, OFF_DTB - OFF_KERNEL);
   size_t n3 = load_file(o->dtb, mem + OFF_DTB, 0x10000);
+  if (o->initrd) {
+    size_t n4 = load_file(o->initrd, mem + OFF_INITRD, INITRD_ROOM);
+    uint64_t i = n4;
+    for (; i < INITRD_ROOM && (i & 7); i++) *(volatile uint8_t *)(mem + OFF_INITRD + i) = 0;
+    for (; i < INITRD_ROOM; i += 8) *(volatile uint64_t *)(mem + OFF_INITRD + i) = 0;
+    fprintf(stderr, "loaded: initrd %zu B at RISC-V 0x%llx, zero to 0x%llx\n", n4,
+            (unsigned long long)(DRAM_BASE_RV + OFF_INITRD), (unsigned long long)(DRAM_BASE_RV + OFF_INITRD + INITRD_ROOM));
+  }
   /* read back a few words of each image */
   if (verbose) fprintf(stderr, "loaded fw %zu, kernel %zu, dtb %zu bytes\n", n1, n2, n3);
   wr64(R_BOOT_ENTRY, DRAM_BASE_RV + OFF_FW);
@@ -1064,7 +1105,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
-    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 },
+    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 }, { "initrd", 1, 0, 23 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -1102,6 +1143,7 @@ int main(int argc, char **argv) {
       case 18: o.net = optarg; break;
       case 21: o.freeze_time = 1; break;
       case 22: o.dbg_exit = 1; break;
+      case 23: o.initrd = optarg; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];
@@ -1149,6 +1191,7 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
   if (!strcmp(cmd, "dma"))        { check_id(); cmd_dma(&o, argc - optind, argv + optind); return 0; }
   if (!strcmp(cmd, "psrd"))       { check_id(); cmd_psrd(argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "fan"))        { check_id(); cmd_fan(); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

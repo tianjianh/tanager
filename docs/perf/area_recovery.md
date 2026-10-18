@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| Status | Study for review. Input to plan §4.6, §8.2 and §8.5, to the per-unit budgets ([budgets.md](budgets.md)) and to the feature ledger. §7 is redone from the measured RTL (AR-7). |
+| Status | Study for review. Input to plan §4.6, §8.2 and §8.5, to the per-unit budgets ([budgets.md](budgets.md)) and to the feature ledger. §7 is redone from the measured RTL (AR-7). §7.8 ranks the area levers for M6's set at 100 MHz (2026-10-18). |
 | Date | 2026-10-14 |
 | Model | `tgsim` model version 3 with SMT2 (`SMT_VERSION` 1); suite revision 2; rv64gc built with GCC 15.2. The new options are off by default and change no earlier result (§2.2). See [`perfmodel/README.md`](../../perfmodel/README.md). |
 | Configurations | v1 = `smt2`, the first release (plan §6.5, D15); v2 = `smt2_w3` (SMT2 study §9, plan rule 12) |
@@ -730,7 +730,7 @@ Every v1 row uses the default profile. The fallback changes nothing measurable (
 
 *This section calibrates tgsim to the RTL program by program, then adds the M6 features back one at a time. It is a measurement only: no RTL or decision changes. `scripts/rtlcal.py` and `scripts/m6_steps.py` reproduce it on the build host.*
 
-**The core as built, now a preset (`rtl_m2`).** The RTL (core-pipeline.md §1, §3, §5; core-lsu.md) has:
+**The core as built, now a preset (`rtl_m2`).** This is revision 1, which this section's results use. §6.4's revision 2 adds four misses in flight and the RTL's issue queues and store address. The RTL (core-pipeline.md §1, §3, §5; core-lsu.md) has:
 - **M2's front end:** the 64-entry, 2-way micro-BTB is the only predictor. 512 2-bit counters only decide whether it learns a branch. Decode repairs JAL targets and wrong targets of predicted-taken branches. There is no TAGE, block BTB, RAS or FTQ (`fe_m2`).
 - **Recovery and wakeup:**
   - every mispredict recovers at commit;
@@ -892,6 +892,491 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **With 1 miss** it reaches 0.45× / 0.42×.
 - **So §6.2's "v1 leads NaxRiscv at 100 MHz with 4 misses" does not hold for the core as built.** It assumed the plan's front end and recovery.
 - **Per clock,** v1 as built with 4 misses in flight does 0.76× NaxRiscv's work on the suite.
+
+### 6.4 The first M6 stack, checked against the RTL (measured, 2026-10-17)
+
+*core-2 measured M6's first three steps in RTL: the RAS, TAGE-lite overriding at F2, and returns repaired at F2 with the straddler fix, all on main cee5332's four misses in flight. With make perf, CoreMark gained 25% and Dhrystone 49–64%. With §6.3's settings for the same stack, the model said 42–58% and 101–104%. This section finds why, in the RTL itself, and folds the answer into `rtl_m2`. It is a measurement only: no RTL or decision changes. `scripts/m6_rtlcheck.py` reproduces it on the build host.*
+
+**Method.**
+- **The same ELFs:** make perf's own (`tests/bench`: CoreMark with 10 iterations, Dhrystone with 500 runs), rv64im and rv64gc, on tg_vsim's memory at native latency, timed regions.
+- **The RTL:** a scratch build of core-2's measured head (96a1c81: bdd787c on main cee5332). Measurement-only profile binds (`scripts/rtlprof/`) count:
+  - F2's refetches by kind;
+  - commit's flushes by cause, with the PCs of replayed loads;
+  - rename's stalls by cause;
+  - decode's take per cycle.
+
+  The build reproduces core-2's scores exactly: 3.808, 3.607, 2.426 and 2.431. A second build profiles main (17f9c46, the same core as cee5332).
+- **Steady state:** in both simulators, the 20-iteration / 1,000-run whole runs minus the 10 / 500 ones, so start-up and printf cancel. A whole run alone misleads on Dhrystone: printf takes half its cycles, and there the model is slower than the RTL.
+
+**Per program: main → the stack, the RTL against the model as each correction is added** (CoreMark/MHz and DMIPS/MHz):
+
+| Program | RTL | 1. §6.3's settings | 2. + TAGE-lite as built | 3. + the RTL's issue queues | 4. + the store address waits for its data (`rtl_m2` now) |
+|---|---|---|---|---|---|
+| CoreMark A rv64im | 3.056 → 3.808 (+24.6%) | 3.236 → 4.634 (+43.2%) | 3.236 → 4.339 (+34.1%) | 3.136 → 4.079 (+30.1%) | 3.120 → 3.961 (+27.0%) |
+| CoreMark B rv64im | 2.896 → 3.607 (+24.6%) | 2.935 → 4.481 (+52.7%) | 2.935 → 4.253 (+44.9%) | 2.841 → 3.936 (+38.5%) | 2.817 → 3.780 (+34.2%) |
+| Dhrystone rv64im | 1.632 → 2.426 (+48.7%) | 1.825 → 3.665 (+100.9%) | 1.825 → 3.668 (+101.0%) | 1.720 → 3.232 (+87.9%) | 1.654 → 2.563 (+55.0%) |
+| CoreMark A rv64gc | 3.064 → 3.779 (+23.3%) | 3.203 → 4.556 (+42.2%) | 3.203 → 4.309 (+34.5%) | 3.112 → 4.041 (+29.8%) | 3.097 → 3.859 (+24.6%) |
+| CoreMark B rv64gc | — → 3.577 | 2.834 → 4.463 (+57.5%) | 2.834 → 4.247 (+49.8%) | 2.763 → 3.927 (+42.2%) | 2.741 → 3.719 (+35.7%) |
+| Dhrystone rv64gc | 1.483 → 2.431 (+63.9%) | 1.797 → 3.673 (+104.4%) | 1.797 → 3.632 (+102.1%) | 1.716 → 3.258 (+89.9%) | 1.679 → 2.501 (+48.9%) |
+
+- **Error on the stack's own score:** +21–51% at step 1, +14–51% at step 2, +7–34% at step 3 and +2–6% at step 4.
+- **What is left in the gains:** CoreMark B (+34% against +25%) and Dhrystone rv64gc (+49% against +64%). Both come from the model's base, which is 2.7% slow on the first and 13% fast on the second.
+- **Where the scores come from:** the RTL's rv64gc CoreMark scores on the stack are this build's. core-2's message gave main's CoreMark A rv64gc.
+
+**What the model did not have, largest first.** Each is the RTL as built, and each now has a knob:
+1. **The store address waits for its data.**
+   - **The rule:** rename makes a store's IQ-STA row depend on its data register as well as its base (`tg_rename.sv`: `iq_dep` and `iq_mdep` take rs2 for every C_ST). core-lsu.md describes the STA pipe as address-only, with the data captured later through the shared port.
+   - **What it does:** a younger load to the same address can issue first. It reads the old value and is replayed at commit. The rows also hold IQ-STA's four entries until the data is ready.
+   - **Dhrystone:** this happens twice per run, at two loads:
+     - `Proc_2`'s read of `Int_1_Loc`, whose store waits for a `divw`;
+     - main's read of `Int_3_Loc`, after `Proc_7` stores it through a pointer.
+
+     That is 7.1 replays per 1,000 instructions in the RTL's steady state, and none in the model, which issued store addresses on their base alone (`sta_split` 1).
+   - **With `sta_split` 0** the model replays as the RTL does: Dhrystone 2.0 per run; on main, ud 7,390 against 7,395 and huffbench 99 against 72.
+2. **The issue queues are banked by dispatch slot, and a row is held two cycles after its select** (`tg_iq.sv`, plan §4.15).
+   - **Banks:** decode slot k's uop writes only bank k, so a group waits until both its slots' banks have a row. IQ-STA's four rows are two per slot. Rename steers an ALU op to queue k mod 2 unless that bank is full.
+   - **The hold:** a row is freed two cycles after its select, by the speculative-wakeup shadow, which is there whether or not speculative wakeup is on. Dispatch reuses it three cycles after the select.
+   - **How much it holds dispatch:** with the stack, a full bank held the dispatch stage in 26% of CoreMark A's cycles and 19% of Dhrystone's. The model treated each queue as one pool, freed at issue.
+   - **Knobs:** `iq_slot_bank` 1, `iq_hold` 3.
+3. **TAGE-lite as built mispredicts about twice as often as the model's.**
+   - **The RTL** reads TAGE once per 16-byte block:
+     - a 2K-block base with a counter per slot;
+     - four 1K-entry tables of two slot-tagged sub-entries;
+     - histories of 4/9/18/40 conditional-branch bits, the lookup one block behind;
+     - training from commit through a 4-entry queue, one request every two cycles.
+   - **The model's TAGE-lite** was per branch, with path history, 8–64 bits and 4K entries.
+   - **Accuracy:** CoreMark A's mispredict flushes are 2.9 per 1,000 instructions in the RTL's steady state. The model's TAGE-lite left 1.4, 1.2 of them direction.
+   - **Knob:** `m2_btage` reproduces the RTL's flushes: 3.4K against 3.5K in CoreMark A's 2-iteration run (core-2's profile), and 2.7 against 2.9 per 1,000 instructions in steady state.
+   - **Within it:**
+     - the block form (sub-entries, branch-only history) is most of the loss: CoreMark −5% of the stack's score;
+     - the one-block lag and the queue's drops (2% of requests) move it under 1%;
+     - 1K against 4K entries changes nothing on these programs (+0.0–0.2%).
+4. **Smaller:**
+   - a block ends before its third conditional branch and is refetched (`m2_cut`);
+   - an F2 override costs 2 cycles, as F2's action is registered (`m2_f2_bubble` 2);
+   - the FTQ has 32 entries (`m2_ftq`), almost never full.
+
+   Each moves the stack by 1% or less.
+
+**The three suspects named before the check:**
+- **The bench build's CoreMark against the suite's.** §6.3's +77% for TAGE-lite alone was a different setup: the suite's CoreMark build on the SoC's uncore at 100 MHz, with the model's own TAGE redirecting at decode. On make perf's ELFs the same model gave +43%. The model-against-RTL gap on identical ELFs was items 1–3 above, not the build.
+- **The wrong-path training.** TAGE trains at commit in the RTL, so it sees no wrong path, as in the model. The micro-BTB's wrong-path training at loop exits (`m2_wp_train` 2 against 0) moves the stack under 0.2%.
+- **TAGE's size and update timing.** Neither matters: 1K against 4K entries, and the training queue, are each under 1%. Its block form is item 3.
+
+**What remains.**
+- **More F2 refetches in the RTL:** 25 against 18 per 1,000 instructions in CoreMark A, counting overrides and cuts, partly on the wrong path the model does not run.
+- **But the RTL's instruction queue hides them:** decode is starved in only 2–3% of its cycles on CoreMark, and 7% on Dhrystone, mostly refilling after its replays. With the stack, the RTL is held by its backend, not its front end.
+
+**`rtl_m2` recalibrated** (revision 2, keyed separately in dse's cache; it tracks main):
+- **The changes:**
+  - `l1d_mshr` 4: four misses in flight are main's default since DR-156;
+  - `iq_slot_bank` 1, `iq_hold` 3, `sta_split` 0: items 1 and 2.
+- **Against main** (17f9c46, at native latency) on §6.3's 17 programs:
+
+  | Model | Mean error | Worst |
+  |---|---|---|
+  | Revision 1 with four misses | 8.6% | 22.1% (statemate) |
+  | + the issue queues | 7.3% | 18.3% (ws_hash) |
+  | + the store address (revision 2) | 7.5% | 19.7% (minver) |
+
+  Revision 2 moves:
+  - Dhrystone rv64gcb −15.3% → −2.5%;
+  - statemate −22.1% → −7.8%;
+  - crc32 −9.8% → −6.5%;
+  - matmult-int −5.9% → +11.9%, and ud +6.7% → +12.1%.
+- **Why the store-address rule stays despite matmult-int and ud:** on core-2's stack those two match the RTL (+0.4% and 0.0%), and so do the replay counts (minver 1,111 against 1,107, edn 1,318 against 1,231).
+- **The M6 stack's knobs** join `rtl_m2` when the stack lands on main: `ras` 32, `m2_dir` 1, `dirpred` 2, `m2_f2` 1, `m2_ras_f2` 1, `m2_btage` 1, `m2_cut` 1, `m2_f2_bubble` 2, `m2_ftq` 32.
+- **§6.3's M6 tables were made with revision 1** (one miss, no issue-queue rules) and stand as history. Ranking M6's remaining steps on revision 2 is a separate run.
+
+**Two RTL questions for core-2** (`m6_rtlcheck.py --levers`; the model's estimates, not decisions):
+
+| Lever, in the recalibrated model | Main: CoreMark / Dhrystone | The stack: CoreMark / Dhrystone |
+|---|---|---|
+| The store address issues on its base alone, as core-lsu.md describes (rs2 left out of IQ-STA's dependencies) | +0.5–0.9% / +2–4% | +3–6% / **+26–30%** |
+| A row is freed at its select while speculative wakeup is off (no shadow to keep) | −0.3–+1.6% / +3–4% | +0.3–3.5% / +4–5% |
+| Both | +0.1–2.6% / +5–8% | +4–10% / +20–21% |
+
+- **The first lever looks like the larger of the two.** Store data already has its own capture path, so the STA may not need to wait for it.
+- **The second only matters while speculative wakeup stays off.** M6's speculative wakeup needs the shadow.
+
+### 6.5 What M6's remaining pieces buy per 1K LUTs, from main with the RAS (modelled, 2026-10-18)
+
+*The user's next M6 choice is about area. DR-162 accepted a few MHz below 100, and TAGE-lite then measured at twice its estimate. This section estimates what each remaining piece buys per 1K LUTs, and what each further 1K buys when they are stacked. It starts from main as it is: four misses in flight, speculative wakeup, and the RAS. The model is `rtl_m2` revision 3 with the RAS (`scripts/m6_area.py`, on the build host).*
+
+**The base, checked against the RTL first.**
+- **The RTL:** core-2's RAS head (58674a7: the RAS at decode on main c841a27, speculative wakeup on).
+- **The model:** `rtl_m2` revision 3, which adds main's speculative wakeup:
+  - an integer load's dependants issue three cycles after it, with no hit predictor;
+  - a load that does not complete in M2 cancels the integer queues' issues of the next three cycles;
+  - FP loads wake on the confirmed result.
+
+  The RAS is added explicitly until it lands on main.
+- **The fit** (make perf's ELFs and the 11 RTL-built suite programs, native latency; `results/rtlcal_rashead_r3.json`):
+  - CoreMark within 3% (A −2.8% / −0.8%, B +3.0% / +1.6% cycles, rv64im / rv64gc);
+  - Dhrystone 6–10% optimistic;
+  - the mean over 17 programs is 7.7%. minver, ws_hash, ws_copy, matmult-int and ud are outside 10%, as in §6.4.
+
+  These runs reproduce core-2's RAS-head scores exactly: 3.461, 3.274 and 2.122.
+
+**Setup.**
+- **Suite:** the single-thread suite (rv64gc, 33 programs) on the SoC's uncore at 100 MHz, as §6.3 ran it: the 1 MiB L2 with a 10-cycle hit, and DRAM at 18 cycles.
+- **Bench:** make perf's ELFs (CoreMark 10 iterations, Dhrystone 500 runs; rv64im and rv64gc; latency 30 and 120). The geometric mean of cycles, as make perf reports it.
+- **TAGE-lite** is core-2's form at F2, with returns still repaired at decode, as in core-2's size study. Its 1–4 tables use that study's histories (`btage_nt`).
+- **LUTs per chip** are two smt2 cores; the L2 stream prefetcher counts once.
+  - **Measured where core-2 has measured:** TAGE-lite's whole-core estimates from `reports/m6-tage-size.md`, and the F2 return repair.
+  - **Estimated elsewhere:**
+    - more misses in flight: DR-149's measured +543 LUTs in the D$ for entries 1 → 4, per entry;
+    - everything else: the plan's ledger (feature_ledger.md).
+  - **Where measured since, the ledger ran 2–3× low:** TAGE-lite came in at 2.2× its estimate, and the four misses at 2.6–3×.
+
+**Each piece alone** (gain against main with the RAS; for the memory side and checkpoints, also on top of TAGE-lite 4 × 1K):
+
+| Piece | LUTs per chip (source) | Suite IPC | make perf cycles (model) | make perf (RTL, core-2) | Suite gain per 1K LUTs | After TAGE-lite 4 × 1K: suite gain |
+|---|---|---|---|---|---|---|
+| TAGE-lite 1 × 1K | 1,880 (measured) | +35.8% | −16.7% | −12.3% | +19.0% | — |
+| TAGE-lite 2 × 1K | 2,540 (measured) | +40.0% | −20.5% | −16.0% | +15.7% | — |
+| TAGE-lite 3 × 1K | 2,840 (measured) | +39.9% | −21.2% | −16.6% | +14.1% | — |
+| TAGE-lite 4 × 1K | 3,180 (measured) | +40.5% | −21.4% | −16.8% | +12.7% | — |
+| Returns repaired at F2 (with TAGE-lite) | 60 (measured, within noise) | +0.1% | −0.1% | | +1.7% | — |
+| 8 L1D misses in flight (from 4) | ≈1,200 (estimate) | +4.5% | 0 | | +3.8% | +4.6% |
+| 16 L1D misses in flight | ≈3,400 (estimate) | +6.1% | 0 | | +1.8% | +6.2% |
+| 4 I$ refills (from 1) | ≈500 (estimate) | 0 | 0 | | 0 | 0 |
+| L1D stride prefetcher | ≈600 (ledger) | +0.9% | 0 | | +1.5% | +0.8% |
+| Ownership prefetch for stores | ≈200 (ledger) | +0.2% | 0 | | +0.9% | +0.2% |
+| L2 stream prefetcher | ≈150 (ledger, once per chip) | +2.2% | 0 | | +14.9% | +2.2% |
+| I$ next-line prefetch | ≈200 (ledger) | 0 | 0 | | 0 | 0 |
+| Checkpoint recovery (4) | ≈1,000 (ledger) | +16.0% | −8.2% | | +16.0% | +2.1% |
+
+**Stacked, what each further 1K of LUTs buys.**
+- **Order:** each step is the piece with the best marginal suite gain per LUT from the runs above. Each step is measured on top of the ones before it.
+- **Suite IPC** is against main with the RAS's 0.613.
+- **The RTL column** is core-2's size study, at the same TAGE-lite size.
+
+| Step | LUTs added per chip | Running total per chip | Suite IPC | make perf cycles (model / RTL) | Step's suite gain per 1K LUTs | Step's bench speed-up per 1K LUTs |
+|---|---|---|---|---|---|---|
+| + TAGE-lite 1 × 1K | 1,880 | 1,880 | 0.832 (+35.8%) | −16.7% / −12.3% | +19.0% | +10.7% |
+| + L2 stream prefetcher | ≈150 | ≈2,030 | 0.851 (+38.8%) | −16.7% | +15.0% | 0 |
+| + TAGE-lite's second table | 660 | ≈2,690 | 0.877 (+43.1%) | −20.5% / −16.0% | +4.7% | +7.3% |
+| + 8 L1D misses in flight | ≈1,200 | ≈3,890 | 0.917 (+49.7%) | −20.5% | +3.8% | 0 |
+| + Checkpoint recovery (4) | ≈1,000 | ≈4,890 | 0.934 (+52.4%) | −21.7% | +1.8% | +1.5% |
+| + Returns repaired at F2 | 60 | ≈4,950 | 0.935 (+52.5%) | −21.7% | +1.3% | +0.6% |
+| + L1D stride prefetcher | ≈600 | ≈5,550 | 0.959 (+56.5%) | −21.7% | +4.3% | 0 |
+| + Ownership prefetch for stores | ≈200 | ≈5,750 | 0.957 (+56.2%) | −21.7% | −0.9% | 0 |
+| + 8 → 16 L1D misses in flight | ≈2,200 | ≈7,950 | 0.981 (+60.0%) | −21.7% | +1.1% | 0 |
+| + 4 I$ refills | ≈500 | ≈8,450 | 0.981 (+60.0%) | −21.7% | 0 | 0 |
+| + I$ next-line prefetch | ≈200 | ≈8,650 | 0.981 (+60.2%) | −22.0% | +0.4% | +1.7% |
+| + TAGE-lite's third table | 300 | ≈8,950 | 0.982 (+60.2%) | −22.7% / −16.6% | +0.2% | +3.0% |
+| + TAGE-lite's fourth table | 340 | ≈9,290 | 0.988 (+61.2%) | −22.7% / −16.8% | +1.8% | +0.1% |
+
+**Reading it.**
+- **TAGE-lite's first table buys the most per LUT.** It costs 1.9K LUTs per chip, measured, and the RTL gives −12.3% make perf cycles.
+  - The model says −16.7% on the bench and +36% on the suite. Its first step is optimistic by about 4.4 points on the bench, where the RTL's speed-up is 0.7× the model's, so expect the suite's real gain nearer +25%.
+  - The steps between sizes match the RTL: 1 → 2 tables −3.8 against −3.6 points, 2 → 3 −0.7 against −0.6, 3 → 4 −0.2 against −0.2.
+- **The second table is the next best measured buy.** 660 LUTs per chip give −3.6 points of make perf in RTL, and +3.1% on the suite in the model. The third and fourth tables add 640 LUTs per chip for −0.8 points in RTL: the least value of the TAGE-lite options.
+- **On the memory side,** 8 misses in flight (+4.5% on the suite, all of it memory-bound programs) and the L2 stream prefetcher (+2.2%) are the cheaper buys. 16 misses (+1.1% per 1K after 8) and the stride prefetcher come later.
+  - All their LUTs are estimates. If they run 2–3× high, as TAGE-lite and the four misses did, their gains per 1K halve or worse.
+  - The bench shows nothing for them: CoreMark and Dhrystone fit in the L1.
+- **Checkpoint recovery** is worth +16% alone but +2.1% after TAGE-lite, since fewer mispredicts are left to recover from quickly.
+- **The I-side pieces** (4 I$ refills, next-line prefetch) show nothing, because no suite program has more code than the L1I. Linux does: the ledger's exception E1 found +34% and +30% on a ~200 KiB-code kernel trace. They should be judged on the board's Linux runs.
+- **Where IPC per LUT drops:** after about 2.7K LUTs per chip (TAGE-lite with two tables and the L2 stream prefetcher), every further 1K buys under 5% on the suite. After about 5K, it buys under 2%, except the stride prefetcher, at 4%.
+
+**Limits.**
+- **Single-thread only:** SMT2's two threads, which raise the value of misses in flight, are not run.
+- **The suite is a proxy;** Linux is the workload.
+- **The clock:** the memory-side gains are at 100 MHz's DRAM latency. A few MHz less changes them by under a point.
+
+### 6.6 Speculative wakeup's cancels, measured in the RTL (2026-10-18)
+
+*§6.5's model overshot TAGE-lite's first step on the bench by about 4 points, and the suspect was the cancels of speculative wakeup. fpu-2 profiled the RTL's cancels by cause on the RAS head and the TAGE-lite build, with simulation-only counters (`claude/track-fpu-395911-swprof`; the tables are in fpu-2's `swprof/` on the build host). This section fits the model to that profile (`scripts/m6_swfit.py`).*
+
+**What the RTL cancels on** (steady state, the RAS head):
+- **D$ row clashes:** half of CoreMark's cancels (1.7–2.6 per 1K instructions) and three quarters of Dhrystone's (10).
+  - **The rule** (`tg_lsu.sv`, `m1_clash`): a load reads its D$ row at AG while stores drain through port B. If a store to the load's 16-byte block is acked in the load's AG cycle or the cycle before, the load read old data and retries. The cycle before counts because of the registered port-B write, a default timing cut.
+  - **Where they happen:** loads that follow a store to the same block. On Dhrystone it is reloads of stack slots just written. On statemate, edn and ud it is adjacent bytes and halfwords.
+- **Wrong-path faults,** the other half on CoreMark: loads past a mispredict that fault in M1 on bare metal's unmapped addresses. They are flushed with the wrong path, which the model does not run. With TAGE-lite they fall to a quarter–a third.
+- **The store-data capture lagging,** 6–15% of cancels: the store's data register was written, but its value was not yet in the SQ's data RAM (one capture a cycle). There are no forwards that fail to cover, no late producers, and no misses on the bench.
+- **The cost:** about 4 integer ops killed and replayed per cancel, and 3.6–3.8 cycles from the failed check to completion.
+
+**In the model, now in `rtl_m2` revision 4:**
+- **`dc_row_clash`** (`clash_delay` 4), the RTL's rule on two paths:
+  - a load reading the D$ as such a store drains;
+  - a load whose forwarding store, committed at the SQ's head or next, drains before the load's M1. The model used to forward these, because it decides at issue; the RTL searches the SQ at M1, when the store is gone.
+- **`spec_fwd`:** with speculative wakeup, a forward completing at M2 wakes its dependants as a hit does, in 3 cycles rather than 5.
+
+**What they move** (each program's 500-run / 10-iteration region, the model against the RTL):
+
+| Program | RAS head, revision 3 | RAS head, revision 4 | TAGE-lite build, revision 3 | TAGE-lite build, revision 4 |
+|---|---|---|---|---|
+| CoreMark A rv64im | −2.8% | −2.9% | −4.9% | −4.5% |
+| CoreMark B rv64im | +3.0% | +3.0% | −6.1% | −6.3% |
+| Dhrystone rv64im | −6.4% | −1.0% | −10.3% | −9.5% |
+| CoreMark A rv64gc | −0.8% | −0.9% | −4.3% | −4.1% |
+| CoreMark B rv64gc | +1.6% | +1.6% | −8.2% | −8.4% |
+| Dhrystone rv64gc | −10.3% | −8.2% | −13.6% | −11.1% |
+
+- **On the 17 programs** against the RAS head, the mean error goes from 7.7% to 7.3%. Statemate improves from −9.0% to −8.5%; the worst is still minver at +19.8%.
+- **The clash count is still low:** 0.5–1.0 per 1K instructions on CoreMark against the RTL's 1.7–3.0. The model also makes twice the RTL's forwards. In the RTL, more of the loads that follow a store meet it as it drains, and fewer while it waits in the SQ. The cycle effect on CoreMark stays under 0.5%.
+
+**TAGE-lite's first step is not the cancels.**
+- **What remains:** with both rules, the TAGE-lite build is still 4–8% optimistic on CoreMark, against −3% to +3% on the RAS head.
+- **Why not the cancels:** the RTL's cancels come to about 1% of CoreMark's cycles, and the model's rules move it under 0.5%.
+- **The next suspect** is the front end, now that speculative wakeup speeds up the backend. §6.4 found the RTL refetching at F2 about 40% more often than the model, which the slower backend used to hide.
+
+**A trap in the method: Dhrystone's two lengths are two layouts.**
+- **The layouts:** the 1000-run ELF lays its code out 0x54 bytes later than the 500-run one (CoreMark's are identical), so their difference mixes two binaries.
+- **The RAS head is layout-sensitive in RTL:** 134.1K cycles per 500 runs in one binary and 127.8K in the other. TAGE-lite removes most of the difference: 117.8K and 118.3K.
+- **What it does to make perf:** its +13.9% for TAGE-lite on Dhrystone is +8.0% in the other binary.
+- **The fix:** compare Dhrystone binary by binary, as the table above does.
+
+**For §6.5:** revision 4 moves Dhrystone by a few points and CoreMark by under 0.5%, so its ranking stands. Its script pins revision 3.
+
+### 6.7 The front end of the TAGE-lite build, measured in the RTL (2026-10-18)
+
+*§6.4 found the RTL refetching at F2 about 40% more often than the model, and §6.6 left the TAGE-lite build 4–8% optimistic. This section profiles every F2 refetch and redirect by cause in the RTL, on the tree core-2 will merge: fpu-2's `claude/track-fpu-395911-f2cut` at 1e4a503, which is c149fce's M6 set (the RAS, two-table TAGE-lite, returns and straddlers at F2, four misses, speculative wakeup) with F2 restructured, cycle for cycle the same as c149fce. The bind is measurement-only (`scripts/rtlprof/prof_f2cut.sv`). It ran on make perf's ELFs (timed regions) and on the Linux boot's first 20M cycles (`tb_boot`, one core). `scripts/m6_fe.py` sets the model beside it (`results/m6_fe_rv64.json`).*
+
+**How a cause is costed:** in each cycle rename can take a group but the instruction queue offers fewer than two instructions, the missing decode slots are charged to the front end's last event. With no event in the last 32 cycles they go to "steady fetch". The model counts the same way. A run of back-to-back I$ misses counts as one event, so in the boot part of their cost falls to steady fetch (item 2 below).
+
+**What the RTL loses, by cause** (rv64gc, percent of cycles; events per 1K instructions in brackets):
+
+| Cause, in hardware terms | CoreMark A | CoreMark B | Dhrystone | Boot, first 20M cycles |
+|---|---|---|---|---|
+| I$ miss: fetch waits for the line | 0.06% | 0.06% | 0.29% (0.1) | **9.60%** (7.3) |
+| Steady fetch: no front-end event in the last 32 cycles | 0.09% | 0.08% | 0.12% | **4.34%** |
+| Trap, interrupt or serializing instruction (CSR access, fence, xRET): the refill after its flush | – | – | – | **1.58%** (3.4) |
+| Mispredict: the refill after its flush at commit | **1.60%** (4.0) | **1.29%** (3.7) | 0.02% | **1.50%** (6.6) |
+| Replay at commit (on the bench, a load that ran before an older store to its address): the refill | 0.38% (0.9) | 0.42% (1.0) | **2.62%** (7.0) | 0.45% (2.2) |
+| ITLB walk | – | – | – | 0.89% (0.8) |
+| F2: the taken exit is at another slot than the micro-BTB's | 0.55% (3.3) | 0.33% (5.7) | **1.99%** (17.9) | 0.30% (8.1) |
+| F2: a taken branch the micro-BTB missed | 0.39% (9.4) | 0.54% (5.3) | 0.14% (7.6) | 0.99% (13.4) |
+| F2: a JAL the micro-BTB missed | 0.24% (1.2) | 0.38% (1.4) | **1.08%** (7.9) | 0.52% (6.1) |
+| F2: the rest (returns, TAGE-lite not taken, straddlers, the cut) | 0.63% (14.1) | 0.39% (14.9) | 0.53% (22.6) | 1.04% (21.0) |
+| **All F2 refetches** | **1.81%** (28.0) | **1.64%** (27.3) | **3.74%** (56.0) | **2.85%** (48.7) |
+| **All lost decode slots** | **3.9%** | **3.5%** | **6.8%** | **21.2%** |
+
+- **There are no bogus micro-BTB predictions, no FTQ-full cycles and no decode redirects** in any run. The boot runs at IPC 0.84, and rename holds decode in 30% of its cycles.
+- **The boot has no model column:** the model runs bare-metal ELFs only, without traps or virtual memory.
+- **Each F2 refetch is a 2-cycle bubble,** 4 decode slots. The instruction queue hides about three quarters of it: on CoreMark a refetch costs 0.9 slots on average.
+
+**The answer to §6.4's question: mostly a gap in the model, and little IPC.**
+- **The count:** on CoreMark A rv64gc the RTL refetches at F2 28.0 times per 1K instructions, against the model's 18.0.
+- **Two of the RTL's rules were missing from the model:**
+  - **Straddlers.** A 32-bit instruction that crosses into the next 16-byte block is decoded with that block: F2 holds its first half, and it is one of that block's branches. The micro-BTB never predicts or trains it. The model fetched it as a block of its own and trained it at slot 0 of the block before. So the model never saw the cut before a block's third branch on rv64gc (the RTL: 4.3 per 1K). On Dhrystone rv64gc it made 7 bogus predictions per 1K and 2.7× the RTL's missed JALs.
+  - **The micro-BTB's training way.** The RTL rewrites the way that predicted the instruction, else a pseudo-random way (`tg_exec`'s `upd_way`). The model rewrote the way that hit the block, so a block's second exit always evicted its first. That kept returns the RTL loses: 0.1 missed per 1K on Dhrystone, against the RTL's 5.1.
+- **A counting window too:** the model charged a flush's refill from the commit and the RTL from its flush, two cycles later. That alone made the model's refill look 4 slots longer per flush (9.7 against 5.6). The model now counts from the restart: 5.1–5.6 slots per mispredict on CoreMark, the RTL's 5.2–5.6.
+- **What is left costs little:** all F2 refetches cost the RTL 1.6–1.8% of CoreMark's cycles, 3.7% of Dhrystone's and 2.9% of the boot's.
+
+**`rtl_m2` revision 5** adds both rules (`m2_strad`, `m2_ub_way`):
+
+| rv64gc | CoreMark A: RTL / revision 4 / revision 5 | Dhrystone: RTL / revision 4 / revision 5 |
+|---|---|---|
+| Cuts before a third branch, per 1K | 4.27 / 0.00 / 4.09 | 0.01 / 0 / 0 |
+| Taken straddlers, per 1K | 1.51 / 0 / 1.77 | 0.01 / 0 / 0.01 |
+| Bogus micro-BTB predictions, per 1K | 0 / 0.01 / 0 | 0 / 6.98 / 0 |
+| JALs the micro-BTB missed, per 1K | 1.15 / 1.09 / 0.95 | 7.86 / 21.05 / 7.79 |
+| Returns the micro-BTB missed, per 1K | 0.17 / 0.18 / 0.18 | 5.12 / 0.08 / 6.35 |
+| Exits at another slot, per 1K | 3.32 / 1.67 / 2.01 | 17.93 / 13.94 / 20.94 |
+| All F2 refetches, per 1K | 28.0 / 18.0 / 21.2 | 56.0 / 73.5 / 66.2 |
+| All lost decode slots, % of cycles | 3.9 / 4.1 / 3.7 | 6.8 / 11.9 / 8.0 |
+| Decode held by rename, % of cycles | 18.2 / 11.9 / 10.3 | 17.7 / 10.9 / 10.6 |
+| The region's cycles against the RTL | – / −3.5% / −5.6% | – / −3.3% / −6.8% |
+
+- **The front end now matches within a point on CoreMark** (3.6–3.8% of cycles lost against the RTL's 3.0–3.9%, both ISAs). On Dhrystone the model still loses 1.2–2 points more. Its faster backend leaves the queue emptier when a refetch comes, so each missed JAL costs it 3.3 slots against the RTL's 2.2.
+- **The whole-program error grows,** because the front end no longer hides the backend:
+  - the TAGE-lite build is −5.0% to −7.2% against the RTL (revision 4: −3.3% to −6.8%);
+  - on the RAS head's 17 programs the mean error goes from 7.3% to 7.6%, with nsichneu at −10.0%. The other outliers are the same as before: minver, ws_hash, ws_copy and matmult-int.
+- **The rest is in the backend.** Rename holds decode in 17.7–22.2% of the RTL's cycles and 10.3–12.9% of the model's. CoreMark's ordering replays are also twice the RTL's in the model (1.7 against 0.9 per 1K). Splitting rename's stalls by cause in both simulators (ROB full, an issue-queue bank full, LQ or SQ full, no free register) is the next profile, for revision 6.
+
+**Each RTL cause above 1%: real, or the model's** (the model's estimates on revision 5, the M6 set, over make perf and the 11 RTL-suite programs):
+1. **The boot's I$ misses (9.6%, about 12% with those that fell to steady fetch): real.** The boot's first 20M cycles are mostly first-touch code: 7.3 misses per 1K instructions, 23 cycles each, with the I$ busy refilling 14% of the time. The levers are an I$ prefetcher (next line, or fetch-directed: the model has both) or a larger I$, not fetch's logic. The suite has almost no I$ misses, so §6.5 left the I-side pieces for Linux to judge. This is the first Linux figure, but a cold boot overstates steady-state Linux, so the board's workloads should decide.
+2. **The boot's steady fetch (4.3%): mostly I$ misses and FENCE.I, split by a second run's counters.** In 86% of its starved cycles F2 is empty. The reasons, as shares of all its starved cycles:
+   - **59% (about 2.6% of the boot's cycles):** fetch parked on an I$ miss or an ITLB walk. The bind charges a run of back-to-back misses to the first miss's event, so after 32 cycles they fall here; they belong with item 1.
+   - **19% (about 0.8%):** the I$ invalidate after a FENCE.I (item 8).
+   - **14% (about 0.6%):** F2 holding a block or delivering one too short to fill decode.
+   - **8% (about 0.3%):** none of the stall reasons the bind reads.
+3. **The mispredict refill (1.3–1.6% on CoreMark, 1.5% on the boot): real, but the pipeline's own depth.** Fetch restarts at the flush and reaches decode 3 cycles later; the model has the same. The levers are fewer mispredicts (TAGE-lite's tables) or recovery before commit (checkpoints, §6.5: about +2% per 1K LUTs). The refill itself stays.
+4. **Dhrystone's ordering-replay refill (2.6%): real, and the backend's.** A store's address op waits for its data register (rename's IQ-STA dependency on rs2, still in the f2cut tree). So a younger load to the same address runs first and is replayed, 7 times per 1K instructions. The refill is the smaller part of each replay. §6.4's lever removes the whole: the store address issuing on its base alone, model +26–30% on Dhrystone and +3–6% on CoreMark with the stack. It drops a dependency, and store data already has its own capture path (§6.6), so it should add no LUTs; core-2 would confirm. It also gates the front end's levers on Dhrystone: with F2's bubble at 0 the model's Dhrystone gets 4–5% *slower*, because loads overtake waiting stores more often.
+5. **The boot's refill after traps, interrupts and serializing instructions (1.6%): real.** 3.4 such flushes per 1K instructions at 11 slots each. Without the FENCE.Is among them the rest cost 5.6 slots each, a mispredict's refill; FENCE.I's invalidate (item 8) makes up the difference.
+6. **Exits at another slot (2.0% on Dhrystone): real.** The micro-BTB holds one exit per block: a second way holding the same block is shadowed, as the lookup takes way 0. A block whose exits take turns, such as a call and a branch around it, gets the wrong one at F1, and F2's pre-decode and TAGE-lite redirect it. The model has the same, at 2.5%.
+   - **The lever is a 1-cycle F2 redirect,** which halves every refetch's bubble: at most +1.8% on the geometric mean (CoreMark A rv64gc +1.9%, Dhrystone rv64gc +1.6%, nsichneu +26%).
+   - **It does not fit:** F2's decision is the 19–21-level cone that §8.12's restructure just fitted into 100 MHz, so it cannot join the next-PC loop.
+7. **JALs the micro-BTB missed (1.1% on Dhrystone, 0.5% on the boot): real.** These are evictions from the 64-entry, 2-way micro-BTB with random replacement.
+   - **128 entries:** +0.3% on the geometric mean (CoreMark 0 to +0.2%, Dhrystone rv64gc +0.4%, nsichneu +6%) for about 70 LUTs per core. Each way becomes a 64-deep LUTRAM with the same one-LUT read.
+   - **256 entries:** +0.8% (nsichneu +15%) for about 370 LUTs per core.
+   - **Linux should judge it:** the boot's micro-BTB misses (taken branches and JALs) cost 1.5% of its cycles.
+8. **FENCE.I's I$ invalidate (1.7% of the boot's cycles, split between items 2 and 5): real, and boot-heavy.** The I$ clears one set a cycle, so fetch waits 64 cycles after every FENCE.I (32 KiB, 64 sets). The boot's first 20M cycles run 5,410 of them, 0.32 per 1K instructions: code patching, and OpenSBI's remote FENCE.I. A small generation count per line would let most FENCE.Is take a cycle and sweep only when the count wraps, for a few tens of LUTs. Steady-state Linux runs few FENCE.Is, so the board should count them before anyone changes the I$.
+
+**Is any worth an RTL change before M6 merges? Not in the front end.**
+- **Its losses are of three kinds:** the pipeline's own refill depth, a cold boot's I$ misses and FENCE.Is, or F2 refetches that the instruction queue mostly hides (1.6–1.8% of CoreMark's cycles in all).
+- **The levers on them are out of reach or small:** a 1-cycle F2 redirect does not fit 100 MHz (+1.8% at most), and a 128-entry micro-BTB buys +0.3% on the suite. The micro-BTB is better judged under Linux.
+- **The one change worth weighing before the merge is in the backend:** the store address waiting for its data (§6.4's question for core-2). It costs Dhrystone 2.6% of its cycles in refills alone, and 26–30% overall in the model.
+
+### 6.8 Rename's stalls on the TAGE-lite build, measured in the RTL (2026-10-18)
+
+*§6.7 left the model 5–7% optimistic, with rename holding decode in 17.7–22.2% of the RTL's cycles against 10.3–12.9% of the model's. This section splits those cycles by cause in both simulators on the same tree (fpu-2's f2cut, 1e4a503), with a measurement-only bind (`scripts/rtlprof/prof_rs.sv`), on make perf's regions and the RTL suite's 11 programs. `scripts/m6_rs.py` sets the model beside it (`results/m6_rs_rv64.json`). It also gives the model's prediction for fpu-2's prototype of the store address issuing on its base alone.*
+
+**How a cycle is charged:**
+- **The order:** each cycle decode is held (rename's `!de_take`) goes to the first of these causes:
+  - a flush;
+  - the dispatch stage holding a group whose slot's bank of an issue queue is full (by queue, slot 0 first);
+  - the ROB, LQ or SQ without room for the group;
+  - a free list short; wakeup tags or LLTs short; the divide and FP-op limits;
+  - serializing uops; and the rest.
+- **The blocking bank's rows:** when a queue's bank stops dispatch, its rows are counted by state (waiting on a source, ready but not yet granted, issued and held).
+- **IQ-STA's rows by what they wait on:** a shadow of each row's two sources (their wakeup columns and MX rows, taken at dispatch) splits them into waiting on the base, waiting only on the store's data, or neither.
+
+**What holds rename in the RTL** (percent of cycles; rv64im is within half a point of rv64gc):
+
+| Cause | CoreMark A | CoreMark B | Dhrystone | crc32 | edn | matmult-int | minver | statemate | ws_hash |
+|---|---|---|---|---|---|---|---|---|---|
+| IQ-A0 bank full | 5.4 | 8.1 | 2.6 | 6.9 | 0.4 | – | 0.8 | 0.2 | 35.8 |
+| IQ-A1 bank full | 5.7 | 6.2 | – | 17.2 | 14.6 | – | – | – | 1.8 |
+| IQ-LD bank full | 3.9 | 5.1 | 2.6 | – | 0.1 | – | 0.6 | 8.1 | – |
+| IQ-STA bank full | 2.5 | 2.2 | 11.5 | – | 0.3 | 17.8 | 11.7 | 38.6 | – |
+| ROB, LQ, SQ, free lists, tags | – | – | – | – | – | – | 3.5 | – | 6.8 |
+| Flush, divide limits, the rest | 0.7 | 0.6 | 0.9 | – | 0.3 | 0.1 | 2.7 | – | 1.5 |
+| **All** | **18.2** | **22.2** | **17.7** | **24.1** | **15.6** | **17.8** | **19.4** | **46.9** | **45.9** |
+| ALU op stopped while the other ALU queue's bank had a row | 10.0 | 12.1 | 2.2 | 17.2 | 3.7 | – | 0.5 | 0.1 | 31.9 |
+
+- **Almost every held cycle is an issue queue's bank.** The ROB, LQ, SQ, free lists and tags hold rename only on minver (ROB 3.2%), ws_hash (ROB 6.8%) and the streaming kernels. ws_copy is held 85% of its cycles, mostly by the SQ.
+
+**The ALU queues: rename steers by flags a cycle old.**
+- **The rule** (`tg_rename.sv`): rename picks an ALU op's queue: slot k's queue k mod 2 if its bank for slot k has a row, else the other. It reads the banks' registered `bank_free_q`, which do not count the group the dispatch stage writes in the same cycle.
+- **What goes wrong:** two groups in a row can aim at a bank's last row, and the second waits at dispatch. Its queue and its destination register's bank were fixed at rename, so it cannot move.
+- **How much:** in 80–90% of the RTL's ALU-queue stalls on CoreMark the stopped op is an ALU op, and the other ALU queue's bank for its slot has a row. That is 10–12% of CoreMark's cycles, 17% of crc32's and 32% of ws_hash's.
+- **The model picked the queue at dispatch, with the rows as they stood.** It had a third of the RTL's ALU-queue stalls on CoreMark (3.1% against 11.1%).
+
+**`rtl_m2` revision 6** steers as the RTL does (`iq_steer_rn`): a cycle before dispatch, from the flags of the cycle before that, and the op keeps its queue.
+
+| Model against the RTL | Revision 5 | Revision 6 |
+|---|---|---|
+| CoreMark (both ISAs) | −5.0% to −6.5% | −0.5% to −1.1% |
+| Dhrystone | −6.8% / −7.2% | −4.7% / −5.9% |
+| crc32 | −3.4% | 0.0% |
+| Decode held, CoreMark A rv64gc (RTL 18.2%) | 10.3% | 15.1% |
+| Mean error over the 17 programs on this tree | 5.7% | 4.2% |
+| Mean error over the RAS head's 17 (§6.6) | 7.6% | 7.5% |
+
+**IQ-STA, and what the store address on its base alone would change.**
+- **CoreMark:** IQ-STA holds rename 2.2–2.5% of cycles, and the model has the same (2.1–3.6%). Rows waiting only for their data are rare: 5–8% of those cycles have one.
+- **Dhrystone:** IQ-STA holds rename 11.1–11.5% of cycles, against the model's 7.1–7.6%. Of the blocking bank's two rows:
+  - 0.3–0.4 wait only for their data (29–32% of these cycles have one);
+  - 1.5–1.7 are in their select cycle or held for the speculative-wakeup shadow, as in the model.
+- **matmult-int, minver, ud, edn:** the data wait dominates. 69–97% of their IQ-STA stalls have a row waiting only for its data, as in the model.
+- **statemate's 39%** is stores arriving faster than one slot's two rows turn over (3 cycles each): its rows are ready or held, not waiting on data.
+- **So the lever explains little of the held-cycle gap.** On CoreMark the gap was the steering, and IQ-STA matches. On Dhrystone, IQ-STA is 4 of the 7–9 points. In the model the lever leaves Dhrystone's held cycles where they were (12.6–12.9% before, 13.6–13.7% after). Its gain there comes from removing the ordering replays (7 per 1K instructions; §6.7).
+
+**The model's predictions** (speedup of each change over the model as built; these sit beside fpu-2's prototype when its numbers come):
+
+| Program | STA on its base, revision 5 / 6 | Steering fix (revision 6) | Both (revision 6) |
+|---|---|---|---|
+| CoreMark A rv64gc / rv64im | +3.4% / +3.0%; +2.5% / +1.9% | +6.0%; +6.3% | +9.6%; +7.8% |
+| CoreMark B rv64gc / rv64im | +4.4% / +2.9%; +3.9% / +3.0% | +6.6%; +6.4% | +11.0%; +10.7% |
+| Dhrystone rv64gc / rv64im | +15.0% / +14.8%; +14.6% / +13.3% | +3.3%; +3.4% | +26.4%; +28.0% |
+| matmult-int, minver, ud | +20.5%, +28.5%, +15.2% / +20.5%, +28.2%, +12.1% | 0, −0.1%, +6.2% | +20.5%, +28.5%, +14.1% |
+| crc32, edn | 0, +1.6% / 0, +1.4% | +3.6%, +0.3% | +3.6%, +3.1% |
+| Geometric mean, 17 programs | +6.2% / +5.7% | +2.5% | +9.3% |
+
+- **The lever's Dhrystone gain is half of §6.4's estimate** (+26–30% on revision 2). Speculative wakeup, the row clash and the RTL's front end have come in since.
+- **The steering fix** (`iq_steer_rn` 2) is a rename that counts the dispatch stage's group when it reads the ALU queues' bank flags. In RTL:
+  - **tg_iq** keeps a second registered flag per bank, "at least two rows free" (one LUT on five rows).
+  - **Rename** reads a bank as free only if that flag is set or the dispatch stage's op in the same slot does not take that bank.
+  - **Cost:** about 15 LUTs per core and one LUT level on rename's steering. The flags are registers, but core-2 owns the path and would check it.
+  - **Exactness:** rename fires only when the dispatch stage writes its group in the same cycle, so the correction is exact. Rows freed in that cycle are not seen, which only errs toward the other queue.
+
+**What is still open:**
+- **The ALU queues:** with revision 6 the model's held cycles are 3.1–3.3 points under the RTL's on CoreMark. The RTL's blocking ALU-queue banks hold more rows that are ready but not granted: 1.5–2.0 against the model's 0.5–0.7, beyond each grant's own cycle. A1's select was blocked for a MUL, DIV or CSR result in 13–21% of its stalls.
+- **Dhrystone's IQ-STA:** 11.1–11.5% in the RTL against 7.1–7.6% in the model.
+- **Outliers:**
+  - **ws_hash:** the model is 14% slow, yet the RTL holds rename for 46% of cycles against the model's 6.5%. The gap is elsewhere, likely its memory side.
+  - **ws_copy:** the model is 14% fast, though both hold rename about 82–85% of cycles, mostly on the SQ.
+
+### 6.9 DR-169's levers measured, and Dhrystone rv64im's race (2026-10-18)
+
+*fpu-2 built §6.8's two levers on the f2cut tree, each behind a switch: STA_BASE (a store's address issues on its base alone) and STEER_LA (rename's steering counts the group in the dispatch stage). The tree is `claude/track-fpu-395911-sta` at a857a07. fpu-2 measured both levers on the 17 programs, and DR-169 approved them. This section:*
+- *sets fpu-2's measurements beside the model's predictions;*
+- *explains the one program where they disagreed (Dhrystone rv64im);*
+- *folds the levers into `rtl_m2` revision 7, with two more RTL rules found on the way.*
+
+*The bind is `scripts/rtlprof/prof_sta.sv` (the rename profile plus the loads: M2 verdicts, cancels by cause, replays by PC). The script is `scripts/m6_lev.py` (`results/m6_lev_rv64.json`).*
+
+**Measured against predicted** (speedup over the tree without the levers: RTL / revision 6, as §6.8 predicted / revision 7):
+
+| Program | STA_BASE alone | STEER_LA alone | Both |
+|---|---|---|---|
+| CoreMark A rv64gc / rv64im | +1.6 / +3.0 / +3.5%; +0.7 / +1.9 / +2.2% | +6.9 / +6.0 / +5.8%; +6.4 / +6.3 / +5.7% | +8.1 / +9.6 / +9.7%; +6.9 / +7.8 / +8.0% |
+| CoreMark B rv64gc / rv64im | +1.8 / +2.9 / +3.2%; +1.7 / +3.0 / +3.3% | +6.9 / +6.6 / +6.1%; +6.5 / +6.4 / +6.2% | +9.1 / +11.0 / +10.6%; +8.6 / +10.7 / +9.9% |
+| Dhrystone rv64gc | +18.0 / +14.8 / +12.5% | +2.1 / +3.3 / +3.3% | +23.3 / +26.4 / +13.8% |
+| Dhrystone rv64im | +5.0 / +13.3 / +3.5% | +2.2 / +3.4 / +3.3% | +10.2 / +28.0 / +12.2% |
+| matmult-int, minver, ud | +18.7, +23.2, +17.4 / +20.5, +28.2, +12.1 / +20.5, +27.3, +12.1% | 0, −0.1, −0.7 / 0, −0.1, +6.2 / 0, −0.1, +4.5% | +19.1, +22.4, +18.8 / +20.5, +28.5, +14.1 / +20.5, +27.3, +14.3% |
+| crc32, edn | 0, +0.1 / 0, +1.4 / −3.3, +1.7% | +3.6, +4.5 / +3.6, +0.3 / +3.6, +0.9% | +3.6, +5.4 / +3.6, +3.1 / +3.5, +3.4% |
+| **Geometric mean, 17 programs** | **+5.03 / +5.70 / +4.90%** | **+2.25 / +2.52 / +2.36%** | **+7.84 / +9.33 / +7.74%** |
+
+- **The predictions held on the means:** revision 6 was 0.3–1.5 points high; revision 7 is within 0.15 points on all three.
+- **Per program,** CoreMark's STA_BASE gain is over-predicted by 1–2 points. Dhrystone moves with the race below.
+
+**Dhrystone rv64im: one race per run.**
+- **The symptom:** with STA_BASE, rv64gc's ordering replays all go, but rv64im keeps one per run (498 in 500 runs). Every one is at Proc_4's first load, `lbu Ch_1_Glob`.
+- **The race** (traced in RTL, cycle by cycle):
+  - Proc_5 stores Bool_Glob, then Ch_1_Glob (both gp-relative), and returns. main then calls Proc_4, whose first instruction loads Ch_1_Glob. On rv64im that load dispatches one cycle after the store.
+  - IQ-STA issues one address a cycle, oldest first. The older `sw` issues, and a speculative-wakeup cancel returns it: a load in its shadow did not complete in M2. It issues again two cycles later, so the `sb`'s address issues one cycle after the load.
+  - The load searched the SQ before the store's address was there, so it is replayed at commit: about 23 cycles each, the whole 11.7K cycles between rv64im and rv64gc.
+- **Why rv64gc escapes:** there the `sb` straddles a 16-byte block, so the load arrives 3–4 cycles later and the store wins.
+- **It is the code's layout, not a missing model rule.**
+  - With revision 7's drain cycle the model replays at this pair on both binaries: 4.2–4.4 per 1K instructions, against the RTL's 3.5 on rv64im and none on rv64gc. So the model's Dhrystone is −7.2% on rv64im and +3.5% on rv64gc.
+  - A memory-dependence predictor would end such repeats in RTL: a load that was replayed waits for older store addresses the next time (the model's `mdp`). It is not costed here.
+
+**Two RTL rules the model lacked, now in revision 7:**
+1. **The store-wait cancel** (`fwd_wait_cancel`).
+   - **The rule:** a load that finds an older store's address without its data (the LSU's STQ verdict at M2) does not complete in M2, so speculative wakeup cancels its shadow, as it does for a miss. The model charged nothing for it.
+   - **Why it matters now:** with STA_BASE such loads are common, at 7–10 per 1K instructions on Dhrystone and 0.5–1.5 on CoreMark.
+2. **The drain's cycle** (`drain_delay` 1).
+   - **The rule:** the ROB reports retiring stores in the commit cycle, and the SQ's committed pointer is registered. So a store writes the D$ 1–4 cycles after its commit: 63% after one, 23% after two, 10% after three (measured on Dhrystone). The model wrote it in its commit cycle, so fewer younger loads met the drain inside the row-clash window.
+   - **With the cycle,** the model's clashes rise toward the RTL's but stay under: statemate from 5.0 to 17.5 per 1K against 26.3, Dhrystone rv64gc from 4.1 to 8.7 against 16.0.
+   - **Not the rest of it:** a retry that reads the row again (`clash_rearm`) moved nothing, so it stays off.
+- **Both rules hold without the levers too:** on 1e4a503 they take the 17-program error from 4.23% to 3.93%.
+
+**`rtl_m2` revision 7** is revision 6 plus STA_BASE (`sta_split` 1), STEER_LA (`iq_steer_rn` 2) and the two rules.
+
+| On the levers tree (a857a07) | Revision 6 with the levers | Revision 7 |
+|---|---|---|
+| Mean error, 17 programs | 5.40% | 4.17% |
+| CoreMark | −1.7% to −2.8% | −1.4% to −2.1% |
+| Dhrystone rv64gc / rv64im | −7.1% / −19.0% | +3.5% / −7.2% |
+| statemate, minver | −5.1%, −9.0% | −2.5%, −7.7% |
+
+**What is still open:**
+- **The memory side:** ws_copy (−13%) and ws_hash (+14%).
+- **minver (−7.7%) and edn (−5.5%):** minver's row clashes are still three times the model's, and its store waits twice.
+- **Row clashes in general:** the model's are 1.5–3 times under the RTL's, even with the drain cycle.
+- **Decode held by rename:** on Dhrystone the model has 11% against the RTL's 20–21%, yet its cycles are within 4–7%. crc32 is held 48% in RTL and 21% in the model, with equal cycles; its time is set by the loop's dependency chain.
+- **The race above,** which a memory-dependence predictor would remove in RTL.
+
+### 6.10 Ordering replays in the Linux boot: the predictor parked (2026-10-18)
+
+*§6.9's race raised a memory-dependence predictor: a small table of load PCs that were replayed for ordering, whose loads then wait for older store addresses. The coordinator's rule was to judge it on Linux, parking it if replays cost under about 0.5% of the boot's cycles. This section measures it on the levers tree (a857a07, both levers, one `st` core), over the Linux boot's first 20M cycles in `tb_boot`. The bind is `scripts/rtlprof/prof_rpl.sv`.*
+
+**How a replay is costed:** each replay flush at commit is timed until the replayed instruction commits again. Nothing commits in between, so that is the commit stall it causes. Replays are counted in two kinds:
+- **ordering replays:** a younger load ran before an older store to its bytes;
+- **DTLB retries:** the ROB head missed the DTLB and now translates.
+
+| First 20M cycles of the boot (16.8M instructions) | Count | Per 1K instructions | Commit-stall cycles | Share of cycles |
+|---|---|---|---|---|
+| Ordering replays | 1,158 | 0.07 | 17,370 (15 each) | **0.09%** |
+| DTLB retries | 29,608 | 1.76 | 492,906 (17 each) | **2.45%** |
+
+- **The predictor is parked.** Ordering replays cost 0.09% of the boot's cycles, a fifth of the bar.
+- **A table would catch them, but they are worth little:**
+  - they come from 35 load PCs, and 97% are repeats at a PC that replayed before;
+  - a 16-entry table of single bits, indexed by PC, would catch 98.8% (a 256-entry table the same 97% as an exact set);
+  - the most replayed are the kernel's early code at physical addresses (400 at one PC), one kernel load (201) and OpenSBI's `sbi_memcmp`, at its reload of the return address from the stack (145).
+- **Gain at most 0.08% of the boot's cycles,** less the waits the table would add. The model runs bare-metal programs only (no traps or virtual memory), so it cannot replay the boot itself.
+- **Dhrystone rv64im's race is a benchmark effect:** it costs that binary 11%, and the boot almost nothing.
+
+**DTLB retries cost 30 times as much.**
+- **The mechanism:** a load or store that misses the DTLB is marked; the walker fetches the translation; and at the ROB head the instruction and everything after it are flushed and refetched (M3's design, core-mmu.md). That is about 17 cycles of commit stall per miss, beyond the walk.
+- **The cost:** 1.76 misses per 1K instructions, 2.45% of the boot's cycles. §6.7's front-end profile saw part of this as its "replay" refill.
+- **The levers would be:** a DTLB miss waiting in the LQ for the walk and replaying from there, as a cache miss does, so younger instructions are not flushed; or fewer misses (a larger DTLB).
+- **Judge it on steady state:** the boot's first 20M cycles touch many new pages, so steady-state Linux workloads on the board should decide.
 
 ---
 
@@ -1200,6 +1685,70 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
 - the 3-wide configurations under DR-113's settings, then §7.1–7.5 move to the latest pass;
 - hart 1 at M7, which replaces every estimate.
 
+### 7.8 Room for M6's set at 100 MHz: the area levers, ranked (desk study, 2026-10-18)
+
+*The coordinator's question, after spikes.md §8.11: M6's set with the restructured F2 (1e4a503), the two-table TAGE and hart 1's area does not place at 100 MHz. Which levers make room, how much each gives, and at what cost? This is a desk study: the full chips' per-unit reports, the FPU track's out-of-context runs, and a unit synthesis wherever a lever looked worth 300 or more LUTs a chip and had no number. No full chip was run.*
+
+**What is needed.**
+- **To place:** at least ≈600 LUTs a chip. After `opt_design`, 1e4a503's synthesized chip has **117,786 LUTs, 666 over the device's 117,120** (this study, on spikes-2's `h100_m6f` checkpoint). The placer came up 73 CLBs short.
+- **For timing margin:** 1.5–2K. Above 96% fill the slack falls about 0.8 ns per 1K LUTs (§8.9 of spikes.md). Tree (ii), which placed at 98.3%, failed by 1.63 ns once every front-end path was taken out.
+- **For M6's later pieces and M7/M8:** about 5K.
+
+**The basis.**
+- **The full chip, per unit** (tree (ii), c149fce, placed at 115,185 LUTs: `fpga/spikes/results/h100_m6t/util_hier.rpt`):
+  - each core is 45.9K: the LSU 12.3K, execute 6.9K, P4 6.3K, fetch 6.0K, the issue queues 5.1K, rename 3.0K, the ROB 2.6K, decode 2.0K, the CSRs 1.4K;
+  - the uncore is 15.9K: the L2 9.2K, the crossbar 2.5K, the two latency injectors 1.3K, the host bridge 0.9K;
+  - hart 1's filler is 3.7K a core.
+- **Unit syntheses** (this study): DR-113's settings (hierarchy kept, `AreaOptimized_high`), counted after `opt_design`, on main 37f2658 with the change in a scratch copy:
+
+  | Unit | As built | With the lever | Change |
+  |---|---|---|---|
+  | `tg_pmp`, one granule (the LD and STA checkers) | 891 | 450 (8 entries) | −441 |
+  | `tg_pmp`, a fetch block (fetch's checker) | 958 | 485 (8 entries) | −473 |
+  | `tg_fp_exec` (P4) | 6,813 LUTs, 4,001 FFs, 37 DSPs | 6,188, 2,812, 8 (`FDIV_RADIX4`) | −625 LUTs |
+  | `tg_core` at `smt2` | 46,524 LUTs, 21,853 FFs | 46,125, 21,505 (FP queue 8, LD queue 4) | −399 LUTs |
+
+- **`opt_design` directives** on 1e4a503's synthesized chip (`h100_m6f_synth_post_synth.dcp`), with no placement: the default 117,786 LUTs; `ExploreWithRemap` 117,467 (−319); **`ExploreArea` 116,511 (−1,275)**. Flip-flops are 62,403 in all three.
+
+**The levers.** LUTs are per chip: two cores, or the uncore once. IPC is from the model (§3) unless marked. "Decides" follows DR-154: under 1% performance and under 1,200 LUTs a chip, the coordinator; otherwise the user.
+
+| # | Lever | Unit (owner) | LUTs a chip | IPC or function cost | Effort | Risk | Decides |
+|---|---|---|---|---|---|---|---|
+| | **1. No IPC** | | | | | | |
+| 1 | **`opt_design -directive ExploreArea`** in the full-chip flow, in place of the default | flow (spikes) | **1,275** (measured, above) | none: no RTL change | low: one option | timing: an area directive can lengthen paths, so one placement must check it | coordinator |
+| 2 | **Release builds without the latency injectors** (a pass-through instead of `tg_axi_lat_inj` per L2 bank) | uncore (SoC) | **1,293** (measured in the chip), and 556 FFs and 4 BRAM36 | none at native latency: a miss is a few cycles faster without the injector's buffering (so not cycle-identical). Release builds lose latency emulation and its native-latency counts; development builds keep them, as with DR-121's trace | low: a build switch | low | user (function) |
+| 3 | The D$ tags in block RAM (T3), read with the virtual index at AG | LSU (core-2) | ≈1,280 (640 LUTRAM a core) | none, with a bypass for a tag written between AG and M1 | high: three read ports, so copies, ≈15 BRAM36 a chip of the 23 free | medium | coordinator |
+| 4 | Execute's operand ports in URAM (DR-133, revived) | execute (FPU track) | ≈1,190 (−597 a core, measured then), +24 URAM | none | medium: the switch is on `claude/track-fpu-395911-dr133-gate3` | **high:** at 200 MHz its issue → URAM path measured ≈9.8 ns, 7–8 ns of it wire to the single URAM column. At 100 MHz with the 1 ns over-constraint it would still miss | — (not proposed) |
+| | **2. Function, or small IPC** | | | | | | |
+| 5 | **PMP with 8 entries instead of 16:** entries 8–15 are read-only zero (every PMP CSR field is WARL and may be read-only zero; software probes the count), Spike runs with `--pmpregions=8` | fetch, LSU, CSRs (core-2) | **2,710 now** (3 checkers a core, measured), 1,152 FFs (the descriptor registers), **and ≈1.7K of hart 1's area at M7**: its per-hart descriptor select halves too (≈0.86K a core of [hart1_ram_form.md](hart1_ram_form.md)'s 1.7K) | IPC none. Function: 8 PMP regions. Our boot uses 6: OpenSBI's Domain0 has firmware RW, firmware RX, UART, ACLINT, PLIC and the all-memory region (`Region00`–`05`); Linux uses none | low: a parameter, the CSR's read-only-zero entries, the harness's Spike flag | low | user (function, > 1,200) |
+| 6 | One checker for the LD and STA pipes (DR-139 gave STA's checker to the walker already). The DTLB's cached result (`ph`) covers translated pages, and M-mode with no locked entry needs no check, so on Linux the checker is almost never wanted twice in a cycle | LSU (core-2) | 1,780 (one 891 checker a core), or 900 after #5 | ≈0 on Linux: a wait only for untranslated S/U accesses, pages crossing a PMP boundary and M-mode with locked entries. Not cycle-identical | medium: an arbiter and the bypass | medium | user (> 1,200) or coordinator (after #5) |
+| 7 | **FP queue 10 → 8 and LD queue 6 → 4** (AR-6) | issue (FPU track) | **798** (measured) and 696 FFs | model, v1 with tags: −0.21% throughput, −0.29% single thread. Not re-run with speculative wakeup; one `make perf` would | low: two configuration values | low | coordinator |
+| 8 | Radix-4 divide and square root (`FDIV_RADIX4`, DR-118) | P4 (FPU track) | **1,250** (measured), 2,378 FFs, 58 DSPs | −0.4% throughput, −2.4% single thread, all FP divide and sqrt (nbody −47%, st −43%) | low: a switch | low | user (> 1,200, > 1% single thread) |
+| 9 | R9: forwarding only from a same-address, same-size store | LSU (core-2) | ≈400–600 (AR's estimate; the LSU's forwarding has been reworked since and was not re-measured) | −0.03% throughput | medium | medium | coordinator |
+| 10 | R10: checkpoints shared by the threads | rename | **0**: today's rename has no checkpoints (every recovery is at commit) | — | — | — | — |
+| 11 | DR-121: release builds without the commit trace | core, uncore | **0 more**: every full chip already defines `TG_COMMIT_TRACE=0`, so the 120,787 excludes it | — | — | — | — |
+| | **3. For comparison** | | | | | | |
+| 12 | TAGE's second table (§6.5) | fetch (core-2) | 660 | make perf +3.7 points (−16.0% against −12.3% cycles), ≈5.6% per 1K LUTs | — | — | user |
+| 13 | Hart 1's reserve (M7's SMT2) | core | 7,400 (3.7K a core, RAM form) | the second thread | — | — | user |
+
+**Top three.**
+1. **`opt_design -directive ExploreArea` (1,275, no RTL, no cycles).** It alone brings 1e4a503 under the device (116,511, 609 to spare after optimisation). It needs one placement to show it costs no clock, and spikes-2's next full chip can carry it.
+2. **PMP with 8 entries (2,710 now, ≈1.7K more at M7, no IPC).** It is the largest lever, it costs no performance, and our software uses 6 regions. It is a function change, so the user decides.
+3. **Release builds without the latency injectors (1,293 and 4 BRAM36, no IPC).** It is the same kind of lever as DR-121's trace: development builds keep the injectors.
+
+Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queue trims (798, −0.2%, the coordinator's call) and the shared LD/STA checker (900 after #5). TAGE's second table buys more per LUT (≈5.6% of make perf per 1K) than any IPC-costing lever here gives up: radix-4 loses 1.9% of single-thread IPC per 1K LUTs.
+
+**Where the earlier passes already harvested** (nothing above counts them again):
+- **The commit trace** is off in every full chip (DR-121's ≈5.8K is already out of 120,787).
+- **Built and inside the measured numbers:**
+  - wakeup tags (AR-1); R1 (counters in DSPs), R2 (cold CSRs in LUTRAM) and R3 (LUTRAM maps); R14 (DR-113's settings, which the chip's synthesis uses);
+  - DR-139 (the walker shares STA's PMP checker);
+  - DR-136 (the uncore's register slices in DSPs);
+  - the core track's FPGA-friendly passes, and the FPU, execute and uncore rows of fpga_friendly.md §4.
+- **Shrunk since they were priced:** radix-4 saved 1,036 a core in DR-118, before the FPU's passes, and saves 625 now. AR-6's queue trims were model estimates (≈0.17K a queue a core with tags) and measure 399 a core for both.
+- **Gone:** R10 (no checkpoints left to share).
+- **Rejected and not revived:** DR-133's URAM ports (timing, above). PMP compares in DSPs (T6) were considered too: they need a register in front of each checker, so the PA from the TLB would arrive a cycle late. That is not cycle-identical, so it is not in the table.
+
 ---
 
 ## 8. Ledger entries and proposed plan text
@@ -1266,6 +1815,11 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 4. **v2's budget lines (AR-9),** then a no-IPC pass on the 3-wide structures.
 5. **Re-run the SMT2 window sizing with tags' costs** (ROB entries at ≈10 LUTs), once the measured fit leaves room (AR-3's option).
 6. **A merged pool of LLTs and wakeup tags** could cut the 40 columns further. Not modelled.
+7. ~~The model's backend gap (§6.7)~~: **done** (§6.8). Rename's steering was most of it; `rtl_m2` revision 6 has it.
+8. ~~The steering fix~~: **approved** (DR-169, STEER_LA) with the store address on its base (STA_BASE); measured +2.25% and +5.03% over 17 programs, +7.84% together (§6.9).
+9. **What §6.8 left open in the model:** partly done (§6.9). With the levers, CoreMark's ordering replays are gone in both simulators; the store-wait cancel and the drain's cycle are in revision 7. Still open: row clashes (1.5–3× under), ws_hash (+14%) and ws_copy (−13%), minver and edn.
+10. ~~A memory-dependence predictor~~: **parked** (§6.10). Ordering replays cost 0.09% of the Linux boot's cycles, under the 0.5% bar.
+11. **DTLB retries at the ROB head** (§6.10): 2.45% of the boot's first 20M cycles, about 17 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB.
 
 ---
 
@@ -1386,7 +1940,68 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
   - the plan's whole M6 core is 2.5× the suite.
 - **§6.2's lead over NaxRiscv at 100 MHz does not hold for the core as built:** 0.56× / 0.52× of NaxRiscv at 135 / 150 MHz with 4 misses in flight.
 
+**2026-10-17: the first M6 stack checked against the RTL** (§6.4; `scripts/m6_rtlcheck.py`, `scripts/rtlprof/`, run on the build host):
+- **The question:** core-2's stack (the RAS, TAGE-lite at F2, returns at F2) gained 25% on CoreMark and 49–64% on Dhrystone in RTL. The model said 42–58% and 101–104%.
+- **Found in the RTL with measurement-only profile binds,** largest first:
+  - a store's address issues only with its data, so younger loads to its address replay (Dhrystone twice per run);
+  - the issue queues are banked by dispatch slot, and each row is held two cycles after its select (dispatch waited on a full bank in 26% of CoreMark's cycles);
+  - TAGE-lite as built is per block, with branch-only history and the lookup a block behind, and mispredicts about twice as often as the model's.
+- **With the three in the model,** the stack's scores are within 2–6% of the RTL, against 21–51% before.
+- **`rtl_m2` revision 2** has them with four misses in flight (DR-156): main within 7.5% on average over 17 programs (8.6% before).
+- **Two RTL questions for core-2,** in the model:
+  - the store address issuing on its base alone, as core-lsu.md describes: the stack's Dhrystone +26–30% and CoreMark +3–6%;
+  - rows freed at select while speculative wakeup is off: up to +5%.
+
+**2026-10-18: what M6's remaining pieces buy per 1K LUTs** (§6.5; `scripts/m6_area.py`, run on the build host):
+- **The base:** `rtl_m2` revision 3 adds main's speculative wakeup. With the RAS, it matches core-2's RAS head within 3% on CoreMark and 7.7% on average over 17 programs.
+- **TAGE-lite's first table buys the most:** 1.9K LUTs per chip, −12.3% make perf cycles in RTL. The second table adds −3.6 points for 660 LUTs; the third and fourth add −0.8 points for 640.
+  - The model's steps between sizes match the RTL.
+  - Its first step is about 4.4 points optimistic on the bench.
+- **The memory side:** 8 misses in flight and the L2 stream prefetcher come next, at +4.5% and +2.2% on the suite. Their LUTs are estimates.
+- **Checkpoints:** +2% after TAGE-lite.
+- **The I-side pieces:** nothing on the suite; Linux has to judge them.
+- **Where IPC per LUT drops:** after about 2.7K LUTs per chip, every further 1K buys under 5%.
+
+**2026-10-18: speculative wakeup's cancels, measured** (§6.6; fpu-2's RTL profile, `scripts/m6_swfit.py`, run on the build host):
+- **What the RTL cancels on:** D$ row clashes (a store to the load's 16-byte block draining as it reads), wrong-path faults, and the store-data capture lagging. About 4 ops are killed per cancel.
+- **`rtl_m2` revision 4** adds the row clash and fast forwards. The fit over 17 programs goes from 7.7% to 7.3%, and Dhrystone rv64im from −6.4% to −1.0%.
+- **The TAGE-lite overshoot is not the cancels:** they are about 1% of CoreMark's cycles. The front end is next.
+- **Dhrystone's two lengths have different code layouts,** so its steady state needs comparing binary by binary.
+
+**2026-10-18: the front end of the TAGE-lite build, measured** (§6.7; `scripts/m6_fe.py`, `scripts/rtlprof/prof_f2cut.sv` on fpu-2's f2cut tree, run on the build host):
+- **§6.4's extra F2 refetching was mostly the model's:** it fetched a straddling 32-bit instruction as a block of its own and trained it at slot 0 of the block before, and its micro-BTB wrote a block's second exit over its first. **`rtl_m2` revision 5** has the RTL's rules (`m2_strad`, `m2_ub_way`).
+- **The F2 refetches cost little:** 1.6–1.8% of CoreMark's cycles, 3.7% of Dhrystone's and 2.9% of the Linux boot's. The instruction queue hides about three quarters of each 2-cycle bubble.
+- **The boot's first 20M cycles lose 21% of cycles in the front end,** led by I$ misses (about 12%) and FENCE.I's 64-cycle I$ invalidate (1.7%).
+- **No front-end change is worth making before M6 merges.** The store address waiting for its data (§6.4) is the backend lever this profile points at again.
+- **The model's remaining optimism is in the backend:** rename holds decode in 17.7–22.2% of the RTL's cycles and 10.3–12.9% of the model's.
+
+**2026-10-18: rename's stalls on the TAGE-lite build, measured** (§6.8; `scripts/m6_rs.py`, `scripts/rtlprof/prof_rs.sv` on fpu-2's f2cut tree, run on the build host):
+- **Every held cycle is an issue queue's bank,** almost never the ROB, LQ, SQ or free lists.
+- **The ALU queues: rename steers by flags a cycle old.** In 80–90% of the RTL's ALU-queue stalls on CoreMark the other ALU queue had a row for the op's slot: 10–12% of CoreMark's cycles. **`rtl_m2` revision 6** steers as the RTL does: CoreMark within 1.1%, and the 17 programs' mean error from 5.7% to 4.2%.
+- **A fix for core-2:** rename counting the dispatch stage's group, about 15 LUTs per core. In the model: CoreMark +6%, Dhrystone +3%, +2.5% over 17 programs.
+- **The store address on its base alone** (fpu-2's prototype), in the model: CoreMark +2–4%, Dhrystone +13–15%, matmult-int, minver and ud +12–29%, +5.7–6.2% over 17 programs. It explains little of the held-cycle gap: its gain is the ordering replays it removes.
+
+**2026-10-18: DR-169's levers measured** (§6.9; fpu-2's `claude/track-fpu-395911-sta` at a857a07, `scripts/m6_lev.py`, `scripts/rtlprof/prof_sta.sv`, run on the build host):
+- **fpu-2 measured +5.03% (STA_BASE), +2.25% (STEER_LA) and +7.84% (both) over 17 programs.** §6.8 had predicted +5.7%, +2.5% and +9.3%.
+- **Dhrystone rv64im's +5% (against rv64gc's +18%) is one race per run:** Proc_4's first load overtakes Proc_5's store to the same byte, whose address op waits behind an older store that a speculative-wakeup cancel sent back.
+- **`rtl_m2` revision 7:** the two levers, plus a cancel for a load waiting for a store's data and a cycle before a committed store drains. 17-program error 4.17%; the levers' means predicted within 0.15 points.
+
+**2026-10-18: ordering replays in the Linux boot** (§6.10; `scripts/rtlprof/prof_rpl.sv` on a857a07, both levers, the boot's first 20M cycles):
+- **The memory-dependence predictor is parked:** ordering replays cost 0.09% of the boot's cycles (1,158, from 35 load PCs, 97% repeats).
+- **DTLB retries at the ROB head cost 2.45%** (29,608, about 17 cycles each): the larger Linux-side item, for the board to judge.
+
 **Lessons:**
+- **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
+- **Check each ISA's own cases.** The straddler gap showed only on rv64gc, where a 32-bit instruction can cross a 16-byte block; rv64im matched.
+- **A fix can widen the whole-program error.** Revision 5's front end is the RTL's, and the TAGE-lite build's error went from −3.5% to −5.6% on CoreMark A, because the old front end had been hiding a backend that is too fast. Keep the rule that is right and find the next gap; do not keep an error that cancels another.
+- **Ask "was there room elsewhere?" at every stall.** One counter, the other ALU queue's bank having a row while dispatch waited, found 10–12% of CoreMark's cycles lost to a steering decision.
+- **Check when a decision is made, not only what it decides.** Rename's queue choice is right with the flags it has, but they are a cycle old.
+- **When two binaries of one program disagree, trace the pair that differs.** Dhrystone rv64im's missing gain was one store–load race per run, visible only by following those two PCs through dispatch and issue.
+- **A rule's cost can hide until another change makes it common.** The store-wait cancel cost nothing measurable until STA_BASE made loads find store addresses before their data.
+- **Check that two binaries share a layout before differencing them.** Dhrystone's lengths do not, and the RAS head's speed moves 5% with the layout.
+- **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.
+- **Read the RTL's dependency rules, not only its spec.** The spec's STA is address-only; rename makes it wait for its data.
+- **Profile both simulators over the same window.** A whole run of Dhrystone is half printf, where the model is slower; difference two run lengths so start-up and printf cancel.
 - **Ask which consumers actually wait on a structure before sizing it.** The census turned a 4–5K "overrun" into an exact redesign. The same question asked of the window, the queues and the checkpoints only found IPC.
 - **A fit is only as good as its per-unit inputs.** The first projections used planning estimates for every unit but the scheduler and the FPU. The first real synthesis was 88K at `st` against 38.2K, so the levers this study ranked were a small part of the real gap (§7).
 - **Free in the model is not the same as free under D18.** R9 and R10 cost ≈0% IPC but share or reduce function, and the user puts those last.

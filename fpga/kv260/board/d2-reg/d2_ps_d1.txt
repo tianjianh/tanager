@@ -1,0 +1,20 @@
+tanager-host f515c0f69b7be562; mode d1
+== step 5: d1's test on d2
+loaded tanager-d2 at 06:37:27; fpga0 operating
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+$ tanager-host load --fw /home/ubuntu/tanager/d2pkg/ps_d1.bin --kernel /dev/null --dtb /dev/null
+loaded: fw 1632 B, kernel 0 B, dtb 0 B into 0x840000000 (RISC-V 0x80000000)
+$ tanager-host run --timeout 10
+tanager D1: the PS window
+UART1 SR 0000000a
+UART1: line written
+IOU_SLCR MIO_PIN_36 000000c0, SD_ITAPDLY 012a0000, SD_OTAPDLYSEL 00050000
+TTC1: interrupt after 00000335 ticks of 10 MHz, ISR 00000001
+denied: TTC0 and UART0 fault
+D1 PASS
+
+[tanager-host] tohost 0x1: PASS
+run exit 0
+06:37:28 pwm1 15/255, temp1 33013, fancontrol active
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+06:37:31 pwm1 15/255, temp1 34443, fancontrol active

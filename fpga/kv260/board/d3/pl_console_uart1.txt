@@ -1,0 +1,49 @@
+loaded: fw 277856 B, kernel 21449728 B, dtb 3051 B into 0x840000000 (RISC-V 0x80000000)
+[    0.454688] printk: legacy console [ttyS0] enabled
+[    0.459882] printk: legacy bootconsole [cdns0] disabled
+[    0.482350] NET: Registered PF_PACKET protocol family
+[    0.623264] ff010000.serial: ttyPS0 at MMIO 0xff010000 (irq = 13, base_baud = 6249999) is a xuartps
+[    0.633124] printk: legacy console [ttyPS0] enabled
+[    1.249090] clk: Disabling unused clocks
+[    1.396270] Freeing unused kernel image (initmem) memory: 8852K
+[    1.409473] Run /init as init process
+Saving 256 bits of non-creditable seed for next boot
+Starting syslogd: OK
+Starting klogd: OK
+Running sysctl: OK
+Starting network: OK
+Starting crond: OK
+TANAGER-BOOT-OK 6.18.56-tanager harts=2
+
+Tanager Linux
+tanager login: root
+# cat /proc/interrupts
+           CPU0       CPU1       
+ 10:        825        979 RISC-V INTC   5 Edge      riscv-timer
+ 12:         57          0 SiFive PLIC  10 Edge      ttyS0
+ 13:        202          0 SiFive PLIC  20 Edge      xuartps
+IPI0:        54         40  Rescheduling interrupts
+IPI1:       198        230  Function call interrupts
+IPI2:         0          0  CPU stop interrupts
+IPI3:         0          0  CPU stop (for crash dump) interrupts
+IPI4:         0          0  IRQ work interrupts
+IPI5:         0          0  Timer broadcast interrupts
+IPI6:         0          0  CPU backtrace interrupts
+IPI7:         0          0  KGDB roundup interrupts
+# Stopping crond: stopped /usr/sbin/crond (pid 82)
+OK
+Stopping network: OK
+Stopping klogd: stopped /sbin/klogd (pid 60)
+OK
+Stopping syslogd: stopped /sbin/syslogd (pid 56)
+OK
+Seeding 256 bits without crediting
+Saving 256 bits of non-creditable seed for next boot
+umount: devtmpfs busy - remounted read-only
+The system is going down NOW!
+Sent SIGTERM to all processes
+Sent SIGKILL to all processes
+Requesting system poweroff
+[   67.365943] reboot: Power down
+
+[tanager-host] RISC-V requested power-off

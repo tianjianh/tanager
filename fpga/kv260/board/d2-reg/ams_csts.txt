@@ -1,0 +1,13 @@
+AMS status words, read with `tanager-host psrd 0xFFA50040 2` (and 0xFFA50C00)
+
+d2 loaded (06:18:50 UTC, during step 4's boot 1):
+0x0ffa50040: 0x08010000   AMS_PS_CSTS
+0x0ffa50044: 0x00000000   AMS_PL_CSTS
+0x0ffa50c00: 0x00000000   PL SYSMON temperature
+fan: PL die 34.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+hwmon (ams) temp3: -280226
+
+sc3 loaded (the d2-probes run, ../d2/d2_probe_sc3.txt):
+0x0ffa50040: 0x08010000   AMS_PS_CSTS
+0x0ffa50044: 0x00000001   AMS_PL_CSTS
+0x0ffa50c00: 0x00009d3e   PL SYSMON temperature (32.6 C)

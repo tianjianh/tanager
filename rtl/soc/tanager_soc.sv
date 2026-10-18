@@ -119,6 +119,8 @@ module tanager_soc
   input  logic                  m_axi_ps_r_valid,
   output logic                  m_axi_ps_r_ready,
   input  logic [PS_IRQS-1:0]    ps_irq_i,
+  // the board's status word (clk), read by the host at FAN (0x1400): the KV260's fan regulator; 0 elsewhere
+  input  logic [31:0]           board_status_i,
 
   // commit trace of every core, also to the simulation harness
   output tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_o,
@@ -265,7 +267,7 @@ module tanager_soc
     .s_axi_dma_r, .s_axi_dma_r_valid, .s_axi_dma_r_ready,
     .m_axi_ps_aw, .m_axi_ps_aw_valid, .m_axi_ps_aw_ready, .m_axi_ps_w, .m_axi_ps_w_valid, .m_axi_ps_w_ready,
     .m_axi_ps_b, .m_axi_ps_b_valid, .m_axi_ps_b_ready, .m_axi_ps_ar, .m_axi_ps_ar_valid, .m_axi_ps_ar_ready,
-    .m_axi_ps_r, .m_axi_ps_r_valid, .m_axi_ps_r_ready, .ps_irq_i,
+    .m_axi_ps_r, .m_axi_ps_r_valid, .m_axi_ps_r_ready, .ps_irq_i, .board_status_i,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,

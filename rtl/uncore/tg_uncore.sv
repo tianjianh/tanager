@@ -220,6 +220,8 @@ module tg_uncore
   input  logic                                      m_axi_ps_r_valid,
   output logic                                      m_axi_ps_r_ready,
   input  logic [PS_IRQS-1:0]                        ps_irq_i,
+  // the board's status word (clk), read-only by the host at FAN: the KV260's fan regulator (kv260_top); 0 elsewhere
+  input  logic [31:0]                               board_status_i,
 
   // traffic-generator controls and results (host registers; tied off with real cores)
   output logic                    tg_en_o,
@@ -778,6 +780,7 @@ module tg_uncore
     .dbg_sel_o (dbg_sel), .dbg_val_i (dbg_val),
     .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i ({cpl_line, cpl_cycle}), .hdma_cpl_ready_o (cpl_r),
     .hdma_rd_lines_i (hdma_rd_lines), .hdma_wr_lines_i (hdma_wr_lines), .hdma_wr_drops_i (hdma_wr_drops),
+    .board_status_i,
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );

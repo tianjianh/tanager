@@ -65,6 +65,18 @@ if {[info exists ::env(TG_COMMIT)]} {
 # drives, as Kria's own PL design routes it. The facts live in tools/tcl/tg_kv260_fan.tcl, shared with
 # spike S1 (TTC0 channel 2, uninverted); TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override them.
 source [file join $root tools tcl tg_kv260_fan.tcl]
+# TG_FAN_PL (default 1): the fan's PL regulator (tg_fan, stage D's D2, DR-147): the duty is the larger of a curve
+# of the PL SYSMON's temperature and the TTC waveform; 0 routes the waveform alone, as before.
+set fan_pl [expr {[info exists ::env(TG_FAN_PL)] ? $::env(TG_FAN_PL) : 1}]
+if {$fan_pl ni {0 1}} { puts "ERROR: TG_FAN_PL must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
+# opt_design's directive (DR-166, the coordinator, 10-18): ExploreArea for board builds. On spikes-2's full M6
+# chip it left 1,275 fewer LUTs than the default (116,511 against 117,786, flip-flops unchanged), and that
+# netlist routed at 100 MHz (+0.725 ns, h100_m6fa) where the default's didn't place. TG_OPT_DIRECTIVE=Default
+# gives the plain opt_design; summary.txt records the directive. Checked here, before synthesis.
+set opt_dir [expr {[info exists ::env(TG_OPT_DIRECTIVE)] ? $::env(TG_OPT_DIRECTIVE) : "ExploreArea"}]
+if {$opt_dir ni {Default Explore ExploreArea ExploreWithRemap ExploreSequentialArea AddRemap RuntimeOptimized NoBramPowerOpt}} {
+  puts "ERROR: TG_OPT_DIRECTIVE must be one of opt_design's directives (fpga/kv260/README.md)"; exit 1
+}
 foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bit 0 2 TG_FAN_INVERT tg_kv260_fan_invert 0 1} {
   if {[info exists ::env($v)]} { set ::$g $::env($v) }
   set val [set ::$g]
@@ -108,7 +120,7 @@ set synth_dir [expr {[info exists ::env(TG_SYNTH_DIRECTIVE)] ? $::env(TG_SYNTH_D
 stamp "synth_design ($synth_dir)"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
-  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$unc_gen {*}$def_args \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv -generic FAN_PL=$fan_pl {*}$unc_gen {*}$def_args \
   -flatten_hierarchy rebuilt -directive $synth_dir
 # Implicit and undriven nets in our own RTL fail the build (the coordinator, DR-150): a name used before its
 # declaration becomes a one-bit wire in synthesis (Synth 8-11241 "undeclared symbol", 8-605 "same-named
@@ -176,8 +188,8 @@ proc tg_core_clock {} {
   }
   return {}
 }
-stamp "opt_design"
-opt_design
+stamp "opt_design ($opt_dir)"
+opt_design -directive $opt_dir
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
 set pr_unc_note ""
 if {$pr_unc > 0} {
@@ -218,9 +230,10 @@ puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
 puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
+puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
-puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
+puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
 close $fh
 if {$stop eq "impl"} { stamp "done (impl)"; exit 0 }
 
