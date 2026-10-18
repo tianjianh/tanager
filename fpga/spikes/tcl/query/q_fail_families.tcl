@@ -2,7 +2,8 @@
 # a family is the endpoint register or RAM with its bit indices, replica suffixes and RAM sub-cells
 # dropped (e.g. c1:u_fetch/g_tage.gh_q, c0:u_rob/g_ft[].u_ft/g_m64.g_bank[].g_prim[].u_ram), counted with
 # its worst slack, that path's levels, logic and wire, and its start family. Then the same with the
-# front end's two deep cones taken out of timing (false paths), to show what would fail next:
+# front end's two deep cones taken out of timing (false paths), and then every path inside the front
+# end, to show what would fail next:
 #   all of F2 (its registers u_fetch/f2_* and the I$ RAMs u_fetch/g_way*) -> every register in fetch, TAGE
 #   and the RAS (u_fetch/*, g_ras*: F2's decision feeds F3, the predecode results and the PC), and
 #   the instruction queue's head (u_fetch/u_cmp/head_q) -> the RAS (g_ras*).
@@ -59,6 +60,12 @@ foreach dcp $argv {
   if {[llength $f2] && [llength $f3t]} { set_false_path -from $f2 -to $f3t }
   if {[llength $head] && [llength $ras]} { set_false_path -from $head -to $ras }
   families $fh "without those cones" 25
+  # and with every path inside the front end taken out (any fetch, TAGE or RAS cell, the I$ and TAGE RAMs
+  # included, to any fetch, TAGE or RAS register): what the rest of the chip would show
+  set fe_src [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/* || NAME =~ *g_ras*) && (IS_SEQUENTIAL || PRIMITIVE_GROUP == BLOCKRAM)}]
+  set fe_dst [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/* || NAME =~ *g_ras*) && IS_SEQUENTIAL}]
+  if {[llength $fe_src] && [llength $fe_dst]} { set_false_path -from $fe_src -to $fe_dst }
+  families $fh "without any path inside the front end ([llength $fe_src] -> [llength $fe_dst] cells)" 25
   set crst [get_cells -quiet -hierarchical -filter {NAME =~ *u_uncore/u_host/crst_q* && IS_SEQUENTIAL}]
   if {[llength $crst]} {
     puts $fh "  the host bridge's core-reset registers ([llength $crst] cells): their worst ten endpoints"
