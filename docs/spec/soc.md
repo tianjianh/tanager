@@ -633,6 +633,18 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - In genpd, SD1's domain is on with its device's runtime PM unsupported (always active while bound), and UART1's is on.
         - The baseline for the dry run: `RST_LPD_IOU2` `0x000103AA` (SDIO1 and UART1 out of reset), and `SDIO1_REF_CTRL` `0x01010600` and `UART1_REF_CTRL` `0x01010A00`, both with CLKACT.
         - SD1's reference clock is IOPLL/6, 166,666,665 Hz (`clk_xin`, as D0's clock tree), which the RISC-V's tree gives as a fixed clock.
+    - **Built so far** (10-18):
+      - **`sw/handover/`:**
+        - `handover_dtb.sh`: the handover tree from the live one. Checked on a synthetic tree; the board's live tree comes next.
+        - `mk_initramfs.sh`, run on the board: its `busybox-static`, `sshd` with its libraries, the host keys, the board's key for root, `uio_pdrv_genirq`, `tanager-host`.
+        - `init`, and `handover.sh`, with `--dry` for the dry run. It refuses to start without `kexec-tools` (`LOAD_KEXEC=false`), a reading from D2's regulator, and `mem=3G` on the command line. It sets pwm1 = 1 after stopping `fancontrol`, then `systemctl kexec`.
+        - The handover command line adds `pd_ignore_unused`, and `panic=10` so that a dying `init` reboots into Ubuntu.
+      - **`tanager-host load --initrd`:** at `0x8800_0000`, zeroed to `0x8C00_0000`. Linux's initramfs unpacker skips zeros, so the tree names the fixed window and needs no patching. `load` refuses a kernel whose `image_size` reaches the DTB (Debian's 6.12 kernel: 30.4 of the 32 MiB).
+      - **`sw/dts` `SD1=1 INITRD=1`:** with `UART1=1`, this is the D4 tree. Every other tree is byte-identical to before.
+        - SD1 is the ZynqMP variant without `#clock-cells`. Its phase calls then get no clocks, so the A53's tap delays stay, and its firmware query fails into a stub on RISC-V, so it makes no PMU calls.
+        - Over plain `arasan,sdhci-8.9a`, it adds the A53's quirks: default speed at 19 MHz (the A53's high-speed taps stay during card set-up) and auto-CMD12 reads.
+        - Plain `arasan,sdhci-8.9a` follows as the fallback compatible.
+      - **Still to come:** the board's live tree; `kexec-tools` on the A53. Then the DKMS package: `sdhci-of-arasan` and `xilinx_uartps` built from `linux-source-6.12` on the RISC-V's Debian in stage C, and `sdhci-of-arasan` added to its initrd. Last, the dry run, then the run.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
