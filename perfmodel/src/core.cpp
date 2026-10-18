@@ -968,6 +968,10 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       }
       if (c_.prf_banked) { if (free_regs(0) <= 0) f0 = -1; if (free_regs(1) <= 0) f1 = -1; }
       q = (f1 > f0) ? Q_A1 : Q_A0;
+      // iq_slot_bank, as rename steers in the RTL: slot k's ALU op goes to queue k mod 2 unless that queue's bank
+      // for slot k is full
+      if (c_.iq_slot_bank && !c_.alu3) q = (u.dslot % 2 == 0) ? (f0 > 0 || f1 <= 0 ? Q_A0 : Q_A1)
+                                                               : (f1 > 0 || f0 <= 0 ? Q_A1 : Q_A0);
       if (c_.alu3) {
         int64_t f2 = qfree(Q_A2);
         if (c_.prf_banked && free_regs(5) <= 0) f2 = -1;
