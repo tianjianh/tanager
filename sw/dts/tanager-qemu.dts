@@ -7,6 +7,14 @@
 
 #define TG_POWER_NODE test
 #define TG_POWER_OFFSET 0x0
+// QEMU's virt machine has no PS UART1 or SD1, and boots its initramfs built in (UART1, SD1 and INITRD
+// are for the KV260 tree only)
+#undef TG_UART1
+#define TG_UART1 0
+#undef TG_SD1
+#define TG_SD1 0
+#undef TG_INITRD
+#define TG_INITRD 0
 #include "tanager.dtsi"
 
 / {

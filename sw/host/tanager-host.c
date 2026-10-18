@@ -85,6 +85,8 @@ enum {
 #define OFF_FW         0x0ull          /* docs/spec/soc.md §3 */
 #define OFF_KERNEL     0x200000ull
 #define OFF_DTB        0x2200000ull
+#define OFF_INITRD     0x8000000ull    /* stage D's D4: an initrd at 0x8800_0000, the window sw/dts INITRD=1 */
+#define INITRD_ROOM    0x4000000ull    /* names (64 MiB): zero past the file, which Linux's unpacker skips */
 
 static volatile uint32_t *regs;
 static const char *prog = "tanager-host";
@@ -152,7 +154,7 @@ struct opts {
   const char *net;        /* virtio-net (slot 2) on this TAP device, made if missing */
   const char *net_bridge; /* and the bridge it joins (the A53's br0, docs/spec/soc.md §8.1), or NULL */
   uint8_t net_mac[6];     /* the RISC-V's MAC address */
-  const char *fw, *kernel, *dtb;
+  const char *fw, *kernel, *dtb, *initrd;
   int console;            /* 0 stdio, 1 pty, -1 none */
   double timeout;
   long inj_rd, inj_wr, inj_mode, inj_bw;
@@ -186,8 +188,9 @@ static void usage(void) {
     "commands:\n"
     "  info                                   identity and status\n"
     "  reset                                  hold cores and uncore in reset\n"
-    "  load --fw F --kernel K --dtb D [--zero] reset, set the window, copy images (soc.md §3); --zero\n"
-    "                                         (implied by --trace) zeroes the window first\n"
+    "  load --fw F --kernel K --dtb D [--initrd I] [--zero] reset, set the window, copy images (soc.md §3); --zero\n"
+    "                                         (implied by --trace) zeroes the window first; --initrd (stage D's D4)\n"
+    "                                         puts I at RISC-V 0x8800_0000, zeroed to 0x8C00_0000 (sw/dts INITRD=1)\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
     "      [--freeze-time] [--dbg]\n"
@@ -646,7 +649,20 @@ static size_t load_file(const char *path, uint8_t *dst, uint64_t room) {
 
 static void cmd_load(const struct opts *o) {
   if (!o->fw || !o->kernel || !o->dtb) die("load needs --fw, --kernel and --dtb");
-  if (dram_bytes(o) < OFF_DTB + 0x10000 || trace_bytes(o) >= o->size) die("carve-out too small");
+  uint64_t top = o->initrd ? OFF_INITRD + INITRD_ROOM : OFF_DTB + 0x10000;
+  if (dram_bytes(o) < top || trace_bytes(o) >= o->size) die("carve-out too small");
+  /* The kernel's whole image (its header's image_size, BSS included) must end below the DTB: the kernel
+   * clears its BSS before it reads the tree. Debian's 6.12 kernel takes 30.4 of the 32 MiB. */
+  {
+    uint8_t h[64];
+    int fd = open(o->kernel, O_RDONLY);
+    if (fd < 0 || read(fd, h, sizeof h) != (ssize_t)sizeof h) die("%s: %s", o->kernel, strerror(errno));
+    close(fd);
+    uint64_t isz;
+    memcpy(&isz, h + 16, 8);
+    if (!memcmp(h + 48, "RISCV\0\0\0", 8) && isz > OFF_DTB - OFF_KERNEL)
+      die("%s: image_size %" PRIu64 " reaches the DTB at +32 MiB", o->kernel, isz);
+  }
   cmd_reset();
   wr64(R_DRAM_BASE, o->base);
   wr64(R_DRAM_SIZE, dram_bytes(o));
@@ -657,7 +673,7 @@ static void cmd_load(const struct opts *o) {
    * --zero, the window (not the trace ring above it) is zeroed first. 8-byte stores: the mapping
    * is uncached device memory, which takes no DC ZVA. */
   int zero = o->zero || o->trace;
-  uint8_t *mem = map_phys(o->base, zero ? dram_bytes(o) : OFF_DTB + 0x10000);
+  uint8_t *mem = map_phys(o->base, zero ? dram_bytes(o) : top);
   if (zero) {
     double t0 = now_s();
     volatile uint64_t *z = (volatile uint64_t *)mem;
@@ -667,6 +683,14 @@ static void cmd_load(const struct opts *o) {
   size_t n1 = load_file(o->fw, mem + OFF_FW, OFF_KERNEL - OFF_FW);
   size_t n2 = load_file(o->kernel, mem + OFF_KERNEL, OFF_DTB - OFF_KERNEL);
   size_t n3 = load_file(o->dtb, mem + OFF_DTB, 0x10000);
+  if (o->initrd) {
+    size_t n4 = load_file(o->initrd, mem + OFF_INITRD, INITRD_ROOM);
+    uint64_t i = n4;
+    for (; i < INITRD_ROOM && (i & 7); i++) *(volatile uint8_t *)(mem + OFF_INITRD + i) = 0;
+    for (; i < INITRD_ROOM; i += 8) *(volatile uint64_t *)(mem + OFF_INITRD + i) = 0;
+    fprintf(stderr, "loaded: initrd %zu B at RISC-V 0x%llx, zero to 0x%llx\n", n4,
+            (unsigned long long)(DRAM_BASE_RV + OFF_INITRD), (unsigned long long)(DRAM_BASE_RV + OFF_INITRD + INITRD_ROOM));
+  }
   /* read back a few words of each image */
   if (verbose) fprintf(stderr, "loaded fw %zu, kernel %zu, dtb %zu bytes\n", n1, n2, n3);
   wr64(R_BOOT_ENTRY, DRAM_BASE_RV + OFF_FW);
@@ -1081,7 +1105,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
-    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 },
+    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 }, { "initrd", 1, 0, 23 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -1119,6 +1143,7 @@ int main(int argc, char **argv) {
       case 18: o.net = optarg; break;
       case 21: o.freeze_time = 1; break;
       case 22: o.dbg_exit = 1; break;
+      case 23: o.initrd = optarg; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];

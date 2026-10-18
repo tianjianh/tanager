@@ -1,0 +1,66 @@
+#!/bin/busybox sh
+# The A53's handover init (docs/spec/soc.md §8.2, stage D's D4; DR-147 and the coordinator's conditions).
+# Ubuntu's own kernel, kexec'd with the handover tree (handover_dtb.sh), runs this from RAM; nothing here
+# touches the SD card. In order:
+#   1. the fan: D2's PL regulator governs, with the A53's TTC kept running at 1/255 (pwm1 = 1);
+#   2. SD1 and UART1, which the RISC-V drives, stay powered: the tree gives them to generic UIO and this holds
+#      both devices open, so their power nodes stay requested from the PMU firmware;
+#   3. eth0 by DHCP (host name kria) and sshd with the board's key: the board session reaches the A53 as root;
+#   4. the RISC-V: tanager-host run (its images were loaded before the kexec), then back to Ubuntu by a reboot
+#      when it exits. tg.handover=dry skips the RISC-V and goes back after tg.dry_s seconds (default 900).
+# Whatever fails ends in a reboot into Ubuntu; panic=10 on the command line covers this script itself.
+/bin/busybox mkdir -p /proc /sys /dev /run /tmp
+/bin/busybox --install -s /bin
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+mkdir -p /dev/pts /run/sshd /sys/kernel/debug
+mount -t devpts devpts /dev/pts
+mount -t tmpfs tmpfs /tmp
+mount -t debugfs debugfs /sys/kernel/debug
+exec >>/tmp/handover.log 2>&1
+echo "handover: up at $(cut -d' ' -f1 /proc/uptime) s: $(cat /proc/cmdline)"
+
+mode=run dry_s=900
+for a in $(cat /proc/cmdline); do
+  case "$a" in
+    tg.handover=*) mode=${a#*=} ;;
+    tg.dry_s=*) dry_s=${a#*=} ;;
+  esac
+done
+back() {
+  echo "handover: back to Ubuntu ($1)"
+  sync
+  reboot -f
+}
+
+# 1. the fan
+for h in /sys/class/hwmon/hwmon*; do
+  [ "$(cat "$h/name" 2>/dev/null)" = pwmfan ] && echo 1 > "$h/pwm1" && echo "fan: $h pwm1 = 1"
+done
+
+# 2. SD1 and UART1 through UIO, held open (opening a UIO device takes a runtime-PM reference)
+insmod /lib/uio_pdrv_genirq.ko of_id=generic-uio || echo "uio: insmod failed"
+sleep 1
+for d in /dev/uio*; do
+  [ -c "$d" ] || continue
+  sleep 2147483647 < "$d" &
+  echo "uio: holding $d ($(cat "/sys/class/uio/${d#/dev/}/name") at $(cat "/sys/class/uio/${d#/dev/}/maps/map0/addr" 2>/dev/null))"
+done
+
+# 3. network and SSH
+ip link set lo up
+ip link set eth0 up
+udhcpc -i eth0 -b -s /usr/share/udhcpc/default.script -x hostname:kria
+/usr/sbin/sshd -f /etc/ssh/sshd_config -E /tmp/sshd.log || echo "sshd: failed to start"
+
+# 4. the RISC-V, or the dry run's wait
+if [ "$mode" = dry ]; then
+  echo "handover: dry run, back to Ubuntu in $dry_s s (or reboot -f over SSH)"
+  sleep "$dry_s"
+  back "the dry run's time is up"
+fi
+echo "handover: starting the RISC-V at $(cut -d' ' -f1 /proc/uptime) s"
+/bin/tanager-host run < /dev/null > /tmp/riscv-console.log 2>&1
+back "tanager-host run exited with $?"

@@ -463,6 +463,11 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - **Instructions per operation** match within the spread. The memory-heavy tests run −0.1% to −2.6%, from fewer timer ticks in a shorter operation.
   - **Linux reaches `/init`** in 1.181 s, against 1.289 s (−8.4%).
   - **The fan during the run** (30 samples): PL die 33.9–35.4 °C, duty 15–38/255, never below the A53's PWM. One sample had duty 29 against the A53's 19 at 34.9 °C. That is the 1 °C fall hysteresis: the curve held the run's peak, code 40,637 (35.58 °C).
+- **Step 5 passes** (the board session, `fpga/kv260/board/d2-reg/`):
+  - **`ps_d1` on d2:** D1 PASS, line for line as on d1: the PS window with the four-miss core.
+  - **Stage C from `p3`:** Debian on d2, bridged. It checks the host DMA's coherence with four misses in flight:
+    - block: 64 MiB written with `conv=fsync`, the page cache dropped, and re-read with the same sha256;
+    - network: 64 MiB fetched from the A53 in 5.81 s (11.0 MB/s, against sc3's 9.9 MB/s), with a matching sha256.
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
@@ -553,7 +558,103 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
     - Until then the console stays on the PL UART through `tanager-host` (stage C's path), so the RISC-V never runs without one.
   - **Met when** Buildroot's login prompt appears on the board's USB serial port, with the A53 in the handover boot.
+  - **Approved as revised (DR-163, the coordinator, 10-18): the console first, with the A53's Ubuntu still running.** The handover boot moves to D4, where the card needs it.
+    - **Why:**
+      - The handover boot above also disables GEM3, which would cut the laptop's SSH path to the board (the A53 OS rules), and D3 needs only UART1.
+      - SD1 must leave the A53 in D4, since one controller serves the whole card. So the handover boot (an initramfs, no card access) belongs there.
+      - GEM3 (D5) then needs its own answer for SSH.
+    - **The A53 releases UART1 at run time, with nothing persistent:**
+      - `systemctl mask --runtime --now serial-getty@ttyPS1.service`, then `dmesg -n 1`.
+      - With `ttyPS1` closed, `xilinx_uartps` frees its interrupt and stops reading the receiver. The kernel console still writes emergency messages only.
+      - Nothing on the A53 may open `ttyPS1` or `/dev/console` meanwhile. systemd does so at shutdown.
+      - **Undo:** `systemctl unmask --runtime serial-getty@ttyPS1.service` and start it again, or reboot.
+      - The A53 keeps `p2`, SSH, the card and `fancontrol`.
+    - **The RISC-V's side needs no RTL change.** The PS window passes UART1, and PLIC source 20 is its interrupt (d2's bitstream will do).
+      - **The device tree:** a variant in `sw/dts` with `serial@ff010000` (`cdns,uart-r1p12`), interrupt 20, and fixed clocks for `uart_clk` and `pclk` at the rates the A53's clock tree reports. It has `current-speed` 115200 and `stdout-path` on it.
+      - **The PL UART stays** as a second console (`console=ttyS0 console=ttyPS0`), so the RISC-V never runs without one.
+      - **OpenSBI 1.9's Cadence driver** (in the generic defconfig) gives the early output. Without `clock-frequency` it leaves the A53's 115200 baud setting alone.
+      - **The kernel:** `CONFIG_SERIAL_XILINX_PS_UART=y` and `CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y` in `sw/buildroot/board/tanager/linux.config` (the driver depends only on OF).
+    - **It lifts D1's condition** "never reconfigure UART1": the RISC-V's Linux programs UART1's baud generator, mode and interrupts while it owns the port.
+    - **Met when** Buildroot's login prompt appears on the USB serial port (COM7) and a login works there, with the A53 unaffected (SSH, `fancontrol`). Then UART1 goes back to the A53.
+    - **The coordinator's conditions:**
+      - only run-time changes on the A53, with SSH over GEM3 and `fancontrol` up throughout;
+      - D1's "never reconfigure UART1" is lifted for D3 only, while the RISC-V owns the port;
+      - no A53 shutdown or reboot while the getty is masked and the RISC-V owns UART1: unmask first, and giving UART1 back is the last step.
+    - **Built (10-18):**
+      - **`sw/dts` `UART1=1`:** `serial@ff010000` (`xlnx,zynqmp-uart`, `cdns,uart-r1p12`) on PLIC source 20, with fixed clocks `uart_clk` and `pclk` at 99,999,999 Hz (D0's clock tree). `stdout-path` points at it, and the default boot arguments are `console=ttyPS0,115200 console=ttyS0,115200 earlycon`, so `/dev/console` stays the PL UART for the boot marker. With `UART1=0`, every tree is byte-identical to before.
+      - **A stage D image,** `tanager_lp64d_stage_d`. It is `tanager_lp64d` with `CONFIG_SERIAL_XILINX_PS_UART=y` and `_CONSOLE=y` (`board/tanager/linux-stage-d.fragment`), plus `overlay-stage-d`. That overlay's `S98uart1` starts a getty on `ttyPS0` when the device exists; the PL UART keeps its own getty.
+      - **The reference image stays as it was.** `tanager_lp64d` is the image every boot check runs: tb_boot, cycle-identical's 20M cycles, and core-2's boot curves. D3's first build changed it in place, and the boot checks lost their Image for 15 minutes (the coordinator, 10-18). Since then `sw/build_linux.sh` refuses to rebuild an existing reference image. A replacement is built elsewhere, renamed into place and announced, since it moves every boot baseline.
+      - **OpenSBI** reads only `clock-frequency`, which the node leaves out, so it keeps the A53's divisors. Its driver would compute them with a clock divisor of 1, which can't reach 115200 from 100 MHz. It shares the page with S-mode as it does the PL UART's.
+    - **D3 met on the board** (10-18, the board session, `fpga/kv260/board/d3/`):
+      - **COM7 (UART1):** `OpenSBI v1.9`, "Platform Console Device: cadence_uart"; `earlycon: cdns0 at MMIO 0xff010000`; `ttyPS0 at MMIO 0xff010000 (irq = 13) is a xuartps`; "Tanager Linux" and `tanager login:`. Root logged in.
+      - **The interrupt:** `13: 202 0 SiFive PLIC 20 Edge xuartps`, PLIC source 20 as planned.
+      - **The PL console** kept the boot marker (`TANAGER-BOOT-OK harts=2`) and its own login, as `/dev/console` stayed the PL UART.
+      - **The A53:** `fancontrol` active (pwm1 15), no new kernel lines. UART1 went back as the last step: unmask, getty, printk 4. The A53's login prompt answered on COM7.
+      - **Cosmetic:** COM7 shows the log twice, the early console's and then ttyPS0's replay. The kernel skips the replay only for the console that is `/dev/console` (the last `console=`), here the PL UART on purpose. D4 doesn't have it: Debian's early and real consoles are both the PL UART.
 - **D4: the SD, with Debian on its own partition natively.**
+  - **The handover, planned before it runs** (the coordinator, 10-18). Once SD1 leaves the A53, the board session's SSH to the A53 goes away, and recovery may need a power cycle, which is the user's:
+    - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
+    - the plan spells out what the board session can still reach (UART1, the PL UART);
+    - the coordinator tells the user before it runs.
+  - **The handover plan** (soc-2, 10-18; approved by the coordinator under DR-147, conditions below):
+    - **Chosen once, by kexec from the running Ubuntu.** Nothing in the boot path changes: not QSPI, not U-Boot's environment, not `p1`. Any reset or power cycle boots normal Ubuntu from `p2`.
+      - In normal Ubuntu: load the bitstream (`xmutil`), mount `p3` read-only, then `tanager-host load` Debian's kernel and initrd from `p3`'s `/boot` with OpenSBI and the D4 tree, cores held. The carve-out is outside Linux RAM (`mem=3G`), so it survives the kexec, as the PL's state does.
+      - `kexec -l` Ubuntu's own kernel with a handover tree (SD1 and UART1 disabled), the command line `mem=3G clk_ignore_unused` (the PL clock has no user in that tree), and a small initramfs. Then `systemctl kexec`, which stops services and remounts `p2` read-only before it jumps.
+      - **The handover initramfs:** busybox, `tanager-host`, and an SSH server on GEM3 with the board session's key. It starts `tanager-host run`. When that exits (the RISC-V powered off), it reboots the A53 into normal Ubuntu.
+    - **What the board session can reach:**
+      - SSH to the handover A53 over GEM3, which stays with the A53 until D5. From there, `tanager-host`'s PL console, its logs, and a reboot.
+      - COM7 (UART1, D3's path): the RISC-V's console and Debian's login.
+      - **Recovery:** `poweroff` in Debian on COM7 returns the A53 to Ubuntu by itself. SSH can stop `tanager-host` and reboot. Failing both, a power cycle (the user's) boots Ubuntu.
+    - **The card:** the handover kernel never probes SD1, the RISC-V mounts only `p3` (its root), and nothing writes `p1` or `p2`. Before any A53 reboot, Debian is powered off first.
+    - **The RISC-V's side:** a D4 tree (`sw/dts` `SD1=1`) with the controller as plain `arasan,sdhci-8.9a`. Linux's ZynqMP variant sets tap delays through the PMU firmware, which the RISC-V can't call, so it keeps the delays the A53 left. The tree also has `dma-ranges` for D-c, fixed clocks and PLIC source 21. Debian's `sdhci-of-arasan` is built out of tree with DKMS and goes into its initrd.
+    - **Read-only probes first** (normal Ubuntu, no changes):
+      - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
+      - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;
+      - whether GEM3's `macb` and the DP83867 PHY driver are built in or modules, which the initramfs must then carry.
+    - **The coordinator's conditions for the run** (10-18):
+      - in daytime, with the user around, since the last recovery is their power cycle; the coordinator tells the user beforehand;
+      - `p2` remounted read-only before the kexec; the handover kernel never touches SD1; Debian mounts only `p3`;
+      - `fancontrol`'s job passes to D2's regulator, with pwm1 ≥ 1, before the A53's Ubuntu stops (the handover kernel doesn't run `fancontrol`). In practice: stop `fancontrol` and set pwm1 = 1 before the kexec. Ubuntu's `pwm-fan` disables the TTC at shutdown, and the handover kernel's `pwm-fan` starts at full speed, so the fan runs full through the switch (safe) until the handover initramfs sets pwm1 = 1 again;
+      - Debian's poweroff brings the A53 back to Ubuntu;
+      - if SD1 runs at 1.8 V, the RISC-V's driver takes the same mode, with no voltage switch from the RISC-V side;
+      - installing `kexec-tools`, if needed, is an A53 package change under DR-147, logged in the change log with its undo.
+    - **The risk in the handover kernel: SD1's and UART1's power and clocks** (soc-2, 10-18). Its tree disables both, so nothing in it requests their nodes, and the RISC-V can't turn them back on.
+      - Linux would gate their clocks and power off their domains as unused. `clk_ignore_unused` and `pd_ignore_unused` on the handover command line stop that.
+      - The PMU firmware may also reset or gate unrequested peripherals once the kernel reports start-up done. Under normal Ubuntu, TTC1 (disabled in the A53's tree) stayed out of reset (D1), which suggests it doesn't, but that must be checked.
+      - **So the first D4 step is a dry run:** the handover without the RISC-V. Over SSH, it reads `RST_LPD_IOU2` and `SDIO1_REF_CTRL` and `UART1_REF_CTRL` with `psrd`, against normal Ubuntu's values (SDIO1 and UART1 out of reset in `0x000103AA`), then reboots to Ubuntu.
+      - **If they were reset or gated:** the handover tree gives SD1 and UART1 to generic UIO, which only maps the registers, and the handover init holds both devices open. That keeps their nodes requested without the A53 driving them.
+    - **The probes' answers** (the board session, `fpga/kv260/board/d4/d4_probe.txt`, 10-18):
+      - **kexec:** `CONFIG_KEXEC=y` and `CONFIG_KEXEC_FILE=y`, signatures not forced, lockdown `none`. `kexec-tools` isn't installed.
+        - `kexec_file_load` would reuse the running tree, with SD1 enabled, so the handover takes `kexec-tools`' `kexec_load` with our own DTB.
+        - The install must leave reboots alone (`LOAD_KEXEC=false`, so nothing is loaded at shutdown). It's an A53 package change, in the change log with its undo (`apt purge kexec-tools`).
+        - Ubuntu's `vmlinuz` is a gzip of the 59.6 MB `Image`, which `kexec-tools` takes as it is.
+      - **The running command line already has `clk_ignore_unused` and `uio_pdrv_genirq.of_id=generic-uio`.** So the handover tree gives SD1 and UART1 the compatible `generic-uio`, without their interrupts, instead of disabling them.
+        - UIO only maps the registers, and the node stays attached to its power domain, so it stays requested from the PMU firmware.
+        - The handover init holds both devices open (runtime PM active). With `pd_ignore_unused` added, this answers the power-node risk below by design; the dry run still checks it.
+      - **SD1:** SD high-speed at 50 MHz, 3.3 V signalling, 4-bit bus, ADMA 64-bit. The RISC-V's tree takes the same: `no-1-8-v`, `max-frequency` 50 MHz, `bus-width` 4, and the A53's tap delays as they are. No voltage question arises.
+      - **Built in:** `macb`, the DP83867 driver, `pwm-fan` and the Cadence TTC PWM. The handover kernel brings up `eth0` and the fan's hwmon with no modules.
+      - **SSH in the handover:** `busybox-static` is installed, `dropbear` isn't, and `openssh-server` is. The initramfs takes the system's own `sshd` and its libraries, the existing host keys (so the laptop's known host still matches) and the board's key, with no package install.
+      - **Power** (probe 4):
+        - `CONFIG_ZYNQMP_PM_DOMAINS=y`. `uio_pdrv_genirq` is a module, so the initramfs carries it.
+        - In genpd, SD1's domain is on with its device's runtime PM unsupported (always active while bound), and UART1's is on.
+        - The baseline for the dry run: `RST_LPD_IOU2` `0x000103AA` (SDIO1 and UART1 out of reset), and `SDIO1_REF_CTRL` `0x01010600` and `UART1_REF_CTRL` `0x01010A00`, both with CLKACT.
+        - SD1's reference clock is IOPLL/6, 166,666,665 Hz (`clk_xin`, as D0's clock tree), which the RISC-V's tree gives as a fixed clock.
+    - **Built so far** (10-18):
+      - **`sw/handover/`:**
+        - `handover_dtb.sh`: the handover tree from the live one. Checked on a synthetic tree; the board's live tree comes next.
+        - `mk_initramfs.sh`, run on the board: its `busybox-static`, `sshd` with its libraries, the host keys, the board's key for root, `uio_pdrv_genirq`, `tanager-host`.
+        - `init`, and `handover.sh`, with `--dry` for the dry run. It refuses to start without `kexec-tools` (`LOAD_KEXEC=false`), a reading from D2's regulator, and `mem=3G` on the command line. It sets pwm1 = 1 after stopping `fancontrol`, then `systemctl kexec`.
+        - The handover command line adds `pd_ignore_unused`, and `panic=10` so that a dying `init` reboots into Ubuntu.
+      - **`tanager-host load --initrd`:** at `0x8800_0000`, zeroed to `0x8C00_0000`. Linux's initramfs unpacker skips zeros, so the tree names the fixed window and needs no patching. `load` refuses a kernel whose `image_size` reaches the DTB (Debian's 6.12 kernel: 30.4 of the 32 MiB).
+      - **`sw/dts` `SD1=1 INITRD=1`:** with `UART1=1`, this is the D4 tree. Every other tree is byte-identical to before.
+        - SD1 is the ZynqMP variant without `#clock-cells`. Its phase calls then get no clocks, so the A53's tap delays stay, and its firmware query fails into a stub on RISC-V, so it makes no PMU calls.
+        - Over plain `arasan,sdhci-8.9a`, it adds the A53's quirks: default speed at 19 MHz (the A53's high-speed taps stay during card set-up) and auto-CMD12 reads.
+        - Plain `arasan,sdhci-8.9a` follows as the fallback compatible.
+      - **The Debian side** (`sw/debian`): `tanager-ps-dkms` builds `sdhci-of-arasan` and `xilinx_uartps` with DKMS, from the running kernel's own `linux-source-6.12`. Debian's config has what they need: `MMC_SDHCI_PLTFM` and `MMC_CQHCI` as modules, `COMMON_CLK`, `MMC_SDHCI_IO_ACCESSORS`, `MODVERSIONS`.
+        - `stage_d_prep.sh`, run inside the RISC-V's Debian in stage C, installs it, puts `sdhci-of-arasan` into the initrd (the root is on the card), and gives UART1 the PL UART's automatic login (the user `tanager` has no password).
+        - Kconfig keeps a modular Cadence UART from being a console, so D4's kernel console stays on the PL UART (`console=ttyS0`, early output through the 8250), and UART1 carries the login.
+      - **Still to come:** the board's live tree and `kexec-tools` on the A53; `stage_d_prep.sh` in stage C. Then the dry run, then the run.
+    - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
   - **Boot:**
