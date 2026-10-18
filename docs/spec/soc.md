@@ -585,6 +585,12 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **A stage D image,** `tanager_lp64d_stage_d`. It is `tanager_lp64d` with `CONFIG_SERIAL_XILINX_PS_UART=y` and `_CONSOLE=y` (`board/tanager/linux-stage-d.fragment`), plus `overlay-stage-d`. That overlay's `S98uart1` starts a getty on `ttyPS0` when the device exists; the PL UART keeps its own getty.
       - **The reference image stays as it was.** `tanager_lp64d` is the image every boot check runs: tb_boot, cycle-identical's 20M cycles, and core-2's boot curves. D3's first build changed it in place, and the boot checks lost their Image for 15 minutes (the coordinator, 10-18). Since then `sw/build_linux.sh` refuses to rebuild an existing reference image. A replacement is built elsewhere, renamed into place and announced, since it moves every boot baseline.
       - **OpenSBI** reads only `clock-frequency`, which the node leaves out, so it keeps the A53's divisors. Its driver would compute them with a clock divisor of 1, which can't reach 115200 from 100 MHz. It shares the page with S-mode as it does the PL UART's.
+    - **D3 met on the board** (10-18, the board session, `fpga/kv260/board/d3/`):
+      - **COM7 (UART1):** `OpenSBI v1.9`, "Platform Console Device: cadence_uart"; `earlycon: cdns0 at MMIO 0xff010000`; `ttyPS0 at MMIO 0xff010000 (irq = 13) is a xuartps`; "Tanager Linux" and `tanager login:`. Root logged in.
+      - **The interrupt:** `13: 202 0 SiFive PLIC 20 Edge xuartps`, PLIC source 20 as planned.
+      - **The PL console** kept the boot marker (`TANAGER-BOOT-OK harts=2`) and its own login, as `/dev/console` stayed the PL UART.
+      - **The A53:** `fancontrol` active (pwm1 15), no new kernel lines. UART1 went back as the last step: unmask, getty, printk 4. The A53's login prompt answered on COM7.
+      - **Cosmetic:** COM7 shows the log twice, the early console's and then ttyPS0's replay. The kernel skips the replay only for the console that is `/dev/console` (the last `console=`), here the PL UART on purpose. D4 doesn't have it: Debian's early and real consoles are both the PL UART.
 - **D4: the SD, with Debian on its own partition natively.**
   - **The handover, planned before it runs** (the coordinator, 10-18). Once SD1 leaves the A53, the board session's SSH to the A53 goes away, and recovery may need a power cycle, which is the user's:
     - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
