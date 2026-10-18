@@ -7,6 +7,8 @@ mmu/tg_tlb.sv
 mmu/tg_pmp.sv
 mmu/tg_ptw.sv
 frontend/tg_ubtb.sv
+frontend/tg_ras.sv
+frontend/tg_tage.sv
 frontend/tg_predecode.sv
 frontend/tg_fetch_compact.sv
 frontend/tg_fetch.sv

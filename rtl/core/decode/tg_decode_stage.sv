@@ -2,9 +2,12 @@
 // at the instruction-queue head and forms the group rename takes, all or nothing.
 // Group rules: a serialising instruction or one with a decode-time exception goes alone, in
 // slot 0; a decode-time redirect ends the group after its instruction.
-// Redirects: JAL not predicted to its target, a branch predicted taken to a wrong target, or a
-// prediction on something that is not a branch or jump. The redirect is registered (dred) and
-// flushes the front end in the next cycle; decode takes nothing in that cycle.
+// Redirects: JAL not predicted to its target, a branch predicted taken to a wrong target, a
+// return not predicted to the return-address stack's top (RAS_ON; when the stack is not
+// empty), or a prediction on something that is not a branch or jump. The redirect is registered
+// (dred) and flushes the front end in the next cycle; decode takes nothing in that cycle.
+// The return-address stack (tg_ras) moves with the groups rename takes: a group holds at most one
+// of its operations (a later one waits for the next group), which reads the stack's top as it is.
 // Timing: whether the predicted target is the branch's is checked without a carry chain: the
 // target is block address + offset + immediate, and "a + b + c == k" holds when every bit of
 // the carry-save sum matches the carry k needs there (Cortadella and Llaberia, IEEE Trans.
@@ -54,7 +57,17 @@ module tg_decode_stage
   input  logic                de_take,
   // Decode-time redirect (registered)
   output logic                dred,
-  output logic [63:0]         dred_pc
+  output logic [63:0]         dred_pc,
+  output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
+  output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
+  output logic [1:0]          dred_rop,     // ... and its own return-address-stack operation and link,
+  output logic [38:1]         dred_rlink,   // for the stack's repair (RAS_FE)
+  // Return-address stack (tg_ras; RAS_ON): its top, and the taken group's operation
+  input  logic                ras_v,
+  input  logic [38:1]         ras_top,
+  output logic                ras_push,
+  output logic                ras_pop,
+  output logic [38:1]         ras_link
 );
   // The offset of a branch (jal = 0) or JAL (jal = 1), bits 20:0 with the sign at 20, from the raw
   // encoding: B and J types, or RVC's CB (c.beqz, c.bnez) and CJ (c.j); as decode adds it to the PC
@@ -88,6 +101,9 @@ module tg_decode_stage
   logic [W-1:0]        redir;
   logic [W-1:0][63:0]  npc;
   logic [W-1:0]        dfix;
+  logic [W-1:0][1:0]   rop;               // the return-address stack's operation: {push, pop}
+  logic [63:0]         rtgt;              // the stack's top as a PC
+  assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
   for (genvar j = 0; j < W; j++) begin : g_dec
     // Compressed instructions are expanded first; without C they are illegal (tval is the
     // 16-bit encoding, which the ROB keeps).
@@ -185,14 +201,16 @@ module tg_decode_stage
     assign poff  = xq[j].strad ? 64'hFFFF_FFFF_FFFF_FFFE : {60'b0, xq[j].pc[3:0]};
     assign seq   = xseq[j];
     assign pt    = xq[j].pred_taken;
-    assign ptg   = xq[j].pred_target;
+    // a branch or JAL the front end took to its own target (TAGE_ON) carries no target: it is tgt
+    assign ptg   = xq[j].pred_tsrc ? xtgt[j] : xq[j].pred_target;
     // the class from the queue's pre-decode marks, the offset from the raw encoding
     assign {mbr, mjal, mjalr} = xq[j].marks;
     logic [20:0] bimm;
     assign bimm  = bimm_of(xq[j].insn, mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
-    assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
+    assign hit   = xq[j].pred_tsrc || eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
+    assign rop[j] = RAS_DEC ? ras_op(xd[j]) : 2'b00;   // (RAS_FE: fetch predicts returns)
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
@@ -205,6 +223,11 @@ module tg_decode_stage
         end else if (mbr) begin
           if (pt && !hit) begin
             redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = tgt;
+          end
+        end else if (mjalr && rop[j][0] && ras_v) begin
+          // a return: the stack's top, unless the front end already followed it
+          if (!pt || ptg != rtgt) begin
+            redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = rtgt;
           end
         end else if (!mjalr && pt) begin
           redir[j] = 1'b1; dfix[j] = 1'b1; npc[j] = seq;
@@ -224,23 +247,39 @@ module tg_decode_stage
 `endif
   end
 
-  // Group: a prefix of the checks' inputs
+  // Group: a prefix of the checks' inputs, with at most one return-address-stack operation
   logic [TKW-1:0] n;
   always_comb begin
-    logic stop;
+    logic stop, rs;
     stop = 1'b0;
+    rs = 1'b0;
     n = '0;
     for (int j = 0; j < W; j++) begin
       if (!stop) begin
         if (!xv[j]) stop = 1'b1;
         else if (xa[j] && j > 0) stop = 1'b1;
+        else if (rs && |rop[j]) stop = 1'b1;
         else begin
           n = TKW'(j + 1);
+          if (|rop[j]) rs = 1'b1;
           if (xa[j] || redir[j]) stop = 1'b1;
         end
       end
     end
     if (dred || flush) n = '0;
+  end
+  // The taken group's stack operation (at most one slot has one)
+  always_comb begin
+    ras_push = 1'b0;
+    ras_pop  = 1'b0;
+    ras_link = '0;
+    for (int j = 0; j < W; j++) begin
+      if (de_take && TKW'(j) < n && |rop[j]) begin
+        ras_push = rop[j][1];
+        ras_pop  = rop[j][0];
+        ras_link = xseq[j][38:1];
+      end
+    end
   end
 
   for (genvar j = 0; j < W; j++) begin : g_out
@@ -254,6 +293,8 @@ module tg_decode_stage
       de_uop[j].ubtb_hit = xq[j].ubtb_hit;
       de_uop[j].ubtb_way = xq[j].ubtb_way;
       de_uop[j].dfix     = dfix[j];
+      de_uop[j].ptk      = xq[j].pred_taken;
+      de_uop[j].ftq      = xq[j].ftq;
       de_uop[j].tid      = xq[j].tid;
       de_uop[j].d        = xd[j];
     end
@@ -276,15 +317,18 @@ module tg_decode_stage
     // The queue's count of the group: the same without the redirects
     logic [TKW-1:0] nq;
     always_comb begin
-      logic stopq;
+      logic stopq, rsq;
       stopq = 1'b0;
+      rsq = 1'b0;
       nq = '0;
       for (int j = 0; j < W; j++) begin
         if (!stopq) begin
           if (!v1_q[j]) stopq = 1'b1;
           else if (a1_q[j] && j > 0) stopq = 1'b1;
+          else if (rsq && |rop[j]) stopq = 1'b1;
           else begin
             nq = TKW'(j + 1);
+            if (|rop[j]) rsq = 1'b1;
             if (a1_q[j]) stopq = 1'b1;
           end
         end
@@ -361,8 +405,13 @@ module tg_decode_stage
       dred <= 1'b0;
       for (int j = 0; j < W; j++) begin
         if (de_take && n == TKW'(j + 1) && redir[j]) begin
-          dred    <= 1'b1;
-          dred_pc <= npc[j];
+          dred      <= 1'b1;
+          dred_pc   <= npc[j];
+          dred_ftq  <= xq[j].ftq;
+          dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
+          // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
+          dred_rop   <= RAS_FE ? ras_op(xd[j]) : 2'b00;
+          dred_rlink <= xseq[j][38:1];
         end
       end
     end
