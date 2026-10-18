@@ -7,7 +7,7 @@ Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md))
 
 | Plan | M2 |
 |---|---|
-| Load pipe AG → M1 → M2, 3-cycle load-to-use with speculative wakeup | same stages; dependants wake on the confirmed result at the end of M2 (5-cycle load-to-use) |
+| Load pipe AG → M1 → M2, 3-cycle load-to-use with speculative wakeup | same stages; 3-cycle load-to-use with `SPEC_WAKE` (the default: `tg_issue` wakes an integer load's dependants at AG and cancels the shadow when it does not complete in M2, core-pipeline §6); with `SPEC_WAKE=0` they wake on the confirmed result at the end of M2 (5-cycle load-to-use) |
 | LQ: 16-entry CAM part + 8-entry retired-load completion buffer | the CAM part (`LQ_ENTRIES`); no completion buffer (nothing retires early) |
 | SQ (`SQ_ENTRIES`) with store data captured through the shared read port | same |
 | Forwarding: youngest older store that covers the load; partial overlaps wait | same |
@@ -23,7 +23,7 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **Register file:** the shared store-data read port (address from the SQ, data back in the same cycle); the load bank's write port (written at WB from the load result register).
 - **To the ROB:** load and store completion, exceptions {ROB index, cause, `tval`}, replay marks (ordering violations), `mmio` marks.
 - **From the ROB:** head index (MMIO loads), per-cycle commit of loads (LQ head) and stores (SQ commit mark), and the trace fields of committed stores (address, data, size).
-- **To rename/ready table:** the load bank's write events; LLT releases. **To `tg_wake`:** the LLT of each confirmed load result.
+- **To rename/ready table:** the load bank's write events; LLT releases. **To `tg_wake`:** the LLT of each confirmed load result (`wake_ld`). With `SPEC_WAKE`, `tg_issue` has already woken an IQ load's LLT at AG and takes a missing `wake_ld` at *s*+4 as the shadow cancel (core-pipeline §6).
 - **Flush:** from commit, with `tid`.
 
 ## Behaviour

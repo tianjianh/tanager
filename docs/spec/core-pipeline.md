@@ -16,7 +16,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 | Rename with writer-sharded banks, free lists, producer table | yes | — |
 | Checkpoints, recovery at execute | no: every recovery is at commit | M6 |
 | Distributed issue queues with dependency vectors, woken vector, age matrix (S2 RTL) | yes | — |
-| Speculative load wakeup, shadow cancel | no: loads wake their dependants on a confirmed hit | M6 |
+| Speculative load wakeup, shadow cancel | yes (M6, `SPEC_WAKE`, on by default): an integer load wakes its dependants at AG, and one that does not complete in M2 cancels the shadow (§6); no per-PC hit predictor | — |
 | Long-latency tags (LLTs), deferred-free hook | yes (loads and DIV/REM use LLTs; nothing retires early) | early retirement: M6 |
 | Register file, bypass, 1-cycle ALU (S3 RTL) | yes | — |
 | MUL 3 cycles pipelined; DIV iterative | yes (radix-2) | DIV on the Goldschmidt DSPs (R4): later |
@@ -173,7 +173,14 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **MX naming at dispatch.** A row names its in-queue 1-cycle producers (ALU ops and branches with a link) by ALU-queue row (`disp_mdep`, rows numbered across the ALU queues) and is ready when those rows have been selected; their W bit follows a cycle later. Dispatch finds the row through `rowof` (physical register → the row its producer was written into, recorded at DS) and confirms it with one compare: the row is still held (`mx_hold`: valid and not freed this cycle) and its destination (`rowdst`) equals the source. A producer in the same group is named by the row it is being written into (`mx_alloc`). Otherwise the source uses the producer's ID.
 - **Payload formats.** Rename builds one `iq_pl_t`; each queue stores only the bits its port reads, so no LUTRAM bit is left for synthesis to trim, and the other fields leave the queue as zero. All ALU queues: class, the ALU control word without the min/max group and `cmp_max` (`tg_alu` `MINMAX = 0`: min/max ride P1's MUL slot), `b_imm`, the immediate, the destination's index (its bank is the port's) and both source tags. A0 adds the branch fields (PC, kind, funct3, target, JALR offset, predicted next PC, micro-BTB hit and way, `dfix`, RVC); A1 adds `cmp_max`, the MUL/DIV/CSR fields, the wakeup column (MUL: its tag; DIV: its LLT's) and the instruction (CSR tval); both keep the ROB ID with its wrap bit (exception and misprediction age), A2 only the index (completion). LD: ROB ID, the 12-bit offset (sign-extended at issue), LQ index, size, base tag, and the fields the LQ entry takes at AG (SQ bound, destination index and file, LLT, extension; core-lsu.md); STA: ROB ID, the 12-bit offset, SQ ID, size, base tag.
 - **Changes to the spike module:** a `sel_block` input (registered) that suppresses the queue's grant for a cycle (A1 uses it to keep bank 1's write port free, §7.3; LD uses it to free the load pipe for LQ replays); and a row granted in the cycle it is killed does not issue.
-- **Wakeup timing:** ALU ops through MX alone (a dependant selects the cycle after its producer); MUL its tag through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); loads and DIV their LLT when their result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
+- **Wakeup timing:** ALU ops through MX alone (a dependant selects the cycle after its producer); MUL its tag through a delay line, so dependants read the register file after the write (MUL-to-use 5 cycles; no MUL bypass); DIV its LLT when its result is written (`wake_reg`); CSR results have no consumers in flight (serialised).
+- **Speculative load wakeup (`SPEC_WAKE`, on by default; `tg_issue`, `tg_exec`):** `tg_issue` sets the LLT of an integer load that IQ-LD issued at *s* in its AG (*s*+2), so its dependants issue from *s*+3, read it through the M2 bypass (`ld_m2_will`) in RF and take `ld_res_data` in EX. The load pipe never holds a load between IS and M2, and the LSU wakes the LLT at *s*+4 exactly when the load completes in M2 (`wake_ld`, core-lsu.md). Without that wakeup, a registered `spec_cancel` at *s*+5:
+  - returns the rows the integer queues issued at *s*+3..*s*+5 to "not issued" (`tg_iq` holds rows two cycles after issue);
+  - clears the LLT's W bit (`tg_wake`);
+  - kills `tg_exec`'s RF and EX stages on every integer port (no write-back, branch, MUL, DIV, CSR or AG);
+  - and the load replays from the LQ, waking its LLT when it completes.
+
+  Rename and IQ-FP see only confirmed W bits: rename drops a source's dependency when its bit is set, and P4 reads integer sources from the register file. With `SPEC_WAKE=0`, loads wake their LLT when their result is written, as DIV does.
 
 ## 7. Register read, bypass, execute (`tg_exec`; spike S3 RTL)
 
