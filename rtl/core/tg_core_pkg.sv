@@ -109,6 +109,14 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b0;
 `endif
+  // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
+  // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
+  // TG_RAS=0 turns it off: the front end without it, cycle for cycle
+`ifdef TG_RAS
+  localparam bit RAS_ON = `TG_RAS;
+`else
+  localparam bit RAS_ON = 1'b1;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -372,6 +380,18 @@ package tg_core_pkg;
     logic          fp_int;      // C_FP with an integer result (bank B1)
     logic          fp_div;      // C_FP on the divide/sqrt unit
   } dec_t;
+  // The return-address stack's operation for a decoded instruction (tg_ras): {push, pop}, by the
+  // RISC-V hints with x1 and x5 as links. A JAL or JALR with a link rd pushes; a JALR with a link rs1
+  // pops, unless rd is the same register; with two different links it does both (pop, then push)
+  function automatic logic [1:0] ras_op(input dec_t d);
+    logic rdl, rsl;
+    rdl = d.rd_en && (d.rd == 5'd1 || d.rd == 5'd5);
+    rsl = d.rs1 == 5'd1 || d.rs1 == 5'd5;
+    if (!RAS_ON || d.exc || d.cls != C_BR) return 2'b00;
+    if (d.br_kind == BR_JAL)  return {rdl, 1'b0};
+    if (d.br_kind == BR_JALR) return {rdl, rsl && !(rdl && d.rd == d.rs1)};
+    return 2'b00;
+  endfunction
 
   // A micro-op in the RN / DS pipeline registers
   typedef struct packed {
@@ -488,6 +508,8 @@ package tg_core_pkg;
     logic          dexc_hi;
     lqid_t         lq;
     sqid_t         sq;
+    logic          ras_push;    // the return-address stack's operation at commit (ras_op)
+    logic          ras_pop;
     // Flags at dispatch: each is the parity of its reporting ports' toggle tables then, XOR the
     // flag's initial value (tg_rob)
     logic          f_cmp, f_exc, f_misp, f_mmio;
