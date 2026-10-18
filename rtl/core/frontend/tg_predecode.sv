@@ -42,14 +42,42 @@ module tg_predecode
     /* verilator lint_on CMPCONST */
   end
 
+  // The boundaries as a parallel prefix (timing: a walk over the parcels is a chain of NP steps; tg_fetch
+  // checks this against it in simulation). Parcel q
+  // maps "an instruction starts at q" to "one starts at q + 1": a constant 1 if q is not wide, else
+  // a negation; before the entry, a constant: the entry's own value (s0). Such maps compose into
+  // maps of the same kind, a pair (constant?, value): out = k ? x : s ^ x. Three rounds of
+  // composition give each parcel's map from parcel 0, applied to s0.
+  logic s0;
+  assign s0 = !(carry_in && entry_slot == '0);
   always_comb begin
-    logic s;
-    s = 1'b0;
-    for (int p = 0; p < NP; p++) begin
-      if (SW'(p) == entry_slot) s = !(carry_in && entry_slot == '0);
-      else if (p > 0)           s = !(s && wide[p-1]);
-      start[p] = s && inr[p];
+    logic [NP-1:0] k, x;                 // the map from parcel 0 to parcel p (p >= 1: parcels 0 .. p-1)
+    logic [NP-1:0] k1, x1;
+    for (int q = 0; q < NP; q++) begin   // parcel q's own map, kept at index q + 1 (index 0: identity)
+      k1[q] = SW'(q) < entry_slot || !wide[q];
+      x1[q] = SW'(q) < entry_slot ? s0 : 1'b1;
     end
+    k = '0;
+    x = '0;
+    for (int p = 1; p < NP; p++) begin
+      k[p] = k1[p-1];
+      x[p] = x1[p-1];
+    end
+    // Kogge-Stone: after round d, index p holds the composition of the maps of parcels p-2^d .. p-1
+    for (int d = 1; d < NP; d = d * 2) begin
+      logic [NP-1:0] kn, xn;
+      kn = k;
+      xn = x;
+      for (int p = 0; p < NP; p++)
+        if (p >= d && !k[p]) begin       // compose: the earlier part (index p - d), then index p's
+          kn[p] = k[p - d];
+          xn[p] = x[p - d] ^ x[p];
+        end
+      k = kn;
+      x = xn;
+    end
+    for (int p = 0; p < NP; p++)
+      start[p] = inr[p] && (p == 0 ? s0 : (k[p] ? x[p] : s0 ^ x[p]));
   end
   assign is32 = start & wide;
   assign carry_out = start[NP-1] && wide[NP-1] && exit_slot == SW'(NP - 1);

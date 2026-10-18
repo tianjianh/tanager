@@ -308,6 +308,21 @@ module tg_fetch
     .start(pd_start), .is32(pd_is32), .is_br(pd_br), .is_jal(pd_jal), .is_jalr(pd_jalr),
     .is_call(pd_call), .is_ret(pd_ret), .is_pop(pd_pop), .carry_out(pd_carry));
 
+`ifndef SYNTHESIS
+  // The pre-decoder's boundaries (a parallel prefix) against the walk over the parcels
+  always_ff @(posedge clk) begin
+    if (!rst && f2v) begin
+      logic sw;
+      sw = 1'b0;
+      for (int p = 0; p < NP; p++) begin
+        if (SLOT_W'(p) == f2_pc_q[SLOT_W:1]) sw = !(carry_q && f2_pc_q[SLOT_W:1] == '0);
+        else if (p > 0)                     sw = !(sw && parcel[p-1][1:0] == 2'b11);
+        if (SLOT_W'(p) >= f2_pc_q[SLOT_W:1])
+          assert (pd_start[p] == sw) else $error("tg_fetch: pre-decode's boundary at %0d differs from the walk's", p);
+      end
+    end
+  end
+`endif
   // Check the prediction: the predicted exit slot must be the last parcel of a branch or jump.
   // Where an instruction starts, it is 32-bit exactly when its parcel's low bits are 11 (wide),
   // so the terms read wide, not the pre-decoder's is32 (start && wide), and only the final AND
