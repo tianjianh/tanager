@@ -88,6 +88,8 @@ module tg_host_bridge
   input  logic [4:0]  trs_flags_i,     // capturing, started, stopped, full, AXI error
   input  logic [15:0] trs_buffered_i,
   input  logic [31:0] trs_stalls_i,
+  // CTRL.TFREEZE (core domain): tg_uncore holds mtime while the commit trace stalls a core
+  output logic        tfreeze_o,
   // board debug (tg_uncore DEBUG_CNT): the counter the host selects, and its value (core domain)
   output logic [7:0]  dbg_sel_o,
   input  logic [31:0] dbg_val_i,
@@ -114,7 +116,7 @@ module tg_host_bridge
   // =============================================================================================
   // Host domain registers
   // =============================================================================================
-  logic [2:0]  ctrl_q;                           // [0] cores reset, [1] uncore reset, [2] lossless
+  logic [3:0]  ctrl_q;                           // [0] cores reset, [1] uncore reset, [2] lossless, [3] tfreeze
   logic [63:0] dram_base_q, dram_size_q, entry_q, dtb_q, fromhost_q;
   logic [31:0] lo_shadow_q;                      // low halves of 64-bit registers wait here
   logic [9:0]  inj_rd_q, inj_wr_q;
@@ -211,7 +213,7 @@ module tg_host_bridge
       16'h004: rd_mux = {VER_MAJ, VER_MIN, 4'(N_CORES_SOC), 4'(1 << TID_W), CFG_CODE};
       16'h008: rd_mux = 32'(CLK_HZ);
       16'h00C: rd_mux = {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, 2'b11};  // [0] L2, [1] injector, [2] virtio window, [3] trace streaming, [8] host DMA
-      16'h010: rd_mux = {29'd0, ctrl_q};
+      16'h010: rd_mux = {28'd0, ctrl_q};
       16'h014: rd_mux = {28'd0, pwr_pend_q, st_h.l2_init, st_h.uncore_rst, st_h.cores_rst};
       16'h018: rd_mux = {pwr_pend_q, 15'd0, st_h.power_val};
       16'h020: rd_mux = dram_base_q[31:0];
@@ -296,7 +298,7 @@ module tg_host_bridge
 
   always_ff @(posedge clk_host) begin
     if (rst_host) begin
-      ctrl_q       <= {1'b0, UNCORE_RST_INIT, CORE_RST_INIT};
+      ctrl_q       <= {2'b0, UNCORE_RST_INIT, CORE_RST_INIT};
       dram_base_q  <= 64'(DRAM_BASE_INIT);
       dram_size_q  <= 64'(DRAM_SIZE_INIT);
       entry_q      <= 64'(DRAM_BASE);
@@ -330,7 +332,7 @@ module tg_host_bridge
       if (wr_go) begin
         b_pend_q <= 1'b1;
         unique case (wa)
-          16'h010: if (s_wstrb[0]) ctrl_q <= wd[2:0];
+          16'h010: if (s_wstrb[0]) ctrl_q <= wd[3:0];
           16'h018: if (s_wstrb[3] && wd[31]) pwr_pend_q <= 1'b0;
           16'h020, 16'h028, 16'h030, 16'h038, 16'h068: lo_shadow_q <= wd;
           16'h024: dram_base_q <= {wd, lo_shadow_q};
@@ -392,6 +394,7 @@ module tg_host_bridge
     logic        inj_mode;
     logic [8:0]  inj_bw;
     logic        lossless;
+    logic        tfreeze;
     logic        tg_en;
     logic [27:0] tg_base;
     logic [23:0] tg_lines;
@@ -409,7 +412,7 @@ module tg_host_bridge
   cfg_t cfg_h, cfg_c;
   localparam cfg_t CFG_INIT = '{dram_base: DRAM_BASE_INIT, dram_size: DRAM_SIZE_INIT, entry: 64'(DRAM_BASE),
                                 dtb: 64'(DRAM_BASE) + 64'h220_0000, fromhost: '0, inj_rd: '0, inj_wr: '0,
-                                inj_mode: 1'b0, inj_bw: '0, lossless: 1'b0, tg_en: 1'b0,
+                                inj_mode: 1'b0, inj_bw: '0, lossless: 1'b0, tfreeze: 1'b0, tg_en: 1'b0,
                                 tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384,
                                 trs_ctrl: '0, trs_stop_pc: '0, trs_post: '0, trs_start_pc: '0,
                                 trs_base: '0, trs_size: '0, trs_rp: '0, dbg_sel: '0, vq_en: 1'b0,
@@ -425,6 +428,7 @@ module tg_host_bridge
     cfg_h.inj_mode  = inj_mode_q;
     cfg_h.inj_bw    = inj_bw_q;
     cfg_h.lossless  = ctrl_q[2];
+    cfg_h.tfreeze   = ctrl_q[3];
     cfg_h.tg_en     = tg_en_q;
     cfg_h.tg_base   = tg_base_q;
     cfg_h.tg_lines  = tg_lines_q;
@@ -646,6 +650,7 @@ module tg_host_bridge
   assign inj_mode_o     = cfg_c.inj_mode;
   assign inj_bw_o       = cfg_c.inj_bw;
   assign tg_en_o        = cfg_c.tg_en;
+  assign tfreeze_o      = cfg_c.tfreeze;
   assign tg_base_o      = cfg_c.tg_base;
   assign tg_lines_o     = cfg_c.tg_lines;
   assign trs_enable_o    = cfg_c.trs_ctrl[0];

@@ -1,0 +1,13 @@
+﻿
+===== COM7 opened 2026-10-17T19:39:36.1159856-07:00 =====
+[ 4517.490537] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+[ 4517.500940] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+[ 4517.510814] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+[ 4517.520385] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+[ 4517.530386] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+
+[tanager RISC-V] hello from the RISC-V, through the PS window
+[ 4525.076136] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+[ 4525.086503] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+
+===== COM7 closed 2026-10-17T19:40:14.7736723-07:00 =====

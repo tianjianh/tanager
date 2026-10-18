@@ -11,9 +11,11 @@
 //   one write per cycle, a read-modify-write of one set, by priority: the reset sweep, a probe
 //   update, an MSHR install, an allocation, a store or atomic setting dirty. The sweep clears
 //   the sets after reset (SETS cycles, `ready`); probes wait for it.
-//   MSHR: one line at a time, for a load miss (AcquireBlock NtoB) or a store (NtoT, or BtoT for
-//         a line held in B). A valid victim is released first (state cleared when the Release
-//         starts, so probes and stores see the line as gone); the Acquire waits for ReleaseAck.
+//   MSHR: one line at a time (DC_MSHRS = 1), for a load miss (AcquireBlock NtoB) or a store
+//         (NtoT, or BtoT for a line held in B). A valid victim is released first (state cleared
+//         when the Release starts, so probes and stores see the line as gone); the Acquire waits
+//         for ReleaseAck. With DC_MSHRS = 4 (DR-149) four lines are in flight: the entries, the
+//         release engine and the loads' request register of g_mn (below; core-lsu.md).
 //   Probes: answered at the line's current permission, without waiting on A-channel progress.
 //         They take B only while no Release is being sent (C beats are contiguous), and block
 //         the MSHR from starting and the store path from writing while they run.
@@ -32,7 +34,8 @@ module tg_dcache
   localparam int WAY_W = idx_w(WAYS),
   localparam int TAG_W = PA_W - 12,
   localparam int ROWS  = SETS * 4,
-  localparam int ROW_W = idx_w(ROWS)
+  localparam int ROW_W = idx_w(ROWS),
+  localparam int MSW   = idx_w(DC_MSHRS)   // a miss entry's index
 ) (
   input  logic              clk,
   input  logic              rst,
@@ -43,12 +46,17 @@ module tg_dcache
   input  logic [PA_W-1:0]   ld_m1_pa,
   output logic              ld_hit,
   output logic [63:0]       ld_dword,
-  // Load miss: take the MSHR for this line if it is free
+  // Load miss: take a miss entry for this line if one is free (DC_MSHRS > 1: through a request
+  // register, answered two cycles after lm_req)
   input  logic              lm_req,
   input  logic [PA_W-1:0]   lm_pa,
-  output logic              mshr_idle,    // registered state
-  output logic              deny_v,       // the last fill of deny_line was denied
-  output logic [PA_W-1:6]   deny_line,
+  output logic              mshr_idle,    // registered state: no miss in flight
+  output logic              lm_fdn,       // lm_pa's line: its last fill was denied
+  output logic              lm_ans_v,     // DC_MSHRS > 1, registered: the request two cycles back
+  output logic              lm_ans_wait,  //   waits for entry lm_ans_e to install (else: retry now)
+  output logic [MSW-1:0]    lm_ans_e,
+  output logic [DC_MSHRS-1:0] m_done,     //   registered: entry e installed last cycle
+  output logic              m_wake_any,   //   registered: an entry installed, or none is busy
   // Store drain: one request at a time, held until st_ack
   input  logic              st_req,
   input  logic [PA_W-1:0]   st_pa,
@@ -85,7 +93,7 @@ module tg_dcache
   output tl_e_t             e_o,
   output logic              e_valid_o,
   input  logic              e_ready_i,
-  output logic [7:0]        dbg_o         // board debug: {ready, ms_q, ps_q} (tg_core's dbg_o)
+  output logic [7:0]        dbg_o         // board debug: {ready, the miss side, ps_q} (tg_core's dbg_o)
 );
 
   // ---- Arrays ----
@@ -211,22 +219,45 @@ module tg_dcache
   assign ch     = hits(2, ctl_pa[12 +: TAG_W], tag_rd, sc.v);
   assign ch_way = enc(ch);
 
-  // ---- MSHR ----
-  typedef enum logic [3:0] {
-    M_IDLE, M_EV_RD, M_EV_SEND, M_EV_WAIT, M_ACQ, M_GRANT, M_GACK, M_INSTALL
-  } mstate_e;
-  mstate_e          ms_q;
-  logic [PA_W-1:6]  m_line_q;
-  logic [2:0]       m_grow_q;
-  logic             m_st_q;              // for a store
-  logic [WAY_W-1:0] m_way_q;
-  logic [PA_W-1:6]  m_vline_q;           // victim line
-  logic             m_vdirty_q, m_vt_q;
-  logic [1:0]       m_beat_q;
-  logic             m_den_q;
-  logic [2:0]       m_cap_q;
-  logic [TL_SINK_W-1:0] m_sink_q;
-  assign mshr_idle = ms_q == M_IDLE;
+  // ---- The miss side: one MSHR (DC_MSHRS = 1), or DC_MSHRS entries (DR-149) ----
+  // The generate branch built (g_m1 or g_mn, after the sequential block) drives these; the rest of
+  // the cache sees the miss side only through them
+  logic             m_none;              // no miss in flight
+  logic             m_on_c;              // a Release is being read or sent (port B's read register, C)
+  logic             m_inst;              // an install waits for the state port
+  logic             inst_go;             // ... and writes it this cycle (a probe update goes first)
+  logic [PA_W-1:6]  mi_line;             // the install's line, way, denial, cap and kind
+  logic [WAY_W-1:0] mi_way;
+  logic             mi_den, mi_st;
+  logic [2:0]       mi_cap;
+  logic             pb_ev;               // the Release reads a beat through port B ...
+  logic [WAY_W-1:0] mv_way;              // ... of this way, set and beat
+  logic [SET_W-1:0] mv_set;
+  logic [1:0]       mv_beat;
+  logic             m_gwait;             // a Grant may come: D waits while a probe holds port B
+  logic             grant_beat;          // a GrantData beat is accepted this cycle ...
+  logic [WAY_W-1:0] mg_way;              // ... into this way, set and beat
+  logic [SET_W-1:0] mg_set;
+  logic [1:0]       mg_beat;
+  logic             a_valid;             // the Acquire on A: its line, growth and source
+  logic [PA_W-1:6]  a_line;
+  logic [2:0]       a_grow;
+  logic [TL_SRC_W-1:0] a_src;
+  logic             e_valid;             // the GrantAck on E
+  logic [TL_SINK_W-1:0] e_sink;
+  logic             rel_send;            // the Release on C: dirty, from T, its line, source, data
+  logic             rel_dirty, rel_t;
+  logic [PA_W-1:6]  rel_line;
+  logic [TL_SRC_W-1:0] rel_src;
+  logic [127:0]     rel_data;
+  logic             m_holdb;             // the Release's beat is port B's read output (held)
+  logic             m_free_st, m_free_ld; // the miss side can take the store port's / a load's miss
+  logic             c_req;               // the load miss the controller port looks up: lm_req, or
+  logic [PA_W-1:0]  c_pa;                // DR-149's request register
+  logic             dn_hit;              // the store port's line: its last fill was denied
+  logic [3:0]       m_dbg;               // board debug: the MSHR's state (DC_MSHRS = 1), or the release
+                                         // engine busy and the number of busy entries
+  assign mshr_idle = m_none;
 
   // ---- Probe FSM ----
   typedef enum logic [2:0] { P_IDLE, P_LOOK, P_RD, P_SEND, P_ACK, P_UPD } pstate_e;
@@ -241,10 +272,8 @@ module tg_dcache
   logic [1:0]       p_beat_q;
   logic             probe_active;
   assign probe_active = ps_q != P_IDLE;
-  logic             mshr_on_c;           // a Release message is being sent
-  assign mshr_on_c = ms_q == M_EV_RD || ms_q == M_EV_SEND;
 
-  assign ctl_pa = probe_active ? p_pa_q : lm_pa;
+  assign ctl_pa = probe_active ? p_pa_q : c_pa;
 
   // ---- Atomic read-modify-write ----
   logic             pb_amr, amw_q;       // read cycle; write cycle
@@ -258,7 +287,7 @@ module tg_dcache
   // Port 3's address (above): the set of a probe update, an install or an atomic's write
   always_comb begin
     if (ps_q == P_UPD && p_hit_q) ew_a = p_pa_q[6 +: SET_W];
-    else if (ms_q == M_INSTALL)   ew_a = m_line_q[6 +: SET_W];
+    else if (m_inst)              ew_a = mi_line[6 +: SET_W];
     else                          ew_a = am_row_q[ROW_W-1:2];
   end
 
@@ -276,35 +305,30 @@ module tg_dcache
   logic [3:0] fu_st_q, fu_ld_q;
   logic       fu_st, fu_hold;
   assign fu_st   = fu_st_q != '0;
-  assign fu_hold = ms_q == M_INSTALL || fu_st || fu_ld_q != '0 || pr_hold;
+  assign fu_hold = m_inst || fu_st || fu_ld_q != '0 || pr_hold;
 
-  // ---- Allocation (from M_IDLE) ----
+  // ---- Allocation ----
   // A store's or an atomic's miss first, else a load's whose line is still absent (it may have
   // been filled since M1); never beside an atomic, which reads port B when it hits (pb_amr) and
   // allocates when it misses. Each port's victim and eviction fields come from its own state, and
   // the store port's miss selects last (timing, DR-145: in G6 the store port's compare -> the
   // allocation -> the MSHR's registers and the state write, -1.40 and -1.49 ns; the same decisions,
-  // checked in simulation against the earlier form)
-  logic al_base;                         // the MSHR is free to allocate
+  // checked in simulation against the earlier form). m_free_st and m_free_ld say whether the miss
+  // side can take each (one MSHR: when it is idle)
+  logic al_base;                         // nothing else holds the allocation's state write
   logic alloc_st, alloc_ld;
-  assign al_base  = ms_q == M_IDLE && ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
-  assign alloc_st = al_base && sx_req && !s_hit_t;
-  assign alloc_ld = al_base && lm_req && !(|ch) && !am_req && !(st_req && !s_hit_t);
+  assign al_base  = ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
+  assign alloc_st = al_base && m_free_st && sx_req && !s_hit_t;
+  assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st);
   logic [PA_W-1:0]  al_pa;
-  assign al_pa = alloc_st ? sx_pa : lm_pa;
-  logic dn_v_q;                          // the last denied fill (registered below)
-  logic [PA_W-1:6] dn_line_q;
-  logic dn_hit;                          // the store port's line: its last fill was denied
+  assign al_pa = alloc_st ? sx_pa : c_pa;
   logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
-  logic al_go;                           // the MSHR allocates this cycle
+  logic al_go;                           // an allocation this cycle
   logic al_up;                           // ... a store's upgrade of its B line in place
   logic al_w;                            // ... with a victim, writing the set's state
-  logic inst_go;                         // the MSHR installs this cycle
-  assign dn_hit  = dn_v_q && dn_line_q == sx_pa[PA_W-1:6];
   assign al_go   = (alloc_st && !dn_hit) || alloc_ld;
   assign al_up   = alloc_st && !dn_hit && s_hit;
   assign al_w    = (alloc_st && !dn_hit && !s_hit) || alloc_ld;
-  assign inst_go = ms_q == M_INSTALL && !(ps_q == P_UPD && p_hit_q);   // a probe update goes first
   // The victim: the first invalid way, else the round-robin pointer's. It is valid only when every
   // way is, so an eviction's way is the pointer's
   function automatic logic [WAY_W-1:0] vict(input logic [WAY_W-1:0] rr, input logic [WAYS-1:0] v);
@@ -320,33 +344,72 @@ module tg_dcache
     end
     return r;
   endfunction
+  // DC_MSHRS > 1: the first way from rr on (wrapping) that no entry holds, and the victim among the
+  // ways no entry holds (an upgrade's B line stays valid; a fill's way was cleared at its
+  // allocation). DC_MSHRS < WAYS, so there is one
+  function automatic logic [WAY_W-1:0] from_rr(input logic [WAY_W-1:0] rr, input logic [WAYS-1:0] res);
+    logic [WAY_W-1:0] r;
+    logic found;
+    found = 1'b0;
+    r = rr;
+    for (int i = 0; i < WAYS; i++) begin
+      if (!found && !res[WAY_W'(rr + WAY_W'(i))]) begin
+        r = WAY_W'(rr + WAY_W'(i));
+        found = 1'b1;
+      end
+    end
+    return r;
+  endfunction
+  function automatic logic [WAY_W-1:0] vict_r(input logic [WAY_W-1:0] rr, input logic [WAYS-1:0] v,
+                                            input logic [WAYS-1:0] res);
+    logic [WAY_W-1:0] r;
+    logic found;
+    found = 1'b0;
+    r = from_rr(rr, res);
+    for (int w = 0; w < WAYS; w++) begin
+      if (!found && !v[w] && !res[w]) begin
+        r = WAY_W'(w);
+        found = 1'b1;
+      end
+    end
+    return r;
+  endfunction
   logic [WAY_W-1:0] victim_s, victim_c, victim;
   logic             ev_s, ev_c;          // the victim is valid: an eviction (store port, controller)
-  logic [TAG_W-1:0] evt_s, evt_c;        // ... its tag
-  assign victim_s = vict(ss.rr, ss.v);
-  assign victim_c = vict(sc.rr, sc.v);
+  logic [WAY_W-1:0] evw_s, evw_c;        // ... its way
+  logic [TAG_W-1:0] evt_s, evt_c;        // ... and tag
+  logic [WAYS-1:0]  res_s, res_c;        // the ways entries hold in the set (DC_MSHRS > 1)
+  if (DC_MSHRS == 1) begin : g_vict1
+    assign victim_s = vict(ss.rr, ss.v);
+    assign victim_c = vict(sc.rr, sc.v);
+    assign ev_s     = &ss.v;
+    assign ev_c     = &sc.v;
+    assign evw_s    = ss.rr;
+    assign evw_c    = sc.rr;
+  end else begin : g_victn
+    assign victim_s = vict_r(ss.rr, ss.v, res_s);
+    assign victim_c = vict_r(sc.rr, sc.v, res_c);
+    assign ev_s     = &(ss.v | res_s);
+    assign ev_c     = &(sc.v | res_c);
+    assign evw_s    = from_rr(ss.rr, res_s);
+    assign evw_c    = from_rr(sc.rr, res_c);
+  end
   assign victim   = alloc_st ? victim_s : victim_c;
-  assign ev_s     = &ss.v;
-  assign ev_c     = &sc.v;
-  assign evt_s    = tag_rd[ss.rr][1];
-  assign evt_c    = tag_rd[sc.rr][2];
+  assign evt_s    = tag_rd[evw_s][1];
+  assign evt_c    = tag_rd[evw_c][2];
 
   // ---- Port B arbitration ----
-  logic pb_probe, pb_grant, pb_ev, pb_st, pb_amw;
-  logic grant_beat;                      // a GrantData beat is accepted this cycle
+  logic pb_probe, pb_grant, pb_st, pb_amw;
   assign pb_probe   = ps_q == P_RD && !bw_busy;
-  assign pb_ev      = ms_q == M_EV_RD && !bw_busy;
   // Port B's read register must hold while a beat waits on C, so nothing else enables port B
-  // during P_SEND or M_EV_SEND.
-  assign grant_beat = ms_q == M_GRANT && d_valid_i && !(ps_q == P_RD || ps_q == P_SEND) &&
-                      d_i.opcode == D_GRANT_DATA;
+  // during P_SEND or a Release's send (the miss side's pb_ev and grant_beat keep to it)
   assign pb_grant   = grant_beat;
   // A store writes when the state port is free too: no install or allocation this cycle. A store
   // that hits allocates nothing, so only a load's allocation can take the state port then, and the
   // hit selects last
   logic pst_ok;
-  assign pst_ok     = !probe_active && !mshr_on_c && !pb_grant && ms_q != M_INSTALL &&
-                      !(al_base && lm_req && !(|ch));
+  assign pst_ok     = !probe_active && !m_on_c && !pb_grant && !m_inst &&
+                      !(al_base && m_free_ld && c_req && !(|ch));
   assign pb_st      = st_req && s_hit_t && pst_ok;
   assign pb_amw     = amw_q && |am_wmask;
   // Port B's read data, selected once by the way it last read: a probe, an eviction or an
@@ -361,7 +424,7 @@ module tg_dcache
   if (DC_AMO_READ_REG) begin : g_amo_reg
     logic        amh_q;
     logic [63:0] am_rd_q;
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && m_none && !bw_busy &&
                       !amh_q &&
                       !amw_q;
     assign am_busy  = amh_q || amw_q;
@@ -374,12 +437,12 @@ module tg_dcache
     end
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
-      if (!rst && amh_q) assert (ps_q == P_IDLE && ms_q == M_IDLE && brd_way_q == am_way_q)
+      if (!rst && amh_q) assert (ps_q == P_IDLE && m_none && brd_way_q == am_way_q)
         else $error("tg_dcache: atomic data held not exclusive, or from another way");
     end
 `endif
   end else begin : g_amo_now
-    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && ms_q == M_IDLE && !bw_busy &&
+    assign pb_amr   = am_req && s_hit_t && ps_q == P_IDLE && (!b_valid_i || fu_hold) && m_none && !bw_busy &&
                       !amw_q;
     assign am_busy  = amw_q;
     assign amw_d    = pb_amr;
@@ -413,12 +476,12 @@ module tg_dcache
       e_en[p_way_q] = 1'b1;
       e_addr = {p_pa_q[6 +: SET_W], p_beat_q};
     end else if (pb_grant) begin
-      e_en[m_way_q] = 1'b1;
+      e_en[mg_way] = 1'b1;
       e_we = '1;
-      e_addr = {m_line_q[6 +: SET_W], m_beat_q};
+      e_addr = {mg_set, mg_beat};
     end else if (pb_ev) begin
-      e_en[m_way_q] = 1'b1;
-      e_addr = {m_vline_q[6 +: SET_W], m_beat_q};
+      e_en[mv_way] = 1'b1;
+      e_addr = {mv_set, mv_beat};
     end else if (pb_amw) begin
       e_en[am_way_q] = 1'b1;
       e_we = am_wmask;
@@ -430,7 +493,7 @@ module tg_dcache
   assign b_addr  = e_addr;
   assign b_wdata = pb_grant ? d_i.data : amw_q ? {2{am_wdata}} : {2{st_wdata}};
   assign brd_en  = pb_probe || pb_ev || pb_amr;
-  assign brd_way = pb_probe ? p_way_q : pb_ev ? m_way_q : sh_way;
+  assign brd_way = pb_probe ? p_way_q : pb_ev ? mv_way : sh_way;
   // #11 (DC_PORTB_WREG): the writes (a grant beat, a store, an atomic) reach the RAMs from a
   // register a cycle later, and the reads (probe, eviction, atomic) wait while one does (bw_busy;
   // no write is decided while port B's output holds a read: P_RD/P_SEND, M_EV_RD/M_EV_SEND and an
@@ -457,7 +520,7 @@ module tg_dcache
     assign rb_wdata = wr_data_q;
 `ifndef SYNTHESIS
     always_ff @(posedge clk)
-      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || ms_q == M_EV_SEND || brd_en)))
+      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || m_holdb || brd_en)))
         else $error("tg_dcache: a registered write lands while port B's output holds a read");
 `endif
   end else begin : g_bwnow
@@ -472,22 +535,22 @@ module tg_dcache
   always_comb begin
     a_o = '0;
     a_o.opcode  = A_ACQUIRE_BLOCK;
-    a_o.param   = m_grow_q;
+    a_o.param   = a_grow;
     a_o.size    = 3'd6;
-    a_o.source  = TL_SRC_W'(0);
-    a_o.address = {m_line_q, 6'b0};
+    a_o.source  = a_src;
+    a_o.address = {a_line, 6'b0};
     a_o.mask    = '1;
-    a_valid_o   = ms_q == M_ACQ;
+    a_valid_o   = a_valid;
 
-    e_o.sink    = m_sink_q;
-    e_valid_o   = ms_q == M_GACK;
+    e_o.sink    = e_sink;
+    e_valid_o   = e_valid;
 
     // A probe is taken when the probe unit is idle, neither an eviction nor an atomic has the line
     // state, and no forward-progress hold is on (above). An MSHR allocation never competes: it
     // yields to a probe on offer (alloc_*), and an atomic's read to one that is taken, so the ready
     // comes from state registers alone (timing: the store drain's and the load miss's tag lookups
     // left the crossbar's B slice; the handshakes are the same, as ready only counts with b_valid_i)
-    b_ready_o   = ps_q == P_IDLE && !mshr_on_c && !am_busy && !fu_hold && ready;
+    b_ready_o   = ps_q == P_IDLE && !m_on_c && !am_busy && !fu_hold && ready;
 
     c_o = '0;
     c_valid_o = 1'b0;
@@ -499,21 +562,19 @@ module tg_dcache
       c_o.source  = p_src_q;
       c_o.address = {p_pa_q[PA_W-1:6], 6'b0};
       c_o.data    = (ps_q == P_SEND) ? brow : '0;   // held stable: see port B rules
-    end else if (ms_q == M_EV_SEND) begin
+    end else if (rel_send) begin
       c_valid_o   = 1'b1;
-      c_o.opcode  = m_vdirty_q ? C_RELEASE_DATA : C_RELEASE;
-      c_o.param   = m_vt_q ? TL_SHRINK_T_TO_N : TL_SHRINK_B_TO_N;
+      c_o.opcode  = rel_dirty ? C_RELEASE_DATA : C_RELEASE;
+      c_o.param   = rel_t ? TL_SHRINK_T_TO_N : TL_SHRINK_B_TO_N;
       c_o.size    = 3'd6;
-      c_o.source  = TL_SRC_W'(1);
-      c_o.address = {m_vline_q, 6'b0};
-      c_o.data    = m_vdirty_q ? brow : '0;
+      c_o.source  = rel_src;
+      c_o.address = {rel_line, 6'b0};
+      c_o.data    = rel_dirty ? rel_data : '0;
     end
 
     d_ready_o = 1'b1;
-    if (ms_q == M_GRANT && (ps_q == P_RD || ps_q == P_SEND)) d_ready_o = 1'b0;
+    if (m_gwait && (ps_q == P_RD || ps_q == P_SEND)) d_ready_o = 1'b0;
   end
-  assign deny_v    = dn_v_q;
-  assign deny_line = dn_line_q;
 
   // Grant with data or permission only
   logic d_fire;
@@ -521,7 +582,7 @@ module tg_dcache
 
   // Store whose fill was denied: acknowledged without a write. An atomic: am_den (access fault).
   // (a load's allocation never comes with a store port miss)
-  assign sx_drop = sx_req && ms_q == M_IDLE && dn_hit && !s_hit_t && !probe_active;
+  assign sx_drop = sx_req && m_none && dn_hit && !s_hit_t && !probe_active;
   assign st_drop = sx_drop && st_req;
   assign am_den  = sx_drop && am_req;
   logic            lose_v_q;
@@ -553,12 +614,12 @@ module tg_dcache
       wd_e.v[p_way_q] = p_nv_q;
       wd_e.t[p_way_q] = p_nt_q;
       if (!p_nt_q) wd_e.d[p_way_q] = 1'b0;     // to B or N: dirty data went with the ack
-    end else if (ms_q == M_INSTALL) begin      // inst_go
+    end else if (m_inst) begin                 // inst_go
       we_e = 1'b1;
-      wa_e = m_line_q[6 +: SET_W];
-      wd_e.v[m_way_q] = !m_den_q;
-      wd_e.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
-      wd_e.d[m_way_q] = 1'b0;
+      wa_e = mi_line[6 +: SET_W];
+      wd_e.v[mi_way] = !mi_den;
+      wd_e.t[mi_way] = !mi_den && mi_cap == TL_CAP_TO_T;
+      wd_e.d[mi_way] = 1'b0;
     end else if (pb_amw) begin
       we_e = 1'b1;
       wd_e.d[am_way_q] = 1'b1;
@@ -580,28 +641,34 @@ module tg_dcache
   assign w_ac  = alloc_ld;
   assign w_s   = pb_st && ready;
   assign st_we = we_e || w_as || w_ac || w_s;
-  assign st_wa = (w_as || w_s) ? sx_pa[6 +: SET_W] : w_ac ? lm_pa[6 +: SET_W] : wa_e;
+  assign st_wa = (w_as || w_s) ? sx_pa[6 +: SET_W] : w_ac ? c_pa[6 +: SET_W] : wa_e;
   assign st_wd = w_as ? wd_as : w_ac ? wd_ac : w_s ? wd_s : wd_e;
 
   // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
       init_q <= '0;
-      ms_q   <= M_IDLE;
       ps_q   <= P_IDLE;
-      dn_v_q <= 1'b0;
       amw_q  <= 1'b0;
       lose_v_q <= 1'b0;
       fu_st_q  <= '0;
       fu_ld_q  <= '0;
     end else begin
-      // The holds after an install (forward progress, above)
-      if (inst_go && !m_den_q) begin
-        fu_st_q <= m_st_q ? 4'(FU_ST) : '0;
-        fu_ld_q <= m_st_q ? '0 : 4'(FU_LD);
+      // The holds after an install (forward progress, above). With entries (DC_MSHRS > 1) each
+      // install starts its own kind's hold and the other one runs on
+      if (DC_MSHRS == 1) begin
+        if (inst_go && !mi_den) begin
+          fu_st_q <= mi_st ? 4'(FU_ST) : '0;
+          fu_ld_q <= mi_st ? '0 : 4'(FU_LD);
+        end else begin
+          if (fu_st) fu_st_q <= (pb_st || pb_amr) ? '0 : fu_st_q - 1'b1;
+          if (fu_ld_q != '0) fu_ld_q <= fu_ld_q - 1'b1;
+        end
       end else begin
-        if (fu_st) fu_st_q <= (pb_st || pb_amr) ? '0 : fu_st_q - 1'b1;
-        if (fu_ld_q != '0) fu_ld_q <= fu_ld_q - 1'b1;
+        if (inst_go && !mi_den && mi_st) fu_st_q <= 4'(FU_ST);
+        else if (fu_st)                  fu_st_q <= (pb_st || pb_amr) ? '0 : fu_st_q - 1'b1;
+        if (inst_go && !mi_den && !mi_st) fu_ld_q <= 4'(FU_LD);
+        else if (fu_ld_q != '0)           fu_ld_q <= fu_ld_q - 1'b1;
       end
       if (!ready) init_q <= init_q + 1'b1;
       if (brd_en) brd_way_q <= brd_way;
@@ -614,66 +681,11 @@ module tg_dcache
       end
       lose_v_q <= 1'b0;
 
-      // ---- MSHR ----
-      unique case (ms_q)
-        M_IDLE: begin
-          // The request's fields load in every idle cycle (they are read only once the MSHR has
-          // left M_IDLE), so only the state and lose_v wait for the allocation (timing, DR-145).
-          // An upgrade keeps its B line's way; else the victim's, released first when valid: it
-          // is gone for probes and stores from then on
-          m_line_q   <= al_pa[PA_W-1:6];
-          m_st_q     <= alloc_st;
-          m_beat_q   <= '0;
-          m_den_q    <= 1'b0;
-          m_way_q    <= al_up ? sh_way : victim;
-          m_grow_q   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
-          m_vline_q  <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
-          m_vdirty_q <= alloc_st ? ss.d[ss.rr] : sc.d[sc.rr];
-          m_vt_q     <= alloc_st ? ss.t[ss.rr] : sc.t[sc.rr];
-          if (al_go) begin
-            if (!al_up && (alloc_st ? ev_s : ev_c)) begin
-              lose_v_q    <= 1'b1;
-              lose_line_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
-              ms_q        <= (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) ? M_EV_RD : M_EV_SEND;
-            end else begin
-              ms_q <= M_ACQ;
-            end
-          end
-        end
-        M_EV_RD: if (pb_ev) ms_q <= M_EV_SEND;      // port B read of beat m_beat_q (#11: not beside a write)
-        M_EV_SEND: if (c_ready_i) begin
-          if (!m_vdirty_q || m_beat_q == 2'd3) begin
-            m_beat_q <= '0;
-            ms_q <= M_EV_WAIT;
-          end else begin
-            m_beat_q <= m_beat_q + 1'b1;
-            ms_q <= M_EV_RD;
-          end
-        end
-        M_EV_WAIT: if (d_fire && d_i.opcode == D_RELEASE_ACK) ms_q <= M_ACQ;
-        M_ACQ: if (a_ready_i) begin
-          ms_q <= M_GRANT;
-          m_beat_q <= '0;
-        end
-        M_GRANT: if (d_fire && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT)) begin
-          m_cap_q  <= {1'b0, d_i.param};
-          m_sink_q <= d_i.sink;
-          if (d_i.denied || d_i.corrupt) m_den_q <= 1'b1;
-          if (d_i.opcode == D_GRANT || m_beat_q == 2'd3) ms_q <= M_GACK;
-          m_beat_q <= m_beat_q + 1'b1;
-        end
-        M_GACK: if (e_ready_i) ms_q <= M_INSTALL;
-        M_INSTALL: if (inst_go) begin              // the state write is in the comb block above
-          ms_q <= M_IDLE;
-          if (!m_den_q) begin
-            if (dn_v_q && dn_line_q == m_line_q) dn_v_q <= 1'b0;
-          end else begin
-            dn_v_q    <= 1'b1;
-            dn_line_q <= m_line_q;
-          end
-        end
-        default: ms_q <= M_IDLE;
-      endcase
+      // An eviction ends a reservation on the victim's line
+      if (al_go && !al_up && (alloc_st ? ev_s : ev_c)) begin
+        lose_v_q    <= 1'b1;
+        lose_line_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+      end
 
       // ---- Probes ----
       unique case (ps_q)
@@ -731,15 +743,421 @@ module tg_dcache
     end
   end
 
+
+  // ---- The miss side ----
+  if (DC_MSHRS == 1) begin : g_m1
+    // One MSHR: one line at a time, for a load miss (AcquireBlock NtoB) or a store (NtoT, or BtoT
+    // for a line held in B). A valid victim is released first (state cleared when the Release
+    // starts, so probes and stores see the line as gone); the Acquire waits for ReleaseAck
+    typedef enum logic [3:0] {
+      M_IDLE, M_EV_RD, M_EV_SEND, M_EV_WAIT, M_ACQ, M_GRANT, M_GACK, M_INSTALL
+    } mstate_e;
+    mstate_e          ms_q;
+    logic [PA_W-1:6]  m_line_q;
+    logic [2:0]       m_grow_q;
+    logic             m_st_q;              // for a store
+    logic [WAY_W-1:0] m_way_q;
+    logic [PA_W-1:6]  m_vline_q;           // victim line
+    logic             m_vdirty_q, m_vt_q;
+    logic [1:0]       m_beat_q;
+    logic             m_den_q;
+    logic [2:0]       m_cap_q;
+    logic [TL_SINK_W-1:0] m_sink_q;
+    logic             dn_v_q;              // the last denied fill
+    logic [PA_W-1:6]  dn_line_q;
+    assign m_none     = ms_q == M_IDLE;
+    assign m_on_c     = ms_q == M_EV_RD || ms_q == M_EV_SEND;
+    assign m_inst     = ms_q == M_INSTALL;
+    assign inst_go    = m_inst && !(ps_q == P_UPD && p_hit_q);    // a probe update goes first
+    assign mi_line    = m_line_q;
+    assign mi_way     = m_way_q;
+    assign mi_den     = m_den_q;
+    assign mi_st      = m_st_q;
+    assign mi_cap     = m_cap_q;
+    assign pb_ev      = ms_q == M_EV_RD && !bw_busy;     // (#11: not beside a write)
+    assign mv_way     = m_way_q;
+    assign mv_set     = m_vline_q[6 +: SET_W];
+    assign mv_beat    = m_beat_q;
+    assign m_gwait    = ms_q == M_GRANT;
+    assign grant_beat = ms_q == M_GRANT && d_valid_i && !(ps_q == P_RD || ps_q == P_SEND) &&
+                        d_i.opcode == D_GRANT_DATA;
+    assign mg_way     = m_way_q;
+    assign mg_set     = m_line_q[6 +: SET_W];
+    assign mg_beat    = m_beat_q;
+    assign a_valid    = ms_q == M_ACQ;
+    assign a_line     = m_line_q;
+    assign a_grow     = m_grow_q;
+    assign a_src      = TL_SRC_W'(0);
+    assign e_valid    = ms_q == M_GACK;
+    assign e_sink     = m_sink_q;
+    assign rel_send   = ms_q == M_EV_SEND;
+    assign rel_dirty  = m_vdirty_q;
+    assign rel_t      = m_vt_q;
+    assign rel_line   = m_vline_q;
+    assign rel_src    = TL_SRC_W'(1);
+    assign rel_data   = brow;                // held by port B's output while it waits on C
+    assign m_holdb    = rel_send;
+    assign m_free_st  = m_none;
+    assign m_free_ld  = m_none;
+    assign m_dbg      = 4'(ms_q);
+    assign c_req      = lm_req;
+    assign c_pa       = lm_pa;
+    assign dn_hit     = dn_v_q && dn_line_q == sx_pa[PA_W-1:6];
+    assign lm_fdn     = dn_v_q && dn_line_q == lm_pa[PA_W-1:6];
+    assign res_s      = '0;                  // (the victim search does not read them: one MSHR)
+    assign res_c      = '0;
+    assign lm_ans_v    = 1'b0;               // (DC_MSHRS > 1 only)
+    assign lm_ans_wait = 1'b0;
+    assign lm_ans_e    = '0;
+    assign m_done      = '0;
+    assign m_wake_any  = 1'b0;
+    logic unused_m1;
+    assign unused_m1 = ^{res_s, res_c};
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        ms_q   <= M_IDLE;
+        dn_v_q <= 1'b0;
+      end else begin
+        unique case (ms_q)
+          M_IDLE: begin
+            // The request's fields load in every idle cycle (they are read only once the MSHR has
+            // left M_IDLE), so only the state and lose_v wait for the allocation (timing, DR-145).
+            // An upgrade keeps its B line's way; else the victim's, released first when valid: it
+            // is gone for probes and stores from then on
+            m_line_q   <= al_pa[PA_W-1:6];
+            m_st_q     <= alloc_st;
+            m_beat_q   <= '0;
+            m_den_q    <= 1'b0;
+            m_way_q    <= al_up ? sh_way : victim;
+            m_grow_q   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
+            m_vline_q  <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+            m_vdirty_q <= alloc_st ? ss.d[ss.rr] : sc.d[sc.rr];
+            m_vt_q     <= alloc_st ? ss.t[ss.rr] : sc.t[sc.rr];
+            if (al_go) begin
+              if (!al_up && (alloc_st ? ev_s : ev_c)) begin
+                ms_q        <= (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) ? M_EV_RD : M_EV_SEND;
+              end else begin
+                ms_q <= M_ACQ;
+              end
+            end
+          end
+          M_EV_RD: if (pb_ev) ms_q <= M_EV_SEND;      // port B read of beat m_beat_q (#11: not beside a write)
+          M_EV_SEND: if (c_ready_i) begin
+            if (!m_vdirty_q || m_beat_q == 2'd3) begin
+              m_beat_q <= '0;
+              ms_q <= M_EV_WAIT;
+            end else begin
+              m_beat_q <= m_beat_q + 1'b1;
+              ms_q <= M_EV_RD;
+            end
+          end
+          M_EV_WAIT: if (d_fire && d_i.opcode == D_RELEASE_ACK) ms_q <= M_ACQ;
+          M_ACQ: if (a_ready_i) begin
+            ms_q <= M_GRANT;
+            m_beat_q <= '0;
+          end
+          M_GRANT: if (d_fire && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT)) begin
+            m_cap_q  <= {1'b0, d_i.param};
+            m_sink_q <= d_i.sink;
+            if (d_i.denied || d_i.corrupt) m_den_q <= 1'b1;
+            if (d_i.opcode == D_GRANT || m_beat_q == 2'd3) ms_q <= M_GACK;
+            m_beat_q <= m_beat_q + 1'b1;
+          end
+          M_GACK: if (e_ready_i) ms_q <= M_INSTALL;
+          M_INSTALL: if (inst_go) begin              // the state write is in the comb block above
+            ms_q <= M_IDLE;
+            if (!m_den_q) begin
+              if (dn_v_q && dn_line_q == m_line_q) dn_v_q <= 1'b0;
+            end else begin
+              dn_v_q    <= 1'b1;
+              dn_line_q <= m_line_q;
+            end
+          end
+          default: ms_q <= M_IDLE;
+        endcase
+      end
+    end
+  end else begin : g_mn
+    // DC_MSHRS entries (DR-149). Each holds one line in flight from its allocation to its install:
+    // a load's (AcquireBlock NtoB), or a store's or an atomic's (NtoT, or BtoT for a line held in
+    // B, which stays valid in B meanwhile). A valid victim goes through the one release engine:
+    // its state is cleared at the allocation (probes and stores see the line as gone; its way is
+    // the entry's), the engine reads and sends its beats, and the entry's Acquire goes out after
+    // the last one. Each beat is read through port B, taken into the engine's own register the next
+    // cycle and sent from it, so Grants for other entries write port B meanwhile (no D waits on C).
+    // The engine alone waits for ReleaseAck (source DC_MSHRS); another allocation with a valid victim
+    // waits for it. A way an entry holds is no other allocation's victim. Loads'
+    // misses come through a request register: the next cycle each merges with the entry holding
+    // its line, finds the line present, allocates, or gets no answer, and the answer is registered
+    // (lm_ans_*, two cycles after lm_req). Grants come back in any order, demultiplexed by source
+    // (the entry's index); a Grant's beats are contiguous, so port B writes one Grant at a time.
+    // Installs take the state port one at a time, the lowest entry first, after a probe update, and
+    // no allocation shares a cycle with one. An atomic's read waits until nothing is in flight
+    localparam int N = DC_MSHRS;
+    typedef enum logic [2:0] { E_IDLE, E_EV, E_ACQ, E_GRANT, E_GACK, E_INSTALL } estate_e;
+    typedef enum logic [2:0] { R_IDLE, R_RD, R_CAP, R_SEND, R_WAIT } rstate_e;
+    estate_e [N-1:0]                es_q;      // per entry: its state, line, way, growth, kind
+    logic    [N-1:0][PA_W-1:6]      el_q;
+    logic    [N-1:0][WAY_W-1:0]     ew_q;
+    logic    [N-1:0][2:0]           eg_q;
+    logic    [N-1:0]                est_q;     // for a store or an atomic
+    logic    [N-1:0][1:0]           eb_q;      // the Grant's beat
+    logic    [N-1:0]                eden_q;    // the Grant was denied (or corrupt)
+    logic    [N-1:0][2:0]           ecap_q;
+    logic    [N-1:0][TL_SINK_W-1:0] esk_q;
+    rstate_e                        rs_q;      // the release engine: the victim's line, way,
+    logic    [PA_W-1:6]             rl_q;      //   dirty and T bits, its beat, and the entry whose
+    logic    [WAY_W-1:0]            rw_q;      //   Acquire waits for the send
+    logic                           rd_q, rt_q;
+    logic    [1:0]                  rb_q;
+    logic    [MSW-1:0]              re_q;
+    logic    [127:0]                rbeat_q;   //   and the beat it sends
+    logic                           rq_v_q;    // the loads' request register
+    logic    [PA_W-1:0]             rq_pa_q;
+    logic    [N-1:0]                dn_v_q;    // denied fills, one line per entry
+    logic    [N-1:0][PA_W-1:6]      dn_l_q;
+    logic    [N-1:0]                done_q;    // entry e installed last cycle
+    logic                           none_q;    // nothing was in flight last cycle
+    logic                           rack_q;    // ReleaseAck came last cycle
+    logic                           ans_v_q, ans_w_q;
+    logic    [MSW-1:0]              ans_e_q;
+    function automatic logic [MSW-1:0] first(input logic [N-1:0] v);   // the lowest one set
+      logic [MSW-1:0] r;
+      r = '0;
+      for (int i = N - 1; i >= 0; i--) if (v[i]) r = MSW'(i);
+      return r;
+    endfunction
+    logic [N-1:0] busy, acq, gnt, gack, insv, st_m, rq_m, dn_s, dn_l;
+    logic [MSW-1:0] f_i, a_i, g_i, i_i, rq_e, d_e;
+    logic f_any, st_busy, rq_busy, d_for_e, ev_go, ev_dirty;
+    always_comb begin
+      for (int e = 0; e < N; e++) begin
+        busy[e] = es_q[e] != E_IDLE;
+        acq[e]  = es_q[e] == E_ACQ;
+        gnt[e]  = es_q[e] == E_GRANT;
+        gack[e] = es_q[e] == E_GACK;
+        insv[e] = es_q[e] == E_INSTALL;
+        st_m[e] = busy[e] && el_q[e] == sx_pa[PA_W-1:6];
+        rq_m[e] = busy[e] && el_q[e] == rq_pa_q[PA_W-1:6];
+        dn_s[e] = dn_v_q[e] && dn_l_q[e] == sx_pa[PA_W-1:6];
+        dn_l[e] = dn_v_q[e] && dn_l_q[e] == lm_pa[PA_W-1:6];
+      end
+      // The ways the entries hold in the store port's and the controller's sets
+      res_s = '0;
+      res_c = '0;
+      for (int e = 0; e < N; e++) begin
+        if (busy[e] && el_q[e][6 +: SET_W] == sx_pa[6 +: SET_W]) res_s[ew_q[e]] = 1'b1;
+        if (busy[e] && el_q[e][6 +: SET_W] == rq_pa_q[6 +: SET_W]) res_c[ew_q[e]] = 1'b1;
+      end
+    end
+    assign f_i     = first(~busy);
+    assign f_any   = |(~busy);
+    // A and E keep the entry they present until it is taken (TileLink: a valid message's payload
+    // holds until ready; a lower entry turning ready meanwhile waits)
+    logic           a_hold_q, e_hold_q;
+    logic [MSW-1:0] a_cur_q, e_cur_q;
+    assign a_i     = a_hold_q ? a_cur_q : first(acq);
+    assign g_i     = e_hold_q ? e_cur_q : first(gack);
+    assign i_i     = first(insv);
+    assign rq_e    = first(rq_m);
+    // TL-C: no Acquire for a block while its Release is outstanding, so a line the release engine
+    // holds (until ReleaseAck) is allocated to no entry: the store waits, the load gets no answer
+    // (ReleaseAck wakes it)
+    logic st_rel, rq_rel;
+    assign st_rel  = rs_q != R_IDLE && rl_q == sx_pa[PA_W-1:6];
+    assign rq_rel  = rs_q != R_IDLE && rl_q == rq_pa_q[PA_W-1:6];
+    assign st_busy = |st_m;
+    assign rq_busy = |rq_m;
+    assign d_e     = d_i.source[MSW-1:0];
+    assign d_for_e = (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT) && d_i.source[2:0] < 3'(N) &&
+                     es_q[d_e] == E_GRANT;
+    assign ev_go    = !al_up && (alloc_st ? ev_s : ev_c);
+    assign ev_dirty = alloc_st ? ss.d[evw_s] : sc.d[evw_c];
+
+    assign m_none     = !(|busy) && rs_q == R_IDLE;
+    assign m_on_c     = rs_q == R_RD || rs_q == R_CAP || rs_q == R_SEND;
+    assign m_inst     = |insv;
+    assign inst_go    = m_inst && !(ps_q == P_UPD && p_hit_q);    // a probe update goes first
+    assign mi_line    = el_q[i_i];
+    assign mi_way     = ew_q[i_i];
+    assign mi_den     = eden_q[i_i];
+    assign mi_st      = est_q[i_i];
+    assign mi_cap     = ecap_q[i_i];
+    assign pb_ev      = rs_q == R_RD && !bw_busy && !grant_beat;   // (not beside a write)
+    assign mv_way     = rw_q;
+    assign mv_set     = rl_q[6 +: SET_W];
+    assign mv_beat    = rb_q;
+    assign m_gwait    = |gnt;
+    assign grant_beat = d_valid_i && d_i.opcode == D_GRANT_DATA && d_for_e && !(ps_q == P_RD || ps_q == P_SEND);
+    assign mg_way     = ew_q[d_e];
+    assign mg_set     = el_q[d_e][6 +: SET_W];
+    assign mg_beat    = eb_q[d_e];
+    assign a_valid    = |acq;
+    assign a_line     = el_q[a_i];
+    assign a_grow     = eg_q[a_i];
+    assign a_src      = TL_SRC_W'(a_i);
+    assign e_valid    = |gack;
+    assign e_sink     = esk_q[g_i];
+    assign rel_send   = rs_q == R_SEND;
+    assign rel_dirty  = rd_q;
+    assign rel_t      = rt_q;
+    assign rel_line   = rl_q;
+    assign rel_src    = TL_SRC_W'(N);
+    assign rel_data   = rbeat_q;
+    assign m_holdb    = 1'b0;                // (the engine sends from its own register)
+    // An allocation needs a free entry, no entry or Release for its line, no install this cycle (the
+    // state port), and the release engine when its victim is valid
+    assign m_free_st  = f_any && !m_inst && !st_busy && !st_rel && (rs_q == R_IDLE || s_hit || !ev_s);
+    assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (rs_q == R_IDLE || !ev_c);
+    assign c_req      = rq_v_q;
+    assign c_pa       = rq_pa_q;
+    assign m_dbg      = {rs_q != R_IDLE, 3'($countones(busy))};
+    assign dn_hit     = |dn_s;
+    assign lm_fdn     = |dn_l;
+    // The request register's answer: its line is present (the controller port hits, outside a
+    // probe), in an entry (wait for it; one installing now: retry), or allocated now; else none
+    logic a_retry, a_wait;
+    logic [MSW-1:0] a_e;
+    always_comb begin
+      a_retry = 1'b0;
+      a_wait  = 1'b0;
+      a_e     = f_i;
+      if (!probe_active && |ch) begin
+        a_retry = 1'b1;
+      end else if (rq_busy) begin
+        a_e = rq_e;
+        if (insv[rq_e]) a_retry = 1'b1;
+        else            a_wait  = 1'b1;
+      end else if (alloc_ld) begin
+        a_wait = 1'b1;
+      end
+    end
+    assign lm_ans_v    = ans_v_q;
+    assign lm_ans_wait = ans_w_q;
+    assign lm_ans_e    = ans_e_q;
+    assign m_done      = done_q;
+    assign m_wake_any  = |done_q || rack_q || none_q;
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        for (int e = 0; e < N; e++) es_q[e] <= E_IDLE;
+        rs_q    <= R_IDLE;
+        rq_v_q  <= 1'b0;
+        dn_v_q  <= '0;
+        done_q  <= '0;
+        none_q  <= 1'b1;
+        rack_q  <= 1'b0;
+        ans_v_q <= 1'b0;
+        a_hold_q <= 1'b0;
+        e_hold_q <= 1'b0;
+      end else begin
+        a_hold_q <= a_valid && !a_ready_i;
+        a_cur_q  <= a_i;
+        e_hold_q <= e_valid && !e_ready_i;
+        e_cur_q  <= g_i;
+        rq_v_q  <= lm_req;                       // M2's miss: decided the next cycle
+        rq_pa_q <= lm_pa;
+        ans_v_q <= rq_v_q && (a_retry || a_wait);
+        ans_w_q <= a_wait;
+        ans_e_q <= a_e;
+        done_q  <= '0;
+        rack_q  <= 1'b0;
+        none_q  <= m_none;
+        // The first free entry's fields load in every cycle it is free (read only once it is
+        // busy), so only its state waits for the allocation
+        if (f_any) begin
+          el_q[f_i]   <= al_pa[PA_W-1:6];
+          est_q[f_i]  <= alloc_st;
+          eb_q[f_i]   <= '0;
+          eden_q[f_i] <= 1'b0;
+          ew_q[f_i]   <= al_up ? sh_way : victim;
+          eg_q[f_i]   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
+          if (al_go) es_q[f_i] <= ev_go ? E_EV : E_ACQ;
+        end
+        // The release engine takes a valid victim at its allocation
+        if (al_go && ev_go) begin
+          rs_q <= ev_dirty ? R_RD : R_SEND;     // (a clean victim's Release has no data)
+          rl_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+          rw_q <= victim;
+          rd_q <= ev_dirty;
+          rt_q <= alloc_st ? ss.t[evw_s] : sc.t[evw_c];
+          rb_q <= '0;
+          re_q <= f_i;
+        end
+        unique case (rs_q)
+          R_RD: if (pb_ev) rs_q <= R_CAP;       // port B read of beat rb_q
+          R_CAP: begin                           // its data, taken before any later port-B access
+            rbeat_q <= brow;
+            rs_q    <= R_SEND;
+          end
+          R_SEND: if (c_ready_i) begin
+            if (!rd_q || rb_q == 2'd3) begin
+              rs_q       <= R_WAIT;
+              es_q[re_q] <= E_ACQ;               // its line's Acquire may go
+            end else begin
+              rb_q <= rb_q + 1'b1;
+              rs_q <= R_RD;
+            end
+          end
+          R_WAIT: if (d_fire && d_i.opcode == D_RELEASE_ACK) begin
+            rs_q   <= R_IDLE;
+            rack_q <= 1'b1;
+          end
+          default: ;
+        endcase
+        if (a_valid && a_ready_i) begin
+          es_q[a_i] <= E_GRANT;
+          eb_q[a_i] <= '0;
+        end
+        if (d_fire && d_for_e) begin
+          ecap_q[d_e] <= {1'b0, d_i.param};
+          esk_q[d_e]  <= d_i.sink;
+          if (d_i.denied || d_i.corrupt) eden_q[d_e] <= 1'b1;
+          if (d_i.opcode == D_GRANT || eb_q[d_e] == 2'd3) es_q[d_e] <= E_GACK;
+          eb_q[d_e] <= eb_q[d_e] + 1'b1;
+        end
+        if (e_valid && e_ready_i) es_q[g_i] <= E_INSTALL;
+        if (inst_go) begin                       // the state write is in the comb block above
+          es_q[i_i]   <= E_IDLE;
+          done_q[i_i] <= 1'b1;
+          if (mi_den) begin
+            dn_v_q[i_i] <= 1'b1;
+            dn_l_q[i_i] <= mi_line;
+          end else begin
+            for (int k = 0; k < N; k++) if (dn_v_q[k] && dn_l_q[k] == mi_line) dn_v_q[k] <= 1'b0;
+          end
+        end
+      end
+    end
+    logic unused_mn;
+    assign unused_mn = ^{rq_pa_q[5:0], d_i.source, al_w};   // al_w: the one-MSHR reference model's
+`ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+      if (!rst) begin
+        for (int e = 0; e < N; e++)
+          for (int k = e + 1; k < N; k++)
+            assert (!(busy[e] && busy[k] && el_q[e] == el_q[k])) else $error("tg_dcache: two entries for one line");
+        if (d_valid_i && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT))
+          assert (d_for_e) else $error("tg_dcache: a Grant for no waiting entry (source %0d)", d_i.source);
+        if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
+          assert (rs_q == R_WAIT) else $error("tg_dcache: ReleaseAck with no Release outstanding");
+        if (al_go) assert (f_any && !m_inst) else $error("tg_dcache: an allocation with no free entry, or beside an install");
+        if (a_valid && rs_q != R_IDLE)
+          assert (a_line != rl_q) else $error("tg_dcache: an Acquire for the line being released");
+      end
+    end
+`endif
+  end
+
   // Tag write at install
-  assign tag_we  = inst_go && !m_den_q;
-  assign tag_way = m_way_q;
-  assign tag_set = m_line_q[6 +: SET_W];
-  assign tag_wd  = m_line_q[PA_W-1:12];
+  assign tag_we  = inst_go && !mi_den;
+  assign tag_way = mi_way;
+  assign tag_set = mi_line[6 +: SET_W];
+  assign tag_wd  = mi_line[PA_W-1:12];
 
   logic unused;
-  assign unused = ^{b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
-                    ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], m_cap_q[2], al_pa[5:0],
+  assign unused = ^{m_holdb,                    // m_holdb: read by #11's check only
+                    b_i.size, d_i.size, d_i.source, ld_rd_pa[3:0], ld_rd_pa[PA_W-1:12],
+                    ld_m1_pa[5:0], ctl_pa[5:0], lm_pa[5:0], st_pa[5:0], p_pa_q[5:0], mi_cap[2], al_pa[5:0],
                     sx_pa[5:0], am_pa[2:0]};
 
 `ifndef SYNTHESIS
@@ -750,163 +1168,166 @@ module tg_dcache
       assert (!(st_req && am_req)) else $error("tg_dcache: store and atomic requests together");
       assert (!(st_req && am_sel) && (!am_req || am_sel)) else $error("tg_dcache: a store drains while an atomic holds the store port");
       assert ($onehot0(sh) && $onehot0(ch)) else $error("tg_dcache: multiple way hits (store port, controller)");
-      if (amw_q) assert (ps_q == P_IDLE && ms_q == M_IDLE) else $error("tg_dcache: atomic write not exclusive");
+      if (amw_q) assert (ps_q == P_IDLE && m_none) else $error("tg_dcache: atomic write not exclusive");
       // port B's read data belongs to the way its reader expects
       if (ps_q == P_SEND) assert (brd_way_q == p_way_q) else $error("tg_dcache: probe data from another way");
-      if (ms_q == M_EV_SEND && m_vdirty_q) assert (brd_way_q == m_way_q) else $error("tg_dcache: release data from another way");
+      if (rel_send && rel_dirty) assert (brd_way_q == mv_way) else $error("tg_dcache: release data from another way");
     end
   end
-  // The arbitration as written before DR-145's restructure, on the same lookups: its decisions,
-  // its port-B accesses, its state writes and its MSHR fields, checked against the restructured
-  // logic every cycle
-  sst_t             sa;                  // the allocation set: store port or controller port
-  logic             r_s_hit_t, r_alloc_st, r_alloc_ld, r_sx_drop, r_al_go, r_pb_st, r_al_hb;
-  logic [WAY_W-1:0] r_victim, r_al_hway;
-  logic [WAYS-1:0]  r_b_en;
-  logic [15:0]      r_b_we;
-  logic [ROW_W-1:0] r_b_addr;
-  logic [127:0]     r_b_wdata;
-  logic             r_brd_en;
-  logic [WAY_W-1:0] r_brd_way;
-  logic             r_st_we;
-  logic [SET_W-1:0] r_st_wa;
-  sst_t             r_st_wd;
-  always_comb begin
-    logic found;
-    r_s_hit_t  = s_hit && ss.t[sh_way];
-    r_alloc_st = 1'b0;
-    r_alloc_ld = 1'b0;
-    if (ms_q == M_IDLE && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
-      if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
-      else if (lm_req && !(|ch)) r_alloc_ld = 1'b1;
-    end
-    r_sx_drop = sx_req && ms_q == M_IDLE && dn_v_q && dn_line_q == sx_pa[PA_W-1:6] && !r_s_hit_t
-                && !r_alloc_ld && !probe_active;
-    r_al_go   = ms_q == M_IDLE && (r_alloc_st || r_alloc_ld) && !r_sx_drop;
-    r_pb_st   = st_req && r_s_hit_t && !probe_active && !mshr_on_c && !pb_grant &&
-                ms_q != M_INSTALL && !r_al_go;
-    r_al_hb   = r_alloc_st ? |sh : |ch;
-    r_al_hway = enc(r_alloc_st ? sh : ch);
-    sa = r_alloc_st ? ss : sc;
-    found = 1'b0;
-    r_victim = sa.rr;
-    for (int w = 0; w < WAYS; w++) begin
-      if (!found && !sa.v[w]) begin
-        r_victim = WAY_W'(w);
-        found = 1'b1;
+  // (one MSHR only: the entries of DC_MSHRS > 1 are a different arbitration)
+  if (DC_MSHRS == 1) begin : g_ref
+    // The arbitration as written before DR-145's restructure, on the same lookups: its decisions,
+    // its port-B accesses, its state writes and its MSHR fields, checked against the restructured
+    // logic every cycle
+    sst_t             sa;                  // the allocation set: store port or controller port
+    logic             r_s_hit_t, r_alloc_st, r_alloc_ld, r_sx_drop, r_al_go, r_pb_st, r_al_hb;
+    logic [WAY_W-1:0] r_victim, r_al_hway;
+    logic [WAYS-1:0]  r_b_en;
+    logic [15:0]      r_b_we;
+    logic [ROW_W-1:0] r_b_addr;
+    logic [127:0]     r_b_wdata;
+    logic             r_brd_en;
+    logic [WAY_W-1:0] r_brd_way;
+    logic             r_st_we;
+    logic [SET_W-1:0] r_st_wa;
+    sst_t             r_st_wd;
+    always_comb begin
+      logic found;
+      r_s_hit_t  = s_hit && ss.t[sh_way];
+      r_alloc_st = 1'b0;
+      r_alloc_ld = 1'b0;
+      if (m_none && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
+        if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
+        else if (c_req && !(|ch)) r_alloc_ld = 1'b1;
+      end
+      r_sx_drop = sx_req && m_none && dn_hit && !r_s_hit_t
+                  && !r_alloc_ld && !probe_active;
+      r_al_go   = m_none && (r_alloc_st || r_alloc_ld) && !r_sx_drop;
+      r_pb_st   = st_req && r_s_hit_t && !probe_active && !m_on_c && !pb_grant &&
+                  !m_inst && !r_al_go;
+      r_al_hb   = r_alloc_st ? |sh : |ch;
+      r_al_hway = enc(r_alloc_st ? sh : ch);
+      sa = r_alloc_st ? ss : sc;
+      found = 1'b0;
+      r_victim = sa.rr;
+      for (int w = 0; w < WAYS; w++) begin
+        if (!found && !sa.v[w]) begin
+          r_victim = WAY_W'(w);
+          found = 1'b1;
+        end
+      end
+      r_b_en = '0; r_b_we = '0; r_b_addr = '0; r_b_wdata = '0;
+      r_brd_en = 1'b0; r_brd_way = '0;
+      if (pb_probe) begin
+        r_brd_en = 1'b1; r_brd_way = p_way_q;
+        r_b_en[p_way_q] = 1'b1;
+        r_b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
+      end else if (pb_grant) begin
+        r_b_en[mg_way] = 1'b1;
+        r_b_we = '1;
+        r_b_addr = {mg_set, mg_beat};
+        r_b_wdata = d_i.data;
+      end else if (pb_ev) begin
+        r_brd_en = 1'b1; r_brd_way = mv_way;
+        r_b_en[mv_way] = 1'b1;
+        r_b_addr = {mv_set, mv_beat};
+      end else if (r_pb_st) begin
+        r_b_en[sh_way] = 1'b1;
+        r_b_we = st_mask;
+        r_b_addr = st_pa[4 +: ROW_W];
+        r_b_wdata = {2{st_wdata}};
+      end else if (pb_amr) begin
+        r_brd_en = 1'b1; r_brd_way = sh_way;
+        r_b_en[sh_way] = 1'b1;
+        r_b_addr = am_pa[4 +: ROW_W];
+      end else if (pb_amw) begin
+        r_b_en[am_way_q] = 1'b1;
+        r_b_we = am_wmask;
+        r_b_addr = am_row_q;
+        r_b_wdata = {2{am_wdata}};
+      end
+      r_st_we = 1'b0;
+      r_st_wa = '0;
+      r_st_wd = sw;
+      if (!ready) begin
+        r_st_we = 1'b1;
+        r_st_wa = init_q[SET_W-1:0];
+        r_st_wd = '0;
+      end else if (ps_q == P_UPD && p_hit_q) begin
+        r_st_we = 1'b1;
+        r_st_wa = p_pa_q[6 +: SET_W];
+        r_st_wd = sw;
+        r_st_wd.v[p_way_q] = p_nv_q;
+        r_st_wd.t[p_way_q] = p_nt_q;
+        if (!p_nt_q) r_st_wd.d[p_way_q] = 1'b0;
+      end else if (inst_go) begin
+        r_st_we = 1'b1;
+        r_st_wa = mi_line[6 +: SET_W];
+        r_st_wd = sw;
+        r_st_wd.v[mi_way] = !mi_den;
+        r_st_wd.t[mi_way] = !mi_den && mi_cap == TL_CAP_TO_T;
+        r_st_wd.d[mi_way] = 1'b0;
+      end else if (r_al_go && !(r_alloc_st && r_al_hb)) begin
+        r_st_we = 1'b1;
+        r_st_wa = (r_alloc_st ? sx_pa[6 +: SET_W] : c_pa[6 +: SET_W]);
+        r_st_wd = sa;
+        r_st_wd.rr = sa.rr + 1'b1;
+        r_st_wd.v[r_victim] = 1'b0;
+        r_st_wd.t[r_victim] = 1'b0;
+        r_st_wd.d[r_victim] = 1'b0;
+      end else if (r_pb_st) begin
+        r_st_we = 1'b1;
+        r_st_wa = sx_pa[6 +: SET_W];
+        r_st_wd = ss;
+        r_st_wd.d[sh_way] = 1'b1;
+      end else if (pb_amw) begin
+        r_st_we = 1'b1;
+        r_st_wa = am_row_q[ROW_W-1:2];
+        r_st_wd = sw;
+        r_st_wd.d[am_way_q] = 1'b1;
       end
     end
-    r_b_en = '0; r_b_we = '0; r_b_addr = '0; r_b_wdata = '0;
-    r_brd_en = 1'b0; r_brd_way = '0;
-    if (pb_probe) begin
-      r_brd_en = 1'b1; r_brd_way = p_way_q;
-      r_b_en[p_way_q] = 1'b1;
-      r_b_addr = {p_pa_q[6 +: SET_W], p_beat_q};
-    end else if (pb_grant) begin
-      r_b_en[m_way_q] = 1'b1;
-      r_b_we = '1;
-      r_b_addr = {m_line_q[6 +: SET_W], m_beat_q};
-      r_b_wdata = d_i.data;
-    end else if (pb_ev) begin
-      r_brd_en = 1'b1; r_brd_way = m_way_q;
-      r_b_en[m_way_q] = 1'b1;
-      r_b_addr = {m_vline_q[6 +: SET_W], m_beat_q};
-    end else if (r_pb_st) begin
-      r_b_en[sh_way] = 1'b1;
-      r_b_we = st_mask;
-      r_b_addr = st_pa[4 +: ROW_W];
-      r_b_wdata = {2{st_wdata}};
-    end else if (pb_amr) begin
-      r_brd_en = 1'b1; r_brd_way = sh_way;
-      r_b_en[sh_way] = 1'b1;
-      r_b_addr = am_pa[4 +: ROW_W];
-    end else if (pb_amw) begin
-      r_b_en[am_way_q] = 1'b1;
-      r_b_we = am_wmask;
-      r_b_addr = am_row_q;
-      r_b_wdata = {2{am_wdata}};
-    end
-    r_st_we = 1'b0;
-    r_st_wa = '0;
-    r_st_wd = sw;
-    if (!ready) begin
-      r_st_we = 1'b1;
-      r_st_wa = init_q[SET_W-1:0];
-      r_st_wd = '0;
-    end else if (ps_q == P_UPD && p_hit_q) begin
-      r_st_we = 1'b1;
-      r_st_wa = p_pa_q[6 +: SET_W];
-      r_st_wd = sw;
-      r_st_wd.v[p_way_q] = p_nv_q;
-      r_st_wd.t[p_way_q] = p_nt_q;
-      if (!p_nt_q) r_st_wd.d[p_way_q] = 1'b0;
-    end else if (inst_go) begin
-      r_st_we = 1'b1;
-      r_st_wa = m_line_q[6 +: SET_W];
-      r_st_wd = sw;
-      r_st_wd.v[m_way_q] = !m_den_q;
-      r_st_wd.t[m_way_q] = !m_den_q && m_cap_q == TL_CAP_TO_T;
-      r_st_wd.d[m_way_q] = 1'b0;
-    end else if (r_al_go && !(r_alloc_st && r_al_hb)) begin
-      r_st_we = 1'b1;
-      r_st_wa = (r_alloc_st ? sx_pa[6 +: SET_W] : lm_pa[6 +: SET_W]);
-      r_st_wd = sa;
-      r_st_wd.rr = sa.rr + 1'b1;
-      r_st_wd.v[r_victim] = 1'b0;
-      r_st_wd.t[r_victim] = 1'b0;
-      r_st_wd.d[r_victim] = 1'b0;
-    end else if (r_pb_st) begin
-      r_st_we = 1'b1;
-      r_st_wa = sx_pa[6 +: SET_W];
-      r_st_wd = ss;
-      r_st_wd.d[sh_way] = 1'b1;
-    end else if (pb_amw) begin
-      r_st_we = 1'b1;
-      r_st_wa = am_row_q[ROW_W-1:2];
-      r_st_wd = sw;
-      r_st_wd.d[am_way_q] = 1'b1;
-    end
-  end
-  always_ff @(posedge clk) begin
-    if (!rst) begin
-      assert (r_s_hit_t == s_hit_t && r_alloc_st == alloc_st && r_alloc_ld == alloc_ld &&
-              r_sx_drop == sx_drop && r_al_go == al_go && r_pb_st == pb_st &&
-              (r_al_go && !(r_alloc_st && r_al_hb)) == al_w && (r_al_go && r_alloc_st && r_al_hb) == al_up)
-        else $error("tg_dcache: the arbitration decides otherwise than its earlier form");
-      assert (r_b_en == b_en && r_brd_en == brd_en && (!brd_en || r_brd_way == brd_way))
-        else $error("tg_dcache: port B's enables differ from the earlier form");
-      if (|b_en) assert (r_b_addr == b_addr && r_b_we == b_we && (b_we == '0 || r_b_wdata == b_wdata))
-        else $error("tg_dcache: a port-B access differs from the earlier form");
-      assert (r_st_we == st_we && (!st_we || (r_st_wa == st_wa && r_st_wd == st_wd)))
-        else $error("tg_dcache: a state write differs from the earlier form");
-      if (al_go) begin
-        assert ((al_up ? sh_way : victim) == (r_alloc_st && r_al_hb ? r_al_hway : r_victim))
-          else $error("tg_dcache: the MSHR's way differs from the earlier form");
-        if (!al_up)
-          assert ((alloc_st ? ev_s : ev_c) == sa.v[r_victim] &&
-                  (!sa.v[r_victim] || ((alloc_st ? evt_s : evt_c) == tag_rd[r_victim][r_alloc_st ? 1 : 2] &&
-                                       (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) == sa.d[r_victim] &&
-                                       (alloc_st ? ss.t[ss.rr] : sc.t[sc.rr]) == sa.t[r_victim])))
-            else $error("tg_dcache: the victim's fields differ from the earlier form");
+    always_ff @(posedge clk) begin
+      if (!rst) begin
+        assert (r_s_hit_t == s_hit_t && r_alloc_st == alloc_st && r_alloc_ld == alloc_ld &&
+                r_sx_drop == sx_drop && r_al_go == al_go && r_pb_st == pb_st &&
+                (r_al_go && !(r_alloc_st && r_al_hb)) == al_w && (r_al_go && r_alloc_st && r_al_hb) == al_up)
+          else $error("tg_dcache: the arbitration decides otherwise than its earlier form");
+        assert (r_b_en == b_en && r_brd_en == brd_en && (!brd_en || r_brd_way == brd_way))
+          else $error("tg_dcache: port B's enables differ from the earlier form");
+        if (|b_en) assert (r_b_addr == b_addr && r_b_we == b_we && (b_we == '0 || r_b_wdata == b_wdata))
+          else $error("tg_dcache: a port-B access differs from the earlier form");
+        assert (r_st_we == st_we && (!st_we || (r_st_wa == st_wa && r_st_wd == st_wd)))
+          else $error("tg_dcache: a state write differs from the earlier form");
+        if (al_go) begin
+          assert ((al_up ? sh_way : victim) == (r_alloc_st && r_al_hb ? r_al_hway : r_victim))
+            else $error("tg_dcache: the MSHR's way differs from the earlier form");
+          if (!al_up)
+            assert ((alloc_st ? ev_s : ev_c) == sa.v[r_victim] &&
+                    (!sa.v[r_victim] || ((alloc_st ? evt_s : evt_c) == tag_rd[r_victim][r_alloc_st ? 1 : 2] &&
+                                         (alloc_st ? ss.d[ss.rr] : sc.d[sc.rr]) == sa.d[r_victim] &&
+                                         (alloc_st ? ss.t[ss.rr] : sc.t[sc.rr]) == sa.t[r_victim])))
+              else $error("tg_dcache: the victim's fields differ from the earlier form");
+        end
       end
     end
-  end
-  // A state write starts from its set's state: a shadow of the state RAMs, written alike
-  sst_t sh_q [SETS];
-  logic rs_q;                     // the cache has been reset: the check waits for it
-  initial rs_q = 1'b0;
-  always @(posedge clk) begin
-    if (rst) rs_q <= 1'b1;
-    if (st_we) sh_q[st_wa] <= st_wd;
-    if (rs_q && !rst && ready) begin
-      if ((ps_q == P_UPD && p_hit_q) || inst_go || (pb_amw && !al_go && !pb_st))
-        assert (!st_we || sw == sh_q[st_wa]) else $error("tg_dcache: port 3 read another set than the write's");
-      else if (al_w)
-        assert (sa == sh_q[st_wa]) else $error("tg_dcache: an allocation's state is not its set's");
-      else if (pb_st)
-        assert (ss == sh_q[st_wa]) else $error("tg_dcache: a store's state is not its set's");
+    // A state write starts from its set's state: a shadow of the state RAMs, written alike
+    sst_t sh_q [SETS];
+    logic rs_q;                     // the cache has been reset: the check waits for it
+    initial rs_q = 1'b0;
+    always @(posedge clk) begin
+      if (rst) rs_q <= 1'b1;
+      if (st_we) sh_q[st_wa] <= st_wd;
+      if (rs_q && !rst && ready) begin
+        if ((ps_q == P_UPD && p_hit_q) || inst_go || (pb_amw && !al_go && !pb_st))
+          assert (!st_we || sw == sh_q[st_wa]) else $error("tg_dcache: port 3 read another set than the write's");
+        else if (al_w)
+          assert (sa == sh_q[st_wa]) else $error("tg_dcache: an allocation's state is not its set's");
+        else if (pb_st)
+          assert (ss == sh_q[st_wa]) else $error("tg_dcache: a store's state is not its set's");
+      end
     end
   end
 `endif
-  assign dbg_o = {ready, 4'(ms_q), 3'(ps_q)};
+  assign dbg_o = {ready, m_dbg, 3'(ps_q)};
 endmodule

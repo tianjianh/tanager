@@ -1,0 +1,22 @@
+2026-10-17 21:50:15,170 - modules.py[DEBUG]: Running module growpart (<module 'cloudinit.config.cc_growpart' from '/usr/lib/python3/dist-packages/cloudinit/config/cc_growpart.py'>) with frequency always
+2026-10-17 21:50:15,171 - handlers.py[DEBUG]: start: init-local/config-growpart: running config-growpart with frequency always
+2026-10-17 21:50:15,171 - helpers.py[DEBUG]: Running config-growpart using lock (<cloudinit.helpers.DummyLock object at 0xed3837d1aea0>)
+2026-10-17 21:50:15,172 - cc_growpart.py[DEBUG]: No 'growpart' entry in cfg.  Using default: {'mode': 'auto', 'devices': ['/'], 'ignore_growroot_disabled': False}
+2026-10-17 21:50:15,172 - subp.py[DEBUG]: Running command ['growpart', '--help'] with allowed return codes [0] (shell=False, capture=True)
+2026-10-17 21:50:15,184 - performance.py[DEBUG]: Running ['growpart', '--help'] took 0.011 seconds
+2026-10-17 21:50:15,186 - cc_growpart.py[DEBUG]: growpart found fs=ext4
+2026-10-17 21:50:15,192 - subp.py[DEBUG]: Running command ['growpart', '--dry-run', '/dev/mmcblk1', '2'] with allowed return codes [0] (shell=False, capture=True)
+2026-10-17 21:50:15,496 - performance.py[DEBUG]: Running ['growpart', '--dry-run', '/dev/mmcblk1', '2'] took 0.303 seconds
+2026-10-17 21:50:15,496 - subp.py[DEBUG]: Running command ['growpart', '/dev/mmcblk1', '2'] with allowed return codes [0] (shell=False, capture=True)
+2026-10-17 21:50:16,496 - performance.py[DEBUG]: Running ['growpart', '/dev/mmcblk1', '2'] took 1.000 seconds
+2026-10-17 21:50:16,498 - cc_growpart.py[INFO]: '/' resized: changed (/dev/mmcblk1p2) from 6442450944 to 14559460864
+2026-10-17 21:50:16,498 - handlers.py[DEBUG]: finish: init-local/config-growpart: SUCCESS: config-growpart ran successfully and took 1.327 seconds
+2026-10-17 21:50:16,498 - modules.py[DEBUG]: Running module resizefs (<module 'cloudinit.config.cc_resizefs' from '/usr/lib/python3/dist-packages/cloudinit/config/cc_resizefs.py'>) with frequency always
+2026-10-17 21:50:16,499 - handlers.py[DEBUG]: start: init-local/config-resizefs: running config-resizefs with frequency always
+2026-10-17 21:50:16,500 - helpers.py[DEBUG]: Running config-resizefs using lock (<cloudinit.helpers.DummyLock object at 0xed3837920860>)
+2026-10-17 21:50:16,501 - cc_resizefs.py[DEBUG]: resize_info: dev=/dev/mmcblk1p2 mnt_point=/ path=/
+2026-10-17 21:50:16,501 - cc_resizefs.py[DEBUG]: Resizing / (ext4) using resize2fs /dev/mmcblk1p2
+2026-10-17 21:50:16,502 - subp.py[DEBUG]: Running command ('resize2fs', '/dev/mmcblk1p2') with allowed return codes [0] (shell=False, capture=True)
+2026-10-17 21:50:17,429 - performance.py[DEBUG]: Running ('resize2fs', '/dev/mmcblk1p2') took 0.927 seconds
+2026-10-17 21:50:17,429 - cc_resizefs.py[DEBUG]: Resized root filesystem (type=ext4, val=True)
+2026-10-17 21:50:17,430 - handlers.py[DEBUG]: finish: init-local/config-resizefs: SUCCESS: config-resizefs ran successfully and took 0.930 seconds

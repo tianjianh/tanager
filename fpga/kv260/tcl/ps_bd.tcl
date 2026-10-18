@@ -7,6 +7,13 @@
 #   S_AXI_HP1_FPD   128-bit AXI4 slave from L2 bank 0 (clocked by clk_core)
 #   S_AXI_HP2_FPD   128-bit AXI4 slave from L2 bank 1 (clocked by clk_core)
 #   S_AXI_HP3_FPD   128-bit AXI4 slave from the commit-trace stream, writes only (clocked by clk_core)
+#   S_AXI_LPD       128-bit AXI4 slave from the PS window (stage D, tg_map_pkg PS_WINDOW; docs/spec/soc.md §8.2),
+#                   reaching the PS's peripheral registers at 0xFE00_0000-0xFFFF_FFFF (clocked by clk_core).
+#                   Present in every build, idle without the window: on the KV260 the SOM's boot firmware
+#                   configures the PS, so an enabled but idle port changes nothing there
+#   ps_pl_irq_uart1, ps_pl_irq_sdio1, ps_pl_irq_enet3, ps_pl_irq_usb3_0_endpoint[3:0], ps_pl_irq_ttc1_0: the
+#                   PS-to-PL interrupts of the controllers stage D takes over (TTC1 for D1's test, enabled
+#                   here so its interrupt pin exists), also in every build
 #   pl_clk0 = 100 MHz, pl_resetn0, pl_ps_irq0[0]
 #   fan_wave[2:0]   the fan PWM's TTC waveform outputs on EMIO (DR-129; tools/tcl/tg_kv260_fan.tcl, which the
 #                   caller sources first)
@@ -29,11 +36,22 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
     CONFIG.PSU__SAXIGP4__DATA_WIDTH {128} \
     CONFIG.PSU__USE__S_AXI_GP5 {1} \
     CONFIG.PSU__SAXIGP5__DATA_WIDTH {128} \
-    CONFIG.PSU__USE__S_AXI_GP6 {0} \
+    CONFIG.PSU__USE__S_AXI_GP6 {1} \
+    CONFIG.PSU__SAXIGP6__DATA_WIDTH {128} \
+    CONFIG.PSU__EXPAND__UPPER_LPS_SLAVES {1} \
+    CONFIG.PSU__TTC1__PERIPHERAL__ENABLE {1} \
     CONFIG.PSU__FPGA_PL0_ENABLE {1} \
     CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {100} \
     CONFIG.PSU__FPGA_PL1_ENABLE {0} \
     CONFIG.PSU__USE__IRQ0 {1} \
+  ] $ps
+  # the PS-to-PL interrupts (each needs its peripheral enabled first, hence a second step)
+  set_property -dict [list \
+    CONFIG.PSU__IRQ_P2F_UART1__INT {1} \
+    CONFIG.PSU__IRQ_P2F_SDIO1__INT {1} \
+    CONFIG.PSU__IRQ_P2F_ENT3__INT {1} \
+    CONFIG.PSU__IRQ_P2F_USB3_ENDPOINT__INT0 {1} \
+    CONFIG.PSU__IRQ_P2F_TTC1__INT0 {1} \
   ] $ps
   set fan_pin [tg_kv260_fan_ps $ps]
 
@@ -56,15 +74,24 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
     connect_bd_intf_net $s [get_bd_intf_pins $ps/$pin]
   }
 
+  # S_AXI_LPD: the PS window's master (6-bit ID as the other slave ports; AXI4 single beats from tg_ps_window)
+  set s_lpd [create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:aximm_rtl:1.0 S_AXI_LPD]
+  set_property -dict [list CONFIG.PROTOCOL {AXI4} CONFIG.DATA_WIDTH {128} CONFIG.ADDR_WIDTH {49} \
+    CONFIG.ID_WIDTH {6} CONFIG.FREQ_HZ [expr {int($core_mhz * 1000000)}] \
+    CONFIG.HAS_REGION {0} CONFIG.HAS_QOS {0} CONFIG.HAS_LOCK {0} CONFIG.HAS_CACHE {1} CONFIG.HAS_PROT {1} \
+    CONFIG.MAX_BURST_LENGTH {1} CONFIG.NUM_READ_OUTSTANDING {1} CONFIG.NUM_WRITE_OUTSTANDING {1}] $s_lpd
+  connect_bd_intf_net $s_lpd [get_bd_intf_pins $ps/S_AXI_LPD]
+
   set clk_host [create_bd_port -dir I -type clk -freq_hz 100000000 clk_host]
   set_property CONFIG.ASSOCIATED_BUSIF {M_AXI_HPM0} $clk_host
   connect_bd_net $clk_host [get_bd_pins $ps/maxihpm0_fpd_aclk]
   set clk_core [create_bd_port -dir I -type clk -freq_hz [expr {int($core_mhz * 1000000)}] clk_core]
-  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2:S_AXI_HP3:M_AXI_HPM1} $clk_core
+  set_property CONFIG.ASSOCIATED_BUSIF {S_AXI_HP1:S_AXI_HP2:S_AXI_HP3:M_AXI_HPM1:S_AXI_LPD} $clk_core
   connect_bd_net $clk_core [get_bd_pins $ps/maxihpm1_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp1_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp2_fpd_aclk]
   connect_bd_net $clk_core [get_bd_pins $ps/saxihp3_fpd_aclk]
+  connect_bd_net $clk_core [get_bd_pins $ps/saxi_lpd_aclk]
 
   set pl_clk0 [create_bd_port -dir O -type clk pl_clk0]
   connect_bd_net [get_bd_pins $ps/pl_clk0] $pl_clk0
@@ -74,10 +101,16 @@ proc tg_make_ps_bd {bd_dir core_mhz} {
   connect_bd_net $irq [get_bd_pins $ps/pl_ps_irq0]
   set fan_wave [create_bd_port -dir O -from 2 -to 0 fan_wave]
   connect_bd_net $fan_pin $fan_wave
+  foreach pin {ps_pl_irq_uart1 ps_pl_irq_sdio1 ps_pl_irq_enet3 ps_pl_irq_ttc1_0} {
+    connect_bd_net [get_bd_pins $ps/$pin] [create_bd_port -dir O -type intr $pin]
+  }
+  connect_bd_net [get_bd_pins $ps/ps_pl_irq_usb3_0_endpoint] \
+    [create_bd_port -dir O -from 3 -to 0 -type intr ps_pl_irq_usb3_0_endpoint]
 
   # Address map: the host bridge's 64 KiB at the start of the HPM0 aperture; the host DMA port's 2 GiB
   # at the start of HPM1's high aperture, so AXI address bits [31:0] are the offset into the RISC-V's RAM
-  # (tg_hdma); the HP ports see all of DDR (the carve-out is chosen at run time, docs/spec/host.md).
+  # (tg_hdma); the HP ports see all of DDR (the carve-out is chosen at run time, docs/spec/host.md);
+  # S_AXI_LPD sees the PS's address map, the two LPS slave blocks (0xFE00_0000, 0xFF00_0000) included.
   assign_bd_address
   set seg [get_bd_addr_segs -of_objects [get_bd_addr_spaces $ps/Data] -filter {NAME =~ "*M_AXI_HPM0*"}]
   if {$seg ne ""} {

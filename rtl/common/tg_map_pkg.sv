@@ -22,6 +22,15 @@ package tg_map_pkg;
 `else
   localparam paddr_t DRAM_REGION = paddr_t'(64'h4000_0000);
 `endif
+  // The PS window (docs/spec/soc.md §8.2, stage D's D1): the KV260 PS's peripheral registers at their own
+  // addresses, a device region the uncore forwards into the PS (tg_ps_window). A build option, as its value
+  // (TG_DEFINES="TG_PS_WINDOW=1"): without it the range is no region at all, as before.
+`ifdef TG_PS_WINDOW
+  localparam bit     PS_WINDOW   = 1'(`TG_PS_WINDOW);
+`else
+  localparam bit     PS_WINDOW   = 1'b0;
+`endif
+  localparam paddr_t PSWIN_BASE = paddr_t'(64'hFE00_0000);  localparam paddr_t PSWIN_SIZE = paddr_t'(64'h200_0000);
 
   localparam logic [63:0] TIMEBASE_HZ = 64'd10_000_000;  // ACLINT mtime rate (plan §7.1)
 
@@ -50,7 +59,7 @@ package tg_map_pkg;
     return rg_al(DRAM_BASE, DRAM_REGION) && rg_al(BOOTROM_BASE, BOOTROM_SIZE) &&
            rg_al(ACLINT_BASE, ACLINT_SIZE) && rg_al(PLIC_BASE, PLIC_SIZE) &&
            rg_al(UART_BASE, UART_SIZE) && rg_al(HOSTCTL_BASE, HOSTCTL_SIZE) &&
-           rg_al(VIRTIO_BASE, VIRTIO_SIZE) && rg_al(DEBUG_BASE, DEBUG_SIZE);
+           rg_al(VIRTIO_BASE, VIRTIO_SIZE) && rg_al(DEBUG_BASE, DEBUG_SIZE) && rg_al(PSWIN_BASE, PSWIN_SIZE);
   endfunction
 
   function automatic pma_e pma_of(input paddr_t a);
@@ -59,6 +68,7 @@ package tg_map_pkg;
     if (in_rg(a, ACLINT_BASE, ACLINT_SIZE)   || in_rg(a, PLIC_BASE, PLIC_SIZE)       ||
         in_rg(a, UART_BASE, UART_SIZE)       || in_rg(a, HOSTCTL_BASE, HOSTCTL_SIZE) ||
         in_rg(a, VIRTIO_BASE, VIRTIO_SIZE)   || in_rg(a, DEBUG_BASE, DEBUG_SIZE))  return PMA_DEVICE;
+    if (PS_WINDOW && in_rg(a, PSWIN_BASE, PSWIN_SIZE))                              return PMA_DEVICE;
     return PMA_NONE;
   endfunction
 endpackage

@@ -66,7 +66,15 @@ module tg_l2_bank
   output logic    ev_miss_o,
   output logic    ev_wb_o,
   output logic    ev_probe_o,
-  output logic    ev_err_o        // protocol or AXI error seen (sticky in the SoC's status)
+  output logic    ev_err_o,       // protocol or AXI error seen (sticky in the SoC's status)
+  // With ev_err_o, what it was (the board debug counters, tg_uncore DEBUG_CNT; docs/spec/uncore.md):
+  // [2:0] the kind: 1 a Release or ProbeAck for a line not held, 2 a ProbeAck no probing MSHR waits
+  // for, 3 a victim still held after its probes, 4 a write response error, 5 a fill read error.
+  // Kinds 1-3: [5:3] the C opcode, [8:6] its param, [18:9] its source, [19] the directory hit, then
+  // the entry: [20] valid, [21] dirty, [22] tip, [26:23] pres; [31:27] the MCMD's MSHR. Kinds 4-5:
+  // [4:3] the AXI resp, [18:9] the ID. ev_err_line_o: the line (kind 3: the victim's).
+  output logic [31:0]     ev_err_info_o,
+  output logic [PA_W-7:0] ev_err_line_o
 );
   // ---------------------------------------------------------------------------------------------
   // Geometry and types
@@ -1722,6 +1730,31 @@ module tg_l2_bank
   assign init_done_o = init_done_q;
   assign ev_err_o    = s2_err || (bresp_valid_i && bresp_i.resp != AXI_OKAY) ||
                        (f_wr && r_s.resp != AXI_OKAY);
+  always_comb begin
+    ev_err_info_o = '0;
+    ev_err_line_o = p2_q.line;
+    if (s2_err) begin
+      ev_err_info_o[2:0]   = (p2_q.kind == PK_MCMD) ? 3'd3 : hit2 ? 3'd2 : 3'd1;
+      ev_err_info_o[5:3]   = 3'(cin_q.opcode);
+      ev_err_info_o[8:6]   = cin_q.param;
+      ev_err_info_o[18:9]  = cin_q.source;
+      ev_err_info_o[19]    = hit2;
+      ev_err_info_o[20]    = e2.valid;
+      ev_err_info_o[21]    = e2.dirty;
+      ev_err_info_o[22]    = e2.tip;
+      ev_err_info_o[26:23] = 4'(e2.pres);
+      ev_err_info_o[31:27] = 5'(p2_q.mshr);
+      if (p2_q.kind == PK_MCMD) ev_err_line_o = line_of(e2.tag, set2);
+    end else if (bresp_valid_i && bresp_i.resp != AXI_OKAY) begin
+      ev_err_info_o[2:0]  = 3'd4;
+      ev_err_info_o[4:3]  = bresp_i.resp;
+      ev_err_info_o[18:9] = 10'(bresp_i.id);
+    end else begin
+      ev_err_info_o[2:0]  = 3'd5;
+      ev_err_info_o[4:3]  = r_s.resp;
+      ev_err_info_o[18:9] = 10'(r_s.id);
+    end
+  end
 
   wire unused = ^{da_we_any, ain_q.data, ain_q.mask, ain_q.corrupt, cin_q.data, cin_q.corrupt,
                   cin_hit_q, r_s.id, bresp_i.id, e_i.sink};

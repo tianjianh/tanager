@@ -95,7 +95,7 @@ def git(*args, env=None):
 
 # The make variables of sim/profile.mk this check can force, with each one's tag in the cache key (the order
 # keeps the keys of builds made before the later ones were added)
-PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"))
+PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"))
 
 
 def profile_takes(ref, var):
@@ -618,6 +618,10 @@ def main():
                     help="build both sides with G8's instruction-queue decode bits off or on (default: the core package's)")
     ap.add_argument("--branch-queue-decode", type=int, choices=(0, 1), default=None,
                     help="this side's only: the other setting against the same RTL, or on against a base without them")
+    ap.add_argument("--spec-wake", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M6's speculative load wakeup off or on (DR-153; default: the package's)")
+    ap.add_argument("--branch-spec-wake", type=int, choices=(0, 1), default=None,
+                    help="this side's only: 1 against a base without it measures the feature's cycles")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -660,7 +664,7 @@ def main():
         f"{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}{' ...' if len(changed) > 6 else ''}")
     # Each profile variable: both sides' value, and this side's own if it has one
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
-            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode)}
+            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:
@@ -671,7 +675,7 @@ def main():
             if not profile_takes(tree, v):
                 fail(f"this tree's sim/profile.mk does not take {v}")
         prof = lambda p: ", ".join(f"{v}={p[v]}" for v, _ in PROFILE_VARS if v in p) or "the package's default"
-        log(f"  profile (DR-140, DR-149, G8): base {prof(prof_base)}, this side {prof(prof_branch)}"
+        log(f"  profile (DR-140, DR-149, G8, DR-153): base {prof(prof_base)}, this side {prof(prof_branch)}"
             f"{', on the boot too' if a.boot else ''}")
         # tests/unit/boot reads sim/profile.mk only if it is there (soc-2's 97b528a), so a boot tree
         # without the hook would build the default without a word: refuse it instead.
@@ -699,31 +703,56 @@ def main():
                                   prof=prof_branch))
         if not sides:
             fail("nothing to run: no suites and no --boot")
+        boot_tb = tb_src  # the boot's tests/unit and sw/dts (both sides)
         failed = build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
         if failed and a.harness == "auto":
             # The base's RTL may not build with this tree's harness: the harness can use something only
             # this tree's packages have (tg_tb_top read tg_trace_pkg::COMMIT_TRACE before main had it).
             # That side then takes the base's own harness, and the two sides differ in harness as well.
+            # The boot's harness is tb_boot too: one that connects ports the base's SoC lacks (PINNOTFOUND)
+            # makes both sides take the base's tests/unit/boot and sw/dts, as BOOT_TREE=<base> does, so
+            # the boot keeps one testbench on both sides.
             retry = {}
             for kind, (b, br) in sides.items():
                 if b.key in failed and br.key not in failed and b.harness_src != base_commit:
                     if not all(profile_takes(base_commit, v) for v in b.args[7]):
                         continue  # the base's own sim/ cannot force this profile: leave the failure standing
+                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, prof_ = b.args
+                    if kind == "boot" and tb_ != base_commit:
+                        mk = "tests/unit/boot/Makefile"
+                        if git("ls-tree", "--name-only", base_commit, "tests/unit/boot/tb_boot.sv") == "" or (
+                                prof_ and "TC_DEF" not in git("show", f"{base_commit}:{mk}")):
+                            continue  # the base has no tb_boot that can take this boot: leave the failure standing
+                        log(f"[{cfg}] the base's RTL does not build with this tree's tb_boot ({failed.pop(b.key)}); "
+                            f"both sides' boot take the base's tests/unit/boot and sw/dts (as BOOT_TREE=<base>), "
+                            f"and the base its own sim/, so the sides differ in harness as well as RTL "
+                            f"(HARNESS=branch to forbid this)")
+                        bkind, bcfg, btool, brtl, bharness, _, bcores, bprof = br.args
+                        retry[kind] = (Side("base", kind_, cfg_, tool_, rtl_, base_commit, base_commit, cores_, prof=prof_),
+                                       Side("branch", bkind, bcfg, btool, brtl, bharness, base_commit, bcores, prof=bprof))
+                        boot_tb = base_commit
+                        continue
                     log(f"[{cfg}] the base's RTL does not build with this tree's harness ({failed.pop(b.key)}); "
                         f"building the base's {kind} with the base's own sim/ instead, so the sides differ in "
                         f"harness as well as RTL (HARNESS=branch to forbid this)")
-                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, prof_ = b.args
-                    retry[kind] = Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, prof=prof_)
+                    retry[kind] = (Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, prof=prof_), None)
             if retry:
-                failed.update(build_all(list(retry.values()), a.jobs, cfg))
-                for kind, nb in retry.items():
-                    sides[kind] = (nb, sides[kind][1])
+                failed.update(build_all([s for pair in retry.values() for s in pair if s], a.jobs, cfg))
+                for kind, (nb, nbr) in retry.items():
+                    if nbr is not None and nbr.key in failed and nb.key not in failed:
+                        # The branch's RTL does not build with the base's tb_boot either (it needs what only
+                        # this tree's connects): each side keeps its own testbench, the branch its first build
+                        log(f"[{cfg}] the branch's RTL does not build with the base's tb_boot either "
+                            f"({failed.pop(nbr.key)}); each side's boot takes its own tests/unit/boot, so the "
+                            f"testbenches differ as well (the device tree stays the base's)")
+                        nbr = None
+                    sides[kind] = (nb, nbr or sides[kind][1])
         if failed:
             fail(f"[{cfg}] " + "; ".join(failed.values()))
         prune_builds({s.key for pair in sides.values() for s in pair})
 
         # The boot first: it is long, and the programs run beside it
-        progs = ([boot_program(a, cfg, tb_src)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
+        progs = ([boot_program(a, cfg, boot_tb)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
         log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites + (['boot'] if a.boot else []))})...")
         t1 = time.time()
         jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]

@@ -44,6 +44,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | 10 | UART (the number QEMU `virt` uses, so both device trees agree) |
 | 11 | host-control mailbox doorbell ([host.md](host.md)) |
 | 16 + h | `merr_o` of hart h (edge-triggered; plan §4.5) |
+| 20 … 24 | the PS window's controllers (stage D, `tg_map_pkg` `PS_WINDOW`, [soc.md](soc.md) §8.2): UART1, SD1, GEM3, USB0's host line, TTC1. They are the PS's interrupt levels, synchronized in the uncore, and tied 0 without the window |
 
 ## Interface
 
@@ -94,7 +95,12 @@ It converts the device-bus target's TL-UL traffic (single beat, size ≤ 3, natu
 - response: 64-bit read data, error.
 
 It decodes the device from the address: ACLINT, PLIC, UART and host control are present, and the virtio slots when `VIRTIO` is set (`tg_uncore` `VIRTIO_WINDOW`: the forwarded virtio window, the fifth device, [host.md](host.md)). Without it the virtio slots answer `denied`, as do the debug window (until M9), sizes above 3 and misaligned accesses.
-- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Only the virtio window waits, for the host's answer to a read or for room in its queue; every other device ties its bit to 0, so they answer as before.
+- **The PS window, the sixth device** (`tg_ps_window`, stage D's D1, [soc.md](soc.md) §8.2): the PS's peripheral registers at their own addresses, `0xFE00_0000`–`0xFFFF_FFFF`.
+  - It is built only with `TG_PS_WINDOW=1`, a define, because the range is a PMA region (`tg_map_pkg` `PS_WINDOW`) that the cores see too. Without it the range is no region at all, as before.
+  - Each access becomes one single-beat AXI4 transaction into `S_AXI_LPD` (128-bit, the access's size), and the device waits for the response.
+  - Only the apertures of stage D's controllers pass (UART1, GEM3, TTC1, SD1, USB0's core and glue), plus IOU_SLCR read-only. Another address, a write to IOU_SLCR, an error response, or no response within 2^16 cycles answers `denied`.
+  - After a timeout it takes the late response and denies every access until then, so the AXI handshake stays legal.
+- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Two devices wait: the virtio window, for the host's answer to a read or for room in its queue, and the PS window, for the PS's response. Every other device ties its bit to 0, so they answer as before.
 - **No timeout:** the bus waits as long as the device does, and so does the core's access.
 - The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
 
@@ -108,6 +114,10 @@ Built only with `tg_uncore` `DEBUG_CNT` (`TG_DEBUG_CNT=1`; off by default, no lo
 | 8·N_BANKS + 5c + 0 … 4 | core c's data cache: its A, B, C, D and E handshakes at the uncore's ports |
 | 8·N_BANKS + 5·N_CORES | the L2's error events |
 | 8·N_BANKS + 5·N_CORES + 1 | now, not a count: `[10b+9:10b]` bank b's channels' valid and ready (A valid, A ready, then B, C, D and E, from the top bit down); `[20+5c+4:20+5c]` which of core c's data-cache channels wait, valid without ready (A, B, C, D, E from the top; cores 0 and 1); `[30]` the L2's sticky error |
+| 8·N_BANKS + 5·N_CORES + 2, + 3 | the DRAM windows' refused bursts (`tg_axi_window`, out of `DRAM_SIZE`), reads and writes |
+| 8·N_BANKS + 5·N_CORES + 4 | the first L2 error since the uncore reset, as the bank describes it (`tg_l2_bank` `ev_err_info_o`): `[2:0]` the kind (1 a Release or ProbeAck for a line not held, 2 a ProbeAck that no probing MSHR waits for, 3 a victim still held after its probes, 4 a write response error, 5 a fill read error); kinds 1–3: `[5:3]` the C opcode, `[8:6]` its param, `[18:9]` its source, `[19]` the directory hit, then the entry's `[20]` valid, `[21]` dirty, `[22]` tip, `[26:23]` pres, and `[31:27]` the MCMD's MSHR; kinds 4–5: `[4:3]` the AXI resp, `[18:9]` the ID |
+| 8·N_BANKS + 5·N_CORES + 5 | that error's `[31]` valid, `[30:29]` bank, `[28:0]` line (address bits 33:6; kind 3: the victim's; kinds 4–5 carry none, and a refused fill's address is in the next word) |
+| 8·N_BANKS + 5·N_CORES + 6 | the first refused burst's `[31]` valid, `[30]` write, `[29:0]` line |
 | 128 + 32c + w | core c's board-debug word w (`tg_core` `dbg_o`, built with `DBG_WORD`, which `tanager_soc` sets from `DEBUG_CNT`; every core shows the word `DBG_SEL[4:0]` picks, a register a cycle behind): w = 0 the status (rename, the ROB's count, the atomic, the store queue's head, the data cache, the trace stall, a flush); 1–15 the first 15 dispatch groups after reset and 16–31 the first 16 commit cycles that retire, per slot {writes rd, rd is FP, rd, the physical register}: the new destination at dispatch, the freed one at commit (`rtl/core/tg_core.sv` has the bits) |
 | any other | `0xDEB0_0000` |
 

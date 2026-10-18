@@ -13,9 +13,12 @@ echo "fw $(sha256sum $D/fw_jump.bin | cut -c1-16), dtb $(sha256sum $D/tanager-kv
 ./tg.sh load > $D/load_bench_$tag.txt 2>&1 || { echo "load failed"; cat $D/load_bench_$tag.txt; exit 1; }
 grep -E "^loaded|^fan|^pl0" $D/load_bench_$tag.txt
 ./tg.sh th info | grep -E "configuration|core clock|capabilities"
+(cd $HOME/tanager/httpd && exec python3 -m http.server 8000 --bind 192.168.137.177) > /dev/null 2>&1 &
+httpd=$!; echo "A53 http server for the LAN test (pid $httpd), blob64 $(cut -c1-16 $HOME/tanager/httpd/blob64.sha256)"
 LOGIN_S=${LOGIN_S:-2400} DBG=1 CMDS_S=${CMDS_S:-3600} OFF_S=${OFF_S:-900} SH_KERNEL=u-boot.bin \
   SH_DTB=tanager-kv260-virtio.dtb SH_TIMEOUT=${SH_TIMEOUT:-7200} SH_USER=- SH_POWEROFF="sudo poweroff" \
   SH_ARGS="--blk $D/tanager-trixie.img --rng --net tanager0 --net-bridge br0 --dbg" \
   CMDS="$(cat $HOME/tanager/runs/bench_cmds.txt)" ./tg.sh shell
+kill $httpd 2>/dev/null
 cp $D/linux_shell.txt $D/linux_shell_bench_$tag.txt
 echo "orphan sleeps after the run: $(pgrep -c -x sleep -P 1)"
