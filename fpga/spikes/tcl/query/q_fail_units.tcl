@@ -3,7 +3,8 @@
 # u_dec, u_rn, u_rob, u_is, u_csr, ...; the uncore and the rest by their top block), with each pair's
 # worst slack, logic levels and wire share. It answers which units fail at all, beyond a report's 20
 # worst: e.g. whether the instruction queue's paths that QUEUE_DECODE targets (fetch -> decode -> rename)
-# are among them. Writes fail_units.txt.
+# are among them. Any setup uncertainty on the core clock c0 is taken back first (seeded and
+# over-constrained checkpoints carry theirs). Writes fail_units.txt.
 #   tools/vivado_run.sh <run-dir> fpga/spikes/tcl/query/q_fail_units.tcl <routed.dcp>...   (about 5 GB)
 proc unit_of {name} {
   if {[regexp {g_core\[(\d)\]\.g_tgc\.u_core/([^/]+)} $name -> c u]} { return "c$c:$u" }
@@ -13,6 +14,9 @@ proc unit_of {name} {
 set fh [open fail_units.txt w]
 foreach dcp $argv {
   open_checkpoint $dcp
+  # a seeded or over-constrained run (seed_unc.tcl, over_unc.tcl) wrote its checkpoint before -pre_report took
+  # its setup uncertainty back, so take it back here too (timing.xdc sets none)
+  set_clock_uncertainty -setup 0 [get_clocks c0]
   set ps [get_timing_paths -setup -max_paths 20000 -nworst 1 -unique_pins -slack_lesser_than 0]
   set n [dict create]; set w [dict create]; set wl [dict create]; set ends [dict create]
   foreach p $ps {
