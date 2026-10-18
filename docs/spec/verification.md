@@ -619,7 +619,8 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
   - **The base** is BASE's `rtl/`, by default the merge base of HEAD and main.
   - **Harness:** both sides are built with the branch's harness (`sim/`), so only the RTL differs.
     - **When the base's RTL does not build with it,** the base side takes BASE's own `sim/`, and the log says so. This happens when a change gives an RTL package something new and the harness uses it, as `tg_tb_top` began reading `tg_trace_pkg::COMMIT_TRACE` (DR-146) before main had it. The sides then differ in harness as well as RTL: a difference may come from either, and an old base harness may not write this tool's signatures (the run is reported BROKEN).
-    - `HARNESS=branch` forbids that fallback, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`.
+    - **The boot's testbench too:** when the base's SoC does not build with the branch's `tests/unit/boot/tb_boot.sv`, which connects ports or parameters the base lacks (PINNOTFOUND), both sides' boot take BASE's `tests/unit/boot` and `sw/dts`, as `BOOT_TREE=<base>` does, and the base side its own `sim/`; the log says so. The boot then runs one testbench, the base's, on both sides (the coordinator's case: the SoC track's MR2, MR3 and MR6, the core track's DR-149).
+    - `HARNESS=branch` forbids those fallbacks, and `HARNESS=own` always builds the base side with BASE's `sim/`. A forced profile on the base needs a base `sim/` that has `profile.mk`, and for the boot a base `tests/unit/boot` that takes it.
   - **Programs** are built once and shared by both sides.
 - **Suites** (the defaults are the first four):
 

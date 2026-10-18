@@ -703,31 +703,49 @@ def main():
                                   prof=prof_branch))
         if not sides:
             fail("nothing to run: no suites and no --boot")
+        boot_tb = tb_src  # the boot's tests/unit and sw/dts (both sides)
         failed = build_all([s for pair in sides.values() for s in pair], a.jobs, cfg)
         if failed and a.harness == "auto":
             # The base's RTL may not build with this tree's harness: the harness can use something only
             # this tree's packages have (tg_tb_top read tg_trace_pkg::COMMIT_TRACE before main had it).
             # That side then takes the base's own harness, and the two sides differ in harness as well.
+            # The boot's harness is tb_boot too: one that connects ports the base's SoC lacks (PINNOTFOUND)
+            # makes both sides take the base's tests/unit/boot and sw/dts, as BOOT_TREE=<base> does, so
+            # the boot keeps one testbench on both sides.
             retry = {}
             for kind, (b, br) in sides.items():
                 if b.key in failed and br.key not in failed and b.harness_src != base_commit:
                     if not all(profile_takes(base_commit, v) for v in b.args[7]):
                         continue  # the base's own sim/ cannot force this profile: leave the failure standing
+                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, prof_ = b.args
+                    if kind == "boot" and tb_ != base_commit:
+                        mk = "tests/unit/boot/Makefile"
+                        if git("ls-tree", "--name-only", base_commit, "tests/unit/boot/tb_boot.sv") == "" or (
+                                prof_ and "TC_DEF" not in git("show", f"{base_commit}:{mk}")):
+                            continue  # the base has no tb_boot that can take this boot: leave the failure standing
+                        log(f"[{cfg}] the base's RTL does not build with this tree's tb_boot ({failed.pop(b.key)}); "
+                            f"both sides' boot take the base's tests/unit/boot and sw/dts (as BOOT_TREE=<base>), "
+                            f"and the base its own sim/, so the sides differ in harness as well as RTL "
+                            f"(HARNESS=branch to forbid this)")
+                        bkind, bcfg, btool, brtl, bharness, _, bcores, bprof = br.args
+                        retry[kind] = (Side("base", kind_, cfg_, tool_, rtl_, base_commit, base_commit, cores_, prof=prof_),
+                                       Side("branch", bkind, bcfg, btool, brtl, bharness, base_commit, bcores, prof=bprof))
+                        boot_tb = base_commit
+                        continue
                     log(f"[{cfg}] the base's RTL does not build with this tree's harness ({failed.pop(b.key)}); "
                         f"building the base's {kind} with the base's own sim/ instead, so the sides differ in "
                         f"harness as well as RTL (HARNESS=branch to forbid this)")
-                    kind_, cfg_, tool_, rtl_, _, tb_, cores_, prof_ = b.args
-                    retry[kind] = Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, prof=prof_)
+                    retry[kind] = (Side("base", kind_, cfg_, tool_, rtl_, base_commit, tb_, cores_, prof=prof_), None)
             if retry:
-                failed.update(build_all(list(retry.values()), a.jobs, cfg))
-                for kind, nb in retry.items():
-                    sides[kind] = (nb, sides[kind][1])
+                failed.update(build_all([s for pair in retry.values() for s in pair if s], a.jobs, cfg))
+                for kind, (nb, nbr) in retry.items():
+                    sides[kind] = (nb, nbr or sides[kind][1])
         if failed:
             fail(f"[{cfg}] " + "; ".join(failed.values()))
         prune_builds({s.key for pair in sides.values() for s in pair})
 
         # The boot first: it is long, and the programs run beside it
-        progs = ([boot_program(a, cfg, tb_src)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
+        progs = ([boot_program(a, cfg, boot_tb)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
         log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites + (['boot'] if a.boot else []))})...")
         t1 = time.time()
         jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]
