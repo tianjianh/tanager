@@ -109,6 +109,8 @@ struct SqEntry {
   X(mp_refills) X(mp_refill_cycles)                                                                \
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
   X(fetch_blocks) X(ftq_full)                                                                      \
+  X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
+  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty)                               \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -222,6 +224,7 @@ class Core {
   void fetch_thread(Thread& T);
   void decode();
   int decode_thread(Thread& T, int slots);
+  int decode_take(Thread& T, int slots);
   void dispatch();
   void dispatch_thread(Thread& T, int& n, int& row);
   void issue();

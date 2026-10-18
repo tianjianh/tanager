@@ -423,9 +423,10 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
     const bool here = hit && slot == l.slot;
     bool ok = true, f2 = false;  // f2 (m2_f2): F2's pre-decode redirects fetch, at m2_f2_bubble cycles
+    uint64_t* f2k = nullptr;     // ... its kind's counter
     if (!d.is_ctrl()) {
       if (here) {  // bogus: decode (F2 with m2_f2) redirects to the next instruction and clears the entry
-        if (c_.m2_f2) f2 = true;
+        if (c_.m2_f2) { f2 = true; f2k = &T.st.f2o_bogus; }
         else { T.st.predecode_redirects++; r.de_redirect = true; }
         m2_.invalidate(key, l);
       }
@@ -448,7 +449,11 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         const bool dp = btage_ ? btage_->dir(T.bt_ix, slot) : dir_->predict(di->pc ^ T.salt, T.ghr);
         if (btage_) { r.bt.ix = T.bt_ix; r.bt.slot = (uint8_t)slot; r.bt.v = true; r.bt.pred = dp; }
         if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
-        else if (!dp) { pred_taken = false; fixed = false; if (here && c_.m2_f2) f2 = true; }
+        else if (!dp) {
+          pred_taken = false;
+          fixed = false;
+          if (here && c_.m2_f2) { f2 = true; f2k = &T.st.f2o_nt; }
+        }
       }
       if (d.cls == Cls::BR) {
         T.bt_nbr++;
@@ -461,8 +466,12 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         T.ras.pop();
         if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
       }
-      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) f2 = true;  // from F2's pre-decode (returns: m2_ras_f2)
-      else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
+      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) {  // from F2's pre-decode (returns: m2_ras_f2)
+        f2 = true;
+        // as core-2's profile names them: a taken exit the micro-BTB missed, one at another slot than its hit,
+        // a return at its slot to another target than the stack's top
+        f2k = !hit ? &T.st.f2o_miss : !here ? &T.st.f2o_slot : &T.st.f2o_ret;
+      } else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;
         r.mp_kind = d.cls == Cls::BR ? ((here || c_.m2_dir) ? 1 : 4) : d.is_ret() ? 3 : 2;  // m2_dir: all direction
@@ -481,7 +490,14 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     n++;
     // a redirect (the commit flush, decode's, F2's) restarts fetch with the whole history
     if (!ok || r.de_redirect) { T.fe_blocked = true; T.bt_exact = true; ended = true; break; }
-    if (f2) { T.st.f2_overrides++; bubble = (int)c_.m2_f2_bubble; T.bt_exact = true; ended = true; break; }
+    if (f2) {
+      T.st.f2_overrides++;
+      if (f2k) (*f2k)++;
+      bubble = (int)c_.m2_f2_bubble;
+      T.bt_exact = true;
+      ended = true;
+      break;
+    }
     if (here || (d.is_ctrl() && di->taken)) { ended = true; break; }
     if (di->pc + d.len >= blk_end) { ended = true; break; }
   }
@@ -732,6 +748,22 @@ void Core::decode() {
 }
 
 int Core::decode_thread(Thread& T, int slots_avail) {
+  // Decode's take against what the queue offers (as core-2's profile counts them): starved when it takes all
+  // that is there and that is less than the width.
+  int offer = 0;
+  for (const FetchRec& q : T.fetchq) {
+    if (q.avail > t_ || offer >= c_.decode_width) break;
+    offer++;
+  }
+  const int took = decode_take(T, slots_avail);
+  if (took == 0) T.st.dec_take0++;
+  else if (took == 1) T.st.dec_take1++;
+  else T.st.dec_take2++;
+  if (took < c_.decode_width && took >= offer) T.st.dec_starved++;
+  return took;
+}
+
+int Core::decode_take(Thread& T, int slots_avail) {
   // The rename/dispatch pipeline holds at most decode_width uops per stage (with SMT, per thread: each thread
   // has its own queue between decode and dispatch, so a stalled thread does not block the other).
   if (T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1))) return 0;
@@ -1698,6 +1730,7 @@ bool Core::run() {
       }
     }
     if (c_.mdp_clear > 0 && t_ % (uint64_t)c_.mdp_clear == 0) waittab_.reset();
+    for (auto& Tp : th_) if (Tp->rob_count == 0) Tp->st.rob_empty++;
     commit();
     drain_stores();
     mem_.drain_reserve = drain_reserve();
