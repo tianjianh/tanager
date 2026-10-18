@@ -739,6 +739,13 @@ def main():
             if retry:
                 failed.update(build_all([s for pair in retry.values() for s in pair if s], a.jobs, cfg))
                 for kind, (nb, nbr) in retry.items():
+                    if nbr is not None and nbr.key in failed and nb.key not in failed:
+                        # The branch's RTL does not build with the base's tb_boot either (it needs what only
+                        # this tree's connects): each side keeps its own testbench, the branch its first build
+                        log(f"[{cfg}] the branch's RTL does not build with the base's tb_boot either "
+                            f"({failed.pop(nbr.key)}); each side's boot takes its own tests/unit/boot, so the "
+                            f"testbenches differ as well (the device tree stays the base's)")
+                        nbr = None
                     sides[kind] = (nb, nbr or sides[kind][1])
         if failed:
             fail(f"[{cfg}] " + "; ".join(failed.values()))
