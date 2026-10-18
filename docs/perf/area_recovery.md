@@ -1351,6 +1351,33 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **Decode held by rename:** on Dhrystone the model has 11% against the RTL's 20–21%, yet its cycles are within 4–7%. crc32 is held 48% in RTL and 21% in the model, with equal cycles; its time is set by the loop's dependency chain.
 - **The race above,** which a memory-dependence predictor would remove in RTL.
 
+### 6.10 Ordering replays in the Linux boot: the predictor parked (2026-10-18)
+
+*§6.9's race raised a memory-dependence predictor: a small table of load PCs that were replayed for ordering, whose loads then wait for older store addresses. The coordinator's rule was to judge it on Linux, parking it if replays cost under about 0.5% of the boot's cycles. This section measures it on the levers tree (a857a07, both levers, one `st` core), over the Linux boot's first 20M cycles in `tb_boot`. The bind is `scripts/rtlprof/prof_rpl.sv`.*
+
+**How a replay is costed:** each replay flush at commit is timed until the replayed instruction commits again. Nothing commits in between, so that is the commit stall it causes. Replays are counted in two kinds:
+- **ordering replays:** a younger load ran before an older store to its bytes;
+- **DTLB retries:** the ROB head missed the DTLB and now translates.
+
+| First 20M cycles of the boot (16.8M instructions) | Count | Per 1K instructions | Commit-stall cycles | Share of cycles |
+|---|---|---|---|---|
+| Ordering replays | 1,158 | 0.07 | 17,370 (15 each) | **0.09%** |
+| DTLB retries | 29,608 | 1.76 | 492,906 (17 each) | **2.45%** |
+
+- **The predictor is parked.** Ordering replays cost 0.09% of the boot's cycles, a fifth of the bar.
+- **A table would catch them, but they are worth little:**
+  - they come from 35 load PCs, and 97% are repeats at a PC that replayed before;
+  - a 16-entry table of single bits, indexed by PC, would catch 98.8% (a 256-entry table the same 97% as an exact set);
+  - the most replayed are the kernel's early code at physical addresses (400 at one PC), one kernel load (201) and OpenSBI's `sbi_memcmp`, at its reload of the return address from the stack (145).
+- **Gain at most 0.08% of the boot's cycles,** less the waits the table would add. The model runs bare-metal programs only (no traps or virtual memory), so it cannot replay the boot itself.
+- **Dhrystone rv64im's race is a benchmark effect:** it costs that binary 11%, and the boot almost nothing.
+
+**DTLB retries cost 30 times as much.**
+- **The mechanism:** a load or store that misses the DTLB is marked; the walker fetches the translation; and at the ROB head the instruction and everything after it are flushed and refetched (M3's design, core-mmu.md). That is about 17 cycles of commit stall per miss, beyond the walk.
+- **The cost:** 1.76 misses per 1K instructions, 2.45% of the boot's cycles. §6.7's front-end profile saw part of this as its "replay" refill.
+- **The levers would be:** a DTLB miss waiting in the LQ for the walk and replaying from there, as a cache miss does, so younger instructions are not flushed; or fewer misses (a larger DTLB).
+- **Judge it on steady state:** the boot's first 20M cycles touch many new pages, so steady-state Linux workloads on the board should decide.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1727,7 +1754,8 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 7. ~~The model's backend gap (§6.7)~~: **done** (§6.8). Rename's steering was most of it; `rtl_m2` revision 6 has it.
 8. ~~The steering fix~~: **approved** (DR-169, STEER_LA) with the store address on its base (STA_BASE); measured +2.25% and +5.03% over 17 programs, +7.84% together (§6.9).
 9. **What §6.8 left open in the model:** partly done (§6.9). With the levers, CoreMark's ordering replays are gone in both simulators; the store-wait cancel and the drain's cycle are in revision 7. Still open: row clashes (1.5–3× under), ws_hash (+14%) and ws_copy (−13%), minver and edn.
-10. **A memory-dependence predictor** (the model's `mdp`): Dhrystone rv64im replays one load per run at a store–load pair the in-order STA issue loses (§6.9). Cost and gain not yet estimated.
+10. ~~A memory-dependence predictor~~: **parked** (§6.10). Ordering replays cost 0.09% of the Linux boot's cycles, under the 0.5% bar.
+11. **DTLB retries at the ROB head** (§6.10): 2.45% of the boot's first 20M cycles, about 17 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB.
 
 ---
 
@@ -1893,6 +1921,10 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **fpu-2 measured +5.03% (STA_BASE), +2.25% (STEER_LA) and +7.84% (both) over 17 programs.** §6.8 had predicted +5.7%, +2.5% and +9.3%.
 - **Dhrystone rv64im's +5% (against rv64gc's +18%) is one race per run:** Proc_4's first load overtakes Proc_5's store to the same byte, whose address op waits behind an older store that a speculative-wakeup cancel sent back.
 - **`rtl_m2` revision 7:** the two levers, plus a cancel for a load waiting for a store's data and a cycle before a committed store drains. 17-program error 4.17%; the levers' means predicted within 0.15 points.
+
+**2026-10-18: ordering replays in the Linux boot** (§6.10; `scripts/rtlprof/prof_rpl.sv` on a857a07, both levers, the boot's first 20M cycles):
+- **The memory-dependence predictor is parked:** ordering replays cost 0.09% of the boot's cycles (1,158, from 35 load PCs, 97% repeats).
+- **DTLB retries at the ROB head cost 2.45%** (29,608, about 17 cycles each): the larger Linux-side item, for the board to judge.
 
 **Lessons:**
 - **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
