@@ -109,6 +109,16 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b1;
 `endif
+  // A store's address op issues on its base register alone (M6, DR-169): rename
+  // leaves the store's data register out of its IQ-STA row's wakeup columns and MX rows. The SQ
+  // entry captures the data when its register is written (core-lsu.md, Stores), and a load that
+  // finds the address without the data waits for it (STQ). TG_STA_BASE=0 gives the wait for both
+  // registers, cycle for cycle as before
+`ifdef TG_STA_BASE
+  localparam bit STA_BASE = `TG_STA_BASE;
+`else
+  localparam bit STA_BASE = 1'b1;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
