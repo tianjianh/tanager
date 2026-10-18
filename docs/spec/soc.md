@@ -590,6 +590,21 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
     - the plan spells out what the board session can still reach (UART1, the PL UART);
     - the coordinator tells the user before it runs.
+  - **The handover plan** (soc-2, 10-18, for the coordinator; nothing runs before the user is told):
+    - **Chosen once, by kexec from the running Ubuntu.** Nothing in the boot path changes: not QSPI, not U-Boot's environment, not `p1`. Any reset or power cycle boots normal Ubuntu from `p2`.
+      - In normal Ubuntu: load the bitstream (`xmutil`), mount `p3` read-only, then `tanager-host load` Debian's kernel and initrd from `p3`'s `/boot` with OpenSBI and the D4 tree, cores held. The carve-out is outside Linux RAM (`mem=3G`), so it survives the kexec, as the PL's state does.
+      - `kexec -l` Ubuntu's own kernel with a handover tree (SD1 and UART1 disabled), the command line `mem=3G clk_ignore_unused` (the PL clock has no user in that tree), and a small initramfs. Then `systemctl kexec`, which stops services and remounts `p2` read-only before it jumps.
+      - **The handover initramfs:** busybox, `tanager-host`, and an SSH server on GEM3 with the board session's key. It starts `tanager-host run`. When that exits (the RISC-V powered off), it reboots the A53 into normal Ubuntu.
+    - **What the board session can reach:**
+      - SSH to the handover A53 over GEM3, which stays with the A53 until D5. From there, `tanager-host`'s PL console, its logs, and a reboot.
+      - COM7 (UART1, D3's path): the RISC-V's console and Debian's login.
+      - **Recovery:** `poweroff` in Debian on COM7 returns the A53 to Ubuntu by itself. SSH can stop `tanager-host` and reboot. Failing both, a power cycle (the user's) boots Ubuntu.
+    - **The card:** the handover kernel never probes SD1, the RISC-V mounts only `p3` (its root), and nothing writes `p1` or `p2`. Before any A53 reboot, Debian is powered off first.
+    - **The RISC-V's side:** a D4 tree (`sw/dts` `SD1=1`) with the controller as plain `arasan,sdhci-8.9a`. Linux's ZynqMP variant sets tap delays through the PMU firmware, which the RISC-V can't call, so it keeps the delays the A53 left. The tree also has `dma-ranges` for D-c, fixed clocks and PLIC source 21. Debian's `sdhci-of-arasan` is built out of tree with DKMS and goes into its initrd.
+    - **Read-only probes first** (normal Ubuntu, no changes):
+      - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
+      - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;
+      - whether GEM3's `macb` and the DP83867 PHY driver are built in or modules, which the initramfs must then carry.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
   - **Boot:**
