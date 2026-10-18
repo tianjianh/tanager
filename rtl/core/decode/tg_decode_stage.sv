@@ -205,7 +205,33 @@ module tg_decode_stage
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
     assign hit   = eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
-    assign rop[j] = ras_op(xd[j]);
+    // The stack's operation from the raw encoding and the marks, like the class (timing: no RVC
+    // expander or decoder before the group's count, the queue's take and the stack's pointer): a JAL
+    // or JALR writing a link pushes, a JALR reading one pops unless it writes the same one; C.JALR
+    // links x1, C.JR and C.J none. It is ras_op of decode's result wherever decode raises no
+    // exception (asserted), which the gate excludes as ras_op does (fpu-2's form, from its F2 timing
+    // prototype 1e4a503)
+    logic [1:0] rop_x;
+    always_comb begin
+      logic rdl, rsl;
+      rdl   = xq[j].insn[11:7] == 5'd1 || xq[j].insn[11:7] == 5'd5;
+      rsl   = (xq[j].rvc ? xq[j].insn[11:7] : xq[j].insn[19:15]) == 5'd1 ||
+              (xq[j].rvc ? xq[j].insn[11:7] : xq[j].insn[19:15]) == 5'd5;
+      rop_x = 2'b00;
+      if (xq[j].rvc) begin
+        if (mjalr) rop_x = {xq[j].insn[12], rsl && !(xq[j].insn[12] && xq[j].insn[11:7] == 5'd1)};
+      end else if (mjal) begin
+        rop_x = {rdl, 1'b0};
+      end else if (mjalr) begin
+        rop_x = {rdl, rsl && !(rdl && xq[j].insn[11:7] == xq[j].insn[19:15])};
+      end
+    end
+    assign rop[j] = (RAS_ON && !xe[j]) ? rop_x : 2'b00;
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (rs_seen_q && !rst && xv[j])
+        assert (rop[j] == ras_op(xd[j])) else $error("tg_decode_stage: the raw stack operation differs from decode's");
+`endif
     always_comb begin
       npc[j]   = pt ? ptg : seq;
       redir[j] = 1'b0;
