@@ -645,6 +645,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - `mk_initramfs.sh`, run on the board: its `busybox-static`, `sshd` with its libraries, the host keys, the board's key for root, `uio_pdrv_genirq`, `tanager-host`.
         - `init`, and `handover.sh`, with `--dry` for the dry run. It refuses to start without `kexec-tools` (`LOAD_KEXEC=false`), a reading from D2's regulator, and `mem=3G` on the command line. It sets pwm1 = 1 after stopping `fancontrol`, then `systemctl kexec`.
         - The handover command line adds `pd_ignore_unused`, and `panic=10` so that a dying `init` reboots into Ubuntu.
+        - **tanager-host's own guard** (since 10-14, 20435b1) reads the PL only while the overlay's host bridge node, `tanager@a0000000`, is in the live tree. The handover kernel applies no overlay, so the handover tree carries that node itself (without its interrupt). That's true there: `handover.sh` checks that a tanager app holds the PL just before the kexec, which leaves the PL as it is. Without the node, the handover's `tanager-host run` and every dry-run command would have refused (found 10-18, before the day).
       - **`tanager-host load --initrd`:** at `0x8800_0000`, zeroed to `0x8C00_0000`. Linux's initramfs unpacker skips zeros, so the tree names the fixed window and needs no patching. `load` refuses a kernel whose `image_size` reaches the DTB (Debian's 6.12 kernel: 30.4 of the 32 MiB).
       - **`sw/dts` `SD1=1 INITRD=1`:** with `UART1=1`, this is the D4 tree. Every other tree is byte-identical to before.
         - SD1 is the ZynqMP variant without `#clock-cells`. Its phase calls then get no clocks, so the A53's tap delays stay, and its firmware query fails into a stub on RISC-V, so it makes no PMU calls.
@@ -664,10 +665,12 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - the root is `root=LABEL=tanager-root`.
   - **Met when** Debian 13 reaches its login from `p3` with no virtio disk, and its read rate is measured against stage C's.
 - **D5: Ethernet.**
+  - **Debian's kernel has the drivers** (its riscv64 6.12 config, checked 10-18): `CONFIG_MACB=m`, `CONFIG_DP83867_PHY=m`, `PHYLIB` and `PHYLINK` as modules. D5 needs no module beyond Debian's own.
   - Debian's own `macb` and `dp83867`, with `cdns,gem` on D-c. The PHY stays out of reset, as the A53 left it.
   - The GEM's transmit clock stays at the 125 MHz the A53 left. So the PHY advertises only 1000 Mb/s (`max-speed`) until there is a clock path for 100 Mb/s.
   - It replaces stage C's bridged virtio-net. **Met when** apt runs over it, with its rate against stage C's 9.9 MB/s.
 - **D6: USB 2.**
+  - **Debian's kernel lacks DWC3** (`CONFIG_USB_DWC3` is not set; `xhci-plat` is a module), so D6 needs `dwc3` by DKMS, as planned. That's the user's call, like D4's SD module.
   - `dwc3`, our DKMS module, in host mode through Debian's `xhci-plat`. The USB5744 hub stays out of reset, as the A53 left it.
   - USB 3 (PS-GTR) only if the A53's PHY setup survives the handover. **Met when** a USB stick mounts.
 - **D7: park.**
