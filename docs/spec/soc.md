@@ -664,10 +664,12 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - the root is `root=LABEL=tanager-root`.
   - **Met when** Debian 13 reaches its login from `p3` with no virtio disk, and its read rate is measured against stage C's.
 - **D5: Ethernet.**
+  - **Debian's kernel has the drivers** (its riscv64 6.12 config, checked 10-18): `CONFIG_MACB=m`, `CONFIG_DP83867_PHY=m`, `PHYLIB` and `PHYLINK` as modules. D5 needs no module beyond Debian's own.
   - Debian's own `macb` and `dp83867`, with `cdns,gem` on D-c. The PHY stays out of reset, as the A53 left it.
   - The GEM's transmit clock stays at the 125 MHz the A53 left. So the PHY advertises only 1000 Mb/s (`max-speed`) until there is a clock path for 100 Mb/s.
   - It replaces stage C's bridged virtio-net. **Met when** apt runs over it, with its rate against stage C's 9.9 MB/s.
 - **D6: USB 2.**
+  - **Debian's kernel lacks DWC3** (`CONFIG_USB_DWC3` is not set; `xhci-plat` is a module), so D6 needs `dwc3` by DKMS, as planned. That's the user's call, like D4's SD module.
   - `dwc3`, our DKMS module, in host mode through Debian's `xhci-plat`. The USB5744 hub stays out of reset, as the A53 left it.
   - USB 3 (PS-GTR) only if the A53's PHY setup survives the handover. **Met when** a USB stick mounts.
 - **D7: park.**
