@@ -109,6 +109,16 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b1;
 `endif
+  // A store's address op issues on its base register alone (M6; the FPU track's prototype): rename
+  // leaves the store's data register out of its IQ-STA row's wakeup columns and MX rows. The SQ
+  // entry captures the data when its register is written (core-lsu.md, Stores), and a load that
+  // finds the address without the data waits for it (STQ). TG_STA_BASE=0 gives the wait for both
+  // registers, cycle for cycle as before
+`ifdef TG_STA_BASE
+  localparam bit STA_BASE = `TG_STA_BASE;
+`else
+  localparam bit STA_BASE = 1'b1;
+`endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
   // TG_RAS=0 turns it off: the front end without it, cycle for cycle

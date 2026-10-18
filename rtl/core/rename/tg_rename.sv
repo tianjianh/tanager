@@ -696,13 +696,15 @@ module tg_rename
     for (int k = 0; k < W; k++) begin
       if (ds_fire && ds_valid_q[k] && ds_ren_q[k].has_q) iq_we[ds_ren_q[k].q][k] = 1'b1;
       // A pending source waits on its producer's column, or on its row (MX); a 1-cycle
-      // producer whose row has been freed needs nothing
+      // producer whose row has been freed needs nothing. A store's data (its rs2) is not a source
+      // of its address op (STA_BASE): the SQ captures it when its register is written
       iq_dep[k] = '0;
       if (ds_ren_q[k].p1 && ds_ren_q[k].c1) iq_dep[k][wid_t'(ds_ren_q[k].w1)] = 1'b1;
-      if (ds_ren_q[k].p2 && ds_ren_q[k].c2) iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
+      if (ds_ren_q[k].p2 && ds_ren_q[k].c2 && !(STA_BASE && ds_uop_q[k].d.cls == C_ST))
+        iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
       if (EXT_FD && ds_ren_q[k].p3 && ds_ren_q[k].c3) iq_dep[k][wid_t'(ds_ren_q[k].w3)] = 1'b1;
       iq_dep[k] &= ~w_vec;
-      iq_mdep[k] = mrow1[k] | mrow2[k];
+      iq_mdep[k] = mrow1[k] | ((STA_BASE && ds_uop_q[k].d.cls == C_ST) ? '0 : mrow2[k]);
       iq_pl[k] = '0;
       iq_pl[k].rob       = ds_ren_q[k].rob;
       iq_pl[k].tid       = ds_uop_q[k].tid;
