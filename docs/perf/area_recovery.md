@@ -8,7 +8,7 @@
 
 | | |
 |---|---|
-| Status | Study for review. Input to plan §4.6, §8.2 and §8.5, to the per-unit budgets ([budgets.md](budgets.md)) and to the feature ledger. §7 is redone from the measured RTL (AR-7). |
+| Status | Study for review. Input to plan §4.6, §8.2 and §8.5, to the per-unit budgets ([budgets.md](budgets.md)) and to the feature ledger. §7 is redone from the measured RTL (AR-7). §7.8 ranks the area levers for M6's set at 100 MHz (2026-10-18). |
 | Date | 2026-10-14 |
 | Model | `tgsim` model version 3 with SMT2 (`SMT_VERSION` 1); suite revision 2; rv64gc built with GCC 15.2. The new options are off by default and change no earlier result (§2.2). See [`perfmodel/README.md`](../../perfmodel/README.md). |
 | Configurations | v1 = `smt2`, the first release (plan §6.5, D15); v2 = `smt2_w3` (SMT2 study §9, plan rule 12) |
@@ -1436,6 +1436,70 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
 - the SoC's S2 restructure (the uncore's 200 MHz miss, above) and its DSP-mask revisit;
 - the 3-wide configurations under DR-113's settings, then §7.1–7.5 move to the latest pass;
 - hart 1 at M7, which replaces every estimate.
+
+### 7.8 Room for M6's set at 100 MHz: the area levers, ranked (desk study, 2026-10-18)
+
+*The coordinator's question, after spikes.md §8.11: M6's set with the restructured F2 (1e4a503), the two-table TAGE and hart 1's area does not place at 100 MHz. Which levers make room, how much each gives, and at what cost? This is a desk study: the full chips' per-unit reports, the FPU track's out-of-context runs, and a unit synthesis wherever a lever looked worth 300 or more LUTs a chip and had no number. No full chip was run.*
+
+**What is needed.**
+- **To place:** at least ≈600 LUTs a chip. After `opt_design`, 1e4a503's synthesized chip has **117,786 LUTs, 666 over the device's 117,120** (this study, on spikes-2's `h100_m6f` checkpoint). The placer came up 73 CLBs short.
+- **For timing margin:** 1.5–2K. Above 96% fill the slack falls about 0.8 ns per 1K LUTs (§8.9 of spikes.md). Tree (ii), which placed at 98.3%, failed by 1.63 ns once every front-end path was taken out.
+- **For M6's later pieces and M7/M8:** about 5K.
+
+**The basis.**
+- **The full chip, per unit** (tree (ii), c149fce, placed at 115,185 LUTs: `fpga/spikes/results/h100_m6t/util_hier.rpt`):
+  - each core is 45.9K: the LSU 12.3K, execute 6.9K, P4 6.3K, fetch 6.0K, the issue queues 5.1K, rename 3.0K, the ROB 2.6K, decode 2.0K, the CSRs 1.4K;
+  - the uncore is 15.9K: the L2 9.2K, the crossbar 2.5K, the two latency injectors 1.3K, the host bridge 0.9K;
+  - hart 1's filler is 3.7K a core.
+- **Unit syntheses** (this study): DR-113's settings (hierarchy kept, `AreaOptimized_high`), counted after `opt_design`, on main 37f2658 with the change in a scratch copy:
+
+  | Unit | As built | With the lever | Change |
+  |---|---|---|---|
+  | `tg_pmp`, one granule (the LD and STA checkers) | 891 | 450 (8 entries) | −441 |
+  | `tg_pmp`, a fetch block (fetch's checker) | 958 | 485 (8 entries) | −473 |
+  | `tg_fp_exec` (P4) | 6,813 LUTs, 4,001 FFs, 37 DSPs | 6,188, 2,812, 8 (`FDIV_RADIX4`) | −625 LUTs |
+  | `tg_core` at `smt2` | 46,524 LUTs, 21,853 FFs | 46,125, 21,505 (FP queue 8, LD queue 4) | −399 LUTs |
+
+- **`opt_design` directives** on 1e4a503's synthesized chip (`h100_m6f_synth_post_synth.dcp`), with no placement: the default 117,786 LUTs; `ExploreWithRemap` 117,467 (−319); **`ExploreArea` 116,511 (−1,275)**. Flip-flops are 62,403 in all three.
+
+**The levers.** LUTs are per chip: two cores, or the uncore once. IPC is from the model (§3) unless marked. "Decides" follows DR-154: under 1% performance and under 1,200 LUTs a chip, the coordinator; otherwise the user.
+
+| # | Lever | Unit (owner) | LUTs a chip | IPC or function cost | Effort | Risk | Decides |
+|---|---|---|---|---|---|---|---|
+| | **1. No IPC** | | | | | | |
+| 1 | **`opt_design -directive ExploreArea`** in the full-chip flow, in place of the default | flow (spikes) | **1,275** (measured, above) | none: no RTL change | low: one option | timing: an area directive can lengthen paths, so one placement must check it | coordinator |
+| 2 | **Release builds without the latency injectors** (a pass-through instead of `tg_axi_lat_inj` per L2 bank) | uncore (SoC) | **1,293** (measured in the chip), and 556 FFs and 4 BRAM36 | none at native latency: a miss is a few cycles faster without the injector's buffering (so not cycle-identical). Release builds lose latency emulation and its native-latency counts; development builds keep them, as with DR-121's trace | low: a build switch | low | user (function) |
+| 3 | The D$ tags in block RAM (T3), read with the virtual index at AG | LSU (core-2) | ≈1,280 (640 LUTRAM a core) | none, with a bypass for a tag written between AG and M1 | high: three read ports, so copies, ≈15 BRAM36 a chip of the 23 free | medium | coordinator |
+| 4 | Execute's operand ports in URAM (DR-133, revived) | execute (FPU track) | ≈1,190 (−597 a core, measured then), +24 URAM | none | medium: the switch is on `claude/track-fpu-395911-dr133-gate3` | **high:** at 200 MHz its issue → URAM path measured ≈9.8 ns, 7–8 ns of it wire to the single URAM column. At 100 MHz with the 1 ns over-constraint it would still miss | — (not proposed) |
+| | **2. Function, or small IPC** | | | | | | |
+| 5 | **PMP with 8 entries instead of 16:** entries 8–15 are read-only zero (every PMP CSR field is WARL and may be read-only zero; software probes the count), Spike runs with `--pmpregions=8` | fetch, LSU, CSRs (core-2) | **2,710 now** (3 checkers a core, measured), 1,152 FFs (the descriptor registers), **and ≈1.7K of hart 1's area at M7**: its per-hart descriptor select halves too (≈0.86K a core of [hart1_ram_form.md](hart1_ram_form.md)'s 1.7K) | IPC none. Function: 8 PMP regions. Our boot uses 6: OpenSBI's Domain0 has firmware RW, firmware RX, UART, ACLINT, PLIC and the all-memory region (`Region00`–`05`); Linux uses none | low: a parameter, the CSR's read-only-zero entries, the harness's Spike flag | low | user (function, > 1,200) |
+| 6 | One checker for the LD and STA pipes (DR-139 gave STA's checker to the walker already). The DTLB's cached result (`ph`) covers translated pages, and M-mode with no locked entry needs no check, so on Linux the checker is almost never wanted twice in a cycle | LSU (core-2) | 1,780 (one 891 checker a core), or 900 after #5 | ≈0 on Linux: a wait only for untranslated S/U accesses, pages crossing a PMP boundary and M-mode with locked entries. Not cycle-identical | medium: an arbiter and the bypass | medium | user (> 1,200) or coordinator (after #5) |
+| 7 | **FP queue 10 → 8 and LD queue 6 → 4** (AR-6) | issue (FPU track) | **798** (measured) and 696 FFs | model, v1 with tags: −0.21% throughput, −0.29% single thread. Not re-run with speculative wakeup; one `make perf` would | low: two configuration values | low | coordinator |
+| 8 | Radix-4 divide and square root (`FDIV_RADIX4`, DR-118) | P4 (FPU track) | **1,250** (measured), 2,378 FFs, 58 DSPs | −0.4% throughput, −2.4% single thread, all FP divide and sqrt (nbody −47%, st −43%) | low: a switch | low | user (> 1,200, > 1% single thread) |
+| 9 | R9: forwarding only from a same-address, same-size store | LSU (core-2) | ≈400–600 (AR's estimate; the LSU's forwarding has been reworked since and was not re-measured) | −0.03% throughput | medium | medium | coordinator |
+| 10 | R10: checkpoints shared by the threads | rename | **0**: today's rename has no checkpoints (every recovery is at commit) | — | — | — | — |
+| 11 | DR-121: release builds without the commit trace | core, uncore | **0 more**: every full chip already defines `TG_COMMIT_TRACE=0`, so the 120,787 excludes it | — | — | — | — |
+| | **3. For comparison** | | | | | | |
+| 12 | TAGE's second table (§6.5) | fetch (core-2) | 660 | make perf +3.7 points (−16.0% against −12.3% cycles), ≈5.6% per 1K LUTs | — | — | user |
+| 13 | Hart 1's reserve (M7's SMT2) | core | 7,400 (3.7K a core, RAM form) | the second thread | — | — | user |
+
+**Top three.**
+1. **`opt_design -directive ExploreArea` (1,275, no RTL, no cycles).** It alone brings 1e4a503 under the device (116,511, 609 to spare after optimisation). It needs one placement to show it costs no clock, and spikes-2's next full chip can carry it.
+2. **PMP with 8 entries (2,710 now, ≈1.7K more at M7, no IPC).** It is the largest lever, it costs no performance, and our software uses 6 regions. It is a function change, so the user decides.
+3. **Release builds without the latency injectors (1,293 and 4 BRAM36, no IPC).** It is the same kind of lever as DR-121's trace: development builds keep the injectors.
+
+Together they come to ≈5.3K a chip, at no IPC cost. The next ones are the queue trims (798, −0.2%, the coordinator's call) and the shared LD/STA checker (900 after #5). TAGE's second table buys more per LUT (≈5.6% of make perf per 1K) than any IPC-costing lever here gives up: radix-4 loses 1.9% of single-thread IPC per 1K LUTs.
+
+**Where the earlier passes already harvested** (nothing above counts them again):
+- **The commit trace** is off in every full chip (DR-121's ≈5.8K is already out of 120,787).
+- **Built and inside the measured numbers:**
+  - wakeup tags (AR-1); R1 (counters in DSPs), R2 (cold CSRs in LUTRAM) and R3 (LUTRAM maps); R14 (DR-113's settings, which the chip's synthesis uses);
+  - DR-139 (the walker shares STA's PMP checker);
+  - DR-136 (the uncore's register slices in DSPs);
+  - the core track's FPGA-friendly passes, and the FPU, execute and uncore rows of fpga_friendly.md §4.
+- **Shrunk since they were priced:** radix-4 saved 1,036 a core in DR-118, before the FPU's passes, and saves 625 now. AR-6's queue trims were model estimates (≈0.17K a queue a core with tags) and measure 399 a core for both.
+- **Gone:** R10 (no checkpoints left to share).
+- **Rejected and not revived:** DR-133's URAM ports (timing, above). PMP compares in DSPs (T6) were considered too: they need a register in front of each checker, so the PA from the TLB would arrive a cycle late. That is not cycle-identical, so it is not in the table.
 
 ---
 
