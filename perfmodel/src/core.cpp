@@ -1140,11 +1140,18 @@ void Core::exec_load(Uop& u) {
   const uint64_t t = t_, t_ag = t + 2;
   const uint64_t d = (uint64_t)c_.abl_ld_use, dn = (uint64_t)c_.abl_done;
   T.st.loads++;
-  bool violated = false;
+  bool violated = false, drain_clash = false;
   for (auto it = T.sq.rbegin(); it != T.sq.rend(); ++it) {
     SqEntry& s = *it;
     if (s.id > u.id || s.mmio) continue;
     if (!(s.addr < u.addr + u.size && u.addr < s.addr + s.size)) continue;
+    // dc_row_clash: the RTL searches the SQ at M1 (t + 3) and reads the D$ at AG (t + 2). A committed store at the
+    // SQ's head or next drains at t + 1 or t + 2: gone from the SQ by M1, and its D$ write meets the AG read, so the
+    // load retries instead of forwarding.
+    if (c_.dc_row_clash && s.committed) {
+      const size_t idx = T.sq.size() - 1 - (size_t)std::distance(T.sq.rbegin(), it);
+      if (idx < 2 && mem_.l1d_present(pa(T, s.addr), t)) { drain_clash = true; break; }
+    }
     if (s.t_addr <= t_ag) {
       const bool covers = s.addr <= u.addr && s.addr + s.size >= u.addr + u.size;
       const bool ok = covers && (!c_.fwd_strict || (s.addr == u.addr && s.size == u.size));
@@ -1210,30 +1217,41 @@ void Core::exec_load(Uop& u) {
     }
   }
   u.t_done = u.t_ready + 1 + dn;
-  // dc_row_clash: the D$ data read at AG (t + 2) of this row; a store writing the row in that cycle makes it retry
-  if (c_.dc_row_clash) ag_recs_.push_back({t + 2, t, u.id, (uint16_t)((u.addr >> 4) & 0xff), pred_hit});
+  if (drain_clash) {  // its store drains as it reads (see above): the retry, and the shadow's cancel
+    clash_hit(T, u, t, pred_hit);
+  } else if (c_.dc_row_clash) {
+    // the D$ read at AG (t + 2) of this 16-byte block; a store to the block acked then or the cycle before (the
+    // registered port-B write, DC_PORTB_WREG) makes it retry
+    ag_recs_.push_back({t + 2, t, u.id, u.addr >> 4, pred_hit});
+  }
   mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 3);
 }
 
-// dc_row_clash (the RTL's D$, core-lsu.md): a load reads its D$ row (VA[11:4]) at AG through port A, and a store
-// draining in that cycle writes port B; when the rows match, the load's M2 outcome is a retry. It replays from the
+void Core::clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec) {
+  u.t_ready += (uint64_t)c_.clash_delay;
+  u.t_done += (uint64_t)c_.clash_delay;
+  T.st.dc_clashes++;
+  if (c_.spec_wakeup && spec && c_.shadow > 0) {
+    const uint64_t d = (uint64_t)c_.abl_ld_use;
+    if (cancel_from_ == NEVER || issue + 3 + d > cancel_to_) cancel_from_ = issue + 3 + d;
+    cancel_to_ = std::max(cancel_to_, issue + 2 + d + (uint64_t)c_.shadow);
+    cancel_tid_ = T.tid;
+    T.st.shadow_cancels++;
+  }
+}
+
+// dc_row_clash (the RTL's D$, tg_lsu.sv m1_clash): a load reads its D$ row at AG through port A while stores drain
+// through port B; when a store to the load's 16-byte block (PA[33:4]) is acked in the load's AG cycle or the cycle
+// before (the registered port-B write), the load read old data and its M2 outcome is a retry. It replays from the
 // LQ (about clash_delay cycles later), and with speculative wakeup its dependants' shadow is cancelled.
 void Core::row_clash(Thread& T, uint64_t addr) {
-  const uint16_t row = (uint16_t)((addr >> 4) & 0xff);
-  for (const AgRec& a : ag_recs_) {
-    if (a.ag != t_ || a.row != row) continue;
+  const uint64_t blk = addr >> 4;
+  for (AgRec& a : ag_recs_) {
+    if ((a.ag != t_ && a.ag != t_ + 1) || a.blk != blk || a.done) continue;
     Uop* u = find(a.id);
     if (!u || u->state != 2 || (u->id >> TID_SHIFT) != (uint64_t)T.tid) continue;
-    u->t_ready += (uint64_t)c_.clash_delay;
-    u->t_done += (uint64_t)c_.clash_delay;
-    T.st.dc_clashes++;
-    if (c_.spec_wakeup && a.spec && c_.shadow > 0) {
-      const uint64_t d = (uint64_t)c_.abl_ld_use;
-      if (cancel_from_ == NEVER || a.issue + 3 + d > cancel_to_) cancel_from_ = a.issue + 3 + d;
-      cancel_to_ = std::max(cancel_to_, a.issue + 2 + d + (uint64_t)c_.shadow);
-      cancel_tid_ = T.tid;
-      T.st.shadow_cancels++;
-    }
+    a.done = true;
+    clash_hit(T, *u, a.issue, a.spec);
   }
 }
 

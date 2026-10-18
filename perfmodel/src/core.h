@@ -279,9 +279,10 @@ class Core {
   int64_t slot_free(uint8_t q, int k) const;
   int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
   // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
-  struct AgRec { uint64_t ag, issue, id; uint16_t row; bool spec; };
+  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
   std::vector<AgRec> ag_recs_;
   void row_clash(Thread& T, uint64_t addr);
+  void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
   bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
   int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken
