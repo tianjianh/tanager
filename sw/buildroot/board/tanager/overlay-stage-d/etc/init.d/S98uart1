@@ -1,0 +1,11 @@
+#!/bin/sh
+# Stage D's D3 (docs/spec/soc.md §8.2, DR-163): a login on the PS's UART1 too, when the device tree
+# has it (sw/dts UART1=1). The PL UART keeps its own getty from inittab.
+case "$1" in
+  start)
+    if [ -c /dev/ttyPS0 ]; then
+      (while :; do /sbin/getty -L ttyPS0 115200 vt100; sleep 1; done) </dev/null >/dev/null 2>&1 &
+    fi
+    ;;
+esac
+exit 0

@@ -1,0 +1,4 @@
+# The stage D image's kernel (tanager_lp64d_stage_d, docs/spec/soc.md §8.2): the PS peripherals the
+# RISC-V drives through the PS window. D3 (DR-163): the Cadence UART, for UART1 as a console.
+CONFIG_SERIAL_XILINX_PS_UART=y
+CONFIG_SERIAL_XILINX_PS_UART_CONSOLE=y

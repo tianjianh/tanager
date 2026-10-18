@@ -11,6 +11,18 @@ name="${1:-tanager_lp64d}"; shift || true
 br="$SOC_BUILD/buildroot-$BUILDROOT_VER"
 out="$SOC_BUILD/br-$name"
 
+# br-tanager_lp64d/images/Image is the reference kernel that every boot check takes (tests/unit/boot,
+# tools/ci/cycle_identical.py's newest */br-tanager_lp64d, core-2's boot curves): rebuilding it moves every
+# boot baseline, and the boot checks fail while it is missing. So a rebuild of an existing one is refused;
+# changed images get their own defconfig (tanager_lp64d_bench, tanager_lp64d_stage_d). To replace the
+# reference on purpose, build it in another directory and rename it into place, and tell the coordinator,
+# core-2 and verif-2 first.
+if [ "$name" = tanager_lp64d ] && [ -e "$out/images/Image" ] && [ "${BR_REBUILD_REFERENCE:-0}" != 1 ]; then
+  echo "build_linux.sh: $out/images/Image is the boot checks' reference kernel; not rebuilding it" >&2
+  echo "  (another defconfig for changed images; BR_REBUILD_REFERENCE=1 only for an announced replacement)" >&2
+  exit 1
+fi
+
 bash "$here/fetch.sh" >/dev/null
 if [ ! -d "$br" ]; then
   tar -C "$SOC_BUILD" -xf "$SOC_DL/buildroot/$BUILDROOT_TAR"
