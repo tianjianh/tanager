@@ -22,8 +22,9 @@
 #   -g           an extra kv260_top generic (repeatable), e.g. a measurement patch's FILL_TILES
 #   -file F      an extra source, relative to the repo root (repeatable), e.g. fpga/spikes/rtl/tg_s6_fill.sv
 #   -define      a Verilog define for synthesis (repeatable), e.g. TG_COMMIT_TRACE=0 (the performance build)
-#   -opt_directive  opt_design's directive (default none, opt_design's own default), e.g. ExploreArea
-#                (about 1.3K fewer LUTs on M6's checkpoint, area_recovery §7.8)
+#   -opt_directive  opt_design's directive, default ExploreArea (DR-166: about 1.3K fewer LUTs on M6's
+#                checkpoint, area_recovery §7.8, with no clock cost in spikes.md §8.12); Default reproduces
+#                the runs before 2026-10-18
 #   -pre_report  a Tcl file sourced after routing, before the reports: e.g. fpga/spikes/tcl/seed_unc_off.tcl
 #                takes back a placement-only perturbation (seed_unc.tcl) so the reports compare
 #   -place_directive / -route_directive  place_design / route_design directives (default Default,
@@ -49,7 +50,7 @@ set extra_files {}
 set place_dir Default
 set route_dir Default
 set pre_report ""
-set opt_dir ""
+set opt_dir ExploreArea
 set defines {}
 set rest [lrange $argv 4 end]
 while {[llength $rest]} {
