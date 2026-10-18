@@ -107,6 +107,7 @@ struct SqEntry {
   uint8_t size = 0;
   bool mmio = false, committed = false, rfo = false;
   uint64_t t_addr = NEVER;
+  uint64_t t_commit = NEVER;  // drain_delay: when it committed
   uint64_t data_prod = 0;
   bool data_now = false;  // data captured at issue (non-split stores)
 };
@@ -129,7 +130,7 @@ struct SqEntry {
   X(held_iq_fp) X(held_reg) X(held_llt) X(held_wtag) X(held_other)                                 \
   X(sta_rows_base) X(sta_rows_data) X(sta_rows_ready) X(sta_rows_held) X(sta_held_data)            \
   X(a0_rows_wait) X(a0_rows_ready) X(a0_rows_held) X(a1_rows_wait) X(a1_rows_ready) X(a1_rows_held) \
-  X(ld_rows_wait) X(ld_rows_ready) X(ld_rows_held) X(held_alu_other)                               \
+  X(ld_rows_wait) X(ld_rows_ready) X(ld_rows_held) X(held_alu_other) X(stq_cancels)                \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \

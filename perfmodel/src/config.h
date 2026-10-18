@@ -92,8 +92,10 @@ namespace tg {
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
   X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
   X(spec_fwd, 0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
+  X(fwd_wait_cancel, 0, "with spec_wakeup: a load that finds an older store's address without its data, or not covering it, cancels the shadow as a miss does (the RTL's STQ verdict at M2)") \
   X(dc_row_clash, 0, "a load whose AG (D$ row read) meets a store draining into the same row (VA[11:4]) retries (the RTL's D$)") \
   X(clash_delay, 4, "dc_row_clash: cycles a clashing load's result is delayed (its replay from the LQ)") \
+  X(clash_rearm, 0, "dc_row_clash: the retry reads the row again at its own AG, so a store draining then makes it retry again") \
   X(redirect_lat, 1, "cycles from branch resolution (end of EX) to the redirected IF1")            \
   X(commit_redirect, 1, "cycles from commit of a mispredicted branch to IF1 (no checkpoint)")      \
   X(lat_mul, 3, "multiply latency")                                                                \
@@ -170,7 +172,8 @@ namespace tg {
   X(abl_done, 0, "extra cycles from execute completion to the ROB's complete mark (commit slips)") \
   /* DR-140's profiles (area_recovery.md 6.2): 0 = the fallback, the model as before */                 \
   X(abl_st_done, 0, "extra cycles before a store's address completes in the ROB (cut #4; #2 adds another)") \
-  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)")
+  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)") \
+  X(drain_delay, 0, "cycles from a store's commit to its D$ write at the earliest (0: in its commit cycle)")
 
 constexpr int MAX_THREADS = 2;
 

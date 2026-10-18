@@ -1310,6 +1310,17 @@ void Core::exec_load(Uop& u) {
   const uint64_t d = (uint64_t)c_.abl_ld_use, dn = (uint64_t)c_.abl_done;
   T.st.loads++;
   bool violated = false, drain_clash = false;
+  // fwd_wait_cancel: a load that finds an older store's address without its data, or not covering it, does not
+  // complete in M2 (the RTL's STQ verdict): with speculative wakeup it cancels the shadow, as a miss does
+  auto wait_cancel = [&] {
+    if (!c_.fwd_wait_cancel || !c_.spec_wakeup || c_.shadow <= 0 || (c_.spec_int_only && u.cls == Cls::FLD)) return;
+    if (c_.hit_pred && hitpred_.at(u.di->pc ^ T.salt) < 2) return;
+    if (cancel_from_ == NEVER || t + 3 + d > cancel_to_) cancel_from_ = t + 3 + d;
+    cancel_to_ = std::max(cancel_to_, t + 2 + d + (uint64_t)c_.shadow);
+    cancel_tid_ = T.tid;
+    T.st.shadow_cancels++;
+    T.st.stq_cancels++;
+  };
   for (auto it = T.sq.rbegin(); it != T.sq.rend(); ++it) {
     SqEntry& s = *it;
     if (s.id > u.id || s.mmio) continue;
@@ -1327,6 +1338,7 @@ void Core::exec_load(Uop& u) {
       if (ok) {
         const uint64_t dt = s.data_now ? s.t_addr : prod_ready_time(s.data_prod);
         if (dt == NEVER) {  // data producer not issued yet: retry later
+          wait_cancel();
           u.state = 1; u.t_eligible = t + 4; u.t_issue = NEVER;
           iq_reinsert(u);
           T.st.ld_fwd_wait++;
@@ -1337,11 +1349,12 @@ void Core::exec_load(Uop& u) {
         const bool fwd_spec = c_.spec_fwd && c_.spec_wakeup && !(c_.spec_int_only && u.cls == Cls::FLD);
         const uint64_t fl = fwd_spec ? std::min<uint64_t>(3, (uint64_t)c_.ld_fwd_lat) : (uint64_t)c_.ld_fwd_lat;
         if (dt <= t + 3) { u.t_ready = t + fl + d; T.st.ld_fwd++; }
-        else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; }
+        else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; wait_cancel(); }
         u.t_done = u.t_ready + 1 + dn;
         return;
       }
       T.st.ld_partial++;  // partial overlap: wait for the store to drain
+      wait_cancel();
       u.state = 1; u.t_eligible = t + 8; u.t_issue = NEVER;
       iq_reinsert(u);
       return;
@@ -1415,13 +1428,19 @@ void Core::clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec) {
 // LQ (about clash_delay cycles later), and with speculative wakeup its dependants' shadow is cancelled.
 void Core::row_clash(Thread& T, uint64_t addr) {
   const uint64_t blk = addr >> 4;
+  std::vector<AgRec> again;  // clash_rearm: the retries' own D$ reads
   for (AgRec& a : ag_recs_) {
     if ((a.ag != t_ && a.ag != t_ + 1) || a.blk != blk || a.done) continue;
     Uop* u = find(a.id);
     if (!u || u->state != 2 || (u->id >> TID_SHIFT) != (uint64_t)T.tid) continue;
     a.done = true;
     clash_hit(T, *u, a.issue, a.spec);
+    // clash_rearm: the retry reads the row again at its own AG, clash_delay later, and a store draining into the
+    // row then makes it retry again (the replay from the LQ wakes nothing early, so it cancels no shadow)
+    const uint64_t dl = (uint64_t)c_.clash_delay;
+    if (c_.clash_rearm) again.push_back({a.ag + dl, a.issue + dl, a.id, a.blk, false});
   }
+  ag_recs_.insert(ag_recs_.end(), again.begin(), again.end());
 }
 
 void Core::exec_store(Uop& u) {
@@ -1695,7 +1714,7 @@ void Core::retire(Uop& u, bool early) {
   if (u.has_ckpt) { T.ckpt_used--; u.has_ckpt = false; }
   if (u.in_lq) T.lq_count--;
   if (u.is_store)
-    for (auto& s : T.sq) if (s.id == u.id) { s.committed = true; break; }
+    for (auto& s : T.sq) if (s.id == u.id) { s.committed = true; s.t_commit = t_; break; }
   if (u.dst_arch >= 0) {
     const int b = u.dst_bank;
     bank_inflight_[b]--;
@@ -1807,6 +1826,7 @@ void Core::drain_stores() {
 bool Core::drain_thread(Thread& T) {
   if (T.sq.empty() || !T.sq.front().committed) return false;
   SqEntry& s = T.sq.front();
+  if (t_ < s.t_commit + (uint64_t)c_.drain_delay) return false;  // drain_delay: the RTL acks a cycle or more later
   if (s.mmio) { T.sq.pop_front(); return false; }
   mem_.tid = T.tid;
   if (mem_.l1d_present(pa(T, s.addr), t_)) {

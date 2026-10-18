@@ -32,8 +32,9 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "results" / "m6_area_rv64.json"
 ISA, WORKERS = "rv64gc", 8
 # rtl_m2 as this study ran it (revision 3): no D$ row clash or fast forward (revision 4 adds them, §6.6), nor
-# revision 5's straddlers and micro-BTB training way (§6.7), nor revision 6's steering at rename (§6.8)
-BASE = {"ras": 32, "spec_fwd": 0, "dc_row_clash": 0, "m2_strad": 0, "m2_ub_way": 0, "iq_steer_rn": 0}
+# revision 5's straddlers and micro-BTB training way (§6.7), nor revisions 6-7 (§6.8, §6.9)
+BASE = {"ras": 32, "spec_fwd": 0, "dc_row_clash": 0, "m2_strad": 0, "m2_ub_way": 0, "iq_steer_rn": 0, "sta_split": 0,
+        "fwd_wait_cancel": 0, "drain_delay": 0}
 TAGE = {"m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1, "m2_btage": 1, "btage_lag": 1, "btage_tq": 4,
         "m2_cut": 1, "m2_f2_bubble": 2, "m2_ftq": 32}
 # name: (settings, LUTs per core, LUTs per chip, source)
