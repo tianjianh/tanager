@@ -654,6 +654,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - `stage_d_prep.sh`, run inside the RISC-V's Debian in stage C, installs it, puts `sdhci-of-arasan` into the initrd (the root is on the card), and gives UART1 the PL UART's automatic login (the user `tanager` has no password).
         - Kconfig keeps a modular Cadence UART from being a console, so D4's kernel console stays on the PL UART (`console=ttyS0`, early output through the 8250), and UART1 carries the login.
       - **Still to come:** the board's live tree and `kexec-tools` on the A53; `stage_d_prep.sh` in stage C. Then the dry run, then the run.
+    - **The run sheet for the user** (the coordinator, 10-18): [soc-d4-runsheet.md](soc-d4-runsheet.md). It covers the steps, what the board session watches, the undo for each, where only a power cycle gets back, and the driver choice. Debian's kernel lacks both PS drivers. The UART module can be left out, with Debian's console on the PL UART. The SD module can't, so the minimum is one DKMS module built from Debian's own sources.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
