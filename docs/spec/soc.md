@@ -400,19 +400,21 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 - **Monitoring:** a read-only register (temperature, duty, source) can be added later for a small driver.
 - **Clean room:** no SiFive-compatible PWM is needed. If one is ever added, it is built only from SiFive's published register manual (DR-138).
 
-**D2's sensor: proposed change** (soc-2, 10-17, for the coordinator under DR-154). Two facts arrived after DR-147:
-- **The A53 already uses the PL SYSMON.** The K26's Linux enables both `ams_ps` and `ams_pl`, so its AMS driver configures and reads the PL SYSMON through the AMS's APB. A SYSMONE4 instance's INIT attributes would rewrite that block's configuration at every bitstream load, under the driver.
-- **D1 proved the PL reaches the PS's registers** through `S_AXI_LPD`. The PS SYSMON's temperature register is at `0xFFA5_0800`, in the block that port maps by default; it is the LPD die temperature, the AMS driver's `Temp_LPD`.
-
-**Proposed:** the regulator reads the PS SYSMON's temperature every 10 ms through `S_AXI_LPD`. It reads only and configures nothing, from the AMS that Linux's `fancontrol` takes its temperature from.
-- **Fail-safe:** a read error or a read without response counts as hot, full speed.
-- **Independence:** the PMU firmware keeps the PS SYSMON running, so the regulator works with the A53 parked or hung, as SYSMONE4 would.
-- **Conversion:** the code is °C × 128.7 + 36,061 (the driver's scale, 509,314 / 2^16, offset −280.23 °C), so 35 °C is code 40,565 and 45 °C is 41,851.
-- **Cost:** a read arbiter in `kv260_top` in front of `S_AXI_LPD`, shared by the PS window's master and the regulator, whose reads are rare. No SYSMONE4.
-- **The alternative,** if the PL sensor is preferred: SYSMONE4 over DRP with default INIT values (over-temperature shutdown at 125 °C kept). The A53's readings of the PL SYSMON may then change after a bitstream load.
+**D2's sensor: the PL SYSMON, as DR-147** (the coordinator asked first whether it can be read without disturbing the A53's own fan and temperature readings; the board's read-only probes, 10-17, `fpga/kv260/board/d2`). It can:
+- **`fancontrol` follows the PS SYSMON, not the PL's.** Its `temp1` is the AMS hwmon's first channel, the AMS's channel 7.
+  - The PS SYSMON's temperature register (`0xFFA5_0800`) read `0x9DBC`, 33.6 °C, with `temp1` at 33.5–33.6 °C.
+  - The PL SYSMON's (`0xFFA5_0C00`) read `0x9D3E`, 32.6 °C, which is `temp3`.
+  - Both convert with T = code × 509.314 / 2^16 − 280.23 °C, the AMS driver's scale.
+- **A bitstream load already leaves the PL SYSMON at its configuration defaults.**
+  - At boot the A53's AMS driver puts both SYSMONs in the default sequencer mode, disables every alarm and masks the AMS interrupt.
+  - After sc3's load, the PS SYSMON still shows the driver's settings (register 41h = `0x2F0F`). The PL SYSMON's configuration and sequence registers (40h–44h, the sequence words) all read 0, while its temperature reads normally.
+  - A SYSMONE4 instance whose INIT attributes are all zero keeps exactly that state. The board's reload in part 3, when the next bitstream goes on, confirms the reset at load.
+- **So the regulator instantiates SYSMONE4** with every INIT attribute zero and reads register 00h (the die temperature) over DRP: the A53 sees the same PL SYSMON as today and its `fancontrol` is untouched. The DRP and the AMS's APB share the SYSMON's register file. The A53 reads the PL channel only on demand (`fancontrol` reads the PS's), and a DRP read that never answers counts as hot.
+- **The alternative** (soc-2's earlier proposal: the PS SYSMON's temperature through `S_AXI_LPD`) is not needed. It remains a fallback.
+- **The curve's sensor:** the PL die runs about 1 °C below the PS's LPD sensor (32.6 against 33.6 °C), so `fancontrol`'s curve on the PL temperature sits 1 °C later. While the A53's `fancontrol` runs, the larger duty, its own, rules.
 
 **The rest of D2, as DR-147:**
-- **Placement:** `tg_fan` in `kv260_top`, in every board build (DR-150), on `clk_core` with the PL's reset, independent of the uncore's and cores' resets.
+- **Placement:** `tg_fan` in `kv260_top`, in every board build (DR-150), on `clk_core` with the PL's reset, independent of the uncore's and cores' resets. `TG_FAN_PL=0` builds today's passthrough instead, as a fallback.
 - **The PWM:** 25 kHz on `fan_en_b` (active low). Its duty is the larger of the curve's and the A53's TTC duty.
   - **The curve** is `fancontrol`'s as configured on the board: 15/255 at or below 35 °C, then linear to 255/255 at 45 °C, full above, with 1 °C of hysteresis on the way down.
   - **The TTC duty** is the low time of `emio_ttc0_wave_o[2]` per 40 µs period; a constant level counts as 0 or 100%.
