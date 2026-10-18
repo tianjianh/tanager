@@ -10,10 +10,11 @@
 // Index and tag: the block address folded with the history's first HL[t] bits (the newest
 // first), as in the behavioural model the design was chosen on (reports/m6-tage-design.md).
 //
-// Training (commit, in order): a queue of requests, each with the indices and tags its block
-// read at fetch (the FTQ keeps them) and the branch's slot, outcome and fetch-time direction. Port
-// B of each memory reads the entries (T1) and writes them back updated (T2), one request every two
-// cycles; a full queue drops a request. The update: the provider's counter moves toward the
+// Training (commit, in order): a queue of requests, each with its block's FTQ entry and the
+// branch's slot, outcome and fetch-time direction. The head's indices and tags, which the FTQ kept
+// from fetch, are read from it as the request leaves the queue (the FTQ frees no entry the queue
+// still names). Port B of each memory reads the entries (T1) and writes them back updated (T2),
+// one request every two cycles; a full queue drops a request. The update: the provider's counter moves toward the
 // outcome; its useful bits move when its direction differed from the next match's (or the
 // base's); without a provider the base counter moves. A wrong fetch-time direction allocates one
 // sub-entry, invalid or not useful, in a longer table than the provider, else every candidate's
@@ -28,6 +29,7 @@ module tg_tage
   parameter int TW = 9,               // tag bits
   parameter int BI = 11,              // base table's index bits
   parameter int HW = 64,              // history bits kept
+  parameter int FW = 6,               // an FTQ entry's pointer, with its wrap bit
   localparam int SW = idx_w(NP)
 ) (
   input  logic                 clk,
@@ -39,12 +41,16 @@ module tg_tage
   // F2: the block's per-slot directions, and its indices and tags (for the FTQ)
   output logic [NP-1:0]        dir,
   output logic [NT*(LI+TW)+BI-1:0] ix,
-  // Training (commit)
+  // Training (commit): each request's FTQ entry; the queue's head entry (q_v: the queue holds one)
+  // and its indices and tags, read from the FTQ
   input  logic [CW-1:0]        t_v,
-  input  logic [CW-1:0][NT*(LI+TW)+BI-1:0] t_ix,
+  input  logic [CW-1:0][FW-1:0] t_ftq,
   input  logic [CW-1:0][SW-1:0] t_slot,
   input  logic [CW-1:0]        t_taken,
-  input  logic [CW-1:0]        t_pred
+  input  logic [CW-1:0]        t_pred,
+  output logic                 q_v,
+  output logic [FW-1:0]        q_ftq,
+  input  logic [NT*(LI+TW)+BI-1:0] q_ix
 );
   localparam int IXW = NT * (LI + TW) + BI;
   localparam int HL [4] = '{4, 9, 18, 40};
@@ -110,13 +116,18 @@ module tg_tage
   // ---- Training queue and its port-B pipeline ----
   localparam int QN = 4;
   typedef struct packed {
-    logic [IXW-1:0] ix;
+    logic [FW-1:0]  ftq;
     logic [SW-1:0]  slot;
     logic           taken, pred;
   } treq_t;
+  typedef struct packed {
+    logic [IXW-1:0] ix;
+    logic [SW-1:0]  slot;
+    logic           taken, pred;
+  } t2_t;
   treq_t [QN-1:0] q_q;
   logic [idx_w(QN+1)-1:0] qn_q;
-  treq_t          t2_q;                    // T2: the request whose entries T1 read
+  t2_t            t2_q;                    // T2: the request whose entries T1 read
   logic           t2_v_q;
   logic           deq;                     // T1: port B reads the head request's entries
   assign deq = qn_q != '0 && !t2_v_q;      // (not while T2 writes)
@@ -135,15 +146,17 @@ module tg_tage
       end
       for (int j = 0; j < CW; j++)
         if (t_v[j] && n < QN) begin
-          q[n] = '{ix: t_ix[j], slot: t_slot[j], taken: t_taken[j], pred: t_pred[j]};
+          q[n] = '{ftq: t_ftq[j], slot: t_slot[j], taken: t_taken[j], pred: t_pred[j]};
           n++;
         end
       q_q    <= q;
       qn_q   <= (idx_w(QN+1))'(n);
       t2_v_q <= deq;
     end
-    if (deq) t2_q <= q_q[0];
+    if (deq) t2_q <= '{ix: q_ix, slot: q_q[0].slot, taken: q_q[0].taken, pred: q_q[0].pred};
   end
+  assign q_v   = qn_q != '0;
+  assign q_ftq = q_q[0].ftq;
 
   // ---- Memories: port A predicts, port B trains ----
   ent_t [NT-1:0]        ra, rb, wb;
@@ -155,7 +168,7 @@ module tg_tage
     logic [EW-1:0] da, db;
     tg_ram_tdp #(.DEPTH(1 << LI), .WIDTH(EW)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_idx(ix_f1, t)), .wdata_a('0), .rdata_a(da),
-      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_q[0].ix, t)),
+      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? ix_idx(t2_q.ix, t) : ix_idx(q_ix, t)),
       .wdata_b(wb[t]), .rdata_b(db));
     assign ra[t] = ent_t'(da);
     assign rb[t] = ent_t'(db);
@@ -164,7 +177,7 @@ module tg_tage
     logic [2*NP-1:0] da, db;
     tg_ram_tdp #(.DEPTH(1 << BI), .WIDTH(2 * NP)) u_mem (
       .clk, .en_a(re), .we_a(1'b0), .addr_a(ix_f1[IXW-1 -: BI]), .wdata_a('0), .rdata_a(da),
-      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? t2_q.ix[IXW-1 -: BI] : q_q[0].ix[IXW-1 -: BI]),
+      .en_b(b_en), .we_b(b_we), .addr_b(t2_v_q ? t2_q.ix[IXW-1 -: BI] : q_ix[IXW-1 -: BI]),
       .wdata_b(bwb), .rdata_b(db));
     assign bra = da;
     assign brb = db;

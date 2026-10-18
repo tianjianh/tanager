@@ -597,14 +597,24 @@ module tg_fetch
     localparam int IXW = 4 * (10 + 9) + 11;
     logic [IXW-1:0]  tix;
     logic [GH_W-1:0] gh_q, cgh_q;
-    logic [COMMIT_WIDTH-1:0][IXW-1:0] fx_rd;
-    tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .HW(GH_W)) u_tage (
+    // FTQ pointers, with a wrap bit; a delivery takes the tail. TAGE's training queue names the
+    // blocks of its requests (commit's, with their wrap bits), and its head's indices and tags are
+    // read from here: no entry is freed while the queue names it (the head ft_eh: its oldest)
+    logic [FTQW:0]        ft_t_q, ft_h_q, ft_eh;
+    logic                 ft_we;
+    logic                 tq_v;
+    logic [FTQW:0]        tq_ftq;
+    logic [COMMIT_WIDTH-1:0][FTQW:0] c_fp;
+    logic [0:0][FTQW-1:0] fq_ra;
+    logic [0:0][IXW-1:0]  fq_rd;
+    always_comb
+      for (int j = 0; j < COMMIT_WIDTH; j++) c_fp[j] = {(c_ftq[j] < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_ftq[j]};
+    tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .HW(GH_W), .FW(FTQW + 1)) u_tage (
       .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_q), .dir(tdir), .ix(tix),
-      .t_v(c_cbr), .t_ix(fx_rd), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred));
-    // FTQ pointers, with a wrap bit; a delivery takes the tail
-    logic [FTQW:0] ft_t_q, ft_h_q;
-    logic          ft_we;
-    assign ft_full = ft_t_q[FTQW] != ft_h_q[FTQW] && ft_t_q[FTQW-1:0] == ft_h_q[FTQW-1:0];
+      .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
+      .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]));
+    assign ft_eh   = tq_v ? tq_ftq : ft_h_q;
+    assign ft_full = ft_t_q[FTQW] != ft_eh[FTQW] && ft_t_q[FTQW-1:0] == ft_eh[FTQW-1:0];
     assign ft_tail = ft_t_q[FTQW-1:0];
     assign ft_we   = f2_deliver && !redirect;
     localparam int RW = GH_W + 2 * NP;
@@ -613,8 +623,9 @@ module tg_fetch
     assign fr_ra[0] = dred_ftq;
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(RW), .NR(1)) u_fgh (
       .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_q, gh_cm, gh_pk}), .raddr(fr_ra), .rdata(fr_rd));
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(COMMIT_WIDTH)) u_fix (
-      .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(c_ftq), .rdata(fx_rd));
+    assign fq_ra[0] = tq_ftq[FTQW-1:0];
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(1)) u_fix (
+      .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
     // the history after decode's redirect at slot dred_slot of block dred_ftq
     logic [GH_W-1:0] r_gh;
     always_comb begin
@@ -638,8 +649,9 @@ module tg_fetch
         cgh_q <= c;
         if (flush) begin                   // (nothing retires in a flush's cycle)
           gh_q   <= cgh_q;
-          ft_t_q <= '0;
-          ft_h_q <= '0;
+          // every block goes; the training queue may still name the head's and earlier ones
+          ft_t_q <= ft_h_q + 1'b1;
+          ft_h_q <= ft_h_q + 1'b1;
         end else begin
           if (dred)
             gh_q <= r_gh;
@@ -660,6 +672,14 @@ module tg_fetch
       ovr_imm = br_imm(x, pd_jal[ovr_p]);
     end
     assign kt_tgt = {miss_pc_q[63:4], 4'b0} + {59'b0, kp_q, 1'b0} + {{43{kimm_q[20]}}, kimm_q};
+`ifndef SYNTHESIS
+    logic tq_rs_q;                          // the first reset has come
+    initial tq_rs_q = 1'b0;
+    always @(posedge clk) if (rst) tq_rs_q <= 1'b1;
+    always_ff @(posedge clk)
+      if (tq_rs_q && !rst && ft_we && tq_v)
+        assert (ft_tail != tq_ftq[FTQW-1:0]) else $error("tg_fetch: a block takes the FTQ entry TAGE's training queue names");
+`endif
   end else begin : g_notage
     assign ft_full = 1'b0;
     assign ft_tail = '0;
