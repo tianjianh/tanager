@@ -1,0 +1,42 @@
+=== 02:41:56 A53 up 4647.50 s
+console: 0 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 10711745 reads, native latency avg 26.0 max 90 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+=== 03:12:07 A53 up 6458.47 s
+STRESS pass 12 ok=1 fails=0 129s cpu2=78.76 mem2=98.35 thr2=1515 up=1753.31 load=2.00 1.95 1.75
+console: 12 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 176563061 reads, native latency avg 1.4 max 104 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+=== 03:42:18 A53 up 8269.41 s
+STRESS pass 26 ok=1 fails=0 128s cpu2=78.78 mem2=98.15 thr2=1516 up=3571.61 load=2.12 1.94 1.92
+console: 26 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 316941207 reads, native latency avg 12.2 max 104 cycles
+fan: pwm1 15/255, AMS temp1 34 C
+=== 04:12:29 A53 up 10080.32 s
+STRESS pass 40 ok=1 fails=0 129s cpu2=78.85 mem2=98.23 thr2=1513 up=5384.02 load=2.03 1.98 1.96
+console: 40 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 443766147 reads, native latency avg 6.4 max 104 cycles
+fan: pwm1 15/255, AMS temp1 35 C
+=== 04:42:40 A53 up 11891.25 s
+STRESS pass 54 ok=1 fails=0 129s cpu2=78.84 mem2=98.17 thr2=1512 up=7197.16 load=1.90 1.94 1.94
+console: 54 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 572096452 reads, native latency avg 3.2 max 104 cycles
+fan: pwm1 38/255, AMS temp1 36 C
+=== 05:12:51 A53 up 13702.23 s
+STRESS pass 68 ok=1 fails=0 128s cpu2=78.76 mem2=98.15 thr2=1516 up=9010.36 load=2.02 1.91 1.92
+console: 68 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 699601648 reads, native latency avg 1.2 max 104 cycles
+fan: pwm1 15/255, AMS temp1 34 C
+=== 05:43:02 A53 up 15513.17 s
+STRESS pass 82 ok=1 fails=0 128s cpu2=78.78 mem2=98.16 thr2=1516 up=10823.66 load=1.90 1.90 1.91
+console: 82 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 827642747 reads, native latency avg 5.0 max 120 cycles
+fan: pwm1 15/255, AMS temp1 35 C
+=== 05:54:57 the boot has ended; monitor stops
