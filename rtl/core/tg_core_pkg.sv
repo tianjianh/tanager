@@ -137,7 +137,7 @@ package tg_core_pkg;
 `ifdef TG_TAGE_LI
   localparam int TAGE_LI = `TG_TAGE_LI;
 `else
-  localparam int TAGE_LI = 10;
+  localparam int TAGE_LI = 9;
 `endif
 `ifdef TG_TAGE_TW
   localparam int TAGE_TW = `TG_TAGE_TW;
