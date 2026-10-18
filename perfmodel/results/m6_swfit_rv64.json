@@ -1,0 +1,1730 @@
+{
+ "ras|rev 3|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2808034,
+  "instr": 3377645,
+  "ld_fwd": 9339,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 549871
+ },
+ "ras|rev 3|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2884047,
+  "instr": 3419137,
+  "ld_fwd": 9353,
+  "dc_clashes": 0,
+  "shadow_cancels": 65,
+  "cancelled_issues": 45,
+  "loads": 557384
+ },
+ "ras|rev 3|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 5609149,
+  "instr": 6755591,
+  "ld_fwd": 18659,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1099842
+ },
+ "ras|rev 3|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 5685104,
+  "instr": 6797083,
+  "ld_fwd": 18675,
+  "dc_clashes": 0,
+  "shadow_cancels": 65,
+  "cancelled_issues": 47,
+  "loads": 1107354
+ },
+ "ras|rev 3|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 3145153,
+  "instr": 3418934,
+  "ld_fwd": 9745,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 586098
+ },
+ "ras|rev 3|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 3218945,
+  "instr": 3459294,
+  "ld_fwd": 9759,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 52,
+  "loads": 593573
+ },
+ "ras|rev 3|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 6283045,
+  "instr": 6838131,
+  "ld_fwd": 19502,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1172238
+ },
+ "ras|rev 3|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 6356782,
+  "instr": 6878491,
+  "ld_fwd": 19512,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 55,
+  "loads": 1179714
+ },
+ "ras|rev 3|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 125498,
+  "instr": 143050,
+  "ld_fwd": 1216,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 29233
+ },
+ "ras|rev 3|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 299030,
+  "instr": 245889,
+  "ld_fwd": 1684,
+  "dc_clashes": 0,
+  "shadow_cancels": 77,
+  "cancelled_issues": 76,
+  "loads": 47133
+ },
+ "ras|rev 3|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 240779,
+  "instr": 286050,
+  "ld_fwd": 2000,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 59653
+ },
+ "ras|rev 3|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 418706,
+  "instr": 388999,
+  "ld_fwd": 2160,
+  "dc_clashes": 0,
+  "shadow_cancels": 77,
+  "cancelled_issues": 88,
+  "loads": 78723
+ },
+ "ras|rev 3|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2835300,
+  "instr": 3377645,
+  "ld_fwd": 9086,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 549347
+ },
+ "ras|rev 3|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2913160,
+  "instr": 3419103,
+  "ld_fwd": 9116,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 51,
+  "loads": 556821
+ },
+ "ras|rev 3|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 5665112,
+  "instr": 6755591,
+  "ld_fwd": 18163,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1098767
+ },
+ "ras|rev 3|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 5742720,
+  "instr": 6797049,
+  "ld_fwd": 18194,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 47,
+  "loads": 1106241
+ },
+ "ras|rev 3|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 3252879,
+  "instr": 3418934,
+  "ld_fwd": 11228,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 581726
+ },
+ "ras|rev 3|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 3325421,
+  "instr": 3459265,
+  "ld_fwd": 11503,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 46,
+  "loads": 588425
+ },
+ "ras|rev 3|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 6498778,
+  "instr": 6838131,
+  "ld_fwd": 22473,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1163544
+ },
+ "ras|rev 3|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 6571344,
+  "instr": 6878462,
+  "ld_fwd": 22748,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 52,
+  "loads": 1170243
+ },
+ "ras|rev 3|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 129346,
+  "instr": 143054,
+  "ld_fwd": 999,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 30013
+ },
+ "ras|rev 3|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 329431,
+  "instr": 245811,
+  "ld_fwd": 1130,
+  "dc_clashes": 0,
+  "shadow_cancels": 71,
+  "cancelled_issues": 78,
+  "loads": 49043
+ },
+ "ras|rev 3|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 280749,
+  "instr": 286054,
+  "ld_fwd": 1999,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 60016
+ },
+ "ras|rev 3|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 482052,
+  "instr": 388921,
+  "ld_fwd": 2143,
+  "dc_clashes": 0,
+  "shadow_cancels": 74,
+  "cancelled_issues": 81,
+  "loads": 79051
+ },
+ "ras|+ spec_fwd|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2800481,
+  "instr": 3377645,
+  "ld_fwd": 9339,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 549871
+ },
+ "ras|+ spec_fwd|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2876479,
+  "instr": 3419137,
+  "ld_fwd": 9353,
+  "dc_clashes": 0,
+  "shadow_cancels": 65,
+  "cancelled_issues": 45,
+  "loads": 557384
+ },
+ "ras|+ spec_fwd|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 5594064,
+  "instr": 6755591,
+  "ld_fwd": 18659,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1099842
+ },
+ "ras|+ spec_fwd|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 5670002,
+  "instr": 6797083,
+  "ld_fwd": 18675,
+  "dc_clashes": 0,
+  "shadow_cancels": 65,
+  "cancelled_issues": 47,
+  "loads": 1107354
+ },
+ "ras|+ spec_fwd|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 3140708,
+  "instr": 3418934,
+  "ld_fwd": 9745,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 586098
+ },
+ "ras|+ spec_fwd|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 3214498,
+  "instr": 3459294,
+  "ld_fwd": 9759,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 52,
+  "loads": 593573
+ },
+ "ras|+ spec_fwd|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 6274139,
+  "instr": 6838131,
+  "ld_fwd": 19502,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1172238
+ },
+ "ras|+ spec_fwd|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 6347875,
+  "instr": 6878491,
+  "ld_fwd": 19512,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 55,
+  "loads": 1179714
+ },
+ "ras|+ spec_fwd|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 125432,
+  "instr": 143050,
+  "ld_fwd": 1216,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 29230
+ },
+ "ras|+ spec_fwd|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 298717,
+  "instr": 245889,
+  "ld_fwd": 1691,
+  "dc_clashes": 0,
+  "shadow_cancels": 77,
+  "cancelled_issues": 80,
+  "loads": 47130
+ },
+ "ras|+ spec_fwd|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 240709,
+  "instr": 286050,
+  "ld_fwd": 1999,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 59665
+ },
+ "ras|+ spec_fwd|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 418635,
+  "instr": 388999,
+  "ld_fwd": 2158,
+  "dc_clashes": 0,
+  "shadow_cancels": 78,
+  "cancelled_issues": 90,
+  "loads": 78751
+ },
+ "ras|+ spec_fwd|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2830259,
+  "instr": 3377645,
+  "ld_fwd": 9326,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 549347
+ },
+ "ras|+ spec_fwd|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2908115,
+  "instr": 3419103,
+  "ld_fwd": 9356,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 51,
+  "loads": 556821
+ },
+ "ras|+ spec_fwd|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 5655029,
+  "instr": 6755591,
+  "ld_fwd": 18643,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1098767
+ },
+ "ras|+ spec_fwd|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 5732632,
+  "instr": 6797049,
+  "ld_fwd": 18674,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 47,
+  "loads": 1106241
+ },
+ "ras|+ spec_fwd|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 3247663,
+  "instr": 3418934,
+  "ld_fwd": 11460,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 581726
+ },
+ "ras|+ spec_fwd|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 3320174,
+  "instr": 3459265,
+  "ld_fwd": 11735,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 46,
+  "loads": 588425
+ },
+ "ras|+ spec_fwd|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 6488341,
+  "instr": 6838131,
+  "ld_fwd": 22932,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1163544
+ },
+ "ras|+ spec_fwd|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 6560876,
+  "instr": 6878462,
+  "ld_fwd": 23207,
+  "dc_clashes": 0,
+  "shadow_cancels": 69,
+  "cancelled_issues": 52,
+  "loads": 1170243
+ },
+ "ras|+ spec_fwd|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 129344,
+  "instr": 143054,
+  "ld_fwd": 999,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 30013
+ },
+ "ras|+ spec_fwd|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 329369,
+  "instr": 245811,
+  "ld_fwd": 1130,
+  "dc_clashes": 0,
+  "shadow_cancels": 71,
+  "cancelled_issues": 78,
+  "loads": 49043
+ },
+ "ras|+ spec_fwd|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 279750,
+  "instr": 286054,
+  "ld_fwd": 1999,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 60016
+ },
+ "ras|+ spec_fwd|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 481034,
+  "instr": 388921,
+  "ld_fwd": 2143,
+  "dc_clashes": 0,
+  "shadow_cancels": 74,
+  "cancelled_issues": 81,
+  "loads": 79051
+ },
+ "ras|+ row clash|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2812292,
+  "instr": 3377645,
+  "ld_fwd": 9175,
+  "dc_clashes": 1907,
+  "shadow_cancels": 1915,
+  "cancelled_issues": 5414,
+  "loads": 549871
+ },
+ "ras|+ row clash|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2888305,
+  "instr": 3419137,
+  "ld_fwd": 9189,
+  "dc_clashes": 1908,
+  "shadow_cancels": 1973,
+  "cancelled_issues": 5459,
+  "loads": 557384
+ },
+ "ras|+ row clash|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 5617607,
+  "instr": 6755591,
+  "ld_fwd": 18349,
+  "dc_clashes": 3792,
+  "shadow_cancels": 3800,
+  "cancelled_issues": 10822,
+  "loads": 1099842
+ },
+ "ras|+ row clash|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 5693562,
+  "instr": 6797083,
+  "ld_fwd": 18365,
+  "dc_clashes": 3793,
+  "shadow_cancels": 3858,
+  "cancelled_issues": 10869,
+  "loads": 1107354
+ },
+ "ras|+ row clash|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 3151126,
+  "instr": 3418934,
+  "ld_fwd": 9392,
+  "dc_clashes": 2345,
+  "shadow_cancels": 2353,
+  "cancelled_issues": 7139,
+  "loads": 586152
+ },
+ "ras|+ row clash|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 3224652,
+  "instr": 3459294,
+  "ld_fwd": 9407,
+  "dc_clashes": 2345,
+  "shadow_cancels": 2414,
+  "cancelled_issues": 7202,
+  "loads": 593639
+ },
+ "ras|+ row clash|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 6293856,
+  "instr": 6838131,
+  "ld_fwd": 18794,
+  "dc_clashes": 4702,
+  "shadow_cancels": 4710,
+  "cancelled_issues": 14314,
+  "loads": 1172413
+ },
+ "ras|+ row clash|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 6367532,
+  "instr": 6878491,
+  "ld_fwd": 18808,
+  "dc_clashes": 4702,
+  "shadow_cancels": 4771,
+  "cancelled_issues": 14369,
+  "loads": 1179893
+ },
+ "ras|+ row clash|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 132757,
+  "instr": 143050,
+  "ld_fwd": 1496,
+  "dc_clashes": 599,
+  "shadow_cancels": 600,
+  "cancelled_issues": 2493,
+  "loads": 29625
+ },
+ "ras|+ row clash|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 306462,
+  "instr": 245889,
+  "ld_fwd": 1964,
+  "dc_clashes": 610,
+  "shadow_cancels": 687,
+  "cancelled_issues": 2605,
+  "loads": 47519
+ },
+ "ras|+ row clash|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 241760,
+  "instr": 286050,
+  "ld_fwd": 3344,
+  "dc_clashes": 999,
+  "shadow_cancels": 1000,
+  "cancelled_issues": 2997,
+  "loads": 59653
+ },
+ "ras|+ row clash|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 419707,
+  "instr": 388999,
+  "ld_fwd": 3498,
+  "dc_clashes": 1009,
+  "shadow_cancels": 1086,
+  "cancelled_issues": 3108,
+  "loads": 78723
+ },
+ "ras|+ row clash|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2839854,
+  "instr": 3377645,
+  "ld_fwd": 9086,
+  "dc_clashes": 1779,
+  "shadow_cancels": 1787,
+  "cancelled_issues": 4993,
+  "loads": 549347
+ },
+ "ras|+ row clash|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2917714,
+  "instr": 3419103,
+  "ld_fwd": 9116,
+  "dc_clashes": 1781,
+  "shadow_cancels": 1847,
+  "cancelled_issues": 5045,
+  "loads": 556821
+ },
+ "ras|+ row clash|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 5674207,
+  "instr": 6755591,
+  "ld_fwd": 18163,
+  "dc_clashes": 3553,
+  "shadow_cancels": 3561,
+  "cancelled_issues": 9946,
+  "loads": 1098767
+ },
+ "ras|+ row clash|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 5751815,
+  "instr": 6797049,
+  "ld_fwd": 18194,
+  "dc_clashes": 3555,
+  "shadow_cancels": 3621,
+  "cancelled_issues": 9994,
+  "loads": 1106241
+ },
+ "ras|+ row clash|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 3257389,
+  "instr": 3418934,
+  "ld_fwd": 10734,
+  "dc_clashes": 2259,
+  "shadow_cancels": 2267,
+  "cancelled_issues": 6765,
+  "loads": 581813
+ },
+ "ras|+ row clash|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 3329790,
+  "instr": 3459265,
+  "ld_fwd": 11012,
+  "dc_clashes": 2266,
+  "shadow_cancels": 2335,
+  "cancelled_issues": 6820,
+  "loads": 588512
+ },
+ "ras|+ row clash|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 6507984,
+  "instr": 6838131,
+  "ld_fwd": 21484,
+  "dc_clashes": 4526,
+  "shadow_cancels": 4534,
+  "cancelled_issues": 13514,
+  "loads": 1163720
+ },
+ "ras|+ row clash|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 6580503,
+  "instr": 6878462,
+  "ld_fwd": 21754,
+  "dc_clashes": 4530,
+  "shadow_cancels": 4599,
+  "cancelled_issues": 13563,
+  "loads": 1170419
+ },
+ "ras|+ row clash|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 132340,
+  "instr": 143054,
+  "ld_fwd": 999,
+  "dc_clashes": 999,
+  "shadow_cancels": 1000,
+  "cancelled_issues": 2501,
+  "loads": 30013
+ },
+ "ras|+ row clash|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 332436,
+  "instr": 245811,
+  "ld_fwd": 1130,
+  "dc_clashes": 1003,
+  "shadow_cancels": 1074,
+  "cancelled_issues": 2592,
+  "loads": 49043
+ },
+ "ras|+ row clash|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 282747,
+  "instr": 286054,
+  "ld_fwd": 1999,
+  "dc_clashes": 1000,
+  "shadow_cancels": 1001,
+  "cancelled_issues": 4998,
+  "loads": 60016
+ },
+ "ras|+ row clash|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 484135,
+  "instr": 388921,
+  "ld_fwd": 2101,
+  "dc_clashes": 1046,
+  "shadow_cancels": 1120,
+  "cancelled_issues": 5182,
+  "loads": 79051
+ },
+ "ras|+ both|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2804906,
+  "instr": 3377645,
+  "ld_fwd": 9175,
+  "dc_clashes": 1907,
+  "shadow_cancels": 1915,
+  "cancelled_issues": 5414,
+  "loads": 549871
+ },
+ "ras|+ both|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2880904,
+  "instr": 3419137,
+  "ld_fwd": 9189,
+  "dc_clashes": 1908,
+  "shadow_cancels": 1973,
+  "cancelled_issues": 5459,
+  "loads": 557384
+ },
+ "ras|+ both|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 5602841,
+  "instr": 6755591,
+  "ld_fwd": 18349,
+  "dc_clashes": 3792,
+  "shadow_cancels": 3800,
+  "cancelled_issues": 10822,
+  "loads": 1099842
+ },
+ "ras|+ both|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 5678779,
+  "instr": 6797083,
+  "ld_fwd": 18365,
+  "dc_clashes": 3793,
+  "shadow_cancels": 3858,
+  "cancelled_issues": 10869,
+  "loads": 1107354
+ },
+ "ras|+ both|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 3147008,
+  "instr": 3418934,
+  "ld_fwd": 9392,
+  "dc_clashes": 2345,
+  "shadow_cancels": 2353,
+  "cancelled_issues": 7173,
+  "loads": 586152
+ },
+ "ras|+ both|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 3220530,
+  "instr": 3459294,
+  "ld_fwd": 9407,
+  "dc_clashes": 2345,
+  "shadow_cancels": 2414,
+  "cancelled_issues": 7236,
+  "loads": 593639
+ },
+ "ras|+ both|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 6285609,
+  "instr": 6838131,
+  "ld_fwd": 18794,
+  "dc_clashes": 4702,
+  "shadow_cancels": 4710,
+  "cancelled_issues": 14388,
+  "loads": 1172413
+ },
+ "ras|+ both|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 6359281,
+  "instr": 6878491,
+  "ld_fwd": 18808,
+  "dc_clashes": 4702,
+  "shadow_cancels": 4771,
+  "cancelled_issues": 14443,
+  "loads": 1179893
+ },
+ "ras|+ both|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 132720,
+  "instr": 143050,
+  "ld_fwd": 1496,
+  "dc_clashes": 599,
+  "shadow_cancels": 600,
+  "cancelled_issues": 2493,
+  "loads": 29634
+ },
+ "ras|+ both|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 305951,
+  "instr": 245889,
+  "ld_fwd": 1966,
+  "dc_clashes": 609,
+  "shadow_cancels": 686,
+  "cancelled_issues": 2601,
+  "loads": 47531
+ },
+ "ras|+ both|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 241684,
+  "instr": 286050,
+  "ld_fwd": 3347,
+  "dc_clashes": 999,
+  "shadow_cancels": 1000,
+  "cancelled_issues": 2997,
+  "loads": 59665
+ },
+ "ras|+ both|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 419642,
+  "instr": 388999,
+  "ld_fwd": 3499,
+  "dc_clashes": 1010,
+  "shadow_cancels": 1088,
+  "cancelled_issues": 3111,
+  "loads": 78751
+ },
+ "ras|+ both|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2834813,
+  "instr": 3377645,
+  "ld_fwd": 9326,
+  "dc_clashes": 1779,
+  "shadow_cancels": 1787,
+  "cancelled_issues": 4993,
+  "loads": 549347
+ },
+ "ras|+ both|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2912669,
+  "instr": 3419103,
+  "ld_fwd": 9356,
+  "dc_clashes": 1781,
+  "shadow_cancels": 1847,
+  "cancelled_issues": 5045,
+  "loads": 556821
+ },
+ "ras|+ both|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 5664124,
+  "instr": 6755591,
+  "ld_fwd": 18643,
+  "dc_clashes": 3553,
+  "shadow_cancels": 3561,
+  "cancelled_issues": 9946,
+  "loads": 1098767
+ },
+ "ras|+ both|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 5741727,
+  "instr": 6797049,
+  "ld_fwd": 18674,
+  "dc_clashes": 3555,
+  "shadow_cancels": 3621,
+  "cancelled_issues": 9994,
+  "loads": 1106241
+ },
+ "ras|+ both|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 3252600,
+  "instr": 3418934,
+  "ld_fwd": 10962,
+  "dc_clashes": 2259,
+  "shadow_cancels": 2267,
+  "cancelled_issues": 6781,
+  "loads": 581813
+ },
+ "ras|+ both|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 3324970,
+  "instr": 3459265,
+  "ld_fwd": 11240,
+  "dc_clashes": 2266,
+  "shadow_cancels": 2335,
+  "cancelled_issues": 6836,
+  "loads": 588512
+ },
+ "ras|+ both|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 6498428,
+  "instr": 6838131,
+  "ld_fwd": 21939,
+  "dc_clashes": 4526,
+  "shadow_cancels": 4534,
+  "cancelled_issues": 13540,
+  "loads": 1163720
+ },
+ "ras|+ both|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 6570916,
+  "instr": 6878462,
+  "ld_fwd": 22209,
+  "dc_clashes": 4530,
+  "shadow_cancels": 4599,
+  "cancelled_issues": 13589,
+  "loads": 1170419
+ },
+ "ras|+ both|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 132338,
+  "instr": 143054,
+  "ld_fwd": 999,
+  "dc_clashes": 999,
+  "shadow_cancels": 1000,
+  "cancelled_issues": 2501,
+  "loads": 30013
+ },
+ "ras|+ both|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 332374,
+  "instr": 245811,
+  "ld_fwd": 1130,
+  "dc_clashes": 1003,
+  "shadow_cancels": 1074,
+  "cancelled_issues": 2592,
+  "loads": 49043
+ },
+ "ras|+ both|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 281748,
+  "instr": 286054,
+  "ld_fwd": 1999,
+  "dc_clashes": 1000,
+  "shadow_cancels": 1001,
+  "cancelled_issues": 4998,
+  "loads": 60016
+ },
+ "ras|+ both|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 483117,
+  "instr": 388921,
+  "ld_fwd": 2101,
+  "dc_clashes": 1046,
+  "shadow_cancels": 1120,
+  "cancelled_issues": 5182,
+  "loads": 79051
+ },
+ "tage|rev 3|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2220223,
+  "instr": 3377645,
+  "ld_fwd": 9897,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 558923
+ },
+ "tage|rev 3|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2285881,
+  "instr": 3419137,
+  "ld_fwd": 9926,
+  "dc_clashes": 0,
+  "shadow_cancels": 63,
+  "cancelled_issues": 44,
+  "loads": 566400
+ },
+ "tage|rev 3|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 4422835,
+  "instr": 6755591,
+  "ld_fwd": 19901,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1117783
+ },
+ "tage|rev 3|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 4488517,
+  "instr": 6797083,
+  "ld_fwd": 19933,
+  "dc_clashes": 0,
+  "shadow_cancels": 63,
+  "cancelled_issues": 44,
+  "loads": 1125262
+ },
+ "tage|rev 3|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 2322586,
+  "instr": 3418934,
+  "ld_fwd": 15021,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 597677
+ },
+ "tage|rev 3|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 2385863,
+  "instr": 3459294,
+  "ld_fwd": 15048,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 72,
+  "loads": 605156
+ },
+ "tage|rev 3|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 4620559,
+  "instr": 6838131,
+  "ld_fwd": 30116,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1195658
+ },
+ "tage|rev 3|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 4683804,
+  "instr": 6878491,
+  "ld_fwd": 30144,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 57,
+  "loads": 1203135
+ },
+ "tage|rev 3|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 105637,
+  "instr": 143050,
+  "ld_fwd": 2695,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 31006
+ },
+ "tage|rev 3|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 250001,
+  "instr": 245889,
+  "ld_fwd": 3319,
+  "dc_clashes": 0,
+  "shadow_cancels": 75,
+  "cancelled_issues": 86,
+  "loads": 48838
+ },
+ "tage|rev 3|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 207808,
+  "instr": 286050,
+  "ld_fwd": 5618,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 62303
+ },
+ "tage|rev 3|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 353350,
+  "instr": 388999,
+  "ld_fwd": 6264,
+  "dc_clashes": 0,
+  "shadow_cancels": 81,
+  "cancelled_issues": 90,
+  "loads": 80312
+ },
+ "tage|rev 3|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2284910,
+  "instr": 3377645,
+  "ld_fwd": 8430,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 565648
+ },
+ "tage|rev 3|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2348656,
+  "instr": 3419103,
+  "ld_fwd": 8593,
+  "dc_clashes": 0,
+  "shadow_cancels": 64,
+  "cancelled_issues": 48,
+  "loads": 572674
+ },
+ "tage|rev 3|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 4549394,
+  "instr": 6755591,
+  "ld_fwd": 16922,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1130366
+ },
+ "tage|rev 3|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 4613060,
+  "instr": 6797049,
+  "ld_fwd": 17089,
+  "dc_clashes": 0,
+  "shadow_cancels": 64,
+  "cancelled_issues": 47,
+  "loads": 1137412
+ },
+ "tage|rev 3|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 2351238,
+  "instr": 3418934,
+  "ld_fwd": 13546,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 601536
+ },
+ "tage|rev 3|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 2413981,
+  "instr": 3459265,
+  "ld_fwd": 13830,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 52,
+  "loads": 608238
+ },
+ "tage|rev 3|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 4676993,
+  "instr": 6838131,
+  "ld_fwd": 27219,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1203244
+ },
+ "tage|rev 3|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 4739721,
+  "instr": 6878462,
+  "ld_fwd": 27508,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 40,
+  "loads": 1209946
+ },
+ "tage|rev 3|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 106314,
+  "instr": 143054,
+  "ld_fwd": 1000,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 30013
+ },
+ "tage|rev 3|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 254945,
+  "instr": 245811,
+  "ld_fwd": 1296,
+  "dc_clashes": 0,
+  "shadow_cancels": 70,
+  "cancelled_issues": 85,
+  "loads": 48944
+ },
+ "tage|rev 3|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 222869,
+  "instr": 286054,
+  "ld_fwd": 2997,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 61009
+ },
+ "tage|rev 3|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 371420,
+  "instr": 388921,
+  "ld_fwd": 3269,
+  "dc_clashes": 0,
+  "shadow_cancels": 72,
+  "cancelled_issues": 91,
+  "loads": 80040
+ },
+ "tage|+ spec_fwd|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2220940,
+  "instr": 3377645,
+  "ld_fwd": 9401,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 560406
+ },
+ "tage|+ spec_fwd|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2286616,
+  "instr": 3419137,
+  "ld_fwd": 9438,
+  "dc_clashes": 0,
+  "shadow_cancels": 63,
+  "cancelled_issues": 44,
+  "loads": 567882
+ },
+ "tage|+ spec_fwd|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 4421050,
+  "instr": 6755591,
+  "ld_fwd": 18860,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1120960
+ },
+ "tage|+ spec_fwd|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 4486688,
+  "instr": 6797083,
+  "ld_fwd": 18895,
+  "dc_clashes": 0,
+  "shadow_cancels": 63,
+  "cancelled_issues": 42,
+  "loads": 1128437
+ },
+ "tage|+ spec_fwd|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 2310163,
+  "instr": 3418934,
+  "ld_fwd": 15101,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 595799
+ },
+ "tage|+ spec_fwd|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 2373356,
+  "instr": 3459294,
+  "ld_fwd": 15136,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 57,
+  "loads": 603273
+ },
+ "tage|+ spec_fwd|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 4594863,
+  "instr": 6838131,
+  "ld_fwd": 30312,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1191601
+ },
+ "tage|+ spec_fwd|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 4658193,
+  "instr": 6878491,
+  "ld_fwd": 30342,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 62,
+  "loads": 1199084
+ },
+ "tage|+ spec_fwd|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 105138,
+  "instr": 143050,
+  "ld_fwd": 2695,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 31006
+ },
+ "tage|+ spec_fwd|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 249396,
+  "instr": 245889,
+  "ld_fwd": 3319,
+  "dc_clashes": 0,
+  "shadow_cancels": 75,
+  "cancelled_issues": 86,
+  "loads": 48838
+ },
+ "tage|+ spec_fwd|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 206807,
+  "instr": 286050,
+  "ld_fwd": 5639,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 62321
+ },
+ "tage|+ spec_fwd|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 351551,
+  "instr": 388999,
+  "ld_fwd": 6278,
+  "dc_clashes": 0,
+  "shadow_cancels": 81,
+  "cancelled_issues": 85,
+  "loads": 80339
+ },
+ "tage|+ spec_fwd|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2283882,
+  "instr": 3377645,
+  "ld_fwd": 8588,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 568740
+ },
+ "tage|+ spec_fwd|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2347856,
+  "instr": 3419103,
+  "ld_fwd": 8752,
+  "dc_clashes": 0,
+  "shadow_cancels": 64,
+  "cancelled_issues": 54,
+  "loads": 575778
+ },
+ "tage|+ spec_fwd|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 4550100,
+  "instr": 6755591,
+  "ld_fwd": 17173,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1137684
+ },
+ "tage|+ spec_fwd|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 4613979,
+  "instr": 6797049,
+  "ld_fwd": 17330,
+  "dc_clashes": 0,
+  "shadow_cancels": 64,
+  "cancelled_issues": 51,
+  "loads": 1144723
+ },
+ "tage|+ spec_fwd|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 2342185,
+  "instr": 3418934,
+  "ld_fwd": 14253,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 602148
+ },
+ "tage|+ spec_fwd|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 2404907,
+  "instr": 3459265,
+  "ld_fwd": 14540,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 40,
+  "loads": 608850
+ },
+ "tage|+ spec_fwd|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 4658149,
+  "instr": 6838131,
+  "ld_fwd": 28604,
+  "dc_clashes": 0,
+  "shadow_cancels": 8,
+  "cancelled_issues": 0,
+  "loads": 1204534
+ },
+ "tage|+ spec_fwd|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 4720729,
+  "instr": 6878462,
+  "ld_fwd": 28890,
+  "dc_clashes": 0,
+  "shadow_cancels": 66,
+  "cancelled_issues": 40,
+  "loads": 1211236
+ },
+ "tage|+ spec_fwd|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 106314,
+  "instr": 143054,
+  "ld_fwd": 1000,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 3,
+  "loads": 30013
+ },
+ "tage|+ spec_fwd|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 254936,
+  "instr": 245811,
+  "ld_fwd": 1296,
+  "dc_clashes": 0,
+  "shadow_cancels": 70,
+  "cancelled_issues": 85,
+  "loads": 48944
+ },
+ "tage|+ spec_fwd|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 221871,
+  "instr": 286054,
+  "ld_fwd": 2997,
+  "dc_clashes": 0,
+  "shadow_cancels": 1,
+  "cancelled_issues": 0,
+  "loads": 61009
+ },
+ "tage|+ spec_fwd|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 370353,
+  "instr": 388921,
+  "ld_fwd": 3269,
+  "dc_clashes": 0,
+  "shadow_cancels": 72,
+  "cancelled_issues": 91,
+  "loads": 80040
+ },
+ "tage|+ row clash|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2226510,
+  "instr": 3377645,
+  "ld_fwd": 9450,
+  "dc_clashes": 2459,
+  "shadow_cancels": 2467,
+  "cancelled_issues": 8491,
+  "loads": 559359
+ },
+ "tage|+ row clash|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2292155,
+  "instr": 3419137,
+  "ld_fwd": 9489,
+  "dc_clashes": 2471,
+  "shadow_cancels": 2534,
+  "cancelled_issues": 8557,
+  "loads": 566839
+ },
+ "tage|+ row clash|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 4436830,
+  "instr": 6755591,
+  "ld_fwd": 18815,
+  "dc_clashes": 5046,
+  "shadow_cancels": 5054,
+  "cancelled_issues": 17460,
+  "loads": 1119087
+ },
+ "tage|+ row clash|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 4502531,
+  "instr": 6797083,
+  "ld_fwd": 18849,
+  "dc_clashes": 5058,
+  "shadow_cancels": 5121,
+  "cancelled_issues": 17519,
+  "loads": 1126566
+ },
+ "tage|+ row clash|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 2328367,
+  "instr": 3418934,
+  "ld_fwd": 14563,
+  "dc_clashes": 3031,
+  "shadow_cancels": 3039,
+  "cancelled_issues": 10250,
+  "loads": 597862
+ },
+ "tage|+ row clash|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 2391604,
+  "instr": 3459294,
+  "ld_fwd": 14590,
+  "dc_clashes": 3043,
+  "shadow_cancels": 3109,
+  "cancelled_issues": 10343,
+  "loads": 605341
+ },
+ "tage|+ row clash|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 4632391,
+  "instr": 6838131,
+  "ld_fwd": 29118,
+  "dc_clashes": 6119,
+  "shadow_cancels": 6127,
+  "cancelled_issues": 20666,
+  "loads": 1196059
+ },
+ "tage|+ row clash|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 4695581,
+  "instr": 6878491,
+  "ld_fwd": 29147,
+  "dc_clashes": 6131,
+  "shadow_cancels": 6197,
+  "cancelled_issues": 20761,
+  "loads": 1203533
+ },
+ "tage|+ row clash|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 107084,
+  "instr": 143050,
+  "ld_fwd": 2991,
+  "dc_clashes": 604,
+  "shadow_cancels": 605,
+  "cancelled_issues": 2496,
+  "loads": 31422
+ },
+ "tage|+ row clash|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 251473,
+  "instr": 245889,
+  "ld_fwd": 3608,
+  "dc_clashes": 638,
+  "shadow_cancels": 713,
+  "cancelled_issues": 2652,
+  "loads": 49254
+ },
+ "tage|+ row clash|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 218130,
+  "instr": 286050,
+  "ld_fwd": 4957,
+  "dc_clashes": 1669,
+  "shadow_cancels": 1670,
+  "cancelled_issues": 4347,
+  "loads": 64966
+ },
+ "tage|+ row clash|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 363701,
+  "instr": 388999,
+  "ld_fwd": 5599,
+  "dc_clashes": 1693,
+  "shadow_cancels": 1774,
+  "cancelled_issues": 4494,
+  "loads": 82975
+ },
+ "tage|+ row clash|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2289448,
+  "instr": 3377645,
+  "ld_fwd": 8050,
+  "dc_clashes": 2374,
+  "shadow_cancels": 2382,
+  "cancelled_issues": 8530,
+  "loads": 565952
+ },
+ "tage|+ row clash|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2353264,
+  "instr": 3419103,
+  "ld_fwd": 8199,
+  "dc_clashes": 2390,
+  "shadow_cancels": 2454,
+  "cancelled_issues": 8610,
+  "loads": 572975
+ },
+ "tage|+ row clash|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 4559803,
+  "instr": 6755591,
+  "ld_fwd": 16128,
+  "dc_clashes": 4778,
+  "shadow_cancels": 4786,
+  "cancelled_issues": 17137,
+  "loads": 1131006
+ },
+ "tage|+ row clash|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 4623593,
+  "instr": 6797049,
+  "ld_fwd": 16282,
+  "dc_clashes": 4796,
+  "shadow_cancels": 4860,
+  "cancelled_issues": 17224,
+  "loads": 1138047
+ },
+ "tage|+ row clash|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 2357250,
+  "instr": 3418934,
+  "ld_fwd": 13194,
+  "dc_clashes": 2719,
+  "shadow_cancels": 2727,
+  "cancelled_issues": 10481,
+  "loads": 601694
+ },
+ "tage|+ row clash|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 2419979,
+  "instr": 3459265,
+  "ld_fwd": 13480,
+  "dc_clashes": 2726,
+  "shadow_cancels": 2792,
+  "cancelled_issues": 10537,
+  "loads": 608396
+ },
+ "tage|+ row clash|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 4689130,
+  "instr": 6838131,
+  "ld_fwd": 26491,
+  "dc_clashes": 5507,
+  "shadow_cancels": 5515,
+  "cancelled_issues": 21380,
+  "loads": 1203587
+ },
+ "tage|+ row clash|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 4751849,
+  "instr": 6878462,
+  "ld_fwd": 26779,
+  "dc_clashes": 5515,
+  "shadow_cancels": 5581,
+  "cancelled_issues": 21434,
+  "loads": 1210289
+ },
+ "tage|+ row clash|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 109312,
+  "instr": 143054,
+  "ld_fwd": 1499,
+  "dc_clashes": 1499,
+  "shadow_cancels": 1500,
+  "cancelled_issues": 6493,
+  "loads": 30013
+ },
+ "tage|+ row clash|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 257946,
+  "instr": 245811,
+  "ld_fwd": 1788,
+  "dc_clashes": 1513,
+  "shadow_cancels": 1583,
+  "cancelled_issues": 6605,
+  "loads": 48944
+ },
+ "tage|+ row clash|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 225870,
+  "instr": 286054,
+  "ld_fwd": 3996,
+  "dc_clashes": 2000,
+  "shadow_cancels": 2001,
+  "cancelled_issues": 7995,
+  "loads": 61009
+ },
+ "tage|+ row clash|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 374471,
+  "instr": 388921,
+  "ld_fwd": 4245,
+  "dc_clashes": 2028,
+  "shadow_cancels": 2100,
+  "cancelled_issues": 8170,
+  "loads": 80040
+ },
+ "tage|+ both|coremark_A|rv64im|i10-r500|0": {
+  "cycles": 2229813,
+  "instr": 3377645,
+  "ld_fwd": 9213,
+  "dc_clashes": 2666,
+  "shadow_cancels": 2674,
+  "cancelled_issues": 8313,
+  "loads": 561703
+ },
+ "tage|+ both|coremark_A|rv64im|i10-r500|1": {
+  "cycles": 2295493,
+  "instr": 3419137,
+  "ld_fwd": 9251,
+  "dc_clashes": 2679,
+  "shadow_cancels": 2742,
+  "cancelled_issues": 8380,
+  "loads": 569177
+ },
+ "tage|+ both|coremark_A|rv64im|i20-r1000|0": {
+  "cycles": 4438350,
+  "instr": 6755591,
+  "ld_fwd": 18427,
+  "dc_clashes": 5385,
+  "shadow_cancels": 5393,
+  "cancelled_issues": 16814,
+  "loads": 1123528
+ },
+ "tage|+ both|coremark_A|rv64im|i20-r1000|1": {
+  "cycles": 4503975,
+  "instr": 6797083,
+  "ld_fwd": 18458,
+  "dc_clashes": 5399,
+  "shadow_cancels": 5462,
+  "cancelled_issues": 16883,
+  "loads": 1131005
+ },
+ "tage|+ both|coremark_B|rv64im|i10-r500|0": {
+  "cycles": 2318036,
+  "instr": 3418934,
+  "ld_fwd": 14277,
+  "dc_clashes": 3360,
+  "shadow_cancels": 3368,
+  "cancelled_issues": 12163,
+  "loads": 596134
+ },
+ "tage|+ both|coremark_B|rv64im|i10-r500|1": {
+  "cycles": 2381187,
+  "instr": 3459294,
+  "ld_fwd": 14307,
+  "dc_clashes": 3371,
+  "shadow_cancels": 3437,
+  "cancelled_issues": 12265,
+  "loads": 603601
+ },
+ "tage|+ both|coremark_B|rv64im|i20-r1000|0": {
+  "cycles": 4610793,
+  "instr": 6838131,
+  "ld_fwd": 28631,
+  "dc_clashes": 6767,
+  "shadow_cancels": 6775,
+  "cancelled_issues": 24620,
+  "loads": 1192314
+ },
+ "tage|+ both|coremark_B|rv64im|i20-r1000|1": {
+  "cycles": 4674018,
+  "instr": 6878491,
+  "ld_fwd": 28658,
+  "dc_clashes": 6779,
+  "shadow_cancels": 6845,
+  "cancelled_issues": 24713,
+  "loads": 1199789
+ },
+ "tage|+ both|dhrystone|rv64im|i10-r500|0": {
+  "cycles": 106585,
+  "instr": 143050,
+  "ld_fwd": 2991,
+  "dc_clashes": 604,
+  "shadow_cancels": 605,
+  "cancelled_issues": 2496,
+  "loads": 31422
+ },
+ "tage|+ both|dhrystone|rv64im|i10-r500|1": {
+  "cycles": 250872,
+  "instr": 245889,
+  "ld_fwd": 3608,
+  "dc_clashes": 638,
+  "shadow_cancels": 713,
+  "cancelled_issues": 2652,
+  "loads": 49254
+ },
+ "tage|+ both|dhrystone|rv64im|i20-r1000|0": {
+  "cycles": 217128,
+  "instr": 286050,
+  "ld_fwd": 4979,
+  "dc_clashes": 1668,
+  "shadow_cancels": 1669,
+  "cancelled_issues": 4334,
+  "loads": 64987
+ },
+ "tage|+ both|dhrystone|rv64im|i20-r1000|1": {
+  "cycles": 361905,
+  "instr": 388999,
+  "ld_fwd": 5614,
+  "dc_clashes": 1692,
+  "shadow_cancels": 1773,
+  "cancelled_issues": 4479,
+  "loads": 83005
+ },
+ "tage|+ both|coremark_A|rv64gc|i10-r500|0": {
+  "cycles": 2290531,
+  "instr": 3377645,
+  "ld_fwd": 8205,
+  "dc_clashes": 2453,
+  "shadow_cancels": 2461,
+  "cancelled_issues": 8928,
+  "loads": 569300
+ },
+ "tage|+ both|coremark_A|rv64gc|i10-r500|1": {
+  "cycles": 2354408,
+  "instr": 3419103,
+  "ld_fwd": 8356,
+  "dc_clashes": 2466,
+  "shadow_cancels": 2530,
+  "cancelled_issues": 8997,
+  "loads": 576333
+ },
+ "tage|+ both|coremark_A|rv64gc|i20-r1000|0": {
+  "cycles": 4562693,
+  "instr": 6755591,
+  "ld_fwd": 16397,
+  "dc_clashes": 4933,
+  "shadow_cancels": 4941,
+  "cancelled_issues": 17930,
+  "loads": 1138798
+ },
+ "tage|+ both|coremark_A|rv64gc|i20-r1000|1": {
+  "cycles": 4626646,
+  "instr": 6797049,
+  "ld_fwd": 16546,
+  "dc_clashes": 4948,
+  "shadow_cancels": 5012,
+  "cancelled_issues": 17999,
+  "loads": 1145838
+ },
+ "tage|+ both|coremark_B|rv64gc|i10-r500|0": {
+  "cycles": 2347750,
+  "instr": 3418934,
+  "ld_fwd": 13746,
+  "dc_clashes": 2809,
+  "shadow_cancels": 2817,
+  "cancelled_issues": 10527,
+  "loads": 602144
+ },
+ "tage|+ both|coremark_B|rv64gc|i10-r500|1": {
+  "cycles": 2410388,
+  "instr": 3459265,
+  "ld_fwd": 14030,
+  "dc_clashes": 2817,
+  "shadow_cancels": 2883,
+  "cancelled_issues": 10581,
+  "loads": 608846
+ },
+ "tage|+ both|coremark_B|rv64gc|i20-r1000|0": {
+  "cycles": 4670146,
+  "instr": 6838131,
+  "ld_fwd": 27613,
+  "dc_clashes": 5678,
+  "shadow_cancels": 5686,
+  "cancelled_issues": 21447,
+  "loads": 1204461
+ },
+ "tage|+ both|coremark_B|rv64gc|i20-r1000|1": {
+  "cycles": 4732866,
+  "instr": 6878462,
+  "ld_fwd": 27899,
+  "dc_clashes": 5686,
+  "shadow_cancels": 5752,
+  "cancelled_issues": 21497,
+  "loads": 1211163
+ },
+ "tage|+ both|dhrystone|rv64gc|i10-r500|0": {
+  "cycles": 109312,
+  "instr": 143054,
+  "ld_fwd": 1499,
+  "dc_clashes": 1499,
+  "shadow_cancels": 1500,
+  "cancelled_issues": 5994,
+  "loads": 30013
+ },
+ "tage|+ both|dhrystone|rv64gc|i10-r500|1": {
+  "cycles": 257937,
+  "instr": 245811,
+  "ld_fwd": 1788,
+  "dc_clashes": 1513,
+  "shadow_cancels": 1583,
+  "cancelled_issues": 6099,
+  "loads": 48944
+ },
+ "tage|+ both|dhrystone|rv64gc|i20-r1000|0": {
+  "cycles": 224872,
+  "instr": 286054,
+  "ld_fwd": 3996,
+  "dc_clashes": 2000,
+  "shadow_cancels": 2001,
+  "cancelled_issues": 7995,
+  "loads": 61009
+ },
+ "tage|+ both|dhrystone|rv64gc|i20-r1000|1": {
+  "cycles": 373426,
+  "instr": 388921,
+  "ld_fwd": 4245,
+  "dc_clashes": 2028,
+  "shadow_cancels": 2100,
+  "cancelled_issues": 8170,
+  "loads": 80040
+ }
+}

@@ -1085,6 +1085,51 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **The suite is a proxy;** Linux is the workload.
 - **The clock:** the memory-side gains are at 100 MHz's DRAM latency. A few MHz less changes them by under a point.
 
+### 6.6 Speculative wakeup's cancels, measured in the RTL (2026-10-18)
+
+*§6.5's model overshot TAGE-lite's first step on the bench by about 4 points, and the suspect was the cancels of speculative wakeup. fpu-2 profiled the RTL's cancels by cause on the RAS head and the TAGE-lite build, with simulation-only counters (`claude/track-fpu-395911-swprof`; the tables are in fpu-2's `swprof/` on the build host). This section fits the model to that profile (`scripts/m6_swfit.py`).*
+
+**What the RTL cancels on** (steady state, the RAS head):
+- **D$ row clashes:** half of CoreMark's cancels (1.7–2.6 per 1K instructions) and three quarters of Dhrystone's (10).
+  - **The rule** (`tg_lsu.sv`, `m1_clash`): a load reads its D$ row at AG while stores drain through port B. If a store to the load's 16-byte block is acked in the load's AG cycle or the cycle before, the load read old data and retries. The cycle before counts because of the registered port-B write, a default timing cut.
+  - **Where they happen:** loads that follow a store to the same block. On Dhrystone it is reloads of stack slots just written. On statemate, edn and ud it is adjacent bytes and halfwords.
+- **Wrong-path faults,** the other half on CoreMark: loads past a mispredict that fault in M1 on bare metal's unmapped addresses. They are flushed with the wrong path, which the model does not run. With TAGE-lite they fall to a quarter–a third.
+- **The store-data capture lagging,** 6–15% of cancels: the store's data register was written, but its value was not yet in the SQ's data RAM (one capture a cycle). There are no forwards that fail to cover, no late producers, and no misses on the bench.
+- **The cost:** about 4 integer ops killed and replayed per cancel, and 3.6–3.8 cycles from the failed check to completion.
+
+**In the model, now in `rtl_m2` revision 4:**
+- **`dc_row_clash`** (`clash_delay` 4), the RTL's rule on two paths:
+  - a load reading the D$ as such a store drains;
+  - a load whose forwarding store, committed at the SQ's head or next, drains before the load's M1. The model used to forward these, because it decides at issue; the RTL searches the SQ at M1, when the store is gone.
+- **`spec_fwd`:** with speculative wakeup, a forward completing at M2 wakes its dependants as a hit does, in 3 cycles rather than 5.
+
+**What they move** (each program's 500-run / 10-iteration region, the model against the RTL):
+
+| Program | RAS head, revision 3 | RAS head, revision 4 | TAGE-lite build, revision 3 | TAGE-lite build, revision 4 |
+|---|---|---|---|---|
+| CoreMark A rv64im | −2.8% | −2.9% | −4.9% | −4.5% |
+| CoreMark B rv64im | +3.0% | +3.0% | −6.1% | −6.3% |
+| Dhrystone rv64im | −6.4% | −1.0% | −10.3% | −9.5% |
+| CoreMark A rv64gc | −0.8% | −0.9% | −4.3% | −4.1% |
+| CoreMark B rv64gc | +1.6% | +1.6% | −8.2% | −8.4% |
+| Dhrystone rv64gc | −10.3% | −8.2% | −13.6% | −11.1% |
+
+- **On the 17 programs** against the RAS head, the mean error goes from 7.7% to 7.3%. Statemate improves from −9.0% to −8.5%; the worst is still minver at +19.8%.
+- **The clash count is still low:** 0.5–1.0 per 1K instructions on CoreMark against the RTL's 1.7–3.0. The model also makes twice the RTL's forwards. In the RTL, more of the loads that follow a store meet it as it drains, and fewer while it waits in the SQ. The cycle effect on CoreMark stays under 0.5%.
+
+**TAGE-lite's first step is not the cancels.**
+- **What remains:** with both rules, the TAGE-lite build is still 4–8% optimistic on CoreMark, against −3% to +3% on the RAS head.
+- **Why not the cancels:** the RTL's cancels come to about 1% of CoreMark's cycles, and the model's rules move it under 0.5%.
+- **The next suspect** is the front end, now that speculative wakeup speeds up the backend. §6.4 found the RTL refetching at F2 about 40% more often than the model, which the slower backend used to hide.
+
+**A trap in the method: Dhrystone's two lengths are two layouts.**
+- **The layouts:** the 1000-run ELF lays its code out 0x54 bytes later than the 500-run one (CoreMark's are identical), so their difference mixes two binaries.
+- **The RAS head is layout-sensitive in RTL:** 134.1K cycles per 500 runs in one binary and 127.8K in the other. TAGE-lite removes most of the difference: 117.8K and 118.3K.
+- **What it does to make perf:** its +13.9% for TAGE-lite on Dhrystone is +8.0% in the other binary.
+- **The fix:** compare Dhrystone binary by binary, as the table above does.
+
+**For §6.5:** revision 4 moves Dhrystone by a few points and CoreMark by under 0.5%, so its ranking stands. Its script pins revision 3.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1600,7 +1645,14 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **The I-side pieces:** nothing on the suite; Linux has to judge them.
 - **Where IPC per LUT drops:** after about 2.7K LUTs per chip, every further 1K buys under 5%.
 
+**2026-10-18: speculative wakeup's cancels, measured** (§6.6; fpu-2's RTL profile, `scripts/m6_swfit.py`, run on the build host):
+- **What the RTL cancels on:** D$ row clashes (a store to the load's 16-byte block draining as it reads), wrong-path faults, and the store-data capture lagging. About 4 ops are killed per cancel.
+- **`rtl_m2` revision 4** adds the row clash and fast forwards. The fit over 17 programs goes from 7.7% to 7.3%, and Dhrystone rv64im from −6.4% to −1.0%.
+- **The TAGE-lite overshoot is not the cancels:** they are about 1% of CoreMark's cycles. The front end is next.
+- **Dhrystone's two lengths have different code layouts,** so its steady state needs comparing binary by binary.
+
 **Lessons:**
+- **Check that two binaries share a layout before differencing them.** Dhrystone's lengths do not, and the RAS head's speed moves 5% with the layout.
 - **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.
 - **Read the RTL's dependency rules, not only its spec.** The spec's STA is address-only; rename makes it wait for its data.
 - **Profile both simulators over the same window.** A whole run of Dhrystone is half printf, where the model is slower; difference two run lengths so start-up and printf cancel.
