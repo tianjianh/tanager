@@ -891,6 +891,13 @@ module tg_fetch
     localparam int IXW = TAGE_IXW;
     logic [IXW-1:0]  tix;
     logic [GH_W-1:0] gh_q, cgh_q;
+    // A delivered block's history bits go in a cycle later (timing: F2's decision ends at gp_*_q, not
+    // at the history's shift): gh_e, the history with them, is what every reader takes, as gh_q was.
+    // Only a block's last branch can be taken (its exit), so the bits are a count and one value
+    logic [GH_W-1:0] gh_e;
+    logic [1:0]      gp_n_q;
+    logic            gp_b_q;
+    assign gh_e = (gp_n_q == 2'd0) ? gh_q : (gp_n_q == 2'd1) ? {gh_q[GH_W-2:0], gp_b_q} : {gh_q[GH_W-3:0], 1'b0, gp_b_q};
     // FTQ pointers, with a wrap bit; a delivery takes the tail. TAGE's training queue names the
     // blocks of its requests (commit's, with their wrap bits), and its head's indices and tags are
     // read from here: no entry is freed while the queue names it (the head ft_eh: its oldest)
@@ -905,7 +912,7 @@ module tg_fetch
       for (int j = 0; j < COMMIT_WIDTH; j++) c_fp[j] = {(c_ftq[j] < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_ftq[j]};
     tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .NT(TAGE_NT), .LI(TAGE_LI), .TW(TAGE_TW), .BI(TAGE_BI), .HW(GH_W),
               .FW(FTQW + 1)) u_tage (
-      .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_q), .dir(tdir), .ix(tix),
+      .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_e), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
       .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]));
     assign ft_eh   = tq_v ? tq_ftq : ft_h_q;
@@ -918,7 +925,7 @@ module tg_fetch
     logic [0:0][RW-1:0]   fr_rd;
     assign fr_ra[0] = dred_ftq;
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(RW), .NR(1)) u_fgh (
-      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_q, gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}), .raddr(fr_ra),
+      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_e, gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}), .raddr(fr_ra),
       .rdata(fr_rd));
     // the stack's operation at a delivered block's exit, and its repair at decode's redirect
     assign ras_push = ft_we && !f2_isfault && f2_rpush;
@@ -974,6 +981,7 @@ module tg_fetch
     always_ff @(posedge clk) begin
       if (rst) begin
         gh_q   <= '0;
+        gp_n_q <= '0;
         cgh_q  <= '0;
         ft_t_q <= '0;
         ft_h_q <= '0;
@@ -984,14 +992,19 @@ module tg_fetch
         cgh_q <= c;
         if (flush) begin                   // (nothing retires in a flush's cycle)
           gh_q   <= cgh_q;
+          gp_n_q <= '0;
           // every block goes; the training queue may still name the head's and earlier ones
           ft_t_q <= ft_h_q + 1'b1;
           ft_h_q <= ft_h_q + 1'b1;
         end else begin
-          if (dred)
-            gh_q <= r_gh;
-          else if (ft_we)
-            gh_q <= (gh_n == 2'd0) ? gh_q : (gh_n == 2'd1) ? {gh_q[GH_W-2:0], gh_b[0]} : {gh_q[GH_W-3:0], gh_b};
+          if (dred) begin
+            gh_q   <= r_gh;
+            gp_n_q <= '0;
+          end else begin
+            gh_q   <= gh_e;
+            gp_n_q <= ft_we ? gh_n : 2'd0;
+            gp_b_q <= gh_b[0];
+          end
           // decode's redirect keeps its instruction's block and drops the later ones; commit frees
           // the blocks before the youngest retiring instruction's
           if (dred)       ft_t_q <= {(dred_ftq < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], dred_ftq} + 1'b1;
@@ -1006,6 +1019,16 @@ module tg_fetch
     logic tq_rs_q;                          // the first reset has come
     initial tq_rs_q = 1'b0;
     always @(posedge clk) if (rst) tq_rs_q <= 1'b1;
+    // the history as first built (updated with each delivered block): gh_e equals it
+    logic [GH_W-1:0] gh_ref_q;
+    always_ff @(posedge clk) begin
+      if (rst)        gh_ref_q <= '0;
+      else if (flush) gh_ref_q <= cgh_q;
+      else if (dred)  gh_ref_q <= r_gh;
+      else if (ft_we)
+        gh_ref_q <= (gh_n == 2'd0) ? gh_ref_q : (gh_n == 2'd1) ? {gh_ref_q[GH_W-2:0], gh_b[0]} : {gh_ref_q[GH_W-3:0], gh_b};
+      if (tq_rs_q && !rst) assert (gh_e == gh_ref_q) else $error("tg_fetch: the history with its pending bits differs from the history's");
+    end
     always_ff @(posedge clk)
       if (tq_rs_q && !rst && dred && !flush)
         assert ($countones(r_cm) <= 2) else $error("tg_fetch: an FTQ entry with more than two conditional branches");
