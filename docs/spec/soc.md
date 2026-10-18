@@ -424,6 +424,24 @@ Each is checked on the board in stage D's first step, with the UART: the simples
      - which controller the micro-SD is on (SD1);
      - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
   4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
+  - **The tools:** `tanager-host dma adma` (item 1) and `tanager-host psrd` (item 2's register reads), with the procedure in the board package `d0-probes-20261017` ([host.md](host.md)).
+  - **The coordinator's conditions** (10-17): sc3 loaded; read-only on PS state, except the ADMA copies, which stay inside the RISC-V's carve-out; the fan stays with the A53's `fancontrol`. The results come before D1's RTL is final.
+  - **Done on the board** (the board session, 10-17, `fpga/kv260/board/d0`):
+    - **D-c stands:** ADMA channel 8 copied 4 KiB DDR → HPM1 → DDR, both ways ok, 0 words wrong. The host DMA port's line counters moved by exactly the ADMA's 64 lines each way. The cores were held, so the RISC-V's cache side wasn't exercised. It is the same port and L2 path whose coherence stage C's virtio already relies on.
+    - **The SMMU is disabled** in the live tree (`iommu@fd800000`), so no PS master is translated.
+    - **`S_AXI_LPD`'s AFI** (FM6) is out of reset (`RST_LPD_TOP` bit 19 clear) at its reset width, 128 bits (`RDCTRL`/`WRCTRL` = `0x3B0`), which D1's port uses.
+    - **The XPPU** refuses a non-secure reader its registers, so its enable can't be read from Linux. D1's first access shows whether it lets the PL master through: if not, a fault, not a hang.
+    - **Clocks on:** UART1 100 MHz, SD1 166.7 MHz, GEM3 125 MHz (TSU 250), USB0's bus 250 MHz, and `lpd_lsbus` 100 MHz, which also runs TTC1. UART0, SD0 and the ADMA's `adma_ref` are off; the ADMA is runtime-gated and its power domain off while idle.
+    - **No eMMC:** SD0 is disabled and the card is `mmcblk1` (SD1). TTC0 is the fan's. TTC1, TTC2 and TTC3 are disabled, with no interrupt.
+    - **The wiring, for D5 and D6:**
+      - GEM3 is `rgmii-id` to a DP83867 at MDIO address 1, reset on MIO38 (active low; 100 µs asserted, 280 µs after). It needs `ti,rx-internal-delay` 8, `ti,tx-internal-delay` 10, `ti,fifo-depth` 1 and the `rxctrl-strap-quirk`.
+      - USB0 is `usb@ff9d0000` with its DWC3 at `0xFE20_0000`, reset by the firmware's mode-pin GPIO. Its USB2744 and USB5744 hubs reset on MIO44, the 5744 configured over I2C1.
+  - **Still to check before D1's interrupt test:** TTC1's own reset (`RST_LPD_IOU2`, CRL_APB `0xFF5E_0238`), with `tanager-host psrd`.
+  - **From the upstream device trees** (to confirm on the live one):
+    - the KV260's SOM tree (`zynqmp-smk-k26-revA`) disables SD0, so there is no eMMC, and the A53's handover boot needs an initramfs;
+    - TTC0 is the fan's PWM;
+    - TTC1 and UART0 are not enabled. TTC1 runs on `lpd_lsbus`, which UART1 needs too, so it is D1's interrupt test once the live tree and `/proc/interrupts` confirm it is unused;
+    - the eight ADMA channels are enabled, under runtime power management.
 - **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
   - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
     - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
@@ -441,6 +459,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - takes a PS interrupt through its PLIC, from a peripheral the A53 does not use: a TTC1 interval, or UART0 in local loopback if it is clocked;
     - gets an access fault from a denied address.
   - **Met when** all four happen and the A53's Linux is unharmed.
+  - **Built (10-17):**
+    - **The device:** `rtl/uncore/ps/tg_ps_window.sv`, the device bus's sixth device. The region is in `tg_map_pkg` behind `TG_PS_WINDOW=1`, a define: `build.tcl` sets it from `TG_PS_WINDOW=1` and records it in `summary.txt`.
+    - **Interrupts:** PLIC sources 20–24 take UART1, SD1, GEM3, USB0's host line and TTC1.
+    - **The block design** has `S_AXI_LPD` (128-bit, `clk_core`) and the five interrupts in every build, idle without the window: the board's PS is configured by the SOM's firmware, not by our block design. TTC1 is enabled in it so its interrupt pin exists.
+    - **The overlay** sets `S_AXI_LPD`'s AFI to 128 bits (`config-afi` entries 12 and 13). D0's `psrd` of AFI FM6 shows whether it takes.
+    - **The window's AXI attributes:** unprivileged, non-secure data accesses; cache bits 0000 (device, non-bufferable).
+    - **Tests:** `tests/unit/soc` `PS_WINDOW=1` (in `short`), against a model of the PS. Every access size, three denials without a transaction, an error response, a response 70,000 cycles late (the timeout, then the recovery), and TTC1's interrupt through the PLIC: 15 transactions, all checked. The window also passes lint (st and smt2, the synthesis view too) and the forward-reference check, with and without it.
+    - **The board program:** `tests/unit/soc/sw/ps_d1.c` (`ps_d1.bin`) runs the four checks above on the real PS.
 - **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
   - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
   - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.

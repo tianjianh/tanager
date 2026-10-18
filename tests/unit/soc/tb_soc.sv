@@ -11,6 +11,11 @@
 //   HOST_DMA = 1 (make ... HOST_DMA=1, KIND = "tcore"): the coherent host DMA port (soc.md §8.1); the
 //                     host reads a buffer the program left dirty in its cache and writes one the
 //                     program holds copies of, records the writes' completions, and both sides check.
+//   PS window (make ... PS_WINDOW=1, +define+TG_PS_WINDOW=1, KIND = "tcore"): stage D's D1 (soc.md §8.2);
+//                     a model of the PS behind S_AXI_LPD answers the window with random delays, an error
+//                     and a response later than the window's timeout, and drives PLIC source 24; the
+//                     program checks every access size and the faults, and this side counts the
+//                     transactions and that no denied address ever reached the PS.
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -57,6 +62,14 @@ module tb_soc;
   hdma_r_t  dma_r;
   logic     dma_awv = 1'b0, dma_awr, dma_wv = 1'b0, dma_wr, dma_bv, dma_br = 1'b0, dma_arv = 1'b0, dma_arr, dma_rv, dma_rr = 1'b0;
 
+  // the PS window (tg_map_pkg PS_WINDOW): its AXI4 master into the PS model below, and the PS's interrupts
+  axi_ax_t ps_aw, ps_ar;
+  axi_w_t  ps_w;
+  axi_b_t  ps_b = '0;
+  axi_r_t  ps_r = '0;
+  logic    ps_awv, ps_awr = 1'b0, ps_wv, ps_wr = 1'b0, ps_bv = 1'b0, ps_br, ps_arv, ps_arr = 1'b0, ps_rv = 1'b0, ps_rr;
+  logic [PS_IRQS-1:0] ps_irq = '0;
+
   tg_trace_pkg::tr_rec_t [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
   tg_trace_pkg::tr_wb_t  [NUM_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb;
@@ -88,6 +101,11 @@ module tb_soc;
     .s_axi_dma_b (dma_b), .s_axi_dma_b_valid (dma_bv), .s_axi_dma_b_ready (dma_br),
     .s_axi_dma_ar (dma_ar), .s_axi_dma_ar_valid (dma_arv), .s_axi_dma_ar_ready (dma_arr),
     .s_axi_dma_r (dma_r), .s_axi_dma_r_valid (dma_rv), .s_axi_dma_r_ready (dma_rr),
+    .m_axi_ps_aw (ps_aw), .m_axi_ps_aw_valid (ps_awv), .m_axi_ps_aw_ready (ps_awr),
+    .m_axi_ps_w (ps_w), .m_axi_ps_w_valid (ps_wv), .m_axi_ps_w_ready (ps_wr),
+    .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
+    .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
+    .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -123,6 +141,68 @@ module tb_soc;
     errors++;
     $display("[%0t] ERROR: %s", $time, m);
   endtask
+
+  // ---- the PS behind the PS window (PS_WINDOW): one transaction at a time, as the window issues them ----
+  // Byte registers, 0 until written; IOU_SLCR reads byte a as a ^ 0x5A; TTC1's first register drives
+  // ps_irq[PS_IRQ_TTC1]; SD1 + 0x100 answers SLVERR; GEM3 + 0x200 answers 70,000 cycles late, past the
+  // window's timeout. An address the window should have denied is an error here.
+  localparam logic [31:0] PS_TTC1 = 32'hFF12_0000, PS_ERR = 32'hFF17_0100, PS_LATE = 32'hFF0E_0200;
+  byte unsigned ps_mem [logic [31:0]];
+  int ps_txn = 0, ps_late = 0;
+  function automatic bit ps_allowed(input logic [31:0] a, input bit we);
+    if (a[31:16] == 16'hFF01 || a[31:16] == 16'hFF0E || a[31:16] == 16'hFF12 || a[31:16] == 16'hFF17 ||
+        a[31:16] == 16'hFF9D || a[31:20] == 12'hFE2) return 1'b1;
+    return !we && a[31:19] == 13'h1FE3;
+  endfunction
+  function automatic byte unsigned ps_byte(input logic [31:0] a);
+    if (ps_mem.exists(a)) return ps_mem[a];
+    return (a[31:19] == 13'h1FE3) ? 8'(a[7:0] ^ 8'h5A) : 8'h00;
+  endfunction
+  initial if (PS_WINDOW) forever begin
+    @(posedge clk);
+    if (ps_awv && ps_wv) begin
+      axi_ax_t a;
+      axi_w_t  d;
+      int      lat;
+      a = ps_aw;
+      d = ps_w;
+      if (!ps_allowed(a.addr[31:0], 1'b1)) fail($sformatf("PS window: a write to %h reached the PS", a.addr));
+      if (a.len != 0 || a.burst != AXI_INCR) fail($sformatf("PS window: write burst len %0d burst %0d", a.len, a.burst));
+      repeat ($urandom_range(0, 6)) @(posedge clk);
+      ps_awr <= 1'b1; ps_wr <= 1'b1;
+      @(posedge clk);
+      ps_awr <= 1'b0; ps_wr <= 1'b0;
+      for (int k = 0; k < 16; k++) if (d.strb[k]) ps_mem[{a.addr[31:4], 4'(k)}] = d.data[8*k +: 8];
+      if (a.addr[31:0] == PS_TTC1) ps_irq[PS_IRQ_TTC1] <= d.data[0];
+      ps_txn++;
+      lat = (a.addr[31:0] == PS_LATE) ? 70000 : $urandom_range(1, 20);
+      repeat (lat) @(posedge clk);
+      ps_b <= '{id: a.id, resp: (a.addr[31:0] == PS_ERR) ? AXI_SLVERR : AXI_OKAY};
+      ps_bv <= 1'b1;
+      do @(posedge clk); while (!ps_br);
+      ps_bv <= 1'b0;
+    end else if (ps_arv) begin
+      axi_ax_t a;
+      logic [127:0] beat;
+      int      lat;
+      a = ps_ar;
+      if (!ps_allowed(a.addr[31:0], 1'b0)) fail($sformatf("PS window: a read of %h reached the PS", a.addr));
+      if (a.len != 0 || a.burst != AXI_INCR) fail($sformatf("PS window: read burst len %0d burst %0d", a.len, a.burst));
+      repeat ($urandom_range(0, 6)) @(posedge clk);
+      ps_arr <= 1'b1;
+      @(posedge clk);
+      ps_arr <= 1'b0;
+      for (int k = 0; k < 16; k++) beat[8*k +: 8] = ps_byte({a.addr[31:4], 4'(k)});
+      ps_txn++;
+      lat = (a.addr[31:0] == PS_LATE) ? 70000 : $urandom_range(1, 20);
+      if (a.addr[31:0] == PS_LATE) ps_late++;
+      repeat (lat) @(posedge clk);
+      ps_r <= '{id: a.id, data: beat, resp: (a.addr[31:0] == PS_ERR) ? AXI_SLVERR : AXI_OKAY, last: 1'b1};
+      ps_rv <= 1'b1;
+      do @(posedge clk); while (!ps_rr);
+      ps_rv <= 1'b0;
+    end
+  end
 
   // ---- AXI4-Lite host master (clk_host) ----
   task automatic hw(input logic [15:0] a, input logic [31:0] d);
@@ -261,8 +341,14 @@ module tb_soc;
       dma_write(DMA_B + 32'(128 * b), beats, r);
       if (r != 2'b00) fail($sformatf("DMA write response %0d", r));
     end
-    // one completion per line written, in order, with rising cycles
-    hr(16'h1304, v);
+    // one completion per line written, in order, with rising cycles. The count is the queue's level as the
+    // host side sees it, a few clk_host cycles behind the last AccessAck (the asynchronous FIFO's pointer
+    // synchronizer), while the last write's B comes in clk: poll it
+    begin
+      int t;
+      t = 0;
+      do begin hr(16'h1304, v); t++; end while (v != 32'd8 && t < 20);
+    end
     if (v != 32'd8) fail($sformatf("HDMA_STATUS %0d completions, want 8", v));
     begin
       logic [31:0] last;
@@ -341,8 +427,8 @@ module tb_soc;
     end
     if (KIND == "tcore" && VIRTIO) hw(16'h1100, 32'h1);     // VQ_CTRL: the host serves the window
     if (KIND == "tcore" && HOST_DMA) hw(16'h1300, 32'h1);   // HDMA_CTRL: record the completions
-    if (KIND == "tcore" && (VIRTIO || HOST_DMA))             // FROMHOST: which parts the program runs
-      hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1));
+    if (KIND == "tcore" && (VIRTIO || HOST_DMA || PS_WINDOW)) // FROMHOST: which parts the program runs
+      hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1) | (64'(PS_WINDOW) << 2));
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
 
@@ -399,6 +485,11 @@ module tb_soc;
       if (HOST_DMA && !dma_done) fail("the host DMA test never ran");
       if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
         fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
+      if (PS_WINDOW) begin
+        if (ps_txn != 15 || ps_late != 1)
+          fail($sformatf("PS window: %0d transactions (%0d late), want 15 (1)", ps_txn, ps_late));
+        else $display("PS window: %0d transactions, 1 answered after the timeout", ps_txn);
+      end
       // the stream: everything retired went to the trace memory, starting at the boot ROM
       if (!TRACE) begin
         hr(16'h00C, lo);

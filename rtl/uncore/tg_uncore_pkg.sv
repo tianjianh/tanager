@@ -33,6 +33,13 @@ package tg_uncore_pkg;
   localparam int IRQ_UART      = 10;
   localparam int IRQ_HOSTCTL   = 11;
   localparam int IRQ_MERR0     = 16;            // 16 + hart, edge-triggered
+  localparam int IRQ_PS0       = 20;            // the PS window's controllers (tg_map_pkg PS_WINDOW): 20 + PS_IRQ_*
+  localparam int PS_IRQ_UART1  = 0;             // the PS-to-PL interrupts, as kv260_top passes them (levels)
+  localparam int PS_IRQ_SD1    = 1;
+  localparam int PS_IRQ_GEM3   = 2;
+  localparam int PS_IRQ_USB0   = 3;             // USB0's host line (ps_pl_irq_usb3_0_endpoint[0])
+  localparam int PS_IRQ_TTC1   = 4;             // TTC1 counter 0: D1's test (the A53 doesn't use TTC1)
+  localparam int PS_IRQS       = 5;
 
   // ---- AXI4 (memory ports) ----
   localparam int AXI_ID_W    = 6;
@@ -98,7 +105,8 @@ package tg_uncore_pkg;
   localparam int DEV_UART    = 2;
   localparam int DEV_HOSTCTL = 3;
   localparam int DEV_VIRTIO  = 4;               // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
-  localparam int DEV_N       = 5;
+  localparam int DEV_PSWIN   = 5;               // the PS window (tg_map_pkg PS_WINDOW, tg_ps_window)
+  localparam int DEV_N       = 6;
   localparam int DEV_W       = 3;
 
   typedef struct packed {

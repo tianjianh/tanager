@@ -5,7 +5,10 @@
  * = 0x7467_0000 | flags selects more (tb_soc): bit 0 the forwarded virtio window (VIRTIO=1: reads the
  * host answers, and a QueueNotify whose answer is an interrupt through the PLIC, claimed and
  * acknowledged); bit 1 the host DMA port (HOST_DMA=1: the host reads a buffer still dirty in this
- * hart's data cache, and writes one it holds copies of, both of which must be coherent).
+ * hart's data cache, and writes one it holds copies of, both of which must be coherent); bit 2 the PS
+ * window (PS_WINDOW=1, stage D's D1: accesses of every size through tb_soc's model of the PS, the
+ * accesses the window must deny without a transaction, an error response, a timeout and the recovery
+ * after it, and a PS interrupt through the PLIC; start.S records the access faults).
  * Pass: TOHOST = 1; failure: TOHOST = (code << 1) | 1. With one hart (the one-core KV260 bitstream's
  * first light, fpga/kv260/README.md) the coherence part is skipped. */
 #include <stdint.h>
@@ -15,6 +18,16 @@
 #define ACLINT    0x02000000ul
 #define PLIC      0x0C000000ul
 #define VIRTIO    0x10010000ul
+/* The PS window (tb_soc's PS model, docs/spec/soc.md §8.2): byte registers, 0 until written, in UART1's
+ * and USB0's apertures; TTC1's first register drives PLIC source 24; IOU_SLCR reads byte a as a ^ 0x5A;
+ * SD1 + 0x100 answers SLVERR; GEM3 + 0x200 answers only after the window's 2^16-cycle timeout */
+#define PS_SCR    0xFF010000ul
+#define PS_USB    0xFE200000ul
+#define PS_TTC1   0xFF120000ul
+#define PS_SLCR   0xFF180000ul
+#define PS_ERR    0xFF170100ul
+#define PS_LATE   0xFF0E0200ul
+#define IRQ_TTC1  24
 #define REG64(a)  (*(volatile uint64_t *)(a))
 #define REG32(a)  (*(volatile uint32_t *)(a))
 #define REG16(a)  (*(volatile uint16_t *)(a))
@@ -29,6 +42,8 @@ static void puthex(uint64_t v) {
   for (int i = 60; i >= 0; i -= 4) putc_("0123456789abcdef"[(v >> i) & 15]);
 }
 static void tohost(uint64_t v) { REG64(HOSTCTL + 0x28) = v; }
+
+extern volatile uint64_t trap_save[4];          /* start.S: t1 (saved), mcause, mtval, count */
 static void fail(int code) { puts_("FAIL "); puthex((uint64_t)code); puts_("\n"); tohost(((uint64_t)code << 1) | 1); for (;;) { } }
 
 /* Shared between harts: each on its own cache line, zero in the loaded image (.data, not .bss) */
@@ -108,6 +123,55 @@ int main(uint64_t hartid, uint64_t dtb) {
       REG64(HOSTCTL + 0x40) = 1;
       for (int i = 0; i < 64; i++) if (DMA_B[i] != mix((uint64_t)i ^ 0xB6)) fail(0x510 + i);
       puts_("dma ok\n");
+    }
+
+    /* The PS window (docs/spec/soc.md §8.2, stage D's D1), against tb_soc's model of the PS */
+    if ((fh >> 16) == 0x7467 && (fh & 4)) {
+      uint64_t n;
+      /* every access size, each half of the 128-bit beat */
+      REG64(PS_SCR + 0x00) = 0x0123456789ABCDEFull;
+      if (REG64(PS_SCR + 0x00) != 0x0123456789ABCDEFull) fail(0x600);
+      REG32(PS_SCR + 0x0C) = 0xCAFEF00Du;
+      if (REG32(PS_SCR + 0x0C) != 0xCAFEF00Du) fail(0x601);
+      REG16(PS_SCR + 0x12) = 0xBEEF;
+      REG8(PS_SCR + 0x15) = 0x7A;
+      if (REG64(PS_SCR + 0x10) != 0x00007A00BEEF0000ull) fail(0x602);
+      REG64(PS_USB + 0x08) = 0x1122334455667788ull;
+      if (REG64(PS_USB + 0x08) != 0x1122334455667788ull) fail(0x603);
+      if (REG32(PS_SLCR + 0x40) != 0x19181B1Au) fail(0x604);
+      /* denied in the window, no transaction: TTC0 (the fan's), a write to IOU_SLCR, an address outside
+       * the apertures; each an access fault with the address in mtval */
+      n = trap_save[3];
+      (void)REG32(0xFF110000ul);
+      if (trap_save[3] != n + 1 || trap_save[1] != 5 || trap_save[2] != 0xFF110000ul) fail(0x610);
+      REG32(PS_SLCR + 0x40) = 1;
+      if (trap_save[3] != n + 2 || trap_save[1] != 7 || trap_save[2] != PS_SLCR + 0x40) fail(0x611);
+      (void)REG32(0xFFFF0000ul);
+      if (trap_save[3] != n + 3 || trap_save[1] != 5 || trap_save[2] != 0xFFFF0000ul) fail(0x612);
+      /* an error response */
+      (void)REG32(PS_ERR);
+      if (trap_save[3] != n + 4 || trap_save[1] != 5 || trap_save[2] != PS_ERR) fail(0x613);
+      /* no response: the window times out, denies while the late response is outstanding, then works */
+      (void)REG32(PS_LATE);
+      if (trap_save[3] != n + 5 || trap_save[1] != 5 || trap_save[2] != PS_LATE) fail(0x614);
+      uint64_t v = 0, tries = 0;
+      do { n = trap_save[3]; v = REG64(PS_SCR + 0x00); tries++; } while (trap_save[3] != n && tries < 100000);
+      if (trap_save[3] != n || v != 0x0123456789ABCDEFull) fail(0x615);
+      /* a PS interrupt (TTC1's line) through the PLIC */
+      REG32(PLIC + 4 * IRQ_TTC1) = 1;                /* priority 1 */
+      REG32(PLIC + 0x2000) = 1u << IRQ_TTC1;         /* enabled for context 0, hart 0's M-mode */
+      REG32(PLIC + 0x200000) = 0;                    /* threshold */
+      if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x620);
+      REG32(PS_TTC1) = 1;                            /* the model raises the line */
+      while (!(REG32(PLIC + 0x1000) & (1u << IRQ_TTC1))) { }
+      if (REG32(PLIC + 0x200004) != IRQ_TTC1) fail(0x621);   /* claim */
+      REG32(PS_TTC1) = 0;                            /* and lowers it */
+      for (volatile int i = 0; i < 50; i++) { }      /* through the synchronizer */
+      REG32(PLIC + 0x200004) = IRQ_TTC1;             /* complete */
+      if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x622);
+      puts_("ps window ok, ");
+      puthex(tries);
+      puts_(" tries after the timeout\n");
     }
 
     /* Coherence: hand data to hart 1 and get its answer back (no atomics: flags in memory). Hart 1
