@@ -78,6 +78,8 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
       ubtb_((int)c.ubtb), m2_((int)std::max<int64_t>(1, c.ubtb), (int)c.ubtb_ways, (int)c.m2_ctr),
       sfb_tab_((int)std::max<int64_t>(1, c.sfb_entries)), hitpred_(1024, 3),
       waittab_((int)std::max<int64_t>(1, c.mdp_entries), 0) {
+  if (c.fe_m2 && c.m2_dir && c.m2_btage)
+    btage_ = std::make_unique<BlockTage>((int)c.btage_li, (int)c.btage_tw, (int)c.btage_bi, (int)c.fetch_bytes / 2);
   if (c.dirpred == 2)
     dir_ = std::make_unique<Tage>((int)c.tage_base_log, (int)c.tage_tables, (int)c.tage_log, (int)c.tage_tag,
                                   (int)c.tage_hmin, (int)c.tage_hmax);
@@ -206,7 +208,7 @@ int64_t Core::iq_cap(uint8_t q) const {
 }
 
 int64_t Core::iq_free(uint8_t q, int tid) const {
-  int64_t f = iq_cap(q) - (int64_t)iq_[q].size();
+  int64_t f = iq_cap(q) - (int64_t)iq_[q].size() - (c_.iq_hold ? held(q, -1) : 0);
   if (nthr_ > 1 && c_.smt_iq_cap < 100 && q != Q_SERIAL) {
     const int64_t cap = std::max<int64_t>(1, (iq_cap(q) * c_.smt_iq_cap + 99) / 100);
     f = std::min<int64_t>(f, cap - iq_occ(q, tid));
@@ -225,6 +227,21 @@ int64_t Core::bank_free(uint8_t q, int b) const {
   int64_t n = 0;
   for (uint64_t id : iq_[q]) if (find(id)->iq_bank == b) n++;
   return (iq_cap(q) + 1 - b) / 2 - n;
+}
+
+// iq_hold: rows whose uops issued less than iq_hold cycles ago (bank -1: all of the queue's).
+int64_t Core::held(uint8_t q, int bank) const {
+  int64_t n = 0;
+  for (const Held& h : held_[q]) if (h.t_free > t_ && (bank < 0 || h.bank == bank)) n++;
+  return n;
+}
+
+// iq_slot_bank: free rows of the bank that decode slot k writes (rows r with r mod decode_width = k).
+int64_t Core::slot_free(uint8_t q, int k) const {
+  const int64_t w = std::max<int64_t>(1, c_.decode_width);
+  int64_t n = held(q, k);
+  for (uint64_t id : iq_[q]) if (find(id)->dslot == k) n++;
+  return (iq_cap(q) - k + w - 1) / w - n;
 }
 
 // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
@@ -370,24 +387,61 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
   const uint64_t key = (start & ~(fb - 1)) ^ T.salt;
   const M2Ubtb::Look l = m2_.lookup(key);
   const bool hit = l.hit && (uint64_t)l.slot * 2 >= (start & (fb - 1));  // a slot before the start predicts nothing
+  // The rest of a block the fetch queue cut short is the same block to the RTL (F2 holds it until F3 takes it all):
+  // it keeps the block's TAGE read and its count of conditional branches.
+  const uint64_t blk = ((start ^ T.salt) / fb) & ((1ull << 35) - 1);
+  const bool cont = T.bt_partial && T.bt_blk == blk;
+  if (!cont) {
+    // m2_ftq: a new block needs an FTQ entry; F2 holds it until one is free
+    if (c_.m2_ftq && (int64_t)(T.blk_seq - T.blk_head) >= c_.m2_ftq) {
+      T.st.ftq_full++;
+      T.fe_resume = t_ + 1;
+      return;
+    }
+    T.blk_seq++;
+    T.st.fetch_blocks++;
+    T.bt_nbr = 0;
+  }
+  if (btage_ && !cont) {
+    // m2_btage: the block's read. F1 reads a block as F2 delivers the one before it, so a block right behind
+    // another lacks that block's history bits (btage_lag); a read after a redirect, a flush or an I$ miss has them.
+    T.bt_ix = btage_->hash(blk, (T.bt_exact || !c_.btage_lag) ? T.bgh : T.bt_h0);
+    T.bt_h0 = T.bgh;
+  }
+  T.bt_blk = blk;
+  T.bt_exact = false;
+  T.bt_partial = false;
   int n = 0, bubble = 0;
+  bool ended = false;  // the block ended (else the fetch queue filled, or the stream ran out)
   while ((int64_t)T.fetchq.size() < c_.fetchq) {
     const DynInst* di = get(T, T.fetch_seq);
     if (!di) break;
-    if (di->pc >= blk_end || di->pc < start) break;
-    if (n > 0 && di->pc + di->d->len > blk_end) break;
+    if (di->pc >= blk_end || di->pc < start) { ended = true; break; }
+    if (n > 0 && di->pc + di->d->len > blk_end) { ended = true; break; }
     const Decoded& d = *di->d;
+    // m2_cut: F2 ends the block before its third conditional branch and refetches there, so a block adds at most
+    // two bits of history.
+    if (c_.m2_cut && c_.m2_f2 && d.cls == Cls::BR && T.bt_nbr == 2) {
+      T.st.f2_cuts++;
+      bubble = (int)c_.m2_f2_bubble;
+      T.bt_exact = true;
+      ended = true;
+      break;
+    }
     FetchRec r;
     r.seq = T.fetch_seq;
     r.di = di;
     r.avail = t_ + (uint64_t)c_.if_stages;
     r.hist = T.ghr;
+    r.bt.gh = T.bgh;
+    r.blk = T.blk_seq;
     const int slot = (int)(((di->pc + d.len - 2) & (fb - 1)) >> 1);
     const bool here = hit && slot == l.slot;
     bool ok = true, f2 = false;  // f2 (m2_f2): F2's pre-decode redirects fetch, at m2_f2_bubble cycles
+    uint64_t* f2k = nullptr;     // ... its kind's counter
     if (!d.is_ctrl()) {
       if (here) {  // bogus: decode (F2 with m2_f2) redirects to the next instruction and clears the entry
-        if (c_.m2_f2) f2 = true;
+        if (c_.m2_f2) { f2 = true; f2k = &T.st.f2o_bogus; }
         else { T.st.predecode_redirects++; r.de_redirect = true; }
         m2_.invalidate(key, l);
       }
@@ -406,9 +460,19 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
       // is redirected at decode to PC + imm, a not-taken guess against a micro-BTB hit falls through. With m2_f2
       // (core-2's front end), both redirects come from F2's pre-decode, at m2_f2_bubble cycles.
       if (c_.m2_dir && d.cls == Cls::BR) {
-        const bool dp = dir_->predict(di->pc ^ T.salt, T.ghr);  // trained at commit (train_predictors)
+        // trained at commit (train_predictors); m2_btage: by slot from the block's read
+        const bool dp = btage_ ? btage_->dir(T.bt_ix, slot) : dir_->predict(di->pc ^ T.salt, T.ghr);
+        if (btage_) { r.bt.ix = T.bt_ix; r.bt.slot = (uint8_t)slot; r.bt.v = true; r.bt.pred = dp; }
         if (dp && !(here && l.target == tgt)) { pred_taken = true; pred_tgt = tgt; fixed = true; }
-        else if (!dp) { pred_taken = false; fixed = false; if (here && c_.m2_f2) f2 = true; }
+        else if (!dp) {
+          pred_taken = false;
+          fixed = false;
+          if (here && c_.m2_f2) { f2 = true; f2k = &T.st.f2o_nt; }
+        }
+      }
+      if (d.cls == Cls::BR) {
+        T.bt_nbr++;
+        T.bgh = (T.bgh << 1) | (di->taken ? 1 : 0);
       }
       // ras: calls push at fetch; a return the micro-BTB did not predict is redirected at decode to the RAS's top.
       if (c_.ras && d.is_call()) T.ras.push(di->pc + d.len);
@@ -417,11 +481,15 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
         T.ras.pop();
         if (!(here && l.target == tgt) && top == tgt) { pred_taken = true; pred_tgt = tgt; fixed = true; ras_fix = true; }
       }
-      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) f2 = true;  // from F2's pre-decode (returns: m2_ras_f2)
-      else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
+      if (fixed && c_.m2_f2 && (!ras_fix || c_.m2_ras_f2)) {  // from F2's pre-decode (returns: m2_ras_f2)
+        f2 = true;
+        // as core-2's profile names them: a taken exit the micro-BTB missed, one at another slot than its hit,
+        // a return at its slot to another target than the stack's top
+        f2k = !hit ? &T.st.f2o_miss : !here ? &T.st.f2o_slot : &T.st.f2o_ret;
+      } else if (fixed) { T.st.predecode_redirects++; r.de_redirect = true; }
       if (pred_taken != di->taken || (di->taken && pred_tgt != di->next_pc)) {
         ok = false;
-        r.mp_kind = d.cls == Cls::BR ? (here ? 1 : 4) : d.is_ret() ? 3 : 2;
+        r.mp_kind = d.cls == Cls::BR ? ((here || c_.m2_dir) ? 1 : 4) : d.is_ret() ? 3 : 2;  // m2_dir: all direction
       }
       m2_.train(key, di->pc, slot, d.cls != Cls::BR, di->taken, tgt, l);
       // The RTL trains at execute on the wrong path too. Past a loop's exit it runs the loop again until the
@@ -435,11 +503,20 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
     T.fetchq.push_back(r);
     T.fetch_seq++;
     n++;
-    if (!ok || r.de_redirect) { T.fe_blocked = true; break; }
-    if (f2) { T.st.f2_overrides++; bubble = (int)c_.m2_f2_bubble; break; }
-    if (here || (d.is_ctrl() && di->taken)) break;
-    if (di->pc + d.len >= blk_end) break;
+    // a redirect (the commit flush, decode's, F2's) restarts fetch with the whole history
+    if (!ok || r.de_redirect) { T.fe_blocked = true; T.bt_exact = true; ended = true; break; }
+    if (f2) {
+      T.st.f2_overrides++;
+      if (f2k) (*f2k)++;
+      bubble = (int)c_.m2_f2_bubble;
+      T.bt_exact = true;
+      ended = true;
+      break;
+    }
+    if (here || (d.is_ctrl() && di->taken)) { ended = true; break; }
+    if (di->pc + d.len >= blk_end) { ended = true; break; }
   }
+  T.bt_partial = !ended;
   T.st.taken_bubbles += (uint64_t)bubble;
   T.fe_resume = t_ + 1 + (uint64_t)bubble;
 }
@@ -479,6 +556,7 @@ void Core::fetch_thread(Thread& T) {
   if (res != MemSys::Res::HIT) {
     T.fe_resume = std::max(ready, t_ + 1);
     T.st.fetch_stall_icache++;
+    T.bt_exact = true;  // m2_btage: the refetch after the refill reads with the whole history
     if (res == MemSys::Res::MISS && c_.fdip) {
       // Fetch-directed prefetch: the predictor runs ahead along the predicted path while fetch waits.
       uint64_t line = start >> 6;
@@ -601,6 +679,8 @@ Uop& Core::new_uop(Thread& T, const FetchRec& r) {
   Uop& u = T.win.back();
   u.id = T.next_id++;
   u.tid = (uint8_t)T.tid;
+  u.dgrp = t_;
+  u.dslot = (uint8_t)std::min(dec_n_++, (int)std::max<int64_t>(1, c_.decode_width) - 1);
   u.seq = r.seq;
   u.seq_next = r.seq + 1;
   u.di = r.di;
@@ -609,6 +689,8 @@ Uop& Core::new_uop(Thread& T, const FetchRec& r) {
   u.n_instr = r.synthetic ? 0 : 1;
   u.hist = r.hist;
   u.ras = r.ras;
+  u.bt = r.bt;
+  u.blk = r.blk;
   u.mispred = r.mispred;
   u.mp_kind = r.mp_kind;
   u.is_ctrl = d.is_ctrl();
@@ -683,9 +765,26 @@ void Core::decode() {
 }
 
 int Core::decode_thread(Thread& T, int slots_avail) {
+  // Decode's take against what the queue offers (as core-2's profile counts them): starved when it takes all
+  // that is there and that is less than the width.
+  int offer = 0;
+  for (const FetchRec& q : T.fetchq) {
+    if (q.avail > t_ || offer >= c_.decode_width) break;
+    offer++;
+  }
+  const int took = decode_take(T, slots_avail);
+  if (took == 0) T.st.dec_take0++;
+  else if (took == 1) T.st.dec_take1++;
+  else T.st.dec_take2++;
+  if (took < c_.decode_width && took >= offer) T.st.dec_starved++;
+  return took;
+}
+
+int Core::decode_take(Thread& T, int slots_avail) {
   // The rename/dispatch pipeline holds at most decode_width uops per stage (with SMT, per thread: each thread
   // has its own queue between decode and dispatch, so a stalled thread does not block the other).
   if (T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1))) return 0;
+  dec_n_ = 0;
   int slots = slots_avail;
   Uop* last = nullptr;
   int scanned = 0;
@@ -757,6 +856,7 @@ int Core::decode_thread(Thread& T, int slots_avail) {
       u.seq = a.seq;
       u.n_instr = 2;
       u.hist = a.hist;
+      u.bt.gh = a.bt.gh;
       T.st.fused++;
       last = &u;
       slots -= fuse_slots;
@@ -805,6 +905,9 @@ void Core::dispatch() {
     if (it->first <= t_) { bank_committed_[it->second]--; it = deferred_free_.erase(it); }
     else ++it;
   }
+  if (c_.iq_hold)
+    for (auto& hq : held_)
+      hq.erase(std::remove_if(hq.begin(), hq.end(), [&](const Held& h) { return h.t_free <= t_; }), hq.end());
   int n = 0;
   int row = -1;
   if (nthr_ == 1) { dispatch_thread(*th_[0], n, row); return; }
@@ -859,8 +962,16 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     };
     if (q == Q_ALU_ANY) {
       int64_t f0 = qfree(Q_A0), f1 = qfree(Q_A1);
+      if (c_.iq_slot_bank) {  // steered to a queue whose bank for this slot has a row
+        f0 = std::min(f0, slot_free(Q_A0, u.dslot));
+        f1 = std::min(f1, slot_free(Q_A1, u.dslot));
+      }
       if (c_.prf_banked) { if (free_regs(0) <= 0) f0 = -1; if (free_regs(1) <= 0) f1 = -1; }
       q = (f1 > f0) ? Q_A1 : Q_A0;
+      // iq_slot_bank, as rename steers in the RTL: slot k's ALU op goes to queue k mod 2 unless that queue's bank
+      // for slot k is full
+      if (c_.iq_slot_bank && !c_.alu3) q = (u.dslot % 2 == 0) ? (f0 > 0 || f1 <= 0 ? Q_A0 : Q_A1)
+                                                               : (f1 > 0 || f0 <= 0 ? Q_A1 : Q_A0);
       if (c_.alu3) {
         int64_t f2 = qfree(Q_A2);
         if (c_.prf_banked && free_regs(5) <= 0) f2 = -1;
@@ -876,6 +987,18 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         const int64_t rows_cap = c_.iq_size / std::max<int64_t>(1, c_.decode_width);
         if (row < 0 && rows_used_ >= rows_cap) { T.st.disp_stall_iq++; break; }
       } else if (qfree(q) <= 0) { T.st.disp_stall_iq++; break; }
+      // iq_slot_bank: the RTL's dispatch stage moves a decode group as one, so this slot's bank needs a row, and
+      // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too
+      if (c_.iq_slot_bank && !c_.iq_unified) {
+        if (slot_free(q, u.dslot) <= 0) { T.st.disp_stall_slot++; break; }
+        const Uop* v = u.dslot == 0 ? find(u.id + 1) : nullptr;
+        if (v && v->tid == u.tid && v->dgrp == u.dgrp && v->dslot == 1 && v->state == 0 && v->t_disp_ok <= t_) {
+          bool ok = true;
+          if (v->q == Q_ALU_ANY) ok = slot_free(Q_A0, 1) > 0 || slot_free(Q_A1, 1) > 0;
+          else if (v->q != Q_SERIAL) ok = slot_free(v->q, 1) > 0;
+          if (!ok) { T.st.disp_stall_slot++; break; }
+        }
+      }
     }
     if (banked && ibank < 0) {  // either bank: the one with more free rows, else the uop's own half
       const int64_t b0 = bank_free(q, 0), b1 = bank_free(q, 1);
@@ -971,6 +1094,8 @@ void Core::iq_remove(Uop& u) {
 
 // A replayed uop goes back to its place in age order (queues are kept in dispatch order).
 void Core::iq_reinsert(Uop& u) {
+  auto& hq = held_[u.q];  // iq_hold: back in the queue, it holds a row as a waiting uop again
+  hq.erase(std::remove_if(hq.begin(), hq.end(), [&](const Held& h) { return h.id == u.id; }), hq.end());
   auto& v = iq_[u.q];
   const auto it = std::lower_bound(v.begin(), v.end(), u.age,
                                    [this](uint64_t id, uint64_t a) { return find(id)->age < a; });
@@ -1106,6 +1231,7 @@ void Core::exec_store(Uop& u) {
 
 void Core::do_issue(Uop& u, int /*port*/) {
   iq_remove(u);
+  if (c_.iq_hold > 0 && u.q != Q_SERIAL) held_[u.q].push_back({t_ + (uint64_t)c_.iq_hold, u.dslot, u.id});
   u.state = 2;
   u.t_issue = t_;
   const uint64_t t = t_;
@@ -1230,13 +1356,38 @@ void Core::train_predictors(const Uop& u) {
   const DynInst& di = *u.di;
   const Decoded& d = *di.d;
   if (d.cls == Cls::BR) {
-    dir_->update(di.pc ^ salt, u.hist, di.taken);
+    if (btage_ && u.bt.v) {  // m2_btage: through the training queue (bt_edge), or at once with btage_tq = 0
+      const BtReq q{u.bt.ix, u.bt.slot, di.taken, u.bt.pred};
+      if (c_.btage_tq > 0) bt_new_.push_back(q);
+      else btage_->train(q.ix, q.slot, q.taken, q.pred);
+    } else {
+      dir_->update(di.pc ^ salt, u.hist, di.taken);
+    }
     if (di.taken) btb_.insert(di.pc ^ salt, di.next_pc, 0);
   } else if (d.cls == Cls::JAL) {
     btb_.insert(di.pc ^ salt, di.next_pc, 1);
   } else if (d.cls == Cls::JALR) {
     btb_.insert(di.pc ^ salt, di.next_pc, d.is_ret() ? 2 : 3);
   }
+}
+
+// m2_btage: the training queue at the cycle's end, as tg_tage.sv's: T2 writes its request's update; port B reads the
+// queue's head (T1) unless T2 wrote this cycle; then this cycle's requests from commit enter, a full queue dropping
+// them.
+void Core::bt_edge() {
+  if (!btage_) return;
+  if (bt_t2v_) btage_->train(bt_t2_.ix, bt_t2_.slot, bt_t2_.taken, bt_t2_.pred);
+  const bool deq = !btq_.empty() && !bt_t2v_;
+  if (deq) {
+    bt_t2_ = btq_.front();
+    btq_.pop_front();
+  }
+  for (const BtReq& q : bt_new_) {
+    if ((int64_t)btq_.size() < c_.btage_tq) btq_.push_back(q);
+    else th_[0]->st.bt_drops++;
+  }
+  bt_new_.clear();
+  bt_t2v_ = deq;
 }
 
 // Region markers of a thread's first run. With two threads, the overlap window is where both first-run
@@ -1291,12 +1442,13 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if (u.blk > T.blk_head + 1) T.blk_head = u.blk - 1;  // m2_ftq: commit frees the blocks before this one's
   if (T.refill_from != NEVER) {  // the first retire after a mispredict recovered at commit: the refill
     T.st.mp_refill_cycles += t_ - T.refill_from;
     T.st.mp_refills++;
     T.refill_from = NEVER;
   }
-  if (u.di && u.di->marker && T.lap == 0) {  // later runs of a restarted program are not measured
+  if (u.di && u.di->marker && T.lap == 0 && !c_.whole_run) {  // later runs of a restarted program are not measured
     if (u.di->marker == 1 && !T.in_region) region_event(T, true);
     else if (u.di->marker == 2 && T.in_region) region_event(T, false);
   }
@@ -1307,6 +1459,7 @@ void Core::retire(Uop& u, bool early) {
         T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
         T.st.mp_resolved_commit++;
         T.refill_from = t_;
+        T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
       }
       if (T.in_region && u.di) mp_pc_[u.di->pc]++;
       switch (u.mp_kind) {
@@ -1471,15 +1624,18 @@ int Core::drain_reserve() const {
 // Flushes one thread from from_id on. The other thread, and every early-retired operation, are untouched.
 void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
   Hist oldest = T.ghr;
+  uint64_t bgh = T.bgh;
   for (auto it = T.fetchq.rbegin(); it != T.fetchq.rend(); ++it) {
     if (it->ras.op) T.ras.restore(it->ras.sp, it->ras.slot, it->ras.val);
     oldest = it->hist;
+    bgh = it->bt.gh;
   }
   T.fetchq.clear();
   while (!T.win.empty() && T.win.back().id >= from_id) {
     Uop& u = T.win.back();
     if (u.ras.op) T.ras.restore(u.ras.sp, u.ras.slot, u.ras.val);
     oldest = u.hist;
+    bgh = u.bt.gh;
     if (u.state >= 1) {
       T.rob_count--;
       if (u.state == 1 && u.q != Q_SERIAL) iq_remove(u);
@@ -1491,6 +1647,16 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
     T.win.pop_back();
   }
   T.ghr = oldest;
+  if (btage_) {  // m2_btage: a flush copies commit's history; the refetch reads with all of it
+    T.bgh = bgh;
+    T.bt_exact = true;
+    T.bt_partial = false;
+  }
+  T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
+  for (auto& hq : held_)   // iq_hold: a flush frees the rows of the uops it kills at once
+    hq.erase(std::remove_if(hq.begin(), hq.end(),
+                            [&](const Held& h) { return h.id >= from_id && (h.id >> TID_SHIFT) == (from_id >> TID_SHIFT); }),
+             hq.end());
   T.next_id = from_id;
   T.disp_next = std::min(T.disp_next, from_id);
   T.rat.fill(0);
@@ -1612,6 +1778,7 @@ bool Core::run() {
       }
     }
     if (c_.mdp_clear > 0 && t_ % (uint64_t)c_.mdp_clear == 0) waittab_.reset();
+    for (auto& Tp : th_) if (Tp->rob_count == 0) Tp->st.rob_empty++;
     commit();
     drain_stores();
     mem_.drain_reserve = drain_reserve();
@@ -1619,6 +1786,7 @@ bool Core::run() {
     dispatch();
     decode();
     fetch();
+    bt_edge();
     sample_mlp();
     if (!err_.empty()) return false;
     if (nthr_ == 1) {

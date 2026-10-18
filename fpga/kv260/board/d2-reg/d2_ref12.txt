@@ -1,0 +1,68 @@
+tanager-host f515c0f69b7be562; mode ref12
+== step 0: the reference, on a fresh sc3 load
+loaded tanager-sc3 at 05:55:31; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+05:55:31 pwm1 15/255, temp1 36028, fancontrol active
+$ tanager-host psrd 0xFFA50800
+0x0ffa50800: 0x00009e30  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50C00
+0x0ffa50c00: 0x00009d78  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50D00 5
+0x0ffa50d00: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d04: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d08: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d0c: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d10: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50D18 4
+0x0ffa50d18: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d1c: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d20: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d24: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+== step 1: load d2
+loaded tanager-d2 at 05:55:36; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+05:55:36 pwm1 15/255, temp1 33759, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x0000012f (virtio window)
+dmesg, new lines:
+== step 2: the regulator beside fancontrol, 6 readings 10 s apart
+05:55:37 pwm1 15/255, temp1 34427, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+05:55:47 pwm1 15/255, temp1 33604, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+05:55:58 pwm1 15/255, temp1 34707, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+05:56:08 pwm1 15/255, temp1 35127, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+05:56:19 pwm1 15/255, temp1 35857, fancontrol active
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+05:56:29 pwm1 15/255, temp1 34179, fancontrol active
+$ tanager-host fan
+fan: PL die 34.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+$ tanager-host psrd 0xFFA50800
+0x0ffa50800: 0x00009d5c  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50C00
+0x0ffa50c00: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50D00 5
+0x0ffa50d00: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d04: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d08: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d0c: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d10: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+$ tanager-host psrd 0xFFA50D18 4
+0x0ffa50d18: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d1c: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d20: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+0x0ffa50d24: 0x00000000  AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)
+hwmon channels: 30 inputs; temp: 35142 35826 -280226 
+05:56:42 pwm1 15/255, temp1 34894, fancontrol active
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+05:56:44 pwm1 15/255, temp1 35469, fancontrol active
