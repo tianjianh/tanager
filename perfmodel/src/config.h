@@ -88,6 +88,9 @@ namespace tg {
   X(shadow, 2, "load shadow cycles cancelled on a wrong hit guess")                                \
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
   X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
+  X(spec_fwd, 0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
+  X(dc_row_clash, 0, "a load whose AG (D$ row read) meets a store draining into the same row (VA[11:4]) retries (the RTL's D$)") \
+  X(clash_delay, 4, "dc_row_clash: cycles a clashing load's result is delayed (its replay from the LQ)") \
   X(redirect_lat, 1, "cycles from branch resolution (end of EX) to the redirected IF1")            \
   X(commit_redirect, 1, "cycles from commit of a mispredicted branch to IF1 (no checkpoint)")      \
   X(lat_mul, 3, "multiply latency")                                                                \
