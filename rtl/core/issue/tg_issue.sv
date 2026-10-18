@@ -31,6 +31,7 @@ module tg_issue
   input  iq_pl_t [DW-1:0]              disp_pl,
   input  logic [DW-1:0][RA-1:0]        disp_mdep,   // MX: sources named by ALU-queue row
   output logic [N_IQ-1:0][DW-1:0]      bank_free,
+  output logic [N_IQ-1:0][DW-1:0]      bank_free2,    // at least two rows free (rename's steering, STEER_LA)
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
   // dispatch port writes next in each ALU queue (global row numbers)
   output logic [RA-1:0]                mx_hold,
@@ -394,7 +395,7 @@ module tg_issue
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
       .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
-      .bank_free_q(bank_free[q]), .room_q(room),
+      .bank_free_q(bank_free[q]), .bank_free2_q(bank_free2[q]), .room_q(room),
       .w((q == Q_FP) ? w : w_all), .w_next('0), .w1('0), .col_clr(col_clr),
       .cancel((q == Q_FP) ? 1'b0 : sw_cancel), .sel_block(blk),
       .disp_cblk(cblk), .cls_block(fp_misc_block),

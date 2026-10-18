@@ -119,6 +119,15 @@ package tg_core_pkg;
 `else
   localparam bit STA_BASE = 1'b1;
 `endif
+  // Rename's ALU-queue steering looks a group ahead (M6; the FPU track's prototype, smt2-study's
+  // area_recovery.md §6.8): a bank's registered free flag misses the row the group in DS is taking,
+  // so rename also reads "at least two rows free" and counts the DS op in its slot. TG_STEER_LA=0
+  // steers on the one flag, cycle for cycle as before
+`ifdef TG_STEER_LA
+  localparam bit STEER_LA = `TG_STEER_LA;
+`else
+  localparam bit STEER_LA = 1'b1;
+`endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
   // TG_RAS=0 turns it off: the front end without it, cycle for cycle
