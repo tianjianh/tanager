@@ -409,7 +409,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - At boot the A53's AMS driver puts both SYSMONs in the default sequencer mode, disables every alarm and masks the AMS interrupt.
   - After sc3's load, the PS SYSMON still shows the driver's settings (register 41h = `0x2F0F`). The PL SYSMON's configuration and sequence registers (40h–44h, the sequence words) all read 0, while its temperature reads normally.
   - A SYSMONE4 instance whose INIT attributes are all zero keeps exactly that state. The board's reload in part 3, when the next bitstream goes on, confirms the reset at load.
-- **So the regulator instantiates SYSMONE4** with every INIT attribute zero and reads register 00h (the die temperature) over DRP: the A53 sees the same PL SYSMON as today and its `fancontrol` is untouched. The DRP and the AMS's APB share the SYSMON's register file. The A53 reads the PL channel only on demand (`fancontrol` reads the PS's), and a DRP read that never answers counts as hot.
+- **So the regulator instantiates SYSMONE4** with every INIT attribute zero and reads register 00h (the die temperature) over DRP, and the A53's `fancontrol` is untouched. The expectation that the A53 would see the same PL SYSMON as today was wrong: with the instance in the fabric the AMS reads it as 0 (the board's d2 result, below). The A53 reads the PL channel only on demand (`fancontrol` reads the PS's), and a DRP read that never answers counts as hot.
 - **The alternative** (soc-2's earlier proposal: the PS SYSMON's temperature through `S_AXI_LPD`) is not needed. It remains a fallback.
 - **The curve's sensor:** the PL die runs about 1 °C below the PS's LPD sensor (32.6 against 33.6 °C), so `fancontrol`'s curve on the PL temperature sits 1 °C later. While the A53's `fancontrol` runs, the larger duty, its own, rules.
 
@@ -443,6 +443,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - the regulator with `fancontrol` running;
     - the regulator alone, with `fancontrol` stopped and pwm1 = 0 for at most 5 minutes;
     - the DR-141 set, with `tanager-host fan` sampled every 30 s for the heat.
+- **On the board, steps 0–2** (10-17, the board session):
+  - **The regulator works.** PL die 33.9–34.4 °C, against 34.0 °C through the AMS on sc3 a minute before. The duty was 15 throughout. The A53's PWM read 14–15 against pwm1 15. No new dmesg line.
+  - **The A53 lost the PL SYSMON.** With d2 loaded, the AMS reads the PL SYSMON's temperature (`0xFFA5_0C00`) as 0, and hwmon's `temp3` shows −280.2 °C; the PS SYSMON (`temp1`, `fancontrol`'s sensor) reads normally.
+    - Likely cause: instantiating SYSMONE4 gives the fabric the PL SYSMON's register port, so the PS's APB path reads 0. The board reads `AMS_PL_CSTS` to check.
+    - Effect: harmless to `fancontrol`, but every Tanager bitstream carries the regulator (DR-150), so the A53's PL channels (`xmutil platformstats`, the iio and hwmon nodes) read 0 while one is loaded. `tanager-host fan` shows the PL die instead.
+  - **The coordinator's choice** (soc-2, 10-17):
+    - (a) keep the build and document it;
+    - (b) the fallback: the regulator reads the PS SYSMON's temperature (`0xFFA5_0800`, `fancontrol`'s own sensor) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window, and the XPPU must pass the PL's reads of the AMS (not yet tested).
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
