@@ -470,55 +470,166 @@ module tg_issue
     assign spec_pend = (sw_m1_q.v ? col_m1 : '0) | (sw_m2_q.v ? col_m2 : '0) |
                        (sw_cancel ? sw_cancel_col : '0);
 `ifndef SYNTHESIS
-    // Profile (+swprof, simulation only; the model's fit): the tracked loads, the speculative wakeups,
-    // and the cancels by the cause the LSU decided at M2 (s+4). The LSU's state is read through
-    // tg_core's u_lsu (an upward reference), so it needs tg_issue inside tg_core. Printed per core at
-    // the end of the run on stderr (the console is compared), with the grants the cancels suppressed
-    longint unsigned pf_cyc, pf_trk, pf_wake, pf_can, pf_notm2, pf_cov, pf_dat, pf_clash, pf_miss,
-                     pf_fault, pf_other, pf_gsup;
-    logic            pf_in_m2, pf_fail;
-    logic            pf_m1_mmio_q, pf_m1_tm_q, pf_m1_exc_q;   // the tracked load's M1 flags (s+3)
-    longint unsigned pf_mmio, pf_tlb, pf_exc;
-    logic [N_IQ-1:0] pf_gr;                       // the integer queues' grants this cycle
+    // Profile (+swprof, simulation only; the model's fit): every tracked load's outcome at its M2 check
+    // (s+4) by the LSU's state, read through tg_core's u_lsu (an upward reference: tg_issue must sit in
+    // tg_core). A completion is from the cache or forwarded; a cancel is a new load stopped in M1 (by its
+    // flags at s+3: MMIO, a TLB miss, a fault), a forwarding wait (the store does not cover the load, or
+    // its data was not in u_sqd at the M1 lookup: in its register then, a capture lag, or not yet), a D$
+    // row clash, a miss or a denied fill. Each cancelled load is timed to its completion (its LLT's
+    // wakeup), with its LQ re-entries meanwhile (its M2 passes, the completing one included); flushed
+    // ones are counted apart. Per PC (from a table written at dispatch, by ROB entry): the tracked loads
+    // and the cancels by cause, the top 20 printed. Also the grants the cancels suppress. All on stderr
+    // at the end (the console is compared): TG-SWPROF (totals), TG-SWLAT, TG-SWPC
+    localparam int PF_NC = 12;           // causes: 0 m1_mmio 1 m1_tlb 2 m1_exc 3 m1_other 4 fwd_cover
+                                         // 5 fwd_lag 6 fwd_wait 7 clash 8 miss 9 fault 10 other 11 (unused)
+    localparam int PF_NH = 7;            // latency buckets: <=2, 3-5, 6-10, 11-20, 21-50, 51-100, >100
+    longint unsigned pf_cyc, pf_trk, pf_wake, pf_chk, pf_can, pf_cmp_cache, pf_cmp_fwd, pf_gsup;
+    longint unsigned pf_cause [PF_NC];
+    longint unsigned pf_lat_sum, pf_vis_sum, pf_done, pf_lost;
+    longint unsigned pf_hist [PF_NH];
+    logic            pf_m1_mmio_q, pf_m1_tm_q, pf_m1_exc_q;      // the tracked load's M1 flags (s+3)
+    logic [N_IQ-1:0] pf_gr;                                       // the integer queues' grants
+    logic [63:0]     pf_pc_tab [ROB_ENTRIES];                     // load PCs by ROB entry, at dispatch
+    logic [ROB_IDX_W-1:0] pf_rob_ag_q, pf_rob_m1_q, pf_rob_m2_q;  // the tracked load's ROB entry
+    logic [SQ_ENTRIES-1:0] pf_sq_dr_q;                            // the SQ's data-ready flags at M1
+    string           pf_nm;
+    logic [NCOL-1:0] pf_pend_v;                                   // cancelled loads not yet complete
+    longint unsigned pf_pend_t [NCOL];
+    int unsigned     pf_pend_n [NCOL];
+    tid_t            pf_pend_tid [NCOL];
+    int unsigned     pa_trk [longint unsigned];                   // per PC: tracked loads, cancels
+    int unsigned     pa_can [longint unsigned];
+    int unsigned     pa_c   [longint unsigned];                   // per (PC, cause): key PC * 16 + cause
     for (genvar q = 0; q < N_IQ; q++) begin : g_pfg
       assign pf_gr[q] = (q != Q_FP) && (|g_q[q].u_iq.grant);
     end
-    assign pf_in_m2 = u_lsu.m2_v_q && !u_lsu.m2_pt_q && u_lsu.lqc_rd[0].llt == sw_m2_q.llt;
-    assign pf_fail  = sw_m2_q.v && !sw_drop(sw_m2_q.tid) && !(|(wake_reg & col_m2));   // the cancel's term
-    always_ff @(posedge clk) begin
+    initial pf_nm = $sformatf("%m");
+    function automatic int pf_bucket(input longint unsigned d);
+      if (d <= 2)   return 0;
+      if (d <= 5)   return 1;
+      if (d <= 10)  return 2;
+      if (d <= 20)  return 3;
+      if (d <= 50)  return 4;
+      if (d <= 100) return 5;
+      return 6;
+    endfunction
+    /* verilator lint_off BLKSEQ */   // simulation-only counters: blocking assignments in order
+    always @(posedge clk) begin
+      logic        in_m2, chk, hit;
+      int          cause;
+      longint unsigned pc;
+      for (int k = 0; k < DW; k++)
+        if (disp_we[Q_LD][k]) pf_pc_tab[int'(disp_pl[k].rob[ROB_IDX_W-1:0])] = disp_pl[k].pc;
+      if (rst) begin
+        pf_cyc = 0; pf_trk = 0; pf_wake = 0; pf_chk = 0; pf_can = 0; pf_cmp_cache = 0; pf_cmp_fwd = 0;
+        pf_gsup = 0; pf_lat_sum = 0; pf_vis_sum = 0; pf_done = 0; pf_lost = 0; pf_pend_v = '0;
+        for (int i = 0; i < PF_NC; i++) pf_cause[i] = 0;
+        for (int i = 0; i < PF_NH; i++) pf_hist[i] = 0;
+      end else begin
+        pf_cyc++;
+        if (sw_rf.v)    pf_trk++;
+        if (|wake_spec) pf_wake++;
+        if (sw_cancel)  pf_gsup += 64'($countones(pf_gr));
+        // the cancelled loads in flight: an M2 pass counted (an LQ re-entry), then completed (their LLT
+        // woken) or flushed (or the LLT reallocated)
+        for (int i = 0; i < NCOL; i++) begin
+          if (pf_pend_v[i]) begin
+            if (u_lsu.m2_v_q && !u_lsu.m2_pt_q && u_lsu.lqc_rd[0].dv &&
+                int'(llt_col(int'(u_lsu.lqc_rd[0].llt))) == i)
+              pf_pend_n[i]++;
+            if (wake_reg[i]) begin
+              pf_lat_sum += pf_cyc - pf_pend_t[i];
+              pf_vis_sum += 64'(pf_pend_n[i]);
+              pf_hist[pf_bucket(pf_cyc - pf_pend_t[i])]++;
+              pf_done++;
+              pf_pend_v[i] = 1'b0;
+            end else if (alloc[i] || (flush && pf_pend_tid[i] == flush_tid)) begin
+              pf_lost++;
+              pf_pend_v[i] = 1'b0;
+            end
+          end
+        end
+        // this cycle's M2 check of a tracked load (s+4)
+        chk   = sw_m2_q.v && !sw_drop(sw_m2_q.tid);
+        hit   = |(wake_reg & col_m2);
+        in_m2 = u_lsu.m2_v_q && !u_lsu.m2_pt_q && u_lsu.lqc_rd[0].dv && u_lsu.lqc_rd[0].llt == sw_m2_q.llt;
+        if (chk) begin
+          pc = longint'(pf_pc_tab[int'(pf_rob_m2_q)]);
+          pf_chk++;
+          pa_trk[pc] = (pa_trk.exists(pc) ? pa_trk[pc] : 0) + 1;
+          if (hit) begin
+            if (u_lsu.m2_fhit_q) pf_cmp_fwd++;
+            else                 pf_cmp_cache++;
+          end else begin
+            if (!in_m2)                                  cause = pf_m1_mmio_q ? 0 : pf_m1_tm_q ? 1 : pf_m1_exc_q ? 2 : 3;
+            else if (u_lsu.m2_fhit_q && !u_lsu.m2_fcov_q) cause = 4;
+            else if (u_lsu.m2_fhit_q && !u_lsu.m2_fdat_q) cause = pf_sq_dr_q[u_lsu.m2_fidx] ? 5 : 6;
+            else if (u_lsu.m2_clash_q)                   cause = 7;
+            else if (!u_lsu.m2_hit_q)                    cause = u_lsu.lm_fdn ? 9 : 8;
+            else                                         cause = 10;
+            pf_can++;
+            pf_cause[cause]++;
+            pa_can[pc] = (pa_can.exists(pc) ? pa_can[pc] : 0) + 1;
+            pa_c[pc * 16 + longint'(cause)] = (pa_c.exists(pc * 16 + longint'(cause)) ? pa_c[pc * 16 + longint'(cause)] : 0) + 1;
+            pf_pend_v[llt_col(int'(sw_m2_q.llt))]   = 1'b1;
+            pf_pend_t[llt_col(int'(sw_m2_q.llt))]   = pf_cyc;
+            pf_pend_n[llt_col(int'(sw_m2_q.llt))]   = 0;
+            pf_pend_tid[llt_col(int'(sw_m2_q.llt))] = sw_m2_q.tid;
+          end
+        end
+      end
       pf_m1_mmio_q <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_mmio;
       pf_m1_tm_q   <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_tm;
       pf_m1_exc_q  <= sw_m1_q.v && u_lsu.ln_v && u_lsu.nl_exc;
-      if (rst) begin
-        {pf_cyc, pf_trk, pf_wake, pf_can, pf_notm2, pf_cov, pf_dat, pf_clash, pf_miss, pf_fault,
-         pf_other, pf_gsup, pf_mmio, pf_tlb, pf_exc} <= '0;
-      end else begin
-        pf_cyc <= pf_cyc + 1;
-        if (sw_rf.v)    pf_trk  <= pf_trk + 1;
-        if (|wake_spec) pf_wake <= pf_wake + 1;
-        if (sw_cancel)  pf_gsup <= pf_gsup + 64'($countones(pf_gr));
-        if (pf_fail) begin
-          pf_can <= pf_can + 1;
-          if (!pf_in_m2) begin                              // stopped in M1 (s+3): by its flags then
-            if (pf_m1_mmio_q)      pf_mmio  <= pf_mmio + 1;
-            else if (pf_m1_tm_q)   pf_tlb   <= pf_tlb + 1;
-            else if (pf_m1_exc_q)  pf_exc   <= pf_exc + 1;
-            else                   pf_notm2 <= pf_notm2 + 1;
-          end
-          else if (u_lsu.m2_fhit_q && !u_lsu.m2_fcov_q)       pf_cov   <= pf_cov + 1;
-          else if (u_lsu.m2_fhit_q && !u_lsu.m2_fdat_q)       pf_dat   <= pf_dat + 1;
-          else if (u_lsu.m2_clash_q)                          pf_clash <= pf_clash + 1;
-          else if (!u_lsu.m2_hit_q && u_lsu.lm_fdn)           pf_fault <= pf_fault + 1;
-          else if (!u_lsu.m2_hit_q)                           pf_miss  <= pf_miss + 1;
-          else                                                pf_other <= pf_other + 1;
+      pf_rob_ag_q  <= iss_pl[Q_LD].rob[ROB_IDX_W-1:0];
+      pf_rob_m1_q  <= pf_rob_ag_q;
+      pf_rob_m2_q  <= pf_rob_m1_q;
+      pf_sq_dr_q   <= u_lsu.sq_dr_q;
+    end
+    /* verilator lint_on BLKSEQ */
+    final begin
+      if ($test$plusargs("swprof")) begin
+        longint unsigned top_pc [20];
+        int unsigned     top_n [20];
+        longint unsigned k;
+        int              nt;
+        $fdisplay(32'h8000_0002, "TG-SWPROF %s cycles=%0d tracked=%0d wakes=%0d checked=%0d completed_cache=%0d completed_fwd=%0d cancels=%0d m1_mmio=%0d m1_tlb=%0d m1_exc=%0d m1_other=%0d fwd_cover=%0d fwd_data_lag=%0d fwd_data_wait=%0d clash=%0d miss=%0d fault=%0d other=%0d grants_lost=%0d cancel_done=%0d cancel_lost=%0d cancel_cycles=%0d cancel_reentries=%0d",
+                  pf_nm, pf_cyc, pf_trk, pf_wake, pf_chk, pf_cmp_cache, pf_cmp_fwd, pf_can, pf_cause[0], pf_cause[1],
+                  pf_cause[2], pf_cause[3], pf_cause[4], pf_cause[5], pf_cause[6], pf_cause[7], pf_cause[8],
+                  pf_cause[9], pf_cause[10], pf_gsup, pf_done, pf_lost, pf_lat_sum, pf_vis_sum);
+        $fdisplay(32'h8000_0002, "TG-SWLAT %s le2=%0d le5=%0d le10=%0d le20=%0d le50=%0d le100=%0d gt100=%0d",
+                  pf_nm, pf_hist[0], pf_hist[1], pf_hist[2], pf_hist[3], pf_hist[4], pf_hist[5], pf_hist[6]);
+        nt = 0;
+        if (pa_can.first(k) != 0) begin
+          do begin
+            int j;
+            j = (nt < 20) ? nt : 19;
+            if (nt < 20 || pa_can[k] > top_n[19]) begin
+              if (nt < 20) nt++;
+              while (j > 0 && top_n[j-1] < pa_can[k]) begin
+                top_pc[j] = top_pc[j-1];
+                top_n[j]  = top_n[j-1];
+                j--;
+              end
+              top_pc[j] = k;
+              top_n[j]  = pa_can[k];
+            end
+          end while (pa_can.next(k) != 0);
+        end
+        for (int r = 0; r < nt; r++) begin
+          longint unsigned q;
+          q = top_pc[r];
+          $fdisplay(32'h8000_0002, "TG-SWPC %s rank=%0d pc=%h tracked=%0d cancels=%0d m1_mmio=%0d m1_tlb=%0d m1_exc=%0d m1_other=%0d fwd_cover=%0d fwd_data_lag=%0d fwd_data_wait=%0d clash=%0d miss=%0d fault=%0d other=%0d",
+                    pf_nm, r + 1, q, pa_trk.exists(q) ? pa_trk[q] : 0, top_n[r],
+                    pa_c.exists(q*16+0) ? pa_c[q*16+0] : 0, pa_c.exists(q*16+1) ? pa_c[q*16+1] : 0,
+                    pa_c.exists(q*16+2) ? pa_c[q*16+2] : 0, pa_c.exists(q*16+3) ? pa_c[q*16+3] : 0,
+                    pa_c.exists(q*16+4) ? pa_c[q*16+4] : 0, pa_c.exists(q*16+5) ? pa_c[q*16+5] : 0,
+                    pa_c.exists(q*16+6) ? pa_c[q*16+6] : 0, pa_c.exists(q*16+7) ? pa_c[q*16+7] : 0,
+                    pa_c.exists(q*16+8) ? pa_c[q*16+8] : 0, pa_c.exists(q*16+9) ? pa_c[q*16+9] : 0,
+                    pa_c.exists(q*16+10) ? pa_c[q*16+10] : 0);
         end
       end
     end
-    final
-      if ($test$plusargs("swprof"))
-        $fdisplay(32'h8000_0002, "TG-SWPROF %m cycles=%0d tracked=%0d wakes=%0d cancels=%0d m1_mmio=%0d m1_tlb=%0d m1_exc=%0d m1_other=%0d fwd_cover=%0d fwd_data=%0d clash=%0d miss=%0d fault=%0d other=%0d grants_lost=%0d",
-                 pf_cyc, pf_trk, pf_wake, pf_can, pf_mmio, pf_tlb, pf_exc, pf_notm2, pf_cov, pf_dat, pf_clash,
-                 pf_miss, pf_fault, pf_other, pf_gsup);
 `endif
   end else begin : g_nosw
     assign wake_spec     = '0;
