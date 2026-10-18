@@ -26,6 +26,7 @@ module tb_boot;
   parameter int MEM_R_PCT     = 85;
   parameter int L2_SETS_TB    = 64;      // the board has 1024 (tanager_soc's default)
   parameter bit DEBUG_CNT_TB  = 1'b0;    // the board debug counters; +dbg_dump prints them at the end
+  parameter bit HOST_DMA_TB   = 1'b0;    // the host DMA port, for +hdma_lines (external-write lockstep, below)
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h1000_0000;      // 256 MiB (the device tree says 128 MiB)
@@ -56,6 +57,12 @@ module tb_boot;
   axi_b_t  tb;
   logic    tawv, tawr, twv, twr, tbv, tbr;
 
+  // the host DMA port, driven by the external-write model (+hdma_lines, below)
+  hdma_ax_t dma_aw  = '0;
+  axi_w_t   dma_w   = '0;
+  hdma_b_t  dma_b;
+  logic     dma_awv = 1'b0, dma_wv = 1'b0, dma_awr, dma_wr, dma_bv;
+
   tg_trace_pkg::tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
   tg_trace_pkg::tr_wb_t  [N_CORES-1:0][TRACE_WB_PORTS-1:0] trace_wb;
@@ -63,6 +70,7 @@ module tb_boot;
 
   tanager_soc #(
     .N_CORES (N_CORES), .CLK_HZ (100_000_000), .L2_SETS (L2_SETS_TB), .L2_MSHR (24), .DEBUG_CNT (DEBUG_CNT_TB),
+    .HOST_DMA (HOST_DMA_TB),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
@@ -81,8 +89,9 @@ module tb_boot;
     .m_axi_trace_aw (taw), .m_axi_trace_aw_valid (tawv), .m_axi_trace_aw_ready (tawr),
     .m_axi_trace_w (tw), .m_axi_trace_w_valid (twv), .m_axi_trace_w_ready (twr),
     .m_axi_trace_b (tb), .m_axi_trace_b_valid (tbv), .m_axi_trace_b_ready (tbr),
-    .s_axi_dma_aw ('0), .s_axi_dma_aw_valid (1'b0), .s_axi_dma_aw_ready (), .s_axi_dma_w ('0), .s_axi_dma_w_valid (1'b0),
-    .s_axi_dma_w_ready (), .s_axi_dma_b (), .s_axi_dma_b_valid (), .s_axi_dma_b_ready (1'b1), .s_axi_dma_ar ('0),
+    .s_axi_dma_aw (dma_aw), .s_axi_dma_aw_valid (dma_awv), .s_axi_dma_aw_ready (dma_awr), .s_axi_dma_w (dma_w),
+    .s_axi_dma_w_valid (dma_wv), .s_axi_dma_w_ready (dma_wr), .s_axi_dma_b (dma_b), .s_axi_dma_b_valid (dma_bv),
+    .s_axi_dma_b_ready (1'b1), .s_axi_dma_ar ('0),
     .s_axi_dma_ar_valid (1'b0), .s_axi_dma_ar_ready (), .s_axi_dma_r (), .s_axi_dma_r_valid (), .s_axi_dma_r_ready (1'b1),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
@@ -109,6 +118,62 @@ module tb_boot;
     .w_i (tw), .w_valid_i (twv), .w_ready_o (twr),
     .b_o (tb), .b_valid_o (tbv), .b_ready_i (tbr)
   );
+
+  // ---- External writes for lockstep (verification.md §3.10; the verification track's gen_coh mode) ----
+  // +hdma_base=PA +hdma_lines=N +hdma_rounds=R (HOST_DMA_TB): R rounds, each writing every line i < N once, whole
+  // (one 64-byte burst on the host DMA port, a PutFull), in random order with 0-2000-cycle gaps; word w of line i
+  // in round k is k << 32 | i << 8 | w. Off without +hdma_lines. Each write's completion (HDMA_CPL0/1, its
+  // AccessAck cycle in the trace's count) becomes two 0xE1 records in +trace_out, ahead of every trace record of
+  // that cycle or later: trace_poll holds the records from a write's issue until its completion is read, as
+  // tanager-host does on the board. The records go ahead of every trace record captured from the write's
+  // issue on, not only from its AccessAck: the L2 may give the new line to a core before the AccessAck, and a
+  // load's record can then carry a cycle up to 256 below it (the verification track's rule, §3.10).
+  typedef struct { int line; int round; } hdma_wr_t;
+  typedef struct { int line; logic [31:0] cycle; logic [31:0] issue; } hdma_cpl_t;
+  longint unsigned hdma_base = 0;
+  int        hdma_lines = 0, hdma_rounds = 0;
+  logic      hdma_go = 1'b0;            // completions enabled: the model may start
+  logic [31:0] hdma_issue [$];          // the trace-count cycle of each write issued and not yet completed
+  hdma_wr_t  hdma_wrote [$];            // what each such write wrote, oldest first
+  hdma_cpl_t hdma_cpl [$];              // completions read, their records not yet written
+  int        hdma_n_cpl = 0;
+  if (HOST_DMA_TB) begin : g_hdma_model
+    initial begin
+      int order [$];
+      wait (hdma_go);
+      for (int k = 1; k <= hdma_rounds; k++) begin
+        order.delete();
+        for (int i = 0; i < hdma_lines; i++) order.push_back(i);
+        order.shuffle();
+        foreach (order[j]) begin
+          int i;
+          i = order[j];
+          repeat ($urandom_range(2000)) @(posedge clk);
+          @(negedge clk);
+          dma_aw  = '{id: HDMA_ID_W'(j), addr: AXI_ADDR_W'(hdma_base - RV_DRAM + 64 * i), len: 8'd3, size: 3'd4,
+                      burst: AXI_INCR};
+          dma_awv = 1'b1;
+          hdma_issue.push_back(dut.u_uncore.g_hdma.u_hdma.cycle_q);
+          hdma_wrote.push_back('{line: i, round: k});
+          do @(posedge clk); while (!dma_awr);
+          @(negedge clk) dma_awv = 1'b0;
+          for (int b = 0; b < 4; b++) begin
+            logic [63:0] w0, w1;
+            w0 = 64'(k) << 32 | 64'(i) << 8 | 64'(2 * b);
+            w1 = 64'(k) << 32 | 64'(i) << 8 | 64'(2 * b + 1);
+            dma_w  = '{data: {w1, w0}, strb: '1, last: b == 3};
+            dma_wv = 1'b1;
+            do @(posedge clk); while (!dma_wr);
+            @(negedge clk);
+          end
+          dma_wv = 1'b0;
+          do @(posedge clk); while (!dma_bv);
+          if (dma_b.resp != AXI_OKAY) $error("tb_boot: host DMA write of line %0d answered %0d", i, dma_b.resp);
+        end
+      end
+      $display("\n[tb_boot] host DMA: %0d rounds of %0d lines written", hdma_rounds, hdma_lines);
+    end
+  end
 
 
   // ---- Serial console (UART_SERIAL_TB): TXD decoded at 115200 baud (divisor 2 at 3.6864 MHz) ----
@@ -282,23 +347,64 @@ module tb_boot;
   // frees them (TRS_RP), so that tanager-lockstep can check the run (verification.md §3.9).
   int              trace_fd = 0;
   longint unsigned trace_rp = 0;
-  task automatic trace_poll();
+  // the completions waiting in HDMA_CPL0/1, in order; each retires its write's issue entry
+  task automatic hdma_cpl_read();
+    logic [31:0] c0, c1;
+    forever begin
+      hr(16'h1310, c0);
+      if (!c0[31]) break;
+      hr(16'h1314, c1);                         // pops the completion
+      if (hdma_issue.size() == 0) $fatal(1, "tb_boot: a host DMA completion with no write in flight");
+      hdma_cpl.push_back('{line: int'(c0[25:0]), cycle: c1, issue: hdma_issue.pop_front()});
+    end
+  endtask
+  // a completion's two 0xE1 records: bytes 0-7 the address, 8-39 the data, 40-43 the AccessAck cycle, 44-47
+  // the byte mask, 63 the kind (verification.md §3.10)
+  task automatic hdma_emit(input hdma_cpl_t c);
+    hdma_wr_t wr;
+    longint unsigned pa;
+    logic [511:0] line;
+    if (hdma_wrote.size() == 0) $fatal(1, "tb_boot: a host DMA completion with no write");
+    wr = hdma_wrote.pop_front();
+    pa = RV_DRAM + longint'(c.line) * 64;
+    if (pa != hdma_base + 64 * longint'(wr.line)) $error("tb_boot: completion for line %0d, wrote line %0d", c.line, wr.line);
+    for (int w = 0; w < 8; w++) line[64*w +: 64] = 64'(wr.round) << 32 | 64'(wr.line) << 8 | 64'(w);
+    for (int h = 0; h < 2; h++) begin
+      logic [511:0] r;
+      r = '0;
+      r[63:0]    = 64'(pa + 32 * h);
+      r[319:64]  = line[256*h +: 256];
+      r[351:320] = c.cycle;
+      r[383:352] = 32'hFFFF_FFFF;
+      r[511:504] = 8'hE1;
+      for (int i = 0; i < 64; i++) $fwrite(trace_fd, "%c", r[8*i +: 8]);
+    end
+    hdma_n_cpl++;
+  endtask
+
+  // With external writes, a completion's records go ahead of the first record captured at or after its
+  // write's issue, and records wait while a write issued at or before their cycle is still in flight; the
+  // last call flushes what is left.
+  task automatic trace_poll(input bit last = 1'b0);
     logic [31:0] lo, hi;
-    longint unsigned wp, a;
+    longint unsigned wp, a, n;
     logic [127:0] b;
+    logic [511:0] rec;
     if (trace_fd == 0) return;
+    if (hdma_lines > 0) hdma_cpl_read();
     hr(16'h1038, lo);
     hr(16'h103C, hi);
     wp = {hi, lo};
-    for (longint unsigned n = trace_rp; n < wp; n++) begin
+    for (n = trace_rp; n < wp; n++) begin
       a = longint'(TR_BASE) + (n % (64'd1 << TR_LOG2)) * 64;
-      for (int k = 0; k < 4; k++) begin
-        b = u_tmem.peek_beat(a + longint'(k) * 16);
-        for (int i = 0; i < 16; i++) $fwrite(trace_fd, "%c", b[8*i +: 8]);
-      end
+      for (int k = 0; k < 4; k++) rec[128*k +: 128] = u_tmem.peek_beat(a + longint'(k) * 16);
+      while (hdma_cpl.size() > 0 && hdma_cpl[0].issue <= rec[351:320]) hdma_emit(hdma_cpl.pop_front());
+      if (hdma_issue.size() > 0 && rec[351:320] >= hdma_issue[0]) break;   // a write in flight may precede it
+      for (int i = 0; i < 64; i++) $fwrite(trace_fd, "%c", rec[8*i +: 8]);
     end
-    if (wp != trace_rp) begin
-      trace_rp = wp;
+    if (last) while (hdma_cpl.size() > 0) hdma_emit(hdma_cpl.pop_front());
+    if (n != trace_rp) begin
+      trace_rp = n;
       hw64(16'h1030, trace_rp);
     end
   endtask
@@ -349,6 +455,20 @@ module tb_boot;
       hw(16'h1000, 32'h1);                      // enable, no wrap: the cores wait for the reader
       do hr(16'h1040, v); while (!v[0]);
     end
+    if ($value$plusargs("hdma_lines=%d", hdma_lines) && hdma_lines > 0) begin
+      if (!HOST_DMA_TB) $fatal(1, "tb_boot: +hdma_lines needs a build with HOST_DMA_TB=1");
+      if (!$value$plusargs("hdma_base=%h", hdma_base)) hdma_base = 64'h8010_0000;
+      if (!$value$plusargs("hdma_rounds=%d", hdma_rounds)) hdma_rounds = 4;
+      // the DMA port drops a write past the window (no AccessAck, so no completion), which would hold the trace
+      if (hdma_base < RV_DRAM || hdma_base + 64 * hdma_lines - RV_DRAM > longint'(CO_SIZE) || hdma_base % 64 != 0)
+        $fatal(1, "tb_boot: +hdma_base %h: the lines must be line-aligned inside the RISC-V window (%h + %h)",
+               hdma_base, RV_DRAM, CO_SIZE);
+      hw(16'h1300, 32'h1);                      // HDMA_CTRL: record completions
+      hdma_go = 1'b1;
+      // the plusargs spelled out here also give run_coh's guard its string ("hdma_lines=") in the binary
+      $display("tb_boot: host DMA writes, +hdma_lines=%0d +hdma_base=%h +hdma_rounds=%0d", hdma_lines, hdma_base,
+               hdma_rounds);
+    end
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0);
 
@@ -369,9 +489,14 @@ module tb_boot;
     if (trace_fd != 0) begin                    // stop taking records; the lanes drain into the ring
       hw(16'h1000, 32'h0);
       repeat (4000) @(posedge clk);
-      trace_poll();
+      for (int t = 0; t < 1000 && hdma_issue.size() > 0; t++) begin   // writes still in flight complete
+        repeat (100) @(posedge clk);
+        hdma_cpl_read();
+      end
+      trace_poll(1'b1);
       $fclose(trace_fd);
-      $display("\n[tb_boot] trace: %0d records", trace_rp);
+      $display("\n[tb_boot] trace: %0d records%s", trace_rp,
+               hdma_lines > 0 ? $sformatf(", %0d external-write completions", hdma_n_cpl) : "");
     end
     if (DEBUG_CNT_TB && $test$plusargs("dbg_dump")) begin
       // the cores held first (CTRL[0]), so the counters stop and the dump is one moment (the verification
@@ -379,7 +504,8 @@ module tb_boot;
       logic [31:0] dv;
       hw(16'h010, 32'h1);
       repeat (100) @(posedge clk);
-      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 1; i++) begin
+      // the counters, the levels word, then the DRAM windows' refusals and the first L2 error and refusal
+      for (int i = 0; i <= 8 * N_BANKS + 5 * N_CORES + 6; i++) begin
         hw(16'h1200, 32'(i));
         repeat (200) @(posedge clk);
         hr(16'h1204, dv);

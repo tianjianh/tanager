@@ -203,7 +203,7 @@ Our KV260, set up on 2026-10-14 by the board track (DR-126, stage A).
 
 ### A53 OS changes (change log)
 
-The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-16): packages, a network bridge and boot settings. Each change is listed here with how to undo it.
+The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-16): packages, a network bridge and boot settings, and on 2026-10-17 the SD card's repartitioning. Each change is listed here with how to undo it.
 - **Rules:** the laptop's SSH path to the board is never cut. Network changes are applied so that they revert on their own if contact is lost (`netplan try`, or a timed rollback).
 - **Kernel updates** happen only when we choose, after re-running the power-up checks: boot, command line, `k26-starter-kits` plus `fancontrol`, and disk.
 
@@ -211,6 +211,9 @@ The user approved the A53 OS changes that stages C and D need (DR-147, 2026-10-1
 |---|---|---|---|
 | 2026-10-16 | `sudo apt-mark hold linux-xilinx linux-image-xilinx linux-headers-xilinx linux-image-6.8.0-1036-xilinx linux-modules-6.8.0-1036-xilinx linux-headers-6.8.0-1036-xilinx linux-xilinx-headers-6.8.0-1036 flash-kernel` | Unattended upgrades replaced the kernel (1015 → 1036) while the board was off. The hold keeps the A53's kernel and boot script fixed through stages C and D. Userland security updates continue. | `sudo apt-mark unhold` with the same list; check with `apt-mark showhold` |
 | 2026-10-17 | A bridge `br0` over `eth0`, **in memory only**: NetworkManager connections `tg-br0` (bridge, `eth0`'s MAC `00:0a:35:2a:df:d8`, DHCP client ID `mac`, STP off) and `tg-br0-eth0` (eth0 as its port), both `save no`. [`board/runs/net_bridge_up.sh`](board/runs/net_bridge_up.sh), run detached under a NetworkManager checkpoint (180 s rollback), then confirmed from a fresh SSH session ([`net_bridge_confirm.sh`](board/runs/net_bridge_confirm.sh)). The laptop's lease came back the same (192.168.137.177); SSH dropped for about 7 s. | Stage C's network: the RISC-V's virtio-net TAP (`tanager-host --net tanager0 --net-bridge br0`) joins the laptop's link and takes its own lease. | [`board/runs/net_bridge_down.sh`](board/runs/net_bridge_down.sh) (deletes both connections and brings back "Wired connection 1", under a checkpoint again). A reboot or a NetworkManager restart also undoes it, since nothing was saved. |
+| 2026-10-17 | **Deleted the Debian images on the A53:** `~/tanager/sc2/`, `sc2net/` and `sc2netc/tanager-trixie.img*`, `httpd/blob64`, `stress_src`. The root went from 8.0 GB to 3.3 GB used. Before deleting, the gcc/sysbench image's sha256 (`d72f3872…`) was checked against the laptop backup's. | To fit the A53's root in 6 GiB (below). | Restore from the laptop: `C:\KV260-backup\2026-10-17\` (`SHA256SUMS`), which holds the gcc/sysbench image and the SoC track's three Debian packages. |
+| 2026-10-17 | **cloud-init's root growing turned off:** `/etc/cloud/cloud.cfg.d/99-tanager-root-size.cfg` with `growpart: {mode: 'off'}` and `resize_rootfs: false`. Checked with `cloud-init single --name growpart` and `--name resizefs`, and again at the next boots. | **Ubuntu's cloud-init regrows the root on every boot, so a shrink must disable it first.** `growpart` and `resizefs` run with "frequency always". They undid the first shrink 16 s into the boot, extending p2 to the end of the card and growing the filesystem online, with no data lost. Now they also keep p2 from growing into p3. | Delete the file. With p3 present, growpart has no free space to take. |
+| 2026-10-17 | **The SD card repartitioned for the RISC-V** (the user's decision, DR-147). p2 (`writable`, the A53's root) went from 13.6 GiB to **6 GiB**: sectors 2,099,200–14,682,111, a 1,572,864-block filesystem. **p3** is new: sectors 14,682,112–30,535,679, 15,853,568 sectors (7,741 MiB), type 83, for the RISC-V's root (`LABEL=tanager-root`). How it was done:<br>• a one-shot initramfs step, [`board/runs/tg-shrink-root.premount`](board/runs/tg-shrink-root.premount) with its [`.hook`](board/runs/tg-shrink-root.hook), armed by `tg-shrink-root.go` on p1. It ran twice: the first shrink was undone by cloud-init (above);<br>• then an online `resize2fs` of p2, and `sfdisk --force --no-reread --append` for p3, which also told the kernel (a following `partx -a` then reports "error adding partition 3", which is harmless);<br>• the hook and script were removed and `update-initramfs -u` run. The initramfs again has the same 2,509 files as before.<br>Records in [`board/sdcard/`](board/sdcard/). Afterwards the step's leftovers on p1 were deleted (the coordinator): `image.fit.pre-shrink`, its two logs (kept in `board/sdcard/`), and flash-kernel's `image.fit.bak`. p1 keeps `image.fit`, the original `image.fit.orig`, and the boot scripts. | The RISC-V's own partition (DR-147). Stage C serves it whole as the virtio disk (`tanager-host --blk /dev/mmcblk1p3`); in stage D it is the RISC-V's mmcblk root. | `sudo sfdisk --delete /dev/mmcblk1 3`, then `echo ",+" \| sudo sfdisk -N 2 --force --no-reread /dev/mmcblk1`, then `sudo resize2fs /dev/mmcblk1p2` (online). If the kernel still shows the old p2 size, reboot first. |
 
 ## Bring-up on the board (2026-10-14)
 
@@ -318,3 +321,14 @@ The board track ran the SoC track's two-core and stage C bitstreams. Each run's 
 - **The network** ([sc2net](board/sc2net/README.md)): virtio-net on a TAP that `tanager-host` serves, bridged into the A53's `br0` (in memory, under a NetworkManager checkpoint).
   - Debian takes its own lease from the laptop's connection sharing, syncs its clock, resolves names, and reaches Debian's mirror (`apt-get update`).
   - virtio-net carries 1.3 MB/s (a 112 MB download), limited by the guest at 70 MHz, not by the link ([A/B](board/sc2netc/README.md)).
+
+**100 MHz** ([sc3](board/sc3/README.md)): main's tree (stage C, DR-151) at 100 MHz.
+- **Debian:** about 1.45× the 70 MHz results on the same image: the boot, gcc, sysbench and the LAN transfer.
+- **Lockstep:** two-core Linux passes the checker from boot to power-off (409,133,336 records).
+- **DR-141's set:** 3 boots out of 3 pass.
+  - CoreMark: 2.769 per MHz, 276.9 iterations/s per core, and 547.2 for two copies at once, one per hart.
+  - Dhrystone: 140.6 DMIPS.
+
+**The RISC-V's own partition** ([sdcard](board/sdcard/README.md)): the SD card has a p3 of 7,741 MiB for the RISC-V. The A53's root shrank to 6 GiB.
+- **The boot:** sc3 boots Debian 13 from p3, served whole (`tanager-host --blk /dev/mmcblk1p3`). The SoC track's U-Boot finds extlinux on the whole disk, and the root is `/dev/vda`.
+- **The check:** a 64 MiB write survives a clean power-off, and p3 checks clean on the A53.

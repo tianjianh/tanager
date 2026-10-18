@@ -5,6 +5,8 @@
 # QEMU's own device tree is used (its virtio-mmio slots are not the board's), so this checks the image and
 # U-Boot, not the board's tree. The image is not written: QEMU runs on a throwaway copy-on-write overlay.
 # QEMU's virtio-net, on its user network with no way out (restrict=on), checks the image's DHCP and DNS setup.
+# The image is either the disk image or its file system alone, as on the RISC-V's SD partition (§8.2: no
+# partition table, booted by U-Boot's whole-disk try): the root is then vda, not vda1.
 #   bash sw/qemu/debian_test.sh [image] [fw_jump.bin] [u-boot.bin]
 # Exit status 0 on pass.
 set -euo pipefail
@@ -35,7 +37,7 @@ for _ in $(seq 1 900); do
   sleep 1
 done
 if grep -q "$prompt" "$log"; then
-  printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
+  printf '%s\n' 'cat /etc/debian_version; uname -r; findmnt -no SOURCE /; sudo -n true && echo SUDO-OK; readlink /etc/resolv.conf; systemctl show -p DefaultTimeoutStartUSec; /usr/lib/systemd/systemd-networkd-wait-online --timeout=60; ip -4 -br addr show scope global; sudo poweroff' >&3
   for _ in $(seq 1 300); do kill -0 "$qpid" 2>/dev/null || break; sleep 1; done
 fi
 kill "$qpid" 2>/dev/null && echo "QEMU killed (no power-off)" || true
@@ -53,14 +55,15 @@ check 'Retrieving file: .*vmlinu[xz]-'              "U-Boot's extlinux menu load
 check 'Retrieving file: .*initrd'                   "and its initrd"
 check 'Linux version [0-9.]+.*riscv64'              "Debian's kernel starts"
 check 'virtio_blk virtio[0-9]+: .*\[vda\]'          "virtio-blk disk vda (from the initramfs)"
-check 'EXT4-fs \(vda1\): mounted filesystem'        "the root file system mounts"
+check 'EXT4-fs \(vda1?\): mounted filesystem'       "the root file system mounts"
 check 'Welcome to .*Debian GNU/Linux 13'            "systemd: Debian 13"
 check 'tanager login: tanager \(automatic login\)'  "automatic login on the serial console"
 check '^13\.[0-9]+'                                 "/etc/debian_version is 13.x"
-check '^/dev/vda1$'                                 "the root is /dev/vda1"
+check '^/dev/vda1?$'                                "the root is /dev/vda1, or /dev/vda for a file system alone"
 check '^SUDO-OK'                                    "sudo without a password"
 check '^\.\./run/systemd/resolve/stub-resolv\.conf$'   "/etc/resolv.conf is systemd-resolved's stub"
 check ' 10\.0\.2\.15/24'                             "DHCP from QEMU's user network (systemd-networkd)"
+check '^DefaultTimeoutStartUSec=10min$'              "systemd's start timeout raised for the board's clock"
 check 'reboot: Power down'                          "power-off"
 none  '\[FAILED\]'                                  "no systemd unit fails"
 none  'unable to resolve host'                      "the hostname resolves (/etc/hosts)"

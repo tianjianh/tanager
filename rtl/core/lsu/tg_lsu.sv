@@ -276,6 +276,10 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
   logic   [LQ_ENTRIES-1:0]           lq_part_q;    // ... partial overlap (wait until it leaves)
+  // DR-149 (DC_MSHRS > 1): an L_MISS load waits for its entry's install (lq_we_q), or, while it
+  // has none (lq_wany_q), for any install or the miss side going idle
+  logic   [LQ_ENTRIES-1:0]           lq_wany_q;
+  logic   [LQ_ENTRIES-1:0][idx_w(DC_MSHRS)-1:0] lq_we_q;
   lqid_t                             lq_head_q, lq_tail_q;
 
   // ---- SQ ----
@@ -447,8 +451,11 @@ module tg_lsu
   logic [63:0]       dc_dword;
   logic              lm_req;
   logic [PA_W-1:0]   lm_pa;
-  logic              mshr_idle, deny_v;
-  logic [PA_W-1:6]   deny_line;
+  logic              mshr_idle, lm_fdn;            // lm_fdn: the miss's line, its last fill denied
+  logic              lm_ans_v, lm_ans_wait;      // DR-149 (DC_MSHRS > 1): the miss's answer, its entry
+  logic [idx_w(DC_MSHRS)-1:0] lm_ans_e;
+  logic [DC_MSHRS-1:0] m_done;                   // ... the entries' installs, and any (or none busy)
+  logic              m_wake_any;
   logic              st_req, st_ack;
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
@@ -464,7 +471,7 @@ module tg_lsu
   tg_dcache u_dc (
     .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
-    .lm_req, .lm_pa, .mshr_idle, .deny_v, .deny_line,
+    .lm_req, .lm_pa, .mshr_idle, .lm_fdn, .lm_ans_v, .lm_ans_wait, .lm_ans_e, .m_done, .m_wake_any,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
     .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
@@ -651,6 +658,8 @@ module tg_lsu
   // ================= M2 =================
   logic              m2_v_q, m2_clash_q, m2_hit_q, m2_fhit_q, m2_fcov_q, m2_fdat_q, m2_pt_q;
   logic [LIW-1:0]    m2_lq_q;
+  logic              ma3_v_q, ma4_v_q;           // DR-149: a load's miss, carried to the D$'s answer
+  logic [LIW-1:0]    ma3_lq_q, ma4_lq_q;
   logic [PA_W-1:0]   m2_pa_q;
   logic [63:0]       m2_dword_q, m2_fdword;
   logic [SQ_ENTRIES-1:0] m2_foh_q;                  // the forwarding store, one-hot
@@ -679,7 +688,7 @@ module tg_lsu
     end else if (m2_clash_q) begin
       m2_out_w = O_RETRY;
     end else if (!m2_hit_q) begin
-      m2_out_w = (deny_v && deny_line == m2_pa_q[PA_W-1:6]) ? O_FAULT : O_MISS;
+      m2_out_w = lm_fdn ? O_FAULT : O_MISS;   // (lm_pa is m2_pa_q: its line's last fill was denied)
     end
     m2_val = ext_al(dw, m2_pa_q[2:0], lq_size_q[m2_lq_q], lqc_rd[0].uns);
   end
@@ -688,7 +697,7 @@ module tg_lsu
   logic m2_ok, pt_rsp, pt_hit, pt_den;
   assign pt_rsp = m2_v_q && m2_pt_q && !flush;
   assign pt_hit = m2_hit_q && !m2_clash_q;
-  assign pt_den = !m2_hit_q && deny_v && deny_line == m2_pa_q[PA_W-1:6];
+  assign pt_den = !m2_hit_q && lm_fdn;
   // The wakeups do not wait for the PMP checker (m2_okw): a load it denies faults, and the dependents
   // it woke read a stale value and go with the trap's flush (the flush frees its LLT)
   logic m2_okw;
@@ -841,31 +850,37 @@ module tg_lsu
   assign am_take  = am_st_q == AM_RES && !m2_okw && !xr_take && !flush;
 
   logic            rsv_v_d;
+  (* keep = "true" *) logic rsv_v_e;       // all but a trap's or xRET's clear, kept as a net
   logic [PA_W-1:6] rsv_line_d;
   always_comb begin
-    rsv_v_d    = rsv_v_q;
+    rsv_v_e    = rsv_v_q;
     rsv_line_d = rsv_line_q;
     if (am_req && am_ack && am_lr) begin
-      rsv_v_d    = 1'b1;
+      rsv_v_e    = 1'b1;
       rsv_line_d = am_pa[PA_W-1:6];
     end
     // every SC ends it
-    if ((am_go && am_sc && !rsv_ok_go && !pden_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_d = 1'b0;
-    if (lose_v && lose_line == rsv_line_d) rsv_v_d = 1'b0;
-    if (rsv_clr) rsv_v_d = 1'b0;
+    if ((am_go && am_sc && !rsv_ok_go && !pden_go) || (am_req && (am_ack || am_den) && am_sc)) rsv_v_e = 1'b0;
+    if (lose_v && lose_line == rsv_line_d) rsv_v_e = 1'b0;
   end
+  // A trap or xRET ends it too, in the last LUT (timing: the commit's trap decision is late)
+  assign rsv_v_d = rsv_v_e && !rsv_clr;
   // A young reservation holds the D$'s probes, up to RSV_HOLD cycles after its LR or until it ends
   // (its SC, the line lost, a trap or xRET), so an LR/SC pair completes under another core's probes:
   // a read probe that takes T away also ends it (forward progress, core-pipeline §13). Bounded and
-  // independent of A-channel progress (TL-C rule 4)
+  // independent of A-channel progress (TL-C rule 4). The count runs from the LR whatever the
+  // reservation does, and the hold is the count while the registered reservation holds, so its end
+  // (a trap's clear above all) stays out of the count's reset (timing). The same hold as clearing the
+  // count at the end: a reservation starts only with an LR's ack, which sets the count (k-induction;
+  // checked against that form in simulation)
   localparam int RSV_HOLD = 64;
   logic [6:0] rsv_hold_q;
   always_ff @(posedge clk) begin
-    if (rst || !rsv_v_d)             rsv_hold_q <= '0;
+    if (rst)                            rsv_hold_q <= '0;
     else if (am_req && am_ack && am_lr) rsv_hold_q <= 7'(RSV_HOLD);
-    else if (rsv_hold_q != '0)        rsv_hold_q <= rsv_hold_q - 1'b1;
+    else if (rsv_hold_q != '0)          rsv_hold_q <= rsv_hold_q - 1'b1;
   end
-  assign pr_hold = rsv_hold_q != '0;
+  assign pr_hold = rsv_v_q && rsv_hold_q != '0;
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin
     wake_ld = '0;
@@ -1170,7 +1185,8 @@ module tg_lsu
     .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
     .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
-    .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q), .mshr_idle,
+    .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
+    .mshr_idle(DC_MSHRS == 1 ? mshr_idle : m_wake_any),   // (DR-149: any install, or none busy)
     .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
   assign dt_fill      = pw_done && pw_ok && !pw_who[1];
@@ -1345,6 +1361,8 @@ module tg_lsu
       sq_tail_q <= '0;
       m1_v_q    <= 1'b0;
       m2_v_q    <= 1'b0;
+      ma3_v_q   <= 1'b0;
+      ma4_v_q   <= 1'b0;
       r_v_q     <= 1'b0;
       r_fv_q    <= 1'b0;
       xs_q      <= X_IDLE;
@@ -1484,11 +1502,18 @@ module tg_lsu
           lq_blk_q[m2_lq_q]  <= m2_fid;
           lq_part_q[m2_lq_q] <= !m2_fcov_q;
         end
+        // DR-149 (DC_MSHRS > 1): a missing load waits for any entry until the D$ answers (read only
+        // in L_MISS, so the same holds for its enable)
+        if (m2_out_w == O_MISS) lq_wany_q[m2_lq_q] <= 1'b1;
       end
       if (lm_st && !flush) lq_st_q[lm_lq] <= L_EXC;    // an MMIO load the PMP checker denied
 
       // ---- M1 -> M2 ----
       m2_v_q      <= m1_go && !flush;
+      ma3_v_q     <= lm_req && !m2_pt_q;            // (lm_req is not set under a flush)
+      ma3_lq_q    <= m2_lq_q;
+      ma4_v_q     <= ma3_v_q && !flush;
+      ma4_lq_q    <= ma3_lq_q;
       m2_lq_q     <= m1_lq_q;
       m2_pa_q     <= m1pa;
       m2_clash_q  <= m1_clash;
@@ -1524,10 +1549,22 @@ module tg_lsu
         lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
 
+      // ---- DR-149 (DC_MSHRS > 1): the D$'s answer to a load's miss, two cycles after it ----
+      if (DC_MSHRS > 1 && lm_ans_v && ma4_v_q && !flush && lq_st_q[ma4_lq_q] == L_MISS) begin
+        if (lm_ans_wait) begin
+          lq_wany_q[ma4_lq_q] <= 1'b0;
+          lq_we_q[ma4_lq_q]   <= lm_ans_e;
+        end else begin
+          lq_st_q[ma4_lq_q]   <= L_READY;           // its line is in, or installs now
+        end
+      end
+
       // ---- Waiting loads re-check their condition ----
       for (int i = 0; i < LQ_ENTRIES; i++) begin
         if (lq_v_q[i] && !(ag_v && !ag_pt && ag_lq == LIW'(i)) && !(m2_v_q && !m2_pt_q && m2_lq_q == LIW'(i))) begin
-          if (lq_st_q[i] == L_MISS && mshr_idle) lq_st_q[i] <= L_READY;
+          if (lq_st_q[i] == L_MISS && (DC_MSHRS == 1 ? mshr_idle :
+                                       lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
+            lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
             if (!sq_live(lq_blk_q[i], sq_head_q, sq_tail_q) || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
@@ -1824,7 +1861,8 @@ module tg_lsu
   end
 
   logic unused;
-  assign unused = ^{ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
+  assign unused = ^{lm_ans_v, lm_ans_wait, lm_ans_e, m_done, m_wake_any, mshr_idle,  // DR-149's (one is read per DC_MSHRS)
+                    ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
                     mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld};
 
@@ -1861,6 +1899,15 @@ module tg_lsu
         if (lq_v_q[i] && lq_st_q[i] == L_STQ)
           assert (lq_blk_q[i] == blk_chk_q[i] && lq_part_q[i] == part_chk_q[i])
             else $error("tg_lsu: a blocked load's store fields differ from the verdict's");
+  end
+  // The probe hold is the one a count cleared at the reservation's end gives
+  logic [6:0] rsv_hold_chk_q;
+  always_ff @(posedge clk) begin
+    if (rst || !rsv_v_d)                rsv_hold_chk_q <= '0;
+    else if (am_req && am_ack && am_lr) rsv_hold_chk_q <= 7'(RSV_HOLD);
+    else if (rsv_hold_chk_q != '0)      rsv_hold_chk_q <= rsv_hold_chk_q - 1'b1;
+    if (rs_q && !rst)
+      assert (pr_hold == (rsv_hold_chk_q != '0)) else $error("tg_lsu: the probe hold differs from the cleared count's");
   end
   // The store-data capture's one-hot choices are sq_oldest's, and its tags and FP flag theirs
   always_ff @(posedge clk)

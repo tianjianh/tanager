@@ -1,0 +1,6 @@
+estimated slack = period - offset (0.12 ns) - data path delay; the paths are cut, so Vivado gives no slack
+== /home/w/tanager-build/track-spikes-72f833/fp/g8_115_fill_routed.dcp (c0 8.672 ns; WNS -2.012)
+  core 0 u_lsu*r_data_q_reg*  -> u_rob*exr_*      no timed path; 0 of 78 destination registers reachable
+  core 0 u_ex*wbq_q_reg*      -> u_rob*cmp_q_reg* no cells (192 / 0)
+  core 1 u_lsu*r_data_q_reg*  -> u_rob*exr_*      no timed path; 0 of 78 destination registers reachable
+  core 1 u_ex*wbq_q_reg*      -> u_rob*cmp_q_reg* no cells (192 / 0)

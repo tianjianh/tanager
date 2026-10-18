@@ -29,6 +29,7 @@
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
+#include "extwrite.h"
 #include "virtio.h"
 
 /* ---- Host register map (docs/spec/host.md) ---- */
@@ -69,6 +70,7 @@ enum {
 #define CTRL_CORE_RST  0x1u
 #define CTRL_UNC_RST   0x2u
 #define CTRL_LOSSLESS  0x4u
+#define CTRL_TFREEZE   0x8u            /* mtime holds while the commit trace stalls a core (board lockstep) */
 #define ST_CORES_RST   0x1u
 #define ST_UNC_RST     0x2u
 #define ST_L2_INIT     0x4u
@@ -153,6 +155,8 @@ struct opts {
   double timeout;
   long inj_rd, inj_wr, inj_mode, inj_bw;
   int lossless;
+  int freeze_time;        /* CTRL.TFREEZE: mtime holds while the commit trace stalls a core */
+  int dbg_exit;           /* run: print the debug counters before the exit's hold (they read 0 after it) */
   /* commit trace (docs/spec/uncore-trace.md): a ring at the top of the carve-out */
   const char *trace;      /* output file ("-" = stdout); NULL = no tracing */
   int trace_log2;         /* ring of 2^n records */
@@ -184,6 +188,7 @@ static void usage(void) {
     "                                         (implied by --trace) zeroes the window first\n"
     "  run [--pty|--no-console] [--timeout S] [--lossless] [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R]\n"
     "      [--trace FILE [--trace-log2 N] [--trace-wrap] [--trace-start PC] [--trace-stop PC [--trace-post N]]]\n"
+    "      [--freeze-time] [--dbg]\n"
     "                                         release reset (a running system keeps running), bridge the\n"
     "                                         console, exit on power-off/tohost and hold everything;\n"
     "                                         --trace writes every commit record (64 B each) to FILE, stalling\n"
@@ -192,6 +197,10 @@ static void usage(void) {
     "                                         carve-out (default N 22: 256 MiB); the device tree's memory must\n"
     "                                         fit in the rest. --trace - writes the records to stdout and\n"
     "                                         everything else to stderr; if the reader stops, run exits 4\n"
+    "                                         --freeze-time holds mtime while the trace stalls the cores\n"
+    "                                         (CTRL.TFREEZE), so Linux under the checker does not drown in\n"
+    "                                         timer ticks; --dbg prints the debug counters (dbg) before the\n"
+    "                                         exit's hold, which clears them\n"
     "  trace status                           commit-trace stream state\n"
     "  boot ...                               load, then run\n"
     "      [--blk IMAGE [--blk-ro]] [--rng]    with load/run/boot: serve virtio-blk on IMAGE (slot 1) and virtio-rng\n"
@@ -199,7 +208,9 @@ static void usage(void) {
     "                                         built with TG_VIRTIO_WINDOW=1 TG_HOST_DMA=1, a device tree with VIRTIO=1)\n"
     "      [--net TAP [--net-bridge BR] [--net-mac MAC]]\n"
     "                                         and virtio-net (slot 2) on the TAP device TAP, made and brought up if\n"
-    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01)\n"
+    "                                         missing and added to the bridge BR (MAC default 02:74:6e:67:72:01).\n"
+    "                                         With --trace (not --trace-wrap), each store into the RISC-V's RAM\n"
+    "                                         goes into the trace as an external-write record for the checker\n"
     "  inj [--inj-rd N] [--inj-wr N] [--inj-mode M] [--inj-bw R] [--stats]\n"
     "  tg start [LINES] | stop | status       traffic generators (bring-up bitstreams); start sets the\n"
     "                                         DRAM window from --base/--size, as load does\n"
@@ -224,8 +235,9 @@ static uint64_t num(const char *s) {
 
 /* ---- Commands ---- */
 /* The board debug counters (tg_uncore DEBUG_CNT): each L2 bank's coherence messages, misses, AXI reads and
- * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels. The
- * index crosses into the core clock and the value back, so each read waits a millisecond. */
+ * fills, each core's data-cache messages, the L2 error events, then the channels' valid/ready levels, the
+ * DRAM windows' refusals and the first L2 error and refusal, whole. The index crosses into the core clock
+ * and the value back, so each read waits a millisecond. */
 static void cmd_dbg(void) {
   static const char *bk[] = { "A in", "B out (probes)", "C in", "D out", "E in (GrantAck)", "misses", "AXI reads", "fills" };
   static const char *ck[] = { "A out", "B in (probes)", "C out", "D in", "E out (GrantAck)" };
@@ -256,6 +268,39 @@ static void cmd_dbg(void) {
       }
       printf("%s\n", v >> 30 & 1 ? " L2_ERR" : "");
     }
+  }
+  /* index n + 1 ...: the refusals, then the first L2 error ({info}, {valid, bank, line}) and the first
+   * refusal ({valid, write, line}); 0xDEB00000 in a bitstream without them */
+  uint32_t x[5];
+  for (unsigned k = 0; k < 5; k++) { wr(R_DBG_SEL, n + 1 + k); sleep_us(1000); x[k] = rd(R_DBG_VAL); }
+  if (x[0] == 0xDEB00000u) {
+    printf("  (no L2 error capture in this bitstream)\n");
+  } else {
+    printf("  DRAM window refusals     %10u reads, %u writes\n", x[0], x[1]);
+    static const char *ek[] = { "?", "a Release or ProbeAck for a line not held", "a ProbeAck no probing MSHR waits for",
+                                "a victim still held after its probes", "a write response error", "a fill read error",
+                                "?", "?" };
+    static const char *cop[] = { "?0", "?1", "?2", "?3", "ProbeAck", "ProbeAckData", "Release", "ReleaseData" };
+    static const char *cpar[] = { "TtoB", "TtoN", "BtoN", "TtoT", "BtoB", "NtoN", "?6", "?7" };
+    uint32_t e = x[2], k = e & 7;
+    uint64_t line = x[3] & 0x1fffffffu;
+    if (x[3] >> 31) {
+      printf("  first L2 error: bank %u, %s", x[3] >> 29 & 3, ek[k]);
+      if (k >= 1 && k <= 3)                      /* an AXI error carries no line: see the first refused burst */
+        printf(", line 0x%" PRIx64 " (address 0x%" PRIx64 ")", line, line << 6);
+      if (k >= 1 && k <= 3)
+        printf("; C %s %s from source 0x%03x; directory %s: valid %u dirty %u tip %u pres 0x%x; MSHR %u",
+               cop[e >> 3 & 7], cpar[e >> 6 & 7], e >> 9 & 0x3ff, e >> 19 & 1 ? "hit" : "miss", e >> 20 & 1,
+               e >> 21 & 1, e >> 22 & 1, e >> 23 & 0xf, e >> 27 & 0x1f);
+      else
+        printf("; AXI resp %u, ID %u", e >> 3 & 3, e >> 9 & 0x3ff);
+      printf("\n");
+    } else {
+      printf("  no L2 error since the uncore reset\n");
+    }
+    if (x[4] >> 31)
+      printf("  first refused burst: a %s at 0x%" PRIx64 "\n", x[4] >> 30 & 1 ? "write" : "read",
+             (uint64_t)(x[4] & 0x3fffffffu) << 6);
   }
   /* The cores' board-debug words (tg_core dbg_o, DR-150), index 128 + 32c + w: word 0 the status, words 1-15
    * the first dispatch groups after reset, 16-31 the first commit cycles that retire. 0xDEB00000: none.
@@ -334,8 +379,13 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (argc < 1) usage();
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
   if (strcmp(argv[0], "status")) uncore_up();
+  if (strcmp(argv[0], "status") && (rd(R_HDMA_CTRL) & 1)) {   /* a write would wait once 16 had completed */
+    fprintf(stderr, "dma: completions were being recorded (a lockstep run's, killed?); recording off\n");
+    wr(R_HDMA_CTRL, 0);
+  }
   if (!strcmp(argv[0], "status")) {
-    printf("host DMA port: completions %s, %u waiting; %u lines read, %u written; %u write bursts dropped in part\n",
+    printf("host DMA port: completions %s, %u waiting; %u line reads, %u line writes (one per burst within a line, "
+           "an 8-byte store is one); %u write bursts dropped in part\n",
            rd(R_HDMA_CTRL) & 1 ? "recorded" : "not recorded", rd(R_HDMA_STATUS) & 0x1f, rd(R_HDMA_RD_LINES),
            rd(R_HDMA_WR_LINES), rd(R_HDMA_WR_DROPS));
   } else if (!strcmp(argv[0], "read") && argc >= 2) {
@@ -613,6 +663,28 @@ static void     h_ram_wr32(uint64_t off, uint32_t v) { *(volatile uint32_t *)(vi
 static void     h_ram_wr8(uint64_t off, uint8_t v)   { vio_ram[off] = v; }
 static void     h_barrier(void)                      { __asm__ volatile("dsb sy" ::: "memory"); }
 
+/* Board lockstep with the back-ends (extwrite.h; docs/spec/verification.md §3.10): with --trace, every store
+ * through the DMA port becomes an external-write record in the trace, between the ring's records. The port
+ * queues each written line's completion while HDMA_CTRL[0] is set, and a write waits while the queue is
+ * full, so the bit must not outlive the run: an exit of any kind clears it. */
+static int xw_on;
+static void h_emit(const uint8_t rec[XW_REC_BYTES]) {
+  if (trace_broken) return;
+  if (fwrite(rec, XW_REC_BYTES, 1, trace_out) != 1) {
+    fprintf(stderr, "\r\n[%s] trace write: %s\r\n", prog, strerror(errno));
+    trace_broken = 1;
+  }
+}
+static void h_xw_fail(const char *msg) { die("%s (HDMA_STATUS 0x%x)", msg, rd(R_HDMA_STATUS)); }
+static void hdma_rec_off(void) { if (xw_on) wr(R_HDMA_CTRL, 0); }
+static void hdma_rec_on(void) {
+  wr(R_HDMA_CTRL, 0);
+  for (int i = 0; i < 64 && (rd(R_HDMA_STATUS) & 0x1f); i++) (void)rd(R_HDMA_CPL1);   /* an earlier run's */
+  wr(R_HDMA_CTRL, 1);
+  xw_on = 1;
+  atexit(hdma_rec_off);
+}
+
 /* --blk/--rng/--net need the window (CAPS[2]) and the DMA port (CAPS[8]) */
 static void check_virtio(const struct opts *o) {
   if (!o->blk && !o->rng && !o->net) return;
@@ -652,7 +724,7 @@ static int tap_open(const char *name, const char *bridge) {
 static int cmd_run(const struct opts *o) {
   check_id();
   set_inj(o);
-  uint32_t ctrl = o->lossless ? CTRL_LOSSLESS : 0;
+  uint32_t ctrl = (o->lossless ? CTRL_LOSSLESS : 0) | (o->freeze_time ? CTRL_TFREEZE : 0);
   /* uncore first, wait for the L2, then the cores (docs/spec/host.md, loading sequence). A system that
    * already runs (tg start) keeps running: holding the cores alone would cut their TileLink
    * transactions short and leave the L2 waiting for a GrantAck or the rest of a burst. */
@@ -695,6 +767,13 @@ static int cmd_run(const struct opts *o) {
     vio_ram = (volatile uint8_t *)dma_map(o, 0, ram);
     if (o->net) net_fd = tap_open(o->net, o->net_bridge);
     struct vio_hooks hk = { rd, wr, h_ram_rd64, h_ram_wr64, h_ram_wr32, h_ram_wr8, h_barrier, ram };
+    if (o->trace && !o->trace_wrap) {
+      hdma_rec_on();
+      struct xw_hooks xh = { h_emit, h_xw_fail, 0 };
+      xw_wrap(&hk, &xh);
+    } else {
+      wr(R_HDMA_CTRL, 0);                   /* left set by a lockstep run that was killed */
+    }
     if (vio_open(&hk, o->blk, o->blk_ro, o->rng, net_fd, o->net_mac)) die("virtio back-ends failed to open");
     fprintf(stderr, "virtio:%s%s%s", o->blk ? " blk " : "", o->blk ? o->blk : "", o->rng ? " rng" : "");
     if (o->net)
@@ -702,6 +781,7 @@ static int cmd_run(const struct opts *o) {
               o->net_bridge ? o->net_bridge : "", o->net_mac[0], o->net_mac[1], o->net_mac[2], o->net_mac[3],
               o->net_mac[4], o->net_mac[5]);
     fputc('\n', stderr);
+    if (xw_on) fprintf(stderr, "virtio: the DMA port's stores go into the trace as external-write records\n");
   } else if ((rd(R_CAPS) & CAPS_VIRTIO) && (rd(R_VQ_CTRL) & 1)) {
     fprintf(stderr, "warning: the virtio window is enabled but this run serves nothing; its reads will wait\n");
   }
@@ -717,7 +797,8 @@ static int cmd_run(const struct opts *o) {
       struct pollfd p = { in_fd, POLLIN, 0 };
       if (poll(&p, 1, 0) > 0 && (p.revents & POLLIN)) {
         char c;
-        if (read(in_fd, &c, 1) == 1) {
+        ssize_t got = read(in_fd, &c, 1);
+        if (got == 1) {
           if (o->console == 0 && ctrl_a && c == 'x') { stop_req = 1; }
           else if (o->console == 0 && c == 1) { ctrl_a = 1; }
           else {
@@ -725,6 +806,8 @@ static int cmd_run(const struct opts *o) {
             while (rd(R_UART_RX_SPACE) == 0) sleep_us(50);
             wr(R_UART_RX, (uint8_t)c);
           }
+        } else if (got == 0 && o->console == 0) {
+          in_fd = -1;                       /* stdin at its end (a script, nohup): stop reading it, or the loop spins */
         }
         idle = 0;
       }
@@ -749,10 +832,19 @@ static int cmd_run(const struct opts *o) {
     }
     if (o->trace && trace_poll(o)) idle = 0;
     if (vio && vio_poll()) idle = 0;
+    if (xw_on) xw_drain();                  /* the stores' records go out before any later trace record */
     if (trace_broken) { snprintf(why, sizeof why, "trace consumer stopped"); rc = 4; break; }
     if (stop_req) { rc = 130; break; }
     if (t_end && now_s() > t_end) { snprintf(why, sizeof why, "timeout"); rc = 124; break; }
-    if (idle) sleep_us(200);
+    if (idle) {                             /* the console's input and the TAP device end the wait at once */
+      struct pollfd pf[2];
+      int npf = 0;
+      if (in_fd >= 0) pf[npf++] = (struct pollfd){ .fd = in_fd, .events = POLLIN };
+      if (net_fd >= 0) pf[npf++] = (struct pollfd){ .fd = net_fd, .events = POLLIN };
+      struct timespec ts = { 0, 200000 };   /* the registers (window, power, trace) are polled every 200 us */
+      if (npf) ppoll(pf, (nfds_t)npf, &ts, NULL);
+      else     sleep_us(200);
+    }
   }
   /* Drain the console before holding everything: the RISC-V's last line is often still in its UART
    * (the board's first light lost "S\n" of "PASS"), and on the PMOD line each byte takes 87 us at
@@ -762,6 +854,7 @@ static int cmd_run(const struct opts *o) {
     else sleep_us(1000);
   }
   if (why[0]) fprintf(stderr, "\r\n[%s] %s\r\n", prog, why);
+  if (xw_on) xw_drain();
   if (o->trace) trace_end(o);
   if (vio) {
     uint64_t n, rb, wb;
@@ -769,6 +862,11 @@ static int cmd_run(const struct opts *o) {
     vio_close();
     fprintf(stderr, "[%s] virtio: %" PRIu64 " requests, %" PRIu64 " MiB read, %" PRIu64 " MiB written\r\n", prog, n,
             rb >> 20, wb >> 20);
+    if (xw_on) {
+      fprintf(stderr, "[%s] trace: %" PRIu64 " external-write records\r\n", prog, xw_records());
+      wr(R_HDMA_CTRL, 0);
+      xw_on = 0;
+    }
     if (net_fd >= 0) {
       uint64_t rx, tx, dr;
       vio_net_stats(&rx, &tx, &dr);
@@ -776,6 +874,11 @@ static int cmd_run(const struct opts *o) {
       fprintf(stderr, "[%s] virtio-net: %" PRIu64 " frames received, %" PRIu64 " sent, %" PRIu64 " dropped\r\n", prog,
               rx, tx, dr);
     }
+  }
+  if (o->dbg_exit) {                        /* the hold below resets the uncore, and the counters with it */
+    wr(R_DBG_SEL, 5);
+    if (rd(R_DBG_SEL) == 5) cmd_dbg();
+    else fprintf(stderr, "[%s] --dbg: this bitstream has no debug counters\r\n", prog);
   }
   wr(R_CTRL, CTRL_CORE_RST | CTRL_UNC_RST);
   return rc;
@@ -820,6 +923,7 @@ int main(int argc, char **argv) {
     { "trace-start", 1, 0, 9 }, { "trace-stop", 1, 0, 10 }, { "trace-post", 1, 0, 11 },
     { "force", 0, 0, 12 }, { "zero", 0, 0, 13 }, { "dma", 1, 0, 14 }, { "blk", 1, 0, 15 }, { "blk-ro", 0, 0, 16 },
     { "rng", 0, 0, 17 }, { "net", 1, 0, 18 }, { "net-bridge", 1, 0, 19 }, { "net-mac", 1, 0, 20 },
+    { "freeze-time", 0, 0, 21 }, { "dbg", 0, 0, 22 },
     { "help", 0, 0, 'h' }, { 0, 0, 0, 0 }
   };
   int c, force = 0;
@@ -855,6 +959,8 @@ int main(int argc, char **argv) {
       case 16: o.blk_ro = 1; break;
       case 17: o.rng = 1; break;
       case 18: o.net = optarg; break;
+      case 21: o.freeze_time = 1; break;
+      case 22: o.dbg_exit = 1; break;
       case 19: o.net_bridge = optarg; break;
       case 20: {
         unsigned m[6];

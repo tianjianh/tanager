@@ -9,6 +9,8 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
+#include <linux/fs.h>
+#include <sys/ioctl.h>
 #include <sys/random.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -425,7 +427,13 @@ int vio_open(const struct vio_hooks *h, const char *blk_image, int readonly, int
     struct stat sb;
     if (blk_fd < 0 || fstat(blk_fd, &sb)) { fprintf(stderr, "virtio-blk: %s: %s\n", blk_image, strerror(errno)); return -1; }
     blk_ro = readonly;
-    blk_sectors = (uint64_t)sb.st_size / 512;
+    uint64_t bytes = (uint64_t)sb.st_size;
+    /* a block device (the RISC-V's own SD partition, soc.md §8.1) has no size in st_size */
+    if (S_ISBLK(sb.st_mode) && ioctl(blk_fd, BLKGETSIZE64, &bytes)) {
+      fprintf(stderr, "virtio-blk: %s: %s\n", blk_image, strerror(errno));
+      return -1;
+    }
+    blk_sectors = bytes / 512;
     struct vdev *v = &dev[SLOT_BLK];
     v->id = 2;
     v->features = F_VERSION_1 | BLK_F_BLK_SIZE | BLK_F_FLUSH | (readonly ? BLK_F_RO : 0);

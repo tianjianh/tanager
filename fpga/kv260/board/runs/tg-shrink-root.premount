@@ -1,0 +1,42 @@
+#!/bin/sh
+# /etc/initramfs-tools/scripts/local-premount/tg-shrink-root: one-shot shrink of the A53's root (DR-147, the user's
+# decision 2026-10-17). Armed only by /tg-shrink-root.go on the FAT boot partition (p1), renamed to .ran before
+# anything else, so it never runs twice. p1 is unmounted for the rest of the step, so nothing on mmcblk1 is open
+# when the partition table changes. The log is kept in /run and copied to p1 at the end (or before a failure
+# shell). Progress goes to the serial console (ttyPS1, COM7 on the laptop). On any failure: an interactive shell
+# on ttyPS1; `exit` continues the boot as it stands.
+PREREQ=""; prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0;; esac
+# TG_* overrides exist only for the rehearsal on a loop device; the initramfs sets none of them
+DISK=${TG_DISK:-/dev/mmcblk1}; DN=${DISK##*/}; ROOT=${DISK}p2; S=${TG_TTY:-/dev/ttyPS1}
+FS_MIB=${TG_FS_MIB:-6094}; PART=$(( ${TG_PART_MIB:-6144} * 2048 )); REBOOT=${TG_REBOOT:-reboot -f}
+L=${TG_LOG:-/run/tg-shrink-root.log}
+mkdir -p /tgb; mount -t vfat ${DISK}p1 /tgb || exit 0
+[ -f /tgb/tg-shrink-root.go ] || { umount /tgb; exit 0; }
+mv /tgb/tg-shrink-root.go /tgb/tg-shrink-root.ran; sync; umount /tgb
+say() { echo "TG-SHRINK: $*" | tee -a $L > $S; }
+savelog() { mount -t vfat ${DISK}p1 /tgb && { cp $L /tgb/tg-shrink-root.log; sync; umount /tgb; }; }
+shell() { say "$*"; savelog; echo "TG-SHRINK: shell on ttyPS1 ('exit' continues the boot)" > $S; sh -i < $S > $S 2>&1; }
+say "start; the table before:"; sfdisk -d $DISK >> $L 2>&1
+e2fsck -f -y $ROOT >> $L 2>&1; r=$?
+[ $r -le 1 ] || { shell "FAILED: e2fsck -f -y exit $r (nothing changed)"; exit 0; }
+say "e2fsck ok; resize2fs to ${FS_MIB} MiB (minutes)"
+resize2fs $ROOT ${FS_MIB}M >> $L 2>&1 || { shell "FAILED: resize2fs (partition untouched: e2fsck -f -y $ROOT, then exit)"; exit 0; }
+bs=$(dumpe2fs -h $ROOT 2>/dev/null | sed -n 's/^Block size: *//p'); bc=$(dumpe2fs -h $ROOT 2>/dev/null | sed -n 's/^Block count: *//p')
+[ -n "$bs" ] && [ -n "$bc" ] && [ $((bs * bc)) -le $((PART * 512)) ] || { shell "FAILED: filesystem $bs x $bc bytes does not fit $PART sectors (partition untouched)"; exit 0; }
+e2fsck -f -n $ROOT >> $L 2>&1 || { shell "FAILED: e2fsck after resize2fs (partition untouched)"; exit 0; }
+start=$(cat /sys/block/$DN/${DN}p2/start)
+say "resize2fs ok ($bs x $bc bytes); p2 to $PART sectors from $start"
+echo "$start,$PART" | sfdisk --no-reread -N 2 $DISK >> $L 2>&1 || { shell "FAILED: sfdisk did not write (the old table is at the top of $L)"; exit 0; }
+ondisk=$(sfdisk -d $DISK | sed -n 's/^.*p2 : start= *[0-9]*, size= *\([0-9]*\),.*$/\1/p')
+[ "$ondisk" = "$PART" ] || { shell "FAILED: the table on disk gives p2 $ondisk sectors, not $PART (the old table is at the top of $L)"; exit 0; }
+udevadm settle 2>/dev/null; blockdev --rereadpt $DISK >> $L 2>&1 || { sleep 2; udevadm settle 2>/dev/null; blockdev --rereadpt $DISK >> $L 2>&1; }
+size=$(cat /sys/block/$DN/${DN}p2/size)
+if [ "$size" != "$PART" ]; then
+  say "the table on disk is right, but the kernel still has the old one ($size): rebooting to read it"
+  savelog; sync; $REBOOT
+fi
+udevadm settle 2>/dev/null   # the re-read recreated the partition devices: let udev finish before savelog mounts p1
+e2fsck -f -n $ROOT >> $L 2>&1 || shell "WARNING: e2fsck -n on the new p2 is not clean"
+say "done: p2 is $PART sectors from $start, the filesystem ${FS_MIB} MiB; the boot continues"; sfdisk -d $DISK >> $L 2>&1
+savelog; exit 0

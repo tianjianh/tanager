@@ -1,0 +1,2 @@
+c0c7673fc749927e6091583c037a75826e2b1060 + spikes cafde3b; kv260_top patched by g5_fill_patch.py (114 tiles, 20 LUTRAM blocks per core): measurement only; options -impl 0
+tree c0c7673fc749927e6091583c037a75826e2b1060 = main 4bb4426 (DR-152), 100 MHz
