@@ -627,15 +627,24 @@ module tg_fetch
     assign fq_ra[0] = tq_ftq[FTQW-1:0];
     tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(1)) u_fix (
       .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
-    // the history after decode's redirect at slot dred_slot of block dred_ftq
+    // the history after decode's redirect at slot dred_slot of block dred_ftq: the block's branches up to
+    // that slot (at most two, the cut's rule), shifted in after the history before the block. Found
+    // first and shifted once, so the history takes a shift of 0, 1 or 2, not one per slot (area)
     logic [GH_W-1:0] r_gh;
+    logic [NP-1:0]   r_cm;
     always_comb begin
       logic [GH_W-1:0] g;
-      logic [NP-1:0]   cm, pk;
-      {g, cm, pk} = fr_rd[0];
+      logic [NP-1:0]   pk;
+      logic [1:0]      n, b;           // how many, and their directions (the later in bit 0)
+      {g, r_cm, pk} = fr_rd[0];
+      n = '0;
+      b = '0;
       for (int k = 0; k < NP; k++)
-        if (cm[k] && SLOT_W'(k) <= dred_slot) g = {g[GH_W-2:0], pk[k]};
-      r_gh = g;
+        if (r_cm[k] && SLOT_W'(k) <= dred_slot) begin
+          b = {b[0], pk[k]};
+          n = n + 1'b1;
+        end
+      r_gh = (n == 2'd0) ? g : (n == 2'd1) ? {g[GH_W-2:0], b[0]} : {g[GH_W-3:0], b};
     end
     always_ff @(posedge clk) begin
       if (rst) begin
@@ -677,6 +686,9 @@ module tg_fetch
     logic tq_rs_q;                          // the first reset has come
     initial tq_rs_q = 1'b0;
     always @(posedge clk) if (rst) tq_rs_q <= 1'b1;
+    always_ff @(posedge clk)
+      if (tq_rs_q && !rst && dred && !flush)
+        assert ($countones(r_cm) <= 2) else $error("tg_fetch: an FTQ entry with more than two conditional branches");
     always_ff @(posedge clk)
       if (tq_rs_q && !rst && ft_we && tq_v)
         assert (ft_tail != tq_ftq[FTQW-1:0]) else $error("tg_fetch: a block takes the FTQ entry TAGE's training queue names");
