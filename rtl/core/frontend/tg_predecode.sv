@@ -63,7 +63,8 @@ module tg_predecode
       k[p] = k1[p-1];
       x[p] = x1[p-1];
     end
-    // Kogge-Stone: after round d, index p holds the composition of the maps of parcels p-2^d .. p-1
+    // Kogge-Stone (Kogge and Stone, IEEE Trans. Computers, 1973): after round d, index p holds the
+    // composition of the maps of parcels p-2^d .. p-1
     for (int d = 1; d < NP; d = d * 2) begin
       logic [NP-1:0] kn, xn;
       kn = k;
