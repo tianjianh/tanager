@@ -25,6 +25,9 @@
 namespace tg {
 
 enum Queue : uint8_t { Q_A0, Q_A1, Q_LD, Q_STA, Q_FP, Q_UNI, Q_SERIAL, Q_ALU_ANY, Q_A2, NQ };
+// The front end's events that decode's starved slots are charged to (lost_* counters, area_recovery.md §6.7)
+enum FeEv : int { FE_STEADY, FE_FLUSH, FE_REPLAY, FE_DRED, FE_MISS_BR, FE_MISS_JAL, FE_MISS_RET, FE_SLOT, FE_RASTGT,
+                  FE_NT, FE_BOGUS, FE_CUT, FE_ICMISS, FE_FTQ };
 constexpr uint64_t NEVER = ~0ull;
 // Micro-op ids carry the hardware thread in their top bits: unique across threads, and thread 0's ids are
 // exactly the single-thread ones.
@@ -114,6 +117,10 @@ struct SqEntry {
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
   X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
   X(dc_clashes)                                                                                    \
+  X(f2o_miss_br) X(f2o_miss_jal) X(f2o_miss_ret)                                                  \
+  X(lost_steady) X(lost_flush) X(lost_replay) X(lost_dred) X(lost_miss_br) X(lost_miss_jal)        \
+  X(lost_miss_ret) X(lost_slot) X(lost_rastgt) X(lost_nt) X(lost_bogus) X(lost_cut) X(lost_icmiss) \
+  X(lost_ftq)                                                                                      \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -187,6 +194,11 @@ class Core {
     // fe_m2: blocks fetched (numbered from 1), and blocks the youngest retired instruction's block follows: the
     // FTQ (m2_ftq) holds blk_seq - blk_head of them
     uint64_t blk_seq = 0, blk_head = 0;
+    // the front end's last event (decode's starved slots are charged to it, as the RTL profile does), and whether
+    // fetch waits on a mispredict (the RTL decodes the wrong path meanwhile, so that wait is not starvation)
+    int fe_ev = 0;
+    uint64_t fe_ev_t = 0;
+    bool fe_wait_mp = false;
     // window (program order): decoded but not yet committed uops
     std::deque<Uop> win;
     uint64_t win_base = 1, next_id = 1, disp_next = 1;
@@ -218,6 +230,7 @@ class Core {
   };
 
   Thread& th(const Uop& u) { return *th_[u.tid]; }
+  void fe_event(Thread& T, int ev) { T.fe_ev = ev; T.fe_ev_t = t_; }
   // stream of correct-path instructions from the ISS
   const DynInst* get(Thread& T, uint64_t seq);
   bool stream_has(Thread& T, uint64_t seq);
