@@ -1157,7 +1157,10 @@ void Core::exec_load(Uop& u) {
           return;
         }
         u.t_ag = t_ag;
-        if (dt <= t + 3) { u.t_ready = t + (uint64_t)c_.ld_fwd_lat + d; T.st.ld_fwd++; }
+        // spec_fwd: with speculative wakeup, a forward that completes at M2 wakes its dependants as a hit does
+        const bool fwd_spec = c_.spec_fwd && c_.spec_wakeup && !(c_.spec_int_only && u.cls == Cls::FLD);
+        const uint64_t fl = fwd_spec ? std::min<uint64_t>(3, (uint64_t)c_.ld_fwd_lat) : (uint64_t)c_.ld_fwd_lat;
+        if (dt <= t + 3) { u.t_ready = t + fl + d; T.st.ld_fwd++; }
         else { u.t_ready = dt + (uint64_t)c_.ld_fwd_wait + d; T.st.ld_fwd_wait++; }
         u.t_done = u.t_ready + 1 + dn;
         return;
@@ -1207,7 +1210,31 @@ void Core::exec_load(Uop& u) {
     }
   }
   u.t_done = u.t_ready + 1 + dn;
+  // dc_row_clash: the D$ data read at AG (t + 2) of this row; a store writing the row in that cycle makes it retry
+  if (c_.dc_row_clash) ag_recs_.push_back({t + 2, t, u.id, (uint16_t)((u.addr >> 4) & 0xff), pred_hit});
   mem_.train_stride(pa(T, u.di->pc), pa(T, u.addr), t + 3);
+}
+
+// dc_row_clash (the RTL's D$, core-lsu.md): a load reads its D$ row (VA[11:4]) at AG through port A, and a store
+// draining in that cycle writes port B; when the rows match, the load's M2 outcome is a retry. It replays from the
+// LQ (about clash_delay cycles later), and with speculative wakeup its dependants' shadow is cancelled.
+void Core::row_clash(Thread& T, uint64_t addr) {
+  const uint16_t row = (uint16_t)((addr >> 4) & 0xff);
+  for (const AgRec& a : ag_recs_) {
+    if (a.ag != t_ || a.row != row) continue;
+    Uop* u = find(a.id);
+    if (!u || u->state != 2 || (u->id >> TID_SHIFT) != (uint64_t)T.tid) continue;
+    u->t_ready += (uint64_t)c_.clash_delay;
+    u->t_done += (uint64_t)c_.clash_delay;
+    T.st.dc_clashes++;
+    if (c_.spec_wakeup && a.spec && c_.shadow > 0) {
+      const uint64_t d = (uint64_t)c_.abl_ld_use;
+      if (cancel_from_ == NEVER || a.issue + 3 + d > cancel_to_) cancel_from_ = a.issue + 3 + d;
+      cancel_to_ = std::max(cancel_to_, a.issue + 2 + d + (uint64_t)c_.shadow);
+      cancel_tid_ = T.tid;
+      T.st.shadow_cancels++;
+    }
+  }
 }
 
 void Core::exec_store(Uop& u) {
@@ -1575,6 +1602,9 @@ int Core::commit_thread(Thread& T, int width) {
 // Committed stores drain in order per thread through the one D$ store port; with two threads the thread
 // tried first alternates every cycle.
 void Core::drain_stores() {
+  if (c_.dc_row_clash)  // loads whose AG is past can no longer clash
+    ag_recs_.erase(std::remove_if(ag_recs_.begin(), ag_recs_.end(), [&](const AgRec& a) { return a.ag < t_; }),
+                   ag_recs_.end());
   if (nthr_ == 1) { drain_thread(*th_[0]); return; }
   const int first = (int)(t_ % (uint64_t)nthr_);
   for (int k = 0; k < nthr_; k++)
@@ -1590,6 +1620,7 @@ bool Core::drain_thread(Thread& T) {
   if (mem_.l1d_present(pa(T, s.addr), t_)) {
     uint64_t r;
     mem_.l1d(pa(T, s.addr), t_, MemSys::STORE, r);
+    if (c_.dc_row_clash) row_clash(T, s.addr);
     T.sq.pop_front();
     T.drain_wait = NEVER;
     return true;
