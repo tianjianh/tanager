@@ -102,6 +102,26 @@ module tanager_soc
   output logic                  s_axi_dma_r_valid,
   input  logic                  s_axi_dma_r_ready,
 
+  // the PS window's AXI4 master and the PS's interrupt levels (clk; tg_map_pkg PS_WINDOW, else idle)
+  output axi_ax_t               m_axi_ps_aw,
+  output logic                  m_axi_ps_aw_valid,
+  input  logic                  m_axi_ps_aw_ready,
+  output axi_w_t                m_axi_ps_w,
+  output logic                  m_axi_ps_w_valid,
+  input  logic                  m_axi_ps_w_ready,
+  input  axi_b_t                m_axi_ps_b,
+  input  logic                  m_axi_ps_b_valid,
+  output logic                  m_axi_ps_b_ready,
+  output axi_ax_t               m_axi_ps_ar,
+  output logic                  m_axi_ps_ar_valid,
+  input  logic                  m_axi_ps_ar_ready,
+  input  axi_r_t                m_axi_ps_r,
+  input  logic                  m_axi_ps_r_valid,
+  output logic                  m_axi_ps_r_ready,
+  input  logic [PS_IRQS-1:0]    ps_irq_i,
+  // the board's status word (clk), read by the host at FAN (0x1400): the KV260's fan regulator; 0 elsewhere
+  input  logic [31:0]           board_status_i,
+
   // commit trace of every core, also to the simulation harness
   output tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_o,
   output logic    [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_valid_o,
@@ -245,6 +265,9 @@ module tanager_soc
     .s_axi_dma_aw, .s_axi_dma_aw_valid, .s_axi_dma_aw_ready, .s_axi_dma_w, .s_axi_dma_w_valid, .s_axi_dma_w_ready,
     .s_axi_dma_b, .s_axi_dma_b_valid, .s_axi_dma_b_ready, .s_axi_dma_ar, .s_axi_dma_ar_valid, .s_axi_dma_ar_ready,
     .s_axi_dma_r, .s_axi_dma_r_valid, .s_axi_dma_r_ready,
+    .m_axi_ps_aw, .m_axi_ps_aw_valid, .m_axi_ps_aw_ready, .m_axi_ps_w, .m_axi_ps_w_valid, .m_axi_ps_w_ready,
+    .m_axi_ps_b, .m_axi_ps_b_valid, .m_axi_ps_b_ready, .m_axi_ps_ar, .m_axi_ps_ar_valid, .m_axi_ps_ar_ready,
+    .m_axi_ps_r, .m_axi_ps_r_valid, .m_axi_ps_r_ready, .ps_irq_i, .board_status_i,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,

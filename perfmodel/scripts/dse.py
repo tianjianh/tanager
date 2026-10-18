@@ -179,8 +179,17 @@ MODEL_VERSION = 3
 SUITE_VERSION = 2
 
 
+# Presets redefined since their results were cached: the revision joins their key only, so other presets' caches
+# stay valid. rtl_m2 2: §6.4's recalibration (four misses in flight, the RTL's issue queues and store address);
+# 3: speculative load wakeup on, as main has it (§6.5); 4: its cancels at a D$ row clash, fast forwards (§6.6).
+PRESET_REV = {"rtl_m2": 4}
+
+
 def key(isa, preset, sets):
-    raw = json.dumps([isa, preset, sorted(sets.items()), MODEL_VERSION, SUITE_VERSION])
+    parts = [isa, preset, sorted(sets.items()), MODEL_VERSION, SUITE_VERSION]
+    if PRESET_REV.get(preset):
+        parts.append(PRESET_REV[preset])
+    raw = json.dumps(parts)
     return hashlib.sha1(raw.encode()).hexdigest()[:16], raw
 
 

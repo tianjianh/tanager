@@ -3,4 +3,5 @@
 rtl/tg_clkgen.sv
 rtl/tg_rst_sync.sv
 rtl/tg_axi_absent.sv
+rtl/tg_fan.sv
 rtl/kv260_top.sv

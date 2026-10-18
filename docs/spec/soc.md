@@ -400,6 +400,70 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 - **Monitoring:** a read-only register (temperature, duty, source) can be added later for a small driver.
 - **Clean room:** no SiFive-compatible PWM is needed. If one is ever added, it is built only from SiFive's published register manual (DR-138).
 
+**D2's sensor: the PL SYSMON, as DR-147** (the coordinator asked first whether it can be read without disturbing the A53's own fan and temperature readings; the board's read-only probes, 10-17, `fpga/kv260/board/d2`). It can:
+- **`fancontrol` follows the PS SYSMON, not the PL's.** Its `temp1` is the AMS hwmon's first channel, the AMS's channel 7.
+  - The PS SYSMON's temperature register (`0xFFA5_0800`) read `0x9DBC`, 33.6 °C, with `temp1` at 33.5–33.6 °C.
+  - The PL SYSMON's (`0xFFA5_0C00`) read `0x9D3E`, 32.6 °C, which is `temp3`.
+  - Both convert with T = code × 509.314 / 2^16 − 280.23 °C, the AMS driver's scale.
+- **A bitstream load already leaves the PL SYSMON at its configuration defaults.**
+  - At boot the A53's AMS driver puts both SYSMONs in the default sequencer mode, disables every alarm and masks the AMS interrupt.
+  - After sc3's load, the PS SYSMON still shows the driver's settings (register 41h = `0x2F0F`). The PL SYSMON's configuration and sequence registers (40h–44h, the sequence words) all read 0, while its temperature reads normally.
+  - A SYSMONE4 instance whose INIT attributes are all zero keeps exactly that state. The board's reload in part 3, when the next bitstream goes on, confirms the reset at load.
+- **So the regulator instantiates SYSMONE4** with every INIT attribute zero and reads register 00h (the die temperature) over DRP, and the A53's `fancontrol` is untouched. The expectation that the A53 would see the same PL SYSMON as today was wrong: with the instance in the fabric the AMS reads it as 0 (the board's d2 result, below). The A53 reads the PL channel only on demand (`fancontrol` reads the PS's), and a DRP read that never answers counts as hot.
+- **The alternative** (soc-2's earlier proposal: the PS SYSMON's temperature through `S_AXI_LPD`) is not needed. It remains a fallback.
+- **The curve's sensor:** the PL die runs about 1 °C below the PS's LPD sensor (32.6 against 33.6 °C), so `fancontrol`'s curve on the PL temperature sits 1 °C later. While the A53's `fancontrol` runs, the larger duty, its own, rules.
+
+**The rest of D2, as DR-147:**
+- **Placement:** `tg_fan` in `kv260_top`, in every board build (DR-150), on `clk_core` with the PL's reset, independent of the uncore's and cores' resets. `TG_FAN_PL=0` builds today's passthrough instead, as a fallback.
+- **The PWM:** 25 kHz on `fan_en_b` (active low). Its duty is the larger of the curve's and the A53's TTC duty.
+  - **The curve** is `fancontrol`'s as configured on the board: 15/255 at or below 35 °C, then linear to 255/255 at 45 °C, full above, with 1 °C of hysteresis on the way down.
+  - **The TTC duty** is the low time of `emio_ttc0_wave_o[2]` per 40 µs period; a constant level counts as 0 or 100%.
+- **Status for the board:** a read-only word through the host bridge (temperature code, the curve's duty, the TTC's duty, the output duty), read by `tanager-host fan`. This is a small host-bridge interface addition.
+- **Tests:**
+  - a unit test against an AXI model of the AMS register (temperatures, an error, a silent read) and a TTC waveform generator;
+  - on the board: with `fancontrol` running nothing changes at the board's 31–35 °C; with it stopped (pwm1 = 0) the fan keeps the curve's duty; the status word follows a stress run's heat.
+
+**D2 built (10-17):**
+- **The regulator:** `fpga/kv260/rtl/tg_fan.sv`, in `kv260_top` on `clk_core` with `rst_core` (the PL's reset and the MMCM's lock), in every board build. `TG_FAN_PL=0` builds today's passthrough.
+- **The temperature:** SYSMONE4 with every INIT attribute zero, register 00h read over DRP every 2^20 cycles (10.5 ms).
+- **The duty:**
+  - The curve takes fancontrol's thresholds as codes: 35 °C is code 40,562, 45 °C is 41,849, and 1 °C is 129 codes. The slope is 191/1,024 of a step per code.
+  - The A53's duty is its low time over 2^18 cycles (2.6 ms, about 65 of its periods, so the window's edges move it by about 2/256).
+  - The PWM has 256 steps of 16 cycles: 24.4 kHz at 100 MHz.
+- **Full speed** before the first reading, during the PL's reset, and after a DRP read without an answer (2^16 cycles).
+- **The status word** reaches the host bridge as `FAN` (`0x1400`; `board_status_i` through `tanager_soc` and `tg_uncore`, 0 elsewhere), and `tanager-host fan` decodes it.
+- **Tests:**
+  - **`tests/unit/fan`,** against a SYSMONE4 stand-in and an A53 PWM generator. It checks full speed before the first reading; 15/255 at 30 °C; 134 at 40 °C, kept at 39.4 °C (the hysteresis); 111 at 38 °C (the curve 1 °C above); 255 at 46 °C; the A53's 50% and 10% (127 and 25) and its held-low and held-high PWM; and full speed while the DRP is silent. Every duty is checked against the status word and against `fan_en_b`'s low time.
+  - **`tests/unit/host_bridge`** reads `FAN` across the status crossing, and `tests/unit/soc` reads it through the SoC.
+- **The board build** (`d2_100`, 10-17) is d1's configuration with the regulator, on main 646722b: MR6, and DR-156's four L1D misses in flight by default (the coordinator: the board measures them too).
+  - **Timing:** WNS +0.505 ns, WHS +0.010 ns at 100 MHz, with DR-160's 1.0 ns margin during placement and routing.
+  - **Area:** 112,446 LUTs placed (96.01%), 1,466 more than d1. The regulator is 119 LUTs, 125 flip-flops, one DSP and the SYSMONE4; DR-156 is the rest.
+  - **DR-156's board confirmation:** DR-141's workload set on this bitstream, compared against sc3's three boots (one miss, the same two smt2 cores at 100 MHz). Between sc3's tree (5172c6a) and this one, only DR-156 changes the cores' cycles. The rest is off by default, proven the same function, or the idle PS window.
+  - **The board's steps** (package `d2-smt2-c2-100`):
+    - the regulator with `fancontrol` running;
+    - the regulator alone, with `fancontrol` stopped and pwm1 = 0 for at most 5 minutes;
+    - the DR-141 set, with `tanager-host fan` sampled every 30 s for the heat.
+- **On the board, steps 0–2** (10-17, the board session):
+  - **The regulator works.** PL die 33.9–34.4 °C, against 34.0 °C through the AMS on sc3 a minute before. The duty was 15 throughout. The A53's PWM read 14–15 against pwm1 15. No new dmesg line.
+  - **The A53 lost the PL SYSMON.** With d2 loaded, the AMS reads the PL SYSMON's temperature (`0xFFA5_0C00`) as 0, and hwmon's `temp3` shows −280.2 °C; the PS SYSMON (`temp1`, `fancontrol`'s sensor) reads normally.
+    - The cause: instantiating SYSMONE4 gives the fabric the PL SYSMON's register port. The board read `AMS_PL_CSTS` (`0xFFA5_0044`): bit 0 (the PL SYSMON accessible) is 0 with d2 loaded and 1 on sc3. `AMS_PS_CSTS` stays `0x08010000`.
+    - Effect: harmless to `fancontrol`, but every Tanager bitstream carries the regulator (DR-150), so the A53's PL channels (`xmutil platformstats`, the iio and hwmon nodes) read 0 while one is loaded. `tanager-host fan` shows the PL die instead.
+  - **The coordinator kept it** (option (a), 10-17, under DR-154: no area or IPC cost either way). With the D2 regulator loaded, the A53's PL temperature channel reads invalid; the PS channel and `fancontrol` are unaffected. This is in the A53 OS change log (`fpga/kv260/README.md`). Losing the A53's view of the PL temperature costs only monitoring, since `fancontrol` regulates on `temp1` and in stage D the A53 parks.
+    - The fallback stays documented: the regulator would read the PS SYSMON's temperature (`0xFFA5_0800`) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window and the XPPU's pass for the AMS (untested).
+- **Step 3, the regulator alone, passes** (fancontrol stopped for 5 minutes, then restarted):
+  - pwm1 = 1: the A53's PWM read 0/255, and the duty held at the curve's 15/255 for all 10 samples. PL die 32.9–34.4 °C, `temp1` 33.4–36.4 °C.
+  - pwm1 = 0 (the first try): `pwm-fan` disables the TTC's PWM, its output idles low, and the regulator reads that as the A53 asking for full speed. The fan ran full for the 5 minutes.
+  - **For D3** (the coordinator, 10-17): the curve governs alone only while the A53's TTC waveform is high or keeps toggling (pwm1 ≥ 1). A disabled or reset TTC idling low runs the fan full: safe, but loud. So the handover boot leaves pwm1 at 1. A regulator bit to ignore the TTC can come later as an interface change, under DR-154 if small.
+- **Step 4: DR-141's set on d2, three boots — DR-156's board confirmation** (the board session, `fpga/kv260/board/d2-reg/`). Compared against sc3's three boots: one miss, the same two smt2 cores at 100 MHz, the same image and device tree.
+  - **Every boot passes:** 54 of 54 measurement lines, CoreMark validated 6 times, `TGLB-END status=0`. Power-off 309–310 s after the load, against sc3's 323–326 s.
+  - **Cycles per operation with four misses:**
+    - memcpy 1 MiB −37.9%, tmpfs-write −24.7%, pipe −17.7%, tmpfs-read −13.7%, gzip −12.9%, tlbwalk −9.9%, forkexec −5.3%, pagefault −5.2%;
+    - memset 1 MiB −12.5%, inside its 20.5% spread;
+    - syscall and the 64-byte and 4 KiB copies within ±0.2%; CoreMark A and B, Dhrystone and sha256sum within 0.5%.
+  - **Instructions per operation** match within the spread. The memory-heavy tests run −0.1% to −2.6%, from fewer timer ticks in a shorter operation.
+  - **Linux reaches `/init`** in 1.181 s, against 1.289 s (−8.4%).
+  - **The fan during the run** (30 samples): PL die 33.9–35.4 °C, duty 15–38/255, never below the A53's PWM. One sample had duty 29 against the A53's 19 at 34.9 °C. That is the 1 °C fall hysteresis: the curve held the run's peak, code 40,637 (35.58 °C).
+
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
 **Stage D's DMA must be coherent** (the verification track's kernel check). Debian's kernel handles a non-coherent DMA device only with Zicbom or T-Head's cache operations, and Tanager has neither. So D-c, DMA through the PL into the L2, is required, not just preferred.
@@ -424,6 +488,24 @@ Each is checked on the board in stage D's first step, with the UART: the simples
      - which controller the micro-SD is on (SD1);
      - whether the SOM's eMMC is fitted. If it is, the A53 can keep its root there and hand over the whole card.
   4. **Done (soc-2, 10-17):** `S_AXI_LPD` reaches the IOP's and USB's registers, and the four controllers' PS-to-PL interrupt signals exist (the PS IP's address map and ports, above).
+  - **The tools:** `tanager-host dma adma` (item 1) and `tanager-host psrd` (item 2's register reads), with the procedure in the board package `d0-probes-20261017` ([host.md](host.md)).
+  - **The coordinator's conditions** (10-17): sc3 loaded; read-only on PS state, except the ADMA copies, which stay inside the RISC-V's carve-out; the fan stays with the A53's `fancontrol`. The results come before D1's RTL is final.
+  - **Done on the board** (the board session, 10-17, `fpga/kv260/board/d0`):
+    - **D-c stands:** ADMA channel 8 copied 4 KiB DDR → HPM1 → DDR, both ways ok, 0 words wrong. The host DMA port's line counters moved by exactly the ADMA's 64 lines each way. The cores were held, so the RISC-V's cache side wasn't exercised. It is the same port and L2 path whose coherence stage C's virtio already relies on.
+    - **The SMMU is disabled** in the live tree (`iommu@fd800000`), so no PS master is translated.
+    - **`S_AXI_LPD`'s AFI** (FM6) is out of reset (`RST_LPD_TOP` bit 19 clear) at its reset width, 128 bits (`RDCTRL`/`WRCTRL` = `0x3B0`), which D1's port uses.
+    - **The XPPU** refuses a non-secure reader its registers, so its enable can't be read from Linux. D1's first access shows whether it lets the PL master through: if not, a fault, not a hang.
+    - **Clocks on:** UART1 100 MHz, SD1 166.7 MHz, GEM3 125 MHz (TSU 250), USB0's bus 250 MHz, and `lpd_lsbus` 100 MHz, which also runs TTC1. UART0, SD0 and the ADMA's `adma_ref` are off; the ADMA is runtime-gated and its power domain off while idle.
+    - **No eMMC:** SD0 is disabled and the card is `mmcblk1` (SD1). TTC0 is the fan's. TTC1, TTC2 and TTC3 are disabled, with no interrupt.
+    - **The wiring, for D5 and D6:**
+      - GEM3 is `rgmii-id` to a DP83867 at MDIO address 1, reset on MIO38 (active low; 100 µs asserted, 280 µs after). It needs `ti,rx-internal-delay` 8, `ti,tx-internal-delay` 10, `ti,fifo-depth` 1 and the `rxctrl-strap-quirk`.
+      - USB0 is `usb@ff9d0000` with its DWC3 at `0xFE20_0000`, reset by the firmware's mode-pin GPIO. Its USB2744 and USB5744 hubs reset on MIO44, the 5744 configured over I2C1.
+  - **Still to check before D1's interrupt test:** TTC1's own reset (`RST_LPD_IOU2`, CRL_APB `0xFF5E_0238`), with `tanager-host psrd`.
+  - **From the upstream device trees** (to confirm on the live one):
+    - the KV260's SOM tree (`zynqmp-smk-k26-revA`) disables SD0, so there is no eMMC, and the A53's handover boot needs an initramfs;
+    - TTC0 is the fan's PWM;
+    - TTC1 and UART0 are not enabled. TTC1 runs on `lpd_lsbus`, which UART1 needs too, so it is D1's interrupt test once the live tree and `/proc/interrupts` confirm it is unused;
+    - the eight ADMA channels are enabled, under runtime power management.
 - **D1, the first milestone: the RISC-V reaches the PS.** One bitstream: main plus the window. No handover: the A53's Linux keeps running.
   - **The window** (`TG_PS_WINDOW`, off by default and cycle-identical when off):
     - a device region identity-mapped at `0xFE00_0000`–`0xFFFF_FFFF` (32 MiB, aligned);
@@ -441,6 +523,23 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - takes a PS interrupt through its PLIC, from a peripheral the A53 does not use: a TTC1 interval, or UART0 in local loopback if it is clocked;
     - gets an access fault from a denied address.
   - **Met when** all four happen and the A53's Linux is unharmed.
+  - **Built (10-17):**
+    - **The device:** `rtl/uncore/ps/tg_ps_window.sv`, the device bus's sixth device. The region is in `tg_map_pkg` behind `TG_PS_WINDOW=1`, a define: `build.tcl` sets it from `TG_PS_WINDOW=1` and records it in `summary.txt`.
+    - **Interrupts:** PLIC sources 20–24 take UART1, SD1, GEM3, USB0's host line and TTC1.
+    - **The block design** has `S_AXI_LPD` (128-bit, `clk_core`) and the five interrupts in every build, idle without the window: the board's PS is configured by the SOM's firmware, not by our block design. TTC1 is enabled in it so its interrupt pin exists.
+    - **The overlay** sets `S_AXI_LPD`'s AFI to 128 bits (`config-afi` entries 12 and 13). D0's `psrd` of AFI FM6 shows whether it takes.
+    - **The window's AXI attributes:** unprivileged, non-secure data accesses; cache bits 0000 (device, non-bufferable).
+    - **Tests:** `tests/unit/soc` `PS_WINDOW=1` (in `short`), against a model of the PS. Every access size, three denials without a transaction, an error response, a response 70,000 cycles late (the timeout, then the recovery), and TTC1's interrupt through the PLIC: 15 transactions, all checked. The window also passes lint (st and smt2, the synthesis view too) and the forward-reference check, with and without it.
+    - **The board program:** `tests/unit/soc/sw/ps_d1.c` (`ps_d1.bin`) runs the four checks above on the real PS.
+  - **Met on the board** (the board session, 10-17, `fpga/kv260/board/d1`; bitstream d1_100, tree a4bc643, WNS +0.650 ns at 100 MHz with the 1.0 ns place-and-route uncertainty, 110,980 LUTs, 94.8%):
+    - **Pre-check:** AFI FM6 at 128 bits. `RST_LPD_IOU2` = `0x000103AA`: TTC1, TTC2 and TTC3 are out of reset, and the set bits are all unused blocks (UART0, SPI0, SD0, CAN0/1, I2C0, NAND). So no PS change was needed.
+    - **"D1 PASS":**
+      - UART1's status read `0x0A`, and the line written into its FIFO appeared on the A53's console (`ttyPS1`, the board's USB serial port).
+      - IOU_SLCR read UART1's MIO 36 pin as `0xC0` and SD1's tap delays (`SD_ITAPDLY` `0x012A0000`, `SD_OTAPDLYSEL` `0x00050000`), the values D4 inherits.
+      - TTC1's interval interrupt arrived through PLIC source 24 after 821 ticks of 10 MHz (82 µs: 8,192 cycles of `lpd_lsbus` at 100 MHz).
+      - TTC0 and UART0 faulted.
+    - **The XPPU let the PL master through.**
+    - **The A53 was unharmed:** no new dmesg line, UART1's driver counters unchanged, its getty and `fancontrol` running.
 - **D2: the fan's PL regulator (F-a),** needed before any step where the A53's `fancontrol` stops:
   - SYSMONE4 over DRP, the curve, the TTC duty measurement and the 25 kHz PWM (150–200 LUTs). It can ride in D1's bitstream.
   - Tested in simulation with a SYSMON model, then on the board: the curve against the A53's `fancontrol`, under a stress load.
@@ -448,6 +547,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - **The A53's handover boot:** a U-Boot menu entry on `p1`. It has Ubuntu's kernel and an initramfs with `tanager-host`, the bitstream and the RISC-V's boot images.
     - Its device tree disables UART1, SD1, GEM3 and USB0; the command line has `clk_ignore_unused` and SMMU bypass.
     - It loads the bitstream and starts the RISC-V, and never touches the card again after reading the images.
+    - It leaves the fan's TTC running at pwm1 = 1, so D2's curve governs. A stopped TTC idles low and runs the fan full (the coordinator, 10-17).
   - **The console on UART1** (`cdns,uart-r1p12`):
     - OpenSBI's Cadence driver gives the early output;
     - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).

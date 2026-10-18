@@ -94,6 +94,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     .dbg_sel_o (), .dbg_val_i (32'h0),
     .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i (cpl), .hdma_cpl_ready_o (cpl_r),
     .hdma_rd_lines_i (32'd4321), .hdma_wr_lines_i (32'd8765), .hdma_wr_drops_i (32'd31),
+    .board_status_i (32'h0A5C_3E01),
     .con_tx_valid_i (ctx_v), .con_tx_ready_o (ctx_r), .con_tx_byte_i (ctx_b),
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );
@@ -359,6 +360,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     void'($urandom(seed));
     expect_h(16'h1300, 32'h0, "HDMA_CTRL at reset");
     expect_h(16'h1308, 32'd4321, "HDMA_RD_LINES");
+    expect_h(16'h1400, 32'h0A5C_3E01, "FAN (the board's status word, through the status crossing)");
     expect_h(16'h130C, 32'd8765, "HDMA_WR_LINES");
     expect_h(16'h1318, 32'd31, "HDMA_WR_DROPS");
     if (cpl_en) fail("completions recorded at reset");

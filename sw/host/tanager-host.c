@@ -13,6 +13,7 @@
 #include <getopt.h>
 #include <inttypes.h>
 #include <poll.h>
+#include <setjmp.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdint.h>
@@ -52,6 +53,7 @@ enum {
   R_HDMA_CTRL = 0x1300, R_HDMA_STATUS = 0x1304, R_HDMA_RD_LINES = 0x1308, R_HDMA_WR_LINES = 0x130C,
   R_HDMA_CPL0 = 0x1310, R_HDMA_CPL1 = 0x1314, R_HDMA_WR_DROPS = 0x1318,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
+  R_FAN = 0x1400,
 };
 #define TRS_EN         0x001u
 #define TRS_WRAP       0x002u
@@ -221,6 +223,15 @@ static void usage(void) {
     "                                         0x500000000): offsets into the RISC-V's RAM; check writes and\n"
     "                                         reads back BYTES (64 KiB) at OFF (the RAM's last 64 KiB), which\n"
     "                                         it overwrites: hold the cores (load, or tg start) first\n"
+    "  dma adma [CHAN_PA [OFF [BYTES]]]       stage D's probe D0 (soc.md §8.2): an LPD DMA channel (ADMA; default\n"
+    "                                         0xFFAF0000, channel 8) copies BYTES (4 KiB) from DDR in the carve-out\n"
+    "                                         to the RISC-V's RAM at OFF through the host DMA port, then back; the\n"
+    "                                         channel must be idle and kept powered by its driver first:\n"
+    "                                         echo on > /sys/bus/platform/devices/ffaf0000.dma-controller/power/control\n"
+    "  psrd ADDR [N]                          read N (1) 32-bit PS registers, only in always-on LPD control blocks:\n"
+    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR, the AMS (stage D)\n"
+    "  fan                                    the fan's PL regulator (kv260_top's tg_fan, stage D's D2): the PL die's\n"
+    "                                         temperature, the duty and the A53's PWM duty\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -375,6 +386,112 @@ static void uncore_up(void) {
   fprintf(stderr, "released the uncore (the cores stay held)\n");
 }
 
+/* Stage D's probe D0 (docs/spec/soc.md §8.2): can a PS master other than the A53 reach the host DMA port?
+ * An LPD DMA channel (ADMA, an LPD master like the IOU's SD, GEM and USB) runs two simple-mode copies, both
+ * within the RISC-V's carve-out: DDR (OFF + BYTES above OFF, written and read here through an uncached
+ * mapping, never the A53's memory) into the RISC-V's RAM at OFF through HPM1, then from there back into a
+ * second DDR buffer. The data and the port's line counters say whether the writes and reads went through
+ * the port. Registers as in Linux's zynqmp_dma driver (ZynqMP: no interrupt register offset).
+ * Safety: the channel's driver gates its clocks and power domain while it is idle, and a read of an
+ * unpowered block can hang the board, so the probe needs the channel's device runtime-active in sysfs
+ * (power/control "on") and the channel idle; it masks the channel's interrupts for the duration, so the
+ * A53's driver sees nothing, and restores CTRL0 and the mask at the end. */
+enum {
+  ZD_ISR = 0x100, ZD_IMR = 0x104, ZD_IER = 0x108, ZD_IDS = 0x10C, ZD_CTRL0 = 0x110, ZD_STATUS = 0x11C,
+  ZD_SRC0 = 0x128, ZD_SRC1 = 0x12C, ZD_SRC2 = 0x130, ZD_SRC3 = 0x134,
+  ZD_DST0 = 0x138, ZD_DST1 = 0x13C, ZD_DST2 = 0x140, ZD_DST3 = 0x144, ZD_TOTAL = 0x188, ZD_CTRL2 = 0x200,
+};
+#define ZD_DONE      (1u << 10)
+#define ZD_ERRS      0x3F9u              /* AXI write/read data, descriptor reads, accounting, overflow, APB */
+#define ZD_POINT_SG  (1u << 6)
+
+static int adma_powered(uint64_t pa) {
+  static const char *const suffix[] = { "dma-controller", "dma" };
+  for (int i = 0; i < 2; i++) {
+    char path[128], st[32] = "";
+    snprintf(path, sizeof path, "/sys/bus/platform/devices/%" PRIx64 ".%s/power/runtime_status", pa, suffix[i]);
+    FILE *f = fopen(path, "r");
+    if (!f) continue;
+    if (!fgets(st, sizeof st, f)) st[0] = 0;
+    fclose(f);
+    if (!strncmp(st, "active", 6)) return 1;
+    fprintf(stderr, "dma adma: %s reads \"%.*s\"\n", path, (int)strcspn(st, "\n"), st);
+    return 0;
+  }
+  fprintf(stderr, "dma adma: no /sys/bus/platform/devices/%" PRIx64 ".dma-controller (or .dma) to check\n", pa);
+  return 0;
+}
+
+/* One simple-mode copy of n bytes from PS address src to dst; returns ISR (0x... with DONE on success) */
+static uint32_t adma_copy(volatile uint32_t *ch, uint64_t src, uint64_t dst, uint32_t n, double *us) {
+  ch[ZD_ISR / 4] = ch[ZD_ISR / 4];                         /* write-one-to-clear */
+  ch[ZD_SRC0 / 4] = (uint32_t)src; ch[ZD_SRC1 / 4] = (uint32_t)(src >> 32); ch[ZD_SRC2 / 4] = n; ch[ZD_SRC3 / 4] = 0;
+  ch[ZD_DST0 / 4] = (uint32_t)dst; ch[ZD_DST1 / 4] = (uint32_t)(dst >> 32); ch[ZD_DST2 / 4] = n;
+  ch[ZD_DST3 / 4] = 0x4;                                    /* COMP_INT, as the driver's last descriptor (masked) */
+  ch[ZD_TOTAL / 4] = 0;
+  double t0 = now_s();
+  ch[ZD_CTRL2 / 4] = 1;                                     /* enable: the copy starts */
+  uint32_t isr = 0;
+  while (!((isr = ch[ZD_ISR / 4]) & (ZD_DONE | ZD_ERRS)) && now_s() - t0 < 1.0) { }
+  *us = (now_s() - t0) * 1e6;
+  if (!(isr & (ZD_DONE | ZD_ERRS))) ch[ZD_CTRL2 / 4] = 0;   /* timed out: stop the channel */
+  ch[ZD_ISR / 4] = isr;
+  return isr;
+}
+
+static void cmd_dma_adma(const struct opts *o, int argc, char **argv) {
+  uint64_t ram = rd64(R_DRAM_SIZE);
+  uint64_t pa = argc > 1 ? num(argv[1]) : 0xFFAF0000ull;
+  uint32_t n = argc > 3 ? (uint32_t)num(argv[3]) : 4096;
+  uint64_t off = argc > 2 ? num(argv[2]) : ram - 0x100000;  /* the RAM's last MiB */
+  if (pa < 0xFFA80000ull || pa > 0xFFAF0000ull || (pa & 0xFFFF)) die("dma adma: %" PRIx64 " is not an ADMA channel (0xFFA80000 + n * 0x10000, n < 8)", pa);
+  if (!n || (n & 63) || (off & 63)) die("dma adma: OFF and BYTES are multiples of 64");
+  if (off + 3ull * n > ram) die("dma adma: OFF + 3 * BYTES is beyond the RISC-V's RAM (0x%" PRIx64 ")", ram);
+  if (!adma_powered(pa))
+    die("dma adma: refusing to touch the channel: its driver may have gated its clocks or power, and reading an "
+        "unpowered block can hang the board. Keep it on first: echo on > /sys/bus/platform/devices/%" PRIx64
+        ".dma-controller/power/control (and back to auto after)", pa);
+  volatile uint32_t *ch = map_phys(pa, 0x1000);
+  if (ch[ZD_CTRL2 / 4] & 1) die("dma adma: the channel is running (CTRL2 0x%x): another user has it", ch[ZD_CTRL2 / 4]);
+  uint32_t ctrl0 = ch[ZD_CTRL0 / 4], imr = ch[ZD_IMR / 4] & 0xFFF;
+  ch[ZD_IDS / 4] = 0xFFF;                                   /* no interrupt reaches the A53's driver */
+  ch[ZD_CTRL0 / 4] = ctrl0 & ~ZD_POINT_SG;                   /* simple mode: the descriptor in registers */
+
+  /* three buffers of n bytes in the RISC-V's RAM: OFF (the copy's target through HPM1), OFF + n (its DDR
+   * source), OFF + 2n (the DDR target of the copy back) */
+  volatile uint64_t *ddr = map_phys(o->base + off, 3 * (size_t)n);
+  volatile uint64_t *hp = dma_map(o, off, n);
+  uint64_t w = n / 8;
+  for (uint64_t i = 0; i < w; i++) { ddr[w + i] = 0xD0D0000000000000ull ^ (off + 8 * i) * 0x9E3779B97F4A7C15ull; ddr[2 * w + i] = 0; hp[i] = 0; }
+  __asm__ volatile("dsb sy" ::: "memory");
+  uint32_t wr0 = rd(R_HDMA_WR_LINES), rd0 = rd(R_HDMA_RD_LINES), dr0 = rd(R_HDMA_WR_DROPS);
+  double us1, us2;
+  uint32_t isr1 = adma_copy(ch, o->base + off + n, o->dma_pa + off, n, &us1);
+  uint64_t bad1 = 0;
+  for (uint64_t i = 0; i < w; i++) bad1 += hp[i] != ddr[w + i];
+  uint32_t wr1 = rd(R_HDMA_WR_LINES), rd1 = rd(R_HDMA_RD_LINES);
+  uint32_t isr2 = adma_copy(ch, o->dma_pa + off, o->base + off + 2 * n, n, &us2);
+  uint64_t bad2 = 0;
+  for (uint64_t i = 0; i < w; i++) bad2 += ddr[2 * w + i] != ddr[w + i];
+  uint32_t rd2 = rd(R_HDMA_RD_LINES), dr2 = rd(R_HDMA_WR_DROPS);
+  uint32_t st = ch[ZD_STATUS / 4];
+
+  ch[ZD_CTRL0 / 4] = ctrl0;                                 /* put the channel back as it was */
+  ch[ZD_ISR / 4] = ch[ZD_ISR / 4];
+  ch[ZD_IER / 4] = ~imr & 0xFFF;
+  int ok1 = (isr1 & ZD_DONE) && !(isr1 & ZD_ERRS) && !bad1, ok2 = (isr2 & ZD_DONE) && !(isr2 & ZD_ERRS) && !bad2;
+  printf("dma adma 0x%" PRIx64 ": %u bytes, DDR 0x%" PRIx64 " -> HPM1 0x%" PRIx64 " (RISC-V 0x%" PRIx64 "): %s, ISR 0x%03x, "
+         "%.0f us, %" PRIu64 " words wrong; the port wrote %u lines, read %u\n", pa, n, o->base + off + n, o->dma_pa + off,
+         (uint64_t)(DRAM_BASE_RV + off), ok1 ? "ok" : "FAIL", isr1, us1, bad1, wr1 - wr0, rd1 - rd0);
+  printf("dma adma 0x%" PRIx64 ": %u bytes, HPM1 0x%" PRIx64 " -> DDR 0x%" PRIx64 ": %s, ISR 0x%03x, %.0f us, %" PRIu64
+         " words wrong; the port read %u lines; %u write bursts dropped; channel STATUS 0x%x\n", pa, n, o->dma_pa + off,
+         o->base + off + 2 * n, ok2 ? "ok" : "FAIL", isr2, us2, bad2, rd2 - rd1, dr2 - dr0, st);
+  if (isr1 & ZD_ERRS || isr2 & ZD_ERRS)
+    printf("  ISR errors: bit 9 AXI write data, 8 AXI read data, 7/6 descriptor reads, 5/4 accounting, 3 byte count "
+           "overflow, 0 invalid APB access\n");
+  if (!ok1 || !ok2) exit(1);
+}
+
 static void cmd_dma(const struct opts *o, int argc, char **argv) {
   if (argc < 1) usage();
   if (!(rd(R_CAPS) & CAPS_HDMA)) die("dma: this bitstream has no host DMA port (build with TG_HOST_DMA=1)");
@@ -396,6 +513,8 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
     volatile uint64_t *p = dma_map(o, num(argv[1]), 8);
     p[0] = num(argv[2]);
     __asm__ volatile("dsb sy" ::: "memory");
+  } else if (!strcmp(argv[0], "adma")) {
+    cmd_dma_adma(o, argc, argv);
   } else if (!strcmp(argv[0], "check")) {
     uint64_t ram = rd64(R_DRAM_SIZE);
     uint64_t len = argc > 2 ? num(argv[2]) : 0x10000, off = argc > 1 ? num(argv[1]) : ram - len;
@@ -426,6 +545,45 @@ static void cmd_dma(const struct opts *o, int argc, char **argv) {
            rd(R_HDMA_RD_LINES) - rd0, rd(R_HDMA_WR_LINES) - wr0, drops);
     if (bad || drops) exit(1);
   } else usage();
+}
+
+/* Read-only PS registers for stage D's D0 probes (soc.md §8.2), limited to LPD control blocks that are
+ * always powered and clocked, so a read cannot stall the interconnect. A register the XPPU refuses to a
+ * non-secure reader answers SLVERR, a synchronous abort (SIGBUS here), reported instead of killing us. */
+static sigjmp_buf psrd_jmp;
+static void psrd_bus(int sig) { (void)sig; siglongjmp(psrd_jmp, 1); }
+static void cmd_psrd(int argc, char **argv) {
+  static const struct { uint64_t base, size; const char *name; } ok[] = {
+    { 0xFF980000ull, 0x10000, "LPD_XPPU" }, { 0xFF9B0000ull, 0x10000, "AFIFM6 (S_AXI_LPD)" },
+    { 0xFF5E0000ull, 0x10000, "CRL_APB" }, { 0xFF180000ull, 0x80000, "IOU_SLCR" }, { 0xFF410000ull, 0x10000, "LPD_SLCR" },
+    { 0xFFA50000ull, 0x10000, "AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)" },
+  };
+  if (argc < 1) usage();
+  uint64_t a = num(argv[0]), n = argc > 1 ? num(argv[1]) : 1;
+  unsigned k = 0;
+  while (k < sizeof ok / sizeof ok[0] && !(a >= ok[k].base && a + 4 * n <= ok[k].base + ok[k].size)) k++;
+  if ((a & 3) || !n || k == sizeof ok / sizeof ok[0])
+    die("psrd: 0x%" PRIx64 " + %" PRIu64 " words is not inside one of the always-on blocks (see usage), or not aligned", a, n);
+  volatile uint32_t *r = map_phys(a, 4 * (size_t)n);
+  signal(SIGBUS, psrd_bus);
+  for (uint64_t i = 0; i < n; i++) {
+    if (sigsetjmp(psrd_jmp, 1)) { printf("0x%09" PRIx64 ": bus error (refused to this reader)\n", a + 4 * i); continue; }
+    printf("0x%09" PRIx64 ": 0x%08x  %s\n", a + 4 * i, r[i], ok[k].name);
+  }
+  signal(SIGBUS, SIG_DFL);
+}
+
+/* The fan's PL regulator (docs/spec/soc.md §8.2, D2): FAN = {valid [27], DRP timeout [26], duty [25:18], the
+ * A53's duty [17:10], the PL SYSMON's temperature code [15:6] in [9:0]}; a bitstream without it reads 0 */
+static void cmd_fan(void) {
+  uint32_t v = rd(R_FAN);
+  if (!(v >> 27 & 1)) {
+    printf("fan: no temperature reading%s\n", v ? "" : " (0: a bitstream without the fan's PL regulator, or it just started)");
+    return;
+  }
+  double t = ((double)((v & 0x3ffu) << 6) + 32.0) * 509.314 / 65536.0 - 280.231;
+  printf("fan: PL die %.1f C, duty %u/255 (the larger of the curve's and the A53's), the A53's PWM %u/255%s\n", t,
+         (v >> 18) & 0xffu, (v >> 10) & 0xffu, v >> 26 & 1 ? "; the last SYSMON read timed out: full speed" : "");
 }
 
 static void check_id(void) {
@@ -1007,6 +1165,8 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "dbg"))        { check_id(); cmd_dbg(); return 0; }
   if (!strcmp(cmd, "vq"))         { check_id(); cmd_vq(); return 0; }
   if (!strcmp(cmd, "dma"))        { check_id(); cmd_dma(&o, argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "psrd"))       { check_id(); cmd_psrd(argc - optind, argv + optind); return 0; }
+  if (!strcmp(cmd, "fan"))        { check_id(); cmd_fan(); return 0; }
   if (!strcmp(cmd, "peek"))       {
     if (optind >= argc) usage();
     unsigned off = (unsigned)num(argv[optind]);

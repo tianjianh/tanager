@@ -74,7 +74,8 @@ def main():
         bench = {}
         for bub in (1, 2):
             r = tgrun.run_one({"name": "coremark_A", "elf": elf, "stdin": "", "ff": 0}, "rtl_m2",
-                              {"ras": 32, "m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1, "m2_f2_bubble": bub})["region"]
+                              {**m6.REV1, "ras": 32, "m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1,
+                               "m2_f2_bubble": bub})["region"]
             bench[bub] = {"cycles": r["cycles"], "instr": r["instr"], "cm_mhz": 2e6 / r["cycles"],
                           "flushes_per_1k": per_k(r, "mp_resolved_commit"), "f2_per_1k": per_k(r, "f2_overrides"),
                           "decode_per_1k": per_k(r, "predecode_redirects")}

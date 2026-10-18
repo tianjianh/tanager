@@ -44,6 +44,7 @@ The uncore is everything between the cores' TileLink ports and the PS: the inter
 | 10 | UART (the number QEMU `virt` uses, so both device trees agree) |
 | 11 | host-control mailbox doorbell ([host.md](host.md)) |
 | 16 + h | `merr_o` of hart h (edge-triggered; plan §4.5) |
+| 20 … 24 | the PS window's controllers (stage D, `tg_map_pkg` `PS_WINDOW`, [soc.md](soc.md) §8.2): UART1, SD1, GEM3, USB0's host line, TTC1. They are the PS's interrupt levels, synchronized in the uncore, and tied 0 without the window |
 
 ## Interface
 
@@ -94,7 +95,12 @@ It converts the device-bus target's TL-UL traffic (single beat, size ≤ 3, natu
 - response: 64-bit read data, error.
 
 It decodes the device from the address: ACLINT, PLIC, UART and host control are present, and the virtio slots when `VIRTIO` is set (`tg_uncore` `VIRTIO_WINDOW`: the forwarded virtio window, the fifth device, [host.md](host.md)). Without it the virtio slots answer `denied`, as do the debug window (until M9), sizes above 3 and misaligned accesses.
-- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Only the virtio window waits, for the host's answer to a read or for room in its queue; every other device ties its bit to 0, so they answer as before.
+- **The PS window, the sixth device** (`tg_ps_window`, stage D's D1, [soc.md](soc.md) §8.2): the PS's peripheral registers at their own addresses, `0xFE00_0000`–`0xFFFF_FFFF`.
+  - It is built only with `TG_PS_WINDOW=1`, a define, because the range is a PMA region (`tg_map_pkg` `PS_WINDOW`) that the cores see too. Without it the range is no region at all, as before.
+  - Each access becomes one single-beat AXI4 transaction into `S_AXI_LPD` (128-bit, the access's size), and the device waits for the response.
+  - Only the apertures of stage D's controllers pass (UART1, GEM3, TTC1, SD1, USB0's core and glue), plus IOU_SLCR read-only. Another address, a write to IOU_SLCR, an error response, or no response within 2^16 cycles answers `denied`.
+  - After a timeout it takes the late response and denies every access until then, so the AXI handshake stays legal.
+- **Response timing:** a device answers in the cycle after the request, or later. A device may hold its `wait_i` bit high from that cycle on, and the bus takes the response in the first cycle with the bit low. Two devices wait: the virtio window, for the host's answer to a read or for room in its queue, and the PS window, for the PS's response. Every other device ties its bit to 0, so they answer as before.
 - **No timeout:** the bus waits as long as the device does, and so does the core's access.
 - The read data is replicated into both 64-bit halves of the 128-bit beat, so it sits in the lanes TileLink expects for the address (TileLink 1.8.1 §4.6).
 

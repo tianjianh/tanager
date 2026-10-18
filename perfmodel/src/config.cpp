@@ -49,15 +49,26 @@ bool Config::apply_preset(const std::string& name) {
     // L1 refill costs 13 cycles beyond the memory's latency (request, beats, install, replay); a forwarded load
     // completes at M2 like a hit (5) and one waiting for the store's data replays (8); MUL-to-use is 5 (the RTL
     // wakes a MUL's dependants through a tag delay line, with no MUL bypass).
+    // Since the first M6 stack's check (area_recovery.md §6.4), from an RTL profile: four L1D misses in flight
+    // (main's default since DR-156); the issue queues' rows in banks by dispatch slot, a decode group dispatching as
+    // one, each row held until two cycles after its select; and a store's address issuing only with its data, as
+    // rename makes the store's IQ-STA row wait on the data register (younger loads to its address then replay).
     ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0; pf_i_nextline = 0;
+    iq_slot_bank = 1; iq_hold = 3; sta_split = 0;
     commit_redirect = 2; l1_fill_extra = 13; ld_fwd_lat = 5; ld_fwd_wait = 8; lat_mul = 5;
     fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;
     rob = 48; iq_a0 = 10; iq_a1 = 10; iq_ld = 6; iq_fp = 10; iq_sta = 4; wake_tags = 16;
     lq = 16; sq = 12; lqcb = 0; llt = 16; ckpt = 0; early_retire = 0;
-    spec_wakeup = 0; hit_pred = 0; shadow = 0;
+    // Speculative load wakeup (on in main since DR-154's flip, ce47115): an integer load's dependants issue three
+    // cycles after it, with no hit predictor; a load that does not complete in M2 cancels the integer queues'
+    // issues of the next three cycles; FP consumers wait for the confirmed result.
+    spec_wakeup = 1; hit_pred = 0; shadow = 3; spec_int_only = 1;
+    // From fpu-2's RTL profile of the cancels (§6.6): a forward that completes at M2 wakes as a hit does; a load
+    // reading the D$ as a store to its 16-byte block drains (acked in its AG cycle or the one before) retries.
+    spec_fwd = 1; dc_row_clash = 1;
     div_base = 4; div_bits_per_cycle = 1;
     lat_fdiv_s = 18; lat_fdiv_d = 23; lat_fsqrt_s = 20; lat_fsqrt_d = 26; fdiv_ii = 4;
-    l1i_mshr = 1; l1d_mshr = 1; pf_stride = 0; pf_stream = 0; rfo_pf = 0;
+    l1i_mshr = 1; l1d_mshr = 4; pf_stride = 0; pf_stream = 0; rfo_pf = 0;
     abl_st_done = 1;
     l2_kb = 0; dram_lat = 30; dram_line_cyc = 4;
     return true;

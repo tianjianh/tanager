@@ -1,0 +1,9 @@
+cfg=smt2 kind=core core_mhz=100 n_cores=2
+WNS=0.650 WHS=0.010
+runtime_s=6523
+commit=a4bc643941f3
+profile=d1-smt2-trace-pswin defines=- synth=AreaOptimized_high
+pr_unc=1.0 (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)
+uncore=VIRTIO_WINDOW=1 HOST_DMA=1 PS_WINDOW=1
+pmod_uart=1 txd=H12 rxd=B10
+fan=ttc0.wave2 invert=0 pin=A12

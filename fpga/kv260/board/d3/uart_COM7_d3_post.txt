@@ -1,0 +1,12 @@
+﻿
+===== COM7 opened 2026-10-18T01:22:50.6206702-07:00 =====
+
+Ubuntu 24.04.2 LTS kria ttyPS1
+
+kria login: [25111.320483] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+[25111.333143] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+[25146.620544] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+[25146.633166] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+[25146.645293] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+[25146.657088] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+[25146.669317] OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host

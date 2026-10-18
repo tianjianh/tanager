@@ -1,0 +1,5 @@
+== step 5: give UART1 back
+Removed "/run/systemd/system/serial-getty@ttyPS1.service".
+08:22:59 fancontrol active, pwm1 15/255, temp1 34692, getty active, printk 4	4	1	7
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+08:23:02 fancontrol active, pwm1 15/255, temp1 34132, getty active, printk 4	4	1	7

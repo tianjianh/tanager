@@ -32,6 +32,15 @@ constexpr int TID_SHIFT = 48;
 
 struct RasUndo { bool op = false; int sp = 0; int slot = -1; uint64_t val = 0; };
 
+// m2_btage: a conditional branch's block-TAGE read (its block's indices and tags, its slot and the fetch-time
+// direction), for training at commit; and the block history before each instruction, for a flush's repair.
+struct BtRec {
+  BlockTage::Ix ix;
+  uint64_t gh = 0;
+  uint8_t slot = 0;
+  bool v = false, pred = false;
+};
+
 struct FetchRec {
   uint64_t seq = 0;              // dynamic instruction number (synthetic shadow: branch seq)
   const DynInst* di = nullptr;
@@ -43,6 +52,8 @@ struct FetchRec {
   bool de_redirect = false;      // fe_m2: decode redirects fetch after this instruction (fetch waits for it)
   Hist hist;                     // global history before this instruction
   RasUndo ras;
+  BtRec bt;
+  uint64_t blk = 0;              // fe_m2: its fetch block's number (m2_ftq)
 };
 
 struct Uop {
@@ -71,6 +82,10 @@ struct Uop {
   uint8_t mp_kind = 0;
   Hist hist;
   RasUndo ras;
+  BtRec bt;
+  uint64_t blk = 0;
+  uint64_t dgrp = 0;                  // iq_slot_bank: its decode group (decode cycle) and slot in it
+  uint8_t dslot = 0;
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
   bool retired_early = false;
   int row = -1;
@@ -94,7 +109,11 @@ struct SqEntry {
   X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
   X(mp_refills) X(mp_refill_cycles)                                                                \
-  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides)                            \
+  X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
+  X(fetch_blocks) X(ftq_full)                                                                      \
+  X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
+  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
+  X(dc_clashes)                                                                                    \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -157,6 +176,17 @@ class Core {
     std::deque<FetchRec> fetchq;
     Ras ras;
     Hist ghr;
+    // m2_btage: the block history (a bit per conditional branch, newest in bit 0), the history before the last
+    // block read, whether the next read has the whole history (after a redirect, a flush or an I$ miss), and a
+    // block the fetch queue cut short (its rest reads nothing new)
+    uint64_t bgh = 0, bt_h0 = 0;
+    bool bt_exact = true, bt_partial = false;
+    BlockTage::Ix bt_ix;
+    uint64_t bt_blk = 0;
+    int bt_nbr = 0;
+    // fe_m2: blocks fetched (numbered from 1), and blocks the youngest retired instruction's block follows: the
+    // FTQ (m2_ftq) holds blk_seq - blk_head of them
+    uint64_t blk_seq = 0, blk_head = 0;
     // window (program order): decoded but not yet committed uops
     std::deque<Uop> win;
     uint64_t win_base = 1, next_id = 1, disp_next = 1;
@@ -197,6 +227,7 @@ class Core {
   void fetch_thread(Thread& T);
   void decode();
   int decode_thread(Thread& T, int slots);
+  int decode_take(Thread& T, int slots);
   void dispatch();
   void dispatch_thread(Thread& T, int& n, int& row);
   void issue();
@@ -241,6 +272,17 @@ class Core {
   // iq_bank: the ROB half of a uop, free rows of a bank, and the bank a uop's producers need (-1 any, -2 none)
   int rob_half(uint64_t id) const;
   int64_t bank_free(uint8_t q, int b) const;
+  // iq_hold: rows of issued uops not yet free (cycle free, slot bank, uop); iq_slot_bank: free rows of slot k's bank
+  struct Held { uint64_t t_free; uint8_t bank; uint64_t id; };
+  std::array<std::vector<Held>, NQ> held_;
+  int64_t held(uint8_t q, int bank) const;
+  int64_t slot_free(uint8_t q, int k) const;
+  int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
+  // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
+  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
+  std::vector<AgRec> ag_recs_;
+  void row_clash(Thread& T, uint64_t addr);
+  void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
   bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
   int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken
@@ -263,6 +305,15 @@ class Core {
   Btb btb_;
   MicroBtb ubtb_;
   M2Ubtb m2_;  // fe_m2: the RTL's micro-BTB and its training counters
+  // m2_btage: core-2's TAGE, its training queue (btage_tq), the request in T2 (written at the cycle's end) and
+  // this cycle's requests from commit
+  std::unique_ptr<BlockTage> btage_;
+  struct BtReq { BlockTage::Ix ix; uint8_t slot = 0; bool taken = false, pred = false; };
+  std::deque<BtReq> btq_;
+  std::vector<BtReq> bt_new_;
+  BtReq bt_t2_;
+  bool bt_t2v_ = false;
+  void bt_edge();
   PcCounters sfb_tab_;
   PcTable hitpred_, waittab_;
 

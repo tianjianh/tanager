@@ -39,6 +39,19 @@ foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE
   lappend unc_gen -generic "$g=$val"
   lappend unc_set "$g=$val"
 }
+# TG_PS_WINDOW=1: the PS window (stage D's D1, docs/spec/soc.md §8.2), the PS's peripheral registers through
+# S_AXI_LPD. A map option (tg_map_pkg PS_WINDOW), so a define every file sees, the cores' PMA included. The
+# block design has S_AXI_LPD and the PS's interrupts in every build, idle without the window.
+if {[info exists ::env(TG_PS_WINDOW)]} {
+  if {$::env(TG_PS_WINDOW) ni {0 1}} {
+    puts "ERROR: TG_PS_WINDOW must be 0 or 1 (fpga/kv260/README.md)"
+    exit 1
+  }
+  if {$::env(TG_PS_WINDOW)} {
+    lappend def_args -verilog_define TG_PS_WINDOW=1
+    lappend unc_set "PS_WINDOW=1"
+  }
+}
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {
@@ -52,6 +65,10 @@ if {[info exists ::env(TG_COMMIT)]} {
 # drives, as Kria's own PL design routes it. The facts live in tools/tcl/tg_kv260_fan.tcl, shared with
 # spike S1 (TTC0 channel 2, uninverted); TG_FAN_TTC / TG_FAN_WAVE / TG_FAN_INVERT override them.
 source [file join $root tools tcl tg_kv260_fan.tcl]
+# TG_FAN_PL (default 1): the fan's PL regulator (tg_fan, stage D's D2, DR-147): the duty is the larger of a curve
+# of the PL SYSMON's temperature and the TTC waveform; 0 routes the waveform alone, as before.
+set fan_pl [expr {[info exists ::env(TG_FAN_PL)] ? $::env(TG_FAN_PL) : 1}]
+if {$fan_pl ni {0 1}} { puts "ERROR: TG_FAN_PL must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
 foreach {v g lo hi} {TG_FAN_TTC tg_kv260_fan_ttc 0 3 TG_FAN_WAVE tg_kv260_fan_bit 0 2 TG_FAN_INVERT tg_kv260_fan_invert 0 1} {
   if {[info exists ::env($v)]} { set ::$g $::env($v) }
   set val [set ::$g]
@@ -95,7 +112,7 @@ set synth_dir [expr {[info exists ::env(TG_SYNTH_DIRECTIVE)] ? $::env(TG_SYNTH_D
 stamp "synth_design ($synth_dir)"
 synth_design -top kv260_top -part $part \
   -generic CORE_MHZ=$core_mhz -generic N_CORES=$n_cores -generic CORE_KIND=\"$kind\" -generic PMOD_UART=$pmod_uart \
-  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv {*}$unc_gen {*}$def_args \
+  -generic FAN_WAVE=$fan_wave -generic FAN_INVERT=$fan_inv -generic FAN_PL=$fan_pl {*}$unc_gen {*}$def_args \
   -flatten_hierarchy rebuilt -directive $synth_dir
 # Implicit and undriven nets in our own RTL fail the build (the coordinator, DR-150): a name used before its
 # declaration becomes a one-bit wire in synthesis (Synth 8-11241 "undeclared symbol", 8-605 "same-named
@@ -138,15 +155,53 @@ tg_prim_check -file $rep/prim_check_synth.txt -fail 0
 if {$stop eq "synth"} { stamp "done (synth)"; exit 0 }
 
 # ---- implementation ----
+# Placement and routing aim at a tighter core clock: TG_PR_UNC ns (default 1.0; 0 turns it off) of setup
+# uncertainty on clk_core from placement through routing, taken back before the reports, which give the
+# slack at the real period (DR-154, the coordinator, 10-17). At a plain 100 MHz target the placer
+# under-works the cores; with 1.0 ns, spikes-2's headroom baseline closed main plus hart 1's filler with
+# +1.065 ns (fpga/spikes/tcl/over_unc.tcl, the same method). summary.txt records it. timing.xdc sets no
+# uncertainty of its own.
+set pr_unc [expr {[info exists ::env(TG_PR_UNC)] ? $::env(TG_PR_UNC) : 1.0}]
+if {![string is double -strict $pr_unc] || $pr_unc < 0 || $pr_unc > 3} {
+  puts "ERROR: TG_PR_UNC must be 0-3 ns (fpga/kv260/README.md)"
+  exit 1
+}
+# The core clock: Vivado derives it on the MMCM's CLKOUT0 and names it after the net, c0 (tg_clkgen). The
+# first board build with this (d1_100, 10-17) found nothing with timing.xdc's pin query at this point, so
+# the lookup tries the name, the pin and the BUFG's net, logs what each gave, retries once after a timing
+# update, and without a clock places and routes as before (a warning; summary.txt says so).
+proc tg_core_clock {} {
+  foreach q {{get_clocks -quiet c0}
+             {get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT0]}
+             {get_clocks -quiet -of_objects [get_nets -quiet clk_core]}} {
+    set c [uplevel #0 $q]
+    puts "TG_PR_UNC clock query {$q}: [expr {[llength $c] ? $c : {none}}]"
+    if {[llength $c] == 1} { return $c }
+  }
+  return {}
+}
 stamp "opt_design"
 opt_design
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
+set pr_unc_note ""
+if {$pr_unc > 0} {
+  set core_clk [tg_core_clock]
+  if {![llength $core_clk]} { update_timing -quiet; set core_clk [tg_core_clock] }
+  if {[llength $core_clk]} {
+    set_clock_uncertainty -setup $pr_unc $core_clk
+  } else {
+    puts "WARNING: TG_PR_UNC: no core clock found; placing and routing without the uncertainty"
+    set pr_unc_note " not applied: no core clock found"
+    set pr_unc 0
+  }
+}
 stamp "place_design"
 place_design
 stamp "phys_opt_design"
 phys_opt_design
 stamp "route_design"
 route_design
+if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
 stamp "reports"
 report_timing_summary -max_paths 20 -report_unconstrained -file $rep/timing_summary.rpt
 report_utilization -file $rep/utilization.rpt
@@ -166,9 +221,10 @@ puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
+puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
-puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
+puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
 close $fh
 if {$stop eq "impl"} { stamp "done (impl)"; exit 0 }
 
