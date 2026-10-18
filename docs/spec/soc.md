@@ -452,9 +452,9 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - pwm1 = 1: the A53's PWM read 0/255, and the duty held at the curve's 15/255 for all 10 samples. PL die 32.9–34.4 °C, `temp1` 33.4–36.4 °C.
   - pwm1 = 0 (the first try): `pwm-fan` disables the TTC's PWM, its output idles low, and the regulator reads that as the A53 asking for full speed. The fan ran full for the 5 minutes.
   - **For D3:** the curve governs alone only while the A53's TTC waveform is high or keeps toggling (pwm1 ≥ 1). A disabled or reset TTC idling low runs the fan full: safe, but loud. So the handover boot leaves pwm1 at 1, or a later control bit lets the regulator ignore the TTC (an interface change for the coordinator).
-  - **The coordinator's choice** (soc-2, 10-17):
-    - (a) keep the build and document it;
-    - (b) the fallback: the regulator reads the PS SYSMON's temperature (`0xFFA5_0800`, `fancontrol`'s own sensor) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window, and the XPPU must pass the PL's reads of the AMS (not yet tested).
+  - **The coordinator kept it** (option (a), 10-17, under DR-154: no area or IPC cost either way). With the D2 regulator loaded, the A53's PL temperature channel reads invalid; the PS channel and `fancontrol` are unaffected. This is in the A53 OS change log (`fpga/kv260/README.md`). Losing the A53's view of the PL temperature costs only monitoring, since `fancontrol` regulates on `temp1` and in stage D the A53 parks.
+    - The fallback stays documented: the regulator would read the PS SYSMON's temperature (`0xFFA5_0800`) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window and the XPPU's pass for the AMS (untested).
+    - **D3** (the coordinator): the handover boot leaves pwm1 at 1, so the TTC keeps running and the curve governs. A regulator bit to ignore the TTC can come later as an interface change, under DR-154 if small.
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
@@ -539,6 +539,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
   - **The A53's handover boot:** a U-Boot menu entry on `p1`. It has Ubuntu's kernel and an initramfs with `tanager-host`, the bitstream and the RISC-V's boot images.
     - Its device tree disables UART1, SD1, GEM3 and USB0; the command line has `clk_ignore_unused` and SMMU bypass.
     - It loads the bitstream and starts the RISC-V, and never touches the card again after reading the images.
+    - It leaves the fan's TTC running at pwm1 = 1, so D2's curve governs. A stopped TTC idles low and runs the fan full (the coordinator, 10-17).
   - **The console on UART1** (`cdns,uart-r1p12`):
     - OpenSBI's Cadence driver gives the early output;
     - `xilinx_uartps` is built into our Buildroot kernel, and is a module of ours for Debian (D4).
