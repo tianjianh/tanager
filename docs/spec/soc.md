@@ -435,6 +435,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 - **Tests:**
   - **`tests/unit/fan`,** against a SYSMONE4 stand-in and an A53 PWM generator. It checks full speed before the first reading; 15/255 at 30 °C; 134 at 40 °C, kept at 39.4 °C (the hysteresis); 111 at 38 °C (the curve 1 °C above); 255 at 46 °C; the A53's 50% and 10% (127 and 25) and its held-low and held-high PWM; and full speed while the DRP is silent. Every duty is checked against the status word and against `fan_en_b`'s low time.
   - **`tests/unit/host_bridge`** reads `FAN` across the status crossing, and `tests/unit/soc` reads it through the SoC.
+- **The board build** (`d2_100`, 10-17) is d1's configuration with the regulator, on main 646722b: MR6, and DR-156's four L1D misses in flight by default (the coordinator: the board measures them too).
+  - **Timing:** WNS +0.505 ns, WHS +0.010 ns at 100 MHz, with DR-160's 1.0 ns margin during placement and routing.
+  - **Area:** 112,446 LUTs placed (96.01%), 1,466 more than d1. The regulator is 119 LUTs, 125 flip-flops, one DSP and the SYSMONE4; DR-156 is the rest.
+  - **DR-156's board confirmation:** DR-141's workload set on this bitstream, compared against sc3's three boots (one miss, the same two smt2 cores at 100 MHz). Between sc3's tree (5172c6a) and this one, only DR-156 changes the cores' cycles. The rest is off by default, proven the same function, or the idle PS window.
+  - **The board's steps** (package `d2-smt2-c2-100`):
+    - the regulator with `fancontrol` running;
+    - the regulator alone, with `fancontrol` stopped and pwm1 = 0 for at most 5 minutes;
+    - the DR-141 set, with `tanager-host fan` sampled every 30 s for the heat.
 
 **Stage C against stage D.** C needs only the host DMA port and a little RTL, and the A53 does the I/O. D gives the RISC-V the whole board at native speed. Its costs are the PL-to-PS bridge, the interrupt routing, DMA coherence, the handover and firmware-free drivers. C stays useful after D, as a fallback and for devices the RISC-V can't drive.
 
