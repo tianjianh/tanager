@@ -138,6 +138,14 @@ module tg_core
   logic        fe_ready, lsu_ready;
   logic        dred;
   logic [63:0] dred_pc;
+  logic [FTQW-1:0]   dred_ftq;             // TAGE_ON: dred's instruction's block and slot
+  logic [SLOT_W-1:0] dred_slot;
+  // TAGE_ON, from commit: the retiring conditional branches TAGE trains on, and the FTQ's head
+  logic [COMMIT_WIDTH-1:0]             cm_cbr, cm_ctaken, cm_cpred;
+  logic [COMMIT_WIDTH-1:0][FTQW-1:0]   cm_cftq;
+  logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] cm_cslot;
+  logic                                cm_hv;
+  logic [FTQW-1:0]                     cm_hftq;
   logic        upd_valid, upd_way, upd_inval;
   logic [63:0] upd_pc, upd_target;
   logic [SLOT_W-1:0] upd_slot;
@@ -196,7 +204,9 @@ module tg_core
                       misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
-    .flush, .flush_pc, .icinv, .dred, .dred_pc,
+    .flush, .flush_pc, .icinv, .dred, .dred_pc, .dred_ftq, .dred_slot,
+    .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
+    .c_hv(cm_hv), .c_hftq(cm_hftq),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
     .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
@@ -208,10 +218,26 @@ module tg_core
   logic [DECODE_WIDTH-1:0] de_valid;
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
+  // The return-address stack (RAS_ON): decode reads its top and moves it; commit keeps its
+  // committed copy; a flush restores it from that copy
+  logic                    ras_v, ras_push, ras_pop;
+  logic [38:1]             ras_top, ras_link;
+  logic [COMMIT_WIDTH-1:0] cm_ras_push, cm_ras_pop;
+  logic [COMMIT_WIDTH-1:0][38:1] cm_ras_link;
   tg_decode_stage u_de (
     .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
     .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
-    .dred, .dred_pc);
+    .dred, .dred_pc, .dred_ftq, .dred_slot, .ras_v, .ras_top, .ras_push, .ras_pop, .ras_link);
+  if (RAS_ON) begin : g_ras
+    tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH)) u_ras (
+      .clk, .rst, .flush, .top_v(ras_v), .top(ras_top), .d_push(ras_push), .d_pop(ras_pop), .d_link(ras_link),
+      .c_push(cm_ras_push), .c_pop(cm_ras_pop), .c_link(cm_ras_link));
+  end else begin : g_noras
+    assign ras_v   = 1'b0;
+    assign ras_top = '0;
+    logic unused_ras;                   // no operation is ever decoded or committed without it
+    assign unused_ras = ^{ras_push, ras_pop, ras_link, cm_ras_push, cm_ras_pop, cm_ras_link};
+  end
 
   // ---- Rename and dispatch ----
   robid_t rob_head, rob_tail;
@@ -462,7 +488,9 @@ module tg_core
     .replay_rob,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .sq_drained, .mmio_busy,
-    .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
+    .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_hv, .cm_hftq,
+    .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,

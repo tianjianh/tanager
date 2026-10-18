@@ -513,15 +513,40 @@ module tg_dcache
       wr_addr_q <= b_addr;
       wr_data_q <= b_wdata;
     end
+    // The reads' enables and address come from the three readers alone: a probe's, a Release's and
+    // an atomic's read, none ever beside a write. b_en and b_addr also carry the write decisions
+    // (the store port's hit through pst_ok, an SC's mask through pb_amw), and only registers feed the
+    // writes here (timing, DR-148 fn12: in G7 those decisions reached the RAMs' ENB, their WEBWE, into
+    // which XPM folds enb, and ADDRB: -0.48, -0.82 and -0.78 ns, 13 levels at 80% wire). The same
+    // values whenever a read enables port B (asserted below)
+    logic [WAYS-1:0]  rd_en_v;
+    logic [ROW_W-1:0] rd_addr;
+    always_comb begin
+      rd_en_v = '0;
+      rd_addr = sx_pa[4 +: ROW_W];               // an atomic's read: the store port holds its address
+      if (pb_probe) begin
+        rd_en_v[p_way_q] = 1'b1;
+        rd_addr = {p_pa_q[6 +: SET_W], p_beat_q};
+      end else if (pb_ev) begin
+        rd_en_v[mv_way] = 1'b1;
+        rd_addr = {mv_set, mv_beat};
+      end else if (pb_amr) begin
+        rd_en_v = sh;
+      end
+    end
     assign bw_busy  = wr_v_q;
-    assign rb_en    = wr_en_q | (brd_en ? b_en : '0);
+    assign rb_en    = wr_en_q | rd_en_v;
     assign rb_we    = wr_we_q;
-    assign rb_addr  = wr_v_q ? wr_addr_q : b_addr;
+    assign rb_addr  = wr_v_q ? wr_addr_q : rd_addr;
     assign rb_wdata = wr_data_q;
 `ifndef SYNTHESIS
     always_ff @(posedge clk)
-      if (!rst) assert (!(wr_v_q && (ps_q == P_SEND || m_holdb || brd_en)))
-        else $error("tg_dcache: a registered write lands while port B's output holds a read");
+      if (!rst) begin
+        assert (!(wr_v_q && (ps_q == P_SEND || m_holdb || brd_en)))
+          else $error("tg_dcache: a registered write lands while port B's output holds a read");
+        assert (rd_en_v == (brd_en ? b_en : '0) && (!brd_en || rd_addr == b_addr))
+          else $error("tg_dcache: port B's read enable or address differs from b_en/b_addr");
+      end
 `endif
   end else begin : g_bwnow
     assign bw_busy  = 1'b0;

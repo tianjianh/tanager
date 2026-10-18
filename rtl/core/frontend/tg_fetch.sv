@@ -42,6 +42,17 @@ module tg_fetch
   input  logic        icinv,          // FENCE.I, together with flush
   input  logic        dred,
   input  logic [63:0] dred_pc,
+  input  logic [FTQW-1:0]   dred_ftq,   // TAGE_ON: dred's instruction's FTQ entry and last slot
+  input  logic [SLOT_W-1:0] dred_slot,
+  // TAGE (TAGE_ON) from commit, in slot order: the conditional branches it trains on (their outcome,
+  // fetch-time direction, FTQ entry and slot), and the youngest retiring instruction's FTQ entry
+  input  logic [COMMIT_WIDTH-1:0]             c_cbr,
+  input  logic [COMMIT_WIDTH-1:0]             c_taken,
+  input  logic [COMMIT_WIDTH-1:0]             c_pred,
+  input  logic [COMMIT_WIDTH-1:0][FTQW-1:0]   c_ftq,
+  input  logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] c_slot,
+  input  logic                                c_hv,
+  input  logic [FTQW-1:0]                     c_hftq,
   // Micro-BTB training from execute
   input  logic        upd_valid,
   input  logic        upd_way,
@@ -85,6 +96,10 @@ module tg_fetch
     logic              way;
     logic [SLOT_W-1:0] slot;
     logic [63:0]       target;
+    logic              tsrc;     // ... to the instruction's own target (TAGE_ON), not `target`
+    logic              uhit;     // the micro-BTB's prediction (its training): taken at `uslot`
+    logic [SLOT_W-1:0] uslot;
+    logic [FTQW-1:0]   ftq;      // the block's FTQ entry (TAGE_ON)
     logic              fault;
     logic              fpf;      // page fault (else access)
     logic              fhi;      // on the entry instruction's second half
@@ -224,6 +239,12 @@ module tg_fetch
   // the next block after a dropped prediction (k_ovr_q), or the block itself (its line was
   // installed meanwhile). The blocks F2 and F1 hold in that cycle came after it: dropped.
   logic              ka_q, k_miss_q, k_walk_q, k_stop_q, k_cut_q, k_ovr_q;
+  // TAGE_ON: the override refetches at the exit's target (kt_q): the block's address, the exit's
+  // parcel (kp_q) and its offset (kimm_q), added in the action's cycle
+  logic              kt_q;
+  logic [SLOT_W-1:0] kp_q;
+  logic [20:0]       kimm_q;
+  logic [63:0]       kt_tgt;
   logic [SLOT_W-1:0] fp_q;
   logic              f2v;                     // F2 holds a block it has not acted on
   assign f2v = f2_valid_q && !ka_q;
@@ -308,65 +329,202 @@ module tg_fetch
   assign f2_carried = carry_q && f2_ent == '0 && dslot[0];   // the carried instruction's second half
   assign hp         = f2_hit_q && pred_ok;
 
-  logic              f2_taken;            // the block ends at f2_slot_q and fetch went to f2_tgt_q
+  logic              f2_taken;            // the block ends taken at its exit (fx_slot)
   logic [NP-1:0]      blk_start;
   logic [NP-1:0][2:0] blk_marks;
   logic               blk_carry;
-  logic [1:0][NP-1:0] pq_h, bs_h;
-  logic [1:0]         pe_h, phi_h, pcut_h, isf_h, tk_h, bc_h;
-  for (genvar h = 0; h < 2; h++) begin : g_hp
+  // The block's final prediction and what follows from it (both forms below):
+  logic               f2_isf0;            // the entry's fault decision (the override waits for it)
+  logic [SLOT_W-1:0]  fx_slot;            // the taken exit's last parcel
+  logic               fx_tsrc;            // ... its target is the instruction's own (TAGE_ON)
+  logic               f2_ovr;             // the prediction differs from what F1 followed: refetch,
+  logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
+  logic [SLOT_W-1:0]  ovr_p;              //     or else at the next block
+  logic               uok;                // the micro-BTB's prediction is a real exit
+  assign uok = hp;
+  logic [1:0]         gh_n, gh_b;         // TAGE_ON: the history bits the block adds (count, values)
+  logic [NP-1:0]      gh_cm, gh_pk;       // ... its conditional branches' slots and directions
+  logic [NP-1:0]      tdir;               // ... TAGE's direction per slot
+  if (!TAGE_ON) begin : g_f2u
+    // ---- The micro-BTB alone: the prediction stands or is dropped (the next block) ----
+    logic [1:0][NP-1:0] pq_h, bs_h;
+    logic [1:0]         pe_h, phi_h, pcut_h, isf_h, tk_h, bc_h;
+    for (genvar h = 0; h < 2; h++) begin : g_hp
+      always_comb begin
+        logic          run;
+        logic [NP-1:0] pq_run;                 // an instruction at or before p touches a denied word
+        run = 1'b0;
+        for (int p = 0; p < NP; p++) begin
+          pq_h[h][p] = pd_start[p] && (h == 0 || SLOT_W'(p) <= f2_slot_q) &&
+                       (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+          run = run || pq_h[h][p];
+          pq_run[p] = run;
+        end
+        pe_h[h]   = f2_chk && (f2_carried || pq_h[h][f2_ent]);
+        phi_h[h]  = f2_chk && !f2_carried && pq_h[h][f2_ent] && !dslot[f2_ent];
+        pcut_h[h] = f2_chk && !f2_carried && |pq_h[h] && !pq_h[h][f2_ent];
+        isf_h[h]  = f2_bfault || pe_h[h];
+        tk_h[h]   = h == 1 && !isf_h[h] && !pcut_h[h];
+        // The block's instructions: those before a PMP cut, else up to a taken exit, else all of
+        // them; a fault block is one pseudo-instruction at the entry slot
+        for (int p = 0; p < NP; p++)
+          bs_h[h][p] = pd_start[p] && (pcut_h[h] ? !pq_run[p] : (!tk_h[h] || SLOT_W'(p) <= f2_slot_q));
+        bc_h[h] = pd_carry && !tk_h[h] && !pcut_h[h];
+        if (isf_h[h]) begin
+          bs_h[h] = '0;
+          bs_h[h][f2_ent] = 1'b1;
+          bc_h[h] = 1'b0;
+        end
+      end
+    end
+    assign pmp_hi     = phi_h[0];
+    assign pmp_cut    = pcut_h[hp];
+    assign f2_isfault = isf_h[0];
+    assign f2_taken   = tk_h[hp];
+    assign blk_start  = bs_h[hp];
+    assign blk_carry  = bc_h[hp];
+    // The refetch slot: pq's first parcel, encoded for both outcomes, hp picking last
+    logic [1:0][SLOT_W-1:0] fp_h;
     always_comb begin
-      logic          run;
-      logic [NP-1:0] pq_run;                 // an instruction at or before p touches a denied word
+      for (int h = 0; h < 2; h++) begin
+        fp_h[h] = '0;
+        for (int p = NP - 1; p >= 0; p--) if (pq_h[h][p]) fp_h[h] = SLOT_W'(p);
+      end
+      fp = fp_h[hp];
+      for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
+    end
+  `ifndef SYNTHESIS
+    always_ff @(posedge clk) begin
+      if (!rst && f2v && f2_hit_q)
+        assert (f2_slot_q >= f2_ent) else $error("tg_fetch: a micro-BTB hit's exit slot before the entry");
+      if (!rst && f2v && hp)
+        assert (isf_h[1] == isf_h[0] && phi_h[1] == phi_h[0])
+          else $error("tg_fetch: the entry's fault decision depends on the prediction");
+    end
+  `endif
+    assign f2_isf0 = isf_h[0];
+    assign fx_slot = f2_slot_q;
+    assign fx_tsrc = 1'b0;
+    assign f2_ovr  = f2_hit_q && !pred_ok;
+    assign ovr_tk  = 1'b0;
+    assign ovr_p   = '0;
+    assign gh_n    = '0;
+    assign gh_b    = '0;
+    assign gh_cm   = '0;
+    assign gh_pk   = '0;
+    logic unused_tdir;
+    assign unused_tdir = ^tdir;
+  end else begin : g_f2t
+    // ---- TAGE's decision (TAGE_ON) ----
+    // Each instruction that starts at parcel p (at or after the entry) has its last parcel's slot
+    // (lsl), the key of the micro-BTB and of TAGE. A 32-bit one at the last parcel straddles out
+    // and is not predicted here (decode checks it, as before). Candidates for the exit: a JAL; a
+    // JALR the micro-BTB predicts here (its target); a conditional branch TAGE predicts taken. The
+    // exit is the first candidate, unless the block's third conditional branch comes first: the
+    // block then ends before it (a cut, refetched there), so a block adds at most two history bits.
+    logic [NP-1:0][SLOT_W-1:0] lsl;
+    logic [NP-1:0]             cbr, tkn;
+    logic [SLOT_W-1:0]         fe_p, c3_p;
+    logic                      fe_v, c3_v;
+    always_comb begin
+      int   nb;
+      logic seen;
+      nb = 0;
+      seen = 1'b0;
+      fe_v = 1'b0; fe_p = '0; c3_v = 1'b0; c3_p = '0;
+      for (int p = 0; p < NP; p++) begin
+        logic outp, ujx;
+        outp   = wide[p] && p == NP - 1;
+        lsl[p] = SLOT_W'(wide[p] ? p + 1 : p);
+        cbr[p] = pd_start[p] && pd_br[p] && !outp;
+        ujx    = pd_start[p] && !outp && (pd_jal[p] || (pd_jalr[p] && uok && f2_slot_q == lsl[p]));
+        tkn[p] = ujx || (cbr[p] && tdir[lsl[p]]);
+        if (!seen && cbr[p] && nb == 2) begin
+          seen = 1'b1; c3_v = 1'b1; c3_p = SLOT_W'(p);
+        end else if (!seen && tkn[p]) begin
+          seen = 1'b1; fe_v = 1'b1; fe_p = SLOT_W'(p);
+        end
+        if (cbr[p]) nb++;
+      end
+    end
+    // PMP inside the block, as in the micro-BTB form: the parcels up to the exit (or before the cut)
+    logic [NP-1:0] pq, pq_run, bs;
+    logic          pe, phi, pcut, ccut, isf, tk, bc;
+    always_comb begin
+      logic run;
       run = 1'b0;
       for (int p = 0; p < NP; p++) begin
-        pq_h[h][p] = pd_start[p] && (h == 0 || SLOT_W'(p) <= f2_slot_q) &&
-                     (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
-        run = run || pq_h[h][p];
+        logic lim;
+        lim   = fe_v ? SLOT_W'(p) <= lsl[fe_p] : c3_v ? SLOT_W'(p) < c3_p : 1'b1;
+        pq[p] = pd_start[p] && lim && (dslot[p] || (wide[p] && p + 1 < NP && dslot[(p + 1) % NP]));
+        run = run || pq[p];
         pq_run[p] = run;
       end
-      pe_h[h]   = f2_chk && (f2_carried || pq_h[h][f2_ent]);
-      phi_h[h]  = f2_chk && !f2_carried && pq_h[h][f2_ent] && !dslot[f2_ent];
-      pcut_h[h] = f2_chk && !f2_carried && |pq_h[h] && !pq_h[h][f2_ent];
-      isf_h[h]  = f2_bfault || pe_h[h];
-      tk_h[h]   = h == 1 && !isf_h[h] && !pcut_h[h];
-      // The block's instructions: those before a PMP cut, else up to a taken exit, else all of
-      // them; a fault block is one pseudo-instruction at the entry slot
+      pe   = f2_chk && (f2_carried || pq[f2_ent]);
+      phi  = f2_chk && !f2_carried && pq[f2_ent] && !dslot[f2_ent];
+      pcut = f2_chk && !f2_carried && |pq && !pq[f2_ent];
+      // the branch cut, like the PMP cut, only on a block that hit (else its parcels are not its
+      // own: the refetch after a miss's line arrives must not take the cut)
+      ccut = f2_chk && c3_v && !pe;
+      isf  = f2_bfault || pe;
+      tk   = fe_v && !isf && !pcut;
       for (int p = 0; p < NP; p++)
-        bs_h[h][p] = pd_start[p] && (pcut_h[h] ? !pq_run[p] : (!tk_h[h] || SLOT_W'(p) <= f2_slot_q));
-      bc_h[h] = pd_carry && !tk_h[h] && !pcut_h[h];
-      if (isf_h[h]) begin
-        bs_h[h] = '0;
-        bs_h[h][f2_ent] = 1'b1;
-        bc_h[h] = 1'b0;
+        bs[p] = pd_start[p] && (pcut ? !pq_run[p] : ccut ? SLOT_W'(p) < c3_p : (!tk || SLOT_W'(p) <= lsl[fe_p]));
+      bc = pd_carry && !tk && !pcut && !ccut;
+      if (isf) begin
+        bs = '0;
+        bs[f2_ent] = 1'b1;
+        bc = 1'b0;
       end
     end
-  end
-  assign pmp_hi     = phi_h[0];
-  assign pmp_cut    = pcut_h[hp];
-  assign f2_isfault = isf_h[0];
-  assign f2_taken   = tk_h[hp];
-  assign blk_start  = bs_h[hp];
-  assign blk_carry  = bc_h[hp];
-  // The refetch slot: pq's first parcel, encoded for both outcomes, hp picking last
-  logic [1:0][SLOT_W-1:0] fp_h;
-  always_comb begin
-    for (int h = 0; h < 2; h++) begin
-      fp_h[h] = '0;
-      for (int p = NP - 1; p >= 0; p--) if (pq_h[h][p]) fp_h[h] = SLOT_W'(p);
+    assign pmp_hi     = phi;
+    assign pmp_cut    = pcut || ccut;                // either cut refetches at fp
+    assign f2_isfault = isf;
+    assign f2_isf0    = isf;
+    assign f2_taken   = tk;
+    assign blk_start  = bs;
+    assign blk_carry  = bc;
+    always_comb begin
+      fp = c3_p;
+      if (pcut) begin
+        fp = '0;
+        for (int p = NP - 1; p >= 0; p--) if (pq[p]) fp = SLOT_W'(p);
+      end
+      for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
     end
-    fp = fp_h[hp];
-    for (int p = 0; p < NP; p++) blk_marks[p] = {pd_br[p], pd_jal[p], pd_jalr[p]};
-  end
+    assign fx_slot = lsl[fe_p];
+    assign fx_tsrc = tk && !pd_jalr[fe_p];
+    // F1 followed the micro-BTB (its target on f2_hit_q, else the next block). They differ when the
+    // exit is at another slot than the micro-BTB's, or there is none against its hit; at the same slot
+    // the micro-BTB's target is taken as right (decode checks it). Faults and cuts refetch on their own
+    assign f2_ovr  = !isf && !pcut && !ccut && (tk ? !(f2_hit_q && f2_slot_q == lsl[fe_p]) : f2_hit_q);
+    assign ovr_tk  = tk;
+    assign ovr_p   = fe_p;
+    // History: the block's conditional branches up to its exit or cut, as predicted (newest in bit 0)
+    always_comb begin
+      int k;
+      k = 0;
+      gh_b  = '0;
+      gh_cm = '0;
+      gh_pk = '0;
+      for (int p = 0; p < NP; p++)
+        if (!isf && bs[p] && cbr[p]) begin
+          gh_b = {gh_b[0], tk && SLOT_W'(p) == fe_p};
+          gh_cm[lsl[p]] = 1'b1;
+          gh_pk[lsl[p]] = tk && SLOT_W'(p) == fe_p;
+          k++;
+        end
+      gh_n = 2'(k);
+    end
 `ifndef SYNTHESIS
-  always_ff @(posedge clk) begin
-    if (!rst && f2v && f2_hit_q)
-      assert (f2_slot_q >= f2_ent) else $error("tg_fetch: a micro-BTB hit's exit slot before the entry");
-    if (!rst && f2v && hp)
-      assert (isf_h[1] == isf_h[0] && phi_h[1] == phi_h[0])
-        else $error("tg_fetch: the entry's fault decision depends on the prediction");
-  end
+    always_ff @(posedge clk) begin
+      if (!rst && f2v && f2_hit_q)
+        assert (f2_slot_q >= f2_ent) else $error("tg_fetch: a micro-BTB hit's exit slot before the entry");
+      if (!rst && f2v && fe_v)
+        assert (fe_p >= f2_ent) else $error("tg_fetch: the exit before the entry");
+    end
 `endif
+  end
 
   // ---- F3: compaction ----
   logic                 f3_valid_q, f3_carry_q;
@@ -394,35 +552,124 @@ module tg_fetch
   // F2 delivers when it is valid, not missing, and F3 can take the block. It holds while F3
   // cannot, missing or not: its action is registered anyway.
   logic f2_deliver, f2_hold;
-  assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept;
-  assign f2_hold    = f2v && !f3_accept;
+  logic ft_full;                          // TAGE_ON: no FTQ entry for another block
+  assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept && !ft_full;
+  assign f2_hold    = f2v && (!f3_accept || ft_full);
   // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
   // PMP descriptors, the valid-bit sweep or its own PMP check (f1_pwait).
   logic f1_base, f1_live, ivs_done;
   assign f1_base = f1_valid_q && !miss_q && !wk_q && !stop_q && ready && !pmp_busy && ivs_done;
   assign f1_live = f1_base && !f1_pwait;
   assign f2_go   = !f2_hold && !redirect;
-  logic f2_override;                     // F2 drops the prediction: refetch the next block
-  // (isf_h[0], not f2_isfault: when the prediction stands, the term is zero anyway, and otherwise
-  // f2_isfault is isf_h[0]; so the override does not wait for the pick by hp)
-  assign f2_override = f2_deliver && f2_hit_q && !pred_ok && !isf_h[0];
+  logic f2_override;                     // F2's prediction is not F1's: refetch (f2_ovr)
+  // (f2_isf0, not f2_isfault: with the micro-BTB alone, when its prediction stands the term is zero
+  // anyway, and otherwise f2_isfault is isf_h[0]; so the override does not wait for the pick by hp)
+  assign f2_override = f2_deliver && f2_ovr && !f2_isf0;
   logic am_go, aw_go;                    // F2's miss or ITLB miss of last cycle parks fetch now
   assign am_go  = ka_q && k_miss_q;
   assign aw_go  = ka_q && k_walk_q;
   assign iw_req = (wk_q && !wk_sent_q) || aw_go;
   assign iw_va  = miss_pc_q;
-  // The micro-BTB entry of a dropped prediction is invalidated a cycle later
+  // The micro-BTB entry of a dropped prediction (its exit slot is no branch's or jump's) is
+  // invalidated a cycle later
   logic        ainv_q, ainv_way_q;
   logic [38:4] ainv_pc_q;
   always_ff @(posedge clk) begin
     if (rst) ainv_q <= 1'b0;
-    else     ainv_q <= f2_override;
+    else     ainv_q <= f2_deliver && f2_hit_q && !pred_ok && !f2_isf0;
     ainv_pc_q  <= f2_pc_q[38:4];
     ainv_way_q <= f2_way_q;
   end
   assign f2_inval     = ainv_q;
   assign f2_inval_pc  = ainv_pc_q;
   assign f2_inval_way = ainv_way_q;
+
+  // ---- TAGE, the histories and the FTQ (TAGE_ON) ----
+  // The speculative history (gh_q) takes each delivered block's conditional branches as predicted;
+  // commit's (cgh_q) takes each retiring one's outcome: the same branches in the same order on the
+  // right path. A flush (every recovery is at commit) copies commit's into it; decode's redirect
+  // rebuilds it from the redirecting instruction's block: its FTQ entry keeps the history before
+  // the block and the block's branch slots and directions. The FTQ also keeps the indices and tags
+  // each block read TAGE with, which commit's branches train it with.
+  logic [20:0]     ovr_imm;              // the exit's offset, for the refetch
+  logic [FTQW-1:0] ft_tail;              // the FTQ entry a block delivered now takes
+  if (TAGE_ON) begin : g_tage
+    localparam int IXW = 4 * (10 + 9) + 11;
+    logic [IXW-1:0]  tix;
+    logic [GH_W-1:0] gh_q, cgh_q;
+    logic [COMMIT_WIDTH-1:0][IXW-1:0] fx_rd;
+    tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .HW(GH_W)) u_tage (
+      .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_q), .dir(tdir), .ix(tix),
+      .t_v(c_cbr), .t_ix(fx_rd), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred));
+    // FTQ pointers, with a wrap bit; a delivery takes the tail
+    logic [FTQW:0] ft_t_q, ft_h_q;
+    logic          ft_we;
+    assign ft_full = ft_t_q[FTQW] != ft_h_q[FTQW] && ft_t_q[FTQW-1:0] == ft_h_q[FTQW-1:0];
+    assign ft_tail = ft_t_q[FTQW-1:0];
+    assign ft_we   = f2_deliver && !redirect;
+    localparam int RW = GH_W + 2 * NP;
+    logic [0:0][FTQW-1:0] fr_ra;
+    logic [0:0][RW-1:0]   fr_rd;
+    assign fr_ra[0] = dred_ftq;
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(RW), .NR(1)) u_fgh (
+      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_q, gh_cm, gh_pk}), .raddr(fr_ra), .rdata(fr_rd));
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(COMMIT_WIDTH)) u_fix (
+      .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(c_ftq), .rdata(fx_rd));
+    // the history after decode's redirect at slot dred_slot of block dred_ftq
+    logic [GH_W-1:0] r_gh;
+    always_comb begin
+      logic [GH_W-1:0] g;
+      logic [NP-1:0]   cm, pk;
+      {g, cm, pk} = fr_rd[0];
+      for (int k = 0; k < NP; k++)
+        if (cm[k] && SLOT_W'(k) <= dred_slot) g = {g[GH_W-2:0], pk[k]};
+      r_gh = g;
+    end
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        gh_q   <= '0;
+        cgh_q  <= '0;
+        ft_t_q <= '0;
+        ft_h_q <= '0;
+      end else begin
+        logic [GH_W-1:0] c;
+        c = cgh_q;
+        for (int j = 0; j < COMMIT_WIDTH; j++) if (c_cbr[j]) c = {c[GH_W-2:0], c_taken[j]};
+        cgh_q <= c;
+        if (flush) begin                   // (nothing retires in a flush's cycle)
+          gh_q   <= cgh_q;
+          ft_t_q <= '0;
+          ft_h_q <= '0;
+        end else begin
+          if (dred)
+            gh_q <= r_gh;
+          else if (ft_we)
+            gh_q <= (gh_n == 2'd0) ? gh_q : (gh_n == 2'd1) ? {gh_q[GH_W-2:0], gh_b[0]} : {gh_q[GH_W-3:0], gh_b};
+          // decode's redirect keeps its instruction's block and drops the later ones; commit frees
+          // the blocks before the youngest retiring instruction's
+          if (dred)       ft_t_q <= {(dred_ftq < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], dred_ftq} + 1'b1;
+          else if (ft_we) ft_t_q <= ft_t_q + 1'b1;
+          if (c_hv)       ft_h_q <= {(c_hftq < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_hftq};
+        end
+      end
+    end
+    // the exit's offset, for the refetch at its target
+    always_comb begin
+      logic [31:0] x;
+      x = {parcel[(int'(ovr_p) + 1) % NP], parcel[ovr_p]};
+      ovr_imm = br_imm(x, pd_jal[ovr_p]);
+    end
+    assign kt_tgt = {miss_pc_q[63:4], 4'b0} + {59'b0, kp_q, 1'b0} + {{43{kimm_q[20]}}, kimm_q};
+  end else begin : g_notage
+    assign ft_full = 1'b0;
+    assign ft_tail = '0;
+    assign tdir    = '0;
+    assign ovr_imm = '0;
+    assign kt_tgt  = '0;
+    logic unused_tage;
+    assign unused_tage = ^{dred_ftq, dred_slot, c_cbr, c_taken, c_pred, c_ftq, c_slot, c_hv, c_hftq, gh_n, gh_b,
+                           gh_cm, gh_pk, kp_q, kimm_q};
+  end
 
   // ---- Refill engine (one Get at a time) ----
   typedef enum logic [1:0] { R_IDLE, R_REQ, R_DATA } rstate_e;
@@ -594,9 +841,10 @@ module tg_fetch
         f3_start_q  <= blk_start;
         f3_marks_q  <= f2_bfault ? '0 : blk_marks;
         f3_carry_q  <= blk_carry;
-        f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: f2_slot_q,
-                         target: f2_tgt_q, fault: f2_isfault, fpf: f2_bfault && f2_fpf_q,
-                         fhi: !f2_bfault && pmp_hi};
+        f3_meta_q   <= '{base: f2_pc_q[63:4], hit: f2_taken, way: f2_way_q, slot: fx_slot,
+                         target: f2_tgt_q, tsrc: fx_tsrc,
+                         uhit: TAGE_ON ? uok && !f2_isfault : f2_taken, uslot: f2_slot_q, ftq: ft_tail,
+                         fault: f2_isfault, fpf: f2_bfault && f2_fpf_q, fhi: !f2_bfault && pmp_hi};
       end
       if (f2_deliver) begin
         f3_valid_q  <= 1'b1;
@@ -621,7 +869,7 @@ module tg_fetch
           // (the block again, rather than refilling it twice)
           f1_valid_q <= 1'b1;
           fpc_q      <= k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
-                      : k_ovr_q ? {miss_pc_q[63:4] + 60'd1, 4'b0} : miss_pc_q;
+                      : k_ovr_q ? (kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0}) : miss_pc_q;
           pw_q       <= 1'b0;
         end
       end else if (f2_go) begin
@@ -651,6 +899,9 @@ module tg_fetch
       k_stop_q <= f2_deliver && f2_isfault;
       k_cut_q  <= pmp_cut;
       k_ovr_q  <= f2_override;
+      kt_q     <= ovr_tk;
+      kp_q     <= ovr_p;
+      kimm_q   <= ovr_imm;
       fp_q     <= fp;
       if (f2v) begin
         miss_pc_q <= f2_pc_q;
@@ -701,9 +952,11 @@ module tg_fetch
     assign pc   = strad ? {m.base - 1'b1, 4'hE} : {m.base, slot, 1'b0};
     assign first = (SLOT_W + 1)'(slot);
     assign last  = strad ? '0 : (rvc ? first : first + 1'b1);
-    logic exit_here;
+    logic exit_here, u_here;
     assign exit_here = m.hit && (strad ? m.slot == '0
                                        : ((SLOT_W + 1)'(m.slot) >= first && (SLOT_W + 1)'(m.slot) <= last));
+    assign u_here    = m.uhit && (strad ? m.uslot == '0
+                                        : ((SLOT_W + 1)'(m.uslot) >= first && (SLOT_W + 1)'(m.uslot) <= last));
     assign iq_valid[j] = cq_valid[j];
     always_comb begin
       iq_insn[j]             = '0;
@@ -718,8 +971,10 @@ module tg_fetch
       iq_insn[j].pred_taken  = exit_here;
       iq_insn[j].pred_target = m.target;
       iq_insn[j].pred_bogus  = 1'b0;
-      iq_insn[j].ubtb_hit    = exit_here;
+      iq_insn[j].ubtb_hit    = u_here;
       iq_insn[j].ubtb_way    = m.way;
+      iq_insn[j].pred_tsrc   = m.tsrc && exit_here;
+      iq_insn[j].ftq         = m.ftq;
       iq_insn[j].tid         = '0;
       iq_insn[j].marks       = marks;
       iq_insn[j].q_ill       = qill;

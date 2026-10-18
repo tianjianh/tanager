@@ -78,6 +78,19 @@ module tg_rob
   output logic [CW-1:0][4:0]           cm_rd,
   output preg_t [CW-1:0]               cm_dst,
   output preg_t [CW-1:0]               cm_old,
+  // To the return-address stack's committed copy (tg_ras): each slot's operation and link
+  output logic [CW-1:0]                cm_ras_push,
+  output logic [CW-1:0]                cm_ras_pop,
+  output logic [CW-1:0][38:1]          cm_ras_link,
+  // To TAGE (TAGE_ON): each slot's conditional branch, its outcome and fetch-time direction, its
+  // block's FTQ entry and its slot; and the youngest retiring instruction's FTQ entry
+  output logic [CW-1:0]                cm_cbr,
+  output logic [CW-1:0]                cm_ctaken,
+  output logic [CW-1:0]                cm_cpred,
+  output logic [CW-1:0][FTQW-1:0]      cm_cftq,
+  output logic [CW-1:0][SLOT_W-1:0]    cm_cslot,
+  output logic                         cm_hv,
+  output logic [FTQW-1:0]              cm_hftq,
   // To the LSU
   output logic [NCW-1:0]               cm_nld,
   output logic [NCW-1:0]               cm_nst,
@@ -168,6 +181,13 @@ module tg_rob
       dpl[k].dexc_hi    = ds_uop[k].d.exc_hi;
       dpl[k].lq         = ds_ren[k].lq;
       dpl[k].sq         = ds_ren[k].sq;
+      {dpl[k].ras_push, dpl[k].ras_pop} = ras_op(ds_uop[k].d);
+      // TAGE trains on the conditional branches its blocks predict: not a straddler (a 32-bit one at
+      // its block's last slot, which no block's prediction covers), nor one with a decode exception
+      dpl[k].cbr        = TAGE_ON && ds_uop[k].d.cls == C_BR && ds_uop[k].d.br_kind == BR_COND && !ds_uop[k].d.exc &&
+                          !(ds_uop[k].pc[SLOT_W:1] == SLOT_W'(NP - 1) && !ds_uop[k].rvc);
+      dpl[k].ptk        = ds_uop[k].ptk;
+      dpl[k].ftq        = ds_uop[k].ftq;
       dpl[k].f_cmp      = fp_cmp_d[k] ^ !ds_ren[k].has_q;   // complete at once without a queue
       dpl[k].f_exc      = fp_exc_d[k] ^ ds_uop[k].d.exc;
       dpl[k].f_misp     = fp_misp_d[k];
@@ -291,6 +311,34 @@ module tg_rob
     ft_v[NFT - 2] = br_valid && !br_exc && br_misp;  ft_e[NFT - 2] = br_rob;
     ft_v[NFT - 1] = ld_cmp && ld_mmio;               ft_e[NFT - 1] = ld_rob;
   end
+  // The store ports' completion reports write their toggle tables a cycle later, from registers,
+  // and the commit slots' reads add the pending toggle in that cycle, so every flag reads as
+  // before: asserted against the shadow flags below, which take the reports when they come (timing,
+  // DR-148 fn12: in G7 the STA's PMP check -> sa_exc -> st_cmp -> those tables' WE was -0.76 ns at
+  // 21 levels, 70% wire). A flush in the write's cycle keeps it, since the report came before it.
+  // The dispatched entries' reads need no correction: a reported entry is live, so it is never
+  // being dispatched in the write's cycle (asserted)
+  localparam int SCT = N_ALU + 3;                // the store ports' completion tables: SCT, SCT + 1
+  logic [1:0]       sp_v_q;
+  robid_t [1:0]     sp_e_q;
+  always_ff @(posedge clk) begin
+    for (int i = 0; i < 2; i++) begin
+      sp_v_q[i] <= st_cmp[i] && !flush && !rst;
+      sp_e_q[i] <= st_rob[i];
+    end
+  end
+  logic [NFT-1:0]   fw_v;                        // the tables' writes: the reports, the store ports' late
+  robid_t [NFT-1:0] fw_e;
+  always_comb begin
+    for (int t = 0; t < NFT; t++) begin
+      fw_v[t] = ft_v[t] && !flush && !rst;
+      fw_e[t] = ft_e[t];
+    end
+    for (int i = 0; i < 2; i++) begin
+      fw_v[SCT + i] = sp_v_q[i] && !rst;
+      fw_e[SCT + i] = sp_e_q[i];
+    end
+  end
   logic [NFT-1:0][NFR-1:0] ft_rd;
   for (genvar t = 0; t < NFT; t++) begin : g_ft
     logic [NFR-1:0][RIW-1:0] ra;
@@ -300,9 +348,9 @@ module tg_rob
     for (genvar k = 0; k < DISPATCH_WIDTH; k++) begin : g_rd
       assign ra[CW + k] = ds_ren[k].rob[RIW-1:0];
     end
-    assign ra[NFR-1] = ft_e[t][RIW-1:0];
+    assign ra[NFR-1] = fw_e[t][RIW-1:0];
     tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NFR)) u_ft (
-      .clk, .we(ft_v[t] && !flush && !rst), .waddr(ft_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
+      .clk, .we(fw_v[t]), .waddr(fw_e[t][RIW-1:0]), .wdata(!ft_rd[t][NFR-1]),
       .raddr(ra), .rdata(ft_rd[t]));
   end
   // The completion and exception parities at each read port
@@ -314,6 +362,10 @@ module tg_rob
       for (int t = 0; t < NCP; t++)         par_c[p] ^= ft_rd[t][p];
       for (int t = NCP; t < NCP + NXP; t++) par_x[p] ^= ft_rd[t][p];
     end
+    // the commit slots: the store tables' pending toggles (above)
+    for (int j = 0; j < CW; j++)
+      for (int i = 0; i < 2; i++)
+        par_c[j] ^= sp_v_q[i] && sp_e_q[i][RIW-1:0] == hid[j][RIW-1:0];
   end
   logic [CW-1:0] cmp_h, exc_h, misp_h, mmio_h;   // the flags of the commit slots' entries
   for (genvar j = 0; j < CW; j++) begin : g_fh
@@ -385,6 +437,7 @@ module tg_rob
   logic [3:0]    t_cause;
   logic [63:0]   t_tval;
   logic          stop;
+  logic          pushed;            // a return-address-stack push retires in the group (one per cycle)
   logic [CW-1:0] mf;                // the slot whose mispredict ends the group
   // Commit holds (cmh_*): a store whose PMP check comes after it completed retires only once a
   // denial would show, and a load whose ordering replay mark is a cycle late does not retire before
@@ -429,6 +482,7 @@ module tg_rob
     t_cause = '0;
     t_tval = '0;
     stop = 1'b0;
+    pushed = 1'b0;
     mf = '0;
     if (!flush && ready && cnt > 0) begin
       if (irq_take && hp[0].sys != SYS_WFI && !mmio_busy) begin
@@ -478,10 +532,12 @@ module tg_rob
         end
       end else begin
         stop = 1'b0;
+        pushed = 1'b0;
         for (int j = 0; j < CW; j++) begin
           if (!stop) begin
-            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j]) begin
+            if (j < cnt && cmp_h[j] && !exc_h[j] && !hp[j].serial && !rpl_h[j] && !(pushed && hp[j].ras_push)) begin
               ret[j] = 1'b1;
+              if (hp[j].ras_push) pushed = 1'b1;
               if (misp_h[j]) begin
                 mf[j] = 1'b1;
                 stop = 1'b1;
@@ -511,6 +567,15 @@ module tg_rob
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
+      cm_ras_push[j] = ret[j] && hp[j].ras_push;
+      cm_ras_pop[j]  = ret[j] && hp[j].ras_pop;
+      cm_ras_link[j] = hp[j].pc[38:1] + (hp[j].rvc ? 38'd1 : 38'd2);
+      // a conditional branch's mispredict is its direction (its taken target is checked at decode)
+      cm_cbr[j]      = ret[j] && hp[j].cbr;
+      cm_ctaken[j]   = hp[j].ptk ^ misp_h[j];
+      cm_cpred[j]    = hp[j].ptk;
+      cm_cftq[j]     = hp[j].ftq;
+      cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
       if (ret[j]) begin
@@ -522,6 +587,9 @@ module tg_rob
     cm_nld = NCW'(nl);
     cm_nst = NCW'(ns);
     cm_n   = NCW'(n);
+    cm_hv   = ret[0];
+    cm_hftq = hp[0].ftq;
+    for (int j = 1; j < CW; j++) if (ret[j]) cm_hftq = hp[j].ftq;
   end
   assign cm_csr   = do_csr;
   assign mret     = do_mret;
@@ -762,6 +830,12 @@ module tg_rob
                 else $error("tg_rob: a report for entry %0d as it is dispatched", ft_e[t]);
         end
       end
+      // the store tables' late writes: never at an entry being dispatched
+      for (int i = 0; i < 2; i++)
+        if (sp_v_q[i] && ds_fire)
+          for (int k = 0; k < DISPATCH_WIDTH; k++)
+            assert (!(ds_valid[k] && ds_ren[k].rob[RIW-1:0] == sp_e_q[i][RIW-1:0]))
+              else $error("tg_rob: a store table's late write at entry %0d as it is dispatched", sp_e_q[i]);
       for (int j = 0; j < CW; j++) begin
         if (j < cnt) begin
           assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
