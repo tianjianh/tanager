@@ -45,6 +45,8 @@ The overlay must keep the board's `pwmfan` node; `tanager.dtso` only adds nodes.
 
 **Placement and routing at a tighter clock:** `TG_PR_UNC` (ns, default 1.0; 0 turns it off) is setup uncertainty on the core clock from placement through routing, taken back before the reports. So `summary.txt` and the reports give the slack at the real period (DR-154, the coordinator, 10-17). At a plain 100 MHz target the placer under-works the cores, and spikes-2's headroom baseline closed with +1.065 ns this way. `summary.txt` records it (`pr_unc=`).
 
+**opt_design's directive:** `TG_OPT_DIRECTIVE` (default `ExploreArea`, DR-166; `Default` gives the plain `opt_design`) is checked before synthesis and recorded in `summary.txt` as `opt=`. On spikes-2's full chip of the M6 set, `ExploreArea` left 1,275 fewer LUTs after `opt_design` than the default (116,511 against 117,786, flip-flops unchanged). That netlist then routed at 100 MHz with +0.725 ns (`h100_m6fa`), where the default's didn't place.
+
 **Synthesis directive:** `TG_SYNTH_DIRECTIVE` (default `AreaOptimized_high` since 10-16, DR-150; `Default` gives the earlier builds' flow). The two-core `smt2` build with the commit trace no longer fit under `Default` (118.3K LUTs after synthesis, 101%); spikes' full-chip fits and the area numbers already use `AreaOptimized_high`. `summary.txt` records it (`synth=`).
 
 **Synthesis check:** the build fails when synthesis reports an implicit, undriven or forward-referenced net in our own RTL (Synth 8-11241, 8-605, 8-8895, 8-6901, 8-3848); `vivado.log` then names them. Messages about Xilinx's generated IP pass.
