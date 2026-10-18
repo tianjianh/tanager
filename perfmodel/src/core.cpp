@@ -208,7 +208,7 @@ int64_t Core::iq_cap(uint8_t q) const {
 }
 
 int64_t Core::iq_free(uint8_t q, int tid) const {
-  int64_t f = iq_cap(q) - (int64_t)iq_[q].size();
+  int64_t f = iq_cap(q) - (int64_t)iq_[q].size() - (c_.iq_hold ? held(q, -1) : 0);
   if (nthr_ > 1 && c_.smt_iq_cap < 100 && q != Q_SERIAL) {
     const int64_t cap = std::max<int64_t>(1, (iq_cap(q) * c_.smt_iq_cap + 99) / 100);
     f = std::min<int64_t>(f, cap - iq_occ(q, tid));
@@ -227,6 +227,21 @@ int64_t Core::bank_free(uint8_t q, int b) const {
   int64_t n = 0;
   for (uint64_t id : iq_[q]) if (find(id)->iq_bank == b) n++;
   return (iq_cap(q) + 1 - b) / 2 - n;
+}
+
+// iq_hold: rows whose uops issued less than iq_hold cycles ago (bank -1: all of the queue's).
+int64_t Core::held(uint8_t q, int bank) const {
+  int64_t n = 0;
+  for (const Held& h : held_[q]) if (h.t_free > t_ && (bank < 0 || h.bank == bank)) n++;
+  return n;
+}
+
+// iq_slot_bank: free rows of the bank that decode slot k writes (rows r with r mod decode_width = k).
+int64_t Core::slot_free(uint8_t q, int k) const {
+  const int64_t w = std::max<int64_t>(1, c_.decode_width);
+  int64_t n = held(q, k);
+  for (uint64_t id : iq_[q]) if (find(id)->dslot == k) n++;
+  return (iq_cap(q) - k + w - 1) / w - n;
 }
 
 // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
@@ -664,6 +679,8 @@ Uop& Core::new_uop(Thread& T, const FetchRec& r) {
   Uop& u = T.win.back();
   u.id = T.next_id++;
   u.tid = (uint8_t)T.tid;
+  u.dgrp = t_;
+  u.dslot = (uint8_t)std::min(dec_n_++, (int)std::max<int64_t>(1, c_.decode_width) - 1);
   u.seq = r.seq;
   u.seq_next = r.seq + 1;
   u.di = r.di;
@@ -767,6 +784,7 @@ int Core::decode_take(Thread& T, int slots_avail) {
   // The rename/dispatch pipeline holds at most decode_width uops per stage (with SMT, per thread: each thread
   // has its own queue between decode and dispatch, so a stalled thread does not block the other).
   if (T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1))) return 0;
+  dec_n_ = 0;
   int slots = slots_avail;
   Uop* last = nullptr;
   int scanned = 0;
@@ -887,6 +905,9 @@ void Core::dispatch() {
     if (it->first <= t_) { bank_committed_[it->second]--; it = deferred_free_.erase(it); }
     else ++it;
   }
+  if (c_.iq_hold)
+    for (auto& hq : held_)
+      hq.erase(std::remove_if(hq.begin(), hq.end(), [&](const Held& h) { return h.t_free <= t_; }), hq.end());
   int n = 0;
   int row = -1;
   if (nthr_ == 1) { dispatch_thread(*th_[0], n, row); return; }
@@ -941,6 +962,10 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     };
     if (q == Q_ALU_ANY) {
       int64_t f0 = qfree(Q_A0), f1 = qfree(Q_A1);
+      if (c_.iq_slot_bank) {  // steered to a queue whose bank for this slot has a row
+        f0 = std::min(f0, slot_free(Q_A0, u.dslot));
+        f1 = std::min(f1, slot_free(Q_A1, u.dslot));
+      }
       if (c_.prf_banked) { if (free_regs(0) <= 0) f0 = -1; if (free_regs(1) <= 0) f1 = -1; }
       q = (f1 > f0) ? Q_A1 : Q_A0;
       if (c_.alu3) {
@@ -958,6 +983,18 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         const int64_t rows_cap = c_.iq_size / std::max<int64_t>(1, c_.decode_width);
         if (row < 0 && rows_used_ >= rows_cap) { T.st.disp_stall_iq++; break; }
       } else if (qfree(q) <= 0) { T.st.disp_stall_iq++; break; }
+      // iq_slot_bank: the RTL's dispatch stage moves a decode group as one, so this slot's bank needs a row, and
+      // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too
+      if (c_.iq_slot_bank && !c_.iq_unified) {
+        if (slot_free(q, u.dslot) <= 0) { T.st.disp_stall_slot++; break; }
+        const Uop* v = u.dslot == 0 ? find(u.id + 1) : nullptr;
+        if (v && v->tid == u.tid && v->dgrp == u.dgrp && v->dslot == 1 && v->state == 0 && v->t_disp_ok <= t_) {
+          bool ok = true;
+          if (v->q == Q_ALU_ANY) ok = slot_free(Q_A0, 1) > 0 || slot_free(Q_A1, 1) > 0;
+          else if (v->q != Q_SERIAL) ok = slot_free(v->q, 1) > 0;
+          if (!ok) { T.st.disp_stall_slot++; break; }
+        }
+      }
     }
     if (banked && ibank < 0) {  // either bank: the one with more free rows, else the uop's own half
       const int64_t b0 = bank_free(q, 0), b1 = bank_free(q, 1);
@@ -1053,6 +1090,8 @@ void Core::iq_remove(Uop& u) {
 
 // A replayed uop goes back to its place in age order (queues are kept in dispatch order).
 void Core::iq_reinsert(Uop& u) {
+  auto& hq = held_[u.q];  // iq_hold: back in the queue, it holds a row as a waiting uop again
+  hq.erase(std::remove_if(hq.begin(), hq.end(), [&](const Held& h) { return h.id == u.id; }), hq.end());
   auto& v = iq_[u.q];
   const auto it = std::lower_bound(v.begin(), v.end(), u.age,
                                    [this](uint64_t id, uint64_t a) { return find(id)->age < a; });
@@ -1188,6 +1227,7 @@ void Core::exec_store(Uop& u) {
 
 void Core::do_issue(Uop& u, int /*port*/) {
   iq_remove(u);
+  if (c_.iq_hold > 0 && u.q != Q_SERIAL) held_[u.q].push_back({t_ + (uint64_t)c_.iq_hold, u.dslot, u.id});
   u.state = 2;
   u.t_issue = t_;
   const uint64_t t = t_;
@@ -1609,6 +1649,10 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
     T.bt_partial = false;
   }
   T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
+  for (auto& hq : held_)   // iq_hold: a flush frees the rows of the uops it kills at once
+    hq.erase(std::remove_if(hq.begin(), hq.end(),
+                            [&](const Held& h) { return h.id >= from_id && (h.id >> TID_SHIFT) == (from_id >> TID_SHIFT); }),
+             hq.end());
   T.next_id = from_id;
   T.disp_next = std::min(T.disp_next, from_id);
   T.rat.fill(0);

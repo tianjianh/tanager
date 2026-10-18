@@ -84,6 +84,8 @@ struct Uop {
   RasUndo ras;
   BtRec bt;
   uint64_t blk = 0;
+  uint64_t dgrp = 0;                  // iq_slot_bank: its decode group (decode cycle) and slot in it
+  uint8_t dslot = 0;
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
   bool retired_early = false;
   int row = -1;
@@ -110,7 +112,7 @@ struct SqEntry {
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
   X(fetch_blocks) X(ftq_full)                                                                      \
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
-  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty)                               \
+  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -269,6 +271,12 @@ class Core {
   // iq_bank: the ROB half of a uop, free rows of a bank, and the bank a uop's producers need (-1 any, -2 none)
   int rob_half(uint64_t id) const;
   int64_t bank_free(uint8_t q, int b) const;
+  // iq_hold: rows of issued uops not yet free (cycle free, slot bank, uop); iq_slot_bank: free rows of slot k's bank
+  struct Held { uint64_t t_free; uint8_t bank; uint64_t id; };
+  std::array<std::vector<Held>, NQ> held_;
+  int64_t held(uint8_t q, int bank) const;
+  int64_t slot_free(uint8_t q, int k) const;
+  int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
   int bank_need(const Thread& T, const Uop& u) const;
   bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
   int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken

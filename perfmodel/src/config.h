@@ -67,6 +67,8 @@ namespace tg {
   X(iq_a1, 12, "IQ-A1 entries (ALU, MUL, DIV)")                                                    \
   X(iq_ld, 12, "IQ-LD entries")                                                                    \
   X(iq_sta, 8, "IQ-STA entries")                                                                   \
+  X(iq_hold, 0, "cycles from a uop's issue until dispatch can reuse its IQ row (0 = at once; core-2's RTL: 3, the row is freed two cycles after its select)") \
+  X(iq_slot_bank, 0, "IQ rows are banks by dispatch slot (plan §4.15; core-2's RTL): decode slot k's uop takes a row of bank k, and a group waits until each slot's bank has one") \
   X(iq_fp, 12, "IQ-FP entries")                                                                    \
   X(alu3, 0, "third simple-ALU port P5 with its own queue and register bank (DSE option)")         \
   X(iq_a2, 0, "IQ-A2 entries with alu3 (0 = same as IQ-A1)")                                       \
