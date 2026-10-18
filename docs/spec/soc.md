@@ -628,6 +628,11 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **SD1:** SD high-speed at 50 MHz, 3.3 V signalling, 4-bit bus, ADMA 64-bit. The RISC-V's tree takes the same: `no-1-8-v`, `max-frequency` 50 MHz, `bus-width` 4, and the A53's tap delays as they are. No voltage question arises.
       - **Built in:** `macb`, the DP83867 driver, `pwm-fan` and the Cadence TTC PWM. The handover kernel brings up `eth0` and the fan's hwmon with no modules.
       - **SSH in the handover:** `busybox-static` is installed, `dropbear` isn't, and `openssh-server` is. The initramfs takes the system's own `sshd` and its libraries, the existing host keys (so the laptop's known host still matches) and the board's key, with no package install.
+      - **Power** (probe 4):
+        - `CONFIG_ZYNQMP_PM_DOMAINS=y`. `uio_pdrv_genirq` is a module, so the initramfs carries it.
+        - In genpd, SD1's domain is on with its device's runtime PM unsupported (always active while bound), and UART1's is on.
+        - The baseline for the dry run: `RST_LPD_IOU2` `0x000103AA` (SDIO1 and UART1 out of reset), and `SDIO1_REF_CTRL` `0x01010600` and `UART1_REF_CTRL` `0x01010A00`, both with CLKACT.
+        - SD1's reference clock is IOPLL/6, 166,666,665 Hz (`clk_xin`, as D0's clock tree), which the RISC-V's tree gives as a fixed clock.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
