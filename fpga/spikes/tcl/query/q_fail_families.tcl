@@ -3,7 +3,8 @@
 # dropped (e.g. c1:u_fetch/g_tage.gh_q, c0:u_rob/g_ft[].u_ft/g_m64.g_bank[].g_prim[].u_ram), counted with
 # its worst slack, that path's levels, logic and wire, and its start family. Then the same with the
 # front end's two deep cones taken out of timing (false paths), to show what would fail next:
-#   F2's registers (u_fetch/f2_*) -> F3, TAGE and the RAS (u_fetch/f3_*, u_fetch/g_tage*, g_ras*), and
+#   all of F2 (its registers u_fetch/f2_* and the I$ RAMs u_fetch/g_way*) -> every register in fetch, TAGE
+#   and the RAS (u_fetch/*, g_ras*: F2's decision feeds F3, the predecode results and the PC), and
 #   the instruction queue's head (u_fetch/u_cmp/head_q) -> the RAS (g_ras*).
 # Finally the host bridge's core-reset replicas (u_host/crst_q*): their worst ten endpoints, passing or
 # not, to tell congestion from a design path. The core clock's setup uncertainty is taken back first
@@ -49,11 +50,11 @@ foreach dcp $argv {
   set_clock_uncertainty -setup 0 [get_clocks c0]
   puts $fh "== $dcp (WNS [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]])"
   families $fh "all"
-  set f2   [get_cells -quiet -hierarchical -filter {NAME =~ *u_fetch/f2_* && IS_SEQUENTIAL}]
-  set f3t  [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/f3_* || NAME =~ *u_fetch/g_tage* || NAME =~ *g_ras*) && IS_SEQUENTIAL}]
+  set f2   [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/f2_* && IS_SEQUENTIAL) || (NAME =~ *u_fetch/g_way* && (IS_SEQUENTIAL || PRIMITIVE_GROUP == BLOCKRAM))}]
+  set f3t  [get_cells -quiet -hierarchical -filter {(NAME =~ *u_fetch/* || NAME =~ *g_ras*) && IS_SEQUENTIAL}]
   set head [get_cells -quiet -hierarchical -filter {NAME =~ *u_fetch/u_cmp/head_q* && IS_SEQUENTIAL}]
   set ras  [get_cells -quiet -hierarchical -filter {NAME =~ *g_ras* && IS_SEQUENTIAL}]
-  puts $fh [format "  cones cut: F2 (%d cells) -> F3, TAGE and the RAS (%d); the queue head (%d) -> the RAS (%d)" \
+  puts $fh [format "  cones cut: F2 (%d cells: registers and I$ RAMs) -> fetch, TAGE and the RAS (%d); the queue head (%d) -> the RAS (%d)" \
     [llength $f2] [llength $f3t] [llength $head] [llength $ras]]
   if {[llength $f2] && [llength $f3t]} { set_false_path -from $f2 -to $f3t }
   if {[llength $head] && [llength $ras]} { set_false_path -from $head -to $ras }
