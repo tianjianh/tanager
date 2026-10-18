@@ -871,6 +871,43 @@ Results: `fpga/spikes/results/g8_synth/`, `g8_115_fill/`, `g8_115_fill_unc/`, an
 
 Results: `fpga/spikes/results/h100_0/`, `h100_2/`, `h100_4/` (and their `_synth` runs), and `h100_6/stopped.txt` with its synthesis.
 
+### 8.10 M6 guardrails at 100 MHz: the RAS, and the RAS with TAGE and F2 (2026-10-18)
+
+**Question (the coordinator, DR-162):** the user chose to build M6's first set and accept a few MHz below 100 for now. TAGE measured at twice its estimate, so what do the real features do to the clock, against §8.9's filler estimate? These two numbers decide TAGE's size and the clock.
+
+**Method:** §8.9's flow: 100 MHz, hart 1's filler (47 tiles a core), the 1.0 ns over-constraint taken back before the reports, and one synthesis and one placement per tree.
+- **Trees** (the core track's):
+  - (i) `claude/track-core-adb715-ras` at 58674a7: main c841a27 plus the RAS and fn12's two fixes.
+  - (ii) `claude/track-core-adb715-m6b` at c149fce: (i) plus TAGE (two tagged tables, with its training-queue and history-rebuild area offsets) and F2 (returns and straddlers predicted at F2).
+- Both have the four L1D misses and speculative wakeup on. They are the defaults, and the runs also pass them.
+- Both pass the synthesis check (no implicit or undriven nets, no forward references).
+
+| Run | LUTs after synthesis | Placed LUTs (fill) | WNS ns at 10 ns (clock reached) | TNS ns | Failing endpoints (core 0 / core 1 / uncore) |
+|---|---|---|---|---|---|
+| `h100_m6r` (i) | 117,402 | 113,302 (96.7%) | **−0.542 (94.9 MHz)** | −133 | 726 (289 / 437 / 0) |
+| `h100_m6t` (ii) | 119,887 | 115,185 (98.3%) | **−5.079 (66.3 MHz)** | −5,519 | 3,521 (1,150 / 2,323 / 48) |
+
+**What fails:**
+- **(i):** all 20 worst paths start at the instruction queue's head (`u_fetch/u_cmp/head_q`), at 26–30 levels and 55–60% wire. They end in:
+  - the RAS's speculative state (`g_ras.u_ras/s_cnt_q`, `sv_q` and its LUTRAM stack), −0.54 ns;
+  - the queue's own head and occupancy loop.
+
+  Without TAGE the RAS moves at decode (`RAS_DEC`), inside the queue's take path. These paths are mostly logic depth.
+- **(ii):** all 20 worst paths are one family: the I$ stage 2 (`f2_pa_q`, `f2_tag_q`) → TAGE's global history register (`u_fetch/g_tage.gh_q`).
+  - 40–44 levels, with 5.8 ns of logic and 9.1–9.3 ns of wire: a 15 ns data path in one cycle.
+  - Its next worst, a reset replica in the host bridge → core 1's fetch PC enable, is 10.4 ns of wire at 98% fill (−1.32 ns).
+
+**Findings:**
+- **(i) misses by 0.54 ns (94.9 MHz at 96.7% fill), about what §8.9's filler curve predicts at that fill:** −0.3 ns, ±0.75 for one placement.
+  - (i) is about 2.7K LUTs over §8.9's baseline. That counts main's four misses, speculative wakeup and fn12 as well as the RAS.
+  - The RAS's family (the queue head → decode → its speculative update) is the worst, but the fill alone would leave the chip about 0.3 ns short.
+- **TAGE with F2 makes the chip miss by 5.1 ns.** The cause is one structural path, not TAGE's size or the fill.
+  - The F2 decision updates the global history in the same cycle as the I$ hit it depends on. That path needs a pipeline cut, which no placement can find.
+  - At (ii)'s 98.3%, §8.9's slope (about 0.8 ns per 1K LUTs above 96%) predicts about −1.8 ns, about 85 MHz, once that path is cut. One placement makes this ±0.75 ns.
+- **Against the filler estimate:** (i) follows the filler curve within noise. (ii) costs far more than its area, through one new structural path in fetch, where §8.9's filler has neither depth nor wiring.
+
+Results: `fpga/spikes/results/h100_m6r/`, `h100_m6t/` and their `_synth` runs.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
