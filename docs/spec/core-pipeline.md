@@ -70,6 +70,11 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 
 ### 3.2 Prediction
 - **Micro-BTB** (`tg_ubtb`, S5): 64 entries, 2-way LUTRAM, keyed by the 16-byte block address; an entry holds the target and the slot (halfword) of the block's last parcel of the taken branch. A hit ends the block at that slot (`exit_slot`) and fetches the target next cycle. Its LUTRAM valid bits are cleared by the reset sequence (§10).
+- **Return-address stack** (`tg_ras`, M6; `RAS_ON`, on; `TG_RAS=0` turns it off, cycle for cycle): `RAS_ENTRIES` (32) entries, read and moved at decode (§3.4).
+  - **Operations** (the RISC-V hints, x1 and x5 the links): a JAL or JALR that writes a link pushes its link (PC + 2 or 4); a JALR that reads a link pops, unless it writes the same register; with two different links it pops, then pushes.
+  - **Repair is exact.** Commit keeps a committed copy: a pointer, a count and a LUTRAM written by the committed pushes. The speculative entries are a LUTRAM with a valid bit each, and an entry without one reads the committed copy's. A flush clears the valid bits and takes the committed pointer and count. Decode is ahead of commit, so whatever commit writes after a flush, decode wrote at that entry first: an entry without a valid bit is unchanged in the committed copy. Every recovery is at commit, so the stack is exact after each one. A decode redirect needs none: only the groups rename takes move the stack.
+  - **Limits:** a decode group holds at most one stack operation (a later one waits for the next group), and a commit group at most one push (§8.2). The stack is circular: a push past 32 overwrites the oldest entry, and the count saturates.
+  - **Not yet:** one stack per core; per hart in M7.
 - **Direction:** a 2-bit counter table, 512 entries in LUTRAM, indexed by PC[10:2].
   - **It is not reset, by design:** LUTRAM is never reset (`tg_ram_lut`), and clearing 512 entries through one write port takes 512 cycles (§10).
   - **It starts at zero after configuration:** the primitives' INIT is zero, and so is the simulator's default. So the first run after configuration matches simulation.
@@ -85,6 +90,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 For each instruction, `pred_exit` = the block was predicted taken and the predicted slot lies within this instruction's parcels. Then:
 - **JAL:** target = PC + imm. If it was not predicted taken here with that target, redirect to the target.
 - **Conditional branch** predicted taken here with a wrong target: redirect to PC + imm.
+- **A return** (a JALR that pops the return-address stack, §3.2) while the stack is not empty: its target is the stack's top. If the front end did not follow that target here, redirect to it. Execute then rewrites the micro-BTB entry, as for a JAL.
 - **`pred_exit` on anything else, or a slot mismatch:** the prediction is bogus; redirect to the next sequential PC and invalidate the micro-BTB entry.
 
 The redirecting instruction stays in the group; younger slots are dropped. Its `pred_npc` (the next PC the front end followed) is what execute compares against.
@@ -246,6 +252,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 - **Serialising:** CSR (apply the CSR write, §9.2), MRET (§9.3), FENCE and FENCE.I (wait until the SQ has drained; FENCE.I also invalidates the I$), WFI (wait until `mip & mie` is nonzero, or 4096 cycles: the ISA lets WFI complete at any time) retire alone, then flush and refetch at the next PC (MRET: at `mepc`).
 - **Interrupts** (§9.4) are checked before the head retires.
 - **Commit holds** (§8.1): the group stops before a store the LSU holds while its PMP denial may still come, and before a load whose ordering replay mark is on its way.
+- **Return-address stack** (§3.2): each retiring instruction's stack operation goes to the committed copy. A second push in a group ends the group before it, so the copy has one write port.
 - **The commit gate** is the flush and the trace's stall alone (timing, DR-145: in G6 the FP free list's init flag → rename's ready → commit → the free-list count and the CSR file, −1.40 ns). Rename's ready and the init flags are one-time flags after reset, and the ROB holds an entry only after rename fired, which needed them (asserted).
 
 ### 8.3 Flush
@@ -323,6 +330,10 @@ Records leave through a register one cycle after commit. `rd_value` is read from
 
 ## 12. Parameters and builds
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).
+
+**M6 feature switches** (`tg_core_pkg`; each `=0|1`, for bisection and ablation):
+- `TG_RAS` (`RAS_ON`, on): the return-address stack (§3.2).
+- `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
