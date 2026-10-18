@@ -228,7 +228,7 @@ static void usage(void) {
     "                                         channel must be idle and kept powered by its driver first:\n"
     "                                         echo on > /sys/bus/platform/devices/ffaf0000.dma-controller/power/control\n"
     "  psrd ADDR [N]                          read N (1) 32-bit PS registers, only in always-on LPD control blocks:\n"
-    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR (stage D's D0)\n"
+    "                                         the XPPU, AFI FM6 (S_AXI_LPD), CRL_APB, IOU_SLCR, LPD_SLCR, the AMS (stage D)\n"
   "  peek OFF | poke OFF VAL                raw register access\n", prog);
   exit(2);
 }
@@ -553,6 +553,7 @@ static void cmd_psrd(int argc, char **argv) {
   static const struct { uint64_t base, size; const char *name; } ok[] = {
     { 0xFF980000ull, 0x10000, "LPD_XPPU" }, { 0xFF9B0000ull, 0x10000, "AFIFM6 (S_AXI_LPD)" },
     { 0xFF5E0000ull, 0x10000, "CRL_APB" }, { 0xFF180000ull, 0x80000, "IOU_SLCR" }, { 0xFF410000ull, 0x10000, "LPD_SLCR" },
+    { 0xFFA50000ull, 0x10000, "AMS (PS SYSMON at +0x800, PL SYSMON at +0xC00)" },
   };
   if (argc < 1) usage();
   uint64_t a = num(argv[0]), n = argc > 1 ? num(argv[1]) : 1;
