@@ -210,7 +210,9 @@ module tg_decode_stage
     assign bimm  = bimm_of(xq[j].insn, mjal);
     assign imm   = {{43{bimm[20]}}, bimm};
     assign tgt   = xtgt[j];                          // d.br_target for a branch or JAL
-    assign hit   = xq[j].pred_tsrc || eq_add3(pbase, poff, imm, ptg);   // ptg == tgt
+    // ptg == tgt, checked carry-free; on pred_tsrc ptg is tgt itself, so the check takes the queue's
+    // target (timing: through ptg, the redirect waited for the target's add)
+    assign hit   = xq[j].pred_tsrc || eq_add3(pbase, poff, imm, xq[j].pred_target);
     // The stack's operation from the raw encoding and the marks, like the class (timing: no RVC
     // expander or decoder before the group's count, the queue's take and the stack's pointer): a JAL
     // or JALR writing a link pushes, a JALR reading one pops unless it writes the same one; C.JALR
