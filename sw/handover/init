@@ -6,8 +6,8 @@
 #   2. SD1 and UART1, which the RISC-V drives, stay powered: the tree gives them to generic UIO and this holds
 #      both devices open, so their power nodes stay requested from the PMU firmware;
 #   3. eth0 by DHCP (host name kria) and sshd with the board's key: the board session reaches the A53 as root;
-#   4. the RISC-V: tanager-host run (its images were loaded before the kexec), then back to Ubuntu by a reboot
-#      when it exits. tg.handover=dry skips the RISC-V and goes back after tg.dry_s seconds (default 900).
+#   4. the RISC-V: tanager-host run (its images were loaded before the kexec; the PL console in a log and a
+#      FIFO), then back to Ubuntu by a reboot when it exits. tg.handover=dry skips the RISC-V and goes back after tg.dry_s seconds (default 900).
 # Whatever fails ends in a reboot into Ubuntu; panic=10 on the command line covers this script itself.
 /bin/busybox mkdir -p /proc /sys /dev /run /tmp
 /bin/busybox --install -s /bin
@@ -62,5 +62,9 @@ if [ "$mode" = dry ]; then
   back "the dry run's time is up"
 fi
 echo "handover: starting the RISC-V at $(cut -d' ' -f1 /proc/uptime) s"
-/bin/tanager-host run < /dev/null > /tmp/riscv-console.log 2>&1
+# The PL console: its output in /tmp/riscv-console.log, its input from the FIFO /tmp/riscv-in, which a parked
+# writer keeps open (no end of input): over SSH, tail -f the log and type with cat > /tmp/riscv-in
+mkfifo /tmp/riscv-in
+sleep 2147483647 > /tmp/riscv-in &
+/bin/tanager-host run < /tmp/riscv-in > /tmp/riscv-console.log 2>&1
 back "tanager-host run exited with $?"
