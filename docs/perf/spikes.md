@@ -906,7 +906,33 @@ Results: `fpga/spikes/results/h100_0/`, `h100_2/`, `h100_4/` (and their `_synth`
   - At (ii)'s 98.3%, §8.9's slope (about 0.8 ns per 1K LUTs above 96%) predicts about −1.8 ns, about 85 MHz, once that path is cut. One placement makes this ±0.75 ns.
 - **Against the filler estimate:** (i) follows the filler curve within noise. (ii) costs far more than its area, through one new structural path in fetch, where §8.9's filler has neither depth nor wiring.
 
-Results: `fpga/spikes/results/h100_m6r/`, `h100_m6t/` and their `_synth` runs.
+**By register family** ([`q_fail_families.tcl`](../../fpga/spikes/tcl/query/q_fail_families.tcl): every failing endpoint grouped by its register or RAM, then again with cones taken out of timing):
+- **(i):** 726 endpoints in 33 families. The queue head's take cone holds the worst of them, at 25–30 levels:
+  - its own loop (`head_q`, `occ_q`, −0.54);
+  - the RAS's speculative state (`s_cnt_q`, `sv_q`, `s_tos_q` and its LUTRAM stack: 463 endpoints, −0.54 to −0.21);
+  - decode's redirect registers (`u_de/dred_pc`, 110 endpoints, −0.31).
+- **(i) without any path inside the front end:** 153 endpoints remain, and the worst is the LSU's DTLB → replay address (−0.335, 23 levels). Then come the queue head into decode (−0.31), the store queue and the L1D's MSHR registers (−0.21 to −0.003), and rename's free-list counts from the CSR's privilege (−0.08).
+- **(ii):** 3,521 endpoints in 207 families. The F2 stage's cone holds the worst 50 or so, at 26–44 levels:
+  - TAGE's `gh_q`, its folded histories (`u_fgh`) and the RAS's speculative state, −5.08 to −2.1;
+  - F3's registers (`f3_meta_q`, `f3_start_q`, `f3_carry_q`) and the predecode results (`krt_q`, `kimm_q`, `kr_q`, `ka_q`, `k_ovr_q` ...).
+
+  The cone has three sources: F2's registers (`f2_pa_q`, `f2_tag_q`), the I$ data RAMs, and TAGE's table RAMs (`g_tage.u_tage/g_tab[]`, read in F1). With the first two cut, TAGE's tables still give −3.69 ns at 35 levels.
+- **(ii) without any path inside the front end** (fetch, TAGE and the RAS, their RAMs included): 2,366 endpoints remain, the worst at −1.63 ns, all 69–82% wire at 11–21 levels:
+  - core 1's issue-queue guard (`u_is/.../g_guard.dep_q`) → decode's redirect registers (`dred_rop`, `dred_rlink`, `dred_ftq`, `dred_slot`), −1.63;
+  - the queue head → rename's uop register (`rn_uop_q.pred_npc`, 181 endpoints, −1.61) and → decode's `dred_pc` (−1.60);
+  - the D$ write enables, −1.55;
+  - the host bridge's core reset → core 1's fetch PC enable, −1.32;
+  - the LSU's split access → the ROB, −1.25.
+
+  That is about what §8.9's slope predicts at 98.3% fill (−1.8 ns).
+- **Outside the front end, (ii) fails where (i) does not:** core 1's issue-queue guard → decode and rename; the D$ write enables at −1.5 (−0.07 in (i)); the LSU's split access → the ROB; and the L2's directory paths (48 endpoints, −0.60, none in (i)).
+  - All of them are wire-dominated (75–82%): placement fallout of a fuller chip with a front end grown by about 2.5K LUTs a core, not new logic.
+- **The core-reset replica is placement fallout.**
+  - In (ii) its ten worst endpoints are in core 1's fetch, at −0.84 to −1.32 ns, with 2–4 levels and 10.0–10.5 ns of wire.
+  - In (i) the same replica's worst endpoints pass by 1.7 ns with 7.5–7.7 ns of wire.
+  - A local reset register in each core would take it off the table if it stays.
+
+Results: `fpga/spikes/results/h100_m6r/`, `h100_m6t/` and their `_synth` runs; `h100_m6t/fail_families_m6r_m6t.txt` holds the family query for both.
 
 ## 9. S1: PL → PS DDR latency and bandwidth
 
