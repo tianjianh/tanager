@@ -1,0 +1,24 @@
+=== 17:38:54 A53 up 75832.46 s
+console: 0 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+  L2 error events                  16
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+injector: rd 0 wr 0 ctrl 0x00000000; 9142649 reads, native latency avg 22.1 max 67 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+=== 18:09:05 A53 up 77643.71 s
+STRESS pass 10 ok=1 fails=0 146s cpu2=53.90 mem2=67.12 thr2=1036 up=1761.26 load=1.95 1.92 1.76
+console: 10 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+  L2 error events                  16
+  levels 0x4004455d: bank0[ a_r b_r c_r d_v d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+injector: rd 0 wr 0 ctrl 0x00000000; 163860747 reads, native latency avg 21.5 max 88 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+=== 18:39:16 A53 up 79454.75 s
+STRESS pass 22 ok=1 fails=0 147s cpu2=54.67 mem2=68.17 thr2=1056 up=3528.63 load=1.95 1.93 1.88
+console: 22 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+  L2 error events                  16
+  levels 0x40044555: bank0[ a_r b_r c_r d_r e_r ] bank1[ a_r c_r e_r ] core0 stalled[ ] core1 stalled[ ] L2_ERR
+  (no L2 error capture in this bitstream)
+injector: rd 0 wr 0 ctrl 0x00000000; 277328709 reads, native latency avg 6.0 max 88 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+=== 18:44:49 the boot has ended; monitor stops

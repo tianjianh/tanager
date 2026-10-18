@@ -1,0 +1,331 @@
+== 1. clocks (enable_cnt prepare_cnt protect_cnt rate ...)
+ gem3_ref_ung_mux 1 1 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem3_ref_ung_div1 1 1 0 124999999 0 0 50000 Y deviceless no_connection_id 
+ gem3_ref_ung 1 1 0 124999999 0 0 50000 Y deviceless no_connection_id 
+ gem3_ref 2 2 0 124999999 0 0 50000 Y ff0e0000.ethernet hclk 
+ gem3_tx 1 1 0 124999999 0 0 50000 Y ff0e0000.ethernet tx_clk 
+ gem2_ref_ung_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem2_ref_ung_div1 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem2_ref_ung 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem2_ref 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem2_tx 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem1_ref_ung_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem1_ref_ung_div1 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem1_ref_ung 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem1_ref 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem1_tx 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem0_ref_ung_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem0_ref_ung_div1 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem0_ref_ung 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem0_ref 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ gem0_tx 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ adma_ref_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ adma_ref_div1 0 0 0 499999995 0 0 50000 Y deviceless no_connection_id 
+ adma_ref 0 0 0 499999995 0 0 50000 N ffaf0000.dma-controller clk_main 
+ uart1_ref_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ uart1_ref_div1 1 1 1 99999999 0 0 50000 Y deviceless no_connection_id 
+ uart1_ref_div2 1 1 1 99999999 0 0 50000 Y deviceless no_connection_id 
+ uart1_ref 1 1 1 99999999 0 0 50000 Y ff010000.serial uart_clk 
+ uart0_ref_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ uart0_ref_div1 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ uart0_ref_div2 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ uart0_ref 0 0 0 41666667 0 0 50000 Y deviceless no_connection_id 
+ sdio1_ref_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ sdio1_ref_div1 1 1 1 166666665 0 0 50000 Y deviceless no_connection_id 
+ sdio1_ref_div2 1 1 1 166666665 0 0 50000 Y deviceless no_connection_id 
+ sdio1_ref 1 1 1 166666665 0 0 50000 Y ff170000.mmc clk_xin 
+ sdio0_ref_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ sdio0_ref_div1 0 0 0 66666666 0 0 50000 Y deviceless no_connection_id 
+ sdio0_ref_div2 0 0 0 66666666 0 0 50000 Y deviceless no_connection_id 
+ sdio0_ref 0 0 0 66666666 0 0 50000 Y deviceless no_connection_id 
+ gem_tsu_ref_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem_tsu_ref_div1 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ gem_tsu_ref_div2 1 1 1 249999998 0 0 50000 Y deviceless no_connection_id 
+ gem_tsu_ref 1 1 1 249999998 0 0 50000 Y deviceless no_connection_id 
+ gem_tsu 1 1 0 249999998 0 0 50000 Y ff0e0000.ethernet tsu_clk 
+ usb3_dual_ref_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ usb3_dual_ref_div1 1 1 1 499999995 0 0 50000 Y deviceless no_connection_id 
+ usb3_dual_ref_div2 1 1 1 20000000 0 0 50000 Y deviceless no_connection_id 
+ usb3_dual_ref 2 2 2 20000000 0 0 50000 Y fe200000.usb ref 
+ usb@ff9d0000 no_connection_id 
+ usb1_bus_ref_mux 0 0 0 999999990 0 0 50000 Y deviceless no_connection_id 
+ usb1_bus_ref_div1 0 0 0 83333333 0 0 50000 Y deviceless no_connection_id 
+ usb1_bus_ref_div2 0 0 0 83333333 0 0 50000 Y deviceless no_connection_id 
+ usb1_bus_ref 0 0 0 83333333 0 0 50000 N deviceless no_connection_id 
+ usb0_bus_ref_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ usb0_bus_ref_div1 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ usb0_bus_ref_div2 1 1 1 249999998 0 0 50000 Y deviceless no_connection_id 
+ usb0_bus_ref 1 1 1 249999998 0 0 50000 Y usb@ff9d0000 no_connection_id 
+ lpd_lsbus_mux 1 1 1 999999990 0 0 50000 Y deviceless no_connection_id 
+ lpd_lsbus_div1 1 1 1 99999999 0 0 50000 Y deviceless no_connection_id 
+ lpd_lsbus 9 9 1 99999999 0 0 50000 Y ff0f0000.spi pclk 
+ gem3_rx 1 1 0 0 0 0 50000 Y ff0e0000.ethernet rx_clk 
+ gem2_rx 0 0 0 0 0 0 50000 N deviceless no_connection_id 
+ gem1_rx 0 0 0 0 0 0 50000 N deviceless no_connection_id 
+ gem0_rx 0 0 0 0 0 0 50000 N deviceless no_connection_id 
+== 2. power domains
+domain status children performance
+ /device runtime status
+------------------------------------------------------------------------------
+domain99 off-0 0
+domain98 off-0 0
+domain97 off-0 0
+domain96 off-0 0
+domain95 off-0 0
+domain94 off-0 0
+domain93 off-0 0
+domain92 off-0 0
+domain91 off-0 0
+domain90 off-0 0
+domain89 off-0 0
+domain88 off-0 0
+domain87 off-0 0
+domain86 off-0 0
+domain85 off-0 0
+domain84 off-0 0
+domain83 off-0 0
+domain82 off-0 0
+domain81 off-0 0
+domain80 off-0 0
+domain79 off-0 0
+domain78 off-0 0
+domain77 off-0 0
+domain76 off-0 0
+domain75 off-0 0
+domain74 off-0 0
+domain73 off-0 0
+domain72 off-0 0
+domain71 off-0 0
+domain70 off-0 0
+domain69 off-0 0
+domain68 off-0 0
+domain67 off-0 0
+domain66 off-0 0
+domain65 off-0 0
+domain64 off-0 0
+domain63 off-0 0
+domain62 off-0 0
+domain61 off-0 0
+domain60 off-0 0
+domain59 off-0 0
+domain58 off-0 0
+domain57 off-0 0
+domain56 off-0 0
+domain55 off-0 0
+domain54 off-0 0
+domain53 off-0 0
+domain52 off-0 0
+domain51 off-0 0
+domain50 off-0 0
+domain49 off-0 0
+domain48 off-0 0
+domain47 off-0 0
+domain46 off-0 0
+domain45 off-0 0
+domain44 off-0 0
+domain43 off-0 0
+domain42 off-0 0
+domain41 off-0 0
+domain40 off-0 0
+domain39 off-0 0
+domain38 off-0 0
+domain37 off-0 0
+domain36 off-0 0
+domain35 off-0 0
+domain34 off-0 0
+domain33 off-0 0
+domain32 off-0 0
+domain31 off-0 0
+domain30 off-0 0
+domain29 off-0 0
+domain28 off-0 0
+domain27 off-0 0
+domain26 off-0 0
+domain25 off-0 0
+domain24 off-0 0
+domain23 off-0 0
+domain22 off-0 0
+domain21 off-0 0
+domain20 off-0 0
+domain19 off-0 0
+domain18 off-0 0
+domain17 off-0 0
+domain16 off-0 0
+domain15 off-0 0
+domain14 off-0 0
+domain13 off-0 0
+domain12 off-0 0
+ fd4b0000.gpu suspended 0
+domain11 on 0
+ ff0f0000.spi active 0
+domain10 off-0 0
+ ff030000.i2c suspended 0
+domain9 on 0
+ ff170000.mmc unsupported 0
+domain8 on 0
+ ff9d0000.usb active 0
+domain7 on 0
+ ff0e0000.ethernet active 0
+domain6 off-0 0
+ ff050000.spi suspended 0
+domain5 on 0
+ fd4c0000.dma-controller unsupported 0
+ fd4a0000.display active 0
+domain4 off-0 0
+ ffa80000.dma-controller suspended 0
+ ffa90000.dma-controller suspended 0
+ ffaa0000.dma-controller suspended 0
+ ffab0000.dma-controller suspended 0
+ ffac0000.dma-controller suspended 0
+ ffad0000.dma-controller suspended 0
+ ffae0000.dma-controller suspended 0
+ ffaf0000.dma-controller suspended 0
+domain3 off-0 0
+ fd500000.dma-controller suspended 0
+ fd510000.dma-controller suspended 0
+ fd520000.dma-controller suspended 0
+ fd530000.dma-controller suspended 0
+ fd540000.dma-controller suspended 0
+ fd550000.dma-controller suspended 0
+ fd560000.dma-controller suspended 0
+ fd570000.dma-controller suspended 0
+domain2 on 0
+ ff110000.timer unsupported 0
+domain1 on 0
+ ff0a0000.gpio active 0
+domain0 on 0
+ ff010000.serial active 0
+== 3. SMMU
+[    0.000000] Kernel command line:  root=LABEL=writable rootwait earlycon console=ttyPS1,115200 console=tty1 clk_ignore_unused uio_pdrv_genirq.of_id=generic-uio xilinx_tsn_ep.st_pcp=4 cma=800M mem=3G arm-smmu.disable_bypass=0
+[    0.251718] iommu: Default domain type: Translated
+[    0.251734] iommu: DMA domain TLB invalidation policy: strict mode
+-- /sys/class/iommu:
+-- disable_bypass: cat: /sys/module/arm_smmu/parameters/disable_bypass: No such file or directory
+-- iommu groups:
+ls: cannot access '/sys/kernel/iommu_groups/*/devices': No such file or directory
+/sys/kernel/iommu_groups/*:  type=
+-- cmdline:  root=LABEL=writable rootwait earlycon console=ttyPS1,115200 console=tty1 clk_ignore_unused uio_pdrv_genirq.of_id=generic-uio xilinx_tsn_ep.st_pcp=4 cma=800M mem=3G arm-smmu.disable_bypass=0
+== 4. live device tree
+/sys/firmware/devicetree/base/axi/dma-controller@ffa80000 status=okay compatible=xlnx,zynqmp-dma-1.0 
+/sys/firmware/devicetree/base/axi/dma-controller@ffaf0000 status=okay compatible=xlnx,zynqmp-dma-1.0 
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000 status=okay compatible=xlnx,zynqmp-gem cdns,gem 
+/sys/firmware/devicetree/base/axi/mmc@ff160000 status=disabled compatible=xlnx,zynqmp-8.9a arasan,sdhci-8.9a 
+/sys/firmware/devicetree/base/axi/mmc@ff170000 status=okay compatible=xlnx,zynqmp-8.9a arasan,sdhci-8.9a 
+/sys/firmware/devicetree/base/axi/serial@ff000000 status=disabled compatible=xlnx,zynqmp-uart cdns,uart-r1p12 
+/sys/firmware/devicetree/base/axi/serial@ff010000 status=okay compatible=xlnx,zynqmp-uart cdns,uart-r1p12 
+/sys/firmware/devicetree/base/axi/timer@ff110000 status=okay compatible=cdns,ttc 
+/sys/firmware/devicetree/base/axi/timer@ff120000 status=disabled compatible=cdns,ttc 
+/sys/firmware/devicetree/base/axi/timer@ff130000 status=disabled compatible=cdns,ttc 
+/sys/firmware/devicetree/base/axi/timer@ff140000 status=disabled compatible=cdns,ttc 
+/sys/firmware/devicetree/base/axi/usb@ff9d0000 status=okay compatible=xlnx,zynqmp-dwc3 
+/sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000 status=okay compatible=snps,dwc3 
+/sys/firmware/devicetree/base/axi/watchdog@ff150000 status=okay compatible=cdns,wdt-r1p2 
+-- GEM3's PHY and resets:
+phy-handle:  00 00 00 87
+phy-mode:  72 67 6d 69 69 2d 69 64 00
+bash: line 6: /sys/firmware/devicetree/base/axi/ethernet@ff0e0000/mdio/compatible: No such file or directory
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000/mdio reg= compatible= reset-gpios=no reset-assert-us=
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000/mdio/ethernet-phy@1 reg= 00000001 compatible=ethernet-phy-id2000.a231  reset-gpios=yes reset-assert-us=        100
+bash: line 6: /sys/firmware/devicetree/base/axi/ethernet@ff0e0000/mdio/ethernet-phy@1/#phy-cells/compatible: Not a directory
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000/mdio/ethernet-phy@1/#phy-cells reg= compatible= reset-gpios=no reset-assert-us=
+bash: line 6: /sys/firmware/devicetree/base/axi/ethernet@ff0e0000/phy-mode/compatible: Not a directory
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000/phy-mode reg= compatible= reset-gpios=no reset-assert-us=
+bash: line 6: /sys/firmware/devicetree/base/axi/ethernet@ff0e0000/phy-handle/compatible: Not a directory
+/sys/firmware/devicetree/base/axi/ethernet@ff0e0000/phy-handle reg= compatible= reset-gpios=no reset-assert-us=
+-- USB0 and the hub:
+bash: line 7: /sys/firmware/devicetree/base/axi/i2c@ff030000/usb-hub@2d/status: No such file or directory
+/sys/firmware/devicetree/base/axi/i2c@ff030000/usb-hub@2d status= compatible=microchip,usb5744  reset-gpios=none
+/sys/firmware/devicetree/base/axi/usb@ff9d0000 status=okay compatible=xlnx,zynqmp-dwc3  reset-gpios= 00000017 00000001 00000001
+/sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000 status=okay compatible=snps,dwc3  reset-gpios=none
+bash: line 7: /sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000/hub@1/status: No such file or directory
+/sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000/hub@1 status= compatible=usb424,2744  reset-gpios= 00000013 0000002c 00000001
+bash: line 7: /sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000/hub@2/status: No such file or directory
+/sys/firmware/devicetree/base/axi/usb@ff9d0000/usb@fe200000/hub@2 status= compatible=usb424,5744  reset-gpios= 00000013 0000002c 00000001
+/sys/firmware/devicetree/base/axi/usb@ff9e0000 status=disabled compatible=xlnx,zynqmp-dwc3  reset-gpios=none
+/sys/firmware/devicetree/base/axi/usb@ff9e0000/usb@fe300000 status=disabled compatible=snps,dwc3  reset-gpios=none
+bash: line 7: /sys/firmware/devicetree/base/firmware/zynqmp-firmware/pinctrl/usb0-default/status: No such file or directory
+bash: line 7: /sys/firmware/devicetree/base/firmware/zynqmp-firmware/pinctrl/usb0-default/compatible: No such file or directory
+/sys/firmware/devicetree/base/firmware/zynqmp-firmware/pinctrl/usb0-default status= compatible= reset-gpios=none
+== 5. interrupts
+           CPU0       CPU1       CPU2       CPU3       
+  9:          0          0          0          0     GICv2  25 Level     vgic
+ 11:     860448     780991     431454     745479     GICv2  30 Level     arch_timer
+ 12:          0          0          0          0     GICv2  27 Level     kvm guest vtimer
+ 14:          0          0          0          0     GICv2  67 Level     zynqmp-ipi
+ 15:          0          0          0          0     GICv2  88 Level     ams-irq
+ 16:          0          0          0          0     GICv2 175 Level     arm-pmu
+ 17:          0          0          0          0     GICv2 176 Level     arm-pmu
+ 18:          0          0          0          0     GICv2 177 Level     arm-pmu
+ 19:          0          0          0          0     GICv2 178 Level     arm-pmu
+ 20:          3          0          0          0     GICv2  54 Level     xuartps
+ 22:          0          0          0          0     GICv2 156 Level     zynqmp-dma
+ 23:          0          0          0          0     GICv2 157 Level     zynqmp-dma
+ 24:          0          0          0          0     GICv2 158 Level     zynqmp-dma
+ 25:          0          0          0          0     GICv2 159 Level     zynqmp-dma
+ 26:          0          0          0          0     GICv2 160 Level     zynqmp-dma
+ 27:          0          0          0          0     GICv2 161 Level     zynqmp-dma
+ 28:          0          0          0          0     GICv2 162 Level     zynqmp-dma
+ 29:          0          0          0          0     GICv2 163 Level     zynqmp-dma
+ 30:          0          0          0          0     GICv2 109 Level     zynqmp-dma
+ 31:          0          0          0          0     GICv2 110 Level     zynqmp-dma
+ 32:          0          0          0          0     GICv2 111 Level     zynqmp-dma
+ 33:          0          0          0          0     GICv2 112 Level     zynqmp-dma
+ 34:          0          0          0          0     GICv2 113 Level     zynqmp-dma
+ 35:          0          0          0          0     GICv2 114 Level     zynqmp-dma
+ 36:          0          0          0          0     GICv2 115 Level     zynqmp-dma
+ 37:          0          0          0          0     GICv2 116 Level     zynqmp-dma
+ 38:     253314          0          0          0     GICv2 154 Level     fd4c0000.dma-controller
+ 39:       1294          0          0          0     GICv2 151 Level     fd4a0000.display
+ 40:       4428          0          0          0     GICv2  52 Level     ff050000.spi
+ 41:     181441          0          0          0     GICv2  95 Level     eth0, eth0
+ 42:          0          0          0          0     GICv2  57 Level     axi-pmon, axi-pmon
+ 43:          0          0          0          0     GICv2 155 Level     axi-pmon, axi-pmon
+ 44:        127          0          0          0     GICv2  97 Level     xhci-hcd:usb1
+ 46:          0          0          0          0     GICv2  84 Edge      ff150000.watchdog
+ 47:     122456          0          0          0     GICv2  81 Level     mmc1
+ 48:          0          0          0          0  zynq-gpio  12 Edge      fwuen
+ 49:        762          0          0          0     GICv2  50 Level     cdns-i2c
+ 50:     279970          0          0          0     GICv2  47 Level     ff0f0000.spi
+ 51:          0          0          0          0     GICv2  58 Level     ffa60000.rtc
+ 52:          0          0          0          0     GICv2  59 Level     ffa60000.rtc
+ 53:          0          0          0          0     GICv2  42 Level     ff960000.memory-controller
+ 54:          0          0          0          0     GICv2 164 Level     Mali_GP_MMU, Mali_GP, Mali_PP0_MMU, Mali_PP0, Mali_PP1_MMU, Mali_PP1
+IPI0:      3407       7089       6303       7791       Rescheduling interrupts
+IPI1:    126661     149676     111291     110378       Function call interrupts
+IPI2:         0          0          0          0       CPU stop interrupts
+IPI3:         0          0          0          0       CPU stop NMIs
+IPI4:      4630      11642      14119      15006       Timer broadcast interrupts
+IPI5:         0          0          0          0       IRQ work interrupts
+IPI6:         0          0          0          0       CPU backtrace interrupts
+IPI7:         0          0          0          0       KGDB roundup interrupts
+Err:          0
+== 6. storage
+brw-rw---- 1 root disk 179, 0 Oct 17 22:04 /dev/mmcblk1
+brw-rw---- 1 root disk 179, 1 Oct 17 22:04 /dev/mmcblk1p1
+brw-rw---- 1 root disk 179, 2 Oct 17 22:04 /dev/mmcblk1p2
+brw-rw---- 1 root disk 179, 3 Oct 17 22:25 /dev/mmcblk1p3
+/sys/class/mmc_host/mmc1/mmc1:0001/type: SD
+mmc1
+/sys/class/mmc_host/mmc1 -> /sys/devices/platform/axi/ff170000.mmc
+== ADMA devices
+/sys/bus/platform/devices/fd4c0000.dma-controller
+/sys/bus/platform/devices/fd500000.dma-controller
+/sys/bus/platform/devices/fd510000.dma-controller
+/sys/bus/platform/devices/fd520000.dma-controller
+/sys/bus/platform/devices/fd530000.dma-controller
+/sys/bus/platform/devices/fd540000.dma-controller
+/sys/bus/platform/devices/fd550000.dma-controller
+/sys/bus/platform/devices/fd560000.dma-controller
+/sys/bus/platform/devices/fd570000.dma-controller
+/sys/bus/platform/devices/ffa80000.dma-controller
+/sys/bus/platform/devices/ffa90000.dma-controller
+/sys/bus/platform/devices/ffaa0000.dma-controller
+/sys/bus/platform/devices/ffab0000.dma-controller
+/sys/bus/platform/devices/ffac0000.dma-controller
+/sys/bus/platform/devices/ffad0000.dma-controller
+/sys/bus/platform/devices/ffae0000.dma-controller
+/sys/bus/platform/devices/ffaf0000.dma-controller
+/sys/bus/platform/devices/ffaf0000.dma-controller: control=auto runtime_status=suspended driver=xilinx-zynqmp-dma
+== kernel config
+CONFIG_STRICT_DEVMEM=y
+# CONFIG_IO_STRICT_DEVMEM is not set

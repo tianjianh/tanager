@@ -134,6 +134,27 @@ bool Iss::load_elf(const std::string& path, std::string& err) {
     std::memcpy(mem_.ptr(paddr), &img[off], filesz);
     std::memset(mem_.ptr(paddr) + filesz, 0, memsz - filesz);
   }
+  // The RTL platform's symbols, from the symbol table (absent in bsp/ builds).
+  if (is64) {
+    const uint64_t shoff = rd64(40);
+    const uint16_t shentsize = rd16(58), shnum = rd16(60);
+    for (unsigned i = 0; i < shnum && shoff + (size_t)(i + 1) * shentsize <= img.size(); i++) {
+      const size_t sh = shoff + (size_t)i * shentsize;
+      if (rd32(sh + 4) != 2) continue;  // SHT_SYMTAB
+      const uint64_t off = rd64(sh + 24), size = rd64(sh + 32), entsize = rd64(sh + 56);
+      const size_t strsh = shoff + (size_t)rd32(sh + 40) * shentsize;
+      if (!entsize || off + size > img.size() || strsh + shentsize > img.size()) break;
+      const uint64_t stroff = rd64(strsh + 24), strsize = rd64(strsh + 32);
+      for (uint64_t s = off; s + entsize <= off + size; s += entsize) {
+        const uint32_t name = rd32(s);
+        if (name >= strsize || stroff + name >= img.size()) continue;
+        const char* nm = reinterpret_cast<const char*>(&img[stroff + name]);
+        if (std::strcmp(nm, "tohost") == 0) tohost_ = rd64(s + 8);
+        else if (std::strcmp(nm, "tg_marker") == 0) marker_ = rd64(s + 8);
+      }
+      break;
+    }
+  }
   pc_ = entry;
   csr_[0x301] = (xlen_ == 64 ? (2ull << 62) : (1ull << 30)) | 0x14112d;  // misa: IMAFDC (+S/U bits)
   return true;
@@ -170,6 +191,7 @@ bool Iss::ld(uint64_t a, T& v, DynInst& di) {
   if (a >= MMIO_BASE && a < MMIO_BASE + MMIO_SIZE) {
     di.mmio = true;
     if (a == MMIO_GETC) v = (T)(in_pos_ < in_.size() ? (int64_t)(uint8_t)in_[in_pos_++] : -1);
+    else if (a == UART_LSR) v = (T)0x60;  // THR and transmitter empty
     else v = 0;
     return true;
   }
@@ -190,6 +212,8 @@ bool Iss::st(uint64_t a, T v, DynInst& di) {
   }
   if (!mem_.contains(a, sizeof(T))) { fault("store access fault", di.pc, a); return false; }
   std::memcpy(mem_.ptr(a), &v, sizeof(T));
+  if (marker_ && a == marker_) di.marker = (uint8_t)v;
+  if (tohost_ && a == tohost_ && ((uint64_t)v & 1)) { exited_ = true; exit_code_ = (int)((uint64_t)v >> 1); }
   // Any store to a reserved granule breaks the reservation (single hart: only our own stores).
   if (resv_valid_ && (a & ~63ull) == (resv_addr_ & ~63ull)) resv_valid_ = false;
   return true;
