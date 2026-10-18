@@ -162,18 +162,42 @@ if {![string is double -strict $pr_unc] || $pr_unc < 0 || $pr_unc > 3} {
   puts "ERROR: TG_PR_UNC must be 0-3 ns (fpga/kv260/README.md)"
   exit 1
 }
-set core_clk [get_clocks -of_objects [get_pins u_clkgen/u_mmcm/CLKOUT0]]
+# The core clock: Vivado derives it on the MMCM's CLKOUT0 and names it after the net, c0 (tg_clkgen). The
+# first board build with this (d1_100, 10-17) found nothing with timing.xdc's pin query at this point, so
+# the lookup tries the name, the pin and the BUFG's net, logs what each gave, retries once after a timing
+# update, and without a clock places and routes as before (a warning; summary.txt says so).
+proc tg_core_clock {} {
+  foreach q {{get_clocks -quiet c0}
+             {get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT0]}
+             {get_clocks -quiet -of_objects [get_nets -quiet clk_core]}} {
+    set c [uplevel #0 $q]
+    puts "TG_PR_UNC clock query {$q}: [expr {[llength $c] ? $c : {none}}]"
+    if {[llength $c] == 1} { return $c }
+  }
+  return {}
+}
 stamp "opt_design"
 opt_design
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
-if {$pr_unc > 0} { set_clock_uncertainty -setup $pr_unc $core_clk }
+set pr_unc_note ""
+if {$pr_unc > 0} {
+  set core_clk [tg_core_clock]
+  if {![llength $core_clk]} { update_timing -quiet; set core_clk [tg_core_clock] }
+  if {[llength $core_clk]} {
+    set_clock_uncertainty -setup $pr_unc $core_clk
+  } else {
+    puts "WARNING: TG_PR_UNC: no core clock found; placing and routing without the uncertainty"
+    set pr_unc_note " not applied: no core clock found"
+    set pr_unc 0
+  }
+}
 stamp "place_design"
 place_design
 stamp "phys_opt_design"
 phys_opt_design
 stamp "route_design"
 route_design
-if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }
+if {$pr_unc > 0} { set_clock_uncertainty -setup 0 $core_clk }   ;# the reports at the real period
 stamp "reports"
 report_timing_summary -max_paths 20 -report_unconstrained -file $rep/timing_summary.rpt
 report_utilization -file $rep/utilization.rpt
@@ -193,7 +217,7 @@ puts $fh "WNS=$wns WHS=$whs"
 puts $fh "runtime_s=[expr {[clock seconds] - $t0}]"
 puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
-puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)"
+puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
