@@ -590,7 +590,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
     - the plan spells out what the board session can still reach (UART1, the PL UART);
     - the coordinator tells the user before it runs.
-  - **The handover plan** (soc-2, 10-18, for the coordinator; nothing runs before the user is told):
+  - **The handover plan** (soc-2, 10-18; approved by the coordinator under DR-147, conditions below):
     - **Chosen once, by kexec from the running Ubuntu.** Nothing in the boot path changes: not QSPI, not U-Boot's environment, not `p1`. Any reset or power cycle boots normal Ubuntu from `p2`.
       - In normal Ubuntu: load the bitstream (`xmutil`), mount `p3` read-only, then `tanager-host load` Debian's kernel and initrd from `p3`'s `/boot` with OpenSBI and the D4 tree, cores held. The carve-out is outside Linux RAM (`mem=3G`), so it survives the kexec, as the PL's state does.
       - `kexec -l` Ubuntu's own kernel with a handover tree (SD1 and UART1 disabled), the command line `mem=3G clk_ignore_unused` (the PL clock has no user in that tree), and a small initramfs. Then `systemctl kexec`, which stops services and remounts `p2` read-only before it jumps.
@@ -605,6 +605,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
       - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;
       - whether GEM3's `macb` and the DP83867 PHY driver are built in or modules, which the initramfs must then carry.
+    - **The coordinator's conditions for the run** (10-18):
+      - in daytime, with the user around, since the last recovery is their power cycle; the coordinator tells the user beforehand;
+      - `p2` remounted read-only before the kexec; the handover kernel never touches SD1; Debian mounts only `p3`;
+      - `fancontrol`'s job passes to D2's regulator, with pwm1 ≥ 1, before the A53's Ubuntu stops (the handover kernel doesn't run `fancontrol`). In practice: stop `fancontrol` and set pwm1 = 1 before the kexec. Ubuntu's `pwm-fan` disables the TTC at shutdown, and the handover kernel's `pwm-fan` starts at full speed, so the fan runs full through the switch (safe) until the handover initramfs sets pwm1 = 1 again;
+      - Debian's poweroff brings the A53 back to Ubuntu;
+      - if SD1 runs at 1.8 V, the RISC-V's driver takes the same mode, with no voltage switch from the RISC-V side;
+      - installing `kexec-tools`, if needed, is an A53 package change under DR-147, logged in the change log with its undo.
+    - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
   - **Boot:**
