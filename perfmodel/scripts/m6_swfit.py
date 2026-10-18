@@ -23,8 +23,9 @@ TAGE = {"m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1, "m2_btage": 1, "b
 V = {"rev 3": {"spec_fwd": 0, "dc_row_clash": 0}, "+ spec_fwd": {"spec_fwd": 1, "dc_row_clash": 0},
      "+ row clash": {"spec_fwd": 0, "dc_row_clash": 1},
      "+ both": {"spec_fwd": 1, "dc_row_clash": 1}}
-# revision 4 as this fit ran it: without revision 5's straddlers and micro-BTB training way (§6.7)
-REV4 = {"m2_strad": 0, "m2_ub_way": 0}
+# revision 4 as this fit ran it: without revision 5's straddlers and micro-BTB training way (§6.7) or revision 6's
+# steering at rename (§6.8)
+REV4 = {"m2_strad": 0, "m2_ub_way": 0, "iq_steer_rn": 0}
 BUILDS = {"ras": {"ras": 32, **REV4}, "tage": {"ras": 32, **TAGE, **REV4}}
 PROGS = [(p, m) for m in ("rv64im", "rv64gc") for p in ("coremark_A", "coremark_B", "dhrystone")]
 SETS = ("i10-r500", "i20-r1000")

@@ -72,6 +72,7 @@ namespace tg {
   X(iq_sta, 8, "IQ-STA entries")                                                                   \
   X(iq_hold, 0, "cycles from a uop's issue until dispatch can reuse its IQ row (0 = at once; core-2's RTL: 3, the row is freed two cycles after its select)") \
   X(iq_slot_bank, 0, "IQ rows are banks by dispatch slot (plan §4.15; core-2's RTL): decode slot k's uop takes a row of bank k, and a group waits until each slot's bank has one") \
+  X(iq_steer_rn, 0, "with iq_slot_bank: an ALU op's queue is picked a cycle before dispatch, as rename does in the RTL, from the banks' free flags of the cycle before that (which miss the group dispatch writes meanwhile): slot k's op takes queue k mod 2 if its bank had a row, else the other if it had one, else k mod 2, and keeps it; 0 = picked at dispatch with the current rows; 2 = picked at rename from flags that count the group the dispatch stage writes in the same cycle (a fix)") \
   X(iq_fp, 12, "IQ-FP entries")                                                                    \
   X(alu3, 0, "third simple-ALU port P5 with its own queue and register bank (DSE option)")         \
   X(iq_a2, 0, "IQ-A2 entries with alu3 (0 = same as IQ-A1)")                                       \

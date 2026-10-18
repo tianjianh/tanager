@@ -1210,6 +1210,86 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **The levers on them are out of reach or small:** a 1-cycle F2 redirect does not fit 100 MHz (+1.8% at most), and a 128-entry micro-BTB buys +0.3% on the suite. The micro-BTB is better judged under Linux.
 - **The one change worth weighing before the merge is in the backend:** the store address waiting for its data (§6.4's question for core-2). It costs Dhrystone 2.6% of its cycles in refills alone, and 26–30% overall in the model.
 
+### 6.8 Rename's stalls on the TAGE-lite build, measured in the RTL (2026-10-18)
+
+*§6.7 left the model 5–7% optimistic, with rename holding decode in 17.7–22.2% of the RTL's cycles against 10.3–12.9% of the model's. This section splits those cycles by cause in both simulators on the same tree (fpu-2's f2cut, 1e4a503), with a measurement-only bind (`scripts/rtlprof/prof_rs.sv`), on make perf's regions and the RTL suite's 11 programs. `scripts/m6_rs.py` sets the model beside it (`results/m6_rs_rv64.json`). It also gives the model's prediction for fpu-2's prototype of the store address issuing on its base alone.*
+
+**How a cycle is charged:**
+- **The order:** each cycle decode is held (rename's `!de_take`) goes to the first of these causes:
+  - a flush;
+  - the dispatch stage holding a group whose slot's bank of an issue queue is full (by queue, slot 0 first);
+  - the ROB, LQ or SQ without room for the group;
+  - a free list short; wakeup tags or LLTs short; the divide and FP-op limits;
+  - serializing uops; and the rest.
+- **The blocking bank's rows:** when a queue's bank stops dispatch, its rows are counted by state (waiting on a source, ready but not yet granted, issued and held).
+- **IQ-STA's rows by what they wait on:** a shadow of each row's two sources (their wakeup columns and MX rows, taken at dispatch) splits them into waiting on the base, waiting only on the store's data, or neither.
+
+**What holds rename in the RTL** (percent of cycles; rv64im is within half a point of rv64gc):
+
+| Cause | CoreMark A | CoreMark B | Dhrystone | crc32 | edn | matmult-int | minver | statemate | ws_hash |
+|---|---|---|---|---|---|---|---|---|---|
+| IQ-A0 bank full | 5.4 | 8.1 | 2.6 | 6.9 | 0.4 | – | 0.8 | 0.2 | 35.8 |
+| IQ-A1 bank full | 5.7 | 6.2 | – | 17.2 | 14.6 | – | – | – | 1.8 |
+| IQ-LD bank full | 3.9 | 5.1 | 2.6 | – | 0.1 | – | 0.6 | 8.1 | – |
+| IQ-STA bank full | 2.5 | 2.2 | 11.5 | – | 0.3 | 17.8 | 11.7 | 38.6 | – |
+| ROB, LQ, SQ, free lists, tags | – | – | – | – | – | – | 3.5 | – | 6.8 |
+| Flush, divide limits, the rest | 0.7 | 0.6 | 0.9 | – | 0.3 | 0.1 | 2.7 | – | 1.5 |
+| **All** | **18.2** | **22.2** | **17.7** | **24.1** | **15.6** | **17.8** | **19.4** | **46.9** | **45.9** |
+| ALU op stopped while the other ALU queue's bank had a row | 10.0 | 12.1 | 2.2 | 17.2 | 3.7 | – | 0.5 | 0.1 | 31.9 |
+
+- **Almost every held cycle is an issue queue's bank.** The ROB, LQ, SQ, free lists and tags hold rename only on minver (ROB 3.2%), ws_hash (ROB 6.8%) and the streaming kernels. ws_copy is held 85% of its cycles, mostly by the SQ.
+
+**The ALU queues: rename steers by flags a cycle old.**
+- **The rule** (`tg_rename.sv`): rename picks an ALU op's queue: slot k's queue k mod 2 if its bank for slot k has a row, else the other. It reads the banks' registered `bank_free_q`, which do not count the group the dispatch stage writes in the same cycle.
+- **What goes wrong:** two groups in a row can aim at a bank's last row, and the second waits at dispatch. Its queue and its destination register's bank were fixed at rename, so it cannot move.
+- **How much:** in 80–90% of the RTL's ALU-queue stalls on CoreMark the stopped op is an ALU op, and the other ALU queue's bank for its slot has a row. That is 10–12% of CoreMark's cycles, 17% of crc32's and 32% of ws_hash's.
+- **The model picked the queue at dispatch, with the rows as they stood.** It had a third of the RTL's ALU-queue stalls on CoreMark (3.1% against 11.1%).
+
+**`rtl_m2` revision 6** steers as the RTL does (`iq_steer_rn`): a cycle before dispatch, from the flags of the cycle before that, and the op keeps its queue.
+
+| Model against the RTL | Revision 5 | Revision 6 |
+|---|---|---|
+| CoreMark (both ISAs) | −5.0% to −6.5% | −0.5% to −1.1% |
+| Dhrystone | −6.8% / −7.2% | −4.7% / −5.9% |
+| crc32 | −3.4% | 0.0% |
+| Decode held, CoreMark A rv64gc (RTL 18.2%) | 10.3% | 15.1% |
+| Mean error over the 17 programs on this tree | 5.7% | 4.2% |
+| Mean error over the RAS head's 17 (§6.6) | 7.6% | 7.5% |
+
+**IQ-STA, and what the store address on its base alone would change.**
+- **CoreMark:** IQ-STA holds rename 2.2–2.5% of cycles, and the model has the same (2.1–3.6%). Rows waiting only for their data are rare: 5–8% of those cycles have one.
+- **Dhrystone:** IQ-STA holds rename 11.1–11.5% of cycles, against the model's 7.1–7.6%. Of the blocking bank's two rows:
+  - 0.3–0.4 wait only for their data (29–32% of these cycles have one);
+  - 1.5–1.7 are in their select cycle or held for the speculative-wakeup shadow, as in the model.
+- **matmult-int, minver, ud, edn:** the data wait dominates. 69–97% of their IQ-STA stalls have a row waiting only for its data, as in the model.
+- **statemate's 39%** is stores arriving faster than one slot's two rows turn over (3 cycles each): its rows are ready or held, not waiting on data.
+- **So the lever explains little of the held-cycle gap.** On CoreMark the gap was the steering, and IQ-STA matches. On Dhrystone, IQ-STA is 4 of the 7–9 points. In the model the lever leaves Dhrystone's held cycles where they were (12.6–12.9% before, 13.6–13.7% after). Its gain there comes from removing the ordering replays (7 per 1K instructions; §6.7).
+
+**The model's predictions** (speedup of each change over the model as built; these sit beside fpu-2's prototype when its numbers come):
+
+| Program | STA on its base, revision 5 / 6 | Steering fix (revision 6) | Both (revision 6) |
+|---|---|---|---|
+| CoreMark A rv64gc / rv64im | +3.4% / +3.0%; +2.5% / +1.9% | +6.0%; +6.3% | +9.6%; +7.8% |
+| CoreMark B rv64gc / rv64im | +4.4% / +2.9%; +3.9% / +3.0% | +6.6%; +6.4% | +11.0%; +10.7% |
+| Dhrystone rv64gc / rv64im | +15.0% / +14.8%; +14.6% / +13.3% | +3.3%; +3.4% | +26.4%; +28.0% |
+| matmult-int, minver, ud | +20.5%, +28.5%, +15.2% / +20.5%, +28.2%, +12.1% | 0, −0.1%, +6.2% | +20.5%, +28.5%, +14.1% |
+| crc32, edn | 0, +1.6% / 0, +1.4% | +3.6%, +0.3% | +3.6%, +3.1% |
+| Geometric mean, 17 programs | +6.2% / +5.7% | +2.5% | +9.3% |
+
+- **The lever's Dhrystone gain is half of §6.4's estimate** (+26–30% on revision 2). Speculative wakeup, the row clash and the RTL's front end have come in since.
+- **The steering fix** (`iq_steer_rn` 2) is a rename that counts the dispatch stage's group when it reads the ALU queues' bank flags. In RTL:
+  - **tg_iq** keeps a second registered flag per bank, "at least two rows free" (one LUT on five rows).
+  - **Rename** reads a bank as free only if that flag is set or the dispatch stage's op in the same slot does not take that bank.
+  - **Cost:** about 15 LUTs per core and one LUT level on rename's steering. The flags are registers, but core-2 owns the path and would check it.
+  - **Exactness:** rename fires only when the dispatch stage writes its group in the same cycle, so the correction is exact. Rows freed in that cycle are not seen, which only errs toward the other queue.
+
+**What is still open:**
+- **The ALU queues:** with revision 6 the model's held cycles are 3.1–3.3 points under the RTL's on CoreMark. The RTL's blocking ALU-queue banks hold more rows that are ready but not granted: 1.5–2.0 against the model's 0.5–0.7, beyond each grant's own cycle. A1's select was blocked for a MUL, DIV or CSR result in 13–21% of its stalls.
+- **Dhrystone's IQ-STA:** 11.1–11.5% in the RTL against 7.1–7.6% in the model.
+- **Outliers:**
+  - **ws_hash:** the model is 14% slow, yet the RTL holds rename for 46% of cycles against the model's 6.5%. The gap is elsewhere, likely its memory side.
+  - **ws_copy:** the model is 14% fast, though both hold rename about 82–85% of cycles, mostly on the SQ.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1647,7 +1727,9 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 4. **v2's budget lines (AR-9),** then a no-IPC pass on the 3-wide structures.
 5. **Re-run the SMT2 window sizing with tags' costs** (ROB entries at ≈10 LUTs), once the measured fit leaves room (AR-3's option).
 6. **A merged pool of LLTs and wakeup tags** could cut the 40 columns further. Not modelled.
-7. **The model's backend gap (§6.7):** profile rename's stalls by cause (ROB full, an issue-queue bank full, LQ or SQ full, no free register) in RTL and in the model, for `rtl_m2` revision 6. CoreMark's ordering replays (twice the RTL's in the model) belong to the same profile.
+7. ~~The model's backend gap (§6.7)~~: **done** (§6.8). Rename's steering was most of it; `rtl_m2` revision 6 has it.
+8. **The steering fix (core-2's area):** rename counting the dispatch stage's group when it reads the ALU queues' bank flags. About 15 LUTs per core; in the model, CoreMark +6%, Dhrystone +3%, +2.5% over 17 programs (§6.8).
+9. **What §6.8 leaves open in the model:** the RTL's ALU-queue banks holding more ready rows than the model's; Dhrystone's IQ-STA (11% against 7%); CoreMark's ordering replays (twice the RTL's in the model); ws_hash (+14%) and ws_copy (−14%).
 
 ---
 
@@ -1803,10 +1885,18 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **No front-end change is worth making before M6 merges.** The store address waiting for its data (§6.4) is the backend lever this profile points at again.
 - **The model's remaining optimism is in the backend:** rename holds decode in 17.7–22.2% of the RTL's cycles and 10.3–12.9% of the model's.
 
+**2026-10-18: rename's stalls on the TAGE-lite build, measured** (§6.8; `scripts/m6_rs.py`, `scripts/rtlprof/prof_rs.sv` on fpu-2's f2cut tree, run on the build host):
+- **Every held cycle is an issue queue's bank,** almost never the ROB, LQ, SQ or free lists.
+- **The ALU queues: rename steers by flags a cycle old.** In 80–90% of the RTL's ALU-queue stalls on CoreMark the other ALU queue had a row for the op's slot: 10–12% of CoreMark's cycles. **`rtl_m2` revision 6** steers as the RTL does: CoreMark within 1.1%, and the 17 programs' mean error from 5.7% to 4.2%.
+- **A fix for core-2:** rename counting the dispatch stage's group, about 15 LUTs per core. In the model: CoreMark +6%, Dhrystone +3%, +2.5% over 17 programs.
+- **The store address on its base alone** (fpu-2's prototype), in the model: CoreMark +2–4%, Dhrystone +13–15%, matmult-int, minver and ud +12–29%, +5.7–6.2% over 17 programs. It explains little of the held-cycle gap: its gain is the ordering replays it removes.
+
 **Lessons:**
 - **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
 - **Check each ISA's own cases.** The straddler gap showed only on rv64gc, where a 32-bit instruction can cross a 16-byte block; rv64im matched.
 - **A fix can widen the whole-program error.** Revision 5's front end is the RTL's, and the TAGE-lite build's error went from −3.5% to −5.6% on CoreMark A, because the old front end had been hiding a backend that is too fast. Keep the rule that is right and find the next gap; do not keep an error that cancels another.
+- **Ask "was there room elsewhere?" at every stall.** One counter, the other ALU queue's bank having a row while dispatch waited, found 10–12% of CoreMark's cycles lost to a steering decision.
+- **Check when a decision is made, not only what it decides.** Rename's queue choice is right with the flags it has, but they are a cycle old.
 - **Check that two binaries share a layout before differencing them.** Dhrystone's lengths do not, and the RAS head's speed moves 5% with the layout.
 - **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.
 - **Read the RTL's dependency rules, not only its spec.** The spec's STA is address-only; rename makes it wait for its data.

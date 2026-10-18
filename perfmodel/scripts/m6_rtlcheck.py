@@ -31,9 +31,9 @@ TAGE = {"m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1}
 RTL_TAGE = {"m2_btage": 1, "btage_lag": 1, "btage_tq": 4, "m2_cut": 1, "m2_f2_bubble": 2, "m2_ftq": 32}
 STACK = {"ras": 32, **TAGE, "m2_ras_f2": 1}
 # rtl_m2 as this check ran it (revision 2): speculative wakeup off, as on main cee5332 (revision 3 turns it on), and
-# none of revisions 4-5
+# none of revisions 4-6
 REV2 = {"spec_wakeup": 0, "hit_pred": 0, "shadow": 0, "spec_int_only": 0, "spec_fwd": 0, "dc_row_clash": 0,
-        "m2_strad": 0, "m2_ub_way": 0}
+        "m2_strad": 0, "m2_ub_way": 0, "iq_steer_rn": 0}
 OLD = {**REV2, "iq_slot_bank": 0, "iq_hold": 0, "sta_split": 1}       # rtl_m2 before §6.4 (with four misses)
 IQ = {**REV2, "iq_slot_bank": 1, "iq_hold": 3, "sta_split": 1}
 VARIANTS = {  # (main, the stack)
