@@ -1130,6 +1130,86 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 
 **For §6.5:** revision 4 moves Dhrystone by a few points and CoreMark by under 0.5%, so its ranking stands. Its script pins revision 3.
 
+### 6.7 The front end of the TAGE-lite build, measured in the RTL (2026-10-18)
+
+*§6.4 found the RTL refetching at F2 about 40% more often than the model, and §6.6 left the TAGE-lite build 4–8% optimistic. This section profiles every F2 refetch and redirect by cause in the RTL, on the tree core-2 will merge: fpu-2's `claude/track-fpu-395911-f2cut` at 1e4a503, which is c149fce's M6 set (the RAS, two-table TAGE-lite, returns and straddlers at F2, four misses, speculative wakeup) with F2 restructured, cycle for cycle the same as c149fce. The bind is measurement-only (`scripts/rtlprof/prof_f2cut.sv`). It ran on make perf's ELFs (timed regions) and on the Linux boot's first 20M cycles (`tb_boot`, one core). `scripts/m6_fe.py` sets the model beside it (`results/m6_fe_rv64.json`).*
+
+**How a cause is costed:** in each cycle rename can take a group but the instruction queue offers fewer than two instructions, the missing decode slots are charged to the front end's last event. With no event in the last 32 cycles they go to "steady fetch". The model counts the same way. A run of back-to-back I$ misses counts as one event, so in the boot part of their cost falls to steady fetch (item 2 below).
+
+**What the RTL loses, by cause** (rv64gc, percent of cycles; events per 1K instructions in brackets):
+
+| Cause, in hardware terms | CoreMark A | CoreMark B | Dhrystone | Boot, first 20M cycles |
+|---|---|---|---|---|
+| I$ miss: fetch waits for the line | 0.06% | 0.06% | 0.29% (0.1) | **9.60%** (7.3) |
+| Steady fetch: no front-end event in the last 32 cycles | 0.09% | 0.08% | 0.12% | **4.34%** |
+| Trap, interrupt or serializing instruction (CSR access, fence, xRET): the refill after its flush | – | – | – | **1.58%** (3.4) |
+| Mispredict: the refill after its flush at commit | **1.60%** (4.0) | **1.29%** (3.7) | 0.02% | **1.50%** (6.6) |
+| Replay at commit (on the bench, a load that ran before an older store to its address): the refill | 0.38% (0.9) | 0.42% (1.0) | **2.62%** (7.0) | 0.45% (2.2) |
+| ITLB walk | – | – | – | 0.89% (0.8) |
+| F2: the taken exit is at another slot than the micro-BTB's | 0.55% (3.3) | 0.33% (5.7) | **1.99%** (17.9) | 0.30% (8.1) |
+| F2: a taken branch the micro-BTB missed | 0.39% (9.4) | 0.54% (5.3) | 0.14% (7.6) | 0.99% (13.4) |
+| F2: a JAL the micro-BTB missed | 0.24% (1.2) | 0.38% (1.4) | **1.08%** (7.9) | 0.52% (6.1) |
+| F2: the rest (returns, TAGE-lite not taken, straddlers, the cut) | 0.63% (14.1) | 0.39% (14.9) | 0.53% (22.6) | 1.04% (21.0) |
+| **All F2 refetches** | **1.81%** (28.0) | **1.64%** (27.3) | **3.74%** (56.0) | **2.85%** (48.7) |
+| **All lost decode slots** | **3.9%** | **3.5%** | **6.8%** | **21.2%** |
+
+- **There are no bogus micro-BTB predictions, no FTQ-full cycles and no decode redirects** in any run. The boot runs at IPC 0.84, and rename holds decode in 30% of its cycles.
+- **The boot has no model column:** the model runs bare-metal ELFs only, without traps or virtual memory.
+- **Each F2 refetch is a 2-cycle bubble,** 4 decode slots. The instruction queue hides about three quarters of it: on CoreMark a refetch costs 0.9 slots on average.
+
+**The answer to §6.4's question: mostly a gap in the model, and little IPC.**
+- **The count:** on CoreMark A rv64gc the RTL refetches at F2 28.0 times per 1K instructions, against the model's 18.0.
+- **Two of the RTL's rules were missing from the model:**
+  - **Straddlers.** A 32-bit instruction that crosses into the next 16-byte block is decoded with that block: F2 holds its first half, and it is one of that block's branches. The micro-BTB never predicts or trains it. The model fetched it as a block of its own and trained it at slot 0 of the block before. So the model never saw the cut before a block's third branch on rv64gc (the RTL: 4.3 per 1K). On Dhrystone rv64gc it made 7 bogus predictions per 1K and 2.7× the RTL's missed JALs.
+  - **The micro-BTB's training way.** The RTL rewrites the way that predicted the instruction, else a pseudo-random way (`tg_exec`'s `upd_way`). The model rewrote the way that hit the block, so a block's second exit always evicted its first. That kept returns the RTL loses: 0.1 missed per 1K on Dhrystone, against the RTL's 5.1.
+- **A counting window too:** the model charged a flush's refill from the commit and the RTL from its flush, two cycles later. That alone made the model's refill look 4 slots longer per flush (9.7 against 5.6). The model now counts from the restart: 5.1–5.6 slots per mispredict on CoreMark, the RTL's 5.2–5.6.
+- **What is left costs little:** all F2 refetches cost the RTL 1.6–1.8% of CoreMark's cycles, 3.7% of Dhrystone's and 2.9% of the boot's.
+
+**`rtl_m2` revision 5** adds both rules (`m2_strad`, `m2_ub_way`):
+
+| rv64gc | CoreMark A: RTL / revision 4 / revision 5 | Dhrystone: RTL / revision 4 / revision 5 |
+|---|---|---|
+| Cuts before a third branch, per 1K | 4.27 / 0.00 / 4.09 | 0.01 / 0 / 0 |
+| Taken straddlers, per 1K | 1.51 / 0 / 1.77 | 0.01 / 0 / 0.01 |
+| Bogus micro-BTB predictions, per 1K | 0 / 0.01 / 0 | 0 / 6.98 / 0 |
+| JALs the micro-BTB missed, per 1K | 1.15 / 1.09 / 0.95 | 7.86 / 21.05 / 7.79 |
+| Returns the micro-BTB missed, per 1K | 0.17 / 0.18 / 0.18 | 5.12 / 0.08 / 6.35 |
+| Exits at another slot, per 1K | 3.32 / 1.67 / 2.01 | 17.93 / 13.94 / 20.94 |
+| All F2 refetches, per 1K | 28.0 / 18.0 / 21.2 | 56.0 / 73.5 / 66.2 |
+| All lost decode slots, % of cycles | 3.9 / 4.1 / 3.7 | 6.8 / 11.9 / 8.0 |
+| Decode held by rename, % of cycles | 18.2 / 11.9 / 10.3 | 17.7 / 10.9 / 10.6 |
+| The region's cycles against the RTL | – / −3.5% / −5.6% | – / −3.3% / −6.8% |
+
+- **The front end now matches within a point on CoreMark** (3.6–3.8% of cycles lost against the RTL's 3.0–3.9%, both ISAs). On Dhrystone the model still loses 1.2–2 points more. Its faster backend leaves the queue emptier when a refetch comes, so each missed JAL costs it 3.3 slots against the RTL's 2.2.
+- **The whole-program error grows,** because the front end no longer hides the backend:
+  - the TAGE-lite build is −5.0% to −7.2% against the RTL (revision 4: −3.3% to −6.8%);
+  - on the RAS head's 17 programs the mean error goes from 7.3% to 7.6%, with nsichneu at −10.0%. The other outliers are the same as before: minver, ws_hash, ws_copy and matmult-int.
+- **The rest is in the backend.** Rename holds decode in 17.7–22.2% of the RTL's cycles and 10.3–12.9% of the model's. CoreMark's ordering replays are also twice the RTL's in the model (1.7 against 0.9 per 1K). Splitting rename's stalls by cause in both simulators (ROB full, an issue-queue bank full, LQ or SQ full, no free register) is the next profile, for revision 6.
+
+**Each RTL cause above 1%: real, or the model's** (the model's estimates on revision 5, the M6 set, over make perf and the 11 RTL-suite programs):
+1. **The boot's I$ misses (9.6%, about 12% with those that fell to steady fetch): real.** The boot's first 20M cycles are mostly first-touch code: 7.3 misses per 1K instructions, 23 cycles each, with the I$ busy refilling 14% of the time. The levers are an I$ prefetcher (next line, or fetch-directed: the model has both) or a larger I$, not fetch's logic. The suite has almost no I$ misses, so §6.5 left the I-side pieces for Linux to judge. This is the first Linux figure, but a cold boot overstates steady-state Linux, so the board's workloads should decide.
+2. **The boot's steady fetch (4.3%): mostly I$ misses and FENCE.I, split by a second run's counters.** In 86% of its starved cycles F2 is empty. The reasons, as shares of all its starved cycles:
+   - **59% (about 2.6% of the boot's cycles):** fetch parked on an I$ miss or an ITLB walk. The bind charges a run of back-to-back misses to the first miss's event, so after 32 cycles they fall here; they belong with item 1.
+   - **19% (about 0.8%):** the I$ invalidate after a FENCE.I (item 8).
+   - **14% (about 0.6%):** F2 holding a block or delivering one too short to fill decode.
+   - **8% (about 0.3%):** none of the stall reasons the bind reads.
+3. **The mispredict refill (1.3–1.6% on CoreMark, 1.5% on the boot): real, but the pipeline's own depth.** Fetch restarts at the flush and reaches decode 3 cycles later; the model has the same. The levers are fewer mispredicts (TAGE-lite's tables) or recovery before commit (checkpoints, §6.5: about +2% per 1K LUTs). The refill itself stays.
+4. **Dhrystone's ordering-replay refill (2.6%): real, and the backend's.** A store's address op waits for its data register (rename's IQ-STA dependency on rs2, still in the f2cut tree). So a younger load to the same address runs first and is replayed, 7 times per 1K instructions. The refill is the smaller part of each replay. §6.4's lever removes the whole: the store address issuing on its base alone, model +26–30% on Dhrystone and +3–6% on CoreMark with the stack. It drops a dependency, and store data already has its own capture path (§6.6), so it should add no LUTs; core-2 would confirm. It also gates the front end's levers on Dhrystone: with F2's bubble at 0 the model's Dhrystone gets 4–5% *slower*, because loads overtake waiting stores more often.
+5. **The boot's refill after traps, interrupts and serializing instructions (1.6%): real.** 3.4 such flushes per 1K instructions at 11 slots each. Without the FENCE.Is among them the rest cost 5.6 slots each, a mispredict's refill; FENCE.I's invalidate (item 8) makes up the difference.
+6. **Exits at another slot (2.0% on Dhrystone): real.** The micro-BTB holds one exit per block: a second way holding the same block is shadowed, as the lookup takes way 0. A block whose exits take turns, such as a call and a branch around it, gets the wrong one at F1, and F2's pre-decode and TAGE-lite redirect it. The model has the same, at 2.5%.
+   - **The lever is a 1-cycle F2 redirect,** which halves every refetch's bubble: at most +1.8% on the geometric mean (CoreMark A rv64gc +1.9%, Dhrystone rv64gc +1.6%, nsichneu +26%).
+   - **It does not fit:** F2's decision is the 19–21-level cone that §8.12's restructure just fitted into 100 MHz, so it cannot join the next-PC loop.
+7. **JALs the micro-BTB missed (1.1% on Dhrystone, 0.5% on the boot): real.** These are evictions from the 64-entry, 2-way micro-BTB with random replacement.
+   - **128 entries:** +0.3% on the geometric mean (CoreMark 0 to +0.2%, Dhrystone rv64gc +0.4%, nsichneu +6%) for about 70 LUTs per core. Each way becomes a 64-deep LUTRAM with the same one-LUT read.
+   - **256 entries:** +0.8% (nsichneu +15%) for about 370 LUTs per core.
+   - **Linux should judge it:** the boot's micro-BTB misses (taken branches and JALs) cost 1.5% of its cycles.
+8. **FENCE.I's I$ invalidate (1.7% of the boot's cycles, split between items 2 and 5): real, and boot-heavy.** The I$ clears one set a cycle, so fetch waits 64 cycles after every FENCE.I (32 KiB, 64 sets). The boot's first 20M cycles run 5,410 of them, 0.32 per 1K instructions: code patching, and OpenSBI's remote FENCE.I. A small generation count per line would let most FENCE.Is take a cycle and sweep only when the count wraps, for a few tens of LUTs. Steady-state Linux runs few FENCE.Is, so the board should count them before anyone changes the I$.
+
+**Is any worth an RTL change before M6 merges? Not in the front end.**
+- **Its losses are of three kinds:** the pipeline's own refill depth, a cold boot's I$ misses and FENCE.Is, or F2 refetches that the instruction queue mostly hides (1.6–1.8% of CoreMark's cycles in all).
+- **The levers on them are out of reach or small:** a 1-cycle F2 redirect does not fit 100 MHz (+1.8% at most), and a 128-entry micro-BTB buys +0.3% on the suite. The micro-BTB is better judged under Linux.
+- **The one change worth weighing before the merge is in the backend:** the store address waiting for its data (§6.4's question for core-2). It costs Dhrystone 2.6% of its cycles in refills alone, and 26–30% overall in the model.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1503,6 +1583,7 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 4. **v2's budget lines (AR-9),** then a no-IPC pass on the 3-wide structures.
 5. **Re-run the SMT2 window sizing with tags' costs** (ROB entries at ≈10 LUTs), once the measured fit leaves room (AR-3's option).
 6. **A merged pool of LLTs and wakeup tags** could cut the 40 columns further. Not modelled.
+7. **The model's backend gap (§6.7):** profile rename's stalls by cause (ROB full, an issue-queue bank full, LQ or SQ full, no free register) in RTL and in the model, for `rtl_m2` revision 6. CoreMark's ordering replays (twice the RTL's in the model) belong to the same profile.
 
 ---
 
@@ -1651,7 +1732,17 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **The TAGE-lite overshoot is not the cancels:** they are about 1% of CoreMark's cycles. The front end is next.
 - **Dhrystone's two lengths have different code layouts,** so its steady state needs comparing binary by binary.
 
+**2026-10-18: the front end of the TAGE-lite build, measured** (§6.7; `scripts/m6_fe.py`, `scripts/rtlprof/prof_f2cut.sv` on fpu-2's f2cut tree, run on the build host):
+- **§6.4's extra F2 refetching was mostly the model's:** it fetched a straddling 32-bit instruction as a block of its own and trained it at slot 0 of the block before, and its micro-BTB wrote a block's second exit over its first. **`rtl_m2` revision 5** has the RTL's rules (`m2_strad`, `m2_ub_way`).
+- **The F2 refetches cost little:** 1.6–1.8% of CoreMark's cycles, 3.7% of Dhrystone's and 2.9% of the Linux boot's. The instruction queue hides about three quarters of each 2-cycle bubble.
+- **The boot's first 20M cycles lose 21% of cycles in the front end,** led by I$ misses (about 12%) and FENCE.I's 64-cycle I$ invalidate (1.7%).
+- **No front-end change is worth making before M6 merges.** The store address waiting for its data (§6.4) is the backend lever this profile points at again.
+- **The model's remaining optimism is in the backend:** rename holds decode in 17.7–22.2% of the RTL's cycles and 10.3–12.9% of the model's.
+
 **Lessons:**
+- **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
+- **Check each ISA's own cases.** The straddler gap showed only on rv64gc, where a 32-bit instruction can cross a 16-byte block; rv64im matched.
+- **A fix can widen the whole-program error.** Revision 5's front end is the RTL's, and the TAGE-lite build's error went from −3.5% to −5.6% on CoreMark A, because the old front end had been hiding a backend that is too fast. Keep the rule that is right and find the next gap; do not keep an error that cancels another.
 - **Check that two binaries share a layout before differencing them.** Dhrystone's lengths do not, and the RAS head's speed moves 5% with the layout.
 - **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.
 - **Read the RTL's dependency rules, not only its spec.** The spec's STA is address-only; rename makes it wait for its data.

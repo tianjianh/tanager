@@ -134,13 +134,18 @@ if "s_f2v0" in boot:
           f"({boot['w_del'] / max(1, boot['w_cyc']):.2f} a cycle), {boot['a_ins'] / max(1, boot['a_del']):.2f} over "
           f"the whole boot.")
 if "e_f1v" in boot:
-    e = {"no fetch PC": "e_f1v", "stopped after a fault block": "e_stop", "the I$ sweep after a FENCE.I": "e_ivs",
-         "PMP descriptors recomputed": "e_pmp", "an I$ miss over 32 cycles": "e_miss",
-         "an ITLB walk over 32 cycles": "e_walk", "none of these": "e_oth"}
-    print("With F2 empty, F1 sent nothing because of: " + ", ".join(
-        f"{k} {boot[v] / max(1, boot['s_f2v0']):.0%}" for k, v in e.items()) +
-        f". FENCE.I flushes {boot['n_icinv'] / ki:.3f} per 1K instructions ({boot['n_icinv']:,}); the I$ sweeps take "
-        f"{boot['c_ivs'] / boot['cycles']:.1%} of cycles.")
+    # shares of steady fetch's starved cycles; F1 has no fetch PC only while parked on an I$ miss or ITLB walk (a run
+    # of back-to-back misses is one event to the bind, so past 32 cycles it falls to steady fetch)
+    st = boot["s_f2v0"] + boot["s_hold"] + boot["s_del"]
+    e = {"parked on an I$ miss or ITLB walk": boot["e_f1v"] + boot["e_miss"] + boot["e_walk"],
+         "FENCE.I's I$ invalidate": boot["e_ivs"], "stopped after a fault block": boot["e_stop"],
+         "PMP descriptors recomputed": boot["e_pmp"], "F2 holding or delivering": boot["s_hold"] + boot["s_del"],
+         "none of these": boot["e_oth"]}
+    lost = boot["lost_steady"] / 2 / boot["cycles"]
+    print("Steady fetch's starved cycles: " + ", ".join(
+        f"{k} {v / max(1, st):.0%} (about {lost * v / max(1, st):.2%} of cycles)" for k, v in e.items()) +
+        f". FENCE.I flushes {boot['n_icinv'] / ki:.3f} per 1K instructions ({boot['n_icinv']:,}); its I$ invalidate "
+        f"takes {boot['c_ivs'] / boot['cycles']:.1%} of cycles.")
 print(f"I$ miss cycles {boot['icmiss_cyc'] / boot['cycles']:.1%}, "
       f"ITLB walk cycles {boot['itlb_cyc'] / boot['cycles']:.1%}, "
       f"decode's own rules {boot['dec_rule'] / ki:.1f} slots per 1K, decode held by rename "

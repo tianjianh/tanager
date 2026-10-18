@@ -9,8 +9,9 @@
 //     decode's own group rules;
 //   - in steady fetch (no front-end event in the last 32 cycles): what F2 did in the starved cycles (empty, holding a
 //     block it cannot deliver, delivering), and the blocks it delivered (count, instructions), beside the whole run;
-//     with F2 empty, why F1 sent nothing (no fetch PC, stopped after a fault block, the I$ sweep after a FENCE.I,
-//     PMP descriptors recomputed, an I$ miss or ITLB walk older than 32 cycles); FENCE.I flushes and sweep cycles.
+//     with F2 empty, why F1 sent nothing (no fetch PC, which is F1 parked on an I$ miss or ITLB walk; stopped after a
+//     fault block; the I$ sweep after a FENCE.I; PMP descriptors recomputed); FENCE.I flushes and sweep cycles.
+// A run of back-to-back I$ misses (or walks) is one event here, so past 32 cycles its cost falls to steady fetch.
 // Prints one line at the end of the run (smt2_prof_f2: key value ...). Not part of sim/: build on a scratch tree
 // with make -C sim CFG=st COV_EVENTS=<this file>, or the boot test with TB="tb_boot.sv <this file>".
 module smt2_prof_f2 #(parameter int CW = 2) (
@@ -136,5 +137,5 @@ bind tg_core smt2_prof_f2 #(.CW(COMMIT_WIDTH)) u_smt2_prof_f2 (
   .f2_isfault(u_fetch.f2_isfault), .f2_isf0(u_fetch.f2_isf0), .pred_ok(u_fetch.pred_ok), .ft_full(u_fetch.ft_full),
   .f2v(u_fetch.f2v), .miss_q(u_fetch.miss_q), .wk_q(u_fetch.wk_q), .iq_valid(u_fetch.iq_valid),
   .iq_take(u_fetch.iq_take), .bs(u_fetch.blk_start), .f1v(u_fetch.f1_valid_q), .stop_q(u_fetch.stop_q),
-  .ivs_done(u_fetch.ivs_done), .pmp_busy(u_fetch.pmp_busy), .icinv(u_fetch.icinv), .do_flush(u_rob.do_flush), .misp(|(u_rob.mf & ~u_rob.hold_le)), .rpl(u_rob.rpl_h[0]),
-  .do_irq(u_rob.do_irq), .do_trap(u_rob.do_trap));
+  .ivs_done(u_fetch.ivs_done), .pmp_busy(u_fetch.pmp_busy), .icinv(u_fetch.icinv), .do_flush(u_rob.do_flush),
+  .misp(|(u_rob.mf & ~u_rob.hold_le)), .rpl(u_rob.rpl_h[0]), .do_irq(u_rob.do_irq), .do_trap(u_rob.do_trap));
