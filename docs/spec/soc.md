@@ -446,8 +446,12 @@ Each is checked on the board in stage D's first step, with the UART: the simples
 - **On the board, steps 0–2** (10-17, the board session):
   - **The regulator works.** PL die 33.9–34.4 °C, against 34.0 °C through the AMS on sc3 a minute before. The duty was 15 throughout. The A53's PWM read 14–15 against pwm1 15. No new dmesg line.
   - **The A53 lost the PL SYSMON.** With d2 loaded, the AMS reads the PL SYSMON's temperature (`0xFFA5_0C00`) as 0, and hwmon's `temp3` shows −280.2 °C; the PS SYSMON (`temp1`, `fancontrol`'s sensor) reads normally.
-    - Likely cause: instantiating SYSMONE4 gives the fabric the PL SYSMON's register port, so the PS's APB path reads 0. The board reads `AMS_PL_CSTS` to check.
+    - The cause: instantiating SYSMONE4 gives the fabric the PL SYSMON's register port. The board read `AMS_PL_CSTS` (`0xFFA5_0044`): bit 0 (the PL SYSMON accessible) is 0 with d2 loaded and 1 on sc3. `AMS_PS_CSTS` stays `0x08010000`.
     - Effect: harmless to `fancontrol`, but every Tanager bitstream carries the regulator (DR-150), so the A53's PL channels (`xmutil platformstats`, the iio and hwmon nodes) read 0 while one is loaded. `tanager-host fan` shows the PL die instead.
+- **Step 3, the regulator alone, passes** (fancontrol stopped for 5 minutes, then restarted):
+  - pwm1 = 1: the A53's PWM read 0/255, and the duty held at the curve's 15/255 for all 10 samples. PL die 32.9–34.4 °C, `temp1` 33.4–36.4 °C.
+  - pwm1 = 0 (the first try): `pwm-fan` disables the TTC's PWM, its output idles low, and the regulator reads that as the A53 asking for full speed. The fan ran full for the 5 minutes.
+  - **For D3:** the curve governs alone only while the A53's TTC waveform is high or keeps toggling (pwm1 ≥ 1). A disabled or reset TTC idling low runs the fan full: safe, but loud. So the handover boot leaves pwm1 at 1, or a later control bit lets the regulator ignore the TTC (an interface change for the coordinator).
   - **The coordinator's choice** (soc-2, 10-17):
     - (a) keep the build and document it;
     - (b) the fallback: the regulator reads the PS SYSMON's temperature (`0xFFA5_0800`, `fancontrol`'s own sensor) through `S_AXI_LPD`, with no SYSMONE4. That needs an arbiter with the PS window, and the XPPU must pass the PL's reads of the AMS (not yet tested).
