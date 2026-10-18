@@ -1290,6 +1290,67 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
   - **ws_hash:** the model is 14% slow, yet the RTL holds rename for 46% of cycles against the model's 6.5%. The gap is elsewhere, likely its memory side.
   - **ws_copy:** the model is 14% fast, though both hold rename about 82–85% of cycles, mostly on the SQ.
 
+### 6.9 DR-169's levers measured, and Dhrystone rv64im's race (2026-10-18)
+
+*fpu-2 built §6.8's two levers on the f2cut tree, each behind a switch: STA_BASE (a store's address issues on its base alone) and STEER_LA (rename's steering counts the group in the dispatch stage). The tree is `claude/track-fpu-395911-sta` at a857a07. fpu-2 measured both levers on the 17 programs, and DR-169 approved them. This section:*
+- *sets fpu-2's measurements beside the model's predictions;*
+- *explains the one program where they disagreed (Dhrystone rv64im);*
+- *folds the levers into `rtl_m2` revision 7, with two more RTL rules found on the way.*
+
+*The bind is `scripts/rtlprof/prof_sta.sv` (the rename profile plus the loads: M2 verdicts, cancels by cause, replays by PC). The script is `scripts/m6_lev.py` (`results/m6_lev_rv64.json`).*
+
+**Measured against predicted** (speedup over the tree without the levers: RTL / revision 6, as §6.8 predicted / revision 7):
+
+| Program | STA_BASE alone | STEER_LA alone | Both |
+|---|---|---|---|
+| CoreMark A rv64gc / rv64im | +1.6 / +3.0 / +3.5%; +0.7 / +1.9 / +2.2% | +6.9 / +6.0 / +5.8%; +6.4 / +6.3 / +5.7% | +8.1 / +9.6 / +9.7%; +6.9 / +7.8 / +8.0% |
+| CoreMark B rv64gc / rv64im | +1.8 / +2.9 / +3.2%; +1.7 / +3.0 / +3.3% | +6.9 / +6.6 / +6.1%; +6.5 / +6.4 / +6.2% | +9.1 / +11.0 / +10.6%; +8.6 / +10.7 / +9.9% |
+| Dhrystone rv64gc | +18.0 / +14.8 / +12.5% | +2.1 / +3.3 / +3.3% | +23.3 / +26.4 / +13.8% |
+| Dhrystone rv64im | +5.0 / +13.3 / +3.5% | +2.2 / +3.4 / +3.3% | +10.2 / +28.0 / +12.2% |
+| matmult-int, minver, ud | +18.7, +23.2, +17.4 / +20.5, +28.2, +12.1 / +20.5, +27.3, +12.1% | 0, −0.1, −0.7 / 0, −0.1, +6.2 / 0, −0.1, +4.5% | +19.1, +22.4, +18.8 / +20.5, +28.5, +14.1 / +20.5, +27.3, +14.3% |
+| crc32, edn | 0, +0.1 / 0, +1.4 / −3.3, +1.7% | +3.6, +4.5 / +3.6, +0.3 / +3.6, +0.9% | +3.6, +5.4 / +3.6, +3.1 / +3.5, +3.4% |
+| **Geometric mean, 17 programs** | **+5.03 / +5.70 / +4.90%** | **+2.25 / +2.52 / +2.36%** | **+7.84 / +9.33 / +7.74%** |
+
+- **The predictions held on the means:** revision 6 was 0.3–1.5 points high; revision 7 is within 0.15 points on all three.
+- **Per program,** CoreMark's STA_BASE gain is over-predicted by 1–2 points. Dhrystone moves with the race below.
+
+**Dhrystone rv64im: one race per run.**
+- **The symptom:** with STA_BASE, rv64gc's ordering replays all go, but rv64im keeps one per run (498 in 500 runs). Every one is at Proc_4's first load, `lbu Ch_1_Glob`.
+- **The race** (traced in RTL, cycle by cycle):
+  - Proc_5 stores Bool_Glob, then Ch_1_Glob (both gp-relative), and returns. main then calls Proc_4, whose first instruction loads Ch_1_Glob. On rv64im that load dispatches one cycle after the store.
+  - IQ-STA issues one address a cycle, oldest first. The older `sw` issues, and a speculative-wakeup cancel returns it: a load in its shadow did not complete in M2. It issues again two cycles later, so the `sb`'s address issues one cycle after the load.
+  - The load searched the SQ before the store's address was there, so it is replayed at commit: about 23 cycles each, the whole 11.7K cycles between rv64im and rv64gc.
+- **Why rv64gc escapes:** there the `sb` straddles a 16-byte block, so the load arrives 3–4 cycles later and the store wins.
+- **It is the code's layout, not a missing model rule.**
+  - With revision 7's drain cycle the model replays at this pair on both binaries: 4.2–4.4 per 1K instructions, against the RTL's 3.5 on rv64im and none on rv64gc. So the model's Dhrystone is −7.2% on rv64im and +3.5% on rv64gc.
+  - A memory-dependence predictor would end such repeats in RTL: a load that was replayed waits for older store addresses the next time (the model's `mdp`). It is not costed here.
+
+**Two RTL rules the model lacked, now in revision 7:**
+1. **The store-wait cancel** (`fwd_wait_cancel`).
+   - **The rule:** a load that finds an older store's address without its data (the LSU's STQ verdict at M2) does not complete in M2, so speculative wakeup cancels its shadow, as it does for a miss. The model charged nothing for it.
+   - **Why it matters now:** with STA_BASE such loads are common, at 7–10 per 1K instructions on Dhrystone and 0.5–1.5 on CoreMark.
+2. **The drain's cycle** (`drain_delay` 1).
+   - **The rule:** the ROB reports retiring stores in the commit cycle, and the SQ's committed pointer is registered. So a store writes the D$ 1–4 cycles after its commit: 63% after one, 23% after two, 10% after three (measured on Dhrystone). The model wrote it in its commit cycle, so fewer younger loads met the drain inside the row-clash window.
+   - **With the cycle,** the model's clashes rise toward the RTL's but stay under: statemate from 5.0 to 17.5 per 1K against 26.3, Dhrystone rv64gc from 4.1 to 8.7 against 16.0.
+   - **Not the rest of it:** a retry that reads the row again (`clash_rearm`) moved nothing, so it stays off.
+- **Both rules hold without the levers too:** on 1e4a503 they take the 17-program error from 4.23% to 3.93%.
+
+**`rtl_m2` revision 7** is revision 6 plus STA_BASE (`sta_split` 1), STEER_LA (`iq_steer_rn` 2) and the two rules.
+
+| On the levers tree (a857a07) | Revision 6 with the levers | Revision 7 |
+|---|---|---|
+| Mean error, 17 programs | 5.40% | 4.17% |
+| CoreMark | −1.7% to −2.8% | −1.4% to −2.1% |
+| Dhrystone rv64gc / rv64im | −7.1% / −19.0% | +3.5% / −7.2% |
+| statemate, minver | −5.1%, −9.0% | −2.5%, −7.7% |
+
+**What is still open:**
+- **The memory side:** ws_copy (−13%) and ws_hash (+14%).
+- **minver (−7.7%) and edn (−5.5%):** minver's row clashes are still three times the model's, and its store waits twice.
+- **Row clashes in general:** the model's are 1.5–3 times under the RTL's, even with the drain cycle.
+- **Decode held by rename:** on Dhrystone the model has 11% against the RTL's 20–21%, yet its cycles are within 4–7%. crc32 is held 48% in RTL and 21% in the model, with equal cycles; its time is set by the loop's dependency chain.
+- **The race above,** which a memory-dependence predictor would remove in RTL.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1664,8 +1725,9 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 5. **Re-run the SMT2 window sizing with tags' costs** (ROB entries at ≈10 LUTs), once the measured fit leaves room (AR-3's option).
 6. **A merged pool of LLTs and wakeup tags** could cut the 40 columns further. Not modelled.
 7. ~~The model's backend gap (§6.7)~~: **done** (§6.8). Rename's steering was most of it; `rtl_m2` revision 6 has it.
-8. **The steering fix (core-2's area):** rename counting the dispatch stage's group when it reads the ALU queues' bank flags. About 15 LUTs per core; in the model, CoreMark +6%, Dhrystone +3%, +2.5% over 17 programs (§6.8).
-9. **What §6.8 leaves open in the model:** the RTL's ALU-queue banks holding more ready rows than the model's; Dhrystone's IQ-STA (11% against 7%); CoreMark's ordering replays (twice the RTL's in the model); ws_hash (+14%) and ws_copy (−14%).
+8. ~~The steering fix~~: **approved** (DR-169, STEER_LA) with the store address on its base (STA_BASE); measured +2.25% and +5.03% over 17 programs, +7.84% together (§6.9).
+9. **What §6.8 left open in the model:** partly done (§6.9). With the levers, CoreMark's ordering replays are gone in both simulators; the store-wait cancel and the drain's cycle are in revision 7. Still open: row clashes (1.5–3× under), ws_hash (+14%) and ws_copy (−13%), minver and edn.
+10. **A memory-dependence predictor** (the model's `mdp`): Dhrystone rv64im replays one load per run at a store–load pair the in-order STA issue loses (§6.9). Cost and gain not yet estimated.
 
 ---
 
@@ -1827,12 +1889,19 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **A fix for core-2:** rename counting the dispatch stage's group, about 15 LUTs per core. In the model: CoreMark +6%, Dhrystone +3%, +2.5% over 17 programs.
 - **The store address on its base alone** (fpu-2's prototype), in the model: CoreMark +2–4%, Dhrystone +13–15%, matmult-int, minver and ud +12–29%, +5.7–6.2% over 17 programs. It explains little of the held-cycle gap: its gain is the ordering replays it removes.
 
+**2026-10-18: DR-169's levers measured** (§6.9; fpu-2's `claude/track-fpu-395911-sta` at a857a07, `scripts/m6_lev.py`, `scripts/rtlprof/prof_sta.sv`, run on the build host):
+- **fpu-2 measured +5.03% (STA_BASE), +2.25% (STEER_LA) and +7.84% (both) over 17 programs.** §6.8 had predicted +5.7%, +2.5% and +9.3%.
+- **Dhrystone rv64im's +5% (against rv64gc's +18%) is one race per run:** Proc_4's first load overtakes Proc_5's store to the same byte, whose address op waits behind an older store that a speculative-wakeup cancel sent back.
+- **`rtl_m2` revision 7:** the two levers, plus a cancel for a load waiting for a store's data and a cycle before a committed store drains. 17-program error 4.17%; the levers' means predicted within 0.15 points.
+
 **Lessons:**
 - **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
 - **Check each ISA's own cases.** The straddler gap showed only on rv64gc, where a 32-bit instruction can cross a 16-byte block; rv64im matched.
 - **A fix can widen the whole-program error.** Revision 5's front end is the RTL's, and the TAGE-lite build's error went from −3.5% to −5.6% on CoreMark A, because the old front end had been hiding a backend that is too fast. Keep the rule that is right and find the next gap; do not keep an error that cancels another.
 - **Ask "was there room elsewhere?" at every stall.** One counter, the other ALU queue's bank having a row while dispatch waited, found 10–12% of CoreMark's cycles lost to a steering decision.
 - **Check when a decision is made, not only what it decides.** Rename's queue choice is right with the flags it has, but they are a cycle old.
+- **When two binaries of one program disagree, trace the pair that differs.** Dhrystone rv64im's missing gain was one store–load race per run, visible only by following those two PCs through dispatch and issue.
+- **A rule's cost can hide until another change makes it common.** The store-wait cancel cost nothing measurable until STA_BASE made loads find store addresses before their data.
 - **Check that two binaries share a layout before differencing them.** Dhrystone's lengths do not, and the RAS head's speed moves 5% with the layout.
 - **A front-end gain is only as large as the backend lets it be.** The base fit was within 6% on CoreMark, but the backend rules it missed only bind once the front end improves. Check a step's gain in RTL against the model before ranking the next steps on it.
 - **Read the RTL's dependency rules, not only its spec.** The spec's STA is address-only; rename makes it wait for its data.
