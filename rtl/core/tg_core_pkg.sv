@@ -76,13 +76,13 @@ package tg_core_pkg;
 `else
   localparam bit DC_PORTB_WREG = TIMING_CUTS;
 `endif
-  // DR-149: misses the L1D keeps in flight, 1 (one MSHR, the L1D as before) or 4 (four MSHRs, a
-  // request register for the loads' misses, per-entry refill wakeups). 1 in both profiles until its
-  // area, the full chip's clock and the board's Linux speed are measured
+  // DR-149: misses the L1D keeps in flight, 4 (four MSHRs, a request register for the loads' misses,
+  // per-entry refill wakeups) in both profiles since DR-156 (the user, 10-17), or 1 (one MSHR, the L1D
+  // as before, cycle for cycle): TG_DC_MSHRS=1
 `ifdef TG_DC_MSHRS
   localparam int DC_MSHRS = `TG_DC_MSHRS;
 `else
-  localparam int DC_MSHRS = 1;
+  localparam int DC_MSHRS = 4;
 `endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
