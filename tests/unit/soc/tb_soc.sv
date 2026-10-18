@@ -106,6 +106,7 @@ module tb_soc;
     .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
     .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
     .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
+    .board_status_i (32'h0F0A_1234),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -431,6 +432,13 @@ module tb_soc;
       hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1) | (64'(PS_WINDOW) << 2));
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
+
+    // ---- the board's status word (the KV260's fan regulator) reaches the host at FAN ----
+    begin
+      logic [31:0] fv;
+      hr(16'h1400, fv);
+      if (fv != 32'h0F0A_1234) fail($sformatf("FAN %h, want the board's status word 0f0a1234", fv));
+    end
 
     // ---- mailbox host -> RISC-V ----
     hw(16'h074, 32'h1);

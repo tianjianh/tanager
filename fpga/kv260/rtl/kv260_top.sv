@@ -6,8 +6,9 @@
 //   commit-trace stream (clk_core)     -> S_AXI_HP3_FPD (writes only)
 //   the PS window (clk_core, 128-bit)  -> S_AXI_LPD, the PS's peripheral registers (stage D, tg_map_pkg
 //   PS_WINDOW; idle without it), and the PS-to-PL interrupts of UART1, SD1, GEM3, USB0 and TTC1 back
-//   host_irq -> pl_ps_irq0[0];  fan_en_b = the PS TTC waveform Linux's pwm-fan drives (DR-129):
-//   fan_wave[FAN_WAVE] from the block design, inverted if FAN_INVERT
+//   host_irq -> pl_ps_irq0[0];  fan_en_b: the fan's PL regulator (tg_fan, FAN_PL; stage D's D2, DR-147), whose
+//   duty is the larger of the PL SYSMON's curve and the PS TTC waveform Linux's pwm-fan drives (DR-129:
+//   fan_wave[FAN_WAVE] from the block design, inverted if FAN_INVERT); without FAN_PL, that waveform alone
 //   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
 //   divisor, 115200 after OpenSBI); the host still gets a copy. Off: txd is high-impedance.
 module kv260_top
@@ -19,6 +20,7 @@ module kv260_top
   parameter bit    PMOD_UART = 1'b0,
   parameter int    FAN_WAVE   = 2,        // TTC0 channel 2 on fan_en_b, uninverted (the board; build.tcl TG_FAN_*)
   parameter bit    FAN_INVERT = 1'b0,
+  parameter bit    FAN_PL     = 1'b1,     // the fan's PL regulator (build.tcl TG_FAN_PL; 0: the TTC waveform alone)
   parameter logic [63:0] UNCORE_DSP = UNCORE_DSP_DEF,     // slices in DSPs (tg_uncore; build.tcl TG_UNCORE_DSP)
   // The L2's data latency and tg_uncore's register slices, each settable on its own (DR-146; build.tcl
   // TG_L2_DATA_LAT, TG_AR_SLICE ... TG_MEM_SLICE). L2_DATA_LAT 0 picks it by the clock: 4 above
@@ -80,6 +82,8 @@ module kv260_top
   logic    ps_awv, ps_awr, ps_wv, ps_wr, ps_bv, ps_br, ps_arv, ps_arr, ps_rv, ps_rr;
   logic [PS_IRQS-1:0] ps_irq;
   logic [3:0]         usb0_ep_irq;    // USB0's endpoint interrupts: [0] is the host controller's line
+  logic        ttc_fan, fan_pl_en_b;  // the fan (below): the A53's PWM, the regulator's output
+  logic [31:0] fan_status;            // the regulator's status word, to the host bridge (FAN)
 
   tg_ps_wrapper u_ps (
     .clk_core (clk_core),
@@ -244,6 +248,7 @@ module kv260_top
     .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
     .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
     .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
+    .board_status_i (fan_status),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
@@ -272,6 +277,18 @@ module kv260_top
   end
 
   wire unused_usb0_ep = ^usb0_ep_irq[3:1];
-  assign fan_en_b      = fan_wave[FAN_WAVE] ^ FAN_INVERT;
+
+  // ---- the fan: the PL regulator on the PL's reset alone, so it runs whatever the RISC-V's state ----
+  assign ttc_fan = fan_wave[FAN_WAVE] ^ FAN_INVERT;          // the A53's PWM, low = on
+  if (FAN_PL) begin : g_fan
+    tg_fan #(.CLK_HZ (CORE_MHZ * 1_000_000)) u_fan (
+      .clk (clk_core), .rst (rst_core), .ttc_wave_i (ttc_fan), .fan_en_b_o (fan_pl_en_b), .status_o (fan_status)
+    );
+    assign fan_en_b = fan_pl_en_b;
+  end else begin : g_fan_ttc
+    assign fan_pl_en_b = 1'b1;
+    assign fan_status  = '0;
+    assign fan_en_b    = ttc_fan;
+  end
   assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
 endmodule
