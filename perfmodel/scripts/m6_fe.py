@@ -24,7 +24,8 @@ P = ARGS["--prof"]
 # the f2cut tree's M6 set: the RAS, two-table TAGE-lite at F2 with the cut and the FTQ, returns at F2
 M6 = {"ras": 32, "m2_dir": 1, "dirpred": 2, "tage_log": 12, "m2_f2": 1, "m2_btage": 1, "btage_nt": 2, "m2_cut": 1,
       "m2_f2_bubble": 2, "m2_ftq": 32, "m2_ras_f2": 1}
-REVS = {"rev 4": {"m2_strad": 0, "m2_ub_way": 0}, "rev 5": {}}
+# revisions 4 and 5 as §6.7 ran them (without revision 6's steering at rename, §6.8)
+REVS = {"rev 4": {"m2_strad": 0, "m2_ub_way": 0, "iq_steer_rn": 0}, "rev 5": {"iq_steer_rn": 0}}
 PROGS = [(p, m) for m in ("rv64gc", "rv64im") for p in ("coremark_A", "coremark_B", "dhrystone")]
 # (label, the RTL bind's causes, the model's event counters, the model's lost-slot counters)
 CAUSES = [

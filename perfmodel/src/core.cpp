@@ -245,6 +245,58 @@ int64_t Core::slot_free(uint8_t q, int k) const {
   return (iq_cap(q) - k + w - 1) / w - n;
 }
 
+// The rows of IQ-STA's bank that stopped dispatch, by what they wait on: the base register, only the store's data
+// (rename makes the row wait on it unless sta_split), nothing (not yet selected), or issued and held (iq_hold).
+void Core::sta_census(Thread& T) {
+  const int k = T.disp_why_k;
+  bool data_only = false;
+  for (uint64_t id : iq_[Q_STA]) {
+    const Uop& u = *find(id);
+    if (u.dslot != k || u.tid != T.tid || !u.di) continue;
+    const Decoded& d = *u.di->d;
+    const int base = d.rs1, data = d.rs2_k == RK_FP ? 32 + d.rs2 : d.rs2;
+    bool base_rdy = true, data_rdy = true;  // with sta_split the data is no source: the row never waits on it
+    for (int s = 0; s < u.nsrc; s++) {
+      const bool rdy = src_ready(u.src_prod[s], t_);
+      if (u.src_arch[s] == base) base_rdy = base_rdy && rdy;
+      if (u.src_arch[s] == data) data_rdy = data_rdy && rdy;
+    }
+    if (!base_rdy) T.st.sta_rows_base++;
+    else if (!data_rdy) { T.st.sta_rows_data++; data_only = true; }
+    else T.st.sta_rows_ready++;
+  }
+  T.st.sta_rows_held += (uint64_t)held(Q_STA, k);
+  if (data_only) T.st.sta_held_data++;
+}
+
+// The rows of an ALU queue's or IQ-LD's bank that stopped dispatch: waiting on a source, ready (not yet selected), or
+// issued and held (iq_hold); for an ALU op stopped at an ALU queue, whether the other ALU queue's bank had a row.
+void Core::iq_census(Thread& T) {
+  const uint8_t q = T.disp_why_q;
+  const int k = T.disp_why_k;
+  uint64_t wait = 0, rdy = 0;
+  for (uint64_t id : iq_[q]) {
+    const Uop& u = *find(id);
+    if (u.dslot != k || u.tid != T.tid) continue;
+    bool r = u.t_eligible <= t_;
+    for (int s = 0; s < u.nsrc && r; s++) r = src_ready(u.src_prod[s], t_);
+    (r ? rdy : wait)++;
+  }
+  const uint64_t hd = (uint64_t)held(q, k);
+  if (q == Q_A0) { T.st.a0_rows_wait += wait; T.st.a0_rows_ready += rdy; T.st.a0_rows_held += hd; }
+  else if (q == Q_A1) { T.st.a1_rows_wait += wait; T.st.a1_rows_ready += rdy; T.st.a1_rows_held += hd; }
+  else { T.st.ld_rows_wait += wait; T.st.ld_rows_ready += rdy; T.st.ld_rows_held += hd; }
+  if ((q == Q_A0 || q == Q_A1) && T.disp_why_alu && slot_free(q == Q_A0 ? Q_A1 : Q_A0, k) > 0) T.st.held_alu_other++;
+}
+
+// iq_steer_rn: rename's pick for an ALU op from the flags it read (each ALU queue's bank for the op's slot had a row,
+// a cycle before): slot k's queue k mod 2 if its bank had a row, else the other if that one had, else k mod 2
+void Core::steer(Uop& u) const {
+  const size_t k = std::min<size_t>(u.dslot, 1), pref = k % 2;
+  const size_t p = steer_flags_[pref][k] ? pref : steer_flags_[1 - pref][k] ? 1 - pref : pref;
+  u.steer_q = p == 0 ? (uint8_t)Q_A0 : (uint8_t)Q_A1;
+}
+
 // MX names a 1-cycle ALU-queue producer by its row while the row holds it: until 2 cycles after issue.
 bool Core::mx_named(const Uop& p) const {
   return (p.q == Q_A0 || p.q == Q_A1 || p.q == Q_A2) &&
@@ -805,7 +857,28 @@ int Core::decode_thread(Thread& T, int slots_avail) {
   }
   const bool blocked = T.next_id - T.disp_next >= (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
   const int took = decode_take(T, slots_avail);
-  if (blocked) T.st.dec_blocked++;  // rename cannot take a group (the RTL: !de_take)
+  if (blocked) {  // rename cannot take a group (the RTL: !de_take), charged to what stopped dispatch this cycle
+    T.st.dec_blocked++;
+    switch (T.disp_why) {
+      case DW_ROB: T.st.held_rob++; break;
+      case DW_LQ: T.st.held_lq++; break;
+      case DW_SQ: T.st.held_sq++; break;
+      case DW_REG: T.st.held_reg++; break;
+      case DW_LLT: T.st.held_llt++; break;
+      case DW_WTAG: T.st.held_wtag++; break;
+      case DW_IQ:
+        switch (T.disp_why_q) {
+          case Q_A0: T.st.held_iq_a0++; iq_census(T); break;
+          case Q_A1: T.st.held_iq_a1++; iq_census(T); break;
+          case Q_LD: T.st.held_iq_ld++; iq_census(T); break;
+          case Q_STA: T.st.held_iq_sta++; sta_census(T); break;
+          case Q_FP: T.st.held_iq_fp++; break;
+          default: T.st.held_other++; break;
+        }
+        break;
+      default: T.st.held_other++; break;
+    }
+  }
   if (took == 0) T.st.dec_take0++;
   else if (took == 1) T.st.dec_take1++;
   else T.st.dec_take2++;
@@ -964,9 +1037,25 @@ void Core::dispatch() {
   if (c_.iq_hold)
     for (auto& hq : held_)
       hq.erase(std::remove_if(hq.begin(), hq.end(), [&](const Held& h) { return h.t_free <= t_; }), hq.end());
+  // iq_steer_rn: rename steers with the flags of the cycle before (1: as they stood before that cycle's dispatch,
+  // the RTL; 2: after it, a rename that counts the group the dispatch stage writes); this cycle's are for the next
+  auto steer_snap = [&] {
+    for (int k = 0; k < 2; k++) {
+      bf_prev_[0][k] = slot_free(Q_A0, k) > 0;
+      bf_prev_[1][k] = slot_free(Q_A1, k) > 0;
+    }
+  };
+  if (c_.iq_steer_rn) {
+    steer_flags_ = bf_prev_;
+    if (c_.iq_steer_rn == 1) steer_snap();
+  }
   int n = 0;
   int row = -1;
-  if (nthr_ == 1) { dispatch_thread(*th_[0], n, row); return; }
+  if (nthr_ == 1) {
+    dispatch_thread(*th_[0], n, row);
+    if (c_.iq_steer_rn == 2) steer_snap();
+    return;
+  }
   int o[MAX_THREADS];
   order(o, false);
   for (int k = 0; k < nthr_ && n < c_.decode_width; k++) {
@@ -976,10 +1065,13 @@ void Core::dispatch() {
     T.st.dispatch_slots += (uint64_t)(n - before);
     if (n > before && !c_.smt_mix) break;
   }
+  if (c_.iq_steer_rn == 2) steer_snap();
 }
 
 void Core::dispatch_thread(Thread& T, int& n, int& row) {
   const int n0 = n;
+  T.disp_why = DW_NONE;
+  T.disp_why_alu = false;
   auto total = [&](auto f) -> uint64_t {  // occupancy over all threads (shared ROB/LQ/SQ mode only)
     uint64_t s = 0;
     if (nthr_ > 1 && !c_.smt_part) for (auto& Tp : th_) s += f(*Tp);
@@ -987,20 +1079,23 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
   };
   while (n < c_.decode_width) {
     Uop* up = find(T.disp_next);
-    if (!up || up->t_disp_ok > t_) { if (n == n0) T.st.disp_stall_empty++; break; }
+    if (!up || up->t_disp_ok > t_) { if (n == n0) T.st.disp_stall_empty++; T.disp_why = DW_EMPTY; break; }
     Uop& u = *up;
     if (window_full(c_.rob, T.rob_count, total([](const Thread& x) { return x.rob_count; }), T.tid)) {
       T.st.disp_stall_rob++;
+      T.disp_why = DW_ROB;
       break;
     }
     const bool lq_need = u.is_load && !u.serial;
     if (lq_need && window_full(c_.lq, T.lq_count, total([](const Thread& x) { return x.lq_count; }), T.tid)) {
       T.st.disp_stall_lq++;
+      T.disp_why = DW_LQ;
       break;
     }
     if (u.is_store &&
         window_full(c_.sq, T.sq.size(), total([](const Thread& x) { return (uint64_t)x.sq.size(); }), T.tid)) {
       T.st.disp_stall_sq++;
+      T.disp_why = DW_SQ;
       break;
     }
     uint8_t q = u.q;
@@ -1009,14 +1104,17 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     int ibank = -1;
     if (banked) {
       ibank = nthr_ > 1 ? T.tid : bank_need(T, u);
-      if (ibank == -2) { T.st.disp_stall_bank++; break; }
+      if (ibank == -2) { T.st.disp_stall_bank++; T.disp_why = DW_BANK; break; }
     }
     auto qfree = [&](uint8_t qq) {
       int64_t f = iq_free(qq, T.tid);
       if (banked) f = std::min(f, ibank >= 0 ? bank_free(qq, ibank) : std::max(bank_free(qq, 0), bank_free(qq, 1)));
       return f;
     };
-    if (q == Q_ALU_ANY) {
+    if (q == Q_ALU_ANY && c_.iq_steer_rn && c_.iq_slot_bank && !c_.alu3) {
+      if (u.steer_q == 0xff) steer(u);
+      q = u.steer_q;
+    } else if (q == Q_ALU_ANY) {
       int64_t f0 = qfree(Q_A0), f1 = qfree(Q_A1);
       if (c_.iq_slot_bank) {  // steered to a queue whose bank for this slot has a row
         f0 = std::min(f0, slot_free(Q_A0, u.dslot));
@@ -1041,18 +1139,34 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     if (q != Q_SERIAL) {
       if (c_.iq_unified && c_.iq_rows) {
         const int64_t rows_cap = c_.iq_size / std::max<int64_t>(1, c_.decode_width);
-        if (row < 0 && rows_used_ >= rows_cap) { T.st.disp_stall_iq++; break; }
-      } else if (qfree(q) <= 0) { T.st.disp_stall_iq++; break; }
+        if (row < 0 && rows_used_ >= rows_cap) { T.st.disp_stall_iq++; T.disp_why = DW_IQ; T.disp_why_q = q; break; }
+      } else if (qfree(q) <= 0) {
+        T.st.disp_stall_iq++;
+        T.disp_why = DW_IQ; T.disp_why_q = q; T.disp_why_k = u.dslot; T.disp_why_alu = u.q == Q_ALU_ANY;
+        break;
+      }
       // iq_slot_bank: the RTL's dispatch stage moves a decode group as one, so this slot's bank needs a row, and
       // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too
       if (c_.iq_slot_bank && !c_.iq_unified) {
-        if (slot_free(q, u.dslot) <= 0) { T.st.disp_stall_slot++; break; }
-        const Uop* v = u.dslot == 0 ? find(u.id + 1) : nullptr;
+        if (slot_free(q, u.dslot) <= 0) {
+          T.st.disp_stall_slot++;
+          T.disp_why = DW_IQ; T.disp_why_q = q; T.disp_why_k = u.dslot; T.disp_why_alu = u.q == Q_ALU_ANY;
+          break;
+        }
+        Uop* v = u.dslot == 0 ? find(u.id + 1) : nullptr;
         if (v && v->tid == u.tid && v->dgrp == u.dgrp && v->dslot == 1 && v->state == 0 && v->t_disp_ok <= t_) {
           bool ok = true;
-          if (v->q == Q_ALU_ANY) ok = slot_free(Q_A0, 1) > 0 || slot_free(Q_A1, 1) > 0;
+          if (v->q == Q_ALU_ANY && c_.iq_steer_rn && !c_.alu3) {  // renamed with its partner: the same flags
+            if (v->steer_q == 0xff) steer(*v);
+            ok = slot_free(v->steer_q, 1) > 0;
+          } else if (v->q == Q_ALU_ANY) ok = slot_free(Q_A0, 1) > 0 || slot_free(Q_A1, 1) > 0;
           else if (v->q != Q_SERIAL) ok = slot_free(v->q, 1) > 0;
-          if (!ok) { T.st.disp_stall_slot++; break; }
+          if (!ok) {
+            T.st.disp_stall_slot++;
+            T.disp_why = DW_IQ; T.disp_why_q = v->q == Q_ALU_ANY ? (uint8_t)Q_A0 : v->q; T.disp_why_k = 1;
+            T.disp_why_alu = v->q == Q_ALU_ANY;
+            break;
+          }
         }
       }
     }
@@ -1061,7 +1175,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       ibank = b0 == b1 ? rob_half(u.id) : (b1 > b0 ? 1 : 0);
     }
     const int bank = bank_for(u, q);
-    if (bank >= 0 && free_regs(bank) <= 0) { T.st.disp_stall_reg++; break; }
+    if (bank >= 0 && free_regs(bank) <= 0) { T.st.disp_stall_reg++; T.disp_why = DW_REG; break; }
     const bool need_llt = c_.llt > 0 && !u.serial && long_latency(u);
     if (need_llt) {
       // iq_bank_llt: a tag comes from its producer's half, which only that bank's rows see
@@ -1081,12 +1195,12 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         }
       int64_t cap = nthr_ > 1 ? std::max<int64_t>(1, (c_.llt * c_.smt_llt_cap + 99) / 100) : c_.llt;
       if (lbank) cap = std::min<int64_t>(cap, (c_.llt + 1 - h) / 2);
-      if (used >= c_.llt || own >= cap) { T.st.disp_stall_llt++; break; }
+      if (used >= c_.llt || own >= cap) { T.st.disp_stall_llt++; T.disp_why = DW_LLT; break; }
     }
     const bool mx_class = (q == Q_A0 || q == Q_A1 || q == Q_A2) &&
                           (u.cls == Cls::ALU || u.is_ctrl || u.sfb_cmp || u.sfb_sel);
     const bool need_wtag = c_.wake_tags > 0 && u.dst_arch != -1 && !need_llt && !mx_class;
-    if (need_wtag && wtags_used() >= c_.wake_tags) { T.st.disp_stall_wtag++; break; }
+    if (need_wtag && wtags_used() >= c_.wake_tags) { T.st.disp_stall_wtag++; T.disp_why = DW_WTAG; break; }
     // allocate
     u.q = q;
     u.has_wtag = need_wtag;

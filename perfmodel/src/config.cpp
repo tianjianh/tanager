@@ -58,6 +58,9 @@ bool Config::apply_preset(const std::string& name) {
     // blocks is decoded with the second, and the micro-BTB never predicts or trains it; training writes the way that
     // predicted the instruction, else a pseudo-random one (tg_exec's upd_way).
     m2_strad = 1; m2_ub_way = 1;
+    // From the rename-stall profile (area_recovery.md §6.8): rename picks an ALU op's queue a cycle before dispatch,
+    // from the banks' free flags of the cycle before that, and keeps it.
+    iq_steer_rn = 1;
     iq_slot_bank = 1; iq_hold = 3; sta_split = 0;
     commit_redirect = 2; l1_fill_extra = 13; ld_fwd_lat = 5; ld_fwd_wait = 8; lat_mul = 5;
     fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;
