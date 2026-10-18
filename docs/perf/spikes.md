@@ -934,6 +934,27 @@ Results: `fpga/spikes/results/h100_0/`, `h100_2/`, `h100_4/` (and their `_synth`
 
 Results: `fpga/spikes/results/h100_m6r/`, `h100_m6t/` and their `_synth` runs; `h100_m6t/fail_families_m6r_m6t.txt` holds the family query for both.
 
+### 8.11 F2 restructured: M6's set with TAGE no longer fits (2026-10-18)
+
+**Question (the coordinator):** the FPU track's F2 prototype (`claude/track-fpu-395911-f2cut` at 1e4a503) is tree (ii) of §8.10 with F2 restructured. Out of context its whole core closes 100 MHz by 0.9–1.2 ns, with no front-end path among the worst, and it costs about 131 LUTs a core after optimisation. What does the full chip reach, and how much of the remaining gap is fill?
+
+**Method:** §8.10's flow: 100 MHz, hart 1's filler (47 tiles a core), the 1.0 ns over-constraint, the four misses and speculative wakeup. The synthesis check is clean (no implicit or undriven nets, no forward references).
+
+**Result: it does not place.**
+- After synthesis it has 120,787 LUTs (103.1% of the device) and 63,657 flip-flops: 900 LUTs more than tree (ii) (119,887), which placed at 115,185 (98.3%).
+- Placement fails on CLB packing (Place 30-487): the unplaced instances need 10,268 CLBs, and 10,195 are available, 73 short (0.7%). So there is no timing.
+
+**Findings:**
+- **M6's set with the two-table TAGE, the restructured F2 and hart 1's area does not fit the XCK26** in this flow: it needs about 0.7% more of the packable CLBs than there are.
+- **So TAGE's size is now an area decision first.**
+  - At least about 600 LUTs (73 CLBs at 8 LUTs each), and likely more at real packing density, must come out before this set can be placed.
+  - Candidates are TAGE's second table, or part of hart 1's area: its filler stands for 3.7K LUTs a core.
+- **Ways to get a timing number for this tree:**
+  - the same checkpoint placed without the L2 and crossbar pblocks, which gives the packer more freedom but costs the L2's split-bank paths (§8.4);
+  - or a filler about 7 tiles a core smaller (hart 1's area cut by about 10%), which needs a new synthesis.
+
+Results: `fpga/spikes/results/h100_m6f/` (`place_failed.txt`, `util_synth.rpt`) and `h100_m6f_synth/`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
