@@ -1,0 +1,6 @@
+h100_6 (114 tiles per core, +6K LUTs; tree c0c7673 = main 4bb4426, 100 MHz, over-constrained by 1.0 ns): stopped 2026-10-17 18:22:09 before the coordinator's WSL compaction, and not relaunched (DR-155: +4K already misses 100 MHz, so +6K adds no boundary information).
+INFO: [Place 30-746] Post Placement Timing Summary WNS=0.501. For the most accurate timing information please run report_timing.
+INFO: [Vivado_Tcl 4-2279] Estimated Timing Summary | WNS= 0.501 | TNS= 0.000 | 
+INFO: [Route 35-416] Intermediate Timing Summary | WNS=0.785  | TNS=0.000  | WHS=-0.130 | THS=-379.894|
+routing: 14 overlap reports, the last 923 nodes, in Phase 5.1 Global Iteration 0
+| CLB LUTs*                  | 119572 |     0 |          0 |    117120 | 102.09 |

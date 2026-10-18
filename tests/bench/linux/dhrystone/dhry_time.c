@@ -11,6 +11,12 @@
 #include <unistd.h>
 
 #include "tglb.h"
+#ifndef TGLB_NAME
+#define TGLB_NAME "dhrystone"
+#endif
+#ifndef TGLB_MARCH
+#define TGLB_MARCH "default"
+#endif
 
 static int time_calls;
 static struct tglb_mark m_start, m_stop;
@@ -45,6 +51,6 @@ int main(int argc, char **argv) {
     fprintf(stderr, "dhrystone: the main loop was not timed\n");
     return 1;
   }
-  tglb_report("dhrystone", run, &m_start, &m_stop, (uint64_t)runs, "");
+  tglb_report(TGLB_NAME, run, &m_start, &m_stop, (uint64_t)runs, " march=" TGLB_MARCH);
   return 0;
 }

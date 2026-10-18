@@ -1,0 +1,23 @@
+== /home/w/tanager-build/track-spikes-72f833/fp/g8_115_fill_unc_routed.dcp: 575 failing endpoints
+  by end unit:
+    c1:u_rn                     185
+    c1:u_lsu                    106
+    c1:u_de                      83
+    c0:u_lsu                     55
+    unc:u_l2                     54
+    c0:u_rn                      46
+    c1:u_rob                     24
+    c0:u_rob                     16
+    c1:u_fetch                    5
+    c0:u_fetch                    1
+  by start -> end unit (worst slack, its levels, wire share, start -> end):
+    c1:u_lsu -> c1:u_rob                             24   -0.533  17 levels,  75% wire  u_soc/g_core[1].g_tgc.u_core/u_lsu/u_ptw/chk_req_q_reg/C -> u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[5].u_ft/g_m64.g_bank[1].g_prim[0].u_ram/RAMA/WE
+    c1:u_fetch -> c1:u_rn                           185   -0.528  17 levels,  69% wire  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[1]/C -> u_soc/g_core[1].g_tgc.u_core/u_rn/rn_uop_q_reg[1][d][rd][2]/D
+    c1:u_lsu -> c1:u_lsu                            106   -0.521  16 levels,  72% wire  u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_m[0].g_early.mq_reg[26]/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/m2_foh_q_reg[9]/D
+    unc:u_l2 -> unc:u_l2                             54   -0.479  12 levels,  81% wire  u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[5][0]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/m_vtag_reg[1][7]/D
+    c0:u_lsu -> c0:u_lsu                             55   -0.464  20 levels,  67% wire  u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_m[1].g_early.mq_reg[23]/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/rp_ra_q_reg[0]/D
+    c0:sv39_l_q_reg -> c0:u_rob                      16   -0.461  19 levels,  72% wire  u_soc/g_core[0].g_tgc.u_core/sv39_l_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[5].u_ft/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/WE
+    c0:u_fetch -> c0:u_rn                            46   -0.445  16 levels,  69% wire  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[3]/C -> u_soc/g_core[0].g_tgc.u_core/u_rn/rn_uop_q_reg[0][d][amo_op][2]/D
+    c1:u_fetch -> c1:u_de                            83   -0.422  19 levels,  68% wire  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[3]/C -> u_soc/g_core[1].g_tgc.u_core/u_de/dred_pc_reg[57]/CE
+    c1:u_fetch -> c1:u_fetch                          5   -0.341  21 levels,  64% wire  u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[3]/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/occ_q_reg[4]/D
+    c0:u_fetch -> c0:u_fetch                          1   -0.061  18 levels,  65% wire  u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[0]_rep__0/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/head_q_reg[1]_rep/D

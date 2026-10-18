@@ -76,13 +76,13 @@ package tg_core_pkg;
 `else
   localparam bit DC_PORTB_WREG = TIMING_CUTS;
 `endif
-  // DR-149: misses the L1D keeps in flight, 1 (one MSHR, the L1D as before) or 4 (four MSHRs, a
-  // request register for the loads' misses, per-entry refill wakeups). 1 in both profiles until its
-  // area, the full chip's clock and the board's Linux speed are measured
+  // DR-149: misses the L1D keeps in flight, 4 (four MSHRs, a request register for the loads' misses,
+  // per-entry refill wakeups) in both profiles since DR-156 (the user, 10-17), or 1 (one MSHR, the L1D
+  // as before, cycle for cycle): TG_DC_MSHRS=1
 `ifdef TG_DC_MSHRS
   localparam int DC_MSHRS = `TG_DC_MSHRS;
 `else
-  localparam int DC_MSHRS = 1;
+  localparam int DC_MSHRS = 4;
 `endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
@@ -102,12 +102,12 @@ package tg_core_pkg;
 `endif
   // Speculative load wakeup (plan §4.6, M6; the FPU track's tg_issue and tg_exec): a load IQ-LD
   // issues sets its LLT's W bit at AG, so its dependants issue in time for the M2 bypass; one that
-  // does not complete in M2 cancels the shadow (spec_cancel). Off by default; TG_SPEC_WAKE=1 turns
-  // it on
+  // does not complete in M2 cancels the shadow (spec_cancel). On by default (DR-154); TG_SPEC_WAKE=0
+  // gives the wakeup on the confirmed result, cycle for cycle as before
 `ifdef TG_SPEC_WAKE
   localparam bit SPEC_WAKE = `TG_SPEC_WAKE;
 `else
-  localparam bit SPEC_WAKE = 1'b0;
+  localparam bit SPEC_WAKE = 1'b1;
 `endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;

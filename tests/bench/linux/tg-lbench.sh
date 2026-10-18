@@ -29,6 +29,12 @@ while [ "$k" -le "$R" ]; do
   step coremark-a 0 "$k"   # 0: CoreMark runs at least 10 s, its condition for a valid result
   step coremark-b 0 "$k"
   step dhrystone 1000000 "$k"
+  # The series' bridge (a BRIDGE=1 build): the earlier rv64imafd form of the same programs
+  if command -v coremark-a-imafd > /dev/null; then
+    step coremark-a-imafd 0 "$k"
+    step coremark-b-imafd 0 "$k"
+    step dhrystone-imafd 1000000 "$k"
+  fi
   k=$((k + 1))
 done
 echo "TGLB-END status=$rc"

@@ -1,0 +1,5 @@
+source: /dev/loop8p1, 8191 MiB; target: /dev/mmcblk1p3, 7741 MiB
+shrinking /dev/loop8p1 to 7741 MiB (in place; resize2fs grows it back)
+copying
+Copied 380780 / 380780 blocks (100%) in 00:03:04 at 8.08 MB/s       
+/dev/mmcblk1p3: tanager-root (ext4, UUID 45d8e126-fa57-4bee-8133-ba472bb7b0c6), 7741 MiB, checks clean, 8 backup superblocks

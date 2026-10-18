@@ -126,6 +126,30 @@ class PcCounters {
   uint64_t stamp_ = 0;
 };
 
+// The M2 RTL's front end (core-pipeline.md §3.2), the only predictor of the core as built: a set-associative
+// micro-BTB keyed by the 16-byte block address, whose entry holds the target and the halfword slot of the taken
+// branch's last parcel, and a table of 2-bit counters (PC[10:2]) that only decides whether a resolved branch
+// writes or clears its entry. A hit predicts the block taken at that slot; a miss falls through.
+class M2Ubtb {
+ public:
+  M2Ubtb(int entries, int ways, int counters);
+  struct Look { bool hit = false; int way = -1; uint64_t target = 0; int slot = -1; };
+  Look lookup(uint64_t blk) const;
+  // A resolved branch or jump of block blk at slot: train as the RTL does at execute.
+  void train(uint64_t blk, uint64_t pc, int slot, bool is_jump, bool taken, uint64_t target, const Look& l);
+  void invalidate(uint64_t blk, const Look& l);
+ private:
+  struct E { bool v = false; uint64_t tag = 0, target = 0; int slot = 0; };
+  E& at(uint64_t blk, int way) { return e_[(size_t)(((blk >> 4) % (uint64_t)sets_) * (uint64_t)ways_ + (uint64_t)way)]; }
+  const E& at(uint64_t blk, int way) const {
+    return e_[(size_t)(((blk >> 4) % (uint64_t)sets_) * (uint64_t)ways_ + (uint64_t)way)];
+  }
+  std::vector<E> e_;
+  std::vector<uint8_t> ctr_;
+  int sets_, ways_;
+  uint64_t rng_ = 0x9e3779b97f4a7c15ull;
+};
+
 // Direct-mapped saturating counters (load hit predictor) / bits (wait table).
 class PcTable {
  public:
