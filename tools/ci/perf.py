@@ -9,7 +9,7 @@ runs, between the tg_marker stores): cycles and IPC on both sides, the change in
 faster), and CoreMark/MHz or DMIPS/MHz. A feature behind a switch is measured on one commit with BASE=HEAD
 and the switch on this side only (BRANCH_DC_MSHRS=4, BRANCH_QUEUE_DECODE=1, ...).
   make perf [BASE=main] [BRANCH=<ref>] [CFG=st] [MARCH=rv64gc] [ITER=10] [RUNS=500] [LAT=native] [JOBS=8]
-            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE=...] [BRANCH_TIMING_CUTS|..._DC_MSHRS|..._QUEUE_DECODE|..._SPEC_WAKE=...]
+            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE|STA_BASE|STEER_LA=...] [BRANCH_TIMING_CUTS|..._SPEC_WAKE|..._STEER_LA=...]
 MARCH and LAT take lists ("rv64im,rv64gc", "native,120"). Results are cached per build and program, so a
 second measurement against the same BASE reruns only this side. Exit status: 0 measured; 2 could not run.
 """
@@ -59,7 +59,8 @@ def main():
     ap.add_argument("--harness", choices=("auto", "branch", "own"), default="auto",
                     help="the base side's sim/, as cycle-identical's --harness")
     for var, opt, vals in (("TIMING_CUTS", "timing-cuts", (0, 1)), ("DC_MSHRS", "dc-mshrs", (1, 4)),
-                           ("QUEUE_DECODE", "queue-decode", (0, 1)), ("SPEC_WAKE", "spec-wake", (0, 1))):
+                           ("QUEUE_DECODE", "queue-decode", (0, 1)), ("SPEC_WAKE", "spec-wake", (0, 1)),
+                           ("STA_BASE", "sta-base", (0, 1)), ("STEER_LA", "steer-la", (0, 1))):
         ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"{var} on both sides")
         ap.add_argument(f"--branch-{opt}", type=int, choices=vals, default=None, help=f"{var} on this side only")
     a = ap.parse_args()
@@ -76,7 +77,8 @@ def main():
         dirty = ci.git("diff", "--stat", "HEAD", tree, "--", "rtl", "sim").strip()
         label = f"{ci.WT} at {ci.git('rev-parse', '--short', 'HEAD')}{' with uncommitted changes' if dirty else ''}"
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
-            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake)}
+            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
+            "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     for v in set(prof_base) | set(prof_branch):
