@@ -333,7 +333,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 
 **M6 feature switches** (`tg_core_pkg`; each `=0|1`, for bisection and ablation):
 - `TG_RAS` (`RAS_ON`, on): the return-address stack (§3.2).
-- `TG_SPEC_WAKE` (`SPEC_WAKE`, off): speculative load wakeup (plan §4.6; the FPU track's `tg_issue` and `tg_exec`). The interface is in place, with `spec_cancel` from `tg_issue` to `tg_exec`; both ends are tied off until it is built.
+- `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
