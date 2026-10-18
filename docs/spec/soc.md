@@ -617,6 +617,17 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - The PMU firmware may also reset or gate unrequested peripherals once the kernel reports start-up done. Under normal Ubuntu, TTC1 (disabled in the A53's tree) stayed out of reset (D1), which suggests it doesn't, but that must be checked.
       - **So the first D4 step is a dry run:** the handover without the RISC-V. Over SSH, it reads `RST_LPD_IOU2` and `SDIO1_REF_CTRL` and `UART1_REF_CTRL` with `psrd`, against normal Ubuntu's values (SDIO1 and UART1 out of reset in `0x000103AA`), then reboots to Ubuntu.
       - **If they were reset or gated:** the handover tree gives SD1 and UART1 to generic UIO, which only maps the registers, and the handover init holds both devices open. That keeps their nodes requested without the A53 driving them.
+    - **The probes' answers** (the board session, `fpga/kv260/board/d4/d4_probe.txt`, 10-18):
+      - **kexec:** `CONFIG_KEXEC=y` and `CONFIG_KEXEC_FILE=y`, signatures not forced, lockdown `none`. `kexec-tools` isn't installed.
+        - `kexec_file_load` would reuse the running tree, with SD1 enabled, so the handover takes `kexec-tools`' `kexec_load` with our own DTB.
+        - The install must leave reboots alone (`LOAD_KEXEC=false`, so nothing is loaded at shutdown). It's an A53 package change, in the change log with its undo (`apt purge kexec-tools`).
+        - Ubuntu's `vmlinuz` is a gzip of the 59.6 MB `Image`, which `kexec-tools` takes as it is.
+      - **The running command line already has `clk_ignore_unused` and `uio_pdrv_genirq.of_id=generic-uio`.** So the handover tree gives SD1 and UART1 the compatible `generic-uio`, without their interrupts, instead of disabling them.
+        - UIO only maps the registers, and the node stays attached to its power domain, so it stays requested from the PMU firmware.
+        - The handover init holds both devices open (runtime PM active). With `pd_ignore_unused` added, this answers the power-node risk below by design; the dry run still checks it.
+      - **SD1:** SD high-speed at 50 MHz, 3.3 V signalling, 4-bit bus, ADMA 64-bit. The RISC-V's tree takes the same: `no-1-8-v`, `max-frequency` 50 MHz, `bus-width` 4, and the A53's tap delays as they are. No voltage question arises.
+      - **Built in:** `macb`, the DP83867 driver, `pwm-fan` and the Cadence TTC PWM. The handover kernel brings up `eth0` and the fan's hwmon with no modules.
+      - **SSH in the handover:** `busybox-static` is installed, `dropbear` isn't, and `openssh-server` is. The initramfs takes the system's own `sshd` and its libraries, the existing host keys (so the laptop's known host still matches) and the board's key, with no package install.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
   - **The missing drivers** (`sdhci-of-arasan`, `dwc3`, `xilinx_uartps`) are built out of tree from the kernel version's own sources. They are a DKMS package in the image, so a kernel update rebuilds them. `sdhci-of-arasan` goes into the initramfs.
