@@ -102,6 +102,7 @@ module tg_decode_stage
   logic [W-1:0][63:0]  npc;
   logic [W-1:0]        dfix;
   logic [W-1:0][1:0]   rop;               // the return-address stack's operation: {push, pop}
+  logic [W-1:0][1:0]   rop_e;             // ... whether decode or fetch moves the stack (RAS_FE: the repair's)
   logic [63:0]         rtgt;              // the stack's top as a PC
   assign rtgt = {{25{ras_top[38]}}, ras_top, 1'b0};
   for (genvar j = 0; j < W; j++) begin : g_dec
@@ -230,11 +231,12 @@ module tg_decode_stage
         rop_x = {rdl, rsl && !(rdl && xq[j].insn[11:7] == xq[j].insn[19:15])};
       end
     end
-    assign rop[j] = (RAS_DEC && !xe[j]) ? rop_x : 2'b00;   // (RAS_FE: fetch predicts returns)
+    assign rop_e[j] = (RAS_ON && !xe[j]) ? rop_x : 2'b00;
+    assign rop[j]   = RAS_DEC ? rop_e[j] : 2'b00;   // (RAS_FE: fetch predicts returns)
 `ifndef SYNTHESIS
     always_ff @(posedge clk)
-      if (rs_seen_q && !rst && xv[j] && RAS_DEC)
-        assert (rop[j] == ras_op(xd[j])) else $error("tg_decode_stage: the raw stack operation differs from decode's");
+      if (rs_seen_q && !rst && xv[j])
+        assert (rop_e[j] == ras_op(xd[j])) else $error("tg_decode_stage: the raw stack operation differs from decode's");
 `endif
     always_comb begin
       npc[j]   = pt ? ptg : seq;
@@ -435,7 +437,7 @@ module tg_decode_stage
           dred_ftq  <= xq[j].ftq;
           dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
           // (RAS_FE: a call or return fetch could not see, as one that straddles into its block)
-          dred_rop   <= RAS_FE ? ras_op(xd[j]) : 2'b00;
+          dred_rop   <= RAS_FE ? rop_e[j] : 2'b00;
           dred_rlink <= xseq[j][38:1];
         end
       end
