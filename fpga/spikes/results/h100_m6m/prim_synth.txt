@@ -1,0 +1,413 @@
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[0].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[10].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[11].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[12].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[13].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[14].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[15].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[16].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[17].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[18].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[19].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[1].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[2].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[3].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[4].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[5].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[6].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[7].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[8].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[0].u_fill/g_ram[9].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[0].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[10].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[11].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[12].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[13].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[14].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[15].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[16].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[17].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[18].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[19].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[1].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[2].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[3].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[4].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[5].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[6].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[7].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[8].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK g_fill.g_f[1].u_fill/g_ram[9].u_ram tg_ram_lut {2^6 x 32, 2 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_iq tg_ram_lut {2^2 x 98, 1 read, 89 of 98 read bits loaded} expected {RAM32M16 7} found {RAM32M16 7}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_dq/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 140, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_fpu/g_div_gs.u_div/u_rom tg_rom {2^11 x 9, rom} expected {RAMB36_equiv 0.5} found {RAMB18E2 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_fpu/g_div_gs.u_div/u_outq/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 71, 1 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_rf/g_bank[0].u_ram tg_ram_lut {2^6 x 64, 6 read, 256 of 384 read bits loaded} expected {RAM64M8 37-55} found {RAM64M8 55}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_p4.u_p4/u_rf/g_bank[1].u_ram tg_ram_lut {2^6 x 64, 6 read, 256 of 384 read bits loaded} expected {RAM64M8 37-55} found {RAM64M8 55}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_ras.u_ras/u_comm tg_ram_lut {2^5 x 38, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/g_ras.u_ras/u_spec tg_ram_lut {2^5 x 38, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_csr/u_cold tg_ram_lut {2^4 x 64, 3 read, 189 of 192 read bits loaded} expected {RAM32M16 14} found {RAM32M16 14}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_csr/u_pmpaddr tg_ram_lut {2^4 x 54, 2 read} expected {RAM32M16 8} found {RAM32M16 8}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_ex/u_bht tg_ram_lut {2^9 x 2, 1 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_ex/u_div/u_q/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 152, 1 read} expected {RAM32M16 11} found {RAM32M16 11}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_bank[0].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_bank[1].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_bank[2].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_fgh tg_ram_lut {2^5 x 129, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_fix tg_ram_lut {2^5 x 51, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[0].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[0].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[1].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[1].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[2].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[2].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[3].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[3].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[4].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[4].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[5].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[5].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[6].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[6].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[7].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_way[7].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival tg_ram_lut {2^6 x 8, 2 read} expected {RAM64M8 3} found {RAM64M8 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_base.u_mem tg_ram_tdp {2^11 x 16, tdp} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[0].u_mem tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/g_bank[0].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/g_bank[1].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/g_bank[2].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_cmp/g_bank[3].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_itlb/u_leaf tg_ram_lut {2^4 x 36, 1 read, 30 of 36 read bits loaded} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ubtb/g_set.g_way[0].u_ram tg_ram_lut {2^5 x 55, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ubtb/g_set.g_way[1].u_ram tg_ram_lut {2^5 x 55, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[0].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 321, 1 read, 320 of 321 read bits loaded} expected {RAM32M16 23} found {RAM32M16 23}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[0].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 321, 1 read, 320 of 321 read bits loaded} expected {RAM32M16 23} found {RAM32M16 23}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[1].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 174, 1 read, 173 of 174 read bits loaded} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[1].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 174, 1 read, 173 of 174 read bits loaded} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[2].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 48, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[2].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 48, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[3].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^1 x 28, 1 read, 27 of 28 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[3].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^1 x 28, 1 read, 27 of 28 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[4].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 46, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 46, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_lqa tg_ram_lut {2^5 x 36, 2 read, 70 of 72 read bits loaded} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_lqc tg_ram_lut {2^5 x 86, 3 read, 116 of 258 read bits loaded} expected {RAM32M16 12-19} found {RAM32M16 19}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_lqrob tg_ram_lut {2^5 x 8, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqd tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqh tg_ram_lut {2^5 x 44, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqrob tg_ram_lut {2^5 x 8, 2 read, 15 of 16 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqsz tg_ram_lut {2^5 x 2, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqva tg_ram_lut {2^5 x 64, 1 read} expected {RAM32M16 5} found {RAM32M16 5}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[0].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[1].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[2].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[4].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[5].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[6].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[7].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[0].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[1].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[2].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[3].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[4].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[5].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[6].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_tag[7].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/u_meta tg_ram_lut {2^6 x 19, 3 read} expected {RAM64M8 9} found {RAM64M8 9}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/u_valid tg_ram_lut {2^6 x 8, 4 read} expected {RAM64M8 5} found {RAM64M8 5}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[0].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[1].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[2].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[3].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[4].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[5].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/g_cam.u_keys tg_ram_lut {2^5 x 27, 1 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dtlb/u_leaf tg_ram_lut {2^5 x 36, 3 read, 71 of 108 read bits loaded} expected {RAM32M16 6-8} found {RAM32M16 8}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_rowtab[0].u_rdst tg_ram_lut {2^5 x 8, 5 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_rowtab[0].u_row tg_ram_lut {2^7 x 5, 4 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_rowtab[1].u_rdst tg_ram_lut {2^5 x 8, 5 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_rowtab[1].u_row tg_ram_lut {2^7 x 5, 4 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_ffl.g_b[0].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_ffl.g_b[0].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_ffl.g_b[1].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_ffl.g_b[1].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[0].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[0].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[1].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[1].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[2].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fl[2].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_mc[0].u_cmap tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_mc[1].u_cmap tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[0].u_map tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[0].u_prod tg_ram_lut {2^5 x 6, 7 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[1].u_map tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[1].u_prod tg_ram_lut {2^5 x 6, 7 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].g_a[0].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].g_a[1].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].u_s tg_ram_lut {2^6 x 1, 10 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].g_a[0].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].g_a[1].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].u_s tg_ram_lut {2^6 x 1, 10 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_mc[0].u_cmap tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_mc[1].u_cmap tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_ms[0].u_map tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_ms[0].u_prod tg_ram_lut {2^5 x 10, 5 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_ms[1].u_map tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_imap/g_ms[1].u_prod tg_ram_lut {2^5 x 10, 5 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[0].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[0].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[0].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[1].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[1].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[1].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[2].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[2].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rn/u_irdy/g_bank[2].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ff.u_ffi tg_ram_lut {2^7 x 5, 2 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ff.u_ffp tg_ram_lut {2^7 x 5, 2 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[0].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[10].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[11].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[12].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[13].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[14].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[15].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[16].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[17].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[18].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[19].u_ft tg_ram_lut {2^7 x 1, 5 read, 3 of 5 read bits loaded} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[1].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[2].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[3].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[4].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[5].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[6].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[7].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[8].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_ft[9].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_pl[0].u_pl tg_ram_lut {2^6 x 161, 1 read, 146 of 161 read bits loaded} expected {RAM64M8 22-23} found {RAM64M8 23}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_pl[1].u_pl tg_ram_lut {2^6 x 161, 1 read, 146 of 161 read bits loaded} expected {RAM64M8 22-23} found {RAM64M8 23}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_rw[0].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_rw[1].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_rw[2].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_rw[3].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[0].g_tgc.u_core/u_rob/g_rw[4].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_iq tg_ram_lut {2^2 x 98, 1 read, 89 of 98 read bits loaded} expected {RAM32M16 7} found {RAM32M16 7}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_dq/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 140, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_fpu/g_div_gs.u_div/u_rom tg_rom {2^11 x 9, rom} expected {RAMB36_equiv 0.5} found {RAMB18E2 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_fpu/g_div_gs.u_div/u_outq/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 71, 1 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_rf/g_bank[0].u_ram tg_ram_lut {2^6 x 64, 6 read, 256 of 384 read bits loaded} expected {RAM64M8 37-55} found {RAM64M8 55}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_p4.u_p4/u_rf/g_bank[1].u_ram tg_ram_lut {2^6 x 64, 6 read, 256 of 384 read bits loaded} expected {RAM64M8 37-55} found {RAM64M8 55}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_ras.u_ras/u_comm tg_ram_lut {2^5 x 38, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/g_ras.u_ras/u_spec tg_ram_lut {2^5 x 38, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_csr/u_cold tg_ram_lut {2^4 x 64, 3 read, 189 of 192 read bits loaded} expected {RAM32M16 14} found {RAM32M16 14}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_csr/u_pmpaddr tg_ram_lut {2^4 x 54, 2 read} expected {RAM32M16 8} found {RAM32M16 8}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_ex/u_bht tg_ram_lut {2^9 x 2, 1 read} expected {RAM64M8 8} found {RAM64M8 8}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_ex/u_div/u_q/g_ptr.g_lut.u_mem tg_ram_lut {2^2 x 152, 1 read} expected {RAM32M16 11} found {RAM32M16 11}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_bank[0].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_bank[1].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_bank[2].u_ram tg_ram_lut {2^6 x 64, 9 read, 448 of 576 read bits loaded} expected {RAM64M8 64-83} found {RAM64M8 83}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.u_fgh tg_ram_lut {2^5 x 129, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.u_fix tg_ram_lut {2^5 x 51, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[0].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[0].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[1].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[1].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[2].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[2].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[3].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[3].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[4].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[4].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[5].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[5].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[6].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[6].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[7].u_data tg_ram_sdp {2^8 x 128} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[7].u_tag tg_ram_lut {2^6 x 22, 1 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival tg_ram_lut {2^6 x 8, 2 read} expected {RAM64M8 3} found {RAM64M8 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.u_tage/g_base.u_mem tg_ram_tdp {2^11 x 16, tdp} expected {RAMB36_equiv 1.0} found {RAMB36E2 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[0].u_mem tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/g_bank[0].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/g_bank[1].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/g_bank[2].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_cmp/g_bank[3].u_ram tg_ram_lut {2^2 x 181, 1 read} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_itlb/u_leaf tg_ram_lut {2^4 x 36, 1 read, 30 of 36 read bits loaded} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ubtb/g_set.g_way[0].u_ram tg_ram_lut {2^5 x 55, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ubtb/g_set.g_way[1].u_ram tg_ram_lut {2^5 x 55, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[0].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 321, 1 read, 320 of 321 read bits loaded} expected {RAM32M16 23} found {RAM32M16 23}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[0].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 321, 1 read, 320 of 321 read bits loaded} expected {RAM32M16 23} found {RAM32M16 23}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[1].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 174, 1 read, 173 of 174 read bits loaded} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[1].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 174, 1 read, 173 of 174 read bits loaded} expected {RAM32M16 13} found {RAM32M16 13}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[2].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^2 x 48, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[2].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^2 x 48, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[3].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^1 x 28, 1 read, 27 of 28 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[3].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^1 x 28, 1 read, 27 of 28 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[4].u_iq/g_late.g_bank[0].u_ram tg_ram_lut {2^3 x 46, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_is/g_q[4].u_iq/g_late.g_bank[1].u_ram tg_ram_lut {2^3 x 46, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_lqa tg_ram_lut {2^5 x 36, 2 read, 70 of 72 read bits loaded} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_lqc tg_ram_lut {2^5 x 86, 3 read, 116 of 258 read bits loaded} expected {RAM32M16 12-19} found {RAM32M16 19}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_lqrob tg_ram_lut {2^5 x 8, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqd tg_ram_lut {2^5 x 64, 2 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqh tg_ram_lut {2^5 x 44, 1 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqrob tg_ram_lut {2^5 x 8, 2 read, 15 of 16 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqsz tg_ram_lut {2^5 x 2, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqva tg_ram_lut {2^5 x 64, 1 read} expected {RAM32M16 5} found {RAM32M16 5}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[0].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[1].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[2].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[4].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[5].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[6].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[7].u_data tg_ram_tdp {2^8 x 128, tdp, bytes of 8} expected {RAMB36_equiv 4.0} found {RAMB36E2 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[0].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[1].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[2].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[3].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[4].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[5].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[6].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_tag[7].u_tag tg_ram_lut {2^6 x 22, 3 read} expected {RAM64M8 10} found {RAM64M8 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/u_meta tg_ram_lut {2^6 x 19, 3 read} expected {RAM64M8 9} found {RAM64M8 9}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/u_valid tg_ram_lut {2^6 x 8, 4 read} expected {RAM64M8 5} found {RAM64M8 5}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[0].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[1].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[2].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[3].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[4].u_tab tg_ram_lut {2^5 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.g_tab[5].u_tab tg_ram_lut {2^4 x 32, 4 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/g_cam.u_keys tg_ram_lut {2^5 x 27, 1 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dtlb/u_leaf tg_ram_lut {2^5 x 36, 3 read, 71 of 108 read bits loaded} expected {RAM32M16 6-8} found {RAM32M16 8}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_rowtab[0].u_rdst tg_ram_lut {2^5 x 8, 5 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_rowtab[0].u_row tg_ram_lut {2^7 x 5, 4 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_rowtab[1].u_rdst tg_ram_lut {2^5 x 8, 5 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_rowtab[1].u_row tg_ram_lut {2^7 x 5, 4 read} expected {RAM64M8 6} found {RAM64M8 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_ffl.g_b[0].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_ffl.g_b[0].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_ffl.g_b[1].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_ffl.g_b[1].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[0].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[0].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[1].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[1].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[2].u_fl/g_bank[0].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fl[2].u_fl/g_bank[1].u_ram tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_mc[0].u_cmap tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_mc[1].u_cmap tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[0].u_map tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[0].u_prod tg_ram_lut {2^5 x 6, 7 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[1].u_map tg_ram_lut {2^5 x 7, 9 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_fmap.u_fmap/g_ms[1].u_prod tg_ram_lut {2^5 x 6, 7 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].g_a[0].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].g_a[1].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[0].u_s tg_ram_lut {2^6 x 1, 10 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].g_a[0].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].g_a[1].u_a tg_ram_lut {2^6 x 1, 11 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/g_frdy.u_frdy/g_bank[1].u_s tg_ram_lut {2^6 x 1, 10 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_mc[0].u_cmap tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_mc[1].u_cmap tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_ms[0].u_map tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_ms[0].u_prod tg_ram_lut {2^5 x 10, 5 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_ms[1].u_map tg_ram_lut {2^5 x 8, 7 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_imap/g_ms[1].u_prod tg_ram_lut {2^5 x 10, 5 read} expected {RAM32M16 4} found {RAM32M16 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[0].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[0].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[0].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[1].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[1].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[1].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[2].g_a[0].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[2].g_a[1].u_a tg_ram_lut {2^6 x 1, 9 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rn/u_irdy/g_bank[2].u_s tg_ram_lut {2^6 x 1, 8 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ff.u_ffi tg_ram_lut {2^7 x 5, 2 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ff.u_ffp tg_ram_lut {2^7 x 5, 2 read} expected {RAM64M8 4} found {RAM64M8 4}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[0].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[10].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[11].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[12].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[13].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[14].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[15].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[16].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[17].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[18].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[19].u_ft tg_ram_lut {2^7 x 1, 5 read, 3 of 5 read bits loaded} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[1].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[2].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[3].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[4].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[5].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[6].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[7].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[8].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_ft[9].u_ft tg_ram_lut {2^7 x 1, 5 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_pl[0].u_pl tg_ram_lut {2^6 x 161, 1 read, 146 of 161 read bits loaded} expected {RAM64M8 22-23} found {RAM64M8 23}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_pl[1].u_pl tg_ram_lut {2^6 x 161, 1 read, 146 of 161 read bits loaded} expected {RAM64M8 22-23} found {RAM64M8 23}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_rw[0].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_rw[1].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_rw[2].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_rw[3].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/g_core[1].g_tgc.u_core/u_rob/g_rw[4].u_rw tg_ram_lut {2^7 x 1, 6 read} expected {RAM64M8 2} found {RAM64M8 2}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_bq tg_ram_lut {2^5 x 24, 1 read, 22 of 24 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_buf tg_ram_sdp {2^7 x 130} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_id2slot tg_ram_lut {2^6 x 5, 1 read} expected {RAM64M8 1} found {RAM64M8 1}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_oq tg_ram_lut {2^5 x 5, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_sid tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_tarr tg_ram_lut {2^5 x 16, 1 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_tiss tg_ram_lut {2^5 x 16, 2 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_wt tg_ram_lut {2^6 x 16, 1 read} expected {RAM64M8 3} found {RAM64M8 3}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_inj/u_ob/g_ptr.g_lut.u_mem tg_ram_lut {2^1 x 137, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/u_uncore/g_mem[0].u_win/u_wf/g_ptr.g_lut.u_mem tg_ram_lut {2^3 x 7, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_bq tg_ram_lut {2^5 x 24, 1 read, 22 of 24 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_buf tg_ram_sdp {2^7 x 130} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_id2slot tg_ram_lut {2^6 x 5, 1 read} expected {RAM64M8 1} found {RAM64M8 1}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_oq tg_ram_lut {2^5 x 5, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_sid tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_tarr tg_ram_lut {2^5 x 16, 1 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_tiss tg_ram_lut {2^5 x 16, 2 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_wt tg_ram_lut {2^6 x 16, 1 read} expected {RAM64M8 3} found {RAM64M8 3}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_inj/u_ob/g_ptr.g_lut.u_mem tg_ram_lut {2^1 x 137, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/u_uncore/g_mem[1].u_win/u_wf/g_ptr.g_lut.u_mem tg_ram_lut {2^3 x 7, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_cbuf tg_ram_lut {2^2 x 128, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_data tg_ram_sdp {2^14 x 256, bytes of 8} expected {URAM288 16} found {URAM288 16}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dfifo tg_ram_lut {2^3 x 287, 1 read, 284 of 287 read bits loaded} expected {RAM32M16 21} found {RAM32M16 21}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_dir tg_ram_sdp {2^10 x 200, bytes of 8} expected {RAMB36_equiv 6.5} found {RAMB36E2 6 RAMB18E2 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_fcnt tg_ram_lut {2^5 x 2, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mkind tg_ram_lut {2^5 x 3, 3 read, 7 of 9 read bits loaded} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mpb tg_ram_lut {2^5 x 2, 2 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mrsp tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mset tg_ram_lut {2^5 x 10, 7 read} expected {RAM32M16 5} found {RAM32M16 5}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_msrc tg_ram_lut {2^5 x 10, 2 read, 12 of 20 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mtag tg_ram_lut {2^5 x 17, 4 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mvtag tg_ram_lut {2^5 x 17, 2 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_mway tg_ram_lut {2^5 x 3, 5 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_putbuf tg_ram_lut {2^4 x 144, 1 read} expected {RAM32M16 11} found {RAM32M16 11}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_wbbuf tg_ram_lut {2^3 x 256, 1 read} expected {RAM32M16 19} found {RAM32M16 19}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_wbent tg_ram_lut {2^2 x 32, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[0].u_bank/u_rack/g_ptr.g_lut.u_mem tg_ram_lut {2^1 x 13, 1 read, 10 of 13 read bits loaded} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_cbuf tg_ram_lut {2^2 x 128, 1 read} expected {RAM32M16 10} found {RAM32M16 10}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_data tg_ram_sdp {2^14 x 256, bytes of 8} expected {URAM288 16} found {URAM288 16}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_dfifo tg_ram_lut {2^3 x 287, 1 read, 284 of 287 read bits loaded} expected {RAM32M16 21} found {RAM32M16 21}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_dir tg_ram_sdp {2^10 x 200, bytes of 8} expected {RAMB36_equiv 6.5} found {RAMB36E2 6 RAMB18E2 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_fcnt tg_ram_lut {2^5 x 2, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mkind tg_ram_lut {2^5 x 3, 3 read, 7 of 9 read bits loaded} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mpb tg_ram_lut {2^5 x 2, 2 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mrsp tg_ram_lut {2^5 x 6, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mset tg_ram_lut {2^5 x 10, 7 read} expected {RAM32M16 5} found {RAM32M16 5}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_msrc tg_ram_lut {2^5 x 10, 2 read, 12 of 20 read bits loaded} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mtag tg_ram_lut {2^5 x 17, 4 read} expected {RAM32M16 6} found {RAM32M16 6}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mvtag tg_ram_lut {2^5 x 17, 2 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_mway tg_ram_lut {2^5 x 3, 5 read} expected {RAM32M16 2} found {RAM32M16 2}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_putbuf tg_ram_lut {2^4 x 144, 1 read} expected {RAM32M16 11} found {RAM32M16 11}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_wbbuf tg_ram_lut {2^3 x 256, 1 read} expected {RAM32M16 19} found {RAM32M16 19}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_wbent tg_ram_lut {2^2 x 32, 1 read} expected {RAM32M16 3} found {RAM32M16 3}
+PRIM_OK u_soc/u_uncore/u_l2/g_bank[1].u_bank/u_rack/g_ptr.g_lut.u_mem tg_ram_lut {2^1 x 13, 1 read, 10 of 13 read bits loaded} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_uart/u_rxf tg_ram_lut {2^4 x 8, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_OK u_soc/u_uncore/u_uart/u_txf tg_ram_lut {2^4 x 8, 1 read} expected {RAM32M16 1} found {RAM32M16 1}
+PRIM_SUMMARY instances 412 fail 0 warn 0 stray 0

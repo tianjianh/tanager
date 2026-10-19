@@ -120,9 +120,9 @@ module tg_core
   logic  tvm, tw, tsr, sum, mxr, satp_sv39;
   logic [15:0] satp_asid;
   logic [43:0] satp_ppn;
-  pmp_d_t [15:0]     pmp_d;
+  pmp_d_t [PMP_ENTRIES-1:0] pmp_d;
   logic [2:0]        pmp_al;
-  logic [15:0]       pmp_p2m;
+  logic [PMP_ENTRIES-1:0] pmp_p2m;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
   // write (the TLBs cache PMP results)

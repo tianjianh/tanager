@@ -1,5 +1,5 @@
-// PMP check (docs/spec/core-mmu.md §PMP) on the region descriptors tg_csr precomputes: 16
-// entries, OFF / TOR / NA4 / NAPOT, 4-byte granules, as Spike's pmp_ok without Smepmp. The
+// PMP check (docs/spec/core-mmu.md §PMP) on the region descriptors tg_csr precomputes: PMP_ENTRIES
+// (8 or 16) entries, OFF / TOR / NA4 / NAPOT, 4-byte granules, as Spike's pmp_ok without Smepmp. The
 // lowest-numbered entry matching any granule of the access decides and must match all of
 // them; with no match only M is allowed; locked entries bind M too. Combinational.
 // TOR shares one comparator per entry: entry i matches [top(i-1), top(i)), so A < top(i) is
@@ -17,34 +17,35 @@ module tg_pmp
   input  logic              dbl,          // S = 1: an 8-byte access
   input  acc_e              acc,
   input  logic              m_mode,
-  input  pmp_d_t [15:0]     d,
+  input  pmp_d_t [PMP_ENTRIES-1:0] d,
   output logic [NW-1:0]     ok,
   output logic              hit,
   output logic [2:0]        rwx
 );
   localparam int GW = PMP_GW;
+  localparam int NE = PMP_ENTRIES;
 
   // Per entry and word: does the entry match the word's granule(s), any and all of them?
-  logic [NW-1:0][15:0] any_m, all_m;
+  logic [NW-1:0][NE-1:0] any_m, all_m;
   if (S == 2) begin : g_blk
     // Block granules {B, w}: compare the block index once, then the two low bits per word
     logic [GW-3:0]   B;
-    logic [15:0]     ltb, eqb, nhi;
+    logic [NE-1:0]   ltb, eqb, nhi;
     assign B = pa[PA_W-1:4];
-    for (genvar i = 0; i < 16; i++) begin : g_e
+    for (genvar i = 0; i < NE; i++) begin : g_e
       assign ltb[i] = d[i].hi || B < d[i].a[GW-1:2];
       assign eqb[i] = !d[i].hi && B == d[i].a[GW-1:2];
       assign nhi[i] = !d[i].above && ((B ^ d[i].a[GW-1:2]) & d[i].mask[GW-1:2]) == '0;
     end
     for (genvar w = 0; w < 4; w++) begin : g_w
-      logic [15:0] lt;                     // granule {B, w} < top(i)
-      for (genvar i = 0; i < 16; i++) begin : g_e
+      logic [NE-1:0] lt;                   // granule {B, w} < top(i)
+      for (genvar i = 0; i < NE; i++) begin : g_e
         /* verilator lint_off CMPCONST */   // word 3 is never below a top in its block
         assign lt[i] = ltb[i] || (eqb[i] && 2'(w) < d[i].a[1:0]);
         /* verilator lint_on CMPCONST */
         logic napm, torm;
         assign napm = nhi[i] && ((2'(w) ^ d[i].a[1:0]) & d[i].mask[1:0]) == '0;
-        assign torm = lt[i] && (i == 0 || !lt[(i + 15) % 16]);
+        assign torm = lt[i] && (i == 0 || !lt[(i + NE - 1) % NE]);
         assign any_m[w][i] = (d[i].nap && napm) || (d[i].tor && torm);
         assign all_m[w][i] = any_m[w][i];
       end
@@ -52,9 +53,9 @@ module tg_pmp
   end else begin : g_acc
     // Granules A and, for dbl, A + 1 (A even)
     logic [GW-1:0] A;
-    logic [15:0]   lt0, lt1;               // A < top(i), A + 1 < top(i) (lt1 = lt0 unless dbl)
+    logic [NE-1:0] lt0, lt1;               // A < top(i), A + 1 < top(i) (lt1 = lt0 unless dbl)
     assign A = pa[PA_W-1:2];
-    for (genvar i = 0; i < 16; i++) begin : g_e
+    for (genvar i = 0; i < NE; i++) begin : g_e
       logic eqo;                           // top(i) = A + 1 (odd, the dword's second granule)
       assign lt0[i] = d[i].hi || A < d[i].a;
       assign eqo    = !d[i].hi && d[i].a[0] && A[GW-1:1] == d[i].a[GW-1:1];
@@ -69,8 +70,8 @@ module tg_pmp
       assign nany = nh && (dbl || n0);
       assign nall = nh && (dbl ? !d[i].mask[0] : n0);
       // TOR [top(i-1), top(i)): any = A + 1 >= lo && A < hi; all = A >= lo && A + 1 < hi
-      assign tany = lt0[i] && (i == 0 || !lt1[(i + 15) % 16]);
-      assign tall = lt1[i] && (i == 0 || !lt0[(i + 15) % 16]);
+      assign tany = lt0[i] && (i == 0 || !lt1[(i + NE - 1) % NE]);
+      assign tall = lt1[i] && (i == 0 || !lt0[(i + NE - 1) % NE]);
       assign any_m[0][i] = (d[i].nap && nany) || (d[i].tor && tany);
       assign all_m[0][i] = (d[i].nap && nall) || (d[i].tor && tall);
     end
@@ -80,7 +81,7 @@ module tg_pmp
   for (genvar w = 0; w < NW; w++) begin : g_dec
     always_comb begin
       ok[w] = m_mode;
-      for (int i = 15; i >= 0; i--) begin
+      for (int i = NE - 1; i >= 0; i--) begin
         if (any_m[w][i]) begin
           ok[w] = all_m[w][i] &&
                   ((m_mode && !d[i].l) || (acc == ACC_R && d[i].r) || (acc == ACC_W && d[i].w) ||
@@ -92,7 +93,7 @@ module tg_pmp
   always_comb begin
     hit = 1'b0;
     rwx = '0;
-    for (int i = 15; i >= 0; i--) begin
+    for (int i = NE - 1; i >= 0; i--) begin
       if (any_m[0][i]) begin
         hit = 1'b1;
         rwx = {d[i].r, d[i].w, d[i].x};
