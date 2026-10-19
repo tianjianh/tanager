@@ -179,7 +179,7 @@ package tg_core_pkg;
 `ifdef TG_PMP_ENTRIES
   localparam int PMP_ENTRIES = `TG_PMP_ENTRIES;
 `else
-  localparam int PMP_ENTRIES = 8;
+  localparam int PMP_ENTRIES = 16;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
