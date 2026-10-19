@@ -1,0 +1,75 @@
+# D4 step 6 on d4s2, 2026-10-19 (../runs/d4m_step6.sh with K=~/tanager/d4m-step6-d4s2-pkg/d4m-step6-d4s2; times UTC).
+# COM7: uart_COM7_step6b.txt (the A53's U-Boot to each park; after it only NULs, see the README); COM5 per boot:
+# uart_COM5_step6b1.txt (boot 1), uart_COM5_step6b2.txt (session 1: the checks and Debian's reboot),
+# uart_COM5_step6b3.txt (boot 2, confirmed), uart_COM5_step6b4.txt (session 2: arm and the reboot), uart_COM5_step6b5.txt (boot 3).
+
+######## install (p1)
+== d4m_step6 install 2026-10-19 15:27:52 UTC, A53 up 6576.23 s
+./debian_install.sh: OK
+./install.sh: OK
+./README.md: OK
+./tanager/fw_jump.bin: OK
+./tanager-mode: OK
+./tanager-mode-confirm.service: OK
+./tanager/payload.bin: OK
+./tanager/riscv.cmd: OK
+./tanager/riscv.scr: OK
+./tanager/tanager.bit.bin: OK
+./tanager/tanager.dtb: OK
+./ubootenv.d-tanager-mode: OK
+b0094d235a36f8bd b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 459992b884a8a3e0 payload.bin
+656b4d538382671e 656b4d538382671e riscv.cmd
+9077269d4e628bb8 9077269d4e628bb8 riscv.scr
+18f6310c491366ba 18f6310c491366ba tanager.bit.bin
+f31d34eda198baae f31d34eda198baae tanager.dtb
+total 9173
+drwxr-xr-x 2 root root     512 Oct 19 12:50 .
+drwxr-xr-x 3 root root    1536 Jan  1  1970 ..
+-rwxr-xr-x 1 root root  277856 Oct 19 15:27 fw_jump.bin
+-rwxr-xr-x 1 root root 1301584 Oct 19 15:27 payload.bin
+-rwxr-xr-x 1 root root    4275 Oct 19 15:27 riscv.cmd
+-rwxr-xr-x 1 root root    4347 Oct 19 15:27 riscv.scr
+-rwxr-xr-x 1 root root 7797692 Oct 19 15:27 tanager.bit.bin
+-rwxr-xr-x 1 root root    3719 Oct 19 15:27 tanager.dtb
+/dev/mmcblk1 sector 2047: arm
+
+######## riscv, then the reboot at 15:28:15
+== d4m_step6 riscv 2026-10-19 15:28:14 UTC, A53 up 6597.87 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+# Debian's autologin on COM5 at 15:31:08; session 1 15:31:28-15:32:12; the confirmed reboot's autologin at 15:35:04;
+# session 2 15:35:14-15:35:38 (tanager-mode arm, sudo reboot)
+
+######## post (Ubuntu back, the record at arm)
+== d4m_step6 post 2026-10-19 15:36:48 UTC, A53 up 59.44 s
+up since 2026-10-19 15:35:48
+/dev/mmcblk1 sector 2047: arm
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+RESET_REASON 0x00000021
+-- the last boot's end:
+2026-10-19T15:28:19+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T15:28:20+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T15:28:20+00:00 kria systemd-journald[397]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T15:28:20+00:00 kria systemd-journald[397]: Journal stopped
+
+######## the unconfirmed end: riscv, the reboot at 15:37:15; Debian's autologin at 15:40:19
+== d4m_step6 riscv 2026-10-19 15:37:13 UTC, A53 up 84.69 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+# the break, PDT: break on COM5 from 2026-10-19T08:40:36.6823871-07:00 to 2026-10-19T08:40:40.6961241-07:00 (4.014 s)
+
+######## post (Ubuntu back 65 s after the break), then tanager-mode arm
+== d4m_step6 post 2026-10-19 15:41:52 UTC, A53 up 57.07 s
+up since 2026-10-19 15:40:55
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+RESET_REASON 0x00000021
+-- the last boot's end:
+2026-10-19T15:37:19+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T15:37:20+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T15:37:20+00:00 kria systemd-journald[398]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T15:37:20+00:00 kria systemd-journald[398]: Journal stopped
+/dev/mmcblk1 sector 2047: arm
+# p3 then had needs_recovery (Debian's root was mounted rw at the break): e2fsck -p 'recovering journal', clean, 42807 files;
+# e2fsck -fn clean. s14 on d2 from 15:42:17.

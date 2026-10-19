@@ -1,0 +1,53 @@
+# D4 step 6's diagnostic (the SoC track's by-hand boot, 10-19) and the split test (stage C on d4s1); times UTC.
+# COM7 for both by-hand boots: uart_COM7_step6diag.txt; COM5 for the second, logged at 230400 baud (the kernel's
+# earlycon without a clock runs the 3.6864 MHz 16550 at 230400): uart_COM5_step6diag2_230400.txt.
+
+######## step 0: the reference CRC32s (gzip's trailer), p3 read-only, 13:26
+13:26:48
+STRESS pass 1 ok=1 fails=0 128s cpu2=78.96 mem2=98.55 thr2=1516 up=322.99 load=2.27 2.01 0.95
+STRESS stop after pass 1, fails=0
+k26-starter-kits
+tanager-root: 42805/499712 files (0.1% non-contiguous), 559416/1981696 blocks
+vmlinux-6.12.113+deb13-riscv64  439ad054
+-rw-r--r-- 1 root root 31166464 Oct 15 15:02 /mnt/p3/boot/vmlinux-6.12.113+deb13-riscv64
+initrd.img-6.12.113+deb13-riscv64  e9fd3a54
+-rw-r--r-- 1 root root 42091488 Oct 19 09:12 /mnt/p3/boot/initrd.img-6.12.113+deb13-riscv64
+p3 unmounted
+
+######## by-hand boot 1: the record to riscv, then the reboot at 13:27:30
+== d4m_step6 riscv 2026-10-19 13:27:28 UTC, A53 up 561.60 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+# U-Boot d4 (COM7): the kernel 31166464 bytes in 5242 ms, crc32 439ad054; the initrd 42091488 bytes in 7087 ms
+# (again in 7092 ms), crc32 e9fd3a54; booti; COM5 at 115200 then took 4,879 bytes of garbage (the earlycon at
+# 230400) until 13:29:42, and nothing more. The break: 13:32:49-13:32:53 (4.011 s); Ubuntu back at 13:34:17.
+
+######## by-hand boot 2 (COM5 at 230400): the record to riscv, then the reboot at 13:34:43
+== d4m_step6 riscv 2026-10-19 13:34:42 UTC, A53 up 94.21 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+# U-Boot d4: the same loads (5245 ms and 7090 ms) and CRCs (439ad054, e9fd3a54); the kernel's panic at 2.157 s
+# is in uart_COM5_step6diag2_230400.txt. The break: 13:37:57-13:38:01 (4.021 s); Ubuntu back at 13:39:26, the
+# record set to arm; p3 clean, mount count 20 (unchanged: the kernel never mounted it).
+
+######## the split: stage C on d4s1 (its package's four-hart virtio tree, BOARD_CTRL 0), 13:40:30
+== d4m_step6 stagec_d4s1 2026-10-19 13:40:30 UTC, A53 up 133.82 s
+loaded tanager-d4s1 at 13:40:33; fpga0 operating
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /dev/mmcblk1p3 --rng --dbg --timeout 900 < console
+no login prompt
+debug counters during the hang:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+and 5 s later:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 3852190 reads, native latency avg 26.4 max 84 cycles
+boot exit 130; console in /home/ubuntu/tanager/d4s1-smt2-c2-100/linux_shell.txt (275 lines)
+fan: pwm1 15/255, AMS temp1 36 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 13:50:52
+fan: pwm1 18/255, AMS temp1 35 C, fancontrol active
+== the commands' output
+orphan sleeps after the run: 0
+tanager-root: 42805/499712 files (0.1% non-contiguous), 559416/1981696 blocks

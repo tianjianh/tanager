@@ -1,0 +1,13 @@
+﻿
+===== COM5 logger (reopening) started 2026-10-19T05:50:57.0638418-07:00 =====
+
+===== COM5 opened 2026-10-19T05:50:57.0825802-07:00 =====
+
+tanager D4 step 5: RISC-V mode, bare metal, hart 0000000000000000, tree at 0000000082200000
+UART1: this line is on COM7 too
+
+tanager D4 step 5: RISC-V mode, bare metal, hart 0000000000000000, tree at 0000000082200000
+UART1: this line is on COM7 too
+SBI system reset, cold reboot: the board should reset, then boot Ubuntu (trial 1)
+
+===== COM5 logger ended 2026-10-19T05:53:30.7592993-07:00 =====

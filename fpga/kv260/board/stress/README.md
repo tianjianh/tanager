@@ -111,3 +111,26 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
 ## Run s8: d2 from p3, one pass between D4's steps 2 and 4
 
 Load 12:16:44 UTC, 2026-10-19. Pass 1 was clean in 127 s. Then the run was stopped with `q` for step 4, which reboots the A53: "STRESS stop after pass 1, fails=0", `boot exit 0`. `k26-starter-kits` was back at 12:22:45 ([`linux_shell_stress_s8.txt`](linux_shell_stress_s8.txt), monitor [`stress_monitor_s8.txt`](stress_monitor_s8.txt), run log [`stress_s8.txt`](stress_s8.txt)). The next run, s9, started after step 4, at 12:31:05.
+
+## Run s9: d2 from p3, between D4's steps 4 and 5
+
+Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check went into the A53's boot script. **7 of 7 passes clean** ([`linux_shell_stress_s9.txt`](linux_shell_stress_s9.txt), monitor [`stress_monitor_s9.txt`](stress_monitor_s9.txt), run log [`stress_s9.txt`](stress_s9.txt)).
+- **Numbers:** 127.4 s per pass. Memory 98.00 MiB/s on average, but pass 6 read 95.18. It ran while the laptop was copying step 5's package to the A53, and every pass was still `ok=1`.
+- **The boot:** no sdhci, taint or ttyPS0 line, as in s7.
+- **How it ended:** stopped with `q` at 12:48 for step 5: "STRESS stop after pass 7, fails=0", `boot exit 0`. `k26-starter-kits` was back at 12:49:56. The next run, s10, started after step 5, at 12:53:29.
+
+## Runs s10 to s12: d2 from p3, around D4's step 6
+
+- **s10:** load 12:53:29 UTC. Pass 1 was clean in 128 s. Then the run was stopped with `q` for step 6 ("STRESS stop after pass 1, fails=0", `boot exit 0`; [`linux_shell_stress_s10.txt`](linux_shell_stress_s10.txt), [`stress_monitor_s10.txt`](stress_monitor_s10.txt), [`stress_s10.txt`](stress_s10.txt)).
+- **s11:** load 13:20:32, after step 6's first attempt. Pass 1 clean (127 s), then stopped with `q` at 13:26 for step 6's diagnostic ("STRESS stop after pass 1, fails=0"; [`linux_shell_stress_s11.txt`](linux_shell_stress_s11.txt), [`stress_monitor_s11.txt`](stress_monitor_s11.txt), [`stress_s11.txt`](stress_s11.txt)).
+- **s12:** from 13:51:18, after the diagnostic found that d4s1 (m6's configuration) can't run Linux, which keeps the stress on d2.
+
+## Runs s12 to s14: d2 and the fixed d4s2, around D4's step 6 pass
+
+- **s12 (d2):** load 13:51:20 UTC. **28 of 28 passes clean** in about 1 h 4 min, at 127.4 s per pass (cpu 78.96 events/s, memory 98.52 MiB/s, threads 1,518 events). The regulator: PL die 34.4–34.9 °C. Stopped with `q` at 14:54 for d4s2 ([`linux_shell_stress_s12.txt`](linux_shell_stress_s12.txt), [`stress_monitor_s12.txt`](stress_monitor_s12.txt), [`stress_s12.txt`](stress_s12.txt)).
+- **s13 (d4s2, M6's configuration with core-2's micro-BTB fix):** load 14:55:30 UTC, the first Linux on M6's configuration that doesn't panic. **15 of 15 passes clean** in 32 minutes ([`linux_shell_stress_s13.txt`](linux_shell_stress_s13.txt), [`stress_monitor_s13.txt`](stress_monitor_s13.txt), [`stress_s13.txt`](stress_s13.txt)).
+  - **Faster than d2 on the same kernel, initrd, tree and load:** 115.0 s per pass against 127.4; cpu 93.83 events/s against 78.96 (+19%); memory 114.60 MiB/s against 98.52 (+16%); threads 2,323 events against 1,518 (+53%).
+  - Its boot reached the stress at 142 s of uptime, against about 194 s on d2.
+  - The regulator: PL die 34.4–34.9 °C, duty 15–25/255.
+  - Stopped with `q` at 15:25 for step 6 ("STRESS stop after pass 15, fails=0").
+- **s14 (d2):** from 15:42:17, after step 6 passed on d4s2.

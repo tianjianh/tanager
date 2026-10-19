@@ -1,0 +1,24 @@
+# D4 step 6's diagnostic on COM7 (the SoC track's lines, 10-19): stop U-Boot d4's autoboot (its banner first, so the
+# A53's own U-Boot 2023.01 countdown is never touched), then the by-hand boot with the 8250 early console on COM5.
+expect|U-Boot 2026\.07|900
+expect|Hit any key to stop autoboot|60
+send|
+expect|=> |30
+send|setenv bootargs "root=LABEL=tanager-root console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 rw ignore_loglevel"
+expect|=> |30
+send|mmc info
+expect|=> |60
+send|load mmc 0:3 ${kernel_addr_r} /boot/vmlinux-6.12.113+deb13-riscv64
+expect|bytes read|900
+expect|=> |30
+send|crc32 ${kernel_addr_r} ${filesize}
+expect|=> |600
+send|load mmc 0:3 ${ramdisk_addr_r} /boot/initrd.img-6.12.113+deb13-riscv64
+expect|bytes read|900
+expect|=> |30
+send|setenv rd_size ${filesize}
+expect|=> |30
+send|crc32 ${ramdisk_addr_r} ${filesize}
+expect|=> |600
+send|booti ${kernel_addr_r} ${ramdisk_addr_r}:${rd_size} ${fdtcontroladdr}
+expect|Starting kernel|120
