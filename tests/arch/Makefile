@@ -12,9 +12,11 @@
 CFG    ?= st
 CORE   ?= core
 JOBS   ?= 8
-ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc)
+# The core's configuration follows its PMP entries (DR-167; PMP_RTL, sim/profile.mk): 8 usable of 16 with -p8
+ACTCFG ?= $(if $(filter tcore,$(CORE)),tcore-rv64im,core-m3-rv64imafdc$(if $(filter 8,$(PMP_RTL)),-p8))
 
-ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../..)
+ARCH_MK := $(lastword $(MAKEFILE_LIST))
+ROOT := $(abspath $(dir $(ARCH_MK))/../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 include $(ROOT)/sim/profile.mk
@@ -32,6 +34,14 @@ MAKEOVERRIDES :=
 # The Spike configuration of this ACT4 configuration (its test_config.yaml's `# spike:` line): the
 # lockstep checker in tg_vsim and the replaying Spike both use it. SIMARGS can override it.
 SPIKE_ARGS := $(shell sed -n 's/^\# spike: //p' $(CONFIG))
+# Its PMP regions must be the core's PMP entries (DR-167): tg_vsim refuses any other --pmp, so say it once here
+ACT_PMP  := $(patsubst --pmp=%,%,$(filter --pmp=%,$(SPIKE_ARGS)))
+CORE_PMP := $(if $(filter tcore,$(CORE)),0,$(PMP_RTL))
+ifneq ($(filter run,$(or $(MAKECMDGOALS),run)),)
+  ifneq ($(filter-out $(CORE_PMP),$(ACT_PMP)),)
+    $(error ACT4 configuration $(ACTCFG) is for $(ACT_PMP) PMP entries, but this $(CORE) has $(CORE_PMP) (DR-167): leave ACTCFG to its default or build the core with PMP_ENTRIES=$(ACT_PMP))
+  endif
+endif
 
 # Test plans generated with testgen (the other privileged suites are committed upstream and copied):
 # every plan a Tanager core could need through F/D; act then selects the tests that apply to the
@@ -63,7 +73,7 @@ replay: elfs
 CFG_FILES := $(wildcard $(ROOT)/tests/arch/config/$(ACTCFG)/*) $(ROOT)/tests/arch/config/link.ld \
              $(ROOT)/tests/arch/config/tanager_rvmodel.h
 elfs: $(WORK)/$(ACTCFG)/.elfs
-$(WORK)/$(ACTCFG)/.elfs: $(lastword $(MAKEFILE_LIST)) $(CFG_FILES)
+$(WORK)/$(ACTCFG)/.elfs: $(ARCH_MK) $(CFG_FILES)
 	@rm -rf $(WORK)/$(ACTCFG)/elfs
 	$(gen_tests)
 	cd $(ARCH_TEST) && $(VENV)/bin/act $(CONFIG) --workdir $(WORK) --test-dir $(TESTS) --jobs $(JOBS) \
