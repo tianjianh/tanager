@@ -2,7 +2,7 @@
 # cache lines with AMOs and LR/SC loops, all leaving the boot ROM in the same cycle, as OpenSBI's boot
 # lottery does on the board. Each program checks itself, the cycle limit catches a hang, and
 # tanager-lockstep checks every hart against Spike.
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/coherence [CFG=st|smt2] [N=40] [SEED=1] [MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race] [LAT=default]
 #                           [LOCKSTEP=1] [L2_SETS=1024] [HDMA=0|1]
 #   make -C tests/coherence gen SEED=1 [MODE=lottery] [HARTS=0,1]    one program to stdout
@@ -52,7 +52,7 @@ run:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/tests/unit/boot build CFG=$(CFG) CORES=2 VTHREADS=1 JOBS=$(JOBS) $(TC_ARG) \
 	  $(if $(L2TAG),TAG=$(L2TAG) MEM_PARAMS="$(TBPARAMS)")
 	$(if $(filter 1,$(LOCKSTEP)),@$(MAKE) --no-print-directory -s -C $(ROOT)/sim lockstep)
-	python3 $(ROOT)/tests/coherence/run_coh.py --tb $(TB) $(if $(filter 1,$(LOCKSTEP)),--lockstep $(LS)) \
+	python3 $(ROOT)/tests/coherence/run_coh.py --tb $(TB) $(if $(filter 1,$(LOCKSTEP)),--lockstep $(LS) --pmp $(PMP_RTL)) \
 	  --harts $(HARTS) --modes $(MODES) --lat $(LAT) --max-mcycles 1 --n $(N) --seed $(SEED) --jobs $(JOBS) \
 	  --workdir $(WORK) --name "coherence $(CFG)$(TC_SUFFIX), L2 $(L2_SETS) sets$(if $(filter 1,$(HDMA)), with the host-DMA model)"
 

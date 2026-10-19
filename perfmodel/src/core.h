@@ -84,6 +84,7 @@ struct Uop {
   uint8_t state = 0;                  // 0 decoded, 1 dispatched (waiting), 2 issued
   uint64_t t_disp_ok = 0, t_eligible = 0, t_issue = NEVER, t_ready = NEVER, t_done = NEVER, t_ag = NEVER;
   bool is_ctrl = false, mispred = false, resolved = false, has_ckpt = false, sfb_cmp = false, sfb_sel = false;
+  uint64_t t_res = NEVER;             // a control op: when it resolved (mp_wait_cycles)
   bool fused_br = false;
   uint8_t mp_kind = 0;
   Hist hist;
@@ -116,7 +117,7 @@ struct SqEntry {
   X(cycles) X(instr) X(uops)                                                                       \
   X(br_cond) X(br_jal) X(br_jalr) X(br_ret)                                                        \
   X(mp_dir) X(mp_target) X(mp_ret) X(mp_cold) X(mp_resolved_exec) X(mp_resolved_commit)            \
-  X(mp_refills) X(mp_refill_cycles)                                                                \
+  X(mp_refills) X(mp_refill_cycles) X(mp_wait_cycles)                                              \
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
   X(fetch_blocks) X(ftq_full)                                                                      \
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \

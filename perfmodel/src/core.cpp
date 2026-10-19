@@ -1296,6 +1296,7 @@ void Core::resolve_branch(Uop& u, uint64_t when) {
   const bool ck = u.has_ckpt;
   if (ck) { T.ckpt_used--; u.has_ckpt = false; }
   if (!u.mispred) return;
+  u.t_res = when;
   if (ck) {
     u.resolved = true;
     T.fe_blocked = false;
@@ -1693,6 +1694,7 @@ void Core::retire(Uop& u, bool early) {
         T.fe_blocked = false;
         T.fe_resume = std::max(T.fe_resume, t_ + (uint64_t)c_.commit_redirect);
         T.st.mp_resolved_commit++;
+        if (u.t_res != NEVER) T.st.mp_wait_cycles += t_ - u.t_res;  // resolve to commit: checkpoints' bound
         T.refill_from = t_;
         T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
         T.fe_wait_mp = false;

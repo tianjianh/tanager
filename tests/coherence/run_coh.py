@@ -34,6 +34,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--tb", required=True, help="tb_boot built with CORES=2")
     ap.add_argument("--lockstep", default="", help="tanager-lockstep (this host's build); none: no lockstep")
+    ap.add_argument("--pmp", type=int, default=None,
+                    help="the PMP entries tb_boot's core was built with (DR-167), for lockstep's Spike; default: "
+                         "tanager-lockstep's, the package default of the tree it was built from")
     ap.add_argument("--modes", default="mix", help="gen_coh modes, comma-separated, rotated over the seeds")
     ap.add_argument("--harts", default="0,1", help="the harts that take part (gen_coh --harts; 0,2 or 0,1,2,3 on smt2)")
     ap.add_argument("--lat", default="default", help="DDR timing: default (the build's), fixed, jitter, board")
@@ -111,7 +114,9 @@ def main():
         else:
             nharts = max(int(h) for h in a.harts.split(",")) + 1
             nharts = 2 if nharts <= 2 else 4
-            rc, lout = run([a.lockstep, f"--fw={base}.bin", f"--harts={nharts}", "--stats=0", base + ".trace"], a.timeout)
+            pmp = [f"--pmp={a.pmp}"] if a.pmp is not None else []
+            rc, lout = run([a.lockstep, f"--fw={base}.bin", f"--harts={nharts}", *pmp, "--stats=0", base + ".trace"],
+                           a.timeout)
             with open(base + ".log", "a") as f:
                 f.write("\n---- tanager-lockstep ----\n" + lout)
             if rc == 0 and " PASS after " in lout:

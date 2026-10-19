@@ -48,25 +48,34 @@ export CCACHE_SLOPPINESS :=
 # Spike's default ISA and privilege modes for each core (verification.md §3.2). The core track
 # widens ISA/PRIV as features land; --isa and --priv override them per run. They come from this
 # make's command line or these defaults, never from the environment: a runner's own ISA variable
-# (tests/random: the generator's ISA) reaches the environment of its sub-makes.
+# (tests/random: the generator's ISA) reaches the environment of its sub-makes. Spike's PMP regions
+# are the core's PMP entries (DR-167): the model reports them, and PMP_TB is what sim/profile.mk read
+# from the package, which the model checks at every run (TG_TB_PMP_RTL).
 $(foreach v,ISA PRIV PMP,$(if $(filter environment,$(origin $(v))),$(eval undefine $(v))))
 ifeq ($(CORE),tcore)
   ISA  ?= rv64im_zicsr_zicntr_zifencei
   PRIV ?= MU
-  PMP  ?= 0
+  PMP_TB := 0
   CORE_TOP := tg_tcore
   CORE_F   := -F $(ROOT)/rtl/common/common.f -F $(ROOT)/sim/tcore/tcore.f
   CORE_DEF := +define+TG_TCORE
 else ifeq ($(CORE),core)
   ISA  ?= rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs
   PRIV ?= MSU
-  PMP  ?= 16
+  PMP_TB := $(PMP_RTL)
   CORE_TOP := tg_core
   CORE_F   := -F $(ROOT)/rtl/rtl.f
   CORE_DEF :=
 else
   $(error unknown CORE=$(CORE) (core or tcore))
 endif
+# PMP=N, Spike's regions before DR-167, is accepted only where it names the core's count
+ifneq ($(PMP),)
+  ifneq ($(PMP),$(PMP_TB))
+    $(error PMP=$(PMP): Spike's PMP regions are the core's PMP entries since DR-167 ($(PMP_TB) for this build); PMP_ENTRIES=8|16 sets the core's)
+  endif
+endif
+PMP_DEF := +define+TG_TB_PMP_RTL=$(PMP_TB) $(if $(PMP_PKG_HAS),+define+TG_TB_PKG_PMP)
 
 RTL_CFG := $(ROOT)/rtl/common/cfg/tg_cfg_$(CFG).sv
 SRCS    := main.cpp tb_dpi.cpp tlmodels.cpp elfload.cpp lockstep.cpp
@@ -74,13 +83,13 @@ HDRS    := $(wildcard $(ROOT)/sim/src/*.h)
 SV      := $(shell find $(ROOT)/rtl $(ROOT)/sim -name '*.sv' -o -name '*.f')
 
 CXXFLAGS_TB := -std=c++20 -O2 -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include \
-               -DTG_DEFAULT_ISA=\\\"$(ISA)\\\" -DTG_DEFAULT_PRIV=\\\"$(PRIV)\\\" -DTG_DEFAULT_PMP=$(PMP) -DTG_CORE_NAME=\\\"$(CORE_TOP)\\\"
+               -DTG_DEFAULT_ISA=\\\"$(ISA)\\\" -DTG_DEFAULT_PRIV=\\\"$(PRIV)\\\" -DTG_CORE_NAME=\\\"$(CORE_TOP)\\\"
 LDFLAGS_TB  := -L$(SPIKE_ROOT)/lib -Wl,-rpath,$(SPIKE_ROOT)/lib -lriscv
 
 VFLAGS := --cc --exe --build -j $(JOBS) --top-module tg_tb_top -O3 --assert \
           --x-assign unique --x-initial unique --trace-fst --trace-structs \
           -Wall -Wno-fatal -Wno-MULTITOP -Wno-DECLFILENAME $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-          -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) \
+          -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(PMP_DEF) \
           -MAKEFLAGS "OPT_FAST=-O2 OPT_SLOW=-O1 OPT_GLOBAL=-O2" \
           -CFLAGS "$(CXXFLAGS_TB)" -LDFLAGS "$(LDFLAGS_TB)" $(if $(COV),--coverage-line --coverage-expr $(BUILD)/cov.vlt)
 
@@ -110,14 +119,22 @@ $(BUILD)/tg_vsim: $(SV) $(addprefix $(ROOT)/sim/src/,$(SRCS)) $(HDRS) $(ROOT)/si
 
 lint:
 	$(VERILATOR) --lint-only -Wall -Wno-MULTITOP --top-module tg_tb_top $(ROOT)/sim/tb/tb.vlt $(ROOT)/sim/tcore/tcore.vlt $(ROOT)/rtl/lint.vlt \
-	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
+	  -I$(ROOT)/rtl/common $(CORE_DEF) $(TC_DEF) $(PMP_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) $(CORE_F) $(ROOT)/sim/tb/tg_tb_top.sv
 	@echo "sim lint OK: $(CFG) $(CORE)"
+
+# The PMP regions tg_replay and tanager-lockstep default to (DR-167): the package's default PMP entries
+# (PMP_DEFAULT, sim/profile.mk), in a header rewritten only when that count changes, so they rebuild then.
+# A build with PMP_ENTRIES forced keeps them on the default; their runs name another count with --pmp.
+PMP_HDR := $(BUILD_ROOT)/gen/tg_pmp_default.h
+$(PMP_HDR): $(wildcard $(PMP_PKG_FILE)) $(ROOT)/sim/profile.mk
+	@mkdir -p $(dir $@)
+	@echo '#define TG_DEFAULT_PMP $(PMP_DEFAULT)' > $@.$$$$ && { cmp -s $@.$$$$ $@ && rm -f $@.$$$$ || mv -f $@.$$$$ $@; }
 
 REPLAY := $(BUILD_ROOT)/replay/tg_replay
 replay: $(REPLAY)
-$(REPLAY): $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/src/elfload.cpp $(HDRS)
+$(REPLAY): $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/src/elfload.cpp $(HDRS) $(PMP_HDR)
 	@mkdir -p $(dir $@)
-	$(CXX) -std=c++20 -O2 -g -Wall -Wextra -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include \
+	$(CXX) -std=c++20 -O2 -g -Wall -Wextra -I$(ROOT)/sim/src -I$(SPIKE_ROOT)/include -include $(PMP_HDR) \
 	  $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/src/elfload.cpp \
 	  -o $@ $(LDFLAGS_TB)
 	@echo "built $@"
@@ -126,13 +143,13 @@ $(REPLAY): $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/s
 LS_SRCS := $(addprefix $(ROOT)/sim/src/,tanager_lockstep.cpp lockstep.cpp elfload.cpp)
 LS_DIR  := $(BUILD_ROOT)/lockstep
 LS_HDR  := $(LS_DIR)/tanager_bootrom.h
-LS_DEFS := -DTG_DEFAULT_ISA=\"$(ISA)\"
+LS_DEFS := -DTG_DEFAULT_ISA=\"$(ISA)\" -include $(PMP_HDR)
 $(LS_HDR): $(ROOT)/rtl/uncore/bootrom/tg_bootrom_img_pkg.sv $(ROOT)/sim/src/gen_bootrom_h.py
 	@mkdir -p $(LS_DIR)
 	python3 -I $(ROOT)/sim/src/gen_bootrom_h.py $< > $@
 
 lockstep: $(LS_DIR)/tanager-lockstep
-$(LS_DIR)/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR)
+$(LS_DIR)/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR)
 	$(CXX) -std=c++20 -O2 -Wall -Wextra -I$(ROOT)/sim/src -I$(LS_DIR) -I$(SPIKE_ROOT)/include $(LS_DEFS) \
 	  $(LS_SRCS) -o $@ $(LDFLAGS_TB)
 	@echo "built $@"
@@ -172,7 +189,7 @@ $(A64_SPIKE)/install/lib/libriscv.a: $(SPIKE_TAR) | $(A64_TC)/$(A64_TRIP)-g++
 	rm -rf $(A64_SPIKE)/build $(A64_SPIKE)/src
 
 lockstep-aarch64: $(LS_DIR)/aarch64/tanager-lockstep
-$(LS_DIR)/aarch64/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(A64_SPIKE)/install/lib/libriscv.a
+$(LS_DIR)/aarch64/tanager-lockstep: $(LS_SRCS) $(HDRS) $(LS_HDR) $(PMP_HDR) $(A64_SPIKE)/install/lib/libriscv.a
 	@mkdir -p $(dir $@)
 	$(A64_TC)/$(A64_TRIP)-g++ -std=c++20 -O2 -Wall -Wextra -static -I$(ROOT)/sim/src -I$(LS_DIR) \
 	  -I$(A64_SPIKE)/install/include \

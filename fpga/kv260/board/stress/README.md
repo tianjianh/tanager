@@ -82,3 +82,17 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
   - p3 was left with `needs_recovery`: `e2fsck -p` replayed its journal, and `e2fsck -fn` passed clean;
   - `fancontrol` was active, and `k26-starter-kits` was loaded.
 - **Altogether at 100 MHz from p3:** s3, s4 and s5 make 479 clean passes, about 17.4 hours of two-core load, without a fault in the cores, the SoC or Linux. The three stops were external: a supply transient, a planned stop, and the board powered down at 12:55 (cause to confirm with the user).
+
+## Run s6: d2 from p3 again, after D4's part A
+
+**Setup:** the same as s5, on p3 just after D4's part A ([`../d4/`](../d4/)): the first stage C boot with part A's DKMS modules, initrd and getty. Load 03:41:25 UTC, 2026-10-19. Pass 1 was clean in 128 s.
+
+**Result: 147 of 147 passes clean over 5 h 18 min** ([`linux_shell_stress_s6.txt`](linux_shell_stress_s6.txt), monitor [`stress_monitor_s6.txt`](stress_monitor_s6.txt), run log [`stress_s6.txt`](stress_s6.txt)).
+- **Steady numbers:** 127.4 s per pass (127–132 s); sysbench on two threads: cpu 78.87 events/s, memory 98.49 MiB/s, threads 1,518 events. The same as s5's.
+- **No trouble:** no `STRESS FAIL` or `STRESS DMESG` line, and no oops, BUG, panic, RCU stall, lockup or hung task.
+- **The fan:** `fancontrol` at 15–33/255 (the A53's AMS at 34–35 °C). The regulator's 11 samples: PL die 33.9–34.9 °C, duty 15–33/255.
+- **Part A's two side effects showed on its console:**
+  - `sdhci_of_arasan: module verification failed … tainting kernel` at 51.7 s: the initramfs loaded the module in every boot;
+  - the `dev-ttyPS0.device` job waited 1 min 31 s for a UART that stage C doesn't have;
+  - the SoC track's fix for both ran next ([`../d4/README.md`](../d4/README.md), part A's fix).
+- **How it ended:** stopped on purpose with `q` just before 09:00 UTC, for the fix's boot. The guest finished pass 147 ("STRESS stop after pass 147, fails=0") and powered off (`boot exit 0`, 19,130 s after the load). `k26-starter-kits` was back at 09:00:19.

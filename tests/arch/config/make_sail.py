@@ -57,10 +57,11 @@ REGIONS = [
 ALL_OFF = ["A", "F", "D", "S", "H", "B", "V"]  # extensions with a "supported" flag in "extensions"
 
 
-def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False):
+def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False, usable=None):
     """Common Tanager settings. `zexts`: the Z* and S* extensions that are supported; `letters`: the
     single-letter extensions among A, B, M, F, D (C follows Zca); `mutable`: the misa bits software may
-    clear, as in Spike (its write mask is M, A, B, C, F, D, Q, H, V within the ISA)."""
+    clear, as in Spike (its write mask is M, A, B, C, F, D, Q, H, V within the ISA); `usable`: the PMP
+    entries that work, the rest of the `pmp` implemented ones reading zero (default: all)."""
     b = c["base"]
     # mcountinhibit: CY and IR (and the HPM counters when they exist); bit 1 is read-only zero
     b["mcountinhibit"] = {"supported": True, "writable_bits": {"len": 32, "value": "0xFFFF_FFFD" if hpm else "0x0000_0005"}}
@@ -83,7 +84,7 @@ def tanager(c, *, user, sup, pmp, zexts, letters="M", mutable="", hpm=False):
         b["mideleg"]["delegatable_bits"] = {"len": "xlen", "value": "0x222"}
     m = c["memory"]
     m["physaddr_bits"] = 34
-    m["pmp"] = {"grain": 0, "count": pmp, "usable_count": pmp, "tor_supported": pmp > 0,
+    m["pmp"] = {"grain": 0, "count": pmp, "usable_count": pmp if usable is None else usable, "tor_supported": pmp > 0,
                 "na4_supported": pmp > 0, "napot_supported": pmp > 0}
     # Misaligned accesses trap with address-misaligned, AMOs and LR/SC included (Spike without Zicclsm).
     for k in ("load_store", "amo", "lrsc"):
@@ -144,15 +145,21 @@ def core_m3(c):
     return tanager(c, user=True, sup=True, pmp=16, zexts=M3_Z, letters="MAB", mutable="MABC", hpm=True)
 
 
-def core_m3_fd(c):
+def core_m3_fd(c, usable=None):
     """tg_core at M3 with F/D (plan §11): the plan's day-one ISA, RV64IMAFDC with Zcd; misa F and D
     are writable too, as in Spike."""
     return tanager(c, user=True, sup=True, pmp=16, zexts=M3_Z + ("Zcd",), letters="MABFD", mutable="MABCFD",
-                   hpm=True)
+                   hpm=True, usable=usable)
+
+
+def core_m3_fd_p8(c):
+    """The same with DR-167's 8 PMP entries (PMP_ENTRIES=8): the architecture's 16 implemented, 8 to 15
+    reading zero, as in Spike with --pmp=8."""
+    return core_m3_fd(c, usable=8)
 
 
 CONFIGS = {"tcore-rv64im": tcore, "core-m2-rv64im": core_m2, "core-m3-rv64imac": core_m3,
-           "core-m3-rv64imafdc": core_m3_fd}
+           "core-m3-rv64imafdc": core_m3_fd, "core-m3-rv64imafdc-p8": core_m3_fd_p8}
 
 
 def main():
