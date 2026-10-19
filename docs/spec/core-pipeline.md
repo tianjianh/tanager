@@ -19,7 +19,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 | Speculative load wakeup, shadow cancel | yes (M6, `SPEC_WAKE`, on by default): an integer load wakes its dependants at AG, and one that does not complete in M2 cancels the shadow (§6); no per-PC hit predictor | — |
 | Store address issued on its base alone | yes (M6, `STA_BASE`, on by default, DR-169): a store's IQ-STA row does not wait for its data register (§5.3; core-lsu.md, Stores) | — |
 | ALU-queue steering a group ahead | yes (M6, `STEER_LA`, on by default, DR-169): rename counts the bank row the group in DS is taking (§5.2) | — |
-| Ownership prefetch for stores | yes (M6, `STORE_PF`, on by default, DR-171): a store's line is requested with T when its address decides (core-lsu.md, Stores) | — |
+| Ownership prefetch for stores | yes (M6, `STORE_PF`, on by default, DR-171): a store's line is requested with T when its address decides, up to `STORE_PF_MAX` (3) in flight (core-lsu.md, Stores) | — |
 | Long-latency tags (LLTs), deferred-free hook | yes (loads and DIV/REM use LLTs; nothing retires early) | early retirement: M6 |
 | Register file, bypass, 1-cycle ALU (S3 RTL) | yes | — |
 | MUL 3 cycles pipelined; DIV iterative | yes (radix-2) | DIV on the Goldschmidt DSPs (R4): later |

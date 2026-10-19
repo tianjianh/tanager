@@ -164,6 +164,15 @@ package tg_core_pkg;
 `else
   localparam bit STORE_PF = 1'b1;
 `endif
+  // How many of those prefetches may be in flight at once, 2 or 3 (DR-171's follow-up): SMT2's 20-entry
+  // SQ holds about three lines of a store stream ahead of the drain, st's 12 about one and a half. A
+  // prefetch still takes an entry only with another to spare. TG_STORE_PF_MAX=2 gives two, cycle for
+  // cycle as before
+`ifdef TG_STORE_PF_MAX
+  localparam int STORE_PF_MAX = `TG_STORE_PF_MAX;
+`else
+  localparam int STORE_PF_MAX = 3;
+`endif
   // A store's address op issues on its base register alone (M6, DR-169): rename
   // leaves the store's data register out of its IQ-STA row's wakeup columns and MX rows. The SQ
   // entry captures the data when its register is written (core-lsu.md, Stores), and a load that
