@@ -31,6 +31,8 @@ The A53's Ubuntu hands the SD card, UART1 and the fan over to the RISC-V by rest
 
 ## Drivers: the user's call (the standard-SBC principle)
 
+**Chosen (DR-168, 10-18):** both modules, `sdhci-of-arasan` and the Cadence UART, built by `tanager-ps-dkms` from Debian's own source. D6's `dwc3` goes back to the user when D6 comes.
+
 - **The gap:** Debian's riscv64 kernel (6.12) has no driver for the PS's SD controller (the Arasan SDHCI: `CONFIG_MMC_SDHCI_OF_ARASAN` is not set) or its UART (the Cadence UART: `CONFIG_SERIAL_XILINX_PS_UART` is not set).
 - **`tanager-ps-dkms`** builds both from Debian's own `linux-source-6.12`, against Debian's own headers, and DKMS rebuilds them at each kernel update. The kernel stays Debian's; the two modules don't come from Debian's archive.
 - **The UART module isn't needed.** Without it, Debian's console stays on the PL UART, through Debian's built-in 8250 driver. The board session reaches it through `tanager-host` on the handover A53 over SSH. COM7 still shows OpenSBI, which has its own Cadence driver. Debian's SBI console (`hvc_riscv_sbi`) isn't built: it needs `NONPORTABLE`.

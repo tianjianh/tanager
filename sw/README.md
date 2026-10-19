@@ -36,11 +36,13 @@ public keys through bookworm (12).
   bookworm's own `debian-archive-keyring` from it (2023.3+deb12u2, which adds the trixie keys), unpacks it without
   running anything, and verifies trixie's and trixie-security's Release files with its keyring. apt checks every
   package against the signed indices, so nothing unverified enters the image.
-- **Handlers:** only `qemu-riscv64` is registered, with flags `POF` (the interpreter is opened at registration,
-  so it works inside mmdebstrap's user namespace), by `sudo /usr/lib/systemd/systemd-binfmt
-  /usr/lib/binfmt.d/qemu-riscv64.conf`. systemd-binfmt does not run in this WSL instance, so the other qemu
-  architectures' files in `/usr/lib/binfmt.d` stay unregistered, and after a WSL restart that command has to be
-  run again (`build_debian.sh` stops with this hint when the handler is missing).
+- **Handlers:** `qemu-riscv64` must be registered with flags `POF` (the interpreter is opened at registration,
+  so it works inside mmdebstrap's user namespace).
+  - On w-x299 (native Ubuntu, the build host since 10-18), systemd-binfmt registers qemu-user-static's handlers
+    at boot, `qemu-riscv64` among them with `POF`.
+  - Under the 5950X's WSL, systemd-binfmt didn't run. There only `qemu-riscv64` was registered, by hand, after
+    each WSL restart: `sudo /usr/lib/systemd/systemd-binfmt /usr/lib/binfmt.d/qemu-riscv64.conf`.
+    `build_debian.sh` still stops with that hint when the handler is missing.
 - **Undo:** `echo -1 | sudo tee /proc/sys/fs/binfmt_misc/qemu-riscv64`, then `sudo apt remove mmdebstrap
   qemu-user-static binfmt-support arch-test uidmap debian-archive-keyring`.
 

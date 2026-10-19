@@ -655,6 +655,17 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - `stage_d_prep.sh`, run inside the RISC-V's Debian in stage C, installs it, puts `sdhci-of-arasan` into the initrd (the root is on the card), and gives UART1 the PL UART's automatic login (the user `tanager` has no password).
         - Kconfig keeps a modular Cadence UART from being a console, so D4's kernel console stays on the PL UART (`console=ttyS0`, early output through the 8250), and UART1 carries the login.
       - **Still to come:** the board's live tree and `kexec-tools` on the A53; `stage_d_prep.sh` in stage C. Then the dry run, then the run.
+    - **The user chose both modules** (DR-168, 10-18): `stage_d_prep.sh` without `--sd-only`, run by the board session in stage C after stress s5's 24-hour status. The dry run and the run come the next day, in daytime.
+    - **Part A passed** (the board session, 10-18, `fpga/kv260/board/d4/`): `stage_d_prep.sh` in stage C, in about 50 minutes.
+      - apt installed 24 packages; the headers and `linux-source-6.12` are 6.12.113-1, from trixie-security.
+      - DKMS built and signed `sdhci-of-arasan` and `xilinx_uartps` into `updates/dkms`, with vermagic `6.12.113+deb13-riscv64` like the running kernel.
+      - The new initrd (42,092,093 bytes) has `sdhci-of-arasan`, `sdhci-pltfm`, `cqhci` and `mmc_block`.
+      - `serial-getty@ttyPS0` is enabled with the automatic login. Neither module loads in stage C.
+      - Part C takes `vmlinux-6.12.113+deb13-riscv64` (31,166,464 bytes) and that initrd.
+      - **Two side effects, fixed** (the board session's first stage C boot after part A).
+        - Listed in `/etc/initramfs-tools/modules`, `sdhci-of-arasan` loaded at every boot and tainted the kernel (an out-of-tree module, signed with DKMS's own key). An initramfs hook (`manual_add_modules`) now carries it instead, and udev loads it by modalias only where the tree has SD1.
+        - The enabled `serial-getty@ttyPS0` made every stage C boot wait 91 s for a missing device. A udev rule now starts it when ttyPS0 appears.
+        - `stage_d_prep.sh --config-only` applies both to the prepared `p3`. The taint remains in D4's own boots.
     - **The run sheet for the user** (the coordinator, 10-18): [soc-d4-runsheet.md](soc-d4-runsheet.md). It covers the steps, what the board session watches, the undo for each, where only a power cycle gets back, and the driver choice. Debian's kernel lacks both PS drivers. The UART module can be left out, with Debian's console on the PL UART. The SD module can't, so the minimum is one DKMS module built from Debian's own sources.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
@@ -713,6 +724,16 @@ The uncore's block RAM is at 18 of its 19, so the new FIFOs are LUTRAM. Timing r
 
 - **D-b instead of D-c:** an uncached route in the crossbar would cost 100–200 LUTs, but it needs an uncached PMA region in the core as well. Debian's kernel can't treat it as non-coherent DMA anyway.
 - **In the final v1** these compete with the 4-miss data cache and hart 1. A performance build without the commit trace frees 3,066 LUTs in the uncore alone (`TG_COMMIT_TRACE=0`, [budgets.md](../perf/budgets.md) §4), about the size of stages C and D together. A board build that keeps board lockstep keeps the trace.
+
+### 8.4 M6's board bitstream (10-19)
+
+Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-lite, the restructured F2, DR-169's rename levers) and four L1D misses. It uses d2's board configuration: smt2, two cores, 100 MHz, the virtio window and the host DMA port, the PS window, D2's fan regulator. It's built with ExploreArea (DR-166) and the 1.0 ns P&R margin (DR-160). The coordinator asked for it, to run M6 under Linux after D4; d2 stays D4's bitstream.
+
+- **With the commit trace:** it doesn't place. Synthesis gave 119,557 LUTs (102.1%), and after ExploreArea's opt the placer needed 10,150 CLBs of the 10,133 available, 17 short.
+- **Without it** (`TG_COMMIT_TRACE=0`, `m6_100n`): WNS +0.531 ns, WHS +0.010 ns at 100 MHz. 115,408 LUTs after synthesis and 109,206 placed (93.2%), in 68 minutes on w-x299.
+  - So there's no board lockstep on M6 until the trace has room: about 5.8K LUTs (1.47K a core plus the uncore's 2.9K stream), or 17 CLBs past today's limit. That's one of DR-167's questions.
+  - Package `m6-smt2-c2-100`, for after D4, with DR-141's set against d2's boots.
+- **No same-tree comparison for ExploreArea yet:** these are the first board builds of this tree, and both use it.
 
 ## Verification
 
