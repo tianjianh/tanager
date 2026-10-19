@@ -110,14 +110,19 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 ## 9. Sharing the build host
 
 **The hosts.**
-- **Build host (since 2026-10-18):** w-x299, `ssh home-wsl` (the alias kept its name so the sessions moved unchanged). Native Ubuntu 24.04, an i9-10980XE with 18 cores and 36 threads, 62 GB of RAM and 207 GB of free disk, on the home LAN; a reverse tunnel for access from outside comes later. Same user `w` and paths as before, so `~/tanager`, its worktrees, the tools in `~/opt` and Vivado 2025.2 in `~/Xilinx` moved as they were. The tracks work there in the Linux filesystem.
+- **Build host (since 2026-10-19):** w-arrowlake, `ssh home-wsl`, on the home LAN; a reverse tunnel for access from outside comes later.
+  - **The machine:** native Ubuntu 24.04.5 with kernel 7.0 on a Core Ultra 7 270K Plus: 8 P-cores (CPUs 0–7) and 16 E-cores (8–23), 24 threads, no SMT. It has 62 GB of RAM and a 457 GB NVMe.
+  - **Speed:** a Vivado job keeps about 2.5 threads busy, so per-thread speed sets a full chip's time. Vivado runs belong on the P-cores. Lint plus regress st take 1:41 there, against 3:36 on w-x299.
+  - **Same user `w` and paths as before:** `~/tanager`, its worktrees, the tools in `~/opt` and Vivado 2025.2 in `~/Xilinx` were copied as they were, over a direct 2.5 GbE cable in 11 minutes.
+- **2026-10-18 to 10-19:** w-x299 (an i9-10980XE, 18 cores and 36 threads, 62 GB). It is retired; `ssh w-x299` is for its cleanup only.
 - **Until 2026-10-18:** the 5950X's WSL (32 threads, 56 GB, about 100 GB of real disk behind the Windows drive). It was retired from Tanager for other work; it remains reachable as `old-5950x` (through gcvm) for its cleanup.
+- **Moving hosts:** switching the alias does not move running remote sessions. The app keeps its SSH bridge and every session's process on the old host. Once the tracks are idle and the final sync is done, kill the old host's remote session processes; the app reconnects through the alias by itself.
 - **Laptop:** 8 threads, 32 GB. For the coordinator and light work only.
 
 **Rules.**
 - **Memory is the binding limit (2026-10-14).**
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
-  - **The budget:** keep about 12 GB for the OS, sshd, the agent sessions and simulations; Vivado gets at most 50 GB declared on w-x299 (40 GB on the 5950X's 56 GB WSL; 24 GB before WSL went from 40 to 56 GB); builds, simulations and soak share the rest. Simulations can use `-j16` per track on 36 threads.
+  - **The budget:** keep about 12 GB for the OS, sshd, the agent sessions and simulations; Vivado gets at most 50 GB declared on the 62 GB hosts (w-arrowlake, and w-x299 before it; 40 GB on the 5950X's 56 GB WSL; 24 GB before WSL went from 40 to 56 GB); builds, simulations and soak share the rest. Simulations can use `-j16` per track.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
   - **Slots:** `TANAGER_VIVADO_SLOTS` is 8 on the build host (6 on the 5950X) and 1 on the laptop, set in `tools/env.sh`. The memory budget is the main limit; the slot count caps CPU use. Only the coordinator changes capacity live, through `.locks/vivado.slots` and `.locks/vivado.budget` in the build tree; jobs read them as they wait.
   - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
