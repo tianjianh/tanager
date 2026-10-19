@@ -1,5 +1,5 @@
 # Device trees for the Tanager platform (docs/spec/soc.md §4, §6).
-#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [BOOTARGS="..."]
+#   make -C sw/dts [O=<dir>] [CORES=2] [THREADS=1] [RUN_THREADS=$(THREADS)] [MEM=0x40000000] [FPU=1] [PMU=0] [VIRTIO=0] [UART1=0] [SD1=0] [INITRD=0] [BOARD_RESET=0] [UART1_STDOUT=1] [BOOTARGS="..."]
 # RUN_THREADS=1 with THREADS=2: an SMT2 build that runs thread 0 of each core (until M7, DR-147),
 # so the tree describes harts 0 and 2.
 # PMU=1 adds OpenSBI's riscv,pmu event map, so Linux's PMU driver can count cycles and instructions
@@ -16,7 +16,9 @@
 # Cadence UART only as our module, which Kconfig keeps from being a console (UART1 gets a getty instead).
 # INITRD=1 names the initrd window tanager-host load --initrd fills (0x8800_0000-0x8C00_0000) in /chosen.
 # BOARD_RESET=1 points reboot and poweroff at the board's reset, CRL_APB RESET_CTRL through the PS window, instead of
-# tanager-host's power register: D4's RISC-V mode, with UART1=1 SD1=1 (docs/spec/soc-d4-modes.md).
+# tanager-host's power register: D4's RISC-V mode, with UART1=1 UART1_STDOUT=0 SD1=1 (docs/spec/soc-d4-modes.md).
+# UART1_STDOUT=0 keeps the stdout path on the PL UART with UART1=1: Debian's kernel has no Cadence UART built in, so
+# its plain earlycon (the extlinux append's) finds a console only there.
 # Builds tanager-kv260.dtb and tanager-qemu.dtb for one configuration into O.
 O       ?= $(SOC_BUILD)/dts
 CORES   ?= 2
@@ -30,6 +32,7 @@ UART1   ?= 0
 SD1     ?= 0
 INITRD  ?= 0
 BOARD_RESET ?= 0
+UART1_STDOUT ?= 1
 ifeq ($(SD1),1)
 BOOTARGS ?= console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 root=LABEL=tanager-root rootwait
 else ifeq ($(UART1),1)
@@ -40,7 +43,7 @@ endif
 DTC     ?= dtc
 CPP     ?= cpp
 
-DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) \
+DEFS := -DTG_NUM_CORES=$(CORES) -DTG_NUM_THREADS=$(THREADS) -DTG_RUN_THREADS=$(RUN_THREADS) -DTG_MEM_SIZE=$(MEM) -DTG_FPU=$(FPU) -DTG_PMU=$(PMU) -DTG_VIRTIO=$(VIRTIO) -DTG_UART1=$(UART1) -DTG_SD1=$(SD1) -DTG_INITRD=$(INITRD) -DTG_BOARD_RESET=$(BOARD_RESET) -DTG_UART1_STDOUT=$(UART1_STDOUT) \
         -DTG_BOOTARGS='"$(BOOTARGS)"'
 
 .PHONY: all clean

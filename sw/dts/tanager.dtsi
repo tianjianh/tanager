@@ -10,6 +10,8 @@
 //   TG_PMU (0|1)                                1 adds the riscv,pmu node (the bench image, DR-141)
 //   TG_UART1 (0|1)                              1 adds the PS's UART1 through the PS window as the stdout
 //                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
+//   TG_UART1_STDOUT (0|1)                       with TG_UART1, 0 keeps the stdout path on the PL UART (D4's
+//                                               RISC-V mode: Debian's plain earlycon follows it; default 1)
 //   TG_SD1 (0|1)                                1 adds the PS's SD1 through the PS window (stage D's D4)
 //   TG_INITRD (0|1)                             1 names tanager-host's initrd window in /chosen (D4)
 //   TG_BOARD_RESET (0|1)                        1 points reboot and poweroff at the board's reset, CRL_APB
@@ -32,6 +34,9 @@
 #endif
 #ifndef TG_BOARD_RESET
 #define TG_BOARD_RESET 0
+#endif
+#ifndef TG_UART1_STDOUT
+#define TG_UART1_STDOUT 1
 #endif
 
 #if TG_FPU
@@ -348,7 +353,7 @@
 		linux,initrd-start = <0x0 0x88000000>;
 		linux,initrd-end = <0x0 0x8c000000>;
 #endif
-#if TG_UART1
+#if TG_UART1 && TG_UART1_STDOUT
 		stdout-path = "/soc/serial@ff010000";
 #else
 		stdout-path = "/soc/serial@10000000";
