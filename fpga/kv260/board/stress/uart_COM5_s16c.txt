@@ -1,0 +1,68 @@
+﻿
+===== COM5 logger (reopening) started 2026-10-19T12:02:48.5271435-07:00 =====
+
+===== COM5 opened 2026-10-19T12:02:48.5383483-07:00 =====
+STRESS pass 1 ok=1 fails=0 320s cpu2=93.40 mem2=112.38 thr2=2309 up=274.31 load=2.25 1.84 0.83
+STRESS pass 2 ok=1 fails=0 116s cpu2=56.37 mem2=78.02 thr2=706 up=392.40 load=3.02 2.23 1.10
+STRESS pass 3 ok=1 fails=0 125s cpu2=71.46 mem2=76.09 thr2=823 up=519.04 load=3.25 2.54 1.35
+STRESS pass 4 ok=1 fails=0 125s cpu2=51.96 mem2=106.32 thr2=2298 up=644.77 load=2.47 2.54 1.51
+STRESS pass 5 ok=1 fails=0 117s cpu2=93.47 mem2=112.54 thr2=2306 up=762.46 load=1.98 2.30 1.56
+STRESS pass 6 ok=1 fails=0 116s cpu2=93.55 mem2=112.34 thr2=2310 up=880.14 load=1.97 2.18 1.60
+STRESS pass 7 ok=1 fails=0 117s cpu2=90.53 mem2=112.46 thr2=2302 up=997.79 load=1.90 2.05 1.63
+STRESS pass 8 ok=1 fails=0 117s cpu2=93.47 mem2=112.34 thr2=2306 up=1115.54 load=1.96 2.01 1.67
+STRESS pass 9 ok=1 fails=0 116s cpu2=93.49 mem2=112.34 thr2=2308 up=1233.20 load=1.91 1.95 1.68
+STRESS pass 10 ok=1 fails=0 117s cpu2=93.52 mem2=112.13 thr2=2296 up=1350.88 load=1.98 1.95 1.72
+STRESS pass 11 ok=1 fails=0 117s cpu2=93.49 mem2=112.02 thr2=2304 up=1468.59 load=1.92 1.91 1.73
+STRESS pass 12 ok=1 fails=0 116s cpu2=93.50 mem2=112.28 thr2=2304 up=1586.30 load=1.97 1.92 1.76
+STRESS pass 13 ok=1 fails=0 116s cpu2=93.44 mem2=112.38 thr2=2300 up=1703.98 load=2.07 1.94 1.79
+STRESS pass 14 ok=1 fails=0 117s cpu2=93.49 mem2=112.29 thr2=2300 up=1821.65 load=1.89 1.91 1.80
+STRESS pass 15 ok=1 fails=0 116s cpu2=93.47 mem2=112.47 thr2=2317 up=1939.27 load=1.98 1.93 1.82
+STRESS pass 16 ok=1 fails=0 117s cpu2=93.51 mem2=112.48 thr2=2307 up=2056.91 load=2.04 1.94 1.84
+STRESS pass 17 ok=1 fails=0 117s cpu2=93.51 mem2=112.43 thr2=2300 up=2174.60 load=1.96 1.93 1.84
+STRESS pass 18 ok=1 fails=0 116s cpu2=93.45 mem2=112.45 thr2=2302 up=2292.29 load=1.88 1.90 1.84
+STRESS pass 19 ok=1 fails=0 117s cpu2=93.47 mem2=112.49 thr2=2305 up=2409.98 load=1.95 1.91 1.85
+STRESS pass 20 ok=1 fails=0 117s cpu2=93.50 mem2=112.05 thr2=2306 up=2527.64 load=1.87 1.89 1.85
+STRESS pass 21 ok=1 fails=0 116s cpu2=93.53 mem2=112.45 thr2=2304 up=2645.37 load=1.95 1.91 1.86
+STRESS pass 22 ok=1 fails=0 116s cpu2=93.50 mem2=112.21 thr2=2306 up=2763.03 load=1.95 1.91 1.87
+STRESS pass 23 ok=1 fails=0 117s cpu2=93.40 mem2=112.46 thr2=2296 up=2880.67 load=2.08 1.98 1.91
+STRESS pass 24 ok=1 fails=0 116s cpu2=93.46 mem2=112.44 thr2=2308 up=2998.31 load=1.97 1.95 1.91
+STRESS pass 25 ok=1 fails=0 116s cpu2=93.45 mem2=112.34 thr2=2309 up=3115.96 load=1.97 1.95 1.92
+STRESS pass 26 ok=1 fails=0 117s cpu2=93.42 mem2=112.32 thr2=2304 up=3233.62 load=1.96 1.93 1.91
+STRESS pass 27 ok=1 fails=0 116s cpu2=93.40 mem2=112.51 thr2=2304 up=3351.28 load=1.98 1.95 1.92
+STRESS pass 28 ok=1 fails=0 117s cpu2=93.44 mem2=112.29 thr2=2302 up=3468.96 load=1.88 1.92 1.91
+STRESS pass 29 ok=1 fails=0 117s cpu2=93.47 mem2=112.27 thr2=2310 up=3586.65 load=1.99 1.94 1.92
+STRESS pass 30 ok=1 fails=0 116s cpu2=93.48 mem2=112.47 thr2=2307 up=3704.33 load=1.88 1.91 1.91
+STRESS pass 31 ok=1 fails=0 116s cpu2=93.51 mem2=112.47 thr2=2303 up=3822.00 load=1.95 1.92 1.91
+STRESS pass 32 ok=1 fails=0 117s cpu2=93.49 mem2=112.33 thr2=2302 up=3939.68 load=2.02 1.92 1.92
+STRESS pass 33 ok=1 fails=0 116s cpu2=93.47 mem2=112.42 thr2=2305 up=4057.41 load=1.97 1.93 1.92
+STRESS pass 34 ok=1 fails=0 116s cpu2=93.53 mem2=112.43 thr2=2303 up=4175.17 load=1.90 1.89 1.91
+STRESS pass 35 ok=1 fails=0 117s cpu2=93.41 mem2=112.39 thr2=2300 up=4292.81 load=1.96 1.91 1.91
+STRESS pass 36 ok=1 fails=0 117s cpu2=93.52 mem2=112.15 thr2=2312 up=4410.53 load=1.89 1.88 1.91
+STRESS pass 37 ok=1 fails=0 116s cpu2=93.52 mem2=112.32 thr2=2296 up=4528.19 load=1.94 1.89 1.91
+STRESS pass 38 ok=1 fails=0 117s cpu2=93.50 mem2=112.39 thr2=2287 up=4645.84 load=1.93 1.87 1.91
+STRESS pass 39 ok=1 fails=0 117s cpu2=93.38 mem2=112.38 thr2=2302 up=4763.48 load=1.96 1.89 1.91
+STRESS pass 40 ok=1 fails=0 116s cpu2=93.43 mem2=112.41 thr2=2308 up=4881.13 load=1.93 1.88 1.91
+STRESS pass 41 ok=1 fails=0 117s cpu2=93.37 mem2=112.31 thr2=2296 up=4998.81 load=1.95 1.89 1.91
+STRESS pass 42 ok=1 fails=0 117s cpu2=93.40 mem2=112.47 thr2=2300 up=5116.49 load=1.91 1.87 1.91
+STRESS pass 43 ok=1 fails=0 116s cpu2=93.39 mem2=112.50 thr2=2300 up=5234.20 load=1.87 1.86 1.90
+STRESS pass 44 ok=1 fails=0 117s cpu2=93.44 mem2=112.18 thr2=2303 up=5351.87 load=1.96 1.89 1.91
+STRESS pass 45 ok=1 fails=0 117s cpu2=93.43 mem2=112.42 thr2=2305 up=5469.55 load=1.88 1.88 1.91
+STRESS pass 46 ok=1 fails=0 116s cpu2=93.39 mem2=112.14 thr2=2307 up=5587.19 load=1.94 1.88 1.91
+STRESS pass 47 ok=1 fails=0 117s cpu2=93.38 mem2=112.32 thr2=2304 up=5704.84 load=2.03 1.91 1.92
+STRESS pass 48 ok=1 fails=0 117s cpu2=93.51 mem2=112.15 thr2=2304 up=5822.54 load=1.96 1.91 1.92
+STRESS pass 49 ok=1 fails=0 116s cpu2=93.46 mem2=112.22 thr2=2304 up=5940.26 load=1.90 1.90 1.91
+STRESS pass 50 ok=1 fails=0 117s cpu2=93.44 mem2=112.39 thr2=2298 up=6057.93 load=1.96 1.91 1.92
+STRESS pass 51 ok=1 fails=0 117s cpu2=93.46 mem2=112.28 thr2=2305 up=6175.60 load=1.90 1.91 1.91
+STRESS pass 52 ok=1 fails=0 116s cpu2=93.48 mem2=112.46 thr2=2310 up=6293.25 load=1.96 1.92 1.92
+STRESS pass 53 ok=1 fails=0 117s cpu2=93.51 mem2=112.41 thr2=2296 up=6410.91 load=2.04 1.93 1.92
+STRESS pass 54 ok=1 fails=0 117s cpu2=93.55 mem2=112.43 thr2=2300 up=6528.58 load=2.05 1.95 1.93
+STRESS pass 55 ok=1 fails=0 116s cpu2=93.51 mem2=112.41 thr2=2300 up=6646.27 load=1.89 1.92 1.91
+STRESS pass 56 ok=1 fails=0 117s cpu2=93.50 mem2=112.46 thr2=2301 up=6764.00 load=1.95 1.92 1.92
+STRESS pass 57 ok=1 fails=0 117s cpu2=93.49 mem2=112.36 thr2=2296 up=6881.71 load=1.89 1.91 1.91
+STRESS pass 58 ok=1 fails=0 116s cpu2=93.43 mem2=112.30 thr2=2302 up=6999.36 load=1.96 1.92 1.92
+STRESS pass 59 ok=1 fails=0 116s cpu2=93.39 mem2=111.81 thr2=2301 up=7117.02 load=1.87 1.90 1.91
+STRESS pass 60 ok=1 fails=0 117s cpu2=93.48 mem2=112.35 thr2=2302 up=7234.72 load=1.95 1.91 1.91
+STRESS pass 61 ok=1 fails=0 116s cpu2=93.44 mem2=112.20 thr2=2300 up=7352.39 load=1.90 1.90 1.91
+STRESS pass 62 ok=1 fails=0 116s cpu2=93.42 mem2=112.32 thr2=2307 up=7470.08 load=1.96 1.91 1.91
+
+===== COM5 logger ended 2026-10-19T14:06:24.4168828-07:00 =====
