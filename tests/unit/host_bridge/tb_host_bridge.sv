@@ -10,7 +10,9 @@
 // InterruptStatus and InterruptACK, 64-bit accesses denied, and the uncore reset emptying the queue.
 // HDMA = 1 (make ... HDMA=1) adds the host DMA port's registers: completions recorded only while
 // HDMA_CTRL says so, read in order through HDMA_CPL0/1 while a producer pushes them with gaps, a full
-// queue holding the producer, the line counters, the uncore reset emptying the queue.
+// queue holding the producer, the line counters, the uncore reset emptying the queue. BOARD_CTRL (D4's modes,
+// docs/spec/soc-d4-modes.md): its bits to the core side, the PS window's reset-write status back, kept through
+// an uncore reset.
 module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0, parameter bit HDMA = 1'b0);
   import tg_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -68,6 +70,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
   logic [23:0] tg_lines;
   logic        ctx_v, ctx_r, crx_v, crx_r;
   logic [7:0]  ctx_b, crx_b;
+  logic [1:0]  board_ctrl, board_hook = 2'b00;            // BOARD_CTRL out; the reset write's status back
 
   tg_host_bridge #(.CLK_HZ (100_000_000), .CFG_CODE (8'd1), .N_CORES_SOC (2), .CORE_RST_INIT (1'b1),
                    .UNCORE_RST_INIT (1'b1), .TRACE (TRACE), .VIRTIO (VIRTIO), .HDMA (HDMA)) dut (
@@ -94,7 +97,7 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     .dbg_sel_o (), .dbg_val_i (32'h0),
     .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i (cpl), .hdma_cpl_ready_o (cpl_r),
     .hdma_rd_lines_i (32'd4321), .hdma_wr_lines_i (32'd8765), .hdma_wr_drops_i (32'd31),
-    .board_status_i (32'h0A5C_3E01),
+    .board_status_i (32'h0A5C_3E01), .board_ctrl_o (board_ctrl), .board_hook_i (board_hook),
     .con_tx_valid_i (ctx_v), .con_tx_ready_o (ctx_r), .con_tx_byte_i (ctx_b),
     .con_rx_valid_o (crx_v), .con_rx_ready_i (crx_r), .con_rx_byte_o (crx_b)
   );
@@ -350,6 +353,41 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     if (v[4:0] != 0 || v[12:8] != 0) fail($sformatf("VQ_STATUS %h after the uncore reset", v));
     expect_h(16'h1100, 32'h1, "VQ_CTRL after the uncore reset");
     $display("virtio window: ok");
+  endtask
+
+  // ---- BOARD_CTRL (0x1404): reset 0, [1:0] to the core side through the configuration crossing, [3:2] the
+  // PS window's reset write {error, out} back through the status crossing; the uncore reset keeps it ----
+  task automatic board_side(input logic [1:0] want, input string what);
+    repeat (60) @(posedge clk);
+    if (board_ctrl !== want) fail($sformatf("%s: BOARD_CTRL on the core side %b, want %b", what, board_ctrl, want));
+  endtask
+  task automatic test_board();
+    logic [31:0] ctrl;
+    expect_h(16'h1404, 32'h0, "BOARD_CTRL at reset");
+    board_side(2'b00, "at reset");
+    hw(16'h1404, 32'hFFFF_FFF1);                           // [0]; the rest is read-only or nothing
+    expect_h(16'h1404, 32'h1, "BOARD_CTRL [0]");
+    board_side(2'b01, "[0]");
+    hw(16'h1404, 32'h2);
+    expect_h(16'h1404, 32'h2, "BOARD_CTRL [1]");
+    board_side(2'b10, "[1]");
+    @(negedge clk) board_hook = 2'b01;                    // the reset write went out
+    repeat (60) @(posedge clk);
+    expect_h(16'h1404, 32'h6, "BOARD_CTRL with the reset write out");
+    @(negedge clk) board_hook = 2'b11;                    // and was answered with an error
+    repeat (60) @(posedge clk);
+    expect_h(16'h1404, 32'hE, "BOARD_CTRL with the reset write's error");
+    hr(16'h010, ctrl);
+    hw(16'h010, ctrl | 32'h2);                             // an uncore reset: BOARD_CTRL is the host's
+    repeat (40) @(posedge clk);
+    hw(16'h010, ctrl);
+    expect_h(16'h1404, 32'hE, "BOARD_CTRL after an uncore reset");
+    board_side(2'b10, "after an uncore reset");
+    @(negedge clk) board_hook = 2'b00;
+    hw(16'h1404, 32'h0);
+    board_side(2'b00, "cleared");
+    expect_h(16'h1404, 32'h0, "BOARD_CTRL cleared");
+    $display("board control: ok");
   endtask
 
   // ---- the host DMA port's completions (HDMA) ----
@@ -626,7 +664,8 @@ module tb_host_bridge #(parameter bit TRACE = 1'b1, parameter bit VIRTIO = 1'b0,
     if (rx_got.size() != 700) fail($sformatf("console input: %0d of 700 bytes", rx_got.size()));
     foreach (rx_got[i]) if (rx_got[i] != 8'(i * 5)) begin fail($sformatf("console input byte %0d", i)); break; end
     $display("host_bridge: port signatures %016h (host) %016h (core)", hsig, csig);
-    // after the signatures, which stay comparable with builds before the window
+    // after the signatures, which stay comparable with builds before the window and BOARD_CTRL
+    test_board();
     if (HDMA) begin
       test_hdma();
     end else begin

@@ -15,7 +15,13 @@
 //                     a model of the PS behind S_AXI_LPD answers the window with random delays, an error
 //                     and a response later than the window's timeout, and drives PLIC source 24; the
 //                     program checks every access size and the faults, and this side counts the
-//                     transactions and that no denied address ever reached the PS.
+//                     transactions and that no denied address ever reached the PS. The board's reset (D4's
+//                     modes, docs/spec/soc-d4-modes.md): the program finds CRL_APB RESET_CTRL denied, asks
+//                     the host for BOARD_CTRL[1], then finds that word alone passing; then, while it keeps
+//                     accessing the window, the PMOD reset hook (BREAK_LOG2 = 6: breaks of 64 to 255
+//                     cycles on uart_rxd_i) writes RESET_CTRL once per arming, after a break of the right
+//                     length only, and BOARD_CTRL reads back how the write went (answered, an error, none).
+//   Every KIND: BOARD_CTRL[0] reaches board_ctrl_o (the KV260's fan regulator).
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
@@ -69,6 +75,8 @@ module tb_soc;
   axi_r_t  ps_r = '0;
   logic    ps_awv, ps_awr = 1'b0, ps_wv, ps_wr = 1'b0, ps_bv = 1'b0, ps_br, ps_arv, ps_arr = 1'b0, ps_rv = 1'b0, ps_rr;
   logic [PS_IRQS-1:0] ps_irq = '0;
+  logic    ps_rxd = 1'b1;             // the serial line's RX, idle high: the PMOD reset hook's breaks
+  logic [1:0] board_ctrl;             // BOARD_CTRL, core side
 
   tg_trace_pkg::tr_rec_t [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace;
   logic [NUM_CORES-1:0][COMMIT_WIDTH-1:0]   trace_v;
@@ -78,9 +86,9 @@ module tb_soc;
   tanager_soc #(
     .N_CORES (NUM_CORES), .CLK_HZ (100_000_000), .L2_SETS (16), .L2_MSHR (24),
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ((KIND == "trafgen") ? "trafgen" : "core"),
-    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA)
+    .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .BREAK_LOG2 (6)
   ) dut (
-    .uart_txd_o (), .uart_rxd_i (1'b1),
+    .uart_txd_o (), .uart_rxd_i (ps_rxd),
     .clk, .rst, .clk_host, .rst_host,
     .s_axil_awaddr (awaddr), .s_axil_awvalid (awvalid), .s_axil_awready (awready),
     .s_axil_wdata (wdata), .s_axil_wstrb (wstrb), .s_axil_wvalid (wvalid), .s_axil_wready (wready),
@@ -106,7 +114,7 @@ module tb_soc;
     .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
     .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
     .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
-    .board_status_i (32'h0F0A_1234),
+    .board_status_i (32'h0F0A_1234), .board_ctrl_o (board_ctrl),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
   );
@@ -146,11 +154,18 @@ module tb_soc;
   // ---- the PS behind the PS window (PS_WINDOW): one transaction at a time, as the window issues them ----
   // Byte registers, 0 until written; IOU_SLCR reads byte a as a ^ 0x5A; TTC1's first register drives
   // ps_irq[PS_IRQ_TTC1]; SD1 + 0x100 answers SLVERR; GEM3 + 0x200 answers 70,000 cycles late, past the
-  // window's timeout. An address the window should have denied is an error here.
+  // window's timeout. CRL_APB RESET_CTRL (the board's reset) records its writes and answers as ps_rst_mode
+  // says. An address the window should have denied is an error here.
   localparam logic [31:0] PS_TTC1 = 32'hFF12_0000, PS_ERR = 32'hFF17_0100, PS_LATE = 32'hFF0E_0200;
+  localparam logic [31:0] PS_RST = 32'hFF5E_0218;
   byte unsigned ps_mem [logic [31:0]];
-  int ps_txn = 0, ps_late = 0;
-  function automatic bit ps_allowed(input logic [31:0] a, input bit we);
+  int ps_txn = 0, ps_late = 0, ps_done = 0;   // transactions accepted, GEM3's late ones, answered
+  int ps_rst = 0;                             // writes to RESET_CTRL, the last one's beat below
+  int ps_rst_mode = 0;                        // their answer: 0 OKAY, 1 SLVERR, 2 70,000 cycles late
+  axi_ax_t ps_rst_aw;
+  axi_w_t  ps_rst_w;
+  function automatic bit ps_allowed(input logic [31:0] a, input bit we, input logic [2:0] size);
+    if (a[31:2] == PS_RST[31:2]) return size <= 3'd2;             // that word alone, while BOARD_CTRL[1]
     if (a[31:16] == 16'hFF01 || a[31:16] == 16'hFF0E || a[31:16] == 16'hFF12 || a[31:16] == 16'hFF17 ||
         a[31:16] == 16'hFF9D || a[31:20] == 12'hFE2) return 1'b1;
     return !we && a[31:19] == 13'h1FE3;
@@ -165,9 +180,11 @@ module tb_soc;
       axi_ax_t a;
       axi_w_t  d;
       int      lat;
+      bit      rst_w;
       a = ps_aw;
       d = ps_w;
-      if (!ps_allowed(a.addr[31:0], 1'b1)) fail($sformatf("PS window: a write to %h reached the PS", a.addr));
+      rst_w = a.addr[31:2] == PS_RST[31:2];
+      if (!ps_allowed(a.addr[31:0], 1'b1, a.size)) fail($sformatf("PS window: a write to %h reached the PS", a.addr));
       if (a.len != 0 || a.burst != AXI_INCR) fail($sformatf("PS window: write burst len %0d burst %0d", a.len, a.burst));
       repeat ($urandom_range(0, 6)) @(posedge clk);
       ps_awr <= 1'b1; ps_wr <= 1'b1;
@@ -175,19 +192,21 @@ module tb_soc;
       ps_awr <= 1'b0; ps_wr <= 1'b0;
       for (int k = 0; k < 16; k++) if (d.strb[k]) ps_mem[{a.addr[31:4], 4'(k)}] = d.data[8*k +: 8];
       if (a.addr[31:0] == PS_TTC1) ps_irq[PS_IRQ_TTC1] <= d.data[0];
+      if (rst_w) begin ps_rst++; ps_rst_aw = a; ps_rst_w = d; end
       ps_txn++;
-      lat = (a.addr[31:0] == PS_LATE) ? 70000 : $urandom_range(1, 20);
+      lat = (a.addr[31:0] == PS_LATE || (rst_w && ps_rst_mode == 2)) ? 70000 : $urandom_range(1, 20);
       repeat (lat) @(posedge clk);
-      ps_b <= '{id: a.id, resp: (a.addr[31:0] == PS_ERR) ? AXI_SLVERR : AXI_OKAY};
+      ps_b <= '{id: a.id, resp: (a.addr[31:0] == PS_ERR || (rst_w && ps_rst_mode == 1)) ? AXI_SLVERR : AXI_OKAY};
       ps_bv <= 1'b1;
       do @(posedge clk); while (!ps_br);
       ps_bv <= 1'b0;
+      ps_done++;
     end else if (ps_arv) begin
       axi_ax_t a;
       logic [127:0] beat;
       int      lat;
       a = ps_ar;
-      if (!ps_allowed(a.addr[31:0], 1'b0)) fail($sformatf("PS window: a read of %h reached the PS", a.addr));
+      if (!ps_allowed(a.addr[31:0], 1'b0, a.size)) fail($sformatf("PS window: a read of %h reached the PS", a.addr));
       if (a.len != 0 || a.burst != AXI_INCR) fail($sformatf("PS window: read burst len %0d burst %0d", a.len, a.burst));
       repeat ($urandom_range(0, 6)) @(posedge clk);
       ps_arr <= 1'b1;
@@ -202,6 +221,7 @@ module tb_soc;
       ps_rv <= 1'b1;
       do @(posedge clk); while (!ps_rr);
       ps_rv <= 1'b0;
+      ps_done++;
     end
   end
 
@@ -240,6 +260,22 @@ module tb_soc;
     t = 0;
     do begin hr(16'h014, v); t++; end while (v[bit_i] != val && t < max_us * 10);
     if (v[bit_i] != val) fail($sformatf("STATUS[%0d] never became %0d", bit_i, val));
+  endtask
+
+  // BOARD_CTRL's core side (board_ctrl_o), once the configuration crossing has carried the host's value
+  task automatic wait_board(input logic [1:0] want, input string what);
+    int t;
+    t = 0;
+    while (board_ctrl !== want && t < 400) begin @(posedge clk); t++; end
+    if (board_ctrl !== want) fail($sformatf("%s: BOARD_CTRL's core side %b, want %b", what, board_ctrl, want));
+  endtask
+  // BOARD_CTRL as the host reads it, once the PS window's status has crossed back
+  task automatic expect_board(input logic [31:0] want, input string what);
+    logic [31:0] v;
+    int t;
+    t = 0;
+    do begin hr(16'h1404, v); t++; end while (v != want && t < 100);
+    if (v != want) fail($sformatf("%s: BOARD_CTRL %h, want %h", what, v, want));
   endtask
 
   // Drain the console: everything the RISC-V side has written so far
@@ -372,6 +408,81 @@ module tb_soc;
     dma_done = 1;
   endtask
 
+  // The board's reset (PS_WINDOW): when the program rings the doorbell, set BOARD_CTRL[1] and answer through
+  // MBOX_OUT once the core side has it
+  bit board_done = 0;
+  task automatic serve_board();
+    logic [31:0] v;
+    hr(16'h070, v);                             // MBOX_IN: the program's doorbell
+    if (!v[0]) return;
+    hw(16'h070, 32'h1);
+    hw(16'h1404, 32'h2);
+    wait_board(2'b10, "the reset path enabled");
+    hw(16'h074, 32'h1);                         // MBOX_OUT
+    board_done = 1;
+  endtask
+
+  // The PMOD reset hook (PS_WINDOW; BREAK_LOG2 = 6 here: a break of 64 to 255 cycles, the write at its end),
+  // while the program reads the window nonstop, as a hart stuck polling a PS register would
+  task automatic brk(input int cycles);
+    @(negedge clk) ps_rxd = 1'b0;
+    repeat (cycles) @(negedge clk);
+    ps_rxd = 1'b1;
+  endtask
+  task automatic no_rst_write(input int n0, input string what);
+    repeat (400) @(posedge clk);
+    if (ps_rst != n0) fail($sformatf("%s: %0d writes to RESET_CTRL, want none", what, ps_rst - n0));
+  endtask
+  task automatic test_hook();
+    int n0;
+    hw(16'h074, 32'h1);                         // MBOX_OUT: the program starts reading the window nonstop
+    n0 = ps_rst;
+    hw(16'h1404, 32'h0);                        // disarmed: a break does nothing
+    wait_board(2'b00, "disarmed");
+    brk(128);
+    no_rst_write(n0, "a break while disarmed");
+    hw(16'h1404, 32'h2);
+    wait_board(2'b10, "armed");
+    expect_board(32'h2, "armed, nothing sent");
+    brk(32);
+    no_rst_write(n0, "a break of 32 cycles");
+    brk(300);
+    no_rst_write(n0, "a break of 300 cycles");
+    brk(128);
+    expect_board(32'h6, "after a break of 128 cycles");
+    if (ps_rst != n0 + 1) fail($sformatf("the hook: %0d writes to RESET_CTRL, want 1", ps_rst - n0));
+    else if (ps_rst_aw.addr != 40'(PS_RST) || ps_rst_aw.size != 3'd2 || ps_rst_w.strb != 16'h0F00 ||
+             ps_rst_w.data[95:64] != 32'h10)
+      fail($sformatf("the hook's write: %h size %0d strb %h data %h", ps_rst_aw.addr, ps_rst_aw.size,
+                     ps_rst_w.strb, ps_rst_w.data));
+    brk(128);
+    no_rst_write(n0 + 1, "a second break (one write per arming)");
+    expect_board(32'h6, "after a second break");
+    hw(16'h1404, 32'h0);                        // disarmed: the status clears
+    expect_board(32'h0, "disarmed after the write");
+    wait_board(2'b00, "disarmed after the write");
+    ps_rst_mode = 1;                            // armed again: the write answered with an error
+    hw(16'h1404, 32'h2);
+    wait_board(2'b10, "armed again");
+    brk(128);
+    expect_board(32'hE, "the write answered with an error");
+    hw(16'h1404, 32'h0);
+    expect_board(32'h0, "disarmed after the error");
+    wait_board(2'b00, "disarmed after the error");
+    ps_rst_mode = 2;                            // and not answered: the window's timeout, 2^16 cycles
+    hw(16'h1404, 32'h2);
+    wait_board(2'b10, "armed a third time");
+    brk(128);
+    repeat (66000) @(posedge clk);
+    expect_board(32'hE, "the write unanswered");
+    wait (ps_done == ps_txn);                   // the late answer, taken and dropped
+    ps_rst_mode = 0;
+    if (ps_rst != n0 + 3) fail($sformatf("the hook: %0d writes to RESET_CTRL, want 3", ps_rst - n0));
+    hw(16'h1404, 32'h0);
+    expect_board(32'h0, "disarmed at the end");
+    $display("PMOD reset hook: %0d writes to RESET_CTRL from 7 breaks; %0d window transactions", ps_rst - n0, ps_txn);
+  endtask
+
   // =============================================================================================
   initial begin
     logic [31:0] v;
@@ -439,6 +550,13 @@ module tb_soc;
       hr(16'h1400, fv);
       if (fv != 32'h0F0A_1234) fail($sformatf("FAN %h, want the board's status word 0f0a1234", fv));
     end
+    // ---- BOARD_CTRL[0] reaches the board (the KV260's fan regulator); 0 again for the rest ----
+    expect_reg(16'h1404, 32'h0, "BOARD_CTRL reset value");
+    hw(16'h1404, 32'h1);
+    expect_reg(16'h1404, 32'h1, "BOARD_CTRL [0]");
+    wait_board(2'b01, "[0]");
+    hw(16'h1404, 32'h0);
+    wait_board(2'b00, "cleared");
 
     // ---- mailbox host -> RISC-V ----
     hw(16'h074, 32'h1);
@@ -465,6 +583,7 @@ module tb_soc;
         drain_console();
         if (VIRTIO) serve_virtio();
         if (HOST_DMA && !dma_done) serve_dma();
+        if (PS_WINDOW && (dma_done || !HOST_DMA) && !board_done) serve_board();
         hr(16'h088, seq);
         // the trace consumer: check the first record once, then release everything written
         if (TRACE) hr(16'h1038, lo);
@@ -494,9 +613,11 @@ module tb_soc;
       if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
         fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
       if (PS_WINDOW) begin
-        if (ps_txn != 15 || ps_late != 1)
-          fail($sformatf("PS window: %0d transactions (%0d late), want 15 (1)", ps_txn, ps_late));
-        else $display("PS window: %0d transactions, 1 answered after the timeout", ps_txn);
+        if (ps_txn != 17 || ps_late != 1 || ps_rst != 1)
+          fail($sformatf("PS window: %0d transactions (%0d late, %0d to RESET_CTRL), want 17 (1, 1)", ps_txn, ps_late, ps_rst));
+        else $display("PS window: %0d transactions, 1 answered after the timeout, 1 to RESET_CTRL", ps_txn);
+        if (!board_done) fail("the board's reset part never asked for BOARD_CTRL[1]");
+        test_hook();
       end
       // the stream: everything retired went to the trace memory, starting at the boot ROM
       if (!TRACE) begin

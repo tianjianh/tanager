@@ -48,12 +48,18 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 
 ## PL changes: one board build, unit tests first
 
-- **`tg_ps_window`:** CRL_APB `RESET_CTRL` (`0xFF5E0218`) becomes writable, that word only. Its SOFT_RESET bit resets the PS and the PL.
+- **`tg_ps_window`:** CRL_APB `RESET_CTRL` (`0xFF5E0218`) passes, that word only (a doubleword would reach the next register), while `BOARD_CTRL` bit 1 is set. Its SOFT_RESET bit resets the PS and the PL.
   - The RISC-V mode tree points `syscon-reboot` (and `syscon-poweroff`) at it. Debian's reboot (SBI system reset, then OpenSBI's syscon-reboot) then resets the board.
-- **`tg_host_bridge`:** `BOARD_CTRL` at `0x1404`, reset 0.
+  - With bit 1 clear the window is exactly as before, so a RISC-V program under `tanager-host` in ARM mode can't reset the A53's Ubuntu.
+- **`tg_host_bridge`:** `BOARD_CTRL` at `0x1404`, reset 0, kept through an uncore reset ([host.md](host.md)).
   - Bit 0: the fan regulator ignores the A53's PWM. In RISC-V mode the A53's TTC is dead. This is DR-154's small interface change, foreseen for D3.
-  - Bit 1: the PMOD reset hook is armed.
-- **`kv260_top`, the PMOD reset hook:** while armed, the PMOD UART's RX held low (a break) for at least 2^28 cycles (2.7 s) makes `tg_ps_window` issue the `RESET_CTRL` write, whatever the RISC-V is doing. If a transaction hangs, the window's own timeout frees it first. The laptop sends a 3 s break on COM5 (pyserial's `send_break(3)`).
+  - Bit 1: the board's reset path, `RESET_CTRL` in the window and the PMOD reset hook armed.
+  - Bits 3:2 read back the hook's write: `[2]` it went out, `[3]` it was answered with an error or not at all. Both clear with bit 1, so clearing and setting bit 1 arms the hook again.
+- **`tg_uncore`, the PMOD reset hook (in `TG_PS_WINDOW` builds):** while armed, a break on the PMOD UART's RX of 2^28 to 2^30 cycles (2.7 to 10.7 s at 100 MHz) makes `tg_ps_window` write `RESET_CTRL` when the break ends, once per arming.
+  - The write goes out at the window's first idle cycle, ahead of any access, whatever the RISC-V is doing. Accesses meanwhile are denied.
+  - A transaction that never ends (the PS port blocked) holds the write back too. Then only a power cycle helps.
+  - **Why on the break's end, with a ceiling:** a USB-UART adapter that loses power (the laptop's USB off, the cable pulled) holds RX low as well, for as long as it stays off. Firing during the break would reset the board 2.7 s into any such outage. With the ceiling, only an outage of 2.7 to 10.7 s that then ends looks like a break.
+  - The laptop sends a 3 s break on COM5 (pyserial's `send_break(3)`).
 - **Unaffected:** stages B and C, where `BOARD_CTRL` stays 0 under `tanager-host`. Builds without `TG_PS_WINDOW` have no reset path.
 
 ## RISC-V software
@@ -72,7 +78,7 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 |---|---|---|
 | 0 | Read-only probes | The QSPI U-Boot's commands (`fpga`, `zynqmp mmio_write`, `mmc write`, `itest`, `setexpr`, `go`, `fatwrite`), from its prompt or the boot image's strings. The card's layout (sector 2047 free, `p1`'s free space). flash-kernel's template name |
 | 1 | PL changes | Unit tests: in `tb_soc`, `RESET_CTRL` passes while the rest of CRL_APB faults, and the hook detects a break and writes. In `tb_fan`, the ignore-TTC bit. In `tb_host_bridge`, `BOARD_CTRL`. Then lint, cycle-identical, and a board build |
-| 2 | Board, ARM mode under `tanager-host`, no boot change yet | (a) A bare-metal RISC-V program writes `RESET_CTRL` through the window, and the board resets into Ubuntu. If the window answers an error (the XPPU or TrustZone refusing a non-secure PL write), the fallback is the PMU's reset service through a PL IPI channel. (b) With `BOARD_CTRL` bit 1 set by `tanager-host poke`, a 3 s break on COM5 resets the board |
+| 2 | Board, ARM mode under `tanager-host`, no boot change yet | With `BOARD_CTRL` set to 2 by `tanager-host poke`: (a) a bare-metal RISC-V program writes `RESET_CTRL` through the window, and the board resets into Ubuntu. If the window answers an error (the XPPU or TrustZone refusing a non-secure PL write), the fallback is the PMU's reset service through a PL IPI channel. (b) A 3 s break on COM5 resets the board; if it doesn't, `BOARD_CTRL` bits 3:2 say whether the write went out and how it was answered |
 | 3 | U-Boot S-mode with the Arasan driver | It builds; its first real run is step 6 |
 | 4 | The mode record and the boot script on `p1`, mode left at ARM | Ubuntu boots as before, rebooted with no record and with an invalid one |
 | 5 | RISC-V mode, bare metal | `riscv` with a test image in U-Boot's place: it prints on COM5 and UART1, then writes `RESET_CTRL`. The board resets, trial is 1, Ubuntu boots. This tests the whole chain and the fallback without Debian |

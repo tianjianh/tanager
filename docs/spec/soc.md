@@ -593,6 +593,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **Cosmetic:** COM7 shows the log twice, the early console's and then ttyPS0's replay. The kernel skips the replay only for the console that is `/dev/console` (the last `console=`), here the PL UART on purpose. D4 doesn't have it: Debian's early and real consoles are both the PL UART.
 - **D4: the SD, with Debian on its own partition natively.**
   - **Re-planned (10-19, the user's correction): the mode is chosen at boot, and in RISC-V mode the A53 parks.** The plan, for the coordinator before any build, is [soc-d4-modes.md](soc-d4-modes.md). The kexec handover below (DR-164) is cancelled as designed; its record stays as history.
+    - **Approved (DR-172).** Step 1, the PL changes, is in: `BOARD_CTRL` in the host bridge ([host.md](host.md)), CRL_APB `RESET_CTRL` in the PS window while its bit 1 is set, and the PMOD reset hook. With `BOARD_CTRL` at 0, as under `tanager-host`, the design is as before.
   - **The handover, planned before it runs** (the coordinator, 10-18). Once SD1 leaves the A53, the board session's SSH to the A53 goes away, and recovery may need a power cycle, which is the user's:
     - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
     - the plan spells out what the board session can still reach (UART1, the PL UART);

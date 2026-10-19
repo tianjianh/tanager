@@ -8,7 +8,8 @@
 //     edges move the duty by about 2/256). A level that stays put counts as 0 or 255.
 // So while the A53's fancontrol runs, the fan runs as it asks or faster; with fancontrol stopped and the TTC still
 // running (pwm1 1 or more), the curve regulates alone. A disabled or reset TTC idles low, which reads as full (the
-// board, 10-17), so D3's handover boot leaves pwm1 at 1.
+// board, 10-17), so in D4's RISC-V mode, with the A53 parked, the host's BOARD_CTRL[0] (ignore_ttc_i) drops it:
+// the curve alone. The status word's TTC duty is still the one measured.
 // The temperature is the SYSMONE4's register 00h, read over DRP every 2^20 cycles. Every INIT attribute is zero:
 // that is the state any bitstream load already leaves the PL SYSMON in (D2's probes, 10-17). The instance does
 // take the PL SYSMON from the PS: while the bitstream is loaded the A53's AMS reads the PL channels as 0
@@ -22,6 +23,8 @@ module tg_fan #(
   input  logic        clk,
   input  logic        rst,                    // the PL's reset alone: not the uncore's or the cores'
   input  logic        ttc_wave_i,             // the A53's PWM, low = on; asynchronous
+  input  logic        ignore_ttc_i,           // the A53's PWM counts as 0: D4's RISC-V mode, where the A53 is
+                                              // parked and its TTC dead (BOARD_CTRL[0]; clk)
   output logic        fan_en_b_o,
   output logic [31:0] status_o                // [9:0] code[15:6], [17:10] TTC duty, [25:18] duty, [26] DRP
                                               // timeout, [27] a reading has come
@@ -117,7 +120,8 @@ module tg_fan #(
   end
 
   // ---- the PWM: the larger duty; 255 runs the fan all the time ----
-  wire [7:0] duty = (duty_curve > duty_ttc_q) ? duty_curve : duty_ttc_q;
+  wire [7:0] duty_a53 = ignore_ttc_i ? 8'd0 : duty_ttc_q;
+  wire [7:0] duty     = (duty_curve > duty_a53) ? duty_curve : duty_a53;
   logic [$clog2(PRE)-1:0] pre_q;
   logic [7:0] step_q;
   always_ff @(posedge clk) begin

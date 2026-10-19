@@ -30,6 +30,7 @@ module tanager_soc
   parameter bit          DEBUG_CNT       = 1'b0,              // board debug counters (tg_uncore)
   parameter bit          VIRTIO_WINDOW   = 1'b0,              // the forwarded virtio window (tg_uncore)
   parameter bit          HOST_DMA        = 1'b0,              // the coherent host DMA port (tg_uncore)
+  parameter int          BREAK_LOG2      = 28,                // the PMOD reset hook's shortest break (tg_uncore)
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
@@ -121,6 +122,9 @@ module tanager_soc
   input  logic [PS_IRQS-1:0]    ps_irq_i,
   // the board's status word (clk), read by the host at FAN (0x1400): the KV260's fan regulator; 0 elsewhere
   input  logic [31:0]           board_status_i,
+  // BOARD_CTRL (clk, the host's 0x1404): [0] the KV260's fan regulator ignores the A53's PWM, [1] the board's
+  // reset path is enabled (tg_uncore)
+  output logic [1:0]            board_ctrl_o,
 
   // commit trace of every core, also to the simulation harness
   output tr_rec_t [N_CORES-1:0][COMMIT_WIDTH-1:0]   trace_o,
@@ -237,7 +241,7 @@ module tanager_soc
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .UART_SERIAL (UART_SERIAL),
     .UNCORE_DSP (UNCORE_DSP), .AR_SLICE (AR_SLICE), .B_SLICE (B_SLICE), .D_SLICE (D_SLICE), .W_SLICE (W_SLICE),
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
-    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA)
+    .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA), .BREAK_LOG2 (BREAK_LOG2)
   ) u_uncore (
     .clk, .rst, .clk_host, .rst_host,
     .core_dbg_sel_o (core_dbg_sel), .core_dbg_i (core_dbg),
@@ -267,7 +271,7 @@ module tanager_soc
     .s_axi_dma_r, .s_axi_dma_r_valid, .s_axi_dma_r_ready,
     .m_axi_ps_aw, .m_axi_ps_aw_valid, .m_axi_ps_aw_ready, .m_axi_ps_w, .m_axi_ps_w_valid, .m_axi_ps_w_ready,
     .m_axi_ps_b, .m_axi_ps_b_valid, .m_axi_ps_b_ready, .m_axi_ps_ar, .m_axi_ps_ar_valid, .m_axi_ps_ar_ready,
-    .m_axi_ps_r, .m_axi_ps_r_valid, .m_axi_ps_r_ready, .ps_irq_i, .board_status_i,
+    .m_axi_ps_r, .m_axi_ps_r_valid, .m_axi_ps_r_ready, .ps_irq_i, .board_status_i, .board_ctrl_o,
     .tg_en_o (tg_en), .tg_base_o (tg_base), .tg_lines_o (tg_lines),
     .tg_ops_i (tg_ops), .tg_errs_i (tg_errs), .tg_err_line_i (tg_err_line), .tg_pass_i (tg_pass),
     .uart_txd_o, .uart_rxd_i,
