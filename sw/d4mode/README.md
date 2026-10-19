@@ -71,21 +71,26 @@ The package is `bash sw/d4mode/build.sh <dir> sw/d4mode/riscv.cmd <the step 1 bi
 
 ## Step 6 on the board: RISC-V mode with Debian
 
-The package is step 5's with U-Boot d4 (`bash sw/build_uboot.sh d4`) as `payload.bin`. It needs step 4's hook in place and the record at arm.
+The package is step 5's with U-Boot d4 (`bash sw/build_uboot.sh d4`) as `payload.bin`. Its tree adds `UART1_STDOUT=0`: the stdout path on the PL UART. With UART1 as stdout, Debian's plain `earlycon` (the extlinux append's) found no console, since Debian's kernel has no Cadence UART built in. The first try (on d4s1) showed nothing after `Starting kernel`: Linux had panicked at 2.2 s, on M6's micro-BTB bug (core-2's fix, MR c261c1f). It needs step 4's hook in place and the record at arm.
 
 1. **Debian's side, in stage C** (Debian from `p3` under `tanager-host`, as the stress runs):
    - Copy this package into Debian and run `sudo bash debian_install.sh`. It prints `active` (the confirm unit), then the tool's refusal of the virtio disk, which is right in stage C. Then it prints extlinux's `root=`, which must be `LABEL=tanager-root` (not `/dev/vda`).
    - Shut Debian down cleanly, then check `p3`.
 2. **`p1`**, in Ubuntu: `sudo cp tanager/* /boot/firmware/tanager/ && sync`, then check against SHA256SUMS. This puts U-Boot d4 in `payload.bin`; the other files are step 5's.
-3. **Loggers:** COM7 (UART1: the A53's U-Boot, OpenSBI, U-Boot d4, then Debian's ttyPS0 getty) and COM5 (Debian's kernel console, ttyS0, and its autologin).
-4. `sudo tanager-mode riscv`, `sync`, `sudo reboot`. COM7 shows:
-   1. step 5's lines up to the park;
-   2. OpenSBI;
-   3. U-Boot 2026.07 (`MMC: mmc@ff170000: 0`);
-   4. `sysboot mmc 0:3`, extlinux's menu, then the kernel and initrd read by PIO (seconds to a minute);
-   5. `Starting kernel`.
+3. **Loggers:**
+   - COM7 (UART1): the A53's U-Boot up to the park, then Debian's ttyPS0 getty.
+   - COM5 (the PL UART): OpenSBI, U-Boot d4, then Debian's kernel console (ttyS0, with the early console from the first line) and its autologin.
+4. `sudo tanager-mode riscv`, `sync`, `sudo reboot`.
+   - COM7 shows step 5's lines up to the park.
+   - COM5 then shows, in order:
+     1. OpenSBI;
+     2. U-Boot 2026.07 (`MMC: mmc@ff170000: 0`);
+     3. `sysboot mmc 0:3`, extlinux's menu, then the kernel and initrd read by PIO (about 13 s at 5.7 MB/s);
+     4. `Starting kernel`;
+     5. Debian's boot and its autologin.
+   - COM7 gets a login prompt (ttyPS0) once the Cadence UART module loads.
 
-   Then COM5 shows Debian's boot and its autologin, and COM7 gets a login prompt (ttyPS0). Check in Debian:
+   Check in Debian:
    - `lsblk` and `findmnt /`: the root is `/dev/mmcblk0p3`;
    - `cat /proc/cmdline`;
    - `dmesg | grep -i -e mmc -e sdhci`;
@@ -98,7 +103,7 @@ The package is step 5's with U-Boot d4 (`bash sw/build_uboot.sh d4`) as `payload
    - `tanager-mode riscv` and a reboot into Debian, then a 4 s break on COM5.
    - The board resets into Ubuntu (trial 1). Then `sudo tanager-mode arm`.
 
-**If U-Boot d4 can't read the card,** it stops at its prompt on COM7, where `mmc list`, `mmc info` and `mmc part` help. Then a 4 s break on COM5 resets into ARM mode.
+**If U-Boot d4 can't read the card,** it stops at its prompt on COM5, where `mmc list`, `mmc info` and `mmc part` help. Then a 4 s break on COM5 resets into ARM mode.
 
 **If Debian's kernel can't find its root,** the initramfs shell comes up on COM5 (dmesg there). Then `poweroff -f` (a reset, through `RESET_CTRL`) or the break gives ARM mode.
 
