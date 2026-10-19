@@ -132,7 +132,7 @@ package tg_core_pkg;
   localparam bit RAS_FE  = RAS_ON && TAGE_ON;
   localparam int GH_W = 64;               // the global history's bits (TAGE)
   // TAGE-lite's sizes (tg_tage): tagged tables (1..4), their index and tag bits, the base table's index
-  // bits. TG_TAGE_NT, TG_TAGE_LI, TG_TAGE_TW and TG_TAGE_BI override them (the M6 size study)
+  // bits; two tables of 2K entries (DR-170). TG_TAGE_NT, TG_TAGE_LI, TG_TAGE_TW and TG_TAGE_BI override them
 `ifdef TG_TAGE_NT
   localparam int TAGE_NT = `TG_TAGE_NT;
 `else
@@ -141,7 +141,7 @@ package tg_core_pkg;
 `ifdef TG_TAGE_LI
   localparam int TAGE_LI = `TG_TAGE_LI;
 `else
-  localparam int TAGE_LI = 10;
+  localparam int TAGE_LI = 11;
 `endif
 `ifdef TG_TAGE_TW
   localparam int TAGE_TW = `TG_TAGE_TW;
