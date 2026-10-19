@@ -1,14 +1,16 @@
 // The fan's PL regulator (fpga/kv260/rtl/tg_fan.sv; docs/spec/soc.md §8.2, D2) against a SYSMONE4 stand-in and
 // an A53 PWM generator: full speed until the first reading; the curve below, inside and above 35-45 C; the
 // 1 C hysteresis on the way down; a DRP read that never answers; the larger of the curve's and the A53's
-// duty, with the A53's PWM at 50%, held low and held high. Each duty is checked from the status word and from
-// fan_en_b's low time over whole PWM periods.
+// duty, with the A53's PWM at 50%, held low and held high; the A53's PWM held low but ignored (ignore_ttc_i,
+// BOARD_CTRL[0]: D4's RISC-V mode). Each duty is checked from the status word and from fan_en_b's low time over
+// whole PWM periods.
 module tb_fan;
-  logic clk = 1'b0, rst = 1'b1, ttc = 1'b1;
+  logic clk = 1'b0, rst = 1'b1, ttc = 1'b1, ignore = 1'b0;
   always #5 clk = ~clk;                       // 100 MHz
   logic        fan_en_b;
   logic [31:0] status;
-  tg_fan #(.CLK_HZ (100_000_000)) dut (.clk, .rst, .ttc_wave_i (ttc), .fan_en_b_o (fan_en_b), .status_o (status));
+  tg_fan #(.CLK_HZ (100_000_000)) dut (.clk, .rst, .ttc_wave_i (ttc), .ignore_ttc_i (ignore), .fan_en_b_o (fan_en_b),
+                                       .status_o (status));
 
   int errors = 0;
   task automatic fail(input string m); errors++; $display("[%0t] ERROR: %s", $time, m); endtask
@@ -94,6 +96,10 @@ module tb_fan;
     expect_duty(26, 3, 26, "30 C, the A53's PWM at 10%");
     ttc_lo = 4000;
     expect_duty(255, 0, 255, "the A53's PWM held low");
+    ignore = 1'b1;                                        // the A53 parked: its dead TTC reads low
+    expect_duty(15, 0, 255, "the A53's PWM held low, ignored");
+    ignore = 1'b0;
+    expect_duty(255, 0, 255, "the A53's PWM held low, heeded again");
     ttc_lo = -1;
     expect_duty(15, 0, 0, "the A53's PWM held high again");
     // a DRP read that never answers: full speed until a reading comes back

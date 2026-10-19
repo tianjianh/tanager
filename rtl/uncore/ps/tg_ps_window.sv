@@ -12,6 +12,14 @@
 //     behind it. TTC0, the fan's PWM, stays out.
 //   - After a timeout the transaction is still open: valids already raised stay up until accepted, the
 //     late response is taken and dropped, and every access meanwhile is denied without a new transaction.
+//   - The board's reset (docs/spec/soc-d4-modes.md, D4's RISC-V mode), only while rst_en_i (the host's
+//     BOARD_CTRL[1]) is set, so with it clear the window is as before: CRL_APB RESET_CTRL (0xFF5E_0218)
+//     passes, that word alone (no doubleword), so the RISC-V's reboot can write its SOFT_RESET bit; and
+//     rst_req_i (the PMOD reset hook) makes the window write that bit itself, once, whatever the cores do:
+//     at the first idle cycle, ahead of an access in it, and every access while it is open is denied.
+//     rst_fired_o and rst_err_o (an error or no answer) say how it went, for the host's BOARD_CTRL; both
+//     clear when rst_en_i does, so the host can arm the write again. A transaction that never ends (the
+//     port blocked) holds the reset write back too: then only a power cycle helps.
 module tg_ps_window
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
@@ -39,7 +47,11 @@ module tg_ps_window
   input  axi_r_t   m_r_i,
   input  logic     m_r_valid_i,
   output logic     m_r_ready_o,
-  output logic     timeout_o                  // a pulse for each access that timed out
+  output logic     timeout_o,                 // a pulse for each transaction that timed out
+  input  logic     rst_en_i,                  // the board's reset passes (BOARD_CTRL[1]; quasi-static)
+  input  logic     rst_req_i,                 // write RESET_CTRL's SOFT_RESET now (the PMOD reset hook)
+  output logic     rst_fired_o,               // that write went out
+  output logic     rst_err_o                  // and was answered with an error, or not at all
 );
   // {passes, writable} for an address in the window, from its bits [31:16] (64 KiB granules)
   function automatic logic [1:0] aperture(input logic [15:0] hi);
@@ -53,6 +65,8 @@ module tg_ps_window
     return 2'b00;
   endfunction
 
+  localparam logic [31:0] RESET_CTRL = 32'hFF5E_0218;   // CRL_APB: [4] SOFT_RESET, a system reset
+
   typedef enum logic [1:0] { P_IDLE, P_ADDR, P_RESP, P_DRAIN } pst_e;
   pst_e        st_q;
   logic        we_q, aw_q, w_q, ar_q;           // the access's direction; valids still up
@@ -62,14 +76,18 @@ module tg_ps_window
   axi_ax_t     ax_q;
   axi_w_t      w_dat_q;
   logic        hi_q;                            // the access's doubleword is the beat's upper half
+  logic        int_q;                           // the open transaction is the reset write, not an access
+  logic        fired_q, err_q;
 
   wire [1:0] ap    = aperture(req_i.addr[31:16]);
-  wire       allow = ap[1] && (!req_i.we || ap[0]);
+  wire       rst_w = rst_en_i && req_i.addr[31:2] == RESET_CTRL[31:2] && req_i.size != 2'd3;
+  wire       allow = rst_w || (ap[1] && (!req_i.we || ap[0]));
+  wire       go_rst = rst_en_i && rst_req_i && !fired_q;   // the reset write starts (from P_IDLE)
   wire       open  = st_q == P_ADDR || st_q == P_RESP;
   wire       b_hs  = m_b_valid_i && m_b_ready_o;
   wire       r_hs  = m_r_valid_i && m_r_ready_o;
   wire       resp  = we_q ? b_hs : r_hs;
-  wire       tmo   = busy_q && open && !resp && &tmo_q;
+  wire       tmo   = (busy_q || int_q) && open && !resp && &tmo_q;
 
   always_ff @(posedge clk) begin
     if (rst) begin
@@ -80,13 +98,28 @@ module tg_ps_window
       ar_q   <= 1'b0;
       rsp_q  <= '0;
       tmo_q  <= '0;
+      int_q  <= 1'b0;
+      fired_q <= 1'b0;
+      err_q  <= 1'b0;
     end else begin
       if (m_aw_valid_o && m_aw_ready_i) aw_q <= 1'b0;
       if (m_w_valid_o && m_w_ready_i)   w_q  <= 1'b0;
       if (m_ar_valid_o && m_ar_ready_i) ar_q <= 1'b0;
       if (open) tmo_q <= tmo_q + 1'b1;
+      if (!rst_en_i && !int_q) begin
+        fired_q <= 1'b0;
+        err_q   <= 1'b0;
+      end
       unique case (st_q)
-        P_IDLE: if (req_valid_i) begin
+        P_IDLE: if (go_rst) begin                          // the reset write: AW and W, ahead of an access
+          st_q    <= P_ADDR;
+          int_q   <= 1'b1;
+          fired_q <= 1'b1;
+          aw_q    <= 1'b1;
+          w_q     <= 1'b1;
+          tmo_q   <= '0;
+          if (req_valid_i) rsp_q <= '{rdata: 64'd0, err: 1'b1};
+        end else if (req_valid_i) begin
           if (allow) begin
             st_q   <= P_ADDR;
             busy_q <= 1'b1;
@@ -100,7 +133,16 @@ module tg_ps_window
         end
         P_ADDR, P_RESP: begin
           if (st_q == P_ADDR && !aw_q && !w_q && !ar_q) st_q <= P_RESP;
-          if (resp) begin
+          if (int_q && req_valid_i) rsp_q <= '{rdata: 64'd0, err: 1'b1};   // an access during the reset write
+          if (resp && int_q) begin
+            err_q  <= m_b_i.resp != AXI_OKAY;
+            int_q  <= 1'b0;
+            st_q   <= P_IDLE;
+          end else if (tmo && int_q) begin
+            err_q  <= 1'b1;
+            int_q  <= 1'b0;
+            st_q   <= P_DRAIN;
+          end else if (resp) begin
             rsp_q  <= '{rdata: hi_q ? m_r_i.data[127:64] : m_r_i.data[63:0],
                         err:   (we_q ? m_b_i.resp : m_r_i.resp) != AXI_OKAY};
             busy_q <= 1'b0;
@@ -120,9 +162,20 @@ module tg_ps_window
     end
   end
 
-  // the transaction, captured with the access
+  // the transaction, captured with the access or for the reset write
   always_ff @(posedge clk) begin
-    if (st_q == P_IDLE && req_valid_i && allow) begin
+    if (st_q == P_IDLE && go_rst) begin
+      we_q         <= 1'b1;
+      hi_q         <= RESET_CTRL[3];
+      ax_q.id      <= '0;
+      ax_q.addr    <= AXI_ADDR_W'(RESET_CTRL);
+      ax_q.len     <= 8'd0;
+      ax_q.size    <= 3'd2;                             // 4 bytes
+      ax_q.burst   <= AXI_INCR;
+      w_dat_q.data <= {2{64'h10}};                      // SOFT_RESET
+      w_dat_q.strb <= RESET_CTRL[3] ? 16'h0F00 : 16'h000F;
+      w_dat_q.last <= 1'b1;
+    end else if (st_q == P_IDLE && req_valid_i && allow) begin
       we_q         <= req_i.we;
       hi_q         <= req_i.addr[3];
       ax_q.id      <= '0;
@@ -147,6 +200,8 @@ module tg_ps_window
   assign m_b_ready_o  = (open || st_q == P_DRAIN) && we_q;
   assign m_r_ready_o  = (open || st_q == P_DRAIN) && !we_q;
   assign timeout_o    = tmo;
+  assign rst_fired_o  = fired_q;
+  assign rst_err_o    = err_q;
 
   wire unused = ^{req_i.addr[PA_W-1:32], m_b_i.id, m_r_i.id, m_r_i.last};
 endmodule

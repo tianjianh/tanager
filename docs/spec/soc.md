@@ -592,6 +592,10 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **The A53:** `fancontrol` active (pwm1 15), no new kernel lines. UART1 went back as the last step: unmask, getty, printk 4. The A53's login prompt answered on COM7.
       - **Cosmetic:** COM7 shows the log twice, the early console's and then ttyPS0's replay. The kernel skips the replay only for the console that is `/dev/console` (the last `console=`), here the PL UART on purpose. D4 doesn't have it: Debian's early and real consoles are both the PL UART.
 - **D4: the SD, with Debian on its own partition natively.**
+  - **Re-planned (10-19, the user's correction): the mode is chosen at boot, and in RISC-V mode the A53 parks.** The plan, for the coordinator before any build, is [soc-d4-modes.md](soc-d4-modes.md). The kexec handover below (DR-164) is cancelled as designed; its record stays as history.
+    - **Approved (DR-172).** Step 1, the PL changes, is in: `BOARD_CTRL` in the host bridge ([host.md](host.md)), CRL_APB `RESET_CTRL` in the PS window while its bit 1 is set, and the PMOD reset hook. With `BOARD_CTRL` at 0, as under `tanager-host`, the design is as before.
+    - **D5, GEM3 Ethernet in RISC-V mode:** planned in [soc-d5-gem3.md](soc-d5-gem3.md), for the coordinator before any change. It is software only: the RISC-V mode tree and `riscv.scr`'s release of the PHY's reset. Debian's own macb, dp83867 and phylink do the rest. The link must be gigabit.
+    - **D4 met (10-19, steps 0-6 on the board).** In RISC-V mode the A53's U-Boot loads the bitstream and the RISC-V's firmware, then parks. The RISC-V runs OpenSBI, then U-Boot from SD1, then Debian natively from `p3`. Debian's reboot keeps RISC-V mode; any unclean end, or `tanager-mode arm`, gives Ubuntu. The board bitstream was d4s2: main with M6, this track's D4 changes, and core-2's micro-BTB fix (MR c261c1f), without which M6 panics Linux. The steps and their results are in [soc-d4-modes.md](soc-d4-modes.md).
   - **The handover, planned before it runs** (the coordinator, 10-18). Once SD1 leaves the A53, the board session's SSH to the A53 goes away, and recovery may need a power cycle, which is the user's:
     - a plain power cycle always comes back to normal Ubuntu: the handover entry is chosen once, never the default;
     - the plan spells out what the board session can still reach (UART1, the PL UART);
@@ -611,6 +615,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
       - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;
       - whether GEM3's `macb` and the DP83867 PHY driver are built in or modules, which the initramfs must then carry.
+    - **10-19, the user:** D4 runs at night after all. The A53 stays up in the handover with SSH over GEM3, and the RISC-V's console is on the PMOD UART (COM5) from the laptop, so either side can reset the other. DR-164's daytime condition is lifted. The FPD watchdog (below) covers a hung handover kernel.
     - **The coordinator's conditions for the run** (10-18):
       - in daytime, with the user around, since the last recovery is their power cycle; the coordinator tells the user beforehand;
       - `p2` remounted read-only before the kexec; the handover kernel never touches SD1; Debian mounts only `p3`;

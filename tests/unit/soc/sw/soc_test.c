@@ -8,7 +8,9 @@
  * hart's data cache, and writes one it holds copies of, both of which must be coherent); bit 2 the PS
  * window (PS_WINDOW=1, stage D's D1: accesses of every size through tb_soc's model of the PS, the
  * accesses the window must deny without a transaction, an error response, a timeout and the recovery
- * after it, and a PS interrupt through the PLIC; start.S records the access faults).
+ * after it, and a PS interrupt through the PLIC; start.S records the access faults; then the board's reset,
+ * CRL_APB RESET_CTRL, denied until the doorbell has the host set BOARD_CTRL[1], then that word alone passing;
+ * after TOHOST, once the host says so, reads of the window nonstop for tb_soc's PMOD reset hook test).
  * Pass: TOHOST = 1; failure: TOHOST = (code << 1) | 1. With one hart (the one-core KV260 bitstream's
  * first light, fpga/kv260/README.md) the coherence part is skipped. */
 #include <stdint.h>
@@ -27,6 +29,7 @@
 #define PS_SLCR   0xFF180000ul
 #define PS_ERR    0xFF170100ul
 #define PS_LATE   0xFF0E0200ul
+#define PS_RST    0xFF5E0218ul                 /* CRL_APB RESET_CTRL: the board's reset (the model resets nothing) */
 #define IRQ_TTC1  24
 #define REG64(a)  (*(volatile uint64_t *)(a))
 #define REG32(a)  (*(volatile uint32_t *)(a))
@@ -169,6 +172,24 @@ int main(uint64_t hartid, uint64_t dtb) {
       for (volatile int i = 0; i < 50; i++) { }      /* through the synchronizer */
       REG32(PLIC + 0x200004) = IRQ_TTC1;             /* complete */
       if (REG32(PLIC + 0x1000) & (1u << IRQ_TTC1)) fail(0x622);
+      /* the board's reset (docs/spec/soc-d4-modes.md): RESET_CTRL, denied while the host's BOARD_CTRL[1] is
+       * clear; with it set, that word alone passes */
+      n = trap_save[3];
+      REG32(PS_RST) = 0x10;
+      if (trap_save[3] != n + 1 || trap_save[1] != 7 || trap_save[2] != PS_RST) fail(0x630);
+      REG64(HOSTCTL + 0x40) = 1;                       /* MBOX_PENDING: clear the earlier tests' */
+      REG64(HOSTCTL + 0x38) = 1;                       /* DOORBELL: the host sets BOARD_CTRL[1] */
+      while (!(REG64(HOSTCTL + 0x40) & 1)) { }         /* MBOX_OUT: it has */
+      REG64(HOSTCTL + 0x40) = 1;
+      REG32(PS_RST) = 0x10;
+      if (trap_save[3] != n + 1) fail(0x631);
+      if (REG32(PS_RST) != 0x10) fail(0x632);
+      (void)REG64(PS_RST);                             /* a doubleword reaches the next register: denied */
+      if (trap_save[3] != n + 2 || trap_save[1] != 5 || trap_save[2] != PS_RST) fail(0x633);
+      (void)REG32(PS_RST + 4);                         /* the rest of CRL_APB: denied */
+      if (trap_save[3] != n + 3 || trap_save[1] != 5 || trap_save[2] != PS_RST + 4) fail(0x634);
+      REG32(PS_RST - 0x18) = 1;                        /* BOOT_MODE_USER */
+      if (trap_save[3] != n + 4 || trap_save[1] != 7 || trap_save[2] != PS_RST - 0x18) fail(0x635);
       puts_("ps window ok, ");
       puthex(tries);
       puts_(" tries after the timeout\n");
@@ -189,6 +210,13 @@ int main(uint64_t hartid, uint64_t dtb) {
     }
     puts_("PASS\n");
     tohost(1);
+    if ((fh >> 16) == 0x7467 && (fh & 4)) {
+      /* tb_soc's PMOD reset hook test: once the host says so, read the window nonstop, as a hart stuck polling a
+       * PS register would. The hook's write still goes out; the reads it meets are denied (faults, skipped) */
+      while (!(REG64(HOSTCTL + 0x40) & 1)) { }
+      REG64(HOSTCTL + 0x40) = 1;
+      for (;;) (void)REG32(PS_SCR + 0x08);
+    }
   } else {
     alive1 = 1;
     while (flag0 != 1) { }
