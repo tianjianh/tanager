@@ -28,7 +28,7 @@ SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
-.PHONY: lint lint-all regress regress-profiles cycle-identical perf
+.PHONY: lint lint-all regress regress-profiles cycle-identical perf boot-lockstep boot-lockstep-gate
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
@@ -50,7 +50,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -83,6 +83,23 @@ cycle-identical:
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
 	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
+
+# The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
+# (sim/tb/tg_soc_tap.sv) streams every core's records into tanager-lockstep as the boot runs, at the untraced
+# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2), MCYC million cycles (100), TIMING the DDR
+# timing of each run, side by side (board, jitter, fixedN, default), SEED; the profile switches as
+# cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
+# BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
+BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC)) $(if $(SEED),--seed $(SEED)) \
+  $(if $(JOBS),--jobs $(JOBS)) $(if $(BOOT_FW),--boot-fw "$(BOOT_FW)") $(if $(BOOT_KERNEL),--boot-kernel "$(BOOT_KERNEL)") \
+  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) \
+  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \
+  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
+  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF))
+boot-lockstep:
+	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
+boot-lockstep-gate:
+	@python3 tools/ci/boot_lockstep.py --gate $(if $(BASE),--base "$(BASE)") $(BOOT_LS_ARGS)
 
 # M6's per-feature measurement (DR-153; docs/spec/verification.md §4.2): CoreMark A/B and Dhrystone, each
 # program's timed-region cycles and IPC on this tree's RTL (or BRANCH's) and on BASE (default main), and the

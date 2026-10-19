@@ -1,0 +1,7 @@
+﻿
+===== COM5 scripted session opened 2026-10-19T12:02:28.1889342-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ bash ~/stress/stress.sh
+[?2004lSTRESS start 2026-10-19T18:59:16Z up=157.09
+
+===== COM5 scripted session closed 2026-10-19T12:02:42.4052849-07:00, exit 0 =====
