@@ -81,11 +81,12 @@ sed -e 's/0xfffc0000/0x9c000000/g; s/0xfffc0004/0x9c000004/g' \
     -e 's/0xff0a002c/0x9b00202c/g; s/0xff180314/0x9b003314/g; s/0xff180318/0x9b003318/g' \
     -e 's/0xa0001404/0x9a001404/g; s/0xa00000\([0-9a-f][0-9a-f]\)/0x9a0000\1/g' \
     -e 's/0x840000000/0x90000000/g; s/0x840200000/0x90200000/g; s/0x842200000/0x92200000/g; s/ 0x10000000 / 0x88000000 /g' \
+    -e 's/0x30000000/0x98000000/g' \
     -e 's/^fpga load \(.*\) || exit$/echo STUB fpga load \1/' \
     -e 's/^zynqmp mmio_write \(0x[0-9a-f]*\) 0x[0-9a-f]* \(0x[0-9a-f]*\)$/mw.l \1 \2/' \
     -e 's/^\(dcache\|icache\) flush$/echo STUB \1 flush/; s/^go \(.*\)$/echo STUB go \1/' \
     "$here/riscv.cmd" > "$D/riscv.cmd"
-if grep -v '^#' "$D/riscv.cmd" | grep -q '0xff\|0xfd\|0xa000\|0x84\|^zynqmp\|^fpga\|^go \|^dcache\|^icache'; then
+if grep -v '^#' "$D/riscv.cmd" | grep -q '0xff\|0xfd\|0xa000\|0x84\|0x3000\|^zynqmp\|^fpga\|^go \|^dcache\|^icache'; then
   echo "FAIL dry: a board address or command was left in"; fail=1
 fi
 "$mkimage" -A riscv -O linux -T script -C none -d "$D/riscv.cmd" "$D/p1/tanager/riscv.scr" > /dev/null

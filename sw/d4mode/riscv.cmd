@@ -59,10 +59,15 @@ itest.l *0xa0000024 == 0x8 || exit
 itest.l *0xa0001404 == 0x3 || exit
 
 # 6. the images at tanager-host offsets in the carve-out: OpenSBI at 0x8000_0000, the payload at 0x8020_0000,
-# the tree at 0x8220_0000 (PS 0x8_4000_0000 + offset); the RISC-V reads DRAM past this A53 caches
-load ${tg_part} 0x840000000 tanager/fw_jump.bin || exit
-load ${tg_part} 0x840200000 tanager/payload.bin || exit
-load ${tg_part} 0x842200000 tanager/tanager.dtb || exit
+# the tree at 0x8220_0000 (PS 0x8_4000_0000 + offset). Each is loaded low and copied up: cp takes no part in the
+# memory reservations load checks, and this U-Boot runs from the low 2 GiB (DRAM: 2 GiB, effective 4 GiB). The
+# RISC-V reads DRAM past this A53 caches: flushed before the release
+load ${tg_part} 0x30000000 tanager/fw_jump.bin || exit
+cp.b 0x30000000 0x840000000 ${filesize}
+load ${tg_part} 0x30000000 tanager/payload.bin || exit
+cp.b 0x30000000 0x840200000 ${filesize}
+load ${tg_part} 0x30000000 tanager/tanager.dtb || exit
+cp.b 0x30000000 0x842200000 ${filesize}
 dcache flush
 
 # 7. the uncore, the L2 initialisation, the cores: the point of no return
