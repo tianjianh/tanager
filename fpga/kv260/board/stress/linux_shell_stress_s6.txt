@@ -1,0 +1,848 @@
+loaded: fw 277856 B, kernel 1265600 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+virtio: blk /dev/mmcblk1p3 rng
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 2
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 333 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 77 KB
+Firmware Heap Offset        : 0x49000
+Firmware Heap Size          : 41 KB (total), 0 KB (reserved), 13 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*,0x2*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000010000000-0x0000000010001fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region05            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+
+
+U-Boot 2026.07 (Oct 17 2026 - 13:25:56 -0700)
+
+CPU:   tanager,tanager
+Model: Tanager on KV260
+DRAM:  1 GiB
+using memory 0xbee9a000-0xbf6ba000 for malloc()
+Core:  20 devices, 11 uclasses, devicetree: board
+Loading Environment from nowhere... OK
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   No ethernet found.
+[?25h
+Working FDT set to bee980c0
+[2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 1[2KHit any key to stop autoboot: 0
+Retrieving file: /boot/extlinux/extlinux.conf
+U-Boot menu
+1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+2:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64 (rescue target)
+3:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64
+4:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64 (rescue target)
+Enter choice: 1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+Retrieving file: /boot/vmlinux-6.12.113+deb13-riscv64
+Retrieving file: /boot/initrd.img-6.12.113+deb13-riscv64
+append: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+## Flattened Device Tree blob at bee980c0
+   Booting using the fdt blob at 0xbee980c0
+Working FDT set to bee980c0
+   Loading Device Tree to 00000000bde8e000, end 00000000bde92ced ... OK
+Working FDT set to bde8e000
+
+Starting kernel ...
+
+[    0.000000] Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.113-1 (2026-10-15)
+[    0.000000] Machine model: Tanager on KV260
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] earlycon: ns16550a0 at MMIO 0x0000000010000000 (options '')
+[    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0xbfdf4bc0-0xbfdf6fff]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000]   Normal   empty
+[    0.000000]   Device   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] percpu: Embedded 32 pages/cpu s90712 r8192 d32168 u131072
+[    0.000000] Kernel command line: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[    0.000000] Policy zone: DMA32
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] ftrace: allocating 39559 entries in 155 pages
+[    0.000000] ftrace: allocated 155 pages with 5 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=2.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks Rude: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000011] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.008494] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.021178] Console: colour dummy device 80x25
+[    0.050236] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.061171] pid_max: default: 32768 minimum: 301
+[    0.114250] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[    0.131662] landlock: Up and running.
+[    0.135652] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.147275] AppArmor: AppArmor initialized
+[    0.153196] TOMOYO Linux initialized
+[    0.167888] LSM support for eBPF active
+[    0.191761] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.199840] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.284916] ASID allocator using 16 bits (65536 entries)
+[    0.292571] rcu: Hierarchical SRCU implementation.
+[    0.297740] rcu: 	Max phase no-delay instances is 1000.
+[    0.309149] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.326280] EFI services will not be available.
+[    0.335053] smp: Bringing up secondary CPUs ...
+[    0.352999] smp: Brought up 1 node, 2 CPUs
+[    0.594579] node 0 deferred pages initialised in 220ms
+[    0.600689] Memory: 917528K/1048576K available (10729K kernel code, 5220K rwdata, 10240K rodata, 2687K init, 708K bss, 127316K reserved, 0K cma-reserved)
+[    0.629535] devtmpfs: initialized
+[    0.681102] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.716739] pinctrl core: initialized pinctrl subsystem
+[    0.731643] DMI not present or invalid.
+[    0.751371] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.764938] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.774186] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.783158] audit: initializing netlink subsys (disabled)
+[    0.792195] audit: type=2000 audit(0.652:1): state=initialized audit_enabled=0 res=1
+[    0.801928] thermal_sys: Registered thermal governor 'fair_share'
+[    0.802042] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.808552] thermal_sys: Registered thermal governor 'step_wise'
+[    0.814945] thermal_sys: Registered thermal governor 'user_space'
+[    0.821328] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.828378] cpuidle: using governor ladder
+[    0.840006] cpuidle: using governor menu
+[    0.921752] cpu1: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    1.003868] cpu0: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    1.224554] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    1.231815] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    1.238871] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    1.246028] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    1.444443] ACPI: Interpreter disabled.
+[    1.452052] iommu: Default domain type: Translated
+[    1.457236] iommu: DMA domain TLB invalidation policy: strict mode
+[    1.490583] pps_core: LinuxPPS API ver. 1 registered
+[    1.495940] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.505683] PTP clock support registered
+[    1.529738] NetLabel: Initializing
+[    1.533460] NetLabel:  domain hash size = 128
+[    1.538130] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.545189] NetLabel:  unlabeled traffic allowed by default
+[    1.553941] vgaarb: loaded
+[    1.567860] clocksource: Switched to clocksource riscv_clocksource
+[    2.159450] VFS: Disk quotas dquot_6.6.0
+[    2.166295] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    2.191654] AppArmor: AppArmor Filesystem Enabled
+[    2.198084] pnp: PnP ACPI: disabled
+[    2.390053] NET: Registered PF_INET protocol family
+[    2.398867] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    3.233702] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    3.245934] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    3.255344] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    3.267435] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    3.276856] TCP: Hash tables configured (established 8192 bind 8192)
+[    3.290453] MPTCP token hash table entries: 1024 (order: 3, 24576 bytes, linear)
+[    3.301007] UDP hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.308463] UDP-Lite hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.320889] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    3.327295] NET: Registered PF_XDP protocol family
+[    3.332565] PCI: CLS 0 bytes, default 64
+[    3.343617] Trying to unpack rootfs image as initramfs...
+[    3.358050] Initialise system trusted keyrings
+[    3.363877] Key type blacklist registered
+[    3.371377] workingset: timestamp_bits=44 max_order=18 bucket_order=0
+[    3.379518] zbud: loaded
+[    3.406547] fuse: init (API version 7.41)
+[    3.426764] integrity: Platform Keyring initialized
+[    3.432689] integrity: Machine keyring initialized
+[    5.007573] Key type asymmetric registered
+[    5.012650] Asymmetric key parser 'x509' registered
+[   22.000106] Freeing initrd memory: 41104K
+[   22.401744] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 247)
+[   22.411685] io scheduler mq-deadline registered
+[   22.527186] riscv-plic: interrupt-controller@c000000: mapped 31 interrupts with 2 handlers for 8 contexts.
+[   22.547177] ledtrig-cpu: registered to indicate activity on CPUs
+[   22.562849] SBI CPPC extension NOT detected!!
+[   22.584831] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[   22.630573] printk: legacy console [ttyS0] disabled
+[   22.641723] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[   22.651521] printk: legacy console [ttyS0] enabled
+[   22.651521] printk: legacy console [ttyS0] enabled
+[   22.661960] printk: legacy bootconsole [ns16550a0] disabled
+[   22.661960] printk: legacy bootconsole [ns16550a0] disabled
+[   22.695155] mousedev: PS/2 mouse device common for all mice
+[   22.717710] riscv-pmu-sbi: SBI PMU extension is available
+[   22.723689] riscv-pmu-sbi: 16 firmware and 2 hardware counters
+[   22.729962] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[   22.757281] NET: Registered PF_INET6 protocol family
+[   23.139981] Segment Routing with IPv6
+[   23.144954] In-situ OAM (IOAM) with IPv6
+[   23.150608] mip6: Mobile IPv6
+[   23.154014] NET: Registered PF_PACKET protocol family
+[   23.161228] mpls_gso: MPLS GSO support
+[   23.378279] registered taskstats version 1
+[   23.389735] Loading compiled-in X.509 certificates
+[   25.513031] Loaded X.509 cert 'Build time autogenerated kernel key: f0b5082483965175d0cc59b2c14f8a0a7df90aa8'
+[   25.753374] Demotion targets for Node 0: null
+[   25.770472] Key type .fscrypt registered
+[   25.774751] Key type fscrypt-provisioning registered
+[   27.450299] Key type encrypted registered
+[   27.455274] AppArmor: AppArmor sha256 policy hashing enabled
+[   27.461692] ima: No TPM chip found, activating TPM-bypass!
+[   27.467517] ima: Allocated hash algorithm: sha256
+[   27.472888] ima: No architecture policies found
+[   27.478954] evm: Initialising EVM extended attributes:
+[   27.484371] evm: security.selinux
+[   27.487941] evm: security.SMACK64 (disabled)
+[   27.492461] evm: security.SMACK64EXEC (disabled)
+[   27.497327] evm: security.SMACK64TRANSMUTE (disabled)
+[   27.502626] evm: security.SMACK64MMAP (disabled)
+[   27.507490] evm: security.apparmor
+[   27.511139] evm: security.ima
+[   27.514403] evm: security.capability
+[   27.518233] evm: HMAC attrs: 0x1
+[   30.282623] clk: Disabling unused clocks
+[   30.287318] PM: genpd: Disabling unused power domains
+[   30.678286] Freeing unused kernel image (initmem) memory: 2684K
+[   30.924979] Run /init as init process
+Loading, please wait...
+Starting systemd-udevd version 257.13-1~deb13u1
+[   45.137669] virtio_blk virtio0: 1/0/0 default/read/poll queues
+[   45.154551] virtio_blk virtio0: [vda] 15853568 512-byte logical blocks (8.12 GB/7.56 GiB)
+Begin: Loading essential drivers ... [   50.192871] sdhci: Secure Digital Host Controller Interface driver
+[   50.199413] sdhci: Copyright(c) Pierre Ossman
+[   51.399554] sdhci-pltfm: SDHCI platform and OF driver helper
+[   51.741908] sdhci_of_arasan: loading out-of-tree module taints kernel.
+[   51.749037] sdhci_of_arasan: module verification failed: signature and/or required key missing - tainting kernel
+done.
+Begin: Running /scripts/init-premount ... done.
+Begin: Mounting root file system ... Begin: Running /scripts/local-top ... done.
+Begin: Running /scripts/local-premount ... done.
+Begin: Will now check root file system ... fsck from util-linux 2.41.5
+[/sbin/fsck.ext4 (1) -- /dev/vda] fsck.ext4 -a -C0 /dev/vda 
+tanager-root: clean, 42785/499712 files, 555054/1981696 blocks
+done.
+[   69.517475] EXT4-fs (vda): mounted filesystem 45d8e126-fa57-4bee-8133-ba472bb7b0c6 r/w with ordered data mode. Quota mode: none.
+done.
+Begin: Running /scripts/local-bottom ... done.
+Begin: Running /scripts/init-bottom ... done.
+[   72.901225] Not activating Mandatory Access Control as /sbin/tomoyo-init does not exist.
+[   74.951241] systemd[1]: System time advanced to timestamp on /var/lib/systemd/timesync/clock: Mon 2026-10-19 03:39:58 UTC
+[   76.344781] systemd[1]: Inserted module 'autofs4'
+[!p]104[?7h[   78.313477] systemd[1]: systemd 257.13-1~deb13u1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[   78.348903] systemd[1]: Detected architecture riscv64.
+
+[0;1;39mWelcome to [0m[1mDebian GNU/Linux 13 (trixie)[0m[0;1;39m![0m
+
+[   78.434275] systemd[1]: Hostname set to <tanager>.
+[   88.420513] systemd[1]: bpf-restrict-fs: LSM BPF program attached
+[  100.838092] systemd[1]: Queued start job for default target graphical.target.
+[  101.845590] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-getty.slice[0m - Slice /system/getty.
+[  101.917990] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-modprobe.slice[0m - Slice /system/modprobe.
+[  101.983103] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-serial\x2dget…slice[0m - Slice /system/serial-getty.
+[  102.045530] systemd[1]: Created slice user.slice - User and Session Slice.
+[[0;32m  OK  [0m] Created slice [0;1;39muser.slice[0m - User and Session Slice.
+[  102.077107] systemd[1]: Started systemd-ask-password-console.path - Dispatch Password Requests to Console Directory Watch.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-conso…[0mequests to Console Directory Watch.
+[  102.112875] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-wall.…[0md Requests to Wall Directory Watch.
+[  102.160761] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[[0;32m  OK  [0m] Set up automount [0;1;39mproc-sys-fs-binfm…[0mormats File System Automount Point.
+[  102.194821] systemd[1]: Expecting device dev-ttyPS0.device - /dev/ttyPS0...
+         Expecting device [0;1;39mdev-ttyPS0.device[0m - /dev/ttyPS0...
+[  102.217491] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+         Expecting device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0...
+[  102.244464] systemd[1]: Reached target paths.target - Path Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mpaths.target[0m - Path Units.
+[  102.266439] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[[0;32m  OK  [0m] Reached target [0;1;39mremote-fs.target[0m - Remote File Systems.
+[  102.290259] systemd[1]: Reached target slices.target - Slice Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mslices.target[0m - Slice Units.
+[  102.315027] systemd[1]: Reached target swap.target - Swaps.
+[[0;32m  OK  [0m] Reached target [0;1;39mswap.target[0m - Swaps.
+[  102.452090] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-creds.socket[0m - Credential Encryption/Decryption.
+[  102.488958] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-initctl.socke…[0m- initctl Compatibility Named Pipe.
+[  102.529455] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald-dev-…socket[0m - Journal Socket (/dev/log).
+[  102.569737] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald.socket[0m - Journal Sockets.
+[  102.610164] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-networkd.socket[0m - Network Service Netlink Socket.
+[  102.638472] systemd[1]: systemd-pcrextend.socket - TPM PCR Measurements skipped, unmet condition check ConditionSecurity=measured-uki
+[  102.652904] systemd[1]: systemd-pcrlock.socket - Make TPM PCR Policy skipped, unmet condition check ConditionSecurity=measured-uki
+[  102.676639] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-control.socket[0m - udev Control Socket.
+[  102.703973] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-kernel.socket[0m - udev Kernel Socket.
+[  102.825208] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+         Mounting [0;1;39mdev-hugepages.mount[0m - Huge Pages File System...
+[  102.954658] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+         Mounting [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System...
+[  103.162928] systemd[1]: Mounting run-lock.mount - Legacy Locks Directory /run/lock...
+         Mounting [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock...
+[  103.414675] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+         Mounting [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System...
+[  103.796537] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+         Mounting [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System...
+[  104.210349] systemd[1]: Mounting tmp.mount - Temporary Directory /tmp...
+         Mounting [0;1;39mtmp.mount[0m - Temporary Directory /tmp...
+[  104.640848] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+         Starting [0;1;39mkmod-static-nodes.service[0m…eate List of Static Device Nodes...
+[  105.089422] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+         Starting [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs...
+[  105.610124] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+         Starting [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm...
+[  106.062299] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+         Starting [0;1;39mmodprobe@efi_pstore.servi…[0m - Load Kernel Module efi_pstore...
+[  106.421091] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+         Starting [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse...
+[  106.485068] systemd[1]: systemd-fsck-root.service - File System Check on Root Device skipped, unmet condition check ConditionPathExists=!/run/initramfs/fsck-root
+[  106.547529] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-8cf2644b-4b0b-428f-9387-6d876050dc67
+[  107.670035] systemd[1]: Starting systemd-journald.service - Journal Service...
+         Starting [0;1;39msystemd-journald.service[0m - Journal Service...
+[  108.324369] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+         Starting [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules...
+[  108.907402] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+         Starting [0;1;39msystemd-network-generator…[0mk Units from Kernel Command Line...
+[  108.986719] systemd[1]: systemd-pcrmachine.service - TPM PCR Machine ID Measurement skipped, unmet condition check ConditionSecurity=measured-uki
+[  109.653761] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+         Starting [0;1;39msystemd-remount-fs.servic…[0munt Root and Kernel File Systems...
+[  109.738103] systemd[1]: systemd-tpm2-setup-early.service - Early TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[  110.299721] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+         Starting [0;1;39msystemd-udev-load-credent…[0mLoad udev Rules from Credentials...
+[  110.988427] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+         Starting [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices...
+[  113.834428] systemd[1]: Mounted dev-hugepages.mount - Huge Pages File System.
+[[0;32m  OK  [0m] Mounted [0;1;39mdev-hugepages.mount[0m - Huge Pages File System.
+[  113.990529] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+[[0;32m  OK  [0m] Mounted [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System.
+[  114.062291] systemd[1]: Mounted run-lock.mount - Legacy Locks Directory /run/lock.
+[[0;32m  OK  [0m] Mounted [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock.
+[  114.133701] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System.
+[  114.297779] systemd[1]: Mounted sys-kernel-tracing.mount - Kernel Trace File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System.
+[  114.546070] EXT4-fs (vda): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6.
+[  114.703934] systemd[1]: Mounted tmp.mount - Temporary Directory /tmp.
+[[0;32m  OK  [0m] Mounted [0;1;39mtmp.mount[0m - Temporary Directory /tmp.
+[  115.135283] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+[[0;32m  OK  [0m] Finished [0;1;39mkmod-static-nodes.service[0m…Create List of Static Device Nodes.
+[  115.306639] systemd[1]: modprobe@configfs.service: Deactivated successfully.
+[  115.412325] systemd[1]: Finished modprobe@configfs.service - Load Kernel Module configfs.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs.
+[  115.465147] systemd[1]: modprobe@configfs.service: Consumed 1.929s CPU time, 1.6M memory peak.
+[  115.603025] systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+[  115.713869] systemd[1]: Finished modprobe@efi_pstore.service - Load Kernel Module efi_pstore.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@efi_pstore.service[0m - Load Kernel Module efi_pstore.
+[  115.886044] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+[  115.977837] systemd[1]: Finished modprobe@fuse.service - Load Kernel Module fuse.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse.
+[  116.107722] systemd[1]: Finished systemd-modules-load.service - Load Kernel Modules.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules.
+[  116.246753] systemd[1]: Finished systemd-network-generator.service - Generate Network Units from Kernel Command Line.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-network-generator…[0mork Units from Kernel Command Line.
+[  116.457744] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[  116.519364] systemd[1]: Finished modprobe@drm.service - Load Kernel Module drm.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm.
+[  116.565086] systemd[1]: modprobe@drm.service: Consumed 6.915s CPU time, 1.6M memory peak.
+[  116.638595] systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-remount-fs.servic…[0mmount Root and Kernel File Systems.
+[  116.739634] systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-load-credent…[0m- Load udev Rules from Credentials.
+[  116.898910] systemd[1]: Reached target network-pre.target - Preparation for Network.
+[[0;32m  OK  [0m] Reached target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+[  117.087474] systemd[1]: Mounting sys-fs-fuse-connections.mount - FUSE Control File System...
+         Mounting [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System...
+[  117.467581] systemd[1]: Mounting sys-kernel-config.mount - Kernel Configuration File System...
+         Mounting [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System...
+[  117.592859] systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database skipped, unmet condition check ConditionNeedsUpdate=/etc
+[  117.596920] systemd-journald[250]: Collecting audit messages is disabled.
+[  117.645198] systemd[1]: systemd-pstore.service - Platform Persistent Storage Archival skipped, unmet condition check ConditionDirectoryNotEmpty=/sys/fs/pstore
+[  118.153122] systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+         Starting [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed...
+[  118.869953] systemd[1]: Starting systemd-sysctl.service - Apply Kernel Variables...
+         Starting [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables...
+[  119.547281] systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+         Starting [0;1;39msystemd-tmpfiles-setup-de…[0m Device Nodes in /dev gracefully...
+[  119.654197] systemd[1]: systemd-tpm2-setup.service - TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[  119.871380] systemd[1]: Started systemd-journald.service - Journal Service.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-journald.service[0m - Journal Service.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System.
+[  123.204349] random: crng init done
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mic Device Nodes in /dev gracefully.
+         Starting [0;1;39msystemd-journal-flush.ser…[0msh Journal to Persistent Storage...
+         Starting [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+         Starting [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+         Starting [0;1;39msystemd-tmpfiles-setup-de…[0meate Static Device Nodes in /dev...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices.
+         Startin[  126.409123] systemd-journald[250]: Received client request to flush runtime journal.
+g [0;1;39mifupdown-pre.service[0m - He…synchronize boot up for ifupdown...
+[[0m[0;31m*     [0m] (1 of 7) Job dev-ttyS0.device/start running (27s / 1min 31s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] (1 of 7) Job dev-ttyS0.device/start running (27s / 1min 31s)
+M[K[[0;32m  OK  [0m] Finished [0;1;39mifupdown-pre.service[0m - He…o synchronize boot up for ifupdown.
+[K[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mCreate Static Device Nodes in /dev.
+[[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs-pre.target[0m…Preparation for Local File Systems.
+[[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs.target[0m - Local File Systems.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-sysext.socket[0m… System Extension Image Management.
+         Starting [0;1;39mnetworking.service[0m - Raise network interfaces...
+         Starting [0;1;39msystemd-udevd.service[0m - R…ager for Device Events and Files...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-flush.ser…[0mlush Journal to Persistent Storage.
+         Starting [0;1;39msystemd-tmpfiles-setup.se…[0mate System Files and Directories...
+[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (1 of 7) Job dev-ttyS0.device/start running (31s / 1min 31s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (2 of 7) Job systemd-tmpfiles-setup…ice/start running (32s / no limit)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (2 of 7) Job systemd-tmpfiles-setup…ice/start running (32s / no limit)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (2 of 7) Job systemd-tmpfiles-setup…ice/start running (32s / no limit)
+M[K[    [0;31m*[0;1;31m*[0m] (3 of 7) Job networking.service/start running (33s / 5min 28s)
+M[K[     [0;31m*[0m] (3 of 7) Job networking.service/start running (34s / 5min 28s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[K[[0;32m  OK  [0m] Reached target [0;1;39mtime-set.target[0m - System Time Set.
+[[0;32m  OK  [0m] Finished [0;1;39mnetworking.service[0m - Raise network interfaces.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup.se…[0mreate System Files and Directories.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-udevd.service[0m - Ru…anager for Device Events and Files.
+         Starting [0;1;39msystemd-networkd.service[0m - Network Configuration...
+[[0;32m  OK  [0m] Started [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[[0;32m  OK  [0m] Reached target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[[0;32m  OK  [0m] Reached target [0;1;39msysinit.target[0m - System Initialization.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily-upgrade.timer[0m - …y apt upgrade and clean activities.
+[[0;32m  OK  [0m] Started [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[[0;32m  OK  [0m] Started [0;1;39me2scrub_all.timer[0m - Period…Metadata Check for All Filesystems.
+[[0;32m  OK  [0m] Started [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-tmpfiles-clean.tim…[0my Cleanup of Temporary Directories.
+[[0;32m  OK  [0m] Reached target [0;1;39mtimers.target[0m - Timer Units.
+[[0;32m  OK  [0m] Listening on [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msshd-unix-local.socke…[0mtemd-ssh-generator, AF_UNIX Local).
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-hostnamed.socket[0m - Hostname Service Socket.
+[[0;32m  OK  [0m] Reached target [0;1;39msockets.target[0m - Socket Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mbasic.target[0m - Basic System.
+[[0;32m  OK  [0m] Started [0;1;39mcron.service[0m - Regular background program processing daemon.
+         Starting [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+         Starting [0;1;39me2scrub_reap.service[0m - Re…ne ext4 Metadata Check Snapshots...
+         Starting [0;1;39msystemd-logind.service[0m - User Login Management...
+[[0;32m  OK  [0m] Started [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[[0;32m  OK  [0m] Finished [0;1;39me2scrub_reap.service[0m - Re…line ext4 Metadata Check Snapshots.
+[[0;32m  OK  [0m] Found device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0.
+[    [0;31m*[0;1;31m*[0m] (3 of 3) Job systemd-networkd.service/start running (49s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (1 of 3) Job systemd-logind.service/start running (49s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (1 of 3) Job systemd-logind.service/start running (50s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (1 of 3) Job systemd-logind.service/start running (50s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (2 of 3) Job dev-ttyPS0.device/start running (50s / 1min 31s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-logind.service[0m - User Login Management.
+[K[[0;1;31m*[0m[0;31m*    [0m] (1 of 2) Job dev-ttyPS0.device/start running (53s / 1min 31s)
+M[K[[0m[0;31m*     [0m] (1 of 2) Job dev-ttyPS0.device/start running (53s / 1min 31s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] (2 of 2) Job systemd-networkd.service/start running (54s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (2 of 2) Job systemd-networkd.service/start running (54s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (2 of 2) Job systemd-networkd.service/start running (55s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (1 of 2) Job dev-ttyPS0.device/start running (55s / 1min 31s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (1 of 2) Job dev-ttyPS0.device/start running (56s / 1min 31s)
+M[K[    [0;31m*[0;1;31m*[0m] (1 of 2) Job dev-ttyPS0.device/start running (56s / 1min 31s)
+M[K[[0;32m  OK  [0m] Listening on [0;1;39msystemd-rfkill.socket[0m…ll Switch Status /dev/rfkill Watch.
+[K[     [0;31m*[0m] (2 of 2) Job systemd-networkd.service/start running (58s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] (2 of 2) Job systemd-networkd.service/start running (59s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (2 of 2) Job systemd-networkd.service/start running (59s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min / 1min 31s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min / 1min 31s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 1s / 1min 31s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 1s / 10min 37s)
+[  163.134791] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+M[K[[0m[0;31m*     [0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 2s / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 2s / 10min 37s)
+[  163.862658] Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[  163.885666] Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[  163.909181] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[  163.928674] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[  163.937503] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  163.946608] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  164.029720] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  164.037554] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[  164.046692] cfg80211: failed to load regulatory.db
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 3s / 1min 31s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 3s / 1min 31s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 4s / 1min 31s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 4s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 5s / 10min 37s)
+M[K[     [0;31m*[0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 5s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 6s / 1min 31s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 6s / 1min 31s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (1 of 2) Job dev-ttyPS0.device/start running (1min 6s / 1min 31s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (2 of 2) Job systemd-networkd.servi…tart running (1min 7s / 10min 37s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-networkd.service[0m - Network Configuration.
+[K[[0;32m  OK  [0m] Reached target [0;1;39mnetwork.target[0m - Network.
+         Starting [0;1;39mssh.service[0m - OpenBSD Secure Shell server...
+         Starting [0;1;39msystemd-networkd-persiste…[0mtent Storage in systemd-networkd...
+         Starting [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+[[0;32m  OK  [0m] Started [0;1;39mgetty@tty1.service[0m - Getty on tty1.
+[[0;32m  OK  [0m] Started [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-networkd-persiste…[0mistent Storage in systemd-networkd.
+[[0;32m  OK  [0m] Started [0;1;39mssh.service[0m - OpenBSD Secure Shell server.
+[!p]104[?7h[6n[32766;32766H[6n[!p]104[?7h[6n[32766;32766H[6n
+Debian GNU/Linux 13 tanager ttyS0
+
+tanager login: tanager (automatic login)
+
+Linux tanager 6.12.113+deb13-riscv64 #1 SMP Debian 6.12.113-1 (2026-10-15) riscv64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+bash ~/stress/stress.sh; echo TG-$((40+2))-DONE
+[?2004htanager@tanager:~$ bash ~/stress/stress.sh; echo TG-$((40+2))-DONE
+[?2004lSTRESS start 2026-10-19T03:42:06Z up=202.17
+STRESS pass 1 ok=1 fails=0 128s cpu2=78.86 mem2=98.51 thr2=1518 up=330.31 load=2.17 2.00 0.95
+STRESS pass 2 ok=1 fails=0 127s cpu2=78.89 mem2=98.50 thr2=1520 up=458.93 load=1.98 1.97 1.08
+STRESS pass 3 ok=1 fails=0 128s cpu2=78.91 mem2=98.45 thr2=1520 up=587.57 load=1.94 1.97 1.20
+STRESS pass 4 ok=1 fails=0 127s cpu2=78.95 mem2=98.46 thr2=1519 up=715.90 load=1.88 1.93 1.29
+STRESS pass 5 ok=1 fails=0 128s cpu2=79.16 mem2=98.54 thr2=1520 up=844.41 load=1.95 1.94 1.37
+STRESS pass 6 ok=1 fails=0 127s cpu2=75.79 mem2=98.56 thr2=1521 up=972.81 load=1.95 1.94 1.45
+STRESS pass 7 ok=1 fails=0 128s cpu2=78.93 mem2=98.50 thr2=1525 up=1101.35 load=1.90 1.92 1.50
+STRESS pass 8 ok=1 fails=0 127s cpu2=78.85 mem2=98.45 thr2=1521 up=1229.92 load=1.99 1.95 1.57
+STRESS pass 9 ok=1 fails=0 128s cpu2=78.91 mem2=98.46 thr2=1521 up=1358.59 load=1.95 1.93 1.61
+STRESS pass 10 ok=1 fails=0 127s cpu2=78.96 mem2=98.38 thr2=1519 up=1486.93 load=1.88 1.90 1.65
+STRESS pass 11 ok=1 fails=0 128s cpu2=78.87 mem2=98.68 thr2=1528 up=1615.49 load=1.99 1.91 1.68
+STRESS pass 12 ok=1 fails=0 127s cpu2=78.93 mem2=98.34 thr2=1521 up=1743.86 load=1.99 1.91 1.70
+STRESS pass 13 ok=1 fails=0 128s cpu2=78.94 mem2=98.51 thr2=1515 up=1872.47 load=1.98 1.92 1.74
+STRESS pass 14 ok=1 fails=0 127s cpu2=78.86 mem2=98.48 thr2=1519 up=2001.06 load=1.98 1.92 1.76
+STRESS pass 15 ok=1 fails=0 127s cpu2=78.88 mem2=98.46 thr2=1519 up=2129.42 load=1.97 1.91 1.77
+STRESS pass 16 ok=1 fails=0 127s cpu2=78.87 mem2=98.60 thr2=1522 up=2257.80 load=2.09 1.96 1.81
+STRESS pass 17 ok=1 fails=0 128s cpu2=78.23 mem2=98.75 thr2=1518 up=2386.21 load=2.18 2.02 1.85
+STRESS pass 18 ok=1 fails=0 127s cpu2=78.92 mem2=98.53 thr2=1525 up=2514.74 load=1.97 1.96 1.85
+STRESS pass 19 ok=1 fails=0 128s cpu2=78.96 mem2=98.52 thr2=1518 up=2643.34 load=1.92 1.95 1.86
+STRESS pass 20 ok=1 fails=0 127s cpu2=78.88 mem2=98.53 thr2=1519 up=2771.94 load=1.98 1.94 1.87
+STRESS pass 21 ok=1 fails=0 127s cpu2=78.92 mem2=98.44 thr2=1517 up=2900.31 load=1.95 1.92 1.87
+STRESS pass 22 ok=1 fails=0 127s cpu2=78.90 mem2=96.92 thr2=1517 up=3028.75 load=2.00 1.94 1.89
+STRESS pass 23 ok=1 fails=0 127s cpu2=78.88 mem2=98.61 thr2=1520 up=3157.10 load=1.95 1.92 1.89
+STRESS pass 24 ok=1 fails=0 127s cpu2=78.90 mem2=98.43 thr2=1521 up=3285.63 load=1.94 1.90 1.89
+STRESS pass 25 ok=1 fails=0 128s cpu2=78.89 mem2=98.55 thr2=1519 up=3414.22 load=2.00 1.95 1.91
+STRESS pass 26 ok=1 fails=0 127s cpu2=78.87 mem2=98.42 thr2=1517 up=3542.85 load=1.86 1.90 1.90
+STRESS pass 27 ok=1 fails=0 128s cpu2=78.95 mem2=98.58 thr2=1517 up=3671.20 load=2.03 1.94 1.92
+STRESS pass 28 ok=1 fails=0 127s cpu2=78.92 mem2=98.61 thr2=1530 up=3799.71 load=1.89 1.92 1.91
+STRESS pass 29 ok=1 fails=0 127s cpu2=78.91 mem2=98.38 thr2=1518 up=3927.99 load=1.96 1.93 1.92
+STRESS pass 30 ok=1 fails=0 127s cpu2=78.92 mem2=98.44 thr2=1518 up=4056.52 load=2.07 1.93 1.92
+STRESS pass 31 ok=1 fails=0 128s cpu2=78.97 mem2=98.49 thr2=1520 up=4185.18 load=1.90 1.92 1.92
+STRESS pass 32 ok=1 fails=0 127s cpu2=78.93 mem2=98.56 thr2=1521 up=4313.57 load=2.04 1.93 1.92
+STRESS pass 33 ok=1 fails=0 127s cpu2=78.93 mem2=98.57 thr2=1520 up=4441.93 load=1.95 1.91 1.91
+STRESS pass 34 ok=1 fails=0 128s cpu2=78.89 mem2=98.70 thr2=1517 up=4570.37 load=1.92 1.94 1.93
+STRESS pass 35 ok=1 fails=0 127s cpu2=78.82 mem2=98.44 thr2=1518 up=4698.88 load=1.97 1.93 1.92
+STRESS pass 36 ok=1 fails=0 128s cpu2=78.85 mem2=98.59 thr2=1521 up=4827.40 load=1.94 1.91 1.91
+STRESS pass 37 ok=1 fails=0 127s cpu2=78.86 mem2=98.68 thr2=1523 up=4956.04 load=1.90 1.92 1.92
+STRESS pass 38 ok=1 fails=0 127s cpu2=78.90 mem2=98.54 thr2=1521 up=5084.32 load=2.04 1.94 1.92
+STRESS pass 39 ok=1 fails=0 127s cpu2=78.92 mem2=98.50 thr2=1518 up=5212.82 load=1.95 1.91 1.92
+STRESS pass 40 ok=1 fails=0 128s cpu2=78.97 mem2=98.63 thr2=1522 up=5341.23 load=2.01 1.94 1.93
+STRESS pass 41 ok=1 fails=0 127s cpu2=78.94 mem2=98.44 thr2=1519 up=5469.83 load=1.88 1.91 1.92
+STRESS pass 42 ok=1 fails=0 128s cpu2=78.91 mem2=98.49 thr2=1519 up=5598.45 load=2.01 1.94 1.93
+STRESS pass 43 ok=1 fails=0 127s cpu2=78.95 mem2=98.59 thr2=1518 up=5727.01 load=2.04 1.96 1.93
+STRESS pass 44 ok=1 fails=0 127s cpu2=78.92 mem2=98.48 thr2=1519 up=5855.38 load=1.87 1.91 1.91
+STRESS pass 45 ok=1 fails=0 127s cpu2=78.30 mem2=98.61 thr2=1529 up=5983.96 load=2.02 1.93 1.92
+STRESS pass 46 ok=1 fails=0 127s cpu2=78.89 mem2=98.55 thr2=1520 up=6112.39 load=2.17 1.98 1.94
+STRESS pass 47 ok=1 fails=0 127s cpu2=78.89 mem2=98.51 thr2=1519 up=6240.94 load=2.00 1.97 1.94
+STRESS pass 48 ok=1 fails=0 128s cpu2=78.90 mem2=98.45 thr2=1519 up=6369.47 load=2.00 1.97 1.94
+STRESS pass 49 ok=1 fails=0 127s cpu2=78.89 mem2=98.50 thr2=1521 up=6497.88 load=1.94 1.94 1.93
+STRESS pass 50 ok=1 fails=0 128s cpu2=78.88 mem2=98.62 thr2=1518 up=6626.16 load=1.90 1.92 1.92
+STRESS pass 51 ok=1 fails=0 127s cpu2=78.94 mem2=98.55 thr2=1518 up=6754.62 load=2.13 1.95 1.93
+STRESS pass 52 ok=1 fails=0 127s cpu2=78.94 mem2=98.46 thr2=1522 up=6883.10 load=1.91 1.90 1.91
+STRESS pass 53 ok=1 fails=0 127s cpu2=78.95 mem2=98.64 thr2=1523 up=7011.66 load=1.87 1.89 1.91
+STRESS pass 54 ok=1 fails=0 128s cpu2=78.88 mem2=98.41 thr2=1521 up=7140.28 load=1.93 1.88 1.91
+STRESS pass 55 ok=1 fails=0 127s cpu2=78.97 mem2=98.63 thr2=1519 up=7268.59 load=1.91 1.86 1.90
+STRESS pass 56 ok=1 fails=0 127s cpu2=78.88 mem2=98.37 thr2=1517 up=7397.00 load=2.09 1.92 1.92
+STRESS pass 57 ok=1 fails=0 127s cpu2=78.96 mem2=98.20 thr2=1518 up=7525.35 load=2.06 1.94 1.93
+STRESS pass 58 ok=1 fails=0 127s cpu2=78.89 mem2=98.48 thr2=1517 up=7653.90 load=1.96 1.92 1.92
+STRESS pass 59 ok=1 fails=0 128s cpu2=78.89 mem2=98.45 thr2=1521 up=7782.52 load=1.97 1.93 1.92
+STRESS pass 60 ok=1 fails=0 128s cpu2=78.90 mem2=98.34 thr2=1518 up=7911.16 load=1.99 1.96 1.93
+STRESS pass 61 ok=1 fails=0 127s cpu2=78.96 mem2=98.51 thr2=1516 up=8039.51 load=1.96 1.93 1.92
+STRESS pass 62 ok=1 fails=0 127s cpu2=78.92 mem2=98.41 thr2=1522 up=8168.00 load=1.88 1.91 1.91
+STRESS pass 63 ok=1 fails=0 127s cpu2=78.89 mem2=98.37 thr2=1522 up=8296.32 load=1.92 1.88 1.91
+STRESS pass 64 ok=1 fails=0 127s cpu2=78.89 mem2=98.52 thr2=1519 up=8424.88 load=2.02 1.90 1.91
+STRESS pass 65 ok=1 fails=0 128s cpu2=78.86 mem2=98.44 thr2=1521 up=8553.46 load=1.90 1.90 1.91
+STRESS pass 66 ok=1 fails=0 127s cpu2=78.93 mem2=98.47 thr2=1520 up=8681.91 load=2.03 1.93 1.92
+STRESS pass 67 ok=1 fails=0 128s cpu2=78.96 mem2=98.46 thr2=1524 up=8810.37 load=1.94 1.90 1.91
+STRESS pass 68 ok=1 fails=0 127s cpu2=78.88 mem2=98.53 thr2=1524 up=8938.74 load=1.90 1.90 1.91
+STRESS pass 69 ok=1 fails=0 128s cpu2=78.95 mem2=98.59 thr2=1519 up=9067.30 load=1.94 1.91 1.91
+STRESS pass 70 ok=1 fails=0 127s cpu2=78.92 mem2=98.54 thr2=1519 up=9195.84 load=2.02 1.95 1.93
+STRESS pass 71 ok=1 fails=0 128s cpu2=78.88 mem2=98.63 thr2=1517 up=9324.43 load=2.09 1.98 1.94
+STRESS pass 72 ok=1 fails=0 127s cpu2=78.91 mem2=98.67 thr2=1517 up=9452.81 load=1.88 1.93 1.92
+STRESS pass 73 ok=1 fails=0 128s cpu2=78.29 mem2=98.55 thr2=1519 up=9581.23 load=2.00 1.95 1.93
+STRESS pass 74 ok=1 fails=0 127s cpu2=78.90 mem2=98.54 thr2=1518 up=9709.58 load=1.93 1.94 1.93
+STRESS pass 75 ok=1 fails=0 128s cpu2=78.97 mem2=98.46 thr2=1519 up=9838.17 load=1.89 1.91 1.92
+STRESS pass 76 ok=1 fails=0 127s cpu2=78.96 mem2=98.53 thr2=1518 up=9966.79 load=1.98 1.92 1.92
+STRESS pass 77 ok=1 fails=0 128s cpu2=78.84 mem2=98.59 thr2=1525 up=10095.31 load=2.09 1.97 1.94
+STRESS pass 78 ok=1 fails=0 127s cpu2=78.93 mem2=98.54 thr2=1518 up=10223.67 load=1.88 1.92 1.92
+STRESS pass 79 ok=1 fails=0 127s cpu2=78.85 mem2=98.38 thr2=1516 up=10352.04 load=2.07 1.95 1.93
+STRESS pass 80 ok=1 fails=0 127s cpu2=78.89 mem2=98.37 thr2=1521 up=10480.45 load=1.90 1.93 1.92
+STRESS pass 81 ok=1 fails=0 128s cpu2=78.97 mem2=94.46 thr2=1218 up=10609.28 load=2.10 1.96 1.93
+STRESS pass 82 ok=1 fails=0 132s cpu2=78.95 mem2=98.47 thr2=1518 up=10743.08 load=2.09 2.02 1.96
+STRESS pass 83 ok=1 fails=0 127s cpu2=78.87 mem2=98.56 thr2=1519 up=10871.43 load=1.96 1.96 1.95
+STRESS pass 84 ok=1 fails=0 127s cpu2=78.93 mem2=98.54 thr2=1517 up=10999.94 load=1.88 1.93 1.94
+STRESS pass 85 ok=1 fails=0 127s cpu2=78.92 mem2=98.56 thr2=1518 up=11128.59 load=2.08 1.98 1.95
+STRESS pass 86 ok=1 fails=0 128s cpu2=78.90 mem2=98.58 thr2=1520 up=11257.17 load=1.93 1.92 1.93
+STRESS pass 87 ok=1 fails=0 127s cpu2=78.98 mem2=98.44 thr2=1520 up=11385.75 load=1.90 1.92 1.93
+STRESS pass 88 ok=1 fails=0 127s cpu2=78.92 mem2=98.58 thr2=1520 up=11514.06 load=2.00 1.93 1.93
+STRESS pass 89 ok=1 fails=0 127s cpu2=78.89 mem2=98.54 thr2=1523 up=11642.41 load=1.94 1.91 1.92
+STRESS pass 90 ok=1 fails=0 127s cpu2=78.84 mem2=98.43 thr2=1520 up=11770.81 load=1.97 1.92 1.92
+STRESS pass 91 ok=1 fails=0 128s cpu2=78.78 mem2=98.55 thr2=1519 up=11899.39 load=1.94 1.90 1.91
+STRESS pass 92 ok=1 fails=0 127s cpu2=78.75 mem2=98.55 thr2=1515 up=12028.03 load=1.96 1.89 1.91
+STRESS pass 93 ok=1 fails=0 127s cpu2=78.82 mem2=98.40 thr2=1519 up=12156.62 load=1.91 1.89 1.91
+STRESS pass 94 ok=1 fails=0 127s cpu2=78.88 mem2=98.60 thr2=1520 up=12284.90 load=1.86 1.87 1.91
+STRESS pass 95 ok=1 fails=0 128s cpu2=79.57 mem2=99.31 thr2=1536 up=12413.82 load=2.01 1.94 1.92
+STRESS pass 96 ok=1 fails=0 128s cpu2=78.95 mem2=98.40 thr2=1521 up=12542.15 load=2.06 1.97 1.94
+STRESS pass 97 ok=1 fails=0 127s cpu2=78.93 mem2=98.43 thr2=1519 up=12670.76 load=1.89 1.93 1.92
+STRESS pass 98 ok=1 fails=0 128s cpu2=78.91 mem2=98.44 thr2=1519 up=12799.40 load=1.97 1.93 1.92
+STRESS pass 99 ok=1 fails=0 127s cpu2=78.92 mem2=98.63 thr2=1518 up=12927.71 load=1.93 1.92 1.92
+STRESS pass 100 ok=1 fails=0 127s cpu2=78.88 mem2=98.59 thr2=1522 up=13056.10 load=1.95 1.94 1.92
+STRESS pass 101 ok=1 fails=0 127s cpu2=78.15 mem2=98.56 thr2=1517 up=13184.61 load=1.99 1.93 1.92
+STRESS pass 102 ok=1 fails=0 128s cpu2=78.87 mem2=98.50 thr2=1517 up=13313.21 load=1.90 1.90 1.91
+STRESS pass 103 ok=1 fails=0 127s cpu2=78.85 mem2=98.43 thr2=1515 up=13441.75 load=2.16 1.96 1.93
+STRESS pass 104 ok=1 fails=0 128s cpu2=78.84 mem2=98.51 thr2=1520 up=13570.35 load=2.00 1.96 1.93
+STRESS pass 105 ok=1 fails=0 127s cpu2=78.80 mem2=98.47 thr2=1518 up=13698.66 load=1.91 1.90 1.91
+STRESS pass 106 ok=1 fails=0 127s cpu2=78.82 mem2=98.39 thr2=1518 up=13827.01 load=2.03 1.95 1.93
+STRESS pass 107 ok=1 fails=0 127s cpu2=78.89 mem2=98.45 thr2=1519 up=13955.42 load=1.95 1.92 1.92
+STRESS pass 108 ok=1 fails=0 127s cpu2=79.00 mem2=98.67 thr2=1519 up=14084.06 load=2.01 1.92 1.92
+STRESS pass 109 ok=1 fails=0 127s cpu2=78.93 mem2=98.55 thr2=1517 up=14212.62 load=1.92 1.92 1.92
+STRESS pass 110 ok=1 fails=0 128s cpu2=78.82 mem2=98.62 thr2=1518 up=14341.28 load=1.94 1.90 1.91
+STRESS pass 111 ok=1 fails=0 127s cpu2=78.93 mem2=98.41 thr2=1520 up=14469.56 load=1.95 1.89 1.91
+STRESS pass 112 ok=1 fails=0 128s cpu2=79.62 mem2=99.31 thr2=1538 up=14598.46 load=2.09 1.93 1.92
+STRESS pass 113 ok=1 fails=0 127s cpu2=78.88 mem2=98.57 thr2=1520 up=14726.83 load=1.96 1.91 1.92
+STRESS pass 114 ok=1 fails=0 128s cpu2=78.91 mem2=98.43 thr2=1519 up=14855.40 load=2.06 1.94 1.93
+STRESS pass 115 ok=1 fails=0 127s cpu2=78.90 mem2=98.46 thr2=1518 up=14983.98 load=1.89 1.92 1.92
+STRESS pass 116 ok=1 fails=0 127s cpu2=78.91 mem2=98.44 thr2=1516 up=15112.44 load=1.93 1.93 1.92
+STRESS pass 117 ok=1 fails=0 127s cpu2=78.89 mem2=98.50 thr2=1519 up=15240.82 load=2.04 1.94 1.93
+STRESS pass 118 ok=1 fails=0 128s cpu2=78.92 mem2=98.48 thr2=1520 up=15369.26 load=2.11 1.97 1.93
+STRESS pass 119 ok=1 fails=0 127s cpu2=78.91 mem2=98.59 thr2=1516 up=15497.89 load=1.93 1.94 1.93
+STRESS pass 120 ok=1 fails=0 128s cpu2=78.99 mem2=98.52 thr2=1520 up=15626.48 load=1.95 1.93 1.92
+STRESS pass 121 ok=1 fails=0 127s cpu2=78.89 mem2=98.45 thr2=1520 up=15755.08 load=2.03 1.95 1.93
+STRESS pass 122 ok=1 fails=0 127s cpu2=78.92 mem2=98.52 thr2=1519 up=15883.45 load=2.06 1.98 1.94
+STRESS pass 123 ok=1 fails=0 127s cpu2=78.96 mem2=98.55 thr2=1520 up=16011.89 load=1.97 1.95 1.93
+STRESS pass 124 ok=1 fails=0 128s cpu2=78.90 mem2=98.45 thr2=1522 up=16140.24 load=1.99 1.97 1.94
+STRESS pass 125 ok=1 fails=0 127s cpu2=78.90 mem2=98.74 thr2=1522 up=16268.80 load=2.10 1.98 1.94
+STRESS pass 126 ok=1 fails=0 128s cpu2=78.86 mem2=98.45 thr2=1518 up=16397.38 load=2.02 1.97 1.94
+STRESS pass 127 ok=1 fails=0 127s cpu2=78.88 mem2=98.60 thr2=1516 up=16526.02 load=1.99 1.94 1.93
+STRESS pass 128 ok=1 fails=0 127s cpu2=78.88 mem2=98.48 thr2=1519 up=16654.36 load=2.00 1.96 1.94
+STRESS pass 129 ok=1 fails=0 127s cpu2=78.37 mem2=98.84 thr2=1534 up=16783.08 load=1.98 1.95 1.94
+STRESS pass 130 ok=1 fails=0 127s cpu2=78.92 mem2=98.50 thr2=1516 up=16911.44 load=2.02 1.96 1.94
+STRESS pass 131 ok=1 fails=0 127s cpu2=78.88 mem2=98.56 thr2=1521 up=17040.03 load=2.05 1.96 1.94
+STRESS pass 132 ok=1 fails=0 127s cpu2=78.94 mem2=98.57 thr2=1521 up=17168.61 load=2.00 1.95 1.94
+STRESS pass 133 ok=1 fails=0 127s cpu2=78.90 mem2=98.53 thr2=1522 up=17296.94 load=1.91 1.90 1.92
+STRESS pass 134 ok=1 fails=0 128s cpu2=78.90 mem2=98.56 thr2=1518 up=17425.26 load=1.91 1.92 1.92
+STRESS pass 135 ok=1 fails=0 127s cpu2=78.89 mem2=98.47 thr2=1521 up=17553.61 load=2.05 1.95 1.93
+STRESS pass 136 ok=1 fails=0 128s cpu2=78.90 mem2=98.75 thr2=1521 up=17682.20 load=1.92 1.90 1.91
+STRESS pass 137 ok=1 fails=0 127s cpu2=78.94 mem2=98.60 thr2=1521 up=17810.80 load=1.90 1.90 1.91
+STRESS pass 138 ok=1 fails=0 128s cpu2=78.92 mem2=98.40 thr2=1522 up=17939.34 load=1.91 1.89 1.91
+STRESS pass 139 ok=1 fails=0 127s cpu2=78.93 mem2=98.51 thr2=1522 up=18067.63 load=1.93 1.89 1.91
+STRESS pass 140 ok=1 fails=0 127s cpu2=78.90 mem2=98.56 thr2=1520 up=18196.03 load=1.92 1.90 1.92
+STRESS pass 141 ok=1 fails=0 127s cpu2=78.89 mem2=98.49 thr2=1520 up=18324.43 load=1.92 1.88 1.91
+STRESS pass 142 ok=1 fails=0 127s cpu2=78.92 mem2=98.53 thr2=1521 up=18452.99 load=1.95 1.88 1.91
+STRESS pass 143 ok=1 fails=0 127s cpu2=78.93 mem2=98.48 thr2=1521 up=18581.68 load=1.95 1.90 1.92
+STRESS pass 144 ok=1 fails=0 128s cpu2=78.94 mem2=98.72 thr2=1520 up=18710.30 load=1.86 1.88 1.91
+STRESS pass 145 ok=1 fails=0 127s cpu2=78.97 mem2=98.46 thr2=1515 up=18838.63 load=1.95 1.89 1.91
+STRESS pass 146 ok=1 fails=0 128s cpu2=79.30 mem2=99.12 thr2=1538 up=18967.46 load=2.09 1.93 1.92
+qSTRESS pass 147 ok=1 fails=0 127s cpu2=78.79 mem2=98.58 thr2=1521 up=19095.80 load=1.94 1.91 1.91
+STRESS stop after pass 147, fails=0
+TG-42-DONE
+[?2004htanager@tanager:~$ sudo poweroff
+[?2004l
+Broadcast message from root@tanager on pts/0 (Mon 2026-10-19 08:57:01 UTC):
+
+The system will power off now!
+
+[?2004htanager@tanager:~$ [?2004l[?2004h[?2004l
+[?2004h         Stopping [0;1;39msession-1.scope[0m - Session 1 of Us[[0;32m  OK  [0m] Removed slice [0;1;39msystem-modprobe.slice[0m - Slice /system/modprobe.
+[[0;32m  OK  [0m] Stopped target [0;1;39mgraphical.target[0m - Graphical Interface.
+[[0;32m  OK  [0m] Stopped target [0;1;39mmulti-user.target[0m - Multi-User System.
+[[0;32m  OK  [0m] Stopped target [0;1;39mgetty.target[0m - Login Prompts.
+[[0;32m  OK  [0m] Stopped target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[[0;32m  OK  [0m] Stopped target [0;1;39mtimers.target[0m - Timer Units.
+[[0;32m  OK  [0m] Stopped [0;1;39mapt-daily-upgrade.timer[0m - …y apt upgrade and clean activities.
+[[0;32m  OK  [0m] Stopped [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[[0;32m  OK  [0m] Stopped [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[[0;32m  OK  [0m] Stopped [0;1;39me2scrub_all.timer[0m - Period…Metadata Check for All Filesystems.
+[[0;32m  OK  [0m] Stopped [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[[0;32m  OK  [0m] Stopped [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-tmpfiles-clean.tim…[0my Cleanup of Temporary Directories.
+[[0;32m  OK  [0m] Stopped target [0;1;39mtime-set.target[0m - System Time Set.
+[[0;32m  OK  [0m] Closed [0;1;39msystemd-rfkill.socket[0m - Loa…ll Switch Status /dev/rfkill Watch.
+         Stopping [0;1;39mcron.service[0m - Regular ba…ground program processing daemon...
+         Stopping [0;1;39mgetty@tty1.service[0m - Getty on tty1...
+         Stopping [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0...
+         Stopping [0;1;39mssh.service[0m - OpenBSD Secure Shell server...
+         Stopping [0;1;39msystemd-networkd-persiste…[0mtent Storage in systemd-networkd...
+         Stopping [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed...
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-udev-load-credenti…[0m- Load udev Rules from Credentials.
+[[0;32m  OK  [0m] Stopped [0;1;39mcron.service[0m - Regular background program processing daemon.
+[[0;32m  OK  [0m] Stopped [0;1;39mgetty@tty1.service[0m - Getty on tty1.
+[[0;32m  OK  [0m] Stopped [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0.
+[!p]104[?7h[6n[32766;32766H[6n[[0;32m  OK  [0m] Stopped [0;1;39mssh.service[0m - OpenBSD Secure Shell server.
+[[0;32m  OK  [0m] Stopped [0;1;39msession-1.scope[0m - Session 1 of User tanager.
+[[0;32m  OK  [0m] Removed slice [0;1;39msystem-getty.slice[0m - Slice /system/getty.
+[[0;32m  OK  [0m] Removed slice [0;1;39msystem-serial\x2dget…slice[0m - Slice /system/serial-getty.
+         Stopping [0;1;39muser@1000.service[0m - User Manager for UID 1000...
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-networkd-persisten…[0mistent Storage in systemd-networkd.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed.
+[[0;32m  OK  [0m] Stopped [0;1;39muser@1000.service[0m - User Manager for UID 1000.
+         Stopping [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+         Stopping [0;1;39muser-runtime-dir@1000.ser…[0mRuntime Directory /run/user/1000...
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+[[0;32m  OK  [0m] Stopped target [0;1;39mnetwork.target[0m - Network.
+[[0;32m  OK  [0m] Stopped target [0;1;39mremote-fs.target[0m - Remote File Systems.
+         Stopping [0;1;39mnetworking.service[0m - Raise network interfaces...
+         Stopping [0;1;39msystemd-networkd.service[0m - Network Configuration...
+[[0;32m  OK  [0m] Unmounted [0;1;39mrun-user-1000.mount[0m - /run/user/1000.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-networkd.service[0m - Network Configuration.
+[[0;32m  OK  [0m] Stopped [0;1;39muser-runtime-dir@1000.serv…[0mr Runtime Directory /run/user/1000.
+[[0;32m  OK  [0m] Removed slice [0;1;39muser-1000.slice[0m - User Slice of UID 1000.
+         Stopping [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+         Stopping [0;1;39msystemd-logind.service[0m - User Login Management...
+[[0;32m  OK  [0m] Stopped [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-logind.service[0m - User Login Management.
+[[0;32m  OK  [0m] Stopped target [0;1;39mbasic.target[0m - Basic System.
+[[0;32m  OK  [0m] Stopped target [0;1;39mpaths.target[0m - Path Units.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-ask-password-conso…[0mequests to Console Directory Watch.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-ask-password-wall.…[0md Requests to Wall Directory Watch.
+[[0;32m  OK  [0m] Stopped target [0;1;39mslices.target[0m - Slice Units.
+[[0;32m  OK  [0m] Removed slice [0;1;39muser.slice[0m - User and Session Slice.
+[[0;32m  OK  [0m] Stopped target [0;1;39msockets.target[0m - Socket Units.
+[[0;32m  OK  [0m] Closed [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+[[0;32m  OK  [0m] Closed [0;1;39msshd-unix-local.socket[0m - Op…temd-ssh-generator, AF_UNIX Local).
+[[0;32m  OK  [0m] Closed [0;1;39msystemd-hostnamed.socket[0m - Hostname Service Socket.
+[[0;32m  OK  [0m] Stopped target [0;1;39msysinit.target[0m - System Initialization.
+[[0;32m  OK  [0m] Unset automount [0;1;39mproc-sys-fs-binfmt…[0mormats File System Automount Point.
+[[0;32m  OK  [0m] Closed [0;1;39msystemd-networkd.socket[0m - Network Service Netlink Socket.
+         Stopping [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+         Stopping [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-tmpfiles-setup.ser…[0mreate System Files and Directories.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[[0;32m  OK  [0m] Stopped [0;1;39mnetworking.service[0m - Raise network interfaces.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[[0;32m  OK  [0m] Stopped target [0;1;39mlocal-fs.target[0m - Local File Systems.
+[[0;32m  OK  [0m] Stopped target [0;1;39mlocal-fs-pre.target[0m…Preparation for Local File Systems.
+[[0;32m  OK  [0m] Stopped target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+         Unmounting [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock...
+         Unmounting [0;1;39mtmp.mount[0m - Temporary Directory /tmp...
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-network-generator.…[0mork Units from Kernel Command Line.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-remount-fs.service[0m…mount Root and Kernel File Systems.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-tmpfiles-setup-dev…[0mCreate Static Device Nodes in /dev.
+[[0;32m  OK  [0m] Stopped [0;1;39msystemd-tmpfiles-setup-dev…[0mic Device Nodes in /dev gracefully.
+[[0;32m  OK  [0m] Unmounted [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock.
+[[0;32m  OK  [0m] Unmounted [0;1;39mtmp.mount[0m - Temporary Directory /tmp.
+[[0;32m  OK  [0m] Stopped target [0;1;39mswap.target[0m - Swaps.
+[[0;32m  OK  [0m] Reached target [0;1;39mshutdown.target[0m - System Shutdown.
+[[0;32m  OK  [0m] Reached target [0;1;39mumount.target[0m - Unmount All Filesystems.
+[[0;32m  OK  [0m] Reached target [0;1;39mfinal.target[0m - Late Shutdown Services.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-poweroff.service[0m - System Power Off.
+[[0;32m  OK  [0m] Reached target [0;1;39mpoweroff.target[0m - System Power Off.
+[19111.261443] systemd-shutdown[1]: Syncing filesystems and block devices.
+[19112.073104] systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+[19112.323547] systemd-journald[250]: Received SIGTERM from PID 1 (systemd-shutdow).
+[19112.522693] systemd-shutdown[1]: Sending SIGKILL to remaining processes...
+[19112.751364] systemd-shutdown[1]: Unmounting file systems.
+[19112.809783] (sd-umount)[11650]: Unmounting '/run/credentials/systemd-journald.service'.
+[19112.857577] (sd-remount)[11651]: Remounting '/' read-only with options ''.
+[19112.964466] EXT4-fs (vda): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6 ro.
+[19113.233358] systemd-shutdown[1]: All filesystems unmounted.
+[19113.239476] systemd-shutdown[1]: Deactivating swaps.
+[19113.245693] systemd-shutdown[1]: All swaps deactivated.
+[19113.251395] systemd-shutdown[1]: Detaching loop devices.
+[19113.450931] systemd-shutdown[1]: All loop devices detached.
+[19113.457095] systemd-shutdown[1]: Stopping MD devices.
+[19113.467712] systemd-shutdown[1]: All MD devices stopped.
+[19113.473751] systemd-shutdown[1]: Detaching DM devices.
+[19113.484537] systemd-shutdown[1]: All DM devices detached.
+[19113.490447] systemd-shutdown[1]: All filesystems, swaps, loop devices, MD devices and DM devices detached.
+[19113.517801] systemd-shutdown[1]: Syncing filesystems and block devices.
+[19113.541103] systemd-shutdown[1]: Powering off.
+[19113.549372] reboot: Power down
+
+[tanager-host] RISC-V requested power-off
+[tanager-host] virtio: 35357 requests, 205 MiB read, 86 MiB written
+[tanager-host] --dbg: this bitstream has no debug counters
