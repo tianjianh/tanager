@@ -6,8 +6,9 @@
 # go to a triage list, $TANAGER_BUILD/soak/summary.md; they never gate merges.
 # Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
 # (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
-# no program while MemAvailable is under 12 GB (no build under 16 GB), and holds while the host
-# drive C: has under 12 GB free, WSL's own root filesystem has under 15 GB free, or the machine is busy.
+# no program while MemAvailable is under 12 GB (no build under 16 GB), and holds while the root
+# filesystem has under 15 GB free (and, under WSL, the Windows drive C: that holds its virtual disk
+# under 12 GB), or the machine is busy.
 #   tools/ci/soak.sh start     start it (also at every boot, from main's checkout: an @reboot crontab entry)
 #   tools/ci/soak.sh stop      stop it until the next start or boot
 #   tools/ci/soak.sh disable   stop it and remove the @reboot entry
@@ -18,20 +19,21 @@ CFGS="st st_w3 smt2 smt2_w3"
 JOBS=2                  # simulations per configuration: 4 x 2 = 8 at most
 BUILD_JOBS=4            # a tg_core model compile peaks at 0.63 GB (smt2_w3, measured): -j4 needs ~3 GB
 MEM_GB=12               # start no program while MemAvailable is under this
-C_MIN_GB=12             # hold while the host drive C:, which holds WSL's virtual disk, has less free
-WSL_MIN_GB=15           # or WSL's root filesystem has less free (df /: it binds once the disk is capped)
+ROOT_MIN_GB=15          # hold while the root filesystem has less free (df /)
+C_MIN_GB=12             # or, under WSL (/mnt/c), the Windows drive C:, which holds its virtual disk
 BUILD_MEM_GB=16         # nor a build, so that one keeps MemAvailable above MEM_GB
-REBUILD_MIN_H=4         # a newer main is built at most this often, since WSL's virtual disk keeps every block
-                        # it once held until it is compacted
+REBUILD_MIN_H=2         # a newer main is built at most this often (a build takes about 14 minutes on w-x299;
+                        # 4 under WSL, whose virtual disk kept every block until it was compacted)
 BUILD_TMP=/dev/shm      # builds happen in RAM (tmpfs), and $SOAK/build keeps only what the rounds run: a model's
                         # directory is about 260 MB, 210 of them precompiled headers, for a 4 MB binary
 COH_L2_SETS=1024        # the coherence testbench's L2 sets, the board's, once tb_boot takes the count
-SEEDS=400               # programs per configuration per round (about a minute)
+SEEDS=400               # programs per configuration per round (about 5-6 minutes)
 VM_PCT=33               # share of the programs that run in S-mode under Sv39 (tg_rand --vm)
 # Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
-spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp=16"; }
+# Spike's PMP regions are the core's PMP entries, which tg_vsim and tanager-lockstep take from the RTL (DR-167).
+spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
@@ -71,6 +73,9 @@ prepare() {
      git --git-dir="$SOAK_GIT" rev-parse -q --verify "$commit:tests/unit/boot" > /dev/null; then
     paths="$paths tests/unit tests/coherence"; coh=1
   fi
+  # sim/Makefile reads sw/versions.sh for the A53 checker's toolchain: unused here, but without it every
+  # model's build log says "cannot open .../sw/versions.sh"
+  git --git-dir="$SOAK_GIT" rev-parse -q --verify "$commit:sw/versions.sh" > /dev/null && paths="$paths sw/versions.sh"
   git --git-dir="$SOAK_GIT" archive "$commit" $paths | tar -x -C "$src" || return 1
   # Every extension switch on: the M3 set the core track tests, and F/D once it exists.
   local pkg="$src/rtl/core/tg_core_pkg.sv"
@@ -98,7 +103,7 @@ prepare() {
     for cfg in $CFGS; do
       for tc in ${tcs:-default}; do
         make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" \
-          ISA="$isa" PRIV=MSU PMP=16 $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
+          ISA="$isa" PRIV=MSU $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
         keep "$tmp" "sim/$cfg-core$([ "$tc" != default ] && echo "-tc$tc")" || exit 1
       done
     done
@@ -259,8 +264,8 @@ summarize() {
     echo
     echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds$([ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ] && echo " (alternate pairs of rounds), the core's timing cuts (DR-140) off and on in alternate rounds"); trace back-pressure $stall"
     [ -n "$(cat "$SOAK/coh" 2>/dev/null)" ] &&
-      echo "- coherence programs on the two-core SoC (tests/coherence, $COH_MODES; \`$(cat "$SOAK/coh")\`): $COH_SEEDS per round in each of $COH_CFGS"
-    echo "- state: $state ($(date '+%F %T')); C: has $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB free, WSL $(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9') GB"
+      echo "- coherence programs on the two-core SoC (tests/coherence, $(cat "$SOAK/coh_modes" 2>/dev/null || echo "$COH_MODES"); \`$(cat "$SOAK/coh")\`): $COH_SEEDS per round in each of $COH_CFGS"
+    echo "- state: $state ($(date '+%F %T')); $(hostname): / has $(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9') GB free$([ -d /mnt/c ] && echo ", C: $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB")"
     echo "- findings are a triage list: they gate nothing until confirmed as core bugs (verification.md §4.4)"
     echo
     echo "## Programs per day and configuration"
@@ -301,14 +306,16 @@ run() {
     [ -f "$SOAK/logs/soak.log" ] && [ "$(stat -c %s "$SOAK/logs/soak.log")" -gt 1000000 ] &&
       mv "$SOAK/logs/soak.log" "$SOAK/logs/soak.log.1"
     commit=$(git --git-dir="$SOAK_GIT" rev-parse --short main 2>/dev/null) || { sleep 600; continue; }
-    free=$(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9')
-    if [ -n "$free" ] && [ "$free" -lt "$C_MIN_GB" ]; then
-      log "holding: C: has $free GB free"; summarize "$commit" "holding (C: under $C_MIN_GB GB free)"; sleep 1800; continue
+    if [ -d /mnt/c ]; then  # WSL: the Windows drive that holds the virtual disk
+      free=$(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9')
+      if [ -n "$free" ] && [ "$free" -lt "$C_MIN_GB" ]; then
+        log "holding: C: has $free GB free"; summarize "$commit" "holding (C: under $C_MIN_GB GB free)"; sleep 1800; continue
+      fi
     fi
-    wfree=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')
-    if [ -n "$wfree" ] && [ "$wfree" -lt "$WSL_MIN_GB" ]; then
-      log "holding: WSL's root filesystem has $wfree GB free"
-      summarize "$commit" "holding (WSL under $WSL_MIN_GB GB free)"; sleep 1800; continue
+    rfree=$(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9')
+    if [ -n "$rfree" ] && [ "$rfree" -lt "$ROOT_MIN_GB" ]; then
+      log "holding: the root filesystem has $rfree GB free"
+      summarize "$commit" "holding (/ under $ROOT_MIN_GB GB free)"; sleep 1800; continue
     fi
     if [ "$(mem_gb)" -lt "$MEM_GB" ]; then
       summarize "$commit" "waiting (MemAvailable $(mem_gb) GB, under $MEM_GB)"; sleep 120; continue
@@ -380,7 +387,7 @@ case "${1:-}" in
   run) run ;;
   start)
     SOAK_GIT=$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir) || exit 2
-    # Start again after a WSL restart, with main's copy of this script (as tools/memguard.sh does).
+    # Start again after a restart of the host, with main's copy of this script (as tools/memguard.sh does).
     { crontab -l 2>/dev/null | grep -v 'tools/ci/soak\.sh'
       echo "@reboot /bin/bash $(dirname "$SOAK_GIT")/tools/ci/soak.sh start >/dev/null 2>&1"; } | crontab -
     if running; then echo "soak: already running (pid $(cat "$SOAK/soak.pid"))"; exit 0; fi

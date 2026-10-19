@@ -33,9 +33,11 @@ The boot takes the profile through tests/unit/boot's Makefile, which reads sim/p
 a cycle cost is reported on the Linux boot by profile). DC_MSHRS=1|4 (--dc-mshrs) and BRANCH_DC_MSHRS
 (--branch-dc-mshrs) do the same for the L1D's misses in flight (DR-149): BRANCH_DC_MSHRS=4 against a base
 of one MSHR measures the 4-miss L1D; and QUEUE_DECODE=0|1 (--queue-decode) and BRANCH_QUEUE_DECODE
-(--branch-queue-decode) for G8's instruction-queue decode bits. None of these names reaches a build from
-the environment, only as a make variable of sim/profile.mk, which the cache key and the build's info file
-name.
+(--branch-queue-decode) for G8's instruction-queue decode bits; PMP_ENTRIES=8|16 (--pmp-entries) and
+BRANCH_PMP_ENTRIES for the core's PMP entries (DR-167): BRANCH_PMP_ENTRIES=16 against a base of 16 checks the
+switch at 16 (each side's lockstep has as many PMP regions as its own model reports). None of these names
+reaches a build from the environment, only as a make variable of sim/profile.mk, which the cache key and the
+build's info file name.
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -64,6 +66,19 @@ NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load
 BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
 BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
 AUTO_BOOT = 3                            # million cycles, when the change reaches the uncore
+# The boot's images (the coordinator, 2026-10-19): OpenSBI's fw_jump.bin from the SoC track's tree and the
+# protected reference Image (sw/build_linux.sh rebuilds it only with BR_REBUILD_REFERENCE=1), each pinned by
+# its sha256. The boot runs them, and refuses one whose content has changed, unless --boot-fw or
+# --boot-kernel (BOOT_FW, BOOT_KERNEL) names a file. Before this it took the newest file under
+# $TANAGER_BUILD, and a track's own OpenSBI build (10-19, 02:04-02:26) became every boot's firmware.
+REF_IMAGES = {
+    "fw": ("OpenSBI's fw_jump.bin",
+           os.path.join(TB, "track-soc-160053", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"),
+           "b0094d235a36f8bdb857c97d5d60e28bb3852d20a418c9cc3efa45710c0679bb"),
+    "kernel": ("the Linux Image",
+               os.path.join(TB, "track-soc-160053", "br-tanager_lp64d", "images", "Image"),
+               "cea2bf6694672c687ad2587772660d6d268e240b97032f47a0f391097735addf"),
+}
 RANDOM_VM = 33                           # share of the random programs in S-mode under Sv39 (as the soak's)
 UNCORE_PATHS = ("rtl/uncore/", "rtl/soc/", "rtl/common/")
 
@@ -96,7 +111,7 @@ def git(*args, env=None):
 # The make variables of sim/profile.mk this check can force, with each one's tag in the cache key (the order
 # keeps the keys of builds made before the later ones were added)
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
-                ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("STORE_PF", "spf"))
+                ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"))
 
 
 def profile_takes(ref, var):
@@ -431,18 +446,37 @@ def vsim_programs(suites, cfg, randn, jobs):
     return out
 
 
-def newest(pattern):
-    files = glob.glob(pattern)
-    return max(files, key=os.path.getmtime) if files else None
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def boot_program(a, cfg, tb_src):
+def boot_image(kind, given):
+    """The boot's image of this kind ("fw" or "kernel"): (path, sha256, what it is). By default the pinned
+    reference, which must still have its sha256; a file named on the command line runs whatever it holds."""
+    name, ref_path, ref_sha = REF_IMAGES[kind]
+    if given:
+        if not os.path.isfile(given):
+            fail(f"--boot-{kind} {given}: no such file")
+        h = sha256_of(given)
+        return given, h, "the reference" if h == ref_sha else "NOT the reference, as given"
+    if not os.path.isfile(ref_path):
+        fail(f"the boot's reference {name}, {ref_path} (sha256 {ref_sha[:16]}...), is missing: restore it, "
+             f"or name a file with --boot-{kind} (BOOT_{'FW' if kind == 'fw' else 'KERNEL'})")
+    h = sha256_of(ref_path)
+    if h != ref_sha:
+        fail(f"the boot's reference {name}, {ref_path}, has sha256 {h[:16]}..., not {ref_sha[:16]}...: it was "
+             f"rebuilt or replaced, which would move every boot baseline. Restore it, or name the file with "
+             f"--boot-{kind} (BOOT_{'FW' if kind == 'fw' else 'KERNEL'}) to run it anyway")
+    return ref_path, h, "the reference"
+
+
+def boot_program(a, cfg, tb_src, images):
     """The Linux boot's first N million cycles: tb_boot's plusargs and the images they name."""
-    fw = a.boot_fw or newest(os.path.join(TB, "*", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"))
-    kernel = a.boot_kernel or newest(os.path.join(TB, "*", "br-tanager_lp64d", "images", "Image"))
-    if not fw or not kernel:
-        fail("the boot needs OpenSBI's fw_jump.bin and Buildroot's Image (sw/build_opensbi.sh, sw/build_linux.sh), "
-             "or --boot-fw and --boot-kernel")
+    fw, kernel = images["fw"][0], images["kernel"][0]
     # The device tree for the configuration, from the boot tree's sw/dts
     threads = 2 if cfg.startswith("smt2") else 1
     dsrc = git("rev-parse", f"{tb_src}:sw/dts")
@@ -596,8 +630,10 @@ def main():
                          "the uncore, else 0)")
     ap.add_argument("--boot-cores", type=int, default=None, choices=(1, 2),
                     help="cores in the booted SoC (default: 2 when the change reaches the uncore, else 1)")
-    ap.add_argument("--boot-fw", default="", help="OpenSBI fw_jump.bin (default: the newest under $TANAGER_BUILD)")
-    ap.add_argument("--boot-kernel", default="", help="Linux Image (default: the newest under $TANAGER_BUILD)")
+    ap.add_argument("--boot-fw", default="",
+                    help="OpenSBI fw_jump.bin (default: the reference, REF_IMAGES, which must keep its sha256)")
+    ap.add_argument("--boot-kernel", default="",
+                    help="Linux Image (default: the reference, REF_IMAGES, which must keep its sha256)")
     ap.add_argument("--boot-seed", type=int, default=1, help="the memory models' random seed (+verilator+seed+)")
     ap.add_argument("--boot-tree", default="", help="take tests/unit (tb_boot) and sw/dts from this ref")
     ap.add_argument("--jobs", type=int, default=8, help="parallel runs, and make jobs across the builds")
@@ -629,6 +665,11 @@ def main():
     ap.add_argument("--steer-la", type=int, choices=(0, 1), default=None,
                     help="build both sides with M6's ALU-queue steering a group ahead off or on (DR-169; default: the package's)")
     ap.add_argument("--branch-steer-la", type=int, choices=(0, 1), default=None, help="this side's only")
+    ap.add_argument("--pmp-entries", type=int, choices=(8, 16), default=None,
+                    help="build both sides with this many PMP entries (DR-167; default: the package's); each side's "
+                         "lockstep has as many PMP regions as its model reports")
+    ap.add_argument("--branch-pmp-entries", type=int, choices=(8, 16), default=None,
+                    help="this side's only: 16 against a base of 16 checks the switch at 16")
     ap.add_argument("--store-pf", type=int, choices=(0, 1), default=None,
                     help="build both sides with M6's ownership prefetch for stores off or on (DR-171; default: the package's)")
     ap.add_argument("--branch-store-pf", type=int, choices=(0, 1), default=None, help="this side's only")
@@ -676,6 +717,7 @@ def main():
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
             "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
             "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la),
+            "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries),
             "STORE_PF": (a.store_pf, a.branch_store_pf)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
@@ -687,7 +729,7 @@ def main():
             if not profile_takes(tree, v):
                 fail(f"this tree's sim/profile.mk does not take {v}")
         prof = lambda p: ", ".join(f"{v}={p[v]}" for v, _ in PROFILE_VARS if v in p) or "the package's default"
-        log(f"  profile (DR-140, DR-149, G8, DR-153): base {prof(prof_base)}, this side {prof(prof_branch)}"
+        log(f"  profile (DR-140, DR-149, G8, DR-153, DR-167): base {prof(prof_base)}, this side {prof(prof_branch)}"
             f"{', on the boot too' if a.boot else ''}")
         # tests/unit/boot reads sim/profile.mk only if it is there (soc-2's 97b528a), so a boot tree
         # without the hook would build the default without a word: refuse it instead.
@@ -698,6 +740,11 @@ def main():
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
     if auto_note:
         log(auto_note)
+    images = {}
+    if a.boot:
+        images = {k: boot_image(k, a.boot_fw if k == "fw" else a.boot_kernel) for k in ("fw", "kernel")}
+        for k, (path, h, what) in images.items():
+            log(f"  boot {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}")
     os.makedirs(WORK, exist_ok=True)
 
     t_start = time.time()
@@ -764,7 +811,7 @@ def main():
         prune_builds({s.key for pair in sides.values() for s in pair})
 
         # The boot first: it is long, and the programs run beside it
-        progs = ([boot_program(a, cfg, boot_tb)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
+        progs = ([boot_program(a, cfg, boot_tb, images)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
         log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites + (['boot'] if a.boot else []))})...")
         t1 = time.time()
         jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]
@@ -818,6 +865,8 @@ def main():
             if console:
                 log(line)
 
+        for k, (path, h, what) in images.items():
+            out(f"[{cfg}] boot {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}", console=False)
         out(f"[{cfg}] {'suite':8s} {'programs':>8s} {'identical':>9s} {'differ':>6s} {'cycles':>9s} {'change':>8s}")
         for suite, (n, ok, nd, ca, d) in per_suite.items():
             out(f"[{cfg}] {suite:8s} {n:8d} {ok:9d} {nd:6d} {ca / 1e6:8.2f}M "
