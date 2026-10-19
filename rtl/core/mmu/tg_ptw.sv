@@ -22,9 +22,9 @@ module tg_ptw
   input  logic [43:0]       satp_ppn,
   input  logic              sum,
   input  logic              mxr,
-  input  pmp_d_t [15:0]     pmp_d,
+  input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
   input  logic [2:0]        pmp_al,       // every 1G / 2M / 4K page is PMP-homogeneous
-  input  logic [15:0]       pmp_p2m,      // each entry's address is aligned to a 2M page
+  input  logic [PMP_ENTRIES-1:0] pmp_p2m, // each entry's address is aligned to a 2M page
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
@@ -114,10 +114,10 @@ module tg_ptw
     logic              in_pg, sub_pg, bound;
     pg = PMP_GW'({leaf_q.ppn, 10'b0});            // the page base in 4-byte granules
     leaf_nh = 1'b0;
-    for (int i = 0; i < 16; i++) begin
+    for (int i = 0; i < PMP_ENTRIES; i++) begin
       in_pg  = ((pmp_d[i].a ^ pg) & ~AL2M) == '0;
       sub_pg = pmp_d[i].nap && !pmp_d[i].above && pmp_d[i].mask[18];
-      bound  = (pmp_d[i].tor || (i < 15 && pmp_d[(i + 1) % 16].tor)) && !pmp_p2m[i];
+      bound  = (pmp_d[i].tor || (i < PMP_ENTRIES - 1 && pmp_d[(i + 1) % PMP_ENTRIES].tor)) && !pmp_p2m[i];
       if (in_pg && (sub_pg || bound)) leaf_nh = 1'b1;
     end
   end

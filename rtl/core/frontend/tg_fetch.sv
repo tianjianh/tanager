@@ -85,7 +85,7 @@ module tg_fetch
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
   input  dec_state_t  dst,            // decode's state, for the queue's decode bits
   input  priv_e       priv,
-  input  pmp_d_t [15:0]     pmp_d,
+  input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic        tlb_flush,
   input  logic        it_fill,

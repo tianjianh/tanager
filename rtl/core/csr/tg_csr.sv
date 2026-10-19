@@ -60,9 +60,9 @@ module tg_csr
   output logic [15:0]            satp_asid,
   output logic [43:0]            satp_ppn,
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
-  output pmp_d_t [15:0]          pmp_d,        // PMP region descriptors (registered)
+  output pmp_d_t [PMP_ENTRIES-1:0] pmp_d,      // PMP region descriptors (registered)
   output logic [2:0]             pmp_al,       // every 1G / 2M / 4K page is PMP-homogeneous
-  output logic [15:0]            pmp_p2m,      // each entry's address is aligned to a 2M page
+  output logic [PMP_ENTRIES-1:0] pmp_p2m,      // each entry's address is aligned to a 2M page
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
   output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
   // Interrupt inputs and time
@@ -81,7 +81,11 @@ module tg_csr
   output logic [7:0]             fc_wdata,
   input  logic                   fs_dirty
 );
-  localparam int NPMP = 16;
+  localparam int NPMP = PMP_ENTRIES;      // 8 or 16 (DR-167); pmpcfg0 holds entries 0-7, pmpcfg2 8-15
+  localparam int PIW  = idx_w(NPMP);
+  if (NPMP != 8 && NPMP != 16) begin : g_bad_pmp
+    $error("tg_csr: PMP_ENTRIES is 8 or 16");
+  end
   localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
   localparam bit SU = EXT_SU;
 
@@ -106,6 +110,12 @@ module tg_csr
   logic [12:0] mcontext_q;
   logic [31:0] scontext_q;
   logic [NPMP-1:0][7:0]  pmpcfg_q;
+  logic [7:0][7:0]      pcfg_hi;       // pmpcfg2's entries, 8-15: zero with 8 entries
+  if (NPMP > 8) begin : g_cfg_hi
+    assign pcfg_hi = pmpcfg_q[15:8];
+  end else begin : g_cfg_none
+    assign pcfg_hi = '0;
+  end
 
   // ---- Cold CSRs in LUTRAM (FPGA-friendly T1) ----
   // xtvec, xscratch, xepc, xcause and xtval of M and S: one 16 x 64 tg_ram_lut at
@@ -204,7 +214,7 @@ module tg_csr
   assign satp_ppn  = satp_ppn_q;
   // ---- PMP region descriptors (core-mmu.md §PMP) ----
   // pmpaddr lives in LUTRAM. A PMP write marks the entries it changes, and one descriptor unit
-  // recomputes a marked entry per cycle into pmp_d_q (flip-flops: every checker reads all 16);
+  // recomputes a marked entry per cycle into pmp_d_q (flip-flops: every checker reads all of them);
   // pmp_al follows a cycle later. pmp_busy holds fetch meanwhile: the write's flush has emptied
   // the window, so nothing else checks PMP until fetch resumes. After reset a sweep writes the
   // reset values (entry 0: NAPOT over everything), then every entry is computed.
@@ -219,9 +229,9 @@ module tg_csr
   logic                  pchg_q;        // a descriptor changed last cycle: pmp_al follows
   logic [4:0]            psw_q;         // reset sweep of the pmpaddr LUTRAM
   logic                  pa_we;
-  logic [3:0]            pa_wa;
+  logic [PIW-1:0]        pa_wa;
   logic [53:0]           pa_wd;
-  logic [1:0][3:0]       pa_ra;         // CSR read, descriptor unit
+  logic [1:0][PIW-1:0]   pa_ra;         // CSR read, descriptor unit
   logic [1:0][53:0]      pa_rd;
   tg_ram_lut #(.DEPTH(NPMP), .WIDTH(54), .NR(2)) u_pmpaddr (
     .clk, .we(pa_we), .waddr(pa_wa), .wdata(pa_wd), .raddr(pa_ra), .rdata(pa_rd));
@@ -229,14 +239,14 @@ module tg_csr
   localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
   localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
   logic       psweep, pcalc;
-  logic [3:0] pj;                       // the entry the unit computes
+  logic [PIW-1:0] pj;                   // the entry the unit computes
   pmp_d_t     pd_n;
   logic [2:0] ptop_n;
   logic [7:0] pcfg;
   assign psweep = !psw_q[4];
   always_comb begin
     pj = '0;
-    for (int i = NPMP - 1; i >= 0; i--) if (pdirty_q[i]) pj = 4'(i);
+    for (int i = NPMP - 1; i >= 0; i--) if (pdirty_q[i]) pj = PIW'(i);
   end
   assign pcalc = !psweep && |pdirty_q;
   assign pcfg  = pmpcfg_q[pj];
@@ -398,7 +408,7 @@ module tg_csr
         if (a >= 12'h3A0 && a <= 12'h3AF) begin                      // pmpcfg (even only)
           if (a[0]) exists = 1'b0;
           else if (a == 12'h3A0) rval = pmpcfg_q[7:0];
-          else if (a == 12'h3A2) rval = pmpcfg_q[15:8];
+          else if (a == 12'h3A2) rval = pcfg_hi;
           else rval = '0;
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
           rval = (a - 12'h3B0 < 12'(NPMP)) ? {10'b0, pa_rd[0]} : '0;
@@ -475,18 +485,18 @@ module tg_csr
 
   // pmpaddr writes (entry i is locked by its own L, or by entry i + 1's L when that is TOR)
   // and the reset sweep
-  assign pa_ra[0] = a[3:0];
+  assign pa_ra[0] = a[PIW-1:0];
   always_comb begin
     int i;
-    i = int'(pw_a_q[3:0]);
-    pa_we = cm_csr && pw_v_q && pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF &&
+    i = int'(pw_a_q[PIW-1:0]);
+    pa_we = cm_csr && pw_v_q && pw_a_q >= 12'h3B0 && pw_a_q < 12'h3B0 + 12'(NPMP) &&
             !(pmpcfg_q[i][7] ||
               (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01));
-    pa_wa = pw_a_q[3:0];
+    pa_wa = pw_a_q[PIW-1:0];
     pa_wd = pw_d_q[53:0];
     if (psweep) begin                    // Spike's reset: entry 0 allows everything
-      pa_we = 1'b1;
-      pa_wa = psw_q[3:0];
+      pa_we = int'(psw_q[3:0]) < NPMP;   // (the sweep runs 16 cycles for the cold CSRs)
+      pa_wa = psw_q[PIW-1:0];
       pa_wd = (psw_q[3:0] == '0) ? '1 : '0;
     end
   end
@@ -668,9 +678,11 @@ module tg_csr
             for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
             pdirty_q[7:0] <= '1;
           end
-          12'h3A2: begin
-            for (int i = 0; i < 8; i++) pmpcfg_q[8+i] <= pmpcfg_w(pmpcfg_q[8+i], pw_d_q[8*i +: 8]);
-            pdirty_q[15:8] <= '1;
+          12'h3A2: begin                                 // (entries 8-15: none with 8 entries)
+            for (int i = 8; i < NPMP; i++) begin
+              pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*(i-8) +: 8]);
+              pdirty_q[i] <= 1'b1;
+            end
           end
           default: if (pa_we) pdirty_q[pa_wa] <= 1'b1;      // pmpaddr (written in its LUTRAM)
         endcase
