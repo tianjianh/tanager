@@ -1,0 +1,449 @@
+﻿
+===== COM7 scripted session opened 2026-10-19T06:27:15.1223003-07:00 =====
+[  567.089323] systemd-shutdown[1]: Failed to set timeout to 10min: Invalid argument
+[  568.389451] shutdown[1]: Failed to set timeout to 10min: Invalid argument
+[  568.761851] unregister bridge display which is owned by other component
+[  568.769416] unregister bridge display which is owned by other component
+[  568.787806] reboot: Restarting system
+Zynq MP First Stage Boot Loader 
+Release 2023.2   Mar 18 2024  -  06:43:04
+MultiBootOffset: 0x40
+Reset Mode	:	System Reset
+Platform: Silicon (4.0), Running on A53-0 (64-bit) Processor, Device Name: XCZUUNKNEG
+QSPI 32 bit Boot Mode 
+FlashID=0x20 0xBB 0x20
+PMU Firmware 2023.2	Mar 18 2024   06:43:04
+PMU_ROM Version: xpbr-v8.1.0-0
+NOTICE:  BL31: Non secure code at 0x8000000
+NOTICE:  BL31: v2.8(release):xlnx_rebase_v2.8_2023.2_ksb_aug
+NOTICE:  BL31: Built : 12:21:43, Aug 31 2023
+
+
+U-Boot 2023.01 (May 10 2024 - 06:24:11 +0000)
+
+CPU:   ZynqMP
+Silicon: v3
+Chip:  xck26
+Detected name: zynqmp-smk-k26-xcl2g-rev2-sck-kv-g-rev2
+Model: ZynqMP KV260 revB
+Board: Xilinx ZynqMP
+DRAM:  2 GiB (effective 4 GiB)
+PMUFW:	v1.1
+Xilinx I2C FRU format at nvmem0:
+ Manufacturer Name: XILINX
+ Product Name: SMK-K26-XCL2G
+ Serial No: XFL1P1YXM1YO
+ Part Number: 05057-01
+ File ID: 0x0
+ Revision Number: 2
+Xilinx I2C FRU format at nvmem1:
+ Manufacturer Name: XILINX
+ Product Name: SCK-KV-G
+ Serial No: XFL1QJOU0EV3
+ Part Number: 5066-01
+ File ID: 0x0
+ Revision Number: 2
+EL Level:	EL2
+Secure Boot:	not authenticated, not encrypted
+Core:  127 devices, 35 uclasses, devicetree: fit
+NAND:  0 MiB
+MMC:   mmc@ff170000: 1
+Loading Environment from nowhere... OK
+In:    serial
+Out:   serial
+Err:   serial
+Bootmode: QSPI_MODE
+Reset reason:	SOFT 
+Net:   
+ZYNQ GEM: ff0e0000, mdio bus ff0e0000, phyaddr 1, interface rgmii-id
+eth0: ethernet@ff0e0000
+[2J[1;1Hgpio: pin gpio@ff0a000038 (gpio 38) value is 0
+gpio: pin gpio@ff0a000038 (gpio 38) value is 1
+starting USB...
+Bus usb@fe200000: Register 2000440 NbrPorts 2
+Starting the controller
+USB XHCI 1.00
+scanning bus usb@fe200000 for devices... 3 USB Device(s) found
+       scanning usb for storage devices... 0 Storage Device(s) found
+Hit any key to stop autoboot:  2  1  0 
+SMK-K26-XCL2G: No match
+model=SMK-K26-XCL2G
+switch to partitions #0, OK
+mmc1 is current device
+Scanning mmc 1:1...
+Found U-Boot script /boot.scr.uimg
+9238 bytes read in 17 ms (530.3 KiB/s)
+## Executing script at 20000000
+switch to partitions #0, OK
+mmc1 is current device
+
+MMC read: dev # 1, block # 2047, count 1 ... 1 blocks read: OK
+tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr
+
+MMC write: dev # 1, block # 2047, count 1 ... 1 blocks written: OK
+4347 bytes read in 29 ms (145.5 KiB/s)
+## Executing script at 21000000
+tanager: RISC-V mode from mmc 1:1
+7797692 bytes read in 593 ms (12.5 MiB/s)
+tanager: the host bridge answers
+ff180314: 012a0000 00050000                    ..*.....
+277856 bytes read in 50 ms (5.3 MiB/s)
+1301584 bytes read in 122 ms (10.2 MiB/s)
+3719 bytes read in 29 ms (125 KiB/s)
+tanager: the RISC-V runs, its console on COM5 and UART1; this A53 parks
+## Starting application at 0xFFFC0000 ...
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 2
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : cadence_uart
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 333 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 77 KB
+Firmware Heap Offset        : 0x49000
+Firmware Heap Size          : 41 KB (total), 0 KB (reserved), 13 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*,0x2*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x00000000ff5e0218-0x00000000ff5e021f M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x00000000ff010000-0x00000000ff010fff M: (I,R,W) S/U: (R,W)
+Domain0 Region04            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region05            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+
+
+U-Boot 2026.07 (Oct 19 2026 - 03:25:00 -0700)
+
+CPU:   tanager,tanager
+Model: Tanager on KV260
+DRAM:  1 GiB
+using memory 0xbee92000-0xbf6b2000 for malloc()
+Core:  25 devices, 14 uclasses, devicetree: board
+MMC:   mmc@ff170000: 0
+Loading Environment from nowhere... OK
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   No ethernet found.
+[?25h
+Working FDT set to bee8fe40
+[2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 0
+=> setenv bootargs "root=LABEL=tanager-root console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 rw ignore_loglevel"
+=> mmc info
+Device: mmc@ff170000
+Manufacturer ID: fe
+OEM: 3432
+Name: SDBus Speed: 50000000
+Mode: SD High Speed (50MHz)
+Rd Block Len: 512
+SD version 3.0
+High Capacity: Yes
+Capacity: 14.6 GiB
+Bus Width: 4-bit
+Erase Group Size: 512 Bytes
+=> load mmc 0:3 ${kernel_addr_r} /boot/vmlinux-6.12.113+deb13-riscv64
+31166464 bytes read in 5242 ms (5.7 MiB/s)
+=> 
+===== EXPECT TIMEOUT after 30 s: =>  =====
+crc32 ${kernel_addr_r} ${filesize}
+crc32 for 84000000 ... 85db8fff ==> 439ad054
+=> load mmc 0:3 ${ramdisk_addr_r} /boot/initrd.img-6.12.113+deb13-riscv64
+42091488 bytes read in 7087 ms (5.7 MiB/s)
+=> 
+===== COM7 scripted session opened 2026-10-19T06:29:07.3218690-07:00 =====
+crc32 ${kernel_addr_r} ${filesize}
+crc32 for 84000000 ... 868243df ==> 4baae027
+=> load mmc 0:3 ${ramdisk_addr_r} /boot/initrd.img-6.12.113+deb13-riscv64
+42091488 bytes read in 7092 ms (5.7 MiB/s)
+=> setenv rd_size ${filesize}
+=> crc32 ${ramdisk_addr_r} ${filesize}
+crc32 for 8c300000 ... 8eb243df ==> e9fd3a54
+=> booti ${kernel_addr_r} ${ramdisk_addr_r}:${rd_size} ${fdtcontroladdr}
+Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+## Flattened Device Tree blob at bee8fe40
+   Booting using the fdt blob at 0xbee8fe40
+Working FDT set to bee8fe40
+   Loading Device Tree to 00000000bde7b000, end 00000000bde7ff71 ... OK
+Working FDT set to bde7b000
+No RNG device
+
+Starting kernel ...
+
+﻿
+===== COM7 scripted session opened 2026-10-19T06:34:31.4514446-07:00 =====
+[   99.944195] systemd-shutdown[1]: Failed to set timeout to 10min: Invalid argument
+[  101.240683] shutdown[1]: Failed to set timeout to 10min: Invalid argument
+[  101.594025] unregister bridge display which is owned by other component
+[  101.601581] unregister bridge display which is owned by other component
+[  101.616657] reboot: Restarting system
+Zynq MP First Stage Boot Loader 
+Release 2023.2   Mar 18 2024  -  06:43:04
+MultiBootOffset: 0x40
+Reset Mode	:	System Reset
+Platform: Silicon (4.0), Running on A53-0 (64-bit) Processor, Device Name: XCZUUNKNEG
+QSPI 32 bit Boot Mode 
+FlashID=0x20 0xBB 0x20
+PMU Firmware 2023.2	Mar 18 2024   06:43:04
+PMU_ROM Version: xpbr-v8.1.0-0
+NOTICE:  BL31: Non secure code at 0x8000000
+NOTICE:  BL31: v2.8(release):xlnx_rebase_v2.8_2023.2_ksb_aug
+NOTICE:  BL31: Built : 12:21:43, Aug 31 2023
+
+
+U-Boot 2023.01 (May 10 2024 - 06:24:11 +0000)
+
+CPU:   ZynqMP
+Silicon: v3
+Chip:  xck26
+Detected name: zynqmp-smk-k26-xcl2g-rev2-sck-kv-g-rev2
+Model: ZynqMP KV260 revB
+Board: Xilinx ZynqMP
+DRAM:  2 GiB (effective 4 GiB)
+PMUFW:	v1.1
+Xilinx I2C FRU format at nvmem0:
+ Manufacturer Name: XILINX
+ Product Name: SMK-K26-XCL2G
+ Serial No: XFL1P1YXM1YO
+ Part Number: 05057-01
+ File ID: 0x0
+ Revision Number: 2
+Xilinx I2C FRU format at nvmem1:
+ Manufacturer Name: XILINX
+ Product Name: SCK-KV-G
+ Serial No: XFL1QJOU0EV3
+ Part Number: 5066-01
+ File ID: 0x0
+ Revision Number: 2
+EL Level:	EL2
+Secure Boot:	not authenticated, not encrypted
+Core:  127 devices, 35 uclasses, devicetree: fit
+NAND:  0 MiB
+MMC:   mmc@ff170000: 1
+Loading Environment from nowhere... OK
+In:    serial
+Out:   serial
+Err:   serial
+Bootmode: QSPI_MODE
+Reset reason:	SOFT 
+Net:   
+ZYNQ GEM: ff0e0000, mdio bus ff0e0000, phyaddr 1, interface rgmii-id
+eth0: ethernet@ff0e0000
+[2J[1;1Hgpio: pin gpio@ff0a000038 (gpio 38) value is 0
+gpio: pin gpio@ff0a000038 (gpio 38) value is 1
+starting USB...
+Bus usb@fe200000: Register 2000440 NbrPorts 2
+Starting the controller
+USB XHCI 1.00
+scanning bus usb@fe200000 for devices... 3 USB Device(s) found
+       scanning usb for storage devices... 0 Storage Device(s) found
+Hit any key to stop autoboot:  2  1  0 
+SMK-K26-XCL2G: No match
+model=SMK-K26-XCL2G
+switch to partitions #0, OK
+mmc1 is current device
+Scanning mmc 1:1...
+Found U-Boot script /boot.scr.uimg
+9238 bytes read in 17 ms (530.3 KiB/s)
+## Executing script at 20000000
+switch to partitions #0, OK
+mmc1 is current device
+
+MMC read: dev # 1, block # 2047, count 1 ... 1 blocks read: OK
+tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr
+
+MMC write: dev # 1, block # 2047, count 1 ... 1 blocks written: OK
+4347 bytes read in 29 ms (145.5 KiB/s)
+## Executing script at 21000000
+tanager: RISC-V mode from mmc 1:1
+7797692 bytes read in 593 ms (12.5 MiB/s)
+tanager: the host bridge answers
+ff180314: 012a0000 00050000                    ..*.....
+277856 bytes read in 50 ms (5.3 MiB/s)
+1301584 bytes read in 122 ms (10.2 MiB/s)
+3719 bytes read in 29 ms (125 KiB/s)
+tanager: the RISC-V runs, its console on COM5 and UART1; this A53 parks
+## Starting application at 0xFFFC0000 ...
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 2
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : cadence_uart
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 333 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 77 KB
+Firmware Heap Offset        : 0x49000
+Firmware Heap Size          : 41 KB (total), 0 KB (reserved), 13 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*,0x2*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x00000000ff5e0218-0x00000000ff5e021f M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x00000000ff010000-0x00000000ff010fff M: (I,R,W) S/U: (R,W)
+Domain0 Region04            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region05            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region06            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+
+
+U-Boot 2026.07 (Oct 19 2026 - 03:25:00 -0700)
+
+CPU:   tanager,tanager
+Model: Tanager on KV260
+DRAM:  1 GiB
+using memory 0xbee92000-0xbf6b2000 for malloc()
+Core:  25 devices, 14 uclasses, devicetree: board
+MMC:   mmc@ff170000: 0
+Loading Environment from nowhere... OK
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   No ethernet found.
+[?25h
+Working FDT set to bee8fe40
+[2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 0
+=> setenv bootargs "root=LABEL=tanager-root console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 rw ignore_loglevel"
+=> mmc info
+Device: mmc@ff170000
+Manufacturer ID: fe
+OEM: 3432
+Name: SDBus Speed: 50000000
+Mode: SD High Speed (50MHz)
+Rd Block Len: 512
+SD version 3.0
+High Capacity: Yes
+Capacity: 14.6 GiB
+Bus Width: 4-bit
+Erase Group Size: 512 Bytes
+=> load mmc 0:3 ${kernel_addr_r} /boot/vmlinux-6.12.113+deb13-riscv64
+31166464 bytes read in 5245 ms (5.7 MiB/s)
+=> crc32 ${kernel_addr_r} ${filesize}
+crc32 for 84000000 ... 85db8fff ==> 439ad054
+=> load mmc 0:3 ${ramdisk_addr_r} /boot/initrd.img-6.12.113+deb13-riscv64
+42091488 bytes read in 7090 ms (5.7 MiB/s)
+=> setenv rd_size ${filesize}
+=> crc32 ${ramdisk_addr_r} ${filesize}
+crc32 for 8c300000 ... 8eb243df ==> e9fd3a54
+=> booti ${kernel_addr_r} ${ramdisk_addr_r}:${rd_size} ${fdtcontroladdr}
+Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+## Flattened Device Tree blob at bee8fe40
+   Booting using the fdt blob at 0xbee8fe40
+Working FDT set to bee8fe40
+   Loading Device Tree to 00000000bde7b000, end 00000000bde7ff71 ... OK
+Working FDT set to bde7b000
+No RNG device
+
+Starting kernel ...
+
+Zynq MP First Stage Boot Loader 
+Release 2023.2   Mar 18 2024  -  06:43:04
+MultiBootOffset: 0x40
+Reset Mode	:	System Reset
+Platform: Silicon (4.0), Running on A53-0 (64-bit) Processor, Device Name: XCZUUNKNEG
+QSPI 32 bit Boot Mode 
+FlashID=0x20 0xBB 0x20
+PMU Firmware 2023.2	Mar 18 2024   06:43:04
+PMU_ROM Version: xpbr-v8.1.0-0
+NOTICE:  BL31: Non secure code at 0x8000000
+NOTICE:  BL31: v2.8(release):xlnx_rebase_v2.8_2023.2_ksb_aug
+NOTICE:  BL31: Built : 12:21:43, Aug 31 2023
+
+
+U-Boot 2023.01 (May 10 2024 - 06:24:11 +0000)
+
+CPU:   ZynqMP
+Silicon: v3
+Chip:  xck26
+Detected name: zynqmp-smk-k26-xcl2g-rev2-sck-kv-g-rev2
+Model: ZynqMP KV260 revB
+Board: Xilinx ZynqMP
+DRAM:  

@@ -1,0 +1,5 @@
+# s16, the stress started on COM5 (a fresh prompt first)
+send|
+expect|tanager@tanager:~\$|60
+send|bash ~/stress/stress.sh
+expect|STRESS start|180

@@ -1,0 +1,21 @@
+/dev/mmcblk1p3: 8117026816 bytes, label tanager-root; u-boot.bin be25ec4287f7a488, tanager-host 5232908901445a67
+loaded tanager-d4s2 at 14:55:30; fpga0 operating
+fan: pwm1 19/255, AMS temp1 34 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /dev/mmcblk1p3 --rng --dbg --timeout 270000 < console
+login prompt 140 s after the load
+commands done 1898 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 169430705 reads, native latency avg 0.6 max 105 cycles
+debug counters after the boot:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+power-off reached the host 1912 s after the load
+boot exit 0; console in /home/ubuntu/tanager/sdpart/linux_shell.txt (704 lines)
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 15:27:26
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+orphan sleeps after the run: 0

@@ -1,0 +1,96 @@
+# D5 step 0 (../runs/d5_step0.sh), the board's own output file, then a follow-up for the lines head -40 cut.
+== d5_step0 2026-10-19 17:55:16 UTC, A53 up 58.80 s
+active app: k26-starter-kits
+== eth0
+2: eth0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500 qdisc mq state UP mode DEFAULT group default qlen 1000
+    link/ether 00:0a:35:2a:df:d8 brd ff:ff:ff:ff:ff:ff
+eth0             UP             192.168.137.177/24 
+	Advertised link modes:  10baseT/Half 10baseT/Full
+	                        100baseT/Half 100baseT/Full
+	Link partner advertised link modes:  10baseT/Half 10baseT/Full
+	                                     100baseT/Half 100baseT/Full
+	Link partner advertised pause frame use: No
+	Link partner advertised auto-negotiation: Yes
+	Link partner advertised FEC modes: Not reported
+	Speed: 1000Mb/s
+	Duplex: Full
+	Auto-negotiation: on
+	master-slave cfg: preferred slave
+	Port: Twisted Pair
+	PHYAD: 1
+	Link detected: yes
+sysfs: speed 1000, duplex full, carrier 1
+driver: macb on ff0e0000.ethernet
+== clocks (common clock framework)
+   clock                          count    count    count        rate   accuracy phase  cycle    enable   consumer                         id
+---------------------------------------------------------------------------------------------------------------------------------------------
+    iopll_post_src                   0       0        0        33333333    0          0     50000      Y      deviceless                      no_connection_id         
+    iopll_pre_src                    1       1        1        33333333    0          0     50000      Y      deviceless                      no_connection_id         
+       iopll_int                     1       1        1        1999999980  0          0     50000      Y         deviceless                      no_connection_id         
+          iopll_half                 1       1        1        999999990   0          0     50000      Y            deviceless                      no_connection_id         
+             iopll_int_mux           1       1        1        999999990   0          0     50000      Y               deviceless                      no_connection_id         
+                iopll                10      11       9        999999990   0          0     50000      Y                  deviceless                      no_connection_id         
+                   gem3_ref_ung_mux  1       1        0        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      gem3_ref_ung_div1 1       1        0        124999999   0          0     50000      Y                        deviceless                      no_connection_id         
+                         gem3_ref_ung 1       1        0        124999999   0          0     50000      Y                           deviceless                      no_connection_id         
+                            gem3_ref 2       2        0        124999999   0          0     50000      Y                              ff0e0000.ethernet               hclk                     
+                               gem3_tx 1       1        0        124999999   0          0     50000      Y                                 ff0e0000.ethernet               tx_clk                   
+                   gem2_ref_ung_mux  0       0        0        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      gem2_ref_ung_div1 0       0        0        41666667    0          0     50000      Y                        deviceless                      no_connection_id         
+                         gem2_ref_ung 0       0        0        41666667    0          0     50000      Y                           deviceless                      no_connection_id         
+                            gem2_ref 0       0        0        41666667    0          0     50000      Y                              deviceless                      no_connection_id         
+                               gem2_tx 0       0        0        41666667    0          0     50000      Y                                 deviceless                      no_connection_id         
+                   gem1_ref_ung_mux  0       0        0        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      gem1_ref_ung_div1 0       0        0        41666667    0          0     50000      Y                        deviceless                      no_connection_id         
+                         gem1_ref_ung 0       0        0        41666667    0          0     50000      Y                           deviceless                      no_connection_id         
+                            gem1_ref 0       0        0        41666667    0          0     50000      Y                              deviceless                      no_connection_id         
+                               gem1_tx 0       0        0        41666667    0          0     50000      Y                                 deviceless                      no_connection_id         
+                   gem0_ref_ung_mux  0       0        0        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      gem0_ref_ung_div1 0       0        0        41666667    0          0     50000      Y                        deviceless                      no_connection_id         
+                         gem0_ref_ung 0       0        0        41666667    0          0     50000      Y                           deviceless                      no_connection_id         
+                            gem0_ref 0       0        0        41666667    0          0     50000      Y                              deviceless                      no_connection_id         
+                               gem0_tx 0       0        0        41666667    0          0     50000      Y                                 deviceless                      no_connection_id         
+                   gem_tsu_ref_mux   1       1        1        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      gem_tsu_ref_div1 1       1        1        999999990   0          0     50000      Y                        deviceless                      no_connection_id         
+                         gem_tsu_ref_div2 1       1        1        249999998   0          0     50000      Y                           deviceless                      no_connection_id         
+                            gem_tsu_ref 1       1        1        249999998   0          0     50000      Y                              deviceless                      no_connection_id         
+                               gem_tsu 1       1        0        249999998   0          0     50000      Y                                 ff0e0000.ethernet               tsu_clk                  
+                                                                                                                                         ff0e0000.ethernet               tsu_clk                  
+                   lpd_lsbus_mux     1       1        1        999999990   0          0     50000      Y                     deviceless                      no_connection_id         
+                      lpd_lsbus_div1 1       1        1        99999999    0          0     50000      Y                        deviceless                      no_connection_id         
+                         lpd_lsbus   9       9        1        99999999    0          0     50000      Y                           ff0f0000.spi                    pclk                     
+                   iopll_to_fpd      1       1        0        499999995   0          0     50000      Y                     deviceless                      no_connection_id         
+                      topsw_lsbus_mux 1       1        0        499999995   0          0     50000      Y                        deviceless                      no_connection_id         
+                         topsw_lsbus_div1 1       1        0        99999999    0          0     50000      Y                           deviceless                      no_connection_id         
+-- the device tree's clocks for GEM3:
+pclk hclk tx_clk rx_clk tsu_clk 
+== PS registers (busybox devmem, always-on LPD and IOU blocks and GEM3, which Ubuntu's eth0 has clocked)
+0xFF5E005C CRL_APB GEM3_REF_CTRL: 0x06010800
+0xFF5E0230 CRL_APB RST_LPD_IOU0: 0x00000007
+0xFF180098 IOU_SLCR MIO_PIN_38: 0x00000000
+0xFF0A0064 GPIO DATA_1_RO: 0x000613C0
+0xFF0E0294 GEM3 DCFG6: 0x02D10002
+
+# the follow-up: gem3_rx, GEM3's pclk among lpd_lsbus's consumers, and the full link modes
+                            gem3_ref 2       2        0        124999999   0          0     50000      Y                              ff0e0000.ethernet               hclk
+                               gem3_tx 1       1        0        124999999   0          0     50000      Y                                 ff0e0000.ethernet
+                               gem_tsu 1       1        0        249999998   0          0     50000      Y                                 ff0e0000.ethernet
+                                                                                                                                         ff0e0000.ethernet               t
+                                                                                                                                   ff0e0000.ethernet               pclk
+ gem3_rx                             1       1        0        0           0          0     50000      Y   ff0e0000.ethernet               rx_clk
+                      lpd_lsbus_div1 1       1        1        99999999    0          0     50000      Y                        deviceless                      no_connect
+                         lpd_lsbus   9       9        1        99999999    0          0     50000      Y                           ff0f0000.spi                    pclk
+	Supported link modes:   10baseT/Half 10baseT/Full
+	                        100baseT/Half 100baseT/Full
+	                        1000baseT/Half 1000baseT/Full
+	Supported pause frame use: Transmit-only
+	Supports auto-negotiation: Yes
+	Supported FEC modes: Not reported
+	Advertised link modes:  10baseT/Half 10baseT/Full
+	                        100baseT/Half 100baseT/Full
+	                        1000baseT/Half 1000baseT/Full
+	Advertised pause frame use: Transmit-only
+	Link partner advertised link modes:  10baseT/Half 10baseT/Full
+	                                     100baseT/Half 100baseT/Full
+	                                     1000baseT/Full
+	Link partner advertised pause frame use: No
