@@ -32,6 +32,8 @@ From the A53's live tree (`fpga/kv260/board/d4/fdt-live.dtb`):
 - **Debian:** no change. `macb`, `dp83867` and `phylink` are Debian modules, loaded by udev from the tree's compatibles. networkd's `80-tanager.network` already runs DHCP on any Ethernet interface (`Type=ether`), so stage C's network setup serves here too. sshd is installed, with the board session's key.
 - **ARM mode:** unchanged. Only the RISC-V mode tree and `riscv.scr`, both under `p1:/tanager/`, change.
 
+**Found in step 2's first run** (the board session): the A53's U-Boot leaves CRL_APB `GEM3_REF_CTRL` at `0x02011800`. That gates the receive clock and sets the transmit reference to IOPLL / 24 (41.7 MHz). Linux's clock framework programs it to `0x06010800` when macb probes, which `riscv.scr` now does: 125 MHz, both clocks on. It also sets the TSU at IOPLL / 4. Neither write is fatal; a refused one costs the RISC-V only its Ethernet. The link had come up at 1 Gb/s over MDIO, but no frame moved either way.
+
 ## The one limitation: 1 Gb/s only
 
 On ZynqMP, GEM3's RGMII transmit clock comes from the PS (CRL_APB `GEM3_REF_CTRL`): 125 MHz at 1 Gb/s, 25 MHz at 100 Mb/s, 2.5 MHz at 10 Mb/s. macb retunes it through the clock framework when the link speed changes. On the RISC-V that clock is a fixed one at the rate the boot firmware set, so:

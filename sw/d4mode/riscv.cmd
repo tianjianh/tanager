@@ -47,6 +47,14 @@ zynqmp mmio_write 0xff180314 0x03ff0000 0x032a0000
 zynqmp mmio_write 0xff180314 0x03ff0000 0x012a0000
 zynqmp mmio_write 0xff180318 0x003f0000 0x00050000
 md.l 0xff180314 2
+# GEM3's clocks (D5 step 2 on the board: this U-Boot leaves GEM3_REF_CTRL at 0x02011800, the receive clock gated and
+# the transmit reference at IOPLL / 24; the A53's Linux programs them when macb probes): the reference at IOPLL / 8,
+# 125 MHz for 1 Gb/s RGMII, with both clocks on; the TSU at IOPLL / 4, as the tree says. A refused write costs the
+# RISC-V its Ethernet only: not fatal, as the taps
+zynqmp mmio_write 0xff5e005c 0x063f3f07 0x06010800
+zynqmp mmio_write 0xff5e0100 0x013f3f07 0x01010400
+md.l 0xff5e005c 1
+md.l 0xff5e0100 1
 # GEM3's PHY, the DP83867 (D5, docs/spec/soc-d5-gem3.md): out of reset as the A53's Linux takes it, since Linux on
 # the RISC-V can't reach the PS GPIO. MIO38 is GPIO bank 1's bit 12, active low: an output, low for 10 ms, then high
 setexpr tg_v *0xff0a0244 \| 0x1000
