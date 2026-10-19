@@ -52,6 +52,16 @@ if {[info exists ::env(TG_PS_WINDOW)]} {
     lappend unc_set "PS_WINDOW=1"
   }
 }
+# TG_URF=1: the core's integer register file in UltraRAM, double-pumped (DR-174; tg_core_pkg URF, off by
+# default). A define every file sees, as the core's other switches: the core builds the UltraRAM file, and
+# kv260_top adds clk2x, twice the core clock from its MMCM (tg_clkgen CLK2X), with xdc/timing_urf.xdc's clock
+# constraints. Unset or 0 reads none of it: the build as before. TG_DEFINES must not set TG_URF.
+set urf [expr {[info exists ::env(TG_URF)] ? $::env(TG_URF) : 0}]
+if {$urf ni {0 1}} { puts "ERROR: TG_URF must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
+if {[lsearch -regexp $defines {^TG_URF(=|$)}] >= 0} {
+  puts "ERROR: TG_URF goes in its own variable, not in TG_DEFINES (fpga/kv260/README.md)"; exit 1
+}
+if {$urf} { lappend def_args -verilog_define TG_URF=1 }
 # The commit the sources come from, for summary.txt (fpga/kv260/package.sh), taken before they are read.
 # A snapshot without git (git archive, README) names it in TG_COMMIT.
 if {[info exists ::env(TG_COMMIT)]} {
@@ -110,6 +120,7 @@ tg_read_rtl $root $cfg
 tg_read_f [file join $root fpga kv260 kv260.f]
 read_xdc [file join $root fpga kv260 xdc kv260.xdc]
 read_xdc [file join $root fpga kv260 xdc timing.xdc]
+if {$urf} { read_xdc [file join $root fpga kv260 xdc timing_urf.xdc] }
 
 # ---- synthesis ----
 # TG_SYNTH_DIRECTIVE: synth_design's directive, AreaOptimized_high unless set (the coordinator, 10-16, DR-150:
@@ -188,6 +199,18 @@ proc tg_core_clock {} {
   }
   return {}
 }
+# With TG_URF=1, clk2x (c2x, CLKOUT2) takes the same uncertainty: the register file's half-cycle paths between
+# the two clocks then get it whichever clock Vivado charges it to.
+proc tg_clk2x_clock {} {
+  foreach q {{get_clocks -quiet c2x}
+             {get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT2]}
+             {get_clocks -quiet -of_objects [get_nets -quiet clk2x]}} {
+    set c [uplevel #0 $q]
+    puts "TG_PR_UNC clock query {$q}: [expr {[llength $c] ? $c : {none}}]"
+    if {[llength $c] == 1} { return $c }
+  }
+  return {}
+}
 stamp "opt_design ($opt_dir)"
 opt_design -directive $opt_dir
 tg_prim_check -file $rep/prim_check_opt.txt -fail 0
@@ -195,6 +218,14 @@ set pr_unc_note ""
 if {$pr_unc > 0} {
   set core_clk [tg_core_clock]
   if {![llength $core_clk]} { update_timing -quiet; set core_clk [tg_core_clock] }
+  if {[llength $core_clk] && $urf} {
+    set core_clk [concat $core_clk [tg_clk2x_clock]]
+    if {[llength $core_clk] != 2} {
+      puts "ERROR: TG_PR_UNC: TG_URF=1 but no clk2x clock found"
+      exit 1
+    }
+    set pr_unc_note " and on clk2x (TG_URF=1)"
+  }
   if {[llength $core_clk]} {
     set_clock_uncertainty -setup $pr_unc $core_clk
   } else {
@@ -231,6 +262,7 @@ puts $fh "commit=$commit"
 puts $fh "profile=$profile defines=[expr {$defines eq {} ? {-} : $defines}] synth=$synth_dir"
 puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and routing, taken back before the reports)$pr_unc_note"
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
+if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
