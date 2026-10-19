@@ -1082,33 +1082,50 @@ module tg_fetch
   logic             rdone_d_q;          // ... in the previous cycle
   logic [PA_W-1:6]  rline_d_q;
 
-  // Valid bits: a LUTRAM row of WAYS bits per set (plan §8.3: no flip-flop arrays). Reads: the
-  // set F1 fetches, and the missed set (victim choice when the refill starts; the refill's
-  // read-modify-write when it ends). After reset and FENCE.I a sweep clears every set while
+  // Valid bits: a LUTRAM row per set (plan §8.3: no flip-flop arrays) of WAYS bits and the set's
+  // 2-bit generation. Reads: the set F1 fetches, and the missed set (victim choice when the refill
+  // starts; the refill's read-modify-write when it ends). After reset a sweep clears every set while
   // F1 waits.
+  // FENCE.I by generation (area_recovery.md §6.11; it swept every set, 64 cycles of fetch, 5,410
+  // times in the boot's first 20M cycles): a set holds valid lines only while its generation is the
+  // current one (gen_q). FENCE.I bumps gen_q, so every older line misses from the next cycle, and
+  // fetch does not wait. A background pass then rewrites each stale set as current and empty, in
+  // cycles the refill leaves the second read port and the write port free; it skips a set the refill
+  // has made current since. A completed pass leaves no stale set, so the generation may wrap: a
+  // fourth FENCE.I before a pass completes falls back to the sweep.
   // The refill rewrites the victim's rows beat by beat and may outlive a redirect, so the
   // victim's valid bit is cleared when the refill starts: its old line misses from the next
   // cycle on (a read in the start cycle still gets the old data: no beat is written yet), and
   // F1 reads in the install cycle are refetched (rdone_d_q).
+  localparam int IVW = WAYS + 2;             // a row: {generation, valid bits}
   logic [1:0][SET_W-1:0] iv_ra;
-  logic [1:0][WAYS-1:0]  iv_rd;
+  logic [1:0][IVW-1:0]   iv_rd;
+  logic [1:0][WAYS-1:0]  iv_v;              // each read's valid lines: none in a stale set
   logic                  iv_we;
   logic [SET_W-1:0]      iv_wa;
-  logic [WAYS-1:0]       iv_wd;
+  logic [IVW-1:0]        iv_wd;
   logic [SET_W:0]        ivs_q;             // sweep: the next set to clear; done at SETS
+  logic [1:0]            gen_q;             // the current generation
+  logic [1:0]            gpend_q;           // FENCE.Is since the last completed pass (0 to 3)
+  logic [SET_W:0]        gps_q;             // the pass: the next set to visit; done at SETS
+  logic                  gp_go;             // the pass visits gps_q this cycle
   logic                  r_start;           // the refill of miss_pa_q's line starts
   assign ivs_done = ivs_q[SET_W];
   assign r_start  = rs_q == R_IDLE && (miss_q || am_go) && !rst;
+  assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we;
   assign iv_ra[0] = fpc_q[6 +: SET_W];
-  assign iv_ra[1] = (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
-  tg_ram_lut #(.DEPTH(SETS), .WIDTH(WAYS), .NR(2)) u_ival (
+  assign iv_ra[1] = gp_go ? gps_q[SET_W-1:0] : (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
+  tg_ram_lut #(.DEPTH(SETS), .WIDTH(IVW), .NR(2)) u_ival (
     .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
+  for (genvar k = 0; k < 2; k++) begin : g_ivv
+    assign iv_v[k] = (iv_rd[k][IVW-1 -: 2] == gen_q) ? iv_rd[k][WAYS-1:0] : '0;
+  end
 
   // F1's tag compare (for F2's way select, above): the set's valid bits and tags against fpc_q's PA
   logic [WAYS-1:0]  f1_wh;
   logic [WAY_W-1:0] f1_hw;
   for (genvar w = 0; w < WAYS; w++) begin : g_cmp
-    assign f1_wh[w] = iv_rd[0][w] && tag_rd[w] == f1_pa[12 +: TAG_W];
+    assign f1_wh[w] = iv_v[0][w] && tag_rd[w] == f1_pa[12 +: TAG_W];
   end
   always_comb begin
     f1_hw = '0;
@@ -1122,7 +1139,7 @@ module tg_fetch
     found = 1'b0;
     victim = rr_q;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !iv_rd[1][w]) begin
+      if (!found && !iv_v[1][w]) begin
         victim = WAY_W'(w);
         found = 1'b1;
       end
@@ -1132,16 +1149,21 @@ module tg_fetch
   always_comb begin
     iv_we = tag_we;
     iv_wa = tag_set;
-    iv_wd = iv_rd[1] | (WAYS'(1) << rway_q);
+    iv_wd = {gen_q, iv_v[1] | (WAYS'(1) << rway_q)};
     if (r_start) begin                      // (never with tag_we: that is the refill's end)
       iv_we = 1'b1;
       iv_wa = miss_pa_q[6 +: SET_W];
-      iv_wd = iv_rd[1] & ~(WAYS'(1) << victim);
+      iv_wd = {gen_q, iv_v[1] & ~(WAYS'(1) << victim)};
+    end
+    if (gp_go) begin                        // (never with either): a stale set, current and empty
+      iv_we = iv_rd[1][IVW-1 -: 2] != gen_q;
+      iv_wa = gps_q[SET_W-1:0];
+      iv_wd = {gen_q, {WAYS{1'b0}}};
     end
     if (!ivs_done) begin
       iv_we = 1'b1;
       iv_wa = ivs_q[SET_W-1:0];
-      iv_wd = '0;
+      iv_wd = {gen_q, {WAYS{1'b0}}};
     end
   end
 
@@ -1204,11 +1226,54 @@ module tg_fetch
   end
 
   always_ff @(posedge clk) begin
-    if (rst || icinv)  ivs_q <= '0;
-    else if (!ivs_done) ivs_q <= ivs_q + 1'b1;
+    if (rst) begin
+      ivs_q   <= '0;
+      gen_q   <= '0;
+      gpend_q <= '0;
+      gps_q   <= (SET_W + 1)'(SETS);
+    end else if (icinv) begin
+      gen_q <= gen_q + 1'b1;
+      if (gpend_q == 2'd3) begin             // the generation would wrap onto a stale set: sweep
+        ivs_q   <= '0;
+        gpend_q <= '0;
+        gps_q   <= (SET_W + 1)'(SETS);
+      end else begin
+        gpend_q <= gpend_q + 1'b1;
+        gps_q   <= '0;                       // (re)start the pass
+      end
+    end else begin
+      if (!ivs_done) ivs_q <= ivs_q + 1'b1;
+      if (gp_go) begin
+        gps_q <= gps_q + 1'b1;
+        if (gps_q[SET_W-1:0] == SET_W'(SETS - 1)) gpend_q <= '0;   // no stale set is left
+      end
+    end
     rdone_d_q <= tag_we && !rst;
     rline_d_q <= rline_q;
   end
+`ifndef SYNTHESIS
+  // The valid bits as the sweep kept them, every line of every set cleared at FENCE.I: the
+  // generations must give F1 and the victim choice the same lines
+  logic [SETS-1:0][WAYS-1:0] ivref_q;
+  logic                      ivref_ok_q;            // a reset has come, and its sweep has run
+  initial ivref_ok_q = 1'b0;
+  always @(posedge clk) begin
+    if (rst || icinv) ivref_q <= '0;
+    else begin
+      if (r_start) ivref_q[miss_pa_q[6 +: SET_W]][victim] <= 1'b0;
+      if (tag_we)  ivref_q[tag_set][rway_q] <= 1'b1;
+    end
+    if (rst) ivref_ok_q <= 1'b0;
+    else if (ivs_done) ivref_ok_q <= 1'b1;
+  end
+  always_ff @(posedge clk) begin
+    if (ivref_ok_q && !rst && ivs_done) begin
+      assert (iv_v[0] == ivref_q[iv_ra[0]]) else $error("tg_fetch: the I$ valid lines differ from the sweep's");
+      if (r_start) assert (iv_v[1] == ivref_q[iv_ra[1]]) else $error("tg_fetch: the victim's set differs from the sweep's");
+      assert (!(gp_go && (r_start || tag_we))) else $error("tg_fetch: the generation pass with a refill write");
+    end
+  end
+`endif
 
   // ---- Sequential: F1, F2, F3 ----
   always_ff @(posedge clk) begin
