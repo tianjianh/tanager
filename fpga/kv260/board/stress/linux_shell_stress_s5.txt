@@ -1,0 +1,904 @@
+loaded: fw 277856 B, kernel 1265600 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+virtio: blk /dev/mmcblk1p3 rng
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 2
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 333 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 77 KB
+Firmware Heap Offset        : 0x49000
+Firmware Heap Size          : 41 KB (total), 0 KB (reserved), 13 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 2
+Domain0 HARTs               : 0x0*,0x2*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000010000000-0x0000000010001fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region05            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 2
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+
+
+U-Boot 2026.07 (Oct 17 2026 - 13:25:56 -0700)
+
+CPU:   tanager,tanager
+Model: Tanager on KV260
+DRAM:  1 GiB
+using memory 0xbee9a000-0xbf6ba000 for malloc()
+Core:  20 devices, 11 uclasses, devicetree: board
+Loading Environment from nowhere... OK
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   No ethernet found.
+[?25h
+Working FDT set to bee980c0
+[2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 1[2KHit any key to stop autoboot: 0
+Retrieving file: /boot/extlinux/extlinux.conf
+U-Boot menu
+1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+2:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64 (rescue target)
+3:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64
+4:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64 (rescue target)
+Enter choice: 1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+Retrieving file: /boot/vmlinux-6.12.113+deb13-riscv64
+Retrieving file: /boot/initrd.img-6.12.113+deb13-riscv64
+append: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+## Flattened Device Tree blob at bee980c0
+   Booting using the fdt blob at 0xbee980c0
+Working FDT set to bee980c0
+   Loading Device Tree to 00000000bde8e000, end 00000000bde92ced ... OK
+Working FDT set to bde8e000
+
+Starting kernel ...
+
+[    0.000000] Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.113-1 (2026-10-15)
+[    0.000000] Machine model: Tanager on KV260
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] earlycon: ns16550a0 at MMIO 0x0000000010000000 (options '')
+[    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0xbfdf4bc0-0xbfdf6fff]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000]   Normal   empty
+[    0.000000]   Device   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] percpu: Embedded 32 pages/cpu s90712 r8192 d32168 u131072
+[    0.000000] Kernel command line: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[    0.000000] Policy zone: DMA32
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] ftrace: allocating 39559 entries in 155 pages
+[    0.000000] ftrace: allocated 155 pages with 5 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=2.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks Rude: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000010] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.008497] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.021102] Console: colour dummy device 80x25
+[    0.050128] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.060980] pid_max: default: 32768 minimum: 301
+[    0.114010] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[    0.131422] landlock: Up and running.
+[    0.135413] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.147020] AppArmor: AppArmor initialized
+[    0.152926] TOMOYO Linux initialized
+[    0.167617] LSM support for eBPF active
+[    0.191495] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.199578] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.284476] ASID allocator using 16 bits (65536 entries)
+[    0.292142] rcu: Hierarchical SRCU implementation.
+[    0.297310] rcu: 	Max phase no-delay instances is 1000.
+[    0.308730] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.325838] EFI services will not be available.
+[    0.334615] smp: Bringing up secondary CPUs ...
+[    0.352535] smp: Brought up 1 node, 2 CPUs
+[    0.594522] node 0 deferred pages initialised in 220ms
+[    0.600636] Memory: 917552K/1048576K available (10729K kernel code, 5220K rwdata, 10240K rodata, 2687K init, 708K bss, 127292K reserved, 0K cma-reserved)
+[    0.629485] devtmpfs: initialized
+[    0.681088] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.716703] pinctrl core: initialized pinctrl subsystem
+[    0.731647] DMI not present or invalid.
+[    0.751357] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.764908] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.774153] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.783112] audit: initializing netlink subsys (disabled)
+[    0.792132] audit: type=2000 audit(0.648:1): state=initialized audit_enabled=0 res=1
+[    0.801883] thermal_sys: Registered thermal governor 'fair_share'
+[    0.801997] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.808507] thermal_sys: Registered thermal governor 'step_wise'
+[    0.814896] thermal_sys: Registered thermal governor 'user_space'
+[    0.821286] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.828332] cpuidle: using governor ladder
+[    0.839962] cpuidle: using governor menu
+[    0.921718] cpu1: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    1.003824] cpu0: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    1.215380] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    1.222638] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    1.229713] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    1.236898] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    1.443078] ACPI: Interpreter disabled.
+[    1.450348] iommu: Default domain type: Translated
+[    1.455556] iommu: DMA domain TLB invalidation policy: strict mode
+[    1.492599] pps_core: LinuxPPS API ver. 1 registered
+[    1.497971] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.507733] PTP clock support registered
+[    1.531736] NetLabel: Initializing
+[    1.535482] NetLabel:  domain hash size = 128
+[    1.540172] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.547238] NetLabel:  unlabeled traffic allowed by default
+[    1.561674] vgaarb: loaded
+[    1.570900] clocksource: Switched to clocksource riscv_clocksource
+[    2.157977] VFS: Disk quotas dquot_6.6.0
+[    2.164778] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    2.189759] AppArmor: AppArmor Filesystem Enabled
+[    2.196067] pnp: PnP ACPI: disabled
+[    2.382202] NET: Registered PF_INET protocol family
+[    2.391038] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    3.232673] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    3.244736] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    3.253928] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    3.266059] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    3.275551] TCP: Hash tables configured (established 8192 bind 8192)
+[    3.289485] MPTCP token hash table entries: 1024 (order: 3, 24576 bytes, linear)
+[    3.300042] UDP hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.307557] UDP-Lite hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    3.319448] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    3.325846] NET: Registered PF_XDP protocol family
+[    3.331136] PCI: CLS 0 bytes, default 64
+[    3.339285] Trying to unpack rootfs image as initramfs...
+[    3.360059] Initialise system trusted keyrings
+[    3.365452] Key type blacklist registered
+[    3.376069] workingset: timestamp_bits=44 max_order=18 bucket_order=0
+[    3.383587] zbud: loaded
+[    3.409933] fuse: init (API version 7.41)
+[    3.428782] integrity: Platform Keyring initialized
+[    3.434471] integrity: Machine keyring initialized
+[    4.994066] Key type asymmetric registered
+[    4.998777] Asymmetric key parser 'x509' registered
+[   21.993151] Freeing initrd memory: 41080K
+[   22.396755] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 247)
+[   22.406617] io scheduler mq-deadline registered
+[   22.520691] riscv-plic: interrupt-controller@c000000: mapped 31 interrupts with 2 handlers for 8 contexts.
+[   22.539779] ledtrig-cpu: registered to indicate activity on CPUs
+[   22.556010] SBI CPPC extension NOT detected!!
+[   22.576560] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[   22.620343] printk: legacy console [ttyS0] disabled
+[   22.631847] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[   22.641590] printk: legacy console [ttyS0] enabled
+[   22.641590] printk: legacy console [ttyS0] enabled
+[   22.652175] printk: legacy bootconsole [ns16550a0] disabled
+[   22.652175] printk: legacy bootconsole [ns16550a0] disabled
+[   22.684012] mousedev: PS/2 mouse device common for all mice
+[   22.707346] riscv-pmu-sbi: SBI PMU extension is available
+[   22.713282] riscv-pmu-sbi: 16 firmware and 2 hardware counters
+[   22.719427] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[   22.746584] NET: Registered PF_INET6 protocol family
+[   23.131125] Segment Routing with IPv6
+[   23.135952] In-situ OAM (IOAM) with IPv6
+[   23.141009] mip6: Mobile IPv6
+[   23.144375] NET: Registered PF_PACKET protocol family
+[   23.151490] mpls_gso: MPLS GSO support
+[   23.363853] registered taskstats version 1
+[   23.377514] Loading compiled-in X.509 certificates
+[   25.495601] Loaded X.509 cert 'Build time autogenerated kernel key: f0b5082483965175d0cc59b2c14f8a0a7df90aa8'
+[   25.738766] Demotion targets for Node 0: null
+[   25.755276] Key type .fscrypt registered
+[   25.759515] Key type fscrypt-provisioning registered
+[   27.417484] Key type encrypted registered
+[   27.422473] AppArmor: AppArmor sha256 policy hashing enabled
+[   27.428837] ima: No TPM chip found, activating TPM-bypass!
+[   27.434683] ima: Allocated hash algorithm: sha256
+[   27.440214] ima: No architecture policies found
+[   27.445840] evm: Initialising EVM extended attributes:
+[   27.451269] evm: security.selinux
+[   27.454739] evm: security.SMACK64 (disabled)
+[   27.459478] evm: security.SMACK64EXEC (disabled)
+[   27.464373] evm: security.SMACK64TRANSMUTE (disabled)
+[   27.469704] evm: security.SMACK64MMAP (disabled)
+[   27.474597] evm: security.apparmor
+[   27.478270] evm: security.ima
+[   27.481532] evm: security.capability
+[   27.485420] evm: HMAC attrs: 0x1
+[   30.597305] clk: Disabling unused clocks
+[   30.601673] PM: genpd: Disabling unused power domains
+[   30.916536] Freeing unused kernel image (initmem) memory: 2684K
+[   30.969874] Run /init as init process
+Loading, please wait...
+Starting systemd-udevd version 257.13-1~deb13u1
+[   45.161020] virtio_blk virtio0: 1/0/0 default/read/poll queues
+[   45.177412] virtio_blk virtio0: [vda] 15853568 512-byte logical blocks (8.12 GB/7.56 GiB)
+Begin: Loading essential drivers ... done.
+Begin: Running /scripts/init-premount ... done.
+Begin: Mounting root file system ... Begin: Running /scripts/local-top ... done.
+Begin: Running /scripts/local-premount ... done.
+Begin: Will now check root file system ... fsck from util-linux 2.41.5
+[/sbin/fsck.ext4 (1) -- /dev/vda] fsck.ext4 -a -C0 /dev/vda 
+tanager-root: clean, 22936/499712 files, 397342/1981696 blocks
+done.
+[   63.742419] EXT4-fs (vda): mounted filesystem 45d8e126-fa57-4bee-8133-ba472bb7b0c6 r/w with ordered data mode. Quota mode: none.
+done.
+Begin: Running /scripts/local-bottom ... done.
+Begin: Running /scripts/init-bottom ... done.
+[   67.117922] Not activating Mandatory Access Control as /sbin/tomoyo-init does not exist.
+[   69.155905] systemd[1]: System time advanced to timestamp on /var/lib/systemd/timesync/clock: Sun 2026-10-18 06:58:40 UTC
+[   70.531210] systemd[1]: Inserted module 'autofs4'
+[!p]104[?7h[   72.472547] systemd[1]: systemd 257.13-1~deb13u1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[   72.508370] systemd[1]: Detected architecture riscv64.
+
+[0;1;39mWelcome to [0m[1mDebian GNU/Linux 13 (trixie)[0m[0;1;39m![0m
+
+[   72.597193] systemd[1]: Hostname set to <tanager>.
+[   82.542291] systemd[1]: bpf-restrict-fs: LSM BPF program attached
+[   94.890691] systemd[1]: Queued start job for default target graphical.target.
+[   95.884936] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-getty.slice[0m - Slice /system/getty.
+[   95.959003] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-modprobe.slice[0m - Slice /system/modprobe.
+[   96.024363] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[[0;32m  OK  [0m] Created slice [0;1;39msystem-serial\x2dget…slice[0m - Slice /system/serial-getty.
+[   96.088031] systemd[1]: Created slice user.slice - User and Session Slice.
+[[0;32m  OK  [0m] Created slice [0;1;39muser.slice[0m - User and Session Slice.
+[   96.120692] systemd[1]: Started systemd-ask-password-console.path - Dispatch Password Requests to Console Directory Watch.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-conso…[0mequests to Console Directory Watch.
+[   96.159700] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-ask-password-wall.…[0md Requests to Wall Directory Watch.
+[   96.208801] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[[0;32m  OK  [0m] Set up automount [0;1;39mproc-sys-fs-binfm…[0mormats File System Automount Point.
+[   96.241685] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+         Expecting device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0...
+[   96.268061] systemd[1]: Reached target paths.target - Path Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mpaths.target[0m - Path Units.
+[   96.289440] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[[0;32m  OK  [0m] Reached target [0;1;39mremote-fs.target[0m - Remote File Systems.
+[   96.313487] systemd[1]: Reached target slices.target - Slice Units.
+[[0;32m  OK  [0m] Reached target [0;1;39mslices.target[0m - Slice Units.
+[   96.337867] systemd[1]: Reached target swap.target - Swaps.
+[[0;32m  OK  [0m] Reached target [0;1;39mswap.target[0m - Swaps.
+[   96.475301] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-creds.socket[0m - Credential Encryption/Decryption.
+[   96.512218] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-initctl.socke…[0m- initctl Compatibility Named Pipe.
+[   96.552943] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald-dev-…socket[0m - Journal Socket (/dev/log).
+[   96.592807] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-journald.socket[0m - Journal Sockets.
+[   96.633557] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-networkd.socket[0m - Network Service Netlink Socket.
+[   96.661506] systemd[1]: systemd-pcrextend.socket - TPM PCR Measurements skipped, unmet condition check ConditionSecurity=measured-uki
+[   96.676143] systemd[1]: systemd-pcrlock.socket - Make TPM PCR Policy skipped, unmet condition check ConditionSecurity=measured-uki
+[   96.698691] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-control.socket[0m - udev Control Socket.
+[   96.730702] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-udevd-kernel.socket[0m - udev Kernel Socket.
+[   96.852474] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+         Mounting [0;1;39mdev-hugepages.mount[0m - Huge Pages File System...
+[   96.977472] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+         Mounting [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System...
+[   97.217501] systemd[1]: Mounting run-lock.mount - Legacy Locks Directory /run/lock...
+         Mounting [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock...
+[   97.548292] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+         Mounting [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System...
+[   97.829084] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+         Mounting [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System...
+[   98.240023] systemd[1]: Mounting tmp.mount - Temporary Directory /tmp...
+         Mounting [0;1;39mtmp.mount[0m - Temporary Directory /tmp...
+[   98.727624] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+         Starting [0;1;39mkmod-static-nodes.service[0m…eate List of Static Device Nodes...
+[   99.156105] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+         Starting [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs...
+[   99.482626] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+         Starting [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm...
+[   99.924972] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+         Starting [0;1;39mmodprobe@efi_pstore.servi…[0m - Load Kernel Module efi_pstore...
+[  100.600788] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+         Starting [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse...
+[  100.670610] systemd[1]: systemd-fsck-root.service - File System Check on Root Device skipped, unmet condition check ConditionPathExists=!/run/initramfs/fsck-root
+[  100.722291] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-8cf2644b-4b0b-428f-9387-6d876050dc67
+[  101.306069] systemd[1]: Starting systemd-journald.service - Journal Service...
+         Starting [0;1;39msystemd-journald.service[0m - Journal Service...
+[  102.429524] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+         Starting [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules...
+[  103.138406] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+         Starting [0;1;39msystemd-network-generator…[0mk Units from Kernel Command Line...
+[  103.253393] systemd[1]: systemd-pcrmachine.service - TPM PCR Machine ID Measurement skipped, unmet condition check ConditionSecurity=measured-uki
+[  103.790493] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+         Starting [0;1;39msystemd-remount-fs.servic…[0munt Root and Kernel File Systems...
+[  103.878116] systemd[1]: systemd-tpm2-setup-early.service - Early TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[  104.478109] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+         Starting [0;1;39msystemd-udev-load-credent…[0mLoad udev Rules from Credentials...
+[  105.170649] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+         Starting [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices...
+[  108.443552] EXT4-fs (vda): re-mounted 45d8e126-fa57-4bee-8133-ba472bb7b0c6.
+[  109.022254] systemd[1]: Mounted dev-hugepages.mount - Huge Pages File System.
+[[0;32m  OK  [0m] Mounted [0;1;39mdev-hugepages.mount[0m - Huge Pages File System.
+[  109.101265] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+[[0;32m  OK  [0m] Mounted [0;1;39mdev-mqueue.mount[0m - POSIX Message Queue File System.
+[  109.178368] systemd[1]: Mounted run-lock.mount - Legacy Locks Directory /run/lock.
+[[0;32m  OK  [0m] Mounted [0;1;39mrun-lock.mount[0m - Legacy Locks Directory /run/lock.
+[  109.260845] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-debug.mount[0m - Kernel Debug File System.
+[  109.337121] systemd[1]: Mounted sys-kernel-tracing.mount - Kernel Trace File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-tracing.mount[0m - Kernel Trace File System.
+[  109.413080] systemd[1]: Mounted tmp.mount - Temporary Directory /tmp.
+[[0;32m  OK  [0m] Mounted [0;1;39mtmp.mount[0m - Temporary Directory /tmp.
+[  109.557005] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+[[0;32m  OK  [0m] Finished [0;1;39mkmod-static-nodes.service[0m…Create List of Static Device Nodes.
+[  109.765970] systemd[1]: modprobe@configfs.service: Deactivated successfully.
+[  109.856353] systemd[1]: Finished modprobe@configfs.service - Load Kernel Module configfs.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@configfs.service[0m - Load Kernel Module configfs.
+[  109.905320] systemd[1]: modprobe@configfs.service: Consumed 1.892s CPU time, 1.6M memory peak.
+[  110.017704] systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+[  110.128626] systemd[1]: Finished modprobe@efi_pstore.service - Load Kernel Module efi_pstore.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@efi_pstore.service[0m - Load Kernel Module efi_pstore.
+[  110.249660] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[  110.308652] systemd[1]: Finished modprobe@drm.service - Load Kernel Module drm.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@drm.service[0m - Load Kernel Module drm.
+[  110.341223] systemd[1]: modprobe@drm.service: Consumed 6.781s CPU time, 1.7M memory peak.
+[  110.409714] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+[  110.473416] systemd[1]: Finished modprobe@fuse.service - Load Kernel Module fuse.
+[[0;32m  OK  [0m] Finished [0;1;39mmodprobe@fuse.service[0m - Load Kernel Module fuse.
+[  110.599237] systemd[1]: Finished systemd-modules-load.service - Load Kernel Modules.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-modules-load.service[0m - Load Kernel Modules.
+[  110.696052] systemd[1]: Finished systemd-network-generator.service - Generate Network Units from Kernel Command Line.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-network-generator…[0mork Units from Kernel Command Line.
+[  110.845470] systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-remount-fs.servic…[0mmount Root and Kernel File Systems.
+[  110.927148] systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-load-credent…[0m- Load udev Rules from Credentials.
+[  111.107590] systemd[1]: Reached target network-pre.target - Preparation for Network.
+[[0;32m  OK  [0m] Reached target [0;1;39mnetwork-pre.target[0m - Preparation for Network.
+[  111.271735] systemd[1]: Mounting sys-fs-fuse-connections.mount - FUSE Control File System...
+         Mounting [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System...
+[  111.369198] systemd-journald[244]: Collecting audit messages is disabled.
+[  111.652123] systemd[1]: Mounting sys-kernel-config.mount - Kernel Configuration File System...
+         Mounting [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System...
+[  111.788335] systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database skipped, unmet condition check ConditionNeedsUpdate=/etc
+[  111.872532] systemd[1]: systemd-pstore.service - Platform Persistent Storage Archival skipped, unmet condition check ConditionDirectoryNotEmpty=/sys/fs/pstore
+[  112.431222] systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+         Starting [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed...
+[  113.058716] systemd[1]: Starting systemd-sysctl.service - Apply Kernel Variables...
+         Starting [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables...
+[  113.664659] systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+         Starting [0;1;39msystemd-tmpfiles-setup-de…[0m Device Nodes in /dev gracefully...
+[  113.769670] systemd[1]: systemd-tpm2-setup.service - TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[  113.986102] systemd[1]: Started systemd-journald.service - Journal Service.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-journald.service[0m - Journal Service.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-fs-fuse-connections.mount[0m - FUSE Control File System.
+[[0;32m  OK  [0m] Mounted [0;1;39msys-kernel-config.mount[0m - Kernel Configuration File System.
+[  117.427261] random: crng init done
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-random-seed.service[0m - Load/Save OS Random Seed.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-sysctl.service[0m - Apply Kernel Variables.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mic Device Nodes in /dev gracefully.
+         Starting [0;1;39msystemd-journal-flush.ser…[0msh Journal to Persistent Storage...
+         Starting [0;1;39msystemd-resolved.service[0m - Network Name Resolution...
+         Starting [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization...
+         Starting [0;1;39msystemd-tmpfiles-setup-de…[0meate Static Device Nodes in /dev...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-udev-trigger.service[0m - Coldplug All udev Devices.
+         Starting [0;1;39mifupdown-pre.service[0m - He…synchronize boot up for ifupdown...
+[  120.717741] systemd-journald[244]: Received client request to flush runtime journal.
+[[0m[0;31m*     [0m] (1 of 6) Job systemd-resolved.service/start running (27s / 10min 23s)
+M[K[[0;32m  OK  [0m] Finished [0;1;39mifupdown-pre.service[0m - He…o synchronize boot up for ifupdown.
+[K[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup-de…[0mCreate Static Device Nodes in /dev.
+[[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs-pre.target[0m…Preparation for Local File Systems.
+[[0;32m  OK  [0m] Reached target [0;1;39mlocal-fs.target[0m - Local File Systems.
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-sysext.socket[0m… System Extension Image Management.
+         Starting [0;1;39mnetworking.service[0m - Raise network interfaces...
+         Starting [0;1;39msystemd-udevd.service[0m - R…ager for Device Events and Files...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-journal-flush.ser…[0mlush Journal to Persistent Storage.
+         Starting [0;1;39msystemd-tmpfiles-setup.se…[0mate System Files and Directories...
+[[0;1;31m*[0m[0;31m*    [0m] (1 of 6) Job networking.service/start running (31s / 5min 28s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (1 of 6) Job networking.service/start running (32s / 5min 28s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (2 of 6) Job systemd-resolved.service/start running (33s / 10min 23s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (2 of 6) Job systemd-resolved.service/start running (33s / 10min 23s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (2 of 6) Job systemd-resolved.service/start running (34s / 10min 23s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-timesyncd.service[0m - Network Time Synchronization.
+[K[[0;32m  OK  [0m] Reached target [0;1;39mtime-set.target[0m - System Time Set.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-tmpfiles-setup.se…[0mreate System Files and Directories.
+[[0;32m  OK  [0m] Finished [0;1;39mnetworking.service[0m - Raise network interfaces.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-resolved.service[0m - Network Name Resolution.
+[[0;32m  OK  [0m] Reached target [0;1;39mnss-lookup.target[0m - Host and Network Name Lookups.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-udevd.service[0m - Ru…anager for Device Events and Files.
+[[0;32m  OK  [0m] Reached target [0;1;39msysinit.target[0m - System Initialization.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily.timer[0m - Daily apt download activities.
+[[0;32m  OK  [0m] Started [0;1;39mapt-daily-upgrade.timer[0m - …y apt upgrade and clean activities.
+[[0;32m  OK  [0m] Started [0;1;39mdpkg-db-backup.timer[0m - Daily dpkg database backup timer.
+[[0;32m  OK  [0m] Started [0;1;39me2scrub_all.timer[0m - Period…Metadata Check for All Filesystems.
+[[0;32m  OK  [0m] Started [0;1;39mfstrim.timer[0m - Discard unused filesystem blocks once a week.
+[[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m - Daily rotation of log files.
+[[0;32m  OK  [0m] Started [0;1;39msystemd-tmpfiles-clean.tim…[0my Cleanup of Temporary Directories.
+[[0;32m  OK  [0m] Reached target [0;1;39mtimers.target[0m - Timer Units.
+[[0;32m  OK  [0m] Listening on [0;1;39mdbus.socket[0m - D-Bus System Message Bus Socket.
+[[0;32m  OK  [0m] Listening on [0;1;39msshd-unix-local.socke…[0mtemd-ssh-generator, AF_UNIX Local).
+[[0;32m  OK  [0m] Listening on [0;1;39msystemd-hostnamed.socket[0m - Hostname Service Socket.
+[[0;32m  OK  [0m] Reached target [0;1;39msockets.target[0m - Socket Units.
+         Starting [0;1;39msystemd-networkd.service[0m - Network Configuration...
+[[0;32m  OK  [0m] Reached target [0;1;39mbasic.target[0m - Basic System.
+[[0;32m  OK  [0m] Started [0;1;39mcron.service[0m - Regular background program processing daemon.
+         Starting [0;1;39mdbus.service[0m - D-Bus System Message Bus...
+         Starting [0;1;39me2scrub_reap.service[0m - Re…ne ext4 Metadata Check Snapshots...
+         Starting [0;1;39msystemd-logind.service[0m - User Login Management...
+[[0;32m  OK  [0m] Started [0;1;39mdbus.service[0m - D-Bus System Message Bus.
+[[0;32m  OK  [0m] Found device [0;1;39mdev-ttyS0.device[0m - /dev/ttyS0.
+[[0;32m  OK  [0m] Finished [0;1;39me2scrub_reap.service[0m - Re…line ext4 Metadata Check Snapshots.
+[    [0;31m*[0;1;31m*[0m] (1 of 2) Job systemd-networkd.service/start running (46s / 10min 37s)
+M[K[     [0;31m*[0m] (1 of 2) Job systemd-networkd.service/start running (47s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] (1 of 2) Job systemd-networkd.service/start running (47s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] (2 of 2) Job systemd-logind.service/start running (48s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] (2 of 2) Job systemd-logind.service/start running (48s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] (2 of 2) Job systemd-logind.service/start running (49s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] (1 of 2) Job systemd-networkd.service/start running (49s / 10min 37s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-logind.service[0m - User Login Management.
+[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (52s / 10min 37s)
+M[K[[0m[0;31m*     [0m] Job systemd-networkd.service/start running (52s / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (53s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (53s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (54s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (54s / 10min 37s)
+M[K[[0;32m  OK  [0m] Listening on [0;1;39msystemd-rfkill.socket[0m…ll Switch Status /dev/rfkill Watch.
+[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (56s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (57s / 10min 37s)
+M[K[     [0;31m*[0m] Job systemd-networkd.service/start running (57s / 10min 37s)
+M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (58s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (58s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (59s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (59s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (1min / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (1min / 10min 37s)
+M[K[[0m[0;31m*     [0m] Job systemd-networkd.service/start running (1min 1s / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (1min 1s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (1min 2s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (1min 2s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (1min 3s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (1min 3s / 10min 37s)
+[  159.210608] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (1min 4s / 10min 37s)
+M[K[     [0;31m*[0m] Job systemd-networkd.service/start running (1min 4s / 10min 37s)
+[  159.940295] Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[  159.962703] Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[  159.985568] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[  160.004895] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[  160.013700] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  160.023618] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  160.043758] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[  160.051446] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[  160.063192] cfg80211: failed to load regulatory.db
+M[K[    [0;31m*[0;1;31m*[0m] Job systemd-networkd.service/start running (1min 5s / 10min 37s)
+M[K[   [0;31m*[0;1;31m*[0m[0;31m*[0m] Job systemd-networkd.service/start running (1min 5s / 10min 37s)
+M[K[  [0;31m*[0;1;31m*[0m[0;31m* [0m] Job systemd-networkd.service/start running (1min 6s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (1min 6s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (1min 6s / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (1min 7s / 10min 37s)
+M[K[[0m[0;31m*     [0m] Job systemd-networkd.service/start running (1min 7s / 10min 37s)
+M[K[[0;1;31m*[0m[0;31m*    [0m] Job systemd-networkd.service/start running (1min 8s / 10min 37s)
+M[K[[0;31m*[0;1;31m*[0m[0;31m*   [0m] Job systemd-networkd.service/start running (1min 8s / 10min 37s)
+M[K[ [0;31m*[0;1;31m*[0m[0;31m*  [0m] Job systemd-networkd.service/start running (1min 9s / 10min 37s)
+M[K[[0;32m  OK  [0m] Started [0;1;39msystemd-networkd.service[0m - Network Configuration.
+[K[[0;32m  OK  [0m] Reached target [0;1;39mnetwork.target[0m - Network.
+         Starting [0;1;39mssh.service[0m - OpenBSD Secure Shell server...
+         Starting [0;1;39msystemd-networkd-persiste…[0mtent Storage in systemd-networkd...
+         Starting [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions...
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-user-sessions.service[0m - Permit User Sessions.
+[[0;32m  OK  [0m] Finished [0;1;39msystemd-networkd-persiste…[0mistent Storage in systemd-networkd.
+[[0;32m  OK  [0m] Started [0;1;39mgetty@tty1.service[0m - Getty on tty1.
+[[0;32m  OK  [0m] Started [0;1;39mserial-getty@ttyS0.service[0m - Serial Getty on ttyS0.
+[[0;32m  OK  [0m] Reached target [0;1;39mgetty.target[0m - Login Prompts.
+[[0;32m  OK  [0m] Started [0;1;39mssh.service[0m - OpenBSD Secure Shell server.
+[[0;32m  OK  [0m] Reached target [0;1;39mmulti-user.target[0m - Multi-User System.
+[[0;32m  OK  [0m] Reached target [0;1;39mgraphical.target[0m - Graphical Interface.
+[!p]104[?7h[6n[32766;32766H[6n[!p]104[?7h[6n[32766;32766H[6n
+Debian GNU/Linux 13 tanager ttyS0
+
+tanager login: tanager (automatic login)
+
+Linux tanager 6.12.113+deb13-riscv64 #1 SMP Debian 6.12.113-1 (2026-10-15) riscv64
+
+The programs included with the Debian GNU/Linux system are free software;
+the exact distribution terms for each program are described in the
+individual files in /usr/share/doc/*/copyright.
+
+Debian GNU/Linux comes with ABSOLUTELY NO WARRANTY, to the extent
+permitted by applicable law.
+bash ~/stress/stress.sh; echo TG-$((40+2))-DONE
+[?2004htanager@tanager:~$ bash ~/stress/stress.sh; echo TG-$((40+2))-DONE
+[?2004lSTRESS start 2026-10-18T07:00:45Z up=194.79
+STRESS pass 1 ok=1 fails=0 127s cpu2=78.92 mem2=98.54 thr2=1517 up=322.64 load=2.10 1.84 0.87
+STRESS pass 2 ok=1 fails=0 128s cpu2=78.93 mem2=98.40 thr2=1518 up=451.16 load=1.99 1.90 1.02
+STRESS pass 3 ok=1 fails=0 127s cpu2=78.90 mem2=98.41 thr2=1519 up=579.76 load=1.98 1.91 1.14
+STRESS pass 4 ok=1 fails=0 127s cpu2=78.92 mem2=98.39 thr2=1519 up=708.04 load=2.00 1.91 1.24
+STRESS pass 5 ok=1 fails=0 127s cpu2=78.82 mem2=98.44 thr2=1519 up=836.36 load=1.89 1.90 1.32
+STRESS pass 6 ok=1 fails=0 128s cpu2=78.86 mem2=95.97 thr2=1516 up=964.87 load=2.04 1.93 1.41
+STRESS pass 7 ok=1 fails=0 127s cpu2=78.89 mem2=98.44 thr2=1517 up=1093.37 load=1.91 1.90 1.47
+STRESS pass 8 ok=1 fails=0 129s cpu2=52.27 mem2=79.49 thr2=1518 up=1223.02 load=2.24 2.06 1.59
+STRESS pass 9 ok=1 fails=0 127s cpu2=78.88 mem2=98.40 thr2=1519 up=1351.57 load=1.95 2.00 1.63
+STRESS pass 10 ok=1 fails=0 127s cpu2=78.90 mem2=98.41 thr2=1518 up=1479.83 load=1.94 1.95 1.66
+STRESS pass 11 ok=1 fails=0 127s cpu2=78.91 mem2=98.66 thr2=1519 up=1608.28 load=1.93 1.95 1.70
+STRESS pass 12 ok=1 fails=0 127s cpu2=78.91 mem2=98.65 thr2=1518 up=1736.54 load=1.86 1.91 1.72
+STRESS pass 13 ok=1 fails=0 128s cpu2=78.83 mem2=98.69 thr2=1516 up=1865.07 load=1.96 1.92 1.75
+STRESS pass 14 ok=1 fails=0 127s cpu2=78.84 mem2=98.49 thr2=1518 up=1993.64 load=1.88 1.90 1.76
+STRESS pass 15 ok=1 fails=0 128s cpu2=78.88 mem2=98.65 thr2=1517 up=2122.18 load=1.86 1.88 1.77
+STRESS pass 16 ok=1 fails=0 127s cpu2=78.86 mem2=98.37 thr2=1516 up=2250.48 load=2.02 1.94 1.81
+STRESS pass 17 ok=1 fails=0 128s cpu2=79.31 mem2=99.17 thr2=1534 up=2379.17 load=2.04 1.96 1.84
+STRESS pass 18 ok=1 fails=0 127s cpu2=78.87 mem2=98.69 thr2=1519 up=2507.43 load=2.01 1.97 1.85
+STRESS pass 19 ok=1 fails=0 128s cpu2=78.89 mem2=98.44 thr2=1519 up=2636.06 load=1.97 1.95 1.86
+STRESS pass 20 ok=1 fails=0 127s cpu2=78.91 mem2=98.56 thr2=1517 up=2764.61 load=1.90 1.91 1.86
+STRESS pass 21 ok=1 fails=0 128s cpu2=78.86 mem2=98.47 thr2=1519 up=2892.94 load=1.90 1.91 1.86
+STRESS pass 22 ok=1 fails=0 127s cpu2=78.89 mem2=98.52 thr2=1518 up=3021.21 load=2.13 1.96 1.89
+STRESS pass 23 ok=1 fails=0 127s cpu2=78.90 mem2=98.48 thr2=1515 up=3149.68 load=1.85 1.91 1.88
+STRESS pass 24 ok=1 fails=0 127s cpu2=78.89 mem2=98.56 thr2=1519 up=3278.25 load=1.85 1.88 1.88
+STRESS pass 25 ok=1 fails=0 128s cpu2=78.90 mem2=98.40 thr2=1518 up=3406.85 load=2.09 1.94 1.90
+STRESS pass 26 ok=1 fails=0 127s cpu2=78.87 mem2=98.48 thr2=1518 up=3535.35 load=1.97 1.92 1.90
+STRESS pass 27 ok=1 fails=0 127s cpu2=78.89 mem2=98.56 thr2=1384 up=3663.70 load=2.25 2.01 1.94
+STRESS pass 28 ok=1 fails=0 127s cpu2=78.84 mem2=98.47 thr2=1517 up=3791.87 load=2.02 2.00 1.95
+STRESS pass 29 ok=1 fails=0 127s cpu2=78.90 mem2=98.55 thr2=1518 up=3920.19 load=1.91 1.98 1.95
+STRESS pass 30 ok=1 fails=0 127s cpu2=78.90 mem2=98.51 thr2=1515 up=4048.70 load=1.95 1.96 1.95
+STRESS pass 31 ok=1 fails=0 127s cpu2=78.92 mem2=98.67 thr2=1515 up=4177.26 load=1.98 1.96 1.94
+STRESS pass 32 ok=1 fails=0 127s cpu2=78.90 mem2=98.48 thr2=1519 up=4305.75 load=1.95 1.95 1.94
+STRESS pass 33 ok=1 fails=0 127s cpu2=78.93 mem2=98.35 thr2=1518 up=4434.03 load=1.97 1.95 1.94
+STRESS pass 34 ok=1 fails=0 127s cpu2=78.86 mem2=98.51 thr2=1517 up=4562.56 load=1.94 1.92 1.93
+STRESS pass 35 ok=1 fails=0 127s cpu2=78.82 mem2=98.49 thr2=1517 up=4690.85 load=2.01 1.95 1.94
+STRESS pass 36 ok=1 fails=0 127s cpu2=78.86 mem2=97.84 thr2=1516 up=4819.38 load=1.87 1.91 1.92
+STRESS pass 37 ok=1 fails=0 128s cpu2=78.87 mem2=98.55 thr2=1517 up=4947.88 load=1.97 1.93 1.93
+STRESS pass 38 ok=1 fails=0 127s cpu2=78.92 mem2=98.49 thr2=1517 up=5076.44 load=1.94 1.91 1.92
+STRESS pass 39 ok=1 fails=0 128s cpu2=78.89 mem2=98.56 thr2=1518 up=5204.85 load=1.86 1.88 1.91
+STRESS pass 40 ok=1 fails=0 127s cpu2=78.90 mem2=98.86 thr2=1531 up=5333.35 load=1.98 1.89 1.91
+STRESS pass 41 ok=1 fails=0 127s cpu2=78.89 mem2=98.46 thr2=1516 up=5461.59 load=1.99 1.90 1.92
+STRESS pass 42 ok=1 fails=0 128s cpu2=78.85 mem2=98.52 thr2=1519 up=5590.08 load=1.91 1.91 1.92
+STRESS pass 43 ok=1 fails=0 127s cpu2=78.90 mem2=98.42 thr2=1517 up=5718.61 load=1.95 1.91 1.92
+STRESS pass 44 ok=1 fails=0 127s cpu2=78.92 mem2=98.60 thr2=1517 up=5846.79 load=1.82 1.87 1.90
+STRESS pass 45 ok=1 fails=0 127s cpu2=78.94 mem2=98.33 thr2=1518 up=5975.09 load=1.97 1.89 1.91
+STRESS pass 46 ok=1 fails=0 127s cpu2=78.88 mem2=98.51 thr2=1515 up=6103.33 load=2.13 1.94 1.93
+STRESS pass 47 ok=1 fails=0 127s cpu2=78.92 mem2=98.39 thr2=1518 up=6231.50 load=1.92 1.93 1.92
+STRESS pass 48 ok=1 fails=0 128s cpu2=78.88 mem2=98.49 thr2=1518 up=6359.99 load=1.95 1.91 1.92
+STRESS pass 49 ok=1 fails=0 127s cpu2=78.84 mem2=98.51 thr2=1518 up=6488.55 load=1.92 1.88 1.91
+STRESS pass 50 ok=1 fails=0 127s cpu2=78.87 mem2=98.55 thr2=1517 up=6616.85 load=1.89 1.88 1.91
+STRESS pass 51 ok=1 fails=0 127s cpu2=78.87 mem2=98.51 thr2=1516 up=6745.14 load=2.00 1.91 1.91
+STRESS pass 52 ok=1 fails=0 127s cpu2=78.81 mem2=98.56 thr2=1519 up=6873.56 load=1.91 1.87 1.91
+STRESS pass 53 ok=1 fails=0 128s cpu2=78.91 mem2=98.59 thr2=1518 up=7002.08 load=1.89 1.88 1.91
+STRESS pass 54 ok=1 fails=0 127s cpu2=78.90 mem2=98.47 thr2=1518 up=7130.61 load=2.02 1.91 1.92
+STRESS pass 55 ok=1 fails=0 128s cpu2=78.88 mem2=98.45 thr2=1518 up=7259.18 load=1.93 1.88 1.91
+STRESS pass 56 ok=1 fails=0 127s cpu2=78.89 mem2=98.47 thr2=1516 up=7387.48 load=1.90 1.89 1.91
+STRESS pass 57 ok=1 fails=0 127s cpu2=78.90 mem2=98.41 thr2=1515 up=7515.80 load=1.98 1.89 1.91
+STRESS pass 58 ok=1 fails=0 127s cpu2=78.88 mem2=98.46 thr2=1515 up=7644.09 load=1.91 1.87 1.90
+STRESS pass 59 ok=1 fails=0 127s cpu2=78.89 mem2=98.63 thr2=1518 up=7772.71 load=1.92 1.88 1.91
+STRESS pass 60 ok=1 fails=0 127s cpu2=78.88 mem2=98.47 thr2=1518 up=7901.23 load=1.92 1.87 1.90
+STRESS pass 61 ok=1 fails=0 127s cpu2=78.90 mem2=98.57 thr2=1517 up=8029.79 load=1.99 1.90 1.91
+STRESS pass 62 ok=1 fails=0 127s cpu2=78.90 mem2=98.67 thr2=1519 up=8158.12 load=1.90 1.90 1.91
+STRESS pass 63 ok=1 fails=0 127s cpu2=78.97 mem2=98.78 thr2=1529 up=8286.65 load=1.90 1.92 1.92
+STRESS pass 64 ok=1 fails=0 128s cpu2=78.86 mem2=97.79 thr2=1517 up=8415.01 load=2.02 1.93 1.92
+STRESS pass 65 ok=1 fails=0 127s cpu2=78.86 mem2=98.45 thr2=1518 up=8543.63 load=1.89 1.91 1.91
+STRESS pass 66 ok=1 fails=0 128s cpu2=78.91 mem2=98.66 thr2=1518 up=8672.19 load=1.90 1.92 1.91
+STRESS pass 67 ok=1 fails=0 127s cpu2=78.89 mem2=98.37 thr2=1517 up=8800.56 load=2.00 1.94 1.92
+STRESS pass 68 ok=1 fails=0 127s cpu2=78.90 mem2=98.58 thr2=1517 up=8928.84 load=1.90 1.93 1.92
+STRESS pass 69 ok=1 fails=0 127s cpu2=78.87 mem2=98.54 thr2=1515 up=9057.13 load=2.00 1.94 1.92
+STRESS pass 70 ok=1 fails=0 127s cpu2=78.89 mem2=98.65 thr2=1517 up=9185.43 load=1.93 1.90 1.91
+STRESS pass 71 ok=1 fails=0 128s cpu2=78.83 mem2=98.58 thr2=1518 up=9313.96 load=1.88 1.89 1.91
+STRESS pass 72 ok=1 fails=0 127s cpu2=78.86 mem2=98.67 thr2=1517 up=9442.50 load=1.94 1.90 1.91
+STRESS pass 73 ok=1 fails=0 127s cpu2=78.93 mem2=98.47 thr2=1514 up=9570.80 load=1.99 1.92 1.92
+STRESS pass 74 ok=1 fails=0 127s cpu2=78.89 mem2=98.23 thr2=1517 up=9699.07 load=1.94 1.93 1.92
+STRESS pass 75 ok=1 fails=0 127s cpu2=78.92 mem2=98.47 thr2=1525 up=9827.51 load=1.98 1.93 1.92
+STRESS pass 76 ok=1 fails=0 127s cpu2=78.88 mem2=98.36 thr2=1517 up=9955.80 load=2.17 1.95 1.93
+STRESS pass 77 ok=1 fails=0 127s cpu2=78.87 mem2=98.43 thr2=1517 up=10084.29 load=1.92 1.93 1.92
+STRESS pass 78 ok=1 fails=0 128s cpu2=78.90 mem2=98.47 thr2=1519 up=10212.88 load=1.99 1.95 1.93
+STRESS pass 79 ok=1 fails=0 127s cpu2=78.92 mem2=98.49 thr2=1518 up=10341.19 load=2.14 1.96 1.93
+STRESS pass 80 ok=1 fails=0 127s cpu2=78.88 mem2=98.57 thr2=1519 up=10469.52 load=2.00 1.97 1.94
+STRESS pass 81 ok=1 fails=0 128s cpu2=78.89 mem2=98.57 thr2=1518 up=10597.95 load=2.07 1.99 1.95
+STRESS pass 82 ok=1 fails=0 127s cpu2=78.89 mem2=98.44 thr2=1519 up=10726.22 load=2.14 1.98 1.94
+STRESS pass 83 ok=1 fails=0 127s cpu2=78.90 mem2=98.57 thr2=1518 up=10854.76 load=1.98 1.95 1.94
+STRESS pass 84 ok=1 fails=0 127s cpu2=78.86 mem2=98.60 thr2=1512 up=10983.37 load=1.98 1.94 1.93
+STRESS pass 85 ok=1 fails=0 127s cpu2=78.85 mem2=98.49 thr2=1518 up=11111.68 load=1.98 1.93 1.93
+STRESS pass 86 ok=1 fails=0 127s cpu2=78.89 mem2=98.52 thr2=1517 up=11240.04 load=1.91 1.93 1.93
+STRESS pass 87 ok=1 fails=0 127s cpu2=78.84 mem2=98.42 thr2=1519 up=11368.33 load=2.00 1.94 1.93
+STRESS pass 88 ok=1 fails=0 128s cpu2=78.93 mem2=98.67 thr2=1516 up=11496.93 load=1.91 1.90 1.91
+STRESS pass 89 ok=1 fails=0 127s cpu2=79.00 mem2=98.46 thr2=1519 up=11625.42 load=1.92 1.91 1.92
+STRESS pass 90 ok=1 fails=0 128s cpu2=78.87 mem2=98.38 thr2=1518 up=11754.01 load=1.95 1.91 1.92
+STRESS pass 91 ok=1 fails=0 127s cpu2=78.91 mem2=98.66 thr2=1518 up=11882.33 load=1.93 1.90 1.91
+STRESS pass 92 ok=1 fails=0 127s cpu2=78.89 mem2=97.84 thr2=1515 up=12010.75 load=1.91 1.90 1.91
+STRESS pass 93 ok=1 fails=0 127s cpu2=78.86 mem2=98.49 thr2=1518 up=12139.02 load=1.99 1.91 1.92
+STRESS pass 94 ok=1 fails=0 127s cpu2=78.88 mem2=98.45 thr2=1518 up=12267.53 load=1.94 1.90 1.91
+STRESS pass 95 ok=1 fails=0 128s cpu2=78.89 mem2=98.52 thr2=1518 up=12396.04 load=1.94 1.90 1.91
+STRESS pass 96 ok=1 fails=0 127s cpu2=75.50 mem2=74.23 thr2=1012 up=12524.67 load=2.32 2.01 1.95
+STRESS pass 97 ok=1 fails=0 128s cpu2=78.93 mem2=98.55 thr2=1518 up=12652.95 load=1.99 1.97 1.94
+STRESS pass 98 ok=1 fails=0 127s cpu2=79.58 mem2=99.15 thr2=1524 up=12781.54 load=2.07 1.98 1.95
+STRESS pass 99 ok=1 fails=0 128s cpu2=78.88 mem2=98.50 thr2=1515 up=12909.87 load=1.97 1.95 1.94
+STRESS pass 100 ok=1 fails=0 127s cpu2=78.86 mem2=98.60 thr2=1519 up=13038.45 load=1.95 1.92 1.93
+STRESS pass 101 ok=1 fails=0 128s cpu2=78.82 mem2=98.62 thr2=1518 up=13167.09 load=1.88 1.90 1.91
+STRESS pass 102 ok=1 fails=0 127s cpu2=78.94 mem2=98.55 thr2=1519 up=13295.40 load=1.95 1.90 1.91
+STRESS pass 103 ok=1 fails=0 127s cpu2=78.91 mem2=98.43 thr2=1518 up=13423.69 load=2.04 1.92 1.92
+STRESS pass 104 ok=1 fails=0 127s cpu2=78.92 mem2=98.63 thr2=1518 up=13552.14 load=1.94 1.93 1.92
+STRESS pass 105 ok=1 fails=0 127s cpu2=78.89 mem2=98.64 thr2=1517 up=13680.52 load=2.12 1.98 1.94
+STRESS pass 106 ok=1 fails=0 128s cpu2=78.91 mem2=98.54 thr2=1518 up=13808.96 load=1.99 1.95 1.93
+STRESS pass 107 ok=1 fails=0 127s cpu2=78.87 mem2=98.45 thr2=1518 up=13937.51 load=2.04 2.00 1.95
+STRESS pass 108 ok=1 fails=0 127s cpu2=78.85 mem2=98.39 thr2=1517 up=14065.84 load=1.98 1.97 1.94
+STRESS pass 109 ok=1 fails=0 127s cpu2=78.85 mem2=98.54 thr2=1514 up=14194.17 load=1.91 1.92 1.92
+STRESS pass 110 ok=1 fails=0 127s cpu2=78.83 mem2=98.49 thr2=1519 up=14322.48 load=2.16 1.98 1.94
+STRESS pass 111 ok=1 fails=0 128s cpu2=78.86 mem2=98.35 thr2=1519 up=14451.12 load=2.02 1.97 1.94
+STRESS pass 112 ok=1 fails=0 127s cpu2=78.86 mem2=98.47 thr2=1516 up=14579.67 load=1.92 1.92 1.92
+STRESS pass 113 ok=1 fails=0 127s cpu2=78.80 mem2=98.55 thr2=1517 up=14708.22 load=1.91 1.92 1.92
+STRESS pass 114 ok=1 fails=0 127s cpu2=78.82 mem2=98.55 thr2=1518 up=14836.58 load=2.01 1.94 1.92
+STRESS pass 115 ok=1 fails=0 128s cpu2=78.86 mem2=98.44 thr2=1518 up=14964.93 load=2.04 1.95 1.93
+STRESS pass 116 ok=1 fails=0 127s cpu2=78.83 mem2=98.52 thr2=1519 up=15093.24 load=1.92 1.93 1.92
+STRESS pass 117 ok=1 fails=0 127s cpu2=78.86 mem2=98.50 thr2=1519 up=15221.77 load=2.11 1.97 1.93
+STRESS pass 118 ok=1 fails=0 127s cpu2=78.82 mem2=98.47 thr2=1518 up=15350.39 load=1.97 1.93 1.92
+STRESS pass 119 ok=1 fails=0 128s cpu2=78.85 mem2=98.63 thr2=1517 up=15478.97 load=1.93 1.93 1.92
+STRESS pass 120 ok=1 fails=0 127s cpu2=78.82 mem2=97.75 thr2=1516 up=15607.20 load=1.94 1.91 1.91
+STRESS pass 121 ok=1 fails=0 127s cpu2=78.83 mem2=98.58 thr2=1514 up=15735.50 load=1.93 1.90 1.91
+STRESS pass 122 ok=1 fails=0 127s cpu2=78.80 mem2=98.44 thr2=1517 up=15863.77 load=2.16 1.95 1.93
+STRESS pass 123 ok=1 fails=0 127s cpu2=78.89 mem2=98.45 thr2=1519 up=15992.33 load=2.00 1.94 1.92
+STRESS pass 124 ok=1 fails=0 128s cpu2=78.90 mem2=98.68 thr2=1519 up=16120.85 load=2.02 1.96 1.93
+STRESS pass 125 ok=1 fails=0 127s cpu2=78.83 mem2=98.38 thr2=1520 up=16249.44 load=1.94 1.94 1.93
+STRESS pass 126 ok=1 fails=0 127s cpu2=78.89 mem2=98.56 thr2=1517 up=16377.75 load=1.94 1.92 1.92
+STRESS pass 127 ok=1 fails=0 127s cpu2=79.40 mem2=98.74 thr2=1515 up=16506.41 load=2.01 1.94 1.93
+STRESS pass 128 ok=1 fails=0 127s cpu2=78.86 mem2=98.61 thr2=1517 up=16634.74 load=2.11 1.97 1.93
+STRESS pass 129 ok=1 fails=0 127s cpu2=78.79 mem2=98.43 thr2=1516 up=16763.25 load=2.03 1.98 1.94
+STRESS pass 130 ok=1 fails=0 127s cpu2=78.83 mem2=98.50 thr2=1515 up=16891.77 load=1.97 1.94 1.93
+STRESS pass 131 ok=1 fails=0 127s cpu2=78.88 mem2=98.54 thr2=1518 up=17020.10 load=1.91 1.94 1.93
+STRESS pass 132 ok=1 fails=0 127s cpu2=78.91 mem2=98.44 thr2=1518 up=17148.44 load=1.95 1.93 1.92
+STRESS pass 133 ok=1 fails=0 128s cpu2=78.88 mem2=98.35 thr2=1517 up=17276.88 load=2.10 1.95 1.93
+STRESS pass 134 ok=1 fails=0 127s cpu2=78.83 mem2=98.48 thr2=1519 up=17405.18 load=1.92 1.93 1.92
+STRESS pass 135 ok=1 fails=0 127s cpu2=78.90 mem2=98.66 thr2=1519 up=17533.60 load=2.00 1.95 1.93
+STRESS pass 136 ok=1 fails=0 128s cpu2=78.91 mem2=98.51 thr2=1519 up=17662.14 load=2.10 1.95 1.93
+STRESS pass 137 ok=1 fails=0 127s cpu2=78.89 mem2=98.47 thr2=1519 up=17790.41 load=1.91 1.93 1.92
+STRESS pass 138 ok=1 fails=0 127s cpu2=78.93 mem2=98.44 thr2=1516 up=17918.72 load=2.00 1.94 1.93
+STRESS pass 139 ok=1 fails=0 127s cpu2=78.93 mem2=98.50 thr2=1519 up=18047.03 load=1.91 1.90 1.91
+STRESS pass 140 ok=1 fails=0 127s cpu2=78.87 mem2=98.55 thr2=1519 up=18175.46 load=1.97 1.92 1.92
+STRESS pass 141 ok=1 fails=0 128s cpu2=78.89 mem2=98.39 thr2=1514 up=18303.99 load=1.95 1.92 1.91
+STRESS pass 142 ok=1 fails=0 127s cpu2=78.90 mem2=98.61 thr2=1516 up=18432.54 load=1.91 1.88 1.91
+STRESS pass 143 ok=1 fails=0 127s cpu2=78.89 mem2=98.56 thr2=1518 up=18560.79 load=1.97 1.90 1.91
+STRESS pass 144 ok=1 fails=0 127s cpu2=78.93 mem2=98.66 thr2=1517 up=18689.06 load=2.06 1.94 1.92
+STRESS pass 145 ok=1 fails=0 127s cpu2=78.95 mem2=98.47 thr2=1519 up=18817.34 load=1.92 1.91 1.91
+STRESS pass 146 ok=1 fails=0 128s cpu2=78.93 mem2=98.47 thr2=1519 up=18945.90 load=1.94 1.93 1.92
+STRESS pass 147 ok=1 fails=0 127s cpu2=78.84 mem2=98.49 thr2=1517 up=19074.47 load=1.94 1.91 1.91
+STRESS pass 148 ok=1 fails=0 128s cpu2=78.86 mem2=98.50 thr2=1518 up=19203.08 load=1.92 1.91 1.91
+STRESS pass 149 ok=1 fails=0 127s cpu2=78.90 mem2=98.40 thr2=1514 up=19331.31 load=1.98 1.93 1.92
+STRESS pass 150 ok=1 fails=0 127s cpu2=78.89 mem2=98.52 thr2=1515 up=19459.73 load=1.99 1.93 1.92
+STRESS pass 151 ok=1 fails=0 127s cpu2=78.87 mem2=98.55 thr2=1517 up=19588.06 load=1.98 1.95 1.93
+STRESS pass 152 ok=1 fails=0 127s cpu2=78.89 mem2=98.52 thr2=1517 up=19716.63 load=2.02 1.95 1.93
+STRESS pass 153 ok=1 fails=0 128s cpu2=78.87 mem2=98.52 thr2=1518 up=19845.20 load=1.96 1.94 1.92
+STRESS pass 154 ok=1 fails=0 127s cpu2=78.88 mem2=98.48 thr2=1517 up=19973.71 load=1.94 1.91 1.91
+STRESS pass 155 ok=1 fails=0 127s cpu2=78.77 mem2=98.53 thr2=1517 up=20102.06 load=2.06 1.94 1.92
+STRESS pass 156 ok=1 fails=0 127s cpu2=79.28 mem2=99.00 thr2=1533 up=20230.81 load=1.96 1.93 1.92
+STRESS pass 157 ok=1 fails=0 127s cpu2=78.93 mem2=98.48 thr2=1518 up=20359.08 load=2.08 1.93 1.92
+STRESS pass 158 ok=1 fails=0 127s cpu2=78.80 mem2=98.62 thr2=1515 up=20487.61 load=1.97 1.94 1.92
+STRESS pass 159 ok=1 fails=0 128s cpu2=78.91 mem2=98.50 thr2=1517 up=20616.14 load=2.01 1.95 1.93
+STRESS pass 160 ok=1 fails=0 127s cpu2=78.90 mem2=98.70 thr2=1518 up=20744.36 load=1.91 1.90 1.91
+STRESS pass 161 ok=1 fails=0 127s cpu2=78.95 mem2=98.42 thr2=1519 up=20872.64 load=1.99 1.94 1.93
+STRESS pass 162 ok=1 fails=0 128s cpu2=78.87 mem2=98.60 thr2=1515 up=21001.01 load=2.09 1.96 1.93
+STRESS pass 163 ok=1 fails=0 127s cpu2=78.87 mem2=98.51 thr2=1517 up=21129.54 load=2.11 1.96 1.93
+STRESS pass 164 ok=1 fails=0 128s cpu2=78.88 mem2=98.54 thr2=1518 up=21258.09 load=2.02 1.99 1.94
+STRESS pass 165 ok=1 fails=0 127s cpu2=78.90 mem2=98.49 thr2=1515 up=21386.65 load=2.07 1.99 1.95
+STRESS pass 166 ok=1 fails=0 128s cpu2=78.86 mem2=98.55 thr2=1518 up=21514.96 load=1.94 1.94 1.93
+STRESS pass 167 ok=1 fails=0 127s cpu2=78.79 mem2=98.43 thr2=1518 up=21643.24 load=2.08 1.99 1.95
+STRESS pass 168 ok=1 fails=0 127s cpu2=78.91 mem2=98.53 thr2=1517 up=21771.55 load=2.12 1.98 1.95
+STRESS pass 169 ok=1 fails=0 128s cpu2=78.89 mem2=98.49 thr2=1518 up=21900.09 load=1.92 1.93 1.93
+STRESS pass 170 ok=1 fails=0 127s cpu2=78.88 mem2=98.51 thr2=1516 up=22028.67 load=1.88 1.91 1.92
+STRESS pass 171 ok=1 fails=0 127s cpu2=78.90 mem2=98.54 thr2=1520 up=22157.23 load=1.93 1.90 1.91
+STRESS pass 172 ok=1 fails=0 127s cpu2=78.90 mem2=98.53 thr2=1518 up=22285.53 load=1.96 1.91 1.92
+STRESS pass 173 ok=1 fails=0 128s cpu2=78.80 mem2=98.49 thr2=1518 up=22413.95 load=2.13 1.97 1.94
+STRESS pass 174 ok=1 fails=0 127s cpu2=78.84 mem2=98.44 thr2=1519 up=22542.22 load=1.96 1.94 1.93
+STRESS pass 175 ok=1 fails=0 127s cpu2=78.86 mem2=98.55 thr2=1515 up=22670.73 load=1.97 1.93 1.92
+STRESS pass 176 ok=1 fails=0 127s cpu2=78.86 mem2=98.52 thr2=1500 up=22799.27 load=1.94 1.92 1.92
+STRESS pass 177 ok=1 fails=0 127s cpu2=78.84 mem2=98.45 thr2=1516 up=22927.81 load=1.94 1.91 1.91
+STRESS pass 178 ok=1 fails=0 127s cpu2=78.87 mem2=98.48 thr2=1518 up=23056.05 load=1.98 1.91 1.91
+STRESS pass 179 ok=1 fails=0 127s cpu2=79.70 mem2=99.21 thr2=1524 up=23184.69 load=1.93 1.92 1.92
+STRESS pass 180 ok=1 fails=0 127s cpu2=78.89 mem2=98.39 thr2=1518 up=23312.90 load=1.98 1.94 1.92
+STRESS pass 181 ok=1 fails=0 127s cpu2=78.85 mem2=98.29 thr2=1518 up=23441.45 load=1.99 1.92 1.92
+STRESS pass 182 ok=1 fails=0 128s cpu2=78.91 mem2=98.42 thr2=1519 up=23570.00 load=1.93 1.92 1.92
+STRESS pass 183 ok=1 fails=0 127s cpu2=78.91 mem2=98.39 thr2=1518 up=23698.31 load=1.98 1.93 1.92
+STRESS pass 184 ok=1 fails=0 127s cpu2=78.95 mem2=98.44 thr2=1517 up=23826.57 load=1.92 1.91 1.91
+STRESS pass 185 ok=1 fails=0 128s cpu2=78.81 mem2=98.44 thr2=1519 up=23954.97 load=1.90 1.92 1.91
+STRESS pass 186 ok=1 fails=0 127s cpu2=78.92 mem2=98.44 thr2=1516 up=24083.26 load=1.96 1.92 1.91
+STRESS pass 187 ok=1 fails=0 127s cpu2=78.86 mem2=98.48 thr2=1518 up=24211.76 load=1.90 1.89 1.91
+STRESS pass 188 ok=1 fails=0 127s cpu2=78.82 mem2=98.48 thr2=1518 up=24340.32 load=1.89 1.89 1.91
+STRESS pass 189 ok=1 fails=0 127s cpu2=78.82 mem2=98.57 thr2=1517 up=24468.57 load=2.00 1.92 1.92
+STRESS pass 190 ok=1 fails=0 128s cpu2=78.89 mem2=98.61 thr2=1517 up=24596.99 load=1.93 1.91 1.91
+STRESS pass 191 ok=1 fails=0 127s cpu2=78.84 mem2=98.51 thr2=1517 up=24725.30 load=1.96 1.94 1.93
+STRESS pass 192 ok=1 fails=0 127s cpu2=78.92 mem2=98.59 thr2=1518 up=24853.76 load=2.01 1.94 1.92
+STRESS pass 193 ok=1 fails=0 127s cpu2=78.90 mem2=98.52 thr2=1518 up=24982.31 load=1.95 1.94 1.92
+STRESS pass 194 ok=1 fails=0 128s cpu2=78.85 mem2=98.41 thr2=1517 up=25110.86 load=1.97 1.94 1.92
+STRESS pass 195 ok=1 fails=0 127s cpu2=78.93 mem2=98.37 thr2=1517 up=25239.15 load=1.94 1.92 1.92
+STRESS pass 196 ok=1 fails=0 127s cpu2=78.93 mem2=98.45 thr2=1518 up=25367.58 load=2.06 1.96 1.93
+STRESS pass 197 ok=1 fails=0 128s cpu2=78.85 mem2=98.46 thr2=1517 up=25495.95 load=1.95 1.93 1.92
+STRESS pass 198 ok=1 fails=0 127s cpu2=78.90 mem2=98.48 thr2=1518 up=25624.45 load=1.94 1.91 1.91
+STRESS pass 199 ok=1 fails=0 128s cpu2=78.84 mem2=98.63 thr2=1519 up=25752.96 load=1.94 1.91 1.91
+STRESS pass 200 ok=1 fails=0 127s cpu2=78.86 mem2=98.58 thr2=1518 up=25881.57 load=1.88 1.90 1.91
+STRESS pass 201 ok=1 fails=0 128s cpu2=78.87 mem2=98.60 thr2=1517 up=26009.88 load=1.96 1.91 1.91
+STRESS pass 202 ok=1 fails=0 127s cpu2=79.10 mem2=98.97 thr2=1531 up=26138.56 load=2.06 1.94 1.93
+STRESS pass 203 ok=1 fails=0 127s cpu2=78.82 mem2=98.29 thr2=1516 up=26266.84 load=1.95 1.95 1.93
+STRESS pass 204 ok=1 fails=0 127s cpu2=78.93 mem2=98.52 thr2=1503 up=26395.41 load=1.99 1.95 1.93
+STRESS pass 205 ok=1 fails=0 128s cpu2=78.84 mem2=98.65 thr2=1517 up=26523.93 load=1.91 1.90 1.91
+STRESS pass 206 ok=1 fails=0 127s cpu2=78.80 mem2=98.63 thr2=1517 up=26652.19 load=1.96 1.93 1.92
+STRESS pass 207 ok=1 fails=0 127s cpu2=78.94 mem2=98.56 thr2=1519 up=26780.50 load=2.06 1.95 1.93
+STRESS pass 208 ok=1 fails=0 127s cpu2=78.91 mem2=98.59 thr2=1518 up=26908.84 load=1.91 1.91 1.91
+STRESS pass 209 ok=1 fails=0 127s cpu2=78.84 mem2=98.54 thr2=1518 up=27037.37 load=1.90 1.91 1.91
+STRESS pass 210 ok=1 fails=0 128s cpu2=78.85 mem2=98.54 thr2=1518 up=27165.92 load=1.93 1.90 1.91
+STRESS pass 211 ok=1 fails=0 127s cpu2=78.82 mem2=98.44 thr2=1517 up=27294.47 load=1.91 1.87 1.90
+STRESS pass 212 ok=1 fails=0 127s cpu2=78.82 mem2=98.52 thr2=1517 up=27422.75 load=2.01 1.92 1.92
+STRESS pass 213 ok=1 fails=0 127s cpu2=78.86 mem2=98.61 thr2=1518 up=27551.15 load=1.97 1.92 1.92
+STRESS pass 214 ok=1 fails=0 127s cpu2=78.85 mem2=98.53 thr2=1517 up=27679.34 load=1.90 1.89 1.91
+STRESS pass 215 ok=1 fails=0 128s cpu2=78.83 mem2=98.58 thr2=1517 up=27807.95 load=2.02 1.93 1.92
+STRESS pass 216 ok=1 fails=0 127s cpu2=78.97 mem2=98.49 thr2=1519 up=27936.48 load=1.96 1.92 1.92
+STRESS pass 217 ok=1 fails=0 128s cpu2=78.90 mem2=98.50 thr2=1518 up=28065.00 load=1.96 1.93 1.92
+STRESS pass 218 ok=1 fails=0 127s cpu2=78.94 mem2=98.58 thr2=1519 up=28193.24 load=1.95 1.92 1.92
+STRESS pass 219 ok=1 fails=0 127s cpu2=78.89 mem2=98.51 thr2=1518 up=28321.70 load=1.94 1.91 1.91
+STRESS pass 220 ok=1 fails=0 127s cpu2=78.93 mem2=98.42 thr2=1518 up=28449.99 load=1.95 1.91 1.91
+STRESS pass 221 ok=1 fails=0 127s cpu2=78.90 mem2=98.49 thr2=1515 up=28578.51 load=1.91 1.91 1.91
+STRESS pass 222 ok=1 fails=0 128s cpu2=78.88 mem2=98.72 thr2=1518 up=28707.00 load=1.96 1.92 1.92
+STRESS pass 223 ok=1 fails=0 127s cpu2=78.89 mem2=98.55 thr2=1518 up=28835.49 load=2.01 1.92 1.92
+STRESS pass 224 ok=1 fails=0 127s cpu2=78.86 mem2=98.48 thr2=1518 up=28963.83 load=1.87 1.89 1.91
+STRESS pass 225 ok=1 fails=0 127s cpu2=78.88 mem2=98.40 thr2=1519 up=29092.17 load=2.04 1.91 1.92
+STRESS pass 226 ok=1 fails=0 127s cpu2=78.75 mem2=98.44 thr2=1514 up=29220.46 load=1.90 1.91 1.91
+STRESS pass 227 ok=1 fails=0 128s cpu2=78.83 mem2=98.59 thr2=1519 up=29348.99 load=1.87 1.89 1.91
+STRESS pass 228 ok=1 fails=0 127s cpu2=78.86 mem2=98.55 thr2=1518 up=29477.50 load=1.95 1.90 1.91
+STRESS pass 229 ok=1 fails=0 127s cpu2=78.79 mem2=98.42 thr2=1519 up=29605.77 load=1.89 1.89 1.91
+STRESS pass 230 ok=1 fails=0 127s cpu2=78.86 mem2=98.56 thr2=1518 up=29734.11 load=1.98 1.92 1.92
+STRESS pass 231 ok=1 fails=0 127s cpu2=78.81 mem2=98.54 thr2=1519 up=29862.57 load=1.94 1.91 1.91
+STRESS pass 232 ok=1 fails=0 128s cpu2=78.86 mem2=98.44 thr2=1500 up=29991.07 load=1.89 1.90 1.91
+STRESS pass 233 ok=1 fails=0 127s cpu2=78.81 mem2=98.51 thr2=1514 up=30119.73 load=1.94 1.93 1.92
+STRESS pass 234 ok=1 fails=0 127s cpu2=78.80 mem2=98.61 thr2=1518 up=30248.26 load=1.99 1.94 1.92
+STRESS pass 235 ok=1 fails=0 127s cpu2=78.81 mem2=98.54 thr2=1518 up=30376.50 load=1.99 1.93 1.92
+STRESS pass 236 ok=1 fails=0 127s cpu2=78.77 mem2=98.48 thr2=1517 up=30504.74 load=1.87 1.90 1.91
+STRESS pass 237 ok=1 fails=0 127s cpu2=78.90 mem2=98.34 thr2=1517 up=30633.06 load=1.93 1.89 1.91
+STRESS pass 238 ok=1 fails=0 127s cpu2=78.88 mem2=98.35 thr2=1515 up=30761.61 load=1.99 1.93 1.93
+STRESS pass 239 ok=1 fails=0 128s cpu2=78.87 mem2=98.52 thr2=1519 up=30890.20 load=2.05 1.95 1.93
+STRESS pass 240 ok=1 fails=0 127s cpu2=78.81 mem2=98.37 thr2=1516 up=31018.78 load=1.95 1.92 1.92
+STRESS pass 241 ok=1 fails=0 127s cpu2=78.75 mem2=98.49 thr2=1517 up=31147.07 load=1.96 1.92 1.92
+STRESS pass 242 ok=1 fails=0 127s cpu2=79.15 mem2=98.77 thr2=1519 up=31275.59 load=1.90 1.91 1.91
+STRESS pass 243 ok=1 fails=0 127s cpu2=78.85 mem2=98.60 thr2=1517 up=31403.82 load=1.95 1.91 1.91
+STRESS pass 244 ok=1 fails=0 127s cpu2=78.84 mem2=98.59 thr2=1518 up=31532.41 load=1.99 1.93 1.92
+STRESS pass 245 ok=1 fails=0 128s cpu2=78.90 mem2=98.62 thr2=1518 up=31661.04 load=1.87 1.89 1.91
+STRESS pass 246 ok=1 fails=0 127s cpu2=78.94 mem2=98.54 thr2=1518 up=31789.69 load=1.94 1.90 1.91
+STRESS pass 247 ok=1 fails=0 127s cpu2=78.93 mem2=98.41 thr2=1510 up=31918.04 load=1.95 1.89 1.91
+STRESS pass 248 ok=1 fails=0 127s cpu2=79.67 mem2=99.35 thr2=1526 up=32046.66 load=1.97 1.91 1.92
+STRESS pass 249 ok=1 fails=0 128s cpu2=78.89 mem2=98.41 thr2=1519 up=32175.00 load=2.00 1.95 1.93
+STRESS pass 250 ok=1 fails=0 127s cpu2=78.85 mem2=98.36 thr2=1517 up=32303.52 load=1.91 1.90 1.91
+STRESS pass 251 ok=1 fails=0 128s cpu2=78.79 mem2=98.38 thr2=1519 up=32432.14 load=1.91 1.92 1.92
+STRESS pass 252 ok=1 fails=0 127s cpu2=78.89 mem2=98.54 thr2=1518 up=32560.45 load=2.03 1.96 1.93
+STRESS pass 253 ok=1 fails=0 127s cpu2=78.83 mem2=98.43 thr2=1518 up=32688.70 load=1.90 1.90 1.91
+STRESS pass 254 ok=1 fails=0 127s cpu2=78.92 mem2=98.58 thr2=1519 up=32817.04 load=1.91 1.91 1.92
+STRESS pass 255 ok=1 fails=0 127s cpu2=78.87 mem2=98.44 thr2=1518 up=32945.32 load=1.99 1.93 1.92
+STRESS pass 256 ok=1 fails=0 128s cpu2=78.85 mem2=98.52 thr2=1517 up=33073.87 load=1.95 1.91 1.92
+STRESS pass 257 ok=1 fails=0 127s cpu2=78.82 mem2=98.54 thr2=1519 up=33202.47 load=1.99 1.94 1.92
+STRESS pass 258 ok=1 fails=0 127s cpu2=78.93 mem2=98.38 thr2=1517 up=33330.71 load=1.99 1.94 1.92
+STRESS pass 259 ok=1 fails=0 127s cpu2=78.96 mem2=98.39 thr2=1518 up=33459.07 load=1.89 1.89 1.91
+STRESS pass 260 ok=1 fails=0 127s cpu2=78.92 mem2=98.44 thr2=1502 up=33587.52 load=1.86 1.87 1.90
+STRESS pass 261 ok=1 fails=0 128s cpu2=78.94 mem2=98.45 thr2=1516 up=33716.03 load=2.12 1.94 1.93
+STRESS pass 262 ok=1 fails=0 127s cpu2=78.90 mem2=98.44 thr2=1518 up=33844.52 load=1.99 1.93 1.92
+STRESS pass 263 ok=1 fails=0 128s cpu2=78.89 mem2=98.55 thr2=1518 up=33973.09 load=2.03 1.96 1.93
+STRESS pass 264 ok=1 fails=0 127s cpu2=78.86 mem2=98.58 thr2=1517 up=34101.34 load=2.02 1.94 1.92
+STRESS pass 265 ok=1 fails=0 127s cpu2=78.84 mem2=98.51 thr2=1518 up=34229.57 load=1.91 1.91 1.91
+STRESS pass 266 ok=1 fails=0 128s cpu2=78.83 mem2=98.50 thr2=1516 up=34357.93 load=1.98 1.91 1.91
+STRESS pass 267 ok=1 fails=0 127s cpu2=78.81 mem2=98.66 thr2=1514 up=34486.44 load=1.94 1.90 1.91
+STRESS pass 268 ok=1 fails=0 128s cpu2=78.86 mem2=98.58 thr2=1518 up=34615.01 load=1.91 1.89 1.91
+STRESS pass 269 ok=1 fails=0 127s cpu2=78.82 mem2=98.55 thr2=1516 up=34743.61 load=2.04 1.93 1.92
+STRESS pass 270 ok=1 fails=0 128s cpu2=78.80 mem2=98.51 thr2=1518 up=34871.91 load=2.00 1.93 1.92
+STRESS pass 271 ok=1 fails=0 127s cpu2=78.83 mem2=98.47 thr2=1517 up=35000.25 load=1.95 1.94 1.92
+STRESS pass 272 ok=1 fails=0 127s cpu2=78.89 mem2=98.66 thr2=1518 up=35128.53 load=2.17 1.97 1.93
+STRESS pass 273 ok=1 fails=0 128s cpu2=78.86 mem2=98.49 thr2=1516 up=35257.09 load=1.97 1.94 1.92
+STRESS pass 274 ok=1 fails=0 127s cpu2=78.87 mem2=98.54 thr2=1519 up=35385.63 load=2.02 1.95 1.93
+STRESS pass 275 ok=1 fails=0 128s cpu2=78.85 mem2=98.55 thr2=1519 up=35514.20 load=1.89 1.92 1.92
+STRESS pass 276 ok=1 fails=0 127s cpu2=78.93 mem2=98.38 thr2=1519 up=35642.52 load=1.98 1.94 1.92
+STRESS pass 277 ok=1 fails=0 128s cpu2=79.28 mem2=99.26 thr2=1535 up=35771.23 load=2.13 1.98 1.94
+STRESS pass 278 ok=1 fails=0 127s cpu2=78.82 mem2=98.64 thr2=1518 up=35899.51 load=1.91 1.95 1.93
+STRESS pass 279 ok=1 fails=0 128s cpu2=78.87 mem2=98.64 thr2=1514 up=36028.08 load=1.95 1.94 1.93
+STRESS pass 280 ok=1 fails=0 127s cpu2=78.90 mem2=98.46 thr2=1518 up=36156.63 load=1.97 1.91 1.92
+STRESS pass 281 ok=1 fails=0 128s cpu2=78.88 mem2=98.41 thr2=1516 up=36284.91 load=1.91 1.92 1.92
+STRESS pass 282 ok=1 fails=0 127s cpu2=78.93 mem2=98.57 thr2=1517 up=36413.18 load=2.04 1.96 1.93
+STRESS pass 283 ok=1 fails=0 127s cpu2=78.91 mem2=98.61 thr2=1516 up=36541.60 load=1.91 1.92 1.92
+STRESS pass 284 ok=1 fails=0 128s cpu2=78.88 mem2=98.43 thr2=1518 up=36669.99 load=1.89 1.91 1.91
+STRESS pass 285 ok=1 fails=0 127s cpu2=78.90 mem2=98.44 thr2=1516 up=36798.56 load=2.08 1.94 1.92
+STRESS pass 286 ok=1 fails=0 128s cpu2=78.85 mem2=98.31 thr2=1518 up=36927.17 load=1.93 1.91 1.91
+STRESS pass 287 ok=1 fails=0 127s cpu2=78.89 mem2=98.46 thr2=1519 up=37055.45 load=1.91 1.92 1.92
+STRESS pass 288 ok=1 fails=0 127s cpu2=78.90 mem2=98.56 thr2=1500 up=37183.78 load=2.00 1.93 1.92
+STRESS pass 289 ok=1 fails=0 127s cpu2=78.87 mem2=98.67 thr2=1517 up=37312.32 load=1.97 1.92 1.92
+STRESS pass 290 ok=1 fails=0 128s cpu2=78.88 mem2=98.56 thr2=1519 up=37440.89 load=2.12 1.99 1.94
+STRESS pass 291 ok=1 fails=0 127s cpu2=78.89 mem2=98.43 thr2=1517 up=37569.37 load=2.04 1.98 1.94
+STRESS pass 292 ok=1 fails=0 128s cpu2=78.88 mem2=98.55 thr2=1517 up=37697.95 load=1.92 1.92 1.92
+STRESS pass 293 ok=1 fails=0 127s cpu2=78.86 mem2=98.63 thr2=1518 up=37826.30 load=1.92 1.93 1.92
+STRESS pass 294 ok=1 fails=0 127s cpu2=78.89 mem2=98.50 thr2=1516 up=37954.69 load=2.02 1.95 1.93
+STRESS pass 295 ok=1 fails=0 127s cpu2=78.93 mem2=98.54 thr2=1518 up=38082.93 load=1.99 1.95 1.93
+STRESS pass 296 ok=1 fails=0 127s cpu2=78.90 mem2=98.55 thr2=1518 up=38211.50 load=1.96 1.94 1.92
+STRESS pass 297 ok=1 fails=0 128s cpu2=78.92 mem2=98.49 thr2=1517 up=38339.95 load=1.94 1.92 1.92
+STRESS pass 298 ok=1 fails=0 127s cpu2=78.93 mem2=98.48 thr2=1521 up=38468.46 load=1.95 1.90 1.91
+STRESS pass 299 ok=1 fails=0 127s cpu2=78.85 mem2=98.70 thr2=1518 up=38596.72 load=1.88 1.89 1.91
+STRESS pass 300 ok=1 fails=0 127s cpu2=78.80 mem2=98.50 thr2=1521 up=38725.06 load=1.95 1.90 1.91
+STRESS pass 301 ok=1 fails=0 127s cpu2=78.84 mem2=98.52 thr2=1518 up=38853.41 load=1.94 1.90 1.91
+STRESS pass 302 ok=1 fails=0 128s cpu2=78.79 mem2=98.50 thr2=1517 up=38981.99 load=1.95 1.91 1.91
+STRESS pass 303 ok=1 fails=0 127s cpu2=78.86 mem2=98.41 thr2=1518 up=39110.59 load=2.02 1.92 1.92
+STRESS pass 304 ok=1 fails=0 128s cpu2=78.87 mem2=98.49 thr2=1517 up=39239.14 load=1.92 1.88 1.91
+STRESS pass 305 ok=1 fails=0 127s cpu2=78.79 mem2=98.48 thr2=1518 up=39367.48 load=2.04 1.91 1.92
+STRESS pass 306 ok=1 fails=0 128s cpu2=79.52 mem2=99.34 thr2=1536 up=39496.33 load=2.00 1.93 1.92
+STRESS pass 307 ok=1 fails=0 127s cpu2=78.80 mem2=98.66 thr2=1514 up=39624.53 load=2.03 1.93 1.92
+STRESS pass 308 ok=1 fails=0 128s cpu2=78.88 mem2=98.57 thr2=1514 up=39753.14 load=1.89 1.91 1.91
+STRESS pass 309 ok=1 fails=0 127s cpu2=78.96 mem2=98.53 thr2=1519 up=39881.72 load=2.01 1.96 1.93
+STRESS pass 310 ok=1 fails=0 127s cpu2=78.92 mem2=98.45 thr2=1519 up=40010.09 load=1.91 1.90 1.91
+STRESS pass 311 ok=1 fails=0 127s cpu2=78.92 mem2=98.39 thr2=1519 up=40138.44 load=1.87 1.89 1.91
+STRESS pass 312 ok=1 fails=0 127s cpu2=78.86 mem2=98.51 thr2=1514 up=40266.81 load=1.99 1.91 1.91
+STRESS pass 313 ok=1 fails=0 127s cpu2=78.84 mem2=98.56 thr2=1517 up=40395.40 load=1.97 1.89 1.91
+STRESS pass 314 ok=1 fails=0 128s cpu2=78.78 mem2=98.57 thr2=1518 up=40524.01 load=1.91 1.91 1.91
+STRESS pass 315 ok=1 fails=0 127s cpu2=78.86 mem2=98.61 thr2=1518 up=40652.52 load=1.89 1.89 1.91
+STRESS pass 316 ok=1 fails=0 128s cpu2=78.83 mem2=98.36 thr2=1501 up=40780.88 load=1.93 1.89 1.91
+STRESS pass 317 ok=1 fails=0 127s cpu2=78.77 mem2=98.43 thr2=1518 up=40909.18 load=1.93 1.93 1.92
+STRESS pass 318 ok=1 fails=0 127s cpu2=78.89 mem2=98.56 thr2=1514 up=41037.58 load=2.09 1.97 1.94
+STRESS pass 319 ok=1 fails=0 128s cpu2=78.86 mem2=98.64 thr2=1517 up=41166.07 load=1.96 1.93 1.92
+STRESS pass 320 ok=1 fails=0 127s cpu2=78.85 mem2=98.43 thr2=1518 up=41294.57 load=1.92 1.93 1.92
+STRESS pass 321 ok=1 fails=0 128s cpu2=78.87 mem2=98.43 thr2=1517 up=41423.17 load=1.97 1.93 1.92
