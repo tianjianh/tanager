@@ -103,9 +103,9 @@ module tg_lsu
   input  logic                         mxr,
   input  logic                         satp_sv39,
   input  logic [43:0]                  satp_ppn,
-  input  pmp_d_t [15:0]                pmp_d,
+  input  pmp_d_t [PMP_ENTRIES-1:0]     pmp_d,
   input  logic [2:0]                   pmp_al,
-  input  logic [15:0]                  pmp_p2m,
+  input  logic [PMP_ENTRIES-1:0]       pmp_p2m,
   input  logic                         tlb_flush,
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,

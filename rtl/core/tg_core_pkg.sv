@@ -173,6 +173,14 @@ package tg_core_pkg;
 `else
   localparam bit STEER_LA = 1'b1;
 `endif
+  // PMP entries (core-mmu.md §PMP; DR-167, the user's area reserve): 8, entries 8 to 15 read-only
+  // zero (every PMP field is WARL and software probes the count; OpenSBI's Domain0 uses 6), or 16
+  // with TG_PMP_ENTRIES=16, cycle for cycle as before. Each checker scales with it (three a core)
+`ifdef TG_PMP_ENTRIES
+  localparam int PMP_ENTRIES = `TG_PMP_ENTRIES;
+`else
+  localparam int PMP_ENTRIES = 8;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
