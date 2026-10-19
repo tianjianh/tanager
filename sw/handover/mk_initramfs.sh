@@ -35,16 +35,6 @@ case "$m" in
   *)     cp "$m" "$r/lib/uio_pdrv_genirq.ko" ;;
 esac
 
-# the watchdog's driver (cadence_wdt), when it's a module rather than built in
-m=$(modinfo -n cadence_wdt 2>/dev/null || true)
-case "$m" in
-  *.zst) zstd -q -dc "$m" > "$r/lib/cadence_wdt.ko" ;;
-  *.xz)  xz -dc "$m" > "$r/lib/cadence_wdt.ko" ;;
-  *.gz)  gzip -dc "$m" > "$r/lib/cadence_wdt.ko" ;;
-  /*.ko) cp "$m" "$r/lib/cadence_wdt.ko" ;;
-  *)     echo "cadence_wdt: ${m:-not found} (built in, or the handover runs without the watchdog)" ;;
-esac
-
 # SSH: the system's host keys, the board session's key for root, no PAM, no passwords
 cp /etc/ssh/ssh_host_*_key "$r/etc/ssh/"
 chmod 600 "$r"/etc/ssh/ssh_host_*_key

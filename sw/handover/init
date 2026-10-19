@@ -8,8 +8,7 @@
 #   3. eth0 by DHCP (host name kria) and sshd with the board's key: the board session reaches the A53 as root;
 #   4. the RISC-V: tanager-host run (its images were loaded before the kexec; the PL console in a log and a
 #      FIFO), then back to Ubuntu by a reboot when it exits. tg.handover=dry skips the RISC-V and goes back after tg.dry_s seconds (default 900).
-# Whatever fails ends in a reboot into Ubuntu; panic=10 on the command line covers this script itself, and the
-# FPD watchdog (reset-on-timeout, 60 s in the A53's tree) a hung handover kernel.
+# Whatever fails ends in a reboot into Ubuntu; panic=10 on the command line covers this script itself.
 /bin/busybox mkdir -p /proc /sys /dev /run /tmp
 /bin/busybox --install -s /bin
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
@@ -49,17 +48,6 @@ for d in /dev/uio*; do
   sleep 2147483647 < "$d" &
   echo "uio: holding $d ($(cat "/sys/class/uio/${d#/dev/}/name") at $(cat "/sys/class/uio/${d#/dev/}/maps/map0/addr" 2>/dev/null))"
 done
-
-# 2b. the watchdog: the FPD SWDT (watchdog@fd4d0000, alias watchdog0: 60 s, reset-on-timeout), written every 10 s
-#     by a loop of its own, so only a hung kernel stops it and the board resets into Ubuntu. Killing the loop
-#     (SIGKILL: no magic close) tests that path.
-[ -f /lib/cadence_wdt.ko ] && { insmod /lib/cadence_wdt.ko || echo "watchdog: insmod failed"; sleep 1; }
-if [ -c /dev/watchdog0 ]; then
-  sh -c 'while :; do echo 1; sleep 10; done' > /dev/watchdog0 &
-  echo "watchdog: /dev/watchdog0 written every 10 s by pid $! ($(cat /sys/class/watchdog/watchdog0/timeout 2>/dev/null) s timeout)"
-else
-  echo "watchdog: no /dev/watchdog0, running without one"
-fi
 
 # 3. network and SSH
 ip link set lo up
