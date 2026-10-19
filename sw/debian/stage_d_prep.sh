@@ -9,6 +9,9 @@
 # console and login stay on the PL UART, and UART1 shows OpenSBI alone.
 # Nothing changes for stage C: without the SD1 and UART1 nodes the drivers bind to nothing.
 #   sudo bash stage_d_prep.sh [--sd-only]
+# Undo: dkms remove tanager-ps/1.0 --all; rm -rf /usr/src/tanager-ps-1.0; drop sdhci-of-arasan from
+# /etc/initramfs-tools/modules and update-initramfs -u; systemctl disable serial-getty@ttyPS0.service and remove
+# its drop-in directory; optionally apt-get purge dkms linux-source-6.12 linux-headers-$(uname -r).
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 ver=1.0
