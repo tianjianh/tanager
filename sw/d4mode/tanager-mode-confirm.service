@@ -1,0 +1,19 @@
+# Tanager RISC-V mode (docs/spec/soc-d4-modes.md): on every clean shutdown or reboot of the RISC-V's Debian, the
+# boot mode record's trial flag goes back to 0, so the next boot is RISC-V mode again; an unclean end (a hang and
+# the PMOD reset hook, a crash, a power loss) leaves trial 1, and the next boot is ARM. tanager-mode refuses any disk
+# but the SD card (stage C's virtio disk included), and leaves a record saying arm as it is.
+[Unit]
+Description=Tanager: confirm RISC-V mode on clean shutdown
+DefaultDependencies=no
+After=local-fs.target
+Before=shutdown.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/true
+ExecStop=/usr/local/sbin/tanager-mode confirm
+
+[Install]
+WantedBy=multi-user.target
