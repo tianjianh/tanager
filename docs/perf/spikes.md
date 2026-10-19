@@ -994,6 +994,67 @@ Results: `fpga/spikes/results/h100_m6f/` (`place_failed.txt`, `util_synth.rpt`) 
 
 Results: `fpga/spikes/results/h100_m6fa/`, and `near_families_m6fa_m6t.txt` (the 1 ns family query of both runs).
 
+### 8.13 The merged M6 meets 100 MHz with hart 1's area; the first full chip on w-x299 (2026-10-19)
+
+**Question (the coordinator):** main 31e65c6 holds what `h100_m6fa` did not: TAGE's tables at 2K entries (DR-170), DR-169's rename levers and core-2's M6 merge. Does it still meet 100 MHz with hart 1's area under §8.12's flow? And how does the first full chip on the new build host, w-x299 (an i9-10980XE, 18 cores and 36 threads), compare in run time with the 5950X?
+
+**Method:** §8.12's flow on main 31e65c6.
+- Synthesis with hart 1's filler at 47 tiles, the four-miss L1D and speculative wakeup (both now main's defaults).
+- Placement and routing from its checkpoint with `opt_design -directive ExploreArea`, and 1.0 ns of setup uncertainty on the core clock that is taken back before the reports. One placement.
+- Then the family query at a 1 ns threshold.
+
+Vivado keeps its caps of 8 threads for implementation and 2 for synthesis (`g4_fit.tcl`), as on the 5950X.
+
+| | `h100_m6fa` (5950X; the F2 prototype, 1e4a503) | `h100_m6m` (w-x299; main 31e65c6) |
+|---|---|---|
+| LUTs after synthesis | 120,787 | 121,004 |
+| LUTs after optimisation | 116,511 | 116,653 |
+| Placed LUTs (fill) | 113,673 (97.1%) | 113,721 (97.1%) |
+| Block-RAM tiles | 121 | 125 (TAGE's tables) |
+| WNS ns at 10 ns | +0.725 | **+0.348** (WHS +0.011) |
+| Endpoints below 0 / 0.3 / 0.5 / 1.0 ns | 0 / 0 / 0 / 174 | **0 / 0 / 82 / 1,239** |
+| Levels of the worst 2,000 paths | 9–23 | 6–26, mostly 11–20 |
+
+**The worst families in `h100_m6m`:**
+- **TAGE's table RAM → F3 (core 0)**, new: at 2K entries the tables are block RAMs.
+  - F3's predicted target (`f3_meta_q`) at +0.348 ns and predecode's `krt_q` at +0.353 (17 levels, 66% wire).
+  - The RAS's `p_push_q`, TAGE's `gp_n_q` and its history RAM, +0.38 to +0.47.
+  - Core 1's worst front-end paths start at the I$ data RAM, as in `h100_m6fa`: `f3_meta_q` +0.373, `krt_q` +0.404 (20 levels).
+- **The LSU, tied with it:**
+  - The DTLB → M2's `m2_dword_q`, +0.352 (14 levels, 76% wire).
+  - The store queue's AMO and privilege registers → `sq_av_q`, `sq_exc_q` and `s2_v_q`, +0.359 to +0.414 (13–15 levels, 77–80% wire).
+  - The PMP → `lq_st_q` +0.389 (17 levels); the L1D's data RAM from the AMO state +0.422.
+  - `rp_ra_q` from the DTLB, +0.443 at 26 levels (23 in `h100_m6fa`).
+- **Fetch's `fpc_q` loop** (core 1), +0.386 (17 levels, 76% wire).
+- **Rename's uop register from the queue head**, +0.47 to +0.60 (17–20 levels). Decode's `dred_*` from the issue queue, +0.70 to +0.86 (19–20 levels).
+- **The uncore:** the L2 bank's `m_grant_t`, `ms` and `d_credit_q`, +0.49 to +0.55 (12–14 levels, 75–80% wire). Its worst in `h100_m6fa` was +1.154.
+- Without any path inside the front end, 967 endpoints remain below 1 ns, led by the LSU at +0.352.
+
+**Run time:**
+
+| Stage | `h100_m6fa`, 5950X | `h100_m6m`, w-x299 | Ratio |
+|---|---|---|---|
+| Synthesis job | 21.0 min (a quiet host; 28.4 for `h100_m6r`, loaded) | 27.0 min | 0.95–1.3× |
+| Optimisation and placement | 11.4 min | 17.7 min | 1.55× |
+| Routing | 50.9 min | 150.3 min | 2.95× |
+| The placement and routing job | 64.8 min | 172.4 min | 2.66× |
+
+- **Threads:** the router kept 2.5 of its 8 threads busy on average (22,220 CPU-seconds in 9,020 s); placement 2.4 and optimisation 2.6 (`times.txt`).
+- **Load:** w-x299 was busy. The 1-minute load averaged 26.3 of 36 threads on 18 cores, with 3.1 Vivado jobs at once on average and 5 at most (`logs/h100_m6m.load`). The 5950X's load during `h100_m6fa` was not recorded.
+- **The CPU** ran at about 4.2 GHz under load. Its package was at 95 °C at a load of 16 (high mark 100 °C), and it had throttled in 16,827 short bursts, 67 s in all, in the 5 h since boot.
+- **Memory peaks:** synthesis 15.2 GB (18 declared); placement and routing 8.4 GB (10 declared). ExploreArea's placement and routing needs more than the default's 5.2–5.3 GB (`h100_m6fa`: 7.8).
+
+**Findings:**
+- **The merged M6 meets 100 MHz with hart 1's area, with 0.35 ns to spare at 97.1% placed.** That is one placement, ±0.75 ns of noise (§8.8). 82 endpoints are within 0.5 ns, against none in `h100_m6fa`.
+- **The 2K TAGE tables moved the front end's worst path onto TAGE's block RAM**, at 17 levels. The LSU's DTLB → M2 path is tied with it, and the LSU's store-queue paths are 77–80% wire.
+- **A full chip takes about 3.3 h on w-x299 under this load, against about 1.5 h on the 5950X.**
+  - Placement is 1.55× slower, on nearly identical netlists (116,653 and 116,511 LUTs after optimisation).
+  - Routing is 2.95× slower. Part of that is the design: with the over-constraint, its timing at the end of routing was −0.65 ns against `h100_m6fa`'s −0.28. Against the slowest 5950X route of M6's trees (`h100_m6r`, 70 min), it is 2.15×.
+  - A job keeps only 2.4–2.6 threads busy, so per-thread speed and the host's load set a full chip's time, not the core count. The host's gain is in running more jobs at once: 8 slots and 50 GB, against 6 and 40.
+- A controlled comparison of the hosts would rerun `h100_m6fa`'s tree on w-x299.
+
+Results: `fpga/spikes/results/h100_m6m/` (with `times.txt`, Vivado's time and memory per command) and `h100_m6m_synth/`; `near_families_m6m.txt` (the 1 ns family query).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
