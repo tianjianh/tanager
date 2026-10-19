@@ -9,7 +9,9 @@
 // One core cycle after it starts, every read port's data must equal the reference's.
 module tb_urf;
   localparam int NB = 3, DEPTH = 64, W = 64, NE = 6, NL = 1, NR = NE + NL, IW = 6, BW = 2;
-  localparam int CYCLES = 200000, INIT = DEPTH + 2;
+  // nothing is written for START cycles (glbl holds the vendor model's global reset for 100 ns), then
+  // every entry is filled once before the random phase
+  localparam int CYCLES = 200000, START = 20, INIT = START + DEPTH + 2;
 
   // The core clock and twice it, rising together at every core edge (10, 20, ... ns)
   logic clk = 1'b1, clk2x = 1'b1;
@@ -72,8 +74,10 @@ module tb_urf;
     cur_idx  = e_idx_n;
     for (b = 0; b < NB; b++) begin
       nwd[b] = {$urandom, $urandom};
-      if (cyc < DEPTH) begin                  // fill every entry first
-        nwe[b] = 1'b1; nwa[b] = IW'(cyc);
+      if (cyc < START) begin
+        nwe[b] = 1'b0; nwa[b] = '0;
+      end else if (cyc < START + DEPTH) begin  // fill every entry first
+        nwe[b] = 1'b1; nwa[b] = IW'(cyc - START);
       end else begin
         nwe[b] = ($urandom_range(3) != 0);
         nwa[b] = IW'($urandom_range(DEPTH - 1));
