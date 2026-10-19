@@ -12,8 +12,15 @@ cd ~/tanager/tg || exit 1
 export TG_APP=tanager-d2 TG_DIR=$HOME/tanager/d2pkg
 D=$TG_DIR; P=/dev/mmcblk1p3; K=$HOME/tanager/d4m-step6-pkg/d4m-step6; fw=/boot/firmware; mode=${1:-}
 date -u +"== d4m_step6 $mode %F %T UTC, A53 up $(cut -d' ' -f1 /proc/uptime) s"
+if [ "$mode" = stagec_d4s1 ]; then
+  # step 6's diagnostic split: Debian from p3 in stage C on d4s1 itself (m6's configuration, BOARD_CTRL 0) with its
+  # package's four-hart virtio tree, bounded: did RISC-V mode's panic come from m6 under Linux, or from the layout?
+  export TG_APP=tanager-d4s1 TG_DIR=$HOME/tanager/d4s1-smt2-c2-100; D=$TG_DIR
+  : ${LOGIN_S:=600} ${SH_TIMEOUT:=900} ${CMDS_S:=600}
+  export LOGIN_S SH_TIMEOUT CMDS_S
+fi
 case "$mode" in
-copy|debian)
+copy|debian|stagec_d4s1)
   if pgrep -f "[t]anager-host boot" > /dev/null; then echo "a boot is running: stop"; exit 1; fi
   if findmnt -rn -S $P > /dev/null; then echo "$P is mounted on the A53: stop"; exit 1; fi;;
 esac
@@ -26,6 +33,8 @@ copy)
   sudo umount /mnt; sudo e2fsck -fn $P 2>&1 | tail -1; exit 0;;
 debian)
   cmds='sudo bash /root/stage-d6/debian_install.sh; echo "debian_install exit $?"; systemctl is-enabled tanager-mode-confirm.service; findmnt -n /; cat /proc/cmdline; sudo dd if=/dev/vda of=/dev/null bs=1M count=256 iflag=direct 2>&1 | tail -1';;
+stagec_d4s1)
+  cmds='uname -r; nproc; cat /proc/cmdline; sudo dmesg | grep -i -E "smp:|oops|panic|BUG|segfault" | head; sudo dd if=/dev/vda of=/dev/null bs=1M count=64 iflag=direct 2>&1 | tail -1';;
 install)
   (cd $K && sha256sum -c SHA256SUMS) || exit 1
   sudo cp $K/tanager/* $fw/tanager/ && sync
@@ -52,6 +61,6 @@ LOGIN_S=${LOGIN_S:-2400} DBG=1 CMDS_S=${CMDS_S:-1800} OFF_S=${OFF_S:-900} SH_KER
   SH_ARGS="--blk $P --rng --dbg" CMDS="$cmds" ./tg.sh shell
 cp $D/linux_shell.txt $D/linux_shell_step6_$mode.txt
 echo "== the commands' output"
-tr -d '\r' < $D/linux_shell_step6_$mode.txt | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | sed -n '/debian_install.sh;/,/TG-42-DONE/p' | tail -n +2 | head -30
+tr -d '\r' < $D/linux_shell_step6_$mode.txt | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | sed -n '/TG-$((40+2))-DONE/,/TG-42-DONE/p' | tail -n +2 | head -30
 echo "orphan sleeps after the run: $(pgrep -c -x sleep -P 1)"
 sudo e2fsck -fn $P 2>&1 | tail -1

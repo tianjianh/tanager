@@ -1,0 +1,275 @@
+loaded: fw 277856 B, kernel 1265600 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+virtio: blk /dev/mmcblk1p3 rng
+
+OpenSBI v1.9
+   ____                    _____ ____ _____
+  / __ \                  / ____|  _ \_   _|
+ | |  | |_ __   ___ _ __ | (___ | |_) || |
+ | |  | | '_ \ / _ \ '_ \ \___ \|  _ < | |
+ | |__| | |_) |  __/ | | |____) | |_) || |_
+  \____/| .__/ \___|_| |_|_____/|____/_____|
+        | |
+        |_|
+
+Platform Name               : Tanager on KV260
+Platform Features           : medeleg
+Platform HART Count         : 2
+Platform HART Protection    : pmp
+Platform IPI Device         : aclint-mswi
+Platform Timer Device       : aclint-mtimer @ 10000000Hz
+Platform Console Device     : uart8250
+Platform HSM Device         : ---
+Platform PMU Device         : ---
+Platform Reboot Device      : syscon-reboot
+Platform Shutdown Device    : syscon-poweroff
+Platform Suspend Device     : ---
+Platform CPPC Device        : ---
+Firmware Base               : 0x80000000
+Firmware Size               : 333 KB
+Firmware RW Offset          : 0x40000
+Firmware RW Size            : 77 KB
+Firmware Heap Offset        : 0x49000
+Firmware Heap Size          : 41 KB (total), 0 KB (reserved), 13 KB (used), 27 KB (free)
+Firmware Scratch Size       : 4096 B (total), 504 B (used), 3592 B (free)
+Runtime SBI Version         : 3.0
+Standard SBI Extensions     : time,rfnc,ipi,base,hsm,srst,pmu,dbcn,fwft,legacy,dbtr,sse
+Experimental SBI Extensions : none
+
+Domain0 Name                : root
+Domain0 Boot HART           : 0
+Domain0 HARTs               : 0x0*,0x2*
+Domain0 Region00            : 0x0000000080040000-0x000000008005ffff M: (F,R,W) S/U: ()
+Domain0 Region01            : 0x0000000080000000-0x000000008003ffff M: (F,R,X) S/U: ()
+Domain0 Region02            : 0x0000000010000000-0x0000000010001fff M: (I,R,W) S/U: (R,W)
+Domain0 Region03            : 0x0000000002000000-0x000000000200ffff M: (I,R,W) S/U: ()
+Domain0 Region04            : 0x000000000c000000-0x000000000fffffff M: (I,R,W) S/U: (R,W)
+Domain0 Region05            : 0x0000000000000000-0xffffffffffffffff M: () S/U: (R,W,X)
+Domain0 Next Address        : 0x0000000080200000
+Domain0 Next Arg1           : 0x0000000082200000
+Domain0 Next Mode           : S-mode
+Domain0 SysReset            : yes
+Domain0 SysSuspend          : yes
+
+Boot HART ID                : 0
+Boot HART Domain            : root
+Boot HART Priv Version      : v1.12
+Boot HART Base ISA          : rv64imafdcb
+Boot HART ISA Extensions    : sstc,zicntr,sdtrig,f,d
+Boot HART PMP Count         : 16
+Boot HART PMP Granularity   : 2 bits
+Boot HART PMP Address Bits  : 54
+Boot HART MHPM Info         : 0 (0x00000000)
+Boot HART Debug Triggers    : 1 triggers
+Boot HART MIDELEG           : 0x0000000000000222
+Boot HART MEDELEG           : 0x000000000000b108
+
+
+U-Boot 2026.07 (Oct 17 2026 - 13:25:56 -0700)
+
+CPU:   tanager,tanager
+Model: Tanager on KV260
+DRAM:  1 GiB
+using memory 0xbee9a000-0xbf6ba000 for malloc()
+Core:  20 devices, 11 uclasses, devicetree: board
+Loading Environment from nowhere... OK
+In:    serial,usbkbd
+Out:   serial,vidconsole
+Err:   serial,vidconsole
+No USB controllers found
+Net:   No ethernet found.
+[?25h
+Working FDT set to bee980c0
+[2KHit any key to stop autoboot: 2[2KHit any key to stop autoboot: 1[2KHit any key to stop autoboot: 0
+Retrieving file: /boot/extlinux/extlinux.conf
+U-Boot menu
+1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+2:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64 (rescue target)
+3:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64
+4:	Debian GNU/Linux 13 (trixie) 6.12.111+deb13-riscv64 (rescue target)
+Enter choice: 1:	Debian GNU/Linux 13 (trixie) 6.12.113+deb13-riscv64
+Retrieving file: /boot/vmlinux-6.12.113+deb13-riscv64
+Retrieving file: /boot/initrd.img-6.12.113+deb13-riscv64
+append: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+Moving Image from 0x84000000 to 0x80200000, end=0x8206b000
+## Flattened Device Tree blob at bee980c0
+   Booting using the fdt blob at 0xbee980c0
+Working FDT set to bee980c0
+   Loading Device Tree to 00000000bde8e000, end 00000000bde92ced ... OK
+Working FDT set to bde8e000
+
+Starting kernel ...
+
+[    0.000000] Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.113-1 (2026-10-15)
+[    0.000000] Machine model: Tanager on KV260
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] efi: UEFI not found.
+[    0.000000] earlycon: ns16550a0 at MMIO 0x0000000010000000 (options '')
+[    0.000000] printk: legacy bootconsole [ns16550a0] enabled
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0xbfdf4bc0-0xbfdf6fff]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000]   Normal   empty
+[    0.000000]   Device   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] percpu: Embedded 32 pages/cpu s90712 r8192 d32168 u131072
+[    0.000000] Kernel command line: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[    0.000000] Policy zone: DMA32
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] ftrace: allocating 39559 entries in 155 pages
+[    0.000000] ftrace: allocated 155 pages with 5 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=2.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks Rude: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000008] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.008377] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.019236] Console: colour dummy device 80x25
+[    0.043495] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.054196] pid_max: default: 32768 minimum: 301
+[    0.097431] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[    0.113014] landlock: Up and running.
+[    0.116918] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.127469] AppArmor: AppArmor initialized
+[    0.133007] TOMOYO Linux initialized
+[    0.145395] LSM support for eBPF active
+[    0.165158] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.173099] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.241181] ASID allocator using 16 bits (65536 entries)
+[    0.248388] rcu: Hierarchical SRCU implementation.
+[    0.253452] rcu: 	Max phase no-delay instances is 1000.
+[    0.263044] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.277629] EFI services will not be available.
+[    0.285453] smp: Bringing up secondary CPUs ...
+[    0.299895] smp: Brought up 1 node, 2 CPUs
+[    0.503579] node 0 deferred pages initialised in 188ms
+[    0.509893] Memory: 917332K/1048576K available (10729K kernel code, 5220K rwdata, 10240K rodata, 2687K init, 708K bss, 127316K reserved, 0K cma-reserved)
+[    0.533823] devtmpfs: initialized
+[    0.571757] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.601294] pinctrl core: initialized pinctrl subsystem
+[    0.613483] DMI not present or invalid.
+[    0.630055] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.641688] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.650760] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.659361] audit: initializing netlink subsys (disabled)
+[    0.667151] audit: type=2000 audit(0.532:1): state=initialized audit_enabled=0 res=1
+[    0.682371] thermal_sys: Registered thermal governor 'fair_share'
+[    0.682455] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.688857] thermal_sys: Registered thermal governor 'step_wise'
+[    0.695129] thermal_sys: Registered thermal governor 'user_space'
+[    0.701389] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.708123] cpuidle: using governor ladder
+[    0.719360] cpuidle: using governor menu
+[    0.784302] cpu1: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    0.849195] cpu0: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    1.021985] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    1.029135] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    1.036047] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    1.043098] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    1.201535] ACPI: Interpreter disabled.
+[    1.209910] iommu: Default domain type: Translated
+[    1.214976] iommu: DMA domain TLB invalidation policy: strict mode
+[    1.252112] pps_core: LinuxPPS API ver. 1 registered
+[    1.257360] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.266943] PTP clock support registered
+[    1.285555] NetLabel: Initializing
+[    1.289204] NetLabel:  domain hash size = 128
+[    1.293785] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.300388] NetLabel:  unlabeled traffic allowed by default
+[    1.312815] vgaarb: loaded
+[    1.329064] clocksource: Switched to clocksource riscv_clocksource
+[    1.585784] VFS: Disk quotas dquot_6.6.0
+[    1.591870] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    1.613244] AppArmor: AppArmor Filesystem Enabled
+[    1.619034] pnp: PnP ACPI: disabled
+[    1.751058] NET: Registered PF_INET protocol family
+[    1.759322] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    2.298424] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    2.310391] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    2.319898] TCP established hash table entries: 8192 (order: 4, 65536 bytes, linear)
+[    2.331727] TCP bind hash table entries: 8192 (order: 6, 262144 bytes, linear)
+[    2.340936] TCP: Hash tables configured (established 8192 bind 8192)
+[    2.353419] MPTCP token hash table entries: 1024 (order: 3, 24576 bytes, linear)
+[    2.363224] UDP hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    2.370502] UDP-Lite hash table entries: 512 (order: 2, 16384 bytes, linear)
+[    2.381338] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    2.388013] NET: Registered PF_XDP protocol family
+[    2.393241] PCI: CLS 0 bytes, default 64
+[    2.399500] Trying to unpack rootfs image as initramfs...
+[    2.420519] Initialise system trusted keyrings
+[    2.425929] Key type blacklist registered
+[    2.432407] workingset: timestamp_bits=44 max_order=18 bucket_order=0
+[    2.439793] zbud: loaded
+[    2.461801] fuse: init (API version 7.41)
+[    2.478294] integrity: Platform Keyring initialized
+[    2.483802] integrity: Machine keyring initialized
+[    2.488808] Unable to handle kernel paging request at virtual address ffffff9e3fdf0b18
+[    2.488905] Oops [#1]
+[    2.488961] Modules linked in:
+[    2.489049] CPU: 1 UID: 0 PID: 1 Comm: swapper/0 Not tainted 6.12.113+deb13-riscv64 #1  Debian 6.12.113-1
+[    2.489162] Hardware name: Tanager on KV260 (DT)
+[    2.489211] epc : record_print_text+0x15a/0x168
+[    2.489376]  ra : sched_ttwu_pending+0x68/0x1ec
+[    2.489482] epc : ffffffff8009ee16 ra : ffffffff8006062e sp : ffffffc60000bdb0
+[    2.489554]  gp : ffffffff81db6958 tp : ffffffd602698e40 t0 : 0000000000000040
+[    2.489624]  t1 : 0000000000000000 t2 : 797469726765746e s0 : ffffffc60000be20
+[    2.489691]  s1 : 0000000200000120 a0 : ffffffd63fde4c40 a1 : 0000000000000001
+[    2.489761]  a2 : ffffffd6bef4c000 a3 : 0000000000000000 a4 : 000000000000000a
+[    2.489827]  a5 : ffffff9e3fdf0b18 a6 : ffffffd602801b60 a7 : ffffffd602801b90
+[    2.489893]  s2 : ffffffd6026fb968 s3 : ffffffd63fde4c40 s4 : ffffffc80000bedc
+[    2.489959]  s5 : ffffffc60000bdb8 s6 : ffffffff81e5a438 s7 : ffffffff81dce920
+[    2.490026]  s8 : 0000000000000020 s9 : 0000000000000001 s10: 0000000000000036
+[    2.490090]  s11: 0000000200000022 t3 : 0000000000000002 t4 : 0000000000000402
+[    2.490157]  t5 : ffffffd6025a7228 t6 : ffffffd6025a7230
+[    2.490214] status: 0000000200000100 badaddr: ffffff9e3fdf0b18 cause: 000000000000000f
+[    2.490290] [<ffffffff8009ee16>] record_print_text+0x15a/0x168
+[    2.490415] [<ffffffff800fc516>] __flush_smp_call_function_queue+0x10a/0x3ec
+[    2.490533] [<ffffffff800fc812>] generic_smp_call_function_single_interrupt+0x1a/0x22
+[    2.490643] [<ffffffff8000a324>] handle_IPI+0x8a/0x130
+[    2.490796] [<ffffffff800ad0f2>] handle_percpu_devid_irq+0x92/0x17a
+[    2.490947] [<ffffffff800a6f68>] handle_irq_desc+0x2e/0x42
+[    2.491043] [<ffffffff800a701c>] generic_handle_domain_irq+0x26/0x2e
+[    2.491142] [<ffffffff800b4104>] ipi_mux_process+0x88/0x106
+[    2.491264] [<ffffffff8000dfcc>] sbi_ipi_handle+0x2e/0x82
+[    2.491379] [<ffffffff800a6f68>] handle_irq_desc+0x2e/0x42
+[    2.491471] [<ffffffff800a701c>] generic_handle_domain_irq+0x26/0x2e
+[    2.491567] [<ffffffff805dede8>] riscv_intc_irq+0x2e/0x68
+[    2.491664] [<ffffffff80a6f18a>] handle_riscv_irq+0x4a/0x74
+[    2.491829] [<ffffffff80a7c61a>] call_on_irq_stack+0x32/0x40
+[    2.492072] Code: 1097 009c 80e7 7520 87b3 0154 0a05 9a3e 97ce 4729 (8023) 00e7 
+[    2.492144] ---[ end trace 0000000000000000 ]---
+[    2.492208] Kernel panic - not syncing: Fatal exception in interrupt
+[    2.492263] SMP: stopping secondary CPUs
+[    2.724597] ---[ end Kernel panic - not syncing: Fatal exception in interrupt ]---
+[tanager-host] virtio: 20 requests, 69 MiB read, 0 MiB written
+[tanager-host] --dbg: this bitstream has no debug counters

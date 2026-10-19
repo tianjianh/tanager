@@ -354,3 +354,62 @@ The SoC track's package `d4m-step6` ([`package_d4m_step6_README.md`](package_d4m
 **The recovery path held:** the PMOD break reset the board out of a silent RISC-V mode into ARM mode, with nobody at the board.
 
 **Afterwards:** s11, d2 from p3, from 13:20:32 UTC. The record is at arm. Steps 4 to 6's files stay in place for the next attempt.
+
+## Step 6's diagnostic: Linux panics on d4s1 (m6's configuration), in RISC-V mode and in stage C alike (2026-10-19)
+
+The SoC track asked for a by-hand boot at U-Boot d4's prompt. It had two candidates:
+- (a) an early kernel hang with the RISC-V mode tree's new nodes;
+- (b) images corrupted by U-Boot d4's PIO loads.
+
+**Records:**
+- [`step6_diag_run.txt`](step6_diag_run.txt);
+- COM7 for both by-hand boots: [`uart_COM7_step6diag.txt`](uart_COM7_step6diag.txt);
+- the kernel's console: [`uart_COM5_step6diag2_230400.txt`](uart_COM5_step6diag2_230400.txt);
+- the split test's console: [`linux_shell_stagec_d4s1.txt`](linux_shell_stagec_d4s1.txt).
+
+**Laptop tools:**
+- [`serial_expect2.ps1`](serial_expect2.ps1): D3's scripted session with paced typing. A match consumes only the text up to its end, and a timeout ends the steps.
+- [`serial_log3.ps1`](serial_log3.ps1): the reopening logger with a baud option.
+- [`com7_uboot_d4_steps.txt`](com7_uboot_d4_steps.txt): the U-Boot lines. The script first waits for U-Boot d4's own banner, so the A53's U-Boot countdown is never touched.
+
+**The images are intact, so not (b):**
+
+| | On p3 (gzip's CRC32, read-only) | Loaded by U-Boot d4 through SD1 |
+|---|---|---|
+| `vmlinux-6.12.113+deb13-riscv64` (31,166,464 bytes) | `439ad054` | `439ad054`, read in 5,242 ms (5.7 MiB/s) |
+| `initrd.img-6.12.113+deb13-riscv64` (42,091,488 bytes) | `e9fd3a54` | `e9fd3a54`, read in 7,090 ms (5.7 MiB/s) |
+
+U-Boot d4's `mmc info` reports SD High Speed (50 MHz), 4-bit, 14.6 GiB.
+
+**The kernel panics 2.16 s in:**
+- **The first by-hand boot's earlycon was garbled.** `earlycon=uart8250,mmio,0x10000000,115200n8` gives no clock, so the kernel assumes 1.8432 MHz and sets divisor 1. The 16550 runs at 3.6864 MHz, so that is 230400 baud.
+- **The second by-hand boot** was identical, with COM5 logged at 230400. It reads cleanly:
+  - SBI v3.0, IPIs through SBI;
+  - `smp: Brought up 1 node, 2 CPUs` at 0.24 s;
+  - then, at 2.157 s, `Unable to handle kernel paging request at virtual address ffffff9e3fdc7b18`;
+  - a store page fault on CPU 0 in `handle_IPI` → `generic_smp_call_function_single_interrupt` → `__flush_smp_call_function_queue`;
+  - `epc ffffffff8009ee16` (`record_print_text+0x15a`), `ra ffffffff8006062e` (`sched_ttwu_pending+0x68`);
+  - `Kernel panic - not syncing: Fatal exception in interrupt`.
+- **That explains the first attempt's silence.** The panic halts the kernel before the 8250 console comes up, and plain `earlycon` has no early console in this tree.
+
+**The split: the same panic in stage C on d4s1, so not (a) either.**
+- One ordinary stage C boot on d4s1, mode `stagec_d4s1` of [`../runs/d4m_step6.sh`](../runs/d4m_step6.sh):
+  - `BOARD_CTRL` 0;
+  - its package's virtio tree, OpenSBI and U-Boot;
+  - Debian from p3 over virtio, as in every stress run.
+- It panicked at 2.489 s at the same `epc` and `ra`, with the bad address `ffffff9e3fdf0b18`.
+- The pointer is corrupted the same way in both runs: the top byte is `9e` where the linear map's is `d6`, so bits 35 and 38 are flipped.
+- tg.sh ended the run after its 600 s login wait, and `k26-starter-kits` was back at 13:50:52.
+
+**d2 runs the same kernel cleanly with the same CPU setup.** d2's stage C (s7, 76 clean passes) and d4s1's stage C print identical CPU lines:
+- 2 harts (`0x0*,0x2*`);
+- `rv64imafdcb`, extensions `sstc,zicntr,sdtrig,f,d`, PMP 16;
+- the same percpu layout, `2 CPUs`.
+
+So the only difference is the bitstream. **m6's configuration (e8345f3) panics Linux about 2.2 to 2.5 s into every boot:** three boots, three panics. d2 has about 700 clean stress passes with the same kernel, initrd and tree. This is for the core and SoC tracks to find.
+
+**What D4 has shown so far:**
+- RISC-V mode's machinery works up to Debian's kernel: the A53's U-Boot, the park, OpenSBI, U-Boot d4, and extlinux and the images read through SD1.
+- The PMOD break recovered the board from a halted RISC-V Linux three times (13:17, 13:32 and 13:37 UTC), with Ubuntu back in 68 to 80 s and p3 never touched.
+
+**Afterwards:** s12, d2 from p3, from 13:51:18 UTC. The record is at arm.

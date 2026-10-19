@@ -1,0 +1,163 @@
+﻿
+===== COM5 logger (reopening, 230400 baud) started 2026-10-19T06:34:28.2750162-07:00 =====
+
+===== COM5 opened 2026-10-19T06:34:28.2860587-07:00 =====
+[    0.000000] Linux version 6.12.113+deb13-riscv64 (debian-kernel@lists.debian.org) (riscv64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.113-1 (2026-10-15)
+[    0.000000] Machine model: Tanager on KV260
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10009
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] earlycon: uart8250 at MMIO 0x0000000010000000 (options '115200n8')
+[    0.000000] printk: legacy bootconsole [uart8250] enabled
+[    0.000000] printk: debug: ignoring loglevel setting.
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] NUMA: Faking a node at [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0xbfdf3f40-0xbfdf637f]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000]   Normal   empty
+[    0.000000]   Device   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000bfffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] percpu: Embedded 32 pages/cpu s90712 r8192 d32168 u131072
+[    0.000000] pcpu-alloc: s90712 r8192 d32168 u131072 alloc=32*4096
+[    0.000000] pcpu-alloc: [0] 0 [0] 1 
+[    0.000000] Kernel command line: root=LABEL=tanager-root console=ttyS0,115200 earlycon=uart8250,mmio,0x10000000,115200n8 rw ignore_loglevel
+[    0.000000] Dentry cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 65536 (order: 7, 524288 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 262144
+[    0.000000] Policy zone: DMA32
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] ftrace: allocating 39559 entries in 155 pages
+[    0.000000] ftrace: allocated 155 pages with 5 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=128 to nr_cpu_ids=2.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks Rude: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000008] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.004336] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.011458] Console: colour dummy device 80x25
+[    0.033497] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=40000)
+[    0.039070] pid_max: default: 32768 minimum: 301
+[    0.079931] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[    0.091055] landlock: Up and running.
+[    0.093050] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.100553] AppArmor: AppArmor initialized
+[    0.104045] TOMOYO Linux initialized
+[    0.114657] LSM support for eBPF active
+[    0.132261] Mount-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.136504] Mountpoint-cache hash table entries: 2048 (order: 2, 16384 bytes, linear)
+[    0.200569] ASID allocator using 16 bits (65536 entries)
+[    0.205122] rcu: Hierarchical SRCU implementation.
+[    0.207801] rcu: 	Max phase no-delay instances is 1000.
+[    0.214763] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.225316] EFI services will not be available.
+[    0.230897] smp: Bringing up secondary CPUs ...
+[    0.243470] smp: Brought up 1 node, 2 CPUs
+[    0.443437] node 0 deferred pages initialised in 188ms
+[    0.446810] Memory: 917524K/1048576K available (10729K kernel code, 5220K rwdata, 10240K rodata, 2687K init, 708K bss, 127324K reserved, 0K cma-reserved)
+[    0.465745] devtmpfs: initialized
+[    0.503037] futex hash table entries: 512 (order: 3, 32768 bytes, linear)
+[    0.529020] pinctrl core: initialized pinctrl subsystem
+[    0.538669] DMI not present or invalid.
+[    0.553272] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.562311] DMA: preallocated 128 KiB GFP_KERNEL pool for atomic allocations
+[    0.567839] DMA: preallocated 128 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.572493] audit: initializing netlink subsys (disabled)
+[    0.578113] audit: type=2000 audit(0.524:1): state=initialized audit_enabled=0 res=1
+[    0.584956] thermal_sys: Registered thermal governor 'fair_share'
+[    0.585041] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.588298] thermal_sys: Registered thermal governor 'step_wise'
+[    0.591585] thermal_sys: Registered thermal governor 'user_space'
+[    0.594787] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.598833] cpuidle: using governor ladder
+[    0.604901] cpuidle: using governor menu
+[    0.667983] cpu1: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    0.728875] cpu0: Ratio of byte access time to unaligned word access is 0.00, unaligned accesses are slow
+[    0.892914] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.896675] HugeTLB: 16380 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.900217] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.903887] HugeTLB: 28 KiB vmemmap can be freed for a 2.00 MiB page
+[    1.067117] ACPI: Interpreter disabled.
+[    1.071527] iommu: Default domain type: Translated
+[    1.074231] iommu: DMA domain TLB invalidation policy: strict mode
+[    1.085673] pps_core: LinuxPPS API ver. 1 registered
+[    1.088445] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    1.093478] PTP clock support registered
+[    1.110279] NetLabel: Initializing
+[    1.112148] NetLabel:  domain hash size = 128
+[    1.114575] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.118295] NetLabel:  unlabeled traffic allowed by default
+[    1.126790] vgaarb: loaded
+[    1.145394] clocksource: Switched to clocksource riscv_clocksource
+[    1.459719] VFS: Disk quotas dquot_6.6.0
+[    1.463865] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    1.480659] AppArmor: AppArmor Filesystem Enabled
+[    1.484202] pnp: PnP ACPI: disabled
+[    1.612500] NET: Registered PF_INET protocol family
+[    1.618195] IP idents hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    2.153036] tcp_listen_portaddr_hash hash table entries: 512 (order: 1, 8192 bytes, linear)
+[    2.157605] Unable to handle kernel paging request at virtual address ffffff9e3fdc7b18
+[    2.157701] Oops [#1]
+[    2.157755] Modules linked in:
+[    2.157843] CPU: 0 UID: 0 PID: 1 Comm: swapper/0 Not tainted 6.12.113+deb13-riscv64 #1  Debian 6.12.113-1
+[    2.157953] Hardware name: Tanager on KV260 (DT)
+[    2.158002] epc : record_print_text+0x15a/0x168
+[    2.158160]  ra : sched_ttwu_pending+0x68/0x1ec
+[    2.158263] epc : ffffffff8009ee16 ra : ffffffff8006062e sp : ffffffc600003db0
+[    2.158335]  gp : ffffffff81db6958 tp : ffffffd602698e40 t0 : 0000000000000040
+[    2.158402]  t1 : 0000000000000000 t2 : 657473696c5f7063 s0 : ffffffc600003e20
+[    2.158468]  s1 : 0000000200000120 a0 : ffffffd63fdc3c40 a1 : 0000000000000000
+[    2.158536]  a2 : ffffffd6bef2b000 a3 : 0000000000000000 a4 : 000000000000000a
+[    2.158600]  a5 : ffffff9e3fdc7b18 a6 : ffffffd602801240 a7 : ffffffd602801270
+[    2.158666]  s2 : ffffffd6026b2b28 s3 : ffffffd63fdc3c40 s4 : ffffffc800003edc
+[    2.158732]  s5 : ffffffc600003db8 s6 : ffffffff81e5a438 s7 : ffffffff81dce920
+[    2.158798]  s8 : 0000000000000020 s9 : 0000000000000001 s10: 000000000000005f
+[    2.158863]  s11: 0000000200000022 t3 : 0000000000000002 t4 : 0000000000000402
+[    2.158929]  t5 : ffffffd6025a78e8 t6 : ffffffd6025a78f0
+[    2.158986] status: 0000000200000100 badaddr: ffffff9e3fdc7b18 cause: 000000000000000f
+[    2.159062] [<ffffffff8009ee16>] record_print_text+0x15a/0x168
+[    2.159186] [<ffffffff800fc516>] __flush_smp_call_function_queue+0x10a/0x3ec
+[    2.159304] [<ffffffff800fc812>] generic_smp_call_function_single_interrupt+0x1a/0x22
+[    2.159413] [<ffffffff8000a324>] handle_IPI+0x8a/0x130
+[    2.159565] [<ffffffff800ad0f2>] handle_percpu_devid_irq+0x92/0x17a
+[    2.159716] [<ffffffff800a6f68>] handle_irq_desc+0x2e/0x42
+[    2.159811] [<ffffffff800a701c>] generic_handle_domain_irq+0x26/0x2e
+[    2.159910] [<ffffffff800b4104>] ipi_mux_process+0x88/0x106
+[    2.160033] [<ffffffff8000dfcc>] sbi_ipi_handle+0x2e/0x82
+[    2.160149] [<ffffffff800a6f68>] handle_irq_desc+0x2e/0x42
+[    2.160243] [<ffffffff800a701c>] generic_handle_domain_irq+0x26/0x2e
+[    2.160338] [<ffffffff805dede8>] riscv_intc_irq+0x2e/0x68
+[    2.160434] [<ffffffff80a6f18a>] handle_riscv_irq+0x4a/0x74
+[    2.160600] [<ffffffff80a7c61a>] call_on_irq_stack+0x32/0x40
+[    2.160841] Code: 1097 009c 80e7 7520 87b3 0154 0a05 9a3e 97ce 4729 (8023) 00e7 
+[    2.160915] ---[ end trace 0000000000000000 ]---
+[    2.160978] Kernel panic - not syncing: Fatal exception in interrupt
+[    2.161031] SMP: stopping secondary CPUs
+[    2.279657] ---[ end Kernel panic - not syncing: Fatal exception in interrupt ]---
+
+===== COM5 logger ended 2026-10-19T06:37:57.2468119-07:00 =====
