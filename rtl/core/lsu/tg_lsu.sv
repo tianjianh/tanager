@@ -1098,9 +1098,14 @@ module tg_lsu
   logic [3:0]     hdc_q;
   acc_e           hd_at;
   assign hs       = sq_cmt_q[SIW-1:0];
-  assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lqc_rd[2].rob == rob_head;
+  logic lh_tlb, hv_ld;
+  assign lh_tlb   = lq_v_q[hl] && lq_st_q[hl] == L_TLB;
+  assign hd_ld    = lh_tlb && lqc_rd[2].rob == rob_head;
   assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sqrob_rd[1] == rob_head && sq_cmt_q != sq_tail_q;
-  assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[TRP];
+  // DTLB_LQ_RETRY: the head's port looks up the LQ head's VA whenever it waits in L_TLB, not only at
+  // the ROB head (lr_*, below), unless a TLB-missed store at the ROB head needs it
+  assign hv_ld    = DTLB_LQ_RETRY ? lh_tlb && !hd_st : hd_ld;
+  assign hd_va    = hv_ld ? lqc_rd[2].va : sqva_rd[TRP];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
   assign hd_need  = hd_tlb && !flush;
@@ -1144,9 +1149,51 @@ module tg_lsu
   assign hd_lva   = lqc_rd[2].va;
   assign hd_sva   = sqva_rd[TRP];
 
-  // A DTLB miss at AG: the ROB entry replays at the head; the walker prefetches the translation
-  assign tlbm_valid[0] = ln_v && !flush && nl_tm;
-  assign tlbm_rob[0]   = ln_rob;
+  // ---- DTLB_LQ_RETRY: a TLB-missed load retries from the LQ ----
+  // A load that misses the DTLB leaves its ROB entry unmarked and waits in L_TLB (the walker
+  // prefetches its translation, below). As the LQ head, the head's port looks its VA up (lr_look);
+  // a hit it may read, in cacheable memory, with the DTLB's cached PMP result allowing it (lr_ok)
+  // registers its PA, and the next cycle the PA goes into the LQ and the load replays from there
+  // (lr_wr, when the LQ's PA LUTRAM has no new load's write): no flush. At the ROB head anything
+  // else takes the old path: the late mark (lr_mk) sets the entry's replay flag, then the head
+  // refetches it once the DTLB translates it (a device page, or a page without the cached result)
+  // or traps on the deciding walk's fault (also a permission the leaf denies).
+  logic             lr_look, lr_hit, lr_ok, lr_wr, lr_mk, lr_v_q, lr_bad_q, mk_q;
+  logic [PA_W-1:0]  lr_pa, lr_pa_q;
+  if (!DTLB_LQ_RETRY) begin : g_lr_off
+    assign lr_look = 1'b0;
+  end else if (ROB_HEAD_TLB_LATE) begin : g_lr_late
+    // B3: the port's VA was registered a cycle ago; it was the LQ head's if hv_ld held then
+    logic lr_q;
+    always_ff @(posedge clk) lr_q <= hv_ld && !flush;
+    assign lr_look = lr_q && lh_tlb;
+  end else begin : g_lr_two
+    assign lr_look = lh_tlb;                       // B2: port 2 always takes the LQ head's VA
+  end
+  assign lr_hit = lr_look && !sta_ag_valid && dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d, sum, mxr);
+  assign lr_pa  = {dt_pte[2].ppn, lqc_rd[2].va[11:0]};
+  assign lr_ok  = lr_hit && !dt_pte[2].big && pma_of(lr_pa) == PMA_MEM && dt_pte[2].ph && dt_pte[2].pr;
+  assign lr_wr  = DTLB_LQ_RETRY && lr_v_q && lh_tlb && !mk_q && !ln_v && !flush;
+  assign lr_mk  = DTLB_LQ_RETRY && hd_ld && !mk_q && !flush && (hdf_q || lr_bad_q);
+  always_ff @(posedge clk) begin
+    if (rst || flush || !DTLB_LQ_RETRY) begin
+      lr_v_q   <= 1'b0;
+      lr_bad_q <= 1'b0;
+      mk_q     <= 1'b0;
+    end else begin
+      lr_v_q   <= lh_tlb && !mk_q && (lr_ok || (lr_v_q && !lr_wr));
+      lr_bad_q <= lr_hit && !lr_ok;
+      if (lr_mk) mk_q <= 1'b1;
+    end
+    if (lr_ok) lr_pa_q <= lr_pa;
+  end
+
+  // A DTLB miss at AG: the walker prefetches the translation (lm_miss); the ROB entry replays at
+  // the head (with DTLB_LQ_RETRY only a store's, or a load's late mark)
+  logic lm_miss;
+  assign lm_miss       = ln_v && !flush && nl_tm;
+  assign tlbm_valid[0] = DTLB_LQ_RETRY ? lr_mk : lm_miss;
+  assign tlbm_rob[0]   = DTLB_LQ_RETRY ? lqc_rd[2].rob : ln_rob;
   assign tlbm_valid[1] = sn_v && !flush && sa_tm;
   assign tlbm_rob[1]   = sn_rob;
   // The walk prefetch's request: a DTLB miss is taken when the slot is free or the walker takes
@@ -1209,13 +1256,13 @@ module tg_lsu
         hdc_q <= pw_cause;
       end
       if (pw_ack[2]) dpf_v_q <= 1'b0;
-      if ((!dpf_v_q || pw_ack[2]) && (tlbm_valid[0] || tlbm_valid[1])) begin
+      if ((!dpf_v_q || pw_ack[2]) && (lm_miss || tlbm_valid[1])) begin
         dpf_v_q <= 1'b1;
         dpf_p_q <= !dpf_p_q;
       end
     end
     // The slot not presented takes every miss
-    if (tlbm_valid[0]) begin
+    if (lm_miss) begin
       dpf_vas_q[!dpf_p_q] <= ln_va;
       dpf_ats_q[!dpf_p_q] <= ACC_R;
     end else if (tlbm_valid[1]) begin
@@ -1230,7 +1277,7 @@ module tg_lsu
   acc_e        dpf_at_o;
   always @(posedge clk) begin
     if (!(rst || flush) && (!dpf_v_q || pw_ack[2])) begin
-      if (tlbm_valid[0])      begin dpf_va_o <= ln_va; dpf_at_o <= ACC_R; end
+      if (lm_miss)            begin dpf_va_o <= ln_va; dpf_at_o <= ACC_R; end
       else if (tlbm_valid[1]) begin dpf_va_o <= sn_va; dpf_at_o <= sa_at; end
     end
     if (rs_q && !rst && dpf_v_q)
@@ -1282,9 +1329,11 @@ module tg_lsu
   // store and an atomic
   assign lqa_ra[0] = rp_idx;
   assign lqa_ra[1] = hl;
+  // (DTLB_LQ_RETRY: a retried load's PA goes in when no new load writes, lr_wr)
   tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH($bits(lqa_t)), .NR(2)) u_lqa (
-    .clk, .we(ln_v && !flush), .waddr(ln_lq),
-    .wdata(lqa_t'{pa: nl_pa, size: ln_size}), .raddr(lqa_ra), .rdata(lqa_rd));
+    .clk, .we((ln_v && !flush) || lr_wr), .waddr(lr_wr ? hl : ln_lq),
+    .wdata(lr_wr ? lqa_t'{pa: lr_pa_q, size: lq_size_q[hl]} : lqa_t'{pa: nl_pa, size: ln_size}),
+    .raddr(lqa_ra), .rdata(lqa_rd));
   // The SQ head's fields are kept in flip-flops (timing, DR-145: the drain's address into the D$
   // starts at a register, not at the LUTRAM's read): loaded with the entry that is the head in the
   // next cycle, the LUTRAM's read of the entry after the head when the drain pops, the STA's write
@@ -1547,6 +1596,12 @@ module tg_lsu
         lq_pa_q[ln_lqw]  <= nl_pa;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
         lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
+      end
+      // DTLB_LQ_RETRY: the LQ head's retry (its entry is in L_TLB, so nothing above writes it)
+      if (lr_wr) begin
+        lq_pa_q[hl]  <= lr_pa_q;
+        lq_pav_q[hl] <= 1'b1;
+        lq_st_q[hl]  <= L_READY;
       end
 
       // ---- DR-149 (DC_MSHRS > 1): the D$'s answer to a load's miss, two cycles after it ----

@@ -181,6 +181,14 @@ package tg_core_pkg;
 `else
   localparam int PMP_ENTRIES = 8;
 `endif
+  // DTLB retry from the LQ (area_recovery.md §6.10-6.11; a prototype, off): a load that misses the
+  // DTLB waits in the LQ, and once the DTLB translates it, it replays from there instead of a flush
+  // at the ROB head (core-mmu.md, miss handling). TG_DTLB_LQ_RETRY=1 turns it on.
+`ifdef TG_DTLB_LQ_RETRY
+  localparam bit DTLB_LQ_RETRY = `TG_DTLB_LQ_RETRY;
+`else
+  localparam bit DTLB_LQ_RETRY = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
