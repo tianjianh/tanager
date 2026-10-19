@@ -20,14 +20,27 @@
 //     entry; store drains waiting on their line;
 //   - early retirement and ownership: rename held by a full ROB with the head a load waiting on a miss (or another
 //     incomplete op); by a full SQ while the drain waits on a store's line.
-// Prints at the end: smt2_prof_m6: key value ...
+// A cycle commits when the ROB retires an instruction in it (ret) or takes a trap or an interrupt, as the ROB decides
+// it. The commit trace reports that a cycle later (trace_valid_o is registered): the first version counted commits
+// from the trace, and so charged each stall's last cycle, in which the head retires, to "complete but held" (§6.11's
+// 4.3%; follow-up 13). zc_held_trace keeps that count; the complete heads that really retire nothing are split by
+// what stops them: the flush cycle, the ROB not ready (the trace stream's back-pressure), a replay mark at the head,
+// the LSU's holds (a store in its PMP check, S2, or denied, S3; a load whose replay mark is on its way), or other.
+// Prints at the end: smt2_prof_m6: key value ... and smt2_m6_held: lines for the other heads' PCs.
 module smt2_prof_m6
   import tg_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
 #(parameter int CW = 2, parameter int NM = 4, parameter int NLQ = 16, parameter int RPL = 5) (
   input logic                    clk, rst,
   input logic [CW-1:0]           tv,
   input tr_rec_t [CW-1:0]        tr,
-  // ROB
+  // ROB: this cycle's retirements and their PCs, and what can stop a complete head
+  input logic [CW-1:0]           ret,
+  input logic [CW-1:0][63:0]     rpc,
+  input logic                    rob_flush, rob_ready, rpl0,
+  input logic [1:0]              sth_v,
+  input robid_t [1:0]            sth_rob,
+  input logic                    rpv,
+  input robid_t                  rpr,
   input logic                    do_flush, do_irq, do_trap, do_icinv, rpl,
   input logic [CW-1:0]           mf,
   input robid_t [CW-1:0]         hid,
@@ -74,6 +87,11 @@ module smt2_prof_m6
 
   longint unsigned cyc, ins, zc [NC], fl_t;
   int unsigned     fl_kind;   // the last flush: 3 mispredict, 4 replay, 5 other
+  // complete heads that retire nothing: 0 the flush cycle, 1 the ROB not ready, 2 a replay mark, 3 a store in S2,
+  // 4 a store denied in S3, 5 a load's replay mark on its way, 6 other; and the first version's count
+  localparam int NHH = 7;
+  longint unsigned hh [NHH], zc_held_tr, c_notready;
+  int unsigned     hh_pc [longint unsigned];
   // checkpoints
   longint unsigned t_res [1 << ROBW];
   longint unsigned n_misp, w_misp, h_misp [NH];
@@ -109,7 +127,8 @@ module smt2_prof_m6
       n_fi = 0; c_sweep = 0; ref_cls = 2; last_ref = '0; last_dl = '0;
       n_rq = 0; n_rq_full = 0; n_rq_none = 0; c_ld_wait_full = 0; c_zc_wait_full = 0;
       c_dr_wait = 0; c_dr_line = 0; c_dr_entry = 0; c_rob_full = 0; c_rob_ldmiss = 0; c_rob_oth = 0;
-      c_sq_full = 0; c_sq_stmiss = 0;
+      c_sq_full = 0; c_sq_stmiss = 0; zc_held_tr = 0; c_notready = 0;
+      for (int h = 0; h < NHH; h++) hh[h] = 0;
       for (int c = 0; c < NC; c++) zc[c] = 0;
       for (int h = 0; h < NH; h++) h_misp[h] = 0;
       for (int k = 0; k < 2; k++) begin n_rt[k] = 0; c_head[k] = 0; c_stall[k] = 0; c_save[k] = 0; end
@@ -119,7 +138,8 @@ module smt2_prof_m6
       end
       for (int k = 0; k <= NM; k++) occ[k] = 0;
     end else begin
-      automatic logic       any_cm = |tv;
+      automatic logic       any_cm = |ret || do_trap || do_irq;   // the ROB's decision this cycle
+      automatic logic       any_cm_tr = |tv;                      // the trace's report of the cycle before
       automatic logic [3:0] hst = lq_st[hd_lq];
       automatic logic       ld_wait_full = 1'b0;
       automatic logic       done = 1'b0;
@@ -144,7 +164,15 @@ module smt2_prof_m6
         else c = 14;
         zc[c]++;
         if (c == 8 && lq_wany[hd_lq] && !f_any) c_zc_wait_full++;
+        if (c == 14) begin     // a complete head that retires nothing: what stops it
+          automatic int h = rob_flush ? 0 : !rob_ready ? 1 : rpl0 ? 2 : (sth_v[0] && sth_rob[0] == hid[0]) ? 3 :
+                            (sth_v[1] && sth_rob[1] == hid[0]) ? 4 : (rpv && rpr == hid[0]) ? 5 : 6;
+          hh[h]++;
+          if (h == 6) hh_pc[hd_pc] = hh_pc.exists(hd_pc) ? hh_pc[hd_pc] + 1 : 1;
+        end
       end
+      if (!any_cm_tr && rob_cnt > 0 && !hd_tlb && hd_cmp && hd_sys == 3'd0 && !hd_serial) zc_held_tr++;
+      if (!rob_ready) c_notready++;
       // ---- flushes: the last one's cause for the refill after it ----
       if (do_flush) begin
         fl_t = cyc;
@@ -168,7 +196,7 @@ module smt2_prof_m6
       if (dt_fill) fill_t[longint'(fill_vpn)] = cyc;
       if (pend) begin
         for (int j = 0; j < CW; j++)
-          if (tv[j] && tr[j].kind == TR_RETIRE && tr[j].pc == pend_pc && !done) begin
+          if (ret[j] && rpc[j] == pend_pc && !done) begin
             done = 1'b1;
             dt = cyc - pend_t;
           end
@@ -259,8 +287,8 @@ module smt2_prof_m6
       end
     end
   end
-  final
-    $display("smt2_prof_m6: cycles %0d instret %0d zc_fe_sweep %0d zc_fe_icmiss %0d zc_fe_itlb %0d zc_fe_misp %0d zc_fe_rpl %0d zc_fe_flush %0d zc_fe_other %0d zc_dtlb %0d zc_ld_miss %0d zc_ld_stq %0d zc_ld_other %0d zc_st %0d zc_serial %0d zc_exec %0d zc_held %0d misp %0d misp_wait %0d mw_0_2 %0d mw_3_5 %0d mw_6_10 %0d mw_11_20 %0d mw_21_50 %0d mw_51_100 %0d mw_gt100 %0d rt_ld %0d rt_ld_head %0d rt_ld_stall %0d rt_ld_save %0d rt_st %0d rt_st_head %0d rt_st_stall %0d rt_st_save %0d rt_ended_by_flush %0d fencei %0d sweep_cyc %0d ref_seqref %0d ref_seqdl %0d ref_other %0d park_seqref %0d park_seqdl %0d park_other %0d park_zc_seqref %0d park_zc_seqdl %0d park_zc_other %0d ovr_br %0d ovr_ret %0d ovr_strad %0d ub64_br %0d ub128_br %0d ub256_br %0d ub64_ret %0d ub128_ret %0d ub256_ret %0d ub64_strad %0d ub128_strad %0d ub256_strad %0d occ0 %0d occ1 %0d occ2 %0d occ3 %0d occ4 %0d rq %0d rq_full %0d rq_none %0d ld_wait_full %0d zc_wait_full %0d dr_wait %0d dr_line %0d dr_entry %0d rob_full %0d rob_full_ldmiss %0d rob_full_oth %0d sq_full %0d sq_full_stmiss %0d",
+  final begin
+    $display("smt2_prof_m6: cycles %0d instret %0d zc_fe_sweep %0d zc_fe_icmiss %0d zc_fe_itlb %0d zc_fe_misp %0d zc_fe_rpl %0d zc_fe_flush %0d zc_fe_other %0d zc_dtlb %0d zc_ld_miss %0d zc_ld_stq %0d zc_ld_other %0d zc_st %0d zc_serial %0d zc_exec %0d zc_held %0d misp %0d misp_wait %0d mw_0_2 %0d mw_3_5 %0d mw_6_10 %0d mw_11_20 %0d mw_21_50 %0d mw_51_100 %0d mw_gt100 %0d rt_ld %0d rt_ld_head %0d rt_ld_stall %0d rt_ld_save %0d rt_st %0d rt_st_head %0d rt_st_stall %0d rt_st_save %0d rt_ended_by_flush %0d fencei %0d sweep_cyc %0d ref_seqref %0d ref_seqdl %0d ref_other %0d park_seqref %0d park_seqdl %0d park_other %0d park_zc_seqref %0d park_zc_seqdl %0d park_zc_other %0d ovr_br %0d ovr_ret %0d ovr_strad %0d ub64_br %0d ub128_br %0d ub256_br %0d ub64_ret %0d ub128_ret %0d ub256_ret %0d ub64_strad %0d ub128_strad %0d ub256_strad %0d occ0 %0d occ1 %0d occ2 %0d occ3 %0d occ4 %0d rq %0d rq_full %0d rq_none %0d ld_wait_full %0d zc_wait_full %0d dr_wait %0d dr_line %0d dr_entry %0d rob_full %0d rob_full_ldmiss %0d rob_full_oth %0d sq_full %0d sq_full_stmiss %0d zc_held_trace %0d held_flush %0d held_notready %0d held_replay %0d held_st_s2 %0d held_st_s3 %0d held_rpmark %0d held_other %0d notready_cyc %0d",
              cyc, ins, zc[0], zc[1], zc[2], zc[3], zc[4], zc[5], zc[6], zc[7], zc[8], zc[9], zc[10], zc[11], zc[12],
              zc[13], zc[14], n_misp, w_misp, h_misp[0], h_misp[1], h_misp[2], h_misp[3], h_misp[4], h_misp[5],
              h_misp[6], n_rt[0], c_head[0], c_stall[0], c_save[0], n_rt[1], c_head[1], c_stall[1], c_save[1], n_part,
@@ -268,11 +296,17 @@ module smt2_prof_m6
              c_park_zc[1], c_park_zc[2], n_ovr[0], n_ovr[1], n_ovr[2], caught[0][0], caught[0][1], caught[0][2],
              caught[1][0], caught[1][1], caught[1][2], caught[2][0], caught[2][1], caught[2][2], occ[0], occ[1],
              occ[2], occ[3], occ[NM], n_rq, n_rq_full, n_rq_none, c_ld_wait_full, c_zc_wait_full, c_dr_wait,
-             c_dr_line, c_dr_entry, c_rob_full, c_rob_ldmiss, c_rob_oth, c_sq_full, c_sq_stmiss);
+             c_dr_line, c_dr_entry, c_rob_full, c_rob_ldmiss, c_rob_oth, c_sq_full, c_sq_stmiss, zc_held_tr, hh[0],
+             hh[1], hh[2], hh[3], hh[4], hh[5], hh[6], c_notready);
+    foreach (hh_pc[pc]) if (hh_pc[pc] >= 200) $display("smt2_m6_held: pc %h cycles %0d", pc, hh_pc[pc]);
+  end
 endmodule
 
 bind tg_core smt2_prof_m6 #(.CW(COMMIT_WIDTH), .NM(DC_MSHRS), .NLQ(LQ_ENTRIES)) u_smt2_prof_m6 (
   .clk, .rst, .tv(trace_valid_o), .tr(trace_o),
+  .ret(u_rob.ret), .rpc({u_rob.hp[1].pc, u_rob.hp[0].pc}), .rob_flush(u_rob.flush), .rob_ready(u_rob.ready),
+  .rpl0(u_rob.rpl_h[0]), .sth_v(u_lsu.sth_v), .sth_rob(u_lsu.sth_rob),
+  .rpv(u_lsu.replay_valid), .rpr(u_lsu.replay_rob),
   .do_flush(u_rob.do_flush), .do_irq(u_rob.do_irq), .do_trap(u_rob.do_trap), .do_icinv(u_rob.do_icinv),
   .rpl(u_rob.rpl_h[0]), .mf(u_rob.mf & ~u_rob.hold_le), .hid(u_rob.hid), .br_valid(u_rob.br_valid),
   .br_misp(u_rob.br_misp), .br_exc(u_rob.br_exc), .br_rob(u_rob.br_rob), .head_q(u_rob.head_q),
