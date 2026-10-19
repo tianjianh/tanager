@@ -18,6 +18,14 @@
 // early data at mid-cycle (cap_q), before the late read replaces it.
 // Every copy of a bank takes every write of its bank's port. Early port e is copy e / 2, port A for
 // an even e and B for an odd one; late port l is copy l's port A at mid-cycle.
+// WMODE "edge" moves the write to the core edge, on port A, so the write port has the full cycle that
+// tg_ram_lut gives it (in a routed chip, bank 1's write data is ready only 4.5 ns into the cycle):
+//   core edge (slot 0): port A writes, port B reads early port c   (after A's write: it sees it)
+//   mid-cycle (slot 1): port A reads late port c, port B idles     (B's output holds the early read)
+// One early and one late port per copy, NC = max(NE, NL); a late port's address comes from a register
+// (today's issue -> RF register), an early port's from the select at the end of the issue cycle. Every
+// read still returns the writes of earlier cycles: the late read precedes the cycle's write, and the
+// early read follows the last cycle's write at the same edge (port A's operation goes first).
 // rdata: the early ports, then the late ports; all valid at the next core edge.
 // Sources: UG573 (UltraScale Architecture Memory Resources) for URAM288; C. E. LaForest and
 // J. G. Steffan, "Efficient multi-ported memories for FPGAs", FPGA 2010 (replication for read
@@ -29,8 +37,9 @@ module tg_urf #(
   parameter int W     = 64,
   parameter int NE    = 6,
   parameter int NL    = 1,
+  parameter string WMODE = "mid",    // "mid" or "edge" (above)
   localparam int NR   = NE + NL,
-  localparam int NC   = (NE + 1) / 2,
+  localparam int NC   = (WMODE == "edge") ? ((NE > NL) ? NE : NL) : (NE + 1) / 2,
   localparam int IW   = $clog2(DEPTH),
   localparam int BW   = (NB > 1) ? $clog2(NB) : 1
 ) (
@@ -49,8 +58,8 @@ module tg_urf #(
   input  logic [NL-1:0][IW-1:0]    l_idx,
   output logic [NR-1:0][W-1:0]     rdata
 );
-  if (NL > NC || DEPTH > 4096 || W > 72) begin : g_bad
-    $error("tg_urf: needs NL <= (NE + 1) / 2 copies, DEPTH <= 4096 and W <= 72");
+  if (NL > NC || DEPTH > 4096 || W > 72 || (WMODE != "mid" && WMODE != "edge")) begin : g_bad
+    $error("tg_urf: needs WMODE \"mid\" or \"edge\", NL <= NC copies, DEPTH <= 4096 and W <= 72");
   end
 
   // The half of the core cycle, in clk2x's domain: t1 toggles at each core edge and t2 follows it at
@@ -69,6 +78,44 @@ module tg_urf #(
   logic [NB-1:0][NR-1:0][W-1:0] bank_rd;
   for (genvar b = 0; b < NB; b++) begin : g_bank
     for (genvar c = 0; c < NC; c++) begin : g_copy
+     if (WMODE == "edge") begin : g_edge
+      localparam bit E = c < NE;
+      localparam bit L = c < NL;
+      logic [IW-1:0] a_addr;
+      logic          a_en;
+      logic [71:0]   doa, dob;
+      assign a_addr = fh ? (L ? l_idx[L ? c : 0] : '0) : waddr[b];
+      assign a_en   = fh ? (L && l_en[L ? c : 0]) : we[b];
+      (* dont_touch = "true" *)
+      URAM288_BASE #(
+        .IREG_PRE_A ("FALSE"), .IREG_PRE_B ("FALSE"),
+        .OREG_A     ("FALSE"), .OREG_B     ("FALSE"),
+        .OREG_ECC_A ("FALSE"), .OREG_ECC_B ("FALSE"),
+        .EN_ECC_RD_A("FALSE"), .EN_ECC_RD_B("FALSE"),
+        .EN_ECC_WR_A("FALSE"), .EN_ECC_WR_B("FALSE"),
+        .BWE_MODE_A ("PARITY_INTERLEAVED"), .BWE_MODE_B ("PARITY_INTERLEAVED"),
+        .RST_MODE_A ("SYNC"), .RST_MODE_B ("SYNC"),
+        .USE_EXT_CE_A("FALSE"), .USE_EXT_CE_B("FALSE"),
+        .EN_AUTO_SLEEP_MODE ("FALSE")
+      ) u_uram (
+        .CLK      (clk2x),
+        .ADDR_A   (23'(a_addr)), .EN_A (a_en), .RDB_WR_A (!fh), .BWE_A (9'h1ff), .DIN_A (72'(wdata[b])),
+        .ADDR_B   (23'(E ? e_idx_n[E ? c : 0] : '0)), .EN_B (!fh && E), .RDB_WR_B (1'b0), .BWE_B (9'h000),
+        .DIN_B    (72'h0),
+        .DOUT_A   (doa), .DOUT_B (dob),
+        .OREG_CE_A (1'b1), .OREG_CE_B (1'b1), .OREG_ECC_CE_A (1'b0), .OREG_ECC_CE_B (1'b0),
+        .RST_A (1'b0), .RST_B (1'b0), .SLEEP (1'b0),
+        .INJECT_SBITERR_A (1'b0), .INJECT_DBITERR_A (1'b0),
+        .INJECT_SBITERR_B (1'b0), .INJECT_DBITERR_B (1'b0),
+        .SBITERR_A (), .DBITERR_A (), .SBITERR_B (), .DBITERR_B ()
+      );
+      if (E) begin : g_e
+        assign bank_rd[b][c] = dob[W-1:0];
+      end
+      if (L) begin : g_l
+        assign bank_rd[b][NE + c] = doa[W-1:0];
+      end
+     end else begin : g_mid
       localparam int  EA   = 2 * c;            // early port on port A
       localparam int  EB   = 2 * c + 1;        // early port on port B (none if EB == NE)
       localparam bit  LATE = c < NL;           // port A also serves late port c
@@ -114,6 +161,7 @@ module tg_urf #(
       if (EB < NE) begin : g_b
         assign bank_rd[b][EB] = dob[W-1:0];
       end
+     end
     end
   end
 

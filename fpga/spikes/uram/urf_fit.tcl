@@ -11,8 +11,11 @@
 # Writes summary.txt (worst slack per path class, the UltraRAM's clock-to-out with and without its output
 # register, the time left after the late read's data reaches the bank select) and the reports.
 set root [file normalize [lindex $argv 0]]
-set fp ""; set gen {}
-foreach {k v} [lrange $argv 1 end] { switch -- $k { -fp { set fp [file normalize $v] } -generic { lappend gen -generic $v } default { puts "ERROR: unknown option $k"; exit 1 } } }
+set fp ""; set gen {}; set edge 0
+foreach {k v} [lrange $argv 1 end] { switch -- $k { -fp { set fp [file normalize $v] } -generic { lappend gen -generic $v }
+  -edge { set edge $v } default { puts "ERROR: unknown option $k"; exit 1 } } }
+# -edge 1: tg_urf's WMODE "edge" (the write at the core edge on port A; 3 early ports on port B, 3 late on A)
+if {$edge} { lappend gen -generic NE=3 -generic NL=3 -generic {WMODE="edge"} }
 set part xck26-sfvc784-2LV-c
 set_param general.maxThreads 8
 set t0 [clock seconds]
@@ -31,16 +34,29 @@ set c2x [get_clocks -of_objects [get_pins u_mmcm/CLKOUT2]]
 kv clocks "[get_property NAME $c0] [get_property PERIOD $c0] ns, [get_property NAME $c2x] [get_property PERIOD $c2x] ns"
 puts "URF_FIT top registers: [lsort -unique [lmap x [get_property NAME [get_cells -filter {IS_SEQUENTIAL}]] {regsub {_reg.*$} $x {}}]]"
 set urams  [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*}]
-set late_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*g_copy?0?*}]
-set held_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/* && NAME !~ *g_copy?0?*}]
+if {$edge} {
+  # every copy's port A reads a late port at mid-cycle; port B's early read holds to the next core edge
+  set late_u $urams
+  set held_u {}
+} else {
+  set late_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*g_copy?0?*}]
+  set held_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/* && NAME !~ *g_copy?0?*}]
+}
 set sel  [get_cells {sel_bank_q_reg* sel_idx_q_reg*}]
 set held [concat [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ DOUT_B*}] \
-                 [get_pins -of_objects $held_u -filter {REF_PIN_NAME =~ DOUT_A*}]]
-if {![llength $sel] || ![llength $urams] || ![llength $late_u] || ![llength $held_u]} { puts "ERROR: URF_FIT cells not found: sel [llength $sel] urams [llength $urams] late [llength $late_u] held [llength $held_u]"; exit 1 }
+                 [get_pins -quiet -of_objects $held_u -filter {REF_PIN_NAME =~ DOUT_A*}]]
+set wrq  [get_cells {wr_we_q_reg* wr_a_q_reg* wr_d_q_reg*}]
+if {![llength $sel] || ![llength $urams] || ![llength $late_u] || (!$edge && ![llength $held_u])} { puts "ERROR: URF_FIT cells not found: sel [llength $sel] urams [llength $urams] late [llength $late_u] held [llength $held_u]"; exit 1 }
 set_multicycle_path -setup 2 -end -from $sel -to $urams
 set_multicycle_path -hold  1 -end -from $sel -to $urams
 set_multicycle_path -setup 2 -start -through $held -to $c0
 set_multicycle_path -hold  1 -start -through $held -to $c0
+# WMODE "edge": the write lands at the next core edge, a full core cycle (at the mid-cycle edge between,
+# port A's multiplexer shows the late read)
+if {$edge} {
+  set_multicycle_path -setup 2 -end -from $wrq -to $urams
+  set_multicycle_path -hold  1 -end -from $wrq -to $urams
+}
 if {$fp ne ""} { source $fp }
 
 opt_design
@@ -59,20 +75,24 @@ set ex   [get_cells ex_q_reg*]
 set sdq  [get_cells sd_q_reg*]
 set cap  [get_cells -hierarchical -filter {NAME =~ u_urf/*g_cap.cap_q_reg*}]
 set lpin [get_pins -of_objects $late_u -filter {REF_PIN_NAME =~ DOUT_A*}]
+set wtitle [expr {$edge ? "write port -> URAM (core edge, 10 ns)" : "write port -> URAM (slot 1, 5 ns)"}]
+set ltitle [expr {$edge ? "late read -> RF stage (5 ns)" : "late read -> store-data capture (5 ns)"}]
+set lto    [expr {$edge ? $ex : $sdq}]
 set classes [list \
   "select -> URAM address (slot 0, 10 ns)"   [list -from $sel -to $urams] \
   "late address -> URAM (slot 1, 5 ns)"      [list -from [get_cells {late_*_q_reg*}] -to $urams] \
-  "write port -> URAM (slot 1, 5 ns)"        [list -from [get_cells {wr_*_q_reg*}] -to $urams] \
+  $wtitle                                  [list -from $wrq -to $urams] \
   "half-cycle flag -> URAM"                  [list -from [get_cells u_urf/t?_q_reg] -to $urams] \
-  "port A early -> mid-cycle capture"        [list -from $late_u -to $cap] \
-  "captured early -> RF stage (5 ns)"        [list -from $cap -to $ex] \
+  "port A early -> mid-cycle capture"        [expr {[llength $cap] ? [list -from $late_u -to $cap] : {}}] \
+  "captured early -> RF stage (5 ns)"        [expr {[llength $cap] ? [list -from $cap -to $ex] : {}}] \
   "held early (A, B) -> RF stage (10 ns)"    [list -through $held -to $ex] \
-  "late read -> store-data capture (5 ns)"   [list -from $late_u -through $lpin -to $sdq] \
+  $ltitle                                  [list -from $late_u -through $lpin -to $lto] \
   "bank select -> RF stage"                  [list -from [get_cells u_urf/e_bank_q_reg*] -to $ex] \
   "probe: OREG -> capture"                   [list -from [get_cells -quiet -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ *u_probe}] -to [get_cells -quiet -hierarchical -filter {NAME =~ *prb_q_reg*}]] \
 ]
 set rf [open paths.rpt w]
 foreach {title args} $classes {
+  if {![llength $args]} { kv "-" "$title: none in this mode"; continue }
   set ps [get_timing_paths -quiet -setup -max_paths 1 -nworst 1 {*}$args]
   set ph [get_timing_paths -quiet -hold  -max_paths 1 -nworst 1 {*}$args]
   if {![llength $ps]} { kv "-" "$title: no path"; continue }

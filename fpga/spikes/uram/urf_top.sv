@@ -10,17 +10,23 @@
 //   the late port into sd_q, the LSU's store-data capture.
 // - LATE_BYP: the late port's capture takes the LD and STA bases' select too (the register value, ALU 0's
 //   or 1's result, or the load result: one more LUT level), as an operand read at mid-cycle would.
+// - NE, NL, WMODE: tg_urf's ports and write mode. WMODE "edge" (3 early and 3 late ports) takes all six
+//   into ex_q, the last early and the last late port through the LD/STA select; the store-data port
+//   would stay in LUTRAM, and sd_q is unused.
 // - PROBE: one more URAM288 with port B's output register on, read every cycle into a clk2x register,
 //   for the output register's clock-to-out.
 // All of it folds into one output, so nothing is trimmed.
 module urf_top #(
-  parameter bit PROBE    = 1'b1,
-  parameter bit LATE_BYP = 1'b0
+  parameter bit    PROBE    = 1'b1,
+  parameter bit    LATE_BYP = 1'b0,
+  parameter int    NE       = 6,
+  parameter int    NL       = 1,
+  parameter string WMODE    = "mid"
 ) (
   input  logic clk_in,     // 100 MHz
   output logic dout
 );
-  localparam int NB = 3, NE = 6, NL = 1, NR = NE + NL, IW = 6, BW = 2, W = 64;
+  localparam int NB = 3, NR = NE + NL, IW = 6, BW = 2, W = 64;
 
   logic fb, c0, c2x, clk, clk2x;
   MMCME4_BASE #(
@@ -40,11 +46,11 @@ module urf_top #(
   BUFG u_bufg_core (.I (c0),  .O (clk));
   BUFG u_bufg_2x   (.I (c2x), .O (clk2x));
 
-  // ---- random sources: eight 64-bit LFSRs ----
-  logic [7:0][63:0] lf_q;
-  initial for (int i = 0; i < 8; i++) lf_q[i] = 64'h9e37_79b9_7f4a_7c15 ^ (64'(i) << 17) ^ 64'(i + 1);
+  // ---- random sources: nine 64-bit LFSRs ----
+  logic [8:0][63:0] lf_q;
+  initial for (int i = 0; i < 9; i++) lf_q[i] = 64'h9e37_79b9_7f4a_7c15 ^ (64'(i) << 17) ^ 64'(i + 1);
   always_ff @(posedge clk)
-    for (int i = 0; i < 8; i++) lf_q[i] <= {lf_q[i][62:0], lf_q[i][63] ^ lf_q[i][62] ^ lf_q[i][60] ^ lf_q[i][59]};
+    for (int i = 0; i < 9; i++) lf_q[i] <= {lf_q[i][62:0], lf_q[i][63] ^ lf_q[i][62] ^ lf_q[i][60] ^ lf_q[i][59]};
 
   // ---- stand-ins ----
   logic [NE-1:0][BW-1:0]  sel_bank_q;
@@ -65,8 +71,10 @@ module urf_top #(
       sel_idx_q[p]  <= lf_q[0][8*p + 2 +: 6];
     end
     late_en_q   <= '1;
-    late_bank_q <= (lf_q[1][1:0] == 2'd3) ? 2'd1 : lf_q[1][1:0];
-    late_idx_q  <= lf_q[1][7:2];
+    for (int l = 0; l < NL; l++) begin
+      late_bank_q[l] <= (lf_q[8][8*l +: 2] == 2'd3) ? 2'd1 : lf_q[8][8*l +: 2];
+      late_idx_q[l]  <= lf_q[8][8*l + 2 +: 6];
+    end
     for (int b = 0; b < NB; b++) begin
       wr_we_q[b] <= lf_q[1][8 + b];
       wr_a_q[b]  <= lf_q[1][16 + 6*b +: 6];
@@ -82,15 +90,27 @@ module urf_top #(
 
   // ---- the register file ----
   logic [NR-1:0][W-1:0] rdata;
-  tg_urf #(.NB (NB), .DEPTH (64), .W (W), .NE (NE), .NL (NL)) u_urf (
+  tg_urf #(.NB (NB), .DEPTH (64), .W (W), .NE (NE), .NL (NL), .WMODE (WMODE)) u_urf (
     .clk, .clk2x, .we (wr_we_q), .waddr (wr_a_q), .wdata (wr_d_q),
     .e_bank_n (sel_bank_q), .e_idx_n (sel_idx_q),
     .l_en (late_en_q), .l_bank (late_bank_q), .l_idx (late_idx_q), .rdata);
 
   // ---- the RF stage ----
-  logic [NE-1:0][W-1:0] ex_q;
+  logic [5:0][W-1:0]    ex_q;
   logic [W-1:0]         sd_q;
   always_ff @(posedge clk) begin
+   if (WMODE == "edge") begin
+    for (int p = 0; p < 6; p++)
+      if (p == NE - 1 || p == NR - 1)
+        unique case (byp_s_q[p == NR - 1])
+          2'd0:    ex_q[p] <= rdata[p];
+          2'd1:    ex_q[p] <= byp_d_q[0];
+          2'd2:    ex_q[p] <= byp_d_q[1];
+          default: ex_q[p] <= byp_d_q[2];
+        endcase
+      else ex_q[p] <= rdata[p];
+    sd_q <= '0;
+   end else begin
     for (int p = 0; p < 4; p++) ex_q[p] <= rdata[p];
     for (int k = 0; k < 2; k++)
       unique case (byp_s_q[k])
@@ -107,6 +127,7 @@ module urf_top #(
         default: sd_q <= byp_d_q[2];
       endcase
     else sd_q <= rdata[NE];
+   end
   end
 
   // ---- the output register's probe ----

@@ -7,8 +7,12 @@
 // and a random late address for this one, biased to collide with the writes: a read of an address
 // written in the same cycle (it must return the old data), and in the cycle before (the new data).
 // One core cycle after it starts, every read port's data must equal the reference's.
-module tb_urf;
-  localparam int NB = 3, DEPTH = 64, W = 64, NE = 6, NL = 1, NR = NE + NL, IW = 6, BW = 2;
+module tb_urf #(
+  parameter int    NE    = 6,
+  parameter int    NL    = 1,
+  parameter string WMODE = "mid"
+);
+  localparam int NB = 3, DEPTH = 64, W = 64, NR = NE + NL, IW = 6, BW = 2;
   // nothing is written for START cycles (glbl holds the vendor model's global reset for 100 ns), then
   // every entry is filled once before the random phase
   localparam int CYCLES = 200000, START = 20, INIT = START + DEPTH + 2;
@@ -28,7 +32,7 @@ module tb_urf;
   logic [NL-1:0][IW-1:0]  l_idx;
   logic [NR-1:0][W-1:0]   rdata, ref_rdata;
 
-  tg_urf #(.NB(NB), .DEPTH(DEPTH), .W(W), .NE(NE), .NL(NL)) dut (
+  tg_urf #(.NB(NB), .DEPTH(DEPTH), .W(W), .NE(NE), .NL(NL), .WMODE(WMODE)) dut (
     .clk, .clk2x, .we, .waddr, .wdata, .e_bank_n, .e_idx_n, .l_en, .l_bank, .l_idx, .rdata);
 
   // ---- Reference ----
@@ -135,8 +139,8 @@ module tb_urf;
       end
     end
     if (cyc == CYCLES) begin
-      $display("TB_URF %s: %0d cycles, %0d port reads checked, %0d mismatches", (n_err == 0) ? "PASS" : "FAIL",
-               cyc - INIT, n_checks, n_err);
+      $display("TB_URF %s (WMODE %s, %0d early + %0d late ports): %0d cycles, %0d port reads checked, %0d mismatches",
+               (n_err == 0) ? "PASS" : "FAIL", WMODE, NE, NL, cyc - INIT, n_checks, n_err);
       $display("TB_URF collisions: early reads of an address written that cycle %0d, the cycle before %0d;", n_same_e, n_prev_e);
       $display("TB_URF             late reads of an address written that cycle %0d, the cycle before %0d", n_same_l, n_prev_l);
       $finish;
