@@ -317,3 +317,40 @@ They match. A wrong PL clock or bus width here could have hung the A53 on its fi
 **Afterwards:** s10, d2 from p3, from 12:53:29 UTC.
 
 **For the record:** OpenSBI's `PMP Count 16` shows that d4s1 (e8345f3) predates the 8-entry PMP (9db66da). A lockstep run on a bitstream like it would take `--pmp=16` (verif-2). d4s1 has no commit trace anyway.
+
+## Step 6 of the boot-time modes, first attempt: Debian's kernel silent after U-Boot d4; the break recovers (2026-10-19)
+
+The SoC track's package `d4m-step6` ([`package_d4m_step6_README.md`](package_d4m_step6_README.md); tarball `2316a567…`; SHA256SUMS all OK). It is step 5's with U-Boot d4 as `payload.bin` (`459992b8…`), which boots Debian from p3 through SD1 with extlinux, and Debian's side: `tanager-mode` and the confirm unit, which sets trial back to 0 on each clean shutdown.
+
+**How:** [`../runs/d4m_step6.sh`](../runs/d4m_step6.sh), after s10 stopped. Records: [`step6_run.txt`](step6_run.txt); the stage C console [`linux_shell_step6_debian.txt`](linux_shell_step6_debian.txt); COM7 and COM5 through the RISC-V mode boot: [`uart_COM7_step6.txt`](uart_COM7_step6.txt), [`uart_COM5_step6.txt`](uart_COM5_step6.txt).
+
+**Debian's side, in stage C on d2** (13:00 to 13:04 UTC): pass.
+- `debian_install.sh` exited 0. The unit is enabled and active.
+- The tool refused the virtio disk ("the root file system (/dev/vda) is on no partitioned disk"), which is right in stage C.
+- extlinux's `root=` is `LABEL=tanager-root` (all four entries).
+- **Stage C's read rate:** `dd if=/dev/vda bs=1M count=256 iflag=direct` gave 256 MiB in 18.078 s, **14.8 MB/s**.
+- The shutdown was clean, and p3 checked clean.
+
+**p1:** `payload.bin` is U-Boot d4, and the rest is step 5's (SHA256SUMS OK).
+
+**RISC-V mode** (the record at riscv, reboot at 13:05:51): **the kernel stopped before its console came up.**
+- **COM7 up to U-Boot d4:** step 5's lines, unchanged up to the park (the payload is now 1,301,584 bytes), then OpenSBI v1.9.
+- **U-Boot d4** (`U-Boot 2026.07`, `DRAM: 1 GiB`, `MMC: mmc@ff170000: 0`, `Loading Environment from nowhere`, a 2 s autoboot):
+  - read `/boot/extlinux/extlinux.conf` and chose entry 1 (6.12.113);
+  - read `vmlinux` and `initrd.img` through SD1;
+  - printed `append: root=LABEL=tanager-root console=ttyS0,115200 earlycon rw`;
+  - printed `Moving Image from 0x84000000 to 0x80200000`, loaded the tree to `0xbde7f000`, then `Starting kernel ...`.
+- **Then nothing**, on COM7 or COM5, for 10 minutes. One CR on COM5 at 13:17:09 got no answer in 20 s.
+- **The break** (4.012 s on COM5, 13:17:48 to 13:17:52) reset the board, as riscv.scr's `BOARD_CTRL` 3 armed it to:
+  - the FSBL showed `System Reset`, U-Boot `Reset reason: SOFT` and `tanager-mode: ARM mode` (trial 1);
+  - Ubuntu was back 68 s after the break, with `fancontrol` and `k26-starter-kits`;
+  - the record went back to arm.
+- **p3 afterwards, read-only:** the kernel never mounted it.
+  - The state is clean, with no `needs_recovery` flag. The append's `rw` would have left that flag after a reset.
+  - The last mount is stage C's initramfs mount, at 63 s of uptime.
+  - The systemd journal's newest boot is the stage C install boot.
+- **A lead** (the SoC track's to judge): the device tree's own bootargs point an early console at the PL's 16550 (COM5): `earlycon=uart8250,mmio,0x10000000`. But extlinux's `append` replaces those bootargs, and it has plain `earlycon`, which goes to stdout-path instead. In this tree stdout-path is UART1, a Cadence UART that Debian's riscv64 kernel has no built-in driver for (part A had to build it by DKMS). So no early console exists. ttyS0 comes up only when the 8250 driver probes, about 22 s in under stage C, and any hang before then is silent.
+
+**The recovery path held:** the PMOD break reset the board out of a silent RISC-V mode into ARM mode, with nobody at the board.
+
+**Afterwards:** s11, d2 from p3, from 13:20:32 UTC. The record is at arm. Steps 4 to 6's files stay in place for the next attempt.
