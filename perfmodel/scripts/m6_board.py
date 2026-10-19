@@ -212,6 +212,47 @@ def predict_table(bench, workers):
     return out
 
 
+COPY_BOARD = (1235609, 809078, 487947, 483772)   # MR23 memcpy-1048576: cycles d4s2, d4r1; instructions d4s2, d4r1
+
+
+def copy_table(workers):
+    """The model's ownership prefetch (rfo_pf) on its copy kernels in the board's shape (M6 smt2 on the SoC's uncore
+    at 100 MHz), against the board's memcpy of 1 MiB (MR23: glibc's, d4s2 and d4r1). ws_copy_<k> copies k/2 KiB with
+    newlib's memcpy, REPS = 4096 / k times; ws_copy_2048 is the board's case (1 MiB from a 1 MiB source)."""
+    base = {**m6.soc(100), **CFGS["M6 smt2"]}
+    cfgs = {"d4s2": base, "d4r1": {**base, "rfo_pf": 1}}
+    sizes = (512, 1024, 2048, 4096)
+    jobs = [(c, k) for c in cfgs for k in sizes]
+
+    def one(j):
+        c, k = j
+        w = {"name": f"ws_copy_{k}", "elf": str(ROOT / "build" / "bench" / "rv64gc" / f"ws_copy_{k}.elf"),
+             "stdin": "", "ff": 0}
+        r = tgrun.run_one(w, "rtl_m2", cfgs[c])
+        if r.get("error") or not r.get("region", {}).get("cycles"):
+            raise SystemExit(f"tgsim failed on {w['elf']} ({c}): {r.get('error', '')}")
+        return j, r["region"]
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        mod = dict(ex.map(one, jobs))
+    print("\n**The store ownership prefetch on a large copy: the model against the board** (cycles a byte; the "
+          "model's rename held by a full SQ, share of cycles)\n")
+    print("| Copy | Instructions a byte | d4s2 | d4r1 (ownership prefetch) | Change | SQ full: d4s2 / d4r1 |")
+    print("|---|---|---|---|---|---|")
+    out = {}
+    for k in sizes:
+        n = k * 512 * (4096 // k)
+        b, p = mod[("d4s2", k)], mod[("d4r1", k)]
+        print(f"| model ws_copy_{k} ({k // 2} KiB) | {b['instr'] / n:.3f} | {b['cycles'] / n:.3f} | "
+              f"{p['cycles'] / n:.3f} | {pct(p['cycles'] / b['cycles'] - 1)} | "
+              f"{b.get('held_sq', 0) / b['cycles']:.1%} / {p.get('held_sq', 0) / p['cycles']:.1%} |")
+        out[f"ws_copy_{k}"] = {"d4s2": b, "d4r1": p}
+    c4, c5, i4, i5 = COPY_BOARD
+    print(f"| board memcpy 1 MiB (glibc) | {i4 / 2 ** 20:.3f} | {c4 / 2 ** 20:.3f} | {c5 / 2 ** 20:.3f} | "
+          f"{pct(c5 / c4 - 1)} | – |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bench", help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf (without it the model's "
@@ -223,6 +264,7 @@ def main():
     ap.add_argument("--board-logs", default=str(ROOT.parent / "fpga" / "kv260" / "board"))
     ap.add_argument("--layout", help="DIR of scripts/rtlprof/layout.sh's padded ELFs and RTL results")
     ap.add_argument("--predict", action="store_true", help="d4r1's model prediction (area_recovery.md §6.13)")
+    ap.add_argument("--copy", action="store_true", help="the ownership prefetch on ws_copy against the board's memcpy")
     a = ap.parse_args()
     if a.predict and not a.bench:
         ap.error("--predict needs --bench")
@@ -235,6 +277,8 @@ def main():
         res["predict_d4r1"] = predict_table(a.bench, a.workers)
     if a.layout:
         res["layout"] = layout_table(a.layout, a.workers)
+    if a.copy:
+        res["copy"] = copy_table(a.workers)
     if a.init:
         brd, tbs = init_table({i.split("=", 1)[0]: i.split("=", 1)[1] for i in a.init}, a.board_logs)
         res["init"] = {"board": brd, "tb_boot": tbs}
