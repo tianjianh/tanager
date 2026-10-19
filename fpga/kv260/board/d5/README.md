@@ -116,3 +116,10 @@ So in RISC-V mode, GEM3's receive clock is gated off, and its RGMII transmit clo
 **Back to ARM:** `tanager-mode arm` and a reboot over SSH gave Ubuntu, with its own Ethernet as before (`192.168.137.177`, 1000 Mb/s), `fancontrol` and `k26-starter-kits`, and p3 clean.
 
 **D5 is met.** In RISC-V mode the board is a standalone networked RISC-V computer, running Debian 13's own drivers (`macb`, `dp83867`), reached by SSH by name, and fetching from Debian's mirrors through the laptop.
+
+**The DHCP address, as decided** (the SoC track and the coordinator, 10-19): Debian keeps networkd's DUID client ID. The RISC-V's lease changes each boot (.141, .93, .145 so far) and never collides with Ubuntu's .177, so the two modes' SSH host keys never collide in the laptop's known_hosts. Use `tanager.mshome.net`, which follows the lease. A fixed address would be one line in `80-tanager.network` (`ClientIdentifier=mac`).
+
+**Ethernet during soaks** ([`../runs/riscv_net_check.sh`](../runs/riscv_net_check.sh), from the laptop, hourly):
+- SSH by name, a fresh 10 MiB random file each way by scp with matching checksums, and `apt-get update`.
+- First tries at 19:05 and 19:07 UTC, with s16's stress running: OK both times, 0.44–0.46 MB/s up and 0.56 MB/s down (the stress shares the CPU with SSH), apt `exit 0, 3 sources`.
+- **The cost:** a check takes about 3 minutes of the RISC-V's CPU. The stress passes it overlaps dropped to cpu 56–71 events/s and threads 706–823, against about 93 and 2,300. So a soak's steady numbers should leave those passes out; the check log's timestamps mark them.
