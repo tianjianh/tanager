@@ -1,5 +1,5 @@
 # riscv-arch-test (ACT4) on Tanager (docs/spec/verification.md §6.1).
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/arch CFG=st CORE=tcore [ACTCFG=...] [SIMARGS=...]   build the ELFs and run them in tg_vsim
 #   make -C tests/arch elfs ACTCFG=...                                 build the ELFs only (Sail runs here)
 #   make -C tests/arch replay ACTCFG=...                               run them Spike against Spike (tg_replay)

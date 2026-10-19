@@ -2,7 +2,7 @@
 # cache lines with AMOs and LR/SC loops, all leaving the boot ROM in the same cycle, as OpenSBI's boot
 # lottery does on the board. Each program checks itself, the cycle limit catches a hang, and
 # tanager-lockstep checks every hart against Spike.
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/coherence [CFG=st|smt2] [N=40] [SEED=1] [MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race] [LAT=default]
 #                           [LOCKSTEP=1] [L2_SETS=1024] [HDMA=0|1]
 #   make -C tests/coherence gen SEED=1 [MODE=lottery] [HARTS=0,1]    one program to stdout

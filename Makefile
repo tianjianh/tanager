@@ -1,4 +1,4 @@
-# Tanager top-level entry points. Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Tanager top-level entry points. Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make lint CFG=st         lint all product RTL for one configuration [TIMING_CUTS=0|1] [DE_STAGE=0|1]
 #                            [ROB_STORE_REPORT_LATE=0|1] [COMMIT_TRACE=0|1] [SYNTH=1]
 #   make lint-all            lint all four configurations, each in six elaborations, the synthesis view included, and
