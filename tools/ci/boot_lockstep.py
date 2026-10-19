@@ -55,6 +55,8 @@ NIGHT_MCYC, NIGHT_SHAPES = 400, ("st", "board")
 NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in turn
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)
 NIGHT_CRON = "15 0 * * *"
+SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
+                 "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1)}
 
 
 def log(msg):
@@ -316,7 +318,7 @@ def checks(a, tool, nice=False, nightly=False):
             fail(f"unknown shape {s} ({', '.join(SHAPES)})")
     for t in timings:
         timing_args(t)
-    prof = {v: getattr(a, v.lower()) for v, _ in ci.PROFILE_VARS if getattr(a, v.lower()) is not None}
+    prof = {v: getattr(a, v.lower()) for v, _ in ci.PROFILE_VARS if getattr(a, v.lower(), None) is not None}
     for v in prof:
         if not ci.profile_takes(harness, v):
             fail(f"this tree's sim/profile.mk does not take {v}")
@@ -382,11 +384,11 @@ def main():
     ap.add_argument("--plant", type=int, default=None,
                     help="self-test: tanager-lockstep corrupts the first value it compares at or after this record, "
                          "so the run must end in a mismatch (the failure path, findings included)")
-    for var, opt, vals in (("TIMING_CUTS", "timing-cuts", (0, 1)), ("DC_MSHRS", "dc-mshrs", (1, 4)),
-                           ("QUEUE_DECODE", "queue-decode", (0, 1)), ("SPEC_WAKE", "spec-wake", (0, 1)),
-                           ("STA_BASE", "sta-base", (0, 1)), ("STEER_LA", "steer-la", (0, 1)),
-                           ("PMP_ENTRIES", "pmp-entries", (8, 16))):
-        ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"build the core with {var}")
+    # Every profile switch cycle-identical knows (its PROFILE_VARS), so a new one is never missing here; one this
+    # table does not know yet takes any number and sim/profile.mk checks it
+    for var, _ in ci.PROFILE_VARS:
+        ap.add_argument(f"--{var.lower().replace('_', '-')}", type=int, choices=SWITCH_VALUES.get(var), default=None,
+                        help=f"build the core with {var}")
     a = ap.parse_args()
     if a.install_cron:
         install_cron()

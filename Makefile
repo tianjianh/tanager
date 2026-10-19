@@ -50,7 +50,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -95,7 +95,7 @@ BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC))
   $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) \
   $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \
   $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
-  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES))
+  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF))
 boot-lockstep:
 	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
 boot-lockstep-gate:
