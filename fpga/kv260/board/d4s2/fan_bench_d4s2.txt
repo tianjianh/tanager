@@ -1,0 +1,75 @@
+17:14:59
+fan: PL die 33.9 C, duty 17/255 (the larger of the curve's and the A53's), the A53's PWM 17/255
+temp1 34443, pwm1 17
+17:15:30
+fan: PL die 34.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 34552, pwm1 15
+17:16:00
+fan: PL die 34.4 C, duty 22/255 (the larger of the curve's and the A53's), the A53's PWM 22/255
+temp1 34505, pwm1 23
+17:16:31
+fan: PL die 34.9 C, duty 23/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35236, pwm1 15
+17:17:01
+fan: PL die 34.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 34754, pwm1 15
+17:17:32
+fan: PL die 34.4 C, duty 18/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35593, pwm1 15
+17:18:02
+fan: PL die 35.4 C, duty 31/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 35951, pwm1 15
+17:18:33
+fan: PL die 34.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35935, pwm1 15
+17:19:03
+fan: PL die 34.9 C, duty 22/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 36386, pwm1 16
+17:19:34
+fan: PL die 34.9 C, duty 24/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 35733, pwm1 15
+17:20:04
+fan: PL die 34.4 C, duty 16/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 35702, pwm1 15
+17:20:35
+fan: PL die 33.9 C, duty 35/255 (the larger of the curve's and the A53's), the A53's PWM 35/255
+temp1 34629, pwm1 36
+17:21:05
+fan: PL die 34.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35640, pwm1 15
+17:21:36
+fan: PL die 34.4 C, duty 16/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35329, pwm1 15
+17:22:06
+fan: PL die 34.9 C, duty 18/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 35018, pwm1 15
+17:22:37
+fan: PL die 34.9 C, duty 19/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 34800, pwm1 15
+17:23:07
+fan: PL die 34.9 C, duty 19/255 (the larger of the curve's and the A53's), the A53's PWM 17/255
+temp1 34847, pwm1 17
+17:23:38
+fan: PL die 34.4 C, duty 18/255 (the larger of the curve's and the A53's), the A53's PWM 18/255
+temp1 35780, pwm1 19
+17:24:08
+fan: PL die 34.4 C, duty 26/255 (the larger of the curve's and the A53's), the A53's PWM 26/255
+temp1 34474, pwm1 26
+17:24:39
+fan: PL die 34.9 C, duty 21/255 (the larger of the curve's and the A53's), the A53's PWM 20/255
+temp1 36075, pwm1 21
+17:25:09
+fan: PL die 34.9 C, duty 17/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+temp1 34536, pwm1 15
+17:25:40
+fan: PL die 34.9 C, duty 23/255 (the larger of the curve's and the A53's), the A53's PWM 23/255
+temp1 34800, pwm1 23
+17:26:10
+fan: PL die 34.4 C, duty 17/255 (the larger of the curve's and the A53's), the A53's PWM 14/255
+temp1 35267, pwm1 15
+17:26:41
+fan: PL die 34.4 C, duty 18/255 (the larger of the curve's and the A53's), the A53's PWM 18/255
+temp1 34334, pwm1 19
+17:27:11
+fan: PL die 34.4 C, duty 28/255 (the larger of the curve's and the A53's), the A53's PWM 28/255
+temp1 35577, pwm1 29

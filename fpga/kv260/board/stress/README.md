@@ -133,4 +133,5 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
   - Its boot reached the stress at 142 s of uptime, against about 194 s on d2.
   - The regulator: PL die 34.4–34.9 °C, duty 15–25/255.
   - Stopped with `q` at 15:25 for step 6 ("STRESS stop after pass 15, fails=0").
-- **s14 (d2):** from 15:42:17, after step 6 passed on d4s2.
+- **s14 (d2):** load 15:42:19 UTC, after step 6 passed on d4s2. **41 of 41 passes clean** in about 1 h 31 min, at 127.2 s per pass (cpu 78.91, memory 98.46, threads 1,518). Stopped with `q` at 17:13 for M6's first Linux measurement ([`linux_shell_stress_s14.txt`](linux_shell_stress_s14.txt), [`stress_monitor_s14.txt`](stress_monitor_s14.txt), [`stress_s14.txt`](stress_s14.txt)).
+- **s15 (d4s2):** the d4s2 soak, from 17:28:09 UTC, after DR-141's set on d4s2 ([`../d4s2/README.md`](../d4s2/README.md)).
