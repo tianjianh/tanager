@@ -1,0 +1,173 @@
+# D4 step 4 on the package d4m-step4, 2026-10-19 (../runs/d4m_step4.sh; times UTC). Between the sections the
+# laptop rebooted the A53 with 'sudo systemctl reboot' over SSH; COM7's lines for each boot are in uart_COM7_step4.txt.
+
+######## install
+== d4m_step4 install 2026-10-19 12:23:28 UTC, A53 up 542.20 s
+./debian_install.sh: OK
+./install.sh: OK
+./README.md: OK
+./tanager-mode: OK
+./tanager-mode-confirm.service: OK
+./tanager/riscv.cmd: OK
+./tanager/riscv.scr: OK
+./ubootenv.d-tanager-mode: OK
+flash-kernel: installing version 6.8.0-1036-xilinx
+Couldn't find DTB  on the following paths: /etc/flash-kernel/dtbs /usr/lib/linux-image-6.8.0-1036-xilinx /lib/firmware/6.8.0-1036-xilinx/device-tree/
+Generating u-boot image... done.
+Taking backup of image.fit.
+Installing new image.fit.
+Generating boot script u-boot image... done.
+Taking backup of boot.scr.uimg.
+Installing new boot.scr.uimg.
+installed: the hook is in boot.scr.uimg (5 lines name it); p1's tanager/:
+total 3
+drwxr-xr-x 2 root root  512 Oct 19 12:23 .
+drwxr-xr-x 3 root root 1536 Jan  1  1970 ..
+-rwxr-xr-x 1 root root  391 Oct 19 12:23 riscv.cmd
+-rwxr-xr-x 1 root root  463 Oct 19 12:23 riscv.scr
+/dev/mmcblk1 sector 2047: none: the next boot is ARM
+install.sh exit 0
+-rwxr-xr-x 1 root root 2941 Oct 19 12:23 /usr/local/sbin/tanager-mode
+
+/boot/firmware:
+total 261171
+drwxr-xr-x 3 root root     1536 Jan  1  1970 .
+drwxr-xr-x 3 root root     4096 Oct 17 22:04 ..
+-rwxr-xr-x 1 root root     9238 Oct 19 12:23 boot.scr.uimg
+-rwxr-xr-x 1 root root     8032 Oct 17 22:04 boot.scr.uimg.bak
+-rwxr-xr-x 1 root root     8000 Oct 14 20:30 boot.scr.uimg.orig
+-rwxr-xr-x 1 root root     8032 Oct 17 22:04 boot.scr.uimg.tanager-pre
+-rwxr-xr-x 1 root root 67647088 Oct 19 12:23 image.fit
+-rwxr-xr-x 1 root root 67647088 Oct 17 22:04 image.fit.bak
+-rwxr-xr-x 1 root root 64453664 Oct 14 20:31 image.fit.orig
+-rwxr-xr-x 1 root root 67647088 Oct 17 22:04 image.fit.tanager-pre
+-rwxr-xr-x 1 root root      930 Apr 23  2025 meta-data
+-rwxr-xr-x 1 root root       49 Apr 23  2025 network-config
+drwxr-xr-x 2 root root      512 Oct 19 12:23 tanager
+
+/boot/firmware/tanager:
+total 3
+drwxr-xr-x 2 root root  512 Oct 19 12:23 .
+drwxr-xr-x 3 root root 1536 Jan  1  1970 ..
+-rwxr-xr-x 1 root root  391 Oct 19 12:23 riscv.cmd
+-rwxr-xr-x 1 root root  463 Oct 19 12:23 riscv.scr
+
+/etc/flash-kernel/ubootenv.d/:
+total 12
+drwxr-xr-x 2 root root 4096 Oct 19 12:23 .
+drwxr-xr-x 6 root root 4096 Apr 23  2025 ..
+-rw-r--r-- 1 root root 1206 Oct 19 12:23 tanager-mode
+-- the kept script (boot.scr.uimg.tanager-pre) against the new one:
+43a44,59
+> # tanager-mode (Tanager, docs/spec/soc-d4-modes.md; flash-kernel puts this file in at the template's
+> # @@UBOOT_ENV_EXTRA@@, before the boot loop): the boot mode record in the card's sector 2047. A valid record saying
+> # riscv with trial 0 gets trial 1 written back, then p1's tanager/riscv.scr starts the RISC-V and parks this A53.
+> # Anything else, or riscv.scr returning, boots Ubuntu as before. The record is "TANAGERM", then 'r' and '0'.
+> # Undo: delete /etc/flash-kernel/ubootenv.d/tanager-mode and run flash-kernel. (U-Boot's hush takes an apostrophe
+> # inside double quotes as a syntax error and then crashes: none in strings.)
+> if test "${devtype}" = "mmc" && mmc dev ${devnum} && mmc read 0x1f000000 0x7ff 1 && itest.l *0x1f000000 == 0x414e4154 && itest.l *0x1f000004 == 0x4d524547 && itest.b *0x1f000008 == 0x72 && itest.b *0x1f000009 == 0x30; then
+>   echo "tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr"
+>   mw.b 0x1f000009 0x31 1
+>   if mmc write 0x1f000000 0x7ff 1 && load ${devtype} ${devnum}:${distro_bootpart} 0x21000000 tanager/riscv.scr; then
+>     source 0x21000000
+>   fi
+>   echo "tanager-mode: the RISC-V did not start; booting Ubuntu"
+> else
+>   echo "tanager-mode: ARM mode"
+> fi
+-- the kept FIT against the new one: differ
+abf634f4bbd370ee  /boot/firmware/boot.scr.uimg
+5cb307373034717b  /boot/firmware/boot.scr.uimg.bak
+690fe1225a017a63  /boot/firmware/boot.scr.uimg.orig
+5cb307373034717b  /boot/firmware/boot.scr.uimg.tanager-pre
+c89fe66bb9d0521e  /boot/firmware/image.fit
+9b046e37e5403067  /boot/firmware/image.fit.bak
+b007246e409140c7  /boot/firmware/image.fit.orig
+9b046e37e5403067  /boot/firmware/image.fit.tanager-pre
+
+######## reboot 1 (no record)
+
+######## check1
+== d4m_step4 check 2026-10-19 12:25:54 UTC, A53 up 59.28 s
+up since 2026-10-19 12:24:55
+/dev/mmcblk1 sector 2047: none: the next boot is ARM
+0000000  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+*
+0000512
+boot.scr.uimg lines naming tanager-mode: 5
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+-- the last boot's end:
+2026-10-19T12:24:37+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T12:24:38+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T12:24:38+00:00 kria systemd-journald[398]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T12:24:38+00:00 kria systemd-journald[398]: Journal stopped
+
+######## invalid
+== d4m_step4 invalid 2026-10-19 12:26:05 UTC, A53 up 70.61 s
+0+1 records in
+1+0 records out
+512 bytes copied, 0.00287308 s, 178 kB/s
+/dev/mmcblk1 sector 2047: none: the next boot is ARM
+
+######## reboot 2 (the invalid record)
+
+######## check2
+== d4m_step4 check 2026-10-19 12:27:27 UTC, A53 up 59.31 s
+up since 2026-10-19 12:26:28
+/dev/mmcblk1 sector 2047: none: the next boot is ARM
+0000000   T   A   N   A   G   E   R   M   x   9  \n  \0  \0  \0  \0  \0
+0000016  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+*
+boot.scr.uimg lines naming tanager-mode: 5
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+-- the last boot's end:
+2026-10-19T12:26:11+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T12:26:11+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T12:26:11+00:00 kria systemd-journald[398]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T12:26:11+00:00 kria systemd-journald[398]: Journal stopped
+
+######## riscv
+== d4m_step4 riscv 2026-10-19 12:27:46 UTC, A53 up 78.20 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+
+######## reboot 3 (riscv, trial 0)
+
+######## check3
+== d4m_step4 check 2026-10-19 12:29:08 UTC, A53 up 59.53 s
+up since 2026-10-19 12:28:09
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+0000000   T   A   N   A   G   E   R   M   r   1  \n  \0  \0  \0  \0  \0
+0000016  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+*
+boot.scr.uimg lines naming tanager-mode: 5
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+-- the last boot's end:
+2026-10-19T12:27:52+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T12:27:52+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T12:27:52+00:00 kria systemd-journald[396]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T12:27:52+00:00 kria systemd-journald[396]: Journal stopped
+
+######## reboot 4 (riscv, trial 1)
+
+######## check4
+== d4m_step4 check 2026-10-19 12:30:42 UTC, A53 up 59.51 s
+up since 2026-10-19 12:29:43
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+0000000   T   A   N   A   G   E   R   M   r   1  \n  \0  \0  \0  \0  \0
+0000016  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0  \0
+*
+boot.scr.uimg lines naming tanager-mode: 5
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+-- the last boot's end:
+2026-10-19T12:29:26+00:00 kria systemd-shutdown[1]: Failed to set timeout to 10min: Invalid argument
+2026-10-19T12:29:26+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T12:29:26+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T12:29:26+00:00 kria systemd-journald[399]: Journal stopped
+
+######## arm
+== d4m_step4 arm 2026-10-19 12:30:44 UTC, A53 up 61.46 s
+/dev/mmcblk1 sector 2047: arm

@@ -210,3 +210,44 @@ Both tests run in ARM mode under `tanager-host`, and nothing in the boot path ch
   - Debian's reboot through the PS window;
   - the hook for a hung RISC-V.
 - **Afterwards:** s8, d2 from p3, from 12:16:44 UTC.
+
+## Step 4 of the boot-time modes: the mode check in the A53's boot script: pass (2026-10-19)
+
+The SoC track's package `d4m-step4` ([`package_d4m_step4_README.md`](package_d4m_step4_README.md); tarball `cc593776…`; SHA256SUMS all OK).
+
+**What it adds:**
+- **The mode record** is in the card's sector 2047, before p1: `TANAGERM`, the mode (`a` or `r`), the trial flag (`0` or `1`), `\n`, then zeros.
+- **The check** is a flash-kernel hook, `/etc/flash-kernel/ubootenv.d/tanager-mode`, at the top of `boot.scr.uimg`:
+  - Only `r` with trial `0` takes the RISC-V path. That path writes trial `1` back, then sources `p1:/tanager/riscv.scr`.
+  - Anything else boots Ubuntu, and so does `riscv.scr` returning.
+- **In step 4, `riscv.scr` is a stub** that only prints and returns. Nothing starts the RISC-V, and no PL load is involved.
+
+**How:**
+- s8 was stopped after its first pass, and p3 checked clean.
+- Then [`../runs/d4m_step4.sh`](../runs/d4m_step4.sh) ran on the board, with `sudo systemctl reboot` from the laptop between its parts.
+- **Records:**
+  - Every call's output: [`step4_run.txt`](step4_run.txt).
+  - COM7, the A53's console, logged read-only through all four boots: [`uart_COM7_step4.txt`](uart_COM7_step4.txt).
+- The change log has the change and its undo.
+
+**The install** (12:23 UTC): `install.sh` exited 0, and the hook reached the script verbatim.
+- `boot.scr.uimg` and `image.fit` were kept as `*.tanager-pre` (the 10-17 files, `5cb30737…` and `9b046e37…`).
+- The new `boot.scr.uimg` (9,238 bytes) is the kept script plus the hook's 16 lines, at the template's `@@UBOOT_ENV_EXTRA@@`. Nothing else changed.
+- The new `image.fit` differs from the kept one in 3 bytes, its creation time (`dumpimage -l`). So it has the same kernel, initrd and trees.
+- flash-kernel printed "Couldn't find DTB on the following paths", which is harmless: the FIT carries the trees.
+- flash-kernel also rotated its own `*.bak` copies, which now hold the 10-17 files. A `.bak` lasts only until the next flash-kernel run, as step 0 suspected.
+
+**The four boots.** COM7's lines come after U-Boot's `Found U-Boot script /boot.scr.uimg`. Every boot reached Ubuntu's login with `fancontrol` active and `k26-starter-kits` loaded, and SSH answered about 80 s after the reboot.
+
+| Boot | The record before | COM7 (U-Boot) | The record after |
+|---|---|---|---|
+| 1 | none (zeros) | `MMC read: dev # 1, block # 2047, count 1 ... 1 blocks read: OK`, then `tanager-mode: ARM mode` | none |
+| 2 | `TANAGERMx9`, the README's invalid record | `tanager-mode: ARM mode` | `TANAGERMx9`, untouched |
+| 3 | `TANAGERMr0` (`tanager-mode riscv`) | `tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr`, `MMC write: dev # 1, block # 2047, count 1 ... 1 blocks written: OK`, `463 bytes read`, `tanager riscv.scr: the step 4 stub, returning to Ubuntu`, `tanager-mode: the RISC-V did not start; booting Ubuntu`, then `Loading image.fit` | `TANAGERMr1`: U-Boot wrote it |
+| 4 | `TANAGERMr1` | `tanager-mode: ARM mode` | `TANAGERMr1`; then `tanager-mode arm` made it `TANAGERMa0` |
+
+**Left in place:** the hook, the tool, `p1:/tanager/` with the stub, and the record saying arm. Every boot is ARM mode until steps 5 and 6 replace the stub and set the record.
+
+**Seen in passing:** each reboot's shutdown prints `systemd-shutdown[1]: Failed to set timeout to 10min: Invalid argument`. That's systemd's reboot watchdog (`RebootWatchdogSec`), which the Cadence watchdog's driver refuses. The system reset resets both watchdogs anyway, and item 4 found both off.
+
+**Afterwards:** s9, d2 from p3, from 12:31:05 UTC.
