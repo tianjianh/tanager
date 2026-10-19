@@ -10,7 +10,7 @@
 #   post     after Ubuntu is back: since when, the record, the fan, the apps, the last boot's end
 cd ~/tanager/tg || exit 1
 export TG_APP=tanager-d2 TG_DIR=$HOME/tanager/d2pkg
-D=$TG_DIR; P=/dev/mmcblk1p3; K=$HOME/tanager/d4m-step6-pkg/d4m-step6; fw=/boot/firmware; mode=${1:-}
+D=$TG_DIR; P=/dev/mmcblk1p3; K=${K:-$HOME/tanager/d4m-step6-pkg/d4m-step6}; fw=/boot/firmware; mode=${1:-}   # K: the step 6 package (d4s2: K=~/tanager/d4m-step6-d4s2-pkg/d4m-step6-d4s2)
 date -u +"== d4m_step6 $mode %F %T UTC, A53 up $(cut -d' ' -f1 /proc/uptime) s"
 if [ "$mode" = stagec_d4s1 ]; then
   # step 6's diagnostic split: Debian from p3 in stage C on d4s1 itself (m6's configuration, BOARD_CTRL 0) with its
@@ -42,7 +42,7 @@ install)
   ls -la $fw/tanager; sudo /usr/local/sbin/tanager-mode status; exit 0;;
 riscv)
   [ "$(tail -c +73 $fw/boot.scr.uimg | grep -a -c tanager-mode)" -ge 1 ] || { echo "no hook in boot.scr.uimg: stop"; exit 1; }
-  cmp -s $K/tanager/payload.bin $fw/tanager/payload.bin || { echo "p1's payload.bin isn't step 6's: stop"; exit 1; }
+  for f in payload.bin tanager.dtb tanager.bit.bin riscv.scr; do cmp -s $K/tanager/$f $fw/tanager/$f || { echo "p1's $f isn't the package's: stop"; exit 1; }; done
   if pgrep -f "[t]anager-host boot" > /dev/null; then echo "a boot is running: stop"; exit 1; fi
   sudo /usr/local/sbin/tanager-mode riscv && sync; exit 0;;
 post)

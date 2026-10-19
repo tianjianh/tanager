@@ -413,3 +413,63 @@ So the only difference is the bitstream. **m6's configuration (e8345f3) panics L
 - The PMOD break recovered the board from a halted RISC-V Linux three times (13:17, 13:32 and 13:37 UTC), with Ubuntu back in 68 to 80 s and p3 never touched.
 
 **Afterwards:** s12, d2 from p3, from 13:51:18 UTC. The record is at arm.
+
+## Step 6 on d4s2: Debian in RISC-V mode from the card, the A53 parked: pass (2026-10-19)
+
+**The fix:** core-2 traced the d4s1 panic to M6's F2 micro-BTB. Fetch followed a target that belonged to an aliased block 2 MiB away, and decode didn't check it. In Debian's own Image, memcpy's `ret` and a `c.beqz` in `sched_ttwu_pending` share an entry, and the corrupted address came from the scheduler's runqueue arithmetic run on the wrong path.
+
+**The two packages:**
+- **d4s2** ([`package_d4s2_README.txt`](package_d4s2_README.txt); tarball `3ec25220…`, bitstream `18f6310c…`, commit `03171ea+c261c1f`, WNS +0.529, 106,281 LUTs) is d4s1's configuration plus the fix.
+- **`d4m-step6-d4s2`** ([`package_d4m_step6_d4s2_README.md`](package_d4m_step6_d4s2_README.md); tarball `dd0a709b…`) is step 6's package on d4s2. Its tree puts stdout on the PL UART, so plain `earlycon` finds the 16550 and its clock.
+
+**How:**
+- [`../runs/d4m_step6.sh`](../runs/d4m_step6.sh) with `K=` the new package, after the stage C check on d4s2 (s13).
+- The laptop's `serial_expect2.ps1` drove the two Debian sessions on COM5: the checks, Debian's reboot, then arm.
+- Records: [`step6b_run.txt`](step6b_run.txt); COM7 [`uart_COM7_step6b.txt`](uart_COM7_step6b.txt); COM5 [`uart_COM5_step6b1.txt`](uart_COM5_step6b1.txt) to [`uart_COM5_step6b5.txt`](uart_COM5_step6b5.txt) (boot 1, session 1, boot 2, session 2, boot 3).
+
+**The stage C check (s13, [`../stress/README.md`](../stress/README.md)):**
+- 15 of 15 passes clean in 32 minutes, with no panic.
+- d4s2 is faster than d2 on the same kernel and load: 115.0 s per pass against 127.4. sysbench on two threads: cpu 93.83 against 78.96 events/s, memory 114.60 against 98.52 MiB/s, threads 2,323 against 1,518 events.
+
+**Boot 1** (the record at riscv, the reboot at 15:28:15 UTC):
+- **COM7:** the A53's U-Boot ran the hook (`riscv, trial 0: writing trial 1`) and `riscv.scr` up to `this A53 parks`.
+- **COM5, at 115200 from the first line:**
+  - OpenSBI v1.9, with `Platform Console Device: uart8250`;
+  - U-Boot 2026.07, extlinux, the kernel and initrd through SD1, `Starting kernel ...`;
+  - Debian: ttyS0 at 14.5 s, `Run /init` at 19.8 s;
+  - `sdhci_of_arasan: loading out-of-tree module taints kernel` (DR-168's known effect);
+  - **`mmc0: SDHCI controller on ff170000.mmc [ff170000.mmc] using ADMA 64-bit`** at 33.7 s, `mmc0: new high speed SDHC card`, `mmcblk0: p1 p2 p3`;
+  - **`EXT4-fs (mmcblk0p3): mounted … r/w`** at 50.1 s;
+  - `ff010000.serial: ttyPS0 … is a xuartps` at 118.7 s, the getty started, multi-user;
+  - **the autologin at 15:31:08**, under 3 minutes after the reboot.
+- **The checks:**
+  - `/` is `/dev/mmcblk0p3` (ext4, rw); `lsblk` shows the card's three partitions; `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw`; `nproc` 2.
+  - **The read rate through SD1: 256 MiB in 18.075 s, 14.9 MB/s**, the same as stage C's virtio path (14.8 MB/s).
+  - The confirm unit is active, and `tanager-mode status` reads riscv, trial 1, which U-Boot wrote.
+
+**Boot 2, the confirmed reboot.**
+- `sudo reboot` in Debian shut down cleanly: the confirm unit's stop ran, `/` was remounted read-only, then `reboot: Restarting system`.
+- The board reset, and COM7 showed the hook's `riscv, trial 0` again. The confirm unit had set trial 0.
+- Debian came up again with the same timeline (root at 50.06 s), and its autologin was at 15:35:04.
+
+**Back to ARM.** In that Debian:
+- `tanager-mode status` read riscv, trial 1; then `tanager-mode arm` and `sudo reboot`.
+- COM7 showed `tanager-mode: ARM mode`, and Ubuntu was up at 15:35:48 with `fancontrol` and `k26-starter-kits`.
+
+**The unconfirmed end** (optional):
+- The record went to riscv, and the reboot at 15:37:15 brought Debian up again (autologin at 15:40:19).
+- Then a 4.014 s break on COM5 with Debian running. Ubuntu was up 65 s later (`Reset reason: SOFT`, `tanager-mode: ARM mode`), with the record at riscv, trial 1. Then arm.
+- p3 had `needs_recovery`, since root was mounted rw when the break cut it. `e2fsck -p` recovered the journal, and p3 checked clean.
+
+**One gap: ttyPS0's login doesn't reach COM7.** In all three boots COM7 received only a run of NUL bytes after `## Starting application at 0xFFFC0000 ...`, though COM5 shows `serial-getty@ttyPS0` started.
+- **The likely cause:** the drop-in copied from ttyS0's runs `agetty --autologin tanager --keep-baud 115200 %I`. `--keep-baud` keeps a port's current rate, and uses 115200 only after a BREAK.
+- ttyS0 is the kernel console, already at 115200. ttyPS0 is a fresh xuartps port at the driver's default 9600, and 9600 sampled at 115200 reads as NULs.
+- A ttyPS0 drop-in with plain `115200` (no `--keep-baud`) should fix it. That's the SoC track's to decide. COM5 is Debian's console, so D4 doesn't depend on it.
+
+**D4's goal is met.** The board boots in one of two exclusive modes, chosen at boot from the record:
+- **ARM mode:** Ubuntu on the A53.
+- **RISC-V mode:** Debian 13's own kernel and modules on the RISC-V cores, its root on the card through SD1, with the A53 parked. Debian's reboot keeps RISC-V mode; arm returns to Ubuntu.
+
+Every fallback (no record, an invalid one, trial 1, a break) ends in Ubuntu, with nobody at the board.
+
+**Afterwards:** s14, d2 from p3, from 15:42:17 UTC. The record is at arm.

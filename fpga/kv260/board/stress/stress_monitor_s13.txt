@@ -1,0 +1,14 @@
+=== 14:56:31 A53 up 4694.88 s
+console: 0 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 13461975 reads, native latency avg 26.0 max 104 cycles
+fan: pwm1 15/255, AMS temp1 33 C
+fan: PL die 34.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+=== 15:26:42 A53 up 6505.91 s
+STRESS pass 14 ok=1 fails=0 115s cpu2=93.78 mem2=114.82 thr2=2324 up=1765.45 load=1.96 1.93 1.70
+console: 14 passes, 0 FAIL/DMESG lines, 0 kernel-trouble lines
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+injector: rd 0 wr 0 ctrl 0x00000000; 168790525 reads, native latency avg 0.5 max 105 cycles
+fan: pwm1 24/255, AMS temp1 35 C
+fan: PL die 34.9 C, duty 25/255 (the larger of the curve's and the A53's), the A53's PWM 24/255
+=== 15:27:33 the boot has ended; monitor stops

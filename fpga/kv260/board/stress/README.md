@@ -124,3 +124,13 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
 - **s10:** load 12:53:29 UTC. Pass 1 was clean in 128 s. Then the run was stopped with `q` for step 6 ("STRESS stop after pass 1, fails=0", `boot exit 0`; [`linux_shell_stress_s10.txt`](linux_shell_stress_s10.txt), [`stress_monitor_s10.txt`](stress_monitor_s10.txt), [`stress_s10.txt`](stress_s10.txt)).
 - **s11:** load 13:20:32, after step 6's first attempt. Pass 1 clean (127 s), then stopped with `q` at 13:26 for step 6's diagnostic ("STRESS stop after pass 1, fails=0"; [`linux_shell_stress_s11.txt`](linux_shell_stress_s11.txt), [`stress_monitor_s11.txt`](stress_monitor_s11.txt), [`stress_s11.txt`](stress_s11.txt)).
 - **s12:** from 13:51:18, after the diagnostic found that d4s1 (m6's configuration) can't run Linux, which keeps the stress on d2.
+
+## Runs s12 to s14: d2 and the fixed d4s2, around D4's step 6 pass
+
+- **s12 (d2):** load 13:51:20 UTC. **28 of 28 passes clean** in about 1 h 4 min, at 127.4 s per pass (cpu 78.96 events/s, memory 98.52 MiB/s, threads 1,518 events). The regulator: PL die 34.4–34.9 °C. Stopped with `q` at 14:54 for d4s2 ([`linux_shell_stress_s12.txt`](linux_shell_stress_s12.txt), [`stress_monitor_s12.txt`](stress_monitor_s12.txt), [`stress_s12.txt`](stress_s12.txt)).
+- **s13 (d4s2, M6's configuration with core-2's micro-BTB fix):** load 14:55:30 UTC, the first Linux on M6's configuration that doesn't panic. **15 of 15 passes clean** in 32 minutes ([`linux_shell_stress_s13.txt`](linux_shell_stress_s13.txt), [`stress_monitor_s13.txt`](stress_monitor_s13.txt), [`stress_s13.txt`](stress_s13.txt)).
+  - **Faster than d2 on the same kernel, initrd, tree and load:** 115.0 s per pass against 127.4; cpu 93.83 events/s against 78.96 (+19%); memory 114.60 MiB/s against 98.52 (+16%); threads 2,323 events against 1,518 (+53%).
+  - Its boot reached the stress at 142 s of uptime, against about 194 s on d2.
+  - The regulator: PL die 34.4–34.9 °C, duty 15–25/255.
+  - Stopped with `q` at 15:25 for step 6 ("STRESS stop after pass 15, fails=0").
+- **s14 (d2):** from 15:42:17, after step 6 passed on d4s2.
