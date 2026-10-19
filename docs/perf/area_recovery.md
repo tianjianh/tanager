@@ -1378,6 +1378,140 @@ In the plan's order, the suite runs 0.474 → 0.489 (RAS) → 0.687 (TAGE-lite) 
 - **The levers would be:** a DTLB miss waiting in the LQ for the walk and replaying from there, as a cache miss does, so younger instructions are not flushed; or fewer misses (a larger DTLB).
 - **Judge it on steady state:** the boot's first 20M cycles touch many new pages, so steady-state Linux workloads on the board should decide.
 
+### 6.11 M6's remaining pieces re-ranked on main's M6 set, with the boot measured (2026-10-19)
+
+*The first M6 set is on main (31e65c6): the RAS, TAGE-lite with two 2K tables, F2's returns and straddlers, the restructured F2 and DR-169's levers. DR-167's approved reserve leaves about 4K LUTs a chip for M6's later pieces (PMP with 8 entries, about 2.7K, and release builds without the latency injectors, about 1.3K). This section re-ranks the remaining pieces as IPC per 1K LUTs. The model gives make perf, the suite and Linux-like kernels; a measurement-only bind on main gives the Linux boot, which the model cannot run (`scripts/m6_rank.py`, `scripts/rtlprof/prof_m6.sv`, on the build host).*
+
+**Setup.**
+- **The model's base:** `rtl_m2` revision 7 with main's M6 set: the 32-entry RAS, TAGE-lite with two tagged tables of 2K entries and its training queue, F2's returns, the 32-entry FTQ and the branch cut. Each piece is added alone and run on:
+  - **make perf:** its ELFs (CoreMark A and B, Dhrystone; rv64im and rv64gc) at native and 120-cycle latency, the geometric mean of cycles;
+  - **the suite** on the SoC's uncore at 100 MHz, as §6.5;
+  - **Linux-like kernels** on the same uncore, outside the suite: `tk_bigcode` (200 KiB of code), `tk_bsearch_l2` (47 branch mispredicts per 1K, L2-resident) and DR-141's working sets (`ws_chase1`, `ws_chase8`, `ws_hash`, `ws_copy` at 0.5–4 MiB).
+- **The base against main's RTL** (make perf, rv64gc, native latency): CoreMark A 4.63 per MHz against 4.55 (+1.6%), B 4.38 against 4.27 (+2.6%), Dhrystone 2.97 against 3.08 DMIPS per MHz (−3.3%).
+- **The boot:** main at 31e65c6, one `st` core, `tb_boot`, the first 20M cycles, run twice:
+  - with the testbench's memory: a 64-set (64 KiB) L2 and DDR at 4–12 cycles;
+  - with board-like memory: the board's 1,024-set (1 MiB) L2 and DDR fixed at 22 cycles.
+
+  The bind charges every cycle without a commit to the ROB head's state, and measures what each piece would remove (below).
+- **LUTs per chip:** two cores, with the L2 stream prefetcher once. The sources:
+  - **more misses in flight:** DR-156's measured +668 LUTs per `st` core for entries 1 → 4, scaled per entry;
+  - **the ledger's pieces:** its estimates ×2–3, as measured features ran over theirs;
+  - **the micro-BTB, the DTLB retry and FENCE.I:** this study's count of the added structures (no ledger line).
+
+**Where the boot's cycles go.** 52% of cycles commit nothing (board memory; the testbench's memory in parentheses where it differs; IPC 0.83 and 0.84).
+
+| Cycles without a commit | Share of cycles |
+|---|---|
+| ROB empty: fetch parked on an I$ refill | 3.95% (5.66%) |
+| ROB empty: the I$ sweep after FENCE.I | 1.72% |
+| ROB empty: an ITLB walk | 0.57% |
+| ROB empty: the refill after a mispredict | 5.70% (4.78%) |
+| ROB empty: the refill after a replay flush (DTLB or ordering) | 1.39% |
+| ROB empty: the refill after a trap, interrupt or serializing flush | 1.88% (1.95%) |
+| ROB empty: other (decode-side bubbles, and the refill after an I$ refill restarts fetch) | 10.53% (8.58%) |
+| Head: a load or store waiting for its DTLB check or walk | 2.24% (2.26%) |
+| Head: a load waiting on a D$ miss | 7.42% (7.41%) |
+| Head: another load (in the pipe, waiting for a store or its replay slot) | 5.04% (5.13%) |
+| Head: a store | 1.58% (1.72%) |
+| Head: a serializing op (fences, CSRs, WFI) | 1.15% (0.95%) |
+| Head: another op executing | 4.71% (4.90%) |
+| Head: complete, commit held | 4.29% (4.40%) |
+
+What the bind found beside the stack:
+- **The store drain is the boot's largest single stall.**
+  - The drain takes one committed store at a time. A store that misses waits for its line, with write permission, before the next store can drain.
+  - It waits on a line 18.9% of cycles (15.7%). While it does, rename is held by a full SQ 12.7% of cycles (9.6%).
+  - The early boot clears and fills pages, so these misses come in long sequential runs, one line at a time.
+- **The D$'s four miss entries almost never run out.** All four were busy 451 cycles in 20M (80), and loads waited for a free one 333 cycles (60). More misses in flight buy nothing in the boot; DR-156 measured 1 → 4 at +1.29%.
+- **The I$:** fetch is parked on a refill 12.8% of cycles (15.7%), at 169K refills (175K).
+  - 29% of refills are for the line after the previous refill's: a sequential run. 13% are for the line after the last block fetch delivered.
+  - Those two kinds hold 2.67% and 0.85% of cycles with nothing committing (3.59% and 1.39%).
+- **FENCE.I:** 5,410 sweeps of 64 cycles, 1.72% of cycles, all with the ROB empty.
+- **DTLB retries:** 25.6K loads and 4.0K stores.
+  - Each waits about 26 cycles at the head for its walk, then stalls commit 17–18 cycles after the flush.
+  - A load replayed from the LQ instead (5 cycles after its page's DTLB fill) would save 1.75% of cycles (1.70%), and stores 0.18%.
+- **Mispredicts:** 6.5 per 1K instructions. Recovery at commit waits 3.6 cycles on average from resolution; 95% wait 5 cycles or less, and 2% over 20.
+- **The micro-BTB:** 320K F2 overrides of a taken branch or jump it missed, 92K returns and 41K straddlers.
+  - Shadow tables kept with its updates held the block in 128 entries for 32% more of the branch cases and 36% more returns. In 256 entries, 38% and 50% more.
+  - The 64-entry mirror already held 28% of them: the entry's branch lay before the fetch's entry point.
+  - Each override costs decode 1.9 slots (returns 1.1, straddlers 3.4; prof_f2cut).
+
+**Each piece alone** (make perf: geomean cycles, minus is faster. The boot: the estimated share of its cycles, board memory with the testbench's memory in parentheses, and the bound the estimate comes from):
+
+| Piece | What it adds | LUTs per chip | make perf (model) | Suite (model) | Linux-like (model) | Boot estimate (RTL) | Boot bound | Boot gain per 1K LUTs |
+|---|---|---|---|---|---|---|---|---|
+| Ownership prefetch for stores | When a store's address resolves, its line is requested with write permission through a D$ miss entry, so the drain finds it | 400–600 (ledger 0.24%) | 0 | +0.6% | +4.2% (`ws_copy` +21%) | **+4.22%** (3.18%) | 12.7% (9.6%) | **8.4%** |
+| FENCE.I by generation | A 2-bit generation per I$ line in place of its valid bit; FENCE.I steps it, and a background sweep clears stale lines, so fetch restarts at once | 100–600 | 0 | 0 | 0 | **+1.72%** | 1.72% | **4.9%** |
+| Micro-BTB 128 entries | 64 sets of 2 ways in RAM64M8 LUTRAM in place of 32 | 130–260 | −0.1% (+0.9% as built) | 0 | 0 | +0.59% (0.62%) | — | 3.0% |
+| DTLB retry from the LQ (loads) | A load that misses the DTLB waits in the LQ for the walk's fill and replays through translation, with no flush | 400–1,200 | 0 | — | — | +1.75% (1.70%) | 5.5% (with the walk at the head) | 2.2% |
+| I$ next-line prefetch with a second refill | Two refills in flight; a miss of line L also fetches L+1, and the first hit on a prefetched line fetches the next | 1,000–1,500 | −0.4% | 0 | +2.0% (`tk_bigcode` +43.5%) | +2.67% (3.59%) | 3.5% (5.0%) | 2.1% |
+| I$ FDIP, next-line and 4 refills | Prefetch along the predicted path while fetch waits | 2,600–3,900 | −0.6% | 0 | +4.2% (`tk_bigcode` +111%) | +3.52% (4.97%) | 8.3% (10.8%) | 1.1% |
+| Checkpoints (4) | Mispredicts recover at resolution from one of four rename-map copies | 2,000–3,000 (ledger 1.22%) | **−1.7%** (CoreMark A +2.2%, B +3.2%) | +2.2% | +1.2% (`tk_bsearch_l2` +7.5%) | +2.46% (2.54%) | — | 1.0% |
+| Micro-BTB 256 entries | 128 sets in RAM128X1D | 750–1,120 | −0.1% (+1.5% as built) | +0.1% | 0 | +0.73% (0.77%) | — | 0.8% |
+| Early retirement | Loads and long ops retire before their result, with an 8-entry completion buffer | 3,900–5,800 (ledger 2.36%) | 0 | +0.9% | +0.4% | at most 4.9% (3.8%) | 4.9% (rename held by a full ROB, a missing load at the head) | at most 1.0% |
+| 8 L1D misses in flight | Four more D$ miss entries | 1,800–2,000 (DR-156) | 0 | +4.5% | +12.7% (all `ws_chase8`, +71%) | 0 | 0 | 0 |
+| 16 L1D misses in flight | Twelve more | 5,400–6,000 (DR-156) | 0 | +6.1% | +12.7% | 0 | 0 | 0 |
+| L2 stream prefetcher | Sequential-miss streams detected in the L2, fetched ahead from DDR | 300–900 (ledger 0.43% of the SoC, ×2 if per bank) | 0 (no L2 on make perf's memory) | +2.5% | +5.5% (`ws_copy` +27%) | not measurable (no prefetcher in the L2 to profile) | — | — |
+| L1D stride prefetcher | A PC-indexed stride table | 1,200–1,800 | 0 | +0.8% | +0.3% | — | — | — |
+| 4 I$ refills alone | — | 1,000–1,500 | 0 | 0 | 0 | 0 (fetch waits on its own miss) | — | 0 |
+
+How each boot estimate is made:
+- **Ownership prefetch:** the cycles rename is held by a full SQ while the drain waits on a line, times 0.33. That factor is the model's: on `ws_copy` the prefetch saves 0.33 cycles per such cycle.
+- **FENCE.I:** the sweep's cycles.
+- **Micro-BTB:** the overrides the larger shadow holds beyond the mirror's, at the decode slots each costs, two a cycle.
+- **DTLB retry:** each retry's commit stall, less a replay that completes 5 cycles after the page's DTLB fill (or at the head's arrival, if earlier).
+- **I$ next-line:** the cycles with nothing committing while fetch is parked on the line after the previous refill's. The refill after fetch restarts is not counted, so this is low by up to about 5 cycles per refill.
+- **Checkpoints:** each mispredict's wait from resolution to commit, plus the flush's cycle after commit. The model saves 1.25–1.38 cycles per cycle of wait on make perf, which is what this gives.
+
+**The top three that fit the room, by boot gain per 1K LUTs:**
+
+| Rank | Piece | LUTs per chip | make perf | Boot (board memory / testbench memory) |
+|---|---|---|---|---|
+| 1 | Ownership prefetch for stores | 400–600 | 0 | +4.2% / +3.2% |
+| 2 | FENCE.I by generation | 100–600 | 0 | +1.7% / +1.7% |
+| 3 | Micro-BTB at 128 entries | 130–260 | −0.1% (race-free); +0.9% as built | +0.6% / +0.6% |
+| | **Together** | **630–1,460** | about 0 | **about +6.5% / +5.5%** |
+
+- **About 2.5–3.4K of the room is still left after them, enough for the next two:**
+  - the DTLB retry from the LQ: +1.75% for 400–1,200 LUTs;
+  - the I$ next-line prefetch with a second refill: +2.7% of the boot and −0.4% make perf cycles, for 1,000–1,500 LUTs.
+
+  These two buy 3–4 times the micro-BTB's absolute gain at about 2.1–2.2% per 1K. All five come to about 2.0–4.2K LUTs a chip and about +11% of the boot, if their gains add: each removes a different stall.
+- **Recommendation: build the ownership prefetch and FENCE.I by generation first.** Then build the I$ next-line prefetch in place of the micro-BTB as the third: it is the larger and better-measured gain, and the only one of the five that also helps make perf. Then the DTLB retry, and the micro-BTB at 128 if room is left.
+- **Pros:**
+  - all three target the boot's measured stalls;
+  - the first two are small and local: one is a new request source for the D$'s existing miss entries, the other a 2-bit generation in the I$'s valid bits;
+  - none touches the next-PC loop.
+- **Cons:**
+  - make perf barely moves;
+  - the ownership prefetch's estimate leans on the model's `ws_copy` (0.33 of the stall);
+  - the prefetch takes miss entries that loads also use: four suffice in the boot today, but not if SMT2's second hart adds misses;
+  - the I$ prefetch changes fetch's refill (core-2's area) from one line to two;
+  - the LUTs are estimates (×2–3 on the ledger's), so each wants a prototype's measured count before it merges.
+- **Not chosen:**
+  - **Checkpoints:** the best for make perf (−1.7%) and +2.5% of the boot, but 2–3K LUTs at 1.0% per 1K.
+  - **Early retirement:** 3.9–5.8K, more than the room.
+  - **8 or 16 misses:** nothing in the boot. Their Linux-like gain is one kernel, eight independent pointer chains.
+  - **The L2 stream prefetcher:** the model's best Linux-like buy per LUT (+5.5% for 300–900, once per chip). It cannot be measured in the boot without a prefetcher in the L2, so it should be judged on the board's steady state. It may also speed the boot's page clears where they miss the L2.
+  - **The micro-BTB at 256:** 0.8% per 1K.
+- **The micro-BTB's make perf as built is a race, not the table.** A faster front end moves Dhrystone's store–load race (§6.9): 4.4 → 5.1 replays per 1K, −2.5% Dhrystone. With the model's memory-dependence predictor in base and piece alike, it is −0.1% (CoreMark A +0.05%, B −0.1%).
+
+**Limits.**
+- **The boot is early boot.** Its page clears, code patching (FENCE.I) and first-touch translations weigh more than they will in steady state. The steady-state picture is the model's Linux-like kernels and, later, the board.
+- **`tb_boot`'s memory is not the board's.** Hence the second run: the store and I$ estimates move by a quarter to a third between the two memories, and the rest stay put.
+- **The boot runs one hart.** SMT2's second hart adds misses in flight, which raises the value of more miss entries and lowers the store prefetch's free entries.
+- **"Head: complete, commit held" (4.3%) is not explained here.** It may be the testbench's commit-trace back-pressure, which would affect every piece alike.
+- **The micro-BTB's LUTs** are a count of its LUTRAM. An out-of-context synthesis of `tg_ubtb` at 64, 128 and 256 entries was queued behind the full-device runs.
+
+**Decisions:** none here; the choice is the coordinator's under DR-154, or the user's. Model revisions: none (the base is revision 7). The model gains a counter, `mp_wait_cycles`, for checkpoints' bound.
+
+**Learned:**
+- **The early boot's largest single stall is the store drain:** one store at a time, each waiting on its line.
+- **The four D$ miss entries are almost never all busy in the boot.** The model's "Linux-like" gain for more of them is a single eight-chain kernel.
+- **Read a Linux-like geomean kernel by kernel.** The gains of 8 misses, the L2 stream prefetcher and the store prefetch each come from one of the four working-set kernels.
+- **A front-end change can move a store–load race.** Read its make perf race-free before trusting the sign.
+- **`rtl_m2`'s early retirement needs the completion buffer.** `lqcb` is 0 in `rtl_m2`, which leaves only divides retiring early.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1755,7 +1889,9 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 8. ~~The steering fix~~: **approved** (DR-169, STEER_LA) with the store address on its base (STA_BASE); measured +2.25% and +5.03% over 17 programs, +7.84% together (§6.9).
 9. **What §6.8 left open in the model:** partly done (§6.9). With the levers, CoreMark's ordering replays are gone in both simulators; the store-wait cancel and the drain's cycle are in revision 7. Still open: row clashes (1.5–3× under), ws_hash (+14%) and ws_copy (−13%), minver and edn.
 10. ~~A memory-dependence predictor~~: **parked** (§6.10). Ordering replays cost 0.09% of the Linux boot's cycles, under the 0.5% bar.
-11. **DTLB retries at the ROB head** (§6.10): 2.45% of the boot's first 20M cycles, about 17 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB.
+11. **DTLB retries at the ROB head** (§6.10): 2.45% of the boot's first 20M cycles, about 17 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB. Re-measured on main (§6.11): a retry from the LQ would save 1.75% (loads; stores 0.18%), and the walk at the head is another 2.2% of cycles.
+12. **M6's remaining pieces, ranked on main** (§6.11): the ownership prefetch for stores (+4.2% of the boot), FENCE.I by generation (+1.7%) and the micro-BTB at 128 (+0.6%) lead per 1K LUTs; the DTLB retry from the LQ (+1.75%) and the I$ next-line prefetch with a second refill (+2.7%) also fit the room. Each wants a prototype with its measured LUTs before it merges. The L2 stream prefetcher, the model's best Linux-like buy, needs the board's steady state.
+13. **"Commit held" in the boot** (§6.11): 4.3% of the boot's cycles have a complete head that does not commit. Find what holds it; if it is the testbench's trace back-pressure, the boot's numbers carry it.
 
 ---
 
@@ -1925,6 +2061,11 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 **2026-10-18: ordering replays in the Linux boot** (§6.10; `scripts/rtlprof/prof_rpl.sv` on a857a07, both levers, the boot's first 20M cycles):
 - **The memory-dependence predictor is parked:** ordering replays cost 0.09% of the boot's cycles (1,158, from 35 load PCs, 97% repeats).
 - **DTLB retries at the ROB head cost 2.45%** (29,608, about 17 cycles each): the larger Linux-side item, for the board to judge.
+
+**2026-10-19: M6's remaining pieces re-ranked on main's M6 set** (§6.11; `scripts/m6_rank.py`, `scripts/rtlprof/prof_m6.sv` on main 31e65c6, the boot's first 20M cycles with the testbench's and the board's memory):
+- **The boot's largest single stall is the store drain:** a store waits on its line 15.7–18.9% of cycles, and holds rename through a full SQ 9.6–12.7%. The D$'s four miss entries are almost never all busy.
+- **By boot gain per 1K LUTs:** the ownership prefetch for stores (+4.2%, 400–600 LUTs a chip), FENCE.I by generation (+1.7%, 100–600) and the micro-BTB at 128 (+0.6%, 130–260). Then the DTLB retry from the LQ (+1.75%) and the I$ next-line prefetch with a second refill (+2.7%); all five fit the room.
+- **Checkpoints** are the make perf pick (−1.7% cycles; +2.5% of the boot) at 2–3K LUTs. **More misses in flight** buy nothing in the boot.
 
 **Lessons:**
 - **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
