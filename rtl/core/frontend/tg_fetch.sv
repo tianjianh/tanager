@@ -227,19 +227,27 @@ module tg_fetch
   logic                tag_we;
   logic [SET_W-1:0]    tag_set;
   logic [TAG_W-1:0]    tag_wd;
+  // The arrays' writes: the demand refill's (rf_*, tag_*) or, with IPF_ON, the prefetch's beats (pf_we) and the
+  // validation of a prefetched line (pv_go); one at a time (one D beat a cycle; a validation is a demand miss
+  // that starts no refill)
+  logic                dw_we, tw_we;
+  logic [WAY_W-1:0]    dw_way, tw_way;
+  logic [ROW_W-1:0]    dw_row;
+  logic [SET_W-1:0]    tw_set;
+  logic [TAG_W-1:0]    tw_wd;
 
   logic                f2_go;            // F1 moves into F2 this cycle
   logic [WAYS-1:0][127:0] way_data;      // F2: data of the block read in F1
   logic [WAYS-1:0][TAG_W-1:0] tag_rd;    // F1
   for (genvar w = 0; w < WAYS; w++) begin : g_way
     tg_ram_sdp #(.DEPTH(ROWS), .WIDTH(128), .OUT_REG(1'b0), .PRIM("block")) u_data (
-      .clk, .we(rf_we && rf_way == WAY_W'(w)), .waddr(rf_row), .wdata(rf_data),
+      .clk, .we(dw_we && dw_way == WAY_W'(w)), .waddr(dw_row), .wdata(rf_data),
       .re(f2_go), .raddr(fpc_q[4 +: ROW_W]), .rdata(way_data[w]));
     logic [0:0][SET_W-1:0] ra;
     logic [0:0][TAG_W-1:0] rd;
     assign ra[0] = fpc_q[6 +: SET_W];
     tg_ram_lut #(.DEPTH(SETS), .WIDTH(TAG_W), .NR(1)) u_tag (
-      .clk, .we(tag_we && rf_way == WAY_W'(w)), .waddr(tag_set), .wdata(tag_wd), .raddr(ra),
+      .clk, .we(tw_we && tw_way == WAY_W'(w)), .waddr(tw_set), .wdata(tw_wd), .raddr(ra),
       .rdata(rd));
     assign tag_rd[w] = rd[0];
   end
@@ -1117,11 +1125,37 @@ module tg_fetch
   logic [SET_W:0]        gps_q;             // the pass: the next set to visit; done at SETS
   logic                  gp_go;             // the pass visits gps_q this cycle
   logic                  r_start;           // the refill of miss_pa_q's line starts
+  // ---- I$ next-line prefetch (IPF_ON; area_recovery.md §6.11-6.12) ----
+  // A demand miss of line L (a refill, or a validation, below) also fetches L+1 when it lies in the same page: the
+  // prefetch takes a victim way in L+1's set (P_INV: its valid bit cleared, as a refill's), sends its own Get
+  // (source 1; the demand's has the A channel first) and writes the beats into that way's rows (P_DATA), where the
+  // line waits invalid (P_HELD). The demand miss of exactly that line then validates it, its tag and valid bit in one
+  // cycle with no refill (pv_go), and the next line's prefetch starts: sequential code streams. The line is never
+  // valid before its own miss, so no other copy can be valid at once. A miss of the line still in flight waits for
+  // it (pf_wait). Neither engine's victim is the other's way in the same set; FENCE.I drops a held line and poisons
+  // one in flight. A useless prefetch costs the line its victim held.
+  typedef enum logic [2:0] { P_IDLE, P_INV, P_REQ, P_DATA, P_HELD } pstate_e;
+  pstate_e               ps_q;
+  logic [PA_W-1:6]       pline_q;           // the prefetched line
+  logic [WAY_W-1:0]      pway_q;            // ... its way (invalid until its validation)
+  logic [1:0]            pbeat_q;
+  logic                  pbad_q;            // denied, or poisoned by a FENCE.I in flight
+  logic                  pv_go, pf_wait, p_inv_go, pf_we, tr_go;
+  logic [WAY_W-1:0]      pvictim;
+  logic [PA_W-1:6]       mline, mnext;      // the missed line and the next one
+  assign mline    = miss_pa_q[PA_W-1:6];
+  assign mnext    = {mline[PA_W-1:12], mline[11:6] + 6'd1};
+  assign pf_wait  = IPF_ON && (ps_q == P_INV || ps_q == P_REQ || ps_q == P_DATA) && pline_q == mline && !pbad_q;
+  assign pv_go    = IPF_ON && rs_q == R_IDLE && (miss_q || am_go) && ps_q == P_HELD && pline_q == mline && !pbad_q &&
+                    !rst;
   assign ivs_done = ivs_q[SET_W];
-  assign r_start  = rs_q == R_IDLE && (miss_q || am_go) && !rst;
-  assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we;
+  assign r_start  = rs_q == R_IDLE && (miss_q || am_go) && !rst && !pf_wait && !pv_go;
+  assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
+  assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
+  assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we && !pv_go && !p_inv_go;
   assign iv_ra[0] = fpc_q[6 +: SET_W];
-  assign iv_ra[1] = gp_go ? gps_q[SET_W-1:0] : (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
+  assign iv_ra[1] = gp_go ? gps_q[SET_W-1:0] : p_inv_go ? pline_q[6 +: SET_W] :
+                    (rs_q == R_IDLE) ? miss_pa_q[6 +: SET_W] : rline_q[6 +: SET_W];
   tg_ram_lut #(.DEPTH(SETS), .WIDTH(IVW), .NR(2)) u_ival (
     .clk, .we(iv_we), .waddr(iv_wa), .wdata(iv_wd), .raddr(iv_ra), .rdata(iv_rd));
   for (genvar k = 0; k < 2; k++) begin : g_ivv
@@ -1139,15 +1173,30 @@ module tg_fetch
     for (int w = 0; w < WAYS; w++) if (f1_wh[w]) f1_hw |= WAY_W'(w);
   end
 
-  // victim: first invalid way of the set, else round robin
+  // victim: first invalid way of the set, else round robin; with IPF_ON never the other engine's way in its set
   logic [WAY_W-1:0] victim;
+  logic [WAYS-1:0]  pmask, rmask;
+  assign pmask = (IPF_ON && (ps_q == P_REQ || ps_q == P_DATA || ps_q == P_HELD) &&
+                  pline_q[6 +: SET_W] == miss_pa_q[6 +: SET_W]) ? WAYS'(1) << pway_q : '0;
+  assign rmask = (IPF_ON && rs_q != R_IDLE && rline_q[6 +: SET_W] == pline_q[6 +: SET_W]) ? WAYS'(1) << rway_q : '0;
   always_comb begin
     logic found;
     found = 1'b0;
-    victim = rr_q;
+    victim = pmask[rr_q] ? rr_q + 1'b1 : rr_q;
     for (int w = 0; w < WAYS; w++) begin
-      if (!found && !iv_v[1][w]) begin
+      if (!found && !iv_v[1][w] && !pmask[w]) begin
         victim = WAY_W'(w);
+        found = 1'b1;
+      end
+    end
+  end
+  always_comb begin
+    logic found;
+    found = 1'b0;
+    pvictim = rmask[rr_q] ? rr_q + 1'b1 : rr_q;
+    for (int w = 0; w < WAYS; w++) begin
+      if (!found && !iv_v[1][w] && !rmask[w]) begin
+        pvictim = WAY_W'(w);
         found = 1'b1;
       end
     end
@@ -1157,6 +1206,16 @@ module tg_fetch
     iv_we = tag_we;
     iv_wa = tag_set;
     iv_wd = {gen_q, iv_v[1] | (WAYS'(1) << rway_q)};
+    if (pv_go) begin                        // (no refill runs): the held line is valid
+      iv_we = 1'b1;
+      iv_wa = miss_pa_q[6 +: SET_W];
+      iv_wd = {gen_q, iv_v[1] | (WAYS'(1) << pway_q)};
+    end
+    if (p_inv_go) begin                     // (never with the others): the prefetch's victim
+      iv_we = 1'b1;
+      iv_wa = pline_q[6 +: SET_W];
+      iv_wd = {gen_q, iv_v[1] & ~(WAYS'(1) << pvictim)};
+    end
     if (r_start) begin                      // (never with tag_we: that is the refill's end)
       iv_we = 1'b1;
       iv_wa = miss_pa_q[6 +: SET_W];
@@ -1178,13 +1237,24 @@ module tg_fetch
     l1i_a_o = '0;
     l1i_a_o.opcode  = A_GET;
     l1i_a_o.size    = 3'd6;
-    l1i_a_o.source  = '0;
-    l1i_a_o.address = {rline_q, 6'b0};
+    l1i_a_o.source  = (IPF_ON && rs_q != R_REQ) ? TL_SRC_W'(1) : '0;     // the demand's Get first
+    l1i_a_o.address = {(IPF_ON && rs_q != R_REQ) ? pline_q : rline_q, 6'b0};
     l1i_a_o.mask    = '1;
-    l1i_a_valid_o   = rs_q == R_REQ;
+    l1i_a_valid_o   = rs_q == R_REQ || (IPF_ON && ps_q == P_REQ);
     l1i_d_ready_o   = 1'b1;
   end
-  assign rf_we   = rs_q == R_DATA && l1i_d_valid_i;
+  // A D beat is the prefetch's when its source is 1 (the beats of one message come together)
+  logic d_pf;
+  assign d_pf    = IPF_ON && l1i_d_i.source[0];
+  assign rf_we   = rs_q == R_DATA && l1i_d_valid_i && !d_pf;
+  assign pf_we   = IPF_ON && ps_q == P_DATA && l1i_d_valid_i && d_pf;
+  assign dw_we   = rf_we || pf_we;
+  assign dw_way  = pf_we ? pway_q : rf_way;
+  assign dw_row  = pf_we ? {pline_q[6 +: SET_W], pbeat_q} : rf_row;
+  assign tw_we   = tag_we || pv_go;
+  assign tw_way  = pv_go ? pway_q : rf_way;
+  assign tw_set  = pv_go ? miss_pa_q[6 +: SET_W] : tag_set;
+  assign tw_wd   = pv_go ? miss_pa_q[PA_W-1:12] : tag_wd;
   assign rf_way  = rway_q;
   assign rf_row  = {rline_q[6 +: SET_W], rbeat_q};
   assign rf_data = l1i_d_i.data;
@@ -1212,7 +1282,7 @@ module tg_fetch
           rpoison_q <= 1'b0;
         end
         R_REQ: if (l1i_a_ready_i) rs_q <= R_DATA;
-        R_DATA: if (l1i_d_valid_i) begin
+        R_DATA: if (l1i_d_valid_i && !d_pf) begin
           rbeat_q <= rbeat_q + 1'b1;
           if (l1i_d_i.denied || l1i_d_i.corrupt) rden_q <= 1'b1;
           if (rbeat_q == 2'd3) begin
@@ -1229,6 +1299,38 @@ module tg_fetch
       endcase
       if (icinv && rs_q != R_IDLE) rpoison_q <= 1'b1;
       if (flush) fline_v_q <= 1'b0;   // a later fetch of the line tries again
+    end
+  end
+
+  always_ff @(posedge clk) begin
+    if (rst || !IPF_ON) begin
+      ps_q   <= P_IDLE;
+      pbad_q <= 1'b0;
+    end else begin
+      unique case (ps_q)
+        P_INV:  if (p_inv_go) begin
+          ps_q   <= P_REQ;
+          pway_q <= pvictim;
+        end
+        P_REQ:  if (l1i_a_ready_i && rs_q != R_REQ) ps_q <= P_DATA;
+        P_DATA: if (pf_we) begin
+          pbeat_q <= pbeat_q + 1'b1;
+          if (l1i_d_i.denied || l1i_d_i.corrupt) pbad_q <= 1'b1;
+          if (pbeat_q == 2'd3) ps_q <= P_HELD;
+        end
+        P_HELD: if (pbad_q || pv_go) ps_q <= P_IDLE;
+        default: ;
+      endcase
+      if (tr_go) begin                         // a demand miss: its next line (a held line is dropped)
+        ps_q    <= P_INV;
+        pline_q <= mnext;
+        pbeat_q <= '0;
+        pbad_q  <= 1'b0;
+      end
+      if (icinv) begin
+        if (ps_q == P_REQ || ps_q == P_DATA) pbad_q <= 1'b1;     // its beats still come
+        else ps_q <= P_IDLE;
+      end
     end
   end
 
@@ -1255,8 +1357,8 @@ module tg_fetch
         if (gps_q[SET_W-1:0] == SET_W'(SETS - 1)) gpend_q <= '0;   // no stale set is left
       end
     end
-    rdone_d_q <= tag_we && !rst;
-    rline_d_q <= rline_q;
+    rdone_d_q <= (tag_we || pv_go) && !rst;
+    rline_d_q <= pv_go ? mline : rline_q;
   end
 `ifndef SYNTHESIS
   // The valid bits as the sweep kept them, every line of every set cleared at FENCE.I: the
@@ -1269,6 +1371,8 @@ module tg_fetch
     else begin
       if (r_start) ivref_q[miss_pa_q[6 +: SET_W]][victim] <= 1'b0;
       if (tag_we)  ivref_q[tag_set][rway_q] <= 1'b1;
+      if (p_inv_go) ivref_q[pline_q[6 +: SET_W]][pvictim] <= 1'b0;
+      if (pv_go)    ivref_q[miss_pa_q[6 +: SET_W]][pway_q] <= 1'b1;
     end
     if (rst) ivref_ok_q <= 1'b0;
     else if (ivs_done) ivref_ok_q <= 1'b1;
@@ -1276,8 +1380,11 @@ module tg_fetch
   always_ff @(posedge clk) begin
     if (ivref_ok_q && !rst && ivs_done) begin
       assert (iv_v[0] == ivref_q[iv_ra[0]]) else $error("tg_fetch: the I$ valid lines differ from the sweep's");
-      if (r_start) assert (iv_v[1] == ivref_q[iv_ra[1]]) else $error("tg_fetch: the victim's set differs from the sweep's");
-      assert (!(gp_go && (r_start || tag_we))) else $error("tg_fetch: the generation pass with a refill write");
+      if (r_start || p_inv_go || pv_go)
+        assert (iv_v[1] == ivref_q[iv_ra[1]]) else $error("tg_fetch: the victim's set differs from the sweep's");
+      assert (!(gp_go && (r_start || tag_we || pv_go || p_inv_go))) else $error("tg_fetch: the generation pass with a refill write");
+      assert ($onehot0({r_start, tag_we, pv_go, p_inv_go})) else $error("tg_fetch: two valid-RAM writers in a cycle");
+      if (IPF_ON && pv_go) assert (!iv_v[1][pway_q]) else $error("tg_fetch: the held line's way is valid at its validation");
     end
   end
 `endif
@@ -1376,7 +1483,7 @@ module tg_fetch
       end
       // F2's action on this cycle's block, taken next cycle; miss_pc_q and miss_pa_q name the block
       ka_q     <= f2_miss || f2_wmiss || (f2_deliver && f2_ka);
-      k_miss_q <= f2_miss && !((refill_done && f2_pa_q[PA_W-1:6] == rline_q) ||
+      k_miss_q <= f2_miss && !((refill_done && f2_pa_q[PA_W-1:6] == rline_q) || (pv_go && f2_pa_q[PA_W-1:6] == mline) ||
                                (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q));
       k_walk_q <= f2_wmiss;
       k_stop_q <= f2_deliver && f2_isfault;
@@ -1394,7 +1501,7 @@ module tg_fetch
         miss_pa_q <= f2_pa_q;
       end
       // Restart after the refill (F2 holds nothing then; a registered miss parks in this cycle)
-      if ((miss_q || am_go) && refill_done) begin
+      if ((miss_q || am_go) && (refill_done || pv_go)) begin
         miss_q     <= 1'b0;
         f1_valid_q <= 1'b1;
         fpc_q      <= miss_pc_q;
