@@ -725,6 +725,16 @@ The uncore's block RAM is at 18 of its 19, so the new FIFOs are LUTRAM. Timing r
 - **D-b instead of D-c:** an uncached route in the crossbar would cost 100–200 LUTs, but it needs an uncached PMA region in the core as well. Debian's kernel can't treat it as non-coherent DMA anyway.
 - **In the final v1** these compete with the 4-miss data cache and hart 1. A performance build without the commit trace frees 3,066 LUTs in the uncore alone (`TG_COMMIT_TRACE=0`, [budgets.md](../perf/budgets.md) §4), about the size of stages C and D together. A board build that keeps board lockstep keeps the trace.
 
+### 8.4 M6's board bitstream (10-19)
+
+Main df08b40, with the M6 set on by default (the 32-entry RAS, two-table TAGE-lite, the restructured F2, DR-169's rename levers) and four L1D misses. It uses d2's board configuration: smt2, two cores, 100 MHz, the virtio window and the host DMA port, the PS window, D2's fan regulator. It's built with ExploreArea (DR-166) and the 1.0 ns P&R margin (DR-160). The coordinator asked for it, to run M6 under Linux after D4; d2 stays D4's bitstream.
+
+- **With the commit trace:** it doesn't place. Synthesis gave 119,557 LUTs (102.1%), and after ExploreArea's opt the placer needed 10,150 CLBs of the 10,133 available, 17 short.
+- **Without it** (`TG_COMMIT_TRACE=0`, `m6_100n`): WNS +0.531 ns, WHS +0.010 ns at 100 MHz. 115,408 LUTs after synthesis and 109,206 placed (93.2%), in 68 minutes on w-x299.
+  - So there's no board lockstep on M6 until the trace has room: about 5.8K LUTs (1.47K a core plus the uncore's 2.9K stream), or 17 CLBs past today's limit. That's one of DR-167's questions.
+  - Package `m6-smt2-c2-100`, for after D4, with DR-141's set against d2's boots.
+- **No same-tree comparison for ExploreArea yet:** these are the first board builds of this tree, and both use it.
+
 ## Verification
 
 `tests/unit/soc`: `tanager_soc` in Verilator with `CORE_KIND = "core"` (stubs) and `"trafgen"`, AXI memory models on the memory ports, and a host-port driver. It checks:
