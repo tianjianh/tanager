@@ -34,6 +34,7 @@ module tanager_soc
   parameter string       CORE_KIND       = "core"     // "core" or "trafgen"
 ) (
   input  logic        clk,
+  input  logic        clk2x,          // twice clk, rising with it: the cores' URF (DR-174); else 0
   input  logic        rst,
   input  logic        clk_host,
   input  logic        rst_host,
@@ -208,7 +209,7 @@ module tanager_soc
       assign core_dbg[c] = '0;
     end else begin : g_tgc
       tg_core #(.CORE_ID (c), .DBG_WORD (DEBUG_CNT)) u_core (
-        .clk, .rst (core_rst), .boot_addr_i (BOOT_ADDR),
+        .clk, .clk2x, .rst (core_rst), .boot_addr_i (BOOT_ADDR),
         .irq_mei_i (mei), .irq_sei_i (sei), .irq_mti_i (mt), .irq_msi_i (ms), .irq_ssi_i ('0),
         .mtime_i (mtime), .debug_req_i ('0), .merr_o (me),
         .l1i_a_o (l1i_a[c]), .l1i_a_valid_o (l1i_av[c]), .l1i_a_ready_i (l1i_ar[c]),

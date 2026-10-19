@@ -40,6 +40,10 @@ module tb_soc;
   logic clk = 1'b0, clk_host = 1'b0, rst = 1'b1, rst_host = 1'b1;
   always #5    clk      = ~clk;        // 100 MHz
   always #6.85 clk_host = ~clk_host;   // ~73 MHz, unrelated
+  // clk2x at 200 MHz, rising with clk (from 1, so both rise at 5, 15 ...), for the cores' URF (DR-174); unused
+  // by a core built without it, by tg_trafgen and by tcore_as_core
+  logic clk2x = 1'b1;
+  always #2.5  clk2x    = ~clk2x;
 
   logic [15:0] awaddr, araddr;
   logic        awvalid, awready, wvalid, wready, bvalid, bready, arvalid, arready, rvalid, rready;
@@ -89,7 +93,7 @@ module tb_soc;
     .VIRTIO_WINDOW (VIRTIO), .HOST_DMA (HOST_DMA), .BREAK_LOG2 (6)
   ) dut (
     .uart_txd_o (), .uart_rxd_i (ps_rxd),
-    .clk, .rst, .clk_host, .rst_host,
+    .clk, .clk2x, .rst, .clk_host, .rst_host,
     .s_axil_awaddr (awaddr), .s_axil_awvalid (awvalid), .s_axil_awready (awready),
     .s_axil_wdata (wdata), .s_axil_wstrb (wstrb), .s_axil_wvalid (wvalid), .s_axil_wready (wready),
     .s_axil_bresp (bresp), .s_axil_bvalid (bvalid), .s_axil_bready (bready),
