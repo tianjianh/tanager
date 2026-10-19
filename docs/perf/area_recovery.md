@@ -1789,6 +1789,17 @@ How each boot estimate is made:
   - No sample has both cores idle, so it is not a timed wait: it is work on the core running the tail.
   - verif-2 finds that DDR latency does not explain it (follow-up 14). The cause is still open.
 - **So §6.12's diagnosis ("`tb_boot`'s DDR model, 25–39% slow") is withdrawn.** The gap is a fixed ~9.5M cycles, which reads as 25%, 39% and 51% of the board's tail as the core gets faster.
+- **The tail by cause** (added after verif-2's question; d4s2's boot rerun with `prof_m6.sv`'s `+prof_snap=1000000`, cycle-identical, and `scripts/rtlprof/prof_window.py`). Shares of each window's cycles, on the core doing the work; the other core sits in `wfi` 86–88% of each tail window:
+
+| Window (d4s2) | IPC | Head: a load waiting on a D$ miss | The store drain waits on a line | Rename held by a full SQ, the drain waiting | D$ miss entries busy: 1 / 2 / 3 |
+|---|---|---|---|---|---|
+| The initcalls, 61–83M (core 0; they match the board) | 0.696 | 13.4% | 20.2% | 10.6% | 20.6% / 8.7% / 0.3% |
+| The unpacking's end, 84–106M (core 0) | 0.710 | 25.9% | 29.6% | 22.0% | 19.1% / 19.6% / 0.9% |
+| `free_initmem`'s memset, 107–121M (core 1) | 0.252 | 2.0% | 73.6% | 70.2% | 77.0% / 0.2% / 0 |
+
+  - **The memset fetches one line at a time:** exactly one miss entry is busy 77% of the window, and the drain waits on a line 74%. Over its 179,392 lines that is about 57 cycles of drain wait and 60 of one miss in flight per 64 B line: one ownership round trip each, in series. d4s2 has no store prefetch.
+  - **The unpacking's end is a copy:** loads and stores both miss, with up to two lines in flight.
+  - **What differs from the initcalls is streaming dirty lines.** Each line of the memset and of the page-cache copy is written and later evicted. A per-line cost that the core cannot overlap (a write-back holding up the next fetch, say) fits a fixed offset better than latency does: about 29 cycles a line over the tail's roughly 330K DDR lines. This is an inference. verif-2's `memcal` (memset, memcpy and a streaming read, in the TB and on the board) tests it.
 
 **The rule for predicting the board from `tb_boot`: add the simulation's change in seconds to the board's time, milestone by milestone.** Do not scale by the simulation's ratio while `tb_boot` carries a fixed offset.
 
@@ -2283,7 +2294,9 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 14. **`tb_boot`'s tail after the initcalls against the board's** (§6.12, revised by §6.14; verif-2). Every initcall matches the board within 3.5%, but the tail runs a fixed ~95 ms (about 9.5M cycles) longer: 88 ms on d2, 97 on d4s2, 95 on d4r1.
     - **The tail holds:** the end of the initramfs unpacking (an async worker on one core), then `free_initmem`'s 11.2 MB memset.
     - **Not a timed wait:** no sample has both cores idle.
-    - **Not DDR latency:** verif-2's finding. The offset did not shrink when the store prefetch hid the store misses' waits.
+    - **Not DDR latency:** verif-2's finding. At latencies of 22, 18 and 14 cycles the tail stays 39%, 34% and 28% slower than the board, while the initcalls fall below it. The offset also did not shrink when the store prefetch hid the store misses' waits.
+    - **By cause** (§6.14, `prof_m6.sv` with `+prof_snap`): the memset fetches one line at a time, about 60 cycles a line. The unpacking's end is a copy with up to two lines in flight. Both stream dirty lines, which the initcalls barely do.
+    - **Next (verif-2):** `memcal`, bare-metal memset, memcpy and a streaming read, in the TB and on the board. It fits the DDR model's per-line costs to the board's, and one boot to /init confirms the fit.
     - **Until its cause is found,** predict the board from `tb_boot` by adding the simulated change in seconds (§6.14). That rule was within 1.4% on both steps so far; scaling by the simulated ratio was 2.6–5.3% high.
 15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain. **Open, parked** (the coordinator, 10-19): d2 is retired, and the gap does not touch M6's figures.
 16. **The per-thread issue-queue caps and the static ROB, LQ and SQ halves are not wired** (§6.12). M7 must wire them, and decide what a lone thread gets: smt2_report.md §10's open items.
