@@ -69,4 +69,37 @@ The package is `bash sw/d4mode/build.sh <dir> sw/d4mode/riscv.cmd <the step 1 bi
 4. **If `riscv.scr` stops before the release:** the hook prints `the RISC-V did not start; booting Ubuntu`, and Ubuntu boots with trial 1. The COM7 log shows the last command, and that is the report.
 5. **If the test image runs but the board doesn't reset:** it prints its fallbacks, then asks for the PMOD break every 5 s. `riscv.scr` armed the hook (BOARD_CTRL 3), so a 4 s break on COM5 resets the board into ARM mode. Report which line it reached. If neither COM7 nor the break gets anywhere within 10 minutes, the board needs the user's power cycle.
 
+## Step 6 on the board: RISC-V mode with Debian
+
+The package is step 5's with U-Boot d4 (`bash sw/build_uboot.sh d4`) as `payload.bin`. It needs step 4's hook in place and the record at arm.
+
+1. **Debian's side, in stage C** (Debian from `p3` under `tanager-host`, as the stress runs):
+   - Copy this package into Debian and run `sudo bash debian_install.sh`. It prints `active` (the confirm unit), then the tool's refusal of the virtio disk, which is right in stage C. Then it prints extlinux's `root=`, which must be `LABEL=tanager-root` (not `/dev/vda`).
+   - Shut Debian down cleanly, then check `p3`.
+2. **`p1`**, in Ubuntu: `sudo cp tanager/* /boot/firmware/tanager/ && sync`, then check against SHA256SUMS. This puts U-Boot d4 in `payload.bin`; the other files are step 5's.
+3. **Loggers:** COM7 (UART1: the A53's U-Boot, OpenSBI, U-Boot d4, then Debian's ttyPS0 getty) and COM5 (Debian's kernel console, ttyS0, and its autologin).
+4. `sudo tanager-mode riscv`, `sync`, `sudo reboot`. COM7 shows:
+   1. step 5's lines up to the park;
+   2. OpenSBI;
+   3. U-Boot 2026.07 (`MMC: mmc@ff170000: 0`);
+   4. `sysboot mmc 0:3`, extlinux's menu, then the kernel and initrd read by PIO (seconds to a minute);
+   5. `Starting kernel`.
+
+   Then COM5 shows Debian's boot and its autologin, and COM7 gets a login prompt (ttyPS0). Check in Debian:
+   - `lsblk` and `findmnt /`: the root is `/dev/mmcblk0p3`;
+   - `cat /proc/cmdline`;
+   - `dmesg | grep -i -e mmc -e sdhci`;
+   - the read rate, `sudo dd if=/dev/mmcblk0p3 of=/dev/null bs=1M count=256 iflag=direct`, against stage C's;
+   - `systemctl is-active tanager-mode-confirm`;
+   - `sudo tanager-mode status`: riscv, trial 1 (U-Boot wrote it).
+5. `sudo reboot` in Debian. The unit sets trial 0, the reboot resets the board, and RISC-V mode comes back with Debian: **confirmed**.
+6. `sudo tanager-mode arm`, `sudo reboot`: Ubuntu.
+7. Optional, the unconfirmed end:
+   - `tanager-mode riscv` and a reboot into Debian, then a 4 s break on COM5.
+   - The board resets into Ubuntu (trial 1). Then `sudo tanager-mode arm`.
+
+**If U-Boot d4 can't read the card,** it stops at its prompt on COM7, where `mmc list`, `mmc info` and `mmc part` help. Then a 4 s break on COM5 resets into ARM mode.
+
+**If Debian's kernel can't find its root,** the initramfs shell comes up on COM5 (dmesg there). Then `poweroff -f` (a reset, through `RESET_CTRL`) or the break gives ARM mode.
+
 **U-Boot's hush:** an apostrophe inside double quotes is a syntax error, after which U-Boot crashes (the QEMU test found it). No string in these scripts has one.

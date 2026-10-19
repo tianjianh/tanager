@@ -25,3 +25,8 @@ systemctl enable tanager-mode-confirm.service
 systemctl start tanager-mode-confirm.service
 systemctl is-active tanager-mode-confirm.service
 /usr/local/sbin/tanager-mode status || echo "(not on the SD card: stage C)"
+# RISC-V mode boots this Debian through U-Boot's extlinux from the card: its root must be found by label or UUID,
+# not as stage C's /dev/vda (u-boot-update takes it from /etc/fstab, LABEL=tanager-root)
+echo "extlinux: $(grep -m1 -o 'root=[^ ]*' /boot/extlinux/extlinux.conf || echo 'no root= line')"
+grep -q 'root=\(LABEL\|UUID\|PARTUUID\)=' /boot/extlinux/extlinux.conf ||
+  echo "$0: extlinux.conf's root= is no label or UUID: RISC-V mode would not find it" >&2
