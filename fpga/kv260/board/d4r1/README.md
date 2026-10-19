@@ -88,6 +88,16 @@ The spread column is the pair's; the d2 columns come from `cmp3_cycles.md`, whos
 
 **The fan during the set** (`fancontrol` running): 24 samples. PL die 33.9–34.9 °C, duty 15–42/255. The A53's AMS read 33–36 °C.
 
-**Then:**
-- s18, d4r1's first Debian boot, in stage C from p3 (the standing rule: a new bitstream boots in stage C first, [`../stress/README.md`](../stress/README.md));
-- the 24-hour soak in RISC-V mode on `d4r1-riscv`.
+**Debian 13 under the two-core stress, stage C (s18, [`../stress/README.md`](../stress/README.md)).** This is d4r1's first Debian boot, from p3, as the standing rule asks before RISC-V mode depends on a new bitstream. Both passes were clean, against d4s2 on the same stress (s17, 6 passes):
+
+| | d4s2 (s17) | d4r1 (s18) | Change |
+|---|---|---|---|
+| Pass | 115.2 s | 114.5 s | −0.6% |
+| sysbench cpu, 2 threads | 93.88 events/s | 94.16 events/s | +0.3% |
+| **sysbench memory, 2 threads** | 114.81 MiB/s | **138.30 MiB/s** | **+20.5%** |
+| sysbench threads, 2 threads | 2,325 events | 2,342 events | +0.7% |
+
+- sysbench's memory test writes (its default), so this fits the store prefetch's gains in the set above.
+- cpu and threads don't move, like CoreMark and Dhrystone.
+
+**Then:** the 24-hour soak in RISC-V mode on `d4r1-riscv` ([`../stress/README.md`](../stress/README.md)).

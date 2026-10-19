@@ -10,6 +10,7 @@ L=$1; every=${2:-3600}; count=${3:-30}
 W=$(dirname "$L")/netcheck.tmp; mkdir -p "$W"
 O="-F /dev/null -i $HOME/.ssh/tanager_kv260_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=$(dirname "$L")/riscv_known_hosts -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=15"
 R=tanager@tanager.mshome.net
+t0=$(date +%s)   # checks keep to t0 + k * EVERY_S, so a check's own minutes don't push the next ones later
 for k in $(seq 1 "$count"); do
   t=$(date -u +%FT%TZ)
   dd if=/dev/urandom of="$W/up.bin" bs=1M count=10 2>/dev/null; s0=$(sha256sum "$W/up.bin" | cut -c1-64)
@@ -26,5 +27,6 @@ for k in $(seq 1 "$count"); do
     "$(awk -v a=$a -v b=$b 'BEGIN {print 10.48576/(b-a)}')" "$(awk -v b=$b -v c=$c 'BEGIN {print 10.48576/(c-b)}')" "${apt:-(no Fetched line)}" >> "$L"
   rm -f "$W/up.bin" "$W/down.bin"
   [ "$ok" = OK ] || exit 1
-  [ "$k" -lt "$count" ] && sleep "$every"
+  s=$(( t0 + k * every - $(date +%s) )); [ "$k" -lt "$count" ] && [ "$s" -gt 0 ] && sleep "$s"
 done
+exit 0
