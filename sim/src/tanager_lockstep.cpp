@@ -33,6 +33,11 @@
 #ifndef TG_DEFAULT_ISA
 #define TG_DEFAULT_ISA "rv64imafdc_zicsr_zicntr_zihpm_zifencei_zba_zbb_zbs_zicond_sstc_svinval_za64rs"
 #endif
+// The core's PMP entries in this tree's tg_core_pkg (DR-167; sim/Makefile's tg_pmp_default.h): the board's
+// RTL, unless its bitstream was built with another PMP_ENTRIES, which --pmp then names
+#ifndef TG_DEFAULT_PMP
+#define TG_DEFAULT_PMP 16
+#endif
 
 using namespace tg;
 
@@ -49,7 +54,7 @@ constexpr uint8_t EXT_WRITE_MARK = 0xE1;
 struct opts_t {
   std::string fw, kernel, dtb, input = "-";
   std::string isa = TG_DEFAULT_ISA, priv = "MSU";
-  unsigned harts = 1, pmp = 16, history = 64;
+  unsigned harts = 1, pmp = TG_DEFAULT_PMP, history = 64;
   uint64_t mem_mb = 768;          // the RISC-V window: the 1 GiB carve-out less tanager-host's 256 MiB ring
   int64_t plant = -1;             // self-test: corrupt the first compared value at or after this record
   double stats = 10;              // seconds between progress lines (0: none)
@@ -64,7 +69,9 @@ struct opts_t {
           "usage: tanager-lockstep --fw F [--kernel K] [--dtb D] [options] [TRACE|-]\n"
           "  checks a commit-trace stream (64-byte records, uncore-trace.md) against Spike, which starts at the\n"
           "  boot ROM with the images at 0x8000_0000 (fw), +0x20_0000 (kernel) and +0x220_0000 (dtb)\n"
-          "  --isa=STR --priv=STR --harts=N --pmp=N   Spike's configuration (default %s, MSU, 1, 16)\n"
+          "  --isa=STR --priv=STR --harts=N --pmp=N   Spike's configuration (default %s, MSU, 1, %d: the PMP\n"
+          "                    entries of this tree's core, tg_core_pkg::PMP_ENTRIES; a bitstream built with\n"
+          "                    another PMP_ENTRIES needs --pmp)\n"
           "  --mem-mb=N        the RISC-V DRAM window (default 768)\n"
           "  --stats=S         a progress line every S seconds on stderr (0: none; default 10)\n"
           "  --max=N           stop after N records\n"
@@ -76,7 +83,7 @@ struct opts_t {
           "  --plant=N         self-test: flip bit 0 of the first value the checker compares at or after\n"
           "                    record N (from 0): a register write or a deferred writeback, not a value it\n"
           "                    adopts (an MMIO load, a nondet CSR read); the run must stop there\n",
-          TG_DEFAULT_ISA);
+          TG_DEFAULT_ISA, TG_DEFAULT_PMP);
   exit(EXIT_HARNESS);
 }
 

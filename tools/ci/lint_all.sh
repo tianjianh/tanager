@@ -4,7 +4,8 @@
 # trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
 # DR-140, DR-146); the 4-miss L1D (DC_MSHRS=4, DR-149), G8's queue decode bits (QUEUE_DECODE=1) and M6's
 # speculative load wakeup (SPEC_WAKE=1) each on top of the default; DR-169's two levers off (STA_BASE=0,
-# STEER_LA=0), each on top of the default; and the default's
+# STEER_LA=0), each on top of the default; the PMP entries the package does not default to (PMP_ENTRIES=8
+# or 16, DR-167); and the default's
 # synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
@@ -42,6 +43,11 @@ if mentioned TG_QUEUE_DECODE; then profiles+=("QUEUE_DECODE=1"); else echo "lint
 if mentioned TG_SPEC_WAKE; then profiles+=("SPEC_WAKE=1"); else echo "lint-all: no RTL mentions TG_SPEC_WAKE; skipping SPEC_WAKE=1"; fi
 if mentioned TG_STA_BASE; then profiles+=("STA_BASE=0"); else echo "lint-all: no RTL mentions TG_STA_BASE; skipping STA_BASE=0"; fi
 if mentioned TG_STEER_LA; then profiles+=("STEER_LA=0"); else echo "lint-all: no RTL mentions TG_STEER_LA; skipping STEER_LA=0"; fi
+if mentioned TG_PMP_ENTRIES; then  # the count other than the package's default (its line, as sim/profile.mk reads it)
+  pmp_def=$(sed -n -E 's/^[[:space:]]*localparam[[:space:]]+int[[:space:]]+PMP_ENTRIES[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*;.*/\1/p' \
+            "$ROOT/rtl/core/tg_core_pkg.sv")
+  profiles+=("PMP_ENTRIES=$([ "$pmp_def" = 16 ] && echo 8 || echo 16)")
+else echo "lint-all: no RTL mentions TG_PMP_ENTRIES; skipping PMP_ENTRIES"; fi
 profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do

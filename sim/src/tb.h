@@ -18,6 +18,7 @@ struct hw_cfg_t {
   unsigned commit_width = 0, num_threads = 1, core_id = 0, hart_w = 1, wb_tag_w = 1;
   unsigned trace_wb_ports = 0, pa_w = 34, l1i_mshrs = 0, l1d_mshrs = 0;
   unsigned llt_entries = 0, trace_stall_headroom = 0;
+  unsigned pmp_entries = 0;  // DR-167: Spike's PMP regions in lockstep
 };
 
 struct tb_t {
