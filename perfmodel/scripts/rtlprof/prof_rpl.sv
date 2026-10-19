@@ -4,7 +4,8 @@
 //     store to its bytes: the head's replay flag without a DTLB miss) and DTLB retries (the head missed the DTLB and
 //     now translates);
 //   - for each, the cycles until the replayed instruction commits again (the commit stall it costs; ended early by
-//     another flush, a trap or an interrupt);
+//     another flush, a trap or an interrupt), from the ROB's retirement (§6.10's run read it from the commit trace,
+//     a cycle later, so its stalls were a cycle long each: §6.11, follow-up 13);
 //   - the ordering replays by PC, and how many a wait table would have caught: one bit per entry, indexed by
 //     PC[k+1:2] (no tag, never cleared), set by a replay; a replay finding its bit set counts as caught. Tables of
 //     16, 64, 256 and 1024 bits, and an exact set of PCs.
@@ -15,8 +16,8 @@ module smt2_prof_rpl
   input logic                    clk, rst,
   input logic                    do_flush, rpl, do_irq, do_trap, hd_tlb, hd_retry,
   input logic [63:0]             hd_pc,
-  input logic [CW-1:0]           tv,
-  input tr_rec_t [CW-1:0]        tr
+  input logic [CW-1:0]           ret,           // the ROB's retirements now (the trace reports them a cycle on)
+  input logic [CW-1:0][63:0]     rpc
 );
   localparam int NT = 4;
   function automatic int tb_of(input int t);   // log2 of the tables' sizes
@@ -42,7 +43,7 @@ module smt2_prof_rpl
       // the pending replay's instruction commits again (or a flush ends the wait)
       if (pend) begin
         for (int j = 0; j < CW; j++)
-          if (tv[j] && tr[j].kind == TR_RETIRE && tr[j].pc == pend_pc && !done) begin
+          if (ret[j] && rpc[j] == pend_pc && !done) begin
             done = 1'b1;
             dt = cyc - pend_t;
           end
@@ -84,4 +85,4 @@ endmodule
 
 bind tg_core smt2_prof_rpl #(.CW(COMMIT_WIDTH)) u_smt2_prof_rpl (
   .clk, .rst, .do_flush(u_rob.do_flush), .rpl(u_rob.rpl_h[0]), .do_irq(u_rob.do_irq), .do_trap(u_rob.do_trap),
-  .hd_tlb, .hd_retry, .hd_pc(u_rob.hp[0].pc), .tv(trace_valid_o), .tr(trace_o));
+  .hd_tlb, .hd_retry, .hd_pc(u_rob.hp[0].pc), .ret(u_rob.ret), .rpc({u_rob.hp[1].pc, u_rob.hp[0].pc}));
