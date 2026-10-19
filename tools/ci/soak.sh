@@ -32,7 +32,8 @@ VM_PCT=33               # share of the programs that run in S-mode under Sv39 (t
 # Spike's ISA follows the core's switches: the M3 string, with f and d once tg_core has EXT_FD.
 M3_ISA=rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
 M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs
-spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU --pmp=16"; }
+# Spike's PMP regions are the core's PMP entries, which tg_vsim and tanager-lockstep take from the RTL (DR-167).
+spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
@@ -102,7 +103,7 @@ prepare() {
     for cfg in $CFGS; do
       for tc in ${tcs:-default}; do
         make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" \
-          ISA="$isa" PRIV=MSU PMP=16 $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
+          ISA="$isa" PRIV=MSU $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
         keep "$tmp" "sim/$cfg-core$([ "$tc" != default ] && echo "-tc$tc")" || exit 1
       done
     done

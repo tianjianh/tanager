@@ -3,6 +3,7 @@
 # (+define+TG_TIMING_CUTS=0|1, read by rtl/core/tg_core_pkg.sv); unset builds the package's default.
 # The default has #4, #5 and the walker start's B3 form on; the fallback (0) has every switch off.
 # A forced profile builds in a directory of its own, so the two profiles never overwrite each other.
+PROFILE_ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/..)
 TIMING_CUTS ?=
 ifneq ($(filter-out 0 1,$(TIMING_CUTS)),)
   $(error TIMING_CUTS must be 0, 1 or unset (got "$(TIMING_CUTS)"))
@@ -39,15 +40,35 @@ STEER_LA ?=
 ifneq ($(filter-out 0 1,$(STEER_LA)),)
   $(error STEER_LA must be 0, 1 or unset (got "$(STEER_LA)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))
+# DR-167: the core's PMP entries, 8 or 16 (+define+TG_PMP_ENTRIES, tg_core_pkg::PMP_ENTRIES; the core track's
+# switch); unset builds the package's default. Lockstep's Spike gets as many regions (PMP_RTL below).
+PMP_ENTRIES ?=
+ifneq ($(filter-out 8 16,$(PMP_ENTRIES)),)
+  $(error PMP_ENTRIES must be 8, 16 or unset (got "$(PMP_ENTRIES)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
-                     $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)))
+                     $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),+define+TG_PMP_ENTRIES=$(PMP_ENTRIES)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
-                     $(if $(STEER_LA),STEER_LA=$(STEER_LA)))
+                     $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)))
+# The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
+# set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
+# before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so
+# it cannot drift; tg_replay and tanager-lockstep, which have no RTL, take PMP_DEFAULT as their default.
+PMP_PKG_FILE := $(PROFILE_ROOT)/rtl/core/tg_core_pkg.sv
+PMP_PKG_HAS  := $(shell grep -qsE '^[[:space:]]*localparam[[:space:]]+int[[:space:]]+PMP_ENTRIES\b' $(PMP_PKG_FILE) && echo 1)
+PMP_PKG      := $(shell sed -n -E 's/^[[:space:]]*localparam[[:space:]]+int[[:space:]]+PMP_ENTRIES[[:space:]]*=[[:space:]]*([0-9]+)[[:space:]]*;.*/\1/p' $(PMP_PKG_FILE) 2>/dev/null)
+ifneq ($(PMP_PKG_HAS),)
+  ifneq ($(words $(PMP_PKG)),1)
+    $(error sim/profile.mk: expected one line `localparam int PMP_ENTRIES = N;` (the default) in rtl/core/tg_core_pkg.sv, found "$(PMP_PKG)": lockstep's PMP regions come from it)
+  endif
+endif
+PMP_DEFAULT := $(or $(PMP_PKG),16)
+PMP_RTL     := $(or $(PMP_ENTRIES),$(PMP_DEFAULT))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=

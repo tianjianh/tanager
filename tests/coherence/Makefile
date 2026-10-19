@@ -52,7 +52,7 @@ run:
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/tests/unit/boot build CFG=$(CFG) CORES=2 VTHREADS=1 JOBS=$(JOBS) $(TC_ARG) \
 	  $(if $(L2TAG),TAG=$(L2TAG) MEM_PARAMS="$(TBPARAMS)")
 	$(if $(filter 1,$(LOCKSTEP)),@$(MAKE) --no-print-directory -s -C $(ROOT)/sim lockstep)
-	python3 $(ROOT)/tests/coherence/run_coh.py --tb $(TB) $(if $(filter 1,$(LOCKSTEP)),--lockstep $(LS)) \
+	python3 $(ROOT)/tests/coherence/run_coh.py --tb $(TB) $(if $(filter 1,$(LOCKSTEP)),--lockstep $(LS) --pmp $(PMP_RTL)) \
 	  --harts $(HARTS) --modes $(MODES) --lat $(LAT) --max-mcycles 1 --n $(N) --seed $(SEED) --jobs $(JOBS) \
 	  --workdir $(WORK) --name "coherence $(CFG)$(TC_SUFFIX), L2 $(L2_SETS) sets$(if $(filter 1,$(HDMA)), with the host-DMA model)"
 

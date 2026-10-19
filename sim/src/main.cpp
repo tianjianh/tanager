@@ -33,9 +33,6 @@
 #ifndef TG_DEFAULT_PRIV
 #define TG_DEFAULT_PRIV "M"
 #endif
-#ifndef TG_DEFAULT_PMP
-#define TG_DEFAULT_PMP 16
-#endif
 #ifndef TG_CORE_NAME
 #define TG_CORE_NAME "tg_core"
 #endif
@@ -55,7 +52,8 @@ struct opts_t {
   std::string isa = TG_DEFAULT_ISA, priv = TG_DEFAULT_PRIV;
   uint64_t seed = 1;
   unsigned history = 32;
-  unsigned pmp = TG_DEFAULT_PMP, pmp_g = 4;
+  int pmp = -1;  // Spike's PMP regions are the core's PMP entries (DR-167): --pmp may only repeat the count
+  unsigned pmp_g = 4;
   bool pmp_reset_off = false;
   int harts = -1;
   uint64_t mem_mb = 1024;  // the PMA's memory region, 1 GiB at 0x8000_0000 (tg_map_pkg DRAM_REGION; DR-151)
@@ -83,7 +81,8 @@ void usage() {
           "  snapshots:   --snap-every=N [--snap-keep=K] [--snap-fst=FILE] [--snap-margin=N]: on a failure, replay\n"
           "               from the newest snapshot and write FILE with the waveform up to the failure\n"
           "  lockstep:    --lockstep | --no-lockstep, --isa=STR --priv=STR --harts=N --history=N\n"
-          "               --pmp=N --pmp-g=BYTES --pmp-reset=spike|off\n"
+          "               --pmp-g=BYTES --pmp-reset=spike|off; Spike has as many PMP regions as the core has\n"
+          "               entries (tg_core_pkg::PMP_ENTRIES, DR-167): --pmp=N must name that count\n"
           "  memory:      --lat=native|90|120|250|N --lat-jitter=N --bp=PCT --d-gap=PCT --grant-b=PCT\n"
           "               --probe-rate=PERMILLE --probe-miss=PCT --probe-grant=PCT --probe-release=PCT\n"
           "               --grant-order=oldest|random|youngest --set-stride=BYTES --mmio-lat=N --d-stall-max=N\n"
@@ -147,7 +146,11 @@ opts_t parse(int argc, char** argv, model_cfg_t& mc) {
     else if (k == "priv") o.priv = need();
     else if (k == "harts") o.harts = int(num(need(), "--harts"));
     else if (k == "history") o.history = unsigned(num(need(), "--history"));
-    else if (k == "pmp") o.pmp = unsigned(num(need(), "--pmp"));
+    else if (k == "pmp") {
+      uint64_t n = num(need(), "--pmp");
+      if (n > 64) fatal("--pmp is 0..64");
+      o.pmp = int(n);
+    }
     else if (k == "pmp-g") o.pmp_g = unsigned(num(need(), "--pmp-g"));
     else if (k == "pmp-reset") {
       need();
@@ -345,7 +348,13 @@ int main(int argc, char** argv) {
     lc.hartids.clear();
     for (unsigned i = 0; i < nh; i++) lc.hartids.push_back(hw.core_id * hw.num_threads + i);
     lc.boot_pc = t.boot_addr;
-    lc.pmp_regions = o.pmp;
+    // DR-167: as many PMP regions as the core has entries, as the RTL reports them (tg_dpi_config), so
+    // that a runner's argument cannot drift from the build
+    if (o.pmp >= 0 && unsigned(o.pmp) != hw.pmp_entries)
+      fatal("--pmp=%d, but this %s has %u PMP entries (DR-167): Spike takes the RTL's count, so drop --pmp%s",
+            o.pmp, TG_CORE_NAME, hw.pmp_entries,
+            strcmp(TG_CORE_NAME, "tg_core") ? "" : strfmt(" (or build the core with PMP_ENTRIES=%d)", o.pmp).c_str());
+    lc.pmp_regions = hw.pmp_entries;
     lc.pmp_granularity = o.pmp_g;
     lc.pmp_reset_off = o.pmp_reset_off;
     lc.history = o.history;
