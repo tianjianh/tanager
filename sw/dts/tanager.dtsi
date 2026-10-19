@@ -381,17 +381,17 @@
 
 #endif
 #if TG_ETH
-	// GEM3's: gem3_ref (its hclk, tx_clk and rx_clk) at IOPLL / 8, gem_tsu as the A53's tree assigns it, IOPLL / 4
+	// GEM3's: gem3_ref (its hclk, tx_clk and rx_clk) and gem_tsu at the rates the A53's Linux reports (D5 step 0)
 	gem3_ref: clock-gem3-ref {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
-		clock-frequency = <124999998>;
+		clock-frequency = <124999999>;
 	};
 
 	gem_tsu: clock-gem-tsu {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
-		clock-frequency = <249999997>;
+		clock-frequency = <249999998>;
 	};
 
 #endif

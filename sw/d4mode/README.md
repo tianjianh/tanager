@@ -107,4 +107,37 @@ The package is step 5's with U-Boot d4 (`bash sw/build_uboot.sh d4`) as `payload
 
 **If Debian's kernel can't find its root,** the initramfs shell comes up on COM5 (dmesg there). Then `poweroff -f` (a reset, through `RESET_CTRL`) or the break gives ARM mode.
 
+## D5 step 2 on the board: Ethernet in RISC-V mode
+
+The plan is [soc-d5-gem3.md](../../docs/spec/soc-d5-gem3.md). The package is step 6's with two files changed:
+- `riscv.scr`: it takes GEM3's PHY out of reset before the park;
+- `tanager.dtb`: `ETH=1`, with the board's MAC (the A53's `eth0`'s).
+
+The bitstream, OpenSBI and U-Boot d4 are step 6's, and Debian needs nothing new.
+
+1. **`p1`:** `sudo cp tanager/* /boot/firmware/tanager/ && sync`, then check against SHA256SUMS.
+2. **Loggers:** COM5 and COM7 as for step 6. The laptop's Ethernet adapter stays connected (the link partner, and DHCP from its connection sharing).
+3. `sudo tanager-mode riscv`, `sync`, `sudo reboot`. COM5 shows Debian's boot, now with:
+   - `macb ff0e0000.ethernet eth0: Cadence GEM rev … (00:0a:35:2a:df:d8)`;
+   - the DP83867 at address 1;
+   - `eth0: Link is Up - 1Gbps/Full`;
+   - networkd's DHCP lease.
+4. **Checks in Debian** (COM5):
+   - `ip -br addr`: eth0 up with an address from the laptop, likely the A53's usual one, since the MAC is the same;
+   - `cat /sys/class/net/eth0/speed`: 1000;
+   - `ping -c 5` the laptop's address;
+   - `sudo dmesg | grep -i -e macb -e dp83867 -e eth0`.
+5. **From the laptop:**
+   - SSH into the RISC-V's Debian over Ethernet.
+   - Throughput: `scp` a 100 MB file each way (made with `dd if=/dev/urandom`), and `apt-get update` in Debian. Note the rates, against stage C's virtio-net (1.3 MB/s, guest-bound).
+6. **The reboot** comes back to RISC-V mode with the network. Then `sudo tanager-mode arm` and a reboot give Ubuntu, with its own Ethernet as before.
+
+**Ethernet plays no part in booting.** Without it Debian runs anyway, and the dmesg lines say where it stopped:
+- no macb probe: the tree;
+- no PHY found: its reset or MDIO;
+- no link: the delays or the partner;
+- no lease: networkd.
+
+`tanager-mode arm` and a reboot, or the break, gives Ubuntu.
+
 **U-Boot's hush:** an apostrophe inside double quotes is a syntax error, after which U-Boot crashes (the QEMU test found it). No string in these scripts has one.
