@@ -95,7 +95,8 @@ def git(*args, env=None):
 
 # The make variables of sim/profile.mk this check can force, with each one's tag in the cache key (the order
 # keeps the keys of builds made before the later ones were added)
-PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"))
+PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
+                ("STA_BASE", "sb"), ("STEER_LA", "sl"))
 
 
 def profile_takes(ref, var):
@@ -622,6 +623,12 @@ def main():
                     help="build both sides with M6's speculative load wakeup off or on (DR-153; default: the package's)")
     ap.add_argument("--branch-spec-wake", type=int, choices=(0, 1), default=None,
                     help="this side's only: 1 against a base without it measures the feature's cycles")
+    ap.add_argument("--sta-base", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M6's store address on its base alone off or on (DR-169; default: the package's)")
+    ap.add_argument("--branch-sta-base", type=int, choices=(0, 1), default=None, help="this side's only")
+    ap.add_argument("--steer-la", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M6's ALU-queue steering a group ahead off or on (DR-169; default: the package's)")
+    ap.add_argument("--branch-steer-la", type=int, choices=(0, 1), default=None, help="this side's only")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -664,7 +671,8 @@ def main():
         f"{': ' + ', '.join(c[4:] for c in changed[:6]) if changed else ''}{' ...' if len(changed) > 6 else ''}")
     # Each profile variable: both sides' value, and this side's own if it has one
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
-            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake)}
+            "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
+            "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:
