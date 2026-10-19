@@ -154,10 +154,43 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
   - **Segment b:** 2 of 2 passes clean (117 s each), stopped with `q` at 18:02 for D5's step 2 ([`uart_COM5_s16boot2.txt`](uart_COM5_s16boot2.txt), [`uart_COM5_s16b.txt`](uart_COM5_s16b.txt), [`uart_COM5_s16bstop.txt`](uart_COM5_s16bstop.txt), [`uart_COM5_s16bstop2.txt`](uart_COM5_s16bstop2.txt)).
     - **The stop needed a second try.** After `q` the shell printed two prompts, and the second arrived while `sudo tanager-mode arm` was being typed. So `sudo reboot` went out as typeahead, and sudo discarded it. The record was arm, but Debian kept running.
     - A second session sent the reboot. `serial_expect2.ps1` now drains the line for 0.7 s before each send, and it also no longer cuts a command at its first `|`: a step's text runs to the end of the line.
-  - **s16 in all:** 9 of 9 passes clean in RISC-V mode, at 116.7 s per pass.
+  - **Segments a and b together:** 9 of 9 passes clean, at 116.7 s per pass.
 - **s17 (d4s2, stage C):** from 18:18 UTC (the A53's clock, then 7 minutes behind the laptop's), while the SoC track fixes D5's `riscv.scr`.
 - **s17 (d4s2, stage C):** 6 of 6 passes clean at 115 s per pass (cpu 93.9, memory 114.8, threads 2,325).
   - The first `q` was lost: it reached the console before the stress loop had started.
   - A second `q` stopped it at 18:40 for D5's step 2 ("STRESS stop after pass 6, fails=0").
-  - Its stage C logs stay on the A53 until the next ARM-mode window.
-- **s16, segment c (RISC-V mode, now with Ethernet up):** the stress from 19:02:42 UTC. The guest's clock is NTP-synced now (`STRESS start 2026-10-19T18:59:16Z`).
+  - Logs, fetched in the next ARM-mode window: [`linux_shell_stress_s17.txt`](linux_shell_stress_s17.txt), monitor [`stress_monitor_s17.txt`](stress_monitor_s17.txt), run log [`stress_s17.txt`](stress_s17.txt). Over the six passes: 115.2 s, cpu 93.88 events/s, memory 114.81 MiB/s, threads 2,325 events.
+- **s16, segment c (RISC-V mode, now with Ethernet up):** the stress from 19:02:42 UTC, after D5's step 2 pass.
+  - **63 of 63 passes clean.** Stopped with `q` at 21:06 UTC for the final bitstream ("STRESS stop after pass 63, fails=0"). The record was set to arm, and Debian's reboot gave Ubuntu back at 21:08.
+  - **The guest's clock was stepped during pass 1.** At boot it starts from the time `systemd-timesyncd` saved at the last shutdown (`System time advanced to timestamp on /var/lib/systemd/timesync/clock: ... 18:57:34 UTC`), so it ran 3.4 minutes behind (`STRESS start 2026-10-19T18:59:16Z`) until the first sync. Pass 1 reads 320 s on the guest's clock and 117 s by its uptime.
+  - **Passes 2–4 overlapped the network check's two tries** (19:05 and 19:07, [`../d5/README.md`](../d5/README.md)): cpu 52–71 events/s, threads 706–2,298. They are left out of the steady numbers.
+  - **Steady, over the other 60 passes** (pass 1's time left out): 116.6 s per pass (116–117), cpu 93.42 events/s, memory 112.34 MiB/s, threads 2,303 events.
+  - **Against stage C on the same bitstream (s17):**
+    - The pass is 1.2% longer.
+    - cpu is 0.5% lower, memory 2.2% lower, and threads 0.9% lower.
+    - Segment a's gaps (cpu 1.2%, memory 2.4%, threads 2.3%, over 7 passes) narrowed for cpu and threads; memory's stays at about 2%.
+  - Logs: [`uart_COM5_s16c_boot.txt`](uart_COM5_s16c_boot.txt) (the boot, with D5's Ethernet), [`uart_COM5_s16c_start.txt`](uart_COM5_s16c_start.txt), [`uart_COM5_s16c.txt`](uart_COM5_s16c.txt), [`uart_COM5_s16c_stop.txt`](uart_COM5_s16c_stop.txt).
+  - The numbers come from [`../runs/riscv_soak_report.sh`](../runs/riscv_soak_report.sh), written for the 24-hour soak. It times each pass by the guest's uptime as well as its clock, flags passes where the two disagree (a clock step), and leaves out the passes that a network check overlapped.
+- **s16 in all:** 72 of 72 passes clean in RISC-V mode (segments a, b and c) on d4s2, about 2.4 hours under stress.
+
+## Run s18: d4r1 in stage C, then the 24-hour soak in RISC-V mode (s19)
+
+- **s18 (d4r1, stage C):** load 21:21:46 UTC. This is d4r1's first Debian boot (from p3, under `tanager-host`): the standing rule boots a new bitstream in stage C before RISC-V mode depends on it.
+  - **2 of 2 passes clean:** 115 and 114 s; cpu 93.92 and 94.39 events/s, memory 137.99 and 138.61 MiB/s, threads 2,334 and 2,349 events.
+  - **Memory is 20.5% above d4s2's** (s17: 114.81 MiB/s). sysbench's memory test writes, and d4r1 adds the store prefetch ([`../d4r1/README.md`](../d4r1/README.md)). cpu and threads moved by under 1%.
+  - Stopped with `q` at 21:26 so the user could replug the laptop's Ethernet ("STRESS stop after pass 2, fails=0"). `k26-starter-kits` was back at 21:28:28.
+  - Logs: [`linux_shell_stress_s18.txt`](linux_shell_stress_s18.txt), monitor [`stress_monitor_s18.txt`](stress_monitor_s18.txt), run log [`stress_s18.txt`](stress_s18.txt).
+- **s19 (d4r1, RISC-V mode): the 24-hour soak.** The product mode on the final bitstream: Debian 13 from p3 through SD1, the A53 parked, Ethernet up (D5). The coordinator's plan, with the hourly network check.
+  - **Install:** `d4r1-riscv` on p1 with [`../runs/d4m_step6.sh`](../runs/d4m_step6.sh) `install` (`K=~/tanager/d4r1-riscv-pkg/d4r1-riscv`). All six files match the package.
+    - Against D5's files, only `tanager.bit.bin` changed (d4s2 to d4r1), and `riscv.scr`'s mkimage header (its timestamp and CRC). The script inside is byte-identical to D5's fixed one.
+    - The tool and the hook match the package. The record was set to riscv at 21:29:33 UTC, and the A53 rebooted.
+  - **The boot:**
+    - COM7: the hook, `riscv.scr`, the host bridge, then the A53's park.
+    - COM5: OpenSBI v1.9, U-Boot d4, then Debian 6.12.113. `/init` at 18.9 s, eth0 linked at 1 Gb/s at 128 s, the autologin by 21:32:44.
+    - Over SSH by name: eth0 192.168.137.111/24 (DHCP), and timesyncd synced at 181 s up. So the stress started with the guest's clock right, within 1 s of the laptop's.
+    - Logs: [`uart_COM5_s19_boot.txt`](uart_COM5_s19_boot.txt), [`uart_COM5_s19_start.txt`](uart_COM5_s19_start.txt).
+  - **The stress from 21:33:48 UTC** (`STRESS start 2026-10-19T21:33:48Z up=211.12`), driven on COM5 as s16 was. The laptop logs COM5 and COM7 and runs [`../runs/riscv_stress_watch.sh`](../runs/riscv_stress_watch.sh).
+  - **The network check:** [`../runs/riscv_net_check.sh`](../runs/riscv_net_check.sh) from 22:03:48 UTC, every hour, 24 checks.
+    - It now keeps to a fixed hourly schedule: under the stress a check takes about 3 minutes, which had pushed each next check later.
+    - It logs the guest's uptime around each check. [`../runs/riscv_soak_report.sh`](../runs/riscv_soak_report.sh) leaves the overlapped passes out of the steady numbers and lists the checks on their own.
+  - **The end:** 24 hours at 21:33:48 UTC on 10-20, or the first failure. The report gives the stress's steady numbers and, separately, the network checks' count, failures and transfer-rate range.
