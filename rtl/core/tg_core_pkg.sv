@@ -187,7 +187,7 @@ package tg_core_pkg;
 `ifdef TG_DTLB_LQ_RETRY
   localparam bit DTLB_LQ_RETRY = `TG_DTLB_LQ_RETRY;
 `else
-  localparam bit DTLB_LQ_RETRY = 1'b0;
+  localparam bit DTLB_LQ_RETRY = 1'b1;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
