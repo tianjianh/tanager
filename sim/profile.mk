@@ -27,11 +27,27 @@ SPEC_WAKE ?=
 ifneq ($(filter-out 0 1,$(SPEC_WAKE)),)
   $(error SPEC_WAKE must be 0, 1 or unset (got "$(SPEC_WAKE)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))
+# M6's store address on its base alone, 0 or 1 (+define+TG_STA_BASE, tg_core_pkg::STA_BASE; DR-169): on by
+# default; 0 gives the wait for the store's data as before. Not cycle-exact; runs programs.
+STA_BASE ?=
+ifneq ($(filter-out 0 1,$(STA_BASE)),)
+  $(error STA_BASE must be 0, 1 or unset (got "$(STA_BASE)"))
+endif
+# M6's ALU-queue steering a group ahead, 0 or 1 (+define+TG_STEER_LA, tg_core_pkg::STEER_LA; DR-169): on by
+# default; 0 steers on the one bank-free flag as before. Not cycle-exact; runs programs.
+STEER_LA ?=
+ifneq ($(filter-out 0 1,$(STEER_LA)),)
+  $(error STEER_LA must be 0, 1 or unset (got "$(STEER_LA)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
-                     $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)))
+                     $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
+                     $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
+                     $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
-                     $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)))
+                     $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
+                     $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
+                     $(if $(STEER_LA),STEER_LA=$(STEER_LA)))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=

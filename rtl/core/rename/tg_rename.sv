@@ -62,6 +62,7 @@ module tg_rename
   input  sqid_t          sq_cmt,      // first uncommitted SQ entry
   // Issue state
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free,
+  input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free2,  // at least two rows free (STEER_LA)
   input  logic [NCOL-1:0] w_vec,
   input  logic [NCOL-1:0] busy,         // IDs a queued row still depends on: not reallocated
   // Register-file writes (ready bits), LLT releases, divides leaving the divider
@@ -404,6 +405,17 @@ module tg_rename
   logic          rn_ok_ref;         // the compares the flags replace (checked below)
 `endif
 
+  // The ALU-queue banks the steering may take (STEER_LA): the flags count a bank's free rows after the
+  // last dispatch, not the one in DS now, so a bank whose last free row the DS op in this slot takes
+  // is full for the group behind it: it needs a second free row (DS fires before RN's group reaches
+  // it; when DS holds, RN holds too and steers again)
+  logic [N_IQ-1:0][W-1:0] st_free;
+  always_comb
+    for (int p = 0; p < N_IQ; p++)
+      for (int k = 0; k < W; k++)
+        st_free[p][k] = !STEER_LA ? iq_bank_free[p][k]
+                      : iq_bank_free2[p][k] ||
+                        (iq_bank_free[p][k] && !(ds_valid_q[k] && ds_ren_q[k].has_q && int'(ds_ren_q[k].q) == p));
   logic          rn_ok;             // resources available for the whole group
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] pops;
   always_comb begin
@@ -430,7 +442,7 @@ module tg_rename
           found = 1'b0;
           for (int j = 0; j < N_ALU; j++) begin
             p = (pref + j) % N_ALU;
-            if (!found && iq_bank_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
+            if (!found && st_free[p][k] && icv[p][idx_w(W)'(pops[p])]) begin   // fl_count[p] > pops[p]
               port = p;
               found = 1'b1;
             end
@@ -696,13 +708,15 @@ module tg_rename
     for (int k = 0; k < W; k++) begin
       if (ds_fire && ds_valid_q[k] && ds_ren_q[k].has_q) iq_we[ds_ren_q[k].q][k] = 1'b1;
       // A pending source waits on its producer's column, or on its row (MX); a 1-cycle
-      // producer whose row has been freed needs nothing
+      // producer whose row has been freed needs nothing. A store's data (its rs2) is not a source
+      // of its address op (STA_BASE): the SQ captures it when its register is written
       iq_dep[k] = '0;
       if (ds_ren_q[k].p1 && ds_ren_q[k].c1) iq_dep[k][wid_t'(ds_ren_q[k].w1)] = 1'b1;
-      if (ds_ren_q[k].p2 && ds_ren_q[k].c2) iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
+      if (ds_ren_q[k].p2 && ds_ren_q[k].c2 && !(STA_BASE && ds_uop_q[k].d.cls == C_ST))
+        iq_dep[k][wid_t'(ds_ren_q[k].w2)] = 1'b1;
       if (EXT_FD && ds_ren_q[k].p3 && ds_ren_q[k].c3) iq_dep[k][wid_t'(ds_ren_q[k].w3)] = 1'b1;
       iq_dep[k] &= ~w_vec;
-      iq_mdep[k] = mrow1[k] | mrow2[k];
+      iq_mdep[k] = mrow1[k] | ((STA_BASE && ds_uop_q[k].d.cls == C_ST) ? '0 : mrow2[k]);
       iq_pl[k] = '0;
       iq_pl[k].rob       = ds_ren_q[k].rob;
       iq_pl[k].tid       = ds_uop_q[k].tid;
