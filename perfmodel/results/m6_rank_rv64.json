@@ -61852,7 +61852,7 @@
   }
  },
  "boot": {
-  "tb_boot": {
+  "first 20M (tb_boot)": {
    "counters": {
     "cycles": 20098085,
     "instret": 16863795,
@@ -62047,7 +62047,7 @@
     ]
    }
   },
-  "board memory": {
+  "first 20M (board memory)": {
    "counters": {
     "cycles": 20097570,
     "instret": 16621936,
@@ -62239,6 +62239,201 @@
     "FENCE.I by generation": [
      346304,
      346304
+    ]
+   }
+  },
+  "to /init (as the board)": {
+   "counters": {
+    "cycles": 122326024,
+    "instret": 71662006,
+    "zc_fe_sweep": 353088,
+    "zc_fe_icmiss": 2846608,
+    "zc_fe_itlb": 125494,
+    "zc_fe_misp": 2463694,
+    "zc_fe_rpl": 373502,
+    "zc_fe_flush": 3304449,
+    "zc_fe_other": 16491066,
+    "zc_dtlb": 535738,
+    "zc_ld_miss": 20129336,
+    "zc_ld_stq": 165477,
+    "zc_ld_other": 7597502,
+    "zc_st": 3380359,
+    "zc_serial": 18362758,
+    "zc_exec": 3995331,
+    "zc_held": 296380,
+    "misp": 323322,
+    "misp_wait": 1575625,
+    "mw_0_2": 217033,
+    "mw_3_5": 67495,
+    "mw_6_10": 14893,
+    "mw_11_20": 5383,
+    "mw_21_50": 13413,
+    "mw_51_100": 4238,
+    "mw_gt100": 867,
+    "rt_ld": 28942,
+    "rt_ld_head": 693297,
+    "rt_ld_stall": 478929,
+    "rt_ld_save": 366005,
+    "rt_st": 4359,
+    "rt_st_head": 74757,
+    "rt_st_stall": 52494,
+    "rt_st_save": 35084,
+    "rt_ended_by_flush": 0,
+    "fencei": 5516,
+    "sweep_cyc": 353088,
+    "ref_seqref": 218739,
+    "ref_seqdl": 120533,
+    "ref_other": 246008,
+    "park_seqref": 3511231,
+    "park_seqdl": 1856967,
+    "park_other": 3832587,
+    "park_zc_seqref": 2127082,
+    "park_zc_seqdl": 786727,
+    "park_zc_other": 2574428,
+    "ovr_br": 1700607,
+    "ovr_ret": 729018,
+    "ovr_strad": 177070,
+    "ub64_br": 237045,
+    "ub128_br": 570922,
+    "ub256_br": 812935,
+    "ub64_ret": 71780,
+    "ub128_ret": 246472,
+    "ub256_ret": 393841,
+    "ub64_strad": 64,
+    "ub128_strad": 8459,
+    "ub256_strad": 23314,
+    "occ0": 69285472,
+    "occ1": 37523554,
+    "occ2": 13613132,
+    "occ3": 1896721,
+    "occ4": 7145,
+    "rq": 7731591,
+    "rq_full": 2394,
+    "rq_none": 5296232,
+    "ld_wait_full": 5981,
+    "zc_wait_full": 131,
+    "dr_wait": 34690688,
+    "dr_line": 32267864,
+    "dr_entry": 490,
+    "rob_full": 5989948,
+    "rob_full_ldmiss": 4535213,
+    "rob_full_oth": 1126778,
+    "sq_full": 24607347,
+    "sq_full_stmiss": 23035343,
+    "zc_held_trace": 4464820,
+    "held_flush": 287087,
+    "held_notready": 0,
+    "held_replay": 9293,
+    "held_st_s2": 0,
+    "held_st_s3": 0,
+    "held_rpmark": 0,
+    "held_other": 0,
+    "notready_cyc": 0,
+    "ev_steady": 0,
+    "ev_fl_misp": 323322,
+    "ev_fl_rpl": 42755,
+    "ev_fl_oth": 391138,
+    "ev_dred": 5,
+    "ev_miss_br": 1074273,
+    "ev_miss_jal": 606110,
+    "ev_miss_ret": 724492,
+    "ev_miss_jalr": 0,
+    "ev_miss_strad": 175060,
+    "ev_slot": 267545,
+    "ev_rastgt": 293200,
+    "ev_nt": 142586,
+    "ev_cut": 46175,
+    "ev_icmiss": 417566,
+    "ev_itlb": 16659,
+    "lost_steady": 3974325,
+    "lost_fl_misp": 1791166,
+    "lost_fl_rpl": 194944,
+    "lost_fl_oth": 2231918,
+    "lost_dred": 29,
+    "lost_miss_br": 1634725,
+    "lost_miss_jal": 1070909,
+    "lost_miss_ret": 900434,
+    "lost_miss_jalr": 0,
+    "lost_miss_strad": 244286,
+    "lost_slot": 229174,
+    "lost_rastgt": 305723,
+    "lost_nt": 74026,
+    "lost_cut": 42468,
+    "lost_icmiss": 11693415,
+    "lost_itlb": 404654,
+    "bogus": 473,
+    "ftq_full": 5307162,
+    "icmiss_cyc": 8580924,
+    "itlb_cyc": 171302,
+    "dec_rule": 658493,
+    "take0": 11837175,
+    "take1": 1776339,
+    "take2": 38825495,
+    "avail0": 11994602,
+    "avail1": 1218600,
+    "avail2": 109112822,
+    "s_f2v0": 1698299,
+    "s_hold": 104882,
+    "s_del": 209673,
+    "w_cyc": 79340005,
+    "w_del": 9450299,
+    "w_ins": 36155694,
+    "a_del": 23933400,
+    "a_ins": 90803993,
+    "e_f1v": 1370438,
+    "e_stop": 7,
+    "e_ivs": 176544,
+    "e_pmp": 0,
+    "e_miss": 0,
+    "e_walk": 0,
+    "e_oth": 151310,
+    "n_icinv": 5516,
+    "c_ivs": 353088
+   },
+   "pieces": {
+    "Checkpoints (4)": [
+     1898947,
+     1898947
+    ],
+    "8 L1D misses": [
+     131,
+     5981
+    ],
+    "16 L1D misses": [
+     131,
+     5981
+    ],
+    "Ownership prefetch for stores": [
+     7642273.091376226,
+     23035343
+    ],
+    "Early retirement": [
+     null,
+     4535213
+    ],
+    "I$ next-line + 2 refills": [
+     2127082,
+     2913809
+    ],
+    "I$ FDIP + next-line + 4 refills": [
+     2913809,
+     5488237
+    ],
+    "Micro-BTB 128": [
+     383207.8154334105,
+     383207.8154334105
+    ],
+    "Micro-BTB 256": [
+     679987.2668305548,
+     679987.2668305548
+    ],
+    "DTLB retry from the LQ": [
+     366005,
+     1172226
+    ],
+    "FENCE.I by generation": [
+     353088,
+     353088
     ]
    }
   }

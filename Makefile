@@ -28,11 +28,11 @@ SYNTH_MODELS := $(addprefix tests/unit/prim/models/,RAM32M16.sv RAM64M8.sv RAM64
 SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/synth.vlt \
                  tools/ci/synth_lint/xilinx_stubs.sv $(SYNTH_MODELS))
 
-.PHONY: lint lint-all regress regress-profiles cycle-identical perf
+.PHONY: lint lint-all regress regress-profiles cycle-identical perf boot-lockstep boot-lockstep-gate
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -50,7 +50,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -67,7 +67,8 @@ regress-profiles:
 # SPEC_WAKE=0|1 or BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, STA_BASE=0|1 or BRANCH_STA_BASE=0|1 M6's
 # store address on its base alone, STEER_LA=0|1 or BRANCH_STEER_LA=0|1 M6's ALU-queue steering a group ahead
 # (DR-169), PMP_ENTRIES=8|16 or BRANCH_PMP_ENTRIES=8|16 the core's PMP entries (DR-167; each side's lockstep
-# follows its model), on the boot too; HARNESS=auto|branch|own picks the base side's sim/.
+# follows its model), STORE_PF=0|1 or BRANCH_STORE_PF=0|1 M6's ownership prefetch for stores (DR-171), on the boot
+# too; HARNESS=auto|branch|own picks the base side's sim/.
 cycle-identical:
 	@python3 tools/ci/cycle_identical.py --cfg "$(CFG)" $(if $(BASE),--base "$(BASE)") $(if $(BRANCH),--branch "$(BRANCH)") \
 	  $(if $(SUITES),--suites "$(SUITES)") $(if $(RANDN),--randn $(RANDN)) $(if $(JOBS),--jobs $(JOBS)) \
@@ -80,7 +81,25 @@ cycle-identical:
 	  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(BRANCH_STA_BASE),--branch-sta-base $(BRANCH_STA_BASE)) \
 	  $(if $(STEER_LA),--steer-la $(STEER_LA)) $(if $(BRANCH_STEER_LA),--branch-steer-la $(BRANCH_STEER_LA)) \
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
+	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
+
+# The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
+# (sim/tb/tg_soc_tap.sv) streams every core's records into tanager-lockstep as the boot runs, at the untraced
+# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2), MCYC million cycles (100), TIMING the DDR
+# timing of each run, side by side (board, jitter, fixedN, default), SEED; the profile switches as
+# cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
+# BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
+BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC)) $(if $(SEED),--seed $(SEED)) \
+  $(if $(JOBS),--jobs $(JOBS)) $(if $(BOOT_FW),--boot-fw "$(BOOT_FW)") $(if $(BOOT_KERNEL),--boot-kernel "$(BOOT_KERNEL)") \
+  $(if $(TIMING_CUTS),--timing-cuts $(TIMING_CUTS)) $(if $(DC_MSHRS),--dc-mshrs $(DC_MSHRS)) \
+  $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \
+  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
+  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF))
+boot-lockstep:
+	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
+boot-lockstep-gate:
+	@python3 tools/ci/boot_lockstep.py --gate $(if $(BASE),--base "$(BASE)") $(BOOT_LS_ARGS)
 
 # M6's per-feature measurement (DR-153; docs/spec/verification.md §4.2): CoreMark A/B and Dhrystone, each
 # program's timed-region cycles and IPC on this tree's RTL (or BRANCH's) and on BASE (default main), and the
@@ -95,4 +114,5 @@ perf:
 	  $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) $(if $(BRANCH_SPEC_WAKE),--branch-spec-wake $(BRANCH_SPEC_WAKE)) \
 	  $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(BRANCH_STA_BASE),--branch-sta-base $(BRANCH_STA_BASE)) \
 	  $(if $(STEER_LA),--steer-la $(STEER_LA)) $(if $(BRANCH_STEER_LA),--branch-steer-la $(BRANCH_STEER_LA)) \
-	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES))
+	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
+	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF))

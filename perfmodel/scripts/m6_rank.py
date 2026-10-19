@@ -124,14 +124,17 @@ def bench(pieces, bdir, workers, extra=None):
 
 
 def boot_log(path):
-    """The boot profile's counters (prof_m6.sv's smt2_prof_m6 line, and prof_f2cut.sv's smt2_prof_f2 if bound)."""
+    """The boot profile's counters (prof_m6.sv's smt2_prof_m6 line, and prof_f2cut.sv's smt2_prof_f2 if bound). With
+    two cores each prints a line: the boot core's is the one that retired (delivered) the most."""
     t = open(path, errors="replace").read()
     d = {}
-    for tag in ("smt2_prof_m6", "smt2_prof_f2"):
-        m = re.search(tag + r": (.*)", t)
-        if m:
+    for tag, most in (("smt2_prof_m6", "instret"), ("smt2_prof_f2", "a_ins")):
+        lines = []
+        for m in re.finditer(tag + r": (.*)", t):
             toks = m.group(1).split()
-            d.update({toks[i]: int(toks[i + 1]) for i in range(0, len(toks) - 1, 2)})
+            lines.append({toks[i]: int(toks[i + 1]) for i in range(0, len(toks) - 1, 2)})
+        if lines:
+            d.update(max(lines, key=lambda x: x.get(most, 0)))
     return d
 
 
@@ -198,7 +201,7 @@ def rfo_realization(base, rfo):
 def print_boot(boots, r_rfo):
     names = list(boots)
     print(f"\nThe ownership prefetch's realization in the model (ws_copy): {r_rfo:.2f} of the SQ-full cycles.")
-    print("\n**The boot (RTL, main 31e65c6, st, the first 20M cycles): cycles without a commit, by the ROB head**\n")
+    print("\n**The boot (RTL; each log's own build and window): cycles without a commit, by the ROB head**\n")
     print("| Cause | " + " | ".join(names) + " |")
     print("|---|" + "---|" * len(names))
     print("| Instructions retired | " + " | ".join(f"{boots[n]['instret']:,}" for n in names) + " |")
