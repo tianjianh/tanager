@@ -10,6 +10,7 @@ default and every fallback.
 | `ubootenv.d-tanager-mode` | the mode check, a flash-kernel hook: `/etc/flash-kernel/ubootenv.d/tanager-mode`, put in at the top of `boot.scr.uimg` |
 | `riscv-stub.cmd` | step 4's `p1:/tanager/riscv.scr`: says it ran, and returns |
 | `riscv.cmd` | steps 5 and 6's `riscv.scr`: the bitstream, the PL clock, the fabric widths, a `pl_resetn0` pulse, the host bridge, SD1's tap delays, the DRAM window and `BOARD_CTRL`, the images, the release, the A53's park in OCM. Any failure before the release returns, and Ubuntu boots |
+| `rvtest/` | step 5's test image in U-Boot's place (S-mode at `0x8020_0000`): hello on COM5 and UART1, then SBI SRST (OpenSBI's syscon-reboot: `RESET_CTRL`), then `RESET_CTRL` itself, then a request for the PMOD break. `make -C sw/d4mode/rvtest`; on QEMU it runs through to SRST |
 | `install.sh` | installs the tool, the hook and `p1:/tanager/` on Ubuntu, keeping `boot.scr.uimg` and `image.fit` as `*.tanager-pre`; `--undo` takes the hook out |
 | `tanager-mode-confirm.service` | Debian's unit for RISC-V mode: trial back to 0 on a clean shutdown |
 | `build.sh` | the package: `riscv.scr` by mkimage, and the files above |
