@@ -1,0 +1,30 @@
+D4's RISC-V mode (docs/spec/soc-d4-modes.md): the Arasan SDHCI driver (zynq_sdhci) on RISC-V, where U-Boot in
+S-mode reads the KV260's card through the PS window. Kconfig allows it on RISCV; the ZynqMP-only header
+asm/arch/sys_proto.h, which RISC-V's generic arch lacks, is left out there. Everything else that needs the ZynqMP
+(the PMU firmware calls, the tap-delay and DLL code, the clock phases) is already under CONFIG_ARCH_ZYNQMP and
+compiles out, so the driver runs as a plain SDHCI with the tap delays riscv.scr set on the A53. Applied by
+sw/build_uboot.sh d4 with patch -p1 in U-Boot 2026.07's tree.
+
+--- a/drivers/mmc/Kconfig
++++ b/drivers/mmc/Kconfig
+@@ -778,7 +778,7 @@
+ config MMC_SDHCI_ZYNQ
+ 	bool "Arasan SDHCI controller support"
+ 	depends on OF_CONTROL
+-	depends on ARCH_VERSAL || ARCH_VERSAL_NET || ARCH_VERSAL2 || ARCH_ZYNQ || ARCH_ZYNQMP
++	depends on ARCH_VERSAL || ARCH_VERSAL_NET || ARCH_VERSAL2 || ARCH_ZYNQ || ARCH_ZYNQMP || RISCV
+ 	depends on MMC_SDHCI
+ 	help
+ 	  Support for Arasan SDHCI host controller on Zynq/ZynqMP ARM SoCs platform
+--- a/drivers/mmc/zynq_sdhci.c
++++ b/drivers/mmc/zynq_sdhci.c
+@@ -13,7 +13,9 @@
+ #include "mmc_private.h"
+ #include <log.h>
+ #include <reset.h>
++#ifndef CONFIG_RISCV
+ #include <asm/arch/sys_proto.h>
++#endif
+ #include <dm/device_compat.h>
+ #include <linux/err.h>
+ #include <linux/libfdt.h>

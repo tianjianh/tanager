@@ -1,0 +1,66 @@
+#!/bin/sh
+# tanager-mode: the KV260's boot mode record (docs/spec/soc-d4-modes.md), one raw sector, 2047, in the SD card's gap
+# before p1. The A53's U-Boot reads it in boot.scr.uimg's tanager-mode hook: RISC-V mode only for "riscv" with trial
+# 0, which it sets to 1 before it starts the RISC-V; anything else boots Ubuntu (ARM mode).
+#   tanager-mode [status]        print the record ("none" for no valid record)
+#   tanager-mode arm|riscv       write it, trial 0: the next boot's mode
+#   tanager-mode confirm         riscv with trial 1 -> trial 0 (Debian's clean shutdown in RISC-V mode); else nothing
+#   tanager-mode clear           zero the sector: no record, ARM mode
+# The record: "TANAGERM", the mode ('a' or 'r'), the trial flag ('0' or '1'), '\n', zeros to 512 bytes.
+# The card is the disk holding the root file system: it must be an mmcblk whose partition 1 starts at sector 2048,
+# so that sector 2047 is in no partition. Anything else is refused, stage C's virtio disk included (there sector
+# 2047 is inside Debian's file system). TANAGER_MODE_DISK=/dev/mmcblkN names the disk instead, with the same check.
+set -eu
+SECTOR=2047
+die() { echo "tanager-mode: $*" >&2; exit 1; }
+
+card() {
+  if [ -n "${TANAGER_MODE_DISK:-}" ]; then
+    d=${TANAGER_MODE_DISK#/dev/}
+  else
+    src=$(findmnt -n -o SOURCE /) || die "no root file system"
+    d=$(lsblk -n -o PKNAME "$src" 2>/dev/null | head -n 1)
+    [ -n "$d" ] || die "the root file system ($src) is on no partitioned disk"
+  fi
+  case "$d" in
+    mmcblk[0-9]|mmcblk[0-9][0-9]) ;;
+    *) die "/dev/$d is not an SD card (mmcblk)" ;;
+  esac
+  [ "$(cat "/sys/block/$d/${d}p1/start" 2>/dev/null)" = 2048 ] || die "/dev/$d's partition 1 doesn't start at sector 2048"
+  echo "/dev/$d"
+}
+
+# the record's first 10 bytes, unprintable ones as '.'
+read_rec() { dd if="$1" bs=512 skip=$SECTOR count=1 2>/dev/null | head -c 10 | tr -c 'A-Za-z0-9' '.'; }
+
+write_rec() {   # <disk> <mode char> <trial char>
+  printf 'TANAGERM%s%s\n' "$2" "$3" | dd of="$1" bs=512 seek=$SECTOR count=1 conv=sync,notrunc,fsync 2>/dev/null
+  sync
+}
+
+show() {
+  case "$1" in
+    TANAGERMa0) echo "arm" ;;
+    TANAGERMa1) echo "arm (trial 1)" ;;
+    TANAGERMr0) echo "riscv: the next boot starts the RISC-V" ;;
+    TANAGERMr1) echo "riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM" ;;
+    *) echo "none: the next boot is ARM" ;;
+  esac
+}
+
+cmd=${1:-status}
+case "$cmd" in
+  status|arm|riscv|confirm|clear) ;;
+  *) echo "usage: tanager-mode [status|arm|riscv|confirm|clear]" >&2; exit 2 ;;
+esac
+[ "$(id -u)" = 0 ] || die "run as root"
+dsk=$(card)
+rec=$(read_rec "$dsk")
+case "$cmd" in
+  status) ;;
+  arm) write_rec "$dsk" a 0 ;;
+  riscv) write_rec "$dsk" r 0 ;;
+  confirm) [ "$rec" = TANAGERMr1 ] && write_rec "$dsk" r 0 ;;
+  clear) dd if=/dev/zero of="$dsk" bs=512 seek=$SECTOR count=1 conv=notrunc,fsync 2>/dev/null; sync ;;
+esac
+echo "$dsk sector $SECTOR: $(show "$(read_rec "$dsk")")"

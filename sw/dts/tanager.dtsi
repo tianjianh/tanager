@@ -10,8 +10,14 @@
 //   TG_PMU (0|1)                                1 adds the riscv,pmu node (the bench image, DR-141)
 //   TG_UART1 (0|1)                              1 adds the PS's UART1 through the PS window as the stdout
 //                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
+//   TG_UART1_STDOUT (0|1)                       with TG_UART1, 0 keeps the stdout path on the PL UART (D4's
+//                                               RISC-V mode: Debian's plain earlycon follows it; default 1)
+//   TG_ETH (0|1)                                1 adds the PS's GEM3 and its PHY through the PS window (D5)
+//   TG_ETH_MAC                                  with TG_ETH, its MAC address as bytes ("00 0a 35 ...")
 //   TG_SD1 (0|1)                                1 adds the PS's SD1 through the PS window (stage D's D4)
 //   TG_INITRD (0|1)                             1 names tanager-host's initrd window in /chosen (D4)
+//   TG_BOARD_RESET (0|1)                        1 points reboot and poweroff at the board's reset, CRL_APB
+//                                               RESET_CTRL through the PS window (D4's RISC-V mode)
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
@@ -27,6 +33,15 @@
 #endif
 #ifndef TG_INITRD
 #define TG_INITRD 0
+#endif
+#ifndef TG_BOARD_RESET
+#define TG_BOARD_RESET 0
+#endif
+#ifndef TG_UART1_STDOUT
+#define TG_UART1_STDOUT 1
+#endif
+#ifndef TG_ETH
+#define TG_ETH 0
 #endif
 
 #if TG_FPU
@@ -196,12 +211,9 @@
 		};
 #endif
 
-#if TG_SD1
-		// The PS's SD1 through the PS window (docs/spec/soc.md §8.2, stage D's D4): the board's card, in the
-		// A53's mode (SD high-speed, 50 MHz, 3.3 V; D4's probe), PLIC source 21. Its DMA reaches the RISC-V's
-		// RAM through HPM1 and the host DMA port (D-c): bus address 0x5_0000_0000 + offset, coherent. The
-		// ZynqMP variant without #clock-cells: its quirks (default speed at 19 MHz, auto-CMD12 reads), no
-		// PMU firmware calls, and the tap delays the A53 left untouched.
+#if TG_SD1 || TG_ETH
+		// The PS's DMA masters through the PS window: their DMA reaches the RISC-V's RAM through HPM1 and the host
+		// DMA port (D-c): bus address 0x5_0000_0000 + offset, coherent.
 		ps-dma-bus {
 			compatible = "simple-bus";
 			#address-cells = <2>;
@@ -209,6 +221,11 @@
 			ranges;
 			dma-ranges = <0x5 0x0 0x0 0x80000000 (TG_MEM_SIZE >> 32) (TG_MEM_SIZE & 0xffffffff)>;
 
+#if TG_SD1
+			// SD1 (docs/spec/soc.md §8.2, stage D's D4): the board's card, in the A53's mode (SD high-speed,
+			// 50 MHz, 3.3 V; D4's probe), PLIC source 21. The ZynqMP variant without #clock-cells: its quirks
+			// (default speed at 19 MHz, auto-CMD12 reads), no PMU firmware calls, and the tap delays riscv.scr
+			// sets.
 			sd1: mmc@ff170000 {
 				compatible = "xlnx,zynqmp-8.9a", "arasan,sdhci-8.9a";
 				reg = <0x0 0xff170000 0x0 0x1000>;
@@ -221,6 +238,51 @@
 				no-1-8-v;
 				disable-wp;
 			};
+#endif
+#if TG_ETH
+			// GEM3 (D5, docs/spec/soc-d5-gem3.md): the board's Ethernet port, RGMII to the carrier's DP83867 at
+			// MDIO address 1 with the A53's tree's properties; riscv.scr takes the PHY out of reset, since the PS
+			// GPIO isn't in the PS window. Both queue interrupts on PLIC source 22. Fixed clocks, so the transmit
+			// clock can't follow a slower link: 1 Gb/s only. No resets or power domains: macb then calls nothing
+			// outside the GEM.
+			gem3: ethernet@ff0e0000 {
+				compatible = "xlnx,zynqmp-gem", "cdns,gem";
+				reg = <0x0 0xff0e0000 0x0 0x1000>;
+				interrupt-parent = <&plic>;
+				interrupts = <22>, <22>;
+				clocks = <&lpd_lsbus>, <&gem3_ref>, <&gem3_ref>, <&gem3_ref>, <&gem_tsu>;
+				clock-names = "pclk", "hclk", "tx_clk", "rx_clk", "tsu_clk";
+				phy-mode = "rgmii-id";
+				phy-handle = <&gem3_phy>;
+#ifdef TG_ETH_MAC
+				local-mac-address = [TG_ETH_MAC];
+#endif
+
+				mdio {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					gem3_phy: ethernet-phy@1 {
+						compatible = "ethernet-phy-id2000.a231";
+						reg = <1>;
+						ti,rx-internal-delay = <8>;
+						ti,tx-internal-delay = <10>;
+						ti,fifo-depth = <1>;
+						ti,dp83867-rxctrl-strap-quirk;
+					};
+				};
+			};
+#endif
+		};
+#endif
+
+#if TG_BOARD_RESET
+		// The board's reset (D4's RISC-V mode, docs/spec/soc-d4-modes.md): CRL_APB RESET_CTRL through the PS
+		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
+		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
+		crl_reset: syscon@ff5e0218 {
+			compatible = "syscon";
+			reg = <0x0 0xff5e0218 0x0 0x4>;
 		};
 #endif
 
@@ -255,6 +317,25 @@
 #endif
 	};
 
+#if TG_BOARD_RESET
+	// The KV260 can't power itself off: poweroff resets the board too, and the boot mode record says what comes
+	// next (Debian's clean shutdown keeps RISC-V mode; tanager-mode arm first gives Ubuntu)
+	poweroff {
+		compatible = "syscon-poweroff";
+		regmap = <&crl_reset>;
+		offset = <0x0>;
+		value = <0x10>;
+		mask = <0x10>;
+	};
+
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&crl_reset>;
+		offset = <0x0>;
+		value = <0x10>;
+		mask = <0x10>;
+	};
+#else
 	poweroff {
 		compatible = "syscon-poweroff";
 		regmap = <&TG_POWER_NODE>;
@@ -268,6 +349,7 @@
 		offset = <TG_POWER_OFFSET>;
 		value = <0x7777>;
 	};
+#endif
 
 #if TG_PMU
 	// OpenSBI's PMU event map (its riscv,pmu binding; OpenSBI removes the property before Linux sees
@@ -298,7 +380,22 @@
 	};
 
 #endif
-#if TG_UART1 || TG_SD1
+#if TG_ETH
+	// GEM3's: gem3_ref (its hclk, tx_clk and rx_clk) and gem_tsu at the rates the A53's Linux reports (D5 step 0)
+	gem3_ref: clock-gem3-ref {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <124999999>;
+	};
+
+	gem_tsu: clock-gem-tsu {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <249999998>;
+	};
+
+#endif
+#if TG_UART1 || TG_SD1 || TG_ETH
 	lpd_lsbus: clock-lpd-lsbus {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
@@ -313,7 +410,7 @@
 		linux,initrd-start = <0x0 0x88000000>;
 		linux,initrd-end = <0x0 0x8c000000>;
 #endif
-#if TG_UART1
+#if TG_UART1 && TG_UART1_STDOUT
 		stdout-path = "/soc/serial@ff010000";
 #else
 		stdout-path = "/soc/serial@10000000";

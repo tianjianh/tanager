@@ -84,6 +84,8 @@ module kv260_top
   logic [3:0]         usb0_ep_irq;    // USB0's endpoint interrupts: [0] is the host controller's line
   logic        ttc_fan, fan_pl_en_b;  // the fan (below): the A53's PWM, the regulator's output
   logic [31:0] fan_status;            // the regulator's status word, to the host bridge (FAN)
+  logic [1:0]  board_ctrl;            // the host's BOARD_CTRL: [0] the regulator ignores the A53's PWM ([1] is
+                                      // tanager_soc's own: the board's reset path)
 
   tg_ps_wrapper u_ps (
     .clk_core (clk_core),
@@ -248,7 +250,7 @@ module kv260_top
     .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
     .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
     .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
-    .board_status_i (fan_status),
+    .board_status_i (fan_status), .board_ctrl_o (board_ctrl),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .uart_txd_o (uart_txd), .uart_rxd_i (pmod_uart_rxd),
     .status_o (status)
@@ -282,13 +284,16 @@ module kv260_top
   assign ttc_fan = fan_wave[FAN_WAVE] ^ FAN_INVERT;          // the A53's PWM, low = on
   if (FAN_PL) begin : g_fan
     tg_fan #(.CLK_HZ (CORE_MHZ * 1_000_000)) u_fan (
-      .clk (clk_core), .rst (rst_core), .ttc_wave_i (ttc_fan), .fan_en_b_o (fan_pl_en_b), .status_o (fan_status)
+      .clk (clk_core), .rst (rst_core), .ttc_wave_i (ttc_fan), .ignore_ttc_i (board_ctrl[0]),
+      .fan_en_b_o (fan_pl_en_b), .status_o (fan_status)
     );
     assign fan_en_b = fan_pl_en_b;
   end else begin : g_fan_ttc
     assign fan_pl_en_b = 1'b1;
     assign fan_status  = '0;
     assign fan_en_b    = ttc_fan;
+    wire unused_fan = board_ctrl[0];
   end
   assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;
+  wire unused_board_ctrl = board_ctrl[1];
 endmodule

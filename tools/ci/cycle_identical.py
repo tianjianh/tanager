@@ -111,7 +111,7 @@ def git(*args, env=None):
 # The make variables of sim/profile.mk this check can force, with each one's tag in the cache key (the order
 # keeps the keys of builds made before the later ones were added)
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
-                ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"))
+                ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"))
 
 
 def profile_takes(ref, var):
@@ -670,6 +670,9 @@ def main():
                          "lockstep has as many PMP regions as its model reports")
     ap.add_argument("--branch-pmp-entries", type=int, choices=(8, 16), default=None,
                     help="this side's only: 16 against a base of 16 checks the switch at 16")
+    ap.add_argument("--store-pf", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M6's ownership prefetch for stores off or on (DR-171; default: the package's)")
+    ap.add_argument("--branch-store-pf", type=int, choices=(0, 1), default=None, help="this side's only")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -714,7 +717,8 @@ def main():
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
             "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
             "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la),
-            "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries)}
+            "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries),
+            "STORE_PF": (a.store_pf, a.branch_store_pf)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:

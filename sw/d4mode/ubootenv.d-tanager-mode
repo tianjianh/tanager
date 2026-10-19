@@ -1,0 +1,16 @@
+# tanager-mode (Tanager, docs/spec/soc-d4-modes.md; flash-kernel puts this file in at the template's
+# @@UBOOT_ENV_EXTRA@@, before the boot loop): the boot mode record in the card's sector 2047. A valid record saying
+# riscv with trial 0 gets trial 1 written back, then p1's tanager/riscv.scr starts the RISC-V and parks this A53.
+# Anything else, or riscv.scr returning, boots Ubuntu as before. The record is "TANAGERM", then 'r' and '0'.
+# Undo: delete /etc/flash-kernel/ubootenv.d/tanager-mode and run flash-kernel. (U-Boot's hush takes an apostrophe
+# inside double quotes as a syntax error and then crashes: none in strings.)
+if test "${devtype}" = "mmc" && mmc dev ${devnum} && mmc read 0x1f000000 0x7ff 1 && itest.l *0x1f000000 == 0x414e4154 && itest.l *0x1f000004 == 0x4d524547 && itest.b *0x1f000008 == 0x72 && itest.b *0x1f000009 == 0x30; then
+  echo "tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr"
+  mw.b 0x1f000009 0x31 1
+  if mmc write 0x1f000000 0x7ff 1 && load ${devtype} ${devnum}:${distro_bootpart} 0x21000000 tanager/riscv.scr; then
+    source 0x21000000
+  fi
+  echo "tanager-mode: the RISC-V did not start; booting Ubuntu"
+else
+  echo "tanager-mode: ARM mode"
+fi

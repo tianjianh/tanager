@@ -156,3 +156,8 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
     - A second session sent the reboot. `serial_expect2.ps1` now drains the line for 0.7 s before each send, and it also no longer cuts a command at its first `|`: a step's text runs to the end of the line.
   - **s16 in all:** 9 of 9 passes clean in RISC-V mode, at 116.7 s per pass.
 - **s17 (d4s2, stage C):** from 18:18 UTC (the A53's clock, then 7 minutes behind the laptop's), while the SoC track fixes D5's `riscv.scr`.
+- **s17 (d4s2, stage C):** 6 of 6 passes clean at 115 s per pass (cpu 93.9, memory 114.8, threads 2,325).
+  - The first `q` was lost: it reached the console before the stress loop had started.
+  - A second `q` stopped it at 18:40 for D5's step 2 ("STRESS stop after pass 6, fails=0").
+  - Its stage C logs stay on the A53 until the next ARM-mode window.
+- **s16, segment c (RISC-V mode, now with Ethernet up):** the stress from 19:02:42 UTC. The guest's clock is NTP-synced now (`STRESS start 2026-10-19T18:59:16Z`).

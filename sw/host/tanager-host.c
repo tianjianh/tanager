@@ -53,7 +53,7 @@ enum {
   R_HDMA_CTRL = 0x1300, R_HDMA_STATUS = 0x1304, R_HDMA_RD_LINES = 0x1308, R_HDMA_WR_LINES = 0x130C,
   R_HDMA_CPL0 = 0x1310, R_HDMA_CPL1 = 0x1314, R_HDMA_WR_DROPS = 0x1318,
   R_DBG_SEL = 0x1200, R_DBG_VAL = 0x1204,
-  R_FAN = 0x1400,
+  R_FAN = 0x1400, R_BOARD_CTRL = 0x1404,
 };
 #define TRS_EN         0x001u
 #define TRS_WRAP       0x002u
@@ -585,8 +585,11 @@ static void cmd_fan(void) {
     return;
   }
   double t = ((double)((v & 0x3ffu) << 6) + 32.0) * 509.314 / 65536.0 - 280.231;
-  printf("fan: PL die %.1f C, duty %u/255 (the larger of the curve's and the A53's), the A53's PWM %u/255%s\n", t,
-         (v >> 18) & 0xffu, (v >> 10) & 0xffu, v >> 26 & 1 ? "; the last SYSMON read timed out: full speed" : "");
+  /* BOARD_CTRL[0] (D4's RISC-V mode): the regulator ignores the A53's PWM, whose duty it still measures */
+  int alone = rd(R_BOARD_CTRL) & 1;
+  printf("fan: PL die %.1f C, duty %u/255 (%s), the A53's PWM %u/255%s\n", t, (v >> 18) & 0xffu,
+         alone ? "the curve's alone: BOARD_CTRL[0] ignores the A53's PWM" : "the larger of the curve's and the A53's",
+         (v >> 10) & 0xffu, v >> 26 & 1 ? "; the last SYSMON read timed out: full speed" : "");
 }
 
 static void check_id(void) {
@@ -653,14 +656,17 @@ static void cmd_load(const struct opts *o) {
   if (dram_bytes(o) < top || trace_bytes(o) >= o->size) die("carve-out too small");
   /* The kernel's whole image (its header's image_size, BSS included) must end below the DTB: the kernel
    * clears its BSS before it reads the tree. Debian's 6.12 kernel takes 30.4 of the 32 MiB. */
+  /* A file shorter than the header (a bare-metal program's empty slot, /dev/null) is no Linux image. */
   {
-    uint8_t h[64];
+    uint8_t h[64] = {0};
     int fd = open(o->kernel, O_RDONLY);
-    if (fd < 0 || read(fd, h, sizeof h) != (ssize_t)sizeof h) die("%s: %s", o->kernel, strerror(errno));
+    if (fd < 0) die("open %s: %s", o->kernel, strerror(errno));
+    ssize_t n = read(fd, h, sizeof h);
+    if (n < 0) die("read %s: %s", o->kernel, strerror(errno));
     close(fd);
     uint64_t isz;
     memcpy(&isz, h + 16, 8);
-    if (!memcmp(h + 48, "RISCV\0\0\0", 8) && isz > OFF_DTB - OFF_KERNEL)
+    if (n == (ssize_t)sizeof h && !memcmp(h + 48, "RISCV\0\0\0", 8) && isz > OFF_DTB - OFF_KERNEL)
       die("%s: image_size %" PRIu64 " reaches the DTB at +32 MiB", o->kernel, isz);
   }
   cmd_reset();

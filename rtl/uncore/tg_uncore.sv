@@ -88,6 +88,10 @@ module tg_uncore
   // L2 serves the host's reads and writes coherently; each write line's AccessAck cycle can be recorded
   // for lockstep (host bridge HDMA_*). Off by default: no logic, s_axi_dma_* ignored and its outputs 0
   parameter bit          HOST_DMA        = 1'b0,
+  // The PMOD reset hook (PS_WINDOW builds; docs/spec/soc-d4-modes.md): armed by BOARD_CTRL[1], a break on
+  // uart_rxd_i of 2^BREAK_LOG2 to 2^(BREAK_LOG2+2) cycles (2.7 to 10.7 s at 100 MHz) makes the PS window write
+  // the board's reset when it ends
+  parameter int          BREAK_LOG2      = 28,
   localparam int         NH              = N_CORES * NUM_THREADS   // harts
 ) (
   input  logic        clk,
@@ -222,6 +226,9 @@ module tg_uncore
   input  logic [PS_IRQS-1:0]                        ps_irq_i,
   // the board's status word (clk), read-only by the host at FAN: the KV260's fan regulator (kv260_top); 0 elsewhere
   input  logic [31:0]                               board_status_i,
+  // BOARD_CTRL (tg_host_bridge; clk): [0] the KV260's fan regulator ignores the A53's PWM, [1] the board's reset
+  // path (the PS window's RESET_CTRL and the PMOD reset hook) is enabled
+  output logic [1:0]                                board_ctrl_o,
 
   // traffic-generator controls and results (host registers; tied off with real cores)
   output logic                    tg_en_o,
@@ -596,8 +603,27 @@ module tg_uncore
   // sources IRQ_PS0 on. Without it (the default) the device answers nothing, as it is never addressed: the
   // range is no region (tg_map_pkg), and the master stays idle
   logic [PS_IRQS-1:0] ps_irq;
+  logic [1:0] board_ctrl, board_hook;
   if (PS_WINDOW) begin : g_pswin
     logic ps_timeout;
+    // The PMOD reset hook: while armed, a break on the serial line's RX (low; idle high where the line is
+    // unused, UART_SERIAL or not) of 2^BREAK_LOG2 cycles or more, and under 2^(BREAK_LOG2+2), asks for the
+    // reset write when it ends. A USB-UART adapter that loses power holds RX low too, for as long as it stays
+    // off: one off for longer is no break when it comes back
+    logic rxd_s, brk_req_q;
+    logic [BREAK_LOG2+2:0] brk_q;
+    tg_cdc_bit #(.INIT (1'b1)) u_rxd (.src_in (uart_rxd_i), .dst_clk (clk), .dst_out (rxd_s));
+    always_ff @(posedge clk) begin
+      if (rst || !board_ctrl[1]) begin
+        brk_q     <= '0;
+        brk_req_q <= 1'b0;
+      end else if (!rxd_s) begin
+        if (!brk_q[BREAK_LOG2+2]) brk_q <= brk_q + 1'b1;   // stops at 2^(BREAK_LOG2+2): too long
+      end else begin
+        if (|brk_q[BREAK_LOG2+1:BREAK_LOG2] && !brk_q[BREAK_LOG2+2]) brk_req_q <= 1'b1;
+        brk_q <= '0;
+      end
+    end
     tg_ps_window u_pswin (
       .clk, .rst (uncore_rst), .req_i (dreq), .req_valid_i (dreq_v[DEV_PSWIN]), .rsp_o (drsp[DEV_PSWIN]),
       .wait_o (ps_wait),
@@ -606,7 +632,8 @@ module tg_uncore
       .m_b_i (m_axi_ps_b), .m_b_valid_i (m_axi_ps_b_valid), .m_b_ready_o (m_axi_ps_b_ready),
       .m_ar_o (m_axi_ps_ar), .m_ar_valid_o (m_axi_ps_ar_valid), .m_ar_ready_i (m_axi_ps_ar_ready),
       .m_r_i (m_axi_ps_r), .m_r_valid_i (m_axi_ps_r_valid), .m_r_ready_o (m_axi_ps_r_ready),
-      .timeout_o (ps_timeout)
+      .timeout_o (ps_timeout),
+      .rst_en_i (board_ctrl[1]), .rst_req_i (brk_req_q), .rst_fired_o (board_hook[0]), .rst_err_o (board_hook[1])
     );
     for (genvar k = 0; k < PS_IRQS; k++) begin : g_irq
       tg_cdc_bit u_sync (.src_in (ps_irq_i[k]), .dst_clk (clk), .dst_out (ps_irq[k]));
@@ -616,6 +643,7 @@ module tg_uncore
     assign drsp[DEV_PSWIN]   = '0;
     assign ps_wait           = 1'b0;
     assign ps_irq            = '0;
+    assign board_hook        = '0;
     assign m_axi_ps_aw       = '0;
     assign m_axi_ps_aw_valid = 1'b0;
     assign m_axi_ps_w        = '0;
@@ -625,7 +653,7 @@ module tg_uncore
     assign m_axi_ps_ar_valid = 1'b0;
     assign m_axi_ps_r_ready  = 1'b1;
     wire unused_pswin = ^{m_axi_ps_aw_ready, m_axi_ps_w_ready, m_axi_ps_b, m_axi_ps_b_valid, m_axi_ps_ar_ready,
-                          m_axi_ps_r, m_axi_ps_r_valid, ps_irq_i, dreq_v[DEV_PSWIN]};
+                          m_axi_ps_r, m_axi_ps_r_valid, ps_irq_i, dreq_v[DEV_PSWIN], board_ctrl[1]};
   end
 
   logic uart_irq, mbox_irq;
@@ -780,7 +808,7 @@ module tg_uncore
     .dbg_sel_o (dbg_sel), .dbg_val_i (dbg_val),
     .hdma_cpl_en_o (cpl_en), .hdma_cpl_valid_i (cpl_v), .hdma_cpl_i ({cpl_line, cpl_cycle}), .hdma_cpl_ready_o (cpl_r),
     .hdma_rd_lines_i (hdma_rd_lines), .hdma_wr_lines_i (hdma_wr_lines), .hdma_wr_drops_i (hdma_wr_drops),
-    .board_status_i,
+    .board_status_i, .board_ctrl_o (board_ctrl), .board_hook_i (board_hook),
     .con_tx_valid_i (con_tx_v), .con_tx_ready_o (con_tx_r), .con_tx_byte_i (con_tx_b),
     .con_rx_valid_o (con_rx_v), .con_rx_ready_i (con_rx_r), .con_rx_byte_o (con_rx_b)
   );
@@ -794,6 +822,7 @@ module tg_uncore
     else if (|ev_err) l2_err_q <= 1'b1;
   end
   assign status_o = {2'b00, |tg_errs_all, l2_err_q, con_tx_v, l2_init_done, uncore_rst, core_rst_o};
+  assign board_ctrl_o = board_ctrl;
 
   // ---------------------------------------------------------------------------------------------
   // Debug counters (DEBUG_CNT): index 8b+k for bank b counts its A, B, C, D, E messages, misses, AXI

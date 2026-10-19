@@ -104,6 +104,12 @@ module tg_host_bridge
   // the board's status word (core domain), read-only at FAN (0x1400): the fan's PL regulator on the KV260
   // (kv260_top's tg_fan, stage D's D2); 0 elsewhere
   input  logic [31:0] board_status_i,
+  // BOARD_CTRL (0x1404, RW, reset 0; docs/spec/soc-d4-modes.md), into the core domain: [0] the fan regulator
+  // ignores the A53's PWM, [1] the board's reset path is enabled (the PS window passes CRL_APB RESET_CTRL, and
+  // the PMOD reset hook is armed). The A53's U-Boot sets both in RISC-V mode; it reads back [3:2] = the hook's
+  // reset write {answered an error or nothing, went out} (board_hook_i)
+  output logic [1:0]  board_ctrl_o,
+  input  logic [1:0]  board_hook_i,
   // console streams (tg_uart side)
   input  logic        con_tx_valid_i,
   output logic        con_tx_ready_o,
@@ -120,6 +126,7 @@ module tg_host_bridge
   // Host domain registers
   // =============================================================================================
   logic [3:0]  ctrl_q;                           // [0] cores reset, [1] uncore reset, [2] lossless, [3] tfreeze
+  logic [1:0]  board_ctrl_q;                     // BOARD_CTRL
   logic [63:0] dram_base_q, dram_size_q, entry_q, dtb_q, fromhost_q;
   logic [31:0] lo_shadow_q;                      // low halves of 64-bit registers wait here
   logic [9:0]  inj_rd_q, inj_wr_q;
@@ -164,6 +171,7 @@ module tg_host_bridge
     logic [31:0] hdma_wr;
     logic [31:0] hdma_drops;
     logic [31:0] board;
+    logic [1:0]  board_hook;
   } status_t;
   status_t st_h;
 
@@ -277,6 +285,7 @@ module tg_host_bridge
       16'h1314: rd_mux = cpl_h[31:0];
       16'h1318: rd_mux = st_h.hdma_drops;
       16'h1400: rd_mux = st_h.board;
+      16'h1404: rd_mux = {28'd0, st_h.board_hook, board_ctrl_q};
       16'h1200: rd_mux = {24'd0, dbg_sel_q};
       16'h1204: rd_mux = st_h.dbg_val;
       16'h100: rd_mux = {23'd0, txh_v, txh_b};
@@ -304,6 +313,7 @@ module tg_host_bridge
   always_ff @(posedge clk_host) begin
     if (rst_host) begin
       ctrl_q       <= {2'b0, UNCORE_RST_INIT, CORE_RST_INIT};
+      board_ctrl_q <= '0;
       dram_base_q  <= 64'(DRAM_BASE_INIT);
       dram_size_q  <= 64'(DRAM_SIZE_INIT);
       entry_q      <= 64'(DRAM_BASE);
@@ -354,6 +364,7 @@ module tg_host_bridge
           16'h0C0: tg_en_q <= wd[0];
           16'h0C4: tg_base_q <= wd[27:0];
           16'h0C8: tg_lines_q <= wd[23:0];
+          16'h1404: if (s_wstrb[0]) board_ctrl_q <= wd[1:0];
           16'h1000: if (TRACE) trs_ctrl_q <= {wd[9:8], 6'd0, wd[1:0]};
           16'h1008, 16'h1018, 16'h1020, 16'h1030: lo_shadow_q <= wd;
           16'h100C: if (TRACE) trs_stop_pc_q  <= {wd, lo_shadow_q};
@@ -413,6 +424,7 @@ module tg_host_bridge
     logic [7:0]  dbg_sel;
     logic        vq_en;
     logic        hdma_cpl_en;
+    logic [1:0]  board_ctrl;
   } cfg_t;
   cfg_t cfg_h, cfg_c;
   localparam cfg_t CFG_INIT = '{dram_base: DRAM_BASE_INIT, dram_size: DRAM_SIZE_INIT, entry: 64'(DRAM_BASE),
@@ -421,7 +433,7 @@ module tg_host_bridge
                                 tg_base: 28'(DRAM_BASE >> 6), tg_lines: 24'd16384,
                                 trs_ctrl: '0, trs_stop_pc: '0, trs_post: '0, trs_start_pc: '0,
                                 trs_base: '0, trs_size: '0, trs_rp: '0, dbg_sel: '0, vq_en: 1'b0,
-                                hdma_cpl_en: 1'b0};
+                                hdma_cpl_en: 1'b0, board_ctrl: '0};
   always_comb begin
     cfg_h.dram_base = dram_base_q[39:0];
     cfg_h.dram_size = dram_size_q[39:0];
@@ -447,6 +459,7 @@ module tg_host_bridge
     cfg_h.dbg_sel      = dbg_sel_q;
     cfg_h.vq_en        = vq_en_q;
     cfg_h.hdma_cpl_en  = hdma_cpl_en_q;
+    cfg_h.board_ctrl   = board_ctrl_q;
   end
   tg_cdc_mirror #(.W ($bits(cfg_t)), .INIT (CFG_INIT)) u_cfg (
     .src_clk (clk_host), .src_rst (rst_host), .src_in (cfg_h),
@@ -624,6 +637,7 @@ module tg_host_bridge
     st_c.hdma_wr      = HDMA ? hdma_wr_lines_i : '0;
     st_c.hdma_drops   = HDMA ? hdma_wr_drops_i : '0;
     st_c.board        = board_status_i;
+    st_c.board_hook   = board_hook_i;
   end
   tg_cdc_mirror #(.W ($bits(status_t))) u_status (
     .src_clk (clk), .src_rst (rst), .src_in (st_c),
@@ -650,6 +664,7 @@ module tg_host_bridge
 
   // Core-domain configuration outputs
   assign dram_base_o    = cfg_c.dram_base;
+  assign board_ctrl_o   = cfg_c.board_ctrl;
   assign dram_size_o    = cfg_c.dram_size;
   assign inj_rd_delay_o = cfg_c.inj_rd;
   assign inj_wr_delay_o = cfg_c.inj_wr;
