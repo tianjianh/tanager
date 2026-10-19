@@ -1,5 +1,5 @@
 # Constrained-random programs in tg_vsim with lockstep (docs/spec/verification.md §6.2).
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/random CFG=st [CORE=core|tcore] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1] [MISS=2] [SIMARGS=...]
 #   make -C tests/random replay ISA=rv64gc [N=100] [SEED=1]   Spike against Spike only (ISAs no core runs yet)
 #   make -C tests/random gen SEED=42 [ISA=...]     write one program to stdout

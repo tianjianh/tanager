@@ -15,7 +15,8 @@ module tg_tb_top
   import "DPI-C" function void tg_dpi_config(
     input string cfg_name, input int commit_width, input int num_threads, input int core_id,
     input int hart_w, input int wb_tag_w, input int trace_wb_ports, input int pa_w,
-    input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom);
+    input int l1i_mshrs, input int l1d_mshrs, input int llt_entries, input int trace_stall_headroom,
+    input int pmp_entries);
 
   // TL-UL responder (l1i = port 0, mmio = port 2): what the core presented this cycle, and the
   // responder's outputs for the next cycle.
@@ -68,14 +69,30 @@ module tg_tb_top
 
   import "DPI-C" function longint tg_dpi_boot_addr();
 
+  // DR-167: the core's PMP entries, and so lockstep's Spike's PMP regions. sim/Makefile defines
+  // TG_TB_PKG_PMP once tg_core_pkg has the switch (PMP_ENTRIES); before it the core had 16, and the test
+  // core has none. TG_TB_PMP_RTL is the count sim/profile.mk read from the package (PMP_RTL), the default
+  // of tg_replay and tanager-lockstep, which have no RTL: every run checks that reading here.
+`ifdef TG_TCORE
+  localparam int PMP_ENTRIES_TB = 0;
+`elsif TG_TB_PKG_PMP
+  localparam int PMP_ENTRIES_TB = tg_core_pkg::PMP_ENTRIES;
+`else
+  localparam int PMP_ENTRIES_TB = 16;
+`endif
 
   paddr_t boot_addr;
   initial begin
+`ifdef TG_TB_PMP_RTL
+    if (PMP_ENTRIES_TB != `TG_TB_PMP_RTL)
+      $fatal(1, "tg_tb_top: the core has %0d PMP entries, but sim/profile.mk expected %0d (PMP_ENTRIES, else the default line it reads in rtl/core/tg_core_pkg.sv, which tg_replay and tanager-lockstep take as theirs)",
+             PMP_ENTRIES_TB, `TG_TB_PMP_RTL);
+`endif
     // DR-146: without the commit trace there is nothing to check, so refuse rather than pass on nothing.
     if (!COMMIT_TRACE)
       $fatal(1, "tg_tb_top: this model was built with TG_COMMIT_TRACE=0 (DR-146): it has no commit trace, so lockstep cannot run; build it with the trace on");
     tg_dpi_config(CFG_NAME, COMMIT_WIDTH, NUM_THREADS, CORE_ID, HART_W, WB_TAG_W,
-                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM);
+                  TRACE_WB_PORTS, PA_W, L1I_MSHRS, L1D_MSHRS, LLT_ENTRIES, TRACE_STALL_HEADROOM, PMP_ENTRIES_TB);
     boot_addr = paddr_t'(tg_dpi_boot_addr());
   end
 

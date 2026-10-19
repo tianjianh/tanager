@@ -1,5 +1,5 @@
 # riscv-tests ISA suites in tg_vsim with lockstep (docs/spec/verification.md §4.1).
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/isa CFG=st [CORE=core|tcore] [SUITES="rv64ui-p rv64um-p"] [LAT=native] [SIMARGS=...]
 #   make -C tests/isa replay [SUITES=all]       the same suites, Spike against Spike (tg_replay)
 #   make -C tests/isa directed CFG=st [CORE=...] our directed tests (directed/*.S: interrupts, WFI)
