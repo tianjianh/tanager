@@ -64,3 +64,21 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
 - **The fan:** 15/255 at 33–35 °C. It rose to 43/255 once when the PS reached 36 °C, which is fancontrol's curve.
 - **How it ended:** stopped on purpose with `q` at 05:52:51 for the SoC track's D2 bitstream (the coordinator: stage D before the 72-hour gate, which belongs to the final design, M8). The guest finished pass 88 ("STRESS stop after pass 88, fails=0") and powered off (`boot exit 0`).
 - **Together with s3:** 158 clean passes, about 5 h 50 min, at 100 MHz from p3, with no fault in the cores, the SoC or Linux.
+
+## Run s5: d2 (DR-156's four-miss L1D, D2's fan regulator) from p3, overnight
+
+**Setup:** [`../runs/stress_p3.sh`](../runs/stress_p3.sh) `tanager-d2 ~/tanager/d2pkg s5`: the same guest loop, on D2's bitstream, with the regulator's status in the 30-minute monitor. Start 08:23:37 UTC, 2026-10-18.
+
+**Result: 321 of 321 passes clean over 11 h 31 min** ([`linux_shell_stress_s5.txt`](linux_shell_stress_s5.txt), monitor [`stress_monitor_s5.txt`](stress_monitor_s5.txt), run log [`stress_s5.txt`](stress_s5.txt)).
+- **Steady numbers:** 127.3 s per pass (127–129 s; sc3's runs: 128.3 s); sysbench on two threads: cpu 78.80 events/s, memory 98.38 MiB/s, threads 1,516 events.
+- **No trouble:** no `STRESS FAIL` or `STRESS DMESG` line, and no oops, BUG, panic, RCU stall, lockup or hung task.
+- **The fan:** `fancontrol` at 15–17/255. The regulator's 23 samples: PL die 32.4–34.4 °C, duty 15–17/255, always the larger of its curve and the A53's PWM.
+- **How it ended, and the gap:**
+  - The last pass, 321, printed at 19:54:18 UTC (12:54 PDT). The A53's journal stops at 19:55:16, three seconds after an `eth0` link flap ("br0: port 1(eth0) entered disabled state", then "Link is Up"). There's no shutdown record, so the board went down abruptly, when the user took the laptop offline (about 12:55–12:59 PDT).
+  - The laptop's COM5 logger closed at 12:59:19 PDT ("The port is closed").
+  - Nothing was seen until the user brought the board back at about 02:20 UTC on 10-19 (19:20 PDT): a gap of about 6 h 25 min, in which s5 did not run.
+- **After the restart:**
+  - the A53's root mounted cleanly;
+  - p3 was left with `needs_recovery`: `e2fsck -p` replayed its journal, and `e2fsck -fn` passed clean;
+  - `fancontrol` was active, and `k26-starter-kits` was loaded.
+- **Altogether at 100 MHz from p3:** s3, s4 and s5 make 479 clean passes, about 17.4 hours of two-core load, without a fault in the cores, the SoC or Linux. The three stops were external: a supply transient, a planned stop, and the board going down with the laptop.
