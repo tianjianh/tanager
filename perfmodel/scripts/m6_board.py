@@ -14,6 +14,7 @@ The model: rtl_m2 revision 7 as each board's core, on make perf's ELFs at native
 Beside it, the RTL's make perf on both trees (tools/ci/perf.py's tables, one log per configuration: --rtl CFG=LOG,
 base d2 and this side d4s2).
   python3 scripts/m6_board.py --bench DIR --rtl st=LOG --rtl smt2=LOG   # -> results/m6_board_rv64.json and tables
+  python3 scripts/m6_board.py --init d2=LOG --init d4s2=LOG --init d4r1=LOG   # the boot to /init alone (§6.13)
 """
 import argparse
 import json
@@ -63,7 +64,10 @@ MILESTONES = ["smp: Brought up", "devtmpfs: initialized", "clocksource: Switched
               "NET: Registered PF_PACKET", "clk: Disabling unused clocks", "Freeing unused kernel image",
               "Run /init as init process"]
 BOARD_LOGS = {"d2": [f"d2-reg/d2_boot{i}.txt" for i in (1, 2, 3)],
-              "d4s2": [f"d4s2/d4s2_boot{i}.txt" for i in (1, 2, 3)]}
+              "d4s2": [f"d4s2/d4s2_boot{i}.txt" for i in (1, 2, 3)],
+              "d4r1": [f"d4r1/d4r1_boot{i}.txt" for i in (1, 2, 3)]}   # MR23, measured after §6.13's prediction
+PHASES = ["smp: Brought up", "clocksource: Switched", "NET: Registered PF_PACKET", "clk: Disabling unused clocks",
+          "Freeing unused kernel image", "Run /init as init process"]
 
 
 def kernel_times(path, serial):
@@ -79,10 +83,11 @@ def kernel_times(path, serial):
         for k in MILESTONES:
             if k not in out and m.group(2).startswith(k):
                 out[k] = float(m.group(1)) - con
+        if m.group(2).startswith("Run /init"):
+            out["console"] = con   # the console time inside /init's timestamp
+            break
         if serial:
             con += (len(line) + 2) * 10 / 115200
-        if m.group(2).startswith("Run /init"):
-            break
     return out
 
 
@@ -92,7 +97,7 @@ def init_table(sim, board_dir):
     brd = {}
     for n, files in BOARD_LOGS.items():
         runs = [kernel_times(Path(board_dir) / f, True) for f in files]
-        brd[n] = {k: med([r[k] for r in runs if k in r]) for k in MILESTONES if all(k in r for r in runs)}
+        brd[n] = {k: med([r[k] for r in runs]) for k in MILESTONES + ["console"] if all(k in r for r in runs)}
     tbs = {n: kernel_times(p, False) for n, p in sim.items()}
     print("\n**Linux to /init: CPU time at each milestone** (the board's less its serial console; tb_boot's own)\n")
     print("| Milestone | Board d2 | Board d4s2 | Change | tb_boot d2 | tb_boot d4s2 | Change | tb_boot against the "
@@ -106,14 +111,32 @@ def init_table(sim, board_dir):
         vs = f"{ch(b2, s2)} / {ch(b4, s4)}"
         print(f"| {k} | {f(b2)} | {f(b4)} | {ch(b2, b4)} | {f(s2)} | {f(s4)} | {ch(s2, s4)} | {vs} |")
     if "d4r1" in tbs:   # §6.13: the board's d4r1, predicted as d4s2's board time scaled by the simulation's ratio
-        print("\n**d4r1, predicted** (each milestone: the board's d4s2 time × the simulation's d4r1 / d4s2)\n")
-        print("| Milestone | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 | Predicted board d4r1 |")
-        print("|---|---|---|---|---|---|")
+        b5 = brd.get("d4r1", {})
+        f = lambda x: f"{x:.4f} s" if x is not None else "–"
+        ch = lambda a, b: pct(b / a - 1) if a and b else "–"
+        print("\n**d4r1, predicted (§6.13) and measured (MR23)** (the prediction: the board's d4s2 time × the "
+              "simulation's d4r1 / d4s2)\n")
+        print("| Milestone | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 | Predicted board d4r1 | "
+              "Board d4r1 | Change | Measured against predicted |")
+        print("|---|---|---|---|---|---|---|---|---|")
         for k in MILESTONES:
-            s4, s5, b4 = tbs["d4s2"].get(k), tbs["d4r1"].get(k), brd["d4s2"].get(k)
-            f = lambda x: f"{x:.4f} s" if x is not None else "–"
+            s4, s5, b4, m5 = tbs["d4s2"].get(k), tbs["d4r1"].get(k), brd["d4s2"].get(k), b5.get(k)
             pr = b4 * s5 / s4 if s4 and s5 and b4 else None
-            print(f"| {k} | {f(s4)} | {f(s5)} | {pct(s5 / s4 - 1) if s4 and s5 else '–'} | {f(b4)} | {f(pr)} |")
+            print(f"| {k} | {f(s4)} | {f(s5)} | {ch(s4, s5)} | {f(b4)} | {f(pr)} | {f(m5)} | {ch(b4, m5)} | "
+                  f"{ch(pr, m5)} |")
+        if all(k in b5 for k in PHASES):   # where the board's gain came from, against the simulation's
+            print("\n**d4s2 → d4r1, phase by phase** (the CPU time between milestones)\n")
+            print("| Phase, to | Simulation | Change | Board | Change |")
+            print("|---|---|---|---|---|")
+            last = (0.0, 0.0, 0.0, 0.0)
+            for k in PHASES:
+                cur = (tbs["d4s2"][k], tbs["d4r1"][k], brd["d4s2"][k], b5[k])
+                d = [c - p for c, p in zip(cur, last)]
+                print(f"| {k} | {d[0]:.4f} → {d[1]:.4f} s | {ch(d[0], d[1])} | {d[2]:.4f} → {d[3]:.4f} s | "
+                      f"{ch(d[2], d[3])} |")
+                last = cur
+            print(f"\nThe board's console before /init: {brd['d4s2']['console']:.4f} s (d4s2), "
+                  f"{b5['console']:.4f} s (d4r1).")
     return brd, tbs
 
 
@@ -191,33 +214,50 @@ def predict_table(bench, workers):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bench", required=True, help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf")
+    ap.add_argument("--bench", help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf (without it the model's "
+                    "tables are skipped and the JSON keeps their earlier results)")
     ap.add_argument("--rtl", action="append", default=[], help="CFG=LOG: perf.py's output, base d2, this side d4s2")
     ap.add_argument("--workers", type=int, default=16)
-    ap.add_argument("--init", action="append", default=[], help="NAME=LOG (d2, d4s2): tb_boot's boot to /init")
+    ap.add_argument("--init", action="append", default=[],
+                    help="NAME=LOG (d2, d4s2, d4r1): tb_boot's boot to /init")
     ap.add_argument("--board-logs", default=str(ROOT.parent / "fpga" / "kv260" / "board"))
     ap.add_argument("--layout", help="DIR of scripts/rtlprof/layout.sh's padded ELFs and RTL results")
     ap.add_argument("--predict", action="store_true", help="d4r1's model prediction (area_recovery.md §6.13)")
     a = ap.parse_args()
-    rtl = {r.split("=", 1)[0]: rtl_log(r.split("=", 1)[1]) for r in a.rtl}
+    if a.predict and not a.bench:
+        ap.error("--predict needs --bench")
+    # the sections a run does not redo keep their earlier results
+    res = json.loads(OUT.read_text()) if OUT.exists() else {}
+    if a.bench:
+        res.update(model_tables(a.bench, {r.split("=", 1)[0]: rtl_log(r.split("=", 1)[1]) for r in a.rtl},
+                                a.workers))
+    if a.predict:
+        res["predict_d4r1"] = predict_table(a.bench, a.workers)
+    if a.layout:
+        res["layout"] = layout_table(a.layout, a.workers)
+    if a.init:
+        brd, tbs = init_table({i.split("=", 1)[0]: i.split("=", 1)[1] for i in a.init}, a.board_logs)
+        res["init"] = {"board": brd, "tb_boot": tbs}
+    OUT.write_text(json.dumps(res, indent=1) + "\n")
+
+
+def model_tables(bench, rtl, workers):
+    """The model on make perf's ELFs in the four configurations, beside the RTL's make perf and the board (§6.12)."""
     jobs = [(c, p, m) for c in CFGS for (p, m) in PROGS]
 
     def one(j):
         c, p, m = j
-        w = {"name": p, "elf": f"{a.bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
+        w = {"name": p, "elf": f"{bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
         r = tgrun.run_one(w, "rtl_m2", {**CFGS[c], "dram_lat": 30})
         if r.get("error") or not r.get("region", {}).get("cycles"):
             raise SystemExit(f"tgsim failed on {w['elf']} ({c}): {r.get('error', '')}")
         return j, r["region"]
 
-    with ThreadPoolExecutor(max_workers=a.workers) as ex:
+    with ThreadPoolExecutor(max_workers=workers) as ex:
         mod = dict(ex.map(one, jobs))
-    # the sections a run does not redo (layout, init, the prediction) keep their earlier results
-    prev = json.loads(OUT.read_text()) if OUT.exists() else {}
-    res = {k: prev[k] for k in ("predict_d4r1", "layout", "init") if k in prev}
-    res.update({"cfgs": CFGS, "board": BOARD, "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()}
-                                                     for c, t in rtl.items()},
-                "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}})
+    res = {"cfgs": CFGS, "board": BOARD,
+           "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()} for c, t in rtl.items()},
+           "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}}
 
     ipc = lambda r: r["instr"] / r["cycles"]
     print("**IPC: the board, the RTL (make perf) and the model** (rv64gc; the board runs the Linux set's builds)\n")
@@ -253,14 +293,7 @@ def main():
                  pct(r_s["d4s2"][0] / r_s["d2"][0] - 1) if r_s else "–", pct(mc["M6 smt2"] / mc["d2 smt2"] - 1),
                  pct(r_t["d4s2"][0] / r_t["d2"][0] - 1) if r_t else "–", pct(mc["M6 st"] / mc["d2 st"] - 1)]
         print(f"| {p} {m} | " + " | ".join(cells) + " |")
-    if a.predict:
-        res["predict_d4r1"] = predict_table(a.bench, a.workers)
-    if a.layout:
-        res["layout"] = layout_table(a.layout, a.workers)
-    if a.init:
-        brd, tbs = init_table({i.split("=", 1)[0]: i.split("=", 1)[1] for i in a.init}, a.board_logs)
-        res["init"] = {"board": brd, "tb_boot": tbs}
-    OUT.write_text(json.dumps(res, indent=1) + "\n")
+    return res
 
 
 if __name__ == "__main__":
