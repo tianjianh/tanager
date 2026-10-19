@@ -62,8 +62,14 @@ update-initramfs -u -k "$kver"
 # UART1's automatic login, pulled in by udev when ttyPS0 appears (D4's tree with the Cadence UART module)
 systemctl disable serial-getty@ttyPS0.service 2>/dev/null || true
 if [ $sd_only = 0 ]; then
+  # Its own drop-in, at a fixed 115200: ttyS0's (--keep-baud) keeps the port's current rate, which for a freshly
+  # probed Cadence UART is the driver's 9600 (D4 step 6 on the board: COM7 read only NULs)
   mkdir -p /etc/systemd/system/serial-getty@ttyPS0.service.d
-  cp /etc/systemd/system/serial-getty@ttyS0.service.d/autologin.conf /etc/systemd/system/serial-getty@ttyPS0.service.d/
+  cat > /etc/systemd/system/serial-getty@ttyPS0.service.d/autologin.conf <<'EOF'
+[Service]
+ExecStart=
+ExecStart=-/sbin/agetty --autologin tanager 115200 %I $TERM
+EOF
   printf '%s\n' "# Stage D (tanager-ps-dkms): UART1's login when its tty appears" \
     'KERNEL=="ttyPS0", TAG+="systemd", ENV{SYSTEMD_WANTS}+="serial-getty@ttyPS0.service"' \
     > /etc/udev/rules.d/99-tanager-ttyps0.rules
