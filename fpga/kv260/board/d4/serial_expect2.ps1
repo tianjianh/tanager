@@ -38,6 +38,8 @@ try {
         $rest = $seen.ToString().Substring($m.Index + $m.Length); [void]$seen.Clear(); [void]$seen.Append($rest)
       }
       'send' {
+        # text from before the send (a prompt already printed) must not satisfy the next expect
+        [void]$seen.Clear()
         foreach ($ch in ($f[1] + "`r").ToCharArray()) {
           $sp.Write([string]$ch)
           if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }

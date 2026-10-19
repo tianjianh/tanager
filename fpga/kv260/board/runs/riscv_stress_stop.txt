@@ -1,0 +1,8 @@
+# s16's end on COM5: q stops the stress after its pass, then the record to arm and a reboot into ARM mode (Ubuntu)
+send|q
+expect|STRESS stop|900
+expect|tanager@tanager:~\$|60
+send|sudo tanager-mode arm
+expect|tanager@tanager:~\$|60
+send|sudo reboot
+expect|reboot: Restarting system|300
