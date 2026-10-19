@@ -1,0 +1,21 @@
+﻿
+===== COM5 scripted session opened 2026-10-19T10:36:53.9132078-07:00 =====
+
+[?2004htanager@tanager:~$ 
+[?2004l[?2004htanager@tanager:~$ uptime ; sudo tanager-mode status ; findmnt -n / ; cat /proc/ consoles
+[?2004l 15:45:20 up 2 min,  2 users,  load average: 4.11, 1.74, 0.65
+bash ~/stress/stressbash ~/stress/stress.sh
+/dev/mmcblk0 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+/ /dev/mmcblk0p3 ext4 rw,relatime
+ttyS0                -W- (EC    a)    4:64
+[?2004htanager@tanager:~$ 
+===== EXPECT TIMEOUT after 120 s: STRESS start =====
+
+===== COM5 scripted session closed 2026-10-19T10:38:59.2791664-07:00, exit 2 =====
+
+===== COM5 scripted session opened 2026-10-19T10:39:52.4760663-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ bash ~/stress/stress.sh
+[?2004lSTRESS start 2026-10-19T15:48:27Z up=332.69
+
+===== COM5 scripted session closed 2026-10-19T10:40:05.0478093-07:00, exit 0 =====

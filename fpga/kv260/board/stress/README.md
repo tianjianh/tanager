@@ -135,3 +135,19 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
   - Stopped with `q` at 15:25 for step 6 ("STRESS stop after pass 15, fails=0").
 - **s14 (d2):** load 15:42:19 UTC, after step 6 passed on d4s2. **41 of 41 passes clean** in about 1 h 31 min, at 127.2 s per pass (cpu 78.91, memory 98.46, threads 1,518). Stopped with `q` at 17:13 for M6's first Linux measurement ([`linux_shell_stress_s14.txt`](linux_shell_stress_s14.txt), [`stress_monitor_s14.txt`](stress_monitor_s14.txt), [`stress_s14.txt`](stress_s14.txt)).
 - **s15 (d4s2):** the d4s2 soak, from 17:28:09 UTC, after DR-141's set on d4s2 ([`../d4s2/README.md`](../d4s2/README.md)).
+
+## Runs s15 and s16: d4s2 in stage C, then the stress in RISC-V mode (the product mode)
+
+- **s15 (d4s2, stage C):** load 17:28 UTC, after M6's measurement. Pass 1 was clean: 116 s; cpu 93.84 events/s, memory 114.25 MiB/s, threads 2,316 events. Then it was stopped with `q` at 17:31 for the stress in RISC-V mode. Its stage C logs stay on the A53 until the board is next in ARM mode.
+- **s16 (d4s2, RISC-V mode):** the board as a standalone RISC-V computer. Debian 13 runs from the card through SD1, the A53 is parked, and there is no `tanager-host` (so no monitor, injector or fan readout; the PL regulator runs the fan on its own curve).
+  - **How it's driven:** the laptop runs the guest's `~/stress/stress.sh` on COM5 (Debian's console, autologin), starting it with [`../runs/riscv_stress_start.txt`](../runs/riscv_stress_start.txt) and stopping it with [`../runs/riscv_stress_stop.txt`](../runs/riscv_stress_stop.txt) through `../d4/serial_expect2.ps1`. It logs COM5 and watches the log with [`../runs/riscv_stress_watch.sh`](../runs/riscv_stress_watch.sh), which stops on a failed pass, kernel trouble, or 12 minutes without a pass (the PMOD break is the way out of a hang).
+  - **Segment a:** the record set to riscv, a reboot at 17:33:49 UTC, Debian up at 17:36:44, the stress from 17:40.
+    - **7 of 7 passes clean.** 116.7 s per pass; sysbench on two threads: cpu 92.73 events/s, memory 111.81 MiB/s, threads 2,270 events.
+    - Against stage C on the same bitstream (s13): 115.0 s, cpu 93.83, memory 114.60, threads 2,323. RISC-V mode runs about 1–2.5% slower so far; the steady comparison belongs to the final configuration's 24-hour soak.
+    - Stopped with `q` at 17:53 for D5's step 0 in ARM mode (`STRESS stop after pass 7, fails=0`), with the record set to arm and Debian's reboot into Ubuntu.
+    - Logs: [`uart_COM5_s16a_boot.txt`](uart_COM5_s16a_boot.txt), [`uart_COM5_s16a_start.txt`](uart_COM5_s16a_start.txt), [`uart_COM5_s16a.txt`](uart_COM5_s16a.txt), [`uart_COM5_s16a_stop.txt`](uart_COM5_s16a_stop.txt).
+  - **The first start failed.** The shell's first prompt arrived just as the boot logger let go of COM5, and the CR then made a second one. `serial_expect2.ps1` consumed text only up to a match, so the second prompt satisfied the next expect early, and the stress command went out as typeahead and was lost.
+    - The fix: `send` now clears what was received before it, so an expect sees only what comes after its send.
+    - The second start ran cleanly.
+  - **Segment b:** the record set to riscv, a reboot at 17:56:04, Debian up at 17:59:06, the stress from 17:59:31, until the SoC track's D5 step 2 package arrives.
+  - **Both consoles work in RISC-V mode:** after the ttyPS0 drop-in fix, COM7 shows `Debian GNU/Linux 13 tanager ttyPS0` and the autologin.
