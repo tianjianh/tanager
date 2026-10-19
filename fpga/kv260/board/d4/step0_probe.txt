@@ -1,0 +1,315 @@
+== 1. the QSPI U-Boot
+dev:    size   erasesize  name
+mtd0: 00080000 00010000 "Image Selector"
+mtd1: 00080000 00010000 "Image Selector Golden"
+mtd2: 00020000 00010000 "Persistent Register"
+mtd3: 00020000 00010000 "Persistent Register Backup"
+mtd4: 000c0000 00010000 "Open_1"
+mtd5: 00d00000 00010000 "Image A (FSBL, PMU, ATF, U-Boot)"
+mtd6: 00080000 00010000 "ImgSel Image A Catch"
+mtd7: 00d00000 00010000 "Image B (FSBL, PMU, ATF, U-Boot)"
+mtd8: 00080000 00010000 "ImgSel Image B Catch"
+mtd9: 00100000 00010000 "Open_2"
+mtd10: 00200000 00010000 "Recovery Image"
+mtd11: 00200000 00010000 "Recovery Image Backup"
+mtd12: 00020000 00010000 "U-Boot storage variables"
+mtd13: 00020000 00010000 "U-Boot storage variables backup"
+mtd14: 00040000 00010000 "SHA256"
+mtd15: 00020000 00010000 "Secure OS Storage"
+mtd16: 01d60000 00010000 "User"
+-- Image A = mtd5, the commands soc-2 listed (runs of 3 or more): cmp crc32 exit fatload fatwrite fpga itest setexpr sleep 
+-- Image A, the commands by their usage strings (a name can't show as its own run when it is under 3 characters
+   (go, md, mw) or when the linker stores it as the tail of a longer string, e.g. load in fatload):
+   fatwrite: yes (write file into a dos filesystem)
+   fatload: yes (load binary file from a dos filesystem)
+   fpga: yes (loadable FPGA image support)
+   zynqmp: yes (ZynqMP sub-system)
+   mmc: yes (MMC sub system)
+   itest: yes (return true/false on integer compare)
+   setexpr: yes (set environment variable as the result of eval expression)
+   go: yes (start application at address 'addr')
+   sleep: yes (delay execution for some time)
+   source: yes (run script from memory)
+   load: yes (load binary file from a filesystem)
+   mw: yes (memory write (fill))
+   md: yes (memory display)
+   cmp: yes (memory compare)
+   crc32: yes (checksum calculation)
+   echo: yes (echo args to console)
+   exit: yes (exit script)
+   reset: yes (Perform RESET of the CPU)
+   bootcount: runs containing "bootcount" or "bootlimit": 0
+-- Image A, U-Boot's default environment (the variables soc-2 listed):
+baudrate=115200
+bootcmd=setenv model $board_name && if setexpr model gsub .*$k24_starter* $k24_starter || setexpr model gsub .*$k26_starter* $k26_starter; then run som_cc_boot; else run som_mmc_boot; run som_cc_boot; fi
+bootdelay=2
+distro_bootcmd=scsi_need_init=; for target in ${boot_targets}; do run bootcmd_${target}; done
+fdt_addr_r=0x40000000
+kernel_addr_r=0x18000000
+scriptaddr=0x20000000
+-- Image A, runs of 8 or more:
+U-Boot 2023.01
+U-Boot 2023.01 (May 10 2024 - 06:24:11 +0000)
+mmc write addr blk# cnt
+mmc write failed
+mmio_read
+mmio_write
+zynqmp mmio_read address - read from address
+zynqmp mmio_write address mask value - write value after masking to
+-- Image B = mtd7, the commands soc-2 listed (runs of 3 or more): cmp crc32 exit fatload fatwrite fpga itest setexpr sleep 
+-- Image B, the commands by their usage strings (a name can't show as its own run when it is under 3 characters
+   (go, md, mw) or when the linker stores it as the tail of a longer string, e.g. load in fatload):
+   fatwrite: yes (write file into a dos filesystem)
+   fatload: yes (load binary file from a dos filesystem)
+   fpga: yes (loadable FPGA image support)
+   zynqmp: yes (ZynqMP sub-system)
+   mmc: yes (MMC sub system)
+   itest: yes (return true/false on integer compare)
+   setexpr: yes (set environment variable as the result of eval expression)
+   go: yes (start application at address 'addr')
+   sleep: yes (delay execution for some time)
+   source: yes (run script from memory)
+   load: yes (load binary file from a filesystem)
+   mw: yes (memory write (fill))
+   md: yes (memory display)
+   cmp: yes (memory compare)
+   crc32: yes (checksum calculation)
+   echo: yes (echo args to console)
+   exit: yes (exit script)
+   reset: yes (Perform RESET of the CPU)
+   bootcount: runs containing "bootcount" or "bootlimit": 0
+-- Image B, runs of 8 or more:
+U-Boot 2023.01
+U-Boot 2023.01 (May 10 2024 - 06:24:11 +0000)
+mmc write addr blk# cnt
+mmc write failed
+mmio_read
+mmio_write
+zynqmp mmio_read address - read from address
+zynqmp mmio_write address mask value - write value after masking to
+-- the image the board boots:
+Image A: Bootable
+Image B: Bootable
+Requested Boot Image: Image A
+Last Booted Image: Image A
+XilinxSom_QspiImage-k26-v2.1-06140636
+ImageA Revision Info: K26-BootFW-01.02-06140626
+ImageB Revision Info: K26-BootFW-01.02-06140626
+== 2. the U-Boot environment
+/usr/bin/fw_printenv
+libubootenv-tool: /usr/bin/fw_printenv
+-- /etc/fw_env.config:
+grep: /etc/fw_env.config: No such file or directory
+fw_printenv exit 1, 0 lines; stderr:
+Cannot initialize environment
+-- mtd12 (U-Boot storage variables): 0 bytes that aren't 0xFF (0: never saved, U-Boot uses its default)
+-- mtd13 (U-Boot storage variables backup): 0 bytes that aren't 0xFF (0: never saved, U-Boot uses its default)
+== 3. the SD card
+label: dos
+label-id: 0xde90fb12
+device: /dev/mmcblk1
+unit: sectors
+sector-size: 512
+
+/dev/mmcblk1p1 : start=        2048, size=     2097152, type=c, bootable
+/dev/mmcblk1p2 : start=     2099200, size=    12582912, type=83
+/dev/mmcblk1p3 : start=    14682112, size=    15853568, type=83
+-- sector 2047:
+0000000 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+*
+0000512
+-- sectors 1-2047, non-zero bytes: 0
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/mmcblk1p1 1009M  127M  883M  13% /boot/firmware
+total 129037
+drwxr-xr-x 2 root root     1536 Jan  1  1970 .
+drwxr-xr-x 3 root root     4096 Oct 17 22:04 ..
+-rwxr-xr-x 1 root root     8032 Oct 17 22:04 boot.scr.uimg
+-rwxr-xr-x 1 root root     8032 Oct 17 21:45 boot.scr.uimg.bak
+-rwxr-xr-x 1 root root     8000 Oct 14 20:30 boot.scr.uimg.orig
+-rwxr-xr-x 1 root root 67647088 Oct 17 22:04 image.fit
+-rwxr-xr-x 1 root root 64453664 Oct 14 20:31 image.fit.orig
+-rwxr-xr-x 1 root root      930 Apr 23  2025 meta-data
+-rwxr-xr-x 1 root root       49 Apr 23  2025 network-config
+== 4. flash-kernel
+model: ZynqMP KV260 revB
+(no /etc/flash-kernel/machine)
+ls: cannot access '/usr/share/flash-kernel/bootscript/': No such file or directory
+/etc/flash-kernel/bootscript/:
+total 56
+drwxr-xr-x 2 root root 4096 Apr 23  2025 .
+drwxr-xr-x 6 root root 4096 Apr 23  2025 ..
+-rw-r--r-- 1 root root  463 Jan 23  2025 bootscr.exynos5
+-rw-r--r-- 1 root root 3025 Jan 23  2025 bootscr.mediatek-aiot
+-rw-r--r-- 1 root root 4605 Jan 23  2025 bootscr.rpi
+-rw-r--r-- 1 root root 2907 Jan 23  2025 bootscr.uboot-generic
+-rw-r--r-- 1 root root  199 Jan 23  2025 bootscr.xgene
+-rw-r--r-- 1 root root  278 Jan 23  2025 bootscr.xgene-mustang
+-rw-r--r-- 1 root root 8406 Jan 23  2025 bootscr.zynqmp
+-rw-r--r-- 1 root root 7985 Jan 23  2025 bootscr.zynqmp.kria
+Boot-Script-Path: /boot/firmware/boot.scr.uimg
+U-Boot-Script-Name: bootscr.zynqmp
+Required-Packages: u-boot-tools
+Machine: Xunlong Orange Pi 2
+Boot-Script-Path: /boot/boot.scr
+U-Boot-Script-Name: bootscr.sunxi
+Required-Packages: u-boot-tools
+Machine: Xunlong Orange Pi Lite
+Machine: ZynqMP SMK-K26 Rev1/B/A
+Machine: ZynqMP *K26*
+-- local db /etc/flash-kernel/db: 0 non-comment lines
+-- the first all.db entry whose Machine pattern matches "ZynqMP KV260 revB" (flash-kernel matches globs):
+Machine: ZynqMP SMK-K26 Rev1/B/A
+Machine: ZynqMP *K26*
+Machine: ZynqMP *K24*
+Machine: ZynqMP *KD240*
+Machine: ZynqMP *KR260*
+Machine: ZynqMP *KV260*
+Kernel-Flavors: xilinx xilinx-zynqmp
+Method: generic
+Boot-Script-Path: /boot/firmware/boot.scr.uimg
+U-Boot-Script-Name: bootscr.zynqmp.kria
+Boot-FIT-Path: /boot/firmware/image.fit
+Boot-ITS-File-Name: image-kria.its
+Required-Packages: u-boot-tools
+-- /etc/flash-kernel/bootscript/bootscr.zynqmp.kria: flash-kernel: /etc/flash-kernel/bootscript/bootscr.zynqmp.kria; listed as a conffile: 1
+-- the script inside /boot/firmware/boot.scr.uimg (after its 64-byte header and 8-byte length table), head -60:
+
+#
+# flash-kernel: bootscr.zynqmp.kria
+#
+
+# This is a boot script for U-Boot
+# Generate boot.scr:
+# mkimage -c none -A arm -T script -d boot.cmd boot.scr
+# For initrd, when using a file override:
+# mkimage -A arm -O linux -T ramdisk -d initrd.img rootfs.cpio.gz.u-boot
+# Kernel "Image" file must be of EFI type:
+# - Get vmlinuz from Ubuntu rootfs and uncompress
+# system.dtb is a normal dtb file
+#
+#
+# Here is the Kria board support list:
+#
+# Kria board                     | DTB Name                      |
+# :----------------------------- | :---------------------------- |
+# Revision A   KR Carrier Card   | smk-k26-revA-sck-kr-g-revA    |
+# Revision B/1 KR Carrier Card   | smk-k26-revA-sck-kr-g-revB    |
+# Revision A/Z KV Carrier Card   | smk-k26-revA-sck-kv-g-revA    |
+# Revision B/1 KV Carrier Card   | smk-k26-revA-sck-kv-g-revB    |
+# Revision A   KD Carrier Card   | smk-k24-revA-sck-kd-g-revA    |
+#
+#
+# Variables expected to be in the environment:
+#
+# Variable       | Description                                                                           |
+# :------------- | :------------------------------------------------------------------------------------ |
+# card1_name     | Holds the information about the carrier card configuration (utilized for Kria family) |
+# boot_targets   | Includes the list of devices that can be used to look for image boot                  |
+#
+#
+# Local Variables:
+#
+# Variable        | Description                                                                           |
+# :-------------- | :------------------------------------------------------------------------------------ |
+# kria            | Holds the information about the type of the board in Kria family.                     | \
+#                 | Possible values when it is initialized: "KD", "KR", "KV"                              |
+################
+
+
+
+# Legacy KV260 U-Boot was not eliminating a space at the end of the card1_name variable
+# e.g. card1_name is "SCK-KV-G ", not "SCK-KV-G"
+# Force drop of the extra space character by setenv for backward compatibility
+setenv card1_name $card1_name
+
+for boot_target in ${boot_targets};
+do
+  if test "${boot_target}" = "jtag" ; then
+    booti 0x00200000 0x04000000 0x00100000
+    exit;
+  fi
+  if test "${boot_target}" = "mmc0" || test "${boot_target}" = "mmc1" || test "${boot_target}" = "usb0" || test "${boot_target}" = "usb1"; then
+    # Load alternative bitstream if present
+    if test -e ${devtype} ${devnum}:${distro_bootpart} /system.bit; then
+      echo "Loading alternative bitstream"
+      load ${devtype} ${devnum}:${distro_bootpart} 0x10000000 system.bit
+-- diff of that script against /etc/flash-kernel/bootscript/bootscr.zynqmp.kria (flash-kernel's substitutions show here):
+1,5d0
+< 
+< #
+< # flash-kernel: bootscr.zynqmp.kria
+< #
+< 
+43c38
+< 
+---
+> @@UBOOT_ENV_EXTRA@@
+126c121
+<     setenv bootargs " ${bootargs} mem=3G arm-smmu.disable_bypass=0"
+---
+>     setenv bootargs "@@LINUX_KERNEL_CMDLINE_DEFAULTS@@ ${bootargs} @@LINUX_KERNEL_CMDLINE@@"
+153c148
+<     
+---
+>     @@UBOOT_PREBOOT_EXTRA@@
+== 5. PS registers
+tanager-host f515c0f69b7be562; the PL holds tanager-d2
+0x0ff5e0218: 0x00000000  CRL_APB
+0x0ff5e021c: 0x00000000  CRL_APB
+0x0ff5e0220: 0x00000021  CRL_APB
+0x0ff5e00c0: 0x01010a00  CRL_APB
+-- the A53's uptime (a reboot since the last power-on would show in RESET_REASON): 2026-10-19 02:20:42 local, 26127.88 s
+== extras (not in soc-2's list; read-only)
+-- flash-kernel's hook directories (README: users add stubs here; they replace @@UBOOT_ENV_EXTRA@@ and @@UBOOT_PREBOOT_EXTRA@@):
+   /etc/flash-kernel/ubootenv.d: 0 files
+   /etc/flash-kernel/preboot.d: 0 files
+   /usr/share/flash-kernel/ubootenv.d: 0 files
+   /usr/share/flash-kernel/preboot.d: 0 files
+
+Packages can drop in files containing U-Boot commands to be executed by a
+platform's bootscript before starting the OS. These files should be
+dropped in /usr/share/flash-kernel/ubootenv.d and
+/usr/share/flash-kernel/preboot.d. Users can add additional
+stubs, or override stubs provided by packages, by adding files to
+/etc/flash-kernel/ubootenv.d and /etc/flash-kernel/preboot.d. Files in the
+/etc path that have the same name as files in the /usr path will override the
+/usr counterparts.
+
+Platform bootscripts must contain the @@UBOOT_ENV_EXTRA@@ and
+@@UBOOT_PREBOOT_EXTRA@@ macros for the contents of these stubs to be
+incorporated.
+-- where the hooks sit in /etc/flash-kernel/bootscript/bootscr.zynqmp.kria:
+38:@@UBOOT_ENV_EXTRA@@
+45:for boot_target in ${boot_targets};
+53:    if test -e ${devtype} ${devnum}:${distro_bootpart} /system.bit; then
+55:      load ${devtype} ${devnum}:${distro_bootpart} 0x10000000 system.bit
+56:      fpga load 0 0x10000000 $filesize
+121:    setenv bootargs "@@LINUX_KERNEL_CMDLINE_DEFAULTS@@ ${bootargs} @@LINUX_KERNEL_CMDLINE@@"
+148:    @@UBOOT_PREBOOT_EXTRA@@
+207:done
+-- /etc/default/flash-kernel:
+LINUX_KERNEL_CMDLINE="mem=3G arm-smmu.disable_bypass=0"
+LINUX_KERNEL_CMDLINE_DEFAULTS=""
+-- Image A: the fpga command's subcommands (its help lists them indented) and the driver's bitstream messages:
+ dump info load loadb loadbp loadp 
+   Programming %s bitstream... OK
+%s: Bitstream ID %s, current device ID %d/%s
+%s: Bitstream has to be placed up to 1MB (%px)
+%s: Bitstream is not swapped(%d) - swap it
+%s: Bitstream is not validated yet (diff %lx)
+Bitstream decryption Successful
+Bitstream successfully loaded
+-- Image A: the default environment's boot chain (each value cut to 300 characters):
+boot_a_script=load ${devtype} ${devnum}:${distro_bootpart} ${scriptaddr} ${prefix}${script}; source ${scriptaddr}
+boot_prefixes=/ /boot/
+boot_scripts=boot.scr.uimg boot.scr
+bootcmd_mmc0=devnum=0; run mmc_boot
+bootcmd_mmc1=devnum=1; run mmc_boot
+k24_starter=SMK-K24-XCL2G
+k26_starter=SMK-K26-XCL2G
+scan_dev_for_boot=echo Scanning ${devtype} ${devnum}:${distro_bootpart}...; for prefix in ${boot_prefixes}; do run scan_dev_for_extlinux; run scan_dev_for_scripts; done;run scan_dev_for_efi;
+scan_dev_for_boot_part=part list ${devtype} ${devnum} -bootable devplist; env exists devplist || setenv devplist 1; for distro_bootpart in ${devplist}; do if fstype ${devtype} ${devnum}:${distro_bootpart} bootfstype; then run scan_dev_for_boot; fi; done; setenv devplist
+scan_dev_for_scripts=for script in ${boot_scripts}; do if test -e ${devtype} ${devnum}:${distro_bootpart} ${prefix}${script}; then echo Found U-Boot script ${prefix}${script}; run boot_a_script; echo SCRIPT FAILED: continuing...; fi; done
+som_cc_boot=if test ${card1_name} = SCK-KV-G; then setenv boot_targets mmc1 usb0 usb1 usb2 usb3 pxe dhcp && run distro_bootcmd; elif test ${card1_name} = SCK-KR-G; then setenv boot_targets usb0 usb1 usb2 usb3 pxe dhcp && run distro_bootcmd; else test ${card1_name} = SCK-KD-G; setenv boot_targets usb
+som_mmc_boot=setenv boot_targets mmc0 && run distro_bootcmd
