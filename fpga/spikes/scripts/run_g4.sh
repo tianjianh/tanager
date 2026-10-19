@@ -27,6 +27,9 @@ for d in post_synth routed; do
 done
 grep -E '^(ERROR|CRITICAL WARNING)' "$build/vivado.log" 2>/dev/null | head -20 > "$res/errors.txt"
 [ -s "$res/errors.txt" ] || rm -f "$res/errors.txt"
+# Vivado's time and memory per command (cpu, elapsed, peak), to compare run times across hosts and loads
+grep -E '^[a-z_]+: Time \(s\): cpu' "$build/vivado.log" 2>/dev/null > "$res/times.txt"
+[ -s "$res/times.txt" ] || rm -f "$res/times.txt"
 # The synthesis check's backstop (fpga/spikes/tcl/synth_check.tcl): an implicit or undriven net in our
 # sources (Synth 8-11241, 8-605, 8-3848, 8-8895 about any file outside the run directory and the Xilinx installation) fails
 # the run even if the check inside the run could not read the log.
