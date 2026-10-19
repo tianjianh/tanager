@@ -12,6 +12,8 @@
 //                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
 //   TG_SD1 (0|1)                                1 adds the PS's SD1 through the PS window (stage D's D4)
 //   TG_INITRD (0|1)                             1 names tanager-host's initrd window in /chosen (D4)
+//   TG_BOARD_RESET (0|1)                        1 points reboot and poweroff at the board's reset, CRL_APB
+//                                               RESET_CTRL through the PS window (D4's RISC-V mode)
 // Values written to the power register (same as the sifive,test0 finisher): 0x5555 off, 0x7777 reboot.
 
 #define TG_HARTS (TG_NUM_CORES * TG_NUM_THREADS)
@@ -27,6 +29,9 @@
 #endif
 #ifndef TG_INITRD
 #define TG_INITRD 0
+#endif
+#ifndef TG_BOARD_RESET
+#define TG_BOARD_RESET 0
 #endif
 
 #if TG_FPU
@@ -224,6 +229,16 @@
 		};
 #endif
 
+#if TG_BOARD_RESET
+		// The board's reset (D4's RISC-V mode, docs/spec/soc-d4-modes.md): CRL_APB RESET_CTRL through the PS
+		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
+		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
+		crl_reset: syscon@ff5e0218 {
+			compatible = "syscon";
+			reg = <0x0 0xff5e0218 0x0 0x4>;
+		};
+#endif
+
 #if TG_VIRTIO
 		// The forwarded virtio window (docs/spec/soc.md §8.1): four virtio-mmio slots whose registers
 		// tanager-host serves, PLIC sources 1-4. Only for bitstreams built with it (TG_VIRTIO_WINDOW=1,
@@ -255,6 +270,25 @@
 #endif
 	};
 
+#if TG_BOARD_RESET
+	// The KV260 can't power itself off: poweroff resets the board too, and the boot mode record says what comes
+	// next (Debian's clean shutdown keeps RISC-V mode; tanager-mode arm first gives Ubuntu)
+	poweroff {
+		compatible = "syscon-poweroff";
+		regmap = <&crl_reset>;
+		offset = <0x0>;
+		value = <0x10>;
+		mask = <0x10>;
+	};
+
+	reboot {
+		compatible = "syscon-reboot";
+		regmap = <&crl_reset>;
+		offset = <0x0>;
+		value = <0x10>;
+		mask = <0x10>;
+	};
+#else
 	poweroff {
 		compatible = "syscon-poweroff";
 		regmap = <&TG_POWER_NODE>;
@@ -268,6 +302,7 @@
 		offset = <TG_POWER_OFFSET>;
 		value = <0x7777>;
 	};
+#endif
 
 #if TG_PMU
 	// OpenSBI's PMU event map (its riscv,pmu binding; OpenSBI removes the property before Linux sees
