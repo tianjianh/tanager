@@ -9,10 +9,11 @@ default and every fallback.
 | `tanager-mode` | the record's tool, for Ubuntu and the RISC-V's Debian: `status`, `arm`, `riscv`, `confirm`, `clear`. It refuses any disk but the SD card |
 | `ubootenv.d-tanager-mode` | the mode check, a flash-kernel hook: `/etc/flash-kernel/ubootenv.d/tanager-mode`, put in at the top of `boot.scr.uimg` |
 | `riscv-stub.cmd` | step 4's `p1:/tanager/riscv.scr`: says it ran, and returns |
+| `riscv.cmd` | steps 5 and 6's `riscv.scr`: the bitstream, the PL clock, the fabric widths, a `pl_resetn0` pulse, the host bridge, SD1's tap delays, the DRAM window and `BOARD_CTRL`, the images, the release, the A53's park in OCM. Any failure before the release returns, and Ubuntu boots |
 | `install.sh` | installs the tool, the hook and `p1:/tanager/` on Ubuntu, keeping `boot.scr.uimg` and `image.fit` as `*.tanager-pre`; `--undo` takes the hook out |
 | `tanager-mode-confirm.service` | Debian's unit for RISC-V mode: trial back to 0 on a clean shutdown |
 | `build.sh` | the package: `riscv.scr` by mkimage, and the files above |
-| `hook_qtest.sh` | the hook run by U-Boot's hush on QEMU against an SD image, five records (all must pass before the board) |
+| `hook_qtest.sh` | the hook run by U-Boot's hush on QEMU against an SD image, five records, and `riscv.cmd` dry (board addresses in RAM, board-only commands stubbed): to the park, out without our design, out without the L2. All must pass before the board |
 
 **The record:** `TANAGERM`, then the mode (`a` or `r`), then the trial flag (`0` or `1`), then `\n`, then zeros to 512 bytes.
 - The hook takes RISC-V mode only for `r` with trial `0`. It writes trial `1` first, then sources `p1:/tanager/riscv.scr`.
