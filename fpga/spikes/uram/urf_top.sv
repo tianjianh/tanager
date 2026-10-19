@@ -8,11 +8,14 @@
 // - The RF stage: ALU operands (ports 0-3) go straight into ex_q; the LD and STA bases (ports 4, 5)
 //   through tg_exec's rbs select (the register value, ALU 0's or 1's result, or the load result);
 //   the late port into sd_q, the LSU's store-data capture.
+// - LATE_BYP: the late port's capture takes the LD and STA bases' select too (the register value, ALU 0's
+//   or 1's result, or the load result: one more LUT level), as an operand read at mid-cycle would.
 // - PROBE: one more URAM288 with port B's output register on, read every cycle into a clk2x register,
 //   for the output register's clock-to-out.
 // All of it folds into one output, so nothing is trimmed.
 module urf_top #(
-  parameter bit PROBE = 1'b1
+  parameter bit PROBE    = 1'b1,
+  parameter bit LATE_BYP = 1'b0
 ) (
   input  logic clk_in,     // 100 MHz
   output logic dout
@@ -96,7 +99,14 @@ module urf_top #(
         2'd2:    ex_q[4 + k] <= byp_d_q[1];
         default: ex_q[4 + k] <= byp_d_q[2];
       endcase
-    sd_q <= rdata[NE];
+    if (LATE_BYP)
+      unique case (byp_s_q[0])
+        2'd0:    sd_q <= rdata[NE];
+        2'd1:    sd_q <= byp_d_q[0];
+        2'd2:    sd_q <= byp_d_q[1];
+        default: sd_q <= byp_d_q[2];
+      endcase
+    else sd_q <= rdata[NE];
   end
 
   // ---- the output register's probe ----

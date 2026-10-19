@@ -1,7 +1,7 @@
 # Tier A of spikes.md §8.14: urf_top (tg_urf, the double-pumped UltraRAM integer register file, and the
 # RF stage around it) synthesized, placed and routed alone in the XCK26: the core clock at 100 MHz and the
 # UltraRAMs' at 200 MHz, from one MMCM. Measurement only.
-#   tools/vivado_run.sh <run-dir> <tree>/fpga/spikes/uram/urf_fit.tcl <tree> [-fp <floorplan.tcl>]
+#   tools/vivado_run.sh <run-dir> <tree>/fpga/spikes/uram/urf_fit.tcl <tree> [-fp <floorplan.tcl>] [-generic K=V]...
 # -fp: sourced after synthesis (URAM LOCs and pblocks that put each stand-in where its counterpart sits in
 # a routed full chip). Constraints beyond the clocks, both from tg_urf's slot plan:
 #   - slot 0's address: the select stand-in reaches the UltraRAM at the next core edge, a full core cycle
@@ -11,18 +11,19 @@
 # Writes summary.txt (worst slack per path class, the UltraRAM's clock-to-out with and without its output
 # register, the time left after the late read's data reaches the bank select) and the reports.
 set root [file normalize [lindex $argv 0]]
-set fp ""
-foreach {k v} [lrange $argv 1 end] { switch -- $k { -fp { set fp [file normalize $v] } default { puts "ERROR: unknown option $k"; exit 1 } } }
+set fp ""; set gen {}
+foreach {k v} [lrange $argv 1 end] { switch -- $k { -fp { set fp [file normalize $v] } -generic { lappend gen -generic $v } default { puts "ERROR: unknown option $k"; exit 1 } } }
 set part xck26-sfvc784-2LV-c
 set_param general.maxThreads 8
 set t0 [clock seconds]
 create_project -in_memory -part $part
 read_verilog -sv [list $root/fpga/spikes/uram/tg_urf.sv $root/fpga/spikes/uram/urf_top.sv]
-synth_design -top urf_top -part $part
+synth_design -top urf_top -part $part {*}$gen
 set fh [open summary.txt w]
 proc kv {k v} { puts $::fh [format "%-28s %s" $k $v]; flush $::fh }
 kv synth_s [expr {[clock seconds] - $t0}]
 kv floorplan [expr {$fp eq "" ? "none" : $fp}]
+kv generics [expr {[llength $gen] ? $gen : "none"}]
 
 create_clock -period 10.000 -name clk_in [get_ports clk_in]
 set c0  [get_clocks -of_objects [get_pins u_mmcm/CLKOUT0]]
@@ -68,7 +69,7 @@ set classes [list \
   "held early (A, B) -> RF stage (10 ns)"    [list -through $held -to $ex] \
   "late read -> store-data capture (5 ns)"   [list -from $late_u -through $lpin -to $sdq] \
   "bank select -> RF stage"                  [list -from [get_cells u_urf/e_bank_q_reg*] -to $ex] \
-  "probe: OREG -> capture"                   [list -from [get_cells -quiet g_probe.u_probe] -to [get_cells -quiet prb_q_reg*]] \
+  "probe: OREG -> capture"                   [list -from [get_cells -quiet -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ *u_probe}] -to [get_cells -quiet -hierarchical -filter {NAME =~ *prb_q_reg*}]] \
 ]
 set rf [open paths.rpt w]
 foreach {title args} $classes {
@@ -95,7 +96,7 @@ proc cells_of_path {p} {
 }
 foreach {title from thr to} [list \
     "no output register" $late_u $lpin $sdq \
-    "output register"    [get_cells -quiet g_probe.u_probe] {} [get_cells -quiet prb_q_reg*]] {
+    "output register"    [get_cells -quiet -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ *u_probe}] {} [get_cells -quiet -hierarchical -filter {NAME =~ *prb_q_reg*}]] {
   if {![llength $from]} { continue }
   set args [list -from $from -to $to]
   if {[llength $thr]} { lappend args -through $thr }
@@ -105,7 +106,7 @@ foreach {title from thr to} [list \
   set lines [cells_of_path $p]
   for {set i 0} {$i < [llength $lines]} {incr i} {
     lassign [lindex $lines $i] incr cum pin ln
-    if {$tco eq "" && [string match "*(Prop_URAM288*" $ln]} {
+    if {$tco eq "" && [string match "*(Prop_URAM*" $ln]} {
       set tco $incr
       # the next line is the route to the first cell after the UltraRAM: its arrival
       lassign [lindex $lines [expr {$i + 1}]] i2 c2 p2
