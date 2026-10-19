@@ -5,7 +5,7 @@ Status: implemented for M3 (`EXT_SU`, on) — core track — 2026-10-14
 ## Purpose
 Extends the M2 machine-mode CSR file ([core-pipeline.md](core-pipeline.md) §9) to the privilege architecture Linux needs (plan §2.2, §4.1, §4.13): M, S and U modes; trap delegation; supervisor interrupts with Sstc; counters and their enables; the status fields that change memory access (MPRV, SUM, MXR, TVM, TW, TSR). The MMU and PMP are in [core-mmu.md](core-mmu.md); atomics in [core-lsu.md](core-lsu.md) §Atomics.
 
-Target ISA string (M3, with verification.md §3.2; F and D join at M5): `rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs`, privilege `MSU`, 16 PMP entries, Sv39. Every field below follows Spike for that configuration, so lockstep compares every read.
+Target ISA string (M3, with verification.md §3.2; F and D join at M5): `rv64imac_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs`, privilege `MSU`, 8 PMP entries (`PMP_ENTRIES`, DR-167; 16 with `TG_PMP_ENTRIES=16`), Sv39. Every field below follows Spike for that configuration, so lockstep compares every read.
 
 ## Interface
 `tg_csr` keeps its M2 ports and adds:
@@ -89,7 +89,7 @@ Everything M2 listed is unchanged. Existence and privilege follow the CSR addres
 - From S or U, each counter read needs its enable bit; otherwise the read is illegal.
 
 ## Parameters
-`NUM_THREADS` (per-hart arrays arrive with M7; M3 is hart 0), PMP entries (16), `PA_W`. The extensions follow the `tg_core_pkg` switches (core-pipeline.md §4), which turn on together with the M3 ISA string.
+`NUM_THREADS` (per-hart arrays arrive with M7; M3 is hart 0), PMP entries (`PMP_ENTRIES`, 8 or 16), `PA_W`. The extensions follow the `tg_core_pkg` switches (core-pipeline.md §4), which turn on together with the M3 ISA string.
 
 ## Timing and area
 CSR accesses are serialised, so the CSR file is off the critical paths. The plan's lever R2 (cold CSRs in LUTRAM indexed by {TID, CSR}) applies when SMT2 doubles the state; M3 keeps flip-flops.

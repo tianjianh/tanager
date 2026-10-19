@@ -279,7 +279,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 
 ## 9. CSRs and traps (`tg_csr`)
 
-### 9.1 CSR set (M-mode, RV64IM, Zicsr, Zicntr, Zifencei, 16 PMP entries, no triggers), as Spike defines it
+### 9.1 CSR set (M-mode, RV64IM, Zicsr, Zicntr, Zifencei, 8 PMP entries, no triggers), as Spike defines it
 | CSR | Behaviour |
 |---|---|
 | `misa` | `0x8000_0000_0000_1100`; bit M writable (clearing it makes MUL/DIV illegal) |
@@ -296,7 +296,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | `mhpmcounter3–31`, `mhpmevent3–31` | read 0, writes ignored (counter reads `nondet`) |
 | `tselect`, `tdata1–3`, `tinfo` | read 0, writes ignored |
 | `mcontext` | 13 bits read/write |
-| `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–15 implemented (Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); entries 16–63 read 0. Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
+| `pmpcfg0, 2, …, 14`, `pmpaddr0–63` | entries 0–7 implemented (`PMP_ENTRIES`, DR-167; 0–15 with `TG_PMP_ENTRIES=16`; Spike's WARL rules: lock, R=0/W=1 dropped, 54-bit addresses); the others read 0 and ignore writes (Spike with `--pmpregions` at the same count). Reset: entry 0 = NAPOT RWX over the whole space, as Spike. Checked by `tg_pmp` (core-mmu.md) |
 
 Everything else is illegal (cause 2, `tval` = the instruction bits), as is a write to a read-only CSR. `csrrs/csrrc` with rs1 = x0 and the immediate forms with uimm = 0 do not write.
 
@@ -355,6 +355,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_TAGE` (`TAGE_ON`, on): TAGE-lite and the FTQ, with F2's prediction of straddlers and (with `TG_RAS`) returns (§3.2).
 - `TG_TAGE_NT`, `TG_TAGE_LI`, `TG_TAGE_TW`, `TG_TAGE_BI`: TAGE-lite's sizes (§3.2; two tables of 2K, DR-170).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
+- `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
