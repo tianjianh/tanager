@@ -96,3 +96,14 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
   - the `dev-ttyPS0.device` job waited 1 min 31 s for a UART that stage C doesn't have;
   - the SoC track's fix for both ran next ([`../d4/README.md`](../d4/README.md), part A's fix).
 - **How it ended:** stopped on purpose with `q` just before 09:00 UTC, for the fix's boot. The guest finished pass 147 ("STRESS stop after pass 147, fails=0") and powered off (`boot exit 0`, 19,130 s after the load). `k26-starter-kits` was back at 09:00:19.
+
+## Run s7: d2 from p3, the first stage C boot with part A's fix
+
+**Setup:** the same as s6. Load 09:22:00 UTC, 2026-10-19. Its boot checked part A's fix ([`../d4/README.md`](../d4/README.md)): no sdhci or arasan line, no taint and no ttyPS0 job. Pass 1 was clean in 128 s.
+
+**Result: 76 of 76 passes clean over 2 h 46 min** ([`linux_shell_stress_s7.txt`](linux_shell_stress_s7.txt), monitor [`stress_monitor_s7.txt`](stress_monitor_s7.txt), run log [`stress_s7.txt`](stress_s7.txt)).
+- **Steady numbers:** 127.2 s per pass (127–128 s); sysbench on two threads: cpu 78.92 events/s, memory 98.48 MiB/s, threads 1,518 events.
+- **No trouble:** no `STRESS FAIL` or `STRESS DMESG` line, and no oops, BUG, panic, RCU stall, lockup or hung task.
+- **The fan:** `fancontrol` at 15–30/255 (the A53's AMS at 34–35 °C). The regulator's 6 samples: PL die 33.9–34.9 °C, duty 15–30/255.
+- **How it ended:** stopped on purpose with `q` at 12:07:14 UTC, for D4's step 2. The guest finished pass 76 ("STRESS stop after pass 76, fails=0") and powered off (`boot exit 0`, 9,988 s after the load). `k26-starter-kits` was back at 12:08:32.
+- **s3 to s7 together:** 702 clean passes (479 + 147 + 76), about 25 hours of two-core load at 100 MHz from p3, on sc3 and d2.
