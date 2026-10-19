@@ -50,13 +50,21 @@ static long sbi_srst(unsigned long type, unsigned long reason) {
   return (long)a0;
 }
 
-int main(uint64_t hartid, uint64_t dtb) {
+static void hello(uint64_t hartid, uint64_t dtb) {
   puts2("\ntanager D4 step 5: RISC-V mode, bare metal, hart ");
   puthex2(hartid);
   puts2(", tree at ");
   puthex2(dtb);
   puts2("\n");
   puts2(uart1_ok ? "UART1: this line is on COM7 too\n" : "UART1: not reachable (the PS window denied it)\n");
+}
+
+int main(uint64_t hartid, uint64_t dtb) {
+  hello(hartid, dtb);
+  /* COM5's USB-UART drops out at every PL load (the board session, 10-19) and comes back seconds later: the hello
+   * again after 10 s, for its log */
+  wait_ticks(100000000);
+  hello(hartid, dtb);
   puts2("SBI system reset, cold reboot: the board should reset, then boot Ubuntu (trial 1)\n");
   wait_ticks(5000000);                                      /* 0.5 s for the UARTs */
   long e = sbi_srst(1, 0);

@@ -48,4 +48,25 @@ load mmc 1:1 0x20000000 boot.scr.uimg.tanager-pre; source 0x20000000
 
 That boots Ubuntu; then run the undo.
 
+## Step 5 on the board: RISC-V mode, bare metal
+
+The package is `bash sw/d4mode/build.sh <dir> sw/d4mode/riscv.cmd <the step 1 bitstream> <OpenSBI fw_jump.bin> <rvtest.bin> <the tree>`. The tree is `make -C sw/dts CORES=2 THREADS=2 RUN_THREADS=1 MEM=0x40000000 UART1=1 SD1=1 BOARD_RESET=1`. It needs step 4's hook in place and the record at arm.
+
+1. **Install:** `sudo cp tanager/* /boot/firmware/tanager/ && sync`. This replaces the stub with the real `riscv.scr`, next to `tanager.bit.bin`, `fw_jump.bin`, `payload.bin` (the test image) and `tanager.dtb`. Check them against SHA256SUMS.
+2. **Loggers:** log COM7 (UART1) throughout: the A53's U-Boot, then OpenSBI and the test image (the RISC-V mode tree's stdout is UART1). Log COM5 too, where the test image prints as well. COM5's USB-UART drops out at the PL load, so the test image says hello again after 10 s.
+3. `sudo tanager-mode riscv`, `sync`, `sudo reboot`. On COM7, in order:
+   1. `tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr`
+   2. `tanager: RISC-V mode from mmc 1:1`
+   3. the bitstream's load
+   4. `tanager: the host bridge answers`
+   5. SD1's taps (`md`)
+   6. the images' loads and copies
+   7. `tanager: the RISC-V runs, its console on COM5 and UART1; this A53 parks`
+   8. OpenSBI's banner
+   9. the test image's hello, twice, then `SBI system reset, cold reboot`
+
+   The board resets, and the A53's U-Boot shows `tanager-mode: ARM mode` (trial 1). Ubuntu boots: **pass**. After that, `sudo tanager-mode status` says riscv, trial 1; then run `sudo tanager-mode arm`.
+4. **If `riscv.scr` stops before the release:** the hook prints `the RISC-V did not start; booting Ubuntu`, and Ubuntu boots with trial 1. The COM7 log shows the last command, and that is the report.
+5. **If the test image runs but the board doesn't reset:** it prints its fallbacks, then asks for the PMOD break every 5 s. `riscv.scr` armed the hook (BOARD_CTRL 3), so a 4 s break on COM5 resets the board into ARM mode. Report which line it reached. If neither COM7 nor the break gets anywhere within 10 minutes, the board needs the user's power cycle.
+
 **U-Boot's hush:** an apostrophe inside double quotes is a syntax error, after which U-Boot crashes (the QEMU test found it). No string in these scripts has one.
