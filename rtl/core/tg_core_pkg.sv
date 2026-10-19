@@ -154,6 +154,16 @@ package tg_core_pkg;
   localparam int TAGE_BI = 11;
 `endif
   localparam int TAGE_IXW = TAGE_NT * (TAGE_LI + TAGE_TW) + TAGE_BI;   // a block's indices and tags
+  // An ownership prefetch for stores (M6, DR-171; smt2-study's area_recovery.md §6.11): when a
+  // cacheable store's address decides, the L1D requests its line with T through a free miss entry
+  // (never the last one), so the drain finds it owned instead of waiting for it one store at a time.
+  // A cache-state change only: the drain still writes in order. Needs DC_MSHRS > 1. TG_STORE_PF=0
+  // gives no prefetch, cycle for cycle as before
+`ifdef TG_STORE_PF
+  localparam bit STORE_PF = `TG_STORE_PF;
+`else
+  localparam bit STORE_PF = 1'b1;
+`endif
   // A store's address op issues on its base register alone (M6, DR-169): rename
   // leaves the store's data register out of its IQ-STA row's wakeup columns and MX rows. The SQ
   // entry captures the data when its register is written (core-lsu.md, Stores), and a load that
@@ -172,16 +182,6 @@ package tg_core_pkg;
   localparam bit STEER_LA = `TG_STEER_LA;
 `else
   localparam bit STEER_LA = 1'b1;
-`endif
-  // An ownership prefetch for stores (M6, DR-171; smt2-study's area_recovery.md §6.11): when a
-  // cacheable store's address decides, the L1D requests its line with T through a free miss entry
-  // (never the last one), so the drain finds it owned instead of waiting for it one store at a time.
-  // A cache-state change only: the drain still writes in order. Needs DC_MSHRS > 1. TG_STORE_PF=0
-  // gives no prefetch, cycle for cycle as before
-`ifdef TG_STORE_PF
-  localparam bit STORE_PF = `TG_STORE_PF;
-`else
-  localparam bit STORE_PF = 1'b1;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
