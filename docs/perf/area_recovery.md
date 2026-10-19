@@ -1551,6 +1551,152 @@ How each boot estimate is made:
 - **A LUTRAM structure can be costed by counting its primitives.** The micro-BTB's count was within 10% of its synthesis.
 - **Time a cycle's commits where they are decided, not from a registered report of them** (follow-up 13). The commit trace lags retirement by a cycle. A stack built from it charged each stall's last cycle to a "commit held" class that does not exist.
 
+### 6.12 The model and the RTL against the board's first M6 Linux run (2026-10-19)
+
+*MR18 ran M6 on the board for the first time (`fpga/kv260/board/d4s2`): DR-141's Linux set, three boots, on d4s2 (M6 with core-2's micro-BTB target check), against d2 (sc3's core with DR-156's four misses).*
+
+*The coordinator asked three questions:*
+- *where tgsim's M6 preset (`rtl_m2` revision 7) lands against each program, within ~10%;*
+- *why Dhrystone is 8% below simulation when CoreMark is slightly above;*
+- *whether the boot profile with board-like memory predicts the board's /init gain.*
+
+*What was run, all on the build host:*
+- *The RTL's make perf on both bitstreams' trees:*
+  - *d2: `e65db3a`;*
+  - *d4s2: `03171ea` with `c261c1f`'s `tg_fetch.sv`.*
+
+  *Each tree ran in the board's configuration (smt2) and in make perf's (st).*
+- *The model on the same ELFs (`scripts/m6_board.py`).*
+- *Linux to /init in `tb_boot` on both trees, set up as the board runs it:*
+  - *smt2, two cores, one hart each;*
+  - *the console without serial timing, so the kernel's timestamps are the CPU time (the board's console time is taken off its own timestamps);*
+  - *board-like memory;*
+  - *the board's bench OpenSBI, Image and 1 GiB device tree. This needs `tb_boot`'s 256 MiB window widened, done in the scratch trees only.*
+
+**What the board runs, against make perf.**
+- **The core is the smt2 build, one hart per core.** Until M7, an smt2 core gives its one thread the whole smt2 window:
+  - **its size:** ROB 80, LQ 24, SQ 20 and 24 LLTs, against st's 48, 16, 12 and 16;
+  - **no per-thread limits yet:** the per-thread halves and the 75% issue-queue caps are not wired (`tg_issue` leaves `tg_iq`'s `room` unused).
+- **CoreMark and Dhrystone are the Linux set's own programs:**
+  - static glibc builds from 10-15, without compressed code (the set moved to rv64gc on 10-17);
+  - not make perf's bare-metal ELFs.
+- **The console:** the kernel prints its 55 timestamped lines before /init (3,965 characters) synchronously at 115200 baud. That is 0.34 s of the 0.93 s to /init, the same on both bitstreams.
+
+**1. Per program: the board, the RTL and the model.** IPC on rv64gc. The RTL and the model run make perf's ELFs at native latency; the board runs its own builds. The model's smt2 is `rtl_m2` with ROB 80, LQ 24, SQ 20 and 24 LLTs.
+
+| Program | Board, d2 → d4s2 | RTL smt2, d2 → d4s2 | Model smt2, d2 → M6 | Model against the board (M6) | Model against the RTL (M6) |
+|---|---|---|---|---|---|
+| CoreMark A | 0.943 → 1.563 | 1.033 → 1.534 | 1.029 → 1.563 | **0.0%** | +1.9% |
+| CoreMark B | 0.791 → 1.498 | 0.954 → 1.459 | 0.912 → 1.498 | **0.0%** | +2.6% |
+| Dhrystone | 0.802 → 1.599 | 0.746 → 1.608 | 0.791 → 1.510 | −5.5% (not the same program) | −6.1% |
+
+- **Per MHz** (CoreMark/MHz; DMIPS/MHz):
+  - the board: 4.61, 4.36, 2.82;
+  - the RTL, smt2: 4.54, 4.27, 3.20;
+  - the RTL, st (main's figures; the micro-BTB check changes none): 4.55, 4.27, 3.08;
+  - the model, smt2: 4.63, 4.38, 3.00.
+- **Within ~10% everywhere it can run:**
+  - **M6:** the model is within 2.6% of the RTL on CoreMark and 6.1% on Dhrystone.
+  - **d2's core:** within 0.3–6.0% of the RTL.
+  - **rv64im:** within 0.2–5.3%, except Dhrystone M6 at +9.2%. Its RTL replays the store–load race of §6.9 once a run, and the model replays it less.
+  - **The window:** smt2's larger window changes nothing for CoreMark in either simulator. Dhrystone rv64gc gains 4% in the RTL and 1% in the model.
+- **The Linux-level tests have no model number:**
+  - fork+exec −25.3%, syscall −15.1%, page fault −15.4%, tmpfs read −44.3%, gzip −21.4% cycles;
+  - the model runs bare-metal programs only (no operating system, no MMU);
+  - their check is the boot (question 3).
+- **d2's CoreMark is slow on the board, not d4s2's fast:**
+  - **d2's CoreMark on the board** is 9% (A) and 17% (B) below its own RTL simulation. d4s2 is within 2–3% above its simulation.
+  - **So the board's d2 → d4s2 CoreMark gain** (−39.9%, −47.5% cycles) is larger than the RTL's (−32.6%, −34.6%) and the model's (−34.1%, −39.1%).
+  - **Not the code's placement, nor its generation:**
+    - make perf's programs relinked with their code 32 B to 2 KiB later move d2's IPC by 0.1–0.2% in RTL (d4s2's by about 1%; `scripts/rtlprof/layout.sh`);
+    - the two builds' hot CoreMark functions are the same code: `core_list_find` and `matrix_mul_matrix` identical, the others of equal length.
+  - **Not d2's bitstream either:** d2's boot, translated as user code is, matches the board within 2–3% in simulation (question 3).
+  - **Still unidentified:** something in d2's user-mode CoreMark runs on the board costs it 9–17%. It only colours the board's d2 → d4s2 CoreMark gain, not M6's figures.
+
+**2. Why Dhrystone is lower on the board.** The core is not slower. Per instruction, the board runs Dhrystone at 1.599 IPC, against the RTL's 1.608 on rv64gc (−0.6%). Three things differ between the board's 2.82 and the simulation's 3.08:
+- **The program: 13% more instructions.** The board's build executes 323 instructions per run, against 286 for make perf's ELF.
+  - glibc's `strcpy` and `strcmp` are each called through an IFUNC stub: an indirect call.
+  - glibc's `strcpy` is its generic `stpcpy`-based copy. The bare-metal build copies the 31-byte literal with `memcpy` and uses newlib's tuned `strcmp`.
+  - CoreMark's two builds execute the same instructions within 0.5%, so its board and simulation numbers compare like for like.
+- **The configuration:** smt2's larger window is worth 4% on Dhrystone rv64gc in the RTL (3.20 against st's 3.08). The coordinator's comparison mixed the board's smt2 with st's simulation.
+- **The race:** make perf's rv64im ELF, without compressed code like the board's build, replays one store–load race per run (§6.9): 2.76 DMIPS/MHz in RTL. The board's build doesn't show it: its IPC is rv64gc's. The race depends on layout.
+
+**3. /init: the board's gain, and the simulation's.**
+- **The board's /init time splits into the console and the CPU's work.**
+  - The console is 0.34 s, the same on both bitstreams.
+  - The CPU's work is 0.840 s on d2 and 0.588 s on d4s2 (the median of three boots): −30%, or 1.43 times as fast.
+  - The CPU time falls 26–33% in every boot phase, measured between kernel log lines with each line's console time taken off:
+
+| Phase (CPU time, board) | d2 | d4s2 | Change |
+|---|---|---|---|
+| Kernel start to `smp: Brought up` | 0.046 s | 0.034 s | −26% |
+| … to `clocksource: Switched` | 0.121 s | 0.086 s | −29% |
+| … to `clk: Disabling unused clocks` (the initcalls) | 0.454 s | 0.304 s | −33% |
+| … to `Freeing unused kernel image` (the initramfs unpacked) | 0.838 s | 0.585 s | −30% |
+| … to `Run /init` | 0.840 s | 0.586 s | −30% |
+
+- **The boot profile cannot predict this by itself.** It is one configuration, and its 20M cycles cover OpenSBI and only the kernel's first ~0.035 s.
+  - The RTL's recorded gains over that window (smt2) add up to about +15.5% retired from d2 to d4s2:
+    - speculative wakeup +2.0% (DR-154);
+    - DR-169's levers +0.5%;
+    - the M6 set +12.7% (with 2K tables).
+  - That is equivalent to about −13% time: half the board's −26% in the same early phase. The runs below show why.
+- **The direct check: both trees to /init, run as the board runs it** (`scripts/rtlprof/brd_init.sh`):
+
+| Milestone (CPU time) | Board d2 | Board d4s2 | Change | Simulation d2 | Simulation d4s2 | Change | Simulation against the board: d2 / d4s2 |
+|---|---|---|---|---|---|---|---|
+| `smp: Brought up` | 0.0463 s | 0.0342 s | −26.2% | 0.0455 s | 0.0340 s | −25.3% | −1.6% / −0.4% |
+| `clocksource: Switched` | 0.1217 s | 0.0856 s | −29.6% | 0.1193 s | 0.0850 s | −28.7% | −2.0% / −0.7% |
+| `NET: Registered PF_PACKET` | 0.3207 s | 0.2247 s | −29.9% | 0.3105 s | 0.2181 s | −29.8% | −3.2% / −3.0% |
+| `clk: Disabling unused clocks` | 0.4537 s | 0.3133 s | −30.9% | 0.4467 s | 0.3025 s | −32.3% | −1.5% / −3.4% |
+| `Freeing unused kernel image` | 0.8383 s | 0.5874 s | −29.9% | 0.9266 s | 0.6839 s | −26.2% | +10.5% / +16.4% |
+| `Run /init` | 0.8401 s | 0.5884 s | **−30.0%** | 0.9284 s | 0.6848 s | **−26.2%** | +10.5% / +16.4% |
+
+- **Yes: run as the board runs it, the RTL simulation predicts the board.**
+  - **Through every initcall:** it is within 0.4–3.5% of the board on both bitstreams, and each phase's d2 → d4s2 change agrees (−25% to −32%, against −26% to −31%).
+  - **The initramfs unpacking diverges:** the simulation takes 25% (d2) and 39% (d4s2) longer there. That phase copies about 9 MB into the page cache, so the gap is `tb_boot`'s DDR model, slower than the board's DDR for this traffic.
+  - **So the simulated /init gain is −26.2%, against the board's −30.0%.**
+- **Why the 20M-cycle windows read about half the gain:** they are OpenSBI and the kernel's setup before its clock starts, which the board's timestamps leave out.
+  - **OpenSBI:** d2 needs 1.6 times d4s2's cycles.
+  - **The page-structure setup for 1 GiB:** M6 barely speeds it up (31M against 29M cycles); it is bound by stores that miss.
+- **With the serial console's fixed 0.34 s added,** the simulation's /init reads 1.03 s (d4s2) and 1.27 s (d2): a −19.2% gain, against the board's 0.93 s and 1.18 s (−21.3%).
+
+**What it changes for DR-171's ranking.** The profile of the whole boot to /init, run as the board runs it (d4s2 with the binds, `scripts/rtlprof/brd_prof.sh`; the boot core's counters, 122M cycles), against §6.11's first 20M cycles:
+
+| Piece | LUTs per chip | First 20M cycles, board memory: estimate | Whole boot to /init: estimate (bound) | Per 1K LUTs, whole boot |
+|---|---|---|---|---|
+| Ownership prefetch for stores (DR-171) | 400–600 | +4.2% | **+6.2%** (18.8%) | 12.5% |
+| FENCE.I by generation (DR-171) | 100–600 | +1.7% | **+0.29%** | 0.8% |
+| I$ next-line prefetch with a second refill | 1,000–1,500 | +2.7% | **+1.7%** (2.4%) | 1.4% |
+| DTLB replay from the LQ | 400–1,200 | +1.6% | **+0.30%** (1.0%) | 0.4% |
+| Micro-BTB 128 entries | 130–150 | +0.6% | +0.31% | 2.2% |
+| Checkpoints (4) | 2,000–3,000 | +2.5% | +1.6% | 0.6% |
+| 8 or 16 L1D misses | 1,800–6,000 | 0 | 0 | 0 |
+
+- **The store ownership prefetch stays first, and by more.**
+  - Over the whole boot, rename is held by a full SQ while a store's line misses on 18.8% of the boot core's cycles.
+  - The core that unpacks the initramfs has 11.8M such cycles of its own.
+  - The absolute estimate leans high: `tb_boot`'s DDR is slower than the board's for exactly this traffic.
+- **FENCE.I by generation is worth about 0.3% of the whole boot, not 1.7%.**
+  - The boot's 5.5K FENCE.Is (code patching) all come early.
+  - It stays cheap (100–600 LUTs), but it now ranks below the micro-BTB at 128.
+  - Its steady-state value, FENCE.I on executable page faults, is unmeasured.
+- **The next pair: the I$ next-line prefetch leads the DTLB replay from the LQ by more than before** (1.7% against 0.3%). The DTLB retries cluster in early boot too: 28.9K in the whole boot against 25.6K in the first 20M cycles.
+- **Recommendation:**
+  - keep DR-171's store ownership prefetch first;
+  - take the I$ next-line prefetch before the DTLB replay;
+  - weigh FENCE.I by generation as a 0.3% item: worth its few hundred LUTs, but not ahead of the I$ prefetch;
+  - before judging the store side further, give `tb_boot`'s DDR model the board's throughput (follow-up 14).
+
+**Decisions:** none here; DR-171's ranking is the coordinator's. No model revision: revision 7 with the board's smt2 sizes matches the board's CoreMark exactly.
+
+**Learned:**
+- **Compare like with like before reading a board-against-simulation gap.** The 8.5% Dhrystone gap was a different build (13% more instructions) plus a configuration mix, smt2 against st. Per instruction, the board runs Dhrystone at the RTL's IPC within 0.6%.
+- **The board's smt2 core is a bigger single-thread core until M7.** One thread gets the whole smt2 window, and the per-thread queue caps are not wired. With those sizes the model lands on the board's CoreMark exactly.
+- **Run the simulation as the board runs it, or the gains differ.** The same bench images, device tree, two cores and board-like memory reproduce the board's boot within 0.4–3.5% through the initcalls. The 20M-cycle profiles under a different setup read half the board's gain.
+- **A boot's first 20M cycles are not its average.** FENCE.I and DTLB retries cluster in early boot: 1.7% each there, 0.3% over the boot to /init.
+- **The testbench's DDR model is the remaining gap:** it is 25–39% slow on the page-cache copy that unpacks the initramfs.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -1995,6 +2141,8 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 11. **DTLB retries at the ROB head** (§6.10): 2.31% of the boot's first 20M cycles (as corrected by follow-up 13), about 16 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB. Re-measured on main (§6.11): a retry from the LQ would save 1.62% (loads; stores 0.16%), and the walk at the head is another 2.3% of cycles.
 12. **M6's remaining pieces, ranked on main** (§6.11): the ownership prefetch for stores (+4.2% of the boot), FENCE.I by generation (+1.7%) and the micro-BTB at 128 (+0.6%) lead per 1K LUTs; the DTLB retry from the LQ (+1.6%) and the I$ next-line prefetch with a second refill (+2.7%) also fit the room. Each wants a prototype with its measured LUTs before it merges. The L2 stream prefetcher, the model's best Linux-like buy, needs the board's steady state. DR-171 took the first two (fpu-2, core-2).
 13. ~~"Commit held" in the boot~~: **done** (§6.11). The 4.3% was the bind's: it counted commits from the commit trace, a cycle late. Corrected, 0.5% of cycles have a complete head that retires nothing, all of it the registered cycle after a flush. There is no trace back-pressure (0 cycles) and no commit hold: no free gain.
+14. **`tb_boot`'s DDR model against the board's** (§6.12): it runs the initramfs unpacking, a 9 MB page-cache copy, 25–39% slower than the board, while every initcall matches within 3.5%. Calibrate its outstanding requests and write throughput to the board's DDR (a testbench change, for the SoC or verification track) before the store-side estimates are judged further. They include DR-171's store ownership prefetch.
+15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain.
 
 ---
 
@@ -2170,6 +2318,18 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 - **By boot gain per 1K LUTs:** the ownership prefetch for stores (+4.2%, 400–600 LUTs a chip), FENCE.I by generation (+1.7%, 100–600) and the micro-BTB at 128 (+0.6%, 130–150). Then the DTLB retry from the LQ (+1.75%) and the I$ next-line prefetch with a second refill (+2.7%); all five fit the room.
 - **Checkpoints** are the make perf pick (−1.7% cycles; +2.5% of the boot) at 2–3K LUTs. **More misses in flight** buy nothing in the boot.
 - **Follow-up 13: the boot's 4.3% "commit held" was the bind's.** It read commits from the commit trace, which lags the ROB by a cycle. Corrected, 0.5% remain: the registered cycle after a flush. There is no trace back-pressure and no commit hold. §6.10's replay stalls shrink by a cycle each (DTLB retries 2.31%).
+
+**2026-10-19: the model and the RTL against the board's first M6 Linux run** (§6.12; MR18's d4s2 against d2; `scripts/m6_board.py`; make perf on both trees in smt2 and st; `tb_boot` to /init as the board runs it, `scripts/rtlprof/brd_init.sh` and `brd_prof.sh`):
+- **CoreMark:** `rtl_m2` revision 7, with the board's smt2 sizes (ROB 80, LQ 24, SQ 20), lands on the board's IPC exactly: 1.563 and 1.498. It is within 2.6% of the RTL.
+- **Dhrystone's 8.5% gap is the program, not the core:**
+  - the Linux set's static glibc build executes 13% more instructions per run (`strcpy` and `strcmp` through IFUNC stubs);
+  - the comparison mixed the board's smt2 with st's simulation;
+  - per instruction, the board runs at the RTL's IPC within 0.6%.
+- **/init:** run as the board runs it, the RTL simulation tracks the board within 0.4–3.5% through every initcall. It runs the initramfs unpacking 25–39% slow (`tb_boot`'s DDR model): −26.2% against the board's −30.0% CPU time. The board's /init gain itself (−21.3%) includes 0.34 s of fixed serial console time.
+- **DR-171's ranking:**
+  - over the whole boot, the store ownership prefetch stays first (+6.2%, leaning high);
+  - FENCE.I by generation falls to +0.3%: its FENCE.Is cluster in early boot;
+  - the I$ next-line prefetch (+1.7%) leads the DTLB replay from the LQ (+0.3%) by more than before.
 
 **Lessons:**
 - **Time an event where the hardware decides it, not from a registered report of it.** The commit trace lags retirement by a cycle. A cycle-by-cycle stack built from it invented a 4.3% "commit held" class, and each replay's stall came out a cycle long.
