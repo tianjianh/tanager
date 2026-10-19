@@ -113,7 +113,7 @@ module tg_fetch
     logic              way;
     logic [SLOT_W-1:0] slot;
     logic [63:0]       target;
-    logic              tsrc;     // ... to the instruction's own target (TAGE_ON), not `target`
+    logic              tsrc;     // ... to the instruction's own target, F2's refetch (TAGE_ON), not `target`
     logic              uhit;     // the micro-BTB's prediction (its training): taken at `uslot`
     logic [SLOT_W-1:0] uslot;
     logic [FTQW-1:0]   ftq;      // the block's FTQ entry (TAGE_ON)
@@ -369,7 +369,7 @@ module tg_fetch
   // The block's final prediction and what follows from it (both forms below):
   logic               f2_isf0;            // the entry's fault decision (the override waits for it)
   logic [SLOT_W-1:0]  fx_slot;            // the taken exit's last parcel
-  logic               fx_tsrc;            // ... its target is the instruction's own (TAGE_ON)
+  logic               fx_tsrc;            // ... F2 refetches at the instruction's own target (TAGE_ON)
   logic               f2_ovr;             // the prediction differs from what F1 followed: refetch,
   logic               f2_ka;              // F2 acts on a delivered block: a cut, a fault or a refetch
   logic               ovr_tk;             // ... at the exit's target (the exit's first parcel ovr_p)
@@ -507,7 +507,9 @@ module tg_fetch
       sx_call = (sx_jal || sx_jalr) && rdl;
       sx_pop  = sx_jalr && rsl && !(rdl && rd == rs1);
       // (the micro-BTB never takes a straddler: no parcel of its block starts at slot 0, so its
-      // prediction there is no real exit and uok is false; only the stack takes a straddling JALR)
+      // prediction there is no real exit and uok is false; only the stack takes a straddling JALR.
+      // It is never trained on one either: a hit at slot 0 here is another block's entry, through
+      // the partial tag, and F1 followed its target: decode checks it, fx_tsrc below)
       sx_tk   = (sx_br && tdir[0]) || sx_jal || (sx_jalr && RAS_FE && sx_pop && ras_v);
     end
     assign fe_s = sx_tk;
@@ -641,11 +643,15 @@ module tg_fetch
         xoff    = wide[0] ? 4'd2 : 4'd1;
       end
     end
-    assign fx_tsrc = tk && !xjalr;
     // F1 followed the micro-BTB (its target on f2_hit_q, else the next block). They differ when the
     // exit is at another slot than the micro-BTB's, or there is none against its hit; at the same slot
     // the micro-BTB's target is taken as right (decode checks it). Faults and cuts refetch on their own
     // (a return the stack predicts: also when the micro-BTB's target is not the stack's top).
+    // A JAL or branch exit goes to its own target only through F2's refetch (fx_tsrc: decode need not
+    // check it). At the micro-BTB's slot the next block is the micro-BTB's target, which the queue
+    // carries for decode's check: an entry of another block (the partial tag aliases blocks 2 MiB
+    // apart, a straddler's slot 0 included) or a JAL changed since it trained gives a wrong one.
+    assign fx_tsrc = tk && !xjalr && !(f2_hit_q && sm);
     // f2_ka, F2's action without the delivery: its terms absorb f2_ovr's gates (timing)
     logic fe_ras, xovr;
     assign fe_ras  = tk && xras;
@@ -777,10 +783,11 @@ module tg_fetch
       logic [20:0] r_imm;
       logic [38:1] r_rlink;
       logic [63:0] r_tgt;
-      assign r_fx_tsrc = r_tk && (fe_s ? !sx_jalr : !pd_jalr[r_fe_p]);
       assign r_fe_ras  = r_tk && (fe_s ? RAS_FE && sx_pop && ras_v : r_rp[r_fe_p]);
       assign r_ovr     = !r_isf && !r_pcut && !r_ccut &&
                          (r_tk ? !(f2_hit_q && f2_slot_q == r_fx_slot && (!r_fe_ras || f2_tgt_q == rtgt)) : f2_hit_q);
+      // the exit's own target only where F2 refetches there
+      assign r_fx_tsrc = r_tk && (fe_s ? !sx_jalr : !pd_jalr[r_fe_p]) && r_ovr;
       always_comb begin
         logic [31:0] x;
         x = {parcel[(int'(r_fe_p) + 1) % NP], parcel[r_fe_p]};
