@@ -25,6 +25,12 @@
 namespace tg {
 
 enum Queue : uint8_t { Q_A0, Q_A1, Q_LD, Q_STA, Q_FP, Q_UNI, Q_SERIAL, Q_ALU_ANY, Q_A2, NQ };
+// The front end's events that decode's starved slots are charged to (lost_* counters, area_recovery.md §6.7)
+enum FeEv : int { FE_STEADY, FE_FLUSH, FE_REPLAY, FE_DRED, FE_MISS_BR, FE_MISS_JAL, FE_MISS_RET, FE_SLOT, FE_RASTGT,
+                  FE_NT, FE_BOGUS, FE_CUT, FE_ICMISS, FE_FTQ, FE_MISS_STRAD };
+// What stopped dispatch this cycle: decode's cycles held by rename are charged to it (held_*), as the RTL's rename
+// profile does (area_recovery.md §6.8)
+enum DispWhy : int { DW_NONE, DW_EMPTY, DW_ROB, DW_LQ, DW_SQ, DW_IQ, DW_REG, DW_LLT, DW_WTAG, DW_BANK };
 constexpr uint64_t NEVER = ~0ull;
 // Micro-op ids carry the hardware thread in their top bits: unique across threads, and thread 0's ids are
 // exactly the single-thread ones.
@@ -86,6 +92,7 @@ struct Uop {
   uint64_t blk = 0;
   uint64_t dgrp = 0;                  // iq_slot_bank: its decode group (decode cycle) and slot in it
   uint8_t dslot = 0;
+  uint8_t steer_q = 0xff;             // iq_steer_rn: the ALU queue rename picked (0xff: not yet)
   bool is_load = false, is_store = false, violated = false, has_llt = false, in_lq = false;
   bool retired_early = false;
   int row = -1;
@@ -100,6 +107,7 @@ struct SqEntry {
   uint8_t size = 0;
   bool mmio = false, committed = false, rfo = false;
   uint64_t t_addr = NEVER;
+  uint64_t t_commit = NEVER;  // drain_delay: when it committed
   uint64_t data_prod = 0;
   bool data_now = false;  // data captured at issue (non-split stores)
 };
@@ -112,8 +120,17 @@ struct SqEntry {
   X(taken_bubbles) X(predecode_redirects) X(ubtb_wrong) X(f2_overrides) X(f2_cuts) X(bt_drops)       \
   X(fetch_blocks) X(ftq_full)                                                                      \
   X(f2o_miss) X(f2o_slot) X(f2o_nt) X(f2o_ret) X(f2o_bogus)                                       \
-  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_starved) X(rob_empty) X(disp_stall_slot)            \
+  X(dec_take0) X(dec_take1) X(dec_take2) X(dec_blocked) X(dec_starved) X(rob_empty) X(disp_stall_slot) \
   X(dc_clashes)                                                                                    \
+  X(f2o_miss_br) X(f2o_miss_jal) X(f2o_miss_ret) X(f2o_miss_strad)                                 \
+  X(lost_steady) X(lost_flush) X(lost_replay) X(lost_dred) X(lost_miss_br) X(lost_miss_jal)        \
+  X(lost_miss_ret) X(lost_slot) X(lost_rastgt) X(lost_nt) X(lost_bogus) X(lost_cut) X(lost_icmiss) \
+  X(lost_ftq) X(lost_miss_strad)                                                                   \
+  X(held_rob) X(held_lq) X(held_sq) X(held_iq_a0) X(held_iq_a1) X(held_iq_ld) X(held_iq_sta)      \
+  X(held_iq_fp) X(held_reg) X(held_llt) X(held_wtag) X(held_other)                                 \
+  X(sta_rows_base) X(sta_rows_data) X(sta_rows_ready) X(sta_rows_held) X(sta_held_data)            \
+  X(a0_rows_wait) X(a0_rows_ready) X(a0_rows_held) X(a1_rows_wait) X(a1_rows_ready) X(a1_rows_held) \
+  X(ld_rows_wait) X(ld_rows_ready) X(ld_rows_held) X(held_alu_other) X(stq_cancels)                \
   X(fused) X(folded) X(sfb_pairs) X(sfb_shadow_skipped)                                            \
   X(fetch_stall_icache) X(fetch_stall_blocked) X(fetch_stall_bubble) X(fetch_stall_queue)          \
   X(disp_stall_rob) X(disp_stall_iq) X(disp_stall_lq) X(disp_stall_sq) X(disp_stall_reg)           \
@@ -187,6 +204,21 @@ class Core {
     // fe_m2: blocks fetched (numbered from 1), and blocks the youngest retired instruction's block follows: the
     // FTQ (m2_ftq) holds blk_seq - blk_head of them
     uint64_t blk_seq = 0, blk_head = 0;
+    // the front end's last event (decode's starved slots are charged to it, as the RTL profile does), and whether
+    // fetch waits on a mispredict (the RTL decodes the wrong path meanwhile, so that wait is not starvation)
+    int fe_ev = 0;
+    uint64_t fe_ev_t = 0;
+    bool fe_wait_mp = false;
+    // ... and from when, after a flush at commit: fetch restarts commit_redirect cycles later, and the RTL decodes
+    // the wrong path until its flush acts
+    uint64_t fe_count_from = 0;
+    // m2_strad: the last block ended in sequence (at a straddler, or cut short by a full fetch queue), so a
+    // straddler that starts the next fetch is decoded with its second block
+    bool fe_seq = false;
+    // what stopped dispatch this cycle (DispWhy), and for a full issue queue, which queue and slot bank
+    int disp_why = DW_NONE;
+    uint8_t disp_why_q = 0, disp_why_k = 0;
+    bool disp_why_alu = false;  // ... and whether the op stopped there is an ALU op rename steers between A0 and A1
     // window (program order): decoded but not yet committed uops
     std::deque<Uop> win;
     uint64_t win_base = 1, next_id = 1, disp_next = 1;
@@ -218,6 +250,7 @@ class Core {
   };
 
   Thread& th(const Uop& u) { return *th_[u.tid]; }
+  void fe_event(Thread& T, int ev) { T.fe_ev = ev; T.fe_ev_t = t_; }
   // stream of correct-path instructions from the ISS
   const DynInst* get(Thread& T, uint64_t seq);
   bool stream_has(Thread& T, uint64_t seq);
@@ -278,6 +311,10 @@ class Core {
   int64_t held(uint8_t q, int bank) const;
   int64_t slot_free(uint8_t q, int k) const;
   int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
+  // iq_steer_rn: the ALU queues' bank flags (a row free, by slot) rename read for this cycle's dispatch, and this
+  // cycle's, which the next cycle's rename reads
+  std::array<std::array<bool, 2>, 2> steer_flags_{{{true, true}, {true, true}}}, bf_prev_{{{true, true}, {true, true}}};
+  void steer(Uop& u) const;
   // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
   struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
   std::vector<AgRec> ag_recs_;
@@ -285,6 +322,8 @@ class Core {
   void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
   bool mx_named(const Uop& p) const;  // a 1-cycle producer its consumers name by ALU-queue row (MX)
+  void sta_census(Thread& T);         // IQ-STA's rows in the bank that stopped dispatch, by what they wait on
+  void iq_census(Thread& T);          // the same for an ALU queue or IQ-LD: waiting, ready, issued and held
   int wtags_used() const;             // wake_tags: tags held by producers whose results have not woken
   bool window_full(int64_t size, uint64_t own, uint64_t total, int tid) const;
   bool fast_forward(Thread& T);

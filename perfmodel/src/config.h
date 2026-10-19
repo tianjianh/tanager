@@ -33,6 +33,8 @@ namespace tg {
   X(btage_tq, 4, "m2_btage: training queue entries, one request every two cycles, a full queue drops; 0 = train at commit at once") \
   X(m2_cut, 0, "fe_m2 with m2_f2: a block ends before its third conditional branch, refetched at m2_f2_bubble") \
   X(m2_ftq, 0, "fe_m2: FTQ entries (core-2's TAGE front end): a block holds one from fetch until an instruction of a later block commits; fetch waits while none is free (0 = no FTQ)") \
+  X(m2_strad, 0, "fe_m2: a 32-bit instruction that straddles into the next block, reached in sequence, is decoded with that block (F2 holds its first half): no block of its own, the next block's TAGE read at slot 0, one of its branches; the micro-BTB never predicts or trains a straddler (the RTL as built)") \
+  X(m2_ub_way, 0, "fe_m2: training writes the micro-BTB way that predicted this instruction, else a pseudo-random way (the RTL as built); 0 = the way that hit the block") \
   X(btb_block, 1, "1 = block BTB with slots, 0 = per-instruction BTB")                             \
   X(btb_sets, 256, "BTB sets")                                                                     \
   X(btb_ways, 4, "BTB ways")                                                                       \
@@ -70,6 +72,7 @@ namespace tg {
   X(iq_sta, 8, "IQ-STA entries")                                                                   \
   X(iq_hold, 0, "cycles from a uop's issue until dispatch can reuse its IQ row (0 = at once; core-2's RTL: 3, the row is freed two cycles after its select)") \
   X(iq_slot_bank, 0, "IQ rows are banks by dispatch slot (plan §4.15; core-2's RTL): decode slot k's uop takes a row of bank k, and a group waits until each slot's bank has one") \
+  X(iq_steer_rn, 0, "with iq_slot_bank: an ALU op's queue is picked a cycle before dispatch, as rename does in the RTL, from the banks' free flags of the cycle before that (which miss the group dispatch writes meanwhile): slot k's op takes queue k mod 2 if its bank had a row, else the other if it had one, else k mod 2, and keeps it; 0 = picked at dispatch with the current rows; 2 = picked at rename from flags that count the group the dispatch stage writes in the same cycle (a fix)") \
   X(iq_fp, 12, "IQ-FP entries")                                                                    \
   X(alu3, 0, "third simple-ALU port P5 with its own queue and register bank (DSE option)")         \
   X(iq_a2, 0, "IQ-A2 entries with alu3 (0 = same as IQ-A1)")                                       \
@@ -89,8 +92,10 @@ namespace tg {
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
   X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
   X(spec_fwd, 0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
+  X(fwd_wait_cancel, 0, "with spec_wakeup: a load that finds an older store's address without its data, or not covering it, cancels the shadow as a miss does (the RTL's STQ verdict at M2)") \
   X(dc_row_clash, 0, "a load whose AG (D$ row read) meets a store draining into the same row (VA[11:4]) retries (the RTL's D$)") \
   X(clash_delay, 4, "dc_row_clash: cycles a clashing load's result is delayed (its replay from the LQ)") \
+  X(clash_rearm, 0, "dc_row_clash: the retry reads the row again at its own AG, so a store draining then makes it retry again") \
   X(redirect_lat, 1, "cycles from branch resolution (end of EX) to the redirected IF1")            \
   X(commit_redirect, 1, "cycles from commit of a mispredicted branch to IF1 (no checkpoint)")      \
   X(lat_mul, 3, "multiply latency")                                                                \
@@ -167,7 +172,8 @@ namespace tg {
   X(abl_done, 0, "extra cycles from execute completion to the ROB's complete mark (commit slips)") \
   /* DR-140's profiles (area_recovery.md 6.2): 0 = the fallback, the model as before */                 \
   X(abl_st_done, 0, "extra cycles before a store's address completes in the ROB (cut #4; #2 adds another)") \
-  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)")
+  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)") \
+  X(drain_delay, 0, "cycles from a store's commit to its D$ write at the earliest (0: in its commit cycle)")
 
 constexpr int MAX_THREADS = 2;
 

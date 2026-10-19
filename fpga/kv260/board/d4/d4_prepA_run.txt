@@ -1,0 +1,24 @@
+br0 is not up: bringing it up under a checkpoint
+checkpoint /org/freedesktop/NetworkManager/Checkpoint/1 destroyed: br0 kept (in memory)
+br0 up and confirmed: br0              UP             192.168.137.177/24 
+loaded tanager-d2 at 02:41:14; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+$ tanager-host boot --inj-rd 0 --fw fw_jump.bin --kernel u-boot.bin --dtb tanager-kv260-virtio.dtb --blk /dev/mmcblk1p3 --rng --net tanager0 --net-bridge br0 --dbg --timeout 14400 < console
+login prompt 189 s after the load
+commands done 3512 s after the load
+injector while Linux runs (a second tanager-host, register reads only):
+$ tanager-host inj --stats
+injector: rd 0 wr 0 ctrl 0x00000000; 781485860 reads, native latency avg 3.7 max 118 cycles
+debug counters after the boot:
+$ tanager-host dbg
+tanager-host: dbg: this bitstream has no debug counters (build with TG_DEBUG_CNT=1)
+power-off reached the host 3530 s after the load
+kill: (3851): No such process
+boot exit 0; console in /home/ubuntu/tanager/d2pkg/linux_shell.txt (909 lines)
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 03:40:10
+fan: pwm1 16/255, AMS temp1 35 C, fancontrol active
+orphan sleeps after the run: 0

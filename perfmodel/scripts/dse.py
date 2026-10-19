@@ -181,8 +181,11 @@ SUITE_VERSION = 2
 
 # Presets redefined since their results were cached: the revision joins their key only, so other presets' caches
 # stay valid. rtl_m2 2: §6.4's recalibration (four misses in flight, the RTL's issue queues and store address);
-# 3: speculative load wakeup on, as main has it (§6.5); 4: its cancels at a D$ row clash, fast forwards (§6.6).
-PRESET_REV = {"rtl_m2": 4}
+# 3: speculative load wakeup on, as main has it (§6.5); 4: its cancels at a D$ row clash, fast forwards (§6.6);
+# 5: straddlers decoded with their second block, the micro-BTB trained in the way that predicted (§6.7); 6: ALU ops
+# steered at rename from the queues' flags of the cycle before (§6.8); 7: DR-169's levers (the store address on its
+# base, steering that counts the dispatch stage's group), the store-wait cancel and the drain's cycle (§6.9).
+PRESET_REV = {"rtl_m2": 7}
 
 
 def key(isa, preset, sets):

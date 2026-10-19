@@ -51,10 +51,22 @@ bool Config::apply_preset(const std::string& name) {
     // wakes a MUL's dependants through a tag delay line, with no MUL bypass).
     // Since the first M6 stack's check (area_recovery.md §6.4), from an RTL profile: four L1D misses in flight
     // (main's default since DR-156); the issue queues' rows in banks by dispatch slot, a decode group dispatching as
-    // one, each row held until two cycles after its select; and a store's address issuing only with its data, as
-    // rename makes the store's IQ-STA row wait on the data register (younger loads to its address then replay).
+    // one, each row held until two cycles after its select; and, until DR-169's STA_BASE below, a store's address
+    // issuing only with its data, as rename made the store's IQ-STA row wait on the data register.
     ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0; pf_i_nextline = 0;
-    iq_slot_bank = 1; iq_hold = 3; sta_split = 0;
+    // From the front-end profile of core-2's TAGE build (area_recovery.md §6.7): a 32-bit instruction straddling two
+    // blocks is decoded with the second, and the micro-BTB never predicts or trains it; training writes the way that
+    // predicted the instruction, else a pseudo-random one (tg_exec's upd_way).
+    m2_strad = 1; m2_ub_way = 1;
+    // From the rename-stall profile (area_recovery.md §6.8): rename picks an ALU op's queue a cycle before dispatch
+    // and keeps it. DR-169's levers (§6.9): it reads flags that count the group in the dispatch stage (STEER_LA), and
+    // a store's address issues on its base alone (STA_BASE).
+    iq_steer_rn = 2;
+    iq_slot_bank = 1; iq_hold = 3; sta_split = 1;
+    // From the levers tree's load profile (§6.9): a load that finds its store's address without the data cancels the
+    // speculative-wakeup shadow (the STQ verdict), and a committed store writes the D$ a cycle after its commit at the
+    // earliest (the SQ's committed pointer is registered).
+    fwd_wait_cancel = 1; drain_delay = 1;
     commit_redirect = 2; l1_fill_extra = 13; ld_fwd_lat = 5; ld_fwd_wait = 8; lat_mul = 5;
     fusion = 0; sfb = 0; fold = 0; mdp = 0; br_first = 0;
     rob = 48; iq_a0 = 10; iq_a1 = 10; iq_ld = 6; iq_fp = 10; iq_sta = 4; wake_tags = 16;

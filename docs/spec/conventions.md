@@ -110,20 +110,21 @@ These rules apply to every track. They extend plan §14 (repository layout) and 
 ## 9. Sharing the build host
 
 **The hosts.**
-- **Build host:** the 5950X, `ssh home-wsl`. WSL Ubuntu 24.04, 32 threads, 56 GB of RAM (`.wslconfig`, raised from 40 GB on 2026-10-14; the host has 64 GB), and **about 100 GB of disk in total**: its Windows drive's free space is the real limit, not the 1 TB WSL reports. The tracks work there in the Linux filesystem (`~/tanager` and its worktrees).
+- **Build host (since 2026-10-18):** w-x299, `ssh home-wsl` (the alias kept its name so the sessions moved unchanged). Native Ubuntu 24.04, an i9-10980XE with 18 cores and 36 threads, 62 GB of RAM and 207 GB of free disk, on the home LAN; a reverse tunnel for access from outside comes later. Same user `w` and paths as before, so `~/tanager`, its worktrees, the tools in `~/opt` and Vivado 2025.2 in `~/Xilinx` moved as they were. The tracks work there in the Linux filesystem.
+- **Until 2026-10-18:** the 5950X's WSL (32 threads, 56 GB, about 100 GB of real disk behind the Windows drive). It was retired from Tanager for other work; it remains reachable as `old-5950x` (through gcvm) for its cleanup.
 - **Laptop:** 8 threads, 32 GB. For the coordinator and light work only.
 
 **Rules.**
 - **Memory is the binding limit (2026-10-14).**
   - **What happened:** WSL has 39 GB. With three Vivado slots, the build host ran out of memory: two full-device runs (about 9 GB each) plus a budget synthesis whose parent and six child Vivado processes took about 14.5 GB. SSH and the sessions stalled for about 10 minutes.
-  - **The budget:** keep about 8 GB for the OS, sshd and the agent sessions; Vivado gets at most 40 GB declared (24 GB before WSL went from 40 to 56 GB; 34 GB until real peaks were measured at about 60% of the declarations); builds, simulations and soak share the rest.
+  - **The budget:** keep about 12 GB for the OS, sshd, the agent sessions and simulations; Vivado gets at most 50 GB declared on w-x299 (40 GB on the 5950X's 56 GB WSL; 24 GB before WSL went from 40 to 56 GB); builds, simulations and soak share the rest. Simulations can use `-j16` per track on 36 threads.
 - **Vivado:** only through `tools/vivado_run.sh <run-dir> <script.tcl> [args]`.
-  - **Slots:** `TANAGER_VIVADO_SLOTS` is 6 on the build host and 1 on the laptop, set in `tools/env.sh`. The memory budget is the main limit; the slot count caps CPU use. Only the coordinator changes capacity live, through `.locks/vivado.slots` and `.locks/vivado.budget` in the build tree; jobs read them as they wait.
+  - **Slots:** `TANAGER_VIVADO_SLOTS` is 8 on the build host (6 on the 5950X) and 1 on the laptop, set in `tools/env.sh`. The memory budget is the main limit; the slot count caps CPU use. Only the coordinator changes capacity live, through `.locks/vivado.slots` and `.locks/vivado.budget` in the build tree; jobs read them as they wait.
   - **Fair queue:** each job takes a ticket. The next job admitted is the waiting one whose owner holds the fewest slots, then the oldest. The head of the queue holds the admission lock while it waits, so a fresh launch cannot take a freed slot first.
     - **Owner:** the `track-*` name in the script's path or the run directory. Set `TANAGER_TRACK` if neither has one.
     - **Status:** `tools/vivado_run.sh --status` shows the running jobs and the queue.
     - **Chained launches:** don't launch Vivado jobs back to back to hold slots. Queue them through the script; it orders them fairly against other tracks.
-  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (40 GB on the build host) next to the running jobs' declarations.
+  - **Declared memory:** each job declares `TANAGER_VIVADO_MEM_GB`: about 10 for a full-device run (the default), about 4 for an out-of-context unit run. A job starts only when its declaration fits `TANAGER_VIVADO_MEM_BUDGET` (50 GB on the build host, 40 on the 5950X) next to the running jobs' declarations.
   - **Declare from measurements:** every job reports its measured peak (`done rc=0, peak 8.6 GB of 12 GB declared`) and appends it to `$TANAGER_BUILD/.locks/vivado_peaks.log`. Declare about 1.2 × the measured peak of the same kind of run, rounded up. Over-declaring holds slots others could use. On 2026-10-14 jobs measured about 60% of their declarations.
   - **Undeclared jobs:** a held slot with no declaration (a job started by an older `vivado_run.sh`) counts as 10 GB.
   - **Child processes count:** a declaration covers everything Vivado spawns. Flows that launch parallel runs (`launch_runs -jobs`, IP generation) must declare their total or run their children one at a time.

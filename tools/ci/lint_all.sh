@@ -3,7 +3,8 @@
 # every switch's branches compile: the fallback (TIMING_CUTS=0), the default, and #2, #8 and the commit
 # trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
 # DR-140, DR-146); the 4-miss L1D (DC_MSHRS=4, DR-149), G8's queue decode bits (QUEUE_DECODE=1) and M6's
-# speculative load wakeup (SPEC_WAKE=1) each on top of the default; and the default's
+# speculative load wakeup (SPEC_WAKE=1) each on top of the default; DR-169's two levers off (STA_BASE=0,
+# STEER_LA=0), each on top of the default; and the default's
 # synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
 # (Verilator's lint is one thread and about 0.6 GB).
@@ -39,6 +40,8 @@ if mentioned TG_COMMIT_TRACE; then profiles+=("COMMIT_TRACE=0"); else echo "lint
 if mentioned TG_DC_MSHRS; then profiles+=("DC_MSHRS=4"); else echo "lint-all: no RTL mentions TG_DC_MSHRS; skipping DC_MSHRS=4"; fi
 if mentioned TG_QUEUE_DECODE; then profiles+=("QUEUE_DECODE=1"); else echo "lint-all: no RTL mentions TG_QUEUE_DECODE; skipping QUEUE_DECODE=1"; fi
 if mentioned TG_SPEC_WAKE; then profiles+=("SPEC_WAKE=1"); else echo "lint-all: no RTL mentions TG_SPEC_WAKE; skipping SPEC_WAKE=1"; fi
+if mentioned TG_STA_BASE; then profiles+=("STA_BASE=0"); else echo "lint-all: no RTL mentions TG_STA_BASE; skipping STA_BASE=0"; fi
+if mentioned TG_STEER_LA; then profiles+=("STEER_LA=0"); else echo "lint-all: no RTL mentions TG_STEER_LA; skipping STEER_LA=0"; fi
 profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
