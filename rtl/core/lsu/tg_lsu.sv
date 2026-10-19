@@ -1204,6 +1204,10 @@ module tg_lsu
   assign lr_wr  = DTLB_LQ_RETRY && lr_v_q && lq_v_q[lr_widx_q] && lq_st_q[lr_widx_q] == L_TLB && !mk_q &&
                   !ln_v && !flush;
   assign lr_mk  = DTLB_LQ_RETRY && hd_ld && !mk_q && !flush && (hdf_q || lr_bad_q);
+  // The LQ's PA flip-flops take one data bus, a retry's PA or a new load's (never in one cycle, lr_wr), so each entry
+  // keeps a load enable and no multiplexer of its own (area: two sources at each entry cost about 0.58K LUTs)
+  logic [PA_W-1:0] lpa_wd;
+  assign lpa_wd = lr_wr ? lr_pa_q : nl_pa;
   always_ff @(posedge clk) begin
     if (rst || flush || !DTLB_LQ_RETRY) begin
       lr_v_q   <= 1'b0;
@@ -1643,13 +1647,13 @@ module tg_lsu
       // the state it has here: its AG write gave it, in this cycle without the split, the cycle
       // before with it (nothing else writes the entry in between: asserted in g_split)
       if (ln_v && !flush) begin
-        lq_pa_q[ln_lqw]  <= nl_pa;
+        lq_pa_q[ln_lqw]  <= lpa_wd;
         lq_pav_q[ln_lqw] <= !nl_exc && !nl_tm;
         lq_st_q[ln_lqw]  <= (nl_exc || nl_tm || nl_mmio) ? (nl_exc ? L_EXC : nl_tm ? L_TLB : L_MMIO) : L_PIPE;
       end
       // DTLB_LQ_RETRY: a retry (its entry is in L_TLB, so nothing above writes it)
       if (lr_wr) begin
-        lq_pa_q[lr_widx_q]  <= lr_pa_q;
+        lq_pa_q[lr_widx_q]  <= lpa_wd;
         lq_pav_q[lr_widx_q] <= 1'b1;
         lq_st_q[lr_widx_q]  <= L_READY;
       end
