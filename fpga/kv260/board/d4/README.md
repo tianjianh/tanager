@@ -124,3 +124,89 @@ D4 is re-planned as two modes chosen at boot (the SoC track's `docs/spec/soc-d4-
   - `.orig` boots Ubuntu without `mem=3G` and the SMMU option;
   - `.bak` holds today's text, but flash-kernel may rewrite it;
   - a copy under its own name, made before the first change to p1, is the safest.
+
+## Step 2 of the boot-time modes: the board's reset path: pass (2026-10-19)
+
+The SoC track's package `d4s1-smt2-c2-100` ([`package_d4s1_README.txt`](package_d4s1_README.txt); tarball `65304389…`, bitstream `2fee4000…`, its `tanager-host` `bd3f9233…`). It is m6's configuration plus step 1's PL changes:
+- **BOARD_CTRL**, host register `0x1404`:
+  - bit 0: the fan regulator ignores the A53's PWM;
+  - bit 1: the PS window passes CRL_APB `RESET_CTRL`, and the PMOD reset hook is armed;
+  - bits 3:2: the hook's write status.
+- **The PMOD reset hook:** a break of 2.7 to 10.7 s on COM5 makes the PS window write `SOFT_RESET`.
+
+Both tests run in ARM mode under `tanager-host`, and nothing in the boot path changes.
+
+**How:**
+- [`../runs/d4m_step2.sh`](../runs/d4m_step2.sh) on the board, after s7 stopped and p3 checked clean.
+- The laptop's [`serial_break.ps1`](serial_break.ps1) for 2(b). The laptop has no Python, so the script holds .NET's `SerialPort.BreakState`, which uses the same Windows call as pyserial's `send_break`.
+- **Records:**
+  - Every call's output: [`step2_run.txt`](step2_run.txt).
+  - The A53's console on COM7 through both resets: [`uart_COM7_step2.txt`](uart_COM7_step2.txt).
+- **The app:** installed as `tanager-d4s1` (`tg.sh stage`; the installed `tanager-host` is unchanged, `5232908…`).
+
+**Before the tests (12:10 UTC):**
+- `RESET_REASON` read `0x00000021`.
+- d4s1 loaded with the fan fine.
+- `info` showed smt2, two cores at 100 MHz, and no commit trace.
+- `BOARD_CTRL` read 0.
+
+**The fan bit** (the README's optional step 3). I set the A53's PWM to 64 rather than 255, with `fancontrol` stopped, so the fan never ran at full speed.
+
+| BOARD_CTRL | The A53's PWM | The fan's duty |
+|---|---|---|
+| 0 | 63/255 | **63/255** (the larger of the two) |
+| 1 | 64/255 | **15/255** (the PL curve's alone) |
+| 0 | 64/255 | **64/255** |
+
+- **Pass:** with bit 0 set, the A53's PWM doesn't reach the fan.
+- `fancontrol` was restarted (active, 15/255).
+- `tanager-host fan`'s text still says "the larger of the curve's and the A53's" when bit 0 is set. That's only the wording.
+
+**2(a), the RISC-V's write: pass.**
+- **First try:** the README's `load --fw ps_reset.bin --kernel /dev/null --dtb /dev/null` failed in this `tanager-host` ("/dev/null: No error information"), before any reset or run.
+- **Second try:** the package's `Image` and virtio tree filled the two unused slots. `ps_reset.bin` runs first and never reaches them.
+- **`run` at 12:11:41.077:** the program printed `RESET_CTRL 00000000, read in 00000004 ticks of 10 MHz; writing SOFT_RESET in 1 s`, on both the SSH stream and COM5.
+- **The reset:** SSH was cut at 12:11:47. COM7 shows the reset:
+  - the FSBL's `MultiBootOffset: 0x40` and `Reset Mode : System Reset`;
+  - U-Boot's `Reset reason: SOFT`;
+  - Ubuntu's login.
+- **Back:** the A53 ran from 12:11:57, and SSH answered at 12:12:57.
+  - The last boot's journal ends at 12:11:40, with no shutdown record.
+  - `fancontrol` was active, and `k26-starter-kits` was loaded.
+  - `RESET_REASON` read `0x00000021` again.
+
+**2(b), the PMOD reset hook: pass.**
+- **Armed at 12:13:58:** d4s1 was loaded again, then `poke 0x010 1` (the uncore out of reset, the cores held), `poke 0x1404 2` (it read back `0x2`) and `sync`.
+- **The break:** the COM5 logger stopped, then a break on COM5 from 12:14:08.873 to 12:14:11.884 (3.011 s).
+- **The reset:** the A53 ran from 12:14:26. That's about 14 s after the break's end, the time the FSBL and U-Boot take, so the board reset as the break ended.
+- **COM7:** the same banner again (`Reset Mode : System Reset`, `Reset reason: SOFT`).
+- **Back:**
+  - The last boot's journal ends at 12:13:57, with no shutdown record.
+  - `fancontrol` was active, and `k26-starter-kits` was loaded.
+  - `RESET_REASON` read `0x00000021` before and after.
+
+**Item 4, read-only probes for step 5** (12:10, `k26-starter-kits` loaded):
+
+| Register | Value | Meaning |
+|---|---|---|
+| FPD SWDT `ZMR` (`0xFD4D0000`) | `0x000001C2` | Bit 0 (the enable) clear: not running. |
+| FPD SWDT `CCR` (`0xFD4D0004`) | `0x00003FFC` | |
+| LPD SWDT `ZMR` (`0xFF150000`) | `0x000001C2` | Bit 0 clear: not running. |
+| LPD SWDT `CCR` (`0xFF150004`) | `0x00000953` | |
+| `AFI_FS` (`0xFD615000`) | `0x00000800` | |
+| IOU_SLCR SD `ITAPDLY` (`0xFF180314`) | `0x012A0000` | SD1's input tap, as Linux set it. |
+| IOU_SLCR SD `OTAPDLYSEL` (`0xFF180318`) | `0x00050000` | SD1's output tap. |
+
+- **Linux:** two `cdns_wdt` watchdogs, both `inactive`. The device tree has both enabled (`watchdog@fd4d0000` and `watchdog@ff150000`).
+- **The first 8 watchdog strings in mtd5:** `xwdtps.c`, `XFSBL_ERROR_SYSTEM_WDT_RESET`, `WDT initialization failed`, `fpd_wdt`, `lpd_wdt`, `swdt0_clk`, `swdt0_rst`, `swdt1_clk`.
+
+**Seen on COM7:**
+- **U-Boot's environment:** U-Boot prints `Loading Environment from nowhere... OK`. It has no environment storage at all, which matches step 0's blank flash partitions. So the mode record on the card is the only place for state.
+- **The `soft` bit:** after both resets, the FSBL reports `Reset Mode : System Reset` and U-Boot `Reset reason: SOFT`. A power-up's banner hasn't been logged yet, so the Image Selector guess (step 0) still stands unconfirmed.
+
+**For the plan** (the SoC track decides):
+- The README's `/dev/null` slots need a fix in either the README or `tanager-host`.
+- Both reset paths that RISC-V mode relies on work in the bitstream:
+  - Debian's reboot through the PS window;
+  - the hook for a hung RISC-V.
+- **Afterwards:** s8, d2 from p3, from 12:16:44 UTC.
