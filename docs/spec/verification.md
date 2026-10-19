@@ -794,6 +794,18 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
 
   Main with the fix (7d781ac) in `st`, `default` passed 100M cycles (70.8M records, 68 minutes). So the gate takes the two timings that caught it first, `default` and `board`; with `jitter` and `board` it would have missed it within 100M cycles. The board saw the panic at about 220M cycles in three boots of three.
 
+- **How far the `board` timing stands for the board** (follow-up 14, smt2-study's question; 2026-10-19). d4s2's RTL (03171ea with c261c1f's `tg_fetch.sv`) booting the board's bench image to /init as the board runs it (`smt2`, two cores, one hart each, the console off the serial line, the 1,024-set L2, `tb_boot`'s window widened to 1 GiB for the bench device tree), against the board's CPU time per phase (area_recovery.md §6.12):
+
+  | DDR latency (fixed) | Kernel start to `clk: Disabling unused clocks`, four phases | `clk: Disabling` to `Freeing unused kernel image` (board 0.2741 s) |
+  |---|---|---|
+  | 22 (`board`) | −0.6% to −4.7% | 0.3814 s, +39.2% |
+  | 18 | −0.5% to −8.2% | 0.3673 s, +34.0% |
+  | 14 | −1.4% to −6.7% | 0.3510 s, +28.1% |
+
+  - **Latency is not the gap:** a third less latency removes about a quarter of the excess and pulls the phases that match below the board. These runs lowered the write responses' latency with the reads', so a write latency of its own is not the fix either.
+  - **What the window holds** (smt2-study, area_recovery.md §6.14): the end of the asynchronous initramfs unpack on one core, the other idle, then `free_initmem` poisoning 11.2 MB of init memory with memset on the other core. The simulation's excess there is a near-fixed time, 88–97 ms on d2, d4s2 and d4r1, though their cores differ by 30%: so it lies in how the memory path streams stores, not in the core.
+  - **The board's 1 MiB memset and memcpy are no reference for it:** the L2 holds 1 MiB (two banks of 1,024 sets of eight ways), so those buffers sit largely in it, while the poison and the page cache stream through DDR. The calibration measures an L2-busting memset and memcpy of 16 MiB on the board and on `tb_boot`.
+
 ## 5. The test core (`tg_tcore`)
 
 Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job is to exercise the harness and the checker before `tg_core` exists, and to keep doing so as a reference afterwards.
