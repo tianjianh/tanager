@@ -12,6 +12,8 @@
 //                                               path (stage D's D3, DR-163; TG_PS_WINDOW=1 bitstreams)
 //   TG_UART1_STDOUT (0|1)                       with TG_UART1, 0 keeps the stdout path on the PL UART (D4's
 //                                               RISC-V mode: Debian's plain earlycon follows it; default 1)
+//   TG_ETH (0|1)                                1 adds the PS's GEM3 and its PHY through the PS window (D5)
+//   TG_ETH_MAC                                  with TG_ETH, its MAC address as bytes ("00 0a 35 ...")
 //   TG_SD1 (0|1)                                1 adds the PS's SD1 through the PS window (stage D's D4)
 //   TG_INITRD (0|1)                             1 names tanager-host's initrd window in /chosen (D4)
 //   TG_BOARD_RESET (0|1)                        1 points reboot and poweroff at the board's reset, CRL_APB
@@ -37,6 +39,9 @@
 #endif
 #ifndef TG_UART1_STDOUT
 #define TG_UART1_STDOUT 1
+#endif
+#ifndef TG_ETH
+#define TG_ETH 0
 #endif
 
 #if TG_FPU
@@ -206,12 +211,9 @@
 		};
 #endif
 
-#if TG_SD1
-		// The PS's SD1 through the PS window (docs/spec/soc.md §8.2, stage D's D4): the board's card, in the
-		// A53's mode (SD high-speed, 50 MHz, 3.3 V; D4's probe), PLIC source 21. Its DMA reaches the RISC-V's
-		// RAM through HPM1 and the host DMA port (D-c): bus address 0x5_0000_0000 + offset, coherent. The
-		// ZynqMP variant without #clock-cells: its quirks (default speed at 19 MHz, auto-CMD12 reads), no
-		// PMU firmware calls, and the tap delays the A53 left untouched.
+#if TG_SD1 || TG_ETH
+		// The PS's DMA masters through the PS window: their DMA reaches the RISC-V's RAM through HPM1 and the host
+		// DMA port (D-c): bus address 0x5_0000_0000 + offset, coherent.
 		ps-dma-bus {
 			compatible = "simple-bus";
 			#address-cells = <2>;
@@ -219,6 +221,11 @@
 			ranges;
 			dma-ranges = <0x5 0x0 0x0 0x80000000 (TG_MEM_SIZE >> 32) (TG_MEM_SIZE & 0xffffffff)>;
 
+#if TG_SD1
+			// SD1 (docs/spec/soc.md §8.2, stage D's D4): the board's card, in the A53's mode (SD high-speed,
+			// 50 MHz, 3.3 V; D4's probe), PLIC source 21. The ZynqMP variant without #clock-cells: its quirks
+			// (default speed at 19 MHz, auto-CMD12 reads), no PMU firmware calls, and the tap delays riscv.scr
+			// sets.
 			sd1: mmc@ff170000 {
 				compatible = "xlnx,zynqmp-8.9a", "arasan,sdhci-8.9a";
 				reg = <0x0 0xff170000 0x0 0x1000>;
@@ -231,6 +238,41 @@
 				no-1-8-v;
 				disable-wp;
 			};
+#endif
+#if TG_ETH
+			// GEM3 (D5, docs/spec/soc-d5-gem3.md): the board's Ethernet port, RGMII to the carrier's DP83867 at
+			// MDIO address 1 with the A53's tree's properties; riscv.scr takes the PHY out of reset, since the PS
+			// GPIO isn't in the PS window. Both queue interrupts on PLIC source 22. Fixed clocks, so the transmit
+			// clock can't follow a slower link: 1 Gb/s only. No resets or power domains: macb then calls nothing
+			// outside the GEM.
+			gem3: ethernet@ff0e0000 {
+				compatible = "xlnx,zynqmp-gem", "cdns,gem";
+				reg = <0x0 0xff0e0000 0x0 0x1000>;
+				interrupt-parent = <&plic>;
+				interrupts = <22>, <22>;
+				clocks = <&lpd_lsbus>, <&gem3_ref>, <&gem3_ref>, <&gem3_ref>, <&gem_tsu>;
+				clock-names = "pclk", "hclk", "tx_clk", "rx_clk", "tsu_clk";
+				phy-mode = "rgmii-id";
+				phy-handle = <&gem3_phy>;
+#ifdef TG_ETH_MAC
+				local-mac-address = [TG_ETH_MAC];
+#endif
+
+				mdio {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					gem3_phy: ethernet-phy@1 {
+						compatible = "ethernet-phy-id2000.a231";
+						reg = <1>;
+						ti,rx-internal-delay = <8>;
+						ti,tx-internal-delay = <10>;
+						ti,fifo-depth = <1>;
+						ti,dp83867-rxctrl-strap-quirk;
+					};
+				};
+			};
+#endif
 		};
 #endif
 
@@ -338,7 +380,22 @@
 	};
 
 #endif
-#if TG_UART1 || TG_SD1
+#if TG_ETH
+	// GEM3's: gem3_ref (its hclk, tx_clk and rx_clk) at IOPLL / 8, gem_tsu as the A53's tree assigns it, IOPLL / 4
+	gem3_ref: clock-gem3-ref {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <124999998>;
+	};
+
+	gem_tsu: clock-gem-tsu {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <249999997>;
+	};
+
+#endif
+#if TG_UART1 || TG_SD1 || TG_ETH
 	lpd_lsbus: clock-lpd-lsbus {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;

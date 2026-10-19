@@ -47,6 +47,15 @@ zynqmp mmio_write 0xff180314 0x03ff0000 0x032a0000
 zynqmp mmio_write 0xff180314 0x03ff0000 0x012a0000
 zynqmp mmio_write 0xff180318 0x003f0000 0x00050000
 md.l 0xff180314 2
+# GEM3's PHY, the DP83867 (D5, docs/spec/soc-d5-gem3.md): out of reset as the A53's Linux takes it, since Linux on
+# the RISC-V can't reach the PS GPIO. MIO38 is GPIO bank 1's bit 12, active low: an output, low for 10 ms, then high
+setexpr tg_v *0xff0a0244 \| 0x1000
+mw.l 0xff0a0244 ${tg_v}
+setexpr tg_v *0xff0a0248 \| 0x1000
+mw.l 0xff0a0248 ${tg_v}
+mw.l 0xff0a0008 0xefff0000
+sleep 0.01
+mw.l 0xff0a0008 0xefff1000
 
 # 5. the RISC-V DRAM window (0x8_4000_0000, 1 GiB; each 64-bit register low half first), BOARD_CTRL (the fan
 # ignores this A53, whose PWM dies with it; the board reset path on)
