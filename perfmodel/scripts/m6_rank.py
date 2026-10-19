@@ -53,8 +53,10 @@ PIECES = {
                                  "ledger: part of 0.49% (100) and a second refill (150), x2-3"),
     "I$ FDIP + next-line + 4 refills": ({"fdip": 1, "pf_i_nextline": 1, "l1i_mshr": 4}, 2600, 3900,
                                         "ledger 0.49% (200) and 4 refills (250), x2-3, per core"),
-    "Micro-BTB 128": ({"ubtb": 128}, 130, 260, "this study: 2 ways x 64 x 55 bits in RAM64M8 (+64 LUTs) x1-2"),
-    "Micro-BTB 256": ({"ubtb": 256}, 750, 1120, "this study: 2 ways x 128 x 55 bits in RAM128X1D (+375) x1-1.5"),
+    # tg_ubtb out of context (unit_synth.tcl, st): 64 entries 119 LUTs (55 logic, 64 LUTRAM), as counted (110)
+    "Micro-BTB 128": ({"ubtb": 128}, 130, 150, "this study: 2 ways x 64 x 55 bits in RAM64M8, +64 per core on the "
+                                               "64 entries' measured 119"),
+    "Micro-BTB 256": ({"ubtb": 256}, 750, 800, "this study: 2 ways x 128 x 55 bits in RAM128X1D, +376 per core"),
     "DTLB retry from the LQ": ({}, 400, 1200, "this study: per LQ entry a walk wait, the replay's DTLB lookup "
                                               "(200 per core) x1-3"),
     "FENCE.I by generation": ({}, 100, 600, "this study: 2-4 generation bits per I$ line, the compare (50-100 per "

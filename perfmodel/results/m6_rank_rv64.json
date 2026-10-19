@@ -124,9 +124,9 @@
    },
    "luts_chip": [
     130,
-    260
+    150
    ],
-   "source": "this study: 2 ways x 64 x 55 bits in RAM64M8 (+64 LUTs) x1-2"
+   "source": "this study: 2 ways x 64 x 55 bits in RAM64M8, +64 per core on the 64 entries' measured 119"
   },
   "Micro-BTB 256": {
    "settings": {
@@ -134,9 +134,9 @@
    },
    "luts_chip": [
     750,
-    1120
+    800
    ],
-   "source": "this study: 2 ways x 128 x 55 bits in RAM128X1D (+375) x1-1.5"
+   "source": "this study: 2 ways x 128 x 55 bits in RAM128X1D, +376 per core"
   },
   "DTLB retry from the LQ": {
    "settings": {},
