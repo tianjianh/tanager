@@ -1,0 +1,30 @@
+# D5 step 2, first attempt, 2026-10-19 (UTC). p1 install:
+== d4m_step6 install 2026-10-19 18:11:49 UTC, A53 up 128.86 s
+./debian_install.sh: OK
+./install.sh: OK
+./README.md: OK
+./tanager/fw_jump.bin: OK
+./tanager-mode: OK
+./tanager-mode-confirm.service: OK
+./tanager/payload.bin: OK
+./tanager/riscv.cmd: OK
+./tanager/riscv.scr: OK
+./tanager/tanager.bit.bin: OK
+./tanager/tanager.dtb: OK
+./ubootenv.d-tanager-mode: OK
+b0094d235a36f8bd b0094d235a36f8bd fw_jump.bin
+459992b884a8a3e0 459992b884a8a3e0 payload.bin
+009b345ff4a3b149 009b345ff4a3b149 riscv.cmd
+1c76ec0ccdb7a047 1c76ec0ccdb7a047 riscv.scr
+18f6310c491366ba 18f6310c491366ba tanager.bit.bin
+45ba89a91ea1b278 45ba89a91ea1b278 tanager.dtb
+total 9175
+drwxr-xr-x 2 root root     512 Oct 19 12:50 .
+drwxr-xr-x 3 root root    1536 Jan  1  1970 ..
+-rwxr-xr-x 1 root root  277856 Oct 19 18:11 fw_jump.bin
+-rwxr-xr-x 1 root root 1301584 Oct 19 18:11 payload.bin
+-rwxr-xr-x 1 root root    4690 Oct 19 18:11 riscv.cmd
+-rwxr-xr-x 1 root root    4762 Oct 19 18:11 riscv.scr
+-rwxr-xr-x 1 root root 7797692 Oct 19 18:11 tanager.bit.bin
+-rwxr-xr-x 1 root root    4507 Oct 19 18:11 tanager.dtb
+/dev/mmcblk1 sector 2047: arm

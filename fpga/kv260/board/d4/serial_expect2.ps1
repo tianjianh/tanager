@@ -1,4 +1,4 @@
-# serial_expect.ps1 (D3) with paced typing: a scripted serial session (115200 8N1, no flow control) that logs every
+﻿# serial_expect.ps1 (D3) with paced typing: a scripted serial session (115200 8N1, no flow control) that logs every
 # received byte to -Log and runs -Steps, lines "expect|REGEX|SECONDS", "send|TEXT" (sent with a CR, one character
 # every -CharDelayMs, so a polled UART's small RX FIFO keeps up) or "pause|SECONDS". An expect that times out ends the
 # run with exit code 2 (the log says which). Lines starting with # are skipped. After the last step it keeps logging
@@ -23,7 +23,9 @@ try {
   $sp.Open()
   :steps foreach ($line in Get-Content $Steps) {
     if ($line -match '^\s*(#|$)') { continue }
-    $f = $line -split '\|', 3
+    $i = $line.IndexOf('|'); $j = $line.LastIndexOf('|')
+    $f = @($line.Substring(0, [Math]::Max($i, 0)), $line.Substring($i + 1), '')
+    if ($line.StartsWith('expect|')) { $f = @('expect', $line.Substring($i + 1, $j - $i - 1), $line.Substring($j + 1)) }
     switch ($f[0]) {
       'expect' {
         # On a match only the text up to its end is consumed: what came after it in the same read (a prompt right
@@ -38,7 +40,9 @@ try {
         $rest = $seen.ToString().Substring($m.Index + $m.Length); [void]$seen.Clear(); [void]$seen.Append($rest)
       }
       'send' {
-        # text from before the send (a prompt already printed) must not satisfy the next expect
+        # text from before the send must not satisfy the next expect: let the far end finish (a second prompt can
+        # trail the first by a few hundred ms), then forget it. Typeahead is not safe: sudo discards pending input.
+        Pump 0.7
         [void]$seen.Clear()
         foreach ($ch in ($f[1] + "`r").ToCharArray()) {
           $sp.Write([string]$ch)

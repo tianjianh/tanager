@@ -1,0 +1,13 @@
+﻿
+===== COM5 scripted session opened 2026-10-19T11:02:42.7453940-07:00 =====
+q
+STRESS pass 2 ok=1 fails=0 117s cpu2=92.78 mem2=111.81 thr2=2290 up=399.10 load=1.99 1.79 0.93
+STRESS stop after pass 2, fails=0
+[?2004htanager@tanager:~$ 
+[?2004l[?2004htanager@tanager:~$ sudo tanager-mode arm
+[?2004lsudo rebosudo reboot
+/dev/mmcblk0 sector 2047: arm
+[?2004htanager@tanager:~$ 
+===== EXPECT TIMEOUT after 300 s: reboot: Restarting system =====
+
+===== COM5 scripted session closed 2026-10-19T11:08:28.8630184-07:00, exit 2 =====
