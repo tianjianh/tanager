@@ -76,8 +76,10 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
   - **PIO, no DMA.** SD1's DMA reaches the RISC-V's RAM only at bus address `0x5_0000_0000`, the host DMA port (the tree's `dma-ranges`). U-Boot's ADMA doesn't apply `dma-ranges`, and its SDMA is 32-bit. Linux's driver uses the DMA API, which does.
   - The Cadence UART driver as well, for a tree whose stdout is UART1.
   - The boot command: extlinux from `mmc 0:3` (`p3`), nothing else. Without it U-Boot stops at its prompt, and the PMOD break or a power cycle gives ARM mode.
-- **The RISC-V mode tree** (`sw/dts`): UART1, SD1, and the reboot and poweroff syscon on `RESET_CTRL`. The boot arguments come from `p3`'s extlinux, Debian's own.
-- **Debian** (`p3`, part A's prep extended): the `tanager-mode` tool and the shutdown unit. The DKMS modules stay.
+- **The RISC-V mode tree** (`sw/dts`, `UART1=1 SD1=1 BOARD_RESET=1`; every other tree byte-identical): UART1 (the stdout, so OpenSBI and U-Boot are on COM7), SD1, and reboot and poweroff as a syscon write of SOFT_RESET to `RESET_CTRL` alone. The boot arguments come from `p3`'s extlinux, Debian's own (its console on the PL UART, COM5).
+- **Debian** (`p3`): the `tanager-mode` tool and the shutdown unit (`sw/d4mode/debian_install.sh`). The DKMS modules stay.
+- **The boot script** `riscv.scr` ([`sw/d4mode/riscv.cmd`](../../sw/d4mode/riscv.cmd)): the steps listed above. It writes the park loop to OCM first and reads it back, and checks each PS write it depends on by reading it back. A refused tap-delay write is not fatal: it leaves the taps the A53's U-Boot read the card with. On QEMU it runs dry, with board addresses moved into RAM and board-only commands stubbed: to the park, out at once without our design, and out (the uncore held again) without the L2's initialisation.
+- **Open, for step 5:** whether the A53's U-Boot starts the FPD watchdog (`0xFD4D0000`, 60 s in the A53's tree). A parked A53 doesn't service it, so `riscv.scr` would have to stop it before the park. A read-only probe goes with step 2's package.
 
 ## Steps, each with its test
 
@@ -88,8 +90,8 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 | 2 | Board, ARM mode under `tanager-host`, no boot change yet | With `BOARD_CTRL` set to 2 by `tanager-host poke`: (a) a bare-metal RISC-V program writes `RESET_CTRL` through the window, and the board resets into Ubuntu. If the window answers an error (the XPPU or TrustZone refusing a non-secure PL write), the fallback is the PMU's reset service through a PL IPI channel. (b) A 3 s break on COM5 resets the board; if it doesn't, `BOARD_CTRL` bits 3:2 say whether the write went out and how it was answered |
 | 3 | U-Boot S-mode with the Arasan driver | It builds; its first real run is step 6. **Built (10-19):** `$SOC_BUILD/u-boot-d4/u-boot.bin`, 1.3 MB |
 | 4 | The mode record and the boot script on `p1`, mode left at ARM | Ubuntu boots as before, rebooted with no record and with an invalid one. **Prepared (10-19):** [`sw/d4mode`](../../sw/d4mode/README.md), with a stub `riscv.scr`, so the RISC-V path runs too (trial 1 written, the stub returns, Ubuntu boots). The hook passes five records on QEMU (`hook_qtest.sh`, U-Boot's hush against an SD image) |
-| 5 | RISC-V mode, bare metal | `riscv` with a test image in U-Boot's place: it prints on COM5 and UART1, then writes `RESET_CTRL`. The board resets, trial is 1, Ubuntu boots. This tests the whole chain and the fallback without Debian |
-| 6 | RISC-V mode with Debian | OpenSBI, then U-Boot from SD1, then Debian from `p3`: logins on COM7 (UART1) and COM5 (PL UART); `lsblk` with the root on `mmcblk0p3`; the read rate against stage C's. `reboot` comes back to RISC-V (confirmed). `tanager-mode arm` and a reboot give Ubuntu. A break on COM5 while Debian runs gives Ubuntu (unconfirmed) |
+| 5 | RISC-V mode, bare metal | `riscv` with a test image in U-Boot's place: it prints on COM5 and UART1, then writes `RESET_CTRL`. The board resets, trial is 1, Ubuntu boots. This tests the whole chain and the fallback without Debian. **Prepared (10-19):** `riscv.cmd`, and `sw/d4mode/rvtest`, which resets through SBI SRST (OpenSBI's syscon-reboot), so Debian's reboot path is tested too |
+| 6 | RISC-V mode with Debian (**prepared**: U-Boot d4, `debian_install.sh`) | OpenSBI, then U-Boot from SD1, then Debian from `p3`: logins on COM7 (UART1) and COM5 (PL UART); `lsblk` with the root on `mmcblk0p3`; the read rate against stage C's. `reboot` comes back to RISC-V (confirmed). `tanager-mode arm` and a reboot give Ubuntu. A break on COM5 while Debian runs gives Ubuntu (unconfirmed) |
 
 ## Every failure ends in ARM mode
 
