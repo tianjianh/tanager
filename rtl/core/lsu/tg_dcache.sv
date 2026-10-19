@@ -15,7 +15,9 @@
 //         (NtoT, or BtoT for a line held in B). A valid victim is released first (state cleared
 //         when the Release starts, so probes and stores see the line as gone); the Acquire waits
 //         for ReleaseAck. With DC_MSHRS = 4 (DR-149) four lines are in flight: the entries, the
-//         release engine and the loads' request register of g_mn (below; core-lsu.md).
+//         release engine and the loads' request register of g_mn (below; core-lsu.md). With
+//         STORE_PF (DR-171) a store's line is also requested with T when its address decides
+//         (pf_req), through a spare entry: g_mn's pending prefetch.
 //   Probes: answered at the line's current permission, without waiting on A-channel progress.
 //         They take B only while no Release is being sent (C beats are contiguous), and block
 //         the MSHR from starting and the store path from writing while they run.
@@ -57,6 +59,10 @@ module tg_dcache
   output logic [MSW-1:0]    lm_ans_e,
   output logic [DC_MSHRS-1:0] m_done,     //   registered: entry e installed last cycle
   output logic              m_wake_any,   //   registered: an entry installed, or none is busy
+  // Store ownership prefetch (STORE_PF, DC_MSHRS > 1): this line, wanted with T, through a spare miss
+  // entry if it is absent or held in B; a hint, with no answer
+  input  logic              pf_req,
+  input  logic [PA_W-1:0]   pf_pa,
   // Store drain: one request at a time, held until st_ack
   input  logic              st_req,
   input  logic [PA_W-1:0]   st_pa,
@@ -253,7 +259,9 @@ module tg_dcache
   logic             m_holdb;             // the Release's beat is port B's read output (held)
   logic             m_free_st, m_free_ld; // the miss side can take the store port's / a load's miss
   logic             c_req;               // the load miss the controller port looks up: lm_req, or
-  logic [PA_W-1:0]  c_pa;                // DR-149's request register
+  logic [PA_W-1:0]  c_pa;                // DR-149's request register (or the pending prefetch: below)
+  logic             m_free_pf;           // STORE_PF: the controller port looks up the pending prefetch,
+                                         // and the miss side can take it (an entry to spare)
   logic             dn_hit;              // the store port's line: its last fill was denied
   logic [3:0]       m_dbg;               // board debug: the MSHR's state (DC_MSHRS = 1), or the release
                                          // engine busy and the number of busy entries
@@ -316,19 +324,26 @@ module tg_dcache
   // checked in simulation against the earlier form). m_free_st and m_free_ld say whether the miss
   // side can take each (one MSHR: when it is idle)
   logic al_base;                         // nothing else holds the allocation's state write
-  logic alloc_st, alloc_ld;
+  logic alloc_st, alloc_ld, alloc_pf;
   assign al_base  = ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
   assign alloc_st = al_base && m_free_st && sx_req && !s_hit_t;
   assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st);
+  // A store's ownership prefetch (STORE_PF, DC_MSHRS > 1): its line, absent or held in B, through the
+  // controller port in a cycle without a load's request; never for a line held with T, beside an
+  // atomic, or when the store port writes or allocates (m_free_pf: the store port then has no request,
+  // or waits for its own line in an entry, so it neither hits with T nor allocates)
+  assign alloc_pf = al_base && m_free_pf && !(|(ch & sc.t)) && !am_req;
   logic [PA_W-1:0]  al_pa;
   assign al_pa = alloc_st ? sx_pa : c_pa;
   logic sx_drop;                         // a store/atomic whose line's fill was denied (below)
   logic al_go;                           // an allocation this cycle
   logic al_up;                           // ... a store's upgrade of its B line in place
+  logic al_upc;                          // ... a prefetch's upgrade of its B line in place
   logic al_w;                            // ... with a victim, writing the set's state
-  assign al_go   = (alloc_st && !dn_hit) || alloc_ld;
+  assign al_go   = (alloc_st && !dn_hit) || alloc_ld || alloc_pf;
   assign al_up   = alloc_st && !dn_hit && s_hit;
-  assign al_w    = (alloc_st && !dn_hit && !s_hit) || alloc_ld;
+  assign al_upc  = alloc_pf && |ch;
+  assign al_w    = (alloc_st && !dn_hit && !s_hit) || alloc_ld || (alloc_pf && !(|ch));
   // The victim: the first invalid way, else the round-robin pointer's. It is valid only when every
   // way is, so an eviction's way is the pointer's
   function automatic logic [WAY_W-1:0] vict(input logic [WAY_W-1:0] rr, input logic [WAYS-1:0] v);
@@ -663,7 +678,7 @@ module tg_dcache
     wd_s.d = ss.d | sh;                         // the hit way's dirty bit (sh is one-hot)
   end
   assign w_as  = alloc_st && !dn_hit && !s_hit;
-  assign w_ac  = alloc_ld;
+  assign w_ac  = alloc_ld || (alloc_pf && !al_upc);
   assign w_s   = pb_st && ready;
   assign st_we = we_e || w_as || w_ac || w_s;
   assign st_wa = (w_as || w_s) ? sx_pa[6 +: SET_W] : w_ac ? c_pa[6 +: SET_W] : wa_e;
@@ -707,7 +722,7 @@ module tg_dcache
       lose_v_q <= 1'b0;
 
       // An eviction ends a reservation on the victim's line
-      if (al_go && !al_up && (alloc_st ? ev_s : ev_c)) begin
+      if (al_go && !al_up && !al_upc && (alloc_st ? ev_s : ev_c)) begin
         lose_v_q    <= 1'b1;
         lose_line_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
       end
@@ -824,6 +839,7 @@ module tg_dcache
     assign m_holdb    = rel_send;
     assign m_free_st  = m_none;
     assign m_free_ld  = m_none;
+    assign m_free_pf  = 1'b0;                // (no prefetch with one MSHR: it is never to spare)
     assign m_dbg      = 4'(ms_q);
     assign c_req      = lm_req;
     assign c_pa       = lm_pa;
@@ -837,7 +853,7 @@ module tg_dcache
     assign m_done      = '0;
     assign m_wake_any  = 1'b0;
     logic unused_m1;
-    assign unused_m1 = ^{res_s, res_c};
+    assign unused_m1 = ^{res_s, res_c, pf_req, pf_pa};
     always_ff @(posedge clk) begin
       if (rst) begin
         ms_q   <= M_IDLE;
@@ -926,6 +942,7 @@ module tg_dcache
     logic    [N-1:0][WAY_W-1:0]     ew_q;
     logic    [N-1:0][2:0]           eg_q;
     logic    [N-1:0]                est_q;     // for a store or an atomic
+    logic    [N-1:0]                epf_q;     // for a store's ownership prefetch (STORE_PF)
     logic    [N-1:0][1:0]           eb_q;      // the Grant's beat
     logic    [N-1:0]                eden_q;    // the Grant was denied (or corrupt)
     logic    [N-1:0][2:0]           ecap_q;
@@ -963,7 +980,7 @@ module tg_dcache
         gack[e] = es_q[e] == E_GACK;
         insv[e] = es_q[e] == E_INSTALL;
         st_m[e] = busy[e] && el_q[e] == sx_pa[PA_W-1:6];
-        rq_m[e] = busy[e] && el_q[e] == rq_pa_q[PA_W-1:6];
+        rq_m[e] = busy[e] && el_q[e] == c_pa[PA_W-1:6];
         dn_s[e] = dn_v_q[e] && dn_l_q[e] == sx_pa[PA_W-1:6];
         dn_l[e] = dn_v_q[e] && dn_l_q[e] == lm_pa[PA_W-1:6];
       end
@@ -972,7 +989,7 @@ module tg_dcache
       res_c = '0;
       for (int e = 0; e < N; e++) begin
         if (busy[e] && el_q[e][6 +: SET_W] == sx_pa[6 +: SET_W]) res_s[ew_q[e]] = 1'b1;
-        if (busy[e] && el_q[e][6 +: SET_W] == rq_pa_q[6 +: SET_W]) res_c[ew_q[e]] = 1'b1;
+        if (busy[e] && el_q[e][6 +: SET_W] == c_pa[6 +: SET_W]) res_c[ew_q[e]] = 1'b1;
       end
     end
     assign f_i     = first(~busy);
@@ -990,13 +1007,13 @@ module tg_dcache
     // (ReleaseAck wakes it)
     logic st_rel, rq_rel;
     assign st_rel  = rs_q != R_IDLE && rl_q == sx_pa[PA_W-1:6];
-    assign rq_rel  = rs_q != R_IDLE && rl_q == rq_pa_q[PA_W-1:6];
+    assign rq_rel  = rs_q != R_IDLE && rl_q == c_pa[PA_W-1:6];
     assign st_busy = |st_m;
     assign rq_busy = |rq_m;
     assign d_e     = d_i.source[MSW-1:0];
     assign d_for_e = (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT) && d_i.source[2:0] < 3'(N) &&
                      es_q[d_e] == E_GRANT;
-    assign ev_go    = !al_up && (alloc_st ? ev_s : ev_c);
+    assign ev_go    = !al_up && !al_upc && (alloc_st ? ev_s : ev_c);
     assign ev_dirty = alloc_st ? ss.d[evw_s] : sc.d[evw_c];
 
     assign m_none     = !(|busy) && rs_q == R_IDLE;
@@ -1035,7 +1052,21 @@ module tg_dcache
     assign m_free_st  = f_any && !m_inst && !st_busy && !st_rel && (rs_q == R_IDLE || s_hit || !ev_s);
     assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (rs_q == R_IDLE || !ev_c);
     assign c_req      = rq_v_q;
-    assign c_pa       = rq_pa_q;
+    // The store ownership prefetch (STORE_PF, DR-171): one pending line, the newest a store's address
+    // decision sent (pf_req), looked up through the controller port in a cycle without a load's
+    // request. It ends when it allocates, or when its line is held with T or in an entry; it waits
+    // otherwise. It takes an entry only with another to spare, so a load always finds one, and only
+    // while fewer than PF_MAX prefetches are in flight (SMT2's second hart adds misses), and never
+    // while the store port writes or allocates: a store with its line in an entry does neither
+    localparam int PF_MAX = 2;
+    logic            pq_v_q, c_pf, f_two, pf_room;
+    logic [PA_W-1:6] pq_l_q;
+    assign c_pf       = STORE_PF && pq_v_q && !rq_v_q;
+    assign c_pa       = (STORE_PF && !rq_v_q) ? {pq_l_q, 6'b0} : rq_pa_q;
+    assign f_two      = $countones(~busy) >= 2;
+    assign pf_room    = $countones(busy & epf_q) < PF_MAX;
+    assign m_free_pf  = c_pf && f_two && pf_room && !m_inst && !rq_busy && !rq_rel &&
+                        (rs_q == R_IDLE || |ch || !ev_c) && (!st_req || st_busy);
     assign m_dbg      = {rs_q != R_IDLE, 3'($countones(busy))};
     assign dn_hit     = |dn_s;
     assign lm_fdn     = |dn_l;
@@ -1067,6 +1098,7 @@ module tg_dcache
         for (int e = 0; e < N; e++) es_q[e] <= E_IDLE;
         rs_q    <= R_IDLE;
         rq_v_q  <= 1'b0;
+        pq_v_q  <= 1'b0;
         dn_v_q  <= '0;
         done_q  <= '0;
         none_q  <= 1'b1;
@@ -1081,6 +1113,14 @@ module tg_dcache
         e_cur_q  <= g_i;
         rq_v_q  <= lm_req;                       // M2's miss: decided the next cycle
         rq_pa_q <= lm_pa;
+        // The pending prefetch: the newest request replaces it; it ends once it allocated, or its line
+        // is held with T or is in an entry (looked up outside a probe)
+        if (pf_req && STORE_PF) begin
+          pq_v_q <= 1'b1;
+          pq_l_q <= pf_pa[PA_W-1:6];
+        end else if (c_pf && !probe_active && (alloc_pf || |(ch & sc.t) || rq_busy)) begin
+          pq_v_q <= 1'b0;
+        end
         ans_v_q <= rq_v_q && (a_retry || a_wait);
         ans_w_q <= a_wait;
         ans_e_q <= a_e;
@@ -1092,10 +1132,12 @@ module tg_dcache
         if (f_any) begin
           el_q[f_i]   <= al_pa[PA_W-1:6];
           est_q[f_i]  <= alloc_st;
+          epf_q[f_i]  <= !alloc_st && c_pf;      // (a load's allocation comes with no prefetch lookup)
           eb_q[f_i]   <= '0;
           eden_q[f_i] <= 1'b0;
-          ew_q[f_i]   <= al_up ? sh_way : victim;
-          eg_q[f_i]   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T : TL_GROW_N_TO_B;
+          ew_q[f_i]   <= al_up ? sh_way : (!alloc_st && c_pf && |ch) ? ch_way : victim;
+          eg_q[f_i]   <= al_up ? TL_GROW_B_TO_T : alloc_st ? TL_GROW_N_TO_T :
+                         c_pf ? (|ch ? TL_GROW_B_TO_T : TL_GROW_N_TO_T) : TL_GROW_N_TO_B;
           if (al_go) es_q[f_i] <= ev_go ? E_EV : E_ACQ;
         end
         // The release engine takes a valid victim at its allocation
@@ -1144,9 +1186,12 @@ module tg_dcache
         if (inst_go) begin                       // the state write is in the comb block above
           es_q[i_i]   <= E_IDLE;
           done_q[i_i] <= 1'b1;
+          // A denied prefetch records nothing: the store, or a load, then asks for the line itself
           if (mi_den) begin
-            dn_v_q[i_i] <= 1'b1;
-            dn_l_q[i_i] <= mi_line;
+            if (!epf_q[i_i]) begin
+              dn_v_q[i_i] <= 1'b1;
+              dn_l_q[i_i] <= mi_line;
+            end
           end else begin
             for (int k = 0; k < N; k++) if (dn_v_q[k] && dn_l_q[k] == mi_line) dn_v_q[k] <= 1'b0;
           end
@@ -1154,13 +1199,17 @@ module tg_dcache
       end
     end
     logic unused_mn;
-    assign unused_mn = ^{rq_pa_q[5:0], d_i.source, al_w};   // al_w: the one-MSHR reference model's
+    assign unused_mn = ^{rq_pa_q[5:0], pf_pa[5:0], d_i.source, al_w};   // al_w: the one-MSHR reference model's
 `ifndef SYNTHESIS
     always_ff @(posedge clk) begin
       if (!rst) begin
         for (int e = 0; e < N; e++)
           for (int k = e + 1; k < N; k++)
             assert (!(busy[e] && busy[k] && el_q[e] == el_q[k])) else $error("tg_dcache: two entries for one line");
+        if (alloc_pf)
+          assert (STORE_PF && !alloc_st && !alloc_ld && !pb_st && f_two && pf_room && !(|(ch & sc.t)))
+            else $error("tg_dcache: a prefetch allocates beside a demand access, or without an entry to spare");
+        assert ($countones(busy & epf_q) <= PF_MAX) else $error("tg_dcache: too many prefetches in flight");
         if (d_valid_i && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT))
           assert (d_for_e) else $error("tg_dcache: a Grant for no waiting entry (source %0d)", d_i.source);
         if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
@@ -1170,6 +1219,37 @@ module tg_dcache
           assert (a_line != rl_q) else $error("tg_dcache: an Acquire for the line being released");
       end
     end
+    // The prefetch's statistics, on stderr with +stpf (stdout is compared with Spike): requests,
+    // allocations (upgrades in place), lookups that ended with the line held with T or in an entry,
+    // denied fills; the store port's allocations, and its cycles waiting for its line in a prefetch's
+    // entry or in its own (or a load's)
+    longint unsigned ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo;
+    bit ps_on;
+    string ps_nm;
+    initial begin
+      ps_on = $test$plusargs("stpf");
+      ps_nm = $sformatf("%m");
+    end
+    always_ff @(posedge clk) begin
+      if (rst) begin
+        {ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo} <= '0;
+      end else if (ps_on) begin
+        if (pf_req && STORE_PF) ps_req <= ps_req + 1;
+        if (alloc_pf) ps_al <= ps_al + 1;
+        if (al_upc) ps_up <= ps_up + 1;
+        if (c_pf && !probe_active && |(ch & sc.t)) ps_own <= ps_own + 1;
+        if (c_pf && !probe_active && rq_busy) ps_ent <= ps_ent + 1;
+        if (inst_go && mi_den && epf_q[i_i]) ps_den <= ps_den + 1;
+        if (alloc_st && st_req) ps_st_al <= ps_st_al + 1;
+        if (st_req && st_busy) begin
+          if (|(st_m & epf_q)) ps_st_wpf <= ps_st_wpf + 1;
+          else                 ps_st_wo  <= ps_st_wo + 1;
+        end
+      end
+    end
+    final if (ps_on)
+      $fwrite(32'h8000_0002, "TG-STPF %s req=%0d alloc=%0d up=%0d end_owned=%0d end_entry=%0d denied=%0d st_alloc=%0d st_wait_pf=%0d st_wait_own=%0d\n",
+              ps_nm, ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo);
 `endif
   end
 

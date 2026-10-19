@@ -456,6 +456,8 @@ module tg_lsu
   logic [idx_w(DC_MSHRS)-1:0] lm_ans_e;
   logic [DC_MSHRS-1:0] m_done;                   // ... the entries' installs, and any (or none busy)
   logic              m_wake_any;
+  logic              pf_req;                      // STORE_PF: a store's line, wanted with T (STA, below)
+  logic [PA_W-1:0]   pf_pa;
   logic              st_req, st_ack;
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
@@ -472,6 +474,7 @@ module tg_lsu
     .clk, .rst, .ready,
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .lm_fdn, .lm_ans_v, .lm_ans_wait, .lm_ans_e, .m_done, .m_wake_any,
+    .pf_req, .pf_pa,
     .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
     .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
@@ -1004,6 +1007,16 @@ module tg_lsu
     s3_den_q <= !rst && !flush && s2_den && !s2_amo_q;
     s3_rob_q <= s2_rob_q;
   end
+  // ---- Store ownership prefetch (STORE_PF, DR-171) ----
+  // A cacheable store whose address decides without a fault asks the D$ for its line with T the next
+  // cycle; s2_pa_q, which every decided store loads, holds its PA then. Its PMP verdict may still be
+  // on its way (S2): as with a load's miss, only the line's fill goes ahead (a cache-state change; the
+  // drain writes in order, and only a store that commits)
+  logic pf_v_q;
+  always_ff @(posedge clk)
+    pf_v_q <= !rst && STORE_PF && DC_MSHRS > 1 && sa_ok && !sa_amo && sa_pma == PMA_MEM;
+  assign pf_req = pf_v_q && !flush;
+  assign pf_pa  = s2_pa_q;
   assign spx_valid  = s3_den_q;
   assign spx_rob    = s3_rob_q;
   assign sth_v[0]   = s2_v_q && !s2_amo_q;

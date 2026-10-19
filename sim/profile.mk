@@ -39,15 +39,23 @@ STEER_LA ?=
 ifneq ($(filter-out 0 1,$(STEER_LA)),)
   $(error STEER_LA must be 0, 1 or unset (got "$(STEER_LA)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))
+# M6's ownership prefetch for stores, 0 or 1 (+define+TG_STORE_PF, tg_core_pkg::STORE_PF; DR-171): on by
+# default; 0 gives no prefetch as before. Not cycle-exact; runs programs.
+STORE_PF ?=
+ifneq ($(filter-out 0 1,$(STORE_PF)),)
+  $(error STORE_PF must be 0, 1 or unset (got "$(STORE_PF)"))
+endif
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(STORE_PF),-spf$(STORE_PF))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
-                     $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)))
+                     $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)) \
+                     $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
-                     $(if $(STEER_LA),STEER_LA=$(STEER_LA)))
+                     $(if $(STEER_LA),STEER_LA=$(STEER_LA)) \
+                     $(if $(STORE_PF),STORE_PF=$(STORE_PF)))
 # #8, one more decode stage (+define+TG_DE_STAGE=0|1): for lint only. It is never on in a build that
 # runs programs, in CI or in the soak, until the user decides (DR-140); sim/Makefile refuses it there.
 DE_STAGE ?=

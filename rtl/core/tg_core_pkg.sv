@@ -173,6 +173,16 @@ package tg_core_pkg;
 `else
   localparam bit STEER_LA = 1'b1;
 `endif
+  // An ownership prefetch for stores (M6, DR-171; smt2-study's area_recovery.md §6.11): when a
+  // cacheable store's address decides, the L1D requests its line with T through a free miss entry
+  // (never the last one), so the drain finds it owned instead of waiting for it one store at a time.
+  // A cache-state change only: the drain still writes in order. Needs DC_MSHRS > 1. TG_STORE_PF=0
+  // gives no prefetch, cycle for cycle as before
+`ifdef TG_STORE_PF
+  localparam bit STORE_PF = `TG_STORE_PF;
+`else
+  localparam bit STORE_PF = 1'b1;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
