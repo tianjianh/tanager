@@ -191,13 +191,13 @@ package tg_core_pkg;
 `else
   localparam int PMP_ENTRIES = 8;
 `endif
-  // I$ next-line prefetch (area_recovery.md §6.11-6.12; a prototype, off): a demand miss of line L also
-  // fetches L+1 (same page) through a second Get into an invalid way, validated by its own demand miss
-  // (core-pipeline.md §3.1). TG_IPF=1 turns it on.
+  // I$ next-line prefetch (area_recovery.md §6.11-6.12): a demand miss of line L also fetches L+1 (same page)
+  // through a second Get into an invalid way, validated by its own demand miss (core-pipeline.md §3.1). On by
+  // default; TG_IPF=0 turns it off, cycle for cycle.
 `ifdef TG_IPF
   localparam bit IPF_ON = `TG_IPF;
 `else
-  localparam bit IPF_ON = 1'b0;
+  localparam bit IPF_ON = 1'b1;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
