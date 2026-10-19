@@ -107,3 +107,7 @@ One line per pass: `STRESS pass N ok=… fails=… …`. Typing `q` on the conso
 - **The fan:** `fancontrol` at 15–30/255 (the A53's AMS at 34–35 °C). The regulator's 6 samples: PL die 33.9–34.9 °C, duty 15–30/255.
 - **How it ended:** stopped on purpose with `q` at 12:07:14 UTC, for D4's step 2. The guest finished pass 76 ("STRESS stop after pass 76, fails=0") and powered off (`boot exit 0`, 9,988 s after the load). `k26-starter-kits` was back at 12:08:32.
 - **s3 to s7 together:** 702 clean passes (479 + 147 + 76), about 25 hours of two-core load at 100 MHz from p3, on sc3 and d2.
+
+## Run s8: d2 from p3, one pass between D4's steps 2 and 4
+
+Load 12:16:44 UTC, 2026-10-19. Pass 1 was clean in 127 s. Then the run was stopped with `q` for step 4, which reboots the A53: "STRESS stop after pass 1, fails=0", `boot exit 0`. `k26-starter-kits` was back at 12:22:45 ([`linux_shell_stress_s8.txt`](linux_shell_stress_s8.txt), monitor [`stress_monitor_s8.txt`](stress_monitor_s8.txt), run log [`stress_s8.txt`](stress_s8.txt)). The next run, s9, started after step 4, at 12:31:05.
