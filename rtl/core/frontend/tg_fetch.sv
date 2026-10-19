@@ -1141,6 +1141,7 @@ module tg_fetch
   logic [1:0]            pbeat_q;
   logic                  pbad_q;            // denied, or poisoned by a FENCE.I in flight
   logic                  pv_go, pf_wait, p_inv_go, pf_we, tr_go;
+  logic                  a_pf, apf_q;       // the A channel carries the prefetch's Get
   logic [WAY_W-1:0]      pvictim;
   logic [PA_W-1:6]       mline, mnext;      // the missed line and the next one
   assign mline    = miss_pa_q[PA_W-1:6];
@@ -1237,12 +1238,16 @@ module tg_fetch
     l1i_a_o = '0;
     l1i_a_o.opcode  = A_GET;
     l1i_a_o.size    = 3'd6;
-    l1i_a_o.source  = (IPF_ON && rs_q != R_REQ) ? TL_SRC_W'(1) : '0;     // the demand's Get first
-    l1i_a_o.address = {(IPF_ON && rs_q != R_REQ) ? pline_q : rline_q, 6'b0};
+    l1i_a_o.source  = a_pf ? TL_SRC_W'(1) : '0;
+    l1i_a_o.address = {a_pf ? pline_q : rline_q, 6'b0};
     l1i_a_o.mask    = '1;
-    l1i_a_valid_o   = rs_q == R_REQ || (IPF_ON && ps_q == P_REQ);
+    l1i_a_valid_o   = rs_q == R_REQ || a_pf;
     l1i_d_ready_o   = 1'b1;
   end
+  // The A channel: the demand's Get first, but a prefetch Get once offered stays until it is taken (its message may
+  // not change under valid)
+  assign a_pf = IPF_ON && ps_q == P_REQ && (rs_q != R_REQ || apf_q);
+  always_ff @(posedge clk) apf_q <= !rst && a_pf && !l1i_a_ready_i;
   // A D beat is the prefetch's when its source is 1 (the beats of one message come together)
   logic d_pf;
   assign d_pf    = IPF_ON && l1i_d_i.source[0];
@@ -1272,7 +1277,7 @@ module tg_fetch
       fline_v_q <= 1'b0;
     end else begin
       unique case (rs_q)
-        R_IDLE: if (miss_q || am_go) begin
+        R_IDLE: if (r_start) begin            // (IPF_ON: not a validation, nor a wait for the prefetch)
           rs_q      <= R_REQ;
           rline_q   <= miss_pa_q[PA_W-1:6];
           rway_q    <= victim;
@@ -1281,7 +1286,7 @@ module tg_fetch
           rden_q    <= 1'b0;
           rpoison_q <= 1'b0;
         end
-        R_REQ: if (l1i_a_ready_i) rs_q <= R_DATA;
+        R_REQ: if (l1i_a_ready_i && !a_pf) rs_q <= R_DATA;
         R_DATA: if (l1i_d_valid_i && !d_pf) begin
           rbeat_q <= rbeat_q + 1'b1;
           if (l1i_d_i.denied || l1i_d_i.corrupt) rden_q <= 1'b1;
@@ -1312,7 +1317,7 @@ module tg_fetch
           ps_q   <= P_REQ;
           pway_q <= pvictim;
         end
-        P_REQ:  if (l1i_a_ready_i && rs_q != R_REQ) ps_q <= P_DATA;
+        P_REQ:  if (l1i_a_ready_i && a_pf) ps_q <= P_DATA;
         P_DATA: if (pf_we) begin
           pbeat_q <= pbeat_q + 1'b1;
           if (l1i_d_i.denied || l1i_d_i.corrupt) pbad_q <= 1'b1;
