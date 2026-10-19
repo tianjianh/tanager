@@ -251,3 +251,69 @@ The SoC track's package `d4m-step4` ([`package_d4m_step4_README.md`](package_d4m
 **Seen in passing:** each reboot's shutdown prints `systemd-shutdown[1]: Failed to set timeout to 10min: Invalid argument`. That's systemd's reboot watchdog (`RebootWatchdogSec`), which the Cadence watchdog's driver refuses. The system reset resets both watchdogs anyway, and item 4 found both off.
 
 **Afterwards:** s9, d2 from p3, from 12:31:05 UTC.
+
+## Step 5 of the boot-time modes: RISC-V mode, bare metal: pass (2026-10-19)
+
+The SoC track's package `d4m-step5` ([`package_d4m_step5_README.md`](package_d4m_step5_README.md); tarball `e6a61ce6…`; SHA256SUMS all OK). It is the first boot in which the A53 parks and the RISC-V runs alone. The hook, the tool and `install.sh` are step 4's.
+
+**p1's `tanager/` now holds:**
+- the real `riscv.scr` (`40c270a0…`, from `riscv.cmd`), which does the following, in order:
+  1. writes the park loop into OCM;
+  2. loads the bitstream;
+  3. sets the PL clock (IOPLL/10) and the fabric widths, and pulses `pl_resetn0`;
+  4. checks that the host bridge answers;
+  5. sets SD1's taps;
+  6. sets the DRAM window (`0x8_4000_0000`, 1 GiB) and `BOARD_CTRL` 3;
+  7. copies the images into the carve-out;
+  8. releases the uncore, then the cores;
+  9. parks the A53 with `go 0xfffc0000`;
+- `tanager.bit.bin`: d4s1, the same as step 2's (`2fee4000…`);
+- `fw_jump.bin`: OpenSBI (`b0094d23…`);
+- `payload.bin`: the bare-metal test image;
+- `tanager.dtb`: the RISC-V mode tree, with UART1 as stdout, SD1 and the reboot through `RESET_CTRL`.
+
+**How:**
+- s9 was stopped, and p3 checked clean.
+- [`../runs/d4m_step5.sh`](../runs/d4m_step5.sh) ran `precheck`, `install` and `riscv`. The laptop then rebooted the A53, and `post` ran after the board came back.
+- COM7 and COM5 were logged through the run: [`uart_COM7_step5.txt`](uart_COM7_step5.txt), [`uart_COM5_step5.txt`](uart_COM5_step5.txt). Every call's output is in [`step5_run.txt`](step5_run.txt).
+
+**The precheck** (12:50 UTC, under Linux, with d4s1 loaded by `xmutil`). These are the values `riscv.scr` writes or expects before its first read of the PL:
+
+| What | With `k26-starter-kits` | With d4s1 | What `riscv.scr` does |
+|---|---|---|---|
+| CRL_APB `PL0_REF_CTRL` | `0x00010A00` (CLKACT off) | `0x01010A00` | writes `0x01010A00` |
+| FPD_SLCR `AFI_FS` | `0x00000800` | `0x00000800` | sets bits 11:8 to `0x8` |
+| Host bridge ID (`0xA000_0000`) | (not read) | `0x54474E52` | checks for `0x54474E52` |
+
+They match. A wrong PL clock or bus width here could have hung the A53 on its first read of the PL, which only a power cycle fixes.
+
+**The run** (the reboot at 12:51:24 UTC). COM7 showed every line the README lists, in order:
+- **The hook:** `MMC read … block # 2047`, `tanager-mode: riscv, trial 0: writing trial 1, then tanager/riscv.scr`, `MMC write … 1 blocks written: OK`.
+- **`riscv.scr`:**
+  - `tanager: RISC-V mode from mmc 1:1`;
+  - the bitstream: `7797692 bytes read in 592 ms`. U-Boot's `fpga load` prints nothing when it succeeds;
+  - `tanager: the host bridge answers`;
+  - SD1's taps: `ff180314: 012a0000 00050000`;
+  - the three images (277,856, 1,452 and 3,719 bytes);
+  - `tanager: the RISC-V runs, its console on COM5 and UART1; this A53 parks`, then U-Boot's `## Starting application at 0xFFFC0000 ...`.
+- **OpenSBI v1.9 on UART1, now the RISC-V's:**
+  - `Platform Name: Tanager on KV260`, 2 harts (`Domain0 HARTs 0x0*,0x2*`);
+  - the timer `aclint-mtimer @ 10000000Hz`, the console `cadence_uart`;
+  - `Platform Reboot Device: syscon-reboot`;
+  - `Region02 0xff5e0218-0xff5e021f` (`RESET_CTRL`) and `Region03 0xff010000-0xff010fff` (UART1), both open to S-mode;
+  - `Boot HART ISA Extensions: sstc,zicntr,sdtrig,f,d`, `PMP Count 16`;
+  - next: `0x80200000` in S-mode, tree at `0x82200000`.
+- **The test image:**
+  - `tanager D4 step 5: RISC-V mode, bare metal, hart 0000000000000000, tree at 0000000082200000` and `UART1: this line is on COM7 too`, then the same two lines 10 s later. They appeared on both COM7 and COM5, and COM5 logged no dropout;
+  - then `SBI system reset, cold reboot: the board should reset, then boot Ubuntu (trial 1)`.
+- **The board reset:** the FSBL showed `Reset Mode : System Reset`, U-Boot `Reset reason: SOFT` and `tanager-mode: ARM mode`, and Ubuntu booted.
+
+**After:**
+- Ubuntu ran from 12:52:08, 44 s after the reboot command, so the whole RISC-V mode episode took less than that.
+- `tanager-mode status`: `riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM`. Then `tanager-mode arm`.
+- `fancontrol` was active (15/255), and `k26-starter-kits` was loaded.
+- `RESET_REASON` read `0x00000021`. The previous Linux had shut down cleanly at 12:51:28.
+
+**Afterwards:** s10, d2 from p3, from 12:53:29 UTC.
+
+**For the record:** OpenSBI's `PMP Count 16` shows that d4s1 (e8345f3) predates the 8-entry PMP (9db66da). A lockstep run on a bitstream like it would take `--pmp=16` (verif-2). d4s1 has no commit trace anyway.

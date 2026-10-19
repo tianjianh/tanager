@@ -1,0 +1,77 @@
+# D4 step 5 on the package d4m-step5, 2026-10-19 (../runs/d4m_step5.sh; times UTC). Between 'riscv' and 'post' the
+# laptop rebooted the A53 with 'sudo systemctl reboot' over SSH at 12:51:24; COM7 and COM5 for that boot are in
+# uart_COM7_step5.txt and uart_COM5_step5.txt.
+
+######## precheck
+== d4m_step5 precheck 2026-10-19 12:50:30 UTC, A53 up 1246.75 s
+before the load: PL0_REF_CTRL 0x00010A00, AFI_FS 0x00000800
+remove from slot 0 returns: 0 (Ok)
+tanager-d4s1: Loaded with slot_handle 0
+loaded tanager-d4s1 at 12:50:33; fpga0 operating
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 19 12:49:55 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 19 12:49:55 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 19 12:50:31 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 19 12:50:31 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 19 12:50:31 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 19 12:50:31 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 19 12:50:31 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 13:00:33 unless 'steps' or 'restore' runs first
+d4s1 loaded by xmutil: PL0_REF_CTRL 0x01010A00 (riscv.scr writes 0x01010A00), AFI_FS 0x00000800 (riscv.scr: bits 11:8 = 0x8)
+$ tanager-host peek 0x0 (riscv.scr expects 0x54474E52)
+0x54474e52
+0x00000000
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 12:50:36
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+
+######## install
+== d4m_step5 install 2026-10-19 12:50:44 UTC, A53 up 1260.97 s
+./debian_install.sh: OK
+./install.sh: OK
+./README.md: OK
+./tanager/fw_jump.bin: OK
+./tanager-mode: OK
+./tanager-mode-confirm.service: OK
+./tanager/payload.bin: OK
+./tanager/riscv.cmd: OK
+./tanager/riscv.scr: OK
+./tanager/tanager.bit.bin: OK
+./tanager/tanager.dtb: OK
+./ubootenv.d-tanager-mode: OK
+b0094d235a36f8bd b0094d235a36f8bd fw_jump.bin
+5103c0c92b2d1471 5103c0c92b2d1471 payload.bin
+656b4d538382671e 656b4d538382671e riscv.cmd
+40c270a08496ccd6 40c270a08496ccd6 riscv.scr
+2fee4000e997ff64 2fee4000e997ff64 tanager.bit.bin
+950a753ddcf5d959 950a753ddcf5d959 tanager.dtb
+total 7903
+drwxr-xr-x 2 root root     512 Oct 19 12:50 .
+drwxr-xr-x 3 root root    1536 Jan  1  1970 ..
+-rwxr-xr-x 1 root root  277856 Oct 19 12:50 fw_jump.bin
+-rwxr-xr-x 1 root root    1452 Oct 19 12:50 payload.bin
+-rwxr-xr-x 1 root root    4275 Oct 19 12:50 riscv.cmd
+-rwxr-xr-x 1 root root    4347 Oct 19 12:50 riscv.scr
+-rwxr-xr-x 1 root root 7797692 Oct 19 12:50 tanager.bit.bin
+-rwxr-xr-x 1 root root    3719 Oct 19 12:50 tanager.dtb
+/dev/mmcblk1 sector 2047: arm
+
+######## riscv
+== d4m_step5 riscv 2026-10-19 12:51:23 UTC, A53 up 1299.72 s
+/dev/mmcblk1 sector 2047: riscv: the next boot starts the RISC-V
+
+######## post
+== d4m_step5 post 2026-10-19 12:53:07 UTC, A53 up 59.21 s
+up since 2026-10-19 12:52:08
+/dev/mmcblk1 sector 2047: riscv, trial 1: the last RISC-V boot never confirmed, so the next boot is ARM
+fan: pwm1 15/255, fancontrol active
+active app: k26-starter-kits
+RESET_REASON 0x00000021
+-- the last boot's end:
+2026-10-19T12:51:28+00:00 kria systemd-shutdown[1]: Syncing filesystems and block devices.
+2026-10-19T12:51:28+00:00 kria systemd-shutdown[1]: Sending SIGTERM to remaining processes...
+2026-10-19T12:51:28+00:00 kria systemd-journald[397]: Received SIGTERM from PID 1 (systemd-shutdow).
+2026-10-19T12:51:28+00:00 kria systemd-journald[397]: Journal stopped
+/dev/mmcblk1 sector 2047: arm
