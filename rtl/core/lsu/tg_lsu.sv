@@ -1178,6 +1178,8 @@ module tg_lsu
     assign lr_look = 1'b0;
     assign lr_idx  = hl;
     assign lr_off  = lqc_rd[2].va[11:0];
+    logic unused_lt;
+    assign unused_lt = ^lt_idx;
   end else if (ROB_HEAD_TLB_LATE) begin : g_lr_late
     // B3: the port's VA was registered a cycle ago, the oldest L_TLB load's if hv_ld held then
     logic           lr_q;
