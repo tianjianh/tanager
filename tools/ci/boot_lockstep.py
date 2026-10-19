@@ -9,7 +9,7 @@ run at their untraced speed: tb_boot's +trace_out goes through the stream, whose
 IPC 0.15. The images are cycle-identical's pinned references (REF_IMAGES), unwritten memory reads zero as for any
 traced run (+mem_zero), and a run stops at MCYC million cycles, or at TANAGER-BOOT-OK.
 
-  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="board jitter"] [SEED=1] [profile switches]
+  make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
   make boot-lockstep-gate [BASE=<commit>] [BRANCH=<ref>] [profile switches]
   tools/ci/boot_lockstep.py --nightly           (the crontab's run: main, 400M cycles, st and board, the night's timing)
   tools/ci/boot_lockstep.py --install-cron      (the nightly's entry, with main's checkout's copy)
@@ -18,8 +18,8 @@ The RTL is BRANCH's (default: this tree's, with its uncommitted changes); the ha
 is this tree's, as in cycle-identical. SHAPE st is one st core; board is the board's: two smt2 cores, thread 0 of
 each (harts 0 and 2). TIMING names the DDR models' timing, one run each, side by side: board (a fixed 22 cycles,
 every ready at 100%), jitter (18-26 cycles), fixedN, default (tb_boot's own, 4-12). The gate runs st at 100M
-cycles with board and jitter when the change, against its merge base with BASE (main), reaches the core's fetch,
-decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
+cycles with default and board timing when the change, against its merge base with BASE (main), reaches the core's
+fetch, decode, rename, LSU, MMU or CSR, or its top and package; otherwise it says so and passes.
 Exit status: 0 every run checked clean; 1 a lockstep mismatch; 2 a run that could not be checked.
 """
 import argparse
@@ -48,7 +48,9 @@ MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set 
 SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4)}
 GATE_PATHS = tuple(f"rtl/core/{d}/" for d in ("frontend", "decode", "rename", "lsu", "mmu", "csr")) + \
              ("rtl/core/tg_core.sv", "rtl/core/tg_core_pkg.sv")
-GATE_MCYC, GATE_TIMINGS = 100, ("board", "jitter")
+# The gate's two timings, the ones that caught M6's micro-BTB alias on 0a1a418 soonest: tb_boot's own random
+# timing (89.3M cycles) and the board's fixed 22 (106.2M); jitter (18-26) ran 100M without it (DR-173)
+GATE_MCYC, GATE_TIMINGS = 100, ("default", "board")
 NIGHT_MCYC, NIGHT_SHAPES = 400, ("st", "board")
 NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in turn
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)

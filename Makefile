@@ -86,7 +86,7 @@ cycle-identical:
 # (sim/tb/tg_soc_tap.sv) streams every core's records into tanager-lockstep as the boot runs, at the untraced
 # speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2), MCYC million cycles (100), TIMING the DDR
 # timing of each run, side by side (board, jitter, fixedN, default), SEED; the profile switches as
-# cycle-identical's. boot-lockstep-gate runs st at 100M with board and jitter timing when the change against
+# cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
 # BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
 BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC)) $(if $(SEED),--seed $(SEED)) \
   $(if $(JOBS),--jobs $(JOBS)) $(if $(BOOT_FW),--boot-fw "$(BOOT_FW)") $(if $(BOOT_KERNEL),--boot-kernel "$(BOOT_KERNEL)") \

@@ -753,7 +753,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
 The Linux boot on the SoC under lockstep, as far as a core change needs it. M6's micro-BTB alias (fixed in core-2's c261c1f) passed every program, the coherence suite and cycle-identical with the 20M-cycle boot, and panicked Linux on the board about 220M cycles in, in three boots of three. The 20M-cycle boot never got near it. Core-2's traced 100M-cycle boot found it on the FENCE.I branch, at cycle 91.6M.
 
 ```
-make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="board jitter"] [SEED=1] [profile switches]
+make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
 make boot-lockstep-gate [BASE=main] [BRANCH=<ref>] [profile switches]
 tools/ci/boot_lockstep.py --nightly | --install-cron
 ```
@@ -779,9 +779,20 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   | **the tap, the board's shape, four threads** | 13–15 | 0.87–0.96 | 12–13K |
 
   `tanager-lockstep` checks 22–52K records a second on these runs and never holds them up. The tap's rows are averages over the first 50–60M cycles of the 400M-cycle boots (the first million cycles run at IPC 1.7). One `st` core: 20M cycles in about 15 minutes, 100M in 75–90, 400M in 5½–6 hours; the board's shape about 30% slower per cycle.
-- **The gate** (`make boot-lockstep-gate`): when the change, against its merge base with `BASE` (main), touches the core's fetch, decode, rename, LSU, MMU or CSR (`rtl/core/{frontend,decode,rename,lsu,mmu,csr}`, or `tg_core.sv` and `tg_core_pkg.sv`, which configure them), it runs `st` at 100M cycles with `board` and `jitter` timing side by side: two threads, about 75 minutes, beside the regressions. Otherwise it says so and passes. Against the merge base, not main's tip: a branch behind main would otherwise count main's newer files as its own, and a branch already merged would show nothing.
+- **The gate** (`make boot-lockstep-gate`): when the change, against its merge base with `BASE` (main), touches the core's fetch, decode, rename, LSU, MMU or CSR (`rtl/core/{frontend,decode,rename,lsu,mmu,csr}`, or `tg_core.sv` and `tg_core_pkg.sv`, which configure them), it runs `st` at 100M cycles with `default` and `board` timing side by side: two threads, 65–90 minutes, beside the regressions. Otherwise it says so and passes. Against the merge base, not main's tip: a branch behind main would otherwise count main's newer files as its own, and a branch already merged would show nothing.
 - **The nightly** (`--nightly`, from the crontab `--install-cron` writes, with main's checkout's copy, at 00:15): main's head, 400M cycles, `st` and the board's shape side by side, with one timing a night in turn (`board`, `jitter`, `fixed30`, `default`) and the night's seed. It waits for 12 GB of `MemAvailable`, runs at normal priority (at nice 19 on a busy host the board's four-thread model made under 1M cycles in 11 minutes: its threads meet every cycle), and is the first out-of-memory victim, as the soak. Each run's line goes to `$TANAGER_BUILD/boot-lockstep/nightly.md`; a mismatch or a run it could not check goes to the soak's list of failures to triage (`soak/fail/<time>-boot-<shape>-<timing>`, with the repro and the checker's report).
-- **Why timing variety:** this bug class depends on the fetch history: whether an aliasing micro-BTB entry is resident when the straddling JAL is fetched. Core-2's traced 100M-cycle boot of main passed; it failed on the FENCE.I branch, whose timing differs. So the gate runs two timings rather than more cycles, and the nightly changes timing every night (DR-173).
+- **Why timing variety:** this bug class depends on the fetch history: whether an aliasing micro-BTB entry is resident when a taken exit at its slot is fetched. Core-2's traced 100M-cycle boot of main passed; it failed on the FENCE.I branch, whose timing differs. So the gate runs two timings rather than more cycles, and the nightly changes timing every night (DR-173).
+- **The proof** (2026-10-19, 0a1a418, main before core-2's fix c261c1f; tapped boots under lockstep):
+
+  | Shape, timing | First mismatch |
+  |---|---|
+  | `st`, `default` | cycle 89,314,660 (record 63,912,391): a taken `c.beqz` at `ffffffff800e422a` went to `3f bd6e 3200`, a user-space target from another block's entry, and retired an S-mode instruction page fault there |
+  | the board's shape, `board` | cycle 86,915,594 on hart 0: a taken `c.beqz` at `ffffffff80025a62` went to `3f 961d c9b0` |
+  | `st`, `board` | cycle 106,199,223, in U-mode: a taken `bnez` at `3f 8f8f f3f8` went to `3f 8f96 1bc0` |
+  | `st`, `jitter` | none in 100M cycles |
+  | `+trace_out` through the stream, `board` | none in 110M cycles (17.0M records, 93 minutes) |
+
+  Main with the fix (7d781ac) in `st`, `default` passed 100M cycles (70.8M records, 68 minutes). So the gate takes the two timings that caught it first, `default` and `board`; with `jitter` and `board` it would have missed it within 100M cycles. The board saw the panic at about 220M cycles in three boots of three.
 
 ## 5. The test core (`tg_tcore`)
 
