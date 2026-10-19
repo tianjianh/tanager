@@ -611,6 +611,7 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - whether the kernel can kexec (`CONFIG_KEXEC`, `CONFIG_KEXEC_FILE`) and whether `kexec-tools` is installed (if not, installing it is an A53 package change, DR-147);
       - SD1's timing and signal voltage (`/sys/kernel/debug/mmc1/ios`). A card switched to 1.8 V can't go back to 3.3 V without a power cycle, so the RISC-V's driver must take the same mode;
       - whether GEM3's `macb` and the DP83867 PHY driver are built in or modules, which the initramfs must then carry.
+    - **10-19, the user:** D4 runs at night after all. The A53 stays up in the handover with SSH over GEM3, and the RISC-V's console is on the PMOD UART (COM5) from the laptop, so either side can reset the other. DR-164's daytime condition is lifted. The FPD watchdog (below) covers a hung handover kernel.
     - **The coordinator's conditions for the run** (10-18):
       - in daytime, with the user around, since the last recovery is their power cycle; the coordinator tells the user beforehand;
       - `p2` remounted read-only before the kexec; the handover kernel never touches SD1; Debian mounts only `p3`;
