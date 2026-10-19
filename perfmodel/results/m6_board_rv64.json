@@ -326,6 +326,16 @@
     "clk: Disabling unused clocks": 0.302487,
     "Freeing unused kernel image": 0.683928,
     "Run /init as init process": 0.684806
+   },
+   "d4r1": {
+    "smp: Brought up": 0.030567,
+    "devtmpfs: initialized": 0.03547,
+    "clocksource: Switched": 0.080332,
+    "Serial: 8250": 0.183433,
+    "NET: Registered PF_PACKET": 0.206712,
+    "clk: Disabling unused clocks": 0.287439,
+    "Freeing unused kernel image": 0.585202,
+    "Run /init as init process": 0.586028
    }
   }
  },

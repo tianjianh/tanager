@@ -105,6 +105,15 @@ def init_table(sim, board_dir):
         ch = lambda a, b: pct(b / a - 1) if a and b else "–"
         vs = f"{ch(b2, s2)} / {ch(b4, s4)}"
         print(f"| {k} | {f(b2)} | {f(b4)} | {ch(b2, b4)} | {f(s2)} | {f(s4)} | {ch(s2, s4)} | {vs} |")
+    if "d4r1" in tbs:   # §6.13: the board's d4r1, predicted as d4s2's board time scaled by the simulation's ratio
+        print("\n**d4r1, predicted** (each milestone: the board's d4s2 time × the simulation's d4r1 / d4s2)\n")
+        print("| Milestone | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 | Predicted board d4r1 |")
+        print("|---|---|---|---|---|---|")
+        for k in MILESTONES:
+            s4, s5, b4 = tbs["d4s2"].get(k), tbs["d4r1"].get(k), brd["d4s2"].get(k)
+            f = lambda x: f"{x:.4f} s" if x is not None else "–"
+            pr = b4 * s5 / s4 if s4 and s5 and b4 else None
+            print(f"| {k} | {f(s4)} | {f(s5)} | {pct(s5 / s4 - 1) if s4 and s5 else '–'} | {f(b4)} | {f(pr)} |")
     return brd, tbs
 
 

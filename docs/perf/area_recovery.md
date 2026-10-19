@@ -1715,7 +1715,34 @@ How each boot estimate is made:
   - CoreMark B **4.36** (229,159);
   - Dhrystone **2.82** DMIPS/MHz (202 cycles a run).
 
-**/init's CPU time:** *the simulation of d4r1 as the board runs it is under way (`scripts/rtlprof/brd_init.sh` on c072fff); its prediction follows below before the board's run.*
+**/init's CPU time** (added 15:10, still before the board's run). `tb_boot` ran d4r1 as the board runs it (`scripts/rtlprof/brd_init.sh d4r1`), against §6.12's run of d4s2:
+
+| Milestone (CPU time) | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 (measured) | Board d4r1 (predicted) |
+|---|---|---|---|---|---|
+| `smp: Brought up` | 0.0340 s | 0.0306 s | −10.1% | 0.0342 s | 0.031 s |
+| `clocksource: Switched` | 0.0850 s | 0.0803 s | −5.5% | 0.0856 s | 0.081 s |
+| `NET: Registered PF_PACKET` | 0.2181 s | 0.2067 s | −5.2% | 0.2247 s | 0.213 s |
+| `clk: Disabling unused clocks` (the initcalls) | 0.3025 s | 0.2874 s | −5.0% | 0.3133 s | **0.298 s** |
+| `Freeing unused kernel image` (the initramfs unpacked) | 0.6839 s | 0.5852 s | −14.4% | 0.5874 s | 0.51–0.57 s |
+| `Run /init` | 0.6848 s | 0.5860 s | **−14.4%** | 0.5884 s | **0.51–0.57 s, about 0.54 s** |
+
+- **The initcalls: −5%, to 0.298 s.** The simulation tracks the board within 3.5% there (§6.12), so this part is firm. The store prefetch shortens the kernel's own page and structure clearing.
+- **The initramfs unpacking is the uncertain part.**
+  - **In the simulation** it shrinks by 22% (0.381 → 0.298 s): the prefetch overlaps the page-cache copy's store misses.
+  - **On the board** the same phase already runs 39% faster than in the simulation (`tb_boot`'s DDR model, follow-up 14).
+  - **The range:** if none of that extra time is store-miss waiting, the board gains the simulation's 22% (0.214 s). If all of it is, the prefetch gains almost nothing there (0.274 s).
+  - **The prediction:** 0.21–0.27 s for the phase, about 0.24 s.
+- **The prediction for the board's d4r1:**
+  - **/init's CPU time:** 0.51–0.57 s against d4s2's 0.588 s; about 0.54 s (−8%).
+  - **The timestamp:** with the fixed 0.34 s of console, 0.85–0.91 s (about 0.88 s) against d4s2's 0.929 s.
+- **Not in /init's timestamp, but in the boot:** both pieces act mostly before the kernel's clock starts. There the simulation's d4r1 sets up the 1 GiB page structures 35% faster (13M against 20M cycles) and starts its clock 9M cycles (90 ms) earlier. Most of the boot's 5.5K FENCE.Is come before the clock too.
+- **The Linux set's other tests are not predicted** (no simulation of them). The store prefetch should move those that store to lines not yet in the cache:
+  - page fault (each page cleared);
+  - memset and memcpy of 1 MiB;
+  - tmpfs write;
+  - fork+exec.
+
+  CoreMark and Dhrystone should not move (above).
 
 ---
 
