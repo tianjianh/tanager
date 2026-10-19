@@ -1,0 +1,192 @@
+# D4 step 2 on the package d4s1-smt2-c2-100, 2026-10-19 (../runs/d4m_step2.sh; times UTC unless marked PDT).
+# Each section is one call; 2(a)'s run and 2(b)'s break are as the laptop saw them.
+
+######## stage
+== d4m_step2 stage 2026-10-19 12:09:34 UTC, A53 up 35332.58 s
+2fee4000e997ff64  /home/ubuntu/tanager/d4s1-smt2-c2-100/tanager.bit.bin
+bd3f9233fd97dc4e  /home/ubuntu/tanager/d4s1-smt2-c2-100/tanager-host
+802dbc8b3f118313a5a74df46f56dc550a61b687dfd484fc6a8fd5ac7895c344  /lib/firmware/xilinx/tanager-d4s1/shell.json
+2fee4000e997ff645bbf88453e870778a2061ee07a575800952ee5e32e3f43c7  /lib/firmware/xilinx/tanager-d4s1/tanager.bit.bin
+6193da61462b56e7e6cdd6265702093a545c6e4b5889e6aaacfa99568dc537f7  /lib/firmware/xilinx/tanager-d4s1/tanager.dtbo
+5232908901445a671b519f89b48dfee25ae83d6efafd30e84499918dbc8a254e  /usr/local/bin/tanager-host
+                   Accelerator  Accel_type                    Base    Pid   Base_type  #slots(RPU+PL+AIE)    slot->handle
+                   tanager-st2    XRT_FLAT             tanager-st2  id_ok    XRT_FLAT             (0+0+0)              -1
+                  tanager-p0d2    XRT_FLAT            tanager-p0d2  id_ok    XRT_FLAT             (0+0+0)              -1
+                    tanager-m4    XRT_FLAT              tanager-m4  id_ok    XRT_FLAT             (0+0+0)              -1
+                 dr141-default    XRT_FLAT           dr141-default  id_ok    XRT_FLAT             (0+0+0)              -1
+                   tanager-c1s    XRT_FLAT             tanager-c1s  id_ok    XRT_FLAT             (0+0+0)              -1
+                    tanager-p0    XRT_FLAT              tanager-p0  id_ok    XRT_FLAT             (0+0+0)              -1
+                   tanager-p0g    XRT_FLAT             tanager-p0g  id_ok    XRT_FLAT             (0+0+0)              -1
+                   tanager-sc3    XRT_FLAT             tanager-sc3  id_ok    XRT_FLAT             (0+0+0)              -1
+                    tanager-d2    XRT_FLAT              tanager-d2  id_ok    XRT_FLAT             (0+0+0)              -1
+              k24-starter-kits    XRT_FLAT        k24-starter-kits  id_ok    XRT_FLAT             (0+0+0)              -1
+                   tanager-p0f    XRT_FLAT             tanager-p0f  id_ok    XRT_FLAT             (0+0+0)              -1
+                dr141-fallback    XRT_FLAT          dr141-fallback  id_ok    XRT_FLAT             (0+0+0)              -1
+                   tanager-sc2    XRT_FLAT             tanager-sc2  id_ok    XRT_FLAT             (0+0+0)              -1
+                         tg-s1    XRT_FLAT                   tg-s1  id_ok    XRT_FLAT             (0+0+0)              -1
+              k26-starter-kits    XRT_FLAT        k26-starter-kits  id_ok    XRT_FLAT             (0+0+0)           0->0,
+                       tanager    XRT_FLAT                 tanager  id_ok    XRT_FLAT             (0+0+0)              -1
+                    tanager-d1    XRT_FLAT              tanager-d1  id_ok    XRT_FLAT             (0+0+0)              -1
+             dr141-default-no2    XRT_FLAT       dr141-default-no2  id_ok    XRT_FLAT             (0+0+0)              -1
+                  tanager-d4s1    XRT_FLAT            tanager-d4s1  id_ok    XRT_FLAT             (0+0+0)              -1
+
+######## probe4 (the README's item 4)
+== d4m_step2 probe4 2026-10-19 12:10:02 UTC, A53 up 35360.55 s
+0xfd4d0000 0x000001C2
+0xfd4d0004 0x00003FFC
+0xff150000 0x000001C2
+0xff150004 0x00000953
+0xfd615000 0x00000800
+0xff180314 0x012A0000
+0xff180318 0x00050000
+/sys/class/watchdog/watchdog0/identity:cdns_wdt watchdog
+/sys/class/watchdog/watchdog1/identity:cdns_wdt watchdog
+/sys/class/watchdog/watchdog0/state:inactive
+/sys/class/watchdog/watchdog1/state:inactive
+xwdtps.c
+XFSBL_ERROR_SYSTEM_WDT_RESET
+WDT initialization failed 
+fpd_wdt
+lpd_wdt
+swdt0_clk
+`swdt0_rst
+`swdt1_clk
+
+######## pre (before 2(a))
+== d4m_step2 pre 2026-10-19 12:10:24 UTC, A53 up 35382.17 s
+RESET_REASON (0xFF5E0220) before: 0x00000021
+remove from slot 0 returns: 0 (Ok)
+tanager-d4s1: Loaded with slot_handle 0
+loaded tanager-d4s1 at 12:10:27; fpga0 operating
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 19 12:10:25 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 19 12:10:25 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 19 12:10:25 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 19 12:10:25 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 19 12:10:25 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 12:40:27 unless 'steps' or 'restore' runs first
+$ tanager-host info
+Tanager host bridge v1.0
+  configuration   smt2, 2 core(s) x 2 thread(s)
+  core clock      100.0 MHz
+  capabilities    0x00000127 (no commit-trace stream: built with TG_COMMIT_TRACE=0) (virtio window)
+  status          cores in reset, uncore in reset, L2 not ready
+  window          base 0x0 size 0x0
+  boot            entry 0x80000000 dtb 0x82200000
+  injector        rd 0 wr 0 ctrl 0x00000000; 0 reads, native latency avg 0.0 max 0 cycles
+  tohost          0x0000000000000000 (0 writes)
+  virtio window   not served (reads 0); 0 request(s) and 0 event(s) queued; status bits 0x00
+$ tanager-host fan
+fan: PL die 33.4 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 15/255
+$ tanager-host peek 0x1404
+0x00000000
+
+######## fanbit (the README's optional step 3, the A53's PWM at 64)
+== d4m_step2 fanbit 2026-10-19 12:10:36 UTC, A53 up 35394.76 s
+$ tanager-host peek 0x1404
+0x00000000
+fan: pwm1 64/255, AMS temp1 34 C, fancontrol inactive
+$ tanager-host fan
+fan: PL die 32.9 C, duty 63/255 (the larger of the curve's and the A53's), the A53's PWM 63/255
+$ tanager-host poke 0x1404 1
+$ tanager-host fan
+fan: PL die 33.9 C, duty 15/255 (the larger of the curve's and the A53's), the A53's PWM 64/255
+$ tanager-host poke 0x1404 0
+$ tanager-host fan
+fan: PL die 33.9 C, duty 64/255 (the larger of the curve's and the A53's), the A53's PWM 64/255
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+
+######## a, first try (the laptop's SSH stream): the README's /dev/null slots fail
+== d4m_step2 a 2026-10-19 12:11:01 UTC, A53 up 35419.51 s
+$ tanager-host peek 0x1404
+0x00000000
+$ tanager-host poke 0x1404 2
+$ tanager-host load --fw /home/ubuntu/tanager/d4s1-smt2-c2-100/ps_reset.bin --kernel /dev/null --dtb /dev/null
+tanager-host: /dev/null: No error information
+
+######## a, second try (the laptop's SSH stream)
+== d4m_step2 a 2026-10-19 12:11:39 UTC, A53 up 35457.21 s
+$ tanager-host peek 0x1404
+0x00000002
+$ tanager-host poke 0x1404 2
+$ tanager-host load --fw /home/ubuntu/tanager/d4s1-smt2-c2-100/ps_reset.bin --kernel /home/ubuntu/tanager/d4s1-smt2-c2-100/Image --dtb /home/ubuntu/tanager/d4s1-smt2-c2-100/tanager-kv260-virtio.dtb
+loaded: fw 1528 B, kernel 21449216 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+run at 12:11:41.077 UTC
+$ tanager-host run
+tanager D4 step 2a: the board's reset through the PS window
+RESET_CTRL 00000000, read in 00000004 ticks of 10 MHz; writing SOFT_RESET in 1 s: the board should reset
+Read from remote host kria.mshome.net: Connection reset by peer
+client_loop: send disconnect: Connection reset by peer
+
+######## COM5 (the PMOD console) during 2(a), laptop logger, PDT
+﻿
+===== COM5 logger (reopening) started 2026-10-19T05:09:52.8482122-07:00 =====
+===== COM5 opened 2026-10-19T05:09:52.8586242-07:00 =====
+tanager D4 step 2a: the board's reset through the PS window
+RESET_CTRL 00000000, read in 00000004 ticks of 10 MHz; writing SOFT_RESET in 1 s: the board should reset
+===== COM5 logger ended 2026-10-19T05:14:08.8254617-07:00 =====
+
+######## post (after 2(a)'s reset)
+== d4m_step2 post 2026-10-19 12:13:10 UTC, A53 up 72.28 s
+up since 2026-10-19 12:11:57 (A53 local time)
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> findBaseDesign():70 Found base design tanager-sc2
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> parse_packages():1161 tanager-sc2 : XRT_FLAT
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> acell_dir_add():1356 Found dir /lib/firmwareDFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria dfx-mgrd[965]: DFX-MGRD> ERROR:add_to_watch():1079 no room to add more watch: No such file or directory
+2026-10-19T12:11:40+00:00 kria sudo[127288]: pam_unix(sudo:session): session closed for user root
+2026-10-19T12:11:40+00:00 kria sudo[127292]:   ubuntu : PWD=/home/ubuntu/tanager/tg ; USER=root ; COMMAND=/home/ubuntu/tanager/d4s1-smt2-c2-100/tanager-host load --fw /home/ubuntu/tanager/d4s1-smt2-c2-100/ps_reset.bin --kernel /home/ubuntu/tanager/d4s1-smt2-c2-100/Image --dtb /home/ubuntu/tanager/d4s1-smt2-c2-100/tanager-kv260-virtio.dtb
+2026-10-19T12:11:40+00:00 kria sudo[127292]: pam_unix(sudo:session): session opened for user root(uid=0) by ubuntu(uid=1000)
+2026-10-19T12:11:40+00:00 kria sudo[127292]: pam_unix(sudo:session): session closed for user root
+fan: pwm1 15/255, AMS temp1 34 C, fancontrol active
+active app: k26-starter-kits
+RESET_REASON (0xFF5E0220) after: 0x00000021
+
+######## b (armed on the board)
+== d4m_step2 b 2026-10-19 12:13:52 UTC, A53 up 114.44 s
+RESET_REASON (0xFF5E0220) before: 0x00000021
+remove from slot 0 returns: 0 (Ok)
+tanager-d4s1: Loaded with slot_handle 0
+loaded tanager-d4s1 at 12:13:55; fpga0 operating
+fan: pwm1 15/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+Oct 19 12:13:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/firmware-name
+Oct 19 12:13:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /fpga-region/resets
+Oct 19 12:13:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/afi0
+Oct 19 12:13:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/clocking0
+Oct 19 12:13:54 kria kernel: OF: overlay: WARNING: memory leak will occur if overlay removed, property: /__symbols__/tanager_host
+dead-man: k26-starter-kits comes back at 12:43:56 unless 'steps' or 'restore' runs first
+$ tanager-host peek 0x1404
+0x00000000
+$ tanager-host poke 0x010 1
+$ tanager-host poke 0x1404 2
+$ tanager-host peek 0x1404
+0x00000002
+armed at 12:13:58 UTC: send the break now
+
+######## b's break (the laptop: serial_break.ps1 -Port COM5 -Seconds 3, after the COM5 logger stopped), PDT
+logger ended: True
+break on COM5 from 2026-10-19T05:14:08.8733024-07:00 to 2026-10-19T05:14:11.8838025-07:00 (3.011 s)
+
+######## post (after 2(b)'s reset)
+== d4m_step2 post 2026-10-19 12:15:42 UTC, A53 up 75.99 s
+up since 2026-10-19 12:14:26 (A53 local time)
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> acell_dir_add():1356 Found dir /lib/firmware/xilinx/tanager-sc3
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> add_base_design():1240 Base design /lib/firmware/xilinx/tanager-sc3 already exists
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> findBaseDesign():70 Found base design tanager-sc3
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> parse_packages():1161 tanager-sc3 : XRT_FLAT
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> acell_dir_add():1356 Found dir /lib/firmware/xilinx/tanager-d2
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> add_base_design():1240 Base design /lib/firmware/xilinx/tanager-d2 already exists
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> findBaseDesign():70 Found base design tanager-d2
+2026-10-19T12:13:57+00:00 kria dfx-mgrd[964]: DFX-MGRD> parse_packages():1161 tanager-d2 : XRT_FLAT
+2026-10-19T12:13:57+00:00 kria sudo[1886]: pam_unix(sudo:session): session closed for user root
+2026-10-19T12:13:57+00:00 kria sudo[1890]:   ubuntu : PWD=/home/ubuntu/tanager/tg ; USER=root ; COMMAND=/home/ubuntu/tanager/d4s1-smt2-c2-100/tanager-host peek 0x1404
+2026-10-19T12:13:57+00:00 kria sudo[1890]: pam_unix(sudo:session): session opened for user root(uid=0) by ubuntu(uid=1000)
+2026-10-19T12:13:57+00:00 kria sudo[1890]: pam_unix(sudo:session): session closed for user root
+fan: pwm1 15/255, AMS temp1 33 C, fancontrol active
+active app: k26-starter-kits
+RESET_REASON (0xFF5E0220) after: 0x00000021
