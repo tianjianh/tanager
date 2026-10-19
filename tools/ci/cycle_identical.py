@@ -66,6 +66,19 @@ NO_WALL_LIMIT = "--timeout=1000000000"  # a wall-clock stop would land on a load
 BOOT_EXPECT = "TANAGER-BOOT-OK"          # tb_boot ends early if the boot gets there
 BOOT_DTS = ("MEM=0x08000000", "FPU=1", "BOOTARGS=console=ttyS0,115200 earlycon")  # as tests/unit/boot's linux target
 AUTO_BOOT = 3                            # million cycles, when the change reaches the uncore
+# The boot's images (the coordinator, 2026-10-19): OpenSBI's fw_jump.bin from the SoC track's tree and the
+# protected reference Image (sw/build_linux.sh rebuilds it only with BR_REBUILD_REFERENCE=1), each pinned by
+# its sha256. The boot runs them, and refuses one whose content has changed, unless --boot-fw or
+# --boot-kernel (BOOT_FW, BOOT_KERNEL) names a file. Before this it took the newest file under
+# $TANAGER_BUILD, and a track's own OpenSBI build (10-19, 02:04-02:26) became every boot's firmware.
+REF_IMAGES = {
+    "fw": ("OpenSBI's fw_jump.bin",
+           os.path.join(TB, "track-soc-160053", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"),
+           "b0094d235a36f8bdb857c97d5d60e28bb3852d20a418c9cc3efa45710c0679bb"),
+    "kernel": ("the Linux Image",
+               os.path.join(TB, "track-soc-160053", "br-tanager_lp64d", "images", "Image"),
+               "cea2bf6694672c687ad2587772660d6d268e240b97032f47a0f391097735addf"),
+}
 RANDOM_VM = 33                           # share of the random programs in S-mode under Sv39 (as the soak's)
 UNCORE_PATHS = ("rtl/uncore/", "rtl/soc/", "rtl/common/")
 
@@ -433,18 +446,37 @@ def vsim_programs(suites, cfg, randn, jobs):
     return out
 
 
-def newest(pattern):
-    files = glob.glob(pattern)
-    return max(files, key=os.path.getmtime) if files else None
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
 
 
-def boot_program(a, cfg, tb_src):
+def boot_image(kind, given):
+    """The boot's image of this kind ("fw" or "kernel"): (path, sha256, what it is). By default the pinned
+    reference, which must still have its sha256; a file named on the command line runs whatever it holds."""
+    name, ref_path, ref_sha = REF_IMAGES[kind]
+    if given:
+        if not os.path.isfile(given):
+            fail(f"--boot-{kind} {given}: no such file")
+        h = sha256_of(given)
+        return given, h, "the reference" if h == ref_sha else "NOT the reference, as given"
+    if not os.path.isfile(ref_path):
+        fail(f"the boot's reference {name}, {ref_path} (sha256 {ref_sha[:16]}...), is missing: restore it, "
+             f"or name a file with --boot-{kind} (BOOT_{'FW' if kind == 'fw' else 'KERNEL'})")
+    h = sha256_of(ref_path)
+    if h != ref_sha:
+        fail(f"the boot's reference {name}, {ref_path}, has sha256 {h[:16]}..., not {ref_sha[:16]}...: it was "
+             f"rebuilt or replaced, which would move every boot baseline. Restore it, or name the file with "
+             f"--boot-{kind} (BOOT_{'FW' if kind == 'fw' else 'KERNEL'}) to run it anyway")
+    return ref_path, h, "the reference"
+
+
+def boot_program(a, cfg, tb_src, images):
     """The Linux boot's first N million cycles: tb_boot's plusargs and the images they name."""
-    fw = a.boot_fw or newest(os.path.join(TB, "*", "opensbi", "platform", "generic", "firmware", "fw_jump.bin"))
-    kernel = a.boot_kernel or newest(os.path.join(TB, "*", "br-tanager_lp64d", "images", "Image"))
-    if not fw or not kernel:
-        fail("the boot needs OpenSBI's fw_jump.bin and Buildroot's Image (sw/build_opensbi.sh, sw/build_linux.sh), "
-             "or --boot-fw and --boot-kernel")
+    fw, kernel = images["fw"][0], images["kernel"][0]
     # The device tree for the configuration, from the boot tree's sw/dts
     threads = 2 if cfg.startswith("smt2") else 1
     dsrc = git("rev-parse", f"{tb_src}:sw/dts")
@@ -598,8 +630,10 @@ def main():
                          "the uncore, else 0)")
     ap.add_argument("--boot-cores", type=int, default=None, choices=(1, 2),
                     help="cores in the booted SoC (default: 2 when the change reaches the uncore, else 1)")
-    ap.add_argument("--boot-fw", default="", help="OpenSBI fw_jump.bin (default: the newest under $TANAGER_BUILD)")
-    ap.add_argument("--boot-kernel", default="", help="Linux Image (default: the newest under $TANAGER_BUILD)")
+    ap.add_argument("--boot-fw", default="",
+                    help="OpenSBI fw_jump.bin (default: the reference, REF_IMAGES, which must keep its sha256)")
+    ap.add_argument("--boot-kernel", default="",
+                    help="Linux Image (default: the reference, REF_IMAGES, which must keep its sha256)")
     ap.add_argument("--boot-seed", type=int, default=1, help="the memory models' random seed (+verilator+seed+)")
     ap.add_argument("--boot-tree", default="", help="take tests/unit (tb_boot) and sw/dts from this ref")
     ap.add_argument("--jobs", type=int, default=8, help="parallel runs, and make jobs across the builds")
@@ -702,6 +736,11 @@ def main():
         log("  (the RTL is the base's: identical by construction; the runs still check the tool)")
     if auto_note:
         log(auto_note)
+    images = {}
+    if a.boot:
+        images = {k: boot_image(k, a.boot_fw if k == "fw" else a.boot_kernel) for k in ("fw", "kernel")}
+        for k, (path, h, what) in images.items():
+            log(f"  boot {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}")
     os.makedirs(WORK, exist_ok=True)
 
     t_start = time.time()
@@ -768,7 +807,7 @@ def main():
         prune_builds({s.key for pair in sides.values() for s in pair})
 
         # The boot first: it is long, and the programs run beside it
-        progs = ([boot_program(a, cfg, boot_tb)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
+        progs = ([boot_program(a, cfg, boot_tb, images)] if a.boot else []) + vsim_programs(suites, cfg, a.randn, a.jobs)
         log(f"[{cfg}] {len(progs)} programs x 2 sides ({', '.join(suites + (['boot'] if a.boot else []))})...")
         t1 = time.time()
         jobs = [(i, side) for i, p in enumerate(progs) for side in sides[p[2]]]
@@ -822,6 +861,8 @@ def main():
             if console:
                 log(line)
 
+        for k, (path, h, what) in images.items():
+            out(f"[{cfg}] boot {'firmware' if k == 'fw' else 'kernel  '}: sha256 {h} ({what}), {path}", console=False)
         out(f"[{cfg}] {'suite':8s} {'programs':>8s} {'identical':>9s} {'differ':>6s} {'cycles':>9s} {'change':>8s}")
         for suite, (n, ok, nd, ca, d) in per_suite.items():
             out(f"[{cfg}] {suite:8s} {n:8d} {ok:9d} {nd:6d} {ca / 1e6:8.2f}M "
