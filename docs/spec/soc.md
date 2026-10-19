@@ -662,6 +662,10 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - The new initrd (42,092,093 bytes) has `sdhci-of-arasan`, `sdhci-pltfm`, `cqhci` and `mmc_block`.
       - `serial-getty@ttyPS0` is enabled with the automatic login. Neither module loads in stage C.
       - Part C takes `vmlinux-6.12.113+deb13-riscv64` (31,166,464 bytes) and that initrd.
+      - **Two side effects, fixed** (the board session's first stage C boot after part A).
+        - Listed in `/etc/initramfs-tools/modules`, `sdhci-of-arasan` loaded at every boot and tainted the kernel (an out-of-tree module, signed with DKMS's own key). An initramfs hook (`manual_add_modules`) now carries it instead, and udev loads it by modalias only where the tree has SD1.
+        - The enabled `serial-getty@ttyPS0` made every stage C boot wait 91 s for a missing device. A udev rule now starts it when ttyPS0 appears.
+        - `stage_d_prep.sh --config-only` applies both to the prepared `p3`. The taint remains in D4's own boots.
     - **The run sheet for the user** (the coordinator, 10-18): [soc-d4-runsheet.md](soc-d4-runsheet.md). It covers the steps, what the board session watches, the undo for each, where only a power cycle gets back, and the driver choice. Debian's kernel lacks both PS drivers. The UART module can be left out, with Debian's console on the PL UART. The SD module can't, so the minimum is one DKMS module built from Debian's own sources.
     - D3 goes first. The probes went to the board session on 10-18.
   - **The controller:** `dma-ranges` points at `0x5_0000_0000` (D-c), and devices are coherent by default on RISC-V. `arasan,sdhci-8.9a`, with the tap delays the A53 left.
