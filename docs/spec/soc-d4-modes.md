@@ -70,11 +70,12 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 
 ## RISC-V software
 
-- **U-Boot S-mode** (`sw/uboot`):
-  - `MMC_SDHCI_ZYNQ` allowed on RISC-V, through a one-line Kconfig patch in our build. On RISC-V its ZynqMP firmware calls are weak no-ops, so the tap delays stay; the guarded code compiles out.
-  - `DM_MMC`, with fixed clocks from the tree.
-  - DMA through `dma-ranges` (`dev_phys_to_bus`), with PIO as the fallback.
-  - Boot order: `mmc 0:3` (`p3`'s extlinux) first.
+- **U-Boot S-mode** (`sw/uboot`, `bash sw/build_uboot.sh d4`; step 3, built 10-19):
+  - `MMC_SDHCI_ZYNQ` allowed on RISC-V by `patches-d4/0001`: the Kconfig line, and the ZynqMP-only header `asm/arch/sys_proto.h` left out on RISC-V. The ZynqMP code (the PMU firmware calls, the tap-delay and DLL code, the clock phases) is under `CONFIG_ARCH_ZYNQMP` and compiles out. So the driver runs as a plain SDHCI, and the tap delays stay as `riscv.scr` set them.
+  - `DM_MMC`, with the tree's fixed clocks (`sdio1_ref` at 166,666,665 Hz; at most 50 MHz on the card).
+  - **PIO, no DMA.** SD1's DMA reaches the RISC-V's RAM only at bus address `0x5_0000_0000`, the host DMA port (the tree's `dma-ranges`). U-Boot's ADMA doesn't apply `dma-ranges`, and its SDMA is 32-bit. Linux's driver uses the DMA API, which does.
+  - The Cadence UART driver as well, for a tree whose stdout is UART1.
+  - The boot command: extlinux from `mmc 0:3` (`p3`), nothing else. Without it U-Boot stops at its prompt, and the PMOD break or a power cycle gives ARM mode.
 - **The RISC-V mode tree** (`sw/dts`): UART1, SD1, and the reboot and poweroff syscon on `RESET_CTRL`. The boot arguments come from `p3`'s extlinux, Debian's own.
 - **Debian** (`p3`, part A's prep extended): the `tanager-mode` tool and the shutdown unit. The DKMS modules stay.
 
@@ -85,7 +86,7 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 | 0 | Read-only probes | The QSPI U-Boot's commands (`fpga`, `zynqmp mmio_write`, `mmc write`, `itest`, `setexpr`, `go`, `fatwrite`), from its prompt or the boot image's strings. The card's layout (sector 2047 free, `p1`'s free space). flash-kernel's template name. **Done (10-19):** see "What step 0 found" |
 | 1 | PL changes | Unit tests: in `tb_soc`, `RESET_CTRL` passes while the rest of CRL_APB faults, and the hook detects a break and writes. In `tb_fan`, the ignore-TTC bit. In `tb_host_bridge`, `BOARD_CTRL`. Then lint, cycle-identical, and a board build |
 | 2 | Board, ARM mode under `tanager-host`, no boot change yet | With `BOARD_CTRL` set to 2 by `tanager-host poke`: (a) a bare-metal RISC-V program writes `RESET_CTRL` through the window, and the board resets into Ubuntu. If the window answers an error (the XPPU or TrustZone refusing a non-secure PL write), the fallback is the PMU's reset service through a PL IPI channel. (b) A 3 s break on COM5 resets the board; if it doesn't, `BOARD_CTRL` bits 3:2 say whether the write went out and how it was answered |
-| 3 | U-Boot S-mode with the Arasan driver | It builds; its first real run is step 6 |
+| 3 | U-Boot S-mode with the Arasan driver | It builds; its first real run is step 6. **Built (10-19):** `$SOC_BUILD/u-boot-d4/u-boot.bin`, 1.3 MB |
 | 4 | The mode record and the boot script on `p1`, mode left at ARM | Ubuntu boots as before, rebooted with no record and with an invalid one |
 | 5 | RISC-V mode, bare metal | `riscv` with a test image in U-Boot's place: it prints on COM5 and UART1, then writes `RESET_CTRL`. The board resets, trial is 1, Ubuntu boots. This tests the whole chain and the fallback without Debian |
 | 6 | RISC-V mode with Debian | OpenSBI, then U-Boot from SD1, then Debian from `p3`: logins on COM7 (UART1) and COM5 (PL UART); `lsblk` with the root on `mmcblk0p3`; the read rate against stage C's. `reboot` comes back to RISC-V (confirmed). `tanager-mode arm` and a reboot give Ubuntu. A break on COM5 while Debian runs gives Ubuntu (unconfirmed) |
