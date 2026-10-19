@@ -33,9 +33,11 @@ The boot takes the profile through tests/unit/boot's Makefile, which reads sim/p
 a cycle cost is reported on the Linux boot by profile). DC_MSHRS=1|4 (--dc-mshrs) and BRANCH_DC_MSHRS
 (--branch-dc-mshrs) do the same for the L1D's misses in flight (DR-149): BRANCH_DC_MSHRS=4 against a base
 of one MSHR measures the 4-miss L1D; and QUEUE_DECODE=0|1 (--queue-decode) and BRANCH_QUEUE_DECODE
-(--branch-queue-decode) for G8's instruction-queue decode bits. None of these names reaches a build from
-the environment, only as a make variable of sim/profile.mk, which the cache key and the build's info file
-name.
+(--branch-queue-decode) for G8's instruction-queue decode bits; PMP_ENTRIES=8|16 (--pmp-entries) and
+BRANCH_PMP_ENTRIES for the core's PMP entries (DR-167): BRANCH_PMP_ENTRIES=16 against a base of 16 checks the
+switch at 16 (each side's lockstep has as many PMP regions as its own model reports). None of these names
+reaches a build from the environment, only as a make variable of sim/profile.mk, which the cache key and the
+build's info file name.
 
 BASE defaults to the merge base of HEAD and main. Builds and signatures are cached in
 $TANAGER_BUILD/cycle-identical, shared by all worktrees: a second check against the same base reruns
@@ -96,7 +98,7 @@ def git(*args, env=None):
 # The make variables of sim/profile.mk this check can force, with each one's tag in the cache key (the order
 # keeps the keys of builds made before the later ones were added)
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
-                ("STA_BASE", "sb"), ("STEER_LA", "sl"))
+                ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"))
 
 
 def profile_takes(ref, var):
@@ -629,6 +631,11 @@ def main():
     ap.add_argument("--steer-la", type=int, choices=(0, 1), default=None,
                     help="build both sides with M6's ALU-queue steering a group ahead off or on (DR-169; default: the package's)")
     ap.add_argument("--branch-steer-la", type=int, choices=(0, 1), default=None, help="this side's only")
+    ap.add_argument("--pmp-entries", type=int, choices=(8, 16), default=None,
+                    help="build both sides with this many PMP entries (DR-167; default: the package's); each side's "
+                         "lockstep has as many PMP regions as its model reports")
+    ap.add_argument("--branch-pmp-entries", type=int, choices=(8, 16), default=None,
+                    help="this side's only: 16 against a base of 16 checks the switch at 16")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -672,7 +679,8 @@ def main():
     # Each profile variable: both sides' value, and this side's own if it has one
     both = {"TIMING_CUTS": (a.timing_cuts, a.branch_timing_cuts), "DC_MSHRS": (a.dc_mshrs, a.branch_dc_mshrs),
             "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
-            "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la)}
+            "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la),
+            "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:
@@ -683,7 +691,7 @@ def main():
             if not profile_takes(tree, v):
                 fail(f"this tree's sim/profile.mk does not take {v}")
         prof = lambda p: ", ".join(f"{v}={p[v]}" for v, _ in PROFILE_VARS if v in p) or "the package's default"
-        log(f"  profile (DR-140, DR-149, G8, DR-153): base {prof(prof_base)}, this side {prof(prof_branch)}"
+        log(f"  profile (DR-140, DR-149, G8, DR-153, DR-167): base {prof(prof_base)}, this side {prof(prof_branch)}"
             f"{', on the boot too' if a.boot else ''}")
         # tests/unit/boot reads sim/profile.mk only if it is there (soc-2's 97b528a), so a boot tree
         # without the hook would build the default without a word: refuse it instead.

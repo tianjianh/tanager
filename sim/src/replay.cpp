@@ -17,13 +17,19 @@
 
 using namespace tg;
 
+// The core's PMP entries in this tree's tg_core_pkg (DR-167; sim/Makefile's tg_pmp_default.h), so the
+// replaying Spike models the core
+#ifndef TG_DEFAULT_PMP
+#define TG_DEFAULT_PMP 16
+#endif
+
 namespace {
 
 struct opts_t {
   std::string elf;
   std::string isa = "rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_sstc_svinval_zkt_za64rs";
   std::string priv = "MSU";
-  unsigned harts = 1, width = 2, wb_ports = 2, tags = 16, history = 32, pmp = 16, mtime_div = 1;
+  unsigned harts = 1, width = 2, wb_ports = 2, tags = 16, history = 32, pmp = TG_DEFAULT_PMP, mtime_div = 1;
   uint64_t ids[3] = {0, 0, 0};  // mvendorid, marchid, mimpid as the core reports them (Spike's marchid is 5)
   uint64_t seed = 1, max_steps = 20000000;
   unsigned defer = 0, defer_max = 200, irq = 0;
@@ -40,6 +46,7 @@ struct opts_t {
   fprintf(stderr,
           "usage: tg_replay [options] program.elf\n"
           "  --isa=STR --priv=STR --harts=N --pmp=N --seed=N --max-steps=N --history=N --tohost-va=ADDR --quiet --log=FILE\n"
+          "  --pmp=N          Spike's PMP regions (default %d: the PMP entries of this tree's core, DR-167)\n"
           "  --mtime-div=N    the CLINT's mtime advances once per N retired instructions (default 1)\n"
           "  --width=N        records per cycle, 1..N at random (default 2)\n"
           "  --defer=PCT      defer the results of loads, DIV/REM, FDIV/FSQRT (percent); --defer-all: any result\n"
@@ -55,7 +62,8 @@ struct opts_t {
           "  --inject=KIND    inject one fault the checker must report; --inject-at=N: at record N or later\n"
           "                   KIND: pc insn priv rd value nowrite store-data store-addr nostore cause tval\n"
           "                         trap-as-retire retire-as-trap wb-value wb-missing wb-extra tag-reuse\n"
-          "                         nondet-bad skip irq-cause ext-unannounced ext-stale (with --ext)\n");
+          "                         nondet-bad skip irq-cause ext-unannounced ext-stale (with --ext)\n",
+          TG_DEFAULT_PMP);
   exit(EXIT_HARNESS);
 }
 

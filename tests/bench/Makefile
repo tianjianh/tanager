@@ -1,5 +1,5 @@
 # CoreMark and Dhrystone for the Tanager simulation platform (docs/spec/verification.md §4.2).
-# Run in WSL Ubuntu-24.04 after `source tools/env.sh`.
+# Run on the build host (Ubuntu 24.04) after `source tools/env.sh`.
 #   make -C tests/bench [MARCH=rv64im|rv64gc|rv64gcb] build      build the ELFs
 #   make -C tests/bench CFG=st [CORE=core|tcore] [LAT=...] run    run them in tg_vsim with lockstep
 # ITER (CoreMark iterations, default 2) and RUNS (Dhrystone runs, default 500) set the length.
