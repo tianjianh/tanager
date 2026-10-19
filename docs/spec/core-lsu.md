@@ -12,7 +12,7 @@ Executes loads and stores for the M2 core ([core-pipeline.md](core-pipeline.md))
 | SQ (`SQ_ENTRIES`) with store data captured through the shared read port | same |
 | Forwarding: youngest older store that covers the load; partial overlaps wait | same |
 | Ordering violations: store-address search of younger executed loads, flush at commit | same |
-| 16 MSHRs, early ownership prefetch, stride prefetcher | 1 MSHR; no prefetch |
+| 16 MSHRs, early ownership prefetch, stride prefetcher | 4 miss entries (`DC_MSHRS`, DR-149); the ownership prefetch for stores (`STORE_PF`, DR-171); no stride prefetcher |
 | 32 KiB, 8-way, VIPT, write-back, MESI | same geometry; PA = VA (no MMU yet) |
 
 ## Interface
@@ -55,6 +55,7 @@ A ready entry re-enters at AG when the AG slot is empty. While one is ready, IQ-
   - The SQ's data: the trace, forwarding, the drain, atomics.
 - **Completion:** the ROB entry completes when the SQ entry has its address and its data (or an exception).
 - **Commit** marks the entry committed; **drain** takes the SQ head once committed: cacheable stores write the D$ when the line is held with T (setting dirty), otherwise they request the MSHR (`AcquireBlock NtoT`, or `BtoT` from B) and retry; MMIO stores send `PutFullData` and pop on `AccessAck`.
+- **Ownership prefetch (`STORE_PF`, on by default, DR-171):** a cacheable store (`PMA_MEM`, not an atomic) whose address decides without a fault asks the D$ for its line with T the next cycle (`pf_req`, the line of `s2_pa_q`), so the drain finds it owned instead of waiting for each line in turn (the early boot's page clears, area_recovery.md §6.11). It is a cache-state change only: the drain still writes in order, and a prefetched line a probe takes back is asked for again by the drain. Like a load's miss, it does not wait for an S2 store's PMP verdict. The L1D's side is below (Four misses in flight). `STORE_PF=0` gives no prefetch.
 - **Flush:** uncommitted entries are dropped (tail ← commit pointer); committed ones keep draining. `sq_empty` gates FENCE, FENCE.I and MMIO loads.
 - **Known M2 limit:** a `denied` Grant for a committed store cannot be precise; it is dropped and counted.
 
@@ -98,6 +99,11 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - **Wakeups:** an `L_MISS` load records the entry it waits on, or "any" while it has no answer. It becomes ready the cycle after that entry installs, or on any install, ReleaseAck or idle miss side. The walker waits for "any".
   - **Denials:** kept one line per entry.
   - **Atomics:** an atomic's read waits until nothing is in flight. Loads' allocations stop while an atomic is requested, so the entries drain.
+  - **The ownership prefetch (`STORE_PF`, DR-171):** one pending line, the newest the LSU sent (`pf_req`), looked up through the controller port in a cycle without a load's request (the request register goes first).
+    - It allocates an entry, `NtoT` for an absent line or `BtoT` in place for a line held in B, only when another entry stays free (a load always finds one), fewer than two prefetches are in flight (SMT2's second hart adds misses), and the store port neither writes nor allocates (it has no request, or waits for its own line in an entry). It never allocates beside an atomic.
+    - It ends once allocated, or when its line is held with T or is in an entry; otherwise it waits, until a newer one replaces it.
+    - Its install starts no store hold (only a load's 4-cycle probe hold, for loads that merged with it), and a denied one records no denial: the store, or a load, asks for the line itself and gets its own answer. A denied in-place upgrade drops the B copy, as a store's own does.
+    - `+stpf` prints its counters (`TG-STPF`, on stderr). With one MSHR there is no prefetch.
 - **Probes:** answered without waiting for any A-channel progress (TL-C rule 4), at the line's current permission: not present → `ProbeAck NtoN`; T with cap toT → `TtoT`; T to B or N → `ProbeAckData` if dirty, else `ProbeAck`, with `TtoB`/`TtoN`; B to N → `BtoN`; B otherwise → `BtoB`. `ProbePerm` never carries data. A probe waits only for a C-channel message already in progress (beats are contiguous). The probe ready (`b_ready_o`) comes from state registers alone: an MSHR allocation already yields to a probe on offer, so it needs no term in the ready (timing: the store drain's and the load miss's tag lookups left the crossbar's B-slice enable).
 - **Forward progress under probes** (two cores): probes wait, each time for a bounded number of cycles and never for A-channel progress (TL-C rule 4):
   - **A line installed for a store or an atomic** keeps its first access. From the install cycle until the store writes it or the atomic reads it, at most 8 cycles, probes wait and so do other allocations; the atomic's `am_busy` then covers its write. The atomic's read yields only to a probe that is taken in that cycle, not to one on offer.
