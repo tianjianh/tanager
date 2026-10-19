@@ -9,15 +9,18 @@
 # The nine copies take the free UltraRAMs level with the RF stage (URAM288_X0Y52-X0Y60, RPM y 406-468
 # against the RF stage's 390-490), the probe the next one. The rest (tg_urf's address multiplexers,
 # captures, bank select and half-cycle flag, and the LFSRs) is placed freely.
+puts "URF_FP URAM cells: [get_property NAME [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE}]]"
 set i 52
-foreach b {0 1 2} {
-  foreach c {0 1 2} {
-    set_property LOC URAM288_X0Y$i [get_cells "u_urf/g_bank\\\[$b\\\].g_copy\\\[$c\\\].u_uram"]
-    incr i
-  }
+# bank-major: g_bank[0].g_copy[0..2], then bank 1 and 2 (sorted by name; no name lookups, whose brackets
+# get_cells would read as a pattern)
+foreach u [lsort [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*}]] {
+  set_property LOC URAM288_X0Y$i $u
+  incr i
 }
-set_property LOC URAM288_X0Y$i [get_cells -quiet g_probe.u_probe]
+set pc [get_cells -quiet -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ *u_probe}]
+if {[llength $pc]} { set_property LOC URAM288_X0Y$i $pc }
 proc pb {name range cells} {
+  if {![llength $cells]} { puts "URF_FP WARNING: no cells for $name"; return }
   create_pblock $name
   resize_pblock [get_pblocks $name] -add $range
   add_cells_to_pblock [get_pblocks $name] $cells

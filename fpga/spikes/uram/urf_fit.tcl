@@ -28,12 +28,14 @@ create_clock -period 10.000 -name clk_in [get_ports clk_in]
 set c0  [get_clocks -of_objects [get_pins u_mmcm/CLKOUT0]]
 set c2x [get_clocks -of_objects [get_pins u_mmcm/CLKOUT2]]
 kv clocks "[get_property NAME $c0] [get_property PERIOD $c0] ns, [get_property NAME $c2x] [get_property PERIOD $c2x] ns"
+puts "URF_FIT top registers: [lsort -unique [lmap x [get_property NAME [get_cells -filter {IS_SEQUENTIAL}]] {regsub {_reg.*$} $x {}}]]"
 set urams  [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*}]
-set late_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*g_copy\[0\]*}]
-set held_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/* && NAME !~ *g_copy\[0\]*}]
+set late_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/*g_copy?0?*}]
+set held_u [get_cells -hierarchical -filter {REF_NAME == URAM288_BASE && NAME =~ u_urf/* && NAME !~ *g_copy?0?*}]
 set sel  [get_cells {sel_bank_q_reg* sel_idx_q_reg*}]
 set held [concat [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ DOUT_B*}] \
                  [get_pins -of_objects $held_u -filter {REF_PIN_NAME =~ DOUT_A*}]]
+if {![llength $sel] || ![llength $urams] || ![llength $late_u] || ![llength $held_u]} { puts "ERROR: URF_FIT cells not found: sel [llength $sel] urams [llength $urams] late [llength $late_u] held [llength $held_u]"; exit 1 }
 set_multicycle_path -setup 2 -end -from $sel -to $urams
 set_multicycle_path -hold  1 -end -from $sel -to $urams
 set_multicycle_path -setup 2 -start -through $held -to $c0
