@@ -1697,6 +1697,26 @@ How each boot estimate is made:
 - **A boot's first 20M cycles are not its average.** FENCE.I and DTLB retries cluster in early boot: 1.7% each there, 0.3% over the boot to /init.
 - **The testbench's DDR model is the remaining gap:** it is 25–39% slow on the page-cache copy that unpacks the initramfs.
 
+### 6.13 A blind prediction for d4r1 (written 2026-10-19 13:50, before the board runs it)
+
+*d4r1 is the final D4 bitstream, built from main c072fff. Against d4s2 it adds two pieces from DR-171:*
+- *FENCE.I by generation (core-2's 855922a; no switch);*
+- *the store ownership prefetch (fpu-2's `STORE_PF`, on by default).*
+
+*DR-141's Linux set runs on it tonight. The coordinator asked for the model's and the RTL's prediction in the board's shape first (smt2, one hart a core, two cores), so the comparison is blind.*
+
+**CoreMark and Dhrystone: no change from d4s2.**
+- **The RTL:** make perf on c072fff (smt2) against main 118b796 (d4s2's core: the micro-BTB check, without the two new pieces) moves every program by −0.02% to +0.03%.
+  - Its base reproduces d4s2's make perf cycle for cycle.
+  - The two programs never miss a store's line and never run FENCE.I in their timed loops.
+- **The model:** `rtl_m2` revision 7 with the board's smt2 sizes, with and without `rfo_pf`, gives the same IPC to the third decimal.
+- **The prediction for the board** (its own builds, its instruction counts unchanged): d4s2's figures within the board's spread (0.3–0.5%):
+  - CoreMark A **4.61** per MHz (216,938 cycles an iteration);
+  - CoreMark B **4.36** (229,159);
+  - Dhrystone **2.82** DMIPS/MHz (202 cycles a run).
+
+**/init's CPU time:** *the simulation of d4r1 as the board runs it is under way (`scripts/rtlprof/brd_init.sh` on c072fff); its prediction follows below before the board's run.*
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -2142,7 +2162,8 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 12. **M6's remaining pieces, ranked on main** (§6.11): the ownership prefetch for stores (+4.2% of the boot), FENCE.I by generation (+1.7%) and the micro-BTB at 128 (+0.6%) lead per 1K LUTs; the DTLB retry from the LQ (+1.6%) and the I$ next-line prefetch with a second refill (+2.7%) also fit the room. Each wants a prototype with its measured LUTs before it merges. The L2 stream prefetcher, the model's best Linux-like buy, needs the board's steady state. DR-171 took the first two (fpu-2, core-2).
 13. ~~"Commit held" in the boot~~: **done** (§6.11). The 4.3% was the bind's: it counted commits from the commit trace, a cycle late. Corrected, 0.5% of cycles have a complete head that retires nothing, all of it the registered cycle after a flush. There is no trace back-pressure (0 cycles) and no commit hold: no free gain.
 14. **`tb_boot`'s DDR model against the board's** (§6.12): it runs the initramfs unpacking, a 9 MB page-cache copy, 25–39% slower than the board, while every initcall matches within 3.5%. Calibrate its outstanding requests and write throughput to the board's DDR (a testbench change, for the SoC or verification track) before the store-side estimates are judged further. They include DR-171's store ownership prefetch.
-15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain.
+15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain. **Open, parked** (the coordinator, 10-19): d2 is retired, and the gap does not touch M6's figures.
+16. **The per-thread issue-queue caps and the static ROB, LQ and SQ halves are not wired** (§6.12). M7 must wire them, and decide what a lone thread gets: smt2_report.md §10's open items.
 
 ---
 

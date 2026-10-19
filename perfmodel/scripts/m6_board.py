@@ -23,6 +23,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dse  # noqa: E402
+import m6_steps as m6  # noqa: E402
 import tgrun  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -143,6 +145,41 @@ def layout_table(ldir, workers):
     return out
 
 
+def predict_table(bench, workers):
+    """d4r1 (main c072fff: M6, FENCE.I by generation, the store ownership prefetch) in the board's shape, and what
+    M7's static halves would cost a lone thread: the model on make perf's ELFs (rv64gc and rv64im, native)."""
+    cfgs = {"M6 smt2": CFGS["M6 smt2"], "d4r1 smt2": {**CFGS["M6 smt2"], "rfo_pf": 1},
+            "M6 smt2, halves": {**M6, "rob": 40, "lq": 12, "sq": 10, "llt": 24}}
+    jobs = [(c, p, m) for c in cfgs for (p, m) in PROGS]
+
+    def one(j):
+        c, p, m = j
+        w = {"name": p, "elf": f"{bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
+        r = tgrun.run_one(w, "rtl_m2", {**cfgs[c], "dram_lat": 30})
+        return j, r["region"]
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        mod = dict(ex.map(one, jobs))
+    print("\n**The model for d4r1 in the board's shape, and a lone thread under M7's static halves** (IPC)\n")
+    print("| Program | M6 smt2 (d4s2) | d4r1 smt2 (+ ownership prefetch) | Change | Static halves (ROB 40, LQ 12, "
+          "SQ 10) | Change |")
+    print("|---|---|---|---|---|---|")
+    out = {}
+    for p, m in PROGS:
+        v = {c: mod[(c, p, m)]["instr"] / mod[(c, p, m)]["cycles"] for c in cfgs}
+        print(f"| {p} {m} | {v['M6 smt2']:.3f} | {v['d4r1 smt2']:.3f} | {pct(v['d4r1 smt2'] / v['M6 smt2'] - 1)} | "
+              f"{v['M6 smt2, halves']:.3f} | {pct(v['M6 smt2, halves'] / v['M6 smt2'] - 1)} |")
+        out[f"{p}|{m}"] = v
+    # the suite on the SoC's uncore at 100 MHz (as §6.5): the whole smt2 window against M7's static halves
+    sc = [("rtl_m2", {**m6.soc(100), **cfgs[c]}) for c in ("M6 smt2", "M6 smt2, halves")]
+    data = dse.collect(sc, "rv64gc", workers=workers)
+    s = [dse.summarize(data[dse.key("rv64gc", *c)[0]]) for c in sc]
+    print(f"\nThe suite (rv64gc, the SoC's uncore): IPC {s[0]['suite_ipc']:.3f} with the whole smt2 window, "
+          f"{s[1]['suite_ipc']:.3f} with static halves ({pct(s[1]['suite_ipc'] / s[0]['suite_ipc'] - 1)}).")
+    out["suite"] = {"whole": s[0], "halves": s[1]}
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--bench", required=True, help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf")
@@ -151,6 +188,7 @@ def main():
     ap.add_argument("--init", action="append", default=[], help="NAME=LOG (d2, d4s2): tb_boot's boot to /init")
     ap.add_argument("--board-logs", default=str(ROOT.parent / "fpga" / "kv260" / "board"))
     ap.add_argument("--layout", help="DIR of scripts/rtlprof/layout.sh's padded ELFs and RTL results")
+    ap.add_argument("--predict", action="store_true", help="d4r1's model prediction (area_recovery.md §6.13)")
     a = ap.parse_args()
     rtl = {r.split("=", 1)[0]: rtl_log(r.split("=", 1)[1]) for r in a.rtl}
     jobs = [(c, p, m) for c in CFGS for (p, m) in PROGS]
@@ -165,9 +203,12 @@ def main():
 
     with ThreadPoolExecutor(max_workers=a.workers) as ex:
         mod = dict(ex.map(one, jobs))
-    OUT.write_text(json.dumps({"cfgs": CFGS, "board": BOARD, "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()}
-                                                                     for c, t in rtl.items()},
-                               "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}}, indent=1) + "\n")
+    # the sections a run does not redo (layout, init, the prediction) keep their earlier results
+    prev = json.loads(OUT.read_text()) if OUT.exists() else {}
+    res = {k: prev[k] for k in ("predict_d4r1", "layout", "init") if k in prev}
+    res.update({"cfgs": CFGS, "board": BOARD, "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()}
+                                                     for c, t in rtl.items()},
+                "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}})
 
     ipc = lambda r: r["instr"] / r["cycles"]
     print("**IPC: the board, the RTL (make perf) and the model** (rv64gc; the board runs the Linux set's builds)\n")
@@ -203,7 +244,8 @@ def main():
                  pct(r_s["d4s2"][0] / r_s["d2"][0] - 1) if r_s else "–", pct(mc["M6 smt2"] / mc["d2 smt2"] - 1),
                  pct(r_t["d4s2"][0] / r_t["d2"][0] - 1) if r_t else "–", pct(mc["M6 st"] / mc["d2 st"] - 1)]
         print(f"| {p} {m} | " + " | ".join(cells) + " |")
-    res = json.loads(OUT.read_text())
+    if a.predict:
+        res["predict_d4r1"] = predict_table(a.bench, a.workers)
     if a.layout:
         res["layout"] = layout_table(a.layout, a.workers)
     if a.init:
