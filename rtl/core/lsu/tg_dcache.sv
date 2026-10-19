@@ -1224,6 +1224,11 @@ module tg_dcache
     // denied fills; the store port's allocations, and its cycles waiting for its line in a prefetch's
     // entry or in its own (or a load's)
     longint unsigned ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo;
+    longint unsigned ps_rep, ps_w_ld, ps_w_two, ps_w_room, ps_w_st, ps_w_oth;
+    longint unsigned ps_w_prb, ps_w_inst, ps_w_rline, ps_w_eng, ps_w_base;
+    longint unsigned ps_late, ps_sa_free, ps_sa_inst, ps_sa_rline, ps_sa_eng, ps_sa_base, ps_sa_oth;
+    logic            ps_end;
+    assign ps_end = c_pf && !probe_active && (alloc_pf || |(ch & sc.t) || rq_busy);
     bit ps_on;
     string ps_nm;
     initial begin
@@ -1233,6 +1238,9 @@ module tg_dcache
     always_ff @(posedge clk) begin
       if (rst) begin
         {ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo} <= '0;
+        {ps_rep, ps_w_ld, ps_w_two, ps_w_room, ps_w_st, ps_w_oth} <= '0;
+        {ps_w_prb, ps_w_inst, ps_w_rline, ps_w_eng, ps_w_base} <= '0;
+        {ps_late, ps_sa_free, ps_sa_inst, ps_sa_rline, ps_sa_eng, ps_sa_base, ps_sa_oth} <= '0;
       end else if (ps_on) begin
         if (pf_req && STORE_PF) ps_req <= ps_req + 1;
         if (alloc_pf) ps_al <= ps_al + 1;
@@ -1245,11 +1253,39 @@ module tg_dcache
           if (|(st_m & epf_q)) ps_st_wpf <= ps_st_wpf + 1;
           else                 ps_st_wo  <= ps_st_wo + 1;
         end
+        // a pending prefetch replaced by another line before it ended; its waits, by the first reason
+        if (pf_req && STORE_PF && pq_v_q && !ps_end && pf_pa[PA_W-1:6] != pq_l_q) ps_rep <= ps_rep + 1;
+        if (STORE_PF && pq_v_q && !ps_end) begin
+          if (rq_v_q)                   ps_w_ld   <= ps_w_ld + 1;
+          else if (probe_active)        ps_w_prb  <= ps_w_prb + 1;
+          else if (!f_two)              ps_w_two  <= ps_w_two + 1;
+          else if (!pf_room)            ps_w_room <= ps_w_room + 1;
+          else if (st_req && !st_busy)  ps_w_st   <= ps_w_st + 1;
+          else if (m_inst)              ps_w_inst <= ps_w_inst + 1;
+          else if (rq_rel)              ps_w_rline <= ps_w_rline + 1;
+          else if (rs_q != R_IDLE && !(|ch) && ev_c) ps_w_eng <= ps_w_eng + 1;
+          else if (!al_base)            ps_w_base <= ps_w_base + 1;
+          else                          ps_w_oth  <= ps_w_oth + 1;
+        end
+        // a store that allocates its own line while that line's prefetch is still pending
+        if (alloc_st && st_req && STORE_PF && pq_v_q && pq_l_q == sx_pa[PA_W-1:6]) ps_late <= ps_late + 1;
+        // a store that misses and cannot allocate, by the first reason
+        if (st_req && !s_hit_t && !st_busy && !alloc_st && !dn_hit) begin
+          if (!f_any)                   ps_sa_free  <= ps_sa_free + 1;
+          else if (m_inst)              ps_sa_inst  <= ps_sa_inst + 1;
+          else if (st_rel)              ps_sa_rline <= ps_sa_rline + 1;
+          else if (rs_q != R_IDLE && !s_hit && ev_s) ps_sa_eng <= ps_sa_eng + 1;
+          else if (!al_base)            ps_sa_base  <= ps_sa_base + 1;
+          else                          ps_sa_oth   <= ps_sa_oth + 1;
+        end
       end
     end
     final if (ps_on)
-      $fwrite(32'h8000_0002, "TG-STPF %s req=%0d alloc=%0d up=%0d end_owned=%0d end_entry=%0d denied=%0d st_alloc=%0d st_wait_pf=%0d st_wait_own=%0d\n",
-              ps_nm, ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo);
+      $fwrite(32'h8000_0002, "TG-STPF %s req=%0d alloc=%0d up=%0d end_owned=%0d end_entry=%0d denied=%0d st_alloc=%0d st_wait_pf=%0d st_wait_own=%0d replaced=%0d wait_ld=%0d wait_two=%0d wait_room=%0d wait_st=%0d wait_other=%0d wait_probe=%0d wait_inst=%0d wait_relline=%0d wait_engine=%0d wait_base=%0d late=%0d st_noalloc_free=%0d st_noalloc_inst=%0d st_noalloc_relline=%0d st_noalloc_engine=%0d st_noalloc_base=%0d st_noalloc_other=%0d\n",
+              ps_nm, ps_req, ps_al, ps_up, ps_own, ps_ent, ps_den, ps_st_al, ps_st_wpf, ps_st_wo,
+              ps_rep, ps_w_ld, ps_w_two, ps_w_room, ps_w_st, ps_w_oth,
+              ps_w_prb, ps_w_inst, ps_w_rline, ps_w_eng, ps_w_base,
+              ps_late, ps_sa_free, ps_sa_inst, ps_sa_rline, ps_sa_eng, ps_sa_base, ps_sa_oth);
 `endif
   end
 
