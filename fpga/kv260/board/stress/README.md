@@ -151,3 +151,8 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
     - The second start ran cleanly.
   - **Segment b:** the record set to riscv, a reboot at 17:56:04, Debian up at 17:59:06, the stress from 17:59:31, until the SoC track's D5 step 2 package arrives.
   - **Both consoles work in RISC-V mode:** after the ttyPS0 drop-in fix, COM7 shows `Debian GNU/Linux 13 tanager ttyPS0` and the autologin.
+  - **Segment b:** 2 of 2 passes clean (117 s each), stopped with `q` at 18:02 for D5's step 2 ([`uart_COM5_s16boot2.txt`](uart_COM5_s16boot2.txt), [`uart_COM5_s16b.txt`](uart_COM5_s16b.txt), [`uart_COM5_s16bstop.txt`](uart_COM5_s16bstop.txt), [`uart_COM5_s16bstop2.txt`](uart_COM5_s16bstop2.txt)).
+    - **The stop needed a second try.** After `q` the shell printed two prompts, and the second arrived while `sudo tanager-mode arm` was being typed. So `sudo reboot` went out as typeahead, and sudo discarded it. The record was arm, but Debian kept running.
+    - A second session sent the reboot. `serial_expect2.ps1` now drains the line for 0.7 s before each send, and it also no longer cuts a command at its first `|`: a step's text runs to the end of the line.
+  - **s16 in all:** 9 of 9 passes clean in RISC-V mode, at 116.7 s per pass.
+- **s17 (d4s2, stage C):** from 18:18 UTC (the A53's clock, then 7 minutes behind the laptop's), while the SoC track fixes D5's `riscv.scr`.
