@@ -291,3 +291,21 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
   - A dump from the tmpfs works.
 
 **Boot 29** (06:37, from Ubuntu, the stress by hand): clean, with 75,547 mmc0 interrupts.
+
+**Boot 30** (06:46): clean, with 73,395 mmc0 interrupts.
+
+**The tally, boots 1–30:**
+- **28 boots had the 90 s stress.** Boot 8 was boot 7's stuck shutdown, and boot 9 came up after the break.
+- **SD1's interrupt was lost twice:** in boot 7's shutdown, and in boot 28's stress at 168 s. Counting s19 segment b's first boot, that's 3 losses in 32 RISC-V-mode boots since the power event.
+- **The probe captured neither.** The first time, no watch ran at the shutdown. The second time, the capture's commands loaded from the failing card. Both are fixed now: the watch runs from boot through shutdown, from its own tmpfs, with a static busybox. A dump from there works.
+- **What is known** (boot 28, live):
+  - The PLIC stopped delivering source 21 alone. mmc0's count froze at 6,984, while source 10 (ttyS0) kept reaching the same hart 0 context.
+  - SD1 holds transfer complete pending and enabled, with its slot interrupt (the line) high, after a CMD18 multi-block read with auto-CMD12 by ADMA.
+- **When the losses came:** at 45 s, 168 s and 272 s of uptime: early in a boot, just after the login, or at a shutdown.
+  - None came during the 5.3 h of s19's segments a and b, or in the other 27 stresses.
+  - Each stress drew about 74,000 mmc0 interrupts in 90 s.
+
+**Then: s19 segment c** from 06:51:38 UTC (`STRESS start 2026-10-20T06:51:38Z up=305.93`), on boot 30, with the RAM-resident watch active.
+- It runs until segments a, b and c together reach 24 h of stress: 01:32:31 UTC on 10-21.
+- Network checks: 19, hourly from 07:21:38.
+- The stress watcher now also stops at an mmc0 timeout or a probe capture.
