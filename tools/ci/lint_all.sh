@@ -4,7 +4,8 @@
 # trace off each on top of the default (ROB_STORE_REPORT_LATE=1, DE_STAGE=1, COMMIT_TRACE=0; lint only;
 # DR-140, DR-146); the 4-miss L1D (DC_MSHRS=4, DR-149), G8's queue decode bits (QUEUE_DECODE=1) and M6's
 # speculative load wakeup (SPEC_WAKE=1) each on top of the default; DR-169's two levers off (STA_BASE=0,
-# STEER_LA=0) and DR-171's store prefetch off (STORE_PF=0), each on top of the default; the PMP entries the
+# STEER_LA=0), DR-171's store prefetch off (STORE_PF=0) and DR-174's UltraRAM register file on (URF=1, in
+# both views: URF=1 and URF=1 SYNTH=1), each on top of the default; the PMP entries the
 # package does not default to (PMP_ENTRIES=8 or 16, DR-167); and the default's
 # synthesis view (SYNTH=1: +define+SYNTHESIS, where a signal that
 # synthesized logic reads but only simulation-only code drives is an error). They run JOBS at a time
@@ -49,6 +50,7 @@ if mentioned TG_PMP_ENTRIES; then  # the count other than the package's default 
   profiles+=("PMP_ENTRIES=$([ "$pmp_def" = 16 ] && echo 8 || echo 16)")
 else echo "lint-all: no RTL mentions TG_PMP_ENTRIES; skipping PMP_ENTRIES"; fi
 if mentioned TG_STORE_PF; then profiles+=("STORE_PF=0"); else echo "lint-all: no RTL mentions TG_STORE_PF; skipping STORE_PF=0"; fi
+if mentioned TG_URF; then profiles+=("URF=1" "URF=1 SYNTH=1"); else echo "lint-all: no RTL mentions TG_URF; skipping URF=1"; fi
 profiles+=("SYNTH=1")
 tasks=()
 for c in $CFGS; do
@@ -59,8 +61,10 @@ done
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
 lint_one() {
   set -- $1
-  local log="$LOGS/$1${2:+-${2/=/}}.log"
-  local cmd=(make --no-print-directory -C "$ROOT" lint CFG="$1" ${2:+"$2"})
+  local log="$LOGS/$1" p
+  for p in "${@:2}"; do log+="-${p/=/}"; done   # a profile may set several variables (URF=1 SYNTH=1)
+  log+=".log"
+  local cmd=(make --no-print-directory -C "$ROOT" lint CFG="$1" "${@:2}")
   # FWDREF=1|0: the forward-reference check with the timing cuts on (the default) or off
   case "${2:-}" in
     FWDREF=1) cmd=("$ROOT/tools/ci/fwdref.sh" CFG="$1") ;;

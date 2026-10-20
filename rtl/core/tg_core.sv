@@ -330,6 +330,7 @@ module tg_core
   logic            a1_block, ld_block;
   logic [N_IQ-1:0] iss_valid;
   iq_pl_t [N_IQ-1:0] iss_pl;
+  preg_t [N_XQ-1:0][1:0] iss_src_n;     // URF: the RF stage's next source tags
   logic             spec_cancel;                // speculative wakeup's shadow cancel (SPEC_WAKE)
   assign wake_reg = wake_x | wake_l | wake_p4;
   assign tag_free = tag_free_x | tag_free_p4;
@@ -341,7 +342,7 @@ module tg_core
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
-    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .spec_cancel);
+    .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
 
   // LLTs are released the cycle after their register is written
   always_ff @(posedge clk) begin
@@ -376,8 +377,8 @@ module tg_core
   iq_pl_t           csr_ex_pl;
   logic [63:0]      csr_ex_src, csr_ex_rdata;
   tg_exec u_ex (
-    .clk, .rst, .flush, .spec_cancel, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
-    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .a1_block,
+    .clk, .clk2x, .rst, .flush, .spec_cancel, .misa_c, .init_we(!init_done), .init_idx(PIDX_W'(init_q[4:0])),
+    .iss_valid(iss_valid[N_XQ-1:0]), .iss_pl(iss_pl[N_XQ-1:0]), .iss_src_n, .a1_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
@@ -682,10 +683,5 @@ module tg_core
     assign dbg_o = '0;
     logic unused_dbg;
     assign unused_dbg = ^{dbg_sel_i, rn_dbg, lsu_dbg};
-  end
-  // URF (DR-174) feeds the UltraRAM register file from clk2x; without it the clock is unused
-  if (!URF) begin : g_no_urf
-    logic unused_clk2x;
-    assign unused_clk2x = clk2x;
   end
 endmodule
