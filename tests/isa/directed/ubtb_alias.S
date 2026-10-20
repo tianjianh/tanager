@@ -11,6 +11,7 @@
   .section .text.init, "ax"
   .globl _start
 _start:
+  TG_PARK_HARTS
   li s2, 0                    /* phase: 0 training, 1 the JAL */
   la s3, yblock
   li t0, ALIAS

@@ -62,7 +62,7 @@ struct opts_t {
           "  --inject=KIND    inject one fault the checker must report; --inject-at=N: at record N or later\n"
           "                   KIND: pc insn priv rd value nowrite store-data store-addr nostore cause tval\n"
           "                         trap-as-retire retire-as-trap wb-value wb-missing wb-extra tag-reuse\n"
-          "                         nondet-bad skip irq-cause ext-unannounced ext-stale (with --ext)\n",
+          "                         nondet-bad skip irq-cause ld-addr noload ext-unannounced ext-stale (with --ext)\n",
           TG_DEFAULT_PMP);
   exit(EXIT_HARNESS);
 }
@@ -125,7 +125,8 @@ const char* expected_phrase(const std::string& k) {
       {"trap-as-retire", "Spike trapped"}, {"retire-as-trap", "Spike retired"}, {"wb-value", "deferred"},
       {"wb-missing", "never arrived|reused while"}, {"wb-extra", "not pending"}, {"tag-reuse", "reused"},
       {"nondet-bad", "nondet on an instruction"}, {"irq-cause", "interrupt cause:|not enabled in Spike"},
-      {"ext-unannounced", "value:"}, {"ext-stale", "value:"},
+      {"ext-unannounced", "value:"}, {"ext-stale", "value:"}, {"ld-addr", "load address:"},
+      {"noload", "load address:"},
   };
   for (auto& [kind, phrase] : t)
     if (k == kind) return phrase;
@@ -267,6 +268,7 @@ int main(int argc, char** argv) {
   for (auto& f : free_tags)
     for (uint32_t t = 0; t < o.tags; t++) f.push_back(t);
   std::vector<std::set<uint32_t>> live_tags(o.harts);
+  std::vector<bool> ld_seen(o.harts, false);   // a hart's records have carried mem_ld: --inject=noload needs one
   std::deque<pending_t> pend;
 
   uint64_t nrec = 0, cycle = 0, instret = 0;
@@ -359,6 +361,11 @@ int main(int argc, char** argv) {
       r.mem_wdata = st.st_val;
       r.mem_size = uint8_t(log2_size(st.st_size));
     }
+    // A read (interfaces.md §5, v1.5): its address and size, as the core reports them; an AMO's are its write's
+    if (st.nld) {
+      r.mem_ld = true;
+      if (!r.mem_st) r.mem_vaddr = st.ld_addr, r.mem_size = uint8_t(log2_size(st.ld_size));
+    }
     // Device loads: with translation off the load address is physical (enough for the programs
     // replay runs; the RTL knows the physical address itself).
     reg_t eff = s->prv;  // the privilege of data accesses (MPRV)
@@ -408,6 +415,8 @@ int main(int argc, char** argv) {
     if (k == "nowrite" && plain_rd) { r.rd_we = false; return true; }
     if (k == "store-data" && r.mem_st) { r.mem_wdata ^= 1; return true; }
     if (k == "store-addr" && r.mem_st) { r.mem_vaddr ^= 8; return true; }
+    if (k == "ld-addr" && r.mem_ld && !r.mem_st) { r.mem_vaddr ^= 8; return true; }
+    if (k == "noload" && r.mem_ld && !r.mem_st && ld_seen[r.hart]) { r.mem_ld = false; return true; }
     if (k == "nostore" && r.mem_st) { r.mem_st = false; return true; }
     if (k == "cause" && r.kind == TR_TRAP) { r.cause ^= 1; return true; }
     if (k == "tval" && r.kind == TR_TRAP) { r.tval ^= 4; return true; }
@@ -470,7 +479,7 @@ int main(int argc, char** argv) {
           console.push_back(char(v & 0xff));
           htif_console = true;
           fputc(int(v & 0xff), stdout);
-        } else if (tohost_watch_t::is_exit(v) && h == 0) {
+        } else if (tohost_watch_t::is_exit(v)) {   // any hart's, as in tg_vsim (the pair runner's last finisher)
           exit_seen = true;
           code = int(v >> 1);
         }
@@ -480,6 +489,7 @@ int main(int argc, char** argv) {
         else if (o.inject != "wb-value" && o.inject != "wb-missing" && o.inject != "wb-extra" && inject_rec(r)) injected = true;
       }
       if (skip_next) { skip_next = false; continue; }
+      if (r.mem_ld) ld_seen[r.hart] = true;
       recs.push_back(r);
     }
     // Deliver due writebacks, at most wb_ports per cycle, in random order among the due ones.

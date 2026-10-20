@@ -11,7 +11,10 @@
 // TG_SIM_PRIMS is defined (unit tests of the mapping, with primitive models).
 //   DEPTH <= 32:  RAM32M16. Ports A-G are 2-bit read ports, H is the write port.
 //   DEPTH <= 64:  RAM64M8.  Ports A-G are 1-bit read ports, H is the write port.
-//   DEPTH >  64:  2^(AW-6) banks of 64 entries; each read port muxes the banks.
+//   DEPTH 65-96:  entries 0-63 in RAM64M8, as for 64, and 64-95 in RAM32M16, as for 32; each
+//                 read port selects on address bit 6. About 1.5 times a 64-deep memory, where
+//                 banks of 64 would be 2 (DR-175: the smt2 FP register banks of 96).
+//   DEPTH >  96:  2^(AW-6) banks of 64 entries; each read port muxes the banks.
 // A read slot is one read port's view of 1 bit (64-deep) or 2 bits (32-deep). Slots are
 // packed port-major, 7 per primitive, so one read port's bits sit in few primitives
 // (short address nets) and no slot is wasted:
@@ -99,6 +102,104 @@ module tg_ram_lut #(
         .DIE(di[4]), .DIF(di[5]), .DIG(di[6]), .DIH(di[7]),
         .WCLK(clk), .WE(we)
       );
+    end
+  end else if (DEPTH > 64 && DEPTH <= 96) begin : g_m96
+    // Entries 0-63: RAM64M8 with 1-bit slots, as g_m64's one bank (slot s holds bit s % WIDTH of
+    // read port s / WIDTH). Entries 64-95: RAM32M16 with 2-bit slots, as g_m32 (slot s holds bits
+    // {2k+1, 2k} of read port s / SPP). A write goes to the bank its address bit 6 picks, a read
+    // takes that bank's data; addresses 64-95 are 32 + bits [4:0].
+    localparam int SLOTS_L = NR * WIDTH;
+    localparam int NPRIM_L = (SLOTS_L + SLOTS_PER_PRIM - 1) / SLOTS_PER_PRIM;
+    localparam int SPP     = (WIDTH + 1) / 2;
+    localparam int SLOTS_H = NR * SPP;
+    localparam int NPRIM_H = (SLOTS_H + SLOTS_PER_PRIM - 1) / SLOTS_PER_PRIM;
+    localparam int WPAD    = 2 * SPP;
+
+    logic            we_l, we_h;
+    logic [4:0]      wa_h;
+    logic [WPAD-1:0] wd_h;
+    assign we_l = we && !waddr[6];
+    assign we_h = we && waddr[6];
+    assign wa_h = waddr[4:0];
+    assign wd_h = WPAD'(wdata);
+
+    logic [NR-1:0][WIDTH-1:0] rd_l;
+    logic [NR-1:0][WPAD-1:0]  rd_h;
+
+    for (genvar p = 0; p < NPRIM_L; p++) begin : g_lo
+      logic [7:0][5:0] a;
+      logic [7:0]      di;
+      /* verilator lint_off UNUSEDSIGNAL */  // port H and unused slots are not read
+      logic [7:0]      dout;
+      /* verilator lint_on UNUSEDSIGNAL */
+      for (genvar j = 0; j < SLOTS_PER_PRIM; j++) begin : g_slot
+        localparam int S = p * SLOTS_PER_PRIM + j;
+        if (S < SLOTS_L) begin : g_used
+          localparam int R = S / WIDTH;
+          localparam int K = S % WIDTH;
+          assign a[j]  = raddr[R][5:0];
+          assign di[j] = wdata[K];
+          assign rd_l[R][K] = dout[j];
+        end else begin : g_unused
+          assign a[j]  = waddr[5:0];
+          assign di[j] = 1'b0;
+        end
+      end
+      assign a[7]  = waddr[5:0];
+      assign di[7] = 1'b0;
+
+      RAM64M8 #(
+        .INIT_A(64'h0), .INIT_B(64'h0), .INIT_C(64'h0), .INIT_D(64'h0),
+        .INIT_E(64'h0), .INIT_F(64'h0), .INIT_G(64'h0), .INIT_H(64'h0)
+      ) u_ram (
+        .DOA(dout[0]), .DOB(dout[1]), .DOC(dout[2]), .DOD(dout[3]),
+        .DOE(dout[4]), .DOF(dout[5]), .DOG(dout[6]), .DOH(dout[7]),
+        .ADDRA(a[0]), .ADDRB(a[1]), .ADDRC(a[2]), .ADDRD(a[3]),
+        .ADDRE(a[4]), .ADDRF(a[5]), .ADDRG(a[6]), .ADDRH(a[7]),
+        .DIA(di[0]), .DIB(di[1]), .DIC(di[2]), .DID(di[3]),
+        .DIE(di[4]), .DIF(di[5]), .DIG(di[6]), .DIH(di[7]),
+        .WCLK(clk), .WE(we_l)
+      );
+    end
+
+    for (genvar p = 0; p < NPRIM_H; p++) begin : g_hi
+      logic [7:0][4:0] a;
+      logic [7:0][1:0] di;
+      /* verilator lint_off UNUSEDSIGNAL */  // port H and unused slots are not read
+      logic [7:0][1:0] dout;
+      /* verilator lint_on UNUSEDSIGNAL */
+      for (genvar j = 0; j < SLOTS_PER_PRIM; j++) begin : g_slot
+        localparam int S = p * SLOTS_PER_PRIM + j;
+        if (S < SLOTS_H) begin : g_used
+          localparam int R = S / SPP;
+          localparam int K = S % SPP;
+          assign a[j]  = raddr[R][4:0];
+          assign di[j] = wd_h[2*K +: 2];
+          assign rd_h[R][2*K +: 2] = dout[j];
+        end else begin : g_unused
+          assign a[j]  = wa_h;
+          assign di[j] = 2'b00;
+        end
+      end
+      assign a[7]  = wa_h;
+      assign di[7] = 2'b00;
+
+      RAM32M16 #(
+        .INIT_A(64'h0), .INIT_B(64'h0), .INIT_C(64'h0), .INIT_D(64'h0),
+        .INIT_E(64'h0), .INIT_F(64'h0), .INIT_G(64'h0), .INIT_H(64'h0)
+      ) u_ram (
+        .DOA(dout[0]), .DOB(dout[1]), .DOC(dout[2]), .DOD(dout[3]),
+        .DOE(dout[4]), .DOF(dout[5]), .DOG(dout[6]), .DOH(dout[7]),
+        .ADDRA(a[0]), .ADDRB(a[1]), .ADDRC(a[2]), .ADDRD(a[3]),
+        .ADDRE(a[4]), .ADDRF(a[5]), .ADDRG(a[6]), .ADDRH(a[7]),
+        .DIA(di[0]), .DIB(di[1]), .DIC(di[2]), .DID(di[3]),
+        .DIE(di[4]), .DIF(di[5]), .DIG(di[6]), .DIH(di[7]),
+        .WCLK(clk), .WE(we_h)
+      );
+    end
+
+    for (genvar r = 0; r < NR; r++) begin : g_rd
+      assign rdata[r] = raddr[r][6] ? rd_h[r][WIDTH-1:0] : rd_l[r];
     end
   end else begin : g_m64
     // RAM64M8: 1-bit slots. Slot s holds bit s % WIDTH of read port s / WIDTH.

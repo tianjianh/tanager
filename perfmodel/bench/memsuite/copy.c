@@ -31,6 +31,14 @@ int main(void) {
   memcpy(dst, src, BYTES);
 #endif
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (int r = 0; r < (REPS > 1 ? REPS : 1); r++) {
+      memcpy(dst, src, BYTES);
+      MS_SINK(dst);
+    }
+  }
+#endif
   uint32_t sum = 0;
   for (uint32_t i = 0; i < BYTES; i += 4096) sum += dst[i];
   printf("copy bytes=%u check=%u\n", (unsigned)BYTES, sum);
