@@ -9,4 +9,12 @@ set u [expr {[info exists ::env(TG_OVER_UNC)] ? $::env(TG_OVER_UNC) : 1.0}]
 set_clock_uncertainty -setup $u [get_clocks c0]
 set cfh [open constraints.txt a]
 puts $cfh "over-constraint: set_clock_uncertainty -setup $u on c0 for placement and routing, taken back before the reports"
+# A URF build (DR-174) also has clk2x, twice the core clock on the MMCM's CLKOUT2: it gets the same share of its
+# period (TG_OVER_UNC2X, default half of TG_OVER_UNC), so the paths into the UltraRAMs are pushed as hard
+set c2x [get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT2]]
+if {[llength $c2x]} {
+  set u2 [expr {[info exists ::env(TG_OVER_UNC2X)] ? $::env(TG_OVER_UNC2X) : $u / 2.0}]
+  set_clock_uncertainty -setup $u2 $c2x
+  puts $cfh "over-constraint: set_clock_uncertainty -setup $u2 on [get_property NAME $c2x] (clk2x), taken back before the reports"
+}
 close $cfh

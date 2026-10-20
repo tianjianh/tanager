@@ -105,6 +105,15 @@ if {$synth_dcp ne ""} {
   foreach f $extra_files { read_verilog -sv [file join $root $f] }
   read_xdc [file join $root fpga kv260 xdc kv260.xdc]
   read_xdc [file join $root fpga kv260 xdc timing.xdc]
+  # -define TG_URF=1 (DR-174, the core's UltraRAM register file), as build.tcl reads it: the clocks' constraints
+  # (timing_urf.xdc: clk2x against the host clock, its tree balanced with the core clock's) and the register
+  # file's own exceptions, scoped to every tg_urf; without them a URF build's full-cycle paths time at a half cycle
+  if {[lsearch -exact $defines TG_URF=1] >= 0} {
+    foreach {x ref} [list [file join $root fpga kv260 xdc timing_urf.xdc] {} [file join $root rtl core regfile tg_urf.xdc] tg_urf] {
+      if {![file exists $x]} { puts "ERROR: TG_URF=1 needs $x"; exit 1 }
+      if {$ref eq ""} { read_xdc $x } else { read_xdc -ref $ref $x }
+    }
+  }
 
   set synth_mark [tg_synth_check_mark]
   synth_design -top kv260_top -part $part \
