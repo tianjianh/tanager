@@ -90,6 +90,7 @@ module tg_trace_stream
     x[22:21]   = r.mem_size;
     x[23]      = r.mmio_ld;
     x[24]      = r.nondet;
+    x[25]      = r.mem_ld;                 // interfaces.md v1.5: a read, its address in mem_vaddr
     x[63:32]   = r.insn;
     x[127:64]  = r.pc;
     x[191:128] = (r.kind == TR_RETIRE) ? r.rd_value : r.cause;

@@ -9,6 +9,7 @@
   .section .text.init, "ax"
   .globl _start
 _start:
+  TG_PARK_HARTS
   csrr t0, misa
   andi t0, t0, 1
   beqz t0, pass

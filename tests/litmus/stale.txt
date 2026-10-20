@@ -1,0 +1,5 @@
+# Tests whose herd results (model-results/herd.logs, litmus-tests-riscv f45b4bf, 2018) predate the file's current
+# form: their allowed states describe another test. run_litmus.py leaves them out.
+# PPOCA: "nicer version of PPOCA" (dcb920f) added the store and the dependent loads; herd's states still list
+# 1:x9=0, which the current code (z stored with 1 just before x9 loads it) cannot give.
+PPOCA

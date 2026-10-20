@@ -36,6 +36,7 @@ module tg_soc_tap
     x[22:21]   = r.mem_size;
     x[23]      = r.mmio_ld;
     x[24]      = r.nondet;
+    x[25]      = r.mem_ld;
     x[63:32]   = r.insn;
     x[127:64]  = r.pc;
     x[191:128] = (r.kind == TR_RETIRE) ? r.rd_value : r.cause;

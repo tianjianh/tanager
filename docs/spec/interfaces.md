@@ -1,6 +1,6 @@
 # Cross-track interfaces
 
-**Status:** v1.4, 2026-10-19 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4; v1.3: `trace_stall_i` back-pressure in §1 and §5; v1.4: `clk2x` for the URF switch in §1 and §6, DR-174). Owner: coordinator. Changes go through the coordinator (§7).
+**Status:** v1.5, 2026-10-20 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4; v1.3: `trace_stall_i` back-pressure in §1 and §5; v1.4: `clk2x` for the URF switch in §1 and §6, DR-174; v1.5: a read's address, `mem_ld`, in §5 for M7's lockstep, DR-175). Owner: coordinator. Changes go through the coordinator (§7).
 
 These are the contracts between the tracks: core, FPU, SoC, verification and spikes. The SystemVerilog packages are the source of truth for field names and widths:
 
@@ -171,7 +171,7 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 
 | Kind | Emitted when | Key fields |
 |---|---|---|
-| `TR_RETIRE` | an instruction retires | `pc`, `insn`, `rvc`, `priv`, the `rd_*` fields, the `mem_*` fields for stores, SC and AMOs |
+| `TR_RETIRE` | an instruction retires | `pc`, `insn`, `rvc`, `priv`, the `rd_*` fields, the `mem_*` fields for stores, SC and AMOs, and with `mem_ld` (v1.5) for loads, LR and AMOs |
 | `TR_TRAP` | an instruction raises an exception instead of retiring | `pc`, `insn`, `priv` (before the trap), `cause`, `tval` |
 | `TR_IRQ` | an interrupt is taken before the instruction at `pc` | `pc` (= the new `xepc`), `priv`, `cause` |
 
@@ -190,6 +190,13 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 
 **Stores.** `mem_vaddr`, `mem_wdata` and `mem_size` are compared with Spike's commit log.
 
+**Reads (v1.5, M7).** Two harts that share memory need a load's address in lockstep (verification.md §3.7; the M7 plan, §5).
+- **`mem_ld`** (after `mem_st` in `tr_rec_t`): the retired instruction read memory. It is set on `TR_RETIRE` records of loads (integer and FP, device loads with `mmio_ld` included), LR, and AMOs (with `mem_st` as well).
+- **The address:** with `mem_ld`, `mem_vaddr` holds the read's virtual address and `mem_size` its size (log2 bytes). An AMO's read and write share them.
+- **Never set** on `TR_TRAP` and `TR_IRQ` records (a faulting load reports `tval`), on an SC (it reads no memory; its outcome is `rd`), or in a `tr_wb_t` (a deferred load's address is in its retire record).
+- **The checker** compares the address and size with Spike's read. Once a hart's records have carried `mem_ld`, a read without it is a mismatch; a core built before v1.5 sets it nowhere and checks as before.
+- **The board's 64-byte record** (uncore-trace.md): `mem_ld` is bit 25 of the first word. `mem_vaddr` and `mem_size` already have their places.
+
 **Back-pressure: `trace_stall_i`** (one bit per core; added in v1.3 for lossless FPGA lockstep streaming).
 - **While it is high,** the core retires nothing: no `TR_RETIRE`, `TR_TRAP` or `TR_IRQ` records. Commit holds, interrupts stay pending, and the rest of the pipeline stalls behind the full ROB.
 - **Latency:** the core registers the input, so it may still retire in the cycle after the input rises.
@@ -205,7 +212,7 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 
 **Future fields.** These are additive, and the struct changes only when they are scheduled.
 - **Instruction count:** with the fusion, SFB or jump-folding options enabled, a record may stand for more than one instruction. A count field will be added when one of those options is scheduled; none is in v1.
-- **M7:** load addresses (for multi-hart lockstep) and a physical store address (for `tohost` detection under virtual memory).
+- **A physical address** (for `tohost` detection under virtual memory, verification.md §9 item 2): when it is needed.
 
 ## 6. Reset and clocks between tracks
 - **SoC clocks:** `clk_core` (200 MHz goal, 150 floor; 100 MHz under DR-152) and `clk_host` (100 MHz). Only the host bridge crosses between them (plan §7.1).
