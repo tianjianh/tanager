@@ -158,6 +158,16 @@ namespace tg {
   X(smt_llt_cap, 100, "percent of the long-latency tags one thread may hold")                      \
   X(smt_bp_hash, 1, "hash the thread ID into shared predictor tables (0 = threads share entries by PC)") \
   X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread") \
+  /* M7 (docs/spec/m7-smt2-plan.md); off by default */                                              \
+  X(smt_drain_rr, 1, "two threads: the thread whose committed SQ head the D$ store port tries first alternates every cycle (D8; 0 = thread 0 always first)") \
+  X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank") \
+  X(prf_split, 0, "D3: 1 = a free list per thread in each register bank, each bank's free registers halved between the two harts, each hart's architectural registers homed as D4 (hart t's x1-x31 in integer bank t, f0-f31 in F<t>; bank 0 keeps the zero register); 2 = the same for the integer banks, the FP lists shared; with one thread, its own lists (the sibling's architectural registers still held); 3 = the FP banks only, the integer lists shared") \
+  X(prf_steer, 0, "D3: rename steers an ALU op away from an ALU whose bank has no free register on the thread's list, to the other ALU when its bank has one") \
+  X(lone_sleep, 0, "D2, one thread: every lone_sleep cycles an unsimulated sibling wakes from WFI; the merged window splits after a drain, keeps halves while the sibling runs and sleeps until the merge, then merges (0 = always merged)") \
+  X(lone_awake, 0, "D2: cycles the sibling runs after a split before it sleeps in WFI again") \
+  X(lone_merge, 64, "D2: cycles the sibling spends in WFI with an empty half before the halves merge (-1 = never: static halves)") \
+  X(lone_split, 0, "D2: 0 = the split waits until the thread's ROB, LQ and SQ are empty; 1 = until each fits its half") \
+  X(lone_caps, 1, "D2: 1 = the issue-queue caps (smt_iq_cap) bind a lone thread while its window is split; 2 = always") \
   /* area-recovery levers (plan section 8.5); off by default */                                   \
   X(smt_ckpt_shared, 0, "R10: the ckpt checkpoints are one pool shared by the threads (0 = ckpt per thread)") \
   X(rf_share_a2, 0, "R11 (alu3): ALU2 reads through the STA and shared ports; STA and FP int reads win") \

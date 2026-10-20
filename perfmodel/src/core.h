@@ -281,7 +281,7 @@ class Core {
   uint64_t prod_ready_time(uint64_t prod) const;
   bool fusible(const FetchRec& a, const FetchRec& b) const;
   int bank_for(const Uop& u, uint8_t q) const;
-  int free_regs(int bank);
+  int free_regs(int bank, int tid);
   bool can_issue(Uop& u);
   void do_issue(Uop& u, int port);
   void exec_load(Uop& u);
@@ -311,6 +311,7 @@ class Core {
   std::array<std::vector<Held>, NQ> held_;
   int64_t held(uint8_t q, int bank) const;
   int64_t slot_free(uint8_t q, int k) const;
+  bool bank_capped(uint8_t q, int k, int tid) const;
   int dec_n_ = 0;                     // uops decoded so far this cycle (the next one's slot)
   // iq_steer_rn: the ALU queues' bank flags (a row free, by slot) rename read for this cycle's dispatch, and this
   // cycle's, which the next cycle's rename reads
@@ -361,7 +362,15 @@ class Core {
   uint64_t age_next_ = 1;
   // rename (shared register banks)
   std::vector<int64_t> bank_size_, bank_committed_, bank_inflight_;
-  std::deque<std::pair<uint64_t, int>> deferred_free_;  // (cycle, bank)
+  struct DeferredFree { uint64_t at; int bank, tid; };
+  std::deque<DeferredFree> deferred_free_;
+  // prf_split (D3): registers each thread may hold in each bank (-1: no limit of its own) and holds
+  std::vector<std::vector<int64_t>> bank_own_, bank_held_;
+  // lone_sleep (D2): 0 merged, 1 draining for a split, 2 halves with the sibling awake, 3 halves with it in WFI
+  int lone_phase_ = 0;
+  uint64_t lone_next_ = 0, lone_t0_ = 0;
+  uint64_t lone_splits_ = 0, lone_drain_sum_ = 0, lone_drain_max_ = 0, lone_cyc_[4] = {0, 0, 0, 0};
+  void lone_step();
   // issue
   std::array<std::vector<uint64_t>, NQ> iq_;
   int rows_used_ = 0;
