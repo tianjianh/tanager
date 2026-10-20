@@ -58,10 +58,13 @@ if mentioned TG_STORE_PF_MAX; then  # the count other than the package's default
   profiles+=("STORE_PF_MAX=$([ "$spm_def" = 3 ] && echo 2 || echo 3)")
 else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
 profiles+=("SYNTH=1")
+# M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
+solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
   tasks+=("$c FWDREF=1" "$c FWDREF=0")
+  case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1") ;; esac
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
