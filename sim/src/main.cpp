@@ -324,6 +324,7 @@ int main(int argc, char** argv) {
   mc.num_threads = hw.num_threads;
   mc.core_id = hw.core_id;
   t.mmio.clint.init((hw.core_id + 1) * hw.num_threads);
+  t.mmio.reads.threads = hw.num_threads;
 
   // ---- Trace sink (verification.md §2.9) ----
   t.sink.llt = hw.llt_entries;
@@ -400,7 +401,6 @@ int main(int argc, char** argv) {
   uint64_t cycle = 0, instret = 0, last_rec = 0;
   uint64_t region_c0 = 0, region_i0 = 0, region_cycles = 0, region_instret = 0;
   bool exit_seen = false, htif_console = false;
-  uint32_t mmio_harts = 0;   // harts that retired an MMIO load: the read check is exact while there is one
   uint64_t exit_cycle = 0, htif_cycle = 0;
   double t0 = now_s(), tlimit = t0 + o.timeout;
   bool fst_open = false;
@@ -458,28 +458,9 @@ int main(int argc, char** argv) {
       if (log_now) fprintf(logf, "%s\n", format_rec(r, dis).c_str());
       if (r.kind != TR_RETIRE) continue;
       instret++;
-      if (r.mmio_ld && t.mmio.track_reads) {
-        // Each MMIO load that retires had exactly one read on the bus (DR-176). The core sends one MMIO read at a
-        // time, from the ROB head, and nothing flushes it once it is out, so with one hart reading devices the oldest
-        // read is this load's and no other went out before it retired. With several, a request names no hart (its
-        // source is 0): the check stops there.
-        auto& q = t.mmio.reads_out;
-        mmio_harts |= 1u << (r.hart & 31);
-        if (mmio_harts & (mmio_harts - 1)) {
-          t.mmio.track_reads = false;
-          q.clear();
-        } else if (q.empty()) {
-          status = EXIT_PROTOCOL;
-          why = strfmt("MMIO: a load at pc %016llx retired with no read on the bus", (unsigned long long)r.pc);
-        } else if (q.size() > 1) {
-          status = EXIT_PROTOCOL;
-          why = strfmt("MMIO: a read of 0x%llx went out at cycle %llu and its load never retired (DR-176: squashed after "
-                       "it went out); the next read, 0x%llx at cycle %llu, retired with the load at pc %016llx",
-                       (unsigned long long)q[0].second, (unsigned long long)q[0].first,
-                       (unsigned long long)q[1].second, (unsigned long long)q[1].first, (unsigned long long)r.pc);
-        } else {
-          q.pop_front();
-        }
+      if (r.mmio_ld) {   // one read on the bus for each MMIO load that retires (DR-176; tlmodels.h)
+        std::string e = t.mmio.reads.retire(r.hart, r.pc);
+        if (!e.empty()) { status = EXIT_PROTOCOL; why = e; }
       }
       if (!r.mem_st) continue;
       uint64_t v;
@@ -494,12 +475,9 @@ int main(int argc, char** argv) {
           exit_seen = true;
           exit_cycle = cycle;
           code = int(v >> 1);
-          // No MMIO read is left without its load (one went out and its load never retired)
-          if (t.mmio.track_reads && !t.mmio.reads_out.empty() && status == EXIT_PASS) {
-            status = EXIT_PROTOCOL;
-            why = strfmt("MMIO: a read of 0x%llx went out at cycle %llu and no load retired with it (DR-176)",
-                         (unsigned long long)t.mmio.reads_out[0].second, (unsigned long long)t.mmio.reads_out[0].first);
-          }
+          // No MMIO read of the exiting hart is left without its load; another hart's may still be out
+          std::string e = t.mmio.reads.exit(r.hart);
+          if (!e.empty() && status == EXIT_PASS) { status = EXIT_PROTOCOL; why = e; }
         } else if (v != 0) {
           status = EXIT_PROGRAM_FAIL;
           why = strfmt("unexpected tohost value %016llx", (unsigned long long)v);

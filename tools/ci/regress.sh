@@ -13,7 +13,7 @@
 #                       [STORE_PF_MAX=2|3]       (its prefetches in flight; sim/profile.mk)
 #                       [SOLO_TID=0|1]           (M7's test mode: the one thread runs as tid 1, DR-175; sim/profile.mk)
 #                       [SPLIT=0|1]              (M7's split mode: the thread runs in its half, DR-175; sim/profile.mk)
-# Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
+# Steps: build tg_vsim and tg_replay; the harness's unit tests (make -C sim unit); riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
 # again under trace back-pressure; with ARCH=1 the ACT4 tests of the
 # core's configuration (tests/arch); the checker self-test and RANDFD random F/D programs (tg_replay);
@@ -135,6 +135,7 @@ step "build tg_vsim CFG=$CFG CORE=$CORE${TIMING_CUTS:+ TIMING_CUTS=$TIMING_CUTS}
   make -C "$ROOT/sim" CFG="$CFG" CORE="$CORE" ${TIMING_CUTS:+TIMING_CUTS="$TIMING_CUTS"} JOBS="$JOBS" build replay
 BIN="$BUILD/sim/$CFG-$CORE$TCS/tg_vsim"
 REPLAY="$BUILD/sim/replay/tg_replay"
+step "harness unit tests (sim/src/unit_*.cpp: the MMIO read check's cases)" "$LOGS/unit.log" make -C "$ROOT/sim" unit
 
 if [ "${RESULTS[0]}" = PASS ]; then
   step "riscv-tests ($SUITES), lockstep, lat=$LAT" "$LOGS/isa.log" \

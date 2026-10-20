@@ -189,6 +189,28 @@ struct clint_t {
   void write(uint64_t off, unsigned size, uint64_t v);
 };
 
+// One read on the bus for each MMIO load that retires (DR-176; verification.md §2.4). A hart sends one MMIO read at a
+// time, from its ROB head, and nothing flushes it once it is out, so the oldest read of a hart's source is the load's
+// that retires next, and no other read of that source went out before it. While every read has had one source, the
+// check covers one hart (whichever source) and stops once a second hart retires an MMIO load; once reads have come
+// with several sources, hart h's source is h mod NUM_THREADS (interfaces.md §2.4: a distinct source per hart; from
+// M7's step 5 the core sends thread ^ SOLO_TID, so a lone hart uses 0). The messages name the reads; "" means none.
+class mmio_read_check_t {
+ public:
+  void read(uint32_t source, uint64_t cycle, uint64_t addr) {
+    if (on) q_[source].emplace_back(cycle, addr);
+  }
+  std::string retire(uint32_t hart, uint64_t pc);
+  std::string exit(uint32_t hart);   // the exiting hart's reads have all retired; another hart's may be out
+  bool on = true;
+  unsigned threads = 1;              // the core's harts (tg_dpi_config)
+
+ private:
+  long source_of(uint32_t hart) const;
+  std::map<uint32_t, std::deque<std::pair<uint64_t, uint64_t>>> q_;   // by source: (cycle, address), oldest first
+  std::set<uint32_t> harts_;                                            // harts that retired an MMIO load
+};
+
 // mmio: Get / PutFullData / PutPartialData of up to 8 bytes to devices (§2.4).
 class mmio_model_t {
  public:
@@ -202,10 +224,7 @@ class mmio_model_t {
   // external-interrupt tests use it.
   uint32_t sig_lines = 0;
   uint64_t requests = 0;
-  // Reads that went out with a good response, oldest first, as (cycle, address), until main.cpp matches each with
-  // the MMIO load that retires (DR-176: a read squashed after it went out ran again). Off once two harts read devices.
-  std::deque<std::pair<uint64_t, uint64_t>> reads_out;
-  bool track_reads = true;
+  mmio_read_check_t reads;   // every read answered without error, for main.cpp's retirements
 
  private:
   uint64_t dev_read(uint64_t addr, unsigned size, bool& ok);
