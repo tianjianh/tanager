@@ -8,8 +8,8 @@
 // requester's TLB, with the page's PMP result cached (plan §4.10): one more cycle checks the
 // page base, and the result holds for the whole page when no active PMP region boundary lies
 // strictly inside the page: for a 2M page checked here against every entry, for 4K and 1G pages
-// tg_csr's flag for every page of the size (pmp_al). A flush ends the walk; its PTE read, if any,
-// dies in the load pipe.
+// tg_csr's flag for every page of the size (pmp_al). A flush of its thread ends the walk; its PTE
+// read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
 // port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req). The request
 // and its address come from flip-flops, set as the walk enters those states.
@@ -22,6 +22,7 @@ module tg_ptw
   input  logic              clk,
   input  logic              rst,
   input  logic              flush,
+  input  tid_t              flush_tid,    // a flush ends the walk of its thread only (M7's step 4)
   // Each hart's state
   input  logic [NUM_THREADS-1:0][43:0]             satp_ppn,
   input  logic [NUM_THREADS-1:0]                   sum,
@@ -90,6 +91,8 @@ module tg_ptw
   assign k  = ack[0] ? 2'd0 : ack[1] ? 2'd1 : 2'd2;
   assign rt = (TID_W > 0) ? req_tid[k] : tid_t'(0);
   assign wt = (TID_W > 0) ? tid_q : tid_t'(0);
+  logic wk;                      // a flush of the walk's thread (in merged mode every flush)
+  assign wk = flush && (!SPLIT || flush_tid == wt);
 
   // PTE address at this level, and its checks
   logic [8:0]  vpn_i;
@@ -168,7 +171,7 @@ module tg_ptw
   endfunction
 
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst || wk) begin
       st_q <= W_IDLE;
     end else begin
       unique case (st_q)
@@ -234,7 +237,7 @@ module tg_ptw
   logic [2:0] req_cn;
   always_comb for (int i = 0; i < 3; i++) req_cn[i] = va_canon(req_va[i]);
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst || wk) begin
       chk_req_q <= 1'b0;
     end else begin
       unique case (st_q)
@@ -263,7 +266,7 @@ module tg_ptw
   end
 `endif
 
-  assign done       = st_q == W_DONE && !flush;
+  assign done       = st_q == W_DONE && !wk;
   assign done_who   = who_q;
   assign done_tid   = wt;
   assign chk_tid    = wt;

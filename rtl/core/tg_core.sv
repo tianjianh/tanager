@@ -274,12 +274,11 @@ module tg_core
 
   // ---- Rename and dispatch ----
   // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
-  // serve the running thread (rob_head) until step 4
-  robid_t rob_head;
+  // follow the ROB's commit thread (rob_hd_tid, step 4)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
+  tid_t                     rob_hd_tid;
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
-  assign rob_head   = rob_head_t[RUN_TID];
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
@@ -482,7 +481,7 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head, .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
@@ -526,7 +525,7 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
@@ -666,7 +665,7 @@ module tg_core
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head_t[RUN_TID])), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);

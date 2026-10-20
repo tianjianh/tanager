@@ -430,6 +430,14 @@ package tg_core_pkg;
       m[i] = i >= part_base(SQ_ENTRIES, t) && i < part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES);
     return m;
   endfunction
+  // The entries thread t owns: its part in split mode; in merged mode every entry is the running thread's and none the
+  // other's (M7's step 4: a pick over both threads, as the LSU's replays, takes each thread's own)
+  function automatic logic [LQ_ENTRIES-1:0] lq_own(input tid_t t);
+    return (SPLIT || t == RUN_TID) ? lq_part(t) : '0;
+  endfunction
+  function automatic logic [SQ_ENTRIES-1:0] sq_own(input tid_t t);
+    return (SPLIT || t == RUN_TID) ? sq_part(t) : '0;
+  endfunction
 
   // ---- Micro-op classes ----
   typedef enum logic [3:0] {
