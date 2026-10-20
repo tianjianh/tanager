@@ -455,3 +455,8 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - Against d4r1, with the watch taken out (÷0.971): d4r2 is 6.3% faster in stage C (about 147.1 against 138.3), but 2.6% slower in RISC-V mode (about 128.4 against 131.9).
 - **The clock read in RISC-V mode,** under the stress ([`../runs/cg.c`](../runs/cg.c)): `clock_gettime` 1,096–1,149 ns a call, a bare `rdtime` 246–249 ns. Both OpenSBI banners show the same timer, `zicntr` and `sstc`, so neither mode traps on the read. These numbers mean something only beside stage C's under the same load, which comes after s21.
 - **The two setups differ in the memory path.** RISC-V mode's window, set by `riscv.scr`, is 1 GiB at `0x8_4000_0000`, in the high DDR aperture. Stage C's is set by `tanager-host`.
+
+**s21 at 6 hours (23:58 UTC):**
+- **183 of 183 passes clean.** No failed pass, no FAIL/DMESG line, no SD1 timeout, no probe capture, no kernel trouble.
+- **Steady over 161 passes:** 116.1 s per pass, cpu 90.35 events/s, memory 124.84 MiB/s, threads 2,226 events, with the watch's cost. 22 passes are left out: those overlapping the network checks, the `clock_gettime` test, and the twin loop's window (passes 10–20; [`s21_experiment_windows.txt`](s21_experiment_windows.txt)).
+- **Network checks: 6 of 6 OK,** 0.47–0.57 MB/s up and 0.52–0.57 down, `apt-get update` exit 0 every time ([`net_s21.txt`](net_s21.txt)).
