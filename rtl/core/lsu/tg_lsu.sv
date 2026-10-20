@@ -289,12 +289,19 @@ module tg_lsu
   // Per thread (M7's step 3, docs/spec/threading.md): the LQ's and SQ's pointers. Dispatch moves its group's thread's
   // tails (t_ds), commit its thread's LQ head and SQ commit pointer (t_cm), and a flush recovers its thread's (t_fl).
   // The drain, the replays, the searches and the head checks serve the running thread (t_ls) until step 4.
+  // In split mode (SPLIT) a thread's pointers wrap inside its half (x_add_t), the drain's next head and the head's
+  // mask wrap there too, and a flush drops the flushed thread's entries only. The searches over every entry stay
+  // exact with one thread: the other half holds no valid entry (step 4 masks them by thread).
   localparam int NT = NUM_THREADS;
   tid_t t_ds, t_cm, t_fl, t_ls;
   assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
   assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
   assign t_ls = RUN_TID;
+  logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
+  logic [SQ_ENTRIES-1:0] fl_sq;
+  assign fl_lq = lq_part(t_fl);
+  assign fl_sq = sq_part(t_fl);
   lqid_t  [NT-1:0]                   lq_head_q, lq_tail_q;
 
   // ---- SQ ----
@@ -340,6 +347,11 @@ module tg_lsu
   assign sq_cmt_o  = sq_cmt_q;
   assign sq_drained = sq_head_q[t_ls] == sq_cmt_q[t_ls];
 
+  function automatic logic [SQ_ENTRIES-1:0] sq_ge(input int b);   // the slots at or after slot b
+    logic [SQ_ENTRIES-1:0] m;
+    for (int i = 0; i < SQ_ENTRIES; i++) m[i] = i >= b;
+    return m;
+  endfunction
   function automatic logic [LIW-1:0] lqi(input lqid_t p);
     /* verilator lint_off UNUSEDSIGNAL */  // the wrap bit is not part of the index
     lqid_t q;
@@ -1343,7 +1355,8 @@ module tg_lsu
   sqh_t                sqh_wd, sqh_q;
   logic                sqh_we;
   logic [SIW-1:0]      dh1;
-  assign dh1       = SIW'(int'(dh) + 1 == SQ_ENTRIES ? 0 : int'(dh) + 1);
+  assign dh1       = SIW'(int'(dh) + 1 == part_base(SQ_ENTRIES, t_ls) + part_size(SQ_ENTRIES) ?
+                         part_base(SQ_ENTRIES, t_ls) : int'(dh) + 1);
   assign sqh_ra[0] = dh1;
   assign sqh_we    = sn_v && !flush;
   assign sqh_wd    = sqh_t'{pa: sa_pa, mask: sa_mask, size: sn_size};
@@ -1401,13 +1414,15 @@ module tg_lsu
   always_ff @(posedge clk) begin
     if (rst) begin
       lq_v_q    <= '0;
-      lq_head_q <= '0;
-      lq_tail_q <= '0;
+      for (int t = 0; t < NT; t++) begin
+        lq_head_q[t] <= lq_start(tid_t'(t));
+        lq_tail_q[t] <= lq_start(tid_t'(t));
+        sq_head_q[t] <= sq_start(tid_t'(t));
+        sq_cmt_q[t]  <= sq_start(tid_t'(t));
+        sq_tail_q[t] <= sq_start(tid_t'(t));
+      end
       sq_v_q    <= '0;
-      sq_head_q <= '0;
-      sq_hge_q  <= '1;
-      sq_cmt_q  <= '0;
-      sq_tail_q <= '0;
+      sq_hge_q  <= sq_ge(part_base(SQ_ENTRIES, t_ls));
       m1_v_q    <= 1'b0;
       m2_v_q    <= 1'b0;
       ma3_v_q   <= 1'b0;
@@ -1424,16 +1439,17 @@ module tg_lsu
     end else begin
       // ---- Commit ----
       for (int k = 0; k < COMMIT_WIDTH; k++) begin
-        if (k < int'(cm_nld)) lq_v_q[lqi(lq_add(lq_head_q[t_cm], k))] <= 1'b0;
+        if (k < int'(cm_nld)) lq_v_q[lqi(lq_add_t(lq_head_q[t_cm], k, t_cm))] <= 1'b0;
       end
-      lq_head_q[t_cm] <= lq_add(lq_head_q[t_cm], int'(cm_nld));
-      sq_cmt_q[t_cm]  <= sq_add(sq_cmt_q[t_cm], int'(cm_nst));
+      lq_head_q[t_cm] <= lq_add_t(lq_head_q[t_cm], int'(cm_nld), t_cm);
+      sq_cmt_q[t_cm]  <= sq_add_t(sq_cmt_q[t_cm], int'(cm_nst), t_cm);
 
       // ---- Drain ----
       if (dr_pop) begin
         sq_v_q[dh] <= 1'b0;
-        sq_head_q[t_ls] <= sq_add(sq_head_q[t_ls], 1);
-        sq_hge_q   <= (int'(dh) == SQ_ENTRIES - 1) ? '1 : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
+        sq_head_q[t_ls] <= sq_add_t(sq_head_q[t_ls], 1, t_ls);
+        sq_hge_q   <= (int'(dh) + 1 == part_base(SQ_ENTRIES, t_ls) + part_size(SQ_ENTRIES)) ?
+                      sq_ge(part_base(SQ_ENTRIES, t_ls)) : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
       end
 
       // ---- MMIO ----
@@ -1683,16 +1699,16 @@ module tg_lsu
             end
           end
         end
-        lq_tail_q[t_ds] <= lq_add(lq_tail_q[t_ds], nld_ds());
-        sq_tail_q[t_ds] <= sq_add(sq_tail_q[t_ds], nst_ds());
+        lq_tail_q[t_ds] <= lq_add_t(lq_tail_q[t_ds], nld_ds(), t_ds);
+        sq_tail_q[t_ds] <= sq_add_t(sq_tail_q[t_ds], nst_ds(), t_ds);
       end
 
       // ---- Flush: uncommitted loads and stores go ----
       if (flush) begin
-        lq_v_q    <= '0;                  // (every entry is t_fl's until the split mode)
+        for (int i = 0; i < LQ_ENTRIES; i++) if (fl_lq[i]) lq_v_q[i] <= 1'b0;   // t_fl's half
         lq_tail_q[t_fl] <= lq_head_q[t_fl];
         for (int i = 0; i < SQ_ENTRIES; i++) begin
-          if (!sq_inwin(i, sq_head_q[t_fl], sq_cmt_q[t_fl])) sq_v_q[i] <= 1'b0;
+          if (fl_sq[i] && !sq_inwin(i, sq_head_q[t_fl], sq_cmt_q[t_fl])) sq_v_q[i] <= 1'b0;
         end
         sq_tail_q[t_fl] <= sq_cmt_q[t_fl];
         m1_v_q    <= 1'b0;

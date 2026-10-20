@@ -3,14 +3,14 @@
 // Random legal traffic: pops from one thread a cycle up to its free count; commits of registers it popped; pushes of
 // registers it holds (committed pops and its homes), one thread a cycle; flushes of either thread, while the other
 // pops. Checked every cycle: each pop slot's register and every thread's free count; the init time.
-// Merged mode (SPLIT = 0) runs the one thread RUN_TID; split mode runs both.
+// Merged mode (SPLIT_L = 0) runs the one thread RUN_TID; split mode runs both.
 // Negatives (TB_FLUSH_TID0, TB_POP_TID0): the DUT gets thread 0 for the flush or the pops; they must fail.
 module tb_freelist
   import tg_pkg::*, tg_core_pkg::*;
 #(
   parameter int DEPTH   = 64,
   parameter int FIRST   = 32,
-  parameter bit SPLIT   = 1'b0,
+  parameter bit SPLIT_L   = 1'b0,
   parameter int FIRST_S = 32,
   parameter int CYCLES  = 200000,
   parameter int SEED    = 1
@@ -44,7 +44,7 @@ module tb_freelist
 `else
   assign d_pop_tid = pop_tid;
 `endif
-  tg_freelist #(.DEPTH(DEPTH), .NB(NB), .NPOP(W), .NPUSH(CW), .FIRST(FIRST), .SPLIT(SPLIT), .FIRST_S(FIRST_S)) dut (
+  tg_freelist #(.DEPTH(DEPTH), .NB(NB), .NPOP(W), .NPUSH(CW), .FIRST(FIRST), .SPLIT_L(SPLIT_L), .FIRST_S(FIRST_S)) dut (
     .clk, .rst, .ready, .count, .pop_tid(d_pop_tid), .pop_idx, .pop_n, .pop, .push_tid, .push_v, .push_idx,
     .commit_n, .flush, .flush_tid(d_flush_tid));
 
@@ -54,12 +54,12 @@ module tb_freelist
   int unsigned held[NT][$];      // registers a thread holds (committed pops, homes): what it may push
   int          mism, npops, npush_tot, nflush, ncommit;
   function automatic bit live(input int t);
-    return SPLIT || t == int'(RUN_TID);
+    return SPLIT_L || t == int'(RUN_TID);
   endfunction
   initial begin
     for (int t = 0; t < NT; t++) begin
       spec[t] = 0;
-      if (SPLIT) begin
+      if (SPLIT_L) begin
         for (int r = (t == 0 ? FIRST_S : MID); r < (t == 0 ? MID : DEPTH); r++) fq[t].push_back(r);
         if (t == 0) for (int r = 0; r < FIRST_S; r++) held[t].push_back(r);
       end else if (t == int'(RUN_TID)) begin
@@ -95,10 +95,10 @@ module tb_freelist
       int pt, ut, ft, k, c, np;
       bit fl;
       // Choose this cycle's operations (legal for the core's protocol)
-      pt = SPLIT ? $urandom_range(0, NT - 1) : int'(RUN_TID);
-      ut = SPLIT ? $urandom_range(0, NT - 1) : int'(RUN_TID);
+      pt = SPLIT_L ? $urandom_range(0, NT - 1) : int'(RUN_TID);
+      ut = SPLIT_L ? $urandom_range(0, NT - 1) : int'(RUN_TID);
       fl = ($urandom_range(0, 99) < 4);
-      ft = SPLIT ? $urandom_range(0, NT - 1) : int'(RUN_TID);
+      ft = SPLIT_L ? $urandom_range(0, NT - 1) : int'(RUN_TID);
       // commits: of popped registers of ut
       c = (spec[ut] > 0) ? $urandom_range(0, (spec[ut] < CW) ? spec[ut] : CW) : 0;
       // pushes: registers ut holds

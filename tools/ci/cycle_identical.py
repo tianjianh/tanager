@@ -113,7 +113,7 @@ def git(*args, env=None):
 # keeps the keys of builds made before the later ones were added)
 PROFILE_VARS = (("TIMING_CUTS", "tc"), ("DC_MSHRS", "dcm"), ("QUEUE_DECODE", "qd"), ("SPEC_WAKE", "sw"),
                 ("STA_BASE", "sb"), ("STEER_LA", "sl"), ("PMP_ENTRIES", "pmp"), ("STORE_PF", "spf"), ("URF", "urf"),
-                ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"))
+                ("STORE_PF_MAX", "spm"), ("SOLO_TID", "solo"), ("SPLIT", "sp"))
 
 
 def profile_takes(ref, var):
@@ -686,6 +686,10 @@ def main():
                     help="build both sides with M7's test mode, the one thread as tid 1 (DR-175; smt2 only)")
     ap.add_argument("--branch-solo-tid", type=int, choices=(0, 1), default=None,
                     help="this side's only: 1 against a base without it checks the tid=1 paths give the same cycles")
+    ap.add_argument("--split", type=int, choices=(0, 1), default=None,
+                    help="build both sides with M7's split mode, the thread in its half (DR-175; smt2 only)")
+    ap.add_argument("--branch-split", type=int, choices=(0, 1), default=None,
+                    help="this side's only (the halves change the cycles: compare two trees that both have it)")
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
@@ -736,7 +740,8 @@ def main():
             "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries),
             "STORE_PF": (a.store_pf, a.branch_store_pf), "URF": (a.urf, a.branch_urf),
             "STORE_PF_MAX": (a.store_pf_max, a.branch_store_pf_max),
-            "SOLO_TID": (a.solo_tid, a.branch_solo_tid)}
+            "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
+            "SPLIT": (a.split, a.branch_split)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     if prof_base or prof_branch:

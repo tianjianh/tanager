@@ -13,7 +13,9 @@
 // Per thread (M7's step 3, docs/spec/threading.md): every bank holds a map per thread at {tid, register}
 // (RAM form, 64 deep), and sv_q is per thread. Reads and RN writes are the rename group's thread's (rtid),
 // commit writes the commit group's (ctid), and a flush clears the flushed thread's sv_q only. The reset
-// sweep writes the running thread's map (RUN_TID; the other thread's comes with the split mode).
+// sweep writes the running thread's map (32 cycles), the identity; with HSPLIT (two threads, M7's step 5) both
+// threads' (64): thread 0's homes are the identity, thread 1's H1 + r (D4: bank 1 and F1), with register 0 kept at 0
+// when X0 (x0).
 // tg_rename has one for the integer registers and, with EXT_FD, one for the FP registers.
 module tg_rmap
   import tg_pkg::*, tg_core_pkg::*;
@@ -23,7 +25,10 @@ module tg_rmap
   parameter int PW  = 8,         // mapping width
   parameter int DW  = 8,         // producer fields width
   parameter int NR  = 6,         // mapping read ports
-  parameter int NRD = 4          // producer read ports: the first NRD mapping ports
+  parameter int NRD = 4,         // producer read ports: the first NRD mapping ports
+  parameter bit HSPLIT = 1'b0,   // each thread its own homes (two threads: step 5) ...
+  parameter int H1  = 64,        // ... thread 1's home of register r is H1 + r ...
+  parameter bit X0  = 1'b0       // ... but register 0's is 0 (x0, the zero register)
 ) (
   input  logic                   clk,
   input  logic                   rst,
@@ -54,8 +59,17 @@ module tg_rmap
     return AW'({t, r});                           // without SMT the tid's bit falls off
   endfunction
   logic [NT-1:0][31:0]    sv_q;           // renamed since the thread's last flush
-  logic [5:0]             cinit_q;        // reset sweep into the committed banks
-  assign ready = cinit_q[5];
+  localparam int NSW = (HSPLIT && NT > 1) ? 64 : 32;
+  logic [6:0]             cinit_q;        // reset sweep into the committed banks
+  logic                   sw;             // the sweep runs
+  tid_t                   swt;            // ... over this thread's rows
+  assign ready = int'(cinit_q) >= NSW;
+  assign sw    = !ready;
+  assign swt   = (HSPLIT && NT > 1) ? tid_t'(cinit_q[5]) : RUN_TID;
+  function automatic logic [PW-1:0] home(input tid_t t, input logic [4:0] r);
+    if (!(HSPLIT && NT > 1) || t == tid_t'(0) || (X0 && r == '0)) return PW'(r);
+    return PW'(H1 + int'(r));
+  endfunction
 
   // The last writer of each register in a cycle (earlier slots on the same register drop out)
   logic [W-1:0]  wl;
@@ -132,10 +146,10 @@ module tg_rmap
       cwd_j = cwd[j];
       for (int o = 0; o < CW; o++)
         if (o != j) cwd_j ^= mc_rd[o][NR + (j < o ? j : j - 1)];
-      if (!cinit_q[5]) begin
+      if (sw) begin
         cw    = 1'b1;
-        cwa_j = ma(RUN_TID, cinit_q[4:0]);
-        cwd_j = (j == 0) ? PW'(cinit_q[4:0]) : '0;
+        cwa_j = ma(swt, cinit_q[4:0]);
+        cwd_j = (j == 0) ? home(swt, cinit_q[4:0]) : '0;
       end
     end
     tg_ram_lut #(.DEPTH(32 * NT), .WIDTH(PW), .NR(NRC)) u_cmap (
@@ -164,7 +178,7 @@ module tg_rmap
       sv_q    <= '0;
       cinit_q <= '0;
     end else begin
-      if (!cinit_q[5]) cinit_q <= cinit_q + 1'b1;
+      if (sw) cinit_q <= cinit_q + 1'b1;
       if (flush) begin
         sv_q[ft] <= '0;
       end else begin

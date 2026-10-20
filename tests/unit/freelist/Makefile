@@ -24,7 +24,7 @@ define run_shape
   n=$$(echo $(1) | cut -d: -f1); cfg=$$(echo $(1) | cut -d: -f2); solo=$$(echo $(1) | cut -d: -f3); \
   split=$$(echo $(1) | cut -d: -f4); first=$$(echo $(1) | cut -d: -f5); fs=$$(echo $(1) | cut -d: -f6); \
   def=$$(echo $(1) | cut -d: -f7); o=$(OBJ)/$$n; mkdir -p $$o; \
-  verilator $(VFLAGS) --Mdir $$o -GSPLIT=$$split -GFIRST=$$first -GFIRST_S=$$fs -GCYCLES=$(CYCLES) -GSEED=$(SEED) \
+  verilator $(VFLAGS) --Mdir $$o -GSPLIT_L=$$split -GFIRST=$$first -GFIRST_S=$$fs -GCYCLES=$(CYCLES) -GSEED=$(SEED) \
     $$( [ $$solo = 1 ] && echo +define+TG_SOLO_TID=1 ) $${def:+ +define+$$def} \
     $(ROOT)/rtl/common/cfg/tg_cfg_$$cfg.sv $(PKGS) $(SRC) > $$o/build.log 2>&1 || { tail -20 $$o/build.log; exit 1; }; \
   $$o/Vtb_freelist > $$o/run.log 2>&1 || true
