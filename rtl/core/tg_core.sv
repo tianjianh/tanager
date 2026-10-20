@@ -123,6 +123,8 @@ module tg_core
   logic misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
   logic [1:0] fs;
   logic [2:0] frm;
+  logic [NUM_THREADS-1:0][2:0] frm_h;                 // each hart's (tg_fcsr)
+  dec_state_t [NUM_THREADS-1:0] dst_csr;               // each hart's decode state from tg_csr (its frm: frm_h)
   // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
   logic [4:0] fc_fflags;
   logic       fc_wvalid;
@@ -234,14 +236,23 @@ module tg_core
                           mxr_l_q[t] == mxr_h[t] && sv39_l_q[t] == sv39_h[t] && satp_ppn_l_q[t] == satp_ppn_h[t]))
           else $error("tg_core: the LSU's privilege copy of hart %0d differs outside a flush", t);
 `endif
-  // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
-  // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
+  // The decoders' state per hart, as decode gets it (its group's hart's), for the instruction queue's decode bits too
+  // (declared ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
   // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
-  dec_state_t de_state;
-  assign de_state = '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a, misa_f: misa_f,
-                      misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
-  dec_state_t [NUM_THREADS-1:0] de_state_h;           // per hart (M7: the running hart's until decode's are per hart)
-  always_comb for (int t = 0; t < NUM_THREADS; t++) de_state_h[t] = de_state;
+  dec_state_t [NUM_THREADS-1:0] de_state_h;
+  always_comb
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      de_state_h[t]     = dst_csr[t];
+      de_state_h[t].frm = frm_h[t];
+    end
+`ifndef SYNTHESIS
+  // the running hart's is the one decode read before M7's step 5b
+  always_ff @(posedge clk)
+    if (!rst) assert (de_state_h[RUN_TID] == '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a,
+                                               misa_f: misa_f, misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm,
+                                               tw: tw, tsr: tsr})
+      else $error("tg_core: the running hart's decode state differs from tg_csr's");
+`endif
   tid_t dred_tid;
   tid_t [CW-1:0] cm_tid;                              // the retiring instructions' threads (fetch's predictors take it)
   tg_fetch u_fetch (
@@ -264,7 +275,7 @@ module tg_core
   uop_t [DECODE_WIDTH-1:0] de_uop;
   logic                    de_take;
   tg_decode_stage u_de (
-    .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
+    .clk, .rst, .flush, .dst_h(de_state_h),
     .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
@@ -612,7 +623,7 @@ module tg_core
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
-    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
+    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
     .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i));
@@ -723,6 +734,7 @@ module tg_core
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
     assign frm      = frm_t[RUN_TID];
+    assign frm_h    = frm_t;
     assign fs_dirty = fs_dirty_t;
     logic unused;
     assign unused = ^{er_busy_t, frm_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
@@ -754,6 +766,7 @@ module tg_core
     assign fpi_fflags    = '0;
     assign tag_free_p4   = '0;
     assign frm           = '0;
+    assign frm_h         = '0;
     assign fc_fflags     = '0;
     assign fs_dirty      = '0;
     logic unused;
