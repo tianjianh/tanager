@@ -9,7 +9,7 @@ runs, between the tg_marker stores): cycles and IPC on both sides, the change in
 faster), and CoreMark/MHz or DMIPS/MHz. A feature behind a switch is measured on one commit with BASE=HEAD
 and the switch on this side only (BRANCH_DC_MSHRS=4, BRANCH_QUEUE_DECODE=1, ...).
   make perf [BASE=main] [BRANCH=<ref>] [CFG=st] [MARCH=rv64gc] [ITER=10] [RUNS=500] [LAT=native] [JOBS=8]
-            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE|STA_BASE|STEER_LA|PMP_ENTRIES|STORE_PF=...] [BRANCH_TIMING_CUTS|...|..._PMP_ENTRIES|..._STORE_PF=...]
+            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE|STA_BASE|STEER_LA|PMP_ENTRIES|STORE_PF|URF=...] [BRANCH_TIMING_CUTS|...|..._STORE_PF|..._URF=...]
 MARCH and LAT take lists ("rv64im,rv64gc", "native,120"). Results are cached per build and program, so a
 second measurement against the same BASE reruns only this side. Exit status: 0 measured; 2 could not run.
 """
@@ -62,7 +62,7 @@ def main():
                            ("QUEUE_DECODE", "queue-decode", (0, 1)), ("SPEC_WAKE", "spec-wake", (0, 1)),
                            ("STA_BASE", "sta-base", (0, 1)), ("STEER_LA", "steer-la", (0, 1)),
                            ("PMP_ENTRIES", "pmp-entries", (8, 16)),
-                           ("STORE_PF", "store-pf", (0, 1))):
+                           ("STORE_PF", "store-pf", (0, 1)), ("URF", "urf", (0, 1))):
         ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"{var} on both sides")
         ap.add_argument(f"--branch-{opt}", type=int, choices=vals, default=None, help=f"{var} on this side only")
     a = ap.parse_args()
@@ -82,7 +82,7 @@ def main():
             "QUEUE_DECODE": (a.queue_decode, a.branch_queue_decode), "SPEC_WAKE": (a.spec_wake, a.branch_spec_wake),
             "STA_BASE": (a.sta_base, a.branch_sta_base), "STEER_LA": (a.steer_la, a.branch_steer_la),
             "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries),
-            "STORE_PF": (a.store_pf, a.branch_store_pf)}
+            "STORE_PF": (a.store_pf, a.branch_store_pf), "URF": (a.urf, a.branch_urf)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     for v in set(prof_base) | set(prof_branch):
