@@ -126,13 +126,17 @@ module tg_core
   logic [NUM_THREADS-1:0] fs_dirty;   // per hart
   logic [1:0] fc_waddr;
   logic [7:0] fc_wdata;
-  priv_e priv, priv_d;
-  logic  tvm, tw, tsr, sum, mxr, satp_sv39;
+  priv_e priv;
+  logic  tvm, tw, tsr, satp_sv39;
   logic [15:0] satp_asid;
-  logic [43:0] satp_ppn;
   pmp_d_t [PMP_ENTRIES-1:0] pmp_d;
-  logic [2:0]        pmp_al;
-  logic [PMP_ENTRIES-1:0] pmp_p2m;
+  // Each hart's, for the LSU and the walker (M7's step 4)
+  priv_e  [NUM_THREADS-1:0]                  priv_h, priv_d_h;
+  logic   [NUM_THREADS-1:0]                  sum_h, mxr_h, sv39_h;
+  logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h;
+  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h;
+  logic   [NUM_THREADS-1:0][2:0]             pmp_al_h;
+  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m_h;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
   tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
@@ -201,24 +205,27 @@ module tg_core
   // and the flush that follows the next cycle squashes the LSU's new accesses (the walker, S2, the
   // head's check and the walk prefetch are flush-gated), which resume with the copy caught up
   // (timing, DR-145: G6's tg_csr priv -> the LSU's translation mode -> the store's PMP checker ->
-  // the ROB, -1.53 ns, 70% wire; any difference falls in a flush cycle, asserted)
-  priv_e       priv_l_q, priv_dl_q;
-  logic        sum_l_q, mxr_l_q, sv39_l_q;
-  logic [43:0] satp_ppn_l_q;
-  always_ff @(posedge clk) begin
-    priv_l_q     <= rst ? PRIV_M : priv;
-    priv_dl_q    <= rst ? PRIV_M : priv_d;
-    sum_l_q      <= !rst && sum;
-    mxr_l_q      <= !rst && mxr;
-    sv39_l_q     <= !rst && satp_sv39;
-    satp_ppn_l_q <= satp_ppn;
-  end
+  // the ROB, -1.53 ns, 70% wire; any difference falls in a flush cycle, asserted). One copy per hart
+  // (M7's step 4)
+  priv_e [NUM_THREADS-1:0]       priv_l_q, priv_dl_q;
+  logic  [NUM_THREADS-1:0]       sum_l_q, mxr_l_q, sv39_l_q;
+  logic  [NUM_THREADS-1:0][43:0] satp_ppn_l_q;
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      priv_l_q[t]     <= rst ? PRIV_M : priv_h[t];
+      priv_dl_q[t]    <= rst ? PRIV_M : priv_d_h[t];
+      sum_l_q[t]      <= !rst && sum_h[t];
+      mxr_l_q[t]      <= !rst && mxr_h[t];
+      sv39_l_q[t]     <= !rst && sv39_h[t];
+      satp_ppn_l_q[t] <= satp_ppn_h[t];
+    end
 `ifndef SYNTHESIS
   always @(posedge clk)
     if (rs_fq && !rst)
-      assert (flush || (priv_l_q == priv && priv_dl_q == priv_d && sum_l_q == sum && mxr_l_q == mxr &&
-                        sv39_l_q == satp_sv39 && satp_ppn_l_q == satp_ppn))
-        else $error("tg_core: the LSU's privilege copy differs outside a flush");
+      for (int t = 0; t < NUM_THREADS; t++)
+        assert (flush || (priv_l_q[t] == priv_h[t] && priv_dl_q[t] == priv_d_h[t] && sum_l_q[t] == sum_h[t] &&
+                          mxr_l_q[t] == mxr_h[t] && sv39_l_q[t] == sv39_h[t] && satp_ppn_l_q[t] == satp_ppn_h[t]))
+          else $error("tg_core: the LSU's privilege copy of hart %0d differs outside a flush", t);
 `endif
   // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
   // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
@@ -479,7 +486,7 @@ module tg_core
     .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
-    .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush, .tlb_flush_tid,
+    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_al(pmp_al_h), .pmp_p2m(pmp_p2m_h), .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
@@ -502,8 +509,9 @@ module tg_core
     .cm_tid0(cm_tid[0]), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
-    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_p2m, .pmp_wr, .pmp_busy,
+    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
+    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
+    .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i));
 

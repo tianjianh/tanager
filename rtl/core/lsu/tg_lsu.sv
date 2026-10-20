@@ -98,16 +98,16 @@ module tg_lsu
   output logic                         sq_drained,    // no committed store left
   output logic                         mmio_busy,     // an MMIO load or an atomic: no interrupt
   input  logic                         rsv_clr,       // trap or xRET: the LR reservation ends
-  // Translation and PMP (M3)
-  input  priv_e                        priv,          // fetch walks
-  input  priv_e                        priv_d,        // loads and stores
-  input  logic                         sum,
-  input  logic                         mxr,
-  input  logic                         satp_sv39,
-  input  logic [43:0]                  satp_ppn,
-  input  pmp_d_t [PMP_ENTRIES-1:0]     pmp_d,
-  input  logic [2:0]                   pmp_al,
-  input  logic [PMP_ENTRIES-1:0]       pmp_p2m,
+  // Translation and PMP (M3), each hart's (M7's step 4: an access takes its thread's)
+  input  priv_e  [NUM_THREADS-1:0]                  priv,          // fetch walks
+  input  priv_e  [NUM_THREADS-1:0]                  priv_d,        // loads and stores
+  input  logic   [NUM_THREADS-1:0]                  sum,
+  input  logic   [NUM_THREADS-1:0]                  mxr,
+  input  logic   [NUM_THREADS-1:0]                  satp_sv39,
+  input  logic   [NUM_THREADS-1:0][43:0]            satp_ppn,
+  input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d,
+  input  logic   [NUM_THREADS-1:0][2:0]             pmp_al,
+  input  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m,
   input  logic                         tlb_flush,
   input  tid_t                         tlb_flush_tid,  // ... the hart whose entries it clears
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
@@ -516,8 +516,6 @@ module tg_lsu
   assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q[t_ls]));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
-  logic xl_d;                                   // data accesses translate
-  assign xl_d = EXT_SU && satp_sv39 && priv_d != PRIV_M;
   // the ROB head's check takes one port (#9 on, ROB_HEAD_TLB_LATE) or two (off)
   localparam int DT_NR = ROB_HEAD_TLB_LATE ? 3 : 4;
   logic [DT_NR-1:0][26:0] dt_vpn;
@@ -554,12 +552,22 @@ module tg_lsu
     dt_vpn_e[1] = sta_ag_addr[38:12];
   end
   // Each lookup's thread (M7's step 4): a load's or a store's, its queue entry's half; the head's, the running
-  // thread's (until the head's checks follow the committing thread)
+  // thread's (until the head's checks follow the committing thread). Each access translates and checks with its
+  // thread's privilege, SUM, MXR, satp and PMP: the deciding load's (t_ln) and store's (t_sn), the head's, the
+  // load checker's load's (t_lck), the store checker's user's (t_pst), the walk's (in tg_ptw)
   tid_t [DT_NR-1:0] dt_tid;                       // (driven below ln_lq's declaration)
-  tid_t             pw_tid_q;                     // the walk's thread (the fills')
+  tid_t             t_ln, t_sn;
+  tid_t             pw_dtid;                      // the walk's thread (the fills')
+  logic [NT-1:0]    xl_t;                         // each thread's data accesses translate
+  logic             xl_l, xl_s;                   // ... the deciding load's, the deciding store's
+  assign t_ln = dt_tid[0];
+  assign t_sn = dt_tid[1];
+  always_comb for (int t = 0; t < NT; t++) xl_t[t] = EXT_SU && satp_sv39[t] && priv_d[t] != PRIV_M;
+  assign xl_l = xl_t[t_ln];
+  assign xl_s = xl_t[t_sn];
   tg_tlb #(.NE(DTLB_ENTRIES), .NR(DT_NR), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? DT_NR'(3) : DT_NR'(0))) u_dtlb (
     .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
-    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .fill_tid(pw_tid_q), .flush(tlb_flush),
+    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .fill_tid(pw_dtid), .flush(tlb_flush),
     .flush_tid(tlb_flush_tid));
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
@@ -573,25 +581,27 @@ module tg_lsu
   logic [0:0]  nl_chk;
   logic [PA_W-1:0] lck_pa;                        // the checker's access: a registered PA and size
   logic        lck_dbl;
+  tid_t        t_lck;                             // ... and its load's thread
   logic        l_den, lm_den, mm_hold;            // denied: the load in M2; an MMIO load (check only); the head's
   logic        lm_st;                             // ... MMIO issue held; the denied MMIO load's state write,
   logic [LIW-1:0] lm_lq;                          // ... and its LQ entry
   pma_e        nl_pma;
-  assign nl_pa   = xl_d ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
+  assign nl_pa   = xl_l ? {dt_pte[0].ppn, ln_va[11:0]} : ln_va[PA_W-1:0];
   assign nl_mis  = misal(ln_va[2:0], ln_size);
-  assign nl_pf   = xl_d && !nl_mis && !va_canon(ln_va);
-  assign nl_tm   = xl_d && !nl_mis && !nl_pf && !(dt_hit[0] && pte_ok(dt_pte[0], ACC_R, priv_d, sum, mxr));
-  // The region class of both PAs, picked by xl_d last (timing: the translated PA's class does not
+  assign nl_pf   = xl_l && !nl_mis && !va_canon(ln_va);
+  assign nl_tm   = xl_l && !nl_mis && !nl_pf &&
+                   !(dt_hit[0] && pte_ok(dt_pte[0], ACC_R, priv_d[t_ln], sum[t_ln], mxr[t_ln]));
+  // The region class of both PAs, picked by xl_l last (timing: the translated PA's class does not
   // wait for the mode's select)
-  assign nl_pma  = xl_d ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
+  assign nl_pma  = xl_l ? pma_of({dt_pte[0].ppn, ln_va[11:0]}) : pma_of(ln_va[PA_W-1:0]);
   logic       pmp_hit_ld, pmp_hit_st;
   logic [2:0] pmp_rwx_ld, pmp_rwx_st;
   tg_pmp #(.S(1)) u_pmp_ld (.pa(lck_pa), .dbl(lck_dbl), .acc(ACC_R),
-                            .m_mode(priv_d == PRIV_M), .d(pmp_d), .ok(nl_chk), .hit(pmp_hit_ld),
+                            .m_mode(priv_d[t_lck] == PRIV_M), .d(pmp_d[t_lck]), .ok(nl_chk), .hit(pmp_hit_ld),
                             .rwx(pmp_rwx_ld));
-  assign nl_pmpc = xl_d && dt_pte[0].ph;          // the cached result applies
+  assign nl_pmpc = xl_l && dt_pte[0].ph;          // the cached result applies
   assign nl_pmpd = !nl_pmpc;                      // ... else the checker decides, later
-  assign nl_acc  = (xl_d ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
+  assign nl_acc  = (xl_l ? dt_pte[0].big : ln_va[63:PA_W] != '0) || nl_pma == PMA_NONE ||
                    (nl_pmpc && !dt_pte[0].pr);
   assign nl_mmio = nl_pma == PMA_DEVICE || nl_pma == PMA_ROM;
   assign nl_exc  = nl_mis || nl_pf || (!nl_tm && nl_acc);
@@ -979,20 +989,21 @@ module tg_lsu
   assign sa_lr   = sa_amo && am_op_q == AMO_LR;    // LR faults and translates as a load
   assign sa_at   = sa_lr ? ACC_R : ACC_W;
   assign sa_mask = bmask(sn_va[2:0], sn_size);
-  assign sa_pa   = xl_d ? {dt_pte[1].ppn, sn_va[11:0]} : sn_va[PA_W-1:0];
+  assign sa_pa   = xl_s ? {dt_pte[1].ppn, sn_va[11:0]} : sn_va[PA_W-1:0];
   assign sa_mis  = misal(sn_va[2:0], sn_size);
-  assign sa_pf   = xl_d && !sa_mis && !va_canon(sn_va);
-  assign sa_tm   = xl_d && !sa_mis && !sa_pf && !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d, sum, mxr));
+  assign sa_pf   = xl_s && !sa_mis && !va_canon(sn_va);
+  assign sa_tm   = xl_s && !sa_mis && !sa_pf &&
+                   !(dt_hit[1] && pte_ok(dt_pte[1], sa_at, priv_d[t_sn], sum[t_sn], mxr[t_sn]));
   assign sa_pma  = pma_of(sa_pa);
   // PMP: a translated store to a PMP-homogeneous page decides with the DTLB's cached result
   // (plan §4.10), and a bare-mode store with the checker on its VA (a register with the split; no
-  // walk runs in bare mode, so the walker never wants the checker then). A translated store to a
-  // page with a region boundary inside decides as if PMP allowed it, and the checker looks at its
+  // walk of its thread runs in bare mode, and another thread's waits: below). A translated store to
+  // a page with a region boundary inside decides as if PMP allowed it, and the checker looks at its
   // registered PA in S2, the next cycle (below).
-  assign sa_pmpc = xl_d && dt_pte[1].ph;
+  assign sa_pmpc = xl_s && dt_pte[1].ph;
   // atomics only in main memory (interfaces.md §2.4)
-  assign sa_acc  = (xl_d ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
-                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!xl_d && !sa_chk[0]) ||
+  assign sa_acc  = (xl_s ? dt_pte[1].big : sn_va[63:PA_W] != '0) ||
+                   (sa_pmpc && !(sa_lr ? dt_pte[1].pr : dt_pte[1].pw)) || (!xl_s && !sa_chk[0]) ||
                    sa_pma == PMA_NONE || sa_pma == PMA_ROM || (sa_amo && sa_pma != PMA_MEM);
   assign sa_exc  = sa_mis || sa_pf || (!sa_tm && sa_acc);
   assign sa_mmio = sa_pma == PMA_DEVICE && !sa_amo;
@@ -1009,28 +1020,34 @@ module tg_lsu
   // The checker is shared with the walker, which takes it as before, in a cycle without a store
   // at the decision (chk_gnt; so walks keep their timing). The S2 check then waits a cycle; the
   // walker never checks two cycles running, and no store comes to S2 meanwhile. A bare-mode
-  // store uses the checker at its decision: data are bare, so no walk runs.
+  // store uses the checker at its decision (bst): its thread's data are bare, so no walk of that
+  // thread runs. Another thread's walk or S2 check waits for it (two threads, M7: S2 then waits
+  // while the other thread's bare stores decide; nothing enters S2 meanwhile, as they are bare).
   logic [PA_W-1:0] pc_pa;
-  logic            pc_dbl, pw_chk, w_use;
+  logic            pc_dbl, pw_chk, w_use, bst;
   logic            s2_amo_q, s2_m_q, s2_dbl_q, s3_den_q;
   acc_e            s2_at_q;
   logic [PA_W-1:0] s2_pa_q;
   robid_t          s2_rob_q, s3_rob_q;
+  tid_t            pc_t, s2_t_q, t_pst;            // the walk's thread, S2's store's, the checker's user's
+  assign bst    = sn_v && !xl_s;
   assign w_use  = pw_chk && !sn_v;
-  assign s2_go  = s2_v_q && !w_use;
+  assign s2_go  = s2_v_q && !w_use && !bst;
   assign s2_den = s2_go && !sa_chk[0] && !flush;
-  tg_pmp #(.S(1)) u_pmp_st (.pa(!xl_d ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
-                            .dbl(!xl_d ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
-                            .acc(!xl_d ? sa_at : w_use ? ACC_R : s2_at_q),
-                            .m_mode(!xl_d ? priv_d == PRIV_M : !w_use && s2_m_q),
-                            .d(pmp_d), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
+  assign t_pst  = bst ? t_sn : w_use ? pc_t : s2_t_q;
+  tg_pmp #(.S(1)) u_pmp_st (.pa(bst ? sn_va[PA_W-1:0] : w_use ? pc_pa : s2_pa_q),
+                            .dbl(bst ? sn_size == 2'd3 : w_use ? pc_dbl : s2_dbl_q),
+                            .acc(bst ? sa_at : w_use ? ACC_R : s2_at_q),
+                            .m_mode(bst ? priv_d[t_sn] == PRIV_M : !w_use && s2_m_q),
+                            .d(pmp_d[t_pst]), .ok(sa_chk), .hit(pmp_hit_st), .rwx(pmp_rwx_st));
   always_ff @(posedge clk) begin
-    s2_v_q   <= !rst && !flush && ((sa_ok && xl_d && !sa_pmpc) || (s2_v_q && !s2_go));
+    s2_v_q   <= !rst && !flush && ((sa_ok && xl_s && !sa_pmpc) || (s2_v_q && !s2_go));
     if (sn_v) begin                                // (never while S2 waits: then no store decided)
       s2_pa_q  <= sa_pa;
       s2_dbl_q <= sn_size == 2'd3;
       s2_at_q  <= sa_at;
-      s2_m_q   <= priv_d == PRIV_M;
+      s2_m_q   <= priv_d[t_sn] == PRIV_M;
+      s2_t_q   <= t_sn;
       s2_amo_q <= sa_amo;
       s2_rob_q <= sn_rob;
       s2_idx_q <= sa_idx;
@@ -1162,7 +1179,7 @@ module tg_lsu
     end
     assign dt_vpn[2] = hd_vpn_q;
     assign hd_tok    = hd_need_q && !sta_ag_valid && dt_hit[2] &&
-                       pte_ok(dt_pte[2], hd_at_q, priv_d, sum, mxr);
+                       pte_ok(dt_pte[2], hd_at_q, priv_d[t_ls], sum[t_ls], mxr[t_ls]);
     assign hd_walk   = hd_need_q;
   end else begin : g_hd_two
     // B2: both candidates are looked up, the LQ head's VA (port 2) and the committing store's
@@ -1171,9 +1188,9 @@ module tg_lsu
     assign dt_vpn[2] = lqc_rd[2].va[38:12];
     assign dt_vpn[3] = sqva_rd[TRP][38:12];
     assign hd_tok    = !sta_ag_valid &&
-                       (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d, sum, mxr)
+                       (hd_ld ? dt_hit[2] && pte_ok(dt_pte[2], ACC_R, priv_d[t_ls], sum[t_ls], mxr[t_ls])
                               : dt_hit[3] && pte_ok(dt_pte[3], (sq_amo_q[hs] && am_op_q == AMO_LR) ? ACC_R : ACC_W,
-                                                    priv_d, sum, mxr));
+                                                    priv_d[t_ls], sum[t_ls], mxr[t_ls]));
     assign hd_walk   = 1'b1;
   end
   // The ROB sees the head's DTLB retry a cycle later (DR-140 #3; timing: the head's DTLB lookup
@@ -1218,31 +1235,29 @@ module tg_lsu
   assign pw_req[0]  = hd_need && hd_walk && !sta_ag_valid && !hd_tok && !hdf_q && sq_drained;
   assign pw_va[0]   = hd_va;
   assign pw_at[0]   = hd_at;
-  assign pw_mode[0] = priv_d;
+  assign pw_mode[0] = priv_d[t_ls];
   assign pw_req[1]  = iw_req && EXT_SU;
   assign pw_va[1]   = iw_va;
   assign pw_at[1]   = ACC_X;
-  assign pw_mode[1] = priv;
+  assign pw_mode[1] = priv[RUN_TID];
   assign pw_req[2]  = dpf_v_q;
   assign pw_va[2]   = dpf_va_q;
   assign pw_at[2]   = dpf_at_q;
-  assign pw_mode[2] = priv_d;
-  // The walk's thread, from its requester's at the ack: the head's, fetch's (the running thread until step 5), the
-  // prefetch's access's
+  assign pw_mode[2] = priv_d[dpf_tid_q];
+  // Each request's thread (the walk's, taken as it starts): the head's, fetch's (the running thread until step 5),
+  // the prefetch's access's
   tid_t [2:0]       pw_tid;
   assign pw_tid[0]  = t_ls;
   assign pw_tid[1]  = RUN_TID;
   assign pw_tid[2]  = dpf_tid_q;
-  always_ff @(posedge clk)
-    for (int i = 0; i < 3; i++) if (pw_ack[i]) pw_tid_q <= pw_tid[i];
   tg_ptw u_ptw (
     .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,
-    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
+    .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_tid(pc_t), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
     .chk_hit(pmp_hit_st), .chk_rwx(pmp_rwx_st),
-    .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .ack(pw_ack),
+    .req(pw_req), .req_va(pw_va), .req_acc(pw_at), .req_mode(pw_mode), .req_tid(pw_tid), .ack(pw_ack),
     .pt_req, .pt_pa, .pt_gnt, .pt_rsp, .pt_hit, .pt_den, .pt_data(m2_dword_q),
     .mshr_idle(DC_MSHRS == 1 ? mshr_idle : m_wake_any),   // (DR-149: any install, or none busy)
-    .done(pw_done), .done_who(pw_who), .done_ok(pw_ok), .done_cause(pw_cause),
+    .done(pw_done), .done_who(pw_who), .done_tid(pw_dtid), .done_ok(pw_ok), .done_cause(pw_cause),
     .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte));
   assign dt_fill      = pw_done && pw_ok && !pw_who[1];
   assign iw_ack       = pw_ack[1];
@@ -1253,7 +1268,7 @@ module tg_lsu
   assign it_fill_vpn  = pw_vpn;
   assign it_fill_lvl  = pw_lvl;
   assign it_fill_pte  = pw_pte;
-  assign it_fill_tid  = pw_tid_q;
+  assign it_fill_tid  = pw_dtid;
 
   always_ff @(posedge clk) begin
     if (rst || flush) begin
@@ -1795,6 +1810,7 @@ module tg_lsu
 `endif
     assign lck_pa  = m2_pa_q;
     assign lck_dbl = m2_dbl_q;
+    assign t_lck   = lq_tid(int'(m2_lq_q));
     assign l_den   = m2_pck_q && !nl_chk[0];
     assign lm_den  = m2_mck_q && !nl_chk[0];
     if (LSU_MMIO_PMP_REG) begin : g_mreg
@@ -1907,6 +1923,7 @@ module tg_lsu
     end
     assign lck_pa  = m1_pa_q;
     assign lck_dbl = lq_size_q[m1_lq_q] == 2'd3;
+    assign t_lck   = lq_tid(int'(m1_lq_q));
     assign l_den   = m2_lden_q;
     assign lm_den  = m2_mden_q;
     assign lm_st   = m2_mden_q;
