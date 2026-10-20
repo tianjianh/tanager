@@ -58,6 +58,7 @@ RM = ["", "", ", rne", ", rtz", ", rdn", ", rup", ", rmm", ", dyn"]
 DENY_PAGE = 0x80F00000     # the runs deny this page (run_random's --deny): its loads and stores fault
 DENY_IO = 0x10001000       # and this unused device page: an MMIO load there gets a denied response
 NOMEM_PA = 0x800           # nothing below the boot ROM: access faults (data and fetch)
+SHARED_LINES = 4           # several harts (--harts, --shared): the lines they contend for
 UNMAPPED_VA = 0x40000000   # under --vm, nothing is mapped here: page faults
 NONCANON_VA = 0x0000004000000000  # bit 38 set, bits 63..39 clear: not a Sv39 address
 LD = {"lb": 0, "lbu": 0, "lh": 1, "lhu": 1, "lw": 2, "lwu": 2, "ld": 3}
@@ -69,8 +70,15 @@ def x(r):
 
 
 class Gen:
-    def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2):
+    def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2, pfx="", hartid=0, multi=None, shared=0):
         self.r = random.Random(seed)
+        # Several harts (--harts): each runs a program of its own, its labels prefixed (pfx), its timer at its
+        # own mtimecmp (hartid); multi = (its index, the number of harts) for the exit's barrier; shared: the
+        # weight of the templates on the region all harts share (multi_program)
+        self.pfx = pfx
+        self.hartid = hartid
+        self.multi = multi
+        self.shared = shared
         self.seed = seed
         self.isa = isa
         base = isa[4:].split("_")[0].replace("g", "imafd")
@@ -94,7 +102,14 @@ class Gen:
 
     def label(self, name=None):
         self.nlabel += 1
-        return name or f".L{self.nlabel}"
+        return name or f".L{self.pfx}{self.nlabel}"
+
+    def s(self, name):
+        """A label of this hart's program (its own data, stream, stack, page tables, trap handler, functions)."""
+        return self.pfx + name
+
+    def mtimecmp(self):
+        return "CLINT_MTIMECMP" + (f" + {8 * self.hartid}" if self.hartid else "")
 
     def place(self, lab):
         self.lines.append(f"{lab}:")
@@ -227,7 +242,7 @@ class Gen:
         ptr = self.wr((cnt,))
         stride = self.r.choice([64, 128, 4096 + 64, 8192 + 128, 576])
         n = self.r.randrange(4, 16)
-        self.emit(f"la {x(ptr)}, stream")
+        self.emit(f"la {x(ptr)}, {self.s('stream')}")
         self.emit(f"li {x(cnt)}, {n}")
         self.emit(f"andi {x(self.wr((cnt, ptr)))}, {x(self.rd_any())}, 0")
         top = self.label()
@@ -244,11 +259,11 @@ class Gen:
             self.emit(f"li {x(v)}, {stride - stride % 2048}")
             self.emit(f"add {x(ptr)}, {x(ptr)}, {x(v)}")
         # keep the pointer inside the stream region
-        self.emit(f"la {x(v)}, stream")
+        self.emit(f"la {x(v)}, {self.s('stream')}")
         self.emit(f"sub {x(ptr)}, {x(ptr)}, {x(v)}")
         self.emit(f"li {x(v)}, {self.stream_size - 64}")
         self.emit(f"and {x(ptr)}, {x(ptr)}, {x(v)}")
-        self.emit(f"la {x(v)}, stream")
+        self.emit(f"la {x(v)}, {self.s('stream')}")
         self.emit(f"add {x(ptr)}, {x(ptr)}, {x(v)}")
         self.emit(f"addi {x(cnt)}, {x(cnt)}, -1")
         self.emit(f"bnez {x(cnt)}, {top}")
@@ -266,7 +281,7 @@ class Gen:
         t = self.wr((b, p))
         acc = self.wr((b, p, t))
         fixed = (b, p, t, acc)
-        self.emit(f"la {x(b)}, stream")
+        self.emit(f"la {x(b)}, {self.s('stream')}")
         self.emit(f"andi {x(acc)}, {x(self.rd_any())}, 0")
         loads = ["ld", "lw", "lwu", "lh", "lbu"]
         stores = ["sd", "sw", "sh", "sb"]
@@ -313,7 +328,7 @@ class Gen:
             v = self.muldiv()
         else:
             v = self.wr()
-            self.emit(f"la {x(v)}, stream")
+            self.emit(f"la {x(v)}, {self.s('stream')}")
             self.emit(f"ld {x(v)}, {self.r.randrange(0, 2040, 8)}({x(v)})")
         for _ in range(self.r.randrange(0, 3)):
             self.alu(rs1=v)
@@ -462,7 +477,7 @@ class Gen:
     def t_call(self):
         """Calls and returns through the return-address stack."""
         self.funcs += 1
-        self.emit(f"jal x1, tg_func{self.r.randrange(4)}")
+        self.emit(f"jal x1, {self.s('tg_func')}{self.r.randrange(4)}")
         if self.r.randrange(2):
             t = self.wr((1,))
             fwd = self.label()
@@ -588,7 +603,7 @@ class Gen:
         """A load from the CLINT (a device region; performed at the ROB head, its value adopted in
         lockstep), its dependents, and a branch on the value."""
         t = self.wr()
-        self.emit(f"li {x(t)}, {self.r.choice(['CLINT_MTIME', 'CLINT_MTIMECMP'])}")
+        self.emit(f"li {x(t)}, {self.r.choice(['CLINT_MTIME', self.mtimecmp()])}")
         v = self.wr((t,))
         self.emit(f"ld {x(v)}, 0({x(t)})")
         if self.r.randrange(2):
@@ -605,7 +620,7 @@ class Gen:
         independent divides, FP divides and square roots, and loads that miss, so rename waits for a
         tag."""
         p = self.wr()
-        self.emit(f"la {x(p)}, stream")
+        self.emit(f"la {x(p)}, {self.s('stream')}")
         self.emit(f"li {x(self.wr((p,)))}, {self.r.randrange(4) * 2048}")
         for i in range(self.r.randrange(12, 28)):
             k = self.r.randrange(3 if self.has_fd else 2)
@@ -629,7 +644,7 @@ class Gen:
             return self.t_long_burst()
         p = self.wr((1,))
         t = self.wr((1, p))
-        self.emit(f"la {x(p)}, stream")
+        self.emit(f"la {x(p)}, {self.s('stream')}")
         self.emit(f"li {x(t)}, {self.r.randrange(self.stream_size // 64) * 64}")
         self.emit(f"add {x(p)}, {x(p)}, {x(t)}")
         src = self.wr((1, p))
@@ -716,10 +731,10 @@ class Gen:
             if self.r.randrange(2):
                 self.emit("sfence.vma")
             else:
-                self.emit(f"la {x(t)}, stream")
+                self.emit(f"la {x(t)}, {self.s('stream')}")
                 self.emit(f"sfence.vma {x(t)}, x0")
         else:
-            self.emit(f"la {x(t)}, stream")
+            self.emit(f"la {x(t)}, {self.s('stream')}")
             v = self.wr((t,))
             self.emit(f"li {x(v)}, {self.r.randrange(self.stream_size // 4096) * 4096}")
             self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
@@ -728,14 +743,106 @@ class Gen:
                 self.emit(f"li {x(v)}, {4096 + 64 * self.r.randrange(8)}")
                 self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
                 # stay inside the stream region
-                self.emit(f"la {x(v)}, stream")
+                self.emit(f"la {x(v)}, {self.s('stream')}")
                 self.emit(f"sub {x(t)}, {x(t)}, {x(v)}")
                 self.emit(f"li {x(v)}, {self.stream_size - 4096}")
                 self.emit(f"and {x(t)}, {x(t)}, {x(v)}")
-                self.emit(f"la {x(v)}, stream")
+                self.emit(f"la {x(v)}, {self.s('stream')}")
                 self.emit(f"add {x(t)}, {x(t)}, {x(v)}")
 
     # ---- F and D ----
+    # ---- several harts (--harts with --shared): the region all of them share ----
+    def sh_addr(self, size, avoid=()):
+        """A register holding an aligned address in the shared lines."""
+        t = self.wr(avoid)
+        self.emit(f"la {x(t)}, shared")
+        off = self.r.randrange(0, SHARED_LINES * 64, 1 << size)
+        if off:
+            self.emit(f"addi {x(t)}, {x(t)}, {off}")
+        return t
+
+    def t_sh_amo(self):
+        """AMOs on the shared words, some with rd = x0 (as Linux's amoadd and amoor) and some ordered."""
+        for _ in range(self.r.randrange(1, 4)):
+            w = self.r.choice("wd")
+            a = self.sh_addr(2 if w == "w" else 3)
+            op = self.r.choice(["add", "swap", "or", "and", "xor", "max", "min", "maxu", "minu"])
+            rd = 0 if self.r.randrange(3) == 0 else self.wr((a,))
+            self.emit(f"amo{op}.{w}{self.r.choice(['', '.aq', '.rl', '.aqrl'])} {x(rd)}, {x(self.rd_any())}, ({x(a)})")
+
+    def t_sh_lrsc(self):
+        """A constrained LR/SC loop on a shared word, at most eight tries: its forward progress is not
+        guaranteed against other harts' stores and AMOs, so the bound keeps the program finite."""
+        w = self.r.choice("wd")
+        a = self.sh_addr(2 if w == "w" else 3)
+        v = self.wr((a,))
+        f = self.wr((a, v))
+        n = self.wr((a, v, f))
+        retry, done = self.label(), self.label()
+        self.emit(f"li {x(n)}, 8")
+        self.place(retry)
+        self.emit(f"lr.{w}{self.r.choice(['', '.aq'])} {x(v)}, ({x(a)})")
+        self.emit(f"{self.r.choice(['addi', 'xori', 'ori'])} {x(v)}, {x(v)}, {self.r.randrange(1, 2048)}")
+        self.emit(f"sc.{w}{self.r.choice(['', '.rl'])} {x(f)}, {x(v)}, ({x(a)})")
+        self.emit(f"beqz {x(f)}, {done}")
+        self.emit(f"addi {x(n)}, {x(n)}, -1")
+        self.emit(f"bnez {x(n)}, {retry}")
+        self.place(done)
+
+    def t_sh_plain(self):
+        """Plain loads and stores of the shared words: racy, so lockstep takes a load's value from another
+        hart's write where one could still be seen (verification.md §3.7)."""
+        for _ in range(self.r.randrange(2, 6)):
+            size = self.r.randrange(4)
+            a = self.sh_addr(size)
+            if self.r.randrange(2):
+                op = ["lb", "lh", "lw", "ld"][size] if size == 3 or self.r.randrange(2) else ["lbu", "lhu", "lwu"][size]
+                self.emit(f"{op} {x(self.wr((a,)))}, 0({x(a)})")
+            else:
+                self.emit(f"{['sb', 'sh', 'sw', 'sd'][size]} {x(self.rd_any())}, 0({x(a)})")
+
+    def t_sh_fence(self):
+        """Shared accesses on both sides of a fence."""
+        self.t_sh_plain()
+        self.emit(self.r.choice(["fence rw, rw", "fence r, r", "fence w, w", "fence r, rw", "fence rw, w", "fence w, r",
+                                 "fence.tso"]))
+        self.r.choice([self.t_sh_plain, self.t_sh_amo])()
+
+    def t_sh_line(self):
+        """Stores of this hart to its own word of a shared line, loads of the others' (false sharing)."""
+        a = self.wr()
+        self.emit(f"la {x(a)}, shared")
+        line = self.r.randrange(SHARED_LINES)
+        if line:
+            self.emit(f"addi {x(a)}, {x(a)}, {line * 64}")
+        own = 8 * (self.multi[0] % 8)
+        for _ in range(self.r.randrange(1, 4)):
+            self.emit(f"sd {x(self.rd_any())}, {own}({x(a)})")
+            self.emit(f"ld {x(self.wr((a,)))}, {8 * self.r.randrange(8)}({x(a)})")
+
+    def multi_exit(self):
+        """The end of one hart's program under multi_program: it counts itself done with an AMO; the first hart
+        reads the count atomically until every hart has, then writes tohost; the others park in WFI."""
+        i, n = self.multi
+        e = self.emit
+        e("li x5, 1")
+        e("la x6, done_count")
+        e("amoadd.w x0, x5, (x6)")
+        if i == 0:
+            e(f"li x7, {n}")
+            self.place(self.s("wait_done"))
+            e("amoor.w x5, x0, (x6)")
+            e(f"bne x5, x7, {self.s('wait_done')}")
+            e("li x5, 1")
+            e("la x6, tohost")
+            e("sd x5, 0(x6)")
+            self.place("1")
+            e("j 1b")
+        else:
+            self.place("1")
+            e("wfi")
+            e("j 1b")
+
     def fr(self):
         return f"f{self.r.randrange(32)}"
 
@@ -863,7 +970,7 @@ class Gen:
 
     # ---- program ----
     def data(self):
-        out = [".section .data", ".balign 4096", "data:"]
+        out = [".section .data", ".balign 4096", f"{self.s('data')}:"]
         # Pointer table: offsets slot * PTR_STEP + 256 (t_late_store), then random bytes.
         for s in range(PTR_SLOTS):
             out.append(f"  .dword {s * PTR_STEP + 256}")
@@ -871,11 +978,11 @@ class Gen:
         for i in range(0, words, 4):
             vals = ", ".join(f"0x{self.r.getrandbits(64):016x}" for _ in range(min(4, words - i)))
             out.append(f"  .dword {vals}")
-        out += [".section .bss", ".balign 4096", "stream:", f"  .space {self.stream_size}",
-                ".balign 4096", "stack:", "  .space 4096", "stack_top:"]
+        out += [".section .bss", ".balign 4096", f"{self.s('stream')}:", f"  .space {self.stream_size}",
+                ".balign 4096", f"{self.s('stack')}:", "  .space 4096", f"{self.s('stack_top')}:"]
         if self.vm:  # Sv39 tables: the root, the level-1 tables for 0..1 GiB and 2..3 GiB, the image's level 0
-            out += [".balign 4096", "pt_root:", "  .space 4096", "pt_l1lo:", "  .space 4096", "pt_l1:", "  .space 4096",
-                    "pt_l0:", "  .space 4096"]
+            out += [".balign 4096", f"{self.s('pt_root')}:", "  .space 4096", f"{self.s('pt_l1lo')}:", "  .space 4096",
+                    f"{self.s('pt_l1')}:", "  .space 4096", f"{self.s('pt_l0')}:", "  .space 4096"]
         return out
 
     def vm_setup(self):
@@ -883,7 +990,7 @@ class Gen:
         whole image) in 4 KiB pages; the CLINT and the denied page in 2 MiB pages; nothing else, so
         UNMAPPED_VA and NONCANON_VA fault. Every leaf has A and D set (the core faults on clear ones)."""
         e = self.emit
-        for t in ("pt_root", "pt_l1lo", "pt_l1"):  # the loader zeroes .bss; make sure
+        for t in (self.s("pt_root"), self.s("pt_l1lo"), self.s("pt_l1")):  # the loader zeroes .bss; make sure
             e(f"la x30, {t}")
             e("li x31, 512")
             self.place(f"{t}_z")
@@ -891,15 +998,15 @@ class Gen:
             e("addi x30, x30, 8")
             e("addi x31, x31, -1")
             e(f"bnez x31, {t}_z")
-        e("la x30, pt_l0")              # level 0: 512 pages from 0x8000_0000, RWX, A, D
+        e(f"la x30, {self.s('pt_l0')}")  # level 0: 512 pages from 0x8000_0000, RWX, A, D
         e("li x31, 0x200000CF")
         e("li x5, 512")
-        self.place("pt_l0_fill")
+        self.place(self.s("pt_l0_fill"))
         e("sd x31, 0(x30)")
         e("addi x30, x30, 8")
         e("addi x31, x31, 0x400")
         e("addi x5, x5, -1")
-        e("bnez x5, pt_l0_fill")
+        e(f"bnez x5, {self.s('pt_l0_fill')}")
 
         def link(table, index, target):  # table[index] = non-leaf -> target
             e(f"la x30, {target}")
@@ -918,12 +1025,12 @@ class Gen:
             e(f"li x30, {pte:#x}")
             e("sd x30, 0(x31)")
 
-        link("pt_root", 0, "pt_l1lo")
-        link("pt_root", 2, "pt_l1")
-        link("pt_l1", 0, "pt_l0")                                  # 0x8000_0000: the image
-        leaf("pt_l1", (DENY_PAGE >> 21) & 0x1FF, ((DENY_PAGE >> 21 << 9) << 10) | 0xC7)   # 2 MiB, RW
-        leaf("pt_l1lo", (0x02000000 >> 21) & 0x1FF, ((0x02000000 >> 12) << 10) | 0xC7)   # the CLINT, RW
-        e("la x30, pt_root")
+        link(self.s("pt_root"), 0, self.s("pt_l1lo"))
+        link(self.s("pt_root"), 2, self.s("pt_l1"))
+        link(self.s("pt_l1"), 0, self.s("pt_l0"))                  # 0x8000_0000: the image
+        leaf(self.s("pt_l1"), (DENY_PAGE >> 21) & 0x1FF, ((DENY_PAGE >> 21 << 9) << 10) | 0xC7)   # 2 MiB, RW
+        leaf(self.s("pt_l1lo"), (0x02000000 >> 21) & 0x1FF, ((0x02000000 >> 12) << 10) | 0xC7)   # the CLINT, RW
+        e(f"la x30, {self.s('pt_root')}")
         e("srli x30, x30, 12")
         e("li x31, 8")
         e("slli x31, x31, 60")
@@ -934,22 +1041,25 @@ class Gen:
         e("csrc mstatus, x30")
         e("li x30, 0x0800")
         e("csrs mstatus, x30")         # MPP = S
-        e("la x30, vm_body")
+        e(f"la x30, {self.s('vm_body')}")
         e("csrw mepc, x30")
         e("mret")
-        self.place("vm_body")
+        self.place(self.s("vm_body"))
 
     def program(self):
         r = self.r
-        out = [f"/* tg_rand seed={self.seed} isa={self.isa} irq={self.irq} length={self.length} "
-               f"group3={self.group3} vm={int(self.vm)} (tests/random/tg_rand.py) */",
-               '#define CLINT_MTIMECMP 0x02004000', '#define CLINT_MTIME 0x0200bff8',
-               ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:"]
+        if self.multi:   # one hart's program in multi_program, which writes the file's header and _start
+            out = [f"/* hart {self.hartid}: seed={self.seed} vm={int(self.vm)} */", ".section .text", f"{self.s('_start')}:"]
+        else:
+            out = [f"/* tg_rand seed={self.seed} isa={self.isa} irq={self.irq} length={self.length} "
+                   f"group3={self.group3} vm={int(self.vm)} (tests/random/tg_rand.py) */",
+                   '#define CLINT_MTIMECMP 0x02004000', '#define CLINT_MTIME 0x0200bff8',
+                   ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:"]
         self.lines = []
-        self.emit("la x31, trap")
+        self.emit(f"la x31, {self.s('trap')}")
         self.emit("csrw mtvec, x31")
-        self.emit("la x2, stack_top")
-        self.emit("la x3, data")
+        self.emit(f"la x2, {self.s('stack_top')}")
+        self.emit(f"la x3, {self.s('data')}")
         self.emit(f"li x4, {ALIAS_PAGES * 4096}")
         self.emit("add x4, x4, x3")
         if self.has_fd:
@@ -966,7 +1076,7 @@ class Gen:
             self.emit("li x31, CLINT_MTIME")
             self.emit("ld x31, 0(x31)")
             self.emit(f"addi x31, x31, {self.irq}")
-            self.emit("li x30, CLINT_MTIMECMP")
+            self.emit(f"li x30, {self.mtimecmp()}")
             self.emit("sd x31, 0(x30)")
             self.emit("li x31, 0x80")
             self.emit("csrs mie, x31")
@@ -990,6 +1100,9 @@ class Gen:
             templates.append((self.t_group3, 6))
         if self.has_fd:
             templates += [(self.t_fp_burst, 10), (self.t_fp_mem, 4), (self.t_fp_csr, 2), (self.t_fp_long, 6)]
+        if self.multi and self.shared:   # the shared region's templates, together weighing --shared
+            templates += [(self.t_sh_amo, 3 * self.shared), (self.t_sh_lrsc, 2 * self.shared), (self.t_sh_plain, 3 * self.shared),
+                          (self.t_sh_fence, self.shared), (self.t_sh_line, self.shared)]
         fns, weights = zip(*templates)
         for _ in range(self.length):
             r.choices(fns, weights)[0]()
@@ -997,15 +1110,18 @@ class Gen:
             self.emit("csrci mstatus, 8")
         # The exit through registers the trap handler never touches: in S-mode (--vm) M-level interrupts
         # stay enabled, and one between these instructions must not change the value or the address.
-        self.emit("li x5, 1")
-        self.emit("la x6, tohost")
-        self.emit("sd x5, 0(x6)")
-        self.place("1")
-        self.emit("j 1b")
+        if self.multi:
+            self.multi_exit()
+        else:
+            self.emit("li x5, 1")
+            self.emit("la x6, tohost")
+            self.emit("sd x5, 0(x6)")
+            self.place("1")
+            self.emit("j 1b")
         out += self.lines
         # Leaf functions for t_call: they may clobber temporaries but never x1.
         for i in range(4):
-            out.append(f"tg_func{i}:")
+            out.append(f"{self.s('tg_func')}{i}:")
             for _ in range(r.randrange(1, 5)):
                 self.lines = []
                 self.alu(rd=self.wr((1,)))
@@ -1014,13 +1130,13 @@ class Gen:
         # Trap handler: skip the faulting instruction (2 or 4 bytes); re-arm the timer on interrupts.
         # A fetch fault (access 1, page 12) cannot skip its instruction: it returns to x1, which the
         # jalr into the faulting address set.
-        out += [".balign 4", "trap:",
+        out += [".balign 4", f"{self.s('trap')}:",
                 "  csrr x31, mcause",
-                "  bltz x31, trap_irq",
+                f"  bltz x31, {self.s('trap_irq')}",
                 "  addi x30, x31, -1",
-                "  beqz x30, trap_ra",
+                f"  beqz x30, {self.s('trap_ra')}",
                 "  addi x30, x31, -12",
-                "  beqz x30, trap_ra",
+                f"  beqz x30, {self.s('trap_ra')}",
                 "  csrr x31, mepc",
                 "  lhu x30, 0(x31)",
                 "  andi x30, x30, 3",
@@ -1031,20 +1147,48 @@ class Gen:
                 "1:",
                 "  csrw mepc, x31",
                 "  mret",
-                "trap_ra:",
+                f"{self.s('trap_ra')}:",
                 "  csrw mepc, x1",
                 "  mret",
-                "trap_irq:",
+                f"{self.s('trap_irq')}:",
                 "  li x31, CLINT_MTIME",
                 "  ld x31, 0(x31)",
                 f"  addi x31, x31, {self.irq or 100}",
-                "  li x30, CLINT_MTIMECMP",
+                f"  li x30, {self.mtimecmp()}",
                 "  sd x31, 0(x30)",
                 "  mret"]
         out += self.data()
-        out += [".section .tohost, \"aw\", @progbits", ".balign 64", ".globl tohost", "tohost: .dword 0",
-                ".balign 64", ".globl fromhost", "fromhost: .dword 0"]
+        if not self.multi:
+            out += [".section .tohost, \"aw\", @progbits", ".balign 64", ".globl tohost", "tohost: .dword 0",
+                    ".balign 64", ".globl fromhost", "fromhost: .dword 0"]
         return "\n".join(out) + "\n"
+
+
+def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared):
+    """Several harts (M7: siblings in one core, or harts of two cores), each running a program of its own:
+    _start sends each listed hart to its program and parks every other in WFI. Each program has its own
+    labels, data, stream, stack, page tables (--vm draws for each), trap handler and timer; they share
+    done_count, the exit's barrier, and with --shared the lines at shared. The first hart listed writes
+    tohost once every hart has finished."""
+    r = random.Random(seed)
+    n = len(harts)
+    gens = [Gen(r.getrandbits(32), isa, irq, length, group3, vm, miss, pfx=f"h{i}_", hartid=h, multi=(i, n),
+                shared=shared) for i, h in enumerate(harts)]
+    out = [f"/* tg_rand seed={seed} isa={isa} irq={irq} length={length} group3={group3} vm={vm}% "
+           f"harts={','.join(map(str, harts))} shared={shared} (tests/random/tg_rand.py) */",
+           "#define CLINT_MTIMECMP 0x02004000", "#define CLINT_MTIME 0x0200bff8",
+           ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:", "  csrr x10, mhartid"]
+    for i, h in enumerate(harts):
+        out += [f"  li x5, {h}", "  bne x10, x5, 1f", f"  j h{i}__start", "1:"]
+    out += ["2:", "  wfi", "  j 2b"]
+    for g in gens:
+        out.append(g.program())
+    out += [".section .data", ".balign 64", "done_count: .dword 0", ".balign 64", "shared:"]
+    for _ in range(SHARED_LINES * 2):
+        out.append("  .dword " + ", ".join(f"0x{r.getrandbits(64):016x}" for _ in range(4)))
+    out += [".section .tohost, \"aw\", @progbits", ".balign 64", ".globl tohost", "tohost: .dword 0",
+            ".balign 64", ".globl fromhost", "fromhost: .dword 0"]
+    return "\n".join(out) + "\n"
 
 
 def main():
@@ -1058,9 +1202,19 @@ def main():
                     "mix weighs the others 1-6): 12 makes misses in flight the program's main business")
     ap.add_argument("--vm", type=int, default=0, help="percentage of programs that run in S-mode under Sv39 "
                                                       "(needs S-mode and Sv39: Spike --priv=MSU)")
+    ap.add_argument("--harts", default="0", help="the harts that run, each a program of its own (M7): 0,1 the two "
+                    "threads of one core, 0,2 one thread of each of two cores, 0,1,2,3 all four; needs the A extension")
+    ap.add_argument("--shared", type=int, default=0, help="with several harts: the weight of the templates on the "
+                    "lines they share (AMOs, LR/SC, plain loads and stores, fences, false sharing); 0: none")
     ap.add_argument("-o", "--output", default="-")
     a = ap.parse_args()
-    text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss).program()
+    harts = [int(h) for h in a.harts.split(",")]
+    if len(harts) > 1:
+        if "a" not in a.isa[4:].split("_")[0].replace("g", "imafd"):
+            ap.error("--harts needs the A extension (the exit's barrier is an AMO)")
+        text = multi_program(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, harts, a.shared)
+    else:
+        text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss).program()
     if a.output == "-":
         sys.stdout.write(text)
     else:
