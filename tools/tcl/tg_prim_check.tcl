@@ -16,6 +16,8 @@
 #   tg_ram_lut   WIDTH = |wdata|, NR = |rdata| / WIDTH, AW = |waddr|
 #                AW <= 5: RAM32M16 = ceil(NR * ceil(WIDTH/2) / 7)
 #                AW >= 6: RAM64M8  = 2^(AW-6) * ceil(NR * WIDTH / 7)
+#                DEPTH 65-96 (AW = 7, its cells under g_m96; DR-175): RAM64M8 = ceil(NR * WIDTH / 7)
+#                and RAM32M16 = ceil(NR * ceil(WIDTH/2) / 7), entries 0-63 and 64-95
 #                Read bits with no load are trimmed by Vivado, and with them every primitive
 #                whose read slots (tg_ram_lut's port-major packing, 7 per primitive) are all
 #                unloaded, usually by opt_design. So the count may lie between the primitives
@@ -156,37 +158,41 @@ proc tg_prim_check {args} {
       set used [tg_prim__loaded_bits $cell rdata $w $nr]
       set nused 0
       foreach u $used { incr nused $u }
-      set shape "2^$aw x $w, $nr read"
+      # the 96 form (tg_ram_lut's g_m96: a 64-entry RAM64M8 bank and a 32-entry RAM32M16 one)
+      set m96 [expr {$aw == 7 && [llength [get_cells -quiet -hierarchical -filter "NAME =~ [get_property NAME $cell]/g_m96.* && IS_PRIMITIVE"]] > 0}]
+      set shape [expr {$m96 ? "96 (64 + 32) x $w, $nr read" : "2^$aw x $w, $nr read"}]
       if {$nused < $w * $nr} { append shape ", $nused of [expr {$w * $nr}] read bits loaded" }
-      set keep [dict create]
+      # primitives holding a loaded bit, for 2-bit slots (RAM32M16) and 1-bit slots (RAM64M8)
+      set keep32 [dict create]; set keep64 [dict create]
       for {set r 0} {$r < $nr} {incr r} {
         for {set k 0} {$k < $w} {incr k} {
           if {![lindex $used [expr {$r * $w + $k}]]} { continue }
-          if {$aw <= 5} {
-            set slot [expr {$r * [tg_prim__ceil $w 2] + $k / 2}]
-          } else {
-            set slot [expr {$r * $w + $k}]
-          }
-          dict set keep [expr {$slot / 7}] 1
+          dict set keep32 [expr {($r * [tg_prim__ceil $w 2] + $k / 2) / 7}] 1
+          dict set keep64 [expr {($r * $w + $k) / 7}] 1
         }
       }
       # lo: primitives holding a loaded bit (all a correct mapping needs); hi: the full mapping.
       # Between the two, unloaded primitives are not trimmed yet (after synth_design they may
       # still be there; opt_design removes them): fewer than lo means a used bit lost its
       # primitive, more than hi a wrong mapping.
-      if {$aw <= 5} {
-        set pref RAM32M16
-        set lo [dict size $keep]
-        set hi [tg_prim__ceil [expr {$nr * [tg_prim__ceil $w 2]}] 7]
+      set r32 [list [dict size $keep32] [tg_prim__ceil [expr {$nr * [tg_prim__ceil $w 2]}] 7]]
+      set nb  [expr {$aw >= 6 ? 1 << ($aw - 6) : 1}]
+      set r64 [list [expr {$nb * [dict size $keep64]}] [expr {$nb * [tg_prim__ceil [expr {$nr * $w}] 7]}]]
+      if {$m96} {
+        set ranges [dict create RAM64M8 [list [dict size $keep64] [tg_prim__ceil [expr {$nr * $w}] 7]] RAM32M16 $r32]
+      } elseif {$aw <= 5} {
+        set ranges [dict create RAM32M16 $r32]
       } else {
-        set pref RAM64M8
-        set lo [expr {(1 << ($aw - 6)) * [dict size $keep]}]
-        set hi [expr {(1 << ($aw - 6)) * [tg_prim__ceil [expr {$nr * $w}] 7]}]
+        set ranges [dict create RAM64M8 $r64]
       }
-      dict set exp $pref [expr {$lo == $hi ? $lo : "$lo-$hi"}]
+      dict for {pref lh} $ranges {
+        lassign $lh lo hi
+        dict set exp $pref [expr {$lo == $hi ? $lo : "$lo-$hi"}]
+      }
       foreach ref $ram_refs {
         set f [expr {[dict exists $found $ref] ? [dict get $found $ref] : 0}]
-        if {$ref eq $pref} {
+        if {[dict exists $ranges $ref]} {
+          lassign [dict get $ranges $ref] lo hi
           if {$f < $lo || $f > $hi} { set status FAIL }
         } elseif {$f != 0} {
           set status FAIL
