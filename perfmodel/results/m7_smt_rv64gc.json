@@ -60159,5 +60159,587 @@
     ]
    }
   }
+ },
+ "groups": {
+  "the plan (75% caps)": {
+   "30": {
+    "mixed": 1.3270798933799093,
+    "one": 1.3218481759207803,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2741647348672251
+     },
+     "compute+compute": {
+      "ws": 1.2946819629388404
+     },
+     "mixed": {
+      "ws": 1.4000903093892505
+     }
+    },
+    "dead_42": [],
+    "dead_58": [
+     "ws_chase1_1024+ws_chase8_1024",
+     "ws_copy_1024+ws_chase1_1024",
+     "ws_chase1_2048+ws_chase8_2048",
+     "ws_copy_2048+ws_chase1_2048",
+     "ws_chase1_4096+ws_chase8_4096",
+     "ws_copy_4096+ws_chase1_4096"
+    ],
+    "pairs_one": {
+     "gather+stride": 1.2077808662054892,
+     "stride+spmv": 1.098256359905888,
+     "spmv+hashprobe": 1.6785385149172136,
+     "hashprobe+chase8": 1.5185271272327023,
+     "chase8+stream": 1.0561693498505935,
+     "stream+copy": 1.1938909359701069,
+     "copy+gather": 1.5129207666508648,
+     "gather+spmv": 1.3546654562090978,
+     "stride+hashprobe": 1.5167000300096554,
+     "spmv+chase8": 1.0344184242361223,
+     "hashprobe+stream": 1.5137611598729277,
+     "chase8+copy": 1.0992845474392046,
+     "stream+gather": 1.3248734890330418,
+     "copy+stride": 1.2529416186806888,
+     "chase8+chase8": 1.0002829163325044,
+     "CoreMark+Dhrystone": 1.2636948262860903,
+     "Dhrystone+nsichneu": 1.402202279128577,
+     "nsichneu+huffbench": 1.478016946048197,
+     "huffbench+minver": 1.3744982196649034,
+     "minver+matmult": 1.189483506167133,
+     "matmult+CoreMark": 1.1218484460566773,
+     "CoreMark+nsichneu": 1.3478341656051294,
+     "Dhrystone+huffbench": 1.3561082800869553,
+     "nsichneu+minver": 1.4502486014547227,
+     "huffbench+matmult": 1.2326153840986804,
+     "minver+CoreMark": 1.2919975110265343,
+     "matmult+Dhrystone": 1.1493186115943264,
+     "CoreMark+CoreMark": 1.2321063570891309,
+     "gather+CoreMark": 1.252283867354774,
+     "gather+huffbench": 1.354541737433393,
+     "stride+Dhrystone": 1.3328596414198763,
+     "stride+minver": 1.3578098518329145,
+     "spmv+nsichneu": 1.652366707213452,
+     "spmv+matmult": 1.4030547234674942,
+     "hashprobe+huffbench": 1.7101973424976231,
+     "hashprobe+CoreMark": 1.706351019167473,
+     "chase8+minver": 1.395483269336682,
+     "chase8+Dhrystone": 1.3491297159563866,
+     "stream+matmult": 1.0699256208003818,
+     "stream+nsichneu": 1.3427217367625026,
+     "copy+CoreMark": 1.4048006639372428,
+     "copy+huffbench": 1.4094116024900907
+    }
+   },
+   "120": {
+    "mixed": 1.3159969465445003,
+    "one": 1.3097454138547964,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.236793468106841
+     },
+     "compute+compute": {
+      "ws": 1.298475368047323
+     },
+     "mixed": {
+      "ws": 1.3990388054971832
+     }
+    },
+    "dead_42": [],
+    "dead_58": [
+     "ws_chase1_512+ws_chase8_512",
+     "ws_copy_512+ws_chase1_512",
+     "ws_chase1_1024+ws_chase8_1024",
+     "ws_copy_1024+ws_chase1_1024",
+     "ws_chase1_2048+ws_chase8_2048",
+     "ws_copy_2048+ws_chase1_2048",
+     "ws_chase1_4096+ws_chase8_4096",
+     "ws_copy_4096+ws_chase1_4096"
+    ],
+    "pairs_one": {
+     "gather+stride": 1.1613055457088997,
+     "stride+spmv": 1.0443953001905768,
+     "spmv+hashprobe": 1.5808492976534543,
+     "hashprobe+chase8": 1.3401292167135748,
+     "chase8+stream": 1.0470964073846225,
+     "stream+copy": 1.2033352920252098,
+     "copy+gather": 1.547119065906353,
+     "gather+spmv": 1.2500087373618314,
+     "stride+hashprobe": 1.34728125706394,
+     "spmv+chase8": 1.0090990856900302,
+     "hashprobe+stream": 1.6284626698525357,
+     "chase8+copy": 1.1008603489084203,
+     "stream+gather": 1.3102687787586293,
+     "copy+stride": 1.2119199144100241,
+     "chase8+chase8": 1.0001442589421425,
+     "CoreMark+Dhrystone": 1.2652643205972076,
+     "Dhrystone+nsichneu": 1.4002260709035492,
+     "nsichneu+huffbench": 1.4784829528166412,
+     "huffbench+minver": 1.3823625708514418,
+     "minver+matmult": 1.189089132412715,
+     "matmult+CoreMark": 1.1235423827620865,
+     "CoreMark+nsichneu": 1.3504830194760922,
+     "Dhrystone+huffbench": 1.3562469119271614,
+     "nsichneu+minver": 1.4611419183098304,
+     "huffbench+matmult": 1.2307706696281788,
+     "minver+CoreMark": 1.3224934920449485,
+     "matmult+Dhrystone": 1.1494715053977167,
+     "CoreMark+CoreMark": 1.2314805058846028,
+     "gather+CoreMark": 1.1892813573871301,
+     "gather+huffbench": 1.2593747507666089,
+     "stride+Dhrystone": 1.1991964533011834,
+     "stride+minver": 1.2010130882792152,
+     "spmv+nsichneu": 1.8665937068361476,
+     "spmv+matmult": 1.3708996395936963,
+     "hashprobe+huffbench": 1.7247706209944549,
+     "hashprobe+CoreMark": 1.7941473778854975,
+     "chase8+minver": 1.1340140596947945,
+     "chase8+Dhrystone": 1.0961254205131548,
+     "stream+matmult": 1.2279595394835308,
+     "stream+nsichneu": 1.6323236290708376,
+     "copy+CoreMark": 1.6714715919538463,
+     "copy+huffbench": 1.5471272979744257
+    }
+   },
+   "250": {
+    "mixed": 1.29707344442759,
+    "one": 1.2935514915214334,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2163942580662421
+     },
+     "compute+compute": {
+      "ws": 1.3084098942317026
+     },
+     "mixed": {
+      "ws": 1.3599814421071172
+     }
+    },
+    "dead_42": [],
+    "dead_58": [
+     "ws_chase1_512+ws_chase8_512",
+     "ws_copy_512+ws_chase1_512",
+     "ws_chase1_1024+ws_chase8_1024",
+     "ws_copy_1024+ws_chase1_1024",
+     "ws_chase1_2048+ws_chase8_2048",
+     "ws_copy_2048+ws_chase1_2048",
+     "ws_chase1_4096+ws_chase8_4096",
+     "ws_copy_4096+ws_chase1_4096"
+    ],
+    "pairs_one": {
+     "gather+stride": 1.139128620290698,
+     "stride+spmv": 1.0319013747984747,
+     "spmv+hashprobe": 1.5202670724780938,
+     "hashprobe+chase8": 1.287199072927585,
+     "chase8+stream": 1.0636023140961617,
+     "stream+copy": 1.18523816061025,
+     "copy+gather": 1.4996999650005474,
+     "gather+spmv": 1.2184434879390875,
+     "stride+hashprobe": 1.2868722612092252,
+     "spmv+chase8": 1.015275471213383,
+     "hashprobe+stream": 1.63516383172578,
+     "chase8+copy": 1.0971769660221216,
+     "stream+gather": 1.2831896019054572,
+     "copy+stride": 1.1847916728444488,
+     "chase8+chase8": 1.0001245196759616,
+     "CoreMark+Dhrystone": 1.2672652323121523,
+     "Dhrystone+nsichneu": 1.4006661176452095,
+     "nsichneu+huffbench": 1.4748406232351,
+     "huffbench+minver": 1.4277069565312426,
+     "minver+matmult": 1.207758143032356,
+     "matmult+CoreMark": 1.1256633452718623,
+     "CoreMark+nsichneu": 1.3520831717545727,
+     "Dhrystone+huffbench": 1.3582905915140027,
+     "nsichneu+minver": 1.4840741781289064,
+     "huffbench+matmult": 1.226489345704662,
+     "minver+CoreMark": 1.3680104629106393,
+     "matmult+Dhrystone": 1.1502972563115819,
+     "CoreMark+CoreMark": 1.2321961696455466,
+     "gather+CoreMark": 1.1554156094180796,
+     "gather+huffbench": 1.2051510003592403,
+     "stride+Dhrystone": 1.1185131959813839,
+     "stride+minver": 1.1402058080023847,
+     "spmv+nsichneu": 1.9199370908269446,
+     "spmv+matmult": 1.2085031771806534,
+     "hashprobe+huffbench": 1.6717435723191214,
+     "hashprobe+CoreMark": 1.8314213571179208,
+     "chase8+minver": 1.0982725963432902,
+     "chase8+Dhrystone": 1.0490162893724502,
+     "stream+matmult": 1.165676764257609,
+     "stream+nsichneu": 1.7145299857430523,
+     "copy+CoreMark": 1.7230932233836231,
+     "copy+huffbench": 1.4792466106902156
+    }
+   }
+  },
+  "75% caps, never a whole bank": {
+   "30": {
+    "mixed": 1.3128794616129964,
+    "one": 1.30315871641358,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2503153868137367
+     },
+     "compute+compute": {
+      "ws": 1.2584934764355074
+     },
+     "mixed": {
+      "ws": 1.4064406014770936
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.2021620334339607,
+     "stride+spmv": 1.1007580828213714,
+     "spmv+hashprobe": 1.6804795848877498,
+     "hashprobe+chase8": 1.5840313050394847,
+     "chase8+stream": 1.102906966928308,
+     "stream+copy": 1.1616117787870828,
+     "copy+gather": 1.2159392275295007,
+     "gather+spmv": 1.3109688396121304,
+     "stride+hashprobe": 1.5421596892564042,
+     "spmv+chase8": 1.046781815894251,
+     "hashprobe+stream": 1.5106662408384595,
+     "chase8+copy": 1.1406244858513392,
+     "stream+gather": 1.2089220399237157,
+     "copy+stride": 1.1790229679427715,
+     "chase8+chase8": 1.0002771015389138,
+     "CoreMark+Dhrystone": 1.2257760849613233,
+     "Dhrystone+nsichneu": 1.3419750804190598,
+     "nsichneu+huffbench": 1.3565038751784861,
+     "huffbench+minver": 1.3350466622856343,
+     "minver+matmult": 1.1822201954073024,
+     "matmult+CoreMark": 1.1126531922229448,
+     "CoreMark+nsichneu": 1.2788578154723147,
+     "Dhrystone+huffbench": 1.2860193999761547,
+     "nsichneu+minver": 1.4362517821217322,
+     "huffbench+matmult": 1.2111896597385492,
+     "minver+CoreMark": 1.3108684522064222,
+     "matmult+Dhrystone": 1.1275148848167174,
+     "CoreMark+CoreMark": 1.1987742575866003,
+     "gather+CoreMark": 1.295418011881408,
+     "gather+huffbench": 1.332380496929082,
+     "stride+Dhrystone": 1.3652984266339923,
+     "stride+minver": 1.4703336428049911,
+     "spmv+nsichneu": 1.5626077531685452,
+     "spmv+matmult": 1.397219030733241,
+     "hashprobe+huffbench": 1.6359027669470767,
+     "hashprobe+CoreMark": 1.6396961515264188,
+     "chase8+minver": 1.6264669508112857,
+     "chase8+Dhrystone": 1.532411902547978,
+     "stream+matmult": 1.0613431918558427,
+     "stream+nsichneu": 1.2559056811143468,
+     "copy+CoreMark": 1.3230228862179594,
+     "copy+huffbench": 1.3285611221822045
+    }
+   },
+   "120": {
+    "mixed": 1.3485476211407312,
+    "one": 1.340713137206524,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2564572236159033
+     },
+     "compute+compute": {
+      "ws": 1.257553467984495
+     },
+     "mixed": {
+      "ws": 1.525223288955699
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.163318080519449,
+     "stride+spmv": 1.0497809711921797,
+     "spmv+hashprobe": 1.5857528540049448,
+     "hashprobe+chase8": 1.3993883462314771,
+     "chase8+stream": 1.0667270788512178,
+     "stream+copy": 1.2606641345154759,
+     "copy+gather": 1.3938900851601175,
+     "gather+spmv": 1.218994091128275,
+     "stride+hashprobe": 1.5800413931470942,
+     "spmv+chase8": 1.0453529443726017,
+     "hashprobe+stream": 1.6240611090961847,
+     "chase8+copy": 1.1740007742859757,
+     "stream+gather": 1.239169393392906,
+     "copy+stride": 1.270478651611021,
+     "chase8+chase8": 1.000141909334516,
+     "CoreMark+Dhrystone": 1.2272488098907008,
+     "Dhrystone+nsichneu": 1.3354627063379358,
+     "nsichneu+huffbench": 1.3569614730475423,
+     "huffbench+minver": 1.3433451995167014,
+     "minver+matmult": 1.1873411631750503,
+     "matmult+CoreMark": 1.113981004760502,
+     "CoreMark+nsichneu": 1.283331937885856,
+     "Dhrystone+huffbench": 1.2851017428621883,
+     "nsichneu+minver": 1.4365629487650793,
+     "huffbench+matmult": 1.2098241129744114,
+     "minver+CoreMark": 1.2829681332878269,
+     "matmult+Dhrystone": 1.1276598008515433,
+     "CoreMark+CoreMark": 1.2004767413479098,
+     "gather+CoreMark": 1.3525320354466515,
+     "gather+huffbench": 1.3250829334256742,
+     "stride+Dhrystone": 1.5016224471654789,
+     "stride+minver": 1.6645535870652988,
+     "spmv+nsichneu": 1.7674549156878547,
+     "spmv+matmult": 1.3583902045475296,
+     "hashprobe+huffbench": 1.6498913278847436,
+     "hashprobe+CoreMark": 1.7161787994886268,
+     "chase8+minver": 1.77230475988795,
+     "chase8+Dhrystone": 1.6797768137699094,
+     "stream+matmult": 1.2009923648217067,
+     "stream+nsichneu": 1.5065492092061543,
+     "copy+CoreMark": 1.5444230043587908,
+     "copy+huffbench": 1.4552857056902269
+    }
+   },
+   "250": {
+    "mixed": 1.3427832514912894,
+    "one": 1.3375586279898124,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2392504359473253
+     },
+     "compute+compute": {
+      "ws": 1.2652454487278906
+     },
+     "mixed": {
+      "ws": 1.526175991486678
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.1383490199442714,
+     "stride+spmv": 1.0373668008943675,
+     "spmv+hashprobe": 1.5227977492563536,
+     "hashprobe+chase8": 1.3399878650666925,
+     "chase8+stream": 1.0653697896463483,
+     "stream+copy": 1.251567332416684,
+     "copy+gather": 1.418740099303664,
+     "gather+spmv": 1.1910154621278937,
+     "stride+hashprobe": 1.5735854682565402,
+     "spmv+chase8": 1.044858102549422,
+     "hashprobe+stream": 1.6345632504469547,
+     "chase8+copy": 1.1532790248833793,
+     "stream+gather": 1.1898809950352427,
+     "copy+stride": 1.2468657557853287,
+     "chase8+chase8": 1.0001231730542541,
+     "CoreMark+Dhrystone": 1.2292877456519837,
+     "Dhrystone+nsichneu": 1.3360602547254703,
+     "nsichneu+huffbench": 1.3574613233736699,
+     "huffbench+minver": 1.3503646614201563,
+     "minver+matmult": 1.1970011248655656,
+     "matmult+CoreMark": 1.1154583577664612,
+     "CoreMark+nsichneu": 1.2883039994845262,
+     "Dhrystone+huffbench": 1.2854063362126844,
+     "nsichneu+minver": 1.4624279393779354,
+     "huffbench+matmult": 1.2046609700680906,
+     "minver+CoreMark": 1.338688317925022,
+     "matmult+Dhrystone": 1.1280560429203057,
+     "CoreMark+CoreMark": 1.2024246923833992,
+     "gather+CoreMark": 1.3761657894467856,
+     "gather+huffbench": 1.2734600978631454,
+     "stride+Dhrystone": 1.5538418506121516,
+     "stride+minver": 1.7276183984287952,
+     "spmv+nsichneu": 1.8487387919086267,
+     "spmv+matmult": 1.2024452637081835,
+     "hashprobe+huffbench": 1.6104287203987404,
+     "hashprobe+CoreMark": 1.7514604205110262,
+     "chase8+minver": 1.78694857478474,
+     "chase8+Dhrystone": 1.698184779423673,
+     "stream+matmult": 1.1537632639679565,
+     "stream+nsichneu": 1.6142718340000433,
+     "copy+CoreMark": 1.592067234772399,
+     "copy+huffbench": 1.401262258084563
+    }
+   }
+  },
+  "50% caps, last row kept on demand": {
+   "30": {
+    "mixed": 1.3414093636862559,
+    "one": 1.3388247453955469,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2645130019859478
+     },
+     "compute+compute": {
+      "ws": 1.2975580803472022
+     },
+     "mixed": {
+      "ws": 1.4625849042547967
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.179638830593318,
+     "stride+spmv": 1.1004403758750676,
+     "spmv+hashprobe": 1.676924618626799,
+     "hashprobe+chase8": 1.6092870620852047,
+     "chase8+stream": 1.1028479200721346,
+     "stream+copy": 1.1810980675189777,
+     "copy+gather": 1.3083537086103374,
+     "gather+spmv": 1.292787596889582,
+     "stride+hashprobe": 1.5827850393765819,
+     "spmv+chase8": 1.0414882947584803,
+     "hashprobe+stream": 1.5084008323963336,
+     "chase8+copy": 1.1611489593262312,
+     "stream+gather": 1.2059631861921067,
+     "copy+stride": 1.257180135690161,
+     "chase8+chase8": 1.000277099172683,
+     "CoreMark+Dhrystone": 1.2661938880938721,
+     "Dhrystone+nsichneu": 1.4040144457348183,
+     "nsichneu+huffbench": 1.478359332102651,
+     "huffbench+minver": 1.3781938694128928,
+     "minver+matmult": 1.1908485285157109,
+     "matmult+CoreMark": 1.1218252193656197,
+     "CoreMark+nsichneu": 1.348258365164472,
+     "Dhrystone+huffbench": 1.3562905691489466,
+     "nsichneu+minver": 1.450190772876204,
+     "huffbench+matmult": 1.2331697928148138,
+     "minver+CoreMark": 1.3318667326980864,
+     "matmult+Dhrystone": 1.1487863208334865,
+     "CoreMark+CoreMark": 1.2207612742786569,
+     "gather+CoreMark": 1.3221500550218317,
+     "gather+huffbench": 1.3677967629883148,
+     "stride+Dhrystone": 1.4536131701662596,
+     "stride+minver": 1.427882422080523,
+     "spmv+nsichneu": 1.6578497386787745,
+     "spmv+matmult": 1.407105111647413,
+     "hashprobe+huffbench": 1.7124294628133616,
+     "hashprobe+CoreMark": 1.7010369539837056,
+     "chase8+minver": 1.7108791544770883,
+     "chase8+Dhrystone": 1.6516000364412164,
+     "stream+matmult": 1.0708985483006455,
+     "stream+nsichneu": 1.3427495363606785,
+     "copy+CoreMark": 1.402457573257415,
+     "copy+huffbench": 1.4102501682000066
+    }
+   },
+   "120": {
+    "mixed": 1.3578358018724694,
+    "one": 1.3590594804186409,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2414192199521972
+     },
+     "compute+compute": {
+      "ws": 1.3025845085120495
+     },
+     "mixed": {
+      "ws": 1.5523549093323314
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.1236455907223646,
+     "stride+spmv": 1.0497974376501513,
+     "spmv+hashprobe": 1.581156615649651,
+     "hashprobe+chase8": 1.453117065083902,
+     "chase8+stream": 1.0841239990387603,
+     "stream+copy": 1.1851117465816767,
+     "copy+gather": 1.4354997924048087,
+     "gather+spmv": 1.2106735179755148,
+     "stride+hashprobe": 1.4304746910930337,
+     "spmv+chase8": 1.0269507453119644,
+     "hashprobe+stream": 1.6223816613388116,
+     "chase8+copy": 1.179114862908638,
+     "stream+gather": 1.2259552285658781,
+     "copy+stride": 1.229178784336629,
+     "chase8+chase8": 1.0001602318865181,
+     "CoreMark+Dhrystone": 1.2685300939963349,
+     "Dhrystone+nsichneu": 1.4025751868845697,
+     "nsichneu+huffbench": 1.4795270050685954,
+     "huffbench+minver": 1.409897541223398,
+     "minver+matmult": 1.1965492475153505,
+     "matmult+CoreMark": 1.1233413388583384,
+     "CoreMark+nsichneu": 1.351091564881406,
+     "Dhrystone+huffbench": 1.3565609967183438,
+     "nsichneu+minver": 1.4603373344061605,
+     "huffbench+matmult": 1.2310706676178254,
+     "minver+CoreMark": 1.343946428294154,
+     "matmult+Dhrystone": 1.1492608053504236,
+     "CoreMark+CoreMark": 1.224154648765328,
+     "gather+CoreMark": 1.403937893367357,
+     "gather+huffbench": 1.3577057389741247,
+     "stride+Dhrystone": 1.2876303018571962,
+     "stride+minver": 1.3865083311841637,
+     "spmv+nsichneu": 1.872225216404665,
+     "spmv+matmult": 1.370934612162221,
+     "hashprobe+huffbench": 1.7298245482808565,
+     "hashprobe+CoreMark": 1.7928069574730745,
+     "chase8+minver": 1.8493120743554916,
+     "chase8+Dhrystone": 1.8448319316451625,
+     "stream+matmult": 1.219480058354736,
+     "stream+nsichneu": 1.6339380898714269,
+     "copy+CoreMark": 1.6570291384437992,
+     "copy+huffbench": 1.5466397813961728
+    }
+   },
+   "250": {
+    "mixed": 1.343754227353529,
+    "one": 1.3440736307011611,
+    "one_groups": {
+     "mem+mem": {
+      "ws": 1.2174258682055612
+     },
+     "compute+compute": {
+      "ws": 1.3078538228247358
+     },
+     "mixed": {
+      "ws": 1.5249915970632566
+     }
+    },
+    "dead_42": [],
+    "dead_58": [],
+    "pairs_one": {
+     "gather+stride": 1.1087947169768517,
+     "stride+spmv": 1.0337014185336384,
+     "spmv+hashprobe": 1.5180663162281278,
+     "hashprobe+chase8": 1.3778127627859467,
+     "chase8+stream": 1.066334274395338,
+     "stream+copy": 1.1623135927089514,
+     "copy+gather": 1.4407668729968295,
+     "gather+spmv": 1.1856974343048536,
+     "stride+hashprobe": 1.3595846776803124,
+     "spmv+chase8": 1.023448452728346,
+     "hashprobe+stream": 1.6325733079363491,
+     "chase8+copy": 1.1592285025534468,
+     "stream+gather": 1.1899608718687569,
+     "copy+stride": 1.2023258630987126,
+     "chase8+chase8": 1.0001325162952974,
+     "CoreMark+Dhrystone": 1.2705484106466542,
+     "Dhrystone+nsichneu": 1.402633302804016,
+     "nsichneu+huffbench": 1.4782838739517046,
+     "huffbench+minver": 1.414559610522247,
+     "minver+matmult": 1.2087427139149238,
+     "matmult+CoreMark": 1.1257342955200231,
+     "CoreMark+nsichneu": 1.353788654305146,
+     "Dhrystone+huffbench": 1.3580248902961016,
+     "nsichneu+minver": 1.480804565162713,
+     "huffbench+matmult": 1.2274549364343763,
+     "minver+CoreMark": 1.37013002936226,
+     "matmult+Dhrystone": 1.1495292976446574,
+     "CoreMark+CoreMark": 1.2272745444465387,
+     "gather+CoreMark": 1.4295457814669001,
+     "gather+huffbench": 1.2933590804075463,
+     "stride+Dhrystone": 1.2090292927904382,
+     "stride+minver": 1.292991695068607,
+     "spmv+nsichneu": 1.92151101219974,
+     "spmv+matmult": 1.2085546851973406,
+     "hashprobe+huffbench": 1.676846020229024,
+     "hashprobe+CoreMark": 1.8366902285647502,
+     "chase8+minver": 1.877518404565812,
+     "chase8+Dhrystone": 1.8775967705711152,
+     "stream+matmult": 1.1630747462809927,
+     "stream+nsichneu": 1.717242487435216,
+     "copy+CoreMark": 1.708878523792059,
+     "copy+huffbench": 1.4791741423324705
+    }
+   }
+  }
  }
 }
