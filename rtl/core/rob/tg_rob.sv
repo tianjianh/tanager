@@ -603,12 +603,13 @@ module tg_rob
   assign tr_tval  = t_tval;
 
   // ---- Trace records ----
+  // The hart: the core's first plus the thread (SOLO_TID's thread, tid 1, is hart 0, as mhartid)
   localparam hart_t HART0 = hart_t'(CORE_ID * NUM_THREADS);
   tr_rec_t [CW-1:0] rec;
   always_comb begin
     for (int j = 0; j < CW; j++) begin
       rec[j] = '0;
-      rec[j].hart = HART0;
+      rec[j].hart = HART0 + ((TID_W > 0) ? hart_t'(tid_t'(hp[j].tid ^ RUN_TID)) : hart_t'(0));
       rec[j].priv = priv;
       rec[j].pc   = hp[j].pc;
       rec[j].insn = hp[j].insn;

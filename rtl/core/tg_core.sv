@@ -119,7 +119,8 @@ module tg_core
   logic [2:0] frm;
   // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
   logic [4:0] fc_fflags;
-  logic       fc_wvalid, fs_dirty;
+  logic       fc_wvalid;
+  logic [NUM_THREADS-1:0] fs_dirty;   // per hart
   logic [1:0] fc_waddr;
   logic [7:0] fc_wdata;
   priv_e priv, priv_d;
@@ -481,15 +482,15 @@ module tg_core
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
-    .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
+    .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
-    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
+    .cm_tid0(cm_tid[0]), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
     .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_p2m, .pmp_wr, .pmp_busy,
-    .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
-    .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
+    .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
+    .irq_ssi(irq_ssi_i), .mtime(mtime_i));
 
   // ---- ROB and commit ----
   // The ROB's commit gate needs neither rename's ready nor the init flag: both are one-time
@@ -583,7 +584,7 @@ module tg_core
     end
     // fcsr: per hart (tg_fcsr). The flags of each retiring FP op go to its thread; a CSR instruction
     // reads at execute and writes at commit, alone at the head (slot 0). Until M7's step 5 one thread
-    // runs (RUN_TID), so frm and the FS-dirty bit are that thread's.
+    // runs (RUN_TID), so frm is that thread's; FS-dirty goes to each hart's mstatus (tg_csr).
     logic [CW-1:0] cm_fpr;
     for (genvar j = 0; j < CW; j++) begin : g_cf
       assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
@@ -597,9 +598,9 @@ module tg_core
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
     assign frm      = frm_t[RUN_TID];
-    assign fs_dirty = fs_dirty_t[RUN_TID];
+    assign fs_dirty = fs_dirty_t;
     logic unused;
-    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+    assign unused = ^{er_busy_t, frm_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
                       p4_er_v, p4_er_ff, fc_frm_rd};
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
@@ -629,14 +630,14 @@ module tg_core
     assign tag_free_p4   = '0;
     assign frm           = '0;
     assign fc_fflags     = '0;
-    assign fs_dirty      = 1'b0;
+    assign fs_dirty      = '0;
     logic unused;
     assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_data, fsd_tag,
                       isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
   end
 
   logic unused;
-  assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
+  assign unused = ^{debug_req_i, rob_tail,
                     st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg

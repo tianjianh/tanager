@@ -3,7 +3,13 @@
 // ISA, so lockstep compares every read:
 //   EXT_SU = 0 (M2): machine mode only, RV64IM + Zicsr + Zicntr + Zifencei, 16 PMP entries.
 //   EXT_SU = 1 (M3): M, S and U modes, delegation, Sstc, Zihpm, satp (Sv39), envcfg.
-// One hart (tid 0); per-hart arrays arrive with M7.
+// Per hart (M7's step 2, DR-175; docs/spec/threading.md): every hart has its own state (h_q, one
+// csr_hart_t a thread), its own cold CSRs and pmpaddr (one more LUTRAM address bit: the tid), its own
+// PMP descriptors, interrupt pending bits, timer compare, pending write and counters, and its own
+// mhartid (CORE_ID x NUM_THREADS + tid; SOLO_TID's thread is hart 0). Writes go to the committing
+// thread's state (cm_tid0: CSR writes, traps, MRET and SRET retire alone in slot 0). Until two
+// threads run (step 5), every read and output is the running thread's (RUN_TID), and the reset sweep
+// covers its half of the LUTRAMs only, so the reset takes the cycles it did.
 //
 // CSR instructions are serialised: execute (P1, EX) reads and checks here combinationally and
 // leaves the write pending; commit applies it. Traps, MRET and SRET are applied by commit; the
@@ -15,7 +21,8 @@ module tg_csr
 ) (
   input  logic                   clk,
   input  logic                   rst,
-  input  logic                   flush,        // drops a pending write
+  input  logic                   flush,        // drops the flushed thread's pending write
+  input  tid_t                   flush_tid,
   // Execute (P1, EX)
   input  logic                   ex_valid,
   input  iq_pl_t                 ex_pl,
@@ -23,9 +30,10 @@ module tg_csr
   output logic [63:0]            ex_rdata,
   output logic                   ex_ill,
   // Commit
+  input  tid_t                   cm_tid0,      // the thread of slot 0: a CSR write, trap, MRET or SRET
   input  logic                   cm_csr,       // the CSR instruction retires: apply its write
   input  logic [63:0]            cm_pc,        // ... its PC
-  input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_n,   // instructions retiring this cycle
+  input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_n,   // instructions retiring this cycle (cm_tid0's)
   input  logic                   tr_valid,     // trap entry
   input  logic                   tr_irq,
   input  logic [5:0]             tr_code,      // cause code (interrupt: without bit 63)
@@ -33,7 +41,7 @@ module tg_csr
   input  logic [63:0]            tr_tval,
   input  logic                   mret,
   input  logic                   sret,
-  // State for commit, decode, fetch and the MMU
+  // State for commit, decode, fetch and the MMU (the running thread's)
   output logic [63:0]            trap_target,  // an exception's, for tr_code given this cycle
   output logic [63:0]            irq_target,   // the pending interrupt's (irq_code)
   input  logic                   xret_v,       // an MRET or SRET is in flight (registered) ...
@@ -65,61 +73,99 @@ module tg_csr
   output logic [PMP_ENTRIES-1:0] pmp_p2m,      // each entry's address is aligned to a 2M page
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
   output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
-  // Interrupt inputs and time
-  input  logic                   irq_mei,
-  input  logic                   irq_mti,
-  input  logic                   irq_msi,
-  input  logic                   irq_sei,
-  input  logic                   irq_ssi,
+  // Interrupt inputs (one per hart of the core, by hart: thread t takes line t ^ SOLO_TID) and time
+  input  logic [NUM_THREADS-1:0] irq_mei,
+  input  logic [NUM_THREADS-1:0] irq_mti,
+  input  logic [NUM_THREADS-1:0] irq_msi,
+  input  logic [NUM_THREADS-1:0] irq_sei,
+  input  logic [NUM_THREADS-1:0] irq_ssi,
   input  logic [63:0]            mtime,
-  // F and D (EXT_FD): fcsr lives in tg_fcsr; this file decodes fflags/frm/fcsr (illegal while
-  // mstatus.FS is Off), hands it the writes at retirement, and sets FS to Dirty on its pulse
+  // F and D (EXT_FD): fcsr lives in tg_fcsr (per hart); this file decodes fflags/frm/fcsr (illegal
+  // while mstatus.FS is Off), hands it the writes at retirement (cm_tid0's), and sets each hart's FS
+  // to Dirty on its pulse
   input  logic [4:0]             fc_fflags,
   input  logic [2:0]             fc_frm,
   output logic                   fc_wvalid,
   output logic [1:0]             fc_waddr,     // 1 fflags, 2 frm, 3 fcsr
   output logic [7:0]             fc_wdata,
-  input  logic                   fs_dirty
+  input  logic [NUM_THREADS-1:0] fs_dirty
 );
+  localparam int NT   = NUM_THREADS;
   localparam int NPMP = PMP_ENTRIES;      // 8 or 16 (DR-167); pmpcfg0 holds entries 0-7, pmpcfg2 8-15
   localparam int PIW  = idx_w(NPMP);
+  localparam int CAW  = 4 + TID_W;        // cold CSRs' address: {tid, csr[9], csr[2:0]}
+  localparam int PAW  = PIW + TID_W;      // pmpaddr's: {tid, entry}
   if (NPMP != 8 && NPMP != 16) begin : g_bad_pmp
     $error("tg_csr: PMP_ENTRIES is 8 or 16");
   end
-  localparam logic [63:0] HARTID = 64'(CORE_ID * NUM_THREADS);
   localparam bit SU = EXT_SU;
+  // The committing thread (slot 0's) and the flushed one; without SMT thread 0, a constant whatever the
+  // payloads' tid bit holds
+  tid_t wt, ft;
+  assign wt = (TID_W > 0) ? cm_tid0 : tid_t'(0);
+  assign ft = (TID_W > 0) ? flush_tid : tid_t'(0);
+  // mhartid: SOLO_TID's thread (tid 1) is hart 0, so software sees the core as before
+  function automatic logic [63:0] hartid(input tid_t t);
+    return 64'(CORE_ID * NT) + 64'(tid_t'(t ^ RUN_TID));
+  endfunction
+  function automatic logic [CAW-1:0] caddr(input tid_t t, input logic [3:0] lo);
+    return CAW'({t, lo});                  // without SMT the tid's bit falls off
+  endfunction
+  function automatic logic [PAW-1:0] paddr_(input tid_t t, input logic [PIW-1:0] i);
+    return PAW'({t, i});
+  endfunction
 
-  // ---- State ----
-  priv_e       priv_q;
-  logic        mie_bit_q, mpie_q, sie_bit_q, spie_q, spp_q, mprv_q, sum_q, mxr_q, tvm_q, tw_q, tsr_q;
-  logic [1:0]  mpp_q, fs_q;
-  logic        misa_m_q, misa_b_q, misa_c_q, misa_a_q, misa_f_q, misa_d_q;
+  // ---- State, one per hart ----
+  typedef struct packed {
+    priv_e       priv;
+    logic        mie_bit, mpie, sie_bit, spie, spp, mprv, sum, mxr, tvm, tw, tsr;
+    logic [1:0]  mpp, fs;
+    logic        misa_m, misa_b, misa_c, misa_a, misa_f, misa_d;
+    logic [63:0] stimecmp;
+    logic [11:0] mie;
+    logic        ssip, stip_sw, seip_sw;
+    logic [19:0] medeleg;                      // bit 19: hardware error (Spike, with Zicntr)
+    logic [11:0] mideleg;
+    logic [31:0] mcounteren, scounteren, mcountinhibit;
+    logic        menv_fiom, menv_stce, senv_fiom;
+    logic        satp_mode;
+    logic [15:0] satp_asid;
+    logic [43:0] satp_ppn;
+    logic [12:0] mcontext;
+    logic [31:0] scontext;
+    logic [NPMP-1:0][7:0] pmpcfg;
+  } csr_hart_t;
+  function automatic csr_hart_t hart_reset();
+    csr_hart_t h;
+    h = '0;
+    h.priv     = PRIV_M;
+    h.mpp      = SU ? 2'd0 : 2'd3;
+    h.misa_m   = 1'b1;
+    h.misa_b   = EXT_B;
+    h.misa_c   = EXT_C;
+    h.misa_a   = EXT_A;
+    h.misa_f   = EXT_FD;
+    h.misa_d   = EXT_FD;
+    h.pmpcfg[0] = 8'h1f;                       // Spike's reset: entry 0 allows everything (NAPOT, RWX)
+    return h;
+  endfunction
+  csr_hart_t [NT-1:0] h_q, h_n;
+  csr_hart_t          r;                       // the running thread's (reads; commit's are h_q[wt])
+  assign r = h_q[RUN_TID];
   // R1: the cycle and instret counters are DSP48E2 pairs (tg_dsp_ctr: count, load from a CSR
-  // write, reset), with no fabric register, adder or multiplexer
-  logic [63:0] mcycle_q, minstret_q;
-  logic [63:0] stimecmp_q;
-  logic [11:0] mie_q;
-  logic        ssip_q, stip_sw_q, seip_sw_q;
-  logic [19:0] medeleg_q;                      // bit 19: hardware error (Spike, with Zicntr)
-  logic [11:0] mideleg_q;
-  logic [31:0] mcounteren_q, scounteren_q, mcountinhibit_q;
-  logic        menv_fiom_q, menv_stce_q, senv_fiom_q;
-  logic        satp_mode_q;
-  logic [15:0] satp_asid_q;
-  logic [43:0] satp_ppn_q;
-  logic [12:0] mcontext_q;
-  logic [31:0] scontext_q;
-  logic [NPMP-1:0][7:0]  pmpcfg_q;
-  logic [7:0][7:0]      pcfg_hi;       // pmpcfg2's entries, 8-15: zero with 8 entries
+  // write, reset), with no fabric register, adder or multiplexer; one pair per hart
+  logic [NT-1:0][63:0] mcycle_q, minstret_q;
+  logic [7:0][7:0]      pcfg_hi;       // the running thread's pmpcfg2 entries, 8-15: zero with 8 entries
   if (NPMP > 8) begin : g_cfg_hi
-    assign pcfg_hi = pmpcfg_q[15:8];
+    assign pcfg_hi = r.pmpcfg[15:8];
   end else begin : g_cfg_none
     assign pcfg_hi = '0;
   end
 
   // ---- Cold CSRs in LUTRAM (FPGA-friendly T1) ----
-  // xtvec, xscratch, xepc, xcause and xtval of M and S: one 16 x 64 tg_ram_lut at
-  // {csr[9], csr[2:0]}, M (csr[9] = 1) or S, then scratch 0, epc 1, cause 2, tval 3, tvec 5.
+  // xtvec, xscratch, xepc, xcause and xtval of M and S, per hart: one (16 x NUM_THREADS) x 64
+  // tg_ram_lut at {tid, csr[9], csr[2:0]}, M (csr[9] = 1) or S, then scratch 0, epc 1, cause 2,
+  // tval 3, tvec 5 (32 deep fits the same RAM32M16 as 16).
   // Read ports: the CSR read (EX), or xepc while an MRET or SRET is in flight (it is serial, so
   // no CSR instruction executes meanwhile: asserted); an exception's trap vector; the pending
   // interrupt's trap vector.
@@ -137,19 +183,20 @@ module tg_csr
            (SU && (x == 12'h105 || (x >= 12'h140 && x <= 12'h143)));
   endfunction
   logic [2:0]       ts_q;               // trap writes to do: epc, cause, tval (one-hot)
+  tid_t             ttid_q;             // ... the trapping thread's
   logic             tdel_q;             // ... into S's registers
   logic             tirq_q;
   logic [5:0]       tcode_q;
   logic [63:0]      tepc_q, ttval_q;
   logic             cw_we;
-  logic [3:0]       cw_wa;
+  logic [CAW-1:0]   cw_wa;
   logic [63:0]      cw_wd;
-  logic [2:0][3:0]  cw_ra;              // CSR read or xepc, exception vector, interrupt vector
+  logic [2:0][CAW-1:0] cw_ra;           // CSR read or xepc, exception vector, interrupt vector
   logic [2:0][63:0] cw_rd;
-  tg_ram_lut #(.DEPTH(16), .WIDTH(64), .NR(3)) u_cold (
+  tg_ram_lut #(.DEPTH(16 * NT), .WIDTH(64), .NR(3)) u_cold (
     .clk, .we(cw_we), .waddr(cw_wa), .wdata(cw_wd), .raddr(cw_ra), .rdata(cw_rd));
 
-  // ---- Interrupt pending bits ----
+  // ---- Interrupt pending bits, per hart ----
   // Time is a core-local snapshot of the ACLINT's mtime (DR-146): mtime_q, mtime a cycle earlier,
   // so the ACLINT reaches the core register to register. The Sstc compare runs between registers
   // and its result is registered (stip_q), so the 64-bit compare leaves the interrupt selection
@@ -157,99 +204,108 @@ module tg_csr
   // a write to stimecmp, menvcfg or mip; such a write retires alone and flushes, so no instruction
   // reaches the ROB head before STIP has settled (tg_rob asserts the margin). `time` reads the
   // snapshot too: monotonic, a cycle behind the ACLINT (a nondeterministic read in lockstep).
-  logic [63:0] mtime_q;
-  logic        stip_q;
+  logic [63:0]         mtime_q;
+  logic [NT-1:0]       stip_q;
+  logic [NT-1:0][11:0] mip, ipend, ien;
   always_ff @(posedge clk) begin
     mtime_q <= mtime;
-    stip_q  <= !rst && SU && (menv_stce_q ? (mtime_q >= stimecmp_q) : stip_sw_q);
+    for (int t = 0; t < NT; t++)
+      stip_q[t] <= !rst && SU && (h_q[t].menv_stce ? (mtime_q >= h_q[t].stimecmp) : h_q[t].stip_sw);
   end
-  logic        stip;
-  assign stip = stip_q;
-  logic [11:0] mip;
   always_comb begin
-    mip = '0;
-    mip[3]  = irq_msi;
-    mip[7]  = irq_mti;
-    mip[11] = irq_mei;
-    if (SU) begin
-      mip[1] = ssip_q || irq_ssi;
-      mip[5] = stip;
-      mip[9] = seip_sw_q || irq_sei;
+    for (int t = 0; t < NT; t++) begin
+      logic m_en, s_en;
+      tid_t hl;                                  // the hart's lines (SOLO_TID's thread is hart 0)
+      hl = tid_t'(t) ^ RUN_TID;
+      mip[t] = '0;
+      mip[t][3]  = irq_msi[hl];
+      mip[t][7]  = irq_mti[hl];
+      mip[t][11] = irq_mei[hl];
+      if (SU) begin
+        mip[t][1] = h_q[t].ssip || irq_ssi[hl];
+        mip[t][5] = stip_q[t];
+        mip[t][9] = h_q[t].seip_sw || irq_sei[hl];
+      end
+      // Interrupt selection (Spike's take_interrupt): M first, then those delegated to S.
+      // Default priority: MEI, MSI, MTI, SEI, SSI, STI.
+      ipend[t] = mip[t] & h_q[t].mie;
+      m_en     = h_q[t].priv != PRIV_M || h_q[t].mie_bit;
+      s_en     = h_q[t].priv == PRIV_U || (h_q[t].priv == PRIV_S && h_q[t].sie_bit);
+      ien[t]   = ipend[t] & ~h_q[t].mideleg & {12{m_en}};
+      if (ien[t] == '0) ien[t] = ipend[t] & h_q[t].mideleg & {12{s_en}};
     end
   end
+  logic [11:0] ien_r;
+  assign ien_r    = ien[RUN_TID];
+  assign irq_take = |ien_r;
+  assign irq_code = ien_r[11] ? 6'd11 : ien_r[3] ? 6'd3 : ien_r[7] ? 6'd7 :
+                    ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : 6'd5;
+  assign wfi_wake = |ipend[RUN_TID];
 
-  // Interrupt selection (Spike's take_interrupt): M first, then those delegated to S.
-  // Default priority: MEI, MSI, MTI, SEI, SSI, STI.
-  logic [11:0] ipend, ien;
-  always_comb begin
-    logic m_en, s_en;
-    ipend = mip & mie_q;
-    m_en  = priv_q != PRIV_M || mie_bit_q;
-    s_en  = priv_q == PRIV_U || (priv_q == PRIV_S && sie_bit_q);
-    ien   = ipend & ~mideleg_q & {12{m_en}};
-    if (ien == '0) ien = ipend & mideleg_q & {12{s_en}};
-  end
-  assign irq_take = |ien;
-  assign irq_code = ien[11] ? 6'd11 : ien[3] ? 6'd3 : ien[7] ? 6'd7 :
-                    ien[9]  ? 6'd9  : ien[1] ? 6'd1 : 6'd5;
-  assign wfi_wake = |ipend;
-
-  // ---- Outputs ----
-  assign misa_m    = misa_m_q;
-  assign misa_b    = misa_b_q;
-  assign misa_c    = misa_c_q;
-  assign misa_a    = misa_a_q;
-  assign misa_f    = misa_f_q;
-  assign misa_d    = misa_d_q;
-  assign fs        = fs_q;
-  assign priv      = priv_q;
-  assign priv_d    = (mprv_q && priv_q == PRIV_M) ? priv_e'(mpp_q) : priv_q;
-  assign tvm       = tvm_q;
-  assign tw        = tw_q;
-  assign tsr       = tsr_q;
-  assign sum       = sum_q;
-  assign mxr       = mxr_q;
-  assign satp_sv39 = satp_mode_q;
-  assign satp_asid = satp_asid_q;
-  assign satp_ppn  = satp_ppn_q;
-  // ---- PMP region descriptors (core-mmu.md §PMP) ----
-  // pmpaddr lives in LUTRAM. A PMP write marks the entries it changes, and one descriptor unit
-  // recomputes a marked entry per cycle into pmp_d_q (flip-flops: every checker reads all of them);
-  // pmp_al follows a cycle later. pmp_busy holds fetch meanwhile: the write's flush has emptied
-  // the window, so nothing else checks PMP until fetch resumes. After reset a sweep writes the
-  // reset values (entry 0: NAPOT over everything), then every entry is computed.
+  // ---- Outputs (the running thread's) ----
+  assign misa_m    = r.misa_m;
+  assign misa_b    = r.misa_b;
+  assign misa_c    = r.misa_c;
+  assign misa_a    = r.misa_a;
+  assign misa_f    = r.misa_f;
+  assign misa_d    = r.misa_d;
+  assign fs        = r.fs;
+  assign priv      = r.priv;
+  assign priv_d    = (r.mprv && r.priv == PRIV_M) ? priv_e'(r.mpp) : r.priv;
+  assign tvm       = r.tvm;
+  assign tw        = r.tw;
+  assign tsr       = r.tsr;
+  assign sum       = r.sum;
+  assign mxr       = r.mxr;
+  assign satp_sv39 = r.satp_mode;
+  assign satp_asid = r.satp_asid;
+  assign satp_ppn  = r.satp_ppn;
+  // ---- PMP region descriptors (core-mmu.md §PMP), per hart ----
+  // pmpaddr lives in LUTRAM ({tid, entry}). A PMP write marks the entries it changes, and one
+  // descriptor unit recomputes a marked entry per cycle (either hart's) into pmp_d_q (flip-flops:
+  // every checker reads all of them); pmp_al follows a cycle later. pmp_busy holds fetch meanwhile:
+  // the write's flush has emptied the window, so nothing else checks PMP until fetch resumes. After
+  // reset a sweep writes the reset values (entry 0: NAPOT over everything), then every entry is
+  // computed.
   // pmp_al[j]: no active region boundary lies strictly inside a page of 2^k granules (k = 28, 19,
   // 10: 1G, 2M, 4K), so every such page can cache one result; the walker takes it for 4K and 1G
   // leaves. pmp_p2m[i]: entry i's address is aligned to a 2M page (or above every PA), for the
   // walker's check of a 2M leaf (tg_ptw: is that page PMP-homogeneous?).
-  pmp_d_t [NPMP-1:0]     pmp_d_q;
-  logic [NPMP-1:0][2:0]  pal_top_q;     // entry's address aligned to 1G / 2M / 4K pages
-  logic [2:0]            pmp_al_n, pmp_al_q;
-  logic [NPMP-1:0]       pdirty_q;
-  logic                  pchg_q;        // a descriptor changed last cycle: pmp_al follows
-  logic [4:0]            psw_q;         // reset sweep of the pmpaddr LUTRAM
-  logic                  pa_we;
-  logic [PIW-1:0]        pa_wa;
-  logic [53:0]           pa_wd;
-  logic [1:0][PIW-1:0]   pa_ra;         // CSR read, descriptor unit
-  logic [1:0][53:0]      pa_rd;
-  tg_ram_lut #(.DEPTH(NPMP), .WIDTH(54), .NR(2)) u_pmpaddr (
+  pmp_d_t [NT-1:0][NPMP-1:0]    pmp_d_q;
+  logic   [NT-1:0][NPMP-1:0][2:0] pal_top_q;   // entry's address aligned to 1G / 2M / 4K pages
+  logic   [NT-1:0][2:0]         pmp_al_n, pmp_al_q;
+  logic   [NT-1:0][NPMP-1:0]    pdirty_q;
+  logic   [NT-1:0]              pchg_q;        // a descriptor changed last cycle: pmp_al follows
+  logic   [4:0]                 psw_q;         // reset sweep of the running thread's LUTRAM rows
+  logic                         pa_we;
+  logic   [PAW-1:0]             pa_wa;
+  logic   [53:0]                pa_wd;
+  logic   [1:0][PAW-1:0]        pa_ra;         // CSR read, descriptor unit
+  logic   [1:0][53:0]           pa_rd;
+  tg_ram_lut #(.DEPTH(NPMP * NT), .WIDTH(54), .NR(2)) u_pmpaddr (
     .clk, .we(pa_we), .waddr(pa_wa), .wdata(pa_wd), .raddr(pa_ra), .rdata(pa_rd));
   localparam logic [PMP_GW-1:0] AL4K = PMP_GW'((64'd1 << 10) - 1);
   localparam logic [PMP_GW-1:0] AL2M = PMP_GW'((64'd1 << 19) - 1);
   localparam logic [PMP_GW-1:0] AL1G = PMP_GW'((64'd1 << 28) - 1);
   logic       psweep, pcalc;
-  logic [PIW-1:0] pj;                   // the entry the unit computes
+  tid_t       pt;                       // the hart and entry the unit computes
+  logic [PIW-1:0] pj;
   pmp_d_t     pd_n;
   logic [2:0] ptop_n;
   logic [7:0] pcfg;
   assign psweep = !psw_q[4];
   always_comb begin
+    pt = '0;
     pj = '0;
-    for (int i = NPMP - 1; i >= 0; i--) if (pdirty_q[i]) pj = PIW'(i);
+    for (int t = NT - 1; t >= 0; t--)
+      for (int i = NPMP - 1; i >= 0; i--)
+        if (pdirty_q[t][i]) begin
+          pt = tid_t'(t);
+          pj = PIW'(i);
+        end
   end
   assign pcalc = !psweep && |pdirty_q;
-  assign pcfg  = pmpcfg_q[pj];
+  assign pcfg  = h_q[pt].pmpcfg[pj];
   always_comb begin
     logic [53:0] y, dc;
     y  = {pa_rd[1][52:0], 1'b1};
@@ -267,94 +323,97 @@ module tg_csr
     ptop_n = {pd_n.hi || (pd_n.a & AL1G) == '0, pd_n.hi || (pd_n.a & AL2M) == '0,
               pd_n.hi || (pd_n.a & AL4K) == '0};
   end
-  assign pa_ra[1] = pj;
+  assign pa_ra[1] = paddr_(pt, pj);
   always_comb begin
-    pmp_al_n = '1;
-    for (int i = 0; i < NPMP; i++) begin
-      if (pmp_d_q[i].tor) pmp_al_n &= pal_top_q[i] & ((i == 0) ? 3'b111 : pal_top_q[(i + NPMP - 1) % NPMP]);
-      if (pmp_d_q[i].nap && !pmp_d_q[i].above)
-        pmp_al_n &= ~{pmp_d_q[i].mask[27], pmp_d_q[i].mask[18], pmp_d_q[i].mask[9]};
+    for (int t = 0; t < NT; t++) begin
+      pmp_al_n[t] = '1;
+      for (int i = 0; i < NPMP; i++) begin
+        if (pmp_d_q[t][i].tor)
+          pmp_al_n[t] &= pal_top_q[t][i] & ((i == 0) ? 3'b111 : pal_top_q[t][(i + NPMP - 1) % NPMP]);
+        if (pmp_d_q[t][i].nap && !pmp_d_q[t][i].above)
+          pmp_al_n[t] &= ~{pmp_d_q[t][i].mask[27], pmp_d_q[t][i].mask[18], pmp_d_q[t][i].mask[9]};
+      end
     end
   end
   always_ff @(posedge clk) begin
     if (pcalc) begin
-      pmp_d_q[pj]   <= pd_n;
-      pal_top_q[pj] <= ptop_n;
+      pmp_d_q[pt][pj]   <= pd_n;
+      pal_top_q[pt][pj] <= ptop_n;
     end
     pmp_al_q <= pmp_al_n;
   end
-  assign pmp_d    = pmp_d_q;
-  assign pmp_al   = pmp_al_q;
-  always_comb for (int i = 0; i < NPMP; i++) pmp_p2m[i] = pal_top_q[i][1];
-  assign pmp_busy = psweep || |pdirty_q || pchg_q;
-  assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0};
+  assign pmp_d    = pmp_d_q[RUN_TID];
+  assign pmp_al   = pmp_al_q[RUN_TID];
+  always_comb for (int i = 0; i < NPMP; i++) pmp_p2m[i] = pal_top_q[RUN_TID][i][1];
+  assign pmp_busy = psweep || |pdirty_q[RUN_TID] || pchg_q[RUN_TID];
+  assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0};
 
   // Trap targets: S's vector when delegated from S or U. An exception's target is its vector's
-  // base, chosen by its cause, which can arrive late (the ROB head's TLB check). An interrupt's
-  // adds 4 x its code in vectored mode, but its code and delegation are this file's own, early,
-  // so the add stays off the exception's path. The ROB picks one (do_irq); tr_code is irq_code
-  // when tr_irq.
+  // base, chosen by its cause, which can arrive late (the ROB head's TLB check); its thread is the
+  // head's (wt). An interrupt's adds 4 x its code in vectored mode, but its code and delegation
+  // are this file's own, early, so the add stays off the exception's path. The ROB picks one
+  // (do_irq); tr_code is irq_code when tr_irq.
   logic deleg, deleg_e, deleg_i;
   always_comb begin
-    deleg_e = SU && priv_q != PRIV_M && tr_code < 6'd20 && medeleg_q[tr_code[4:0]];
-    deleg_i = SU && priv_q != PRIV_M && irq_code < 6'd12 && mideleg_q[irq_code[3:0]];
+    deleg_e = SU && h_q[wt].priv != PRIV_M && tr_code < 6'd20 && h_q[wt].medeleg[tr_code[4:0]];
+    deleg_i = SU && r.priv != PRIV_M && irq_code < 6'd12 && r.mideleg[irq_code[3:0]];
     deleg   = tr_irq ? deleg_i : deleg_e;
   end
-  assign cw_ra[1]    = {!deleg_e, CX_TVEC};
-  assign cw_ra[2]    = {!deleg_i, CX_TVEC};
+  assign cw_ra[1]    = caddr(wt, {!deleg_e, CX_TVEC});
+  assign cw_ra[2]    = caddr(RUN_TID, {!deleg_i, CX_TVEC});
   assign trap_target = {cw_rd[1][63:2], 2'b00};
   assign irq_target  = {cw_rd[2][63:2], 2'b00} + (cw_rd[2][0] ? {56'b0, irq_code, 2'b00} : 64'd0);
 
-  // ---- Status views ----
+  // ---- Status views (the reading thread's) ----
   logic [63:0] mstatus_rd, sstatus_rd, misa_rd;
   always_comb begin
     mstatus_rd = '0;
-    mstatus_rd[3]     = mie_bit_q;
-    mstatus_rd[7]     = mpie_q;
-    mstatus_rd[12:11] = mpp_q;
+    mstatus_rd[3]     = r.mie_bit;
+    mstatus_rd[7]     = r.mpie;
+    mstatus_rd[12:11] = r.mpp;
     if (SU) begin
-      mstatus_rd[1]     = sie_bit_q;
-      mstatus_rd[5]     = spie_q;
-      mstatus_rd[8]     = spp_q;
-      mstatus_rd[14:13] = fs_q;
-      mstatus_rd[17]    = mprv_q;
-      mstatus_rd[18]    = sum_q;
-      mstatus_rd[19]    = mxr_q;
-      mstatus_rd[20]    = tvm_q;
-      mstatus_rd[21]    = tw_q;
-      mstatus_rd[22]    = tsr_q;
+      mstatus_rd[1]     = r.sie_bit;
+      mstatus_rd[5]     = r.spie;
+      mstatus_rd[8]     = r.spp;
+      mstatus_rd[14:13] = r.fs;
+      mstatus_rd[17]    = r.mprv;
+      mstatus_rd[18]    = r.sum;
+      mstatus_rd[19]    = r.mxr;
+      mstatus_rd[20]    = r.tvm;
+      mstatus_rd[21]    = r.tw;
+      mstatus_rd[22]    = r.tsr;
       mstatus_rd[33:32] = 2'd2;                  // UXL
       mstatus_rd[35:34] = 2'd2;                  // SXL
-      mstatus_rd[63]    = fs_q == 2'd3;          // SD
+      mstatus_rd[63]    = r.fs == 2'd3;          // SD
     end
     sstatus_rd = '0;
-    sstatus_rd[1]     = sie_bit_q;
-    sstatus_rd[5]     = spie_q;
-    sstatus_rd[8]     = spp_q;
-    sstatus_rd[14:13] = fs_q;
-    sstatus_rd[18]    = sum_q;
-    sstatus_rd[19]    = mxr_q;
+    sstatus_rd[1]     = r.sie_bit;
+    sstatus_rd[5]     = r.spie;
+    sstatus_rd[8]     = r.spp;
+    sstatus_rd[14:13] = r.fs;
+    sstatus_rd[18]    = r.sum;
+    sstatus_rd[19]    = r.mxr;
     sstatus_rd[33:32] = 2'd2;
-    sstatus_rd[63]    = fs_q == 2'd3;
+    sstatus_rd[63]    = r.fs == 2'd3;
     misa_rd = '0;
     misa_rd[63:62] = 2'b10;
-    misa_rd[0]  = misa_a_q;
-    misa_rd[1]  = misa_b_q;
-    misa_rd[2]  = misa_c_q;
+    misa_rd[0]  = r.misa_a;
+    misa_rd[1]  = r.misa_b;
+    misa_rd[2]  = r.misa_c;
     misa_rd[8]  = 1'b1;                          // I
-    misa_rd[12] = misa_m_q;
-    misa_rd[3]  = misa_d_q;                      // D
-    misa_rd[5]  = misa_f_q;                      // F
+    misa_rd[12] = r.misa_m;
+    misa_rd[3]  = r.misa_d;                      // D
+    misa_rd[5]  = r.misa_f;                      // F
     misa_rd[18] = SU;                            // S
     misa_rd[20] = SU;                            // U
   end
 
-  // ---- Read and legality ----
+  // ---- Read and legality (the executing thread's: the running one until step 5) ----
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
   logic [63:0] cold_rd;                          // xepc reads as xepc_o
-  assign cw_ra[0] = xret_v ? {!xret_s, CX_EPC} : {a[9], a[2:0]};
-  assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && misa_c_q, 1'b0} : cw_rd[0];
+  assign cw_ra[0] = xret_v ? caddr(RUN_TID, {!xret_s, CX_EPC}) : caddr(RUN_TID, {a[9], a[2:0]});
+  assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0} : cw_rd[0];
   logic        exists, deny;
   logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
   always_comb begin
@@ -364,50 +423,50 @@ module tg_csr
     unique casez (a)
       12'h300: rval = mstatus_rd;
       12'h301: rval = misa_rd;
-      12'h304: rval = {52'b0, mie_q};
+      12'h304: rval = {52'b0, r.mie};
       12'h305, 12'h340, 12'h341, 12'h342, 12'h343: rval = cold_rd;
-      12'h320: rval = {32'b0, mcountinhibit_q};
-      12'h344: rval = {52'b0, mip};
+      12'h320: rval = {32'b0, r.mcountinhibit};
+      12'h344: rval = {52'b0, mip[RUN_TID]};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
-      12'h7A8: rval = {51'b0, mcontext_q};
+      12'h7A8: rval = {51'b0, r.mcontext};
       // ---- F and D ----
-      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
-      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (fs_q == 2'd0) deny = 1'b1; end
+      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (r.fs == 2'd0) deny = 1'b1; end
+      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (r.fs == 2'd0) deny = 1'b1; end
       12'h003: begin
         rval = {56'b0, fc_frm, fc_fflags}; exists = EXT_FD;
-        if (fs_q == 2'd0) deny = 1'b1;
+        if (r.fs == 2'd0) deny = 1'b1;
       end
-      12'hB00: rval = mcycle_q;
-      12'hB02: rval = minstret_q;
-      12'hC00: rval = mcycle_q;
+      12'hB00: rval = mcycle_q[RUN_TID];
+      12'hB02: rval = minstret_q[RUN_TID];
+      12'hC00: rval = mcycle_q[RUN_TID];
       12'hC01: rval = mtime_q;
-      12'hC02: rval = minstret_q;
+      12'hC02: rval = minstret_q[RUN_TID];
       12'hF11, 12'hF12, 12'hF13, 12'hF15: rval = '0;
-      12'hF14: rval = HARTID;
+      12'hF14: rval = hartid(RUN_TID);
       // ---- S and U (M3) ----
       12'h100: begin rval = sstatus_rd; exists = SU; end
-      12'h104: begin rval = {52'b0, mie_q & mideleg_q}; exists = SU; end
+      12'h104: begin rval = {52'b0, r.mie & r.mideleg}; exists = SU; end
       12'h105, 12'h140, 12'h141, 12'h142, 12'h143: begin rval = cold_rd; exists = SU; end
-      12'h106: begin rval = {32'b0, scounteren_q}; exists = SU; end
-      12'h10A: begin rval = {63'b0, senv_fiom_q}; exists = SU; end
-      12'h144: begin rval = {52'b0, mip & mideleg_q}; exists = SU; end
+      12'h106: begin rval = {32'b0, r.scounteren}; exists = SU; end
+      12'h10A: begin rval = {63'b0, r.senv_fiom}; exists = SU; end
+      12'h144: begin rval = {52'b0, mip[RUN_TID] & r.mideleg}; exists = SU; end
       12'h14D: begin                                                 // stimecmp (Sstc)
-        rval = stimecmp_q; exists = SU;
-        if (priv_q != PRIV_M && !(menv_stce_q && mcounteren_q[1])) deny = 1'b1;
+        rval = r.stimecmp; exists = SU;
+        if (r.priv != PRIV_M && !(r.menv_stce && r.mcounteren[1])) deny = 1'b1;
       end
       12'h180: begin                                                 // satp
-        rval = {satp_mode_q, 3'b0, satp_asid_q, satp_ppn_q}; exists = SU;
-        if (priv_q == PRIV_S && tvm_q) deny = 1'b1;
+        rval = {r.satp_mode, 3'b0, r.satp_asid, r.satp_ppn}; exists = SU;
+        if (r.priv == PRIV_S && r.tvm) deny = 1'b1;
       end
-      12'h5A8: begin rval = {32'b0, scontext_q}; exists = SU; end
-      12'h302: begin rval = {44'b0, medeleg_q}; exists = SU; end
-      12'h303: begin rval = {52'b0, mideleg_q}; exists = SU; end
-      12'h306: begin rval = {32'b0, mcounteren_q}; exists = SU; end
-      12'h30A: begin rval = {menv_stce_q, 62'b0, menv_fiom_q}; exists = SU; end
+      12'h5A8: begin rval = {32'b0, r.scontext}; exists = SU; end
+      12'h302: begin rval = {44'b0, r.medeleg}; exists = SU; end
+      12'h303: begin rval = {52'b0, r.mideleg}; exists = SU; end
+      12'h306: begin rval = {32'b0, r.mcounteren}; exists = SU; end
+      12'h30A: begin rval = {r.menv_stce, 62'b0, r.menv_fiom}; exists = SU; end
       default: begin
         if (a >= 12'h3A0 && a <= 12'h3AF) begin                      // pmpcfg (even only)
           if (a[0]) exists = 1'b0;
-          else if (a == 12'h3A0) rval = pmpcfg_q[7:0];
+          else if (a == 12'h3A0) rval = r.pmpcfg[7:0];
           else if (a == 12'h3A2) rval = pcfg_hi;
           else rval = '0;
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
@@ -424,13 +483,13 @@ module tg_csr
     endcase
     // Counter enables below M (cycle, time, instret, hpmcounter*)
     if (SU && a >= 12'hC00 && a <= 12'hC1F) begin
-      if (priv_q != PRIV_M && !mcounteren_q[a[4:0]]) deny = 1'b1;
-      if (priv_q == PRIV_U && !scounteren_q[a[4:0]]) deny = 1'b1;
+      if (r.priv != PRIV_M && !r.mcounteren[a[4:0]]) deny = 1'b1;
+      if (r.priv == PRIV_U && !r.scounteren[a[4:0]]) deny = 1'b1;
     end
-    if (2'(priv_q) < a[9:8]) deny = 1'b1;
+    if (2'(r.priv) < a[9:8]) deny = 1'b1;
     // Spike's read_for_write: mip's SEIP is the software bit alone
     rval_w = rval;
-    if (a == 12'h344) rval_w[9] = SU && seip_sw_q;
+    if (a == 12'h344) rval_w[9] = SU && r.seip_sw;
   end
 
   // Write value and legality
@@ -446,33 +505,40 @@ module tg_csr
   assign ex_ill   = !exists || deny || (ex_pl.csr_wr && a[11:10] == 2'b11);
   assign ex_rdata = rval;
 
-  // Pending write, applied at commit
-  logic        pw_v_q;
-  logic [11:0] pw_a_q;
-  logic [63:0] pw_d_q;
+  // Pending writes, one per hart, applied at commit (the committing thread's: pv, pa, pd)
+  logic [NT-1:0]        pw_v_q;
+  logic [NT-1:0][11:0]  pw_a_q;
+  logic [NT-1:0][63:0]  pw_d_q;
+  logic                 pv;
+  logic [11:0]          pa;
+  logic [63:0]          pd;
+  assign pv = pw_v_q[wt];
+  assign pa = pw_a_q[wt];
+  assign pd = pw_d_q[wt];
   // satp writes that change it flush the TLBs (as Spike: a rewrite of the same value does not)
-  assign satp_wr = cm_csr && pw_v_q && pw_a_q == 12'h180 &&
-                   (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) &&
-                   {pw_d_q[63], pw_d_q[59:44], pw_d_q[43:0]} != {satp_mode_q, satp_asid_q, satp_ppn_q};
+  assign satp_wr = cm_csr && pv && pa == 12'h180 &&
+                   (pd[63:60] == 4'd0 || pd[63:60] == 4'd8) &&
+                   {pd[63], pd[59:44], pd[43:0]} !=
+                   {h_q[wt].satp_mode, h_q[wt].satp_asid, h_q[wt].satp_ppn};
   // The cold CSRs' write port: the sweep, then the trap's three writes, else a CSR write
   always_comb begin
-    cw_we = cm_csr && pw_v_q && cold_csr(pw_a_q);
-    cw_wa = {pw_a_q[9], pw_a_q[2:0]};
-    cw_wd = pw_d_q & ~{62'b0, pw_a_q[2:0] == CX_TVEC, pw_a_q[2:0] == CX_EPC};
+    cw_we = cm_csr && pv && cold_csr(pa);
+    cw_wa = caddr(wt, {pa[9], pa[2:0]});
+    cw_wd = pd & ~{62'b0, pa[2:0] == CX_TVEC, pa[2:0] == CX_EPC};
     if (psweep) begin
       cw_we = 1'b1;
-      cw_wa = psw_q[3:0];
+      cw_wa = caddr(RUN_TID, psw_q[3:0]);
       cw_wd = '0;
     end else if (ts_q != '0) begin
       cw_we = 1'b1;
-      cw_wa = {!tdel_q, ts_q[0] ? CX_EPC : ts_q[1] ? CX_CAUSE : CX_TVAL};
+      cw_wa = caddr(ttid_q, {!tdel_q, ts_q[0] ? CX_EPC : ts_q[1] ? CX_CAUSE : CX_TVAL});
       cw_wd = ts_q[0] ? tepc_q : ts_q[1] ? {tirq_q, 57'b0, tcode_q} : ttval_q;
     end
   end
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst && (psweep || ts_q != '0))
-      assert (!tr_valid && !mret && !sret && !(cm_csr && pw_v_q) && !(ex_valid && !flush && cold_csr(a)))
+      assert (!tr_valid && !mret && !sret && !(cm_csr && pv) && !(ex_valid && !flush && cold_csr(a)))
         else $error("tg_csr: the cold CSRs are used while their sweep or a trap's writes run");
     if (!rst && xret_v)
       assert (!(ex_valid && !flush)) else $error("tg_csr: a CSR instruction executes while an xRET is in flight");
@@ -480,31 +546,31 @@ module tg_csr
 `endif
 
   // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
-  assign pmp_wr  = cm_csr && pw_v_q && (pw_a_q == 12'h3A0 || pw_a_q == 12'h3A2 ||
-                                        (pw_a_q >= 12'h3B0 && pw_a_q <= 12'h3BF));
+  assign pmp_wr  = cm_csr && pv && (pa == 12'h3A0 || pa == 12'h3A2 || (pa >= 12'h3B0 && pa <= 12'h3BF));
 
   // pmpaddr writes (entry i is locked by its own L, or by entry i + 1's L when that is TOR)
   // and the reset sweep
-  assign pa_ra[0] = a[PIW-1:0];
+  assign pa_ra[0] = paddr_(RUN_TID, a[PIW-1:0]);
   always_comb begin
     int i;
-    i = int'(pw_a_q[PIW-1:0]);
-    pa_we = cm_csr && pw_v_q && pw_a_q >= 12'h3B0 && pw_a_q < 12'h3B0 + 12'(NPMP) &&
-            !(pmpcfg_q[i][7] ||
-              (i + 1 < NPMP && pmpcfg_q[(i + 1) % NPMP][7] && pmpcfg_q[(i + 1) % NPMP][4:3] == 2'b01));
-    pa_wa = pw_a_q[PIW-1:0];
-    pa_wd = pw_d_q[53:0];
+    i = int'(pa[PIW-1:0]);
+    pa_we = cm_csr && pv && pa >= 12'h3B0 && pa < 12'h3B0 + 12'(NPMP) &&
+            !(h_q[wt].pmpcfg[i][7] ||
+              (i + 1 < NPMP && h_q[wt].pmpcfg[(i + 1) % NPMP][7] &&
+               h_q[wt].pmpcfg[(i + 1) % NPMP][4:3] == 2'b01));
+    pa_wa = paddr_(wt, pa[PIW-1:0]);
+    pa_wd = pd[53:0];
     if (psweep) begin                    // Spike's reset: entry 0 allows everything
       pa_we = int'(psw_q[3:0]) < NPMP;   // (the sweep runs 16 cycles for the cold CSRs)
-      pa_wa = psw_q[PIW-1:0];
+      pa_wa = paddr_(RUN_TID, psw_q[PIW-1:0]);
       pa_wd = (psw_q[3:0] == '0) ? '1 : '0;
     end
   end
 
-  // fcsr writes go to tg_fcsr in the cycle the CSR instruction retires
-  assign fc_wvalid = EXT_FD && cm_csr && pw_v_q && pw_a_q[11:2] == '0 && pw_a_q[1:0] != 2'd0;
-  assign fc_waddr  = pw_a_q[1:0];
-  assign fc_wdata  = pw_d_q[7:0];
+  // fcsr writes go to tg_fcsr in the cycle the CSR instruction retires (wt's)
+  assign fc_wvalid = EXT_FD && cm_csr && pv && pa[11:2] == '0 && pa[1:0] != 2'd0;
+  assign fc_waddr  = pa[1:0];
+  assign fc_wdata  = pd[7:0];
 
   // pmpcfg byte write (Spike's rules: locked entries keep their value; W needs R)
   function automatic logic [7:0] pmpcfg_w(input logic [7:0] old, input logic [7:0] nv);
@@ -520,18 +586,24 @@ module tg_csr
     return (p == 2'd2) ? 2'd0 : p;
   endfunction
 
-  // ---- Sequential ----
-  // Counters (R1): a CSR write replaces that cycle's increment
-  logic cyc_wr, ins_wr;
-  assign cyc_wr = cm_csr && pw_v_q && pw_a_q == 12'hB00;
-  assign ins_wr = cm_csr && pw_v_q && pw_a_q == 12'hB02;
+  // ---- Counters (R1), per hart: a CSR write replaces that cycle's increment ----
   localparam int CNW = idx_w(COMMIT_WIDTH + 1);
+  logic cyc_wr, ins_wr;
+  assign cyc_wr = cm_csr && pv && pa == 12'hB00;
+  assign ins_wr = cm_csr && pv && pa == 12'hB02;
   // A write takes effect in the counter a cycle late (tg_dsp_ctr): in that cycle the write's
-  // flush is on, so nothing reads the counter, and pw_d_q holds (a flush keeps EX from writing it)
-  tg_dsp_ctr #(.IW(1)) u_mcycle (
-    .clk, .rst, .ld(cyc_wr), .d(pw_d_q), .inc(!mcountinhibit_q[0]), .q(mcycle_q));
-  tg_dsp_ctr #(.IW(CNW)) u_minstret (
-    .clk, .rst, .ld(ins_wr), .d(pw_d_q), .inc(mcountinhibit_q[2] ? '0 : CNW'(cm_n)), .q(minstret_q));
+  // flush is on, so nothing reads the counter, and the pending write holds (a flush keeps EX from
+  // writing it). The retiring instructions are all slot 0's thread's.
+  for (genvar t = 0; t < NT; t++) begin : g_ctr
+    logic ld_c, ld_i;
+    assign ld_c = cyc_wr && wt == tid_t'(t);
+    assign ld_i = ins_wr && wt == tid_t'(t);
+    tg_dsp_ctr #(.IW(1)) u_mcycle (
+      .clk, .rst, .ld(ld_c), .d(pd), .inc(!h_q[t].mcountinhibit[0]), .q(mcycle_q[t]));
+    tg_dsp_ctr #(.IW(CNW)) u_minstret (
+      .clk, .rst, .ld(ld_i),  .d(pd),
+      .inc((h_q[t].mcountinhibit[2] || wt != tid_t'(t)) ? '0 : CNW'(cm_n)), .q(minstret_q[t]));
+  end
 `ifndef SYNTHESIS
   logic ctr_wr_q;
   always_ff @(posedge clk) begin
@@ -541,190 +613,167 @@ module tg_csr
   end
 `endif
 
+  // ---- Next state of each hart ----
+  always_comb begin
+    for (int t = 0; t < NT; t++) begin
+      csr_hart_t x;
+      x = h_q[t];
+      // F and D: FS becomes Dirty when tg_fcsr says so (and on an fcsr write)
+      if (EXT_FD && (fs_dirty[t] || (fc_wvalid && wt == tid_t'(t)))) x.fs = 2'd3;
+      if (wt == tid_t'(t)) begin
+        // Commit of the CSR instruction
+        if (cm_csr && pv) begin
+          unique casez (pa)
+            12'h300: begin
+              x.mie_bit = pd[3];
+              x.mpie    = pd[7];
+              x.mpp     = legal_pp(pd[12:11]);
+              if (SU) begin
+                x.sie_bit = pd[1];
+                x.spie    = pd[5];
+                x.spp     = pd[8];
+                x.fs      = pd[14:13];
+                x.mprv    = pd[17];
+                x.sum     = pd[18];
+                x.mxr     = pd[19];
+                x.tvm     = pd[20];
+                x.tw      = pd[21];
+                x.tsr     = pd[22];
+              end
+            end
+            12'h100: begin
+              x.sie_bit = pd[1];
+              x.spie    = pd[5];
+              x.spp     = pd[8];
+              x.fs      = pd[14:13];
+              x.sum     = pd[18];
+              x.mxr     = pd[19];
+            end
+            12'h301: begin
+              // Spike: clearing C is ignored when the CSR instruction's PC is not 4-byte aligned
+              x.misa_m = pd[12];
+              x.misa_b = EXT_B && pd[1];
+              x.misa_a = EXT_A && pd[0];
+              x.misa_f = EXT_FD && pd[5];
+              x.misa_d = EXT_FD && pd[3] && pd[5];   // D needs F (Spike)
+              if (!(h_q[t].misa_c && !pd[2] && cm_pc[1])) x.misa_c = EXT_C && pd[2];
+            end
+            12'h302: x.medeleg = pd[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !h_q[t].misa_c};
+            12'h303: x.mideleg = pd[11:0] & 12'h222;
+            12'h304: x.mie = pd[11:0] & (SU ? 12'haaa : 12'h888);
+            12'h104: x.mie = (h_q[t].mie & ~h_q[t].mideleg) | (pd[11:0] & h_q[t].mideleg & 12'h222);
+            12'h344: begin
+              if (SU) begin
+                x.ssip = pd[1];
+                if (!h_q[t].menv_stce) x.stip_sw = pd[5];
+                x.seip_sw = pd[9];
+              end
+            end
+            12'h144: if (h_q[t].mideleg[1]) x.ssip = pd[1];
+            12'h305, 12'h105, 12'h340, 12'h140, 12'h341, 12'h141, 12'h342, 12'h142, 12'h343,
+            12'h143: ;                                       // u_cold (the cold CSRs above)
+            12'h306: x.mcounteren = pd[31:0];
+            12'h106: x.scounteren = pd[31:0];
+            12'h320: x.mcountinhibit = pd[31:0] & (SU ? 32'hffff_fffd : 32'h0000_0005);
+            12'h30A: begin x.menv_fiom = pd[0]; x.menv_stce = pd[63]; end
+            12'h10A: x.senv_fiom = pd[0];
+            12'h14D: x.stimecmp = pd;
+            12'h180: begin
+              // A write with an unsupported MODE has no effect at all (privileged spec, Spike);
+              // Bare and Sv39 write MODE, ASID and PPN
+              if (pd[63:60] == 4'd0 || pd[63:60] == 4'd8) begin
+                x.satp_mode = pd[63];
+                x.satp_asid = pd[59:44];
+                x.satp_ppn  = pd[43:0];
+              end
+            end
+            12'h7A8: x.mcontext = pd[12:0];
+            12'h5A8: x.scontext = pd[31:0];
+            12'h3A0: for (int i = 0; i < 8; i++) x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*i +: 8]);
+            12'h3A2: for (int i = 8; i < NPMP; i++)        // (entries 8-15: none with 8 entries)
+                       x.pmpcfg[i] = pmpcfg_w(h_q[t].pmpcfg[i], pd[8*(i-8) +: 8]);
+            default: ;                                       // pmpaddr: written in its LUTRAM
+          endcase
+        end
+        // Trap entry (xepc, xcause and xtval follow in u_cold), MRET, SRET
+        if (tr_valid) begin
+          if (deleg) begin
+            x.spie    = h_q[t].sie_bit;
+            x.sie_bit = 1'b0;
+            x.spp     = h_q[t].priv == PRIV_S;
+            x.priv    = PRIV_S;
+          end else begin
+            x.mpie    = h_q[t].mie_bit;
+            x.mie_bit = 1'b0;
+            x.mpp     = SU ? 2'(h_q[t].priv) : 2'd3;
+            x.priv    = PRIV_M;
+          end
+        end else if (mret) begin
+          x.mie_bit = h_q[t].mpie;
+          x.mpie    = 1'b1;
+          x.priv    = priv_e'(h_q[t].mpp);
+          x.mpp     = SU ? 2'd0 : 2'd3;
+          if (h_q[t].mpp != 2'd3) x.mprv = 1'b0;
+        end else if (sret) begin
+          x.sie_bit = h_q[t].spie;
+          x.spie    = 1'b1;
+          x.priv    = h_q[t].spp ? PRIV_S : PRIV_U;
+          x.spp     = 1'b0;
+          x.mprv    = 1'b0;
+        end
+      end
+      h_n[t] = x;
+    end
+  end
+
+  // ---- Sequential ----
   always_ff @(posedge clk) begin
     if (rst) begin
-      priv_q    <= PRIV_M;
-      mie_bit_q <= 1'b0;
-      mpie_q    <= 1'b0;
-      sie_bit_q <= 1'b0;
-      spie_q    <= 1'b0;
-      spp_q     <= 1'b0;
-      mpp_q     <= SU ? 2'd0 : 2'd3;
-      fs_q      <= 2'd0;
-      mprv_q    <= 1'b0;
-      sum_q     <= 1'b0;
-      mxr_q     <= 1'b0;
-      tvm_q     <= 1'b0;
-      tw_q      <= 1'b0;
-      tsr_q     <= 1'b0;
-      misa_m_q  <= 1'b1;
-      misa_b_q  <= EXT_B;
-      misa_c_q  <= EXT_C;
-      misa_a_q  <= EXT_A;
-      misa_f_q  <= EXT_FD;
-      misa_d_q  <= EXT_FD;
-      stimecmp_q <= '0;
-      mie_q     <= '0;
-      ssip_q    <= 1'b0;
-      stip_sw_q <= 1'b0;
-      seip_sw_q <= 1'b0;
-      medeleg_q <= '0;
-      mideleg_q <= '0;
-      mcounteren_q <= '0;
-      scounteren_q <= '0;
-      mcountinhibit_q <= '0;
-      menv_fiom_q <= 1'b0;
-      menv_stce_q <= 1'b0;
-      senv_fiom_q <= 1'b0;
-      satp_mode_q <= 1'b0;
-      satp_asid_q <= '0;
-      satp_ppn_q  <= '0;
-      mcontext_q <= '0;
-      scontext_q <= '0;
-      pmpcfg_q  <= '0;
-      // Spike's reset: entry 0 allows everything (NAPOT, RWX)
-      pmpcfg_q[0]  <= 8'h1f;
+      for (int t = 0; t < NT; t++) h_q[t] <= hart_reset();
       psw_q     <= '0;
-      pdirty_q  <= '1;
-      pchg_q    <= 1'b0;
-      pw_v_q    <= 1'b0;
+      pdirty_q  <= '0;
+      pdirty_q[RUN_TID] <= '1;            // the running thread's descriptors, after its sweep
+      pchg_q    <= '0;
+      pw_v_q    <= '0;
       ts_q      <= '0;
     end else begin
-      // F and D: FS becomes Dirty when tg_fcsr says so (and on an fcsr write)
-      if (EXT_FD && (fs_dirty || fc_wvalid)) fs_q <= 2'd3;
+      h_q <= h_n;
       // PMP: reset sweep, then descriptor recomputation of the marked entries
       if (psweep) psw_q <= psw_q + 1'b1;
-      pchg_q <= pcalc;
-      if (pcalc) pdirty_q[pj] <= 1'b0;
+      for (int t = 0; t < NT; t++) pchg_q[t] <= pcalc && pt == tid_t'(t);
+      if (pcalc) pdirty_q[pt][pj] <= 1'b0;
 
-      // Execute: hold the write until commit
-      if (flush) pw_v_q <= 1'b0;
+      // Execute: hold the write until commit (the executing thread's: the running one until step 5)
+      if (flush) pw_v_q[ft] <= 1'b0;
       else if (ex_valid) begin
-        pw_v_q <= !ex_ill && ex_pl.csr_wr;
-        pw_a_q <= a;
-        pw_d_q <= wval;
+        pw_v_q[RUN_TID] <= !ex_ill && ex_pl.csr_wr;
+        pw_a_q[RUN_TID] <= a;
+        pw_d_q[RUN_TID] <= wval;
       end
 
-      // Commit of the CSR instruction
-      if (cm_csr && pw_v_q) begin
-        pw_v_q <= 1'b0;
-        unique casez (pw_a_q)
-          12'h300: begin
-            mie_bit_q <= pw_d_q[3];
-            mpie_q    <= pw_d_q[7];
-            mpp_q     <= legal_pp(pw_d_q[12:11]);
-            if (SU) begin
-              sie_bit_q <= pw_d_q[1];
-              spie_q    <= pw_d_q[5];
-              spp_q     <= pw_d_q[8];
-              fs_q      <= pw_d_q[14:13];
-              mprv_q    <= pw_d_q[17];
-              sum_q     <= pw_d_q[18];
-              mxr_q     <= pw_d_q[19];
-              tvm_q     <= pw_d_q[20];
-              tw_q      <= pw_d_q[21];
-              tsr_q     <= pw_d_q[22];
-            end
-          end
-          12'h100: begin
-            sie_bit_q <= pw_d_q[1];
-            spie_q    <= pw_d_q[5];
-            spp_q     <= pw_d_q[8];
-            fs_q      <= pw_d_q[14:13];
-            sum_q     <= pw_d_q[18];
-            mxr_q     <= pw_d_q[19];
-          end
-          12'h301: begin
-            // Spike: clearing C is ignored when the CSR instruction's PC is not 4-byte aligned
-            misa_m_q <= pw_d_q[12];
-            misa_b_q <= EXT_B && pw_d_q[1];
-            misa_a_q <= EXT_A && pw_d_q[0];
-            misa_f_q <= EXT_FD && pw_d_q[5];
-            misa_d_q <= EXT_FD && pw_d_q[3] && pw_d_q[5];   // D needs F (Spike)
-            if (!(misa_c_q && !pw_d_q[2] && cm_pc[1])) misa_c_q <= EXT_C && pw_d_q[2];
-          end
-          12'h302: medeleg_q <= pw_d_q[19:0] & {4'b1000, 4'b1011, 2'b00, 6'b11_1111, 3'b111, !misa_c_q};
-          12'h303: mideleg_q <= pw_d_q[11:0] & 12'h222;
-          12'h304: mie_q <= pw_d_q[11:0] & (SU ? 12'haaa : 12'h888);
-          12'h104: mie_q <= (mie_q & ~mideleg_q) | (pw_d_q[11:0] & mideleg_q & 12'h222);
-          12'h344: begin
-            if (SU) begin
-              ssip_q <= pw_d_q[1];
-              if (!menv_stce_q) stip_sw_q <= pw_d_q[5];
-              seip_sw_q <= pw_d_q[9];
-            end
-          end
-          12'h144: if (mideleg_q[1]) ssip_q <= pw_d_q[1];
-          12'h305, 12'h105, 12'h340, 12'h140, 12'h341, 12'h141, 12'h342, 12'h142, 12'h343,
-          12'h143: ;                                       // u_cold (the cold CSRs above)
-          12'h306: mcounteren_q <= pw_d_q[31:0];
-          12'h106: scounteren_q <= pw_d_q[31:0];
-          12'h320: mcountinhibit_q <= pw_d_q[31:0] & (SU ? 32'hffff_fffd : 32'h0000_0005);
-          12'h30A: begin menv_fiom_q <= pw_d_q[0]; menv_stce_q <= pw_d_q[63]; end
-          12'h10A: senv_fiom_q <= pw_d_q[0];
-          12'h14D: stimecmp_q <= pw_d_q;
-          12'h180: begin
-            // A write with an unsupported MODE has no effect at all (privileged spec, Spike);
-            // Bare and Sv39 write MODE, ASID and PPN
-            if (pw_d_q[63:60] == 4'd0 || pw_d_q[63:60] == 4'd8) begin
-              satp_mode_q <= pw_d_q[63];
-              satp_asid_q <= pw_d_q[59:44];
-              satp_ppn_q  <= pw_d_q[43:0];
-            end
-          end
-          12'h7A8: mcontext_q <= pw_d_q[12:0];
-          12'h5A8: scontext_q <= pw_d_q[31:0];
-          12'h3A0: begin
-            for (int i = 0; i < 8; i++) pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*i +: 8]);
-            pdirty_q[7:0] <= '1;
-          end
-          12'h3A2: begin                                 // (entries 8-15: none with 8 entries)
-            for (int i = 8; i < NPMP; i++) begin
-              pmpcfg_q[i] <= pmpcfg_w(pmpcfg_q[i], pw_d_q[8*(i-8) +: 8]);
-              pdirty_q[i] <= 1'b1;
-            end
-          end
-          default: if (pa_we) pdirty_q[pa_wa] <= 1'b1;      // pmpaddr (written in its LUTRAM)
-        endcase
+      // Commit of the CSR instruction: it leaves the pending write; PMP writes mark their entries
+      if (cm_csr && pv) begin
+        pw_v_q[wt] <= 1'b0;
+        if (pa == 12'h3A0) pdirty_q[wt][7:0] <= '1;
+        else if (pa == 12'h3A2) for (int i = 8; i < NPMP; i++) pdirty_q[wt][i] <= 1'b1;
+        else if (pa_we) pdirty_q[wt][pa[PIW-1:0]] <= 1'b1;
       end
 
-      // Trap entry (xepc, xcause and xtval follow in u_cold), MRET, SRET
+      // Trap entry: xepc, xcause and xtval follow in u_cold, into the trapping thread's rows
       ts_q <= {ts_q[1:0], 1'b0};
       if (tr_valid) begin
         ts_q    <= 3'b001;
+        ttid_q  <= wt;
         tdel_q  <= deleg;
         tirq_q  <= tr_irq;
         tcode_q <= tr_code;
         tepc_q  <= tr_epc & ~64'd1;
         ttval_q <= tr_irq ? 64'd0 : tr_tval;
-        if (deleg) begin
-          spie_q    <= sie_bit_q;
-          sie_bit_q <= 1'b0;
-          spp_q     <= priv_q == PRIV_S;
-          priv_q    <= PRIV_S;
-        end else begin
-          mpie_q    <= mie_bit_q;
-          mie_bit_q <= 1'b0;
-          mpp_q     <= SU ? 2'(priv_q) : 2'd3;
-          priv_q    <= PRIV_M;
-        end
-      end else if (mret) begin
-        mie_bit_q <= mpie_q;
-        mpie_q    <= 1'b1;
-        priv_q    <= priv_e'(mpp_q);
-        mpp_q     <= SU ? 2'd0 : 2'd3;
-        if (mpp_q != 2'd3) mprv_q <= 1'b0;
-      end else if (sret) begin
-        sie_bit_q <= spie_q;
-        spie_q    <= 1'b1;
-        priv_q    <= spp_q ? PRIV_S : PRIV_U;
-        spp_q     <= 1'b0;
-        mprv_q    <= 1'b0;
       end
     end
   end
 
   logic unused;
-  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], menv_fiom_q, senv_fiom_q, cw_rd[1][1:0], cw_rd[2][1],
-                    pcfg[6:5]};
+  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], r.menv_fiom, r.senv_fiom, r.ssip, r.stip_sw, cw_rd[1][1:0],
+                    cw_rd[2][1], pcfg[6:5]};
 endmodule
