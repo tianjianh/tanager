@@ -30,6 +30,9 @@ done
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WT="$(basename "$ROOT")"
 BUILD="${TANAGER_BUILD:-$HOME/tanager-build}/$WT"
+# On a hybrid host the regression, and all it starts, runs at nice 10 or more, so a Vivado job keeps the
+# P-cores it shares with a simulation (tools/ci/host_policy.sh; verification.md §8)
+. "$ROOT/tools/ci/host_policy.sh" && host_policy_nice $$
 
 # TIMING_CUTS=both: DR-140's two profiles side by side, the default (unset) and the fallback (0), with
 # half the jobs each. What both runs read is built first (tg_replay, the directed tests, the
