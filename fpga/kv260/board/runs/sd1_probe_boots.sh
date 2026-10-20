@@ -32,7 +32,7 @@ for n in $(seq "$first" "$last"); do
   set -- $b; bt=${1:-?}; io=${2:-?}; up=${3:-?}
   g 'sudo nohup /usr/local/sbin/sd1-irq-probe watch > /dev/null 2>&1 &' > /dev/null
   r=$(g "sudo sh /home/tanager/sd_read_stress.sh $S" | tr '\n' ';')
-  a=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -m1 mmc0 /proc/interrupts | tr -s " " | cut -d" " -f2-4; sudo pkill -f "sd1-irq-probe watch"; test -s /run/sd1-irq-probe.log && echo FIRED || echo none')
+  a=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -m1 mmc0 /proc/interrupts | tr -s " " | cut -d" " -f2-4; sudo pkill -f "^/bin/sh /usr/local/sbin/sd1-irq-probe watch"; test -s /run/sd1-irq-probe.log && echo FIRED || echo none')
   st=$(echo "$a" | sed -n 1p); irq=$(echo "$a" | sed -n 2p); pr=$(echo "$a" | tail -1)
   echo "$(date -u +%T) boot $n: COM5 from $off, login after $tl s (guest up $up s at SSH), iomem=relaxed $io; SD1 timeouts: boot $bt, after the stress $st; mmc0 irqs $irq; $r probe $pr" >> "$T"
   if [ "$pr" = FIRED ] || [ "$st" != 0 ] || [ "$bt" != 0 ]; then
