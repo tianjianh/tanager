@@ -9,6 +9,10 @@
 // Commit retires up to COMMIT_WIDTH complete entries in order. Exceptions, serialising
 // instructions and replays are handled at the head alone; a mispredicted branch retires and
 // ends the group. Every recovery is a flush plus redirect, registered (flush, flush_pc).
+// Per thread (M7's step 3, docs/spec/threading.md): a head, a tail and the xRET-in-flight bits per thread. A
+// dispatch group is one thread's (t_ds) and advances its tail; a flush recovers the flushing instruction's thread
+// (flush_tid). Commit serves one thread a cycle (t_cm), the running thread until the split mode (step 3c), which
+// also keeps the oldest-exception and oldest-mispredict registers and the WFI counter per thread.
 module tg_rob
   import tg_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
 #(
@@ -27,7 +31,7 @@ module tg_rob
   input  logic [DISPATCH_WIDTH-1:0]    ds_valid,
   input  uop_t [DISPATCH_WIDTH-1:0]    ds_uop,
   input  ren_t [DISPATCH_WIDTH-1:0]    ds_ren,
-  output robid_t                       head_o,
+  output robid_t [NUM_THREADS-1:0]     head_o,       // each thread's head
   // Completion
   input  logic [N_ALU-1:0]             alu_cmp,
   input  robid_t [N_ALU-1:0]           alu_rob,
@@ -139,9 +143,16 @@ module tg_rob
     $error("tg_rob: ROB_BANKS must cover the widths and divide ROB_ENTRIES");
   end
 
-  robid_t head_q, tail_q;
+  localparam int NT = NUM_THREADS;
+  // The threads: the dispatch group's (its slot 0's tid), the committing one (the running thread until the split
+  // mode) and the flushed one; without SMT thread 0, whatever the tid bits hold
+  tid_t t_ds, t_cm, t_fl;
+  assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
+  assign t_cm = RUN_TID;
+  assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
+  robid_t [NT-1:0] head_q, tail_q;
   assign head_o = head_q;
-  logic                   xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
+  logic [NT-1:0]          xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
   logic          exr_v_q;
   robid_t        exr_rob_q;
@@ -231,7 +242,7 @@ module tg_rob
   endfunction
   hwin_t [CW:0] hw_n;               // after committing k
   hwin_t        hw_q;
-  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q, k);
+  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q[t_cm], k);
   robid_t [CW-1:0]  hid;              // head + j
   rob_pl_t [CW-1:0] hp;
   logic [NB-1:0][idx_w(ROWS)-1:0] pr_a;
@@ -433,7 +444,7 @@ module tg_rob
 
   // ---- Commit decision ----
   int cnt;
-  assign cnt = rob_cnt(tail_q, head_q);
+  assign cnt = rob_cnt(tail_q[t_cm], head_q[t_cm]);
   logic [CW-1:0] ret;               // retiring slots
   logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt, tlbx;
   logic [63:0]   nf_pc;
@@ -718,33 +729,33 @@ module tg_rob
       icinv    <= 1'b0;
       exr_v_q  <= 1'b0;
       mpr_v_q  <= 1'b0;
-      xr_v_q   <= 1'b0;
+      xr_v_q   <= '0;
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
       flush     <= do_flush;
-      // Every flush is the head's thread's: the window holds one thread until M7's halves (step 3)
+      // Every flush is the committing thread's: its head instruction's tid
       flush_tid <= hp[0].tid;
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
-      head_q    <= hw_n[cm_n].hid[0];
+      head_q[t_cm] <= hw_n[cm_n].hid[0];
 
       if (flush) begin
-        tail_q  <= head_q;
-        exr_v_q <= 1'b0;
+        tail_q[t_fl] <= head_q[t_fl];
+        exr_v_q <= 1'b0;                  // (the committing thread's: one thread until the split mode)
         mpr_v_q <= 1'b0;
-        xr_v_q  <= 1'b0;
+        xr_v_q[t_fl] <= 1'b0;
       end else begin
         // Dispatch
         if (ds_fire) begin
           // MRET and SRET are serial: dispatched alone, with nothing after them until their
           // flush, so this holds until they commit
-          xr_v_q <= 1'b0;
-          xr_s_q <= 1'b0;
+          xr_v_q[t_ds] <= 1'b0;
+          xr_s_q[t_ds] <= 1'b0;
           for (int k = 0; k < DISPATCH_WIDTH; k++) begin
-            if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q <= 1'b1;
-            if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q <= 1'b1;
+            if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q[t_ds] <= 1'b1;
+            if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q[t_ds] <= 1'b1;
           end
-          tail_q <= rob_add(tail_q, $countones(ds_valid));
+          tail_q[t_ds] <= rob_add(tail_q[t_ds], $countones(ds_valid));
         end
         // Completions, exceptions, mispredicts and MMIO loads: the toggle tables; replay: the
         // XOR-banked tables (above)
@@ -761,8 +772,8 @@ module tg_rob
       end
     end
   end
-  assign xret_v    = xr_v_q;
-  assign xret_s    = xr_s_q;
+  assign xret_v    = xr_v_q[t_cm];
+  assign xret_s    = xr_s_q[t_cm];
   always_ff @(posedge clk) hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
 `ifndef SYNTHESIS
   // Checks of registers against each other wait for the core's first reset: in the SoC the reset
@@ -772,11 +783,11 @@ module tg_rob
   always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
     if (rs_q && !rst)
-      assert (hw_q == hwin(head_q, 0)) else $error("tg_rob: the registered head window differs from the head");
+      assert (hw_q == hwin(head_q[t_cm], 0)) else $error("tg_rob: the registered head window differs from the head");
   end
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))
-      assert (xr_v_q && xr_s_q == do_sret) else $error("tg_rob: an xRET commits that xret_v/xret_s do not name");
+      assert (xr_v_q[t_cm] && xr_s_q[t_cm] == do_sret) else $error("tg_rob: an xRET commits that xret_v/xret_s do not name");
     if (!rst && ret[0] && hp[0].serial)
       assert (!hp[0].dexc) else $error("tg_rob: a serial instruction with a decode exception retires");
   end
@@ -801,7 +812,7 @@ module tg_rob
   // for an entry as it is dispatched).
   logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s, rpl_s;
   function automatic logic live(input robid_t e);
-    return rob_cnt(e, head_q) < rob_cnt(tail_q, head_q);
+    return rob_cnt(e, head_q[t_cm]) < rob_cnt(tail_q[t_cm], head_q[t_cm]);
   endfunction
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin

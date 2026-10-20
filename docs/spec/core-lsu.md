@@ -24,8 +24,11 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **To the ROB:** load and store completion, exceptions {ROB index, cause, `tval`}, replay marks (ordering violations), `mmio` marks.
 - **From the ROB:** head index (MMIO loads), per-cycle commit of loads (LQ head) and stores (SQ commit mark), and the trace fields of committed stores (address, data, size).
 - **To rename/ready table:** the load bank's write events; LLT releases. **To `tg_wake`:** the LLT of each confirmed load result (`wake_ld`). With `SPEC_WAKE`, `tg_issue` has already woken an IQ load's LLT at AG and takes a missing `wake_ld` four cycles after the load's issue (*s*+4) as the shadow cancel (core-pipeline §6).
-- **Flush:** from commit. The LSU takes the plain `flush` until M7's step 4 halves its queues by thread (m7-smt2-plan.md):
-  one thread runs, so every flush is its.
+- **Flush:** from commit, with its thread (`flush_tid`).
+- **Per thread (M7's step 3, docs/spec/threading.md):** the LQ's head and tail and the SQ's head, commit pointer and tail
+  are per thread, and go to rename per thread. Dispatch moves its group's thread's tails, commit moves its thread's LQ
+  head and SQ commit pointer (`cm_tid`), and a flush recovers its thread's tails. The drain, the replays, the searches
+  and the ROB-head checks serve the running thread until step 4, which also masks the searches by thread.
 
 ## Behaviour
 

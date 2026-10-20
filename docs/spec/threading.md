@@ -39,15 +39,25 @@ Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_
 | Fetch | the tid it writes on each instruction (`RUN_TID`, the one running thread) | 5: PC, history, FTQ, RAS, instruction queue, thread select |
 | Predictors | the micro-BTB's entry tag (looked up and trained with tid 0) | 5 |
 | Decode | — (passes the tid through) | 5 |
-| Rename | — (passes the tid through) | 3: maps, free lists, window allocation |
+| Rename | maps (a tid address bit) and renamed-since-flush bits; free lists in RAM form (D3); the ROB, LQ and SQ tails and room checks; the serialisation block; the flush of the RN and DS stages; the tags' and LLTs' return (core-pipeline.md §5.4) | 3: the split mode's lists and homes (D4); 5: the divide and FP counts |
 | Issue | each row's tid; the kill (`flush_tid`); the cap's room (`room_q`, not yet applied); the speculative wakeup's drop | 7: the caps at dispatch; with fpu-2: the tid in every payload |
 | Exec | — | with fpu-2: the stages' kill |
 | P4 (FPU) | its stages, shadow pipelines, divide table and result queue | — |
 | fcsr | frm, fflags and the early-retire counter (per hart); the flags go to the retiring op's thread | — |
 | CSRs | every hart's architectural state: hot state, cold rows and `pmpaddr` (a tid address bit), PMP descriptors, interrupt lines, timer compare, pending write, counters; writes to the committing thread (`cm_tid[0]`); the flushed thread's pending write dropped; reads and outputs the running thread's (`RUN_TID`) (core-pipeline.md §9.6) | 4: the PMP select at the checkers and each hart's satp at the walker (D6); 5: reads by each consumer's thread |
-| LSU, MMU | — | 4 |
-| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`) | 3: halves, per-thread commit state |
+| LSU, MMU | the LQ's and SQ's pointers (core-lsu.md) | 3b: halves; 4: the rest |
+| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`); the head, tail and xRET bits (core-pipeline.md §8.4) | 3b: halves, the commit thread choice, the exception, mispredict and WFI state |
 | Trace | the hart field from each record's tid (tid ^ `SOLO_TID`) | 2: the load address (`mem_ld`, after interfaces.md v1.5) |
+
+## The thread choice (D7, refined 10-20)
+- **Fetch** picks a thread a cycle: round robin first, then ICOUNT (step 5).
+- **Decode, rename and commit** take one thread's group a cycle: the first-served thread alternates, and an idle thread is
+  skipped. Commit's choice is made a cycle ahead, so the head window is still read from flip-flops (core-pipeline.md
+  §8.4).
+- **Mixed groups** (a thread taking the slots its sibling leaves, D7 as first written) come only if the model shows them
+  gaining 1% or more weighted throughput (DR-154's rule): they cost a second head window's reads (the payload and each
+  flag table) at commit, and both threads' free-list pops and a tid in the dependency checks at rename. smt2-study prices
+  them before step 5.
 
 ## Provenance
 Plan §6 and the research notes it cites; m7-smt2-plan.md §8. No other core's RTL was read.

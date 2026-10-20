@@ -32,6 +32,12 @@
 // confirms the row still holds it. A producer in the same group is named by the row it is being
 // written into. Otherwise the ID is used. rowdst is LUTRAM too, banked by DS slot and read by
 // row: a row's value is the XOR of the banks.
+// Per thread (M7's step 3, docs/spec/threading.md): a group is one thread's (t_rn, its slot 0's tid). The maps and the
+// free lists are per thread (RAM form: the tid is an address bit), and so are the ROB, LQ and SQ tails with their
+// room checks against that thread's heads, the block after a serialising uop, and the flush of the RN and DS stages
+// (only when they hold the flushed thread's group). The wakeup tags and LLTs stay one pool each; each records its
+// thread, and a flush returns the flushed thread's. Commit's pushes and map writes are the commit group's thread's
+// (cm_tid). The divide and FP counts stay shared until two threads run (step 5).
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -51,15 +57,16 @@ module tg_rename
   output logic ready,          // free lists initialised
   input  logic start,          // the core's reset sequence is done
   input  logic flush,
+  input  tid_t flush_tid,
   // From decode
   input  logic [W-1:0]   de_valid,
   input  uop_t [W-1:0]   de_uop,
   output logic           de_take,
-  // Window state
-  input  robid_t         rob_head,
-  input  lqid_t          lq_head,
-  input  sqid_t          sq_head,
-  input  sqid_t          sq_cmt,      // first uncommitted SQ entry
+  // Window state, per thread
+  input  robid_t [NUM_THREADS-1:0] rob_head,
+  input  lqid_t  [NUM_THREADS-1:0] lq_head,
+  input  sqid_t  [NUM_THREADS-1:0] sq_head,
+  input  sqid_t  [NUM_THREADS-1:0] sq_cmt,      // first uncommitted SQ entry
   // Issue state
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free,
   input  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free2,  // at least two rows free (STEER_LA)
@@ -78,7 +85,8 @@ module tg_rename
   input  logic                             fpi_iss,     // ... an FP->int op
   input  logic                             fdiv_done,   // P4 returned a divide
   input  logic                             fpi_pop,     // ... an FP->int op
-  // Commit
+  // Commit (one thread's group a cycle)
+  input  tid_t                             cm_tid,
   input  logic [COMMIT_WIDTH-1:0]          cm_valid,
   input  logic [COMMIT_WIDTH-1:0]          cm_rd_en,
   input  logic [COMMIT_WIDTH-1:0][4:0]     cm_rd,
@@ -98,7 +106,7 @@ module tg_rename
   input  logic [N_ALU-1:0][DISPATCH_WIDTH-1:0][RA-1:0] mx_alloc,  // rows written next
   output logic [NCOL-1:0]                  wid_alloc,   // IDs given out at RN (clear W)
   output logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy,  // DS: rs2's register is written
-  output robid_t                           rob_tail,    // next ROB entry RN gives out
+  output robid_t [NUM_THREADS-1:0]         rob_tail,    // next ROB entry RN gives out, per thread
   output logic [7:0]                       dbg_o        // board debug: RN's stall flags (tg_core's dbg_o)
 );
   if (W != DISPATCH_WIDTH) begin : g_bad
@@ -116,23 +124,34 @@ module tg_rename
   function automatic logic is_lat1(input uclass_e c);       // a 1-cycle op in an ALU queue
     return c == C_ALU || c == C_BR;
   endfunction
+  localparam int NT = NUM_THREADS;
   logic [LLT_ENTRIES-1:0] llt_busy_q;
   logic [IQ_TAGS-1:0]    tag_busy_q;
-  robid_t                rtail_q;
-  lqid_t                 ltail_q;
-  sqid_t                 stail_q;
+  logic [LLT_ENTRIES-1:0] llt_tid_q;       // each LLT's and tag's thread (bit 0 of the tid: NT <= 2)
+  logic [IQ_TAGS-1:0]    tag_tid_q;
+  robid_t [NT-1:0]       rtail_q;
+  lqid_t  [NT-1:0]       ltail_q;
+  sqid_t  [NT-1:0]       stail_q;
   logic [idx_w(DIV_INFLIGHT + 1)-1:0] div_cnt_q;
   // FP divides and FP->int ops: renamed, not yet issued (a flush drops them) / issued, not
   // yet returned by P4
   logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
-  logic                  block_q;          // after a serialising uop, until the flush
+  logic [NT-1:0]         block_q;          // after a serialising uop, until the thread's flush
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
   logic [W-1:0]          ds_valid_q;
   uop_t [W-1:0]          ds_uop_q;
   ren_t [W-1:0]          ds_ren_q;
+  // The threads: RN's group (t_rn), DS's (t_ds), commit's (t_cm) and the flushed one (t_fl); without SMT thread 0,
+  // whatever
+  // the tid bits hold
+  tid_t t_rn, t_ds, t_cm, t_fl;
+  assign t_rn = (NT > 1) ? rn_uop_q[0].tid : tid_t'(0);
+  assign t_ds = (NT > 1) ? ds_uop_q[0].tid : tid_t'(0);
+  assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
+  assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
 
   logic [3*W-1:0] irdy;                  // integer ready table reads: RN sources, DS rs2
   logic [4*W-1:0] frdy;                  // FP: RN sources (3 per slot), DS rs2
@@ -149,7 +168,7 @@ module tg_rename
 
   // ---- Free lists, one per bank (bank 0 keeps preg 0 as the zero register, and x1..x31) ----
   logic [INT_BANKS-1:0]                 fl_ready;
-  logic [INT_BANKS-1:0][FPW-1:0]        fl_count;
+  logic [INT_BANKS-1:0][NT-1:0][FPW-1:0] fl_count;
   logic [INT_BANKS-1:0][W-1:0][PIDX_W-1:0] fl_pop;
   logic [INT_BANKS-1:0][idx_w(W+1)-1:0] fl_pop_n;
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0] fl_push_v;
@@ -158,14 +177,14 @@ module tg_rename
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_fl
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
                   .FIRST(b == 0 ? 32 : 0)) u_fl (
-      .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_idx(fl_pop[b]),
-      .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
-      .commit_n(fl_cmt_n[b]), .flush);
+      .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
+      .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
+      .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl));
   end
 
   // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63
   logic [1:0]                         ffl_ready;
-  logic [1:0][FPIDX_W:0]              ffl_count;
+  logic [1:0][NT-1:0][FPIDX_W:0]      ffl_count;
   logic [1:0][W-1:0][FPIDX_W-1:0]     ffl_pop;
   logic [1:0][idx_w(W+1)-1:0]         ffl_pop_n;
   logic [1:0][COMMIT_WIDTH-1:0]       ffl_push_v;
@@ -176,9 +195,9 @@ module tg_rename
     for (genvar b = 0; b < 2; b++) begin : g_b
       tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
                     .FIRST(b == FPB_F0 ? 32 : 0)) u_fl (
-        .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_idx(ffl_pop[b]),
-        .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
-        .commit_n(ffl_cmt_n[b]), .flush);
+        .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
+        .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
+        .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl));
     end
   end else begin : g_noffl
     assign ffl_ready = '1;
@@ -227,7 +246,7 @@ module tg_rename
     assign icm_we[j] = cm_valid[j] && cm_rd_en[j] && !cm_rd_fp[j];
   end
   tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W)) u_imap (
-    .clk, .rst, .flush, .ready(imap_ready), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
+    .clk, .rst, .flush, .flush_tid(t_fl), .ready(imap_ready), .rtid(t_rn), .ctid(t_cm), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
     .we(im_we), .wa(im_wa), .wd_p(im_wdp), .wd_d(im_wdd), .cwe(icm_we), .cwa(cm_rd),
     .cwd(cm_dst));
   for (genvar i = 0; i < NMR; i++) begin : g_imr
@@ -267,7 +286,8 @@ module tg_rename
       assign fm_wdd[k] = ren[k].wid;
     end
     tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W)) u_fmap (
-      .clk, .rst, .flush, .ready(fmap_ready), .ra(fmap_ra), .rd_p(fmap_p), .rd_d(fmap_w),
+      .clk, .rst, .flush, .flush_tid(t_fl), .ready(fmap_ready), .rtid(t_rn), .ctid(t_cm), .ra(fmap_ra), .rd_p(fmap_p),
+      .rd_d(fmap_w),
       .we(fm_we), .wa(fm_wa), .wd_p(fm_wdp), .wd_d(fm_wdd), .cwe(fcm_we), .cwa(cm_rd),
       .cwd(fcm_wd));
   end else begin : g_nofmap
@@ -288,9 +308,9 @@ module tg_rename
   logic [3*W-1:0][PIDX_W-1:0] ir_i;
   always_comb begin
     for (int b = 0; b < INT_BANKS; b++)
-      for (int c = 0; c < W; c++) icv[b][c] = int'(fl_count[b]) > c;
+      for (int c = 0; c < W; c++) icv[b][c] = int'(fl_count[b][t_rn]) > c;
     for (int b = 0; b < 2; b++)
-      for (int c = 0; c < W; c++) fcv[b][c] = int'(ffl_count[b]) > c;
+      for (int c = 0; c < W; c++) fcv[b][c] = int'(ffl_count[b][t_rn]) > c;
   end
   for (genvar i = 0; i < 2 * W; i++) begin : g_irs
     assign ir_b[i] = preg_bank(map_p[i]);
@@ -390,12 +410,20 @@ module tg_rename
 
   // Room for n more of each counted resource, n = 0..W, from registers, so the group's needs pick
   // one at the end; the free lists' are icv / fcv (timing: no compare after the steering)
+  // (each thread's, picked by the group's thread: the compares stay on registers)
   logic [W:0] rob_room, lq_room, sq_room, div_room, fdiv_room, fpi_room;
+  logic [NT-1:0][W:0] rob_room_t, lq_room_t, sq_room_t;
   always_comb begin
+    for (int t = 0; t < NT; t++)
+      for (int n = 0; n <= W; n++) begin
+        rob_room_t[t][n] = rob_cnt(rtail_q[t], rob_head[t]) + n <= ROB_ENTRIES;
+        lq_room_t[t][n]  = lq_cnt(ltail_q[t], lq_head[t]) + n <= LQ_ENTRIES;
+        sq_room_t[t][n]  = sq_cnt(stail_q[t], sq_head[t]) + n <= SQ_ENTRIES;
+      end
+    rob_room = rob_room_t[t_rn];
+    lq_room  = lq_room_t[t_rn];
+    sq_room  = sq_room_t[t_rn];
     for (int n = 0; n <= W; n++) begin
-      rob_room[n]  = rob_cnt(rtail_q, rob_head) + n <= ROB_ENTRIES;
-      lq_room[n]   = lq_cnt(ltail_q, lq_head) + n <= LQ_ENTRIES;
-      sq_room[n]   = sq_cnt(stail_q, sq_head) + n <= SQ_ENTRIES;
       div_room[n]  = int'(div_cnt_q) + n <= DIV_INFLIGHT;
       fdiv_room[n] = int'(fdiv_pre_q) + int'(fdiv_post_q) + n <= FDIV_INFLIGHT;
       fpi_room[n]  = int'(fpi_pre_q) + int'(fpi_post_q) + n <= FPI_INFLIGHT;
@@ -453,9 +481,9 @@ module tg_rename
       endcase
       ren[k].q = QW'(port);
       // Window entries
-      ren[k].rob = rob_add(rtail_q, k);
-      ren[k].lq  = lq_add(ltail_q, nld);
-      ren[k].sq  = sq_add(stail_q, nst);
+      ren[k].rob = rob_add(rtail_q[t_rn], k);
+      ren[k].lq  = lq_add(ltail_q[t_rn], nld);
+      ren[k].sq  = sq_add(stail_q[t_rn], nst);
       if (rn_valid_q[k]) begin
         if (rn_uop_q[k].d.cls == C_LD) nld++;
         if (rn_uop_q[k].d.cls == C_ST) nst++;
@@ -560,22 +588,23 @@ module tg_rename
       if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
     end
 `ifndef SYNTHESIS
-    rn_ok_ref = !(rob_cnt(rtail_q, rob_head) + nrob > ROB_ENTRIES || lq_cnt(ltail_q, lq_head) + nld > LQ_ENTRIES ||
-                  sq_cnt(stail_q, sq_head) + nst > SQ_ENTRIES || llt_short || tag_short ||
+    rn_ok_ref = !(rob_cnt(rtail_q[t_rn], rob_head[t_rn]) + nrob > ROB_ENTRIES ||
+                  lq_cnt(ltail_q[t_rn], lq_head[t_rn]) + nld > LQ_ENTRIES ||
+                  sq_cnt(stail_q[t_rn], sq_head[t_rn]) + nst > SQ_ENTRIES || llt_short || tag_short ||
                   int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
                   int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
-    for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i])) rn_ok_ref = 1'b0;
-    for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i])) rn_ok_ref = 1'b0;
+    for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i][t_rn])) rn_ok_ref = 1'b0;
+    for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i][t_rn])) rn_ok_ref = 1'b0;
 `endif
   end
 
-  // Serialising and exception uops: alone, into an empty window; then block until the flush.
+  // Serialising and exception uops: alone, into the thread's empty window; then block the thread until its flush.
   logic rn_serial, window_empty;
   assign rn_serial    = rn_valid_q[0] && (rn_uop_q[0].d.serial || rn_uop_q[0].d.exc);
-  assign window_empty = rtail_q == rob_head && !(|ds_valid_q);
+  assign window_empty = rtail_q[t_rn] == rob_head[t_rn] && !(|ds_valid_q && t_ds == t_rn);
 
   logic ds_free;
-  assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q && !flush && ready && start &&
+  assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
                    irdy_ready && frdy_ready && (!rn_serial || window_empty);
   assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
 
@@ -609,7 +638,7 @@ module tg_rename
   assign ds_valid = ds_valid_q;
   // Board debug (tg_core's dbg_o): slot 0 valid, serial, the empty window, the block after a
   // serial uop, resources, fire, DS busy, and ready && start
-  assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q, window_empty, rn_serial,
+  assign dbg_o = {ready && start, |ds_valid_q, rn_fire, rn_ok, block_q[t_rn], window_empty, rn_serial,
                   rn_valid_q[0]};
   assign ds_uop   = ds_uop_q;
   assign ds_ren   = ds_ren_q;
@@ -802,7 +831,7 @@ module tg_rename
       ltail_q    <= '0;
       stail_q    <= '0;
       div_cnt_q  <= '0;
-      block_q    <= 1'b0;
+      block_q    <= '0;
       rn_valid_q <= '0;
       ds_valid_q <= '0;
     end else begin
@@ -813,17 +842,18 @@ module tg_rename
       if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
 
       if (flush) begin
-        llt_busy_q <= '0;
-        tag_busy_q <= '0;               // every tagged producer in flight is squashed
-        rtail_q    <= rob_head;
-        ltail_q    <= lq_head;
-        stail_q    <= sq_cmt;
-        div_cnt_q  <= '0;
+        // the flushed thread's tagged producers in flight are squashed: their tags and LLTs return
+        for (int i = 0; i < LLT_ENTRIES; i++) if (llt_tid_q[i] == t_fl[0]) llt_busy_q[i] <= 1'b0;
+        for (int i = 0; i < IQ_TAGS; i++) if (tag_tid_q[i] == t_fl[0]) tag_busy_q[i] <= 1'b0;
+        rtail_q[t_fl] <= rob_head[t_fl];
+        ltail_q[t_fl] <= lq_head[t_fl];
+        stail_q[t_fl] <= sq_cmt[t_fl];
+        div_cnt_q  <= '0;               // (one thread runs until step 5: its divides)
         fdiv_pre_q <= '0;                // not yet issued: gone with the flush
         fpi_pre_q  <= '0;
-        block_q    <= 1'b0;
-        rn_valid_q <= '0;
-        ds_valid_q <= '0;
+        block_q[t_fl] <= 1'b0;
+        if (t_rn == t_fl) rn_valid_q <= '0;
+        if (t_ds == t_fl) ds_valid_q <= '0;
       end else begin
         // FP divides and FP->int ops renamed this cycle, and those issued
         fdiv_pre_q <= fdiv_pre_q + (idx_w(FDIV_INFLIGHT + 1))'(rn_fire ? ren_nfp(rn_uop_q, rn_valid_q, 1'b1) : 0)
@@ -838,16 +868,22 @@ module tg_rename
           rn_valid_q <= '0;
           for (int k = 0; k < W; k++) begin
             if (rn_valid_q[k]) begin
-              if (ren[k].use_llt) llt_busy_q[ren[k].llt] <= 1'b1;
-              if (ren[k].use_tag) tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
+              if (ren[k].use_llt) begin
+                llt_busy_q[ren[k].llt] <= 1'b1;
+                llt_tid_q[ren[k].llt]  <= t_rn[0];
+              end
+              if (ren[k].use_tag) begin
+                tag_busy_q[ren[k].wid[WTAG_W-1:0]] <= 1'b1;
+                tag_tid_q[ren[k].wid[WTAG_W-1:0]]  <= t_rn[0];
+              end
             end
           end
-          rtail_q <= rob_add(rtail_q, $countones(rn_valid_q));
-          ltail_q <= lq_add(ltail_q, ren_nld(rn_uop_q, rn_valid_q));
-          stail_q <= sq_add(stail_q, ren_nst(rn_uop_q, rn_valid_q));
+          rtail_q[t_rn] <= rob_add(rtail_q[t_rn], $countones(rn_valid_q));
+          ltail_q[t_rn] <= lq_add(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q));
+          stail_q[t_rn] <= sq_add(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q));
           div_cnt_q <= div_cnt_q + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
                        - (idx_w(DIV_INFLIGHT + 1))'(div_done && div_cnt_q != '0);
-          if (rn_serial) block_q <= 1'b1;
+          if (rn_serial) block_q[t_rn] <= 1'b1;
         end
         // DE -> RN
         if (de_take) begin
