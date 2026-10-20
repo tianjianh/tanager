@@ -475,8 +475,52 @@ module tg_core
   logic                hd_tlb, hd_retry, hd_fault;
   logic [3:0]          hd_cause;
   logic [63:0]         hd_lva, hd_sva;
+  // The LSU's flush: the ROB's. In simulation +xflush=PCT (split builds) adds phantom flushes of the thread that
+  // does not run, in cycles with no flush: in PCT% of them and in every one in which the running thread's MMIO read
+  // is out (tg_lsu's x_out). The LSU and its walker hold nothing of that thread, so the run must be the same but for
+  // its cycles (lockstep, tg_vsim's one bus read per MMIO load, tg_lsu's checks): step 4's per-thread kills tested
+  // before a second thread runs (step 5). The counts go to stderr at the end.
+  logic lsu_flush;
+  tid_t lsu_flush_tid;
+`ifdef SYNTHESIS
+  assign lsu_flush     = flush;
+  assign lsu_flush_tid = flush_tid;
+`else
+  bit              xf_on;
+  int unsigned     xf_pct;
+  logic [31:0]     xf_r_q;          // xorshift32: the phantom flushes' own sequence (the testbench's $urandom stays)
+  logic            xf_inj;
+  longint unsigned xf_n, xf_nx;
+  function automatic logic [31:0] xs32(input logic [31:0] x);
+    logic [31:0] y;
+    y = x ^ (x << 13);
+    y = y ^ (y >> 17);
+    return y ^ (y << 5);
+  endfunction
+  initial begin
+    xf_on = $value$plusargs("xflush=%d", xf_pct);
+    if (xf_on && !SPLIT) $fatal(1, "tg_core: +xflush needs a split build (SPLIT=1)");
+  end
+  assign xf_inj        = xf_on && !rst && !flush && (xf_r_q % 100 < xf_pct || u_lsu.x_out);
+  assign lsu_flush     = flush || xf_inj;
+  assign lsu_flush_tid = xf_inj ? ~RUN_TID : flush_tid;
+  always_ff @(posedge clk) begin
+    xf_r_q <= rst ? 32'h2545_f491 : xs32(xf_r_q);
+    if (rst) begin
+      xf_n  <= 0;
+      xf_nx <= 0;
+    end else if (xf_inj) begin
+      xf_n  <= xf_n + 1;
+      if (u_lsu.x_out) xf_nx <= xf_nx + 1;
+    end
+  end
+  final if (xf_on)
+    $fwrite(32'h8000_0002, "TG-XFLUSH %m: %0d phantom flushes of thread %0d, %0d with an MMIO read out\n", xf_n,
+            ~RUN_TID, xf_nx);
+`endif
   tg_lsu u_lsu (
-    .clk, .rst, .ready(lsu_ready), .flush, .flush_tid, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .clk, .rst, .ready(lsu_ready), .flush(lsu_flush), .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
+    .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,

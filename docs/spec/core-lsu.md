@@ -57,6 +57,12 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
     a store or an atomic's write by one hart ends the other's on that line, as a probe would (plan §6.2 rule 4). The
     probe hold covers each hart's young reservation.
   - In merged mode every choice is the running thread and every kill the flush: the LSU before M7.
+  - **The kills' test before two threads run:** in simulation, `+xflush=PCT` (split builds; `tg_core`) gives the LSU
+    phantom flushes of the thread that does not run, in cycles without a flush: in PCT% of them, and in every cycle in
+    which the running thread's MMIO read is out (sent, or its value waiting to retire). Nothing of that thread is in the
+    LSU or its walker, so a run must be the same but for its cycles: `tools/ci/regress.sh CFG=smt2 SPLIT=1 SOLO_TID=1
+    SIMARGS=+xflush=10` (lockstep, tg_vsim's one bus read per MMIO load, the LSU's no-flush check on an MMIO read).
+    The counts go to stderr (`TG-XFLUSH`).
 
 ## Behaviour
 

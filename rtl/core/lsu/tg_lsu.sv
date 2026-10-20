@@ -311,6 +311,8 @@ module tg_lsu
   // A flush kills only its thread's operations (rule 2): in merged mode each is the running thread's, as the flush
   logic [NT-1:0] kill_t;
   always_comb for (int t = 0; t < NT; t++) kill_t[t] = flush && (!SPLIT || t_fl == tid_t'(t));
+  tid_t t_ldag;                                 // the LD port's load's thread (its LQ entry's)
+  assign t_ldag = lq_tid(int'(ld_ag_pl.lq[LIW-1:0]));
   // The entries each thread owns (in merged mode the running thread every one)
   logic [NT-1:0][LQ_ENTRIES-1:0] lq_ot;
   logic [NT-1:0][SQ_ENTRIES-1:0] sq_ot;
@@ -490,7 +492,7 @@ module tg_lsu
       assign tr_ld_size[j] = lq_size_q[tr_lq[j][LIW-1:0]];
     end
     tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(64), .NR(COMMIT_WIDTH)) u_lqva (
-      .clk, .we(ld_ag_valid && !flush), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd.va), .raddr(lqva_ra),
+      .clk, .we(ld_ag_valid && !kill_t[t_ldag]), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd.va), .raddr(lqva_ra),
       .rdata(lqva_rd));
   end else begin : g_notrace
     assign tr_st_va   = '0;
@@ -665,8 +667,6 @@ module tg_lsu
   logic [LIW-1:0]    ag_lq;
   logic [PA_W-1:0]   ag_pa;
   logic              ag_go;
-  tid_t              t_ldag;                         // the LD port's load's thread
-  assign t_ldag  = lq_tid(int'(ld_ag_pl.lq[LIW-1:0]));
   assign ag_pt   = !ld_ag_valid && pt_req && !kill_t[pw_dtid];
   assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !kill_t[rp_t];
   assign ag_v    = (ld_ag_valid && !kill_t[t_ldag]) || ag_pt || ag_rp;
@@ -2111,11 +2111,12 @@ module tg_lsu
   // replay, exception or serialising flush of an older one can come; its own access fault comes
   // with its response; and no interrupt is taken from its issue's cycle (mm_go waits for none) to
   // its retirement (mmio_busy). A flush of its thread here would have the read run twice (SD1's lost interrupt;
-  // the other thread's flushes do not touch it, M7's step 4)
+  // the other thread's flushes do not touch it, M7's step 4: tg_core's +xflush sends them here)
+  logic x_out;                      // an MMIO read out: sent, or its value waiting to retire
+  assign x_out = (xs_q != X_IDLE && !x_st_q) || xr_v_q || xd_q;
   always_ff @(posedge clk)
     if (rs_q && !rst)
-      assert (!(kill_t[x_t] && ((xs_q != X_IDLE && !x_st_q) || xr_v_q || xd_q)))
-        else $error("tg_lsu: a flush meets an MMIO read already sent (it would run twice)");
+      assert (!(kill_t[x_t] && x_out)) else $error("tg_lsu: a flush meets an MMIO read already sent (it would run twice)");
   // Shadows of the blocking store's fields, written on the verdict as before (m2_out == O_STQ),
   // match the fields wherever these are read (in L_STQ)
   sqid_t [LQ_ENTRIES-1:0] blk_chk_q;
