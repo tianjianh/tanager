@@ -46,6 +46,10 @@ module tb_ram_lut;
   `TG_SHAPE(m32,  32, 64, 3)
   `TG_SHAPE(odd,  24, 13, 5)    // odd width on RAM32M16
   `TG_SHAPE(deep, 200, 33, 2)   // banks of 64
+  `TG_SHAPE(fp96, 96, 64, 4)    // 96 entries, DR-175's smt2 FP bank: RAM64M8 and RAM32M16
+  `TG_SHAPE(o96,  96, 13, 7)    // the same with an odd width and a full primitive of slots
+  `TG_SHAPE(d65,  65, 9, 3)     // the 96 form's smallest depth
+  `TG_SHAPE(d97,  97, 8, 2)     // just above it: banks of 64
   `TG_SHAPE(tiny, 10, 7, 1)
 
   initial begin
