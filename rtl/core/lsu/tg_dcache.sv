@@ -1033,7 +1033,7 @@ module tg_dcache
       end
     end
     assign eng_ok = rs_q == R_IDLE && tw_any;
-    assign ra_t   = TRW'(d_i.source - TL_SRC_W'(N));
+    assign ra_t   = TRW'(d_i.source[5:0] - 6'(N));   // (the core drives [5:0]; the interconnect owns the rest)
     assign st_busy = |st_m;
     assign rq_busy = |rq_m;
     assign d_e     = d_i.source[MSW-1:0];
@@ -1243,7 +1243,7 @@ module tg_dcache
         if (d_valid_i && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT))
           assert (d_for_e) else $error("tg_dcache: a Grant for no waiting entry (source %0d)", d_i.source);
         if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
-          assert (d_i.source >= TL_SRC_W'(N) && d_i.source < TL_SRC_W'(N + NREL) && tw_v_q[ra_t] &&
+          assert (d_i.source[5:0] >= 6'(N) && d_i.source[5:0] < 6'(N + NREL) && tw_v_q[ra_t] &&
                   !(rs_q != R_IDLE && rsrc_q == ra_t))
             else $error("tg_dcache: ReleaseAck with no Release outstanding (source %0d)", d_i.source);
         if (al_go) assert (f_any && !m_inst) else $error("tg_dcache: an allocation with no free entry, or beside an install");
