@@ -9,10 +9,11 @@
 // Commit retires up to COMMIT_WIDTH complete entries in order. Exceptions, serialising
 // instructions and replays are handled at the head alone; a mispredicted branch retires and
 // ends the group. Every recovery is a flush plus redirect, registered (flush, flush_pc).
-// Per thread (M7's step 3, docs/spec/threading.md): a head, a tail and the xRET-in-flight bits per thread. A
-// dispatch group is one thread's (t_ds) and advances its tail; a flush recovers the flushing instruction's thread
-// (flush_tid). Commit serves one thread a cycle (t_cm), the running thread until the split mode (step 3c), which
-// also keeps the oldest-exception and oldest-mispredict registers and the WFI counter per thread.
+// Per thread (M7's step 3, docs/spec/threading.md): a head, a tail, the xRET-in-flight bits, the oldest-exception
+// and oldest-mispredict registers and the WFI counter per thread. A dispatch group is one thread's (t_ds) and
+// advances its tail; a flush recovers the flushing instruction's thread (flush_tid). Commit serves one thread a
+// cycle (t_cm): the running thread in merged mode; in split mode (SPLIT) a registered choice, and each thread's
+// pointers wrap inside its half (rob_add_t). A report's thread is its entry's (rob_tid).
 module tg_rob
   import tg_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
 #(
@@ -139,26 +140,30 @@ module tg_rob
   if (NB < DISPATCH_WIDTH || NB < CW || (ROB_ENTRIES % NB) != 0) begin : g_bad
     $error("tg_rob: ROB_BANKS must cover the widths and divide ROB_ENTRIES");
   end
+  if (SPLIT && (NUM_THREADS != 2 || (ROB_ENTRIES / 2) % NB != 0)) begin : g_bad_split
+    $error("tg_rob: the split mode needs two threads and halves of whole bank rows");
+  end
 
   localparam int NT = NUM_THREADS;
   // The threads: the dispatch group's (its slot 0's tid), the committing one (the running thread until the split
   // mode) and the flushed one; without SMT thread 0, whatever the tid bits hold
   tid_t t_ds, t_cm, t_fl;
+  tid_t ct_q, ct_n;                  // split mode: the commit thread, chosen a cycle ahead
   assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
-  assign t_cm = RUN_TID;
+  assign t_cm = (SPLIT && NT > 1) ? ct_q : RUN_TID;
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
   robid_t [NT-1:0] head_q, tail_q;
   assign head_o = head_q;
   logic [NT-1:0]          xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
-  logic          exr_v_q;
-  robid_t        exr_rob_q;
-  logic [3:0]    exr_cause_q;
-  logic [63:0]   exr_tval_q;
-  logic          exr_mem_q;      // an LSU exception: tval is the head's VA (hd_lva / hd_sva)
-  logic          mpr_v_q;
-  robid_t        mpr_rob_q;
-  logic [63:0]   mpr_npc_q;
+  logic   [NT-1:0]        exr_v_q;
+  robid_t [NT-1:0]        exr_rob_q;
+  logic   [NT-1:0][3:0]   exr_cause_q;
+  logic   [NT-1:0][63:0]  exr_tval_q;
+  logic   [NT-1:0]        exr_mem_q;      // an LSU exception: tval is the head's VA (hd_lva / hd_sva)
+  logic   [NT-1:0]        mpr_v_q;
+  robid_t [NT-1:0]        mpr_rob_q;
+  logic   [NT-1:0][63:0]  mpr_npc_q;
 
   // ---- Payload LUTRAM ----
   function automatic int bank_of(input logic [RIW-1:0] i);
@@ -227,11 +232,11 @@ module tg_rob
     logic [CW-1:0][BKW-1:0]         bk;
     logic [NB-1:0][idx_w(ROWS)-1:0] pa;
   } hwin_t;
-  function automatic hwin_t hwin(input robid_t h, input int k);   // the window at head h + k
+  function automatic hwin_t hwin(input robid_t h, input int k, input tid_t t);   // the window at thread t's h + k
     hwin_t w;
     w = '0;
     for (int j = 0; j < CW; j++) begin
-      w.hid[j] = rob_add(h, k + j);
+      w.hid[j] = rob_add_t(h, k + j, t);
       w.bk[j]  = BKW'(bank_of(w.hid[j][RIW-1:0]));
       w.pa[bank_of(w.hid[j][RIW-1:0])] = idx_w(ROWS)'(row_of(w.hid[j][RIW-1:0]));
     end
@@ -239,7 +244,7 @@ module tg_rob
   endfunction
   hwin_t [CW:0] hw_n;               // after committing k
   hwin_t        hw_q;
-  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q[t_cm], k);
+  always_comb for (int k = 0; k <= CW; k++) hw_n[k] = hwin(head_q[t_cm], k, t_cm);
   robid_t [CW-1:0]  hid;              // head + j
   rob_pl_t [CW-1:0] hp;
   logic [NB-1:0][idx_w(ROWS)-1:0] pr_a;
@@ -441,7 +446,7 @@ module tg_rob
 
   // ---- Commit decision ----
   int cnt;
-  assign cnt = rob_cnt(tail_q[t_cm], head_q[t_cm]);
+  assign cnt = rob_cnt_t(tail_q[t_cm], head_q[t_cm]);
   logic [CW-1:0] ret;               // retiring slots
   logic          do_flush, do_trap, do_irq, do_icinv, do_csr, do_mret, do_sret, do_sfence, use_tt, tlbx;
   logic [63:0]   nf_pc;
@@ -465,18 +470,20 @@ module tg_rob
   // WFI retires when a locally enabled interrupt is pending, or after WFI_MAX cycles (the ISA
   // lets WFI complete at any time; Spike treats it as a no-op), so it never hangs the hart.
   localparam int WFI_MAX = 4096;
-  logic [idx_w(WFI_MAX + 1)-1:0] wfi_cnt_q;
+  logic [NT-1:0][idx_w(WFI_MAX + 1)-1:0] wfi_cnt_q;
   logic go;
   always_comb begin
     unique case (hp[0].sys)
       SYS_FENCE, SYS_FENCEI, SYS_SFENCE: go = sq_drained;    // later walks see the stores
-      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q) == WFI_MAX;
+      SYS_WFI:               go = wfi_wake || int'(wfi_cnt_q[t_cm]) == WFI_MAX;
       default:               go = !(hp[0].is_csr && hp[0].insn[31:20] == 12'h180) || sq_drained;  // satp
     endcase
   end
   always_ff @(posedge clk) begin
-    if (rst || flush || cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q <= '0;
-    else if (int'(wfi_cnt_q) != WFI_MAX) wfi_cnt_q <= wfi_cnt_q + 1'b1;
+    if (rst) wfi_cnt_q <= '0;
+    else if (flush) wfi_cnt_q[t_fl] <= '0;
+    else if (cnt == 0 || hp[0].sys != SYS_WFI) wfi_cnt_q[t_cm] <= '0;
+    else if (int'(wfi_cnt_q[t_cm]) != WFI_MAX) wfi_cnt_q[t_cm] <= wfi_cnt_q[t_cm] + 1'b1;
   end
   // One adder on the head's PC: a serial instruction's next PC (+2 or +4), or a fetch fault's
   // tval (+2 when only the second half of a 32-bit instruction faults). The second is a decode
@@ -496,7 +503,7 @@ module tg_rob
     pushed = 1'b0;
     mf = '0;
     if (!flush && ready && cnt > 0) begin
-      if (irq_take && hp[0].sys != SYS_WFI && !mmio_busy) begin
+      if (irq_take && t_cm == RUN_TID && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (the running thread's)
         do_irq = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;
@@ -527,8 +534,8 @@ module tg_rob
             default: t_tval = '0;
           endcase
         end else begin
-          t_cause = exr_cause_q;
-          t_tval  = exr_mem_q ? (hp[0].is_ld ? hd_lva : hd_sva) : exr_tval_q;
+          t_cause = exr_cause_q[t_cm];
+          t_tval  = exr_mem_q[t_cm] ? (hp[0].is_ld ? hd_lva : hd_sva) : exr_tval_q[t_cm];
         end
       end else if (cmp_h[0] && hp[0].serial) begin
         if (go) begin
@@ -561,7 +568,7 @@ module tg_rob
         // The holds cut the group last (timing: the LSU's S2 verdict arrives late)
         ret      = ret & ~hold_le;
         do_flush = |(mf & ~hold_le);
-        nf_pc    = mpr_npc_q;                       // (read only with do_flush)
+        nf_pc    = mpr_npc_q[t_cm];                 // (read only with do_flush)
       end
     end
   end
@@ -665,40 +672,55 @@ module tg_rob
   // takes the head's VA at the trap (ex_m), so ex_t is the best of the first three alone, as
   // the chain left it.
   localparam int NEX = 8;
-  logic        ex_v;
-  robid_t      ex_r;
-  logic [3:0]  ex_c;
-  logic [63:0] ex_t;
-  logic        ex_m;
-  logic [NEX-1:0]             xc_v, xc_win;
-  robid_t [NEX-1:0]           xc_r;
-  logic [NEX-1:0][3:0]        xc_c;
-  logic [NEX-1:0][NEX-1:0]    xc_o;     // xc_o[i][j]: candidate i is strictly older than j
-  always_comb begin
-    xc_v = {spx_valid, lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q};
-    xc_r = {spx_rob, lx_rob, br_rob, oth_rob, exr_rob_q};
-    xc_c = {4'(EXC_SACCESS), lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q};
-    for (int i = 0; i < NEX; i++)
-      for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
-    for (int i = 0; i < NEX; i++) begin
-      xc_win[i] = xc_v[i];
-      for (int j = 0; j < NEX; j++) begin
-        if (j < i && xc_v[j] && !xc_o[i][j]) xc_win[i] = 1'b0;    // an earlier one as old
-        if (j > i && xc_v[j] && xc_o[j][i])  xc_win[i] = 1'b0;    // a later one older
+  logic   [NT-1:0]        ex_v;
+  robid_t [NT-1:0]        ex_r;
+  logic   [NT-1:0][3:0]   ex_c;
+  logic   [NT-1:0][63:0]  ex_t;
+  logic   [NT-1:0]        ex_m;
+  // Each thread's select takes its register and the reports whose entries are its (rob_tid)
+  for (genvar t = 0; t < NT; t++) begin : g_ex
+    logic [NEX-1:0]             xc_v, xc_win;
+    robid_t [NEX-1:0]           xc_r;
+    logic [NEX-1:0][3:0]        xc_c;
+    logic [NEX-1:0][NEX-1:0]    xc_o;     // xc_o[i][j]: candidate i is strictly older than j
+    always_comb begin
+      xc_v = {spx_valid, lx_valid, br_valid && br_exc, oth_cmp && oth_exc, exr_v_q[t]};
+      xc_r = {spx_rob, lx_rob, br_rob, oth_rob, exr_rob_q[t]};
+      xc_c = {4'(EXC_SACCESS), lx_cause, 4'(EXC_IMISALIGN), 4'(EXC_ILLEGAL), exr_cause_q[t]};
+      for (int i = 1; i < NEX; i++) if (rob_tid(xc_r[i]) != tid_t'(t)) xc_v[i] = 1'b0;
+      for (int i = 0; i < NEX; i++)
+        for (int j = 0; j < NEX; j++) xc_o[i][j] = rob_older(xc_r[i], xc_r[j]);
+      for (int i = 0; i < NEX; i++) begin
+        xc_win[i] = xc_v[i];
+        for (int j = 0; j < NEX; j++) begin
+          if (j < i && xc_v[j] && !xc_o[i][j]) xc_win[i] = 1'b0;    // an earlier one as old
+          if (j > i && xc_v[j] && xc_o[j][i])  xc_win[i] = 1'b0;    // a later one older
+        end
       end
+      ex_v[t] = |xc_v;
+      ex_r[t] = '0;
+      ex_c[t] = '0;
+      for (int i = 0; i < NEX; i++) begin
+        ex_r[t] |= {$bits(robid_t){xc_win[i]}} & xc_r[i];
+        ex_c[t] |= {4{xc_win[i]}} & xc_c[i];
+      end
+      ex_m[t] = |xc_win[NEX-1:3] || (xc_win[0] && exr_mem_q[t]);
+      // tval of the best of the register, CSR and branch candidates
+      ex_t[t] = exr_tval_q[t];
+      if (xc_v[1] && (!xc_v[0] || xc_o[1][0])) ex_t[t] = oth_tval;
+      if (xc_v[2] && (!xc_v[0] || xc_o[2][0]) && (!xc_v[1] || xc_o[2][1])) ex_t[t] = br_tval;
     end
-    ex_v = |xc_v;
-    ex_r = '0;
-    ex_c = '0;
-    for (int i = 0; i < NEX; i++) begin
-      ex_r |= {$bits(robid_t){xc_win[i]}} & xc_r[i];
-      ex_c |= {4{xc_win[i]}} & xc_c[i];
-    end
-    ex_m = |xc_win[NEX-1:3] || (xc_win[0] && exr_mem_q);
-    // tval of the best of the register, CSR and branch candidates
-    ex_t = exr_tval_q;
-    if (xc_v[1] && (!xc_v[0] || xc_o[1][0])) ex_t = oth_tval;
-    if (xc_v[2] && (!xc_v[0] || xc_o[2][0]) && (!xc_v[1] || xc_o[2][1])) ex_t = br_tval;
+`ifndef SYNTHESIS
+    always_ff @(posedge clk)
+      if (!rst && !flush) assert ($onehot0(xc_win)) else $error("tg_rob: more than one oldest exception");
+`endif
+  end
+
+  // The commit thread (split mode), chosen a cycle ahead so the head window still comes from flip-flops: the other
+  // thread whenever it has entries, so two busy threads alternate and an empty one is not served
+  always_comb begin
+    ct_n = t_cm;
+    if (SPLIT && NT > 1 && rob_cnt_t(tail_q[~t_cm], head_q[~t_cm]) != 0) ct_n = ~t_cm;
   end
 
   // ---- Sequential ----
@@ -707,12 +729,15 @@ module tg_rob
     trace_o <= COMMIT_TRACE ? rec : '0;   // without the commit trace (DR-146) the assembly is dead logic
     if (rst) begin
       trace_valid_o <= '0;
-      head_q   <= '0;
-      tail_q   <= '0;
+      for (int t = 0; t < NT; t++) begin
+        head_q[t] <= rob_start(tid_t'(t));
+        tail_q[t] <= rob_start(tid_t'(t));
+      end
+      ct_q     <= RUN_TID;
       flush    <= 1'b0;
       icinv    <= 1'b0;
-      exr_v_q  <= 1'b0;
-      mpr_v_q  <= 1'b0;
+      exr_v_q  <= '0;
+      mpr_v_q  <= '0;
       xr_v_q   <= '0;
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
@@ -722,12 +747,13 @@ module tg_rob
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
       head_q[t_cm] <= hw_n[cm_n].hid[0];
+      ct_q      <= ct_n;
 
       if (flush) begin
-        tail_q[t_fl] <= head_q[t_fl];
-        exr_v_q <= 1'b0;                  // (the committing thread's: one thread until the split mode)
-        mpr_v_q <= 1'b0;
-        xr_v_q[t_fl] <= 1'b0;
+        tail_q[t_fl]  <= head_q[t_fl];
+        exr_v_q[t_fl] <= 1'b0;
+        mpr_v_q[t_fl] <= 1'b0;
+        xr_v_q[t_fl]  <= 1'b0;
       end else begin
         // Dispatch
         if (ds_fire) begin
@@ -739,26 +765,32 @@ module tg_rob
             if (ds_valid[k] && (ds_uop[k].d.sys == SYS_MRET || ds_uop[k].d.sys == SYS_SRET)) xr_v_q[t_ds] <= 1'b1;
             if (ds_valid[k] && ds_uop[k].d.sys == SYS_SRET) xr_s_q[t_ds] <= 1'b1;
           end
-          tail_q[t_ds] <= rob_add(tail_q[t_ds], $countones(ds_valid));
+          tail_q[t_ds] <= rob_add_t(tail_q[t_ds], $countones(ds_valid), t_ds);
         end
         // Completions, exceptions, mispredicts and MMIO loads: the toggle tables; replay: the
         // XOR-banked tables (above)
 
         // Oldest exception: the current register and this cycle's reports
-        exr_v_q <= ex_v && !do_trap; exr_rob_q <= ex_r; exr_cause_q <= ex_c; exr_tval_q <= ex_t;
-        exr_mem_q <= ex_m;
-        // Oldest mispredict
-        if (br_valid && br_misp && !br_exc && (!mpr_v_q || rob_older(br_rob, mpr_rob_q))) begin
-          mpr_v_q   <= 1'b1;
-          mpr_rob_q <= br_rob;
-          mpr_npc_q <= br_npc;
+        for (int t = 0; t < NT; t++) begin
+          exr_v_q[t] <= ex_v[t] && !(do_trap && t_cm == tid_t'(t));
+          exr_rob_q[t] <= ex_r[t]; exr_cause_q[t] <= ex_c[t]; exr_tval_q[t] <= ex_t[t];
+          exr_mem_q[t] <= ex_m[t];
+        end
+        // Oldest mispredict, its thread's
+        if (br_valid && br_misp && !br_exc &&
+            (!mpr_v_q[rob_tid(br_rob)] || rob_older(br_rob, mpr_rob_q[rob_tid(br_rob)]))) begin
+          mpr_v_q[rob_tid(br_rob)]   <= 1'b1;
+          mpr_rob_q[rob_tid(br_rob)] <= br_rob;
+          mpr_npc_q[rob_tid(br_rob)] <= br_npc;
         end
       end
     end
   end
   assign xret_v    = xr_v_q[t_cm];
   assign xret_s    = xr_s_q[t_cm];
-  always_ff @(posedge clk) hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
+  always_ff @(posedge clk)
+    hw_q <= rst ? hwin(rob_start(RUN_TID), 0, RUN_TID)
+                : ((ct_n == t_cm) ? hw_n[cm_n] : hwin(head_q[ct_n], 0, ct_n));
 `ifndef SYNTHESIS
   // Checks of registers against each other wait for the core's first reset: in the SoC the reset
   // comes from a register (the host bridge's), so the first cycle may see it low before any reset
@@ -767,7 +799,7 @@ module tg_rob
   always @(posedge clk) if (rst) rs_q <= 1'b1;
   always_ff @(posedge clk) begin
     if (rs_q && !rst)
-      assert (hw_q == hwin(head_q[t_cm], 0)) else $error("tg_rob: the registered head window differs from the head");
+      assert (hw_q == hwin(head_q[t_cm], 0, t_cm)) else $error("tg_rob: the registered head window differs from the head");
   end
   always_ff @(posedge clk) begin
     if (!rst && (do_mret || do_sret))
@@ -796,7 +828,7 @@ module tg_rob
   // for an entry as it is dispatched).
   logic [ROB_ENTRIES-1:0] cmp_s, exc_s, misp_s, mmio_s, rpl_s;
   function automatic logic live(input robid_t e);
-    return rob_cnt(e, head_q[t_cm]) < rob_cnt(tail_q[t_cm], head_q[t_cm]);
+    return rob_cnt_t(e, head_q[rob_tid(e)]) < rob_cnt_t(tail_q[rob_tid(e)], head_q[rob_tid(e)]);
   endfunction
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
@@ -861,43 +893,50 @@ module tg_rob
       end
     end
   end
-  // The oldest-exception chain the parallel select replaces: same winner, cause, tval and kind
-  logic        sx_v, sx_m;
-  robid_t      sx_r;
-  logic [3:0]  sx_c;
-  logic [63:0] sx_t;
-  always_comb begin
-    sx_v = exr_v_q; sx_r = exr_rob_q; sx_c = exr_cause_q; sx_t = exr_tval_q; sx_m = exr_mem_q;
-    if (oth_cmp && oth_exc && (!sx_v || rob_older(oth_rob, sx_r))) begin
-      sx_v = 1'b1; sx_r = oth_rob; sx_c = EXC_ILLEGAL; sx_t = oth_tval; sx_m = 1'b0;
-    end
-    if (br_valid && br_exc && (!sx_v || rob_older(br_rob, sx_r))) begin
-      sx_v = 1'b1; sx_r = br_rob; sx_c = EXC_IMISALIGN; sx_t = br_tval; sx_m = 1'b0;
-    end
-    for (int i = 0; i < 4; i++) begin
-      if (lx_valid[i] && (!sx_v || rob_older(lx_rob[i], sx_r))) begin
-        sx_v = 1'b1; sx_r = lx_rob[i]; sx_c = lx_cause[i]; sx_m = 1'b1;
+  // The oldest-exception chain the parallel select replaces, per thread: same winner, cause, tval and kind
+  for (genvar t = 0; t < NT; t++) begin : g_sx
+    logic        sx_v, sx_m;
+    robid_t      sx_r;
+    logic [3:0]  sx_c;
+    logic [63:0] sx_t;
+    function automatic logic mine(input robid_t e);
+      return rob_tid(e) == tid_t'(t);
+    endfunction
+    always_comb begin
+      sx_v = exr_v_q[t]; sx_r = exr_rob_q[t]; sx_c = exr_cause_q[t]; sx_t = exr_tval_q[t]; sx_m = exr_mem_q[t];
+      if (oth_cmp && oth_exc && mine(oth_rob) && (!sx_v || rob_older(oth_rob, sx_r))) begin
+        sx_v = 1'b1; sx_r = oth_rob; sx_c = EXC_ILLEGAL; sx_t = oth_tval; sx_m = 1'b0;
+      end
+      if (br_valid && br_exc && mine(br_rob) && (!sx_v || rob_older(br_rob, sx_r))) begin
+        sx_v = 1'b1; sx_r = br_rob; sx_c = EXC_IMISALIGN; sx_t = br_tval; sx_m = 1'b0;
+      end
+      for (int i = 0; i < 4; i++) begin
+        if (lx_valid[i] && mine(lx_rob[i]) && (!sx_v || rob_older(lx_rob[i], sx_r))) begin
+          sx_v = 1'b1; sx_r = lx_rob[i]; sx_c = lx_cause[i]; sx_m = 1'b1;
+        end
+      end
+      if (spx_valid && mine(spx_rob) && (!sx_v || rob_older(spx_rob, sx_r))) begin
+        sx_v = 1'b1; sx_r = spx_rob; sx_c = EXC_SACCESS; sx_m = 1'b1;
       end
     end
-    if (spx_valid && (!sx_v || rob_older(spx_rob, sx_r))) begin
-      sx_v = 1'b1; sx_r = spx_rob; sx_c = EXC_SACCESS; sx_m = 1'b1;
+    always_ff @(posedge clk) begin
+      if (!rst && !flush)
+        assert (ex_v[t] == sx_v && (!sx_v || (ex_r[t] == sx_r && ex_c[t] == sx_c && ex_m[t] == sx_m &&
+                                              (sx_m || ex_t[t] == sx_t))))
+          else $error("tg_rob: thread %0d's parallel oldest-exception select differs from the chain", t);
     end
   end
   always_ff @(posedge clk) begin
     if (!rst && !flush) begin
-      assert (ex_v == sx_v && (!sx_v || (ex_r == sx_r && ex_c == sx_c && ex_m == sx_m && (sx_m || ex_t == sx_t))))
-        else $error("tg_rob: the parallel oldest-exception select differs from the chain");
-      assert ($onehot0(xc_win)) else $error("tg_rob: more than one oldest exception");
-    end
-  end
-  always_ff @(posedge clk) begin
-    if (!rst && !flush) begin
-      assert (cnt >= 0 && cnt <= ROB_ENTRIES) else $error("tg_rob: bad occupancy %0d", cnt);
+      assert (cnt >= 0 && cnt <= part_size(ROB_ENTRIES)) else $error("tg_rob: bad occupancy %0d", cnt);
       if (do_trap && !hp[0].dexc && !tlbx)
-        assert (exr_v_q && exr_rob_q == hid[0]) else $error("tg_rob: exception register does not hold the head");
+        assert (exr_v_q[t_cm] && exr_rob_q[t_cm] == hid[0]) else $error("tg_rob: exception register does not hold the head");
       for (int j = 0; j < CW; j++)
         if (ret[j] && misp_h[j])
-          assert (mpr_v_q && mpr_rob_q == hid[j]) else $error("tg_rob: mispredict register does not hold the branch");
+          assert (mpr_v_q[t_cm] && mpr_rob_q[t_cm] == hid[j])
+            else $error("tg_rob: mispredict register does not hold the branch");
+      for (int j = 0; j < CW; j++)
+        if (j < cnt) assert (rob_tid(hid[j]) == t_cm) else $error("tg_rob: commit slot %0d is not its thread's", j);
     end
   end
 `endif

@@ -10,9 +10,9 @@
 // A register returns to the list of the thread that frees it, which is the thread that allocated it, so each thread
 // keeps the registers it started with.
 // After reset an init sequence writes the lists (NB entries per cycle); `ready` then rises:
-//   merged mode (SPLIT = 0; the core runs one thread, RUN_TID): that thread's list holds FIRST .. DEPTH-1, as the one
+//   merged mode (SPLIT_L = 0; the core runs one thread, RUN_TID): that thread's list holds FIRST .. DEPTH-1, as the one
 //     list did before M7, and the other thread's is empty;
-//   split mode (M7's step 3b): FIRST_S .. DEPTH-1 is divided, the lower half to thread 0 and the upper to thread 1.
+//   split mode (SPLIT_L, M7's step 3b): FIRST_S .. DEPTH-1 is divided, the lower half to thread 0 and the upper to thread 1.
 // The free counts (tail - spec head) are registers, kept with the commit counts (tail - commit head) that they take on
 // a flush, so rename's resource checks start from flip-flops rather than a subtraction (timing; the same values,
 // asserted). Rename's fire (`pop`) arrives last, after its own resource checks: the next head and count are formed
@@ -25,7 +25,7 @@ module tg_freelist
   parameter int NPOP    = RENAME_WIDTH,
   parameter int NPUSH   = COMMIT_WIDTH,
   parameter int FIRST   = 0,
-  parameter bit SPLIT   = 1'b0,
+  parameter bit SPLIT_L = SPLIT,   // the split mode (tg_core_pkg::SPLIT; the unit test sets it)
   parameter int FIRST_S = FIRST,
   localparam int NT     = NUM_THREADS,
   localparam int IW     = idx_w(DEPTH),
@@ -56,12 +56,12 @@ module tg_freelist
   end
   // The lists' initial contents: thread t's list holds LO[t] .. LO[t] + N[t] - 1
   localparam int MID   = FIRST_S + (DEPTH - FIRST_S) / 2;
-  localparam int N0    = SPLIT ? MID - FIRST_S : ((NT == 1 || RUN_TID == 0) ? DEPTH - FIRST : 0);
-  localparam int N1    = SPLIT ? DEPTH - MID   : ((NT > 1 && RUN_TID == 1) ? DEPTH - FIRST : 0);
-  localparam int LO0   = SPLIT ? FIRST_S : FIRST;
-  localparam int LO1   = SPLIT ? MID : FIRST;
+  localparam int N0    = SPLIT_L ? MID - FIRST_S : ((NT == 1 || RUN_TID == 0) ? DEPTH - FIRST : 0);
+  localparam int N1    = SPLIT_L ? DEPTH - MID   : ((NT > 1 && RUN_TID == 1) ? DEPTH - FIRST : 0);
+  localparam int LO0   = SPLIT_L ? FIRST_S : FIRST;
+  localparam int LO1   = SPLIT_L ? MID : FIRST;
   localparam int NINIT = N0 + ((NT > 1) ? N1 : 0);
-  if (SPLIT && (NT == 1 || (N0 % NB) != 0)) begin : g_bad_split
+  if (SPLIT_L && (NT == 1 || (N0 % NB) != 0)) begin : g_bad_split
     $error("tg_freelist: split mode needs two threads and thread 0's share a multiple of NB");
   end
   localparam int TW = (NT > 1) ? 1 : 0;           // the tid's bit in the LUTRAMs' address
@@ -97,8 +97,8 @@ module tg_freelist
         ie = init_q + PW'(b);
         if (int'(ie) < NINIT) begin
           // merged mode: the running thread's list alone; split: thread 0's N0 entries, then thread 1's
-          it = SPLIT ? ((int'(ie) < N0) ? tid_t'(0) : tid_t'(1)) : RUN_TID;
-          pe = (SPLIT && int'(ie) >= N0) ? PW'(int'(ie) - N0) : ie;
+          it = SPLIT_L ? ((int'(ie) < N0) ? tid_t'(0) : tid_t'(1)) : RUN_TID;
+          pe = (SPLIT_L && int'(ie) >= N0) ? PW'(int'(ie) - N0) : ie;
           we[pe[BW-1:0]] = 1'b1;
           wa[pe[BW-1:0]] = ram_a(it, pe[IW-1:BW]);
           wd[pe[BW-1:0]] = IW'(int'(pe) + ((it == tid_t'(1)) ? LO1 : LO0));

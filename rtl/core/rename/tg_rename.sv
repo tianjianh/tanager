@@ -175,8 +175,9 @@ module tg_rename
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0][PIDX_W-1:0] fl_push_idx;
   logic [INT_BANKS-1:0][idx_w(COMMIT_WIDTH+1)-1:0] fl_cmt_n;
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_fl
+    // homes: bank 0 for the running thread (merged); in split mode thread 1's are bank 1's (D4)
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                  .FIRST(b == 0 ? 32 : 0)) u_fl (
+                  .FIRST(b == 0 ? 32 : 0), .FIRST_S(b <= 1 ? 32 : 0)) u_fl (
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
       .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
       .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl));
@@ -194,7 +195,7 @@ module tg_rename
   if (EXT_FD) begin : g_ffl
     for (genvar b = 0; b < 2; b++) begin : g_b
       tg_freelist #(.DEPTH(FP_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
-                    .FIRST(b == FPB_F0 ? 32 : 0)) u_fl (
+                    .FIRST(b == FPB_F0 ? 32 : 0), .FIRST_S(32)) u_fl (
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
         .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
         .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl));
@@ -245,7 +246,8 @@ module tg_rename
   for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_icm
     assign icm_we[j] = cm_valid[j] && cm_rd_en[j] && !cm_rd_fp[j];
   end
-  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W)) u_imap (
+  tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(PRW), .DW(PDW), .NR(NMR), .NRD(2 * W),
+            .H1(INT_PREGS_PER_BANK), .X0(1'b1)) u_imap (
     .clk, .rst, .flush, .flush_tid(t_fl), .ready(imap_ready), .rtid(t_rn), .ctid(t_cm), .ra(map_ra), .rd_p(im_rdp), .rd_d(im_rdd),
     .we(im_we), .wa(im_wa), .wd_p(im_wdp), .wd_d(im_wdd), .cwe(icm_we), .cwa(cm_rd),
     .cwd(cm_dst));
@@ -285,7 +287,8 @@ module tg_rename
       assign fm_wdp[k] = FRW'(ren[k].dst);
       assign fm_wdd[k] = ren[k].wid;
     end
-    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W)) u_fmap (
+    tg_rmap #(.W(W), .CW(COMMIT_WIDTH), .PW(FRW), .DW(COL_W), .NR(FNMR), .NRD(3 * W),
+              .H1(FP_PREGS_PER_BANK), .X0(1'b0)) u_fmap (
       .clk, .rst, .flush, .flush_tid(t_fl), .ready(fmap_ready), .rtid(t_rn), .ctid(t_cm), .ra(fmap_ra), .rd_p(fmap_p),
       .rd_d(fmap_w),
       .we(fm_we), .wa(fm_wa), .wd_p(fm_wdp), .wd_d(fm_wdd), .cwe(fcm_we), .cwa(cm_rd),
@@ -416,9 +419,9 @@ module tg_rename
   always_comb begin
     for (int t = 0; t < NT; t++)
       for (int n = 0; n <= W; n++) begin
-        rob_room_t[t][n] = rob_cnt(rtail_q[t], rob_head[t]) + n <= ROB_ENTRIES;
-        lq_room_t[t][n]  = lq_cnt(ltail_q[t], lq_head[t]) + n <= LQ_ENTRIES;
-        sq_room_t[t][n]  = sq_cnt(stail_q[t], sq_head[t]) + n <= SQ_ENTRIES;
+        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t]) + n <= part_size(ROB_ENTRIES);
+        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t]) + n <= part_size(LQ_ENTRIES);
+        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t]) + n <= part_size(SQ_ENTRIES);
       end
     rob_room = rob_room_t[t_rn];
     lq_room  = lq_room_t[t_rn];
@@ -481,9 +484,9 @@ module tg_rename
       endcase
       ren[k].q = QW'(port);
       // Window entries
-      ren[k].rob = rob_add(rtail_q[t_rn], k);
-      ren[k].lq  = lq_add(ltail_q[t_rn], nld);
-      ren[k].sq  = sq_add(stail_q[t_rn], nst);
+      ren[k].rob = rob_add_t(rtail_q[t_rn], k, t_rn);
+      ren[k].lq  = lq_add_t(ltail_q[t_rn], nld, t_rn);
+      ren[k].sq  = sq_add_t(stail_q[t_rn], nst, t_rn);
       if (rn_valid_q[k]) begin
         if (rn_uop_q[k].d.cls == C_LD) nld++;
         if (rn_uop_q[k].d.cls == C_ST) nst++;
@@ -588,9 +591,9 @@ module tg_rename
       if (pops[i] != '0 && !icv[i][idx_w(W)'(pops[i] - 1'b1)]) rn_ok = 1'b0;       // pops > fl_count
     end
 `ifndef SYNTHESIS
-    rn_ok_ref = !(rob_cnt(rtail_q[t_rn], rob_head[t_rn]) + nrob > ROB_ENTRIES ||
-                  lq_cnt(ltail_q[t_rn], lq_head[t_rn]) + nld > LQ_ENTRIES ||
-                  sq_cnt(stail_q[t_rn], sq_head[t_rn]) + nst > SQ_ENTRIES || llt_short || tag_short ||
+    rn_ok_ref = !(rob_cnt_t(rtail_q[t_rn], rob_head[t_rn]) + nrob > part_size(ROB_ENTRIES) ||
+                  lq_cnt_t(ltail_q[t_rn], lq_head[t_rn]) + nld > part_size(LQ_ENTRIES) ||
+                  sq_cnt_t(stail_q[t_rn], sq_head[t_rn]) + nst > part_size(SQ_ENTRIES) || llt_short || tag_short ||
                   int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
                   int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
     for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i][t_rn])) rn_ok_ref = 1'b0;
@@ -827,9 +830,11 @@ module tg_rename
       fpi_post_q <= '0;
       llt_busy_q <= '0;
       tag_busy_q <= '0;
-      rtail_q    <= '0;
-      ltail_q    <= '0;
-      stail_q    <= '0;
+      for (int t = 0; t < NT; t++) begin
+        rtail_q[t] <= rob_start(tid_t'(t));
+        ltail_q[t] <= lq_start(tid_t'(t));
+        stail_q[t] <= sq_start(tid_t'(t));
+      end
       div_cnt_q  <= '0;
       block_q    <= '0;
       rn_valid_q <= '0;
@@ -878,9 +883,9 @@ module tg_rename
               end
             end
           end
-          rtail_q[t_rn] <= rob_add(rtail_q[t_rn], $countones(rn_valid_q));
-          ltail_q[t_rn] <= lq_add(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q));
-          stail_q[t_rn] <= sq_add(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q));
+          rtail_q[t_rn] <= rob_add_t(rtail_q[t_rn], $countones(rn_valid_q), t_rn);
+          ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn);
+          stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn);
           div_cnt_q <= div_cnt_q + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
                        - (idx_w(DIV_INFLIGHT + 1))'(div_done && div_cnt_q != '0);
           if (rn_serial) block_q[t_rn] <= 1'b1;

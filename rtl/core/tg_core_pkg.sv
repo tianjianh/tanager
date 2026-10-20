@@ -226,6 +226,22 @@ package tg_core_pkg;
   localparam bit SOLO_TID = 1'b0;
 `endif
   localparam tid_t RUN_TID = tid_t'(SOLO_TID);
+  // M7's split mode (step 3b, D1): thread t owns part t of the ROB, LQ and SQ, the halves, and its pointers wrap
+  // inside it (x_add_t, x_cnt_t below). Merged mode (SPLIT = 0) is the core before M7: the running thread owns every
+  // entry. SPLIT is on with hart 1 (step 5); TG_SPLIT=1 (a test mode, smt2 builds only) runs the one thread in its
+  // half, so the halves are tested before hart 1 runs (not cycle-identical: the window is half).
+`ifdef TG_SPLIT
+  localparam bit SPLIT = `TG_SPLIT;
+`else
+  localparam bit SPLIT = 1'b0;
+`endif
+  // A thread's part of a structure of n entries: its first entry and its size
+  function automatic int part_base(input int n, input tid_t t);
+    return (SPLIT && t != tid_t'(0)) ? n / 2 : 0;
+  endfunction
+  function automatic int part_size(input int n);
+    return SPLIT ? n / 2 : n;
+  endfunction
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);
@@ -338,6 +354,72 @@ package tg_core_pkg;
   function automatic int sq_cnt(input sqid_t t, input sqid_t h);
     return (t[SQW-1] == h[SQW-1]) ? int'(t[SQW-2:0]) - int'(h[SQW-2:0])
                                   : int'(t[SQW-2:0]) + SQ_ENTRIES - int'(h[SQW-2:0]);
+  endfunction
+
+  // Per thread: x_add_t(p, k, t) advances thread t's pointer p by k inside its part; x_cnt_t(t, h) counts the entries
+  // of a part in [h, t); x_start(t) is thread t's first pointer (its part's first entry, wrap bit 0); x_tid(e) is the
+  // thread whose part holds entry e (the running thread in merged mode). In merged mode they are the functions above.
+  function automatic robid_t rob_add_t(input robid_t p, input int k, input tid_t t);
+    int i;
+    logic w;
+    i = int'(p[ROBW-2:0]) + k;
+    w = p[ROBW-1];
+    if (i >= part_base(ROB_ENTRIES, t) + part_size(ROB_ENTRIES)) begin i -= part_size(ROB_ENTRIES); w = !w; end
+    return {w, (ROBW-1)'(i)};
+  endfunction
+  function automatic int rob_cnt_t(input robid_t t, input robid_t h);
+    return (t[ROBW-1] == h[ROBW-1]) ? int'(t[ROBW-2:0]) - int'(h[ROBW-2:0])
+                                    : int'(t[ROBW-2:0]) + part_size(ROB_ENTRIES) - int'(h[ROBW-2:0]);
+  endfunction
+  function automatic robid_t rob_start(input tid_t t);
+    return {1'b0, (ROBW-1)'(part_base(ROB_ENTRIES, t))};
+  endfunction
+  function automatic tid_t rob_tid(input robid_t e);
+    if (!SPLIT) return RUN_TID;
+    return tid_t'(int'(e[ROBW-2:0]) >= ROB_ENTRIES / 2);
+  endfunction
+  function automatic lqid_t lq_add_t(input lqid_t p, input int k, input tid_t t);
+    int i;
+    logic w;
+    i = int'(p[LQW-2:0]) + k;
+    w = p[LQW-1];
+    if (i >= part_base(LQ_ENTRIES, t) + part_size(LQ_ENTRIES)) begin i -= part_size(LQ_ENTRIES); w = !w; end
+    return {w, (LQW-1)'(i)};
+  endfunction
+  function automatic int lq_cnt_t(input lqid_t t, input lqid_t h);
+    return (t[LQW-1] == h[LQW-1]) ? int'(t[LQW-2:0]) - int'(h[LQW-2:0])
+                                  : int'(t[LQW-2:0]) + part_size(LQ_ENTRIES) - int'(h[LQW-2:0]);
+  endfunction
+  function automatic lqid_t lq_start(input tid_t t);
+    return {1'b0, (LQW-1)'(part_base(LQ_ENTRIES, t))};
+  endfunction
+  function automatic sqid_t sq_add_t(input sqid_t p, input int k, input tid_t t);
+    int i;
+    logic w;
+    i = int'(p[SQW-2:0]) + k;
+    w = p[SQW-1];
+    if (i >= part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES)) begin i -= part_size(SQ_ENTRIES); w = !w; end
+    return {w, (SQW-1)'(i)};
+  endfunction
+  function automatic int sq_cnt_t(input sqid_t t, input sqid_t h);
+    return (t[SQW-1] == h[SQW-1]) ? int'(t[SQW-2:0]) - int'(h[SQW-2:0])
+                                  : int'(t[SQW-2:0]) + part_size(SQ_ENTRIES) - int'(h[SQW-2:0]);
+  endfunction
+  function automatic sqid_t sq_start(input tid_t t);
+    return {1'b0, (SQW-1)'(part_base(SQ_ENTRIES, t))};
+  endfunction
+  // A thread's part as a mask of entries (every entry in merged mode)
+  function automatic logic [LQ_ENTRIES-1:0] lq_part(input tid_t t);
+    logic [LQ_ENTRIES-1:0] m;
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      m[i] = i >= part_base(LQ_ENTRIES, t) && i < part_base(LQ_ENTRIES, t) + part_size(LQ_ENTRIES);
+    return m;
+  endfunction
+  function automatic logic [SQ_ENTRIES-1:0] sq_part(input tid_t t);
+    logic [SQ_ENTRIES-1:0] m;
+    for (int i = 0; i < SQ_ENTRIES; i++)
+      m[i] = i >= part_base(SQ_ENTRIES, t) && i < part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES);
+    return m;
   endfunction
 
   // ---- Micro-op classes ----
