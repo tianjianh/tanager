@@ -1056,9 +1056,9 @@ module tg_dcache
     // decision sent (pf_req), looked up through the controller port in a cycle without a load's
     // request. It ends when it allocates, or when its line is held with T or in an entry; it waits
     // otherwise. It takes an entry only with another to spare, so a load always finds one, and only
-    // while fewer than PF_MAX prefetches are in flight (SMT2's second hart adds misses), and never
-    // while the store port writes or allocates: a store with its line in an entry does neither
-    localparam int PF_MAX = 2;
+    // while fewer than PF_MAX (STORE_PF_MAX) prefetches are in flight (SMT2's second hart adds misses),
+    // and never while the store port writes or allocates: a store with its line in an entry does neither
+    localparam int PF_MAX = STORE_PF_MAX;
     logic            pq_v_q, c_pf, f_two, pf_room;
     logic [PA_W-1:6] pq_l_q;
     assign c_pf       = STORE_PF && pq_v_q && !rq_v_q;
