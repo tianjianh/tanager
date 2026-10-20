@@ -92,4 +92,8 @@ while read -r kind a b c; do
     n=$((n + 1))
   fi
 done <<< "$progs"
+# What the model and the RTL must share: every ELF's md5 (md5sum -c in $OUT) and the tree they came from
+(cd "$OUT" && md5sum prog/*.elf img/*.elf > manifest.md5)
+echo "build_pair.sh $(date '+%F %T %Z') tree $(git -C "$W" describe --always --dirty --abbrev=10 2>/dev/null || echo unknown)" \
+  > "$OUT/build.info"
 echo "build_pair: $(ls "$OUT/prog"/*.elf | wc -l) program builds, $(ls "$OUT/img"/alone-*.elf | wc -l) alone images, $n pairs in $OUT"

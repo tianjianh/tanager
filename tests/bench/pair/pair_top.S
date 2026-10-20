@@ -19,6 +19,7 @@
 #error "ACTIVE: the build passes the number of harts that run a slot"
 #endif
 
+  .file "pair_top.S"           /* the ELF names this file, not the compiler's temporary object: builds repeat bit for bit */
   .option arch, +zicsr
   .section .text.init, "ax"
   .globl _start

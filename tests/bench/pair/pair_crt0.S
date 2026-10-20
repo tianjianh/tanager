@@ -1,6 +1,7 @@
 /* A pair program's start (tests/bench/pair): entered from the dispatcher, and again from the top whenever the
    program ends. It restores .data from its pristine copy, clears .bss, sets its own stack and gp, and calls main;
    _exit (pair_syscalls.c) comes back here. */
+  .file "pair_crt0.S"           /* the ELF names this file, not the compiler's temporary object: builds repeat bit for bit */
   .section .text.init, "ax"
   .globl _start
 _start:

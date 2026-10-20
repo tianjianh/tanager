@@ -838,7 +838,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - once both first regions are done, the last hart to finish prints `PAIR slot=<s> cycles=<n> instret=<n> runs=<n>` for each slot, then `PAIR-END`, and writes `tohost`.
   `tg_replay` now ends on any hart's exit, as `tg_vsim` does, because the last to finish may be hart 1.
 - **Commands:**
-  - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images;
+  - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
   - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
     - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
