@@ -1136,6 +1136,40 @@ Results: `fpga/spikes/results/h100_m6m/` (with `times.txt`, Vivado's time and me
 
 Results: `fpga/spikes/results/urf/` (`SOURCE.txt` lists them). The harness and RTL are on `claude/spikes-2-uram-rf` (`fpga/spikes/uram/`), not on main.
 
+### 8.15 The build hosts compared: w-arrowlake against w-x299 and the 5950X (2026-10-19)
+
+**Question (the coordinator):** how fast is a full chip on the new build host? w-arrowlake is a Core Ultra 7 270K Plus: 8 P-cores at up to 5.4 GHz and 16 E-cores at 4.7 GHz. Compare it step by step with `h100_m6m` on w-x299 (§8.13, 172 min) and the 5950X's `h100_m6fa` (§8.12, 65 min).
+
+**Method:**
+- `h100_m6m`'s placement and routing again, as `h100_m6m_al`, from its post-synthesis checkpoint (main 31e65c6) with the same options and Vivado 2025.2.
+- Vivado pinned to the P-cores (`taskset -c 0-7` on the launcher, which Vivado inherits), matching its 8 implementation threads.
+- The soak was moved to the E-cores for the run. Other tracks' simulations and one to three other Vivado jobs still shared the P-cores (`load.txt`, every 5 min): P-cores 97–100% busy throughout, E-cores 61–100%, a 1-minute load of 19–47 on 24 CPUs.
+
+**The same work.** The run reached exactly `h100_m6m`'s result: WNS +0.348 ns, WHS +0.011, 113,721 LUTs placed. The summaries match apart from their times, and so do the worst paths. Vivado's placement and routing at 8 threads repeats exactly across hosts, so these times compare the same work, with no placement noise to allow for.
+
+| Step (`times.txt`) | w-x299: CPU / elapsed s | w-arrowlake: CPU / elapsed s | Less CPU | Faster |
+|---|---|---|---|---|
+| open_checkpoint | 57 / 47 | 19 / 18 | 3.00× | 2.61× |
+| opt_design (ExploreArea) | 607 / 231 | 223 / 117 | 2.72× | 1.97× |
+| place_design | 1,942 / 817 | 2,135 / 1,010 | 0.91× | 0.81× |
+| phys_opt_design | 83 / 23 | 30 / 13 | 2.77× | 1.77× |
+| route_design | 22,220 / 9,020 | 7,964 / 5,876 | 2.79× | 1.54× |
+| The whole job | 172.4 min | **118.3 min** | | 1.46× |
+
+The 5950X ran `h100_m6fa` (§8.12), a different netlist with easier timing for the router, in 64.8 min: 686 s to optimise and place, 3,055 s to route.
+
+**Findings:**
+- **Per thread, w-arrowlake does the same work in about 2.8× less CPU time than w-x299.** That holds for every step but placement. Placement's waiting threads spin, so under contention its CPU time doesn't measure work.
+- **Under this load the job took 118 min,** 1.46× faster than w-x299 but slower than the 5950X's 65 min. Vivado shared the P-cores the whole time:
+  - routing kept 1.4 threads busy, against 2.5 on w-x299;
+  - placement kept 2.1, against 2.4, and was 6% slower than on w-x299 itself.
+- **With the P-cores to itself, a full chip should take about an hour,** as fast as the 5950X:
+  - routing's 7,964 CPU-seconds at w-x299's 2.5 threads is about 53 min;
+  - the other steps add about 8 min.
+- **So for the queue:** a full chip gets w-arrowlake's per-thread speed only on free P-cores. Simulations on the E-cores while one runs keep it near an hour. Every simulation on the P-cores costs it directly.
+
+Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
