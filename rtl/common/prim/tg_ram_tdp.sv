@@ -3,6 +3,12 @@
 // Each port is read-first. Writes from both ports to the same address in the same
 // cycle are undefined; the user prevents them.
 // Synthesis maps it with xpm_memory_tdpram; simulation uses the behavioural model.
+//   CASCADE_HEIGHT: XPM's, how many block RAMs one depth cascade may stack. 0, the default, leaves
+//            it to synthesis. 1 builds no depth cascade: the RAMs sit side by side, each over the
+//            whole depth. A 2K x 36 memory such as TAGE's tables is otherwise two RAMB36 at 1K x 36
+//            in a cascade, which reads 0.4 ns slower than two at 2K x 18 side by side (its slowest
+//            bit 1.79-1.81 against 1.39-1.40 ns from the clock; tests/unit/prim/synth/casc.sh,
+//            spikes §7.1). The simulation model is the same either way.
 (* keep_hierarchy = "yes" *)  // keeps the instance and its ports for the primitive check
 module tg_ram_tdp #(
   parameter int    DEPTH   = 512,
@@ -11,6 +17,7 @@ module tg_ram_tdp #(
   parameter bit    OUT_REG = 1'b0,
   parameter        PRIM    = "block",   // untyped: XPM compares it with integers too
   parameter int    RD_LAT  = OUT_REG ? 2 : 1,   // read latency; see tg_ram_sdp
+  parameter int    CASCADE_HEIGHT = 0,
   localparam int   AW      = (DEPTH > 1) ? $clog2(DEPTH) : 1,
   localparam int   NWE     = WIDTH / BYTE_W
 ) (
@@ -26,12 +33,17 @@ module tg_ram_tdp #(
   input  logic [WIDTH-1:0]   wdata_b,
   output logic [WIDTH-1:0]   rdata_b
 );
+  // XPM takes at most 16 block RAMs or 64 UltraRAMs in one cascade
+  if (CASCADE_HEIGHT < 0 || CASCADE_HEIGHT > 64) begin : g_bad_casc
+    $error("tg_ram_tdp: CASCADE_HEIGHT %0d is outside 0-64", CASCADE_HEIGHT);
+  end
 `ifdef SYNTHESIS
   xpm_memory_tdpram #(
     .ADDR_WIDTH_A        (AW),
     .ADDR_WIDTH_B        (AW),
     .BYTE_WRITE_WIDTH_A  (BYTE_W),
     .BYTE_WRITE_WIDTH_B  (BYTE_W),
+    .CASCADE_HEIGHT      (CASCADE_HEIGHT),
     .CLOCKING_MODE       ("common_clock"),
     .MEMORY_INIT_FILE    ("none"),
     .MEMORY_PRIMITIVE    (PRIM),

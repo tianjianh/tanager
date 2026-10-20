@@ -427,7 +427,7 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 | The I$ RAMB36's clock-to-out (1.19 ns), then 0.70 ns of wire to the way select (LUT6 + MUXF7) | 1.89 |
 | The parcel, fanout 6–8 (a 0.59–0.72 ns net) | 2.73 |
 | Pre-decode, 5 LUTs, to pd_* | 4.05–4.86 |
-| TAGE, the other source: two cascaded RAMB36 (CASDOUT 1.565 + 0.027 + 0.136 = 1.73 ns, against 1.19 for one RAMB36), then 6 LUTs of direction, to tdir | 4.68–4.73 |
+| TAGE, the other source: two cascaded RAMB36 (CASDOUT 1.565 + 0.027 + 0.136 = 1.73 ns, against 1.19 for the I$'s 72-bit read), then 6 LUTs of direction, to tdir | 4.68–4.73 |
 | The flat exit search joins the two sources | 5.8–6.0 |
 | The decision's fanout nets (fanout 12–24) | 7.5–9.1 |
 | fx_tgt, after 1–3 LUTs per endpoint family | 9.9 |
@@ -475,7 +475,7 @@ The decision itself reaches a flip-flop with about +0.9 ns: f3_meta_q.hit (= tk)
 | **G** | **Drop f1_fault from the next-PC select:** `fpc_q <= pred_hit ? pred_tgt : seq_pc` (proof below) | tg_fetch | fpc_q's worst input: +0.059 / +0.106 → **+1.44 / +1.60** (the hold chain); the loop itself → +1.71 / +2.34 | 0 LUTs |
 | **A** | **krt_q takes the stack's top (rtgt), not fx_tgt** (proof below) | tg_fetch | krt_q's 38 endpoints leave the cone (+0.040 / +0.022 → several ns) | 0 LUTs; krt_q can keep just ras_top's 38 bits |
 | **B** | **Select f3_meta_q.target after F3's register:** the field takes f2_tgt_q; F3 also registers fe_ras and ras_top, and selects at u_cmp's meta input, the field's only reader | tg_fetch | the 38 target endpoints become one flip-flop like kr_q (+0.022 / +0.107 → about +0.6 / +0.7) | ~0 LUTs (the select moves from F2 to F3); +39 FFs |
-| **F** | **TAGE's tagged tables without the depth cascade:** xpm `CASCADE_HEIGHT = 1`, so two RAMB36 at 2K × 18 sit side by side instead of 1K × 36 stacked | a parameter on tg_ram_tdp (spikes' prim, default unchanged), set on tg_tage's g_tab | **−0.53 ns on every TAGE-sourced path** (1.19 against 1.73 ns), including TAGE's training write and the per-RAM enable LUT2 | 0 LUTs, the same 4 RAMB36 |
+| **F** | **TAGE's tagged tables without the depth cascade:** xpm `CASCADE_HEIGHT = 1`, so two RAMB36 at 2K × 18 sit side by side instead of 1K × 36 stacked | a parameter on tg_ram_tdp (spikes' prim, default unchanged), set on tg_tage's g_tab | **−0.40 ns on every TAGE-sourced path**, including TAGE's training write and the per-RAM enable LUT2. Measured by `tests/unit/prim/synth/casc.sh`: the slowest bit reads in 1.39–1.40 ns against 1.79–1.81. The first estimate, 0.53, compared the cascade with the I$'s 72-bit read (1.19), but a 2K × 18 port is slower | 0 LUTs, the same 4 RAMB36 |
 | **C** | **tg_ras (LATE): drop `&& !flush` from p_push_q and p_pop_q.** d_push and d_pop already exclude a flush: tg_ras.sv's assertion checks it, and fetch's ft_we carries !redirect | tg_ras | up to +0.4 where opt_design didn't merge the gate (core 0's +0.133 path); 0 where it did (core 1's) | −2 LUTs |
 | **D** | **Write u_fgh's gh_cm/gh_pk a cycle later from a register;** the entry's other fields stay on time. Decode's redirect reads a block's entry 2 cycles after delivery at the earliest (for core-2 to confirm) | tg_fetch | +0.2 (registering gh_cm/gh_pk) to +0.5 (registering their inputs: tk, feh, the block's branches, 17 bits) | +17–26 FFs; 0–8 LUTs (a split LUTRAM) |
 | **E** | **kimm_q:** drop the no-exit default (`im[0]` when !fe_v), since kimm_q is read only under kt_q (= tk), when there is an exit. **tsrc:** register tk and its two other terms, and AND them after F3 | tg_fetch; the walk check's compare gains `!r_tk \|\|` | kimm_q about +0.3, tsrc about +0.6 | 0 LUTs; +2 FFs |
@@ -510,7 +510,8 @@ The decision itself reaches a flip-flop with about +0.9 ns: f3_meta_q.hit (= tk)
 **Learned.**
 - **Below the decision, the cone is a wall of tails.** The two worst families end one 64-bit select after the decision. Each of the next five is only 0.1–0.2 ns better. Removing one family moves the worst path by that much, and the decision's own +0.9 at a flip-flop bounds what tail fixes can buy.
 - **`-flatten_hierarchy none` keeps LUTs on both sides of a module boundary**, such as ras_pop in fetch and `&& !flush` in tg_ras. opt_design's remap merged that pair in core 1 but not in core 0, so the same RTL got different depths.
-- **Vivado cascaded TAGE's 2K × 36 true-dual-port tables in depth on its own** (CASCADE_HEIGHT 0, its default), at 0.53 ns more clock-to-out than a width split of the same two RAMB36.
+- **Vivado cascaded TAGE's 2K × 36 true-dual-port tables in depth on its own** (CASCADE_HEIGHT 0, its default), at 0.40 ns more clock-to-out than a width split of the same two RAMB36. A port's clock-to-out depends on its width: a 2K × 18 port reads in 1.39–1.40 ns, the I$'s 512 × 72 in 1.19.
+- **TAGE's tagged tables are the chip's only block RAMs in a depth cascade** ([`q_bram_cascades.tcl`](../../fpga/spikes/tcl/query/q_bram_cascades.tcl) on h100_m7b0): 8 RAMB36, read slack +0.022 to +0.235. The D$ data (four ×36 RAMB36 a way), the I$ data (×72), TAGE's base and the FPU's ROM are single RAMs. The L2's data banks are UltraRAM cascades by design (+4.9 ns or more).
 - **ExploreArea's remap traded depth for LUTs on F1's loop.** Before placement the loop went from 16 levels to 19–21. In the routed chip the loop's worst route is ITLB → PMA → f1_fault, which G takes out of the loop.
 
 
