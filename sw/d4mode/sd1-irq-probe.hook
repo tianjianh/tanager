@@ -1,0 +1,9 @@
+#!/bin/sh
+# initramfs-tools hook (/etc/initramfs-tools/hooks/sd1-irq-probe): sd1-irq-probe and busybox (its devmem) in the
+# initramfs, for the init-top script that starts its watch (sw/d4mode/README.md, SD1's interrupt)
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+. /usr/share/initramfs-tools/hook-functions
+copy_exec /bin/busybox /bin
+copy_exec /usr/local/sbin/sd1-irq-probe /sbin

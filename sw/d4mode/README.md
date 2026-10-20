@@ -141,3 +141,30 @@ The bitstream, OpenSBI and U-Boot d4 are step 6's, and Debian needs nothing new.
 `tanager-mode arm` and a reboot, or the break, gives Ubuntu.
 
 **U-Boot's hush:** an apostrophe inside double quotes is a syntax error, after which U-Boot crashes (the QEMU test found it). No string in these scripts has one.
+
+## SD1's interrupt in RISC-V mode: the capture (s19b boot 1, 10-20)
+
+In s19 segment b's first boot, every SD1 request timed out with its completion pending in SD1, while the UART's
+interrupts still reached the same hart: the PLIC stopped delivering source 21. `sd1-irq-probe` reads, at the next
+time it happens, what decides between the explanations, and then tries the one fix that tells them apart.
+
+- **What it reads:**
+  - the PLIC's view of source 21: pending, priority, the enables and thresholds of Linux's two contexts (1: hart 0, 5: hart 2);
+  - SD1's interrupt status and enables, which give its line;
+  - mmc0's count in `/proc/interrupts`.
+- **What it writes:** a complete for 21 on context 1. It never reads a claim register, since a read there claims.
+- **Reading the result:**
+
+  | SD1's line | Pending bit 21 | Enable bit 21 (context 1) | Meaning |
+  |---|---|---|---|
+  | high | 0 | 1 | Source 21 was claimed and never completed. If mmc0's count rises after the kick and the I/O comes back, that's confirmed. |
+  | high | 1 | 0 | The enable was lost. |
+  | high | 1 | 1, with priority 1 and threshold 0 | The PLIC asserts the interrupt and the hart doesn't take it. |
+- **Install, on the RISC-V's Debian (or chrooted into p3 from Ubuntu):**
+  - `install -m 755 sd1-irq-probe /usr/local/sbin/`
+  - `install -m 755 sd1-irq-probe.hook /etc/initramfs-tools/hooks/sd1-irq-probe`
+  - `install -m 755 sd1-irq-probe.init-top /etc/initramfs-tools/scripts/init-top/sd1-irq-probe`
+  - then `update-initramfs -u`
+- **Kernel command line:** add `iomem=relaxed` to extlinux's `append`, in case Debian's `IO_STRICT_DEVMEM` keeps `/dev/mem` off the regions the drivers hold.
+- **Before relying on it:** check `busybox devmem` (the applet) and `sd1-irq-probe dump` once by hand.
+- **When it runs:** the initramfs starts `watch` before the root's mount. It writes to the console and to `/run/sd1-irq-probe.log`, and stops once the real root is up. After boot, for an SD stress, `sd1-irq-probe watch &` does the same.

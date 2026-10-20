@@ -1,0 +1,55 @@
+#!/bin/sh
+# SD1's interrupt in RISC-V mode (the board's s19b boot 1, 10-20: every SD1 request timed out with its
+# completion pending; the PLIC never delivered source 21 again): what the PLIC and SD1 say at that moment.
+# busybox sh; needs /dev/mem on the PLIC and SD1 (boot with iomem=relaxed if Debian's IO_STRICT_DEVMEM refuses).
+#   sd1-irq-probe dump     the PLIC's view of source 21, SD1's interrupt registers, mmc0's count
+#   sd1-irq-probe kick     a complete for source 21 on hart 0's S-mode context (Linux's CPU0, where mmc0 runs)
+#   sd1-irq-probe watch    waits for the first "mmc0: Timeout waiting for hardware", then dump, kick, dump
+# Never reads a context's claim register (offset 4): a read there claims.
+# Reading it: the line is SD1's interrupt output (status & signal enable). Line high, pending 0: the gateway is
+# busy, source 21 claimed and never completed; if the kick then brings mmc0's count up and the I/O back, that's
+# confirmed. Pending 1 with hart 0's enable bit 21 at 0: the enable was lost. Pending 1, enabled, priority >= 1,
+# threshold 0: the PLIC asserts the interrupt and the hart doesn't take it.
+PLIC=0x0c000000
+SD1=0xff170000
+LOG=/run/sd1-irq-probe.log
+
+dm() {   # <address> [value]: a 32-bit read, or a write
+  if command -v devmem > /dev/null 2>&1; then devmem "$1" 32 $2; else busybox devmem "$1" 32 $2; fi
+}
+hx() { printf '0x%08x' $(( $1 )); }
+
+dump() {
+  pend=$(dm $(hx "$PLIC + 0x1000")); prio=$(dm $(hx "$PLIC + 4 * 21"))
+  en1=$(dm $(hx "$PLIC + 0x2000 + 0x80 * 1")); en5=$(dm $(hx "$PLIC + 0x2000 + 0x80 * 5"))
+  thr1=$(dm $(hx "$PLIC + 0x200000 + 0x1000 * 1")); thr5=$(dm $(hx "$PLIC + 0x200000 + 0x1000 * 5"))
+  st=$(dm $(hx "$SD1 + 0x30")); sten=$(dm $(hx "$SD1 + 0x34")); sig=$(dm $(hx "$SD1 + 0x38"))
+  pres=$(dm $(hx "$SD1 + 0x24")); slot=$(dm $(hx "$SD1 + 0xfc"))
+  line=$(( (st & sig & ~0x8000) != 0 ))
+  echo "sd1-irq-probe $(cat /proc/uptime | cut -d' ' -f1) s"
+  echo "  PLIC: pending $pend (bit 21 = $(( (pend >> 21) & 1 ))), priority 21 = $prio"
+  echo "  PLIC: enables ctx 1 (hart 0 S) $en1 (bit 21 = $(( (en1 >> 21) & 1 ))), ctx 5 (hart 2 S) $en5 (bit 21 = $(( (en5 >> 21) & 1 )))"
+  echo "  PLIC: thresholds ctx 1 $thr1, ctx 5 $thr5"
+  echo "  SD1: int status $st, status enable $sten, signal enable $sig, present $pres, slot int $slot: line $line"
+  echo "  $(grep -m1 'mmc0' /proc/interrupts)"
+}
+
+kick() {
+  dm $(hx "$PLIC + 0x200000 + 0x1000 * 1 + 4") 21
+  echo "sd1-irq-probe: complete 21 written to context 1 at $(cut -d' ' -f1 /proc/uptime) s"
+}
+
+case "${1:-dump}" in
+  dump) dump ;;
+  kick) kick ;;
+  watch)
+    # In the initramfs it outlives nothing: once run-init has deleted the initramfs's files (the real root is
+    # up), $0 is gone and it stops
+    while ! dmesg | grep -q 'mmc0: Timeout waiting for hardware'; do
+      [ -e "$0" ] || exit 0
+      sleep 2
+    done
+    { dump; kick; sleep 3; dump; sleep 15; dump; } 2>&1 | tee -a "$LOG" > /dev/console
+    ;;
+  *) echo "usage: $0 dump|kick|watch"; exit 2 ;;
+esac
