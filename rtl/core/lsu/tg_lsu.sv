@@ -292,12 +292,14 @@ module tg_lsu
   // replays and the drain alternate between the threads (D8); the head checks and the MMIO load follow the ROB's
   // commit thread (t_hd); the atomics have a slot and the reservation a register per thread; and a flush kills only
   // its thread's operations (kill_t), each stage knowing its operation's thread from its queue entry or its walk.
+  // In merged mode one thread runs: its tids are the constant RUN_TID (the same values the payloads carry), so
+  // synthesis keeps none of the second thread's logic until two threads run (step 5).
   localparam int NT = NUM_THREADS;
   tid_t t_ds, t_cm, t_fl, t_hd;
-  assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
-  assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
-  assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
-  assign t_hd = (NT > 1) ? hd_tid : tid_t'(0);
+  assign t_ds = (NT > 1 && SPLIT) ? ds_uop[0].tid : RUN_TID;
+  assign t_cm = (NT > 1 && SPLIT) ? cm_tid : RUN_TID;
+  assign t_fl = (NT > 1 && SPLIT) ? flush_tid : RUN_TID;
+  assign t_hd = (NT > 1 && SPLIT) ? hd_tid : RUN_TID;
   logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
   logic [SQ_ENTRIES-1:0] fl_sq;
   assign fl_lq = lq_part(t_fl);
