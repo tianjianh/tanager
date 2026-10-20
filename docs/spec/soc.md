@@ -158,7 +158,10 @@ With 1 they match today's packages byte for byte (checked against d4r1's). With 
   - With the four-hart `tanager-qemu` tree, it reports 4 harts, and the reference kernel brings up all four (`sw/qemu/boot_test.sh 2 2`). `1 2`, one core's two threads, also passes.
   - Under Debian's 6.12 kernel with four harts, harts 1–3 went offline and back three times: HSM stop and start, with no failure (`SMP=4 HOTPLUG=1 sw/qemu/debian_test.sh`).
   - Its region grows from 333 KB to 357 KB, still inside `0x8000_0000`–`0x8005_FFFF`.
-  - A hart that runs but isn't in the tree (hart 1 on with `RUN_THREADS=1`) stops in OpenSBI's WFI loop before the cold-boot lottery.
+  - **A hart that runs but isn't in the tree parks** in OpenSBI's WFI loop (`_start_hang`) at its warm start. This is hart 1 with `RUN_THREADS=1`, or core 1 with a one-core tree.
+    - If it wins `fw_base.S`'s first lottery, it does only the setup that serves every hart before it parks.
+    - On QEMU with all four harts running, both a `RUN_THREADS=1` tree and a one-core 1 × 2 tree boot Linux on their two harts.
+    - So a 5c bitstream still boots today's trees, and the one-core tree can come first on the board.
 - **U-Boot leaves the harts to OpenSBI.** Both builds lack `SMP`, which in S-mode needs SBI v0.1.
 - **`tb_boot`:** `CFG=smt2` already defaults to `RUN_THREADS=2`.
   - At 5c the runs are `make -C tests/unit/boot linux CFG=smt2 CORES=1` (1 × 2) and `CORES=2` (2 × 2), with the core's hart-1 switch from `sim/profile.mk` once core-2 adds it.

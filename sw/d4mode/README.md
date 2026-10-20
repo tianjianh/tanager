@@ -175,6 +175,7 @@ time it happens, what decides between the explanations, and then tries the one f
   - Run it with `sd1-irq-probe watch &`.
 - **Before relying on it:** check `busybox devmem` (the applet) and `sd1-irq-probe dump` once by hand.
 - **When it runs:** the initramfs starts `watch` before the root's mount. It writes to the console and to `/run/sd1-irq-probe.log`, and stops once the real root is up. After boot, for an SD stress, `sd1-irq-probe watch &` does the same.
+- **The board's watch since boot 28** ([`fpga/kv260/board/runs/sd1-irq-probe.init-top`](../../fpga/kv260/board/runs/sd1-irq-probe.init-top), the board session's): the same watch, chrooted in a RAM root of its own (`/sd1ram`, with a static busybox). It runs from the initramfs through shutdown, and `sd1-irq-watch.service` is disabled. Stop it with `sudo pkill -f "^/bin/sh /sd1-irq-probe watch"`; it comes back at the next boot.
 
 ## RISC-V mode's memory gap: the check (after s21)
 
@@ -184,7 +185,7 @@ the time goes.
 
 - **`memgap`, on the RISC-V's Debian, in both modes:**
   - Build it there: `gcc -O2 -pthread -o memgap memgap.c`.
-  - Stop the watch: `sudo systemctl stop sd1-irq-watch`.
+  - Stop the watch, in each mode after each boot: `sudo pkill -f "^/bin/sh /sd1-irq-probe watch"` (the board's RAM-root watch, above).
   - Run it three times: `./memgap > memgap_<mode>_<n>.txt`, about a minute each.
   - It prints `MEMGAP <test> <value> <unit>` lines, and the `MEMGAP-IDLE-*` lines of its first 10 s (`-i`): each CPU's time by kind, and interrupts per line. Diff the two modes.
 - **sysbench, to split its test:** add `--memory-scope=local` (no shared block) and `--threads=1` (no second core) to the 1 KiB and 1 MiB runs.
