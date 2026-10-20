@@ -1055,7 +1055,10 @@ The memory model, which lockstep does not check (§3.7): litmus-tests-riscv's RV
   - tests whose herd results predate the file (`tests/litmus/stale.txt`: PPOCA, changed after the results);
   - tests with more threads than harts.
 - **Spike against Spike** (`make -C tests/litmus replay HARTS=0,1|0,1,2,3`) checks the harness: Spike's harts interleave one instruction at a time, so every state is allowed. Tests with an SC don't run there: each Spike hart keeps its LR reservation through another hart's store, so the replaying Spike's SC can succeed where the checker's fails, and the replay stops. On 2026-10-20: 1,367 tests on two harts and 2,863 on four pass, none in a state herd forbids (388 and 747 with an SC not run).
-- **The SoC** (`make -C tests/litmus CFG=st|smt2 [LAT=board]`): `tb_boot` with two cores, one hart each, without lockstep. `LAT=board` alternates fixed (22 cycles) and jittered (18–26) DDR timing between batches. @LITRTL@
+- **The SoC** (`make -C tests/litmus CFG=st|smt2 [LAT=board]`): `tb_boot` with two cores, one hart each, without lockstep. `LAT=board` alternates fixed (22 cycles) and jittered (18–26) DDR timing between batches. On 2026-10-20 (`CFG=st`, harts 0 and 1, 100 iterations each):
+  - **Every two-thread test the generator takes passed:** 1,716, none in a state herd forbids. 4,935 of their 10,899 allowed states were seen, in 216 programs and 34 minutes on the loaded host. One test's result line had been cut by a `tb_boot` progress line; the runner now joins such lines back, and that test passes alone.
+  - **The store-buffering test SB** ends in its relaxed state (both loads 0) 27 times in 200 iterations (fixed timing): its stores wait in the store queue while its loads go to memory. MP's and LB's relaxed states did not appear in 200.
+  - **Two `smt2` cores** (harts 0 and 2, the board's shape): a sample of 400 tests (seed 2, jittered timing, 100 iterations) passes, 394 run and none in a state herd forbids (6 skipped by the generator). SB's relaxed state appears 15 times in 100.
 - **Two threads of one core** (`make -C tests/litmus vsim CFG=smt2 HARTS=0,1`, and four harts on two `smt2` cores in `tb_boot`) once hart 1 fetches (M7's step 5); the board runs the same programs with the latency injector at 0, 120 and 250 cycles (soc-2).
 
 ## 7. Build-host notes
