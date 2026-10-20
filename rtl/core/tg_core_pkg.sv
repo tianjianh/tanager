@@ -197,7 +197,7 @@ package tg_core_pkg;
 `ifdef TG_URF
   localparam bit URF = `TG_URF;
 `else
-  localparam bit URF = 1'b0;
+  localparam bit URF = 1'b1;
 `endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
