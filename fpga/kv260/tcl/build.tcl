@@ -120,7 +120,17 @@ tg_read_rtl $root $cfg
 tg_read_f [file join $root fpga kv260 kv260.f]
 read_xdc [file join $root fpga kv260 xdc kv260.xdc]
 read_xdc [file join $root fpga kv260 xdc timing.xdc]
-if {$urf} { read_xdc [file join $root fpga kv260 xdc timing_urf.xdc] }
+# TG_URF=1: the clocks' constraints (timing_urf.xdc), and the register file's own exceptions, the core's, scoped
+# to every tg_urf instance: the paths its slot plan gives a full core cycle, which would otherwise be timed at a
+# half cycle. So a URF build without that file stops here.
+if {$urf} {
+  read_xdc [file join $root fpga kv260 xdc timing_urf.xdc]
+  set urf_xdc [file join $root rtl core regfile tg_urf.xdc]
+  if {![file exists $urf_xdc]} {
+    puts "ERROR: TG_URF=1 needs $urf_xdc, the UltraRAM register file's timing exceptions (the core's URF)"; exit 1
+  }
+  read_xdc -ref tg_urf $urf_xdc
+}
 
 # ---- synthesis ----
 # TG_SYNTH_DIRECTIVE: synth_design's directive, AreaOptimized_high unless set (the coordinator, 10-16, DR-150:
