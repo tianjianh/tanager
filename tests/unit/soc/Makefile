@@ -29,6 +29,10 @@ ARGS = +prog=$(SOC_BUILD)/tests/soc_sw/$(if $(filter 1,$(SDIRQ)),$(strip $(SDPRO
 $(OUTDIR)/$(TOP): $(CURDIR)/tcore_as_core.sv
 else
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/rtl.f
+# The real cores: a change in the core, the SoC top or the shared packages rebuilds the model, as tests/unit/boot's
+# (unit.mk names only the uncore's sources; without this a core fix ran on the old model)
+$(OUTDIR)/$(TOP): $(wildcard $(REPO)/rtl/core/*.sv $(REPO)/rtl/core/*/*.sv $(REPO)/rtl/core/*.f $(REPO)/rtl/core/*/*.f) \
+                  $(wildcard $(REPO)/rtl/soc/*.sv $(REPO)/rtl/common/*.sv $(REPO)/rtl/common/*/*.sv)
 # SDIRQ=1 with KIND=core: the stress on the real cores
 ARGS = $(if $(filter 1,$(SDIRQ)),+prog=$(SOC_BUILD)/tests/soc_sw/$(strip $(SDPROG)).bin)
 endif
