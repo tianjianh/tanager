@@ -800,7 +800,7 @@ python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13
 - *M6's set, ROB 80, LQ 24, SQ 20, 24 long-latency tags, and the store ownership prefetch;*
 - *tg_vsim's flat memory at 30, 120 and 250 cycles;*
 - *M7's policy as planned: static ROB, LQ and SQ halves (D1); ICOUNT at fetch, with decode, rename and commit alternating and sharing idle slots (D7); 75% issue-queue caps; TID-hashed predictors;*
-- *a committed store that finds no free L1D miss entry takes the next one ahead of load misses (D8, §13.4).*
+- *a committed store that finds no free L1D miss entry keeps the last free one from loads and prefetches until it allocates; they still use any entry beyond it (D8, §13.4; `drain_guard`).*
 
 *The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10); `prf_homes` (§13.11), `rfo_pf_reserve` and `rfo_pf_max` for the ownership prefetch's calibration, and `stop_regions` for the runner's REPEAT builds (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
 
@@ -1062,7 +1062,7 @@ A hart therefore needs, in every bank, room for its architectural registers plus
      - **50% caps, the last row kept while the sibling's group waits:** 1.341 / 1.358 / 1.344, about +0.2K a chip. The rule has to name both banks a waiting group needs, and the caps have to lift when the halves merge.
    - **Recommendation:** the second now. The third is step 7's tuning if the 2% on compute pairs is worth it.
 2. **D8's store priority.**
-   - **What it is:** a committed store that finds no free L1D miss entry takes the next one ahead of load misses.
+   - **What it is:** a committed store that finds no free L1D miss entry keeps the last free one from load misses and prefetches until it allocates; they still use any entry beyond it.
    - **Cost:** none measurable. Without it, M7 deadlocks.
    - **Recommendation:** required. core-2 to confirm the RTL keeps it with four entries and the store prefetch. Keep the drain's and the replays' alternation as planned.
 3. **D7: ICOUNT or round robin at fetch.**
@@ -1179,7 +1179,7 @@ A hart therefore needs, in every bank, room for its architectural registers plus
   - *per-hart free lists with transfers, the donor keeping one, and FP banks of 96 (D3 as revised);*
   - *the drain alternating between the harts' committed SQ heads (D8 as planned);*
   - *TID-hashed predictors.*
-- *"The drain's priority" is §13.4's rule: a committed store that has waited a cycle for a free L1D miss entry takes the next one, ahead of load misses and prefetches. The plan does not have it yet.*
+- *"The drain's priority" is §13.4's rule: once a committed store has waited a cycle for a free L1D miss entry, load misses and prefetches leave it the last free one until it allocates; they still use any entry beyond it. The plan does not have it yet.*
 - *"Never a whole bank" is §13.4's rule that a hart never takes all of a dispatch-slot bank's rows in an issue queue.*
 - *"A bank's last row kept" is §13.4's on-demand form: a hart may not take a bank's last free row while its sibling waits on that bank.*
 
@@ -1338,7 +1338,7 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 
 **What to decide, with costs:**
 1. **The drain's priority for a free miss entry** (D8, core-2's step 4; §13.7 item 2).
-   - **What it is:** a committed store that has waited for a free L1D miss entry takes the next one ahead of loads' requests.
+   - **What it is:** a committed store that has waited for a free L1D miss entry keeps the last free one from loads' requests and prefetches until it allocates; loads still use any entry beyond it.
    - **Cost:** no measurable cycles, alone or in pairs, and an arbitration change in the miss side's allocation.
    - **Without it:** 6 of exit 2's 42 pairs hang in the model.
    - **Recommendation:** required before the step-5 pair runs. If core-2 finds the store port already wins, nothing changes.
@@ -1397,6 +1397,10 @@ A hart therefore needs, in every bank, room for its architectural registers plus
   - The rename map's and the free lists' reset contents change: B1 starts with 48 free registers and B2 with 49, against 33 and 64 as planned.
   - Nothing else changes. core-2 to confirm.
 - **Recommendation:** (b).
+- **Adopted (core-2, 10-20, step 5, under DR-154):**
+  - hart 1's x17–x31 are zeroed at reset through the load port's write, during the D$'s reset sweep;
+  - x1–x16 go through `tg_exec`'s port 1, as planned;
+  - recorded in the plan's D4 row.
 
 **Decisions:** none here; D4 is core-2's. The new switches (`prf_homes`; `rfo_pf_reserve` and `rfo_pf_max` for §13.10's calibration check) are mine, and every earlier result is identical with them off.
 
@@ -1484,7 +1488,13 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 1. **The drain's priority: required.**
    - Without it, 6 of the 42 pairs hang on every configuration without a bank rule.
    - Cost: no cycles, and an arbitration change.
-2. **Step 7's bank rule: the on-demand last row with 50% caps.**
+   - **Done in step 4 (core-2, 7555922f, split mode only; merged mode stays cycle-identical).**
+     - The RTL already gave the store port a same-cycle tie with a load's request register.
+     - Two gaps remained:
+       - an entry freeing while the store couldn't take it, because its victim was valid and the release engine busy;
+       - two harts' drains alternating, so a waiting store was presented only every other cycle.
+     - Now a store or atomic that needs a new entry keeps the last free one from loads' requests until it allocates, across the other hart's turns too. That is the model's `drain_guard`: loads still use any entry beyond the last, and the RTL's form holds from the store's first cycle rather than its second.
+2. **Step 7's bank rule: the on-demand last row with 50% caps.** core-2 takes it for step 7.
    - It is the only form that clears exit 2 at every latency in the model.
    - "Never a whole bank" misses at 30 cycles (1.298), for about 0.1K fewer LUTs a chip (0.1K against 0.2K, §13.7).
    - The extra 0.1K LUTs is within DR-154's limits. The throughput difference (+0.8–2.7%) is over 1%, so it may be the user's call.
