@@ -34,6 +34,7 @@ module tg_exec
   input  logic                         clk2x,       // URF (DR-174): twice clk, for the register file
   input  logic                         rst,
   input  logic                         flush,
+  input  tid_t                         flush_tid,   // M7 (DR-175): a flush kills only this thread's ops
   input  logic                         spec_cancel, // speculative wakeup's shadow cancel (SPEC_WAKE; tg_issue)
   input  logic                         misa_c,      // C: jump targets need only 2-byte alignment
   // Reset sequence: zero writes into bank 0
@@ -73,6 +74,7 @@ module tg_exec
   input  preg_t                        fpi_dst,
   input  logic [63:0]                  fpi_data,
   input  logic [4:0]                   fpi_fflags,
+  input  tid_t                         fpi_tid,     // the head's thread
   input  preg_t [COMMIT_WIDTH-1:0]     tr_tag,
   output logic [COMMIT_WIDTH-1:0][63:0] tr_data,
   // Register-file writes (for the ready table)
@@ -173,6 +175,10 @@ module tg_exec
   logic [N_XQ-1:0]              ex_lv;               // the EX stage's live ops
   assign sc    = SPEC_WAKE && spec_cancel;
   assign ex_lv = ex_v_q & {N_XQ{!sc}};
+  // M7 step 1 (DR-175): a flush kills only the flushed thread's ops; every stage keeps its op's tid
+  function automatic logic fk(input tid_t t);
+    return flush && t == flush_tid;
+  endfunction
   iq_pl_t [N_XQ-1:0]            ex_pl_q;
   logic [N_XQ-1:0][63:0]        ex_a_q, ex_b_q;      // register-file values
   logic [N_XQ-1:0][SW-1:0]      ex_sa_q, ex_sb_q;    // operand selects
@@ -409,8 +415,10 @@ module tg_exec
   logic [127:0]      mul_prod;             // the product itself (one LUT level less)
   logic              mul_hi, mul_word;
   logic [TAG_W-1:0]  mul_tag;
+  tid_t              mul_tid;              // the thread of the MUL in M3
   tg_mul #(.TAG_W(TAG_W)) u_mul (
-    .clk, .rst, .flush, .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
+    .clk, .rst, .flush, .flush_tid, .in_tid(p1.tid), .out_tid(mul_tid),
+    .in_valid(ex_mul), .in_op(p1.mul_op), .in_word(p1.word && !p1.bcnt), .in_a(opa[1]),
     .in_b(opb[1]), .in_tag(p1_tag), .out_valid(mul_ov), .out_res(mul_res), .out_tag(mul_tag),
     .out_prod(mul_prod), .out_hi(mul_hi), .out_word(mul_word));
 
@@ -425,6 +433,7 @@ module tg_exec
   // - min/max take ALU1's compare flags (its adder subtracts for them: sub is set in RF, below).
   logic [63:0]       bc_res;
   logic [2:0]        bc_v_q;
+  tid_t [1:0]        bc_t_q;
   logic [2:1][63:0]  bc_q;
   logic [63:0]       bca_q, bcb_q;             // the operands, registered at the end of EX
   mul_op_e           bcop_q;
@@ -460,9 +469,11 @@ module tg_exec
   logic              div_ov, div_ordy;
   logic [63:0]       div_res;
   logic [TAG_W-1:0]  div_tag;
+  tid_t              div_tid;              // the thread of the divider's result
   logic [idx_w(DIV_INFLIGHT + 1)-1:0] div_cnt;
   tg_div #(.TAG_W(TAG_W), .DEPTH(DIV_INFLIGHT)) u_div (
-    .clk, .rst, .flush, .in_valid(ex_div), .in_op(p1.div_op), .in_word(p1.word), .in_a(opa[1]),
+    .clk, .rst, .flush, .flush_tid, .in_tid(p1.tid), .out_tid(div_tid),
+    .in_valid(ex_div), .in_op(p1.div_op), .in_word(p1.word), .in_a(opa[1]),
     .in_b(opb[1]), .in_tag(p1_tag), .out_valid(div_ov), .out_ready(div_ordy), .out_res(div_res),
     .out_tag(div_tag), .count(div_cnt));
 
@@ -472,13 +483,13 @@ module tg_exec
   assign rf_mul = iss_valid[1] && iss_pl[1].cls == C_MUL && !sc;
   logic       div_claim;                   // the finished divide claims slot +4
   logic [2:0] div_wait_q;                  // cycles to its slot (0: none)
-  assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !flush;
+  assign div_claim = div_ov && div_wait_q == '0 && !rf_mul && !fk(div_tid);
   logic       fpi_claim;                   // the FP->int result at P4's queue head claims slot +4
   logic [2:0] fpi_wait_q;
   logic       fpi_wr;                      // the claimed head is written this cycle
   assign fpi_claim = EXT_FD && fpi_valid && !fpi_kill && fpi_wait_q == '0 && !rf_mul && !div_claim &&
-                     !flush;
-  assign fpi_wr    = fpi_wait_q == 3'd1 && !flush;
+                     !fk(fpi_tid);
+  assign fpi_wr    = fpi_wait_q == 3'd1 && !fk(fpi_tid);
   assign fpi_ready = fpi_wr || (EXT_FD && fpi_valid && fpi_kill && fpi_wait_q == '0);
   assign a1_block  = a1_block_q;
   assign div_ordy  = div_wait_q == 3'd1;
@@ -492,14 +503,16 @@ module tg_exec
 
   // MUL wakeup delay line: RF (r) -> W set at the end of r + 3
   logic [2:0]       mwk_v_q;
+  tid_t [2:0]       mwk_t_q;              // each stage's thread
   wid_t [2:0]       mwk_id_q;
   // MUL tags return 2 cycles after the result's register write (rename's RN can no longer see
   // it unwritten; tg_issue clears the tag's column)
   logic [1:0]                    tf_v_q;
+  tid_t [1:0]                    tf_t_q;
   logic [1:0][WTAG_W-1:0]        tf_id_q;
   always_comb begin
     tag_free = '0;
-    if (tf_v_q[1]) tag_free[tf_id_q[1]] = 1'b1;
+    if (tf_v_q[1] && !fk(tf_t_q[1])) tag_free[tf_id_q[1]] = 1'b1;   // (a flush returns its thread's tags)
   end
 
   // ---- Bank 1 write mux and completions ----
@@ -569,14 +582,16 @@ module tg_exec
   assign rf_we_o   = rf_we;
   assign rf_widx_o = rf_wa;
 
-  // Wakeups: MUL delay line; a claimed divide one cycle before its write
+  // Wakeups: MUL delay line; a claimed divide one cycle before its write. None for an op whose
+  // thread is flushed in this cycle, and no LLT or tag returned for it (the flush returns its
+  // thread's), so the sibling thread can take them at once (M7, DR-175; P4 does the same)
   always_comb begin
     wake_reg = '0;
-    if (mwk_v_q[2]) wake_reg[mwk_id_q[2]] = 1'b1;
-    if (div_wait_q == 3'd2 && div_tag[TAG_W-1]) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
-    if (fpi_wait_q == 3'd2 && fpi_dst_en && !flush) wake_reg[llt_col(int'(fpi_llt))] = 1'b1;
+    if (mwk_v_q[2] && !fk(mwk_t_q[2])) wake_reg[mwk_id_q[2]] = 1'b1;
+    if (div_wait_q == 3'd2 && div_tag[TAG_W-1] && !fk(div_tid)) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
+    if (fpi_wait_q == 3'd2 && fpi_dst_en && !fk(fpi_tid)) wake_reg[llt_col(int'(fpi_llt))] = 1'b1;
     llt_done = '0;
-    if (div_ov && div_ordy && div_tag[TAG_W-1])
+    if (div_ov && div_ordy && div_tag[TAG_W-1] && !fk(div_tid))
       llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
     if (fpi_wr && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
   end
@@ -653,7 +668,9 @@ module tg_exec
     tf_id_q     <= {tf_id_q[0], mul_tag[WTAG_W-1:0]};
     lfsr_q <= {lfsr_q[6:0], lfsr_q[7] ^ lfsr_q[5] ^ lfsr_q[4] ^ lfsr_q[3]};
 
-    if (rst || flush) begin
+    // A flush clears what belongs to the flushed thread (fk); with one thread (hart 1 off) that is
+    // everything, as before (M7 step 1, DR-175)
+    if (rst) begin
       ex_v_q     <= '0;
       wb_v_q     <= '0;
       wb_dv_q    <= '0;
@@ -667,27 +684,35 @@ module tg_exec
       a1_block_q <= 1'b0;
       div_wait_q <= '0;
       fpi_wait_q <= '0;
-      if (rst) lfsr_q <= 8'h5a;
+      lfsr_q     <= 8'h5a;
     end else begin
-      ex_v_q <= iss_valid & {N_XQ{!sc}};
+      for (int q = 0; q < N_XQ; q++) ex_v_q[q] <= iss_valid[q] && !sc && !fk(iss_pl[q].tid);
       for (int i = 0; i < N_ALU; i++) begin
-        wb_v_q[i]   <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls);
-        wb_dv_q[i]  <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls) && ex_pl_q[i].dst_en;
-        wb_cmp_q[i] <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls);
+        wb_v_q[i]   <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls) && !fk(ex_pl_q[i].tid);
+        wb_dv_q[i]  <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls) && ex_pl_q[i].dst_en && !fk(ex_pl_q[i].tid);
+        wb_cmp_q[i] <= ex_lv[i] && alu_class(i, ex_pl_q[i].cls) && !fk(ex_pl_q[i].tid);
       end
-      bw_v_q   <= ex_br;
-      bht_we_q <= ex_br && bp.br_kind == BR_COND;
-      csr_v_q  <= ex_csr;
-      mwk_v_q  <= sc ? {mwk_v_q[1], 2'b00} : {mwk_v_q[1:0], rf_mul && iss_pl[1].dst_en};
-      tf_v_q   <= {tf_v_q[0], !csr_v_q && mul_ov && mul_tag[TAG_W-1]};   // the MUL write slot
-      bc_v_q   <= {bc_v_q[1:0], ex_mul && p1.bcnt};
+      bw_v_q   <= ex_br && !fk(bp.tid);
+      bht_we_q <= ex_br && bp.br_kind == BR_COND && !fk(bp.tid);
+      csr_v_q  <= ex_csr && !fk(p1.tid);
+      mwk_v_q  <= sc ? {mwk_v_q[1] && !fk(mwk_t_q[1]), 2'b00}
+                     : {mwk_v_q[1] && !fk(mwk_t_q[1]), mwk_v_q[0] && !fk(mwk_t_q[0]),
+                        rf_mul && iss_pl[1].dst_en && !fk(iss_pl[1].tid)};
+      tf_v_q   <= {tf_v_q[0] && !fk(tf_t_q[0]),
+                   !csr_v_q && mul_ov && mul_tag[TAG_W-1] && !fk(mul_tid)};   // the MUL write slot
+      bc_v_q   <= {bc_v_q[1] && !fk(bc_t_q[1]), bc_v_q[0] && !fk(bc_t_q[0]), ex_mul && p1.bcnt && !fk(p1.tid)};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
-      a1_block_q <= rf_mul || div_claim || fpi_claim;
-      if (div_claim)               div_wait_q <= 3'd4;
+      a1_block_q <= (rf_mul && !fk(iss_pl[1].tid)) || div_claim || fpi_claim;
+      if (fk(div_tid))             div_wait_q <= '0;
+      else if (div_claim)          div_wait_q <= 3'd4;
       else if (div_wait_q != '0)   div_wait_q <= div_wait_q - 1'b1;
-      if (fpi_claim)               fpi_wait_q <= 3'd4;
+      if (fk(fpi_tid))             fpi_wait_q <= '0;
+      else if (fpi_claim)          fpi_wait_q <= 3'd4;
       else if (fpi_wait_q != '0)   fpi_wait_q <= fpi_wait_q - 1'b1;
     end
+    mwk_t_q <= {mwk_t_q[1:0], iss_pl[1].tid};
+    tf_t_q  <= {tf_t_q[0], mul_tid};
+    bc_t_q  <= {bc_t_q[0], p1.tid};
   end
 
   logic unused;
