@@ -147,6 +147,9 @@ module tg_issue
   typedef struct packed {
     logic [ROB_IDX_W-1:0] rob;
   } f_an_t;
+  // An LD row's destination index: an FP load's F1 index is wider than an integer bank's with FP banks of 96
+  // (M7 step 5, hart 1's homes in F1)
+  localparam int LDW = (FPIDX_W > PIDX_W) ? FPIDX_W : PIDX_W;
   typedef struct packed {
     robid_t              rob;
     logic [11:0]         imm;
@@ -155,7 +158,7 @@ module tg_issue
     logic                mem_uns;       // zero-extend (an FP load: raw bits)
     sqid_t               sq;            // the stores before this SQ ID are older
     logic                dst_en, dst_fp;
-    logic [PIDX_W-1:0]   dst;           // the destination's index (an FP load: F1's)
+    logic [LDW-1:0]      dst;           // the destination's index (an FP load: F1's, FPIDX_W bits)
     llt_t                llt;
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
     preg_t               src1;
@@ -317,7 +320,7 @@ module tg_issue
                                 lq: disp_pl[k].lq[LQ_IDX_W-1:0], mem_size: disp_pl[k].mem_size,
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
                                 dst_en: disp_pl[k].dst_en, dst_fp: fp,
-                                dst: fp ? PIDX_W'(fpreg_idx(disp_pl[k].dst)) : preg_idx(disp_pl[k].dst),
+                                dst: fp ? LDW'(fpreg_idx(disp_pl[k].dst)) : LDW'(preg_idx(disp_pl[k].dst)),
                                 llt: disp_pl[k].llt, tid: disp_pl[k].tid, src1: disp_pl[k].src1};
       end
       f_ld_t b;

@@ -381,6 +381,7 @@ class Core {
   // lone_sleep (D2): 0 merged, 1 draining for a split, 2 halves with the sibling awake, 3 halves with it in WFI
   int lone_phase_ = 0;
   uint64_t lone_next_ = 0, lone_t0_ = 0;
+  uint64_t ctrace_from_ = 0, ctrace_to_ = 0;  // TGSIM_CTRACE=FROM:TO: each retired uop's timing, on stderr
   uint64_t lone_splits_ = 0, lone_drain_sum_ = 0, lone_drain_max_ = 0, lone_cyc_[4] = {0, 0, 0, 0};
   void lone_step();
   // issue
