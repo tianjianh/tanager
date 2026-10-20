@@ -379,6 +379,143 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     $display("plic: ok");
   endtask
 
+  // ---- Directed sequences around claim and complete (the board's lost SD1 interrupt, 10-20; the coordinator's
+  // list): a complete where the source is disabled, an enable written or a priority set to 0 while claimed, a
+  // complete from another context, and an affinity move. Each against the PLIC spec ("a completion for a source
+  // not enabled for the target is silently ignored"), then Linux 6.12.113's plic_irq_eoi (read the context's
+  // enable bit; if clear, enable, complete, disable), which must recover every case but the last
+  localparam logic [33:0] P_CTX = PLIC_BASE + 34'h20_0000;
+  task automatic p_en(input int c, input logic [31:0] e); wr32(PLIC_BASE + 34'h2000 + 34'h80 * c, e); endtask
+  task automatic p_rden(input int c, output logic [31:0] e); rd32(PLIC_BASE + 34'h2000 + 34'h80 * c, e); endtask
+  task automatic p_claim(input int c, output logic [31:0] id); rd32(P_CTX + 34'h1000 * c + 4, id); endtask
+  task automatic p_complete(input int c, input int s); wr32(P_CTX + 34'h1000 * c + 4, 32'(s)); endtask
+  task automatic p_wait(); repeat (8) @(posedge clk); endtask
+  task automatic linux_eoi(input int c, input int s);
+    logic [31:0] e;
+    p_rden(c, e);
+    if (e[s]) begin
+      p_complete(c, s);
+    end else begin
+      p_en(c, e | (32'h1 << s));
+      p_complete(c, s);
+      p_rden(c, e);
+      p_en(c, e & ~(32'h1 << s));
+    end
+  endtask
+  // A level source, as SD1's 21 is in tanager_soc (this bench makes 16..23 edge-triggered)
+  localparam int SEQ_S = 26;
+  task automatic seq_expect(input string name, input bit busy, input bit pend, input logic [2*NH-1:0] irq);
+    p_wait();
+    if (u_plic.busy_q[SEQ_S] != busy || u_plic.pend_q[SEQ_S] != pend || eip != irq)
+      fail($sformatf("plic seq %s: busy %0d pending %0d eip %b, want %0d %0d %b", name, u_plic.busy_q[SEQ_S],
+                     u_plic.pend_q[SEQ_S], eip, busy, pend, irq));
+  endtask
+  task automatic test_plic_seq();
+    localparam int S = SEQ_S, C = 1, C2 = 3;         // hart 0's and hart 1's S-mode contexts
+    localparam logic [2*NH-1:0] NONE = '0, ON_C = (2*NH)'(1) << C, ON_C2 = (2*NH)'(1) << C2;
+    logic [31:0] w;
+    // a clean slate after the random test: sources low, everything drained and completed, nothing enabled
+    src = '0;
+    p_wait();
+    for (int k = 1; k < 32; k++) wr32(PLIC_BASE + 4 * k, 32'd1);
+    for (int c = 0; c < 2*NH; c++) begin wr32(P_CTX + 34'h1000 * c, 32'd0); p_en(c, 32'hFFFF_FFFE); end
+    for (int k = 1; k < 32; k++) p_complete(0, k);
+    do begin p_claim(0, w); if (w != 0) p_complete(0, int'(w)); end while (w != 0);
+    for (int c = 0; c < 2*NH; c++) p_en(c, 32'd0);
+    p_wait();
+    if (u_plic.pend_q != '0 || u_plic.busy_q != '0) fail("plic seq: no clean slate");
+    // S1: claimed, then disabled on its context (plic_irq_disable on another CPU), then Linux's EOI: it finds
+    // the bit clear, enables, completes, disables; the source pends again (its line still high), and enable_irq
+    // delivers it
+    p_en(C, 32'h1 << S); src[S] = 1'b1;
+    seq_expect("S1 raised", 0, 1, ON_C);
+    p_claim(C, w); if (w != S) fail($sformatf("plic seq S1: claimed %0d", w));
+    p_en(C, 32'd0);
+    linux_eoi(C, S);
+    seq_expect("S1 after the EOI with the source disabled", 0, 1, NONE);
+    p_en(C, 32'h1 << S);
+    seq_expect("S1 enabled again", 0, 1, ON_C);
+    p_claim(C, w); if (w != S) fail($sformatf("plic seq S1: claimed %0d again", w));
+    src[S] = 1'b0; p_complete(C, S);
+    seq_expect("S1 done", 0, 0, NONE);
+    // S1b: the same with a plain complete: the spec ignores it and the source stays claimed (frozen) until a
+    // complete arrives where it is enabled
+    src[S] = 1'b1;
+    seq_expect("S1b raised", 0, 1, ON_C);
+    p_claim(C, w);
+    p_en(C, 32'd0);
+    p_complete(C, S);
+    seq_expect("S1b plain complete while disabled (ignored)", 1, 0, NONE);
+    p_en(C, 32'h1 << S);
+    seq_expect("S1b enabled again: still claimed", 1, 0, NONE);
+    linux_eoi(C, S);
+    seq_expect("S1b the complete where enabled", 0, 1, ON_C);
+    p_claim(C, w); src[S] = 1'b0; p_complete(C, S);
+    seq_expect("S1b done", 0, 0, NONE);
+    // S2: the enable word rewritten while claimed (another source's request_irq and free_irq)
+    src[S] = 1'b1;
+    seq_expect("S2 raised", 0, 1, ON_C);
+    p_claim(C, w);
+    p_en(C, (32'h1 << S) | (32'h1 << 23)); p_en(C, 32'h1 << S);
+    linux_eoi(C, S);
+    seq_expect("S2 completed", 0, 1, ON_C);
+    p_claim(C, w); src[S] = 1'b0; linux_eoi(C, S);
+    seq_expect("S2 done", 0, 0, NONE);
+    // S3: priority 0 while claimed (mask_irq), completed, unmasked
+    src[S] = 1'b1;
+    seq_expect("S3 raised", 0, 1, ON_C);
+    p_claim(C, w);
+    wr32(PLIC_BASE + 4 * S, 32'd0);
+    linux_eoi(C, S);
+    seq_expect("S3 completed while masked", 0, 1, NONE);
+    wr32(PLIC_BASE + 4 * S, 32'd1);
+    seq_expect("S3 unmasked", 0, 1, ON_C);
+    p_claim(C, w); src[S] = 1'b0; linux_eoi(C, S);
+    seq_expect("S3 done", 0, 0, NONE);
+    // S4: completed from another context where the source is enabled too: honored
+    p_en(C2, 32'h1 << S); src[S] = 1'b1;
+    seq_expect("S4 raised", 0, 1, ON_C | ON_C2);
+    p_claim(C, w);
+    p_complete(C2, S);
+    seq_expect("S4 completed from C2", 0, 1, ON_C | ON_C2);
+    p_claim(C, w); src[S] = 1'b0; p_complete(C, S); p_en(C2, 32'd0);
+    seq_expect("S4 done", 0, 0, NONE);
+    // S5: completed from a context where the source is not enabled: ignored, then the right one
+    src[S] = 1'b1;
+    seq_expect("S5 raised", 0, 1, ON_C);
+    p_claim(C, w);
+    p_complete(C2, S);
+    seq_expect("S5 complete from C2, not enabled there (ignored)", 1, 0, NONE);
+    p_complete(C, S);
+    seq_expect("S5 completed from C", 0, 1, ON_C);
+    p_claim(C, w); src[S] = 1'b0; p_complete(C, S);
+    seq_expect("S5 done", 0, 0, NONE);
+    // S6: an affinity move while claimed (plic_set_affinity on another CPU: off on C, on on C2), then the old
+    // CPU's EOI: it finds the bit clear on C, so it enables, completes, disables; the source goes to C2
+    src[S] = 1'b1;
+    seq_expect("S6 raised", 0, 1, ON_C);
+    p_claim(C, w);
+    p_en(C, 32'd0); p_en(C2, 32'h1 << S);
+    linux_eoi(C, S);
+    seq_expect("S6 moved, completed by the old CPU", 0, 1, ON_C2);
+    p_claim(C2, w); if (w != S) fail($sformatf("plic seq S6: C2 claimed %0d", w));
+    src[S] = 1'b0; linux_eoi(C2, S); p_en(C2, 32'd0);
+    seq_expect("S6 done", 0, 0, NONE);
+    // S7: the race 6.12.113 leaves: the EOI reads the bit set, the move clears it, the complete is ignored. The
+    // spec freezes the source (claimed, never completed): shown, not fixed, here
+    p_en(C, 32'h1 << S); src[S] = 1'b1;
+    seq_expect("S7 raised", 0, 1, ON_C);
+    p_claim(C, w);
+    p_rden(C, w); if (!w[S]) fail("plic seq S7: enable read");
+    p_en(C, 32'd0); p_en(C2, 32'h1 << S);
+    p_complete(C, S);
+    seq_expect("S7 frozen as the spec has it", 1, 0, NONE);
+    src[S] = 1'b0; p_wait();
+    p_complete(C2, S); p_en(C2, 32'd0);
+    seq_expect("S7 cleared", 0, 0, NONE);
+    $display("plic sequences: ok");
+  endtask
+
   task automatic test_uart();
     logic [7:0] v;
     localparam logic [33:0] U = UART_BASE;
@@ -519,6 +656,7 @@ module tb_periph #(parameter bit VIRTIO = 1'b0);
     if (VIRTIO) test_wait();
     test_aclint();
     test_plic();
+    test_plic_seq();
     test_uart();
     test_rom();
     if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
