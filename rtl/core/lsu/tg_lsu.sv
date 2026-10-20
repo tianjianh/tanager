@@ -93,6 +93,9 @@ module tg_lsu
   output logic [COMMIT_WIDTH-1:0][63:0] tr_st_va,
   output logic [COMMIT_WIDTH-1:0][63:0] tr_st_data,
   output logic [COMMIT_WIDTH-1:0][1:0] tr_st_size,
+  input  lqid_t [COMMIT_WIDTH-1:0]     tr_lq,          // trace: committed loads' address and size (v1.5, mem_ld)
+  output logic [COMMIT_WIDTH-1:0][63:0] tr_ld_va,
+  output logic [COMMIT_WIDTH-1:0][1:0] tr_ld_size,
   output logic                         sq_drained,    // no committed store left
   output logic                         mmio_busy,     // an MMIO load or an atomic: no interrupt
   input  logic                         rsv_clr,       // trap or xRET: the LR reservation ends
@@ -434,13 +437,27 @@ module tg_lsu
       assign tr_st_size[j] = sqsz_rd[j];
       assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
     end
+    // The committed loads' VA (v1.5's mem_ld): a copy of u_lqc's, written with it at AG, read by the commit slots'
+    // LQ indices (the head's reads stay u_lqc's); the size from the LQ's flip-flops
+    logic [COMMIT_WIDTH-1:0][LIW-1:0] lqva_ra;
+    logic [COMMIT_WIDTH-1:0][63:0]    lqva_rd;
+    for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_trl
+      assign lqva_ra[j]    = tr_lq[j][LIW-1:0];
+      assign tr_ld_va[j]   = lqva_rd[j];
+      assign tr_ld_size[j] = lq_size_q[tr_lq[j][LIW-1:0]];
+    end
+    tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(64), .NR(COMMIT_WIDTH)) u_lqva (
+      .clk, .we(ld_ag_valid && !flush), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd.va), .raddr(lqva_ra),
+      .rdata(lqva_rd));
   end else begin : g_notrace
     assign tr_st_va   = '0;
     assign tr_st_data = '0;
     assign tr_st_size = '0;
     assign tr_st_wr   = '0;
+    assign tr_ld_va   = '0;
+    assign tr_ld_size = '0;
     logic unused_tr;
-    assign unused_tr = ^{tr_sq, sq_amw_q};             // sq_amw_q: an atomic wrote memory, for the trace
+    assign unused_tr = ^{tr_sq, tr_lq, sq_amw_q};      // sq_amw_q: an atomic wrote memory, for the trace
   end
 
   // ---- D$ ----
