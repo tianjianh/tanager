@@ -31,6 +31,7 @@ module tg_exec
   localparam int TAG_W = PIDX_W + ROBW + COL_W + 1   // {dst_en, dst index, rob, wakeup column}
 ) (
   input  logic                         clk,
+  input  logic                         clk2x,       // URF (DR-174): twice clk, for the register file
   input  logic                         rst,
   input  logic                         flush,
   input  logic                         spec_cancel, // speculative wakeup's shadow cancel (SPEC_WAKE; tg_issue)
@@ -41,6 +42,7 @@ module tg_exec
   // Issue (RF stage)
   input  logic [N_XQ-1:0]              iss_valid,
   input  iq_pl_t [N_XQ-1:0]            iss_pl,
+  input  preg_t [N_XQ-1:0][1:0]        iss_src_n,   // URF: next cycle's {src2, src1} (tg_issue)
   output logic                         a1_block,
   // Load pipe (LSU): the M2 load that writes next cycle; the load result register
   input  logic                         ld_m2_will,
@@ -121,9 +123,25 @@ module tg_exec
   logic [NRP-1:0][BANK_W-1:0]           rd_bank;
   logic [NRP-1:0][PIDX_W-1:0]           rd_idx;
   logic [NRP-1:0][63:0]                 rd_data;
-  tg_irf #(.NB(INT_BANKS), .DEPTH(INT_PREGS_PER_BANK), .NR(NRP)) u_irf (
-    .clk, .we(rf_we), .waddr(rf_wa), .wdata(rf_wd), .rbank(rd_bank), .ridx(rd_idx),
-    .rdata(rd_data));
+  // URF (DR-174): the issue-time ports (ALU operands, then the LD and STA bases, whose select after
+  // the read makes them the early ports) in UltraRAM; their next addresses come from the selects
+  logic [P_SH-1:0][BANK_W-1:0]          rd_bank_n;
+  logic [P_SH-1:0][PIDX_W-1:0]          rd_idx_n;
+  tg_irf #(.NB(INT_BANKS), .DEPTH(INT_PREGS_PER_BANK), .NR(NRP), .URF(URF), .NI(P_SH)) u_irf (
+    .clk, .clk2x, .we(rf_we), .waddr(rf_wa), .wdata(rf_wd), .rbank(rd_bank), .ridx(rd_idx),
+    .rbank_n(rd_bank_n), .ridx_n(rd_idx_n), .rdata(rd_data));
+  for (genvar i = 0; i < N_ALU; i++) begin : g_rdn
+    assign rd_bank_n[2*i]   = preg_bank(iss_src_n[i][0]);
+    assign rd_idx_n[2*i]    = preg_idx(iss_src_n[i][0]);
+    assign rd_bank_n[2*i+1] = preg_bank(iss_src_n[i][1]);
+    assign rd_idx_n[2*i+1]  = preg_idx(iss_src_n[i][1]);
+  end
+  assign rd_bank_n[P_LD]  = preg_bank(iss_src_n[Q_LD][0]);
+  assign rd_idx_n[P_LD]   = preg_idx(iss_src_n[Q_LD][0]);
+  assign rd_bank_n[P_STA] = preg_bank(iss_src_n[Q_STA][0]);
+  assign rd_idx_n[P_STA]  = preg_idx(iss_src_n[Q_STA][0]);
+  logic unused_srcn;                    // LD and STA have no second source
+  assign unused_srcn = ^{iss_src_n[Q_LD][1], iss_src_n[Q_STA][1]};
 
   // Read addresses: ALU operands, LD and STA bases (RF stage), store data, trace
   for (genvar i = 0; i < N_ALU; i++) begin : g_rda

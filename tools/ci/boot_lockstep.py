@@ -36,6 +36,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cycle_identical as ci  # noqa: E402
+import host_policy  # noqa: E402  (the runners' share of a hybrid host; verification.md §8)
 
 NAME = "boot-lockstep"
 CACHE = os.path.join(ci.TB, "boot-lockstep")
@@ -56,7 +57,7 @@ NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in tu
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)
 NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
-                 "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1),
+                 "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
                  "STORE_PF_MAX": (2, 3)}
 
 
@@ -129,7 +130,8 @@ class Build:
                          f"CORES={self.cores}", f"VTHREADS={self.vthreads}", f"JOBS={jobs}", f"SOC_BUILD={self.obj}",
                          f"TB={tbs}", "TAG=_tap", f"MEM_PARAMS={MEM_PARAMS}", *self.prof, "build"],
                         ["make", "-s", "-C", os.path.join(self.src, "sim"), f"TANAGER_BUILD={self.obj}", "lockstep"]):
-                p = subprocess.run(cmd, env=env, capture_output=True, text=True)
+                p = subprocess.run(cmd, env=env, capture_output=True, text=True,
+                                   preexec_fn=host_policy.preexec(1))
                 if p.returncode:
                     return f"{' '.join(cmd[:4])}: {(p.stdout + p.stderr)[-1500:]}"
             tb = self.tb()
@@ -175,16 +177,16 @@ def device_tree(harness_src, shape):
             a.wait()
             p = subprocess.run(["make", "-s", "-C", os.path.join(src, "sw", "dts"), f"O={ddir}", f"CORES={cores}",
                                 f"THREADS={threads}", f"RUN_THREADS={run_threads}", *ci.BOOT_DTS],
-                               capture_output=True, text=True, env=ci.clean_env())
+                               capture_output=True, text=True, env=ci.clean_env(), preexec_fn=host_policy.preexec(1))
             if p.returncode or not os.path.exists(dtb):
                 fail(f"building the {shape} device tree: {(p.stdout + p.stderr)[-1000:]}")
     return dtb
 
 
 def first_victim():
-    """For the nightly's runs: the first out-of-memory victim, as the soak. Not niced: the board shape's model runs
-    on four threads that meet at every cycle, and at nice 19 on a busy host it made under 1M cycles in 11 minutes
-    (2026-10-19), so the nightly takes its five threads at normal priority instead."""
+    """For the nightly's runs: the first out-of-memory victim, as the soak. Not niced to 19: the board shape's model
+    runs on four threads that meet at every cycle, and at nice 19 on a busy host it made under 1M cycles in 11
+    minutes (2026-10-19). The host policy (host_policy.preexec) places them instead."""
     try:
         with open("/proc/self/oom_score_adj", "w") as f:
             f.write("900")
@@ -200,17 +202,26 @@ def run_one(build, dtb, images, shape, timing, mcyc, seed, outdir, nice=False, p
     os.mkfifo(fifo)
     harts = 1 if SHAPES[shape][1] * SHAPES[shape][3] == 1 else 4   # the record's hart field: harts 0 and 2
     fw, kernel = images["fw"][0], images["kernel"][0]
-    pre = first_victim if nice else None
+    # The host policy (verification.md §8): on a hybrid host the st shape's model and its checker at nice 10 or more,
+    # the board shape's four-thread model and its checker on the E-cores
+    pol = host_policy.preexec(SHAPES[shape][4])
+
+    def pre():
+        if nice:
+            first_victim()
+        if pol:
+            pol()
+
     io = []
     t0 = time.time()
     with open(os.path.join(outdir, "lockstep.log"), "w") as lf, open(os.path.join(outdir, "tb_boot.log"), "w") as tf:
         ls = subprocess.Popen([*io, build.ls, f"--fw={fw}", f"--kernel={kernel}", f"--dtb={dtb}", f"--harts={harts}",
                                "--stats=600", *([f"--plant={plant}"] if plant is not None else []), fifo],
-                              stdout=lf, stderr=subprocess.STDOUT, preexec_fn=pre)
+                              stdout=lf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
         tb = subprocess.Popen([*io, build.tb(), f"+fw={fw}", f"+dtb={dtb}", f"+kernel={kernel}",
                                f"+expect={ci.BOOT_EXPECT}", f"+max_mcycles={mcyc}", f"+verilator+seed+{seed}",
                                "+mem_zero", f"+tap_out={fifo}", *timing_args(timing)],
-                              stdout=tf, stderr=subprocess.STDOUT, preexec_fn=pre)
+                              stdout=tf, stderr=subprocess.STDOUT, preexec_fn=pre if nice or pol else None)
         limit = max(3600, mcyc * 180)   # wall seconds: 3 minutes a million cycles, four times today's pace
         timed_out = False
         for p in (tb, ls):

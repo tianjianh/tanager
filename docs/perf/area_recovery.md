@@ -1654,12 +1654,12 @@ How each boot estimate is made:
 
 - **Yes: run as the board runs it, the RTL simulation predicts the board.**
   - **Through every initcall:** it is within 0.4–3.5% of the board on both bitstreams, and each phase's d2 → d4s2 change agrees (−25% to −32%, against −26% to −31%).
-  - **The initramfs unpacking diverges:** the simulation takes 25% (d2) and 39% (d4s2) longer there. That phase copies about 9 MB into the page cache, so the gap is `tb_boot`'s DDR model, slower than the board's DDR for this traffic.
-  - **So the simulated /init gain is −26.2%, against the board's −30.0%.**
+  - **The initramfs unpacking diverges:** the simulation takes 25% (d2) and 39% (d4s2) longer there. That phase copies about 9 MB into the page cache, so the gap is `tb_boot`'s DDR model, slower than the board's DDR for this traffic. *(Corrected in §6.14: not the DDR model. The init thread prints 95 ms of console while the unpack runs on the other core, and this section took that time off the unpack's end too. Counted right, the simulation is within −0.7% (d2) and +0.3% (d4s2) here.)*
+  - **So the simulated /init gain is −26.2%, against the board's −30.0%.** *(Corrected in §6.14: the board's is −26.9%.)*
 - **Why the 20M-cycle windows read about half the gain:** they are OpenSBI and the kernel's setup before its clock starts, which the board's timestamps leave out.
   - **OpenSBI:** d2 needs 1.6 times d4s2's cycles.
   - **The page-structure setup for 1 GiB:** M6 barely speeds it up (31M against 29M cycles); it is bound by stores that miss.
-- **With the serial console's fixed 0.34 s added,** the simulation's /init reads 1.03 s (d4s2) and 1.27 s (d2): a −19.2% gain, against the board's 0.93 s and 1.18 s (−21.3%).
+- **With the serial console's fixed 0.34 s added,** the simulation's /init reads 1.03 s (d4s2) and 1.27 s (d2): a −19.2% gain, against the board's 0.93 s and 1.18 s (−21.3%). *(Corrected in §6.14: only 0.246 s of the console is on /init's path. With it, the simulation reads 0.931 s and 1.174 s.)*
 
 **What it changes for DR-171's ranking.** The profile of the whole boot to /init, run as the board runs it (d4s2 with the binds, `scripts/rtlprof/brd_prof.sh`; the boot core's counters, 122M cycles), against §6.11's first 20M cycles:
 
@@ -1676,7 +1676,7 @@ How each boot estimate is made:
 - **The store ownership prefetch stays first, and by more.**
   - Over the whole boot, rename is held by a full SQ while a store's line misses on 18.8% of the boot core's cycles.
   - The core that unpacks the initramfs has 11.8M such cycles of its own.
-  - The absolute estimate leans high: `tb_boot`'s DDR is slower than the board's for exactly this traffic.
+  - The absolute estimate leans high: `tb_boot`'s DDR is slower than the board's for exactly this traffic. *(§6.14: the DDR model matches the board for this traffic, and the estimate was low, by about three times.)*
 - **FENCE.I by generation is worth about 0.3% of the whole boot, not 1.7%.**
   - The boot's 5.5K FENCE.Is (code patching) all come early.
   - It stays cheap (100–600 LUTs), but it now ranks below the micro-BTB at 128.
@@ -1686,7 +1686,7 @@ How each boot estimate is made:
   - keep DR-171's store ownership prefetch first;
   - take the I$ next-line prefetch before the DTLB replay;
   - weigh FENCE.I by generation as a 0.3% item: worth its few hundred LUTs, but not ahead of the I$ prefetch;
-  - before judging the store side further, give `tb_boot`'s DDR model the board's throughput (follow-up 14).
+  - before judging the store side further, give `tb_boot`'s DDR model the board's throughput (follow-up 14). *(§6.14: not needed.)*
 
 **Decisions:** none here; DR-171's ranking is the coordinator's. No model revision: revision 7 with the board's smt2 sizes matches the board's CoreMark exactly.
 
@@ -1695,7 +1695,176 @@ How each boot estimate is made:
 - **The board's smt2 core is a bigger single-thread core until M7.** One thread gets the whole smt2 window, and the per-thread queue caps are not wired. With those sizes the model lands on the board's CoreMark exactly.
 - **Run the simulation as the board runs it, or the gains differ.** The same bench images, device tree, two cores and board-like memory reproduce the board's boot within 0.4–3.5% through the initcalls. The 20M-cycle profiles under a different setup read half the board's gain.
 - **A boot's first 20M cycles are not its average.** FENCE.I and DTLB retries cluster in early boot: 1.7% each there, 0.3% over the boot to /init.
-- **The testbench's DDR model is the remaining gap:** it is 25–39% slow on the page-cache copy that unpacks the initramfs.
+- **The testbench's DDR model is the remaining gap:** it is 25–39% slow on the page-cache copy that unpacks the initramfs. *(Withdrawn in §6.14: it was this section's console accounting, and the DDR model matches.)*
+
+### 6.13 A blind prediction for d4r1 (written 2026-10-19 13:50, before the board runs it)
+
+*d4r1 is the final D4 bitstream, built from main c072fff. Against d4s2 it adds two pieces from DR-171:*
+- *FENCE.I by generation (core-2's 855922a; no switch);*
+- *the store ownership prefetch (fpu-2's `STORE_PF`, on by default).*
+
+*DR-141's Linux set runs on it tonight. The coordinator asked for the model's and the RTL's prediction in the board's shape first (smt2, one hart a core, two cores), so the comparison is blind.*
+
+*Scored against the board in §6.14; the text below is as written before the run.*
+
+**CoreMark and Dhrystone: no change from d4s2.**
+- **The RTL:** make perf on c072fff (smt2) against main 118b796 (d4s2's core: the micro-BTB check, without the two new pieces) moves every program by −0.02% to +0.03%.
+  - Its base reproduces d4s2's make perf cycle for cycle.
+  - The two programs never miss a store's line and never run FENCE.I in their timed loops.
+- **The model:** `rtl_m2` revision 7 with the board's smt2 sizes, with and without `rfo_pf`, gives the same IPC to the third decimal.
+- **The prediction for the board** (its own builds, its instruction counts unchanged): d4s2's figures within the board's spread (0.3–0.5%):
+  - CoreMark A **4.61** per MHz (216,938 cycles an iteration);
+  - CoreMark B **4.36** (229,159);
+  - Dhrystone **2.82** DMIPS/MHz (202 cycles a run).
+
+**/init's CPU time** (added 15:10, still before the board's run). `tb_boot` ran d4r1 as the board runs it (`scripts/rtlprof/brd_init.sh d4r1`), against §6.12's run of d4s2:
+
+| Milestone (CPU time) | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 (measured) | Board d4r1 (predicted) |
+|---|---|---|---|---|---|
+| `smp: Brought up` | 0.0340 s | 0.0306 s | −10.1% | 0.0342 s | 0.031 s |
+| `clocksource: Switched` | 0.0850 s | 0.0803 s | −5.5% | 0.0856 s | 0.081 s |
+| `NET: Registered PF_PACKET` | 0.2181 s | 0.2067 s | −5.2% | 0.2247 s | 0.213 s |
+| `clk: Disabling unused clocks` (the initcalls) | 0.3025 s | 0.2874 s | −5.0% | 0.3133 s | **0.298 s** |
+| `Freeing unused kernel image` (the initramfs unpacked) | 0.6839 s | 0.5852 s | −14.4% | 0.5874 s | 0.51–0.57 s |
+| `Run /init` | 0.6848 s | 0.5860 s | **−14.4%** | 0.5884 s | **0.51–0.57 s, about 0.54 s** |
+
+- **The initcalls: −5%, to 0.298 s.** The simulation tracks the board within 3.5% there (§6.12), so this part is firm. The store prefetch shortens the kernel's own page and structure clearing.
+- **The initramfs unpacking is the uncertain part.**
+  - **In the simulation** it shrinks by 22% (0.381 → 0.298 s): the prefetch overlaps the page-cache copy's store misses.
+  - **On the board** the same phase already runs 39% faster than in the simulation (`tb_boot`'s DDR model, follow-up 14).
+  - **The range:** if none of that extra time is store-miss waiting, the board gains the simulation's 22% (0.214 s). If all of it is, the prefetch gains almost nothing there (0.274 s).
+  - **The prediction:** 0.21–0.27 s for the phase, about 0.24 s.
+- **The prediction for the board's d4r1:**
+  - **/init's CPU time:** 0.51–0.57 s against d4s2's 0.588 s; about 0.54 s (−8%).
+  - **The timestamp:** with the fixed 0.34 s of console, 0.85–0.91 s (about 0.88 s) against d4s2's 0.929 s.
+- **Not in /init's timestamp, but in the boot:** both pieces act mostly before the kernel's clock starts. There the simulation's d4r1 sets up the 1 GiB page structures 35% faster (13M against 20M cycles) and starts its clock 9M cycles (90 ms) earlier. Most of the boot's 5.5K FENCE.Is come before the clock too.
+- **The Linux set's other tests are not predicted** (no simulation of them). The store prefetch should move those that store to lines not yet in the cache:
+  - page fault (each page cleared);
+  - memset and memcpy of 1 MiB;
+  - tmpfs write;
+  - fork+exec.
+
+  CoreMark and Dhrystone should not move (above).
+
+### 6.14 d4r1 on the board against the blind prediction (2026-10-19, after MR23; corrected with verif-2's finding)
+
+*MR23 ran DR-141's set on d4r1 (main c072fff), three boots. This scores §6.13, written before the board ran.*
+
+*The first version of this section blamed the miss on a fixed gap in `tb_boot`. verif-2 found that the gap was this study's own console accounting (follow-up 14), and the section is corrected.*
+
+*The board's consoles are parsed by `scripts/m6_board.py --init`, and the model's check is `--copy`.*
+
+**The scorecard:**
+
+| What | Predicted (§6.13) | Board d4r1 | Verdict |
+|---|---|---|---|
+| CoreMark A | 4.61 per MHz (216,938 cycles an iteration) | 4.60 (217,268: +0.2%, spread 0.5%) | Right |
+| CoreMark B | 4.36 (229,159) | 4.36 (229,231: +0.0%) | Right |
+| Dhrystone | 2.82 DMIPS/MHz (202 cycles a run) | 2.82 (202: −0.1%) | Right |
+| CPU time to the initcalls' end (`clk: Disabling unused clocks`) | 0.298 s | 0.292 s | Right (−1.9%) |
+| The tail after the initcalls (to `Freeing unused kernel image`) | 0.21–0.27 s, about 0.24 s | 0.198 s | Missed: 8% under the range |
+| CPU time to /init | 0.51–0.57 s, about 0.54 s | 0.491 s | Missed: 4% under the range |
+| /init's timestamp | 0.85–0.91 s, about 0.88 s | 0.831 s | Missed: 2% under the range |
+| Which Linux tests move | page fault, memset and memcpy of 1 MiB, tmpfs write, fork+exec; not CoreMark or Dhrystone | those five (−28.1%, −29.0%, −34.5%, −19.3%, −1.9%) and tmpfs read (−4.5%); CoreMark, Dhrystone, gzip, sha256sum, syscalls and the small copies within 0.2% | Right, one more than listed |
+
+The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Corrected (below), the last two move up by 95 ms on both sides.
+
+**Why the range missed: this study's accounting, not the simulation.**
+- **The simulation predicts /init's timestamp within 0.2%.**
+  - Simulated d4r1 reaches /init at 0.586 s of CPU time. The console on /init's path adds 0.246 s, for 0.832 s against the board's 0.831 s.
+  - d4s2 the same way: 0.931 s against 0.929 s.
+- **The board's console holds only the thread that prints.** The kernel prints synchronously at 115200 baud, so each line holds its thread for the line's console time (§6.12).
+  - The initramfs is unpacked by an async worker on the other core. It starts just after the `NET: Registered PF_UNIX` line (`populate_rootfs`, the next initcall level).
+  - The init thread then prints 16 more lines (94.7 ms) up to `clk: Disabling unused clocks`, where it waits for the unpack. The unpack runs through those 94.7 ms.
+- **§6.12 took all the console time off every milestone,** including the two that wait on the unpack's end (`Freeing unused kernel image`, `Run /init`).
+  - That made the board's unpacking look 95 ms shorter than it was.
+  - Read against the tail after the initcalls, the simulation then looked 25% (d2), 39% (d4s2) and 51% (d4r1) slow.
+  - §6.12 blamed `tb_boot`'s DDR model. The first version of this section blamed a per-line write-back cost.
+  - verif-2 found the overlap and checked it against the board's raw timestamps.
+- **The range came from that error.** It discounted the unpacking's simulated gain (22%) to between 22% and nothing, because a slow DDR would have left the board less to gain. The board gained the simulation's 22%.
+
+**Corrected.** `kernel_times` now takes off only the console time on each milestone's path. The d2 and d4s2 simulations are §6.12's runs. The last column is the prediction §6.13 would have made with this accounting: the board's d4s2 time × the simulation's d4r1/d4s2.
+
+| Milestone (CPU time) | Board d2 / simulation | Board d4s2 / simulation | Board d4r1 / simulation | d4r1: the simulation's ratio on the board's d4s2, measured against it |
+|---|---|---|---|---|
+| `smp: Brought up` | 0.0463 / 0.0455 s (−1.6%) | 0.0342 / 0.0340 s (−0.4%) | 0.0309 / 0.0306 s | 0.0307 s (+0.6%) |
+| `clocksource: Switched` | 0.1217 / 0.1193 s (−2.0%) | 0.0856 / 0.0850 s (−0.7%) | 0.0805 / 0.0803 s | 0.0809 s (−0.6%) |
+| `NET: Registered PF_UNIX` (the unpack starts) | 0.2501 / 0.2466 s (−1.4%) | 0.1771 / 0.1757 s (−0.7%) | 0.1672 / 0.1655 s | 0.1667 s (+0.3%) |
+| `NET: Registered PF_PACKET` | 0.3207 / 0.3105 s (−3.2%) | 0.2247 / 0.2181 s (−3.0%) | 0.2110 / 0.2067 s | 0.2130 s (−1.0%) |
+| `clk: Disabling unused clocks` | 0.4537 / 0.4467 s (−1.5%) | 0.3133 / 0.3025 s (−3.4%) | 0.2922 / 0.2874 s | 0.2977 s (−1.9%) |
+| `Freeing unused kernel image` | 0.9330 / 0.9266 s (−0.7%) | 0.6821 / 0.6839 s (+0.3%) | 0.5845 / 0.5852 s | 0.5836 s (+0.2%) |
+| `Run /init` | 0.9348 / 0.9284 s (−0.7%) | 0.6831 / 0.6848 s (+0.2%) | 0.5855 / 0.5860 s | 0.5846 s (+0.2%) |
+
+- **The unpack itself,** from the PF_UNIX line to `Freeing unused kernel image` (verif-2's check, reproduced). Board against simulation:
+  - d2: 0.683 against 0.680 s (−0.4%);
+  - d4s2: 0.505 against 0.508 s (+0.6%);
+  - d4r1: 0.417 against 0.420 s (+0.6%).
+- **So `tb_boot`, run as the board runs it, matches the board in every phase on three bitstreams, the unpacking included.** Its DDR model needs no change for this traffic (follow-up 14, closed).
+- **Confirmed end to end by verif-2:** a boot of d4s2 with the console on the serial line at 115200 baud, as on the board (SERIAL=1, latency 22; its 5b8d5d8).
+  - Its raw timestamps are within 0.3–1.2% of the board's at every milestone: /init at 0.936 s against 0.929 s (+0.8%).
+  - The estimate above, the console-free simulation plus the console on /init's path, gave 0.931 s.
+  - All 100 kernel lines up to `Freeing unused kernel image` are within 1.0–1.8% of each board boot.
+- **The corrected gains to /init (CPU time):**
+  - d2 → d4s2: −26.9% on the board, −26.2% in the simulation. §6.12 gave the board −30.0%.
+  - d4s2 → d4r1: −14.3% on the board, −14.4% in the simulation. The first version gave the board −16.6%.
+  - In seconds both accountings agree: −97.6 ms on the board, −98.8 ms simulated.
+- **The console:** 0.34 s in all before /init, of which 0.246 s is on /init's path and 0.095 s runs alongside the unpack.
+
+**What the core does in the tail.**
+- **The tail after the initcalls is two pieces of work** (`tb_boot`'s PC samples, every 1M cycles on both cores):
+  - **the end of the initramfs unpacking:** the async worker on one core, while the other idles in `wfi`. About 22M cycles on d4s2 and 21M on d4r1.
+  - **`free_initmem`:** it poisons the 11.2 MB of freed init memory with `memset` (0xcc), a pure store stream. The kernel's `memset` loop (32 `sd` per 256 bytes) takes 12 of the last 15 samples on d4s2 and 8 of the last 9 on d4r1.
+- **By cause** (d4s2's boot rerun with `prof_m6.sv`'s `+prof_snap=1000000`, cycle-identical, and `scripts/rtlprof/prof_window.py`). Shares of each window's cycles, on the core doing the work; the other core sits in `wfi` 86–88% of each tail window:
+
+| Window (d4s2) | IPC | Head: a load waiting on a D$ miss | The store drain waits on a line | Rename held by a full SQ, the drain waiting | D$ miss entries busy: 1 / 2 / 3 |
+|---|---|---|---|---|---|
+| The initcalls, 61–83M (core 0) | 0.696 | 13.4% | 20.2% | 10.6% | 20.6% / 8.7% / 0.3% |
+| The unpacking's end, 84–106M (core 0) | 0.710 | 25.9% | 29.6% | 22.0% | 19.1% / 19.6% / 0.9% |
+| `free_initmem`'s memset, 107–121M (core 1) | 0.252 | 2.0% | 73.6% | 70.2% | 77.0% / 0.2% / 0 |
+
+  - **The memset fetches one line at a time.** Exactly one miss entry is busy 77% of the window, and the drain waits on a line 74%. Over its 179,392 lines, that is about 60 cycles per 64 B line: one ownership round trip each, in series. d4s2 has no store prefetch.
+  - **The unpacking's end is a copy:** loads and stores both miss, with up to two lines in flight.
+  - **This is where the store prefetch gains most:** the simulated memset falls from about 12–15M cycles to 8–9M on d4r1.
+
+**The store prefetch was worth about three times its estimate.**
+- **The estimate (§6.11, §6.12):** +4.2% of the boot's first 20M cycles, +6.2% of the whole boot.
+  - Its base: the cycles rename is held by a full SQ while a store's line misses. That is 18.8% of the boot core's cycles over the whole boot.
+  - Its factor: 0.33, the share of such cycles the model's prefetch saved on `ws_copy` (st sizes).
+- **Measured in the simulation:** the whole boot to /init, from reset, falls from 121.9M to 102.5M cycles (−15.9%).
+  - 9.5M of that comes before the kernel's clock starts, most of it in the 1 GiB page-structure setup (20M → 13M cycles, §6.13).
+  - FENCE.I by generation's estimate is +0.3% of the boot.
+- **So the prefetch removed most of the stall, not a third.** It saved 19.4M cycles of wall time. The stall held 22.9M cycles on the boot core and 11.8M more on the core that unpacks (§6.12), so it removed between 0.56 and 0.85 of it.
+  - The boot's store misses are page clears and poisoning: pure store streams.
+  - On a copy, where loads miss too, the model's prefetch saves 0.36–0.50 of such cycles.
+- **On the board:** CPU time to /init −14.3%, page faults −28.1%, memset 1 MiB −29.0%, memcpy 1 MiB −34.5%.
+- **The model on the board's copy.** `rtl_m2` revision 7 in the board's shape (M6, smt2 sizes, the SoC's uncore at 100 MHz) runs `ws_copy_2048`. It copies 1 MiB from a 1 MiB source, as the board's test does. Both footprints are twice the 1 MiB L2.
+
+| Copy | Instructions a byte | d4s2: cycles a byte | d4r1: cycles a byte | Change | Rename held by a full SQ (model) |
+|---|---|---|---|---|---|
+| Model, `ws_copy_2048` (newlib's `memcpy`) | 0.306 | 0.778 | 0.538 | **−30.8%** | 61.6% → 31.0% of cycles |
+| Board, memcpy 1 MiB (glibc's) | 0.465 | 1.178 | 0.772 | **−34.5%** | – |
+| Model, `ws_copy_1024` (512 KiB, L2-resident) | 0.306 | 0.484 | 0.402 | −17.0% | 47.5% → 0.0% |
+
+  - The model's gain is within 4 points of the board's. The programs differ, so the absolute cycles a byte do not compare.
+  - In IPC, the model goes from 0.393 to 0.569 and the board from 0.395 to 0.598.
+- **The ranking stands:** the prefetch was first, by more than estimated. Estimates built from a bound should take their factor from a kernel with the target's mix of misses.
+
+**Decisions:**
+- **`m6_board.py` charges the board's console only to the thread that prints** (mine).
+  - **Pros:** the simulation matches the board within 0.7% at /init on three bitstreams, and the simulated ratio and the simulated seconds now give the same prediction.
+  - **Cons:** it encodes this kernel's boot order: the unpack starts after the PF_UNIX line, and init waits after `clk: Disabling unused clocks`. A kernel or configuration that moves those lines needs the names updated. The script prints the overlapped console time, so a change shows.
+  - **This replaces the first version's rule** of adding the simulated change in seconds. That rule worked only because the error was a constant. The cores' tracks measuring with `brd_init.sh` can read their gains either way, with this accounting; core-2's I$ next-line prefetch is next.
+- **No model revision:** revision 7's ownership prefetch is within 4 points of the board's memcpy gain.
+- **Follow-up 14 closed** on verif-2's finding: `tb_boot`'s DDR model needs no change for this traffic. verif-2's `memcal` on the board stays an independent check.
+
+**Learned:**
+- **A hedge is a prediction too.** Counted right, the simulation's own number was within 0.1% of the board's /init timestamp. The range built around an untested diagnosis missed by 2–9%.
+- **Charge a synchronous console only to the thread that prints.**
+  - The init thread's 95 ms of console ran alongside the async unpack on the other core.
+  - Taking it off the unpack's end invented a 25–51% "slow DDR", and then a per-line write-back cost. Both chased a gap that the measurement had made.
+- **When a gap is the same size on every version, check it against the constants of the measurement first.** The fixed ~95 ms was the console span. verif-2 found it there, while this study looked for it in the hardware.
+- **Name a phase by what runs in it.** "The initramfs unpacking" also held `free_initmem`'s 11.2 MB memset. PC samples showed it.
+- **Take an estimate's factor from a kernel with the same miss mix.** A copy realizes 0.36–0.50 of the store-drain stall; the boot's page clears realize most of it.
 
 ---
 
@@ -2141,8 +2310,15 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
 11. **DTLB retries at the ROB head** (§6.10): 2.31% of the boot's first 20M cycles (as corrected by follow-up 13), about 16 cycles of commit stall per DTLB miss beyond the walk. Measure on the board's steady-state workloads before choosing between a retry from the LQ and a larger DTLB. Re-measured on main (§6.11): a retry from the LQ would save 1.62% (loads; stores 0.16%), and the walk at the head is another 2.3% of cycles.
 12. **M6's remaining pieces, ranked on main** (§6.11): the ownership prefetch for stores (+4.2% of the boot), FENCE.I by generation (+1.7%) and the micro-BTB at 128 (+0.6%) lead per 1K LUTs; the DTLB retry from the LQ (+1.6%) and the I$ next-line prefetch with a second refill (+2.7%) also fit the room. Each wants a prototype with its measured LUTs before it merges. The L2 stream prefetcher, the model's best Linux-like buy, needs the board's steady state. DR-171 took the first two (fpu-2, core-2).
 13. ~~"Commit held" in the boot~~: **done** (§6.11). The 4.3% was the bind's: it counted commits from the commit trace, a cycle late. Corrected, 0.5% of cycles have a complete head that retires nothing, all of it the registered cycle after a flush. There is no trace back-pressure (0 cycles) and no commit hold: no free gain.
-14. **`tb_boot`'s DDR model against the board's** (§6.12): it runs the initramfs unpacking, a 9 MB page-cache copy, 25–39% slower than the board, while every initcall matches within 3.5%. Calibrate its outstanding requests and write throughput to the board's DDR (a testbench change, for the SoC or verification track) before the store-side estimates are judged further. They include DR-171's store ownership prefetch.
-15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain.
+14. ~~`tb_boot`'s DDR model against the board's~~: **closed** (verif-2's finding, §6.14). §6.12's "the unpacking runs 25–39% slow" was this study's console accounting, not the testbench.
+    - **The cause:** the init thread prints 95 ms of console while the async initramfs unpack runs on the other core. §6.12 took that time off the unpack's end as well.
+    - **Counted right,** the simulation matches the board in every phase on d2, d4s2 and d4r1: the unpack within −0.4% to +0.6%, /init within −0.7% to +0.3%.
+    - **The DDR model needs no change for this traffic.** verif-2's latency sweep (22, 18, 14 cycles) had already ruled out latency.
+    - **Confirmed (verif-2, 5b8d5d8):** a SERIAL=1 boot of d4s2 at latency 22 matches the board's raw timestamps within 0.3–1.2% at every milestone, /init +0.8%.
+    - **Still to come:** `memcal` on the board, as an independent check of the DDR model.
+    - **Left from it:** `prof_m6.sv`'s `+prof_snap` window profile (§6.14) and `m6_board.py`'s console accounting.
+15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain. **Open, parked** (the coordinator, 10-19): d2 is retired, and the gap does not touch M6's figures.
+16. **The per-thread issue-queue caps and the static ROB, LQ and SQ halves are not wired** (§6.12). M7 must wire them, and decide what a lone thread gets: smt2_report.md §10's open items.
 
 ---
 
@@ -2331,7 +2507,24 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
   - FENCE.I by generation falls to +0.3%: its FENCE.Is cluster in early boot;
   - the I$ next-line prefetch (+1.7%) leads the DTLB replay from the LQ (+0.3%) by more than before.
 
+**2026-10-19: d4r1 predicted blind, then measured** (§6.13 before the board ran, §6.14 after MR23; `scripts/m6_board.py --init` and `--copy`, `scripts/rtlprof/brd_init.sh d4r1`):
+- **Right:**
+  - CoreMark A and B and Dhrystone unchanged (4.60, 4.36, 2.82 against 4.61, 4.36, 2.82 predicted);
+  - the initcalls' CPU time within 1.9%;
+  - the list of Linux tests the store prefetch moves.
+- **Missed:** /init, 0.831 s against a range of 0.85–0.91 s. The range discounted the unpacking's simulated gain on §6.12's DDR diagnosis, and the board gained the full simulated gain.
+- **§6.12's diagnosis was this study's console accounting** (verif-2's finding; follow-up 14 closed):
+  - the init thread prints 95 ms of console while the async unpack runs on the other core, and §6.12 took that time off the unpack's end too;
+  - counted right, the simulation matches the board in every phase on three bitstreams, and predicts d4r1's /init timestamp within 0.1% (0.832 against 0.831 s).
+  - The first version of §6.14 had read the resulting fixed gap as a per-line write-back cost; that is withdrawn.
+- **The tail by cause** (`prof_m6.sv`'s new `+prof_snap`, `scripts/rtlprof/prof_window.py`): the unpacking's end is a copy, and `free_initmem`'s 11.2 MB memset fetches one line at a time, about 60 cycles a line on d4s2.
+- **The store prefetch:** −15.9% of the simulated boot's cycles against an estimate of +6.2%. It removed most of the store-drain stall, where the estimate assumed a third. The model's `rfo_pf` on the board's 1 MiB copy gives −30.8% against the board's −34.5%.
+
 **Lessons:**
+- **A hedge is a prediction too.** Counted right, the simulation's number was within 0.1% of the board's /init; the range built around an untested diagnosis missed it by 2–9%.
+- **Charge a synchronous console only to the thread that prints.** The init thread's 95 ms of console ran alongside the async unpack. Taking it off the unpack's end invented a "slow DDR" and then a write-back cost.
+- **When a gap is the same size on every version, check it against the constants of the measurement first.** The fixed ~95 ms was the console span.
+- **Take an estimate's factor from a kernel with the target's miss mix.** A copy realizes 0.36–0.50 of the store-drain stall in the model, and the boot's page clears most of it.
 - **Time an event where the hardware decides it, not from a registered report of it.** The commit trace lags retirement by a cycle. A cycle-by-cycle stack built from it invented a 4.3% "commit held" class, and each replay's stall came out a cycle long.
 - **Count the same window in both simulators.** The model charged a flush's refill from the commit, the RTL from its flush two cycles later: 4 slots per flush that looked like a slower front end.
 - **Check each ISA's own cases.** The straddler gap showed only on rv64gc, where a 32-bit instruction can cross a 16-byte block; rv64im matched.

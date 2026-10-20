@@ -40,7 +40,8 @@
 //   EARLY_W < PAYLOAD_W: only payload bits [EARLY_W-1:0] (the source tags the RF stage needs
 //                first) sit in flip-flops and leave through the grant's AND-OR mux; the rest
 //                is in one LUTRAM per bank, read in the next cycle with the registered grant.
-//   Either way iss_payload is valid in the cycle after the select (the RF stage).
+//   Either way iss_payload is valid in the cycle after the select (the RF stage). iss_early_n is
+//   the early bits in the select cycle, before their register (URF's early reads, tg_irf).
 //   MX = 1:      matrix wakeup for 1-cycle producers. The RA rows of the ALU queues are
 //                numbered across the queues; a row records which of them produce its sources
 //                (disp_mdep, set by dispatch while the producer still holds its row) and is
@@ -128,7 +129,8 @@ module tg_iq
   input  logic [ROBW-1:0]               flush_rob,
   // Issue, in the cycle after the select
   output logic                          iss_valid_q,
-  output logic [PAYLOAD_W-1:0]          iss_payload
+  output logic [PAYLOAD_W-1:0]          iss_payload,
+  output logic [EARLY_W-1:0]            iss_early_n    // URF (DR-174): the early bits for the next cycle
 );
   localparam int BANK_ROWS = (ROWS + DW - 1) / DW;   // rows of the fullest bank
 
@@ -278,6 +280,7 @@ module tg_iq
     early_q <= payload_sel;
   end
   assign iss_payload[EARLY_W-1:0] = early_q;
+  assign iss_early_n = payload_sel;
 
   if (EARLY_W < PAYLOAD_W) begin : g_late
     localparam int LW = PAYLOAD_W - EARLY_W;

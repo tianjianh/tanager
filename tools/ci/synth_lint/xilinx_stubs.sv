@@ -1,9 +1,9 @@
 // Port-only stand-ins for the Xilinx primitives and XPM macros that the RTL instantiates under SYNTHESIS,
 // for the synthesis-view lint only (make lint SYNTH=1, tools/ci/lint_all.sh; docs/spec/verification.md
 // §4.3). Never simulated, never synthesized. Each declares the ports and parameters our instantiations
-// use, with the widths of the Xilinx documentation (UG579, UG974), and drives its outputs with zeros, so
-// a signal our RTL takes from a primitive counts as driven. The LUT and SRL primitives come from the
-// behavioural models in tests/unit/prim/models instead.
+// use, with the widths of the Xilinx documentation (UG573, UG579, UG974), and drives its outputs with
+// zeros, so a signal our RTL takes from a primitive counts as driven. The LUT and SRL primitives come
+// from the behavioural models in tests/unit/prim/models instead.
 
 module DSP48E2 #(
   parameter ACASCREG = 1, parameter ADREG = 1, parameter ALUMODEREG = 1, parameter AMULTSEL = "A",
@@ -36,6 +36,28 @@ module DSP48E2 #(
 );
   assign {ACOUT, BCOUT, P, PCOUT, CARRYOUT, XOROUT} = '0;
   assign {CARRYCASCOUT, MULTSIGNOUT, OVERFLOW, PATTERNBDETECT, PATTERNDETECT, UNDERFLOW} = '0;
+endmodule
+
+// UltraRAM (UG573): tg_urf's copies (URF, DR-174)
+module URAM288_BASE #(
+  parameter BWE_MODE_A = "PARITY_INTERLEAVED", parameter BWE_MODE_B = "PARITY_INTERLEAVED",
+  parameter EN_AUTO_SLEEP_MODE = "FALSE", parameter EN_ECC_RD_A = "FALSE", parameter EN_ECC_RD_B = "FALSE",
+  parameter EN_ECC_WR_A = "FALSE", parameter EN_ECC_WR_B = "FALSE", parameter IREG_PRE_A = "FALSE",
+  parameter IREG_PRE_B = "FALSE", parameter OREG_A = "FALSE", parameter OREG_B = "FALSE",
+  parameter OREG_ECC_A = "FALSE", parameter OREG_ECC_B = "FALSE", parameter RST_MODE_A = "SYNC",
+  parameter RST_MODE_B = "SYNC", parameter USE_EXT_CE_A = "FALSE", parameter USE_EXT_CE_B = "FALSE"
+) (
+  input  logic [22:0] ADDR_A, ADDR_B,
+  input  logic [8:0]  BWE_A, BWE_B,
+  input  logic        CLK,
+  input  logic [71:0] DIN_A, DIN_B,
+  input  logic        EN_A, EN_B, INJECT_DBITERR_A, INJECT_DBITERR_B, INJECT_SBITERR_A, INJECT_SBITERR_B,
+  input  logic        OREG_CE_A, OREG_CE_B, OREG_ECC_CE_A, OREG_ECC_CE_B, RDB_WR_A, RDB_WR_B, RST_A, RST_B, SLEEP,
+  output logic [71:0] DOUT_A, DOUT_B,
+  output logic        DBITERR_A, DBITERR_B, SBITERR_A, SBITERR_B
+);
+  assign {DOUT_A, DOUT_B} = '0;
+  assign {DBITERR_A, DBITERR_B, SBITERR_A, SBITERR_B} = '0;
 endmodule
 
 module xpm_memory_sdpram #(

@@ -1,0 +1,22 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 100
+uncore_dsp               0x0000008403080000
+synth                    -flatten_hierarchy none -directive AreaOptimized_high
+floorplan                fpga/spikes/tcl/fp/g4_uncore.tcl
+generics                 -generic FILL_TILES=47 -generic FILL_NRAM=20
+directives               place Default route Default
+opt_directive            ExploreArea
+defines                  -verilog_define TG_COMMIT_TRACE=0 -verilog_define TG_DC_MSHRS=4 -verilog_define TG_SPEC_WAKE=1 -verilog_define TG_URF=0
+pblocks                  3
+prim_fail_synth          0
+synth_s                  739
+synth_lut_total          118453
+synth_lut_logic          96481
+synth_lut_mem            21972
+synth_ff                 62790
+synth_bram_tile          125
+synth_uram               32
+synth_dsp                145
+total_s                  740

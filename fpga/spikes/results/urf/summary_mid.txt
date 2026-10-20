@@ -1,0 +1,21 @@
+synth_s                      27
+floorplan                    /home/w/tanager-build/track-spikes-72f833/uram_wt/fpga/spikes/uram/urf_fp_c0.tcl
+clocks                       c0 10.000 ns, c2x 5.000 ns
+impl_s                       93
+7.161                        select -> URAM address (slot 0, 10 ns)  (hold 0.108; data 1.825 ns, logic 0.336, net 1.489, 1 levels, req 10.000)  sel_idx_q_reg[0][2]/C -> u_urf/g_bank[0].g_copy[0].u_uram/ADDR_A[2]
+2.455                        late address -> URAM (slot 1, 5 ns)  (hold 0.187; data 1.500 ns, logic 0.248, net 1.252, 1 levels, req 5.000)  late_idx_q_reg[0][1]/C -> u_urf/g_bank[0].g_copy[0].u_uram/ADDR_A[1]
+2.107                        write port -> URAM (slot 1, 5 ns)  (hold 0.114; data 2.200 ns, logic 0.112, net 2.088, 0 levels, req 5.000)  wr_d_q_reg[1][16]/C -> u_urf/g_bank[1].g_copy[2].u_uram/DIN_B[16]
+2.109                        half-cycle flag -> URAM  (hold 0.179; data 2.157 ns, logic 0.344, net 1.813, 1 levels, req 5.000)  u_urf/t1_q_reg/C -> u_urf/g_bank[1].g_copy[2].u_uram/ADDR_B[2]
+1.668                        port A early -> mid-cycle capture  (hold 0.239; data 3.062 ns, logic 1.625, net 1.437, 0 levels, req 5.000)  u_urf/g_bank[2].g_copy[0].u_uram/CLK -> u_urf/g_bank[2].g_copy[0].g_cap.cap_q_reg[30]/D
+2.719                        captured early -> RF stage (5 ns)  (hold 0.132; data 1.888 ns, logic 0.342, net 1.546, 1 levels, req 5.000)  u_urf/g_bank[1].g_copy[0].g_cap.cap_q_reg[29]/C -> ex_q_reg[0][29]/D
+4.995                        held early (A, B) -> RF stage (10 ns)  (hold 0.141; data 4.525 ns, logic 3.057, net 1.468, 2 levels, req 10.000)  u_urf/g_bank[2].g_copy[2].u_uram/CLK -> ex_q_reg[5][11]/D
+1.728                        late read -> store-data capture (5 ns)  (hold 0.104; data 2.929 ns, logic 1.850, net 1.079, 1 levels, req 5.000)  u_urf/g_bank[0].g_copy[0].u_uram/CLK -> sd_q_reg[4]/D
+7.103                        bank select -> RF stage  (hold 0.066; data 2.719 ns, logic 0.299, net 2.420, 1 levels, req 10.000)  u_urf/e_bank_q_reg[0][1]/C -> ex_q_reg[0][19]/D
+-                            probe: OREG -> capture: no path
+uram_tco (no output register)  ns
+u_urf luts                   612
+u_urf ffs                    206
+u_urf urams                  9
+wns_c0                       1.728
+wns_c2x                      1.668
+whs                          0.012

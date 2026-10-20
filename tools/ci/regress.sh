@@ -9,6 +9,7 @@
 #                       [STA_BASE=0|1] [STEER_LA=0|1] (M6's store address on its base, its steering a group ahead; DR-169)
 #                       [PMP_ENTRIES=8|16]       (the core's PMP entries, DR-167; lockstep's Spike takes the model's count)
 #                       [STORE_PF=0|1]           (M6's ownership prefetch for stores, DR-171; sim/profile.mk)
+#                       [URF=0|1]                (the UltraRAM integer register file, DR-174; sim/profile.mk)
 #                       [STORE_PF_MAX=2|3]       (its prefetches in flight; sim/profile.mk)
 # Steps: build tg_vsim and tg_replay; riscv-tests, our directed tests (interrupts), CoreMark A/B and
 # Dhrystone, RANDN constrained-random programs, all with lockstep; the riscv-tests and directed tests
@@ -20,17 +21,20 @@
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" STORE_PF_MAX=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|STORE_PF_MAX=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [STORE_PF_MAX=2|3]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3]"; exit 5 ;;
   esac
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 WT="$(basename "$ROOT")"
 BUILD="${TANAGER_BUILD:-$HOME/tanager-build}/$WT"
+# On a hybrid host the regression, and all it starts, runs at nice 10 or more, so a Vivado job keeps the
+# P-cores it shares with a simulation (tools/ci/host_policy.sh; verification.md §8)
+. "$ROOT/tools/ci/host_policy.sh" && host_policy_nice $$
 
 # TIMING_CUTS=both: DR-140's two profiles side by side, the default (unset) and the fallback (0), with
 # half the jobs each. What both runs read is built first (tg_replay, the directed tests, the
@@ -88,8 +92,9 @@ fi
 [ -n "$STEER_LA" ] && export STEER_LA
 [ -n "$PMP_ENTRIES" ] && export PMP_ENTRIES
 [ -n "$STORE_PF" ] && export STORE_PF
+[ -n "$URF" ] && export URF
 [ -n "$STORE_PF_MAX" ] && export STORE_PF_MAX
-TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}"   # the build directories' suffix (sim/profile.mk)
+TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}"   # the build directories' suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
 : "${RISCV_TESTS:?source tools/env.sh first}"

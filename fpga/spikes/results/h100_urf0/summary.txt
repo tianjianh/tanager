@@ -1,0 +1,87 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 100
+uncore_dsp               0x0000008403080000
+synth                    from /home/w/tanager-build/track-spikes-72f833/fp/h100_urf0_synth_post_synth.dcp
+floorplan                fpga/spikes/tcl/fp/g4_uncore.tcl
+generics                 -generic FILL_TILES=47 -generic FILL_NRAM=20
+directives               place Default route Default
+pre_report               fpga/spikes/tcl/over_unc_off.tcl
+opt_directive            ExploreArea
+defines                  -verilog_define TG_COMMIT_TRACE=0
+pblocks                  3
+prim_fail_synth          0
+synth_s                  28
+synth_lut_total          118453
+synth_lut_logic          96481
+synth_lut_mem            21972
+synth_ff                 62790
+synth_bram_tile          125
+synth_uram               32
+synth_dsp                145
+opt_lut_total            114202
+opt_lut_logic            93942
+opt_lut_mem              20260
+opt_ff                   61521
+opt_bram_tile            125
+opt_uram                 32
+opt_dsp                  145
+prim_fail_opt            0
+place_s                  373
+route_s                  1951
+impl_s                   2363
+impl_lut_total           111217
+impl_lut_logic           90957
+impl_lut_mem             20260
+impl_ff                  61548
+impl_bram_tile           125
+impl_uram                32
+impl_dsp                 145
+core0_lut                43872
+core0_lutram             7632
+core0_ff                 20973
+core0_ramb36             53
+core0_ramb18             1
+core0_uram               0
+core0_dsp                59
+core1_lut                43968
+core1_lutram             7632
+core1_ff                 20973
+core1_ramb36             53
+core1_ramb18             1
+core1_uram               0
+core1_dsp                59
+uncore_lut               15723
+uncore_lutram            1792
+uncore_ff                15566
+uncore_ramb36            16
+uncore_ramb18            4
+uncore_uram              32
+uncore_dsp               26
+wns_ns                   0.801
+worst                    0.801 levels 18 logic 4.206 net 4.693 u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> u_soc/g_core[0].g_tgc.u_core/u_fetch/krt_q_reg[33]/D
+whs_ns                   0.010
+uncore_seq_cells         19295
+uncore_dsp48             26
+uncore_dsp48_seq         0
+uncore_to                1.034 levels 14 logic 1.837 net 7.025 u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[14][0]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/bsel_q_reg[0][0]/D
+uncore_dsp_in            1.741 levels 6 logic 2.815 net 5.146 u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_2/CLKBWRCLK -> u_soc/u_uncore/u_xbar/g_tc[0].g_s.u_s/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/ALU_OUT[32]
+uncore_internal          1.034 levels 14 logic 1.837 net 7.025 u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[14][0]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/bsel_q_reg[0][0]/D
+core_to_uncore           1.741 levels 6 logic 2.815 net 5.146 u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_2/CLKBWRCLK -> u_soc/u_uncore/u_xbar/g_tc[0].g_s.u_s/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/ALU_OUT[32]
+uncore_to_core           1.332 levels 15 logic 2.369 net 6.026 u_soc/u_uncore/u_xbar/g_id[4].g_p.g_s.u_s/main_v_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMF/I
+ps_to_uncore             7.129 levels 1 logic 0.537 net 1.814 u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP4WCLK -> u_soc/u_uncore/g_mem[1].u_slice/g_on.u_w/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/CEP
+uncore_to_ps             7.733 levels 0 logic 0.115 net 1.211 u_soc/u_uncore/g_mem[0].u_slice/g_on.u_r/skid_v_q_reg_inv/C -> u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3RREADY
+owner_core0              0.801 levels 18 logic 4.206 net 4.693 wire 53% u_soc/g_core[0].g_tgc.u_core/u_fetch/g_tage.u_tage/g_tab[1].u_mem/u_mem/xpm_memory_base_inst/gen_wr_b.gen_word_narrow.mem_reg_bram_0/CLKBWRCLK -> u_soc/g_core[0].g_tgc.u_core/u_fetch/krt_q_reg[33]/D
+owner_core1              0.815 levels 18 logic 4.133 net 4.729 wire 53% u_soc/g_core[1].g_tgc.u_core/u_fetch/g_way[4].u_data/u_mem/xpm_memory_base_inst/gen_wr_a.gen_word_narrow.mem_reg_0/CLKARDCLK -> u_soc/g_core[1].g_tgc.u_core/u_fetch/f3_meta_q_reg[target][7]/D
+owner_uncore             1.034 levels 14 logic 1.837 net 7.025 wire 79% u_soc/u_uncore/u_l2/g_bank[0].u_bank/ms_reg[14][0]/C -> u_soc/u_uncore/u_l2/g_bank[0].u_bank/bsel_q_reg[0][0]/D
+owner_core_uncore        1.741 levels 6 logic 2.815 net 5.146 wire 65% u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_2/CLKBWRCLK -> u_soc/u_uncore/u_xbar/g_tc[0].g_s.u_s/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/ALU_OUT[32]
+owner_uncore_core        1.332 levels 15 logic 2.369 net 6.026 wire 72% u_soc/u_uncore/u_xbar/g_id[4].g_p.g_s.u_s/main_v_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMF/I
+owner_ps_uncore          7.129 levels 1 logic 0.537 net 1.814 wire 77% u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP4WCLK -> u_soc/u_uncore/g_mem[1].u_slice/g_on.u_w/g_dsp.u_main/g_dsp[1].u_dsp/DSP_OUTPUT_INST/CEP
+owner_uncore_ps          7.733 levels 0 logic 0.115 net 1.211 wire 91% u_soc/u_uncore/g_mem[0].u_slice/g_on.u_r/skid_v_q_reg_inv/C -> u_ps/tg_ps_i/zynq_ultra_ps_e_0/inst/PS8_i/SAXIGP3RREADY
+owner_filler             5.132 levels 6 logic 1.276 net 3.421 wire 73% g_fill.g_f[0].u_fill/g_tile[36].in_q_reg[14]/C -> g_fill.g_f[0].u_fill/g_tile[36].tq_reg[36][15]/D
+tns_ns                   0.000
+failing_endpoints        0 of 319410
+failing_by_owner         core0=0 core1=0 uncore=0 ps=0 filler=0 other=0 (of the 0 worst, at most 20,000)
+sites                    31
+total_s                  2468

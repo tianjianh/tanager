@@ -18,7 +18,7 @@ rc=$?
 for f in summary.txt sites.txt sites_paths.rpt uncore_paths.rpt xbar_core.txt xbar_core_paths.rpt \
          uncore_failing.txt uncore_internal.rpt prim_synth.txt prim_opt.txt util_hier.rpt \
          util.rpt timing_summary.rpt timing.rpt levels.rpt clock_utilization.rpt constraints.txt \
-         floorplan.txt util_pblocks.rpt regions.txt synth_check.txt; do
+         floorplan.txt util_pblocks.rpt regions.txt synth_check.txt urf_exceptions.rpt; do
   [ -f "$build/$f" ] && cp "$build/$f" "$res/"
 done
 # the checkpoints (-dcp 1), for queries and later floorplans (outside git)
