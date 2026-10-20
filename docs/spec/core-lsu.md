@@ -33,6 +33,11 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
   pointers, the drain's next head and the head's mask wrap there. A flush drops only the flushed thread's entries.
   With one thread in its half, the other half holds no valid entry, so the searches over every entry (forwarding, the
   ordering check, the oldest picks) are exact as they are.
+- **Translation and PMP per hart (M7's step 4):** each access translates and checks with its thread's privilege, data
+  privilege, SUM, MXR, satp and PMP (each hart's copy, a cycle behind `tg_csr`'s): a new load's and a store address's
+  thread is its queue entry's half (the running thread without the split mode), the head's check the running thread's,
+  the LD port's checker its load's, the STA port's checker its user's (a bare store at its decision, the walk, S2's
+  store). The DTLB's lookups carry the same threads (core-mmu).
 
 ## Behaviour
 
@@ -201,7 +206,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - Cycles change only for loads the PMP denies (`tanager-p-pmp`: +1 cycle).
 - **A store's PMP check leaves the DTLB's path.** The checker is never behind the DTLB at the store's decision:
   - **A translated store to a page with the DTLB's cached result** decides with it, as before.
-  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Data are bare, so no walk runs and the walker never wants the shared checker then.
+  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Its thread's data are bare, so no walk of that thread runs. With two threads (M7) another thread's walk step or S2 check waits for it: an S2 store is then held while the other thread's bare stores decide (none of them enters S2).
   - **A translated store to a page without a cached result** (a page that a PMP region boundary splits, which the walker's per-page check makes rare) decides as if PMP allowed it. The checker looks at its registered PA (and size, access, M mode) the next cycle, S2.
     - The store may have completed already (its data was in). A denial reaches the ROB as an exception alone, on a port of its own, a cycle after S2 (S3: `spx_valid`). The store completes as before, when its data comes.
     - The ROB retires nothing from the store on while it is in S2 (`sth_v[0]`, a registered hold, so the checker's verdict stays off the commit path) and, if it is denied, in S3 until the exception shows (`sth_v[1]`).
