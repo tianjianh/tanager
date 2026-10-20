@@ -69,7 +69,8 @@ A success fills the requester's TLB with the leaf and its level.
 - Speculative walks read PTEs from the D$ without searching the store queue: a PTE store that has not drained can be missed by a fetch walk or a prefetch. Without SFENCE.VMA both outcomes are legal; deciding walks wait for the drain.
 
 ## Parameters
-`ITLB_ENTRIES`, `DTLB_ENTRIES`, `PMP_ENTRIES` (8 or 16), `PA_W`, `TID_W` (entries are tagged with the thread). `L2TLB_ENTRIES` and `PWC_ENTRIES` are unused until M6.
+`ITLB_ENTRIES`, `DTLB_ENTRIES`, `PMP_ENTRIES` (8 or 16), `PA_W`, `TID_W` (entries carry no thread tag yet: M7's step 4
+tags them and scopes satp writes and SFENCE.VMA to the hart, m7-smt2-plan.md). `L2TLB_ENTRIES` and `PWC_ENTRIES` are unused until M6.
 
 ## Timing and area
 - **Lookups:** fully associative 16/32-entry lookups as in spike S4 (the DTLB in M1 of the load pipe). Entries keep a 22-bit PPN (`PA_W` − 12) and a flag for a PTE whose PPN reaches above `PA_W` (every access then faults).

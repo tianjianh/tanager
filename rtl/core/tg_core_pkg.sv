@@ -216,6 +216,16 @@ package tg_core_pkg;
 `else
   localparam bit URF = 1'b0;
 `endif
+  // M7 (DR-175, docs/spec/m7-smt2-plan.md): until hart 1 runs, each core runs one thread, hart 0. SOLO_TID=1 (a
+  // test mode, smt2 builds only) runs it as tid 1 inside the core while it stays hart 0 architecturally
+  // (mhartid, the trace's hart), so every tid=1 path the plan's steps add is exercised by the tests as they
+  // are. RUN_TID is the running thread's tid.
+`ifdef TG_SOLO_TID
+  localparam bit SOLO_TID = `TG_SOLO_TID;
+`else
+  localparam bit SOLO_TID = 1'b0;
+`endif
+  localparam tid_t RUN_TID = tid_t'(SOLO_TID);
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

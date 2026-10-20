@@ -75,6 +75,7 @@ module tg_rob
   output logic [CW-1:0]                cm_rd_en,
   output logic [CW-1:0]                cm_rd_fp,     // rd is an f register (EXT_FD)
   output logic [CW-1:0][4:0]           cm_fflags,    // the retiring FP op's exception flags
+  output tid_t  [CW-1:0]               cm_tid,       // the retiring instruction's thread
   output logic [CW-1:0][4:0]           cm_rd,
   output preg_t [CW-1:0]               cm_dst,
   output preg_t [CW-1:0]               cm_old,
@@ -563,6 +564,7 @@ module tg_rob
       cm_rd_en[j] = ret[j] && hp[j].rd_en;
       cm_rd_fp[j] = hp[j].rd_fp;
       cm_fflags[j] = (EXT_FD && hp[j].is_fp) ? (hp[j].rd_fp ? ffp_rd[j] : ffi_rd[j]) : '0;
+      cm_tid[j]   = hp[j].tid;
       cm_rd[j]    = hp[j].rd;
       cm_dst[j]   = hp[j].dst;
       cm_old[j]   = hp[j].old;
@@ -703,6 +705,8 @@ module tg_rob
     end else begin
       for (int j = 0; j < CW; j++) trace_valid_o[j] <= COMMIT_TRACE && (ret[j] || (j == 0 && (do_trap || do_irq)));
       flush     <= do_flush;
+      // Every flush is the head's thread's: the window holds one thread until M7's halves (step 3)
+      flush_tid <= hp[0].tid;
       flush_pc  <= use_tt ? (do_irq ? irq_target : trap_target) : nf_pc;
       icinv     <= do_icinv;
       head_q    <= hw_n[cm_n].hid[0];
@@ -740,7 +744,6 @@ module tg_rob
       end
     end
   end
-  assign flush_tid = '0;
   assign xret_v    = xr_v_q;
   assign xret_s    = xr_s_q;
   always_ff @(posedge clk) hw_q <= rst ? hwin('0, 0) : hw_n[cm_n];
@@ -771,7 +774,7 @@ module tg_rob
 `endif
 
   logic unused;
-  assign unused = ^{hp[0].tid, hp[0].is_br, hp[0].lq, hp[CW-1].tid, hp[CW-1].is_br, hp[CW-1].lq,
+  assign unused = ^{hp[0].is_br, hp[0].lq, hp[CW-1].is_br, hp[CW-1].lq,
                     ld_rob[ROBW-1], replay_rob[ROBW-1], alu_rob, st_rob, oth_rob[ROBW-1], tlbm_rob,
                     br_rob[ROBW-1], lx_rob, fp_cmp_rob[ROBW-1]};
 

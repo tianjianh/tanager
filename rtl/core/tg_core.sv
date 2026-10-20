@@ -84,6 +84,10 @@ module tg_core
   if (!tg_map_pkg::map_prefix_only()) begin : g_map_unaligned
     $warning("tg_map_pkg: a region is not a naturally aligned power of two; pma_of uses the range test");
   end
+  // SOLO_TID (M7's test mode) runs the core's one thread as tid 1: there is a tid 1 only with TID_W = 1
+  if (SOLO_TID && TID_W == 0) begin : g_bad_solo
+    $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
+  end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -298,6 +302,7 @@ module tg_core
   robid_t                           fp_cmp_rob;
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
+  tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
   logic [NCOL-1:0]                  wake_p4;
   logic [LLT_ENTRIES-1:0]           llt_done_p4;
   logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
@@ -499,7 +504,7 @@ module tg_core
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
     .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
-    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
+    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
     .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob,
@@ -576,23 +581,23 @@ module tg_core
       tag_free_p4 = '0;
       if (ptf_v_q[1]) tag_free_p4[ptf_id_q[1]] = 1'b1;
     end
-    // fcsr: one hart; FP state changes set mstatus.FS to Dirty
+    // fcsr: per hart (tg_fcsr). The flags of each retiring FP op go to its thread; a CSR instruction
+    // reads at execute and writes at commit, alone at the head (slot 0). Until M7's step 5 one thread
+    // runs (RUN_TID), so frm and the FS-dirty bit are that thread's.
     logic [CW-1:0] cm_fpr;
-    tid_t [CW-1:0] cm_tid;
     for (genvar j = 0; j < CW; j++) begin : g_cf
       assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
-      assign cm_tid[j] = '0;
     end
     logic [NUM_THREADS-1:0][2:0] frm_t;
     logic [NUM_THREADS-1:0]      fs_dirty_t, er_busy_t;
     tg_fcsr u_fcsr (
-      .clk, .rst, .frm_o(frm_t), .csr_rtid('0), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
-      .csr_wvalid(fc_wvalid), .csr_wtid('0), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
+      .clk, .rst, .frm_o(frm_t), .csr_rtid(RUN_TID), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
+      .csr_wvalid(fc_wvalid), .csr_wtid(cm_tid[0]), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
       .cm_valid, .cm_tid, .cm_fflags, .cm_fpr,
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
-    assign frm      = frm_t[0];
-    assign fs_dirty = fs_dirty_t[0];
+    assign frm      = frm_t[RUN_TID];
+    assign fs_dirty = fs_dirty_t[RUN_TID];
     logic unused;
     assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
                       p4_er_v, p4_er_ff, fc_frm_rd};
