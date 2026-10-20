@@ -36,7 +36,8 @@ else:
 lines.append("  parameter int    FILL_TILES = 0,     // measurement only (spike G5): filler tiles per core")
 lines.append("  parameter int    FILL_NRAM  = 0      // measurement only (spike G5): filler LUTRAM blocks per core")
 s = head + sep + "\n".join(lines) + tail
-txd_old = "  assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;\nendmodule"
+# the console's line alone (later tops have more after it before endmodule)
+txd_old = "  assign pmod_uart_txd = PMOD_UART ? uart_txd : 1'bz;\n"
 txd_new = """  // ---- measurement only (spike G5, DR-145): hart 1's area as synthetic filler ----
   logic fill_bit;
   if (FILL_TILES > 0) begin : g_fill
@@ -56,7 +57,7 @@ txd_new = """  // ---- measurement only (spike G5, DR-145): hart 1's area as syn
     assign fill_bit = 1'b0;
   end
   assign pmod_uart_txd = PMOD_UART ? (uart_txd ^ fill_bit) : 1'bz;
-endmodule"""
+"""
 assert txd_old in s, "kv260_top's console output changed"
 s = s.replace(txd_old, txd_new, 1)
 open(p, "w").write(s)
