@@ -132,6 +132,7 @@ struct hart_state_t {
   // The last LR, for its SC: its bytes and the writes since (lr_seq, the sequence number at its record), or
   // since the first one it read past (lr_old)
   bool lr_valid = false, lr_old = false;
+  bool saw_mem_ld = false;          // a record of this hart carried mem_ld (v1.5): every read must now
   uint64_t lr_pa = 0, lr_seq = 0, lr_from = 0;
   unsigned lr_n = 0;
 };
@@ -303,6 +304,8 @@ class lockstep_impl_t {
     if (r.nondet && !csr_adopt)
       return mismatch(&h, &r, "nondet on an instruction that is not a read of a CSR on the checker's list");
     if (r.mmio_ld && !is_load_insn(insn, r.rvc)) return mismatch(&h, &r, "mmio_ld on an instruction that is not a load");
+    if (r.mem_ld && !is_load_insn(insn, r.rvc) && !(amo && !sc))
+      return mismatch(&h, &r, "mem_ld on an instruction that does not read memory");
 
     // An SC the RTL failed: make Spike fail it too (§3.4). A successful SC always stores, so the
     // missing store is the sign; with rd = x0 it is the only one.
@@ -329,6 +332,21 @@ class lockstep_impl_t {
     if (st.nwr > 1) return done(false), mismatch(&h, &r, "Spike wrote more than one register (not supported by the checker)");
     if (st.nwr == 1) h.last_wr[st.rd_fp][st.rd & 31] = h.steps;
     if (lr) hw_note_lr_start(h, st);
+
+    // A read's address and size (interfaces.md §5, v1.5: mem_ld), before its value. A core that reports them
+    // reports every read: once a hart's trace has shown mem_ld, a read without it is a mismatch too.
+    if (r.mem_ld) h.saw_mem_ld = true;
+    if (r.mem_ld || (h.saw_mem_ld && st.nld)) {
+      const unsigned bytes = 1u << r.mem_size;
+      if (!r.mem_ld || st.nld != 1 || r.mem_vaddr != st.ld_addr || bytes != st.ld_size) {
+        done(false);
+        return mismatch(&h, &r, strfmt("load address: RTL %s, Spike %s",
+                                       r.mem_ld ? strfmt("read %u bytes at %016llx", bytes, (unsigned long long)r.mem_vaddr).c_str()
+                                                : "no read",
+                                       st.nld ? strfmt("read %u bytes at %016llx", st.ld_size, (unsigned long long)st.ld_addr).c_str()
+                                              : "no read"));
+      }
+    }
 
     // Destination register
     bool s_we = st.nwr == 1;

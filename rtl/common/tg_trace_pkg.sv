@@ -23,9 +23,10 @@ package tg_trace_pkg;
     logic [WB_TAG_W-1:0]   wb_tag;
     logic [63:0]           rd_value;     // when rd_we && !rd_deferred
     logic                  mem_st;       // a store, SC or AMO wrote memory
-    logic [63:0]           mem_vaddr;
+    logic                  mem_ld;       // v1.5: a load, LR or AMO read memory (interfaces.md §5, Reads)
+    logic [63:0]           mem_vaddr;    // the write's, or with mem_ld the read's (an AMO's are one)
     logic [63:0]           mem_wdata;    // right-aligned
-    logic [1:0]            mem_size;     // log2(bytes)
+    logic [1:0]            mem_size;     // log2(bytes), of the write or the read
     logic                  mmio_ld;      // load from a device region: the checker adopts rd_value
     logic                  nondet;       // non-deterministic CSR read: the checker adopts rd_value
     logic [63:0]           cause;        // TR_TRAP / TR_IRQ: the cause written to mcause/scause

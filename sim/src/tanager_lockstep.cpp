@@ -190,6 +190,7 @@ decoded_t decode(const uint8_t* p) {
   r.mem_size = uint8_t((h >> 21) & 3);
   r.mmio_ld = (h >> 23) & 1;
   r.nondet = (h >> 24) & 1;
+  r.mem_ld = (h >> 25) & 1;        // v1.5: a read of memory, its address in mem_vaddr
   r.insn = uint32_t(q[0] >> 32);
   r.pc = q[1];
   if (kind == TR_RETIRE) {
