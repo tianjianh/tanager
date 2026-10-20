@@ -342,3 +342,40 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
   - On a healthy system the complete did no harm: mmc0 kept counting, from 5,459 to 5,979.
   - The watch captures once, so the next boot gets a fresh one.
 - **Boots 40–69:** the coordinator's 30 boots, now with the whole-boot watch, stopping at the first capture.
+
+**Boots 40–54 (08:01–09:20):** all clean, with the whole-boot watch (one per boot). Each stress drew 73,000–75,300 mmc0 interrupts.
+
+**The capture: boot 54's shutdown lost SD1's interrupt (the fifth occurrence), and the probe caught it.**
+- **When:** the reboot after boot 54's stress began at about 271 s. The first timeout came at 302.77 s, `mmc0: Timeout waiting for hardware cmd interrupt` (CMD13, a status command, not a data transfer).
+- **The capture, from COM5:**
+
+  ```
+  sd1-irq-probe 303.45 s
+    PLIC: pending 0x00000000 (bit 21 = 0), priority 21 = 0x00000001
+    PLIC: enables ctx 1 (hart 0 S) 0x00600400 (bit 21 = 1), ctx 5 (hart 2 S) 0x00000000 (bit 21 = 0)
+    PLIC: thresholds ctx 1 0x00000000, ctx 5 0x00000000
+    SD1: int status 0x00000001, status enable 0x03FF008B, signal enable 0x03FF008B, present 0x01F70000, slot int 0x10020001: line 1
+     14:      75904          0  SiFive PLIC  21 Edge      mmc0
+  sd1-irq-probe: complete 21 written to context 1 at 303.54 s
+  ```
+
+- **What it says:**
+  - SD1's line is high: command complete is pending and enabled, and the slot interrupt is 1.
+  - The PLIC shows source 21 not pending, while it is enabled on context 1 (hart 0, S-mode) at priority 1 and threshold 0.
+  - In soc-2's table, that row means source 21 was claimed and never completed: its gateway waits for a completion and passes nothing on.
+- **The complete brought it back.** Within 0.6 s of the probe's complete for 21 (303.54 s), the stuck shutdown went on: `Sending SIGTERM to remaining processes` at 304.08 s, the root remounted read-only at 304.96 s, and `reboot: Restarting system` at 305.21 s.
+  - Boot 7's shutdown, in the same state without a complete, hung for 10 minutes with 46 timeouts.
+  - The probe's 3 s and 15 s dumps never ran, since the reboot came first. So there's no mmc0 count after the complete, but the I/O plainly came back: boot 54's journal holds the timeout's register dump, written after it.
+- **Context 1's enables** were `0x00600400` here, against `0x00700400` while the boot ran: source 20 was already released in the shutdown.
+- **Sent at once** to soc-2 and the coordinator, as asked.
+- **Boot 55** (the reboot's own): clean, with its watch running.
+- Logs: [`uart_COM5_probe_boots38-55.txt`](uart_COM5_probe_boots38-55.txt) (boot 54 from offset 821841), the tally [`probe_tally.txt`](probe_tally.txt).
+
+**The hunt's tally, boots 1–55:**
+- Five losses of SD1's interrupt in 57 RISC-V-mode boots since the power event (counting s19 segment b's two):
+  - s19 segment b's first boot at 45 s (early in the boot);
+  - boot 7's shutdown at 272 s;
+  - boot 28's stress at 168 s;
+  - boot 37 at 56 s (early in the boot);
+  - boot 54's shutdown at 303 s, the one captured.
+- None came in 5.45 h of the soak's segments a to c, or in the other stresses.
