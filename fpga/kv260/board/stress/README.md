@@ -379,3 +379,9 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
   - boot 37 at 56 s (early in the boot);
   - boot 54's shutdown at 303 s, the one captured.
 - None came in 5.45 h of the soak's segments a to c, or in the other stresses.
+
+**s19 segment d,** from 09:24:42 UTC (`STRESS start 2026-10-20T09:24:42Z up=216.28`, [`uart_COM5_s19d_start.txt`](uart_COM5_s19d_start.txt)), on boot 55, with its whole-boot watch armed.
+- **Until:** segments a to d together reach 24 h of stress, at 03:57:45 UTC on 10-21.
+- **Network checks:** 19, hourly from 09:54:42.
+- **The stress watcher** stops at a failed pass, kernel trouble, an mmc0 timeout, a probe capture, or 12 minutes without a pass.
+- **If SD1's interrupt is lost now,** the watch captures it once and writes the complete. That brought boot 54's shutdown back.
