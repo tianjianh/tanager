@@ -88,7 +88,7 @@ These say M7's partitions or tags exist. M7's first commit corrects them:
 |---|---|---|---|
 | D1 | The window: static halves, or shared with 75% caps | **Static halves** (DR-009) for the ROB, LQ, SQ and completion buffer, with per-thread pointers | The shared window's +2.7% needs age-ordered ROB and LSQ logic across threads that nobody has costed (smt2_report §5); halves keep every age comparison inside a thread (plan §6.2 rule 3) |
 | D2 | What a lone thread gets | **The whole window while its sibling sleeps:** the halves merge when the sibling has spent `N` cycles in WFI with an empty half, and split, after a drain, when it wakes. An M-mode control can also hold hart 1 off (SMT-off for security, plan §6.2 rule 10) | Static halves alone cost a lone thread −3.6% on the suite (smt2_report §10). Linux's idle loop and OpenSBI's stopped harts both sit in WFI, so this needs no software change. Intel's Hyper-Threading recombines partitioned resources the same way when a logical processor halts (Marr et al., 2002). WFI's 4,096-cycle timeout would wake a parked hart every 4K cycles, so its policy changes with this (§3.2, step 6) |
-| D3 | Free-list recovery per thread | **A free list per thread in each bank,** in RAM form (`{tid, index}`), each with its own heads and tail; a register freed at commit returns to its thread's list | Today's recovery (speculative head back to the commit head) cannot undo one thread's allocations in a list both threads allocate from; a walk of the ROB at every flush costs cycles on every recovery. The split gives each thread 64 integer and 32 FP renaming registers, against a half-window of 40: smt2-study checks the FP side for FP-heavy pairs |
+| D3 | Free-list recovery per thread | **A free list per thread in each bank,** in RAM form (`{tid, index}`), each with its own heads and tail; a register freed at commit returns to its thread's list. **Revised 10-20:** plus non-speculative transfers: a hart that cannot rename for want of a bank's register takes one committed-free register a cycle from the tail of its sibling's list (the donor keeps 1), so a sibling asleep in WFI gives up its spares; and FP banks of 96 entries in SMT2 builds | Today's recovery (speculative head back to the commit head) cannot undo one thread's allocations in a list both threads allocate from; a walk of the ROB at every flush costs cycles on every recovery (−0.5 to −2.6% in the model). A static division alone deadlocks: the banks are writer-sharded, so a hart can need all its architectural registers plus one in one bank, and an FP bank of 64 cannot hold both harts' 32 plus one. With transfers and FP banks of 96 the model finds no deadlock (87 pairs, two-hart FP restores among them, and 36 lone-hart programs) and the throughput of ideal shared lists (0.22–0.26 transfers per 1,000 instructions); 96 and 128 entries are identical (smt2_report §13.9) |
 | D4 | Homes for hart 1's architectural registers | Integer x1–x31 in bank 1 (indices 0–31) and FP f0–f31 in F1, zeroed by the reset sequence through those banks' write ports. Hart 1's x0 maps, as hart 0's does, to bank 0's register 0: zeroed at reset and never written, since rename gives rd = x0 no register | Each of banks 0 and 1 keeps 32 free registers at reset instead of one bank having none; Spike's lockstep starts registers at zero |
 | D5 | Checkpoints | **None in M7,** as today: recovery stays at commit | The core has no checkpoints. The plan's M2 table put them at M6, and M6 has not built them. M7 adds no second set. If a later step adds checkpoints, sharing them between the threads is DR-076's R10 (−0.5K a core, −0.01% in the model) |
 | D6 | PMP per hart | **A descriptor set per hart, selected by the requesting thread at each of the three checkers** (fetch, LD, STA, which the walker shares since DR-139) | The ISA makes PMP per hart. It is the largest item (§4.2). Caching M-mode results in the TLBs to need fewer checkers is a reserve lever (hart1_ram_form.md), the user's call (DR-135) |
@@ -151,9 +151,11 @@ stays in flip-flops, one copy per hart. Measured items are marked.
 | 4 | forwarding and ordering per thread, reservation per hart, the sibling's stores, drain and replay fairness, per-thread head for atomics and MMIO | ≈0.4K | the study's 0.1K for the snoop and LR, plus fairness and the heads (judged) |
 | 5 | PC, history, FTQ, RAS, instruction queue, redirect and park per thread | ≈0.45K | hart1_ram_form: FTQ 50, RAS 30, history and PC 0.2K, queue pointers; plus redirect and park |
 | 5 | ICOUNT, occupancy counters | ≈0.3K | the study's central value |
+| 5 | FP banks of 96 entries (D3 revised) | ≈0.45K | the FP file's LUTRAM ×1.5 (a 64 + 32 composition a bank, new in `tg_ram_lut`); its lists and map index a bit wider |
+| 5 | free-list transfers between the harts' lists (D3 revised) | ≈0.05K | judged: a read at the sibling's list tail and a write at the starved list's tail, a bank |
 | 6 | SMT-off: the WFI-triggered merge and split | ≈0.1K | judged |
 | 7 | the issue-queue caps at dispatch | ≈0.1K | judged; `room_q` exists |
-| | **Total** | **≈4.8K (3.8–6.0K)** | |
+| | **Total** | **≈5.3K (4.3–6.5K)** (≈4.8K before D3's revision, 10-20) | |
 
 For comparison:
 - the model's second-copies estimate was 6.4K (4.3–8.8K), with 2.0K of it for a second CSR file and 1.0K for
@@ -162,18 +164,18 @@ For comparison:
 
 ### 4.3 Against the filler, the budget and DR-174's reserve
 - **The filler:** every full-chip fit since 10-15 carries hart 1 as filler, 3,714 LUTs placed a core
-  (`g5_fill_patch.py`; spikes.md §8.6), 7.4K a chip (DR-167's reserve). §4.2 puts the real logic ≈1.1K a core above it,
-  ≈2.2K a chip, with real wiring between units, which the filler does not have (spikes.md §8.9).
+  (`g5_fill_patch.py`; spikes.md §8.6), 7.4K a chip (DR-167's reserve). §4.2 puts the real logic ≈1.6K a core above it,
+  ≈3.2K a chip, with real wiring between units, which the filler does not have (spikes.md §8.9).
 - **The chip:** tier B (spikes.md §8.16) placed 111,217 LUTs (95.0%) with URF off and the filler. Real hart 1 would put
-  it near 113.4K (≈96.9%), where §8.13's M6 set fitted at +0.348 ns (97.1%). With the URF on, 108,693 (92.8%) becomes about
-  110.9K (≈94.7%).
+  it near 114.4K (≈97.7%), above where §8.13's M6 set fitted at +0.348 ns (97.1%). With the URF on, 108,693 (92.8%)
+  becomes about 111.9K (≈95.6%).
 - **So DR-174's reserve is likely needed.** M7's measured area decides it, step by step: each step's MR reports its
   budget-flow LUTs against §4.2's line, and the full chip with real hart 1 (spikes-2, after step 5) replaces the filler.
   The user has decided this already (DR-174: "lets do variant A if only where is run out of LUTs"), so turning URF on
   when the chip runs out is within DR-174. **Running out** means the full chip with real hart 1 placing above ≈96%, or
   missing 100 MHz; the coordinator tells the user when that happens. URF gives −1,262 placed LUTs a core in tier B. Smaller reserve items come after it: the FP register file's LUTRAM pump
   (−275 a core, the coordinator's study of 10-19) and the PMP-select cut (D6).
-- **The per-core budget** (46,120) is already exceeded by M6's set, and M7 adds ≈4.8K more. The area decisions so far
+- **The per-core budget** (46,120) is already exceeded by M6's set, and M7 adds ≈5.3K more. The area decisions so far
   (DR-162, DR-167) have gone by the full-chip fit, not the per-core line.
 
 ## 5. Checks
