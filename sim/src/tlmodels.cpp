@@ -276,6 +276,42 @@ bool mmio_model_t::dev_write(uint64_t addr, unsigned size, uint64_t v) {
   return false;  // ROM, main memory and unmapped space
 }
 
+// The source of a hart's reads: with one source so far, that one (one hart at a time); with several, the hart's thread
+// (interfaces.md §2.4). -1: one source and several harts, which cannot be told apart.
+long mmio_read_check_t::source_of(uint32_t hart) const {
+  if (q_.size() > 1) return long(hart % (threads ? threads : 1));
+  if (harts_.size() > 1) return -1;
+  return q_.empty() ? 0 : long(q_.begin()->first);
+}
+
+std::string mmio_read_check_t::retire(uint32_t hart, uint64_t pc) {
+  if (!on) return "";
+  harts_.insert(hart);
+  long s = source_of(hart);
+  if (s < 0) {
+    on = false;
+    q_.clear();
+    return "";
+  }
+  auto& q = q_[uint32_t(s)];
+  if (q.empty()) return strfmt("MMIO: a load at pc %016llx retired with no read on the bus", (unsigned long long)pc);
+  if (q.size() > 1)
+    return strfmt("MMIO: a read of 0x%llx went out at cycle %llu and its load never retired (DR-176: squashed after it "
+                  "went out); the next read, 0x%llx at cycle %llu, retired with the load at pc %016llx",
+                  (unsigned long long)q[0].second, (unsigned long long)q[0].first, (unsigned long long)q[1].second,
+                  (unsigned long long)q[1].first, (unsigned long long)pc);
+  q.pop_front();
+  return "";
+}
+
+std::string mmio_read_check_t::exit(uint32_t hart) {
+  long s = on ? source_of(hart) : -1;
+  auto it = s < 0 ? q_.end() : q_.find(uint32_t(s));
+  if (it == q_.end() || it->second.empty()) return "";
+  return strfmt("MMIO: a read of 0x%llx went out at cycle %llu and no load retired with it (DR-176)",
+                (unsigned long long)it->second.front().second, (unsigned long long)it->second.front().first);
+}
+
 void mmio_model_t::cycle(const ul_in_t& in, ul_out_t& out) {
   a_mon_.check(ctx_, "mmio A", in.a_valid, in.a, a_ready_);
   if (in.a_valid && a_ready_) {
@@ -297,7 +333,7 @@ void mmio_model_t::cycle(const ul_in_t& in, ul_out_t& out) {
       bool ok;
       if (a.opcode == A_GET) {
         uint64_t v = ctx_.denied(a.address) ? (ok = false, 0) : dev_read(a.address, a.size, ok);
-        if (ok && track_reads) reads_out.emplace_back(ctx_.now, a.address);   // its load retires once (main.cpp)
+        if (ok) reads.read(a.source, ctx_.now, a.address);   // its load retires once (main.cpp)
         m.hdr.opcode = D_ACCESS_ACK_DATA;
         m.beats.push_back(beat_with(v, lane, n));
         m.hdr.corrupt = !ok;

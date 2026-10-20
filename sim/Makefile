@@ -100,7 +100,7 @@ COV_OFF := $(filter-out $(COV_UNITS),$(patsubst $(ROOT)/rtl/core/%/,%,$(wildcard
 # and binds event points into the product core: conditions none of the core's own expressions shows
 COV_EVENTS := $(if $(and $(COV),$(filter core,$(CORE))),$(ROOT)/sim/cov/tg_core_events.sv)
 
-.PHONY: all build lint replay lockstep lockstep-aarch64 clean print-bin print-build
+.PHONY: all build lint replay lockstep lockstep-aarch64 clean print-bin print-build unit
 all: build
 
 build: $(BUILD)/tg_vsim
@@ -138,6 +138,14 @@ $(REPLAY): $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/s
 	  $(ROOT)/sim/src/replay.cpp $(ROOT)/sim/src/lockstep.cpp $(ROOT)/sim/src/elfload.cpp \
 	  -o $@ $(LDFLAGS_TB)
 	@echo "built $@"
+
+# ---- Unit tests of the harness's own checks (no RTL): `make -C sim unit` ----
+UNIT := $(BUILD_ROOT)/unit/mmio_check
+unit: $(UNIT)
+	@$(UNIT)
+$(UNIT): $(ROOT)/sim/src/unit_mmio_check.cpp $(ROOT)/sim/src/tlmodels.cpp $(HDRS)
+	@mkdir -p $(dir $@)
+	$(CXX) -std=c++20 -O1 -Wall -Wextra -I$(ROOT)/sim/src $(ROOT)/sim/src/unit_mmio_check.cpp $(ROOT)/sim/src/tlmodels.cpp -o $@
 
 # ---- FPGA lockstep (verification.md §3.9): tanager-lockstep checks the board's commit-trace stream ----
 LS_SRCS := $(addprefix $(ROOT)/sim/src/,tanager_lockstep.cpp lockstep.cpp elfload.cpp)
