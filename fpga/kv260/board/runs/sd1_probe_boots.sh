@@ -3,7 +3,8 @@
 # interrupt in RISC-V mode (the coordinator, 10-20; the probe is soc-2's sw/d4mode/sd1-irq-probe). It starts with the
 # board in RISC-V mode, Debian up, and COM5 logged into COM5LOG by the caller. Each boot:
 #   - Debian's reboot (its confirm unit keeps RISC-V mode), and the login on COM5;
-#   - over SSH: the probe's watch, then sd_read_stress.sh (both CPUs, STRESS_S seconds, default 90);
+#   - over SSH: sd_read_stress.sh (both CPUs, STRESS_S seconds, default 90); the probe's watch runs all the time, from
+#     sd1-irq-watch.service (from RAM, from the root's mount through shutdown: boot 7's shutdown lost the interrupt);
 #   - one line in TALLY: the COM5 offset where the boot starts, the login's time, SD1's timeouts in the boot and in the
 #     stress, the readers' rates, and whether the probe fired.
 # It stops at a boot with no login within 8 minutes (stuck: the PMOD break is the caller's) and at the probe's first
@@ -28,13 +29,12 @@ for n in $(seq "$first" "$last"); do
     exit 2
   fi
   for i in $(seq 1 24); do g true > /dev/null && break; sleep 10; done   # DHCP and the name follow the login
-  b=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -c iomem=relaxed /proc/cmdline; cut -d" " -f1 /proc/uptime')
-  set -- $b; bt=${1:-?}; io=${2:-?}; up=${3:-?}
-  g 'sudo nohup /usr/local/sbin/sd1-irq-probe watch > /dev/null 2>&1 &' > /dev/null
+  b=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -c iomem=relaxed /proc/cmdline; cut -d" " -f1 /proc/uptime; systemctl is-active sd1-irq-watch')
+  set -- $b; bt=${1:-?}; io=${2:-?}; up=${3:-?}; wa=${4:-?}
   r=$(g "sudo sh /home/tanager/sd_read_stress.sh $S" | tr '\n' ';')
-  a=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -m1 mmc0 /proc/interrupts | tr -s " " | cut -d" " -f2-4; sudo pkill -f "^/bin/sh /usr/local/sbin/sd1-irq-probe watch"; test -s /run/sd1-irq-probe.log && echo FIRED || echo none')
+  a=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -m1 mmc0 /proc/interrupts | tr -s " " | cut -d" " -f2-4; test -s /run/sd1-irq-probe.log && echo FIRED || echo none')
   st=$(echo "$a" | sed -n 1p); irq=$(echo "$a" | sed -n 2p); pr=$(echo "$a" | tail -1)
-  echo "$(date -u +%T) boot $n: COM5 from $off, login after $tl s (guest up $up s at SSH), iomem=relaxed $io; SD1 timeouts: boot $bt, after the stress $st; mmc0 irqs $irq; $r probe $pr" >> "$T"
+  echo "$(date -u +%T) boot $n: COM5 from $off, login after $tl s (guest up $up s at SSH), iomem=relaxed $io, watch $wa; SD1 timeouts: boot $bt, after the stress $st; mmc0 irqs $irq; $r probe $pr" >> "$T"
   if [ "$pr" = FIRED ] || [ "$st" != 0 ] || [ "$bt" != 0 ]; then
     { echo "== boot $n: the probe's log"; g 'cat /run/sd1-irq-probe.log; sudo dmesg | grep -m3 -E "Timeout waiting|recovery failed|I/O error"'; } >> "$T"
     exit 3
