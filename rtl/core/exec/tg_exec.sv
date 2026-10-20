@@ -102,11 +102,13 @@ module tg_exec
   output logic [63:0]                  upd_pc,
   output logic [SLOT_W-1:0]            upd_slot,
   output logic [63:0]                  upd_target,
+  output tid_t                         upd_tid,        // the branch's thread (M7 step 5: the entry's tid)
   // Wakeups (W set at the end of this cycle) and LLT results written
   output logic [NCOL-1:0]              wake_reg,
   output logic [LLT_ENTRIES-1:0]       llt_done,
   output logic [IQ_TAGS-1:0]           tag_free,       // MUL tags, 2 cycles after the write
   output logic                         div_done,
+  output tid_t                         div_done_tid,   // the divide's thread (M7 step 5: rename's count per thread)
   // CSR execute (P1 EX)
   output logic                         csr_ex_valid,
   output iq_pl_t                       csr_ex_pl,
@@ -347,14 +349,22 @@ module tg_exec
   logic ex_br;
   assign ex_br = ex_lv[0] && bp.cls == C_BR;
 
-  // Direction counters (read in EX, written in WB)
+  // Direction counters (read in EX, written in WB). M7 step 5 (DR-175): the hart (tid ^ RUN_TID, so SOLO_TID's
+  // tid 1 indexes as hart 0: cycle for cycle the same) flips the index's top bit, so the harts' branches at one PC
+  // train apart; a branch's write stays through the other thread's flush (bht_we_q, below)
   localparam int BHT_W = idx_w(BHT_ENTRIES);
+  function automatic logic [BHT_W-1:0] bht_ix(input logic [BHT_W-1:0] pcb, input tid_t t);   // pcb: pc[2 +: BHT_W]
+    logic [BHT_W-1:0] ix;
+    ix          = pcb;
+    ix[BHT_W-1] = ix[BHT_W-1] ^ ((t ^ RUN_TID) != '0);
+    return ix;
+  endfunction
   logic [0:0][BHT_W-1:0] bht_ra;
   logic [0:0][1:0]       bht_rd;
   logic                  bht_we_q;
   logic [BHT_W-1:0]      bht_wa_q;
   logic [1:0]            bht_wd_q;
-  assign bht_ra[0] = bp.pc[2 +: BHT_W];
+  assign bht_ra[0] = bht_ix(bp.pc[2 +: BHT_W], bp.tid);
   tg_ram_lut #(.DEPTH(BHT_ENTRIES), .WIDTH(2), .NR(1)) u_bht (
     .clk, .we(bht_we_q), .waddr(bht_wa_q), .wdata(bht_wd_q), .raddr(bht_ra), .rdata(bht_rd));
   logic [1:0] ctr_new;
@@ -367,6 +377,7 @@ module tg_exec
   // WB-stage branch state
   logic        bw_v_q, bw_taken_q, bw_exc_q, bw_misp_q, bw_strong_q, bw_hit_q, bw_way_q, bw_dfix_q;
   logic        bw_rvc_q;
+  tid_t        bw_tid_q;
   robid_t      bw_rob_q;
   logic [63:0] bw_npc_q, bw_pc_q, bw_tgt_q, bw_pred_q;
   logic [7:0]  lfsr_q;
@@ -386,6 +397,7 @@ module tg_exec
     upd_way    = bw_hit_q ? bw_way_q : lfsr_q[0];
     upd_pc     = bw_pc_q;
     upd_target = bw_tgt_q;
+    upd_tid    = bw_tid_q;
     upd_slot   = bw_pc_q[SLOT_W:1] + SLOT_W'(!bw_rvc_q);
     if (bw_v_q && !bw_exc_q && !(bw_pc_q[SLOT_W:1] == SLOT_W'(NP - 1) && !bw_rvc_q)) begin
       if (bw_strong_q) begin
@@ -494,6 +506,7 @@ module tg_exec
   assign a1_block  = a1_block_q;
   assign div_ordy  = div_wait_q == 3'd1;
   assign div_done  = div_ov && div_ordy;
+  assign div_done_tid = div_tid;
 
   // CSR result, registered at the end of EX (written at s+3, like an ALU result)
   logic        csr_v_q, csr_ill_q, csr_dv_q;
@@ -643,7 +656,8 @@ module tg_exec
     bw_hit_q    <= bp.ubtb_hit;
     bw_way_q    <= bp.ubtb_way;
     bw_dfix_q   <= bp.dfix;
-    bht_wa_q    <= bp.pc[2 +: BHT_W];
+    bw_tid_q    <= bp.tid;
+    bht_wa_q    <= bht_ix(bp.pc[2 +: BHT_W], bp.tid);
     bht_wd_q    <= ctr_new;
     // CSR
     csr_dst_q  <= preg_idx(p1.dst);
