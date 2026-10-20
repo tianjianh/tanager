@@ -276,8 +276,8 @@ bool mmio_model_t::dev_write(uint64_t addr, unsigned size, uint64_t v) {
   return false;  // ROM, main memory and unmapped space
 }
 
-// The source of a hart's reads: with one source so far, that one (one hart at a time); with several, the hart's thread
-// (interfaces.md §2.4). -1: one source and several harts, which cannot be told apart.
+// The source of a hart's reads: with one source so far, that one (one hart at a time); with several, the hart's index
+// in the core (interfaces.md §2.4). -1: one source and several harts, which cannot be told apart.
 long mmio_read_check_t::source_of(uint32_t hart) const {
   if (q_.size() > 1) return long(hart % (threads ? threads : 1));
   if (harts_.size() > 1) return -1;

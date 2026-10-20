@@ -1,5 +1,5 @@
 // Unit test of the harness's MMIO read check (mmio_read_check_t, tlmodels.h; DR-176; verification.md §2.4): `make -C sim unit`.
-// The cases the regressions cannot reach yet: sources per hart (M7 step 5) and SOLO_TID's source 1.
+// The cases the regressions cannot reach yet: sources per hart (M7 step 5) and a lone hart on a source other than 0.
 #include <cstdio>
 #include "tlmodels.h"
 using namespace tg;
@@ -14,10 +14,10 @@ int main() {
     c.read(0, 10, 0x200bff8); expect(c.retire(0, 0x100).empty(), "one hart, source 0, read then retire", "");
     c.read(0, 20, 0x200bff8); c.read(0, 30, 0x2004000);   // the first was squashed and the handler read next
     std::string e = c.retire(0, 0x104); expect(!e.empty(), "squashed read caught at the next retirement", e); }
-  { mmio_read_check_t c; c.threads = 2;   // SOLO_TID: hart 0's reads come with source 1
-    c.read(1, 10, 0x200bff8); expect(c.retire(0, 0x100).empty(), "SOLO_TID: hart 0 on source 1", "");
-    c.read(1, 20, 0x200bff8); expect(c.retire(0, 0x104).empty(), "SOLO_TID: second read", "");
-    c.read(1, 30, 0x200bff8); std::string e = c.exit(0); expect(!e.empty(), "SOLO_TID: a read left at exit", e); }
+  { mmio_read_check_t c; c.threads = 2;   // a lone hart on a source other than 0 (step 5 keeps a lone hart at 0)
+    c.read(1, 10, 0x200bff8); expect(c.retire(0, 0x100).empty(), "a lone hart on source 1", "");
+    c.read(1, 20, 0x200bff8); expect(c.retire(0, 0x104).empty(), "a lone hart on source 1: second read", "");
+    c.read(1, 30, 0x200bff8); std::string e = c.exit(0); expect(!e.empty(), "a lone hart on source 1: a read left at exit", e); }
   { mmio_read_check_t c; c.threads = 2;   // two harts, one source: the check stops, never a false stop
     c.read(0, 10, 0x200bff8); expect(c.retire(0, 0x100).empty(), "one source: hart 0", "");
     c.read(0, 20, 0x200bff8); c.read(0, 25, 0x200bff8);

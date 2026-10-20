@@ -192,9 +192,9 @@ struct clint_t {
 // One read on the bus for each MMIO load that retires (DR-176; verification.md §2.4). A hart sends one MMIO read at a
 // time, from its ROB head, and nothing flushes it once it is out, so the oldest read of a hart's source is the load's
 // that retires next, and no other read of that source went out before it. While every read has had one source, the
-// check covers one hart (whichever source: SOLO_TID's thread 1 too) and stops once a second hart retires an MMIO
-// load; once reads have come with several sources, each hart's source is its thread (interfaces.md §2.4: a distinct
-// source per hart). The messages name the reads; "" means no failure.
+// check covers one hart (whichever source) and stops once a second hart retires an MMIO load; once reads have come
+// with several sources, hart h's source is h mod NUM_THREADS (interfaces.md §2.4: a distinct source per hart; from
+// M7's step 5 the core sends thread ^ SOLO_TID, so a lone hart uses 0). The messages name the reads; "" means none.
 class mmio_read_check_t {
  public:
   void read(uint32_t source, uint64_t cycle, uint64_t addr) {
