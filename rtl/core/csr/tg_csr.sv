@@ -611,6 +611,18 @@ module tg_csr
     if (!rst && ctr_wr_q)
       assert (flush && !(cyc_wr || ins_wr)) else $error("tg_csr: a counter write not followed by its flush");
   end
+  // Until two threads run (M7's step 5), nothing of the other thread commits: its state stays at reset.
+  // Checked from the core's first reset on: in the SoC the reset comes from a register, so the first
+  // cycles may see it low before any reset
+  if (NT > 1) begin : g_one_thread
+    logic rs_q;
+    initial rs_q = 1'b0;
+    always @(posedge clk) if (rst) rs_q <= 1'b1;
+    always_ff @(posedge clk)
+      if (rs_q && !rst)
+        assert (h_q[~RUN_TID] == hart_reset() && !pw_v_q[~RUN_TID] && pdirty_q[~RUN_TID] == '0)
+          else $error("tg_csr: the other thread's CSR state changed while one thread runs");
+  end
 `endif
 
   // ---- Next state of each hart ----
