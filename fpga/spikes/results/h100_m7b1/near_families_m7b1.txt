@@ -1,0 +1,23 @@
+== /home/w/tanager-build/track-spikes-72f833/fp/h100_m7b1_routed.dcp (WNS 0.988)
+  endpoints by setup slack: < 0: 0, < 0.1: 0, < 0.2: 0, < 0.3: 0, < 0.5: 0, < 1.0: 6
+  all: 7 endpoints below 1.0 ns in 4 families
+      0.988     4  c0:u_fetch/krt_q                                                 19 levels,  59% wire, from c0:u_fetch/g_way[].u_data/u_mem/xpm
+      0.989     1  c0:u_lsu/u_dc/g_data[].u_data/u_mem/xpm                          11 levels,  82% wire, from c0:u_lsu/sqh_q_reg[pa][]
+      0.999     1  c0:u_fetch/f3_meta_q_reg[target][]                               19 levels,  60% wire, from c0:u_fetch/g_way[].u_data/u_mem/xpm
+      1.000     1  c1:u_fetch/f3_meta_q_reg[target][]                               19 levels,  55% wire, from c1:u_fetch/g_way[].u_data/u_mem/xpm
+  cones cut: F2 (838 cells: registers and I$ RAMs) -> fetch, TAGE and the RAS (6842); the queue head (16) -> the RAS (482)
+  without those cones: 1 endpoints below 1.0 ns in 1 families
+      0.989     1  c0:u_lsu/u_dc/g_data[].u_data/u_mem/xpm                          11 levels,  82% wire, from c0:u_lsu/sqh_q_reg[pa][]
+  without any path inside the front end (6842 -> 6842 cells): 1 endpoints below 1.0 ns in 1 families
+      0.989     1  c0:u_lsu/u_dc/g_data[].u_data/u_mem/xpm                          11 levels,  82% wire, from c0:u_lsu/sqh_q_reg[pa][]
+  the host bridge's core-reset registers (24 cells): their worst ten endpoints
+      2.953  16 levels, net 4.272 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMD/I
+      3.009  16 levels, net 4.245 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMB/I
+      3.011  16 levels, net 4.218 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMA/I
+      3.090  16 levels, net 4.086 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMG/I
+      3.100  16 levels, net 4.462 ns  u_soc/u_uncore/u_host/crst_q_reg_replica/C -> u_soc/g_core[1].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[2].u_ram/RAMD/I
+      3.103  16 levels, net 4.249 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMA/I
+      3.123  16 levels, net 4.132 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMF/I
+      3.175  16 levels, net 4.205 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[1].u_ram/RAMF/I
+      3.185  16 levels, net 4.197 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMC/I
+      3.188  16 levels, net 4.102 ns  u_soc/u_uncore/u_host/crst_q_reg_replica_1/C -> u_soc/g_core[0].g_tgc.u_core/u_fetch/u_ival/g_m64.g_bank[0].g_prim[0].u_ram/RAMB/I
