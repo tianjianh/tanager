@@ -2,7 +2,9 @@
 # Continuous soak of main on the build host (docs/spec/verification.md §4.4). Each round runs
 # constrained-random programs on the real core, every M3 switch on, in st, st_w3, smt2 and smt2_w3
 # at once, with memory stress (latency 30-250), timer interrupts and trace back-pressure, then, once
-# main has tests/coherence, coherence programs on the two-core SoC (verification.md §6.5). Findings
+# main has tests/coherence, coherence programs on the two-core SoC (verification.md §6.5). In the rounds
+# with the timing cuts on, M7's test modes on smt2 (SOLO_TID=1, and SPLIT=1 SOLO_TID=1) take the w3
+# configurations' places; those keep their rounds without the cuts (v2's reserve). Findings
 # go to a triage list, $TANAGER_BUILD/soak/summary.md; they never gate merges.
 # Strictly background: nice 19 and idle I/O, at most 8 simulations, no Vivado, no checkout touched
 # (main is exported with git archive), the first out-of-memory victim (oom_score_adj 900); it starts
@@ -35,6 +37,9 @@ M3FD_ISA=rv64imafdc_zicsr_zifencei_zicntr_zihpm_zba_zbb_zbs_zicond_zihintpause_s
 # Spike's PMP regions are the core's PMP entries, which tg_vsim and tanager-lockstep take from the RTL (DR-167).
 spike_args() { echo "--isa=$(cat "$SOAK/spike_isa" 2>/dev/null) --priv=MSU"; }
 KEEP_FAILS=100          # failure directories kept (oldest go first)
+# M7's test modes (DR-175; verification.md §4.4), name:make variables (commas for spaces): smt2 builds with the
+# timing cuts on, run in those rounds in the w3 configurations' places, once main has the switches
+M7_MODES="solo1:SOLO_TID=1 solo1-sp1:SPLIT=1,SOLO_TID=1"
 COH_CFGS="st smt2"      # coherence rounds: two cores, harts 0 and 1, or 0 and 2 (thread 0 of each smt2 core)
 COH_SEEDS=20            # coherence programs per configuration per round (about 30 s)
 COH_MODES=lottery,amo,mix,lrsc,lottery-lrsc,mp,race   # every mode: LR/SC since the L1D holds a young reservation;
@@ -93,6 +98,15 @@ prepare() {
   # built and the rounds alternate between them (verification.md §4.4).
   local tcs=""
   if grep -q "TG_TIMING_CUTS" "$pkg" && [ -f "$src/sim/profile.mk" ]; then tcs="0 1"; fi
+  # M7's test modes that main's core package and sim/profile.mk have (they need the timing-cut rounds)
+  local m7="" m mvar ok
+  for m in $M7_MODES; do
+    ok=${tcs:+1}
+    for mvar in $(echo "${m#*:}" | tr ',' ' '); do
+      grep -q "TG_${mvar%%=*}" "$pkg" && grep -q "^${mvar%%=*} ?=" "$src/sim/profile.mk" || ok=""
+    done
+    [ -n "$ok" ] && m7="$m7 $m"
+  done
   local tmp
   rm -rf "$BUILD_TMP"/tanager-soak.*  # one soak at a time: whatever is there is a killed build's
   tmp=$(mktemp -d "$BUILD_TMP/tanager-soak.XXXXXX") || return 1
@@ -102,14 +116,26 @@ prepare() {
     export CCACHE_DISABLE=1  # keep the tracks' ccache entries
     for cfg in $CFGS; do
       for tc in ${tcs:-default}; do
+        # with M7's modes, the w3 configurations run only without the timing cuts
+        [ -n "$m7" ] && [ "$tc" = 1 ] && case "$cfg" in *_w3) continue ;; esac
         make -s -C "$src/sim" CFG="$cfg" CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" \
           ISA="$isa" PRIV=MSU $([ "$tc" != default ] && echo "TIMING_CUTS=$tc") build || exit 1
         keep "$tmp" "sim/$cfg-core$([ "$tc" != default ] && echo "-tc$tc")" || exit 1
       done
     done
+    : > "$SOAK/m7_modes.new"   # name, build directory, make variables
+    for m in $m7; do
+      vars="TIMING_CUTS=1 $(echo "${m#*:}" | tr ',' ' ')"
+      make -s -C "$src/sim" CFG=smt2 CORE=core JOBS="$BUILD_JOBS" TANAGER_BUILD="$tmp" ISA="$isa" PRIV=MSU $vars build ||
+        exit 1
+      dir=$(make -s --no-print-directory -C "$src/sim" CFG=smt2 CORE=core TANAGER_BUILD="$tmp" $vars print-build)
+      keep "$tmp" "${dir#"$tmp"/tanager/}" || exit 1
+      printf '%s\t%s\t%s\n' "${m%%:*}" "${dir#"$tmp"/tanager/}" "$vars" >> "$SOAK/m7_modes.new"
+    done
     make -s -C "$src/sim" TANAGER_BUILD="$tmp" replay || exit 1
     keep "$tmp" sim/replay || exit 1
   ) > "$SOAK/logs/build.log" 2>&1 || { rm -rf "$tmp"; return 1; }
+  mv "$SOAK/m7_modes.new" "$SOAK/m7_modes"
   # The coherence programs' testbench (the default profile only) and checker. A failure here turns the
   # coherence rounds off for this main and keeps the random rounds going.
   echo > "$SOAK/coh"
@@ -167,9 +193,11 @@ prepare() {
 }
 
 # One configuration's campaign; failures keep the program, the end of the log and a repro line.
+#   campaign <commit> <cfg> <seed> <irq> <day> [<tc> [<miss> [<M7 mode> <its build directory> <its make variables>]]]
 campaign() {
-  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} miss=${7:-} work="$SOAK/work/$2"
-  local sim="$SOAK/build/tanager/sim/$cfg-core${tc:+-tc$tc}/tg_vsim" label="$cfg${tc:+-tc$tc}"
+  local commit=$1 cfg=$2 seed=$3 irq=$4 day=$5 tc=${6:-} miss=${7:-} mode=${8:-} mdir=${9:-} mvars=${10:-}
+  local label="$cfg${tc:+-tc$tc}${mode:+-$mode}" prof="${mvars:-${tc:+TIMING_CUTS=$tc}}"
+  local sim="$SOAK/build/tanager/${mdir:-sim/$cfg-core${tc:+-tc$tc}}/tg_vsim" work="$SOAK/work/$label"
   rm -rf "$work"
   mkdir -p "$work"
   ( source "$SOAK/src/tanager/tools/env.sh" >/dev/null 2>&1
@@ -199,7 +227,7 @@ campaign() {
     mkdir -p "$d"
     cp "$f" "$work/failures/r$s.S" "$d/" 2>/dev/null
     tail -n 80 "$work/failures/r$s.log" > "$d/tail.log" 2>/dev/null
-    { echo "main $commit, every M3 switch on (rtl/core/tg_core_pkg.sv), CFG=$cfg${tc:+ TIMING_CUTS=$tc}, seed $s"
+    { echo "main $commit, every M3 switch on (rtl/core/tg_core_pkg.sv), CFG=$cfg${prof:+ $prof}, seed $s"
       grep -A1 "seed $s:" "$work/out.txt" | sed -n 's/.*repro: //p' | \
         sed "s#$work/failures/#$d/#; s#$sim#tg_vsim#"
       grep -m1 "seed $s:" "$work/out.txt" | sed 's/^ *//'
@@ -262,7 +290,7 @@ summarize() {
   [ -n "$(cat "$SOAK/trace_stall" 2>/dev/null)" ] || stall="off (main's tg_core build has no trace_stall_i yet)"
   { echo "# Soak of main (tools/ci/soak.sh)"
     echo
-    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds$([ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ] && echo " (alternate pairs of rounds), the core's timing cuts (DR-140) off and on in alternate rounds"); trace back-pressure $stall"
+    echo "- main: \`$commit\`, every extension switch on, Spike \`$(spike_args)\`; random programs ($(cat "$SOAK/prog_isa" 2>/dev/null)$([ -n "$(cat "$SOAK/vm" 2>/dev/null)" ] && echo ", ${VM_PCT}% in S-mode under Sv39")) with memory stress and timer interrupts on alternate rounds$([ -n "$(cat "$SOAK/timing_cuts" 2>/dev/null)" ] && echo " (alternate pairs of rounds), the core's timing cuts (DR-140) off and on in alternate rounds")$([ -s "$SOAK/m7_modes" ] && echo "; with the cuts on, smt2 in M7's test modes ($(cut -f3 "$SOAK/m7_modes" | sed 's/TIMING_CUTS=1 //' | paste -sd ';' | sed 's/;/; /g')) in the w3 configurations' places"); trace back-pressure $stall"
     [ -n "$(cat "$SOAK/coh" 2>/dev/null)" ] &&
       echo "- coherence programs on the two-core SoC (tests/coherence, $(cat "$SOAK/coh_modes" 2>/dev/null || echo "$COH_MODES"); \`$(cat "$SOAK/coh")\`): $COH_SEEDS per round in each of $COH_CFGS"
     echo "- state: $state ($(date '+%F %T')); $(hostname): / has $(df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9') GB free$([ -d /mnt/c ] && echo ", C: $(df -BG --output=avail /mnt/c 2>/dev/null | tail -1 | tr -dc '0-9') GB")"
@@ -369,9 +397,18 @@ run() {
     [ -n "$(cat "$SOAK/miss_ok" 2>/dev/null)" ] && [ $(( r % 3 )) = 2 ] && miss=12
     log "round: main $commit, seeds $seed..$((seed + 4 * SEEDS - 1)), irq $irq${tc:+, timing cuts $tc}${miss:+, miss-heavy}"
     summarize "$commit" "running${state_note:+; $state_note}"
-    local i=0 cfg day; day=$(date +%F)
+    local i=0 cfg day modes=(); day=$(date +%F)
+    # In the rounds with the timing cuts on, M7's test modes take the w3 configurations' places
+    [ "$tc" = 1 ] && [ -s "$SOAK/m7_modes" ] && mapfile -t modes < "$SOAK/m7_modes"
     for cfg in $CFGS; do
+      [ ${#modes[@]} -gt 0 ] && case "$cfg" in *_w3) continue ;; esac
       campaign "$commit" "$cfg" $((seed + i * SEEDS)) "$irq" "$day" "$tc" "$miss" &
+      i=$((i + 1))
+    done
+    local m
+    for m in "${modes[@]}"; do
+      IFS=$'\t' read -r mode mdir mvars <<< "$m"
+      campaign "$commit" smt2 $((seed + i * SEEDS)) "$irq" "$day" "$tc" "$miss" "$mode" "$mdir" "$mvars" &
       i=$((i + 1))
     done
     wait
