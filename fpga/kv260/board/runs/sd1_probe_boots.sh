@@ -20,7 +20,7 @@ for n in $(seq "$first" "$last"); do
   sleep 30   # the old Debian is still up for a few seconds; the login must come from the new one
   ok=0
   for i in $(seq 1 90); do
-    tail -c +$((off + 1)) "$L" | grep -a -q 'tanager login: tanager (automatic login)' && { ok=1; break; }
+    tail -c +$((off + 1)) "$L" | grep -a -q -E 'tanager login: tanager \(automatic login\)|tanager@tanager:~\$' && { ok=1; break; }   # the prompt too: a COM5 drop lost boot 12's login line
     sleep 5
   done
   tl=$(( $(date +%s) - t0 ))

@@ -263,3 +263,7 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
   - The driver no longer starts or stops a watch of its own.
 - **Boot 9** (after the break, 04:28): no timeout; the initramfs's fsck recovered p3's journal. The service went in there, and boots 10–30 run with it.
 - **Log:** [`uart_COM5_probe_boots1-8.txt`](uart_COM5_probe_boots1-8.txt) holds boots 1–8 in one capture; the tally gives each boot's offset in it.
+
+**Boots 10–12 (04:35–04:55):** all clean, with the watch service active, each with about 74,000 mmc0 interrupts in the stress.
+- **Boot 12's "no login" was COM5's, not the board's.** The laptop's CH340 dropped and reopened at 04:47:38, during the boot, and the login line was lost with it. Boot 12 was up and clean (0 timeouts), and its stress ran by hand.
+- The driver now also takes the shell prompt as the login. In every boot's section the prompt first appears after the new boot, never between the reboot command and the restart.
