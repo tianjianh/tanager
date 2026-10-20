@@ -1,0 +1,225 @@
+﻿
+===== COM5 scripted session opened 2026-10-19T23:32:30.1637961-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ sudo bash -c 'for f in /sys/kernel/debug/irq/irqs/14 /sys/ker nel/debug/irq/irqs/12 /proc/irq/14/smp_affinity_list /proc/irq/14/effective_affi nity_list; do echo "== $f"; while IFS= read -r l; do echo "$l"; done < $f; done;  echo FIN""ISHED'
+[?2004l-bash: /usr/bin/sudo: Input/output error
+[?2004htanager@tanager:~$ [ 1008.530133] mmc0: Timeout waiting for hardware interrupt.
+[ 1008.535729] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1008.542269] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1008.548819] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1008.555360] mmc0: sdhci: Argument:  0x00e3fd60 | Trn mode: 0x0000003b
+[ 1008.561904] mmc0: sdhci: Present:   0x01f70001 | Host ctl: 0x00000019
+[ 1008.568445] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1008.574988] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1008.581527] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018000
+[ 1008.588069] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1008.594612] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1008.601149] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1008.607694] mmc0: sdhci: Cmd:       0x0000123a | Max curr: 0x00000000
+[ 1008.614234] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1008.620776] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1008.627314] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1008.631850] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1008.639093] mmc0: sdhci: ============================================
+[ 1018.770094] mmc0: Timeout waiting for hardware interrupt.
+[ 1018.775645] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1018.782184] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1018.788731] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1018.795273] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1018.801810] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1018.808355] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1018.814893] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1018.821436] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018002
+[ 1018.827977] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1018.834519] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1018.841062] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1018.847601] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1018.854142] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1018.860682] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1018.867223] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1018.871756] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1018.878995] mmc0: sdhci: ============================================
+[ 1029.010125] mmc0: Timeout waiting for hardware cmd interrupt.
+[ 1029.015999] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1029.022535] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1029.029081] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1029.035625] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000033
+[ 1029.042169] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1029.048708] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1029.055249] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1029.061792] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[ 1029.068333] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1029.074873] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1029.081413] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1029.087954] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[ 1029.094496] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1029.101034] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1029.107575] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1029.112109] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1029.119351] mmc0: sdhci: ============================================
+[ 1039.250158] mmc0: Timeout waiting for hardware cmd interrupt.
+[ 1039.256042] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1039.262581] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1039.269129] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1039.275674] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000033
+[ 1039.282223] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1039.288764] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1039.295307] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1039.301851] mmc0: sdhci: Timeout:   0x0000000e | Int stat: 0x01018000
+[ 1039.308394] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1039.314938] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1039.321473] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1039.328020] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[ 1039.334563] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1039.341104] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1039.347642] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1039.352177] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1039.359420] mmc0: sdhci: ============================================
+[ 1049.490175] mmc0: Timeout waiting for hardware interrupt.
+[ 1049.495725] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1049.502261] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1049.508808] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1049.515348] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1049.521892] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1049.528431] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1049.534972] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1049.541514] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1049.548056] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1049.554598] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1049.561138] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1049.567681] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1049.574223] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1049.580764] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1049.587306] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1049.591840] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1049.599082] mmc0: sdhci: ============================================
+[ 1059.730200] mmc0: Timeout waiting for hardware interrupt.
+[ 1059.735752] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1059.742288] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1059.748834] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1059.755377] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1059.761922] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1059.768465] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1059.775005] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1059.781548] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1059.788089] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1059.794631] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1059.801171] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1059.807712] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1059.814254] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1059.820794] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1059.827334] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1059.831869] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1059.839111] mmc0: sdhci: ============================================
+[ 1069.970234] mmc0: Timeout waiting for hardware interrupt.
+[ 1069.975792] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1069.982334] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1069.988885] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1069.995430] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1070.001973] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1070.008517] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1070.015059] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1070.021603] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1070.028146] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1070.034690] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1070.041232] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1070.047778] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1070.054321] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1070.060863] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1070.067404] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1070.071940] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1070.079183] mmc0: sdhci: ============================================
+[ 1080.210252] mmc0: Timeout waiting for hardware interrupt.
+[ 1080.215802] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1080.222341] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1080.228886] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1080.235429] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1080.241971] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1080.248515] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1080.255059] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1080.261601] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1080.268142] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1080.274685] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1080.281226] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1080.287766] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1080.294308] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1080.300852] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1080.307394] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1080.311928] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1080.319173] mmc0: sdhci: ============================================
+[ 1090.450273] mmc0: Timeout waiting for hardware interrupt.
+[ 1090.455840] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1090.462379] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1090.468924] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1090.475471] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1090.482014] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1090.488554] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1090.495096] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1090.501639] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1090.508181] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1090.514723] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1090.521262] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1090.527805] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1090.534348] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1090.540891] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1090.547432] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1090.551967] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1090.559210] mmc0: sdhci: ============================================
+[ 1100.690289] mmc0: Timeout waiting for hardware interrupt.
+[ 1100.695813] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1100.702348] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1100.708893] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1100.715435] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[ 1100.721978] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1100.728519] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1100.735060] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1100.741601] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[ 1100.748142] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1100.754685] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1100.761226] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1100.767770] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[ 1100.774313] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1100.780853] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1100.787394] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1100.791929] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1100.799172] mmc0: sdhci: ============================================
+[ 1110.930327] mmc0: Timeout waiting for hardware cmd interrupt.
+[ 1110.936200] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1110.942735] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1110.949283] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1110.955826] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000033
+[ 1110.962370] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1110.968914] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1110.975456] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1110.982000] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018000
+[ 1110.988542] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1110.995084] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1111.001626] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1111.008169] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[ 1111.014711] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1111.021252] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1111.027793] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1111.032330] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1111.039573] mmc0: sdhci: ============================================
+[ 1121.170348] mmc0: Timeout waiting for hardware cmd interrupt.
+[ 1121.176259] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[ 1121.182800] mmc0: sdhci: Sys addr:  0x00000020 | Version:  0x00001002
+[ 1121.189348] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000020
+[ 1121.195892] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000033
+[ 1121.202437] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[ 1121.208980] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[ 1121.215522] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[ 1121.222066] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018000
+[ 1121.228609] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[ 1121.235152] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[ 1121.241693] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[ 1121.248233] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[ 1121.254775] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[ 1121.261316] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[ 1121.267857] mmc0: sdhci: Host ctl2: 0x00000000
+[ 1121.272392] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[ 1121.279634] mmc0: sdhci: ============================================
+
+===== EXPECT TIMEOUT after 120 s: FINISHED[^'] =====
+
+===== COM5 scripted session closed 2026-10-19T23:34:39.1518021-07:00, exit 2 =====

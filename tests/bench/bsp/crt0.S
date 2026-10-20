@@ -3,6 +3,11 @@
   .globl _start
 _start:
   .option push
+  .option arch, +zicsr
+  csrr t0, mhartid         /* M7 (DR-175): hart 0 runs the program; a sibling thread parks in WFI */
+  bnez t0, tg_park
+  .option pop
+  .option push
   .option norelax
   la gp, __global_pointer$
   .option pop
@@ -33,6 +38,9 @@ _start:
   call exit
 3:
   j 3b
+tg_park:
+  wfi
+  j tg_park
 
 /* Any trap is unexpected here: exit with code 0x1000 + mcause (low bits). */
   .align 2

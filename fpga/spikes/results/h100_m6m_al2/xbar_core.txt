@@ -1,0 +1,9 @@
+# worst setup slack (ns) between the cores and the crossbar's groups at 100 MHz: levels, logic and wire
+core_to_a_slice       1.020  levels  8  logic 1.781  net 6.833  u_soc/g_core[1].g_tgc.u_core/u_lsu/x_pa_q_reg[23]/C -> u_soc/u_uncore/u_xbar/g_ta_slice[3].g_s.u_s/g_dsp.u_main/g_dsp[2].u_dsp/DSP_OUTPUT_INST/ALU_OUT[41]
+core_to_a_arb         1.330  levels 11  logic 1.949  net 6.162  u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_mn.es_q_reg[3][0]/C -> u_soc/u_uncore/u_xbar/g_ta[0].u_arb/ptr_q_reg[0]/R
+core_to_c_slice       0.891  levels  6  logic 2.933  net 5.652  u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_data[4].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_1/CLKBWRCLK -> u_soc/u_uncore/u_xbar/g_tc[1].g_s.u_s/g_dsp.u_main/g_dsp[0].u_dsp/DSP_OUTPUT_INST/ALU_OUT[33]
+core_to_e_slice       4.170  levels  5  logic 1.018  net 4.654  u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_mn.es_q_reg[3][0]/C -> u_soc/u_uncore/u_xbar/g_te[0].u_arb/ptr_q_reg[0]/D
+core_to_xbar          0.809  levels 13  logic 2.057  net 6.649  u_soc/g_core[1].g_tgc.u_core/u_lsu/x_pa_q_reg[23]/C -> u_soc/u_uncore/u_xbar/g_ia[9].cnt_q_reg[0]/R
+d_slice_to_core       2.468  levels  5  logic 0.832  net 6.396  u_soc/u_uncore/u_xbar/g_id[9].g_p.g_s.u_s/g_fab.main_q_reg[denied]/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/xr_data_q_reg[12]/S
+b_slice_to_core       4.682  levels  5  logic 0.670  net 3.979  u_soc/u_uncore/u_xbar/g_ib[0].g_s.u_s/main_v_q_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/u_dc/g_data[3].u_data/u_mem/xpm_memory_base_inst/gen_wr_b.gen_byte_narrow.for_mem_cols[1].mem_reg_0/WEBWE[1]
+xbar_to_core          1.770  levels  4  logic 0.904  net 7.210  u_soc/u_uncore/u_xbar/g_ta_slice[1].g_s.u_s/skid_v_q_reg_inv/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/u_dc/g_mn.eb_q_reg[2][1]/CE

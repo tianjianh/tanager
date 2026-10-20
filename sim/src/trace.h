@@ -30,6 +30,7 @@ struct tr_rec_t {
   uint64_t mem_vaddr = 0, mem_wdata = 0;
   uint8_t mem_size = 0;
   bool mmio_ld = false, nondet = false;
+  bool mem_ld = false;        // v1.5: the instruction read memory; mem_vaddr and mem_size are the read's
   uint64_t cause = 0, tval = 0;
 };
 
@@ -64,6 +65,8 @@ inline std::string format_rec(const tr_rec_t& r, const std::function<std::string
     if (r.mem_st)
       s += strfmt(" mem[%016llx]/%u <- %016llx", (unsigned long long)r.mem_vaddr, 1u << r.mem_size,
                   (unsigned long long)r.mem_wdata);
+    if (r.mem_ld && !r.mem_st)
+      s += strfmt(" mem[%016llx]/%u read", (unsigned long long)r.mem_vaddr, 1u << r.mem_size);
     if (r.mmio_ld) s += " mmio";
     if (r.nondet) s += " nondet";
   } else {

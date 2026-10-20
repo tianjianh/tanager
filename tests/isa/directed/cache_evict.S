@@ -7,6 +7,7 @@
   .section .text.init, "ax"
   .globl _start
 _start:
+  TG_PARK_HARTS
   li s0, 0x80100000           /* buffer */
   li s1, 0x40000              /* 256 KiB */
   add s2, s0, s1

@@ -14,6 +14,7 @@
   .section .text.init, "ax"
   .globl _start
 _start:
+  TG_PARK_HARTS
   csrr t0, misa
   li t1, (1 << 3) | (1 << 5)            /* D, F */
   and t0, t0, t1
