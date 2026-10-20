@@ -1,6 +1,6 @@
 # Cross-track interfaces
 
-**Status:** v1.3, 2026-10-13 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4; v1.3: `trace_stall_i` back-pressure in §1 and §5). Owner: coordinator. Changes go through the coordinator (§7).
+**Status:** v1.4, 2026-10-19 (v1.1: SC-outcome rule in §5; v1.2: as-built divider latencies and R5 conversion routing in §4; v1.3: `trace_stall_i` back-pressure in §1 and §5; v1.4: `clk2x` for the URF switch in §1 and §6, DR-174). Owner: coordinator. Changes go through the coordinator (§7).
 
 These are the contracts between the tracks: core, FPU, SoC, verification and spikes. The SystemVerilog packages are the source of truth for field names and widths:
 
@@ -20,7 +20,7 @@ One `tg_core` instance is one core with `NUM_THREADS` harts.
 
 | Port group | Contents |
 |---|---|
-| Clock and reset | `clk`; `rst` (active-high, synchronous) |
+| Clock and reset | `clk`; `clk2x` (v1.4: twice `clk`, rising edges aligned; used only with `URF`, DR-174; default `1'b0`, ignored when `URF` = 0); `rst` (active-high, synchronous) |
 | Boot | `boot_addr_i`: reset PC of every hart, in M-mode. The SoC passes the boot ROM (`0x1000`); bare-metal simulation passes `0x8000_0000`. |
 | Interrupts and time | per-hart `irq_{mei,sei,mti,msi,ssi}_i` (§3); `mtime_i`; `debug_req_i` (M9) |
 | Machine error | `merr_o[tid]`: pulses when a refill for an early-retired load returns an error (plan §4.5). The SoC routes it to a PLIC source. |
@@ -208,7 +208,8 @@ The core emits up to `COMMIT_WIDTH` `tr_rec_t` per cycle. The consumers are the 
 - **M7:** load addresses (for multi-hart lockstep) and a physical store address (for `tohost` detection under virtual memory).
 
 ## 6. Reset and clocks between tracks
-- **SoC clocks:** `clk_core` (200 MHz goal, 150 floor) and `clk_host` (100 MHz). Only the host bridge crosses between them (plan §7.1).
+- **SoC clocks:** `clk_core` (200 MHz goal, 150 floor; 100 MHz under DR-152) and `clk_host` (100 MHz). Only the host bridge crosses between them (plan §7.1).
+- **`clk2x` (v1.4, DR-174):** with `URF` = 1, the board's clock generator adds twice `clk_core`, from the same MMCM with phase 0 and on its own global buffer. `tanager_soc` passes it to every core. Paths between `clk_core` and `clk2x` are synchronous and timed at the real half period (`fpga/kv260/xdc/timing_urf.xdc`), and `clk2x` is asynchronous to `clk_host`. With `URF` = 0 the clock doesn't exist, and the port is tied to 0.
 - **Resets:** synchronous `rst` per clock domain. The SoC holds the cores in reset until `tanager-host` releases them (plan §7.2).
 
 ## 7. Changing an interface
