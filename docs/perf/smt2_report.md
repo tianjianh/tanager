@@ -809,7 +809,9 @@ python3 scripts/m7_smt.py --prediction     # §13.2's table from the runs above
 | The cap level | 50% beats 75% by 1.0–3.4% on whole-queue caps; with the bank rule, 50–75% give the same | Keep 75% with the bank rule |
 | D8 | Alternation removes no deadlock. The drain's priority for a free miss entry removes the five: 17–18 pairs in today's rerun of the 10-16 setup. On M7's core, 6–8 of 58 pairs then starve a hart's load for an issue-queue row | The drain's priority (check that the RTL keeps it with four entries and the store prefetch), and the bank rule |
 | D3 | As planned it deadlocks: a lone hart on 17 of 36 programs. Shared lists deadlock two harts on back-to-back FP restores. FP-heavy pairs that run lose 0–5% at 32 FP registers a hart | Shared lists with a per-hart flush recovery, and FP banks of at least 65 entries (or an fld fallback into F0) |
+| D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
+| Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
 
 ### 13.2 Exit 2: the blind prediction
 
@@ -1068,6 +1070,7 @@ A hart therefore needs, in every bank, room for its architectural registers plus
      - the flush recovery: a walk of the flushed half (cycles at each flush, up to about 20) or free bitmaps (logic);
      - the FP banks' depth: from 64 to 128 entries roughly doubles their LUTRAM.
    - Doubling the FP banks likely crosses DR-154's 1,200-LUT line, which would make it the user's call.
+   - **Revised (§13.9):** core-2's per-hart lists, taking a free register from the sibling's list when short, with FP banks of 96. No deadlock, and throughput equal to ideal shared lists, where shared lists with a flush walk lose 0.5–2.6%. Recommendation: build it, the donor keeping one register; 96 rather than 128, which changes nothing. The cost is the FP banks from 64 to 96 entries (about 1.5× their LUTRAM) and a list-to-list move a cycle.
 5. **D2: the merge and split** (step 6).
    - **What it is:** the halves merge when the sibling has sat in WFI for 64 cycles with an empty half, and split after a drain when it wakes. The plan puts it at 0.1K a core.
    - **What it buys:** it keeps a lone thread's 3–4.5% (memsuite 8–12%).
@@ -1075,6 +1078,11 @@ A hart therefore needs, in every bank, room for its architectural registers plus
      - build it, and raise WFI's 4,096-cycle timeout for a sleeping sibling;
      - drain the split only until the window fits its half, if the halves' pointers allow it;
      - lift the bank rule, and 50% caps if chosen, when the halves merge.
+6. **Decode, rename and commit groups** (step 5; §13.8).
+   - **What it is:** whether a thread may fill, in the same cycle, slots its sibling leaves idle.
+   - **The cost of mixing:** both ROB head windows read every cycle, a second free-list pop port per sub-bank, and tid compares in rename's in-group checks.
+   - **What it buys:** 0–0.7% of throughput, under the 1% bar.
+   - **Recommendation:** one thread a group.
 
 **Decisions:** none here; D3's redesign is core-2's and the coordinator's, and the caps' level and ICOUNT are the coordinator's under DR-154. The model's new switches are mine and change no earlier result.
 
@@ -1084,3 +1092,58 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 - **A rule that protects one bank can fail a group that needs two.** The on-demand last row named one bank, and a decode group that dispatches as one needed both.
 - **Small queues make the cap level matter.** With 4–10-row queues it moved throughput by 3%; on the plan's larger queues it had not.
 - **Check every pair at every latency for deadlocks before trusting a throughput table.** The plan's configuration passed the 42 pairs and deadlocked 6–8 of the 16 working-set pairs.
+
+### 13.8 Decode, rename and commit groups: mixed against one thread a group
+
+*Added 2026-10-20 for core-2's step 5. Mixed groups let a thread fill the slots its sibling leaves in the same cycle, as the model has done since §5 (`smt_mix` 1). One thread a group (`smt_mix` 0) takes each cycle's group from one thread: the first-served thread alternates, and an idle thread is skipped. Mixed groups cost the RTL a read of both threads' ROB head windows every cycle, a second free-list pop port per sub-bank, and tid compares in rename's in-group dependency checks. The 42 pairs, against one program on the merged window:*
+
+| Configuration | Mixed groups | One thread a group | Change | One thread a group: memory + memory / compute + compute / mixed at 120 | Deadlocks (58 pairs), one thread a group |
+|---|---|---|---|---|---|
+| The plan: 75% caps | 1.327 / 1.316 / 1.297 | 1.322 / 1.310 / 1.294 | −0.4% / −0.5% / −0.3% | 1.237 / 1.298 / 1.399 | 6 / 8 / 8 (as mixed) |
+| 75% caps, never a whole bank (§13.4) | 1.313 / 1.349 / 1.343 | 1.303 / 1.341 / 1.338 | −0.7% / −0.6% / −0.4% | 1.256 / 1.258 / 1.525 | 0 |
+| 50% caps, the last row kept while the sibling waits | 1.341 / 1.358 / 1.344 | 1.339 / 1.359 / 1.344 | −0.2% / +0.1% / 0.0% | 1.241 / 1.303 / 1.552 | 0 |
+
+- **Mixed groups gain 0.7% at most, under the coordinator's 1% bar, so one thread a group stands.** §5 measured 0.4% on the plan's core.
+- **The cost falls mostly on compute + compute pairs** (up to 1.6%). There one thread often leaves a slot idle in a cycle its sibling could use.
+- **It adds no deadlock.**
+- **With one thread a group, the recommended configuration still clears exit 2,** at 1.303 / 1.341 / 1.338, though only just at 30 cycles. With 50% caps and the on-demand last row it clears with margin: 1.339 / 1.359 / 1.344.
+
+### 13.9 D3 as revised: per-hart lists with transfers, FP banks of 96
+
+*core-2's revision of D3, approved in principle by the coordinator (10-20), with the final shape set by the model:*
+- *per-hart free lists in RAM form, each recovered at a flush by a pointer reset;*
+- *a hart that cannot rename for want of a bank's register takes one a cycle from its sibling's list. The register has been free since commit, so no recovery is involved. A sleeping sibling's spares go the same way: D2's merge, for registers;*
+- *FP banks of at least 65 entries: 96 if the LUTRAM composes, else 128.*
+
+*The coordinator's conditions: no deadlock over the suite and the pairs, including two harts reloading all 32 f registers; throughput against shared lists whose flush walks the thread's half of the ROB two entries a cycle, its rename stalled meanwhile; and 96 against 128. core-2 also asked for transfers per kilo-instruction, and whether the donor should keep more than one.*
+
+*The model:*
+- *`prf_split` 1 with `prf_xfer` 1 (the donor keeps one free register in the bank) or 2 (it keeps its architectural registers of that kind plus one), and `prf_fp_bank` 96 or 128;*
+- *shared lists with `flush_walk` 1 (the whole half) or 2 (only the flushed entries; a mispredict's wrong path is estimated at two a cycle from the branch's dispatch, up to the half, since the model fetches no wrong path);*
+- *all on §13's recommended configuration: 75% caps, a hart never taking all of a slot bank's rows.*
+
+| Free lists | WS, 42 pairs (30 / 120 / 250) | Against shared lists without a walk | Deadlocked pairs of 87 | Transfers a kilo-instruction |
+|---|---|---|---|---|
+| Shared, no walk (FP 96) | 1.313 / 1.349 / 1.343 | – | 0 / 0 / 0 | – |
+| Shared, the flush walks the whole half (FP 96) | 1.279 / 1.320 / 1.317 | −2.6% / −2.1% / −1.9% | 0 / 0 / 0 | – |
+| Shared, the flush walks the flushed entries (FP 96) | 1.300 / 1.342 / 1.335 | −1.0% / −0.5% / −0.5% | 0 / 0 / 0 | – |
+| **Per hart, transfers, the donor keeps one, FP 96** | **1.313 / 1.349 / 1.344** | **0.0% / +0.1% / +0.1%** | **0 / 0 / 0** | 0.26 / 0.24 / 0.22 |
+| Per hart, transfers, the donor keeps its own registers plus one, FP 96 | 1.298 / 1.336 / 1.333 | −1.1% / −0.9% / −0.7% | 0 / 0 / 0 | under 0.01 |
+| The same two at FP 128 | identical to FP 96 | | 0 / 0 / 0 | |
+
+*The 87 pairs are §2.3's 42, §13.4's 16 working-set pairs, §13.5's 25 FP-heavy pairs, and the 4 with the FP restores, among them two harts each reloading their f registers twice in a row.*
+
+- **No deadlock** with per-hart lists and transfers at FP 96 or 128. That covers the 87 pairs at all three latencies and a lone hart over 36 programs.
+  - At FP 64 the same design still deadlocks 2 of 45 pairs (`m7_fprestore2` + nbody, CoreMark + `m7_fprestore`), and today's shared lists deadlock the two-hart double restore.
+  - The FP banks therefore need more than 64 entries, and 96 is enough.
+- **96 against 128:** every run is identical. 96 holds.
+- **The donor should keep one.** That form matches shared lists without a walk, with about a quarter of a transfer per 1,000 instructions.
+  - Keeping its own registers plus one blocks nearly every transfer and costs 0.7–1.1%.
+  - It prevents no deadlock here: keeping one had none.
+- **What the per-hart recovery buys:** shared lists lose 1.9–2.6% when each flush walks the whole half, and 0.5–1.0% when it walks only the flushed entries. Per-hart lists with transfers lose nothing.
+- **A lone hart** (its sibling asleep, the sibling's spares taken by transfers) loses 0.2%, 0.3% and 0.2% on the suite against today's one-hart core, with no deadlock.
+  - **The cost is hart 1's architectural registers, not the lists.** Asleep, it still holds 31 integer registers in B1 and 32 FP in F1, D4's homes. A lone hart whose values gather in B1 then has about two free registers there, under any list scheme.
+  - ms_chase8f16 loses 6.5–8.6% this way, with almost no transfers left to make.
+  - **Steering by free list doesn't help:** it recovers chase8f16 at 120 cycles but costs others more (nettle-sha256 −17%, the suite −0.7%).
+  - **Spreading hart 1's integer homes** over two banks might ease it. The model has not tried that.
+- **Exit 2's prediction (§13.2) stands under this design:** per-hart lists with transfers give the same throughput as the shared lists it assumed.

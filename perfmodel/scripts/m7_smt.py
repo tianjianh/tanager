@@ -398,7 +398,8 @@ def groups(workers):
             same = alone(M7, lat)
             mx = evaluate(c, lat, ref=same)
             one = evaluate7({**c, "smt_mix": 0}, lat, same)
-            dl = evaluate7({**c, "smt_mix": 0}, lat, same, smt.PAIRS + WS_PAIRS)["dead"]
+            dl = [smt.pname(a, b) for _, a, b in smt.PAIRS + WS_PAIRS
+                  if dead(run7(PRESET, {**c, "smt_mix": 0, "dram_lat": lat}, a, b))]
             out[n][lat] = {"mixed": mx["ws"], "one": one["ws"], "one_groups": one["groups"], "dead_42": one["dead"],
                            "dead_58": dl, "pairs_one": {p: m["ws"] for p, m in one["pairs"].items()}}
             cells["mix"].append(f"{mx['ws']:.3f}")
