@@ -179,6 +179,7 @@ module tg_core
   logic [COMMIT_WIDTH-1:0][38:1] cm_ras_link;
   logic        upd_valid, upd_way, upd_inval;
   logic [63:0] upd_pc, upd_target;
+  tid_t        upd_tid;                 // M7 step 5: the micro-BTB entry's tid (5b)
   logic [SLOT_W-1:0] upd_slot;
   logic [DECODE_WIDTH-1:0]   iq_valid;
   fe_insn_t [DECODE_WIDTH-1:0] iq_insn;
@@ -289,6 +290,7 @@ module tg_core
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
   logic [IQ_TAGS-1:0]               tag_free;
   logic                             div_done;
+  tid_t                             div_done_tid;   // M7 step 5: rename's divide count per thread (5c)
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
@@ -417,8 +419,8 @@ module tg_core
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
     .oth_fflags,
     .br_valid, .br_rob, .br_mispredict(br_misp), .br_npc, .br_exc, .br_tval,
-    .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target,
-    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done,
+    .upd_valid, .upd_way, .upd_inval, .upd_pc, .upd_slot, .upd_target, .upd_tid,
+    .wake_reg(wake_x), .llt_done(llt_done_x), .tag_free(tag_free_x), .div_done, .div_done_tid,
     .csr_ex_valid, .csr_ex_pl, .csr_ex_src, .csr_ex_rdata, .csr_ex_ill);
 
   // ---- Load/store unit ----
@@ -715,7 +717,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    upd_tid, div_done_tid};       // (M7 step 5: fetch's micro-BTB in 5b, rename's counts in 5c)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
