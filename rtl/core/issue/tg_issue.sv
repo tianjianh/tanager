@@ -49,6 +49,9 @@ module tg_issue
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
   output iq_pl_t [N_IQ-1:0]            iss_pl,
+  // URF (DR-174): the source tags {src2, src1} the RF stage reads in the next cycle (iss_pl's,
+  // before their register: each queue's select); LD and STA have src1 only (src2 '0)
+  output preg_t [N_XQ-1:0][1:0]        iss_src_n,
   // Speculative wakeup's shadow cancel (SPEC_WAKE; registered): tg_exec kills its RF and EX stages
   output logic                         spec_cancel
 );
@@ -236,6 +239,7 @@ module tg_issue
     localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
     logic [DW-1:0][PW-1:0] dpl;
     logic [PW-1:0] pl;
+    logic [EW-1:0] pl_n;                // the select's source tags, the low bits (URF)
     iq_pl_t up;
     if (q == 0) begin : g_f0
       for (genvar k = 0; k < DW; k++) begin : g_k
@@ -403,9 +407,26 @@ module tg_issue
       .disp_mdep(MX ? disp_mdep : '0), .mx_issued(q == Q_FP ? '0 : mx_issued), .mx_free, .issued_o(iss_o), .free_o(free_o),
       .valid_o(val_o), .alloc_oh_o(aoh),
       .flush_valid(flush), .flush_tid(flush_tid), .flush_all(1'b1), .flush_rob('0),
-      .iss_valid_q(iss_valid[q]), .iss_payload(pl)
+      .iss_valid_q(iss_valid[q]), .iss_payload(pl), .iss_early_n(pl_n)
     );
     assign iss_pl[q] = up;
+    localparam int PRW = $bits(preg_t);
+    if (q < N_ALU) begin : g_srcn2
+      assign iss_src_n[q] = {preg_t'(pl_n[0 +: PRW]), preg_t'(pl_n[PRW +: PRW])};
+      if (EW > 2 * PRW) begin : g_un
+        logic unused_n;
+        assign unused_n = ^pl_n[EW-1:2*PRW];
+      end
+    end else if (q < N_XQ) begin : g_srcn1
+      assign iss_src_n[q] = {preg_t'('0), preg_t'(pl_n[0 +: PRW])};
+      if (EW > PRW) begin : g_un
+        logic unused_n;
+        assign unused_n = ^pl_n[EW-1:PRW];
+      end
+    end else begin : g_nosrcn
+      logic unused_n;
+      assign unused_n = ^pl_n;
+    end
     if (q < N_ALU) begin : g_now
       localparam int B = alu_row_base(q);
       assign mx_issued[B +: ROWS] = iss_o;
