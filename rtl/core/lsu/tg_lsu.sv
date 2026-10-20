@@ -27,14 +27,15 @@ module tg_lsu
   input  logic                         rst,
   output logic                         ready,         // the D$ state is swept after reset
   input  logic                         flush,
+  input  tid_t                         flush_tid,
   // Dispatch
   input  logic                         ds_fire,
   input  logic [DISPATCH_WIDTH-1:0]    ds_valid,
   input  uop_t [DISPATCH_WIDTH-1:0]    ds_uop,
   input  ren_t [DISPATCH_WIDTH-1:0]    ds_ren,
-  output lqid_t                        lq_head_o,
-  output sqid_t                        sq_head_o,
-  output sqid_t                        sq_cmt_o,
+  output lqid_t [NUM_THREADS-1:0]      lq_head_o,     // each thread's
+  output sqid_t [NUM_THREADS-1:0]      sq_head_o,
+  output sqid_t [NUM_THREADS-1:0]      sq_cmt_o,
   // Address generation from tg_exec (EX of the LD and STA ports)
   input  logic                         ld_ag_valid,
   input  iq_pl_t                       ld_ag_pl,
@@ -86,6 +87,7 @@ module tg_lsu
   output robid_t [1:0]                 sth_rob,
   // From the ROB / commit
   input  robid_t                       rob_head,
+  input  tid_t                         cm_tid,        // the commit group's thread
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nld,  // loads retiring this cycle
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_nst,  // stores retiring this cycle
   input  sqid_t [COMMIT_WIDTH-1:0]     tr_sq,          // trace: committed stores' fields
@@ -280,7 +282,16 @@ module tg_lsu
   // has none (lq_wany_q), for any install or the miss side going idle
   logic   [LQ_ENTRIES-1:0]           lq_wany_q;
   logic   [LQ_ENTRIES-1:0][idx_w(DC_MSHRS)-1:0] lq_we_q;
-  lqid_t                             lq_head_q, lq_tail_q;
+  // Per thread (M7's step 3, docs/spec/threading.md): the LQ's and SQ's pointers. Dispatch moves its group's thread's
+  // tails (t_ds), commit its thread's LQ head and SQ commit pointer (t_cm), and a flush recovers its thread's (t_fl).
+  // The drain, the replays, the searches and the head checks serve the running thread (t_ls) until step 4.
+  localparam int NT = NUM_THREADS;
+  tid_t t_ds, t_cm, t_fl, t_ls;
+  assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
+  assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
+  assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
+  assign t_ls = RUN_TID;
+  lqid_t  [NT-1:0]                   lq_head_q, lq_tail_q;
 
   // ---- SQ ----
   logic   [SQ_ENTRIES-1:0]           sq_v_q;
@@ -315,15 +326,15 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_fp_q;      // the data is an f register (EXT_FD)
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
   logic   [SQ_ENTRIES-1:0]           sq_amw_q;     // ... the atomic wrote memory (trace)
-  sqid_t                             sq_head_q, sq_cmt_q, sq_tail_q;
-  logic   [SQ_ENTRIES-1:0]           sq_hge_q;     // the head's mask: slot i at or after its slot
+  sqid_t  [NT-1:0]                   sq_head_q, sq_cmt_q, sq_tail_q;
+  logic   [SQ_ENTRIES-1:0]           sq_hge_q;     // the head's mask (t_ls's): slot i at or after its slot
 
   assign lq_head_o = lq_head_q;
   logic [LIW-1:0] hl;                             // the LQ head's slot
-  assign hl = lq_head_q[LIW-1:0];
+  assign hl = lq_head_q[t_ls][LIW-1:0];
   assign sq_head_o = sq_head_q;
   assign sq_cmt_o  = sq_cmt_q;
-  assign sq_drained = sq_head_q == sq_cmt_q;
+  assign sq_drained = sq_head_q[t_ls] == sq_cmt_q[t_ls];
 
   function automatic logic [LIW-1:0] lqi(input lqid_t p);
     /* verilator lint_off UNUSEDSIGNAL */  // the wrap bit is not part of the index
@@ -492,7 +503,7 @@ module tg_lsu
   logic             rp_any;
   logic [LIW-1:0]   rp_idx;
   assign rp_any = |rp_ready;
-  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q));
+  assign rp_idx = lq_oldest_c(rp_ready, lqi(lq_head_q[t_ls]));
 
   // ---- DTLB: LD port, STA port, the ROB head ----
   logic xl_d;                                   // data accesses translate
@@ -620,7 +631,7 @@ module tg_lsu
   always_comb begin
     for (int i = 0; i < SQ_ENTRIES; i++) begin
       logic early;
-      early    = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q, f_lim) &&
+      early    = sq_v_q[i] && sq_av_q[i] && !sq_mmio_q[i] && !sq_amo_q[i] && sq_inwin(i, sq_head_q[t_ls], f_lim) &&
                  |(sq_mask_q[i] & m1_mask);
       fc_sq[i] = {sq_pa_q[i][PA_W-1:3], early} == {m1pa[PA_W-1:3], 1'b1};
     end
@@ -672,7 +683,7 @@ module tg_lsu
     for (int i = 0; i < SQ_ENTRIES; i++) if (m2_foh_q[i]) m2_fidx |= SIW'(i);
   end
   sqid_t             m2_fid;
-  assign m2_fid = sq_id(int'(m2_fidx), sq_head_q);
+  assign m2_fid = sq_id(int'(m2_fidx), sq_head_q[t_ls]);
   // The forwarded data, read in M2 at the forwarding store's index (timing: the M1 search ends at
   // m2_foh_q). Data that was in at M1 (m2_fdat_q) does not change; data captured since is not used.
   assign sqsz_ra[TRP] = m2_fidx;
@@ -744,9 +755,9 @@ module tg_lsu
 
   // Drain: the SQ head once committed
   logic [SIW-1:0] dh;
-  assign dh = sq_head_q[SIW-1:0];
+  assign dh = sq_head_q[t_ls][SIW-1:0];
   logic dr_v, dr_amo;
-  assign dr_v   = sq_v_q[dh] && sq_head_q != sq_cmt_q;
+  assign dr_v   = sq_v_q[dh] && sq_head_q[t_ls] != sq_cmt_q[t_ls];
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
@@ -833,7 +844,7 @@ module tg_lsu
   assign am_lr    = am_op_q == AMO_LR;
   assign am_sc    = am_op_q == AMO_SC;
   assign am_go    = am_v_q && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
-                    sq_head_q == am_sq_q && rob_head == am_rob_q && !(s2_v_q && s2_idx_q == dh) && !flush;
+                    sq_head_q[t_ls] == am_sq_q && rob_head == am_rob_q && !(s2_v_q && s2_idx_q == dh) && !flush;
   // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
   // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
   // the atomic's start)
@@ -1035,11 +1046,11 @@ module tg_lsu
     logic [LQ_ENTRIES-1:0] oc;
     for (int i = 0; i < LQ_ENTRIES; i++)
       oc[i] = lq_v_q[i] && lq_pav_q[i] && (lq_st_q[i] == L_DONE || lq_st_q[i] == L_PIPE) &&
-              sq_inwin(int'(sa_idx), sq_head_q, lq_sq_q[i]) &&
+              sq_inwin(int'(sa_idx), sq_head_q[t_ls], lq_sq_q[i]) &&
               lq_pa_q[i][PA_W-1:3] == sa_pa[PA_W-1:3] &&
               |(bmask(lq_pa_q[i][2:0], lq_size_q[i]) & sa_mask);
     rp_v_c  = sa_ok && |oc;
-    rp_ra_c = lq_oldest_c(oc, lqi(lq_head_q));
+    rp_ra_c = lq_oldest_c(oc, lqi(lq_head_q[t_ls]));
 `ifndef SYNTHESIS
     oc_s    = oc;
 `endif
@@ -1059,8 +1070,8 @@ module tg_lsu
     if (rs_q && !rst && !flush && rp_v_c && ld_ag_valid)
       assert (ld_ag_pl.lq[LIW-1:0] != rp_ra_c) else $error("tg_lsu: an AG load writes a replayed load's LQ entry");
   always_ff @(posedge clk) begin    // the carry-chain selects against the reference (same values)
-    assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q))) else $error("tg_lsu: the ordering check's oldest select differs");
-    assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q))) else $error("tg_lsu: the replay pick differs");
+    assert (rp_ra_c == lq_oldest(oc_s, lqi(lq_head_q[t_ls]))) else $error("tg_lsu: the ordering check's oldest select differs");
+    assert (rp_idx == lq_oldest(rp_ready, lqi(lq_head_q[t_ls]))) else $error("tg_lsu: the replay pick differs");
   end
 `endif
   assign lqr_ra[0]    = rp_ra_q;
@@ -1110,9 +1121,9 @@ module tg_lsu
   logic           hd_ld, hd_st, hd_need, hd_tok, hdf_q;
   logic [3:0]     hdc_q;
   acc_e           hd_at;
-  assign hs       = sq_cmt_q[SIW-1:0];
+  assign hs       = sq_cmt_q[t_ls][SIW-1:0];
   assign hd_ld    = lq_v_q[hl] && lq_st_q[hl] == L_TLB && lqc_rd[2].rob == rob_head;
-  assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sqrob_rd[1] == rob_head && sq_cmt_q != sq_tail_q;
+  assign hd_st    = sq_v_q[hs] && sq_tlb_q[hs] && sqrob_rd[1] == rob_head && sq_cmt_q[t_ls] != sq_tail_q[t_ls];
   assign hd_va    = hd_ld ? lqc_rd[2].va : sqva_rd[TRP];
   assign hd_at    = (hd_ld || (sq_amo_q[hs] && am_op_q == AMO_LR)) ? ACC_R : ACC_W;
   assign hd_tlb   = hd_ld || hd_st;
@@ -1388,15 +1399,15 @@ module tg_lsu
     end else begin
       // ---- Commit ----
       for (int k = 0; k < COMMIT_WIDTH; k++) begin
-        if (k < int'(cm_nld)) lq_v_q[lqi(lq_add(lq_head_q, k))] <= 1'b0;
+        if (k < int'(cm_nld)) lq_v_q[lqi(lq_add(lq_head_q[t_cm], k))] <= 1'b0;
       end
-      lq_head_q <= lq_add(lq_head_q, int'(cm_nld));
-      sq_cmt_q  <= sq_add(sq_cmt_q, int'(cm_nst));
+      lq_head_q[t_cm] <= lq_add(lq_head_q[t_cm], int'(cm_nld));
+      sq_cmt_q[t_cm]  <= sq_add(sq_cmt_q[t_cm], int'(cm_nst));
 
       // ---- Drain ----
       if (dr_pop) begin
         sq_v_q[dh] <= 1'b0;
-        sq_head_q  <= sq_add(sq_head_q, 1);
+        sq_head_q[t_ls] <= sq_add(sq_head_q[t_ls], 1);
         sq_hge_q   <= (int'(dh) == SQ_ENTRIES - 1) ? '1 : (sq_hge_q & ~(SQ_ENTRIES'(1) << dh));
       end
 
@@ -1579,7 +1590,7 @@ module tg_lsu
                                        lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
             lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
-            if (!sq_live(lq_blk_q[i], sq_head_q, sq_tail_q) || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
+            if (!sq_live(lq_blk_q[i], sq_head_q[t_ls], sq_tail_q[t_ls]) || (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
           end
         end
@@ -1647,18 +1658,18 @@ module tg_lsu
             end
           end
         end
-        lq_tail_q <= lq_add(lq_tail_q, nld_ds());
-        sq_tail_q <= sq_add(sq_tail_q, nst_ds());
+        lq_tail_q[t_ds] <= lq_add(lq_tail_q[t_ds], nld_ds());
+        sq_tail_q[t_ds] <= sq_add(sq_tail_q[t_ds], nst_ds());
       end
 
       // ---- Flush: uncommitted loads and stores go ----
       if (flush) begin
-        lq_v_q    <= '0;
-        lq_tail_q <= lq_head_q;
+        lq_v_q    <= '0;                  // (every entry is t_fl's until the split mode)
+        lq_tail_q[t_fl] <= lq_head_q[t_fl];
         for (int i = 0; i < SQ_ENTRIES; i++) begin
-          if (!sq_inwin(i, sq_head_q, sq_cmt_q)) sq_v_q[i] <= 1'b0;
+          if (!sq_inwin(i, sq_head_q[t_fl], sq_cmt_q[t_fl])) sq_v_q[i] <= 1'b0;
         end
-        sq_tail_q <= sq_cmt_q;
+        sq_tail_q[t_fl] <= sq_cmt_q[t_fl];
         m1_v_q    <= 1'b0;
         m2_v_q    <= 1'b0;
         // A request already out completes on its own; a flushed load's response is dropped.
@@ -1775,7 +1786,7 @@ module tg_lsu
     // above it (fpu-2's Shannon expansion: byp, the store's DTLB lookup and compare, comes last)
     logic byp, s_lo, sel_s;
     assign byp   = sn_v && !sa_mis && !sa_pf && !sa_tm && !flush && !sa_mmio && !sa_amo &&
-                   sq_inwin(int'(sa_idx), sq_head_q, f_lim) &&
+                   sq_inwin(int'(sa_idx), sq_head_q[t_ls], f_lim) &&
                    sa_pa[PA_W-1:3] == m1pa[PA_W-1:3] && |(sa_mask & m1_mask);
     assign s_lo  = sa_idx < f_lim[SIW-1:0];
     // The M1 store is the youngest when no candidate is younger: fc_w has no bit at or above the
@@ -1876,7 +1887,7 @@ module tg_lsu
   logic unused;
   assign unused = ^{lm_ans_v, lm_ans_wait, lm_ans_e, m_done, m_wake_any, mshr_idle,  // DR-149's (one is read per DC_MSHRS)
                     ld_ag_pl, sta_ag_pl, mmio_d_i.opcode, mmio_d_i.param, mmio_d_i.size,
-                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q, x_lq_q, pw_ack[0], pw_who[2],
+                    mmio_d_i.source, mmio_d_i.sink, lq_tail_q[t_ls], x_lq_q, pw_ack[0], pw_who[2],
                     pmp_hit_ld, pmp_rwx_ld};
 
 `ifndef SYNTHESIS
@@ -1887,14 +1898,14 @@ module tg_lsu
       assert (!(am_req && am_ack && cap_v)) else $error("tg_lsu: atomic and data capture write together");
       if (rs_q)                     // two registers: from the first reset on (the SoC's core reset is a register)
         for (int i = 0; i < SQ_ENTRIES; i++)
-          assert (sq_hge_q[i] == (i >= int'(sq_head_q[SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
+          assert (sq_hge_q[i] == (i >= int'(sq_head_q[t_ls][SIW-1:0]))) else $error("tg_lsu: the SQ head's mask is stale");
       // ext_al and the head-port reads rest on these
       if (m2_v_q && !m2_pt_q)
         assert (!misal(m2_pa_q[2:0], lq_size_q[m2_lq_q])) else $error("tg_lsu: a misaligned load at M2");
       if (xs_q == X_WAIT && !x_st_q && mmio_d_valid_i)
         assert (!misal(x_pa_q[2:0], x_size_q)) else $error("tg_lsu: a misaligned MMIO load");
       if (am_st_q == AM_REQ || am_st_q == AM_RES)
-        assert (sq_head_q == am_sq_q && sq_cmt_q == am_sq_q && !misal(am_pa[2:0], am_size))
+        assert (sq_head_q[t_ls] == am_sq_q && sq_cmt_q[t_ls] == am_sq_q && !misal(am_pa[2:0], am_size))
           else $error("tg_lsu: an atomic that is not the SQ head and commit point, or misaligned");
     end
   end
@@ -1930,6 +1941,6 @@ module tg_lsu
         else $error("tg_lsu: the store-data capture's one-hot choices differ from sq_oldest's");
 `endif
   // Board debug (tg_core's dbg_o): the atomic's state, the SQ head's flags, the D$'s word
-  assign dbg_o = {dc_dbg, sq_head_q != sq_tail_q, sq_dr_q[dh], sq_dv_q[dh], sq_av_q[dh], sq_v_q[dh],
+  assign dbg_o = {dc_dbg, sq_head_q[t_ls] != sq_tail_q[t_ls], sq_dr_q[dh], sq_dv_q[dh], sq_av_q[dh], sq_v_q[dh],
                   am_v_q, 2'(am_st_q)};
 endmodule

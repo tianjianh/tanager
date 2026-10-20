@@ -264,19 +264,13 @@ module tg_core
   end
 
   // ---- Rename and dispatch ----
+  // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
+  // serve the running thread (rob_head) until step 4
   robid_t rob_head;
-  lqid_t  lq_head;
-  sqid_t  sq_head, sq_cmt;
-  // Per thread (M7's step 3): the ROB's heads and rename's tails; the LSU takes the running thread's head (its own
-  // pointers are one set until its part of step 3: every thread sees them, which is exact with one thread in the
-  // window)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
   assign rob_head   = rob_head_t[RUN_TID];
-  assign lq_head_t  = {NUM_THREADS{lq_head}};
-  assign sq_head_t  = {NUM_THREADS{sq_head}};
-  assign sq_cmt_t   = {NUM_THREADS{sq_cmt}};
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
@@ -463,8 +457,8 @@ module tg_core
   logic [3:0]          hd_cause;
   logic [63:0]         hd_lva, hd_sva;
   tg_lsu u_lsu (
-    .clk, .rst, .ready(lsu_ready), .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
-    .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
+    .clk, .rst, .ready(lsu_ready), .flush, .flush_tid, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
@@ -472,7 +466,8 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
+    .replay_valid, .replay_rob, .rob_head, .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
