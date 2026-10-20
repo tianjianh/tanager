@@ -11,6 +11,8 @@ thread's IPC over its program's first run, the shorter program restarted so both
   python3 scripts/m7_smt.py --fp        # D3: FP-heavy pairs with per-thread free lists
   python3 scripts/m7_smt.py --lone      # D2: a lone thread with its sibling asleep: halves, merged, transitions
   python3 scripts/m7_smt.py --pair      # exit 2 blind on verif-2's pair runner: its programs, barrier and restarts
+  python3 scripts/m7_smt.py --homes     # D4's alternatives for hart 1's register homes: a lone hart and pairs
+  python3 scripts/m7_smt.py --calib     # the runner's programs alone against verif-2's RTL alone runs
 Results -> results/m7_smt_rv64gc.json (each section keeps the others' earlier results).
 """
 import argparse
@@ -717,6 +719,102 @@ def pairrun(workers):
     return out
 
 
+RTL_ALONE = Path(os.environ.get("TG_RTL_ALONE", str(PAIRDIR / "ws-alone-rtl-1020.json")))   # on the same ELFs
+CALIB = {"rtl_m2 revision 7": {},
+         "the RTL's ownership prefetch (an entry while another stays free)": {"rfo_pf_reserve": 1},
+         "the same, at most 3 in flight (STORE_PF_MAX)": {"rfo_pf_reserve": 1, "rfo_pf_max": 3}}
+
+
+def calib(workers):
+    """The pair runner's programs alone, against verif-2's RTL alone runs (TG_RTL_ALONE, run on TG_PAIRDIR's ELFs):
+    IPC over the first region at 30, 120 and 250 cycles, for revision 7's ownership prefetch (an L1D miss entry only
+    while 2 others stay free) and the RTL's (DR-171: while 1 stays free, at most 3 in flight)."""
+    names = pair_workloads()
+    progs = [w[:-3] for w in names if w.endswith(".s0")]
+    run_all([(PRESET, {**CORE, **v, "dram_lat": lat}, f"{p}.s0", None) for v in CALIB.values() for lat in LATS
+             for p in progs], workers)
+    rtl = json.loads(RTL_ALONE.read_text())["alone"]
+    out = {}
+    print("\n**Alone against the RTL** (model IPC / RTL IPC − 1 over the first region; 30 / 120 / 250 cycles)\n")
+    print("| Program | RTL IPC | " + " | ".join(CALIB) + " |\n|---|---|" + "---|" * len(CALIB))
+    for p in progs:
+        out[p] = {n: [ipc1(run7(PRESET, {**CORE, **v, "dram_lat": lat}, f"{p}.s0", None)) /
+                      rtl[f"{p}@s0@{lat}"]["ipc"] - 1 for lat in LATS] for n, v in CALIB.items()}
+        print(f"| {p} | " + " / ".join(f"{rtl[f'{p}@s0@{lat}']['ipc']:.3f}" for lat in LATS) + " | " +
+              " | ".join(" / ".join(f"{x:+.1%}" for x in out[p][n]) for n in CALIB) + " |")
+    return out
+
+
+HOME_BASE = {**BASE7, "smt_mix": 0, **D3R}   # §13.10's step 7: 75% caps never a whole bank, one thread a group, D3
+HOMES = {"D4 as planned (hart t's x1-x31 in bank t)": {},
+         "(a) every integer home in B0, ALU ops steering around it": {"prf_homes": 1, "prf_steer": 1},
+         "(a) every integer home in B0, no steering": {"prf_homes": 1},
+         "(b) hart 1's x1-x16 in B1, x17-x31 in B2": {"prf_homes": 2}}
+HOMES_PAIRS = ["D4 as planned (hart t's x1-x31 in bank t)", "(a) every integer home in B0, ALU ops steering around it",
+               "(b) hart 1's x1-x16 in B1, x17-x31 in B2"]
+
+
+def homes(workers):
+    """D4's alternatives (core-2): where hart 1's integer registers live at reset. A lone hart (its sibling asleep, its
+    homes held) over the suite against today's one-hart core, and pairs (the 42's WS, deadlocks over the 87) against
+    D4 as planned, on §13.10's step-7 configuration with D3 as revised. FP homes as planned (F1 at 96)."""
+    extra = WS_PAIRS + FP_PAIRS + RESTORE_PAIRS
+    suite = [w["name"] for w in tgrun.manifest(ISA)] + ["tk_dgemm"] + RESTORE
+    jobs = [(PRESET, {**HOME_BASE, **HOMES[n], "dram_lat": lat}, a, b) for n in HOMES_PAIRS for lat in LATS
+            for _, a, b in smt.PAIRS + extra]
+    jobs += [(PRESET, {**single(HOME_BASE), **v, "dram_lat": lat}, w, None) for v in HOMES.values() for lat in LATS
+             for w in suite]
+    jobs += [(PRESET, {**single(BASE7), "dram_lat": lat}, w, None) for lat in LATS for w in suite]
+    run_all(jobs, workers)
+    out = {"lone": {}, "pairs": {}}
+    print("\n**A lone hart** (its sibling asleep with its registers at their homes; IPC against today's one-hart core; "
+          "30 / 120 / 250 cycles)\n")
+    print("| Homes | Suite | Largest losses at 120 | Deadlocks | Transfers a kilo-instruction |\n|---|---|---|---|---|")
+    for n, v in HOMES.items():
+        row = {"geo": [], "dead": set(), "xpki": [], "worst": []}
+        for lat in LATS:
+            b = {w: ipc1(run7(PRESET, {**single(BASE7), "dram_lat": lat}, w, None)) for w in suite}
+            rs = {w: run7(PRESET, {**single(HOME_BASE), **v, "dram_lat": lat}, w, None) for w in suite}
+            ch = {w: ipc1(r) / b[w] - 1 for w, r in rs.items() if ipc1(r) and b.get(w)}
+            row["geo"].append(smt.gm(1 + c for c in ch.values()) - 1)
+            row["dead"] |= {w for w, r in rs.items() if dead(r)}
+            xf = sum(r["region"].get("prf_xfers", 0) for r in rs.values() if not r.get("error"))
+            ins = sum(r["region"]["instr"] for r in rs.values() if not r.get("error"))
+            row["xpki"].append(xf * 1000.0 / max(1, ins))
+            if lat == 120:
+                row["worst"] = sorted(ch.items(), key=lambda kv: kv[1])[:3]
+                row["all_120"] = ch
+        out["lone"][n] = {**row, "dead": sorted(row["dead"])}
+        print(f"| {n} | " + " / ".join(f"{g:+.2%}" for g in row["geo"]) + " | " +
+              ", ".join(f"{w} {c:+.1%}" for w, c in row["worst"]) + " | " + (", ".join(sorted(row["dead"])) or "none") +
+              " | " + " / ".join(f"{x:.2f}" for x in row["xpki"]) + " |")
+    print("\n**Pairs** (WS over the 42 against one program on today's core; deadlocks over the 87; 30 / 120 / 250 "
+          "cycles)\n")
+    print("| Homes | WS | Against D4 as planned | memory + memory | compute + compute | mixed | Deadlocked pairs |\n"
+          "|---|---|---|---|---|---|---|")
+    base_ws = {}
+    for n in HOMES_PAIRS:
+        row = {"ws": [], "groups": [], "dead": []}
+        for lat in LATS:
+            e = evaluate7({**HOME_BASE, **HOMES[n]}, lat, alone(BASE7, lat))
+            row["ws"].append(e["ws"])
+            row["groups"].append(e["groups"])
+            row["dead"].append([smt.pname(a, b) for _, a, b in smt.PAIRS + extra
+                                if dead(run7(PRESET, {**HOME_BASE, **HOMES[n], "dram_lat": lat}, a, b))])
+            if n == HOMES_PAIRS[0]:
+                base_ws[lat] = e["ws"]
+        out["pairs"][n] = row
+        print(f"| {n} | " + " / ".join(f"{x:.3f}" for x in row["ws"]) + " | " +
+              " / ".join(f"{x / base_ws[lat] - 1:+.1%}" for x, lat in zip(row["ws"], LATS)) + " | " +
+              " | ".join(" / ".join(f"{g[k]['ws']:.3f}" for g in row["groups"]) for k in GROUPS) + " | " +
+              " / ".join(str(len(d)) for d in row["dead"]) + " |")
+    for n in HOMES_PAIRS:
+        for lat, dl in zip(LATS, out["pairs"][n]["dead"]):
+            if dl:
+                print(f"- {n}, {lat} cycles: {', '.join(dl)}")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", action="store_true")
@@ -728,12 +826,15 @@ def main():
     ap.add_argument("--groups", action="store_true", help="mixed decode/rename/commit groups against one a thread")
     ap.add_argument("--d3rev", action="store_true", help="per-hart free lists with transfers against shared + walk")
     ap.add_argument("--pair", action="store_true", help="exit 2 blind on verif-2's pair runner (TG_PAIRDIR)")
+    ap.add_argument("--homes", action="store_true", help="D4's alternatives: where hart 1's registers live at reset")
+    ap.add_argument("--calib", action="store_true", help="the runner's programs alone against verif-2's RTL alone runs")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
-                     ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun)):
+                     ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
+                     ("homes", homes), ("calib", calib)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

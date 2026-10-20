@@ -83467,5 +83467,405 @@
     }
    }
   }
+ },
+ "homes": {
+  "lone": {
+   "D4 as planned (hart t's x1-x31 in bank t)": {
+    "geo": [
+     -0.002142042302964997,
+     -0.002860729175325094,
+     -0.0016898986943519878
+    ],
+    "dead": [],
+    "xpki": [
+     0.0016317842435008044,
+     0.0016672578140116915,
+     0.0016672578140116915
+    ],
+    "worst": [
+     [
+      "ms_chase8f16",
+      -0.08584401584012846
+     ],
+     [
+      "embench_cubic",
+      -0.0054480885640574295
+     ],
+     [
+      "ms_hashprobe",
+      -0.004443194636538528
+     ]
+    ],
+    "all_120": {
+     "coremark_A": -0.0021756304849371855,
+     "coremark_B": 1.0367421414914091e-05,
+     "dhrystone": 0.0,
+     "embench_aha-mont64": -8.538841911320816e-07,
+     "embench_crc32": 0.0,
+     "embench_cubic": -0.0054480885640574295,
+     "embench_edn": 1.6209574106529345e-05,
+     "embench_huffbench": 0.0,
+     "embench_matmult-int": 0.0,
+     "embench_minver": 0.0,
+     "embench_nbody": 0.0,
+     "embench_nettle-aes": -3.203164227050248e-05,
+     "embench_nettle-sha256": 0.0,
+     "embench_nsichneu": 0.0,
+     "embench_picojpeg": 0.0,
+     "embench_qrduino": -1.5807321397387497e-06,
+     "embench_sglib-combined": 0.0,
+     "embench_slre": 0.0,
+     "embench_st": -0.0012662086430462738,
+     "embench_statemate": 0.0,
+     "embench_ud": 0.0,
+     "embench_wikisort": 4.303562542862238e-05,
+     "ms_chase1": 0.0,
+     "ms_chase8": 0.0,
+     "ms_chase8f16": -0.08584401584012846,
+     "ms_chase16": 0.0,
+     "ms_stream": 0.0,
+     "ms_hashprobe": -0.004443194636538528,
+     "ms_spmv": 0.0,
+     "ms_bsearch": -4.828360253539277e-05,
+     "ms_copy": 0.0,
+     "ms_stride": 0.0,
+     "ms_gather": -4.11658885335342e-06,
+     "tk_dgemm": -1.4319723629085956e-06,
+     "m7_fprestore": 0.0,
+     "m7_fprestore2": 0.0
+    }
+   },
+   "(a) every integer home in B0, ALU ops steering around it": {
+    "geo": [
+     -0.021441940009097604,
+     -0.012612839351291205,
+     -0.011998612945106402
+    ],
+    "dead": [],
+    "xpki": [
+     0.0011706278268592727,
+     0.0015371880554717722,
+     0.0015253635319681432
+    ],
+    "worst": [
+     [
+      "ms_gather",
+      -0.2478509458315381
+     ],
+     [
+      "embench_crc32",
+      -0.11310423372643297
+     ],
+     [
+      "ms_stride",
+      -0.05030667610285444
+     ]
+    ],
+    "all_120": {
+     "coremark_A": -0.0006505106949429296,
+     "coremark_B": 7.610628761489657e-05,
+     "dhrystone": 0.0,
+     "embench_aha-mont64": 0.0,
+     "embench_crc32": -0.11310423372643297,
+     "embench_cubic": 2.535633925027092e-05,
+     "embench_edn": 0.0,
+     "embench_huffbench": 0.0,
+     "embench_matmult-int": 0.0,
+     "embench_minver": 0.0,
+     "embench_nbody": 0.0,
+     "embench_nettle-aes": 0.0,
+     "embench_nettle-sha256": -1.0320119796514149e-06,
+     "embench_nsichneu": 0.0,
+     "embench_picojpeg": 0.0,
+     "embench_qrduino": 3.951838156712739e-07,
+     "embench_sglib-combined": 0.0,
+     "embench_slre": 0.0,
+     "embench_st": -2.3477485091683015e-05,
+     "embench_statemate": 0.0,
+     "embench_ud": 0.0,
+     "embench_wikisort": 7.531477541400378e-05,
+     "ms_chase1": 0.0,
+     "ms_chase8": 0.0,
+     "ms_chase8f16": -0.0004438273567920481,
+     "ms_chase16": 0.0,
+     "ms_stream": -6.340036828866857e-08,
+     "ms_hashprobe": -0.00048526565733963967,
+     "ms_spmv": -3.8950753264210825e-05,
+     "ms_bsearch": 0.0009824378429916791,
+     "ms_copy": -1.3731533154981435e-07,
+     "ms_stride": -0.05030667610285444,
+     "ms_gather": -0.2478509458315381,
+     "tk_dgemm": -7.159866941552906e-07,
+     "m7_fprestore": 0.0,
+     "m7_fprestore2": 0.0
+    }
+   },
+   "(a) every integer home in B0, no steering": {
+    "geo": [
+     -5.036192793206329e-05,
+     -1.6285288183648383e-05,
+     -8.23586764708839e-06
+    ],
+    "dead": [
+     "coremark_A",
+     "coremark_B",
+     "dhrystone",
+     "embench_aha-mont64",
+     "embench_crc32",
+     "embench_cubic",
+     "embench_edn",
+     "embench_huffbench",
+     "embench_matmult-int",
+     "embench_minver",
+     "embench_nbody",
+     "embench_nettle-aes",
+     "embench_nettle-sha256",
+     "embench_nsichneu",
+     "embench_picojpeg",
+     "embench_qrduino",
+     "embench_sglib-combined",
+     "embench_slre",
+     "embench_st",
+     "embench_statemate",
+     "embench_ud",
+     "embench_wikisort",
+     "m7_fprestore",
+     "m7_fprestore2",
+     "ms_bsearch",
+     "ms_chase1",
+     "ms_chase8",
+     "ms_chase8f16",
+     "ms_copy",
+     "ms_gather",
+     "ms_hashprobe",
+     "ms_spmv",
+     "ms_stream",
+     "ms_stride",
+     "tk_dgemm"
+    ],
+    "xpki": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "worst": [
+     [
+      "ms_chase16",
+      -1.6285288183648383e-05
+     ]
+    ],
+    "all_120": {
+     "ms_chase16": -1.6285288183648383e-05
+    }
+   },
+   "(b) hart 1's x1-x16 in B1, x17-x31 in B2": {
+    "geo": [
+     0.00046248377775603977,
+     -5.860092061937827e-06,
+     -4.8504788952019595e-06
+    ],
+    "dead": [],
+    "xpki": [
+     0.0017736785255443525,
+     0.0019155728075879008,
+     0.0019037482840842718
+    ],
+    "worst": [
+     [
+      "embench_cubic",
+      -0.00012235382300584963
+     ],
+     [
+      "ms_hashprobe",
+      -8.582003282942008e-05
+     ],
+     [
+      "embench_picojpeg",
+      -1.4366515675989788e-06
+     ]
+    ],
+    "all_120": {
+     "coremark_A": 0.0,
+     "coremark_B": 0.0,
+     "dhrystone": 0.0,
+     "embench_aha-mont64": 0.0,
+     "embench_crc32": 0.0,
+     "embench_cubic": -0.00012235382300584963,
+     "embench_edn": 0.0,
+     "embench_huffbench": 0.0,
+     "embench_matmult-int": 0.0,
+     "embench_minver": 0.0,
+     "embench_nbody": 0.0,
+     "embench_nettle-aes": 0.0,
+     "embench_nettle-sha256": 0.0,
+     "embench_nsichneu": 0.0,
+     "embench_picojpeg": -1.4366515675989788e-06,
+     "embench_qrduino": 0.0,
+     "embench_sglib-combined": 0.0,
+     "embench_slre": 0.0,
+     "embench_st": 0.0,
+     "embench_statemate": 0.0,
+     "embench_ud": 0.0,
+     "embench_wikisort": 0.0,
+     "ms_chase1": 0.0,
+     "ms_chase8": 0.0,
+     "ms_chase8f16": -6.262681930824243e-07,
+     "ms_chase16": 0.0,
+     "ms_stream": 0.0,
+     "ms_hashprobe": -8.582003282942008e-05,
+     "ms_spmv": 0.0,
+     "ms_bsearch": 0.0,
+     "ms_copy": 0.0,
+     "ms_stride": 0.0,
+     "ms_gather": 0.0,
+     "tk_dgemm": -7.159866941552906e-07,
+     "m7_fprestore": 0.0,
+     "m7_fprestore2": 0.0
+    }
+   }
+  },
+  "pairs": {
+   "D4 as planned (hart t's x1-x31 in bank t)": {
+    "ws": [
+     1.3032310989202085,
+     1.3406939112470364,
+     1.336208962149135
+    ],
+    "groups": [
+     {
+      "mem+mem": {
+       "ws": 1.2507945771654791
+      },
+      "compute+compute": {
+       "ws": 1.2589529397720165
+      },
+      "mixed": {
+       "ws": 1.4056228837459463
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.2559043456559427
+      },
+      "compute+compute": {
+       "ws": 1.258260050175865
+      },
+      "mixed": {
+       "ws": 1.524972246887095
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.239172421314593
+      },
+      "compute+compute": {
+       "ws": 1.261295538463035
+      },
+      "mixed": {
+       "ws": 1.5264217373595987
+      }
+     }
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "(a) every integer home in B0, ALU ops steering around it": {
+    "ws": [
+     1.2979774709806975,
+     1.3381005795738103,
+     1.3366304061885674
+    ],
+    "groups": [
+     {
+      "mem+mem": {
+       "ws": 1.2434535080423317
+      },
+      "compute+compute": {
+       "ws": 1.2584751118117283
+      },
+      "mixed": {
+       "ws": 1.3974210480796339
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.251363670310463
+      },
+      "compute+compute": {
+       "ws": 1.2572392929008445
+      },
+      "mixed": {
+       "ws": 1.5228768625024949
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.235400367568445
+      },
+      "compute+compute": {
+       "ws": 1.2651398061722894
+      },
+      "mixed": {
+       "ws": 1.5278747807762767
+      }
+     }
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "(b) hart 1's x1-x16 in B1, x17-x31 in B2": {
+    "ws": [
+     1.3026301321987712,
+     1.3407155309848022,
+     1.3368606724440715
+    ],
+    "groups": [
+     {
+      "mem+mem": {
+       "ws": 1.2501337262140793
+      },
+      "compute+compute": {
+       "ws": 1.257687221013646
+      },
+      "mixed": {
+       "ws": 1.4058346391903207
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.2561522171875552
+      },
+      "compute+compute": {
+       "ws": 1.2579653631523138
+      },
+      "mixed": {
+       "ws": 1.5251022729144053
+      }
+     },
+     {
+      "mem+mem": {
+       "ws": 1.2395527353922535
+      },
+      "compute+compute": {
+       "ws": 1.2617370901192233
+      },
+      "mixed": {
+       "ws": 1.5276524627768386
+      }
+     }
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   }
+  }
  }
 }

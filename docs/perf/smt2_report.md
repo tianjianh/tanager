@@ -776,6 +776,7 @@ python3 scripts/m7_smt.py --exit2 --policy --deadlock --fp --lone   # §13 on rt
 python3 scripts/m7_smt.py --prediction     # §13.2's table from the runs above
 python3 scripts/m7_smt.py --groups --d3rev # §13.8 and §13.9
 python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its ELFs in TG_PAIRDIR)
+python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart 1's register homes
 ```
 
 **Where results live.**
@@ -800,7 +801,7 @@ python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its
 - *M7's policy as planned: static ROB, LQ and SQ halves (D1); ICOUNT at fetch, with decode, rename and commit alternating and sharing idle slots (D7); 75% issue-queue caps; TID-hashed predictors;*
 - *a committed store that finds no free L1D miss entry takes the next one ahead of load misses (D8, §13.4).*
 
-*The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
+*The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10); `prf_homes` (§13.11), and `rfo_pf_reserve` and `rfo_pf_max` for the ownership prefetch's calibration (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
 
 ### 13.1 Summary
 
@@ -814,6 +815,7 @@ python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
+| D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
 
 ### 13.2 Exit 2: the blind prediction
@@ -1258,6 +1260,33 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 
 **How close the RTL should land:** as §13.2 says, within about ±0.05 on WS and more likely below; alone, within 2–6% on CoreMark and Dhrystone and about 14% on the memory kernels.
 
+**Measured: verif-2's RTL alone runs** (10-20 01:05: the smt2 build of main 75cd80ca, hart 1 never fetching, lockstep on; the same ELFs as the table above). Model against RTL, IPC over the first region at 30 / 120 / 250 cycles:
+
+| Program | RTL | Model | Model / RTL − 1 | With the RTL's ownership-prefetch rule |
+|---|---|---|---|---|
+| ms_gather | 0.532 / 0.213 / 0.114 | 0.534 / 0.214 / 0.115 | +0.3% / +0.5% / +0.5% | unchanged |
+| ms_stride | 0.516 / 0.174 / 0.089 | 0.484 / 0.171 / 0.088 | −6.1% / −2.0% / −0.7% | unchanged |
+| ms_spmv | 0.711 / 0.243 / 0.125 | 0.737 / 0.246 / 0.126 | +3.6% / +1.4% / +0.7% | unchanged |
+| ms_hashprobe | 0.418 / 0.241 / 0.147 | 0.351 / 0.176 / 0.102 | **−16.0% / −26.9% / −30.5%** | unchanged |
+| ms_chase8 | 0.116 / 0.038 / 0.019 | 0.116 / 0.038 / 0.019 | 0.0% / 0.0% / 0.0% | unchanged |
+| ms_stream | 1.290 / 0.628 / 0.336 | 1.590 / 0.597 / 0.315 | **+23.3%** / −4.9% / −6.3% | +24.0% / +3.7% / +3.1% |
+| ms_copy | 0.524 / 0.230 / 0.124 | 0.543 / 0.176 / 0.092 | +3.6% / **−23.3% / −25.9%** | +24.7% / +3.9% / +2.0% |
+| coremark_A | 1.485 / 1.470 / 1.441 | 1.511 / 1.486 / 1.451 | +1.8% / +1.1% / +0.7% | unchanged |
+| dhrystone | 1.439 / 1.436 / 1.432 | 1.456 / 1.452 / 1.445 | +1.2% / +1.1% / +0.9% | unchanged |
+| embench_nsichneu | 1.285 / 1.285 / 1.285 | 1.282 / 1.282 / 1.282 | −0.2% | unchanged |
+| embench_huffbench | 1.137 / 1.134 / 1.132 | 1.206 / 1.205 / 1.205 | +6.0% / +6.3% / +6.4% | unchanged |
+| embench_minver | 1.385 / 1.385 / 1.385 | 1.395 / 1.393 / 1.391 | +0.7% / +0.6% / +0.5% | unchanged |
+| embench_matmult-int | 1.966 / 1.966 / 1.966 | 1.968 / 1.967 / 1.967 | +0.1% / 0.0% / 0.0% | unchanged |
+
+- **The regions agree:** the RTL's instret is 3 below the model's in every program (the shim's counter reads against `tg_pair_mark`'s entry), and the RTL's two slots agree within 0.82%.
+- **10 of 13 match within 6.4%,** 7 of them within 2%. The compute programs read +1.1–1.6% high overall.
+- **Three memory kernels miss the 10% bar:**
+  - **copy and stream at 120 and 250 cycles** (−23 to −26% and −5 to −6%): rtl_m2 revision 7 lets an ownership prefetch take an L1D miss entry only while 2 others stay free. The RTL (DR-171) needs only 1, and caps prefetches at 3. With the RTL's rule (`rfo_pf_reserve` 1; `rfo_pf_max` 3 changes nothing on top), copy comes to +3.9% / +2.0% and stream to +3.7% / +3.1%. Nothing else moves. (That column ran on verif-2's 02:05 rebuild, below, the 01:05 ELFs being gone. On it, revision 7 reads the same for copy and stream within 0.1%, and the rule leaves every other program unchanged.)
+  - **copy and stream at 30 cycles** read about 24% high with that rule: the bandwidth-bound case, where the model likely refills a line faster than the RTL's four beats through the data array's one write port, which the store drain shares. Not yet modelled.
+  - **hashprobe** reads 16–31% low. Its region is loads behind a data-dependent probe loop. The RTL's wrong path most likely issues the next lookups' misses early, a prefetch the model cannot see, since it fetches only the correct path (§11).
+- **What it means for the prediction:** WS divides by the model's own alone IPC, so much cancels. Pairs with copy, stream or hashprobe carry more than ±0.05, though. The ownership-prefetch rule belongs in the model as built (`rtl_m2` revision 8); §13.10's tables are revision 7's.
+- **The ELFs changed at 02:05:** verif-2 added a line to the shim after the first program's region (it names the slot left running, for hangs). The regions grew by 2 instructions, and every program's code moved, which alone shifted the model's minver by about 7%. §13.10's numbers are for the 01:05 builds, the ones these RTL alone runs used. The prediction needs a rerun on the ELFs the step-5 pairs run.
+
 **Per pair** (the runner as built; WS at 30 / 120 / 250 cycles; then each thread's share of its alone IPC at 120 under step 5 + the drain's priority):
 
 | Pair | Group | Step 5 as planned | Step 5 + the drain's priority | Step 7: 75% caps + the drain's priority | 75% never a whole bank + the drain's priority | 50%, last row kept, + the drain's priority | Shares at 120 |
@@ -1329,3 +1358,41 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 - **A pair runner's restart policy is part of the metric.** Restarting with set-up let a memory kernel's sibling spend up to 91% of its time filling arrays, and the runner read up to 0.12 higher than kernel against kernel, the basis the bar was set on.
 - **A barrier modelled as a held commit must also stop dispatch.** Without that, uops behind a serialising CSR read held issue-queue rows, and with no caps the sibling starved: a hang of the model's own making (stride + spmv), gone once nothing dispatches past the marker.
 - **An intermediate build needs its own liveness check.** Step 5 has neither caps nor a bank rule. Its hazards (the drain starved of miss entries, a hart starved of load-queue rows) are not the final M7's, and they are what the first RTL pair runs will meet.
+
+### 13.11 D4's alternatives: where hart 1's integer registers live at reset (10-20)
+
+*core-2 asked, before step 5, whether the lone hart's −0.2% to −0.3% (§13.9; ms_chase8f16 −6.5% to −8.6%) goes away with other homes for hart 1's x1–x31.*
+- *The cause (§13.9): a sleeping hart 1 still holds its 31 integer values at their homes.*
+- *Under D4 as planned they all sit in B1, the bank of ALU1 and of multiply, divide and CSR results. That leaves a lone hart about 32 of B1's 64 entries.*
+
+*Two alternatives (`prf_homes`); FP homes stay as planned (hart 1's f registers in F1, at 96 entries):*
+- *(a) every integer home in B0: x0 at 0, hart 0's x1–x31 at 1–31, hart 1's at 32–62, one entry free at reset. B1 and B2 start empty, and ALU ops steer to ALU1 when B0 has no register on the hart's list (`prf_steer`).*
+- *(b) hart 0's in B0 as today; hart 1's x1–x16 in B1 and x17–x31 in B2, the loads' bank.*
+
+*The base is §13.10's step-7 configuration: 75% caps never a whole bank, one thread a group, and D3 as revised. A lone hart runs over the suite against today's one-hart core. Pairs give the WS over §2.3's 42 and the hangs over §13.9's 87, at 30 / 120 / 250 cycles.*
+
+| Homes | Lone hart, suite | Its largest loss at 120 | Pairs, WS | Against D4 as planned | Hangs (lone; 87 pairs) |
+|---|---|---|---|---|---|
+| D4 as planned (hart t's in bank t) | −0.21% / −0.29% / −0.17% | ms_chase8f16 −8.6% | 1.303 / 1.341 / 1.336 | – | none; 0 |
+| (a) all in B0, ALU ops steering around it | −2.14% / −1.26% / −1.20% | ms_gather −24.8%, embench_crc32 −11.3% | 1.298 / 1.338 / 1.337 | −0.4% / −0.2% / 0.0% | none; 0 |
+| (a) all in B0, no steering | – | – | – | – | 35 of 36 programs |
+| **(b) hart 1's over B1 and B2** | **+0.05% / −0.00% / −0.00%** | **none (−0.0%)** | **1.303 / 1.341 / 1.337** | **0.0%** | **none; 0** |
+
+- **(b) removes the lone hart's loss and costs pairs nothing.**
+  - ms_chase8f16 goes from −8.6% to 0.0%. With hart 1's 16 and 15 registers in B1 and B2, no bank leaves the lone hart fewer than about 47 registers.
+  - Pairs read the same to three decimals, with no hang.
+- **(a) is worse.**
+  - **Without steering it hangs a lone hart at its first ALU op.** B0's one spare register at reset sits on the sleeping hart's list, which a transfer cannot take, since the donor keeps one. Giving that register to hart 0 would fix the start, but not the squeeze.
+  - **With steering it costs a lone hart 1.2–2.1%.** In gather, every ALU op goes to ALU1's queue, which fills: issue-queue stalls go from 0.2% to 22.6% of cycles. Pairs lose 0–0.4%.
+  - The squeeze moves from B1 to B0 rather than going away, because the sleeping hart's 31 registers still sit in one bank.
+- **Cost of (b):**
+  - The reset sequence writes hart 1's homes through two banks' write ports instead of one.
+  - The rename map's and the free lists' reset contents change: B1 starts with 48 free registers and B2 with 49, against 33 and 64 as planned.
+  - Nothing else changes. core-2 to confirm.
+- **Recommendation:** (b).
+
+**Decisions:** none here; D4 is core-2's. The new switches (`prf_homes`; `rfo_pf_reserve` and `rfo_pf_max` for §13.10's calibration check) are mine, and every earlier result is identical with them off.
+
+**Learned:**
+- **Spread a sleeping hart's registers so that no single-writer bank loses much more than a quarter of its entries to them.** One bank holding all 31 left the lone hart about 32 there. Two banks holding 16 and 15 left about 47 each, and the loss vanished.
+- **With per-hart lists, a bank's spare registers at reset belong to the hart that will run.** A spare on the sleeping hart's list is out of reach, because the donor keeps one.

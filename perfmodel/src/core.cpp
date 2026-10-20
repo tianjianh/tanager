@@ -107,12 +107,19 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
   bank_inflight_.assign(bank_size_.size(), 0);
   bank_held_.assign((size_t)nthr_, std::vector<int64_t>(bank_size_.size(), 0));
   // Every thread's architectural registers start out spread over the banks. prf_split (D3, D4): hart t's x1-x31
-  // are in integer bank t and its f0-f31 in F<t>, as M7's reset sequence homes them.
+  // are in integer bank t and its f0-f31 in F<t>, as M7's reset sequence homes them; prf_homes 1 puts both harts'
+  // x1-x31 in B0, 2 hart 1's x1-x16 in B1 and x17-x31 in B2.
   const bool split = c.prf_banked && c.prf_split > 0 && nthr_ <= 2;
+  auto home = [&](int t, int r) -> int {
+    if (!split) return r % 3;
+    if (c.prf_homes == 1) return 0;
+    if (c.prf_homes == 2 && t == 1) return r <= 16 ? 1 : 2;
+    return t;
+  };
   for (auto& Tp : th_) {
     Thread& T = *Tp;
     for (int r = 1; r < 32; r++) {
-      T.arch_bank[r] = c.prf_banked ? (split ? T.tid : r % 3) : 0;
+      T.arch_bank[r] = c.prf_banked ? home(T.tid, r) : 0;
       bank_committed_[T.arch_bank[r]]++;
       bank_held_[(size_t)T.tid][T.arch_bank[r]]++;
     }
@@ -130,10 +137,14 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
   if (split) {
     bank_size_[0]--;   // the zero register
     bank_own_.assign((size_t)nthr_, std::vector<int64_t>(bank_size_.size(), -1));
+    int64_t homes[2][6] = {};   // hart t's architectural registers in bank b at reset
+    for (int t = 0; t < 2; t++) {
+      for (int r = 1; r < 32; r++) homes[t][home(t, r)]++;
+      homes[t][3 + t] += 32;
+    }
     for (size_t b = 0; b < 5; b++) {
       if ((c.prf_split == 2 && b >= 3) || (c.prf_split == 3 && b < 3)) continue;
-      const int64_t home0 = (b == 0 || b == 3) ? (b == 0 ? 31 : 32) : 0;   // hart 0's registers here at reset
-      const int64_t home1 = (b == 1 || b == 4) ? (b == 1 ? 31 : 32) : 0;   // hart 1's
+      const int64_t home0 = homes[0][b], home1 = homes[1][b];
       const int64_t free = bank_size_[b] - home0 - home1;
       for (int t = 0; t < nthr_; t++) bank_own_[(size_t)t][b] = (t == 0 ? home0 + free / 2 : home1 + free - free / 2);
       if (nthr_ == 1) {  // the sleeping sibling's list and the architectural registers it holds at its homes

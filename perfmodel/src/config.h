@@ -123,6 +123,8 @@ namespace tg {
   X(ld_fwd_wait, 3, "cycles from an older store's data to the result of a load waiting to forward it") \
   X(sta_split, 1, "store address issues alone; data captured in the SQ")                           \
   X(rfo_pf, 1, "request ownership when a store address resolves")                                 \
+  X(rfo_pf_reserve, 2, "L1D miss entries an ownership prefetch must leave free (the RTL: 1, DR-171)") \
+  X(rfo_pf_max, 0, "ownership prefetches in flight at most (0 = no cap; the RTL's STORE_PF_MAX is 3)") \
   X(ld_ports, 1, "load pipes")                                                                     \
   /* caches and memory */                                                                          \
   X(l1i_kb, 32, "L1I size KiB")                                                                    \
@@ -162,6 +164,7 @@ namespace tg {
   X(smt_drain_rr, 1, "two threads: the thread whose committed SQ head the D$ store port tries first alternates every cycle (D8; 0 = thread 0 always first)") \
   X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank; 2 = only never all of a bank's rows; 3 = not the bank's last row while the sibling waits on that bank") \
   X(prf_split, 0, "D3: 1 = a free list per thread in each register bank, each bank's free registers halved between the two harts, each hart's architectural registers homed as D4 (hart t's x1-x31 in integer bank t, f0-f31 in F<t>; bank 0 keeps the zero register); 2 = the same for the integer banks, the FP lists shared; with one thread, its own lists (the sibling's architectural registers still held); 3 = the FP banks only, the integer lists shared") \
+  X(prf_homes, 0, "D4 with prf_split: 0 = hart t's x1-x31 at reset in integer bank t; 1 = both harts' in B0 (hart 0's at 1-31, hart 1's at 32-62); 2 = hart 0's in B0, hart 1's x1-x16 in B1 and x17-x31 in B2") \
   X(prf_steer, 0, "D3: rename steers an ALU op away from an ALU whose bank has no free register on the thread's list, to the other ALU when its bank has one") \
   X(prf_xfer, 0, "D3 revised (core-2): with prf_split, a hart that cannot rename for want of a bank's register takes one a cycle from the sibling's list (a sleeping sibling's with one thread); 1 = the donor keeps at least one free, 2 = the donor keeps its architectural registers of that kind plus one in the bank") \
   X(prf_fp_bank, 0, "registers in each FP bank, F0 and F1 (0 = bank_size)") \
