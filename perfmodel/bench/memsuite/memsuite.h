@@ -33,4 +33,13 @@ static inline void *ms_alloc(size_t bytes) {
   return (void *)(((uintptr_t)p + 63) & ~(uintptr_t)63);
 }
 
+/* REPEAT=1 (verif-2's pair runner, smt2_report §13.10): once its region ends, a kernel runs the region's work again
+   until the pair ends, so the sibling's region competes with this kernel and not with its set-up. The runner's
+   finish ends the run; an alone run ends at the region's end. MS_SINK keeps each pass's work live, since nothing
+   reads it after a loop that never ends. Off, every build is as before. */
+#ifndef REPEAT
+#define REPEAT 0
+#endif
+#define MS_SINK(x) __asm__ volatile("" : : "r"(x) : "memory")
+
 #endif

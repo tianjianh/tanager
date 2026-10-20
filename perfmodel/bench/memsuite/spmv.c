@@ -29,6 +29,16 @@ int main(void) {
     y[r] = s;
   }
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (uint32_t r = 0; r < ROWS; r++) {
+      double s = 0;
+      for (uint32_t k = rowp[r]; k < rowp[r + 1]; k++) s += val[k] * x[col[k]];
+      y[r] = s;
+    }
+    MS_SINK(y);
+  }
+#endif
   double sum = 0;
   for (uint32_t r = 0; r < ROWS; r++) sum += y[r];
   printf("spmv rows=%d check=%ld\n", ROWS, (long)sum);

@@ -95,24 +95,65 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     T->iss = T->spec.iss;
     T->synth.resize(4096);
     T->salt = (t > 0 && c.smt_bp_hash) ? SALT1 : 0;
-    T->pa_off = t > 0 ? PA_OFF1 : 0;
+    T->pa_off = (t > 0 && !c.smt_pa_flat) ? PA_OFF1 : 0;
     T->win_base = T->next_id = T->disp_next = ((uint64_t)t << TID_SHIFT) + 1;
     th_.push_back(std::move(T));
   }
   // Banks: B0 (P0), B1 (P1), B2 (loads), F0 (FP pipe), F1 (FP loads), B3 (P5, only used with alu3).
   if (c.prf_banked) bank_size_ = {c.bank_size, c.bank_size, c.bank_size, c.bank_size, c.bank_size, c.bank_size};
   else bank_size_ = {c.prf_int, c.prf_fp};
+  if (c.prf_banked && c.prf_fp_bank > 0) bank_size_[3] = bank_size_[4] = c.prf_fp_bank;
   bank_committed_.assign(bank_size_.size(), 0);
   bank_inflight_.assign(bank_size_.size(), 0);
-  // Every thread's architectural registers start out spread over the banks.
+  bank_held_.assign((size_t)nthr_, std::vector<int64_t>(bank_size_.size(), 0));
+  // Every thread's architectural registers start out spread over the banks. prf_split (D3, D4): hart t's x1-x31
+  // are in integer bank t and its f0-f31 in F<t>, as M7's reset sequence homes them; prf_homes 1 puts both harts'
+  // x1-x31 in B0, 2 hart 1's x1-x16 in B1 and x17-x31 in B2.
+  const bool split = c.prf_banked && c.prf_split > 0 && nthr_ <= 2;
+  auto home = [&](int t, int r) -> int {
+    if (!split) return r % 3;
+    if (c.prf_homes == 1) return 0;
+    if (c.prf_homes == 2 && t == 1) return r <= 16 ? 1 : 2;
+    return t;
+  };
   for (auto& Tp : th_) {
     Thread& T = *Tp;
-    for (int r = 1; r < 32; r++) { T.arch_bank[r] = c.prf_banked ? r % 3 : 0; bank_committed_[T.arch_bank[r]]++; }
+    for (int r = 1; r < 32; r++) {
+      T.arch_bank[r] = c.prf_banked ? home(T.tid, r) : 0;
+      bank_committed_[T.arch_bank[r]]++;
+      bank_held_[(size_t)T.tid][T.arch_bank[r]]++;
+    }
     for (int r = 0; r < 32; r++) {
-      T.arch_bank[32 + r] = c.prf_banked ? 3 + (r % 2) : 1;
+      T.arch_bank[32 + r] = c.prf_banked ? 3 + (split ? T.tid : r % 2) : 1;
       bank_committed_[T.arch_bank[32 + r]]++;
+      bank_held_[(size_t)T.tid][T.arch_bank[32 + r]]++;
     }
     T.arch_bank[0] = -1;
+  }
+  // prf_split: a free list per hart in each bank. Each bank's free registers (less the zero register in bank 0, and
+  // less the sibling's architectural registers, which a sleeping or absent hart 1 still holds) are halved between
+  // the two harts, hart 0 taking the smaller half; a register freed at commit returns to its hart's list, so each
+  // hart's registers per bank stay fixed. prf_split 2 keeps the FP banks' lists shared, 3 the integer banks'.
+  if (split) {
+    bank_size_[0]--;   // the zero register
+    bank_own_.assign((size_t)nthr_, std::vector<int64_t>(bank_size_.size(), -1));
+    int64_t homes[2][6] = {};   // hart t's architectural registers in bank b at reset
+    for (int t = 0; t < 2; t++) {
+      for (int r = 1; r < 32; r++) homes[t][home(t, r)]++;
+      homes[t][3 + t] += 32;
+    }
+    for (size_t b = 0; b < 5; b++) {
+      if ((c.prf_split == 2 && b >= 3) || (c.prf_split == 3 && b < 3)) continue;
+      const int64_t home0 = homes[0][b], home1 = homes[1][b];
+      const int64_t free = bank_size_[b] - home0 - home1;
+      for (int t = 0; t < nthr_; t++) bank_own_[(size_t)t][b] = (t == 0 ? home0 + free / 2 : home1 + free - free / 2);
+      if (nthr_ == 1) {  // the sleeping sibling's list and the architectural registers it holds at its homes
+        sib_own_.resize(bank_size_.size(), 0);
+        sib_held_.resize(bank_size_.size(), 0);
+        sib_own_[b] = home1 + free - free / 2;
+        sib_held_[b] = home1;
+      }
+    }
   }
   if ((int)specs.size() < nthr_ || !th_.back()->iss) err_ = "a program is needed for every thread";
 }
@@ -210,7 +251,9 @@ int64_t Core::iq_cap(uint8_t q) const {
 
 int64_t Core::iq_free(uint8_t q, int tid) const {
   int64_t f = iq_cap(q) - (int64_t)iq_[q].size() - (c_.iq_hold ? held(q, -1) : 0);
-  if (nthr_ > 1 && c_.smt_iq_cap < 100 && q != Q_SERIAL) {
+  // lone_caps (D2): a lone thread is capped while its window is split (1), or always (2)
+  const bool capped = nthr_ > 1 || c_.lone_caps == 2 || (c_.lone_caps == 1 && lone_phase_ != 0);
+  if (capped && c_.smt_iq_cap < 100 && q != Q_SERIAL) {
     const int64_t cap = std::max<int64_t>(1, (iq_cap(q) * c_.smt_iq_cap + 99) / 100);
     f = std::min<int64_t>(f, cap - iq_occ(q, tid));
   }
@@ -243,6 +286,28 @@ int64_t Core::slot_free(uint8_t q, int k) const {
   int64_t n = held(q, k);
   for (uint64_t id : iq_[q]) if (find(id)->dslot == k) n++;
   return (iq_cap(q) - k + w - 1) / w - n;
+}
+
+// smt_iq_cap_bank (M7's D8): whether a thread holds its cap of slot bank k's rows in queue q (rows waiting, or held
+// after their select). The cap of the whole queue alone can leave the sibling's one free row in the other bank.
+bool Core::bank_capped(uint8_t q, int k, int tid) const {
+  if (nthr_ == 1 || !c_.smt_iq_cap_bank || c_.smt_iq_cap >= 100 || q == Q_SERIAL) return false;
+  if (c_.smt_iq_cap_bank == 3) {  // 3: the bank's last row stays free only while the sibling waits on this bank
+    const Thread& S = *th_[(size_t)(1 - tid)];
+    if (!(S.disp_why == DW_IQ && S.disp_why_q == q && S.disp_why_k == k)) return false;
+  }
+  const int64_t w = std::max<int64_t>(1, c_.decode_width);
+  const int64_t rows = (iq_cap(q) - k + w - 1) / w;
+  const int64_t pct = std::max<int64_t>(1, (rows * c_.smt_iq_cap + 99) / 100);
+  // 1: the cap's share of the bank, never all of it; 2 and 3: only never all of it
+  const int64_t cap = std::max<int64_t>(1, c_.smt_iq_cap_bank >= 2 ? rows - 1 : std::min(pct, rows - 1));
+  int64_t n = 0;
+  for (uint64_t id : iq_[q]) {
+    const Uop* u = find(id);
+    if (u->dslot == k && u->tid == tid) n++;
+  }
+  for (const Held& h : held_[q]) n += h.t_free > t_ && h.bank == k && (int)(h.id >> TID_SHIFT) == tid;
+  return n >= cap;
 }
 
 // The rows of IQ-STA's bank that stopped dispatch, by what they wait on: the base register, only the store's data
@@ -347,7 +412,7 @@ int64_t Core::share(int64_t size, int tid) const { return (size + nthr_ - 1 - ti
 
 // Whether a thread holding `own` entries (all threads: `total`) may not take another entry.
 bool Core::window_full(int64_t size, uint64_t own, uint64_t total, int tid) const {
-  if (nthr_ == 1) return (int64_t)own >= size;
+  if (nthr_ == 1) return (int64_t)own >= (lone_phase_ >= 2 ? (size + 1) / 2 : size);  // lone_sleep (D2): split
   if (c_.smt_part) return (int64_t)own >= share(size, tid);
   const int64_t cap = std::max<int64_t>(1, (size * c_.smt_win_cap + 99) / 100);
   return (int64_t)total >= size || (int64_t)own >= cap;
@@ -1024,15 +1089,41 @@ int Core::bank_for(const Uop& u, uint8_t q) const {
   }
 }
 
-int Core::free_regs(int bank) {
-  return (int)(bank_size_[bank] - bank_committed_[bank] - bank_inflight_[bank]);
+int Core::free_regs(int bank, int tid) {
+  int64_t f = bank_size_[bank] - bank_committed_[bank] - bank_inflight_[bank];
+  if (!bank_own_.empty() && bank_own_[(size_t)tid][bank] >= 0)  // prf_split: the hart's own list
+    f = std::min(f, bank_own_[(size_t)tid][bank] - bank_held_[(size_t)tid][bank]);
+  return (int)f;
+}
+
+// prf_xfer (D3 as revised by core-2): a hart short of a register in a bank takes one from its sibling's list (with
+// one thread, the sleeping sibling's), at most one a cycle. The register is free since commit, so no recovery is
+// involved. The donor keeps at least one free (1), or its architectural registers of that kind plus one in the bank
+// (2). Returns whether one moved; it is usable the next cycle.
+bool Core::take_register(int bank, int tid) {
+  Thread& T = *th_[(size_t)tid];
+  if (!c_.prf_xfer || bank_own_.empty() || bank_own_[(size_t)tid][bank] < 0 || T.xfer_t == t_) return false;
+  int64_t& own = nthr_ > 1 ? bank_own_[(size_t)(1 - tid)][bank] : sib_own_[(size_t)bank];
+  const int64_t held = nthr_ > 1 ? bank_held_[(size_t)(1 - tid)][bank] : sib_held_[(size_t)bank];
+  const int64_t arch = bank >= 3 ? 32 : 31;
+  if (c_.prf_xfer == 1 ? own - held < 2 : own - held < 1 || own - 1 < arch + 1) return false;
+  own--;
+  bank_own_[(size_t)tid][bank]++;
+  T.xfer_t = t_;
+  T.st.prf_xfers++;
+  return true;
 }
 
 // Rename/dispatch slots are shared like the decode slots; a thread that stalls leaves its slots to the other.
 void Core::dispatch() {
   for (auto it = deferred_free_.begin(); it != deferred_free_.end();) {
-    if (it->first <= t_) { bank_committed_[it->second]--; it = deferred_free_.erase(it); }
-    else ++it;
+    if (it->at <= t_) {
+      bank_committed_[it->bank]--;
+      bank_held_[(size_t)it->tid][it->bank]--;
+      it = deferred_free_.erase(it);
+    } else {
+      ++it;
+    }
   }
   if (c_.iq_hold)
     for (auto& hq : held_)
@@ -1081,6 +1172,20 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     Uop* up = find(T.disp_next);
     if (!up || up->t_disp_ok > t_) { if (n == n0) T.st.disp_stall_empty++; T.disp_why = DW_EMPTY; break; }
     Uop& u = *up;
+    if (c_.smt_align && nthr_ > 1 && !T.region_seen) {  // the runner's barrier: nothing dispatches past marker 1
+      if (T.align_id && u.id > T.align_id) { T.disp_why = DW_EMPTY; break; }
+      if (T.lap == 0 && u.di && u.di->marker == 1) T.align_id = u.id;
+    }
+    if (nthr_ > 1 && c_.flush_walk && t_ < T.walk_until) {  // flush_walk: rename waits for the flush's walk
+      T.st.disp_stall_walk++;
+      T.disp_why = DW_ROB;
+      break;
+    }
+    if (nthr_ == 1 && lone_phase_ == 1) {  // lone_sleep (D2): dispatch waits while the window drains for a split
+      T.st.disp_stall_rob++;
+      T.disp_why = DW_ROB;
+      break;
+    }
     if (window_full(c_.rob, T.rob_count, total([](const Thread& x) { return x.rob_count; }), T.tid)) {
       T.st.disp_stall_rob++;
       T.disp_why = DW_ROB;
@@ -1114,13 +1219,18 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     if (q == Q_ALU_ANY && c_.iq_steer_rn && c_.iq_slot_bank && !c_.alu3) {
       if (u.steer_q == 0xff) steer(u);
       q = u.steer_q;
+      // prf_steer (D3): away from an ALU whose bank has no free register on the thread's list
+      if (c_.prf_steer && c_.prf_banked && u.dst_arch >= 0 && u.dst_arch < 32) {
+        const int bq = q == Q_A0 ? 0 : 1;
+        if (free_regs(bq, T.tid) <= 0 && free_regs(1 - bq, T.tid) > 0) q = u.steer_q = bq ? Q_A0 : Q_A1;
+      }
     } else if (q == Q_ALU_ANY) {
       int64_t f0 = qfree(Q_A0), f1 = qfree(Q_A1);
       if (c_.iq_slot_bank) {  // steered to a queue whose bank for this slot has a row
         f0 = std::min(f0, slot_free(Q_A0, u.dslot));
         f1 = std::min(f1, slot_free(Q_A1, u.dslot));
       }
-      if (c_.prf_banked) { if (free_regs(0) <= 0) f0 = -1; if (free_regs(1) <= 0) f1 = -1; }
+      if (c_.prf_banked) { if (free_regs(0, T.tid) <= 0) f0 = -1; if (free_regs(1, T.tid) <= 0) f1 = -1; }
       q = (f1 > f0) ? Q_A1 : Q_A0;
       // iq_slot_bank, as rename steers in the RTL: slot k's ALU op goes to queue k mod 2 unless that queue's bank
       // for slot k is full
@@ -1128,7 +1238,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
                                                                : (f1 > 0 || f0 <= 0 ? Q_A1 : Q_A0);
       if (c_.alu3) {
         int64_t f2 = qfree(Q_A2);
-        if (c_.prf_banked && free_regs(5) <= 0) f2 = -1;
+        if (c_.prf_banked && free_regs(5, T.tid) <= 0) f2 = -1;
         if (c_.alu3_simple && !alu_simple(u.di->d->op)) {  // R13: ALU2 cannot take it
           if (f2 > 0 && std::max(f0, f1) <= 0) T.st.alu3_steer_stalls++;
           f2 = -1;
@@ -1148,7 +1258,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       // iq_slot_bank: the RTL's dispatch stage moves a decode group as one, so this slot's bank needs a row, and
       // a slot-0 uop also waits for its partner's (slot 1 of the same group) when that one is here too
       if (c_.iq_slot_bank && !c_.iq_unified) {
-        if (slot_free(q, u.dslot) <= 0) {
+        if (slot_free(q, u.dslot) <= 0 || bank_capped(q, u.dslot, T.tid)) {
           T.st.disp_stall_slot++;
           T.disp_why = DW_IQ; T.disp_why_q = q; T.disp_why_k = u.dslot; T.disp_why_alu = u.q == Q_ALU_ANY;
           break;
@@ -1158,9 +1268,13 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
           bool ok = true;
           if (v->q == Q_ALU_ANY && c_.iq_steer_rn && !c_.alu3) {  // renamed with its partner: the same flags
             if (v->steer_q == 0xff) steer(*v);
-            ok = slot_free(v->steer_q, 1) > 0;
-          } else if (v->q == Q_ALU_ANY) ok = slot_free(Q_A0, 1) > 0 || slot_free(Q_A1, 1) > 0;
-          else if (v->q != Q_SERIAL) ok = slot_free(v->q, 1) > 0;
+            ok = slot_free(v->steer_q, 1) > 0 && !bank_capped(v->steer_q, 1, T.tid);
+          } else if (v->q == Q_ALU_ANY) {
+            ok = (slot_free(Q_A0, 1) > 0 && !bank_capped(Q_A0, 1, T.tid)) ||
+                 (slot_free(Q_A1, 1) > 0 && !bank_capped(Q_A1, 1, T.tid));
+          } else if (v->q != Q_SERIAL) {
+            ok = slot_free(v->q, 1) > 0 && !bank_capped(v->q, 1, T.tid);
+          }
           if (!ok) {
             T.st.disp_stall_slot++;
             T.disp_why = DW_IQ; T.disp_why_q = v->q == Q_ALU_ANY ? (uint8_t)Q_A0 : v->q; T.disp_why_k = 1;
@@ -1175,7 +1289,12 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       ibank = b0 == b1 ? rob_half(u.id) : (b1 > b0 ? 1 : 0);
     }
     const int bank = bank_for(u, q);
-    if (bank >= 0 && free_regs(bank) <= 0) { T.st.disp_stall_reg++; T.disp_why = DW_REG; break; }
+    if (bank >= 0 && free_regs(bank, T.tid) <= 0) {
+      take_register(bank, T.tid);  // prf_xfer: one from the sibling's list, usable the next cycle
+      T.st.disp_stall_reg++;
+      T.disp_why = DW_REG;
+      break;
+    }
     const bool need_llt = c_.llt > 0 && !u.serial && long_latency(u);
     if (need_llt) {
       // iq_bank_llt: a tag comes from its producer's half, which only that bank's rows see
@@ -1206,7 +1325,8 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     u.has_wtag = need_wtag;
     if (banked) u.iq_bank = (uint8_t)ibank;
     u.dst_bank = bank;
-    if (bank >= 0) bank_inflight_[bank]++;
+    u.t_dsp = t_;
+    if (bank >= 0) { bank_inflight_[bank]++; bank_held_[(size_t)T.tid][bank]++; }
     u.has_llt = need_llt;
     if (lq_need) { T.lq_count++; u.in_lq = true; }
     if (u.is_ctrl && (u.cls == Cls::BR || u.cls == Cls::JALR) && c_.ckpt > 0) {
@@ -1696,6 +1816,12 @@ void Core::retire(Uop& u, bool early) {
         T.st.mp_resolved_commit++;
         if (u.t_res != NEVER) T.st.mp_wait_cycles += t_ - u.t_res;  // resolve to commit: checkpoints' bound
         T.refill_from = t_;
+        if (nthr_ > 1 && c_.flush_walk) {  // shared lists: the flush walks the thread's half for its registers
+          const int64_t half = share(c_.rob, T.tid);
+          const int64_t n = c_.flush_walk == 1 ? half : std::min<int64_t>(half - 1, 2 * (int64_t)(t_ - u.t_dsp));
+          T.walk_until = std::max(T.walk_until, t_ + (uint64_t)((n + 1) / 2));
+          T.st.flush_walks++;
+        }
         T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
         T.fe_wait_mp = false;
         T.fe_count_from = t_ + (uint64_t)c_.commit_redirect;
@@ -1729,13 +1855,20 @@ void Core::retire(Uop& u, bool early) {
       if (it != pending_.end() && it->second > t_) pt = it->second;
     }
     if (ob >= 0) {
-      if (pt) deferred_free_.push_back({pt, ob});
-      else bank_committed_[ob]--;
+      if (pt) {
+        deferred_free_.push_back({pt, ob, T.tid});
+      } else {
+        bank_committed_[ob]--;
+        bank_held_[(size_t)T.tid][ob]--;
+      }
     }
     T.arch_bank[(size_t)u.dst_arch] = b;
     T.arch_prod[(size_t)u.dst_arch] = u.id;
   }
-  if (u.sfb_sel && u.sfb_temp_bank >= 0) bank_inflight_[u.sfb_temp_bank]--;
+  if (u.sfb_sel && u.sfb_temp_bank >= 0) {
+    bank_inflight_[u.sfb_temp_bank]--;
+    bank_held_[(size_t)T.tid][u.sfb_temp_bank]--;
+  }
   T.rob_count--;
   T.win.pop_front();
   T.win_base++;
@@ -1762,6 +1895,7 @@ int Core::commit_thread(Thread& T, int width) {
   bool any = false;
   while (n < width && !T.win.empty()) {
     Uop& u = T.win.front();
+    if (align_hold(T, u)) break;
     if (u.state == 0) break;
     if (u.serial) {
       if (u.state == 1) {
@@ -1813,13 +1947,13 @@ int Core::commit_thread(Thread& T, int width) {
 }
 
 // Committed stores drain in order per thread through the one D$ store port; with two threads the thread
-// tried first alternates every cycle.
+// tried first alternates every cycle (smt_drain_rr, M7's D8; 0 = thread 0 first).
 void Core::drain_stores() {
   if (c_.dc_row_clash)  // loads whose AG is past can no longer clash
     ag_recs_.erase(std::remove_if(ag_recs_.begin(), ag_recs_.end(), [&](const AgRec& a) { return a.ag < t_; }),
                    ag_recs_.end());
   if (nthr_ == 1) { drain_thread(*th_[0]); return; }
-  const int first = (int)(t_ % (uint64_t)nthr_);
+  const int first = c_.smt_drain_rr ? (int)(t_ % (uint64_t)nthr_) : 0;
   for (int k = 0; k < nthr_; k++)
     if (drain_thread(*th_[(size_t)((first + k) % nthr_)])) break;
 }
@@ -1878,20 +2012,30 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
     bgh = it->bt.gh;
   }
   T.fetchq.clear();
+  int64_t flushed = 0;
   while (!T.win.empty() && T.win.back().id >= from_id) {
     Uop& u = T.win.back();
     if (u.ras.op) T.ras.restore(u.ras.sp, u.ras.slot, u.ras.val);
     oldest = u.hist;
     bgh = u.bt.gh;
     if (u.state >= 1) {
+      flushed++;
       T.rob_count--;
       if (u.state == 1 && u.q != Q_SERIAL) iq_remove(u);
       if (u.in_lq) T.lq_count--;
-      if (u.dst_bank >= 0) bank_inflight_[u.dst_bank]--;
+      if (u.dst_bank >= 0) {
+        bank_inflight_[u.dst_bank]--;
+        bank_held_[(size_t)T.tid][u.dst_bank]--;
+      }
       if (u.has_ckpt) T.ckpt_used--;
       if (u.is_store && !T.sq.empty() && T.sq.back().id == u.id) T.sq.pop_back();
     }
     T.win.pop_back();
+  }
+  if (nthr_ > 1 && c_.flush_walk) {  // shared lists: the flush walks the thread's half for its registers
+    const int64_t n = c_.flush_walk == 1 ? share(c_.rob, T.tid) : flushed;
+    T.walk_until = std::max(T.walk_until, t_ + (uint64_t)((n + 1) / 2));
+    T.st.flush_walks++;
   }
   T.ghr = oldest;
   if (btage_) {  // m2_btage: a flush copies commit's history; the refetch reads with all of it
@@ -1909,6 +2053,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
   T.next_id = from_id;
   T.disp_next = std::min(T.disp_next, from_id);
   T.rat.fill(0);
+  if (T.align_id >= from_id) T.align_id = 0;
   for (auto& u : T.win) if (u.state >= 1 && u.dst_arch >= 0) T.rat[(size_t)u.dst_arch] = u.id;
   T.fe_blocked = false;
   T.fetch_seq = resume_seq;
@@ -1964,6 +2109,21 @@ bool Core::fast_forward(Thread& T) {
   return found;
 }
 
+// verif-2's pair runner (smt_align): a thread's first-run region start waits at its commit head until every thread
+// still in its first run has its own there or is past it, so the two first regions start together.
+bool Core::align_hold(Thread& T, const Uop& u) {
+  if (!c_.smt_align || nthr_ == 1 || T.lap > 0 || T.region_seen || !u.di || u.di->marker != 1) return false;
+  for (auto& Up : th_) {
+    const Thread& U = *Up;
+    if (&U == &T || U.region_seen || U.first_done || U.lap > 0) continue;
+    if (!U.win.empty() && U.win.front().di && U.win.front().di->marker == 1) continue;
+    T.align_wait++;
+    T.last_commit_t = t_;  // waiting at the barrier is not a deadlock
+    return true;
+  }
+  return false;
+}
+
 bool Core::finished(Thread& T) {
   return T.iss_done && T.win.empty() && T.fetchq.empty() && T.sq.empty() && !stream_has(T, T.fetch_seq);
 }
@@ -1983,6 +2143,50 @@ void Core::end_first_region(Thread& T) {
 
 // Runs the thread's program again (multithreaded runs), so it keeps loading the core until the other
 // thread's first run is complete. Its window is empty; caches, predictors and IDs carry on.
+// D2 (M7): one thread whose sibling sleeps in WFI and wakes every lone_sleep cycles. On a wake the merged window
+// splits: dispatch stops until the window drains (lone_split 0: empty; 1: within its half). The thread then keeps
+// its halves while the sibling runs (lone_awake) and while it sits in WFI with an empty half (lone_merge), and the
+// halves merge. A wake while split restarts the sibling's run. lone_merge < 0: static halves throughout.
+void Core::lone_step() {
+  if (c_.lone_merge < 0) { lone_phase_ = 2; return; }
+  Thread& T = *th_[0];
+  const bool wake = t_ >= lone_next_;
+  if (wake) lone_next_ = t_ + (uint64_t)c_.lone_sleep;
+  switch (lone_phase_) {
+    case 0:
+      if (wake) {
+        lone_phase_ = 1;
+        lone_t0_ = t_;
+        if (T.in_region) lone_splits_++;
+      }
+      break;
+    case 1: {
+      const bool done = c_.lone_split == 0
+                            ? T.rob_count == 0 && T.lq_count == 0 && T.sq.empty()
+                            : (int64_t)T.rob_count <= (c_.rob + 1) / 2 && (int64_t)T.lq_count <= (c_.lq + 1) / 2 &&
+                                  (int64_t)T.sq.size() <= (c_.sq + 1) / 2;
+      if (done) {
+        if (T.in_region) {
+          lone_drain_sum_ += t_ - lone_t0_;
+          lone_drain_max_ = std::max(lone_drain_max_, t_ - lone_t0_);
+        }
+        lone_phase_ = 2;
+        lone_t0_ = t_;
+      }
+      break;
+    }
+    case 2:
+      if (wake) lone_t0_ = t_;
+      else if (t_ >= lone_t0_ + (uint64_t)c_.lone_awake) { lone_phase_ = 3; lone_t0_ = t_; }
+      break;
+    default:
+      if (wake) { lone_phase_ = 2; lone_t0_ = t_; }
+      else if (t_ >= lone_t0_ + (uint64_t)c_.lone_merge) lone_phase_ = 0;
+      break;
+  }
+  if (T.in_region) lone_cyc_[lone_phase_]++;
+}
+
 void Core::restart(Thread& T) {
   T.owned = std::make_unique<Iss>(T.spec.ram_base, T.spec.ram_size);
   std::string e;
@@ -1993,7 +2197,7 @@ void Core::restart(Thread& T) {
   T.stream_base = 0;
   T.fetch_seq = 0;
   T.iss_done = false;
-  if (T.spec.ff) {
+  if (T.spec.ff || ((c_.smt_restart_ff >> T.tid) & 1)) {
     fast_forward(T);
     if (!T.iss->error().empty()) { err_ = "restart ISS: " + T.iss->error(); return; }
   }
@@ -2013,7 +2217,9 @@ bool Core::run() {
     if (found) { T.in_region = true; T.region_seen = true; }
   }
   if (nthr_ > 1) overlap_check_start();
+  lone_next_ = (uint64_t)c_.lone_sleep;
   for (t_ = 0;; t_++) {
+    if (nthr_ == 1 && c_.lone_sleep > 0) lone_step();
     for (auto& Tp : th_) Tp->st.cycles = t_;
     for (auto& Tp : th_) {
       Thread& T = *Tp;
@@ -2063,6 +2269,11 @@ bool Core::run() {
       }
       if (all) break;
     }
+    if (c_.stop_regions) {  // the pair runner's finish: every thread's first region has ended
+      bool ended = true;
+      for (auto& Tp : th_) ended = ended && Tp->region_seen && !Tp->in_region;
+      if (ended) break;
+    }
     if (c_.max_cycles && (int64_t)t_ >= c_.max_cycles) break;
     for (auto& Tp : th_) {
       const Thread& T = *Tp;
@@ -2079,6 +2290,14 @@ bool Core::run() {
         std::snprintf(buf, sizeof buf, "; rob %llu lq %llu sq %zu (head committed %d rfo %d present %d)",
                       (unsigned long long)T.rob_count, (unsigned long long)T.lq_count, T.sq.size(), s ? s->committed : -1,
                       s ? s->rfo : -1, s ? (int)mem_.l1d_present(pa(T, s->addr), t_) : -1);
+        err_ += buf;
+        // what stopped its dispatch, and the shared pools: wakeup tags, long-latency tags, the load queue's rows
+        int llt = 0;
+        for (auto& Up : th_)
+          for (auto& w : Up->win) llt += w.has_llt && (w.state < 2 || w.t_done > t_);
+        std::snprintf(buf, sizeof buf,
+                      "; dispatch stopped by %d; wake tags %d, LLTs %d, IQ-LD rows %zu (this thread %lld)",
+                      T.disp_why, (int)wtags_used(), llt, iq_[Q_LD].size(), (long long)iq_occ(Q_LD, T.tid));
         err_ += buf;
       }
       return false;
@@ -2111,6 +2330,7 @@ std::string Core::region_json(const Thread& T) const {
   if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared || c_.iq_bank || c_.wake_tags) {
     TG_LEVER_STATS(TG_RJ)
   }
+  if (c_.prf_split || c_.flush_walk) { TG_M7_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)
@@ -2158,6 +2378,10 @@ std::string Core::result_json(const std::string& bench) const {
     o << ",\"region\":" << region_json(T);
     o << ",\"total\":{\"cycles\":" << T.st.cycles << ",\"instr\":" << T.st.instr << "}";
     o << ",\"marked\":" << (T.region_seen ? "true" : "false");
+    if (c_.lone_sleep > 0)  // D2 over the region: splits, their drains, and cycles merged / draining / halves
+      o << ",\"lone\":{\"splits\":" << lone_splits_ << ",\"drain_sum\":" << lone_drain_sum_
+        << ",\"drain_max\":" << lone_drain_max_ << ",\"cycles\":[" << lone_cyc_[0] << "," << lone_cyc_[1] << ","
+        << lone_cyc_[2] << "," << lone_cyc_[3] << "]}";
     o << ",\"stdout\":\"" << json_escape(T.iss->stdout_buf(), 4000) << "\"" << census_json() << "}";
     return o.str();
   }
@@ -2172,6 +2396,7 @@ std::string Core::result_json(const std::string& bench) const {
       << ",\"instr\":" << (T.first_done ? T.first_instr : T.st.instr) << "}";
     o << ",\"marked\":" << (T.region_seen ? "true" : "false") << ",\"laps\":" << T.lap
       << ",\"region_start\":" << T.r_start_cycle << ",\"region_end\":" << T.r_end_cycle;
+    if (c_.smt_align) o << ",\"align_wait\":" << T.align_wait;
     o << ",\"stdout\":\"" << json_escape(T.first_done ? T.first_stdout : T.iss->stdout_buf(), 4000) << "\"}";
   }
   o << "],\"overlap\":{\"valid\":" << (ov_started_ && ov_ended_ ? "true" : "false") << ",\"start\":" << ov_start_
