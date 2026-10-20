@@ -267,3 +267,27 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 **Boots 10–12 (04:35–04:55):** all clean, with the watch service active, each with about 74,000 mmc0 interrupts in the stress.
 - **Boot 12's "no login" was COM5's, not the board's.** The laptop's CH340 dropped and reopened at 04:47:38, during the boot, and the login line was lost with it. Boot 12 was up and clean (0 timeouts), and its stress ran by hand.
 - The driver now also takes the shell prompt as the login. In every boot's section the prompt first appears after the new boot, never between the reboot command and the restart.
+
+**Boots 13–27 (04:56–06:15):** all clean, with the watch service active. Each logged in about 190 s after the reboot, and each stress drew 74,000–75,000 mmc0 interrupts with no timeout.
+
+**Boot 28's stress lost SD1's interrupt: the third occurrence, and the first under the stress.**
+- **When:** the stress started at about 155 s of uptime. The first `mmc0: Timeout waiting for hardware interrupt` came at 168.85 s, and there were 63 by 810 s.
+- **The SDHCI dump matches s19 segment b's first boot:**
+  - `Int stat` 0x00000002 (transfer complete), with the status and signal enables at 0x03ff008b;
+  - `Slot int` 1, so SD1's line is high;
+  - CMD18 (a multi-block read) with auto-CMD12, by ADMA.
+- **Read live from COM5's autologin shell, with bash builtins only:**
+  - mmc0's count stayed at 6,984 (a whole stress gives about 74,000).
+  - ttyS0's count rose from 1,360 to 1,660 in 23 s. ttyS0 is PLIC source 10, delivered to the same hart 0 context.
+  - So the PLIC still delivers to that context. It stopped delivering source 21 alone.
+- **No capture:**
+  - The watch service saw the timeout, but the capture's own commands (busybox, `cut`, `tee`) weren't cached, and loading them from the failing card hung.
+  - Then SSH failed (`Connection reset`), systemd couldn't spawn anything (`Input/output error`), and even `sudo` failed to load. So no root read of the PLIC was possible.
+  - A PMOD break at 06:35:26 gave Ubuntu (trial 1), and `e2fsck -fp` replayed p3's journal.
+- **The probe now runs entirely from RAM:**
+  - `sd1-irq-watch.service` mounts its own tmpfs (`/run` is noexec; this one isn't).
+  - It copies in a static busybox and the probe, and runs the watch with only that directory on its `PATH`. The busybox is the binary from Debian's busybox-static 1.37.0-6+b9, extracted to `/usr/local/lib/sd1probe/` without installing the package.
+  - Debian's packaged busybox is dynamic and needs libc and libresolv from the card. The static one runs in a chroot that holds no libraries.
+  - A dump from the tmpfs works.
+
+**Boot 29** (06:37, from Ubuntu, the stress by hand): clean, with 75,547 mmc0 interrupts.

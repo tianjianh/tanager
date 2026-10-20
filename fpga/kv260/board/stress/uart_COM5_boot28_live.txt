@@ -1,0 +1,71 @@
+﻿
+===== COM5 scripted session opened 2026-10-19T23:31:32.5251345-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ read -r u x < /proc/uptime; while read -r l; do case $l in *m mc0*|*ttyS0*|*eth0*) echo "IRQ $l";; esac; done < /proc/interrupts; echo "UP $u" [Amc0*|*ttyS0*|*eth0*) echo "IRQ $l";; esac; done < /proc/interrupts; echo "UP $u[K"
+[?2004lIRQ 12:       1360          0  SiFive PLIC  10 Edge      ttyS0
+IRQ 13:        496          0  SiFive PLIC  22 Edge      eth0, eth0
+IRQ 14:       6984          0  SiFive PLIC  21 Edge      mmc0
+UP 945.10
+[?2004htanager@tanager:~$ [  947.089888] mmc0: Timeout waiting for hardware interrupt.
+[  947.095470] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[  947.102014] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[  947.108563] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[  947.115107] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[  947.121654] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[  947.128197] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[  947.134740] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[  947.141285] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[  947.147824] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[  947.154368] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[  947.160908] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[  947.167453] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[  947.173999] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[  947.180537] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[  947.187080] mmc0: sdhci: Host ctl2: 0x00000000
+[  947.191612] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[  947.198857] mmc0: sdhci: ============================================
+[  957.329917] mmc0: Timeout waiting for hardware interrupt.
+[  957.335471] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[  957.342007] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[  957.348557] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[  957.355104] mmc0: sdhci: Argument:  0x00000000 | Trn mode: 0x00000033
+[  957.361649] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[  957.368192] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[  957.374733] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[  957.381275] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018002
+[  957.387815] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[  957.394357] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[  957.400899] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[  957.407441] mmc0: sdhci: Cmd:       0x00000c1b | Max curr: 0x00000000
+[  957.413982] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[  957.420523] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[  957.427067] mmc0: sdhci: Host ctl2: 0x00000000
+[  957.431604] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[  957.438844] mmc0: sdhci: ============================================
+read -r u x < /proc/uptime; while read -r l; do case $l in *m mc0*|*ttyS0*|*eth[  967.569975] mmc0: Timeout waiting for hardware cmd interrupt.
+[  967.575850] mmc0: sdhci: ============ SDHCI REGISTER DUMP ===========
+[  967.582388] mmc0: sdhci: Sys addr:  0x00000008 | Version:  0x00001002
+[  967.588936] mmc0: sdhci: Blk size:  0x00007200 | Blk cnt:  0x00000008
+[  967.595496] mmc0: sdhci: Argument:  0x00010000 | Trn mode: 0x00000033
+[  967.602045] mmc0: sdhci: Present:   0x01f70000 | Host ctl: 0x00000019
+[  967.608588] mmc0: sdhci: Power:     0x0000000f | Blk gap:  0x00000080
+[  967.615136] mmc0: sdhci: Wake-up:   0x00000000 | Clock:    0x0000fa07
+[  967.621681] mmc0: sdhci: Timeout:   0x00000004 | Int stat: 0x01018000
+[  967.628230] mmc0: sdhci: Int enab:  0x03ff008b | Sig enab: 0x03ff008b
+[  967.634774] mmc0: sdhci: ACmd stat: 0x00000002 | Slot int: 0x00000001
+[  967.641315] mmc0: sdhci: Caps:      0x35ecc881 | Caps_1:   0x00002007
+[  967.647860] mmc0: sdhci: Cmd:       0x00000d1a | Max curr: 0x00000000
+[  967.654399] mmc0: sdhci: Resp[0]:   0x00000120 | Resp[1]:  0x00000000
+[  967.660944] mmc0: sdhci: Resp[2]:   0x00000000 | Resp[3]:  0x00000120
+[  967.667484] mmc0: sdhci: Host ctl2: 0x00000000
+[  967.672025] mmc0: sdhci: ADMA Err:  0x00000000 | ADMA Ptr: 0x0000000505ec8200
+[  967.679264] mmc0: sdhci: ============================================
+0*) echo "IRQ $l";; esac; done < /proc/interrupts; echo "UP $u" [Amc0*|*ttyS0*|*eth0*) echo "IRQ $l";; esac; done < /proc/interrupts; echo "UP $u[K"
+[?2004lIRQ 12:       1660          0  SiFive PLIC  10 Edge      ttyS0
+IRQ 13:        496          0  SiFive PLIC  22 Edge      eth0, eth0
+IRQ 14:       6984          0  SiFive PLIC  21 Edge      mmc0
+UP 968.45
+[?2004htanager@tanager:~$ sudo bash -c 'for f in /sys/kernel/debug/irq/irqs/14 /proc/ir q/14/smp_affinity_list /proc/irq/14/effective_affinity_list; do echo "== $f"; wh ile IFS= read -r l; do echo "$l"; done < $f; done; echo DONE'
+[?2004l-bash: /usr/bin/sudo: Input/output error
+[?2004htanager@tanager:~$ 
+===== COM5 scripted session closed 2026-10-19T23:32:07.6618287-07:00, exit 0 =====
