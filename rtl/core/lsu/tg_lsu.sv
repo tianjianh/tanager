@@ -285,6 +285,11 @@ module tg_lsu
   logic   [LQ_ENTRIES-1:0]           lq_pav_q;     // physical address known
   sqid_t  [LQ_ENTRIES-1:0]           lq_blk_q;     // blocking store
   logic   [LQ_ENTRIES-1:0]           lq_part_q;    // ... partial overlap (wait until it leaves)
+`ifdef TG_RASFIX_B
+  localparam bit FIX_B = `TG_RASFIX_B;
+`else
+  localparam bit FIX_B = 1'b1;
+`endif
   // DR-149 (DC_MSHRS > 1): an L_MISS load waits for its entry's install (lq_we_q), or, while it
   // has none (lq_wany_q), for any install or the miss side going idle
   logic   [LQ_ENTRIES-1:0]           lq_wany_q;
@@ -871,7 +876,26 @@ module tg_lsu
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
   assign mm_go = mm_cand && sq_drn[t_hd] && !dr_mmio_go && xs_q == X_IDLE && !xr_v_q && !kill_t[t_hd] && !mm_hold &&
                  !irq_go;
-  assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
+  // A load that waits on the drain's head store (L_STQ or L_READY) and can forward from it holds the store's drain,
+  // a cycle after the wait is seen, until its replay has passed AG: else the drain's D$ write and the replay's AG can
+  // meet in one cycle (a row clash, O_RETRY and a second replay; crc32's loop, the store completing as the ROB head).
+  // TG_RASFIX_A=0 turns it off (measurement)
+`ifdef TG_RASFIX_A
+  localparam bit FIX_A = `TG_RASFIX_A;
+`else
+  localparam bit FIX_A = 1'b1;
+`endif
+  logic dr_fw_q;
+  always_ff @(posedge clk) begin
+    logic w;
+    w = 1'b0;
+    for (int i = 0; i < LQ_ENTRIES; i++)
+      if (lq_v_q[i] && !lq_part_q[i] && (lq_st_q[i] == L_STQ || lq_st_q[i] == L_READY) && lq_tid(i) == t_dr_q &&
+          lq_blk_q[i] == sq_head_q[t_dr_q])
+        w = 1'b1;
+    dr_fw_q <= FIX_A && !rst && w;
+  end
+  assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh] && !dr_fw_q;
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
   assign st_wdata = rep(sqd_rd[TRP+1], sqh.size);
@@ -1783,8 +1807,12 @@ module tg_lsu
                                        lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
             lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
+            // ... also on the store's data capture itself, a cycle before sq_dv_q: the replay then enters AG ahead
+            // of the store's drain (it completes on the capture, commits the next cycle and drains the one after).
+            // TG_RASFIX_B=0 turns it off (measurement)
             if (!sq_live(lq_blk_q[i], sq_head_q[lq_tid(i)], sq_tail_q[lq_tid(i)]) ||
-                (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
+                (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]) ||
+                (FIX_B && !lq_part_q[i] && cap_v && cap_idx == lq_blk_q[i][SIW-1:0]))
               lq_st_q[i] <= L_READY;
           end
         end
