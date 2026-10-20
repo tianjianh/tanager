@@ -416,3 +416,8 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - Boot 0 came from Ubuntu at 12:48:36: clean, with the watch running.
 - Boots 1–60 each have a login, the 90 s read stress, and a clean shutdown into the next.
 - Reports go out every 20 boots, and at once on any capture.
+- **Boots 1–20 (12:52–14:33 UTC): 20 of 20 clean.**
+  - No SD1 timeout in any boot, stress or shutdown, and no capture.
+  - Each logged in 191–196 s after the reboot, and each stress drew 74,000–75,200 mmc0 interrupts.
+  - The tally: [`probe_tally_d4r2.txt`](probe_tally_d4r2.txt).
+  - Boots 21–40 follow at once.
