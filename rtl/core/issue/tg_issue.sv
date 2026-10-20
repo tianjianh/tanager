@@ -66,10 +66,24 @@ module tg_issue
 
   // SPEC_WAKE: a tracked load (below), its LLT's column, and whether a flush drops it
   typedef struct packed {
-    logic v;
-    tid_t tid;
-    llt_t llt;
+    logic       v;
+    logic       spec;      // it wakes its dependants speculatively (RASFIX_C: unless its PC's loads keep failing)
+    tid_t       tid;
+    llt_t       llt;
+    logic [4:0] ph;        // its PC's hash (RASFIX_C)
   } sw_t;
+  // RASFIX_C (scratch, measurement): a load whose PC's loads keep failing to complete in M2 does not wake its
+  // dependants speculatively (crc32's load that waits on a store's data every iteration, whose cancel kills the EX
+  // stage's other ops). TG_RASFIX_C=0 turns it off
+`ifdef TG_RASFIX_C
+  localparam bit FIX_C = `TG_RASFIX_C;
+`else
+  localparam bit FIX_C = 1'b1;
+`endif
+  function automatic logic [4:0] ph_of(input logic [15:1] pcb);   // pcb: the PC's bits 15:1
+    return pcb[5:1] ^ pcb[10:6] ^ pcb[15:11];
+  endfunction
+  logic [4:0] ld_ph;       // the issuing LD row's PC hash
   function automatic logic [NCOL-1:0] sw_col(input llt_t t);
     logic [NCOL-1:0] c;
     c = '0;
@@ -160,6 +174,7 @@ module tg_issue
     logic                dst_en, dst_fp;
     logic [LDW-1:0]      dst;           // the destination's index (an FP load: F1's, FPIDX_W bits)
     llt_t                llt;
+    logic [4:0]          ph;            // its PC's hash (RASFIX_C)
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
     preg_t               src1;
   } f_ld_t;
@@ -321,7 +336,8 @@ module tg_issue
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
                                 dst_en: disp_pl[k].dst_en, dst_fp: fp,
                                 dst: fp ? LDW'(fpreg_idx(disp_pl[k].dst)) : LDW'(preg_idx(disp_pl[k].dst)),
-                                llt: disp_pl[k].llt, tid: disp_pl[k].tid, src1: disp_pl[k].src1};
+                                llt: disp_pl[k].llt, ph: ph_of(disp_pl[k].pc[15:1]), tid: disp_pl[k].tid,
+                                src1: disp_pl[k].src1};
       end
       f_ld_t b;
       assign b = pl;
@@ -340,6 +356,7 @@ module tg_issue
         up.tid      = b.tid;
         up.src1     = b.src1;
       end
+      assign ld_ph = b.ph;
     end else if (q == Q_STA) begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
         assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,
@@ -473,32 +490,41 @@ module tg_issue
   if (SPEC_WAKE) begin : g_sw
     sw_t             sw_rf, sw_ag_q, sw_m1_q, sw_m2_q;
     logic [NCOL-1:0] col_ag, col_m1, col_m2;
+    logic [31:0][1:0] swp_q;          // RASFIX_C: per PC hash, how its loads fared in M2 (2 or more: no speculation)
+    logic            m2_ok;           // the load in M2 completed there
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
-                     tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt};
+                     spec: !FIX_C || !swp_q[ld_ph][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
+    assign m2_ok = |(wake_reg & col_m2);
     always_ff @(posedge clk) begin
       if (rst) begin
         sw_ag_q.v <= 1'b0;
         sw_m1_q.v <= 1'b0;
         sw_m2_q.v <= 1'b0;
         sw_cancel <= 1'b0;
+        swp_q     <= '0;
       end else begin
         sw_ag_q.v <= sw_rf.v   && !sw_cancel && !sw_drop(sw_rf.tid);
         sw_m1_q.v <= sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid);
         sw_m2_q.v <= sw_m1_q.v && !sw_drop(sw_m1_q.tid);
-        sw_cancel <= sw_m2_q.v && !sw_drop(sw_m2_q.tid) && !(|(wake_reg & col_m2));
+        sw_cancel <= sw_m2_q.v && sw_m2_q.spec && !sw_drop(sw_m2_q.tid) && !m2_ok;
+        if (FIX_C && sw_m2_q.v && !sw_drop(sw_m2_q.tid))
+          swp_q[sw_m2_q.ph] <= m2_ok ? ((swp_q[sw_m2_q.ph] == 2'd0) ? 2'd0 : swp_q[sw_m2_q.ph] - 2'd1)
+                                     : ((swp_q[sw_m2_q.ph] == 2'd3) ? 2'd3 : swp_q[sw_m2_q.ph] + 2'd1);
       end
-      {sw_ag_q.tid, sw_ag_q.llt} <= {sw_rf.tid, sw_rf.llt};
-      {sw_m1_q.tid, sw_m1_q.llt} <= {sw_ag_q.tid, sw_ag_q.llt};
-      {sw_m2_q.tid, sw_m2_q.llt} <= {sw_m1_q.tid, sw_m1_q.llt};
+      {sw_ag_q.spec, sw_ag_q.tid, sw_ag_q.llt, sw_ag_q.ph} <= {sw_rf.spec, sw_rf.tid, sw_rf.llt, sw_rf.ph};
+      {sw_m1_q.spec, sw_m1_q.tid, sw_m1_q.llt, sw_m1_q.ph} <= {sw_ag_q.spec, sw_ag_q.tid, sw_ag_q.llt, sw_ag_q.ph};
+      {sw_m2_q.spec, sw_m2_q.tid, sw_m2_q.llt, sw_m2_q.ph} <= {sw_m1_q.spec, sw_m1_q.tid, sw_m1_q.llt, sw_m1_q.ph};
       sw_cancel_col <= col_m2;
     end
     assign col_ag    = sw_col(sw_ag_q.llt);
     assign col_m1    = sw_col(sw_m1_q.llt);
     assign col_m2    = sw_col(sw_m2_q.llt);
-    assign wake_spec = (sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
-    assign spec_pend = (sw_m1_q.v ? col_m1 : '0) | (sw_m2_q.v ? col_m2 : '0) |
+    assign wake_spec = (sw_ag_q.v && sw_ag_q.spec && !sw_cancel && !sw_drop(sw_ag_q.tid)) ? col_ag : '0;
+    assign spec_pend = ((sw_m1_q.v && sw_m1_q.spec) ? col_m1 : '0) | ((sw_m2_q.v && sw_m2_q.spec) ? col_m2 : '0) |
                        (sw_cancel ? sw_cancel_col : '0);
   end else begin : g_nosw
+    logic unused_ph;
+    assign unused_ph     = ^ld_ph;
     assign wake_spec     = '0;
     assign spec_pend     = '0;
     assign sw_cancel     = 1'b0;
