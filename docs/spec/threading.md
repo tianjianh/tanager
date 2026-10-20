@@ -39,7 +39,7 @@ Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_
 | Fetch | the tid it writes on each instruction (`RUN_TID`, the one running thread) | 5: PC, history, FTQ, RAS, instruction queue, thread select |
 | Predictors | the micro-BTB's entry tag (looked up and trained with tid 0) | 5 |
 | Decode | — (passes the tid through) | 5 |
-| Rename | — (passes the tid through) | 3: maps, free lists, window allocation |
+| Rename | maps (a tid address bit) and renamed-since-flush bits; free lists in RAM form (D3); the ROB, LQ and SQ tails and room checks; the serialisation block; the flush of the RN and DS stages; the tags' and LLTs' return (core-pipeline.md §5.4) | 3: the split mode's lists and homes (D4); 5: the divide and FP counts |
 | Issue | each row's tid; the kill (`flush_tid`); the cap's room (`room_q`, not yet applied); the speculative wakeup's drop | 7: the caps at dispatch; with fpu-2: the tid in every payload |
 | Exec | — | with fpu-2: the stages' kill |
 | P4 (FPU) | its stages, shadow pipelines, divide table and result queue | — |
