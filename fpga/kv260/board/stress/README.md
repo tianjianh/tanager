@@ -321,3 +321,24 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 **Boots 31–60 (from 07:00 UTC; the coordinator: 30 more short boots, each with the stress and a shutdown, stopping at the first capture).**
 - At 3 losses in 32 boots, 30 more have about a 94% chance of a loss.
 - The driver now also stops at the probe's capture on COM5, before a login or after the stress. That covers a capture made in a shutdown, or when SSH is already gone.
+
+**Boots 31–36 (07:00–07:31):** all clean with the RAM-resident watch. Each stress drew 73,700–74,400 mmc0 interrupts.
+
+**Boot 37 lost SD1's interrupt: the fourth occurrence, early in the boot, and again with no capture.**
+- **When:** boot 36's shutdown and reboot were clean. In boot 37 the root was mounted at 51.1 s, and systemd started at about 55 s. SD1's first timeout came at 66.2 s, so the stuck request was issued at about 56 s. There were 37 timeouts and read I/O errors from 260 s, and no login.
+- **The gap:** the initramfs's watch ends at the switch to the real root (51 s). `sd1-irq-watch.service` waits for `local-fs.target`, which a failing card never reaches. Nothing watched from 51 s on.
+- A PMOD break at 07:40:28 gave Ubuntu (trial 1).
+- **The fix: one watch for the whole boot.**
+  - The initramfs's init-top script ([`../runs/sd1-irq-probe.init-top`](../runs/sd1-irq-probe.init-top), with its hook [`../runs/sd1-irq-probe.hook`](../runs/sd1-irq-probe.hook)) builds a RAM root of its own, `/sd1ram`: a static busybox, the probe, and its own devtmpfs and proc. It runs the watch chrooted there.
+  - At the switch to the real root, `/init` moves `/dev`, `/proc`, `/run` and `/sys` away, and run-init deletes the rootfs's files. A separate mount is neither moved nor deleted, so the watch keeps its commands, `/dev/mem`, `/dev/console` and `/proc` from before the root's mount through shutdown.
+  - soc-2's own init-top watch had lost its commands at that switch, which is the `dmesg: not found` on every boot.
+  - The systemd unit is disabled; one watch is enough.
+  - The capture shows on COM5, and the driver reads it there.
+- **Checked on boot 39** (07:57):
+  - No `not found` at the switch.
+  - The watch, PID 181 from the initramfs, still ran after the login, chrooted in `/sd1ram`.
+- **The capture tested once.** A fake line went into the kernel log at 173.30 s (`board self-test, not a real timeout: mmc0: Timeout waiting for hardware interrupt.`).
+  - The watch's capture came out on COM5 at 175.25 s: three dumps (175.25, 178.88 and 194.46 s) around the complete it writes for source 21 (at 175.33 s).
+  - On a healthy system the complete did no harm: mmc0 kept counting, from 5,459 to 5,979.
+  - The watch captures once, so the next boot gets a fresh one.
+- **Boots 40–69:** the coordinator's 30 boots, now with the whole-boot watch, stopping at the first capture.

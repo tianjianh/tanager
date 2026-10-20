@@ -1,0 +1,12 @@
+#!/bin/sh
+# initramfs-tools hook (/etc/initramfs-tools/hooks/sd1-irq-probe), the board track's deployment of soc-2's
+# sd1-irq-probe (sw/d4mode; the SD1 interrupt hunt, 10-20). It puts the static busybox (busybox-static's binary, kept
+# at /usr/local/lib/sd1probe/busybox) and the probe into the initramfs under /sd1probe. The init-top script builds the
+# watch's RAM root from them. The binary is static, so there are no libraries to copy.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+. /usr/share/initramfs-tools/hook-functions
+mkdir -p "$DESTDIR/sd1probe"
+cp /usr/local/lib/sd1probe/busybox /usr/local/sbin/sd1-irq-probe "$DESTDIR/sd1probe/"
+chmod 755 "$DESTDIR/sd1probe/busybox" "$DESTDIR/sd1probe/sd1-irq-probe"
