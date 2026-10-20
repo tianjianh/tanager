@@ -445,6 +445,7 @@ module tg_core
   logic [CW-1:0][1:0]  tr_st_size;
   logic [CW-1:0]       tr_st_wr;
   logic                rsv_clr;           // trap or xRET: the LR reservation ends
+  logic                tr_irq;            // the ROB takes an interrupt this cycle (the LSU's MMIO issue waits for none)
   logic [1:0]          tlbm_valid;
   robid_t [1:0]        tlbm_rob;
   logic                hd_tlb, hd_retry, hd_fault;
@@ -461,7 +462,7 @@ module tg_core
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
-    .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
+    .tr_st_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
@@ -474,7 +475,7 @@ module tg_core
     .dbg_o(lsu_dbg));
 
   // ---- CSRs ----
-  logic             cm_csr, tr_valid, tr_irq, mret, sret, irq_take, wfi_wake;
+  logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake;
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
