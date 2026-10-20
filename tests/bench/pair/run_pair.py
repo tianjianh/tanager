@@ -10,7 +10,9 @@ ends first runs again from the top until the other's first region is done. smt2-
   a group   = the geometric mean of its pairs' WS (mem+mem, compute+compute, mixed)
   overall   = the geometric mean of the three groups'
   run_pair.py --sim <tg_vsim (smt2)> --images DIR [--lat 30,120,250] [--only alone|pairs] [--jobs N] [--json FILE]
-  run_pair.py --replay <tg_replay> --images DIR   Spike against Spike: the images' own check (IPC is 1 there)"""
+  run_pair.py --replay <tg_replay> --images DIR   Spike against Spike: the images' own check (IPC is 1 there)
+The JSON has each run's region figures per slot (ipc, cycles, instret and runs, the restarts), each pair's WS, and
+the group and overall figures per latency."""
 import argparse
 import concurrent.futures as cf
 import json
@@ -47,6 +49,10 @@ def pairs_of():
            (isinstance(node, ast.FunctionDef) and node.name == "make_pairs"):
             exec(compile(ast.Module([node], []), "smt.py", "exec"), env)
     return env["MEM"] + env["COMP"], env["make_pairs"]()
+
+
+def ipc(fig):
+    return fig["ipc"] if fig else float("nan")
 
 
 def geomean(xs):
@@ -104,19 +110,18 @@ def main():
             fails.append(f"  FAIL {kind} {what if kind == 'alone' else what[1] + '+' + what[2]}"
                          f"{' slot ' + str(slot) if kind == 'alone' else ''} lat {lat}: {why}\n       repro: {cmd}")
             continue
+        fig = {s: {"ipc": i / c, "cycles": c, "instret": i, "runs": r} for s, (c, i, r) in res.items()}
         if kind == "alone":
-            c, i, _ = res[slot]
-            alone[(what, slot, lat)] = i / c
+            alone[(what, slot, lat)] = fig[slot]
         else:
-            pair[(what, lat)] = {s: res[s][1] / res[s][0] for s in res}
+            pair[(what, lat)] = fig
     for f in fails:
         print(f)
     report = {"alone": {f"{p}@s{s}@{lat}": v for (p, s, lat), v in alone.items()}, "pairs": [], "groups": {}, "overall": {}}
     if a.only in ("alone", "all"):
         print(f"{'program':24s}" + "".join(f"  IPC s0/s1 lat {lat:<3d}" for lat in lats))
         for p in progs:
-            row = "".join(f"  {alone.get((p, 0, lat), float('nan')):6.3f}/{alone.get((p, 1, lat), float('nan')):6.3f}       "
-                          for lat in lats)
+            row = "".join(f"  {ipc(alone.get((p, 0, lat))):6.3f}/{ipc(alone.get((p, 1, lat))):6.3f}       " for lat in lats)
             print(f"{p:24s}{row}")
     if a.only in ("pairs", "all") and pair:
         print(f"{'pair':40s} {'group':16s}" + "".join(f"  WS lat {lat:<4d}" for lat in lats))
@@ -125,10 +130,11 @@ def main():
             ws_row = []
             for lat in lats:
                 pr, ax, ay = pair.get(((g, x, y), lat)), alone.get((x, 0, lat)), alone.get((y, 1, lat))
-                ws = (pr[0] / ax + pr[1] / ay) if pr and ax and ay and 0 in pr and 1 in pr else float("nan")
+                ws = (pr[0]["ipc"] / ax["ipc"] + pr[1]["ipc"] / ay["ipc"]) if pr and ax and ay and 0 in pr and 1 in pr \
+                    else float("nan")
                 ws_row.append(ws)
                 groups.setdefault((g, lat), []).append(ws)
-                report["pairs"].append({"group": g, "a": x, "b": y, "lat": lat, "ws": ws})
+                report["pairs"].append({"group": g, "a": x, "b": y, "lat": lat, "ws": ws, "slots": pr})
             print(f"{x + '+' + y:40s} {g:16s}" + "".join(f"  {w:10.3f}" for w in ws_row))
         for lat in lats:
             gm = {g: geomean(groups.get((g, lat), [])) for g in GROUPS}
