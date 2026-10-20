@@ -539,6 +539,13 @@ Each is checked on the board in stage D's first step, with the UART: the simples
     - **The window's AXI attributes:** unprivileged, non-secure data accesses; cache bits 0000 (device, non-bufferable).
     - **Tests:** `tests/unit/soc` `PS_WINDOW=1` (in `short`), against a model of the PS. Every access size, three denials without a transaction, an error response, a response 70,000 cycles late (the timeout, then the recovery), and TTC1's interrupt through the PLIC: 15 transactions, all checked. The window also passes lint (st and smt2, the synthesis view too) and the forward-reference check, with and without it.
     - **The board program:** `tests/unit/soc/sw/ps_d1.c` (`ps_d1.bin`) runs the four checks above on the real PS.
+    - **SD1's interrupt under stress** (after s19b boot 1, 10-20, where the PLIC stopped delivering SD1): `tests/unit/soc` `SDIRQ=1`.
+      - **The device:** the PS model gets an SD-like device: write-1-to-clear status, a command that sets command complete and then transfer complete after random delays, and a level line.
+      - **The program** (`sw/sd_irq.c`): hart 0 handles it as Linux's sdhci and PLIC drivers do (claim, the status loop, 6.12.113's EOI with its enable read). Meanwhile core 1 contends on the device bus: PS window accesses, read-modify-writes of hart 0's enable word, PLIC reads.
+      - **With `HOST_DMA=1`:** each request's data arrives through the host DMA port before its transfer complete, and the program checks it.
+      - **What it checks:** every request completes, and an enable read never shows the bit clear. The bench counts the transfer completes raised while source 21 was claimed.
+      - **Where it runs:** the test core, in `short`. `make sdirq` runs the real cores, st in M-mode and smt2 as Linux has it (S-mode on context 1 with Sstc ticks, the contender on hart 2), with Sv39 and with the DMA data.
+      - **The first runs (10-20):** all six pass, 1,500 requests each, the claim window hit 68–292 times per run, nothing lost.
   - **Met on the board** (the board session, 10-17, `fpga/kv260/board/d1`; bitstream d1_100, tree a4bc643, WNS +0.650 ns at 100 MHz with the 1.0 ns place-and-route uncertainty, 110,980 LUTs, 94.8%):
     - **Pre-check:** AFI FM6 at 128 bits. `RST_LPD_IOU2` = `0x000103AA`: TTC1, TTC2 and TTC3 are out of reset, and the set bits are all unused blocks (UART0, SPI0, SD0, CAN0/1, I2C0, NAND). So no PS change was needed.
     - **"D1 PASS":**
