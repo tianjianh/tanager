@@ -202,6 +202,10 @@ class mmio_model_t {
   // external-interrupt tests use it.
   uint32_t sig_lines = 0;
   uint64_t requests = 0;
+  // Reads that went out with a good response, oldest first, as (cycle, address), until main.cpp matches each with
+  // the MMIO load that retires (DR-176: a read squashed after it went out ran again). Off once two harts read devices.
+  std::deque<std::pair<uint64_t, uint64_t>> reads_out;
+  bool track_reads = true;
 
  private:
   uint64_t dev_read(uint64_t addr, unsigned size, bool& ok);
