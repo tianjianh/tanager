@@ -1,0 +1,22 @@
+synth_s                      21
+floorplan                    /home/w/tanager-build/track-spikes-72f833/uram_wt/fpga/spikes/uram/urf_fp_c0_edge.tcl
+generics                     -generic NE=3 -generic NL=3 -generic WMODE=\"edge\"
+clocks                       c0 10.000 ns, c2x 5.000 ns
+impl_s                       77
+6.972                        select -> URAM address (slot 0, 10 ns)  (hold 0.155; data 2.825 ns, logic 0.113, net 2.712, 0 levels, req 10.000)  sel_idx_q_reg[0][0]/C -> u_urf/g_bank[2].g_copy[0].g_edge.u_uram/ADDR_B[0]
+1.539                        late address -> URAM (slot 1, 5 ns)  (hold 0.21; data 2.992 ns, logic 0.340, net 2.652, 1 levels, req 5.000)  late_idx_q_reg[0][1]/C -> u_urf/g_bank[0].g_copy[0].g_edge.u_uram/ADDR_A[1]
+6.308                        write port -> URAM (core edge, 10 ns)  (hold 0.132; data 3.362 ns, logic 0.268, net 3.094, 1 levels, req 10.000)  wr_a_q_reg[0][5]/C -> u_urf/g_bank[0].g_copy[1].g_edge.u_uram/ADDR_A[5]
+1.557                        half-cycle flag -> URAM  (hold 0.227; data 3.056 ns, logic 0.196, net 2.860, 1 levels, req 5.000)  u_urf/t1_q_reg/C -> u_urf/g_bank[0].g_copy[1].g_edge.u_uram/ADDR_A[5]
+-                            port A early -> mid-cycle capture: none in this mode
+-                            captured early -> RF stage (5 ns): none in this mode
+4.097                        held early (A, B) -> RF stage (10 ns)  (hold 0.559; data 4.830 ns, logic 2.938, net 1.892, 2 levels, req 10.000)  u_urf/g_bank[0].g_copy[2].g_edge.u_uram/CLK -> ex_q_reg[2][15]/D
+0.859                        late read -> RF stage (5 ns)  (hold 0.52; data 3.059 ns, logic 2.036, net 1.023, 2 levels, req 5.000)  u_urf/g_bank[2].g_copy[2].g_edge.u_uram/CLK -> ex_q_reg[5][2]/D
+7.796                        bank select -> RF stage  (hold 0.155; data 1.997 ns, logic 0.492, net 1.505, 2 levels, req 10.000)  u_urf/e_bank_q_reg[2][0]/C -> ex_q_reg[2][42]/D
+3.029                        probe: OREG -> capture  (hold 0.21; data 1.794 ns, logic 0.957, net 0.837, 0 levels, req 5.000)  g_probe.u_probe/CLK -> g_probe.prb_q_reg[2]/D
+uram_tco (output register)    ns
+u_urf luts                   542
+u_urf ffs                    8
+u_urf urams                  9
+wns_c0                       0.859
+wns_c2x                      1.539
+whs                          0.011

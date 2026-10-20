@@ -1055,6 +1055,121 @@ Vivado keeps its caps of 8 threads for implementation and 2 for synthesis (`g4_f
 
 Results: `fpga/spikes/results/h100_m6m/` (with `times.txt`, Vivado's time and memory per command) and `h100_m6m_synth/`; `near_families_m6m.txt` (the 1 ns family query).
 
+### 8.14 A double-pumped UltraRAM register file: tier A (2026-10-19)
+
+**Question (the user, through the coordinator; measurement only):** can the integer register file move from LUTRAM into the idle UltraRAMs, clocked at 200 MHz so each URAM288 makes four accesses per core cycle?
+- Today `tg_irf` is 3 banks of 64 × 64 bits, each with 1 write port and 7 read ports: 1,536 LUTRAM and a 448-LUT bank select per core. `h100_m6m` leaves 32 of the 64 UltraRAMs free.
+- The two questions:
+  1. Does double pumping work, functionally and in timing?
+  2. Does a mid-cycle read close without a new pipeline stage?
+
+**Where the register file sits.** In this core the bypass multiplexer is in EX, after the RF-stage registers (`ex_a_q`, `ex_b_q`).
+- The RF stage puts only the 3:1 bank select after the read, plus one 4:1 select (`rbs`) on the LD and STA bases.
+- Six read ports take their addresses from the issue → RF register.
+- The seventh, the store-data port, takes its tag from the LSU within the cycle.
+
+**Method:**
+- **Design:** `tg_urf`, on the scratch branch `claude/spikes-2-uram-rf`. It has 3 banks, each of 3 `URAM288_BASE` copies that every write reaches, at 200 MHz from the board's MMCM: a third output, divide 6, phase-aligned with the core clock.
+- **Retiming:** a read at the core edge takes the select's output straight into the UltraRAM's address register, replacing today's issue → RF register, so no stage is added.
+- **Function:** `tb_urf`, 200K cycles against `tg_ram_lut` banks wired as `tg_irf`, with reads biased to collide with writes in the same cycle and the cycle before. It ran under Verilator, on a `URAM288_BASE` model written from UG573 and on the vendor's own model. This host's Vivado has no xsim libraries; the vendor model only loses its unconnected-pin defaults.
+- **Timing:** a standalone harness, `urf_top`, implemented at 100 and 200 MHz. Its stand-ins are registers placed where their counterparts sit in `h100_m6m`'s core 0 (`q_urf_ctx.tcl`), and the nine copies sit at `URAM288_X0Y52`–`X0Y60`, level with core 0's RF stage. A probe UltraRAM with its output register gives that register's delay.
+- **Context:** the real arrivals of each input, from `h100_m6m`'s routed checkpoint.
+
+**Two slot plans per copy:**
+
+| | Core edge | Mid-cycle |
+|---|---|---|
+| As briefed (`WMODE "mid"`) | A and B read (early ports) | A reads the store-data port (copy 0); B writes |
+| Variant (`WMODE "edge"`) | A writes; B reads after it (an early port) | A reads an operand from a registered address; B idles |
+
+**Function:**
+- **Both plans return exactly what the LUTRAM file returns:** every read in a cycle sees the writes of earlier cycles. Both pass 200K cycles on both URAM models with no mismatch: 1,399,398 port reads ("mid") and 1,199,484 ("edge").
+- **The testbench catches each assumption.** Broken copies fail:
+  - port B before port A: 53,198 mismatches ("mid", exactly its mid-cycle reads of an address being written), and 154,877 ("edge", exactly its reads of the previous cycle's write);
+  - a write that updates the port's output: 450,408;
+  - no mid-cycle capture: 188,018.
+- **So UltraRAM behaves as UG573 describes:** port A's operation goes first in a cycle, a write leaves the output unchanged (NO_CHANGE), and a disabled port holds its output.
+
+**UltraRAM delays** (XCK26, −2LV):
+- Clock-to-out without the output register: 1.63–1.70 ns on port A and **2.65 ns on port B**, which acts after A.
+- With port B's output register: 0.81–0.96 ns.
+- Setup: 0.68–0.75 ns on port A's address, 0.45 on port B's, 0.50 on port B's write data.
+- Clock uncertainty between the 100 and 200 MHz clocks: 0.187 ns.
+
+**Standalone timing** (core 0's distances):
+
+| Path | "mid" | "edge" |
+|---|---|---|
+| Select → URAM address at the core edge (10 ns) | +7.161 | +6.972 (port B) |
+| Registered address → URAM at mid-cycle (5 ns) | +2.455 (the LSU's tag) | +1.539 (issue → RF register) |
+| Write → URAM | +2.107 (mid-cycle, 5 ns) | +6.308 (core edge, 10 ns) |
+| Early data held to the core edge → RF stage (10 ns) | +4.995 | +4.097 |
+| Port A's early data → mid-cycle capture → RF stage | +1.668, then +2.719 | — |
+| Mid-cycle read → its capture (5 ns) | +1.728 (LSU, beside the column); +1.220 into the RF stage through the LD/STA select | +0.859 into the RF stage through the LD/STA select |
+| WNS at 100 / 200 MHz; WHS | +1.728 / +1.668; +0.012 | +0.859 / +1.539; +0.011 |
+| Glue in `tg_urf` | 612 LUTs, 206 FFs | 542 LUTs, 8 FFs |
+
+- **A mid-cycle read leaves 1.68–1.94 ns** after its data reaches the first LUT. The UltraRAM's clock-to-out and the route out of the column take 2.2–2.6 ns of the half cycle. That is less than the 2.5 ns the brief set as the bar for tier B.
+
+**In context** (`h100_m6m`; core 0, core 1 in brackets):
+- **The select output** reaches today's issue → RF registers at 7.40 (7.45) ns, with +2.40 (+2.33) ns of slack. Those registers sit about 2.5 slice columns from the free UltraRAMs. Taken at the URAM's address instead, the slack drops by about 0.5 ns on port B (setup and uncertainty) and 0.8 ns on port A.
+- **Bank 1's write data** (ALU 1, CSR, multiply, divide and P4's results) is ready about 4.5 ns into the cycle, at its multiplexer. That's after the ROB's flush and P4's arbitration. The worst path into today's LUTRAM write pins is 6.05 (6.85) ns, most of it the LUTRAM's fan-out wire. Banks 0 and 2 write straight from registers.
+- **The store-data tag** is ready 5.19 ns into the cycle, after the LSU's selection of the oldest ready store: 17 levels including 4 carry chains. It reaches today's LUTRAM at 6.74 ns. The whole store-data path takes 8.65 (8.37) ns.
+
+**Findings:**
+- **Double pumping works.** UltraRAM at 200 MHz from the 100 MHz clock's MMCM is correct, and it closes standalone with 1.5–1.7 ns to spare at 200 MHz.
+- **As briefed, it doesn't fit the routed chip:**
+  - bank 1's write would have to reach the URAM about 4.3 ns into the cycle, and misses by about 2 ns;
+  - the store-data tag would have to arrive by about 3.95 ns, and misses by more than 1.2 ns before even counting the route to the column.
+- **With the write at the core edge it fits without a new stage:**
+  - the write keeps its full cycle;
+  - the store-data port (and, in trace builds, the trace ports) stays on a small LUTRAM copy: 3 × 10 RAM64M8 and a 64-LUT select;
+  - every remaining input has a margin estimated at 1.5–2 ns in context, except the mid-cycle operand reads: +0.86–1.22 ns standalone, 1.7–1.9 ns after their data arrives.
+- **Gain:**
+  - for the integer files, about 1,140 LUTs a core (1,984 → about 846), 2.3K a chip, using 9 UltraRAMs a core;
+  - the FP files, not built (2 banks × 2 copies and a store-data LUTRAM copy), might add about 0.5K a chip and 4 UltraRAMs a core, 26 of the 32 free UltraRAMs in all.
+- **Tier B was not run:** the mid-cycle margin is below the brief's 2.5 ns bar.
+- **Its risk, if run:**
+  - the thinnest path (+0.86 ns standalone) sits inside one full-chip placement's ±0.75 ns of noise (§8.8);
+  - the change reaches the issue → RF interface (the select's output for three ports), `tg_exec`'s read ports, the store-data and trace ports and the board's clocking (a 200 MHz output and its global buffer);
+  - the payoff is about 2–2.4% of the device's LUTs.
+
+Results: `fpga/spikes/results/urf/` (`SOURCE.txt` lists them). The harness and RTL are on `claude/spikes-2-uram-rf` (`fpga/spikes/uram/`), not on main.
+
+### 8.15 The build hosts compared: w-arrowlake against w-x299 and the 5950X (2026-10-19)
+
+**Question (the coordinator):** how fast is a full chip on the new build host? w-arrowlake is a Core Ultra 7 270K Plus: 8 P-cores at up to 5.4 GHz and 16 E-cores at 4.7 GHz. Compare it step by step with `h100_m6m` on w-x299 (§8.13, 172 min) and the 5950X's `h100_m6fa` (§8.12, 65 min).
+
+**Method:**
+- `h100_m6m`'s placement and routing again, as `h100_m6m_al`, from its post-synthesis checkpoint (main 31e65c6) with the same options and Vivado 2025.2.
+- Vivado pinned to the P-cores (`taskset -c 0-7` on the launcher, which Vivado inherits), matching its 8 implementation threads.
+- The soak was moved to the E-cores for the run. Other tracks' simulations and one to three other Vivado jobs still shared the P-cores (`load.txt`, every 5 min): P-cores 97–100% busy throughout, E-cores 61–100%, a 1-minute load of 19–47 on 24 CPUs.
+
+**The same work.** The run reached exactly `h100_m6m`'s result: WNS +0.348 ns, WHS +0.011, 113,721 LUTs placed. The summaries match apart from their times, and so do the worst paths. Vivado's placement and routing at 8 threads repeats exactly across hosts, so these times compare the same work, with no placement noise to allow for.
+
+| Step (`times.txt`) | w-x299: CPU / elapsed s | w-arrowlake: CPU / elapsed s | Less CPU | Faster |
+|---|---|---|---|---|
+| open_checkpoint | 57 / 47 | 19 / 18 | 3.00× | 2.61× |
+| opt_design (ExploreArea) | 607 / 231 | 223 / 117 | 2.72× | 1.97× |
+| place_design | 1,942 / 817 | 2,135 / 1,010 | 0.91× | 0.81× |
+| phys_opt_design | 83 / 23 | 30 / 13 | 2.77× | 1.77× |
+| route_design | 22,220 / 9,020 | 7,964 / 5,876 | 2.79× | 1.54× |
+| The whole job | 172.4 min | **118.3 min** | | 1.46× |
+
+The 5950X ran `h100_m6fa` (§8.12), a different netlist with easier timing for the router, in 64.8 min: 686 s to optimise and place, 3,055 s to route.
+
+**Findings:**
+- **Per thread, w-arrowlake does the same work in about 2.8× less CPU time than w-x299.** That holds for every step but placement. Placement's waiting threads spin, so under contention its CPU time doesn't measure work.
+- **Under this load the job took 118 min,** 1.46× faster than w-x299 but slower than the 5950X's 65 min. Vivado shared the P-cores the whole time:
+  - routing kept 1.4 threads busy, against 2.5 on w-x299;
+  - placement kept 2.1, against 2.4, and was 6% slower than on w-x299 itself.
+- **With the P-cores to itself, a full chip should take about an hour,** as fast as the 5950X:
+  - routing's 7,964 CPU-seconds at w-x299's 2.5 threads is about 53 min;
+  - the other steps add about 8 min.
+- **So for the queue:** a full chip gets w-arrowlake's per-thread speed only on free P-cores. Simulations on the E-cores while one runs keep it near an hour. Every simulation on the P-cores costs it directly.
+
+Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).

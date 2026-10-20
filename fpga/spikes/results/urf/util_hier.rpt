@@ -1,0 +1,31 @@
+Copyright 1986-2022 Xilinx, Inc. All Rights Reserved. Copyright 2022-2025 Advanced Micro Devices, Inc. All Rights Reserved.
+---------------------------------------------------------------------------------------------------------------------------------------------
+| Tool Version : Vivado v.2025.2 (lin64) Build 6299465 Fri Nov 14 12:34:56 MST 2025
+| Date         : Mon Oct 19 13:21:44 2026
+| Host         : w-x299 running 64-bit Ubuntu 24.04.5 LTS
+| Command      : report_utilization -hierarchical -file util_hier.rpt
+| Design       : urf_top
+| Device       : xck26-sfvc784-2LV-c
+| Speed File   : -2LV
+| Design State : Routed
+---------------------------------------------------------------------------------------------------------------------------------------------
+
+Utilization Design Information
+
+Table of Contents
+-----------------
+1. Utilization by Hierarchy
+
+1. Utilization by Hierarchy
+---------------------------
+
++-------------+--------+------------+------------+---------+------+------+--------+--------+------+------------+
+|   Instance  | Module | Total LUTs | Logic LUTs | LUTRAMs | SRLs |  FFs | RAMB36 | RAMB18 | URAM | DSP Blocks |
++-------------+--------+------------+------------+---------+------+------+--------+--------+------+------------+
+| urf_top     |  (top) |        800 |        795 |       0 |    5 | 1735 |      0 |      0 |   10 |          0 |
+|   (urf_top) |  (top) |        188 |        183 |       0 |    5 | 1529 |      0 |      0 |    1 |          0 |
+|   u_urf     | tg_urf |        612 |        612 |       0 |    0 |  206 |      0 |      0 |    9 |          0 |
++-------------+--------+------------+------------+---------+------+------+--------+--------+------+------------+
+* Note: The sum of lower-level cells may be larger than their parent cells total, due to cross-hierarchy LUT combining
+
+
