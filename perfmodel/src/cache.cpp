@@ -156,8 +156,13 @@ MemSys::Res MemSys::l1d(uint64_t addr, uint64_t t, Kind kind, uint64_t& ready) {
     if (demand) for (auto& m : l1d_m_) if (m.line == line && m.ready > t) m.demand = true;
     return Res::MISS;
   }
-  const int reserve = ((kind == PREFETCH || kind == RFO_PF) ? 2 : 0) + (kind == STORE ? 0 : drain_reserve);
-  if ((int)l1d_m_.size() - busy(l1d_m_, t) <= reserve || l1d_capped(t)) {
+  const int reserve = (kind == PREFETCH ? 2 : kind == RFO_PF ? (int)c_.rfo_pf_reserve : 0) +
+                      (kind == STORE ? 0 : drain_reserve);
+  int rfo_n = 0;  // rfo_pf_max: ownership prefetches in flight (the RTL's STORE_PF_MAX)
+  if (kind == RFO_PF && c_.rfo_pf_max > 0)
+    for (auto& e : l1d_m_) rfo_n += e.rfo && e.ready > t;
+  if ((int)l1d_m_.size() - busy(l1d_m_, t) <= reserve || l1d_capped(t) ||
+      (c_.rfo_pf_max > 0 && rfo_n >= c_.rfo_pf_max)) {
     if (demand) CNT(l1d_no_mshr);
     return Res::NO_MSHR;
   }
@@ -166,7 +171,7 @@ MemSys::Res MemSys::l1d(uint64_t addr, uint64_t t, Kind kind, uint64_t& ready) {
   else if (kind == PREFETCH) CNT(pf_l1_issued);
   else CNT(rfo_pf_issued);
   const uint64_t done = l2_fill(line, t, demand) + (uint64_t)c_.l1_fill_extra;
-  m->line = line; m->ready = done; m->demand = demand; m->tid = tid;
+  m->line = line; m->ready = done; m->demand = demand; m->rfo = kind == RFO_PF; m->tid = tid;
   l1d_.insert(line, done, kind == PREFETCH);
   ready = done;
   return Res::MISS;

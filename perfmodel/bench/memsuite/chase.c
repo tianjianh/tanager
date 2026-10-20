@@ -65,6 +65,19 @@ int main(void) {
     }
   }
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (int h = 0; h < HOPS; h++) {
+#pragma GCC unroll 16
+      for (int c = 0; c < CHAINS; c++) {
+        p[c] = p[c]->next;
+        filler(&fa, &fb);
+      }
+    }
+    for (int c = 0; c < CHAINS; c++) MS_SINK(p[c]);
+    MS_SINK(fa + fb);
+  }
+#endif
   uintptr_t sum = 0;
   for (int c = 0; c < CHAINS; c++) sum ^= (uintptr_t)p[c];
   printf("chase chains=%d filler=%d hops=%d check=%lx f=%lu\n", CHAINS, FILLER, HOPS, (unsigned long)(sum & 0xfffff),

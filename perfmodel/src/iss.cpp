@@ -151,9 +151,12 @@ bool Iss::load_elf(const std::string& path, std::string& err) {
         const char* nm = reinterpret_cast<const char*>(&img[stroff + name]);
         if (std::strcmp(nm, "tohost") == 0) tohost_ = rd64(s + 8);
         else if (std::strcmp(nm, "tg_marker") == 0) marker_ = rd64(s + 8);
+        else if (std::strcmp(nm, "tg_pair_mark") == 0) pair_mark_ = rd64(s + 8);
+        else if (std::strcmp(nm, "_exit") == 0) pair_exit_ = rd64(s + 8);
       }
       break;
     }
+    if (!pair_mark_) pair_exit_ = 0;  // only the pair runner's programs end at _exit's entry
   }
   pc_ = entry;
   csr_[0x301] = (xlen_ == 64 ? (2ull << 62) : (1ull << 30)) | 0x14112d;  // misa: IMAFDC (+S/U bits)
@@ -245,12 +248,17 @@ void Iss::write_csr(uint16_t c, uint64_t v) {
 
 bool Iss::step(DynInst& di) {
   if (exited_) return false;
+  if (pair_exit_ && pc_ == pair_exit_) { exited_ = true; exit_code_ = (int)x_[10]; return false; }
   const Decoded* d = fetch_decode(pc_);
   if (!d) { fault("illegal instruction", pc_, pc_); return false; }
   di = DynInst{};
   di.seq = instret_;
   di.pc = pc_;
   di.d = d;
+  if (pair_mark_ && pc_ == pair_mark_) {
+    if (x_[10] == 1 && !pair_started_) { di.marker = 1; pair_started_ = true; }
+    else if (x_[10] == 2 && pair_started_ && !pair_stopped_) { di.marker = 2; pair_stopped_ = true; }
+  }
   uint64_t npc = wr(pc_ + d->len);
   const uint64_t a = x_[d->rs1], b = x_[d->rs2];
   const unsigned shm = (unsigned)xlen_ - 1;

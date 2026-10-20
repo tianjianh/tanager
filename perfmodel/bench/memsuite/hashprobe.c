@@ -32,6 +32,17 @@ int main(void) {
     found += tab[h] == key;
   }
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (uint32_t q = 0; q < LOOKUPS; q++) {
+      const uint64_t key = (ms_rand() % (2 * nkeys)) + 1;
+      uint64_t h = mix(key) & mask;
+      while (tab[h] && tab[h] != key) h = (h + 1) & mask;
+      found += tab[h] == key;
+    }
+    MS_SINK(found);
+  }
+#endif
   printf("hashprobe lookups=%d found=%lu\n", LOOKUPS, (unsigned long)found);
   return 0;
 }
