@@ -1949,7 +1949,7 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **A feature that wins on the mean can still lose badly on one shape.** Check it per program, not on the suite's mean.
 - **Bisect on the cheapest build that shows it.** The st build ran crc32 the same as smt2 and built just as fast, so two rounds of five and four builds named the merge in about 25 minutes.
 
-### 6.16 DR-171's follow-ups to /init, and the second release engine parked (fpu-2, 2026-10-19 and 10-20)
+### 6.17 DR-171's follow-ups to /init, and the second release engine parked (fpu-2, 2026-10-19 and 10-20)
 *Linux to /init as the board runs it (§6.12's setup: smt2, two cores of one hart each, the board's bench OpenSBI and
 Image, d4s2's bench device tree, board-like memory, `tb_boot`'s window 1 GiB, one Verilator thread, the console off the
 timing). The kernel's time is its own timestamp at `Run /init`, counted from sched_clock's start: the board's measure.
