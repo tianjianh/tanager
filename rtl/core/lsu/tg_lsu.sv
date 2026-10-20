@@ -294,6 +294,10 @@ module tg_lsu
   assign t_cm = (NT > 1) ? cm_tid : tid_t'(0);
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
   assign t_ls = RUN_TID;
+  logic [LQ_ENTRIES-1:0] fl_lq;                 // the flushed thread's half (Vivado selects no bit of a function's value)
+  logic [SQ_ENTRIES-1:0] fl_sq;
+  assign fl_lq = lq_part(t_fl);
+  assign fl_sq = sq_part(t_fl);
   lqid_t  [NT-1:0]                   lq_head_q, lq_tail_q;
 
   // ---- SQ ----
@@ -1676,10 +1680,10 @@ module tg_lsu
 
       // ---- Flush: uncommitted loads and stores go ----
       if (flush) begin
-        for (int i = 0; i < LQ_ENTRIES; i++) if (lq_part(t_fl)[i]) lq_v_q[i] <= 1'b0;   // t_fl's half
+        for (int i = 0; i < LQ_ENTRIES; i++) if (fl_lq[i]) lq_v_q[i] <= 1'b0;   // t_fl's half
         lq_tail_q[t_fl] <= lq_head_q[t_fl];
         for (int i = 0; i < SQ_ENTRIES; i++) begin
-          if (sq_part(t_fl)[i] && !sq_inwin(i, sq_head_q[t_fl], sq_cmt_q[t_fl])) sq_v_q[i] <= 1'b0;
+          if (fl_sq[i] && !sq_inwin(i, sq_head_q[t_fl], sq_cmt_q[t_fl])) sq_v_q[i] <= 1'b0;
         end
         sq_tail_q[t_fl] <= sq_cmt_q[t_fl];
         m1_v_q    <= 1'b0;
