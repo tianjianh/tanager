@@ -479,7 +479,7 @@ int main(int argc, char** argv) {
           console.push_back(char(v & 0xff));
           htif_console = true;
           fputc(int(v & 0xff), stdout);
-        } else if (tohost_watch_t::is_exit(v) && h == 0) {
+        } else if (tohost_watch_t::is_exit(v)) {   // any hart's, as in tg_vsim (the pair runner's last finisher)
           exit_seen = true;
           code = int(v >> 1);
         }

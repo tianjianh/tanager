@@ -17,6 +17,8 @@ What the verification track gives the other tracks:
 | Constrained-random instruction generator, with F/D templates | `tests/random/` | M3, done |
 | Trace back-pressure (`trace_stall_i`): sink model and contract checks | `sim/` (`--trace-stall`) | M3, done (test core; `tg_core` when its port lands) |
 | Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
+| RVWMO litmus tests on Spike, the core and the SoC (§6.6) | `tests/litmus/` | M7 |
+| Pair runner: two programs on one `smt2` core's harts against each alone (§4.8) | `tests/bench/pair/` | M7 |
 
 ## 1. Quick start
 
@@ -811,6 +813,53 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   - **End to end** (`SERIAL=1`: the console on the serial line, as on the board; `board` timing): the raw timestamps of all 100 kernel lines to `Freeing unused kernel image` are within 1.0–1.8% of each of the board's three boots, and every milestone within −1.2% to +0.8% of their medians: `NET: Registered PF_PACKET` −0.3%, `clk: Disabling unused clocks` −1.2%, `Freeing unused kernel image` 0.9293 s against 0.9219 s (+0.8%), `Run /init` 0.9362 s against 0.9289 s (+0.8%). Read this way the window `clk: Disabling` to `Freeing` is 0.2933 s against 0.2780 s (+5.5%): the simulation reaches `clk: Disabling` 7.9 ms early, and the unpack ends where the board's does.
   - **So, with the console off the serial line,** compare in CPU time only what runs on the thread that prints. A milestone that waits for work on another core (the unpack, `Freeing unused kernel image`, `Run /init`) compares by its span from that work's start, or raw against a `SERIAL=1` run.
   - **memcal** (`tests/bench/mem`): the memory system's streaming rates and latency, bare-metal on hart 0, the same program in `tb_boot` (`memcal.bin`) and on the board (`memcal-big.bin`, its DDR tests four times; `tanager-host boot --fw memcal-big.bin --kernel /dev/null --dtb /dev/null --timeout 20`). It prints `MEMCAL <test> bytes=N cycles=C` for a memset of 16 MiB in the kernel's loop (32 `sd` per 256 B), a memcpy of 8 MiB, the two at 1 MiB, a streaming read of 8 MiB and a dependent chase over 4 MiB (there `bytes` counts the loads). d4s2 at `board`: memset-16M 0.865 bytes per cycle (74.0 cycles per line: one ownership round trip a line, as `free_initmem`'s poison), memcpy-8M 0.810 (79.0), memset-1M 1.684 (38.0, in the L2), memcpy-1M 0.819 (78.2: source and destination are twice the L2), read-8M 3.94 (16.3 cycles per line: four misses in flight) and chase-4M 64.3 cycles per load. The board's run, on d4s2 and d4r1, follows the coordinator's 24-hour soak (10-20): a check of the DDR model's rates, which nothing waits on.
+
+### 4.8 Pair throughput (`tests/bench/pair`, M7's exit 2)
+
+M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-thread at 30, 120 and 250 cycles of latency. The runner puts two programs on one `smt2` core, one per hart, and compares each with itself alone. It follows smt2-study's method (smt2_report §2.2–§2.4), so the RTL's figures compare with the model's prediction.
+- **The figure:**
+  - WS = IPC_pair(a) / IPC_alone(a) + IPC_pair(b) / IPC_alone(b), each over the program's first region of interest;
+  - a group's figure (memory + memory, compute + compute, mixed) is the geometric mean of its pairs' WS;
+  - the overall figure is the geometric mean of the three groups'.
+- **"Alone":**
+  - the same program, at the same base, on the same `smt2` build, with hart 1 parked in WFI (the report's alone(C), C with one thread);
+  - `make run` (`ONLY=all`) measures the alone runs and the pairs on one build;
+  - all in `tg_vsim`'s flat memory: no L2, each miss `--lat` cycles.
+- **The programs and pairs** are smt2-study's 13 programs and 42 pairs (`make_pairs` in `perfmodel/scripts/smt.py`: 15 memory, 13 compute and 14 mixed). They are built from the model's sources (`build_pair.sh`; `perfmodel/third_party`): seven memory kernels, CoreMark A, Dhrystone and four Embench programs.
+- **Where the runner departs from the model** (all three await smt2-study's confirmation; smt2-study reruns its prediction on these binaries):
+  - **Nothing is fast-forwarded:** a memory kernel's set-up runs on the core, so its data is 1–3 MiB. The model's builds (`perfmodel/bench/build_all.sh`) use the sources' defaults of 8–32 MiB. Both sizes are far past the 32 KiB L1D, and in flat memory a miss costs the same either way. chase8 and copy also run their `WARM=1` passes, the sources' option for runs without fast-forward.
+  - **The two first regions start together,** after a barrier. In the model, a memory kernel's region starts at cycle 0, and a compute program's starts after its start-up code.
+  - **A program that ends runs again from the top,** set-up included, with its `.data` restored from a pristine copy. The model restarts it with a fresh functional simulator.
+- **One image a run:**
+  - a dispatcher at `0x8000_0000` sends each hart to its slot's program: slot 0 at `0x8010_0000`, slot 1 at `0x8810_0000`, each linked there and embedded as a blob;
+  - a first region is timed with its own hart's `mcycle` and `minstret`;
+  - each program's console output is dropped;
+  - once both first regions are done, the last hart to finish prints `PAIR slot=<s> cycles=<n> instret=<n> runs=<n>` for each slot, then `PAIR-END`, and writes `tohost`.
+  `tg_replay` now ends on any hart's exit, as `tg_vsim` does, because the last to finish may be hart 1.
+- **Commands:**
+  - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images;
+  - `replay` runs the images Spike against Spike;
+  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default, and writes the figures as JSON in the build directory.
+- **Spike against Spike** (2026-10-20): all 68 images pass. WS is exactly 2, since each of Spike's harts retires one instruction a step.
+- **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles.
+
+  | Program | 30 cycles | 120 | 250 |
+  |---|---|---|---|
+  | ms_gather | 0.532 | 0.213 | 0.114 |
+  | ms_stride | 0.516 | 0.174 | 0.089 |
+  | ms_spmv | 0.711 | 0.243 | 0.125 |
+  | ms_hashprobe | 0.418 | 0.241 | 0.147 |
+  | ms_chase8 | 0.116 | 0.038 | 0.019 |
+  | ms_stream | 1.290 | 0.628 | 0.336 |
+  | ms_copy | 0.524 | 0.230 | 0.124 |
+  | coremark_A | 1.485 | 1.470 | 1.441 |
+  | dhrystone | 1.439 | 1.436 | 1.432 |
+  | embench_nsichneu | 1.285 | 1.285 | 1.285 |
+  | embench_huffbench | 1.137 | 1.134 | 1.132 |
+  | embench_minver | 1.385 | 1.385 | 1.385 |
+  | embench_matmult-int | 1.966 | 1.966 | 1.966 |
+
+- **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)
 
