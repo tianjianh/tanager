@@ -324,6 +324,7 @@ int main(int argc, char** argv) {
   mc.num_threads = hw.num_threads;
   mc.core_id = hw.core_id;
   t.mmio.clint.init((hw.core_id + 1) * hw.num_threads);
+  t.mmio.reads.threads = hw.num_threads;
 
   // ---- Trace sink (verification.md §2.9) ----
   t.sink.llt = hw.llt_entries;
@@ -457,6 +458,10 @@ int main(int argc, char** argv) {
       if (log_now) fprintf(logf, "%s\n", format_rec(r, dis).c_str());
       if (r.kind != TR_RETIRE) continue;
       instret++;
+      if (r.mmio_ld) {   // one read on the bus for each MMIO load that retires (DR-176; tlmodels.h)
+        std::string e = t.mmio.reads.retire(r.hart, r.pc);
+        if (!e.empty()) { status = EXIT_PROTOCOL; why = e; }
+      }
       if (!r.mem_st) continue;
       uint64_t v;
       if (!exit_seen && tohost.store(r.mem_vaddr, r.mem_wdata, r.mem_size, v)) {
@@ -470,6 +475,9 @@ int main(int argc, char** argv) {
           exit_seen = true;
           exit_cycle = cycle;
           code = int(v >> 1);
+          // No MMIO read of the exiting hart is left without its load; another hart's may still be out
+          std::string e = t.mmio.reads.exit(r.hart);
+          if (!e.empty() && status == EXIT_PASS) { status = EXIT_PROTOCOL; why = e; }
         } else if (v != 0) {
           status = EXIT_PROGRAM_FAIL;
           why = strfmt("unexpected tohost value %016llx", (unsigned long long)v);

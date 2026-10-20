@@ -4,6 +4,16 @@
 #define CLINT_MTIMECMP  0x02004000
 #define CLINT_MTIME     0x0200bff8
 
+/* M7 (DR-175): the first thing at _start. Hart 0 runs the test; another hart (a sibling thread that fetches from
+   reset) parks in WFI. */
+#define TG_PARK_HARTS          \
+  csrr t0, mhartid;            \
+  beqz t0, 9001f;              \
+9000:                          \
+  wfi;                         \
+  j 9000b;                     \
+9001:
+
 #define TEST_PASS              \
   li a0, 1;                    \
   la a1, tohost;               \

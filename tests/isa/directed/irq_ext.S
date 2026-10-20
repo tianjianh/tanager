@@ -6,6 +6,7 @@
   .section .text.init, "ax"
   .globl _start
 _start:
+  TG_PARK_HARTS
   la t0, trap
   csrw mtvec, t0
   li s0, 0

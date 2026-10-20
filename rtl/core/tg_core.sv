@@ -84,6 +84,13 @@ module tg_core
   if (!tg_map_pkg::map_prefix_only()) begin : g_map_unaligned
     $warning("tg_map_pkg: a region is not a naturally aligned power of two; pma_of uses the range test");
   end
+  // SOLO_TID (M7's test mode) runs the core's one thread as tid 1: there is a tid 1 only with TID_W = 1
+  if (SPLIT && TID_W == 0) begin : g_bad_split
+    $error("tg_core: SPLIT needs an SMT2 configuration (TID_W = 1)");
+  end
+  if (SOLO_TID && TID_W == 0) begin : g_bad_solo
+    $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
+  end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
@@ -115,7 +122,8 @@ module tg_core
   logic [2:0] frm;
   // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
   logic [4:0] fc_fflags;
-  logic       fc_wvalid, fs_dirty;
+  logic       fc_wvalid;
+  logic [NUM_THREADS-1:0] fs_dirty;   // per hart
   logic [1:0] fc_waddr;
   logic [7:0] fc_wdata;
   priv_e priv, priv_d;
@@ -259,9 +267,13 @@ module tg_core
   end
 
   // ---- Rename and dispatch ----
-  robid_t rob_head, rob_tail;
-  lqid_t  lq_head;
-  sqid_t  sq_head, sq_cmt;
+  // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
+  // serve the running thread (rob_head) until step 4
+  robid_t rob_head;
+  robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
+  lqid_t  [NUM_THREADS-1:0] lq_head_t;
+  sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
+  assign rob_head   = rob_head_t[RUN_TID];
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
@@ -299,6 +311,7 @@ module tg_core
   robid_t                           fp_cmp_rob;
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
+  tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
   logic [NCOL-1:0]                  wake_p4;
   logic [LLT_ENTRIES-1:0]           llt_done_p4;
   logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
@@ -316,15 +329,16 @@ module tg_core
   logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
   logic                             rn_ready;
   tg_rename u_rn (
-    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
+    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
     .de_valid, .de_uop, .de_take,
-    .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .iq_bank_free2, .w_vec, .busy(iq_busy),
+    .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
+    .iq_bank_free2, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
     .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
+    .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ds_src2_rdy, .rob_tail, .dbg_o(rn_dbg));
+    .ds_src2_rdy, .rob_tail(rob_tail_t), .dbg_o(rn_dbg));
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
@@ -440,15 +454,19 @@ module tg_core
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
   logic [CW-1:0][1:0]  tr_st_size;
   logic [CW-1:0]       tr_st_wr;
+  lqid_t [CW-1:0]      tr_lq;
+  logic [CW-1:0][63:0] tr_ld_va;
+  logic [CW-1:0][1:0]  tr_ld_size;
   logic                rsv_clr;           // trap or xRET: the LR reservation ends
+  logic                tr_irq;            // the ROB takes an interrupt this cycle (the LSU's MMIO issue waits for none)
   logic [1:0]          tlbm_valid;
   robid_t [1:0]        tlbm_rob;
   logic                hd_tlb, hd_retry, hd_fault;
   logic [3:0]          hd_cause;
   logic [63:0]         hd_lva, hd_sva;
   tg_lsu u_lsu (
-    .clk, .rst, .ready(lsu_ready), .flush, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
-    .lq_head_o(lq_head), .sq_head_o(sq_head), .sq_cmt_o(sq_cmt),
+    .clk, .rst, .ready(lsu_ready), .flush, .flush_tid, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
@@ -456,8 +474,9 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head, .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va, .tr_st_data,
-    .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
+    .replay_valid, .replay_rob, .rob_head, .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .tr_st_data,
+    .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
@@ -470,22 +489,22 @@ module tg_core
     .dbg_o(lsu_dbg));
 
   // ---- CSRs ----
-  logic             cm_csr, tr_valid, tr_irq, mret, sret, irq_take, wfi_wake;
+  logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake;
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
-    .clk, .rst, .flush, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
+    .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
-    .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
+    .cm_tid0(cm_tid[0]), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
     .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_p2m, .pmp_wr, .pmp_busy,
-    .irq_mei(irq_mei_i[0]), .irq_mti(irq_mti_i[0]), .irq_msi(irq_msi_i[0]), .irq_sei(irq_sei_i[0]),
-    .irq_ssi(irq_ssi_i[0]), .mtime(mtime_i));
+    .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
+    .irq_ssi(irq_ssi_i), .mtime(mtime_i));
 
   // ---- ROB and commit ----
   // The ROB's commit gate needs neither rename's ready nor the init flag: both are one-time
@@ -498,9 +517,9 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
-    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags,
+    .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
     .ld_cmp, .ld_rob(ld_cmp_rob), .ld_mmio(ld_cmp_mmio), .st_cmp(st_cmp_r), .st_rob(st_cmp_rob_r),
     .lx_valid(lx_valid_q), .lx_rob(lx_rob_q), .lx_cause(lx_cause_q), .spx_valid, .spx_rob,
@@ -512,7 +531,7 @@ module tg_core
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
     .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_hv, .cm_hftq,
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
-    .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
+    .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
@@ -578,25 +597,25 @@ module tg_core
       tag_free_p4 = '0;
       if (ptf_v_q[1]) tag_free_p4[ptf_id_q[1]] = 1'b1;
     end
-    // fcsr: one hart; FP state changes set mstatus.FS to Dirty
+    // fcsr: per hart (tg_fcsr). The flags of each retiring FP op go to its thread; a CSR instruction
+    // reads at execute and writes at commit, alone at the head (slot 0). Until M7's step 5 one thread
+    // runs (RUN_TID), so frm is that thread's; FS-dirty goes to each hart's mstatus (tg_csr).
     logic [CW-1:0] cm_fpr;
-    tid_t [CW-1:0] cm_tid;
     for (genvar j = 0; j < CW; j++) begin : g_cf
       assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
-      assign cm_tid[j] = '0;
     end
     logic [NUM_THREADS-1:0][2:0] frm_t;
     logic [NUM_THREADS-1:0]      fs_dirty_t, er_busy_t;
     tg_fcsr u_fcsr (
-      .clk, .rst, .frm_o(frm_t), .csr_rtid('0), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
-      .csr_wvalid(fc_wvalid), .csr_wtid('0), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
+      .clk, .rst, .frm_o(frm_t), .csr_rtid(RUN_TID), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
+      .csr_wvalid(fc_wvalid), .csr_wtid(cm_tid[0]), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
       .cm_valid, .cm_tid, .cm_fflags, .cm_fpr,
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
-    assign frm      = frm_t[0];
-    assign fs_dirty = fs_dirty_t[0];
+    assign frm      = frm_t[RUN_TID];
+    assign fs_dirty = fs_dirty_t;
     logic unused;
-    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+    assign unused = ^{er_busy_t, frm_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
                       p4_er_v, p4_er_ff, fc_frm_rd};
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
@@ -627,20 +646,20 @@ module tg_core
     assign tag_free_p4   = '0;
     assign frm           = '0;
     assign fc_fflags     = '0;
-    assign fs_dirty      = 1'b0;
+    assign fs_dirty      = '0;
     logic unused;
     assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_data, fsd_tag,
                       isrc_data, fpi_ready, cm_fflags, fc_wvalid, fc_waddr, fc_wdata};
   end
 
   logic unused;
-  assign unused = ^{irq_sei_i, irq_ssi_i, debug_req_i, irq_mei_i, irq_mti_i, irq_msi_i, rob_tail,
+  assign unused = ^{debug_req_i, rob_tail_t,
                     st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail, rob_head)), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);

@@ -1,0 +1,1 @@
+53f09f50e3c7a4dec208befb1a452ebf507caa61 + spikes a2108565; kv260_top patched by g5_fill_patch.py (47 tiles, 20 LUTRAM blocks per core): measurement only; options -impl 0 -define TG_DC_MSHRS=4 -define TG_SPEC_WAKE=1 -define TG_URF=1

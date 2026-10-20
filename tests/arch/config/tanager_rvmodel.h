@@ -12,6 +12,16 @@
 
 #define STANDARD_SM_SUPPORTED
 
+/* M7 (DR-175): hart 0 runs the test; another hart (a sibling thread that fetches from reset) parks in WFI.
+   The framework puts this in .text.rvmodel, so the test's own addresses don't move. */
+#define RVMODEL_BOOT              \
+  csrr t0, mhartid               ;\
+  beqz t0, 9001f                 ;\
+9000:                            ;\
+  wfi                            ;\
+  j 9000b                        ;\
+9001:
+
 /* Termination: tohost = 1 passes, 3 fails (tg_vsim's exit code 1). */
 #define RVMODEL_HALT_PASS  \
   li x1, 1                ;\

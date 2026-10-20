@@ -32,7 +32,7 @@ SYNTH_FLAGS := $(if $(SYNTH),+define+SYNTHESIS -Wno-UNUSED tools/ci/synth_lint/s
 lint:
 	@test -f $(RTL_CFG) || { echo "unknown CFG=$(CFG) (one of: $(CFGS))"; exit 2; }
 	$(VERILATOR) $(LINT_FLAGS) $(TC_DEF) $(LINT_ONLY_DEF) $(RTL_CFG) -F $(RTL_F) $(SYNTH_FLAGS)
-	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
+	@echo "lint OK: $(CFG)$(if $(TIMING_CUTS), TIMING_CUTS=$(TIMING_CUTS))$(if $(DC_MSHRS), DC_MSHRS=$(DC_MSHRS))$(if $(QUEUE_DECODE), QUEUE_DECODE=$(QUEUE_DECODE))$(if $(SPEC_WAKE), SPEC_WAKE=$(SPEC_WAKE))$(if $(STA_BASE), STA_BASE=$(STA_BASE))$(if $(STEER_LA), STEER_LA=$(STEER_LA))$(if $(PMP_ENTRIES), PMP_ENTRIES=$(PMP_ENTRIES))$(if $(STORE_PF), STORE_PF=$(STORE_PF))$(if $(URF), URF=$(URF))$(if $(STORE_PF_MAX), STORE_PF_MAX=$(STORE_PF_MAX))$(if $(SOLO_TID), SOLO_TID=$(SOLO_TID))$(if $(SPLIT), SPLIT=$(SPLIT))$(if $(strip $(LINT_ONLY_SET)), $(strip $(LINT_ONLY_SET)))$(if $(SYNTH), SYNTH=1)"
 
 # DR-140's elaborations, so that every switch's branches compile: the fallback (every switch off), the
 # default (#4, #5 on), and #2, #8 and the commit trace off (DR-146) each on top of the default (lint only;
@@ -50,7 +50,7 @@ lint-all:
 CORE ?= core
 REGRESS_ARGS = CFG=$(CFG) CORE=$(CORE) $(if $(LAT),LAT=$(LAT)) $(if $(SUITES),SUITES="$(SUITES)") \
   $(if $(MARCH),MARCH=$(MARCH)) $(if $(SELFTEST),SELFTEST=$(SELFTEST)) $(if $(RANDN),RANDN=$(RANDN)) \
-  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX,$(if $($(v)),$(v)=$($(v))))
+  $(if $(JOBS),JOBS=$(JOBS)) $(foreach v,DC_MSHRS QUEUE_DECODE SPEC_WAKE STA_BASE STEER_LA PMP_ENTRIES STORE_PF URF STORE_PF_MAX SOLO_TID SPLIT,$(if $($(v)),$(v)=$($(v))))
 regress:
 	@tools/ci/regress.sh $(REGRESS_ARGS) $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS))
 regress-profiles:
@@ -85,11 +85,13 @@ cycle-identical:
 	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF)) \
 	  $(if $(URF),--urf $(URF)) $(if $(BRANCH_URF),--branch-urf $(BRANCH_URF)) \
 	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX)) \
+	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID)) \
+	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT)) \
 	  $(if $(HARNESS),--harness $(HARNESS))
 
 # The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
 # (sim/tb/tg_soc_tap.sv) streams every core's records into tanager-lockstep as the boot runs, at the untraced
-# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2), MCYC million cycles (100), TIMING the DDR
+# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2)|smp4 (M7: all four harts), MCYC million cycles (100), TIMING the DDR
 # timing of each run, side by side (board, jitter, fixedN, default), SEED; the profile switches as
 # cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
 # BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
@@ -99,7 +101,8 @@ BOOT_LS_ARGS = $(if $(BRANCH),--branch "$(BRANCH)") $(if $(MCYC),--mcyc $(MCYC))
   $(if $(QUEUE_DECODE),--queue-decode $(QUEUE_DECODE)) $(if $(SPEC_WAKE),--spec-wake $(SPEC_WAKE)) \
   $(if $(STA_BASE),--sta-base $(STA_BASE)) $(if $(STEER_LA),--steer-la $(STEER_LA)) \
   $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(URF),--urf $(URF)) \
-  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX))
+  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) \
+  $(if $(SPLIT),--split $(SPLIT))
 boot-lockstep:
 	@python3 tools/ci/boot_lockstep.py $(BOOT_LS_ARGS) $(if $(SHAPE),--shape "$(SHAPE)") $(if $(TIMING),--timing "$(TIMING)")
 boot-lockstep-gate:
@@ -121,4 +124,6 @@ perf:
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
 	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF)) \
 	  $(if $(URF),--urf $(URF)) $(if $(BRANCH_URF),--branch-urf $(BRANCH_URF)) \
-	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX))
+	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX)) \
+	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID)) \
+	  $(if $(SPLIT),--split $(SPLIT)) $(if $(BRANCH_SPLIT),--branch-split $(BRANCH_SPLIT))

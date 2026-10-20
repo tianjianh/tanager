@@ -45,8 +45,10 @@ SOAK_FAIL = os.path.join(ci.TB, "soak", "fail")
 KEEP_BUILDS = 4           # tb_boot builds kept, binaries only (least recently used go first)
 KEEP_RUNS = 30            # run directories kept (logs and reports), newest first
 MEM_PARAMS = "-GL2_SETS_TB=1024"   # the board's L2 sets; the DDR timing is set at run time (TIMINGS)
-# shape: (CFG, cores, threads, threads Linux runs, Verilator threads)
-SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4)}
+# shape: (CFG, cores, threads, threads Linux runs, Verilator threads). smp4 is M7's four harts, both threads of both
+# smt2 cores (the device tree with RUN_THREADS=2); until hart 1 fetches (M7's step 5) Linux brings up harts 0 and 2
+# only, and reports the others failed to come online
+SHAPES = {"st": ("st", 1, 1, 1, 1), "board": ("smt2", 2, 2, 1, 4), "smp4": ("smt2", 2, 2, 2, 4)}
 GATE_PATHS = tuple(f"rtl/core/{d}/" for d in ("frontend", "decode", "rename", "lsu", "mmu", "csr")) + \
              ("rtl/core/tg_core.sv", "rtl/core/tg_core_pkg.sv")
 # The gate's two timings, the ones that caught M6's micro-BTB alias on 0a1a418 soonest: tb_boot's own random
@@ -58,7 +60,7 @@ NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is unde
 NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
                  "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
-                 "STORE_PF_MAX": (2, 3)}
+                 "STORE_PF_MAX": (2, 3), "SOLO_TID": (0, 1), "SPLIT": (0, 1)}
 
 
 def log(msg):
@@ -379,7 +381,7 @@ def checks(a, tool, nice=False, nightly=False):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--branch", default="", help="the RTL to check (default: this tree's, uncommitted changes too)")
-    ap.add_argument("--shape", default="st", help="st, board, or a list")
+    ap.add_argument("--shape", default="st", help="st, board, smp4 (M7's four harts), or a list")
     ap.add_argument("--timing", default="board", help="board, jitter, fixedN, default, or a list (one run each)")
     ap.add_argument("--mcyc", type=int, default=None, help=f"million cycles a run lasts at most (default {GATE_MCYC})")
     ap.add_argument("--seed", type=int, default=1, help="tb_boot's random seed (+verilator+seed+)")
