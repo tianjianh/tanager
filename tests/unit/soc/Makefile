@@ -15,6 +15,8 @@ SDIRQ  ?= 0
 SDPROG ?= sd_irq            # sd_irq_smt2s: S-mode with ticks, the contender on hart 2 (KIND=core CFG=smt2)
 NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)
 EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW) $(SDIRQ)),+define+TG_PS_WINDOW=1)
+# TB_SOC_CORE: the real cores are in (KIND=core), so the bench may name their insides (tb_soc's +ipi_race)
+EXTRA_VFLAGS += $(if $(filter core,$(KIND)),+define+TB_SOC_CORE)
 TB     := $(CURDIR)/tb_soc.sv
 PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA) -GSDIRQ=$(SDIRQ)
 include ../common/unit.mk

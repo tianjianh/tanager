@@ -258,7 +258,10 @@ module tb_soc;
   // pending in the very cycle hart 0's LSU issues its Nth PLIC claim of context 1 (S-mode, sd_irq_smt2s/v), as
   // an IPI can land while Linux's plic_handle_irq claims. MSIP to the hart's interrupt selection is
   // combinational, so set mid-cycle it is taken that cycle; hart 0's M-mode handler clears it.
+  // Under TB_SOC_CORE only (the Makefile's, with KIND=core): Verilator resolves these names even in a generate
+  // branch that is off, and the test cores and the traffic generators have no LSU
   int ipi_race_at = 0, claims_seen = 0, ipi_injected = 0;
+`ifdef TB_SOC_CORE
   if (KIND == "core" && SDIRQ) begin : g_ipi_race
     initial if ($value$plusargs("ipi_race=%d", ipi_race_at)) forever begin
       @(negedge clk);
@@ -289,6 +292,7 @@ module tb_soc;
       end
     end
   end
+`endif
   initial if (PS_WINDOW) forever begin
     @(posedge clk);
     if (ps_awv && ps_wv) begin
@@ -690,10 +694,11 @@ module tb_soc;
     if (dut.u_uncore.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
 
     if (PROG) begin
-      // run until the program reports through TOHOST, echoing the console
-      int t;
+      // run until the program reports through TOHOST, echoing the console; +run_limit=N: N x 500 cycles at most
+      int t, run_limit;
       bit first_ok;
       logic [31:0] seq, lo;
+      if (!$value$plusargs("run_limit=%d", run_limit)) run_limit = SDIRQ ? 90000 : 20000;
       t = 0;
       first_ok = 0;
       do begin
@@ -715,7 +720,7 @@ module tb_soc;
         end
         if (TRACE) begin hw(16'h1030, lo); hw(16'h1034, 32'h0); end   // TRS_RP = WP (records consumed)
         t++;
-      end while (seq == 0 && t < (SDIRQ ? 90000 : 20000));   // streaming slows the cores to the trace rate
+      end while (seq == 0 && t < run_limit);   // streaming slows the cores to the trace rate
       drain_console();
       $display("console:\n%s", console);
       hr(16'h060, lo);
