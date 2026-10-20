@@ -60,11 +60,14 @@ else echo "lint-all: no RTL mentions TG_STORE_PF_MAX; skipping STORE_PF_MAX"; fi
 profiles+=("SYNTH=1")
 # M7's test mode (SOLO_TID=1, DR-175) exists only in the SMT2 configurations (TID_W = 1)
 solo=""; if mentioned TG_SOLO_TID; then solo=1; else echo "lint-all: no RTL mentions TG_SOLO_TID; skipping SOLO_TID=1"; fi
+# ... and its split mode (SPLIT=1), alone and with SOLO_TID=1
+split=""; if mentioned TG_SPLIT; then split=1; else echo "lint-all: no RTL mentions TG_SPLIT; skipping SPLIT=1"; fi
 tasks=()
 for c in $CFGS; do
   for p in "${profiles[@]}"; do tasks+=("$c${p:+ $p}"); done
   tasks+=("$c FWDREF=1" "$c FWDREF=0")
-  case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1") ;; esac
+  case "$c" in smt2*) [ -n "$solo" ] && tasks+=("$c SOLO_TID=1")
+                     [ -n "$split" ] && tasks+=("$c SPLIT=1") && { [ -z "$solo" ] || tasks+=("$c SPLIT=1 SOLO_TID=1"); } ;; esac
 done
 
 # One line per elaboration as it finishes: PASS|FAIL <cfg> [<define>]
