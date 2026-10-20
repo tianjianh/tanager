@@ -425,3 +425,16 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - No SD1 timeout in any boot, stress or shutdown, and no capture.
   - Each logged in 191–192 s after the reboot, and each stress drew 74,600–75,800 mmc0 interrupts.
   - Boots 41–60 follow at once.
+- **Boots 41–60 (16:20–17:57 UTC): 20 of 20 clean.**
+  - Each logged in 186–192 s after the reboot, and each stress drew 75,000–76,700 mmc0 interrupts.
+- **The result: 60 of 60 clean, the pass.**
+  - No SD1 timeout in any boot, stress or shutdown: the whole COM5 log of the count holds none, and no capture.
+  - On d4r1 the same 60 boots would be expected to show about 5 losses (5 in 57). Zero in 60 leaves under a 1% chance that the bug remains at that rate.
+  - Logs: [`uart_COM5_d4r2_boots.txt`](uart_COM5_d4r2_boots.txt) (boots 0–60), the tally [`probe_tally_d4r2.txt`](probe_tally_d4r2.txt).
+
+## Run s21: the 24-hour soak in RISC-V mode on d4r2 (10-20 to 10-21)
+
+- **The stress** from 17:58:22 UTC (`STRESS start 2026-10-20T17:58:22Z up=296.32`, [`uart_COM5_s21_start.txt`](uart_COM5_s21_start.txt)) on boot 60 of the count, with the whole-boot watch armed. The probe's setup stays on p3 until the coordinator calls the hunt done.
+- **Network checks:** 24, hourly from 18:28:22.
+- **The end:** 17:58:22 UTC on 10-21, or the first failure, SD1 timeout or capture.
+- The stress numbers carry the watch's cost (about 3.5% on cpu and threads).
