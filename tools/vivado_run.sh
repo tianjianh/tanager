@@ -12,16 +12,30 @@
 #                              .locks/vivado.budget, if present, overrides it live)
 #   TANAGER_TRACK              owner for fair queueing (default: the track-* name in this script's path
 #                              or the run directory, else "other")
+#   TANAGER_VIVADO_CPUS        the CPUs Vivado runs on, a taskset list, or "all" (default: the P-cores on a
+#                              hybrid host, /sys/devices/cpu_core/cpus; elsewhere all; .locks/vivado.cpus, if
+#                              present, overrides it live, host-wide)
 # Admission is a fair queue. Each job takes a ticket. The next job admitted is the waiting one whose owner
 # holds the fewest slots, oldest ticket first. It starts when a slot is free and the declared memory of
 # the running jobs plus its own fits the budget. While it waits, the head of the queue holds the
 # admission lock, so a later launch (including an older copy of this script) cannot take a freed slot
 # first. Declarations, not free memory, are used, because Vivado's memory grows over minutes.
 # Vivado runs with a raised oom_score_adj, so under memory pressure the kernel kills a Vivado job,
-# not sshd, the tunnel or the agent sessions.
+# not sshd, the tunnel or the agent sessions. On a hybrid host (Intel P- and E-cores) it runs on the P-cores
+# alone, where its one-thread phases run several times faster; elsewhere nothing changes.
 # The log goes to <run-dir>/vivado.log. The exit status is Vivado's.
 set -euo pipefail
 lock_dir="${TANAGER_BUILD:-$HOME/tanager-build}/.locks"
+
+# The CPUs this job's Vivado runs on (taskset's list; empty: all): .locks/vivado.cpus, else TANAGER_VIVADO_CPUS,
+# else a hybrid host's P-cores; "all" pins nothing
+vivado_cpus() {
+  local c
+  c=$(cat "$lock_dir/vivado.cpus" 2>/dev/null || echo "${TANAGER_VIVADO_CPUS:-}")
+  if [ -z "$c" ] && [ -r /sys/devices/cpu_core/cpus ]; then c=$(cat /sys/devices/cpu_core/cpus); fi
+  [ "$c" = all ] && c=
+  echo "$c"
+}
 qdir="$lock_dir/queue"
 mkdir -p "$lock_dir" "$qdir"
 
@@ -103,7 +117,8 @@ while true; do
             echo "$owner" > "$lock_dir/vivado.$i.owner"
             rm -f "$qfile"
             flock -u "$adm"; exec {adm}>&-
-            echo "[vivado_run] slot $i ($owner, ${need} GB declared): $tcl in $run_dir ($(date '+%F %T'))"
+            cpus=$(vivado_cpus)
+            echo "[vivado_run] slot $i ($owner, ${need} GB declared${cpus:+, CPUs $cpus}): $tcl in $run_dir ($(date '+%F %T'))"
             # Measure the job's peak memory: every 10 s, the summed RSS of all processes working under the
             # run directory (Vivado and its workers). Reported at the end and logged, so declarations can
             # follow measurements.
@@ -125,7 +140,7 @@ while true; do
             set +e
             ( echo 800 > /proc/self/oom_score_adj 2>/dev/null || true
               source "$settings" >/dev/null && cd "$run_dir" && \
-              vivado -mode batch -nojournal -log vivado.log -source "$tcl" -tclargs "$@" ) </dev/null
+              ${cpus:+taskset -c "$cpus"} vivado -mode batch -nojournal -log vivado.log -source "$tcl" -tclargs "$@" ) </dev/null
             rc=$?
             kill "$sampler" 2>/dev/null; wait "$sampler" 2>/dev/null
             set -e

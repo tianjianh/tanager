@@ -191,6 +191,22 @@ package tg_core_pkg;
 `else
   localparam int PMP_ENTRIES = 8;
 `endif
+  // I$ next-line prefetch (area_recovery.md §6.11-6.12): a demand miss of line L also fetches L+1 (same page)
+  // through a second Get into an invalid way, validated by its own demand miss (core-pipeline.md §3.1). On by
+  // default; TG_IPF=0 turns it off, cycle for cycle.
+`ifdef TG_IPF
+  localparam bit IPF_ON = `TG_IPF;
+`else
+  localparam bit IPF_ON = 1'b1;
+`endif
+  // DR-174 (the user, the area reserve): the integer register file in UltraRAM, double-pumped at clk2x (twice the
+  // core clock, from the board's MMCM; spikes.md §8.14's "edge" plan). Off by default; TG_URF=1 turns it on, with
+  // the same cycles. The core then needs clk2x.
+`ifdef TG_URF
+  localparam bit URF = `TG_URF;
+`else
+  localparam bit URF = 1'b0;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

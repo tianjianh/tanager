@@ -1,0 +1,8 @@
+spikes.md §8.14, tier A of the double-pumped UltraRAM register file (measurement only). The harness and the RTL
+are on the scratch branch claude/spikes-2-uram-rf at b7ff81c (fpga/spikes/uram/), not on main.
+  urf_ctx.txt, detail.rpt.gz   q_urf_ctx.tcl, q_urf_detail.tcl on h100_m6m's routed checkpoint (main 31e65c6)
+  summary_mid / paths_mid      urf_fit.tcl, the slot plan as briefed (WMODE "mid"), floorplan urf_fp_c0.tcl (run urf_a0)
+  summary_late_byp / paths_..  the same with the late capture in the RF stage through the LD/STA select (urf_a1)
+  summary_edge / paths_edge    WMODE "edge" (the write at the core edge), floorplan urf_fp_c0_edge.tcl (urf_e0)
+  tb_urf_*.log                 tb_urf under Verilator 5.052 on sim/URAM288_BASE.sv (from UG573) and on the vendor's
+                               URAM288_BASE.v (sim/vendor_uram_vl.sh); tb_urf_mutants.txt: the broken variants
