@@ -273,6 +273,7 @@ Records are processed in the order interfaces.md §5 guarantees: per hart in pro
 - Spike must not have trapped. A trap is recognised by the cause and EPC CSR writes it logs (`mcause`+`mepc`, or `scause`+`sepc`); no single instruction writes both.
 - **Destination:** Spike's logged integer or FP register write (x0 excluded) must match `rd_we`, `rd_fp` and `rd`. If `rd_deferred` is 0, `rd_value` must equal Spike's value (FP: the 64-bit register, NaN-boxed for single precision). If it is 1, see §3.5.
 - **Stores:** Spike's logged memory writes must match `mem_st`, `mem_vaddr`, `mem_size` and `mem_wdata` (masked to the size). A store, SC or AMO logs exactly one write; a failed SC logs none.
+- **Reads** (interfaces.md v1.5, `mem_ld`; checked before the value): with `mem_ld`, Spike's logged read must have the record's `mem_vaddr` and `mem_size`, for a load, an LR or an AMO (whose read and write share the address). Once a hart's records have carried `mem_ld`, a read Spike logs without it in the record is a mismatch, so a core that reports reads reports all of them, while a core built before v1.5 checks as before. `mem_ld` on anything but a load, LR or AMO breaks the record's rules. The self-test injects a wrong load address (`ld-addr`) and a missing `mem_ld` (`noload`).
 - CSR writes in Spike's log are not compared: they are not in the trace, and their effects are checked when software reads them.
 
 **`TR_TRAP`:** `step(1)`; Spike must have trapped, with the same cause (`mcause` or `scause`, whichever the trap wrote) and the same `tval` (`mtval` or `stval`). The privilege mode and PC after the trap are checked by the next record.
@@ -350,6 +351,8 @@ Two independent ways, both in `make regress`:
 - 326 riscv-tests (all `-p` and `-v` suites of ui, um, ua, uc, uf, ud, mi, si, zba, zbb, zbs, zicond; `ma_data` excluded, §4.1) pass Spike against Spike, plain and under four perturbation sets (deferral up to 90% of results, nondet values, 2 and 4 harts, 3- and 4-record cycles);
 - 19 fault kinds × 7 programs × 2 seeds, plus a wrong interrupt cause on the interrupt test: every applicable injection is reported with the expected diagnosis (270 runs; a dropped writeback is reported either at the end or as the tag reuse it causes, whichever comes first);
 - the directed tests (§4.1) pass with deferral, and `irq_timer` and `irq_ext`, which tolerate extra interrupts, also with random interrupts injected at enabled boundaries; `irq_s` counts its interrupts exactly, so it runs without injection.
+
+**2026-10-20, with the read check** (interfaces.md v1.5, §3.3): `tg_replay` reports every read with `mem_ld`, so all 326 tests under every perturbation set check each load's address too, and pass. 21 fault kinds (`ld-addr` and `noload` added) and the interrupt cause: 282 injections reported with the expected diagnosis, none missed (16 not applicable: the program ends before a load past the injection point); 25 s. The test core sets `mem_ld` as well, and its 82 riscv-tests pass in lockstep.
 
 The checker found its first real bug the same day: the test core lost deferred writebacks when two deferred records left its trace queue in one cycle.
 
@@ -1061,7 +1064,7 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 
 ## 9. Open points for the coordinator
 
-1. **Trace:** a load's address is not in `tr_rec_t`. It is needed for multi-hart lockstep (§3.7) at M7; requested then.
+1. **Trace:** a load's address is in `tr_rec_t` from interfaces.md v1.5 (`mem_ld`, with `mem_vaddr` and `mem_size`; DR-175's plan §5). The checker, `tg_replay`, the test core, `tg_tb_top`'s DPI and the tap take it (§3.3); the core sets it at M7's step 2. The windows of §3.7 never needed it: they use the address Spike's own step logged.
 2. **Physical store address:** `tohost` detection under virtual memory uses aliases (§2.6). A `mem_paddr` field would remove the aliases; not needed now.
 3. **PMP reset values:** Spike resets PMP entry 0 to "allow all"; the checker can patch it (§3.2) once the core track decides its reset values.
 4. **SC failure adoption** (§3.4): interfaces.md §5 says the checker adopts the RTL's outcome "(the `rd` value)". For an SC with rd = x0 the outcome is the missing store, which the checker now uses for every SC; the interface could say "the `rd` value, or the missing store when rd is x0".

@@ -32,7 +32,7 @@ INJECT_OK = ("tanager-p-irq_timer", "tanager-p-irq_ext")
 
 FAULTS = ["pc", "skip", "insn", "priv", "rd", "value", "nowrite", "store-data", "store-addr", "nostore",
           "cause", "tval", "trap-as-retire", "retire-as-trap", "nondet-bad", "wb-value", "wb-missing",
-          "wb-extra", "tag-reuse"]
+          "wb-extra", "tag-reuse", "ld-addr", "noload"]
 FAULT_TESTS = ["rv64ui-p-sw", "rv64um-p-divu", "rv64ua-p-amoadd_d", "rv64ud-p-fadd", "rv64si-p-csr",
                "rv64ui-v-lw", "rv64uc-p-rvc"]
 
