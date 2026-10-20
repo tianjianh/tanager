@@ -76,6 +76,18 @@ module tg_prim_synth_top (
     .lk_idx(g_i), .lk_valid(g_v), .wr_valid(in[16]), .wr_ready(g_w), .wr_idx(in[21:17]),
     .wr_key(in[34:22]), .inv(in[35]), .inv_idx(in[40:36]), .flush(in[41]));
 
+  // i: LUTRAM 96 x 64, 4 read ports, all read (tg_ram_lut's 96 form, DR-175's smt2 FP bank): entries
+  // 0-63 in ceil(4 * 64 / 7) = 37 RAM64M8, 64-95 in ceil(4 * 32 / 7) = 19 RAM32M16
+  logic [3:0][6:0]  i_ra;
+  logic [3:0][63:0] i_rd;
+  logic [63:0]      i_fold;
+  for (genvar p = 0; p < 4; p++) begin : g_ira
+    assign i_ra[p] = in[7*p +: 7] % 7'd96;
+  end
+  tg_ram_lut #(.DEPTH(96), .WIDTH(64), .NR(4)) u_i (
+    .clk, .we(in[63]), .waddr(in[62:56] % 7'd96), .wdata({in[31:0], in[63:32]}), .raddr(i_ra), .rdata(i_rd));
+  assign i_fold = i_rd[0] ^ i_rd[1] ^ i_rd[2] ^ i_rd[3];
+
   // h: a CAM with tg_ram_lut tables (PRIM "m16"): no RAM64X8SW of its own
   logic [15:0] h_m;
   logic [3:0]  h_i;
@@ -96,6 +108,6 @@ module tg_prim_synth_top (
     for (int i = 0; i < 200; i++) c_fold[i % 26] ^= c_rd[i];
   end
   always_ff @(posedge clk) begin
-    out <= {a_rd[0], a_rd[1][3:0], b_rd[0], b_rd[1], c_fold} ^ {d_rd, e_rd, f_rd, 15'd0, cam_fold};
+    out <= {a_rd[0], a_rd[1][3:0], b_rd[0], b_rd[1], c_fold} ^ {d_rd, e_rd, f_rd, 15'd0, cam_fold} ^ i_fold;
   end
 endmodule

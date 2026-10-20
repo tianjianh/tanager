@@ -297,6 +297,7 @@ void mmio_model_t::cycle(const ul_in_t& in, ul_out_t& out) {
       bool ok;
       if (a.opcode == A_GET) {
         uint64_t v = ctx_.denied(a.address) ? (ok = false, 0) : dev_read(a.address, a.size, ok);
+        if (ok && track_reads) reads_out.emplace_back(ctx_.now, a.address);   // its load retires once (main.cpp)
         m.hdr.opcode = D_ACCESS_ACK_DATA;
         m.beats.push_back(beat_with(v, lane, n));
         m.hdr.corrupt = !ok;

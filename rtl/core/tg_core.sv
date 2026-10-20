@@ -450,7 +450,11 @@ module tg_core
   logic [CW-1:0][63:0] tr_st_va, tr_st_data;
   logic [CW-1:0][1:0]  tr_st_size;
   logic [CW-1:0]       tr_st_wr;
+  lqid_t [CW-1:0]      tr_lq;
+  logic [CW-1:0][63:0] tr_ld_va;
+  logic [CW-1:0][1:0]  tr_ld_size;
   logic                rsv_clr;           // trap or xRET: the LR reservation ends
+  logic                tr_irq;            // the ROB takes an interrupt this cycle (the LSU's MMIO issue waits for none)
   logic [1:0]          tlbm_valid;
   robid_t [1:0]        tlbm_rob;
   logic                hd_tlb, hd_retry, hd_fault;
@@ -468,7 +472,7 @@ module tg_core
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
     .replay_valid, .replay_rob, .rob_head, .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
-    .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
+    .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
@@ -481,7 +485,7 @@ module tg_core
     .dbg_o(lsu_dbg));
 
   // ---- CSRs ----
-  logic             cm_csr, tr_valid, tr_irq, mret, sret, irq_take, wfi_wake;
+  logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake;
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
@@ -523,7 +527,7 @@ module tg_core
     .cm_valid, .cm_rd_en, .cm_rd_fp, .cm_rd, .cm_dst, .cm_old, .cm_ras_push, .cm_ras_pop, .cm_ras_link,
     .cm_cbr, .cm_ctaken, .cm_cpred, .cm_cftq, .cm_cslot, .cm_hv, .cm_hftq,
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
-    .tr_st_data, .tr_st_size, .tr_tag, .tr_data,
+    .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,
     .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);

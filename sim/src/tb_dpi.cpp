@@ -173,7 +173,7 @@ extern "C" void tg_dpi_irq(int merr, int* mei_n, int* sei_n, int* mti_n, int* ms
 extern "C" void tg_dpi_trace(int slot, int kind, int hart, int priv, long long pc, int insn, svBit rvc, svBit rd_we,
                              svBit rd_fp, int rd, svBit rd_deferred, int wb_tag, long long rd_value, svBit mem_st,
                              long long mem_vaddr, long long mem_wdata, int mem_size, svBit mmio_ld, svBit nondet,
-                             long long cause, long long tval) {
+                             svBit mem_ld, long long cause, long long tval) {
   tr_rec_t r;
   r.cycle = tb().ctx.now;
   r.slot = unsigned(slot);
@@ -195,6 +195,7 @@ extern "C" void tg_dpi_trace(int slot, int kind, int hart, int priv, long long p
   r.mem_size = uint8_t(mem_size);
   r.mmio_ld = mmio_ld;
   r.nondet = nondet;
+  r.mem_ld = mem_ld;
   r.cause = uint64_t(cause);
   r.tval = uint64_t(tval);
   tb().recs.push_back(r);

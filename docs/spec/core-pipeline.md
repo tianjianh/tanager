@@ -381,7 +381,7 @@ After `rst`, an init counter runs for 64 cycles before fetch starts: it fills th
   - So no other state left out of the reset changes timing.
 
 ## 11. Commit trace
-Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
+Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions. `mem_ld` (interfaces.md v1.5) marks a read of memory, with `mem_vaddr` and `mem_size` the read's: a load (integer, FP or device) takes its LQ entry's VA and size, read at commit by the slot's LQ index (a copy of the LQ's VA LUTRAM, trace builds only); LR and an AMO take their SQ entry's, which an AMO's write shares; SC never has it.
 
 ## 12. Parameters and builds
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).

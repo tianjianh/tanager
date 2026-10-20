@@ -571,9 +571,10 @@ module tg_tcore
       rec_new.rd_deferred = rec_defer;
       rec_new.wb_tag = rec_defer ? rec_tag : '0;
       rec_new.mem_st = mem_st_q;
-      rec_new.mem_vaddr = mem_st_q ? maddr_q : '0;
+      rec_new.mem_ld = ld_q;                                   // v1.5: a read, its address and size
+      rec_new.mem_vaddr = (mem_st_q || ld_q) ? maddr_q : '0;
       rec_new.mem_wdata = mem_st_q ? (mwdata_q & smask(msz_q)) : '0;
-      rec_new.mem_size = mem_st_q ? msz_q : '0;
+      rec_new.mem_size = (mem_st_q || ld_q) ? msz_q : '0;
       rec_new.mmio_ld = mmio_ld_q;
       rec_new.nondet = nondet_q;
     end

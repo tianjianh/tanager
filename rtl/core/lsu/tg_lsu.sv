@@ -95,8 +95,12 @@ module tg_lsu
   output logic [COMMIT_WIDTH-1:0][63:0] tr_st_va,
   output logic [COMMIT_WIDTH-1:0][63:0] tr_st_data,
   output logic [COMMIT_WIDTH-1:0][1:0] tr_st_size,
+  input  lqid_t [COMMIT_WIDTH-1:0]     tr_lq,          // trace: committed loads' address and size (v1.5, mem_ld)
+  output logic [COMMIT_WIDTH-1:0][63:0] tr_ld_va,
+  output logic [COMMIT_WIDTH-1:0][1:0] tr_ld_size,
   output logic                         sq_drained,    // no committed store left
   output logic                         mmio_busy,     // an MMIO load or an atomic: no interrupt
+  input  logic                         irq_go,        // the ROB takes an interrupt this cycle (its trap's tr_irq)
   input  logic                         rsv_clr,       // trap or xRET: the LR reservation ends
   // Translation and PMP (M3)
   input  priv_e                        priv,          // fetch walks
@@ -445,13 +449,27 @@ module tg_lsu
       assign tr_st_size[j] = sqsz_rd[j];
       assign tr_st_wr[j]   = !sq_amo_q[tr_sq[j][SIW-1:0]] || sq_amw_q[tr_sq[j][SIW-1:0]];
     end
+    // The committed loads' VA (v1.5's mem_ld): a copy of u_lqc's, written with it at AG, read by the commit slots'
+    // LQ indices (the head's reads stay u_lqc's); the size from the LQ's flip-flops
+    logic [COMMIT_WIDTH-1:0][LIW-1:0] lqva_ra;
+    logic [COMMIT_WIDTH-1:0][63:0]    lqva_rd;
+    for (genvar j = 0; j < COMMIT_WIDTH; j++) begin : g_trl
+      assign lqva_ra[j]    = tr_lq[j][LIW-1:0];
+      assign tr_ld_va[j]   = lqva_rd[j];
+      assign tr_ld_size[j] = lq_size_q[tr_lq[j][LIW-1:0]];
+    end
+    tg_ram_lut #(.DEPTH(LQ_ENTRIES), .WIDTH(64), .NR(COMMIT_WIDTH)) u_lqva (
+      .clk, .we(ld_ag_valid && !flush), .waddr(ld_ag_pl.lq[LIW-1:0]), .wdata(lqc_wd.va), .raddr(lqva_ra),
+      .rdata(lqva_rd));
   end else begin : g_notrace
     assign tr_st_va   = '0;
     assign tr_st_data = '0;
     assign tr_st_size = '0;
     assign tr_st_wr   = '0;
+    assign tr_ld_va   = '0;
+    assign tr_ld_size = '0;
     logic unused_tr;
-    assign unused_tr = ^{tr_sq, sq_amw_q};             // sq_amw_q: an atomic wrote memory, for the trace
+    assign unused_tr = ^{tr_sq, tr_lq, sq_amw_q};      // sq_amw_q: an atomic wrote memory, for the trace
   end
 
   // ---- D$ ----
@@ -747,7 +765,14 @@ module tg_lsu
   assign mmio_busy = (xs_q != X_IDLE && !x_st_q) || xr_v_q || xd_q || am_v_q;
 
   // MMIO load: the ROB head, no committed store left, port free. A load at the ROB head is
-  // the oldest in the window, so it is the LQ head.
+  // the oldest in the window, so it is the LQ head. It does not issue in a cycle in which the ROB
+  // takes an interrupt (DR-176): mmio_busy rises only the cycle after the issue, so in the issue's
+  // cycle the ROB could take the interrupt and flush the load with its request already out; the
+  // load then ran again after the trap, and a read with a side effect happened twice (SD1's lost
+  // interrupt on the board: a PLIC claim read twice, the first claim's source never completed).
+  // The ROB takes the interrupt first, and the load issues once, after the trap. The gate is the
+  // ROB's decision itself, not a pending interrupt, so the load never waits on one the ROB cannot
+  // take (its trace back-pressure, or a hart's interrupt at the other hart's head with SMT).
   logic            mm_go, mm_cand;
   logic [LIW-1:0]  mm_idx;
   assign mm_idx  = hl;
@@ -761,7 +786,7 @@ module tg_lsu
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
   assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
-  assign mm_go = mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush && !mm_hold;
+  assign mm_go = mm_cand && !dr_v && xs_q == X_IDLE && !xr_v_q && !flush && !mm_hold && !irq_go;
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
@@ -1909,6 +1934,15 @@ module tg_lsu
           else $error("tg_lsu: an atomic that is not the SQ head and commit point, or misaligned");
     end
   end
+  // No flush meets an MMIO read whose request is out or whose value waits to retire (DR-176): the
+  // read issues only at the ROB head, with every older instruction retired, so no mispredict,
+  // replay, exception or serialising flush of an older one can come; its own access fault comes
+  // with its response; and no interrupt is taken from its issue's cycle (mm_go waits for none) to
+  // its retirement (mmio_busy). A flush here would have the read run twice (SD1's lost interrupt)
+  always_ff @(posedge clk)
+    if (rs_q && !rst)
+      assert (!(flush && ((xs_q != X_IDLE && !x_st_q) || xr_v_q || xd_q)))
+        else $error("tg_lsu: a flush meets an MMIO read already sent (it would run twice)");
   // Shadows of the blocking store's fields, written on the verdict as before (m2_out == O_STQ),
   // match the fields wherever these are read (in L_STQ)
   sqid_t [LQ_ENTRIES-1:0] blk_chk_q;

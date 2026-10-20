@@ -104,6 +104,9 @@ module tg_rob
   input  logic [CW-1:0][63:0]          tr_st_va,
   input  logic [CW-1:0][63:0]          tr_st_data,
   input  logic [CW-1:0][1:0]           tr_st_size,
+  output lqid_t [CW-1:0]               tr_lq,        // ... and committed loads' (interfaces.md v1.5, mem_ld)
+  input  logic [CW-1:0][63:0]          tr_ld_va,
+  input  logic [CW-1:0][1:0]           tr_ld_size,
   // Trace register reads
   output preg_t [CW-1:0]               tr_tag,
   input  logic [CW-1:0][63:0]          tr_data,
@@ -589,6 +592,7 @@ module tg_rob
       cm_cftq[j]     = hp[j].ftq;
       cm_cslot[j]    = hp[j].pc[SLOT_W:1] + SLOT_W'(!hp[j].rvc);
       tr_sq[j]    = COMMIT_TRACE ? hp[j].sq : '0;       // the trace's reads (DR-146: none without it)
+      tr_lq[j]    = COMMIT_TRACE ? hp[j].lq : '0;
       tr_tag[j]   = COMMIT_TRACE ? hp[j].dst : '0;
       if (ret[j]) begin
         n++;
@@ -614,6 +618,10 @@ module tg_rob
   assign tr_tval  = t_tval;
 
   // ---- Trace records ----
+  // An atomic that reads memory: LR or an AMO, not SC (the A extension's opcode; funct5 3 is SC)
+  function automatic logic amo_reads(input logic [6:0] opcode, input logic [4:0] funct5);
+    return opcode == 7'b0101111 && funct5 != 5'b00011;
+  endfunction
   // The hart: the core's first plus the thread (SOLO_TID's thread, tid 1, is hart 0, as mhartid)
   localparam hart_t HART0 = hart_t'(CORE_ID * NUM_THREADS);
   tr_rec_t [CW-1:0] rec;
@@ -641,9 +649,17 @@ module tg_rob
         rec[j].rd       = hp[j].rd;
         rec[j].rd_value = hp[j].rd_en ? tr_data[j] : '0;
         rec[j].mem_st   = hp[j].is_st && tr_st_wr[j];     // not LR or a failed SC
-        if (rec[j].mem_st) begin
+        // v1.5: a read of memory (interfaces.md §5, Reads): a load (its LQ entry's address and size), LR or an AMO
+        // (its SQ entry's, which an AMO's write shares); never SC
+        rec[j].mem_ld   = hp[j].is_ld || (hp[j].is_st && amo_reads(hp[j].insn[6:0], hp[j].insn[31:27]));
+        if (hp[j].is_ld) begin
+          rec[j].mem_vaddr = tr_ld_va[j];
+          rec[j].mem_size  = tr_ld_size[j];
+        end else if (rec[j].mem_st || rec[j].mem_ld) begin
           rec[j].mem_vaddr = tr_st_va[j];
           rec[j].mem_size  = tr_st_size[j];
+        end
+        if (rec[j].mem_st) begin
           unique case (tr_st_size[j])
             2'd0: rec[j].mem_wdata = {56'b0, tr_st_data[j][7:0]};
             2'd1: rec[j].mem_wdata = {48'b0, tr_st_data[j][15:0]};
