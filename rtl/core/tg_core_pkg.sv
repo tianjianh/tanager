@@ -207,6 +207,13 @@ package tg_core_pkg;
 `else
   localparam bit URF = 1'b0;
 `endif
+  // Scratch study (the coordinator, 10-19; not for merge): the FP register file's LUTRAM read ports
+  // double-pumped at clk2x (tg_fprf RD2X). On in this scratch branch.
+`ifdef TG_FRF2X
+  localparam bit FRF2X = `TG_FRF2X;
+`else
+  localparam bit FRF2X = 1'b1;
+`endif
   localparam int BHT_ENTRIES  = 512;      // 2-bit direction counters
   localparam int NP           = FETCH_BYTES / 2;   // halfword parcels per fetch block
   localparam int SLOT_W       = idx_w(NP);

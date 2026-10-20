@@ -542,7 +542,7 @@ module tg_core
     logic [4:0] p4_er_ff;
     logic [2:0] fc_frm_rd;
     tg_fp_exec #(.FDIV_Q(FDIV_INFLIGHT), .FPI_Q(FPI_INFLIGHT)) u_p4 (
-      .clk, .rst, .flush, .flush_tid,
+      .clk, .clk2x, .rst, .flush, .flush_tid,
       .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
       .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
       .isrc_valid, .isrc_tag, .isrc_data,

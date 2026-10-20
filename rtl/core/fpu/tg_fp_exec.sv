@@ -22,6 +22,7 @@ module tg_fp_exec
   localparam int NRP   = 4 + NTR          // operands a, b, c; store data; trace
 ) (
   input  logic                         clk,
+  input  logic                         clk2x,        // FRF2X (scratch): twice clk, for the register file
   input  logic                         rst,
   input  logic                         flush,
   input  tid_t                         flush_tid,
@@ -111,8 +112,10 @@ module tg_fp_exec
   logic [1:0][NRP-1:0][63:0]   bank_rd;
   // The reset sequence's zero writes take the F0 port: nothing else writes F0 then, and the zero
   // and its index fold into the F0 stream's multiplexers (below)
-  tg_fprf #(.NR(NRP)) u_rf (
-    .clk,
+  // FRF2X (scratch study): a and b share a LUTRAM read port, a in the first half; c and the store data
+  // share another, c first (the store-data tag comes late in the cycle)
+  tg_fprf #(.NR(NRP), .RD2X(FRF2X), .NPAIR(2)) u_rf (
+    .clk, .clk2x,
     .f0_we(f0_we || init_we), .f0_waddr(f0_wa), .f0_wdata(f0_wd),
     .f1_we(fld_valid), .f1_waddr(fld_idx), .f1_wdata(fld_data),
     .rtag, .bank_rd);
