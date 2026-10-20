@@ -26,7 +26,8 @@ is tested before hart 1 runs. The plan for M7 itself, its steps and their order,
 
 ## Testing before hart 1 runs: `SOLO_TID`
 `SOLO_TID` (`tg_core_pkg`, `TG_SOLO_TID=0|1`; smt2 configurations only; `make ... SOLO_TID=1`) runs each core's one
-thread as tid 1 inside the core, while it stays hart 0 to software: `mhartid` and the trace's hart field do not change.
+thread as tid 1 inside the core, while it stays hart 0 to software: `mhartid` and the trace's hart field do not change,
+and the thread takes hart 0's interrupt lines.
 The tests, lockstep and the riscv-tests' entry code, which parks every hart but 0, run as they are, and every tid = 1
 path is exercised. A path that loses the tid fails: with the ROB's `flush_tid` held at 0, 41 of 64 riscv-tests fail.
 Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_SOLO_TID=1` (the same cycles).
@@ -43,10 +44,10 @@ Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_
 | Exec | — | with fpu-2: the stages' kill |
 | P4 (FPU) | its stages, shadow pipelines, divide table and result queue | — |
 | fcsr | frm, fflags and the early-retire counter (per hart); the flags go to the retiring op's thread | — |
-| CSRs | — | 2 |
+| CSRs | every hart's architectural state: hot state, cold rows and `pmpaddr` (a tid address bit), PMP descriptors, interrupt lines, timer compare, pending write, counters; writes to the committing thread (`cm_tid[0]`); the flushed thread's pending write dropped; reads and outputs the running thread's (`RUN_TID`) (core-pipeline.md §9.6) | 4: the PMP select at the checkers and each hart's satp at the walker (D6); 5: reads by each consumer's thread |
 | LSU, MMU | — | 4 |
 | ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`) | 3: halves, per-thread commit state |
-| Trace | — (the hart field is the core's hart 0) | 2 |
+| Trace | the hart field from each record's tid (tid ^ `SOLO_TID`) | 2: the load address (`mem_ld`, after interfaces.md v1.5) |
 
 ## Provenance
 Plan §6 and the research notes it cites; m7-smt2-plan.md §8. No other core's RTL was read.

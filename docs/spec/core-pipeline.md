@@ -299,7 +299,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | CSR | Behaviour |
 |---|---|
 | `misa` | `0x8000_0000_0000_1100`; bit M writable (clearing it makes MUL/DIV illegal) |
-| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` (each core's thread 0; + tid from M7's step 2) |
+| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` + the thread (tid ^ `SOLO_TID`, §9.6) |
 | `mstatus` | MIE, MPIE writable; MPP reads 3 (M only); everything else 0 |
 | `mtvec` | written value with bit 1 cleared (direct and vectored) |
 | `mie` | MSIE, MTIE, MEIE writable |
@@ -330,7 +330,7 @@ Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. 
   - `time`, `mip` and `sip` reads are nondeterministic in lockstep, so the checker takes the RTL's values.
 
 ### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
-- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
+- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one (16 · `NUM_THREADS`) × 64 `tg_ram_lut` (`u_cold`), addressed by {tid, csr[9], csr[2:0]} (§9.6). csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
   - They replace ten 64-bit registers with their write multiplexers, ten inputs of the CSR read multiplexer, and the trap vector's M/S multiplexer.
   - `stimecmp` and `satp` stay flip-flops: the timer compare and the MMU read them every cycle.
 - **Two read ports:**
@@ -344,6 +344,14 @@ Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. 
   - **a CSR write** at commit.
 - **Why the trap's writes may lag:** the trap's flush leaves the window empty longer than three cycles. In that time nothing commits, no trap or interrupt is taken (the ROB is empty), and no CSR instruction executes (asserted).
   - A CSR instruction can still be in EX in the flush cycle itself (`ex_v_q` clears at its end). It reads before the writes, but it is killed there: its result is never written back, and its pending write is dropped.
+
+### 9.6 Per hart (M7's step 2, DR-175)
+- **State:** each hart has its own hot state (`h_q`, one `csr_hart_t` a thread: privilege, the mstatus fields, misa, mie, the software pending bits, delegation, counter enables, envcfg, satp, the contexts and pmpcfg), its own rows of `u_cold` and `u_pmpaddr` (the tid is the top address bit; 32 deep fits the same RAM32M16 as 16), PMP descriptors, `stimecmp` and STIP, pending CSR write, and `mcycle`/`minstret` DSP pairs (R1).
+- **Writes** go to the committing thread: slot 0's tid (`cm_tid[0]`), since CSR instructions, traps, MRET and SRET retire alone in slot 0. The retiring count goes to that thread's `minstret`. A flush drops the flushed thread's pending write (`flush_tid`).
+- **Reads and outputs** are the running thread's (`RUN_TID`) until step 5 runs two threads: the CSR read in EX; privilege and status to fetch, decode and the MMU; satp; the PMP descriptors; the interrupt choice and `wfi_wake`. From then each consumer selects by its own thread (the PMP checkers and the walker's satp at steps 4 and 5, D6).
+- **Harts:** `mhartid` and the trace's hart field are `CORE_ID`·`NUM_THREADS` + (tid ^ `SOLO_TID`), and thread t takes the interrupt lines of that hart. So under `SOLO_TID` the one thread, tid 1 inside the core, is hart 0 to software and to the SoC.
+- **Reset:** the 16-cycle sweep writes the running thread's rows, and only its descriptors are computed after it, so reset takes the cycles it did. The other thread's rows are swept once two threads run (step 5, `HART1_ON`).
+- **Without SMT** (`TID_W` = 0) the commit and flush threads are the constant 0, so the st core has no selects.
 
 ## 10. Reset sequence
 After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
@@ -361,7 +369,7 @@ After `rst`, an init counter runs for 64 cycles before fetch starts: it fills th
   - So no other state left out of the reset changes timing.
 
 ## 11. Commit trace
-Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
+Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions. `mem_ld` (interfaces.md v1.5) marks a read of memory, with `mem_vaddr` and `mem_size` the read's: a load (integer, FP or device) takes its LQ entry's VA and size, read at commit by the slot's LQ index (a copy of the LQ's VA LUTRAM, trace builds only); LR and an AMO take their SQ entry's, which an AMO's write shares; SC never has it.
 
 ## 12. Parameters and builds
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).
@@ -385,7 +393,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page base, and against every entry that no region boundary lies inside the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
-| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
+| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. M7's step 2 gives each hart its rows: one more address bit (§9.6) |
 | ROB replay flag XOR-banked (T2) | `tg_rob` (§8.1): a table per writer (dispatch clears, the LSU's three setters) | done (9646d13): cycle-identical, shadow-checked; ROB 2,083 → 1,891 at st |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |
