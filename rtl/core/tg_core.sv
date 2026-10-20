@@ -264,9 +264,18 @@ module tg_core
   end
 
   // ---- Rename and dispatch ----
-  robid_t rob_head, rob_tail;
+  robid_t rob_head;
   lqid_t  lq_head;
   sqid_t  sq_head, sq_cmt;
+  // Per thread (M7's step 3): rename's tails, and the heads it checks room against. The ROB's and the LSU's pointers
+  // are one set until their part of step 3: every thread sees them, which is exact with one thread in the window
+  robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
+  lqid_t  [NUM_THREADS-1:0] lq_head_t;
+  sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
+  assign rob_head_t = {NUM_THREADS{rob_head}};
+  assign lq_head_t  = {NUM_THREADS{lq_head}};
+  assign sq_head_t  = {NUM_THREADS{sq_head}};
+  assign sq_cmt_t   = {NUM_THREADS{sq_cmt}};
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
@@ -321,15 +330,16 @@ module tg_core
   logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
   logic                             rn_ready;
   tg_rename u_rn (
-    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush,
+    .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
     .de_valid, .de_uop, .de_take,
-    .rob_head, .lq_head, .sq_head, .sq_cmt, .iq_bank_free, .iq_bank_free2, .w_vec, .busy(iq_busy),
+    .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
+    .iq_bank_free2, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
     .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
-    .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
+    .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
-    .ds_src2_rdy, .rob_tail, .dbg_o(rn_dbg));
+    .ds_src2_rdy, .rob_tail(rob_tail_t), .dbg_o(rn_dbg));
 
   // ---- Issue ----
   logic [NCOL-1:0] wake_reg, wake_x, wake_l, col_clr;
@@ -637,13 +647,13 @@ module tg_core
   end
 
   logic unused;
-  assign unused = ^{debug_req_i, rob_tail,
+  assign unused = ^{debug_req_i, rob_tail_t,
                     st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail, rob_head)), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);
