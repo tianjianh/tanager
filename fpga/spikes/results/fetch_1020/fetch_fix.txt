@@ -1,0 +1,222 @@
+== m7b0: /home/w/tanager-build/track-spikes-72f833/fp/h100_m7b0_routed.dcp
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    f2: 310 endpoints below 1.5 ns in 22 families
+        0.022   38  19 levels  u_fetch/f3_meta_q_reg[target][]
+        0.040   38  19 levels  u_fetch/krt_q
+        0.133    1  19 levels  g_ras.u_ras/g_late.p_pop_q
+        0.145   14  17 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        0.182   20  18 levels  u_fetch/kimm_q
+        0.267  144   8 levels  u_fetch/g_tage.u_tage/g_tab[].u_mem/u_mem/xpm
+        0.372    2  19 levels  u_fetch/g_tage.gp_n_q
+        0.532    1  19 levels  g_ras.u_ras/g_late.p_push_q
+        0.599    1  18 levels  u_fetch/kr_q
+        0.725   36  16 levels  g_ras.u_ras/g_late.p_link_q
+        0.892    1  18 levels  u_fetch/carry_q
+        0.917    1  18 levels  u_fetch/ka_q
+        0.938    2  16 levels  u_fetch/f3_start_q
+        0.975    1  17 levels  u_fetch/f3_carry_q
+        0.994    1  18 levels  u_fetch/f3_meta_q_reg[tsrc]
+        0.998    1  17 levels  u_fetch/f3_meta_q_reg[hit]
+        1.018    1  18 levels  u_fetch/k_ovr_q
+        1.035    1  17 levels  u_fetch/kt_q
+        1.037    1  18 levels  u_fetch/g_tage.gp_b_q
+        1.040    1  17 levels  u_fetch/k_cut_q
+        1.183    1  15 levels  u_fetch/f3_meta_q_reg[slot][]
+        1.236    3  17 levels  u_fetch/fp_q
+    fpc: worst 0.059 (19 levels, logic 2.51 net 7.33)
+         through the ITLB's PTE (34 pins): 0.059 (19 levels, logic 2.51 net 7.33)
+         through the micro-BTB's outputs (43 pins): 1.714 (11 levels, logic 1.71 net 6.50)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  1.851
+           u_fetch/g_way[].ra[][]                              324  1.771
+           u_fetch/g_way[].ra[][]                              324  2.063
+           u_fetch/g_way[].ra[][]                              214  2.733
+           u_fetch/g_way[].ra[][]                              214  2.591
+           u_fetch/g_way[].ra[][]                              214  2.043
+           u_fetch/fpc_q_reg_n_0_[]                            138  1.671
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.117
+    head: 8 head registers; to decode's redirect 0.567 (14 levels, logic 1.99 net 7.29); to rename's uops 0.127 (19 levels, logic 2.81 net 6.84)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg[]_n_0:129, u_fetch/u_cmp/head_q_reg[]_n_0:127, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg[]_n_0:119, u_fetch/u_cmp/head_q_reg[]_n_0:117
+    ras: krt_q 0.040 (19 levels, logic 4.46 net 5.03); the RAS top's outputs (39 pins) to any endpoint 0.697 (20 levels, logic 3.05 net 6.13)
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    f2: 174 endpoints below 1.5 ns in 24 families
+        0.022   38  19 levels  u_fetch/krt_q
+        0.107   38  19 levels  u_fetch/f3_meta_q_reg[target][]
+        0.220    1  19 levels  g_ras.u_ras/g_late.p_pop_q
+        0.246    1  20 levels  g_ras.u_ras/g_late.p_push_q
+        0.270    1  19 levels  u_fetch/f3_meta_q_reg[tsrc]
+        0.275   14  19 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        0.334    2  17 levels  u_fetch/g_tage.gp_n_q
+        0.447   20  20 levels  u_fetch/kimm_q
+        0.473    1  19 levels  u_fetch/k_ovr_q
+        0.555    1  19 levels  u_fetch/ka_q
+        0.588    1  19 levels  u_fetch/carry_q
+        0.616    1  19 levels  u_fetch/g_tage.gp_b_q
+        0.619    1  18 levels  u_fetch/kt_q
+        0.699    1  19 levels  u_fetch/kr_q
+        0.714    1  18 levels  u_fetch/f3_carry_q
+        0.858    1  18 levels  u_fetch/k_cut_q
+        0.874    1  18 levels  u_fetch/f3_meta_q_reg[hit]
+        0.961    1  14 levels  u_fetch/ainv_q
+        1.011    3  19 levels  u_fetch/f3_start_q
+        1.171   36  18 levels  g_ras.u_ras/g_late.p_link_q
+        1.304    3  18 levels  u_fetch/fp_q
+        1.336    1  17 levels  u_fetch/f3_meta_q_reg[slot][]
+        1.345    5  12 levels  u_fetch/g_tage.u_tage/g_tab[].u_mem/u_mem/xpm
+        1.483    1  14 levels  u_fetch/f3_meta_q_reg[uhit]
+    fpc: worst 0.106 (15 levels, logic 2.28 net 7.36)
+         through the ITLB's PTE (34 pins): 0.106 (15 levels, logic 2.28 net 7.36)
+         through the micro-BTB's outputs (43 pins): 3.035 (10 levels, logic 1.28 net 5.39)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  1.803
+           u_fetch/g_way[].ra[][]                              324  1.899
+           u_fetch/g_way[].ra[][]                              324  2.539
+           u_fetch/g_way[].ra[][]                              214  2.286
+           u_fetch/g_way[].ra[][]                              214  2.780
+           u_fetch/g_way[].ra[][]                              214  2.012
+           u_fetch/fpc_q_reg_n_0_[]                            138  1.792
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.083
+    head: 8 head registers; to decode's redirect 0.426 (17 levels, logic 3.36 net 6.11); to rename's uops 0.172 (20 levels, logic 3.21 net 6.57)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123
+    ras: krt_q 0.022 (19 levels, logic 3.91 net 6.01); the RAS top's outputs (39 pins) to any endpoint 1.756 (19 levels, logic 3.01 net 5.32)
+== m7b1: /home/w/tanager-build/track-spikes-72f833/fp/h100_m7b1_routed.dcp
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    f2: 112 endpoints below 1.5 ns in 14 families
+        0.988   38  19 levels  u_fetch/krt_q
+        0.999   38  19 levels  u_fetch/f3_meta_q_reg[target][]
+        1.007   14  17 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        1.047    2  18 levels  u_fetch/g_tage.gp_n_q
+        1.070   10  18 levels  u_fetch/kimm_q
+        1.084    1  19 levels  u_fetch/f3_meta_q_reg[tsrc]
+        1.110    1  19 levels  u_fetch/ka_q
+        1.119    1  19 levels  u_fetch/k_ovr_q
+        1.149    1  19 levels  g_ras.u_ras/g_late.p_pop_q
+        1.208    1  19 levels  g_ras.u_ras/g_late.p_push_q
+        1.404    1  18 levels  u_fetch/kr_q
+        1.456    1  18 levels  u_fetch/carry_q
+        1.462    2  11 levels  u_fetch/g_tage.u_tage/g_tab[].u_mem/u_mem/xpm
+        1.482    1  17 levels  u_fetch/f3_carry_q
+    fpc: worst 1.693 (21 levels, logic 2.89 net 5.30)
+         through the ITLB's PTE (34 pins): 1.693 (21 levels, logic 2.89 net 5.30)
+         through the micro-BTB's outputs (43 pins): 3.399 (13 levels, logic 2.36 net 4.14)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  3.581
+           u_fetch/g_way[].ra[][]                              324  3.101
+           u_fetch/g_way[].ra[][]                              324  3.726
+           u_fetch/g_way[].ra[][]                              214  3.819
+           u_fetch/g_way[].ra[][]                              214  3.780
+           u_fetch/g_way[].ra[][]                              214  3.499
+           u_fetch/fpc_q_reg_n_0_[]                            138  3.399
+           u_fetch/fpc_q_reg_n_0_[]                            137  3.398
+    head: 8 head registers; to decode's redirect 1.189 (17 levels, logic 2.64 net 5.80); to rename's uops 1.106 (19 levels, logic 2.88 net 5.76)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg[]_n_0:164, u_fetch/u_cmp/head_q_reg[]_n_0:164, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg[]_n_0:82, u_fetch/u_cmp/head_q_reg[]_n_0:82
+    ras: krt_q 0.988 (19 levels, logic 3.64 net 5.28); the RAS top's outputs (39 pins) to any endpoint 1.906 (20 levels, logic 2.90 net 5.14)
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    f2: 102 endpoints below 1.5 ns in 13 families
+        1.000   37  19 levels  u_fetch/f3_meta_q_reg[target][]
+        1.001    1  20 levels  g_ras.u_ras/g_late.p_push_q
+        1.014    8  18 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        1.025   38  19 levels  u_fetch/krt_q
+        1.064    1  20 levels  g_ras.u_ras/g_late.p_pop_q
+        1.181    1  19 levels  u_fetch/f3_meta_q_reg[tsrc]
+        1.182    2  19 levels  u_fetch/g_tage.gp_n_q
+        1.183    1  19 levels  u_fetch/kr_q
+        1.187    9  18 levels  u_fetch/kimm_q
+        1.229    1  19 levels  u_fetch/k_ovr_q
+        1.304    1  19 levels  u_fetch/ka_q
+        1.490    1  18 levels  u_fetch/k_cut_q
+        1.495    1  18 levels  u_fetch/kt_q
+    fpc: worst 1.074 (16 levels, logic 2.03 net 6.75)
+         through the ITLB's PTE (34 pins): 1.074 (16 levels, logic 2.03 net 6.75)
+         through the micro-BTB's outputs (43 pins): 2.750 (9 levels, logic 1.28 net 5.89)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  2.750
+           u_fetch/g_way[].ra[][]                              324  2.826
+           u_fetch/g_way[].ra[][]                              324  2.808
+           u_fetch/g_way[].ra[][]                              214  3.069
+           u_fetch/g_way[].ra[][]                              214  3.280
+           u_fetch/g_way[].ra[][]                              214  3.088
+           u_fetch/fpc_q_reg_n_0_[]                            138  2.841
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.656
+    head: 8 head registers; to decode's redirect 1.137 (15 levels, logic 2.43 net 6.39); to rename's uops 1.221 (20 levels, logic 2.80 net 5.92)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg[]_n_0:180, u_fetch/u_cmp/head_q_reg[]_n_0:180, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg__0[]:126, u_fetch/u_cmp/head_q_reg[]_n_0:66, u_fetch/u_cmp/head_q_reg[]_n_0:66
+    ras: krt_q 1.025 (19 levels, logic 4.08 net 4.69); the RAS top's outputs (39 pins) to any endpoint 1.336 (18 levels, logic 2.77 net 5.85)
+== m7s5a_h0: /home/w/tanager-build/track-core-adb715/budget/tim_m7s5a_cf527d00_h0_1140/routed.dcp
+  -- core (out of context)
+    f2: 90 endpoints below 1.5 ns in 9 families
+        0.873    1  16 levels  g_ras.u_ras/g_late.p_push_q
+        0.984   37  15 levels  u_fetch/krt_q
+        1.034   37  15 levels  u_fetch/f3_meta_q_reg[target][]
+        1.278    8  16 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        1.322    3  17 levels  u_fetch/kimm_q
+        1.420    1  16 levels  u_fetch/k_ovr_q
+        1.425    1  18 levels  u_fetch/g_tage.gp_n_q
+        1.445    1  16 levels  u_fetch/ka_q
+        1.455    1  14 levels  u_fetch/f3_meta_q_reg[hit]
+    fpc: worst 1.762 (15 levels, logic 2.19 net 5.77)
+         through the ITLB's PTE (34 pins): 1.762 (15 levels, logic 2.19 net 5.77)
+         through the micro-BTB's outputs (43 pins): 3.992 (9 levels, logic 1.26 net 4.49)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  3.770
+           u_fetch/g_way[].ra[][]                              324  3.466
+           u_fetch/g_way[].ra[][]                              324  3.344
+           u_fetch/g_way[].ra[][]                              214  3.729
+           u_fetch/g_way[].ra[][]                              214  3.618
+           u_fetch/g_way[].ra[][]                              214  3.586
+           u_fetch/fpc_q_reg_n_0_[]                            138  3.513
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.643
+    head: 8 head registers; to decode's redirect 1.190 (16 levels, logic 2.33 net 6.23); to rename's uops 1.341 (18 levels, logic 2.65 net 5.88)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg[]_n_0:150, u_fetch/u_cmp/head_q_reg[]_n_0:149, u_fetch/u_cmp/head_q_reg__0[]:120, u_fetch/u_cmp/head_q_reg[]_n_0:118, u_fetch/u_cmp/head_q_reg__0[]:106, u_fetch/u_cmp/head_q_reg[]_n_0:104
+    ras: krt_q 0.984 (15 levels, logic 3.02 net 5.65); the RAS top's outputs (39 pins) to any endpoint 2.146 (19 levels, logic 2.42 net 5.39)
+== m7s5a_h1: /home/w/tanager-build/track-core-adb715/budget/tim_m7s5a_cf527d00_h1_1201/routed.dcp
+  -- core (out of context)
+    f2: 12 endpoints below 1.5 ns in 5 families
+        1.056    1  17 levels  g_ras.u_ras/g_late.p_pop_q
+        1.243    6  16 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        1.320    2  17 levels  u_fetch/g_tage.gp_n_q
+        1.387    1  18 levels  u_fetch/kimm_q
+        1.467    2  16 levels  u_fetch/f3_meta_q_reg[target][]
+    fpc: worst 2.284 (16 levels, logic 2.14 net 5.46)
+         through the ITLB's PTE (34 pins): 2.284 (16 levels, logic 2.14 net 5.46)
+         through the micro-BTB's outputs (43 pins): 3.850 (8 levels, logic 1.68 net 4.37)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  2.243
+           u_fetch/g_way[].ra[][]                              324  1.829
+           u_fetch/g_way[].ra[][]                              324  2.440
+           u_fetch/g_way[].ra[][]                              214  2.133
+           u_fetch/g_way[].ra[][]                              214  2.618
+           u_fetch/g_way[].ra[][]                              214  2.104
+           u_fetch/fpc_q_reg_n_0_[]                            138  2.227
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.686
+    head: 8 head registers; to decode's redirect 1.482 (17 levels, logic 2.69 net 5.62); to rename's uops 1.238 (18 levels, logic 2.79 net 5.89)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg__0[]:146, u_fetch/u_cmp/head_q_reg__0[]:144, u_fetch/u_cmp/head_q_reg[]_n_0:136, u_fetch/u_cmp/head_q_reg[]_n_0:135, u_fetch/u_cmp/head_q_reg[]_n_0:94, u_fetch/u_cmp/head_q_reg[]_n_0:92
+    ras: krt_q 1.506 (16 levels, logic 3.48 net 4.59); the RAS top's outputs (39 pins) to any endpoint 2.056 (12 levels, logic 2.08 net 5.75)
+== s1d: /home/w/tanager-build/track-fpu-395911/viv/s1d_area/core_s1d_ut/routed.dcp
+  -- core (out of context)
+    f2: 101 endpoints below 1.5 ns in 11 families
+        0.153   14  16 levels  u_fetch/g_tage.u_fgh/g_m32.g_prim[].u_ram
+        0.545    2  18 levels  u_fetch/g_tage.gp_n_q
+        0.770   38  16 levels  u_fetch/f3_meta_q_reg[target][]
+        0.841   38  16 levels  u_fetch/krt_q
+        0.939    1  17 levels  g_ras.u_ras/g_late.p_pop_q
+        1.232    1  17 levels  g_ras.u_ras/g_late.p_push_q
+        1.256    3  16 levels  u_fetch/kimm_q
+        1.370    1  16 levels  u_fetch/f3_meta_q_reg[tsrc]
+        1.387    1  16 levels  u_fetch/kr_q
+        1.410    1  15 levels  u_fetch/kt_q
+        1.433    1  15 levels  u_fetch/f3_start_q
+    fpc: worst 1.351 (16 levels, logic 2.24 net 6.33)
+         through the ITLB's PTE (34 pins): 1.351 (16 levels, logic 2.24 net 6.33)
+         through the micro-BTB's outputs (43 pins): 3.709 (9 levels, logic 1.74 net 4.44)
+         fpc_q's nets, highest fanout first (name, loads, worst slack through it):
+           u_fetch/g_way[].ra[][]                              324  3.234
+           u_fetch/g_way[].ra[][]                              324  2.862
+           u_fetch/g_way[].ra[][]                              324  3.728
+           u_fetch/g_way[].ra[][]                              214  3.110
+           u_fetch/g_way[].ra[][]                              214  3.233
+           u_fetch/g_way[].ra[][]                              214  3.650
+           u_fetch/fpc_q_reg_n_0_[]                            138  2.623
+           u_fetch/fpc_q_reg_n_0_[]                            137  2.451
+    head: 8 head registers; to decode's redirect 0.721 (17 levels, logic 2.33 net 6.64); to rename's uops 1.091 (17 levels, logic 2.78 net 5.92)
+         head_q's nets: u_fetch/u_cmp/head_q:190, u_fetch/u_cmp/head_q:186, u_fetch/u_cmp/head_q_reg__0[]:128, u_fetch/u_cmp/head_q_reg__0[]:127, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123, u_fetch/u_cmp/head_q_reg[]_n_0:123
+    ras: krt_q 0.841 (16 levels, logic 3.66 net 5.22); the RAS top's outputs (39 pins) to any endpoint 1.394 (16 levels, logic 2.50 net 5.82)
