@@ -142,7 +142,28 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 | `poweroff`, `reboot` | `syscon-poweroff`, `syscon-reboot` | value `0x5555` / `0x7777` |
 | `chosen` | | `stdout-path` = the UART; `bootargs` = `console=ttyS0,115200 earlycon` |
 
-`sw/dts/Makefile` builds `tanager-kv260.dtb` and `tanager-qemu.dtb` for one configuration.
+`sw/dts/Makefile` builds `tanager-kv260.dtb` and `tanager-qemu.dtb` for one configuration. `sw/dts/board-trees.sh <dir> [1|2]`
+builds every tree the board's packages carry:
+- stage C's virtio trees, in 1 GiB and 768 MiB;
+- the Linux bench's (DR-141);
+- RISC-V mode's (D4, D5).
+
+With 1 they match today's packages byte for byte (checked against d4r1's). With 2 they are the four-hart trees.
+
+**Four harts (M7, DR-175), ready for step 5c** (soc-2, 10-20):
+- **The trees:** `RUN_THREADS=2` lists harts 0–3, each with its own interrupt controller, and both threads of both cores in the `cpu-map`.
+  - The CLINT gets four pairs in hart order.
+  - The PLIC gets all eight contexts (2h machine, 2h+1 supervisor) where `RUN_THREADS=1` keeps −1 placeholders.
+- **OpenSBI needs no change.** The board's `fw_jump.bin` (`sw/build_opensbi.sh`, sha256 `b0094d23…`) was checked on QEMU virt:
+  - With the four-hart `tanager-qemu` tree, it reports 4 harts, and the reference kernel brings up all four (`sw/qemu/boot_test.sh 2 2`). `1 2`, one core's two threads, also passes.
+  - Under Debian's 6.12 kernel with four harts, harts 1–3 went offline and back three times: HSM stop and start, with no failure (`SMP=4 HOTPLUG=1 sw/qemu/debian_test.sh`).
+  - Its region grows from 333 KB to 357 KB, still inside `0x8000_0000`–`0x8005_FFFF`.
+  - A hart that runs but isn't in the tree (hart 1 on with `RUN_THREADS=1`) stops in OpenSBI's WFI loop before the cold-boot lottery.
+- **U-Boot leaves the harts to OpenSBI.** Both builds lack `SMP`, which in S-mode needs SBI v0.1.
+- **`tb_boot`:** `CFG=smt2` already defaults to `RUN_THREADS=2`.
+  - At 5c the runs are `make -C tests/unit/boot linux CFG=smt2 CORES=1` (1 × 2) and `CORES=2` (2 × 2), with the core's hart-1 switch from `sim/profile.mk` once core-2 adds it.
+  - `TANAGER-BOOT-OK` must then report `harts=2` and `harts=4`.
+- **The machine-error lines** are per hart already: `merr[c·NT + t]` → PLIC source 16 + h.
 
 ## 5. Software images
 
