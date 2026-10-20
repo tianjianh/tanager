@@ -1,0 +1,52 @@
+== /home/w/tanager-build/track-spikes-72f833/fp/h100_m6m_routed.dcp (WNS 0.348)
+URAM288 sites: 64 (X2Y3 16 X2Y2 16 X2Y1 16 X2Y0 16); free 32 (X2Y3 16 X2Y0 16)
+  free sites (RPM x, y): URAM288_X0Y60(2400,468) URAM288_X0Y61(2400,469) URAM288_X0Y62(2400,470) URAM288_X0Y63(2400,471) ... URAM288_X0Y0(2400,4) URAM288_X0Y1(2400,5) URAM288_X0Y2(2400,6) URAM288_X0Y3(2400,7)
+  scale: SLICE_X0Y0 at (1288, 4), SLICE_X1Y1 at (1312, 6)
+== core 0
+    register file (LUTRAM)              1536 cells  x 1776-2304  y  396- 488  centre (2060, 444)  nearest free URAM URAM288_X0Y59 at 343  regions X1Y3 178 X0Y3 14
+      slices (middle 80%): SLICE_X24Y196:SLICE_X35Y231 median X31Y215
+    read addresses: issue -> RF regs      55 cells  x 2192-2792  y  434- 492  centre (2461, 468)  nearest free URAM URAM288_X0Y60 at 61  regions X1Y3 14 X2Y3 29
+      slices (middle 80%): SLICE_X38Y212:SLICE_X58Y235 median X43Y229
+    read addresses: LSU (store data)     200 cells  x 2304-2784  y  352- 404  centre (2564, 368)  nearest free URAM URAM288_X0Y48 at 172  regions X2Y3 21 X2Y2 58 X1Y2 1
+      slices (middle 80%): SLICE_X43Y171:SLICE_X56Y183 median X49Y176
+    read addresses: others                 0 cells, not placed
+    into the issue -> RF regs (D)      slack   2.404  data  7.398 ns (logic 1.965, net 5.433)  12 levels  u_soc/g_core[0].g_tgc.u_core/u_is/g_sw.sw_m2_q_reg[llt][3]/C -> u_soc/g_core[0].g_tgc.u_core/u_is/g_q[4].u_iq/early_q_reg[16]/D
+    read: issue -> RF regs -> RF       slack   3.438  data  6.249 ns (logic 0.674, net 5.575)   3 levels  u_soc/g_core[0].g_tgc.u_core/u_is/g_q[3].u_iq/early_q_reg[1]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/ex_a_q_reg[3][24]/D
+    store-data tag at the LUTRAM: no arrival found (startpoint u_soc/g_core[0].g_tgc.u_core/u_lsu/sq_v_q_reg[12]/C)
+    read: store-data tag -> capture    slack   1.075  data  8.645 ns (logic 2.127, net 6.518)  17 levels  u_soc/g_core[0].g_tgc.u_core/u_lsu/sq_v_q_reg[12]/C -> u_soc/g_core[0].g_tgc.u_core/u_lsu/u_sqd/g_m32.g_prim[7].u_ram/RAMA/I
+    write sources                       2179 cells  x 1344-2592  y  362- 496  centre (2078, 440)  nearest free URAM URAM288_X0Y58 at 322  regions X1Y3 366 X0Y3 29 X2Y3 41 X0Y2 5 X1Y2 2
+      slices (middle 80%): SLICE_X23Y194:SLICE_X40Y232 median X30Y211
+    into the LUTRAM's write pins       slack   3.710  data  6.053 ns (logic 0.972, net 5.081)   7 levels  u_soc/g_core[0].g_tgc.u_core/u_rob/flush_reg/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/u_irf/g_bank[1].u_ram/g_m64.g_bank[0].g_prim[22].u_ram/RAMF/I
+    read endpoints: RF stage (u_ex)      384 cells  x 1888-2232  y  390- 490  centre (2064, 445)  nearest free URAM URAM288_X0Y59 at 340  regions X1Y3 151
+      slices (middle 80%): SLICE_X24Y194:SLICE_X35Y233 median X30Y216
+    read endpoints: LSU (store data)     128 cells  x 2448-2672  y  386- 422  centre (2604, 413)  nearest free URAM URAM288_X0Y55 at 208  regions X2Y3 10
+      slices (middle 80%): SLICE_X45Y197:SLICE_X53Y202 median X53Y201
+    read endpoints: others                64 cells  x 2048-2352  y  424- 474  centre (2218, 454)  nearest free URAM URAM288_X0Y59 at 195  regions X1Y3 23 X2Y3 1
+      slices (middle 80%): SLICE_X33Y207:SLICE_X39Y227 median X36Y222
+      others: g_p4.u_p4/ex_rf_q
+    read: worst into the RF stage      slack   3.438  data  6.249 ns (logic 0.674, net 5.575)   3 levels  u_soc/g_core[0].g_tgc.u_core/u_is/g_q[3].u_iq/early_q_reg[1]/C -> u_soc/g_core[0].g_tgc.u_core/u_ex/ex_a_q_reg[3][24]/D
+    FP register file (LUTRAM)              0 cells, not placed
+== core 1
+    register file (LUTRAM)              1536 cells  x 1704-2264  y   26- 108  centre (1908, 68)  nearest free URAM URAM288_X0Y10 at 492  regions X0Y0 81 X1Y0 111
+      slices (middle 80%): SLICE_X18Y17:SLICE_X31Y48 median X24Y31
+    read addresses: issue -> RF regs      55 cells  x 2016-2728  y    6-  98  centre (2236, 47)  nearest free URAM URAM288_X0Y7 at 174  regions X1Y0 31 X2Y0 14
+      slices (middle 80%): SLICE_X30Y7:SLICE_X44Y36 median X36Y23
+    read addresses: LSU (store data)     200 cells  x 2672-2792  y   54- 104  centre (2746, 76)  nearest free URAM URAM288_X0Y11 at 353  regions X2Y0 71
+      slices (middle 80%): SLICE_X54Y28:SLICE_X60Y45 median X57Y34
+    read addresses: others                 0 cells, not placed
+    into the issue -> RF regs (D)      slack   2.331  data  7.446 ns (logic 1.497, net 5.949)  11 levels  u_soc/g_core[1].g_tgc.u_core/u_is/g_sw.sw_m2_q_reg[llt][1]/C -> u_soc/g_core[1].g_tgc.u_core/u_is/g_q[4].u_iq/early_q_reg[20]/D
+    read: issue -> RF regs -> RF       slack   3.306  data  6.444 ns (logic 0.402, net 6.042)   2 levels  u_soc/g_core[1].g_tgc.u_core/u_is/g_q[0].u_iq/early_q_reg[2]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/ex_b_q_reg[0][63]/D
+    store-data tag at the LUTRAM: no arrival found (startpoint u_soc/g_core[1].g_tgc.u_core/u_lsu/sq_dv_q_reg[19]/C)
+    read: store-data tag -> capture    slack   1.357  data  8.370 ns (logic 2.360, net 6.010)  16 levels  u_soc/g_core[1].g_tgc.u_core/u_lsu/sq_dv_q_reg[19]/C -> u_soc/g_core[1].g_tgc.u_core/u_lsu/u_sqd/g_m32.g_prim[0].u_ram/RAMF/I
+    write sources                       2179 cells  x 1416-2496  y   26- 256  centre (1866, 80)  nearest free URAM URAM288_X0Y11 at 545  regions X0Y2 1 X0Y1 9 X1Y1 2 X2Y1 27 X0Y0 236 X2Y0 8 X1Y0 154
+      slices (middle 80%): SLICE_X12Y17:SLICE_X32Y57 median X21Y35
+    into the LUTRAM's write pins       slack   2.788  data  6.846 ns (logic 1.197, net 5.649)   6 levels  u_soc/g_core[1].g_tgc.u_core/u_rob/flush_reg/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/u_irf/g_bank[1].u_ram/g_m64.g_bank[0].g_prim[59].u_ram/RAMA/I
+    read endpoints: RF stage (u_ex)      384 cells  x 1656-2136  y   28- 136  centre (1904, 78)  nearest free URAM URAM288_X0Y11 at 505  regions X1Y1 2 X0Y0 53 X1Y0 97
+      slices (middle 80%): SLICE_X18Y20:SLICE_X30Y52 median X24Y37
+    read endpoints: LSU (store data)     128 cells  x 2336-2672  y  116- 122  centre (2448, 119)  nearest free URAM URAM288_X0Y15 at 68  regions X2Y0 10
+      slices (middle 80%): SLICE_X41Y56:SLICE_X53Y57 median X45Y57
+    read endpoints: others                64 cells  x 2016-2264  y   20-  62  centre (2137, 39)  nearest free URAM URAM288_X0Y7 at 265  regions X1Y0 34
+      slices (middle 80%): SLICE_X30Y11:SLICE_X36Y25 median X33Y19
+      others: g_p4.u_p4/ex_rf_q
+    read: worst into the RF stage      slack   3.306  data  6.444 ns (logic 0.402, net 6.042)   2 levels  u_soc/g_core[1].g_tgc.u_core/u_is/g_q[0].u_iq/early_q_reg[2]/C -> u_soc/g_core[1].g_tgc.u_core/u_ex/ex_b_q_reg[0][63]/D
+    FP register file (LUTRAM)              0 cells, not placed

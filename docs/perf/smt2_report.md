@@ -709,6 +709,24 @@ Dual-core SoC LUTs, from plan draft 0.4's ≈89K (76%) for v1 (§8.2), adding tw
    - **Which to apply** follows from the M6 syntheses.
 8. **Re-run this study** when multiprogrammed Linux workloads exist (M5), and with a dual-core model for the shared L2 and DRAM bandwidth.
 
+**Open items for M7** (from the board comparison, area_recovery.md §6.12, 2026-10-19):
+- **The per-thread issue-queue caps are built but not wired.**
+  - `tg_iq` computes each thread's room: its cap, 75% of the queue's rows (`IQ_CAP_PCT`), less its rows.
+  - `tg_issue` never uses it (`assign unused = ^{room, wn}`), and rename sizes the ROB, LQ and SQ against the whole structure, not a thread's half.
+  - Until M7 that is right: an smt2 core runs one hart, which gets every row and the whole window (ROB 80, LQ 24, SQ 20). The board's figures and the model's match there.
+  - M7 must wire both, or a thread waiting on misses fills the queues and starves its sibling (§5: an uncapped shared window loses 1.7–6.4% throughput).
+- **Decide what a lone thread gets once they are wired.** Linux often runs one thread per core with its sibling idle. With static halves (ROB 40, LQ 12, SQ 10), the model gives a lone thread:
+  - −3.6% on the suite (the SoC's uncore at 100 MHz);
+  - −2.5% on Dhrystone;
+  - 0 on CoreMark.
+
+  The options:
+  - **static halves:** the plan's choice and the cheapest;
+  - **the whole window while the sibling is idle:** a mode switch at hart start and stop;
+  - **a shared window with a 75% cap:** §5, +3–4% throughput, but with ordering logic not costed.
+
+  The board's numbers until then are the lone-thread, whole-window core's (`scripts/m6_board.py --predict`).
+
 
 ---
 

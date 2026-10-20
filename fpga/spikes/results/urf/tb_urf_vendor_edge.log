@@ -1,0 +1,7 @@
+TB_URF PASS (WMODE edge, 3 early + 3 late ports): 199914 cycles, 1199484 port reads checked, 0 mismatches
+TB_URF collisions: early reads of an address written that cycle 60009, the cycle before 154877;
+TB_URF             late reads of an address written that cycle 160153, the cycle before 160114
+- /home/w/tanager-build/track-spikes-72f833/uram_wt/fpga/spikes/uram/tb_urf.sv:146: Verilog $finish
+- S i m u l a t i o n   R e p o r t: Verilator 5.052 2026-09-05
+- Verilator: $finish at 2ms; walltime 2.409 s; speed 830.329 us/s
+- Verilator: cpu 2.408 s on 1 threads; allocated 6 MB
