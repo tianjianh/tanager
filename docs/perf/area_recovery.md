@@ -1800,6 +1800,10 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
   - d4s2: 0.505 against 0.508 s (+0.6%);
   - d4r1: 0.417 against 0.420 s (+0.6%).
 - **So `tb_boot`, run as the board runs it, matches the board in every phase on three bitstreams, the unpacking included.** Its DDR model needs no change for this traffic (follow-up 14, closed).
+- **Confirmed end to end by verif-2:** a boot of d4s2 with the console on the serial line at 115200 baud, as on the board (SERIAL=1, latency 22; its 5b8d5d8).
+  - Its raw timestamps are within 0.3–1.2% of the board's at every milestone: /init at 0.936 s against 0.929 s (+0.8%).
+  - The estimate above, the console-free simulation plus the console on /init's path, gave 0.931 s.
+  - All 100 kernel lines up to `Freeing unused kernel image` are within 1.0–1.8% of each board boot.
 - **The corrected gains to /init (CPU time):**
   - d2 → d4s2: −26.9% on the board, −26.2% in the simulation. §6.12 gave the board −30.0%.
   - d4s2 → d4r1: −14.3% on the board, −14.4% in the simulation. The first version gave the board −16.6%.
@@ -2310,7 +2314,8 @@ The study's first proposal for §8.5 adopted R9 and R10 as free. The plan held t
     - **The cause:** the init thread prints 95 ms of console while the async initramfs unpack runs on the other core. §6.12 took that time off the unpack's end as well.
     - **Counted right,** the simulation matches the board in every phase on d2, d4s2 and d4r1: the unpack within −0.4% to +0.6%, /init within −0.7% to +0.3%.
     - **The DDR model needs no change for this traffic.** verif-2's latency sweep (22, 18, 14 cycles) had already ruled out latency.
-    - **Independent checks still to come (verif-2):** a SERIAL=1 boot of d4s2 against the board's raw timestamps, and `memcal` on the board.
+    - **Confirmed (verif-2, 5b8d5d8):** a SERIAL=1 boot of d4s2 at latency 22 matches the board's raw timestamps within 0.3–1.2% at every milestone, /init +0.8%.
+    - **Still to come:** `memcal` on the board, as an independent check of the DDR model.
     - **Left from it:** `prof_m6.sv`'s `+prof_snap` window profile (§6.14) and `m6_board.py`'s console accounting.
 15. **d2's CoreMark under Linux on the board** (§6.12) runs 9–17% below its bare-metal RTL simulation. d4s2 runs 2–3% above its own, and d2's boot matches the board. The cause is unidentified: code placement and generation are ruled out. It matters only for reading the board's d2 → d4s2 CoreMark gain. **Open, parked** (the coordinator, 10-19): d2 is retired, and the gap does not touch M6's figures.
 16. **The per-thread issue-queue caps and the static ROB, LQ and SQ halves are not wired** (§6.12). M7 must wire them, and decide what a lone thread gets: smt2_report.md §10's open items.
