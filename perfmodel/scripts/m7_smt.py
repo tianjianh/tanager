@@ -108,6 +108,8 @@ def policy(workers):
     for cap in (25, 37, 50, 62, 87, 100):
         var[f"issue-queue cap {cap}%"] = {**M7, "smt_iq_cap": cap}
     for cap in (50, 62, 75):
+        var[f"{cap}% caps, never a whole bank"] = {**M7, "smt_iq_cap": cap, "smt_iq_cap_bank": 2}
+        var[f"{cap}% caps, last row kept on demand"] = {**M7, "smt_iq_cap": cap, "smt_iq_cap_bank": 3}
         var[f"{cap}% caps per bank"] = {**M7, "smt_iq_cap": cap, "smt_iq_cap_bank": 1}
     smt.collect([({**s, "dram_lat": lat}, a, b) for s in var.values() for lat in LATS for _, a, b in smt.PAIRS],
                 workers)
@@ -215,7 +217,12 @@ def deadlock(workers):
     cb = {"no priority": {**M7, "drain_guard": 0}, "D8 (priority)": M7,
           "D8, the drain not alternating": {**M7, "smt_drain_rr": 0},
           "D8, caps per bank": {**M7, "smt_iq_cap_bank": 1},
-          "D8, 50% caps per bank": {**M7, "smt_iq_cap": 50, "smt_iq_cap_bank": 1}}
+          "D8, 50% caps per bank": {**M7, "smt_iq_cap": 50, "smt_iq_cap_bank": 1},
+          "D8, 50% caps": {**M7, "smt_iq_cap": 50},
+          "D8, 75% caps, never a whole bank": {**M7, "smt_iq_cap_bank": 2},
+          "D8, 50% caps, never a whole bank": {**M7, "smt_iq_cap": 50, "smt_iq_cap_bank": 2},
+          "D8, 50% caps, the last row kept for a waiting sibling": {**M7, "smt_iq_cap": 50, "smt_iq_cap_bank": 3},
+          "D8, 75% caps, the last row kept for a waiting sibling": {**M7, "smt_iq_cap_bank": 3}}
     jobs = [("tanager_v1", {**cl.v1_share(f, p, 1), "drain_guard": g}, a, b)
             for f, p in pts for g in ca.values() for _, a, b in pairs]
     jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for lat in LATS for c in cb.values() for _, a, b in pairs]
@@ -301,6 +308,8 @@ LONE = {"merged (today's core)": {},
         "static halves, caps": {"lone_sleep": 1, "lone_merge": -1},
         "static halves, no caps": {"lone_sleep": 1, "lone_merge": -1, "lone_caps": 0},
         "merged, caps never lifted": {"lone_caps": 2},
+        "merged, 50% caps never lifted": {"lone_caps": 2, "smt_iq_cap": 50},
+        "static halves, 50% caps": {"lone_sleep": 1, "lone_merge": -1, "smt_iq_cap": 50},
         "WFI timeout 4,096; awake 200; merge 64": {"lone_sleep": 4096, "lone_awake": 200, "lone_merge": 64},
         "... drain to the half": {"lone_sleep": 4096, "lone_awake": 200, "lone_merge": 64, "lone_split": 1},
         "... merge 1,024": {"lone_sleep": 4096, "lone_awake": 200, "lone_merge": 1024},
@@ -346,8 +355,10 @@ def lone(workers):
 
 
 PRED = {"75% caps (the plan)": ("exit2", None),
+        "75% caps, never a whole bank": ("policy", "75% caps, never a whole bank"),
+        "50% caps, the last row kept": ("policy", "50% caps, last row kept on demand"),
+        "50% caps, never a whole bank": ("policy", "50% caps, never a whole bank"),
         "75% caps per bank": ("policy", "75% caps per bank"),
-        "50% caps per bank": ("policy", "50% caps per bank"),
         "50% caps (whole queue)": ("policy", "issue-queue cap 50%")}
 
 

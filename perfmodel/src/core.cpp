@@ -274,9 +274,15 @@ int64_t Core::slot_free(uint8_t q, int k) const {
 // after their select). The cap of the whole queue alone can leave the sibling's one free row in the other bank.
 bool Core::bank_capped(uint8_t q, int k, int tid) const {
   if (nthr_ == 1 || !c_.smt_iq_cap_bank || c_.smt_iq_cap >= 100 || q == Q_SERIAL) return false;
+  if (c_.smt_iq_cap_bank == 3) {  // 3: the bank's last row stays free only while the sibling waits on this bank
+    const Thread& S = *th_[(size_t)(1 - tid)];
+    if (!(S.disp_why == DW_IQ && S.disp_why_q == q && S.disp_why_k == k)) return false;
+  }
   const int64_t w = std::max<int64_t>(1, c_.decode_width);
   const int64_t rows = (iq_cap(q) - k + w - 1) / w;
-  const int64_t cap = std::max<int64_t>(1, std::min<int64_t>((rows * c_.smt_iq_cap + 99) / 100, rows - 1));
+  const int64_t pct = std::max<int64_t>(1, (rows * c_.smt_iq_cap + 99) / 100);
+  // 1: the cap's share of the bank, never all of it; 2 and 3: only never all of it
+  const int64_t cap = std::max<int64_t>(1, c_.smt_iq_cap_bank >= 2 ? rows - 1 : std::min(pct, rows - 1));
   int64_t n = 0;
   for (uint64_t id : iq_[q]) {
     const Uop* u = find(id);
@@ -2203,7 +2209,8 @@ bool Core::run() {
         int llt = 0;
         for (auto& Up : th_)
           for (auto& w : Up->win) llt += w.has_llt && (w.state < 2 || w.t_done > t_);
-        std::snprintf(buf, sizeof buf, "; dispatch stopped by %d; wake tags %d, LLTs %d, IQ-LD rows %zu (this thread %lld)",
+        std::snprintf(buf, sizeof buf,
+                      "; dispatch stopped by %d; wake tags %d, LLTs %d, IQ-LD rows %zu (this thread %lld)",
                       T.disp_why, (int)wtags_used(), llt, iq_[Q_LD].size(), (long long)iq_occ(Q_LD, T.tid));
         err_ += buf;
       }
