@@ -58,21 +58,26 @@ module tg_csr
   output logic                   misa_d,
   output logic [1:0]             fs,           // mstatus.FS
   output priv_e                  priv,         // current mode
-  output priv_e                  priv_d,       // mode of data accesses (MPRV)
   output logic                   tvm,
   output logic                   tw,
   output logic                   tsr,
-  output logic                   sum,
-  output logic                   mxr,
   output logic                   satp_sv39,
   output logic [15:0]            satp_asid,
-  output logic [43:0]            satp_ppn,
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
   output pmp_d_t [PMP_ENTRIES-1:0] pmp_d,      // PMP region descriptors (registered)
-  output logic [2:0]             pmp_al,       // every 1G / 2M / 4K page is PMP-homogeneous
-  output logic [PMP_ENTRIES-1:0] pmp_p2m,      // each entry's address is aligned to a 2M page
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
   output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
+  // Per hart, for the LSU and the walker (M7's step 4: an access takes its thread's; the outputs above are the
+  // running thread's, for fetch and decode)
+  output priv_e  [NUM_THREADS-1:0]                  priv_h,      // current mode
+  output priv_e  [NUM_THREADS-1:0]                  priv_d_h,    // mode of data accesses (MPRV)
+  output logic   [NUM_THREADS-1:0]                  sum_h,
+  output logic   [NUM_THREADS-1:0]                  mxr_h,
+  output logic   [NUM_THREADS-1:0]                  sv39_h,
+  output logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h,
+  output pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,     // PMP region descriptors (registered)
+  output logic   [NUM_THREADS-1:0][2:0]             pmp_al_h,    // every 1G / 2M / 4K page is PMP-homogeneous
+  output logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m_h,   // each entry's address is aligned to a 2M page
   // Interrupt inputs (one per hart of the core, by hart: thread t takes line t ^ SOLO_TID) and time
   input  logic [NUM_THREADS-1:0] irq_mei,
   input  logic [NUM_THREADS-1:0] irq_mti,
@@ -251,15 +256,11 @@ module tg_csr
   assign misa_d    = r.misa_d;
   assign fs        = r.fs;
   assign priv      = r.priv;
-  assign priv_d    = (r.mprv && r.priv == PRIV_M) ? priv_e'(r.mpp) : r.priv;
   assign tvm       = r.tvm;
   assign tw        = r.tw;
   assign tsr       = r.tsr;
-  assign sum       = r.sum;
-  assign mxr       = r.mxr;
   assign satp_sv39 = r.satp_mode;
   assign satp_asid = r.satp_asid;
-  assign satp_ppn  = r.satp_ppn;
   // ---- PMP region descriptors (core-mmu.md §PMP), per hart ----
   // pmpaddr lives in LUTRAM ({tid, entry}). A PMP write marks the entries it changes, and one
   // descriptor unit recomputes a marked entry per cycle (either hart's) into pmp_d_q (flip-flops:
@@ -343,9 +344,20 @@ module tg_csr
     pmp_al_q <= pmp_al_n;
   end
   assign pmp_d    = pmp_d_q[RUN_TID];
-  assign pmp_al   = pmp_al_q[RUN_TID];
-  always_comb for (int i = 0; i < NPMP; i++) pmp_p2m[i] = pal_top_q[RUN_TID][i][1];
   assign pmp_busy = psweep || |pdirty_q[RUN_TID] || pchg_q[RUN_TID];
+  always_comb begin
+    for (int t = 0; t < NT; t++) begin
+      priv_h[t]     = h_q[t].priv;
+      priv_d_h[t]   = (h_q[t].mprv && h_q[t].priv == PRIV_M) ? priv_e'(h_q[t].mpp) : h_q[t].priv;
+      sum_h[t]      = h_q[t].sum;
+      mxr_h[t]      = h_q[t].mxr;
+      sv39_h[t]     = h_q[t].satp_mode;
+      satp_ppn_h[t] = h_q[t].satp_ppn;
+      pmp_d_h[t]    = pmp_d_q[t];
+      pmp_al_h[t]   = pmp_al_q[t];
+      for (int i = 0; i < NPMP; i++) pmp_p2m_h[t][i] = pal_top_q[t][i][1];
+    end
+  end
   assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0};
 
   // Trap targets: S's vector when delegated from S or U. An exception's target is its vector's
