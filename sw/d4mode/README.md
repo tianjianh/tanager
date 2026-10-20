@@ -165,6 +165,12 @@ time it happens, what decides between the explanations, and then tries the one f
   - `install -m 755 sd1-irq-probe.hook /etc/initramfs-tools/hooks/sd1-irq-probe`
   - `install -m 755 sd1-irq-probe.init-top /etc/initramfs-tools/scripts/init-top/sd1-irq-probe`
   - then `update-initramfs -u`
-- **Kernel command line:** add `iomem=relaxed` to extlinux's `append`, in case Debian's `IO_STRICT_DEVMEM` keeps `/dev/mem` off the regions the drivers hold.
+- **Kernel command line:** `iomem=relaxed`, in case Debian's `IO_STRICT_DEVMEM` keeps `/dev/mem` off the regions the drivers hold. u-boot-menu writes extlinux's `append` (`sw/build_debian.sh`), so:
+  - **Change:** in `/etc/default/u-boot`, set `U_BOOT_PARAMETERS="console=ttyS0,115200 earlycon rw iomem=relaxed"`, then run `u-boot-update`.
+  - **Undo:** remove `iomem=relaxed` from that line, then run `u-boot-update`.
+- **The SD stress:** `sudo sd-read-stress [seconds]` (default 600) reads the card from both CPUs at once, as the boot's udev probes did.
+  - It makes direct reads at random sectors, 4 KiB to 1 MiB, with a `blkid` probe of p3 every 25 reads. It is read only.
+  - It prints a line per CPU every 100 reads, and stops on a `dd` failure or an mmc0 timeout.
+  - Run it with `sd1-irq-probe watch &`.
 - **Before relying on it:** check `busybox devmem` (the applet) and `sd1-irq-probe dump` once by hand.
 - **When it runs:** the initramfs starts `watch` before the root's mount. It writes to the console and to `/run/sd1-irq-probe.log`, and stops once the real root is up. After boot, for an SD stress, `sd1-irq-probe watch &` does the same.
