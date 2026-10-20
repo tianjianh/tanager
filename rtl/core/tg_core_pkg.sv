@@ -84,6 +84,14 @@ package tg_core_pkg;
 `else
   localparam int DC_MSHRS = 4;
 `endif
+  // The L1D's Releases in flight, 1 or 2 (prototype, DR-171's follow-up): with 2 the release engine starts the
+  // next eviction while the last one's ReleaseAck is on its way (a second source, N + 1). Needs DC_MSHRS > 1.
+  // TG_DC_RELS=1 gives one, cycle for cycle as before
+`ifdef TG_DC_RELS
+  localparam int DC_RELS = `TG_DC_RELS;
+`else
+  localparam int DC_RELS = 1;
+`endif
   // #8, one more decode stage: off in both profiles (DR-140)
 `ifdef TG_DE_STAGE
   localparam bit DE_STAGE = `TG_DE_STAGE;

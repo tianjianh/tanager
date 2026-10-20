@@ -52,6 +52,12 @@ STORE_PF_MAX ?=
 ifneq ($(filter-out 2 3,$(STORE_PF_MAX)),)
   $(error STORE_PF_MAX must be 2, 3 or unset (got "$(STORE_PF_MAX)"))
 endif
+# The L1D's Releases in flight, 1 or 2 (+define+TG_DC_RELS, tg_core_pkg::DC_RELS; a prototype): unset builds the
+# package's default (1). Not cycle-exact at 2; runs programs.
+DC_RELS ?=
+ifneq ($(filter-out 1 2,$(DC_RELS)),)
+  $(error DC_RELS must be 1, 2 or unset (got "$(DC_RELS)"))
+endif
 # DR-167: the core's PMP entries, 8 or 16 (+define+TG_PMP_ENTRIES, tg_core_pkg::PMP_ENTRIES; the core track's
 # switch); unset builds the package's default. Lockstep's Spike gets as many regions (PMP_RTL below).
 PMP_ENTRIES ?=
@@ -65,19 +71,21 @@ URF ?=
 ifneq ($(filter-out 0 1,$(URF)),)
   $(error URF must be 0, 1 or unset (got "$(URF)"))
 endif
-TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))
+TC_SUFFIX := $(if $(TIMING_CUTS),-tc$(TIMING_CUTS))$(if $(DC_MSHRS),-m$(DC_MSHRS))$(if $(QUEUE_DECODE),-qd$(QUEUE_DECODE))$(if $(SPEC_WAKE),-sw$(SPEC_WAKE))$(if $(STA_BASE),-sb$(STA_BASE))$(if $(STEER_LA),-sl$(STEER_LA))$(if $(PMP_ENTRIES),-p$(PMP_ENTRIES))$(if $(STORE_PF),-spf$(STORE_PF))$(if $(URF),-urf$(URF))$(if $(STORE_PF_MAX),-spm$(STORE_PF_MAX))$(if $(DC_RELS),-rel$(DC_RELS))
 TC_DEF    := $(strip $(if $(TIMING_CUTS),+define+TG_TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),+define+TG_DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),+define+TG_QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),+define+TG_SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),+define+TG_STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),+define+TG_STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),+define+TG_PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),+define+TG_STORE_PF=$(STORE_PF)) $(if $(URF),+define+TG_URF=$(URF)) \
-                     $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)))
+                     $(if $(STORE_PF_MAX),+define+TG_STORE_PF_MAX=$(STORE_PF_MAX)) \
+                     $(if $(DC_RELS),+define+TG_DC_RELS=$(DC_RELS)))
 TC_ARG    := $(strip $(if $(TIMING_CUTS),TIMING_CUTS=$(TIMING_CUTS)) $(if $(DC_MSHRS),DC_MSHRS=$(DC_MSHRS)) \
                      $(if $(QUEUE_DECODE),QUEUE_DECODE=$(QUEUE_DECODE)) $(if $(SPEC_WAKE),SPEC_WAKE=$(SPEC_WAKE)) \
                      $(if $(STA_BASE),STA_BASE=$(STA_BASE)) \
                      $(if $(STEER_LA),STEER_LA=$(STEER_LA)) $(if $(PMP_ENTRIES),PMP_ENTRIES=$(PMP_ENTRIES)) \
                      $(if $(STORE_PF),STORE_PF=$(STORE_PF)) $(if $(URF),URF=$(URF)) \
-                     $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)))
+                     $(if $(STORE_PF_MAX),STORE_PF_MAX=$(STORE_PF_MAX)) \
+                     $(if $(DC_RELS),DC_RELS=$(DC_RELS)))
 # The PMP entries of the core this tree builds, for Spike's regions in lockstep (DR-167): PMP_ENTRIES when
 # set, else the package's default, from its one `localparam int PMP_ENTRIES = N;` line, else 16 (the core
 # before the switch). tg_vsim takes the count from the model itself and stops if this reading differs, so

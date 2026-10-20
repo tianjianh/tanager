@@ -936,7 +936,13 @@ module tg_dcache
     // no allocation shares a cycle with one. An atomic's read waits until nothing is in flight
     localparam int N = DC_MSHRS;
     typedef enum logic [2:0] { E_IDLE, E_EV, E_ACQ, E_GRANT, E_GACK, E_INSTALL } estate_e;
-    typedef enum logic [2:0] { R_IDLE, R_RD, R_CAP, R_SEND, R_WAIT } rstate_e;
+    typedef enum logic [2:0] { R_IDLE, R_RD, R_CAP, R_SEND } rstate_e;
+    // Releases in flight (DC_RELS): the engine reads and sends one victim at a time, and each Release then
+    // waits for its ReleaseAck in a tracker of its own (source N + t), so with two the next eviction starts
+    // while the last one's ReleaseAck is on its way. With one, an eviction waits for the last one's
+    // ReleaseAck, as before
+    localparam int NREL = DC_RELS;
+    localparam int TRW  = idx_w(NREL);
     estate_e [N-1:0]                es_q;      // per entry: its state, line, way, growth, kind
     logic    [N-1:0][PA_W-1:6]      el_q;
     logic    [N-1:0][WAY_W-1:0]     ew_q;
@@ -947,13 +953,16 @@ module tg_dcache
     logic    [N-1:0]                eden_q;    // the Grant was denied (or corrupt)
     logic    [N-1:0][2:0]           ecap_q;
     logic    [N-1:0][TL_SINK_W-1:0] esk_q;
-    rstate_e                        rs_q;      // the release engine: the victim's line, way,
+    rstate_e                        rs_q;      // the release engine (the sender): the victim's line, way,
     logic    [PA_W-1:6]             rl_q;      //   dirty and T bits, its beat, and the entry whose
     logic    [WAY_W-1:0]            rw_q;      //   Acquire waits for the send
     logic                           rd_q, rt_q;
     logic    [1:0]                  rb_q;
     logic    [MSW-1:0]              re_q;
     logic    [127:0]                rbeat_q;   //   and the beat it sends
+    logic    [TRW-1:0]              rsrc_q;    //   and its tracker
+    logic    [NREL-1:0]             tw_v_q;    // the trackers: a Release from its allocation to its ReleaseAck,
+    logic    [NREL-1:0][PA_W-1:6]   tw_l_q;    //   and its line
     logic                           rq_v_q;    // the loads' request register
     logic    [PA_W-1:0]             rq_pa_q;
     logic    [N-1:0]                dn_v_q;    // denied fills, one line per entry
@@ -1006,8 +1015,25 @@ module tg_dcache
     // holds (until ReleaseAck) is allocated to no entry: the store waits, the load gets no answer
     // (ReleaseAck wakes it)
     logic st_rel, rq_rel;
-    assign st_rel  = rs_q != R_IDLE && rl_q == sx_pa[PA_W-1:6];
-    assign rq_rel  = rs_q != R_IDLE && rl_q == c_pa[PA_W-1:6];
+    // (a tracker holds the sender's line too, from the allocation on)
+    logic [TRW-1:0] tw_f, ra_t;                // the first free tracker; a ReleaseAck's
+    logic           tw_any, eng_ok;            // a tracker is free; an eviction may start
+    always_comb begin
+      st_rel = 1'b0;
+      rq_rel = 1'b0;
+      tw_any = 1'b0;
+      tw_f   = '0;
+      for (int t = NREL - 1; t >= 0; t--) begin
+        if (tw_v_q[t] && tw_l_q[t] == sx_pa[PA_W-1:6]) st_rel = 1'b1;
+        if (tw_v_q[t] && tw_l_q[t] == c_pa[PA_W-1:6])  rq_rel = 1'b1;
+        if (!tw_v_q[t]) begin
+          tw_any = 1'b1;
+          tw_f   = TRW'(t);
+        end
+      end
+    end
+    assign eng_ok = rs_q == R_IDLE && tw_any;
+    assign ra_t   = TRW'(d_i.source - TL_SRC_W'(N));
     assign st_busy = |st_m;
     assign rq_busy = |rq_m;
     assign d_e     = d_i.source[MSW-1:0];
@@ -1016,7 +1042,7 @@ module tg_dcache
     assign ev_go    = !al_up && !al_upc && (alloc_st ? ev_s : ev_c);
     assign ev_dirty = alloc_st ? ss.d[evw_s] : sc.d[evw_c];
 
-    assign m_none     = !(|busy) && rs_q == R_IDLE;
+    assign m_none     = !(|busy) && rs_q == R_IDLE && !(|tw_v_q);
     assign m_on_c     = rs_q == R_RD || rs_q == R_CAP || rs_q == R_SEND;
     assign m_inst     = |insv;
     assign inst_go    = m_inst && !(ps_q == P_UPD && p_hit_q);    // a probe update goes first
@@ -1044,13 +1070,13 @@ module tg_dcache
     assign rel_dirty  = rd_q;
     assign rel_t      = rt_q;
     assign rel_line   = rl_q;
-    assign rel_src    = TL_SRC_W'(N);
+    assign rel_src    = TL_SRC_W'(N) + TL_SRC_W'(rsrc_q);
     assign rel_data   = rbeat_q;
     assign m_holdb    = 1'b0;                // (the engine sends from its own register)
     // An allocation needs a free entry, no entry or Release for its line, no install this cycle (the
     // state port), and the release engine when its victim is valid
-    assign m_free_st  = f_any && !m_inst && !st_busy && !st_rel && (rs_q == R_IDLE || s_hit || !ev_s);
-    assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (rs_q == R_IDLE || !ev_c);
+    assign m_free_st  = f_any && !m_inst && !st_busy && !st_rel && (eng_ok || s_hit || !ev_s);
+    assign m_free_ld  = f_any && !m_inst && !rq_busy && !rq_rel && (eng_ok || !ev_c);
     assign c_req      = rq_v_q;
     // The store ownership prefetch (STORE_PF, DR-171): one pending line, the newest a store's address
     // decision sent (pf_req), looked up through the controller port in a cycle without a load's
@@ -1066,8 +1092,8 @@ module tg_dcache
     assign f_two      = $countones(~busy) >= 2;
     assign pf_room    = $countones(busy & epf_q) < PF_MAX;
     assign m_free_pf  = c_pf && f_two && pf_room && !m_inst && !rq_busy && !rq_rel &&
-                        (rs_q == R_IDLE || |ch || !ev_c) && (!st_req || st_busy);
-    assign m_dbg      = {rs_q != R_IDLE, 3'($countones(busy))};
+                        (eng_ok || |ch || !ev_c) && (!st_req || st_busy);
+    assign m_dbg      = {rs_q != R_IDLE || |tw_v_q, 3'($countones(busy))};
     assign dn_hit     = |dn_s;
     assign lm_fdn     = |dn_l;
     // The request register's answer: its line is present (the controller port hits, outside a
@@ -1097,6 +1123,7 @@ module tg_dcache
       if (rst) begin
         for (int e = 0; e < N; e++) es_q[e] <= E_IDLE;
         rs_q    <= R_IDLE;
+        tw_v_q  <= '0;
         rq_v_q  <= 1'b0;
         pq_v_q  <= 1'b0;
         dn_v_q  <= '0;
@@ -1144,6 +1171,9 @@ module tg_dcache
         if (al_go && ev_go) begin
           rs_q <= ev_dirty ? R_RD : R_SEND;     // (a clean victim's Release has no data)
           rl_q <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
+          rsrc_q <= tw_f;
+          tw_v_q[tw_f] <= 1'b1;
+          tw_l_q[tw_f] <= {alloc_st ? evt_s : evt_c, al_pa[6 +: SET_W]};
           rw_q <= victim;
           rd_q <= ev_dirty;
           rt_q <= alloc_st ? ss.t[evw_s] : sc.t[evw_c];
@@ -1158,19 +1188,19 @@ module tg_dcache
           end
           R_SEND: if (c_ready_i) begin
             if (!rd_q || rb_q == 2'd3) begin
-              rs_q       <= R_WAIT;
+              rs_q       <= R_IDLE;              // its tracker waits for the ReleaseAck
               es_q[re_q] <= E_ACQ;               // its line's Acquire may go
             end else begin
               rb_q <= rb_q + 1'b1;
               rs_q <= R_RD;
             end
           end
-          R_WAIT: if (d_fire && d_i.opcode == D_RELEASE_ACK) begin
-            rs_q   <= R_IDLE;
-            rack_q <= 1'b1;
-          end
           default: ;
         endcase
+        if (d_fire && d_i.opcode == D_RELEASE_ACK) begin
+          tw_v_q[ra_t] <= 1'b0;
+          rack_q       <= 1'b1;
+        end
         if (a_valid && a_ready_i) begin
           es_q[a_i] <= E_GRANT;
           eb_q[a_i] <= '0;
@@ -1213,10 +1243,14 @@ module tg_dcache
         if (d_valid_i && (d_i.opcode == D_GRANT_DATA || d_i.opcode == D_GRANT))
           assert (d_for_e) else $error("tg_dcache: a Grant for no waiting entry (source %0d)", d_i.source);
         if (d_valid_i && d_i.opcode == D_RELEASE_ACK)
-          assert (rs_q == R_WAIT) else $error("tg_dcache: ReleaseAck with no Release outstanding");
+          assert (d_i.source >= TL_SRC_W'(N) && d_i.source < TL_SRC_W'(N + NREL) && tw_v_q[ra_t] &&
+                  !(rs_q != R_IDLE && rsrc_q == ra_t))
+            else $error("tg_dcache: ReleaseAck with no Release outstanding (source %0d)", d_i.source);
         if (al_go) assert (f_any && !m_inst) else $error("tg_dcache: an allocation with no free entry, or beside an install");
-        if (a_valid && rs_q != R_IDLE)
-          assert (a_line != rl_q) else $error("tg_dcache: an Acquire for the line being released");
+        for (int t = 0; t < NREL; t++)
+          if (a_valid && tw_v_q[t])
+            assert (a_line != tw_l_q[t]) else $error("tg_dcache: an Acquire for a line being released");
+        if (rs_q != R_IDLE) assert (tw_v_q[rsrc_q] && tw_l_q[rsrc_q] == rl_q) else $error("tg_dcache: the sender's tracker is not its");
       end
     end
     // The prefetch's statistics, on stderr with +stpf (stdout is compared with Spike): requests,
@@ -1263,7 +1297,7 @@ module tg_dcache
           else if (st_req && !st_busy)  ps_w_st   <= ps_w_st + 1;
           else if (m_inst)              ps_w_inst <= ps_w_inst + 1;
           else if (rq_rel)              ps_w_rline <= ps_w_rline + 1;
-          else if (rs_q != R_IDLE && !(|ch) && ev_c) ps_w_eng <= ps_w_eng + 1;
+          else if (!eng_ok && !(|ch) && ev_c) ps_w_eng <= ps_w_eng + 1;
           else if (!al_base)            ps_w_base <= ps_w_base + 1;
           else                          ps_w_oth  <= ps_w_oth + 1;
         end
@@ -1274,7 +1308,7 @@ module tg_dcache
           if (!f_any)                   ps_sa_free  <= ps_sa_free + 1;
           else if (m_inst)              ps_sa_inst  <= ps_sa_inst + 1;
           else if (st_rel)              ps_sa_rline <= ps_sa_rline + 1;
-          else if (rs_q != R_IDLE && !s_hit && ev_s) ps_sa_eng <= ps_sa_eng + 1;
+          else if (!eng_ok && !s_hit && ev_s) ps_sa_eng <= ps_sa_eng + 1;
           else if (!al_base)            ps_sa_base  <= ps_sa_base + 1;
           else                          ps_sa_oth   <= ps_sa_oth + 1;
         end
