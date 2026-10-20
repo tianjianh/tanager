@@ -167,10 +167,14 @@ module tg_core
   // The return-address stack (RAS_ON): decode (RAS_DEC) or fetch (RAS_FE, with TAGE) reads its top
   // and moves it; commit keeps its committed copy; a flush restores it from that copy, and with
   // RAS_FE decode's redirect repairs it from fetch's FTQ
-  logic                    ras_v, ras_push, ras_pop;
+  logic                    ras_v, ras_push, ras_pop;          // decode's view: its thread's stack
   logic [38:1]             ras_top, ras_link;
-  logic [RAS_PW-1:0]       ras_tos;
-  logic [RAS_PW:0]         ras_cnt;
+  // The stacks, one per thread with hart 1 (M7's step 5b; else the one), as fetch sees them
+  logic [NUM_THREADS-1:0]              ras_v_t;
+  logic [NUM_THREADS-1:0][38:1]        ras_top_t;
+  logic [NUM_THREADS-1:0][RAS_PW-1:0]  ras_tos_t;
+  logic [NUM_THREADS-1:0][RAS_PW:0]    ras_cnt_t;
+  tid_t                    fras_tid;                          // fetch's operation's or repair's thread
   logic                    fras_push, fras_pop, fras_rv, fras_rwr;
   logic [38:1]             fras_link, fras_rtop;
   logic [RAS_PW-1:0]       fras_rtos;
@@ -245,7 +249,8 @@ module tg_core
     .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
-    .ras_v, .ras_top, .ras_tos, .ras_cnt, .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
+    .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
+    .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
@@ -264,20 +269,62 @@ module tg_core
     .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
     .ras_link);
   if (RAS_ON) begin : g_ras
-    tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
-      .clk, .rst, .flush, .top_v(ras_v), .top(ras_top), .s_tos(ras_tos), .s_cnt(ras_cnt),
-      .d_push(RAS_FE ? fras_push : ras_push), .d_pop(RAS_FE ? fras_pop : ras_pop),
-      .d_link(RAS_FE ? fras_link : ras_link),
-      .r_v(RAS_FE && fras_rv), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
-      .c_push(cm_ras_push), .c_pop(cm_ras_pop), .c_link(cm_ras_link));
+    // A stack per thread with hart 1 (u_ras thread 0's, g_t1's thread 1's); each takes its thread's operations,
+    // repairs, commits and flush. Without hart 1 the one stack, every operation the running thread's
+    localparam bit RMT = HART1_ON && NUM_THREADS > 1;
+    localparam int RNS = RMT ? 2 : 1;
+    logic [RNS-1:0]              rv;
+    logic [RNS-1:0][38:1]        rt;
+    logic [RNS-1:0][RAS_PW-1:0]  rtos;
+    logic [RNS-1:0][RAS_PW:0]    rcnt;
+    logic de_s, fr_s, cm_s, fl_s;                                 // decode's, fetch's, commit's, the flush's stack
+    assign de_s = RMT && (RAS_FE ? iq_insn[0].tid[0] : de_uop[0].tid[0]);
+    assign fr_s = RMT && fras_tid[0];
+    assign cm_s = RMT && cm_tid[0][0];
+    assign fl_s = RMT && flush_tid[0];
+    logic dr_s;                                                    // decode's operations' stack (RAS_DEC)
+    assign dr_s = RMT && de_uop[0].tid[0];
+    for (genvar s = 0; s < RNS; s++) begin : g_s
+      logic       sf, sp, sq, sr;
+      assign sf = flush && fl_s == 1'(s);
+      assign sp = RAS_FE ? fr_s == 1'(s) : dr_s == 1'(s);
+      assign sr = RAS_FE && fras_rv && fr_s == 1'(s);
+      assign sq = cm_s == 1'(s);
+      if (s == 0) begin : g_t0
+        tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
+          .clk, .rst, .flush(sf), .top_v(rv[s]), .top(rt[s]), .s_tos(rtos[s]), .s_cnt(rcnt[s]),
+          .d_push(sp && (RAS_FE ? fras_push : ras_push)), .d_pop(sp && (RAS_FE ? fras_pop : ras_pop)),
+          .d_link(RAS_FE ? fras_link : ras_link),
+          .r_v(sr), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
+          .c_push(cm_ras_push & {COMMIT_WIDTH{sq}}), .c_pop(cm_ras_pop & {COMMIT_WIDTH{sq}}), .c_link(cm_ras_link));
+      end else begin : g_t1
+        tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
+          .clk, .rst, .flush(sf), .top_v(rv[s]), .top(rt[s]), .s_tos(rtos[s]), .s_cnt(rcnt[s]),
+          .d_push(sp && (RAS_FE ? fras_push : ras_push)), .d_pop(sp && (RAS_FE ? fras_pop : ras_pop)),
+          .d_link(RAS_FE ? fras_link : ras_link),
+          .r_v(sr), .r_wr(fras_rwr), .r_tos(fras_rtos), .r_cnt(fras_rcnt), .r_top(fras_rtop),
+          .c_push(cm_ras_push & {COMMIT_WIDTH{sq}}), .c_pop(cm_ras_pop & {COMMIT_WIDTH{sq}}), .c_link(cm_ras_link));
+      end
+    end
+    // fetch's view, by stream (index 0 without hart 1); decode's, its thread's
+    for (genvar t = 0; t < NUM_THREADS; t++) begin : g_fv
+      assign ras_v_t[t]   = rv[RMT ? t : 0];
+      assign ras_top_t[t] = rt[RMT ? t : 0];
+      assign ras_tos_t[t] = rtos[RMT ? t : 0];
+      assign ras_cnt_t[t] = rcnt[RMT ? t : 0];
+    end
+    assign ras_v   = rv[de_s];
+    assign ras_top = rt[de_s];
   end else begin : g_noras
-    assign ras_v   = 1'b0;
-    assign ras_top = '0;
-    assign ras_tos = '0;
-    assign ras_cnt = '0;
+    assign ras_v     = 1'b0;
+    assign ras_top   = '0;
+    assign ras_v_t   = '0;
+    assign ras_top_t = '0;
+    assign ras_tos_t = '0;
+    assign ras_cnt_t = '0;
     logic unused_ras;                   // no operation is ever decoded or committed without it
     assign unused_ras = ^{ras_push, ras_pop, ras_link, cm_ras_push, cm_ras_pop, cm_ras_link, fras_push, fras_pop,
-                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop};
+                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid};
   end
 
   // ---- Rename and dispatch ----

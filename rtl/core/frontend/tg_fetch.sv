@@ -61,10 +61,11 @@ module tg_fetch
   // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
   // block's exit's operation; the repair at decode's redirect (the pointer, count and top before the
   // redirecting block, from its FTQ entry)
-  input  logic                ras_v,
-  input  logic [38:1]         ras_top,
-  input  logic [RAS_PW-1:0]   ras_tos,
-  input  logic [RAS_PW:0]     ras_cnt,
+  input  logic [NUM_THREADS-1:0]             ras_v_s,   // per stream (M7: a stack per thread with hart 1)
+  input  logic [NUM_THREADS-1:0][38:1]       ras_top_s,
+  input  logic [NUM_THREADS-1:0][RAS_PW-1:0] ras_tos_s,
+  input  logic [NUM_THREADS-1:0][RAS_PW:0]   ras_cnt_s,
+  output tid_t                ras_tid,        // the thread whose stack the operation or repair below is
   output logic                ras_push,
   output logic                ras_pop,
   output logic [38:1]         ras_link,
@@ -174,6 +175,17 @@ module tg_fetch
   assign sp_q    = sp_s_q[f2_s_q];
   tid_t f3_tid;                                   // F3's block's thread
   assign f3_tid = MT ? tid_t'(f3_s_q) : RUN_TID;
+  // F2's stream's return-address stack (its prediction and the FTQ's snapshot read it)
+  logic                ras_v;
+  logic [38:1]         ras_top;
+  logic [RAS_PW-1:0]   ras_tos;
+  logic [RAS_PW:0]     ras_cnt;
+  assign ras_v   = ras_v_s[f2_s_q];
+  assign ras_top = ras_top_s[f2_s_q];
+  assign ras_tos = ras_tos_s[f2_s_q];
+  assign ras_cnt = ras_cnt_s[f2_s_q];
+  // the stack fetch's operation (a delivered block's exit) or repair (decode's redirect) is for: never in one cycle
+  assign ras_tid = (dred && !flush) ? dred_tid : (MT ? tid_t'(f2_s_q) : RUN_TID);
 
   // Micro-BTB
   logic              ub_hit, ub_way;
