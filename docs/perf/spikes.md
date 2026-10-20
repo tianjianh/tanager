@@ -1168,7 +1168,25 @@ The 5950X ran `h100_m6fa` (§8.12), a different netlist with easier timing for t
   - the other steps add about 8 min.
 - **So for the queue:** a full chip gets w-arrowlake's per-thread speed only on free P-cores. Simulations on the E-cores while one runs keep it near an hour. Every simulation on the P-cores costs it directly.
 
-Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`).
+**The rerun with the host policy** (2026-10-19, 22:42; `h100_m6m_al2`):
+- **Setup:** Vivado pinned to the P-cores by `tools/vivado_run.sh`, and simulations at nice 10 or on the E-cores. It launched once the host was quiet: no other Vivado job, and the P-cores under 25% busy on two checks 5 min apart.
+- **Same result:** WNS +0.348 ns and 113,721 LUTs.
+- **The quiet lasted about 8 min.** Two more Vivado jobs then started, pinned to the same eight P-cores by the same policy. For the rest of the run the P-cores were 80–100% busy, with 2–3 Vivado jobs at once.
+
+| Step, elapsed s (busy threads) | w-x299 | w-arrowlake, loaded | w-arrowlake, rerun |
+|---|---|---|---|
+| opt_design | 231 (2.6) | 117 (1.9) | 98 (2.4) |
+| place_design | 817 (2.4) | 1,010 (2.1) | **419** (2.0) |
+| phys_opt_design | 23 | 13 | 18 |
+| route_design | 9,020 (2.5) | 5,876 (1.4) | 4,779 (2.1) |
+| The whole job | 172.4 min | 118.3 min | **90.4 min** |
+
+- **Placement, mostly in the quiet part, was 1.95× faster than w-x299.**
+- **Routing was 1.89× faster,** but it shared the P-cores, and its CPU time grew to 9,819 s: busy waiting under contention, for the same work that took 7,964 s in the loaded run.
+- **So an hour is not yet confirmed.** 90 min is the time with 2–3 Vivado jobs on the P-cores.
+- **The policy has a side effect.** Pinning every Vivado job to the same eight P-cores makes concurrent full chips share them, while the E-cores take the simulations. A full chip gets the P-cores only if fewer Vivado jobs run at once, or if small ones (queries, out-of-context runs) go elsewhere.
+
+Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`), and the rerun `h100_m6m_al2/`.
 
 ### 8.16 The UltraRAM register file in the full chip: tier B (2026-10-19)
 

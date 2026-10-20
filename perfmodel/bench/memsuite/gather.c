@@ -27,6 +27,18 @@ int main(void) {
     acc += v;
   }
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (uint32_t i = 0; i < N; i++) {
+      uint64_t v = tab[idx[i]];
+      v ^= v >> 29;
+      v *= 0xbf58476d1ce4e5b9ull;
+      v ^= v >> 32;
+      acc += v;
+    }
+    MS_SINK(acc);
+  }
+#endif
   printf("gather n=%d acc=%016llx\n", N, (unsigned long long)acc);
   return 0;
 }

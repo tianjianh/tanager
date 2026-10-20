@@ -91,7 +91,7 @@ cycle-identical:
 
 # The Linux boot under lockstep (docs/spec/verification.md §4.7; DR-173): tb_boot with the commit-trace tap
 # (sim/tb/tg_soc_tap.sv) streams every core's records into tanager-lockstep as the boot runs, at the untraced
-# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2), MCYC million cycles (100), TIMING the DDR
+# speed. SHAPE=st|board (the board's two smt2 cores, harts 0 and 2)|smp4 (M7: all four harts), MCYC million cycles (100), TIMING the DDR
 # timing of each run, side by side (board, jitter, fixedN, default), SEED; the profile switches as
 # cycle-identical's. boot-lockstep-gate runs st at 100M with default and board timing when the change against
 # BASE reaches the core's fetch, decode, rename, LSU, MMU or CSR, and passes at once otherwise.
@@ -124,4 +124,5 @@ perf:
 	  $(if $(PMP_ENTRIES),--pmp-entries $(PMP_ENTRIES)) $(if $(BRANCH_PMP_ENTRIES),--branch-pmp-entries $(BRANCH_PMP_ENTRIES)) \
 	  $(if $(STORE_PF),--store-pf $(STORE_PF)) $(if $(BRANCH_STORE_PF),--branch-store-pf $(BRANCH_STORE_PF)) \
 	  $(if $(URF),--urf $(URF)) $(if $(BRANCH_URF),--branch-urf $(BRANCH_URF)) \
-	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX))
+	  $(if $(STORE_PF_MAX),--store-pf-max $(STORE_PF_MAX)) $(if $(BRANCH_STORE_PF_MAX),--branch-store-pf-max $(BRANCH_STORE_PF_MAX)) \
+	  $(if $(SOLO_TID),--solo-tid $(SOLO_TID)) $(if $(BRANCH_SOLO_TID),--branch-solo-tid $(BRANCH_SOLO_TID))

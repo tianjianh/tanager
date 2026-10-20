@@ -267,3 +267,121 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 **Boots 10–12 (04:35–04:55):** all clean, with the watch service active, each with about 74,000 mmc0 interrupts in the stress.
 - **Boot 12's "no login" was COM5's, not the board's.** The laptop's CH340 dropped and reopened at 04:47:38, during the boot, and the login line was lost with it. Boot 12 was up and clean (0 timeouts), and its stress ran by hand.
 - The driver now also takes the shell prompt as the login. In every boot's section the prompt first appears after the new boot, never between the reboot command and the restart.
+
+**Boots 13–27 (04:56–06:15):** all clean, with the watch service active. Each logged in about 190 s after the reboot, and each stress drew 74,000–75,000 mmc0 interrupts with no timeout.
+
+**Boot 28's stress lost SD1's interrupt: the third occurrence, and the first under the stress.**
+- **When:** the stress started at about 155 s of uptime. The first `mmc0: Timeout waiting for hardware interrupt` came at 168.85 s, and there were 63 by 810 s.
+- **The SDHCI dump matches s19 segment b's first boot:**
+  - `Int stat` 0x00000002 (transfer complete), with the status and signal enables at 0x03ff008b;
+  - `Slot int` 1, so SD1's line is high;
+  - CMD18 (a multi-block read) with auto-CMD12, by ADMA.
+- **Read live from COM5's autologin shell, with bash builtins only:**
+  - mmc0's count stayed at 6,984 (a whole stress gives about 74,000).
+  - ttyS0's count rose from 1,360 to 1,660 in 23 s. ttyS0 is PLIC source 10, delivered to the same hart 0 context.
+  - So the PLIC still delivers to that context. It stopped delivering source 21 alone.
+- **No capture:**
+  - The watch service saw the timeout, but the capture's own commands (busybox, `cut`, `tee`) weren't cached, and loading them from the failing card hung.
+  - Then SSH failed (`Connection reset`), systemd couldn't spawn anything (`Input/output error`), and even `sudo` failed to load. So no root read of the PLIC was possible.
+  - A PMOD break at 06:35:26 gave Ubuntu (trial 1), and `e2fsck -fp` replayed p3's journal.
+- **The probe now runs entirely from RAM:**
+  - `sd1-irq-watch.service` mounts its own tmpfs (`/run` is noexec; this one isn't).
+  - It copies in a static busybox and the probe, and runs the watch with only that directory on its `PATH`. The busybox is the binary from Debian's busybox-static 1.37.0-6+b9, extracted to `/usr/local/lib/sd1probe/` without installing the package.
+  - Debian's packaged busybox is dynamic and needs libc and libresolv from the card. The static one runs in a chroot that holds no libraries.
+  - A dump from the tmpfs works.
+
+**Boot 29** (06:37, from Ubuntu, the stress by hand): clean, with 75,547 mmc0 interrupts.
+
+**Boot 30** (06:46): clean, with 73,395 mmc0 interrupts.
+
+**The tally, boots 1–30:**
+- **28 boots had the 90 s stress.** Boot 8 was boot 7's stuck shutdown, and boot 9 came up after the break.
+- **SD1's interrupt was lost twice:** in boot 7's shutdown, and in boot 28's stress at 168 s. Counting s19 segment b's first boot, that's 3 losses in 32 RISC-V-mode boots since the power event.
+- **The probe captured neither.** The first time, no watch ran at the shutdown. The second time, the capture's commands loaded from the failing card. Both are fixed now: the watch runs from boot through shutdown, from its own tmpfs, with a static busybox. A dump from there works.
+- **What is known** (boot 28, live):
+  - The PLIC stopped delivering source 21 alone. mmc0's count froze at 6,984, while source 10 (ttyS0) kept reaching the same hart 0 context.
+  - SD1 holds transfer complete pending and enabled, with its slot interrupt (the line) high, after a CMD18 multi-block read with auto-CMD12 by ADMA.
+- **When the losses came:** at 45 s, 168 s and 272 s of uptime: early in a boot, just after the login, or at a shutdown.
+  - None came during the 5.3 h of s19's segments a and b, or in the other 27 stresses.
+  - Each stress drew about 74,000 mmc0 interrupts in 90 s.
+
+**Then: s19 segment c** from 06:51:38 UTC (`STRESS start 2026-10-20T06:51:38Z up=305.93`), on boot 30, with the RAM-resident watch active.
+- It runs until segments a, b and c together reach 24 h of stress: 01:32:31 UTC on 10-21.
+- Network checks: 19, hourly from 07:21:38.
+- The stress watcher now also stops at an mmc0 timeout or a probe capture.
+
+**s19 segment c: 4 of 4 passes clean,** from 06:51:38 to 06:59:28 UTC (0.13 h of stress). The coordinator paused it for 30 more short boots ("STRESS stop after pass 4, fails=0").
+- **The always-on watch costs the stress about 3.5%.** cpu ran 90.2–90.6 events/s, memory 128.1–128.3 MiB/s and threads 2,223–2,227, against 93.4, 131.9 and 2,303 in segments a and b without it.
+  - Every 2 s the watch formats the kernel's whole log (`dmesg`) and greps it, which is a real load at 100 MHz.
+  - Segment d's numbers will carry the same cost.
+  - Waiting on `/dev/kmsg` instead would cost nothing between messages. That's for soc-2's probe.
+- Logs: [`uart_COM5_s19c_start.txt`](uart_COM5_s19c_start.txt), [`uart_COM5_s19c.txt`](uart_COM5_s19c.txt), [`uart_COM5_s19c_pause.txt`](uart_COM5_s19c_pause.txt).
+- **Segments a, b and c together:** 167 of 167 passes clean, 5.45 h of stress.
+
+**Boots 31–60 (from 07:00 UTC; the coordinator: 30 more short boots, each with the stress and a shutdown, stopping at the first capture).**
+- At 3 losses in 32 boots, 30 more have about a 94% chance of a loss.
+- The driver now also stops at the probe's capture on COM5, before a login or after the stress. That covers a capture made in a shutdown, or when SSH is already gone.
+
+**Boots 31–36 (07:00–07:31):** all clean with the RAM-resident watch. Each stress drew 73,700–74,400 mmc0 interrupts.
+
+**Boot 37 lost SD1's interrupt: the fourth occurrence, early in the boot, and again with no capture.**
+- **When:** boot 36's shutdown and reboot were clean. In boot 37 the root was mounted at 51.1 s, and systemd started at about 55 s. SD1's first timeout came at 66.2 s, so the stuck request was issued at about 56 s. There were 37 timeouts and read I/O errors from 260 s, and no login.
+- **The gap:** the initramfs's watch ends at the switch to the real root (51 s). `sd1-irq-watch.service` waits for `local-fs.target`, which a failing card never reaches. Nothing watched from 51 s on.
+- A PMOD break at 07:40:28 gave Ubuntu (trial 1).
+- **The fix: one watch for the whole boot.**
+  - The initramfs's init-top script ([`../runs/sd1-irq-probe.init-top`](../runs/sd1-irq-probe.init-top), with its hook [`../runs/sd1-irq-probe.hook`](../runs/sd1-irq-probe.hook)) builds a RAM root of its own, `/sd1ram`: a static busybox, the probe, and its own devtmpfs and proc. It runs the watch chrooted there.
+  - At the switch to the real root, `/init` moves `/dev`, `/proc`, `/run` and `/sys` away, and run-init deletes the rootfs's files. A separate mount is neither moved nor deleted, so the watch keeps its commands, `/dev/mem`, `/dev/console` and `/proc` from before the root's mount through shutdown.
+  - soc-2's own init-top watch had lost its commands at that switch, which is the `dmesg: not found` on every boot.
+  - The systemd unit is disabled; one watch is enough.
+  - The capture shows on COM5, and the driver reads it there.
+- **Checked on boot 39** (07:57):
+  - No `not found` at the switch.
+  - The watch, PID 181 from the initramfs, still ran after the login, chrooted in `/sd1ram`.
+- **The capture tested once.** A fake line went into the kernel log at 173.30 s (`board self-test, not a real timeout: mmc0: Timeout waiting for hardware interrupt.`).
+  - The watch's capture came out on COM5 at 175.25 s: three dumps (175.25, 178.88 and 194.46 s) around the complete it writes for source 21 (at 175.33 s).
+  - On a healthy system the complete did no harm: mmc0 kept counting, from 5,459 to 5,979.
+  - The watch captures once, so the next boot gets a fresh one.
+- **Boots 40–69:** the coordinator's 30 boots, now with the whole-boot watch, stopping at the first capture.
+
+**Boots 40–54 (08:01–09:20):** all clean, with the whole-boot watch (one per boot). Each stress drew 73,000–75,300 mmc0 interrupts.
+
+**The capture: boot 54's shutdown lost SD1's interrupt (the fifth occurrence), and the probe caught it.**
+- **When:** the reboot after boot 54's stress began at about 271 s. The first timeout came at 302.77 s, `mmc0: Timeout waiting for hardware cmd interrupt` (CMD13, a status command, not a data transfer).
+- **The capture, from COM5:**
+
+  ```
+  sd1-irq-probe 303.45 s
+    PLIC: pending 0x00000000 (bit 21 = 0), priority 21 = 0x00000001
+    PLIC: enables ctx 1 (hart 0 S) 0x00600400 (bit 21 = 1), ctx 5 (hart 2 S) 0x00000000 (bit 21 = 0)
+    PLIC: thresholds ctx 1 0x00000000, ctx 5 0x00000000
+    SD1: int status 0x00000001, status enable 0x03FF008B, signal enable 0x03FF008B, present 0x01F70000, slot int 0x10020001: line 1
+     14:      75904          0  SiFive PLIC  21 Edge      mmc0
+  sd1-irq-probe: complete 21 written to context 1 at 303.54 s
+  ```
+
+- **What it says:**
+  - SD1's line is high: command complete is pending and enabled, and the slot interrupt is 1.
+  - The PLIC shows source 21 not pending, while it is enabled on context 1 (hart 0, S-mode) at priority 1 and threshold 0.
+  - In soc-2's table, that row means source 21 was claimed and never completed: its gateway waits for a completion and passes nothing on.
+- **The complete brought it back.** Within 0.6 s of the probe's complete for 21 (303.54 s), the stuck shutdown went on: `Sending SIGTERM to remaining processes` at 304.08 s, the root remounted read-only at 304.96 s, and `reboot: Restarting system` at 305.21 s.
+  - Boot 7's shutdown, in the same state without a complete, hung for 10 minutes with 46 timeouts.
+  - The probe's 3 s and 15 s dumps never ran, since the reboot came first. So there's no mmc0 count after the complete, but the I/O plainly came back: boot 54's journal holds the timeout's register dump, written after it.
+- **Context 1's enables** were `0x00600400` here, against `0x00700400` while the boot ran: source 20 was already released in the shutdown.
+- **Sent at once** to soc-2 and the coordinator, as asked.
+- **Boot 55** (the reboot's own): clean, with its watch running.
+- Logs: [`uart_COM5_probe_boots38-55.txt`](uart_COM5_probe_boots38-55.txt) (boot 54 from offset 821841), the tally [`probe_tally.txt`](probe_tally.txt).
+
+**The hunt's tally, boots 1–55:**
+- Five losses of SD1's interrupt in 57 RISC-V-mode boots since the power event (counting s19 segment b's two):
+  - s19 segment b's first boot at 45 s (early in the boot);
+  - boot 7's shutdown at 272 s;
+  - boot 28's stress at 168 s;
+  - boot 37 at 56 s (early in the boot);
+  - boot 54's shutdown at 303 s, the one captured.
+- None came in 5.45 h of the soak's segments a to c, or in the other stresses.
+
+**s19 segment d,** from 09:24:42 UTC (`STRESS start 2026-10-20T09:24:42Z up=216.28`, [`uart_COM5_s19d_start.txt`](uart_COM5_s19d_start.txt)), on boot 55, with its whole-boot watch armed.
+- **Until:** segments a to d together reach 24 h of stress, at 03:57:45 UTC on 10-21.
+- **Network checks:** 19, hourly from 09:54:42.
+- **The stress watcher** stops at a failed pass, kernel trouble, an mmc0 timeout, a probe capture, or 12 minutes without a pass.
+- **If SD1's interrupt is lost now,** the watch captures it once and writes the complete. That brought boot 54's shutdown back.

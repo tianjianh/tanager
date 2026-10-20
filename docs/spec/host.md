@@ -106,8 +106,8 @@ A 64-bit pair is written low half first. The low half waits in a shadow register
 ## Commit trace
 
 `tg_trace_stream` (core domain) writes every core's commit records, with none lost, into a ring in DDR over its own PS port. It stalls the cores through `trace_stall_i` when it falls behind ([uncore-trace.md](uncore-trace.md)). The host reads the records directly from DDR; the `TRS_*` registers control it.
-- **Record format** (64 bytes in DDR; bytes 0–39 are the 320-bit record): `[31:0]` header, `[63:32]` insn, `[127:64]` pc, `[191:128]` value (rd value; the cause for traps and interrupts; the value of a writeback), `[255:192]` address (store vaddr; tval for traps), `[319:256]` store data, `[351:320]` the low 32 bits of the core-clock cycle count at capture, `[511:352]` zero.
-  - **Header fields:** `[1:0]` kind (0 retire, 1 trap, 2 interrupt, 3 deferred writeback), `[3:2]` hart, `[5:4]` priv, `[6]` rvc, `[7]` rd_we, `[8]` rd_fp, `[13:9]` rd, `[14]` rd_deferred, `[19:15]` wb_tag, `[20]` mem_st, `[22:21]` mem_size, `[23]` mmio_ld, `[24]` nondet.
+- **Record format** (64 bytes in DDR; bytes 0–39 are the 320-bit record): `[31:0]` header, `[63:32]` insn, `[127:64]` pc, `[191:128]` value (rd value; the cause for traps and interrupts; the value of a writeback), `[255:192]` address (store vaddr, or with `mem_ld` the read's; tval for traps), `[319:256]` store data, `[351:320]` the low 32 bits of the core-clock cycle count at capture, `[511:352]` zero.
+  - **Header fields:** `[1:0]` kind (0 retire, 1 trap, 2 interrupt, 3 deferred writeback), `[3:2]` hart, `[5:4]` priv, `[6]` rvc, `[7]` rd_we, `[8]` rd_fp, `[13:9]` rd, `[14]` rd_deferred, `[19:15]` wb_tag, `[20]` mem_st, `[22:21]` mem_size, `[23]` mmio_ld, `[24]` nondet, `[25]` mem_ld (v1.5: a read, its address in `mem_vaddr`).
 
 ## Behaviour
 

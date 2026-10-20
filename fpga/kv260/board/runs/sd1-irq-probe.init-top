@@ -1,0 +1,23 @@
+#!/bin/sh
+# initramfs-tools init-top script (/etc/initramfs-tools/scripts/init-top/sd1-irq-probe), the board track's deployment
+# of soc-2's sd1-irq-probe (sw/d4mode; the SD1 interrupt hunt, 10-20): one watch for the whole boot, from before the
+# root's mount through shutdown.
+# - It runs chrooted in a RAM root of its own, /sd1ram in the initramfs's rootfs. The RAM root holds a static busybox,
+#   the probe, and its own /dev (devtmpfs) and /proc.
+# - At the switch to the real root, /init moves /dev, /proc, /run and /sys away, and run-init deletes the rootfs's
+#   files. A separate mount is neither moved nor deleted, so the watch keeps its commands, /dev/mem, /dev/console and
+#   /proc.
+# - Nothing it runs reads the card.
+# - The earlier watches each left a gap: soc-2's init-top watch lost its commands at the switch, and the systemd unit
+#   waited for local-fs.target. Boot 37 lost SD1's interrupt in that gap, at 56 s.
+# - The capture goes to the console (COM5) and to /sd1ram/run/sd1-irq-probe.log, which is visible only from inside.
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+R=/sd1ram
+mkdir -p $R && mount -t tmpfs -o size=8m,mode=0755 sd1ram $R || exit 0
+mkdir -p $R/bin $R/dev $R/proc $R/run
+cp /sd1probe/busybox $R/bin/busybox && cp /sd1probe/sd1-irq-probe $R/sd1-irq-probe || exit 0
+for a in sh devmem dmesg grep sleep tee cut cat; do ln -s busybox $R/bin/$a; done
+mount -t devtmpfs devtmpfs $R/dev && mount -t proc proc $R/proc || exit 0
+$R/bin/busybox chroot $R /bin/sh /sd1-irq-probe watch < /dev/null > /dev/null 2>&1 &

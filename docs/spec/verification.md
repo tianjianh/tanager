@@ -17,6 +17,8 @@ What the verification track gives the other tracks:
 | Constrained-random instruction generator, with F/D templates | `tests/random/` | M3, done |
 | Trace back-pressure (`trace_stall_i`): sink model and contract checks | `sim/` (`--trace-stall`) | M3, done (test core; `tg_core` when its port lands) |
 | Fork-based snapshots | `sim/` (`--snap-every`) | M3, done |
+| RVWMO litmus tests on Spike, the core and the SoC (§6.6) | `tests/litmus/` | M7 |
+| Pair runner: two programs on one `smt2` core's harts against each alone (§4.8) | `tests/bench/pair/` | M7 |
 
 ## 1. Quick start
 
@@ -140,6 +142,10 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 
 **`mmio`** (channels A, D).
 - `Get`, `PutFullData`, `PutPartialData` of size ≤ 3, one beat. The monitor flags a second request from the same hart while one is in flight (interfaces.md §2.4).
+- **One read on the bus for each MMIO load that retires** (DR-176, 10-20). The model logs every `Get` that is answered without an error; each retiring `mmio_ld` load claims the oldest.
+  - **What fails** (a `PROTOCOL` error): a second read already waiting when a load retires, a read still waiting at the program's exit, or a load retiring with none. Each means a read was squashed after it went out, which repeats any side effect when the load runs again: SD1's lost interrupt was a PLIC claim read twice.
+  - **Exactness:** the core sends one MMIO read at a time, from the ROB head, and nothing flushes it once it is out, so the check is exact while one hart reads devices. A request names no hart (its source is 0), so the check stops once a second hart retires an MMIO load.
+  - **What it found:** on the RTL before the fix it stops `irq_mmio` on `st` and `smt2`, and 2 of 2,000 random programs with timer interrupts on `smt2` (`--irq 200`). Those runs passed before, because a repeated read of `mtime` changes nothing the program can see.
 - **Devices** (addresses from `tg_map_pkg`):
 
   | Device | Base | Model |
@@ -161,6 +167,7 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 
 - **Link address:** programs are linked at `0x8000_0000`; the core boots there (`boot_addr_i`, `--boot` to change).
 - **Console:** the 16550 THR at `UART_BASE`. `tests/bench/bsp` has the start-up code and newlib stubs.
+- **Harts (M7, DR-175):** hart 0 runs the program, and every other hart parks in WFI, since a sibling thread fetches from reset once M7's `HART1_ON` is set. The benchmarks' `crt0.S`, the directed tests (`TG_PARK_HARTS` at `_start`), ACT4's `RVMODEL_BOOT` (DUT builds only; Sail's macros leave it out) and single-hart `tg_rand` programs do this. `tg_rand --harts`, `gen_coh`, `litmus_gen` and memcal give each hart they name its own work and park the rest. riscv-tests' own environment keeps the others spinning (`RISCV_MULTICORE_DISABLE`), which lockstep checks as well.
 - **Exit:** a riscv-tests-style write to the 8-byte `tohost` symbol, seen in the commit trace as retired stores (`mem_st`) to `tohost` (or one of its aliases, below). The harness keeps a copy of the 8 bytes; a command is complete when a store reaches the top byte, so one 64-bit store and the two 32-bit stores of riscv-tests and ACT4 (`sw value, tohost; sw high, tohost+4`) both work:
   - value bit 0 set: the program exits with code `value >> 1`; 0 is a pass;
   - value with device 1, command 1 (`0x0101 << 48 | c`): character `c` for the console; the harness prints it. It cannot clear `tohost` behind a cached line, so a program that waits for that is stopped as a failure with the text printed so far;
@@ -273,6 +280,7 @@ Records are processed in the order interfaces.md §5 guarantees: per hart in pro
 - Spike must not have trapped. A trap is recognised by the cause and EPC CSR writes it logs (`mcause`+`mepc`, or `scause`+`sepc`); no single instruction writes both.
 - **Destination:** Spike's logged integer or FP register write (x0 excluded) must match `rd_we`, `rd_fp` and `rd`. If `rd_deferred` is 0, `rd_value` must equal Spike's value (FP: the 64-bit register, NaN-boxed for single precision). If it is 1, see §3.5.
 - **Stores:** Spike's logged memory writes must match `mem_st`, `mem_vaddr`, `mem_size` and `mem_wdata` (masked to the size). A store, SC or AMO logs exactly one write; a failed SC logs none.
+- **Reads** (interfaces.md v1.5, `mem_ld`; checked before the value): with `mem_ld`, Spike's logged read must have the record's `mem_vaddr` and `mem_size`, for a load, an LR or an AMO (whose read and write share the address). Once a hart's records have carried `mem_ld`, a read Spike logs without it in the record is a mismatch, so a core that reports reads reports all of them, while a core built before v1.5 checks as before. `mem_ld` on anything but a load, LR or AMO breaks the record's rules. The self-test injects a wrong load address (`ld-addr`) and a missing `mem_ld` (`noload`).
 - CSR writes in Spike's log are not compared: they are not in the trace, and their effects are checked when software reads them.
 
 **`TR_TRAP`:** `step(1)`; Spike must have trapped, with the same cause (`mcause` or `scause`, whichever the trap wrote) and the same `tval` (`mtval` or `stval`). The privilege mode and PC after the trap are checked by the next record.
@@ -350,6 +358,8 @@ Two independent ways, both in `make regress`:
 - 326 riscv-tests (all `-p` and `-v` suites of ui, um, ua, uc, uf, ud, mi, si, zba, zbb, zbs, zicond; `ma_data` excluded, §4.1) pass Spike against Spike, plain and under four perturbation sets (deferral up to 90% of results, nondet values, 2 and 4 harts, 3- and 4-record cycles);
 - 19 fault kinds × 7 programs × 2 seeds, plus a wrong interrupt cause on the interrupt test: every applicable injection is reported with the expected diagnosis (270 runs; a dropped writeback is reported either at the end or as the tag reuse it causes, whichever comes first);
 - the directed tests (§4.1) pass with deferral, and `irq_timer` and `irq_ext`, which tolerate extra interrupts, also with random interrupts injected at enabled boundaries; `irq_s` counts its interrupts exactly, so it runs without injection.
+
+**2026-10-20, with the read check** (interfaces.md v1.5, §3.3): `tg_replay` reports every read with `mem_ld`, so all 326 tests under every perturbation set check each load's address too, and pass. 21 fault kinds (`ld-addr` and `noload` added) and the interrupt cause: 282 injections reported with the expected diagnosis, none missed (16 not applicable: the program ends before a load past the injection point); 25 s. The test core sets `mem_ld` as well, and its 82 riscv-tests pass in lockstep.
 
 The checker found its first real bug the same day: the test core lost deferred writebacks when two deferred records left its trace queue in one cycle.
 
@@ -613,6 +623,10 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
 - **Profiles (DR-140).** `TIMING_CUTS` builds both sides in that timing-cut profile, `tg_vsim` and the boot's `tb_boot` alike, so a change is checked in each profile CI runs, and its Linux-boot cost is reported by profile (DR-141 rule 1). `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key.
   - The boot takes the profile through `tests/unit/boot`'s Makefile (the SoC track's hook), which reads `sim/profile.mk`; the tool archives that file with `sim/tb` when a profile is forced. A boot tree whose Makefile lacks the hook is refused, since it would build the default without a word (`BOOT_TREE=<ref>`, `--boot-tree`, with a ref that has it, or `BOOT=0`).
   - **`DC_MSHRS` (DR-149), `QUEUE_DECODE` (G8's queue decode bits) and `SPEC_WAKE` (M6's speculative load wakeup)** work the same way: `DC_MSHRS` builds both sides with that many L1D misses in flight, and `BRANCH_DC_MSHRS=4` against a base of one MSHR measures the 4-miss L1D; `BRANCH_QUEUE_DECODE=1` against the same commit checks the switch's other setting without a commit that flips its default. Neither name reaches a build from the environment, only as a make variable that the cache key and each build's `info` file name. Before this, a `DC_MSHRS=4` in the environment reached `tg_vsim` (which takes all of `sim/`) but not the boot, whose `sim/profile.mk` was archived only with `TIMING_CUTS`: one MSHR on both sides, IDENTICAL (the core track's find, 2026-10-17).
+  - **The later switches work the same way** in `regress`, `cycle-identical`, `perf` and `boot-lockstep`: `STA_BASE`, `STEER_LA`, `STORE_PF` and `STORE_PF_MAX` (DR-171), `URF` (DR-174) and `SOLO_TID` (DR-175). `PMP_ENTRIES` is covered below.
+    - `SOLO_TID=1` is M7's test mode: the core's one thread runs as tid 1 inside the core and stays hart 0 to software, so single-hart programs exercise the tid-1 paths. It gives the same cycles as 0.
+    - It exists only in the `smt2` configurations: `lint-all` adds it there, and `tg_core` stops an `st` elaboration with it.
+    - Every M7 MR also runs `regress` and `cycle-identical` with `SOLO_TID=1`.
   - **`PMP_ENTRIES` (DR-167)** too. Each side's lockstep has as many PMP regions as its own model reports (§3.2), so a side of 8 entries and one of 16 each run against their own Spike. `BRANCH_PMP_ENTRIES=16` against a base before the switch (16 entries) is the switch's proof: cycle-identical at 16.
   - **Checked on core-2's fn7** (51810c3, with the SoC track's hook from 97b528a as `--boot-tree`), 3 M cycles of the 1-core boot. Before this, the two profiles were one boot build, so a boot by profile was identical by construction.
     - The fallback against the default: they differ from cycle 430, and the fallback needs 0.165% fewer cycles.
@@ -753,7 +767,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
 The Linux boot on the SoC under lockstep, as far as a core change needs it. M6's micro-BTB alias (fixed in core-2's c261c1f) passed every program, the coherence suite and cycle-identical with the 20M-cycle boot, and panicked Linux on the board about 220M cycles in, in three boots of three. The 20M-cycle boot never got near it. Core-2's traced 100M-cycle boot found it on the FENCE.I branch, at cycle 91.6M.
 
 ```
-make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
+make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board|smp4] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
 make boot-lockstep-gate [BASE=main] [BRANCH=<ref>] [profile switches]
 tools/ci/boot_lockstep.py --nightly | --install-cron
 ```
@@ -763,7 +777,7 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   - **Checked against the stream:** the first 389,603 records of a boot are byte for byte the stream's, cycle stamps aside. The first difference is the first read of the `cycle` CSR (the same instruction, another value), where the stream's back-pressure first shows.
   - **`+mem_zero` always:** a tapped run is not a traced run to `tb_boot`, so unwritten memory would read the DDR models' fill pattern where Spike reads zero (the first tapped boot stopped on a CRC over such bytes).
 - **A run:** `tb_boot` built with the tap (`MEM_PARAMS=-GL2_SETS_TB=1024`, the board's L2), the pinned reference images (§4.5), the configuration's device tree from `sw/dts` (128 MiB, FPU), and `tanager-lockstep` built from the same tree, so its boot ROM and PMP default are the tested RTL's. The RTL is `BRANCH`'s (default: this tree's, uncommitted changes too); the harness (`sim/`, `tests/unit`, `sw/dts`) is this tree's, as in cycle-identical. A run stops at `MCYC` million cycles or at `TANAGER-BOOT-OK`, and reports PASS, MISMATCH (the checker's first lines and its report) or could-not-check, with the records, cycles, IPC and minutes. Builds are cached in `$TANAGER_BUILD/boot-lockstep` (binaries only, four kept).
-  - **Shapes:** `st`, one `st` core; `board`, the board's: two `smt2` cores running thread 0 each (harts 0 and 2), four Verilator threads.
+  - **Shapes:** `st`, one `st` core; `board`, the board's: two `smt2` cores running thread 0 each (harts 0 and 2), four Verilator threads; `smp4` (M7), both threads of both cores, with the device tree's `RUN_THREADS=2`. Until hart 1 fetches (M7's step 5), Linux brings up harts 0 and 2 on `smp4` and reports the others failed to come online.
   - **Timings** (the DDR models' run-time plusargs, so one build serves them all; one run each, side by side): `board`, a fixed 22 cycles with every ready at 100%; `jitter`, 18–26 cycles; `fixedN`; `default`, `tb_boot`'s own 4–12.
   - **`--plant N`** makes the checker corrupt record N: the self-test of the failure path.
 - **Speed** (w-x299, 2026-10-19, Linux from the reference images on 0a1a418, board-like memory, under a load of about 40):
@@ -807,6 +821,79 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   - **End to end** (`SERIAL=1`: the console on the serial line, as on the board; `board` timing): the raw timestamps of all 100 kernel lines to `Freeing unused kernel image` are within 1.0–1.8% of each of the board's three boots, and every milestone within −1.2% to +0.8% of their medians: `NET: Registered PF_PACKET` −0.3%, `clk: Disabling unused clocks` −1.2%, `Freeing unused kernel image` 0.9293 s against 0.9219 s (+0.8%), `Run /init` 0.9362 s against 0.9289 s (+0.8%). Read this way the window `clk: Disabling` to `Freeing` is 0.2933 s against 0.2780 s (+5.5%): the simulation reaches `clk: Disabling` 7.9 ms early, and the unpack ends where the board's does.
   - **So, with the console off the serial line,** compare in CPU time only what runs on the thread that prints. A milestone that waits for work on another core (the unpack, `Freeing unused kernel image`, `Run /init`) compares by its span from that work's start, or raw against a `SERIAL=1` run.
   - **memcal** (`tests/bench/mem`): the memory system's streaming rates and latency, bare-metal on hart 0, the same program in `tb_boot` (`memcal.bin`) and on the board (`memcal-big.bin`, its DDR tests four times; `tanager-host boot --fw memcal-big.bin --kernel /dev/null --dtb /dev/null --timeout 20`). It prints `MEMCAL <test> bytes=N cycles=C` for a memset of 16 MiB in the kernel's loop (32 `sd` per 256 B), a memcpy of 8 MiB, the two at 1 MiB, a streaming read of 8 MiB and a dependent chase over 4 MiB (there `bytes` counts the loads). d4s2 at `board`: memset-16M 0.865 bytes per cycle (74.0 cycles per line: one ownership round trip a line, as `free_initmem`'s poison), memcpy-8M 0.810 (79.0), memset-1M 1.684 (38.0, in the L2), memcpy-1M 0.819 (78.2: source and destination are twice the L2), read-8M 3.94 (16.3 cycles per line: four misses in flight) and chase-4M 64.3 cycles per load. The board's run, on d4s2 and d4r1, follows the coordinator's 24-hour soak (10-20): a check of the DDR model's rates, which nothing waits on.
+
+### 4.8 Pair throughput (`tests/bench/pair`, M7's exit 2)
+
+M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-thread at 30, 120 and 250 cycles of latency. The runner puts two programs on one `smt2` core, one per hart, and compares each with itself alone. It follows smt2-study's method (smt2_report §2.2–§2.4), so the RTL's figures compare with the model's prediction.
+- **The figure:**
+  - WS = IPC_pair(a) / IPC_alone(a) + IPC_pair(b) / IPC_alone(b), each over the program's first region of interest;
+  - a group's figure (memory + memory, compute + compute, mixed) is the geometric mean of its pairs' WS;
+  - the overall figure is the geometric mean of the three groups'.
+- **"Alone":**
+  - the same program, at the same base, on the same `smt2` build, with hart 1 parked in WFI (the report's alone(C), C with one thread);
+  - `make run` (`ONLY=all`) measures the alone runs and the pairs on one build;
+  - all in `tg_vsim`'s flat memory: no L2, each miss `--lat` cycles.
+- **The programs and pairs** are smt2-study's 13 programs and 42 pairs (`make_pairs` in `perfmodel/scripts/smt.py`: 15 memory, 13 compute and 14 mixed). They are built from the model's sources (`build_pair.sh`; `perfmodel/third_party`): seven memory kernels, CoreMark A, Dhrystone and four Embench programs.
+- **Where the runner departs from smt2_report's method.** smt2-study accepted all three on 10-20, and its model now follows the runner for exit 2's prediction, which it makes on these binaries before the RTL's pairs run. `tgsim`'s switches take the markers at `tg_pair_mark`'s entry, restart a program at `_exit`'s entry, start the two regions together (`smt_align`) and keep each slot's own addresses (`smt_pa_flat`):
+  - **Nothing is fast-forwarded:** a memory kernel's set-up runs on the core, so its data is 1–3 MiB. smt2_report's builds (`perfmodel/bench/build_all.sh`) use the sources' defaults of 8–32 MiB. Both sizes are far past the 32 KiB L1D, and in flat memory a miss costs the same either way. chase8 and copy also run their `WARM=1` passes, the sources' option for runs without fast-forward.
+  - **The two first regions start together,** after a barrier. In smt2_report, a memory kernel's region starts at cycle 0, and a compute program's starts after its start-up code.
+  - **A compute program that ends runs again from the top,** set-up included (2–16% of its run), with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
+- **Memory kernels repeat their region** (REPEAT). This is exit 2's method, the coordinator's decision of 10-20. After its first region, a memory kernel runs that region again and again until the pair ends, instead of running again from the top.
+  - **Why:** set-up is most of a memory kernel's run. On the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's and 35% of hashprobe's, against 2% of CoreMark's. A kernel restarted with its set-up spends its sibling's region filling arrays rather than running its kernel.
+  - **The size of it:** smt2-study's prediction (smt2_report §13.10) puts that at up to 0.12 above the basis the 1.3 bar was set on. Step 5 with the drain's priority reads 1.408 at 250 cycles with restarts, against 1.288 with the kernels repeating. With REPEAT, the model matches smt2_report's method within 0.007 in every configuration.
+  - **The switch:** memsuite's `REPEAT` (smt2-study's; the model's `smt_restart_ff`). `build_pair.sh` passes it to the seven kernels and refuses a kernel source without it. `REPEAT=0` builds the restart variant into `pair-restart`.
+- **One image a run:**
+  - a dispatcher at `0x8000_0000` sends each hart to its slot's program: slot 0 at `0x8010_0000`, slot 1 at `0x8810_0000`, each linked there and embedded as a blob;
+  - a first region is timed with its own hart's `mcycle` and `minstret`;
+  - each program's console output is dropped;
+  - once both first regions are done, the last hart to finish prints `PAIR slot=<s> cycles=<n> instret=<n> runs=<n>` for each slot, then `PAIR-END`, and writes `tohost`.
+  `tg_replay` now ends on any hart's exit, as `tg_vsim` does, because the last to finish may be hart 1.
+- **Commands:**
+  - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
+  - `replay` runs the images Spike against Spike;
+  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
+    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
+    - `SELECT` runs some programs (their alone runs and every pair they are in) or some pairs.
+    - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
+- **Hangs:**
+  - **What the model predicts:** without the drain's priority, smt2-study's model hangs six pairs at step 5 — chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The sibling's committed stores wait for miss entries that chase8's loads keep taking.
+  - **The limit:** each pair's cycle limit is three times its two programs' whole alone runs (`--cap`).
+  - **The report:** a pair that reaches the limit is reported as a hang, naming the slot whose first region never ended. The first program to finish prints `PAIR-STOP slot=<s>`.
+  - **A full deadlock** is `tg_vsim`'s own HANG: no commit on any hart for 100,000 cycles.
+- **Spike against Spike** (2026-10-20): all 68 images pass. WS is exactly 2, since each of Spike's harts retires one instruction a step.
+- **The final set for exit 2** (2026-10-20 02:26) is built with REPEAT from a clean tree at b7db3e16, which carries smt2-study's memsuite change. Its `manifest.md5` has md5 22d3ecf4153bb5adbed9c65336db6bcf, and smt2-study's model predicts on the same files. A second build reproduces it, and so does a build from main with smt2-study's switch (fe4083c6).
+  - On Spike, every memory kernel's restart count is 0 in all 29 pairs it is in.
+  - Next to the build without REPEAT, chase8's region is 8 instructions shorter and hashprobe's 1, because the compiler treats the region's code differently with the loop after it.
+- **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on, on the images smt2-study's prediction used, before the `PAIR-STOP` line): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles. A region's instruction count is the same at both slots and on Spike. ms_stride's region is short, so it restarts most often in a pair.
+
+  | Program | Region instructions | IPC, 30 cycles | 120 | 250 |
+  |---|---|---|---|---|
+  | ms_gather | 360,036 | 0.532 | 0.213 | 0.114 |
+  | ms_stride | 18,526 | 0.516 | 0.174 | 0.089 |
+  | ms_spmv | 1,351,713 | 0.711 | 0.243 | 0.125 |
+  | ms_hashprobe | 1,621,725 | 0.418 | 0.241 | 0.147 |
+  | ms_chase8 | 60,046 | 0.116 | 0.038 | 0.019 |
+  | ms_stream | 1,179,680 | 1.290 | 0.628 | 0.336 |
+  | ms_copy | 320,469 | 0.524 | 0.230 | 0.124 |
+  | coremark_A | 1,013,318 | 1.485 | 1.470 | 1.441 |
+  | dhrystone | 858,099 | 1.439 | 1.436 | 1.432 |
+  | embench_nsichneu | 2,405,421 | 1.285 | 1.285 | 1.285 |
+  | embench_huffbench | 2,163,590 | 1.137 | 1.134 | 1.132 |
+  | embench_minver | 441,866 | 1.385 | 1.385 | 1.385 |
+  | embench_matmult-int | 3,180,637 | 1.966 | 1.966 | 1.966 |
+
+- **Against smt2-study's model, alone on the same ELFs:**
+  - region instructions are the model's less 3: the runtime reads `minstret` after the barrier, and the model counts from the marker's entry;
+  - cycles agree within 2% at every latency for gather, spmv (3.6% at 30), chase8, CoreMark, Dhrystone and three of the Embench programs;
+  - the RTL is faster on hashprobe (16%, 27% and 30% at 30, 120 and 250 cycles), on copy (23% and 26% at 120 and 250) and on stride (6% at 30);
+  - it is slower on stream at 30 cycles (23%; 5–6% faster above) and on huffbench (6%).
+  smt2-study's model now gives the store ownership prefetch a miss entry whenever one is free, as the RTL does; it used to keep two free. That brings copy to +4% and +2% at 120 and 250 cycles. Until its calibration settles hashprobe and stream, pairs with them carry more uncertainty than the prediction's ±0.05.
+- **smt2-study's blind prediction on the final set** (smt2_report §13.12, written before any step-5 pair). WS over the 42 pairs at 30 / 120 / 250 cycles, against each program alone on today's core:
+  - **step 5 with the drain's priority:** 1.310 / 1.292 / 1.272. That is under 1.3 at 120 and 250, so step 5 tests the mechanism, not exit 2;
+  - **step 5 without the priority:** the six chase8 pairs above hang;
+  - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
+  - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
+- **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)
 
@@ -939,6 +1026,18 @@ Each directory holds `test_config.yaml` (tools, the `# spike:` line and an optio
   - **`--vm PCT`:** that share of the programs runs its body in S-mode under Sv39. M-mode builds an identity map: the 2 MiB image in 4 KiB pages, the CLINT and the denied DRAM page in 2 MiB pages, every leaf with A and D set. So every template runs translated, with TLB misses and page walks; the stream region grows to 256 KiB (64 pages, twice the DTLB). A VM template adds page faults (an unmapped and a non-canonical address, a fetch from an unmapped page), `SFENCE.VMA` and loads one page apart. CLINT and device-page loads stay out of VM programs: `tg_replay`'s pre-check adopts device loads only untranslated (§9). M-level interrupts stay enabled in S-mode, so the trap handler's scratch registers (x30/x31) are not used for anything an interrupt could disturb;
   - `--irq=<ticks>`: CLINT timer interrupts during all of it; the handler re-arms the timer.
 - **ISAs:** `rv64i`, `rv64im` (M2 and the test core), `rv64ima`, `rv64imac`, `rv64gc` (with the F/D templates). Programs for the integer ISAs are the same as before the F/D templates, seed for seed.
+- **Several harts (M7, `--harts 0,1 [--shared N]`; `HARTS=0,1 SHARED=N`):**
+  - **Each hart runs a program of its own.** `_start` sends each listed hart to it and parks every other hart in WFI. Each program has its own labels, data, stream, stack, trap handler, timer (its own `mtimecmp`) and page tables, since `--vm` draws for each hart. Every template then runs on the two threads of one core at once: the window's halves, thread-scoped flushes, the issue-queue caps and the fetch policy.
+  - **The exit is a barrier.** Each hart counts itself done with an AMO on `done_count`. The first hart listed reads the count atomically until every hart has, then writes `tohost`; the others park.
+  - **`--shared N`** adds templates of total weight N × 10 on four lines every hart uses:
+    - AMOs of every kind, some with `rd = x0` and some ordered;
+    - constrained LR/SC loops of at most eight tries;
+    - racy plain loads and stores, which lockstep checks with its windows for other harts' writes (§3.7);
+    - accesses on both sides of a fence;
+    - each hart's stores to its own word of a line whose other words it loads (false sharing).
+  - **The hart lists:** `0,1` is the two threads of one `smt2` core, `0,2` one thread of each of two cores, `0,1,2,3` all four. The A extension is needed for the barrier. Single-hart programs are the same as before, byte for byte.
+  - **Spike against Spike** (`make -C tests/random replay ISA=rv64gc HARTS=0,1 SHARED=3`): `tg_replay --harts` numbers Spike's harts from 0. On 2026-10-19, 4 seeds each of `0,1` with and without shared lines, `0,1,2,3` and `0,2`, under deferral, wide cycles, failed SCs and nondet values, passed, and so did `make ... replay HARTS=0,1 SHARED=3 IRQ=400 N=12`.
+  - **On the core,** `make -C tests/random CFG=smt2 HARTS=0,1 ...` runs once hart 1 fetches (the M7 plan's step 5).
 - **Spike against Spike only:** `make -C tests/random replay ISA=rv64gc [N=...]` runs each program in `tg_replay` twice: plain, then with checker perturbations drawn from the seed (deferral of loads, FP loads, divides and FP divides and square roots, up to 4 records per cycle, perturbed `nondet` values, SCs the core fails). That is how the F/D templates are checked until a core runs them; `make regress` runs 50 seeds (`RANDFD=N`). On 2026-10-13, 500 seeds passed (about 250 FP instructions retired per program, 26 of them deferred in a typical one).
 - **Driver:** `make -C tests/random CFG=<cfg> [CORE=...] [N=100] [SEED=1] [ISA=rv64im] [IRQ=0] [STRESS=1] [MISS=2]`; with `STRESS=1`, half the seeds also draw `--probe-miss` (20, 50 or 100), a third `--probe-grant` (20 or 50), a third `--probe-release` (20, 50 or 100) and a third `--grant-order` (random or youngest); `run_random.py --vm PCT` for programs under Sv39 (the pre-check then runs Spike with S-mode), `--cov DIR` for coverage (§6.4). Each program is first run Spike against Spike, so a broken program is a generator failure, not an RTL bug. With `STRESS=1` (default) every seed also draws its memory-system settings (latency 30–250, jitter, backpressure, D gaps, `toB` grants, random probes), and the two denied pages are denied. Passing programs leave nothing behind; failures keep `.S`, `.elf`, log and the reproduction command in `$TANAGER_BUILD/<worktree>/random/<cfg>-<core>/failures/`. `make regress` runs 100 seeds (`RANDN=N` to change).
 - **Results on 2026-10-13 with the test core:** 1,000 seeds with memory stress, and 300 with timer interrupts, deferred writebacks and multi-slot trace, in both `st` and `st_w3`, all pass (about 60 programs per second).
@@ -1021,6 +1120,30 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 
 §2.8.
 
+### 6.6 RVWMO litmus tests (`tests/litmus`, M7)
+
+The memory model, which lockstep does not check (§3.7): litmus-tests-riscv's RVWMO suite (plan §9; the M7 plan's exit 4), judged against herd's RISC-V model.
+- **The suite** is a checkout of its own, only read: `~/src/tanager/litmus-tests-riscv` at 08728ed (BSD-2), its scripts never run. `tests/litmus/litmus_gen.py`, run with `python3 -I`, reads its tests and `model-results/herd.logs`.
+- **One program runs a batch of tests,** each test's threads on harts of their own, `ITERS` times (100 by default in simulation). Every iteration:
+  - the first hart resets the test's locations, each on a line of its own as herd assumes;
+  - the harts meet at a barrier (an AMO count and a generation word);
+  - each hart warms its lines as the test's `Prefetch` line asks (a load, or an AMO that leaves the value for a write), waits 0–63 loop turns or not at all (a quarter of the iterations start at once), sets its registers (the test's values, every other register its code names to 0) and runs its thread's code;
+  - after a second barrier, the first hart looks the final state up in herd's list of the states RVWMO allows for that test.
+  It prints `LIT <name> k=<ITERS> bad=<n> s=<count of each allowed state>`, and `LIT-BAD` with the first state herd does not allow.
+- **A test passes** when every final state is one herd allows. That checks every outcome, not only the test's `exists` condition.
+- **Left out:**
+  - the load-acquire and store-release forms (`lw.aq`, `sw.rl`, `ld.aq`), which the core does not have: 3,802 tests;
+  - tests with a `filter` (8), with `jalr`, or without herd results;
+  - files outside the suite's `@all` lists, which herd's results do not cover: a few repeat a listed test's name with other code;
+  - tests whose herd results predate the file (`tests/litmus/stale.txt`: PPOCA, changed after the results);
+  - tests with more threads than harts.
+- **Spike against Spike** (`make -C tests/litmus replay HARTS=0,1|0,1,2,3`) checks the harness: Spike's harts interleave one instruction at a time, so every state is allowed. Tests with an SC don't run there: each Spike hart keeps its LR reservation through another hart's store, so the replaying Spike's SC can succeed where the checker's fails, and the replay stops. On 2026-10-20: 1,367 tests on two harts and 2,863 on four pass, none in a state herd forbids (388 and 747 with an SC not run).
+- **The SoC** (`make -C tests/litmus CFG=st|smt2 [LAT=board]`): `tb_boot` with two cores, one hart each, without lockstep. `LAT=board` alternates fixed (22 cycles) and jittered (18–26) DDR timing between batches. On 2026-10-20 (`CFG=st`, harts 0 and 1, 100 iterations each):
+  - **Every two-thread test the generator takes passed:** 1,716, none in a state herd forbids. 4,935 of their 10,899 allowed states were seen, in 216 programs and 34 minutes on the loaded host. One test's result line had been cut by a `tb_boot` progress line; the runner now joins such lines back, and that test passes alone.
+  - **The store-buffering test SB** ends in its relaxed state (both loads 0) 27 times in 200 iterations (fixed timing): its stores wait in the store queue while its loads go to memory. MP's and LB's relaxed states did not appear in 200.
+  - **Two `smt2` cores** (harts 0 and 2, the board's shape): a sample of 400 tests (seed 2, jittered timing, 100 iterations) passes, 394 run and none in a state herd forbids (6 skipped by the generator). SB's relaxed state appears 15 times in 100.
+- **Two threads of one core** (`make -C tests/litmus vsim CFG=smt2 HARTS=0,1`, and four harts on two `smt2` cores in `tb_boot`) once hart 1 fetches (M7's step 5); the board runs the same programs with the latency injector at 0, 120 and 250 cycles (soc-2).
+
 ## 7. Build-host notes
 
 - **liblz4-dev** is needed for FST waveforms (Verilator 5.052's FST writer includes `lz4.h`); it is installed on the build host since 2026-10-13.
@@ -1049,7 +1172,7 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 
 ## 9. Open points for the coordinator
 
-1. **Trace:** a load's address is not in `tr_rec_t`. It is needed for multi-hart lockstep (§3.7) at M7; requested then.
+1. **Trace:** a load's address is in `tr_rec_t` from interfaces.md v1.5 (`mem_ld`, with `mem_vaddr` and `mem_size`; DR-175's plan §5). The checker, `tg_replay`, the test core, `tg_tb_top`'s DPI and the tap take it (§3.3); the core sets it at M7's step 2. The windows of §3.7 never needed it: they use the address Spike's own step logged.
 2. **Physical store address:** `tohost` detection under virtual memory uses aliases (§2.6). A `mem_paddr` field would remove the aliases; not needed now.
 3. **PMP reset values:** Spike resets PMP entry 0 to "allow all"; the checker can patch it (§3.2) once the core track decides its reset values.
 4. **SC failure adoption** (§3.4): interfaces.md §5 says the checker adopts the RTL's outcome "(the `rd` value)". For an SC with rd = x0 the outcome is the missing store, which the checker now uses for every SC; the interface could say "the `rd` value, or the missing store when rd is x0".

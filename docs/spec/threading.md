@@ -55,5 +55,15 @@ threads at step 5, after D3's revision (core-pipeline.md §5.4).
 | ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`); the head, tail and xRET bits; the split mode's halves; the commit thread choice (one thread a cycle, D7); each thread's exception, mispredict and WFI state (core-pipeline.md §8.4) | 5: interrupts per hart (until then only the running thread's commit takes one) |
 | Trace | the hart field from each record's tid (tid ^ `SOLO_TID`) | 2: the load address (`mem_ld`, after interfaces.md v1.5) |
 
+## The thread choice (D7, refined 10-20)
+- **Fetch** picks a thread a cycle: round robin first, then ICOUNT (step 5).
+- **Decode, rename and commit** take one thread's group a cycle: the first-served thread alternates, and an idle thread is
+  skipped. Commit's choice is made a cycle ahead, so the head window is still read from flip-flops (core-pipeline.md
+  §8.4).
+- **Mixed groups** (a thread taking the slots its sibling leaves, D7 as first written) come only if the model shows them
+  gaining 1% or more weighted throughput (DR-154's rule): they cost a second head window's reads (the payload and each
+  flag table) at commit, and both threads' free-list pops and a tid in the dependency checks at rename. smt2-study prices
+  them before step 5.
+
 ## Provenance
 Plan §6 and the research notes it cites; m7-smt2-plan.md §8. No other core's RTL was read.
