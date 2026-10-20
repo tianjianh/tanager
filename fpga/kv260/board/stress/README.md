@@ -438,3 +438,20 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 - **Network checks:** 24, hourly from 18:28:22.
 - **The end:** 17:58:22 UTC on 10-21, or the first failure, SD1 timeout or capture.
 - The stress numbers carry the watch's cost (about 3.5% on cpu and threads).
+
+**s21's memory gap** (the coordinator asked for it to be split before anyone calls it a regression):
+- **It holds.** Steady over passes 1–9: memory 124.71 MiB/s, against s20's 142.81 in stage C on the same bitstream: −12.7%. Both runs had the probe's watch.
+- **The watch's share,** measured with a twin of its poll loop (the same static busybox and commands, chrooted in its RAM root) from 1488 to 2584 s of uptime, with the probe still armed:
+
+  | | One loop (passes 1–9) | Two loops (passes 12–15, 18, 19) | One loop's cost |
+  |---|---|---|---|
+  | cpu | 90.44 | 87.30 | −3.5% |
+  | memory | 124.71 | 121.11 | −2.9% |
+  | threads | 2,223 | 2,145 | −3.5% |
+
+  Passes 10, 11, 16, 17 and 20 are left out: they overlapped the start or end of the twin, the `clock_gettime` test, or the 18:28 network check.
+- **The mode's share:** the watch costs about 3% in both modes and both runs had it, so the whole −12.7% is RISC-V mode against stage C.
+  - d4r1's mode cost was 4.7% (s18 138.30 against s19 segment a 131.86, no watch). d4s2's was 2.2%. The gap grows with each faster core.
+  - Against d4r1, with the watch taken out (÷0.971): d4r2 is 6.3% faster in stage C (about 147.1 against 138.3), but 2.6% slower in RISC-V mode (about 128.4 against 131.9).
+- **The clock read in RISC-V mode,** under the stress ([`../runs/cg.c`](../runs/cg.c)): `clock_gettime` 1,096–1,149 ns a call, a bare `rdtime` 246–249 ns. Both OpenSBI banners show the same timer, `zicntr` and `sstc`, so neither mode traps on the read. These numbers mean something only beside stage C's under the same load, which comes after s21.
+- **The two setups differ in the memory path.** RISC-V mode's window, set by `riscv.scr`, is 1 GiB at `0x8_4000_0000`, in the high DDR aperture. Stage C's is set by `tanager-host`.
