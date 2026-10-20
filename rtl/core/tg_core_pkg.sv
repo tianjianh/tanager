@@ -226,14 +226,24 @@ package tg_core_pkg;
   localparam bit SOLO_TID = 1'b0;
 `endif
   localparam tid_t RUN_TID = tid_t'(SOLO_TID);
+  // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only, without SOLO_TID; off until step 8's checks pass).
+  // On: the window split (SPLIT below); each register bank's free list divided between the harts, with transfers
+  // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 96
+  // (tg_cfg_smt2); from step 5c hart 1 fetches from reset. Until then hart 0 runs alone in its half, taking hart 1's
+  // free registers by transfers. Off: the core of steps 1-4, cycle for cycle.
+`ifdef TG_HART1
+  localparam bit HART1_ON = `TG_HART1;
+`else
+  localparam bit HART1_ON = 1'b0;
+`endif
   // M7's split mode (step 3b, D1): thread t owns part t of the ROB, LQ and SQ, the halves, and its pointers wrap
   // inside it (x_add_t, x_cnt_t below). Merged mode (SPLIT = 0) is the core before M7: the running thread owns every
   // entry. SPLIT is on with hart 1 (step 5); TG_SPLIT=1 (a test mode, smt2 builds only) runs the one thread in its
   // half, so the halves are tested before hart 1 runs (not cycle-identical: the window is half).
 `ifdef TG_SPLIT
-  localparam bit SPLIT = `TG_SPLIT;
+  localparam bit SPLIT = `TG_SPLIT || HART1_ON;
 `else
-  localparam bit SPLIT = 1'b0;
+  localparam bit SPLIT = HART1_ON;
 `endif
   // A thread's part of a structure of n entries: its first entry and its size
   function automatic int part_base(input int n, input tid_t t);
@@ -265,6 +275,13 @@ package tg_core_pkg;
   localparam int PIDX_W = idx_w(INT_PREGS_PER_BANK);
   localparam int BANK_W = idx_w(INT_BANKS);
   localparam int LD_BANK = N_ALU;         // the load pipe's bank
+  // Hart 1's homes (HART1_ON; D4, refined under DR-154, smt2_report §13.11): x1-x16 in bank 1 at 0-15, x17-x31 in
+  // the load bank at 0-14, f0-f31 in F1 at 0-31; x0 is bank 0's register 0, as hart 0's (whose homes are bank 0's and
+  // F0's 0-31). No single-writer bank gives more than 16 entries to a hart asleep.
+  localparam int H1_LO_BANK = 1;          // x1 .. x16
+  localparam int H1_LO_N    = 16;
+  localparam int H1_HI_BANK = LD_BANK;    // x17 .. x31
+  localparam int H1_HI_N    = 15;
 
   // FP physical registers {bank, index}: F0 takes P4 results, F1 FP loads. FP tags travel in
   // preg_t-wide fields next to a flag that says which file they name.

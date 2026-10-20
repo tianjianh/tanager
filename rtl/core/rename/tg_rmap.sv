@@ -13,9 +13,10 @@
 // Per thread (M7's step 3, docs/spec/threading.md): every bank holds a map per thread at {tid, register}
 // (RAM form, 64 deep), and sv_q is per thread. Reads and RN writes are the rename group's thread's (rtid),
 // commit writes the commit group's (ctid), and a flush clears the flushed thread's sv_q only. The reset
-// sweep writes the running thread's map (32 cycles), the identity; with HSPLIT (two threads, M7's step 5) both
-// threads' (64): thread 0's homes are the identity, thread 1's H1 + r (D4: bank 1 and F1), with register 0 kept at 0
-// when X0 (x0).
+// sweep writes the running thread's map (32 cycles), the identity; with HSPLIT (hart 1, M7's step 5) both
+// threads' (64): thread 0's homes are the identity, thread 1's register r below HSPL index r + HOFF_LO in bank
+// HB_LO, from HSPL index r + HOFF_HI in bank HB_HI (D4, refined: x1-x16 in bank 1 at 0-15, x17-x31 in bank 2 at
+// 0-14; f0-f31 in F1 at 0-31), with register 0 kept at 0 when X0 (x0).
 // tg_rename has one for the integer registers and, with EXT_FD, one for the FP registers.
 module tg_rmap
   import tg_pkg::*, tg_core_pkg::*;
@@ -26,8 +27,13 @@ module tg_rmap
   parameter int DW  = 8,         // producer fields width
   parameter int NR  = 6,         // mapping read ports
   parameter int NRD = 4,         // producer read ports: the first NRD mapping ports
-  parameter bit HSPLIT = 1'b0,   // each thread its own homes (two threads: step 5) ...
-  parameter int H1  = 64,        // ... thread 1's home of register r is H1 + r ...
+  parameter bit HSPLIT = 1'b0,   // each thread its own homes (hart 1: step 5) ...
+  parameter int HIW = 6,         // ... the mapping's index width (its bank above it) ...
+  parameter int HSPL = 32,       // ... thread 1's register r < HSPL in bank HB_LO at r + HOFF_LO ...
+  parameter int HB_LO = 1,
+  parameter int HOFF_LO = 0,
+  parameter int HB_HI = 1,       // ... the others in bank HB_HI at r + HOFF_HI ...
+  parameter int HOFF_HI = 0,
   parameter bit X0  = 1'b0       // ... but register 0's is 0 (x0, the zero register)
 ) (
   input  logic                   clk,
@@ -68,7 +74,8 @@ module tg_rmap
   assign swt   = (HSPLIT && NT > 1) ? tid_t'(cinit_q[5]) : RUN_TID;
   function automatic logic [PW-1:0] home(input tid_t t, input logic [4:0] r);
     if (!(HSPLIT && NT > 1) || t == tid_t'(0) || (X0 && r == '0)) return PW'(r);
-    return PW'(H1 + int'(r));
+    if (int'(r) < HSPL) return PW'((HB_LO << HIW) + int'(r) + HOFF_LO);
+    return PW'((HB_HI << HIW) + int'(r) + HOFF_HI);
   endfunction
 
   // The last writer of each register in a cycle (earlier slots on the same register drop out)
