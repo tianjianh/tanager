@@ -214,6 +214,14 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - `tg_irf`: `INT_BANKS` banks, read ports per bank = 2·`N_ALU` (ALU operands) + LD base + STA base + the shared store-data port + `COMMIT_WIDTH` trace ports (simulation trace; see §11).
 - S3 timing: IS (*s*) → RF (*s*+1) → EX (*s*+2, result in `res_q` during *s*+3) → WB (*s*+3, register file written at its end; `wb_q` during *s*+4).
 - **Bypass sources** (binary selects computed in RF): register file, each ALU's `res_q` (EX level) and `wb_q` (WB level), the load result register and its WB copy, and the immediate. Because each bank has one writer, a source tag's bank names the only producer that can match; RF compares the index with that producer's EX-stage and WB-stage destinations.
+- **`URF` (DR-174, off by default): the area reserve, turned on only if the chip runs out of LUTs.** The six issue-time ports come from `tg_urf` (spikes.md §8.14, WMODE "edge"). Each bank is three UltraRAM copies on `clk2x`, 200 MHz from the core clock's MMCM with its rising edges aligned, and each copy takes every write of its bank. Per core cycle, each copy:
+  - at the core edge, writes the bank's write on port A (the write the cycle ending there holds) and reads an early port on port B, after the write;
+  - at mid-cycle, reads a late port on port A, while port B idles and holds its data to the next core edge.
+  - **Early ports:** ALU1's second operand and the LD and STA bases, whose `rbs` select follows the read. Port B's data holds the whole cycle. Their address is the issue select's output (`tg_iq`'s `iss_early_n`, `tg_issue`'s `iss_src_n`): the UltraRAM's address register replaces the issue → RF register for the read.
+  - **Late ports:** ALU0's two operands and ALU1's first, read at mid-cycle from the registered tags, into `ex_a_q`/`ex_b_q` after the 3:1 bank select.
+  - The store-data and trace ports stay on a `tg_ram_lut` per bank: their tags are not ready by mid-cycle.
+  - Every read returns the writes of earlier cycles, as `tg_ram_lut`'s: the late read precedes the cycle's write, and the early read follows the last cycle's at the same edge, since UltraRAM does port A's operation before port B's (UG573). So the cycles are the same (`make cycle-identical BRANCH_URF=1`).
+  - Simulation runs `tg_urf`'s equivalent on `clk` alone, so no testbench drives `clk2x`. Its UltraRAM form (`SYNTHESIS`, or `TG_SIM_PRIMS` with a URAM288_BASE model) is tested against `tg_ram_lut` banks with spikes-2's `tb_urf`. The timing exceptions are in `rtl/core/regfile/tg_urf.xdc`, read `-ref tg_urf`.
 
 ### 7.2 Ports
 - **ALU ports:** `tg_alu` (S3). P0 adds the branch unit: taken from the ALU's compare flags; target = precomputed PC + imm (branches, JAL) or (rs1 + imm) & ~1 (JALR); the link value is the precomputed immediate through the ALU's pass-b group. A taken target with bit 1 set raises a misaligned-fetch exception (cause 0, `tval` = target) on the branch (no C in M2). A mispredict is `actual_npc != pred_npc`.
@@ -357,6 +365,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_TAGE_NT`, `TG_TAGE_LI`, `TG_TAGE_TW`, `TG_TAGE_BI`: TAGE-lite's sizes (§3.2; two tables of 2K, DR-170).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
+- `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
