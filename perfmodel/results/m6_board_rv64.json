@@ -289,34 +289,40 @@
     "smp: Brought up": 0.04628163888888889,
     "devtmpfs: initialized": 0.05328630555555558,
     "clocksource: Switched": 0.12166825000000003,
+    "NET: Registered PF_UNIX": 0.2500786111111112,
     "Serial: 8250": 0.28402127777777786,
     "NET: Registered PF_PACKET": 0.3207163611111112,
     "clk: Disabling unused clocks": 0.453686638888889,
-    "Freeing unused kernel image": 0.838337388888889,
-    "Run /init as init process": 0.8400918055555557,
-    "console": 0.3405381944444444
+    "Freeing unused kernel image": 0.9330422500000002,
+    "Run /init as init process": 0.9347966666666668,
+    "console": 0.3405381944444444,
+    "console_overlap": 0.09470486111111115
    },
    "d4s2": {
     "smp: Brought up": 0.0341606388888889,
     "devtmpfs: initialized": 0.03925830555555557,
     "clocksource: Switched": 0.08561425000000006,
+    "NET: Registered PF_UNIX": 0.17706361111111119,
     "Serial: 8250": 0.20052227777777787,
     "NET: Registered PF_PACKET": 0.22469736111111122,
     "clk: Disabling unused clocks": 0.313273638888889,
-    "Freeing unused kernel image": 0.5873933888888889,
-    "Run /init as init process": 0.5884028055555557,
-    "console": 0.3405381944444444
+    "Freeing unused kernel image": 0.6820982500000001,
+    "Run /init as init process": 0.6831076666666668,
+    "console": 0.3405381944444444,
+    "console_overlap": 0.09470486111111115
    },
    "d4r1": {
     "smp: Brought up": 0.030897638888888912,
     "devtmpfs: initialized": 0.035752305555555586,
     "clocksource: Switched": 0.08045925000000004,
+    "NET: Registered PF_UNIX": 0.1671706111111112,
     "Serial: 8250": 0.18602127777777788,
     "NET: Registered PF_PACKET": 0.21096836111111122,
     "clk: Disabling unused clocks": 0.2921796388888889,
-    "Freeing unused kernel image": 0.4898423888888889,
-    "Run /init as init process": 0.49083480555555564,
-    "console": 0.3405381944444444
+    "Freeing unused kernel image": 0.5845472500000001,
+    "Run /init as init process": 0.5855396666666668,
+    "console": 0.3405381944444444,
+    "console_overlap": 0.09470486111111115
    }
   },
   "tb_boot": {
@@ -324,34 +330,40 @@
     "smp: Brought up": 0.045542,
     "devtmpfs: initialized": 0.052245,
     "clocksource: Switched": 0.119272,
+    "NET: Registered PF_UNIX": 0.246558,
     "Serial: 8250": 0.276192,
     "NET: Registered PF_PACKET": 0.310538,
     "clk: Disabling unused clocks": 0.446681,
     "Freeing unused kernel image": 0.92661,
     "Run /init as init process": 0.928439,
-    "console": 0.0
+    "console": 0.0,
+    "console_overlap": 0.0
    },
    "d4s2": {
     "smp: Brought up": 0.034011,
     "devtmpfs: initialized": 0.038805,
     "clocksource: Switched": 0.084992,
+    "NET: Registered PF_UNIX": 0.175739,
     "Serial: 8250": 0.193493,
     "NET: Registered PF_PACKET": 0.218051,
     "clk: Disabling unused clocks": 0.302487,
     "Freeing unused kernel image": 0.683928,
     "Run /init as init process": 0.684806,
-    "console": 0.0
+    "console": 0.0,
+    "console_overlap": 0.0
    },
    "d4r1": {
     "smp: Brought up": 0.030567,
     "devtmpfs: initialized": 0.03547,
     "clocksource: Switched": 0.080332,
+    "NET: Registered PF_UNIX": 0.165471,
     "Serial: 8250": 0.183433,
     "NET: Registered PF_PACKET": 0.206712,
     "clk: Disabling unused clocks": 0.287439,
     "Freeing unused kernel image": 0.585202,
     "Run /init as init process": 0.586028,
-    "console": 0.0
+    "console": 0.0,
+    "console_overlap": 0.0
    }
   }
  },

@@ -60,9 +60,9 @@ def pct(x):
 
 
 # Linux's boot to /init, phase by phase: kernel log lines both runs print
-MILESTONES = ["smp: Brought up", "devtmpfs: initialized", "clocksource: Switched", "Serial: 8250",
-              "NET: Registered PF_PACKET", "clk: Disabling unused clocks", "Freeing unused kernel image",
-              "Run /init as init process"]
+MILESTONES = ["smp: Brought up", "devtmpfs: initialized", "clocksource: Switched", "NET: Registered PF_UNIX",
+              "Serial: 8250", "NET: Registered PF_PACKET", "clk: Disabling unused clocks",
+              "Freeing unused kernel image", "Run /init as init process"]
 BOARD_LOGS = {"d2": [f"d2-reg/d2_boot{i}.txt" for i in (1, 2, 3)],
               "d4s2": [f"d4s2/d4s2_boot{i}.txt" for i in (1, 2, 3)],
               "d4r1": [f"d4r1/d4r1_boot{i}.txt" for i in (1, 2, 3)]}   # MR23, measured after §6.13's prediction
@@ -70,11 +70,19 @@ PHASES = ["smp: Brought up", "clocksource: Switched", "NET: Registered PF_PACKET
           "Freeing unused kernel image", "Run /init as init process"]
 
 
+UNPACK_START = "NET: Registered PF_UNIX"        # populate_rootfs, the next initcall level, starts the async unpack
+UNPACK_WAIT = "clk: Disabling unused clocks"     # the init thread's last line before it waits for the unpack
+AFTER_UNPACK = ("Freeing unused kernel image", "Run /init as init process")
+
+
 def kernel_times(path, serial):
     """Each milestone's CPU time from a kernel log: its timestamp, less, when the console is serial and synchronous
-    (the board's: 115200 baud, 10 bits a character), the console time of the timestamped lines printed before it.
-    tb_boot's console (host bridge) takes no time."""
-    con, out = 0.0, {}
+    (the board's: 115200 baud, 10 bits a character), the console time on its path. tb_boot's console (host bridge)
+    takes no time. A console line holds only the thread that prints it. The initramfs is unpacked asynchronously on
+    the other core from just after the PF_UNIX line, through the init thread's lines up to clk: Disabling unused
+    clocks, where init waits for it. So the milestones after the unpack's end keep that span's console time: it ran
+    alongside the unpack (verif-2's finding; area_recovery.md §6.14 corrects §6.12, which took it off)."""
+    con, out, span = 0.0, {}, [None, None]
     for raw in open(path, errors="replace"):
         line = raw.rstrip("\r\n")
         m = re.match(r"\[\s*(\d+\.\d+)\] (.*)", line)
@@ -82,12 +90,18 @@ def kernel_times(path, serial):
             continue
         for k in MILESTONES:
             if k not in out and m.group(2).startswith(k):
-                out[k] = float(m.group(1)) - con
+                overlap = span[1] - span[0] if k in AFTER_UNPACK and None not in span else 0.0
+                out[k] = float(m.group(1)) - (con - overlap)
         if m.group(2).startswith("Run /init"):
-            out["console"] = con   # the console time inside /init's timestamp
+            out["console"] = con   # all the console time inside /init's timestamp
+            out["console_overlap"] = span[1] - span[0] if None not in span else 0.0   # of it, alongside the unpack
             break
         if serial:
             con += (len(line) + 2) * 10 / 115200
+        if m.group(2).startswith(UNPACK_START) and span[0] is None:
+            span[0] = con   # after this line's own console time
+        if m.group(2).startswith(UNPACK_WAIT) and span[1] is None:
+            span[1] = con
     return out
 
 
@@ -97,9 +111,11 @@ def init_table(sim, board_dir):
     brd = {}
     for n, files in BOARD_LOGS.items():
         runs = [kernel_times(Path(board_dir) / f, True) for f in files]
-        brd[n] = {k: med([r[k] for r in runs]) for k in MILESTONES + ["console"] if all(k in r for r in runs)}
+        brd[n] = {k: med([r[k] for r in runs]) for k in MILESTONES + ["console", "console_overlap"]
+                  if all(k in r for r in runs)}
     tbs = {n: kernel_times(p, False) for n, p in sim.items()}
-    print("\n**Linux to /init: CPU time at each milestone** (the board's less its serial console; tb_boot's own)\n")
+    print("\n**Linux to /init: CPU time at each milestone** (the board's less the console time on its path; "
+          "tb_boot's own)\n")
     print("| Milestone | Board d2 | Board d4s2 | Change | tb_boot d2 | tb_boot d4s2 | Change | tb_boot against the "
           "board: d2 / d4s2 |")
     print("|---|---|---|---|---|---|---|---|")
@@ -135,8 +151,26 @@ def init_table(sim, board_dir):
                 print(f"| {k} | {d[0]:.4f} → {d[1]:.4f} s | {ch(d[0], d[1])} | {d[2]:.4f} → {d[3]:.4f} s | "
                       f"{ch(d[2], d[3])} |")
                 last = cur
+        # the initramfs unpack itself, on the other core: from its start (after the PF_UNIX line) to Freeing
+        u0, u1 = UNPACK_START, "Freeing unused kernel image"
+        print("\n**The initramfs unpack and free_initmem** (from the PF_UNIX line to `Freeing unused kernel image`; "
+              "the board's time with the console on its path taken off)\n")
+        print("| Bitstream | Board | Simulation | Simulation against the board |")
+        print("|---|---|---|---|")
+        for n in ("d2", "d4s2", "d4r1"):
+            if n in brd and n in tbs and all(k in brd[n] and k in tbs[n] for k in (u0, u1)):
+                b, s = brd[n][u1] - brd[n][u0], tbs[n][u1] - tbs[n][u0]
+                print(f"| {n} | {b:.4f} s | {s:.4f} s | {pct(s / b - 1)} |")
+        if b5:
+            k = "Run /init as init process"
             print(f"\nThe board's console before /init: {brd['d4s2']['console']:.4f} s (d4s2), "
-                  f"{b5['console']:.4f} s (d4r1).")
+                  f"{b5['console']:.4f} s (d4r1); of it, alongside the unpack: "
+                  f"{brd['d4s2']['console_overlap']:.4f} s and {b5['console_overlap']:.4f} s.")
+            path = {n: brd[n]["console"] - brd[n]["console_overlap"] for n in ("d4s2", "d4r1")}
+            print(f"/init's timestamp, the simulation plus the console on /init's path ({path['d4s2']:.4f} s): "
+                  f"d4s2 {tbs['d4s2'][k] + path['d4s2']:.4f} s, d4r1 {tbs['d4r1'][k] + path['d4s2']:.4f} s; "
+                  f"the board's, the same way: {brd['d4s2'][k] + path['d4s2']:.4f} s and "
+                  f"{b5[k] + path['d4r1']:.4f} s.")
     return brd, tbs
 
 
