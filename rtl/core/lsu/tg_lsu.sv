@@ -501,6 +501,7 @@ module tg_lsu
   logic              pf_req;                      // STORE_PF: a store's line, wanted with T (STA, below)
   logic [PA_W-1:0]   pf_pa;
   logic              st_req, st_ack;
+  logic              st_wait, st_resv;            // M7: the drain's store needs a miss entry; one waits (below)
   logic [PA_W-1:0]   st_pa;
   logic [15:0]       st_mask;
   logic [63:0]       st_wdata;
@@ -517,7 +518,7 @@ module tg_lsu
     .ld_rd_en(dc_rd_en), .ld_rd_pa(dc_rd_pa), .ld_m1_pa(m1_pa), .ld_hit(dc_hit), .ld_dword(dc_dword),
     .lm_req, .lm_pa, .mshr_idle, .lm_fdn, .lm_ans_v, .lm_ans_wait, .lm_ans_e, .m_done, .m_wake_any,
     .pf_req, .pf_pa,
-    .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped,
+    .st_req, .st_pa, .st_mask, .st_wdata, .st_ack, .st_dropped, .st_wait, .st_resv,
     .am_req, .am_sel, .pr_hold, .am_pa, .am_wmask, .am_wdata, .am_ack, .am_rdata, .am_den, .lose_v, .lose_line,
     .a_o(l1d_a_o), .a_valid_o(l1d_a_valid_o), .a_ready_i(l1d_a_ready_i),
     .b_i(l1d_b_i), .b_valid_i(l1d_b_valid_i), .b_ready_o(l1d_b_ready_o),
@@ -985,6 +986,14 @@ module tg_lsu
     for (int t = 0; t < NT; t++) dr_want[t] = !sq_drn[t] || (am_v_q[t] && sq_head_q[t] == am_sq_q[t]);
   assign dr_hold = dr_mmio_go || (xs_q != X_IDLE && x_st_q) || am_go || am_st_q != AM_IDLE;
   assign dr_sw   = NT > 1 && dr_want[t_dro] && !dr_hold;
+  // A thread's head store (or atomic) that needs a miss entry and got none keeps the D$'s last free entry from loads
+  // until it allocates (smt2_report §13.10): recorded per thread in its own drain cycles, so the other thread's turns
+  // do not clear it (tg_dcache, st_resv). With one thread, none
+  logic [NT-1:0] stw_q;
+  always_ff @(posedge clk)
+    if (rst)                    stw_q <= '0;
+    else if (st_req || am_req)  stw_q[t_dr_q] <= SPLIT && st_wait;
+  assign st_resv = |stw_q;
   // A young reservation holds the D$'s probes, up to RSV_HOLD cycles after its LR or until it ends
   // (its SC, the line lost, a trap or xRET), so an LR/SC pair completes under another core's probes:
   // a read probe that takes T away also ends it (forward progress, core-pipeline §13). Bounded and

@@ -124,7 +124,14 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - **The victim search** skips the ways the set's entries hold: the first invalid way they left, else the first way from the round-robin pointer on that no entry holds (4 < 8 ways).
   - **One release engine** takes a valid victim at its allocation; the victim's state is cleared then, as before. It reads each beat through port B, takes it into its own register the next cycle and sends it from there, so Grants for other entries may write port B meanwhile and D never waits for C. The entry's Acquire goes out after the last beat. Only the engine waits for `ReleaseAck` (source 4); another allocation whose victim is valid waits for the engine.
   - **Allocation:**
-    - The store port allocates in its own cycle, as before, when a free entry exists and no entry holds its line.
+    - The store port allocates in its own cycle, as before, when a free entry exists and no entry holds its line. It
+      wins a cycle in which a load's request register also wants the last free entry.
+    - With two threads (M7, split mode; smt2_report §13.10) a store or an atomic that needs a new entry also keeps the
+      last free one from loads' requests until it allocates: in its own cycle, and while the LSU records its thread's
+      head store waiting (`st_wait`, per thread, written in the thread's drain cycles; `st_resv`). Otherwise an entry
+      that frees while the store cannot take it (the release engine busy with its victim, or the drain presenting the
+      other thread's store) goes to the sibling's next load miss, and a pointer chase beside a store stream starves the
+      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7.
     - Loads' and the walker's misses go through a request register. The next cycle each one merges with the entry holding its line, finds the line present, allocates, or gets no answer. The answer is registered and reaches the LSU two cycles after `lm_req`.
     - No allocation shares a cycle with an install (the state port's one write).
   - **Sources:** Acquires carry their entry's index (0-3) and the Release carries 4. Grants come back in any order, matched by source; a Grant's beats are contiguous, so port B writes one Grant at a time. One install per cycle, the lowest entry first, after a probe update.
