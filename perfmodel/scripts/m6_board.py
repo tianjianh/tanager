@@ -14,6 +14,7 @@ The model: rtl_m2 revision 7 as each board's core, on make perf's ELFs at native
 Beside it, the RTL's make perf on both trees (tools/ci/perf.py's tables, one log per configuration: --rtl CFG=LOG,
 base d2 and this side d4s2).
   python3 scripts/m6_board.py --bench DIR --rtl st=LOG --rtl smt2=LOG   # -> results/m6_board_rv64.json and tables
+  python3 scripts/m6_board.py --init d2=LOG --init d4s2=LOG --init d4r1=LOG   # the boot to /init alone (§6.13)
 """
 import argparse
 import json
@@ -23,6 +24,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import dse  # noqa: E402
+import m6_steps as m6  # noqa: E402
 import tgrun  # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -57,18 +60,29 @@ def pct(x):
 
 
 # Linux's boot to /init, phase by phase: kernel log lines both runs print
-MILESTONES = ["smp: Brought up", "devtmpfs: initialized", "clocksource: Switched", "Serial: 8250",
-              "NET: Registered PF_PACKET", "clk: Disabling unused clocks", "Freeing unused kernel image",
-              "Run /init as init process"]
+MILESTONES = ["smp: Brought up", "devtmpfs: initialized", "clocksource: Switched", "NET: Registered PF_UNIX",
+              "Serial: 8250", "NET: Registered PF_PACKET", "clk: Disabling unused clocks",
+              "Freeing unused kernel image", "Run /init as init process"]
 BOARD_LOGS = {"d2": [f"d2-reg/d2_boot{i}.txt" for i in (1, 2, 3)],
-              "d4s2": [f"d4s2/d4s2_boot{i}.txt" for i in (1, 2, 3)]}
+              "d4s2": [f"d4s2/d4s2_boot{i}.txt" for i in (1, 2, 3)],
+              "d4r1": [f"d4r1/d4r1_boot{i}.txt" for i in (1, 2, 3)]}   # MR23, measured after §6.13's prediction
+PHASES = ["smp: Brought up", "clocksource: Switched", "NET: Registered PF_PACKET", "clk: Disabling unused clocks",
+          "Freeing unused kernel image", "Run /init as init process"]
+
+
+UNPACK_START = "NET: Registered PF_UNIX"        # populate_rootfs, the next initcall level, starts the async unpack
+UNPACK_WAIT = "clk: Disabling unused clocks"     # the init thread's last line before it waits for the unpack
+AFTER_UNPACK = ("Freeing unused kernel image", "Run /init as init process")
 
 
 def kernel_times(path, serial):
     """Each milestone's CPU time from a kernel log: its timestamp, less, when the console is serial and synchronous
-    (the board's: 115200 baud, 10 bits a character), the console time of the timestamped lines printed before it.
-    tb_boot's console (host bridge) takes no time."""
-    con, out = 0.0, {}
+    (the board's: 115200 baud, 10 bits a character), the console time on its path. tb_boot's console (host bridge)
+    takes no time. A console line holds only the thread that prints it. The initramfs is unpacked asynchronously on
+    the other core from just after the PF_UNIX line, through the init thread's lines up to clk: Disabling unused
+    clocks, where init waits for it. So the milestones after the unpack's end keep that span's console time: it ran
+    alongside the unpack (verif-2's finding; area_recovery.md §6.14 corrects §6.12, which took it off)."""
+    con, out, span = 0.0, {}, [None, None]
     for raw in open(path, errors="replace"):
         line = raw.rstrip("\r\n")
         m = re.match(r"\[\s*(\d+\.\d+)\] (.*)", line)
@@ -76,11 +90,18 @@ def kernel_times(path, serial):
             continue
         for k in MILESTONES:
             if k not in out and m.group(2).startswith(k):
-                out[k] = float(m.group(1)) - con
+                overlap = span[1] - span[0] if k in AFTER_UNPACK and None not in span else 0.0
+                out[k] = float(m.group(1)) - (con - overlap)
+        if m.group(2).startswith("Run /init"):
+            out["console"] = con   # all the console time inside /init's timestamp
+            out["console_overlap"] = span[1] - span[0] if None not in span else 0.0   # of it, alongside the unpack
+            break
         if serial:
             con += (len(line) + 2) * 10 / 115200
-        if m.group(2).startswith("Run /init"):
-            break
+        if m.group(2).startswith(UNPACK_START) and span[0] is None:
+            span[0] = con   # after this line's own console time
+        if m.group(2).startswith(UNPACK_WAIT) and span[1] is None:
+            span[1] = con
     return out
 
 
@@ -90,9 +111,11 @@ def init_table(sim, board_dir):
     brd = {}
     for n, files in BOARD_LOGS.items():
         runs = [kernel_times(Path(board_dir) / f, True) for f in files]
-        brd[n] = {k: med([r[k] for r in runs if k in r]) for k in MILESTONES if all(k in r for r in runs)}
+        brd[n] = {k: med([r[k] for r in runs]) for k in MILESTONES + ["console", "console_overlap"]
+                  if all(k in r for r in runs)}
     tbs = {n: kernel_times(p, False) for n, p in sim.items()}
-    print("\n**Linux to /init: CPU time at each milestone** (the board's less its serial console; tb_boot's own)\n")
+    print("\n**Linux to /init: CPU time at each milestone** (the board's less the console time on its path; "
+          "tb_boot's own)\n")
     print("| Milestone | Board d2 | Board d4s2 | Change | tb_boot d2 | tb_boot d4s2 | Change | tb_boot against the "
           "board: d2 / d4s2 |")
     print("|---|---|---|---|---|---|---|---|")
@@ -103,6 +126,51 @@ def init_table(sim, board_dir):
         ch = lambda a, b: pct(b / a - 1) if a and b else "–"
         vs = f"{ch(b2, s2)} / {ch(b4, s4)}"
         print(f"| {k} | {f(b2)} | {f(b4)} | {ch(b2, b4)} | {f(s2)} | {f(s4)} | {ch(s2, s4)} | {vs} |")
+    if "d4r1" in tbs:   # §6.13: the board's d4r1, predicted as d4s2's board time scaled by the simulation's ratio
+        b5 = brd.get("d4r1", {})
+        f = lambda x: f"{x:.4f} s" if x is not None else "–"
+        ch = lambda a, b: pct(b / a - 1) if a and b else "–"
+        print("\n**d4r1, predicted (§6.13) and measured (MR23)** (the prediction: the board's d4s2 time × the "
+              "simulation's d4r1 / d4s2)\n")
+        print("| Milestone | Simulation d4s2 | Simulation d4r1 | Change | Board d4s2 | Predicted board d4r1 | "
+              "Board d4r1 | Change | Measured against predicted |")
+        print("|---|---|---|---|---|---|---|---|---|")
+        for k in MILESTONES:
+            s4, s5, b4, m5 = tbs["d4s2"].get(k), tbs["d4r1"].get(k), brd["d4s2"].get(k), b5.get(k)
+            pr = b4 * s5 / s4 if s4 and s5 and b4 else None
+            print(f"| {k} | {f(s4)} | {f(s5)} | {ch(s4, s5)} | {f(b4)} | {f(pr)} | {f(m5)} | {ch(b4, m5)} | "
+                  f"{ch(pr, m5)} |")
+        if all(k in b5 for k in PHASES):   # where the board's gain came from, against the simulation's
+            print("\n**d4s2 → d4r1, phase by phase** (the CPU time between milestones)\n")
+            print("| Phase, to | Simulation | Change | Board | Change |")
+            print("|---|---|---|---|---|")
+            last = (0.0, 0.0, 0.0, 0.0)
+            for k in PHASES:
+                cur = (tbs["d4s2"][k], tbs["d4r1"][k], brd["d4s2"][k], b5[k])
+                d = [c - p for c, p in zip(cur, last)]
+                print(f"| {k} | {d[0]:.4f} → {d[1]:.4f} s | {ch(d[0], d[1])} | {d[2]:.4f} → {d[3]:.4f} s | "
+                      f"{ch(d[2], d[3])} |")
+                last = cur
+        # the initramfs unpack itself, on the other core: from its start (after the PF_UNIX line) to Freeing
+        u0, u1 = UNPACK_START, "Freeing unused kernel image"
+        print("\n**The initramfs unpack and free_initmem** (from the PF_UNIX line to `Freeing unused kernel image`; "
+              "the board's time with the console on its path taken off)\n")
+        print("| Bitstream | Board | Simulation | Simulation against the board |")
+        print("|---|---|---|---|")
+        for n in ("d2", "d4s2", "d4r1"):
+            if n in brd and n in tbs and all(k in brd[n] and k in tbs[n] for k in (u0, u1)):
+                b, s = brd[n][u1] - brd[n][u0], tbs[n][u1] - tbs[n][u0]
+                print(f"| {n} | {b:.4f} s | {s:.4f} s | {pct(s / b - 1)} |")
+        if b5:
+            k = "Run /init as init process"
+            print(f"\nThe board's console before /init: {brd['d4s2']['console']:.4f} s (d4s2), "
+                  f"{b5['console']:.4f} s (d4r1); of it, alongside the unpack: "
+                  f"{brd['d4s2']['console_overlap']:.4f} s and {b5['console_overlap']:.4f} s.")
+            path = {n: brd[n]["console"] - brd[n]["console_overlap"] for n in ("d4s2", "d4r1")}
+            print(f"/init's timestamp, the simulation plus the console on /init's path ({path['d4s2']:.4f} s): "
+                  f"d4s2 {tbs['d4s2'][k] + path['d4s2']:.4f} s, d4r1 {tbs['d4r1'][k] + path['d4s2']:.4f} s; "
+                  f"the board's, the same way: {brd['d4s2'][k] + path['d4s2']:.4f} s and "
+                  f"{b5[k] + path['d4r1']:.4f} s.")
     return brd, tbs
 
 
@@ -143,31 +211,131 @@ def layout_table(ldir, workers):
     return out
 
 
+def predict_table(bench, workers):
+    """d4r1 (main c072fff: M6, FENCE.I by generation, the store ownership prefetch) in the board's shape, and what
+    M7's static halves would cost a lone thread: the model on make perf's ELFs (rv64gc and rv64im, native)."""
+    cfgs = {"M6 smt2": CFGS["M6 smt2"], "d4r1 smt2": {**CFGS["M6 smt2"], "rfo_pf": 1},
+            "M6 smt2, halves": {**M6, "rob": 40, "lq": 12, "sq": 10, "llt": 24}}
+    jobs = [(c, p, m) for c in cfgs for (p, m) in PROGS]
+
+    def one(j):
+        c, p, m = j
+        w = {"name": p, "elf": f"{bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
+        r = tgrun.run_one(w, "rtl_m2", {**cfgs[c], "dram_lat": 30})
+        return j, r["region"]
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        mod = dict(ex.map(one, jobs))
+    print("\n**The model for d4r1 in the board's shape, and a lone thread under M7's static halves** (IPC)\n")
+    print("| Program | M6 smt2 (d4s2) | d4r1 smt2 (+ ownership prefetch) | Change | Static halves (ROB 40, LQ 12, "
+          "SQ 10) | Change |")
+    print("|---|---|---|---|---|---|")
+    out = {}
+    for p, m in PROGS:
+        v = {c: mod[(c, p, m)]["instr"] / mod[(c, p, m)]["cycles"] for c in cfgs}
+        print(f"| {p} {m} | {v['M6 smt2']:.3f} | {v['d4r1 smt2']:.3f} | {pct(v['d4r1 smt2'] / v['M6 smt2'] - 1)} | "
+              f"{v['M6 smt2, halves']:.3f} | {pct(v['M6 smt2, halves'] / v['M6 smt2'] - 1)} |")
+        out[f"{p}|{m}"] = v
+    # the suite on the SoC's uncore at 100 MHz (as §6.5): the whole smt2 window against M7's static halves
+    sc = [("rtl_m2", {**m6.soc(100), **cfgs[c]}) for c in ("M6 smt2", "M6 smt2, halves")]
+    data = dse.collect(sc, "rv64gc", workers=workers)
+    s = [dse.summarize(data[dse.key("rv64gc", *c)[0]]) for c in sc]
+    print(f"\nThe suite (rv64gc, the SoC's uncore): IPC {s[0]['suite_ipc']:.3f} with the whole smt2 window, "
+          f"{s[1]['suite_ipc']:.3f} with static halves ({pct(s[1]['suite_ipc'] / s[0]['suite_ipc'] - 1)}).")
+    out["suite"] = {"whole": s[0], "halves": s[1]}
+    return out
+
+
+COPY_BOARD = (1235609, 809078, 487947, 483772)   # MR23 memcpy-1048576: cycles d4s2, d4r1; instructions d4s2, d4r1
+
+
+def copy_table(workers):
+    """The model's ownership prefetch (rfo_pf) on its copy kernels in the board's shape (M6 smt2 on the SoC's uncore
+    at 100 MHz), against the board's memcpy of 1 MiB (MR23: glibc's, d4s2 and d4r1). ws_copy_<k> copies k/2 KiB with
+    newlib's memcpy, REPS = 4096 / k times; ws_copy_2048 is the board's case (1 MiB from a 1 MiB source)."""
+    base = {**m6.soc(100), **CFGS["M6 smt2"]}
+    cfgs = {"d4s2": base, "d4r1": {**base, "rfo_pf": 1}}
+    sizes = (512, 1024, 2048, 4096)
+    jobs = [(c, k) for c in cfgs for k in sizes]
+
+    def one(j):
+        c, k = j
+        w = {"name": f"ws_copy_{k}", "elf": str(ROOT / "build" / "bench" / "rv64gc" / f"ws_copy_{k}.elf"),
+             "stdin": "", "ff": 0}
+        r = tgrun.run_one(w, "rtl_m2", cfgs[c])
+        if r.get("error") or not r.get("region", {}).get("cycles"):
+            raise SystemExit(f"tgsim failed on {w['elf']} ({c}): {r.get('error', '')}")
+        return j, r["region"]
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        mod = dict(ex.map(one, jobs))
+    print("\n**The store ownership prefetch on a large copy: the model against the board** (cycles a byte; the "
+          "model's rename held by a full SQ, share of cycles)\n")
+    print("| Copy | Instructions a byte | d4s2 | d4r1 (ownership prefetch) | Change | SQ full: d4s2 / d4r1 |")
+    print("|---|---|---|---|---|---|")
+    out = {}
+    for k in sizes:
+        n = k * 512 * (4096 // k)
+        b, p = mod[("d4s2", k)], mod[("d4r1", k)]
+        print(f"| model ws_copy_{k} ({k // 2} KiB) | {b['instr'] / n:.3f} | {b['cycles'] / n:.3f} | "
+              f"{p['cycles'] / n:.3f} | {pct(p['cycles'] / b['cycles'] - 1)} | "
+              f"{b.get('held_sq', 0) / b['cycles']:.1%} / {p.get('held_sq', 0) / p['cycles']:.1%} |")
+        out[f"ws_copy_{k}"] = {"d4s2": b, "d4r1": p}
+    c4, c5, i4, i5 = COPY_BOARD
+    print(f"| board memcpy 1 MiB (glibc) | {i4 / 2 ** 20:.3f} | {c4 / 2 ** 20:.3f} | {c5 / 2 ** 20:.3f} | "
+          f"{pct(c5 / c4 - 1)} | – |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--bench", required=True, help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf")
+    ap.add_argument("--bench", help="make perf's ELFs: DIR/<march>-i10-r500/<program>.elf (without it the model's "
+                    "tables are skipped and the JSON keeps their earlier results)")
     ap.add_argument("--rtl", action="append", default=[], help="CFG=LOG: perf.py's output, base d2, this side d4s2")
     ap.add_argument("--workers", type=int, default=16)
-    ap.add_argument("--init", action="append", default=[], help="NAME=LOG (d2, d4s2): tb_boot's boot to /init")
+    ap.add_argument("--init", action="append", default=[],
+                    help="NAME=LOG (d2, d4s2, d4r1): tb_boot's boot to /init")
     ap.add_argument("--board-logs", default=str(ROOT.parent / "fpga" / "kv260" / "board"))
     ap.add_argument("--layout", help="DIR of scripts/rtlprof/layout.sh's padded ELFs and RTL results")
+    ap.add_argument("--predict", action="store_true", help="d4r1's model prediction (area_recovery.md §6.13)")
+    ap.add_argument("--copy", action="store_true", help="the ownership prefetch on ws_copy against the board's memcpy")
     a = ap.parse_args()
-    rtl = {r.split("=", 1)[0]: rtl_log(r.split("=", 1)[1]) for r in a.rtl}
+    if a.predict and not a.bench:
+        ap.error("--predict needs --bench")
+    # the sections a run does not redo keep their earlier results
+    res = json.loads(OUT.read_text()) if OUT.exists() else {}
+    if a.bench:
+        res.update(model_tables(a.bench, {r.split("=", 1)[0]: rtl_log(r.split("=", 1)[1]) for r in a.rtl},
+                                a.workers))
+    if a.predict:
+        res["predict_d4r1"] = predict_table(a.bench, a.workers)
+    if a.layout:
+        res["layout"] = layout_table(a.layout, a.workers)
+    if a.copy:
+        res["copy"] = copy_table(a.workers)
+    if a.init:
+        brd, tbs = init_table({i.split("=", 1)[0]: i.split("=", 1)[1] for i in a.init}, a.board_logs)
+        res["init"] = {"board": brd, "tb_boot": tbs}
+    OUT.write_text(json.dumps(res, indent=1) + "\n")
+
+
+def model_tables(bench, rtl, workers):
+    """The model on make perf's ELFs in the four configurations, beside the RTL's make perf and the board (§6.12)."""
     jobs = [(c, p, m) for c in CFGS for (p, m) in PROGS]
 
     def one(j):
         c, p, m = j
-        w = {"name": p, "elf": f"{a.bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
+        w = {"name": p, "elf": f"{bench}/{m}-i10-r500/{p}.elf", "stdin": "", "ff": 0}
         r = tgrun.run_one(w, "rtl_m2", {**CFGS[c], "dram_lat": 30})
         if r.get("error") or not r.get("region", {}).get("cycles"):
             raise SystemExit(f"tgsim failed on {w['elf']} ({c}): {r.get('error', '')}")
         return j, r["region"]
 
-    with ThreadPoolExecutor(max_workers=a.workers) as ex:
+    with ThreadPoolExecutor(max_workers=workers) as ex:
         mod = dict(ex.map(one, jobs))
-    OUT.write_text(json.dumps({"cfgs": CFGS, "board": BOARD, "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()}
-                                                                     for c, t in rtl.items()},
-                               "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}}, indent=1) + "\n")
+    res = {"cfgs": CFGS, "board": BOARD,
+           "rtl": {c: {f"{p}|{m}": v for (p, m), v in t.items()} for c, t in rtl.items()},
+           "model": {f"{c}|{p}|{m}": r for (c, p, m), r in mod.items()}}
 
     ipc = lambda r: r["instr"] / r["cycles"]
     print("**IPC: the board, the RTL (make perf) and the model** (rv64gc; the board runs the Linux set's builds)\n")
@@ -203,13 +371,7 @@ def main():
                  pct(r_s["d4s2"][0] / r_s["d2"][0] - 1) if r_s else "–", pct(mc["M6 smt2"] / mc["d2 smt2"] - 1),
                  pct(r_t["d4s2"][0] / r_t["d2"][0] - 1) if r_t else "–", pct(mc["M6 st"] / mc["d2 st"] - 1)]
         print(f"| {p} {m} | " + " | ".join(cells) + " |")
-    res = json.loads(OUT.read_text())
-    if a.layout:
-        res["layout"] = layout_table(a.layout, a.workers)
-    if a.init:
-        brd, tbs = init_table({i.split("=", 1)[0]: i.split("=", 1)[1] for i in a.init}, a.board_logs)
-        res["init"] = {"board": brd, "tb_boot": tbs}
-    OUT.write_text(json.dumps(res, indent=1) + "\n")
+    return res
 
 
 if __name__ == "__main__":
