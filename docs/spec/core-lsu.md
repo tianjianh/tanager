@@ -29,6 +29,10 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
   are per thread, and go to rename per thread. Dispatch moves its group's thread's tails, commit moves its thread's LQ
   head and SQ commit pointer (`cm_tid`), and a flush recovers its thread's tails. The drain, the replays, the searches
   and the ROB-head checks serve the running thread until step 4, which also masks the searches by thread.
+- **Split mode (`SPLIT`, D1):** thread t owns LQ entries [12t, 12t + 12) and SQ entries [10t, 10t + 10) in smt2, and its
+  pointers, the drain's next head and the head's mask wrap there. A flush drops only the flushed thread's entries.
+  With one thread in its half, the other half holds no valid entry, so the searches over every entry (forwarding, the
+  ordering check, the oldest picks) are exact as they are.
 
 ## Behaviour
 

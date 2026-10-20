@@ -198,6 +198,7 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Free lists (D3):** each bank's lists in RAM form, at {tid, row} in the same interleaved LUTRAMs. Each thread has a speculative head, a committed head, a tail and the two counts. Pops come from `t_rn`'s list; pushes and the commit count go to the commit thread's; a flush recovers its thread's list. A register goes back to the list of the thread that frees it, which is the one that allocated it, so each thread keeps its registers. In merged mode (the only mode until step 3b adds the split) the running thread's lists are the lists of §5.2 and the other thread's are empty. `tests/unit/freelist` checks the lists against a model of each thread's list, in both modes.
 - **Window allocation:** the ROB, LQ and SQ tails, their room flags and the serialisation block are per thread. Each thread's room flags are computed from its registers and the group's thread picks them at the end, so the compares stay off the steering.
 - **A flush** recovers its thread's tails, lists and map, returns the tags and LLTs that thread holds (each records its thread when given out), and clears the RN and DS stages only when they hold that thread's group. The divide and FP counts stay shared until two threads run (step 5).
+- **Split mode (`SPLIT`, D1, D3, D4):** the tails wrap in the thread's halves and the room checks count against the halves' sizes. Each bank's free registers above its homes are divided at reset, the lower half to thread 0's list and the upper to thread 1's: in smt2, 16 + 16 + 32 integer and 16 + 16 FP registers a thread. Thread 1's homes are bank 1's indices 0–31 and F1's (x0 stays bank 0's register 0), and the maps' reset sweep writes both threads' committed maps (64 cycles, inside the D$'s sweep). Zeroing thread 1's homes needs the reset sequence's writes into bank 1 and F1 (tg_exec, tg_fp_exec: fpu-2's).
 
 ## 6. Issue (`tg_iq`, `tg_wake`; spike S2 RTL)
 
@@ -302,8 +303,9 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 
 ### 8.4 Per thread (M7's step 3, DR-175; docs/spec/threading.md)
 - Each thread has a head, a tail and the xRET-in-flight bits. A dispatch group is one thread's and advances its tail. A flush recovers the flushing instruction's thread (`flush_tid`, the head's tid): its tail goes back to its head. The heads go to rename per thread.
-- Commit serves one thread a cycle: the running thread until the split mode (step 3b). The split mode adds the commit thread choice, and the oldest-exception and oldest-mispredict registers and the WFI counter per thread.
-- The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them.
+- Commit serves one thread a cycle: in merged mode the running thread. The oldest-exception and oldest-mispredict registers and the WFI counter are per thread; a report goes to its entry's thread (`rob_tid`).
+- **Split mode (`SPLIT`, D1):** thread t owns entries [40t, 40t + 40) in smt2, and its pointers wrap there (`rob_add_t`, `rob_cnt_t`, `rob_start` in `tg_core_pkg`). The commit thread is chosen a cycle ahead (`ct_q`), so the head window is still read from flip-flops: the other thread whenever it has entries, so two busy threads alternate and an empty one is not served. Whether a commit group should also take the slots the served thread leaves (D7) is open: one thread per group is the cheap form, and the model is to price the other before step 5.
+- The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them, of whole bank rows.
 
 ## 9. CSRs and traps (`tg_csr`)
 
@@ -394,6 +396,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
 - `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).
+- `TG_SPLIT` (`SPLIT`, off; DR-175, D1): M7's split mode, smt2 builds only. Each thread owns half the ROB, LQ and SQ and half of each bank's free registers (§5.4, §8.4, core-lsu.md); hart 1 turns it on (step 5), and before that it runs the one thread in its half, so the halves are tested (threading.md). Not the same cycles: the thread's window is half.
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).

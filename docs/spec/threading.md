@@ -24,13 +24,18 @@ is tested before hart 1 runs. The plan for M7 itself, its steps and their order,
 11. Early retirement is per thread.
 12. Per-thread structures are sized from `TID_W` and the width parameters.
 
-## Testing before hart 1 runs: `SOLO_TID`
+## Testing before hart 1 runs: `SOLO_TID` and `SPLIT`
 `SOLO_TID` (`tg_core_pkg`, `TG_SOLO_TID=0|1`; smt2 configurations only; `make ... SOLO_TID=1`) runs each core's one
 thread as tid 1 inside the core, while it stays hart 0 to software: `mhartid` and the trace's hart field do not change,
 and the thread takes hart 0's interrupt lines.
 The tests, lockstep and the riscv-tests' entry code, which parks every hart but 0, run as they are, and every tid = 1
 path is exercised. A path that loses the tid fails: with the ROB's `flush_tid` held at 0, 41 of 64 riscv-tests fail.
 Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_SOLO_TID=1` (the same cycles).
+
+`SPLIT` (`tg_core_pkg`, `TG_SPLIT=0|1`; smt2 configurations only; `make ... SPLIT=1`) is the split mode of step 3 (D1):
+each thread owns half the ROB, LQ and SQ and half of each bank's free registers. Hart 1 turns it on (step 5). Before
+that, `SPLIT=1` runs the one thread in its half (half 1 with `SOLO_TID=1`, with D4's homes for hart 1), so the halves'
+arithmetic is tested under lockstep. It is not cycle-identical: the window is half.
 
 ## What is per thread, by unit
 
