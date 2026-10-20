@@ -511,6 +511,7 @@ The decision itself reaches a flip-flop with about +0.9 ns: f3_meta_q.hit (= tk)
 - **Below the decision, the cone is a wall of tails.** The two worst families end one 64-bit select after the decision. Each of the next five is only 0.1–0.2 ns better. Removing one family moves the worst path by that much, and the decision's own +0.9 at a flip-flop bounds what tail fixes can buy.
 - **`-flatten_hierarchy none` keeps LUTs on both sides of a module boundary**, such as ras_pop in fetch and `&& !flush` in tg_ras. opt_design's remap merged that pair in core 1 but not in core 0, so the same RTL got different depths.
 - **Vivado cascaded TAGE's 2K × 36 true-dual-port tables in depth on its own** (CASCADE_HEIGHT 0, its default), at 0.40 ns more clock-to-out than a width split of the same two RAMB36. A port's clock-to-out depends on its width: a 2K × 18 port reads in 1.39–1.40 ns, the I$'s 512 × 72 in 1.19.
+- **TAGE's tagged tables are the chip's only block RAMs in a depth cascade** ([`q_bram_cascades.tcl`](../../fpga/spikes/tcl/query/q_bram_cascades.tcl) on h100_m7b0): 8 RAMB36, read slack +0.022 to +0.235. The D$ data (four ×36 RAMB36 a way), the I$ data (×72), TAGE's base and the FPU's ROM are single RAMs. The L2's data banks are UltraRAM cascades by design (+4.9 ns or more).
 - **ExploreArea's remap traded depth for LUTs on F1's loop.** Before placement the loop went from 16 levels to 19–21. In the routed chip the loop's worst route is ITLB → PMA → f1_fault, which G takes out of the loop.
 
 
