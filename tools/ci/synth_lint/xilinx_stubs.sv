@@ -1,9 +1,9 @@
 // Port-only stand-ins for the Xilinx primitives and XPM macros that the RTL instantiates under SYNTHESIS,
 // for the synthesis-view lint only (make lint SYNTH=1, tools/ci/lint_all.sh; docs/spec/verification.md
 // §4.3). Never simulated, never synthesized. Each declares the ports and parameters our instantiations
-// use, with the widths of the Xilinx documentation (UG579, UG974), and drives its outputs with zeros, so
-// a signal our RTL takes from a primitive counts as driven. The LUT and SRL primitives come from the
-// behavioural models in tests/unit/prim/models instead.
+// use, with the widths of the Xilinx documentation (UG573, UG579, UG974), and drives its outputs with
+// zeros, so a signal our RTL takes from a primitive counts as driven. The LUT and SRL primitives come
+// from the behavioural models in tests/unit/prim/models instead.
 
 module DSP48E2 #(
   parameter ACASCREG = 1, parameter ADREG = 1, parameter ALUMODEREG = 1, parameter AMULTSEL = "A",
@@ -40,16 +40,12 @@ endmodule
 
 // UltraRAM (UG573): tg_urf's copies (URF, DR-174)
 module URAM288_BASE #(
-  parameter AUTO_SLEEP_LATENCY = 8, parameter AVG_CONS_INACTIVE_CYCLES = 10,
   parameter BWE_MODE_A = "PARITY_INTERLEAVED", parameter BWE_MODE_B = "PARITY_INTERLEAVED",
   parameter EN_AUTO_SLEEP_MODE = "FALSE", parameter EN_ECC_RD_A = "FALSE", parameter EN_ECC_RD_B = "FALSE",
   parameter EN_ECC_WR_A = "FALSE", parameter EN_ECC_WR_B = "FALSE", parameter IREG_PRE_A = "FALSE",
-  parameter IREG_PRE_B = "FALSE", parameter IS_CLK_INVERTED = 1'b0, parameter IS_EN_A_INVERTED = 1'b0,
-  parameter IS_EN_B_INVERTED = 1'b0, parameter IS_RDB_WR_A_INVERTED = 1'b0, parameter IS_RDB_WR_B_INVERTED = 1'b0,
-  parameter IS_RST_A_INVERTED = 1'b0, parameter IS_RST_B_INVERTED = 1'b0, parameter OREG_A = "FALSE",
-  parameter OREG_B = "FALSE", parameter OREG_ECC_A = "FALSE", parameter OREG_ECC_B = "FALSE",
-  parameter RST_MODE_A = "SYNC", parameter RST_MODE_B = "SYNC", parameter USE_EXT_CE_A = "FALSE",
-  parameter USE_EXT_CE_B = "FALSE"
+  parameter IREG_PRE_B = "FALSE", parameter OREG_A = "FALSE", parameter OREG_B = "FALSE",
+  parameter OREG_ECC_A = "FALSE", parameter OREG_ECC_B = "FALSE", parameter RST_MODE_A = "SYNC",
+  parameter RST_MODE_B = "SYNC", parameter USE_EXT_CE_A = "FALSE", parameter USE_EXT_CE_B = "FALSE"
 ) (
   input  logic [22:0] ADDR_A, ADDR_B,
   input  logic [8:0]  BWE_A, BWE_B,
