@@ -24,7 +24,7 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
   - Trial 1: ARM, because the last RISC-V boot never confirmed.
 - **Debian:** a shutdown unit writes `riscv`, trial 0, on every clean shutdown or reboot. `tanager-mode arm` then `reboot` goes to ARM.
 - **Ubuntu:** `tanager-mode riscv` then `reboot` goes to RISC-V.
-- **So any unclean end of RISC-V mode boots ARM next:** a hang followed by the reset hook, a crash, or a power loss.
+- **So any unclean end of RISC-V mode boots ARM next:** a hang followed by the reset hook, a crash, or a power loss. The exception is a shutdown that hangs after the confirm unit has written trial 0; see the table below.
 
 ## Boot firmware: `p1` only, QSPI untouched
 
@@ -104,6 +104,14 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 | Debian hangs later | The PMOD break resets into ARM |
 | Power loss in RISC-V mode | ARM at power-on |
 | A broken boot script | U-Boot's prompt on COM7: source the kept copy (`boot.scr.uimg.tanager-pre`) for Ubuntu, then undo the hook |
+| A shutdown that hangs after the confirm unit wrote trial 0 | The PMOD break gives RISC-V mode again, since the record says `riscv`, trial 0. That boot sets trial 1. ARM comes from a second break, after a hang that ends before that boot's own confirm |
+
+**Found in the SD1 hunt** (10-20, the board session; [`fpga/kv260/board/stress/README.md`](../../fpga/kv260/board/stress/README.md)): a stuck shutdown can still confirm the boot.
+- **What happened:** boot 7's shutdown lost SD1's interrupt (46 mmc0 timeouts) and hung. `tanager-mode-confirm.service`'s stop job ran its full 10 minutes, and its write of trial 0 to sector 2047 still got through. So the first PMOD break came back in RISC-V mode, not Ubuntu.
+- **The way out:** Ubuntu came only from a second break, after a hang that ended before the next boot's confirm. That's what happened after boot 28.
+- **What the confirm really records:** that a shutdown got as far as the confirm unit's stop job, not that it finished cleanly. systemd runs that job while the rest of the shutdown is still going, and goes on past a stuck one.
+- **So the table's rule holds for every failure before the confirm,** and a hang after it costs one more break.
+- **An option, not done:** a confirm that only a clean shutdown writes would move the write into a `systemd-shutdown` hook (`/usr/lib/systemd/system-shutdown/`). Those run after every service has stopped and the file systems are read-only, so a shutdown that hangs earlier leaves trial 1.
 
 ## What stays from before
 

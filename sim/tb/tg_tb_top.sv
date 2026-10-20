@@ -59,7 +59,7 @@ module tg_tb_top
     input int slot, input int kind, input int hart, input int priv, input longint pc, input int insn,
     input bit rvc, input bit rd_we, input bit rd_fp, input int rd, input bit rd_deferred,
     input int wb_tag, input longint rd_value, input bit mem_st, input longint mem_vaddr,
-    input longint mem_wdata, input int mem_size, input bit mmio_ld, input bit nondet,
+    input longint mem_wdata, input int mem_size, input bit mmio_ld, input bit nondet, input bit mem_ld,
     input longint cause, input longint tval);
   import "DPI-C" function void tg_dpi_trace_wb(
     input int port, input int hart, input int wb_tag, input bit rd_fp, input int rd,
@@ -273,7 +273,7 @@ module tg_tb_top
                        trace[i].insn, trace[i].rvc, trace[i].rd_we, trace[i].rd_fp, int'(trace[i].rd),
                        trace[i].rd_deferred, int'(trace[i].wb_tag), trace[i].rd_value, trace[i].mem_st,
                        trace[i].mem_vaddr, trace[i].mem_wdata, int'(trace[i].mem_size), trace[i].mmio_ld,
-                       trace[i].nondet, trace[i].cause, trace[i].tval);
+                       trace[i].nondet, trace[i].mem_ld, trace[i].cause, trace[i].tval);
         end
       end
       for (int i = 0; i < TRACE_WB_PORTS; i++) begin
