@@ -13,6 +13,7 @@ thread's IPC over its program's first run, the shorter program restarted so both
   python3 scripts/m7_smt.py --pair      # exit 2 blind on verif-2's pair runner: its programs, barrier and restarts
   python3 scripts/m7_smt.py --homes     # D4's alternatives for hart 1's register homes: a lone hart and pairs
   python3 scripts/m7_smt.py --calib     # the runner's programs alone against verif-2's RTL alone runs
+  python3 scripts/m7_smt.py --final     # exit 2 blind on verif-2's final pair set (REPEAT builds), rtl_m2 revision 8
 Results -> results/m7_smt_rv64gc.json (each section keeps the others' earlier results).
 """
 import argparse
@@ -575,14 +576,14 @@ def repeat_mask(a, b):
     return {"smt_restart_ff": m} if m else {}
 
 
-def pair_workloads():
+def pair_workloads(d=None):
     """verif-2's programs (build_pair.sh), each linked at slot 0 (0x8010_0000) and slot 1 (0x8810_0000): no
     fast-forward (the RTL runs the set-up), stdin built in; each also as `<name>.ff`, fast-forwarded to its region
     and restarted straight into it (§13.2's method)."""
     names = []
     for p in smt.MEM + smt.COMP:
         for s in (0, 1):
-            f = PAIRDIR / "prog" / f"{p}.s{s}.elf"
+            f = (d or PAIRDIR) / "prog" / f"{p}.s{s}.elf"
             smt.WS[f"{p}.s{s}"] = {"name": f"{p}.s{s}", "elf": str(f), "stdin": "", "ff": 0,
                                    "hash": hashlib.sha1(f.read_bytes()).hexdigest()[:16]}
             names.append(f"{p}.s{s}")
@@ -747,6 +748,110 @@ def calib(workers):
     return out
 
 
+FINALDIR = Path(os.environ.get("TG_FINALDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" /
+                                                   "pair-final-b7db3e16")))
+REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
+FINAL_REF = "step 5 + the drain's priority for a miss entry"   # run on revision 7 as well
+FINAL_BEST = "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"
+FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap": 75},
+                "+ a hart at most 75% of the long-latency tags": {"smt_llt_cap": 75},
+                "+ both": {"smt_mshr_cap": 75, "smt_llt_cap": 75}}   # step 7's tuning, on the best
+
+
+def final(workers):
+    """Exit 2's blind prediction on verif-2's final pair set (TG_FINALDIR, checked against its manifest; the memory
+    kernels built with REPEAT=1), the ELFs step 5's pairs and alone runs use, on rtl_m2 revision 8. As --pair
+    otherwise: the runner's barrier, addresses and finish; WS against each program alone on today's core (revision 8
+    too); hangs over the 42 and §13.4's 16 working-set pairs; one configuration on revision 7 as well."""
+    names = pair_workloads(FINALDIR)
+    cfgs = {n: {**c, **REV8} for n, c in PAIR_CFGS.items()}
+    cfgs.update({f"50% caps, last row kept, priority {n}": {**PAIR_CFGS[FINAL_BEST], **REV8, **v}
+                 for n, v in FINAL_LEVERS.items()})
+    ref7 = f"{FINAL_REF}, revision 7"
+    alone8 = {**ALONE, **REV8}
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in cfgs.values() for lat in LATS
+            for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**RUNNER, **PAIR_CFGS[FINAL_REF], "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for lat in LATS
+             for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (alone8, ALONE) for lat in LATS for w in names]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WS_PAIRS]
+    run_all(jobs, workers)
+    al = {k: {lat: {w: run7(PRESET, {**c, "dram_lat": lat}, w, None) for w in names} for lat in LATS}
+          for k, c in (("rev8", alone8), ("rev7", ALONE))}
+    out = {"dir": str(FINALDIR), "alone": {k: {lat: {w: {"ipc": ipc1(r), "instr": r["region"]["instr"],
+                                                         "cycles": r["region"]["cycles"]} for w, r in v[lat].items()}
+                                                for lat in LATS} for k, v in al.items()}, "configs": {}, "ws_dead": {}}
+
+    def ev(c, base):
+        e = {}
+        for lat in LATS:
+            per, dl = {}, []
+            for g, a, b in smt.PAIRS:
+                r = run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+                ip = ipc2(r)
+                if ip is None:
+                    dl.append(smt.pname(a, b))
+                    continue
+                sp = [ip[0] / ipc1(base[lat][f"{a}.s0"]), ip[1] / ipc1(base[lat][f"{b}.s1"])]
+                per[smt.pname(a, b)] = {"group": g, "ipc": ip, "speedup": sp, "ws": sum(sp),
+                                        "cycles": [t["region"]["cycles"] for t in r["threads"]],
+                                        "laps": [t["laps"] for t in r["threads"]]}
+            gs = {g: smt.gm(m["ws"] for m in per.values() if m["group"] == g) for g in GROUPS}
+            e[lat] = {"ws": smt.gm(gs.values()), "groups": gs, "min_ws": min(m["ws"] for m in per.values()),
+                      "dead": dl, "pairs": per}
+        return e
+
+    print(f"\n**Exit 2 on the final pair set, blind** ({FINALDIR.name}; rtl_m2 revision 8; WS over the 42 pairs "
+          "against each program alone on today's core; geometric means over the pairs that run; 30 / 120 / 250 "
+          "cycles)\n")
+    print("| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | "
+          "Hung, of the 16 working-set pairs |\n|---|---|---|---|---|---|---|---|")
+    rows = [(n, c, al["rev8"]) for n, c in cfgs.items()] + [(ref7, PAIR_CFGS[FINAL_REF], al["rev7"])]
+    for n, c, base in rows:
+        e = ev(c, base)
+        out["configs"][n] = e
+        wsd = None
+        if n in cfgs:
+            wsd = [[smt.pname(a, b) for _, a, b in WS_PAIRS if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))]
+                   for lat in LATS]
+            out["ws_dead"][n] = wsd
+        f = lambda v: " / ".join(f"{v(lat):.3f}" for lat in LATS)
+        print(f"| {n} | **{f(lambda lat: e[lat]['ws'])}** | " +
+              " | ".join(f(lambda lat, g=g: e[lat]["groups"][g]) for g in GROUPS) +
+              f" | {f(lambda lat: e[lat]['min_ws'])} | " + " / ".join(str(len(e[lat]["dead"])) for lat in LATS) +
+              " | " + (" / ".join(str(len(d)) for d in wsd) if wsd else "–") + " |")
+    for n, e in out["configs"].items():
+        for lat in LATS:
+            if e[lat]["dead"]:
+                print(f"- {n}, {lat} cycles: {', '.join(e[lat]['dead'])} hung")
+    for n, wsd in out["ws_dead"].items():
+        for lat, d in zip(LATS, wsd):
+            if d:
+                print(f"- {n}, {lat} cycles, working-set pairs: {', '.join(d)} hung")
+    ref = FINAL_REF
+    print("\n**Per pair** (WS, 30 / 120 / 250 cycles; then each thread's share of its alone IPC at 120)\n")
+    print("| Pair | Group | " + " | ".join(cfgs) + f" | {ref7} | Shares at 120, {ref} |\n|---|---|" +
+          "---|" * (len(cfgs) + 2))
+    for g, a, b in smt.PAIRS:
+        p = smt.pname(a, b)
+        cell = lambda e, lat: f"{e[lat]['pairs'][p]['ws']:.2f}" if p in e[lat]["pairs"] else "hung"
+        s5 = out["configs"][ref][120]["pairs"].get(p)
+        print(f"| {p} | {g} | " + " | ".join(" / ".join(cell(out["configs"][n], lat) for lat in LATS)
+                                           for n in list(cfgs) + [ref7]) +
+              " | " + (" + ".join(f"{x:.2f}" for x in s5["speedup"]) if s5 else "hung") + " |")
+    print("\n**Alone** (revision 8; IPC over the first region, slot 0 / slot 1; region instructions; cycles at 30 / "
+          "120 / 250; revision 7's IPC change at 120)\n")
+    print("| Program | IPC, 30 | 120 | 250 | Instructions | Cycles, 30 / 120 / 250 | Revision 7, 120 |\n"
+          "|---|---|---|---|---|---|---|")
+    for p in smt.MEM + smt.COMP:
+        a8, a7 = al["rev8"], al["rev7"]
+        cells = [" / ".join(f"{ipc1(a8[lat][f'{p}.s{s}']):.3f}" for s in (0, 1)) for lat in LATS]
+        print(f"| {p} | " + " | ".join(cells) + f" | {a8[120][f'{p}.s0']['region']['instr']:,} | " +
+              " / ".join(f"{a8[lat][f'{p}.s0']['region']['cycles']:,}" for lat in LATS) +
+              f" | {ipc1(a7[120][f'{p}.s0']) / ipc1(a8[120][f'{p}.s0']) - 1:+.2%} |")
+    return out
+
+
 HOME_BASE = {**BASE7, "smt_mix": 0, **D3R}   # §13.10's step 7: 75% caps never a whole bank, one thread a group, D3
 HOMES = {"D4 as planned (hart t's x1-x31 in bank t)": {},
          "(a) every integer home in B0, ALU ops steering around it": {"prf_homes": 1, "prf_steer": 1},
@@ -830,13 +935,14 @@ def main():
     ap.add_argument("--pair", action="store_true", help="exit 2 blind on verif-2's pair runner (TG_PAIRDIR)")
     ap.add_argument("--homes", action="store_true", help="D4's alternatives: where hart 1's registers live at reset")
     ap.add_argument("--calib", action="store_true", help="the runner's programs alone against verif-2's RTL alone runs")
+    ap.add_argument("--final", action="store_true", help="exit 2 blind on the final pair set (TG_FINALDIR), revision 8")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
                      ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
-                     ("homes", homes), ("calib", calib)):
+                     ("homes", homes), ("calib", calib), ("final", final)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

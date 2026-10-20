@@ -777,6 +777,7 @@ python3 scripts/m7_smt.py --prediction     # §13.2's table from the runs above
 python3 scripts/m7_smt.py --groups --d3rev # §13.8 and §13.9
 python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its ELFs in TG_PAIRDIR)
 python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart 1's register homes
+python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13.12 on the final set (TG_FINALDIR)
 ```
 
 **Where results live.**
@@ -815,6 +816,7 @@ python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 8) | Step 5 (no caps) + the drain's priority: 1.310 / 1.292 / 1.272. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.333 / 1.348 / 1.332, the only form above 1.3 at every point, by 0.03–0.05. Never a whole bank: 1.298 / 1.328 / 1.322. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3 |
 | D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
 
@@ -1401,3 +1403,97 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 **Learned:**
 - **Spread a sleeping hart's registers so that no single-writer bank loses much more than a quarter of its entries to them.** One bank holding all 31 left the lone hart about 32 there. Two banks holding 16 and 15 left about 47 each, and the loss vanished.
 - **With per-hart lists, a bank's spare registers at reset belong to the hart that will run.** A spare on the sleeping hart's list is out of reach, because the donor keeps one.
+
+### 13.12 Exit 2 on the final pair set: the blind prediction (10-20)
+
+*verif-2's final set, which step 5's pairs and alone runs will use:*
+- *`~/tanager-build/track-verif-79d5d8/pair-final-b7db3e16`, read-only;*
+- *94 ELFs, checked against its manifest (whose md5 is 22d3ecf4…);*
+- *built from a clean tree at b7db3e16, with memsuite's `REPEAT=1` (a42b221e, cherry-picked as 0ba16d00) and the shim's PAIR-STOP line.*
+
+*Written before any of them runs on the RTL.*
+
+*The model is §13.10's, with two changes:*
+- *the ownership prefetch as the RTL's: an L1D miss entry while another stays free (DR-171; `rfo_pf_reserve` 1, rtl_m2 revision 8; §13.10's alone comparison);*
+- *the runner's finish (`stop_regions`), since the memory kernels now repeat their region until the pair ends.*
+
+*§13.4's 16 working-set pairs (the model's own builds) are rerun on revision 8 for hangs.*
+
+| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | Hung, of the 16 working-set pairs |
+|---|---|---|---|---|---|---|---|
+| Step 5 as planned: no caps, the drain alternating | 1.327 / 1.331 / 1.309, over the 36–37 that finish | 1.277 / 1.255 / 1.226 | 1.337 / 1.340 / 1.345 | 1.369 / 1.403 / 1.359 | 1.000 / 1.028 / 1.020 | **5 / 6 / 6** | 7 / 9 / 8 |
+| **Step 5 + the drain's priority** | **1.310 / 1.292 / 1.272** | 1.229 / 1.187 / 1.165 | 1.337 / 1.340 / 1.345 | 1.366 / 1.354 / 1.312 | 1.000 / 0.994 / 0.997 | 0 | 6 / 8 / 8 |
+| Step 7 as planned: 75% caps | 1.335 / 1.343 / 1.321, over the 36–37 that finish | 1.288 / 1.260 / 1.230 | 1.337 / 1.340 / 1.344 | 1.381 / 1.433 / 1.395 | 1.000 / 1.016 / 1.004 | 5 / 6 / 6 | 7 / 10 / 9 |
+| Step 7: 75% caps + the drain's priority | 1.316 / 1.304 / 1.284 | 1.236 / 1.196 / 1.173 | 1.337 / 1.340 / 1.344 | 1.379 / 1.384 / 1.343 | 1.000 | 0 | 6 / 8 / 8 |
+| Step 7: 75% caps, never a whole bank, the drain's priority | 1.298 / 1.328 / 1.322 | 1.215 / 1.194 / 1.173 | 1.289 / 1.297 / 1.300 | 1.394 / 1.512 / 1.515 | 1.000 | 0 | 0 |
+| **Step 7: 50% caps, a bank's last row kept, the drain's priority** | **1.333 / 1.348 / 1.332** | 1.230 / 1.198 / 1.170 | 1.336 / 1.340 / 1.346 | 1.441 / 1.527 / 1.501 | 1.000 | 0 | 0 |
+| The same + a hart at most 3 of the 4 L1D miss entries | 1.295 / 1.302 / 1.290 | 1.215 / 1.197 / 1.182 | 1.336 / 1.340 / 1.346 | 1.338 / 1.377 / 1.350 | 1.000 / 0.950 / 0.875 | 0 | 0 |
+| The same + a hart at most 75% of the long-latency tags | 1.333 / 1.348 / 1.332 (unchanged) | | | | | 0 | 0 |
+| Check: step 5 + the drain's priority on revision 7 | 1.319 / 1.309 / 1.290 | 1.249 / 1.224 / 1.203 | 1.337 / 1.340 / 1.345 | 1.374 / 1.369 / 1.327 | 1.000 / 0.994 / 0.989 | 0 | – |
+
+*The pairs that hang without the drain's priority are §13.10's six: chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The working-set pairs that hang are chase1 with chase8, and copy with chase1, at most sizes.*
+
+- **Step 5 doesn't reach 1.3 at 120 or 250 cycles: 1.310 / 1.292 / 1.272 with the drain's priority.**
+  - Without the priority, the same six chase8 pairs hang. The prefetch fix doesn't remove them.
+  - So step 5's pair runs test the mechanism, not exit 2. Exit 2 needs step 7's caps.
+- **Without caps, a memory kernel starves its sibling.** At 120 cycles these threads keep only a fraction of their alone IPC:
+  - minver 0.11, Dhrystone 0.10, stream 0.12 and copy 0.14 beside chase8;
+  - CoreMark 0.15 and huffbench 0.19 beside gather;
+  - Dhrystone 0.17 and minver 0.20 beside stride.
+
+  spmv + chase8 reads 0.99, slower than running one program at a time.
+- **Step 7: only one form clears 1.3 at every point.**
+  - The plan's 75% caps hang the same six pairs. With the drain's priority they read 1.316 / 1.304 / 1.284, which misses at 250.
+  - "Never a whole bank" reads 1.298 / 1.328 / 1.322, which misses at 30 by 0.002.
+  - **50% caps with a bank's last row kept while the sibling waits read 1.333 / 1.348 / 1.332,** with no hang over the 58 pairs.
+- **The margin is thin:** 0.03–0.05 above the bar, about the model's expected error (±0.05, §13.2).
+- **Two more step-7 levers don't help.**
+  - **Capping a hart at 3 of the 4 L1D miss entries costs 3%.** A memory kernel loses a quarter of its parallel misses, and its sibling gains less than that. spmv + chase8 reads 0.875 at 250.
+  - **Capping a hart's long-latency tags at 75% changes nothing.**
+- **Revision 8 against revision 7:** step 5 + the drain's priority reads 0.009–0.018 lower on revision 8. Alone, copy runs 35% faster and stream 9% faster at 120, so pairs with them gain less.
+- **§13.10's method prediction held.** There, the runner with the memory kernels repeating (`smt_restart_ff`, on the 01:05 builds) read 1.324 / 1.306 / 1.288 for step 5 + the drain's priority. Here, real REPEAT builds read 1.319 / 1.309 / 1.290 on revision 7.
+
+**Alone on today's core, revision 8** (the first region on the final ELFs; slots 0 and 1 identical in the model):
+
+| Program | IPC at 30 / 120 / 250 | Instructions | Cycles at 30 / 120 / 250 |
+|---|---|---|---|
+| ms_gather | 0.533 / 0.214 / 0.115 | 360,039 | 674,868 / 1,678,960 / 3,129,240 |
+| ms_stride | 0.529 / 0.177 / 0.090 | 18,529 | 35,010 / 104,760 / 205,510 |
+| ms_spmv | 0.737 / 0.246 / 0.126 | 1,351,716 | 1,834,779 / 5,484,642 / 10,756,662 |
+| ms_hashprobe | 0.350 / 0.176 / 0.102 | 1,621,727 | 4,636,091 / 9,228,845 / 15,866,255 |
+| ms_chase8 | 0.116 / 0.038 / 0.019 | 60,041 | 516,341 / 1,596,791 / 3,157,441 |
+| ms_stream | 1.599 / 0.651 / 0.346 | 1,179,683 | 737,655 / 1,811,265 / 3,409,355 |
+| ms_copy | 0.654 / 0.238 / 0.127 | 320,472 | 490,053 / 1,344,336 / 2,528,376 |
+| coremark_A | 1.494 / 1.470 / 1.436 | 1,013,321 | 678,438 / 689,508 / 705,498 |
+| dhrystone | 1.453 / 1.448 / 1.442 | 858,101 | 590,723 / 592,433 / 594,903 |
+| embench_nsichneu | 1.307 / 1.307 / 1.306 | 2,405,424 | 1,840,160 / 1,840,610 / 1,841,260 |
+| embench_huffbench | 1.176 / 1.176 / 1.176 | 2,163,593 | 1,839,119 / 1,839,563 / 1,840,213 |
+| embench_minver | 1.299 / 1.298 / 1.296 | 441,869 | 340,049 / 340,409 / 340,926 |
+| embench_matmult-int | 1.971 / 1.970 / 1.970 | 3,180,640 | 1,614,034 / 1,614,394 / 1,614,914 |
+
+*From §13.10's comparison, expect the RTL's hashprobe 16–31% faster than this, and its copy and stream at 30 cycles about 20% slower. minver moved 7% with the rebuild (code layout alone), so the RTL may move too.*
+
+**What the RTL should show at step 5:**
+- **The pairs:**
+  - If the store port wins a freed miss entry, 1.31 / 1.29 / 1.27 with no hang.
+  - If loads win, the six chase8 pairs hang, as verif-2's watch will report.
+  - Either way, compute threads beside memory kernels get a tenth to a fifth of their alone speed.
+- **The alone runs:** as the table above.
+
+**What to decide, with costs** (§13.10's items, updated):
+1. **The drain's priority: required.**
+   - Without it, 6 of the 42 pairs hang on every configuration without a bank rule.
+   - Cost: no cycles, and an arbitration change.
+2. **Step 7's bank rule: the on-demand last row with 50% caps.**
+   - It is the only form that clears exit 2 at every latency in the model.
+   - "Never a whole bank" misses at 30 cycles (1.298), for about 0.1K fewer LUTs a chip (0.1K against 0.2K, §13.7).
+   - The extra 0.1K LUTs is within DR-154's limits. The throughput difference (+0.8–2.7%) is over 1%, so it may be the user's call.
+3. **Exit 2's margin.** Even the best form clears 1.3 by only 0.03–0.05.
+   - If the RTL lands below at step 7, the model has nothing big left: the miss-entry and long-latency-tag caps don't help.
+   - What remains is step 7's own tuning (the cap level, ICOUNT), or the bar itself, which is the coordinator's and the user's.
+
+**Decisions:** none here. Revision 8 (`rfo_pf_reserve` 1) is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
+
+**Learned:**
+- **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
+- **A cap on miss entries costs more than it returns** when the memory thread's own speed is all parallel misses.
