@@ -36,11 +36,13 @@ module tg_fetch
   input  logic        rst,
   input  logic [63:0] boot_pc,
   output logic        ready,          // reset sequence done
-  // Redirects, registered upstream: flush (commit) has priority over dred (decode)
+  // Redirects, registered upstream: flush (commit) has priority over dred (decode); each of one thread (M7)
   input  logic        flush,
+  input  tid_t        flush_tid,
   input  logic [63:0] flush_pc,
   input  logic        icinv,          // FENCE.I, together with flush
   input  logic        dred,
+  input  tid_t        dred_tid,
   input  logic [63:0] dred_pc,
   input  logic [FTQW-1:0]   dred_ftq,   // TAGE_ON: dred's instruction's FTQ entry and last slot,
   input  logic [SLOT_W-1:0] dred_slot,
@@ -83,7 +85,7 @@ module tg_fetch
   input  logic [TKW-1:0]            iq_take,
   // Translation and PMP (M3)
   input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
-  input  dec_state_t  dst,            // decode's state, for the queue's decode bits
+  input  dec_state_t [NUM_THREADS-1:0] dst,   // each hart's decode state, for the queue's decode bits
   input  priv_e       priv,
   input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
@@ -869,11 +871,14 @@ module tg_fetch
   logic [DECODE_WIDTH-1:0]           cq_valid;
   logic [DECODE_WIDTH-1:0][IB_W-1:0] cq_insn;
   logic                              redirect;
+  tid_t                              red_tid;      // the redirect's thread
+  tid_t                              cq_tid;       // the thread whose queue decode reads
   assign redirect = flush || dred;
+  assign red_tid  = flush ? flush_tid : dred_tid;
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush(redirect), .dst, .blk_valid(f3_valid_q), .parcel(f3_parcel),
-    .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
-    .blk_ready, .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
+    .clk, .rst, .flush(redirect), .flush_tid(red_tid), .dst, .blk_valid(f3_valid_q), .blk_tid(RUN_TID),
+    .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_meta_q),
+    .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
   // ---- Pipeline control ----
   // F2 delivers when it is valid, not missing, and F3 can take the block. It holds while F3
@@ -1575,7 +1580,7 @@ module tg_fetch
       iq_insn[j].ubtb_way    = m.way;
       iq_insn[j].pred_tsrc   = m.tsrc && exit_here;
       iq_insn[j].ftq         = m.ftq;
-      iq_insn[j].tid         = RUN_TID;              // the running thread (M7: per thread at step 5)
+      iq_insn[j].tid         = cq_tid;               // the queue's thread (M7)
       iq_insn[j].marks       = marks;
       iq_insn[j].q_ill       = qill;
       iq_insn[j].q_exc       = qexc;

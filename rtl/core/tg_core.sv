@@ -236,16 +236,19 @@ module tg_core
   dec_state_t de_state;
   assign de_state = '{misa_m: misa_m, misa_b: misa_b, misa_c: misa_c, misa_a: misa_a, misa_f: misa_f,
                       misa_d: misa_d, fs: fs, frm: frm, priv: priv, tvm: tvm, tw: tw, tsr: tsr};
+  dec_state_t [NUM_THREADS-1:0] de_state_h;           // per hart (M7: the running hart's until decode's are per hart)
+  always_comb for (int t = 0; t < NUM_THREADS; t++) de_state_h[t] = de_state;
+  tid_t dred_tid;
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
-    .flush, .flush_pc, .icinv, .dred, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
+    .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq),
     .ras_v, .ras_top, .ras_tos, .ras_cnt, .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .xl_i(xl_f_q), .dst(de_state_h), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -257,7 +260,8 @@ module tg_core
   tg_decode_stage u_de (
     .clk, .rst, .flush, .misa_m, .misa_b, .misa_c, .misa_a, .misa_f, .misa_d, .fs, .frm, .priv, .tvm, .tw, .tsr,
     .iq_valid, .iq_insn, .iq_take, .de_valid, .de_uop, .de_take,
-    .dred, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop, .ras_link);
+    .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink, .ras_v, .ras_top, .ras_push, .ras_pop,
+    .ras_link);
   if (RAS_ON) begin : g_ras
     tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
       .clk, .rst, .flush, .top_v(ras_v), .top(ras_top), .s_tos(ras_tos), .s_cnt(ras_cnt),

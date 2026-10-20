@@ -57,6 +57,7 @@ module tg_decode_stage
   input  logic                de_take,
   // Decode-time redirect (registered)
   output logic                dred,
+  output tid_t                dred_tid,     // ... the redirecting instruction's thread (M7)
   output logic [63:0]         dred_pc,
   output logic [FTQW-1:0]     dred_ftq,     // the redirecting instruction's FTQ entry and last slot,
   output logic [SLOT_W-1:0]   dred_slot,    // for the history's repair (TAGE_ON)
@@ -435,6 +436,7 @@ module tg_decode_stage
       for (int j = 0; j < W; j++) begin
         if (de_take && n == TKW'(j + 1) && redir[j]) begin
           dred      <= 1'b1;
+          dred_tid  <= xq[j].tid;
           dred_pc   <= npc[j];
           dred_ftq  <= xq[j].ftq;
           dred_slot <= xq[j].pc[SLOT_W:1] + SLOT_W'(!xq[j].rvc);
