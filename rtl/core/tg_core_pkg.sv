@@ -378,6 +378,15 @@ package tg_core_pkg;
     if (!SPLIT) return RUN_TID;
     return tid_t'(int'(e[ROBW-2:0]) >= ROB_ENTRIES / 2);
   endfunction
+  // The thread whose part holds LQ entry i or SQ entry i (the running thread in merged mode)
+  function automatic tid_t lq_tid(input int i);
+    if (!SPLIT) return RUN_TID;
+    return tid_t'(i >= LQ_ENTRIES / 2);
+  endfunction
+  function automatic tid_t sq_tid(input int i);
+    if (!SPLIT) return RUN_TID;
+    return tid_t'(i >= SQ_ENTRIES / 2);
+  endfunction
   function automatic lqid_t lq_add_t(input lqid_t p, input int k, input tid_t t);
     int i;
     logic w;
@@ -420,6 +429,14 @@ package tg_core_pkg;
     for (int i = 0; i < SQ_ENTRIES; i++)
       m[i] = i >= part_base(SQ_ENTRIES, t) && i < part_base(SQ_ENTRIES, t) + part_size(SQ_ENTRIES);
     return m;
+  endfunction
+  // The entries thread t owns: its part in split mode; in merged mode every entry is the running thread's and none the
+  // other's (M7's step 4: a pick over both threads, as the LSU's replays, takes each thread's own)
+  function automatic logic [LQ_ENTRIES-1:0] lq_own(input tid_t t);
+    return (SPLIT || t == RUN_TID) ? lq_part(t) : '0;
+  endfunction
+  function automatic logic [SQ_ENTRIES-1:0] sq_own(input tid_t t);
+    return (SPLIT || t == RUN_TID) ? sq_part(t) : '0;
   endfunction
 
   // ---- Micro-op classes ----

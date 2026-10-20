@@ -27,12 +27,42 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **Flush:** from commit, with its thread (`flush_tid`).
 - **Per thread (M7's step 3, docs/spec/threading.md):** the LQ's head and tail and the SQ's head, commit pointer and tail
   are per thread, and go to rename per thread. Dispatch moves its group's thread's tails, commit moves its thread's LQ
-  head and SQ commit pointer (`cm_tid`), and a flush recovers its thread's tails. The drain, the replays, the searches
-  and the ROB-head checks serve the running thread until step 4, which also masks the searches by thread.
+  head and SQ commit pointer (`cm_tid`), and a flush recovers its thread's tails.
 - **Split mode (`SPLIT`, D1):** thread t owns LQ entries [12t, 12t + 12) and SQ entries [10t, 10t + 10) in smt2, and its
   pointers, the drain's next head and the head's mask wrap there. A flush drops only the flushed thread's entries.
-  With one thread in its half, the other half holds no valid entry, so the searches over every entry (forwarding, the
-  ordering check, the oldest picks) are exact as they are.
+  Each search takes its thread's entries (below).
+- **Translation and PMP per hart (M7's step 4):** each access translates and checks with its thread's privilege, data
+  privilege, SUM, MXR, satp and PMP (each hart's copy, a cycle behind `tg_csr`'s): a new load's and a store address's
+  thread is its queue entry's half (the running thread without the split mode), the head's check the ROB's commit
+  thread's, the LD port's checker its load's, the STA port's checker its user's (a bare store at its decision, the
+  walk, S2's store). The DTLB's lookups carry the same threads (core-mmu).
+- **The LSU per thread (M7's step 4):**
+  - **A flush kills only its thread's operations** (`kill_t`): every stage, report and LUTRAM write is gated by its
+    operation's thread (a load's or a store's queue entry's, a PTE read's walk's), and the walker's walk ends only at
+    its thread's flush. The store-data capture and the store prefetch (a hint) wait out any flush cycle.
+  - **Searches stay inside a thread:** forwarding takes the M1 load's thread's stores from its SQ head (the M1 store
+    address only when it is the load's thread's); the ordering check the store's thread's loads, from its heads; a
+    blocked load wakes on its thread's SQ.
+  - **Turns (D8):** replays take each thread's oldest ready load, the threads alternating when both have one. The head
+    ports (the drain, an MMIO store, an atomic) read one thread's SQ head at a time (`t_dr_q`), alternating each cycle
+    when both threads want it (a committed store, or an atomic as their next entry) and holding while an MMIO store or
+    an atomic uses the head; the head's registered fields follow it. The D$'s store port takes a new request each
+    cycle, so a store waiting for its line may give way to the other thread's.
+  - **The head:** the ROB's commit thread (`hd_tid_o`) chooses the head checks (the DTLB retry, the deciding walk and
+    its fault, the trap's tval), the MMIO load (its thread's LQ head at its ROB head, its committed stores drained),
+    `sq_drained` and `mmio_busy`. With two threads the commit thread alternates, so the head check's registers are per
+    thread, each counting its thread's cycles (its head changes between them only by its flush).
+  - **Atomics and reservations:** an atomic slot per thread; the FSM runs one at a time, starting the head ports'
+    thread's. A reservation per hart: LR, SC, a trap or xRET act on their hart's; a lost line ends any hart's on it;
+    a store or an atomic's write by one hart ends the other's on that line, as a probe would (plan §6.2 rule 4). The
+    probe hold covers each hart's young reservation.
+  - In merged mode every choice is the running thread and every kill the flush: the LSU before M7.
+  - **The kills' test before two threads run:** in simulation, `+xflush=PCT` (split builds; `tg_core`) gives the LSU
+    phantom flushes of the thread that does not run, in cycles without a flush: in PCT% of them, and in every cycle in
+    which the running thread's MMIO read is out (sent, or its value waiting to retire). Nothing of that thread is in the
+    LSU or its walker, so a run must be the same but for its cycles: `tools/ci/regress.sh CFG=smt2 SPLIT=1 SOLO_TID=1
+    SIMARGS=+xflush=10` (lockstep, tg_vsim's one bus read per MMIO load, the LSU's no-flush check on an MMIO read).
+    The counts go to stderr (`TG-XFLUSH`).
 
 ## Behaviour
 
@@ -100,7 +130,14 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - **The victim search** skips the ways the set's entries hold: the first invalid way they left, else the first way from the round-robin pointer on that no entry holds (4 < 8 ways).
   - **One release engine** takes a valid victim at its allocation; the victim's state is cleared then, as before. It reads each beat through port B, takes it into its own register the next cycle and sends it from there, so Grants for other entries may write port B meanwhile and D never waits for C. The entry's Acquire goes out after the last beat. Only the engine waits for `ReleaseAck` (source 4); another allocation whose victim is valid waits for the engine.
   - **Allocation:**
-    - The store port allocates in its own cycle, as before, when a free entry exists and no entry holds its line.
+    - The store port allocates in its own cycle, as before, when a free entry exists and no entry holds its line. It
+      wins a cycle in which a load's request register also wants the last free entry.
+    - With two threads (M7, split mode; smt2_report §13.10) a store or an atomic that needs a new entry also keeps the
+      last free one from loads' requests until it allocates: in its own cycle, and while the LSU records its thread's
+      head store waiting (`st_wait`, per thread, written in the thread's drain cycles; `st_resv`). Otherwise an entry
+      that frees while the store cannot take it (the release engine busy with its victim, or the drain presenting the
+      other thread's store) goes to the sibling's next load miss, and a pointer chase beside a store stream starves the
+      drain (6 of the pair runner's 42 pairs hang in the model). In merged mode the allocation is the one before M7.
     - Loads' and the walker's misses go through a request register. The next cycle each one merges with the entry holding its line, finds the line present, allocates, or gets no answer. The answer is registered and reaches the LSU two cycles after `lm_req`.
     - No allocation shares a cycle with an install (the state port's one write).
   - **Sources:** Acquires carry their entry's index (0-3) and the Release carries 4. Grants come back in any order, matched by source; a Grant's beats are contiguous, so port B writes one Grant at a time. One install per cycle, the lowest entry first, after a probe update.
@@ -201,7 +238,7 @@ LR.W/D, SC.W/D and the AMOs (SWAP, ADD, XOR, AND, OR, MIN, MAX, MINU, MAXU) are 
   - Cycles change only for loads the PMP denies (`tanager-p-pmp`: +1 cycle).
 - **A store's PMP check leaves the DTLB's path.** The checker is never behind the DTLB at the store's decision:
   - **A translated store to a page with the DTLB's cached result** decides with it, as before.
-  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Data are bare, so no walk runs and the walker never wants the shared checker then.
+  - **A bare-mode store** decides with the STA port's checker on its VA, a register with the split. Its thread's data are bare, so no walk of that thread runs. With two threads (M7) another thread's walk step or S2 check waits for it: an S2 store is then held, with its fields, while the other thread's bare stores decide (none of them enters S2).
   - **A translated store to a page without a cached result** (a page that a PMP region boundary splits, which the walker's per-page check makes rare) decides as if PMP allowed it. The checker looks at its registered PA (and size, access, M mode) the next cycle, S2.
     - The store may have completed already (its data was in). A denial reaches the ROB as an exception alone, on a port of its own, a cycle after S2 (S3: `spx_valid`). The store completes as before, when its data comes.
     - The ROB retires nothing from the store on while it is in S2 (`sth_v[0]`, a registered hold, so the checker's verdict stays off the commit path) and, if it is denied, in S3 until the exception shows (`sth_v[1]`).

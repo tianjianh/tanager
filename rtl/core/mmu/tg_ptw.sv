@@ -8,26 +8,32 @@
 // requester's TLB, with the page's PMP result cached (plan §4.10): one more cycle checks the
 // page base, and the result holds for the whole page when no active PMP region boundary lies
 // strictly inside the page: for a 2M page checked here against every entry, for 4K and 1G pages
-// tg_csr's flag for every page of the size (pmp_al). A flush ends the walk; its PTE read, if any,
-// dies in the load pipe.
+// tg_csr's flag for every page of the size (pmp_al). A flush of its thread ends the walk; its PTE
+// read, if any, dies in the load pipe.
 // The PMP checks (the PTE address, the page base) use the STA port's checker in a cycle the
 // port leaves it free (chk_gnt); W_CHK and W_PMP wait for one, and say so (chk_req). The request
 // and its address come from flip-flops, set as the walk enters those states.
+// Each walk is a hart's (M7's step 4, docs/spec/threading.md): the requester's thread, taken as the
+// walk starts, selects its hart's satp, SUM, MXR and PMP state, and goes with the fill (done_tid)
+// and with the checks (chk_tid: the shared checker takes that hart's PMP descriptors).
 module tg_ptw
   import tg_pkg::*, tg_map_pkg::*, tg_core_pkg::*;
 (
   input  logic              clk,
   input  logic              rst,
   input  logic              flush,
-  input  logic [43:0]       satp_ppn,
-  input  logic              sum,
-  input  logic              mxr,
-  input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
-  input  logic [2:0]        pmp_al,       // every 1G / 2M / 4K page is PMP-homogeneous
-  input  logic [PMP_ENTRIES-1:0] pmp_p2m, // each entry's address is aligned to a 2M page
+  input  tid_t              flush_tid,    // a flush ends the walk of its thread only (M7's step 4)
+  // Each hart's state
+  input  logic [NUM_THREADS-1:0][43:0]             satp_ppn,
+  input  logic [NUM_THREADS-1:0]                   sum,
+  input  logic [NUM_THREADS-1:0]                   mxr,
+  input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d,
+  input  logic [NUM_THREADS-1:0][2:0]              pmp_al,  // every 1G / 2M / 4K page is PMP-homogeneous
+  input  logic [NUM_THREADS-1:0][PMP_ENTRIES-1:0]  pmp_p2m, // each entry's address is aligned to a 2M page
   // PMP checks on a shared checker (S mode, ACC_R)
   output logic [PA_W-1:0]   chk_pa,
   output logic              chk_dbl,      // an 8-byte access (the PTE), else one granule
+  output tid_t              chk_tid,      // the hart whose PMP applies
   output logic              chk_req,      // a check is wanted this cycle (used if granted)
   input  logic              chk_gnt,      // the checker's result below is for chk_pa this cycle
   input  logic              chk_ok,
@@ -38,6 +44,7 @@ module tg_ptw
   input  logic [2:0][63:0]  req_va,
   input  acc_e [2:0]        req_acc,
   input  priv_e [2:0]       req_mode,
+  input  tid_t [2:0]        req_tid,
   output logic [2:0]        ack,
   // PTE reads through the load pipe
   output logic              pt_req,
@@ -51,6 +58,7 @@ module tg_ptw
   // Result, for one cycle
   output logic              done,
   output logic [2:0]        done_who,     // one-hot requester
+  output tid_t              done_tid,     // the walk's thread (the fill's)
   output logic              done_ok,      // fill_* hold the leaf
   output logic [3:0]        done_cause,   // else the fault
   output logic [26:0]       fill_vpn,
@@ -60,6 +68,8 @@ module tg_ptw
   typedef enum logic [2:0] { W_IDLE, W_CHK, W_REQ, W_WAIT, W_MISS, W_PMP, W_DONE } wstate_e;
   wstate_e     st_q;
   logic [2:0]  who_q;
+  tid_t        tid_q;            // the walk's thread
+  tid_t        wt, rt;           // ... as an index (0 without threads); the request's being taken
   logic [63:0] va_q;
   acc_e        acc_q;
   priv_e       mode_q;
@@ -78,7 +88,11 @@ module tg_ptw
     end
   end
   logic [1:0] k;
-  assign k = ack[0] ? 2'd0 : ack[1] ? 2'd1 : 2'd2;
+  assign k  = ack[0] ? 2'd0 : ack[1] ? 2'd1 : 2'd2;
+  assign rt = (TID_W > 0) ? req_tid[k] : tid_t'(0);
+  assign wt = (TID_W > 0) ? tid_q : tid_t'(0);
+  logic wk;                      // a flush of the walk's thread (in merged mode every flush)
+  assign wk = flush && (!SPLIT || flush_tid == wt);
 
   // PTE address at this level, and its checks
   logic [8:0]  vpn_i;
@@ -115,9 +129,10 @@ module tg_ptw
     pg = PMP_GW'({leaf_q.ppn, 10'b0});            // the page base in 4-byte granules
     leaf_nh = 1'b0;
     for (int i = 0; i < PMP_ENTRIES; i++) begin
-      in_pg  = ((pmp_d[i].a ^ pg) & ~AL2M) == '0;
-      sub_pg = pmp_d[i].nap && !pmp_d[i].above && pmp_d[i].mask[18];
-      bound  = (pmp_d[i].tor || (i < PMP_ENTRIES - 1 && pmp_d[(i + 1) % PMP_ENTRIES].tor)) && !pmp_p2m[i];
+      in_pg  = ((pmp_d[wt][i].a ^ pg) & ~AL2M) == '0;
+      sub_pg = pmp_d[wt][i].nap && !pmp_d[wt][i].above && pmp_d[wt][i].mask[18];
+      bound  = (pmp_d[wt][i].tor || (i < PMP_ENTRIES - 1 && pmp_d[wt][(i + 1) % PMP_ENTRIES].tor)) &&
+               !pmp_p2m[wt][i];
       if (in_pg && (sub_pg || bound)) leaf_nh = 1'b1;
     end
   end
@@ -136,12 +151,12 @@ module tg_ptw
     end else if (nonleaf) begin
       flt = pd || pa || pu || lvl_q == 2'd0;
     end else begin
-      if (pu ? (mode_q == PRIV_S && (acc_q == ACC_X || !sum)) : mode_q != PRIV_S) flt = 1'b1;
+      if (pu ? (mode_q == PRIV_S && (acc_q == ACC_X || !sum[wt])) : mode_q != PRIV_S) flt = 1'b1;
       if (!pv || (pw && !pr)) flt = 1'b1;
       if ((lvl_q == 2'd2 && ppn[17:0] != '0) || (lvl_q == 2'd1 && ppn[8:0] != '0)) flt = 1'b1;
       unique case (acc_q)
         ACC_X:   if (!px) flt = 1'b1;
-        ACC_R:   if (!pr && !(mxr && px)) flt = 1'b1;
+        ACC_R:   if (!pr && !(mxr[wt] && px)) flt = 1'b1;
         default: if (!pw) flt = 1'b1;
       endcase
       if (!pa || (acc_q == ACC_W && !pd)) flt = 1'b1;   // Svade
@@ -156,7 +171,7 @@ module tg_ptw
   endfunction
 
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst || wk) begin
       st_q <= W_IDLE;
     end else begin
       unique case (st_q)
@@ -167,8 +182,9 @@ module tg_ptw
           va_q   <= req_va[k];
           acc_q  <= req_acc[k];
           mode_q <= req_mode[k];
+          tid_q  <= req_tid[k];
           lvl_q  <= 2'd2;
-          base_q <= satp_ppn;
+          base_q <= satp_ppn[rt];
           if (|ack) begin
             who_q <= ack;
             st_q  <= W_CHK;
@@ -206,7 +222,7 @@ module tg_ptw
         end
         W_MISS: if (mshr_idle) st_q <= W_REQ;
         W_PMP: if (chk_gnt) begin                  // the page's PMP result, for S and U
-          leaf_q.ph <= ((lvl_q == 2'd1) ? !leaf_nh : pmp_al[lvl_q]) && !leaf_q.big;
+          leaf_q.ph <= ((lvl_q == 2'd1) ? !leaf_nh : pmp_al[wt][lvl_q]) && !leaf_q.big;
           {leaf_q.pr, leaf_q.pw, leaf_q.px} <= chk_hit ? chk_rwx : 3'b000;
           st_q <= W_DONE;
         end
@@ -221,7 +237,7 @@ module tg_ptw
   logic [2:0] req_cn;
   always_comb for (int i = 0; i < 3; i++) req_cn[i] = va_canon(req_va[i]);
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst || wk) begin
       chk_req_q <= 1'b0;
     end else begin
       unique case (st_q)
@@ -233,7 +249,7 @@ module tg_ptw
       endcase
     end
     if (st_q == W_IDLE)
-      chk_pa_q <= PA_W'({satp_ppn, req_va[k][38:30], 3'b000});
+      chk_pa_q <= PA_W'({satp_ppn[rt], req_va[k][38:30], 3'b000});
     else if (st_q == W_WAIT)
       chk_pa_q <= nonleaf ? PA_W'({ppn, (lvl_q == 2'd2) ? va_q[29:21] : va_q[20:12], 3'b000})
                           : PA_W'({ppn, 12'b0});
@@ -250,8 +266,10 @@ module tg_ptw
   end
 `endif
 
-  assign done       = st_q == W_DONE && !flush;
+  assign done       = st_q == W_DONE && !wk;
   assign done_who   = who_q;
+  assign done_tid   = wt;
+  assign chk_tid    = wt;
   assign done_ok    = ok_q;
   assign done_cause = cause_q;
   assign fill_vpn   = va_q[38:12];
