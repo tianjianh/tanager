@@ -102,6 +102,7 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
   // Banks: B0 (P0), B1 (P1), B2 (loads), F0 (FP pipe), F1 (FP loads), B3 (P5, only used with alu3).
   if (c.prf_banked) bank_size_ = {c.bank_size, c.bank_size, c.bank_size, c.bank_size, c.bank_size, c.bank_size};
   else bank_size_ = {c.prf_int, c.prf_fp};
+  if (c.prf_banked && c.prf_fp_bank > 0) bank_size_[3] = bank_size_[4] = c.prf_fp_bank;
   bank_committed_.assign(bank_size_.size(), 0);
   bank_inflight_.assign(bank_size_.size(), 0);
   bank_held_.assign((size_t)nthr_, std::vector<int64_t>(bank_size_.size(), 0));
@@ -135,6 +136,12 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
       const int64_t home1 = (b == 1 || b == 4) ? (b == 1 ? 31 : 32) : 0;   // hart 1's
       const int64_t free = bank_size_[b] - home0 - home1;
       for (int t = 0; t < nthr_; t++) bank_own_[(size_t)t][b] = (t == 0 ? home0 + free / 2 : home1 + free - free / 2);
+      if (nthr_ == 1) {  // the sleeping sibling's list and the architectural registers it holds at its homes
+        sib_own_.resize(bank_size_.size(), 0);
+        sib_held_.resize(bank_size_.size(), 0);
+        sib_own_[b] = home1 + free - free / 2;
+        sib_held_[b] = home1;
+      }
     }
   }
   if ((int)specs.size() < nthr_ || !th_.back()->iss) err_ = "a program is needed for every thread";
@@ -1078,6 +1085,24 @@ int Core::free_regs(int bank, int tid) {
   return (int)f;
 }
 
+// prf_xfer (D3 as revised by core-2): a hart short of a register in a bank takes one from its sibling's list (with
+// one thread, the sleeping sibling's), at most one a cycle. The register is free since commit, so no recovery is
+// involved. The donor keeps at least one free (1), or its architectural registers of that kind plus one in the bank
+// (2). Returns whether one moved; it is usable the next cycle.
+bool Core::take_register(int bank, int tid) {
+  Thread& T = *th_[(size_t)tid];
+  if (!c_.prf_xfer || bank_own_.empty() || bank_own_[(size_t)tid][bank] < 0 || T.xfer_t == t_) return false;
+  int64_t& own = nthr_ > 1 ? bank_own_[(size_t)(1 - tid)][bank] : sib_own_[(size_t)bank];
+  const int64_t held = nthr_ > 1 ? bank_held_[(size_t)(1 - tid)][bank] : sib_held_[(size_t)bank];
+  const int64_t arch = bank >= 3 ? 32 : 31;
+  if (c_.prf_xfer == 1 ? own - held < 2 : own - held < 1 || own - 1 < arch + 1) return false;
+  own--;
+  bank_own_[(size_t)tid][bank]++;
+  T.xfer_t = t_;
+  T.st.prf_xfers++;
+  return true;
+}
+
 // Rename/dispatch slots are shared like the decode slots; a thread that stalls leaves its slots to the other.
 void Core::dispatch() {
   for (auto it = deferred_free_.begin(); it != deferred_free_.end();) {
@@ -1136,6 +1161,11 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     Uop* up = find(T.disp_next);
     if (!up || up->t_disp_ok > t_) { if (n == n0) T.st.disp_stall_empty++; T.disp_why = DW_EMPTY; break; }
     Uop& u = *up;
+    if (nthr_ > 1 && c_.flush_walk && t_ < T.walk_until) {  // flush_walk: rename waits for the flush's walk
+      T.st.disp_stall_walk++;
+      T.disp_why = DW_ROB;
+      break;
+    }
     if (nthr_ == 1 && lone_phase_ == 1) {  // lone_sleep (D2): dispatch waits while the window drains for a split
       T.st.disp_stall_rob++;
       T.disp_why = DW_ROB;
@@ -1244,7 +1274,12 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       ibank = b0 == b1 ? rob_half(u.id) : (b1 > b0 ? 1 : 0);
     }
     const int bank = bank_for(u, q);
-    if (bank >= 0 && free_regs(bank, T.tid) <= 0) { T.st.disp_stall_reg++; T.disp_why = DW_REG; break; }
+    if (bank >= 0 && free_regs(bank, T.tid) <= 0) {
+      take_register(bank, T.tid);  // prf_xfer: one from the sibling's list, usable the next cycle
+      T.st.disp_stall_reg++;
+      T.disp_why = DW_REG;
+      break;
+    }
     const bool need_llt = c_.llt > 0 && !u.serial && long_latency(u);
     if (need_llt) {
       // iq_bank_llt: a tag comes from its producer's half, which only that bank's rows see
@@ -1275,6 +1310,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     u.has_wtag = need_wtag;
     if (banked) u.iq_bank = (uint8_t)ibank;
     u.dst_bank = bank;
+    u.t_dsp = t_;
     if (bank >= 0) { bank_inflight_[bank]++; bank_held_[(size_t)T.tid][bank]++; }
     u.has_llt = need_llt;
     if (lq_need) { T.lq_count++; u.in_lq = true; }
@@ -1765,6 +1801,12 @@ void Core::retire(Uop& u, bool early) {
         T.st.mp_resolved_commit++;
         if (u.t_res != NEVER) T.st.mp_wait_cycles += t_ - u.t_res;  // resolve to commit: checkpoints' bound
         T.refill_from = t_;
+        if (nthr_ > 1 && c_.flush_walk) {  // shared lists: the flush walks the thread's half for its registers
+          const int64_t half = share(c_.rob, T.tid);
+          const int64_t n = c_.flush_walk == 1 ? half : std::min<int64_t>(half - 1, 2 * (int64_t)(t_ - u.t_dsp));
+          T.walk_until = std::max(T.walk_until, t_ + (uint64_t)((n + 1) / 2));
+          T.st.flush_walks++;
+        }
         T.blk_head = T.blk_seq;  // m2_ftq: the flush empties the FTQ
         T.fe_wait_mp = false;
         T.fe_count_from = t_ + (uint64_t)c_.commit_redirect;
@@ -1954,12 +1996,14 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
     bgh = it->bt.gh;
   }
   T.fetchq.clear();
+  int64_t flushed = 0;
   while (!T.win.empty() && T.win.back().id >= from_id) {
     Uop& u = T.win.back();
     if (u.ras.op) T.ras.restore(u.ras.sp, u.ras.slot, u.ras.val);
     oldest = u.hist;
     bgh = u.bt.gh;
     if (u.state >= 1) {
+      flushed++;
       T.rob_count--;
       if (u.state == 1 && u.q != Q_SERIAL) iq_remove(u);
       if (u.in_lq) T.lq_count--;
@@ -1971,6 +2015,11 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
       if (u.is_store && !T.sq.empty() && T.sq.back().id == u.id) T.sq.pop_back();
     }
     T.win.pop_back();
+  }
+  if (nthr_ > 1 && c_.flush_walk) {  // shared lists: the flush walks the thread's half for its registers
+    const int64_t n = c_.flush_walk == 1 ? share(c_.rob, T.tid) : flushed;
+    T.walk_until = std::max(T.walk_until, t_ + (uint64_t)((n + 1) / 2));
+    T.st.flush_walks++;
   }
   T.ghr = oldest;
   if (btage_) {  // m2_btage: a flush copies commit's history; the refetch reads with all of it
@@ -2244,6 +2293,7 @@ std::string Core::region_json(const Thread& T) const {
   if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared || c_.iq_bank || c_.wake_tags) {
     TG_LEVER_STATS(TG_RJ)
   }
+  if (c_.prf_split || c_.flush_walk) { TG_M7_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)

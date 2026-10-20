@@ -83,6 +83,7 @@ struct Uop {
   int sfb_temp_bank = -1;
   uint8_t state = 0;                  // 0 decoded, 1 dispatched (waiting), 2 issued
   uint64_t t_disp_ok = 0, t_eligible = 0, t_issue = NEVER, t_ready = NEVER, t_done = NEVER, t_ag = NEVER;
+  uint64_t t_dsp = 0;                 // when it dispatched (flush_walk's wrong-path estimate)
   bool is_ctrl = false, mispred = false, resolved = false, has_ckpt = false, sfb_cmp = false, sfb_sel = false;
   uint64_t t_res = NEVER;             // a control op: when it resolved (mp_wait_cycles)
   bool fused_br = false;
@@ -147,12 +148,16 @@ struct SqEntry {
 // stalls of an op ALU2 could not take, iq_bank dispatch stalls of a uop whose producers lie in both banks,
 // wake_tags dispatch stalls for want of a tag.
 #define TG_LEVER_STATS(X)   X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls) X(disp_stall_bank) X(disp_stall_wtag)
+// M7's register lists (reported with prf_split or flush_walk): registers taken from the sibling's list, flush walks
+// and the dispatch cycles they stalled.
+#define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
   TG_STATS(TG_SDECL)
   TG_SMT_STATS(TG_SDECL)
   TG_LEVER_STATS(TG_SDECL)
+  TG_M7_STATS(TG_SDECL)
 #undef TG_SDECL
 };
 
@@ -242,6 +247,8 @@ class Core {
     uint64_t last_commit_t = 0;
     uint64_t refill_from = ~0ull;  // commit cycle of a mispredict recovered at commit, until the next retire
     uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
+    uint64_t walk_until = 0;       // flush_walk: rename waits until the flush's walk ends
+    uint64_t xfer_t = ~0ull;       // prf_xfer: the cycle of the last register taken from the sibling's list
     // multithreaded runs
     int lap = 0;                   // completed runs of the program
     bool first_done = false;
@@ -366,6 +373,8 @@ class Core {
   std::deque<DeferredFree> deferred_free_;
   // prf_split (D3): registers each thread may hold in each bank (-1: no limit of its own) and holds
   std::vector<std::vector<int64_t>> bank_own_, bank_held_;
+  std::vector<int64_t> sib_own_, sib_held_;   // one thread: the sleeping sibling's list (prf_xfer's donor)
+  bool take_register(int bank, int tid);
   // lone_sleep (D2): 0 merged, 1 draining for a split, 2 halves with the sibling awake, 3 halves with it in WFI
   int lone_phase_ = 0;
   uint64_t lone_next_ = 0, lone_t0_ = 0;

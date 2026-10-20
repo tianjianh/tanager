@@ -354,6 +354,147 @@ def lone(workers):
     return out
 
 
+GROUP_CFGS = {"the plan (75% caps)": M7,
+              "75% caps, never a whole bank": {**M7, "smt_iq_cap_bank": 2},
+              "50% caps, last row kept on demand": {**M7, "smt_iq_cap": 50, "smt_iq_cap_bank": 3}}
+
+
+def evaluate7(sets, lat, same, pairs=None):
+    """As evaluate, from run7's cache (errors kept): a deadlocked pair is listed and left out of the means."""
+    pairs = pairs or smt.PAIRS
+    rs = run_all([(PRESET, {**sets, "dram_lat": lat}, a, b) for _, a, b in pairs], 16)
+    per, dl = {}, []
+    for (g, a, b), r in zip(pairs, rs):
+        ip = ipc2(r)
+        if ip is None:
+            dl.append(smt.pname(a, b))
+            continue
+        per[smt.pname(a, b)] = {"group": g, "ipc": ip, "ws": ip[0] / same[a] + ip[1] / same[b]}
+    out = {"pairs": per, "dead": dl, "groups": {}}
+    for g in GROUPS:
+        ms = [m["ws"] for m in per.values() if m["group"] == g]
+        if ms:
+            out["groups"][g] = {"ws": smt.gm(ms)}
+    out["ws"] = smt.gm(e["ws"] for e in out["groups"].values())
+    return out
+
+
+def groups(workers):
+    """Decode, rename and commit groups: mixed (a thread fills the slots its sibling leaves; smt_mix 1, M7's base)
+    against one thread a group (smt_mix 0: each cycle's group from one thread, the first-served thread alternating,
+    an idle thread skipped), for the plan's caps and §13's two bank rules; and §13.4's deadlock search with one
+    thread a group."""
+    run_all([(PRESET, {**c, "smt_mix": 0, "dram_lat": lat}, a, b) for c in GROUP_CFGS.values() for lat in LATS
+             for _, a, b in smt.PAIRS + WS_PAIRS], workers)
+    out = {}
+    print("\n**Mixed groups against one thread a group** (WS over the 42 pairs against one program on the merged "
+          "window; 30 / 120 / 250 cycles)\n")
+    print("| Configuration | Mixed | One thread a group | Change | memory + memory, one a group | compute + "
+          "compute | mixed pairs | Deadlocks (58 pairs), one a group |\n|---|---|---|---|---|---|---|---|")
+    for n, c in GROUP_CFGS.items():
+        out[n] = {}
+        cells = {"mix": [], "one": [], "ch": [], "g": {g: [] for g in GROUPS}, "dead": []}
+        for lat in LATS:
+            same = alone(M7, lat)
+            mx = evaluate(c, lat, ref=same)
+            one = evaluate7({**c, "smt_mix": 0}, lat, same)
+            dl = evaluate7({**c, "smt_mix": 0}, lat, same, smt.PAIRS + WS_PAIRS)["dead"]
+            out[n][lat] = {"mixed": mx["ws"], "one": one["ws"], "one_groups": one["groups"], "dead_42": one["dead"],
+                           "dead_58": dl, "pairs_one": {p: m["ws"] for p, m in one["pairs"].items()}}
+            cells["mix"].append(f"{mx['ws']:.3f}")
+            cells["one"].append(f"{one['ws']:.3f}")
+            cells["ch"].append(f"{one['ws'] / mx['ws'] - 1:+.1%}")
+            for g in GROUPS:
+                cells["g"][g].append(f"{one['groups'][g]['ws']:.3f}" if g in one["groups"] else "–")
+            cells["dead"].append(str(len(dl)))
+        print(f"| {n} | " + " | ".join(" / ".join(cells[k]) for k in ("mix", "one", "ch")) + " | " +
+              " | ".join(" / ".join(cells["g"][g]) for g in GROUPS) + " | " + " / ".join(cells["dead"]) + " |")
+    return out
+
+
+BASE7 = {**M7, "smt_iq_cap_bank": 2}   # §13's recommended M7: 75% caps, a hart never taking all of a slot bank
+D3REV = {"shared lists, no walk": {"prf_fp_bank": 96},
+         "shared lists, walk the half": {"prf_fp_bank": 96, "flush_walk": 1},
+         "shared lists, walk the flushed entries": {"prf_fp_bank": 96, "flush_walk": 2},
+         "per-hart lists, donor keeps 1, FP 96": {"prf_split": 1, "prf_xfer": 1, "prf_fp_bank": 96},
+         "per-hart lists, donor keeps its own + 1, FP 96": {"prf_split": 1, "prf_xfer": 2, "prf_fp_bank": 96},
+         "per-hart lists, donor keeps 1, FP 128": {"prf_split": 1, "prf_xfer": 1, "prf_fp_bank": 128},
+         "per-hart lists, donor keeps its own + 1, FP 128": {"prf_split": 1, "prf_xfer": 2, "prf_fp_bank": 128}}
+D3REV_64 = {"per-hart lists, donor keeps 1, FP 64": {"prf_split": 1, "prf_xfer": 1},
+            "shared lists, FP 64 (today)": {}}
+
+
+def d3rev(workers):
+    """D3 as revised (core-2, the coordinator): per-hart free lists that take committed-free registers from the
+    sibling's list when short (prf_xfer), FP banks of 96 or 128, against shared lists whose flush walks the thread's
+    half 2 entries a cycle (flush_walk). On §13's recommended M7: weighted throughput over the 42 pairs, deadlocks over
+    the 42, the working-set, FP and FP-restore pairs, a lone hart over the suite, and transfers a kilo-instruction."""
+    extra_pairs = WS_PAIRS + FP_PAIRS + RESTORE_PAIRS
+    suite = [w["name"] for w in tgrun.manifest(ISA)] + ["tk_dgemm"] + RESTORE
+    jobs = [(PRESET, {**BASE7, **v, "dram_lat": lat}, a, b) for v in D3REV.values() for lat in LATS
+            for _, a, b in smt.PAIRS + extra_pairs]
+    jobs += [(PRESET, {**BASE7, **v, "dram_lat": 30}, a, b) for v in D3REV_64.values() for _, a, b in extra_pairs]
+    jobs += [(PRESET, {**single(BASE7), **v, "dram_lat": lat}, w, None) for v in [{}] + list(D3REV.values())[3:]
+             for lat in LATS for w in suite]
+    run_all(jobs, workers)
+    out = {"pairs": {}, "dead": {}, "lone": {}}
+    print("\n**Pairs: weighted throughput over the 42 (30 / 120 / 250 cycles) and deadlocks over 87 pairs** "
+          "(against one program on today's lists, the merged window)\n")
+    print("| Free lists | WS | Change against shared lists without a walk | Deadlocked pairs (30 / 120 / 250) | "
+          "Transfers a kilo-instruction |\n|---|---|---|---|---|")
+    base_ws = {}
+    for n, v in D3REV.items():
+        row = {"ws": [], "dead": [], "xpki": []}
+        for lat in LATS:
+            same = alone(BASE7, lat)
+            e = evaluate7({**BASE7, **v}, lat, same)
+            dl = [smt.pname(a, b) for _, a, b in smt.PAIRS + extra_pairs
+                  if dead(run7(PRESET, {**BASE7, **v, "dram_lat": lat}, a, b))]
+            xs = [run7(PRESET, {**BASE7, **v, "dram_lat": lat}, a, b) for _, a, b in smt.PAIRS]
+            xf = sum(t["region"].get("prf_xfers", 0) for r in xs if not r.get("error") for t in r["threads"])
+            ins = sum(t["region"]["instr"] for r in xs if not r.get("error") for t in r["threads"])
+            row["ws"].append(e["ws"])
+            row["dead"].append(dl)
+            row["xpki"].append(xf * 1000.0 / max(1, ins))
+            if n == "shared lists, no walk":
+                base_ws[lat] = e["ws"]
+        out["pairs"][n] = row
+        print(f"| {n} | " + " / ".join(f"{x:.3f}" for x in row["ws"]) + " | " +
+              " / ".join(f"{x / base_ws[lat] - 1:+.1%}" for x, lat in zip(row["ws"], LATS)) + " | " +
+              " / ".join(str(len(d)) for d in row["dead"]) + " | " + " / ".join(f"{x:.2f}" for x in row["xpki"]) +
+              " |")
+    for n, v in D3REV.items():
+        for lat, dl in zip(LATS, out["pairs"][n]["dead"]):
+            if dl:
+                print(f"- {n}, {lat} cycles: {', '.join(dl)}")
+    for n, v in D3REV_64.items():
+        dl = [smt.pname(a, b) for _, a, b in extra_pairs if dead(run7(PRESET, {**BASE7, **v, "dram_lat": 30}, a, b))]
+        out["dead"][n] = dl
+        print(f"- {n}, 30 cycles, the {len(extra_pairs)} other pairs: {', '.join(dl) or 'none'} deadlocked")
+    print("\n**A lone hart** (its sibling asleep, its spares taken by transfers; IPC against today's shared lists; "
+          "30 / 120 / 250 cycles)\n")
+    print("| Free lists | Suite | Largest losses at 120 | Deadlocks | Transfers a kilo-instruction |\n"
+          "|---|---|---|---|---|")
+    for n, v in list(D3REV.items())[3:]:
+        row = {"geo": [], "dead": set(), "xpki": [], "worst": []}
+        for lat in LATS:
+            b = {w: ipc1(run7(PRESET, {**single(BASE7), "dram_lat": lat}, w, None)) for w in suite}
+            rs = {w: run7(PRESET, {**single(BASE7), **v, "dram_lat": lat}, w, None) for w in suite}
+            ch = {w: ipc1(r) / b[w] - 1 for w, r in rs.items() if ipc1(r) and b.get(w)}
+            row["geo"].append(smt.gm(1 + c for c in ch.values()) - 1)
+            row["dead"] |= {w for w, r in rs.items() if dead(r)}
+            xf = sum(r["region"].get("prf_xfers", 0) for r in rs.values() if not r.get("error"))
+            ins = sum(r["region"]["instr"] for r in rs.values() if not r.get("error"))
+            row["xpki"].append(xf * 1000.0 / max(1, ins))
+            if lat == 120:
+                row["worst"] = sorted(ch.items(), key=lambda kv: kv[1])[:3]
+        out["lone"][n] = {**row, "dead": sorted(row["dead"])}
+        print(f"| {n} | " + " / ".join(f"{g:+.2%}" for g in row["geo"]) + " | " +
+              ", ".join(f"{w} {c:+.1%}" for w, c in row["worst"]) + " | " + (", ".join(sorted(row["dead"])) or "none") +
+              " | " + " / ".join(f"{x:.2f}" for x in row["xpki"]) + " |")
+    return out
+
+
 PRED = {"75% caps (the plan)": ("exit2", None),
         "75% caps, never a whole bank": ("policy", "75% caps, never a whole bank"),
         "50% caps, the last row kept": ("policy", "50% caps, last row kept on demand"),
@@ -409,12 +550,14 @@ def main():
     ap.add_argument("--fp", action="store_true")
     ap.add_argument("--lone", action="store_true")
     ap.add_argument("--prediction", action="store_true", help="exit 2's table from --exit2 and --policy")
+    ap.add_argument("--groups", action="store_true", help="mixed decode/rename/commit groups against one a thread")
+    ap.add_argument("--d3rev", action="store_true", help="per-hart free lists with transfers against shared + walk")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
-                     ("prediction", prediction)):
+                     ("prediction", prediction), ("groups", groups), ("d3rev", d3rev)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")
