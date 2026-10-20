@@ -290,6 +290,7 @@ module tg_core
   preg_t                            isrc_tag, fpi_dst;
   logic [63:0]                      isrc_data, fpi_data;
   robid_t                           fpi_rob;
+  tid_t                             fpi_tid;    // the FP->int head's thread (M7, DR-175: exec's kill)
   llt_t                             fpi_llt;
   logic [4:0]                       fpi_fflags, oth_fflags;
   assign sd_busy    = EXT_FD && isrc_valid;
@@ -382,7 +383,7 @@ module tg_core
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr,
     .sd_tag, .sd_data, .isrc_valid, .isrc_tag, .isrc_data, .fpi_valid, .fpi_kill, .fpi_ready, .fpi_rob, .fpi_llt,
-    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags,
+    .fpi_dst_en, .fpi_dst, .fpi_data, .fpi_fflags, .fpi_tid, .flush_tid,
     .tr_tag, .tr_data(tr_data_x), .rf_we_o(rf_we), .rf_widx_o(rf_widx),
     .cmp_valid(alu_cmp), .cmp_rob(alu_rob), .oth_valid(oth_cmp), .oth_rob, .oth_exc, .oth_tval,
     .oth_fflags,
@@ -559,6 +560,7 @@ module tg_core
     assign fp_we      = {fld_valid, f0_we};
     assign fp_widx    = {fld_idx, f0_widx};
     assign fpi_rob    = p4_fpi.rob;
+    assign fpi_tid    = p4_fpi.tid;
     assign fpi_llt    = p4_fpi.llt;
     assign fpi_dst_en = p4_fpi.dst_en;
     assign fpi_dst    = p4_fpi.dst;
@@ -594,7 +596,7 @@ module tg_core
     assign frm      = frm_t[0];
     assign fs_dirty = fs_dirty_t[0];
     logic unused;
-    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.tid, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
+    assign unused = ^{er_busy_t, frm_t, fs_dirty_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
                       p4_er_v, p4_er_ff, fc_frm_rd};
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
@@ -616,6 +618,7 @@ module tg_core
     assign fp_we         = '0;
     assign fp_widx       = '0;
     assign fpi_rob       = '0;
+    assign fpi_tid       = '0;
     assign fpi_llt       = '0;
     assign fpi_dst_en    = 1'b0;
     assign fpi_dst       = '0;

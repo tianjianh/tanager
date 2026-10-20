@@ -118,6 +118,7 @@ module tg_issue
     logic [63:0]       imm;
     logic              dst_en;
     logic [PIDX_W-1:0] dst;
+    tid_t              tid;            // its thread: a flush kills it only for that thread (M7, DR-175)
     preg_t             src1, src2;
   } f_alu_t;
   typedef struct packed {
@@ -164,6 +165,7 @@ module tg_issue
     logic [11:0] imm;
     sqid_t       sq;
     logic [1:0]  mem_size;
+    tid_t        tid;                 // its thread (M7, DR-175)
     preg_t       src1;
   } f_sta_t;
 
@@ -175,7 +177,7 @@ module tg_issue
           sh_arith: p.alu.sh_arith, sh_rot: p.alu.sh_rot, cmp_unsigned: p.alu.cmp_unsigned,
           lg_fn: p.alu.lg_fn, lg_invb: p.alu.lg_invb, bit_fn: p.alu.bit_fn, un_fn: p.alu.un_fn};
     return '{cls: p.cls, alu: c, b_imm: p.b_imm, imm: p.imm, dst_en: p.dst_en,
-             dst: preg_idx(p.dst), src1: p.src1, src2: p.src2};
+             dst: preg_idx(p.dst), tid: p.tid, src1: p.src1, src2: p.src2};
   endfunction
   /* verilator lint_on UNUSEDSIGNAL */
   function automatic iq_pl_t up_alu(input f_alu_t f, input int q);
@@ -199,6 +201,7 @@ module tg_issue
     p.imm              = f.imm;
     p.dst_en           = f.dst_en;
     p.dst              = mk_preg(q, f.dst);
+    p.tid              = f.tid;
     p.src1             = f.src1;
     p.src2             = f.src2;
     return p;
@@ -337,7 +340,7 @@ module tg_issue
     end else if (q == Q_STA) begin : g_fs
       for (genvar k = 0; k < DW; k++) begin : g_k
         assign dpl[k] = f_sta_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0], sq: disp_pl[k].sq,
-                                 mem_size: disp_pl[k].mem_size, src1: disp_pl[k].src1};
+                                 mem_size: disp_pl[k].mem_size, tid: disp_pl[k].tid, src1: disp_pl[k].src1};
       end
       f_sta_t b;
       assign b = pl;
@@ -347,6 +350,7 @@ module tg_issue
         up.imm      = {{52{b.imm[11]}}, b.imm};
         up.sq       = b.sq;
         up.mem_size = b.mem_size;
+        up.tid      = b.tid;
         up.src1     = b.src1;
       end
     end else begin : g_ffp

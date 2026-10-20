@@ -11,8 +11,8 @@
 // The single 65x65 multiply keeps simulation fast. Synthesis maps it onto DSP48E2 tiles and
 // their cascade, absorbing M1 and M2 into the tiles' pipeline registers (AREG/BREG, then
 // MREG/PREG); a hand-partitioned tile array can replace it if timing needs one.
-// flush kills every request in flight, including one presented in the flush cycle: their
-// out_valid never rises. A result already in M3 is still presented in the flush cycle.
+// flush kills every request in flight of the flushed thread (flush_tid; one tid per stage, M7),
+// including one presented in the flush cycle: their out_valid never rises. A result already in M3 is still presented in the flush cycle.
 // Valid bits reset; data registers do not (they load only with their valid bit).
 module tg_mul
   import tg_pkg::*, tg_core_pkg::*;
@@ -20,7 +20,9 @@ module tg_mul
 (
   input  logic             clk,
   input  logic             rst,
-  input  logic             flush,      // kills every request in flight (their out_valid never rises)
+  input  logic             flush,      // kills the flushed thread's requests in flight (their out_valid never rises)
+  input  tid_t             flush_tid,  //   (M7, DR-175: each stage keeps its request's thread)
+  input  tid_t             in_tid,
   input  logic             in_valid,
   input  mul_op_e          in_op,
   input  logic             in_word,    // MULW: only with MUL_LO; 32-bit product of the low words, sign-extended
@@ -30,11 +32,13 @@ module tg_mul
   output logic             out_valid,
   output logic [63:0]      out_res,
   output logic [TAG_W-1:0] out_tag,
+  output tid_t             out_tid,
   output logic [127:0]     out_prod,   // the product's low 128 bits; out_res is
   output logic             out_hi,     //   out_word ? sext(out_prod[31:0]) : out_hi ? out_prod[127:64]
   output logic             out_word    //   : out_prod[63:0]
 );
   logic                v1_q, v2_q, v3_q;
+  tid_t                t1_q, t2_q, t3_q;
   logic signed [64:0]  a1_q, b1_q;
   logic                hi1_q, hi2_q, word1_q, word2_q;
   logic [TAG_W-1:0]    tag1_q, tag2_q, tag3_q;
@@ -44,8 +48,14 @@ module tg_mul
 
   always_ff @(posedge clk) begin
     if (rst) {v1_q, v2_q, v3_q} <= '0;
-    else     {v1_q, v2_q, v3_q} <= {in_valid, v1_q, v2_q} & {3{!flush}};
+    else begin
+      v1_q <= in_valid && !(flush && in_tid == flush_tid);
+      v2_q <= v1_q && !(flush && t1_q == flush_tid);
+      v3_q <= v2_q && !(flush && t2_q == flush_tid);
+    end
+    {t1_q, t2_q, t3_q} <= {in_tid, t1_q, t2_q};
   end
+  assign out_tid = t3_q;
 
   // The low 128 bits of the 130-bit signed product: a signed extension to 128 bits keeps them
   // exact, and every result is in them. MUL and MULW use bits 63:0, the high forms 127:64.

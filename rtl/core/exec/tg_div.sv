@@ -19,15 +19,20 @@
 // Overflow (-2^63 / -1, and -2^31 / -1 for the W forms) needs no special case: the
 // magnitude quotient 2^63 (2^31) already is the wrapped result, and the remainder is 0.
 // count = queued + in progress + result waiting; the caller keeps it at most DEPTH.
-// flush drops everything, including a request presented in the flush cycle. A result
-// already in the result register is still presented in the flush cycle.
+// flush drops everything, including a request presented in the flush cycle, when its thread
+// (flush_tid) is the one whose requests the unit holds (M7, DR-175): step 1 keeps one thread's
+// requests in the unit at a time (asserted), so a kill takes them all; dropping one thread's
+// requests from among another's is for M7's per-thread queues. A result already in the result
+// register is still presented in the flush cycle.
 module tg_div
   import tg_pkg::*, tg_core_pkg::*;
 #(parameter int TAG_W = 8, parameter int DEPTH = DIV_INFLIGHT)
 (
   input  logic             clk,
   input  logic             rst,
-  input  logic             flush,      // drops every request (queued, in progress, waiting result)
+  input  logic             flush,      // drops every request (queued, in progress, waiting result) ...
+  input  tid_t             flush_tid,  //   of this thread: the unit's (in_tid of its requests), or the new request's
+  input  tid_t             in_tid,
   // Requests: the caller guarantees room (it never has more than DEPTH requests in the unit)
   input  logic             in_valid,
   input  div_op_e          in_op,
@@ -40,7 +45,8 @@ module tg_div
   input  logic             out_ready,
   output logic [63:0]      out_res,
   output logic [TAG_W-1:0] out_tag,
-  output logic [idx_w(DEPTH+1)-1:0] count   // requests in the unit: queued + in progress + result waiting
+  output logic [idx_w(DEPTH+1)-1:0] count,  // requests in the unit: queued + in progress + result waiting
+  output tid_t             out_tid     // the thread whose requests the unit holds
 );
   localparam int CW     = idx_w(DEPTH + 1);
   localparam int FDEPTH = 1 << idx_w(DEPTH);   // tg_fifo needs a power of two
@@ -54,10 +60,15 @@ module tg_div
   } req_t;
   req_t                   in_req, hd;
   logic                   hd_valid, q_ready, load;
+  tid_t                   tid_q;          // the thread of the requests the unit holds (one at a time, M7 step 1)
+  logic                   kill_u, kill_in;  // the flush takes the unit's requests; the one presented now
+  assign kill_u  = flush && tid_q == flush_tid;
+  assign kill_in = flush && in_tid == flush_tid;
+  assign out_tid = tid_q;
   logic [idx_w(FDEPTH):0] q_count;
   assign in_req = '{op: in_op, word: in_word, a: in_a, b: in_b, tag: in_tag};
   tg_fifo #(.T(req_t), .DEPTH(FDEPTH)) u_q (
-    .clk, .rst(rst || flush), .in_valid(in_valid && !flush), .in_ready(q_ready), .in_data(in_req),
+    .clk, .rst(rst || kill_u), .in_valid(in_valid && !kill_in), .in_ready(q_ready), .in_data(in_req),
     .out_valid(hd_valid), .out_ready(load), .out_data(hd), .count(q_count));
 
   // ---- Divider state ----
@@ -117,7 +128,7 @@ module tg_div
   end
 
   always_ff @(posedge clk) begin
-    if (rst || flush) st_q <= S_IDLE;
+    if (rst || kill_u) st_q <= S_IDLE;
     else begin
       unique case (st_q)
         S_IDLE: if (load) st_q <= S_NM;
@@ -151,7 +162,7 @@ module tg_div
 
   // ---- Result register ----
   always_ff @(posedge clk) begin
-    if (rst || flush)   out_valid_q <= 1'b0;
+    if (rst || kill_u)  out_valid_q <= 1'b0;
     else if (fx_go)     out_valid_q <= 1'b1;
     else if (out_ready) out_valid_q <= 1'b0;
   end
@@ -162,6 +173,8 @@ module tg_div
     end
   end
 
+  always_ff @(posedge clk)
+    if (in_valid && !kill_in) tid_q <= in_tid;   // the unit's thread: its newest request's
   assign out_valid = out_valid_q;
   assign out_res   = out_res_q;
   assign out_tag   = out_tag_q;
@@ -169,9 +182,12 @@ module tg_div
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
-    if (!rst && !flush && in_valid)
+    if (!rst && !kill_in && in_valid)
       assert (q_ready && (int'(count) < DEPTH || (out_valid_q && out_ready)))
         else $error("tg_div: request beyond DEPTH");
+    // M7 step 1: the unit holds one thread's requests at a time, so a kill of that thread takes them all
+    if (!rst && !kill_in && in_valid && count != '0)
+      assert (in_tid == tid_q) else $error("tg_div: requests of two threads in the unit (M7: per-thread kills needed)");
   end
 `endif
 endmodule
