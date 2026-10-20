@@ -309,3 +309,16 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 - It runs until segments a, b and c together reach 24 h of stress: 01:32:31 UTC on 10-21.
 - Network checks: 19, hourly from 07:21:38.
 - The stress watcher now also stops at an mmc0 timeout or a probe capture.
+
+**s19 segment c: 4 of 4 passes clean,** from 06:51:38 to 06:59:28 UTC (0.13 h of stress). The coordinator paused it for 30 more short boots ("STRESS stop after pass 4, fails=0").
+- Pass 3's line fell in the gap between the COM5 logger's stop and the pause's session; the stress's own count says it was clean.
+- **The always-on watch costs the stress about 3.5%.** cpu ran 90.2–90.6 events/s, memory 128.1–128.3 MiB/s and threads 2,223–2,227, against 93.4, 131.9 and 2,303 in segments a and b without it.
+  - Every 2 s the watch formats the kernel's whole log (`dmesg`) and greps it, which is a real load at 100 MHz.
+  - Segment d's numbers will carry the same cost.
+  - Waiting on `/dev/kmsg` instead would cost nothing between messages. That's for soc-2's probe.
+- Logs: [`uart_COM5_s19c_start.txt`](uart_COM5_s19c_start.txt), [`uart_COM5_s19c.txt`](uart_COM5_s19c.txt), [`uart_COM5_s19c_pause.txt`](uart_COM5_s19c_pause.txt).
+- **Segments a, b and c together:** 167 of 167 passes clean, 5.45 h of stress.
+
+**Boots 31–60 (from 07:00 UTC; the coordinator: 30 more short boots, each with the stress and a shutdown, stopping at the first capture).**
+- At 3 losses in 32 boots, 30 more have about a 94% chance of a loss.
+- The driver now also stops at the probe's capture on COM5, before a login or after the stress. That covers a capture made in a shutdown, or when SSH is already gone.
