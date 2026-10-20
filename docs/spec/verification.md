@@ -161,6 +161,7 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 
 - **Link address:** programs are linked at `0x8000_0000`; the core boots there (`boot_addr_i`, `--boot` to change).
 - **Console:** the 16550 THR at `UART_BASE`. `tests/bench/bsp` has the start-up code and newlib stubs.
+- **Harts (M7, DR-175):** hart 0 runs the program, and every other hart parks in WFI, since a sibling thread fetches from reset once M7's `HART1_ON` is set. The benchmarks' `crt0.S`, the directed tests (`TG_PARK_HARTS` at `_start`), ACT4's `RVMODEL_BOOT` (DUT builds only; Sail's macros leave it out) and single-hart `tg_rand` programs do this. `tg_rand --harts`, `gen_coh`, `litmus_gen` and memcal give each hart they name its own work and park the rest. riscv-tests' own environment keeps the others spinning (`RISCV_MULTICORE_DISABLE`), which lockstep checks as well.
 - **Exit:** a riscv-tests-style write to the 8-byte `tohost` symbol, seen in the commit trace as retired stores (`mem_st`) to `tohost` (or one of its aliases, below). The harness keeps a copy of the 8 bytes; a command is complete when a store reaches the top byte, so one 64-bit store and the two 32-bit stores of riscv-tests and ACT4 (`sw value, tohost; sw high, tohost+4`) both work:
   - value bit 0 set: the program exits with code `value >> 1`; 0 is a pass;
   - value with device 1, command 1 (`0x0101 << 48 | c`): character `c` for the console; the harness prints it. It cannot clear `tohost` behind a cached line, so a program that waits for that is stopped as a failure with the text printed so far;
@@ -756,7 +757,7 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
 The Linux boot on the SoC under lockstep, as far as a core change needs it. M6's micro-BTB alias (fixed in core-2's c261c1f) passed every program, the coherence suite and cycle-identical with the 20M-cycle boot, and panicked Linux on the board about 220M cycles in, in three boots of three. The 20M-cycle boot never got near it. Core-2's traced 100M-cycle boot found it on the FENCE.I branch, at cycle 91.6M.
 
 ```
-make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
+make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board|smp4] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
 make boot-lockstep-gate [BASE=main] [BRANCH=<ref>] [profile switches]
 tools/ci/boot_lockstep.py --nightly | --install-cron
 ```
@@ -766,7 +767,7 @@ tools/ci/boot_lockstep.py --nightly | --install-cron
   - **Checked against the stream:** the first 389,603 records of a boot are byte for byte the stream's, cycle stamps aside. The first difference is the first read of the `cycle` CSR (the same instruction, another value), where the stream's back-pressure first shows.
   - **`+mem_zero` always:** a tapped run is not a traced run to `tb_boot`, so unwritten memory would read the DDR models' fill pattern where Spike reads zero (the first tapped boot stopped on a CRC over such bytes).
 - **A run:** `tb_boot` built with the tap (`MEM_PARAMS=-GL2_SETS_TB=1024`, the board's L2), the pinned reference images (§4.5), the configuration's device tree from `sw/dts` (128 MiB, FPU), and `tanager-lockstep` built from the same tree, so its boot ROM and PMP default are the tested RTL's. The RTL is `BRANCH`'s (default: this tree's, uncommitted changes too); the harness (`sim/`, `tests/unit`, `sw/dts`) is this tree's, as in cycle-identical. A run stops at `MCYC` million cycles or at `TANAGER-BOOT-OK`, and reports PASS, MISMATCH (the checker's first lines and its report) or could-not-check, with the records, cycles, IPC and minutes. Builds are cached in `$TANAGER_BUILD/boot-lockstep` (binaries only, four kept).
-  - **Shapes:** `st`, one `st` core; `board`, the board's: two `smt2` cores running thread 0 each (harts 0 and 2), four Verilator threads.
+  - **Shapes:** `st`, one `st` core; `board`, the board's: two `smt2` cores running thread 0 each (harts 0 and 2), four Verilator threads; `smp4` (M7), both threads of both cores, with the device tree's `RUN_THREADS=2`. Until hart 1 fetches (M7's step 5), Linux brings up harts 0 and 2 on `smp4` and reports the others failed to come online.
   - **Timings** (the DDR models' run-time plusargs, so one build serves them all; one run each, side by side): `board`, a fixed 22 cycles with every ready at 100%; `jitter`, 18–26 cycles; `fixedN`; `default`, `tb_boot`'s own 4–12.
   - **`--plant N`** makes the checker corrupt record N: the self-test of the failure path.
 - **Speed** (w-x299, 2026-10-19, Linux from the reference images on 0a1a418, board-like memory, under a load of about 40):
@@ -1035,6 +1036,30 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 ### 6.3 Snapshots
 
 §2.8.
+
+### 6.6 RVWMO litmus tests (`tests/litmus`, M7)
+
+The memory model, which lockstep does not check (§3.7): litmus-tests-riscv's RVWMO suite (plan §9; the M7 plan's exit 4), judged against herd's RISC-V model.
+- **The suite** is a checkout of its own, only read: `~/src/tanager/litmus-tests-riscv` at 08728ed (BSD-2), its scripts never run. `tests/litmus/litmus_gen.py`, run with `python3 -I`, reads its tests and `model-results/herd.logs`.
+- **One program runs a batch of tests,** each test's threads on harts of their own, `ITERS` times (100 by default in simulation). Every iteration:
+  - the first hart resets the test's locations, each on a line of its own as herd assumes;
+  - the harts meet at a barrier (an AMO count and a generation word);
+  - each hart warms its lines as the test's `Prefetch` line asks (a load, or an AMO that leaves the value for a write), waits 0–63 loop turns or not at all (a quarter of the iterations start at once), sets its registers (the test's values, every other register its code names to 0) and runs its thread's code;
+  - after a second barrier, the first hart looks the final state up in herd's list of the states RVWMO allows for that test.
+  It prints `LIT <name> k=<ITERS> bad=<n> s=<count of each allowed state>`, and `LIT-BAD` with the first state herd does not allow.
+- **A test passes** when every final state is one herd allows. That checks every outcome, not only the test's `exists` condition.
+- **Left out:**
+  - the load-acquire and store-release forms (`lw.aq`, `sw.rl`, `ld.aq`), which the core does not have: 3,802 tests;
+  - tests with a `filter` (8), with `jalr`, or without herd results;
+  - files outside the suite's `@all` lists, which herd's results do not cover: a few repeat a listed test's name with other code;
+  - tests whose herd results predate the file (`tests/litmus/stale.txt`: PPOCA, changed after the results);
+  - tests with more threads than harts.
+- **Spike against Spike** (`make -C tests/litmus replay HARTS=0,1|0,1,2,3`) checks the harness: Spike's harts interleave one instruction at a time, so every state is allowed. Tests with an SC don't run there: each Spike hart keeps its LR reservation through another hart's store, so the replaying Spike's SC can succeed where the checker's fails, and the replay stops. On 2026-10-20: 1,367 tests on two harts and 2,863 on four pass, none in a state herd forbids (388 and 747 with an SC not run).
+- **The SoC** (`make -C tests/litmus CFG=st|smt2 [LAT=board]`): `tb_boot` with two cores, one hart each, without lockstep. `LAT=board` alternates fixed (22 cycles) and jittered (18–26) DDR timing between batches. On 2026-10-20 (`CFG=st`, harts 0 and 1, 100 iterations each):
+  - **Every two-thread test the generator takes passed:** 1,716, none in a state herd forbids. 4,935 of their 10,899 allowed states were seen, in 216 programs and 34 minutes on the loaded host. One test's result line had been cut by a `tb_boot` progress line; the runner now joins such lines back, and that test passes alone.
+  - **The store-buffering test SB** ends in its relaxed state (both loads 0) 27 times in 200 iterations (fixed timing): its stores wait in the store queue while its loads go to memory. MP's and LB's relaxed states did not appear in 200.
+  - **Two `smt2` cores** (harts 0 and 2, the board's shape): a sample of 400 tests (seed 2, jittered timing, 100 iterations) passes, 394 run and none in a state herd forbids (6 skipped by the generator). SB's relaxed state appears 15 times in 100.
+- **Two threads of one core** (`make -C tests/litmus vsim CFG=smt2 HARTS=0,1`, and four harts on two `smt2` cores in `tb_boot`) once hart 1 fetches (M7's step 5); the board runs the same programs with the latency injector at 0, 120 and 250 cycles (soc-2).
 
 ## 7. Build-host notes
 
