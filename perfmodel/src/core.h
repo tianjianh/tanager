@@ -245,6 +245,8 @@ class Core {
     Stats st, st_start, st_end;
     MemStats ms_start, ms_end;
     uint64_t last_commit_t = 0;
+    uint64_t align_wait = 0;       // smt_align: cycles its first region start waited for the sibling's
+    uint64_t align_id = 0;         // smt_align: its dispatched marker 1 (0 = none), the last uop it dispatches
     uint64_t refill_from = ~0ull;  // commit cycle of a mispredict recovered at commit, until the next retire
     uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
     uint64_t walk_until = 0;       // flush_walk: rename waits until the flush's walk ends
@@ -337,6 +339,7 @@ class Core {
   bool window_full(int64_t size, uint64_t own, uint64_t total, int tid) const;
   bool fast_forward(Thread& T);
   bool finished(Thread& T);
+  bool align_hold(Thread& T, const Uop& u);
   void restart(Thread& T);
   void end_first_region(Thread& T);
   void region_event(Thread& T, bool start);

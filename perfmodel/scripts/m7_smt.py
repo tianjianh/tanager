@@ -10,6 +10,7 @@ thread's IPC over its program's first run, the shorter program restarted so both
   python3 scripts/m7_smt.py --deadlock  # D8: the store drain against the sibling's misses, with and without fairness
   python3 scripts/m7_smt.py --fp        # D3: FP-heavy pairs with per-thread free lists
   python3 scripts/m7_smt.py --lone      # D2: a lone thread with its sibling asleep: halves, merged, transitions
+  python3 scripts/m7_smt.py --pair      # exit 2 blind on verif-2's pair runner: its programs, barrier and restarts
 Results -> results/m7_smt_rv64gc.json (each section keeps the others' earlier results).
 """
 import argparse
@@ -149,7 +150,9 @@ def exit2(workers):
 
 def run7(preset, sets, a, b=None):
     """One run, a single thread (b None) or a pair, cached in results/m7 with any error (a deadlock) kept."""
-    raw = json.dumps([ISA, preset, sorted(sets.items()), a, b, dse.MODEL_VERSION, smt.SMT_VERSION, M7_VERSION])
+    key = [ISA, preset, sorted(sets.items()), a, b, dse.MODEL_VERSION, smt.SMT_VERSION, M7_VERSION]
+    hs = [smt.WS[w]["hash"] for w in (a, b) if w and "hash" in smt.WS[w]]   # the pair runner's ELFs, by content
+    raw = json.dumps(key + ([hs] if hs else []))
     f = CACHE7 / f"{hashlib.sha1(raw.encode()).hexdigest()[:16]}.json"
     if f.exists():
         return json.loads(f.read_text())
@@ -543,6 +546,177 @@ def prediction(workers):
     return {"halves_ws": hg, "configs": list(PRED)}
 
 
+PAIRDIR = Path(os.environ.get("TG_PAIRDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" / "pair")))
+RUNNER = {"smt_align": 1, "smt_pa_flat": 1}   # the runner's barrier at the first marker; programs at their own bases
+D3R = {"prf_split": 1, "prf_xfer": 1, "prf_fp_bank": 96}   # D3 as revised (DR-175, amended 10-20)
+STEP5 = {**M7, "smt_iq_cap": 100, "smt_mix": 0, "drain_guard": 0, **D3R}   # core-2's step 5: the caps come at step 7
+PAIR_CFGS = {"step 5 as planned (no caps; D8 alternation only)": STEP5,
+             "step 5 + the drain's priority for a miss entry": {**STEP5, "drain_guard": 1},
+             "step 7 as planned (75% caps)": {**STEP5, "smt_iq_cap": 75},
+             "step 7: 75% caps + the drain's priority": {**STEP5, "smt_iq_cap": 75, "drain_guard": 1},
+             "step 7 recommended (75% caps never a whole bank, the drain's priority)":
+                 {**STEP5, "smt_iq_cap": 75, "smt_iq_cap_bank": 2, "drain_guard": 1},
+             "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority":
+                 {**STEP5, "smt_iq_cap": 50, "smt_iq_cap_bank": 3, "drain_guard": 1}}
+PAIR_CHECKS = {"step 5 + the drain's priority, thread 1 in its own address space (§13.2's method)":
+                   {**STEP5, "drain_guard": 1, "smt_pa_flat": 0}}
+ALONE_CFGS = {"today's core": CORE, "with the drain's priority": {**CORE, "drain_guard": 1}}
+METHOD_CFGS = ["step 5 + the drain's priority for a miss entry",
+               "step 7 recommended (75% caps never a whole bank, the drain's priority)",
+               "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"]
+
+
+def repeat_mask(a, b):
+    """smt_restart_ff for a pair whose memory kernels repeat their region instead of restarting with their set-up."""
+    m = (a in smt.MEM) + 2 * (b in smt.MEM)
+    return {"smt_restart_ff": m} if m else {}
+
+
+def pair_workloads():
+    """verif-2's programs (build_pair.sh), each linked at slot 0 (0x8010_0000) and slot 1 (0x8810_0000): no
+    fast-forward (the RTL runs the set-up), stdin built in; each also as `<name>.ff`, fast-forwarded to its region
+    and restarted straight into it (§13.2's method)."""
+    names = []
+    for p in smt.MEM + smt.COMP:
+        for s in (0, 1):
+            f = PAIRDIR / "prog" / f"{p}.s{s}.elf"
+            smt.WS[f"{p}.s{s}"] = {"name": f"{p}.s{s}", "elf": str(f), "stdin": "", "ff": 0,
+                                   "hash": hashlib.sha1(f.read_bytes()).hexdigest()[:16]}
+            names.append(f"{p}.s{s}")
+            smt.WS[f"{p}.s{s}.ff"] = {**smt.WS[f"{p}.s{s}"], "name": f"{p}.s{s}.ff", "ff": 1}
+    return names
+
+
+def pairrun(workers):
+    """Exit 2 blind, on verif-2's pair runner (tests/bench/pair): its programs as built, the pair's first at slot 0 on
+    thread 0 and its second at slot 1 on thread 1; set-up timed; the two first regions start together (the runner's
+    barrier, smt_align); one physical address space (smt_pa_flat); a program that ends runs again from the top. Against
+    each program alone on today's core (one thread on the whole smt2 window), as verif-2's RTL alone runs. M7 as
+    core-2's step 5 builds it (no issue-queue caps), and step 7's caps."""
+    names = pair_workloads()
+    cfgs = {**PAIR_CFGS, **PAIR_CHECKS}
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in cfgs.values()
+            for lat in LATS for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in ALONE_CFGS.values() for lat in LATS for w in names]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in PAIR_CFGS.values() for lat in LATS
+             for _, a, b in WS_PAIRS]   # §13.4's working-set pairs (the model's own builds): deadlocks only
+    jobs += [(PRESET, {**PAIR_CFGS[n], "smt_pa_flat": 1, "dram_lat": lat}, f"{a}.s0.ff", f"{b}.s1.ff")
+             for n in METHOD_CFGS for lat in LATS for _, a, b in smt.PAIRS]   # §13.2's method on these programs
+    jobs += [(PRESET, {**CORE, "dram_lat": lat}, f"{w}.ff", None) for lat in LATS for w in names]
+    jobs += [(PRESET, {**RUNNER, **PAIR_CFGS[n], **repeat_mask(a, b), "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+             for n in METHOD_CFGS for lat in LATS for _, a, b in smt.PAIRS]   # the memory kernels repeating
+    run_all(jobs, workers)
+    out = {"alone": {}, "configs": {}, "ws_dead": {}}
+    for n, c in ALONE_CFGS.items():
+        out["alone"][n] = {}
+        for lat in LATS:
+            rs = {w: run7(PRESET, {**c, "dram_lat": lat}, w, None) for w in names}
+            out["alone"][n][lat] = {w: {"ipc": ipc1(r), "instr": r.get("region", {}).get("instr"),
+                                        "cycles": r.get("region", {}).get("cycles"), "error": r.get("error", "")}
+                                    for w, r in rs.items()}
+    same = {lat: {w: e["ipc"] for w, e in out["alone"]["today's core"][lat].items()} for lat in LATS}
+
+    def ev(c):
+        e = {}
+        for lat in LATS:
+            per, dl = {}, []
+            for g, a, b in smt.PAIRS:
+                r = run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+                ip = ipc2(r)
+                if ip is None:
+                    dl.append(smt.pname(a, b))
+                    continue
+                sp = [ip[0] / same[lat][f"{a}.s0"], ip[1] / same[lat][f"{b}.s1"]]
+                per[smt.pname(a, b)] = {"group": g, "ipc": ip, "speedup": sp, "ws": sum(sp),
+                                        "cycles": [t["region"]["cycles"] for t in r["threads"]],
+                                        "instr": [t["region"]["instr"] for t in r["threads"]],
+                                        "laps": [t["laps"] for t in r["threads"]]}
+            gs = {g: smt.gm(m["ws"] for m in per.values() if m["group"] == g) for g in GROUPS}
+            e[lat] = {"ws": smt.gm(gs.values()), "groups": gs, "min_ws": min(m["ws"] for m in per.values()),
+                      "dead": dl, "pairs": per}
+        return e
+
+    print("\n**Exit 2 on verif-2's pair runner, blind** (WS over the 42 pairs against each program alone on today's "
+          "core; geometric means over the pairs that run; 30 / 120 / 250 cycles)\n")
+    print("| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Deadlocked "
+          "pairs of 42 | Deadlocks, §13.4's 16 working-set pairs |\n|---|---|---|---|---|---|---|---|")
+    for n, c in cfgs.items():
+        e = ev(c)
+        out["configs"][n] = e
+        wsd = None
+        if n in PAIR_CFGS:
+            wsd = [[smt.pname(a, b) for _, a, b in WS_PAIRS if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))]
+                   for lat in LATS]
+            out["ws_dead"][n] = wsd
+        f = lambda v: " / ".join(f"{v(lat):.3f}" for lat in LATS)
+        print(f"| {n} | **{f(lambda lat: e[lat]['ws'])}** | " +
+              " | ".join(f(lambda lat, g=g: e[lat]["groups"][g]) for g in GROUPS) +
+              f" | {f(lambda lat: e[lat]['min_ws'])} | " + " / ".join(str(len(e[lat]["dead"])) for lat in LATS) +
+              " | " + (" / ".join(str(len(d)) for d in wsd) if wsd else "–") + " |")
+    for n, e in out["configs"].items():
+        for lat in LATS:
+            if e[lat]["dead"]:
+                print(f"- {n}, {lat} cycles: {', '.join(e[lat]['dead'])} deadlocked")
+    for n, wsd in out["ws_dead"].items():
+        for lat, d in zip(LATS, wsd):
+            if d:
+                print(f"- {n}, {lat} cycles, working-set pairs: {', '.join(d)} deadlocked")
+    print("\n**The method** (the same programs and configurations; WS by group, 30 / 120 / 250 cycles): the runner's; "
+          "the runner's with the memory kernels repeating their region rather than restarting with their set-up; "
+          "§13.2's (each program fast-forwarded to its region, cold, and restarted straight into it; alone the same "
+          "way)\n")
+    print("| Configuration | Method | All pairs | memory + memory | compute + compute | mixed |\n"
+          "|---|---|---|---|---|---|")
+    ff_same = {lat: {w: ipc1(run7(PRESET, {**CORE, "dram_lat": lat}, f"{w}.ff", None)) for w in names} for lat in LATS}
+
+    def evm(sets_of, wl, base):
+        e = {}
+        for lat in LATS:
+            per = {}
+            for g, a, b in smt.PAIRS:
+                ip = ipc2(run7(PRESET, {**sets_of(a, b), "dram_lat": lat}, *wl(a, b)))
+                if ip is not None:
+                    per[smt.pname(a, b)] = {"group": g,
+                                            "ws": ip[0] / base[lat][f"{a}.s0"] + ip[1] / base[lat][f"{b}.s1"]}
+            gs = {g: smt.gm(m["ws"] for m in per.values() if m["group"] == g) for g in GROUPS}
+            e[lat] = {"ws": smt.gm(gs.values()), "groups": gs, "pairs": {p: m["ws"] for p, m in per.items()},
+                      "n": len(per)}
+        return e
+
+    out["method"] = {}
+    for n in METHOD_CFGS:
+        c = PAIR_CFGS[n]
+        e13 = evm(lambda a, b: {**c, "smt_pa_flat": 1}, lambda a, b: (f"{a}.s0.ff", f"{b}.s1.ff"), ff_same)
+        erp = evm(lambda a, b: {**RUNNER, **c, **repeat_mask(a, b)}, lambda a, b: (f"{a}.s0", f"{b}.s1"), same)
+        out["method"][n] = {"repeat": erp, "s13_2": e13}
+        for meth, ee in (("the runner's", out["configs"][n]), ("the runner's, memory kernels repeating", erp),
+                         ("§13.2's", e13)):
+            f = lambda v: " / ".join(f"{v(lat):.3f}" for lat in LATS)
+            print(f"| {n} | {meth} | {f(lambda lat: ee[lat]['ws'])} | " +
+                  " | ".join(f(lambda lat, g=g: ee[lat]["groups"][g]) for g in GROUPS) + " |")
+    ref = "step 5 + the drain's priority for a miss entry"
+    print("\n**Per pair** (WS, 30 / 120 / 250 cycles; then each thread's share of its alone IPC at 120)\n")
+    print("| Pair | Group | " + " | ".join(PAIR_CFGS) + f" | Shares at 120, {ref} |\n|---|---|" +
+          "---|" * (len(PAIR_CFGS) + 1))
+    for g, a, b in smt.PAIRS:
+        p = smt.pname(a, b)
+        cell = lambda e, lat: f"{e[lat]['pairs'][p]['ws']:.2f}" if p in e[lat]["pairs"] else "dead"
+        s5 = out["configs"][ref][120]["pairs"].get(p)
+        print(f"| {p} | {g} | " + " | ".join(" / ".join(cell(out["configs"][n], lat) for lat in LATS)
+                                           for n in PAIR_CFGS) +
+              " | " + (" + ".join(f"{x:.2f}" for x in s5["speedup"]) if s5 else "dead") + " |")
+    print("\n**Alone** (IPC over the first region on today's core, slot 0 / slot 1; 30 / 120 / 250 cycles; the "
+          "drain's priority's change at 120)\n")
+    print("| Program | 30 | 120 | 250 | Region instructions | The drain's priority, 120 |\n|---|---|---|---|---|---|")
+    for p in smt.MEM + smt.COMP:
+        a0 = out["alone"]["today's core"]
+        cells = [" / ".join(f"{a0[lat][f'{p}.s{s}']['ipc']:.3f}" for s in (0, 1)) for lat in LATS]
+        g1 = out["alone"]["with the drain's priority"][120][f"{p}.s0"]["ipc"]
+        print(f"| {p} | " + " | ".join(cells) + f" | {a0[120][f'{p}.s0']['instr']:,} | "
+              f"{g1 / a0[120][f'{p}.s0']['ipc'] - 1:+.2%} |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", action="store_true")
@@ -553,12 +727,13 @@ def main():
     ap.add_argument("--prediction", action="store_true", help="exit 2's table from --exit2 and --policy")
     ap.add_argument("--groups", action="store_true", help="mixed decode/rename/commit groups against one a thread")
     ap.add_argument("--d3rev", action="store_true", help="per-hart free lists with transfers against shared + walk")
+    ap.add_argument("--pair", action="store_true", help="exit 2 blind on verif-2's pair runner (TG_PAIRDIR)")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
-                     ("prediction", prediction), ("groups", groups), ("d3rev", d3rev)):
+                     ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

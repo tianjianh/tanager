@@ -95,7 +95,7 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
     T->iss = T->spec.iss;
     T->synth.resize(4096);
     T->salt = (t > 0 && c.smt_bp_hash) ? SALT1 : 0;
-    T->pa_off = t > 0 ? PA_OFF1 : 0;
+    T->pa_off = (t > 0 && !c.smt_pa_flat) ? PA_OFF1 : 0;
     T->win_base = T->next_id = T->disp_next = ((uint64_t)t << TID_SHIFT) + 1;
     th_.push_back(std::move(T));
   }
@@ -1161,6 +1161,10 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
     Uop* up = find(T.disp_next);
     if (!up || up->t_disp_ok > t_) { if (n == n0) T.st.disp_stall_empty++; T.disp_why = DW_EMPTY; break; }
     Uop& u = *up;
+    if (c_.smt_align && nthr_ > 1 && !T.region_seen) {  // the runner's barrier: nothing dispatches past marker 1
+      if (T.align_id && u.id > T.align_id) { T.disp_why = DW_EMPTY; break; }
+      if (T.lap == 0 && u.di && u.di->marker == 1) T.align_id = u.id;
+    }
     if (nthr_ > 1 && c_.flush_walk && t_ < T.walk_until) {  // flush_walk: rename waits for the flush's walk
       T.st.disp_stall_walk++;
       T.disp_why = DW_ROB;
@@ -1880,6 +1884,7 @@ int Core::commit_thread(Thread& T, int width) {
   bool any = false;
   while (n < width && !T.win.empty()) {
     Uop& u = T.win.front();
+    if (align_hold(T, u)) break;
     if (u.state == 0) break;
     if (u.serial) {
       if (u.state == 1) {
@@ -2037,6 +2042,7 @@ void Core::flush_from(Thread& T, uint64_t from_id, uint64_t resume_seq) {
   T.next_id = from_id;
   T.disp_next = std::min(T.disp_next, from_id);
   T.rat.fill(0);
+  if (T.align_id >= from_id) T.align_id = 0;
   for (auto& u : T.win) if (u.state >= 1 && u.dst_arch >= 0) T.rat[(size_t)u.dst_arch] = u.id;
   T.fe_blocked = false;
   T.fetch_seq = resume_seq;
@@ -2090,6 +2096,21 @@ bool Core::fast_forward(Thread& T) {
   T.fetch_seq = T.stream_base;
   if (!found) T.iss_done = true;
   return found;
+}
+
+// verif-2's pair runner (smt_align): a thread's first-run region start waits at its commit head until every thread
+// still in its first run has its own there or is past it, so the two first regions start together.
+bool Core::align_hold(Thread& T, const Uop& u) {
+  if (!c_.smt_align || nthr_ == 1 || T.lap > 0 || T.region_seen || !u.di || u.di->marker != 1) return false;
+  for (auto& Up : th_) {
+    const Thread& U = *Up;
+    if (&U == &T || U.region_seen || U.first_done || U.lap > 0) continue;
+    if (!U.win.empty() && U.win.front().di && U.win.front().di->marker == 1) continue;
+    T.align_wait++;
+    T.last_commit_t = t_;  // waiting at the barrier is not a deadlock
+    return true;
+  }
+  return false;
 }
 
 bool Core::finished(Thread& T) {
@@ -2165,7 +2186,7 @@ void Core::restart(Thread& T) {
   T.stream_base = 0;
   T.fetch_seq = 0;
   T.iss_done = false;
-  if (T.spec.ff) {
+  if (T.spec.ff || ((c_.smt_restart_ff >> T.tid) & 1)) {
     fast_forward(T);
     if (!T.iss->error().empty()) { err_ = "restart ISS: " + T.iss->error(); return; }
   }
@@ -2359,6 +2380,7 @@ std::string Core::result_json(const std::string& bench) const {
       << ",\"instr\":" << (T.first_done ? T.first_instr : T.st.instr) << "}";
     o << ",\"marked\":" << (T.region_seen ? "true" : "false") << ",\"laps\":" << T.lap
       << ",\"region_start\":" << T.r_start_cycle << ",\"region_end\":" << T.r_end_cycle;
+    if (c_.smt_align) o << ",\"align_wait\":" << T.align_wait;
     o << ",\"stdout\":\"" << json_escape(T.first_done ? T.first_stdout : T.iss->stdout_buf(), 4000) << "\"}";
   }
   o << "],\"overlap\":{\"valid\":" << (ov_started_ && ov_ended_ ? "true" : "false") << ",\"start\":" << ov_start_
