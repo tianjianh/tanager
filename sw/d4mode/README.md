@@ -15,6 +15,7 @@ default and every fallback.
 | `tanager-mode-confirm.service`, `debian_install.sh` | Debian's unit for RISC-V mode (trial back to 0 on a clean shutdown) and its installer, run in p3's Debian; `--undo` |
 | `build.sh` | the package: `riscv.scr` by mkimage, and the files above |
 | `hook_qtest.sh` | the hook run by U-Boot's hush on QEMU against an SD image, five records, and `riscv.cmd` dry (board addresses in RAM, board-only commands stubbed): to the park, out without our design, out without the L2. All must pass before the board |
+| `memgap.c`, `ps-memregs` | RISC-V mode's memory gap ([soc-d4-modes.md](../../docs/spec/soc-d4-modes.md)): `memgap` measures the clock read, the memory path and the coherence path on the RISC-V's Debian, in either mode; `ps-memregs` reads the PS's settings on that path on Ubuntu (below) |
 
 **The record:** `TANAGERM`, then the mode (`a` or `r`), then the trial flag (`0` or `1`), then `\n`, then zeros to 512 bytes.
 - The hook takes RISC-V mode only for `r` with trial `0`. It writes trial `1` first, then sources `p1:/tanager/riscv.scr`.
@@ -174,3 +175,22 @@ time it happens, what decides between the explanations, and then tries the one f
   - Run it with `sd1-irq-probe watch &`.
 - **Before relying on it:** check `busybox devmem` (the applet) and `sd1-irq-probe dump` once by hand.
 - **When it runs:** the initramfs starts `watch` before the root's mount. It writes to the console and to `/run/sd1-irq-probe.log`, and stops once the real root is up. After boot, for an SD stress, `sd1-irq-probe watch &` does the same.
+
+## RISC-V mode's memory gap: the check (after s21)
+
+sysbench memory ran about 12.7% slower in RISC-V mode than in stage C on d4r2. Nothing the two modes program differs
+on the memory path or the clock's ([soc-d4-modes.md](../../docs/spec/soc-d4-modes.md)). These two tools find where
+the time goes.
+
+- **`memgap`, on the RISC-V's Debian, in both modes:**
+  - Build it there: `gcc -O2 -pthread -o memgap memgap.c`.
+  - Stop the watch: `sudo systemctl stop sd1-irq-watch`.
+  - Run it three times: `./memgap > memgap_<mode>_<n>.txt`, about a minute each.
+  - It prints `MEMGAP <test> <value> <unit>` lines, and the `MEMGAP-IDLE-*` lines of its first 10 s (`-i`): each CPU's time by kind, and interrupts per line. Diff the two modes.
+- **sysbench, to split its test:** add `--memory-scope=local` (no shared block) and `--threads=1` (no second core) to the 1 KiB and 1 MiB runs.
+- **`ps-memregs`, on Ubuntu:**
+  - In ARM mode before any overlay: `sudo sh ps-memregs > memregs_arm.txt`. These are the boot firmware's values, which RISC-V mode keeps; `riscv.scr` changes only `PL0_REF_CTRL` and the FPD `AFI_FS`.
+  - In stage C, with the RISC-V running a 1 MiB test (`sysbench memory --memory-block-size=1M --time=60 run`): `sudo sh ps-memregs --bridge > memregs_stagec.txt`. `--bridge` adds the host bridge's registers and its native DDR read latency over 1 s.
+  - **Only with a Tanager bitstream loaded:** without one, a read of the bridge hangs the A53.
+  - A register this Linux may not read prints `refused`. Diff the two files.
+
