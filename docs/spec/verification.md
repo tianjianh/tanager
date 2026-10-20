@@ -880,6 +880,11 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - the RTL is faster on hashprobe (16%, 27% and 30% at 30, 120 and 250 cycles), on copy (23% and 26% at 120 and 250) and on stride (6% at 30);
   - it is slower on stream at 30 cycles (23%; 5–6% faster above) and on huffbench (6%).
   smt2-study's model now gives the store ownership prefetch a miss entry whenever one is free, as the RTL does; it used to keep two free. That brings copy to +4% and +2% at 120 and 250 cycles. Until its calibration settles hashprobe and stream, pairs with them carry more uncertainty than the prediction's ±0.05.
+- **smt2-study's blind prediction on the final set** (smt2_report §13.12, written before any step-5 pair). WS over the 42 pairs at 30 / 120 / 250 cycles, against each program alone on today's core:
+  - **step 5 with the drain's priority:** 1.310 / 1.292 / 1.272. That is under 1.3 at 120 and 250, so step 5 tests the mechanism, not exit 2;
+  - **step 5 without the priority:** the six chase8 pairs above hang;
+  - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
+  - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
 - **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)
