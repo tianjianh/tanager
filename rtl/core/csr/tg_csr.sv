@@ -747,6 +747,13 @@ module tg_csr
       pdirty_q[RUN_TID] <= '1;            // the running thread's descriptors, after its sweep
       pchg_q    <= '0;
       pw_v_q    <= '0;
+      // The other thread's pending write is never set until two threads run (step 5), but commit reads it by the
+      // committing thread: reset, it has a driver in synthesis (an undriven net in Vivado otherwise)
+      for (int t = 0; t < NT; t++)
+        if (tid_t'(t) != RUN_TID) begin
+          pw_a_q[t] <= '0;
+          pw_d_q[t] <= '0;
+        end
       ts_q      <= '0;
     end else begin
       h_q <= h_n;
