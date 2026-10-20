@@ -85,6 +85,9 @@ module tg_core
     $warning("tg_map_pkg: a region is not a naturally aligned power of two; pma_of uses the range test");
   end
   // SOLO_TID (M7's test mode) runs the core's one thread as tid 1: there is a tid 1 only with TID_W = 1
+  if (SPLIT && TID_W == 0) begin : g_bad_split
+    $error("tg_core: SPLIT needs an SMT2 configuration (TID_W = 1)");
+  end
   if (SOLO_TID && TID_W == 0) begin : g_bad_solo
     $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
   end
@@ -649,7 +652,7 @@ module tg_core
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);
