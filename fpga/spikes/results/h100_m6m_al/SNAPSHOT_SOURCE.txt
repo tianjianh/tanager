@@ -1,0 +1,2 @@
+27608a099001d59405c2023cceeeb50a50892fd7 + spikes 59ed523; kv260_top patched by g5_fill_patch.py (47 tiles, 20 LUTRAM blocks per core): measurement only; options -synth_dcp /home/w/tanager-build/track-spikes-72f833/fp/h100_m6m_synth_post_synth.dcp -constraints fpga/spikes/tcl/over_unc.tcl -pre_report fpga/spikes/tcl/over_unc_off.tcl
+Host comparison (spikes.md §8.15): w-arrowlake (Core Ultra 7 270K Plus), Vivado pinned to the P-cores with taskset -c 0-7; the same post-synthesis checkpoint and options as h100_m6m (w-x299). load.txt: the host's load during the run.

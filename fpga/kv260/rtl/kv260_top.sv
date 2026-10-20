@@ -11,6 +11,8 @@
 //   fan_wave[FAN_WAVE] from the block design, inverted if FAN_INVERT); without FAN_PL, that waveform alone
 //   PMOD_UART = 1: the RISC-V console on the PMOD connector (pmod_uart_txd/rxd, 8N1 at the 16550's
 //   divisor, 115200 after OpenSBI); the host still gets a copy. Off: txd is high-impedance.
+//   tg_core_pkg::URF (build.tcl TG_URF=1, DR-174): clk2x, twice clk_core from its MMCM and rising with it, on a
+//   BUFG of its own, into tanager_soc for the cores' UltraRAM register files. Off: clk2x is 0 and unused.
 module kv260_top
   import tg_pkg::*, tg_uncore_pkg::*;
 #(
@@ -43,7 +45,7 @@ module kv260_top
 );
   // ---- PS ----
   logic        pl_clk0, pl_resetn0;
-  logic        clk_core, clk_host, locked;
+  logic        clk_core, clk2x, clk_host, locked;
   logic        host_irq;
   logic [2:0]  fan_wave;                // TTC waveform outputs (EMIO)
 
@@ -180,8 +182,8 @@ module kv260_top
   assign ps_irq[PS_IRQ_USB0] = usb0_ep_irq[0];
 
   // ---- Clocks and resets ----
-  tg_clkgen #(.CORE_MHZ (CORE_MHZ)) u_clkgen (
-    .clk_in (pl_clk0), .rst_in (!pl_resetn0), .clk_core, .clk_host, .locked
+  tg_clkgen #(.CORE_MHZ (CORE_MHZ), .CLK2X (tg_core_pkg::URF)) u_clkgen (
+    .clk_in (pl_clk0), .rst_in (!pl_resetn0), .clk_core, .clk2x, .clk_host, .locked
   );
   logic rst_core, rst_host;
   tg_rst_sync u_rst_core (.clk (clk_core), .rst_async (!pl_resetn0 || !locked), .rst_sync (rst_core));
@@ -225,7 +227,7 @@ module kv260_top
     .XBAR_IN_SLICE (XBAR_IN_SLICE), .XBAR_SLICE (XBAR_SLICE), .MEM_SLICE (MEM_SLICE), .DEBUG_CNT (DEBUG_CNT),
     .VIRTIO_WINDOW (VIRTIO_WINDOW), .HOST_DMA (HOST_DMA)
   ) u_soc (
-    .clk (clk_core), .rst (rst_core), .clk_host, .rst_host,
+    .clk (clk_core), .clk2x, .rst (rst_core), .clk_host, .rst_host,
     .s_axil_awaddr (l_awaddr), .s_axil_awvalid (l_awvalid), .s_axil_awready (l_awready),
     .s_axil_wdata (l_wdata), .s_axil_wstrb (l_wstrb), .s_axil_wvalid (l_wvalid), .s_axil_wready (l_wready),
     .s_axil_bresp (l_bresp), .s_axil_bvalid (l_bvalid), .s_axil_bready (l_bready),

@@ -38,6 +38,14 @@ module tb_boot;
   logic uart_txd;
   always #5    clk      = ~clk;        // 100 MHz
   always #6.85 clk_host = ~clk_host;   // ~73 MHz, unrelated
+  // URF (DR-174): clk2x at 200 MHz, rising with clk (from 1, so both rise at 5, 15 ...); else 0
+  logic clk2x;
+  if (tg_core_pkg::URF) begin : g_clk2x
+    initial clk2x = 1'b1;
+    always #2.5 clk2x = ~clk2x;
+  end else begin : g_no_clk2x
+    assign clk2x = 1'b0;
+  end
 
   logic [15:0] awaddr, araddr;
   logic        awvalid, awready, wvalid, wready, bvalid, bready, arvalid, arready, rvalid, rready;
@@ -74,7 +82,7 @@ module tb_boot;
     .CORE_RST_INIT (1'b1), .UNCORE_RST_INIT (1'b1), .CORE_KIND ("core"), .UART_SERIAL (UART_SERIAL_TB)
   ) dut (
     .uart_txd_o (uart_txd), .uart_rxd_i (1'b1),
-    .clk, .rst, .clk_host, .rst_host,
+    .clk, .clk2x, .rst, .clk_host, .rst_host,
     .s_axil_awaddr (awaddr), .s_axil_awvalid (awvalid), .s_axil_awready (awready),
     .s_axil_wdata (wdata), .s_axil_wstrb (wstrb), .s_axil_wvalid (wvalid), .s_axil_wready (wready),
     .s_axil_bresp (bresp), .s_axil_bvalid (bvalid), .s_axil_bready (bready),

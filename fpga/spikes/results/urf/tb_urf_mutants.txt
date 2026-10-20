@@ -1,0 +1,4 @@
+b_before_a: TB_URF FAIL: 199934 cycles, 1399538 port reads checked, 53198 mismatches
+write_first: TB_URF FAIL: 199934 cycles, 1399538 port reads checked, 450408 mismatches
+no_capture: TB_URF FAIL: 199934 cycles, 1399538 port reads checked, 188018 mismatches
+edge_b_before_a: TB_URF FAIL (WMODE edge, 3 early + 3 late ports): 199914 cycles, 1199484 port reads checked, 154877 mismatches
