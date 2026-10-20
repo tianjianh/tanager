@@ -830,6 +830,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **Nothing is fast-forwarded:** a memory kernel's set-up runs on the core, so its data is 1–3 MiB. smt2_report's builds (`perfmodel/bench/build_all.sh`) use the sources' defaults of 8–32 MiB. Both sizes are far past the 32 KiB L1D, and in flat memory a miss costs the same either way. chase8 and copy also run their `WARM=1` passes, the sources' option for runs without fast-forward.
   - **The two first regions start together,** after a barrier. In smt2_report, a memory kernel's region starts at cycle 0, and a compute program's starts after its start-up code.
   - **A program that ends runs again from the top,** set-up included, with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
+- **The restart matters** (smt2-study's prediction, smt2_report §13.10, 10-20). Set-up is most of a memory kernel's run: on the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's, 35% of hashprobe's and 2% of CoreMark's. So while one program is in its region, a restarted kernel beside it is mostly filling arrays, and the runner reads up to 0.12 above the basis the 1.3 bar was set on: 1.408 against 1.288 at 250 cycles for step 5 with the drain's priority. The proposed fix is a REPEAT build of the memory kernels (smt2-study's, in `perfmodel/bench/memsuite`): each kernel repeats its region until the pair ends, while the compute programs keep restarting. The model's matching switch is `smt_restart_ff`. The coordinator decides.
 - **One image a run:**
   - a dispatcher at `0x8000_0000` sends each hart to its slot's program: slot 0 at `0x8010_0000`, slot 1 at `0x8810_0000`, each linked there and embedded as a blob;
   - a first region is timed with its own hart's `mcycle` and `minstret`;
@@ -839,9 +840,17 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Commands:**
   - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images;
   - `replay` runs the images Spike against Spike;
-  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default, and writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, each pair's WS, and the group and overall figures.
+  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
+    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
+    - `SELECT` runs some programs (their alone runs and every pair they are in) or some pairs.
+    - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
+- **Hangs:**
+  - **What the model predicts:** without the drain's priority, smt2-study's model hangs six pairs at step 5 — chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The sibling's committed stores wait for miss entries that chase8's loads keep taking.
+  - **The limit:** each pair's cycle limit is three times its two programs' whole alone runs (`--cap`).
+  - **The report:** a pair that reaches the limit is reported as a hang, naming the slot whose first region never ended. The first program to finish prints `PAIR-STOP slot=<s>`.
+  - **A full deadlock** is `tg_vsim`'s own HANG: no commit on any hart for 100,000 cycles.
 - **Spike against Spike** (2026-10-20): all 68 images pass. WS is exactly 2, since each of Spike's harts retires one instruction a step.
-- **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles. A region's instruction count is the same at both slots and on Spike. ms_stride's region is short, so it restarts most often in a pair.
+- **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on, on the images smt2-study's prediction used, before the `PAIR-STOP` line): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles. A region's instruction count is the same at both slots and on Spike. ms_stride's region is short, so it restarts most often in a pair.
 
   | Program | Region instructions | IPC, 30 cycles | 120 | 250 |
   |---|---|---|---|---|
@@ -859,6 +868,12 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   | embench_minver | 441,866 | 1.385 | 1.385 | 1.385 |
   | embench_matmult-int | 3,180,637 | 1.966 | 1.966 | 1.966 |
 
+- **Against smt2-study's model, alone on the same ELFs:**
+  - region instructions are the model's less 3: the runtime reads `minstret` after the barrier, and the model counts from the marker's entry;
+  - cycles agree within 2% at every latency for gather, spmv (3.6% at 30), chase8, CoreMark, Dhrystone and three of the Embench programs;
+  - the RTL is faster on hashprobe (16%, 27% and 30% at 30, 120 and 250 cycles), on copy (23% and 26% at 120 and 250) and on stride (6% at 30);
+  - it is slower on stream at 30 cycles (23%; 5–6% faster above) and on huffbench (6%).
+  These kernels' interference in a pair differs to the same extent; smt2-study follows it up in its RTL calibration.
 - **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)

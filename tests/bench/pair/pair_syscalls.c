@@ -96,6 +96,9 @@ void tg_pair_mark(unsigned v) {
     p->i1 = rd_instret();
     p->stopped = 1;
     if (__atomic_add_fetch(&SH->done, 1, __ATOMIC_SEQ_CST) == SH->active) finish(1);
+    puts_("PAIR-STOP slot=");   /* the first to finish: names the slot left running if the run then hangs */
+    putu((uint64_t)s);
+    puts_("\n");
   }
 }
 

@@ -3,12 +3,15 @@
 # smt2-study's model uses. Run on the build host after `source tools/env.sh`.
 #   make -C tests/bench/pair                      the programs, at both slots, and the images (build_pair.sh)
 #   make -C tests/bench/pair replay               Spike against Spike: the images' own check (IPC 1, WS 2)
-#   make -C tests/bench/pair run [ONLY=alone|pairs|all] [LAT=30,120,250] [JOBS=8] [LOCKSTEP=1]   tg_vsim, CFG=smt2
+#   make -C tests/bench/pair run [ONLY=alone|pairs|all] [LAT=30,120,250] [JOBS=8] [LOCKSTEP=1] [SELECT=...]
+#                                                 tg_vsim, CFG=smt2; ONLY=pairs takes the alone figures of ONLY=alone's
+#                                                 run (ws-alone.json); SELECT=prog,a+b runs some (ws-<only>-sel.json)
 # The pairs need hart 1 (M7's step 5); the alone runs park it and run today. JSON lands beside the images.
 ONLY     ?= all
 LAT      ?= 30,120,250
 JOBS     ?= 8
 LOCKSTEP ?= 1
+SELECT   ?=
 
 MAKEOVERRIDES :=
 
@@ -35,4 +38,5 @@ run: build
 	@$(MAKE) --no-print-directory -s -C $(ROOT)/sim CFG=smt2 CORE=core $(TC_ARG) build
 	python3 $(ROOT)/tests/bench/pair/run_pair.py --sim $(TANAGER_BUILD)/$(WT)/sim/smt2-core$(TC_SUFFIX)/tg_vsim \
 	  --images $(OUT) --only $(ONLY) --lat $(LAT) --jobs $(JOBS) $(if $(filter 0,$(LOCKSTEP)),--no-lockstep) \
-	  --json $(OUT)/ws-$(ONLY)$(TC_SUFFIX).json
+	  $(if $(SELECT),--select $(SELECT)) $(if $(filter pairs,$(ONLY)),--alone $(OUT)/ws-alone$(TC_SUFFIX).json) \
+	  --json $(OUT)/ws-$(ONLY)$(if $(SELECT),-sel)$(TC_SUFFIX).json
