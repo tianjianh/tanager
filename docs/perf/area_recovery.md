@@ -1935,6 +1935,10 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **Hash lookups (+15% / +32%):** the RTL's wrong path issues the next lookups' misses early, and the model fetches only the correct path (smt2_report §13.10).
 - **smt2 against st:** on c6676bd5 the two builds run crc32, ud and CoreMark A within 0.2% of each other. The smt2 sizes change nothing on these, and M7's steps change no single-thread cycle.
 
+**Watch list for step 5's RTL pairs** (the coordinator, 10-20). If the pairs land outside smt2_report §13.12's prediction, look here first:
+- **Hash lookups:** the model is 15–32% slow alone, from the RTL's wrong-path prefetches. hashprobe is in 6 of the 42 pairs. Its misses in flight also shape what its sibling gets.
+- **memcpy and stream at short latency:** the model is 20–24% fast at 30 cycles, since it doesn't charge the ownership prefetch's port contention. copy or stream is in 11 of the 42.
+
 **For core-2** (the reproducer; `~/tanager-build/smt2-study/cal-1020-1518/rtl/embench_crc32.elf`, region cycles at native latency):
 
 | Build of c6676bd5 (st) | crc32 | Dhrystone rv64gc |
@@ -1948,6 +1952,48 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **make perf's three programs can miss a front-end pathology.** The stack is −36% on Dhrystone and +36% on crc32. A short leaf function called from a tight loop is a common shape in kernels and libraries, so a calibration set needs one.
 - **A feature that wins on the mean can still lose badly on one shape.** Check it per program, not on the suite's mean.
 - **Bisect on the cheapest build that shows it.** The st build ran crc32 the same as smt2 and built just as fast, so two rounds of five and four builds named the merge in about 25 minutes.
+
+### 6.16 ud's loop exits: TAGE-lite's allocation thrash (2026-10-20)
+
+*The coordinator asked: is §6.15's ud gap (the model 17% fast) the model or the RTL? The method was to compare the two TAGE-lites update by update:*
+- *in the RTL, a probe bound into `tg_tage` (`scripts/rtlprof/prof_tage.sv`, built through `sim/`'s `COV_EVENTS` slot into a scratch build) prints every training update (its indices and tags, the sub-entries and the base counter, before and after) and every request the full queue drops;*
+- *in tgsim, `TGSIM_BTTRACE` prints the same, from `BlockTage`;*
+- *the run is ud on the st core of main c6676bd5 at native latency, with the two streams aligned in commit order (`scripts/rtlprof/tage_cmp.py`).*
+
+**What it found:**
+- **The rules are the same.** `tg_tage.sv` and the model's `BlockTage` have the same hash, provider, update and allocation, and on the same inputs they make the same updates. For example, both write table 0's entry 0x023 identically through the first eight updates there.
+- **The training streams match.** Each has 348,243 updates and one dropped request.
+- **2.9% of the updates carry different indices** (10,038, from cycle 74 on). That is the lookup's history lacking the previous block's bits (§3.2), which lands a little differently around fetch stalls. So the tables' contents drift apart.
+- **On ud the drift decides a thrash.**
+  - 0x800002e0 and 0x800003da, two loop exits, share table 0's entry 0x023.
+  - A wrong fetch-time direction allocates the first way that is invalid or not useful, way 0 first. So each exit evicts the other's fresh way-0 sub-entry (u 0), while way 1 stays invalid.
+  - Both simulators begin the thrash the same way. The model's ends after about 5 rounds, when another update lets an entry earn its useful bits. The RTL's never ends: 0x800003da mispredicts all 1,479 of its exits.
+- **Verdict: neither side is wrong.** The RTL behaves as its spec allows, since core-pipeline.md says only "invalid or not useful". The model's rules are the RTL's. The gap is a thrash that the RTL falls into and the model escaped by chance.
+
+**The remedy is a small RTL change.** Within the table, take an invalid way before a not-useful one. It was tried in a scratch build of c6676bd5, not committed; st core, native latency, region cycles:
+
+| Program | As built | Invalid way first | Change | Model, as built / invalid first |
+|---|---|---|---|---|
+| Embench ud | 1,557,191 | 1,328,528 | **−14.7%** | −16.7% / −6.8% |
+| Embench huffbench | 1,861,661 | 1,735,889 | **−6.8%** | −2.1% / −2.1% |
+| Embench minver | 291,795 | 276,494 | **−5.2%** | −15.1% / −10.4% |
+| CoreMark A/B, rv64gc and rv64im | | | −0.1% to −0.6% | |
+| The other 11 | | | within ±0.05% | |
+| **Mean model error, 18 programs** | | | | **6.78% / 5.93%** |
+
+- **No program is slower.**
+- **Cost:** a two-way priority per tagged table, a few LUTs, and no new state.
+- **The model follows:** with the same rule (`btage_alloc` 1), huffbench gains −6.8% as the RTL does, and ud's error drops to −6.8%.
+- **For fpu-2 or core-2** (the coordinator's routing, as with crc32): the change is in `tg_tage.sv`'s allocation loop, which today takes way 0 whenever it is invalid or not useful. The scratch patch is `~/tanager-build/smt2-study/tage-ud-1020-155920/alloc_patch.py`, in the worktree `rtlexp`.
+
+**Decisions:**
+- The RTL change is core-2's or fpu-2's.
+- In the model, `btage_alloc` stays 0, tg_tage as built, until the RTL changes; then `rtl_m2` revision 9 sets it to 1.
+- The probe and the trace stay as tools.
+
+**Learned:**
+- **When two models share every rule, compare their state, not their rules.** The divergence was 3% of the lookups' histories, amplified by a rule with a chaotic edge.
+- **"Invalid or not useful" should prefer invalid.** Evicting a fresh entry while a free way sits beside it thrashes two loop exits forever.
 
 ---
 

@@ -2,6 +2,7 @@
 #include "bpred.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <cmath>
 
 namespace tg {
@@ -203,18 +204,37 @@ void BlockTage::train(const Ix& x, int s, bool taken, bool pred) {
   }
   if (pred != taken && pt < nt_ - 1) {
     bool done = false;
-    for (int t = pt + 1; t < nt_ && !done; t++)
-      for (int w = 0; w < 2 && !done; w++) {
-        Sub& e = t_[(size_t)t][x.idx[t]].w[w];
-        if (!e.v || e.u == 0) {
-          e = Sub{true, (uint8_t)s, x.tag[t], (uint8_t)(taken ? 4 : 3), 0};
-          done = true;
-        }
+    for (int t = pt + 1; t < nt_ && !done; t++) {
+      Ent& en = t_[(size_t)t][x.idx[t]];
+      int aw2 = -1;  // the first way invalid or not useful; alloc_invalid_first: an invalid one before
+      if (alloc_invalid_first)
+        for (int w = 1; w >= 0; w--) if (!en.w[w].v) aw2 = w;
+      if (aw2 < 0)
+        for (int w = 1; w >= 0; w--) if (!en.w[w].v || en.w[w].u == 0) aw2 = w;
+      if (aw2 >= 0) {
+        en.w[aw2] = Sub{true, (uint8_t)s, x.tag[t], (uint8_t)(taken ? 4 : 3), 0};
+        done = true;
       }
+    }
     if (!done)
       for (int t = pt + 1; t < nt_; t++)
         for (Sub& e : t_[(size_t)t][x.idx[t]].w) if (e.u) e.u--;
   }
+}
+
+std::string BlockTage::dump(const Ix& x, int s) const {
+  char buf[64];
+  std::snprintf(buf, sizeof buf, "b=%d", base_[(size_t)x.base * (size_t)np_ + (size_t)s]);
+  std::string r = buf;
+  for (int t = 0; t < nt_; t++) {
+    std::snprintf(buf, sizeof buf, " t%d:%03x/%03x", t, x.idx[t], x.tag[t]);
+    r += buf;
+    for (const Sub& e : t_[(size_t)t][x.idx[t]].w) {
+      std::snprintf(buf, sizeof buf, " %d.%d.%03x.%d.%d", e.v ? 1 : 0, e.slot, e.tag, e.ctr, e.u);
+      r += buf;
+    }
+  }
+  return r;
 }
 
 // ---------------------------------------------------------------- BTB / micro-BTB
