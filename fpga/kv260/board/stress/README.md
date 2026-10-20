@@ -194,3 +194,30 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
     - It now keeps to a fixed hourly schedule: under the stress a check takes about 3 minutes, which had pushed each next check later.
     - It logs the guest's uptime around each check. [`../runs/riscv_soak_report.sh`](../runs/riscv_soak_report.sh) leaves the overlapped passes out of the steady numbers and lists the checks on their own.
   - **The end:** 24 hours at 21:33:48 UTC on 10-20, or the first failure. The report gives the stress's steady numbers and, separately, the network checks' count, failures and transfer-rate range.
+  - **Segment a: 151 of 151 passes clean,** from 21:33:48 to 02:29:21 UTC (4.93 h of stress). A power event ended it: the user touched the board's supply.
+    - **Steady, over 139 passes:** 115.9 s per pass (115–116), cpu 93.44 events/s, memory 131.86 MiB/s, threads 2,303 events. Twelve passes overlapped a network check and are left out.
+    - **Network checks: 5 of 5 OK.** 0.51–0.59 MB/s up and 0.56–0.60 MB/s down, with matching checksums; `apt-get update` exit 0 every time.
+    - Logs: [`uart_COM5_s19a.txt`](uart_COM5_s19a.txt), [`net_s19a.txt`](net_s19a.txt).
+  - **The power event, about 02:29:30 UTC:**
+    - COM5's last line is pass 151's, clean, and nothing came after it.
+    - COM7 shows two boots about a minute apart, both ARM mode (the record had trial 1, an unconfirmed RISC-V boot). The second boot cut the first in U-Boot's `Loading image.fit`, where no software of ours runs and the PL is unconfigured. Ubuntu was up from 02:30:34.
+    - **Both were most likely power-ups:** the user's account, a reset where no software of ours runs, and both U-Boots printing `Net: PHY reset timed out`. That line appears in only one earlier COM7 log, 10-14's first, which holds a power-up. It appears in none of the 32 other U-Boot boots logged since: reboots, OpenSBI's SRST, `RESET_CTRL` writes and the PMOD hook.
+    - U-Boot's `Reset reason: SOFT` and `RESET_REASON` `0x21` can't tell the two apart: the Image Selector soft-resets into Image A on every power-up ([`../d4/README.md`](../d4/README.md)).
+    - COM7's log so far: [`uart_COM7_s19_to_b.txt`](uart_COM7_s19_to_b.txt).
+  - **p3 after the power loss:** `e2fsck -fn` from the A53 found `needs_recovery` (the journal unreplayed). `e2fsck -fp` replayed it ("recovering journal", exit 1: corrected), and `-fn` then found it clean.
+  - **Segment b's first boot failed on SD1's interrupts.** The record was set to riscv again and the A53 rebooted at 02:36:37. This boot runs from the same p1 files and bitstream, and `riscv.scr`'s COM7 output (SD1's taps, GEM3's clocks) is identical to segment a's.
+    - Debian's kernel found the card and read the partition table (`mmcblk0: p1 p2 p3` at 34.6 s).
+    - From 45 s on, every SD1 request timed out after 10 s: `mmc0: Timeout waiting for hardware interrupt`, 36 times. Each register dump shows `Int stat` with transfer complete (bit 1) set and the interrupt enabled: the controller finished, but the interrupt never reached Linux.
+    - Then `mmcblk0: recovery failed!` and two read I/O errors. There was no login after 7 minutes, since the initramfs's fsck of p3 was stuck.
+    - **None of the 10 RISC-V-mode Debian boots logged before (D4 step 6 to s19's first) had a single one of these timeouts.**
+    - **The way out:** a 4 s PMOD break at 02:44:09 reset the board into ARM mode (trial 1), and Ubuntu was up at 02:44:28 with p3 clean. The PMOD hook worked as DR-172 designed, with no one at the board.
+    - Log: [`uart_COM5_s19b_boot1.txt`](uart_COM5_s19b_boot1.txt).
+  - **The retry booted cleanly** (reboot 02:47:39): no timeout, p3 mounted at 49.6 s, eth0 at 1 Gb/s (DHCP 192.168.137.41), and the clock synced at 180 s. Log: [`uart_COM5_s19b_boot2.txt`](uart_COM5_s19b_boot2.txt).
+    - So the lost interrupts came once, on the first RISC-V boot after the power-ups. It is an open item for the SoC track; the timeout log holds the register dumps.
+  - **Segment b, from 02:51:46 UTC** (`STRESS start 2026-10-20T02:51:46Z up=204.54`, [`uart_COM5_s19b_start.txt`](uart_COM5_s19b_start.txt)).
+    - It runs until segments a and b together reach 24 hours of stress: 21:56:13 UTC on 10-20.
+    - Network checks: hourly from 03:21:46, 19 of them.
+  - **The checks' accounting, fixed for segment b:**
+    - SSH's handshake costs the guest several seconds of CPU before a check's first command reads its uptime. Pass 138 ended 2 s before check 5's recorded start and ran 124 s against 116.
+    - `riscv_net_check.sh` now starts the span before the handshake: the uptime less the laptop's time for that first SSH command.
+    - `riscv_soak_report.sh` widens each span by `MARGIN_S` (15 s) for older logs. That is why segment a's numbers above leave out 12 passes, not 10.

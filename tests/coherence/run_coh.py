@@ -14,12 +14,15 @@ reproduces them.
 import argparse
 import concurrent.futures as cf
 import os
+import re
 import shutil
 import subprocess
 import sys
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, os.path.join(HERE, "..", "..", "tools", "ci"))
+import host_policy  # noqa: E402  (the runners' share of a hybrid host)
 
 
 def run(args, timeout):
@@ -50,6 +53,12 @@ def main():
     ap.add_argument("--name", default="coherence")
     ap.add_argument("extra", nargs="*", help="more tb_boot plusargs")
     a = ap.parse_args()
+    # tests/coherence builds tb_boot single-threaded; a --tb with more threads (its directory's _tN) goes to the
+    # E-cores instead (verification.md §8)
+    m = re.search(r"_t(\d+)$", os.path.basename(os.path.dirname(os.path.abspath(a.tb))))
+    policy = host_policy.apply_self(int(m[1]) if m else 1)
+    if policy:
+        print(f"run_coh: {policy}", flush=True)
     os.makedirs(a.workdir, exist_ok=True)
     faildir = os.path.join(a.workdir, "failures")
     modes = a.modes.split(",")

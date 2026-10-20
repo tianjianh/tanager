@@ -24,6 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cycle_identical as ci  # noqa: E402
+import host_policy  # noqa: E402
 
 PROGRAMS = ("coremark_A", "coremark_B", "dhrystone")
 
@@ -66,6 +67,9 @@ def main():
         ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"{var} on both sides")
         ap.add_argument(f"--branch-{opt}", type=int, choices=vals, default=None, help=f"{var} on this side only")
     a = ap.parse_args()
+    policy = host_policy.apply_self(1)   # tg_vsim is single-threaded; verification.md §8
+    if policy:
+        print(f"perf: {policy}", flush=True)
     if not os.environ.get("RISCV_TESTS"):
         ci.fail("source tools/env.sh first")
 
