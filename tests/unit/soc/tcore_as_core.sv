@@ -8,6 +8,7 @@ module tg_core
   parameter bit          DBG_WORD = 1'b0   // tg_core's board-debug word: the test core has none
 ) (
   input  logic                         clk,
+  input  logic                         clk2x,         // tg_core's URF clock (DR-174): the test core has no use for it
   input  logic                         rst,
   input  paddr_t                       boot_addr_i,   // reset PC of every hart of this core
 

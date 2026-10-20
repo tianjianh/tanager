@@ -12,6 +12,8 @@ module tg_core
                                            // without it dbg_o is 0 and none of them is built
 ) (
   input  logic                         clk,
+  input  logic                         clk2x = 1'b0, // URF (DR-174): twice clk, every clk rise a clk2x rise;
+                                                      // unused (tied 0) without it
   input  logic                         rst,
   input  paddr_t                       boot_addr_i,   // reset PC of every hart of this core
 
@@ -680,5 +682,10 @@ module tg_core
     assign dbg_o = '0;
     logic unused_dbg;
     assign unused_dbg = ^{dbg_sel_i, rn_dbg, lsu_dbg};
+  end
+  // URF (DR-174) feeds the UltraRAM register file from clk2x; without it the clock is unused
+  if (!URF) begin : g_no_urf
+    logic unused_clk2x;
+    assign unused_clk2x = clk2x;
   end
 endmodule
