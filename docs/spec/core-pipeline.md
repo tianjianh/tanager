@@ -300,6 +300,11 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
 
+### 8.4 Per thread (M7's step 3, DR-175; docs/spec/threading.md)
+- Each thread has a head, a tail and the xRET-in-flight bits. A dispatch group is one thread's and advances its tail. A flush recovers the flushing instruction's thread (`flush_tid`, the head's tid): its tail goes back to its head. The heads go to rename per thread.
+- Commit serves one thread a cycle: the running thread until the split mode (step 3b). The split mode adds the commit thread choice, and the oldest-exception and oldest-mispredict registers and the WFI counter per thread.
+- The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them.
+
 ## 9. CSRs and traps (`tg_csr`)
 
 ### 9.1 CSR set (M-mode, RV64IM, Zicsr, Zicntr, Zifencei, 8 PMP entries, no triggers), as Spike defines it

@@ -45,8 +45,8 @@ Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_
 | P4 (FPU) | its stages, shadow pipelines, divide table and result queue | — |
 | fcsr | frm, fflags and the early-retire counter (per hart); the flags go to the retiring op's thread | — |
 | CSRs | every hart's architectural state: hot state, cold rows and `pmpaddr` (a tid address bit), PMP descriptors, interrupt lines, timer compare, pending write, counters; writes to the committing thread (`cm_tid[0]`); the flushed thread's pending write dropped; reads and outputs the running thread's (`RUN_TID`) (core-pipeline.md §9.6) | 4: the PMP select at the checkers and each hart's satp at the walker (D6); 5: reads by each consumer's thread |
-| LSU, MMU | — | 4 |
-| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`) | 3: halves, per-thread commit state |
+| LSU, MMU | the LQ's and SQ's pointers (core-lsu.md) | 3b: halves; 4: the rest |
+| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`); the head, tail and xRET bits (core-pipeline.md §8.4) | 3b: halves, the commit thread choice, the exception, mispredict and WFI state |
 | Trace | the hart field from each record's tid (tid ^ `SOLO_TID`) | 2: the load address (`mem_ld`, after interfaces.md v1.5) |
 
 ## Provenance
