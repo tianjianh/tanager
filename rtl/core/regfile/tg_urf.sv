@@ -29,6 +29,9 @@
 // J. G. Steffan, "Efficient multi-ported memories for FPGAs", FPGA 2010 (copies for read ports);
 // A. Canis, J. H. Anderson and S. D. Brown, "Multi-pumping for resource reduction in FPGA high-level
 // synthesis", DATE 2013 (a memory clocked at twice the system clock).
+// The instance keeps its hierarchy for tg_urf.xdc (its timing exceptions, scoped to the module) and the
+// primitive check.
+(* keep_hierarchy = "yes" *)
 module tg_urf #(
   parameter int NB    = 3,
   parameter int DEPTH = 64,
