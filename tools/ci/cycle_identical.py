@@ -86,6 +86,7 @@ sys.path.insert(0, os.path.join(ROOT, "tests", "isa"))
 sys.path.insert(0, os.path.join(ROOT, "tests", "random"))
 import run_isa  # noqa: E402  (elf_symbol, tests_of, read_exclusions)
 import run_random  # noqa: E402  (MARCH, stress_args)
+import host_policy  # noqa: E402  (tools/ci: the runners' share of a hybrid host)
 
 # The regression's riscv-tests suites for the product core (tools/ci/regress.sh)
 ISA_SUITES = ("rv64ui-p rv64um-p rv64ua-p rv64uc-p rv64uf-p rv64ud-p rv64mi-p rv64si-p rv64ui-v rv64um-v "
@@ -676,6 +677,9 @@ def main():
     ap.add_argument("--timeout", type=int, default=3600, help="wall-clock seconds per run before it counts as broken")
     ap.add_argument("--show", type=int, default=5, help="differing runs to explain in detail")
     a = ap.parse_args()
+    policy = host_policy.apply_self(1)   # every model here is single-threaded (VTHREADS=1); verification.md §8
+    if policy:
+        log(f"cycle-identical: {policy}")
 
     if not os.environ.get("RISCV_TESTS"):
         fail("source tools/env.sh first")
