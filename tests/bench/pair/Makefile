@@ -1,7 +1,9 @@
 # The pair runner (docs/spec/verification.md §4.8; the M7 plan's exit 2): smt2-study's 13 programs and 42 pairs
 # (perfmodel/scripts/smt.py) on one smt2 core's two harts against each alone, in tg_vsim's flat memory at the latencies
 # smt2-study's model uses. Run on the build host after `source tools/env.sh`.
-#   make -C tests/bench/pair                      the programs, at both slots, and the images (build_pair.sh)
+#   make -C tests/bench/pair [REPEAT=1|0]         the programs, at both slots, and the images (build_pair.sh); the
+#                                                 memory kernels repeat their region (exit 2's method, §4.8), or with
+#                                                 REPEAT=0 run again from the top, in a build directory of its own
 #   make -C tests/bench/pair replay               Spike against Spike: the images' own check (IPC 1, WS 2)
 #   make -C tests/bench/pair run [ONLY=alone|pairs|all] [LAT=30,120,250] [JOBS=8] [LOCKSTEP=1] [SELECT=...]
 #                                                 tg_vsim, CFG=smt2; ONLY=pairs takes the alone figures of ONLY=alone's
@@ -12,6 +14,7 @@ LAT      ?= 30,120,250
 JOBS     ?= 8
 LOCKSTEP ?= 1
 SELECT   ?=
+REPEAT   ?= 1
 
 MAKEOVERRIDES :=
 
@@ -19,14 +22,14 @@ ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST)))/../../..)
 WT   := $(notdir $(ROOT))
 TANAGER_BUILD ?= $(HOME)/tanager-build
 include $(ROOT)/sim/profile.mk
-OUT  := $(TANAGER_BUILD)/$(WT)/pair
+OUT  := $(TANAGER_BUILD)/$(WT)/pair$(if $(filter 0,$(REPEAT)),-restart)
 SRC  := $(wildcard $(ROOT)/tests/bench/pair/*.S $(ROOT)/tests/bench/pair/*.c $(ROOT)/tests/bench/pair/*.h \
           $(ROOT)/tests/bench/pair/*.ld $(ROOT)/tests/bench/pair/inc/*.h) $(ROOT)/tests/bench/pair/build_pair.sh
 
 .PHONY: build replay run
 build: $(OUT)/.built
 $(OUT)/.built: $(SRC)
-	bash $(ROOT)/tests/bench/pair/build_pair.sh $(OUT)
+	REPEAT=$(REPEAT) bash $(ROOT)/tests/bench/pair/build_pair.sh $(OUT)
 	@touch $@
 
 replay: build

@@ -2,9 +2,11 @@
 # Builds the pair runner's programs and images (tests/bench/pair; pair.h; the M7 plan's exit 2): smt2-study's 13
 # programs (perfmodel/scripts/smt.py, MEM and COMP) from the model's sources, each linked at both slots' bases
 # with the pair runtime, then one image per pair (perfmodel's make_pairs, read from smt.py) and one per program
-# alone (hart 0 runs it at its slot's base, hart 1 parks). The memory kernels run at 1-2 MiB, far past the 32 KiB
-# L1 in tg_vsim's flat memory, so their setup is short enough for RTL runs.
-#   build_pair.sh <output directory>
+# alone (hart 0 runs it at its slot's base, hart 1 parks). The memory kernels run at 1-3 MiB, far past the 32 KiB
+# L1 in tg_vsim's flat memory, so their setup is short enough for RTL runs. With REPEAT=1 (exit 2's method,
+# verification.md §4.8) each memory kernel repeats its region until the pair ends instead of running again from the
+# top with its set-up; their sources must have the switch (perfmodel/bench/memsuite, smt2-study's).
+#   [REPEAT=1|0] build_pair.sh <output directory>
 set -euo pipefail
 W="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 P="$W/tests/bench/pair"
@@ -15,6 +17,7 @@ CC=riscv-none-elf-gcc
 ARCH="-march=rv64gc -mabi=lp64d -mcmodel=medany"
 CM_ITER="${CM_ITER:-3}"
 DHRY_RUNS="${DHRY_RUNS:-3000}"
+REPEAT="${REPEAT:-1}"
 CM_A="-O2 -funroll-loops -fpeel-loops -fgcse-sm -fgcse-las"
 DHRY_FLAGS="-O3 -fno-common -fno-inline"
 EMB_FLAGS="-O2 -ffunction-sections -fdata-sections -std=gnu17"
@@ -35,15 +38,27 @@ link() {
   riscv-none-elf-objcopy -O binary "$OUT/prog/$name.s$slot.elf" "$OUT/prog/$name.s$slot.bin"
 }
 
+# ms <name> <slot> <source> <flags...>: a memory kernel, repeating its region with REPEAT=1
+ms() {
+  local name="$1" slot="$2" src="$3"; shift 3
+  if [ "$REPEAT" = 1 ] && ! grep -qw REPEAT "$MS/$src"; then
+    echo "build_pair: $MS/$src has no REPEAT switch (smt2-study's memsuite change); REPEAT=0 restarts from the top" >&2
+    exit 2
+  fi
+  local rep=()
+  [ "$REPEAT" = 1 ] && rep=(-DREPEAT=1)
+  link "$name" "$slot" -O2 -I"$MS" "${rep[@]}" "$@" -- "$MS/$src"
+}
+
 python3 -I "$W/perfmodel/bench/dhrystone/unshar.py" "$TP/dhrystone/dhry-c" "$OUT/gen" > /dev/null
 for slot in 0 1; do
-  link ms_gather "$slot" -O2 -I"$MS" -DTAB_LOG=17 -- "$MS/gather.c"
-  link ms_stride "$slot" -O2 -I"$MS" -DROWS=256 -- "$MS/stride.c"
-  link ms_spmv "$slot" -O2 -I"$MS" -DCOLS_LOG=17 -- "$MS/spmv.c"
-  link ms_hashprobe "$slot" -O2 -I"$MS" -DSLOTS_LOG=17 -- "$MS/hashprobe.c"
-  link ms_chase8 "$slot" -O2 -I"$MS" -DCHAINS=8 -DFILLER=0 -DFOOTPRINT_MB=2 -DWARM=1 -- "$MS/chase.c"
-  link ms_stream "$slot" -O2 -I"$MS" "-DN_ELEMS=(1u << 17)" -- "$MS/stream.c"
-  link ms_copy "$slot" -O2 -I"$MS" "-DBYTES=(1u << 20)" -DWARM=1 -- "$MS/copy.c"
+  ms ms_gather "$slot" gather.c -DTAB_LOG=17
+  ms ms_stride "$slot" stride.c -DROWS=256
+  ms ms_spmv "$slot" spmv.c -DCOLS_LOG=17
+  ms ms_hashprobe "$slot" hashprobe.c -DSLOTS_LOG=17
+  ms ms_chase8 "$slot" chase.c -DCHAINS=8 -DFILLER=0 -DFOOTPRINT_MB=2 -DWARM=1
+  ms ms_stream "$slot" stream.c "-DN_ELEMS=(1u << 17)"
+  ms ms_copy "$slot" copy.c "-DBYTES=(1u << 20)" -DWARM=1
   link coremark_A "$slot" $CM_A -DPERFORMANCE_RUN=1 -DITERATIONS="$CM_ITER" "-DFLAGS_STR=\"$CM_A\"" \
     -I"$W/perfmodel/bench/coremark" -I"$TP/coremark" -- "$TP/coremark/core_list_join.c" "$TP/coremark/core_main.c" \
     "$TP/coremark/core_matrix.c" "$TP/coremark/core_state.c" "$TP/coremark/core_util.c" \
@@ -95,5 +110,5 @@ done <<< "$progs"
 # What the model and the RTL must share: every ELF's md5 (md5sum -c in $OUT) and the tree they came from
 (cd "$OUT" && md5sum prog/*.elf img/*.elf > manifest.md5)
 echo "build_pair.sh $(date '+%F %T %Z') tree $(git -C "$W" describe --always --dirty --abbrev=10 2>/dev/null || echo unknown)" \
-  > "$OUT/build.info"
+  "REPEAT=$REPEAT" > "$OUT/build.info"
 echo "build_pair: $(ls "$OUT/prog"/*.elf | wc -l) program builds, $(ls "$OUT/img"/alone-*.elf | wc -l) alone images, $n pairs in $OUT"

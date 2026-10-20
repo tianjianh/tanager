@@ -829,8 +829,11 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Where the runner departs from smt2_report's method.** smt2-study accepted all three on 10-20, and its model now follows the runner for exit 2's prediction, which it makes on these binaries before the RTL's pairs run. `tgsim`'s switches take the markers at `tg_pair_mark`'s entry, restart a program at `_exit`'s entry, start the two regions together (`smt_align`) and keep each slot's own addresses (`smt_pa_flat`):
   - **Nothing is fast-forwarded:** a memory kernel's set-up runs on the core, so its data is 1–3 MiB. smt2_report's builds (`perfmodel/bench/build_all.sh`) use the sources' defaults of 8–32 MiB. Both sizes are far past the 32 KiB L1D, and in flat memory a miss costs the same either way. chase8 and copy also run their `WARM=1` passes, the sources' option for runs without fast-forward.
   - **The two first regions start together,** after a barrier. In smt2_report, a memory kernel's region starts at cycle 0, and a compute program's starts after its start-up code.
-  - **A program that ends runs again from the top,** set-up included, with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
-- **The restart matters** (smt2-study's prediction, smt2_report §13.10, 10-20). Set-up is most of a memory kernel's run: on the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's, 35% of hashprobe's and 2% of CoreMark's. So while one program is in its region, a restarted kernel beside it is mostly filling arrays, and the runner reads up to 0.12 above the basis the 1.3 bar was set on: 1.408 against 1.288 at 250 cycles for step 5 with the drain's priority. The proposed fix is a REPEAT build of the memory kernels (smt2-study's, in `perfmodel/bench/memsuite`): each kernel repeats its region until the pair ends, while the compute programs keep restarting. The model's matching switch is `smt_restart_ff`. The coordinator decides.
+  - **A compute program that ends runs again from the top,** set-up included (2–16% of its run), with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
+- **Memory kernels repeat their region** (REPEAT). This is exit 2's method, the coordinator's decision of 10-20. After its first region, a memory kernel runs that region again and again until the pair ends, instead of running again from the top.
+  - **Why:** set-up is most of a memory kernel's run. On the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's and 35% of hashprobe's, against 2% of CoreMark's. A kernel restarted with its set-up spends its sibling's region filling arrays rather than running its kernel.
+  - **The size of it:** smt2-study's prediction (smt2_report §13.10) puts that at up to 0.12 above the basis the 1.3 bar was set on. Step 5 with the drain's priority reads 1.408 at 250 cycles with restarts, against 1.288 with the kernels repeating. With REPEAT, the model matches smt2_report's method within 0.007 in every configuration.
+  - **The switch:** memsuite's `REPEAT` (smt2-study's; the model's `smt_restart_ff`). `build_pair.sh` passes it to the seven kernels and refuses a kernel source without it. `REPEAT=0` builds the restart variant into `pair-restart`.
 - **One image a run:**
   - a dispatcher at `0x8000_0000` sends each hart to its slot's program: slot 0 at `0x8010_0000`, slot 1 at `0x8810_0000`, each linked there and embedded as a blob;
   - a first region is timed with its own hart's `mcycle` and `minstret`;
@@ -838,7 +841,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - once both first regions are done, the last hart to finish prints `PAIR slot=<s> cycles=<n> instret=<n> runs=<n>` for each slot, then `PAIR-END`, and writes `tohost`.
   `tg_replay` now ends on any hart's exit, as `tg_vsim` does, because the last to finish may be hart 1.
 - **Commands:**
-  - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
+  - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
   - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
     - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
@@ -873,7 +876,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - cycles agree within 2% at every latency for gather, spmv (3.6% at 30), chase8, CoreMark, Dhrystone and three of the Embench programs;
   - the RTL is faster on hashprobe (16%, 27% and 30% at 30, 120 and 250 cycles), on copy (23% and 26% at 120 and 250) and on stride (6% at 30);
   - it is slower on stream at 30 cycles (23%; 5–6% faster above) and on huffbench (6%).
-  These kernels' interference in a pair differs to the same extent; smt2-study follows it up in its RTL calibration.
+  smt2-study's model now gives the store ownership prefetch a miss entry whenever one is free, as the RTL does; it used to keep two free. That brings copy to +4% and +2% at 120 and 250 cycles. Until its calibration settles hashprobe and stream, pairs with them carry more uncertainty than the prediction's ±0.05.
 - **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)
