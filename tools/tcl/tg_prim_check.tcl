@@ -34,6 +34,9 @@
 #                count is a warning, no primitive at all is a failure. With byte writes
 #                (BYTE_W = |wdata| / |we| > 1 and not a multiple of 9) XPM cannot use the
 #                parity bits, so the modes are 64/32/16/8 bits wide instead of 72/36/18/9.
+#   tg_urf       URF's double-pumped integer register file (rtl/core/regfile, DR-174): |we| banks of
+#                max(NE, NL) copies, one UltraRAM each (NE = |e_idx_n| / IW, NL = |l_idx| / IW,
+#                IW = |waddr| / |we|), exact; any other RAM primitive inside is a failure.
 # -expect adds exact checks for any cell: a list of {<cell-name-glob> <REF_NAME> <count>},
 # where the count is that of REF_NAME cells at or below the matching cells.
 
@@ -81,7 +84,7 @@ proc tg_prim__loaded_bits {cell bus w nr} {
 }
 
 proc tg_prim__ram_refs {} {
-  return {RAM32M16 RAM64M8 RAM32M RAM64M RAM32X1D RAM64X1D RAM128X1D RAM256X1D RAM512X1S
+  return {RAM32M16 RAM64M8 RAM32M RAM64M RAM32X1D RAM64X1D RAM128X1D RAM256X1D RAM512X1S URAM288_BASE
           RAM32X1S RAM64X1S RAM128X1S RAM256X1S RAM32X16DR8 RAM64X8SW RAMB36E2 RAMB18E2
           URAM288 FIFO36E2 FIFO18E2}
 }
@@ -133,12 +136,13 @@ proc tg_prim_check {args} {
   set wrappers [get_cells -quiet -hierarchical -filter {
     !IS_PRIMITIVE && (ORIG_REF_NAME =~ "tg_ram_*" || REF_NAME =~ "tg_ram_*" ||
                       ORIG_REF_NAME =~ "tg_rom*" || REF_NAME =~ "tg_rom*" ||
-                      ORIG_REF_NAME =~ "tg_cam_*" || REF_NAME =~ "tg_cam_*")}]
+                      ORIG_REF_NAME =~ "tg_cam_*" || REF_NAME =~ "tg_cam_*" ||
+                      ORIG_REF_NAME =~ "tg_urf*" || REF_NAME =~ "tg_urf*")}]
   foreach cell $wrappers {
     set mod [get_property ORIG_REF_NAME $cell]
     if {$mod eq ""} { set mod [get_property REF_NAME $cell] }
     regsub {__parameterized\d+$} $mod {} mod
-    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp tg_rom tg_cam_lut}} { continue }
+    if {$mod ni {tg_ram_lut tg_ram_sdp tg_ram_tdp tg_rom tg_cam_lut tg_urf}} { continue }
     incr ninst
     set found [tg_prim__count $cell]
     set status OK
@@ -202,6 +206,21 @@ proc tg_prim_check {args} {
         dict set exp RAM64X8SW $n
         if {$nsw != $n} { set status FAIL }
       }
+    } elseif {$mod eq "tg_urf"} {
+      set nb [tg_prim__busw $cell we]
+      set iw [expr {$nb > 0 ? [tg_prim__busw $cell waddr] / $nb : 0}]
+      set ne [expr {$iw > 0 ? [tg_prim__busw $cell e_idx_n] / $iw : 0}]
+      set nl [expr {$iw > 0 ? [tg_prim__busw $cell l_idx] / $iw : 0}]
+      set n [expr {$nb * max($ne, $nl)}]
+      set shape "$nb banks x 2^$iw, $ne early + $nl late read ports, double-pumped"
+      set nu 0
+      set nother 0
+      foreach ref $ram_refs {
+        if {![dict exists $found $ref]} { continue }
+        if {$ref in {URAM288 URAM288_BASE}} { incr nu [dict get $found $ref] } else { incr nother [dict get $found $ref] }
+      }
+      dict set exp URAM288 $n
+      if {$nu != $n || $nother > 0} { set status FAIL }
     } elseif {$mod eq "tg_rom"} {
       set w  [tg_prim__busw $cell rdata]
       set aw [tg_prim__busw $cell raddr]

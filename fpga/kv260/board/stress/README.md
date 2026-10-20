@@ -221,3 +221,45 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
     - SSH's handshake costs the guest several seconds of CPU before a check's first command reads its uptime. Pass 138 ended 2 s before check 5's recorded start and ran 124 s against 116.
     - `riscv_net_check.sh` now starts the span before the handshake: the uptime less the laptop's time for that first SSH command.
     - `riscv_soak_report.sh` widens each span by `MARGIN_S` (15 s) for older logs. That is why segment a's numbers above leave out 12 passes, not 10.
+  - **Segment b: 12 of 12 passes clean,** from 02:51:46 to 03:15:20 UTC (0.39 h of stress). It was paused at a pass boundary ("STRESS stop after pass 12, fails=0") for the coordinator's hunt for the lost SD1 interrupt. Debian stayed up.
+    - The passes ran at 116 s; cpu 93.5 events/s, memory 132 MiB/s, threads 2,300.
+    - **Pass 7 slowed** as an overlapped network check would make it (cpu 49.36, memory 79.63, threads 618; then pass 8 ran 124 s), though no check was due until 03:21:46. Something on the guest ran then, between 03:03 and 03:05 UTC; its journal will say what.
+    - Logs: [`uart_COM5_s19b.txt`](uart_COM5_s19b.txt), [`uart_COM5_s19b_pause.txt`](uart_COM5_s19b_pause.txt).
+  - **Segments a and b together:** 163 of 163 passes clean, 5.32 h of stress.
+
+## The hunt for SD1's lost interrupt (10-20)
+
+**Why:** in s19 segment b's first boot, every SD1 request timed out with its completion pending ([s19](#run-s18-d4r1-in-stage-c-then-the-24-hour-soak-in-risc-v-mode-s19)). soc-2 found that the PLIC stopped delivering source 21 while SD1's line stayed high: either source 21 was claimed and never completed, or its enable bit was cleared. Their probe, `sw/d4mode/sd1-irq-probe` (0edfe93), tells which at the next occurrence. At the first mmc0 timeout it reads the PLIC's view of source 21 and SD1's registers, writes a complete for 21, and reads them again. The coordinator asked for about 30 RISC-V-mode boots, each with an SD read stress on both CPUs.
+
+**The setup, in the RISC-V's Debian on p3** (logged with its undo in [`../README.md`](../README.md)'s change log):
+- **busybox wasn't installed,** so `apt-get install busybox` added it (1.37.0, with `devmem`). With `BUSYBOX=auto` the initramfs now carries its applets.
+- **The probe:** `/usr/local/sbin/sd1-irq-probe`, its initramfs hook and its init-top script, then `update-initramfs -u` (about 10 minutes at 100 MHz).
+- **`iomem=relaxed`** goes in through u-boot-menu (`/etc/default/u-boot`, then `u-boot-update`). Debian's kernel has `IO_STRICT_DEVMEM`. Without the option, `/dev/mem` read the PLIC but refused SD1's registers (`mmap: Operation not permitted`).
+- **The check by hand on boot 1:** `sd1-irq-probe dump` with `iomem=relaxed`:
+  - PLIC: source 21 at priority 1, enabled on context 1 (hart 0, enables `0x00700400`) and not on context 5, both thresholds 0, nothing pending.
+  - SD1: status 0, status and signal enables `0x03FF008B`, present `0x01F70000`; line 0.
+  - All of mmc0's interrupts go to CPU 0.
+  - `/proc/interrupts` shows "SiFive PLIC 21 Edge". With `riscv,plic0` the driver leaves the flow at fasteoi and never records a type, so the word "Edge" there means nothing.
+- **The initramfs watch's noise:** it runs from before the root's mount. At the switch to the real root the initramfs's files go, so it prints `dmesg: not found` and `grep: not found` once and then exits, since its own file is gone too. That is harmless.
+
+**How each boot runs** ([`../runs/sd1_probe_boots.sh`](../runs/sd1_probe_boots.sh), from the laptop, with COM5 logged throughout):
+1. Debian's reboot. The confirm unit keeps RISC-V mode, so each boot goes through the A53's U-Boot, `riscv.scr` and the RISC-V.
+2. The login on COM5.
+3. Over SSH: the probe's watch, then [`../runs/sd_read_stress.sh`](../runs/sd_read_stress.sh) for 90 s. O_DIRECT readers run on both CPUs: CPU 0 at 4 KiB from the card's middle, CPU 1 at 64 KiB from its start. In boot 1, 512 KiB reads on CPU 1 starved the 4 KiB reader to 226 kB/s.
+4. A tally line per boot: the login's time, SD1 timeouts in the boot and in the stress, mmc0's interrupt count, the readers' rates, and whether the probe fired.
+
+The driver stops at a capture or at a boot with no login within 8 minutes. The PMOD break recovers a stuck boot.
+
+**Boots 1–7 (03:39–04:16 UTC):** all clean. Each logged in about 190 s after the reboot, and no SD1 timeout came in the boot or in the 90 s stress.
+- **The stress:** about 75,000 mmc0 interrupts per boot, all on CPU 0. The 4 KiB reader got 787–794 kB/s and the 64 KiB reader 12.2–12.4 MB/s.
+- **Boot 1's** CPU 1 read at 512 KiB: 14.8 MB/s, with 226 kB/s left for the 4 KiB reader.
+
+**Boot 7's shutdown lost SD1's interrupt again: the second occurrence, and the first at a shutdown.**
+- **When:** the driver's reboot began at 04:16:46. At 272 s of boot 7's uptime, about 10 s into stopping the services, `mmc0: Timeout waiting for hardware interrupt` began: 46 timeouts, then read I/O errors on p3.
+- **The shutdown stuck,** with the confirm unit's stop job running for its full 10 minutes. It did write trial 0: the board came back in RISC-V mode after the PMOD break (04:26:27), not in Ubuntu.
+- **The probe missed it.** The driver had stopped the per-boot watch after the stress, and the initramfs's watch ends at the switch to the real root, so nothing was watching at the shutdown.
+- **The fix:** `sd1-irq-watch.service` ([`../runs/sd1-irq-watch.service`](../runs/sd1-irq-watch.service)) runs the probe's watch from the root's mount through shutdown. With `DefaultDependencies=no` it stays out of shutdown's ordinary stop.
+  - A copy in `/run` was tried first and can't run, since Debian mounts `/run` noexec. So it runs from the card; its commands repeat every 2 s and stay cached.
+  - The driver no longer starts or stops a watch of its own.
+- **Boot 9** (after the break, 04:28): no timeout; the initramfs's fsck recovered p3's journal. The service went in there, and boots 10–30 run with it.
+- **Log:** [`uart_COM5_probe_boots1-8.txt`](uart_COM5_probe_boots1-8.txt) holds boots 1–8 in one capture; the tally gives each boot's offset in it.

@@ -17,6 +17,9 @@ foreach dcp $argv {
   # a seeded or over-constrained run (seed_unc.tcl, over_unc.tcl) wrote its checkpoint before -pre_report took
   # its setup uncertainty back, so take it back here too (timing.xdc sets none)
   set_clock_uncertainty -setup 0 [get_clocks c0]
+  # and clk2x's in a URF build (DR-174: over_unc.tcl over-constrains it too)
+  set c2x [get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT2]]
+  if {[llength $c2x]} { set_clock_uncertainty -setup 0 $c2x }
   set ps [get_timing_paths -setup -max_paths 20000 -nworst 1 -unique_pins -slack_lesser_than 0]
   set n [dict create]; set w [dict create]; set wl [dict create]; set ends [dict create]
   foreach p $ps {
