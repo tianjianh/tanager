@@ -385,3 +385,11 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 - **Network checks:** 19, hourly from 09:54:42.
 - **The stress watcher** stops at a failed pass, kernel trouble, an mmc0 timeout, a probe capture, or 12 minutes without a pass.
 - **If SD1's interrupt is lost now,** the watch captures it once and writes the complete. That brought boot 54's shutdown back.
+- **Segment d: 98 of 98 passes clean,** from 09:24:42 to 12:37:04 UTC (3.21 h of stress), with no SD1 timeout and no capture. It ended at a pass boundary for d4r2, the bitstream with the SD1 fix (DR-176). The record went to arm, and Debian's reboot gave Ubuntu.
+  - **Steady over 92 passes** (6 overlapped a check): 116.4 s per pass, cpu 90.34 events/s, memory 127.83 MiB/s, threads 2,225 events. This is with the watch's cost, as in segment c.
+  - **Network checks: 3 of 3 OK,** 0.49–0.55 MB/s up and 0.52–0.55 down, `apt-get update` exit 0.
+  - Logs: [`uart_COM5_s19d.txt`](uart_COM5_s19d.txt), [`uart_COM5_s19d_stop.txt`](uart_COM5_s19d_stop.txt), [`net_s19d.txt`](net_s19d.txt).
+- **s19 on d4r1 in all:**
+  - 265 of 265 passes clean over 8.66 h of stress in four segments, and 8 of 8 network checks OK.
+  - No SD1 loss came in the soak itself. All five losses came in boot transitions: early in a boot, after a login, or at a shutdown.
+  - d4r2 replaces d4r1 for the 24 h soak.
