@@ -726,6 +726,10 @@ Dual-core SoC LUTs, from plan draft 0.4's ≈89K (76%) for v1 (§8.2), adding tw
   - **a shared window with a 75% cap:** §5, +3–4% throughput, but with ordering logic not costed.
 
   The board's numbers until then are the lone-thread, whole-window core's (`scripts/m6_board.py --predict`).
+- *Answered for M7's plan in §13 (2026-10-20):*
+  - *the caps need a rule that no hart takes all of a dispatch-slot bank's rows;*
+  - *a lone thread keeps 98.7–99.95% with D2's merge;*
+  - *D3's per-hart free lists deadlock as planned.*
 
 
 ---
@@ -767,9 +771,739 @@ python3 scripts/smt.py --width3            # the same pass on a 3-wide, 3-ALU SM
 python3 scripts/smt.py --supplementary     # sharing x issue-queue caps; window bundles
 python3 scripts/smt.py --validate          # SMT2 consistency checks
 python3 scripts/smt_tables.py              # docs/perf/smt2_tables.md and smt2_ws_vs_latency.svg
+bash bench/build_m7.sh                     # §13: the FP-restore test (m7_fprestore, m7_fprestore2)
+python3 scripts/m7_smt.py --exit2 --policy --deadlock --fp --lone   # §13 on rtl_m2 revision 7 as the smt2 core
+python3 scripts/m7_smt.py --prediction     # §13.2's table from the runs above
+python3 scripts/m7_smt.py --groups --d3rev # §13.8 and §13.9
+python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its ELFs in TG_PAIRDIR)
+python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart 1's register homes
+python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13.12 on the final set (TG_FINALDIR)
 ```
 
 **Where results live.**
 - Pair runs are cached per configuration and pair in `perfmodel/results/smt/`, keyed by model version, suite revision and `SMT_VERSION`. Single-thread runs reuse the M1 cache in `results/dse/`.
 - The summary is `results/smt2_rv64gc.json`.
 - **Run time:** on 8 threads the study takes about 1.5 hours, each 2-wide greedy pass 20–30 minutes, and the 3-wide pass about 1.5 hours.
+
+---
+
+## 13. M7: the model's answers before the RTL (2026-10-19/20)
+
+*M7 turns on each core's second hart (core-2's plan, `docs/spec/m7-smt2-plan.md`). Before any RTL, the coordinator asked the model five things:*
+- *D2: what a lone thread keeps when the halves merge while its sibling sleeps and split when it wakes, and what the transitions cost;*
+- *D3: whether per-hart free lists (64 integer and 32 FP renaming registers a hart) bind FP-heavy pairs;*
+- *D8: whether fairness in the store drain and the load replays removes the model's five deadlocks;*
+- *ICOUNT at fetch against round robin, and the issue-queue cap level;*
+- *a blind prediction of exit 2's weighted throughput at 30, 120 and 250 cycles.*
+
+*The model is `rtl_m2` revision 7 as the smt2 core:*
+- *M6's set, ROB 80, LQ 24, SQ 20, 24 long-latency tags, and the store ownership prefetch;*
+- *tg_vsim's flat memory at 30, 120 and 250 cycles;*
+- *M7's policy as planned: static ROB, LQ and SQ halves (D1); ICOUNT at fetch, with decode, rename and commit alternating and sharing idle slots (D7); 75% issue-queue caps; TID-hashed predictors;*
+- *a committed store that finds no free L1D miss entry keeps the last free one from loads and prefetches until it allocates; they still use any entry beyond it (D8, §13.4; `drain_guard`).*
+
+*The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10); `prf_homes` (§13.11), `rfo_pf_reserve` and `rfo_pf_max` for the ownership prefetch's calibration, and `stop_regions` for the runner's REPEAT builds (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
+
+### 13.1 Summary
+
+| Question | The model's answer | Recommendation |
+|---|---|---|
+| Exit 2 (blind) | The plan's 75% caps: **1.327 / 1.316 / 1.297** at 30 / 120 / 250 cycles, short at 250. With 75% caps and a hart never taking all of a dispatch-slot bank's rows: **1.313 / 1.349 / 1.343** | Add that rule (D8). At step 7, 50% caps with a bank's last row kept for a waiting sibling give 1.341 / 1.358 / 1.344 |
+| D7: ICOUNT against round robin | ICOUNT +0.2–0.5% | ICOUNT if it reuses the caps' per-hart row counts; otherwise round robin saves its area for 0.4% |
+| The cap level | 50% beats 75% by 1.0–3.4% on whole-queue caps; with the bank rule, 50–75% give the same | Keep 75% with the bank rule |
+| D8 | Alternation removes no deadlock. The drain's priority for a free miss entry removes the five: 17–18 pairs in today's rerun of the 10-16 setup. On M7's core, 6–8 of 58 pairs then starve a hart's load for an issue-queue row | The drain's priority (check that the RTL keeps it with four entries and the store prefetch), and the bank rule |
+| D3 | As planned it deadlocks: a lone hart on 17 of 36 programs. Shared lists deadlock two harts on back-to-back FP restores. FP-heavy pairs that run lose 0–5% at 32 FP registers a hart | Shared lists with a per-hart flush recovery, and FP banks of at least 65 entries (or an fld fallback into F0) |
+| D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
+| D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
+| Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 8) | Step 5 (no caps) + the drain's priority: 1.310 / 1.292 / 1.272. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.333 / 1.348 / 1.332, the only form above 1.3 at every point, by 0.03–0.05. Never a whole bank: 1.298 / 1.328 / 1.322. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3 |
+| D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
+| Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
+
+### 13.2 Exit 2: the blind prediction
+
+*Written before any M7 RTL runs. Exit 2 asks for weighted throughput of at least 1.3× "the same core running one program at a time" at every latency point (the plan's table of targets). The model measures it as the RTL's pair runner (verif-2) should:*
+- *§2.3's 42 pairs: memory with memory, compute with compute, and mixed;*
+- *each thread's IPC over its program's first run, the shorter program restarted so both stay busy (§2.2);*
+- *a program's IPC alone: the same core with hart 1 in WFI, so on the merged window (D2);*
+- *a pair's WS: the sum of its two IPCs, each divided by its program's IPC alone;*
+- *the group figures are geometric means over the pairs, and the overall figure is the geometric mean of the three groups;*
+- *tg_vsim's flat memory, make perf's harness, at 30, 120 and 250 cycles.*
+
+| Configuration | All pairs | memory + memory | compute + compute | mixed |
+|---|---|---|---|---|
+| The plan: 75% caps | 1.327 / 1.316 / **1.297** | 1.276 / 1.243 / 1.218 | 1.301 / 1.301 / 1.308 | 1.408 / 1.410 / 1.369 |
+| **Recommended: 75% caps, a hart never taking all of a dispatch-slot bank's rows** | **1.313 / 1.349 / 1.343** | 1.258 / 1.256 / 1.239 | 1.274 / 1.278 / 1.279 | 1.411 / 1.528 / 1.528 |
+| 50% caps, a bank's last row kept while the sibling waits on it | 1.341 / 1.358 / 1.344 | 1.268 / 1.246 / 1.220 | 1.301 / 1.306 / 1.316 | 1.463 / 1.538 / 1.511 |
+| The plan, against one program on static halves (D2 not yet built) | 1.410 / 1.364 / 1.338 | 1.412 / 1.316 / 1.279 | 1.313 / 1.312 / 1.320 | 1.513 / 1.470 / 1.420 |
+
+- **The plan's configuration clears 1.3 at 30 and 120 cycles but not at 250 (1.297).**
+  - Memory + memory pairs fall from 1.28 to 1.22 as latency grows. Two harts share four L1D miss entries, and chase8 alone keeps all four busy: chase8 + chase8 is exactly 1.000 at every latency.
+  - It also deadlocks 6–8 of the 16 working-set pairs (§13.4), though none of these 42.
+- **With the bank rule, the plan's caps clear 1.3 at every point: 1.313 / 1.349 / 1.343.**
+  - The rule keeps a memory thread from filling a bank, so mixed pairs gain at 120 and 250 cycles (1.41 → 1.53).
+  - Compute + compute pairs lose 2% (1.30 → 1.28). Slot steering puts most of a thread's ALU ops in one bank of each queue, and the rule bars that bank's last row.
+- **50% caps with the last row kept only while the sibling waits on it give 1.341 / 1.358 / 1.344,** the best found. Two conditions:
+  - the rule must cover both banks a waiting decode group needs (§13.4);
+  - the caps must lift when the halves merge (§13.6).
+- **If D2 is not built when exit 2 is measured,** one program alone runs on static halves, and the plan's configuration reads 1.410 / 1.364 / 1.338.
+- **How close the RTL should land:**
+  - single-thread, the model is within 2–6% of the RTL on CoreMark and Dhrystone, and within about 14% on memory kernels (ws_copy, ws_hash; area_recovery.md §6.4);
+  - WS divides the model's IPC by its own, so much of that cancels;
+  - the model fetches only the correct path (§11), so it leans high on branchy pairs.
+
+  I expect the RTL within ±0.05 of these figures, more likely below.
+
+**Per pair** (30 / 120 / 250 cycles):
+
+| Pair | Group | The plan: 75% caps | Recommended: 75% caps, never a whole bank | 50% caps, the last row kept while the sibling waits |
+|---|---|---|---|---|
+| gather+stride | mem+mem | 1.22 / 1.18 / 1.14 | 1.24 / 1.16 / 1.16 | 1.19 / 1.14 / 1.11 |
+| stride+spmv | mem+mem | 1.10 / 1.04 / 1.03 | 1.10 / 1.05 / 1.04 | 1.10 / 1.05 / 1.03 |
+| spmv+hashprobe | mem+mem | 1.68 / 1.58 / 1.52 | 1.68 / 1.58 / 1.52 | 1.68 / 1.58 / 1.52 |
+| hashprobe+chase8 | mem+mem | 1.52 / 1.34 / 1.28 | 1.58 / 1.40 / 1.34 | 1.61 / 1.45 / 1.38 |
+| chase8+stream | mem+mem | 1.07 / 1.05 / 1.06 | 1.10 / 1.07 / 1.07 | 1.10 / 1.08 / 1.06 |
+| stream+copy | mem+mem | 1.19 / 1.21 / 1.21 | 1.17 / 1.26 / 1.25 | 1.20 / 1.23 / 1.18 |
+| copy+gather | mem+mem | 1.51 / 1.54 / 1.50 | 1.22 / 1.39 / 1.42 | 1.31 / 1.44 / 1.44 |
+| gather+spmv | mem+mem | 1.35 / 1.25 / 1.22 | 1.34 / 1.22 / 1.19 | 1.29 / 1.21 / 1.19 |
+| stride+hashprobe | mem+mem | 1.52 / 1.38 / 1.31 | 1.59 / 1.61 / 1.57 | 1.60 / 1.46 / 1.39 |
+| spmv+chase8 | mem+mem | 1.03 / 1.02 / 1.01 | 1.05 / 1.05 / 1.04 | 1.04 / 1.03 / 1.02 |
+| hashprobe+stream | mem+mem | 1.52 / 1.63 / 1.64 | 1.52 / 1.62 / 1.63 | 1.52 / 1.62 / 1.63 |
+| chase8+copy | mem+mem | 1.11 / 1.13 / 1.11 | 1.14 / 1.17 / 1.16 | 1.16 / 1.18 / 1.17 |
+| stream+gather | mem+mem | 1.32 / 1.31 / 1.28 | 1.22 / 1.23 / 1.17 | 1.20 / 1.21 / 1.18 |
+| copy+stride | mem+mem | 1.25 / 1.21 / 1.18 | 1.18 / 1.26 / 1.24 | 1.26 / 1.23 / 1.20 |
+| chase8+chase8 | mem+mem | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 |
+| CoreMark+Dhrystone | compute+compute | 1.26 / 1.26 / 1.26 | 1.23 / 1.23 / 1.23 | 1.27 / 1.27 / 1.27 |
+| Dhrystone+nsichneu | compute+compute | 1.37 / 1.38 / 1.37 | 1.34 / 1.33 / 1.35 | 1.40 / 1.40 / 1.40 |
+| nsichneu+huffbench | compute+compute | 1.49 / 1.49 / 1.49 | 1.40 / 1.40 / 1.40 | 1.49 / 1.49 / 1.49 |
+| huffbench+minver | compute+compute | 1.39 / 1.39 / 1.44 | 1.38 / 1.39 / 1.37 | 1.43 / 1.39 / 1.44 |
+| minver+matmult | compute+compute | 1.19 / 1.17 / 1.18 | 1.19 / 1.19 / 1.20 | 1.17 / 1.19 / 1.22 |
+| matmult+CoreMark | compute+compute | 1.13 / 1.13 / 1.13 | 1.12 / 1.13 / 1.13 | 1.13 / 1.13 / 1.14 |
+| CoreMark+nsichneu | compute+compute | 1.35 / 1.35 / 1.36 | 1.33 / 1.33 / 1.33 | 1.35 / 1.35 / 1.36 |
+| Dhrystone+huffbench | compute+compute | 1.36 / 1.36 / 1.36 | 1.29 / 1.29 / 1.29 | 1.37 / 1.37 / 1.37 |
+| nsichneu+minver | compute+compute | 1.45 / 1.46 / 1.49 | 1.43 / 1.46 / 1.43 | 1.45 / 1.47 / 1.48 |
+| huffbench+matmult | compute+compute | 1.25 / 1.25 / 1.25 | 1.23 / 1.23 / 1.22 | 1.25 / 1.25 / 1.25 |
+| minver+CoreMark | compute+compute | 1.34 / 1.34 / 1.35 | 1.32 / 1.33 / 1.36 | 1.28 / 1.35 / 1.38 |
+| matmult+Dhrystone | compute+compute | 1.15 / 1.15 / 1.15 | 1.14 / 1.14 / 1.14 | 1.15 / 1.15 / 1.15 |
+| CoreMark+CoreMark | compute+compute | 1.23 / 1.24 / 1.24 | 1.21 / 1.21 / 1.21 | 1.23 / 1.23 / 1.23 |
+| gather+CoreMark | mixed | 1.28 / 1.24 / 1.23 | 1.31 / 1.38 / 1.40 | 1.33 / 1.42 / 1.45 |
+| gather+huffbench | mixed | 1.38 / 1.33 / 1.26 | 1.35 / 1.35 / 1.30 | 1.39 / 1.37 / 1.31 |
+| stride+Dhrystone | mixed | 1.34 / 1.18 / 1.11 | 1.35 / 1.49 / 1.56 | 1.40 / 1.22 / 1.17 |
+| stride+minver | mixed | 1.35 / 1.22 / 1.14 | 1.47 / 1.63 / 1.68 | 1.44 / 1.25 / 1.15 |
+| spmv+nsichneu | mixed | 1.66 / 1.87 / 1.92 | 1.56 / 1.78 / 1.84 | 1.66 / 1.87 / 1.92 |
+| spmv+matmult | mixed | 1.41 / 1.37 / 1.20 | 1.41 / 1.36 / 1.20 | 1.41 / 1.37 / 1.21 |
+| hashprobe+huffbench | mixed | 1.72 / 1.73 / 1.67 | 1.65 / 1.66 / 1.61 | 1.72 / 1.74 / 1.68 |
+| hashprobe+CoreMark | mixed | 1.71 / 1.80 / 1.83 | 1.64 / 1.72 / 1.75 | 1.71 / 1.80 / 1.84 |
+| chase8+minver | mixed | 1.40 / 1.13 / 1.10 | 1.63 / 1.77 / 1.79 | 1.69 / 1.85 / 1.86 |
+| chase8+Dhrystone | mixed | 1.34 / 1.10 / 1.05 | 1.52 / 1.67 / 1.69 | 1.63 / 1.82 / 1.88 |
+| stream+matmult | mixed | 1.08 / 1.23 / 1.16 | 1.07 / 1.21 / 1.16 | 1.08 / 1.23 / 1.16 |
+| stream+nsichneu | mixed | 1.35 / 1.64 / 1.72 | 1.27 / 1.51 / 1.62 | 1.35 / 1.64 / 1.72 |
+| copy+CoreMark | mixed | 1.41 / 1.67 / 1.72 | 1.33 / 1.54 / 1.59 | 1.41 / 1.66 / 1.71 |
+| copy+huffbench | mixed | 1.42 / 1.55 / 1.47 | 1.34 / 1.46 / 1.41 | 1.42 / 1.55 / 1.48 |
+
+### 13.3 D7: ICOUNT at fetch, and the issue-queue cap
+
+*The 42 pairs' weighted throughput against one program on the merged window, 30 / 120 / 250 cycles. Every row has D8's store priority. Rows that don't say otherwise keep ICOUNT. "Never a whole bank" and "last row kept" are §13.4's rules for the dispatch-slot banks.*
+
+| Configuration | All pairs | memory + memory | compute + compute | mixed | Fairness at 120 |
+|---|---|---|---|---|---|
+| ICOUNT, 75% caps (the plan) | 1.327 / 1.316 / 1.297 | 1.276 / 1.243 / 1.218 | 1.301 / 1.301 / 1.308 | 1.408 / 1.410 / 1.369 | 0.581 |
+| Round robin, 75% caps | 1.320 / 1.312 / 1.294 | 1.277 / 1.241 / 1.220 | 1.300 / 1.300 / 1.306 | 1.386 / 1.399 / 1.362 | 0.577 |
+| Round robin, 50% caps | 1.335 / 1.353 / 1.336 | 1.265 / 1.244 / 1.217 | 1.298 / 1.305 / 1.304 | 1.449 / 1.525 / 1.502 | 0.650 |
+| 25% caps | 1.299 / 1.339 / 1.338 | 1.187 / 1.203 / 1.200 | 1.296 / 1.298 / 1.302 | 1.422 / 1.539 / 1.533 | 0.648 |
+| 37% caps | 1.328 / 1.362 / 1.353 | 1.241 / 1.227 / 1.204 | 1.301 / 1.305 / 1.310 | 1.452 / 1.578 / 1.571 | 0.664 |
+| 50% caps | 1.341 / 1.358 / 1.341 | 1.264 / 1.244 / 1.220 | 1.302 / 1.309 / 1.309 | 1.465 / 1.538 / 1.510 | 0.653 |
+| 62% caps | 1.338 / 1.350 / 1.335 | 1.277 / 1.243 / 1.220 | 1.302 / 1.305 / 1.309 | 1.439 / 1.518 / 1.489 | 0.639 |
+| 87% caps | 1.320 / 1.308 / 1.287 | 1.270 / 1.235 / 1.210 | 1.302 / 1.306 / 1.311 | 1.390 / 1.387 / 1.342 | 0.559 |
+| No caps | 1.319 / 1.305 / 1.286 | 1.271 / 1.231 / 1.208 | 1.302 / 1.306 / 1.311 | 1.387 / 1.384 / 1.342 | 0.554 |
+| **75% caps, never a whole bank** | **1.313 / 1.349 / 1.343** | 1.258 / 1.256 / 1.239 | 1.274 / 1.278 / 1.279 | 1.411 / 1.528 / 1.528 | 0.661 |
+| 50% caps, never a whole bank | 1.312 / 1.350 / 1.343 | 1.251 / 1.260 / 1.240 | 1.276 / 1.275 / 1.278 | 1.415 / 1.531 / 1.530 | 0.663 |
+| 50% caps, the last row kept while the sibling waits | 1.341 / 1.358 / 1.344 | 1.268 / 1.246 / 1.220 | 1.301 / 1.306 / 1.316 | 1.463 / 1.538 / 1.511 | 0.654 |
+| 75% caps, the last row kept while the sibling waits | 1.343 / 1.327 / 1.302 | 1.285 / 1.251 / 1.225 | 1.307 / 1.306 / 1.312 | 1.441 / 1.432 / 1.375 | 0.609 |
+
+- **ICOUNT gains 0.2–0.5% over round robin** at either cap (0.4% at 50%), as §5 found on the plan's core.
+  - The plan puts ICOUNT at about 0.3K LUTs a core (0.6K a chip). It can reuse the per-hart row counts the caps already keep, which should cut that.
+  - Both are inside DR-154's limits, so the coordinator decides. Round robin saves the area for 0.4% of throughput.
+- **The cap level matters more here than on the plan's core.** These queues are small: 10 rows in each ALU queue and the FP queue, 6 in the load queue, 4 in the store-address queue. At 75%, a thread waiting on misses fills them and its sibling starves.
+  - Of whole-queue caps, 50% gains 1.0%, 3.2% and 3.4% over 75% at the three points. Nearly all of it is on memory + compute pairs (1.41 → 1.47–1.54), and fairness rises from 0.58 to 0.65.
+  - 37% matches or beats 50% at 120 and 250 cycles (1.362, 1.353), but is 1% lower at 30 (1.328) and loses 2% on memory + memory pairs there. 25% is too tight.
+- **With the bank rule that D8 needs, the level barely matters:** 50%, 62% and 75% all give 1.31 / 1.35 / 1.34, because the rule caps each bank at its rows less one. So keep the plan's 75%.
+- **The cap's level is a constant:** 50% costs the same LUTs as 75%.
+- **What a lone thread pays:** nothing at 75% (+0.2% with them never lifted, §13.6); 2.7% at 50% unless they lift when the halves merge.
+
+### 13.4 D8: the store drain, the issue queues and the deadlocks
+
+*D8 as planned: per-hart fairness in the store drain (the harts' SQ heads alternate) and in the load replays (the harts' replays alternate). The model has had both since §6.2:*
+- *the drain tries the two threads' committed SQ heads in turn, the first alternating every cycle (`smt_drain_rr`);*
+- *a load that finds no free miss entry replays from its queue in age order across the threads.*
+
+*It also gives a committed store that found no free L1D miss entry the next one, ahead of load misses and prefetches (`drain_guard` 1). That is the rule core-2 described for the RTL with one entry (10-16): a waiting store takes the miss entry ahead of a load miss.*
+
+**(a) The five, in the setup that found them** (area_recovery.md §6.2: v1 as built on `tanager_v1`, one L1D miss entry, the SoC's uncore at 94, 100, 125 and 150 MHz, both profiles; §2.3's 42 pairs and 16 working-set pairs):
+- **Without the store's priority, 17–18 of the 58 pairs deadlock at every clock and profile.** They include gather + stride, stride + spmv, hashprobe + chase8, chase8 + stream, chase8 + copy, and the chase pairs at every working-set size. The note's "five" are among them; it named stride + spmv and chase8 + copy.
+- **With the priority, none do.**
+- **The starver is the sibling's load misses, not its drain.** A load books the miss entry at its access, three cycles ahead of a drain that asks a cycle at a time, so a stream of misses always gets there first. Alternating the drain between the harts cannot fix that, and the model alternated all along.
+
+**(b) M7's core** (four miss entries and the store prefetch; deadlocked pairs of 58):
+
+| Configuration | 30 cycles | 120 | 250 |
+|---|---|---|---|
+| Alternation only (no priority) | 14 | 14 | 14 |
+| D8: the store's priority, with alternation | 6 | 8 | 8 |
+| ... without the drain's alternation | 6 | 8 | 8 |
+| ... and 75% caps, a hart never taking all of a bank's rows | 0 | 0 | 0 |
+| ... and 50% caps, the same | 0 | 0 | 0 |
+| ... and the 75% cap applied to each bank too | 0 | 0 | 0 |
+| ... and 50% caps, a bank's last row kept while the sibling waits on it | 0 | 0 | 0 |
+| ... and 75% caps, the same | 6 | 8 | 8 |
+| ... and 50% caps of the whole queue | 0 (none seen; not guaranteed) | 0 | 0 |
+
+- **The priority removes the drain's starvation.** Without it, 14 pairs deadlock even with four entries, because chase8's misses keep all four busy.
+- **What remains is a second starvation: a hart's load cannot get an issue-queue row.** In the 6–8 pairs left (the working-set chase1 pairs with chase8 or copy, at 512 KiB and up):
+  - the stuck hart's window is empty, and its next load waits for a row of the 6-row load queue;
+  - the sibling holds 5 rows, its 75% cap;
+  - the free row is in the other dispatch-slot bank. Rows are banked by slot, a decode group dispatches as one, and the cap counts the whole queue.
+- **A hart that never takes all of a bank's rows removes it.** Its sibling then always finds a row in either bank, which guarantees progress. It costs compute + compute pairs 2% (1.30 → 1.28), because slot steering puts most of a thread's ALU ops in one bank of each queue.
+- **Keeping the last row only while the sibling waits on that bank keeps the full throughput** (1.341 / 1.358 / 1.344 at 50%). At 75% it still deadlocks 6–8 pairs: the waiting decode group needs a row in both banks, and the rule kept only the one it named. A form that names every bank the waiting group needs should close that, but the model has not tested it.
+- **The drain's alternation changes no result here.** It is cheap and fair, so keep it as planned.
+
+**D8 for M7, then:**
+1. **The store drain's priority** for a free miss entry, ahead of load misses and prefetches. The RTL had it with one entry. Check that it holds with four entries and with the store prefetch, which leaves one entry for loads.
+2. **A row in each dispatch-slot bank for the sibling:** a hart never takes the last free row of a bank (guaranteed). For the last 2% on compute pairs, keep the row only while the sibling's waiting group needs it, naming both banks.
+3. **The drain's alternation and the replays' alternation, as planned.**
+
+**Cost:**
+- The priority is an arbitration rule (no measurable LUTs).
+- The bank rule needs a row count per hart per bank; the caps already count per hart per queue.
+- Its on-demand form also needs rename's stall signal by queue and bank: about 50–100 LUTs a core, 0.1–0.2K a chip.
+
+### 13.5 D3: free lists per hart
+
+*The plan's D3: a free list per hart in each register bank, in RAM form, each bank's free registers split between the harts, with D4's homes (hart t's x1–x31 in integer bank t, its f0–f31 in F<t>). The model's `prf_split` 1 builds that: hart 0 holds 47, 16 and 32 registers of B0, B1 and B2 and 48 and 16 of F0 and F1 (hart 1 the mirror; B0 keeps the zero register), and a register freed at commit returns to its hart's list. The variants: steering an ALU op away from an ALU whose bank has no free register for the hart (`prf_steer`); per-hart lists in the integer banks only, or in the FP banks only; and today's shared lists.*
+
+**The constraint.** The register banks are writer-sharded: B0 and B1 take the two ALUs' results, B2 the loads', F0 the FP pipe's and F1 the FP loads'. So all of a hart's architectural registers of a kind can end up in one bank:
+- all 32 f registers in F1 after a context switch's FP restore (32 flds), or in F0 after 32 FP ops;
+- integer registers in B2 after loads, or in the bank of the one ALU that multiplies or divides.
+
+A hart therefore needs, in every bank, room for its architectural registers plus one to rename into: 32 integer, 33 FP. With less, the op that needs that bank cannot rename, every older op has committed, and none is left to free a register: a deadlock.
+
+**One thread with its own lists** (a lone M7 hart; 36 programs: the suite, the dense GEMM and the two FP restores; 30 cycles; IPC against today's shared lists):
+
+| Free lists | Deadlocks | IPC on the programs that finish |
+|---|---|---|
+| Shared (today) | none | – |
+| D3 as planned | 17: CoreMark A and B, Dhrystone, cubic, edn, huffbench, nettle-aes, nettle-sha256, picojpeg, qrduino, sglib, slre, ud, chase8f16, the dense GEMM, both FP restores | −6.7% (stream −24.6%, st −21.9%, minver −16.2%) |
+| D3, steered by free list | 7: CoreMark A and B, cubic, qrduino, the dense GEMM, both FP restores | −5.5% |
+| Integer per hart (steered), FP shared | 4: CoreMark A and B, cubic, qrduino | −3.9% |
+| FP per hart, integer shared | 4: cubic, the dense GEMM, both FP restores | −1.3% (nbody −12.0%) |
+
+- **Steering cannot save the banks with one writer:** the multiplier and divider, the loads and the FP ops each write one bank.
+- **The integer side fails at hart 0's 16 registers of B1 and hart 1's of B0:** D4's homes leave each hart only half of the other's home bank's free registers.
+
+**FP-heavy pairs** (weighted speedup against one thread on today's lists; † deadlock):
+
+| Pair | Shared lists, 30 / 120 cycles | FP per hart, integer shared, 30 / 120 |
+|---|---|---|
+| nbody + nbody | 1.666 / 1.594 | 1.600 / 1.512 |
+| nbody + minver | 1.552 / 1.559 | 1.574 / 1.545 |
+| nbody + st | 1.651 / 1.623 | 1.575 / 1.554 |
+| minver + st | 1.585 / 1.552 | 1.505 / 1.505 |
+| st + st | 1.738 / 1.729 | 1.745 / 1.747 |
+| nbody, minver or st + CoreMark or Dhrystone | 1.32–1.69 | within 1.6% of shared |
+| cubic with anything but nbody; the dense GEMM or an FP restore with anything | runs | † (nbody + cubic runs: 1.655 / 1.651) |
+| two harts each restoring their f registers twice in a row | † | † |
+
+- **Do FP-heavy pairs bind at 32?** Where they run, 32 FP renaming registers a hart cost the FP-heavy pairs 0–5% (nbody + nbody −4%, minver + st −5%, st + st 0) and a lone FP thread up to 12% (nbody). The deadlocks come first.
+- **Today's shared lists deadlock two harts too, on FP.** Each 64-entry FP bank holds both harts' 32 f registers with none to spare.
+  - Two harts that each load all their f registers twice in a row (`m7_fprestore2`, 64 flds a block) deadlock; one hart alone runs.
+  - Linux reloads the 32 f registers at each switch to a task that used the FPU, so two harts switching together can get there.
+  - The integer banks are safe shared: B0's 63 registers (one is the zero register) hold 31 + 31 + 1, B1 and B2 have one more.
+- **So D3 needs one of:**
+  - **shared lists** (both kinds), with FP banks of at least 65 entries, and a per-hart recovery at a flush: a walk of the flushed half, pushing its registers back (up to 40 entries, two a cycle; much of it hidden behind fetch's restart), or a free bitmap per bank with per-hart speculative bits;
+  - **per-hart lists** with every bank at least 65 entries (integer, with B0's zero register) and 66 (FP), so each hart's share holds 32 or 33;
+  - **for FP only, without bigger banks:** an fld that finds F1 empty is cracked into an integer load and a move into F0.
+
+  The register files' depth sets the cost: from 64 to 128 entries roughly doubles a bank's LUTRAM. That is core-2's to cost.
+
+### 13.6 D2: what a lone thread keeps
+
+*A lone thread, its sibling in WFI. The model runs one thread and splits its window as the sibling's wakes would (`lone_*`): at a wake, dispatch stops until the window drains; the thread then keeps its halves while the sibling runs and until the sibling has sat in WFI for the merge delay; then the halves merge. The sibling's own instructions are not simulated, only its wakes. The suite's 33 programs, IPC against the merged window:*
+
+| A lone thread | 30 cycles | 120 | 250 | memsuite at 120 | The sibling's wait for the split's drain, 120 cycles: mean / worst |
+|---|---|---|---|---|---|
+| Static halves (D1 without D2) | −4.5% | −3.4% | −3.1% | −8.9% | – |
+| D2 at today's WFI timeout: a wake every 4,096 cycles, 200 awake, merge after 64, full drain | −0.6% | −0.9% | −1.3% | −2.0% | 115 / 964 |
+| ... the drain stops once the window fits its half | −0.2% | −0.3% | −0.3% | −0.7% | 31 / 276 |
+| ... merge after 1,024 cycles | −1.5% | −1.7% | −1.8% | −3.8% | 120 / 964 |
+| D2 at a 1 ms timer tick: a wake every 100K cycles, 10K awake, merge after 64 | −0.4% | −0.3% | −0.3% | −0.9% | 106 / 963 |
+| D2 at a 4 ms tick (HZ 250) | −0.05% | −0.07% | −0.07% | −0.2% | 118 / 922 |
+| The merged window with the 75% caps never lifted | +0.2% | +0.2% | +0.2% | −0.1% | – |
+| The merged window with 50% caps never lifted | −2.7% | −2.7% | −2.6% | −5.7% | – |
+
+- **What a lone thread keeps:**
+  - with D2, 98.7–99.95% of today's single-thread smt2 core, depending on how often the sibling wakes;
+  - without D2 (static halves), 95.5–97.0%, memsuite 88–92%;
+  - CoreMark and Dhrystone lose under 1% either way: their windows are small.
+- **The merge costs nothing.** The halves only widen.
+- **The split costs a drain:** dispatch waits for the window to empty. The same wait delays the sibling's wake: 31, 115 and 307 cycles on average at 30, 120 and 250 cycles, 1.9K at worst.
+- **Today's 4,096-cycle WFI timeout makes splits frequent** (244 per 1M cycles) and costs 0.6–1.3%. At a timer tick's rate the cost falls to 0.05–0.4%. So the plan's step 6 should raise the timeout for a sleeping sibling.
+- **Draining only until the window fits its half** costs a third to a quarter as much, and cuts the sibling's wait to 5–106 cycles on average. It needs the halves' pointers to take a live window in place, rather than restart empty.
+- **Keep the merge delay short.** At 1,024 cycles the halves last 30% of the time instead of 6%, which raises the cost 1.4–2.6× at the 4K timeout.
+- **At 75% the caps need not lift with the merge:** a merged lone thread loses nothing with them (+0.2%). At 50% they must: capped at 50%, a lone thread loses 2.7% (memsuite 5.7%).
+- **The bank rule (§13.4) should lift with the merge too:** it protects a sibling that is then asleep.
+
+### 13.7 What to decide, with costs
+
+1. **The issue-queue caps and the bank rule** (step 7; fpu-2 in `tg_issue`, core-2 in rename).
+   - **What it is:** rename refuses a hart a row when the hart holds its cap of the queue (`tg_iq`'s room, computed today and unused), or when the row would be the last free one of its dispatch-slot bank.
+   - **The options:**
+     - **the plan's 75% caps alone:** 1.327 / 1.316 / 1.297, and the issue-queue starvation of §13.4;
+     - **75% caps, never a whole bank:** 1.313 / 1.349 / 1.343, with no deadlock by construction; about +0.1K LUTs a chip over the plan for a count per hart per bank;
+     - **50% caps, the last row kept while the sibling's group waits:** 1.341 / 1.358 / 1.344, about +0.2K a chip. The rule has to name both banks a waiting group needs, and the caps have to lift when the halves merge.
+   - **Recommendation:** the second now. The third is step 7's tuning if the 2% on compute pairs is worth it.
+2. **D8's store priority.**
+   - **What it is:** a committed store that finds no free L1D miss entry keeps the last free one from load misses and prefetches until it allocates; they still use any entry beyond it.
+   - **Cost:** none measurable. Without it, M7 deadlocks.
+   - **Recommendation:** required. core-2 to confirm the RTL keeps it with four entries and the store prefetch. Keep the drain's and the replays' alternation as planned.
+3. **D7: ICOUNT or round robin at fetch.**
+   - **The trade:** +0.4% throughput for about 0.6K LUTs a chip, less if it reuses the caps' row counts.
+   - **Recommendation:** within DR-154's limits, so the coordinator's call. I'd take ICOUNT only if it shares those counts.
+4. **D3: the free lists.** Not as planned: per-hart lists deadlock.
+   - **Two designs work:**
+     - **shared lists** (as today) with a per-hart recovery at a flush, and FP banks of at least 65 entries;
+     - **per-hart lists** with every bank at least 65 (integer) or 66 (FP) entries.
+   - **For FP only,** an fld that finds F1 short could be cracked into an integer load and a move into F0, in place of deeper banks.
+   - **Costs, for core-2:**
+     - the flush recovery: a walk of the flushed half (cycles at each flush, up to about 20) or free bitmaps (logic);
+     - the FP banks' depth: from 64 to 128 entries roughly doubles their LUTRAM.
+   - Doubling the FP banks likely crosses DR-154's 1,200-LUT line, which would make it the user's call.
+   - **Revised (§13.9):** core-2's per-hart lists, taking a free register from the sibling's list when short, with FP banks of 96. No deadlock, and throughput equal to ideal shared lists, where shared lists with a flush walk lose 0.5–2.6%. Recommendation: build it, the donor keeping one register; 96 rather than 128, which changes nothing. The cost is the FP banks from 64 to 96 entries (about 1.5× their LUTRAM) and a list-to-list move a cycle.
+5. **D2: the merge and split** (step 6).
+   - **What it is:** the halves merge when the sibling has sat in WFI for 64 cycles with an empty half, and split after a drain when it wakes. The plan puts it at 0.1K a core.
+   - **What it buys:** it keeps a lone thread's 3–4.5% (memsuite 8–12%).
+   - **Recommendation:**
+     - build it, and raise WFI's 4,096-cycle timeout for a sleeping sibling;
+     - drain the split only until the window fits its half, if the halves' pointers allow it;
+     - lift the bank rule, and 50% caps if chosen, when the halves merge.
+6. **Decode, rename and commit groups** (step 5; §13.8).
+   - **What it is:** whether a thread may fill, in the same cycle, slots its sibling leaves idle.
+   - **The cost of mixing:** both ROB head windows read every cycle, a second free-list pop port per sub-bank, and tid compares in rename's in-group checks.
+   - **What it buys:** 0–0.7% of throughput, under the 1% bar.
+   - **Recommendation:** one thread a group.
+
+**Decisions:** none here; D3's redesign is core-2's and the coordinator's, and the caps' level and ICOUNT are the coordinator's under DR-154. The model's new switches are mine and change no earlier result.
+
+**Learned:**
+- **A per-hart share of a writer-sharded structure must hold the hart's whole architectural state plus one, in every bank a single writer can fill.** "64 renaming registers a hart" said nothing about the banks, and CoreMark deadlocked.
+- **Fairness has to cover every resource a hart can wait on.** Alternating the drain fixed none of the deadlocks. The starvers were the sibling's load misses, for the miss entries, and its rows, in the issue queues' slot banks.
+- **A rule that protects one bank can fail a group that needs two.** The on-demand last row named one bank, and a decode group that dispatches as one needed both.
+- **Small queues make the cap level matter.** With 4–10-row queues it moved throughput by 3%; on the plan's larger queues it had not.
+- **Check every pair at every latency for deadlocks before trusting a throughput table.** The plan's configuration passed the 42 pairs and deadlocked 6–8 of the 16 working-set pairs.
+
+### 13.8 Decode, rename and commit groups: mixed against one thread a group
+
+*Added 2026-10-20 for core-2's step 5. Mixed groups let a thread fill the slots its sibling leaves in the same cycle, as the model has done since §5 (`smt_mix` 1). One thread a group (`smt_mix` 0) takes each cycle's group from one thread: the first-served thread alternates, and an idle thread is skipped. Mixed groups cost the RTL a read of both threads' ROB head windows every cycle, a second free-list pop port per sub-bank, and tid compares in rename's in-group dependency checks. The 42 pairs, against one program on the merged window:*
+
+| Configuration | Mixed groups | One thread a group | Change | One thread a group: memory + memory / compute + compute / mixed at 120 | Deadlocks (58 pairs), one thread a group |
+|---|---|---|---|---|---|
+| The plan: 75% caps | 1.327 / 1.316 / 1.297 | 1.322 / 1.310 / 1.294 | −0.4% / −0.5% / −0.3% | 1.237 / 1.298 / 1.399 | 6 / 8 / 8 (as mixed) |
+| 75% caps, never a whole bank (§13.4) | 1.313 / 1.349 / 1.343 | 1.303 / 1.341 / 1.338 | −0.7% / −0.6% / −0.4% | 1.256 / 1.258 / 1.525 | 0 |
+| 50% caps, the last row kept while the sibling waits | 1.341 / 1.358 / 1.344 | 1.339 / 1.359 / 1.344 | −0.2% / +0.1% / 0.0% | 1.241 / 1.303 / 1.552 | 0 |
+
+- **Mixed groups gain 0.7% at most, under the coordinator's 1% bar, so one thread a group stands.** §5 measured 0.4% on the plan's core.
+- **The cost falls mostly on compute + compute pairs** (up to 1.6%). There one thread often leaves a slot idle in a cycle its sibling could use.
+- **It adds no deadlock.**
+- **With one thread a group, the recommended configuration still clears exit 2,** at 1.303 / 1.341 / 1.338, though only just at 30 cycles. With 50% caps and the on-demand last row it clears with margin: 1.339 / 1.359 / 1.344.
+
+### 13.9 D3 as revised: per-hart lists with transfers, FP banks of 96
+
+*core-2's revision of D3, approved in principle by the coordinator (10-20), with the final shape set by the model:*
+- *per-hart free lists in RAM form, each recovered at a flush by a pointer reset;*
+- *a hart that cannot rename for want of a bank's register takes one a cycle from its sibling's list. The register has been free since commit, so no recovery is involved. A sleeping sibling's spares go the same way: D2's merge, for registers;*
+- *FP banks of at least 65 entries: 96 if the LUTRAM composes, else 128.*
+
+*The coordinator's conditions: no deadlock over the suite and the pairs, including two harts reloading all 32 f registers; throughput against shared lists whose flush walks the thread's half of the ROB two entries a cycle, its rename stalled meanwhile; and 96 against 128. core-2 also asked for transfers per kilo-instruction, and whether the donor should keep more than one.*
+
+*The model:*
+- *`prf_split` 1 with `prf_xfer` 1 (the donor keeps one free register in the bank) or 2 (it keeps its architectural registers of that kind plus one), and `prf_fp_bank` 96 or 128;*
+- *shared lists with `flush_walk` 1 (the whole half) or 2 (only the flushed entries; a mispredict's wrong path is estimated at two a cycle from the branch's dispatch, up to the half, since the model fetches no wrong path);*
+- *all on §13's recommended configuration: 75% caps, a hart never taking all of a slot bank's rows.*
+
+| Free lists | WS, 42 pairs (30 / 120 / 250) | Against shared lists without a walk | Deadlocked pairs of 87 | Transfers a kilo-instruction |
+|---|---|---|---|---|
+| Shared, no walk (FP 96) | 1.313 / 1.349 / 1.343 | – | 0 / 0 / 0 | – |
+| Shared, the flush walks the whole half (FP 96) | 1.279 / 1.320 / 1.317 | −2.6% / −2.1% / −1.9% | 0 / 0 / 0 | – |
+| Shared, the flush walks the flushed entries (FP 96) | 1.300 / 1.342 / 1.335 | −1.0% / −0.5% / −0.5% | 0 / 0 / 0 | – |
+| **Per hart, transfers, the donor keeps one, FP 96** | **1.313 / 1.349 / 1.344** | **0.0% / +0.1% / +0.1%** | **0 / 0 / 0** | 0.26 / 0.24 / 0.22 |
+| Per hart, transfers, the donor keeps its own registers plus one, FP 96 | 1.298 / 1.336 / 1.333 | −1.1% / −0.9% / −0.7% | 0 / 0 / 0 | under 0.01 |
+| The same two at FP 128 | identical to FP 96 | | 0 / 0 / 0 | |
+
+*The 87 pairs are §2.3's 42, §13.4's 16 working-set pairs, §13.5's 25 FP-heavy pairs, and the 4 with the FP restores, among them two harts each reloading their f registers twice in a row.*
+
+- **No deadlock** with per-hart lists and transfers at FP 96 or 128. That covers the 87 pairs at all three latencies and a lone hart over 36 programs.
+  - At FP 64 the same design still deadlocks 2 of 45 pairs (`m7_fprestore2` + nbody, CoreMark + `m7_fprestore`), and today's shared lists deadlock the two-hart double restore.
+  - The FP banks therefore need more than 64 entries, and 96 is enough.
+- **96 against 128:** every run is identical. 96 holds.
+- **The donor should keep one.** That form matches shared lists without a walk, with about a quarter of a transfer per 1,000 instructions.
+  - Keeping its own registers plus one blocks nearly every transfer and costs 0.7–1.1%.
+  - It prevents no deadlock here: keeping one had none.
+- **What the per-hart recovery buys:** shared lists lose 1.9–2.6% when each flush walks the whole half, and 0.5–1.0% when it walks only the flushed entries. Per-hart lists with transfers lose nothing.
+- **A lone hart** (its sibling asleep, the sibling's spares taken by transfers) loses 0.2%, 0.3% and 0.2% on the suite against today's one-hart core, with no deadlock.
+  - **The cost is hart 1's architectural registers, not the lists.** Asleep, it still holds 31 integer registers in B1 and 32 FP in F1, D4's homes. A lone hart whose values gather in B1 then has about two free registers there, under any list scheme.
+  - ms_chase8f16 loses 6.5–8.6% this way, with almost no transfers left to make.
+  - **Steering by free list doesn't help:** it recovers chase8f16 at 120 cycles but costs others more (nettle-sha256 −17%, the suite −0.7%).
+  - **Spreading hart 1's integer homes** over two banks might ease it. The model has not tried that.
+- **Exit 2's prediction (§13.2) stands under this design:** per-hart lists with transfers give the same throughput as the shared lists it assumed.
+
+### 13.10 Exit 2 on verif-2's pair runner: the blind rerun (10-20)
+
+*Written before the RTL runs any pair. verif-2's pair runner (`tests/bench/pair`, `build_pair.sh`) runs §2.3's 42 pairs on the RTL, from this study's 13 programs rebuilt for it:*
+- *the memory kernels at 1–2 MiB, with chase8 and copy warmed by one pass first; CoreMark at 3 iterations, Dhrystone at 3,000 runs, Embench as `build_all.sh`;*
+- *each program linked at both slots' bases (slot 0 at 0x8010_0000, slot 1 at 0x8810_0000), with a shim for the markers and a restart;*
+- *a pair image runs the pair's first program on hart 0 at slot 0 and its second on hart 1 at slot 1;*
+- *an alone image runs one program on hart 0 with hart 1 parked.*
+
+*The model now runs those exact ELFs the way the runner does:*
+- *no fast-forward anywhere, so each program's set-up runs timed before its region, as on the RTL;*
+- *the markers are taken at `tg_pair_mark`'s entry, counted as the shim counts them (the first 1, then the first 2);*
+- *the two first regions start together. In the runner, a hart that reaches its first marker spins until the sibling reaches its own. In the model (`smt_align`), the marker waits at its thread's commit head, and nothing behind it dispatches, until the sibling's marker reaches its head;*
+- *a program that ends (`_exit`'s entry) runs again from the top, set-up included;*
+- *the caches see each program at its own link address (`smt_pa_flat`). The two slots are 128 MiB apart, so a line at the same offset in both programs maps to the same set, as on the RTL. §13.2 instead gave thread 1 its own address space, offset by 21 pages;*
+- *a program's IPC alone is its first region's on today's core, one thread on the whole smt2 window, as verif-2's RTL alone runs measure it (hart 1 is still stubbed).*
+
+*The configurations follow core-2's steps. Step 5 is where the RTL pairs first run, and the issue-queue caps only arrive at step 7:*
+- *Every configuration has:*
+  - *static halves of the ROB, LQ and SQ (D1);*
+  - *ICOUNT at fetch;*
+  - *one thread a decode, rename and commit group, the first-served thread alternating (D7 as refined);*
+  - *per-hart free lists with transfers, the donor keeping one, and FP banks of 96 (D3 as revised);*
+  - *the drain alternating between the harts' committed SQ heads (D8 as planned);*
+  - *TID-hashed predictors.*
+- *"The drain's priority" is §13.4's rule: once a committed store has waited a cycle for a free L1D miss entry, load misses and prefetches leave it the last free one until it allocates; they still use any entry beyond it. The plan does not have it yet.*
+- *"Never a whole bank" is §13.4's rule that a hart never takes all of a dispatch-slot bank's rows in an issue queue.*
+- *"A bank's last row kept" is §13.4's on-demand form: a hart may not take a bank's last free row while its sibling waits on that bank.*
+
+**Weighted throughput on the runner** (WS over the 42 pairs against each program alone on today's core; geometric means over the pairs that run; 30 / 120 / 250 cycles):
+
+| Configuration | All pairs | memory + memory | compute + compute | mixed | Hung, of the 42 | Hung, of §13.4's 16 working-set pairs |
+|---|---|---|---|---|---|---|
+| Step 5 as planned: no caps, the drain alternating | 1.420 / 1.464 / 1.451, over the 36–37 that finish | 1.480 / 1.531 / 1.516 | 1.321 / 1.323 / 1.332 | 1.466 / 1.550 / 1.512 | **5 / 6 / 6** | 8 / 8 / 8 |
+| **Step 5 + the drain's priority** | **1.408 / 1.423 / 1.408** | 1.445 / 1.453 / 1.442 | 1.321 / 1.323 / 1.332 | 1.464 / 1.500 / 1.453 | 0 | 6 / 8 / 8 |
+| Step 7 as planned: 75% caps | 1.421 / 1.469 / 1.449, over the 36–37 that finish | 1.476 / 1.531 / 1.510 | 1.323 / 1.325 / 1.329 | 1.470 / 1.563 / 1.515 | 5 / 6 / 6 | 8 / 8 / 8 |
+| Step 7: 75% caps + the drain's priority | 1.409 / 1.427 / 1.406 | 1.443 / 1.451 / 1.437 | 1.323 / 1.325 / 1.329 | 1.466 / 1.510 / 1.455 | 0 | 6 / 8 / 8 |
+| Step 7: 75% caps, never a whole bank, the drain's priority (§13.2's recommendation) | 1.345 / 1.391 / 1.389 | 1.342 / 1.366 / 1.356 | 1.277 / 1.280 / 1.288 | 1.419 / 1.540 / 1.533 | 0 | 0 |
+| **Step 7: 50% caps, a bank's last row kept, the drain's priority** | **1.388 / 1.432 / 1.426** | 1.373 / 1.386 / 1.376 | 1.316 / 1.317 / 1.331 | 1.481 / 1.609 / 1.585 | 0 | 0 |
+| Check: step 5 + the drain's priority, thread 1 in an address space of its own (§13.2's) | 1.408 / 1.423 / 1.408 | 1.447 / 1.455 / 1.444 | 1.320 / 1.322 / 1.331 | 1.460 / 1.499 / 1.453 | 0 | – |
+
+*chase8 + chase8 is 1.000 in every configuration that finishes it: chase8 alone keeps all four L1D miss entries busy (§13.2). "Hung" is a hart with no commit for 500,000 cycles.*
+
+- **Step 5 hangs six of the 42 pairs unless the store drain wins a free miss entry.**
+  - The pairs: chase8 with stream, spmv, copy, minver and Dhrystone at every latency, and chase8 + chase8 at 120 and 250.
+  - What happens: the hart beside chase8 fills its SQ half (10 entries) with committed stores whose lines are absent. Their ownership prefetches found no free entry, and every entry that frees goes to chase8's next load miss. The hart's next store cannot dispatch, so it never commits again.
+  - Caps don't touch this, so step 7 as planned hangs the same pairs.
+  - **On the RTL it turns on one arbitration that core-lsu.md leaves open.** The store port allocates "in its own cycle" when an entry is free. Nothing says who wins when the drain and a load's request register both want the last free entry.
+    - If loads win, expect these six pairs to hang.
+    - If the drain wins, the RTL should read like "step 5 + the drain's priority".
+  - So the step-5 pair runs need a hang timeout, and these are the pairs to watch.
+- **With the drain's priority, step 5 reads 1.408 / 1.423 / 1.408 on the runner as built.**
+  - It is unfair, though: with no caps, a memory kernel fills the 6-row load queue.
+  - At 120 cycles, these threads keep only part of their alone IPC: minver 0.18 and Dhrystone 0.26 beside chase8, CoreMark 0.31 and huffbench 0.37 beside gather.
+- **The plan's 75% caps change nothing measurable here (±0.005).** 75% of the 6-row load queue still leaves the memory thread 5 rows.
+- **Without a bank rule, §13.4's working-set pairs still hang,** with or without caps, and with the drain's priority.
+  - 6–8 of 16 hang: chase1 with chase8, and copy with chase1, at every size.
+  - The sibling holds every load-queue row it may take (all 6 with no caps, 5 at 75%). The starved hart's next load waits for a row in a slot bank that never frees.
+  - None of the 42 runner pairs does this, but a Linux workload could. Two harts should run only these tests until step 7's rule is in.
+- **The bank rule's cost depends on its form.**
+  - **"Never a whole bank":** −4.5% / −2.5% / −1.2% against 75% caps with the drain's priority (1.409 → 1.345 at 30). It bars a hart from a bank's last row even when the sibling doesn't want it, so the memory kernels lose parallel misses.
+  - Both forms rescue chase8 + minver and chase8 + Dhrystone at 120 and 250: 1.18 → 1.76 and 1.26 → 1.73 with "never a whole bank".
+  - **The last row kept on demand, with 50% caps,** keeps that rescue (1.85 and 1.83 at 120) and loses least: 1.388 / 1.432 / 1.426, which is 3.2% / 2.9% / 2.7% above "never a whole bank", with no hang over all 58 pairs.
+- **The address space doesn't matter.** Thread 1 in an address space of its own reads the same to three decimals.
+
+**The method: the runner as built reads up to 0.12 higher than §13.2's basis** (WS by group; 30 / 120 / 250 cycles):
+
+| Configuration | Method | All pairs | memory + memory | compute + compute | mixed |
+|---|---|---|---|---|---|
+| Step 5 + the drain's priority | the runner as built | 1.408 / 1.423 / 1.408 | 1.445 / 1.453 / 1.442 | 1.321 / 1.323 / 1.332 | 1.464 / 1.500 / 1.453 |
+| | the runner, memory kernels repeating their region | 1.324 / 1.306 / **1.288** | 1.267 / 1.226 / 1.204 | 1.321 / 1.323 / 1.332 | 1.387 / 1.374 / 1.332 |
+| | §13.2's: fast-forwarded, restarts straight into the region | 1.318 / 1.305 / 1.290 | 1.270 / 1.232 / 1.209 | 1.301 / 1.311 / 1.325 | 1.385 / 1.376 / 1.342 |
+| 75% caps, never a whole bank, the drain's priority | the runner as built | 1.345 / 1.391 / 1.389 | 1.342 / 1.366 / 1.356 | 1.277 / 1.280 / 1.288 | 1.419 / 1.540 / 1.533 |
+| | the runner, memory kernels repeating their region | 1.313 / 1.351 / 1.346 | 1.255 / 1.259 / 1.240 | 1.277 / 1.280 / 1.288 | 1.414 / 1.530 / 1.527 |
+| | §13.2's | 1.308 / 1.345 / 1.342 | 1.258 / 1.259 / 1.240 | 1.259 / 1.264 / 1.273 | 1.414 / 1.528 / 1.533 |
+| 50% caps, a bank's last row kept, the drain's priority | the runner as built | 1.388 / 1.432 / 1.426 | 1.373 / 1.386 / 1.376 | 1.316 / 1.317 / 1.331 | 1.481 / 1.609 / 1.585 |
+| | the runner, memory kernels repeating their region | 1.347 / 1.362 / 1.351 | 1.268 / 1.248 / 1.228 | 1.316 / 1.317 / 1.331 | 1.465 / 1.537 / 1.508 |
+| | §13.2's | 1.340 / 1.359 / 1.350 | 1.269 / 1.248 / 1.227 | 1.299 / 1.310 / 1.326 | 1.459 / 1.534 / 1.510 |
+
+- **The runner restarts a program from the top, set-up included, and the memory kernels are mostly set-up.**
+  - At 120 cycles alone, set-up takes 91% of stride's run, 78% of chase8's, 62% of copy's, 53% of stream's, 44% of gather's, 37% of spmv's and 34% of hashprobe's. The compute programs spend 2–16%.
+  - So while one program's region runs, its sibling is often filling arrays rather than running its kernel. That is a lighter load, and memory + memory pairs read about 0.2 higher.
+- **Repeating the region removes the gap.** With each memory kernel repeating its region's loop until the pair ends (`smt_restart_ff`, as a `REPEAT` build of the memsuite kernels would), the runner reads within 0.007 of §13.2's method. The compute programs can keep restarting from the top.
+- **Neither the programs' rebuild nor the address space moves anything.** On the runner's own ELFs, §13.2's method gives §13.2's numbers for the recommendation: 1.308 / 1.345 / 1.342, against 1.313 / 1.349 / 1.343 (§13.2, mixed groups) and 1.303 / 1.341 / 1.338 (§13.8, one thread a group, as here).
+- **The verdict changes with the method.** On §13.2's basis, step 5 + the drain's priority misses 1.3 at 250 cycles (1.288). With caps and either bank rule, exit 2 holds at every point: 1.313 / 1.351 / 1.346, and 1.347 / 1.362 / 1.351 for the on-demand form. The 1.3 bar was set on that basis (§2.2), so the runner as built would pass exit 2 on a margin that belongs to the method.
+
+**Alone on today's core** (the first region; region instructions, then cycles at 30 / 120 / 250; slot 0 and slot 1 identical in the model), for verif-2's RTL alone runs:
+
+| Program | Instructions | Cycles, 30 | 120 | 250 | IPC, 30 / 120 / 250 |
+|---|---|---|---|---|---|
+| ms_gather | 360,039 | 674,787 | 1,678,699 | 3,128,719 | 0.534 / 0.214 / 0.115 |
+| ms_stride | 18,529 | 38,268 | 108,378 | 209,648 | 0.484 / 0.171 / 0.088 |
+| ms_spmv | 1,351,716 | 1,834,666 | 5,484,349 | 10,756,109 | 0.737 / 0.246 / 0.126 |
+| ms_hashprobe | 1,621,728 | 4,615,711 | 9,219,854 | 15,873,644 | 0.351 / 0.176 / 0.102 |
+| ms_chase8 | 60,049 | 516,292 | 1,596,652 | 3,157,172 | 0.116 / 0.038 / 0.019 |
+| ms_stream | 1,179,683 | 741,719 | 1,974,943 | 3,750,353 | 1.590 / 0.597 / 0.315 |
+| ms_copy | 320,472 | 590,144 | 1,821,056 | 3,478,166 | 0.543 / 0.176 / 0.092 |
+| coremark_A | 1,013,321 | 670,447 | 681,787 | 698,167 | 1.511 / 1.486 / 1.451 |
+| dhrystone | 858,101 | 589,360 | 591,160 | 593,760 | 1.456 / 1.452 / 1.445 |
+| embench_nsichneu | 2,405,424 | 1,875,716 | 1,876,076 | 1,876,596 | 1.282 / 1.282 / 1.282 |
+| embench_huffbench | 2,163,593 | 1,794,647 | 1,795,091 | 1,795,741 | 1.206 / 1.205 / 1.205 |
+| embench_minver | 441,869 | 316,741 | 317,097 | 317,617 | 1.395 / 1.393 / 1.391 |
+| embench_matmult-int | 3,180,640 | 1,616,505 | 1,616,865 | 1,617,385 | 1.968 / 1.967 / 1.967 |
+
+*The model counts from `tg_pair_mark`'s first instruction to its next call, and the shim from its counter reads, so instret should agree within a few dozen instructions. The drain's priority changes no alone run (at most −0.01%, spmv).*
+
+**How close the RTL should land:** as §13.2 says, within about ±0.05 on WS and more likely below; alone, within 2–6% on CoreMark and Dhrystone and about 14% on the memory kernels.
+
+**Measured: verif-2's RTL alone runs** (10-20 01:05: the smt2 build of main 75cd80ca, hart 1 never fetching, lockstep on; the same ELFs as the table above). Model against RTL, IPC over the first region at 30 / 120 / 250 cycles:
+
+| Program | RTL | Model | Model / RTL − 1 | With the RTL's ownership-prefetch rule |
+|---|---|---|---|---|
+| ms_gather | 0.532 / 0.213 / 0.114 | 0.534 / 0.214 / 0.115 | +0.3% / +0.5% / +0.5% | unchanged |
+| ms_stride | 0.516 / 0.174 / 0.089 | 0.484 / 0.171 / 0.088 | −6.1% / −2.0% / −0.7% | unchanged |
+| ms_spmv | 0.711 / 0.243 / 0.125 | 0.737 / 0.246 / 0.126 | +3.6% / +1.4% / +0.7% | unchanged |
+| ms_hashprobe | 0.418 / 0.241 / 0.147 | 0.351 / 0.176 / 0.102 | **−16.0% / −26.9% / −30.5%** | unchanged |
+| ms_chase8 | 0.116 / 0.038 / 0.019 | 0.116 / 0.038 / 0.019 | 0.0% / 0.0% / 0.0% | unchanged |
+| ms_stream | 1.290 / 0.628 / 0.336 | 1.590 / 0.597 / 0.315 | **+23.3%** / −4.9% / −6.3% | +24.0% / +3.7% / +3.1% |
+| ms_copy | 0.524 / 0.230 / 0.124 | 0.543 / 0.176 / 0.092 | +3.6% / **−23.3% / −25.9%** | +24.7% / +3.9% / +2.0% |
+| coremark_A | 1.485 / 1.470 / 1.441 | 1.511 / 1.486 / 1.451 | +1.8% / +1.1% / +0.7% | unchanged |
+| dhrystone | 1.439 / 1.436 / 1.432 | 1.456 / 1.452 / 1.445 | +1.2% / +1.1% / +0.9% | unchanged |
+| embench_nsichneu | 1.285 / 1.285 / 1.285 | 1.282 / 1.282 / 1.282 | −0.2% | unchanged |
+| embench_huffbench | 1.137 / 1.134 / 1.132 | 1.206 / 1.205 / 1.205 | +6.0% / +6.3% / +6.4% | unchanged |
+| embench_minver | 1.385 / 1.385 / 1.385 | 1.395 / 1.393 / 1.391 | +0.7% / +0.6% / +0.5% | unchanged |
+| embench_matmult-int | 1.966 / 1.966 / 1.966 | 1.968 / 1.967 / 1.967 | +0.1% / 0.0% / 0.0% | unchanged |
+
+- **The regions agree:** the RTL's instret is 3 below the model's in every program (the shim's counter reads against `tg_pair_mark`'s entry), and the RTL's two slots agree within 0.82%.
+- **10 of 13 match within 6.4%,** 7 of them within 2%. The compute programs read +1.1–1.6% high overall.
+- **Three memory kernels miss the 10% bar:**
+  - **copy and stream at 120 and 250 cycles** (−23 to −26% and −5 to −6%): rtl_m2 revision 7 lets an ownership prefetch take an L1D miss entry only while 2 others stay free. The RTL (DR-171) needs only 1, and caps prefetches at 3. With the RTL's rule (`rfo_pf_reserve` 1; `rfo_pf_max` 3 changes nothing on top), copy comes to +3.9% / +2.0% and stream to +3.7% / +3.1%. Nothing else moves. (That column ran on verif-2's 02:05 rebuild, below, the 01:05 ELFs being gone. On it, revision 7 reads the same for copy and stream within 0.1%, and the rule leaves every other program unchanged.)
+  - **copy and stream at 30 cycles** read about 24% high with that rule: the bandwidth-bound case, where the model likely refills a line faster than the RTL's four beats through the data array's one write port, which the store drain shares. Not yet modelled.
+  - **hashprobe** reads 16–31% low. Its region is loads behind a data-dependent probe loop. The RTL's wrong path most likely issues the next lookups' misses early, a prefetch the model cannot see, since it fetches only the correct path (§11).
+- **What it means for the prediction:** WS divides by the model's own alone IPC, so much cancels. Pairs with copy, stream or hashprobe carry more than ±0.05, though. The ownership-prefetch rule belongs in the model as built (`rtl_m2` revision 8); §13.10's tables are revision 7's.
+- **The ELFs changed at 02:05:** verif-2 added a line to the shim after the first program's region (it names the slot left running, for hangs). The regions grew by 2 instructions, and every program's code moved, which alone shifted the model's minver by about 7%. §13.10's numbers are for the 01:05 builds, the ones these RTL alone runs used. The prediction needs a rerun on the ELFs the step-5 pairs run.
+
+**Per pair** (the runner as built; WS at 30 / 120 / 250 cycles; then each thread's share of its alone IPC at 120 under step 5 + the drain's priority):
+
+| Pair | Group | Step 5 as planned | Step 5 + the drain's priority | Step 7: 75% caps + the drain's priority | 75% never a whole bank + the drain's priority | 50%, last row kept, + the drain's priority | Shares at 120 |
+|---|---|---|---|---|---|---|---|
+| gather+stride | mem+mem | 1.57 / 1.61 / 1.63 | 1.57 / 1.61 / 1.63 | 1.55 / 1.61 / 1.61 | 1.39 / 1.38 / 1.39 | 1.40 / 1.42 / 1.41 | 0.90 + 0.70 |
+| stride+spmv | mem+mem | 1.47 / 1.44 / 1.44 | 1.45 / 1.43 / 1.42 | 1.45 / 1.43 / 1.42 | 1.30 / 1.26 / 1.25 | 1.39 / 1.38 / 1.37 | 0.65 + 0.78 |
+| spmv+hashprobe | mem+mem | 1.68 / 1.64 / 1.59 | 1.68 / 1.64 / 1.59 | 1.68 / 1.65 / 1.60 | 1.68 / 1.64 / 1.60 | 1.67 / 1.64 / 1.60 | 0.81 + 0.83 |
+| hashprobe+chase8 | mem+mem | 1.77 / 1.66 / 1.62 | 1.77 / 1.66 / 1.62 | 1.77 / 1.66 / 1.62 | 1.78 / 1.65 / 1.61 | 1.77 / 1.65 / 1.60 | 0.75 + 0.91 |
+| chase8+stream | mem+mem | hung | 1.32 / 1.34 / 1.34 | 1.32 / 1.34 / 1.34 | 1.23 / 1.24 / 1.24 | 1.23 / 1.24 / 1.25 | 0.87 + 0.47 |
+| stream+copy | mem+mem | 1.20 / 1.20 / 1.18 | 1.20 / 1.24 / 1.22 | 1.20 / 1.24 / 1.22 | 1.17 / 1.27 / 1.27 | 1.20 / 1.25 / 1.28 | 0.58 + 0.65 |
+| copy+gather | mem+mem | 1.53 / 1.57 / 1.54 | 1.53 / 1.57 / 1.53 | 1.52 / 1.58 / 1.53 | 1.22 / 1.39 / 1.42 | 1.30 / 1.43 / 1.44 | 0.69 + 0.88 |
+| gather+spmv | mem+mem | 1.42 / 1.36 / 1.34 | 1.41 / 1.35 / 1.33 | 1.42 / 1.33 / 1.30 | 1.33 / 1.26 / 1.24 | 1.31 / 1.26 / 1.23 | 0.69 + 0.66 |
+| stride+hashprobe | mem+mem | 1.87 / 1.85 / 1.83 | 1.87 / 1.85 / 1.83 | 1.87 / 1.85 / 1.83 | 1.68 / 1.70 / 1.69 | 1.82 / 1.80 / 1.79 | 0.93 + 0.92 |
+| spmv+chase8 | mem+mem | hung | 1.41 / 1.42 / 1.42 | 1.38 / 1.41 / 1.40 | 1.33 / 1.34 / 1.34 | 1.29 / 1.30 / 1.30 | 0.68 + 0.74 |
+| hashprobe+stream | mem+mem | 1.51 / 1.61 / 1.63 | 1.51 / 1.61 / 1.63 | 1.51 / 1.62 / 1.64 | 1.50 / 1.62 / 1.64 | 1.50 / 1.62 / 1.64 | 0.94 + 0.67 |
+| chase8+copy | mem+mem | hung | 1.34 / 1.38 / 1.37 | 1.34 / 1.37 / 1.37 | 1.28 / 1.30 / 1.28 | 1.27 / 1.29 / 1.27 | 0.88 + 0.50 |
+| stream+gather | mem+mem | 1.36 / 1.40 / 1.41 | 1.36 / 1.40 / 1.41 | 1.36 / 1.39 / 1.38 | 1.22 / 1.24 / 1.19 | 1.20 / 1.23 / 1.19 | 0.53 + 0.87 |
+| copy+stride | mem+mem | 1.61 / 1.60 / 1.58 | 1.50 / 1.52 / 1.50 | 1.50 / 1.52 / 1.50 | 1.26 / 1.39 / 1.38 | 1.47 / 1.50 / 1.48 | 0.77 + 0.75 |
+| chase8+chase8 | mem+mem | 1.00 / hung / hung | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 | 1.00 / 1.00 / 1.00 | 0.50 + 0.50 |
+| CoreMark+Dhrystone | compute+compute | 1.32 / 1.32 / 1.34 | 1.32 / 1.32 / 1.34 | 1.31 / 1.33 / 1.34 | 1.26 / 1.27 / 1.28 | 1.32 / 1.33 / 1.34 | 0.63 + 0.69 |
+| Dhrystone+nsichneu | compute+compute | 1.44 / 1.43 / 1.44 | 1.44 / 1.43 / 1.44 | 1.44 / 1.43 / 1.44 | 1.35 / 1.34 / 1.35 | 1.42 / 1.42 / 1.44 | 0.67 + 0.76 |
+| nsichneu+huffbench | compute+compute | 1.48 / 1.48 / 1.48 | 1.48 / 1.48 / 1.48 | 1.48 / 1.48 / 1.48 | 1.38 / 1.38 / 1.39 | 1.49 / 1.49 / 1.49 | 0.85 + 0.64 |
+| huffbench+minver | compute+compute | 1.39 / 1.39 / 1.43 | 1.39 / 1.39 / 1.43 | 1.42 / 1.42 / 1.40 | 1.40 / 1.39 / 1.39 | 1.39 / 1.39 / 1.42 | 0.64 + 0.75 |
+| minver+matmult | compute+compute | 1.20 / 1.20 / 1.19 | 1.20 / 1.20 / 1.19 | 1.20 / 1.20 / 1.19 | 1.19 / 1.19 / 1.19 | 1.17 / 1.17 / 1.19 | 0.65 + 0.54 |
+| matmult+CoreMark | compute+compute | 1.14 / 1.15 / 1.16 | 1.14 / 1.15 / 1.16 | 1.14 / 1.15 / 1.16 | 1.13 / 1.14 / 1.15 | 1.14 / 1.15 / 1.16 | 0.54 + 0.61 |
+| CoreMark+nsichneu | compute+compute | 1.38 / 1.39 / 1.40 | 1.38 / 1.39 / 1.40 | 1.38 / 1.39 / 1.40 | 1.31 / 1.32 / 1.33 | 1.38 / 1.39 / 1.40 | 0.60 + 0.79 |
+| Dhrystone+huffbench | compute+compute | 1.39 / 1.39 / 1.40 | 1.39 / 1.39 / 1.40 | 1.39 / 1.40 / 1.40 | 1.31 / 1.31 / 1.31 | 1.39 / 1.40 / 1.41 | 0.76 + 0.64 |
+| nsichneu+minver | compute+compute | 1.47 / 1.47 / 1.47 | 1.47 / 1.47 / 1.47 | 1.46 / 1.46 / 1.47 | 1.41 / 1.42 / 1.43 | 1.46 / 1.45 / 1.46 | 0.77 + 0.70 |
+| huffbench+matmult | compute+compute | 1.23 / 1.23 / 1.23 | 1.23 / 1.23 / 1.23 | 1.23 / 1.23 / 1.23 | 1.21 / 1.21 / 1.21 | 1.23 / 1.23 / 1.23 | 0.63 + 0.59 |
+| minver+CoreMark | compute+compute | 1.35 / 1.37 / 1.39 | 1.35 / 1.37 / 1.39 | 1.35 / 1.37 / 1.37 | 1.32 / 1.34 / 1.37 | 1.34 / 1.32 / 1.38 | 0.74 + 0.63 |
+| matmult+Dhrystone | compute+compute | 1.18 / 1.18 / 1.19 | 1.18 / 1.18 / 1.19 | 1.18 / 1.18 / 1.19 | 1.15 / 1.15 / 1.16 | 1.18 / 1.18 / 1.19 | 0.53 + 0.65 |
+| CoreMark+CoreMark | compute+compute | 1.27 / 1.26 / 1.26 | 1.27 / 1.26 / 1.26 | 1.26 / 1.27 / 1.27 | 1.22 / 1.22 / 1.23 | 1.26 / 1.26 / 1.26 | 0.63 + 0.63 |
+| gather+CoreMark | mixed | 1.37 / 1.26 / 1.18 | 1.37 / 1.26 / 1.18 | 1.36 / 1.25 / 1.17 | 1.31 / 1.37 / 1.40 | 1.34 / 1.42 / 1.45 | 0.96 + 0.31 |
+| gather+huffbench | mixed | 1.40 / 1.32 / 1.30 | 1.40 / 1.32 / 1.30 | 1.43 / 1.44 / 1.32 | 1.32 / 1.33 / 1.28 | 1.34 / 1.36 / 1.30 | 0.95 + 0.37 |
+| stride+Dhrystone | mixed | 1.63 / 1.76 / 1.70 | 1.64 / 1.76 / 1.70 | 1.62 / 1.76 / 1.70 | 1.42 / 1.60 / 1.60 | 1.57 / 1.76 / 1.71 | 1.00 + 0.76 |
+| stride+minver | mixed | 1.62 / 1.68 / 1.59 | 1.61 / 1.67 / 1.62 | 1.61 / 1.67 / 1.59 | 1.44 / 1.66 / 1.73 | 1.57 / 1.66 / 1.58 | 1.01 + 0.66 |
+| spmv+nsichneu | mixed | 1.65 / 1.85 / 1.90 | 1.65 / 1.85 / 1.90 | 1.65 / 1.85 / 1.90 | 1.61 / 1.78 / 1.85 | 1.66 / 1.86 / 1.90 | 0.92 + 0.94 |
+| spmv+matmult | mixed | 1.40 / 1.34 / 1.18 | 1.41 / 1.37 / 1.21 | 1.41 / 1.36 / 1.21 | 1.40 / 1.35 / 1.20 | 1.41 / 1.37 / 1.21 | 0.85 + 0.52 |
+| hashprobe+huffbench | mixed | 1.70 / 1.70 / 1.65 | 1.70 / 1.70 / 1.65 | 1.70 / 1.72 / 1.66 | 1.63 / 1.64 / 1.60 | 1.70 / 1.72 / 1.67 | 0.95 + 0.76 |
+| hashprobe+CoreMark | mixed | 1.71 / 1.78 / 1.81 | 1.71 / 1.78 / 1.81 | 1.71 / 1.79 / 1.83 | 1.64 / 1.72 / 1.75 | 1.70 / 1.80 / 1.83 | 0.93 + 0.86 |
+| chase8+minver | mixed | hung | 1.45 / 1.18 / 1.10 | 1.46 / 1.18 / 1.10 | 1.62 / 1.76 / 1.79 | 1.72 / 1.85 / 1.88 | 1.00 + 0.18 |
+| chase8+Dhrystone | mixed | hung | 1.45 / 1.26 / 1.15 | 1.45 / 1.26 / 1.16 | 1.57 / 1.73 / 1.69 | 1.63 / 1.83 / 1.87 | 1.00 + 0.26 |
+| stream+matmult | mixed | 1.05 / 1.22 / 1.16 | 1.05 / 1.22 / 1.16 | 1.05 / 1.22 / 1.16 | 1.05 / 1.21 / 1.16 | 1.05 / 1.22 / 1.16 | 0.68 + 0.54 |
+| stream+nsichneu | mixed | 1.34 / 1.64 / 1.73 | 1.34 / 1.64 / 1.73 | 1.34 / 1.64 / 1.73 | 1.29 / 1.53 / 1.64 | 1.34 / 1.64 / 1.73 | 0.68 + 0.96 |
+| copy+CoreMark | mixed | 1.44 / 1.67 / 1.72 | 1.44 / 1.67 / 1.72 | 1.44 / 1.67 / 1.72 | 1.36 / 1.55 / 1.60 | 1.44 / 1.65 / 1.70 | 0.81 + 0.86 |
+| copy+huffbench | mixed | 1.44 / 1.55 / 1.48 | 1.44 / 1.55 / 1.48 | 1.44 / 1.55 / 1.48 | 1.35 / 1.46 / 1.41 | 1.44 / 1.55 / 1.49 | 0.80 + 0.74 |
+
+**What to decide, with costs:**
+1. **The drain's priority for a free miss entry** (D8, core-2's step 4; §13.7 item 2).
+   - **What it is:** a committed store that has waited for a free L1D miss entry keeps the last free one from loads' requests and prefetches until it allocates; loads still use any entry beyond it.
+   - **Cost:** no measurable cycles, alone or in pairs, and an arbitration change in the miss side's allocation.
+   - **Without it:** 6 of exit 2's 42 pairs hang in the model.
+   - **Recommendation:** required before the step-5 pair runs. If core-2 finds the store port already wins, nothing changes.
+2. **How the runner restarts** (verif-2's).
+   - **Recommendation:** build the memory kernels (`perfmodel/bench/memsuite`, this project's own code) with a `REPEAT` option, so that after the first region they loop the region's kernel until the pair ends. The compute programs can keep restarting from the top.
+   - **Why:** as built, the runner reads up to 0.12 above the basis the 1.3 bar was set on, and it would pass step 5 + the drain's priority (1.408 at 250), which that basis fails (1.288).
+   - **Cost:** a few lines per kernel, and a rebuild.
+   - **Done (10-20):**
+     - verif-2 agreed and recommends it to the coordinator.
+     - `REPEAT=1` is in memsuite (a42b221e, its own commit). Off, every kernel compiles byte-identically to before.
+     - verif-2's `build_pair.sh` passes it to the 7 kernels.
+     - The model ends a runner run where the runner's finish does (`stop_regions`: once every thread's first region has ended), so REPEAT builds, which never exit, run to the same end. On the old builds it changes no measured number. Checked on gather alone and beside CoreMark.
+3. **The bank rule's form at step 7** (§13.7 item 1).
+   - **The options:**
+     - never a whole bank: about +0.1K LUTs a chip;
+     - 50% caps with a bank's last row kept on demand: about +0.2K.
+   - **The trade:** the on-demand form gains 2.6% / 0.8% / 0.4% with the memory kernels repeating, and 2.7–3.2% on the runner as built. Both are free of hangs over 58 pairs.
+   - **Recommendation:** the on-demand form, under DR-154's limits for the extra 0.1K, with §13.7's two conditions: it names both banks a waiting group needs, and the 50% caps lift when the halves merge.
+4. **Two harts outside these tests wait for step 7's rule.** Step 5's core hangs 6–8 of the 16 working-set pairs even with the drain's priority. HART1_ON stays off by default until step 8, so this needs no change, only care with any early two-hart Linux boot.
+
+**Decisions:** none here. The new `tgsim` switches (`smt_align`, `smt_pa_flat`, `smt_restart_ff`, and the pair runner's markers and exit, taken only from ELFs that have `tg_pair_mark`) are mine, and every earlier result is identical with them off. The calls above are core-2's, verif-2's and the coordinator's.
+
+**Learned:**
+- **A pair runner's restart policy is part of the metric.** Restarting with set-up let a memory kernel's sibling spend up to 91% of its time filling arrays, and the runner read up to 0.12 higher than kernel against kernel, the basis the bar was set on.
+- **A barrier modelled as a held commit must also stop dispatch.** Without that, uops behind a serialising CSR read held issue-queue rows, and with no caps the sibling starved: a hang of the model's own making (stride + spmv), gone once nothing dispatches past the marker.
+- **An intermediate build needs its own liveness check.** Step 5 has neither caps nor a bank rule. Its hazards (the drain starved of miss entries, a hart starved of load-queue rows) are not the final M7's, and they are what the first RTL pair runs will meet.
+
+### 13.11 D4's alternatives: where hart 1's integer registers live at reset (10-20)
+
+*core-2 asked, before step 5, whether the lone hart's −0.2% to −0.3% (§13.9; ms_chase8f16 −6.5% to −8.6%) goes away with other homes for hart 1's x1–x31.*
+- *The cause (§13.9): a sleeping hart 1 still holds its 31 integer values at their homes.*
+- *Under D4 as planned they all sit in B1, the bank of ALU1 and of multiply, divide and CSR results. That leaves a lone hart about 32 of B1's 64 entries.*
+
+*Two alternatives (`prf_homes`); FP homes stay as planned (hart 1's f registers in F1, at 96 entries):*
+- *(a) every integer home in B0: x0 at 0, hart 0's x1–x31 at 1–31, hart 1's at 32–62, one entry free at reset. B1 and B2 start empty, and ALU ops steer to ALU1 when B0 has no register on the hart's list (`prf_steer`).*
+- *(b) hart 0's in B0 as today; hart 1's x1–x16 in B1 and x17–x31 in B2, the loads' bank.*
+
+*The base is §13.10's step-7 configuration: 75% caps never a whole bank, one thread a group, and D3 as revised. A lone hart runs over the suite against today's one-hart core. Pairs give the WS over §2.3's 42 and the hangs over §13.9's 87, at 30 / 120 / 250 cycles.*
+
+| Homes | Lone hart, suite | Its largest loss at 120 | Pairs, WS | Against D4 as planned | Hangs (lone; 87 pairs) |
+|---|---|---|---|---|---|
+| D4 as planned (hart t's in bank t) | −0.21% / −0.29% / −0.17% | ms_chase8f16 −8.6% | 1.303 / 1.341 / 1.336 | – | none; 0 |
+| (a) all in B0, ALU ops steering around it | −2.14% / −1.26% / −1.20% | ms_gather −24.8%, embench_crc32 −11.3% | 1.298 / 1.338 / 1.337 | −0.4% / −0.2% / 0.0% | none; 0 |
+| (a) all in B0, no steering | – | – | – | – | 35 of 36 programs |
+| **(b) hart 1's over B1 and B2** | **+0.05% / −0.00% / −0.00%** | **none (−0.0%)** | **1.303 / 1.341 / 1.337** | **0.0%** | **none; 0** |
+
+- **(b) removes the lone hart's loss and costs pairs nothing.**
+  - ms_chase8f16 goes from −8.6% to 0.0%. With hart 1's 16 and 15 registers in B1 and B2, no bank leaves the lone hart fewer than about 47 registers.
+  - Pairs read the same to three decimals, with no hang.
+- **(a) is worse.**
+  - **Without steering it hangs a lone hart at its first ALU op.** B0's one spare register at reset sits on the sleeping hart's list, which a transfer cannot take, since the donor keeps one. Giving that register to hart 0 would fix the start, but not the squeeze.
+  - **With steering it costs a lone hart 1.2–2.1%.** In gather, every ALU op goes to ALU1's queue, which fills: issue-queue stalls go from 0.2% to 22.6% of cycles. Pairs lose 0–0.4%.
+  - The squeeze moves from B1 to B0 rather than going away, because the sleeping hart's 31 registers still sit in one bank.
+- **Cost of (b):**
+  - The reset sequence writes hart 1's homes through two banks' write ports instead of one.
+  - The rename map's and the free lists' reset contents change: B1 starts with 48 free registers and B2 with 49, against 33 and 64 as planned.
+  - Nothing else changes. core-2 to confirm.
+- **Recommendation:** (b).
+- **Adopted (core-2, 10-20, step 5, under DR-154):**
+  - hart 1's x17–x31 are zeroed at reset through the load port's write, during the D$'s reset sweep;
+  - x1–x16 go through `tg_exec`'s port 1, as planned;
+  - recorded in the plan's D4 row.
+
+**Decisions:** none here; D4 is core-2's. The new switches (`prf_homes`; `rfo_pf_reserve` and `rfo_pf_max` for §13.10's calibration check) are mine, and every earlier result is identical with them off.
+
+**Learned:**
+- **Spread a sleeping hart's registers so that no single-writer bank loses much more than a quarter of its entries to them.** One bank holding all 31 left the lone hart about 32 there. Two banks holding 16 and 15 left about 47 each, and the loss vanished.
+- **With per-hart lists, a bank's spare registers at reset belong to the hart that will run.** A spare on the sleeping hart's list is out of reach, because the donor keeps one.
+
+### 13.12 Exit 2 on the final pair set: the blind prediction (10-20)
+
+*verif-2's final set, which step 5's pairs and alone runs will use:*
+- *`~/tanager-build/track-verif-79d5d8/pair-final-b7db3e16`, read-only;*
+- *94 ELFs, checked against its manifest (whose md5 is 22d3ecf4…);*
+- *built from a clean tree at b7db3e16, with memsuite's `REPEAT=1` (a42b221e, cherry-picked as 0ba16d00) and the shim's PAIR-STOP line.*
+
+*Written before any of them runs on the RTL.*
+
+*The model is §13.10's, with two changes:*
+- *the ownership prefetch as the RTL's: an L1D miss entry while another stays free (DR-171; `rfo_pf_reserve` 1, rtl_m2 revision 8; §13.10's alone comparison);*
+- *the runner's finish (`stop_regions`), since the memory kernels now repeat their region until the pair ends.*
+
+*§13.4's 16 working-set pairs (the model's own builds) are rerun on revision 8 for hangs.*
+
+| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | Hung, of the 16 working-set pairs |
+|---|---|---|---|---|---|---|---|
+| Step 5 as planned: no caps, the drain alternating | 1.327 / 1.331 / 1.309, over the 36–37 that finish | 1.277 / 1.255 / 1.226 | 1.337 / 1.340 / 1.345 | 1.369 / 1.403 / 1.359 | 1.000 / 1.028 / 1.020 | **5 / 6 / 6** | 7 / 9 / 8 |
+| **Step 5 + the drain's priority** | **1.310 / 1.292 / 1.272** | 1.229 / 1.187 / 1.165 | 1.337 / 1.340 / 1.345 | 1.366 / 1.354 / 1.312 | 1.000 / 0.994 / 0.997 | 0 | 6 / 8 / 8 |
+| Step 7 as planned: 75% caps | 1.335 / 1.343 / 1.321, over the 36–37 that finish | 1.288 / 1.260 / 1.230 | 1.337 / 1.340 / 1.344 | 1.381 / 1.433 / 1.395 | 1.000 / 1.016 / 1.004 | 5 / 6 / 6 | 7 / 10 / 9 |
+| Step 7: 75% caps + the drain's priority | 1.316 / 1.304 / 1.284 | 1.236 / 1.196 / 1.173 | 1.337 / 1.340 / 1.344 | 1.379 / 1.384 / 1.343 | 1.000 | 0 | 6 / 8 / 8 |
+| Step 7: 75% caps, never a whole bank, the drain's priority | 1.298 / 1.328 / 1.322 | 1.215 / 1.194 / 1.173 | 1.289 / 1.297 / 1.300 | 1.394 / 1.512 / 1.515 | 1.000 | 0 | 0 |
+| **Step 7: 50% caps, a bank's last row kept, the drain's priority** | **1.333 / 1.348 / 1.332** | 1.230 / 1.198 / 1.170 | 1.336 / 1.340 / 1.346 | 1.441 / 1.527 / 1.501 | 1.000 | 0 | 0 |
+| The same + a hart at most 3 of the 4 L1D miss entries | 1.295 / 1.302 / 1.290 | 1.215 / 1.197 / 1.182 | 1.336 / 1.340 / 1.346 | 1.338 / 1.377 / 1.350 | 1.000 / 0.950 / 0.875 | 0 | 0 |
+| The same + a hart at most 75% of the long-latency tags | 1.333 / 1.348 / 1.332 (unchanged) | | | | | 0 | 0 |
+| Check: step 5 + the drain's priority on revision 7 | 1.319 / 1.309 / 1.290 | 1.249 / 1.224 / 1.203 | 1.337 / 1.340 / 1.345 | 1.374 / 1.369 / 1.327 | 1.000 / 0.994 / 0.989 | 0 | – |
+
+*The pairs that hang without the drain's priority are §13.10's six: chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The working-set pairs that hang are chase1 with chase8, and copy with chase1, at most sizes.*
+
+- **Step 5 doesn't reach 1.3 at 120 or 250 cycles: 1.310 / 1.292 / 1.272 with the drain's priority.**
+  - Without the priority, the same six chase8 pairs hang. The prefetch fix doesn't remove them.
+  - So step 5's pair runs test the mechanism, not exit 2. Exit 2 needs step 7's caps.
+- **Without caps, a memory kernel starves its sibling.** At 120 cycles these threads keep only a fraction of their alone IPC:
+  - minver 0.11, Dhrystone 0.10, stream 0.12 and copy 0.14 beside chase8;
+  - CoreMark 0.15 and huffbench 0.19 beside gather;
+  - Dhrystone 0.17 and minver 0.20 beside stride.
+
+  spmv + chase8 reads 0.99, slower than running one program at a time.
+- **Step 7: only one form clears 1.3 at every point.**
+  - The plan's 75% caps hang the same six pairs. With the drain's priority they read 1.316 / 1.304 / 1.284, which misses at 250.
+  - "Never a whole bank" reads 1.298 / 1.328 / 1.322, which misses at 30 by 0.002.
+  - **50% caps with a bank's last row kept while the sibling waits read 1.333 / 1.348 / 1.332,** with no hang over the 58 pairs.
+- **The margin is thin:** 0.03–0.05 above the bar, about the model's expected error (±0.05, §13.2).
+- **Two more step-7 levers don't help.**
+  - **Capping a hart at 3 of the 4 L1D miss entries costs 3%.** A memory kernel loses a quarter of its parallel misses, and its sibling gains less than that. spmv + chase8 reads 0.875 at 250.
+  - **Capping a hart's long-latency tags at 75% changes nothing.**
+- **Revision 8 against revision 7:** step 5 + the drain's priority reads 0.009–0.018 lower on revision 8. Alone, copy runs 35% faster and stream 9% faster at 120, so pairs with them gain less.
+- **§13.10's method prediction held.** There, the runner with the memory kernels repeating (`smt_restart_ff`, on the 01:05 builds) read 1.324 / 1.306 / 1.288 for step 5 + the drain's priority. Here, real REPEAT builds read 1.319 / 1.309 / 1.290 on revision 7.
+
+**Alone on today's core, revision 8** (the first region on the final ELFs; slots 0 and 1 identical in the model):
+
+| Program | IPC at 30 / 120 / 250 | Instructions | Cycles at 30 / 120 / 250 |
+|---|---|---|---|
+| ms_gather | 0.533 / 0.214 / 0.115 | 360,039 | 674,868 / 1,678,960 / 3,129,240 |
+| ms_stride | 0.529 / 0.177 / 0.090 | 18,529 | 35,010 / 104,760 / 205,510 |
+| ms_spmv | 0.737 / 0.246 / 0.126 | 1,351,716 | 1,834,779 / 5,484,642 / 10,756,662 |
+| ms_hashprobe | 0.350 / 0.176 / 0.102 | 1,621,727 | 4,636,091 / 9,228,845 / 15,866,255 |
+| ms_chase8 | 0.116 / 0.038 / 0.019 | 60,041 | 516,341 / 1,596,791 / 3,157,441 |
+| ms_stream | 1.599 / 0.651 / 0.346 | 1,179,683 | 737,655 / 1,811,265 / 3,409,355 |
+| ms_copy | 0.654 / 0.238 / 0.127 | 320,472 | 490,053 / 1,344,336 / 2,528,376 |
+| coremark_A | 1.494 / 1.470 / 1.436 | 1,013,321 | 678,438 / 689,508 / 705,498 |
+| dhrystone | 1.453 / 1.448 / 1.442 | 858,101 | 590,723 / 592,433 / 594,903 |
+| embench_nsichneu | 1.307 / 1.307 / 1.306 | 2,405,424 | 1,840,160 / 1,840,610 / 1,841,260 |
+| embench_huffbench | 1.176 / 1.176 / 1.176 | 2,163,593 | 1,839,119 / 1,839,563 / 1,840,213 |
+| embench_minver | 1.299 / 1.298 / 1.296 | 441,869 | 340,049 / 340,409 / 340,926 |
+| embench_matmult-int | 1.971 / 1.970 / 1.970 | 3,180,640 | 1,614,034 / 1,614,394 / 1,614,914 |
+
+*From §13.10's comparison, expect the RTL's hashprobe 16–31% faster than this, and its copy and stream at 30 cycles about 20% slower. minver moved 7% with the rebuild (code layout alone), so the RTL may move too.*
+
+**What the RTL should show at step 5:**
+- **The pairs:**
+  - If the store port wins a freed miss entry, 1.31 / 1.29 / 1.27 with no hang.
+  - If loads win, the six chase8 pairs hang, as verif-2's watch will report.
+  - Either way, compute threads beside memory kernels get a tenth to a fifth of their alone speed.
+- **The alone runs:** as the table above.
+
+**What to decide, with costs** (§13.10's items, updated):
+1. **The drain's priority: required.**
+   - Without it, 6 of the 42 pairs hang on every configuration without a bank rule.
+   - Cost: no cycles, and an arbitration change.
+   - **Done in step 4 (core-2, 7555922f, split mode only; merged mode stays cycle-identical).**
+     - The RTL already gave the store port a same-cycle tie with a load's request register.
+     - Two gaps remained:
+       - an entry freeing while the store couldn't take it, because its victim was valid and the release engine busy;
+       - two harts' drains alternating, so a waiting store was presented only every other cycle.
+     - Now a store or atomic that needs a new entry keeps the last free one from loads' requests until it allocates, across the other hart's turns too. That is the model's `drain_guard`: loads still use any entry beyond the last, and the RTL's form holds from the store's first cycle rather than its second.
+2. **Step 7's bank rule: the on-demand last row with 50% caps.** core-2 takes it for step 7.
+   - It is the only form that clears exit 2 at every latency in the model.
+   - "Never a whole bank" misses at 30 cycles (1.298), for about 0.1K fewer LUTs a chip (0.1K against 0.2K, §13.7).
+   - The extra 0.1K LUTs is within DR-154's limits. The throughput difference (+0.8–2.7%) is over 1%, so it may be the user's call.
+3. **Exit 2's margin.** Even the best form clears 1.3 by only 0.03–0.05.
+   - If the RTL lands below at step 7, the model has nothing big left: the miss-entry and long-latency-tag caps don't help.
+   - What remains is step 7's own tuning (the cap level, ICOUNT), or the bar itself, which is the coordinator's and the user's.
+
+**Decisions:** none here. Revision 8 (`rfo_pf_reserve` 1) is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
+
+**Learned:**
+- **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
+- **A cap on miss entries costs more than it returns** when the memory thread's own speed is all parallel misses.

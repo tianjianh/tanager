@@ -123,6 +123,8 @@ namespace tg {
   X(ld_fwd_wait, 3, "cycles from an older store's data to the result of a load waiting to forward it") \
   X(sta_split, 1, "store address issues alone; data captured in the SQ")                           \
   X(rfo_pf, 1, "request ownership when a store address resolves")                                 \
+  X(rfo_pf_reserve, 2, "L1D miss entries an ownership prefetch must leave free (the RTL: 1, DR-171)") \
+  X(rfo_pf_max, 0, "ownership prefetches in flight at most (0 = no cap; the RTL's STORE_PF_MAX is 3)") \
   X(ld_ports, 1, "load pipes")                                                                     \
   /* caches and memory */                                                                          \
   X(l1i_kb, 32, "L1I size KiB")                                                                    \
@@ -158,6 +160,24 @@ namespace tg {
   X(smt_llt_cap, 100, "percent of the long-latency tags one thread may hold")                      \
   X(smt_bp_hash, 1, "hash the thread ID into shared predictor tables (0 = threads share entries by PC)") \
   X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread") \
+  /* M7 (docs/spec/m7-smt2-plan.md); off by default */                                              \
+  X(smt_drain_rr, 1, "two threads: the thread whose committed SQ head the D$ store port tries first alternates every cycle (D8; 0 = thread 0 always first)") \
+  X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank; 2 = only never all of a bank's rows; 3 = not the bank's last row while the sibling waits on that bank") \
+  X(prf_split, 0, "D3: 1 = a free list per thread in each register bank, each bank's free registers halved between the two harts, each hart's architectural registers homed as D4 (hart t's x1-x31 in integer bank t, f0-f31 in F<t>; bank 0 keeps the zero register); 2 = the same for the integer banks, the FP lists shared; with one thread, its own lists (the sibling's architectural registers still held); 3 = the FP banks only, the integer lists shared") \
+  X(prf_homes, 0, "D4 with prf_split: 0 = hart t's x1-x31 at reset in integer bank t; 1 = both harts' in B0 (hart 0's at 1-31, hart 1's at 32-62); 2 = hart 0's in B0, hart 1's x1-x16 in B1 and x17-x31 in B2") \
+  X(prf_steer, 0, "D3: rename steers an ALU op away from an ALU whose bank has no free register on the thread's list, to the other ALU when its bank has one") \
+  X(prf_xfer, 0, "D3 revised (core-2): with prf_split, a hart that cannot rename for want of a bank's register takes one a cycle from the sibling's list (a sleeping sibling's with one thread); 1 = the donor keeps at least one free, 2 = the donor keeps its architectural registers of that kind plus one in the bank") \
+  X(prf_fp_bank, 0, "registers in each FP bank, F0 and F1 (0 = bank_size)") \
+  X(flush_walk, 0, "two threads, shared lists: a flush returns the flushed thread's registers by a walk of 2 ROB entries a cycle, its rename stalled meanwhile; 1 = the walk covers the thread's whole half, 2 = only the flushed entries (a mispredict's wrong path estimated as 2 a cycle from the branch's dispatch, up to the half)") \
+  X(lone_sleep, 0, "D2, one thread: every lone_sleep cycles an unsimulated sibling wakes from WFI; the merged window splits after a drain, keeps halves while the sibling runs and sleeps until the merge, then merges (0 = always merged)") \
+  X(lone_awake, 0, "D2: cycles the sibling runs after a split before it sleeps in WFI again") \
+  X(lone_merge, 64, "D2: cycles the sibling spends in WFI with an empty half before the halves merge (-1 = never: static halves)") \
+  X(lone_split, 0, "D2: 0 = the split waits until the thread's ROB, LQ and SQ are empty; 1 = until each fits its half") \
+  X(lone_caps, 1, "D2: 1 = the issue-queue caps (smt_iq_cap) bind a lone thread while its window is split; 2 = always") \
+  X(smt_align, 0, "two threads (verif-2's pair runner): a thread's first-run region start (marker 1) waits at commit until every thread's has reached its commit head, so the two first regions start together") \
+  X(smt_pa_flat, 0, "two threads share one physical address space: each program's addresses are its own (the pair runner's programs, linked at their slots' bases); 0 = thread 1's offset by 64 GiB + 21 pages") \
+  X(stop_regions, 0, "the run ends once every thread's first region has ended, as the pair runner's finish does (its REPEAT builds never exit); 0 = once every thread's first run has") \
+  X(smt_restart_ff, 0, "two threads, a mask of threads (bit t = thread t) whose program, once ended, runs again from its region start, fast-forwarded past its set-up (the pair runner's memory kernels built to repeat their region); others run again from the top") \
   /* area-recovery levers (plan section 8.5); off by default */                                   \
   X(smt_ckpt_shared, 0, "R10: the ckpt checkpoints are one pool shared by the threads (0 = ckpt per thread)") \
   X(rf_share_a2, 0, "R11 (alu3): ALU2 reads through the STA and shared ports; STA and FP int reads win") \
@@ -172,7 +192,7 @@ namespace tg {
   X(abl_done, 0, "extra cycles from execute completion to the ROB's complete mark (commit slips)") \
   /* DR-140's profiles (area_recovery.md 6.2): 0 = the fallback, the model as before */                 \
   X(abl_st_done, 0, "extra cycles before a store's address completes in the ROB (cut #4; #2 adds another)") \
-  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR gets the next one; loads and prefetches wait (0 = no guard)") \
+  X(drain_guard, 0, "a committed store that has waited this many cycles for an L1D MSHR keeps the last free one from loads and prefetches until it allocates; they still use any beyond it (0 = no guard)") \
   X(drain_delay, 0, "cycles from a store's commit to its D$ write at the earliest (0: in its commit cycle)")
 
 constexpr int MAX_THREADS = 2;

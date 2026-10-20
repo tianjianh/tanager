@@ -26,7 +26,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 | LSU: split LQ, SQ, store-data capture, forwarding, ordering checks | yes, without the completion buffer | completion buffer: M6 |
 | L1D with 16 MSHRs | 1 MSHR | M6 |
 | CSRs, traps, interrupts | M-mode set matching Spike (§9) | S/U, Sv39, PMP checks, A, C: M3 |
-| SMT2 | `tid` ports and fields everywhere; the `smt2` builds compile and lint but run hart 0 only | M7 |
+| SMT2 | `tid` fields in the fetch, rename, issue and ROB payloads, set by fetch to the one running thread; `flush_tid` from the ROB; per-thread logic in the issue queues, P4, fcsr and the micro-BTB. The `smt2` builds run hart 0 only | M7 (DR-175, m7-smt2-plan.md) |
 
 ## 2. Pipeline
 
@@ -155,14 +155,14 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - Of several slots writing one register in a cycle, only the last writes (a later slot wins).
   - No live-value table names the bank that holds the latest entry. The flip-flop LVTs, with a 32:1 read at every port, are gone (6f8c99e).
   - Reads: rs1, rs2 and rd (the old mapping) per slot.
-- **Recovery:** a bit per architectural register says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
-- **Free lists** (`tg_freelist`): one per bank, a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
+- **Recovery:** a bit per architectural register (per thread, §5.4) says it was renamed since the last flush; otherwise the CRAT answers (its producer has committed, so the source is ready and the producer fields are not read). A flush clears these bits: the committed map is current in the next cycle, with no copy. After reset a sweep writes the identity map into CRAT bank 0 and zeros into the other CRAT banks (32 cycles, alongside the free lists' initialisation).
+- **Free lists** (`tg_freelist`): one per bank (and per thread, §5.4), a circular list in `FL_BANKS` interleaved LUTRAMs, with a speculative head (pops at RN), a committed head (advanced at commit by the destinations it retires) and a tail (pushes of freed registers at commit). A flush sets the speculative head to the committed head. Bank 0's list starts with indices 32–63, the others with 0–63.
   - **The free count is a register,** not tail − head: it is updated by the pushes and pops. A second register, tail − committed head, is the count a flush takes. Rename's steering and resource checks then start from flip-flops, not a subtraction (timing; the same values, asserted).
 - **Steering:** BR/JAL/JALR → port 0; MUL, DIV, CSR → port 1; ALU ops in slot *k* prefer port *k* mod `N_ALU` and fall back to another ALU port whose queue bank and free list have room; LD → load port; ST → store-address queue. Destinations come from the steered port's bank.
   - **A bank's room, a group ahead (`STEER_LA`, on by default, DR-169):** the banks' free flags are registered, so they count the rows after the last dispatch, not the row the group in DS is taking now. Each bank also registers "at least two rows free" (`bank_free2_q`), and the steering takes a bank as having room when it has two free rows, or one while the DS op in the same slot is not headed for that queue. Without it, two groups in a row could aim at a bank's last row, and the second waited in DS while the other ALU queue's bank had room (10–12% of CoreMark's cycles, area_recovery.md §6.8). When DS holds, RN holds too and steers again; DS still checks the one flag. `STEER_LA=0` steers on the one flag.
 - **Wakeup columns (plan §4.6, AR-1):** `IQ_TAGS` (16) wakeup tags, then the `LLT_ENTRIES` long-latency tags; no column per ROB entry, so the window size does not set the scheduler's width (st: 32 columns instead of 64; smt2: 40 instead of 120).
   - **LLT:** loads, atomics and DIV/REM with a destination.
-  - **Tag:** MUL and the P1 bit counts (C_MUL) with a destination, from a pool of `IQ_TAGS`; RN waits when it runs short. A tag returns 2 cycles after its producer's register-file write (`tag_free` from `tg_exec`): by then no group in RN or DS can see the register as unwritten. Its column is then cleared in every queue row (`col_clr`), so a returned tag needs no guard. A flush returns every tag.
+  - **Tag:** MUL and the P1 bit counts (C_MUL) with a destination, from a pool of `IQ_TAGS`; RN waits when it runs short. A tag returns 2 cycles after its producer's register-file write (`tag_free` from `tg_exec`): by then no group in RN or DS can see the register as unwritten. Its column is then cleared in every queue row (`col_clr`), so a returned tag needs no guard. A flush returns every tag of its thread (§5.4).
   - **No column:** 1-cycle ops, which consumers name by row (MX) while the row is held. Once it is freed (2 cycles after the select), the value is in the bypass or the register file before any later consumer can issue. Serialised ops end in a flush, so their consumers find the value written.
 - **Ready table:** one bit per physical register, cleared when RN allocates it, set when the register file is written (each bank's write port).
   - **Form (`tg_rdytab`, LUTRAM, FPGA-friendly T2):** each register is two phase bits, and it is ready when they are equal (A == S).
@@ -191,6 +191,15 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 - **Allocation (AR-1):** RN gives out tags with the LLTs, from a free pool, and clears their W bits (`wid_alloc`).
 - **IQ room:** dispatch waits until every uop of the group finds a free row in its queue's bank (`bank_free_q`).
 - **Uops without a queue** (FENCE, FENCE.I, WFI, MRET, decode-time exceptions) are written complete.
+
+### 5.4 Per thread (M7's step 3, DR-175; docs/spec/threading.md)
+- **A group is one thread's:** RN's group is the thread of its slot 0 (`t_rn`), and DS's likewise. Commit's pushes, commit counts and CRAT writes are the commit group's thread's (`cm_tid`).
+- **Maps:** every RAT and CRAT bank holds a map per thread at {tid, register} (RAM form, 64 deep; plan §6.2 rule 12). Reads and RN writes use `t_rn`, CRAT writes the commit thread. The renamed-since-flush bits are per thread, and a flush clears its thread's. The reset sweep writes the running thread's map (`RUN_TID`).
+- **Free lists (D3):** each bank's lists in RAM form, at {tid, row} in the same interleaved LUTRAMs. Each thread has a speculative head, a committed head, a tail and the two counts. Pops come from `t_rn`'s list; pushes and the commit count go to the commit thread's; a flush recovers its thread's list. A register goes back to the list of the thread that frees it, which is the one that allocated it, so each thread keeps its registers. In merged mode (the only mode until step 3b adds the split) the running thread's lists are the lists of §5.2 and the other thread's are empty. `tests/unit/freelist` checks the lists against a model of each thread's list, in both modes.
+- **Window allocation:** the ROB, LQ and SQ tails, their room flags and the serialisation block are per thread. Each thread's room flags are computed from its registers and the group's thread picks them at the end, so the compares stay off the steering.
+- **A flush** recovers its thread's tails, lists and map, returns the tags and LLTs that thread holds (each records its thread when given out), and clears the RN and DS stages only when they hold that thread's group. The divide and FP counts stay shared until two threads run (step 5).
+- **Split mode (`SPLIT`, D1):** the tails wrap in the thread's halves and the room checks count against the halves' sizes. The registers are not split: the running thread keeps the lists and homes above.
+- **Two threads (step 5):** the lists divide (`SPLIT_L`, `FIRST_S`) and thread 1 gets its homes (D4: bank 1's indices 0–31 and F1's, x0 staying bank 0's register 0; `tg_rmap`'s `HSPLIT`, a 64-cycle sweep). A static division alone deadlocks: the banks are writer-sharded, so a thread can need all its architectural registers plus one in one bank (B1 through MUL/DIV, B2 through loads, F1 through FP loads, F0 through FP ops). Every bank must hold both threads' architectural registers plus one, and a starved thread must be able to take the sibling's spare registers (smt2-study's model, smt2_report §13). The integer banks of 64 hold that; the FP banks of 64 do not (32 + 32 + 1). D3's revision is the coordinator's call (threading.md).
 
 ## 6. Issue (`tg_iq`, `tg_wake`; spike S2 RTL)
 
@@ -293,13 +302,19 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 ### 8.3 Flush
 `flush_q` (with `flush_tid_q` and `redirect_pc_q`) is registered from commit and clears everything listed in §2. Committed stores stay in the SQ and keep draining.
 
+### 8.4 Per thread (M7's step 3, DR-175; docs/spec/threading.md)
+- Each thread has a head, a tail and the xRET-in-flight bits. A dispatch group is one thread's and advances its tail. A flush recovers the flushing instruction's thread (`flush_tid`, the head's tid): its tail goes back to its head. The heads go to rename per thread.
+- Commit serves one thread a cycle: in merged mode the running thread. The oldest-exception and oldest-mispredict registers and the WFI counter are per thread; a report goes to its entry's thread (`rob_tid`).
+- **Split mode (`SPLIT`, D1):** thread t owns entries [40t, 40t + 40) in smt2, and its pointers wrap there (`rob_add_t`, `rob_cnt_t`, `rob_start` in `tg_core_pkg`). The commit thread is chosen a cycle ahead (`ct_q`), so the head window is still read from flip-flops: the other thread whenever it has entries, so two busy threads alternate and an empty one is not served. Whether a commit group should also take the slots the served thread leaves (D7) is open: one thread per group is the cheap form, and the model is to price the other before step 5.
+- The payload and the flag tables stay indexed by entry: in the split mode a thread's entries are a range of them, of whole bank rows.
+
 ## 9. CSRs and traps (`tg_csr`)
 
 ### 9.1 CSR set (M-mode, RV64IM, Zicsr, Zicntr, Zifencei, 8 PMP entries, no triggers), as Spike defines it
 | CSR | Behaviour |
 |---|---|
 | `misa` | `0x8000_0000_0000_1100`; bit M writable (clearing it makes MUL/DIV illegal) |
-| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` + tid |
+| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` + the thread (tid ^ `SOLO_TID`, §9.6) |
 | `mstatus` | MIE, MPIE writable; MPP reads 3 (M only); everything else 0 |
 | `mtvec` | written value with bit 1 cleared (direct and vectored) |
 | `mie` | MSIE, MTIE, MEIE writable |
@@ -330,7 +345,7 @@ Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. 
   - `time`, `mip` and `sip` reads are nondeterministic in lockstep, so the checker takes the RTL's values.
 
 ### 9.5 Storage: the cold CSRs in LUTRAM (FPGA-friendly T1)
-- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one 16 × 64 `tg_ram_lut` (`u_cold`), addressed by {csr[9], csr[2:0]}. csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
+- **What:** `mtvec`, `mscratch`, `mepc`, `mcause`, `mtval` and their S counterparts live in one (16 · `NUM_THREADS`) × 64 `tg_ram_lut` (`u_cold`), addressed by {tid, csr[9], csr[2:0]} (§9.6). csr[9] is 1 for M and 0 for S; then scratch is 0, epc 1, cause 2, tval 3 and tvec 5.
   - They replace ten 64-bit registers with their write multiplexers, ten inputs of the CSR read multiplexer, and the trap vector's M/S multiplexer.
   - `stimecmp` and `satp` stay flip-flops: the timer compare and the MMU read them every cycle.
 - **Two read ports:**
@@ -344,6 +359,14 @@ Pending = `mip & mie`; taken when `mstatus.MIE` is set, priority MEI, MSI, MTI. 
   - **a CSR write** at commit.
 - **Why the trap's writes may lag:** the trap's flush leaves the window empty longer than three cycles. In that time nothing commits, no trap or interrupt is taken (the ROB is empty), and no CSR instruction executes (asserted).
   - A CSR instruction can still be in EX in the flush cycle itself (`ex_v_q` clears at its end). It reads before the writes, but it is killed there: its result is never written back, and its pending write is dropped.
+
+### 9.6 Per hart (M7's step 2, DR-175)
+- **State:** each hart has its own hot state (`h_q`, one `csr_hart_t` a thread: privilege, the mstatus fields, misa, mie, the software pending bits, delegation, counter enables, envcfg, satp, the contexts and pmpcfg), its own rows of `u_cold` and `u_pmpaddr` (the tid is the top address bit; 32 deep fits the same RAM32M16 as 16), PMP descriptors, `stimecmp` and STIP, pending CSR write, and `mcycle`/`minstret` DSP pairs (R1).
+- **Writes** go to the committing thread: slot 0's tid (`cm_tid[0]`), since CSR instructions, traps, MRET and SRET retire alone in slot 0. The retiring count goes to that thread's `minstret`. A flush drops the flushed thread's pending write (`flush_tid`).
+- **Reads and outputs** are the running thread's (`RUN_TID`) until step 5 runs two threads: the CSR read in EX; privilege and status to fetch, decode and the MMU; satp; the PMP descriptors; the interrupt choice and `wfi_wake`. From then each consumer selects by its own thread (the PMP checkers and the walker's satp at steps 4 and 5, D6).
+- **Harts:** `mhartid` and the trace's hart field are `CORE_ID`·`NUM_THREADS` + (tid ^ `SOLO_TID`), and thread t takes the interrupt lines of that hart. So under `SOLO_TID` the one thread, tid 1 inside the core, is hart 0 to software and to the SoC.
+- **Reset:** the 16-cycle sweep writes the running thread's rows, and only its descriptors are computed after it, so reset takes the cycles it did. The other thread's rows are swept once two threads run (step 5, `HART1_ON`).
+- **Without SMT** (`TID_W` = 0) the commit and flush threads are the constant 0, so the st core has no selects.
 
 ## 10. Reset sequence
 After `rst`, an init counter runs for 64 cycles before fetch starts: it fills the free lists, writes zero into bank 0 indices 0–31, and invalidates the micro-BTB.
@@ -361,7 +384,7 @@ After `rst`, an init counter runs for 64 cycles before fetch starts: it fills th
   - So no other state left out of the reset changes timing.
 
 ## 11. Commit trace
-Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions.
+Records leave through a register one cycle after commit. `rd_value` is read from the register file through `COMMIT_WIDTH` dedicated read ports. In simulation they cost nothing; for the FPGA trace (M4) they are a parameter to settle with the SoC track. `rd_deferred` is 0 in M2. `nondet` marks reads of `cycle/mcycle`, `time`, `mip`, the ID CSRs and `mhpmcounter*`; `mmio_ld` marks loads from device or ROM regions. `mem_ld` (interfaces.md v1.5) marks a read of memory, with `mem_vaddr` and `mem_size` the read's: a load (integer, FP or device) takes its LQ entry's VA and size, read at commit by the slot's LQ index (a copy of the LQ's VA LUTRAM, trace builds only); LR and an AMO take their SQ entry's, which an AMO's write shares; SC never has it.
 
 ## 12. Parameters and builds
 All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`, sizes). Core-local constants (`DIV_INFLIGHT` = 4, counter-table size) are in `tg_core_pkg`. Every per-slot structure is a generate loop. The `smt2` builds compile and lint with `tid` carried everywhere; in M2 only hart 0 runs (hart 1 never fetches).
@@ -373,6 +396,8 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
+- `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).
+- `TG_SPLIT` (`SPLIT`, off; DR-175, D1): M7's split mode, smt2 builds only. Each thread owns half the ROB, LQ and SQ (§5.4, §8.4, core-lsu.md); hart 1 turns it on (step 5), and before that it runs the one thread in its half, so the halves are tested (threading.md). Not the same cycles: the thread's window is half.
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
@@ -384,7 +409,7 @@ The structures are the spikes' (S2, S3, S5), so their timing results apply where
 | PMP results cached in the TLBs (plan §4.10) | `tg_ptw` (the fill checks the page base, and against every entry that no region boundary lies inside the page), `tg_tlb` (cached bits), `tg_fetch`/`tg_lsu` (cached or checked), `tg_csr` (region descriptors, one entry per cycle after a PMP write; `pmpaddr` in LUTRAM) | done: four checkers (fetch block, LD, STA, walker) instead of seven |
 | No flip-flop arrays (plan §8.3) | D$ state (valid bits apart from round robin/T/dirty), I$ valid bits, issue-queue payloads (per-queue formats, exact bits) | done |
 | R1 counters in DSP48E2 (T6) | `tg_csr`: `mcycle`, `minstret` (the HPM counters read zero) as `tg_dsp_ctr` pairs: the low slice counts or loads q[47:0], the high slice q[63:48] adds this cycle's carry, known from the low half's pattern detector; the counters, adders and load multiplexers are all in the DSPs (4 slices) | done (2300494); the mapping is checked against the vendor's DSP48E2 model on Icarus (`tests/unit/csr_ctr`) |
-| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. At M7, hart 1's set is one more address bit |
+| R2 cold CSRs in LUTRAM (T1) | `tg_csr` (§9.5): xtvec, xscratch, xepc, xcause, xtval of M and S in one 16 × 64 table with two read ports. Trap entry writes its three in the cycles after the trap, so one write port suffices. The CSR read port also serves the xRET's xepc. | done (50746f6, 43c2d0f): cycle-identical; CSR 1,615 → 1,368 at st, −500 flip-flops. M7's step 2 gives each hart its rows: one more address bit (§9.6) |
 | ROB replay flag XOR-banked (T2) | `tg_rob` (§8.1): a table per writer (dispatch clears, the LSU's three setters) | done (9646d13): cycle-identical, shadow-checked; ROB 2,083 → 1,891 at st |
 | R3 rename maps in LUTRAM | `tg_rename` (§5.2) | done: a bank per write port, live-value tables, versioned recovery (no added recovery latency) |
 | Ready tables in LUTRAM (FPGA-friendly T2) | `tg_rdytab`: per register, a set phase S in a table per bank (one writer: the bank's register-file port) and an allocation phase A XOR-banked into W tables; ready = (A == S). Each free list's next W registers are cleared every cycle | done: cycle-identical; measured in §16 |

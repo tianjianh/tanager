@@ -1573,7 +1573,7 @@ module tg_fetch
       iq_insn[j].ubtb_way    = m.way;
       iq_insn[j].pred_tsrc   = m.tsrc && exit_here;
       iq_insn[j].ftq         = m.ftq;
-      iq_insn[j].tid         = '0;
+      iq_insn[j].tid         = RUN_TID;              // the running thread (M7: per thread at step 5)
       iq_insn[j].marks       = marks;
       iq_insn[j].q_ill       = qill;
       iq_insn[j].q_exc       = qexc;

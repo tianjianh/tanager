@@ -142,6 +142,13 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 
 **`mmio`** (channels A, D).
 - `Get`, `PutFullData`, `PutPartialData` of size ≤ 3, one beat. The monitor flags a second request from the same hart while one is in flight (interfaces.md §2.4).
+- **One read on the bus for each MMIO load that retires** (DR-176, 10-20). The model logs every `Get` that is answered without an error; each retiring `mmio_ld` load claims the oldest.
+  - **What fails** (a `PROTOCOL` error): a second read already waiting when a load retires, a read still waiting at the program's exit, or a load retiring with none. Each means a read was squashed after it went out, which repeats any side effect when the load runs again: SD1's lost interrupt was a PLIC claim read twice.
+  - **Exactness:** a hart sends one MMIO read at a time, from its ROB head, and nothing flushes it once it is out, so the oldest read on a hart's source is the next one its loads retire.
+    - **One source** (every read before step 5, and a lone hart's after it): the check covers one hart, whatever the source. It stops once a second hart retires an MMIO load, since the reads cannot be told apart.
+    - **Several sources:** hart h's source is h mod NUM_THREADS, its index in the core (interfaces.md §2.4 asks for a distinct source per hart). From step 5 the core sends thread ^ SOLO_TID (core-2, reports/m7s5-design.md), so a lone hart, SOLO_TID's included, keeps source 0. With both threads running, the check is exact for each hart. That is where an SMT form of the bug would show: one thread's flush or interrupt squashing the other thread's device read.
+    - **Unit test:** `make -C sim unit` (`sim/src/unit_mmio_check.cpp`) covers these cases. `regress` runs it as a step of its own.
+  - **What it found:** on the RTL before the fix it stops `irq_mmio` on `st` and `smt2`, and 2 of 2,000 random programs with timer interrupts on `smt2` (`--irq 200`). Those runs passed before, because a repeated read of `mtime` changes nothing the program can see.
 - **Devices** (addresses from `tg_map_pkg`):
 
   | Device | Base | Model |
@@ -619,6 +626,11 @@ make cycle-identical CFG=st [BASE=<commit>] [BRANCH=<ref>] [SUITES=isa,stress,be
 - **Profiles (DR-140).** `TIMING_CUTS` builds both sides in that timing-cut profile, `tg_vsim` and the boot's `tb_boot` alike, so a change is checked in each profile CI runs, and its Linux-boot cost is reported by profile (DR-141 rule 1). `BRANCH_TIMING_CUTS` sets this side's only. `BRANCH_TIMING_CUTS=0` against a base without the switches is the switch MR's own proof: all off is cycle-identical to the core before them. A forced profile is part of the build's cache key.
   - The boot takes the profile through `tests/unit/boot`'s Makefile (the SoC track's hook), which reads `sim/profile.mk`; the tool archives that file with `sim/tb` when a profile is forced. A boot tree whose Makefile lacks the hook is refused, since it would build the default without a word (`BOOT_TREE=<ref>`, `--boot-tree`, with a ref that has it, or `BOOT=0`).
   - **`DC_MSHRS` (DR-149), `QUEUE_DECODE` (G8's queue decode bits) and `SPEC_WAKE` (M6's speculative load wakeup)** work the same way: `DC_MSHRS` builds both sides with that many L1D misses in flight, and `BRANCH_DC_MSHRS=4` against a base of one MSHR measures the 4-miss L1D; `BRANCH_QUEUE_DECODE=1` against the same commit checks the switch's other setting without a commit that flips its default. Neither name reaches a build from the environment, only as a make variable that the cache key and each build's `info` file name. Before this, a `DC_MSHRS=4` in the environment reached `tg_vsim` (which takes all of `sim/`) but not the boot, whose `sim/profile.mk` was archived only with `TIMING_CUTS`: one MSHR on both sides, IDENTICAL (the core track's find, 2026-10-17).
+  - **The later switches work the same way** in `regress`, `cycle-identical`, `perf` and `boot-lockstep`: `STA_BASE`, `STEER_LA`, `STORE_PF` and `STORE_PF_MAX` (DR-171), `URF` (DR-174), and `SOLO_TID` and `SPLIT` (DR-175). `PMP_ENTRIES` is covered below.
+    - `SOLO_TID=1` is M7's test mode: the core's one thread runs as tid 1 inside the core and stays hart 0 to software, so single-hart programs exercise the tid-1 paths. It gives the same cycles as 0.
+    - It exists only in the `smt2` configurations: `lint-all` adds it there, and `tg_core` stops an `st` elaboration with it.
+    - `SPLIT=1` is M7's split mode (step 3b): thread t owns half t of the ROB, LQ and SQ, and the one thread runs in its half (thread 1's with `SOLO_TID=1`). The halves are tested before hart 1 runs. Unlike `SOLO_TID`, it changes the cycles, since the thread has half the window: `make perf BRANCH_SPLIT=1` measures what the halves cost, and cycle-identical compares two trees that both have it. It is `smt2` only like `SOLO_TID`, and `lint-all` elaborates it alone and with `SOLO_TID=1`.
+    - Every M7 MR also runs `regress` and `cycle-identical` with `SOLO_TID=1`.
   - **`PMP_ENTRIES` (DR-167)** too. Each side's lockstep has as many PMP regions as its own model reports (§3.2), so a side of 8 entries and one of 16 each run against their own Spike. `BRANCH_PMP_ENTRIES=16` against a base before the switch (16 entries) is the switch's proof: cycle-identical at 16.
   - **Checked on core-2's fn7** (51810c3, with the SoC track's hook from 97b528a as `--boot-tree`), 3 M cycles of the 1-core boot. Before this, the two profiles were one boot build, so a boot by profile was identical by construction.
     - The fallback against the default: they differ from cycle 430, and the fallback needs 0.165% fewer cycles.
@@ -829,8 +841,11 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Where the runner departs from smt2_report's method.** smt2-study accepted all three on 10-20, and its model now follows the runner for exit 2's prediction, which it makes on these binaries before the RTL's pairs run. `tgsim`'s switches take the markers at `tg_pair_mark`'s entry, restart a program at `_exit`'s entry, start the two regions together (`smt_align`) and keep each slot's own addresses (`smt_pa_flat`):
   - **Nothing is fast-forwarded:** a memory kernel's set-up runs on the core, so its data is 1–3 MiB. smt2_report's builds (`perfmodel/bench/build_all.sh`) use the sources' defaults of 8–32 MiB. Both sizes are far past the 32 KiB L1D, and in flat memory a miss costs the same either way. chase8 and copy also run their `WARM=1` passes, the sources' option for runs without fast-forward.
   - **The two first regions start together,** after a barrier. In smt2_report, a memory kernel's region starts at cycle 0, and a compute program's starts after its start-up code.
-  - **A program that ends runs again from the top,** set-up included, with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
-- **The restart matters** (smt2-study's prediction, smt2_report §13.10, 10-20). Set-up is most of a memory kernel's run: on the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's, 35% of hashprobe's and 2% of CoreMark's. So while one program is in its region, a restarted kernel beside it is mostly filling arrays, and the runner reads up to 0.12 above the basis the 1.3 bar was set on: 1.408 against 1.288 at 250 cycles for step 5 with the drain's priority. The proposed fix is a REPEAT build of the memory kernels (smt2-study's, in `perfmodel/bench/memsuite`): each kernel repeats its region until the pair ends, while the compute programs keep restarting. The model's matching switch is `smt_restart_ff`. The coordinator decides.
+  - **A compute program that ends runs again from the top,** set-up included (2–16% of its run), with its `.data` restored from a pristine copy. smt2_report restarts it with a fresh functional simulator.
+- **Memory kernels repeat their region** (REPEAT). This is exit 2's method, the coordinator's decision of 10-20. After its first region, a memory kernel runs that region again and again until the pair ends, instead of running again from the top.
+  - **Why:** set-up is most of a memory kernel's run. On the RTL at 30 cycles it is 93% of stride's whole run, 86% of chase8's and 35% of hashprobe's, against 2% of CoreMark's. A kernel restarted with its set-up spends its sibling's region filling arrays rather than running its kernel.
+  - **The size of it:** smt2-study's prediction (smt2_report §13.10) puts that at up to 0.12 above the basis the 1.3 bar was set on. Step 5 with the drain's priority reads 1.408 at 250 cycles with restarts, against 1.288 with the kernels repeating. With REPEAT, the model matches smt2_report's method within 0.007 in every configuration.
+  - **The switch:** memsuite's `REPEAT` (smt2-study's; the model's `smt_restart_ff`). `build_pair.sh` passes it to the seven kernels and refuses a kernel source without it. `REPEAT=0` builds the restart variant into `pair-restart`.
 - **One image a run:**
   - a dispatcher at `0x8000_0000` sends each hart to its slot's program: slot 0 at `0x8010_0000`, slot 1 at `0x8810_0000`, each linked there and embedded as a blob;
   - a first region is timed with its own hart's `mcycle` and `minstret`;
@@ -838,7 +853,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - once both first regions are done, the last hart to finish prints `PAIR slot=<s> cycles=<n> instret=<n> runs=<n>` for each slot, then `PAIR-END`, and writes `tohost`.
   `tg_replay` now ends on any hart's exit, as `tg_vsim` does, because the last to finish may be hart 1.
 - **Commands:**
-  - `make -C tests/bench/pair` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
+  - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
   - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
     - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
@@ -850,6 +865,9 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **The report:** a pair that reaches the limit is reported as a hang, naming the slot whose first region never ended. The first program to finish prints `PAIR-STOP slot=<s>`.
   - **A full deadlock** is `tg_vsim`'s own HANG: no commit on any hart for 100,000 cycles.
 - **Spike against Spike** (2026-10-20): all 68 images pass. WS is exactly 2, since each of Spike's harts retires one instruction a step.
+- **The final set for exit 2** (2026-10-20 02:26) is built with REPEAT from a clean tree at b7db3e16, which carries smt2-study's memsuite change. Its `manifest.md5` has md5 22d3ecf4153bb5adbed9c65336db6bcf, and smt2-study's model predicts on the same files. A second build reproduces it, and so does a build from main with smt2-study's switch (fe4083c6).
+  - On Spike, every memory kernel's restart count is 0 in all 29 pairs it is in.
+  - Next to the build without REPEAT, chase8's region is 8 instructions shorter and hashprobe's 1, because the compiler treats the region's code differently with the loop after it.
 - **Alone on the RTL** (2026-10-20, hart 1 parked, lockstep on, on the images smt2-study's prediction used, before the `PAIR-STOP` line): 78 runs in 13.5 minutes. The table gives slot 0's IPC. Slot 1's agrees within 0.9%; the largest difference is ms_stride at 30 cycles. A region's instruction count is the same at both slots and on Spike. ms_stride's region is short, so it restarts most often in a pair.
 
   | Program | Region instructions | IPC, 30 cycles | 120 | 250 |
@@ -873,7 +891,12 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - cycles agree within 2% at every latency for gather, spmv (3.6% at 30), chase8, CoreMark, Dhrystone and three of the Embench programs;
   - the RTL is faster on hashprobe (16%, 27% and 30% at 30, 120 and 250 cycles), on copy (23% and 26% at 120 and 250) and on stride (6% at 30);
   - it is slower on stream at 30 cycles (23%; 5–6% faster above) and on huffbench (6%).
-  These kernels' interference in a pair differs to the same extent; smt2-study follows it up in its RTL calibration.
+  smt2-study's model now gives the store ownership prefetch a miss entry whenever one is free, as the RTL does; it used to keep two free. That brings copy to +4% and +2% at 120 and 250 cycles. Until its calibration settles hashprobe and stream, pairs with them carry more uncertainty than the prediction's ±0.05.
+- **smt2-study's blind prediction on the final set** (smt2_report §13.12, written before any step-5 pair). WS over the 42 pairs at 30 / 120 / 250 cycles, against each program alone on today's core:
+  - **step 5 with the drain's priority:** 1.310 / 1.292 / 1.272. That is under 1.3 at 120 and 250, so step 5 tests the mechanism, not exit 2;
+  - **step 5 without the priority:** the six chase8 pairs above hang;
+  - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
+  - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
 - **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
 
 ## 5. The test core (`tg_tcore`)

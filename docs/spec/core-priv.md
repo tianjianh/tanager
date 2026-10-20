@@ -89,10 +89,10 @@ Everything M2 listed is unchanged. Existence and privilege follow the CSR addres
 - From S or U, each counter read needs its enable bit; otherwise the read is illegal.
 
 ## Parameters
-`NUM_THREADS` (per-hart arrays arrive with M7; M3 is hart 0), PMP entries (`PMP_ENTRIES`, 8 or 16), `PA_W`. The extensions follow the `tg_core_pkg` switches (core-pipeline.md §4), which turn on together with the M3 ISA string.
+`NUM_THREADS` (per-hart state since M7's step 2, core-pipeline.md §9.6; one thread runs until step 5), PMP entries (`PMP_ENTRIES`, 8 or 16), `PA_W`. The extensions follow the `tg_core_pkg` switches (core-pipeline.md §4), which turn on together with the M3 ISA string.
 
 ## Timing and area
-CSR accesses are serialised, so the CSR file is off the critical paths. The plan's lever R2 (cold CSRs in LUTRAM indexed by {TID, CSR}) applies when SMT2 doubles the state; M3 keeps flip-flops.
+CSR accesses are serialised, so the CSR file is off the critical paths. The cold CSRs are in LUTRAM indexed by {tid, CSR} (R2, core-pipeline.md §9.5); the hot state is flip-flops, one copy per hart (§9.6).
 
 ## Verification
 - Done (lockstep, every M3 switch on, Spike `--priv=MSU`): `rv64mi-p` 17/17, `rv64si-p` 7/7, the `-v` suites; directed `vm.S` (S and U through Sv39, MPRV, SUM, MXR), `pmp.S`, and `irq_s.S` (SSI/STI/SEI delegated to S, Sstc, STI in U and waking WFI in S, an M timer interrupt taken from S).

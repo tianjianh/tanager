@@ -22,6 +22,15 @@ int main(void) {
     for (uint32_t r = 0; r < ROWS; r++) sum += m[(size_t)r * COLS + c] ^ r;
   }
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (uint32_t w = 0; w < WALKS; w++) {
+      const uint32_t c = w * 8;
+      for (uint32_t r = 0; r < ROWS; r++) sum += m[(size_t)r * COLS + c] ^ r;
+    }
+    MS_SINK(sum);
+  }
+#endif
   printf("stride sum=%lu\n", (unsigned long)sum);
   return 0;
 }

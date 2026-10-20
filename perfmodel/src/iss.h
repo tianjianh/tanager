@@ -19,6 +19,8 @@ constexpr uint64_t MMIO_MARKER = 0x10000010ull;  // store: region marker (1 = st
 constexpr uint64_t MMIO_SIZE = 0x1000ull;
 // The RTL simulation platform's ELFs (tests/bench, verification.md §2.6) also run: their 16550 status register
 // reads as empty and ready, and stores to their `tohost` and `tg_marker` symbols exit and mark the region.
+// The pair runner's programs (tests/bench/pair) mark by calling `tg_pair_mark` (its first instruction carries the
+// marker, as the runner's shim counts it: the first 1, then the first 2) and end at `_exit`'s entry.
 constexpr uint64_t UART_LSR = 0x10000005ull;
 
 struct DynInst {
@@ -90,6 +92,8 @@ class Iss {
   bool exited_ = false;
   int exit_code_ = 0;
   uint64_t tohost_ = 0, marker_ = 0;  // RTL-platform ELFs: the `tohost` and `tg_marker` symbols (0 = none)
+  uint64_t pair_mark_ = 0, pair_exit_ = 0;  // pair-runner ELFs: `tg_pair_mark` and `_exit` (0 = none)
+  bool pair_started_ = false, pair_stopped_ = false;
   std::string error_;
   std::string out_;
   std::string in_;

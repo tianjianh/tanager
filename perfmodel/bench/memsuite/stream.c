@@ -14,6 +14,12 @@ int main(void) {
   tg_region_start();
   for (uint32_t i = 0; i < N_ELEMS; i++) a[i] = b[i] + s * c[i];
   tg_region_stop();
+#if REPEAT
+  for (;;) {  /* the region again (memsuite.h) */
+    for (uint32_t i = 0; i < N_ELEMS; i++) a[i] = b[i] + s * c[i];
+    MS_SINK(a);
+  }
+#endif
   double sum = 0;
   for (uint32_t i = 0; i < N_ELEMS; i += 4096) sum += a[i];
   printf("stream triad n=%u check=%ld\n", (unsigned)N_ELEMS, (long)sum);
