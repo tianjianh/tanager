@@ -239,11 +239,12 @@ module tg_core
   dec_state_t [NUM_THREADS-1:0] de_state_h;           // per hart (M7: the running hart's until decode's are per hart)
   always_comb for (int t = 0; t < NUM_THREADS; t++) de_state_h[t] = de_state;
   tid_t dred_tid;
+  tid_t [CW-1:0] cm_tid;                              // the retiring instructions' threads (fetch's predictors take it)
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
     .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
-    .c_hv(cm_hv), .c_hftq(cm_hftq),
+    .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
     .ras_v, .ras_top, .ras_tos, .ras_cnt, .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
@@ -322,7 +323,6 @@ module tg_core
   robid_t                           fp_cmp_rob;
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
-  tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
   // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
   // write (the TLBs cache PMP results). Each retires alone in slot 0: the flush clears that hart's
   // entries (M7's step 4)

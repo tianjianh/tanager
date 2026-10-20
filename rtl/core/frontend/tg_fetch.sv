@@ -57,6 +57,7 @@ module tg_fetch
   input  logic [COMMIT_WIDTH-1:0][SLOT_W-1:0] c_slot,
   input  logic                                c_hv,
   input  logic [FTQW-1:0]                     c_hftq,
+  input  tid_t                                c_tid,     // ... their thread (M7)
   // The return-address stack's speculative side (RAS_FE): its top, pointer and count; each delivered
   // block's exit's operation; the repair at decode's redirect (the pointer, count and top before the
   // redirecting block, from its FTQ entry)
@@ -973,44 +974,74 @@ module tg_fetch
   logic [FTQW-1:0] ft_tail;              // the FTQ entry a block delivered now takes
   if (TAGE_ON) begin : g_tage
     localparam int IXW = TAGE_IXW;
+    localparam int SB  = MT ? 1 : 0;      // the stream's bit in the FTQ's addresses and TAGE's queue (M7)
     logic [IXW-1:0]  tix;
-    logic [GH_W-1:0] gh_q, cgh_q;
-    // A delivered block's history bits go in a cycle later (timing: F2's decision ends at gp_*_q, not
-    // at the history's shift): gh_e, the history with them, is what every reader takes, as gh_q was.
-    // Only a block's last branch can be taken (its exit), so the bits are a count and one value
-    logic [GH_W-1:0] gh_e;
-    logic [1:0]      gp_n_q;
-    logic            gp_b_q;
-    assign gh_e = (gp_n_q == 2'd0) ? gh_q : (gp_n_q == 2'd1) ? {gh_q[GH_W-2:0], gp_b_q} : {gh_q[GH_W-3:0], 1'b0, gp_b_q};
-    // FTQ pointers, with a wrap bit; a delivery takes the tail. TAGE's training queue names the
-    // blocks of its requests (commit's, with their wrap bits), and its head's indices and tags are
-    // read from here: no entry is freed while the queue names it (the head ft_eh: its oldest)
-    logic [FTQW:0]        ft_t_q, ft_h_q, ft_eh;
-    logic                 ft_we;
-    logic                 tq_v;
-    logic [FTQW:0]        tq_ftq;
-    logic [COMMIT_WIDTH-1:0][FTQW:0] c_fp;
-    logic [0:0][FTQW-1:0] fq_ra;
-    logic [0:0][IXW-1:0]  fq_rd;
+    // Per stream (M7): the speculative history, its pending bits, commit's history, the FTQ's pointers. A delivered
+    // block's history bits go in a cycle later (timing: F2's decision ends at gp_*_q, not at the history's shift):
+    // gh_e, the history with them, is what every reader takes, as gh_q was. Only a block's last branch can be taken
+    // (its exit), so the bits are a count and one value
+    logic [NS-1:0][GH_W-1:0] gh_s_q, cgh_s_q, gh_e_s;
+    logic [NS-1:0][1:0]      gp_n_s_q;
+    logic [NS-1:0]           gp_b_s_q;
     always_comb
-      for (int j = 0; j < COMMIT_WIDTH; j++) c_fp[j] = {(c_ftq[j] < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_ftq[j]};
+      for (int t = 0; t < NS; t++)
+        gh_e_s[t] = (gp_n_s_q[t] == 2'd0) ? gh_s_q[t]
+                  : (gp_n_s_q[t] == 2'd1) ? {gh_s_q[t][GH_W-2:0], gp_b_s_q[t]} : {gh_s_q[t][GH_W-3:0], 1'b0, gp_b_s_q[t]};
+    // FTQ pointers, with a wrap bit, per stream; a delivery takes its stream's tail. TAGE's training queue names the
+    // blocks of its requests (commit's, with their wrap bits and streams), and its head's indices and tags are read
+    // from here: no entry is freed while the queue names it (each stream's oldest in the queue, ft_eh_s)
+    logic [NS-1:0][FTQW:0] ft_t_s_q, ft_h_s_q, ft_eh_s;
+    function automatic logic [SB+FTQW:0] fqp(input logic st, input logic [FTQW:0] p);   // {stream, wrap, index}
+      return MT ? (SB + FTQW + 1)'({st, p}) : (SB + FTQW + 1)'(p);
+    endfunction
+    function automatic logic [SB+FTQW-1:0] fqa(input logic st, input logic [FTQW-1:0] i);   // {stream, index}
+      return MT ? (SB + FTQW)'({st, i}) : (SB + FTQW)'(i);
+    endfunction
+    logic                         cs;      // commit's stream
+    assign cs = strm(c_tid);
+    logic                         ft_we;
+    logic                         tq_v;
+    logic [SB+FTQW:0]             tq_ftq;
+    logic [3:0][SB+FTQW:0]        tq_all;
+    logic [2:0]                   tq_n;
+    logic [COMMIT_WIDTH-1:0][SB+FTQW:0] c_fp;
+    logic [0:0][SB+FTQW-1:0]      fq_ra;
+    logic [0:0][IXW-1:0]          fq_rd;
+    always_comb
+      for (int j = 0; j < COMMIT_WIDTH; j++)
+        c_fp[j] = fqp(cs, {(c_ftq[j] < ft_h_s_q[cs][FTQW-1:0]) ^ ft_h_s_q[cs][FTQW], c_ftq[j]});
+    // TAGE reads with F1's stream's history; its index and tag hashes take the stream as the block address's top
+    // bit (two threads' blocks at one address use different entries; without MT the address as it is)
+    logic [38:4] tblk;
+    assign tblk = fpc_q[38:4] ^ {MT && ft_q, 34'b0};
     tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .NT(TAGE_NT), .LI(TAGE_LI), .TW(TAGE_TW), .BI(TAGE_BI), .HW(GH_W),
-              .FW(FTQW + 1)) u_tage (
-      .clk, .rst, .re(f2_go), .blk(fpc_q[38:4]), .gh(gh_e), .dir(tdir), .ix(tix),
+              .FW(SB + FTQW + 1)) u_tage (
+      .clk, .rst, .re(f2_go), .blk(tblk), .gh(gh_e_s[ft_q]), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
-      .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]));
-    assign ft_eh   = tq_v ? tq_ftq : ft_h_q;
-    assign ft_full = ft_t_q[FTQW] != ft_eh[FTQW] && ft_t_q[FTQW-1:0] == ft_eh[FTQW-1:0];
-    assign ft_tail = ft_t_q[FTQW-1:0];
+      .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
+    always_comb
+      for (int t = 0; t < NS; t++) begin
+        logic found;
+        found      = 1'b0;
+        ft_eh_s[t] = ft_h_s_q[t];
+        for (int k = 0; k < 4; k++)
+          if (!found && 3'(k) < tq_n && (!MT || tq_all[k][SB+FTQW] == 1'(t))) begin
+            ft_eh_s[t] = tq_all[k][FTQW:0];
+            found      = 1'b1;
+          end
+      end
+    assign ft_full = ft_t_s_q[f2_s_q][FTQW] != ft_eh_s[f2_s_q][FTQW] &&
+                     ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0];
+    assign ft_tail = ft_t_s_q[f2_s_q][FTQW-1:0];
     assign ft_we   = f2_deliver && !redirect;
     // (and the return-address stack's pointer, count and top before the block, RAS_FE)
     localparam int RW = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
-    logic [0:0][FTQW-1:0] fr_ra;
+    logic [0:0][SB+FTQW-1:0] fr_ra;
     logic [0:0][RW-1:0]   fr_rd;
-    assign fr_ra[0] = dred_ftq;
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(RW), .NR(1)) u_fgh (
-      .clk, .we(ft_we), .waddr(ft_tail), .wdata({gh_e, gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}), .raddr(fr_ra),
-      .rdata(fr_rd));
+    assign fr_ra[0] = fqa(strm(dred_tid), dred_ftq);
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(RW), .NR(1)) u_fgh (
+      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata({gh_e_s[f2_s_q], gh_cm, gh_pk, ras_tos, ras_cnt, ras_top}),
+      .raddr(fr_ra), .rdata(fr_rd));
     // the stack's operation at a delivered block's exit, and its repair at decode's redirect
     assign ras_push = ft_we && !f2_isfault && f2_rpush;
     assign ras_pop  = ft_we && !f2_isfault && f2_rpop;
@@ -1040,9 +1071,9 @@ module tg_fetch
       ras_rcnt = c;
       ras_rtop = v;
     end
-    assign fq_ra[0] = tq_ftq[FTQW-1:0];
-    tg_ram_lut #(.DEPTH(FTQ_ENTRIES), .WIDTH(IXW), .NR(1)) u_fix (
-      .clk, .we(ft_we), .waddr(ft_tail), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
+    assign fq_ra[0] = fqa(MT && tq_ftq[SB+FTQW], tq_ftq[FTQW-1:0]);
+    tg_ram_lut #(.DEPTH(FTQ_ENTRIES << SB), .WIDTH(IXW), .NR(1)) u_fix (
+      .clk, .we(ft_we), .waddr(fqa(f2_s_q, ft_tail)), .wdata(tix), .raddr(fq_ra), .rdata(fq_rd));
     // the history after decode's redirect at slot dred_slot of block dred_ftq: the block's branches up to
     // that slot (at most two, the cut's rule), shifted in after the history before the block. Found
     // first and shifted once, so the history takes a shift of 0, 1 or 2, not one per slot (area)
@@ -1064,36 +1095,41 @@ module tg_fetch
     end
     always_ff @(posedge clk) begin
       if (rst) begin
-        gh_q   <= '0;
-        gp_n_q <= '0;
-        cgh_q  <= '0;
-        ft_t_q <= '0;
-        ft_h_q <= '0;
+        gh_s_q   <= '0;
+        gp_n_s_q <= '0;
+        cgh_s_q  <= '0;
+        ft_t_s_q <= '0;
+        ft_h_s_q <= '0;
       end else begin
-        logic [GH_W-1:0] c;
-        c = cgh_q;
-        for (int j = 0; j < COMMIT_WIDTH; j++) if (c_cbr[j]) c = {c[GH_W-2:0], c_taken[j]};
-        cgh_q <= c;
-        if (flush) begin                   // (nothing retires in a flush's cycle)
-          gh_q   <= cgh_q;
-          gp_n_q <= '0;
-          // every block goes; the training queue may still name the head's and earlier ones
-          ft_t_q <= ft_h_q + 1'b1;
-          ft_h_q <= ft_h_q + 1'b1;
-        end else begin
-          if (dred) begin
-            gh_q   <= r_gh;
-            gp_n_q <= '0;
+        for (int t = 0; t < NS; t++) begin
+          logic [GH_W-1:0] c;
+          c = cgh_s_q[t];
+          if (cs == 1'(t)) for (int j = 0; j < COMMIT_WIDTH; j++) if (c_cbr[j]) c = {c[GH_W-2:0], c_taken[j]};
+          cgh_s_q[t] <= c;
+          if (flush && rr == 1'(t)) begin     // (nothing of the stream retires in its flush's cycle)
+            gh_s_q[t]   <= cgh_s_q[t];
+            gp_n_s_q[t] <= '0;
+            // every block goes; the training queue may still name the head's and earlier ones
+            ft_t_s_q[t] <= ft_h_s_q[t] + 1'b1;
+            ft_h_s_q[t] <= ft_h_s_q[t] + 1'b1;
           end else begin
-            gh_q   <= gh_e;
-            gp_n_q <= ft_we ? gh_n : 2'd0;
-            gp_b_q <= gh_b[0];
+            if (dred && !flush && rr == 1'(t)) begin
+              gh_s_q[t]   <= r_gh;
+              gp_n_s_q[t] <= '0;
+            end else begin
+              gh_s_q[t]   <= gh_e_s[t];
+              gp_n_s_q[t] <= (ft_we && f2_s_q == 1'(t)) ? gh_n : 2'd0;
+              gp_b_s_q[t] <= gh_b[0];
+            end
+            // decode's redirect keeps its instruction's block and drops the later ones; commit frees
+            // the blocks before the youngest retiring instruction's
+            if (dred && !flush && rr == 1'(t))
+              ft_t_s_q[t] <= {(dred_ftq < ft_h_s_q[t][FTQW-1:0]) ^ ft_h_s_q[t][FTQW], dred_ftq} + 1'b1;
+            else if (ft_we && f2_s_q == 1'(t))
+              ft_t_s_q[t] <= ft_t_s_q[t] + 1'b1;
+            if (c_hv && cs == 1'(t))
+              ft_h_s_q[t] <= {(c_hftq < ft_h_s_q[t][FTQW-1:0]) ^ ft_h_s_q[t][FTQW], c_hftq};
           end
-          // decode's redirect keeps its instruction's block and drops the later ones; commit frees
-          // the blocks before the youngest retiring instruction's
-          if (dred)       ft_t_q <= {(dred_ftq < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], dred_ftq} + 1'b1;
-          else if (ft_we) ft_t_q <= ft_t_q + 1'b1;
-          if (c_hv)       ft_h_q <= {(c_hftq < ft_h_q[FTQW-1:0]) ^ ft_h_q[FTQW], c_hftq};
         end
       end
     end
@@ -1103,22 +1139,31 @@ module tg_fetch
     logic tq_rs_q;                          // the first reset has come
     initial tq_rs_q = 1'b0;
     always @(posedge clk) if (rst) tq_rs_q <= 1'b1;
-    // the history as first built (updated with each delivered block): gh_e equals it
-    logic [GH_W-1:0] gh_ref_q;
+    // each stream's history as first built (updated with each delivered block): gh_e equals it
+    logic [NS-1:0][GH_W-1:0] gh_ref_q;
     always_ff @(posedge clk) begin
-      if (rst)        gh_ref_q <= '0;
-      else if (flush) gh_ref_q <= cgh_q;
-      else if (dred)  gh_ref_q <= r_gh;
-      else if (ft_we)
-        gh_ref_q <= (gh_n == 2'd0) ? gh_ref_q : (gh_n == 2'd1) ? {gh_ref_q[GH_W-2:0], gh_b[0]} : {gh_ref_q[GH_W-3:0], gh_b};
-      if (tq_rs_q && !rst) assert (gh_e == gh_ref_q) else $error("tg_fetch: the history with its pending bits differs from the history's");
+      for (int t = 0; t < NS; t++) begin
+        if (rst)                                gh_ref_q[t] <= '0;
+        else if (flush && rr == 1'(t))          gh_ref_q[t] <= cgh_s_q[t];
+        else if (dred && !flush && rr == 1'(t)) gh_ref_q[t] <= r_gh;
+        else if (ft_we && f2_s_q == 1'(t))
+          gh_ref_q[t] <= (gh_n == 2'd0) ? gh_ref_q[t] : (gh_n == 2'd1) ? {gh_ref_q[t][GH_W-2:0], gh_b[0]}
+                                                                       : {gh_ref_q[t][GH_W-3:0], gh_b};
+        if (tq_rs_q && !rst) assert (gh_e_s[t] == gh_ref_q[t])
+          else $error("tg_fetch: stream %0d's history with its pending bits differs from the history's", t);
+      end
     end
     always_ff @(posedge clk)
       if (tq_rs_q && !rst && dred && !flush)
         assert ($countones(r_cm) <= 2) else $error("tg_fetch: an FTQ entry with more than two conditional branches");
     always_ff @(posedge clk)
-      if (tq_rs_q && !rst && ft_we && tq_v)
-        assert (ft_tail != tq_ftq[FTQW-1:0]) else $error("tg_fetch: a block takes the FTQ entry TAGE's training queue names");
+      if (tq_rs_q && !rst) assert (tq_v == (tq_n != '0) && (!tq_v || tq_ftq == tq_all[0]))
+        else $error("tg_fetch: TAGE's queue head differs from its first entry");
+    always_ff @(posedge clk)
+      if (tq_rs_q && !rst && ft_we)
+        for (int k = 0; k < 4; k++)
+          if (3'(k) < tq_n && (!MT || tq_all[k][SB+FTQW] == f2_s_q))
+            assert (ft_tail != tq_all[k][FTQW-1:0]) else $error("tg_fetch: a block takes an FTQ entry TAGE's training queue names");
 `endif
   end else begin : g_notage
     assign ft_full = 1'b0;

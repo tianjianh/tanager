@@ -50,7 +50,10 @@ module tg_tage
   input  logic [CW-1:0]        t_pred,
   output logic                 q_v,
   output logic [FW-1:0]        q_ftq,
-  input  logic [NT*(LI+TW)+BI-1:0] q_ix
+  input  logic [NT*(LI+TW)+BI-1:0] q_ix,
+  // every queued request's FTQ entry, oldest first, and how many (each thread's oldest is the FTQ's to keep, M7)
+  output logic [3:0][FW-1:0]   q_all,
+  output logic [2:0]           q_n
 );
   localparam int IXW = NT * (LI + TW) + BI;
   // history lengths, geometric to 40 bits: by table count (the M6 size study's first pass)
@@ -165,6 +168,10 @@ module tg_tage
   end
   assign q_v   = qn_q != '0;
   assign q_ftq = q_q[0].ftq;
+  for (genvar k = 0; k < QN; k++) begin : g_qall
+    assign q_all[k] = q_q[k].ftq;
+  end
+  assign q_n = 3'(qn_q);
 
   // ---- Memories: port A predicts, port B trains ----
   ent_t [NT-1:0]        ra, rb, wb;
