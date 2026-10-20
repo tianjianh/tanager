@@ -231,12 +231,12 @@ module tg_tlb
             sw_q <= sw_q + 1'b1;
             if (sw_q == 5'd31) ts_q <= T_IDLE;
           end
-          T_IDLE:  if (fill) ts_q <= T_CLEAR;
+          T_IDLE:  if (fill_ok) ts_q <= T_CLEAR;
           T_CLEAR: ts_q <= T_SET;
           default: ts_q <= T_IDLE;
         endcase
       end
-      if (ts_q == T_IDLE && fill) begin
+      if (ts_q == T_IDLE && fill_ok) begin
         uf_q <= fv;
         uk_q <= fill_vpn;
         ul_q <= fill_lvl;
@@ -253,7 +253,7 @@ module tg_tlb
     initial rs_q = 1'b0;
     always @(posedge clk) begin
       if (rst) rs_q <= 1'b1;
-      if (fill) vs_q[fv] <= fill_vpn;
+      if (fill_ok) vs_q[fv] <= fill_vpn;
       if (rs_q && !rst && ts_q != T_SWEEP)
         for (int r = 0; r < NR; r++)
           for (int e = 0; e < NE; e++)
@@ -276,7 +276,7 @@ module tg_tlb
                      (lvl_q[e] != 2'd0 || fill_lvl != 2'd0 || vpn_q[e][8:0] == fill_vpn[8:0]);
     end
     always_ff @(posedge clk) begin
-      if (fill) vpn_q[fv] <= fill_vpn;
+      if (fill_ok) vpn_q[fv] <= fill_vpn;
     end
   end
 
@@ -284,7 +284,7 @@ module tg_tlb
   logic [NR-1:0][EW-1:0] ra;
   logic [NR-1:0][DW-1:0] rd;
   tg_ram_lut #(.DEPTH(NE), .WIDTH(DW), .NR(NR)) u_leaf (
-    .clk, .we(fill), .waddr(fv), .wdata({fill_lvl, fill_pte}), .raddr(ra), .rdata(rd));
+    .clk, .we(fill_ok), .waddr(fv), .wdata({fill_lvl, fill_pte}), .raddr(ra), .rdata(rd));
 
   for (genvar r = 0; r < NR; r++) begin : g_rd
     assign ra[r] = mi[r];
@@ -325,8 +325,9 @@ module tg_tlb
       end
     end
   end
+  // A fill the flush drops writes nothing: its victim may be the other thread's entry, which the flush keeps
   always_ff @(posedge clk) begin
-    if (fill) begin                          // (a fill a flush drops leaves its entry invalid)
+    if (fill_ok) begin
       lvl_q[fv] <= fill_lvl;
       t_q[fv]   <= ft;
     end
