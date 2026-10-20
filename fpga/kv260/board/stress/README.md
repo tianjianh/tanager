@@ -385,3 +385,56 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
 - **Network checks:** 19, hourly from 09:54:42.
 - **The stress watcher** stops at a failed pass, kernel trouble, an mmc0 timeout, a probe capture, or 12 minutes without a pass.
 - **If SD1's interrupt is lost now,** the watch captures it once and writes the complete. That brought boot 54's shutdown back.
+- **Segment d: 98 of 98 passes clean,** from 09:24:42 to 12:37:04 UTC (3.21 h of stress), with no SD1 timeout and no capture. It ended at a pass boundary for d4r2, the bitstream with the SD1 fix (DR-176). The record went to arm, and Debian's reboot gave Ubuntu.
+  - **Steady over 92 passes** (6 overlapped a check): 116.4 s per pass, cpu 90.34 events/s, memory 127.83 MiB/s, threads 2,225 events. This is with the watch's cost, as in segment c.
+  - **Network checks: 3 of 3 OK,** 0.49–0.55 MB/s up and 0.52–0.55 down, `apt-get update` exit 0.
+  - Logs: [`uart_COM5_s19d.txt`](uart_COM5_s19d.txt), [`uart_COM5_s19d_stop.txt`](uart_COM5_s19d_stop.txt), [`net_s19d.txt`](net_s19d.txt).
+- **s19 on d4r1 in all:**
+  - 265 of 265 passes clean over 8.66 h of stress in four segments, and 8 of 8 network checks OK.
+  - No SD1 loss came in the soak itself. All five losses came in boot transitions: early in a boot, after a login, or at a shutdown.
+  - d4r2 replaces d4r1 for the 24 h soak.
+
+## d4r2: the SD1 fix's check (10-20)
+
+**The bitstream:** d4r2 (`33e29f3d…`), d4r1's recipe on main ef44e5b7, built by the coordinator. It holds:
+- the SD1 fix (DR-176): the ROB could take an interrupt in the same cycle the LSU sent the head's MMIO read, so the PLIC's claim was read twice and source 21's claim was lost;
+- the I$ next-line prefetch;
+- three store prefetches;
+- M7 step 1.
+
+It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv with only `tanager.bit.bin` changed; all 14 files check against SHA256SUMS on the board.
+
+**s20 (d4r2, stage C,** under the standing rule for a new bitstream; load 12:39:02 UTC):
+- **3 of 3 passes clean:** 114–115 s; cpu 90.93–91.12 events/s, memory 142.55–143.21 MiB/s, threads 2,251–2,263.
+- **Against d4r1's s18:** memory is 3.3% higher (more store prefetches). cpu and threads are about 3.5% lower, the cost of the probe's watch, which now runs in stage C too (s18 predates it).
+- The stage C app `tanager-d4r2` is d4r1's app files with d4r2's bitstream; the configuration is the same.
+- Logs: [`linux_shell_stress_s20.txt`](linux_shell_stress_s20.txt), [`stress_monitor_s20.txt`](stress_monitor_s20.txt), [`stress_s20.txt`](stress_s20.txt).
+
+**d4r2 on p1:** its `tanager.bit.bin` went in at 12:48 by `d4m_step6.sh install` (the other files are unchanged), and its hash was checked on the board. Logged with its undo. The probe's setup and the whole-boot watch stay.
+
+**The 60 boots** (the coordinator: zero losses in 60 is the pass, under a 1% chance the bug remains at the old rate of about 1 in 11):
+- Boot 0 came from Ubuntu at 12:48:36: clean, with the watch running.
+- Boots 1–60 each have a login, the 90 s read stress, and a clean shutdown into the next.
+- Reports go out every 20 boots, and at once on any capture.
+- **Boots 1–20 (12:52–14:33 UTC): 20 of 20 clean.**
+  - No SD1 timeout in any boot, stress or shutdown, and no capture.
+  - Each logged in 191–196 s after the reboot, and each stress drew 74,000–75,200 mmc0 interrupts.
+  - The tally: [`probe_tally_d4r2.txt`](probe_tally_d4r2.txt).
+  - Boots 21–40 follow at once.
+- **Boots 21–40 (14:38–16:15 UTC): 20 of 20 clean,** 40 of 40 so far.
+  - No SD1 timeout in any boot, stress or shutdown, and no capture.
+  - Each logged in 191–192 s after the reboot, and each stress drew 74,600–75,800 mmc0 interrupts.
+  - Boots 41–60 follow at once.
+- **Boots 41–60 (16:20–17:57 UTC): 20 of 20 clean.**
+  - Each logged in 186–192 s after the reboot, and each stress drew 75,000–76,700 mmc0 interrupts.
+- **The result: 60 of 60 clean, the pass.**
+  - No SD1 timeout in any boot, stress or shutdown: the whole COM5 log of the count holds none, and no capture.
+  - On d4r1 the same 60 boots would be expected to show about 5 losses (5 in 57). Zero in 60 leaves under a 1% chance that the bug remains at that rate.
+  - Logs: [`uart_COM5_d4r2_boots.txt`](uart_COM5_d4r2_boots.txt) (boots 0–60), the tally [`probe_tally_d4r2.txt`](probe_tally_d4r2.txt).
+
+## Run s21: the 24-hour soak in RISC-V mode on d4r2 (10-20 to 10-21)
+
+- **The stress** from 17:58:22 UTC (`STRESS start 2026-10-20T17:58:22Z up=296.32`, [`uart_COM5_s21_start.txt`](uart_COM5_s21_start.txt)) on boot 60 of the count, with the whole-boot watch armed. The probe's setup stays on p3 until the coordinator calls the hunt done.
+- **Network checks:** 24, hourly from 18:28:22.
+- **The end:** 17:58:22 UTC on 10-21, or the first failure, SD1 timeout or capture.
+- The stress numbers carry the watch's cost (about 3.5% on cpu and threads).
