@@ -249,3 +249,17 @@ Load 12:31:07 UTC, 2026-10-19: the first stage C boot after step 4's mode check 
 4. A tally line per boot: the login's time, SD1 timeouts in the boot and in the stress, mmc0's interrupt count, the readers' rates, and whether the probe fired.
 
 The driver stops at a capture or at a boot with no login within 8 minutes. The PMOD break recovers a stuck boot.
+
+**Boots 1–7 (03:39–04:16 UTC):** all clean. Each logged in about 190 s after the reboot, and no SD1 timeout came in the boot or in the 90 s stress.
+- **The stress:** about 75,000 mmc0 interrupts per boot, all on CPU 0. The 4 KiB reader got 787–794 kB/s and the 64 KiB reader 12.2–12.4 MB/s.
+- **Boot 1's** CPU 1 read at 512 KiB: 14.8 MB/s, with 226 kB/s left for the 4 KiB reader.
+
+**Boot 7's shutdown lost SD1's interrupt again: the second occurrence, and the first at a shutdown.**
+- **When:** the driver's reboot began at 04:16:46. At 272 s of boot 7's uptime, about 10 s into stopping the services, `mmc0: Timeout waiting for hardware interrupt` began: 46 timeouts, then read I/O errors on p3.
+- **The shutdown stuck,** with the confirm unit's stop job running for its full 10 minutes. It did write trial 0: the board came back in RISC-V mode after the PMOD break (04:26:27), not in Ubuntu.
+- **The probe missed it.** The driver had stopped the per-boot watch after the stress, and the initramfs's watch ends at the switch to the real root, so nothing was watching at the shutdown.
+- **The fix:** `sd1-irq-watch.service` ([`../runs/sd1-irq-watch.service`](../runs/sd1-irq-watch.service)) runs the probe's watch from the root's mount through shutdown. With `DefaultDependencies=no` it stays out of shutdown's ordinary stop.
+  - A copy in `/run` was tried first and can't run, since Debian mounts `/run` noexec. So it runs from the card; its commands repeat every 2 s and stay cached.
+  - The driver no longer starts or stops a watch of its own.
+- **Boot 9** (after the break, 04:28): no timeout; the initramfs's fsck recovered p3's journal. The service went in there, and boots 10–30 run with it.
+- **Log:** [`uart_COM5_probe_boots1-8.txt`](uart_COM5_probe_boots1-8.txt) holds boots 1–8 in one capture; the tally gives each boot's offset in it.
