@@ -2269,6 +2269,11 @@ bool Core::run() {
       }
       if (all) break;
     }
+    if (c_.stop_regions) {  // the pair runner's finish: every thread's first region has ended
+      bool ended = true;
+      for (auto& Tp : th_) ended = ended && Tp->region_seen && !Tp->in_region;
+      if (ended) break;
+    }
     if (c_.max_cycles && (int64_t)t_ >= c_.max_cycles) break;
     for (auto& Tp : th_) {
       const Thread& T = *Tp;

@@ -801,7 +801,7 @@ python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart
 - *M7's policy as planned: static ROB, LQ and SQ halves (D1); ICOUNT at fetch, with decode, rename and commit alternating and sharing idle slots (D7); 75% issue-queue caps; TID-hashed predictors;*
 - *a committed store that finds no free L1D miss entry takes the next one ahead of load misses (D8, §13.4).*
 
-*The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10); `prf_homes` (§13.11), and `rfo_pf_reserve` and `rfo_pf_max` for the ownership prefetch's calibration (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
+*The pairs are §2.3's 42, measured as §2.2 describes. New `tgsim` switches, all off by default, with every earlier result identical with them off: `prf_split` and `prf_steer` (D3), `lone_*` (D2), `smt_drain_rr` and `smt_iq_cap_bank` (D8); later `prf_xfer`, `prf_fp_bank` and `flush_walk` (§13.9), and `smt_align`, `smt_pa_flat` and `smt_restart_ff` with the pair runner's markers (§13.10); `prf_homes` (§13.11), `rfo_pf_reserve` and `rfo_pf_max` for the ownership prefetch's calibration, and `stop_regions` for the runner's REPEAT builds (§13.10). `scripts/m7_smt.py` runs every section here, and `bench/build_m7.sh` builds the FP-restore test.*
 
 ### 13.1 Summary
 
@@ -1344,6 +1344,11 @@ A hart therefore needs, in every bank, room for its architectural registers plus
    - **Recommendation:** build the memory kernels (`perfmodel/bench/memsuite`, this project's own code) with a `REPEAT` option, so that after the first region they loop the region's kernel until the pair ends. The compute programs can keep restarting from the top.
    - **Why:** as built, the runner reads up to 0.12 above the basis the 1.3 bar was set on, and it would pass step 5 + the drain's priority (1.408 at 250), which that basis fails (1.288).
    - **Cost:** a few lines per kernel, and a rebuild.
+   - **Done (10-20):**
+     - verif-2 agreed and recommends it to the coordinator.
+     - `REPEAT=1` is in memsuite (a42b221e, its own commit). Off, every kernel compiles byte-identically to before.
+     - verif-2's `build_pair.sh` passes it to the 7 kernels.
+     - The model ends a runner run where the runner's finish does (`stop_regions`: once every thread's first region has ended), so REPEAT builds, which never exit, run to the same end. On the old builds it changes no measured number. Checked on gather alone and beside CoreMark.
 3. **The bank rule's form at step 7** (§13.7 item 1).
    - **The options:**
      - never a whole bank: about +0.1K LUTs a chip;

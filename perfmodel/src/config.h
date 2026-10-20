@@ -176,6 +176,7 @@ namespace tg {
   X(lone_caps, 1, "D2: 1 = the issue-queue caps (smt_iq_cap) bind a lone thread while its window is split; 2 = always") \
   X(smt_align, 0, "two threads (verif-2's pair runner): a thread's first-run region start (marker 1) waits at commit until every thread's has reached its commit head, so the two first regions start together") \
   X(smt_pa_flat, 0, "two threads share one physical address space: each program's addresses are its own (the pair runner's programs, linked at their slots' bases); 0 = thread 1's offset by 64 GiB + 21 pages") \
+  X(stop_regions, 0, "the run ends once every thread's first region has ended, as the pair runner's finish does (its REPEAT builds never exit); 0 = once every thread's first run has") \
   X(smt_restart_ff, 0, "two threads, a mask of threads (bit t = thread t) whose program, once ended, runs again from its region start, fast-forwarded past its set-up (the pair runner's memory kernels built to repeat their region); others run again from the top") \
   /* area-recovery levers (plan section 8.5); off by default */                                   \
   X(smt_ckpt_shared, 0, "R10: the ckpt checkpoints are one pool shared by the threads (0 = ckpt per thread)") \

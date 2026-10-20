@@ -549,7 +549,7 @@ def prediction(workers):
 
 
 PAIRDIR = Path(os.environ.get("TG_PAIRDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" / "pair")))
-RUNNER = {"smt_align": 1, "smt_pa_flat": 1}   # the runner's barrier at the first marker; programs at their own bases
+RUNNER = {"smt_align": 1, "smt_pa_flat": 1, "stop_regions": 1}   # the runner's barrier, addresses and finish
 D3R = {"prf_split": 1, "prf_xfer": 1, "prf_fp_bank": 96}   # D3 as revised (DR-175, amended 10-20)
 STEP5 = {**M7, "smt_iq_cap": 100, "smt_mix": 0, "drain_guard": 0, **D3R}   # core-2's step 5: the caps come at step 7
 PAIR_CFGS = {"step 5 as planned (no caps; D8 alternation only)": STEP5,
@@ -562,7 +562,8 @@ PAIR_CFGS = {"step 5 as planned (no caps; D8 alternation only)": STEP5,
                  {**STEP5, "smt_iq_cap": 50, "smt_iq_cap_bank": 3, "drain_guard": 1}}
 PAIR_CHECKS = {"step 5 + the drain's priority, thread 1 in its own address space (§13.2's method)":
                    {**STEP5, "drain_guard": 1, "smt_pa_flat": 0}}
-ALONE_CFGS = {"today's core": CORE, "with the drain's priority": {**CORE, "drain_guard": 1}}
+ALONE = {**CORE, "stop_regions": 1}   # a runner program alone ends at its region's end, as the runner's alone run
+ALONE_CFGS = {"today's core": ALONE, "with the drain's priority": {**ALONE, "drain_guard": 1}}
 METHOD_CFGS = ["step 5 + the drain's priority for a miss entry",
                "step 7 recommended (75% caps never a whole bank, the drain's priority)",
                "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"]
@@ -602,9 +603,9 @@ def pairrun(workers):
     jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in ALONE_CFGS.values() for lat in LATS for w in names]
     jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in PAIR_CFGS.values() for lat in LATS
              for _, a, b in WS_PAIRS]   # §13.4's working-set pairs (the model's own builds): deadlocks only
-    jobs += [(PRESET, {**PAIR_CFGS[n], "smt_pa_flat": 1, "dram_lat": lat}, f"{a}.s0.ff", f"{b}.s1.ff")
-             for n in METHOD_CFGS for lat in LATS for _, a, b in smt.PAIRS]   # §13.2's method on these programs
-    jobs += [(PRESET, {**CORE, "dram_lat": lat}, f"{w}.ff", None) for lat in LATS for w in names]
+    jobs += [(PRESET, {**PAIR_CFGS[n], "smt_pa_flat": 1, "stop_regions": 1, "dram_lat": lat}, f"{a}.s0.ff",
+              f"{b}.s1.ff") for n in METHOD_CFGS for lat in LATS for _, a, b in smt.PAIRS]   # §13.2's method
+    jobs += [(PRESET, {**ALONE, "dram_lat": lat}, f"{w}.ff", None) for lat in LATS for w in names]
     jobs += [(PRESET, {**RUNNER, **PAIR_CFGS[n], **repeat_mask(a, b), "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
              for n in METHOD_CFGS for lat in LATS for _, a, b in smt.PAIRS]   # the memory kernels repeating
     run_all(jobs, workers)
@@ -669,7 +670,7 @@ def pairrun(workers):
           "way)\n")
     print("| Configuration | Method | All pairs | memory + memory | compute + compute | mixed |\n"
           "|---|---|---|---|---|---|")
-    ff_same = {lat: {w: ipc1(run7(PRESET, {**CORE, "dram_lat": lat}, f"{w}.ff", None)) for w in names} for lat in LATS}
+    ff_same = {lat: {w: ipc1(run7(PRESET, {**ALONE, "dram_lat": lat}, f"{w}.ff", None)) for w in names} for lat in LATS}
 
     def evm(sets_of, wl, base):
         e = {}
@@ -688,7 +689,8 @@ def pairrun(workers):
     out["method"] = {}
     for n in METHOD_CFGS:
         c = PAIR_CFGS[n]
-        e13 = evm(lambda a, b: {**c, "smt_pa_flat": 1}, lambda a, b: (f"{a}.s0.ff", f"{b}.s1.ff"), ff_same)
+        e13 = evm(lambda a, b: {**c, "smt_pa_flat": 1, "stop_regions": 1}, lambda a, b: (f"{a}.s0.ff", f"{b}.s1.ff"),
+                  ff_same)
         erp = evm(lambda a, b: {**RUNNER, **c, **repeat_mask(a, b)}, lambda a, b: (f"{a}.s0", f"{b}.s1"), same)
         out["method"][n] = {"repeat": erp, "s13_2": e13}
         for meth, ee in (("the runner's", out["configs"][n]), ("the runner's, memory kernels repeating", erp),
@@ -731,14 +733,14 @@ def calib(workers):
     while 2 others stay free) and the RTL's (DR-171: while 1 stays free, at most 3 in flight)."""
     names = pair_workloads()
     progs = [w[:-3] for w in names if w.endswith(".s0")]
-    run_all([(PRESET, {**CORE, **v, "dram_lat": lat}, f"{p}.s0", None) for v in CALIB.values() for lat in LATS
+    run_all([(PRESET, {**ALONE, **v, "dram_lat": lat}, f"{p}.s0", None) for v in CALIB.values() for lat in LATS
              for p in progs], workers)
     rtl = json.loads(RTL_ALONE.read_text())["alone"]
     out = {}
     print("\n**Alone against the RTL** (model IPC / RTL IPC − 1 over the first region; 30 / 120 / 250 cycles)\n")
     print("| Program | RTL IPC | " + " | ".join(CALIB) + " |\n|---|---|" + "---|" * len(CALIB))
     for p in progs:
-        out[p] = {n: [ipc1(run7(PRESET, {**CORE, **v, "dram_lat": lat}, f"{p}.s0", None)) /
+        out[p] = {n: [ipc1(run7(PRESET, {**ALONE, **v, "dram_lat": lat}, f"{p}.s0", None)) /
                       rtl[f"{p}@s0@{lat}"]["ipc"] - 1 for lat in LATS] for n, v in CALIB.items()}
         print(f"| {p} | " + " / ".join(f"{rtl[f'{p}@s0@{lat}']['ipc']:.3f}" for lat in LATS) + " | " +
               " | ".join(" / ".join(f"{x:+.1%}" for x in out[p][n]) for n in CALIB) + " |")
