@@ -88,10 +88,12 @@ module tg_fetch
   input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic        tlb_flush,
+  input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
   input  logic        it_fill,
   input  logic [26:0] it_fill_vpn,
   input  logic [1:0]  it_fill_lvl,
   input  tlb_pte_t    it_fill_pte,
+  input  tid_t        it_fill_tid,
   output logic        iw_req,         // a walk for iw_va, held until iw_ack
   output logic [63:0] iw_va,
   input  logic        iw_ack,
@@ -185,9 +187,9 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .lk_tid(RUN_TID), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
-    .fill_pte(it_fill_pte), .flush(tlb_flush));
+    .fill_pte(it_fill_pte), .fill_tid(it_fill_tid), .flush(tlb_flush), .flush_tid(tlb_flush_tid));
   logic [PA_W-1:0] f1_pa;
   assign f1_pa = xl_i ? {it_pte[0].ppn, fpc_q[11:0]} : fpc_q[PA_W-1:0];
   // A walk for this page faulted: its blocks are fault blocks until a redirect

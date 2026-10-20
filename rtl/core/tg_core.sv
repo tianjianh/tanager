@@ -134,15 +134,14 @@ module tg_core
   logic [2:0]        pmp_al;
   logic [PMP_ENTRIES-1:0] pmp_p2m;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
-  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
-  // write (the TLBs cache PMP results)
-  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr || pmp_wr);
+  tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
   logic [1:0]  it_fill_lvl;
   tlb_pte_t    it_fill_pte;
+  tid_t        it_fill_tid;
 
   // ---- Front end ----
   logic        fe_ready, lsu_ready;
@@ -236,8 +235,8 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
-    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
+    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
@@ -311,6 +310,13 @@ module tg_core
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
   tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
+  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
+  // write (the TLBs cache PMP results). Each retires alone in slot 0: the flush clears that hart's
+  // entries (M7's step 4)
+  always_ff @(posedge clk) begin
+    tlb_flush     <= !rst && (sfence || satp_wr || pmp_wr);
+    tlb_flush_tid <= cm_tid[0];
+  end
   logic [NCOL-1:0]                  wake_p4;
   logic [LLT_ENTRIES-1:0]           llt_done_p4;
   logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
@@ -473,10 +479,10 @@ module tg_core
     .tr_st_data,
     .tr_st_size, .sq_drained, .mmio_busy, .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
-    .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
+    .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
-    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,

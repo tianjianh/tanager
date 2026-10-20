@@ -4,7 +4,11 @@
 // to the current address space.
 // A fill first invalidates every entry whose page overlaps the new one (either may be the
 // larger), so a lookup matches at most one entry; then it takes an invalid entry, else a
-// round-robin victim. After spike S4's tg_dtlb. The valid bits and levels are flip-flops; the
+// round-robin victim. After spike S4's tg_dtlb.
+// Per thread (M7's step 4, docs/spec/threading.md): every entry carries its thread (t_q, set at the fill from
+// fill_tid); a lookup matches only its thread's entries (lk_tid), a fill's overlap check takes only its thread's, and a
+// flush clears only the flushed thread's entries (flush_tid), a fill of the other thread in that cycle staying. With one
+// thread every entry is its, so this is the TLB before M7. The valid bits and levels are flip-flops; the
 // leaf and its level are in LUTRAM, read at the OR-encoded match (one match at most). Without a
 // match the leaf is undefined: users gate it with `hit`.
 // The match, by CAM:
@@ -44,15 +48,20 @@ module tg_tlb
   input  logic                rst,
   input  logic [NR-1:0][26:0] vpn,          // VA[38:12]
   input  logic [NR-1:0][26:0] vpn_e,        // an EARLY port's VPN a cycle ahead
+  input  tid_t [NR-1:0]       lk_tid,       // each lookup's thread (with vpn)
   output logic [NR-1:0]       hit,
   output tlb_pte_t [NR-1:0]   pte,
   input  logic                fill,
   input  logic [26:0]         fill_vpn,
   input  logic [1:0]          fill_lvl,     // 0: 4 KiB, 1: 2 MiB, 2: 1 GiB
   input  tlb_pte_t            fill_pte,
-  input  logic                flush
+  input  tid_t                fill_tid,
+  input  logic                flush,
+  input  tid_t                flush_tid
 );
+  localparam int NT = NUM_THREADS;
   logic [NE-1:0]         v_q;
+  tid_t [NE-1:0]         t_q;               // each entry's thread
   logic [NE-1:0][1:0]    lvl_q;
   logic [EW-1:0]         rr_q;
   logic [EW-1:0]         fv;
@@ -63,7 +72,20 @@ module tg_tlb
     enc = '0;
     for (int e = 0; e < NE; e++) if (x[e]) enc |= EW'(e);
   endfunction
-  logic [NE-1:0]         ov;                // entries the fill's page overlaps
+  // The entries of thread t (every entry without SMT); the tids without SMT are thread 0, whatever their bits hold
+  function automatic logic [NE-1:0] tm(input tid_t t);
+    for (int e = 0; e < NE; e++) tm[e] = (NT == 1) || t_q[e] == t;
+  endfunction
+  tid_t [NR-1:0] lt;
+  tid_t          ft, xt;
+  always_comb for (int r = 0; r < NR; r++) lt[r] = (NT > 1) ? lk_tid[r] : tid_t'(0);
+  assign ft = (NT > 1) ? fill_tid : tid_t'(0);
+  assign xt = (NT > 1) ? flush_tid : tid_t'(0);
+  logic [NE-1:0] vflush;                    // the entries a flush clears: its thread's
+  logic          fill_ok;                   // a fill not of the thread being flushed
+  assign vflush  = flush ? tm(xt) : '0;
+  assign fill_ok = fill && !(flush && ft == xt);
+  logic [NE-1:0]         ov;                // entries of the fill's thread its page overlaps
 `ifndef SYNTHESIS
   logic                  rs_tq;             // the TLB has been reset: the checks wait for it
   initial rs_tq = 1'b0;
@@ -153,8 +175,8 @@ module tg_tlb
     logic [NE-1:0] kv_q;
     logic          fok_q;                    // a fill wrote an entry at the last edge (no flush)
     always_ff @(posedge clk) begin
-      kv_q  <= (rst || flush) ? '0 : fill ? (v_q & ~ov & ~(NE'(1) << fv)) : v_q;
-      fok_q <= !rst && !flush && fill;
+      kv_q  <= rst ? '0 : fill_ok ? (v_q & ~vflush & ~ov & ~(NE'(1) << fv)) : (v_q & ~vflush);
+      fok_q <= !rst && fill_ok;
     end
     if (EARLY == '0) begin : g_nokv
       logic unused_kv;                       // no EARLY port: synthesis drops them
@@ -167,7 +189,7 @@ module tg_tlb
       always_comb begin
         logic [NS-1:0][NE-1:0] x;
         for (int s = 0; s < NS; s++) x[s] = w[s][r];
-        mt = v_q & tmatch(x, lvl_q, 2'd0);
+        mt = v_q & tmatch(x, lvl_q, 2'd0);          // (the thread's mask: in the lookup's cycle, below)
         if (upd) begin                       // the entry being written: its new VPN, compared
           mt[uf_q] = v_q[uf_q] && vmatch(lv, uk_q, ul_q);
         end
@@ -175,12 +197,14 @@ module tg_tlb
       if (EARLY[r]) begin : g_early
         logic [NE-1:0] mq, mk;               // the match a cycle ahead; less the entries gone since
         logic          fq, fqc;              // the VPN in the page a fill writes at that edge
+        tid_t          fq_t;                 // ... and that fill's thread
         always_ff @(posedge clk) begin
-          mq <= mt;
-          fq <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+          mq   <= mt;
+          fq   <= vmatch(vpn_e[r], fill_vpn, fill_lvl);
+          fq_t <= ft;
         end
-        assign mk  = mq & kv_q;
-        assign fqc = fok_q && fq;            // the filled entry (uf_q) matches; then no other does
+        assign mk  = mq & kv_q & tm(lt[r]);
+        assign fqc = fok_q && fq && fq_t == lt[r];   // the filled entry (uf_q) matches; then no other does
         always_comb begin
           m[r] = mk;
           if (fqc) m[r][uf_q] = 1'b1;
@@ -188,12 +212,14 @@ module tg_tlb
           mh[r] = |mk || fqc;
         end
       end else begin : g_now
-        assign m[r]  = mt;
-        assign mi[r] = enc(mt);
-        assign mh[r] = |mt;
+        logic [NE-1:0] mn;
+        assign mn    = mt & tm(lt[r]);
+        assign m[r]  = mn;
+        assign mi[r] = enc(mn);
+        assign mh[r] = |mn;
       end
     end
-    assign ov = v_q & tmatch(wm, lvl_q, fill_lvl);
+    assign ov = v_q & tm(ft) & tmatch(wm, lvl_q, fill_lvl);
 
     always_ff @(posedge clk) begin
       if (rst) begin
@@ -231,7 +257,7 @@ module tg_tlb
       if (rs_q && !rst && ts_q != T_SWEEP)
         for (int r = 0; r < NR; r++)
           for (int e = 0; e < NE; e++)
-            assert (m[r][e] == (v_q[e] && vmatch(vpn[r], vs_q[e], lvl_q[e])))
+            assert (m[r][e] == (v_q[e] && tm(lt[r])[e] && vmatch(vpn[r], vs_q[e], lvl_q[e])))
               else $error("tg_tlb: lookup %0d's match of entry %0d differs from the entry's VPN", r, e);
     end
 `endif
@@ -239,13 +265,13 @@ module tg_tlb
     logic [NE-1:0][26:0] vpn_q;
     for (genvar r = 0; r < NR; r++) begin : g_m
       for (genvar e = 0; e < NE; e++) begin : g_e
-        assign m[r][e] = v_q[e] && vmatch(vpn[r], vpn_q[e], lvl_q[e]);
+        assign m[r][e] = v_q[e] && ((NT == 1) || t_q[e] == lt[r]) && vmatch(vpn[r], vpn_q[e], lvl_q[e]);
       end
       assign mi[r] = enc(m[r]);
       assign mh[r] = |m[r];
     end
     for (genvar e = 0; e < NE; e++) begin : g_ov
-      assign ov[e] = v_q[e] && vpn_q[e][26:18] == fill_vpn[26:18] &&
+      assign ov[e] = v_q[e] && ((NT == 1) || t_q[e] == ft) && vpn_q[e][26:18] == fill_vpn[26:18] &&
                      (lvl_q[e] == 2'd2 || fill_lvl == 2'd2 || vpn_q[e][17:9] == fill_vpn[17:9]) &&
                      (lvl_q[e] != 2'd0 || fill_lvl != 2'd0 || vpn_q[e][8:0] == fill_vpn[8:0]);
     end
@@ -286,15 +312,23 @@ module tg_tlb
   end
 
   always_ff @(posedge clk) begin
-    if (rst || flush) begin
+    if (rst) begin
       v_q  <= '0;
       rr_q <= '0;
-    end else if (fill) begin
-      v_q        <= (v_q & ~ov) | (NE'(1) << fv);
-      rr_q       <= (int'(rr_q) == NE - 1) ? '0 : rr_q + 1'b1;
+    end else begin
+      if (flush) rr_q <= '0;
+      if (fill_ok) begin
+        v_q  <= (v_q & ~vflush & ~ov) | (NE'(1) << fv);
+        if (!flush) rr_q <= (int'(rr_q) == NE - 1) ? '0 : rr_q + 1'b1;
+      end else begin
+        v_q  <= v_q & ~vflush;
+      end
     end
   end
   always_ff @(posedge clk) begin
-    if (fill) lvl_q[fv] <= fill_lvl;
+    if (fill) begin                          // (a fill a flush drops leaves its entry invalid)
+      lvl_q[fv] <= fill_lvl;
+      t_q[fv]   <= ft;
+    end
   end
 endmodule

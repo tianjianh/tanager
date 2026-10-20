@@ -378,6 +378,15 @@ package tg_core_pkg;
     if (!SPLIT) return RUN_TID;
     return tid_t'(int'(e[ROBW-2:0]) >= ROB_ENTRIES / 2);
   endfunction
+  // The thread whose part holds LQ entry i or SQ entry i (the running thread in merged mode)
+  function automatic tid_t lq_tid(input int i);
+    if (!SPLIT) return RUN_TID;
+    return tid_t'(i >= LQ_ENTRIES / 2);
+  endfunction
+  function automatic tid_t sq_tid(input int i);
+    if (!SPLIT) return RUN_TID;
+    return tid_t'(i >= SQ_ENTRIES / 2);
+  endfunction
   function automatic lqid_t lq_add_t(input lqid_t p, input int k, input tid_t t);
     int i;
     logic w;

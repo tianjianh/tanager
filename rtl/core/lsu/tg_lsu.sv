@@ -109,6 +109,7 @@ module tg_lsu
   input  logic [2:0]                   pmp_al,
   input  logic [PMP_ENTRIES-1:0]       pmp_p2m,
   input  logic                         tlb_flush,
+  input  tid_t                         tlb_flush_tid,  // ... the hart whose entries it clears
   output logic [1:0]                   tlbm_valid,    // DTLB misses at AG (LD, STA)
   output robid_t [1:0]                 tlbm_rob,
   output logic                         hd_tlb,        // the ROB head is a load or store that missed the DTLB
@@ -126,6 +127,7 @@ module tg_lsu
   output logic                         it_fill,
   output logic [26:0]                  it_fill_vpn,
   output logic [1:0]                   it_fill_lvl,
+  output tid_t                         it_fill_tid,   // ... the walk's thread
   output tlb_pte_t                     it_fill_pte,
   output logic                         st_dropped,
   // l1d
@@ -551,9 +553,14 @@ module tg_lsu
     dt_vpn_e[0] = ld_ag_addr[38:12];
     dt_vpn_e[1] = sta_ag_addr[38:12];
   end
+  // Each lookup's thread (M7's step 4): a load's or a store's, its queue entry's half; the head's, the running
+  // thread's (until the head's checks follow the committing thread)
+  tid_t [DT_NR-1:0] dt_tid;                       // (driven below ln_lq's declaration)
+  tid_t             pw_tid_q;                     // the walk's thread (the fills')
   tg_tlb #(.NE(DTLB_ENTRIES), .NR(DT_NR), .CAM(1'b1), .EARLY(LSU_AG_SPLIT ? DT_NR'(3) : DT_NR'(0))) u_dtlb (
-    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
-    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .flush(tlb_flush));
+    .clk, .rst, .vpn(dt_vpn), .vpn_e(dt_vpn_e), .lk_tid(dt_tid), .hit(dt_hit), .pte(dt_pte), .fill(dt_fill),
+    .fill_vpn(pw_vpn), .fill_lvl(pw_lvl), .fill_pte(pw_pte), .fill_tid(pw_tid_q), .flush(tlb_flush),
+    .flush_tid(tlb_flush_tid));
 
   // ---- New load from the LD port: translate and check (replays reuse the LQ's PA) ----
   // A translated access to a PMP-homogeneous page uses the DTLB's cached PMP result (plan
@@ -620,6 +627,11 @@ module tg_lsu
   logic              m1_clash, m1_go;                // the AG row clash; M1 goes on to M2
   logic [LIW-1:0]    ln_lq;                          // a new load's LQ entry where it decides
   logic [LIW-1:0]    ln_lqw;                         // ... as its LQ flip-flops are written (no split: AG's index)
+  always_comb begin                                  // the DTLB lookups' threads (above)
+    for (int r = 0; r < DT_NR; r++) dt_tid[r] = t_ls;
+    dt_tid[0] = lq_tid(int'(ln_lq));
+    dt_tid[1] = sq_tid(int'(sn_sq));
+  end
   assign m1_pa    = m1pa;
   logic [7:0]        m1_mask;
   assign m1_mask = bmask(m1pa[2:0], lq_size_q[m1_lq_q]);
@@ -1190,8 +1202,11 @@ module tg_lsu
   acc_e [1:0]     dpf_ats_q;
   logic [63:0]    dpf_va_q;
   acc_e           dpf_at_q;
+  tid_t [1:0]     dpf_tids_q;                     // each slot's access's thread
+  tid_t           dpf_tid_q;
   assign dpf_va_q = dpf_vas_q[dpf_p_q];
   assign dpf_at_q = dpf_ats_q[dpf_p_q];
+  assign dpf_tid_q = dpf_tids_q[dpf_p_q];
 
   // The walker: the head's deciding walk, fetch, data prefetch
   logic [2:0]       pw_req, pw_ack, pw_who;
@@ -1212,6 +1227,14 @@ module tg_lsu
   assign pw_va[2]   = dpf_va_q;
   assign pw_at[2]   = dpf_at_q;
   assign pw_mode[2] = priv_d;
+  // The walk's thread, from its requester's at the ack: the head's, fetch's (the running thread until step 5), the
+  // prefetch's access's
+  tid_t [2:0]       pw_tid;
+  assign pw_tid[0]  = t_ls;
+  assign pw_tid[1]  = RUN_TID;
+  assign pw_tid[2]  = dpf_tid_q;
+  always_ff @(posedge clk)
+    for (int i = 0; i < 3; i++) if (pw_ack[i]) pw_tid_q <= pw_tid[i];
   tg_ptw u_ptw (
     .clk, .rst, .flush, .satp_ppn, .sum, .mxr, .pmp_d, .pmp_al, .pmp_p2m,
     .chk_pa(pc_pa), .chk_dbl(pc_dbl), .chk_req(pw_chk), .chk_gnt(!sn_v), .chk_ok(sa_chk[0]),
@@ -1230,6 +1253,7 @@ module tg_lsu
   assign it_fill_vpn  = pw_vpn;
   assign it_fill_lvl  = pw_lvl;
   assign it_fill_pte  = pw_pte;
+  assign it_fill_tid  = pw_tid_q;
 
   always_ff @(posedge clk) begin
     if (rst || flush) begin
@@ -1248,11 +1272,13 @@ module tg_lsu
     end
     // The slot not presented takes every miss
     if (tlbm_valid[0]) begin
-      dpf_vas_q[!dpf_p_q] <= ln_va;
-      dpf_ats_q[!dpf_p_q] <= ACC_R;
+      dpf_vas_q[!dpf_p_q]  <= ln_va;
+      dpf_ats_q[!dpf_p_q]  <= ACC_R;
+      dpf_tids_q[!dpf_p_q] <= dt_tid[0];
     end else if (tlbm_valid[1]) begin
-      dpf_vas_q[!dpf_p_q] <= sn_va;
-      dpf_ats_q[!dpf_p_q] <= sa_at;
+      dpf_vas_q[!dpf_p_q]  <= sn_va;
+      dpf_ats_q[!dpf_p_q]  <= sa_at;
+      dpf_tids_q[!dpf_p_q] <= dt_tid[1];
     end
   end
 
