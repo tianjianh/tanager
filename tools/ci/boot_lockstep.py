@@ -57,7 +57,8 @@ NIGHT_TIMINGS = ("board", "jitter", "fixed30", "default")   # one a night, in tu
 NIGHT_MEM_GB = 12         # the nightly starts no run while MemAvailable is under this (as the soak)
 NIGHT_CRON = "15 0 * * *"
 SWITCH_VALUES = {"TIMING_CUTS": (0, 1), "DC_MSHRS": (1, 4), "QUEUE_DECODE": (0, 1), "SPEC_WAKE": (0, 1),
-                 "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1)}
+                 "STA_BASE": (0, 1), "STEER_LA": (0, 1), "PMP_ENTRIES": (8, 16), "STORE_PF": (0, 1), "URF": (0, 1),
+                 "STORE_PF_MAX": (2, 3)}
 
 
 def log(msg):
