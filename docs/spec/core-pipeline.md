@@ -26,7 +26,7 @@ M2 is the plan's "conservative out-of-order" core. It must pass riscv-tests (`rv
 | LSU: split LQ, SQ, store-data capture, forwarding, ordering checks | yes, without the completion buffer | completion buffer: M6 |
 | L1D with 16 MSHRs | 1 MSHR | M6 |
 | CSRs, traps, interrupts | M-mode set matching Spike (§9) | S/U, Sv39, PMP checks, A, C: M3 |
-| SMT2 | `tid` ports and fields everywhere; the `smt2` builds compile and lint but run hart 0 only | M7 |
+| SMT2 | `tid` fields in the fetch, rename, issue and ROB payloads, set by fetch to the one running thread; `flush_tid` from the ROB; per-thread logic in the issue queues, P4, fcsr and the micro-BTB. The `smt2` builds run hart 0 only | M7 (DR-175, m7-smt2-plan.md) |
 
 ## 2. Pipeline
 
@@ -299,7 +299,7 @@ Up to `COMMIT_WIDTH` complete entries in order per cycle. Per retirement: CRAT u
 | CSR | Behaviour |
 |---|---|
 | `misa` | `0x8000_0000_0000_1100`; bit M writable (clearing it makes MUL/DIV illegal) |
-| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` + tid |
+| `mvendorid`, `marchid`, `mimpid`, `mconfigptr` | 0 (the checker adopts the ID reads); `mhartid` = `CORE_ID`·`NUM_THREADS` (each core's thread 0; + tid from M7's step 2) |
 | `mstatus` | MIE, MPIE writable; MPP reads 3 (M only); everything else 0 |
 | `mtvec` | written value with bit 1 cleared (direct and vectored) |
 | `mie` | MSIE, MTIE, MEIE writable |
@@ -373,6 +373,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
+- `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).
 
 ## 13. Timing and area
 The structures are the spikes' (S2, S3, S5), so their timing results apply where adopted. Area is held to the per-unit budgets (docs/perf/budgets.md) by the budget flow (`fpga/budget`: `tg_core` with its hierarchy kept, units read from its instances).
