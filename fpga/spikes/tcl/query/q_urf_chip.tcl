@@ -56,16 +56,19 @@ set i 0
 foreach pre $pre_list {
   puts $fh "== core $i"
   incr i
-  set urf   [get_cells -quiet -hierarchical -filter "NAME =~ ${pre}/u_ex/u_irf/u_urf && IS_PRIMITIVE == 0"]
-  set urams [get_cells -quiet -hierarchical -filter "NAME =~ ${pre}/u_ex/u_irf/u_urf/* && PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*"]
-  if {![llength $urams]} { puts $fh "    no URF UltraRAMs under ${pre}/u_ex/u_irf/u_urf"; continue }
+  # tg_irf's tg_urf instance (u_ex/u_irf/g_urf.u_urf in core-2's build)
+  set urf   [get_cells -quiet -hierarchical -filter "NAME =~ ${pre}/u_ex/u_irf/*u_urf && IS_PRIMITIVE == 0"]
+  set un    [get_property NAME $urf]
+  set urams [get_cells -quiet -hierarchical -filter "NAME =~ ${un}/* && PRIMITIVE_TYPE =~ BLOCKRAM.URAM.*"]
+  if {[llength $urf] != 1 || ![llength $urams]} { puts $fh "    no URF under ${pre}/u_ex/u_irf ([llength $urf] instances)"; continue }
+  puts $fh "    $un"
   set addr_a [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ ADDR_A*}]
   set addr_b [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ ADDR_B*}]
   set dout_a [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ DOUT_A*}]
   set dout_b [get_pins -of_objects $urams -filter {REF_PIN_NAME =~ DOUT_B*}]
   set wport  [get_pins -quiet -of_objects $urf -filter {REF_PIN_NAME =~ we* || REF_PIN_NAME =~ waddr* || REF_PIN_NAME =~ wdata*}]
-  set flag   [get_cells -quiet -hierarchical -filter "NAME =~ ${pre}/u_ex/u_irf/u_urf/t?_q_reg*"]
-  set ebank  [get_cells -quiet -hierarchical -filter "NAME =~ ${pre}/u_ex/u_irf/u_urf/e_bank_q_reg*"]
+  set flag   [get_cells -quiet -hierarchical -filter "NAME =~ ${un}/t?_q_reg*"]
+  set ebank  [get_cells -quiet -hierarchical -filter "NAME =~ ${un}/e_bank_q_reg*"]
   puts $fh "    [llength $urams] UltraRAMs: [lsort [get_property LOC $urams]]"
   worst "select -> port B address (10 ns)"   -from $c0 -through $addr_b
   worst "late address -> port A (5 ns)"      -from $c0 -through $addr_a -to $urams

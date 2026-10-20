@@ -53,6 +53,9 @@ set fh [open fail_families.txt w]
 foreach dcp $argv {
   open_checkpoint $dcp
   set_clock_uncertainty -setup 0 [get_clocks c0]
+  # and clk2x's in a URF build (DR-174: over_unc.tcl over-constrains it too)
+  set c2x [get_clocks -quiet -of_objects [get_pins -quiet u_clkgen/u_mmcm/CLKOUT2]]
+  if {[llength $c2x]} { set_clock_uncertainty -setup 0 $c2x }
   puts $fh "== $dcp (WNS [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]])"
   set hs [get_timing_paths -setup -max_paths 50000 -nworst 1 -unique_pins -slack_lesser_than 1.0]
   set hist {}

@@ -1170,6 +1170,59 @@ The 5950X ran `h100_m6fa` (§8.12), a different netlist with easier timing for t
 
 Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`).
 
+### 8.16 The UltraRAM register file in the full chip: tier B (2026-10-19)
+
+**Question (DR-174, the coordinator):** §8.14's core-edge variant is now the core's URF switch. core-2 wrote the core side from `tg_urf`; soc-2 wrote the 200 MHz clock (`tg_clkgen`'s CLKOUT2, `kv260_top`, `timing_urf.xdc`). Does the M6 full chip still meet 100 MHz with hart 1's area when `TG_URF=1`, at both clocks? What do the register file's paths show in context, and what does it save?
+
+**Method:**
+- **Tree:** core-2's `claude/track-core-adb715-urf-on` 06d73b5 merged with main (soc-2's board side, e146740), as the scratch branch `claude/spikes-2-urf-tierb` 31570d5. Its RTL is that of core-2's MR head 94ce462 (core-2).
+- **Flow:** §8.12's at 100 MHz with hart 1's filler at 47 tiles. `g4_fit.tcl` reads `timing_urf.xdc` and the register file's scoped `tg_urf.xdc` after synthesis. `report_exceptions` shows all 12 of its multicycles applied, six per core, none ignored.
+- **Over-constraint:** the core clock gets 1.0 ns during placement and routing, and `clk2x` the same share of its period, 0.5 ns. Both are taken back for every figure below.
+- **Control:** the same tree with `TG_URF=0`, to isolate the URF's effect.
+- **Host:** Vivado pinned to w-arrowlake's P-cores.
+
+| | `TG_URF=1` (`h100_urf`) | `TG_URF=0` (`h100_urf0`) | Difference |
+|---|---|---|---|
+| LUTs after synthesis | 115,873 | 118,453 | **−2,580** (−1,290 a core) |
+| LUT as memory / as logic (synthesis) | 19,332 / 96,541 | 21,972 / 96,481 | −2,640 / +60 |
+| LUTs after optimisation | 111,706 | 114,202 | −2,496 |
+| Placed LUTs (fill) | 108,693 (92.8%) | 111,217 (95.0%) | **−2,524** |
+| Flip-flops placed | 61,599 | 61,548 | +51 |
+| UltraRAMs | 50 | 32 | +18 (9 a core) |
+| WNS / WHS ns, core clock | +0.769 / +0.010 | +0.801 / +0.010 | −0.03 |
+| Endpoints below 0.5 / 1.0 ns | 0 / 199 | 0 / 50 | |
+
+**Clock pairs with the URF**, WNS and WHS in ns:
+
+| Pair | WNS | WHS |
+|---|---|---|
+| core clock → core clock | +0.769 | +0.010 |
+| core clock → `clk2x` | +0.977 | +0.104 |
+| `clk2x` → `clk2x` | +1.488 | +0.250 |
+| `clk2x` → core clock | +1.188 | +0.067 |
+
+**The register file's paths in context**, core 0 / core 1 (`q_urf_chip.tcl`):
+
+| Path | Budget | Slack ns |
+|---|---|---|
+| Select → port B's address (early reads) | 10 ns | +2.256 / **+0.977** (core 1: 12 levels from the issue queue's age) |
+| Half-cycle flag and late address → port A | 5 ns | +1.143 / +1.584 |
+| Write → UltraRAMs (from the ROB's flush, P4's results) | 10 ns | +2.741 / +2.461 |
+| Port B's held data → RF stage | 10 ns | +3.819 / +3.218 |
+| Port A's mid-cycle data → RF stage | 5 ns | +1.205 / +1.188 |
+
+- **Mid-cycle margin:** a mid-cycle read leaves 1.42 / 1.40 ns after its data reaches its first LUT.
+- **Each core's `tg_irf`:** 718 LUTs, 240 LUTRAM (the store-data port's copy), 26 flip-flops and 9 UltraRAMs. Its UltraRAMs sit at `X0Y48`–`X0Y59` (core 0) and `X0Y4`–`X0Y14` (core 1).
+
+**Findings:**
+- **The merged URF meets 100 MHz with hart 1's area, at both clocks.** WNS +0.769 ns against the control's +0.801, with no endpoint within 0.5 ns, from one placement each (§8.8's ±0.75 ns).
+- **It saves 2,524 placed LUTs on the chip for 18 UltraRAMs.** That is −1,290 a core after synthesis, exactly core-2's figure out of context, and 2.2% of the device. It takes the fill from 95.0% to 92.8%.
+- **The worst paths stay in the front end:** core 1's I$ data RAM → `krt_q` (+0.769) and core 0's queue head → rename's uop register (+0.771). The URF adds near-critical endpoints, 199 within 1 ns against 50, mostly that rename register.
+- **The URF's own tightest path** is core 1's select → port B's address (+0.977). Its mid-cycle reads close with 1.2 ns to spare in the routed chip, 0.3 ns better than tier A's standalone harness.
+- **Main itself** places at 95.0% without the URF, against `h100_m6m`'s 97.1% (§8.13), and meets 100 MHz with +0.80 ns.
+
+Results: `fpga/spikes/results/h100_urf/` (with `urf_chip.txt`, the register file's paths, and `near_families_urf.txt`), `h100_urf_synth/` (with `urf_exceptions.rpt`), and the control `h100_urf0/`, `h100_urf0_synth/`. The tree is the scratch branch `claude/spikes-2-urf-tierb`.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
