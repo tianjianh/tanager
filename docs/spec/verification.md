@@ -144,7 +144,10 @@ All three follow TileLink 1.8.1 as restricted by interfaces.md §2: 128-bit beat
 - `Get`, `PutFullData`, `PutPartialData` of size ≤ 3, one beat. The monitor flags a second request from the same hart while one is in flight (interfaces.md §2.4).
 - **One read on the bus for each MMIO load that retires** (DR-176, 10-20). The model logs every `Get` that is answered without an error; each retiring `mmio_ld` load claims the oldest.
   - **What fails** (a `PROTOCOL` error): a second read already waiting when a load retires, a read still waiting at the program's exit, or a load retiring with none. Each means a read was squashed after it went out, which repeats any side effect when the load runs again: SD1's lost interrupt was a PLIC claim read twice.
-  - **Exactness:** the core sends one MMIO read at a time, from the ROB head, and nothing flushes it once it is out, so the check is exact while one hart reads devices. A request names no hart (its source is 0), so the check stops once a second hart retires an MMIO load.
+  - **Exactness:** a hart sends one MMIO read at a time, from its ROB head, and nothing flushes it once it is out, so the oldest read on a hart's source is the next one its loads retire.
+    - **One source** (every read before step 5, and a lone hart's after it): the check covers one hart, whatever the source. It stops once a second hart retires an MMIO load, since the reads cannot be told apart.
+    - **Several sources:** hart h's source is h mod NUM_THREADS, its index in the core (interfaces.md §2.4 asks for a distinct source per hart). From step 5 the core sends thread ^ SOLO_TID (core-2, reports/m7s5-design.md), so a lone hart, SOLO_TID's included, keeps source 0. With both threads running, the check is exact for each hart. That is where an SMT form of the bug would show: one thread's flush or interrupt squashing the other thread's device read.
+    - **Unit test:** `make -C sim unit` (`sim/src/unit_mmio_check.cpp`) covers these cases. `regress` runs it as a step of its own.
   - **What it found:** on the RTL before the fix it stops `irq_mmio` on `st` and `smt2`, and 2 of 2,000 random programs with timer interrupts on `smt2` (`--irq 200`). Those runs passed before, because a repeated read of `mtime` changes nothing the program can see.
 - **Devices** (addresses from `tg_map_pkg`):
 

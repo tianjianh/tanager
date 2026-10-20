@@ -1,0 +1,8 @@
+open_checkpoint: Time (s): cpu = 00:00:22 ; elapsed = 00:00:20 . Memory (MB): peak = 3842.391 ; gain = 2416.883 ; free physical = 16129 ; free virtual = 53844
+opt_design: Time (s): cpu = 00:03:41 ; elapsed = 00:02:05 . Memory (MB): peak = 5327.078 ; gain = 1397.199 ; free physical = 12919 ; free virtual = 50713
+place_design: Time (s): cpu = 00:13:32 ; elapsed = 00:06:58 . Memory (MB): peak = 6106.496 ; gain = 779.418 ; free physical = 12656 ; free virtual = 51010
+phys_opt_design: Time (s): cpu = 00:00:30 ; elapsed = 00:00:11 . Memory (MB): peak = 6106.496 ; gain = 0.000 ; free physical = 13844 ; free virtual = 52195
+route_design: Time (s): cpu = 00:41:19 ; elapsed = 00:22:21 . Memory (MB): peak = 6106.496 ; gain = 0.000 ; free physical = 17896 ; free virtual = 56681
+write_checkpoint: Time (s): cpu = 00:00:10 ; elapsed = 00:00:06 . Memory (MB): peak = 6106.496 ; gain = 0.000 ; free physical = 17808 ; free virtual = 56667
+report_timing_summary: Time (s): cpu = 00:00:14 ; elapsed = 00:00:06 . Memory (MB): peak = 6106.496 ; gain = 0.000 ; free physical = 17850 ; free virtual = 56708
+report_design_analysis: Time (s): cpu = 00:00:15 ; elapsed = 00:00:06 . Memory (MB): peak = 6106.496 ; gain = 0.000 ; free physical = 17846 ; free virtual = 56705
