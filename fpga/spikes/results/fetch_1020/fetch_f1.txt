@@ -1,0 +1,180 @@
+== m7b0: /home/w/tanager-build/track-spikes-72f833/fp/h100_m7b0_routed.dcp
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    into fpc_q from anywhere:        0.059 (19 levels, logic 2.51 net 7.33) from u_fetch/fpc_q_reg[17]/C
+    fpc_q -> fpc_q:                  0.059 (19 levels, logic 2.51 net 7.33) from u_fetch/fpc_q_reg[17]/C
+      through the ITLB's hit         (  1 pins): 2.438 (14 levels, logic 2.44 net 4.98) from u_fetch/fpc_q_reg[19]/C
+      through the ITLB's PTE ph      (  1 pins): 2.739 (8 levels, logic 1.51 net 5.50) from u_fetch/fpc_q_reg[29]/C
+      through the ITLB's PTE ppn     ( 22 pins): 0.059 (19 levels, logic 2.51 net 7.33) from u_fetch/fpc_q_reg[17]/C
+      through the micro-BTB          ( 43 pins): 1.714 (11 levels, logic 1.71 net 6.50) from u_fetch/fpc_q_reg[4]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 5.125 (2 levels, logic 0.49 net 3.91) from u_soc/u_uncore/u_xbar/g_id[4].g_p.g_s.u_s/main_v_q_reg/C
+                                 enable  1.736 (12 levels, logic 1.49 net 6.14) from u_fetch/f3_carry_q_reg/C
+    TAGE's tables     ( 4 RAMs): address 2.982 (2 levels, logic 0.44 net 6.09) from u_fetch/g_tage.gp_n_q_reg[0]/C
+                                 enable  0.901 (13 levels, logic 1.68 net 6.79) from u_fetch/f3_carry_q_reg/C
+    TAGE's base       ( 1 RAMs): address 5.523 (2 levels, logic 0.36 net 3.41) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][4]/C
+                                 enable  2.294 (12 levels, logic 1.49 net 5.67) from u_fetch/f3_carry_q_reg/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     2.348 (11 levels, logic 1.99 net 5.39) from u_fetch/fpc_q_reg[29]/C
+    into f2_hw_q     1.449 (12 levels, logic 2.14 net 6.08) from u_fetch/fpc_q_reg[29]/C
+    into f2_pmpd_q   1.399 (12 levels, logic 2.24 net 6.06) from u_fetch/fpc_q_reg[13]/C
+    into f2_pa_q     3.170 (12 levels, logic 1.49 net 5.00) from u_fetch/f3_carry_q_reg/C
+    into f2_fault_q  2.327 (14 levels, logic 2.00 net 5.44) from u_fetch/fpc_q_reg[17]/C
+    into f2_tm_q     3.873 (12 levels, logic 1.49 net 4.29) from u_fetch/f3_carry_q_reg/C
+    into f2_hit_q    3.363 (12 levels, logic 1.49 net 4.93) from u_fetch/f3_carry_q_reg/C
+    into f2_tgt_q    2.997 (12 levels, logic 1.49 net 5.17) from u_fetch/f3_carry_q_reg/C
+    into f2_valid_q  3.442 (13 levels, logic 1.57 net 4.76) from u_fetch/f3_carry_q_reg/C
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    into fpc_q from anywhere:        0.106 (15 levels, logic 2.28 net 7.36) from u_fetch/fpc_q_reg[22]/C
+    fpc_q -> fpc_q:                  0.106 (15 levels, logic 2.28 net 7.36) from u_fetch/fpc_q_reg[22]/C
+      through the ITLB's hit         (  1 pins): 2.339 (12 levels, logic 1.59 net 5.82) from u_fetch/fpc_q_reg[27]/C
+      through the ITLB's PTE ph      (  1 pins): 3.776 (8 levels, logic 1.16 net 4.83) from u_fetch/fpc_q_reg[27]/C
+      through the ITLB's PTE ppn     ( 22 pins): 0.106 (15 levels, logic 2.28 net 7.36) from u_fetch/fpc_q_reg[22]/C
+      through the micro-BTB          ( 43 pins): 3.035 (10 levels, logic 1.28 net 5.39) from u_fetch/fpc_q_reg[5]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 3.477 (2 levels, logic 0.52 net 5.49) from u_soc/u_uncore/u_xbar/g_id[5].g_p.g_s.u_s/g_fab.main_q_reg[source][0]/C
+                                 enable  2.311 (11 levels, logic 1.77 net 5.26) from u_fetch/u_cmp/half_v_q_reg/C
+    TAGE's tables     ( 4 RAMs): address 5.503 (1 levels, logic 0.30 net 3.57) from u_fetch/fpc_q_reg[21]/C
+                                 enable  1.535 (12 levels, logic 1.96 net 5.80) from u_fetch/u_cmp/half_v_q_reg/C
+    TAGE's base       ( 1 RAMs): address 6.301 (2 levels, logic 0.39 net 2.67) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][1]/C
+                                 enable  2.238 (11 levels, logic 1.77 net 5.30) from u_fetch/u_cmp/half_v_q_reg/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     2.211 (10 levels, logic 1.90 net 5.61) from u_fetch/fpc_q_reg[22]/C
+    into f2_hw_q     1.438 (11 levels, logic 2.04 net 6.39) from u_fetch/fpc_q_reg[22]/C
+    into f2_pmpd_q   0.361 (12 levels, logic 1.71 net 7.66) from xl_f_q_reg/C
+    into f2_pa_q     3.338 (11 levels, logic 1.67 net 4.55) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_fault_q  2.996 (11 levels, logic 1.84 net 5.04) from u_fetch/fpc_q_reg[22]/C
+    into f2_tm_q     3.584 (11 levels, logic 1.67 net 4.42) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_hit_q    3.616 (11 levels, logic 1.67 net 4.43) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_tgt_q    3.684 (11 levels, logic 1.67 net 4.37) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_valid_q  3.336 (12 levels, logic 1.85 net 4.51) from u_fetch/u_cmp/half_v_q_reg/C
+== m7b1: /home/w/tanager-build/track-spikes-72f833/fp/h100_m7b1_routed.dcp
+  -- core u_soc/g_core[0].g_tgc.u_core/
+    into fpc_q from anywhere:        1.693 (21 levels, logic 2.89 net 5.30) from u_fetch/fpc_q_reg[23]/C
+    fpc_q -> fpc_q:                  1.693 (21 levels, logic 2.89 net 5.30) from u_fetch/fpc_q_reg[23]/C
+      through the ITLB's hit         (  1 pins): 3.103 (16 levels, logic 2.33 net 4.45) from u_fetch/fpc_q_reg[23]/C
+      through the ITLB's PTE ph      (  1 pins): 4.673 (8 levels, logic 1.38 net 3.69) from u_fetch/fpc_q_reg[22]/C
+      through the ITLB's PTE ppn     ( 22 pins): 1.693 (21 levels, logic 2.89 net 5.30) from u_fetch/fpc_q_reg[23]/C
+      through the micro-BTB          ( 43 pins): 3.399 (13 levels, logic 2.36 net 4.14) from u_fetch/fpc_q_reg[4]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 4.664 (2 levels, logic 0.36 net 4.34) from u_soc/u_uncore/u_xbar/g_id[4].g_p.g_s.u_s/g_fab.main_q_reg[source][0]/C
+                                 enable  2.299 (11 levels, logic 1.62 net 5.45) from u_fetch/f3_start_q_reg[0]/C
+    TAGE's tables     ( 4 RAMs): address 4.592 (2 levels, logic 0.45 net 4.08) from u_fetch/g_tage.gp_n_q_reg[1]/C
+                                 enable  2.202 (12 levels, logic 1.77 net 5.43) from u_fetch/f3_start_q_reg[0]/C
+    TAGE's base       ( 1 RAMs): address 4.557 (2 levels, logic 0.53 net 4.27) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][1]/C
+                                 enable  3.184 (11 levels, logic 1.62 net 4.56) from u_fetch/f3_start_q_reg[0]/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     3.876 (11 levels, logic 1.73 net 4.30) from u_fetch/f3_start_q_reg[0]/C
+    into f2_hw_q     2.821 (12 levels, logic 1.91 net 4.99) from u_fetch/f3_start_q_reg[0]/C
+    into f2_pmpd_q   3.101 (10 levels, logic 1.73 net 4.86) from u_fetch/fpc_q_reg[7]/C
+    into f2_pa_q     4.004 (11 levels, logic 1.73 net 4.20) from u_fetch/f3_start_q_reg[0]/C
+    into f2_fault_q  4.054 (14 levels, logic 1.94 net 3.87) from u_fetch/fpc_q_reg[23]/C
+    into f2_tm_q     4.097 (11 levels, logic 1.73 net 4.09) from u_fetch/f3_start_q_reg[0]/C
+    into f2_hit_q    4.450 (11 levels, logic 1.73 net 3.74) from u_fetch/f3_start_q_reg[0]/C
+    into f2_tgt_q    4.030 (11 levels, logic 1.73 net 4.18) from u_fetch/f3_start_q_reg[0]/C
+    into f2_valid_q  4.225 (12 levels, logic 1.84 net 3.98) from u_fetch/f3_start_q_reg[0]/C
+  -- core u_soc/g_core[1].g_tgc.u_core/
+    into fpc_q from anywhere:        1.074 (16 levels, logic 2.03 net 6.75) from u_fetch/fpc_q_reg[18]/C
+    fpc_q -> fpc_q:                  1.074 (16 levels, logic 2.03 net 6.75) from u_fetch/fpc_q_reg[18]/C
+      through the ITLB's hit         (  1 pins): 2.128 (11 levels, logic 1.58 net 6.15) from u_fetch/fpc_q_reg[22]/C
+      through the ITLB's PTE ph      (  1 pins): 4.095 (8 levels, logic 1.11 net 4.55) from u_fetch/fpc_q_reg[18]/C
+      through the ITLB's PTE ppn     ( 22 pins): 1.074 (16 levels, logic 2.03 net 6.75) from u_fetch/fpc_q_reg[18]/C
+      through the micro-BTB          ( 43 pins): 2.750 (9 levels, logic 1.28 net 5.89) from u_fetch/fpc_q_reg[6]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 4.056 (2 levels, logic 0.45 net 5.04) from u_soc/u_uncore/u_xbar/g_id[5].g_p.g_s.u_s/main_v_q_reg/C
+                                 enable  2.509 (12 levels, logic 1.41 net 5.45) from u_fetch/f3_carry_q_reg/C
+    TAGE's tables     ( 4 RAMs): address 4.136 (2 levels, logic 0.39 net 4.89) from u_fetch/g_tage.gp_n_q_reg[1]/C
+                                 enable  2.546 (13 levels, logic 1.50 net 5.37) from u_fetch/f3_carry_q_reg/C
+    TAGE's base       ( 1 RAMs): address 5.882 (2 levels, logic 0.38 net 3.14) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][3]/C
+                                 enable  3.045 (12 levels, logic 1.41 net 4.96) from u_fetch/f3_carry_q_reg/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     3.311 (11 levels, logic 1.81 net 4.69) from u_fetch/fpc_q_reg[18]/C
+    into f2_hw_q     2.403 (12 levels, logic 1.81 net 5.62) from u_fetch/fpc_q_reg[18]/C
+    into f2_pmpd_q   2.541 (13 levels, logic 1.74 net 5.28) from u_fetch/f3_carry_q_reg/C
+    into f2_pa_q     3.143 (12 levels, logic 1.55 net 5.06) from u_fetch/f3_carry_q_reg/C
+    into f2_fault_q  3.601 (12 levels, logic 1.53 net 4.70) from u_fetch/fpc_q_reg[18]/C
+    into f2_tm_q     3.843 (12 levels, logic 1.55 net 4.32) from u_fetch/f3_carry_q_reg/C
+    into f2_hit_q    3.257 (12 levels, logic 1.55 net 5.03) from u_fetch/f3_carry_q_reg/C
+    into f2_tgt_q    2.772 (12 levels, logic 1.55 net 5.44) from u_fetch/f3_carry_q_reg/C
+    into f2_valid_q  3.632 (13 levels, logic 1.49 net 4.59) from u_fetch/f3_carry_q_reg/C
+== m7s5a_h0: /home/w/tanager-build/track-core-adb715/budget/tim_m7s5a_cf527d00_h0_1140/routed.dcp
+  -- core (out of context)
+    into fpc_q from anywhere:        1.662 (13 levels, logic 1.47 net 6.47) from u_fetch/u_cmp/half_v_q_reg/C
+    fpc_q -> fpc_q:                  1.762 (15 levels, logic 2.19 net 5.77) from u_fetch/fpc_q_reg[12]/C
+      through the ITLB's hit         (  1 pins): 3.345 (11 levels, logic 1.29 net 5.11) from u_fetch/fpc_q_reg[33]/C
+      through the ITLB's PTE ph      (  1 pins): 3.882 (8 levels, logic 1.21 net 4.51) from u_fetch/fpc_q_reg[12]/C
+      through the ITLB's PTE ppn     ( 22 pins): 1.762 (15 levels, logic 2.19 net 5.77) from u_fetch/fpc_q_reg[12]/C
+      through the micro-BTB          ( 43 pins): 3.992 (9 levels, logic 1.26 net 4.49) from u_fetch/fpc_q_reg[6]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 5.364 (2 levels, logic 0.49 net 3.55) from u_fetch/ps_q_reg[1]/C
+                                 enable  1.474 (12 levels, logic 1.39 net 6.59) from u_fetch/u_cmp/half_v_q_reg/C
+    TAGE's tables     ( 4 RAMs): address 5.437 (1 levels, logic 0.21 net 3.78) from u_fetch/fpc_q_reg[11]/C
+                                 enable  1.525 (13 levels, logic 1.54 net 6.23) from u_fetch/u_cmp/half_v_q_reg/C
+    TAGE's base       ( 1 RAMs): address 6.445 (0 levels, logic 0.12 net 2.77) from u_fetch/fpc_q_reg[9]/C
+                                 enable  2.086 (12 levels, logic 1.39 net 5.83) from u_fetch/u_cmp/half_v_q_reg/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     2.677 (12 levels, logic 1.40 net 5.59) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_hw_q     2.554 (12 levels, logic 2.05 net 5.12) from u_fetch/fpc_q_reg[12]/C
+    into f2_pmpd_q   2.634 (10 levels, logic 2.00 net 5.17) from u_fetch/fpc_q_reg[14]/C
+    into f2_pa_q     2.575 (12 levels, logic 1.40 net 5.70) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_fault_q  2.512 (12 levels, logic 1.40 net 5.75) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_tm_q     2.636 (12 levels, logic 1.40 net 5.61) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_hit_q    2.325 (12 levels, logic 1.40 net 6.04) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_tgt_q    2.220 (12 levels, logic 1.40 net 6.15) from u_fetch/u_cmp/half_v_q_reg/C
+    into f2_valid_q  2.775 (13 levels, logic 1.45 net 5.56) from u_fetch/u_cmp/half_v_q_reg/C
+== m7s5a_h1: /home/w/tanager-build/track-core-adb715/budget/tim_m7s5a_cf527d00_h1_1201/routed.dcp
+  -- core (out of context)
+    into fpc_q from anywhere:        1.328 (13 levels, logic 1.73 net 6.66) from u_fetch/u_cmp/done_q_reg[0]/C
+    fpc_q -> fpc_q:                  2.284 (16 levels, logic 2.14 net 5.46) from u_fetch/fpc_q_reg[22]/C
+      through the ITLB's hit         (  1 pins): 3.696 (10 levels, logic 1.62 net 4.56) from u_fetch/fpc_q_reg[29]/C
+      through the ITLB's PTE ph      (  1 pins): 4.545 (9 levels, logic 1.07 net 4.15) from u_fetch/fpc_q_reg[22]/C
+      through the ITLB's PTE ppn     ( 22 pins): 2.284 (16 levels, logic 2.14 net 5.46) from u_fetch/fpc_q_reg[22]/C
+      through the micro-BTB          ( 43 pins): 3.850 (8 levels, logic 1.68 net 4.37) from u_fetch/fpc_q_reg[5]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 4.889 (2 levels, logic 0.39 net 4.12) from u_fetch/ps_q_reg[0]/C
+                                 enable  1.876 (12 levels, logic 1.60 net 5.96) from u_fetch/u_cmp/done_q_reg[0]/C
+    TAGE's tables     ( 4 RAMs): address 5.057 (1 levels, logic 0.18 net 3.96) from u_fetch/fpc_q_reg[9]/C
+                                 enable  2.154 (13 levels, logic 1.68 net 5.44) from u_fetch/u_cmp/done_q_reg[0]/C
+    TAGE's base       ( 1 RAMs): address 5.896 (0 levels, logic 0.11 net 3.10) from u_fetch/fpc_q_reg[4]/C
+                                 enable  2.352 (12 levels, logic 1.60 net 5.34) from u_fetch/u_cmp/done_q_reg[0]/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     2.211 (12 levels, logic 1.59 net 6.01) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_hw_q     2.118 (13 levels, logic 1.94 net 5.44) from u_fetch/fpc_q_reg[22]/C
+    into f2_pmpd_q   1.535 (10 levels, logic 1.84 net 6.28) from u_fetch/fpc_q_reg[15]/C
+    into f2_pa_q     1.898 (12 levels, logic 1.59 net 6.25) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_fault_q  2.205 (12 levels, logic 1.59 net 5.90) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_tm_q     1.611 (12 levels, logic 1.59 net 6.53) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_hit_q    3.263 (12 levels, logic 1.59 net 4.78) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_tgt_q    2.173 (12 levels, logic 1.59 net 5.94) from u_fetch/u_cmp/done_q_reg[0]/C
+    into f2_valid_q  2.620 (13 levels, logic 1.78 net 5.28) from u_fetch/u_cmp/done_q_reg[0]/C
+== s1d: /home/w/tanager-build/track-fpu-395911/viv/s1d_area/core_s1d_ut/routed.dcp
+  -- core (out of context)
+    into fpc_q from anywhere:        1.351 (16 levels, logic 2.24 net 6.33) from u_fetch/fpc_q_reg[21]/C
+    fpc_q -> fpc_q:                  1.351 (16 levels, logic 2.24 net 6.33) from u_fetch/fpc_q_reg[21]/C
+      through the ITLB's hit         (  1 pins): 3.092 (12 levels, logic 1.49 net 5.33) from u_fetch/fpc_q_reg[21]/C
+      through the ITLB's PTE ph      (  1 pins): 3.426 (8 levels, logic 1.45 net 4.92) from u_fetch/fpc_q_reg[12]/C
+      through the ITLB's PTE ppn     ( 22 pins): 1.351 (16 levels, logic 2.24 net 6.33) from u_fetch/fpc_q_reg[21]/C
+      through the micro-BTB          ( 43 pins): 3.709 (9 levels, logic 1.74 net 4.44) from u_fetch/fpc_q_reg[5]/C
+      through the PMP checker        (  8 pins): none
+      through the queue's blk_ready  (  1 pins): none
+    the I$ data RAMs  (16 RAMs): address 5.575 (2 levels, logic 0.56 net 3.29) from u_fetch/ps_q_reg[1]/C
+                                 enable  2.377 (12 levels, logic 1.56 net 5.46) from u_fetch/f3_start_q_reg[7]/C
+    TAGE's tables     ( 4 RAMs): address 5.885 (2 levels, logic 0.50 net 3.00) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][1]/C
+                                 enable  1.815 (13 levels, logic 1.70 net 5.76) from u_fetch/f3_start_q_reg[7]/C
+    TAGE's base       ( 1 RAMs): address 6.213 (2 levels, logic 0.40 net 2.71) from u_fetch/g_tage.u_tage/q_q_reg[0][ftq][2]/C
+                                 enable  2.456 (12 levels, logic 1.56 net 5.24) from u_fetch/f3_start_q_reg[7]/C
+    the tag LUTRAMs (0): through their read addresses to anywhere none
+    into f2_wh_q     2.921 (10 levels, logic 1.43 net 5.61) from u_fetch/fpc_q_reg[21]/C
+    into f2_hw_q     2.455 (12 levels, logic 1.76 net 5.58) from u_fetch/fpc_q_reg[21]/C
+    into f2_pmpd_q   2.435 (10 levels, logic 1.83 net 5.59) from u_fetch/fpc_q_reg[30]/C
+    into f2_pa_q     2.921 (12 levels, logic 1.60 net 5.26) from u_fetch/f3_start_q_reg[7]/C
+    into f2_fault_q  3.177 (12 levels, logic 1.74 net 4.98) from u_fetch/fpc_q_reg[21]/C
+    into f2_tm_q     3.431 (12 levels, logic 1.60 net 4.71) from u_fetch/f3_start_q_reg[7]/C
+    into f2_hit_q    2.929 (12 levels, logic 1.60 net 5.24) from u_fetch/f3_start_q_reg[7]/C
+    into f2_tgt_q    2.763 (12 levels, logic 1.60 net 5.41) from u_fetch/f3_start_q_reg[7]/C
+    into f2_valid_q  3.735 (13 levels, logic 1.72 net 4.41) from u_fetch/f3_start_q_reg[7]/C

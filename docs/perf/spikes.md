@@ -384,6 +384,135 @@ Named paths, `s5_w3_lut_wr4` (decode width 3):
 - **Verdict: S5 passes at widths 2 and 3, and no §8.1 fallback is needed.**
 - **The flip-flop fallback is worse on both counts:** the 32-entry fully associative micro-BTB costs 1.1K LUTs more (3,589 against 2,485), and its next-PC loop has +0.58 ns against +1.9.
 
+### 7.1 Fetch's timing in M7's chips, before step 5b (2026-10-20)
+
+**Asked** (the coordinator, 10-20): before M7's step 5b adds the thread select to F1, collect fetch's worst paths from the recent routed runs. Find which are the same logical path, their levels, and how much is route against logic. Then propose fixes that are cycle-neutral, FPGA-native and cost no IPC, each with its slack gain and LUT cost. This is measurement only: tg_fetch is core-2's, and step 5b rewrites it.
+
+**Method.**
+- Four Vivado queries on routed checkpoints, with every clock's setup uncertainty taken back:
+  - [`q_fetch_paths.tcl`](../../fpga/spikes/tcl/query/q_fetch_paths.tcl): per source, each endpoint family's worst path, with its chain.
+  - [`q_fetch_fix.tcl`](../../fpga/spikes/tcl/query/q_fetch_fix.tcl): every F2 family, the fpc loop by route, and the queue head.
+  - [`q_fetch_f1.tcl`](../../fpga/spikes/tcl/query/q_fetch_f1.tcl): F1's lookups, RAM address and enable pins, and F2's registers.
+  - [`q_fetch_f1b.tcl`](../../fpga/spikes/tcl/query/q_fetch_f1b.tcl): F1's near paths in full.
+  - [`q_opt_levels.tcl`](../../fpga/spikes/tcl/query/q_opt_levels.tcl): on h100_m7b0's synthesis, the levels with no opt_design, with Default and with ExploreArea, before placement.
+- Each query takes 1–4 minutes and peaks at 4 GB.
+- Timelines come from the path reports, via [`fetch_rpt.py`](../../fpga/spikes/scripts/fetch_rpt.py).
+- Checkpoints:
+  - §8.17's chips: h100_m7b0 (URF off) and h100_m7b1 (URF on).
+  - core-2's out-of-context smt2 `tg_core` runs: m7s4 (a260dfa9 and 1fc36c72), and m7s5a (cf527d00, its h0 and h1 builds).
+  - fpu-2's s1d and s5 core runs.
+- Results are in `fpga/spikes/results/fetch_1020/`.
+
+**Three logical paths make up fetch's near-critical set, the same in every run:**
+
+| Path | m7b0 core 0 / 1 (URF off) | m7b1 core 0 / 1 (URF on) | Out of context, 6 runs | Levels | Wire |
+|---|---|---|---|---|---|
+| **F2's decision:** I$ data or TAGE table RAM → way select → pre-decode or TAGE's direction → the exit search → endpoint | **+0.022 / +0.022** | +0.988 / +1.000 | +0.153 to +1.061 | 15–20 | 48–65% |
+| **F1's next PC:** fpc_q → ITLB (CAM, leaf LUTRAM) → PA → PMA → f1_fault → the prediction's select → fpc_q | +0.059 / +0.106 | +1.693 / +1.074 | +0.989 to +2.284 (s5: none below +2.0) | 15–21 | 65–77% |
+| **The queue head:** u_cmp's head → bank read address → LUTRAM → RVC expansion → decode → rename's uop register | +0.127 / +0.172 | +1.106 / +1.137 | +0.521 to +1.482 | 16–20 | 66–74% |
+
+- Out of context, F2's cone is +0.15 to +1.06, and its krt_q family takes 15–18 levels. In the chips the family takes 18–20 levels and 0.7–1.0 ns more, mostly wire.
+- **The chips' depth is synthesis's.** h100_m7b0's synthesized netlist already maps F2's cone in 18–20 levels, and opt_design adds at most one more.
+- **opt_design's ExploreArea (DR-166) deepens F1's loop.** It takes 16 levels to 21 and 19, about −1.3 and −0.9 ns of estimated slack before placement. Default leaves it at 16. The out-of-context runs use Default, and the chips ExploreArea.
+- **The fetch fixes alone don't move m7b0's WNS.** The next paths there belong to other units, all in core 0:
+  - the LSU's DTLB → m2_dword_q, +0.038;
+  - the D$ metadata LUTRAM, +0.042;
+  - the CSR's mie → fs, +0.045.
+- **What the fixes buy is room for step 5b.**
+
+**F2's decision is one cone with two sources.** The chip's worst path is m7b0 core 1's, I$ → krt_q: +0.022, 19 levels, 3.91 ns of logic and 6.01 ns of wire. Its timeline:
+
+| Step | At (ns from the clock) |
+|---|---|
+| The I$ RAMB36's clock-to-out (1.19 ns), then 0.70 ns of wire to the way select (LUT6 + MUXF7) | 1.89 |
+| The parcel, fanout 6–8 (a 0.59–0.72 ns net) | 2.73 |
+| Pre-decode, 5 LUTs, to pd_* | 4.05–4.86 |
+| TAGE, the other source: two cascaded RAMB36 (CASDOUT 1.565 + 0.027 + 0.136 = 1.73 ns, against 1.19 for one RAMB36), then 6 LUTs of direction, to tdir | 4.68–4.73 |
+| The flat exit search joins the two sources | 5.8–6.0 |
+| The decision's fanout nets (fanout 12–24) | 7.5–9.1 |
+| fx_tgt, after 1–3 LUTs per endpoint family | 9.9 |
+
+The decision itself reaches a flip-flop with about +0.9 ns: f3_meta_q.hit (= tk) is at +0.998 and +0.874. Every family below that loses its slack in its own tail:
+
+| Endpoint family (m7b0; endpoints) | Core 0 | Core 1 | Its tail after the decision |
+|---|---|---|---|
+| f3_meta_q.target (38) | **+0.022** | +0.107 | `fx_tgt = fe_ras ? rtgt : f2_tgt_q`: the select (fanout 35–48, 0.44–0.57 ns), then the 64-bit mux |
+| krt_q (38) | +0.040 | **+0.022** | the same mux |
+| The RAS's p_pop_q / p_push_q | +0.133 / +0.532 | +0.220 / +0.246 | fetch's ras_pop LUT, then tg_ras's `&& !flush` LUT (core 1's are merged) |
+| u_fgh, the FTQ's history LUTRAM (14) | +0.145 | +0.275 | gh_cm/gh_pk, 2 LUTs, then the RAMD32's data setup (0.138) |
+| kimm_q (20) | +0.182 | +0.447 | ovr_imm: 6 LUTs (the exit's immediate, then the no-exit default) |
+| TAGE's own table write, g_tab → g_tab (144) | +0.267 | +1.345 | 8 levels from a cascaded table's output to the write port (67% wire) |
+| gp_n_q / f3_meta_q.tsrc | +0.372 / +0.994 | +0.334 / +0.270 | the block's branch count; `tk && …` |
+| kr_q, ka_q, k_ovr_q, carry_q, kt_q, f3_meta_q.hit | +0.60 to +1.04 | +0.47 to +0.87 | 0–2 LUTs: the decision itself |
+
+**F1's next-PC loop.**
+- The worst loop runs through the ITLB's PPN, 19 levels with 74% wire:
+  - fpc_q (fanout 26, 0.90 ns) → the ITLB's CAM compare (3 LUTs);
+  - → the leaf LUTRAM's address (fanout 36, 0.66 ns) → the PPN → the PA;
+  - → PMA decode (5 LUTs) → f1_fault (fanout 60, 0.55 ns);
+  - → the next-PC select (`(pred_hit && !f1_fault) ? pred_tgt : seq_pc`) → fpc_q.
+- **The loop's other routes have much more slack** (m7b0 core 0 / core 1):
+  - the micro-BTB: +1.714 / +3.035;
+  - the ITLB's hit: +2.438 / +2.339;
+  - the PTE's ph bit: +2.739 / +3.776.
+- **fpc_q's next input is F2's hold chain:**
+  - The chain runs u_cmp's room → blk_ready (10 LUTs in u_cmp) → f2_go.
+  - f2_go is one LUT4 with fanout 76 (1.2–1.9 ns of wire).
+  - It ends at fpc_q's enable at +1.436 / +1.604, at TAGE's RAM enables at +0.901 / +1.535, and at the I$'s at +1.736 / +2.311.
+- **F1's lookups read fpc_q directly.** The I$ tag LUTRAMs' read-address bits have fanout 214–324; the rest of F1's lookups sit at +1.4 or more, except f2_pmpd_q:
+  - In bare mode, the PMP checker takes fpc_q through the `xl_i ? pw_pa_q : fpc_q` mux.
+  - In core 1 that path has +0.361 with 7.66 ns of wire: xl_f_q fanout 58 (1.28 ns), then the mux with fanout 20 (2.08 ns).
+  - The same path in core 0 has +1.399.
+
+**The queue head is decode's cone.**
+- head_q (fanout 126–190) → each bank's row address (head plus the bank's offset; one LUT3, fanout 182, 0.66 ns) → the LUTRAM read → RVC expansion (5 LUTs) → decode (9 LUTs) → rename's uop register.
+- G8's QUEUE_DECODE switch already cuts it from 19 to 12 levels. It is off and costs +324 LUTs a core.
+
+**Fixes: cycle-neutral, with no IPC cost and exact unless noted.**
+
+| # | Fix | Where | Gain (estimated from the reports) | Cost a core |
+|---|---|---|---|---|
+| **G** | **Drop f1_fault from the next-PC select:** `fpc_q <= pred_hit ? pred_tgt : seq_pc` (proof below) | tg_fetch | fpc_q's worst input: +0.059 / +0.106 → **+1.44 / +1.60** (the hold chain); the loop itself → +1.71 / +2.34 | 0 LUTs |
+| **A** | **krt_q takes the stack's top (rtgt), not fx_tgt** (proof below) | tg_fetch | krt_q's 38 endpoints leave the cone (+0.040 / +0.022 → several ns) | 0 LUTs; krt_q can keep just ras_top's 38 bits |
+| **B** | **Select f3_meta_q.target after F3's register:** the field takes f2_tgt_q; F3 also registers fe_ras and ras_top, and selects at u_cmp's meta input, the field's only reader | tg_fetch | the 38 target endpoints become one flip-flop like kr_q (+0.022 / +0.107 → about +0.6 / +0.7) | ~0 LUTs (the select moves from F2 to F3); +39 FFs |
+| **F** | **TAGE's tagged tables without the depth cascade:** xpm `CASCADE_HEIGHT = 1`, so two RAMB36 at 2K × 18 sit side by side instead of 1K × 36 stacked | a parameter on tg_ram_tdp (spikes' prim, default unchanged), set on tg_tage's g_tab | **−0.53 ns on every TAGE-sourced path** (1.19 against 1.73 ns), including TAGE's training write and the per-RAM enable LUT2 | 0 LUTs, the same 4 RAMB36 |
+| **C** | **tg_ras (LATE): drop `&& !flush` from p_push_q and p_pop_q.** d_push and d_pop already exclude a flush: tg_ras.sv's assertion checks it, and fetch's ft_we carries !redirect | tg_ras | up to +0.4 where opt_design didn't merge the gate (core 0's +0.133 path); 0 where it did (core 1's) | −2 LUTs |
+| **D** | **Write u_fgh's gh_cm/gh_pk a cycle later from a register;** the entry's other fields stay on time. Decode's redirect reads a block's entry 2 cycles after delivery at the earliest (for core-2 to confirm) | tg_fetch | +0.2 (registering gh_cm/gh_pk) to +0.5 (registering their inputs: tk, feh, the block's branches, 17 bits) | +17–26 FFs; 0–8 LUTs (a split LUTRAM) |
+| **E** | **kimm_q:** drop the no-exit default (`im[0]` when !fe_v), since kimm_q is read only under kt_q (= tk), when there is an exit. **tsrc:** register tk and its two other terms, and AND them after F3 | tg_fetch; the walk check's compare gains `!r_tk \|\|` | kimm_q about +0.3, tsrc about +0.6 | 0 LUTs; +2 FFs |
+
+- **G is exact.**
+  - Every F1 fault becomes an F2 fault block: f2_fault_q, and a fault block never misses.
+  - F2 delivers the fault block, stops fetch (stop_q, k_stop_q) and drops the block behind it (ka_q). So the block F1 fetches after a faulting one is never delivered.
+  - The block behind it in F2 has f2v = 0, so it starts no miss or walk. The prefetcher starts only on demand misses. So the change is cycle-identical too.
+  - With step 5b the same holds per thread.
+- **A is exact.** krt_q is read only under kr_q, and kr_q is registered fe_ras. In that cycle fx_tgt is rtgt.
+- **Estimated result in the URF-off chip, with A–F together:** F2's worst goes from +0.022 to about +0.22 in core 1 (its RAS ops, whose gate is already merged) and about +0.4 in core 0. F1's worst into fpc_q goes from +0.059 to +1.44.
+- **The next wall is the decision's own tails, at +0.22 to +0.6:** p_pop/p_push in core 1, gp_n_q, ka_q, k_ovr_q, carry_q. Tail fixes cannot pass the decision's own +0.9.
+
+**Where step 5b's thread select lands.**
+- **At fpc_q's D input** (the next-PC mux, with a registered choice), it lands only on the loop. G gives that loop +1.4 to +1.7.
+- **After per-thread PC registers**, it adds a level to every F1 lookup that now reads fpc_q directly: the tag LUTRAMs (fanout 324), the I$ and TAGE addresses, the ITLB, and the PMP checker. The tightest of these is core 1's f2_pmpd_q at +0.361.
+
+**Larger options, each needing a build:**
+- **Pre-decode at refill:**
+  - Store each parcel's class as if an instruction starts there, beside its data. Three bits are needed (none, branch, JAL, JAL call, JALR, JALR call, JALR pop), because the JALR-pop split feeds the candidate itself.
+  - That removes 3–4 of pre-decode's 5 levels: about 1 ns on the I$ source, and about +0.5 on the whole cone with F.
+  - It needs 24 more bits per way-row, so a third RAMB36 per way: +16 RAMB36 a chip (125 → 141 of 144).
+- **Synthesis without `-flatten_hierarchy none` for the front end** (DR-113's setting): the cone crosses the tg_predecode, tg_tage and tg_ras boundaries, where synthesis merges no LUTs and only opt_design's remap merges some (core 1's RAS gate). One chip with g4_fit's `-flatten rebuilt` measures it.
+- **A front-end pblock:** the wire share is the same out of context (48–65%), but the chip adds about 0.7 ns of wire to this cone. Measure it before adopting.
+- **F1's near paths:**
+  - replicate xl_f_q into fetch (+1 FF), and give the PMP checker its own copy of the address mux (core 1's +0.361);
+  - replicate f2_go per RAM group (+2–3 LUTs; TAGE's enable at +0.901, about +0.6–1.0).
+- **The queue head:**
+  - QUEUE_DECODE (+324 LUTs a core);
+  - or a max_fanout on the banks' row address (fanout 182 → about 4 × 46): about +0.35, +~36 LUTs a core.
+
+**Learned.**
+- **Below the decision, the cone is a wall of tails.** The two worst families end one 64-bit select after the decision. Each of the next five is only 0.1–0.2 ns better. Removing one family moves the worst path by that much, and the decision's own +0.9 at a flip-flop bounds what tail fixes can buy.
+- **`-flatten_hierarchy none` keeps LUTs on both sides of a module boundary**, such as ras_pop in fetch and `&& !flush` in tg_ras. opt_design's remap merged that pair in core 1 but not in core 0, so the same RTL got different depths.
+- **Vivado cascaded TAGE's 2K × 36 true-dual-port tables in depth on its own** (CASCADE_HEIGHT 0, its default), at 0.53 ns more clock-to-out than a width split of the same two RAMB36.
+- **ExploreArea's remap traded depth for LUTs on F1's loop.** Before placement the loop went from 16 levels to 19–21. In the routed chip the loop's worst route is ITLB → PMA → f1_fault, which G takes out of the loop.
+
 
 ---
 
