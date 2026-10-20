@@ -1056,6 +1056,9 @@ class Gen:
                    '#define CLINT_MTIMECMP 0x02004000', '#define CLINT_MTIME 0x0200bff8',
                    ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:"]
         self.lines = []
+        if not self.multi:   # M7 (DR-175): hart 0 runs the program; a sibling thread that fetches from reset parks
+            self.emit("csrr x5, mhartid")
+            self.emit("bnez x5, park")
         self.emit(f"la x31, {self.s('trap')}")
         self.emit("csrw mtvec, x31")
         self.emit(f"la x2, {self.s('stack_top')}")
@@ -1157,6 +1160,8 @@ class Gen:
                 f"  li x30, {self.mtimecmp()}",
                 "  sd x31, 0(x30)",
                 "  mret"]
+        if not self.multi:
+            out += ["park:", "  wfi", "  j park"]
         out += self.data()
         if not self.multi:
             out += [".section .tohost, \"aw\", @progbits", ".balign 64", ".globl tohost", "tohost: .dword 0",
