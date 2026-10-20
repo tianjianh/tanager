@@ -21,6 +21,9 @@
  *     sleeps in WFI, as the board's idle threads.
  *   SMODE = 0: hart 0 in M-mode on context 0. SMODE = 1 (sd_irq_smt2s.bin, the real cores only): as Linux, in
  *     S-mode on context 1 (hart 0's S-mode) with SEI delegated, plus timer ticks on Sstc's stimecmp at random.
+ *     With SMODE, the contender also sends hart 0 IPIs as Linux does through OpenSBI: hart 0's MSIP in the
+ *     ACLINT, an M-mode software interrupt, which preempts S-mode even inside the handler (SIE off), as an IPI
+ *     preempts plic_handle_irq; hart 0's M-mode handler clears MSIP and returns, as OpenSBI's does.
  *     SMODE = 2 (sd_irq_smt2v.bin): the same under Sv39, as Linux's ioremap has it: identity mappings, 2 MiB
  *     pages for the PLIC and the PS window (each inside its region, so the core decides their accesses with
  *     the DTLB's cached PMP result), the rest of the first GiB in 2 MiB pages, RAM in a 1 GiB page.
@@ -82,7 +85,7 @@
 #define DATA __attribute__((section(".data")))
 static volatile uint32_t done_cnt DATA, irqs DATA, spurious DATA, other_irq DATA, loops_max DATA, en_lost DATA;
 static volatile uint32_t en_seen DATA, ticks DATA, go1 DATA, stop1 DATA, ops1[8] DATA;
-static volatile uint32_t uart_irqs DATA, ttc_irqs DATA, ttc_spur DATA, writes DATA;
+static volatile uint32_t uart_irqs DATA, ttc_irqs DATA, ttc_spur DATA, writes DATA, ipis DATA;
 static volatile char txq[256] DATA;             /* the 8250's transmit queue: hart 0 only */
 static volatile uint32_t tx_head DATA, tx_tail DATA;
 
@@ -157,6 +160,15 @@ static void tx_queue(const char *t) {             /* hart 0, interrupts off: a l
   if (!(UART[1] & 0x02)) tx_kick();
 }
 
+#if SMODE
+/* OpenSBI's IPI path on hart 0: an M-mode software interrupt, taken whatever S-mode is doing; MSIP down, back */
+__attribute__((interrupt("machine"))) void m_entry(void) {
+  if (CSRR(mcause) != ((1ull << 63) | 3)) fail(0x03);
+  REG32(ACLINT + 0) = 0;
+  ipis++;
+}
+#endif
+
 /* Linux's plic_handle_irq with sdhci_irq and 6.12.113's plic_irq_eoi; with SMODE, Linux's timer tick too */
 #if SMODE
 __attribute__((interrupt("supervisor"))) void irq_entry(void) {
@@ -226,7 +238,10 @@ static void contender(void) {
           for (int n = 0; n < 6; n++) (void)REG32(PS_GEM3 + 0x08);
         }
         break;
-      default: REG32(PS_TTC1) = 1; break;                                /* TTC1's event */
+      default:
+        if (SMODE && (r & 0x200)) REG32(ACLINT + 0) = 1;                 /* an IPI to hart 0 (MSIP) */
+        else REG32(PS_TTC1) = 1;                                         /* TTC1's event */
+        break;
     }
     ops1[r & 7]++;
     for (uint32_t d = (r >> 8) & 31; d; d--) __asm__ volatile("nop");
@@ -295,12 +310,14 @@ static void requests(void) {                     /* hart 0, in M-mode or S-mode 
   puts_(", most loops "); puthex(loops_max, 2); puts_(", enable reads "); puthex(en_seen, 4);
   puts_(", ticks "); puthex(ticks, 4); puts_("\n");
   puts_("writes "); puthex(writes, 4); puts_(", UART interrupts "); puthex(uart_irqs, 4);
-  puts_(", TTC1 "); puthex(ttc_irqs, 4); puts_(" (spurious "); puthex(ttc_spur, 4); puts_(")\n");
+  puts_(", TTC1 "); puthex(ttc_irqs, 4); puts_(" (spurious "); puthex(ttc_spur, 4); puts_("), IPIs "); puthex(ipis, 4);
+  puts_("\n");
   puts_("contender: PS writes "); puthex(ops1[0], 4); puts_(", PS reads "); puthex(ops1[1], 4);
   puts_(", enable RMWs "); puthex(ops1[2], 4); puts_(", PLIC reads "); puthex(ops1[3], 4);
   puts_(", priority writes and GEM3 polls "); puthex(ops1[4] + ops1[5], 4); puts_(", TTC1 events "); puthex(ops1[6] + ops1[7], 4);
   puts_("\n");
-  if (done_cnt != N_REQ || other_irq || en_lost || (SMODE && ticks == 0) || uart_irqs == 0 || ttc_irqs == 0)
+  if (done_cnt != N_REQ || other_irq || en_lost || (SMODE && (ticks == 0 || ipis == 0)) || uart_irqs == 0 ||
+      ttc_irqs == 0)
     fail(0x20);
   puts_("SDIRQ PASS\n");
   tohost(1);
@@ -325,6 +342,8 @@ int main(uint64_t hartid, uint64_t dtb) {
   REG32(P_EN) = (1u << IRQ_SD1) | (1u << IRQ_UART) | (1u << IRQ_TTC1);
   REG32(P_THR) = 0;
 #if SMODE
+  CSRW(mtvec, m_entry);                          /* M-mode: the IPIs */
+  CSRS(mie, 1ul << 3);                           /* MSIE: taken in S-mode whatever SIE says */
   CSRW(pmpaddr0, -1l);                           /* S-mode reaches everything */
   CSRW(pmpcfg0, 0x1F);
   CSRS(0x30A, 1ull << 63);                       /* menvcfg.STCE: Sstc */

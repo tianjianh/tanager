@@ -560,6 +560,14 @@ Each is checked on the board in stage D's first step, with the UART: the simples
         - an affinity move.
 
         `tg_plic` follows the spec in each, and Linux 6.12.113's EOI recovers each, except the race it leaves: an affinity move between its enable read and its complete. That race freezes the source, as the spec says.
+      - **The mechanism, found (10-20, after the board's capture):** a race in the core. The capture (boot 54's shutdown) showed source 21 claimed and never completed, and the probe's complete brought it back.
+        - **The race:** the ROB takes an interrupt when `irq_take && !mmio_busy`. The LSU issues the head's MMIO load (`mm_go`) checking only the registered flush, and `mmio_busy` rises only the next cycle, when the port leaves `X_IDLE`. So in one cycle the ROB can take an interrupt while the LSU issues the head's MMIO load.
+        - **What follows:** the request is already out (`X_REQ`; a valid can't be withdrawn), so it reaches the device. The flush the next cycle marks it killed, and its response is dropped. After the trap the load runs again. A device read with a side effect happens twice.
+        - **For Linux's PLIC claim:** `plic_handle_irq` runs in S-mode with interrupts off, so only M-mode interrupts can land there, OpenSBI's IPIs above all. The first claim takes source 21 and its ID is dropped. The second returns 0, so Linux never handles or completes 21.
+        - **Why only at transitions:** IPIs are frequent at boot and shutdown (TLB shootdowns, reschedules) and rare under the pinned read stress.
+        - **The directed test:** `make -C tests/unit/soc ipirace` (`tb_soc` `+ipi_race=N`). It sets hart 0's MSIP mid-cycle in the very cycle its LSU issues claim number N; MSIP to the hart's interrupt selection is combinational, so it is taken that cycle.
+
+          On today's RTL the PLIC claims 21, hart 0 drops that response as a killed MMIO load, the reissued claim returns 0, and the source stays claimed with its line high: the board's state. It passes once the core issues no MMIO load in a cycle where it takes an interrupt (the core track's fix).
   - **Met on the board** (the board session, 10-17, `fpga/kv260/board/d1`; bitstream d1_100, tree a4bc643, WNS +0.650 ns at 100 MHz with the 1.0 ns place-and-route uncertainty, 110,980 LUTs, 94.8%):
     - **Pre-check:** AFI FM6 at 128 bits. `RST_LPD_IOU2` = `0x000103AA`: TTC1, TTC2 and TTC3 are out of reset, and the set bits are all unused blocks (UART0, SPI0, SD0, CAN0/1, I2C0, NAND). So no PS change was needed.
     - **"D1 PASS":**
