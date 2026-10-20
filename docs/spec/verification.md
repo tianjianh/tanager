@@ -1030,6 +1030,21 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
 ## 8. Disk and machine sharing
 
 - Builds and test runners use at most 16 jobs per track on w-x299 (conventions §9; 8 on the 5950X until 2026-10-18). Their defaults stay at 8 (6 for `tests/coherence`), fixed numbers rather than the host's thread count; `JOBS=16` raises them.
+- **Hybrid hosts** (w-arrowlake's P-cores 0–7 and E-cores 8–23; the coordinator and spikes.md §8.15, 2026-10-19: simulations kept the P-cores 97–100% busy, so a full chip's routing had 1.4 busy threads against 2.5 on w-x299). Vivado runs on the P-cores at nice 0 (`tools/vivado_run.sh`), and the simulation runners start their builds and simulations at nice 10 or more: `make regress`, `make cycle-identical`, `make perf`, `make boot-lockstep` and `tests/coherence` (`tools/ci/host_policy.py` and `host_policy.sh`).
+  - **Why nice 10:** a Vivado thread gets about nine tenths of a P-core it shares with a simulation, and the simulations still have the P-cores when no Vivado job runs.
+  - **The exception, a multi-threaded model** (the board shape's `tb_boot`, four threads): it runs on the E-cores at the runner's own nice, with the checker that reads it. Niced next to a nice-0 thread, one of its threads waits and the others spin at every cycle's barrier: at nice 19 on a busy host it made under 1M cycles in 11 minutes (§4.7).
+  - **Hand runs** take the same policy through `tools/ci/simnice.sh [-t THREADS] COMMAND`.
+  - **Elsewhere nothing changes:** a host without both `/sys/devices/cpu_core/cpus` and `cpu_atom/cpus`, or `TANAGER_SIM_POLICY=off`. The soak was already at nice 19 on the E-cores.
+  - **Not cgroups** (`systemd-run --user --scope -p CPUWeight=…`): the same per-CPU weighting, but it needs the user's systemd manager, which cron and SSH sessions do not always reach.
+  - **Not E-core affinity while a Vivado slot is held:** a simulation that started earlier would keep its P-core, and the P-cores Vivado leaves idle (routing keeps a few of its eight threads busy) would idle.
+  - **Measured** (2026-10-19, Vivado through `tools/vivado_run.sh` on the P-cores): spikes-2's routed full chip `h100_m6m_al`, its routing taken out and routed again (`route_design`, Default directive, as their run), beside 16 single-threaded `tb_boot`s of the bench boot and the host's evening load (load 32–33; on average 2.4 Vivado jobs at once, this one included):
+
+    | The 16 simulations | `route_design` elapsed | CPU time | Busy threads | P-cores busy |
+    |---|---|---|---|---|
+    | at nice 0 (before) | 1 h 38 min 40 s | 8,388 s | 1.42 | 99% |
+    | at nice 10 (the policy) | 1 h 25 min 8 s | 8,644 s | 1.69 | 89% |
+
+    Routing took 13.7% less time, with the same result (WNS +0.769 ns). What still holds it below w-x299's 2.5 busy threads: the other Vivado jobs, at nice 0 on the same eight P-cores, and simulations started by hand at nice 0, which `tools/ci/simnice.sh` brings under the policy.
 - The verification build tree has a 5 GB budget: one `tg_vsim` build is about 50–300 MB depending on the core, and the three ACT4 configurations about 100 MB together (§6.1). Runners delete the logs of passing tests; waveforms are only produced on request and are deleted once a bug is understood.
 
 ## 9. Open points for the coordinator
