@@ -1,0 +1,7 @@
+#!/bin/sh
+# initramfs-tools init-top script (/etc/initramfs-tools/scripts/init-top/sd1-irq-probe): sd1-irq-probe's watch in
+# the background, from before the root's mount (sw/d4mode/README.md, SD1's interrupt)
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in prereqs) prereqs; exit 0 ;; esac
+/sbin/sd1-irq-probe watch &

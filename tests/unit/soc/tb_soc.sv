@@ -21,6 +21,12 @@
 //                     accessing the window, the PMOD reset hook (BREAK_LOG2 = 6: breaks of 64 to 255
 //                     cycles on uart_rxd_i) writes RESET_CTRL once per arming, after a break of the right
 //                     length only, and BOARD_CTRL reads back how the write went (answered, an error, none).
+//   SDIRQ = 1 (make ... SDIRQ=1: KIND = "tcore", the PS window, sw/sd_irq.c): SD1's lost interrupt (the board's
+//                     s19b boot 1, 10-20). The PS model gets an SD-like device at SD1 (status, write 1 to clear;
+//                     signal enable; a command that sets command complete and then transfer complete after random
+//                     delays), its line on ps_irq[PS_IRQ_SD1]; hart 0 handles it as Linux's sdhci and PLIC drivers
+//                     do while hart 1 contends on the device bus. Every request must complete; on a failure this
+//                     side prints the PLIC's own state for source 21. The PS window's own checks don't run.
 //   Every KIND: BOARD_CTRL[0] reaches board_ctrl_o (the KV260's fan regulator).
 module tb_soc;
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
@@ -29,6 +35,9 @@ module tb_soc;
                                         // test core: tests/unit/soc/tcore_as_core.sv)
   parameter bit    VIRTIO = 1'b0;       // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
   parameter bit    HOST_DMA = 1'b0;     // the coherent host DMA port (tg_uncore HOST_DMA)
+  parameter bit    SDIRQ = 1'b0;        // the SD-like interrupt stress (with the PS window; sw/sd_irq.c)
+  // A program runs on the test cores, or with SDIRQ on the real ones too (KIND = "core")
+  localparam bit   PROG = KIND == "tcore" || SDIRQ;
 
   localparam logic [39:0] CO_BASE = 40'h8_4000_0000;    // carve-out in "PS" address space
   localparam logic [39:0] CO_SIZE = 40'h0400_0000;      // 64 MiB
@@ -79,6 +88,7 @@ module tb_soc;
   axi_r_t  ps_r = '0;
   logic    ps_awv, ps_awr = 1'b0, ps_wv, ps_wr = 1'b0, ps_bv = 1'b0, ps_br, ps_arv, ps_arr = 1'b0, ps_rv = 1'b0, ps_rr;
   logic [PS_IRQS-1:0] ps_irq = '0;
+  logic    sd_irq = 1'b0;             // SDIRQ: the SD-like device's line (PS_IRQ_SD1)
   logic    ps_rxd = 1'b1;             // the serial line's RX, idle high: the PMOD reset hook's breaks
   logic [1:0] board_ctrl;             // BOARD_CTRL, core side
 
@@ -117,7 +127,7 @@ module tb_soc;
     .m_axi_ps_w (ps_w), .m_axi_ps_w_valid (ps_wv), .m_axi_ps_w_ready (ps_wr),
     .m_axi_ps_b (ps_b), .m_axi_ps_b_valid (ps_bv), .m_axi_ps_b_ready (ps_br),
     .m_axi_ps_ar (ps_ar), .m_axi_ps_ar_valid (ps_arv), .m_axi_ps_ar_ready (ps_arr),
-    .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq),
+    .m_axi_ps_r (ps_r), .m_axi_ps_r_valid (ps_rv), .m_axi_ps_r_ready (ps_rr), .ps_irq_i (ps_irq | (PS_IRQS'(sd_irq) << PS_IRQ_SD1)),
     .board_status_i (32'h0F0A_1234), .board_ctrl_o (board_ctrl),
     .trace_o (trace), .trace_valid_o (trace_v), .trace_wb_o (trace_wb), .trace_wb_valid_o (trace_wb_v),
     .status_o (status)
@@ -174,10 +184,76 @@ module tb_soc;
         a[31:16] == 16'hFF9D || a[31:20] == 12'hFE2) return 1'b1;
     return !we && a[31:19] == 13'h1FE3;
   endfunction
+  // SDIRQ's SD-like device at SD1: status at 0x30 (write 1 to clear), signal enable at 0x38, the command at 0x40
+  // (the model's own: a write starts a request); the line is status & signal enable, from a register. A request
+  // sets bit 0 after a random delay and bit 1 after another: under 40 cycles four times in ten (inside the
+  // handler's reads and writes), else up to 400 or 4,000.
+  localparam logic [31:0] PS_SD_ST = 32'hFF17_0030, PS_SD_SIG = 32'hFF17_0038, PS_SD_CMD = 32'hFF17_0040;
+  logic [31:0] sd_st = '0, sd_sig = '0;
+  int sd_go = 0, sd_started = 0, sd_cmds = 0, sd_xfers = 0;
+  int sd_claimed = 0, sd_both = 0;          // transfer completes raised while source 21 was claimed; with bit 0 set
+  // With HOST_DMA, each request's data before its transfer complete: one to four 128-byte bursts through the host
+  // DMA port into buffer (request % 8) at RISC-V 0x8020_0000 + 4 KiB * (request % 8); the program checks the first
+  // A command with bit 31 set is a write: the model reads the buffer instead (the program filled it, dirty in its
+  // cache), as SD1's ADMA reads a write's data, and checks it
+  int sd_bursts = 0, sd_wbursts = 0;
+  bit sd_wrq [$];
+  localparam logic [31:0] SD_BUF = 32'h0020_0000;
+  function automatic logic [63:0] sd_word(input int req, input int k);
+    return (64'(req) * 64'h9E37_79B9_7F4A_7C15) ^ 64'(k);
+  endfunction
+  function automatic logic [63:0] sd_wword(input int req, input int k);
+    return (64'(req) * 64'hC2B2_AE3D_27D4_EB4F) ^ 64'(k) ^ 64'h5A5A_5A5A_5A5A_5A5A;
+  endfunction
+  function automatic int sd_delay();
+    int r;
+    r = $urandom_range(0, 9);
+    return (r < 4) ? $urandom_range(0, 40) : (r < 7) ? $urandom_range(40, 400) : $urandom_range(400, 4000);
+  endfunction
   function automatic byte unsigned ps_byte(input logic [31:0] a);
+    if (SDIRQ && a[31:2] == PS_SD_ST[31:2]) return sd_st[8 * a[1:0] +: 8];
     if (ps_mem.exists(a)) return ps_mem[a];
     return (a[31:19] == 13'h1FE3) ? 8'(a[7:0] ^ 8'h5A) : 8'h00;
   endfunction
+  initial if (SDIRQ) forever begin
+    @(posedge clk);
+    if (sd_go != sd_started) begin
+      bit wr;
+      wr = sd_wrq.pop_front();
+      sd_started++;
+      repeat (sd_delay()) @(posedge clk);
+      sd_st |= 32'h1; sd_cmds++;
+      repeat (sd_delay()) @(posedge clk);
+      if (HOST_DMA) begin                        // the data first, as SD1's ADMA writes it before transfer complete
+        logic [127:0] beats [8];
+        logic [1:0]   r;
+        int           nb;
+        nb = $urandom_range(1, 4);
+        for (int b = 0; b < nb; b++) begin
+          if (wr) begin
+            dma_read(SD_BUF + 32'(4096 * ((sd_started - 1) % 8)) + 32'(128 * b), beats, r);
+            if (r != 2'b00) fail($sformatf("SD device: DMA read response %0d", r));
+            for (int k = 0; k < 8; k++)
+              for (int h = 0; h < 2; h++)
+                if (beats[k][64*h +: 64] != sd_wword(sd_started - 1, 16 * b + 2 * k + h))
+                  fail($sformatf("SD device: request %0d's write data, word %0d: %h", sd_started - 1,
+                                 16 * b + 2 * k + h, beats[k][64*h +: 64]));
+            sd_wbursts++;
+          end else begin
+            for (int k = 0; k < 8; k++)
+              beats[k] = {sd_word(sd_started - 1, 16 * b + 2 * k + 1), sd_word(sd_started - 1, 16 * b + 2 * k)};
+            dma_write(SD_BUF + 32'(4096 * ((sd_started - 1) % 8)) + 32'(128 * b), beats, r);
+            if (r != 2'b00) fail($sformatf("SD device: DMA write response %0d", r));
+            sd_bursts++;
+          end
+        end
+      end
+      if (dut.u_uncore.u_plic.busy_q[IRQ_PS0 + PS_IRQ_SD1]) sd_claimed++;
+      if (sd_st[0]) sd_both++;
+      sd_st |= 32'h2; sd_xfers++;
+    end
+  end
+  always @(posedge clk) sd_irq <= SDIRQ && |(sd_st & sd_sig);
   initial if (PS_WINDOW) forever begin
     @(posedge clk);
     if (ps_awv && ps_wv) begin
@@ -194,7 +270,10 @@ module tb_soc;
       ps_awr <= 1'b1; ps_wr <= 1'b1;
       @(posedge clk);
       ps_awr <= 1'b0; ps_wr <= 1'b0;
-      for (int k = 0; k < 16; k++) if (d.strb[k]) ps_mem[{a.addr[31:4], 4'(k)}] = d.data[8*k +: 8];
+      if (SDIRQ && a.addr[31:0] == PS_SD_ST) sd_st &= ~d.data[8 * a.addr[3:0] +: 32];   // write 1 to clear
+      else for (int k = 0; k < 16; k++) if (d.strb[k]) ps_mem[{a.addr[31:4], 4'(k)}] = d.data[8*k +: 8];
+      if (SDIRQ && a.addr[31:0] == PS_SD_SIG) sd_sig = d.data[8 * a.addr[3:0] +: 32];
+      if (SDIRQ && a.addr[31:0] == PS_SD_CMD) begin sd_wrq.push_back(d.data[8 * a.addr[3:0] + 31]); sd_go++; end
       if (a.addr[31:0] == PS_TTC1) ps_irq[PS_IRQ_TTC1] <= d.data[0];
       if (rst_w) begin ps_rst++; ps_rst_aw = a; ps_rst_w = d; end
       ps_txn++;
@@ -515,7 +594,7 @@ module tb_soc;
     hw(16'h010, 32'h1);                         // release the uncore
     wait_status(1, 1'b0, 5);
     wait_status(2, 1'b1, 50);                   // L2 initialised
-    if (KIND == "tcore") begin
+    if (PROG) begin
       // load the test program at the start of the carve-out (RISC-V 0x8000_0000), backdoor
       int fd, c;
       longint unsigned a;
@@ -534,7 +613,7 @@ module tb_soc;
       $fclose(fd);
       $display("loaded %0d bytes of %s", a, path);
     end
-    if (KIND == "tcore" && TRACE) begin
+    if (PROG && TRACE) begin
       // commit-trace streaming into its memory: everything the cores retire (uncore-trace.md)
       hw64(16'h1020, 64'(TR_BASE));
       hw(16'h1028, 32'd16);                     // a ring of 64K records: no wrap in this test
@@ -542,8 +621,8 @@ module tb_soc;
       do hr(16'h1040, v); while (!v[0]);        // capturing in the core domain before the cores start
     end
     if (KIND == "tcore" && VIRTIO) hw(16'h1100, 32'h1);     // VQ_CTRL: the host serves the window
-    if (KIND == "tcore" && HOST_DMA) hw(16'h1300, 32'h1);   // HDMA_CTRL: record the completions
-    if (KIND == "tcore" && (VIRTIO || HOST_DMA || PS_WINDOW)) // FROMHOST: which parts the program runs
+    if (KIND == "tcore" && HOST_DMA && !SDIRQ) hw(16'h1300, 32'h1);   // HDMA_CTRL: record the completions
+    if (PROG && (VIRTIO || HOST_DMA || PS_WINDOW)) // FROMHOST: which parts the program runs
       hw64(16'h068, 64'h7467_0000 | 64'(VIRTIO) | (64'(HOST_DMA) << 1) | (64'(PS_WINDOW) << 2));
     hw(16'h010, 32'h0);                         // release the cores
     wait_status(0, 1'b0, 5);
@@ -575,7 +654,7 @@ module tb_soc;
     repeat (40) @(posedge clk);
     if (dut.u_uncore.u_uart.rx_cnt != 1) fail("console byte did not reach the UART RX FIFO");
 
-    if (KIND == "tcore") begin
+    if (PROG) begin
       // run until the program reports through TOHOST, echoing the console
       int t;
       bit first_ok;
@@ -586,8 +665,8 @@ module tb_soc;
         repeat (500) @(posedge clk);
         drain_console();
         if (VIRTIO) serve_virtio();
-        if (HOST_DMA && !dma_done) serve_dma();
-        if (PS_WINDOW && (dma_done || !HOST_DMA) && !board_done) serve_board();
+        if (HOST_DMA && !SDIRQ && !dma_done) serve_dma();
+        if (PS_WINDOW && !SDIRQ && (dma_done || !HOST_DMA) && !board_done) serve_board();
         hr(16'h088, seq);
         // the trace consumer: check the first record once, then release everything written
         if (TRACE) hr(16'h1038, lo);
@@ -601,7 +680,7 @@ module tb_soc;
         end
         if (TRACE) begin hw(16'h1030, lo); hw(16'h1034, 32'h0); end   // TRS_RP = WP (records consumed)
         t++;
-      end while (seq == 0 && t < 20000);         // streaming slows the cores to the trace rate
+      end while (seq == 0 && t < (SDIRQ ? 90000 : 20000));   // streaming slows the cores to the trace rate
       drain_console();
       $display("console:\n%s", console);
       hr(16'h060, lo);
@@ -613,10 +692,18 @@ module tb_soc;
         for (int i = 0; i + 4 <= console.len(); i++) if (console.substr(i, i + 3) == "PASS") found = 1;
         if (!found) fail("no PASS on the console");
       end
-      if (HOST_DMA && !dma_done) fail("the host DMA test never ran");
+      if (HOST_DMA && !SDIRQ && !dma_done) fail("the host DMA test never ran");
       if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
         fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
-      if (PS_WINDOW) begin
+      if (SDIRQ) begin
+        $display("SD device: %0d requests, %0d command and %0d transfer completes raised (%0d while source %0d was claimed, %0d with bit 0 still set), %0d DMA bursts written and %0d read",
+                 sd_go, sd_cmds, sd_xfers, sd_claimed, IRQ_PS0 + PS_IRQ_SD1, sd_both, sd_bursts, sd_wbursts);
+        $display("PLIC source %0d: pending %0d busy %0d enabled(ctx 0, 1) %0d %0d line %0d", IRQ_PS0 + PS_IRQ_SD1,
+                 dut.u_uncore.u_plic.pend_q[IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.busy_q[IRQ_PS0 + PS_IRQ_SD1],
+                 dut.u_uncore.u_plic.en_q[0][IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.en_q[1][IRQ_PS0 + PS_IRQ_SD1],
+                 dut.u_uncore.u_plic.src_i[IRQ_PS0 + PS_IRQ_SD1]);
+        if (sd_go == 0 || sd_xfers != sd_go) fail($sformatf("SD device: %0d requests, %0d completed", sd_go, sd_xfers));
+      end else if (PS_WINDOW) begin
         if (ps_txn != 17 || ps_late != 1 || ps_rst != 1)
           fail($sformatf("PS window: %0d transactions (%0d late, %0d to RESET_CTRL), want 17 (1, 1)", ps_txn, ps_late, ps_rst));
         else $display("PS window: %0d transactions, 1 answered after the timeout, 1 to RESET_CTRL", ps_txn);

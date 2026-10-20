@@ -1,0 +1,41 @@
+#!/bin/bash
+# SD1's interrupt under load in RISC-V mode (with sd1-irq-probe, README "SD1's interrupt"): both CPUs read the card
+# at once, as the boot's udev probes did when the interrupt froze, so both cores are on the device bus while SD1
+# interrupts. Read only: direct reads of /dev/mmcblk0 at random sectors, 4 KiB to 1 MiB, and now and then a blkid
+# probe of p3. A line per CPU every 100 reads; a dd failure or an mmc0 timeout in dmesg ends it with a message.
+#   sudo sd-read-stress [seconds, default 600]
+set -u
+DUR=${1:-600}
+DEV=${SD_DEV:-/dev/mmcblk0}                                    # SD_DEV, SD_SECTORS: for a dry run elsewhere
+SECT=${SD_SECTORS:-$(cat /sys/block/$(basename "$DEV")/size)}
+[ "$SECT" -gt 4096 ] || { echo "sd-read-stress: no $DEV?"; exit 1; }
+reader() {   # <cpu>
+  local end=$((SECONDS + DUR)) n=0 sz off
+  while [ $SECONDS -lt $end ]; do
+    sz=$(( 8 << (RANDOM % 9) ))                                  # 8 .. 2048 sectors
+    off=$(( ((RANDOM << 15) | RANDOM) % (SECT - sz) ))
+    if ! dd if=$DEV of=/dev/null bs=512 skip=$off count=$sz iflag=direct status=none; then
+      echo "sd-read-stress cpu$1: dd failed at sector $off ($sz sectors) after $n reads"; return 1
+    fi
+    n=$((n + 1))
+    if (( n % 25 == 0 )); then blkid -p -o value -s TYPE ${DEV}p3 > /dev/null 2>&1; fi
+    if (( n % 100 == 0 )); then
+      echo "sd-read-stress cpu$1: $n reads, $(( end - SECONDS )) s left"
+      if dmesg | grep -q 'mmc0: Timeout waiting for hardware'; then
+        echo "sd-read-stress cpu$1: mmc0 timeout in dmesg"; return 1
+      fi
+    fi
+  done
+  echo "sd-read-stress cpu$1: done, $n reads"
+}
+export -f reader
+export DUR DEV SECT
+echo "sd-read-stress: $DUR s on CPUs 0 and 1, $DEV of $SECT sectors"
+taskset -c 0 bash -c 'reader 0' &
+p0=$!
+taskset -c 1 bash -c 'reader 1' &
+p1=$!
+wait $p0; r0=$?
+wait $p1; r1=$?
+grep mmc0 /proc/interrupts
+[ $r0 = 0 ] && [ $r1 = 0 ] && echo "sd-read-stress: PASS" || echo "sd-read-stress: FAIL"

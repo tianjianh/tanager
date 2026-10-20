@@ -1,4 +1,4 @@
-# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1]
+# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | sdirq | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1] [SDIRQ=1]
 # COMMIT_TRACE=0 builds without the commit trace (+define+TG_COMMIT_TRACE=0, DR-146). VIRTIO=1: with the
 # forwarded virtio window, which the host serves (KIND=tcore; docs/spec/soc.md §8.1). HOST_DMA=1: with the
 # coherent host DMA port, which the host uses on the program's buffers (KIND=tcore). PS_WINDOW=1: with stage D's
@@ -9,20 +9,26 @@ COMMIT_TRACE ?= 1
 VIRTIO ?= 0
 HOST_DMA ?= 0
 PS_WINDOW ?= 0
-NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)
-EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW)),+define+TG_PS_WINDOW=1)
+# SDIRQ=1: SD1's lost interrupt (with the PS window; KIND=tcore, or core for the real cores): sw/sd_irq.c against
+# the PS model's SD-like device
+SDIRQ  ?= 0
+SDPROG ?= sd_irq            # sd_irq_smt2s: S-mode with ticks, the contender on hart 2 (KIND=core CFG=smt2)
+NAME   := soc_$(KIND)$(if $(filter 0,$(COMMIT_TRACE)),_notrace)$(if $(filter 1,$(VIRTIO)),_virtio)$(if $(filter 1,$(HOST_DMA)),_hdma)$(if $(filter 1,$(PS_WINDOW)),_pswin)$(if $(filter 1,$(SDIRQ)),_sdirq)
+EXTRA_VFLAGS += $(if $(filter 0,$(COMMIT_TRACE)),+define+TG_COMMIT_TRACE=0) $(if $(filter 1,$(PS_WINDOW) $(SDIRQ)),+define+TG_PS_WINDOW=1)
 TB     := $(CURDIR)/tb_soc.sv
-PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA)
+PARAMS := -GKIND='"$(KIND)"' -GVIRTIO=$(VIRTIO) -GHOST_DMA=$(HOST_DMA) -GSDIRQ=$(SDIRQ)
 include ../common/unit.mk
 ifeq ($(KIND),tcore)
 # The verification track's test core stands in for tg_core (tcore_as_core.sv); rtl/core is left out.
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/common/common.f \
             -F $(REPO)/rtl/uncore/uncore.f -F $(REPO)/rtl/soc/soc.f \
             $(REPO)/sim/tcore/tg_tcore.sv $(CURDIR)/tcore_as_core.sv
-ARGS = +prog=$(SOC_BUILD)/tests/soc_sw/soc_test.bin
+ARGS = +prog=$(SOC_BUILD)/tests/soc_sw/$(if $(filter 1,$(SDIRQ)),$(strip $(SDPROG)),soc_test).bin
 $(OUTDIR)/$(TOP): $(CURDIR)/tcore_as_core.sv
 else
 RTL_SRCS := $(REPO)/rtl/common/cfg/tg_cfg_$(CFG).sv -F $(REPO)/rtl/rtl.f
+# SDIRQ=1 with KIND=core: the stress on the real cores
+ARGS = $(if $(filter 1,$(SDIRQ)),+prog=$(SOC_BUILD)/tests/soc_sw/$(strip $(SDPROG)).bin)
 endif
 
 prog:
@@ -33,4 +39,12 @@ short: prog
 	@$(MAKE) --no-print-directory run KIND=tcore VIRTIO=1 | grep -q "TEST PASSED" || { echo "FAIL tcore VIRTIO=1"; exit 1; }; echo "soc tcore with the virtio window: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore HOST_DMA=1"; exit 1; }; echo "soc tcore with the host DMA port: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore PS_WINDOW=1"; exit 1; }; echo "soc tcore with the PS window: PASS"
+	@$(MAKE) --no-print-directory run KIND=tcore SDIRQ=1 HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore SDIRQ=1 HOST_DMA=1"; exit 1; }; echo "soc tcore SD1 interrupt stress with DMA: PASS"
+# sdirq: SD1's interrupt stress on the real cores as well (each 15-25 minutes): st in M-mode; smt2 as Linux has it
+# (S-mode, ticks, the contender on hart 2), without and with Sv39, the last with the host DMA port's data
+sdirq: prog
+	@$(MAKE) --no-print-directory run KIND=core SDIRQ=1 | grep -q "TEST PASSED" || { echo "FAIL core SDIRQ=1"; exit 1; }; echo "soc core SD1 interrupt stress (st, M-mode): PASS"
+	@$(MAKE) --no-print-directory run KIND=core CFG=smt2 SDIRQ=1 SDPROG=sd_irq_smt2s | grep -q "TEST PASSED" || { echo "FAIL core smt2 sd_irq_smt2s"; exit 1; }; echo "soc core SD1 interrupt stress (smt2, S-mode): PASS"
+	@$(MAKE) --no-print-directory run KIND=core CFG=smt2 SDIRQ=1 SDPROG=sd_irq_smt2v | grep -q "TEST PASSED" || { echo "FAIL core smt2 sd_irq_smt2v"; exit 1; }; echo "soc core SD1 interrupt stress (smt2, Sv39): PASS"
+	@$(MAKE) --no-print-directory run KIND=core CFG=smt2 SDIRQ=1 HOST_DMA=1 SDPROG=sd_irq_smt2v | grep -q "TEST PASSED" || { echo "FAIL core smt2 sd_irq_smt2v HOST_DMA=1"; exit 1; }; echo "soc core SD1 interrupt stress (smt2, Sv39, DMA): PASS"
 long: short
