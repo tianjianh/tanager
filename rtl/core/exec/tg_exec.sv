@@ -469,7 +469,7 @@ module tg_exec
   logic              div_ov, div_ordy;
   logic [63:0]       div_res;
   logic [TAG_W-1:0]  div_tag;
-  tid_t              div_tid;              // the thread whose divides the unit holds
+  tid_t              div_tid;              // the thread of the divider's result
   logic [idx_w(DIV_INFLIGHT + 1)-1:0] div_cnt;
   tg_div #(.TAG_W(TAG_W), .DEPTH(DIV_INFLIGHT)) u_div (
     .clk, .rst, .flush, .flush_tid, .in_tid(p1.tid), .out_tid(div_tid),
@@ -503,16 +503,16 @@ module tg_exec
 
   // MUL wakeup delay line: RF (r) -> W set at the end of r + 3
   logic [2:0]       mwk_v_q;
-  tid_t [1:0]       mwk_t_q;              // the thread of each stage a flush can still stop (the oldest is used now)
+  tid_t [2:0]       mwk_t_q;              // each stage's thread
   wid_t [2:0]       mwk_id_q;
   // MUL tags return 2 cycles after the result's register write (rename's RN can no longer see
   // it unwritten; tg_issue clears the tag's column)
   logic [1:0]                    tf_v_q;
-  tid_t                          tf_t_q;
+  tid_t [1:0]                    tf_t_q;
   logic [1:0][WTAG_W-1:0]        tf_id_q;
   always_comb begin
     tag_free = '0;
-    if (tf_v_q[1]) tag_free[tf_id_q[1]] = 1'b1;
+    if (tf_v_q[1] && !fk(tf_t_q[1])) tag_free[tf_id_q[1]] = 1'b1;   // (a flush returns its thread's tags)
   end
 
   // ---- Bank 1 write mux and completions ----
@@ -582,14 +582,16 @@ module tg_exec
   assign rf_we_o   = rf_we;
   assign rf_widx_o = rf_wa;
 
-  // Wakeups: MUL delay line; a claimed divide one cycle before its write
+  // Wakeups: MUL delay line; a claimed divide one cycle before its write. None for an op whose
+  // thread is flushed in this cycle, and no LLT or tag returned for it (the flush returns its
+  // thread's), so the sibling thread can take them at once (M7, DR-175; P4 does the same)
   always_comb begin
     wake_reg = '0;
-    if (mwk_v_q[2]) wake_reg[mwk_id_q[2]] = 1'b1;
-    if (div_wait_q == 3'd2 && div_tag[TAG_W-1]) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
+    if (mwk_v_q[2] && !fk(mwk_t_q[2])) wake_reg[mwk_id_q[2]] = 1'b1;
+    if (div_wait_q == 3'd2 && div_tag[TAG_W-1] && !fk(div_tid)) wake_reg[div_tag[COL_W-1:0]] = 1'b1;  // its LLT
     if (fpi_wait_q == 3'd2 && fpi_dst_en && !fk(fpi_tid)) wake_reg[llt_col(int'(fpi_llt))] = 1'b1;
     llt_done = '0;
-    if (div_ov && div_ordy && div_tag[TAG_W-1])
+    if (div_ov && div_ordy && div_tag[TAG_W-1] && !fk(div_tid))
       llt_done[LLT_IDX_W'(int'(div_tag[COL_W-1:0]) - IQ_TAGS)] = 1'b1;
     if (fpi_wr && fpi_dst_en) llt_done[fpi_llt] = 1'b1;
   end
@@ -696,7 +698,7 @@ module tg_exec
       mwk_v_q  <= sc ? {mwk_v_q[1] && !fk(mwk_t_q[1]), 2'b00}
                      : {mwk_v_q[1] && !fk(mwk_t_q[1]), mwk_v_q[0] && !fk(mwk_t_q[0]),
                         rf_mul && iss_pl[1].dst_en && !fk(iss_pl[1].tid)};
-      tf_v_q   <= {tf_v_q[0] && !fk(tf_t_q),
+      tf_v_q   <= {tf_v_q[0] && !fk(tf_t_q[0]),
                    !csr_v_q && mul_ov && mul_tag[TAG_W-1] && !fk(mul_tid)};   // the MUL write slot
       bc_v_q   <= {bc_v_q[1] && !fk(bc_t_q[1]), bc_v_q[0] && !fk(bc_t_q[0]), ex_mul && p1.bcnt && !fk(p1.tid)};
       // A MUL in RF or a divide claim takes slot +4: block A1's select next cycle
@@ -708,8 +710,8 @@ module tg_exec
       else if (fpi_claim)          fpi_wait_q <= 3'd4;
       else if (fpi_wait_q != '0)   fpi_wait_q <= fpi_wait_q - 1'b1;
     end
-    mwk_t_q <= {mwk_t_q[0], iss_pl[1].tid};
-    tf_t_q  <= mul_tid;
+    mwk_t_q <= {mwk_t_q[1:0], iss_pl[1].tid};
+    tf_t_q  <= {tf_t_q[0], mul_tid};
     bc_t_q  <= {bc_t_q[0], p1.tid};
   end
 
