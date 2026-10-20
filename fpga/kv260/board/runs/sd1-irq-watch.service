@@ -1,19 +1,25 @@
 # /etc/systemd/system/sd1-irq-watch.service, in the RISC-V's Debian on p3: soc-2's sd1-irq-probe watch (sw/d4mode)
-# from the root's mount through shutdown. In the board's boot campaign (10-20) SD1's interrupt was lost during a
-# shutdown, after the per-boot watch had stopped. DefaultDependencies=no keeps this unit out of shutdown's ordinary
-# stop, so it runs until systemd-shutdown's last SIGTERM. The capture goes to the console (COM5) and
-# /run/sd1-irq-probe.log, as the probe writes it.
-# It runs from the card: a copy in /run can't run (Debian mounts /run noexec), and busybox needs the card's libc
-# anyway. The watch's commands run every 2 s, so their pages stay cached for when SD1's interrupts stop.
+# from the root's mount through shutdown, run from RAM.
+# - Boot 7's shutdown (10-20) lost SD1's interrupt after the per-boot watch had stopped. So the watch runs all the
+#   time, and DefaultDependencies=no keeps it out of shutdown's ordinary stop until systemd-shutdown's last SIGTERM.
+# - Boot 28's stress lost it while this unit ran the probe from the card. The capture's own commands (busybox, cut,
+#   tee) weren't cached, and loading them from the failing card hung, so nothing came out.
+# - So a static busybox (busybox-static 1.37.0-6+b9's binary, extracted to /usr/local/lib/sd1probe/ without installing
+#   the package) and the probe are copied into a tmpfs of their own (/run is noexec; this mount isn't), with an applet
+#   link for every command the probe runs, and the watch runs with only that directory on its PATH. Nothing it runs
+#   reads the card: the dynamic busybox needed libc and libresolv from it.
+# - The capture goes to the console (COM5) and /run/sd1-irq-probe.log, as the probe writes it.
 [Unit]
-Description=SD1 interrupt probe: watch for mmc0 timeouts (through shutdown)
+Description=SD1 interrupt probe: watch for mmc0 timeouts (from a tmpfs, through shutdown)
 DefaultDependencies=no
 After=local-fs.target
 Before=sysinit.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/sbin/sd1-irq-probe watch
+ExecStartPre=/bin/sh -c 'PATH=/usr/sbin:/usr/bin:/sbin:/bin; P=/run/sd1probe; mkdir -p $P && { mountpoint -q $P || mount -t tmpfs -o size=8m,mode=0755 sd1probe $P; } && mkdir -p $P/bin && cp /usr/local/lib/sd1probe/busybox /usr/local/sbin/sd1-irq-probe $P/ && for a in sh devmem dmesg grep sleep tee cut cat; do ln -sf ../busybox $P/bin/$a; done'
+Environment=PATH=/run/sd1probe/bin
+ExecStart=/run/sd1probe/busybox sh /run/sd1probe/sd1-irq-probe watch
 
 [Install]
 WantedBy=sysinit.target

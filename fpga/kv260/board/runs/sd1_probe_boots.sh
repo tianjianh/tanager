@@ -8,12 +8,18 @@
 #   - one line in TALLY: the COM5 offset where the boot starts, the login's time, SD1's timeouts in the boot and in the
 #     stress, the readers' rates, and whether the probe fired.
 # It stops at a boot with no login within 8 minutes (stuck: the PMOD break is the caller's) and at the probe's first
-# capture, which it copies into TALLY.
+# capture, which it copies into TALLY from the guest's log or, when SSH is gone, from COM5 (also before a login: a
+# shutdown's or a boot's capture).
 L=$1; T=$2; first=$3; last=$4; S=${5:-90}
 K=$(dirname "$T")/riscv_known_hosts
 O="-F /dev/null -i $HOME/.ssh/tanager_kv260_ed25519 -o IdentitiesOnly=yes -o UserKnownHostsFile=$K -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 -o ServerAliveInterval=15"
 R=tanager@tanager.mshome.net
 g() { timeout 300 ssh $O $R "$@" < /dev/null 2>&1; }
+cap() {   # the probe's capture on COM5 since the boot's start: its dump header ("sd1-irq-probe N s") and what follows
+  tail -c +$((off + 1)) "$L" | tr -d '\r' | grep -a -q -E 'sd1-irq-probe [0-9]+\.[0-9]+ s' || return 1
+  { echo "== boot $n: the probe's capture on COM5"; tail -c +$((off + 1)) "$L" | tr -d '\r' | grep -a -E 'sd1-irq-probe|PLIC:|SD1:|mmc0$|SiFive PLIC' ; } >> "$T"
+  return 0
+}
 for n in $(seq "$first" "$last"); do
   off=$(stat -c %s "$L"); t0=$(date +%s)
   g 'sudo nohup sh -c "sleep 2; reboot" > /dev/null 2>&1 &' > /dev/null || { echo "$(date -u +%T) boot $n: no SSH to send the reboot: stop" >> "$T"; exit 1; }
@@ -21,6 +27,7 @@ for n in $(seq "$first" "$last"); do
   ok=0
   for i in $(seq 1 90); do
     tail -c +$((off + 1)) "$L" | grep -a -q -E 'tanager login: tanager \(automatic login\)|tanager@tanager:~\$' && { ok=1; break; }   # the prompt too: a COM5 drop lost boot 12's login line
+    cap && { echo "$(date -u +%T) boot $n: CAPTURE on COM5 before the login (in the shutdown or the boot): stop" >> "$T"; exit 4; }
     sleep 5
   done
   tl=$(( $(date +%s) - t0 ))
@@ -35,7 +42,7 @@ for n in $(seq "$first" "$last"); do
   a=$(g 'sudo dmesg | grep -c "Timeout waiting for hardware"; grep -m1 mmc0 /proc/interrupts | tr -s " " | cut -d" " -f2-4; test -s /run/sd1-irq-probe.log && echo FIRED || echo none')
   st=$(echo "$a" | sed -n 1p); irq=$(echo "$a" | sed -n 2p); pr=$(echo "$a" | tail -1)
   echo "$(date -u +%T) boot $n: COM5 from $off, login after $tl s (guest up $up s at SSH), iomem=relaxed $io, watch $wa; SD1 timeouts: boot $bt, after the stress $st; mmc0 irqs $irq; $r probe $pr" >> "$T"
-  if [ "$pr" = FIRED ] || [ "$st" != 0 ] || [ "$bt" != 0 ]; then
+  if [ "$pr" = FIRED ] || [ "$st" != 0 ] || [ "$bt" != 0 ] || cap; then
     { echo "== boot $n: the probe's log"; g 'cat /run/sd1-irq-probe.log; sudo dmesg | grep -m3 -E "Timeout waiting|recovery failed|I/O error"'; } >> "$T"
     exit 3
   fi
