@@ -72,9 +72,11 @@ module tg_urf #(
 `ifdef TG_URF_PRIMS
   `undef TG_URF_PRIMS
   localparam int NC = (NE > NL) ? NE : NL;   // copies per bank
-  // Declared with initial values: they power up in step, and fh is right from the first core edge
-  // either way (t2 takes t1 at the first clk2x edge)
+  // Power-up values (the flip-flops' INIT), so a four-state simulation starts from known values; fh
+  // is right from the first core edge either way (t2 takes t1 at the first clk2x edge)
+  /* verilator lint_off PROCASSINIT */
   logic t1_q = 1'b0, t2_q = 1'b0;
+  /* verilator lint_on PROCASSINIT */
   always_ff @(posedge clk)   t1_q <= ~t1_q;
   always_ff @(posedge clk2x) t2_q <= t1_q;
   logic fh;
