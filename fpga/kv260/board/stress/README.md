@@ -393,3 +393,26 @@ The driver stops at a capture or at a boot with no login within 8 minutes. The P
   - 265 of 265 passes clean over 8.66 h of stress in four segments, and 8 of 8 network checks OK.
   - No SD1 loss came in the soak itself. All five losses came in boot transitions: early in a boot, after a login, or at a shutdown.
   - d4r2 replaces d4r1 for the 24 h soak.
+
+## d4r2: the SD1 fix's check (10-20)
+
+**The bitstream:** d4r2 (`33e29f3d…`), d4r1's recipe on main ef44e5b7, built by the coordinator. It holds:
+- the SD1 fix (DR-176): the ROB could take an interrupt in the same cycle the LSU sent the head's MMIO read, so the PLIC's claim was read twice and source 21's claim was lost;
+- the I$ next-line prefetch;
+- three store prefetches;
+- M7 step 1.
+
+It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv with only `tanager.bit.bin` changed; all 14 files check against SHA256SUMS on the board.
+
+**s20 (d4r2, stage C,** under the standing rule for a new bitstream; load 12:39:02 UTC):
+- **3 of 3 passes clean:** 114–115 s; cpu 90.93–91.12 events/s, memory 142.55–143.21 MiB/s, threads 2,251–2,263.
+- **Against d4r1's s18:** memory is 3.3% higher (more store prefetches). cpu and threads are about 3.5% lower, the cost of the probe's watch, which now runs in stage C too (s18 predates it).
+- The stage C app `tanager-d4r2` is d4r1's app files with d4r2's bitstream; the configuration is the same.
+- Logs: [`linux_shell_stress_s20.txt`](linux_shell_stress_s20.txt), [`stress_monitor_s20.txt`](stress_monitor_s20.txt), [`stress_s20.txt`](stress_s20.txt).
+
+**d4r2 on p1:** its `tanager.bit.bin` went in at 12:48 by `d4m_step6.sh install` (the other files are unchanged), and its hash was checked on the board. Logged with its undo. The probe's setup and the whole-boot watch stay.
+
+**The 60 boots** (the coordinator: zero losses in 60 is the pass, under a 1% chance the bug remains at the old rate of about 1 in 11):
+- Boot 0 came from Ubuntu at 12:48:36: clean, with the watch running.
+- Boots 1–60 each have a login, the 90 s read stress, and a clean shutdown into the next.
+- Reports go out every 20 boots, and at once on any capture.
