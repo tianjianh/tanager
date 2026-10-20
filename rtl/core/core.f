@@ -22,6 +22,7 @@ rename/tg_rename.sv
 issue/tg_iq.sv
 issue/tg_wake.sv
 issue/tg_issue.sv
+regfile/tg_urf.sv
 regfile/tg_irf.sv
 exec/tg_alu.sv
 exec/tg_mul.sv
