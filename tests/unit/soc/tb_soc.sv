@@ -254,6 +254,41 @@ module tb_soc;
     end
   end
   always @(posedge clk) sd_irq <= SDIRQ && |(sd_st & sd_sig);
+  // SDIRQ on the real cores with +ipi_race=N: an IPI to hart 0 (its MSIP in the ACLINT, OpenSBI's IPI) made
+  // pending in the very cycle hart 0's LSU issues its Nth PLIC claim of context 1 (S-mode, sd_irq_smt2s/v), as
+  // an IPI can land while Linux's plic_handle_irq claims. MSIP to the hart's interrupt selection is
+  // combinational, so set mid-cycle it is taken that cycle; hart 0's M-mode handler clears it.
+  int ipi_race_at = 0, claims_seen = 0, ipi_injected = 0;
+  if (KIND == "core" && SDIRQ) begin : g_ipi_race
+    initial if ($value$plusargs("ipi_race=%d", ipi_race_at)) forever begin
+      @(negedge clk);
+      if (dut.g_core[0].g_tgc.u_core.u_lsu.mm_go &&
+          dut.g_core[0].g_tgc.u_core.u_lsu.lqa_rd[1].pa == PA_W'(PLIC_BASE + 64'h20_1004)) begin
+        claims_seen++;
+        if (claims_seen == ipi_race_at) begin
+          dut.u_uncore.u_aclint.msip_q[0] = 1'b1;
+          ipi_injected++;
+          $display("[%0t] ipi_race: an IPI to hart 0 in the cycle its claim number %0d issues", $time, claims_seen);
+        end
+      end
+    end
+    // What follows the injection, from the hardware's side: the PLIC's claims of context 1 (the ID each
+    // returns), hart 0's MMIO responses dropped as killed, and its traps, for 3,000 cycles
+    initial if ($value$plusargs("ipi_race=%d", ipi_race_at)) begin
+      wait (ipi_injected != 0);
+      repeat (3000) begin
+        @(posedge clk);
+        if (dut.u_uncore.u_plic.claim && dut.u_uncore.u_plic.cx == 14'd1)
+          $display("[%0t] ipi_race: PLIC claim on context 1 returns %0d", $time, dut.u_uncore.u_plic.claim_id);
+        if (dut.g_core[0].g_tgc.u_core.u_lsu.xs_q == 2'd2 && dut.g_core[0].g_tgc.u_core.u_lsu.mmio_d_valid_i &&
+            !dut.g_core[0].g_tgc.u_core.u_lsu.x_st_q && dut.g_core[0].g_tgc.u_core.u_lsu.x_kill_q)
+          $display("[%0t] ipi_race: hart 0 drops the response of a killed MMIO load (pa %h)", $time,
+                   dut.g_core[0].g_tgc.u_core.u_lsu.x_pa_q);
+        if (dut.g_core[0].g_tgc.u_core.u_rob.do_irq)
+          $display("[%0t] ipi_race: hart 0 takes an interrupt (head pc %h)", $time, dut.g_core[0].g_tgc.u_core.u_rob.hp[0].pc);
+      end
+    end
+  end
   initial if (PS_WINDOW) forever begin
     @(posedge clk);
     if (ps_awv && ps_wv) begin
@@ -698,6 +733,7 @@ module tb_soc;
       if (SDIRQ) begin
         $display("SD device: %0d requests, %0d command and %0d transfer completes raised (%0d while source %0d was claimed, %0d with bit 0 still set), %0d DMA bursts written and %0d read",
                  sd_go, sd_cmds, sd_xfers, sd_claimed, IRQ_PS0 + PS_IRQ_SD1, sd_both, sd_bursts, sd_wbursts);
+        if (ipi_race_at != 0) $display("ipi_race: %0d claims of context 1 seen, %0d IPI injected", claims_seen, ipi_injected);
         $display("PLIC source %0d: pending %0d busy %0d enabled(ctx 0, 1) %0d %0d line %0d", IRQ_PS0 + PS_IRQ_SD1,
                  dut.u_uncore.u_plic.pend_q[IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.busy_q[IRQ_PS0 + PS_IRQ_SD1],
                  dut.u_uncore.u_plic.en_q[0][IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.en_q[1][IRQ_PS0 + PS_IRQ_SD1],

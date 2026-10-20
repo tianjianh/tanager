@@ -1,4 +1,4 @@
-# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | sdirq | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1] [SDIRQ=1]
+# SoC simulation test (docs/spec/soc.md).  make -C tests/unit/soc short | sdirq | ipirace | run KIND=core|trafgen|tcore [COMMIT_TRACE=0] [VIRTIO=1] [HOST_DMA=1] [PS_WINDOW=1] [SDIRQ=1]
 # COMMIT_TRACE=0 builds without the commit trace (+define+TG_COMMIT_TRACE=0, DR-146). VIRTIO=1: with the
 # forwarded virtio window, which the host serves (KIND=tcore; docs/spec/soc.md §8.1). HOST_DMA=1: with the
 # coherent host DMA port, which the host uses on the program's buffers (KIND=tcore). PS_WINDOW=1: with stage D's
@@ -40,6 +40,17 @@ short: prog
 	@$(MAKE) --no-print-directory run KIND=tcore HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore HOST_DMA=1"; exit 1; }; echo "soc tcore with the host DMA port: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore PS_WINDOW=1 | grep -q "TEST PASSED" || { echo "FAIL tcore PS_WINDOW=1"; exit 1; }; echo "soc tcore with the PS window: PASS"
 	@$(MAKE) --no-print-directory run KIND=tcore SDIRQ=1 HOST_DMA=1 | grep -q "TEST PASSED" || { echo "FAIL tcore SDIRQ=1 HOST_DMA=1"; exit 1; }; echo "soc tcore SD1 interrupt stress with DMA: PASS"
+# ipirace: the directed test of SD1's lost interrupt (10-20): on the real smt2 cores, in S-mode as Linux, an IPI to
+# hart 0 (MSIP) made pending in the very cycle its LSU issues PLIC claim number IPIRACE (tb_soc +ipi_race). The ROB
+# could take an interrupt in the cycle the LSU issues the head's MMIO load, so the claim went out, the load was
+# flushed and read again after the trap: source 21 claimed twice, the first ID dropped, never completed (the
+# board's capture). PASS when every request completes (after the core's fix); FAIL reproduces the board
+IPIRACE ?= 100
+ipirace: prog
+	@$(MAKE) --no-print-directory run KIND=core CFG=smt2 SDIRQ=1 SDPROG=sd_irq_smt2s \
+	  ARGS="+prog=$(SOC_BUILD)/tests/soc_sw/sd_irq_smt2s.bin +ipi_race=$(IPIRACE)" | tee $(SOC_BUILD)/tests/ipirace.log | grep -q "TEST PASSED" \
+	  || { echo "FAIL ipirace: an IPI in claim $(IPIRACE)'s issue cycle lost SD1's interrupt ($(SOC_BUILD)/tests/ipirace.log)"; exit 1; }; \
+	  echo "soc core ipirace (an IPI in claim $(IPIRACE)'s issue cycle): PASS"
 # sdirq: SD1's interrupt stress on the real cores as well (each 15-25 minutes): st in M-mode; smt2 as Linux has it
 # (S-mode, ticks, the contender on hart 2), without and with Sv39, the last with the host DMA port's data
 sdirq: prog
