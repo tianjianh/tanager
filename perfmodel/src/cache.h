@@ -55,7 +55,7 @@ class MemSys {
   int drain_reserve = 0;      // L1D MSHRs that loads and prefetches must leave free (`drain_guard`; set by the core)
 
  private:
-  struct Mshr { uint64_t line = 0, ready = 0; bool demand = false; int tid = 0; };
+  struct Mshr { uint64_t line = 0, ready = 0; bool demand = false, rfo = false; int tid = 0; };
   uint64_t l2_fill(uint64_t line, uint64_t t, bool demand);  // returns cycle data reaches the L1
   uint64_t dram(uint64_t t);
   void stream_train(uint64_t line, uint64_t t);
