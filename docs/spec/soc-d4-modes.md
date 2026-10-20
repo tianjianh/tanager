@@ -113,6 +113,66 @@ For the coordinator, before any build (soc-2, 10-19). It replaces the kexec hand
 - **So the table's rule holds for every failure before the confirm,** and a hang after it costs one more break.
 - **An option, not done:** a confirm that only a clean shutdown writes would move the write into a `systemd-shutdown` hook (`/usr/lib/systemd/system-shutdown/`). Those run after every service has stopped and the file systems are read-only, so a shutdown that hangs earlier leaves trial 1.
 
+## RISC-V mode's memory gap: what each mode programs (10-20)
+
+**The question** (the coordinator, from the board's d4r2 numbers): sysbench memory on two threads runs about 12.7% below
+stage C in RISC-V mode on the same bitstream. About 3% of that is the SD1 watch. The rest grew from 2.2% (d4s2) to
+4.7% (d4r1). The candidates were a costlier clock read and the memory path.
+
+**What each mode programs on the RISC-V's memory path:**
+
+| Setting | Stage C (Ubuntu, `tanager.dtbo`, `tanager-host`) | RISC-V mode (`riscv.scr`) |
+|---|---|---|
+| DRAM window | `tanager-host`'s default `--base` `0x8_4000_0000`. `DRAM_SIZE` is 1 GiB, less a trace ring that only `--trace` adds | `0x8_4000_0000`, 1 GiB |
+| HP1, HP2 (the L2's banks), HP3 (the trace), LPD (the PS window): fabric width | `config-afi` ids 6–13 set to 0. The firmware writes only `RDCTRL`/`WRCTRL` `[1:0]`; d1 read FM6 back as `0x3B0` after the overlay, its reset value: 128-bit | not written: the reset value, 128-bit |
+| HPM0, HPM1: width (`AFI_FS`) | `0x800` (id 14) | `0x800` |
+| AFI issuing and QoS (`RDISSUE`, `WRISSUE`, `RDQOS`, `WRQOS`) | the boot firmware's | the same: neither mode writes them |
+| DDR controller ports and QoS (`PCFG*`, `DDR_QOS_CTRL`), power-down and self-refresh (`PWRCTL`, `PWRTMG`) | the boot firmware's: no Linux driver writes them | the same |
+| SMMU | disabled in Ubuntu's tree and no driver: its reset state | U-Boot leaves it alone: the same |
+| Cacheability, coherency | the L2's own `AxCACHE`; the HP ports aren't coherent | the same bitstream |
+| `pl_clk0` (→ `clk_core` and `mtime`) | 100 MHz asked for: IOPLL / 10, 99,999,999 Hz | `PL0_REF_CTRL` `0x01010A00`: IOPLL / 10 / 1, the same |
+| Host bridge | `CTRL` 0 at the release, `INJ_*` and `TRS_CTRL` 0, `VQ_CTRL` 1, `BOARD_CTRL` 0 | `CTRL` 0, `INJ_*` and `TRS_CTRL` 0, `VQ_CTRL` 0, `BOARD_CTRL` 3 |
+
+**How `time` reaches the core, in both modes:**
+- `time` (CSR `0xC01`) reads the core's copy of the ACLINT's `mtime`, which the uncore broadcasts every cycle. No trap, no bus access.
+- `mtime` ticks at 10 MHz from `clk_core` through a phase accumulator. Only `CTRL.TFREEZE` holds it (`--freeze-time`, board lockstep), and both modes leave that at 0.
+- The software is the same in both:
+  - OpenSBI: `fw_jump.bin`, sha256 `b0094d23…`, sets `mcounteren`.
+  - The kernel: 6.12.113+deb13, sets `scounteren`.
+  - The command line, from p3's extlinux: `root=LABEL=tanager-root console=ttyS0,115200 earlycon rw iomem=relaxed`.
+- Both modes' boot logs show the same lines: `aclint-mtimer @ 10000000Hz`, Sstc, `sched_clock: 64 bits at 10MHz` and `Switched to clocksource riscv_clocksource`. So the vDSO's `clock_gettime` reads `time` directly in both.
+
+**So nothing either mode programs differs** on the memory path or the clock's. These do differ:
+- **The A53:** Ubuntu runs it in stage C. In RISC-V mode it is parked in OCM, and U-Boot has left USB0's xHCI running, idle.
+- **The RISC-V's devices:**
+  - stage C: virtio-mmio, served by the host;
+  - RISC-V mode: the PS's UART1, SD1 and GEM3 through the PS window, with their interrupts.
+- **What else runs:** the SD1 watch (`dmesg | grep` every 2 s), and anything that runs only in RISC-V mode.
+
+**sysbench memory's default is not a DDR test:** 1 KiB blocks, `--memory-scope=global`, writes.
+- Both threads write one shared 1 KiB block. So it measures the cores' ownership round trips through the L2, plus sysbench's cost per event: three `clock_gettime` calls, a shared atomic add and a histogram update.
+- DDR shows only in runs with 1 MiB blocks.
+
+**The check** (the board, after s21; [`sw/d4mode/README.md`](../../sw/d4mode/README.md)):
+- `memgap` in both modes, with the watch stopped:
+  - first an idle window: CPU time by kind, and interrupts per line;
+  - the clock read, and `rdtime` alone;
+  - writes of 1 KiB, 1 MiB and 16 MiB, and a 16 MiB read;
+  - chases of dependent loads over 16 KiB, 256 KiB and 64 MiB;
+  - a cache line passed between the two cores;
+  - sysbench memory's event in one thread, in two threads with their own blocks, and in two threads sharing one block.
+- `ps-memregs` on Ubuntu:
+  - in ARM mode before the overlay: the values RISC-V mode keeps;
+  - in stage C, with `--bridge` while the RISC-V runs: this adds the host bridge's native DDR read latency.
+- **Reading the results:**
+
+  | What differs | Where the cost is |
+  |---|---|
+  | `clock` or `rdtime` | the time path, though its hardware and software are the same |
+  | `wr1m`, `wr16m`, `rd16m` or `chase64m` | the PS's DDR path. The two `ps-memregs` files name the register, and `riscv.scr` then writes it |
+  | only `ev2shared` and `pingpong` | the coherence path. With one bitstream, look for what interrupts the cores, in the idle window |
+  | none of the tests, while RISC-V mode's idle window shows CPU time or interrupts that stage C's doesn't | something running in RISC-V mode, named in those lines |
+
 ## What stays from before
 
 - part A's DKMS modules (Debian needs them either way);

@@ -17,8 +17,9 @@ rm -rf "$out"
 mkdir -p "$out/tanager"
 "$mkimage" -A arm64 -O linux -T script -C none -n "tanager riscv.scr" -d "$cmd" "$out/tanager/riscv.scr" > /dev/null
 cp "$here/tanager-mode" "$here/ubootenv.d-tanager-mode" "$here/install.sh" "$here/tanager-mode-confirm.service" "$here/debian_install.sh" \
+  "$here/memgap.c" "$here/ps-memregs" \
   "$here/README.md" "$out/"
-chmod 755 "$out/tanager-mode" "$out/install.sh" "$out/debian_install.sh"
+chmod 755 "$out/tanager-mode" "$out/install.sh" "$out/debian_install.sh" "$out/ps-memregs"
 cp "$cmd" "$out/tanager/riscv.cmd"
 if [ $# -eq 6 ]; then
   cp "$3" "$out/tanager/tanager.bit.bin"
