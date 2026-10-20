@@ -53,7 +53,8 @@ bool Config::apply_preset(const std::string& name) {
     // (main's default since DR-156); the issue queues' rows in banks by dispatch slot, a decode group dispatching as
     // one, each row held until two cycles after its select; and, until DR-169's STA_BASE below, a store's address
     // issuing only with its data, as rename made the store's IQ-STA row wait on the data register.
-    ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0; pf_i_nextline = 0;
+    ubtb = 64; fe_m2 = 1; ubtb_ways = 2; m2_ctr = 512; m2_wp_train = 2; ras = 0; fdip = 0;
+    pf_i_nextline = 1;  // revision 8: the I$ next-line prefetch (IPF_ON), with its second refill engine (l1i_mshr 2)
     // From the front-end profile of core-2's TAGE build (area_recovery.md §6.7): a 32-bit instruction straddling two
     // blocks is decoded with the second, and the micro-BTB never predicts or trains it; training writes the way that
     // predicted the instruction, else a pseudo-random one (tg_exec's upd_way).
@@ -80,7 +81,8 @@ bool Config::apply_preset(const std::string& name) {
     spec_fwd = 1; dc_row_clash = 1;
     div_base = 4; div_bits_per_cycle = 1;
     lat_fdiv_s = 18; lat_fdiv_d = 23; lat_fsqrt_s = 20; lat_fsqrt_d = 26; fdiv_ii = 4;
-    l1i_mshr = 1; l1d_mshr = 4; pf_stride = 0; pf_stream = 0; rfo_pf = 0;
+    l1i_mshr = 2; l1d_mshr = 4; pf_stride = 0; pf_stream = 0;
+    rfo_pf = 1; rfo_pf_reserve = 1;  // revision 8: STORE_PF (DR-171), an entry only while another stays free
     abl_st_done = 1;
     l2_kb = 0; dram_lat = 30; dram_line_cyc = 4;
     return true;

@@ -1866,6 +1866,89 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **Name a phase by what runs in it.** "The initramfs unpacking" also held `free_initmem`'s 11.2 MB memset. PC samples showed it.
 - **Take an estimate's factor from a kernel with the same miss mix.** A copy realizes 0.36–0.50 of the store-drain stall; the boot's page clears realize most of it.
 
+### 6.15 `rtl_m2` revision 8: the as-built recheck on main c6676bd5 (2026-10-20)
+
+*The coordinator asked for this before step 5's RTL pairs run, so that M7's prediction (smt2_report §13.12) stands on the RTL as built.*
+
+*Since revision 7, main has gained:*
+- *the I$ next-line prefetch (`IPF_ON`, d3e124aa);*
+- *the store ownership prefetch, with three in flight (`STORE_PF`, c072fff6 and 12e50658);*
+- *M7's steps 1–4, cycle-identical with hart 1 off.*
+
+*Method (`scripts/rtlcal.py`):*
+- *The RTL: tg_vsim built `CFG=smt2` from main c6676bd5 with the default profile.*
+- *The programs:*
+  - *make perf's CoreMark A and B (10 iterations) and Dhrystone (500 runs) from `tests/bench`, on rv64gc and rv64im;*
+  - *the 11 suite programs on the RTL's runtime (`bench/build_rtl.sh`);*
+  - *`tk_bigcode`, about 150–200 KiB of code walked in order, newly added to `build_rtl.sh`: the one program here the I$ prefetch shows on.*
+- *The model: `rtl_m2` with main's M6 set and the smt2 sizes (`m7_smt.py`'s `CORE`).*
+- *Latencies: native (30 cycles) and 120.*
+
+| Program | RTL IPC (native / 120) | Revision 7's error | Revision 8's error |
+|---|---|---|---|
+| CoreMark A rv64gc / rv64im | 1.513 / 1.507; 1.534 / 1.528 | −1.7 / −1.5%; −1.4 / −1.2% | −1.7 / −1.8%; −1.5 / −1.6% |
+| CoreMark B rv64gc / rv64im | 1.499 / 1.495; 1.500 / 1.495 | −1.4 / −1.2%; −1.5 / −1.3% | −1.5 / −1.5%; −1.6 / −1.7% |
+| Dhrystone rv64gc | 1.494 / 1.549 | +8.0 / **+13.4%** | +7.7 / **+12.5%** |
+| Dhrystone rv64im | 1.387 / 1.369 | −8.1 / −7.4% | −8.6 / −8.6% |
+| Embench crc32 | 1.058 / 1.058 | **−17.0 / −17.0%** | **−17.0 / −17.0%** |
+| Embench edn | 1.671 / 1.671 | −5.8 / −5.8% | −5.8 / −5.8% |
+| Embench huffbench | 1.161 / 1.160 | −2.2 / −2.3% | −2.2 / −2.3% |
+| Embench matmult-int | 1.967 / 1.967 | −0.1 / −0.1% | −0.1 / −0.1% |
+| Embench minver | 1.619 / 1.619 | **−10.1 / −10.1%** | **−10.1 / −10.1%** |
+| Embench nsichneu | 1.375 / 1.375 | +0.2 / +0.2% | +0.2 / +0.2% |
+| Embench statemate | 1.063 / 1.062 | −2.1 / −2.1% | −2.1 / −2.1% |
+| Embench ud | 1.517 / 1.517 | **−16.9 / −16.9%** | **−16.9 / −16.9%** |
+| tk_bigcode | 0.496 / 0.166 | **+45.6 / +38.7%** | −3.6 / **−14.9%** |
+| Pointer chase, 1 chain, 0.5 MiB | 0.064 / 0.022 | +2.1 / +0.7% | +2.1 / +0.7% |
+| memcpy, 0.5 MiB | 0.524 / 0.228 | −2.3 / **+29.6%** | **−20.1** / −4.5% |
+| Hash lookups, 0.5 MiB | 0.451 / 0.264 | **+15.0 / +32.0%** | **+15.0 / +32.0%** |
+| **Mean error (absolute), 18 programs** | | **7.86% / 10.09%** | **6.54% / 7.46%** |
+| **Outside 10%** | | 5 / 7 | 5 / 6 |
+
+*A positive error is the model slower than the RTL.*
+
+**Revision 8** is revision 7 plus the two features the RTL has and the preset lacked:
+- **The store ownership prefetch as the RTL has it** (`rfo_pf` 1, `rfo_pf_reserve` 1): an L1D miss entry only while another stays free.
+  - Revision 7 kept two free (`rfo_pf_reserve` was 2), so copy at 120 was 30% slow.
+  - The cap of three in flight (`rfo_pf_max` 3) changes nothing on top: with four entries and one kept free, three is the most there can be.
+- **The I$ next-line prefetch with its second refill engine** (`pf_i_nextline` 1, `l1i_mshr` 2).
+  - tk_bigcode goes from +46% / +39% to −4% / −15%.
+  - The model's form is simpler than the RTL's: the RTL holds the prefetched line invalid until its demand miss validates it, which then fetches the next line (a stream), and each validation stalls fetch briefly. The model fetches L+1 on a miss only, with no stall. That leaves it 15% fast at 120.
+- **Checked:** the revision-8 preset gives exactly revision 7's cycles with these four settings, on CoreMark A, crc32, tk_bigcode and the copy. `PRESET_REV` is 8.
+- **The M7 drivers' caches** (`m7_smt.py`'s runs, `smt.py`'s pairs) now key on the preset's revision from 8 on, so no revision-7 result is reused. Revision-7 runs keep their old keys.
+
+**What is left outside 10%, and why:**
+- **crc32 (−17%): the RTL's return-address stack, most likely an RTL performance bug.**
+  - **Bisected** over main's 21 core merges since 10-18, on st builds: crc32 runs in 2,636,645 region cycles at bb32a580 and in 3,620,851 from aae05036 on (the M6 set's merge). Every later point gives the same.
+  - **The return-address stack is the piece.** On c6676bd5 with it off (`TG_RAS=0`), crc32 runs in 2,658,359; with TAGE off (`TG_TAGE=0`), still 3,449,374.
+  - **Everywhere else the stack helps:** Dhrystone −35.6% (rv64gc) and −22.9% (rv64im), tk_bigcode −13.3%, CoreMark −1.6% to −6.4%, statemate −1.6%, the rest within 0.1%. crc32 alone loses 36.2%.
+  - **The pattern:** crc32's loop calls a 12-instruction function (`rand_beebs`) every iteration and returns. The RTL takes 21 cycles an iteration (from its commit log) against 14 without the stack.
+  - **Why a bug:** a return the micro-BTB predicts should never cost more with a stack beside it. The model keeps the intended behavior; this goes to core-2 with the reproducer (below).
+- **ud (−17%): TAGE-lite on loop exits.**
+  - **TAGE is ud's whole gain:** without it, ud runs in 3,556,065 cycles, 2.3× slower.
+  - **The RTL mispredicts 3× more:** with TAGE, its commit log shows 9,108 refills (gaps of 8 or more cycles after a control instruction; `scripts/rtl_mpcmp.py`) against the model's 3,093 mispredicts.
+  - **Four loop-exit branches** mispredict about once per loop instance in the RTL, where the model's TAGE predicts them: 0x800002e0 (1,526 against 39), 0x800004dc (1,483 against 4), 0x800003da (1,479 against 4) and 0x800004be (2,979 against 1,493).
+  - **The model already has the RTL's known limits:** the lookup without the previous block's bits (`btage_lag`) and the 4-entry training queue (`btage_tq`). What else differs needs a TAGE study, with core-2.
+- **Dhrystone rv64gc (+8% / +13%):** the RTL runs faster at 120 than at native (92,381 against 95,759 cycles), a timing race like §6.9's on rv64im.
+- **minver (−10%):** the FP path, −7.7% at revision 7.
+- **memcpy at native (−20% on revision 8):** the bandwidth-bound case. The RTL's ownership prefetch takes the D$ controller's port only in a cycle without a load's request, and memcpy has one nearly every cycle. The model doesn't charge that contention.
+- **Hash lookups (+15% / +32%):** the RTL's wrong path issues the next lookups' misses early, and the model fetches only the correct path (smt2_report §13.10).
+- **smt2 against st:** on c6676bd5 the two builds run crc32, ud and CoreMark A within 0.2% of each other. The smt2 sizes change nothing on these, and M7's steps change no single-thread cycle.
+
+**For core-2** (the reproducer; `~/tanager-build/smt2-study/cal-1020-1518/rtl/embench_crc32.elf`, region cycles at native latency):
+
+| Build of c6676bd5 (st) | crc32 | Dhrystone rv64gc |
+|---|---|---|
+| As built | 3,620,946 | 93,786 |
+| `TG_RAS=0` | 2,658,359 | 145,650 |
+
+**Decisions:** revision 8 is mine (the model as built). The return-stack case and the TAGE study are core-2's to take or leave.
+
+**Learned:**
+- **make perf's three programs can miss a front-end pathology.** The stack is −36% on Dhrystone and +36% on crc32. A short leaf function called from a tight loop is a common shape in kernels and libraries, so a calibration set needs one.
+- **A feature that wins on the mean can still lose badly on one shape.** Check it per program, not on the suite's mean.
+- **Bisect on the cheapest build that shows it.** The st build ran crc32 the same as smt2 and built just as fast, so two rounds of five and four builds named the merge in about 25 minutes.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)

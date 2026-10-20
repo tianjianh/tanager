@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 
 namespace tg {
@@ -154,6 +155,10 @@ Core::Core(const Config& c, const std::vector<ThreadSpec>& specs)
         sib_held_[b] = home1;
       }
     }
+  }
+  if (const char* ct = std::getenv("TGSIM_CTRACE")) {  // calibration: per-uop timing against the RTL's commit log
+    ctrace_from_ = std::strtoull(ct, nullptr, 0);
+    if (const char* c2 = std::strchr(ct, ':')) ctrace_to_ = std::strtoull(c2 + 1, nullptr, 0);
   }
   if ((int)specs.size() < nthr_ || !th_.back()->iss) err_ = "a program is needed for every thread";
 }
@@ -1798,6 +1803,10 @@ void Core::retire(Uop& u, bool early) {
   }
   T.st.instr += u.n_instr;
   T.st.uops++;
+  if (t_ >= ctrace_from_ && t_ < ctrace_to_ && u.di)
+    std::fprintf(stderr, "%llu pc=%llx %-8s dsp=%llu iss=%lld rdy=%lld\n", (unsigned long long)t_,
+                 (unsigned long long)u.di->pc, op_name(u.di->d->op), (unsigned long long)u.t_dsp,
+                 u.t_issue == NEVER ? -1ll : (long long)u.t_issue, u.t_ready == NEVER ? -1ll : (long long)u.t_ready);
   if (u.blk > T.blk_head + 1) T.blk_head = u.blk - 1;  // m2_ftq: commit frees the blocks before this one's
   if (T.refill_from != NEVER) {  // the first retire after a mispredict recovered at commit: the refill
     T.st.mp_refill_cycles += t_ - T.refill_from;
