@@ -33,9 +33,10 @@ path is exercised. A path that loses the tid fails: with the ROB's `flush_tid` h
 Each M7 step's MR runs regress at `SOLO_TID=1` and `make cycle-identical BRANCH_SOLO_TID=1` (the same cycles).
 
 `SPLIT` (`tg_core_pkg`, `TG_SPLIT=0|1`; smt2 configurations only; `make ... SPLIT=1`) is the split mode of step 3 (D1):
-each thread owns half the ROB, LQ and SQ and half of each bank's free registers. Hart 1 turns it on (step 5). Before
-that, `SPLIT=1` runs the one thread in its half (half 1 with `SOLO_TID=1`, with D4's homes for hart 1), so the halves'
-arithmetic is tested under lockstep. It is not cycle-identical: the window is half.
+each thread owns half the ROB, LQ and SQ. Hart 1 turns it on (step 5). Before that, `SPLIT=1` runs the one thread in its
+half (half 1 with `SOLO_TID=1`), so the halves' arithmetic is tested under lockstep. It is not cycle-identical: the
+window is half. The registers are not split by it: the free lists' division and hart 1's homes (D3, D4) come with two
+threads at step 5, after D3's revision (core-pipeline.md §5.4).
 
 ## What is per thread, by unit
 

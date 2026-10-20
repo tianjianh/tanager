@@ -12,7 +12,9 @@
 // After reset an init sequence writes the lists (NB entries per cycle); `ready` then rises:
 //   merged mode (SPLIT_L = 0; the core runs one thread, RUN_TID): that thread's list holds FIRST .. DEPTH-1, as the one
 //     list did before M7, and the other thread's is empty;
-//   split mode (SPLIT_L, M7's step 3b): FIRST_S .. DEPTH-1 is divided, the lower half to thread 0 and the upper to thread 1.
+//   divided (SPLIT_L, with two threads: M7's step 5): FIRST_S .. DEPTH-1 is divided, the lower half to thread 0 and
+//     the upper to thread 1. A static division alone deadlocks (writer-sharded banks: a thread can need all its
+//     architectural registers plus one in one bank), so step 5 adds transfers between the lists.
 // The free counts (tail - spec head) are registers, kept with the commit counts (tail - commit head) that they take on
 // a flush, so rename's resource checks start from flip-flops rather than a subtraction (timing; the same values,
 // asserted). Rename's fire (`pop`) arrives last, after its own resource checks: the next head and count are formed
@@ -25,7 +27,7 @@ module tg_freelist
   parameter int NPOP    = RENAME_WIDTH,
   parameter int NPUSH   = COMMIT_WIDTH,
   parameter int FIRST   = 0,
-  parameter bit SPLIT_L = SPLIT,   // the split mode (tg_core_pkg::SPLIT; the unit test sets it)
+  parameter bit SPLIT_L = 1'b0,    // divided lists: with two threads (M7's step 5; D3 needs transfers too)
   parameter int FIRST_S = FIRST,
   localparam int NT     = NUM_THREADS,
   localparam int IW     = idx_w(DEPTH),

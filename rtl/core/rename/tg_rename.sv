@@ -175,7 +175,7 @@ module tg_rename
   logic [INT_BANKS-1:0][COMMIT_WIDTH-1:0][PIDX_W-1:0] fl_push_idx;
   logic [INT_BANKS-1:0][idx_w(COMMIT_WIDTH+1)-1:0] fl_cmt_n;
   for (genvar b = 0; b < INT_BANKS; b++) begin : g_fl
-    // homes: bank 0 for the running thread (merged); in split mode thread 1's are bank 1's (D4)
+    // homes: bank 0 for the running thread; with two threads (step 5) thread 1's are bank 1's (D4), FIRST_S
     tg_freelist #(.DEPTH(INT_PREGS_PER_BANK), .NB(FL_BANKS), .NPOP(W), .NPUSH(COMMIT_WIDTH),
                   .FIRST(b == 0 ? 32 : 0), .FIRST_S(b <= 1 ? 32 : 0)) u_fl (
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
