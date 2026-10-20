@@ -8,10 +8,17 @@
  *     the bits read back to clear them, read again, while any is set; bit 1 completes the request); then
  *     6.12.113's plic_irq_eoi (read the context's enable bit; if set, complete; if not, enable, complete,
  *     disable), and claim again until 0.
+ *     Half the requests are writes: hart 0 first fills the buffer (dirty in its cache), and the model reads it
+ *     through the host DMA port before transfer complete, as SD1's ADMA reads a write's data. Two more sources
+ *     interrupt hart 0 meanwhile, as ttyS0 and the PS's other devices do around a shutdown: the PL UART (source
+ *     10), whose transmit interrupts hart 0 drives as Linux's 8250 does (a queue of characters, THRE), and TTC1
+ *     (source 24) in the PS model, which the contender raises and hart 0's handler clears.
  *   Hart CONT_HART (core 1's first: 1 in st, 2 in smt2), Linux's CPU1: until hart 0 is done, at random: PS window
  *     writes and reads (a scratch register of the model: CPU1 submitting the next request), read-modify-writes of
- *     hart 0's enable word for source 23 (request_irq and free_irq on CPU1; USB0's line, idle here), and PLIC
- *     reads. Any other hart sleeps in WFI, as the board's idle threads.
+ *     hart 0's enable word for source 23 (request_irq and free_irq on CPU1; USB0's line, idle here), priority
+ *     writes of sources 20 and 23 (mask and unmask; 20's shares an 8-byte word with 21's), PLIC reads, GEM3
+ *     register polls (as macb's MDIO accesses at its probe and close), and TTC1's line raised. Any other hart
+ *     sleeps in WFI, as the board's idle threads.
  *   SMODE = 0: hart 0 in M-mode on context 0. SMODE = 1 (sd_irq_smt2s.bin, the real cores only): as Linux, in
  *     S-mode on context 1 (hart 0's S-mode) with SEI delegated, plus timer ticks on Sstc's stimecmp at random.
  *     SMODE = 2 (sd_irq_smt2v.bin): the same under Sv39, as Linux's ioremap has it: identity mappings, 2 MiB
@@ -44,6 +51,11 @@
 #define SD_SCR    0x44
 #define IRQ_SD1   21
 #define IRQ_IDLE  23
+#define IRQ_UART  10
+#define IRQ_TTC1  24
+#define IRQ_PSU1  20                            /* UART1's line, idle here: its priority shares 21's word */
+#define PS_TTC1   0xFF120000ul                  /* the PS model: bit 0 written is TTC1's line */
+#define PS_GEM3   0xFF0E0000ul                  /* GEM3: a maintenance write and status polls, as an MDIO access */
 #define N_REQ     1500
 #define TIMEOUT   20000ul                       /* 2 ms at 10 MHz: hundreds of times a request's longest delays */
 
@@ -58,11 +70,21 @@
 #define CSRW(c, v) __asm__ volatile("csrw " #c ", %0" :: "r"((uint64_t)(v)))
 #define CSRS(c, v) __asm__ volatile("csrs " #c ", %0" :: "r"((uint64_t)(v)))
 #define CSRC(c, v) __asm__ volatile("csrc " #c ", %0" :: "r"((uint64_t)(v)))
+#if SMODE
+#define IRQS_OFF() CSRC(sstatus, 1ul << 1)
+#define IRQS_ON()  CSRS(sstatus, 1ul << 1)
+#else
+#define IRQS_OFF() CSRC(mstatus, 1ul << 3)
+#define IRQS_ON()  CSRS(mstatus, 1ul << 3)
+#endif
 
 /* In .data, so the binary sets them: start.S doesn't clear .bss, and the memory model's unwritten words are not 0 */
 #define DATA __attribute__((section(".data")))
 static volatile uint32_t done_cnt DATA, irqs DATA, spurious DATA, other_irq DATA, loops_max DATA, en_lost DATA;
-static volatile uint32_t en_seen DATA, ticks DATA, go1 DATA, stop1 DATA, ops1[4] DATA;
+static volatile uint32_t en_seen DATA, ticks DATA, go1 DATA, stop1 DATA, ops1[8] DATA;
+static volatile uint32_t uart_irqs DATA, ttc_irqs DATA, ttc_spur DATA, writes DATA;
+static volatile char txq[256] DATA;             /* the 8250's transmit queue: hart 0 only */
+static volatile uint32_t tx_head DATA, tx_tail DATA;
 
 static void putc_(char c) {
   while (!(UART[5] & 0x20)) { }
@@ -122,6 +144,19 @@ static void toggle(int src, int on) {            /* plic_toggle on hart 0's cont
   REG32(P_EN) = on ? (w | (1u << src)) : (w & ~(1u << src));
 }
 
+/* The PL UART's transmit as Linux's 8250 drives it: a queue; when the transmitter is empty, a few characters
+ * into THR (4 here, so a line takes several THRE interrupts); THRE's interrupt (IER bit 1) while the queue isn't
+ * empty. tx_kick runs in the handler or with hart 0's interrupts off */
+static void tx_kick(void) {
+  if (UART[5] & 0x20)
+    for (int n = 0; n < 4 && tx_tail != tx_head; n++) UART[0] = (uint8_t)txq[tx_tail++ & 255];
+  UART[1] = (tx_tail != tx_head) ? 0x02 : 0x00;
+}
+static void tx_queue(const char *t) {             /* hart 0, interrupts off: a line, then one kick */
+  for (; *t; t++) if (tx_head - tx_tail < 255) txq[tx_head++ & 255] = *t;
+  if (!(UART[1] & 0x02)) tx_kick();
+}
+
 /* Linux's plic_handle_irq with sdhci_irq and 6.12.113's plic_irq_eoi; with SMODE, Linux's timer tick too */
 #if SMODE
 __attribute__((interrupt("supervisor"))) void irq_entry(void) {
@@ -150,6 +185,13 @@ __attribute__((interrupt("machine"))) void irq_entry(void) {
         n++;
       }
       if (n > loops_max) loops_max = n;
+    } else if (id == IRQ_UART) {
+      uart_irqs++;
+      (void)UART[2];                              /* IIR: clears THRE's interrupt when it reports it */
+      tx_kick();
+    } else if (id == IRQ_TTC1) {
+      if (REG32(PS_TTC1) & 1) ttc_irqs++; else ttc_spur++;
+      REG32(PS_TTC1) = 0;                         /* its line down */
     } else {
       other_irq++;
     }
@@ -171,13 +213,22 @@ static void contender(void) {
   while (!go1) { }
   while (!stop1) {
     uint32_t r = rnd(1);
-    switch (r & 3) {
+    switch (r & 7) {
       case 0: REG32(SD1 + SD_SCR) = r; break;                            /* a PS window write */
       case 1: (void)REG32(SD1 + SD_SCR); break;                          /* a PS window read */
       case 2: toggle(IRQ_IDLE, 1); toggle(IRQ_IDLE, 0); break;           /* request_irq, free_irq */
-      default: (void)REG32(P_PEND); break;                               /* a PLIC read */
+      case 3: (void)REG32(P_PEND); break;                                /* a PLIC read */
+      case 4: REG32(P_PRIO(IRQ_PSU1)) = 0; REG32(P_PRIO(IRQ_PSU1)) = 1; break;   /* mask, unmask: 21's word */
+      case 5:
+        if (r & 0x100) { REG32(P_PRIO(IRQ_IDLE)) = 0; REG32(P_PRIO(IRQ_IDLE)) = 1; }
+        else {                                                           /* an MDIO access on GEM3 */
+          REG32(PS_GEM3 + 0x34) = r;
+          for (int n = 0; n < 6; n++) (void)REG32(PS_GEM3 + 0x08);
+        }
+        break;
+      default: REG32(PS_TTC1) = 1; break;                                /* TTC1's event */
     }
-    ops1[r & 3]++;
+    ops1[r & 7]++;
     for (uint32_t d = (r >> 8) & 31; d; d--) __asm__ volatile("nop");
   }
   for (;;) { }
@@ -188,6 +239,13 @@ static void contender(void) {
 static int dma_data(void) {
   uint64_t fh = REG64(HOSTCTL + 0x30);
   return (fh >> 16) == 0x7467 && (fh & 2);
+}
+static uint64_t wword(uint32_t req, uint32_t k) {    /* a write's data, as tb_soc's sd_wword */
+  return ((uint64_t)req * 0xC2B2AE3D27D4EB4Full) ^ k ^ 0x5A5A5A5A5A5A5A5Aull;
+}
+static void fill_data(uint32_t req) {             /* a write: the whole 512 bytes the model may read */
+  volatile uint64_t *b = (volatile uint64_t *)(0x80200000ul + 4096ul * (req % 8));
+  for (uint32_t k = 0; k < 64; k++) b[k] = wword(req, k);
 }
 static void check_data(uint32_t req) {
   volatile uint64_t *b = (volatile uint64_t *)(0x80200000ul + 4096ul * (req % 8));
@@ -213,26 +271,37 @@ static void requests(void) {                     /* hart 0, in M-mode or S-mode 
   go1 = 1;
   for (uint32_t i = 0; i < N_REQ; i++) {
     uint32_t want = done_cnt + 1;
-    REG32(SD1 + SD_CMD) = i;
+    int wr = dma && (rnd(0) & 1);
+    if (wr) { fill_data(i); writes++; }
+    if ((i & 7) == 0) {                           /* a line of output: ttyS0's transmit interrupts */
+      char line[13] = " sd req ....";
+      for (int k = 0; k < 4; k++) line[8 + k] = "0123456789abcdef"[(i >> (12 - 4 * k)) & 15];
+      IRQS_OFF();
+      tx_queue(line);
+      IRQS_ON();
+    }
+    REG32(SD1 + SD_CMD) = i | ((uint32_t)wr << 31);
     uint64_t t0 = now();
     while (done_cnt < want) if (now() - t0 > TIMEOUT) fail(0x10);
-    if (dma) check_data(i);
+    if (dma && !wr) check_data(i);
     for (uint32_t d = rnd(0) & 63; d; d--) __asm__ volatile("nop");
     if ((i & 255) == 255) { puts_("  "); puthex(i + 1, 4); puts_(" requests\n"); }
   }
   stop1 = 1;
-#if SMODE
-  CSRC(sstatus, 1ul << 1);
-#else
-  CSRC(mstatus, 1ul << 3);
-#endif
+  { uint64_t t0 = now(); while (tx_tail != tx_head) if (now() - t0 > TIMEOUT) fail(0x11); }
+  IRQS_OFF();
   puts_("requests "); puthex(done_cnt, 4); puts_(", interrupts "); puthex(irqs, 4);
   puts_(", spurious "); puthex(spurious, 4); puts_(", others "); puthex(other_irq, 4);
   puts_(", most loops "); puthex(loops_max, 2); puts_(", enable reads "); puthex(en_seen, 4);
   puts_(", ticks "); puthex(ticks, 4); puts_("\n");
+  puts_("writes "); puthex(writes, 4); puts_(", UART interrupts "); puthex(uart_irqs, 4);
+  puts_(", TTC1 "); puthex(ttc_irqs, 4); puts_(" (spurious "); puthex(ttc_spur, 4); puts_(")\n");
   puts_("contender: PS writes "); puthex(ops1[0], 4); puts_(", PS reads "); puthex(ops1[1], 4);
-  puts_(", enable RMWs "); puthex(ops1[2], 4); puts_(", PLIC reads "); puthex(ops1[3], 4); puts_("\n");
-  if (done_cnt != N_REQ || other_irq || en_lost || (SMODE && ticks == 0)) fail(0x20);
+  puts_(", enable RMWs "); puthex(ops1[2], 4); puts_(", PLIC reads "); puthex(ops1[3], 4);
+  puts_(", priority writes and GEM3 polls "); puthex(ops1[4] + ops1[5], 4); puts_(", TTC1 events "); puthex(ops1[6] + ops1[7], 4);
+  puts_("\n");
+  if (done_cnt != N_REQ || other_irq || en_lost || (SMODE && ticks == 0) || uart_irqs == 0 || ttc_irqs == 0)
+    fail(0x20);
   puts_("SDIRQ PASS\n");
   tohost(1);
   for (;;) { }
@@ -248,7 +317,12 @@ int main(uint64_t hartid, uint64_t dtb) {
   puthex(CONT_HART, 1); puts_(" contends\n");
   REG32(SD1 + SD_SIG) = 0x3;                     /* command and transfer complete */
   REG32(P_PRIO(IRQ_SD1)) = 1;
-  REG32(P_EN) = 1u << IRQ_SD1;
+  REG32(P_PRIO(IRQ_UART)) = 1;
+  REG32(P_PRIO(IRQ_TTC1)) = 1;
+  REG32(P_PRIO(IRQ_PSU1)) = 1;
+  REG32(P_PRIO(IRQ_IDLE)) = 1;
+  REG32(PS_TTC1) = 0;
+  REG32(P_EN) = (1u << IRQ_SD1) | (1u << IRQ_UART) | (1u << IRQ_TTC1);
   REG32(P_THR) = 0;
 #if SMODE
   CSRW(pmpaddr0, -1l);                           /* S-mode reaches everything */

@@ -194,10 +194,16 @@ module tb_soc;
   int sd_claimed = 0, sd_both = 0;          // transfer completes raised while source 21 was claimed; with bit 0 set
   // With HOST_DMA, each request's data before its transfer complete: one to four 128-byte bursts through the host
   // DMA port into buffer (request % 8) at RISC-V 0x8020_0000 + 4 KiB * (request % 8); the program checks the first
-  int sd_bursts = 0;
+  // A command with bit 31 set is a write: the model reads the buffer instead (the program filled it, dirty in its
+  // cache), as SD1's ADMA reads a write's data, and checks it
+  int sd_bursts = 0, sd_wbursts = 0;
+  bit sd_wrq [$];
   localparam logic [31:0] SD_BUF = 32'h0020_0000;
   function automatic logic [63:0] sd_word(input int req, input int k);
     return (64'(req) * 64'h9E37_79B9_7F4A_7C15) ^ 64'(k);
+  endfunction
+  function automatic logic [63:0] sd_wword(input int req, input int k);
+    return (64'(req) * 64'hC2B2_AE3D_27D4_EB4F) ^ 64'(k) ^ 64'h5A5A_5A5A_5A5A_5A5A;
   endfunction
   function automatic int sd_delay();
     int r;
@@ -212,6 +218,8 @@ module tb_soc;
   initial if (SDIRQ) forever begin
     @(posedge clk);
     if (sd_go != sd_started) begin
+      bit wr;
+      wr = sd_wrq.pop_front();
       sd_started++;
       repeat (sd_delay()) @(posedge clk);
       sd_st |= 32'h1; sd_cmds++;
@@ -222,11 +230,22 @@ module tb_soc;
         int           nb;
         nb = $urandom_range(1, 4);
         for (int b = 0; b < nb; b++) begin
-          for (int k = 0; k < 8; k++)
-            beats[k] = {sd_word(sd_started - 1, 16 * b + 2 * k + 1), sd_word(sd_started - 1, 16 * b + 2 * k)};
-          dma_write(SD_BUF + 32'(4096 * ((sd_started - 1) % 8)) + 32'(128 * b), beats, r);
-          if (r != 2'b00) fail($sformatf("SD device: DMA write response %0d", r));
-          sd_bursts++;
+          if (wr) begin
+            dma_read(SD_BUF + 32'(4096 * ((sd_started - 1) % 8)) + 32'(128 * b), beats, r);
+            if (r != 2'b00) fail($sformatf("SD device: DMA read response %0d", r));
+            for (int k = 0; k < 8; k++)
+              for (int h = 0; h < 2; h++)
+                if (beats[k][64*h +: 64] != sd_wword(sd_started - 1, 16 * b + 2 * k + h))
+                  fail($sformatf("SD device: request %0d's write data, word %0d: %h", sd_started - 1,
+                                 16 * b + 2 * k + h, beats[k][64*h +: 64]));
+            sd_wbursts++;
+          end else begin
+            for (int k = 0; k < 8; k++)
+              beats[k] = {sd_word(sd_started - 1, 16 * b + 2 * k + 1), sd_word(sd_started - 1, 16 * b + 2 * k)};
+            dma_write(SD_BUF + 32'(4096 * ((sd_started - 1) % 8)) + 32'(128 * b), beats, r);
+            if (r != 2'b00) fail($sformatf("SD device: DMA write response %0d", r));
+            sd_bursts++;
+          end
         end
       end
       if (dut.u_uncore.u_plic.busy_q[IRQ_PS0 + PS_IRQ_SD1]) sd_claimed++;
@@ -254,7 +273,7 @@ module tb_soc;
       if (SDIRQ && a.addr[31:0] == PS_SD_ST) sd_st &= ~d.data[8 * a.addr[3:0] +: 32];   // write 1 to clear
       else for (int k = 0; k < 16; k++) if (d.strb[k]) ps_mem[{a.addr[31:4], 4'(k)}] = d.data[8*k +: 8];
       if (SDIRQ && a.addr[31:0] == PS_SD_SIG) sd_sig = d.data[8 * a.addr[3:0] +: 32];
-      if (SDIRQ && a.addr[31:0] == PS_SD_CMD) sd_go++;
+      if (SDIRQ && a.addr[31:0] == PS_SD_CMD) begin sd_wrq.push_back(d.data[8 * a.addr[3:0] + 31]); sd_go++; end
       if (a.addr[31:0] == PS_TTC1) ps_irq[PS_IRQ_TTC1] <= d.data[0];
       if (rst_w) begin ps_rst++; ps_rst_aw = a; ps_rst_w = d; end
       ps_txn++;
@@ -677,8 +696,8 @@ module tb_soc;
       if (VIRTIO && (vio_reads != 4 || vio_notify != 1))
         fail($sformatf("virtio window: %0d reads and %0d QueueNotify served, want 4 and 1", vio_reads, vio_notify));
       if (SDIRQ) begin
-        $display("SD device: %0d requests, %0d command and %0d transfer completes raised (%0d while source %0d was claimed, %0d with bit 0 still set), %0d DMA bursts",
-                 sd_go, sd_cmds, sd_xfers, sd_claimed, IRQ_PS0 + PS_IRQ_SD1, sd_both, sd_bursts);
+        $display("SD device: %0d requests, %0d command and %0d transfer completes raised (%0d while source %0d was claimed, %0d with bit 0 still set), %0d DMA bursts written and %0d read",
+                 sd_go, sd_cmds, sd_xfers, sd_claimed, IRQ_PS0 + PS_IRQ_SD1, sd_both, sd_bursts, sd_wbursts);
         $display("PLIC source %0d: pending %0d busy %0d enabled(ctx 0, 1) %0d %0d line %0d", IRQ_PS0 + PS_IRQ_SD1,
                  dut.u_uncore.u_plic.pend_q[IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.busy_q[IRQ_PS0 + PS_IRQ_SD1],
                  dut.u_uncore.u_plic.en_q[0][IRQ_PS0 + PS_IRQ_SD1], dut.u_uncore.u_plic.en_q[1][IRQ_PS0 + PS_IRQ_SD1],

@@ -546,6 +546,20 @@ Each is checked on the board in stage D's first step, with the UART: the simples
       - **What it checks:** every request completes, and an enable read never shows the bit clear. The bench counts the transfer completes raised while source 21 was claimed.
       - **Where it runs:** the test core, in `short`. `make sdirq` runs the real cores, st in M-mode and smt2 as Linux has it (S-mode on context 1 with Sstc ticks, the contender on hart 2), with Sv39 and with the DMA data.
       - **The first runs (10-20):** all six pass, 1,500 requests each, the claim window hit 68–292 times per run, nothing lost.
+      - **What the board has around a transition, added after the second loss** (boot 7's shutdown, with no power event):
+        - half the requests are writes: the model DMA-reads a buffer hart 0 has just dirtied;
+        - the PL UART's transmit interrupts on source 10, driven as Linux's 8250 drives them;
+        - TTC1 on source 24, which the contender raises;
+        - from the contender, priority writes of sources 20 and 23 (20's shares 21's 8-byte word) and GEM3 register polls (macb's MDIO accesses at its probe and close).
+
+        The test core and the real cores pass, st in M-mode and smt2 under Sv39 with ticks: about 6,000–6,900 interrupts per run, 762 writes, the claim window hit 177–249 times, nothing lost.
+      - **`tests/unit/periph`'s directed sequences** follow the coordinator's list:
+        - a complete where the source is disabled;
+        - an enable or a priority written while claimed;
+        - completes from other contexts;
+        - an affinity move.
+
+        `tg_plic` follows the spec in each, and Linux 6.12.113's EOI recovers each, except the race it leaves: an affinity move between its enable read and its complete. That race freezes the source, as the spec says.
   - **Met on the board** (the board session, 10-17, `fpga/kv260/board/d1`; bitstream d1_100, tree a4bc643, WNS +0.650 ns at 100 MHz with the 1.0 ns place-and-route uncertainty, 110,980 LUTs, 94.8%):
     - **Pre-check:** AFI FM6 at 128 bits. `RST_LPD_IOU2` = `0x000103AA`: TTC1, TTC2 and TTC3 are out of reset, and the set bits are all unused blocks (UART0, SPI0, SD0, CAN0/1, I2C0, NAND). So no PS change was needed.
     - **"D1 PASS":**
