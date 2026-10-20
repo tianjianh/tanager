@@ -24,7 +24,10 @@ TANAGER_BUILD ?= $(HOME)/tanager-build
 include $(ROOT)/sim/profile.mk
 OUT  := $(TANAGER_BUILD)/$(WT)/pair$(if $(filter 0,$(REPEAT)),-restart)
 SRC  := $(wildcard $(ROOT)/tests/bench/pair/*.S $(ROOT)/tests/bench/pair/*.c $(ROOT)/tests/bench/pair/*.h \
-          $(ROOT)/tests/bench/pair/*.ld $(ROOT)/tests/bench/pair/inc/*.h) $(ROOT)/tests/bench/pair/build_pair.sh
+          $(ROOT)/tests/bench/pair/*.ld $(ROOT)/tests/bench/pair/inc/*.h) $(ROOT)/tests/bench/pair/build_pair.sh \
+        $(wildcard $(ROOT)/perfmodel/bench/memsuite/*.[ch]) $(ROOT)/perfmodel/bench/coremark/core_portme.c \
+        $(ROOT)/perfmodel/bench/embench/boardsupport.c $(ROOT)/tests/bench/dhrystone/dhry_time.c \
+        $(ROOT)/perfmodel/scripts/smt.py
 
 .PHONY: build replay run
 build: $(OUT)/.built
