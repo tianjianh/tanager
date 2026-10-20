@@ -1254,7 +1254,7 @@ Results: `fpga/spikes/results/h100_urf/` (with `urf_chip.txt`, the register file
 | LUTs placed (fill) | 112,397 (96.0%) | 109,675 (93.6%) | 113,721 (97.1%) | 111,217 (95.0%) / 108,693 (92.8%) |
 | UltraRAMs | 32 | 50 | 32 | 32 / 50 |
 | WNS / WHS ns, core clock | **+0.022** / +0.001 | +0.988 / +0.006 | +0.348 / +0.011 | +0.801 / +0.769 |
-| Endpoints below 0.5 / 1.0 ns | 825 / 4,458 | 0 / 7 | 0 / 1,239 | 0 / 50 and 0 / 199 |
+| Endpoints below 0.5 / 1.0 ns | 825 / 4,458 | 0 / 7 | 82 / 1,239 | 0 / 50 and 0 / 199 |
 | Routing | 65 min | 22 min | 150 min (w-x299) | 33 / 24 min |
 
 **Worst paths:**
