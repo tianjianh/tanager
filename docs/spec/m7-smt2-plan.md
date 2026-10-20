@@ -1,6 +1,6 @@
 # M7: SMT2, the second hart in each core — the plan
 
-Status: draft for the coordinator's review; no RTL until it is reviewed — core track (core-2) — 2026-10-19
+Status: approved by the coordinator 10-19 23:20; DR-175 — core track (core-2) — 2026-10-19
 
 M7 turns on the second hardware thread of each core, so v1 runs 2 cores × 2 harts = 4 Linux CPUs (plan §6, §6.5, §11's
 M7 row; DR-008, DR-009, DR-010). This page records what the `smt2` build has today, what M7 adds and in what order, what
@@ -104,7 +104,7 @@ cycle-identical` against main must pass (merged mode is today's core). From step
 | Step | What | Depends on | Owner |
 |---|---|---|---|
 | 1. **Threads through the pipe** | the tid in every payload that a kill needs (the ALU, P0, P1 and STA formats); a real `flush_tid` and thread-scoped kills in every unit (fetch, decode, rename, exec, LSU, ROB, the free lists, the LLT and wakeup-tag pools); per-thread serialisation (the empty-window wait becomes the thread's half); docs of §2.3 corrected | — | core-2; fpu-2 for issue and exec |
-| 2. **Per-hart architectural state** | CSRs (hot state per hart in flip-flops; the cold table and `pmpaddr` with a tid address bit; `mhartid + tid`; per-hart interrupt inputs, `stimecmp`, trap entry and xRET for the committing thread; `mcycle`/`minstret` as DSP pairs per hart, R1); fcsr's tids wired; PMP descriptors per hart with the select (D6); the trace's hart field | — | core-2; soc-2 checks the interrupt lines (already per hart) |
+| 2. **Per-hart architectural state** | CSRs (hot state per hart in flip-flops; the cold table and `pmpaddr` with a tid address bit; `mhartid + tid`; per-hart interrupt inputs, `stimecmp`, trap entry and xRET for the committing thread; `mcycle`/`minstret` as DSP pairs per hart, R1); fcsr's tids wired; PMP descriptors per hart with the select (D6); the trace's hart field and load address (§5) | — | core-2; soc-2 checks the interrupt lines (already per hart) |
 | 3. **The window per thread** | static halves of the ROB, LQ, SQ and completion buffer with per-thread pointers and a merged mode (D1, D2); per-thread rename maps (tid address bit, measured +0.43K) and free lists (D3); homes and reset values for hart 1's registers (D4); a rename, dispatch and commit thread choice (D7); per-thread exception, mispredict, xRET and WFI state | 1 | core-2 |
 | 4. **Memory and translation per thread** | TLB entries tagged by tid; satp writes and SFENCE.VMA flush the hart's entries; the walker takes per-hart satp; forwarding and ordering stay inside a thread's half; a reservation per hart, cleared by the sibling's committed stores as by a probe (plan §6.2 rule 4); store-drain and replay fairness (D8); atomics and MMIO at the thread's ROB head | 1, 3 | core-2 |
 | 5. **The front end per thread, and hart 1's switch** | a PC, global history, FTQ and RAS per thread (tid address bits; the history and PC in flip-flops), the instruction queue in RAM form, per-thread redirect and park; round robin first, then ICOUNT (D7); real tids into the micro-BTB, TAGE and the BHT hash; with `HART1_ON`, hart 1 fetches from reset (interfaces.md §1: both harts start, software parks hart 1 through OpenSBI's HSM) | 1–4 | core-2 |
@@ -169,8 +169,9 @@ For comparison:
   110.9K (≈94.7%).
 - **So DR-174's reserve is likely needed.** M7's measured area decides it, step by step: each step's MR reports its
   budget-flow LUTs against §4.2's line, and the full chip with real hart 1 (spikes-2, after step 5) replaces the filler.
-  Turning URF on is the user's call (DR-174). The trigger I propose: the chip above ≈96% placed, or below 100 MHz. URF
-  gives −1,262 placed LUTs a core in tier B. Smaller reserve items come after it: the FP register file's LUTRAM pump
+  The user has decided this already (DR-174: "lets do variant A if only where is run out of LUTs"), so turning URF on
+  when the chip runs out is within DR-174. **Running out** means the full chip with real hart 1 placing above ≈96%, or
+  missing 100 MHz; the coordinator tells the user when that happens. URF gives −1,262 placed LUTs a core in tier B. Smaller reserve items come after it: the FP register file's LUTRAM pump
   (−275 a core, the coordinator's study of 10-19) and the PMP-select cut (D6).
 - **The per-core budget** (46,120) is already exceeded by M6's set, and M7 adds ≈4.8K more. The area decisions so far
   (DR-162, DR-167) have gone by the full-chip fit, not the per-core line.
@@ -179,7 +180,7 @@ For comparison:
 
 | Check | What it needs | Owner |
 |---|---|---|
-| **Per-hart lockstep** | the checker runs two threads of one core: `--harts` 4 with all four stepping, the records of both threads interleaved in commit order. The trace needs a load's address for shared data across harts (verification.md §9 item 1, interfaces.md §5): add it to `tr_rec_t` | verif-2 (checker, trace format), core-2 (the RTL's trace fields) |
+| **Per-hart lockstep** | the checker runs two threads of one core: `--harts` 4 with all four stepping, the records of both threads interleaved in commit order. The trace needs a load's address for shared data across harts (verification.md §9 item 1, interfaces.md §5), as below | verif-2 (checker, trace format), core-2 (the RTL's trace fields) |
 | **Random tests aimed at siblings** | `tg_rand` with two harts in one core: independent programs (partitions, thread-scoped flushes, caps, ICOUNT) and shared-memory programs (AMOs, LR/SC across siblings, message passing, stores to one line, FENCE); `gen_coh` with harts 0,1 on one core and 0–3 on two | verif-2 |
 | **Litmus with sibling harts** | litmus-tests-riscv (the RVWMO suite) on two harts of one core and on four, in simulation and on the board with the latency injector at 0, 120 and 250 cycles (plan §9) | verif-2; soc-2 for the board runs |
 | **The boot-lockstep gate, four harts** | a `boot_lockstep.py` shape of 2 cores × 2 threads with Linux on all four, beside `st` and `board`; the device tree with `RUN_THREADS=2` | verif-2 (shape), soc-2 (device tree, OpenSBI) |
@@ -188,6 +189,17 @@ For comparison:
 | **SMT-off works** (exit 3) | a lone hart with its sibling in WFI gets today's cycles (`make perf` against the one-hart smt2 core within noise); the M-mode control holds hart 1 off | core-2, verif-2 |
 | **Litmus clean** (exit 4) | above | verif-2 |
 | **Every step** | lint-all; regress st and smt2; cycle-identical to main with `HART1_ON` off; DR-173's traced boot; from step 5, the same with `HART1_ON` on | each step's owner |
+
+**The trace's load address** (interfaces.md §5, v1.5 with the package; the coordinator's):
+- **`mem_ld`, one new bit in `tr_rec_t`**, after `mem_st`: the retired instruction read memory. It is set on TR_RETIRE
+  records of loads (integer and FP), LR, AMOs (with `mem_st` as well) and device loads (with `mmio_ld`).
+- **The address:** when `mem_ld`, the existing `mem_vaddr` (64 bits) holds the load's virtual address and `mem_size` its
+  size, log2 bytes. An AMO's read and write share them.
+- **Not carried:** TR_TRAP and TR_IRQ records (a faulting load reports `tval`), SC (it reads no memory; its outcome is
+  `rd`), and `tr_wb_t` (a deferred load's address is in its retire record).
+- **Compatibility:** consumers read `mem_vaddr` only with `mem_st` today, so they are unaffected until they look at
+  `mem_ld`. The board's 64-byte record needs one header bit for it (uncore-trace, soc-2); the address word is already
+  there. A physical address (verification.md §9 item 2) stays out until it is needed.
 
 ## 6. Who does what
 - **core-2:** steps 1–6 in rtl/core (except issue, exec and the FPU); the trace's hart field and load address; specs
@@ -210,7 +222,7 @@ For comparison:
 - **The register split** (D3) could bind FP-heavy pairs at 32 FP renaming registers a thread. smt2-study checks it
   first; the fallback is a shared FP free list with a flush walk.
 - **Lockstep with two harts sharing memory** reports legal load-value differences without the load address in the trace
-  (DR-093's con). The address goes in first (§5).
+  (DR-093's con). The address (`mem_ld` with `mem_vaddr`, §5) goes in with step 2.
 - **Estimate:** the plan gives M7 1–2 weeks. Steps 1–5 are most of it; with verif-2, soc-2 and smt2-study in parallel,
   2 weeks is the realistic end.
 
