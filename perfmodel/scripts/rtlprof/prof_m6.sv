@@ -26,7 +26,9 @@
 // 4.3%; follow-up 13). zc_held_trace keeps that count; the complete heads that really retire nothing are split by
 // what stops them: the flush cycle, the ROB not ready (the trace stream's back-pressure), a replay mark at the head,
 // the LSU's holds (a store in its PMP check, S2, or denied, S3; a load whose replay mark is on its way), or other.
-// Prints at the end: smt2_prof_m6: key value ... and smt2_m6_held: lines for the other heads' PCs.
+// Prints at the end: smt2_prof_m6: key value ... and smt2_m6_held: lines for the other heads' PCs. With +prof_snap=N
+// it also prints the counters so far every N cycles, as smt2_prof_m6@CYCLE [INSTANCE] key value ..., so a window's
+// counts are the difference of two lines (scripts/rtlprof/prof_window.py; area_recovery.md §6.14).
 module smt2_prof_m6
   import tg_pkg::*, tg_trace_pkg::*, tg_core_pkg::*;
 #(parameter int CW = 2, parameter int NM = 4, parameter int NLQ = 16, parameter int RPL = 5) (
@@ -115,10 +117,25 @@ module smt2_prof_m6
   longint unsigned c_dr_wait, c_dr_line, c_dr_entry;
   longint unsigned c_rob_full, c_rob_ldmiss, c_rob_oth, c_sq_full, c_sq_stmiss;
   int              ob;
+  longint unsigned snap;   // +prof_snap=N: the counters every N cycles (0: at the end only)
 
   initial begin
     for (int s = 0; s < NS; s++) for (int w = 0; w < 2; w++) for (int i = 0; i < 128; i++) sval[s][w][i] = 1'b0;
+    if (!$value$plusargs("prof_snap=%d", snap)) snap = 0;
   end
+
+  function automatic string line();
+    return $sformatf("cycles %0d instret %0d zc_fe_sweep %0d zc_fe_icmiss %0d zc_fe_itlb %0d zc_fe_misp %0d zc_fe_rpl %0d zc_fe_flush %0d zc_fe_other %0d zc_dtlb %0d zc_ld_miss %0d zc_ld_stq %0d zc_ld_other %0d zc_st %0d zc_serial %0d zc_exec %0d zc_held %0d misp %0d misp_wait %0d mw_0_2 %0d mw_3_5 %0d mw_6_10 %0d mw_11_20 %0d mw_21_50 %0d mw_51_100 %0d mw_gt100 %0d rt_ld %0d rt_ld_head %0d rt_ld_stall %0d rt_ld_save %0d rt_st %0d rt_st_head %0d rt_st_stall %0d rt_st_save %0d rt_ended_by_flush %0d fencei %0d sweep_cyc %0d ref_seqref %0d ref_seqdl %0d ref_other %0d park_seqref %0d park_seqdl %0d park_other %0d park_zc_seqref %0d park_zc_seqdl %0d park_zc_other %0d ovr_br %0d ovr_ret %0d ovr_strad %0d ub64_br %0d ub128_br %0d ub256_br %0d ub64_ret %0d ub128_ret %0d ub256_ret %0d ub64_strad %0d ub128_strad %0d ub256_strad %0d occ0 %0d occ1 %0d occ2 %0d occ3 %0d occ4 %0d rq %0d rq_full %0d rq_none %0d ld_wait_full %0d zc_wait_full %0d dr_wait %0d dr_line %0d dr_entry %0d rob_full %0d rob_full_ldmiss %0d rob_full_oth %0d sq_full %0d sq_full_stmiss %0d zc_held_trace %0d held_flush %0d held_notready %0d held_replay %0d held_st_s2 %0d held_st_s3 %0d held_rpmark %0d held_other %0d notready_cyc %0d",
+             cyc, ins, zc[0], zc[1], zc[2], zc[3], zc[4], zc[5], zc[6], zc[7], zc[8], zc[9], zc[10], zc[11], zc[12],
+             zc[13], zc[14], n_misp, w_misp, h_misp[0], h_misp[1], h_misp[2], h_misp[3], h_misp[4], h_misp[5],
+             h_misp[6], n_rt[0], c_head[0], c_stall[0], c_save[0], n_rt[1], c_head[1], c_stall[1], c_save[1], n_part,
+             n_fi, c_sweep, n_ref[0], n_ref[1], n_ref[2], c_park[0], c_park[1], c_park[2], c_park_zc[0],
+             c_park_zc[1], c_park_zc[2], n_ovr[0], n_ovr[1], n_ovr[2], caught[0][0], caught[0][1], caught[0][2],
+             caught[1][0], caught[1][1], caught[1][2], caught[2][0], caught[2][1], caught[2][2], occ[0], occ[1],
+             occ[2], occ[3], occ[NM], n_rq, n_rq_full, n_rq_none, c_ld_wait_full, c_zc_wait_full, c_dr_wait,
+             c_dr_line, c_dr_entry, c_rob_full, c_rob_ldmiss, c_rob_oth, c_sq_full, c_sq_stmiss, zc_held_tr, hh[0],
+             hh[1], hh[2], hh[3], hh[4], hh[5], hh[6], c_notready);
+  endfunction
 
   always @(posedge clk) begin
     if (rst) begin
@@ -285,19 +302,11 @@ module smt2_prof_m6
           if (st_req && !st_ack && (st_busy || !f_any)) c_sq_stmiss++;
         end
       end
+      if (snap != 0 && cyc % snap == 0) $display("smt2_prof_m6@%0d [%m] %s", cyc, line());
     end
   end
   final begin
-    $display("smt2_prof_m6: cycles %0d instret %0d zc_fe_sweep %0d zc_fe_icmiss %0d zc_fe_itlb %0d zc_fe_misp %0d zc_fe_rpl %0d zc_fe_flush %0d zc_fe_other %0d zc_dtlb %0d zc_ld_miss %0d zc_ld_stq %0d zc_ld_other %0d zc_st %0d zc_serial %0d zc_exec %0d zc_held %0d misp %0d misp_wait %0d mw_0_2 %0d mw_3_5 %0d mw_6_10 %0d mw_11_20 %0d mw_21_50 %0d mw_51_100 %0d mw_gt100 %0d rt_ld %0d rt_ld_head %0d rt_ld_stall %0d rt_ld_save %0d rt_st %0d rt_st_head %0d rt_st_stall %0d rt_st_save %0d rt_ended_by_flush %0d fencei %0d sweep_cyc %0d ref_seqref %0d ref_seqdl %0d ref_other %0d park_seqref %0d park_seqdl %0d park_other %0d park_zc_seqref %0d park_zc_seqdl %0d park_zc_other %0d ovr_br %0d ovr_ret %0d ovr_strad %0d ub64_br %0d ub128_br %0d ub256_br %0d ub64_ret %0d ub128_ret %0d ub256_ret %0d ub64_strad %0d ub128_strad %0d ub256_strad %0d occ0 %0d occ1 %0d occ2 %0d occ3 %0d occ4 %0d rq %0d rq_full %0d rq_none %0d ld_wait_full %0d zc_wait_full %0d dr_wait %0d dr_line %0d dr_entry %0d rob_full %0d rob_full_ldmiss %0d rob_full_oth %0d sq_full %0d sq_full_stmiss %0d zc_held_trace %0d held_flush %0d held_notready %0d held_replay %0d held_st_s2 %0d held_st_s3 %0d held_rpmark %0d held_other %0d notready_cyc %0d",
-             cyc, ins, zc[0], zc[1], zc[2], zc[3], zc[4], zc[5], zc[6], zc[7], zc[8], zc[9], zc[10], zc[11], zc[12],
-             zc[13], zc[14], n_misp, w_misp, h_misp[0], h_misp[1], h_misp[2], h_misp[3], h_misp[4], h_misp[5],
-             h_misp[6], n_rt[0], c_head[0], c_stall[0], c_save[0], n_rt[1], c_head[1], c_stall[1], c_save[1], n_part,
-             n_fi, c_sweep, n_ref[0], n_ref[1], n_ref[2], c_park[0], c_park[1], c_park[2], c_park_zc[0],
-             c_park_zc[1], c_park_zc[2], n_ovr[0], n_ovr[1], n_ovr[2], caught[0][0], caught[0][1], caught[0][2],
-             caught[1][0], caught[1][1], caught[1][2], caught[2][0], caught[2][1], caught[2][2], occ[0], occ[1],
-             occ[2], occ[3], occ[NM], n_rq, n_rq_full, n_rq_none, c_ld_wait_full, c_zc_wait_full, c_dr_wait,
-             c_dr_line, c_dr_entry, c_rob_full, c_rob_ldmiss, c_rob_oth, c_sq_full, c_sq_stmiss, zc_held_tr, hh[0],
-             hh[1], hh[2], hh[3], hh[4], hh[5], hh[6], c_notready);
+    $display("smt2_prof_m6: %s", line());
     foreach (hh_pc[pc]) if (hh_pc[pc] >= 200) $display("smt2_m6_held: pc %h cycles %0d", pc, hh_pc[pc]);
   end
 endmodule

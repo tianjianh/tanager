@@ -748,6 +748,52 @@ Linux is the reference workload (DR-141): the core's switch profiles are compare
   - CoreMark A and B within ±0.1%, inside the spread. Instructions per operation are identical across the profiles, so the differences are the core's cycles.
   - **The kernel's boot to `/init`** (its log timestamps; every profile is one `st` core at 60 MHz, so time is cycles): 2.451 s on the fallback, +0.59% on the default, +0.46% without #2, with a spread of 0.1% or less over three boots. The logs and the board's tables are in `fpga/kv260/board/dr141/`; `tglb_compare.py` reproduces the tables from the nine logs.
 
+### 4.7 Long-boot lockstep (`make boot-lockstep`, DR-173)
+
+The Linux boot on the SoC under lockstep, as far as a core change needs it. M6's micro-BTB alias (fixed in core-2's c261c1f) passed every program, the coherence suite and cycle-identical with the 20M-cycle boot, and panicked Linux on the board about 220M cycles in, in three boots of three. The 20M-cycle boot never got near it. Core-2's traced 100M-cycle boot found it on the FENCE.I branch, at cycle 91.6M.
+
+```
+make boot-lockstep [BRANCH=<ref>] [SHAPE=st|board] [MCYC=100] [TIMING="default board"] [SEED=1] [profile switches]
+make boot-lockstep-gate [BASE=main] [BRANCH=<ref>] [profile switches]
+tools/ci/boot_lockstep.py --nightly | --install-cron
+```
+
+- **The tap** (`sim/tb/tg_soc_tap.sv`, bound into `tanager_soc` by `tg_soc_tap_bind.sv` as `tg_soc_sig` is): every core's commit records and writebacks, taken at the SoC's trace ports where the uncore's trace stream takes them, written as the stream's 64-byte records (`tg_trace_stream`'s `pack_rec` and `pack_wb`, the 32-bit cycle stamp) to `+tap_out=FILE`, a FIFO that `tanager-lockstep` reads as the boot runs. The stream stays off, so nothing holds the cores back.
+  - **Why not `+trace_out`:** it goes through the stream, whose one AXI writer (a 64-byte burst a record) holds a 1-core boot near IPC 0.15, against 0.83 untraced. A trace memory at one cycle and always ready gave 0.169; four Verilator threads gave 10% more speed for 3.7 times the CPU.
+  - **Checked against the stream:** the first 389,603 records of a boot are byte for byte the stream's, cycle stamps aside. The first difference is the first read of the `cycle` CSR (the same instruction, another value), where the stream's back-pressure first shows.
+  - **`+mem_zero` always:** a tapped run is not a traced run to `tb_boot`, so unwritten memory would read the DDR models' fill pattern where Spike reads zero (the first tapped boot stopped on a CRC over such bytes).
+- **A run:** `tb_boot` built with the tap (`MEM_PARAMS=-GL2_SETS_TB=1024`, the board's L2), the pinned reference images (§4.5), the configuration's device tree from `sw/dts` (128 MiB, FPU), and `tanager-lockstep` built from the same tree, so its boot ROM and PMP default are the tested RTL's. The RTL is `BRANCH`'s (default: this tree's, uncommitted changes too); the harness (`sim/`, `tests/unit`, `sw/dts`) is this tree's, as in cycle-identical. A run stops at `MCYC` million cycles or at `TANAGER-BOOT-OK`, and reports PASS, MISMATCH (the checker's first lines and its report) or could-not-check, with the records, cycles, IPC and minutes. Builds are cached in `$TANAGER_BUILD/boot-lockstep` (binaries only, four kept).
+  - **Shapes:** `st`, one `st` core; `board`, the board's: two `smt2` cores running thread 0 each (harts 0 and 2), four Verilator threads.
+  - **Timings** (the DDR models' run-time plusargs, so one build serves them all; one run each, side by side): `board`, a fixed 22 cycles with every ready at 100%; `jitter`, 18–26 cycles; `fixedN`; `default`, `tb_boot`'s own 4–12.
+  - **`--plant N`** makes the checker corrupt record N: the self-test of the failure path.
+- **Speed** (w-x299, 2026-10-19, Linux from the reference images on 0a1a418, board-like memory, under a load of about 40):
+
+  | Path | kHz | IPC | instructions/s |
+  |---|---|---|---|
+  | `+trace_out` through the stream (one core) | 22 | 0.154 | 3.4K |
+  | the same, trace memory at one cycle | 22 | 0.169 | 3.7K |
+  | the same, four Verilator threads | 24 | 0.169 | 4.1K |
+  | the same, the board's shape, four threads | 17 | 0.169 | 2.9K |
+  | untraced (one core) | 22 | 0.83 | 18.3K |
+  | **the tap under lockstep (one core)** | 18–20 | 0.74–0.79 | 13–15K |
+  | **the tap, the board's shape, four threads** | 13–15 | 0.87–0.96 | 12–13K |
+
+  `tanager-lockstep` checks 22–52K records a second on these runs and never holds them up. The tap's rows are averages over the first 50–60M cycles of the 400M-cycle boots (the first million cycles run at IPC 1.7). One `st` core: 20M cycles in about 15 minutes, 100M in 75–90, 400M in 5½–6 hours; the board's shape about 30% slower per cycle.
+- **The gate** (`make boot-lockstep-gate`): when the change, against its merge base with `BASE` (main), touches the core's fetch, decode, rename, LSU, MMU or CSR (`rtl/core/{frontend,decode,rename,lsu,mmu,csr}`, or `tg_core.sv` and `tg_core_pkg.sv`, which configure them), it runs `st` at 100M cycles with `default` and `board` timing side by side: two threads, 65–90 minutes, beside the regressions. Otherwise it says so and passes. Against the merge base, not main's tip: a branch behind main would otherwise count main's newer files as its own, and a branch already merged would show nothing.
+- **The nightly** (`--nightly`, from the crontab `--install-cron` writes, with main's checkout's copy, at 00:15): main's head, 400M cycles, `st` and the board's shape side by side, with one timing a night in turn (`board`, `jitter`, `fixed30`, `default`) and the night's seed. It waits for 12 GB of `MemAvailable`, runs at normal priority (at nice 19 on a busy host the board's four-thread model made under 1M cycles in 11 minutes: its threads meet every cycle), and is the first out-of-memory victim, as the soak. Each run's line goes to `$TANAGER_BUILD/boot-lockstep/nightly.md`; a mismatch or a run it could not check goes to the soak's list of failures to triage (`soak/fail/<time>-boot-<shape>-<timing>`, with the repro and the checker's report).
+- **Why timing variety:** this bug class depends on the fetch history: whether an aliasing micro-BTB entry is resident when a taken exit at its slot is fetched. Core-2's traced 100M-cycle boot of main passed; it failed on the FENCE.I branch, whose timing differs. So the gate runs two timings rather than more cycles, and the nightly changes timing every night (DR-173).
+- **The proof** (2026-10-19, 0a1a418, main before core-2's fix c261c1f; tapped boots under lockstep):
+
+  | Shape, timing | First mismatch |
+  |---|---|
+  | `st`, `default` | cycle 89,314,660 (record 63,912,391): a taken `c.beqz` at `ffffffff800e422a` went to `3f bd6e 3200`, a user-space target from another block's entry, and retired an S-mode instruction page fault there |
+  | the board's shape, `board` | cycle 86,915,594 on hart 0: a taken `c.beqz` at `ffffffff80025a62` went to `3f 961d c9b0` |
+  | `st`, `board` | cycle 106,199,223, in U-mode: a taken `bnez` at `3f 8f8f f3f8` went to `3f 8f96 1bc0` |
+  | `st`, `jitter` | none in 100M cycles |
+  | `+trace_out` through the stream, `board` | none in 110M cycles (17.0M records, 93 minutes) |
+
+  Main with the fix (7d781ac) in `st`, `default` passed 100M cycles (70.8M records, 68 minutes). So the gate takes the two timings that caught it first, `default` and `board`; with `jitter` and `board` it would have missed it within 100M cycles. The board saw the panic at about 220M cycles in three boots of three.
+
 ## 5. The test core (`tg_tcore`)
 
 Simulation-only RTL in `sim/tcore/`, never in a product filelist. Its only job is to exercise the harness and the checker before `tg_core` exists, and to keep doing so as a reference afterwards.
@@ -1017,6 +1063,7 @@ DR-149 gives v1's L1D 4 MSHRs, a core-track switch after DR-148's timing work. T
   - the core track's M2 core passed 113 of 129 ACT4 tests before its merge, then 241 of 243 with the full plan list;
   - `make regress` passes in all four configurations.
 - **The soak, from 2026-10-14:** 40,960 programs on four successive main commits, in four configurations with every M3 switch on: no failures. By 11:30 the same day, 193,760 programs and still none; the last 100,000 or so were `rv64gc` with F/D, and the soak came back by itself after a WSL restart. Its failure path was checked with a simulator that drops records at stalls: 6 of 6 programs caught, each kept with its repro. After the build host ran out of memory (Vivado, at about 03:20) it gained a memory gate, an 8-simulation cap and a raised `oom_score_adj`.
+- **M6's micro-BTB alias (2026-10-19):** M6 merged with a front-end bug: at the micro-BTB's slot, F2 kept the micro-BTB's target but marked the exit "own target", so decode skipped its check, and an entry that aliased another block 2 MiB away sent the core down a wrong path unchecked. It passed every program, the coherence suite and cycle-identical with the 20M-cycle boot. Linux panicked on the board about 220M cycles in, in three boots of three. Core-2's traced 100M-cycle boot under `tanager-lockstep` found it on the FENCE.I branch (cycle 91.6M); a traced boot of main itself passed 100M cycles. Lessons: a bug that needs a long, particular fetch history needs long boots with varied timing, not more programs; and a check is only as long as it is cheap, so the trace tap (§4.7) took the stream's back-pressure out of traced boots and made 100M cycles a 75-minute gate.
 - **The host move (2026-10-19):** the build host became w-x299 (conventions §9). The soak's first round there repeated the 5950X's last round on the same RTL (main df08b40 against 5b12b36, seeds 2374144–2375743, timer interrupts and timing cuts on): 1,600 of 1,600 programs passed, and in `st`, `st_w3` and `smt2` the L1D statistics summed over each configuration's 400 programs (Acquires by misses in flight, probes against misses, Releases during a miss, same-set misses, Grants out of order) were identical to the 5950X's. `smt2_w3` had not finished on the 5950X; it passed 400 of 400. The 5950X's last coherence seeds (2372544–2372563, every mode with `dma`) passed in both configurations, as they had there. A build of the soak's models took 13 min 46 s at `-j4` (11 minutes on the 5950X); a round took as long as there.
 
 - **The cycle-identical check (2026-10-14, §4.5),** for the FPGA-friendly rewrites:

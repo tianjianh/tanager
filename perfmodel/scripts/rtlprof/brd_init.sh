@@ -1,11 +1,12 @@
 #!/bin/bash
-# smt2-study (area_recovery.md 6.12): Linux to /init in tb_boot as the board ran it, on the build host. RTL $1: d2
-# (e65db3a) or d4s2 (03171ea with c261c1f's tg_fetch.sv), each a scratch worktree under smt2-study/brd_$1 whose
-# tests/unit/boot/tb_boot.sv has CO_SIZE widened to 1 GiB for the board's device tree. smt2, two cores; the console on
-# the host bridge (no serial timing: the CPU time alone); board-like memory (DDR 22 cycles, a 1,024-set L2); the
-# board's bench OpenSBI and Image, and its bench device tree. The kernel log's timestamps are the CPU time to compare.
+# smt2-study (area_recovery.md 6.12, 6.13): Linux to /init in tb_boot as the board ran it, on the build host. RTL $1:
+# d2 (e65db3a), d4s2 (03171ea with c261c1f's tg_fetch.sv) or d4r1 (c072fff), each a scratch worktree under
+# smt2-study/brd_$1 whose tests/unit/boot/tb_boot.sv has CO_SIZE widened to 1 GiB for the board's device tree. smt2,
+# two cores; the console on the host bridge (no serial timing: the CPU time alone); board-like memory (DDR 22 cycles, a
+# 1,024-set L2); the board's bench OpenSBI and Image, and its bench device tree. The kernel log's timestamps are the CPU
+# time to compare.
 n=$1
-[ -n "$n" ] || { echo "usage: brd_init.sh d2|d4s2"; exit 2; }
+[ -n "$n" ] || { echo "usage: brd_init.sh d2|d4s2|d4r1"; exit 2; }
 T=/home/w/tanager-build/smt2-study/brd_$n
 cd "$T" || exit 1
 source tools/env.sh >/dev/null 2>&1
