@@ -126,23 +126,26 @@ module tg_core
   logic [NUM_THREADS-1:0] fs_dirty;   // per hart
   logic [1:0] fc_waddr;
   logic [7:0] fc_wdata;
-  priv_e priv, priv_d;
-  logic  tvm, tw, tsr, sum, mxr, satp_sv39;
+  priv_e priv;
+  logic  tvm, tw, tsr, satp_sv39;
   logic [15:0] satp_asid;
-  logic [43:0] satp_ppn;
   pmp_d_t [PMP_ENTRIES-1:0] pmp_d;
-  logic [2:0]        pmp_al;
-  logic [PMP_ENTRIES-1:0] pmp_p2m;
+  // Each hart's, for the LSU and the walker (M7's step 4)
+  priv_e  [NUM_THREADS-1:0]                  priv_h, priv_d_h;
+  logic   [NUM_THREADS-1:0]                  sum_h, mxr_h, sv39_h;
+  logic   [NUM_THREADS-1:0][43:0]            satp_ppn_h;
+  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h;
+  logic   [NUM_THREADS-1:0][2:0]             pmp_al_h;
+  logic   [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_p2m_h;
   logic        satp_wr, pmp_wr, pmp_busy, sfence, tlb_flush;
-  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
-  // write (the TLBs cache PMP results)
-  always_ff @(posedge clk) tlb_flush <= !rst && (sfence || satp_wr || pmp_wr);
+  tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
   logic [1:0]  it_fill_lvl;
   tlb_pte_t    it_fill_pte;
+  tid_t        it_fill_tid;
 
   // ---- Front end ----
   logic        fe_ready, lsu_ready;
@@ -202,24 +205,27 @@ module tg_core
   // and the flush that follows the next cycle squashes the LSU's new accesses (the walker, S2, the
   // head's check and the walk prefetch are flush-gated), which resume with the copy caught up
   // (timing, DR-145: G6's tg_csr priv -> the LSU's translation mode -> the store's PMP checker ->
-  // the ROB, -1.53 ns, 70% wire; any difference falls in a flush cycle, asserted)
-  priv_e       priv_l_q, priv_dl_q;
-  logic        sum_l_q, mxr_l_q, sv39_l_q;
-  logic [43:0] satp_ppn_l_q;
-  always_ff @(posedge clk) begin
-    priv_l_q     <= rst ? PRIV_M : priv;
-    priv_dl_q    <= rst ? PRIV_M : priv_d;
-    sum_l_q      <= !rst && sum;
-    mxr_l_q      <= !rst && mxr;
-    sv39_l_q     <= !rst && satp_sv39;
-    satp_ppn_l_q <= satp_ppn;
-  end
+  // the ROB, -1.53 ns, 70% wire; any difference falls in a flush cycle, asserted). One copy per hart
+  // (M7's step 4)
+  priv_e [NUM_THREADS-1:0]       priv_l_q, priv_dl_q;
+  logic  [NUM_THREADS-1:0]       sum_l_q, mxr_l_q, sv39_l_q;
+  logic  [NUM_THREADS-1:0][43:0] satp_ppn_l_q;
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      priv_l_q[t]     <= rst ? PRIV_M : priv_h[t];
+      priv_dl_q[t]    <= rst ? PRIV_M : priv_d_h[t];
+      sum_l_q[t]      <= !rst && sum_h[t];
+      mxr_l_q[t]      <= !rst && mxr_h[t];
+      sv39_l_q[t]     <= !rst && sv39_h[t];
+      satp_ppn_l_q[t] <= satp_ppn_h[t];
+    end
 `ifndef SYNTHESIS
   always @(posedge clk)
     if (rs_fq && !rst)
-      assert (flush || (priv_l_q == priv && priv_dl_q == priv_d && sum_l_q == sum && mxr_l_q == mxr &&
-                        sv39_l_q == satp_sv39 && satp_ppn_l_q == satp_ppn))
-        else $error("tg_core: the LSU's privilege copy differs outside a flush");
+      for (int t = 0; t < NUM_THREADS; t++)
+        assert (flush || (priv_l_q[t] == priv_h[t] && priv_dl_q[t] == priv_d_h[t] && sum_l_q[t] == sum_h[t] &&
+                          mxr_l_q[t] == mxr_h[t] && sv39_l_q[t] == sv39_h[t] && satp_ppn_l_q[t] == satp_ppn_h[t]))
+          else $error("tg_core: the LSU's privilege copy of hart %0d differs outside a flush", t);
 `endif
   // The decoders' state, as decode gets it, for the instruction queue's decode bits too (declared
   // ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
@@ -236,8 +242,8 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush,
-    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
+    .xl_i(xl_f_q), .dst(de_state), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
@@ -268,12 +274,11 @@ module tg_core
 
   // ---- Rename and dispatch ----
   // Per thread (M7's step 3): the ROB's heads, the LSU's LQ and SQ pointers and rename's tails. The LSU's head checks
-  // serve the running thread (rob_head) until step 4
-  robid_t rob_head;
+  // follow the ROB's commit thread (rob_hd_tid, step 4)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
+  tid_t                     rob_hd_tid;
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
-  assign rob_head   = rob_head_t[RUN_TID];
   logic [N_IQ-1:0][DISPATCH_WIDTH-1:0] iq_bank_free, iq_bank_free2;
   logic [NCOL-1:0] w_vec, iq_busy;
   logic [INT_BANKS-1:0]             rf_we;
@@ -311,6 +316,13 @@ module tg_core
   logic [4:0]                       fp_cmp_fflags;
   logic [CW-1:0][4:0]               cm_fflags;
   tid_t [CW-1:0]                    cm_tid;     // the retiring instructions' threads
+  // Translation (M3): the TLBs flush with the flush after SFENCE.VMA, a satp change or a PMP
+  // write (the TLBs cache PMP results). Each retires alone in slot 0: the flush clears that hart's
+  // entries (M7's step 4)
+  always_ff @(posedge clk) begin
+    tlb_flush     <= !rst && (sfence || satp_wr || pmp_wr);
+    tlb_flush_tid <= cm_tid[0];
+  end
   logic [NCOL-1:0]                  wake_p4;
   logic [LLT_ENTRIES-1:0]           llt_done_p4;
   logic [IQ_TAGS-1:0]               tag_free_x, tag_free_p4;
@@ -463,8 +475,52 @@ module tg_core
   logic                hd_tlb, hd_retry, hd_fault;
   logic [3:0]          hd_cause;
   logic [63:0]         hd_lva, hd_sva;
+  // The LSU's flush: the ROB's. In simulation +xflush=PCT (split builds) adds phantom flushes of the thread that
+  // does not run, in cycles with no flush: in PCT% of them and in every one in which the running thread's MMIO read
+  // is out (tg_lsu's x_out). The LSU and its walker hold nothing of that thread, so the run must be the same but for
+  // its cycles (lockstep, tg_vsim's one bus read per MMIO load, tg_lsu's checks): step 4's per-thread kills tested
+  // before a second thread runs (step 5). The counts go to stderr at the end.
+  logic lsu_flush;
+  tid_t lsu_flush_tid;
+`ifdef SYNTHESIS
+  assign lsu_flush     = flush;
+  assign lsu_flush_tid = flush_tid;
+`else
+  bit              xf_on;
+  int unsigned     xf_pct;
+  logic [31:0]     xf_r_q;          // xorshift32: the phantom flushes' own sequence (the testbench's $urandom stays)
+  logic            xf_inj;
+  longint unsigned xf_n, xf_nx;
+  function automatic logic [31:0] xs32(input logic [31:0] x);
+    logic [31:0] y;
+    y = x ^ (x << 13);
+    y = y ^ (y >> 17);
+    return y ^ (y << 5);
+  endfunction
+  initial begin
+    xf_on = $value$plusargs("xflush=%d", xf_pct);
+    if (xf_on && !SPLIT) $fatal(1, "tg_core: +xflush needs a split build (SPLIT=1)");
+  end
+  assign xf_inj        = xf_on && !rst && !flush && (xf_r_q % 100 < xf_pct || u_lsu.x_out);
+  assign lsu_flush     = flush || xf_inj;
+  assign lsu_flush_tid = xf_inj ? ~RUN_TID : flush_tid;
+  always_ff @(posedge clk) begin
+    xf_r_q <= rst ? 32'h2545_f491 : xs32(xf_r_q);
+    if (rst) begin
+      xf_n  <= 0;
+      xf_nx <= 0;
+    end else if (xf_inj) begin
+      xf_n  <= xf_n + 1;
+      if (u_lsu.x_out) xf_nx <= xf_nx + 1;
+    end
+  end
+  final if (xf_on)
+    $fwrite(32'h8000_0002, "TG-XFLUSH %m: %0d phantom flushes of thread %0d, %0d with an MMIO read out\n", xf_n,
+            ~RUN_TID, xf_nx);
+`endif
   tg_lsu u_lsu (
-    .clk, .rst, .ready(lsu_ready), .flush, .flush_tid, .ds_fire, .ds_valid, .ds_uop, .ds_ren,
+    .clk, .rst, .ready(lsu_ready), .flush(lsu_flush), .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
+    .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
     .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
@@ -473,14 +529,15 @@ module tg_core
     .ds_src2_rdy, .rf_we, .rf_widx,
     .ld_cmp_valid(ld_cmp), .ld_cmp_rob, .ld_cmp_mmio, .st_cmp_valid(st_cmp), .st_cmp_rob,
     .exc_valid(lx_valid), .exc_rob(lx_rob), .exc_cause(lx_cause), .spx_valid, .spx_rob, .sth_v, .sth_rob,
-    .replay_valid, .replay_rob, .rob_head, .cm_tid(cm_tid[0]), .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
+    .replay_valid, .replay_rob, .rob_head(rob_head_t), .hd_tid(rob_hd_tid), .cm_tid(cm_tid[0]), .cm_nld, .cm_nst,
+    .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data,
     .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .sq_drained, .mmio_busy, .irq_go(tr_irq), .rsv_clr, .st_dropped,
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
-    .satp_ppn(satp_ppn_l_q), .pmp_d, .pmp_al, .pmp_p2m, .tlb_flush,
+    .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_al(pmp_al_h), .pmp_p2m(pmp_p2m_h), .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
     .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
-    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte,
+    .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
     .l1d_e_o, .l1d_e_valid_o, .l1d_e_ready_i,
@@ -500,8 +557,9 @@ module tg_core
     .cm_tid0(cm_tid[0]), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
     .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
-    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .priv_d, .tvm, .tw, .tsr, .sum, .mxr, .satp_sv39,
-    .satp_asid, .satp_ppn, .satp_wr, .pmp_d, .pmp_al, .pmp_p2m, .pmp_wr, .pmp_busy,
+    .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
+    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
+    .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i));
 
@@ -516,7 +574,7 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t), .hd_tid_o(rob_hd_tid),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
@@ -656,7 +714,7 @@ module tg_core
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;
     always_ff @(posedge clk)
-      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head)), rn_dbg};
+      dbg_q <= {flush, trace_stall_q, lsu_dbg, 6'(rob_cnt_t(rob_tail_t[RUN_TID], rob_head_t[RUN_TID])), rn_dbg};
     // The allocation log (words 1-31): slots 0 and 1 of the first dispatch groups and commit cycles
     function automatic logic [14:0] dslot(input logic v, input logic fp, input logic [4:0] rd,
                                           input preg_t p);

@@ -70,6 +70,10 @@ module tg_dcache
   input  logic [63:0]       st_wdata,     // the bytes in their lanes of both dwords (st_mask picks)
   output logic              st_ack,
   output logic              st_dropped,   // acked without writing (denied Grant)
+  // M7 (two threads, SPLIT): the store port's request (a store or an atomic) needs a new miss entry and gets none
+  // this cycle; and a store waits for one (the LSU's per-thread record of st_wait): loads leave it the last entry
+  output logic              st_wait,
+  input  logic              st_resv,
   // Atomics: read-modify-write of one row with the line held in T (never with st_req)
   input  logic              am_req,       // held until am_ack or am_den
   input  logic              am_sel,       // the atomic holds the store port (its state: am_req
@@ -323,11 +327,25 @@ module tg_dcache
   // allocation -> the MSHR's registers and the state write, -1.40 and -1.49 ns; the same decisions,
   // checked in simulation against the earlier form). m_free_st and m_free_ld say whether the miss
   // side can take each (one MSHR: when it is idle)
+  // With two threads (M7's step 4, D8; smt2_report §13.10) a store or an atomic that needs a new entry keeps the last
+  // free one from loads' requests until it allocates: in its own cycle (sx_new), and, as the drain takes turns between
+  // the threads, while the LSU records its thread's head store waiting (st_resv). Else an entry that frees while the
+  // store cannot take it (the release engine busy with its victim, or the drain presenting the other thread's store)
+  // goes to the sibling's next load miss, and a pointer chase beside a store stream starves the drain. In merged mode
+  // the allocation is the one before M7.
   logic al_base;                         // nothing else holds the allocation's state write
   logic alloc_st, alloc_ld, alloc_pf;
+  logic sx_new;                          // the store port's request needs a new entry (its line in none)
+  logic m_spare;                         // the miss side has an entry to spare (DC_MSHRS > 1: two free)
+  logic st_rsv;                          // loads leave the last entry to the store port
+  logic st_rsvq;                         // ... from registers alone (the store port's request hits)
   assign al_base  = ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
   assign alloc_st = al_base && m_free_st && sx_req && !s_hit_t;
-  assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st);
+  assign st_rsv   = SPLIT && (st_resv || (sx_req && !s_hit_t && !dn_hit && sx_new)) && !m_spare;
+  assign st_rsvq  = SPLIT && st_resv && !m_spare;
+  assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st) &&
+                    !st_rsv;
+  assign st_wait  = sx_req && !s_hit_t && !dn_hit && sx_new && !alloc_st;
   // A store's ownership prefetch (STORE_PF, DC_MSHRS > 1): its line, absent or held in B, through the
   // controller port in a cycle without a load's request; never for a line held with T, beside an
   // atomic, or when the store port writes or allocates (m_free_pf: the store port then has no request,
@@ -423,8 +441,9 @@ module tg_dcache
   // that hits allocates nothing, so only a load's allocation can take the state port then, and the
   // hit selects last
   logic pst_ok;
+  // (a load's allocation, as alloc_ld decides it when the store port's request hits: st_rsvq)
   assign pst_ok     = !probe_active && !m_on_c && !pb_grant && !m_inst &&
-                      !(al_base && m_free_ld && c_req && !(|ch));
+                      !(al_base && m_free_ld && c_req && !(|ch) && !st_rsvq);
   assign pb_st      = st_req && s_hit_t && pst_ok;
   assign pb_amw     = amw_q && |am_wmask;
   // Port B's read data, selected once by the way it last read: a probe, an eviction or an
@@ -840,6 +859,8 @@ module tg_dcache
     assign m_free_st  = m_none;
     assign m_free_ld  = m_none;
     assign m_free_pf  = 1'b0;                // (no prefetch with one MSHR: it is never to spare)
+    assign sx_new     = 1'b1;                // (one MSHR: a waiting store's line is in no entry when it frees)
+    assign m_spare    = 1'b0;
     assign m_dbg      = 4'(ms_q);
     assign c_req      = lm_req;
     assign c_pa       = lm_pa;
@@ -1064,6 +1085,8 @@ module tg_dcache
     assign c_pf       = STORE_PF && pq_v_q && !rq_v_q;
     assign c_pa       = (STORE_PF && !rq_v_q) ? {pq_l_q, 6'b0} : rq_pa_q;
     assign f_two      = $countones(~busy) >= 2;
+    assign sx_new     = !st_busy;
+    assign m_spare    = f_two;
     assign pf_room    = $countones(busy & epf_q) < PF_MAX;
     assign m_free_pf  = c_pf && f_two && pf_room && !m_inst && !rq_busy && !rq_rel &&
                         (rs_q == R_IDLE || |ch || !ev_c) && (!st_req || st_busy);
@@ -1339,7 +1362,7 @@ module tg_dcache
       r_alloc_ld = 1'b0;
       if (m_none && !probe_active && !(b_valid_i && ps_q == P_IDLE) && !pb_amr && !am_busy && !fu_st && ready) begin
         if (sx_req && !r_s_hit_t)  r_alloc_st = 1'b1;
-        else if (c_req && !(|ch)) r_alloc_ld = 1'b1;
+        else if (c_req && !(|ch) && !(SPLIT && st_resv)) r_alloc_ld = 1'b1;
       end
       r_sx_drop = sx_req && m_none && dn_hit && !r_s_hit_t
                   && !r_alloc_ld && !probe_active;

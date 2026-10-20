@@ -33,6 +33,7 @@ module tg_rob
   input  uop_t [DISPATCH_WIDTH-1:0]    ds_uop,
   input  ren_t [DISPATCH_WIDTH-1:0]    ds_ren,
   output robid_t [NUM_THREADS-1:0]     head_o,       // each thread's head
+  output tid_t                         hd_tid_o,     // the thread whose head commits this cycle (the LSU's head checks)
   // Completion
   input  logic [N_ALU-1:0]             alu_cmp,
   input  robid_t [N_ALU-1:0]           alu_rob,
@@ -156,7 +157,8 @@ module tg_rob
   assign t_cm = (SPLIT && NT > 1) ? ct_q : RUN_TID;
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
   robid_t [NT-1:0] head_q, tail_q;
-  assign head_o = head_q;
+  assign head_o   = head_q;
+  assign hd_tid_o = t_cm;
   logic [NT-1:0]          xr_v_q, xr_s_q;  // an MRET or SRET in flight; SRET
 
   logic   [NT-1:0]        exr_v_q;
