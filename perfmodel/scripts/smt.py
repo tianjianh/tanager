@@ -106,8 +106,10 @@ def single(sets):
 
 
 def pair_key(sets, a, b):
-    raw = json.dumps([ISA, "smt", PRESET, sorted(sets.items()), a, b, dse.MODEL_VERSION, dse.SUITE_VERSION,
-                      SMT_VERSION])
+    parts = [ISA, "smt", PRESET, sorted(sets.items()), a, b, dse.MODEL_VERSION, dse.SUITE_VERSION, SMT_VERSION]
+    if dse.PRESET_REV.get(PRESET, 0) >= 8:   # the preset's revision, from 8 on (earlier runs were cached without it)
+        parts.append(["rev", dse.PRESET_REV[PRESET]])
+    raw = json.dumps(parts)
     return hashlib.sha1(raw.encode()).hexdigest()[:16], raw
 
 
