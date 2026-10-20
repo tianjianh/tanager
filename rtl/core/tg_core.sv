@@ -267,12 +267,13 @@ module tg_core
   robid_t rob_head;
   lqid_t  lq_head;
   sqid_t  sq_head, sq_cmt;
-  // Per thread (M7's step 3): rename's tails, and the heads it checks room against. The ROB's and the LSU's pointers
-  // are one set until their part of step 3: every thread sees them, which is exact with one thread in the window
+  // Per thread (M7's step 3): the ROB's heads and rename's tails; the LSU takes the running thread's head (its own
+  // pointers are one set until its part of step 3: every thread sees them, which is exact with one thread in the
+  // window)
   robid_t [NUM_THREADS-1:0] rob_tail_t, rob_head_t;
   lqid_t  [NUM_THREADS-1:0] lq_head_t;
   sqid_t  [NUM_THREADS-1:0] sq_head_t, sq_cmt_t;
-  assign rob_head_t = {NUM_THREADS{rob_head}};
+  assign rob_head   = rob_head_t[RUN_TID];
   assign lq_head_t  = {NUM_THREADS{lq_head}};
   assign sq_head_t  = {NUM_THREADS{sq_head}};
   assign sq_cmt_t   = {NUM_THREADS{sq_cmt}};
@@ -513,7 +514,7 @@ module tg_core
       assert (init_done && rn_ready) else $error("tg_core: the ROB commits before rename is ready");
 `endif
   tg_rob #(.CORE_ID(CORE_ID)) u_rob (
-    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head),
+    .clk, .rst, .ready(!trace_stall_q), .ds_fire, .ds_valid, .ds_uop, .ds_ren, .head_o(rob_head_t),
     .alu_cmp, .alu_rob, .oth_cmp, .oth_rob, .oth_exc, .oth_tval, .oth_fflags,
     .fp_cmp, .fp_cmp_rob, .fp_cmp_fflags, .cm_fflags, .cm_tid,
     .br_valid, .br_rob, .br_misp, .br_npc, .br_exc, .br_tval,
