@@ -338,9 +338,11 @@ module tg_dcache
   logic sx_new;                          // the store port's request needs a new entry (its line in none)
   logic m_spare;                         // the miss side has an entry to spare (DC_MSHRS > 1: two free)
   logic st_rsv;                          // loads leave the last entry to the store port
+  logic st_rsvq;                         // ... from registers alone (the store port's request hits)
   assign al_base  = ps_q == P_IDLE && !b_valid_i && !am_busy && !fu_st && ready;
   assign alloc_st = al_base && m_free_st && sx_req && !s_hit_t;
   assign st_rsv   = SPLIT && (st_resv || (sx_req && !s_hit_t && !dn_hit && sx_new)) && !m_spare;
+  assign st_rsvq  = SPLIT && st_resv && !m_spare;
   assign alloc_ld = al_base && m_free_ld && c_req && !(|ch) && !am_req && !(st_req && !s_hit_t && m_free_st) &&
                     !st_rsv;
   assign st_wait  = sx_req && !s_hit_t && !dn_hit && sx_new && !alloc_st;
@@ -439,8 +441,9 @@ module tg_dcache
   // that hits allocates nothing, so only a load's allocation can take the state port then, and the
   // hit selects last
   logic pst_ok;
+  // (a load's allocation, as alloc_ld decides it when the store port's request hits: st_rsvq)
   assign pst_ok     = !probe_active && !m_on_c && !pb_grant && !m_inst &&
-                      !(al_base && m_free_ld && c_req && !(|ch));
+                      !(al_base && m_free_ld && c_req && !(|ch) && !st_rsvq);
   assign pb_st      = st_req && s_hit_t && pst_ok;
   assign pb_amw     = amw_q && |am_wmask;
   // Port B's read data, selected once by the way it last read: a probe, an eviction or an
