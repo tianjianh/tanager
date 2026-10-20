@@ -1241,6 +1241,39 @@ Results: `fpga/spikes/results/h100_m6m_al/` (with `times.txt` and `load.txt`), a
 
 Results: `fpga/spikes/results/h100_urf/` (with `urf_chip.txt`, the register file's paths, and `near_families_urf.txt`), `h100_urf_synth/` (with `urf_exceptions.rpt`), and the control `h100_urf0/`, `h100_urf0_synth/`. The tree is the scratch branch `claude/spikes-2-urf-tierb`.
 
+
+### 8.17 M7's steps 1–3b in the full chip, the URF off and on (2026-10-20)
+
+**Question (the coordinator):** the core alone drifted from +0.876 ns before M7 to +0.565–0.717 ns over steps 2–3b. What does the full chip show before step 5 adds real hart 1? The answer puts DR-174's switch on a trend, not one point.
+
+**Method:** main 271d4527 (M7 steps 1–3b, hart 1 off) at 100 MHz with hart 1's filler (47 tiles, 20 LUTRAM blocks). §8.12's flow, with 1.0 ns over-constraint on the core clock and 0.5 ns on `clk2x`, taken back for the figures. Two builds in parallel on w-arrowlake, URF off (`h100_m7b0`) and on (`h100_m7b1`), one placement each.
+
+| | URF off (`h100_m7b0`) | URF on (`h100_m7b1`) | §8.15 `h100_m6m` (31e65c6) | §8.16 URF off / on (31570d5) |
+|---|---|---|---|---|
+| LUTs after synthesis | 119,501 | 116,911 | 121,004 | 118,453 / 115,873 |
+| LUTs placed (fill) | 112,397 (96.0%) | 109,675 (93.6%) | 113,721 (97.1%) | 111,217 (95.0%) / 108,693 (92.8%) |
+| UltraRAMs | 32 | 50 | 32 | 32 / 50 |
+| WNS / WHS ns, core clock | **+0.022** / +0.001 | +0.988 / +0.006 | +0.348 / +0.011 | +0.801 / +0.769 |
+| Endpoints below 0.5 / 1.0 ns | 825 / 4,458 | 0 / 7 | 0 / 1,239 | 0 / 50 and 0 / 199 |
+| Routing | 65 min | 22 min | 150 min (w-x299) | 33 / 24 min |
+
+**Worst paths:**
+- **URF off, all at +0.022–0.100 ns:**
+  - the front end: core 1's I$ data RAM → `krt_q` and core 0's TAGE table RAM → F3's target, both 19 levels;
+  - the LSU: the DTLB → M2's data (+0.038), and 512 endpoints of the L1D tag RAM from `lose_line_q` (+0.042);
+  - new with M7's per-hart state: core 0's CSR state `h_q[mie]` → `h_q[fs]` (+0.045), the PMP address RAM (+0.097) and rename's free-list count (+0.100).
+- **URF on:** only 7 endpoints within 1 ns. Core 0's I$ data RAM → `krt_q` +0.988, the L1D data RAM from the store queue's head +0.989, and the two cores' F3 targets.
+- **URF on, its clocks and paths:** `clk2x` at +1.412 ns. The register file's tightest path is core 1's select → port B's address, +1.586 ns, and its mid-cycle reads are +1.16–1.17 ns.
+
+**Findings:**
+- **Steps 1–3b add about 1,040 LUTs to the chip after synthesis** (+1,048 URF off, +1,038 on, against §8.16), about 1,180 placed.
+- **They take the URF-off chip from +0.80 ns at 95.0% placed to +0.02 ns at 96.0%.** That is right at DR-175's trigger on both counts: about 96% placed, and the edge of 100 MHz. With 825 endpoints within 0.5 ns, one more placement could as easily miss.
+- **The same tree with the URF on meets 100 MHz with +0.99 ns at 93.6%,** saving 2,722 placed LUTs and 0.97 ns.
+- **Against §8.15's `h100_m6m`, the URF-off chip is 1,324 LUTs smaller but 0.33 ns slower.** Main shed about 2.5K LUTs between 31e65c6 and 31570d5 (§8.16), and M7's steps put about 1.2K back with paths of their own.
+- **Before step 5 adds hart 1** (about +1.1K LUTs a core above the filler), the URF-off chip is already at the trigger.
+
+Results: `fpga/spikes/results/h100_m7b0/`, `h100_m7b1/` (with `urf_chip.txt`), each with `near_families_*.txt`, and their `_synth/` folders.
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
