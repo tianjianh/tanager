@@ -91,8 +91,8 @@ module tg_core
   if (SOLO_TID && TID_W == 0) begin : g_bad_solo
     $error("tg_core: SOLO_TID needs an SMT2 configuration (TID_W = 1)");
   end
-  if (HART1_ON && (TID_W == 0 || SOLO_TID)) begin : g_bad_hart1
-    $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1), without SOLO_TID");
+  if (HART1_ON && TID_W == 0) begin : g_bad_hart1
+    $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1)");
   end
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);

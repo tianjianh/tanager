@@ -226,7 +226,8 @@ package tg_core_pkg;
   localparam bit SOLO_TID = 1'b0;
 `endif
   localparam tid_t RUN_TID = tid_t'(SOLO_TID);
-  // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only, without SOLO_TID; off until step 8's checks pass).
+  // M7's step 5 (DR-175): hart 1, TG_HART1=1 (smt2 builds only; off until step 8's checks pass; with SOLO_TID hart 0
+  // runs as tid 1 and hart 1 as tid 0, each with its own homes).
   // On: the window split (SPLIT below); each register bank's free list divided between the harts, with transfers
   // (D3 revised); hart 1's homes reserved (D4: x1-x16 in bank 1, x17-x31 in bank 2, f0-f31 in F1); FP banks of 96
   // (tg_cfg_smt2); from step 5c hart 1 fetches from reset. Until then hart 0 runs alone in its half, taking hart 1's
