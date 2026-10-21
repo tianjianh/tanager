@@ -1229,8 +1229,27 @@ bool Core::take_register(int bank, int tid) {
   return true;
 }
 
+// prf_xfer_eager: while its sibling is parked in WFI (with one thread, always), a hart takes the sibling's free
+// registers ahead of need, one a cycle in each bank, the donor keeping one, as take_register's rule 1 (2: none).
+void Core::borrow_eager() {
+  for (int t = 0; t < nthr_; t++) {
+    if (nthr_ > 1 && (!parked(1 - t) || parked(t))) continue;
+    Thread& T = *th_[(size_t)t];
+    for (size_t b = 0; b < bank_own_[(size_t)t].size(); b++) {
+      if (bank_own_[(size_t)t][b] < 0 || (c_.prf_xfer_eager == 3 && b != 3 && b != 4)) continue;   // 3: FP only
+      int64_t& own = nthr_ > 1 ? bank_own_[(size_t)(1 - t)][b] : sib_own_[b];
+      const int64_t held = nthr_ > 1 ? bank_held_[(size_t)(1 - t)][b] : sib_held_[b];
+      if (own - held < (c_.prf_xfer_eager >= 2 ? 1 : 2)) continue;   // 2: the parked donor keeps none
+      own--;
+      bank_own_[(size_t)t][b]++;
+      T.st.prf_xfers++;
+    }
+  }
+}
+
 // Rename/dispatch slots are shared like the decode slots; a thread that stalls leaves its slots to the other.
 void Core::dispatch() {
+  if (c_.prf_xfer_eager && c_.prf_xfer && !bank_own_.empty()) borrow_eager();
   for (auto it = deferred_free_.begin(); it != deferred_free_.end();) {
     if (it->at <= t_) {
       bank_committed_[it->bank]--;
@@ -1528,6 +1547,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       const int xb = (bank == 3 || bank == 4) && (c_.prf_fp_xbank == 1 || (c_.prf_fp_xbank == 2 && fld) ||
                                                   (c_.prf_fp_xbank == 3 && !fld)) ? 7 - bank : -1;
       if (xb >= 0 && free_regs(xb, T.tid) > 0) {
+        if (c_.prf_xfer_want && !c_.prf_fp_noxfer) take_register(bank, T.tid);   // and want one in its own bank
         bank = xb;
         u.xbank = true;
         T.st.prf_xbanks++;

@@ -183,6 +183,8 @@ namespace tg {
   X(prf_fp_wait, 0, "prf_fp_collide: an FP load that collides while the hold is full waits, using neither AG nor M2, instead of replaying; the replay path picks one waiting load a cycle while the hold has a free entry (fpu-2's A); 2 = also IQ-FP's select paused from the cycle after a load waits until none waits and the hold is empty (A+B)") \
   X(prf_fp_fh, 1, "prf_fp_collide: the hold's entries, 1 or 2 (fpu-2's D); one takes the result register a cycle, the oldest first") \
   X(prf_fp_noxfer, 0, "prf_xfer: no transfers in the FP banks (the integer banks keep theirs)") \
+  X(prf_xfer_eager, 0, "prf_xfer: while the sibling is parked in WFI (with one thread, always), its free registers move to the running hart's list ahead of need, one a cycle in each bank, the donor keeping one (2: none; 3: none, in the FP banks only); they return by the usual transfers once it wakes (fpu-2's (1))") \
+  X(prf_xfer_want, 0, "prf_xfer with prf_fp_xbank: a group short in its own FP bank asks for a transfer in that bank even while it crosses (fpu-2's (2))") \
   X(prf_fp_xbank_lat, 0, "prf_fp_xbank: cycles added to the result of an op renamed across (a cracked fld's move, for instance)") \
   X(prf_fp_homes, 0, "with prf_split: 1 = each hart's f0-f15 at reset in F0 and f16-f31 in F1, rather than all 32 in F<t>") \
   X(flush_walk, 0, "two threads, shared lists: a flush returns the flushed thread's registers by a walk of 2 ROB entries a cycle, its rename stalled meanwhile; 1 = the walk covers the thread's whole half, 2 = only the flushed entries (a mispredict's wrong path estimated as 2 a cycle from the branch's dispatch, up to the half)") \

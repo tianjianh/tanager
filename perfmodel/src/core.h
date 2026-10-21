@@ -306,6 +306,7 @@ class Core {
   bool fusible(const FetchRec& a, const FetchRec& b) const;
   int bank_for(const Uop& u, uint8_t q) const;
   int free_regs(int bank, int tid);
+  void borrow_eager();   // prf_xfer_eager: a parked sibling's free registers, ahead of need
   bool can_issue(Uop& u);
   void do_issue(Uop& u, int port);
   void exec_load(Uop& u);

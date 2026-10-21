@@ -1619,6 +1619,63 @@ FP64R = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
          "IQ-FP's block from the 1st failed take": {**FP64G, "prf_fp_guard_fp": 1}}
 
 
+FP64W = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
+         "FP 96 (5a's banks, no crossing)": {**S7R, **CM_FIX4},
+         "the hold with its guards (IQ-LD's block from the 4th failed take)": FP64G,
+         "(1) eager borrowing from a parked sibling": {**FP64G, "prf_xfer_eager": 1},
+         "(2) per-bank wants: a transfer asked in the own bank while crossing": {**FP64G, "prf_xfer_want": 1},
+         "(1) and (2)": {**FP64G, "prf_xfer_eager": 1, "prf_xfer_want": 1},
+         "(1), the parked sibling keeping none": {**FP64G, "prf_xfer_eager": 2},
+         "(1) keeping none, and (2)": {**FP64G, "prf_xfer_eager": 2, "prf_xfer_want": 1},
+         "(1) keeping none in the FP banks only, and (2)": {**FP64G, "prf_xfer_eager": 3, "prf_xfer_want": 1}}
+
+
+WAKE_PAIRS = WFI_PAIRS + [("wfi", "m7_wfiburst", p) for p in ("embench_nbody", "tk_dgemm")]
+WAKE = {"(2) wants, transfers on demand": {**FP64G, "prf_xfer_want": 1},
+        "(2), and (1) with the parked sibling keeping none": {**FP64G, "prf_xfer_want": 1, "prf_xfer_eager": 2},
+        "(2), and (1) keeping none in the FP banks only": {**FP64G, "prf_xfer_want": 1, "prf_xfer_eager": 3}}
+
+
+def eagerwake(workers):
+    """What (1)'s eager borrowing costs a sibling that wakes: m7_wfiburst (bursts between WFIs, 2,000- and 10,000-cycle
+    sleeps) beside each memory kernel, CoreMark, Dhrystone, nbody and tk_dgemm, the caps lifted while it sleeps (as
+    adopted): while it is parked its partner takes its free registers, and when it wakes it takes them back by the usual
+    transfers, one a cycle. The task's cycles a burst and its partner's IPC, and hangs."""
+    cfgs = {f"{n}; sleep {s}": {**c, "wfi_sleep": s, "smt_cap_lift": 1} for s in (2000, 10000) for n, c in WAKE.items()}
+    run_all([(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WAKE_PAIRS],
+            workers)
+    out = {}
+    ns = list(WAKE)
+    for s in (2000, 10000):
+        print(f"\n**A waking task, {s:,}-cycle sleeps** (the task's cycles a burst with transfers on demand, then the "
+              "change with each form of (1); its partner's IPC changes the same way; 30 / 120 / 250 cycles)\n")
+        print("| Partner | Cycles a burst, on demand | " + " | ".join(f"Burst, {n}" for n in ns[1:]) + " | " +
+              " | ".join(f"Partner's IPC, {n}" for n in ns[1:]) + " |\n|---|---|" + "---|" * (2 * len(ns) - 2))
+        for _, a, b in WAKE_PAIRS:
+            cells = {}
+            for n in ns:
+                rs = [run7(PRESET, {**cfgs[f"{n}; sleep {s}"], "dram_lat": lat}, a, b) for lat in LATS]
+                cells[n] = [None if r.get("error") else
+                            ((r["threads"][0]["region"]["cycles"] - WFI_REPS * s) / WFI_REPS,
+                             r["threads"][1]["region"]["instr"] / max(1, r["threads"][1]["region"]["cycles"]))
+                            for r in rs]
+            out[f"{s} {b}"] = cells
+            x = cells[ns[0]]
+            chg = lambda i, y: " / ".join("hung" if q is None else "–" if p is None else f"{q[i] / p[i] - 1:+.1%}"
+                                          for p, q in zip(x, y))
+            print(f"| {b} | " + " / ".join("hung" if c is None else f"{c[0]:.0f}" for c in x) + " | " +
+                  " | ".join(chg(0, cells[n]) for n in ns[1:]) + " | " + " | ".join(chg(1, cells[n]) for n in ns[1:]) +
+                  " |")
+    return out
+
+
+def fp64w(workers):
+    """fpu-2's fixes upstream of the hold (10-21): stop the restore crossing. (1) While the sibling is parked, the
+    running hart borrows its free registers ahead of need, one a cycle in each bank (prf_xfer_eager); (2) a group short
+    in its own FP bank asks for a transfer there even while it crosses (prf_xfer_want). FP 96 beside."""
+    return fp64_tables(FP64W, workers)
+
+
 def fp64r(workers):
     """fpu-2's fixes for the FP restore's cost (10-21), on the hold with its guards (IQ-LD's block from the 4th failed
     take): A, a load that collides while the hold is full waits for a free entry instead of replaying; A+B, IQ-FP also
@@ -1654,6 +1711,8 @@ def main():
     ap.add_argument("--fp64q", action="store_true", help="fpu-2's FP 64 questions: the write-port collision rule, "
                     "and the FP transfers")
     ap.add_argument("--fp64r", action="store_true", help="fpu-2's fixes for the FP restore's cost under the hold")
+    ap.add_argument("--fp64w", action="store_true", help="fpu-2's fixes upstream of the hold: eager borrowing, wants")
+    ap.add_argument("--eagerwake", action="store_true", help="eager borrowing's cost to a sibling that wakes")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1663,7 +1722,7 @@ def main():
                      ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64),
                      ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
                      ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q),
-                     ("fp64r", fp64r)):
+                     ("fp64r", fp64r), ("fp64w", fp64w), ("eagerwake", eagerwake)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")
