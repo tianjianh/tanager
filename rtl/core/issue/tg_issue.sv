@@ -19,7 +19,8 @@ module tg_issue
   parameter int EARLY_W = IQ_EARLY_W,    // S2 lever: the source tags in flip-flops (IQ_PL_W: all)
   parameter bit MX      = IQ_MX,         // S2 lever: matrix wakeup (dispatch names rows)
   parameter int STALE   = 0,             // 0 guard (spikes.md recommendation), 2 column clear
-  localparam int DW     = DISPATCH_WIDTH
+  localparam int DW     = DISPATCH_WIDTH,
+  localparam int OCC_W  = idx_w(IQ_ROWS_ALL + 1)
 ) (
   input  logic                         clk,
   input  logic                         rst,
@@ -32,6 +33,15 @@ module tg_issue
   input  logic [DW-1:0][RA-1:0]        disp_mdep,   // MX: sources named by ALU-queue row
   output logic [N_IQ-1:0][DW-1:0]      bank_free,
   output logic [N_IQ-1:0][DW-1:0]      bank_free2,    // at least two rows free (rename's steering, STEER_LA)
+  // M7 step 7's caps (tg_iq; rename applies them; registered): a bank's free rows (at most 3); thread t may take n
+  // more rows of a queue under its cap ([q][t][n-1], n up to 2 DW: a group in DS and one at RN); with
+  // IQ_BANK_RULE 2, j more rows of bank k and not hold it all ([q][t][k][j-1]); thread t's rows over all queues
+  // (ICOUNT, later). The caps apply with hart 1 while no thread is parked in WFI (the ROB's wait), else all ones
+  output logic [N_IQ-1:0][DW-1:0][1:0] bank_nfree,
+  output logic [N_IQ-1:0][NUM_THREADS-1:0][2*DW-1:0] room_ge,
+  output logic [N_IQ-1:0][NUM_THREADS-1:0][DW-1:0][1:0] bank_left,
+  output logic [NUM_THREADS-1:0][OCC_W-1:0] occ,
+  input  logic [NUM_THREADS-1:0]       thr_park,      // thread t waits in WFI (registered)
   // MX naming state: ALU-queue rows holding an op (and not freed this cycle), and the row each
   // dispatch port writes next in each ALU queue (global row numbers)
   output logic [RA-1:0]                mx_hold,
@@ -245,13 +255,28 @@ module tg_issue
     return $bits(f_fp_t);
   endfunction
 
+  // The caps (M7 step 7): with hart 1, while neither thread waits in WFI (a waiting thread holds no rows)
+  logic cap_on;
+  assign cap_on = HART1_ON && !(|thr_park);
+  logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      logic [OCC_W-1:0] sum;
+      sum = '0;
+      for (int q = 0; q < N_IQ; q++) sum += qocc[q][t];
+      occ[t] <= rst ? '0 : sum;
+    end
+
   for (genvar q = 0; q < N_IQ; q++) begin : g_q
     localparam int ROWS = rows_of(q);
     localparam int CAP  = (ROWS * IQ_CAP_PCT) / 100;
     logic [NCOL-1:0] wn;                // (no queue wakes at select)
     logic [ROWS-1:0] iss_o, free_o, val_o;
     logic [DW-1:0][ROWS-1:0] aoh;
-    logic [NUM_THREADS-1:0][idx_w(DW + 1)-1:0] room;
+    logic [NUM_THREADS-1:0][idx_w(ROWS + 1)-1:0] occ_t;
+    for (genvar t = 0; t < NUM_THREADS; t++) begin : g_occ
+      assign qocc[q][t] = OCC_W'(occ_t[t]);
+    end
     localparam int PW = fmt_w(q);
     localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
     logic [DW-1:0][PW-1:0] dpl;
@@ -414,12 +439,13 @@ module tg_issue
     tg_iq #(
       .ROWS(ROWS), .DW(DW), .NCOL(NCOL), .PAYLOAD_W(PW), .CAP(CAP), .STALE(STALE), .CBLK(q == Q_FP),
       .WAKE_NOW(1'b0), .WAKE_ENC(1), .ROBW(ROBW), .DUP_SEL(DUP_SEL), .EARLY_W(EW),
-      .MX(MX), .RA(RA), .PRE_RDY(1'b0)
+      .MX(MX), .RA(RA), .PRE_RDY(1'b0), .BANK_CAP(IQ_BANK_RULE == 2)
     ) u_iq (
       .clk, .rst,
       .disp_valid(disp_we[q]), .disp_tid(dtid), .disp_dep(disp_dep), .disp_dep_ph(no_ph),
       .disp_wake_oh('0), .disp_rob(drob), .disp_payload(dpl),
-      .bank_free_q(bank_free[q]), .bank_free2_q(bank_free2[q]), .room_q(room),
+      .bank_free_q(bank_free[q]), .bank_free2_q(bank_free2[q]), .bank_nfree_q(bank_nfree[q]),
+      .cap_on, .room_ge_q(room_ge[q]), .occ_q(occ_t), .bank_left_q(bank_left[q]),
       .w((q == Q_FP) ? w : w_all), .w_next('0), .w1('0), .col_clr(col_clr),
       .cancel((q == Q_FP) ? 1'b0 : sw_cancel), .sel_block(blk),
       .disp_cblk(cblk), .cls_block(fp_misc_block),
@@ -463,7 +489,7 @@ module tg_issue
       assign unused = ^{iss_o, free_o, val_o, aoh};
     end
     logic unused;
-    assign unused = ^{room, wn};
+    assign unused = ^wn;
   end
   assign mx_hold = mx_valid & ~mx_free;
   always_comb begin

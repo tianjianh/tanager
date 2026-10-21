@@ -452,9 +452,16 @@ module tg_core
     col_clr = '0;
     col_clr[IQ_TAGS-1:0] = tag_free;
   end
+  // M7 step 7's caps: tg_issue's flags (rename reads them) and the threads waiting in WFI (tg_rob)
+  logic [N_IQ-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_nfree;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][2*DISPATCH_WIDTH-1:0] iq_room_ge;
+  logic [N_IQ-1:0][NUM_THREADS-1:0][DISPATCH_WIDTH-1:0][1:0] iq_bank_left;
+  logic [NUM_THREADS-1:0][idx_w(IQ_ROWS_ALL + 1)-1:0] iq_occ;
+  logic [NUM_THREADS-1:0] thr_park;
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
     .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
+    .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .occ(iq_occ), .thr_park,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
 
   // LLTs are released the cycle after their register is written
@@ -691,7 +698,7 @@ module tg_core
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
     .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
-    .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
+    .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .park_o(thr_park), .trace_o, .trace_valid_o);
 
   // ---- Unused in M2 ----
   assign merr_o           = '0;
@@ -823,7 +830,8 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
+                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
+                    iq_bank_nfree, iq_room_ge, iq_bank_left, iq_occ};   // (step 7: rename's caps read them)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

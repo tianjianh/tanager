@@ -246,6 +246,16 @@ package tg_core_pkg;
 `else
   localparam bit SPLIT = HART1_ON;
 `endif
+  // M7's step 7 (DR-175): the issue-queue caps, with hart 1 (tg_issue's flags, rename's check; smt2_report §13.4,
+  // §13.12). A thread holds at most IQ_CAP_PCT of each queue's rows (tg_cfg: 50%; TG_IQ_CAP_PCT=75 for the A/B), and
+  // the bank rule TG_IQ_BANK_RULE: 1 (the default), a thread does not take a bank's last free row while its
+  // sibling's waiting group needs a row there; 2, a thread never holds all of a bank's rows; 0, none. Neither
+  // applies while a thread waits in WFI (it holds no rows)
+`ifdef TG_IQ_BANK_RULE
+  localparam int IQ_BANK_RULE = `TG_IQ_BANK_RULE;
+`else
+  localparam int IQ_BANK_RULE = 1;
+`endif
   // A thread's part of a structure of n entries: its first entry and its size
   function automatic int part_base(input int n, input tid_t t);
     return (SPLIT && t != tid_t'(0)) ? n / 2 : 0;
@@ -724,6 +734,7 @@ package tg_core_pkg;
   localparam bit IQ_MX      = 1'b1;               // matrix wakeup: in every configuration (S6)
   // ALU-queue rows, numbered across the queues (MX names producers by these rows)
   localparam int RA = IQ_A0 + IQ_A1 + ((N_ALU > 2) ? IQ_A2 : 0);
+  localparam int IQ_ROWS_ALL = RA + IQ_LD + IQ_STA + (EXT_FD ? IQ_FP : 0);   // every queue's rows
   localparam int RA_W = idx_w(RA);
   function automatic int alu_row_base(input int q);
     return (q == 0) ? 0 : (q == 1) ? IQ_A0 : IQ_A0 + IQ_A1;
