@@ -780,6 +780,7 @@ python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart
 python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13.12 on the final set (TG_FINALDIR)
 python3 scripts/m7_smt.py --d3fp64         # §13.13: D3 with FP banks of 64 (bash bench/build_m7.sh first, for m7_fpcompute)
 python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and decode's room check (results/pair_rtl_5c_f2936949.json)
+python3 scripts/m7_smt.py --bankrule --icount --caplift   # §13.15 on the second final set (bash bench/build_m7.sh first)
 ```
 
 **Where results live.**
@@ -823,6 +824,7 @@ python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
 
 | Step 5's gap: the one RN stage (§13.14) | On the RTL's own basis (alone on its half) the gap is 0.155 (model 1.376, RTL 1.221). One RN register reproduces the stall and closes 62% of it (1.280). core-2's room check recovers 54–68% of the stall at step 5 and fails at step 7 (starving pairs with 50% caps, 1.126 with never a whole bank). A same-cycle check with issue rows reaches 1.22–1.24 at step 7 | A second RN register, one per thread (step 7 1.322 / 1.311 / 1.295 on revision 10; 1.304 / 1.312 / 1.300 on the second final set), if core-2 costs it within DR-154; else the same-cycle check with issue rows |
+| Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -1831,3 +1833,90 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 - **A stage shared by two threads must not hold one thread's stalled work,** or the other thread's progress depends on the first's slowest resource.
 - **Room flags a cycle late re-admit a thread at its limit right after each dispatch.** A check that keeps a stalled group out has to see the same cycle's state, issue rows included.
 - **Compare weighted throughput on one basis.** Half-window alone runs raised the RTL's step-5 WS by about 0.1 and hid most of the model's gap.
+
+### 13.15 Step 7 in fpu-2's form: the bank rule, ICOUNT, and the caps while a sibling sleeps (10-21)
+
+*The coordinator asked about step 7 with C (a rename register per thread, DR-178 as amended) in fpu-2's form:*
+- *R1: a 50% cap per issue queue, counting a thread's rows and its groups at dispatch and rename;*
+- *R2: a thread never takes a bank's last free row while its sibling's waiting group needs a row there, for every bank that group needs;*
+- *R3: no group ever waits in the shared dispatch stage.*
+
+*The questions:*
+- *What does ICOUNT at fetch add over round robin? ICOUNT counts the issue-queue rows each thread holds, as tg_issue will export them, a cycle late. Does counting decode and rename too matter? The bar is about 0.5% weighted.*
+- *Does lifting the caps while the sibling is parked in WFI, before step 6, cost a pair whose sibling wakes?*
+
+*The model (`m7_smt.py --bankrule --icount --caplift`): verif-2's second final set, rtl_m2 revision 10, the drain's priority; WS over the 42 on the merged basis; hangs over the 42 and §13.4's 16 working-set pairs.*
+- *R1 is `smt_iq_cap` 50. The model writes a group's rows in the cycle it dispatches, so no group is ever in flight uncounted.*
+- *R2 is `smt_iq_cap_bank` 4 (new). The sibling's waiting group is its next decode group.*
+- *R3 holds with C: a stalled group waits in its own thread's rename register.*
+- *Fetch (`smt_fetch`, new values 2 and 3): round robin (1); ICOUNT on the issue-queue rows each thread holds, a cycle late (2); ICOUNT on the fetch queue, decode, rename and the issue queues, a cycle late (3); the same, this cycle (0, §13.12's).*
+
+**1. R2 as worded costs 2.5–3.5% against §13.12's bank rule, with the same fetch.** Splitting its two changes (`smt_iq_cap_bank` 5 and 6, new):
+
+| Bank rule (C, 50% caps; 30 / 120 / 250) | ICOUNT this cycle (§13.12's) | Round robin | ICOUNT on rows, a cycle late |
+|---|---|---|---|
+| 3: never all of a bank's rows, for the bank the sibling waits on (§13.12) | 1.304 / 1.312 / 1.300 | 1.296 / 1.309 / 1.297 | 1.301 / 1.309 / 1.298 |
+| 5: not a bank's last free row, for the bank the sibling waits on | 1.276 / 1.286 / 1.279 | 1.271 / 1.285 / 1.275 | 1.273 / 1.287 / 1.277 |
+| **6: never all of a bank's rows, for every bank the waiting group needs** | **1.306 / 1.315 / 1.303** | **1.299 / 1.311 / 1.300** | **1.303 / 1.313 / 1.302** |
+| 4: R2 as worded: not a bank's last free row, for every bank the waiting group needs | 1.258 / 1.272 / 1.266 | 1.258 / 1.269 / 1.264 | 1.255 / 1.270 / 1.264 |
+
+- **No form hangs** any of the 42 pairs or the 16 working-set pairs.
+- **What costs is "the last free row".** The two wordings differ only when one row of the bank is free and the sibling holds some of the others.
+  - "Never all of a bank's rows" lets the thread take the row then. It is stopped only when it holds every other row.
+  - "Not the last free row" keeps the row for the sibling even then.
+- **Why that costs:** in a mixed pair the memory thread is nearly always waiting, its group needing a load row and often an ALU row.
+  - R2 then keeps the last free row of each of those banks from the compute thread, though the memory thread's own rows there will free a row for it.
+  - Mixed pairs fall from 1.468 to 1.364 (form 6 against 4), memory pairs from 1.235 to 1.201, and compute pairs from 1.231 to 1.217.
+- **Naming every bank is right.** With "never all", it adds 0.2–0.3% over naming one (6 against 3). It is also the form §13.4 expected to remove the deadlocks left at 75% caps (not run here).
+- **The fix is one more condition on R2: "… and the sibling holds none of that bank's rows."** With one row free and none of the sibling's, the thread holds all the others, so this is form 6 exactly.
+  - **Cost:** per bank, whether any of its rows is the sibling's: an OR over the rows' valid and tid bits, which the rows already store. My guess is a few tens of LUTs a core, against R2 as worded; fpu-2 to cost.
+  - **Throughput:** +2.8 to +3.8% over R2 as worded, and no hang.
+
+**2. ICOUNT adds 0.0–0.3%, under the 0.5% bar** (R2 as worded):
+
+| Fetch | WS (30 / 120 / 250) | Against round robin |
+|---|---|---|
+| Round robin | 1.258 / 1.269 / 1.264 | – |
+| ICOUNT on the issue-queue rows, a cycle late | 1.255 / 1.270 / 1.264 | −0.24% / +0.03% / 0.00% |
+| ICOUNT on the fetch queue, decode, rename and the rows, a cycle late | 1.258 / 1.270 / 1.264 | −0.01% / +0.05% / 0.00% |
+| The same, this cycle | 1.258 / 1.272 / 1.266 | +0.03% / +0.25% / +0.18% |
+
+- **With form 6:** ICOUNT on rows, a cycle late, reads +0.31 / +0.12 / +0.14% over round robin.
+- **Counting decode and rename doesn't matter:** within ±0.2% of the rows alone.
+- **No hang** with any.
+- **Why so little:** with 50% caps no thread can fill a queue. That is what ICOUNT prevented in §13.3, where it gave +0.2–0.5% at 75% caps.
+- **Recommendation: round robin.** ICOUNT's per-thread counts and compare cost LUTs for at most 0.3%.
+  - At 30 cycles, form 6 reads 1.299 with round robin and 1.303 with ICOUNT. Both are within the model's ±0.05 of the bar, so ICOUNT doesn't change the outlook.
+
+**3. Lifting the caps while the sibling sleeps costs the waking task up to a few hundred cycles a wake.**
+
+*The test (`bench/m7/wfiburst.c`, new):*
+- *A task wakes, runs a burst of about 450 loads and integer ops on 64 words, and sleeps in WFI, 200 times.*
+- *Each WFI sleeps 2,000 or 10,000 cycles, as a timer's wake (`wfi_sleep`, new).*
+- *While the task sleeps with an empty window, the caps and the bank rule don't bind its partner (`smt_cap_lift`, new).*
+- *The partners are each memory kernel, CoreMark and Dhrystone. The form is R2 as worded with ICOUNT on rows, and the halves stay static (before step 6).*
+- *Measured: the task's cycles a burst (its region less its sleeps), and its partner's IPC.*
+
+| Partner (30 / 120 / 250) | Task's burst, 2,000-cycle sleeps | Partner's IPC | Task's burst, 10,000-cycle sleeps | Partner's IPC |
+|---|---|---|---|---|
+| gather | +1.3% / +5.5% / +17.3% | +36% / +34% / +33% | +13.6% / +6.3% / +13.1% | +45% / +45% / +44% |
+| chase8 | +10.0% / +4.0% / +2.3% | 0 | +3.7% / +16.6% / +32.2% | 0 |
+| stride | −0.9% / +0.2% / +2.3% | within 0.2% | −1.9% / −1.1% / +1.7% | −1.7% / −0.3% / −0.2% |
+| spmv, hashprobe, stream, copy | within 1% | within 1.3% | within 1.4% | within 1.5% |
+| CoreMark | within 0.2% | +1.3% | within 0.2% | +1.4% to +1.5% |
+| Dhrystone | within 0.1% | −0.8% | within 0.3% | −0.4% to −0.5% |
+
+- **The waking task pays beside a partner that fills the queues:**
+  - 142 cycles a wake beside gather at 250 cycles with 2,000-cycle sleeps (5% of its period);
+  - 372 cycles beside chase8 at 250 cycles with 10,000-cycle sleeps (3.3%).
+- **Why:** while the task sleeps, its partner takes rows past its cap. When the task wakes the caps bind again, but its ops wait for those rows to drain, each up to a miss.
+- **The partner gains up to 45% (gather).** That is what 50% caps cost a lone memory thread with independent misses. chase8 gains nothing: its chains can't use more rows.
+- **Recommendation: keep the lift.**
+  - The cost to a waking task is small, and the gain goes to a lone memory-bound thread, the common case on a lightly loaded system.
+  - From step 6, D2's merge lifts the caps for a lone thread anyway (`lone_caps` 1).
+
+**Decisions:** none here. The R2 form and ICOUNT are the coordinator's, with fpu-2. Under DR-154, keeping R2 as worded would trade about 3% for a few tens of LUTs, over the 1% line.
+
+**Learned:**
+- **A reservation must not hold a row for a thread that will free one itself.** Keeping the last free row for a waiting sibling that already holds rows in the bank throttles the fast thread for nothing.
+- **State a rule's guarantee in one exact form.** §13.4 described the bank rule two ways, "never all of a bank's rows" and "never the last free row", and they differ by 3–4% at step 7.
