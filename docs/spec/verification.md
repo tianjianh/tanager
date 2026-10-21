@@ -862,6 +862,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - `run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: the basis, each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the pairs left out, and the group and overall figures.
     - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON, and refuses one of another basis.
     - `SELECT` runs some programs (every pair they are in) or some pairs; every program in those runs alone too.
+    - `run_pair.py --only pairs --alone FILE --pairs-from FILE` runs nothing: it scores an earlier run's pairs against other alone figures, for example the same pairs on the merged basis from a hart-1-off build's alone runs.
     - **Every pair counts or is named.** A pair that hangs, fails or lacks a line of output is left out of the means. The report lists each with its reason, and the overall figure needs all three groups.
     - **Same-program pairs before the print lock** (fixed 10-21): chase8 + chase8 and CoreMark + CoreMark came out NaN on step 5c's RTL. The two copies' regions end within cycles of each other, and the first finisher's `PAIR-STOP` line interleaved on the UART with the last one's results. The runtime now prints under a lock. On 5c, at 30 cycles, they read 1.001 and 1.158.
     - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
@@ -908,6 +909,12 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **step 5 without the priority:** the six chase8 pairs above hang;
   - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
   - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
+- **On the second final set** (`pair-final-39b16a6a`; smt2_report §13.12, 10-21; merged basis):
+  - **step 7** (50% caps, a bank's last row kept): 1.304 / 1.312 / 1.300;
+  - **step 5 with the drain's priority:** 1.271 / 1.258 / 1.242;
+  - **the hangs** are the same six chase8 pairs without the priority.
+  - The print lock moved the code, and single programs moved with it: stream alone fell 26% at 30 cycles on the RTL, because its loop's branch now straddles a 16-byte fetch block (2.41 cycles an iteration on the RTL, 0.75 in the model). minver's straddler went away (+17%).
+  - The set stays frozen, since any layout has straddlers. If the front end changes how it handles them, the alone runs are repeated with the pairs on one build.
 - **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, or before it on a build with hart 1 off.
 
 ## 5. The test core (`tg_tcore`)

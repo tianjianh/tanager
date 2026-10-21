@@ -11,6 +11,7 @@ ends first runs again until the other's first region is done. smt2-study's metho
   overall   = the geometric mean of the three groups'
   run_pair.py --sim <tg_vsim (smt2)> --images DIR [--lat 30,120,250] [--only alone|pairs] [--jobs N] [--json FILE]
   run_pair.py --sim ... --only pairs --alone FILE   the pairs against alone figures from an earlier run's JSON
+  run_pair.py --only pairs --alone FILE --pairs-from FILE   no runs: an earlier run's pairs scored on another basis
   run_pair.py ... --select ms_chase8,ms_gather+ms_stride   some programs (their pairs) or pairs; every program in
                                                            those runs alone too
   run_pair.py --replay <tg_replay> --images DIR   Spike against Spike: the images' own check (IPC is 1 there)
@@ -87,6 +88,8 @@ def main():
                     + "; ".join(f"{k}, {v}" for k, v in BASES.items()))
     ap.add_argument("--alone-sim", default="", help="another tg_vsim for the alone runs (default --sim): a build with "
                     "hart 1 off gives the merged basis before step 6")
+    ap.add_argument("--pairs-from", default="", help="with --only pairs and --alone: no runs; the pairs of an earlier "
+                    "run's JSON (same images), scored against --alone's figures and basis")
     ap.add_argument("--cap", type=float, default=3.0, help="a pair's cycle limit: this many times its two programs' "
                     f"whole alone runs (at least {CAP_MIN:,}; tg_vsim's 50M default without alone figures)")
     ap.add_argument("--max-cycles", type=int, default=0, help="a fixed cycle limit for every pair run instead")
@@ -97,6 +100,10 @@ def main():
     ap.add_argument("--timeout", type=int, default=7200, help="wall-clock seconds a run")
     ap.add_argument("--json", default="")
     a = ap.parse_args()
+    if a.pairs_from and (a.only != "pairs" or not a.alone):
+        ap.error("--pairs-from needs --only pairs and --alone FILE")
+    if a.pairs_from and not (a.sim or a.replay):
+        a.sim = "(none: --pairs-from)"
     if bool(a.sim) == bool(a.replay):
         ap.error("one of --sim and --replay")
     policy = host_policy.apply_self(1)
@@ -133,6 +140,18 @@ def main():
             p, s, lat = k.split("@")
             alone[(p, int(s[1:]), int(lat))] = v
     print(f"run_pair: basis {basis['name']}: {basis['label']} ({basis['alone_sim']})", flush=True)
+    if a.pairs_from:   # an earlier run's pairs: their figures, hangs and failures; no simulation
+        pj = json.load(open(a.pairs_from))
+        for e in pj["pairs"] + pj.get("excluded", []):
+            k = ((e["group"], e["a"], e["b"]), e["lat"])
+            if e.get("slots"):
+                pair[k] = {int(sl): v for sl, v in e["slots"].items()}
+            if "why" in e and not e["why"].startswith("no alone figures"):
+                pair_why[k] = e["why"]
+                if e["why"].startswith("hang: "):
+                    pair[k] = {"hang": e["why"][len("hang: "):]}
+        lats = sorted({e["lat"] for e in pj["pairs"] + pj.get("excluded", [])})
+        print(f"run_pair: the pairs of {a.pairs_from}, at {', '.join(map(str, lats))} cycles", flush=True)
 
     def one(job):
         kind, what, slot, lat, cap = job
@@ -187,7 +206,8 @@ def main():
                 return a.max_cycles if a.sim else 0
             tx, ty = (alone.get((x, 0, lat)) or {}).get("total"), (alone.get((y, 1, lat)) or {}).get("total")
             return max(CAP_MIN, int(a.cap * (tx + ty))) if tx and ty else 0
-        pres = run_all([("pair", (g, x, y), None, lat, cap(x, y, lat)) for g, x, y in pairs for lat in lats])
+        pres = [] if a.pairs_from else \
+            run_all([("pair", (g, x, y), None, lat, cap(x, y, lat)) for g, x, y in pairs for lat in lats])
         results += pres
         for (kind, what, slot, lat, _), res, total, why, hang, cmd, dt in pres:
             if why:
@@ -216,8 +236,9 @@ def main():
                 pr, ax, ay = pair.get(((g, x, y), lat)), alone.get((x, 0, lat)), alone.get((y, 1, lat))
                 why = pair_why.get(((g, x, y), lat)) or ("" if ax and ay else
                       "no alone figures for " + " and ".join(f"{p} slot {s}" for p, s, f in ((x, 0, ax), (y, 1, ay)) if not f))
-                if why:   # left out of the means, and named
-                    report["excluded"].append({"group": g, "a": x, "b": y, "lat": lat, "why": why})
+                if why:   # left out of the means, and named (with the pair's figures when it ran: --pairs-from)
+                    report["excluded"].append({"group": g, "a": x, "b": y, "lat": lat, "why": why,
+                                               **({"slots": pr} if pr and "hang" not in pr else {})})
                     if pr and "hang" in pr:
                         report["hangs"].append({"group": g, "a": x, "b": y, "lat": lat, "why": pr["hang"]})
                     ws_row.append("hang" if pr and "hang" in pr else "left out")
