@@ -134,6 +134,39 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
   - The queue's take then counts a group as ending only at the instructions that go alone.
   - Every redirect costs one more front-end cycle: bench +2.5% / +2.3% (st / smt2).
 
+### 3.5 Per thread (M7's step 5b, DR-175; docs/spec/threading.md)
+With hart 1 (`HART1_ON`) the front end runs a **stream** per thread; without it every stream index is 0 and nothing
+below changes a cycle.
+- **F1, F2, the registered action and F3** each hold one block and its stream. Per stream: its next block when F1 holds
+  the other's (a waiting PC), its park state (an I$ miss, an ITLB walk) with the parked block's PC and PA, its stop after
+  a fault block, its faulting page, its straddler. **F1 picks** the other stream's waiting block when its own block moves
+  on (round robin, D7; ICOUNT comes with step 7's caps), and an empty or stopped F1 takes a waiting block; the select is
+  at fpc_q's input, the F1 loop that fix G (below) cleared. F1's ITLB lookup, privilege, Sv39 mode and PMP descriptors
+  are its block's hart's; the micro-BTB is looked up with F1's thread and trained with the trained branch's
+  (`upd_tid`); TAGE reads with F1's stream's history and takes the stream as the block address's top bit.
+- **Redirects per stream:** a flush and decode's redirect may come in one cycle for different threads and both apply;
+  for one stream the flush wins. A redirect kills only its stream's blocks in F1, F2 and F3 and its pending action; F2's
+  action likewise drops only its stream's later blocks (the other stream's block in F2 waits a cycle, and the I$ data
+  and TAGE are read only when F2 takes F1's block, `f2_ld`).
+- **Shared:** the I$, its refill and prefetch engines (one Get each), the valid sweep and generations, the micro-BTB,
+  TAGE's tables, the ITLB. The refill engine serves a stream already parked before one parking now, and a refill's
+  end restarts the streams parked on its line; one fetch walk at a time, a waiting stream's first.
+- **The histories and the FTQ** per stream: the speculative and committed histories, the FTQ's pointers, its LUTRAMs
+  with the stream as an address bit; each stream keeps every entry TAGE's training queue names for it. **A
+  return-address stack per thread** (two `tg_ras`). **The instruction queue** per thread at `{tid, row}` (16 entries
+  each), with its own straddler; decode reads one thread's queue a cycle, the other's after a take, an empty one
+  skipped (D7). **Decode** reads its group's hart's state (misa, FS, frm, the mode, TVM/TW/TSR).
+- **Measured for step 7** (the coordinator): cycles an F2 hold stalls another stream's fetch, and cycles a group at
+  rename holds the other thread's group in decode (`TG-STALL2` on stderr).
+- **Timing fixes** (spikes.md §7.1, approved, exact): G, f1_fault out of the next-PC select (a faulting block's stream
+  stops, so its next address is never used); A, `krt_q` the stack's top; B and E, the exit's target and `tsrc` selected
+  after F3's register; C, the stack's late operations without the flush gate (asserted never together); D, the FTQ
+  entry's branch bits written a cycle late (decode reads an entry three cycles after delivery at the earliest); F,
+  TAGE's tagged tables without the depth cascade.
+- **Checks:** `tests/unit/fetch` runs two harts' streams under random flushes and decode redirects (both at once too),
+  FENCE.I, misses and memory delays, and checks every instruction decode takes against its thread's stream; it found
+  the two bugs above (the reads, the engine's starvation) before hart 1 ran.
+
 ## 4. Decode (`tg_decode`)
 
 `DECODE_WIDTH` copies of a combinational RV64IM + Zicsr + Zifencei + system decoder. Output: `dec_t` (`tg_core_pkg`): class (ALU, BR, MUL, DIV, LD, ST, CSR, SYS), sources and destination, ALU control (`alu_ctl_t`), 64-bit immediate (AUIPC, JAL and JALR link values are precomputed: PC + imm, PC + 4), branch fields, memory size and sign, MUL/DIV op, CSR op, and a decode-time exception (illegal 2 with `tval` = instruction bits, 16-bit for a compressed encoding; ECALL 11 with `tval` 0; EBREAK 3 with `tval` = PC; fetch fault 1 with `tval` = PC).

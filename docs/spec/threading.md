@@ -42,9 +42,9 @@ threads at step 5, after D3's revision (core-pipeline.md §5.4).
 
 | Unit | Per thread now | M7 step that adds the rest |
 |---|---|---|
-| Fetch | the tid it writes on each instruction (`RUN_TID`, the one running thread) | 5: PC, history, FTQ, RAS, instruction queue, thread select |
-| Predictors | the micro-BTB's entry tag (looked up and trained with tid 0) | 5 |
-| Decode | — (passes the tid through) | 5 |
+| Fetch | with hart 1 (5b): a stream per thread (F1's next block, parks, stops, straddlers), the stage tids, redirects per stream, the instruction queue per thread, F1's translation, privilege and PMP by its hart, the walk's thread, the round-robin choice (core-pipeline.md §3.5) | 5c: hart 1 fetches from reset; 7: ICOUNT |
+| Predictors | with hart 1 (5b): the micro-BTB looked up by F1's thread and trained by the trained branch's; TAGE's histories and FTQ per stream, its hashes with the stream; a return-address stack per thread | — |
+| Decode | with hart 1 (5b): its group's hart's state; one thread's group a cycle | — |
 | Rename | maps (a tid address bit) and renamed-since-flush bits; free lists in RAM form (D3); the ROB, LQ and SQ tails and room checks; the serialisation block; the flush of the RN and DS stages; the tags' and LLTs' return; the free lists' division (`SPLIT_L`) and hart 1's homes (`HSPLIT`), built and off (core-pipeline.md §5.4) | 5a (`HART1_ON`): the division and homes on, with D3's transfers; 5c: the FP banks of 96, the divide and FP counts per thread, the homes zeroed |
 | Issue | each row's tid; the kill (`flush_tid`); the cap's room (`room_q`, not yet applied); the speculative wakeup's drop | 7: the caps at dispatch; with fpu-2: the tid in every payload |
 | Exec | — | with fpu-2: the stages' kill |
