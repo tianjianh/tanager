@@ -750,6 +750,14 @@ module tg_rename
   // (CMT) the register rename works on next cycle: the other thread's when its group looks able to rename (or has
   // just come from decode, not yet judged), so two such threads alternate and a stalled group gives way; else this
   // one's while it holds a group. acc_o tells decode's thread choice which registers take a group next cycle.
+  // A group short of registers stays chosen: its thread's transfer next cycle needs that thread to be the one
+  // popping (tg_freelist's pt == xt, the want registered from this cycle's group), so alternating would starve it
+  logic          want_any;
+  always_comb begin
+    want_any = 1'b0;
+    for (int b = 0; b < INT_BANKS; b++) if (int'(pops[b]) > int'(fl_count[b][t_rn])) want_any = 1'b1;
+    for (int b = 0; b < 2; b++) if (EXT_FD && int'(fpops[b]) > int'(ffl_count[b][t_rn])) want_any = 1'b1;
+  end
   logic          sel_n;
   logic [NT-1:0] vn, nw;            // each register holds a group next cycle; ... one decode hands it now
   always_comb begin
@@ -760,8 +768,9 @@ module tg_rename
     end
     sel_n = sel_q;
     if (CMT) begin
-      if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
-      else if (!vn[sel_q])                           sel_n = !sel_q;
+      if (vn[sel_q] && |rn_valid_q && want_any)          sel_n = sel_q;   // its transfer needs it chosen
+      else if (vn[!sel_q] && (nw[!sel_q] || rdy[!sel_q])) sel_n = !sel_q;
+      else if (!vn[sel_q])                               sel_n = !sel_q;
     end
     for (int t = 0; t < NT; t++) acc_o[t] = CMT && (!vn[t] || sel_n == t[0] || block_q[t]);
   end
