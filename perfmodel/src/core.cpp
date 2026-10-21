@@ -1905,9 +1905,11 @@ void Core::do_issue(Uop& u, int /*port*/) {
 }
 
 // prf_fp_collide (tg_lsu's fh, DR-179): an FP load at its M2 whose write, next cycle, meets P4's in its bank waits in
-// the one-entry hold, with no wake and no completion; it takes the result register in the first cycle no other load
-// completes in M2 and P4 leaves its bank the next cycle, and writes the cycle after. A second colliding FP load while
-// the hold is full replays. P4's results never wait.
+// the one-entry hold, with no wake and no completion. Each later cycle the hold tries to take the result register: it
+// takes it when no other load completes in M2 and P4 leaves its bank the next cycle, and writes the cycle after. A
+// second colliding FP load while the hold is full replays. P4's results never wait. With 2, f5d9f294's guards: from
+// the hold's prf_fp_guard_ld-th failed take IQ-LD's select is blocked, and from its prf_fp_guard_fp-th (8) IQ-FP's,
+// until it takes.
 void Core::fp_collide() {
   if ((t_ & 1023) == 0)
     for (auto it = ldw_.begin(); it != ldw_.end();) it = it->first < t_ ? ldw_.erase(it) : std::next(it);
@@ -1915,12 +1917,26 @@ void Core::fp_collide() {
   fpld_pend_.erase(std::unique(fpld_pend_.begin(), fpld_pend_.end()), fpld_pend_.end());
   const uint64_t w = t_ + 1;
   auto p4 = [&](int b, uint64_t c) { return p4w_[(size_t)b][c % p4w_[0].size()] == c; };
-  auto move = [&](Uop& u, uint64_t d) {  // the load's result register cycle, d later
-    if (--ldw_[u.t_ready] <= 0) ldw_.erase(u.t_ready);
-    u.t_ready += d;
-    u.t_done += d;
-    ldw_[u.t_ready]++;
-  };
+  // the hold: its guards from the takes failed so far (registered), then this cycle's take
+  fh_ld_block_ = fh_fp_block_ = false;
+  if (fh_active_) {
+    Uop* h = find(fh_id_);
+    if (!h || h->state != 2 || h->t_issue != fh_issue_) {
+      fh_active_ = false;   // its thread's flush dropped it
+    } else {
+      fh_ld_block_ = c_.prf_fp_collide >= 2 && fh_fails_ >= c_.prf_fp_guard_ld;
+      fh_fp_block_ = c_.prf_fp_collide >= 2 && c_.prf_fp_guard_fp > 0 && fh_fails_ >= c_.prf_fp_guard_fp;
+      if ((!ldw_.count(w) && !p4(fh_bank_, w)) || w >= fh_w0_ + 64) {
+        h->t_ready = w;
+        h->t_done = w + fh_done_;
+        ldw_[w]++;
+        th_[(size_t)h->tid]->st.fld_held_cycles += w - fh_w0_;
+        fh_active_ = false;
+      } else {
+        fh_fails_++;
+      }
+    }
+  }
   std::vector<uint64_t> keep;
   for (uint64_t id : fpld_pend_) {
     Uop* u = find(id);
@@ -1929,21 +1945,24 @@ void Core::fp_collide() {
     const int b = u->dst_bank - 3;
     if (!p4(b, w)) continue;
     Thread& T = *th_[(size_t)u->tid];
-    const Uop* h = fh_id_ ? find(fh_id_) : nullptr;
-    if (h && h->state == 2 && h->t_issue == fh_issue_ && fh_take_ >= t_) {   // the hold is full: replay
-      move(*u, (uint64_t)c_.prf_fp_replay);
+    if (--ldw_[w] <= 0) ldw_.erase(w);
+    if (fh_active_) {   // the hold is full: replay
+      u->t_ready += (uint64_t)c_.prf_fp_replay;
+      u->t_done += (uint64_t)c_.prf_fp_replay;
+      ldw_[u->t_ready]++;
       T.st.fld_replays++;
       keep.push_back(id);
       continue;
     }
-    uint64_t c = w;
-    while (c < w + 64 && (ldw_.count(c + 1) || p4(b, c + 1))) c++;
-    move(*u, c + 1 - w);
+    fh_active_ = true;   // held from w: no wake, no completion until it takes
     fh_id_ = id;
     fh_issue_ = u->t_issue;
-    fh_take_ = c;
+    fh_bank_ = b;
+    fh_w0_ = w;
+    fh_done_ = u->t_done - u->t_ready;
+    fh_fails_ = 0;
+    u->t_ready = u->t_done = NEVER / 2;
     T.st.fld_held++;
-    T.st.fld_held_cycles += c + 1 - w;
   }
   fpld_pend_.swap(keep);
 }
@@ -1986,6 +2005,13 @@ void Core::issue() {
         if (!first) first = u;
         ready.push_back(u);
         if ((int)ready.size() >= ports && !(q == Q_A0 && c_.br_first && !first_br)) break;
+      }
+      if ((q == Q_LD && fh_ld_block_) || (q == Q_FP && fh_fp_block_)) {   // prf_fp_collide 2's guards
+        if (!ready.empty() && fh_active_) {
+          Thread& H = *th_[(size_t)(fh_id_ >> TID_SHIFT)];
+          (q == Q_LD ? H.st.fh_ld_lost : H.st.fh_fp_lost) += (uint64_t)std::min<int64_t>(ports, (int64_t)ready.size());
+        }
+        continue;
       }
       if (q == Q_A0 && first_br) { take(first_br); continue; }
       for (int k = 0; k < ports && k < (int)ready.size(); k++) take(ready[(size_t)k]);

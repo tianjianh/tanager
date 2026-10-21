@@ -1499,8 +1499,13 @@ def final7(workers):
 
 FP64B = {**S7R, **CM_FIX4, **FP64X}   # fpu-2's setup: step 7 with C, 50% caps, never all of a bank, core-2's fix
 FP64Q = {"FP 64, the crossed write in the cycle (§13.13)": FP64B,
-         "FP 64, P4 first, a colliding load held (fpu-2's rule)": {**FP64B, "prf_fp_collide": 1},
-         "FP 64, P4 first, and no FP transfers": {**FP64B, "prf_fp_collide": 1, "prf_fp_noxfer": 1},
+         "P4 first, a colliding load held, f5d9f294's guards (fpu-2's rule)": {**FP64B, "prf_fp_collide": 2},
+         "the same, IQ-LD's block from the 4th failed take": {**FP64B, "prf_fp_collide": 2, "prf_fp_guard_ld": 4},
+         "the same, no guards": {**FP64B, "prf_fp_collide": 1},
+         "the same, IQ-LD's block only (none on IQ-FP)": {**FP64B, "prf_fp_collide": 2, "prf_fp_guard_fp": 0},
+         "the same, IQ-LD's from the 4th, none on IQ-FP": {**FP64B, "prf_fp_collide": 2, "prf_fp_guard_ld": 4,
+                                                          "prf_fp_guard_fp": 0},
+         "P4 first with the guards, and no FP transfers": {**FP64B, "prf_fp_collide": 2, "prf_fp_noxfer": 1},
          "FP 64, in the cycle, and no FP transfers": {**FP64B, "prf_fp_noxfer": 1}}
 FP_LONE = ["embench_nbody", "embench_cubic", "embench_minver", "embench_st", "tk_dgemm"] + RESTORE + ["m7_fpcompute"]
 
@@ -1519,18 +1524,19 @@ def fp64q(workers):
              for lat in LATS for w in suite]
     run_all(jobs, workers)
     out = {"pairs": {}, "lone": {}}
-    f3 = lambda xs: " / ".join("–" if x is None else f"{x:.3f}" for x in xs)
-    rel = lambda xs, ys: " / ".join("–" if x is None or y is None else f"{x / y - 1:+.2%}" for x, y in zip(xs, ys))
+    f3 = lambda xs: " / ".join("–" if x is None else f"{x:.4f}" for x in xs)
+    rel = lambda xs, ys: " / ".join("–" if x is None or y is None else f"{x / y - 1:+.3%}" for x, y in zip(xs, ys))
     print("\n**The 25 FP pairs** (WS against one program on today's core, 30 / 120 / 250 cycles; hangs over the 32; "
-          "colliding FP loads held and replayed a kilo-instruction, and a held load's wait, at 120)\n")
+          "at 120, a kilo-instruction's colliding FP loads held and replayed and load selects the guards cost, and a "
+          "held load's wait)\n")
     print("| Configuration | WS, fp + fp | WS, fp + int | WS, the 25 | Against the first | Hung, of 32 | Held, "
-          "replayed / 1K; wait |\n|---|---|---|---|---|---|---|")
+          "replayed, selects lost / 1K; wait |\n|---|---|---|---|---|---|---|")
     ref = None
     for n, c in FP64Q.items():
         row = {"fpfp": [], "fpint": [], "all": [], "dead": [], "held": None}
         for lat in LATS:
             same = {**alone(BASE7, lat), **alone(BASE7, lat, "extra")}
-            w, ins, held, rep, cyc = {}, 0, 0, 0, 0
+            w, ins, held, rep, cyc, lost = {}, 0, 0, 0, 0, 0
             for g, a, b in FP_PAIRS:
                 r = run7(PRESET, {**c, "dram_lat": lat}, a, b)
                 ip = ipc2(r)
@@ -1542,6 +1548,7 @@ def fp64q(workers):
                     held += t["region"].get("fld_held", 0)
                     rep += t["region"].get("fld_replays", 0)
                     cyc += t["region"].get("fld_held_cycles", 0)
+                    lost += t["region"].get("fh_ld_lost", 0) + t["region"].get("fh_fp_lost", 0)
             gm = lambda g: smt.gm(x for gg, x in w.values() if g in (None, gg)) if w else None
             row["fpfp"].append(gm("fp+fp"))
             row["fpint"].append(gm("fp+int"))
@@ -1549,12 +1556,14 @@ def fp64q(workers):
             row["dead"].append([smt.pname(a, b) for _, a, b in extra
                                 if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))])
             if lat == 120:
-                row["held"] = (1000 * held / max(1, ins), 1000 * rep / max(1, ins), cyc / max(1, held))
+                row["held"] = (1000 * held / max(1, ins), 1000 * rep / max(1, ins), 1000 * lost / max(1, ins),
+                               cyc / max(1, held))
         out["pairs"][n] = row
         ref = ref or row
         h = row["held"]
         print(f"| {n} | {f3(row['fpfp'])} | {f3(row['fpint'])} | **{f3(row['all'])}** | {rel(row['all'], ref['all'])} "
-              f"| " + " / ".join(str(len(d)) for d in row["dead"]) + f" | {h[0]:.2f}, {h[1]:.2f}; {h[2]:.1f} |")
+              f"| " + " / ".join(str(len(d)) for d in row["dead"]) + f" | {h[0]:.2f}, {h[1]:.2f}, {h[2]:.2f}; "
+              f"{h[3]:.1f} |")
     for n, row in out["pairs"].items():
         for lat, dl in zip(LATS, row["dead"]):
             if dl:
@@ -1574,9 +1583,9 @@ def fp64q(workers):
                 x, y = ipc1(rs[lat][w]), base[lat][w]
                 return None if x is None or not y else x / y
 
-            cell = lambda w: " / ".join("hung" if ratio(lat, w) is None else f"{ratio(lat, w) - 1:+.1%}"
+            cell = lambda w: " / ".join("hung" if ratio(lat, w) is None else f"{ratio(lat, w) - 1:+.2%}"
                                         for lat in LATS)
-            allg = " / ".join(f"{smt.gm(x for x in (ratio(lat, w) for w in suite) if x is not None) - 1:+.2%}"
+            allg = " / ".join(f"{smt.gm(x for x in (ratio(lat, w) for w in suite) if x is not None) - 1:+.3%}"
                               for lat in LATS)
             out["lone"][f"{hn}: {n}"] = {"dead": dl, "fp": {w: [ratio(lat, w) for lat in LATS] for w in FP_LONE}}
             print(f"| {n} | " + " | ".join(cell(w) for w in FP_LONE) + f" | {allg} | {', '.join(dl) or 'none'} |")

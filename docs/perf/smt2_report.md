@@ -830,7 +830,7 @@ python3 scripts/m7_smt.py --final7 --fp64q # §13.17 (step 7 as decided) and §1
 | Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
 | Step 5 against core-2's 5c and C, step 7 for C and B (§13.16) | The RTL's commit turns, round robin and its shared fetch pipe take the model's C from 1.397 to 1.334 against the RTL's 1.243 (5c: 1.276 against 1.227); about 0.09 remains. At step 7 the shared fetch pipe costs C 7–14%: 1.184 / 1.128 / 1.107 with core-2's commit fix, mixed pairs below 1.0 at 250. With the hold fixed, C reads 1.289 / 1.303 / 1.291 and B 1.207 / 1.210 / 1.204 | Fix the fetch hold before step 7's pairs; core-2's commit fix; C (the parking form) over B, by 6.8–7.7% |
 | Step 7 as decided: C, core-2's fix, FP 64 across both (§13.17) | FP 64 with the crossed write in the cycle matches FP 96 to the cycle. C with core-2's fix: 1.184 / 1.128 / 1.107 as built, 1.289 / 1.303 / 1.291 with the fetch hold fixed; the 25 FP pairs 1.341 / 1.326 / 1.291 and 1.387 / 1.379 / 1.371. No C form hangs. B's room check, counting only an op's own FP bank, hangs 20 of 32 FP-type pairs | Fix the fetch hold (§13.16) |
-| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`) costs nothing measurable: FP pairs ±0.07%, lone ≤0.2%. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | Build the collision rule as drafted; keep the FP transfers unless the chip is over budget (40–80 LUTs a core) |
+| FP 64's write ports and transfers (§13.18, fpu-2) | P4 first with a colliding FP load held (tg_lsu's `fh`, its guards as built) costs the FP pairs 0.12–0.27%, a lone FP restore 6–10%, tk_dgemm 0.45%, the suite 0.6%. IQ-LD's block from the 4th failed take halves the pairs' cost. Without FP transfers nothing hangs; a lone nbody on the merged window loses 5.6%, the suite 0.16% | IQ-LD's block from the 4th failed take; keep IQ-FP's at the 8th; keep the FP transfers unless the chip is over budget (40–80 LUTs a core) |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -2071,25 +2071,44 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 - *Q2: can the transfers between the harts' FP lists go? With crossing, a hart's own registers always let it progress. What transfers still give is a lone hart borrowing a sleeping sibling's free FP registers.*
 
 *The model (`m7_smt.py --fp64q`):*
-- *`prf_fp_collide` (new): the rule above. P4's writes are known from their issue; a held load's take avoids every known load completion. The plan's guards (IQ-LD blocked after a failed take, IQ-FP after 8) are not modelled; a wait is capped at 64 cycles.*
+- *`prf_fp_collide` (new): the rule above, the hold trying its take each cycle.*
+  - *1: no guards; a wait is capped at 64 cycles.*
+  - *2: f5d9f294's guards, as fpu-2 asked afterwards: from the hold's first failed take IQ-LD's select is blocked (`prf_fp_guard_ld`), and from its 8th IQ-FP's (`prf_fp_guard_fp`), until it takes.*
+  - *A first model chose the take cycle once, at the collision, from the load completions then known. It missed the loads issued after, and read the rule as costing nothing (commit 04537a44). The figures below replace it.*
 - *`prf_fp_noxfer` (new): no transfers in the FP banks; the integer banks keep theirs.*
 - *The base: step 7 with C, 50% caps, R2 as adopted, core-2's commit fix, the fetch hold fixed, `prf_fp_bank` 64, `prf_fp_xbank` 1.*
 - *Measured: the 25 FP pairs (WS against one program on today's core), with hangs over them, the 4 FP restores and the 3 F0 fills; a lone hart over the suite, tk_dgemm, the FP restores and m7_fpcompute, on the merged window (step 6's 80 entries) and on its half.*
 
-| FP 64, step 7 with C (30 / 120 / 250) | The 25 FP pairs | Against the same-cycle write | Lone, merged: nbody; all 37 | Lone, its half: nbody; all 37 | Hung |
-|---|---|---|---|---|---|
-| The crossed write in the same cycle (§13.13) | 1.387 / 1.379 / 1.371 | – | – | – | 0 |
-| **P4 first, a colliding load held (Q1)** | 1.387 / 1.379 / 1.372 | +0.02% / −0.02% / +0.07% | −0.1%; 0.00% | +0.7%; +0.01% | 0 |
-| P4 first, and no FP transfers (Q1 + Q2) | 1.387 / 1.379 / 1.372 | +0.03% / −0.02% / +0.06% | −5.6%; −0.16% | +0.7%; +0.01% | 0 |
-| In the same cycle, and no FP transfers (Q2) | 1.387 / 1.379 / 1.371 | +0.01% / +0.01% / 0.00% | −5.6%; −0.15% | 0.0%; 0.00% | 0 |
+*Against the same-cycle crossed write: the 25 FP pairs' WS (1.387 / 1.379 / 1.371 with it); a lone hart's IPC; 30 / 120 / 250 cycles, except the lone figures, which are the same at all three within 0.03% (the programs run from the caches):*
 
-*The other FP programs alone (cubic, minver, st, tk_dgemm, the restores, m7_fpcompute) move by 0.2% at most in every row, and identically at the three latencies: they run from the caches.*
+| P4 first, a colliding FP load held | The 25 FP pairs | Lone, merged: tk_dgemm; FP restore 32 / 64 flds; m7_fpcompute; all 37 | Lone, its half: FP restore 32 / 64; all 37 |
+|---|---|---|---|
+| **f5d9f294's guards** (IQ-LD's block from the 1st failed take, IQ-FP's from the 8th) | −0.27% / −0.17% / −0.12% | −0.46%; −10.0% / −6.7%; −4.0%; −0.60% | −9.8% / −6.6%; −0.57% |
+| **IQ-LD's block from the 4th failed take** | −0.12% / −0.12% / −0.10% | −0.45%; −10.0% / −6.7%; −4.0%; −0.60% | −9.8% / −6.6%; −0.57% |
+| IQ-LD's block only (from the 1st) | −0.24% / −0.11% / −0.14% | −0.46%; −14.0% / −6.2%; −4.9%; −0.73% | −17.9% / −6.6%; −0.81% |
+| IQ-LD's block only, from the 4th | −0.15% / −0.09% / −0.06% | −0.45%; −12.7% / −5.7%; −4.9%; −0.67% | −17.9% / −6.6%; −0.81% |
+| No guards | −0.04% / −0.02% / −0.08% | −0.06%; −3.3% / −0.0%; −4.9%; −0.23% | −19.0% / −6.6%; −0.83% |
+| Q2: the guards, and no FP transfers | −0.27% / −0.17% / −0.11% | nbody −5.6%; otherwise as the guards; −0.75% | as the guards; −0.57% |
+| Q2: the write in the same cycle, no FP transfers | +0.01% / +0.01% / 0.00% | nbody −5.6%; −0.16% | 0.00% |
 
-**Q1: the collision rule costs nothing measurable.**
-- In the FP pairs at 120 cycles, FP loads are held 1.5 times and replayed 1.65 times a kilo-instruction. A held load waits 3.2 cycles on average.
-- WS moves by −0.02 to +0.07%. Lone programs move by at most 0.2%: minver −0.2% on its half, and nbody −0.1% merged and +0.7% on its half, both timing noise.
-- **Why so little:** loads cross into F0 only when the hart's F1 share is short, and a collision then needs P4's write in the same cycle. Most collisions resolve in a cycle or two.
-- **Recommendation: build the rule as drafted.** It needs no hold in P4 and no new bypass source.
+*nbody, cubic, minver and st move by 0.2% at most in every row of Q1 (nbody +0.7% on its half, timing noise). No configuration hangs: none of the 32 FP-type pairs, and none of the 37 lone programs on either window. In the FP pairs at 120 cycles, a kilo-instruction holds 1.1–1.2 FP loads and replays 1.1–1.7. A held load waits 4.7 cycles with the guards as built, 5.3 with IQ-LD's block from the 4th take, and 5.9 without guards. The guards as built cost 2.2 load selects a kilo-instruction, and 1.25 from the 4th take.*
+
+**Q1: the rule costs the FP pairs 0.1–0.3% and a lone FP-heavy program up to 10%.**
+- **Where it costs: back-to-back FP loads that cross into F0 while P4 writes it.**
+  - In a context switch's FP restore (32 or 64 flds between blocks of FP work), the first colliding load is held, and each next one replays until the hold takes.
+  - The restore loses 6–10% with the guards, m7_fpcompute 4%, tk_dgemm 0.45%, and the suite's geometric mean 0.6%.
+- **The guards, separately:**
+  - **IQ-LD's block** is what costs the FP pairs. The guards as built add 0.23% at 30 cycles over none, 0.20% of it from IQ-LD's block alone.
+  - Moving it to the 4th failed take recovers 0.16 of that, and changes nothing on the lone programs. tk_dgemm's 0.4% stays: its holds outlast 4 takes.
+  - **IQ-FP's block helps.** Without it the restore loses 14% merged and 18% on its half, against 10% with it: stopping P4 lets the hold take.
+  - **Without guards** the 32-fld restore on its half loses 19%: the hold starves.
+- **Answer to fpu-2's question:** yes, the guards move the FP pairs by more than 0.05% at 30 and 120 cycles, and tk_dgemm by 0.4%.
+  - **Recommendation:** move IQ-LD's block to the 4th failed take. It is a one-constant change: it recovers most of the pairs' cost and loses nothing elsewhere.
+  - Keep IQ-FP's block at the 8th.
+- **What would remove the restore's cost** (not modelled yet; fpu-2's to cost):
+  - a second hold entry, so a second colliding load waits instead of replaying;
+  - or a replayed load that waits for the hold to empty rather than colliding again every few cycles.
+  - I can model either if wanted.
 
 **Q2: the FP transfers buy 5.6% on one lone program, and nothing elsewhere.**
 - **No hang without them:** none of the 32 FP-type pairs, and none of the 37 lone programs on either window.
@@ -2102,4 +2121,6 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 
 **Decisions:** none here; Q1's rule and Q2's transfers are fpu-2's and core-2's to settle with the coordinator.
 
-**Learned:** a write-port rule that lets the stream that cannot wait go first costs little when the other writer crosses into its bank only at a shortage.
+**Learned:**
+- **A one-entry hold is cheap until loads come back to back.** The rule costs FP pairs a few tenths of a percent, but a restore's stream of colliding loads turns it into replays.
+- **Model a hold's take as the hardware makes it, cycle by cycle.** Choosing the take once from the events then known missed every load issued later, and read a 10% cost as none.
