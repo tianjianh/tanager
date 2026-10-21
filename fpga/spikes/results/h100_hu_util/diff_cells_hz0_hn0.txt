@@ -1,0 +1,87 @@
+== u_fetch: LUTs 6135 -> 8187 (+2052), FFs 1907 -> 2420 (+513), LUTRAM sites 1528 -> 1512 (-16)
+   family                                                       LUT A   LUT B     B-A     FF A   FF B   RAM A RAM B
+   spc_s_q[][]                                                      0     793    +793        0      0       0     0
+   u_pmp                                                           31     592    +561        0      0       0     0
+   u_pd                                                           364       1    -363        0      0       0     0
+   f3_parcel_q[][]                                                  0     256    +256        0      0       0     0
+   g_tage.u_fgh                                                    33     203    +170        0      0       0     0
+   miss_s_q[]                                                       2     112    +110        1      2       0     0
+   g_tage.cgh_s_q[][]                                              65     129     +64        0      0       0     0
+   g_tage.gh_s_q[][]                                              149     211     +62        0      0       0     0
+   u_cmp/                                                        1591    1653     +62       41     71     832   832
+   xf_page_s_q[][]                                                 53     107     +54        0      0       0     0
+   f2_tm_q                                                          3      55     +52        1      1       0     0
+   f2_s_q                                                           1      48     +47        1      1       0     0
+   krt_q[]                                                          0      38     +38       38     38       0     0
+   u_itlb/                                                        496     534     +38      484    500      48    48
+   rdl_q[]                                                          0      29     +29        0     28       0     0
+   k_ovr_q                                                          1      25     +24        1      1       0     0
+   ka_q                                                            27       3     -24        1      1       0     0
+   ras_link[]                                                     105      81     -24        0      0       0     0
+   g_tage.cgh_s_q[]                                                 0       0      +0       64    128       0     0
+   g_tage.gh_s_q[]                                                  0       0      +0       64    128       0     0
+   spc_s_q[]                                                        0       0      +0        0    126       0     0
+== u_rn: LUTs 3108 -> 4993 (+1885), FFs 2188 -> 2493 (+305), LUTRAM sites 1296 -> 1696 (+400)
+   family                                                       LUT A   LUT B     B-A     FF A   FF B   RAM A RAM B
+   g_ffl.g_b[0].u_fl/                                             138     490    +352       43     80      16    64
+   g_ffl.g_b[1].u_fl/                                             142     490    +348       44     80      16    64
+   g_fl[2].u_fl/                                                  142     284    +142       44     69      16    32
+   g_fl[1].u_fl/                                                  142     283    +141       44     69      16    32
+   g_fl[0].u_fl/                                                  138     267    +129       43     69      16    32
+   de_take                                                        151     275    +124        0      0       0     0
+   g_fmap.u_fmap/                                                 327     439    +112       39     71     384   448
+   u_imap/                                                        316     420    +104       39     71     384   384
+   g_frdy.u_frdy/                                                  84     172     +88        7      8      96   288
+   llt_tid_q[]                                                      0      68     +68        0     24       0     0
+   ds_ren_q[][dst][]                                               52      76     +24        0      0       0     0
+   ds_ren_q[][sq][]                                                12      33     +21        0      0       0     0
+   fdiv_pre_t_q[][]                                                 0      21     +21        0      0       0     0
+   fpi_pre_t_q[][]                                                  0      21     +21        0      0       0     0
+   div_t_q[][]                                                      0      20     +20        0      0       0     0
+== u_lsu: LUTs 12487 -> 14212 (+1725), FFs 5093 -> 5223 (+130), LUTRAM sites 2640 -> 2640 (+0)
+   family                                                       LUT A   LUT B     B-A     FF A   FF B   RAM A RAM B
+   u_pmp_st                                                        35     617    +582        0      0       0     0
+   u_pmp_ld                                                         1     566    +565        0      0       0     0
+   m2_fhit_q                                                       29     161    +132        1      1       0     0
+   u_dtlb/                                                        975    1086    +111      242    278    1120  1120
+   u_ptw/                                                         349     451    +102      182    183       0     0
+   m2_foh_q[]                                                     475     400     -75       19     19       0     0
+   m2_fcov_q                                                      222     180     -42        1      1       0     0
+   sq_amo_q[]                                                      20      60     +40       20     20       0     0
+   rp_ra_q[]                                                      592     631     +39        5      5       0     0
+   lq_wany_q[]                                                     26      59     +33       24     24       0     0
+   sq_dr_q[]                                                      359     392     +33       20     20       0     0
+   u_dtlb                                                           1      29     +28        0      0       0     0
+   am_res_q[]                                                     126     150     +24       64     64       0     0
+   lq_blk_q[][]                                                    52      76     +24        0      0       0     0
+   lq_st_q[][]                                                   1108    1084     -24        0      0       0     0
+   rp_v_q                                                         216     193     -23        1      1       0     0
+   sq_tail_q[][]                                                    9      30     +21        0      0       0     0
+   sq_pa_q[][]                                                     17      37     +20        0      0       0     0
+   st_cmp_valid[]                                                  77      57     -20        0      0       0     0
+== u_csr: LUTs 1395 -> 1886 (+491), FFs 1325 -> 2319 (+994), LUTRAM sites 352 -> 352 (+0)
+   family                                                       LUT A   LUT B     B-A     FF A   FF B   RAM A RAM B
+   ex_rdata[]                                                     501     786    +285        0      0       0     0
+   stip_q[]                                                        65     130     +65        1      2       0     0
+   g_ctr[].u_mcycle                                                57       5     -52        0      0       0     0
+   h_q[][satp_ppn][]                                                0      30     +30        0      0       0     0
+   satp_wr                                                         49      70     +21        0      0       0     0
+   h_q_reg[][stimecmp][]                                            0       0      +0       64    128       0     0
+   pmp_d_q_reg[][][a][]                                             0       0      +0      256    512       0     0
+   pmp_d_q_reg[][][mask][]                                          0       0      +0      256    512       0     0
+   pw_d_q[]                                                         0       0      +0       64    128       0     0
+== u_rob: LUTs 2187 -> 2839 (+652), FFs 280 -> 476 (+196), LUTRAM sites 1032 -> 1032 (+0)
+   family                                                       LUT A   LUT B     B-A     FF A   FF B   RAM A RAM B
+   exr_cause_q[][]                                                 99     525    +426        0      0       0     0
+   exr_rob_q[][]                                                  404     183    -221        0      0       0     0
+   wfi_cnt_q[][]                                                   13      94     +81        0      0       0     0
+   g_ft[].u_ft                                                     38     114     +76        0      0       0     0
+   hw_q[hid][][]                                                   20      83     +63        0      0       0     0
+   exr_tval_q[][]                                                  69     108     +39        0      0       0     0
+   g_rw[].u_rw                                                     10      45     +35        0      0       0     0
+   tr_tval[]                                                      269     301     +32        0      0       0     0
+   ct_q[]                                                           0      22     +22        0      1       0     0
+   hw_q[pa][][]                                                     9      31     +22        0      0       0     0
+   mpr_v_q[]                                                        2      23     +21        1      2       0     0
+   head_q[][]                                                      37      57     +20        0      0       0     0
+   exr_tval_q[]                                                     0       0      +0       64    128       0     0
