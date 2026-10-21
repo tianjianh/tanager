@@ -127,6 +127,8 @@ def main():
                     "(0,1: the two threads of an smt2 core in tg_vsim)")
     ap.add_argument("--shared", type=int, default=0, help="tg_rand --shared: the weight of its templates on lines "
                     "the harts share")
+    ap.add_argument("--races", action="store_true", help="tg_rand --races: harts' plain stores and atomics with "
+                    "rd = x0 race for the same bytes (lockstep follows their order from later reads, verification.md §3.7)")
     ap.add_argument("--stress", action="store_true")
     ap.add_argument("--trace-stall", action="store_true", help="with --stress: some seeds also stall the trace")
     ap.add_argument("--cov", default="", help="directory for each run's RTL coverage (a tg_vsim built with COV=1)")
@@ -151,7 +153,7 @@ def main():
         base = os.path.join(a.workdir, f"r{seed}")
         gen = [sys.executable, os.path.join(HERE, "tg_rand.py"), "--seed", str(seed), "--isa", a.isa,
                "--irq", str(a.irq), "--length", str(a.length), "--vm", str(a.vm), "--miss", str(a.miss),
-               "--harts", a.harts, "--shared", str(a.shared), "-o", base + ".S"]
+               "--harts", a.harts, "--shared", str(a.shared)] + (["--races"] if a.races else []) + ["-o", base + ".S"]
         rc, out = run(gen, 120)
         if rc:
             return seed, "GEN-FAIL", out.strip().splitlines()[-1] if out.strip() else "generator failed", ""
@@ -206,6 +208,7 @@ def main():
     print(f"{label}{len(results) - len(fails)} passed, {len(fails) - gen_fails} failed, {gen_fails} generator failures "
           f"(seeds {a.seed}..{a.seed + a.n - 1}, isa {a.isa}{', stress' if a.stress else ''}"
           f"{', harts ' + a.harts if len(harts) > 1 else ''}{', shared ' + str(a.shared) if a.shared else ''}"
+          f"{', races' if a.races else ''}"
           f"{', replay only' if a.replay_only else ''}), {time.time() - t0:.0f} s"
           + (f"; failures kept in {faildir}" if fails else ""))
     tot = {}
