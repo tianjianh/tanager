@@ -1243,6 +1243,9 @@ module tg_rename
       for (int k = 1; k < W; k++)
         assert (!rn_valid_q[k] || rn_valid_q[k-1]) else $error("tg_rename: group is not a prefix");
       assert ((tag_free & ~tag_busy_q) == '0 || flush) else $error("tg_rename: a free tag returned");
+      // with hart 1 a group leaves RN only with its banks' rows after DS's write (iq_rows), so DS never waits: the
+      // one stage both threads pass must not hold one thread's group (step 5d)
+      if (CMT && |ds_valid_q) assert (ds_ok) else $error("tg_rename: DS holds a group with hart 1");
     end
   end
   // The resource check's flags give what the compares gave
