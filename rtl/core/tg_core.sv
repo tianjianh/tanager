@@ -517,11 +517,16 @@ module tg_core
   // the ROB holds commit at the replayed load, where the mark would have stopped it: cycle-
   // identical (the load cannot reach the head sooner, as the store that found it completes in the
   // cycle of its search at the earliest).
+  // A flush drops the reports registered in its cycle that are its thread's: with hart 1 the other thread's stay
+  // (as the ROB's own drop, rdrop), or that thread's entry never completes (M7 step 5c).
+  function automatic logic rpt_drop(robid_t e);
+    return flush && (!MT || rob_tid(e) == flush_tid);
+  endfunction
   logic [1:0]       st_cmp_r;
   robid_t [1:0]     st_cmp_rob_r;
   if (ROB_STORE_REPORT_LATE) begin : g_store_late
     always_ff @(posedge clk) begin
-      st_cmp_r     <= (rst || flush) ? '0 : st_cmp;
+      for (int i = 0; i < 2; i++) st_cmp_r[i] <= !rst && st_cmp[i] && !rpt_drop(st_cmp_rob[i]);
       st_cmp_rob_r <= st_cmp_rob;
     end
   end else begin : g_store_now
@@ -543,7 +548,7 @@ module tg_core
   // fault decision leaves the ROB's exception register. A fault is taken only at the head, so the
   // cycle costs about nothing (random +0.03%).
   always_ff @(posedge clk) begin
-    lx_valid_q <= (rst || flush) ? '0 : lx_valid;
+    for (int i = 0; i < 4; i++) lx_valid_q[i] <= !rst && lx_valid[i] && !rpt_drop(lx_rob[i]);
     lx_rob_q   <= lx_rob;
     lx_cause_q <= lx_cause;
   end

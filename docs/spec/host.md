@@ -35,7 +35,7 @@ The PL side of that is the **host bridge**:
 | `0x000` | `ID` | RO | `0x5447_4E52` | "TNGR" |
 | `0x004` | `VERSION` | RO | | `[31:24]` major, `[23:16]` minor, `[15:12]` cores, `[11:8]` threads per core, `[7:0]` configuration (0 st, 1 smt2, 2 st_w3, 3 smt2_w3) |
 | `0x008` | `CLK_HZ` | RO | | `clk_core` frequency |
-| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` latency injector, `[2]` the forwarded virtio window (`TG_VIRTIO_WINDOW=1`, [soc.md](soc.md) §8.1), `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports, `[8]` the coherent host DMA port (`TG_HOST_DMA=1`, [soc.md](soc.md) §8.1) |
+| `0x00C` | `CAPS` | RO | | `[0]` L2, `[1]` the latency injectors (0 in a release build, `TG_LAT_INJ=0`, DR-177: the `INJ_*` registers then read 0 and ignore writes; [soc.md](soc.md) §2.5), `[2]` the forwarded virtio window (`TG_VIRTIO_WINDOW=1`, [soc.md](soc.md) §8.1), `[3]` commit-trace streaming (0 in a build without the trace, `TG_COMMIT_TRACE=0`, DR-146: the `TRS_*` registers then read 0 and ignore writes), `[7:4]` memory ports, `[8]` the coherent host DMA port (`TG_HOST_DMA=1`, [soc.md](soc.md) §8.1) |
 | `0x010` | `CTRL` | RW | `0x3` (FPGA) | `[0]` hold cores in reset; `[1]` hold the uncore (L2, interconnect, devices, injector) in reset; `[2]` console lossless (0: TX bytes are dropped while the host FIFO is full, so the console never stalls the RISC-V side); `[3]` TFREEZE: `mtime` holds while the commit trace stalls a core ([uncore-periph.md](uncore-periph.md) §ACLINT; `tanager-host run --freeze-time`, for board lockstep, whose back-pressure would otherwise turn into timer ticks) |
 | `0x014` | `STATUS` | RO | | `[0]` cores in reset; `[1]` uncore in reset; `[2]` L2 initialised; `[3]` power request pending |
 | `0x018` | `POWER` | RO, W1C | 0 | `[31]` request pending; `[15:0]` value the RISC-V side wrote (`0x5555` power-off, `0x7777` reboot, `0x3333 \| code << 16` failure). A write with bit 31 set clears it |
@@ -86,7 +86,7 @@ The PL side of that is the **host bridge**:
 | `0x1200` | `DBG_SEL` | RW | 0 | `[7:0]` the debug counter or core word `DBG_VAL` shows (`TG_DEBUG_CNT=1` builds, [uncore.md](uncore.md) §Board debug counters) |
 | `0x1204` | `DBG_VAL` | RO | | that counter, a few dozen cycles after `DBG_SEL` is written |
 
-The `VQ_*` registers read 0 and ignore writes in a build without the window (`CAPS[2]` = 0), the `HDMA_*` registers without the host DMA port (`CAPS[8]` = 0), and `DBG_SEL` and `DBG_VAL` without the counters.
+The `INJ_*` registers read 0 and ignore writes in a release build (`CAPS[1]` = 0), the `VQ_*` registers in a build without the window (`CAPS[2]` = 0), the `HDMA_*` registers without the host DMA port (`CAPS[8]` = 0), and `DBG_SEL` and `DBG_VAL` without the counters.
 
 A 64-bit pair is written low half first. The low half waits in a shadow register shared by all pairs and lands with the high half's write, so reading it back before then returns the old value. The bridge transfers configuration to `clk` after each write to the high half, or to any 32-bit-only register.
 

@@ -19,7 +19,9 @@ module tg_host_bridge
   parameter bit          TRACE           = 1'b1,         // the trace stream is built (tg_uncore TRACE; DR-146)
   parameter bit          DEBUG           = 1'b0,         // DBG_SEL / DBG_VAL reach tg_uncore's debug counters
   parameter bit          VIRTIO          = 1'b0,         // the forwarded virtio window (tg_uncore VIRTIO_WINDOW)
-  parameter bit          HDMA            = 1'b0          // the host DMA port's registers (tg_uncore HOST_DMA)
+  parameter bit          HDMA            = 1'b0,         // the host DMA port's registers (tg_uncore HOST_DMA)
+  parameter bit          LAT_INJ         = 1'b1          // the latency injectors are built (tg_uncore LAT_INJ; DR-177): else
+                                                         // CAPS[1] and the INJ_* registers read 0, writes ignored
 ) (
   // ---- host domain ----
   input  logic        clk_host,
@@ -224,7 +226,7 @@ module tg_host_bridge
       16'h000: rd_mux = ID;
       16'h004: rd_mux = {VER_MAJ, VER_MIN, 4'(N_CORES_SOC), 4'(1 << TID_W), CFG_CODE};
       16'h008: rd_mux = 32'(CLK_HZ);
-      16'h00C: rd_mux = {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, 2'b11};  // [0] L2, [1] injector, [2] virtio window, [3] trace streaming, [8] host DMA
+      16'h00C: rd_mux = {23'd0, HDMA, 4'(N_BANKS), TRACE, VIRTIO, LAT_INJ, 1'b1};  // [0] L2, [1] injector, [2] virtio window, [3] trace streaming, [8] host DMA
       16'h010: rd_mux = {28'd0, ctrl_q};
       16'h014: rd_mux = {28'd0, pwr_pend_q, st_h.l2_init, st_h.uncore_rst, st_h.cores_rst};
       16'h018: rd_mux = {pwr_pend_q, 15'd0, st_h.power_val};
@@ -239,9 +241,9 @@ module tg_host_bridge
       16'h040: rd_mux = {22'd0, inj_rd_q};
       16'h044: rd_mux = {22'd0, inj_wr_q};
       16'h048: rd_mux = {7'd0, inj_bw_q, 15'd0, inj_mode_q};
-      16'h050: rd_mux = st_h.inj_cnt;
-      16'h054: rd_mux = st_h.inj_sum;
-      16'h058: rd_mux = {16'd0, st_h.inj_max};
+      16'h050: rd_mux = LAT_INJ ? st_h.inj_cnt : '0;
+      16'h054: rd_mux = LAT_INJ ? st_h.inj_sum : '0;
+      16'h058: rd_mux = LAT_INJ ? {16'd0, st_h.inj_max} : '0;
       16'h060: rd_mux = st_h.tohost[31:0];
       16'h064: rd_mux = st_h.tohost[63:32];
       16'h068: rd_mux = fromhost_q[31:0];
@@ -355,9 +357,9 @@ module tg_host_bridge
           16'h034: entry_q     <= {wd, lo_shadow_q};
           16'h03C: dtb_q       <= {wd, lo_shadow_q};
           16'h06C: fromhost_q  <= {wd, lo_shadow_q};
-          16'h040: inj_rd_q    <= wd[9:0];
-          16'h044: inj_wr_q    <= wd[9:0];
-          16'h048: begin inj_mode_q <= wd[0]; inj_bw_q <= wd[24:16]; end
+          16'h040: if (LAT_INJ) inj_rd_q <= wd[9:0];
+          16'h044: if (LAT_INJ) inj_wr_q <= wd[9:0];
+          16'h048: if (LAT_INJ) begin inj_mode_q <= wd[0]; inj_bw_q <= wd[24:16]; end
           16'h070: if (s_wstrb[0] && wd[0]) mbox_in_q <= 1'b0;
           16'h080: if (s_wstrb[0] && wd[3]) tohost_new_q <= 1'b0;
           16'h084: irq_en_q <= {VIRTIO && wd[4], wd[3:0]};
