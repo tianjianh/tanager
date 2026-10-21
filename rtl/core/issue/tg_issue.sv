@@ -259,6 +259,9 @@ module tg_issue
   logic cap_on;
   assign cap_on = HART1_ON && !(|thr_park);
   logic [N_IQ-1:0][NUM_THREADS-1:0][OCC_W-1:0] qocc;   // each queue's rows by thread
+`ifndef SYNTHESIS
+  logic [N_IQ-1:0][NUM_THREADS-1:0] q_over;            // ... above its cap (simulation only: +capstat)
+`endif
   always_ff @(posedge clk)
     for (int t = 0; t < NUM_THREADS; t++) begin
       logic [OCC_W-1:0] sum;
@@ -276,6 +279,9 @@ module tg_issue
     logic [NUM_THREADS-1:0][idx_w(ROWS + 1)-1:0] occ_t;
     for (genvar t = 0; t < NUM_THREADS; t++) begin : g_occ
       assign qocc[q][t] = OCC_W'(occ_t[t]);
+`ifndef SYNTHESIS
+      assign q_over[q][t] = int'(occ_t[t]) > CAP;     // (+capstat below)
+`endif
     end
     localparam int PW = fmt_w(q);
     localparam int EW = (EARLY_W < IQ_PL_W) ? ((q < N_ALU) ? 2 : (q == Q_FP) ? 3 : 1) * $bits(preg_t) : PW;
@@ -571,6 +577,68 @@ module tg_issue
         assert (disp_pl[k].imm == {{52{disp_pl[k].imm[11]}}, disp_pl[k].imm[11:0]})
           else $error("tg_issue: memory offset wider than 12 bits");
     end
+  end
+`endif
+
+`ifndef SYNTHESIS
+  // The caps' WFI case (simulation only, +capstat; M7 step 7): each time the caps come back as a thread wakes, whether
+  // the running thread held more than its cap of every queue before the woken thread's first dispatch, and how long
+  // that took. On stderr at the end (TG-CAPS)
+  bit   cs_on;
+  initial cs_on = $test$plusargs("capstat");
+  logic cap_on_q;
+  logic [NUM_THREADS-1:0] park_q;
+  int   cs_ret, cs_rows, cs_over, cs_max, cs_sum;
+  int   cs_w, cs_wait;                // the woken thread (-1: none), the cycles since the return
+  tid_t cs_r;                         // ... the running thread
+  logic cs_seen;                      // ... the running thread above its share of every queue meanwhile
+  int   cs_qmax [N_IQ];               // ... its most rows of each queue in the last window
+  /* verilator lint_off BLKSEQ */       // simulation-only counters: blocking assignments in order
+  always @(posedge clk) begin
+    logic [NUM_THREADS-1:0] over_all;
+    logic got;
+    cap_on_q <= rst ? 1'b0 : cap_on;
+    park_q   <= rst ? '0 : thr_park;
+    if (rst) begin
+      cs_ret = 0; cs_rows = 0; cs_over = 0; cs_max = 0; cs_sum = 0; cs_w = -1; cs_r = '0; cs_wait = 0; cs_seen = 1'b0;
+    end else if (cs_on) begin
+      for (int t = 0; t < NUM_THREADS; t++) begin
+        over_all[t] = 1'b1;
+        for (int q = 0; q < N_IQ; q++) if (!q_over[q][t]) over_all[t] = 1'b0;
+      end
+      if (cap_on && !cap_on_q && |park_q) begin
+        cs_ret++;
+        for (int t = 0; t < NUM_THREADS; t++) if (park_q[t]) cs_w = t; else cs_r = tid_t'(t);
+        cs_wait = 0;
+        cs_seen = 1'b0;
+        for (int q = 0; q < N_IQ; q++) cs_qmax[q] = 0;
+      end
+      if (cs_w >= 0) begin
+        if (over_all[cs_r]) cs_seen = 1'b1;
+        for (int q = 0; q < N_IQ; q++) if (int'(qocc[q][cs_r]) > cs_qmax[q]) cs_qmax[q] = int'(qocc[q][cs_r]);
+        got = 1'b0;
+        for (int q = 0; q < N_IQ; q++)
+          for (int k = 0; k < DW; k++) if (disp_we[q][k] && int'(disp_pl[k].tid) == cs_w) got = 1'b1;
+        cs_wait++;
+        if (got) begin
+          cs_rows++;
+          if (cs_seen) begin
+            cs_over++;
+            cs_sum += cs_wait;
+            if (cs_wait > cs_max) cs_max = cs_wait;
+          end
+          cs_w = -1;
+        end
+      end
+    end
+  end
+  /* verilator lint_on BLKSEQ */
+  final if (cs_on) begin
+    string qs;
+    qs = "";
+    for (int q = 0; q < N_IQ; q++) qs = {qs, $sformatf(" %0d/%0d", cs_qmax[q], (rows_of(q) * IQ_CAP_PCT) / 100)};
+    $fwrite(32'h8000_0002, "TG-CAPS %m: the caps came back %0d times as a thread woke; its first row followed %0d times, %0d of them with the running thread above its share of every queue meanwhile (after %0d cycles at most, %0d in all); the last window's most rows of each queue against its cap:%s\n",
+            cs_ret, cs_rows, cs_over, cs_max, cs_sum, qs);
   end
 `endif
 endmodule
