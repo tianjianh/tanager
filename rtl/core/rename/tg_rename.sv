@@ -224,7 +224,7 @@ module tg_rename
       .clk, .rst, .ready(fl_ready[b]), .count(fl_count[b]), .pop_tid(t_rn), .pop_idx(fl_pop[b]),
       .pop_n(fl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(fl_push_v[b]), .push_idx(fl_push_idx[b]),
       .commit_n(fl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(fl_want_q[b]), .want_tid(want_t_q),
-      .xfer(fl_xfer[b]));
+      .give_last(1'b1), .xfer(fl_xfer[b]));
   end
 
   // ---- FP free lists (EXT_FD): F0 starts with indices 32-63 (f0-f31 map to F0 0-31), F1 0-63; with hart 1 (step 5)
@@ -244,7 +244,7 @@ module tg_rename
         .clk, .rst, .ready(ffl_ready[b]), .count(ffl_count[b]), .pop_tid(t_rn), .pop_idx(ffl_pop[b]),
         .pop_n(ffl_pop_n[b]), .pop(rn_fire), .push_tid(t_cm), .push_v(ffl_push_v[b]), .push_idx(ffl_push_idx[b]),
         .commit_n(ffl_cmt_n[b]), .flush, .flush_tid(t_fl), .want(ffl_want_q[b]), .want_tid(want_t_q),
-        .xfer(ffl_xfer[b]));
+        .give_last(1'b0), .xfer(ffl_xfer[b]));
     end
   end else begin : g_noffl
     assign ffl_ready = '1;
