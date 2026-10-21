@@ -146,6 +146,7 @@ module tg_core
   tid_t        tlb_flush_tid;                // the hart whose TLB entries the flush clears (M7's step 4)
   logic        iw_req, iw_ack, iw_done, iw_ok, it_fill;
   logic [63:0] iw_va;
+  tid_t        iw_tid;                   // fetch's walk's thread (M7's step 5b)
   logic [3:0]  iw_cause;
   logic [26:0] it_fill_vpn;
   logic [1:0]  it_fill_lvl;
@@ -194,20 +195,27 @@ module tg_core
   // change only as a trap, an xRET or a serialising CSR write commits, and the flush that follows
   // is the next cycle, so fetch resumes after the copy has caught up (timing, DR-145: the CSR's
   // registers are far from F1's PMP select; any difference falls in a flush cycle, asserted)
-  priv_e priv_f_q;
-  logic  xl_f_q;
-  always_ff @(posedge clk) begin
-    priv_f_q <= rst ? PRIV_M : priv;
-    xl_f_q   <= !rst && EXT_SU && satp_sv39 && priv != PRIV_M;
-  end
+  // (per hart, M7's step 5b: fetch takes its F1 block's hart's)
+  priv_e [NUM_THREADS-1:0] priv_f_q;
+  logic  [NUM_THREADS-1:0] xl_f_q;
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++) begin
+      priv_f_q[t] <= rst ? PRIV_M : priv_h[t];
+      xl_f_q[t]   <= !rst && EXT_SU && sv39_h[t] && priv_h[t] != PRIV_M;
+    end
 `ifndef SYNTHESIS
   logic rs_fq;
   initial rs_fq = 1'b0;
   always @(posedge clk) begin
     if (rst) rs_fq <= 1'b1;
     if (rs_fq && !rst)
-      assert (flush || (priv_f_q == priv && xl_f_q == (EXT_SU && satp_sv39 && priv != PRIV_M)))
-        else $error("tg_core: fetch's privilege copy differs outside a flush");
+      for (int t = 0; t < NUM_THREADS; t++)
+        assert (flush || (priv_f_q[t] == priv_h[t] && xl_f_q[t] == (EXT_SU && sv39_h[t] && priv_h[t] != PRIV_M)))
+          else $error("tg_core: fetch's privilege copy of hart %0d differs outside a flush", t);
+    // the running hart's is the one fetch took before M7's step 5b
+    if (rs_fq && !rst)
+      assert (priv_h[RUN_TID] == priv && sv39_h[RUN_TID] == satp_sv39 && pmp_d_h[RUN_TID] == pmp_d)
+        else $error("tg_core: the running hart's translation state differs from tg_csr's scalars");
   end
 `endif
   // The LSU's own copy of the privilege, the data privilege, SUM, MXR and satp, a cycle behind
@@ -264,11 +272,11 @@ module tg_core
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
-    .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval,
+    .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_i(xl_f_q), .dst(de_state_h), .priv(priv_f_q), .pmp_d, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
-    .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
 
   // ---- Decode ----
@@ -604,7 +612,7 @@ module tg_core
     .priv(priv_l_q), .priv_d(priv_dl_q), .sum(sum_l_q), .mxr(mxr_l_q), .satp_sv39(sv39_l_q),
     .satp_ppn(satp_ppn_l_q), .pmp_d(pmp_d_h), .pmp_al(pmp_al_h), .pmp_p2m(pmp_p2m_h), .tlb_flush, .tlb_flush_tid,
     .tlbm_valid, .tlbm_rob, .hd_tlb, .hd_retry, .hd_fault, .hd_cause, .hd_lva, .hd_sva,
-    .iw_req, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
+    .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .l1d_a_o, .l1d_a_valid_o, .l1d_a_ready_i, .l1d_b_i, .l1d_b_valid_i, .l1d_b_ready_o,
     .l1d_c_o, .l1d_c_valid_o, .l1d_c_ready_i, .l1d_d_i, .l1d_d_valid_i, .l1d_d_ready_o,
@@ -782,7 +790,7 @@ module tg_core
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
                     st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    upd_tid, div_done_tid};       // (M7 step 5: fetch's micro-BTB in 5b, rename's counts in 5c)
+                    div_done_tid};                // (M7 step 5: rename's divide count in 5c)
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

@@ -81,15 +81,16 @@ module tg_fetch
   input  logic [SLOT_W-1:0] upd_slot,
   input  logic [63:0] upd_target,
   input  logic        upd_inval,
+  input  tid_t        upd_tid,        // ... the trained branch's thread (M7: fpu-2's, tg_exec)
   // Instruction queue to decode
   output logic [DECODE_WIDTH-1:0]   iq_valid,
   output fe_insn_t [DECODE_WIDTH-1:0] iq_insn,
   input  logic [TKW-1:0]            iq_take,
   // Translation and PMP (M3)
-  input  logic        xl_i,           // fetch translates: S or U, satp.MODE = Sv39
+  input  logic [NUM_THREADS-1:0] xl_h,   // per hart (F1's block's thread's is used): fetch translates: S or U, Sv39
   input  dec_state_t [NUM_THREADS-1:0] dst,   // each hart's decode state, for the queue's decode bits
-  input  priv_e       priv,
-  input  pmp_d_t [PMP_ENTRIES-1:0] pmp_d,
+  input  priv_e  [NUM_THREADS-1:0] priv_h,
+  input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic        tlb_flush,
   input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
@@ -99,6 +100,7 @@ module tg_fetch
   input  tlb_pte_t    it_fill_pte,
   input  tid_t        it_fill_tid,
   output logic        iw_req,         // a walk for iw_va, held until iw_ack
+  output tid_t        iw_tid,         // ... of this thread's (M7)
   output logic [63:0] iw_va,
   input  logic        iw_ack,
   input  logic        iw_done,        // a fetch walk ended
@@ -175,6 +177,15 @@ module tg_fetch
   assign sp_q    = sp_s_q[f2_s_q];
   tid_t f3_tid;                                   // F3's block's thread
   assign f3_tid = MT ? tid_t'(f3_s_q) : RUN_TID;
+  // F1's block's hart: its translation, privilege and PMP descriptors (M7's step 5b)
+  tid_t f1_tid;
+  assign f1_tid = MT ? tid_t'(ft_q) : RUN_TID;
+  logic   xl_i;
+  priv_e  priv;
+  pmp_d_t [PMP_ENTRIES-1:0] pmp_d;
+  assign xl_i  = xl_h[f1_tid];
+  assign priv  = priv_h[f1_tid];
+  assign pmp_d = pmp_d_h[f1_tid];
   // F2's stream's return-address stack (its prediction and the FTQ's snapshot read it)
   logic                ras_v;
   logic [38:1]         ras_top;
@@ -210,9 +221,14 @@ module tg_fetch
       u_valid = 1'b1; u_way = f2_inval_way; u_inval = 1'b1; u_pc = f2_inval_pc;
     end
   end
+  // Entries carry their thread (M7: with hart 1, F1's lookup takes F1's stream's entries, training writes the trained
+  // branch's thread; without it 0 for both, as before)
+  tid_t ub_ltid, ub_wtid;
+  assign ub_ltid = MT ? tid_t'(ft_q) : '0;
+  assign ub_wtid = MT ? upd_tid : '0;
   tg_ubtb #(.FA(1'b0), .NE(UBTB_ENTRIES)) u_ubtb (
-    .clk, .rst, .pc(fpc_q[38:4]), .tid('0), .hit(ub_hit), .target(ub_tgt), .br_slot(ub_slot),
-    .hit_way(ub_way), .upd_valid(u_valid), .upd_way(u_way), .upd_pc(u_pc), .upd_tid('0),
+    .clk, .rst, .pc(fpc_q[38:4]), .tid(ub_ltid), .hit(ub_hit), .target(ub_tgt), .br_slot(ub_slot),
+    .hit_way(ub_way), .upd_valid(u_valid), .upd_way(u_way), .upd_pc(u_pc), .upd_tid(ub_wtid),
     .upd_target(u_tgt), .upd_slot(u_slot), .upd_inval(u_inval));
 
   // A prediction whose slot lies before the entry point cannot apply to this fetch.
@@ -228,7 +244,7 @@ module tg_fetch
   tlb_pte_t [0:0]   it_pte;
   assign it_vpn[0] = fpc_q[38:12];
   tg_tlb #(.NE(ITLB_ENTRIES), .NR(1)) u_itlb (
-    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .lk_tid(RUN_TID), .hit(it_hit), .pte(it_pte), .fill(it_fill),
+    .clk, .rst, .vpn(it_vpn), .vpn_e('0), .lk_tid(f1_tid), .hit(it_hit), .pte(it_pte), .fill(it_fill),
     .fill_vpn(it_fill_vpn), .fill_lvl(it_fill_lvl),
     .fill_pte(it_fill_pte), .fill_tid(it_fill_tid), .flush(tlb_flush), .flush_tid(tlb_flush_tid));
   logic [PA_W-1:0] f1_pa;
@@ -953,6 +969,7 @@ module tg_fetch
   assign wo     = MT && !wout[0];
   assign iw_req = !(|wout) && (aw_go || |wreq);
   assign iw_va  = aw_go ? miss_pc_q : rpc_s_q[ws];
+  assign iw_tid = MT ? tid_t'(ws) : RUN_TID;
   // The miss the refill engine serves: the stream parking now (am_go, miss_pa_q), else a parked stream (stream 0
   // first). Any refill's end restarts every stream parked on a miss, as with one stream: one whose line it was not
   // misses again and parks, and its refill starts once the engine is free
