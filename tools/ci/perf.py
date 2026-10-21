@@ -9,8 +9,8 @@ runs, between the tg_marker stores): cycles and IPC on both sides, the change in
 faster), and CoreMark/MHz or DMIPS/MHz. A feature behind a switch is measured on one commit with BASE=HEAD
 and the switch on this side only (BRANCH_DC_MSHRS=4, BRANCH_QUEUE_DECODE=1, ...).
   make perf [BASE=main] [BRANCH=<ref>] [CFG=st] [MARCH=rv64gc] [ITER=10] [RUNS=500] [LAT=native] [JOBS=8]
-            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE|STA_BASE|STEER_LA|PMP_ENTRIES|STORE_PF|URF|STORE_PF_MAX|SOLO_TID|SPLIT|HART1=...]
-            [BRANCH_TIMING_CUTS|...|..._STORE_PF|..._URF|..._STORE_PF_MAX|..._SOLO_TID|..._SPLIT|..._HART1=...]
+            [TIMING_CUTS|DC_MSHRS|QUEUE_DECODE|SPEC_WAKE|SPEC_WAKE_FILT|STA_BASE|STEER_LA|PMP_ENTRIES|STORE_PF|URF|STORE_PF_MAX|SOLO_TID|SPLIT|HART1=...]
+            [BRANCH_TIMING_CUTS|...|..._SPEC_WAKE_FILT|..._STORE_PF|..._URF|..._STORE_PF_MAX|..._SOLO_TID|..._SPLIT|..._HART1=...]
 MARCH and LAT take lists ("rv64im,rv64gc", "native,120"). Results are cached per build and program, so a
 second measurement against the same BASE reruns only this side. Exit status: 0 measured; 2 could not run.
 """
@@ -66,7 +66,8 @@ def main():
                            ("PMP_ENTRIES", "pmp-entries", (8, 16)),
                            ("STORE_PF", "store-pf", (0, 1)), ("URF", "urf", (0, 1)),
                            ("STORE_PF_MAX", "store-pf-max", (2, 3)), ("SOLO_TID", "solo-tid", (0, 1)),
-                           ("SPLIT", "split", (0, 1)), ("HART1", "hart1", (0, 1))):
+                           ("SPLIT", "split", (0, 1)), ("HART1", "hart1", (0, 1)),
+                           ("SPEC_WAKE_FILT", "spec-wake-filt", (0, 1, 2))):
         ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"{var} on both sides")
         ap.add_argument(f"--branch-{opt}", type=int, choices=vals, default=None, help=f"{var} on this side only")
     a = ap.parse_args()
@@ -91,7 +92,8 @@ def main():
             "PMP_ENTRIES": (a.pmp_entries, a.branch_pmp_entries),
             "STORE_PF": (a.store_pf, a.branch_store_pf), "URF": (a.urf, a.branch_urf),
             "STORE_PF_MAX": (a.store_pf_max, a.branch_store_pf_max), "SOLO_TID": (a.solo_tid, a.branch_solo_tid),
-            "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1)}
+            "SPLIT": (a.split, a.branch_split), "HART1": (a.hart1, a.branch_hart1),
+            "SPEC_WAKE_FILT": (a.spec_wake_filt, a.branch_spec_wake_filt)}
     prof_base = {v: b for v, (b, _) in both.items() if b is not None}
     prof_branch = {v: br if br is not None else b for v, (b, br) in both.items() if br is not None or b is not None}
     for v in set(prof_base) | set(prof_branch):

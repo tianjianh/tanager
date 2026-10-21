@@ -1,0 +1,7 @@
+block 1K --threads=2: 2899.20 MiB transferred (144.45 MiB/sec)
+block 1K --threads=2 --memory-scope=local: 3355.67 MiB transferred (167.21 MiB/sec)
+block 1K --threads=1: 1696.79 MiB transferred (84.55 MiB/sec)
+block 1M --threads=2: 6918.00 MiB transferred (344.73 MiB/sec)
+block 1M --threads=2 --memory-scope=local: 6660.00 MiB transferred (331.77 MiB/sec)
+block 1M --threads=1: 3629.00 MiB transferred (180.81 MiB/sec)
+block 1M --threads=2 --time=60 (with the A53's ps-memregs --bridge): 20783.00 MiB transferred (345.98 MiB/sec)
