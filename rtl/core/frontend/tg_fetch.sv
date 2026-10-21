@@ -297,13 +297,14 @@ module tg_fetch
   logic [SET_W-1:0]    tw_set;
   logic [TAG_W-1:0]    tw_wd;
 
-  logic                f2_go;            // F1 moves into F2 this cycle
+  logic                f2_go;            // F1 may move into F2 this cycle
+  logic                f2_ld;            // ... and does (not in a cycle of F2's action): the F2-side reads
   logic [WAYS-1:0][127:0] way_data;      // F2: data of the block read in F1
   logic [WAYS-1:0][TAG_W-1:0] tag_rd;    // F1
   for (genvar w = 0; w < WAYS; w++) begin : g_way
     tg_ram_sdp #(.DEPTH(ROWS), .WIDTH(128), .OUT_REG(1'b0), .PRIM("block")) u_data (
       .clk, .we(dw_we && dw_way == WAY_W'(w)), .waddr(dw_row), .wdata(rf_data),
-      .re(f2_go), .raddr(fpc_q[4 +: ROW_W]), .rdata(way_data[w]));
+      .re(f2_ld), .raddr(fpc_q[4 +: ROW_W]), .rdata(way_data[w]));
     logic [0:0][SET_W-1:0] ra;
     logic [0:0][TAG_W-1:0] rd;
     assign ra[0] = fpc_q[6 +: SET_W];
@@ -989,6 +990,9 @@ module tg_fetch
   assign f1_base = f1_valid_q && !miss_s_q[ft_q] && !wk_s_q[ft_q] && !stop_q && ready && !pmp_busy && ivs_done;
   assign f1_live = f1_base && !f1_pwait;
   assign f2_go   = !f2_hold && !redirect;
+  // (in F2's action's cycle F2 takes nothing from F1: with MT it may keep the other stream's block, whose I$ data and
+  // TAGE reads must stay; without MT F2 holds nothing then, so the reads were unused)
+  assign f2_ld   = f2_go && !ka_q;
   logic f2_override;                     // F2's prediction is not F1's: refetch (f2_ovr)
   // (f2_isf0, not f2_isfault: with the micro-BTB alone, when its prediction stands the term is zero
   // anyway, and otherwise f2_isfault is isf_h[0]; so the override does not wait for the pick by hp)
@@ -996,8 +1000,8 @@ module tg_fetch
   logic am_go, aw_go;                    // F2's miss or ITLB miss of last cycle parks its stream (k_s_q) now
   assign am_go  = ka_q && k_miss_q;
   assign aw_go  = ka_q && k_walk_q;
-  // The fetch walk, one at a time: the stream parking now, else a parked stream whose walk was not taken (stream 0
-  // first); a parking stream's PC is miss_pc_q in its cycle, rpc_s_q after
+  // The fetch walk, one at a time: a parked stream whose walk was not taken (stream 0 first: it waited longer than one
+  // parking now), else the stream parking now; a parking stream's PC is miss_pc_q in its cycle, rpc_s_q after
   logic [NS-1:0] wreq, wout;             // a stream's walk waits to be taken; is out
   logic          ws, wo;                 // the stream whose request is presented; whose walk is out
   always_comb
@@ -1005,20 +1009,21 @@ module tg_fetch
       wreq[t] = wk_s_q[t] && !wk_sent_s_q[t];
       wout[t] = wk_s_q[t] && wk_sent_s_q[t];
     end
-  assign ws     = aw_go ? k_s_q : (MT && !wreq[0]);
+  assign ws     = (MT && |wreq) ? !wreq[0] : aw_go ? k_s_q : 1'b0;
   assign wo     = MT && !wout[0];
   assign iw_req = !(|wout) && (aw_go || |wreq);
-  assign iw_va  = aw_go ? miss_pc_q : rpc_s_q[ws];
+  assign iw_va  = (aw_go && ws == k_s_q && !(MT && |wreq)) ? miss_pc_q : rpc_s_q[ws];
   assign iw_tid = MT ? tid_t'(ws) : RUN_TID;
-  // The miss the refill engine serves: the stream parking now (am_go, miss_pa_q), else a parked stream (stream 0
-  // first). Any refill's end restarts every stream parked on a miss, as with one stream: one whose line it was not
-  // misses again and parks, and its refill starts once the engine is free
+  // The miss the refill engine serves: a stream already parked (stream 0 first: it waited longer), else the stream
+  // parking now (am_go, miss_pa_q). With MT a refill's end restarts the streams parked on its line, and the others
+  // stay parked for the engine (no starvation by the other stream's misses); with one stream any refill's end
+  // restarts it, as before
   logic            ms;                   // its stream
   logic [PA_W-1:0] mpa;                  // its block's PA
   logic            miss_any;
   assign miss_any = |miss_s_q;
-  assign ms  = am_go ? k_s_q : (MT && !miss_s_q[0]);
-  assign mpa = am_go ? miss_pa_q : rpa_s_q[ms];
+  assign ms  = (MT && miss_any) ? !miss_s_q[0] : am_go ? k_s_q : 1'b0;
+  assign mpa = (am_go && ms == k_s_q && !(MT && miss_any)) ? miss_pa_q : rpa_s_q[ms];
   // The micro-BTB entry of a dropped prediction (its exit slot is no branch's or jump's) is
   // invalidated a cycle later
   logic        ainv_q, ainv_way_q;
@@ -1085,7 +1090,7 @@ module tg_fetch
     assign tblk = fpc_q[38:4] ^ {MT && ft_q, 34'b0};
     tg_tage #(.NP(NP), .CW(COMMIT_WIDTH), .NT(TAGE_NT), .LI(TAGE_LI), .TW(TAGE_TW), .BI(TAGE_BI), .HW(GH_W),
               .FW(SB + FTQW + 1)) u_tage (
-      .clk, .rst, .re(f2_go), .blk(tblk), .gh(gh_e_s[ft_q]), .dir(tdir), .ix(tix),
+      .clk, .rst, .re(f2_ld), .blk(tblk), .gh(gh_e_s[ft_q]), .dir(tdir), .ix(tix),
       .t_v(c_cbr), .t_ftq(c_fp), .t_slot(c_slot), .t_taken(c_taken), .t_pred(c_pred),
       .q_v(tq_v), .q_ftq(tq_ftq), .q_ix(fq_rd[0]), .q_all(tq_all), .q_n(tq_n));
     always_comb
@@ -1584,12 +1589,18 @@ module tg_fetch
   logic [63:0]   kref_pc;
   logic [NS-1:0] rs_ref, rs_walk;        // restarts: after a refill, after a walk
   logic [NS-1:0][63:0] rs_pc;
+  logic [NS-1:0][PA_W-1:6] sline;        // MT: the line each parked (or parking) stream waits for
+  always_comb
+    for (int t = 0; t < NS; t++)
+      sline[t] = (am_go && k_s_q == 1'(t)) ? miss_pa_q[PA_W-1:6] : rpa_s_q[t][PA_W-1:6];
   assign kref_pc = k_cut_q ? {miss_pc_q[63:4], fp_q, 1'b0}
                  : k_ovr_q ? (kr_q ? {{25{krt_q[38]}}, krt_q, 1'b0} : kt_q ? kt_tgt : {miss_pc_q[63:4] + 60'd1, 4'b0})
                  : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
-      rs_ref[t]  = (miss_s_q[t] || (am_go && k_s_q == 1'(t))) && (refill_done || pv_go);
+      rs_ref[t]  = (miss_s_q[t] || (am_go && k_s_q == 1'(t))) &&
+                   (!MT ? (refill_done || pv_go)
+                        : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])));
       rs_walk[t] = wout[t] && iw_done;
       rs_pc[t]   = ((am_go || aw_go) && k_s_q == 1'(t)) ? miss_pc_q : rpc_s_q[t];
     end
@@ -1867,7 +1878,7 @@ module tg_fetch
   logic            stale_q;
   logic [WAY_W-1:0] stale_way_q;
   always_ff @(posedge clk) begin
-    if (f2_go) begin
+    if (f2_ld) begin
       stale_q     <= rs_q == R_DATA && fpc_q[6 +: SET_W] == rline_q[6 +: SET_W] &&
                      (fpc_q[5:4] < rbeat_q || (fpc_q[5:4] == rbeat_q && rf_we));
       stale_way_q <= rway_q;
