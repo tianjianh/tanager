@@ -778,6 +778,7 @@ python3 scripts/m7_smt.py --groups --d3rev # §13.8 and §13.9
 python3 scripts/m7_smt.py --pair           # §13.10: verif-2's pair runner (its ELFs in TG_PAIRDIR)
 python3 scripts/m7_smt.py --homes          # §13.11: D4's alternatives for hart 1's register homes
 python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13.12 on the final set (TG_FINALDIR)
+python3 scripts/m7_smt.py --d3fp64         # §13.13: D3 with FP banks of 64 (bash bench/build_m7.sh first, for m7_fpcompute)
 ```
 
 **Where results live.**
@@ -816,9 +817,11 @@ python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
-| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 8) | Step 5 (no caps) + the drain's priority: 1.310 / 1.292 / 1.272. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.333 / 1.348 / 1.332, the only form above 1.3 at every point, by 0.03–0.05. Never a whole bank: 1.298 / 1.328 / 1.322. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3 |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 9 since 10-20 evening) | Step 5 (no caps) + the drain's priority: 1.279 / 1.266 / 1.246. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.302 / 1.316 / 1.301, the only form at or above 1.3 at every point, by 0.001–0.016 (0.03–0.05 on revision 8: TAGE-lite's new rule makes minver 42% faster alone). Never a whole bank: 1.269 / 1.297 / 1.292. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
 | D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
+
+| D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
 
@@ -1510,8 +1513,130 @@ A hart therefore needs, in every bank, room for its architectural registers plus
 
 The pair programs' code fits the I$, so the prediction stands.
 
+**On revision 9 (10-20 evening, area_recovery.md §6.17).** Main now has fix B and TAGE-lite's new allocation rule (c06345bf), and the preset follows (`btage_alloc` 1). This section was run again on it (`results/m7_smt_rv64gc.json`, "final"; revision 8's run is kept as "final_rev8"). It is still blind, since no RTL pair has run, and it moves down by 0.025–0.032:
+- **Step 5 + the drain's priority:** 1.279 / 1.266 / 1.246.
+- **50% caps with a bank's last row kept:** 1.302 / 1.316 / 1.301. It is still the only form at or above 1.3 at every point, but now by 0.001–0.016.
+- **Never a whole bank:** 1.269 / 1.297 / 1.292.
+- **Unchanged:** the hangs, and the revision-7 check (1.319 / 1.309 / 1.290).
+
+**Why it moved: minver.**
+- **Alone,** in the pair set's build, minver's loops thrashed TAGE-lite on revision 8 (IPC 1.30). With the new rule it runs at 1.85, 42% faster.
+- **In its pairs** it had already escaped the thrash, so its IPC there barely moves: 1.04 → 1.05 beside CoreMark.
+- **So its share of its alone speed falls:** 0.80 → 0.57 beside CoreMark. Its four compute pairs lose 0.15–0.24 of WS each, and compute + compute goes from 1.34 to 1.27.
+- **huffbench** runs 6.8% faster alone, and its pairs lose about 0.03.
+- **What it means:** revision 8's minver alone was too slow, so its pairs read high.
+- **The RTL:** its minver most likely thrashed in these builds too before c06345bf. On the runner's earlier build, verif-2's RTL alone run read 1.385 against the model's 1.395 (§13.10). Both are far under the 1.79–1.85 that minver reaches without the thrash (area_recovery §6.17's build).
+  - On today's main, step 5's RTL pairs should show the same drop.
+  - WS needs alone runs on the same main: alone runs from before c06345bf would make minver's and huffbench's pairs read high.
+
+| Pair (step 5 + the drain's priority, 120 cycles) | WS, revision 8 | WS, revision 9 | Shares of alone speed, revision 8 → 9 |
+|---|---|---|---|
+| huffbench + minver | 1.479 | 1.241 | 0.66 + 0.82 → 0.62 + 0.62 |
+| minver + CoreMark | 1.424 | 1.187 | 0.80 + 0.62 → 0.57 + 0.62 |
+| nsichneu + minver | 1.510 | 1.287 | 0.75 + 0.76 → 0.75 + 0.53 |
+| minver + matmult | 1.189 | 1.042 | 0.63 + 0.56 → 0.53 + 0.51 |
+| stride + minver | 1.181 | 1.110 | 0.98 + 0.20 → 0.97 + 0.14 |
+
+**Exit 2 at step 7 is now inside the model's ±0.05 error band.** On the model's evidence alone it could land either side of 1.3.
+
 **Decisions:** none here. Revision 8 is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
 
 **Learned:**
 - **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
 - **A cap on miss entries costs more than it returns** when the memory thread's own speed is all parallel misses.
+
+### 13.13 D3 with FP banks of 64: is any rule deadlock-free? (10-20)
+
+*The coordinator asked (10-20). core-2's step 5a measured FP banks of 96 at +1,575 LUTs a core with hart 1 on (+3.15K a chip), against the plan's ≈0.45K. The FP register index widens from 6 to 7 bits everywhere it travels: the file +572, the FP unit +282, rename +455, the LSU +181, issue and exec +64. The question: is there a deadlock-free D3 with 64-deep FP banks, at no IPC cost or under 1%? 5a merges with FP 96 behind HART1=1, and the decision comes at step 7, or sooner if the answer is clear.*
+
+*The model (`m7_smt.py --d3fp64`):*
+- *§13.10's step-7 configuration (75% caps, a hart never taking all of a slot bank), one thread a group, D3 as revised (per-hart lists, transfers, the donor keeping one) and D4 (b), on rtl_m2 revision 9.*
+- *Pairs: the 87, plus three with a new test, `m7_fpcompute` (32 flds, then four blocks of 32 FP ops writing every f register), whose two harts fill F0. Run at 30, 120 and 250 cycles.*
+- *A lone hart, its sibling asleep with its registers at their homes, over the 36 programs and `m7_fpcompute`.*
+- *WS against one program on today's core; a lone hart against today's one-hart core.*
+
+**Why 64 can deadlock.**
+- **The banks are writer-sharded** (core-fp.md): P4's results write F0 and FP loads write F1, each through the bank's one write port.
+- **Each hart has 32 architectural f registers** (f0 is a real register), so two harts have 64: a whole bank.
+- **One bank can fill:**
+  - after 32 flds, a hart's f registers all live in F1; after 32 FP ops, all in F0;
+  - both harts' 64 can then fill one bank;
+  - so can one hart's 32 beside the 32 a sleeping or integer-only sibling leaves parked there.
+- **Then nothing is free or in flight** in that bank. An op that must write it cannot rename, and no older op is left to free one.
+- **No rule about who takes which free register helps,** because there is none to take.
+- **Two ways out:** a deeper bank (96 = 64 + 32), or a second destination, with the op renamed into the other FP bank.
+
+**Pairs** (90; WS at 30 / 120 / 250 cycles):
+
+| FP banks and rule | WS, the 42 | WS, the 25 FP pairs, against FP 96 | Deadlocked pairs (30 / 120 / 250) | Renamed across, a kilo-instruction |
+|---|---|---|---|---|
+| FP 96 (5a: per-hart lists, transfers, the donor keeps one) | 1.273 / 1.298 / 1.292 | 1.372 / 1.352 / 1.335 | 0 / 0 / 0 | – |
+| FP 64, the same: each hart's last register its reserve | the same | −0.2 / −0.2 / −0.0% | **3 / 2 / 2** | – |
+| FP 64: a starved hart takes the last one, its sibling waiting | the same | −0.2 / −0.5 / −0.2% | **2 / 2 / 2** | – |
+| FP 64: homes split (each hart's f0–f15 in F0, f16–f31 in F1) | the same | −0.2 / −0.1 / −0.1% | **0 / 0 / 1** | – |
+| FP 64: an fld short of F1 cracked into F0 (+4 cycles) | the same | −0.2 / −0.3 / −0.1% | **1 / 1 / 1** | 1.0 |
+| FP 64: P4's results into F1 when short | the same | +0.1 / −0.1 / 0.0% | **2 / 1 / 1** | 4.9 |
+| **FP 64: across both ways** (each bank's write port takes either source) | **the same** | **0.0 / 0.0 / 0.0%** | **0 / 0 / 0** | 7.1–7.3 |
+| ... a crossed write 2 cycles late | the same | −0.3 / −0.6 / −0.5% | 0 / 0 / 0 | 7.5–7.6 |
+| ... a crossed write 4 cycles late | the same | −0.8 / −1.0 / −0.7% | 0 / 0 / 0 | 8.0–8.1 |
+
+**A lone hart** (37 programs):
+
+| FP banks and rule | Against FP 96 (30 / 120 / 250) | Largest loss at 120 | Deadlocks |
+|---|---|---|---|
+| FP 64, the reserve | −0.01% | tk_dgemm −0.3% | **m7_fprestore, m7_fprestore2, m7_fpcompute** |
+| FP 64, a starved hart's priority | 0.00% | – | **m7_fprestore2** |
+| FP 64, homes split | 0.00% | – | none |
+| FP 64, an fld cracked into F0 (+4) | −0.09 / −0.04 / −0.04% | nbody −1.8% | none |
+| FP 64, P4's results into F1 | −0.02% | tk_dgemm −0.3% | **m7_fprestore, m7_fprestore2, m7_fpcompute** |
+| **FP 64, across both ways** | **0.00%** | nbody −0.2% | **none** |
+| ... a crossed write 2 cycles late | −0.04 / 0.00 / −0.01% | nbody −0.9% | none |
+| ... 4 cycles late | −0.10 / −0.05 / −0.06% | nbody −2.2% | none |
+
+*The deadlocked pairs:*
+- *the reserve: m7_fprestore2 with itself (at 30), m7_fprestore2 + nbody, CoreMark + m7_fprestore;*
+- *a starved hart's priority: the two-hart double restore and m7_fpcompute with itself;*
+- *homes split: the double restore at 250;*
+- *the crack: CoreMark + m7_fprestore;*
+- *P4's results into F1: the double restore (at 30) and m7_fprestore2 + nbody.*
+
+**What it shows:**
+- **Every rule that keeps an op in its own bank deadlocks,** as the structure says:
+  - **The reserve (5a's rule at 64) deadlocks a lone hart's single FP restore,** the 32 flds Linux runs at each switch to a task that used the FPU. The sleeping sibling's 32 f registers sit in F1, so the hart gets 31 there and needs 33.
+  - **It also deadlocks CoreMark beside an FP restore.** The integer-only hart's 32 f registers stay in F0, so the FP hart's FP results get 31 there. One hart doing integer work beside an FP task is ordinary under Linux.
+  - **A starved hart's priority adds a deadlock.** Its sibling waits, so neither can free anything once a bank holds both harts' registers (m7_fpcompute with itself).
+  - **Homes split** saves the lone hart: neither bank holds more than 16 parked registers. Two harts that both restore still fill F1 (at 250).
+  - **One direction of crossing is not enough.** Loads into F0 alone leave F0 short beside an integer-only sibling (CoreMark + m7_fprestore); P4's results into F1 alone leave the restores stuck in F1.
+- **Across both ways never deadlocks,** here or by construction:
+  - a hart whose op can rename into neither bank has no register on its lists, and its sibling has at most one free in each bank to keep;
+  - its own older ops still commit, and each frees a register onto its lists that it can use in either bank;
+  - so it can stay stuck only with none of its own in flight. Then at least 62 of the 128 FP registers (128 less the 64 architectural and the sibling's 2) would be the sibling's in flight, more than the sibling's half of the ROB holds (40);
+  - a lone hart's in-flight ops are all its own, and they commit and free theirs.
+- **Its throughput equals FP 96** when a crossed write costs nothing extra: the 42 and the FP pairs are identical, and a lone hart loses 0.00% (nbody −0.2%).
+- **Crossing is routine in FP code at 64,** not only an escape:
+  - a lone hart crosses 10–44 times a kilo-instruction on nbody, tk_dgemm, ms_stream, ms_spmv and minver, and dgemm pairs 95–170 times;
+  - most look like FP loads going into F0, because a sleeping or second hart's 32 f registers hold half of F1. With only loads allowed across, nbody still crosses 23 times a kilo-instruction against 35 both ways; tk_dgemm, ms_stream and minver cross as often either way.
+  - So the crossed write must be fast. At 2 cycles late, FP pairs lose 0.3–0.6% (nbody alone −0.9%); at 4, 0.7–1.0% (nbody −2.2%). The 42 never move.
+
+**The hardware** (for core-2 and fpu-2 to cost; my sketch, not a measurement):
+- **`tg_fprf`:** each bank's one write port gains a 2:1 select on 64 data bits and the 6-bit index (P4's result or a load's), with arbitration when both want one bank in a cycle.
+  - That collision is the "late" rows above. A loser held one cycle is about the +2 row.
+- **Rename:** the bank is picked per op. It is the op's own bank when the hart has a register there (its list or a transfer), else the other bank. The FP register name already carries the bank bit, so no field widens.
+- **Other paths:**
+  - the LQ keeps an FP load's bank bit beside its index;
+  - each bank's ready-table set port takes either source;
+  - the wakeups (tags for P4, LLTs for loads) don't depend on the bank.
+- **My rough size:** 150–300 LUTs a core, against FP 96's +1,575. FP 64 itself stays as the plan sized it.
+
+**What to decide** (the coordinator's; the LUT saving is over DR-154's 1,200 a chip, so it may be the user's):
+- **FP 96** (5a as merged): safe and measured, +3.15K LUTs a chip.
+- **FP 64 with renaming across both ways:** safe by construction. On my rough figure it saves about 2.6–2.8K LUTs a chip against FP 96. It costs 0–0.6% on FP pairs, depending on how fast fpu-2 makes the crossed write; at 4 cycles late, up to 1.0%.
+- **FP 64 with any rule that keeps ops in their bank:** not safe. A lone hart's FP restore deadlocks.
+- **Recommendation:** FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's and the crossed write within about 2 cycles. If not, keep 96.
+
+**Decisions:** none here. The model's new switches (`prf_fp_xbank`, `prf_fp_xbank_lat`, `prf_fp_homes`, `prf_xfer` 3) and `m7_fpcompute` change no earlier result.
+
+**Learned:**
+- **A reserve can't fix a capacity deadlock.** When architectural state alone fills a bank, there's nothing to reserve.
+- **An integer-only sibling is the same hazard as a sleeping one.** Its parked f registers take half a bank. The pairs need an integer + FP case, not only FP + FP.
+- **The second destination is also capacity.** At 64 it is the FP rename window, so its speed matters more than its rarity.

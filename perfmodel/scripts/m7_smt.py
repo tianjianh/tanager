@@ -13,7 +13,7 @@ thread's IPC over its program's first run, the shorter program restarted so both
   python3 scripts/m7_smt.py --pair      # exit 2 blind on verif-2's pair runner: its programs, barrier and restarts
   python3 scripts/m7_smt.py --homes     # D4's alternatives for hart 1's register homes: a lone hart and pairs
   python3 scripts/m7_smt.py --calib     # the runner's programs alone against verif-2's RTL alone runs
-  python3 scripts/m7_smt.py --final     # exit 2 blind on verif-2's final pair set (REPEAT builds), rtl_m2 revision 8
+  python3 scripts/m7_smt.py --final     # exit 2 blind on verif-2's final pair set (REPEAT builds), today's rtl_m2
 Results -> results/m7_smt_rv64gc.json (each section keeps the others' earlier results).
 """
 import argparse
@@ -752,8 +752,10 @@ def calib(workers):
 
 FINALDIR = Path(os.environ.get("TG_FINALDIR", str(Path.home() / "tanager-build" / "track-verif-79d5d8" /
                                                    "pair-final-b7db3e16")))
-REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
-REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1}   # revision 7 on revision 8's preset (rfo_pf in CORE)
+REV = dse.PRESET_REV.get(PRESET, 0)   # --final's revision: the preset's own (9 since area_recovery 6.17)
+REV8 = {"rfo_pf_reserve": 1}   # rtl_m2 from revision 8: the ownership prefetch as the RTL's (DR-171; section 13.10)
+REV7 = {"rfo_pf_reserve": 2, "pf_i_nextline": 0, "l1i_mshr": 1,   # revision 7 on today's preset (rfo_pf in CORE)
+        "btage_alloc": 0}
 FINAL_REF = "step 5 + the drain's priority for a miss entry"   # run on revision 7 as well
 FINAL_BEST = "step 7: 50% caps, a bank's last row kept while the sibling waits, the drain's priority"
 FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap": 75},
@@ -763,9 +765,9 @@ FINAL_LEVERS = {"+ a hart at most 3 of the 4 L1D miss entries": {"smt_mshr_cap":
 
 def final(workers):
     """Exit 2's blind prediction on verif-2's final pair set (TG_FINALDIR, checked against its manifest; the memory
-    kernels built with REPEAT=1), the ELFs step 5's pairs and alone runs use, on rtl_m2 revision 8. As --pair
-    otherwise: the runner's barrier, addresses and finish; WS against each program alone on today's core (revision 8
-    too); hangs over the 42 and §13.4's 16 working-set pairs; one configuration on revision 7 as well."""
+    kernels built with REPEAT=1), the ELFs step 5's pairs and alone runs use, on rtl_m2 at its revision (REV). As
+    --pair otherwise: the runner's barrier, addresses and finish; WS against each program alone on today's core (the
+    same revision); hangs over the 42 and §13.4's 16 working-set pairs; one configuration on revision 7 as well."""
     names = pair_workloads(FINALDIR)
     cfgs = {n: {**c, **REV8} for n, c in PAIR_CFGS.items()}
     cfgs.update({f"50% caps, last row kept, priority {n}": {**PAIR_CFGS[FINAL_BEST], **REV8, **v}
@@ -781,7 +783,7 @@ def final(workers):
     jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in cfgs.values() for lat in LATS for _, a, b in WS_PAIRS]
     run_all(jobs, workers)
     al = {k: {lat: {w: run7(PRESET, {**c, "dram_lat": lat}, w, None) for w in names} for lat in LATS}
-          for k, c in (("rev8", alone8), ("rev7", {**ALONE, **REV7}))}
+          for k, c in ((f"rev{REV}", alone8), ("rev7", {**ALONE, **REV7}))}
     out = {"dir": str(FINALDIR), "alone": {k: {lat: {w: {"ipc": ipc1(r), "instr": r["region"]["instr"],
                                                          "cycles": r["region"]["cycles"]} for w, r in v[lat].items()}
                                                 for lat in LATS} for k, v in al.items()}, "configs": {}, "ws_dead": {}}
@@ -805,12 +807,13 @@ def final(workers):
                       "dead": dl, "pairs": per}
         return e
 
-    print(f"\n**Exit 2 on the final pair set, blind** ({FINALDIR.name}; rtl_m2 revision 8; WS over the 42 pairs "
+    print(f"\n**Exit 2 on the final pair set, blind** ({FINALDIR.name}; rtl_m2 revision {REV}; WS over the 42 pairs "
           "against each program alone on today's core; geometric means over the pairs that run; 30 / 120 / 250 "
           "cycles)\n")
     print("| Configuration | All pairs | memory + memory | compute + compute | mixed | Lowest pair | Hung, of the 42 | "
           "Hung, of the 16 working-set pairs |\n|---|---|---|---|---|---|---|---|")
-    rows = [(n, c, al["rev8"]) for n, c in cfgs.items()] + [(ref7, {**PAIR_CFGS[FINAL_REF], **REV7}, al["rev7"])]
+    rows = [(n, c, al[f"rev{REV}"]) for n, c in cfgs.items()]
+    rows += [(ref7, {**PAIR_CFGS[FINAL_REF], **REV7}, al["rev7"])]
     for n, c, base in rows:
         e = ev(c, base)
         out["configs"][n] = e
@@ -843,12 +846,12 @@ def final(workers):
         print(f"| {p} | {g} | " + " | ".join(" / ".join(cell(out["configs"][n], lat) for lat in LATS)
                                            for n in list(cfgs) + [ref7]) +
               " | " + (" + ".join(f"{x:.2f}" for x in s5["speedup"]) if s5 else "hung") + " |")
-    print("\n**Alone** (revision 8; IPC over the first region, slot 0 / slot 1; region instructions; cycles at 30 / "
-          "120 / 250; revision 7's IPC change at 120)\n")
+    print(f"\n**Alone** (revision {REV}; IPC over the first region, slot 0 / slot 1; region instructions; cycles at "
+          "30 / 120 / 250; revision 7's IPC change at 120)\n")
     print("| Program | IPC, 30 | 120 | 250 | Instructions | Cycles, 30 / 120 / 250 | Revision 7, 120 |\n"
           "|---|---|---|---|---|---|---|")
     for p in smt.MEM + smt.COMP:
-        a8, a7 = al["rev8"], al["rev7"]
+        a8, a7 = al[f"rev{REV}"], al["rev7"]
         cells = [" / ".join(f"{ipc1(a8[lat][f'{p}.s{s}']):.3f}" for s in (0, 1)) for lat in LATS]
         print(f"| {p} | " + " | ".join(cells) + f" | {a8[120][f'{p}.s0']['region']['instr']:,} | " +
               " / ".join(f"{a8[lat][f'{p}.s0']['region']['cycles']:,}" for lat in LATS) +
@@ -926,6 +929,101 @@ def homes(workers):
     return out
 
 
+F0_PAIRS = [("restore", "m7_fpcompute", "m7_fpcompute"), ("restore", "m7_fpcompute", "m7_fprestore2"),
+            ("restore", "m7_fpcompute", "embench_nbody")]   # both harts' f registers all in F0, then more FP work
+D3FP_BASE = {**HOME_BASE, "prf_homes": 2}   # step 7 (75% caps, never a whole bank), one thread a group, D3, D4 (b)
+D3FP = {"FP 96: per-hart lists, transfers, the donor keeps one (5a)": {"prf_fp_bank": 96},
+        "FP 64: the same (each hart's last register its reserve)": {"prf_fp_bank": 64},
+        "FP 64: a starved hart takes the last one, its sibling waiting": {"prf_fp_bank": 64, "prf_xfer": 3},
+        "FP 64: homes split (each hart's f0-f15 in F0, f16-f31 in F1)": {"prf_fp_bank": 64, "prf_fp_homes": 1},
+        "FP 64: an fld short of F1 cracked into F0 (+4 cycles)": {"prf_fp_bank": 64, "prf_fp_xbank": 2,
+                                                                 "prf_fp_xbank_lat": 4},
+        "FP 64: P4's results into F1 when short": {"prf_fp_bank": 64, "prf_fp_xbank": 3},
+        "FP 64: across both ways (each bank's write port takes either source)": {"prf_fp_bank": 64,
+                                                                                 "prf_fp_xbank": 1},
+        "FP 64: across both ways, a crossed write 2 cycles late": {"prf_fp_bank": 64, "prf_fp_xbank": 1,
+                                                                  "prf_fp_xbank_lat": 2},
+        "FP 64: across both ways, a crossed write 4 cycles late": {"prf_fp_bank": 64, "prf_fp_xbank": 1,
+                                                                  "prf_fp_xbank_lat": 4}}
+
+
+def d3fp64(workers):
+    """D3 with FP banks of 64 (the coordinator, 10-20: 5a's banks of 96 cost about 1.6K LUTs a core): is any rule
+    deadlock-free, and within 1% of FP 96? On the step-7 configuration with D3 as revised and D4 (b): deadlocks over
+    the 87 pairs and the three with m7_fpcompute (both harts' f registers in F0) at 30, 120 and 250 cycles, and over a
+    lone hart's 37 programs; WS over the 42 and over the 25 FP pairs against one program on today's core; a lone
+    hart's IPC against today's one-hart core; ops renamed across a kilo-instruction (prf_xbanks)."""
+    extra = WS_PAIRS + FP_PAIRS + RESTORE_PAIRS + F0_PAIRS
+    suite = [w["name"] for w in tgrun.manifest(ISA)] + ["tk_dgemm"] + RESTORE + ["m7_fpcompute"]
+    jobs = [(PRESET, {**D3FP_BASE, **v, "dram_lat": lat}, a, b) for v in D3FP.values() for lat in LATS
+            for _, a, b in smt.PAIRS + extra]
+    jobs += [(PRESET, {**single(D3FP_BASE), **v, "dram_lat": lat}, w, None) for v in D3FP.values() for lat in LATS
+             for w in suite]
+    jobs += [(PRESET, {**single(BASE7), "dram_lat": lat}, w, None) for lat in LATS for w in suite]
+    run_all(jobs, workers)
+    def xk(rs):   # ops renamed across the FP banks a kilo-instruction (a pair's threads, or a lone run)
+        ts = [t for r in rs if not r.get("error") for t in r.get("threads", [r])]
+        ins = sum(t["region"]["instr"] for t in ts)
+        return 1000.0 * sum(t["region"].get("prf_xbanks", 0) for t in ts) / max(1, ins)
+
+    def rel(xs, ys):
+        return " / ".join("–" if x is None or y is None else f"{x / y - 1:+.1%}" for x, y in zip(xs, ys))
+
+    out = {"pairs": {}, "lone": {}}
+    print("\n**Pairs** (WS against one program on today's core, 30 / 120 / 250 cycles; deadlocks over the 87 pairs and "
+          "the 3 with m7_fpcompute; ops renamed across a kilo-instruction over the 90)\n")
+    print("| FP banks and rule | WS, the 42 | Against FP 96 | WS, the 25 FP pairs | Against FP 96 | Deadlocked pairs, "
+          "of 90 | Across a kilo-instruction |\n|---|---|---|---|---|---|---|")
+    ref = {}
+    for n, v in D3FP.items():
+        row = {"ws": [], "fp_ws": [], "dead": [], "xpki": []}
+        for lat in LATS:
+            same = {**alone(BASE7, lat), **alone(BASE7, lat, "extra")}
+            e = evaluate7({**D3FP_BASE, **v}, lat, same)
+            rs = {(a, b): run7(PRESET, {**D3FP_BASE, **v, "dram_lat": lat}, a, b) for _, a, b in smt.PAIRS + extra}
+            fpw = [ipc2(rs[(a, b)])[0] / same[a] + ipc2(rs[(a, b)])[1] / same[b] for _, a, b in FP_PAIRS
+                   if ipc2(rs[(a, b)])]
+            row["ws"].append(e["ws"])
+            row["fp_ws"].append(smt.gm(fpw) if len(fpw) == len(FP_PAIRS) else None)
+            row["dead"].append([smt.pname(a, b) for (a, b), r in rs.items() if dead(r)])
+            row["xpki"].append(xk(rs.values()))
+        out["pairs"][n] = row
+        if not ref:
+            ref = row
+        print(f"| {n} | " + " / ".join(f"{x:.3f}" for x in row["ws"]) + f" | {rel(row['ws'], ref['ws'])} | " +
+              " / ".join("–" if x is None else f"{x:.3f}" for x in row["fp_ws"]) +
+              f" | {rel(row['fp_ws'], ref['fp_ws'])} | " + " / ".join(str(len(d)) for d in row["dead"]) + " | " +
+              " / ".join(f"{x:.2f}" for x in row["xpki"]) + " |")
+    for n in D3FP:
+        for lat, dl in zip(LATS, out["pairs"][n]["dead"]):
+            if dl:
+                print(f"- {n}, {lat} cycles: {', '.join(dl)}")
+    print("\n**A lone hart** (its sibling asleep with its registers at their homes; IPC against today's one-hart core; "
+          "30 / 120 / 250 cycles)\n")
+    print("| FP banks and rule | Suite (37) | Against FP 96 | Largest losses at 120 | Deadlocks | Across a "
+          "kilo-instruction |\n|---|---|---|---|---|---|")
+    lref = None
+    for n, v in D3FP.items():
+        row = {"geo": [], "dead": set(), "xpki": [], "worst": []}
+        for lat in LATS:
+            b = {w: ipc1(run7(PRESET, {**single(BASE7), "dram_lat": lat}, w, None)) for w in suite}
+            rs = {w: run7(PRESET, {**single(D3FP_BASE), **v, "dram_lat": lat}, w, None) for w in suite}
+            ch = {w: ipc1(r) / b[w] - 1 for w, r in rs.items() if ipc1(r) and b.get(w)}
+            row["geo"].append(smt.gm(1 + c for c in ch.values()) - 1)
+            row["dead"] |= {w for w, r in rs.items() if dead(r)}
+            row["xpki"].append(xk(rs.values()))
+            if lat == 120:
+                row["worst"] = sorted(ch.items(), key=lambda kv: kv[1])[:3]
+        out["lone"][n] = {**row, "dead": sorted(row["dead"])}
+        if lref is None:
+            lref = row["geo"]
+        print(f"| {n} | " + " / ".join(f"{g:+.2%}" for g in row["geo"]) + " | " +
+              " / ".join(f"{(1 + g) / (1 + r) - 1:+.2%}" for g, r in zip(row["geo"], lref)) + " | " +
+              ", ".join(f"{w} {c:+.1%}" for w, c in row["worst"]) + " | " + (", ".join(sorted(row["dead"])) or "none") +
+              " | " + " / ".join(f"{x:.2f}" for x in row["xpki"]) + " |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", action="store_true")
@@ -939,14 +1037,16 @@ def main():
     ap.add_argument("--pair", action="store_true", help="exit 2 blind on verif-2's pair runner (TG_PAIRDIR)")
     ap.add_argument("--homes", action="store_true", help="D4's alternatives: where hart 1's registers live at reset")
     ap.add_argument("--calib", action="store_true", help="the runner's programs alone against verif-2's RTL alone runs")
-    ap.add_argument("--final", action="store_true", help="exit 2 blind on the final pair set (TG_FINALDIR), revision 8")
+    ap.add_argument("--final", action="store_true",
+                    help="exit 2 blind on the final pair set (TG_FINALDIR), today's rtl_m2")
+    ap.add_argument("--d3fp64", action="store_true", help="D3 with FP banks of 64: deadlock-free rules against FP 96")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
                      ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
-                     ("homes", homes), ("calib", calib), ("final", final)):
+                     ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

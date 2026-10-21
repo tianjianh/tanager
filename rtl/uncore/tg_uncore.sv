@@ -88,6 +88,10 @@ module tg_uncore
   // L2 serves the host's reads and writes coherently; each write line's AccessAck cycle can be recorded
   // for lockstep (host bridge HDMA_*). Off by default: no logic, s_axi_dma_* ignored and its outputs 0
   parameter bit          HOST_DMA        = 1'b0,
+  // The two AXI latency injectors, one on each L2 bank's memory path (docs/spec/uncore-mem.md; DR-177): 1 in
+  // development builds, which inject latency on the board (host bridge INJ_*); 0 in release builds, where each
+  // bank's AXI channels run straight to its window, and the INJ_* registers and CAPS[1] read 0
+  parameter bit          LAT_INJ         = 1'b1,
   // The PMOD reset hook (PS_WINDOW builds; docs/spec/soc-d4-modes.md): armed by BOARD_CTRL[1], a break on
   // uart_rxd_i of 2^BREAK_LOG2 to 2^(BREAK_LOG2+2) cycles (2.7 to 10.7 s at 100 MHz) makes the PS window write
   // the board's reset when it ends
@@ -449,21 +453,44 @@ module tg_uncore
       assign w_sv      = l2_wv[b];
       assign l2_wr[b]  = w_sr;
     end
-    tg_axi_lat_inj u_inj (
-      .clk, .rst (uncore_rst),
-      .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
-      .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
-      .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
-      .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
-      .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
-      .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
-      .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
-      .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
-      .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
-      .m_aw_o (ij_aw[b]), .m_aw_valid_o (ij_awv[b]), .m_aw_ready_i (ij_awr[b]),
-      .m_w_o (ij_w[b]), .m_w_valid_o (ij_wv[b]), .m_w_ready_i (ij_wr[b]),
-      .m_b_i (ij_b[b]), .m_b_valid_i (ij_bv[b]), .m_b_ready_o (ij_br[b])
-    );
+    if (LAT_INJ) begin : g_inj
+      tg_axi_lat_inj u_inj (
+        .clk, .rst (uncore_rst),
+        .rd_delay_i (inj_rd), .wr_delay_i (inj_wr), .mode_i (inj_mode), .bw_rate_i (inj_bw),
+        .st_rd_count_o (inj_cnt[b]), .st_lat_sum_o (inj_sum[b]), .st_lat_max_o (inj_max[b]),
+        .s_ar_i (ar_s), .s_ar_valid_i (ar_sv), .s_ar_ready_o (ar_sr),
+        .s_r_o (l2_r_ch[b]), .s_r_valid_o (l2_rv[b]), .s_r_ready_i (l2_rr[b]),
+        .s_aw_i (aw_s), .s_aw_valid_i (aw_sv), .s_aw_ready_o (aw_sr),
+        .s_w_i (w_s), .s_w_valid_i (w_sv), .s_w_ready_o (w_sr),
+        .s_b_o (l2_b_ch[b]), .s_b_valid_o (l2_bvv[b]), .s_b_ready_i (l2_brr[b]),
+        .m_ar_o (ij_ar[b]), .m_ar_valid_o (ij_arv[b]), .m_ar_ready_i (ij_arr[b]),
+        .m_r_i (ij_r[b]), .m_r_valid_i (ij_rv[b]), .m_r_ready_o (ij_rr[b]),
+        .m_aw_o (ij_aw[b]), .m_aw_valid_o (ij_awv[b]), .m_aw_ready_i (ij_awr[b]),
+        .m_w_o (ij_w[b]), .m_w_valid_o (ij_wv[b]), .m_w_ready_i (ij_wr[b]),
+        .m_b_i (ij_b[b]), .m_b_valid_i (ij_bv[b]), .m_b_ready_o (ij_br[b])
+      );
+    end else begin : g_thru
+      // A release build (DR-177): the bank's channels straight to its window. The L2 then sees the PS's own
+      // response order, which it takes (R by ID into its MSHRs, beats of different IDs interleaved: l2.md)
+      assign ij_ar[b]   = ar_s;
+      assign ij_arv[b]  = ar_sv;
+      assign ar_sr      = ij_arr[b];
+      assign l2_r_ch[b] = ij_r[b];
+      assign l2_rv[b]   = ij_rv[b];
+      assign ij_rr[b]   = l2_rr[b];
+      assign ij_aw[b]   = aw_s;
+      assign ij_awv[b]  = aw_sv;
+      assign aw_sr      = ij_awr[b];
+      assign ij_w[b]    = w_s;
+      assign ij_wv[b]   = w_sv;
+      assign w_sr       = ij_wr[b];
+      assign l2_b_ch[b] = ij_b[b];
+      assign l2_bvv[b]  = ij_bv[b];
+      assign ij_br[b]   = l2_brr[b];
+      assign inj_cnt[b] = '0;
+      assign inj_sum[b] = '0;
+      assign inj_max[b] = '0;
+    end
     tg_axi_window u_win (
       .clk, .rst (uncore_rst), .base_i (win_base), .size_i (win_size),
       .s_ar_i (ij_ar[b]), .s_ar_valid_i (ij_arv[b]), .s_ar_ready_o (ij_arr[b]),
@@ -492,6 +519,10 @@ module tg_uncore
       .m_w_o (m_axi_w[b]), .m_w_valid_o (m_axi_w_valid[b]), .m_w_ready_i (m_axi_w_ready[b]),
       .m_b_i (m_axi_b[b]), .m_b_valid_i (m_axi_b_valid[b]), .m_b_ready_o (m_axi_b_ready[b])
     );
+  end
+
+  if (!LAT_INJ) begin : g_noinj
+    wire unused_inj = ^{inj_rd, inj_wr, inj_mode, inj_bw};   // the host bridge holds them at 0 (release build)
   end
 
   // Injector statistics, both ports
@@ -781,7 +812,7 @@ module tg_uncore
     .CLK_HZ (CLK_HZ), .CFG_CODE (CFG_CODE), .N_CORES_SOC (N_CORES),
     .CORE_RST_INIT (CORE_RST_INIT), .UNCORE_RST_INIT (UNCORE_RST_INIT),
     .DRAM_BASE_INIT (DRAM_BASE_INIT), .DRAM_SIZE_INIT (DRAM_SIZE_INIT), .TRACE (TRACE), .DEBUG (DEBUG_CNT),
-    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA)
+    .VIRTIO (VIRTIO_WINDOW), .HDMA (HOST_DMA), .LAT_INJ (LAT_INJ)
   ) u_host (
     .clk_host, .rst_host,
     .s_awaddr (s_axil_awaddr), .s_awvalid (s_axil_awvalid), .s_awready (s_axil_awready),

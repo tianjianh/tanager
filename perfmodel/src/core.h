@@ -100,6 +100,7 @@ struct Uop {
   int row = -1;
   uint8_t iq_bank = 0;                // iq_bank: the bank of its queue's rows that holds it
   bool has_wtag = false;              // wake_tags: holds a wakeup tag until its result wakes
+  bool xbank = false;                 // prf_fp_xbank: renamed into the other FP bank than its pipe's
   uint64_t addr = 0;
   uint8_t size = 0;
 };
@@ -150,7 +151,7 @@ struct SqEntry {
 #define TG_LEVER_STATS(X)   X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls) X(disp_stall_bank) X(disp_stall_wtag)
 // M7's register lists (reported with prf_split or flush_walk): registers taken from the sibling's list, flush walks
 // and the dispatch cycles they stalled.
-#define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk)
+#define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -252,6 +253,7 @@ class Core {
     uint64_t drain_wait = ~0ull;   // cycle the committed SQ head first found no L1D MSHR (`drain_guard`)
     uint64_t walk_until = 0;       // flush_walk: rename waits until the flush's walk ends
     uint64_t xfer_t = ~0ull;       // prf_xfer: the cycle of the last register taken from the sibling's list
+    int starved = -1;              // prf_xfer 3: the bank its rename waits on for a register (-1: none)
     // multithreaded runs
     int lap = 0;                   // completed runs of the program
     bool first_done = false;
