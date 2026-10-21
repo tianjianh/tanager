@@ -1347,7 +1347,15 @@ module tg_fetch
   assign pv_go    = IPF_ON && rs_q == R_IDLE && (miss_any || am_go) && ps_q == P_HELD && pline_q == mline && !pbad_q &&
                     !rst;
   assign ivs_done = ivs_q[SET_W];
-  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go;
+  // MT: a stream's tags are compared in F1, a cycle and more before F2's action parks it, so a refill or a held
+  // line's validation that ended in between leaves it parking on a line now valid (the other stream's miss of the
+  // same line): it restarts at once (am_rd; its refetch hits, or misses again after a FENCE.I) and the engine does
+  // not fetch the line a second time into another way
+  logic [PA_W-1:6] rdl_q;                    // the line the last refill or validation made valid ...
+  logic [1:0]      rda_q;                    // ... cycles since (3: too long ago)
+  logic            am_rd;
+  assign am_rd    = MT && am_go && rda_q != 2'd3 && miss_pa_q[PA_W-1:6] == rdl_q;
+  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any);
   assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
   assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
   assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we && !pv_go && !p_inv_go;
@@ -1467,6 +1475,12 @@ module tg_fetch
   assign tag_set = rline_q[6 +: SET_W];
   assign tag_wd  = rline_q[PA_W-1:12];
 
+  always_ff @(posedge clk) begin
+    if (rst || !MT) rda_q <= 2'd3;
+    else if (refill_done) begin rdl_q <= rline_q; rda_q <= '0; end
+    else if (pv_go)       begin rdl_q <= mline;   rda_q <= '0; end
+    else if (rda_q != 2'd3) rda_q <= rda_q + 1'b1;
+  end
   always_ff @(posedge clk) begin
     if (rst) begin
       rs_q      <= R_IDLE;
@@ -1605,9 +1619,10 @@ module tg_fetch
                  : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
-      rs_ref[t]  = (miss_s_q[t] || (am_go && k_s_q == 1'(t))) &&
-                   (!MT ? (refill_done || pv_go)
-                        : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])));
+      rs_ref[t]  = ((miss_s_q[t] || (am_go && k_s_q == 1'(t))) &&
+                    (!MT ? (refill_done || pv_go)
+                         : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])))) ||
+                   (am_rd && k_s_q == 1'(t));
       rs_walk[t] = wout[t] && iw_done;
       rs_pc[t]   = ((am_go || aw_go) && k_s_q == 1'(t)) ? miss_pc_q : rpc_s_q[t];
     end
