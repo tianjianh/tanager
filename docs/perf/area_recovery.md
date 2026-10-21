@@ -2241,6 +2241,10 @@ fall against the kernel's clock before reporting a boot gain.
   - **Not the mispredicts:** the model mispredicts one return 254 times in 3,000, which the RTL never does, but that is only about 4K cycles.
   - **What's left (about 47K cycles):** the model's dispatch waits on an empty decode queue (0.042 cycles an instruction against the calibration build's 0.019) and on issue-queue slot banks (0.086 against 0.065).
   - The RTL's logs carry no counters for those, so this waits for RTL front-end and dispatch counters (core-2's new ones, or `scripts/rtlprof`'s probes in a scratch build).
+  - **Closed on verif-2's second final set (10-21, smt2_report.md §13.12):** it was the model's response to that build's layout.
+    - In the first set the model met 4,218 memory-ordering violations and 15,000 straddle overrides. In the second it meets 738 and 3, and runs Dhrystone 3.1% over the RTL.
+    - The RTL moved 2%.
+    - In the second set stream's loop branch straddles instead, and the RTL loses three times what the model does there.
 
 **Decisions:** revision 10 is mine (the model as built). The straddler case is core-2's to take or leave, through the coordinator.
 
