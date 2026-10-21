@@ -713,8 +713,12 @@ module tg_core
     assign fdiv_iss = iss_valid[Q_FP] && iss_pl[Q_FP].fp_div;
     assign fpi_iss  = iss_valid[Q_FP] && iss_pl[Q_FP].fp_int;
     assign fp_iss_tid = iss_pl[Q_FP].tid;
-    logic f0_we;
-    logic [FPIDX_W-1:0] f0_widx;
+    // FP banks of 64 with renaming across both (DR-179): an FP load's bank, F1 until rename crosses loads into F0
+    // (the LSU's, then); P4's write next cycle, for the LSU's hold of a load bound for that bank
+    logic fld_m2_bank, fld_bank;
+    logic p4_nx_we, p4_nx_bank;
+    assign fld_m2_bank = 1'b1;
+    assign fld_bank    = 1'b1;
     tid_t       p4_cmp_tid, p4_er_tid;
     logic       p4_er_v;
     logic [4:0] p4_er_ff;
@@ -724,9 +728,10 @@ module tg_core
       .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
       .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
       .isrc_valid, .isrc_tag, .isrc_data,
-      .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx, .fld_data,
+      .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank, .fld_idx, .fld_data,
+      .p4_nx_we_o(p4_nx_we), .p4_nx_bank_o(p4_nx_bank),
       .fsd_tag, .fsd_data, .tr_tag, .tr_data(tr_data_p4),
-      .f0_we_o(f0_we), .f0_widx_o(f0_widx),
+      .fp_we_o(fp_we), .fp_widx_o(fp_widx),
       .wake_reg(wake_p4), .llt_done(llt_done_p4),
       .cmp_valid(p4_cmp), .cmp_tid(p4_cmp_tid), .cmp_rob(fp_cmp_rob), .cmp_wid(p4_cmp_wid),
       .cmp_fflags(fp_cmp_fflags),
@@ -734,8 +739,6 @@ module tg_core
       .fdiv_done, .fdiv_ret_valid(1'b0), .fdiv_ret_tid('0), .fdiv_ret_llt('0),
       .er_valid(p4_er_v), .er_tid(p4_er_tid), .er_fflags(p4_er_ff));
     assign fp_cmp     = p4_cmp;
-    assign fp_we      = {fld_valid, f0_we};
-    assign fp_widx    = {fld_idx, f0_widx};
     assign fpi_rob    = p4_fpi.rob;
     assign fpi_tid    = p4_fpi.tid;
     assign fpi_llt    = p4_fpi.llt;
@@ -782,7 +785,8 @@ module tg_core
     assign fs_dirty = fs_dirty_t;
     logic unused;
     assign unused = ^{er_busy_t, frm_t, p4_fpi.wid, p4_cmp_tid, p4_er_tid,
-                      p4_er_v, p4_er_ff, fc_frm_rd};
+                      p4_er_v, p4_er_ff, fc_frm_rd,
+                      p4_nx_we, p4_nx_bank};      // (DR-179: the LSU's hold reads them)
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
     assign fpi_iss       = 1'b0;

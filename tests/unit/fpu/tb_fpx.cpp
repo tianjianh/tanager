@@ -1,15 +1,18 @@
 // Verilator testbench for the FP back end: tg_fp_exec with tg_fprf and tg_fpu (docs/spec/fpu.md,
 // "Core integration"). A model of the core's side of port P4 (scheduler with the woken vector,
 // physical registers, ROB and LLT pools, the 16 wakeup tags of AR-1, rename credits, the load
-// path and the bank-1 arbiter) drives operation streams and checks every F0 write, completion,
+// path and the bank-1 arbiter) drives operation streams and checks every register write, completion,
 // wakeup and integer result against the SoftFloat-based reference, with exact cycles. Exits
 // non-zero on failure.
 //
-//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT] [-tags N]
+//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT] [-tags N] [-cross PCT]
 //       random FP operations with dependencies, loads, flushes every ~N cycles (0: none),
 //       early retirement of divides (PCT per cycle), B1 back-pressure (the arbiter claims the
 //       queue head with PCT per cycle and writes it 1-4 cycles later), N wakeup tags (default
-//       16; fewer exhaust the pool, so dispatch waits and tags are reused at once)
+//       16; fewer exhaust the pool, so dispatch waits and tags are reused at once), PCT of P4's
+//       FP results renamed into F1 and of the loads into F0 (renaming across both banks, DR-179;
+//       the bench, as the LSU, starts a load only when P4 cannot write its bank in its write cycle,
+//       and checks that P4 announces each write, bank included, the cycle before)
 //   tb_fpx tf <function> [-rm N] [-n N]
 //       TestFloat vectors (testfloat_gen output on stdin), operands through F1 loads and the
 //       integer source port, results through F0 and the B1 queue
@@ -66,7 +69,8 @@ struct Op {
   int tag = -1;                      // wakeup tag (FMA, FMISC with an FP destination)
   int unit = 0;
   bool fp_dst = true, dst_en = true;
-  int dst = 0;                       // F0 index, or integer preg index
+  int dst = 0;                       // FP register index (in dbank), or integer preg index
+  int dbank = 0;                     // the FP destination's bank (F1: crossed)
   int src[3] = {0, 0, 0};            // FP tags {bank, idx}; src[0] is an integer preg when !src1_fp
   bool src1_fp = true;
   ref::Req req{};
@@ -100,7 +104,8 @@ class Bench {
   long tag_allocs = 0, tag_waits = 0, fpi_claims = 0, fpi_kills = 0;
   uint64_t last_progress = 0;
   // Knobs
-  int flush_every = 0, ret_pct = 0, ready_pct = 100;
+  int flush_every = 0, ret_pct = 0, ready_pct = 100, cross_pct = 0;
+  long crossed_ops = 0, crossed_lds = 0, ld_waits = 0;
   // State
   FReg fr[2][NFP];
   uint64_t ival[NINT];
@@ -126,9 +131,11 @@ class Bench {
   long fpi_claim_id = 0;
   int fpi_left = 0;
   uint64_t fpi_snap[8] = {};
-  struct Ld { bool v = false; int idx = 0; bool single = false; uint64_t raw = 0; };
+  struct Ld { bool v = false; int idx = 0; bool single = false; uint64_t raw = 0; int bank = 1; };
   Ld ld_new, ld_m2, ld_wr;            // started this cycle, announced this cycle, writing this cycle
-  int tr_chk_idx = -1;                // F0 index written last cycle: checked through the trace port
+  bool p4_ann_v = false;              // P4's announcement last cycle: its write this cycle, and the bank
+  int p4_ann_bank = 0;
+  int tr_chk_idx = -1;                // the tag P4 wrote last cycle: checked through the trace port
   uint64_t tr_chk_val = 0;
   long tr_chk_id = 0;
 
@@ -165,7 +172,7 @@ class Bench {
     for (int b = 0; b < 2; b++) {
       for (int i = 0; i < 8; i++) {
         if (b == 0) { top->init_we = 1; top->init_bank = 0; top->init_idx = i; }
-        else        { top->fld_valid = 1; top->fld_idx = i; top->fld_data = 0; }
+        else        { top->fld_valid = 1; top->fld_bank = 1; top->fld_idx = i; top->fld_data = 0; }
         top->clk = 1; top->eval(); top->clk = 0; top->eval();
         FReg &f = fr[b][i];
         f.busy = true; f.known = true; f.val = 0; f.avail = 0; f.in_rf = 0;
@@ -175,7 +182,7 @@ class Bench {
   }
   void clear_inputs() {
     top->flush = 0; top->flush_tid = 0; top->init_we = 0;
-    top->iss_valid = 0; top->fld_m2_will = 0; top->fld_valid = 0;
+    top->iss_valid = 0; top->fld_m2_will = 0; top->fld_valid = 0; top->fld_m2_bank = 0; top->fld_bank = 0;
     top->fpi_ready = 0; top->fdiv_ret_valid = 0; top->fsd_tag = 0; top->tr_tag = 0;
     top->isrc_data = 0;
   }
@@ -295,7 +302,13 @@ class Bench {
     int tag = need_llt ? -1 : alloc_tag();
     if (!need_llt && tag < 0) { tag_waits++; return false; }   // no free tag: dispatch waits
     int dst;
-    if (o.fp_dst) { dst = alloc_f(0); if (dst < 0) return false; }
+    int dbank = 0;
+    if (o.fp_dst) {
+      dbank = chance(cross_pct) ? 1 : 0;      // renamed into F1 (crossed), else its own F0
+      dst = alloc_f(dbank);
+      if (dst < 0) { dbank ^= 1; dst = alloc_f(dbank); }
+      if (dst < 0) return false;
+    }
     else { dst = alloc_free(ibusy, NINT); if (dst < 0) return false; o.dst_en = chance(95); }
     // Commit the allocation
     o.id = next_id++;
@@ -308,9 +321,11 @@ class Bench {
     if (tag >= 0) { tag_busy[tag] = true; tag_allocs++; }
     o.wid = need_llt ? nfx + llt : tag;
     o.dst = dst;
+    o.dbank = dbank;
+    if (o.fp_dst && dbank) crossed_ops++;
     o.sel = cycle;
     if (o.fp_dst) {
-      FReg &f = fr[0][dst];
+      FReg &f = fr[dbank][dst];
       f = FReg{}; f.busy = true; f.known = true; f.val = o.exp.result; f.prod = o.id; f.tid = o.tid;
     } else ibusy[dst] = true;
     o.srcs_settled = true;
@@ -338,7 +353,7 @@ class Bench {
     top->iss_valid = 1;
     top->iss_tid = o.tid; top->iss_rob = o.rob; top->iss_wid = o.wid; top->iss_llt = o.llt < 0 ? 0 : o.llt;
     top->iss_dst_en = o.fp_dst ? 1 : o.dst_en;
-    top->iss_dst = o.fp_dst ? o.dst : ((1 << PIDX) | o.dst);
+    top->iss_dst = o.fp_dst ? ((o.dbank << FPIDX) | o.dst) : ((1 << PIDX) | o.dst);
     top->iss_src1 = o.src1_fp ? o.src[0] : ((1 << PIDX) | o.src[0]);
     top->iss_src2 = o.src[1]; top->iss_src3 = o.src[2];
     top->iss_src1_fp = o.src1_fp;
@@ -360,7 +375,7 @@ class Bench {
       if (wid_owner[o.wid] == o.id) wid_owner[o.wid] = -1;
       if (o.tag >= 0) { tag_busy[o.tag] = false; tag_free_at[o.tag] = cycle + 1; }
       if (o.fp_dst) {
-        FReg &f = fr[0][o.dst];
+        FReg &f = fr[o.dbank][o.dst];
         if (f.prod == o.id) f = FReg{};
         for (auto it = f0_sched.begin(); it != f0_sched.end();) it = (it->second == o.id) ? f0_sched.erase(it) : std::next(it);
       } else ibusy[o.dst] = false;
@@ -378,11 +393,11 @@ class Bench {
       Op &o = ops[iss_id];
       present(o);
     }
-    if (ld_m2.v) { top->fld_m2_will = 1; top->fld_m2_idx = ld_m2.idx; }
+    if (ld_m2.v) { top->fld_m2_will = 1; top->fld_m2_bank = ld_m2.bank; top->fld_m2_idx = ld_m2.idx; }
     if (ld_wr.v) {
       // the core's LSU NaN-boxes FLW before the load result register (3f9a227), so fld_data is
-      // the value F1 gets
-      top->fld_valid = 1; top->fld_idx = ld_wr.idx;
+      // the value the register gets
+      top->fld_valid = 1; top->fld_bank = ld_wr.bank; top->fld_idx = ld_wr.idx;
       top->fld_data = ld_wr.single ? ref::box32((uint32_t)ld_wr.raw) : ld_wr.raw;
     }
     if (flushing) { top->flush = 1; top->flush_tid = ftid; }
@@ -450,8 +465,8 @@ class Bench {
     if (tr_chk_idx >= 0) {
       checked++;
       if (top->tr_data != tr_chk_val)
-        fail("F0[%d] holds %016llx, expected %016llx (op %ld)", tr_chk_idx, (unsigned long long)top->tr_data,
-             (unsigned long long)tr_chk_val, tr_chk_id);
+        fail("F%d[%d] holds %016llx, expected %016llx (op %ld)", tr_chk_idx >> FPIDX, tr_chk_idx & (NFP - 1),
+             (unsigned long long)top->tr_data, (unsigned long long)tr_chk_val, tr_chk_id);
       tr_chk_idx = -1;
     }
     // Wakeups
@@ -466,30 +481,47 @@ class Bench {
              (unsigned long long)cycle, (unsigned long long)want);
       if (o.wake != NEVER) fail("op %ld woke twice", id);
       o.wake = cycle;
-      if (o.fp_dst) fr[0][o.dst].avail = cycle + 1;
+      if (o.fp_dst) fr[o.dbank][o.dst].avail = cycle + 1;
     }
-    // F0 write and completion
+    // Each bank's write: the load path's (ld_wr) in its bank, P4's in its own (never the same one)
     long wid_ = -1;
     Op wop;
-    if (top->f0_we_o) {
-      int idx = top->f0_widx_o;
+    int p4b = -1, p4idx = 0;
+    for (int b = 0; b < 2; b++) {
+      bool we = (top->fp_we_o >> b) & 1;
+      int widx = (int)((top->fp_widx_o >> (b * FPIDX)) & (NFP - 1));
+      if (ld_wr.v && ld_wr.bank == b) {
+        checked++;
+        if (!we || widx != ld_wr.idx)
+          fail("a load into F%d[%d]: the bank %s %d", b, ld_wr.idx, we ? "writes" : "does not write", widx);
+      } else if (we) {
+        if (p4b >= 0) fail("P4 writes both banks in one cycle");
+        p4b = b; p4idx = widx;
+      }
+    }
+    // P4 writes only where it announced the cycle before (the LSU's hold relies on it)
+    if (p4b >= 0 && !(p4_ann_v && p4_ann_bank == p4b))
+      fail("P4 writes F%d[%d] without its announcement (last cycle: %d, bank %d)", p4b, p4idx, (int)p4_ann_v, p4_ann_bank);
+    if (p4b >= 0) {
+      int idx = p4idx;
       long id = -1;
       auto it = f0_sched.find(cycle);
       if (it != f0_sched.end()) id = it->second;
       else {
         for (auto &kv : ops) {
           const Op &o = kv.second;
-          if (o.unit == U_DIV && o.live && !o.done && o.dst == idx && o.wake != NEVER && o.wake + 1 == cycle) id = o.id;
+          if (o.unit == U_DIV && o.live && !o.done && o.dbank == p4b && o.dst == idx && o.wake != NEVER &&
+              o.wake + 1 == cycle) id = o.id;
         }
       }
-      if (id < 0) fail("F0[%d] written with no live operation due", idx);
+      if (id < 0) fail("F%d[%d] written with no live operation due", p4b, idx);
       else {
         Op &o = ops[id];
-        if (o.dst != idx) fail("op %ld writes F0[%d], expected F0[%d]", id, idx, o.dst);
+        if (o.dbank != p4b || o.dst != idx) fail("op %ld writes F%d[%d], expected F%d[%d]", id, p4b, idx, o.dbank, o.dst);
         wid_ = id;
         wop = o;
-        tr_chk_idx = idx; tr_chk_val = o.exp.result; tr_chk_id = id;
-        FReg &f = fr[0][o.dst];
+        tr_chk_idx = (p4b << FPIDX) | idx; tr_chk_val = o.exp.result; tr_chk_id = id;
+        FReg &f = fr[o.dbank][o.dst];
         f.in_rf = cycle + 1;
         f.prod = -1;
         if (o.unit != U_DIV && o.wake == NEVER) fail("op %ld written without its wakeup", id);
@@ -502,7 +534,7 @@ class Bench {
       }
       f0_sched.erase(cycle);
     } else if (f0_sched.count(cycle)) {
-      fail("op %ld did not write F0 in its slot", f0_sched[cycle]);
+      fail("op %ld did not write its register in its slot", f0_sched[cycle]);
       f0_sched.erase(cycle);
     }
     if (top->cmp_valid) {
@@ -611,6 +643,9 @@ class Bench {
         have_iss = false;
       }
     }
+    // P4's announcement of this cycle: its write next cycle
+    p4_ann_v = top->p4_nx_we_o;
+    p4_ann_bank = top->p4_nx_bank_o;
     // Loads: the announced one writes next cycle, the started one is announced
     ld_wr = ld_m2;
     ld_m2 = ld_new;
@@ -638,7 +673,7 @@ class Bench {
     if (o.llt >= 0) llt_busy[o.llt] = false;
     if (wid_owner[o.wid] == o.id) wid_owner[o.wid] = -1;
     if (o.tag >= 0) tag_busy[o.tag] = false;
-    if (o.fp_dst) fr[0][o.dst] = FReg{};
+    if (o.fp_dst) fr[o.dbank][o.dst] = FReg{};
     else ibusy[o.dst] = false;
     if (o.unit == U_DIV) fdiv_cnt--;
     if (!o.fp_dst) { fpi_cnt--; fpi_exp.pop_back(); }
@@ -659,29 +694,45 @@ class Bench {
     return std::equal(v, v + 8, fpi_snap);
   }
 
-  // A load into a free F1 register: announced next cycle, written the cycle after
+  // Whether P4 may write bank b in cycle w (from now): a fixed-latency result due then, or with the
+  // slot free, a live divide not yet written (one may claim it)
+  bool p4_may_write(int b, uint64_t w) {
+    auto it = f0_sched.find(w);
+    if (it != f0_sched.end()) return ops.count(it->second) && ops[it->second].dbank == b;
+    for (auto &kv : ops) {
+      const Op &o = kv.second;
+      if (o.unit == U_DIV && o.live && !o.done && o.fp_dst && o.dbank == b) return true;
+    }
+    return false;
+  }
+  // A load into a free register of F1 (or F0, crossed): announced next cycle, written the cycle after.
+  // As the LSU it never writes a bank P4 writes in that cycle: it starts only when P4 cannot.
   bool start_load(uint64_t raw, bool single, int *idx_out) {
     if (ld_new.v) return false;
-    int i = alloc_f(1);
+    int b = chance(cross_pct) ? 0 : 1;
+    int i = alloc_f(b);
+    if (i < 0) { b ^= 1; i = alloc_f(b); }
     if (i < 0) return false;
+    if (p4_may_write(b, cycle + 2)) { ld_waits++; return false; }
+    if (b == 0) crossed_lds++;
     // ld_m2 is presented next cycle (fld_m2_will), ld_wr the cycle after (fld_valid)
-    FReg &f = fr[1][i];
+    FReg &f = fr[b][i];
     f = FReg{};
     f.busy = true; f.known = true;
     f.val = single ? ref::box32((uint32_t)raw) : raw;
     f.avail = cycle;              // announced next cycle, written the cycle after: a consumer
     f.in_rf = cycle + 3;          // selected now reaches EX0 as it is written (F1 bypass)
-    ld_new = Ld{true, i, single, raw};
-    if (idx_out) *idx_out = (1 << FPIDX) | i;
+    ld_new = Ld{true, i, single, raw, b};
+    if (idx_out) *idx_out = (b << FPIDX) | i;
     return true;
   }
   bool busy() const { return !ops.empty() || ld_new.v || ld_m2.v || ld_wr.v || have_iss; }
 };
 
 // ---- Random mode ----
-static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct, int tags) {
+static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct, int tags, int cross) {
   Bench b(seed);
-  b.flush_every = flush_every; b.ret_pct = ret_pct; b.ready_pct = ready_pct;
+  b.flush_every = flush_every; b.ret_pct = ret_pct; b.ready_pct = ready_pct; b.cross_pct = cross;
   b.ntag = std::max(1, std::min(b.ntag, tags));
   b.reset();
   static const int fma_ops[] = {ref::FADD, ref::FSUB, ref::FMUL, ref::FMADD, ref::FMSUB, ref::FNMSUB, ref::FNMADD,
@@ -716,9 +767,11 @@ static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int rea
   while ((b.issued < target || b.busy()) && b.cycle < limit) b.step(true, pick);
   bool hung = b.cycle >= limit;
   printf("rand seed=%llu: %ld operations, %ld checks, %ld flushes (%ld ops squashed), %ld early retirements, "
-         "%ld tags taken (%ld dispatch waits), %ld B1 claims, %ld killed B1 heads, %llu cycles, %ld errors%s\n",
+         "%ld tags taken (%ld dispatch waits), %ld B1 claims, %ld killed B1 heads, %ld crossed results, "
+         "%ld crossed loads (%ld held off P4's bank), %llu cycles, %ld errors%s\n",
          (unsigned long long)seed, b.issued, b.checked, b.flushes, b.dead_ops, b.rets, b.tag_allocs, b.tag_waits,
-         b.fpi_claims, b.fpi_kills, (unsigned long long)b.cycle, b.errors, hung ? ", HUNG" : "");
+         b.fpi_claims, b.fpi_kills, b.crossed_ops, b.crossed_lds, b.ld_waits, (unsigned long long)b.cycle, b.errors,
+         hung ? ", HUNG" : "");
   return (b.errors || hung) ? 1 : 0;
 }
 
@@ -828,7 +881,7 @@ int main(int argc, char **argv) {
   std::string mode = argv[1];
   uint64_t seed = 1;
   long n = 0;
-  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85, tags = NTAG;
+  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85, tags = NTAG, cross = 0;
   std::string fn;
   for (int i = 2; i < argc; i++) {
     std::string a = argv[i];
@@ -839,10 +892,11 @@ int main(int argc, char **argv) {
     else if (a == "-ret" && i + 1 < argc) ret_pct = atoi(argv[++i]);
     else if (a == "-ready" && i + 1 < argc) ready = atoi(argv[++i]);
     else if (a == "-tags" && i + 1 < argc) tags = atoi(argv[++i]);
+    else if (a == "-cross" && i + 1 < argc) cross = atoi(argv[++i]);
     else if (mode == "tf" && fn.empty()) fn = a;
     else { fprintf(stderr, "bad argument %s\n", a.c_str()); return 2; }
   }
-  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready, tags);
+  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready, tags, cross);
   if (mode == "tf") return run_tf(fn.c_str(), rm, n);
   fprintf(stderr, "unknown mode %s\n", mode.c_str());
   return 2;
