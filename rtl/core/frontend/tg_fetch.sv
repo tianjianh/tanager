@@ -1871,4 +1871,13 @@ module tg_fetch
       assert (!(sv_s_q[t] && f1_valid_q && ft_q == 1'(t))) else $error("tg_fetch: stream %0d's next block in F1 and waiting", t);
   end
 `endif
+`ifndef SYNTHESIS
+  // The shared stall the coordinator asked to measure (M7's step 5): cycles F2 holds (F3 or the FTQ full) while
+  // another stream than F2's has a block in F1 or waiting, which the hold stalls too; on stderr at the end with hart 1
+  longint unsigned n_f2hold2;
+  always_ff @(posedge clk)
+    if (rst) n_f2hold2 <= 0;
+    else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q) || sv_s_q[!f2_s_q])) n_f2hold2 <= n_f2hold2 + 1;
+  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles\n", n_f2hold2);
+`endif
 endmodule

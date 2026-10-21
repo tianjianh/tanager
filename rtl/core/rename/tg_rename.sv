@@ -654,6 +654,13 @@ module tg_rename
       for (int b = 0; b < INT_BANKS; b++) if (fl_xfer[b]) nxf[b] <= nxf[b] + 1;
       for (int b = 0; b < 2; b++) if (ffl_xfer[b]) nxf[INT_BANKS + b] <= nxf[INT_BANKS + b] + 1;
     end
+  // The shared stall the coordinator asked to measure (M7's step 5): cycles a group waits at RN (it does not fire)
+  // while decode holds the other thread's group, which waits behind it; on stderr at the end with hart 1
+  longint unsigned n_rnhold2;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2 <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) n_rnhold2 <= n_rnhold2 + 1;
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles\n", n_rnhold2);
   // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
   string xf_log;
   final if (HART1_ON) begin
