@@ -65,7 +65,8 @@ module tg_fetch
   input  logic [NUM_THREADS-1:0][38:1]       ras_top_s,
   input  logic [NUM_THREADS-1:0][RAS_PW-1:0] ras_tos_s,
   input  logic [NUM_THREADS-1:0][RAS_PW:0]   ras_cnt_s,
-  output tid_t                ras_tid,        // the thread whose stack the operation or repair below is
+  output tid_t                ras_tid,        // the thread whose stack the operation below is (F2's stream's) ...
+  output tid_t                ras_rtid,       // ... and the repair's (decode's redirect's; MT: they may differ)
   output logic                ras_push,
   output logic                ras_pop,
   output logic [38:1]         ras_link,
@@ -92,6 +93,7 @@ module tg_fetch
   input  priv_e  [NUM_THREADS-1:0] priv_h,
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
+  input  logic [NUM_THREADS-1:0] rn_block,   // MT: a thread behind a serial uop at rename until its flush (tg_rename)
   input  logic        tlb_flush,
   input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
   input  logic        it_fill,
@@ -169,10 +171,15 @@ module tg_fetch
   logic [NS-1:0][63:0] rpc_s_q;   // a parked stream's block: its PC (the restart) ...
   logic [NS-1:0][PA_W-1:0] rpa_s_q;   // ... and PA (the refill's line)
   logic        f2_s_q, k_s_q, f3_s_q;   // F2's block's stream, the action's, F3's
+  // A blocked stream (MT): its thread waits at rename behind a serial uop, whose commit flushes it, so whatever it
+  // fetches meanwhile would go: F1 treats it as stopped, F2 passes its blocks on without an FTQ entry, and the
+  // queue takes them without writing them (tg_fetch_compact's drop_t), so it holds none of the shared stages
+  logic [NS-1:0] blk_s;
+  assign blk_s = MT ? NS'(rn_block) : '0;
   // The stream views the logic below reads: F1's stream's stop, F2's stream's straddler
   logic        stop_q, carry_q;
   logic [15:0] sp_q;
-  assign stop_q  = stop_s_q[ft_q];
+  assign stop_q  = stop_s_q[ft_q] || blk_s[ft_q];
   assign carry_q = carry_s_q[f2_s_q];
   assign sp_q    = sp_s_q[f2_s_q];
   tid_t f3_tid;                                   // F3's block's thread
@@ -195,8 +202,10 @@ module tg_fetch
   assign ras_top = ras_top_s[f2_s_q];
   assign ras_tos = ras_tos_s[f2_s_q];
   assign ras_cnt = ras_cnt_s[f2_s_q];
-  // the stack fetch's operation (a delivered block's exit) or repair (decode's redirect) is for: never in one cycle
-  assign ras_tid = dred ? dred_tid : (MT ? tid_t'(f2_s_q) : RUN_TID);
+  // the stacks of fetch's operation (a delivered block's exit) and repair (decode's redirect): with MT they may come
+  // in one cycle, for different threads (a redirect stops its own stream's delivery); without MT never together
+  assign ras_tid  = MT ? tid_t'(f2_s_q) : (dred ? dred_tid : RUN_TID);
+  assign ras_rtid = MT ? dred_tid : (dred ? dred_tid : RUN_TID);
 
   // Micro-BTB
   logic              ub_hit, ub_way;
@@ -973,7 +982,7 @@ module tg_fetch
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush_q(red_q), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
+    .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
     .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
@@ -1104,10 +1113,13 @@ module tg_fetch
             found      = 1'b1;
           end
       end
+    // (a blocked stream's block takes no entry: its FTQ may be full of the older instructions' blocks)
     assign ft_full = ft_t_s_q[f2_s_q][FTQW] != ft_eh_s[f2_s_q][FTQW] &&
-                     ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0];
+                     ft_t_s_q[f2_s_q][FTQW-1:0] == ft_eh_s[f2_s_q][FTQW-1:0] && !blk_s[f2_s_q];
     assign ft_tail = ft_t_s_q[f2_s_q][FTQW-1:0];
-    assign ft_we   = f2_deliver && !redirect;
+    // (MT: in another stream's redirect cycle F2's block goes on to F3, so it takes its entry: only its own
+    // stream's redirect stops it; without MT the one redirect)
+    assign ft_we   = f2_deliver && !red_s[f2_s_q] && !blk_s[f2_s_q];
     // (and the return-address stack's pointer, count and top before the block, RAS_FE)
     localparam int RW  = GH_W + 2 * NP + RAS_PW + RAS_PW + 1 + 38;
     localparam int RWA = GH_W + RAS_PW + RAS_PW + 1 + 38;     // written on time: the history, the stack's state
@@ -1255,6 +1267,22 @@ module tg_fetch
         for (int k = 0; k < 4; k++)
           if (3'(k) < tq_n && (!MT || tq_all[k][SB+FTQW] == f2_s_q))
             assert (ft_tail != tq_all[k][FTQW-1:0]) else $error("tg_fetch: a block takes an FTQ entry TAGE's training queue names");
+    // Every instruction the queue hands decode names an FTQ entry its stream holds, from the head to the tail (a
+    // block that went on to F3 without its entry would not: with MT, one delivered in the other stream's redirect)
+    always_ff @(posedge clk)
+      if (tq_rs_q && !rst)
+        for (int j = 0; j < DECODE_WIDTH; j++)
+          if (iq_valid[j]) begin
+            logic           qs;
+            logic [FTQW:0]  occ;
+            logic [FTQW-1:0] pos;
+            qs  = strm(cq_tid);
+            occ = ft_t_s_q[qs] - ft_h_s_q[qs];
+            pos = iq_insn[j].ftq - ft_h_s_q[qs][FTQW-1:0];
+            assert ((FTQW + 1)'(pos) < occ)
+              else $error("tg_fetch: an instruction of stream %0d names FTQ entry %0d outside its head %0h and tail %0h",
+                          qs, iq_insn[j].ftq, ft_h_s_q[qs], ft_t_s_q[qs]);
+          end
 `endif
   end else begin : g_notage
     assign ft_full = 1'b0;
@@ -1340,7 +1368,15 @@ module tg_fetch
   assign pv_go    = IPF_ON && rs_q == R_IDLE && (miss_any || am_go) && ps_q == P_HELD && pline_q == mline && !pbad_q &&
                     !rst;
   assign ivs_done = ivs_q[SET_W];
-  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go;
+  // MT: a stream's tags are compared in F1, a cycle and more before F2's action parks it, so a refill or a held
+  // line's validation that ended in between leaves it parking on a line now valid (the other stream's miss of the
+  // same line): it restarts at once (am_rd; its refetch hits, or misses again after a FENCE.I) and the engine does
+  // not fetch the line a second time into another way
+  logic [PA_W-1:6] rdl_q;                    // the line the last refill or validation made valid ...
+  logic [1:0]      rda_q;                    // ... cycles since (3: too long ago)
+  logic            am_rd;
+  assign am_rd    = MT && am_go && rda_q != 2'd3 && miss_pa_q[PA_W-1:6] == rdl_q;
+  assign r_start  = rs_q == R_IDLE && (miss_any || am_go) && !rst && !pf_wait && !pv_go && !(am_rd && !miss_any);
   assign tr_go    = IPF_ON && (r_start || pv_go) && mline[11:6] != 6'h3F && (ps_q == P_IDLE || ps_q == P_HELD);
   assign p_inv_go = IPF_ON && ps_q == P_INV && ivs_done && !r_start && !tag_we && !pv_go;
   assign gp_go    = !gps_q[SET_W] && ivs_done && !r_start && !tag_we && !pv_go && !p_inv_go;
@@ -1460,6 +1496,12 @@ module tg_fetch
   assign tag_set = rline_q[6 +: SET_W];
   assign tag_wd  = rline_q[PA_W-1:12];
 
+  always_ff @(posedge clk) begin
+    if (rst || !MT) rda_q <= 2'd3;
+    else if (refill_done) begin rdl_q <= rline_q; rda_q <= '0; end
+    else if (pv_go)       begin rdl_q <= mline;   rda_q <= '0; end
+    else if (rda_q != 2'd3) rda_q <= rda_q + 1'b1;
+  end
   always_ff @(posedge clk) begin
     if (rst) begin
       rs_q      <= R_IDLE;
@@ -1598,9 +1640,10 @@ module tg_fetch
                  : miss_pc_q;
   always_comb
     for (int t = 0; t < NS; t++) begin
-      rs_ref[t]  = (miss_s_q[t] || (am_go && k_s_q == 1'(t))) &&
-                   (!MT ? (refill_done || pv_go)
-                        : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])));
+      rs_ref[t]  = ((miss_s_q[t] || (am_go && k_s_q == 1'(t))) &&
+                    (!MT ? (refill_done || pv_go)
+                         : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])))) ||
+                   (am_rd && k_s_q == 1'(t));
       rs_walk[t] = wout[t] && iw_done;
       rs_pc[t]   = ((am_go || aw_go) && k_s_q == 1'(t)) ? miss_pc_q : rpc_s_q[t];
     end
@@ -1635,7 +1678,7 @@ module tg_fetch
       end
     end else if (f1_mv) begin                         // F1's block moves on: the other stream's waiting block, or
       o = MT && !ft_q;                                // its own next
-      if (MT && sv_s_q[o]) begin
+      if (MT && sv_s_q[o] && !blk_s[o]) begin
         fpc_n = spc_s_q[o]; ft_n = o; sv_n[o] = 1'b0;
         sv_n[ft_q] = 1'b1; spc_n[ft_q] = pred_hit ? pred_tgt : seq_pc;
       end else begin
@@ -1656,11 +1699,11 @@ module tg_fetch
       end
     end
     // MT: an empty F1, or one holding a stopped stream's block, takes a waiting block
-    if (MT && (!f1v_n || stop_s_q[ft_n])) begin
+    if (MT && (!f1v_n || stop_s_q[ft_n] || blk_s[ft_n])) begin
       o = !ft_n;
-      if (sv_n[o]) begin
+      if (sv_n[o] && !blk_s[o]) begin
         f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
-      end else if (!f1v_n && sv_n[ft_n]) begin
+      end else if (!f1v_n && sv_n[ft_n] && !blk_s[ft_n]) begin
         f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
       end
     end
@@ -1670,7 +1713,7 @@ module tg_fetch
     f1r = 1'b0;
     for (int t = 0; t < NS; t++) begin
       if (red_s[t]) begin
-        if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || red_s[ft_n]))) begin
+        if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n]))) begin
           f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
@@ -1687,6 +1730,10 @@ module tg_fetch
       ft_q        <= strm(RUN_TID);              // (the running hart's stream: 1 with SOLO_TID)
       pw_q        <= 1'b0;
       sv_s_q      <= '0;
+      if (MT) begin                              // hart 1 fetches from reset too (M7's step 5c): the other
+        sv_s_q[strm(~RUN_TID)]  <= 1'b1;         // stream's first block waits at the boot PC
+        spc_s_q[strm(~RUN_TID)] <= boot_pc;
+      end
       stop_s_q    <= '0;
       miss_s_q    <= '0;
       wk_s_q      <= '0;
@@ -1901,7 +1948,21 @@ module tg_fetch
   longint unsigned n_f2hold2;
   always_ff @(posedge clk)
     if (rst) n_f2hold2 <= 0;
-    else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q) || sv_s_q[!f2_s_q])) n_f2hold2 <= n_f2hold2 + 1;
-  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles\n", n_f2hold2);
+    else if (MT && f2_hold && ((f1_valid_q && ft_q != f2_s_q && !blk_s[ft_q]) || (sv_s_q[!f2_s_q] && !blk_s[!f2_s_q])))
+      n_f2hold2 <= n_f2hold2 + 1;                   // (a blocked stream's block waits for its flush, not for F2)
+  // Sharper (the throughput it may cost): the other stream is not stopped, parked or blocked and its queue has room
+  // for a whole block, so it could have gone on but for the hold
+  longint unsigned n_f2hold2b;
+  always_ff @(posedge clk)
+    if (rst) n_f2hold2b <= 0;
+    else if (MT && f2_hold) begin
+      logic y;
+      y = !f2_s_q;
+      if (((f1_valid_q && ft_q == y) || sv_s_q[y]) && !blk_s[y] && !stop_s_q[y] && !miss_s_q[y] && !wk_s_q[y] &&
+          int'(u_cmp.occ_t_q[y]) <= IBUF_ENTRIES - FETCH_BYTES / 2)
+        n_f2hold2b <= n_f2hold2b + 1;
+    end
+  final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles (%0d with that stream ready and room in its queue)\n",
+                        n_f2hold2, n_f2hold2b);
 `endif
 endmodule

@@ -37,7 +37,8 @@
 // room checks against that thread's heads, the block after a serialising uop, and the flush of the RN and DS stages
 // (only when they hold the flushed thread's group). The wakeup tags and LLTs stay one pool each; each records its
 // thread, and a flush returns the flushed thread's. Commit's pushes and map writes are the commit group's thread's
-// (cm_tid). The divide and FP counts stay shared until two threads run (step 5).
+// (cm_tid). The divide and FP counts are shared totals (the room checks read one register each); with hart 1
+// (M7's step 5c) each thread's share is kept beside them, and a flush takes only its thread's share off.
 // F and D (EXT_FD): a second map (tg_rmap) for the f registers, whose physical registers are
 // {bank, index} in F0 (P4 results) or F1 (FP loads), with their own free lists and ready table.
 // An FP op's integer source (FCVT.F.I, FMV.F.X) and an FP store's address are integer sources
@@ -62,6 +63,8 @@ module tg_rename
   input  logic [W-1:0]   de_valid,
   input  uop_t [W-1:0]   de_uop,
   output logic           de_take,
+  output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
+                                         // its later instructions; RN drops its group: the flush would)
   // Window state, per thread
   input  robid_t [NUM_THREADS-1:0] rob_head,
   input  lqid_t  [NUM_THREADS-1:0] lq_head,
@@ -78,11 +81,13 @@ module tg_rename
   input  logic [LLT_ENTRIES-1:0]           llt_rel,
   input  logic [IQ_TAGS-1:0]               tag_free,    // tags returned (registered)
   input  logic                             div_done,
+  input  tid_t                             div_done_tid,   // ... its thread (hart 1: the per-thread shares)
   // F and D (EXT_FD): FP register-file writes (F0: P4, F1: FP loads), P4 issue and returns
   input  logic [1:0]                       fp_we,
   input  logic [1:0][FPIDX_W-1:0]          fp_widx,
   input  logic                             fdiv_iss,    // IQ-FP issued a divide / sqrt
   input  logic                             fpi_iss,     // ... an FP->int op
+  input  tid_t                             fp_iss_tid,  // ... its thread (IQ-FP's one issue)
   input  logic                             fdiv_done,   // P4 returned a divide
   input  logic                             fpi_pop,     // ... an FP->int op
   // Commit (one thread's group a cycle)
@@ -138,6 +143,22 @@ module tg_rename
   logic [idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_q, fdiv_post_q;
   logic [idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_q, fpi_post_q;
   logic [NT-1:0]         block_q;          // after a serialising uop, until the thread's flush
+  // With hart 1 each thread's share of the divide count and of the FP counts not yet issued, so a flush takes only
+  // its own off the totals (without hart 1 a flush empties them: one thread runs)
+  localparam bit CMT = HART1_ON && NT > 1;
+  logic [NT-1:0][idx_w(DIV_INFLIGHT + 1)-1:0]  div_t_q;
+  logic [NT-1:0][idx_w(FDIV_INFLIGHT + 1)-1:0] fdiv_pre_t_q;
+  logic [NT-1:0][idx_w(FPI_INFLIGHT + 1)-1:0]  fpi_pre_t_q;
+  logic                                        div_dec;      // a divide returned: the total (and its share) drop
+  assign div_dec = div_done && (CMT ? div_t_q[div_done_tid] != '0 : div_cnt_q != '0);
+`ifndef SYNTHESIS
+  always_ff @(posedge clk)
+    if (CMT && !rst)
+      assert (int'(div_cnt_q) == int'(div_t_q[0]) + int'(div_t_q[NT-1]) &&
+              int'(fdiv_pre_q) == int'(fdiv_pre_t_q[0]) + int'(fdiv_pre_t_q[NT-1]) &&
+              int'(fpi_pre_q) == int'(fpi_pre_t_q[0]) + int'(fpi_pre_t_q[NT-1]))
+        else $error("tg_rename: a count differs from its threads' shares");
+`endif
 
   logic [W-1:0]          rn_valid_q;
   uop_t [W-1:0]          rn_uop_q;
@@ -621,7 +642,12 @@ module tg_rename
   logic ds_free;
   assign rn_fire = (|rn_valid_q) && rn_ok && ds_free && !block_q[t_rn] && !flush && ready && start &&
                    irdy_ready && frdy_ready && (!rn_serial || window_empty);
-  assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire);
+  // With hart 1 a group of a thread behind a serial uop (block_q) cannot fire before that thread's flush, which
+  // kills it: RN drops it, so that the other thread's group need not wait behind it
+  logic rn_drop;
+  assign rn_drop = CMT && (|rn_valid_q) && block_q[t_rn];
+  assign blk_o   = CMT ? block_q : '0;
+  assign de_take = !flush && ready && (!(|rn_valid_q) || rn_fire || rn_drop);
 
   // The pops each free list takes when rename fires (the free list applies rn_fire last)
   assign ffl_pop_n[0] = fpops[0];
@@ -660,7 +686,37 @@ module tg_rename
   always_ff @(posedge clk)
     if (rst) n_rnhold2 <= 0;
     else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) n_rnhold2 <= n_rnhold2 + 1;
-  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles\n", n_rnhold2);
+  // Sharper (the throughput it may cost): the waiting group's thread has room in its ROB, LQ and SQ halves for it, so
+  // it could have renamed but for the group ahead of it
+  longint unsigned n_rnhold2b;
+  always_ff @(posedge clk)
+    if (rst) n_rnhold2b <= 0;
+    else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) begin
+      tid_t y;
+      y = de_uop[0].tid;
+      if (rob_room_t[y][$countones(de_valid)] && lq_room_t[y][ren_nld(de_uop, de_valid)] &&
+          sq_room_t[y][ren_nst(de_uop, de_valid)])
+        n_rnhold2b <= n_rnhold2b + 1;
+    end
+  final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles (%0d with room in that thread's window)\n",
+                              n_rnhold2, n_rnhold2b);
+  // With hart 1: a thread whose window (ROB, RN and DS) has been empty for a few cycles holds no wakeup tag and no LLT
+  // (a tag returns two cycles after its op completes): a return lost to the other thread's flush leaks it for good
+  if (CMT) begin : g_leak
+    logic [NT-1:0][2:0] emp_q;               // cycles each thread's window has been empty (saturating at 7)
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        if (rst || rtail_q[t] != rob_head[t] || (|rn_valid_q && t_rn == tid_t'(t)) || (|ds_valid_q && t_ds == tid_t'(t)))
+          emp_q[t] <= '0;
+        else if (emp_q[t] != 3'd7) emp_q[t] <= emp_q[t] + 1'b1;
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < IQ_TAGS; i++)
+            assert (!(tag_busy_q[i] && tag_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but tag %0d is busy for it", t, i);
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < LLT_ENTRIES; i++)
+            assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
+      end
+  end
   // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
   string xf_log;
   final if (HART1_ON) begin
@@ -897,6 +953,9 @@ module tg_rename
         stail_q[t] <= sq_start(tid_t'(t));
       end
       div_cnt_q  <= '0;
+      div_t_q    <= '0;
+      fdiv_pre_t_q <= '0;
+      fpi_pre_t_q  <= '0;
       block_q    <= '0;
       rn_valid_q <= '0;
       ds_valid_q <= '0;
@@ -905,7 +964,8 @@ module tg_rename
       fdiv_post_q <= fdiv_post_q + (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss) - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_done);
       fpi_post_q  <= fpi_post_q + (idx_w(FPI_INFLIGHT + 1))'(fpi_iss) - (idx_w(FPI_INFLIGHT + 1))'(fpi_pop);
       tag_busy_q <= tag_busy_q & ~tag_free;
-      if (div_done && div_cnt_q != '0) div_cnt_q <= div_cnt_q - 1'b1;
+      if (div_dec) div_cnt_q <= div_cnt_q - 1'b1;
+      if (CMT && div_dec) div_t_q[div_done_tid] <= div_t_q[div_done_tid] - 1'b1;
 
       if (flush) begin
         // the flushed thread's tagged producers in flight are squashed: their tags and LLTs return
@@ -914,9 +974,20 @@ module tg_rename
         rtail_q[t_fl] <= rob_head[t_fl];
         ltail_q[t_fl] <= lq_head[t_fl];
         stail_q[t_fl] <= sq_cmt[t_fl];
-        div_cnt_q  <= '0;               // (one thread runs until step 5: its divides)
-        fdiv_pre_q <= '0;                // not yet issued: gone with the flush
-        fpi_pre_q  <= '0;
+        if (!CMT) begin
+          div_cnt_q  <= '0;              // (one thread: its divides)
+          fdiv_pre_q <= '0;              // not yet issued: gone with the flush
+          fpi_pre_q  <= '0;
+        end else begin                   // hart 1: the flushed thread's share goes; the other's issue and done count
+          div_cnt_q <= div_cnt_q - div_t_q[t_fl] - (idx_w(DIV_INFLIGHT + 1))'(div_dec && div_done_tid != t_fl);
+          div_t_q[t_fl] <= '0;
+          fdiv_pre_q <= fdiv_pre_q - fdiv_pre_t_q[t_fl] - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss && fp_iss_tid != t_fl);
+          fpi_pre_q  <= fpi_pre_q - fpi_pre_t_q[t_fl] - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss && fp_iss_tid != t_fl);
+          fdiv_pre_t_q[t_fl] <= '0;
+          fpi_pre_t_q[t_fl]  <= '0;
+          if (fdiv_iss && fp_iss_tid != t_fl) fdiv_pre_t_q[fp_iss_tid] <= fdiv_pre_t_q[fp_iss_tid] - 1'b1;
+          if (fpi_iss && fp_iss_tid != t_fl)  fpi_pre_t_q[fp_iss_tid]  <= fpi_pre_t_q[fp_iss_tid] - 1'b1;
+        end
         block_q[t_fl] <= 1'b0;
         if (t_rn == t_fl) rn_valid_q <= '0;
         if (t_ds == t_fl) ds_valid_q <= '0;
@@ -926,6 +997,15 @@ module tg_rename
                       - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss);
         fpi_pre_q  <= fpi_pre_q + (idx_w(FPI_INFLIGHT + 1))'(rn_fire ? ren_nfp(rn_uop_q, rn_valid_q, 1'b0) : 0)
                       - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss);
+        if (CMT)
+          for (int t = 0; t < NT; t++) begin
+            fdiv_pre_t_q[t] <= fdiv_pre_t_q[t]
+                               + (idx_w(FDIV_INFLIGHT + 1))'((rn_fire && t_rn == tid_t'(t)) ? ren_nfp(rn_uop_q, rn_valid_q, 1'b1) : 0)
+                               - (idx_w(FDIV_INFLIGHT + 1))'(fdiv_iss && fp_iss_tid == tid_t'(t));
+            fpi_pre_t_q[t]  <= fpi_pre_t_q[t]
+                               + (idx_w(FPI_INFLIGHT + 1))'((rn_fire && t_rn == tid_t'(t)) ? ren_nfp(rn_uop_q, rn_valid_q, 1'b0) : 0)
+                               - (idx_w(FPI_INFLIGHT + 1))'(fpi_iss && fp_iss_tid == tid_t'(t));
+          end
         // DS
         if (ds_fire) ds_valid_q <= '0;
         // RN -> DS
@@ -948,10 +1028,14 @@ module tg_rename
           ltail_q[t_rn] <= lq_add_t(ltail_q[t_rn], ren_nld(rn_uop_q, rn_valid_q), t_rn);
           stail_q[t_rn] <= sq_add_t(stail_q[t_rn], ren_nst(rn_uop_q, rn_valid_q), t_rn);
           div_cnt_q <= div_cnt_q + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
-                       - (idx_w(DIV_INFLIGHT + 1))'(div_done && div_cnt_q != '0);
+                       - (idx_w(DIV_INFLIGHT + 1))'(div_dec);
+          if (CMT)
+            div_t_q[t_rn] <= div_t_q[t_rn] + (idx_w(DIV_INFLIGHT + 1))'(ren_ndiv(rn_uop_q, rn_valid_q))
+                             - (idx_w(DIV_INFLIGHT + 1))'(div_dec && div_done_tid == t_rn);
           if (rn_serial) block_q[t_rn] <= 1'b1;
         end
         // DE -> RN
+        if (rn_drop) rn_valid_q <= '0;
         if (de_take) begin
           rn_valid_q <= de_valid;
           rn_uop_q   <= de_uop;
