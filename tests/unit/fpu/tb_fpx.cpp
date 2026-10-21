@@ -5,14 +5,16 @@
 // wakeup and integer result against the SoftFloat-based reference, with exact cycles. Exits
 // non-zero on failure.
 //
-//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT] [-tags N] [-cross PCT]
+//   tb_fpx rand [-seed N] [-n N] [-flush N] [-ret PCT] [-ready PCT] [-tags N] [-cross PCT] [-fpblk PCT]
 //       random FP operations with dependencies, loads, flushes every ~N cycles (0: none),
 //       early retirement of divides (PCT per cycle), B1 back-pressure (the arbiter claims the
 //       queue head with PCT per cycle and writes it 1-4 cycles later), N wakeup tags (default
 //       16; fewer exhaust the pool, so dispatch waits and tags are reused at once), PCT of P4's
 //       FP results renamed into F1 and of the loads into F0 (renaming across both banks, DR-179;
 //       the bench, as the LSU, starts a load only when P4 cannot write its bank in its write cycle,
-//       and checks that P4 announces each write, bank included, the cycle before)
+//       and checks that P4 announces each write, bank included, the cycle before), and PCT of the cycles
+//       with IQ-FP's select blocked by the LSU (fp_block: the bench selects nothing then, P4 leaves its slot 7
+//       cycles on free, and the bench starts a crossed load into that slot when it can)
 //   tb_fpx tf <function> [-rm N] [-n N]
 //       TestFloat vectors (testfloat_gen output on stdin), operands through F1 loads and the
 //       integer source port, results through F0 and the B1 queue
@@ -27,6 +29,7 @@
 #include <cstring>
 #include <deque>
 #include <map>
+#include <set>
 #include <random>
 #include <string>
 #include <type_traits>
@@ -104,8 +107,9 @@ class Bench {
   long tag_allocs = 0, tag_waits = 0, fpi_claims = 0, fpi_kills = 0;
   uint64_t last_progress = 0;
   // Knobs
-  int flush_every = 0, ret_pct = 0, ready_pct = 100, cross_pct = 0;
-  long crossed_ops = 0, crossed_lds = 0, ld_waits = 0;
+  int flush_every = 0, ret_pct = 0, ready_pct = 100, cross_pct = 0, fpblk_pct = 0;
+  long crossed_ops = 0, crossed_lds = 0, ld_waits = 0, fp_blocks = 0, slot_lds = 0;
+  std::set<uint64_t> freed;          // P4 slots a blocked select left free (no divide claims them)
   // State
   FReg fr[2][NFP];
   uint64_t ival[NINT];
@@ -183,6 +187,7 @@ class Bench {
   void clear_inputs() {
     top->flush = 0; top->flush_tid = 0; top->init_we = 0;
     top->iss_valid = 0; top->fld_m2_will = 0; top->fld_valid = 0; top->fld_m2_bank = 0; top->fld_bank = 0;
+    top->fp_block = 0;
     top->fpi_ready = 0; top->fdiv_ret_valid = 0; top->fsd_tag = 0; top->tr_tag = 0;
     top->isrc_data = 0;
   }
@@ -631,9 +636,16 @@ class Bench {
       else ++it;
     }
 
+    // The LSU's fp_block (DR-179): the select of this cycle is blocked, so P4 leaves its slot 7 cycles on free
+    // (tg_fp_exec keeps FMISC results and divide claims out of it); a crossed load may be written there
+    bool fpb = fpblk_pct && chance(fpblk_pct);
+    top->fp_block = fpb;
+    if (fpb) { fp_blocks++; freed.insert(cycle + 2 + FMA_LAT); }
+    while (!freed.empty() && *freed.begin() < cycle) freed.erase(freed.begin());
+    if (freed.count(cycle + 2) && !ld_new.v && start_load(gen.fp(true), false, nullptr, 0)) slot_lds++;
     // The op presented this cycle is in RF; the one selected now is presented next cycle
     have_iss = false;
-    if (can_issue) {
+    if (can_issue && !fpb) {
       bool blk = top->fmisc_block;
       pick(blk);
       if (have_iss && flushing && ops[iss_id].tid == ftid) {
@@ -699,6 +711,7 @@ class Bench {
   bool p4_may_write(int b, uint64_t w) {
     auto it = f0_sched.find(w);
     if (it != f0_sched.end()) return ops.count(it->second) && ops[it->second].dbank == b;
+    if (freed.count(w)) return false;
     for (auto &kv : ops) {
       const Op &o = kv.second;
       if (o.unit == U_DIV && o.live && !o.done && o.fp_dst && o.dbank == b) return true;
@@ -707,9 +720,9 @@ class Bench {
   }
   // A load into a free register of F1 (or F0, crossed): announced next cycle, written the cycle after.
   // As the LSU it never writes a bank P4 writes in that cycle: it starts only when P4 cannot.
-  bool start_load(uint64_t raw, bool single, int *idx_out) {
+  bool start_load(uint64_t raw, bool single, int *idx_out, int bank = -1) {
     if (ld_new.v) return false;
-    int b = chance(cross_pct) ? 0 : 1;
+    int b = bank >= 0 ? bank : chance(cross_pct) ? 0 : 1;
     int i = alloc_f(b);
     if (i < 0) { b ^= 1; i = alloc_f(b); }
     if (i < 0) return false;
@@ -730,9 +743,11 @@ class Bench {
 };
 
 // ---- Random mode ----
-static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct, int tags, int cross) {
+static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int ready_pct, int tags, int cross,
+                    int fpblk) {
   Bench b(seed);
   b.flush_every = flush_every; b.ret_pct = ret_pct; b.ready_pct = ready_pct; b.cross_pct = cross;
+  b.fpblk_pct = fpblk;
   b.ntag = std::max(1, std::min(b.ntag, tags));
   b.reset();
   static const int fma_ops[] = {ref::FADD, ref::FSUB, ref::FMUL, ref::FMADD, ref::FMSUB, ref::FNMSUB, ref::FNMADD,
@@ -768,9 +783,11 @@ static int run_rand(uint64_t seed, long n, int flush_every, int ret_pct, int rea
   bool hung = b.cycle >= limit;
   printf("rand seed=%llu: %ld operations, %ld checks, %ld flushes (%ld ops squashed), %ld early retirements, "
          "%ld tags taken (%ld dispatch waits), %ld B1 claims, %ld killed B1 heads, %ld crossed results, "
-         "%ld crossed loads (%ld held off P4's bank), %llu cycles, %ld errors%s\n",
+         "%ld crossed loads (%ld held off P4's bank), %ld blocked selects (%ld loads into their slots), "
+         "%llu cycles, %ld errors%s\n",
          (unsigned long long)seed, b.issued, b.checked, b.flushes, b.dead_ops, b.rets, b.tag_allocs, b.tag_waits,
-         b.fpi_claims, b.fpi_kills, b.crossed_ops, b.crossed_lds, b.ld_waits, (unsigned long long)b.cycle, b.errors,
+         b.fpi_claims, b.fpi_kills, b.crossed_ops, b.crossed_lds, b.ld_waits, b.fp_blocks, b.slot_lds,
+         (unsigned long long)b.cycle, b.errors,
          hung ? ", HUNG" : "");
   return (b.errors || hung) ? 1 : 0;
 }
@@ -881,7 +898,7 @@ int main(int argc, char **argv) {
   std::string mode = argv[1];
   uint64_t seed = 1;
   long n = 0;
-  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85, tags = NTAG, cross = 0;
+  int rm = 0, flush_every = 300, ret_pct = 0, ready = 85, tags = NTAG, cross = 0, fpblk = 0;
   std::string fn;
   for (int i = 2; i < argc; i++) {
     std::string a = argv[i];
@@ -893,10 +910,11 @@ int main(int argc, char **argv) {
     else if (a == "-ready" && i + 1 < argc) ready = atoi(argv[++i]);
     else if (a == "-tags" && i + 1 < argc) tags = atoi(argv[++i]);
     else if (a == "-cross" && i + 1 < argc) cross = atoi(argv[++i]);
+    else if (a == "-fpblk" && i + 1 < argc) fpblk = atoi(argv[++i]);
     else if (mode == "tf" && fn.empty()) fn = a;
     else { fprintf(stderr, "bad argument %s\n", a.c_str()); return 2; }
   }
-  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready, tags, cross);
+  if (mode == "rand") return run_rand(seed, n ? n : 100000, flush_every, ret_pct, ready, tags, cross, fpblk);
   if (mode == "tf") return run_tf(fn.c_str(), rm, n);
   fprintf(stderr, "unknown mode %s\n", mode.c_str());
   return 2;

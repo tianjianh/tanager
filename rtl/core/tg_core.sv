@@ -727,7 +727,7 @@ module tg_core
     tg_fp_exec #(.FDIV_Q(FDIV_INFLIGHT), .FPI_Q(FPI_INFLIGHT)) u_p4 (
       .clk, .rst, .flush, .flush_tid,
       .init_we(!init_done), .init_bank(1'b0), .init_idx(FPIDX_W'(init_q[4:0])),
-      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block),
+      .iss_valid(iss_valid[Q_FP]), .iss_pl(p4_pl), .fmisc_block(fp_misc_block), .fp_block,
       .isrc_valid, .isrc_tag, .isrc_data,
       .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank, .fld_idx, .fld_data,
       .p4_nx_we_o(p4_nx_we), .p4_nx_bank_o(p4_nx_bank),

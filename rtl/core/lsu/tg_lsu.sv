@@ -680,8 +680,9 @@ module tg_lsu
   logic [LIW-1:0]    ag_lq;
   logic [PA_W-1:0]   ag_pa;
   logic              ag_go;
-  assign ag_pt   = !ld_ag_valid && pt_req && !kill_t[pw_dtid];
-  assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !kill_t[rp_t];
+  logic fh_hole_ag;      // the AG slot stays empty this cycle: a held FP load's M2 bubble (FH_HOLE, below)
+  assign ag_pt   = !ld_ag_valid && pt_req && !kill_t[pw_dtid] && !fh_hole_ag;
+  assign ag_rp   = !ld_ag_valid && !pt_req && rp_any && !kill_t[rp_t] && !fh_hole_ag;
   assign ag_v    = (ld_ag_valid && !kill_t[t_ldag]) || ag_pt || ag_rp;
   assign ag_lq   = ld_ag_valid ? ld_ag_pl.lq[LIW-1:0] : rp_idx;
   // ag_pa and ag_go (it continues to M1) depend on where a new load decides: g_split / g_nosplit
@@ -826,9 +827,10 @@ module tg_lsu
   // FP banks of 64 with renaming across both (DR-179): each FP bank has one write port, and P4's stream takes it in
   // priority (its pipelines cannot hold). An FP load completing in M2 whose write (next cycle) meets P4's announced
   // write in its bank is held: its result waits in fh_* (below) with no wakeup and no completion, and takes the
-  // result register in a later cycle, when M2 does not and P4 leaves its bank; its LLT wakes then, as an MMIO
-  // response's. A second one while fh holds one retries. The terms reach the FP load's own wakeup, its result and
-  // its LQ state, not M2's outcome or the integer paths (ld_m2_will, the miss request).
+  // result register in a later cycle, when M2 does not and P4 leaves its bank, a cycle it makes for itself
+  // (FH_HOLE, below); its LLT wakes then, as an MMIO response's. A second one while fh holds one retries. The terms
+  // reach the FP load's own wakeup, its result and its LQ state, not M2's outcome or the integer paths (ld_m2_will,
+  // the miss request).
   logic m2_fcol, m2_fhold, m2_fretry;
   logic fh_v_q;
   logic fk_hold;          // a phantom P4 write in every bank next cycle (the hold's test mode, below)
@@ -995,8 +997,15 @@ module tg_lsu
   logic            fh_take;
   logic            fh_stay;                // fh holds its load into the next cycle (a failed take)
   logic [2:0]      fh_w_q;                 // fh's failed takes before this cycle (saturating)
-  localparam logic [2:0] FH_LDB = 3'd3;    // IQ-LD's select is blocked after 4 (ld_block, below) ...
+  localparam logic [2:0] FH_LDB = 3'd7;    // IQ-LD's select is blocked after 8 (ld_block, below) ...
   localparam logic [2:0] FH_BLK = 3'd7;    // ... and IQ-FP's after 8 (fp_block)
+  // A load entering fh makes its own slot (FH_HOLE). IQ-FP's select is blocked the cycle after the fill, so P4 writes
+  // nothing 7 cycles on (fill+8; tg_fp_exec keeps FMISC results and divide claims out of that slot). IQ-LD's select is
+  // blocked at fill+3 and the AG slot left empty at fill+5, so M2 completes nothing at fill+7. fh takes the result
+  // register then and writes into P4's free slot: P4 loses one select a hold, not the 7 cycles of a drain (lone FP
+  // restores -4.8% -> -0.7% against FP 96, core-2's RTL runs with crossing). The blocks after 8 failed takes stay for
+  // a slot taken anyway (an MMIO or atomic result, a flush)
+  localparam bit         FH_HOLE = 1'b1;
 
   // ================= Atomics =================
   // AM_IDLE -> (ROB head, address and data known, older stores drained) -> AM_REQ: the D$ holds
@@ -1061,6 +1070,7 @@ module tg_lsu
   assign fh_take  = fh_v_q && !m2_okw && !xr_take && !am_take && !kill_t[fh_tid_q] &&
                     !(p4_nx_we && p4_nx_bank == fh_fb_q) && !fk_hold;
   assign fh_stay  = fh_v_q && !fh_take && !kill_t[fh_tid_q];
+  assign fh_hole_ag = FH_HOLE && fh_v_q && fh_w_q == 3'd4;
 `ifndef SYNTHESIS
   // A held load never outlives its thread's flush: the flush frees its LLT and its register at once (rename), so a
   // later take would wake an LLT given out again and write a register with a new owner
@@ -1069,8 +1079,9 @@ module tg_lsu
     fh_kill_q <= !rst && fh_v_q && kill_t[fh_tid_q];
     if (!rst && fh_kill_q) assert (!fh_v_q) else $error("tg_lsu: a held FP load outlived its thread's flush");
   end
-  // ... nor waits long (core-2's check): after 4 failed takes IQ-LD's select is blocked, so M2 empties (each replay
-  // completes once), and after 8 IQ-FP's too, so P4's stream empties (ld_block and fp_block, below)
+  // ... nor waits long (core-2's check): it takes 7 cycles after the fill (FH_HOLE), or after 8 failed takes IQ-LD's
+  // and IQ-FP's selects are blocked until it does, so M2 empties (each replay completes once) and P4's stream empties
+  // (ld_block and fp_block, below)
   int unsigned fh_age;                    // the cycles fh has held its load before this one
   always_ff @(posedge clk) begin
     fh_age <= (rst || !fh_v_q) ? 0 : fh_age + 1;
@@ -1560,16 +1571,17 @@ module tg_lsu
   end
 `endif
 
-  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees. Also a held FP load after 4 failed takes
-  // (DR-179): M2 then empties, its replays aside, so fh takes the result register. After 8 failed takes, or while an
-  // FP load's MMIO response meets P4, IQ-FP's select is blocked too: P4's stream empties (its pipelines and a divide's
-  // slot) and gives the load's bank its write port. Without them a stream of completing loads or of P4 writes to that
-  // bank could starve the load (core-2's review). IQ-LD's block from the first failed take cost the FP pairs 0.15% at
-  // latency 30 for no gain elsewhere (smt2_report §13.18)
+  // Replay or PTE read pending: block IQ-LD's select so the AG slot frees. A held FP load (DR-179) blocks it at
+  // fill+3 (FH_HOLE: M2 empty at fill+7), and IQ-FP's the cycle after the fill (P4's slot at fill+8 free). From its
+  // 8th failed take both stay blocked until it takes: M2 empties, its replays aside, and so does P4's stream (its
+  // pipelines and a divide's slot), so a stream of completing loads or of P4 writes to its bank cannot starve it
+  // (core-2's review). IQ-FP's select is also blocked while an FP load's MMIO response meets P4
   always_ff @(posedge clk) begin
     if (rst || flush) ld_block <= 1'b0;
-    else              ld_block <= |rp_ready || pt_req || (fh_stay && fh_w_q >= FH_LDB);
-    fp_block <= !rst && ((fh_stay && fh_w_q == FH_BLK) || (xr_v_q && xr_fcol && !kill_t[x_t]));
+    else              ld_block <= |rp_ready || pt_req || (fh_stay && fh_w_q >= FH_LDB) ||
+                                  (FH_HOLE && fh_stay && fh_w_q == 3'd1);
+    fp_block <= !rst && ((fh_stay && fh_w_q == FH_BLK) || (xr_v_q && xr_fcol && !kill_t[x_t]) ||
+                         (FH_HOLE && m2_ok && m2_fhold));
     fh_w_q   <= (rst || !fh_stay) ? 3'd0 : (fh_w_q == FH_BLK) ? FH_BLK : fh_w_q + 3'd1;
   end
 
