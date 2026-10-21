@@ -160,7 +160,17 @@ The kernel's effective size (the `Image` header's `image_size`) must stay below 
 | `poweroff`, `reboot` | `syscon-poweroff`, `syscon-reboot` | value `0x5555` / `0x7777` |
 | `chosen` | | `stdout-path` = the UART; `bootargs` = `console=ttyS0,115200 earlycon` |
 
-`sw/dts/Makefile` builds `tanager-kv260.dtb` and `tanager-qemu.dtb` for one configuration. `sw/dts/board-trees.sh <dir> [1|2]`
+`sw/dts/Makefile` builds `tanager-kv260.dtb` and `tanager-qemu.dtb` for one configuration.
+
+**PMP regions: whole pages** (10-21, RISC-V mode's memory gap, [soc-d4-modes.md](soc-d4-modes.md)):
+- **The rule:** every MMIO node's `reg` starts on a 4 KiB boundary and covers whole 4 KiB pages.
+  - OpenSBI makes a PMP region of each device it uses (its console, the reset syscons, the ACLINT, the PLIC), as large as that node's `reg`.
+  - Firmware that adds PMP regions of its own keeps to the same rule.
+- **The cost of breaking it:** a region smaller than 4 KiB costs every page its cached PMP result. On d4r2 that was −23.6% on a store loop, +10% on `rdtime` and `clock_gettime`, and −12.7% on sysbench memory.
+  - The core caches a 4K page's PMP result in its TLB entry only while `tg_csr`'s flag says every 4K page is PMP-homogeneous (`pmp_al`), and any region smaller than a page clears it.
+  - A 4-byte reset syscon did it in RISC-V mode's tree. Its whole page fixed it.
+- **The check:** `sw/dts/check_pages.py` runs on every tree the Makefile builds, and the build stops on a range that breaks the rule. Nodes whose `reg` has no size (CPUs, MDIO PHYs) are skipped.
+- **Until the core checks each 4K page itself** (the coordinator's follow-up for core-2, after M7's current steps), this rule is what keeps the cache on. `sw/dts/board-trees.sh <dir> [1|2]`
 builds every tree the board's packages carry:
 - stage C's virtio trees, in 1 GiB and 768 MiB;
 - the Linux bench's (DR-141);
