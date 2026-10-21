@@ -1535,7 +1535,8 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         if (c_.prf_xfer == 3 && T.starved != bank) { T.starved = bank; T.st.prf_starved++; }
         // prf_xfer: one from the sibling's list, usable the next cycle (the other FP bank's, with prf_fp_xbank,
         // when the sibling has none to give in this one)
-        if (!take_register(bank, T.tid) && xb >= 0) take_register(xb, T.tid);
+        if (!(c_.prf_fp_noxfer && (bank == 3 || bank == 4)) && !take_register(bank, T.tid) && xb >= 0)
+          take_register(xb, T.tid);
         T.st.disp_stall_reg++;
         T.disp_why = DW_REG;
         break;
@@ -1865,6 +1866,10 @@ void Core::do_issue(Uop& u, int /*port*/) {
         u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;
         u.t_done += (uint64_t)c_.prf_fp_xbank_lat;
       }
+      if (c_.prf_fp_collide && u.state == 2) {  // the result register's cycle; an FP load meets P4 at its M2
+        ldw_[u.t_ready]++;
+        if (u.cls == Cls::FLD && (u.dst_bank == 3 || u.dst_bank == 4)) fpld_pend_.push_back(u.id);
+      }
       return;
     case Cls::ST: case Cls::FST: exec_store(u); return;
     case Cls::MUL: u.t_ready = t + (uint64_t)c_.lat_mul; if (u.q == Q_A1) reserve_b1(u.t_ready); break;
@@ -1892,12 +1897,60 @@ void Core::do_issue(Uop& u, int /*port*/) {
       break;
   }
   if (u.xbank) u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;  // prf_fp_xbank: written across
+  if (c_.prf_fp_collide && (u.dst_bank == 3 || u.dst_bank == 4) &&  // P4's write: its bank and cycle
+      (u.cls == Cls::FMA || u.cls == Cls::FDIV || u.cls == Cls::FSQRT || u.cls == Cls::FMISC || u.cls == Cls::ITOF))
+    p4w_[(size_t)(u.dst_bank - 3)][u.t_ready % p4w_[0].size()] = u.t_ready;
   u.t_done = u.t_ready - (one_cycle ? (uint64_t)c_.abl_alu : 0) + 2 + (uint64_t)c_.abl_done;
   if (u.is_ctrl) resolve_branch(u, t + 2 + (u.fused_br ? 1 : 0));
 }
 
+// prf_fp_collide (tg_lsu's fh, DR-179): an FP load at its M2 whose write, next cycle, meets P4's in its bank waits in
+// the one-entry hold, with no wake and no completion; it takes the result register in the first cycle no other load
+// completes in M2 and P4 leaves its bank the next cycle, and writes the cycle after. A second colliding FP load while
+// the hold is full replays. P4's results never wait.
+void Core::fp_collide() {
+  if ((t_ & 1023) == 0)
+    for (auto it = ldw_.begin(); it != ldw_.end();) it = it->first < t_ ? ldw_.erase(it) : std::next(it);
+  std::sort(fpld_pend_.begin(), fpld_pend_.end());
+  fpld_pend_.erase(std::unique(fpld_pend_.begin(), fpld_pend_.end()), fpld_pend_.end());
+  const uint64_t w = t_ + 1;
+  auto p4 = [&](int b, uint64_t c) { return p4w_[(size_t)b][c % p4w_[0].size()] == c; };
+  auto move = [&](Uop& u, uint64_t d) {  // the load's result register cycle, d later
+    if (--ldw_[u.t_ready] <= 0) ldw_.erase(u.t_ready);
+    u.t_ready += d;
+    u.t_done += d;
+    ldw_[u.t_ready]++;
+  };
+  std::vector<uint64_t> keep;
+  for (uint64_t id : fpld_pend_) {
+    Uop* u = find(id);
+    if (!u || u->cls != Cls::FLD || u->state != 2 || u->t_ready < w) continue;   // flushed, or past
+    if (u->t_ready > w) { keep.push_back(id); continue; }
+    const int b = u->dst_bank - 3;
+    if (!p4(b, w)) continue;
+    Thread& T = *th_[(size_t)u->tid];
+    const Uop* h = fh_id_ ? find(fh_id_) : nullptr;
+    if (h && h->state == 2 && h->t_issue == fh_issue_ && fh_take_ >= t_) {   // the hold is full: replay
+      move(*u, (uint64_t)c_.prf_fp_replay);
+      T.st.fld_replays++;
+      keep.push_back(id);
+      continue;
+    }
+    uint64_t c = w;
+    while (c < w + 64 && (ldw_.count(c + 1) || p4(b, c + 1))) c++;
+    move(*u, c + 1 - w);
+    fh_id_ = id;
+    fh_issue_ = u->t_issue;
+    fh_take_ = c;
+    T.st.fld_held++;
+    T.st.fld_held_cycles += c + 1 - w;
+  }
+  fpld_pend_.swap(keep);
+}
+
 // The queues hold both threads' uops in dispatch order, so select is oldest first across threads.
 void Core::issue() {
+  if (c_.prf_fp_collide) fp_collide();
   const bool cancel = t_ >= cancel_from_ && t_ <= cancel_to_ && cancel_from_ != NEVER;
   std::vector<Uop*> picks;
   auto take = [&](Uop* u) { if (u) picks.push_back(u); };

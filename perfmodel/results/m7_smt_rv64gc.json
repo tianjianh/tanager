@@ -226333,5 +226333,1825 @@
     }
    ]
   }
+ },
+ "final7": {
+  "the42": {
+   "C, core-2's fix, FP 64 across both; fetch as built": {
+    "ws": [
+     1.1842586613035813,
+     1.1279053115720719,
+     1.1073543254176645
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.144072585389324,
+      "compute+compute": 1.2166961267937169,
+      "mixed": 1.1931746135276402
+     },
+     {
+      "mem+mem": 1.1179055165516028,
+      "compute+compute": 1.217433538707533,
+      "mixed": 1.0543081518263373
+     },
+     {
+      "mem+mem": 1.1088288427700987,
+      "compute+compute": 1.2171116267604938,
+      "mixed": 1.0061550093171905
+     }
+    ],
+    "min": [
+     0.8855745369677435,
+     0.6878681342835774,
+     0.6244108349281268
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.1199846958442532,
+      "stride+spmv": 1.0521134320530428,
+      "spmv+hashprobe": 1.5461860585902905,
+      "hashprobe+chase8": 1.3239689152406806,
+      "chase8+stream": 1.0500887373462244,
+      "stream+copy": 0.9342723925124965,
+      "copy+gather": 1.15207865659564,
+      "gather+spmv": 1.1733359406160249,
+      "stride+hashprobe": 1.4977057905255151,
+      "spmv+chase8": 1.0240510173377426,
+      "hashprobe+stream": 1.4789752456604268,
+      "chase8+copy": 1.0723345330240373,
+      "stream+gather": 0.8907917046430782,
+      "copy+stride": 1.0860391327870045,
+      "chase8+chase8": 1.0002867856947044,
+      "CoreMark+Dhrystone": 1.2047522048606898,
+      "Dhrystone+nsichneu": 1.3229529531091972,
+      "nsichneu+huffbench": 1.4440876853793676,
+      "huffbench+minver": 1.2252725088402228,
+      "minver+matmult": 1.0419312893849717,
+      "matmult+CoreMark": 1.1146557125004595,
+      "CoreMark+nsichneu": 1.323223719921652,
+      "Dhrystone+huffbench": 1.2772537527185244,
+      "nsichneu+minver": 1.271746457040078,
+      "huffbench+matmult": 1.1988786010103403,
+      "minver+CoreMark": 1.1502377343337367,
+      "matmult+Dhrystone": 1.0906368608900947,
+      "CoreMark+CoreMark": 1.2093873723846487,
+      "gather+CoreMark": 0.8855745369677435,
+      "gather+huffbench": 0.8870213850617292,
+      "stride+Dhrystone": 1.272140846205873,
+      "stride+minver": 1.2633349100383866,
+      "spmv+nsichneu": 1.2643965825378052,
+      "spmv+matmult": 1.1950616609047666,
+      "hashprobe+huffbench": 1.657201338517985,
+      "hashprobe+CoreMark": 1.663298415113127,
+      "chase8+minver": 1.1173002237354273,
+      "chase8+Dhrystone": 1.1375119648449965,
+      "stream+matmult": 1.0546322599626226,
+      "stream+nsichneu": 1.2209268952490226,
+      "copy+CoreMark": 1.1807982363578358,
+      "copy+huffbench": 1.1666264388210743
+     },
+     {
+      "gather+stride": 1.1009429214550468,
+      "stride+spmv": 1.0311884533898563,
+      "spmv+hashprobe": 1.4042163709785518,
+      "hashprobe+chase8": 1.1987397121371448,
+      "chase8+stream": 1.0356218370737522,
+      "stream+copy": 0.9909111675146445,
+      "copy+gather": 1.1072323350365145,
+      "gather+spmv": 1.1234446026182097,
+      "stride+hashprobe": 1.3572659707007846,
+      "spmv+chase8": 1.0161970130058213,
+      "hashprobe+stream": 1.5697786404869474,
+      "chase8+copy": 1.0400628589391065,
+      "stream+gather": 0.9111539977684482,
+      "copy+stride": 1.0630786239511827,
+      "chase8+chase8": 1.0002080055443239,
+      "CoreMark+Dhrystone": 1.2098445928181423,
+      "Dhrystone+nsichneu": 1.322909342869802,
+      "nsichneu+huffbench": 1.4442219145773905,
+      "huffbench+minver": 1.224114207204309,
+      "minver+matmult": 1.0423990422047444,
+      "matmult+CoreMark": 1.1184184965700912,
+      "CoreMark+nsichneu": 1.327338882254396,
+      "Dhrystone+huffbench": 1.2712243964344454,
+      "nsichneu+minver": 1.2726325576770567,
+      "huffbench+matmult": 1.1919014299813693,
+      "minver+CoreMark": 1.1571157879149367,
+      "matmult+Dhrystone": 1.0850138660221083,
+      "CoreMark+CoreMark": 1.2175169196536277,
+      "gather+CoreMark": 0.6878681342835774,
+      "gather+huffbench": 0.6900177429200443,
+      "stride+Dhrystone": 1.0894028688748847,
+      "stride+minver": 1.0927847498190126,
+      "spmv+nsichneu": 1.0960628020265781,
+      "spmv+matmult": 1.049612097753407,
+      "hashprobe+huffbench": 1.654606704042477,
+      "hashprobe+CoreMark": 1.717138779257145,
+      "chase8+minver": 1.0375748792892603,
+      "chase8+Dhrystone": 1.0450387522719997,
+      "stream+matmult": 1.0121735374156189,
+      "stream+nsichneu": 1.110363668841575,
+      "copy+CoreMark": 0.972064879574831,
+      "copy+huffbench": 0.9583530999025455
+     },
+     {
+      "gather+stride": 1.0890722893806382,
+      "stride+spmv": 1.0256166238292432,
+      "spmv+hashprobe": 1.3531988791161542,
+      "hashprobe+chase8": 1.161645357148084,
+      "chase8+stream": 1.0320142806301718,
+      "stream+copy": 1.0045737136623667,
+      "copy+gather": 1.09566284905635,
+      "gather+spmv": 1.1021252176422092,
+      "stride+hashprobe": 1.306859390399895,
+      "spmv+chase8": 1.0154613187072592,
+      "hashprobe+stream": 1.6072015567597722,
+      "chase8+copy": 1.0410819508096876,
+      "stream+gather": 0.9174190381221967,
+      "copy+stride": 1.0515224715473908,
+      "chase8+chase8": 1.0001878064769196,
+      "CoreMark+Dhrystone": 1.2156340887615398,
+      "Dhrystone+nsichneu": 1.3260370961979346,
+      "nsichneu+huffbench": 1.4444362815132235,
+      "huffbench+minver": 1.224419499114131,
+      "minver+matmult": 1.0426490960427852,
+      "matmult+CoreMark": 1.124151959842021,
+      "CoreMark+nsichneu": 1.335719726105006,
+      "Dhrystone+huffbench": 1.2624730630073038,
+      "nsichneu+minver": 1.272556849715064,
+      "huffbench+matmult": 1.1794882905908555,
+      "minver+CoreMark": 1.1667373047576683,
+      "matmult+Dhrystone": 1.0706141620753684,
+      "CoreMark+CoreMark": 1.2173925158091428,
+      "gather+CoreMark": 0.6259503383548107,
+      "gather+huffbench": 0.6244108349281268,
+      "stride+Dhrystone": 1.0374990877925572,
+      "stride+minver": 1.0351007054363128,
+      "spmv+nsichneu": 1.045463516385597,
+      "spmv+matmult": 1.0039763978733394,
+      "hashprobe+huffbench": 1.603804959982721,
+      "hashprobe+CoreMark": 1.7342499827234865,
+      "chase8+minver": 1.0180917131713685,
+      "chase8+Dhrystone": 1.0222614985863328,
+      "stream+matmult": 0.9916352204324447,
+      "stream+nsichneu": 1.0635029763340218,
+      "copy+CoreMark": 0.9066594304882889,
+      "copy+huffbench": 0.8936109795505482
+     }
+    ]
+   },
+   "C, the RTL's commit turns, FP 64 across both; fetch as built": {
+    "ws": [
+     1.179284002641727,
+     1.1202378879300317,
+     1.09978318307672
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.14769209223148,
+      "compute+compute": 1.2116887023161498,
+      "mixed": 1.1793393074288299
+     },
+     {
+      "mem+mem": 1.1183189537073603,
+      "compute+compute": 1.2120470355329185,
+      "mixed": 1.0371596482218677
+     },
+     {
+      "mem+mem": 1.1091744583739072,
+      "compute+compute": 1.2117578909198905,
+      "mixed": 0.9897044132574426
+     }
+    ],
+    "min": [
+     0.8825920822866309,
+     0.6801603304680299,
+     0.6232038444711959
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.1434205472342107,
+      "stride+spmv": 1.0553961554261901,
+      "spmv+hashprobe": 1.5435849503962493,
+      "hashprobe+chase8": 1.3241979965016695,
+      "chase8+stream": 1.0500054540617292,
+      "stream+copy": 0.9514450185248373,
+      "copy+gather": 1.1527205661118245,
+      "gather+spmv": 1.1744763140198011,
+      "stride+hashprobe": 1.4870727645050592,
+      "spmv+chase8": 1.022408374538059,
+      "hashprobe+stream": 1.464858351723275,
+      "chase8+copy": 1.0787994394148033,
+      "stream+gather": 0.8912188787152293,
+      "copy+stride": 1.1049227758689528,
+      "chase8+chase8": 1.0002833886001556,
+      "CoreMark+Dhrystone": 1.2002838497158417,
+      "Dhrystone+nsichneu": 1.3229352110471195,
+      "nsichneu+huffbench": 1.4420015694538102,
+      "huffbench+minver": 1.2152645878701362,
+      "minver+matmult": 1.0363871412062315,
+      "matmult+CoreMark": 1.1094515711096422,
+      "CoreMark+nsichneu": 1.32139108602386,
+      "Dhrystone+huffbench": 1.2700888312063578,
+      "nsichneu+minver": 1.269910215846735,
+      "huffbench+matmult": 1.1915220112103753,
+      "minver+CoreMark": 1.1435445268939182,
+      "matmult+Dhrystone": 1.0816355279787213,
+      "CoreMark+CoreMark": 1.207590539609205,
+      "gather+CoreMark": 0.8985661893720037,
+      "gather+huffbench": 0.8825920822866309,
+      "stride+Dhrystone": 1.269391407188806,
+      "stride+minver": 1.2559236893322847,
+      "spmv+nsichneu": 1.2677603300634974,
+      "spmv+matmult": 1.1968948453930428,
+      "hashprobe+huffbench": 1.5628358114485377,
+      "hashprobe+CoreMark": 1.5372448495293076,
+      "chase8+minver": 1.1172266391036547,
+      "chase8+Dhrystone": 1.1369925419079245,
+      "stream+matmult": 1.0477390085355927,
+      "stream+nsichneu": 1.2138568404739007,
+      "copy+CoreMark": 1.1648101447626957,
+      "copy+huffbench": 1.160779541452535
+     },
+     {
+      "gather+stride": 1.1023960102436312,
+      "stride+spmv": 1.0295418776728993,
+      "spmv+hashprobe": 1.405882306468854,
+      "hashprobe+chase8": 1.1942566679048159,
+      "chase8+stream": 1.0354701812694498,
+      "stream+copy": 1.0122569724542254,
+      "copy+gather": 1.1035248243293543,
+      "gather+spmv": 1.122960601297701,
+      "stride+hashprobe": 1.3578101660480977,
+      "spmv+chase8": 1.0169591984842694,
+      "hashprobe+stream": 1.5550102969042805,
+      "chase8+copy": 1.0401257104100174,
+      "stream+gather": 0.9111576946588971,
+      "copy+stride": 1.0622745443344028,
+      "chase8+chase8": 1.0002072221770706,
+      "CoreMark+Dhrystone": 1.204175614409631,
+      "Dhrystone+nsichneu": 1.323669234473635,
+      "nsichneu+huffbench": 1.4420215098092861,
+      "huffbench+minver": 1.2152328377943613,
+      "minver+matmult": 1.0366502522314232,
+      "matmult+CoreMark": 1.1133103962068307,
+      "CoreMark+nsichneu": 1.3267814901886905,
+      "Dhrystone+huffbench": 1.2645843645956512,
+      "nsichneu+minver": 1.2698402877565962,
+      "huffbench+matmult": 1.183850178492936,
+      "minver+CoreMark": 1.1509700257832627,
+      "matmult+Dhrystone": 1.0764958578211123,
+      "CoreMark+CoreMark": 1.2093017001603528,
+      "gather+CoreMark": 0.6874534197406468,
+      "gather+huffbench": 0.6801603304680299,
+      "stride+Dhrystone": 1.0902611053605349,
+      "stride+minver": 1.089644674664263,
+      "spmv+nsichneu": 1.0981264912102122,
+      "spmv+matmult": 1.050161753392631,
+      "hashprobe+huffbench": 1.5219104546437867,
+      "hashprobe+CoreMark": 1.5253276703134273,
+      "chase8+minver": 1.0370558574481836,
+      "chase8+Dhrystone": 1.0447603583606249,
+      "stream+matmult": 1.0067244061857485,
+      "stream+nsichneu": 1.1056915243398833,
+      "copy+CoreMark": 0.9715485361866703,
+      "copy+huffbench": 0.9564886922796711
+     },
+     {
+      "gather+stride": 1.120097487836934,
+      "stride+spmv": 1.0240492472868254,
+      "spmv+hashprobe": 1.3550338178859165,
+      "hashprobe+chase8": 1.163923013647885,
+      "chase8+stream": 1.0320639760522834,
+      "stream+copy": 1.0009154929943305,
+      "copy+gather": 1.0889302167639767,
+      "gather+spmv": 1.100507168998623,
+      "stride+hashprobe": 1.3005537905101778,
+      "spmv+chase8": 1.016466680248835,
+      "hashprobe+stream": 1.6035228933563435,
+      "chase8+copy": 1.0323651068619806,
+      "stream+gather": 0.9172701229679734,
+      "copy+stride": 1.0523045542302474,
+      "chase8+chase8": 1.0001870934156245,
+      "CoreMark+Dhrystone": 1.2097531494187417,
+      "Dhrystone+nsichneu": 1.3247427280225699,
+      "nsichneu+huffbench": 1.4422958725094035,
+      "huffbench+minver": 1.2159492325961851,
+      "minver+matmult": 1.0368313611996063,
+      "matmult+CoreMark": 1.1190369952294188,
+      "CoreMark+nsichneu": 1.3339820203500792,
+      "Dhrystone+huffbench": 1.2529637056084262,
+      "nsichneu+minver": 1.2701619749953346,
+      "huffbench+matmult": 1.1719080403849786,
+      "minver+CoreMark": 1.1592272732121,
+      "matmult+Dhrystone": 1.064361840326059,
+      "CoreMark+CoreMark": 1.2132672139517235,
+      "gather+CoreMark": 0.6256786478184225,
+      "gather+huffbench": 0.6232038444711959,
+      "stride+Dhrystone": 1.032334255646984,
+      "stride+minver": 1.0413753287871004,
+      "spmv+nsichneu": 1.0463097673920174,
+      "spmv+matmult": 1.00418935697998,
+      "hashprobe+huffbench": 1.4705166490833803,
+      "hashprobe+CoreMark": 1.513991187671794,
+      "chase8+minver": 1.0178458926092973,
+      "chase8+Dhrystone": 1.0220746276326147,
+      "stream+matmult": 0.9875510875522694,
+      "stream+nsichneu": 1.0612916855532994,
+      "copy+CoreMark": 0.9058410471209466,
+      "copy+huffbench": 0.8932805177963359
+     }
+    ]
+   },
+   "B, core-2's fix, FP 64 across both; fetch as built": {
+    "ws": [
+     1.1543918967745312,
+     1.1044781407916942,
+     1.0880805740221466
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.1066020694720393,
+      "compute+compute": 1.214888215928324,
+      "mixed": 1.1442792196234237
+     },
+     {
+      "mem+mem": 1.0907048797155463,
+      "compute+compute": 1.214879108401835,
+      "mixed": 1.016789505217908
+     },
+     {
+      "mem+mem": 1.0864556369064893,
+      "compute+compute": 1.2146093055289606,
+      "mixed": 0.9761904812076816
+     }
+    ],
+    "min": [
+     0.8000622580339827,
+     0.6571144512372624,
+     0.6125327080408863
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.0848378786449493,
+      "stride+spmv": 1.0281328210960528,
+      "spmv+hashprobe": 1.530710975621763,
+      "hashprobe+chase8": 1.2607361520527274,
+      "chase8+stream": 1.0544430045368631,
+      "stream+copy": 0.9533167819344923,
+      "copy+gather": 0.9847274118911722,
+      "gather+spmv": 1.018466057027918,
+      "stride+hashprobe": 1.407059465111198,
+      "spmv+chase8": 1.0360124485330664,
+      "hashprobe+stream": 1.4739740231411302,
+      "chase8+copy": 1.0863428318113197,
+      "stream+gather": 0.8303662864392334,
+      "copy+stride": 1.0861389100073864,
+      "chase8+chase8": 1.000295994251609,
+      "CoreMark+Dhrystone": 1.2015253660714418,
+      "Dhrystone+nsichneu": 1.3160670636462557,
+      "nsichneu+huffbench": 1.441330924389788,
+      "huffbench+minver": 1.2226827990562361,
+      "minver+matmult": 1.0419105320291828,
+      "matmult+CoreMark": 1.113764250703214,
+      "CoreMark+nsichneu": 1.3194879338227237,
+      "Dhrystone+huffbench": 1.274711999832479,
+      "nsichneu+minver": 1.2697062657973441,
+      "huffbench+matmult": 1.1995084205009352,
+      "minver+CoreMark": 1.1490495726444525,
+      "matmult+Dhrystone": 1.091164388435824,
+      "CoreMark+CoreMark": 1.2092245900813379,
+      "gather+CoreMark": 0.8000622580339827,
+      "gather+huffbench": 0.8038140399963452,
+      "stride+Dhrystone": 1.1599775582334786,
+      "stride+minver": 1.1378600069208327,
+      "spmv+nsichneu": 1.2602384412117074,
+      "spmv+matmult": 1.1826057325846984,
+      "hashprobe+huffbench": 1.635622744744127,
+      "hashprobe+CoreMark": 1.6405380412637267,
+      "chase8+minver": 1.1102991645097608,
+      "chase8+Dhrystone": 1.1253403729709008,
+      "stream+matmult": 1.0494531380653174,
+      "stream+nsichneu": 1.2231315519413912,
+      "copy+CoreMark": 1.1189392296123155,
+      "copy+huffbench": 1.0831823671649605
+     },
+     {
+      "gather+stride": 1.0518948678917384,
+      "stride+spmv": 1.0058416752895156,
+      "spmv+hashprobe": 1.3945618521817817,
+      "hashprobe+chase8": 1.1623707222974413,
+      "chase8+stream": 1.037250570770948,
+      "stream+copy": 1.0299593009087373,
+      "copy+gather": 1.0052051770146098,
+      "gather+spmv": 1.0177156282364042,
+      "stride+hashprobe": 1.2686396335281873,
+      "spmv+chase8": 1.0326778287217346,
+      "hashprobe+stream": 1.5675116613015794,
+      "chase8+copy": 1.0884441345259914,
+      "stream+gather": 0.8408332962132401,
+      "copy+stride": 1.0430891305011927,
+      "chase8+chase8": 1.0008941644865987,
+      "CoreMark+Dhrystone": 1.2049829332487147,
+      "Dhrystone+nsichneu": 1.3179551025969092,
+      "nsichneu+huffbench": 1.4418880043588378,
+      "huffbench+minver": 1.2231541594100894,
+      "minver+matmult": 1.0420312316299398,
+      "matmult+CoreMark": 1.117858113749708,
+      "CoreMark+nsichneu": 1.3236746295080781,
+      "Dhrystone+huffbench": 1.2673774826359985,
+      "nsichneu+minver": 1.2698774803189221,
+      "huffbench+matmult": 1.1917524664614094,
+      "minver+CoreMark": 1.1562206026850075,
+      "matmult+Dhrystone": 1.084471397385998,
+      "CoreMark+CoreMark": 1.2091335024190628,
+      "gather+CoreMark": 0.6571144512372624,
+      "gather+huffbench": 0.6583138456311646,
+      "stride+Dhrystone": 1.0493393200208658,
+      "stride+minver": 1.0527830772412778,
+      "spmv+nsichneu": 1.09416304141948,
+      "spmv+matmult": 1.0406631073620034,
+      "hashprobe+huffbench": 1.6192701015007063,
+      "hashprobe+CoreMark": 1.681267795094441,
+      "chase8+minver": 1.0361509428281523,
+      "chase8+Dhrystone": 1.042596824415427,
+      "stream+matmult": 1.0104163818144807,
+      "stream+nsichneu": 1.109859572272365,
+      "copy+CoreMark": 0.8431925687443553,
+      "copy+huffbench": 0.8343013071930017
+     },
+     {
+      "gather+stride": 1.0650050707561776,
+      "stride+spmv": 1.0024343078401332,
+      "spmv+hashprobe": 1.3450347707460675,
+      "hashprobe+chase8": 1.1390599658964964,
+      "chase8+stream": 1.0339678259451905,
+      "stream+copy": 1.0464545451897598,
+      "copy+gather": 1.0092929251864964,
+      "gather+spmv": 1.0152110770917646,
+      "stride+hashprobe": 1.221175074269865,
+      "spmv+chase8": 1.032353933108956,
+      "hashprobe+stream": 1.604509825712643,
+      "chase8+copy": 1.084132822807924,
+      "stream+gather": 0.8439622347553838,
+      "copy+stride": 1.033285015369246,
+      "chase8+chase8": 1.0002688140149887,
+      "CoreMark+Dhrystone": 1.2111553650741433,
+      "Dhrystone+nsichneu": 1.3188271349934193,
+      "nsichneu+huffbench": 1.441337573420728,
+      "huffbench+minver": 1.2236615042676626,
+      "minver+matmult": 1.0422098880971133,
+      "matmult+CoreMark": 1.1234143794003577,
+      "CoreMark+nsichneu": 1.3320990243613018,
+      "Dhrystone+huffbench": 1.2582981312867663,
+      "nsichneu+minver": 1.270599638807849,
+      "huffbench+matmult": 1.1794024726384547,
+      "minver+CoreMark": 1.165614594525999,
+      "matmult+Dhrystone": 1.0713581182123666,
+      "CoreMark+CoreMark": 1.2102789596981187,
+      "gather+CoreMark": 0.6125327080408863,
+      "gather+huffbench": 0.6129755622579368,
+      "stride+Dhrystone": 1.0159662669978808,
+      "stride+minver": 1.0229723217893196,
+      "spmv+nsichneu": 1.044038322932638,
+      "spmv+matmult": 0.9965723296860632,
+      "hashprobe+huffbench": 1.5708467026551625,
+      "hashprobe+CoreMark": 1.698805144969932,
+      "chase8+minver": 1.0153199881725152,
+      "chase8+Dhrystone": 1.0214299049584903,
+      "stream+matmult": 0.9888938698244966,
+      "stream+nsichneu": 1.0641396535270264,
+      "copy+CoreMark": 0.7872607634998936,
+      "copy+huffbench": 0.7666325990623114
+     }
+    ]
+   },
+   "C, core-2's fix, FP 64 across both; its hold fixed": {
+    "ws": [
+     1.2891981940592698,
+     1.30311718616858,
+     1.291234178076073
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2248888226774177,
+      "compute+compute": 1.2134505898837757,
+      "mixed": 1.4415851390963672
+     },
+     {
+      "mem+mem": 1.205855191845844,
+      "compute+compute": 1.2168814147431242,
+      "mixed": 1.5080196540127515
+     },
+     {
+      "mem+mem": 1.186377186916867,
+      "compute+compute": 1.220310533018514,
+      "mixed": 1.4870374024679176
+     }
+    ],
+    "min": [
+     1.0002785578956124,
+     1.000186854266195,
+     1.0001590467189376
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.0944434820234539,
+      "stride+spmv": 1.0578302052458812,
+      "spmv+hashprobe": 1.6472949856082786,
+      "hashprobe+chase8": 1.6334868654581345,
+      "chase8+stream": 1.14552807775965,
+      "stream+copy": 1.1436430733384282,
+      "copy+gather": 1.1635311870450906,
+      "gather+spmv": 1.2286087951710158,
+      "stride+hashprobe": 1.5679661054623593,
+      "spmv+chase8": 1.0412945547166943,
+      "hashprobe+stream": 1.5457379764357086,
+      "chase8+copy": 1.095220561852343,
+      "stream+gather": 1.1789426410613508,
+      "copy+stride": 1.1023118827964231,
+      "chase8+chase8": 1.0002785578956124,
+      "CoreMark+Dhrystone": 1.2056709924090296,
+      "Dhrystone+nsichneu": 1.3224419523854705,
+      "nsichneu+huffbench": 1.4328343006469089,
+      "huffbench+minver": 1.2239891123304738,
+      "minver+matmult": 1.0419564024255499,
+      "matmult+CoreMark": 1.1137801298300236,
+      "CoreMark+nsichneu": 1.2994009246284757,
+      "Dhrystone+huffbench": 1.2771903053392388,
+      "nsichneu+minver": 1.2626925970476695,
+      "huffbench+matmult": 1.1915185102506145,
+      "minver+CoreMark": 1.1513994111660444,
+      "matmult+Dhrystone": 1.0931534697802943,
+      "CoreMark+CoreMark": 1.2127043674672222,
+      "gather+CoreMark": 1.3036619013823438,
+      "gather+huffbench": 1.322082067876937,
+      "stride+Dhrystone": 1.3484308637822564,
+      "stride+minver": 1.3540360986707434,
+      "spmv+nsichneu": 1.5883188136354673,
+      "spmv+matmult": 1.3591610130390843,
+      "hashprobe+huffbench": 1.6661676574701973,
+      "hashprobe+CoreMark": 1.6647398985883417,
+      "chase8+minver": 1.7520904249969764,
+      "chase8+Dhrystone": 1.6755503461621784,
+      "stream+matmult": 1.1141454193764124,
+      "stream+nsichneu": 1.3316664012022117,
+      "copy+CoreMark": 1.4253562989510327,
+      "copy+huffbench": 1.4309794646953284
+     },
+     {
+      "gather+stride": 1.1597807827525435,
+      "stride+spmv": 1.0335216668595113,
+      "spmv+hashprobe": 1.5700136890533307,
+      "hashprobe+chase8": 1.4408376608093292,
+      "chase8+stream": 1.11962708634523,
+      "stream+copy": 1.1894053815494985,
+      "copy+gather": 1.1181998599327556,
+      "gather+spmv": 1.1402844593064954,
+      "stride+hashprobe": 1.4402586011654037,
+      "spmv+chase8": 1.0387812024716954,
+      "hashprobe+stream": 1.7150396241738255,
+      "chase8+copy": 1.0593087736204472,
+      "stream+gather": 1.2520549546950486,
+      "copy+stride": 1.0575760905818252,
+      "chase8+chase8": 1.000186854266195,
+      "CoreMark+Dhrystone": 1.2138974052032219,
+      "Dhrystone+nsichneu": 1.3236952286138401,
+      "nsichneu+huffbench": 1.433115539275999,
+      "huffbench+minver": 1.224683976289429,
+      "minver+matmult": 1.0427812106907048,
+      "matmult+CoreMark": 1.1188907369125132,
+      "CoreMark+nsichneu": 1.3052107257545928,
+      "Dhrystone+huffbench": 1.2797725148756756,
+      "nsichneu+minver": 1.2631309952159708,
+      "huffbench+matmult": 1.1918862417108516,
+      "minver+CoreMark": 1.1583085753647926,
+      "matmult+Dhrystone": 1.0963739464222704,
+      "CoreMark+CoreMark": 1.2209325282256698,
+      "gather+CoreMark": 1.3430789047288436,
+      "gather+huffbench": 1.3100228073806122,
+      "stride+Dhrystone": 1.2052298324437458,
+      "stride+minver": 1.3113525224035802,
+      "spmv+nsichneu": 1.813868859144448,
+      "spmv+matmult": 1.3202374001357888,
+      "hashprobe+huffbench": 1.693083589645332,
+      "hashprobe+CoreMark": 1.7385199897392711,
+      "chase8+minver": 1.7777956468153444,
+      "chase8+Dhrystone": 1.8030217036066722,
+      "stream+matmult": 1.297866689548088,
+      "stream+nsichneu": 1.6825008718520327,
+      "copy+CoreMark": 1.5614305673542452,
+      "copy+huffbench": 1.468322491660341
+     },
+     {
+      "gather+stride": 1.1393975882057887,
+      "stride+spmv": 1.029164371391373,
+      "spmv+hashprobe": 1.5097752867854615,
+      "hashprobe+chase8": 1.3685407941196872,
+      "chase8+stream": 1.1280903975241623,
+      "stream+copy": 1.1778721635634448,
+      "copy+gather": 1.1010264760441508,
+      "gather+spmv": 1.1136966875934804,
+      "stride+hashprobe": 1.3727504553781429,
+      "spmv+chase8": 1.0181909726482061,
+      "hashprobe+stream": 1.7413709470210956,
+      "chase8+copy": 1.0636531793256565,
+      "stream+gather": 1.2168284673913319,
+      "copy+stride": 1.0437448605876107,
+      "chase8+chase8": 1.0001590467189376,
+      "CoreMark+Dhrystone": 1.2233894091829094,
+      "Dhrystone+nsichneu": 1.326892856795065,
+      "nsichneu+huffbench": 1.433504470976993,
+      "huffbench+minver": 1.2234961209989383,
+      "minver+matmult": 1.0431335244197912,
+      "matmult+CoreMark": 1.1260208544292305,
+      "CoreMark+nsichneu": 1.3137445815537847,
+      "Dhrystone+huffbench": 1.283125909611961,
+      "nsichneu+minver": 1.2637934869206817,
+      "huffbench+matmult": 1.1891377871300397,
+      "minver+CoreMark": 1.1703257457877472,
+      "matmult+Dhrystone": 1.1030751751015246,
+      "CoreMark+CoreMark": 1.216818334891268,
+      "gather+CoreMark": 1.358028871270667,
+      "gather+huffbench": 1.2511066003933216,
+      "stride+Dhrystone": 1.132273027374044,
+      "stride+minver": 1.2513812588551567,
+      "spmv+nsichneu": 1.8804115832286263,
+      "spmv+matmult": 1.1834903343601366,
+      "hashprobe+huffbench": 1.6666095424861216,
+      "hashprobe+CoreMark": 1.7726120264603424,
+      "chase8+minver": 1.7842119657869662,
+      "chase8+Dhrystone": 1.8019366599106976,
+      "stream+matmult": 1.253531599268314,
+      "stream+nsichneu": 1.8158915440131802,
+      "copy+CoreMark": 1.6134716687030959,
+      "copy+huffbench": 1.383326415383148
+     }
+    ]
+   },
+   "C, the RTL's commit turns, FP 64 across both; its hold fixed": {
+    "ws": [
+     1.2621173385700788,
+     1.2573025821564423,
+     1.245787972680354
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.2232475552662978,
+      "compute+compute": 1.2074666409336468,
+      "mixed": 1.3611616396158854
+     },
+     {
+      "mem+mem": 1.1965847706507797,
+      "compute+compute": 1.210376651624562,
+      "mixed": 1.3723200666480697
+     },
+     {
+      "mem+mem": 1.1835648854225167,
+      "compute+compute": 1.2137796603896254,
+      "mixed": 1.3458618219698588
+     }
+    ],
+    "min": [
+     1.0002591601147763,
+     1.0001622585239807,
+     1.0001663347131484
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.1758065466905423,
+      "stride+spmv": 1.05140736531171,
+      "spmv+hashprobe": 1.635461007180291,
+      "hashprobe+chase8": 1.6159848263683396,
+      "chase8+stream": 1.1455724828771607,
+      "stream+copy": 1.1419226313684558,
+      "copy+gather": 1.1615554029757158,
+      "gather+spmv": 1.229010365874667,
+      "stride+hashprobe": 1.554535526051409,
+      "spmv+chase8": 1.0547237480271383,
+      "hashprobe+stream": 1.4905226429703338,
+      "chase8+copy": 1.097368583455665,
+      "stream+gather": 1.1392888479798375,
+      "copy+stride": 1.1017914471780954,
+      "chase8+chase8": 1.0002591601147763,
+      "CoreMark+Dhrystone": 1.2002809933076355,
+      "Dhrystone+nsichneu": 1.3201520603422554,
+      "nsichneu+huffbench": 1.4295327518700158,
+      "huffbench+minver": 1.214613371401846,
+      "minver+matmult": 1.036692803065869,
+      "matmult+CoreMark": 1.1084222912492443,
+      "CoreMark+nsichneu": 1.2976789043196677,
+      "Dhrystone+huffbench": 1.270265004072563,
+      "nsichneu+minver": 1.2614656494752041,
+      "huffbench+matmult": 1.1801869771977427,
+      "minver+CoreMark": 1.1448479679229342,
+      "matmult+Dhrystone": 1.0836328564270414,
+      "CoreMark+CoreMark": 1.2049378280877772,
+      "gather+CoreMark": 1.1649061109191217,
+      "gather+huffbench": 1.209942110267812,
+      "stride+Dhrystone": 1.3439975374962385,
+      "stride+minver": 1.3478519058549203,
+      "spmv+nsichneu": 1.5679817609034252,
+      "spmv+matmult": 1.2640759178631051,
+      "hashprobe+huffbench": 1.5712746854807422,
+      "hashprobe+CoreMark": 1.5380180125128273,
+      "chase8+minver": 1.5368982260259112,
+      "chase8+Dhrystone": 1.5969265499513043,
+      "stream+matmult": 1.0600175309279223,
+      "stream+nsichneu": 1.3223689694890108,
+      "copy+CoreMark": 1.313276913306217,
+      "copy+huffbench": 1.3563129075694853
+     },
+     {
+      "gather+stride": 1.1643037993858711,
+      "stride+spmv": 1.0292765671823951,
+      "spmv+hashprobe": 1.5637027418481575,
+      "hashprobe+chase8": 1.4351320100885703,
+      "chase8+stream": 1.1045312010516661,
+      "stream+copy": 1.153102033461236,
+      "copy+gather": 1.1182533162747916,
+      "gather+spmv": 1.1400310873362312,
+      "stride+hashprobe": 1.4339852936384148,
+      "spmv+chase8": 1.02646558227389,
+      "hashprobe+stream": 1.6755661439514942,
+      "chase8+copy": 1.0511770529820144,
+      "stream+gather": 1.2365703702560482,
+      "copy+stride": 1.0543605943541763,
+      "chase8+chase8": 1.0001622585239807,
+      "CoreMark+Dhrystone": 1.2064277770129317,
+      "Dhrystone+nsichneu": 1.3218900548062118,
+      "nsichneu+huffbench": 1.4301613426521085,
+      "huffbench+minver": 1.2157433834574594,
+      "minver+matmult": 1.0369419417746566,
+      "matmult+CoreMark": 1.1132435865530432,
+      "CoreMark+nsichneu": 1.3030300194922702,
+      "Dhrystone+huffbench": 1.2714438458182955,
+      "nsichneu+minver": 1.2619033888754463,
+      "huffbench+matmult": 1.1796498477627217,
+      "minver+CoreMark": 1.152142741863734,
+      "matmult+Dhrystone": 1.0858682482811974,
+      "CoreMark+CoreMark": 1.2116703523086698,
+      "gather+CoreMark": 1.145620003482699,
+      "gather+huffbench": 1.1576103829049966,
+      "stride+Dhrystone": 1.2039324556572963,
+      "stride+minver": 1.2910238132507774,
+      "spmv+nsichneu": 1.6830673848616646,
+      "spmv+matmult": 1.2342800911862595,
+      "hashprobe+huffbench": 1.5523185398759818,
+      "hashprobe+CoreMark": 1.5412354916433613,
+      "chase8+minver": 1.5357316631584785,
+      "chase8+Dhrystone": 1.5891709388988935,
+      "stream+matmult": 1.184337167336892,
+      "stream+nsichneu": 1.5582807453934628,
+      "copy+CoreMark": 1.3576252533755058,
+      "copy+huffbench": 1.3411718172491889
+     },
+     {
+      "gather+stride": 1.144570629354973,
+      "stride+spmv": 1.022743710768785,
+      "spmv+hashprobe": 1.5091239803040222,
+      "hashprobe+chase8": 1.3636330515954334,
+      "chase8+stream": 1.1280884190895444,
+      "stream+copy": 1.1788275672052442,
+      "copy+gather": 1.1041326263043079,
+      "gather+spmv": 1.1124980648545126,
+      "stride+hashprobe": 1.374857269346219,
+      "spmv+chase8": 1.0160166543578701,
+      "hashprobe+stream": 1.7163068998952178,
+      "chase8+copy": 1.0348006244039922,
+      "stream+gather": 1.2284100700941085,
+      "copy+stride": 1.0445028267884906,
+      "chase8+chase8": 1.0001663347131484,
+      "CoreMark+Dhrystone": 1.2139796394097522,
+      "Dhrystone+nsichneu": 1.3248304419332095,
+      "nsichneu+huffbench": 1.4302027107537656,
+      "huffbench+minver": 1.2149611269577498,
+      "minver+matmult": 1.037088409123587,
+      "matmult+CoreMark": 1.1199618463796575,
+      "CoreMark+nsichneu": 1.311655200153106,
+      "Dhrystone+huffbench": 1.2711827642292197,
+      "nsichneu+minver": 1.2621295349174246,
+      "huffbench+matmult": 1.1822488991676972,
+      "minver+CoreMark": 1.1620654350474764,
+      "matmult+Dhrystone": 1.0889402807869204,
+      "CoreMark+CoreMark": 1.2144852872289498,
+      "gather+CoreMark": 1.1425156171316428,
+      "gather+huffbench": 1.1063017403282918,
+      "stride+Dhrystone": 1.1150218967477978,
+      "stride+minver": 1.2137045185187991,
+      "spmv+nsichneu": 1.7144418381316608,
+      "spmv+matmult": 1.1394085189432626,
+      "hashprobe+huffbench": 1.5244702714180662,
+      "hashprobe+CoreMark": 1.5437517452700944,
+      "chase8+minver": 1.5342740530654297,
+      "chase8+Dhrystone": 1.5741983158031252,
+      "stream+matmult": 1.1672046215348229,
+      "stream+nsichneu": 1.649412388887018,
+      "copy+CoreMark": 1.3738631465272308,
+      "copy+huffbench": 1.2734848345092975
+     }
+    ]
+   },
+   "B, core-2's fix, FP 64 across both; its hold fixed": {
+    "ws": [
+     1.2070553403732107,
+     1.2095757414166175,
+     1.2040961242863122
+    ],
+    "groups": [
+     {
+      "mem+mem": 1.1478066528114839,
+      "compute+compute": 1.2114859317234223,
+      "mixed": 1.2647201343246441
+     },
+     {
+      "mem+mem": 1.1351696285037502,
+      "compute+compute": 1.2142127531528273,
+      "mixed": 1.2839368147994052
+     },
+     {
+      "mem+mem": 1.1269571725589185,
+      "compute+compute": 1.2180178075410248,
+      "mixed": 1.2718105573051763
+     }
+    ],
+    "min": [
+     0.8912479902534183,
+     0.7957971313082031,
+     0.7773683844024113
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "ws_dead": [
+     [],
+     [],
+     []
+    ],
+    "pairs": [
+     {
+      "gather+stride": 1.0911693744070667,
+      "stride+spmv": 1.0290996934831307,
+      "spmv+hashprobe": 1.6281593503948022,
+      "hashprobe+chase8": 1.3704765863977868,
+      "chase8+stream": 1.1207855255437544,
+      "stream+copy": 1.1414072278915774,
+      "copy+gather": 1.0030892831135387,
+      "gather+spmv": 1.0197173110241722,
+      "stride+hashprobe": 1.41650122357049,
+      "spmv+chase8": 1.0507066601908717,
+      "hashprobe+stream": 1.5307051046376245,
+      "chase8+copy": 1.0952115145887478,
+      "stream+gather": 0.9037484065720267,
+      "copy+stride": 1.0692477742797686,
+      "chase8+chase8": 1.0002683668874683,
+      "CoreMark+Dhrystone": 1.1957251078211713,
+      "Dhrystone+nsichneu": 1.315643775015864,
+      "nsichneu+huffbench": 1.4313232253326351,
+      "huffbench+minver": 1.2219333807480184,
+      "minver+matmult": 1.0423225576050852,
+      "matmult+CoreMark": 1.1137261996039713,
+      "CoreMark+nsichneu": 1.297312639826469,
+      "Dhrystone+huffbench": 1.2745486416990228,
+      "nsichneu+minver": 1.2611165214290851,
+      "huffbench+matmult": 1.1923101928394366,
+      "minver+CoreMark": 1.149141555980786,
+      "matmult+Dhrystone": 1.0904587390438047,
+      "CoreMark+CoreMark": 1.21695660238037,
+      "gather+CoreMark": 0.8956611660492695,
+      "gather+huffbench": 0.8912479902534183,
+      "stride+Dhrystone": 1.1200972406449268,
+      "stride+minver": 1.103571416436723,
+      "spmv+nsichneu": 1.563620807679838,
+      "spmv+matmult": 1.3436020616689746,
+      "hashprobe+huffbench": 1.6410587392807954,
+      "hashprobe+CoreMark": 1.6386058021676622,
+      "chase8+minver": 1.2987963015016493,
+      "chase8+Dhrystone": 1.2780872123384353,
+      "stream+matmult": 1.1110681868671353,
+      "stream+nsichneu": 1.32654602613104,
+      "copy+CoreMark": 1.388930295493858,
+      "copy+huffbench": 1.4140925709610652
+     },
+     {
+      "gather+stride": 1.070126179657286,
+      "stride+spmv": 0.9994651630234747,
+      "spmv+hashprobe": 1.5447696153410266,
+      "hashprobe+chase8": 1.2590298601509962,
+      "chase8+stream": 1.1522108563066935,
+      "stream+copy": 1.1795010065380431,
+      "copy+gather": 1.026028374097726,
+      "gather+spmv": 1.0097049597122145,
+      "stride+hashprobe": 1.286084374039802,
+      "spmv+chase8": 1.0561372303829522,
+      "hashprobe+stream": 1.6882695609704432,
+      "chase8+copy": 1.0608132265304795,
+      "stream+gather": 0.9193727527256177,
+      "copy+stride": 1.0223087644038114,
+      "chase8+chase8": 1.000185754483411,
+      "CoreMark+Dhrystone": 1.2023499879520365,
+      "Dhrystone+nsichneu": 1.3175661097325178,
+      "nsichneu+huffbench": 1.4315360987829795,
+      "huffbench+minver": 1.2227032076131485,
+      "minver+matmult": 1.042825229486646,
+      "matmult+CoreMark": 1.1181080089137687,
+      "CoreMark+nsichneu": 1.3004727179431188,
+      "Dhrystone+huffbench": 1.2779244458120609,
+      "nsichneu+minver": 1.2616816492524083,
+      "huffbench+matmult": 1.1915984462560612,
+      "minver+CoreMark": 1.1569214739121298,
+      "matmult+Dhrystone": 1.0948463129298442,
+      "CoreMark+CoreMark": 1.2186167061195283,
+      "gather+CoreMark": 0.8735883722696445,
+      "gather+huffbench": 0.7957971313082031,
+      "stride+Dhrystone": 1.0405441445105024,
+      "stride+minver": 1.0417349777626752,
+      "spmv+nsichneu": 1.7896150939752795,
+      "spmv+matmult": 1.3032609478864576,
+      "hashprobe+huffbench": 1.6488704892521504,
+      "hashprobe+CoreMark": 1.6940268234809934,
+      "chase8+minver": 1.1755903141762236,
+      "chase8+Dhrystone": 1.1904380281888793,
+      "stream+matmult": 1.2848343234373945,
+      "stream+nsichneu": 1.680064188600791,
+      "copy+CoreMark": 1.545101481516984,
+      "copy+huffbench": 1.4437550136702433
+     },
+     {
+      "gather+stride": 1.060852653169178,
+      "stride+spmv": 0.990900586904147,
+      "spmv+hashprobe": 1.4806362328740361,
+      "hashprobe+chase8": 1.2161146126748799,
+      "chase8+stream": 1.1883662756527202,
+      "stream+copy": 1.1844946946062536,
+      "copy+gather": 1.0269850849168258,
+      "gather+spmv": 1.004773649106804,
+      "stride+hashprobe": 1.2354876373221944,
+      "spmv+chase8": 1.0547476518749754,
+      "hashprobe+stream": 1.7191309831849617,
+      "chase8+copy": 1.0448724105893787,
+      "stream+gather": 0.9194608973266815,
+      "copy+stride": 1.0148988901830558,
+      "chase8+chase8": 1.0001660144696243,
+      "CoreMark+Dhrystone": 1.2112966442001345,
+      "Dhrystone+nsichneu": 1.3215118292331844,
+      "nsichneu+huffbench": 1.4313327410855272,
+      "huffbench+minver": 1.2232683416020436,
+      "minver+matmult": 1.0430863611399415,
+      "matmult+CoreMark": 1.1248268336749199,
+      "CoreMark+nsichneu": 1.3091507937185844,
+      "Dhrystone+huffbench": 1.2797351077247605,
+      "nsichneu+minver": 1.2617211178457226,
+      "huffbench+matmult": 1.1892669448930249,
+      "minver+CoreMark": 1.166876757365356,
+      "matmult+Dhrystone": 1.1020282720415249,
+      "CoreMark+CoreMark": 1.2216231145712766,
+      "gather+CoreMark": 0.8516814761568898,
+      "gather+huffbench": 0.7773683844024113,
+      "stride+Dhrystone": 1.0131724969128775,
+      "stride+minver": 1.0192449982850107,
+      "spmv+nsichneu": 1.8562748901773223,
+      "spmv+matmult": 1.1677364648082116,
+      "hashprobe+huffbench": 1.6166471953513057,
+      "hashprobe+CoreMark": 1.7169860262209262,
+      "chase8+minver": 1.1968432619937226,
+      "chase8+Dhrystone": 1.1843957322874,
+      "stream+matmult": 1.2532910445003989,
+      "stream+nsichneu": 1.812717674740105,
+      "copy+CoreMark": 1.6010500547357984,
+      "copy+huffbench": 1.3657072959369345
+     }
+    ]
+   }
+  },
+  "fp": {
+   "C, core-2's fix, FP 64 across both; fetch as built": {
+    "fpfp": [
+     1.3671645838177209,
+     1.3415095821179894,
+     1.3049551490515017
+    ],
+    "fpint": [
+     1.3016490268564476,
+     1.3030869445945836,
+     1.2692318398264855
+    ],
+    "all": [
+     1.3405716749956647,
+     1.3260064144214814,
+     1.2905467293165822
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "C, the RTL's commit turns, FP 64 across both; fetch as built": {
+    "fpfp": [
+     1.356897092571069,
+     1.3243219944305369,
+     1.2938156348882552
+    ],
+    "fpint": [
+     1.2904432245975672,
+     1.2896508147791301,
+     1.2556004722308713
+    ],
+    "all": [
+     1.329914459246484,
+     1.3103430509694265,
+     1.278391943829269
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "B, core-2's fix, FP 64 across both; fetch as built": {
+    "fpfp": [
+     1.4359760346884856,
+     1.420635216143027,
+     1.4171981396312479
+    ],
+    "fpint": [
+     1.3591892239145897,
+     1.3432917217883618,
+     1.3062027134754433
+    ],
+    "all": [
+     1.3970551714761277,
+     1.3814222835635552,
+     1.360569019020603
+    ],
+    "dead": [
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ],
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ],
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ]
+    ]
+   },
+   "C, core-2's fix, FP 64 across both; its hold fixed": {
+    "fpfp": [
+     1.4199921435227743,
+     1.4039343354455958,
+     1.384195118504163
+    ],
+    "fpint": [
+     1.3380345758038812,
+     1.3427210591170775,
+     1.351594000906845
+    ],
+    "all": [
+     1.3866233185182857,
+     1.37912108230348,
+     1.3710613558935005
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "C, the RTL's commit turns, FP 64 across both; its hold fixed": {
+    "fpfp": [
+     1.3902596809862642,
+     1.374557541576052,
+     1.3521167251978718
+    ],
+    "fpint": [
+     1.3118610568765805,
+     1.3153760929728702,
+     1.3231185098354066
+    ],
+    "all": [
+     1.3583531455312374,
+     1.3505719719300746,
+     1.3404419440043551
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "B, core-2's fix, FP 64 across both; its hold fixed": {
+    "fpfp": [
+     1.4530590569874007,
+     1.4554527099419912,
+     1.458054129436423
+    ],
+    "fpint": [
+     1.384336690579952,
+     1.3900826316435477,
+     1.40252827504858
+    ],
+    "all": [
+     1.4182816949277615,
+     1.4223921868700264,
+     1.4300217281866472
+    ],
+    "dead": [
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ],
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ],
+     [
+      "embench_nbody+embench_cubic",
+      "embench_nbody+tk_dgemm",
+      "embench_cubic+embench_cubic",
+      "embench_cubic+minver",
+      "embench_cubic+embench_st",
+      "embench_cubic+tk_dgemm",
+      "minver+tk_dgemm",
+      "embench_st+tk_dgemm",
+      "tk_dgemm+tk_dgemm",
+      "embench_cubic+CoreMark",
+      "embench_cubic+Dhrystone",
+      "tk_dgemm+CoreMark",
+      "tk_dgemm+Dhrystone",
+      "m7_fprestore+m7_fprestore",
+      "m7_fprestore2+m7_fprestore2",
+      "m7_fprestore2+embench_nbody",
+      "CoreMark+m7_fprestore",
+      "m7_fpcompute+m7_fpcompute",
+      "m7_fpcompute+m7_fprestore2",
+      "m7_fpcompute+embench_nbody"
+     ]
+    ]
+   },
+   "C, core-2's fix, FP 96; fetch as built": {
+    "fpfp": [
+     1.3672124517277333,
+     1.3414570903517797,
+     1.3049464645187387
+    ],
+    "fpint": [
+     1.3016491847295246,
+     1.3030869445945836,
+     1.2692704457294919
+    ],
+    "all": [
+     1.3405999019321564,
+     1.3259752830910707,
+     1.2905572776103234
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   },
+   "C, core-2's fix, FP 96; its hold fixed": {
+    "fpfp": [
+     1.4199782552227889,
+     1.4039491785823048,
+     1.3843099726386947
+    ],
+    "fpint": [
+     1.3380346331441666,
+     1.3427212152959551,
+     1.351594000906845
+    ],
+    "all": [
+     1.3866152051104605,
+     1.3791298949292077,
+     1.3711296133740345
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ]
+   }
+  }
+ },
+ "fp64q": {
+  "pairs": {
+   "FP 64, the crossed write in the cycle (\u00a713.13)": {
+    "fpfp": [
+     1.4199921435227743,
+     1.4039343354455958,
+     1.384195118504163
+    ],
+    "fpint": [
+     1.3380345758038812,
+     1.3427210591170775,
+     1.351594000906845
+    ],
+    "all": [
+     1.3866233185182857,
+     1.37912108230348,
+     1.3710613558935005
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "held": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   },
+   "FP 64, P4 first, a colliding load held (fpu-2's rule)": {
+    "fpfp": [
+     1.4204377171124907,
+     1.4032126349752962,
+     1.3855685465812273
+    ],
+    "fpint": [
+     1.338231795385754,
+     1.3430484688986242,
+     1.3518449724719175
+    ],
+    "all": [
+     1.3869661281926835,
+     1.3788301344190967,
+     1.371979321363424
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "held": [
+     1.5014072600705777,
+     1.6543696112620474,
+     3.1582660785897594
+    ]
+   },
+   "FP 64, P4 first, and no FP transfers": {
+    "fpfp": [
+     1.420538542375995,
+     1.4032631375020783,
+     1.3854227557835501
+    ],
+    "fpint": [
+     1.3383418263334819,
+     1.3431207071075366,
+     1.3518273731649373
+    ],
+    "all": [
+     1.3870708129811626,
+     1.3788895744729532,
+     1.3718855588353196
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "held": [
+     1.5004305849401804,
+     1.6536612534751658,
+     3.159370529327611
+    ]
+   },
+   "FP 64, in the cycle, and no FP transfers": {
+    "fpfp": [
+     1.4201298575373364,
+     1.4040737510365995,
+     1.3841890100274925
+    ],
+    "fpint": [
+     1.338008258409929,
+     1.3427293876296,
+     1.3515397476093929
+    ],
+    "all": [
+     1.3866930937244732,
+     1.37920667351454,
+     1.3710357114845528
+    ],
+    "dead": [
+     [],
+     [],
+     []
+    ],
+    "held": [
+     0.0,
+     0.0,
+     0.0
+    ]
+   }
+  },
+  "lone": {
+   "merged window: FP 64, the crossed write in the cycle (\u00a713.13)": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_cubic": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_minver": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_st": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tk_dgemm": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "merged window: FP 64, P4 first, a colliding load held (fpu-2's rule)": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      0.9991356957649092,
+      0.9991356957649092,
+      0.9991356957649092
+     ],
+     "embench_cubic": [
+      0.9999944532514485,
+      0.9999944532514485,
+      0.9999944532514485
+     ],
+     "embench_minver": [
+      0.9999710985045541,
+      0.9999710980272338,
+      0.9999710989818584
+     ],
+     "embench_st": [
+      1.0001056400023476,
+      1.0001055285220144,
+      1.0001053679096177
+     ],
+     "tk_dgemm": [
+      0.999923145244612,
+      0.9999240962259355,
+      0.9999254290467933
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "merged window: FP 64, P4 first, and no FP transfers": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      0.9444444444444444,
+      0.9444444444444444,
+      0.9444444444444444
+     ],
+     "embench_cubic": [
+      0.9999944532514485,
+      0.9999944532514485,
+      0.9999944532514485
+     ],
+     "embench_minver": [
+      0.9999710985045541,
+      0.9999710980272338,
+      0.9999710989818584
+     ],
+     "embench_st": [
+      0.9998122506453884,
+      0.9998124487164459,
+      0.999812734082397
+     ],
+     "tk_dgemm": [
+      0.9999086456720887,
+      0.9999097760512702,
+      0.9999113603027819
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "merged window: FP 64, in the cycle, and no FP transfers": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      0.9444444444444444,
+      0.9444444444444444,
+      0.9444444444444444
+     ],
+     "embench_cubic": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_minver": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_st": [
+      0.9998122506453884,
+      0.9998124487164459,
+      0.999812734082397
+     ],
+     "tk_dgemm": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "its half: FP 64, the crossed write in the cycle (\u00a713.13)": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_cubic": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_minver": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_st": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tk_dgemm": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "its half: FP 64, P4 first, a colliding load held (fpu-2's rule)": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      1.007120253164557,
+      1.007120253164557,
+      1.007120253164557
+     ],
+     "embench_cubic": [
+      0.9999889510331887,
+      0.9999889510331887,
+      0.9999889510331887
+     ],
+     "embench_minver": [
+      0.9978601611445433,
+      0.9978605495375465,
+      0.9978616230821191
+     ],
+     "embench_st": [
+      0.999824563455398,
+      0.9998247479291048,
+      0.9998250137072596
+     ],
+     "tk_dgemm": [
+      0.9999971103694392,
+      0.9999971511188981,
+      0.9999972079907304
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "its half: FP 64, P4 first, and no FP transfers": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      1.007120253164557,
+      1.007120253164557,
+      1.007120253164557
+     ],
+     "embench_cubic": [
+      0.9999889510331887,
+      0.9999889510331887,
+      0.9999889510331887
+     ],
+     "embench_minver": [
+      0.9978601611445433,
+      0.9978605495375465,
+      0.9978616230821191
+     ],
+     "embench_st": [
+      0.999824563455398,
+      0.9998247479291048,
+      0.9998250137072596
+     ],
+     "tk_dgemm": [
+      0.9999971103694392,
+      0.9999971511188981,
+      0.9999972079907304
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   },
+   "its half: FP 64, in the cycle, and no FP transfers": {
+    "dead": [],
+    "fp": {
+     "embench_nbody": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_cubic": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_minver": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "embench_st": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "tk_dgemm": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fprestore2": [
+      1.0,
+      1.0,
+      1.0
+     ],
+     "m7_fpcompute": [
+      1.0,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
  }
 }
