@@ -1404,6 +1404,68 @@ Results: `fpga/spikes/results/h100_urf/` (with `urf_chip.txt`, the register file
 
 Results: `fpga/spikes/results/h100_m7b0/`, `h100_m7b1/` (with `urf_chip.txt`), each with `near_families_*.txt`, and their `_synth/` folders.
 
+### 8.18 M7 step 5's product chip with real hart 1, the URF off and on (2026-10-21)
+
+**Asked** (the coordinator, 10-20 and 10-21):
+- **What to build:** M7 step 5c's full chip with hart 1 running. It is the board's product configuration (DR-177: M8's exit is defined on it), built by d4r2's recipe plus `TG_HART1=1` and the release form (`LAT_INJ=0`).
+- **The two chips:**
+  - with the URF off: the formal DR-175 trigger measurement (the URF switches on above about 96% placed, or below 100 MHz);
+  - with it on: the build soc-2 packages for the board if it closes.
+- **Also asked:** the cost of the product windows, from a plain against product synthesis pair.
+
+**Builds:**
+- **Commit:** main 071de15c, M7 step 5c with 5b's fetch fixes; §7.1's F and A are in.
+- **d4r2's recipe** (its `summary.txt`, profile `d4r2-smt2-notrace-pswin-fan`), in `g4_fit.tcl` terms:
+  - smt2, two cores, 100 MHz;
+  - no trace, the PMOD console and the fan's PL regulator;
+  - the uncore DSP mask's default;
+  - the windows `VIRTIO_WINDOW=1`, `HOST_DMA=1` and `TG_PS_WINDOW=1`;
+  - `-flatten_hierarchy rebuilt`, AreaOptimized_high and ExploreArea;
+  - no floorplan, as the board flow uses no pblocks;
+  - 1.0 ns of uncertainty through placement and routing on the core clock and on `clk2x`.
+- **This differs from §8.17's flow** (`-flatten_hierarchy none`, the `g4_uncore` pblocks, half the uncertainty on `clk2x`).
+- **Launch:** the build tree's `tools/launch_hu.sh`, in two `h7_guard.sh` series side by side. Each synthesis declared 24 GB and each placement 12 GB.
+
+| Point | What | Synthesis LUTs | After `opt_design` | Of 117,120 | Placement |
+|---|---|---|---|---|---|
+| hu0 | product, URF off | 126,994 | 121,893 | **104.1%** | **fails** (Place 30-487: 11,067 CLBs needed, 10,490 left) |
+| hu1 | product, URF on | 124,414 | 119,295 | **101.9%** | **fails** (11,059 CLBs needed, 10,814 left) |
+| hp0 | hu0 without the windows (synthesis only) | 123,861 | — | — | — |
+| hn0 | hp0 with §8.17's `-flatten_hierarchy none` (synthesis only) | 124,193 | — | — | — |
+
+All four synthesize cleanly: no forward references and no implicit nets, with 121 block-RAM tiles (the injectors' four are gone), 157 DSPs, 32 UltraRAMs with the URF off and 50 with it on. Synthesis takes 17.5–23.6 minutes and peaks at 8.2–9.1 GB in the main process. Both placements stop after 7–10 minutes of `place_design`. **So there is no routed checkpoint, no WNS on `clk` or `clk2x`, and no bitstream.**
+
+**Findings:**
+- **DR-175's trigger fires:** the URF-off chip needs 104% of the device's LUTs before placement.
+- **The URF-on chip does not fit either.** 119,295 LUTs after `opt_design` is 2,175 over the device and about 6.9K over the 112.4K at which §8.17's URF-off chip still closed 100 MHz (96.0%). The placer is 245 CLBs short.
+- **The windows cost 3,133 LUTs** (hu0 − hp0, synthesis), 344 of them LUTRAM, and 1,966 flip-flops:
+  - the uncore +2,505: the host DMA port 796, the crossbar's own logic +802, the PLIC's extra sources +553 and the virtio window 272;
+  - core 0 +468, core 1 +66, and the top level +94.
+- **`-flatten_hierarchy rebuilt` saves 332 LUTs** (hp0 − hn0) and 385 flip-flops. Units trade LUTs with each other under the rebuilt hierarchy, so only the total counts.
+- **The URF saves 2,598 LUTs after `opt_design`** (2,580 at synthesis), as tier B's did (§8.16), for 18 UltraRAMs.
+- **Against §8.17, like for like** (hn0 against `h100_m7b0`'s synthesis: no windows, `-flatten_hierarchy none`, URF off), the chip grew by +4,692 LUTs:
+  - −7,428 for the filler and −1,310 for the two injectors, both gone;
+  - +6.7K in each core: fetch +1,741 (its own logic +1,536), rename +1,708, the LSU +1,250, FP's register-file banks of 96 +836, the CSR +525, the ROB +420, the two per-thread RAS +338 net, decode −281.
+  - **Real hart 1 with steps 4–5c costs about 6.7K a core against the filler's 3.7K**, about 1.9K a core above the plan's +1.1K over the filler. The FP banks' excess (DR-179) is part of it.
+- **The rest of M7 (the coordinator's figures) nets about −0.5 to −1.3K a chip:**
+  - DR-179's 64-entry FP banks, about −2.6K;
+  - DR-178's per-thread rename register, +1.1–1.7K, plus +0.1–0.2K for the commit-turn fix;
+  - step 7's caps, +0.2–0.4K.
+  That puts hu1 at about 118.0–118.8K after `opt_design`, still over the device.
+- **So M7's product chip needs about 2–7K LUTs back before the URF-on build places:** about 2K just to place at the device's edge, about 7K to reach the 96% where this chip still closes 100 MHz. A lower clock comes only after every other method (DR-177).
+- **The recorded levers** (DR-167, area_recovery §7.8):
+  - PMP with 8 entries: 2,710, plus about 1.7K of hart 1's;
+  - the shared LD/STA PMP checker: 0.9–1.8K, small IPC;
+  - the FP and LD queue trims: 0.8K, −0.2%;
+  - radix-4 divide: 1.25K, −2.4% single-thread.
+  `opt_design`'s other directives on hu1's synthesis are below.
+- **`opt_design`'s directive is not the lever** ([`q_opt_directives.tcl`](../../fpga/spikes/tcl/query/q_opt_directives.tcl) on hu1's synthesis):
+  - ExploreArea, the flow's own, leaves 119,295 LUTs;
+  - ExploreSequentialArea leaves 119,161: 134 fewer, and 59 fewer flip-flops;
+  - AddRemap, Default and ExploreWithRemap leave 1,437–1,693 more.
+
+Results: `fpga/spikes/results/h100_hu0/`, `h100_hu1/` (their `errors.txt` and summaries), `h100_hu0_synth/`, `h100_hu1_synth/`, `h100_hp0_synth/`, `h100_hn0_synth/`, and `h100_hu_util/`. The last holds the hierarchical utilization of hn0, hp0, hu0 and §8.17's m7b0 ([`q_util_hier.tcl`](../../fpga/spikes/tcl/query/q_util_hier.tcl)), and the unit diffs from [`util_diff.py`](../../fpga/spikes/scripts/util_diff.py).
+
 ## 9. S1: PL → PS DDR latency and bandwidth
 
 **Status: done on the board (2026-10-14).** The bitstream meets 200 MHz (WNS +0.809 ns with the fan rule of DR-129; +0.513 before it; 4,081 LUTs, 5,133 flip-flops, one block-RAM tile), and the board session ran it at 200 MHz. The design, the A53 program and the step-by-step instructions (SD image, boot firmware, network, files, commands) are in [`fpga/spikes/s1/README.md`](../../fpga/spikes/s1/README.md).
