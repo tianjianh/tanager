@@ -171,6 +171,8 @@ module tg_fetch
   logic [NS-1:0]       miss_s_q;  // parked on an I$ miss
   logic [NS-1:0][63:0] rpc_s_q;   // a parked stream's block: its PC (the restart) ...
   logic [NS-1:0][PA_W-1:0] rpa_s_q;   // ... and PA (the refill's line)
+  logic [NS-1:0]       qw_s_q;    // MT (5e): parked at F2, its block not fitting its queue while the other stream waits
+  logic [NS-1:0][4:0]  qn_s_q;    // ... that block's bound on the entries it writes
   logic        f2_s_q, k_s_q, f3_s_q;   // F2's block's stream, the action's, F3's
   // A blocked stream (MT): its thread waits at rename behind a serial uop, whose commit flushes it, so whatever it
   // fetches meanwhile would go: F1 treats it as stopped, F2 passes its blocks on without an FTQ entry, and the
@@ -337,6 +339,8 @@ module tg_fetch
   // the next block after a dropped prediction (k_ovr_q), or the block itself (its line was
   // installed meanwhile). The blocks F2 and F1 hold in that cycle came after it: dropped.
   logic              ka_q, k_miss_q, k_walk_q, k_stop_q, k_cut_q, k_ovr_q;
+  logic              k_room_q;            // MT (5e): park on its queue's room (qw_s_q), the bound kn_q
+  logic [4:0]        kn_q;
   // TAGE_ON: the override refetches at the exit's target (kt_q): the block's address, the exit's
   // parcel (kp_q) and its offset (kimm_q), added in the action's cycle
   logic              kt_q;
@@ -982,23 +986,49 @@ module tg_fetch
     end
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
+  logic [NUM_THREADS-1:0][idx_w(IBUF_ENTRIES):0] q_occ;   // MT (5e): each thread's queue entries (u_cmp)
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
     .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .acc_t(MT ? rn_acc : '1), .dst,
     .blk_valid(f3_valid_q), .blk_tid(f3_tid), .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q),
     .carry_out(f3_carry_q), .meta(f3_mq),
-    .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
+    .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take), .occ_o(q_occ));
 
   // ---- Pipeline control ----
   // F2 delivers when it is valid, not missing, and F3 can take the block. It holds while F3
   // cannot, missing or not: its action is registered anyway.
   logic f2_deliver, f2_hold;
   logic ft_full;                          // TAGE_ON: no FTQ entry for another block
-  assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept && !ft_full;
-  assign f2_hold    = f2v && (!f3_accept || ft_full);
+  // MT (5e): F2 passes a block on only if it fits its thread's queue beside that thread's block in F3, each counted
+  // at a bound from registers (the parcels from the block's entry, and a straddler's completion), while the other
+  // stream waits for the pipe (its block in F1, or its next one waiting). Else the stream parks here as on an I$ miss,
+  // the block undelivered (no FTQ entry, its later blocks dropped), and restarts at it once its queue has the room:
+  // a queue that cannot take a block never holds F3, and with it the other thread's fetch (smt2_report §13.16: 7-14%
+  // at step 7). Without a waiting stream it goes on and waits in F3 as before, so a lone thread fetches as before.
+  // Only a thread whose queue decode has not read for QP_WAIT cycles while it held instructions parks (its RN register
+  // holds a stalled group, so its queue does not drain): a thread whose queue drains waits in F3 a cycle or two as
+  // before, which costs less than a park's refetch (compute pairs lost 0.01-0.05 when every such block parked)
+  localparam int QP_WAIT = 2;
+  logic [4:0] f2_need, f3_need_q;
+  logic       f2_cont, f2_qfull;
+  logic [NUM_THREADS-1:0][2:0] qs_q;        // cycles since decode last took from the thread's queue, while it held some
+  always_ff @(posedge clk)
+    for (int t = 0; t < NUM_THREADS; t++)
+      if (rst || !MT || q_occ[t] == '0 || (cq_tid == tid_t'(t) && iq_take != '0)) qs_q[t] <= '0;
+      else if (qs_q[t] != 3'd7)                                                  qs_q[t] <= qs_q[t] + 3'd1;
+  assign f2_need  = 5'(NP) - 5'(f2_pc_q[SLOT_W:1]) + 5'(carry_q);
+  assign f2_cont  = (f1_valid_q && ft_q != f2_s_q && !stop_s_q[ft_q] && !blk_s[ft_q]) ||
+                    (sv_s_q[!f2_s_q] && !blk_s[!f2_s_q]);
+  assign f2_qfull = MT && f2v && !f2_miss && !f2_wmiss && !blk_s[f2_s_q] && f2_cont &&
+                    int'(qs_q[MT ? f2_s_q : 1'b0]) >= QP_WAIT &&
+                    int'(q_occ[MT ? f2_s_q : 1'b0]) + int'(f2_need) +
+                    ((f3_valid_q && f3_s_q == f2_s_q) ? int'(f3_need_q) : 0) > IBUF_ENTRIES;
+  assign f2_deliver = f2v && !f2_miss && !f2_wmiss && f3_accept && !ft_full && !f2_qfull;
+  assign f2_hold    = f2v && (!f3_accept || ft_full || f2_qfull);
   // F1 moves on when F2 is free (or delivers) and fetch is not parked, stopped or waiting for the
   // PMP descriptors, the valid-bit sweep or its own PMP check (f1_pwait).
   logic f1_base, f1_live, ivs_done;
-  assign f1_base = f1_valid_q && !miss_s_q[ft_q] && !wk_s_q[ft_q] && !stop_q && ready && !pmp_busy && ivs_done;
+  assign f1_base = f1_valid_q && !miss_s_q[ft_q] && !wk_s_q[ft_q] && !qw_s_q[ft_q] && !stop_q && ready && !pmp_busy &&
+                   ivs_done;
   assign f1_live = f1_base && !f1_pwait;
   assign f2_go   = !f2_hold && !redirect;
   // (in F2's action's cycle F2 takes nothing from F1: with MT it may keep the other stream's block, whose I$ data and
@@ -1640,6 +1670,7 @@ module tg_fetch
   // A refetch's PC (F2's action); each stream's restart (its refill's or walk's end) and the PC it restarts at
   logic [63:0]   kref_pc;
   logic [NS-1:0] rs_ref, rs_walk;        // restarts: after a refill, after a walk
+  logic [NS-1:0] rs_room;                // MT (5e): ... once its queue has room for its parked block
   logic [NS-1:0][63:0] rs_pc;
   logic [NS-1:0][PA_W-1:6] sline;        // MT: the line each parked (or parking) stream waits for
   always_comb
@@ -1655,6 +1686,8 @@ module tg_fetch
                          : ((refill_done && rline_q == sline[t]) || (pv_go && mline == sline[t])))) ||
                    (am_rd && k_s_q == 1'(t));
       rs_walk[t] = wout[t] && iw_done;
+      rs_room[t] = MT && qw_s_q[t] && int'(q_occ[MT ? t : 0]) + int'(qn_s_q[t]) +
+                   ((f3_valid_q && f3_s_q == 1'(t)) ? int'(f3_need_q) : 0) <= IBUF_ENTRIES;
       rs_pc[t]   = ((am_go || aw_go) && k_s_q == 1'(t)) ? miss_pc_q : rpc_s_q[t];
     end
   // F1's next block and the streams' waiting blocks: the events in the priority they had with one stream (F2's
@@ -1675,7 +1708,7 @@ module tg_fetch
     // F1 waits a cycle for its PMP check; any change of fpc_q below ends the wait
     if (f1_base && f1_pwait) pw_n = 1'b1;
     if (ka_q) begin
-      if (k_miss_q || k_walk_q) begin                 // stream k parks: its later blocks go
+      if (k_miss_q || k_walk_q || k_room_q) begin     // stream k parks: its later blocks go
         if (ft_q == k_s_q) f1v_n = 1'b0;
         sv_n[k_s_q] = 1'b0;
       end else if (!k_stop_q) begin                   // refetch stream k (its later blocks go)
@@ -1700,7 +1733,7 @@ module tg_fetch
     end
     // Restarts after a refill or a walk
     for (int t = 0; t < NS; t++) begin
-      if (rs_ref[t] || rs_walk[t]) begin
+      if (rs_ref[t] || rs_walk[t] || rs_room[t]) begin
         if (!MT || !f1v_n) begin
           f1v_n = 1'b1; fpc_n = rs_pc[t]; ft_n = 1'(t); pw_n = 1'b0;
         end else begin
@@ -1748,6 +1781,7 @@ module tg_fetch
       miss_s_q    <= '0;
       wk_s_q      <= '0;
       wk_sent_s_q <= '0;
+      qw_s_q      <= '0;
       xf_v_s_q    <= '0;
       carry_s_q   <= '0;
       f2_valid_q  <= 1'b0;
@@ -1802,6 +1836,12 @@ module tg_fetch
           wk_sent_s_q[k_s_q] <= 1'b0;
           rpc_s_q[k_s_q]     <= miss_pc_q;
           rpa_s_q[k_s_q]     <= miss_pa_q;
+        end else if (k_room_q) begin
+          // MT (5e): its queue has no room for the block: park; the room restarts fetch here
+          qw_s_q[k_s_q]  <= 1'b1;
+          qn_s_q[k_s_q]  <= kn_q;
+          rpc_s_q[k_s_q] <= miss_pc_q;
+          rpa_s_q[k_s_q] <= miss_pa_q;
         end
         // (a refetch: F1 and the waiting blocks above)
       end else if (f2_go) begin
@@ -1823,7 +1863,10 @@ module tg_fetch
         f2_valid_q <= 1'b0;                         // (a redirect's cycle: the other stream's block went on)
       end
       // F2's action on this cycle's block, taken next cycle; miss_pc_q and miss_pa_q name the block
-      ka_q     <= f2_miss || f2_wmiss || (f2_deliver && f2_ka);
+      ka_q     <= f2_miss || f2_wmiss || f2_qfull || (f2_deliver && f2_ka);
+      k_room_q <= f2_qfull;
+      kn_q     <= f2_need;
+      if (f2_deliver) f3_need_q <= f2_need;
       k_s_q    <= f2_s_q;
       k_miss_q <= f2_miss && !((refill_done && f2_pa_q[PA_W-1:6] == rline_q) || (pv_go && f2_pa_q[PA_W-1:6] == mline) ||
                                (rdone_d_q && f2_pa_q[PA_W-1:6] == rline_d_q));
@@ -1844,6 +1887,7 @@ module tg_fetch
       end
       // Restart after the refill (F2 holds nothing of the stream then; a registered miss parks in this cycle)
       for (int t = 0; t < NS; t++) if (rs_ref[t]) miss_s_q[t] <= 1'b0;
+      for (int t = 0; t < NS; t++) if (rs_room[t]) qw_s_q[t] <= 1'b0;
       // Restart after the walk (a fault: the page's blocks fault until a redirect)
       if ((wk_s_q[ws] || aw_go) && iw_ack) wk_sent_s_q[ws] <= 1'b1;
       if (rs_walk[wo]) begin
@@ -1864,6 +1908,7 @@ module tg_fetch
             stop_s_q[t]    <= 1'b0;
             miss_s_q[t]    <= 1'b0;
             wk_s_q[t]      <= 1'b0;
+            qw_s_q[t]      <= 1'b0;
             wk_sent_s_q[t] <= 1'b0;
             xf_v_s_q[t]    <= 1'b0;
             carry_s_q[t]   <= 1'b0;
@@ -1974,5 +2019,17 @@ module tg_fetch
     end
   final if (MT) $fwrite(32'h8000_0002, "TG-STALL2 %m: F2 holds another stream's fetch %0d cycles (%0d with that stream ready and room in its queue)\n",
                         n_f2hold2, n_f2hold2b);
+  // (5e) the parks on a queue's room, and the cycles streams spent parked so
+  longint unsigned n_qpark, n_qparkc;
+  always_ff @(posedge clk)
+    if (rst) begin
+      n_qpark  <= 0;
+      n_qparkc <= 0;
+    end else if (MT) begin
+      if (f2_qfull) n_qpark <= n_qpark + 1;
+      n_qparkc <= n_qparkc + longint'($countones(qw_s_q));
+    end
+  final if (MT) $fwrite(32'h8000_0002, "TG-FQPARK %m: F2 parked a stream on its queue's room %0d times (%0d stream-cycles parked)\n",
+                        n_qpark, n_qparkc);
 `endif
 endmodule

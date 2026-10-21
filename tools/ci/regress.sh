@@ -6,6 +6,7 @@
 #                       [DC_MSHRS=1|4]           (the L1D's misses in flight, DR-149; sim/profile.mk)
 #                       [QUEUE_DECODE=0|1]       (G8's instruction-queue decode bits; sim/profile.mk)
 #                       [SPEC_WAKE=0|1]          (M6's speculative load wakeup, DR-153; sim/profile.mk)
+#                       [SPEC_WAKE_FILT=0|1|2]   (its filter; sim/profile.mk)
 #                       [STA_BASE=0|1] [STEER_LA=0|1] (M6's store address on its base, its steering a group ahead; DR-169)
 #                       [PMP_ENTRIES=8|16]       (the core's PMP entries, DR-167; lockstep's Spike takes the model's count)
 #                       [STORE_PF=0|1]           (M6's ownership prefetch for stores, DR-171; sim/profile.mk)
@@ -24,11 +25,11 @@
 # Prints a summary and exits non-zero on any failure. TIMING_CUTS=both runs the default and the
 # fallback side by side (make regress-profiles; below).
 set -u
-CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1=""
+CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RANDN=100 RANDFD=50 ARCH=0 ACTCFG="" TIMING_CUTS="" COHN=20 PGN=12 DC_MSHRS="" QUEUE_DECODE="" SPEC_WAKE="" SPEC_WAKE_FILT="" STA_BASE="" STEER_LA="" PMP_ENTRIES="" STORE_PF="" URF="" STORE_PF_MAX="" SOLO_TID="" SPLIT="" HART1=""
 for kv in "$@"; do
   case "$kv" in
-    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1]"; exit 5 ;;
+    CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*) declare "${kv%%=*}=${kv#*=}" ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1]"; exit 5 ;;
   esac
 done
 
@@ -91,6 +92,7 @@ fi
 [ -n "$DC_MSHRS" ] && export DC_MSHRS
 [ -n "$QUEUE_DECODE" ] && export QUEUE_DECODE
 [ -n "$SPEC_WAKE" ] && export SPEC_WAKE
+[ -n "$SPEC_WAKE_FILT" ] && export SPEC_WAKE_FILT
 [ -n "$STA_BASE" ] && export STA_BASE
 [ -n "$STEER_LA" ] && export STEER_LA
 [ -n "$PMP_ENTRIES" ] && export PMP_ENTRIES
@@ -100,7 +102,7 @@ fi
 [ -n "$SOLO_TID" ] && export SOLO_TID
 [ -n "$SPLIT" ] && export SPLIT
 [ -n "$HART1" ] && export HART1
-TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}${HART1:+-h$HART1}"   # the build directories' suffix (sim/profile.mk)
+TCS="${TIMING_CUTS:+-tc$TIMING_CUTS}${DC_MSHRS:+-m$DC_MSHRS}${QUEUE_DECODE:+-qd$QUEUE_DECODE}${SPEC_WAKE:+-sw$SPEC_WAKE}${SPEC_WAKE_FILT:+-swf$SPEC_WAKE_FILT}${STA_BASE:+-sb$STA_BASE}${STEER_LA:+-sl$STEER_LA}${PMP_ENTRIES:+-p$PMP_ENTRIES}${STORE_PF:+-spf$STORE_PF}${URF:+-urf$URF}${STORE_PF_MAX:+-spm$STORE_PF_MAX}${SOLO_TID:+-solo$SOLO_TID}${SPLIT:+-sp$SPLIT}${HART1:+-h$HART1}"   # the build directories' suffix (sim/profile.mk)
 LOGS="$BUILD/regress/$CFG-$CORE$TCS"
 mkdir -p "$LOGS"
 : "${RISCV_TESTS:?source tools/env.sh first}"

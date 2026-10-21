@@ -449,6 +449,7 @@ module tg_core
   iq_pl_t [N_IQ-1:0] iss_pl;
   preg_t [N_XQ-1:0][1:0] iss_src_n;     // URF: the RF stage's next source tags
   logic             spec_cancel;                // speculative wakeup's shadow cancel (SPEC_WAKE)
+  logic             ld_m2_miss;                 // the load in M2 missed the D$ (tg_lsu to tg_issue's filter)
   assign wake_reg = wake_x | wake_l | wake_p4;
   assign tag_free = tag_free_x | tag_free_p4;
   // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
@@ -459,7 +460,7 @@ module tg_core
   logic             ld_m2_will;                 // the integer load in M2 completes (tg_lsu; tg_issue's filter)
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
-    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .col_clr,
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_will, .ld_m2_miss, .col_clr,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n,
     .spec_cancel);
 
@@ -624,7 +625,7 @@ module tg_core
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block, .fp_block,
-    .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
+    .ld_m2_will, .ld_m2_miss, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_bank, .fld_m2_idx, .fld_valid, .fld_bank,
     .fld_idx, .p4_nx_we, .p4_nx_bank,
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,

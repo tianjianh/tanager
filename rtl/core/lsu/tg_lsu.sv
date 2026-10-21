@@ -49,6 +49,7 @@ module tg_lsu
   output logic                         fp_block,      // registered: IQ-FP select blocked (a held FP load waits)
   // Load results
   output logic                         ld_m2_will,
+  output logic                         ld_m2_miss,    // the load in M2 missed the D$ (tg_issue's wakeup filter)
   output logic [PIDX_W-1:0]            ld_m2_dst,
   output logic                         ld_res_valid,
   output logic [PIDX_W-1:0]            ld_res_dst,
@@ -863,6 +864,7 @@ module tg_lsu
   assign lm_req = m2_v_q && !kill_t[t_m2] && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out_w == O_MISS);
   assign lm_pa  = m2_pa_q;
   assign ld_m2_will  = m2_okw && lqc_rd[0].dv && !lqc_rd[0].fp;
+  assign ld_m2_miss  = m2_v_q && !m2_pt_q && !m2_fhit_q && !m2_clash_q && !m2_hit_q;
   assign ld_m2_dst   = PIDX_W'(lqc_rd[0].dst);
   assign fld_m2_will = EXT_FD && m2_okw && lqc_rd[0].dv && lqc_rd[0].fp && !m2_fcol;
   assign fld_m2_bank = lqc_rd[0].fb;

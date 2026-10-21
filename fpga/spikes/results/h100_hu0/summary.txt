@@ -1,0 +1,30 @@
+top                      kv260_top
+cfg                      smt2
+n_cores                  2
+core_mhz                 100
+uncore_dsp               0x0000008403080000
+synth                    from /home/w/tanager-build/track-spikes-72f833/fp/h100_hu0_synth_post_synth.dcp
+floorplan                none
+generics                 -generic FILL_TILES=0 -generic FILL_NRAM=0
+directives               place Default route Default
+pre_report               fpga/spikes/tcl/over_unc_off.tcl
+opt_directive            ExploreArea
+defines                  -verilog_define TG_COMMIT_TRACE=0
+pblocks                  0
+prim_fail_synth          0
+synth_s                  46
+synth_lut_total          126994
+synth_lut_logic          105756
+synth_lut_mem            21238
+synth_ff                 65339
+synth_bram_tile          121
+synth_uram               32
+synth_dsp                157
+opt_lut_total            121893
+opt_lut_logic            102687
+opt_lut_mem              19206
+opt_ff                   64071
+opt_bram_tile            121
+opt_uram                 32
+opt_dsp                  157
+prim_fail_opt            0

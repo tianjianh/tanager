@@ -2,7 +2,8 @@
 // holds instructions with no branch or jump (32-bit `addi x0, x0, imm` and 16-bit `c.nop` hints, mixed, so 32-bit ones
 // straddle blocks), each 64 KiB repeating; the l1i answers Gets in order after random delays. Hart 0 fetches from
 // reset, hart 1 from its first flush. Random flushes and decode redirects of either thread, some in one cycle for both;
-// FENCE.I with some flushes; decode takes random counts from the thread the queue presents (nothing in a redirect's
+// FENCE.I with some flushes; each thread's rename register takes a group next cycle at random (rn_acc, 80%: the
+// queue's read-thread choice, step 5d); decode takes random counts from the thread the queue presents (nothing in a redirect's
 // cycle), commit retires what decode took, in order per thread, a thread a cycle, and frees the FTQ.
 // Checked: every instruction decode takes is its thread's next (the PC its stream expects, its bits from memory, its
 // size), carries a valid thread, no fault and no prediction; both threads progress.
@@ -51,6 +52,7 @@ module tb_fetch
   logic [W-1:0]      iq_valid;
   fe_insn_t [W-1:0]  iq_insn;
   logic [TKW-1:0]    iq_take;
+  logic [NT-1:0]     rn_acc;                        // rename's registers take a group next cycle (tg_rename's acc_o)
   dec_state_t [NT-1:0] dst;
   priv_e  [NT-1:0]     priv_h;
   pmp_d_t [NT-1:0][PMP_ENTRIES-1:0] pmp_d_h;
@@ -80,7 +82,7 @@ module tb_fetch
     .ras_v_s('0), .ras_top_s('0), .ras_tos_s('0), .ras_cnt_s('0), .ras_tid, .ras_push, .ras_pop, .ras_link, .ras_rv,
     .ras_rwr, .ras_rtos, .ras_rcnt, .ras_rtop,
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
-    .iq_valid, .iq_insn, .iq_take,
+    .iq_valid, .iq_insn, .iq_take, .rn_block('0), .rn_acc,
     .xl_h, .dst, .priv_h, .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_tid, .iw_va, .iw_ack, .iw_done, .iw_ok, .iw_cause,
@@ -159,7 +161,7 @@ module tb_fetch
     dred_rlink = '0; c_cbr = '0; c_taken = '0; c_pred = '0; c_ftq = '0; c_slot = '0; c_hftq = '0; c_tid = '0;
     upd_pc = '0; upd_target = '0; upd_slot = '0; upd_tid = '0; tlb_flush_tid = '0; it_fill_tid = '0;
     it_fill_vpn = '0; it_fill_lvl = '0; it_fill_pte = '0; iw_ack = 0; iw_done = 0; iw_ok = 1; iw_cause = '0;
-    iq_take = '0; a_ready = 1'b1;
+    iq_take = '0; a_ready = 1'b1; rn_acc = '1;
     for (int t = 0; t < NT; t++) begin
       dst[t] = '{misa_m: 1, misa_b: EXT_B, misa_c: 1, misa_a: 1, misa_f: EXT_FD, misa_d: EXT_FD, fs: 2'd1, frm: '0,
                  priv: PRIV_M, tvm: 0, tw: 0, tsr: 0};
@@ -176,6 +178,7 @@ module tb_fetch
       bit pending_dred;
       // ---- Drive this cycle's inputs (sampled at the next rising edge) ----
       a_ready = $urandom_range(0, 9) < 8;
+      for (int t = 0; t < NT; t++) rn_acc[t] = $urandom_range(0, 9) < 8;
       // a decode redirect this cycle, chosen last cycle after decode took from that thread
       pending_dred = dred;
       if (pending_dred) begin

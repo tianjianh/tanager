@@ -144,6 +144,17 @@ below changes a cycle.
   at fpc_q's input, the F1 loop that fix G (below) cleared. F1's ITLB lookup, privilege, Sv39 mode and PMP descriptors
   are its block's hart's; the micro-BTB is looked up with F1's thread and trained with the trained branch's
   (`upd_tid`); TAGE reads with F1's stream's history and takes the stream as the block address's top bit.
+- **A full queue parks its stream at F2 (5e, smt2_report §13.16):** a block whose thread's queue cannot take it waited
+  in F3, and F3, F2 and F1 with it, so the other thread's fetch waited for this one's decode. Now, while the other
+  stream waits for the pipe (its block in F1, or its next one waiting), F2 passes a block on only if it fits its
+  thread's queue beside that thread's block in F3, each counted at a bound from registers (the parcels from its entry
+  and a straddler's completion; the queue's counts, `tg_fetch_compact`'s `occ_o`). A block that does not fit parks its
+  stream as an I$ miss does, undelivered (no FTQ entry, its later blocks dropped), and the stream restarts at it once
+  its queue has the room. It parks only when decode has not read that thread's queue for 2 cycles while the queue held
+  instructions (`QP_WAIT`: its RN register holds a stalled group); a queue that drains is read every other cycle, and
+  its block waits in F3 a cycle or two as before, which costs less than a refetch. At 30 cycles: 1.293 with no
+  starving pair, against 5d's 1.248 with three (memory pairs 1.296 → 1.348, mixed 1.252 → 1.356, compute 1.198 →
+  1.191). TG-FQPARK counts the parks.
 - **Redirects per stream:** a flush and decode's redirect may come in one cycle for different threads and both apply;
   for one stream the flush wins. A redirect kills only its stream's blocks in F1, F2 and F3 and its pending action; F2's
   action likewise drops only its stream's later blocks (the other stream's block in F2 waits a cycle, and the I$ data
@@ -269,6 +280,8 @@ below changes a cycle.
   - kills `tg_exec`'s RF and EX stages on every integer port (no write-back, branch, MUL, DIV, CSR or AG).
 
   The load then replays from the LQ and wakes its LLT when it completes.
+
+  **Its filter (`SPEC_WAKE_FILT`, on by default):** a 2-bit count per PC hash (32 entries, `pc[15:1]` folded to 5 bits) goes up by one when a tracked load does not complete in M2 and down by one when it does. From 2, that PC's loads do not wake their dependants speculatively and so never cancel: their dependants wait for the result. They still pass through the tracker, which trains the count. With `SPEC_WAKE_FILT=2` a load that misses the D$ in M2 leaves its count alone (`tg_lsu`'s `ld_m2_miss`): a streaming loop's loads, which miss every time, keep their wakeups, and their cancels pace the loop's misses as before the filter. `SPEC_WAKE_FILT=0` lets every tracked load speculate, cycle for cycle as before the filter.
 
   Rename and IQ-FP see only confirmed W bits: rename drops a source's dependency when its bit is set, and P4 reads integer sources from the register file. With `SPEC_WAKE=0`, loads wake their LLT when their result is written, as DIV does.
 
@@ -443,6 +456,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_TAGE` (`TAGE_ON`, on): TAGE-lite and the FTQ, with F2's prediction of straddlers and (with `TG_RAS`) returns (§3.2).
 - `TG_TAGE_NT`, `TG_TAGE_LI`, `TG_TAGE_TW`, `TG_TAGE_BI`: TAGE-lite's sizes (§3.2; two tables of 2K, DR-170).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
+- `TG_SPEC_WAKE_FILT` (`SPEC_WAKE_FILT`, 1): the speculative wakeup's filter (§6): a load whose PC's loads keep failing to complete in M2 does not wake its dependants speculatively. `TG_SPEC_WAKE_FILT=2`: D$ misses do not count as failures. `TG_SPEC_WAKE_FILT=0` lets every tracked load wake its dependants, cycle for cycle as before the filter.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
 - `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).

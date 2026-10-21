@@ -109,6 +109,16 @@ package tg_core_pkg;
 `else
   localparam bit SPEC_WAKE = 1'b1;
 `endif
+  // Speculative wakeup's filter (tg_issue): a load whose PC's loads keep failing to complete in M2
+  // does not wake its dependants speculatively (a 2-bit count per PC hash). 1 (the default): every
+  // failure counts; 2: a load that missed the D$ in M2 leaves its count alone (tg_lsu's ld_m2_miss),
+  // so a streaming loop's loads keep their wakeups; TG_SPEC_WAKE_FILT=0 lets every tracked load wake
+  // its dependants, cycle for cycle as before the filter
+`ifdef TG_SPEC_WAKE_FILT
+  localparam int SPEC_WAKE_FILT = `TG_SPEC_WAKE_FILT;
+`else
+  localparam int SPEC_WAKE_FILT = 1;
+`endif
   // The return-address stack (plan §4.2, M6; tg_ras, RAS_ENTRIES of the configuration): decode
   // predicts returns from it, and a flush restores it exactly from commit's copy. On by default;
   // TG_RAS=0 turns it off: the front end without it, cycle for cycle

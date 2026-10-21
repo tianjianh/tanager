@@ -63,7 +63,8 @@ module tg_fetch_compact
   output tid_t                    out_tid,
   output logic [RD-1:0]           out_valid,
   output logic [RD-1:0][IB_W-1:0] out_insn,
-  input  logic [idx_w(RD + 1)-1:0] take        // instructions decode takes this cycle (out_tid's)
+  input  logic [idx_w(RD + 1)-1:0] take,       // instructions decode takes this cycle (out_tid's)
+  output logic [NUM_THREADS-1:0][idx_w(DEPTH):0] occ_o   // MT (5e): each thread's entries, registered (fetch's room)
 );
   localparam bit MT = HART1_ON && NUM_THREADS > 1;   // a queue per thread (two threads)
   localparam int NQ = MT ? 2 : 1;
@@ -119,6 +120,7 @@ module tg_fetch_compact
   logic [QW:0]   occ_q, rocc;                // the block's thread's count; the reader's
   logic [QW-1:0] head_q, tail_q;             // the reader's head; the block's thread's tail
   assign occ_q  = occ_t_q[wq];
+  always_comb for (int q = 0; q < NUM_THREADS; q++) occ_o[q] = (q < NQ) ? occ_t_q[q < NQ ? q : 0] : '0;
   assign tail_q = tail_t_q[wq];
   assign rocc   = occ_t_q[rq];
   assign head_q = head_t_q[rq];
