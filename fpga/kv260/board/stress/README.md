@@ -476,3 +476,16 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
   - **The board's network is down, on the laptop's side.** eth0 lost its link four times while the laptop rebooted (27,630–27,716 s). Its link came back at 1 Gb/s/Full, but it has no IPv4 address ([`uart_COM7_s21_net.txt`](uart_COM7_s21_net.txt)).
   - The laptop's connection sharing reports itself running, but nothing listens on UDP 67 (DHCP) or 53 (DNS), and the laptop's ARP entry for 192.168.137.6 stays "Incomplete". This is the known ICS fault after a reboot, and the user's restart of ICS fixes it.
   - The hourly checks resume once the lease is back; until then, the checks are what's missing.
+
+**s21 ended at 08:03:44–08:04:00 UTC on 10-21 (01:04 PDT), by an external power cut.** The user interrupted the board's power supply ("I interrupted the board power supply seems, just let you know"). It was not a board fault.
+- **When:**
+  - COM5's last line is pass 432 (`fails=0`) at 51,018.75 s of uptime, at 08:03:44.
+  - COM7 then shows a cold power-up: the FSBL, `Net: PHY reset timed out`, and `tanager-mode: ARM mode` (trial 1: the RISC-V boot was never confirmed). Ubuntu's kernel was 36 s in at 08:04:46 ([`uart_COM7_s21_cut.txt`](uart_COM7_s21_cut.txt)).
+  - Ubuntu came up with `fancontrol` active and `k26-starter-kits` loaded. It has no IPv4 address while the laptop's ICS serves no DHCP; SSH works over its IPv6 link-local address. Its clock came back at 10-20 12:48 (no NTP).
+- **s21's totals, 17:58:22 UTC 10-20 to the cut: 14.09 h of stress.**
+  - 432 passes, all clean. 428 are logged; passes 232–235 ran during the laptop's reboot, and the cumulative count stayed at `fails=0` through pass 432.
+  - No FAIL/DMESG line, no SD1 timeout, no probe capture, no kernel trouble.
+  - Steady over 401 passes: 116.1 s per pass, cpu 90.31 events/s, memory 124.62 MiB/s, threads 2,221 events, with the watch's cost. 27 passes are left out for the network checks and the experiments; pass 236 is flagged only because its uptime span covers the unlogged passes.
+  - Network checks: 8 of 8 OK, 0.47–0.57 MB/s up and 0.52–0.58 down, `apt-get update` exit 0 every time. Checks 9 on (from 02:28) never ran: the laptop's reboot left its ICS serving no DHCP, so the board had no lease.
+- **The coordinator's call:** no restart of the 24 h soak on d4r2. The 60 of 60 boots and these 14 clean hours are enough for DR-176's fix. The next long stress comes with the product build that runs hart 1 (M8, 72 h).
+- Logs: [`uart_COM5_s21_part1.txt`](uart_COM5_s21_part1.txt) (to pass 231), [`uart_COM5_s21_part2.txt`](uart_COM5_s21_part2.txt) (passes 236–432), [`net_s21.txt`](net_s21.txt).
