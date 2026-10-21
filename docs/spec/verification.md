@@ -859,10 +859,16 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
 - **Commands:**
   - `make -C tests/bench/pair [REPEAT=0]` builds the 13 programs at both slots, 26 alone images and 42 pair images. Builds repeat bit for bit. `manifest.md5` lists every ELF's md5 and `build.info` the tree, so the model and the RTL can check that they run the same files; a program's code moves with any change to the runtime, which is linked first;
   - `replay` runs the images Spike against Spike;
-  - `run [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the hangs, and the group and overall figures.
-    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON.
-    - `SELECT` runs some programs (their alone runs and every pair they are in) or some pairs.
+  - `run BASIS=half|merged [ALONE_SIM=<tg_vsim>] [ONLY=alone|pairs|all] [LAT=30,120,250] [LOCKSTEP=0] [SELECT=prog,a+b]` runs them in `tg_vsim` with `CFG=smt2`, lockstep on by default. It writes the figures as JSON in the build directory: the basis, each run's region cycles, instructions, IPC and restarts per slot, the alone runs' whole cycles, each pair's WS, the pairs left out, and the group and overall figures.
+    - The alone runs go first. `ONLY=pairs` takes the alone figures from `ONLY=alone`'s JSON, and refuses one of another basis.
+    - `SELECT` runs some programs (every pair they are in) or some pairs; every program in those runs alone too.
+    - **Every pair counts or is named.** A pair that hangs, fails or lacks a line of output is left out of the means. The report lists each with its reason, and the overall figure needs all three groups.
+    - **Same-program pairs before the print lock** (fixed 10-21): chase8 + chase8 and CoreMark + CoreMark came out NaN on step 5c's RTL. The two copies' regions end within cycles of each other, and the first finisher's `PAIR-STOP` line interleaved on the UART with the last one's results. The runtime now prints under a lock. On 5c, at 30 cycles, they read 1.001 and 1.158.
     - The alone runs must use the same images as the pairs: a change to the runtime alone moved CoreMark's alone cycles by 1%, through code alignment.
+- **The basis** (`--basis`, required on the RTL, printed and kept in the JSON) is what each program alone had (smt2_report §13.14):
+  - **half:** its half of the split window. On a build with hart 1 on, before step 6 merges the window while the sibling sleeps, this is what alone runs on the pairs' build get;
+  - **merged:** the whole window. That is step 6's merge, or before step 6 a build with hart 1 off, given as `ALONE_SIM` (`--alone-sim`);
+  - **exit 2 is judged on merged.** Half-window alone runs are slower and read memory pairs high: on step 5c's RTL the half basis gave 1.221, where the model reads 1.376 on that basis and 1.279 on merged.
 - **Hangs:**
   - **What the model predicts:** without the drain's priority, smt2-study's model hangs six pairs at step 5 — chase8 with stream, spmv, copy, minver and Dhrystone, and chase8 + chase8 at 120 and 250. The sibling's committed stores wait for miss entries that chase8's loads keep taking.
   - **The limit:** each pair's cycle limit is three times its two programs' whole alone runs (`--cap`).
@@ -901,7 +907,7 @@ M7's exit 2 (m7-smt2-plan §1): weighted throughput at least 1.3 times single-th
   - **step 5 without the priority:** the six chase8 pairs above hang;
   - **without caps, fairness is poor:** at 120 cycles, a program beside a memory kernel keeps as little as 0.10–0.15 of its alone IPC (minver, Dhrystone, stream and copy beside chase8, CoreMark beside gather);
   - **step 7:** 50% caps with a bank's last row kept on demand give 1.333 / 1.348 / 1.332, the only form above 1.3 at every point. Never a whole bank gives 1.298 / 1.328 / 1.322, and 75% caps with the priority 1.316 / 1.304 / 1.284.
-- **The pairs** run once hart 1 fetches (M7's step 5). The alone runs are repeated on that build, and again after step 6 merges D2's window: both steps change the core one hart sees.
+- **The pairs** run once hart 1 fetches (M7's step 5c). The alone runs are repeated on that build (the half basis until step 6), and on the merged basis for exit 2: after step 6 on the same build, or before it on a build with hart 1 off.
 
 ## 5. The test core (`tg_tcore`)
 
