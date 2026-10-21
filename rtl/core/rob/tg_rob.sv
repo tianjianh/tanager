@@ -158,6 +158,11 @@ module tg_rob
   assign t_ds = (NT > 1) ? ds_uop[0].tid : tid_t'(0);
   assign t_cm = (SPLIT && NT > 1) ? ct_q : RUN_TID;
   assign t_fl = (NT > 1) ? flush_tid : tid_t'(0);
+  // A report (completion, exception, mispredict, MMIO, replay) in a flush's cycle is dropped when its entry is the
+  // flushed thread's: every report while one thread runs; with hart 1 (MT) the other thread's reports stand
+  function automatic logic rdrop(input robid_t e, input logic fl, input tid_t ft);
+    return fl && (!MT || rob_tid(e) == ft);
+  endfunction
   robid_t [NT-1:0] head_q, tail_q;
   assign head_o   = head_q;
   assign hd_tid_o = t_cm;
@@ -297,8 +302,8 @@ module tg_rob
   // at dispatch (that parity then, XOR the flag's initial value), so dispatch writes none of the
   // tables, and their contents need no reset. This holds while every live entry gets at most
   // one report per flag per lap and none as it is dispatched (asserted); reports in a flush
-  // cycle are dropped, as the flip-flop flags dropped them, and later ones for squashed entries
-  // come before those entries are dispatched again.
+  // cycle for the flushed thread's entries are dropped (rdrop), as the flip-flop flags dropped them,
+  // and later ones for squashed entries come before those entries are dispatched again.
   // Read ports per table: the commit slots' entries, the dispatched entries, and its own write
   // entry (the toggle).
   localparam int NCP = N_ALU + 9;                // completion ports
@@ -346,7 +351,7 @@ module tg_rob
   robid_t [1:0]     sp_e_q;
   always_ff @(posedge clk) begin
     for (int i = 0; i < 2; i++) begin
-      sp_v_q[i] <= st_cmp[i] && !flush && !rst;
+      sp_v_q[i] <= st_cmp[i] && !rdrop(st_rob[i], flush, t_fl) && !rst;
       sp_e_q[i] <= st_rob[i];
     end
   end
@@ -354,7 +359,7 @@ module tg_rob
   robid_t [NFT-1:0] fw_e;
   always_comb begin
     for (int t = 0; t < NFT; t++) begin
-      fw_v[t] = ft_v[t] && !flush && !rst;
+      fw_v[t] = ft_v[t] && !rdrop(ft_e[t], flush, t_fl) && !rst;
       fw_e[t] = ft_e[t];
     end
     for (int i = 0; i < 2; i++) begin
@@ -441,7 +446,8 @@ module tg_rob
       for (int w = 0; w < NRW; w++) if (w != b) wd ^= rw_rd[w][(b < w) ? b : b - 1];
     end
     tg_ram_lut #(.DEPTH(ROB_ENTRIES), .WIDTH(1), .NR(NRR)) u_rw (
-      .clk, .we(rw_v[b] && !flush && !rst), .waddr(rw_a[b]), .wdata(wd), .raddr(ra), .rdata(rw_rd[b]));
+      .clk, .we(rw_v[b] && !rdrop(robid_t'(rw_a[b]), flush, t_fl) && !rst), .waddr(rw_a[b]), .wdata(wd), .raddr(ra),
+      .rdata(rw_rd[b]));
   end
   logic [CW-1:0] rpl_h;                          // the flag of each commit slot's entry
   always_comb begin
@@ -789,20 +795,21 @@ module tg_rob
         end
         // Completions, exceptions, mispredicts and MMIO loads: the toggle tables; replay: the
         // XOR-banked tables (above)
-
-        // Oldest exception: the current register and this cycle's reports
-        for (int t = 0; t < NT; t++) begin
+      end
+      // Oldest exception: the current register and this cycle's reports (in a flush's cycle the other
+      // thread's, with hart 1)
+      for (int t = 0; t < NT; t++)
+        if (!flush || (MT && t_fl != tid_t'(t))) begin
           exr_v_q[t] <= ex_v[t] && !(do_trap && t_cm == tid_t'(t));
           exr_rob_q[t] <= ex_r[t]; exr_cause_q[t] <= ex_c[t]; exr_tval_q[t] <= ex_t[t];
           exr_mem_q[t] <= ex_m[t];
         end
-        // Oldest mispredict, its thread's
-        if (br_valid && br_misp && !br_exc &&
-            (!mpr_v_q[rob_tid(br_rob)] || rob_older(br_rob, mpr_rob_q[rob_tid(br_rob)]))) begin
-          mpr_v_q[rob_tid(br_rob)]   <= 1'b1;
-          mpr_rob_q[rob_tid(br_rob)] <= br_rob;
-          mpr_npc_q[rob_tid(br_rob)] <= br_npc;
-        end
+      // Oldest mispredict, its thread's
+      if (br_valid && br_misp && !br_exc && !rdrop(br_rob, flush, t_fl) &&
+          (!mpr_v_q[rob_tid(br_rob)] || rob_older(br_rob, mpr_rob_q[rob_tid(br_rob)]))) begin
+        mpr_v_q[rob_tid(br_rob)]   <= 1'b1;
+        mpr_rob_q[rob_tid(br_rob)] <= br_rob;
+        mpr_npc_q[rob_tid(br_rob)] <= br_npc;
       end
     end
   end
@@ -851,8 +858,8 @@ module tg_rob
     return rob_cnt_t(e, head_q[rob_tid(e)]) < rob_cnt_t(tail_q[rob_tid(e)], head_q[rob_tid(e)]);
   endfunction
   always_ff @(posedge clk) begin
-    if (!rst && !flush) begin
-      if (ds_fire) begin
+    if (!rst) begin
+      if (ds_fire && !flush) begin
         for (int k = 0; k < DISPATCH_WIDTH; k++) begin
           if (ds_valid[k]) begin
             cmp_s[ds_ren[k].rob[RIW-1:0]]  <= !ds_ren[k].has_q;
@@ -863,14 +870,15 @@ module tg_rob
           end
         end
       end
-      if (replay_valid) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
-      for (int i = 0; i < 2; i++) if (tlbm_valid[i]) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
+      if (replay_valid && !rdrop(replay_rob, flush, t_fl)) rpl_s[replay_rob[RIW-1:0]] <= 1'b1;
+      for (int i = 0; i < 2; i++)
+        if (tlbm_valid[i] && !rdrop(tlbm_rob[i], flush, t_fl)) rpl_s[tlbm_rob[i][RIW-1:0]] <= 1'b1;
       for (int a = 0; a < NRW; a++)
         for (int b = a + 1; b < NRW; b++)
-          assert (!(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
+          assert (flush || !(rw_v[a] && rw_v[b] && rw_a[a] == rw_a[b]))
             else $error("tg_rob: two replay-table writers at entry %0d", rw_a[a]);
       for (int t = 0; t < NFT; t++) begin
-        if (ft_v[t]) begin
+        if (ft_v[t] && !rdrop(ft_e[t], flush, t_fl)) begin
           if (t < NCP)            cmp_s[ft_e[t][RIW-1:0]]  <= 1'b1;
           else if (t < NCP + NXP) exc_s[ft_e[t][RIW-1:0]]  <= 1'b1;
           else if (t == NFT - 2)  misp_s[ft_e[t][RIW-1:0]] <= 1'b1;
@@ -903,7 +911,7 @@ module tg_rob
             assert (!(ds_valid[k] && ds_ren[k].rob[RIW-1:0] == sp_e_q[i][RIW-1:0]))
               else $error("tg_rob: a store table's late write at entry %0d as it is dispatched", sp_e_q[i]);
       for (int j = 0; j < CW; j++) begin
-        if (j < cnt) begin
+        if (j < cnt && !flush) begin
           assert (cmp_h[j] == cmp_s[hid[j][RIW-1:0]] && exc_h[j] == exc_s[hid[j][RIW-1:0]] &&
                   misp_h[j] == misp_s[hid[j][RIW-1:0]] && mmio_h[j] == mmio_s[hid[j][RIW-1:0]])
             else $error("tg_rob: the toggle-table flags of %0d differ from the shadow flags", hid[j]);
