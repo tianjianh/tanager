@@ -27,9 +27,11 @@ if {[info exists ::env(TG_UNCORE_DSP)]} {
 # keeps tg_uncore_pkg's default; summary.txt lists the ones set. TG_DEBUG_CNT=1: the board debug counters.
 # TG_VIRTIO_WINDOW=1: the forwarded virtio window, TG_HOST_DMA=1: the coherent host DMA port on
 # M_AXI_HPM1_FPD (stage C, docs/spec/soc.md §8.1; without it reads there answer DECERR, writes are dropped).
+# TG_LAT_INJ=0: a release build (DR-177), without the two AXI latency injectors; unset or 1 keeps them (a
+# development build, for injected-latency tests). summary.txt says which.
 foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE B_SLICE 1 TG_D_SLICE D_SLICE 1
                   TG_W_SLICE W_SLICE 1 TG_XBAR_IN_SLICE XBAR_IN_SLICE 15 TG_XBAR_SLICE XBAR_SLICE 1 TG_MEM_SLICE MEM_SLICE 1
-                  TG_DEBUG_CNT DEBUG_CNT 1 TG_VIRTIO_WINDOW VIRTIO_WINDOW 1 TG_HOST_DMA HOST_DMA 1} {
+                  TG_DEBUG_CNT DEBUG_CNT 1 TG_VIRTIO_WINDOW VIRTIO_WINDOW 1 TG_HOST_DMA HOST_DMA 1 TG_LAT_INJ LAT_INJ 1} {
   if {![info exists ::env($v)]} continue
   set val $::env($v)
   if {![string is integer -strict $val] || $val < 0 || $val > $hi || ($g eq "L2_DATA_LAT" && $val == 1)} {
@@ -274,6 +276,11 @@ puts $fh "pr_unc=$pr_unc (ns of setup uncertainty on clk_core for placement and 
 puts $fh "opt=$opt_dir (opt_design's directive, DR-166)"
 if {$urf} { puts $fh "urf=1 (DR-174: the integer register file in UltraRAM, clk2x at [expr {2 * $core_mhz}] MHz)" }
 puts $fh "uncore=[expr {$unc_set eq {} ? {-} : $unc_set}]"
+if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {
+  puts $fh "lat_inj=0 (release: no latency injectors, DR-177)"
+} else {
+  puts $fh "lat_inj=1 (development: the two latency injectors)"
+}
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
 close $fh
