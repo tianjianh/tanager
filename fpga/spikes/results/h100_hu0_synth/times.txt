@@ -1,0 +1,4 @@
+generate_target: Time (s): cpu = 00:00:13 ; elapsed = 00:00:16 . Memory (MB): peak = 1847.426 ; gain = 41.000 ; free physical = 9874 ; free virtual = 49557
+get_clocks: Time (s): cpu = 00:00:14 ; elapsed = 00:00:11 . Memory (MB): peak = 9054.613 ; gain = 0.000 ; free physical = 9829 ; free virtual = 49906
+synth_design: Time (s): cpu = 00:16:57 ; elapsed = 00:23:33 . Memory (MB): peak = 9054.613 ; gain = 7207.188 ; free physical = 9791 ; free virtual = 49871
+write_checkpoint: Time (s): cpu = 00:00:14 ; elapsed = 00:00:14 . Memory (MB): peak = 9082.707 ; gain = 28.094 ; free physical = 10521 ; free virtual = 50709

@@ -38,7 +38,7 @@ module tb_freelist
   logic [CW-1:0][IW-1:0]    push_idx;
   logic [idx_w(CW+1)-1:0]   commit_n;
   logic                     flush;
-  logic                     want, xfer;
+  logic                     want, xfer, give_last;
   tid_t                     want_tid, d_want_tid;
 `ifdef TB_WANT_FLIP
   assign d_want_tid = ~want_tid;
@@ -57,7 +57,7 @@ module tb_freelist
 `endif
   tg_freelist #(.DEPTH(DEPTH), .NB(NB), .NPOP(W), .NPUSH(CW), .FIRST(FIRST), .SPLIT_L(SPLIT_L), .FIRST_S(FIRST_S)) dut (
     .clk, .rst, .ready, .count, .pop_tid(d_pop_tid), .pop_idx, .pop_n, .pop, .push_tid, .push_v, .push_idx,
-    .commit_n, .flush, .flush_tid(d_flush_tid), .want, .want_tid(d_want_tid), .xfer);
+    .commit_n, .flush, .flush_tid(d_flush_tid), .want, .want_tid(d_want_tid), .give_last, .xfer);
 
   // ---- The model ----
   int unsigned fq[NT][$];        // each thread's list from its commit head
@@ -87,7 +87,7 @@ module tb_freelist
     void'($urandom(SEED));
     mism = 0; npops = 0; npush_tot = 0; nflush = 0; ncommit = 0; nxfer = 0;
     pop = 1'b0; pop_n = '0; pop_tid = '0; push_tid = '0; push_v = '0; push_idx = '0; commit_n = '0;
-    flush = 1'b0; flush_tid = '0; want = 1'b0; want_tid = '0;
+    flush = 1'b0; flush_tid = '0; want = 1'b0; want_tid = '0; give_last = 1'b0;
     // Inputs change and outputs are sampled at the falling edge, away from the DUT's rising edge
     repeat (3) @(posedge clk);
     @(negedge clk) rst = 1'b0;
@@ -132,7 +132,8 @@ module tb_freelist
       gt = (NT > 1) ? 1 - wt : 0;
       want     = ($urandom_range(0, 99) < 30);
       want_tid = tid_t'(wt);
-      xe = SPLIT_L && NT > 1 && want && wt == pt && fq[gt].size() - spec[gt] >= 2 && np == 0 && !fl;
+      give_last = ($urandom_range(0, 99) < 25);
+      xe = SPLIT_L && NT > 1 && want && wt == pt && fq[gt].size() - spec[gt] >= (give_last ? 1 : 2) && np == 0 && !fl;
       commit_n = (idx_w(CW+1))'(c);
       push_v   = '0;
       for (int j = 0; j < np; j++) begin

@@ -48,6 +48,7 @@ module tg_lsu
   output logic                         ld_block,      // registered: IQ-LD select blocked
   // Load results
   output logic                         ld_m2_will,
+  output logic                         ld_m2_miss,    // the load in M2 missed the D$ (tg_issue's wakeup filter)
   output logic [PIDX_W-1:0]            ld_m2_dst,
   output logic                         ld_res_valid,
   output logic [PIDX_W-1:0]            ld_res_dst,
@@ -823,6 +824,7 @@ module tg_lsu
   assign lm_req = m2_v_q && !kill_t[t_m2] && (m2_pt_q ? !m2_hit_q && !m2_clash_q && !pt_den : m2_out_w == O_MISS);
   assign lm_pa  = m2_pa_q;
   assign ld_m2_will  = m2_okw && lqc_rd[0].dv && !lqc_rd[0].fp;
+  assign ld_m2_miss  = m2_v_q && !m2_pt_q && !m2_fhit_q && !m2_clash_q && !m2_hit_q;
   assign ld_m2_dst   = PIDX_W'(lqc_rd[0].dst);
   assign fld_m2_will = EXT_FD && m2_okw && lqc_rd[0].dv && lqc_rd[0].fp;
   assign fld_m2_idx  = FPIDX_W'(lqc_rd[0].dst);
@@ -871,14 +873,20 @@ module tg_lsu
   logic           dr_hold, dr_sw;          // the head is in use; the drain's thread changes next cycle
   logic [SIW-1:0] dh;
   assign t_dro = (NT > 1) ? ~t_dr_q : t_dr_q;
+  logic [NT-1:0]  fpc_t;                   // (with hart 1) each thread's forward-progress claim on a line (below)
   assign dh = sq_head_q[t_dr_q][SIW-1:0];
   logic dr_v, dr_amo;
   assign dr_v   = sq_v_q[dh] && sq_head_q[t_dr_q] != sq_cmt_q[t_dr_q];
   assign dr_amo = dr_v && sq_amo_q[dh];      // performed before commit: leaves without a write
   logic dr_mmio_go;
-  assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q;
-  assign mm_go = mm_cand && sq_drn[t_hd] && !dr_mmio_go && xs_q == X_IDLE && !xr_v_q && !kill_t[t_hd] && !mm_hold &&
-                 !irq_go;
+  assign dr_mmio_go = dr_v && sq_mmio_q[dh] && xs_q == X_IDLE && !xr_v_q && !(HART1_ON && NT > 1 && fpc_t[t_dro]);
+  // With hart 1 the other thread's MMIO load also waits for a completed one to retire (xd_q): the MMIO state is one
+  // set, and its thread (x_t, from x_lq_q) says whose load holds back interrupts (mmio_busy) and when xd_q clears. A
+  // second load issued over it took that over, so an interrupt could flush the first, completed but not retired, and
+  // its read ran twice (verif-2's two-hart random programs, 10-21). With one thread the load waiting is its head's,
+  // so none can be issued meanwhile
+  assign mm_go = mm_cand && sq_drn[t_hd] && !dr_mmio_go && xs_q == X_IDLE && !xr_v_q && !(HART1_ON && NT > 1 && xd_q) &&
+                 !kill_t[t_hd] && !mm_hold && !irq_go;
   assign st_req   = dr_v && !sq_mmio_q[dh] && !sq_amo_q[dh];
   assign st_pa    = sqh.pa;
   assign st_mask  = {8'b0, sqh.mask} << {sqh.pa[3], 3'b000};
@@ -976,7 +984,7 @@ module tg_lsu
   assign am_sc    = am_op == AMO_SC;
   assign am_go    = am_v_q[t_dr_q] && am_st_q == AM_IDLE && sq_v_q[dh] && sq_av_q[dh] && sq_dv_q[dh] &&
                     sq_head_q[t_dr_q] == am_sq_q[t_dr_q] && rob_head[t_dr_q] == am_rob_q[t_dr_q] &&
-                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q];
+                    !(s2_v_q && s2_idx_q == dh) && !kill_t[t_dr_q] && !(HART1_ON && NT > 1 && fpc_t[t_dro]);
   // Its PMP check (S2) denied it: it faults as it starts, without an access. It starts only after
   // that check (timing: the checker's verdict, which the walker's address also reaches, stays off
   // the atomic's start)
@@ -1052,6 +1060,19 @@ module tg_lsu
       else if (rsv_hold_q[t] != '0)                              rsv_hold_q[t] <= rsv_hold_q[t] - 1'b1;
     end
   always_comb for (int t = 0; t < NT; t++) pr_hold_t[t] = rsv_v_q[t] && rsv_hold_q[t] != '0;
+  // With hart 1, each thread's forward-progress claim (fpc_t): its head store asked for its line and was not
+  // acknowledged (a miss; the D$ keeps the installed line FU_ST cycles for its first write), or its LR's reservation
+  // still holds probes (RSV_HOLD). The sibling's atomic or MMIO store, which holds the head for tens of cycles, starts
+  // only once neither is out: else the window ran out in the sibling's cycles, the other core took the line, and two
+  // cores whose stores or LR/SC loops met on a line, each beside a spinning sibling, took it from each other forever
+  // (verif-2's four-hart coherence programs, 10-21). Recorded in the thread's own drain cycles; a committed store
+  // outlives a flush, so a flush leaves it
+  logic [NT-1:0] stm_q;
+  always_ff @(posedge clk)
+    for (int t = 0; t < NT; t++)
+      if (rst || !(HART1_ON && NT > 1)) stm_q[t] <= 1'b0;
+      else if (t_dr_q == tid_t'(t))     stm_q[t] <= st_req && !st_ack;
+  always_comb for (int t = 0; t < NT; t++) fpc_t[t] = stm_q[t] || pr_hold_t[t];
   assign pr_hold = |pr_hold_t;
   // Loads wake their LLT the cycle before the register file is written
   always_comb begin

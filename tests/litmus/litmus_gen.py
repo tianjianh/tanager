@@ -200,6 +200,16 @@ class Prog:
     def lab(self, s):
         self.text.append(f"{s}:")
 
+    def slot(self, op, rd, off, base):
+        """`op rd, off(base)`, through t6 (free in the counting code) when off is past the 12-bit immediate: a
+        test with hundreds of allowed states has a count table longer than 2 KiB."""
+        if off < 2048:
+            self.e(f"{op} {rd}, {off}({base})")
+        else:
+            self.e(f"li t6, {off}")
+            self.e(f"add t6, t6, {base}")
+            self.e(f"{op} {rd}, 0(t6)")
+
     def li_val(self, rd, v, j):
         if isinstance(v, tuple):
             self.e(f"la {rd}, L{j}_{v[1]}")
@@ -326,31 +336,31 @@ class Prog:
             if v[0] == "mem":
                 e(f"la a1, {P}_{v[1]}")
                 e(f"l{size} a0, 0(a1)")
-                e(f"sd a0, {8 * k}(s2)")
+                self.slot("sd", "a0", 8 * k, "s2")
         e(f"la s3, {P}_cnt")
         for si, tup in enumerate(tuples):
             for k, v in enumerate(tup):
-                e(f"ld a0, {8 * k}(s2)")
+                self.slot("ld", "a0", 8 * k, "s2")
                 if isinstance(v, tuple):
                     e(f"la a1, {P}_{v[1]}")
                 else:
                     e(f"li a1, {v}")
                 e(f"bne a0, a1, {P}_s{si}_no")
-            e(f"ld a0, {8 * si}(s3)")
+            self.slot("ld", "a0", 8 * si, "s3")
             e("addi a0, a0, 1")
-            e(f"sd a0, {8 * si}(s3)")
+            self.slot("sd", "a0", 8 * si, "s3")
             e(f"j {P}_next")
             self.lab(f"{P}_s{si}_no")
         nb = 8 * len(tuples)
-        e(f"ld a0, {nb}(s3)")                          # a state herd does not allow
+        self.slot("ld", "a0", nb, "s3")                          # a state herd does not allow
         e("addi a0, a0, 1")
-        e(f"sd a0, {nb}(s3)")
+        self.slot("sd", "a0", nb, "s3")
         e("li a1, 1")
         e(f"bne a0, a1, {P}_next")
         e(f"la a2, {P}_first")
         for k in range(len(var)):
-            e(f"ld a0, {8 * k}(s2)")
-            e(f"sd a0, {8 * k}(a2)")
+            self.slot("ld", "a0", 8 * k, "s2")
+            self.slot("sd", "a0", 8 * k, "a2")
         self.lab(f"{P}_next")
         e("csrr s1, mscratch")
         e("ld a0, 24(s1)")
@@ -372,7 +382,7 @@ class Prog:
         e("la a0, str_bad")
         e("call puts")
         e(f"la s3, {P}_cnt")
-        e(f"ld a0, {nb}(s3)")
+        self.slot("ld", "a0", nb, "s3")
         e("call putu")
         e("la a0, str_s")
         e("call puts")
@@ -380,11 +390,11 @@ class Prog:
             if si:
                 e("li a0, ','")
                 e("call putc")
-            e(f"ld a0, {8 * si}(s3)")
+            self.slot("ld", "a0", 8 * si, "s3")
             e("call putu")
         e("li a0, '\\n'")
         e("call putc")
-        e(f"ld a0, {nb}(s3)")
+        self.slot("ld", "a0", nb, "s3")
         e(f"beqz a0, {P}_done")
         e("la a0, str_litbad")                        # LIT-BAD <name> <var>=<value> ... (the first such state)
         e("call puts")

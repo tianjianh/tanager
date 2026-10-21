@@ -256,6 +256,7 @@ module tg_core
   // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
   dec_state_t [NUM_THREADS-1:0] de_state_h;
   logic [NUM_THREADS-1:0]        rn_blk;      // (MT) the threads behind a serial uop at rename (tg_rename's, for fetch)
+  logic [NUM_THREADS-1:0]        rn_acc;      // (MT, step 5d) the threads whose RN register takes a group next cycle
   always_comb
     for (int t = 0; t < NUM_THREADS; t++) begin
       de_state_h[t]     = dst_csr[t];
@@ -282,8 +283,8 @@ module tg_core
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .tlb_flush,
-    .tlb_flush_tid,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .rn_acc,
+    .tlb_flush, .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -428,7 +429,7 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take, .blk_o(rn_blk),
+    .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .w_vec, .busy(iq_busy),
     .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
@@ -445,6 +446,7 @@ module tg_core
   iq_pl_t [N_IQ-1:0] iss_pl;
   preg_t [N_XQ-1:0][1:0] iss_src_n;     // URF: the RF stage's next source tags
   logic             spec_cancel;                // speculative wakeup's shadow cancel (SPEC_WAKE)
+  logic             ld_m2_miss;                 // the load in M2 missed the D$ (tg_lsu to tg_issue's filter)
   assign wake_reg = wake_x | wake_l | wake_p4;
   assign tag_free = tag_free_x | tag_free_p4;
   // Returned wakeup tags clear their column in every row (the LLT columns keep the guard)
@@ -459,7 +461,7 @@ module tg_core
   logic [NUM_THREADS-1:0] thr_park;
   tg_issue u_is (
     .clk, .rst, .flush, .flush_tid, .disp_we(iq_we), .disp_dep(iq_dep),
-    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .col_clr,
+    .disp_pl(iq_pl), .disp_mdep(iq_mdep), .bank_free(iq_bank_free), .bank_free2(iq_bank_free2), .mx_hold, .mx_alloc, .alloc(wid_alloc), .wake_reg, .ld_m2_miss, .col_clr,
     .bank_nfree(iq_bank_nfree), .room_ge(iq_room_ge), .bank_left(iq_bank_left), .thr_park,
     .w(w_vec), .busy(iq_busy), .a1_block, .ld_block, .fp_misc_block, .iss_valid, .iss_pl, .iss_src_n, .spec_cancel);
 
@@ -624,7 +626,7 @@ module tg_core
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
-    .ld_m2_will, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
+    .ld_m2_will, .ld_m2_miss, .ld_m2_dst, .ld_res_valid, .ld_res_dst, .ld_res_data,
     .wake_ld(wake_l), .llt_done(llt_done_l), .fld_m2_will, .fld_m2_idx, .fld_valid, .fld_idx,
     .fld_data, .sd_tag, .sd_data, .sd_busy, .fsd_tag, .fsd_data, .fp_we, .fp_widx,
     .ds_src2_rdy, .rf_we, .rf_widx,
