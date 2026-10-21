@@ -1294,7 +1294,11 @@ RECON5 = {"5c as modelled: one RN register (§13.14's 1)": {**S5B, **RN_ONE},
           "C: + the RTL's commit turns": {**S5B, **CM_RTL},
           "C: + round robin at fetch": {**S5B, **CM_RTL, **RR},
           "C: + the RTL's shared fetch pipe": {**S5B, **CM_RTL, **RR, **FHOLD},
-          "C: + decode's thread chosen a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, **DEC_RR}}
+          "C: + decode's thread chosen a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, **DEC_RR},
+          "C: + F3's hold on a block that doesn't fit whole": {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2},
+          "C: + rename's choice a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, "smt_rn_sel": 1},
+          "C: + the head window read a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, "smt_commit_stale": 1},
+          "C: + all three": {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}}
 RTL_STALLS = {"commit": r"commit's thread committed nothing \d+ cycles \((\d+) with",   # TG-STALL2 lines, and the
               "fetch": r"F2 holds another stream's fetch \d+ cycles \((\d+) with",     # model's counterparts
               "rename": r"RN holds the other thread's group \d+ cycles \((\d+) with"}
@@ -1745,6 +1749,244 @@ def fp64s(workers):
     return out
 
 
+S7F = {**S7R, **CM_FIX4, **FP64X, "smt_fetch_room": 1}   # step 7 as decided, with the fetch hold's fix as approved
+RESID7 = {"step 7 as decided, the fetch fix (a thread out of fetch while a block doesn't fit)": S7F,
+          "the same, fetch as the model's ideal (out only when its queue is full)": {**S7R, **CM_FIX4, **FP64X},
+          "+ rename's choice a cycle ahead (5d's)": {**S7F, "smt_rn_sel": 1},
+          "+ the head window read a cycle ahead": {**S7F, "smt_commit_stale": 1},
+          "+ both": {**S7F, "smt_rn_sel": 1, "smt_commit_stale": 1}}
+
+
+def resid7(workers):
+    """The coordinator (10-21): the residuals §13.16 left between the model and the RTL, costed at step 7 as decided
+    (C, core-2's commit fix, FP 64 across both, 50% caps, R2 as adopted, round robin), with the fetch hold's fix as
+    approved: its granularity against the model's ideal fetch, rename's choice a cycle ahead, and the head window read
+    a cycle ahead. verif-2's second final set, the merged basis; recon5 checks each against the RTL's counters."""
+    return ws_table("Step 7's remaining residuals", "Configuration", RESID7, workers)
+
+
+RTL_RUNS = {   # the RTL's pair runs (the runner's ws.json, in results/), by final set: the build, the basis, the files
+    "pair-final-39b16a6a": [("5c (071de15c)", "half", ["pair_rtl_5c_071de15c_half.json"]),     # verif-2, REPEAT, 10-21
+                            ("5c (071de15c)", "merged", ["pair_rtl_5c_071de15c_merged.json"])],
+    "pair-final-b7db3e16": [("5c (9cba5f9b)", "half",   # core-2's, 10-21: 30 cycles, then 120 and 250
+                             ["pair_rtl_5c_9cba5f9b.json", "pair_rtl_5c_9cba5f9b_120_250.json"]),
+                            ("C (4c60872b)", "half",
+                             ["pair_rtl_5d_4c60872b.json", "pair_rtl_5d_4c60872b_120_250.json"]),
+                            ("5d (3ed31186; 6ac63df1 at 120 and 250)", "half",
+                             ["pair_rtl_5d_3ed31186.json", "pair_rtl_5d_6ac63df1_120_250.json"]),
+                            ("5e (0138c48c)", "half",
+                             ["pair_rtl_5e_0138c48c.json", "pair_rtl_5e_0138c48c_120_250.json"])]}
+DEC5E, DEC5F = {"smt_dec_rr": 2}, {"smt_dec_rr": 3}   # decode's choice a cycle ahead with 5e's acc_o, with 5f's
+C_AB = {**S5B, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.19's all three
+D_AB = {**C_AB, **CM_FIX4}
+E_AB = {**D_AB, "smt_fetch_hold": 3}   # 5e's fetch as built
+AS_BUILT = {"5c": {"one RN register, the RTL's commit turns, F3's hold, the head window a cycle ahead (§13.19)":
+                       {**S5B, **RN_ONE, **CM_RTL, **RR, "smt_fetch_hold": 2, "smt_commit_stale": 1},
+                   "the same with §13.16's hold (a full queue's block)": {**S5B, **RN_ONE, **CM_RTL, **RR, **FHOLD}},
+            "C": {"a rename register per thread, rename's choice a cycle ahead, decode's a cycle ahead with 5e's "
+                  "acc_o": {**C_AB, **DEC5E},
+                  "the same with the model's own decode (§13.20)": C_AB},
+            "5d": {"C with core-2's commit fix, decode's choice with 5e's acc_o": {**D_AB, **DEC5E},
+                   "the same with the model's own decode (§13.20)": D_AB},
+            "5e": {"5d with the fetch fix as built (F3's hold while its queue drains, a park after 2 cycles unread), "
+                   "decode's choice with 5e's acc_o": {**E_AB, **DEC5E},
+                   "the same with the model's own decode (§13.20)": E_AB},
+            "5f": {"5e with 5f's acc_o (rename's chosen register counts only while its group looks able)":
+                       {**E_AB, **DEC5F}}}
+S7_AB = {**S7R, **CM_FIX4, **FP64X, "smt_fetch_hold": 3, "smt_rn_sel": 1, "smt_commit_stale": 1}   # §13.20's step 7
+STEP7_EST = {"step 7 as decided with 5f (5e's fetch; rename, the head window and decode's choice a cycle ahead, "
+             "5f's acc_o)": {**S7_AB, **DEC5F},
+             "the same with 5e's acc_o": {**S7_AB, **DEC5E},
+             "the same with the model's own decode (§13.20's as built)": S7_AB,
+             "with the fetch fix as approved": {**S7F, "smt_rn_sel": 1, "smt_commit_stale": 1, **DEC5F},
+             "+ rename's choice and the head window in the same cycle (decode's still a cycle ahead)":
+                 {**S7F, "smt_dec_rr": 1}}
+F_SPOT = {("ms_spmv", "embench_nsichneu"): (0.22, 0.61, 1.212, 1.601, 0.62),   # core-2's 5e -> 5f at 250 cycles,
+          ("ms_stream", "embench_nsichneu"): (0.20, 0.73, 1.135, 1.666, 0.46),  # half basis: the compute thread's
+          ("ms_copy", "coremark_A"): (0.34, 0.59, 1.501, 1.708, 0.64),          # share of its alone IPC, the pair's
+          ("ms_hashprobe", "coremark_A"): (0.28, None, 1.220, None, 0.64)}      # WS; 5e's decode slots lost
+
+
+def rtl_runs(name):
+    """The RTL's pair runs on final set `name`: [(build, basis, run)], a run's files merged (pairs, hangs, alone)."""
+    out = []
+    for build, basis, files in RTL_RUNS.get(name, []):
+        rs = [json.loads((ROOT / "results" / f).read_text()) for f in files if (ROOT / "results" / f).exists()]
+        if rs:
+            out.append((build, basis, {"pairs": [p for r in rs for p in r["pairs"]],
+                                       "hangs": [h for r in rs for h in r.get("hangs", [])],
+                                       "alone": {k: v for r in rs for k, v in r["alone"].items()}}))
+    return out
+
+
+def asbuilt(workers):
+    """The coordinator (10-21): the model as built (§13.19's residuals) beside the RTL's measured pairs, over the pairs
+    each RTL run reports (its hangs left out, as the runner's means). The second final set (TG_FINALDIR): verif-2's 5c
+    (main 071de15c) on the half basis (each program alone on its half) and the merged one (alone with hart 1 off, exit
+    2's). The first: core-2's 5c, C, 5d and 5e, half basis. Each set: the model's builds and step 7's estimate over the
+    42 on both bases, the summed IPC against the RTL's, the alone runs, and the latest build per pair."""
+    names = pair_workloads(FINALDIR)
+    runs = rtl_runs(FINALDIR.name)
+    cfgs = {f"{k}: {n}": c for k, rows in AS_BUILT.items() for n, c in rows.items()}
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+            for c in list(cfgs.values()) + list(STEP7_EST.values()) for lat in LATS for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (ALONE, ALONE_HALVES) for lat in LATS for w in names]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, a, b) for c in STEP7_EST.values() for lat in LATS for _, a, b in WS_PAIRS]
+    run_all(jobs, workers)
+    al = {k: {lat: {w: ipc1(run7(PRESET, {**c, "dram_lat": lat}, w, None)) for w in names} for lat in LATS}
+          for k, c in (("merged", ALONE), ("half", ALONE_HALVES))}
+
+    def pair(c, lat, a, b):
+        return ipc2(run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1"))
+
+    def ev(c, lat, basis, sub=None):
+        per = {}
+        for g, a, b in smt.PAIRS:
+            if sub is not None and (a, b, lat) not in sub:
+                continue
+            ip = pair(c, lat, a, b)
+            if ip is not None:
+                per[(a, b)] = (g, ip[0] / al[basis][lat][f"{a}.s0"] + ip[1] / al[basis][lat][f"{b}.s1"], sum(ip))
+        gs = {g: smt.gm(w for gg, w, _ in per.values() if gg == g) for g in GROUPS}
+        return {"ws": smt.gm(gs.values()), "groups": gs, "per": per, "n": len(per)}
+
+    def rtl_ev(run, lat):
+        per = {(p["a"], p["b"]): (p["group"], p["ws"], p["slots"]["0"]["ipc"] + p["slots"]["1"]["ipc"])
+               for p in run["pairs"] if p["lat"] == lat and p["ws"] == p["ws"] and p["ws"] > 0}
+        gs = {g: smt.gm(w for gg, w, _ in per.values() if gg == g) for g in GROUPS}
+        return {"ws": smt.gm(gs.values()), "groups": gs, "per": per, "n": len(per)}
+
+    out = {"set": FINALDIR.name, "rtl": {}, "all42": {}, "sums": {}, "alone": {}}
+    f3 = lambda xs: " / ".join("–" if x is None else f"{x:.3f}" for x in xs)
+
+    def common(r, e):   # an RTL run's evaluation restricted to the pairs a model row completes too
+        per = {ab: v for ab, v in r["per"].items() if ab in e["per"]}
+        gs = {g: smt.gm(w for gg, w, _ in per.values() if gg == g) for g in GROUPS}
+        return {"ws": smt.gm(gs.values()), "groups": gs, "n": len(per)}
+
+    print(f"\n**The RTL beside the model as built** ({FINALDIR.name}; WS at 30 / 120 / 250 cycles: the RTL over the "
+          "pairs it reports, its hangs left out; each model row over the pairs both complete, beside the RTL over "
+          "the same; the residual is the RTL's WS over the model's on those)\n")
+    print("| Build, basis | | All | memory + memory | compute + compute | mixed | Pairs | The RTL, the same pairs | "
+          "Residual |\n|---|---|---|---|---|---|---|---|---|")
+    for build, basis, run in runs:
+        re_ = [rtl_ev(run, lat) for lat in LATS]
+        sub = {(a, b, lat) for lat, e in zip(LATS, re_) for a, b in e["per"]}
+        hung = {lat: [smt.pname(h["a"], h["b"]) for h in run["hangs"] if h["lat"] == lat] for lat in LATS}
+        key = f"{build}, {basis}"
+        out["rtl"][key] = {"rtl": [{"ws": e["ws"], "groups": e["groups"], "n": e["n"]} for e in re_], "hangs": hung,
+                           "model": {}}
+        print(f"| {key} | the RTL | **{f3(e['ws'] for e in re_)}** | " +
+              " | ".join(f3(e["groups"][g] for e in re_) for g in GROUPS) + " | " +
+              " / ".join(str(e["n"]) for e in re_) + " | | |")
+        for n, c in AS_BUILT[build.split()[0]].items():
+            es = [ev(c, lat, basis, sub) for lat in LATS]
+            cs = [common(r, e) for r, e in zip(re_, es)]
+            rs = [x["ws"] / e["ws"] if e["ws"] else 0.0 for x, e in zip(cs, es)]
+            out["rtl"][key]["model"][n] = {"ws": [e["ws"] for e in es], "groups": [e["groups"] for e in es],
+                                           "n": [e["n"] for e in es], "rtl_same": [x["ws"] for x in cs],
+                                           "rtl_same_groups": [x["groups"] for x in cs], "residual": rs}
+            print(f"| | the model: {n} | {f3(e['ws'] for e in es)} | " +
+                  " | ".join(f3(e["groups"][g] for e in es) for g in GROUPS) + " | " +
+                  " / ".join(str(e["n"]) for e in es) + f" | {f3(x['ws'] for x in cs)} | " +
+                  " / ".join(f"{x:.3f}" for x in rs) + " |")
+            # the two threads' summed IPC, the model's over the RTL's, by group (the bases' alone runs left out)
+            out["sums"][f"{key}: {n}"] = [{g: smt.gm(e["per"][ab][2] / r["per"][ab][2] for ab in e["per"]
+                                                     if ab in r["per"] and r["per"][ab][0] == g) for g in GROUPS}
+                                          for r, e in zip(re_, es)]
+    for key, v in out["rtl"].items():
+        for lat in LATS:
+            if v["hangs"][lat]:
+                print(f"- The RTL's {key}, {lat} cycles: {', '.join(v['hangs'][lat])} hung")
+    print("\n**The residual by group** (the RTL's WS over the model's on the pairs both complete; memory / compute / "
+          "mixed)\n")
+    print("| Build, basis: the model's row | 30 | 120 | 250 |\n|---|---|---|---|")
+    for key, v in out["rtl"].items():
+        for n, m in v["model"].items():
+            print(f"| {key}: {n} | " + " | ".join(" / ".join(f"{x[g] / y[g]:.3f}" if y[g] else "–" for g in GROUPS)
+                                                 for x, y in zip(m["rtl_same_groups"], m["groups"])) + " |")
+    print("\n**The two threads' summed IPC in a pair, the model's over the RTL's** (geometric mean over the group's "
+          "pairs; memory / compute / mixed; 30 / 120 / 250 cycles)\n")
+    print("| Build, basis: the model's row | 30 | 120 | 250 |\n|---|---|---|---|")
+    for n, s in out["sums"].items():
+        print(f"| {n} | " + " | ".join(" / ".join(f"{x[g]:.3f}" for g in GROUPS) for x in s) + " |")
+    for basis in ("merged", "half"):
+        print(f"\n**Over the 42, {basis} basis** (the model; hangs over the 42 and, for step 7, the 16 working-set "
+              "pairs; 30 / 120 / 250 cycles)\n")
+        print("| Configuration | All | memory + memory | compute + compute | mixed | Hung, of the 42 | "
+              "Hung, of the 16 |\n|---|---|---|---|---|---|---|")
+        for n, c in list(cfgs.items()) + list(STEP7_EST.items()):
+            es = [ev(c, lat, basis) for lat in LATS]
+            dl = [[smt.pname(a, b) for _, a, b in smt.PAIRS if (a, b) not in e["per"]] for e in es]
+            wd = ([sum(1 for _, a, b in WS_PAIRS if dead(run7(PRESET, {**c, "dram_lat": lat}, a, b))) for lat in LATS]
+                  if n in STEP7_EST else None)
+            out["all42"][f"{basis}: {n}"] = {"ws": [e["ws"] for e in es], "groups": [e["groups"] for e in es],
+                                             "hung": dl, "ws_dead": wd}
+            print(f"| {n} | **{f3(e['ws'] for e in es)}** | " +
+                  " | ".join(f3(e["groups"][g] for e in es) for g in GROUPS) + " | " +
+                  " / ".join(str(len(d)) for d in dl) + " | " + (" / ".join(map(str, wd)) if wd else "–") + " |")
+        for n, v in out["all42"].items():
+            if n.startswith(basis):
+                for lat, d in zip(LATS, v["hung"]):
+                    if d:
+                        print(f"- {n}, {lat} cycles: {', '.join(d)} hung")
+    print("\n**Alone** (IPC over the first region, slot 0; 30 / 120 / 250 cycles): the RTL's alone runs (the merged "
+          "basis: hart 1 off; the half basis: hart 1 parked, the program on its half) and the model's on each basis\n")
+    bs = sorted({basis for _, basis, _ in runs})
+    print("| Program | " + " | ".join(f"The RTL, {build}, {basis}" for build, basis, _ in runs) + " | " +
+          " | ".join(f"The model, {b}" for b in bs) + " |\n|---|" + "---|" * (len(runs) + len(bs)))
+    rat = [{lat: [] for lat in LATS} for _ in runs]
+    for p in smt.MEM + smt.COMP:
+        rts = [[run["alone"].get(f"{p}@s0@{lat}", {}).get("ipc") for lat in LATS] for _, _, run in runs]
+        mos = {b: [al[b][lat][f"{p}.s0"] for lat in LATS] for b in bs}
+        for i, ((_, basis, _), rt) in enumerate(zip(runs, rts)):
+            for lat, x, y in zip(LATS, rt, mos[basis]):
+                if x and y:
+                    rat[i][lat].append(y / x)
+        out["alone"][p] = {"rtl": {f"{build}, {basis}": rt for (build, basis, _), rt in zip(runs, rts)}, "model": mos}
+        print(f"| {p} | " + " | ".join(f3(rt) for rt in rts) + " | " + " | ".join(f3(mos[b]) for b in bs) + " |")
+    print("| The model's on the run's basis over the RTL's, geometric mean | " +
+          " | ".join(f3(smt.gm(r[lat]) for lat in LATS) for r in rat) + " |" + " |" * len(bs))
+    last = [(build, basis, run) for build, basis, run in runs if basis == "merged"] or runs[-2:]
+    for build, basis, run in last:
+        c = next(iter(AS_BUILT[build.split()[0]].values()))
+        print(f"\n**Per pair, {build} on the {basis} basis** (WS, 30 / 120 / 250 cycles: the RTL; the model as "
+              "built)\n")
+        print("| Pair | Group | The RTL | The model |\n|---|---|---|---|")
+        for g, a, b in smt.PAIRS:
+            rt = [rtl_ev(run, lat)["per"].get((a, b), (0, None))[1] for lat in LATS]
+            mo = [ev(c, lat, basis, {(a, b, lat)})["per"].get((a, b), (0, None))[1] for lat in LATS]
+            cell = lambda xs: " / ".join("hung" if x is None else f"{x:.2f}" for x in xs)
+            print(f"| {smt.pname(a, b)} | {g} | {cell(rt)} | {cell(mo)} |")
+    first = FINALDIR.name == "pair-final-b7db3e16"   # core-2's images
+    print("\n**core-2's four mixed pairs at 250 cycles, half basis** (the compute thread's share of its alone IPC; "
+          "the pair's WS; decode's slots left empty while the other thread's queue holds instructions, as TG-STALL2 "
+          "counts them, over the longer region" + ("; the RTL's 5e and 5f first)\n" if first else ")\n"))
+    rows = {f"5e: {n}": c for n, c in AS_BUILT["5e"].items()}
+    rows.update({f"5f: {n}": c for n, c in AS_BUILT["5f"].items()})
+    rows.update({f"step 7: {n}": c for n, c in list(STEP7_EST.items())[:3]})
+    print("| Pair | " + ("The RTL, 5e | The RTL, 5f | " if first else "") + " | ".join(rows) + " |\n|---|" +
+          "---|" * (len(rows) + (2 if first else 0)))
+    for (a, b), (s5e, s5f, w5e, w5f, d5e) in F_SPOT.items():
+        cells = []
+        for c in rows.values():
+            r = run7(PRESET, {**RUNNER, **c, "dram_lat": 250}, f"{a}.s0", f"{b}.s1")
+            ip = ipc2(r)
+            if ip is None:
+                cells.append("hung")
+                continue
+            ws = ip[0] / al["half"][250][f"{a}.s0"] + ip[1] / al["half"][250][f"{b}.s1"]
+            cyc = max(t["region"]["cycles"] for t in r["threads"])
+            lost = sum(t["region"].get("dec_lost_other", 0) for t in r["threads"]) / (2 * cyc)
+            cells.append(f"{ip[1] / al['half'][250][f'{b}.s1']:.2f}, {ws:.3f}, {lost:.0%}")
+            out.setdefault("spot", {}).setdefault(smt.pname(a, b), []).append([ip[1] / al["half"][250][f"{b}.s1"],
+                                                                               ws, lost])
+        rt = [f"{s5e:.2f}, {w5e:.3f}, {d5e:.0%}", "–" if s5f is None else f"{s5f:.2f}, {w5f:.3f}"] if first else []
+        print(f"| {smt.pname(a, b)} | " + " | ".join(rt + cells) + " |")
+    prev = json.loads(OUT.read_text()).get("asbuilt", {}) if OUT.exists() else {}   # each set's run kept
+    return {**{k: v for k, v in prev.items() if k.startswith("pair-final")}, FINALDIR.name: out}
+
+
 def fp64w(workers):
     """fpu-2's fixes upstream of the hold (10-21): stop the restore crossing. (1) While the sibling is parked, the
     running hart borrows its free registers ahead of need, one a cycle in each bank (prf_xfer_eager); (2) a group short
@@ -1791,6 +2033,9 @@ def main():
     ap.add_argument("--eagerwake", action="store_true", help="eager borrowing's cost to a sibling that wakes")
     ap.add_argument("--fp64s", action="store_true", help="fpu-2's six FP 64 cases beside core-2's RTL, with P")
     ap.add_argument("--fp64p", action="store_true", help="fpu-2's P on the FP pairs and the lone programs")
+    ap.add_argument("--resid7", action="store_true", help="step 7's remaining residuals against the RTL, costed")
+    ap.add_argument("--asbuilt", action="store_true", help="the model as built beside the RTL's pair runs (verif-2's "
+                    "5c, core-2's 5c to 5e); step 7's estimate")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
@@ -1801,7 +2046,7 @@ def main():
                      ("rnstall", rnstall), ("icount", icount), ("caplift", caplift), ("bankrule", bankrule),
                      ("recon5", recon5), ("recon7", recon7), ("final7", final7), ("fp64q", fp64q),
                      ("fp64r", fp64r), ("fp64w", fp64w), ("eagerwake", eagerwake), ("fp64s", fp64s),
-                     ("fp64p", fp64p)):
+                     ("fp64p", fp64p), ("resid7", resid7), ("asbuilt", asbuilt)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

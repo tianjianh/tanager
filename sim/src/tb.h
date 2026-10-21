@@ -19,6 +19,7 @@ struct hw_cfg_t {
   unsigned trace_wb_ports = 0, pa_w = 34, l1i_mshrs = 0, l1d_mshrs = 0;
   unsigned llt_entries = 0, trace_stall_headroom = 0;
   unsigned pmp_entries = 0;  // DR-167: Spike's PMP regions in lockstep
+  bool hart1_on = false;     // M7's hart 1 (tg_core_pkg::HART1_ON): the core has mtgsmt (0x7C0)
 };
 
 struct tb_t {

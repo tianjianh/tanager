@@ -14,6 +14,7 @@
 #include <cstring>
 #include <functional>
 #include <map>
+#include <memory>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -36,6 +37,26 @@ struct spike_platform_t {
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
   std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny: accesses fault, as the RTL's do
+  bool mtgsmt = false;  // Tanager's mtgsmt (0x7C0): a core with hart 1 has it (core-pipeline.md §9)
+};
+
+// mtgsmt (0x7C0, M-mode read/write; core-pipeline.md §9): one register per core, which both its harts read and
+// write, so the Spikes of harts 2k and 2k + 1 share its value. Bit 0 (HART1_OFF) is writable, the others read 0.
+// What the bit does to hart 1's sleep is not Spike's: it only keeps the value, which lockstep compares.
+class mtgsmt_csr_t final : public csr_t {
+ public:
+  static constexpr reg_t ADDR = 0x7C0;
+  mtgsmt_csr_t(processor_t* p, std::shared_ptr<reg_t> v) : csr_t(p, ADDR), v_(std::move(v)) {}
+  reg_t read() const noexcept override { return *v_; }
+
+ protected:
+  bool unlogged_write(const reg_t val) noexcept override {
+    *v_ = val & 1;
+    return true;
+  }
+
+ private:
+  std::shared_ptr<reg_t> v_;
 };
 
 inline bool in_range(uint64_t a, uint64_t base, uint64_t size) { return size && a >= base && a - base < size; }
@@ -91,6 +112,11 @@ class spike_env_t final : public simif_t {
       }
       procs.push_back(p);
       harts_[id] = p;
+      if (c.mtgsmt) {  // the core's register, shared with its other hart's Spike (made first or later)
+        auto& v = mtgsmt_[id / 2];
+        if (!v) v = std::make_shared<reg_t>(0);
+        p->get_state()->csrmap[mtgsmt_csr_t::ADDR] = std::make_shared<mtgsmt_csr_t>(p, v);
+      }
     }
   }
 
@@ -162,6 +188,7 @@ class spike_env_t final : public simif_t {
   std::ostream null_os_{nullptr};
   std::map<size_t, processor_t*> harts_;
   uint8_t* dram_ = nullptr;
+  std::map<uint32_t, std::shared_ptr<reg_t>> mtgsmt_;  // by core (hart id / 2)
   std::vector<uint8_t> rom_;
   FILE* log_ = nullptr;
 };

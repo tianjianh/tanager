@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <deque>
 #include <memory>
 #include <string>
 #include <utility>
@@ -29,6 +30,7 @@ struct lockstep_cfg_t {
   uint64_t rom_base = 0x1000, rom_size = 0x1000;
   std::vector<std::pair<uint64_t, uint64_t>> dev_regions;
   std::vector<std::pair<uint64_t, uint64_t>> deny;  // --deny ranges: Spike faults on them too
+  bool mtgsmt = false;  // Tanager's mtgsmt CSR (0x7C0), one per core of two harts: with hart 1 (spike_env.h)
   // External writes (§3.10): a hart may still read a write's old bytes for this many of its own records
   // after the write's cycle (a load that read before the write commits later: at most a ROB's worth), and
   // its new bytes from this many cycles before (the L2 may serve them before its AccessAck).
@@ -95,6 +97,36 @@ class lockstep_t {
 
  private:
   std::unique_ptr<lockstep_impl_t> impl_;
+};
+
+// Several harts' records and writebacks, applied to a lockstep_t in cycle order (§3.7): each hart's wait in a
+// queue of their own, in its order, and the earliest goes first; a read that needs an atomic of another hart queued
+// with a later cycle (lockstep_t::early_atomic, up to ATOMIC_EARLY cycles) takes it first, with that hart's records
+// before it. A source of records in cycle order (tg_vsim, tg_replay) holds them ATOMIC_EARLY cycles before
+// draining, so that the atomic has arrived.
+class hart_order_t {
+ public:
+  explicit hart_order_t(lockstep_t& ls, const std::vector<uint32_t>& hartids);
+  void push(const tr_rec_t& r);  // r.cycle orders it
+  void push(const tr_wb_t& w);   // w.cycle orders it
+  // Applies every queued item of cycle `upto` or earlier (all of them with ~0); false at a mismatch
+  bool drain(uint64_t upto);
+  size_t queued() const;
+  uint64_t early() const { return early_; }  // reads that took an atomic queued with a later cycle
+
+ private:
+  struct item_t {
+    uint64_t cyc = 0, idx = 0;
+    bool wb = false;
+    tr_rec_t r;
+    tr_wb_t w;
+  };
+  bool head(size_t b, unsigned busy);
+  size_t index(uint32_t hart) const;
+  lockstep_t& ls_;
+  std::vector<uint32_t> ids_;
+  std::vector<std::deque<item_t>> q_;
+  uint64_t idx_ = 0, early_ = 0;
 };
 
 }  // namespace tg
