@@ -1,5 +1,8 @@
 // Tanager platform device tree: the plan §5.4 memory map (docs/spec/soc.md §4).
 // Preprocessed with cpp before dtc. The including .dts defines:
+// Every MMIO node's reg covers whole 4 KiB pages, base and size (soc.md §4; the build checks it, check_pages.py):
+// OpenSBI makes a PMP region of each device it uses, and one smaller than a page costs every 4K page its cached PMP
+// result in the core: -23.6% on a store loop and +10% on rdtime in RISC-V mode, from a 4-byte syscon (10-21).
 //   TG_NUM_CORES (1|2), TG_NUM_THREADS (1|2)   harts = cores x threads, mhartid = core * threads + tid
 //   TG_RUN_THREADS (default TG_NUM_THREADS)     1 with TG_NUM_THREADS 2: an SMT2 build that runs thread 0
 //                                               of each core (until M7, DR-147): harts 0 and 2 only
