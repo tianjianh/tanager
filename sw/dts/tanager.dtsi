@@ -1,5 +1,8 @@
 // Tanager platform device tree: the plan §5.4 memory map (docs/spec/soc.md §4).
 // Preprocessed with cpp before dtc. The including .dts defines:
+// Every MMIO node's reg covers whole 4 KiB pages, base and size (soc.md §4; the build checks it, check_pages.py):
+// OpenSBI makes a PMP region of each device it uses, and one smaller than a page costs every 4K page its cached PMP
+// result in the core: -23.6% on a store loop and +10% on rdtime in RISC-V mode, from a 4-byte syscon (10-21).
 //   TG_NUM_CORES (1|2), TG_NUM_THREADS (1|2)   harts = cores x threads, mhartid = core * threads + tid
 //   TG_RUN_THREADS (default TG_NUM_THREADS)     1 with TG_NUM_THREADS 2: an SMT2 build that runs thread 0
 //                                               of each core (until M7, DR-147): harts 0 and 2 only
@@ -280,9 +283,13 @@
 		// The board's reset (D4's RISC-V mode, docs/spec/soc-d4-modes.md): CRL_APB RESET_CTRL through the PS
 		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
 		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
-		crl_reset: syscon@ff5e0218 {
+		// The syscon spans RESET_CTRL's whole 4 KiB page (the window still passes that word alone): OpenSBI
+		// gives a reset syscon a PMP region of the syscon's size, and a region smaller than a page clears the
+		// core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page caches its PMP result
+		// and every store and fetch redirect takes the slow check: RISC-V mode's memory gap (10-21)
+		crl_reset: syscon@ff5e0000 {
 			compatible = "syscon";
-			reg = <0x0 0xff5e0218 0x0 0x4>;
+			reg = <0x0 0xff5e0000 0x0 0x1000>;
 		};
 #endif
 
@@ -323,7 +330,7 @@
 	poweroff {
 		compatible = "syscon-poweroff";
 		regmap = <&crl_reset>;
-		offset = <0x0>;
+		offset = <0x218>;              // RESET_CTRL
 		value = <0x10>;
 		mask = <0x10>;
 	};
@@ -331,7 +338,7 @@
 	reboot {
 		compatible = "syscon-reboot";
 		regmap = <&crl_reset>;
-		offset = <0x0>;
+		offset = <0x218>;
 		value = <0x10>;
 		mask = <0x10>;
 	};

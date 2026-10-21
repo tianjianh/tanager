@@ -22,7 +22,7 @@ struct pair_shared {
   uint64_t active;                 /* slots that run */
   uint64_t at_start;               /* slots at their first region's start (the barrier) */
   uint64_t done;                   /* slots past their first region */
-  uint64_t pad[1];
+  uint64_t print_lock;             /* one hart prints at a time: two harts' lines would interleave on the UART */
   struct pair_slot s[2];
 };
 
