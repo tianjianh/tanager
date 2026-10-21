@@ -153,7 +153,8 @@ struct SqEntry {
 // and the dispatch cycles they stalled.
 #define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
   X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
-  X(rn_held_other)
+  X(rn_held_other) X(fetch_hold) X(fetch_hold_other) X(cm_none) X(cm_none_ready) X(fld_held) X(fld_held_cycles) \
+  X(fld_replays) X(fh_ld_lost) X(fh_fp_lost) X(fld_waits)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -274,6 +275,7 @@ class Core {
   void prune_stream(Thread& T);
   // pipeline stages
   void fetch();
+  void fetch_held();   // smt_fetch_hold: one fetch pipe, a full queue's block holding it
   void fetch_thread(Thread& T);
   void decode();
   int decode_thread(Thread& T, int slots);
@@ -304,6 +306,7 @@ class Core {
   bool fusible(const FetchRec& a, const FetchRec& b) const;
   int bank_for(const Uop& u, uint8_t q) const;
   int free_regs(int bank, int tid);
+  void borrow_eager();   // prf_xfer_eager: a parked sibling's free registers, ahead of need
   bool can_issue(Uop& u);
   void do_issue(Uop& u, int port);
   void exec_load(Uop& u);
@@ -402,6 +405,9 @@ class Core {
   int lone_phase_ = 0;
   int rn_holder_ = -1;                          // smt_rn_one: the thread whose stalled group holds RN (-1: none)
   int commit_tid_ = -1;                         // smt_commit_rr: this cycle's commit thread, chosen the cycle before
+  int commit_turns_ = 0;                        // smt_commit_rr 4: its turns in a row
+  int fetch_turn_ = 0, hold_tid_ = -1;          // smt_fetch_hold: the last turn's thread; the thread whose block holds
+  int dec_tid_ = 0;                             // smt_dec_rr: the thread decode reads this cycle
   Room room_prev_[MAX_THREADS], room_cur_[MAX_THREADS];   // smt_rn_room: room at the cycle before's rename, this one's
   uint64_t lone_next_ = 0, lone_t0_ = 0;
   uint64_t ctrace_from_ = 0, ctrace_to_ = 0;  // TGSIM_CTRACE=FROM:TO: each retired uop's timing, on stderr
@@ -420,6 +426,23 @@ class Core {
   int cancel_tid_ = 0;
   uint64_t div_busy_ = 0, fdiv_busy_ = 0;
   std::array<uint64_t, 128> wb_b1_{};
+  // prf_fp_collide (DR-179's write ports): P4's writes by FP bank (F0, F1), the cycles loads write their results,
+  // the FP loads still to pass their M2, and the one-entry hold (fh): its load and the cycle it takes the result
+  std::array<std::array<uint64_t, 128>, 2> p4w_{};
+  std::unordered_map<uint64_t, int> ldw_;
+  std::vector<uint64_t> fpld_pend_;
+  // the hold's entries (prf_fp_fh): each a load, its bank, failed takes, the write it missed and its completion offset
+  struct FhEnt { bool on = false; int bank = 0, fails = 0; uint64_t id = 0, issue = 0, w0 = 0, done = 0, take = 0; };
+  std::array<FhEnt, 2> fh_{};
+  // prf_fp_collide 3 (fpu-2's P): the one cycle IQ-FP's and IQ-LD's selects are blocked, and the write slot kept free
+  // in each FP bank
+  uint64_t p_fp_at_ = NEVER, p_ld_at_ = NEVER;
+  std::array<uint64_t, 2> p_slot_{};
+  uint64_t p4_write_lat(const Uop& u) const;
+  struct FhWait { uint64_t id = 0, issue = 0, done = 0; };
+  std::deque<FhWait> fh_wait_;   // prf_fp_wait: colliding loads waiting for a free entry, oldest first
+  bool fh_ld_block_ = false, fh_fp_block_ = false, fh_pause_ = false;   // the guards this cycle; B's IQ-FP pause
+  void fp_collide();
   // early-retired uop id -> t_ready
   std::unordered_map<uint64_t, uint64_t> pending_;
   std::unordered_map<uint64_t, uint32_t> mp_pc_;  // mispredicts by PC in the region (TGSIM_MPDUMP=file writes them)

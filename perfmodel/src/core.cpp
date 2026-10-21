@@ -739,6 +739,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
 // they could not.
 void Core::fetch() {
   if (nthr_ == 1) { fetch_thread(*th_[0]); return; }
+  if (c_.smt_fetch_hold) { fetch_held(); return; }
   int o[MAX_THREADS];
   order(o, true);
   bool done = false;
@@ -752,6 +753,35 @@ void Core::fetch() {
     T.st.fetch_cycles++;
     fetch_thread(T);
     done = true;
+  }
+}
+
+// smt_fetch_hold (the RTL's front end, tg_fetch with hart 1): one pipe for both threads' blocks, F1 taking turns
+// between the threads with a block to fetch; a block whose thread's instruction queue is full holds the pipe, and so
+// the other thread's fetch, until its queue has room. A stopped (blocked) thread or one parked on a miss or redirect
+// takes no turn.
+void Core::fetch_held() {
+  auto can = [&](Thread& T) { return !T.fe_blocked && t_ >= T.fe_resume && get(T, T.fetch_seq) != nullptr; };
+  auto room = [&](const Thread& T) { return (int64_t)T.fetchq.size() < c_.fetchq; };
+  auto held = [&](Thread& H) {  // H's block holds the pipe this cycle; of them, as tg_fetch's TG-STALL2 count, with
+    H.st.fetch_hold++;          // the other thread ready and room for a whole block in its queue
+    Thread& O = *th_[(size_t)(1 - H.tid)];
+    if (can(O) && (int64_t)O.fetchq.size() <= c_.fetchq - c_.fetch_bytes / 2) H.st.fetch_hold_other++;
+  };
+  if (hold_tid_ >= 0) {
+    Thread& H = *th_[(size_t)hold_tid_];
+    if (can(H) && !room(H)) { held(H); return; }
+    hold_tid_ = -1;
+    if (can(H)) { H.st.fetch_cycles++; fetch_thread(H); return; }   // its block goes on
+  }
+  for (int k = 1; k <= nthr_; k++) {
+    Thread& T = *th_[(size_t)((fetch_turn_ + k) % nthr_)];
+    if (!can(T)) continue;
+    fetch_turn_ = T.tid;
+    if (!room(T)) { hold_tid_ = T.tid; held(T); return; }
+    T.st.fetch_cycles++;
+    fetch_thread(T);
+    return;
   }
 }
 
@@ -971,6 +1001,19 @@ bool Core::fusible(const FetchRec& a, const FetchRec& b) const {
 // other thread fills the remaining slots in the same cycle.
 void Core::decode() {
   if (nthr_ == 1) { decode_thread(*th_[0], (int)c_.decode_width); return; }
+  if (c_.smt_dec_rr && !c_.smt_mix) {
+    // the RTL's decode (tg_fetch_compact's rt_q): one thread's queue read a cycle, chosen the cycle before: the other
+    // thread when its queue holds instructions and rename can take its group, after a take from this one or when this
+    // one's queue is empty or rename can't take its group; no other thread decodes in the cycle
+    Thread &T = *th_[(size_t)dec_tid_], &O = *th_[(size_t)(1 - dec_tid_)];
+    const int took = decode_thread(T, (int)c_.decode_width);
+    T.st.decode_slots += (uint64_t)took;
+    const uint64_t buf = (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
+    auto holds = [&](const Thread& U) { return !U.fetchq.empty() && U.fetchq.front().avail <= t_ + 1; };
+    auto takes = [&](const Thread& U) { return U.next_id - U.disp_next < buf; };
+    if (holds(O) && takes(O) && (took > 0 || !holds(T) || !takes(T))) dec_tid_ = O.tid;
+    return;
+  }
   int o[MAX_THREADS];
   order(o, false);
   int slots = (int)c_.decode_width;
@@ -1186,8 +1229,27 @@ bool Core::take_register(int bank, int tid) {
   return true;
 }
 
+// prf_xfer_eager: while its sibling is parked in WFI (with one thread, always), a hart takes the sibling's free
+// registers ahead of need, one a cycle in each bank, the donor keeping one, as take_register's rule 1 (2: none).
+void Core::borrow_eager() {
+  for (int t = 0; t < nthr_; t++) {
+    if (nthr_ > 1 && (!parked(1 - t) || parked(t))) continue;
+    Thread& T = *th_[(size_t)t];
+    for (size_t b = 0; b < bank_own_[(size_t)t].size(); b++) {
+      if (bank_own_[(size_t)t][b] < 0 || (c_.prf_xfer_eager == 3 && b != 3 && b != 4)) continue;   // 3: FP only
+      int64_t& own = nthr_ > 1 ? bank_own_[(size_t)(1 - t)][b] : sib_own_[b];
+      const int64_t held = nthr_ > 1 ? bank_held_[(size_t)(1 - t)][b] : sib_held_[b];
+      if (own - held < (c_.prf_xfer_eager >= 2 ? 1 : 2)) continue;   // 2: the parked donor keeps none
+      own--;
+      bank_own_[(size_t)t][b]++;
+      T.st.prf_xfers++;
+    }
+  }
+}
+
 // Rename/dispatch slots are shared like the decode slots; a thread that stalls leaves its slots to the other.
 void Core::dispatch() {
+  if (c_.prf_xfer_eager && c_.prf_xfer && !bank_own_.empty()) borrow_eager();
   for (auto it = deferred_free_.begin(); it != deferred_free_.end();) {
     if (it->at <= t_) {
       bank_committed_[it->bank]--;
@@ -1485,6 +1547,7 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
       const int xb = (bank == 3 || bank == 4) && (c_.prf_fp_xbank == 1 || (c_.prf_fp_xbank == 2 && fld) ||
                                                   (c_.prf_fp_xbank == 3 && !fld)) ? 7 - bank : -1;
       if (xb >= 0 && free_regs(xb, T.tid) > 0) {
+        if (c_.prf_xfer_want && !c_.prf_fp_noxfer) take_register(bank, T.tid);   // and want one in its own bank
         bank = xb;
         u.xbank = true;
         T.st.prf_xbanks++;
@@ -1492,7 +1555,8 @@ void Core::dispatch_thread(Thread& T, int& n, int& row) {
         if (c_.prf_xfer == 3 && T.starved != bank) { T.starved = bank; T.st.prf_starved++; }
         // prf_xfer: one from the sibling's list, usable the next cycle (the other FP bank's, with prf_fp_xbank,
         // when the sibling has none to give in this one)
-        if (!take_register(bank, T.tid) && xb >= 0) take_register(xb, T.tid);
+        if (!(c_.prf_fp_noxfer && (bank == 3 || bank == 4)) && !take_register(bank, T.tid) && xb >= 0)
+          take_register(xb, T.tid);
         T.st.disp_stall_reg++;
         T.disp_why = DW_REG;
         break;
@@ -1822,6 +1886,10 @@ void Core::do_issue(Uop& u, int /*port*/) {
         u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;
         u.t_done += (uint64_t)c_.prf_fp_xbank_lat;
       }
+      if (c_.prf_fp_collide && u.state == 2) {  // the result register's cycle; an FP load meets P4 at its M2
+        ldw_[u.t_ready]++;
+        if (u.cls == Cls::FLD && (u.dst_bank == 3 || u.dst_bank == 4)) fpld_pend_.push_back(u.id);
+      }
       return;
     case Cls::ST: case Cls::FST: exec_store(u); return;
     case Cls::MUL: u.t_ready = t + (uint64_t)c_.lat_mul; if (u.q == Q_A1) reserve_b1(u.t_ready); break;
@@ -1849,12 +1917,141 @@ void Core::do_issue(Uop& u, int /*port*/) {
       break;
   }
   if (u.xbank) u.t_ready += (uint64_t)c_.prf_fp_xbank_lat;  // prf_fp_xbank: written across
+  if (c_.prf_fp_collide && (u.dst_bank == 3 || u.dst_bank == 4) &&  // P4's write: its bank and cycle
+      (u.cls == Cls::FMA || u.cls == Cls::FDIV || u.cls == Cls::FSQRT || u.cls == Cls::FMISC || u.cls == Cls::ITOF))
+    p4w_[(size_t)(u.dst_bank - 3)][u.t_ready % p4w_[0].size()] = u.t_ready;
   u.t_done = u.t_ready - (one_cycle ? (uint64_t)c_.abl_alu : 0) + 2 + (uint64_t)c_.abl_done;
   if (u.is_ctrl) resolve_branch(u, t + 2 + (u.fused_br ? 1 : 0));
 }
 
+// prf_fp_collide (tg_lsu's fh, DR-179): an FP load at its M2 whose write, next cycle, meets P4's in its bank waits in
+// the one-entry hold, with no wake and no completion. Each later cycle the hold tries to take the result register: it
+// takes it when no other load completes in M2 and P4 leaves its bank the next cycle, and writes the cycle after. A
+// second colliding FP load while the hold is full replays. P4's results never wait. With 2, f5d9f294's guards: from
+// the hold's prf_fp_guard_ld-th failed take IQ-LD's select is blocked, and from its prf_fp_guard_fp-th (8) IQ-FP's,
+// until it takes.
+void Core::fp_collide() {
+  if ((t_ & 1023) == 0)
+    for (auto it = ldw_.begin(); it != ldw_.end();) it = it->first < t_ ? ldw_.erase(it) : std::next(it);
+  std::sort(fpld_pend_.begin(), fpld_pend_.end());
+  fpld_pend_.erase(std::unique(fpld_pend_.begin(), fpld_pend_.end()), fpld_pend_.end());
+  const uint64_t w = t_ + 1;
+  const int nfh = c_.prf_fp_fh >= 2 ? 2 : 1;
+  auto p4 = [&](int b, uint64_t c) { return p4w_[(size_t)b][c % p4w_[0].size()] == c; };
+  auto live = [&](uint64_t id, uint64_t issue) {
+    Uop* u = find(id);
+    return u && u->state == 2 && u->t_issue == issue ? u : nullptr;
+  };
+  for (auto& e : fh_) if (e.on && !live(e.id, e.issue)) e.on = false;   // its thread's flush dropped it
+  fh_wait_.erase(std::remove_if(fh_wait_.begin(), fh_wait_.end(),
+                                [&](const FhWait& x) { return !live(x.id, x.issue); }), fh_wait_.end());
+  // the guards from the takes failed so far (registered), and B's pause; then this cycle's take, the oldest first, one
+  // a cycle (it writes the result register)
+  const bool p = c_.prf_fp_collide >= 3;   // P: 3 from the hold's start; 4 from its first failed take
+  fh_ld_block_ = fh_fp_block_ = false;
+  for (const auto& e : fh_)
+    if (e.on && c_.prf_fp_collide == 2) {
+      fh_ld_block_ = fh_ld_block_ || e.fails >= c_.prf_fp_guard_ld;
+      fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_guard_fp > 0 && e.fails >= c_.prf_fp_guard_fp);
+    }
+  if (p) {   // P: the one cycle each select was blocked for at the hold's start
+    fh_fp_block_ = t_ == p_fp_at_;
+    fh_ld_block_ = t_ == p_ld_at_;
+  }
+  fh_fp_block_ = fh_fp_block_ || (c_.prf_fp_wait == 2 && fh_pause_);
+  const int first = fh_[1].on && (!fh_[0].on || fh_[1].w0 < fh_[0].w0) ? 1 : 0;
+  for (int k : {first, 1 - first}) {
+    FhEnt& e = fh_[(size_t)k];
+    if (!e.on) continue;
+    if (p && e.take ? t_ >= e.take : (!ldw_.count(w) && !p4(e.bank, w)) || w >= e.w0 + 64) {
+      Uop* h = find(e.id);
+      h->t_ready = w;
+      h->t_done = w + e.done;
+      ldw_[w]++;
+      th_[(size_t)h->tid]->st.fld_held_cycles += w - e.w0;
+      e.on = false;
+    } else {
+      e.fails++;
+      if (c_.prf_fp_collide == 4 && !e.take) {   // P from the first failed take: the pulse starts next cycle
+        const uint64_t slot = w + (uint64_t)c_.lat_fma;
+        e.take = slot - 1;
+        p_slot_[(size_t)e.bank] = slot;
+        p_fp_at_ = w;
+        p_ld_at_ = std::max<uint64_t>(w, slot - 5);
+      }
+    }
+  }
+  auto free_fh = [&]() {
+    for (int k = 0; k < nfh; k++) if (!fh_[(size_t)k].on) return k;
+    return -1;
+  };
+  // A: while the hold has a free entry, the replay path picks the oldest waiting load; it reaches M2 again later
+  if (c_.prf_fp_wait && !fh_wait_.empty() && free_fh() >= 0) {
+    const FhWait x = fh_wait_.front();
+    fh_wait_.pop_front();
+    Uop* u = find(x.id);
+    u->t_ready = t_ + (uint64_t)c_.prf_fp_replay + 1;
+    u->t_done = u->t_ready + x.done;
+    ldw_[u->t_ready]++;
+    fpld_pend_.push_back(x.id);
+  }
+  std::vector<uint64_t> keep;
+  for (uint64_t id : fpld_pend_) {
+    Uop* u = find(id);
+    if (!u || u->cls != Cls::FLD || u->state != 2 || u->t_ready < w) continue;   // flushed, or past
+    if (u->t_ready > w) { keep.push_back(id); continue; }
+    const int b = u->dst_bank - 3;
+    if (!p4(b, w)) continue;
+    Thread& T = *th_[(size_t)u->tid];
+    if (--ldw_[w] <= 0) ldw_.erase(w);
+    const int k = free_fh();
+    if (k < 0 && c_.prf_fp_wait) {   // A: the hold is full: wait for an entry, using neither AG nor M2
+      fh_wait_.push_back({id, u->t_issue, u->t_done - u->t_ready});
+      u->t_ready = u->t_done = NEVER / 2;
+      T.st.fld_waits++;
+      continue;
+    }
+    if (k < 0) {   // the hold is full: replay
+      u->t_ready += (uint64_t)c_.prf_fp_replay;
+      u->t_done += (uint64_t)c_.prf_fp_replay;
+      ldw_[u->t_ready]++;
+      T.st.fld_replays++;
+      keep.push_back(id);
+      continue;
+    }
+    FhEnt& e = fh_[(size_t)k];   // held from w: no wake, no completion until it takes
+    e = {true, b, 0, id, u->t_issue, w, u->t_done - u->t_ready, 0};
+    if (c_.prf_fp_collide == 3) {   // P: IQ-FP blocked in w leaves P4's write slot lat_fma later; M2 empty before it
+      const uint64_t slot = w + (uint64_t)c_.lat_fma;
+      e.take = slot - 1;
+      p_slot_[(size_t)b] = slot;
+      p_fp_at_ = w;
+      p_ld_at_ = std::max<uint64_t>(w, slot - 5);   // a load selected then would complete in M2 before the slot
+    }
+    u->t_ready = u->t_done = NEVER / 2;
+    T.st.fld_held++;
+  }
+  fpld_pend_.swap(keep);
+  // B: IQ-FP pauses from the cycle after a load waits until none waits and the hold is empty
+  if (!fh_wait_.empty()) fh_pause_ = true;
+  else if (!fh_[0].on && !fh_[1].on) fh_pause_ = false;
+}
+
+// prf_fp_collide 3: the cycles from a P4 op's select to its result's write in its FP bank
+uint64_t Core::p4_write_lat(const Uop& u) const {
+  const bool fp_d = u.di->d->fmt == 1;
+  switch (u.cls) {
+    case Cls::FMA: return (uint64_t)c_.lat_fma;
+    case Cls::FDIV: return (uint64_t)(fp_d ? c_.lat_fdiv_d : c_.lat_fdiv_s);
+    case Cls::FSQRT: return (uint64_t)(fp_d ? c_.lat_fsqrt_d : c_.lat_fsqrt_s);
+    case Cls::FMISC: case Cls::ITOF: return (uint64_t)c_.lat_fmisc;
+    default: return 0;
+  }
+}
+
 // The queues hold both threads' uops in dispatch order, so select is oldest first across threads.
 void Core::issue() {
+  if (c_.prf_fp_collide) fp_collide();
   const bool cancel = t_ >= cancel_from_ && t_ <= cancel_to_ && cancel_from_ != NEVER;
   std::vector<Uop*> picks;
   auto take = [&](Uop* u) { if (u) picks.push_back(u); };
@@ -1882,6 +2079,9 @@ void Core::issue() {
       for (uint64_t id : iq_[q]) {
         Uop* u = find(id);
         if (!u || !can_issue(*u)) continue;
+        if (q == Q_FP && c_.prf_fp_collide >= 3 && (u->dst_bank == 3 || u->dst_bank == 4) &&
+            t_ + p4_write_lat(*u) == p_slot_[(size_t)(u->dst_bank - 3)])
+          continue;   // P: kept out of the slot a held load takes
         if (u->cls == Cls::FDIV || u->cls == Cls::FSQRT) {  // one iterative divide/sqrt unit
           if (fdiv_picked) continue;
           fdiv_picked = true;
@@ -1890,6 +2090,10 @@ void Core::issue() {
         if (!first) first = u;
         ready.push_back(u);
         if ((int)ready.size() >= ports && !(q == Q_A0 && c_.br_first && !first_br)) break;
+      }
+      if ((q == Q_LD && fh_ld_block_) || (q == Q_FP && fh_fp_block_)) {   // prf_fp_collide's guards and pause
+        if (!ready.empty()) (q == Q_LD ? th_[0]->st.fh_ld_lost : th_[0]->st.fh_fp_lost)++;   // select cycles lost
+        continue;
       }
       if (q == Q_A0 && first_br) { take(first_br); continue; }
       for (int k = 0; k < ports && k < (int)ready.size(); k++) take(ready[(size_t)k]);
@@ -2145,13 +2349,28 @@ void Core::commit() {
     // next cycle's is the other thread whenever its ROB holds entries, so two busy threads alternate. 3: next cycle's
     // is a thread whose head is complete, the other first; as 2 when neither's is
     const int c = std::max(0, commit_tid_), o = 1 - c;
-    commit_thread(*th_[(size_t)c], (int)c_.commit_width);
+    Thread &C = *th_[(size_t)c], &O = *th_[(size_t)o];
+    const int n = commit_thread(C, (int)c_.commit_width);
     auto ready = [&](const Thread& T) {
       return !T.win.empty() && T.win.front().state == 2 && T.win.front().t_done <= t_ + 1;
     };
-    const Thread &C = *th_[(size_t)c], &O = *th_[(size_t)o];
-    if (c_.smt_commit_rr == 3 && (ready(O) || ready(C))) commit_tid_ = ready(O) ? o : c;
-    else commit_tid_ = O.rob_count > 0 ? o : c;
+    auto actionable = [&](const Thread& T) {  // complete next cycle, or a serialising op that starts at the head
+      return ready(T) || (!T.win.empty() && T.win.front().serial && T.win.front().state == 1);
+    };
+    if (n == 0) {  // as tg_rob's TG-STALL2 count: the chosen thread committed nothing (the other's head complete)
+      C.st.cm_none++;
+      if (O.rob_count > 0 && ready(O)) C.st.cm_none_ready++;
+    }
+    if (c_.smt_commit_rr == 4) {  // core-2's fix (10-21): keep the turn while the other's head isn't actionable;
+      // switch on its head being actionable, on this thread committing nothing, or after 4 turns in a row
+      const bool sw = O.rob_count > 0 && (actionable(O) || n == 0 || commit_turns_ >= 4);
+      commit_tid_ = sw ? o : c;
+      commit_turns_ = sw ? 1 : commit_turns_ + 1;
+    } else if (c_.smt_commit_rr == 3 && (ready(O) || ready(C))) {
+      commit_tid_ = ready(O) ? o : c;
+    } else {
+      commit_tid_ = O.rob_count > 0 ? o : c;
+    }
     return;
   }
   if (c_.smt_commit_rr && !c_.smt_mix) {

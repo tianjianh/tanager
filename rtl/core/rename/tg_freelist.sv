@@ -22,9 +22,12 @@
 // taker's at its tail, as a committed push (tail and both counts + 1). A transfer runs only while the taker's group is
 // at rename (pop_tid), so the sibling does not pop, and in a cycle with no push to this bank and no flush, so the write
 // port and both tails are its own; it reads the sibling's entry on a second read port of each sub-bank. A sibling
-// asleep in WFI gives up its spares this way. With `give_last` (the FP lists, which cross, while the giver is blocked:
-// parked in WFI or behind a serial uop) the giver gives its last one too (count >= 1 is all the entry needs); it takes
-// one back the same way once it runs and finds both FP banks short.
+// asleep in WFI gives up its spares this way. With `give_last` the giver gives its last one too (count >= 1 is all the
+// entry needs). Rename sets it for the integer lists always: a two-wide group can need two registers in a bank that
+// both harts' 62 architectural registers fill to two short of full (a trap return restores every register with loads,
+// into the load bank), and a giver keeping 1 then left each hart one short for good (soc-2's one-core boot, 10-21). For
+// the FP lists, which cross (DR-179), it sets it while the giver is blocked (parked in WFI or behind a serial uop); the
+// giver takes one back the same way once it runs and finds both FP banks short.
 // The pointers wrap at DEPTH, a multiple of NB but not necessarily a power of two (DR-175's FP banks of 96, before
 // DR-179): each is an index below DEPTH and a lap bit, which is the plain binary pointer when DEPTH is a power of two.
 // The free counts (tail - spec head) are registers, kept with the commit counts (tail - commit head) that they take on
