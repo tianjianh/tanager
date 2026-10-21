@@ -738,13 +738,18 @@ module tg_core
     assign fpi_dst    = p4_fpi.dst;
     assign fpi_data   = p4_fpi.data;
     assign fpi_fflags = p4_fpi.fflags;
-    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec)
+    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec). A flush drops its thread's
+    // returns in flight (rename's flush returns that thread's tags); with hart 1 the other thread's go on, else a
+    // sibling's flush lost them and the tags ran out (a hart parked in WFI flushes at each timeout)
     logic [1:0]              ptf_v_q;
     logic [1:0][WTAG_W-1:0]  ptf_id_q;
+    tid_t                    ptf_t_q;          // the first stage's thread (the second's frees this cycle)
     always_ff @(posedge clk) begin
-      if (rst || flush) ptf_v_q <= '0;
-      else              ptf_v_q <= {ptf_v_q[0], p4_cmp && int'(p4_cmp_wid) < IQ_TAGS};
+      if (rst || (flush && !MT)) ptf_v_q <= '0;
+      else ptf_v_q <= {ptf_v_q[0] && !(flush && ptf_t_q == flush_tid),
+                       p4_cmp && int'(p4_cmp_wid) < IQ_TAGS && !(flush && p4_cmp_tid == flush_tid)};
       ptf_id_q <= {ptf_id_q[0], p4_cmp_wid[WTAG_W-1:0]};
+      ptf_t_q  <= p4_cmp_tid;
     end
     always_comb begin
       tag_free_p4 = '0;

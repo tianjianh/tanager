@@ -687,6 +687,23 @@ module tg_rename
     if (rst) n_rnhold2 <= 0;
     else if (HART1_ON && |rn_valid_q && !rn_fire && de_valid[0] && de_uop[0].tid != t_rn) n_rnhold2 <= n_rnhold2 + 1;
   final if (HART1_ON) $fwrite(32'h8000_0002, "TG-STALL2 %m: RN holds the other thread's group %0d cycles\n", n_rnhold2);
+  // With hart 1: a thread whose window (ROB, RN and DS) has been empty for a few cycles holds no wakeup tag and no LLT
+  // (a tag returns two cycles after its op completes): a return lost to the other thread's flush leaks it for good
+  if (CMT) begin : g_leak
+    logic [NT-1:0][2:0] emp_q;               // cycles each thread's window has been empty (saturating at 7)
+    always_ff @(posedge clk)
+      for (int t = 0; t < NT; t++) begin
+        if (rst || rtail_q[t] != rob_head[t] || (|rn_valid_q && t_rn == tid_t'(t)) || (|ds_valid_q && t_ds == tid_t'(t)))
+          emp_q[t] <= '0;
+        else if (emp_q[t] != 3'd7) emp_q[t] <= emp_q[t] + 1'b1;
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < IQ_TAGS; i++)
+            assert (!(tag_busy_q[i] && tag_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but tag %0d is busy for it", t, i);
+        if (!rst && emp_q[t] >= 3'd5)
+          for (int i = 0; i < LLT_ENTRIES; i++)
+            assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
+      end
+  end
   // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
   string xf_log;
   final if (HART1_ON) begin
