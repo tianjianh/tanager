@@ -20,7 +20,8 @@ is tested before hart 1 runs. The plan for M7 itself, its steps and their order,
    counted.
 8. Per-hart state: CSRs, interrupts, the timer compare, the LR reservation, debug state and counters.
 9. Interfaces are queue-decoupled and tid-tagged.
-10. SMT-off and a sleeping sibling: the partitions merge after a drain (m7-smt2-plan.md D2).
+10. SMT-off and a sleeping sibling: the partitions merge while the sibling sleeps, and split, after the runner's
+    window fits its half, when it wakes (m7-smt2-plan.md D2; core-pipeline.md §8.5, step 6).
 11. Early retirement is per thread.
 12. Per-thread structures are sized from `TID_W` and the width parameters.
 
@@ -39,7 +40,11 @@ window is half. The registers are not split by it: the free lists' division and 
 threads at step 5, after D3's revision (core-pipeline.md §5.4).
 
 **With hart 1 (`HART1_ON`, `make ... HART1=1`, from step 5c)** both threads fetch from reset and lockstep checks both
-harts' records (tg_vsim's Spike has a hart per thread). The tests' entry code parks hart 1: riscv-tests' `-p`
+harts' records (tg_vsim's Spike has a hart per thread).
+**From step 6 the split is a mode at run time (`md_t`):** a thread that waits in WFI while its sibling runs sleeps
+after 64 cycles, and the halves merge, so a lone thread beside a parked sibling has the whole window. The sleeper
+wakes on its interrupt; the halves split first (core-pipeline.md §8.5). `mtgsmt.HART1_OFF` keeps hart 1 asleep (SMT
+off). The tests' entry code parks hart 1: riscv-tests' `-p`
 environment spins it in a `bnez` loop, their `-v` environment runs `coherence_torture` on it (random AMOs and loads
 beside hart 0's test), verif-2's directed tests and benchmarks park it in WFI (`TG_PARK_HARTS`, the `crt0`s), and
 `tg_rand` and `gen_coh` by `mhartid`. `tests/isa/directed/hart1_init.S` checks every integer home starts at zero on
