@@ -222,6 +222,8 @@ The redirecting instruction stays in the group; younger slots are dropped. Its `
 
   The load then replays from the LQ and wakes its LLT when it completes.
 
+  **Its filter (`SPEC_WAKE_FILT`, on by default):** a 2-bit count per PC hash (32 entries, `pc[15:1]` folded to 5 bits) goes up by one when a tracked load does not complete in M2 and down by one when it does. From 2, that PC's loads do not wake their dependants speculatively and so never cancel: their dependants wait for the result. They still pass through the tracker, which trains the count. `SPEC_WAKE_FILT=0` lets every tracked load speculate, cycle for cycle as before the filter.
+
   Rename and IQ-FP see only confirmed W bits: rename drops a source's dependency when its bit is set, and P4 reads integer sources from the register file. With `SPEC_WAKE=0`, loads wake their LLT when their result is written, as DIV does.
 
 ## 7. Register read, bypass, execute (`tg_exec`; spike S3 RTL)
@@ -394,6 +396,7 @@ All widths come from `tg_pkg` (`DECODE_WIDTH`, `N_ALU`, `ROB_BANKS`, `FL_BANKS`,
 - `TG_TAGE` (`TAGE_ON`, on): TAGE-lite and the FTQ, with F2's prediction of straddlers and (with `TG_RAS`) returns (§3.2).
 - `TG_TAGE_NT`, `TG_TAGE_LI`, `TG_TAGE_TW`, `TG_TAGE_BI`: TAGE-lite's sizes (§3.2; two tables of 2K, DR-170).
 - `TG_SPEC_WAKE` (`SPEC_WAKE`, on, DR-154): speculative load wakeup with a shadow cancel (plan §4.6; §6; the FPU track's `tg_issue` and `tg_exec`, with `spec_cancel` from one to the other). `TG_SPEC_WAKE=0` wakes loads' dependants on the confirmed result, cycle for cycle as before.
+- `TG_SPEC_WAKE_FILT` (`SPEC_WAKE_FILT`, on): the speculative wakeup's filter (§6): a load whose PC's loads keep failing to complete in M2 does not wake its dependants speculatively. `TG_SPEC_WAKE_FILT=0` lets every tracked load do so, cycle for cycle as before the filter.
 - `TG_PMP_ENTRIES` (`PMP_ENTRIES`, 8; DR-167): PMP entries, 8 or 16 (core-mmu.md, PMP; §9.1).
 - `TG_URF` (`URF`, off; DR-174): the issue-time integer register reads in double-pumped UltraRAM (§7.1). The core then takes `clk2x`; at 0 the port is unused.
 - `TG_SOLO_TID` (`SOLO_TID`, off; DR-175): M7's test mode, smt2 builds only. The core's one thread runs as tid 1 inside the core while it stays hart 0 to software, so the tests exercise the per-thread paths (threading.md).

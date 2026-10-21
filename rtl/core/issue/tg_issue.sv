@@ -486,7 +486,8 @@ module tg_issue
   if (SPEC_WAKE) begin : g_sw
     sw_t             sw_rf, sw_ag_q, sw_m1_q, sw_m2_q;
     logic [NCOL-1:0] col_ag, col_m1, col_m2;
-    logic [31:0][1:0] swp_q;          // the filter: per PC hash, how its loads fared in M2 (2 or more: no speculation)
+    logic [31:0][1:0] swp_q;          // the filter: per PC hash, how its loads fared in M2 (2 or more: no speculation;
+                                      // SPEC_WAKE_FILT=0: always 0)
     logic            m2_ok;           // the load in M2 completed there
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
                      spec: !swp_q[ld_ph][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
@@ -503,7 +504,7 @@ module tg_issue
         sw_m1_q.v <= sw_ag_q.v && !sw_cancel && !sw_drop(sw_ag_q.tid);
         sw_m2_q.v <= sw_m1_q.v && !sw_drop(sw_m1_q.tid);
         sw_cancel <= sw_m2_q.v && sw_m2_q.spec && !sw_drop(sw_m2_q.tid) && !m2_ok;
-        if (sw_m2_q.v && !sw_drop(sw_m2_q.tid))
+        if (SPEC_WAKE_FILT && sw_m2_q.v && !sw_drop(sw_m2_q.tid))
           swp_q[sw_m2_q.ph] <= m2_ok ? ((swp_q[sw_m2_q.ph] == 2'd0) ? 2'd0 : swp_q[sw_m2_q.ph] - 2'd1)
                                      : ((swp_q[sw_m2_q.ph] == 2'd3) ? 2'd3 : swp_q[sw_m2_q.ph] + 2'd1);
       end
