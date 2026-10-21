@@ -311,6 +311,9 @@ module tg_lsu
   md_t md, mdn;                     // the mode and next cycle's (step 6; constants without hart 1)
   assign md  = HART1_ON ? md_i : MD_C;
   assign mdn = HART1_ON ? mdn_i : MD_C;
+  // The SQ pointers of each LQ half's thread (its own split, the running thread's merged): picked once a half, not
+  // an entry (step 6's mode makes an entry's thread a signal)
+  sqid_t [1:0] sqh_lh, sqt_lh;
   tid_t t_ds, t_cm, t_fl, t_hd;
   assign t_ds = (NT > 1 && SPLIT) ? ds_uop[0].tid : RUN_TID;
   assign t_cm = (NT > 1 && SPLIT) ? cm_tid : RUN_TID;
@@ -371,6 +374,11 @@ module tg_lsu
   logic   [SQ_ENTRIES-1:0]           sq_amo_q;     // an atomic's entry: never forwards or drains
   logic   [SQ_ENTRIES-1:0]           sq_amw_q;     // ... the atomic wrote memory (trace)
   sqid_t  [NT-1:0]                   sq_head_q, sq_cmt_q, sq_tail_q;
+  always_comb
+    for (int h = 0; h < 2; h++) begin
+      sqh_lh[h] = sq_head_q[lq_tid(h * (LQ_ENTRIES / 2), md)];
+      sqt_lh[h] = sq_tail_q[lq_tid(h * (LQ_ENTRIES / 2), md)];
+    end
   logic   [SQ_ENTRIES-1:0]           sq_hge_q;     // the drain's head's mask (t_dr_q's): slot i at or after its slot
 
   assign lq_head_o = lq_head_q;
@@ -1842,7 +1850,7 @@ module tg_lsu
             // With sq_dv_q alone the replay's AG met the drain's D$ write to its row: a clash, O_RETRY and a second
             // replay (crc32's loop, the store completing as the ROB head: 12 cycles from its data's producer to the
             // load's dependant instead of 8)
-            if (!sq_live(lq_blk_q[i], sq_head_q[lq_tid(i, md)], sq_tail_q[lq_tid(i, md)]) ||
+            if (!sq_live(lq_blk_q[i], sqh_lh[i >= LQ_ENTRIES / 2], sqt_lh[i >= LQ_ENTRIES / 2]) ||
                 (!lq_part_q[i] && sq_dvn[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
           end

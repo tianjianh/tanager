@@ -272,9 +272,13 @@ module tg_core
 `endif
   tid_t dred_tid;
   tid_t [CW-1:0] cm_tid;                              // the retiring instructions' threads (fetch's predictors take it)
+  // M7's step 6 (D2, threading.md): sleep, merge and split (tg_rename's mode, tg_rob's sleepers, tg_csr's mtgsmt)
+  md_t                              md, mdn;
+  logic                             mrs, sph, flush_slp, h1off;
+  logic [NUM_THREADS-1:0]           slp, wkr, wk;
   tg_fetch u_fetch (
     .clk, .rst, .boot_pc(64'(boot_addr_i)), .ready(fe_ready),
-    .flush, .flush_tid, .flush_pc, .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
+    .flush, .flush_tid, .flush_pc, .fl_slp(flush_slp), .icinv, .dred, .dred_tid, .dred_pc, .dred_ftq, .dred_slot, .dred_rop, .dred_rlink,
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
@@ -427,10 +431,6 @@ module tg_core
   logic [NCOL-1:0]                  wid_alloc;
   logic [DISPATCH_WIDTH-1:0]        ds_src2_rdy;
   logic                             rn_ready;
-  // M7's step 6 (D2, threading.md): sleep, merge and split (tg_rename's mode, tg_rob's sleepers, tg_csr's mtgsmt)
-  md_t                              md, mdn;
-  logic                             mrs, sph, flush_slp, h1off;
-  logic [NUM_THREADS-1:0]           slp, wkr, wk;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
     .de_valid, .de_uop, .de_take, .blk_o(rn_blk), .acc_o(rn_acc),

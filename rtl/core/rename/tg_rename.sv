@@ -153,6 +153,7 @@ module tg_rename
   assign mdn = HART1_ON ? mdn_q : MD_C;
   logic sp_hold;                    // the split stops the running thread's renaming
   logic [NT-1:0] mg_pend;           // each thread runs beside a sleeper whose window is empty: a merge waits
+  logic [NT-1:0] nwr_hold;          // ... and a tail is within a group of its half's end: that thread waits
   // the end of thread t's half (split): its pointers' last index + 1
   function automatic int rob_end(input int t); return (t != 0) ? ROB_ENTRIES : ROB_ENTRIES / 2; endfunction
   function automatic int lq_end(input int t);  return (t != 0) ? LQ_ENTRIES : LQ_ENTRIES / 2;   endfunction
@@ -491,12 +492,9 @@ module tg_rename
   always_comb begin
     for (int t = 0; t < NT; t++)
       for (int n = 0; n <= W; n++) begin
-        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t], md) + n <= part_size(ROB_ENTRIES, md) &&
-                           !(mg_pend[t] && int'(rtail_q[t][ROBW-2:0]) + n >= rob_end(t));
-        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t], md) + n <= part_size(LQ_ENTRIES, md) &&
-                           !(mg_pend[t] && int'(ltail_q[t][LQW-2:0]) + n >= lq_end(t));
-        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t], md) + n <= part_size(SQ_ENTRIES, md) &&
-                           !(mg_pend[t] && int'(stail_q[t][SQW-2:0]) + n >= sq_end(t));
+        rob_room_t[t][n] = rob_cnt_t(rtail_q[t], rob_head[t], md) + n <= part_size(ROB_ENTRIES, md) && !nwr_hold[t];
+        lq_room_t[t][n]  = lq_cnt_t(ltail_q[t], lq_head[t], md) + n <= part_size(LQ_ENTRIES, md) && !nwr_hold[t];
+        sq_room_t[t][n]  = sq_cnt_t(stail_q[t], sq_head[t], md) + n <= part_size(SQ_ENTRIES, md) && !nwr_hold[t];
       end
     rob_room = rob_room_t[t_rn];
     lq_room  = lq_room_t[t_rn];
@@ -685,9 +683,7 @@ module tg_rename
                   sq_cnt_t(stail_q[t_rn], sq_head[t_rn], md) + nst > part_size(SQ_ENTRIES, md) || llt_short || tag_short ||
                   int'(div_cnt_q) + ndiv > DIV_INFLIGHT || int'(fdiv_pre_q) + int'(fdiv_post_q) + nfdiv > FDIV_INFLIGHT ||
                   int'(fpi_pre_q) + int'(fpi_post_q) + nfpi > FPI_INFLIGHT);
-    if (mg_pend[t_rn] && (int'(rtail_q[t_rn][ROBW-2:0]) + nrob >= rob_end(int'(t_rn)) ||
-                          int'(ltail_q[t_rn][LQW-2:0]) + nld >= lq_end(int'(t_rn)) ||
-                          int'(stail_q[t_rn][SQW-2:0]) + nst >= sq_end(int'(t_rn)))) rn_ok_ref = 1'b0;
+    if (nwr_hold[t_rn]) rn_ok_ref = 1'b0;
     for (int i = 0; i < 2; i++) if (int'(fpops[i]) > int'(ffl_count[i][t_rn])) rn_ok_ref = 1'b0;
     for (int i = 0; i < INT_BANKS; i++) if (int'(pops[i]) > int'(fl_count[i][t_rn])) rn_ok_ref = 1'b0;
 `endif
@@ -1267,9 +1263,13 @@ module tg_rename
           mg_r  = tid_t'(NT - 1 - t);
         end
     sp_go = HART1_ON && sp_q && (fit[md_q.run] || emp[md_q.run]);
-    for (int t = 0; t < NT; t++)
+    for (int t = 0; t < NT; t++) begin
       mg_pend[t] = HART1_ON && NT > 1 && md_q.split && !sp_q && slp_i[NT - 1 - t] && !wkr_i[NT - 1 - t] &&
                    emp[NT - 1 - t];
+      nwr_hold[t] = mg_pend[t] && (int'(rtail_q[t][ROBW-2:0]) + W >= rob_end(t) ||
+                                   int'(ltail_q[t][LQW-2:0]) + W >= lq_end(t) ||
+                                   int'(stail_q[t][SQW-2:0]) + W >= sq_end(t));
+    end
   end
   always_ff @(posedge clk)
     if (rst || !HART1_ON) begin
