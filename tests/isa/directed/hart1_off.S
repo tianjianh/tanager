@@ -1,6 +1,6 @@
 /* mtgsmt (0x7C0, M7 step 6, core-pipeline.md §9): HART1_OFF keeps hart 1 asleep. With hart 1 running, hart 0
    checks the register (bit 0 only, reset 0), waits until hart 1 sleeps in WFI, sets HART1_OFF and sends hart 1 an
-   IPI: hart 1 must stay asleep. Clearing the bit must wake it at once on the pending IPI. Hart 1 then reads the
+   IPI: hart 1 must stay asleep (HART1_OFF holds off its sleep timeout too; a wake without the IPI sleeps again). Clearing the bit must wake it at once on the pending IPI. Hart 1 then reads the
    register (0: one copy per core, which hart 0 cleared) and counts its wake. Lockstep compares every read of
    0x7C0 with Spike's model of the core's register. Without hart 1 only hart 0 runs, and passes without touching
    0x7C0 (illegal there). Failure codes: 2 the reset value, 3 a bit other than 0 kept, 4 hart 1 woke with
@@ -77,7 +77,11 @@ hart1:
   csrsi mie, 8
   li t1, 2
   sw t1, 0(s0)
+10:
   wfi
+  csrr t2, mip
+  andi t2, t2, 8
+  beqz t2, 10b  /* a wake without an IPI (WFI may complete at any time; step 6's sleep timeout): sleep again */
   li t4, CLINT_MSIP
   sw zero, 4(t4)
   csrr t2, MTGSMT
