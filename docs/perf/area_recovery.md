@@ -1992,7 +1992,9 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 
 - **Slower, all small** (fpu-2's branch, 10-20; the coordinator took them under DR-154):
   - ws_hash +0.05% (above);
-  - in make perf, Dhrystone rv64gc +0.02% (st) and +0.25% (smt2), while CoreMark B gains 0.6–0.7%.
+  - in make perf, Dhrystone rv64gc +0.02% (st) and +0.25% (smt2), while CoreMark B gains 0.6–0.7%;
+  - in cycle-identical, the smt2 boot retires 0.041% fewer records in 20M cycles and st's random suite takes 0.059% more
+    cycles (the st boot 0.011% more records, the bench suite −0.55% / −0.62% cycles).
   - The board-memory boots are faster: 0.058% (c1 st) and 0.002% (c2 smt2) more instructions retired in 20M cycles.
 - **Cost:** a two-way priority per tagged table and no new state; measured, the core is 23 LUTs smaller (budget flow,
   tg_core smt2).
