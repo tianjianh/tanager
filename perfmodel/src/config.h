@@ -161,6 +161,9 @@ namespace tg {
   X(smt_llt_cap, 100, "percent of the long-latency tags one thread may hold")                      \
   X(smt_bp_hash, 1, "hash the thread ID into shared predictor tables (0 = threads share entries by PC)") \
   X(smt_mix, 1, "decode, rename and commit slots one thread leaves unused go to the other thread") \
+  X(smt_rn_one, 0, "two threads, one thread a group: one rename register, as the RTL's RN stage. A thread whose group stalls there (its ROB, LQ or SQ half, registers, issue rows) keeps RN until the group moves, and the sibling's group waits in decode") \
+  X(smt_rn_room, 0, "with smt_rn_one: decode hands RN a thread's group only when that thread's room flags of the cycle before say the group fits, otherwise it serves the other thread: 1 = its ROB, LQ and SQ halves and its free registers; 2 = also a row in each of its uops' issue queues (the slot's bank); 3 = as 2 with this cycle's flags (no lag)") \
+  X(smt_commit_rr, 0, "two threads, one thread a group: the commit thread is chosen a cycle ahead, alternating between threads with entries, as the RTL's ROB; the chosen one commits what it can, possibly nothing (0: the first thread whose head can commit)") \
   /* M7 (docs/spec/m7-smt2-plan.md); off by default */                                              \
   X(smt_drain_rr, 1, "two threads: the thread whose committed SQ head the D$ store port tries first alternates every cycle (D8; 0 = thread 0 always first)") \
   X(smt_iq_cap_bank, 0, "two threads, iq_slot_bank: the issue-queue cap holds in each dispatch-slot bank of rows too, a thread taking at most smt_iq_cap% of a bank's rows (rounded up) and never all of them, so its sibling finds a row in either bank; 2 = only never all of a bank's rows; 3 = not the bank's last row while the sibling waits on that bank") \

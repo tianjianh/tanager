@@ -1024,6 +1024,129 @@ def d3fp64(workers):
     return out
 
 
+RTL_5C = Path(os.environ.get("TG_RTL5C", str(ROOT / "results" / "pair_rtl_5c_f2936949.json")))   # core-2's 5c
+# pair runner at 30 cycles (run_pair.py's JSON, from its run on f2936949 of 10-20)
+S5B = {**PAIR_CFGS[FINAL_REF], **REV8}    # step 5 as built: no caps, the drain's priority (core-2's step 4)
+S7B = {**PAIR_CFGS[FINAL_BEST], **REV8}   # step 7: 50% caps, a bank's last row kept, the drain's priority
+RN_ONE, RN_ROOM = {"smt_rn_one": 1}, {"smt_rn_one": 1, "smt_rn_room": 1}
+RN_ROOM_IQ = {"smt_rn_one": 1, "smt_rn_room": 2}
+RN_ROOM_NOW = {"smt_rn_one": 1, "smt_rn_room": 3}
+CM_RR = {"smt_commit_rr": 1}
+S7N = {**PAIR_CFGS["step 7 recommended (75% caps never a whole bank, the drain's priority)"], **REV8}
+RN_CFGS = {"step 5, rename skips a stalled thread (the model before)": S5B,
+           "step 5, one RN register (1: the RTL as built)": {**S5B, **RN_ONE},
+           "step 5, one RN register, decode's room check a cycle late (1 + 2: core-2's fix)": {**S5B, **RN_ROOM},
+           "step 5, 1 + 2 with the issue queues' rows in the flags too": {**S5B, **RN_ROOM_IQ},
+           "step 5, 1 + 2 with the issue queues' rows, this cycle's flags": {**S5B, **RN_ROOM_NOW},
+           "step 5, 1 + the RTL's commit turns (chosen a cycle ahead)": {**S5B, **RN_ONE, **CM_RR},
+           "step 5, 1 + 2 + the RTL's commit turns": {**S5B, **RN_ROOM, **CM_RR},
+           "step 7, rename skips a stalled thread (the model before)": S7B,
+           "step 7, one RN register (1)": {**S7B, **RN_ONE},
+           "step 7, one RN register, decode's room check a cycle late (1 + 2)": {**S7B, **RN_ROOM},
+           "step 7, 1 + 2 with the issue queues' rows in the flags too": {**S7B, **RN_ROOM_IQ},
+           "step 7, 1 + 2 with the issue queues' rows, this cycle's flags": {**S7B, **RN_ROOM_NOW},
+           "step 7 (75% caps, never a whole bank), rename skips a stalled thread": S7N,
+           "step 7 (75% caps, never a whole bank), 1 + 2": {**S7N, **RN_ROOM},
+           "step 7 (75% caps, never a whole bank), 1 + 2 with the issue queues' rows, this cycle's flags":
+               {**S7N, **RN_ROOM_NOW}}
+RN_WHY = ("rob", "lq", "sq", "reg", "iq", "other")
+ALONE_HALVES = {**ALONE, **D3R, **LONE["static halves, no caps"]}   # step 5's lone hart: its half (D2 is step 6)
+
+
+def rnstall(workers):
+    """core-2's diagnosis of step 5's gap (the RTL's pair runner at 30 cycles 1.221, the model 1.279): the RTL's one RN
+    stage, where a thread's stalled group keeps the sibling's waiting in decode (smt_rn_one), and core-2's fix, decode
+    handing RN a group only when its thread's room flags of the cycle before say it fits (smt_rn_room). verif-2's
+    final pair set with the runner's barrier, addresses and finish; step 5 as built and step 7's 50% caps; WS against
+    each program alone on the merged window (§13.12's basis) and on its half (the RTL's alone runs at step 5, before
+    D2's merge), over the 42 and over the 37 the RTL's run reports; the cycles RN kept the sibling out while its group
+    fitted (as core-2's TG-STALL2); the RTL's figures beside (TG_RTL5C)."""
+    names = pair_workloads(FINALDIR)
+    jobs = [(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1") for c in RN_CFGS.values() for lat in LATS
+            for _, a, b in smt.PAIRS]
+    jobs += [(PRESET, {**c, "dram_lat": lat}, w, None) for c in (ALONE, ALONE_HALVES) for lat in LATS for w in names]
+    run_all(jobs, workers)
+    rtl = json.loads(RTL_5C.read_text()) if RTL_5C.exists() else {"pairs": [], "alone": {}}
+    rtl_ws = {(p["a"], p["b"]): p["ws"] for p in rtl["pairs"] if p["ws"] == p["ws"] and p["ws"] > 0}
+    al = {k: {lat: {w: ipc1(run7(PRESET, {**c, "dram_lat": lat}, w, None)) for w in names} for lat in LATS}
+          for k, c in (("merged", ALONE), ("halves", ALONE_HALVES))}
+
+    def ev(c, lat, basis, subset=None):
+        per = {}
+        for g, a, b in smt.PAIRS:
+            if subset is not None and (a, b) not in subset:
+                continue
+            r = run7(PRESET, {**RUNNER, **c, "dram_lat": lat}, f"{a}.s0", f"{b}.s1")
+            ip = ipc2(r)
+            if ip is None:
+                continue
+            ts = r["threads"]
+            cyc = max(t["region"]["cycles"] for t in ts)
+            held = sum(t["region"].get("rn_blocked", 0) for t in ts) / cyc
+            why = {k: sum(t["region"].get(f"rn_held_{k}", 0) for t in ts) / cyc for k in RN_WHY}
+            per[(a, b)] = {"group": g, "ipc": ip, "held": held, "why": why,
+                           "ws": ip[0] / al[basis][lat][f"{a}.s0"] + ip[1] / al[basis][lat][f"{b}.s1"]}
+        mean = lambda f, g: sum(f(m) for m in per.values() if m["group"] == g) / max(
+            1, sum(1 for m in per.values() if m["group"] == g))
+        gs = {g: smt.gm(m["ws"] for m in per.values() if m["group"] == g) for g in GROUPS}
+        hs = {g: mean(lambda m: m["held"], g) for g in GROUPS}
+        ws_ = {g: {k: mean(lambda m, k=k: m["why"][k], g) for k in RN_WHY} for g in GROUPS}
+        return {"ws": smt.gm(gs.values()), "groups": gs, "held": hs, "why": ws_, "per": per,
+                "hung": [smt.pname(a, b) for _, a, b in smt.PAIRS if (subset is None or (a, b) in subset)
+                         and (a, b) not in per]}
+
+    f3 = lambda v: " / ".join(f"{x:.3f}" for x in v)
+    out = {"merged": {}, "halves37": {}, "alone": {}}
+    print("\n**Weighted throughput** (the 42; against each program alone on the merged window, §13.12's basis; "
+          "30 / 120 / 250 cycles)\n")
+    print("| Configuration | All | memory + memory | compute + compute | mixed | Hung | RN keeping the sibling out "
+          "(memory / compute / mixed), 30 |\n|---|---|---|---|---|---|---|")
+    for n, c in RN_CFGS.items():
+        es = [ev(c, lat, "merged") for lat in LATS]
+        out["merged"][n] = [{k: v for k, v in e.items() if k != "per"} for e in es]
+        print(f"| {n} | **{f3(e['ws'] for e in es)}** | " +
+              " | ".join(f3(e["groups"][g] for e in es) for g in GROUPS) + " | " +
+              " / ".join(str(len(e["hung"])) for e in es) + " | " +
+              " / ".join(f"{es[0]['held'][g]:.1%}" for g in GROUPS) + " |")
+    print("\n**Why RN is held** (30 cycles; the share of a pair's cycles RN holds a stalled group, by the stall: ROB, "
+          "LQ or SQ half, registers, issue-queue rows, other; memory / compute / mixed)\n")
+    print("| Configuration | " + " | ".join(RN_WHY) + " |\n|---|" + "---|" * len(RN_WHY))
+    for n, c in RN_CFGS.items():
+        if not c.get("smt_rn_one"):
+            continue
+        w = out["merged"][n][0]["why"]
+        print(f"| {n} | " + " | ".join(" / ".join(f"{w[g][k]:.1%}" for g in GROUPS) for k in RN_WHY) + " |")
+    print("\n**At 30 cycles on the RTL's basis** (the 37 pairs its run reports; against each program alone on its "
+          "half, as the RTL's alone runs; the RTL: 1.221, memory 1.274, compute 1.172, mixed 1.219)\n")
+    print("| Configuration | All | memory + memory | compute + compute | mixed | The same 37 on the merged basis |\n"
+          "|---|---|---|---|---|---|")
+    sub = set(rtl_ws)
+    for n, c in RN_CFGS.items():
+        e, m = ev(c, 30, "halves", sub), ev(c, 30, "merged", sub)
+        out["halves37"][n] = {"ws": e["ws"], "groups": e["groups"], "merged_ws": m["ws"], "merged_groups": m["groups"],
+                              "per": {smt.pname(a, b): v["ws"] for (a, b), v in e["per"].items()}}
+        print(f"| {n} | **{e['ws']:.3f}** | " + " | ".join(f"{e['groups'][g]:.3f}" for g in GROUPS) +
+              f" | {m['ws']:.3f} (" + " / ".join(f"{m['groups'][g]:.3f}" for g in GROUPS) + ") |")
+    print("\n**Alone at 30 cycles** (IPC over the first region, slot 0 / slot 1): the RTL (step 5c, hart 1 parked) "
+          "against the model on its half and on the merged window\n")
+    print("| Program | RTL | Model, its half | Model, merged |\n|---|---|---|---|")
+    for p in smt.MEM + smt.COMP:
+        rt = [rtl["alone"].get(f"{p}@s{s}@30", {}).get("ipc") for s in (0, 1)]
+        out["alone"][p] = {"rtl": rt, "halves": [al["halves"][30][f"{p}.s{s}"] for s in (0, 1)],
+                           "merged": [al["merged"][30][f"{p}.s{s}"] for s in (0, 1)]}
+        cell = lambda v: " / ".join("–" if x is None else f"{x:.3f}" for x in v)
+        print(f"| {p} | {cell(rt)} | {cell(out['alone'][p]['halves'])} | {cell(out['alone'][p]['merged'])} |")
+    print("\n**Per pair at 30 cycles** (WS against each program alone on its half; the RTL's own)\n")
+    ns = list(RN_CFGS)[:4]
+    print("| Pair | Group | RTL | " + " | ".join(ns) + " |\n|---|---|---|" + "---|" * len(ns))
+    for g, a, b in smt.PAIRS:
+        p = smt.pname(a, b)
+        cells = [out["halves37"][n]["per"].get(p) for n in ns]
+        print(f"| {p} | {g} | " + (f"{rtl_ws[(a, b)]:.3f}" if (a, b) in rtl_ws else "–") + " | " +
+              " | ".join("–" if x is None else f"{x:.3f}" for x in cells) + " |")
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--policy", action="store_true")
@@ -1040,13 +1163,15 @@ def main():
     ap.add_argument("--final", action="store_true",
                     help="exit 2 blind on the final pair set (TG_FINALDIR), today's rtl_m2")
     ap.add_argument("--d3fp64", action="store_true", help="D3 with FP banks of 64: deadlock-free rules against FP 96")
+    ap.add_argument("--rnstall", action="store_true", help="the RTL's one RN stage and decode's room check (core-2)")
     ap.add_argument("--workers", type=int, default=16)
     a = ap.parse_args()
     res = json.loads(OUT.read_text()) if OUT.exists() else {}
     res["config"] = {"preset": PRESET, "core": CORE, "policy": POLICY}
     for name, fn in (("policy", policy), ("exit2", exit2), ("deadlock", deadlock), ("fp", fp), ("lone", lone),
                      ("prediction", prediction), ("groups", groups), ("d3rev", d3rev), ("pair", pairrun),
-                     ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64)):
+                     ("homes", homes), ("calib", calib), ("final", final), ("d3fp64", d3fp64),
+                     ("rnstall", rnstall)):
         if getattr(a, name):
             res[name] = fn(a.workers)
             OUT.write_text(json.dumps(res, indent=1) + "\n")

@@ -1172,14 +1172,125 @@ void Core::dispatch() {
   }
   int o[MAX_THREADS];
   order(o, false);
-  for (int k = 0; k < nthr_ && n < c_.decode_width; k++) {
-    Thread& T = *th_[(size_t)o[k]];
+  if (c_.smt_rn_one && !c_.smt_mix) {
+    dispatch_rn(o, n, row);
+  } else {
+    for (int k = 0; k < nthr_ && n < c_.decode_width; k++) {
+      Thread& T = *th_[(size_t)o[k]];
+      const int before = n;
+      dispatch_thread(T, n, row);
+      T.st.dispatch_slots += (uint64_t)(n - before);
+      if (n > before && !c_.smt_mix) break;
+    }
+  }
+  if (c_.iq_steer_rn == 2) steer_snap();
+}
+
+int64_t Core::window_room(int64_t size, uint64_t own, uint64_t total, int tid) const {
+  if (c_.smt_part) return share(size, tid) - (int64_t)own;
+  const int64_t cap = std::max<int64_t>(1, (size * c_.smt_win_cap + 99) / 100);
+  return std::min(size - (int64_t)total, cap - (int64_t)own);
+}
+
+// smt_rn_room: a thread's room for a group, as rename's registered flags see it
+Core::Room Core::room_now(Thread& T) {
+  Room r;
+  uint64_t rob = 0, lq = 0, sq = 0;
+  for (auto& Tp : th_) { rob += Tp->rob_count; lq += Tp->lq_count; sq += Tp->sq.size(); }
+  r.rob = window_room(c_.rob, T.rob_count, rob, T.tid);
+  r.lq = window_room(c_.lq, T.lq_count, lq, T.tid);
+  r.sq = window_room(c_.sq, T.sq.size(), sq, T.tid);
+  for (int b = 0; b < (int)bank_size_.size() && b < 6; b++) r.regs[b] = free_regs(b, T.tid);
+  if (c_.smt_rn_room >= 2)  // the issue queues' rows this thread may take, by slot bank (iq_slot_bank) or whole
+    for (uint8_t q : {Q_A0, Q_A1, Q_LD, Q_STA, Q_FP})
+      for (int k = 0; k < 2; k++)
+        r.iq[q][k] = !c_.iq_slot_bank ? (k ? 0 : iq_free(q, T.tid))
+                                      : (bank_capped(q, k, T.tid) ? 0 : std::min(slot_free(q, k), iq_free(q, T.tid)));
+  return r;
+}
+
+// Whether the thread's next group (up to decode_width decoded uops) fits room r: ROB, LQ and SQ entries and a register
+// for each destination in its bank (an ALU op's in either ALU bank, as rename picks).
+bool Core::group_fits(const Thread& T, const Room& r) const {
+  int64_t rob = 0, lq = 0, sq = 0, alu = 0, regs[6] = {}, rows[NQ][2] = {}, alu_rows[2] = {};
+  for (uint64_t id = T.disp_next; rob < c_.decode_width; id++) {
+    const Uop* u = find(id);
+    if (!u || u->t_disp_ok > t_) break;
+    rob++;
+    if (u->is_load && !u->serial) lq++;
+    if (u->is_store) sq++;
+    const int k = c_.iq_slot_bank ? u->dslot % 2 : 0;
+    if (u->q == Q_ALU_ANY) alu_rows[k]++;
+    else if (u->q != Q_SERIAL && u->q < NQ) rows[u->q][k]++;
+    if (u->dst_arch == -1) continue;
+    if (u->q == Q_ALU_ANY && c_.prf_banked) alu++;
+    else if (const int b = bank_for(*u, u->q); b >= 0 && b < 6) regs[b]++;
+  }
+  if (!rob || r.rob < rob || r.lq < lq || r.sq < sq) return false;
+  for (int b = 0; b < 6; b++) if (regs[b] > r.regs[b]) return false;
+  if (alu > (r.regs[0] - regs[0]) + (r.regs[1] - regs[1])) return false;
+  if (c_.smt_rn_room >= 2)  // a row for each uop in its queue (an ALU op's in either ALU queue), by slot bank
+    for (int k = 0; k < 2; k++) {
+      for (uint8_t q : {Q_LD, Q_STA, Q_FP}) if (rows[q][k] > r.iq[q][k]) return false;
+      if (rows[Q_A0][k] > r.iq[Q_A0][k] || rows[Q_A1][k] > r.iq[Q_A1][k]) return false;
+      if (alu_rows[k] > (r.iq[Q_A0][k] - rows[Q_A0][k]) + (r.iq[Q_A1][k] - rows[Q_A1][k])) return false;
+    }
+  return true;
+}
+
+// smt_rn_one: the RTL's one RN stage. A thread whose group stalls there (any reason but an empty decode queue) keeps
+// RN, and only it is tried until the group moves; the sibling's group waits in decode. Otherwise RN takes the first
+// thread in the dispatch order with a group, and with smt_rn_room only one whose room flags of the cycle before say
+// the group fits.
+void Core::dispatch_rn(const int* o, int& n, int& row) {
+  if (c_.smt_rn_room)
+    for (int t = 0; t < nthr_; t++) {
+      room_prev_[t] = room_cur_[t];
+      room_cur_[t] = room_now(*th_[(size_t)t]);
+    }
+  auto stalled = [](const Thread& T) { return T.disp_why != DW_NONE && T.disp_why != DW_EMPTY; };
+  if (rn_holder_ >= 0) {
+    Thread& T = *th_[(size_t)rn_holder_];
     const int before = n;
     dispatch_thread(T, n, row);
     T.st.dispatch_slots += (uint64_t)(n - before);
-    if (n > before && !c_.smt_mix) break;
+    if (n > before || stalled(T)) {
+      rn_holder_ = stalled(T) ? T.tid : -1;
+    } else {
+      rn_holder_ = -1;   // its group left (a flush): RN is free this cycle
+    }
   }
-  if (c_.iq_steer_rn == 2) steer_snap();
+  if (rn_holder_ < 0 && n == 0) {
+    for (int k = 0; k < nthr_; k++) {
+      Thread& T = *th_[(size_t)o[k]];
+      if (c_.smt_rn_room && !group_fits(T, c_.smt_rn_room == 3 ? room_cur_[T.tid] : room_prev_[T.tid])) {
+        const Uop* u = find(T.disp_next);
+        if (u && u->t_disp_ok <= t_) T.st.rn_room_skips++;
+        continue;
+      }
+      const int before = n;
+      dispatch_thread(T, n, row);
+      T.st.dispatch_slots += (uint64_t)(n - before);
+      if (n > before || stalled(T)) {
+        if (stalled(T)) rn_holder_ = T.tid;
+        break;
+      }
+    }
+  }
+  if (rn_holder_ >= 0) {  // RN held by a stalled group, and why; is the sibling kept waiting with room for its own?
+    Thread& T = *th_[(size_t)rn_holder_];
+    T.st.rn_held++;
+    switch (T.disp_why) {
+      case DW_ROB: T.st.rn_held_rob++; break;
+      case DW_LQ: T.st.rn_held_lq++; break;
+      case DW_SQ: T.st.rn_held_sq++; break;
+      case DW_REG: T.st.rn_held_reg++; break;
+      case DW_IQ: T.st.rn_held_iq++; break;
+      default: T.st.rn_held_other++; break;
+    }
+    Thread& S = *th_[(size_t)(1 - T.tid)];
+    if (group_fits(S, room_now(S))) S.st.rn_blocked++;
+  }
 }
 
 void Core::dispatch_thread(Thread& T, int& n, int& row) {
@@ -1958,6 +2069,18 @@ void Core::commit() {
   if ((t_ & 1023) == 0)
     for (auto it = pending_.begin(); it != pending_.end();) it = it->second <= t_ ? pending_.erase(it) : std::next(it);
   if (nthr_ == 1) { commit_thread(*th_[0], (int)c_.commit_width); return; }
+  if (c_.smt_commit_rr && !c_.smt_mix) {
+    // the RTL's ROB: the commit thread was chosen the cycle before, threads with entries taking turns; it commits what
+    // it can, possibly nothing
+    if (commit_tid_ >= 0) commit_thread(*th_[(size_t)commit_tid_], (int)c_.commit_width);
+    int next = -1;
+    for (int k = 1; k <= nthr_ && next < 0; k++) {
+      const int c = ((commit_tid_ < 0 ? nthr_ - 1 : commit_tid_) + k) % nthr_;
+      if (!th_[(size_t)c]->win.empty()) next = c;
+    }
+    commit_tid_ = next;
+    return;
+  }
   int left = (int)c_.commit_width;
   const int first = (int)(t_ % (uint64_t)nthr_);
   for (int k = 0; k < nthr_ && left > 0; k++) {
@@ -2407,7 +2530,7 @@ std::string Core::region_json(const Thread& T) const {
   if (c_.rf_share_a2 || c_.dec_full || c_.alu3_simple || c_.smt_ckpt_shared || c_.iq_bank || c_.wake_tags) {
     TG_LEVER_STATS(TG_RJ)
   }
-  if (c_.prf_split || c_.flush_walk) { TG_M7_STATS(TG_RJ) }
+  if (c_.prf_split || c_.flush_walk || c_.smt_rn_one) { TG_M7_STATS(TG_RJ) }
 #undef TG_RJ
 #define TG_MJ(n) o << ",\"" #n "\":" << (T.ms_end.n - (T.region_seen ? T.ms_start.n : 0));
   TG_MEMSTATS(TG_MJ)
