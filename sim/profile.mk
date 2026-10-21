@@ -28,11 +28,12 @@ SPEC_WAKE ?=
 ifneq ($(filter-out 0 1,$(SPEC_WAKE)),)
   $(error SPEC_WAKE must be 0, 1 or unset (got "$(SPEC_WAKE)"))
 endif
-# Its filter, 0 or 1 (+define+TG_SPEC_WAKE_FILT, tg_core_pkg::SPEC_WAKE_FILT; the FPU track's): on by default; 0 lets
-# every tracked load wake its dependants speculatively, as before the filter. Not cycle-exact; runs programs.
+# Its filter, 0, 1 or 2 (+define+TG_SPEC_WAKE_FILT, tg_core_pkg::SPEC_WAKE_FILT; the FPU track's): 1 by default; 2
+# leaves a load's count alone when it misses the D$; 0 lets every tracked load wake its dependants speculatively, as
+# before the filter. Not cycle-exact; runs programs.
 SPEC_WAKE_FILT ?=
-ifneq ($(filter-out 0 1,$(SPEC_WAKE_FILT)),)
-  $(error SPEC_WAKE_FILT must be 0, 1 or unset (got "$(SPEC_WAKE_FILT)"))
+ifneq ($(filter-out 0 1 2,$(SPEC_WAKE_FILT)),)
+  $(error SPEC_WAKE_FILT must be 0, 1, 2 or unset (got "$(SPEC_WAKE_FILT)"))
 endif
 # M6's store address on its base alone, 0 or 1 (+define+TG_STA_BASE, tg_core_pkg::STA_BASE; DR-169): on by
 # default; 0 gives the wait for the store's data as before. Not cycle-exact; runs programs.

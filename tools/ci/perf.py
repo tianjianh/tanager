@@ -67,7 +67,7 @@ def main():
                            ("STORE_PF", "store-pf", (0, 1)), ("URF", "urf", (0, 1)),
                            ("STORE_PF_MAX", "store-pf-max", (2, 3)), ("SOLO_TID", "solo-tid", (0, 1)),
                            ("SPLIT", "split", (0, 1)), ("HART1", "hart1", (0, 1)),
-                           ("SPEC_WAKE_FILT", "spec-wake-filt", (0, 1))):
+                           ("SPEC_WAKE_FILT", "spec-wake-filt", (0, 1, 2))):
         ap.add_argument(f"--{opt}", type=int, choices=vals, default=None, help=f"{var} on both sides")
         ap.add_argument(f"--branch-{opt}", type=int, choices=vals, default=None, help=f"{var} on this side only")
     a = ap.parse_args()

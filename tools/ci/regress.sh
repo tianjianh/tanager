@@ -6,7 +6,7 @@
 #                       [DC_MSHRS=1|4]           (the L1D's misses in flight, DR-149; sim/profile.mk)
 #                       [QUEUE_DECODE=0|1]       (G8's instruction-queue decode bits; sim/profile.mk)
 #                       [SPEC_WAKE=0|1]          (M6's speculative load wakeup, DR-153; sim/profile.mk)
-#                       [SPEC_WAKE_FILT=0|1]     (its filter; sim/profile.mk)
+#                       [SPEC_WAKE_FILT=0|1|2]   (its filter; sim/profile.mk)
 #                       [STA_BASE=0|1] [STEER_LA=0|1] (M6's store address on its base, its steering a group ahead; DR-169)
 #                       [PMP_ENTRIES=8|16]       (the core's PMP entries, DR-167; lockstep's Spike takes the model's count)
 #                       [STORE_PF=0|1]           (M6's ownership prefetch for stores, DR-171; sim/profile.mk)
@@ -29,7 +29,7 @@ CFG=st CORE=core LAT=native SUITES="" MARCH="" SIMARGS="" SELFTEST=1 JOBS=8 RAND
 for kv in "$@"; do
   case "$kv" in
     CFG=*|CORE=*|LAT=*|SUITES=*|MARCH=*|SIMARGS=*|SELFTEST=*|JOBS=*|RANDN=*|RANDFD=*|ARCH=*|ACTCFG=*|TIMING_CUTS=*|COHN=*|PGN=*|DC_MSHRS=*|QUEUE_DECODE=*|SPEC_WAKE=*|SPEC_WAKE_FILT=*|STA_BASE=*|STEER_LA=*|PMP_ENTRIES=*|STORE_PF=*|URF=*|STORE_PF_MAX=*|SOLO_TID=*|SPLIT=*|HART1=*) declare "${kv%%=*}=${kv#*=}" ;;
-    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1]"; exit 5 ;;
+    *) echo "usage: $0 [CFG=..] [CORE=..] [LAT=..] [SUITES=..] [MARCH=..] [SIMARGS=..] [SELFTEST=0|1] [RANDN=N] [RANDFD=N] [ARCH=0|1] [ACTCFG=..] [JOBS=N] [TIMING_CUTS=0|1|both] [COHN=N] [PGN=N] [DC_MSHRS=1|4] [QUEUE_DECODE=0|1] [SPEC_WAKE=0|1] [SPEC_WAKE_FILT=0|1|2] [STA_BASE=0|1] [STEER_LA=0|1] [PMP_ENTRIES=8|16] [STORE_PF=0|1] [URF=0|1] [STORE_PF_MAX=2|3] [SOLO_TID=0|1] [SPLIT=0|1] [HART1=0|1]"; exit 5 ;;
   esac
 done
 

@@ -662,9 +662,10 @@ def main():
                     help="build both sides with M6's speculative load wakeup off or on (DR-153; default: the package's)")
     ap.add_argument("--branch-spec-wake", type=int, choices=(0, 1), default=None,
                     help="this side's only: 1 against a base without it measures the feature's cycles")
-    ap.add_argument("--spec-wake-filt", type=int, choices=(0, 1), default=None,
-                    help="build both sides with the speculative wakeup's filter off or on (default: the package's)")
-    ap.add_argument("--branch-spec-wake-filt", type=int, choices=(0, 1), default=None,
+    ap.add_argument("--spec-wake-filt", type=int, choices=(0, 1, 2), default=None,
+                    help="build both sides with the speculative wakeup's filter off, on, or on with D$ misses left "
+                         "out of its counts (default: the package's)")
+    ap.add_argument("--branch-spec-wake-filt", type=int, choices=(0, 1, 2), default=None,
                     help="this side's only: 0 against a base before the filter checks that it gives the same cycles")
     ap.add_argument("--sta-base", type=int, choices=(0, 1), default=None,
                     help="build both sides with M6's store address on its base alone off or on (DR-169; default: the package's)")

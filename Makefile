@@ -69,11 +69,12 @@ regress-profiles:
 # tools/ci/cycle_identical.py, unless BOOT_FW=<file> or BOOT_KERNEL=<file> names another); TIMING_CUTS=0|1 or
 # BRANCH_TIMING_CUTS=0|1 picks the core's timing-cut profile (DR-140), DC_MSHRS=1|4 or BRANCH_DC_MSHRS=1|4 the
 # L1D's misses in flight (DR-149), QUEUE_DECODE=0|1 or BRANCH_QUEUE_DECODE=0|1 G8's queue decode bits,
-# SPEC_WAKE=0|1 or BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, SPEC_WAKE_FILT=0|1 or BRANCH_SPEC_WAKE_FILT=0|1
-# its filter (a load whose PC's loads keep failing in M2 does not wake its dependants speculatively), STA_BASE=0|1
-# or BRANCH_STA_BASE=0|1 M6's store address on its base alone, STEER_LA=0|1 or BRANCH_STEER_LA=0|1 M6's ALU-queue steering a group ahead
-# (DR-169), PMP_ENTRIES=8|16 or BRANCH_PMP_ENTRIES=8|16 the core's PMP entries (DR-167; each side's lockstep
-# follows its model), STORE_PF=0|1 or BRANCH_STORE_PF=0|1 M6's ownership prefetch for stores (DR-171) and
+# SPEC_WAKE=0|1 or BRANCH_SPEC_WAKE=0|1 M6's speculative load wakeup, SPEC_WAKE_FILT=0|1|2 or
+# BRANCH_SPEC_WAKE_FILT=0|1|2 its filter (a load whose PC's loads keep failing in M2 does not wake its dependants
+# speculatively; 2: D$ misses do not count), STA_BASE=0|1 or BRANCH_STA_BASE=0|1 M6's store address on its base
+# alone, STEER_LA=0|1 or BRANCH_STEER_LA=0|1 M6's ALU-queue steering a group ahead (DR-169), PMP_ENTRIES=8|16
+# or BRANCH_PMP_ENTRIES=8|16 the core's PMP entries (DR-167; each side's lockstep follows its model),
+# STORE_PF=0|1 or BRANCH_STORE_PF=0|1 M6's ownership prefetch for stores (DR-171) and
 # STORE_PF_MAX=2|3 or BRANCH_STORE_PF_MAX=2|3 its prefetches in flight, URF=0|1 or BRANCH_URF=0|1 the UltraRAM
 # integer register file (DR-174), on the boot too; HARNESS=auto|branch|own picks the base side's sim/.
 cycle-identical:
