@@ -22,7 +22,10 @@
 // that hart's decode state; a redirect empties its thread's (flush_q, one bit a queue: two threads' redirects may come
 // in one cycle). Decode reads one thread's queue a cycle
 // (out_tid, registered): after decode takes from it, the other thread's if that one has instructions, and an empty
-// queue is skipped (D7: the first-served thread alternates). Without MT the one queue of before, the running thread's.
+// queue is skipped (D7: the first-served thread alternates). Step 5d: a thread whose window may not take one more
+// group (room_t, tg_rename's flags) is not read while the other thread's queue holds instructions, and a thread with
+// room is read before one without; its group waits here instead of at rename, where it held the other thread's.
+// Without MT the one queue of before, the running thread's.
 module tg_fetch_compact
   import tg_pkg::*, tg_core_pkg::EXT_C, tg_core_pkg::EXT_FD, tg_core_pkg::dec_t,
          tg_core_pkg::dec_state_t, tg_core_pkg::QUEUE_DECODE, tg_core_pkg::HART1_ON, tg_core_pkg::RUN_TID;
@@ -46,6 +49,7 @@ module tg_fetch_compact
   input  logic [NUM_THREADS-1:0]  flush_q,    // redirects: each empties its queue (bit 0 alone without MT)
   input  logic [NUM_THREADS-1:0]  drop_t,     // MT: a thread behind a serial uop at rename: its queue empties and
                                               // takes its blocks without writing them (its flush would drop them)
+  input  logic [NUM_THREADS-1:0]  room_t,     // MT (step 5d): a thread's window takes one more group (tg_rename)
   input  dec_state_t [NUM_THREADS-1:0] dst,   // the decoders' state, per hart (decode's)
   // Block from IF2
   input  logic                    blk_valid,
@@ -69,6 +73,7 @@ module tg_fetch_compact
   tid_t wt;
   logic wq, rq;
   logic rt_q;                                        // the thread decode reads (MT)
+  logic defl;                                        // (MT) not read now: no room, the other thread's queue not empty
   assign wt  = MT ? blk_tid : RUN_TID;
   assign wq  = MT && blk_tid[0];
   assign rq  = MT && rt_q;
@@ -130,7 +135,7 @@ module tg_fetch_compact
     assign fq[q] = flush_q[q] || (MT && drop_t[q]);
   end
   logic unused_fq;                           // (without MT the second thread's bits)
-  assign unused_fq = ^{flush_q, drop_t};
+  assign unused_fq = ^{flush_q, drop_t, room_t};
   assign blk_ready = blk_valid && ((MT && drop_t[wq]) || (room && left <= CW'(WR)));
 
   // ---- Compaction straight into the banks ----
@@ -221,7 +226,7 @@ module tg_fetch_compact
     logic [BW-1:0] b;
     assign b = BW'(head_q[BW-1:0] + BW'(j));
     assign out_insn[j]  = brdata[b];
-    assign out_valid[j] = rocc > (QW + 1)'(j) && !(MT && drop_t[rq]);
+    assign out_valid[j] = rocc > (QW + 1)'(j) && !(MT && drop_t[rq]) && !defl;
   end
 
   // ---- State update ----
@@ -232,6 +237,9 @@ module tg_fetch_compact
   logic [NQ-1:0][QW:0] occ_n;
   logic ro;                                          // the other thread's queue (MT)
   assign ro = MT && !rt_q;
+  // (step 5d) the reader's window has no room for a group, and the other thread's queue holds instructions: decode
+  // takes none this cycle and reads the other's next (its group waits here, not at RN in the other thread's way)
+  assign defl = MT && !room_t[rq] && occ_t_q[ro] != '0 && !fq[ro];
   always_comb
     for (int q = 0; q < NQ; q++)
       occ_n[q] = fq[q] ? '0
@@ -264,15 +272,26 @@ module tg_fetch_compact
       hm_q[wq] <= marks[NP-1];
     end
     // decode's next thread (MT): the other one after a take from this one, or when this one's queue is empty, if
-    // the other's holds instructions
+    // the other's holds instructions; with the room flags (step 5d) one with room before one without: the other
+    // one also when only it has room, not after a take when only this one has
     if (rst) rt_q <= MT && RUN_TID[0];
-    else if (MT && occ_n[ro] != '0 && (take != '0 || occ_n[rq] == '0)) rt_q <= ro;
+    else if (MT && occ_n[ro] != '0 &&
+             (occ_n[rq] == '0 || (room_t[ro] ? (take != '0 || !room_t[rq]) : (take != '0 && !room_t[rq]))))
+      rt_q <= ro;
   end
 
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
     if (!rst && !fq[rq]) assert (int'(take) <= RD && (QW + 1)'(take) <= rocc)
       else $error("tg_fetch_compact: take beyond the valid entries");
+    if (!rst && defl) assert (take == '0) else $error("tg_fetch_compact: a take from a queue not read");
   end
+  // (MT, step 5d) cycles decode passed over each thread's instructions for its window's room; on stderr at the end
+  longint unsigned n_defl [NQ];
+  always_ff @(posedge clk)
+    if (rst) for (int q = 0; q < NQ; q++) n_defl[q] <= 0;
+    else if (defl && rocc != '0) n_defl[rq] <= n_defl[rq] + 1;
+  final if (MT) $fwrite(32'h8000_0002, "TG-ROOM %m: decode passed over a thread without room: thread 0 %0d cycles, thread 1 %0d\n",
+                        n_defl[0], n_defl[NQ-1]);
 `endif
 endmodule

@@ -65,6 +65,8 @@ module tg_rename
   output logic           de_take,
   output logic [NUM_THREADS-1:0] blk_o,  // with hart 1: each thread behind a serial uop until its flush (fetch drops
                                          // its later instructions; RN drops its group: the flush would)
+  output logic [NUM_THREADS-1:0] room_o, // with hart 1 (step 5d): each thread's ROB, LQ and SQ halves take a group
+                                         // beyond RN's (decode reads the other thread's queue instead if not)
   // Window state, per thread
   input  robid_t [NUM_THREADS-1:0] rob_head,
   input  lqid_t  [NUM_THREADS-1:0] lq_head,
@@ -651,6 +653,27 @@ module tg_rename
 `endif
   end
 
+  // With hart 1 (M7 step 5d): room in each thread's ROB, LQ and SQ halves for a whole group (W uops, each a load
+  // and a store at most) beyond the group at RN when that is the thread's, so the group decode hands RN now fits
+  // there. From registers (rename's tails, the windows' heads, RN's group): decode reads the other thread's queue
+  // instead of a thread without room (tg_fetch_compact), whose group then waits in its queue, not at RN in the
+  // other thread's way. The free registers are left out: their transfers start from the group at RN (fl_want_q),
+  // which a check here would keep from a hart that has given its registers away.
+  for (genvar t = 0; t < NT; t++) begin : g_room
+    always_comb begin
+      int nr, nl, ns;
+      nr = 0; nl = 0; ns = 0;
+      if (|rn_valid_q && t_rn == tid_t'(t)) begin
+        nr = $countones(rn_valid_q);
+        nl = ren_nld(rn_uop_q, rn_valid_q);
+        ns = ren_nst(rn_uop_q, rn_valid_q);
+      end
+      room_o[t] = !CMT || (rob_cnt_t(rtail_q[t], rob_head[t]) + nr + W <= part_size(ROB_ENTRIES) &&
+                           lq_cnt_t(ltail_q[t], lq_head[t]) + nl + W <= part_size(LQ_ENTRIES) &&
+                           sq_cnt_t(stail_q[t], sq_head[t]) + ns + W <= part_size(SQ_ENTRIES));
+    end
+  end
+
   // Serialising and exception uops: alone, into the thread's empty window; then block the thread until its flush.
   logic rn_serial, window_empty;
   assign rn_serial    = rn_valid_q[0] && (rn_uop_q[0].d.serial || rn_uop_q[0].d.exc);
@@ -748,6 +771,17 @@ module tg_rename
           for (int i = 0; i < LLT_ENTRIES; i++)
             assert (!(llt_busy_q[i] && llt_tid_q[i] == t[0])) else $error("tg_rename: thread %0d's window is empty but LLT %0d is busy for it", t, i);
       end
+  end
+  // With hart 1 (step 5d): a group decode handed RN with its thread's room flag set fits that thread's ROB, LQ and SQ
+  // halves at RN (the flag counted RN's group then and a whole one more; commits only free room)
+  if (CMT) begin : g_room_chk
+    logic rmk_q;                             // the group at RN came with its thread's room flag set
+    always_ff @(posedge clk) begin
+      if (rst || flush) rmk_q <= 1'b0;
+      else if (de_take) rmk_q <= |de_valid && room_o[de_uop[0].tid];
+      if (!rst && !flush && rmk_q && |rn_valid_q)
+        assert (rn_why[2:0] == '0) else $error("tg_rename: a group taken with its thread's room flag does not fit at RN");
+    end
   end
   // +xfer_log=FILE appends the counts to FILE, a line a run (a regress run's total: the lines' sum)
   string xf_log;

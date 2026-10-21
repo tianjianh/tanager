@@ -94,6 +94,7 @@ module tg_fetch
   input  pmp_d_t [NUM_THREADS-1:0][PMP_ENTRIES-1:0] pmp_d_h,
   input  logic        pmp_busy,       // PMP descriptors being recomputed: F1 waits
   input  logic [NUM_THREADS-1:0] rn_block,   // MT: a thread behind a serial uop at rename until its flush (tg_rename)
+  input  logic [NUM_THREADS-1:0] rn_room,    // MT (step 5d): a thread's window takes one more group (tg_rename)
   input  logic        tlb_flush,
   input  tid_t        tlb_flush_tid,  // ... the hart whose entries it clears
   input  logic        it_fill,
@@ -982,8 +983,9 @@ module tg_fetch
   logic [NUM_THREADS-1:0] red_q;                    // the queues the redirects empty (by stream)
   assign red_q = NUM_THREADS'(red_s);
   tg_fetch_compact #(.WR(4), .RD(DECODE_WIDTH), .DEPTH(IBUF_ENTRIES), .META_W(META_W)) u_cmp (
-    .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .dst, .blk_valid(f3_valid_q), .blk_tid(f3_tid),
-    .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q), .carry_out(f3_carry_q), .meta(f3_mq),
+    .clk, .rst, .flush_q(red_q), .drop_t(MT ? rn_block : '0), .room_t(MT ? rn_room : '1), .dst,
+    .blk_valid(f3_valid_q), .blk_tid(f3_tid), .parcel(f3_parcel), .start(f3_start_q), .marks(f3_marks_q),
+    .carry_out(f3_carry_q), .meta(f3_mq),
     .blk_ready, .out_tid(cq_tid), .out_valid(cq_valid), .out_insn(cq_insn), .take(iq_take));
 
   // ---- Pipeline control ----
