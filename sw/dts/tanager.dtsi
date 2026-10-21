@@ -280,9 +280,13 @@
 		// The board's reset (D4's RISC-V mode, docs/spec/soc-d4-modes.md): CRL_APB RESET_CTRL through the PS
 		// window, which passes that word while the host's BOARD_CTRL[1] is set (riscv.scr sets it). Its
 		// SOFT_RESET bit resets the PS and the PL, and the A53's U-Boot chooses the mode again.
-		crl_reset: syscon@ff5e0218 {
+		// The syscon spans RESET_CTRL's whole 4 KiB page (the window still passes that word alone): OpenSBI
+		// gives a reset syscon a PMP region of the syscon's size, and a region smaller than a page clears the
+		// core's "every 4K page is PMP-homogeneous" flag (tg_csr pmp_al), so no 4K page caches its PMP result
+		// and every store and fetch redirect takes the slow check: RISC-V mode's memory gap (10-21)
+		crl_reset: syscon@ff5e0000 {
 			compatible = "syscon";
-			reg = <0x0 0xff5e0218 0x0 0x4>;
+			reg = <0x0 0xff5e0000 0x0 0x1000>;
 		};
 #endif
 
@@ -323,7 +327,7 @@
 	poweroff {
 		compatible = "syscon-poweroff";
 		regmap = <&crl_reset>;
-		offset = <0x0>;
+		offset = <0x218>;              // RESET_CTRL
 		value = <0x10>;
 		mask = <0x10>;
 	};
@@ -331,7 +335,7 @@
 	reboot {
 		compatible = "syscon-reboot";
 		regmap = <&crl_reset>;
-		offset = <0x0>;
+		offset = <0x218>;
 		value = <0x10>;
 		mask = <0x10>;
 	};

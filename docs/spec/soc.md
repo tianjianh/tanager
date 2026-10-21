@@ -166,7 +166,7 @@ builds every tree the board's packages carry:
 - the Linux bench's (DR-141);
 - RISC-V mode's (D4, D5).
 
-With 1 they match today's packages byte for byte (checked against d4r1's). With 2 they are the four-hart trees.
+With 1, the stage C and bench trees match today's packages byte for byte (checked against d4r1's). RISC-V mode's tree has changed since 10-21: its reset syscon spans a whole page, so no PMP region is smaller than a page ([soc-d4-modes.md](soc-d4-modes.md), the memory gap). With 2 they are the four-hart trees.
 
 **Four harts (M7, DR-175), ready for step 5c** (soc-2, 10-20):
 - **The trees:** `RUN_THREADS=2` lists harts 0–3, each with its own interrupt controller, and both threads of both cores in the `cpu-map`.
