@@ -744,6 +744,8 @@ module tg_exec
       assert ($onehot0({csr_v_q, mul_ov, div_ov && div_ordy, fpi_wr}))
         else $error("tg_exec: two bank-1 results in one slot");
       assert (!(oth_we && wb_dv_q[1])) else $error("tg_exec: bank 1 write conflict");
+      // (M7's step 5c: hart 1's homes take bank 1's port during the reset sequence, with nothing else on it)
+      if (HART1_ON && init_we) assert (!wb_dv_q[1] && !oth_we) else $error("tg_exec: bank 1 written during the reset sequence");
     end
   end
 `endif
