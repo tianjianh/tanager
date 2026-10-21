@@ -1,0 +1,3 @@
+ERROR: [Place 30-487] The packing of instances into the device could not be obeyed. There are a total of 14640 CLBs in the device, of which 10814 CLBs are available, however, the unplaced instances require 11059 CLBs. Please analyze your design to determine if the number of LUTs, FFs, and/or control sets can be reduced.
+ERROR: [Place 30-99] Placer failed with error: 'Detail Placement failed please check previous errors for details.'
+ERROR: [Common 17-69] Command failed: Placer could not place all instances

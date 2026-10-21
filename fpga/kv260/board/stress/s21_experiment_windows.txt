@@ -1,0 +1,2 @@
+exp cg (clock_gettime test): guest up 1463.71-1469.46 s
+exp twin (a second copy of the watch's poll loop): guest up 1488.24-2584.00 s

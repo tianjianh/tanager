@@ -1,0 +1,3 @@
+open_checkpoint: Time (s): cpu = 00:00:23 ; elapsed = 00:00:21 . Memory (MB): peak = 3897.016 ; gain = 2474.445 ; free physical = 10287 ; free virtual = 52284
+opt_design: Time (s): cpu = 00:03:13 ; elapsed = 00:01:22 . Memory (MB): peak = 5372.000 ; gain = 1390.902 ; free physical = 9214 ; free virtual = 51025
+place_design: Time (s): cpu = 00:12:21 ; elapsed = 00:06:52 . Memory (MB): peak = 6274.836 ; gain = 902.836 ; free physical = 3681 ; free virtual = 46731

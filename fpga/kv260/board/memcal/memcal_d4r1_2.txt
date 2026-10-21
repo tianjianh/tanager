@@ -1,0 +1,12 @@
+$ tanager-host boot --fw /home/ubuntu/tanager/memcal/memcal-big.bin --kernel /home/ubuntu/tanager/d4r1-smt2-c2-100/Image --dtb /home/ubuntu/tanager/d4r1-smt2-c2-100/tanager-kv260-virtio.dtb --timeout 20
+loaded: fw 1177 B, kernel 21449216 B, dtb 3075 B into 0x840000000 (RISC-V 0x80000000)
+MEMCAL-BEGIN
+MEMCAL memset-16M bytes=67108864 cycles=39653119
+MEMCAL memcpy-8M bytes=33554432 cycles=24825107
+MEMCAL memset-1M bytes=33554432 cycles=16515431
+MEMCAL memcpy-1M bytes=33554432 cycles=24794310
+MEMCAL read-8M bytes=8388608 cycles=2032204
+MEMCAL chase-4M bytes=80000 cycles=5164737
+MEMCAL-END
+
+[tanager-host] timeout

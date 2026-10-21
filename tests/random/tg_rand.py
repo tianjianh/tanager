@@ -59,6 +59,7 @@ DENY_PAGE = 0x80F00000     # the runs deny this page (run_random's --deny): its 
 DENY_IO = 0x10001000       # and this unused device page: an MMIO load there gets a denied response
 NOMEM_PA = 0x800           # nothing below the boot ROM: access faults (data and fetch)
 SHARED_LINES = 4           # several harts (--harts, --shared): the lines they contend for
+ATOMIC_LINE = SHARED_LINES - 1   # of those, the one plain stores never write: atomics with rd = x0 go only there
 UNMAPPED_VA = 0x40000000   # under --vm, nothing is mapped here: page faults
 NONCANON_VA = 0x0000004000000000  # bit 38 set, bits 63..39 clear: not a Sv39 address
 LD = {"lb": 0, "lbu": 0, "lh": 1, "lhu": 1, "lw": 2, "lwu": 2, "ld": 3}
@@ -70,15 +71,18 @@ def x(r):
 
 
 class Gen:
-    def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2, pfx="", hartid=0, multi=None, shared=0):
+    def __init__(self, seed, isa, irq, length, group3, vm=0, miss=2, pfx="", hartid=0, multi=None, shared=0,
+                 races=False):
         self.r = random.Random(seed)
         # Several harts (--harts): each runs a program of its own, its labels prefixed (pfx), its timer at its
         # own mtimecmp (hartid); multi = (its index, the number of harts) for the exit's barrier; shared: the
-        # weight of the templates on the region all harts share (multi_program)
+        # weight of the templates on the region all harts share (multi_program); races: plain stores and
+        # atomics with rd = x0 anywhere in it (--races)
         self.pfx = pfx
         self.hartid = hartid
         self.multi = multi
         self.shared = shared
+        self.races = races
         self.seed = seed
         self.isa = isa
         base = isa[4:].split("_")[0].replace("g", "imafd")
@@ -752,22 +756,41 @@ class Gen:
 
     # ---- F and D ----
     # ---- several harts (--harts with --shared): the region all of them share ----
-    def sh_addr(self, size, avoid=()):
-        """A register holding an aligned address in the shared lines."""
+    def sh_addr(self, size, avoid=(), lines=range(SHARED_LINES)):
+        """A register holding an aligned address in the shared lines (in `lines` of them)."""
         t = self.wr(avoid)
         self.emit(f"la {x(t)}, shared")
-        off = self.r.randrange(0, SHARED_LINES * 64, 1 << size)
+        off = self.r.choice(list(lines)) * 64 + self.r.randrange(0, 64, 1 << size)
+        if off:
+            self.emit(f"addi {x(t)}, {x(t)}, {off}")
+        return t
+
+    def sh_own(self, size, avoid=()):
+        """A register holding an aligned address in one of this hart's doublewords of the plain stores' lines: hart
+        i of n owns doublewords i, i + n, ... of each. Two harts' plain stores to the same bytes may reach memory
+        in either order, whatever their commit order, and a load that shows which can come far past lockstep's
+        windows (verification.md §3.7); so plain stores never share bytes, and the races are loads against stores
+        and atomics against both."""
+        i, n = self.multi
+        t = self.wr(avoid)
+        self.emit(f"la {x(t)}, shared")
+        dw = self.r.choice(range(i % n, 8, n))
+        off = self.r.randrange(ATOMIC_LINE) * 64 + dw * 8 + self.r.randrange(0, 8, 1 << size)
         if off:
             self.emit(f"addi {x(t)}, {x(t)}, {off}")
         return t
 
     def t_sh_amo(self):
-        """AMOs on the shared words, some with rd = x0 (as Linux's amoadd and amoor) and some ordered."""
+        """AMOs on the shared words, some with rd = x0 (as Linux's amoadd and amoor) and some ordered. One with
+        rd = x0 reads nothing lockstep can see: a plain store of another hart that the core lands after it could
+        not be told from one before (verification.md §3.7), so those go to the line plain stores never write,
+        where they race only other atomics (which the core never reorders)."""
         for _ in range(self.r.randrange(1, 4)):
             w = self.r.choice("wd")
-            a = self.sh_addr(2 if w == "w" else 3)
+            unseen = self.r.randrange(3) == 0
+            a = self.sh_addr(2 if w == "w" else 3, lines=[ATOMIC_LINE] if unseen and not self.races else range(SHARED_LINES))
             op = self.r.choice(["add", "swap", "or", "and", "xor", "max", "min", "maxu", "minu"])
-            rd = 0 if self.r.randrange(3) == 0 else self.wr((a,))
+            rd = 0 if unseen else self.wr((a,))
             self.emit(f"amo{op}.{w}{self.r.choice(['', '.aq', '.rl', '.aqrl'])} {x(rd)}, {x(self.rd_any())}, ({x(a)})")
 
     def t_sh_lrsc(self):
@@ -794,8 +817,9 @@ class Gen:
         hart's write where one could still be seen (verification.md §3.7)."""
         for _ in range(self.r.randrange(2, 6)):
             size = self.r.randrange(4)
-            a = self.sh_addr(size)
-            if self.r.randrange(2):
+            load = self.r.randrange(2)
+            a = self.sh_addr(size) if load or self.races else self.sh_own(size)   # stores: this hart's bytes, not the atomics' line
+            if load:
                 op = ["lb", "lh", "lw", "ld"][size] if size == 3 or self.r.randrange(2) else ["lbu", "lhu", "lwu"][size]
                 self.emit(f"{op} {x(self.wr((a,)))}, 0({x(a)})")
             else:
@@ -812,7 +836,7 @@ class Gen:
         """Stores of this hart to its own word of a shared line, loads of the others' (false sharing)."""
         a = self.wr()
         self.emit(f"la {x(a)}, shared")
-        line = self.r.randrange(SHARED_LINES)
+        line = self.r.randrange(SHARED_LINES if self.races else ATOMIC_LINE)   # not the atomics' line
         if line:
             self.emit(f"addi {x(a)}, {x(a)}, {line * 64}")
         own = 8 * (self.multi[0] % 8)
@@ -1169,7 +1193,7 @@ class Gen:
         return "\n".join(out) + "\n"
 
 
-def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared):
+def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared, races=False):
     """Several harts (M7: siblings in one core, or harts of two cores), each running a program of its own:
     _start sends each listed hart to its program and parks every other in WFI. Each program has its own
     labels, data, stream, stack, page tables (--vm draws for each), trap handler and timer; they share
@@ -1178,9 +1202,9 @@ def multi_program(seed, isa, irq, length, group3, vm, miss, harts, shared):
     r = random.Random(seed)
     n = len(harts)
     gens = [Gen(r.getrandbits(32), isa, irq, length, group3, vm, miss, pfx=f"h{i}_", hartid=h, multi=(i, n),
-                shared=shared) for i, h in enumerate(harts)]
+                shared=shared, races=races) for i, h in enumerate(harts)]
     out = [f"/* tg_rand seed={seed} isa={isa} irq={irq} length={length} group3={group3} vm={vm}% "
-           f"harts={','.join(map(str, harts))} shared={shared} (tests/random/tg_rand.py) */",
+           f"harts={','.join(map(str, harts))} shared={shared}{' races' if races else ''} (tests/random/tg_rand.py) */",
            "#define CLINT_MTIMECMP 0x02004000", "#define CLINT_MTIME 0x0200bff8",
            ".option arch, +zicsr", ".section .text.init, \"ax\"", ".globl _start", "_start:", "  csrr x10, mhartid"]
     for i, h in enumerate(harts):
@@ -1211,13 +1235,17 @@ def main():
                     "threads of one core, 0,2 one thread of each of two cores, 0,1,2,3 all four; needs the A extension")
     ap.add_argument("--shared", type=int, default=0, help="with several harts: the weight of the templates on the "
                     "lines they share (AMOs, LR/SC, plain loads and stores, fences, false sharing); 0: none")
+    ap.add_argument("--races", action="store_true", help="with --shared: plain stores of every hart and atomics with "
+                    "rd = x0 anywhere on the shared lines, so stores of two harts race for the same bytes (lockstep "
+                    "follows their order from later reads, verification.md §3.7); by default each hart stores only "
+                    "to its own doublewords and those atomics keep to a line of their own")
     ap.add_argument("-o", "--output", default="-")
     a = ap.parse_args()
     harts = [int(h) for h in a.harts.split(",")]
     if len(harts) > 1:
         if "a" not in a.isa[4:].split("_")[0].replace("g", "imafd"):
             ap.error("--harts needs the A extension (the exit's barrier is an AMO)")
-        text = multi_program(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, harts, a.shared)
+        text = multi_program(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss, harts, a.shared, a.races)
     else:
         text = Gen(a.seed, a.isa, a.irq, a.length, not a.no_group3, a.vm, a.miss).program()
     if a.output == "-":

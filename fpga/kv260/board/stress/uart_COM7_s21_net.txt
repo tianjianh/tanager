@@ -1,0 +1,39 @@
+﻿
+===== COM7 scripted session opened 2026-10-20T18:41:50.2752357-07:00 =====
+
+[?2004l[?2004htanager@tanager:~$ date -u; cut -d' ' -f1 /proc/uptime; ip -br link; ip -br addr ; networkctl --no-pager status eth0 | tail -n 12; echo NET""DONE
+[?2004lWed Oct 21 01:41:55 UTC 2026
+28108.80
+[36mlo               [0mUNKNOWN        [33m00:00:00:00:00:00 [0m<LOOPBACK,UP,LOWER_UP> 
+[36meth0             [0m[32mUP             [0m[33m00:0a:35:2a:df:d8 [0m<BROADCAST,MULTICAST,UP,LOWER_UP> 
+[36mlo               [0mUNKNOWN        [35m127.0.0.1[0m/8 [34m::1[0m/128 
+[36meth0             [0m[32mUP             [0m[34mfe80::20a:35ff:fe2a:dfd8[0m/64 
+                       QDisc: mq
+IPv6 Address Generation Mode: eui64
+    Number of Queues (Tx/Rx): 2/2
+            Auto negotiation: yes
+                       Speed: 1Gbps
+                      Duplex: full
+                        Port: tp
+                     Address: fe80::20a:35ff:fe2a:dfd8
+           Activation Policy: up
+         Required For Online: yes
+          DHCPv6 Client DUID: DUID-EN/Vendor:0000ab112fede00068c88a4e
+                Connected To: n/a on port 60:7d:09:e6:0d:67
+NETDONE
+[?2004htanager@tanager:~$ sudo dmesg | grep -E "macb|eth0" | tail -n 8; journalctl --no -pager -u systemd-networkd -n 12 -o short-monotonic; echo LOG""DONE
+[?2004l[27630.242663] macb ff0e0000.ethernet eth0: Link is Down
+[27641.508046] macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control tx
+[27658.914174] macb ff0e0000.ethernet eth0: Link is Down
+[27661.988155] macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+[27679.394513] macb ff0e0000.ethernet eth0: Link is Down
+[27695.783093] macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control tx
+[27713.186580] macb ff0e0000.ethernet eth0: Link is Down
+[27716.264042] macb ff0e0000.ethernet eth0: Link is Up - 1Gbps/Full - flow control off
+[0;1;39mHint: You are currently not seeing messages from other users and the system.[0m
+[0;1;39m      Users in groups 'adm', 'systemd-journal' can see all messages.[0m
+[0;1;39m      Pass -q to turn off this notice.[0m
+-- No entries --
+LOGDONE
+[?2004htanager@tanager:~$ 
+===== COM7 scripted session closed 2026-10-20T18:42:02.3531611-07:00, exit 0 =====
