@@ -1502,7 +1502,15 @@ A hart therefore needs, in every bank, room for its architectural registers plus
    - If the RTL lands below at step 7, the model has nothing big left: the miss-entry and long-latency-tag caps don't help.
    - What remains is step 7's own tuning (the cap level, ICOUNT), or the bar itself, which is the coordinator's and the user's.
 
-**Decisions:** none here. Revision 8 (`rfo_pf_reserve` 1) is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
+**On the full revision 8 (10-20, area_recovery.md §6.15).** The preset now also has the I$ next-line prefetch with its second refill engine. This section, run again on it (`results/m7_smt_rv64gc.json`, "final"; the first run is kept as "final_rfo_only"), moves by 0.003 at most:
+- step 5 + the drain's priority: 1.310 / 1.291 / 1.274;
+- 50% caps with a bank's last row kept: 1.334 / 1.346 / 1.333;
+- never a whole bank: 1.300 / 1.326 / 1.319;
+- the same hangs.
+
+The pair programs' code fits the I$, so the prediction stands.
+
+**Decisions:** none here. Revision 8 is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
 
 **Learned:**
 - **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
