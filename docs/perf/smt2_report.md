@@ -781,6 +781,8 @@ python3 scripts/m7_smt.py --calib --final # §13.10's RTL alone comparison; §13
 python3 scripts/m7_smt.py --d3fp64         # §13.13: D3 with FP banks of 64 (bash bench/build_m7.sh first, for m7_fpcompute)
 python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and decode's room check (results/pair_rtl_5c_f2936949.json)
 python3 scripts/m7_smt.py --bankrule --icount --caplift   # §13.15 on the second final set (bash bench/build_m7.sh first)
+TG_FINALDIR=<the first final set> python3 scripts/m7_smt.py --recon5   # §13.16 (TG_RTL5C_LOGS/TG_RTL5D_LOGS: the logs)
+python3 scripts/m7_smt.py --recon7         # §13.16's step 7, on the second final set
 ```
 
 **Where results live.**
@@ -825,6 +827,7 @@ python3 scripts/m7_smt.py --bankrule --icount --caplift   # §13.15 on the secon
 
 | Step 5's gap: the one RN stage (§13.14) | On the RTL's own basis (alone on its half) the gap is 0.155 (model 1.376, RTL 1.221). One RN register reproduces the stall and closes 62% of it (1.280). core-2's room check recovers 54–68% of the stall at step 5 and fails at step 7 (starving pairs with 50% caps, 1.126 with never a whole bank). A same-cycle check with issue rows reaches 1.22–1.24 at step 7 | A second RN register, one per thread (step 7 1.322 / 1.311 / 1.295 on revision 10; 1.304 / 1.312 / 1.300 on the second final set), if core-2 costs it within DR-154; else the same-cycle check with issue rows |
 | Step 7 in fpu-2's form (§13.15, the second final set) | R2 as worded (a bank's last free row kept for the sibling's waiting group) costs 2.5–3.5%: 1.258 / 1.269 / 1.264 with round robin. "Never all of a bank's rows", for every bank the waiting group needs, reads 1.299 / 1.311 / 1.300, with no hang either way. ICOUNT adds 0.0–0.3% over round robin, and counting decode and rename doesn't matter. Lifting the caps while the sibling sleeps costs the waking task up to 0.4K cycles a wake and gives a lone memory thread up to 45% | R2 plus "… and the sibling holds none of that bank's rows"; round robin; keep the lift |
+| Step 5 against core-2's 5c and C, step 7 for C and B (§13.16) | The RTL's commit turns, round robin and its shared fetch pipe take the model's C from 1.397 to 1.334 against the RTL's 1.243 (5c: 1.276 against 1.227); about 0.09 remains. At step 7 the shared fetch pipe costs C 7–14%: 1.184 / 1.128 / 1.107 with core-2's commit fix, mixed pairs below 1.0 at 250. With the hold fixed, C reads 1.289 / 1.303 / 1.291 and B 1.207 / 1.210 / 1.204 | Fix the fetch hold before step 7's pairs; core-2's commit fix; C (the parking form) over B, by 6.8–7.7% |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -1920,3 +1923,103 @@ At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and s
 **Learned:**
 - **A reservation must not hold a row for a thread that will free one itself.** Keeping the last free row for a waiting sibling that already holds rows in the bank throttles the fast thread for nothing.
 - **State a rule's guarantee in one exact form.** §13.4 described the bank rule two ways, "never all of a bank's rows" and "never the last free row", and they differ by 3–4% at step 7.
+
+### 13.16 Step 5 against core-2's 5c and C, and step 7 for C and B (10-21)
+
+*The coordinator asked for the user's choice between C and B (DR-178):*
+- *Model the RTL's commit turns exactly as core-2 builds them. Later, model core-2's cycle-ahead fix: the turn stays while the sibling's head isn't actionable, and passes when it is, when this thread committed nothing, or after 4 turns in a row.*
+- *Calibrate step 5 against core-2's two measurements and say what else separates the model from the RTL. Both are the pair runner at 30 cycles on the half basis, on the first final set: 5c's head (9cba5f9b, one RN register) at 1.227, and C (4c60872b, a rename register per thread) at 1.243.*
+- *Re-predict step 7 for C and B, each with the RTL's commit turns and with a fix: weighted throughput by group and hangs at 30, 120 and 250, on the merged basis.*
+
+*The model (`m7_smt.py --recon5 --recon7`): core-2's runs are kept as `results/pair_rtl_5c_9cba5f9b.json` and `pair_rtl_5d_4c60872b.json`, and their logs give the TG-STALL2 counts. New switches, all off by default:*
+- *`smt_commit_rr` 2: tg_rob's commit turns (`ct_n`). The thread chosen the cycle before commits what it can, possibly nothing. Next cycle's is the other thread whenever its ROB holds entries.*
+  - *§13.14's form (1) also counted a thread's decoded uops not yet dispatched as entries.*
+  - *With one RN register, a stream thread holding rename then kept its partner taking turns with an empty ROB, and every stream pair starved.*
+- *`smt_commit_rr` 4: core-2's fix. A head is actionable when it completes by the next cycle, or when it is a serialising op waiting to start.*
+- *`smt_fetch_hold`: tg_fetch's one pipe for both threads.*
+  - *F1 alternates between the threads with a block to fetch.*
+  - *A block whose thread's 16-entry instruction queue is full holds the pipe, and so the other thread's fetch, until there is room.*
+- *`smt_dec_rr`: decode reads one thread a cycle, chosen the cycle before (tg_fetch_compact's `rt_q`).*
+- *Fetch is round robin (`smt_fetch` 1), as the RTL's.*
+
+**1. Step 5 on the RTL's basis** (30 cycles; the 37 pairs both RTL runs report; each program alone on its half):
+
+| | 5c: one RN register | C: a rename register per thread |
+|---|---|---|
+| The RTL | **1.227** (memory 1.288, compute 1.167, mixed 1.229) | **1.243** (1.303, 1.168, 1.261) |
+| The model before (§13.14) | 1.288 | 1.397 |
+| + the RTL's commit turns | 1.275 | 1.370 |
+| + round robin at fetch | 1.273 | 1.364 |
+| + the RTL's shared fetch pipe | 1.276 (1.299, 1.241, 1.287) | 1.334 (1.367, 1.262, 1.375) |
+| + decode's thread chosen a cycle ahead | 1.275 | 1.334 |
+
+- **The RTL's rules close 40% of C's gap** (0.154 → 0.091) and a fifth of 5c's (0.061 → 0.049).
+  - C's gain over 5c falls from 0.109 to 0.058 in the model. The RTL's is 0.016.
+- **The shared fetch pipe is what C exposes.**
+  - With one RN register a stalled group holds rename, and the front end waits behind it.
+  - With C the stalled thread keeps fetching until its queue is full, then holds the pipe.
+  - It costs C 0.030 here (mixed pairs 1.435 → 1.375), and 5c nothing.
+- **Decode's registered thread choice changes nothing.**
+
+**The shared stalls, the model's beside the RTL's own counters** (C at 30 cycles; share of cycles; memory / compute / mixed; the RTL's over its whole run, the model's over the region):
+
+| | Commit turns wasted while the other's head is complete | Fetch held while the other thread has a block and room for it | Rename's choice missing a thread that fits |
+|---|---|---|---|
+| The RTL | 13.6% / 7.3% / 13.6% | 6.1% / 4.5% / 9.3% | 3.1% / 1.6% / 3.8% |
+| The model | 14.1% / 1.6% / 9.7% | 19.3% / 0.4% / 10.4% | none (chosen in the cycle) |
+
+*The RTL's fetch count takes only the cycles in which the full block's thread is F2's. The model counts every held cycle, so the two counts are not on one definition. The throughput is the check: with the hold the model still reads above the RTL in every group.*
+
+**2. What still separates them: 0.06–0.12 in every group** (memory 1.367 against 1.303, compute 1.262 against 1.168, mixed 1.377 against 1.261).
+- **Compute pairs: commit and fetch.**
+  - Under the same rule, the RTL wastes 7.3% of cycles in commit turns, the model 1.6%. The RTL's heads complete later as commit sees them, since its head window is read from flip-flops a cycle ahead.
+  - The RTL's fetch holds 4.5% of cycles against the model's 0.4%. Its F3 holds whenever a block doesn't fit whole; the model holds only when the queue is full.
+- **Rename:** the RTL's choice, made a cycle ahead, misses in 1.6–3.8% of cycles. The model's C chooses within the cycle.
+- **The alone runs in this set's layout (§13.12):** WS divides them out only to first order.
+  - minver 1.344 against 1.749 (the straddler);
+  - stream 0.771 against 0.973;
+  - copy 0.378 against 0.525;
+  - Dhrystone 1.569 against 1.418.
+- **Each is a few percent, and two of them are what core-2's fixes remove** (the commit turns and the fetch hold). The step-7 figures below are likely optimistic by up to the residual, about 0.09.
+
+**3. Step 7 re-predicted** (second final set, merged basis, the 42; 50% caps, R2 with "the sibling holds none of that bank's rows", round robin, the drain's priority; 30 / 120 / 250):
+
+| | Fetch as built (the shared pipe) | The fetch hold fixed |
+|---|---|---|
+| C, the RTL's commit turns | 1.179 / 1.120 / 1.100 | 1.262 / 1.257 / 1.246 |
+| **C, core-2's fix** | 1.184 / 1.128 / 1.107 | **1.289 / 1.303 / 1.291** |
+| C, the fix in the same cycle | 1.188 / 1.130 / 1.110 | 1.299 / 1.311 / 1.300 (§13.15) |
+| B, the RTL's commit turns | 1.151 / 1.098 / 1.082 | 1.189 / 1.184 / 1.174; 1 working-set pair hung at 30 |
+| B, core-2's fix | 1.154 / 1.104 / 1.088 | 1.207 / 1.210 / 1.204 |
+| B, the fix in the same cycle | 1.156 / 1.109 / 1.091 | 1.211 / 1.214 / 1.202; 1 hung at 30 |
+
+*By group, C with core-2's fix and the hold fixed: memory 1.225 / 1.206 / 1.186, compute 1.213 / 1.217 / 1.220, mixed 1.442 / 1.508 / 1.487. As built (C, the RTL's turns): memory 1.148 / 1.118 / 1.109, compute 1.212, mixed 1.179 / 1.037 / 0.990. No configuration hangs any of the 42.*
+
+- **The shared fetch pipe is the largest cost at step 7: 7–14% for C, 3–10% for B.**
+  - With 50% caps a memory thread's group waits at rename. Its queue fills, its blocks hold the pipe, and a compute partner fetches only as fast as the memory thread decodes.
+  - Mixed pairs fall below one thread's throughput at 120 and 250 cycles: gather + CoreMark 0.69 and 0.63, copy + CoreMark 0.91 at 250.
+  - The fix keeps a thread out of F1 while its queue has no room for another block, counting the blocks in flight. It is a room check per thread on counts the queue keeps; my guess is tens of LUTs a core, core-2 to cost.
+- **The RTL's commit turns cost 3–4%** with the hold fixed (C 1.262 / 1.257 / 1.246 against 1.299 / 1.311 / 1.300).
+  - core-2's fix recovers 73–85% of that: 1.289 / 1.303 / 1.291, within 0.01 of the same-cycle fix.
+  - With the hold as built it adds only 0.4–0.7%: the hold leaves commit little to do.
+- **C against B:**
+  - C leads by 1.7–2.6% as built, and by 6.8–7.7% with both fixes.
+  - With both fixes, C stays within 0.011 of exit 2 at every latency, and reaches it at 120 cycles. B stays 0.09–0.10 below it.
+  - C hangs nothing. B hangs one working-set pair (chase1 + chase8 at 4 MiB) at 30 cycles in two of its forms.
+- **Exit 2 needs C and both fixes, and even then sits on the bar.** Given the step-5 residual, the RTL will likely land below it.
+
+**What to decide** (the coordinator's; C against B is the user's under DR-154):
+- **The fetch hold (core-2): fix it before step 7's pairs.**
+  - Without the fix neither C nor B comes within 0.11 of exit 2 (0.17–0.19 short at 120 and 250 cycles), and mixed pairs lose throughput to SMT.
+  - Cost: a room check per thread at F1, likely tens of LUTs a core.
+- **The commit turns: core-2's fix as specified.** It gives +2.1 to +3.7% with the hold fixed, close to the same-cycle ideal, without reading the head window late.
+- **C or B.**
+  - **C:** 6.8–7.7% over B with both fixes, and no hangs. It costs +861 LUTs a core as built (1.7K a chip, over DR-154's 600-LUT line). The parking form may land near +560 if decode's +303 is fanout.
+  - **B:** not yet costed, and its check sits on 5c's tightest rename path. It hangs one working-set pair.
+  - **Recommendation: C in the parking form, with both fixes.** Measure step 7's pairs at 120 and 250 cycles as well as 30, since the hold's cost grows with latency.
+
+**Decisions:** none here. Every switch is off by default, and the presets are unchanged.
+
+**Learned:**
+- **A shared stage behind a per-thread buffer passes the stall on.** A rename register per thread moves a stalled thread's back-pressure from rename to its instruction queue, and the shared fetch pipe then carries it to the other thread.
+- **Check a fix's effect beside the stage it unblocks.** C freed rename, but the RTL's next shared stage (fetch) took the gain at step 5 and more at step 7.

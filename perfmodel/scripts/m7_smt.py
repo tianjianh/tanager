@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -1280,11 +1281,24 @@ def caplift(workers):
 
 RTL_5D = {"5c (9cba5f9b)": ROOT / "results" / "pair_rtl_5c_9cba5f9b.json",   # core-2's pair runner at 30 cycles
           "C (4c60872b)": ROOT / "results" / "pair_rtl_5d_4c60872b.json"}    # on the first final set, 10-21
-CM_RTL, CM_FIX, CM_FIX1 = {"smt_commit_rr": 2}, {"smt_commit_rr": 0}, {"smt_commit_rr": 3}
+RTL_5D_LOGS = {"5c (9cba5f9b)": Path(os.environ.get("TG_RTL5C_LOGS", "")),   # the runs' logs, for their TG-STALL2
+               "C (4c60872b)": Path(os.environ.get("TG_RTL5D_LOGS", ""))}    # counters (optional)
+CM_RTL, CM_FIX, CM_FIX4 = {"smt_commit_rr": 2}, {"smt_commit_rr": 0}, {"smt_commit_rr": 4}
+RR, FHOLD, DEC_RR = {"smt_fetch": 1}, {"smt_fetch_hold": 1}, {"smt_dec_rr": 1}
 RECON5 = {"5c as modelled: one RN register (§13.14's 1)": {**S5B, **RN_ONE},
-          "5c: one RN register, the RTL's commit turns": {**S5B, **RN_ONE, **CM_RTL},
+          "5c: + the RTL's commit turns": {**S5B, **RN_ONE, **CM_RTL},
+          "5c: + round robin at fetch": {**S5B, **RN_ONE, **CM_RTL, **RR},
+          "5c: + the RTL's shared fetch pipe": {**S5B, **RN_ONE, **CM_RTL, **RR, **FHOLD},
+          "5c: + decode's thread chosen a cycle ahead": {**S5B, **RN_ONE, **CM_RTL, **RR, **FHOLD, **DEC_RR},
           "C as modelled: rename skips a stalled thread": S5B,
-          "C, the RTL's commit turns": {**S5B, **CM_RTL}}
+          "C: + the RTL's commit turns": {**S5B, **CM_RTL},
+          "C: + round robin at fetch": {**S5B, **CM_RTL, **RR},
+          "C: + the RTL's shared fetch pipe": {**S5B, **CM_RTL, **RR, **FHOLD},
+          "C: + decode's thread chosen a cycle ahead": {**S5B, **CM_RTL, **RR, **FHOLD, **DEC_RR}}
+RTL_STALLS = {"commit": r"commit's thread committed nothing \d+ cycles \((\d+) with",   # TG-STALL2 lines, and the
+              "fetch": r"F2 holds another stream's fetch \d+ cycles \((\d+) with",     # model's counterparts
+              "rename": r"RN holds the other thread's group \d+ cycles \((\d+) with"}
+MODEL_STALLS = {"commit": "cm_none_ready", "fetch": "fetch_hold_other", "rename": "rn_blocked"}
 
 
 def recon5(workers):
@@ -1336,13 +1350,52 @@ def recon5(workers):
     print("\n**The two threads' summed IPC in a pair, model over RTL** (geometric mean over the group's pairs that "
           "both report; 30 cycles)\n")
     print("| Model, against | memory + memory | compute + compute | mixed |\n|---|---|---|---|")
-    for n, k in ((list(RECON5)[0], "5c (9cba5f9b)"), (list(RECON5)[1], "5c (9cba5f9b)"),
-                 (list(RECON5)[2], "C (4c60872b)"), (list(RECON5)[3], "C (4c60872b)")):
-        e = ev(RECON5[n], 30, "halves", sub)
+    rkey = lambda n: "5c (9cba5f9b)" if n.startswith("5c") else "C (4c60872b)"
+    for n, c in RECON5.items():
+        k = rkey(n)
+        e = ev(c, 30, "halves", sub)
         rat = {g: smt.gm(sum(v["ipc"]) / (rp[k][ab]["slots"]["0"]["ipc"] + rp[k][ab]["slots"]["1"]["ipc"])
                          for ab, v in e["per"].items() if v["group"] == g) for g in GROUPS}
         out["sums"][f"{n} / {k}"] = rat
         print(f"| {n}, against the RTL's {k} | " + " | ".join(f"{rat[g]:.3f}" for g in GROUPS) + " |")
+    # the shared stalls: TG-STALL2's counts in the RTL's logs, and the model's (share of the pair's longer region)
+    print("\n**Shared stalls at 30 cycles** (share of a pair's cycles, mean over the group's pairs; memory / compute "
+          "/ mixed; the RTL's over its whole run, the model's over the longer region): commit's thread commits "
+          "nothing while the other's head is complete; fetch held while the other thread has a block and room for "
+          "it; RN holds the other thread's group while it fits\n")
+    print("| | Commit | Fetch | Rename |\n|---|---|---|---|")
+    st = {}
+    for k in rtl:
+        d = RTL_5D_LOGS[k]
+        if not (str(d) and d.is_dir()):
+            continue
+        per = {}
+        for (a, b), p in rp[k].items():
+            f = d / f"pair-{a}+{b}-lat30.log"
+            if (a, b) not in sub or not f.exists():
+                continue
+            txt = f.read_text(errors="replace")
+            m = re.search(r"TG-RESULT .*? cycles=(\d+)", txt)   # the whole run, as the counts (core-2's basis)
+            if not m:
+                continue
+            cyc = int(m.group(1))
+            ms = {s: re.search(rx, txt) for s, rx in RTL_STALLS.items()}
+            per[(a, b)] = (p["group"], {s: (int(m.group(1)) / cyc if m else None) for s, m in ms.items()})
+        st[f"The RTL, {k}"] = per
+    for n, c in RECON5.items():
+        per = {}
+        for g, a, b in smt.PAIRS:
+            r = run7(PRESET, {**RUNNER, **c, "dram_lat": 30}, f"{a}.s0", f"{b}.s1")
+            if (a, b) in sub and not r.get("error"):
+                cyc = max(t["region"]["cycles"] for t in r["threads"])
+                per[(a, b)] = (g, {s: sum(t["region"].get(k, 0) for t in r["threads"]) / cyc
+                                   for s, k in MODEL_STALLS.items()})
+        st[f"The model, {n}"] = per
+    for n, per in st.items():
+        mean = lambda s, g: sum(v[s] for gg, v in per.values() if gg == g and v[s] is not None) / max(
+            1, sum(1 for gg, v in per.values() if gg == g and v[s] is not None))
+        out.setdefault("stalls", {})[n] = {s: {g: mean(s, g) for g in GROUPS} for s in RTL_STALLS}
+        print(f"| {n} | " + " | ".join(" / ".join(f"{mean(s, g):.1%}" for g in GROUPS) for s in RTL_STALLS) + " |")
     print("\n**Merged basis** (the 42, 30 / 120 / 250 cycles)\n")
     print("| Configuration | All | memory + memory | compute + compute | mixed | Hung |\n|---|---|---|---|---|---|")
     f3 = lambda v: " / ".join(f"{x:.3f}" for x in v)
@@ -1371,24 +1424,25 @@ def recon5(workers):
     return out
 
 
-S7R = {**STEP5, "smt_iq_cap": 50, "drain_guard": 1, **REV8, **FETCH["round robin"]}   # step 7 less its bank rule
-BANK7 = {"never all of a bank's rows, every bank the waiting group needs (smt_iq_cap_bank 6)": 6,
-         "R2 as worded: not a bank's last free row (4)": 4}
+S7R = {**STEP5, "smt_iq_cap": 50, "smt_iq_cap_bank": 6, "drain_guard": 1, **REV8, **RR}   # step 7 as adopted
+CAL7 = {**FHOLD}   # recon5's calibration: the RTL's shared fetch pipe
 
 
 def recon7(workers):
     """The coordinator (10-21): step 7 re-predicted for C (a rename register per thread) and B (one RN register, the
     room check in the decode cycle with the issue queues' rows, caps and bank rule), each with the RTL's commit turns
-    (smt_commit_rr 2) and with a fix in which a thread whose head is ready commits when the chosen one can't (0: in
-    the same cycle; 3: chosen a cycle ahead); 50% caps, round robin, the drain's priority; for two bank rules.
+    (smt_commit_rr 2), with core-2's fix (4: the turn stays while the other's head isn't actionable, at most 4 in a row)
+    and with the fix in the same cycle (0); step 7 as adopted (50% caps, R2 with "the sibling holds none of the bank's
+    rows", round robin, the drain's priority) on the model as recon5 calibrates it (CAL7), and without that.
     verif-2's second final set (TG_FINALDIR), the merged basis."""
     cfgs = {}
-    for bn, b in BANK7.items():
+    for fn, f in (("fetch as built", CAL7), ("its hold fixed", {})):
         for rn, r in (("C", {}), ("B", RN_ROOM_NOW)):
-            for cn, cm in (("the RTL's commit turns", CM_RTL), ("the fix, same cycle", CM_FIX),
-                           ("the fix, chosen a cycle ahead", CM_FIX1)):
-                cfgs[f"{rn}, {cn}; {bn}"] = {**S7R, "smt_iq_cap_bank": b, **r, **cm}
-    return ws_table("Step 7 re-predicted: C and B, the commit turns", "Configuration", cfgs, workers)
+            for cn, cm in (("the RTL's commit turns", CM_RTL), ("core-2's fix", CM_FIX4),
+                           ("the fix in the same cycle", CM_FIX)):
+                cfgs[f"{rn}, {cn}; {fn}"] = {**S7R, **r, **cm, **f}
+    return ws_table("Step 7 re-predicted: C and B, the commit turns, the shared fetch pipe", "Configuration", cfgs,
+                    workers)
 
 
 def main():

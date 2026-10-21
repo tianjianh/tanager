@@ -739,6 +739,7 @@ void Core::fetch_block_m2(Thread& T, uint64_t start, uint64_t blk_end) {
 // they could not.
 void Core::fetch() {
   if (nthr_ == 1) { fetch_thread(*th_[0]); return; }
+  if (c_.smt_fetch_hold) { fetch_held(); return; }
   int o[MAX_THREADS];
   order(o, true);
   bool done = false;
@@ -752,6 +753,35 @@ void Core::fetch() {
     T.st.fetch_cycles++;
     fetch_thread(T);
     done = true;
+  }
+}
+
+// smt_fetch_hold (the RTL's front end, tg_fetch with hart 1): one pipe for both threads' blocks, F1 taking turns
+// between the threads with a block to fetch; a block whose thread's instruction queue is full holds the pipe, and so
+// the other thread's fetch, until its queue has room. A stopped (blocked) thread or one parked on a miss or redirect
+// takes no turn.
+void Core::fetch_held() {
+  auto can = [&](Thread& T) { return !T.fe_blocked && t_ >= T.fe_resume && get(T, T.fetch_seq) != nullptr; };
+  auto room = [&](const Thread& T) { return (int64_t)T.fetchq.size() < c_.fetchq; };
+  auto held = [&](Thread& H) {  // H's block holds the pipe this cycle; of them, as tg_fetch's TG-STALL2 count, with
+    H.st.fetch_hold++;          // the other thread ready and room for a whole block in its queue
+    Thread& O = *th_[(size_t)(1 - H.tid)];
+    if (can(O) && (int64_t)O.fetchq.size() <= c_.fetchq - c_.fetch_bytes / 2) H.st.fetch_hold_other++;
+  };
+  if (hold_tid_ >= 0) {
+    Thread& H = *th_[(size_t)hold_tid_];
+    if (can(H) && !room(H)) { held(H); return; }
+    hold_tid_ = -1;
+    if (can(H)) { H.st.fetch_cycles++; fetch_thread(H); return; }   // its block goes on
+  }
+  for (int k = 1; k <= nthr_; k++) {
+    Thread& T = *th_[(size_t)((fetch_turn_ + k) % nthr_)];
+    if (!can(T)) continue;
+    fetch_turn_ = T.tid;
+    if (!room(T)) { hold_tid_ = T.tid; held(T); return; }
+    T.st.fetch_cycles++;
+    fetch_thread(T);
+    return;
   }
 }
 
@@ -971,6 +1001,19 @@ bool Core::fusible(const FetchRec& a, const FetchRec& b) const {
 // other thread fills the remaining slots in the same cycle.
 void Core::decode() {
   if (nthr_ == 1) { decode_thread(*th_[0], (int)c_.decode_width); return; }
+  if (c_.smt_dec_rr && !c_.smt_mix) {
+    // the RTL's decode (tg_fetch_compact's rt_q): one thread's queue read a cycle, chosen the cycle before: the other
+    // thread when its queue holds instructions and rename can take its group, after a take from this one or when this
+    // one's queue is empty or rename can't take its group; no other thread decodes in the cycle
+    Thread &T = *th_[(size_t)dec_tid_], &O = *th_[(size_t)(1 - dec_tid_)];
+    const int took = decode_thread(T, (int)c_.decode_width);
+    T.st.decode_slots += (uint64_t)took;
+    const uint64_t buf = (uint64_t)(c_.decode_width * (c_.dec_to_disp + 1));
+    auto holds = [&](const Thread& U) { return !U.fetchq.empty() && U.fetchq.front().avail <= t_ + 1; };
+    auto takes = [&](const Thread& U) { return U.next_id - U.disp_next < buf; };
+    if (holds(O) && takes(O) && (took > 0 || !holds(T) || !takes(T))) dec_tid_ = O.tid;
+    return;
+  }
   int o[MAX_THREADS];
   order(o, false);
   int slots = (int)c_.decode_width;
@@ -2145,13 +2188,28 @@ void Core::commit() {
     // next cycle's is the other thread whenever its ROB holds entries, so two busy threads alternate. 3: next cycle's
     // is a thread whose head is complete, the other first; as 2 when neither's is
     const int c = std::max(0, commit_tid_), o = 1 - c;
-    commit_thread(*th_[(size_t)c], (int)c_.commit_width);
+    Thread &C = *th_[(size_t)c], &O = *th_[(size_t)o];
+    const int n = commit_thread(C, (int)c_.commit_width);
     auto ready = [&](const Thread& T) {
       return !T.win.empty() && T.win.front().state == 2 && T.win.front().t_done <= t_ + 1;
     };
-    const Thread &C = *th_[(size_t)c], &O = *th_[(size_t)o];
-    if (c_.smt_commit_rr == 3 && (ready(O) || ready(C))) commit_tid_ = ready(O) ? o : c;
-    else commit_tid_ = O.rob_count > 0 ? o : c;
+    auto actionable = [&](const Thread& T) {  // complete next cycle, or a serialising op that starts at the head
+      return ready(T) || (!T.win.empty() && T.win.front().serial && T.win.front().state == 1);
+    };
+    if (n == 0) {  // as tg_rob's TG-STALL2 count: the chosen thread committed nothing (the other's head complete)
+      C.st.cm_none++;
+      if (O.rob_count > 0 && ready(O)) C.st.cm_none_ready++;
+    }
+    if (c_.smt_commit_rr == 4) {  // core-2's fix (10-21): keep the turn while the other's head isn't actionable;
+      // switch on its head being actionable, on this thread committing nothing, or after 4 turns in a row
+      const bool sw = O.rob_count > 0 && (actionable(O) || n == 0 || commit_turns_ >= 4);
+      commit_tid_ = sw ? o : c;
+      commit_turns_ = sw ? 1 : commit_turns_ + 1;
+    } else if (c_.smt_commit_rr == 3 && (ready(O) || ready(C))) {
+      commit_tid_ = ready(O) ? o : c;
+    } else {
+      commit_tid_ = O.rob_count > 0 ? o : c;
+    }
     return;
   }
   if (c_.smt_commit_rr && !c_.smt_mix) {

@@ -153,7 +153,7 @@ struct SqEntry {
 // and the dispatch cycles they stalled.
 #define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
   X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
-  X(rn_held_other)
+  X(rn_held_other) X(fetch_hold) X(fetch_hold_other) X(cm_none) X(cm_none_ready)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -274,6 +274,7 @@ class Core {
   void prune_stream(Thread& T);
   // pipeline stages
   void fetch();
+  void fetch_held();   // smt_fetch_hold: one fetch pipe, a full queue's block holding it
   void fetch_thread(Thread& T);
   void decode();
   int decode_thread(Thread& T, int slots);
@@ -402,6 +403,9 @@ class Core {
   int lone_phase_ = 0;
   int rn_holder_ = -1;                          // smt_rn_one: the thread whose stalled group holds RN (-1: none)
   int commit_tid_ = -1;                         // smt_commit_rr: this cycle's commit thread, chosen the cycle before
+  int commit_turns_ = 0;                        // smt_commit_rr 4: its turns in a row
+  int fetch_turn_ = 0, hold_tid_ = -1;          // smt_fetch_hold: the last turn's thread; the thread whose block holds
+  int dec_tid_ = 0;                             // smt_dec_rr: the thread decode reads this cycle
   Room room_prev_[MAX_THREADS], room_cur_[MAX_THREADS];   // smt_rn_room: room at the cycle before's rename, this one's
   uint64_t lone_next_ = 0, lone_t0_ = 0;
   uint64_t ctrace_from_ = 0, ctrace_to_ = 0;  // TGSIM_CTRACE=FROM:TO: each retired uop's timing, on stderr
