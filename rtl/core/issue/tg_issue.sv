@@ -11,7 +11,8 @@
 // IQ-FP (EXT_FD) issues to P4 (tg_fp_exec). Its rows wait on 1-cycle integer producers until
 // their rows are freed (no mx_issued), so an FP op's integer source is in the register file by
 // P4's RF stage; FMISC ops with an FP destination are not selected while fp_misc_block is high
-// (the F0 slot three cycles after an FMA).
+// (the F0 slot three cycles after an FMA), and none while fp_block is (tg_lsu: a held FP load
+// waits for its bank's write port, DR-179).
 module tg_issue
   import tg_pkg::*, tg_alu_pkg::*, tg_fpu_pkg::*, tg_core_pkg::*;
 #(
@@ -39,12 +40,14 @@ module tg_issue
   // Wakeup
   input  logic [NCOL-1:0]              alloc,       // IDs given out at RN: W cleared
   input  logic [NCOL-1:0]              wake_reg,    // W set at the end of this cycle
+  input  logic                         ld_m2_will,  // the integer load in M2 completes (SPEC_WAKE's check)
   input  logic [NCOL-1:0]              col_clr,     // returned tags (registered)
   output logic [NCOL-1:0]              w,
   output logic [NCOL-1:0]              busy,        // columns a waiting row depends on
   // Select blocks (registered by their sources)
   input  logic                         a1_block,
   input  logic                         ld_block,
+  input  logic                         fp_block,        // registered (tg_lsu): IQ-FP's select blocked
   input  logic                         fp_misc_block,   // EXT_FD: P4's F0 slot is taken
   // RF stage
   output logic [N_IQ-1:0]              iss_valid,
@@ -168,7 +171,8 @@ module tg_issue
     logic                mem_uns;       // zero-extend (an FP load: raw bits)
     sqid_t               sq;            // the stores before this SQ ID are older
     logic                dst_en, dst_fp;
-    logic [LDW-1:0]      dst;           // the destination's index (an FP load: F1's, FPIDX_W bits)
+    logic                dst_fb;        // an FP load's bank (F1; F0 when rename crossed it, DR-179)
+    logic [LDW-1:0]      dst;           // the destination's index (an FP load: its bank's, FPIDX_W bits)
     llt_t                llt;
     logic [4:0]          ph;            // its PC's hash (SPEC_WAKE's filter)
     tid_t                tid;           // its thread (SPEC_WAKE: a flush drops its wakeup)
@@ -330,7 +334,7 @@ module tg_issue
         assign dpl[k] = f_ld_t'{rob: disp_pl[k].rob, imm: disp_pl[k].imm[11:0],
                                 lq: disp_pl[k].lq[LQ_IDX_W-1:0], mem_size: disp_pl[k].mem_size,
                                 mem_uns: disp_pl[k].mem_uns || fp, sq: disp_pl[k].sq,
-                                dst_en: disp_pl[k].dst_en, dst_fp: fp,
+                                dst_en: disp_pl[k].dst_en, dst_fp: fp, dst_fb: fp && fpreg_bank(disp_pl[k].dst),
                                 dst: fp ? LDW'(fpreg_idx(disp_pl[k].dst)) : LDW'(preg_idx(disp_pl[k].dst)),
                                 llt: disp_pl[k].llt, ph: ph_of(disp_pl[k].pc[15:1]), tid: disp_pl[k].tid,
                                 src1: disp_pl[k].src1};
@@ -347,7 +351,7 @@ module tg_issue
         up.sq       = b.sq;
         up.dst_en   = b.dst_en;
         up.dst_fp   = b.dst_fp;
-        up.dst      = preg_t'(b.dst);            // the index only: the LSU knows the bank
+        up.dst      = b.dst_fp ? mk_fpreg(int'(b.dst_fb), FPIDX_W'(b.dst)) : preg_t'(b.dst);   // an FP load: {bank, index}
         up.llt      = b.llt;
         up.tid      = b.tid;
         up.src1     = b.src1;
@@ -405,7 +409,7 @@ module tg_issue
       end
     end
     logic blk;
-    assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : 1'b0;
+    assign blk = (q == 1) ? a1_block : (q == Q_LD) ? ld_block : (q == Q_FP) ? fp_block : 1'b0;
     // IQ-FP: FMISC ops with an FP destination yield to fp_misc_block
     logic [DW-1:0] cblk;
     for (genvar k = 0; k < DW; k++) begin : g_cb
@@ -490,7 +494,9 @@ module tg_issue
     logic            m2_ok;           // the load in M2 completed there
     assign sw_rf = '{v: iss_valid[Q_LD] && iss_pl[Q_LD].dst_en && !iss_pl[Q_LD].dst_fp,
                      spec: !swp_q[ld_ph][1], tid: iss_pl[Q_LD].tid, llt: iss_pl[Q_LD].llt, ph: ld_ph};
-    assign m2_ok = |(wake_reg & col_m2);
+    // The tracked load completed in M2: at its check M2 holds it or nothing, so the LSU's own completion of an
+    // integer load says so (its LLT's wakeup, without the other wakeups in wake_reg: DR-179's FP terms stay off)
+    assign m2_ok = ld_m2_will;
     always_ff @(posedge clk) begin
       if (rst) begin
         sw_ag_q.v <= 1'b0;
@@ -520,7 +526,7 @@ module tg_issue
                        (sw_cancel ? sw_cancel_col : '0);
   end else begin : g_nosw
     logic unused_ph;
-    assign unused_ph     = ^ld_ph;
+    assign unused_ph     = ^{ld_ph, ld_m2_will};
     assign wake_spec     = '0;
     assign spec_pend     = '0;
     assign sw_cancel     = 1'b0;
