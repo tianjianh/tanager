@@ -69,6 +69,7 @@ module tg_csr
   output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
   // Per hart, for the LSU and the walker (M7's step 4: an access takes its thread's; the outputs above are the
   // running thread's, for fetch and decode)
+  output dec_state_t [NUM_THREADS-1:0]              dst_h,       // each hart's decode state (frm: tg_fcsr's)
   output priv_e  [NUM_THREADS-1:0]                  priv_h,      // current mode
   output priv_e  [NUM_THREADS-1:0]                  priv_d_h,    // mode of data accesses (MPRV)
   output logic   [NUM_THREADS-1:0]                  sum_h,
@@ -247,6 +248,12 @@ module tg_csr
                     ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : 6'd5;
   assign wfi_wake = |ipend[RUN_TID];
 
+  // ---- Each hart's decode state (M7's step 5b: decode reads its group's hart's) ----
+  for (genvar t = 0; t < NT; t++) begin : g_dst
+    assign dst_h[t] = '{misa_m: h_q[t].misa_m, misa_b: h_q[t].misa_b, misa_c: h_q[t].misa_c, misa_a: h_q[t].misa_a,
+                        misa_f: h_q[t].misa_f, misa_d: h_q[t].misa_d, fs: h_q[t].fs, frm: 3'd0, priv: h_q[t].priv,
+                        tvm: h_q[t].tvm, tw: h_q[t].tw, tsr: h_q[t].tsr};
+  end
   // ---- Outputs (the running thread's) ----
   assign misa_m    = r.misa_m;
   assign misa_b    = r.misa_b;
