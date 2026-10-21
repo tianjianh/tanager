@@ -1,0 +1,30 @@
+MEMGAP-INFO kernel=6.12.113+deb13-riscv64 machine=riscv64 cpus=2 clocksource=riscv_clocksource idle=10.0 s, each test 1.00 s
+MEMGAP-IDLE-CPU cpu0 user=1.5% nice=0.0% system=3.0% idle=92.2% iowait=2.3% irq=0.0% softirq=0.1% steal=0.0%
+MEMGAP-IDLE-CPU cpu1 user=0.5% nice=0.0% system=2.3% idle=95.8% iowait=0.4% irq=0.0% softirq=0.1% steal=0.0%
+MEMGAP-IDLE-RATE interrupts=199.7/s context-switches=166.4/s over 10.0 s
+MEMGAP-IDLE-IRQ 10 68.4/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IDLE-IRQ 13 0.2/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IDLE-IRQ 14 71.6/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IDLE-IRQ IPI0 0.4/s Rescheduling interrupts
+MEMGAP-IDLE-IRQ IPI1 58.9/s Function call interrupts
+MEMGAP clock 986.4 ns/call
+MEMGAP rdtime 204.5 ns/read
+MEMGAP wr1k 461.0 MiB/s
+MEMGAP wr1m 181.0 MiB/s
+MEMGAP wr16m 182.4 MiB/s
+MEMGAP rd16m 140.5 MiB/s
+MEMGAP chase16k 30.9 ns/load
+MEMGAP chase256k 432.8 ns/load
+MEMGAP chase64m 696.6 ns/load
+MEMGAP pingpong 2221.0 ns/round-trip
+MEMGAP ev1 5411.1 ns/event
+MEMGAP ev2local 5841.0 ns/event (per thread; 342410 events/s in all)
+MEMGAP ev2shared 11140.0 ns/event (per thread; 179534 events/s in all)
+MEMGAP-CPU cpu0 user=18.8% nice=0.0% system=0.7% idle=79.9% iowait=0.1% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-CPU cpu1 user=93.8% nice=0.0% system=6.1% idle=0.0% iowait=0.0% irq=0.0% softirq=0.0% steal=0.0%
+MEMGAP-RATE interrupts=339.9/s context-switches=52.9/s over 20.7 s
+MEMGAP-IRQ 10 312.6/s RISC-V INTC   5 Edge      riscv-timer
+MEMGAP-IRQ 13 0.2/s SiFive PLIC  22 Edge      eth0, eth0
+MEMGAP-IRQ 14 9.3/s SiFive PLIC  21 Edge      mmc0
+MEMGAP-IRQ IPI0 1.5/s Rescheduling interrupts
+MEMGAP-IRQ IPI1 16.2/s Function call interrupts

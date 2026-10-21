@@ -500,3 +500,13 @@ It meets 100 MHz at WNS +0.367 ns with 105,934 LUTs. The package is d4r1-riscv w
 
 **s22, the short stress without the watch** (d4r2, RISC-V mode, the old tree): from 08:59:06 UTC (`STRESS start 2026-10-21T08:34:27Z up=168.66`, [`uart_COM5_s22_start.txt`](uart_COM5_s22_start.txt)).
 - The guest's clock runs about 25 minutes behind: with no DHCP from the laptop's ICS it has no NTP. It doesn't step during the run, so the pass times hold.
+- **s22: 10 of 10 passes clean** (to `STRESS stop after pass 10, fails=0`). Steady: 116.0 s per pass, cpu 92.77 events/s, memory 127.14 MiB/s, threads 2,286 events.
+  - That's d4r2 in RISC-V mode on the old tree, without the watch: against s21, with the watch, cpu +2.7%, memory +2.0%, threads +2.9%.
+  - Logs: [`uart_COM5_s22.txt`](uart_COM5_s22.txt), [`uart_COM5_s22_stop.txt`](uart_COM5_s22_stop.txt).
+
+**soc-2's PMP tree fix** (the coordinator: right after s22, a before-and-after): installed on p1, with all four checks passed ([`../memgap/README.md`](../memgap/README.md)).
+- OpenSBI's region is now a page.
+- memgap's store loop, `rdtime` and event times match stage C, and sysbench 1 KiB reads 146.1 MiB/s.
+- `reboot` and `poweroff` still reset the board.
+
+**s23, the short stress with the fixed tree, without the watch:** from 09:35:29 UTC (`STRESS start 2026-10-21T09:03:45Z up=157.47`, [`uart_COM5_s23_start.txt`](uart_COM5_s23_start.txt)).

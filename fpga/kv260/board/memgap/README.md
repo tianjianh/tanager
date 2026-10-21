@@ -54,3 +54,33 @@
   - The OpenSBI builds differ: RISC-V mode's `fw_jump.bin` `b0094d23…` against stage C's from the d4r1 package.
   - The trees differ (`tanager.dtb` against the virtio tree).
   - The idle SMT threads (harts 1 and 3) may be parked differently.
+
+## The fix: soc-2's PMP tree (main 3912dcd3), 10-21
+
+**soc-2's diagnosis:** RISC-V mode's tree gave the reset syscon only RESET_CTRL's 4 bytes, so OpenSBI added an 8-byte PMP region (`Domain0 Region02 : 0xff5e0218-0xff5e021f`).
+- Any region smaller than a page clears the core's "every 4K page is PMP-homogeneous" flag (tg_csr's `pmp_al`). Then no 4K page caches its PMP result in the TLB, and every store and fetch redirect takes the extra PMP check.
+- Stage C's tree has no region below a page.
+- **The fix** is the tree alone: the syscon spans the page (syscon@ff5e0000, reboot and poweroff at offset 0x218).
+
+**On the board:** `d4r2-riscv-pmpfix` (`951b1c71…`), its `tanager.dtb` (`9b1fb7ef…`) on p1, the old tree kept as `tanager.dtb.pre-pmpfix`. Logged with its undo.
+
+**The four checks, all passed:**
+1. **OpenSBI's banner:** `Domain0 Region03 : 0x00000000ff5e0000-0x00000000ff5e0fff M: (I,R,W) S/U: (R,W)`. Every region is now a page or larger.
+2. **memgap, three runs, nothing else running:**
+
+   | Test | Stage C | RISC-V mode, old tree | RISC-V mode, fixed tree |
+   |---|---|---|---|
+   | wr1k | 461.1 MiB/s | 352.2 (−23.6%) | **460.9 (−0.0%)** |
+   | rdtime | 204.6 ns | 225.3 (+10.1%) | **204.7 (+0.0%)** |
+   | clock | 984.4 ns | 1,078.4 (+9.5%) | **1,002.9 (+1.9%;** 986 and 990 in two runs, 1,032 in one) |
+   | ev1 | 5,410.7 ns | 6,368.9 (+17.7%) | **5,411.5 (+0.0%)** |
+   | ev2local | 5,831.6 ns | 6,813.8 (+16.8%) | **5,841.7 (+0.2%)** |
+   | ev2shared | 11,148.2 ns | 14,598.0 (+30.9%) | **11,153.9 (+0.1%)** |
+   | pingpong | 2,217.5 ns | 2,297.3 (+3.6%) | **2,204.6 (−0.6%)** |
+   | rd16m | 140.4 MiB/s | 132.2 (−5.8%) | **140.6 (+0.1%)** |
+   | wr1m, wr16m, chase16k/256k/64m | — | within 1.5% | **within 0.3%** |
+
+3. **sysbench memory, 1 KiB on two threads:** 146.11 MiB/s, against stage C's 144.45 and the old tree's 126.08. The rest of the set is within 1–2% of stage C ([`sysbench_pmpfix.txt`](sysbench_pmpfix.txt)).
+4. **`reboot` and `poweroff` still reset the board** through RESET_CTRL at its new offset. `reboot: Restarting system` and `reboot: Power down` were each followed by a fresh boot back into RISC-V mode ([`../stress/uart_COM5_pmpfix_boots.txt`](../stress/uart_COM5_pmpfix_boots.txt)).
+
+**So RISC-V mode's memory gap is closed.** Once the tree stops making a sub-page PMP region, the core runs at stage C's speed on the same bitstream.
