@@ -158,6 +158,18 @@ module tg_fpu_fma
     c0.e_top = '0; c0.lim = '0;
   end
 
+  // The addend's right shift, decided in E0 from the same terms E1's window placement uses (below), so the
+  // alignment's fine shift (sh[3:0]) runs in two DSP tiles from registered operands: fine_q = 2^(15 - sh[3:0])
+  logic [7:0]  sh0, sh_q;
+  logic [15:0] fine_q;
+  always_comb begin
+    if (cvt_i)                       sh0 = 8'(SH_MAX);     // integer source: V[164] weighs 2^63
+    else if (prod_zero)              sh0 = 8'd0;           // a zero product: the addend anchors the window
+    else if (c_zero)                 sh0 = 8'(SH_MAX);     // no addend: the product anchors
+    else if ($signed(shr0) < 0)      sh0 = 8'd0;           // the addend dominates
+    else sh0 = ($signed(shr0) > 14'(SH_MAX)) ? 8'(SH_MAX) : shr0[7:0];
+  end
+
   // Multiplier operands: fa = ma[51:0] in two 26-bit chunks (27-bit DSP port), fb[50:0] in
   // three 17-bit chunks (18-bit port); fb[51] and the hidden bits form the "rows" added through
   // the C ports of two tiles.
@@ -190,6 +202,8 @@ module tg_fpu_fma
     x_q  <= cvt_i ? x_val : '0;       // zero unless FCVT.F.I, so E1 can OR it into the addend
     c1_q <= c0;
     cls1_q <= cls0;
+    sh_q   <= sh0;
+    fine_q <= 16'b1 << (4'd15 - sh0[3:0]);
   end
 
   // ------------------------------------------------------------------------------------------
@@ -222,26 +236,21 @@ module tg_fpu_fma
 
   // Window placement: the window's bit 160 has weight 2^(ep + 56) unless the addend dominates
   // (shr < 0), when it has the addend's weight and the product only contributes a sticky.
-  logic [7:0] sh;
+  // (the addend's shift for each case is E0's sh0, above)
   ctl_t       c1x;
   always_comb begin
     logic inf_x_zero, nan_in, snan_in, prod_inf, inf_m_inf;
     c1x = c1_q;
     if (c1_q.cvt_i) begin                 // integer source: V[164] weighs 2^63
-      sh = 8'(SH_MAX);
       c1x.e_top = 14'sd1086;
     end else if (c1_q.prod_zero) begin    // a zero product: the addend anchors the window
-      sh = 8'd0;
       c1x.e_top = c1_q.ec;
     end else if (c1_q.c_zero) begin       // no addend: the product anchors
-      sh = 8'(SH_MAX);
       c1x.e_top = 14'($signed(c1_q.ep) + 14'sd56);
     end else if ($signed(c1_q.shr) < 0) begin
-      sh = 8'd0;
       c1x.e_top = c1_q.ec;
       c1x.prod_sticky = 1'b1;
     end else begin
-      sh = ($signed(c1_q.shr) > 14'(SH_MAX)) ? 8'(SH_MAX) : c1_q.shr[7:0];
       c1x.e_top = 14'($signed(c1_q.ep) + 14'sd56);
     end
     // normalising may not take the exponent below emin (double bias: 1 for D, 897 for S)
@@ -271,7 +280,7 @@ module tg_fpu_fma
 
   // Addend: mc at V[164:112], shifted right by sh; V[0] collects every bit at or below it.
   logic [VW-1:0] cal;
-  tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh, .cal);
+  tg_fpu_fma_align #(.W(VW)) u_align (.mc(mc_q), .sh(sh_q), .fine(fine_q), .cal);
 
   // FCVT.F.I: x itself at V[164:101], sign-extended into bit 165; E2 complements it for a negative
   // x (eff_sub), so |S| = -x. x_q is zero for every other operation, and the aligned addend is zero
