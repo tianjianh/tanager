@@ -8,8 +8,10 @@
 // halves; the TileLink side's
 // rules (size-6 aligned messages, a Put's beats together, PutFullData exactly when every byte is
 // written); one completion per written line, with its line and AccessAck cycle, while enabled; the
-// line counters.
-module tb_hdma;
+// line counters. REL = 1 (make ... REL=1) builds the port as release builds without the trace do (DR-180: CPL = 0,
+// STATS = 0): no completion ever, an AccessAck never waits for the queue, the line counters read 0, and the
+// dropped write bursts still count.
+module tb_hdma #(parameter bit REL = 1'b0);
   import tg_pkg::*, tg_tl_pkg::*, tg_map_pkg::*, tg_uncore_pkg::*;
 
   localparam int          ID_W      = 16;
@@ -40,7 +42,7 @@ module tb_hdma;
   logic [25:0] cpl_line;
   logic [31:0] cpl_cycle, rd_lines, wr_lines, wr_drops;
 
-  tg_hdma #(.ID_W (ID_W)) dut (
+  tg_hdma #(.ID_W (ID_W), .CPL (!REL), .STATS (!REL)) dut (
     .clk, .rst,
     .s_awid (awid), .s_awaddr (awaddr), .s_awlen (awlen), .s_awsize (awsize), .s_awburst (awburst),
     .s_awvalid (awvalid), .s_awready (awready),
@@ -150,7 +152,7 @@ module tb_hdma;
     end else begin
       if (d_v && d_r) begin
         // while recording, a Put's AccessAck is taken together with its completion: the line and this cycle
-        if (cur.put && cpl_en) begin
+        if (cur.put && cpl_en && !REL) begin
           if (!(cpl_v && cpl_r)) fail("a Put's AccessAck taken without its completion");
           else if (cpl_line != cur.line || cpl_cycle != tcyc)
             fail($sformatf("completion line %h cycle %0d, want line %h cycle %0d", cpl_line, cpl_cycle, cur.line, tcyc));
@@ -195,6 +197,7 @@ module tb_hdma;
       cpl_r <= 1'b0;
     end else begin
       if (cpl_v && !cpl_en) fail("a completion while recording is off");
+      if (cpl_v && REL) fail("a completion in a release build");
       if (cpl_v && cpl_r && !(d_v && d_r && d.source[0])) fail("a completion without an AccessAck");
       cpl_r <= ($urandom_range(99) < 60);
     end
@@ -386,10 +389,10 @@ module tb_hdma;
     repeat (100) @(posedge clk);
     for (int i = 0; i < MEM_BYTES; i++)
       if (mem[i] !== refm[i]) begin fail($sformatf("memory byte %h: %h, want %h", i, mem[i], refm[i])); break; end
-    if (rd_lines != 32'(n_get) || wr_lines != 32'(n_put))
-      fail($sformatf("line counters %0d / %0d, want %0d / %0d", rd_lines, wr_lines, n_get, n_put));
+    if (rd_lines != (REL ? 0 : 32'(n_get)) || wr_lines != (REL ? 0 : 32'(n_put)))
+      fail($sformatf("line counters %0d / %0d, want %0d / %0d", rd_lines, wr_lines, REL ? 0 : n_get, REL ? 0 : n_put));
     if (wr_drops != 32'(n_drops)) fail($sformatf("%0d write bursts counted as dropped, want %0d", wr_drops, n_drops));
-    if (n_cpl == 0) fail("no completions");
+    if (n_cpl == 0 && !REL) fail("no completions");
     $display("hdma: %0d Gets, %0d Puts, %0d completions, %0d write bursts dropped in part", n_get, n_put, n_cpl, n_drops);
     if (errors == 0) $display("TEST PASSED (seed %0d)", seed);
     else             $display("TEST FAILED (seed %0d): %0d errors", seed, errors);

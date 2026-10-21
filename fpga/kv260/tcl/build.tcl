@@ -29,6 +29,36 @@ if {[info exists ::env(TG_UNCORE_DSP)]} {
 # M_AXI_HPM1_FPD (stage C, docs/spec/soc.md §8.1; without it reads there answer DECERR, writes are dropped).
 # TG_LAT_INJ=0: a release build (DR-177), without the two AXI latency injectors; unset or 1 keeps them (a
 # development build, for injected-latency tests). summary.txt says which.
+# TG_RELEASE=1: a release build (DR-177, DR-180), the board's RISC-V-mode product: kv260_top RELEASE=1 (the PLIC's
+# S-mode contexts alone with 1-bit priorities and no TTC1 source, no host console, the DMA port without its line
+# counters or completion queue, the host bridge's crossings trimmed to the fields built), and with it LAT_INJ=0,
+# VIRTIO_WINDOW=0 and TG_COMMIT_TRACE=0. It needs TG_PMOD_UART=1, the console then being the serial line alone, and
+# refuses TG_LAT_INJ=1, TG_VIRTIO_WINDOW=1 or TG_COMMIT_TRACE=1 beside it. Unset or 0: a development build, as before.
+set release [expr {[info exists ::env(TG_RELEASE)] ? $::env(TG_RELEASE) : 0}]
+if {$release ni {0 1}} { puts "ERROR: TG_RELEASE must be 0 or 1 (fpga/kv260/README.md)"; exit 1 }
+if {$release} {
+  if {!$pmod_uart} {
+    puts "ERROR: TG_RELEASE=1 needs TG_PMOD_UART=1: a release build's console is the serial line alone (DR-180)"
+    exit 1
+  }
+  foreach v {TG_LAT_INJ TG_VIRTIO_WINDOW} {
+    if {[info exists ::env($v)] && $::env($v) ne "0"} {
+      puts "ERROR: TG_RELEASE=1 builds no [expr {$v eq {TG_LAT_INJ} ? {latency injectors} : {virtio window}}]: leave $v unset or 0"
+      exit 1
+    }
+    set ::env($v) 0
+  }
+  if {[lsearch -regexp $defines {^TG_COMMIT_TRACE(=1)?$}] >= 0} {
+    puts "ERROR: TG_RELEASE=1 builds no commit trace: leave TG_COMMIT_TRACE out of TG_DEFINES, or 0"
+    exit 1
+  }
+  if {[lsearch -regexp $defines {^TG_COMMIT_TRACE=}] < 0} {
+    lappend defines TG_COMMIT_TRACE=0
+    lappend def_args -verilog_define TG_COMMIT_TRACE=0
+  }
+  lappend unc_gen -generic "RELEASE=1"
+  lappend unc_set "RELEASE=1"
+}
 foreach {v g hi} {TG_L2_DATA_LAT L2_DATA_LAT 8 TG_AR_SLICE AR_SLICE 1 TG_B_SLICE B_SLICE 1 TG_D_SLICE D_SLICE 1
                   TG_W_SLICE W_SLICE 1 TG_XBAR_IN_SLICE XBAR_IN_SLICE 15 TG_XBAR_SLICE XBAR_SLICE 1 TG_MEM_SLICE MEM_SLICE 1
                   TG_DEBUG_CNT DEBUG_CNT 1 TG_VIRTIO_WINDOW VIRTIO_WINDOW 1 TG_HOST_DMA HOST_DMA 1 TG_LAT_INJ LAT_INJ 1} {
@@ -280,6 +310,11 @@ if {[info exists ::env(TG_LAT_INJ)] && !$::env(TG_LAT_INJ)} {
   puts $fh "lat_inj=0 (release: no latency injectors, DR-177)"
 } else {
   puts $fh "lat_inj=1 (development: the two latency injectors)"
+}
+if {$release} {
+  puts $fh "release=1 (DR-180: the PLIC's S contexts alone, no host console, no DMA line counters or completions, trimmed crossings; no injectors, virtio window or trace)"
+} else {
+  puts $fh "release=0 (development: every block)"
 }
 puts $fh "pmod_uart=$pmod_uart txd=[get_property PACKAGE_PIN [get_ports pmod_uart_txd]] rxd=[get_property PACKAGE_PIN [get_ports pmod_uart_rxd]]"
 puts $fh "fan=ttc$::tg_kv260_fan_ttc.wave$fan_wave invert=$fan_inv pl=$fan_pl pin=[get_property PACKAGE_PIN [get_ports fan_en_b]]"
