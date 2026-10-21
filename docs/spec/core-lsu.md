@@ -39,7 +39,10 @@ Inside `tg_core` (packages: `tg_core_pkg`, `tg_tl_pkg`, `tg_map_pkg`):
 - **The LSU per thread (M7's step 4):**
   - **A flush kills only its thread's operations** (`kill_t`): every stage, report and LUTRAM write is gated by its
     operation's thread (a load's or a store's queue entry's, a PTE read's walk's), and the walker's walk ends only at
-    its thread's flush. The store-data capture and the store prefetch (a hint) wait out any flush cycle.
+    its thread's flush. The store-data capture and the store prefetch (a hint) wait out any flush cycle. With hart 1
+    (5c) the capture also waits in the cycle the other thread's atomic writes `u_sqd` (its one write port, the
+    atomic's), and an MMIO request's source is its hart's index in the core (the access's thread ^ `SOLO_TID`;
+    interfaces.md §2.4), 0 for a lone hart.
   - **Searches stay inside a thread:** forwarding takes the M1 load's thread's stores from its SQ head (the M1 store
     address only when it is the load's thread's); the ordering check the store's thread's loads, from its heads; a
     blocked load wakes on its thread's SQ.
