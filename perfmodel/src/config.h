@@ -92,7 +92,8 @@ namespace tg {
   X(shadow, 2, "load shadow cycles cancelled on a wrong hit guess")                                \
   X(hitmiss_flush, 0, "a wrong hit guess flushes the pipeline (NaxRiscv)")                         \
   X(spec_int_only, 0, "speculative wakeup for integer loads only; FP loads wake on the confirmed result (the RTL)") \
-  X(spec_fwd, 0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
+  X(spec_filter, 0, "with spec_wakeup: the RTL's filter C (tg_issue): rtl_m2 from revision 10. a 2-bit count per hash of an integer load's PC (32; PC bits 5:1 ^ 10:6 ^ 15:11), +1 when the load fails to complete in M2 (a miss, a store-data wait, a row clash, no miss entry), -1 when it completes there; from 2 its dependants wait for its result and it cancels nothing") \
+  X(spec_fwd,0, "with spec_wakeup, a store-to-load forward completing at M2 wakes dependants as a hit does (load-to-use 3)") \
   X(fwd_wait_cancel, 0, "with spec_wakeup: a load that finds an older store's address without its data, or not covering it, cancels the shadow as a miss does (the RTL's STQ verdict at M2)") \
   X(dc_row_clash, 0, "a load whose AG (D$ row read) meets a store draining into the same row (VA[11:4]) retries (the RTL's D$)") \
   X(clash_delay, 4, "dc_row_clash: cycles a clashing load's result is delayed (its replay from the LQ)") \

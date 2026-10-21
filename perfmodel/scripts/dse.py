@@ -188,7 +188,8 @@ SUITE_VERSION = 2
 # 8: the as-built recheck on main c6676bd5 (§6.15): the store ownership prefetch as the RTL (STORE_PF, DR-171: an entry
 # only while another stays free) and the I$ next-line prefetch with its second refill engine (IPF_ON). 9: TAGE-lite's
 # allocation takes an invalid way before a not-useful one, as tg_tage does since fpu-2's c1c21281 (§6.16, §6.17).
-PRESET_REV = {"rtl_m2": 9}
+# 10: fpu-2's filter C (bc379636): a load whose PC's loads keep failing in M2 wakes its dependants late (§6.19).
+PRESET_REV = {"rtl_m2": 10}
 
 
 def key(isa, preset, sets):

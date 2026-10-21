@@ -818,11 +818,11 @@ python3 scripts/m7_smt.py --rnstall        # §13.14: the RTL's one RN stage and
 | D3 as revised (§13.9) | Per-hart lists that take a free register from the sibling's list when short, with FP banks of 96: no deadlock over 87 pairs or the suite, throughput equal to ideal shared lists (shared lists with a flush walk lose 0.5–2.6%), a lone hart −0.2 to −0.3%. FP 128 changes nothing; FP 64 still deadlocks | Build it, with the donor keeping one free register and FP banks of 96 |
 | D2 | Static halves cost a lone thread 3–4.5% (memsuite 8–12%). With the merge it keeps 98.7–99.95%: 0.05–0.4% lost at timer-tick wakes, 0.6–1.3% at today's 4,096-cycle WFI timeout | Build the merge; raise WFI's timeout for a sleeping sibling; drain the split only to the half if the halves allow it; merge after 64 cycles |
 | Decode, rename and commit groups (§13.8) | Mixed groups gain 0–0.7% over one thread a group | One thread a group (under the 1% bar) |
-| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 9 since 10-20 evening) | Step 5 (no caps) + the drain's priority: 1.279 / 1.266 / 1.246. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.302 / 1.316 / 1.301, the only form at or above 1.3 at every point, by 0.001–0.016 (0.03–0.05 on revision 8: TAGE-lite's new rule makes minver 42% faster alone). Never a whole bank: 1.269 / 1.297 / 1.292. Miss-entry or long-latency-tag caps don't help | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
+| Exit 2 on the final pair set (§13.12, blind; REPEAT builds, rtl_m2 revision 10; verif-2's second set since 10-21) | Step 5 (no caps) + the drain's priority: 1.271 / 1.258 / 1.242. Without the priority, 6 of the 42 hang. Step 7: 50% caps with a bank's last row kept, 1.304 / 1.312 / 1.300, on the bar at 250 (the first set: 1.322 / 1.311 / 1.295; 0.03–0.05 over the bar on revision 8, before TAGE-lite's new rule made minver 42% faster alone). Never a whole bank: 1.278 / 1.300 / 1.296. Miss-entry or long-latency-tag caps don't help. The second set's code layout moves single programs alone by up to 26% on the RTL (stream's loop branch now straddles a fetch block) | The drain's priority; at step 7, 50% caps with the on-demand last row; expect step 5 below 1.3, and step 7 within the model's error of the bar |
 | D4's homes (§13.11) | Hart 1's integer homes over B1 and B2 take a lone hart from −0.2–0.3% (ms_chase8f16 −8.6%) to 0.0%, with pairs unchanged and no hang. All homes in B0 costs a lone hart 1.2–2.1% with steering and hangs it without | Hart 1's x1–x16 in B1, x17–x31 in B2 |
 | Exit 2 on verif-2's pair runner (§13.10, blind) | Step 5 as built: 1.408 / 1.423 / 1.408 with the drain's priority. Without it, 6 of the 42 pairs (chase8's) hang. Step 7 with 50% caps and a bank's last row kept: 1.388 / 1.432 / 1.426. The runner restarts memory kernels with their set-up and so reads up to 0.12 above §13.2's basis. With the kernels repeating their region, step 5 reads 1.324 / 1.306 / 1.288 and step 7's two bank rules 1.31–1.36 | The drain's priority before step 5's pair runs; a `REPEAT` build of the memory kernels for the runner; 50% caps with the on-demand last row at step 7 |
 
-| Step 5's gap: the one RN stage (§13.14) | On the RTL's own basis (alone on its half) the gap is 0.155 (model 1.376, RTL 1.221). One RN register reproduces the stall and closes 62% of it (1.280). core-2's room check recovers 54–68% of the stall at step 5 and fails at step 7 (starving pairs with 50% caps, 1.126 with never a whole bank). A same-cycle check with issue rows reaches 1.22–1.24 at step 7 | A second RN register, one per thread (step 7 1.302 / 1.316 / 1.301), if core-2 costs it within DR-154; else the same-cycle check with issue rows |
+| Step 5's gap: the one RN stage (§13.14) | On the RTL's own basis (alone on its half) the gap is 0.155 (model 1.376, RTL 1.221). One RN register reproduces the stall and closes 62% of it (1.280). core-2's room check recovers 54–68% of the stall at step 5 and fails at step 7 (starving pairs with 50% caps, 1.126 with never a whole bank). A same-cycle check with issue rows reaches 1.22–1.24 at step 7 | A second RN register, one per thread (step 7 1.322 / 1.311 / 1.295 on revision 10; 1.304 / 1.312 / 1.300 on the second final set), if core-2 costs it within DR-154; else the same-cycle check with issue rows |
 | D3 with FP banks of 64 (§13.13) | Every rule that keeps an op in its own FP bank deadlocks, including a lone hart's single FP restore. Renaming into the other FP bank when the hart's own is exhausted, both ways, never deadlocks (by construction, and 0 of 90 pairs and 37 lone programs). It matches FP 96 when a crossed write costs nothing extra, and loses 0.3–0.6% on FP pairs at 2 cycles more, 0.7–1.0% at 4 | FP 64 with renaming across both ways, if core-2 and fpu-2 cost it well under FP 96's +1,575 LUTs a core |
 
 ### 13.2 Exit 2: the blind prediction
@@ -1541,11 +1541,69 @@ The pair programs' code fits the I$, so the prediction stands.
 
 **Exit 2 at step 7 is now inside the model's ±0.05 error band.** On the model's evidence alone it could land either side of 1.3.
 
+**On revision 10 (10-21, area_recovery.md §6.19: fpu-2's filter C).** This section was run again (`results/m7_smt_rv64gc.json`: "final" is revision 10's, "final_rev9" revision 9's):
+- **Step 5 + the drain's priority:** 1.292 / 1.262 / 1.241.
+- **50% caps with a bank's last row kept:** 1.322 / 1.311 / 1.295. This is now 0.005 under 1.3 at 250.
+- **Never a whole bank:** 1.294 / 1.295 / 1.287.
+- **Unchanged:** the revision-7 check (1.319 / 1.309 / 1.290) and the hangs.
+- The filter moves the mixed and memory pairs at 30 (+0.030 and +0.013), under 0.01 at 120 and 250, and the compute pairs by 0.002 at most.
+
+**On verif-2's second final set (10-21, `pair-final-39b16a6a`).** The runtime now prints under a lock, so every pair counts (verification.md §4.8). The set's 94 ELFs match its manifest (md5 7ed7f3c4…). The lock moved every program's code, by 0x38 bytes in stream's case. The data didn't move: the heap is at 0x80900000 in both sets. This section was run again on it, on revision 10 (`results/m7_smt_rv64gc.json`: "final" is this set's, "final_b7db3e16" the first set's):
+
+| The 42, merged basis (30 / 120 / 250) | First set | Second set |
+|---|---|---|
+| Step 5 + the drain's priority | 1.292 / 1.262 / 1.241 | 1.271 / 1.258 / 1.242 |
+| **Step 7: 50% caps, a bank's last row kept** | 1.322 / 1.311 / 1.295 | **1.304 / 1.312 / 1.300** |
+| Step 7: never a whole bank | 1.294 / 1.295 / 1.287 | 1.278 / 1.300 / 1.296 |
+| Check: step 5 + the drain's priority on revision 7 | 1.319 / 1.309 / 1.290 | 1.314 / 1.287 / 1.269 |
+
+- **The hangs are unchanged.** Without the drain's priority the same six chase8 pairs hang; with it, none do. The working-set pairs are as before.
+- **What moved, by group** (step 5 + the drain's priority):
+  - **compute + compute:** 1.262 → 1.233 at every latency, in every configuration. In the model Dhrystone alone runs 15% faster (1.452 → 1.669 at 30), so its four pairs read 5–8% lower.
+  - **memory + memory:** 1.244 → 1.217 at 30, within 0.006 at 120 and 250. gather + stride and stride + hashprobe read 8–9% lower. stream alone runs 12% slower, and its pairs read up to 21% higher.
+  - **mixed:** within 0.01 at 30, +0.02 at 120 and 250.
+- **Step 7 now sits on the bar:** 1.2998 at 250, and 0.004 and 0.012 over it at 30 and 120.
+
+**The alone runs beside the RTL.** The RTL here is main f9600313's smt2 build with hart 1 off: one thread on the whole window, exit 2's merged basis before step 6. IPC at 30 cycles, slot 0 (slot 1 is within 0.8% on both sides):
+
+| Program | RTL: first set → second | Model: first set → second | Model against the RTL: first set → second |
+|---|---|---|---|
+| ms_stream | 1.290 → 0.958 (−26%) | 1.599 → 1.411 (−12%) | +24% → +47% |
+| embench_minver | 1.528 → 1.788 (+17%) | 1.878 → 1.840 (−2%) | +23% → +2.9% |
+| dhrystone | 1.656 → 1.618 (−2%) | 1.452 → 1.669 (+15%) | −12% → +3.1% |
+| ms_gather | 0.533 → 0.588 (+10%) | 0.537 → 0.586 (+9%) | +0.8% → −0.3% |
+| ms_copy | 0.499 → 0.492 | 0.686 → 0.685 | +38% → +39% |
+| ms_hashprobe | 0.414 → 0.424 | 0.352 → 0.356 | −15% → −16% |
+| The other seven | | | within 4.5% in both sets |
+
+At 120 and 250 cycles only copy (+28% / +23%), hashprobe (−27% / −31%) and stream (+17% / +9%) are more than 4% from the RTL. copy and hashprobe are area_recovery.md §6.15's known items.
+
+**Why single programs moved: code layout, which the two sides feel differently.**
+- **stream: a straddling branch.**
+  - The measured loop's `bne` is now at 0x8010048e, so its four bytes cross the fetch block at 0x80100490. In the first set it sat at 0x80100456, inside its block.
+  - Otherwise the loop is the same: 9 instructions over three fetch blocks, with the same data addresses.
+  - The RTL takes 2.41 cycles more an iteration (6.98 → 9.39 at 30, over 131,072 iterations). The model takes 0.75 more.
+  - The RTL's commit trace shows no refills at the branch: 2 in 131,071 taken outcomes, as in the first set. So its loss is in fetch, decode or dispatch, and its F2 refetch counters would split it.
+  - In the model F2 overrides the branch once an iteration, since the micro-BTB never predicts a straddler (area_recovery.md §6.5).
+- **minver: the first set's straddler is gone** (area_recovery.md §6.19). The RTL now runs it at the calibration build's speed (1.788).
+- **Dhrystone: the model's own layout effect.**
+  - In the first set the model met 4,218 memory-ordering violations and 15,000 straddle overrides. In the second it meets 738 and 3.
+  - The RTL moved 2%.
+  - So §6.19's separate gap on the pair set's Dhrystone came from that layout, not from a calibration error.
+- **gather** moved 9–10% on both sides alike.
+
+**What it means:**
+- **For exit 2:** stream's six pairs will likely read higher on the RTL than in the first set. Its alone run lost 26% to the straddler, and in a pair the sibling fills its front end's bubbles. In the model they rose by up to 21%.
+- **For verif-2:** keep the frozen set. Any layout has straddlers, and Linux's code will too. If core-2 changes how the front end handles a straddler before step 7's pairs, rerun the alone runs with the pairs, on one build.
+- **For core-2** (through the coordinator): a second reproducer for the straddler cost, this time with no mispredicts. It is this set's `img/alone-ms_stream-s0.elf` on main's smt2 build, at the `bne` at 0x8010048e. The model's form of a straddler costs a third as much.
+- **For the calibration:** one program alone can move 10–26% with a rebuild, on either side, and the two sides don't move together. Check a single program's gap on a second layout before calling it a calibration error.
+
 **Decisions:** none here. Revision 8 is used in this section only, as the coordinator was told; §13.2–13.11 stay on revision 7.
 
 **Learned:**
 - **The runner's REPEAT reads the same as the model's method.** Emulated repeating on the old builds (1.324 / 1.306 / 1.288) and real REPEAT builds (1.319 / 1.309 / 1.290) agree within 0.005.
 - **A cap on miss entries costs more than it returns** when the memory thread's own speed is all parallel misses.
+- **A rebuild moves single programs by up to a quarter.** Straddling branches and PC-hashed tables follow the code's layout, and the RTL and the model feel them differently. A pair set's alone runs and pair runs must come from one build and one RTL.
 
 ### 13.13 D3 with FP banks of 64: is any rule deadlock-free? (10-20)
 
@@ -1751,6 +1809,17 @@ The pair programs' code fits the I$, so the prediction stands.
   - Exit 2: met, thinly (§13.12).
   - Cost: a second group register at RN and a select into rename. My rough guess is a few hundred LUTs and about 400 FFs a core; core-2 to cost.
 - **Recommendation:** C, if core-2's cost is within DR-154's limits, since exit 2 at step 7 depends on it in the model. Otherwise B, knowing exit 2 then likely misses. A alone is not enough for step 7.
+
+**On revision 10 (10-21, area_recovery.md §6.19).** This section was run again with fpu-2's filter C in the preset (`results/m7_smt_rv64gc.json`: "rnstall" is revision 10's, "rnstall_rev9" revision 9's). The picture is the same:
+
+| Merged basis, the 42 (30 / 120 / 250) | Step 5 | Step 7 (50% caps, last row kept) |
+|---|---|---|
+| Rename skips a stalled thread (C, a register per thread) | 1.292 / 1.262 / 1.241 | 1.322 / 1.311 / 1.295 |
+| 1: one RN register (the RTL as built) | 1.182 / 1.127 / 1.110 | 1.137 / 1.087 / 1.072, 7 hung |
+| 1 + 2: core-2's room check | 1.243 / 1.214 / 1.200 (1 hung at 30) | 1.196 / 1.176 / 1.163, 7 hung |
+| 1 + 2 with issue rows, the cycle's own flags | 1.289 / 1.258 / 1.238 | 1.236 / 1.222 / 1.206 |
+
+*On the RTL's basis at 30 (its 37 pairs, alone on its half): the RTL 1.221; the model with rename skipping 1.397, with one RN register 1.288, with core-2's check 1.350.*
 
 **For verif-2:**
 - Exit 2 at step 7 must use alone runs on the merged window, after step 6. Step 5's half-window alone runs read memory pairs high.

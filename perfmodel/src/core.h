@@ -338,8 +338,11 @@ class Core {
   std::array<std::array<bool, 2>, 2> steer_flags_{{{true, true}, {true, true}}}, bf_prev_{{{true, true}, {true, true}}};
   void steer(Uop& u) const;
   // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
-  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
+  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; int ph = -1; };  // ph: spec_filter's
   std::vector<AgRec> ag_recs_;
+  // spec_filter (the RTL's filter C): a 2-bit count per hash of an integer load's PC (bits 15:1, three 5-bit fields)
+  std::array<uint8_t, 32> swfilt_{};
+  static int swf_hash(uint64_t pc) { return (int)(((pc >> 1) ^ (pc >> 6) ^ (pc >> 11)) & 31); }
   void row_clash(Thread& T, uint64_t addr);
   void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
