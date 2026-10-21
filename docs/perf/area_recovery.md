@@ -2073,6 +2073,45 @@ The CPU-time rows use §6.12's accounting, the one §6.13 predicted in. Correcte
 - **A race can hide a model gap.** Dhrystone rv64gc's error at native was a timing race before B (§6.15). With the race fixed, the model is 14% slow at both latencies.
 - **Matching the RTL's rules can raise the mean error.** The model had escaped a thrash by chance, and the as-built rule removes that luck. Judge a preset by its rules and by per-program errors, not by the mean.
 
+### 6.18 DR-171's follow-ups to /init, and the second release engine parked (fpu-2, 2026-10-19 and 10-20)
+*Linux to /init as the board runs it (§6.12's setup: smt2, two cores of one hart each, the board's bench OpenSBI and
+Image, d4s2's bench device tree, board-like memory, `tb_boot`'s window 1 GiB, one Verilator thread, the console off the
+timing). The kernel's time is its own timestamp at `Run /init`, counted from sched_clock's start: the board's measure.
+Each comparison is within one tree.*
+
+**The bar for the second release engine (the coordinator, 10-20):** an MR behind `DC_RELS` only if the kernel's /init
+time improves by 1% or more against one Release, with nothing else regressing; otherwise park it with the write-up.
+
+| lever | tree | cycles to `Run /init` | kernel time | decision |
+|---|---|---|---|---|
+| three store prefetches in flight (`STORE_PF_MAX=3`, against two) | a4e9954 | −2.10% | −3.11% | on main (12e5065) |
+| + a next-line ownership request at distance 2 / 3 / 4 | a4e9954 | +0.16 / −0.23 / +0.19% | +0.17 / −0.35 / +0.37% | not built |
+| two Releases in flight (`DC_RELS=2`, against one), round 1 | 46bb6df5 | −2.68% | **+2.87%** | parked |
+| round 2, a: the store prefetch may take the last free miss entry while the drain waits on its own miss | 46bb6df5 | −3.38% | **+1.76%** | parked |
+| round 2, ab: a, and a load leaves that entry to a pending prefetch | 46bb6df5 | −3.35% | **+1.89%** | parked |
+| round 2, c: while a prefetch is pending and the drain waits, loads leave two entries | 46bb6df5 | −3.17% | **+2.17%** | parked |
+
+- **Where two Releases win and lose.**
+  - The cycles they save come before the kernel's clock starts: sched_clock starts at 38M cycles against 43M. That is
+    OpenSBI and the early kernel's dirty-eviction streams, which the board's timestamp does not see.
+  - Up to the io scheduler's registration (about 0.17 s) every run agrees within 2 ms.
+  - All the loss is in the stretch from there to `Freeing unused kernel image`: +4.7% in round 1, +2.5 / +2.5 / +3.7%
+    in a / ab / c. That stretch holds the asynchronous initramfs unpack and `free_initmem`'s 11.2 MB memset (§6.14).
+- **The store prefetch's share is not the whole story.**
+  - Variant a gives the boot core's prefetch its miss entries back: stores allocating their own line fall to 61,697,
+    against one Release's 78,670 and round 1's 122,167.
+  - That stretch is still 2.5% slower.
+  - On the second core the drain's own waits rise 2–5×: 1.15M with one Release, 2.57M in round 1, 5.70M in a and c.
+  - The unpack's worker can run on either core, and whole-run counters cannot say which core ran what.
+- **Before retrying it:**
+  - Sample the counters at sched_clock's start and around the unpack and the memset, and record which CPU runs
+    `populate_rootfs`. A third round has to win that stretch back, not the early boot.
+  - The prototype stays on fpu-2's scratch branch (`claude/track-fpu-395911-rel2`, 46bb6df5): the D$ +53 LUTs and +58
+    FFs a core, WNS +0.936 ns at 100 MHz, `DC_RELS=1` cycle-identical to its base. `DC_RELS` is not on main.
+
+**Learned:** a lever that shortens the cycles to /init can still lose the board's measure. Check where the saved cycles
+fall against the kernel's clock before reporting a boot gain.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
