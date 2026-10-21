@@ -1687,6 +1687,10 @@ module tg_fetch
       ft_q        <= strm(RUN_TID);              // (the running hart's stream: 1 with SOLO_TID)
       pw_q        <= 1'b0;
       sv_s_q      <= '0;
+      if (MT) begin                              // hart 1 fetches from reset too (M7's step 5c): the other
+        sv_s_q[strm(~RUN_TID)]  <= 1'b1;         // stream's first block waits at the boot PC
+        spc_s_q[strm(~RUN_TID)] <= boot_pc;
+      end
       stop_s_q    <= '0;
       miss_s_q    <= '0;
       wk_s_q      <= '0;

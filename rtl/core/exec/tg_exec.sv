@@ -587,6 +587,10 @@ module tg_exec
     if (init_we) begin                     // the data is res_q[0], zero then (below)
       rf_we[0] = 1'b1;
       rf_wa[0] = init_idx;
+      if (HART1_ON && N_ALU > 1 && init_idx < PIDX_W'(16)) begin   // hart 1's x1-x16 (M7's step 5c): res_q[1]
+        rf_we[1] = 1'b1;                   // (nothing else writes bank 1 then: w1s is W1_ALU)
+        rf_wa[1] = init_idx;
+      end
     end
     rf_we[LD_BANK] = ld_res_valid;
     rf_wa[LD_BANK] = ld_res_dst;
@@ -640,6 +644,7 @@ module tg_exec
     // res_q[0] is zero through the reset sequence (rst, then init_we, while nothing issues), so
     // bank 0's zero writes take it as their data: no multiplexer in front of the bank (T7)
     if (rst || init_we) res_q[0] <= '0;
+    if (HART1_ON && (rst || init_we)) res_q[1] <= '0;   // (hart 1's homes in bank 1, M7's step 5c)
     wbq_q    <= res_q;
     ld_wbq_q <= ld_res_data;
     // Branch WB state

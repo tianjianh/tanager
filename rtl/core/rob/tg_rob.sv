@@ -129,9 +129,10 @@ module tg_rob
   output logic                         xret_s,       // ... and it is SRET: tg_csr reads its xepc
   input  logic [63:0]                  xepc,
   input  priv_e                        priv,
-  input  logic                         irq_take,
+  input  logic                         irq_take,     // the head thread's (t_cm: tg_csr reads hd_tid_o)
   input  logic [5:0]                   irq_code,
   input  logic                         wfi_wake,
+  input  logic                         csr_hold,     // with hart 1: a trap's cold-CSR writes run (tg_csr), no commit
   // Flush and redirect (registered)
   output logic                         flush,
   output tid_t                         flush_tid,
@@ -149,6 +150,7 @@ module tg_rob
   end
 
   localparam int NT = NUM_THREADS;
+  localparam bit MT = HART1_ON && NT > 1;      // hart 1 runs (M7's step 5c): interrupts at either thread's head
   // The threads: the dispatch group's (its slot 0's tid), the committing one (the running thread until the split
   // mode) and the flushed one; without SMT thread 0, whatever the tid bits hold
   tid_t t_ds, t_cm, t_fl;
@@ -507,8 +509,8 @@ module tg_rob
     stop = 1'b0;
     pushed = 1'b0;
     mf = '0;
-    if (!flush && ready && cnt > 0) begin
-      if (irq_take && t_cm == RUN_TID && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (the running thread's)
+    if (!flush && ready && !(MT && csr_hold) && cnt > 0) begin
+      if (irq_take && (MT || t_cm == RUN_TID) && hp[0].sys != SYS_WFI && !mmio_busy) begin   // (t_cm's)
         do_irq = 1'b1;
         do_flush = 1'b1;
         use_tt = 1'b1;

@@ -26,6 +26,8 @@ module tg_lsu
   input  logic                         clk,
   input  logic                         rst,
   output logic                         ready,         // the D$ state is swept after reset
+  input  logic                         init_we,       // the reset sequence's zero writes (tg_core), ...
+  input  logic [4:0]                   init_idx,      // ... at x0..x31's homes: with hart 1 its load-bank and F1 ones
   input  logic                         flush,
   input  tid_t                         flush_tid,
   // Dispatch
@@ -832,6 +834,7 @@ module tg_lsu
   logic            x_kill_q;               // a load request whose load was flushed
   logic [LIW-1:0]  x_lq_q;
   logic [PA_W-1:0] x_pa_q;
+  tid_t            x_t_q;                  // the access's thread: with hart 1 its hart is the request's source
   logic [1:0]      x_size_q;
   logic [63:0]     x_wdata_q;
   logic            xr_v_q;                 // a load response waits for the result register
@@ -888,7 +891,8 @@ module tg_lsu
     mmio_a_o = '0;
     mmio_a_o.opcode  = x_st_q ? A_PUT_FULL : A_GET;
     mmio_a_o.size    = {1'b0, x_size_q};
-    mmio_a_o.source  = '0;
+    // the hart's index in the core (interfaces §2.4: a source per hart), 0 for a lone hart (also with SOLO_TID)
+    mmio_a_o.source  = (HART1_ON && NT > 1) ? TL_SRC_W'(x_t_q ^ RUN_TID) : '0;
     mmio_a_o.address = x_pa_q;
     mmio_a_o.mask    = TL_MASK_W'({8'b0, bmask(x_pa_q[2:0], x_size_q)} << {x_pa_q[3], 3'b000});
     mmio_a_o.data    = {64'b0, x_wdata_q << {x_pa_q[2:0], 3'b000}} << {x_pa_q[3], 6'b000000};
@@ -905,11 +909,17 @@ module tg_lsu
   logic [63:0]     r_data_q;
   robid_t          r_rob_q;
   llt_t            r_llt_q;
-  assign ld_res_valid = r_v_q && r_dv_q && !r_fv_q;
-  assign fld_valid    = r_fv_q;
-  assign fld_idx      = FPIDX_W'(r_dst_q);
+  // With hart 1 (M7's step 5c) the reset sequence zeroes its homes in the load bank (x17-x31 at 0-14) and in F1
+  // (f0-f31 at 0-31) through these write ports: the register holds zero from the reset to the first load, which
+  // comes after rename starts (no multiplexer on the data)
+  localparam bit IMT = HART1_ON && NUM_THREADS > 1;
+  logic          r_init;
+  assign r_init       = IMT && init_we;
+  assign ld_res_valid = (r_v_q && r_dv_q && !r_fv_q) || (r_init && init_idx < 5'd15);
+  assign fld_valid    = r_fv_q || (EXT_FD && r_init);
+  assign fld_idx      = r_init ? FPIDX_W'(init_idx) : FPIDX_W'(r_dst_q);
   assign fld_data     = r_data_q;
-  assign ld_res_dst   = PIDX_W'(r_dst_q);
+  assign ld_res_dst   = r_init ? PIDX_W'(init_idx) : PIDX_W'(r_dst_q);
   assign ld_res_data  = r_data_q;
   assign ld_cmp_valid = r_v_q;
   assign ld_cmp_rob   = r_rob_q;
@@ -1582,6 +1592,7 @@ module tg_lsu
       ma4_v_q   <= 1'b0;
       r_v_q     <= 1'b0;
       r_fv_q    <= 1'b0;
+      if (IMT) r_data_q <= '0;                    // (hart 1's homes take it as their zero: above)
       xs_q      <= X_IDLE;
       xr_v_q    <= 1'b0;
       x_kill_q  <= 1'b0;
@@ -1618,6 +1629,7 @@ module tg_lsu
           if (dr_mmio_go) begin
             xs_q      <= X_REQ;
             x_st_q    <= 1'b1;
+            x_t_q     <= t_dr_q;
             x_pa_q    <= sqh.pa;
             x_size_q  <= sqh.size;
             x_wdata_q <= sqd_rd[TRP+1];
@@ -1626,6 +1638,7 @@ module tg_lsu
             x_st_q    <= 1'b0;
             x_kill_q  <= 1'b0;
             x_lq_q    <= mm_idx;
+            x_t_q     <= t_hd;
             x_pa_q    <= lqa_rd[1].pa;                // mm_idx is the LQ head
             x_size_q  <= lqa_rd[1].size;
           end

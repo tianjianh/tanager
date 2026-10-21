@@ -7,9 +7,13 @@
 // csr_hart_t a thread), its own cold CSRs and pmpaddr (one more LUTRAM address bit: the tid), its own
 // PMP descriptors, interrupt pending bits, timer compare, pending write and counters, and its own
 // mhartid (CORE_ID x NUM_THREADS + tid; SOLO_TID's thread is hart 0). Writes go to the committing
-// thread's state (cm_tid0: CSR writes, traps, MRET and SRET retire alone in slot 0). Until two
-// threads run (step 5), every read and output is the running thread's (RUN_TID), and the reset sweep
-// covers its half of the LUTRAMs only, so the reset takes the cycles it did.
+// thread's state (cm_tid0: CSR writes, traps, MRET and SRET retire alone in slot 0). With hart 1
+// (HART1_ON, step 5c) a CSR instruction reads its own thread's state (ex_pl.tid), interrupts, WFI's
+// wake and an xRET's xepc are the commit head's thread's (hd_tid), and the reset sweep covers both
+// harts' rows. Without it every read and output is the running thread's (RUN_TID), and the reset
+// sweep covers its half of the LUTRAMs only, so the reset takes the cycles it did. The scalar
+// outputs (misa, fs, priv, satp, pmp_d) are the running thread's either way; per-hart consumers
+// take the _h vectors.
 //
 // CSR instructions are serialised: execute (P1, EX) reads and checks here combinationally and
 // leaves the write pending; commit applies it. Traps, MRET and SRET are applied by commit; the
@@ -31,6 +35,7 @@ module tg_csr
   output logic                   ex_ill,
   // Commit
   input  tid_t                   cm_tid0,      // the thread of slot 0: a CSR write, trap, MRET or SRET
+  input  tid_t                   hd_tid,       // the commit head's thread (the ROB's t_cm, a register): HART1_ON
   input  logic                   cm_csr,       // the CSR instruction retires: apply its write
   input  logic [63:0]            cm_pc,        // ... its PC
   input  logic [idx_w(COMMIT_WIDTH + 1)-1:0] cm_n,   // instructions retiring this cycle (cm_tid0's)
@@ -66,7 +71,8 @@ module tg_csr
   output logic                   satp_wr,      // a satp write that changes it commits: TLB flush
   output pmp_d_t [PMP_ENTRIES-1:0] pmp_d,      // PMP region descriptors (registered)
   output logic                   pmp_wr,       // a PMP CSR write commits: the TLBs flush
-  output logic                   pmp_busy,     // descriptors being recomputed: fetch waits
+  output logic                   pmp_busy,     // descriptors being recomputed: fetch waits (with hart 1: either's)
+  output logic                   cold_busy,    // a trap's cold-CSR writes run: with hart 1 the ROB holds commit
   // Per hart, for the LSU and the walker (M7's step 4: an access takes its thread's; the outputs above are the
   // running thread's, for fetch and decode)
   output dec_state_t [NUM_THREADS-1:0]              dst_h,       // each hart's decode state (frm: tg_fcsr's)
@@ -110,6 +116,12 @@ module tg_csr
   tid_t wt, ft;
   assign wt = (TID_W > 0) ? cm_tid0 : tid_t'(0);
   assign ft = (TID_W > 0) ? flush_tid : tid_t'(0);
+  // With hart 1: the executing thread (the CSR instruction in EX) and the commit head's (interrupts, WFI's wake,
+  // an xRET's xepc); without it both are the running thread, constants
+  localparam bit MT = HART1_ON && NT > 1;
+  tid_t et, ht;
+  assign et = MT ? ex_pl.tid : RUN_TID;
+  assign ht = MT ? hd_tid : RUN_TID;
   // mhartid: SOLO_TID's thread (tid 1) is hart 0, so software sees the core as before
   function automatic logic [63:0] hartid(input tid_t t);
     return 64'(CORE_ID * NT) + 64'(tid_t'(t ^ RUN_TID));
@@ -156,14 +168,16 @@ module tg_csr
     return h;
   endfunction
   csr_hart_t [NT-1:0] h_q, h_n;
-  csr_hart_t          r;                       // the running thread's (reads; commit's are h_q[wt])
-  assign r = h_q[RUN_TID];
+  csr_hart_t          r, re, rh;               // the running thread's (outputs), the executing thread's (reads),
+  assign r  = h_q[RUN_TID];                    // the head's (interrupts); commit's are h_q[wt]
+  assign re = h_q[et];
+  assign rh = h_q[ht];
   // R1: the cycle and instret counters are DSP48E2 pairs (tg_dsp_ctr: count, load from a CSR
   // write, reset), with no fabric register, adder or multiplexer; one pair per hart
   logic [NT-1:0][63:0] mcycle_q, minstret_q;
-  logic [7:0][7:0]      pcfg_hi;       // the running thread's pmpcfg2 entries, 8-15: zero with 8 entries
+  logic [7:0][7:0]      pcfg_hi;       // the reading thread's pmpcfg2 entries, 8-15: zero with 8 entries
   if (NPMP > 8) begin : g_cfg_hi
-    assign pcfg_hi = r.pmpcfg[15:8];
+    assign pcfg_hi = re.pmpcfg[15:8];
   end else begin : g_cfg_none
     assign pcfg_hi = '0;
   end
@@ -242,11 +256,11 @@ module tg_csr
     end
   end
   logic [11:0] ien_r;
-  assign ien_r    = ien[RUN_TID];
+  assign ien_r    = ien[ht];
   assign irq_take = |ien_r;
   assign irq_code = ien_r[11] ? 6'd11 : ien_r[3] ? 6'd3 : ien_r[7] ? 6'd7 :
                     ien_r[9]  ? 6'd9  : ien_r[1] ? 6'd1 : 6'd5;
-  assign wfi_wake = |ipend[RUN_TID];
+  assign wfi_wake = |ipend[ht];
 
   // ---- Each hart's decode state (M7's step 5b: decode reads its group's hart's) ----
   for (genvar t = 0; t < NT; t++) begin : g_dst
@@ -284,7 +298,9 @@ module tg_csr
   logic   [NT-1:0][2:0]         pmp_al_n, pmp_al_q;
   logic   [NT-1:0][NPMP-1:0]    pdirty_q;
   logic   [NT-1:0]              pchg_q;        // a descriptor changed last cycle: pmp_al follows
-  logic   [4:0]                 psw_q;         // reset sweep of the running thread's LUTRAM rows
+  localparam int SWB = MT ? 5 : 4;             // the sweep's length: 16 rows a hart (cold CSRs; pmpaddr 8 or 16)
+  logic   [SWB:0]               psw_q;         // reset sweep of the LUTRAM rows: the running thread's, or both
+  tid_t                         swt;           // ... the hart it writes
   logic                         pa_we;
   logic   [PAW-1:0]             pa_wa;
   logic   [53:0]                pa_wd;
@@ -301,7 +317,8 @@ module tg_csr
   pmp_d_t     pd_n;
   logic [2:0] ptop_n;
   logic [7:0] pcfg;
-  assign psweep = !psw_q[4];
+  assign psweep = !psw_q[SWB];
+  assign swt    = MT ? tid_t'(psw_q[4]) : RUN_TID;
   always_comb begin
     pt = '0;
     pj = '0;
@@ -351,7 +368,8 @@ module tg_csr
     pmp_al_q <= pmp_al_n;
   end
   assign pmp_d    = pmp_d_q[RUN_TID];
-  assign pmp_busy = psweep || |pdirty_q[RUN_TID] || pchg_q[RUN_TID];
+  // (with hart 1 fetch waits while either hart's descriptors change: rare, and each hart's are its own)
+  assign pmp_busy = MT ? (psweep || |pdirty_q || |pchg_q) : (psweep || |pdirty_q[RUN_TID] || pchg_q[RUN_TID]);
   always_comb begin
     for (int t = 0; t < NT; t++) begin
       priv_h[t]     = h_q[t].priv;
@@ -365,7 +383,11 @@ module tg_csr
       for (int i = 0; i < NPMP; i++) pmp_p2m_h[t][i] = pal_top_q[t][i][1];
     end
   end
-  assign xepc_o    = {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0};
+  // An xRET's xepc: with hart 1 on port 1, so that port 0 serves the other thread's CSR read (a legal xRET is
+  // serial and alone at its thread's head, so no exception there needs port 1's vector meanwhile); without it
+  // on port 0 (nothing executes meanwhile)
+  assign xepc_o    = MT ? {cw_rd[1][63:2], cw_rd[1][1] && rh.misa_c, 1'b0}
+                        : {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0};
 
   // Trap targets: S's vector when delegated from S or U. An exception's target is its vector's
   // base, chosen by its cause, which can arrive late (the ROB head's TLB check); its thread is the
@@ -375,11 +397,11 @@ module tg_csr
   logic deleg, deleg_e, deleg_i;
   always_comb begin
     deleg_e = SU && h_q[wt].priv != PRIV_M && tr_code < 6'd20 && h_q[wt].medeleg[tr_code[4:0]];
-    deleg_i = SU && r.priv != PRIV_M && irq_code < 6'd12 && r.mideleg[irq_code[3:0]];
+    deleg_i = SU && rh.priv != PRIV_M && irq_code < 6'd12 && rh.mideleg[irq_code[3:0]];
     deleg   = tr_irq ? deleg_i : deleg_e;
   end
-  assign cw_ra[1]    = caddr(wt, {!deleg_e, CX_TVEC});
-  assign cw_ra[2]    = caddr(RUN_TID, {!deleg_i, CX_TVEC});
+  assign cw_ra[1]    = (MT && xret_v) ? caddr(ht, {!xret_s, CX_EPC}) : caddr(wt, {!deleg_e, CX_TVEC});
+  assign cw_ra[2]    = caddr(ht, {!deleg_i, CX_TVEC});
   assign trap_target = {cw_rd[1][63:2], 2'b00};
   assign irq_target  = {cw_rd[2][63:2], 2'b00} + (cw_rd[2][0] ? {56'b0, irq_code, 2'b00} : 64'd0);
 
@@ -387,52 +409,53 @@ module tg_csr
   logic [63:0] mstatus_rd, sstatus_rd, misa_rd;
   always_comb begin
     mstatus_rd = '0;
-    mstatus_rd[3]     = r.mie_bit;
-    mstatus_rd[7]     = r.mpie;
-    mstatus_rd[12:11] = r.mpp;
+    mstatus_rd[3]     = re.mie_bit;
+    mstatus_rd[7]     = re.mpie;
+    mstatus_rd[12:11] = re.mpp;
     if (SU) begin
-      mstatus_rd[1]     = r.sie_bit;
-      mstatus_rd[5]     = r.spie;
-      mstatus_rd[8]     = r.spp;
-      mstatus_rd[14:13] = r.fs;
-      mstatus_rd[17]    = r.mprv;
-      mstatus_rd[18]    = r.sum;
-      mstatus_rd[19]    = r.mxr;
-      mstatus_rd[20]    = r.tvm;
-      mstatus_rd[21]    = r.tw;
-      mstatus_rd[22]    = r.tsr;
+      mstatus_rd[1]     = re.sie_bit;
+      mstatus_rd[5]     = re.spie;
+      mstatus_rd[8]     = re.spp;
+      mstatus_rd[14:13] = re.fs;
+      mstatus_rd[17]    = re.mprv;
+      mstatus_rd[18]    = re.sum;
+      mstatus_rd[19]    = re.mxr;
+      mstatus_rd[20]    = re.tvm;
+      mstatus_rd[21]    = re.tw;
+      mstatus_rd[22]    = re.tsr;
       mstatus_rd[33:32] = 2'd2;                  // UXL
       mstatus_rd[35:34] = 2'd2;                  // SXL
-      mstatus_rd[63]    = r.fs == 2'd3;          // SD
+      mstatus_rd[63]    = re.fs == 2'd3;          // SD
     end
     sstatus_rd = '0;
-    sstatus_rd[1]     = r.sie_bit;
-    sstatus_rd[5]     = r.spie;
-    sstatus_rd[8]     = r.spp;
-    sstatus_rd[14:13] = r.fs;
-    sstatus_rd[18]    = r.sum;
-    sstatus_rd[19]    = r.mxr;
+    sstatus_rd[1]     = re.sie_bit;
+    sstatus_rd[5]     = re.spie;
+    sstatus_rd[8]     = re.spp;
+    sstatus_rd[14:13] = re.fs;
+    sstatus_rd[18]    = re.sum;
+    sstatus_rd[19]    = re.mxr;
     sstatus_rd[33:32] = 2'd2;
-    sstatus_rd[63]    = r.fs == 2'd3;
+    sstatus_rd[63]    = re.fs == 2'd3;
     misa_rd = '0;
     misa_rd[63:62] = 2'b10;
-    misa_rd[0]  = r.misa_a;
-    misa_rd[1]  = r.misa_b;
-    misa_rd[2]  = r.misa_c;
+    misa_rd[0]  = re.misa_a;
+    misa_rd[1]  = re.misa_b;
+    misa_rd[2]  = re.misa_c;
     misa_rd[8]  = 1'b1;                          // I
-    misa_rd[12] = r.misa_m;
-    misa_rd[3]  = r.misa_d;                      // D
-    misa_rd[5]  = r.misa_f;                      // F
+    misa_rd[12] = re.misa_m;
+    misa_rd[3]  = re.misa_d;                      // D
+    misa_rd[5]  = re.misa_f;                      // F
     misa_rd[18] = SU;                            // S
     misa_rd[20] = SU;                            // U
   end
 
-  // ---- Read and legality (the executing thread's: the running one until step 5) ----
+  // ---- Read and legality (the executing thread's: the running one without hart 1) ----
   logic [11:0] a;
   assign a = ex_pl.csr_addr;
   logic [63:0] cold_rd;                          // xepc reads as xepc_o
-  assign cw_ra[0] = xret_v ? caddr(RUN_TID, {!xret_s, CX_EPC}) : caddr(RUN_TID, {a[9], a[2:0]});
-  assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && r.misa_c, 1'b0} : cw_rd[0];
+  assign cw_ra[0] = MT ? caddr(et, {a[9], a[2:0]})
+                       : (xret_v ? caddr(RUN_TID, {!xret_s, CX_EPC}) : caddr(RUN_TID, {a[9], a[2:0]}));
+  assign cold_rd  = (a[2:0] == CX_EPC) ? {cw_rd[0][63:2], cw_rd[0][1] && re.misa_c, 1'b0} : cw_rd[0];
   logic        exists, deny;
   logic [63:0] rval, rval_w;                     // rval_w: the old value a csrrs/csrrc modifies
   always_comb begin
@@ -442,50 +465,50 @@ module tg_csr
     unique casez (a)
       12'h300: rval = mstatus_rd;
       12'h301: rval = misa_rd;
-      12'h304: rval = {52'b0, r.mie};
+      12'h304: rval = {52'b0, re.mie};
       12'h305, 12'h340, 12'h341, 12'h342, 12'h343: rval = cold_rd;
-      12'h320: rval = {32'b0, r.mcountinhibit};
-      12'h344: rval = {52'b0, mip[RUN_TID]};
+      12'h320: rval = {32'b0, re.mcountinhibit};
+      12'h344: rval = {52'b0, mip[et]};
       12'h7A0, 12'h7A1, 12'h7A2, 12'h7A3, 12'h7A4: rval = '0;
-      12'h7A8: rval = {51'b0, r.mcontext};
+      12'h7A8: rval = {51'b0, re.mcontext};
       // ---- F and D ----
-      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (r.fs == 2'd0) deny = 1'b1; end
-      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (r.fs == 2'd0) deny = 1'b1; end
+      12'h001: begin rval = {59'b0, fc_fflags}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
+      12'h002: begin rval = {61'b0, fc_frm}; exists = EXT_FD; if (re.fs == 2'd0) deny = 1'b1; end
       12'h003: begin
         rval = {56'b0, fc_frm, fc_fflags}; exists = EXT_FD;
-        if (r.fs == 2'd0) deny = 1'b1;
+        if (re.fs == 2'd0) deny = 1'b1;
       end
-      12'hB00: rval = mcycle_q[RUN_TID];
-      12'hB02: rval = minstret_q[RUN_TID];
-      12'hC00: rval = mcycle_q[RUN_TID];
+      12'hB00: rval = mcycle_q[et];
+      12'hB02: rval = minstret_q[et];
+      12'hC00: rval = mcycle_q[et];
       12'hC01: rval = mtime_q;
-      12'hC02: rval = minstret_q[RUN_TID];
+      12'hC02: rval = minstret_q[et];
       12'hF11, 12'hF12, 12'hF13, 12'hF15: rval = '0;
-      12'hF14: rval = hartid(RUN_TID);
+      12'hF14: rval = hartid(et);
       // ---- S and U (M3) ----
       12'h100: begin rval = sstatus_rd; exists = SU; end
-      12'h104: begin rval = {52'b0, r.mie & r.mideleg}; exists = SU; end
+      12'h104: begin rval = {52'b0, re.mie & re.mideleg}; exists = SU; end
       12'h105, 12'h140, 12'h141, 12'h142, 12'h143: begin rval = cold_rd; exists = SU; end
-      12'h106: begin rval = {32'b0, r.scounteren}; exists = SU; end
-      12'h10A: begin rval = {63'b0, r.senv_fiom}; exists = SU; end
-      12'h144: begin rval = {52'b0, mip[RUN_TID] & r.mideleg}; exists = SU; end
+      12'h106: begin rval = {32'b0, re.scounteren}; exists = SU; end
+      12'h10A: begin rval = {63'b0, re.senv_fiom}; exists = SU; end
+      12'h144: begin rval = {52'b0, mip[et] & re.mideleg}; exists = SU; end
       12'h14D: begin                                                 // stimecmp (Sstc)
-        rval = r.stimecmp; exists = SU;
-        if (r.priv != PRIV_M && !(r.menv_stce && r.mcounteren[1])) deny = 1'b1;
+        rval = re.stimecmp; exists = SU;
+        if (re.priv != PRIV_M && !(re.menv_stce && re.mcounteren[1])) deny = 1'b1;
       end
       12'h180: begin                                                 // satp
-        rval = {r.satp_mode, 3'b0, r.satp_asid, r.satp_ppn}; exists = SU;
-        if (r.priv == PRIV_S && r.tvm) deny = 1'b1;
+        rval = {re.satp_mode, 3'b0, re.satp_asid, re.satp_ppn}; exists = SU;
+        if (re.priv == PRIV_S && re.tvm) deny = 1'b1;
       end
-      12'h5A8: begin rval = {32'b0, r.scontext}; exists = SU; end
-      12'h302: begin rval = {44'b0, r.medeleg}; exists = SU; end
-      12'h303: begin rval = {52'b0, r.mideleg}; exists = SU; end
-      12'h306: begin rval = {32'b0, r.mcounteren}; exists = SU; end
-      12'h30A: begin rval = {r.menv_stce, 62'b0, r.menv_fiom}; exists = SU; end
+      12'h5A8: begin rval = {32'b0, re.scontext}; exists = SU; end
+      12'h302: begin rval = {44'b0, re.medeleg}; exists = SU; end
+      12'h303: begin rval = {52'b0, re.mideleg}; exists = SU; end
+      12'h306: begin rval = {32'b0, re.mcounteren}; exists = SU; end
+      12'h30A: begin rval = {re.menv_stce, 62'b0, re.menv_fiom}; exists = SU; end
       default: begin
         if (a >= 12'h3A0 && a <= 12'h3AF) begin                      // pmpcfg (even only)
           if (a[0]) exists = 1'b0;
-          else if (a == 12'h3A0) rval = r.pmpcfg[7:0];
+          else if (a == 12'h3A0) rval = re.pmpcfg[7:0];
           else if (a == 12'h3A2) rval = pcfg_hi;
           else rval = '0;
         end else if (a >= 12'h3B0 && a <= 12'h3EF) begin             // pmpaddr0-63
@@ -502,13 +525,13 @@ module tg_csr
     endcase
     // Counter enables below M (cycle, time, instret, hpmcounter*)
     if (SU && a >= 12'hC00 && a <= 12'hC1F) begin
-      if (r.priv != PRIV_M && !r.mcounteren[a[4:0]]) deny = 1'b1;
-      if (r.priv == PRIV_U && !r.scounteren[a[4:0]]) deny = 1'b1;
+      if (re.priv != PRIV_M && !re.mcounteren[a[4:0]]) deny = 1'b1;
+      if (re.priv == PRIV_U && !re.scounteren[a[4:0]]) deny = 1'b1;
     end
-    if (2'(r.priv) < a[9:8]) deny = 1'b1;
+    if (2'(re.priv) < a[9:8]) deny = 1'b1;
     // Spike's read_for_write: mip's SEIP is the software bit alone
     rval_w = rval;
-    if (a == 12'h344) rval_w[9] = SU && r.seip_sw;
+    if (a == 12'h344) rval_w[9] = SU && re.seip_sw;
   end
 
   // Write value and legality
@@ -546,7 +569,7 @@ module tg_csr
     cw_wd = pd & ~{62'b0, pa[2:0] == CX_TVEC, pa[2:0] == CX_EPC};
     if (psweep) begin
       cw_we = 1'b1;
-      cw_wa = caddr(RUN_TID, psw_q[3:0]);
+      cw_wa = caddr(swt, psw_q[3:0]);
       cw_wd = '0;
     end else if (ts_q != '0) begin
       cw_we = 1'b1;
@@ -556,20 +579,29 @@ module tg_csr
   end
 `ifndef SYNTHESIS
   always_ff @(posedge clk) begin
+    // (with hart 1 the other thread's commit waits for the trap's writes, cold_busy, and its CSR reads go to its
+    // own rows)
     if (!rst && (psweep || ts_q != '0))
-      assert (!tr_valid && !mret && !sret && !(cm_csr && pv) && !(ex_valid && !flush && cold_csr(a)))
+      assert (!tr_valid && !mret && !sret && !(cm_csr && pv) &&
+              !(ex_valid && !flush && cold_csr(a) && (!MT || psweep || et == ttid_q)))
         else $error("tg_csr: the cold CSRs are used while their sweep or a trap's writes run");
     if (!rst && xret_v)
-      assert (!(ex_valid && !flush)) else $error("tg_csr: a CSR instruction executes while an xRET is in flight");
+      assert (!(ex_valid && !flush && (!MT || et == ht)))
+        else $error("tg_csr: a CSR instruction executes while its thread's xRET is in flight");
   end
 `endif
+
+  // A trap's three cold-CSR writes take the LUTRAM's one write port in the cycles after it: the trapping thread's
+  // window is empty then (its flush), and with hart 1 the ROB holds the other's commit (a CSR write, a trap or an
+  // xRET would need the port or reorder the writes)
+  assign cold_busy = MT && ts_q != '0;
 
   // PMP writes flush the TLBs, which cache PMP results (Spike flushes on them too)
   assign pmp_wr  = cm_csr && pv && (pa == 12'h3A0 || pa == 12'h3A2 || (pa >= 12'h3B0 && pa <= 12'h3BF));
 
   // pmpaddr writes (entry i is locked by its own L, or by entry i + 1's L when that is TOR)
   // and the reset sweep
-  assign pa_ra[0] = paddr_(RUN_TID, a[PIW-1:0]);
+  assign pa_ra[0] = paddr_(et, a[PIW-1:0]);
   always_comb begin
     int i;
     i = int'(pa[PIW-1:0]);
@@ -581,7 +613,7 @@ module tg_csr
     pa_wd = pd[53:0];
     if (psweep) begin                    // Spike's reset: entry 0 allows everything
       pa_we = int'(psw_q[3:0]) < NPMP;   // (the sweep runs 16 cycles for the cold CSRs)
-      pa_wa = paddr_(RUN_TID, psw_q[PIW-1:0]);
+      pa_wa = paddr_(swt, psw_q[PIW-1:0]);
       pa_wd = (psw_q[3:0] == '0) ? '1 : '0;
     end
   end
@@ -633,7 +665,7 @@ module tg_csr
   // Until two threads run (M7's step 5), nothing of the other thread commits: its state stays at reset.
   // Checked from the core's first reset on: in the SoC the reset comes from a register, so the first
   // cycles may see it low before any reset
-  if (NT > 1) begin : g_one_thread
+  if (NT > 1 && !MT) begin : g_one_thread
     logic rs_q;
     initial rs_q = 1'b0;
     always @(posedge clk) if (rst) rs_q <= 1'b1;
@@ -763,7 +795,8 @@ module tg_csr
       for (int t = 0; t < NT; t++) h_q[t] <= hart_reset();
       psw_q     <= '0;
       pdirty_q  <= '0;
-      pdirty_q[RUN_TID] <= '1;            // the running thread's descriptors, after its sweep
+      pdirty_q[RUN_TID] <= '1;            // the running thread's descriptors, after its sweep (with hart 1 both)
+      if (MT) pdirty_q <= '1;
       pchg_q    <= '0;
       pw_v_q    <= '0;
       // The other thread's pending write is never set until two threads run (step 5), but commit reads it by the
@@ -781,12 +814,12 @@ module tg_csr
       for (int t = 0; t < NT; t++) pchg_q[t] <= pcalc && pt == tid_t'(t);
       if (pcalc) pdirty_q[pt][pj] <= 1'b0;
 
-      // Execute: hold the write until commit (the executing thread's: the running one until step 5)
+      // Execute: hold the write until commit (the executing thread's: the running one without hart 1)
       if (flush) pw_v_q[ft] <= 1'b0;
-      else if (ex_valid) begin
-        pw_v_q[RUN_TID] <= !ex_ill && ex_pl.csr_wr;
-        pw_a_q[RUN_TID] <= a;
-        pw_d_q[RUN_TID] <= wval;
+      if (ex_valid && !(flush && (!MT || et == ft))) begin   // (with hart 1 the other thread's flush spares it)
+        pw_v_q[et] <= !ex_ill && ex_pl.csr_wr;
+        pw_a_q[et] <= a;
+        pw_d_q[et] <= wval;
       end
 
       // Commit of the CSR instruction: it leaves the pending write; PMP writes mark their entries
@@ -812,6 +845,6 @@ module tg_csr
   end
 
   logic unused;
-  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], r.menv_fiom, r.senv_fiom, r.ssip, r.stip_sw, cw_rd[1][1:0],
+  assign unused = ^{ex_pl, cm_pc[63:2], cm_pc[0], r, re.menv_fiom, re.senv_fiom, re.ssip, re.stip_sw, rh, cw_rd[1][1:0],
                     cw_rd[2][1], pcfg[6:5]};
 endmodule
