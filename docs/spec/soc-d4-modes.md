@@ -173,6 +173,33 @@ stage C in RISC-V mode on the same bitstream. About 3% of that is the SD1 watch.
   | only `ev2shared` and `pingpong` | the coherence path. With one bitstream, look for what interrupts the cores, in the idle window |
   | none of the tests, while RISC-V mode's idle window shows CPU time or interrupts that stage C's doesn't | something running in RISC-V mode, named in those lines |
 
+**Found (10-21, the board's memgap and ps-memregs on d4r2, the watch stopped; means of three runs):**
+
+| Test | Stage C | RISC-V mode | Change |
+|---|---|---|---|
+| `wr1k` (a 1 KiB store loop in L1) | 461.1 MiB/s | 352.2 MiB/s | **−23.6%** |
+| `rdtime` | 204.6 ns | 225.3 ns | **+10.1%** |
+| `clock` (`clock_gettime`) | 984.4 ns | 1078.4 ns | +9.5% |
+| `ev1` (sysbench memory's event, one thread) | 5,411 ns | 6,369 ns | +17.7% |
+| `wr1m`, `wr16m`, `chase64m` (DDR) | 181.5 MiB/s, 181.9 MiB/s, 696.8 ns | 182.7, 182.2, 698.5 | the same |
+| `chase16k` (L1 load latency) | 31.0 ns | 31.4 ns | +1.3% |
+
+- **Not the DDR path:** `ps-memregs` matched in all 81 registers (bar `AFI_FS`, which both modes set to `0x800`), and the DDR tests are equal.
+- **Not background load:** RISC-V mode was the quieter one, 99.4–99.8% idle against 97–98%.
+- **The cause: a PMP region smaller than a page.**
+  - RISC-V mode's tree gave the reset syscon only `RESET_CTRL`'s 4 bytes, and OpenSBI gives a reset syscon a PMP region of that size. Its banner showed it: `Domain0 Region02 : 0xff5e0218-0xff5e021f`. Stage C's tree has no such region, and all of its regions are whole pages or larger.
+  - The core caches a page's PMP result in its TLB entry. For 4K and 1G pages it trusts one flag for all pages of that size (`tg_csr`'s `pmp_al`). Any active region smaller than a page clears that flag (`tg_ptw`: "OpenSBI's regions are 4K-aligned").
+  - So in RISC-V mode no 4K page cached its PMP result. Every store took the extra PMP check at STA, and every fetch redirect the fetch-side check: the store loop, the serialising CSR reads and `clock_gettime` slowed; load latency and DDR didn't.
+  - The cached path has existed since 10-15, so d4s2 had the same cause. The gap grew as each build sped up the cached path (the store prefetch in d4r1, M7's steps in d4r2) while RISC-V mode stayed on the slow one.
+- **The fix, in `sw/dts`:** the reset syscon spans `RESET_CTRL`'s whole 4 KiB page (`syscon@ff5e0000`, with the reboot and poweroff offsets at `0x218`). The PS window still passes that word alone.
+  - OpenSBI's region is now `0xff5e0000-0xff5e0fff`: checked on QEMU with the board's `fw_jump.bin`, the old tree giving the board's 8-byte region and the new one the page.
+  - Only RISC-V mode's tree changes (`tanager.dtb` on `p1`). The bitstream, OpenSBI, U-Boot and `riscv.scr` stay.
+- **The board's check:**
+  - OpenSBI's banner shows the region as a page.
+  - `memgap`'s `wr1k`, `rdtime`, `clock` and `ev1` come out at stage C's figures, and sysbench memory's gap closes.
+  - `reboot` and `poweroff` still reset the board: the same register, now at offset `0x218`.
+- **A follow-up for the core (core-2's choice):** a 4K leaf could get the per-page check the walker already makes for 2M leaves. Then a small device region elsewhere wouldn't cost every page its cached result.
+
 ## What stays from before
 
 - part A's DKMS modules (Debian needs them either way);

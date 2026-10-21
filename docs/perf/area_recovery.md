@@ -2173,6 +2173,99 @@ Parked with the rest (tuning comes last, DR-155); the numbers for when it is tak
 **Learned:** a lever that shortens the cycles to /init can still lose the board's measure. Check where the saved cycles
 fall against the kernel's clock before reporting a boot gain.
 
+### 6.19 rtl_m2 revision 10: filter C on main f9600313, and the pair set's alone runs (2026-10-21)
+
+*The coordinator asked (10-20): the alone-run differences §13.14 found (minver 1.346 on the RTL against 1.738 in the model, Dhrystone 1.548 against 1.420) belong in rtl_m2's calibration. Main had also gained fpu-2's filter C (bc379636) and core-2's steps 5a and 5b behind HART1.*
+
+*Method:*
+- *Main f9600313's smt2 tg_vsim: one thread, the whole window, HART1 off.*
+- *The 18 calibration ELFs at native and 120 (`scripts/rtlcal.py`), and the final pair set's 26 alone images at 30.*
+- *Builds of 61a1f8de (5a, before filter C) and bc379636 (filter C, before 5b), to split the changes.*
+- *Commit-trace refills against the model's mispredicts (`scripts/rtl_mpcmp.py`).*
+
+**What moved on main since revision 9's check (c06345bf):**
+- **5a and 5b,** behind HART1 and off here: cycle-identical on all 36 runs.
+- **Filter C:**
+  - crc32 −7.8 / −6.8%;
+  - memcpy **+4.9 / +6.0%**, slower on the smt2 build (fpu-2 measured −1.65% on st);
+  - ud −1.1%, minver −1.3%, the rest within 0.6%.
+- **So revision 9 drifted:** crc32 went to +15.0%, memcpy to −23.9 / −9.9%, and the mean to 5.61% / 6.31%.
+
+**Revision 10 is revision 9 plus the filter** (`spec_filter` 1: a 2-bit count per hash of an integer load's PC, as `tg_issue`'s, trained on each load's outcome in M2):
+
+| Program | RTL IPC (30 / 120) | Model IPC (30 / 120) | Error, revision 10 | Revision 9 on f9600313 |
+|---|---|---|---|---|
+| CoreMark A, rv64gc | 1.517 / 1.507 | 1.542 / 1.538 | −1.6 / −2.0% | −1.6 / −1.9% |
+| CoreMark A, rv64im | 1.542 / 1.538 | 1.563 / 1.557 | −1.3 / −1.3% | −1.3 / −1.2% |
+| CoreMark B, rv64gc | 1.515 / 1.510 | 1.532 / 1.528 | −1.1 / −1.2% | −1.0 / −1.0% |
+| CoreMark B, rv64im | 1.514 / 1.508 | 1.527 / 1.522 | −0.9 / −1.0% | −0.8 / −0.9% |
+| Dhrystone, rv64gc | 1.593 / 1.577 | 1.591 / 1.579 | +0.1 / −0.1% | **+14.9 / +14.5%** |
+| Dhrystone, rv64im | 1.414 / 1.396 | 1.517 / 1.499 | −6.8 / −6.9% | −6.8 / −6.9% |
+| Embench crc32 | 1.465 / 1.465 | 1.593 / 1.593 | −8.0 / −8.0% | **+15.0 / +15.0%** |
+| Embench edn | 1.676 / 1.676 | 1.777 / 1.777 | −5.7 / −5.7% | −5.7 / −5.7% |
+| Embench huffbench | 1.246 / 1.242 | 1.274 / 1.274 | −2.2 / −2.4% | −2.2 / −2.4% |
+| Embench matmult-int | 1.967 / 1.967 | 1.968 / 1.968 | −0.1 / −0.1% | −0.1 / −0.1% |
+| Embench minver | 1.812 / 1.812 | 1.815 / 1.815 | −0.2 / −0.2% | +0.6 / +0.6% |
+| Embench nsichneu | 1.375 / 1.375 | 1.373 / 1.373 | +0.2 / +0.2% | +0.2 / +0.2% |
+| Embench statemate | 1.068 / 1.067 | 1.085 / 1.085 | −1.6 / −1.6% | −1.6 / −1.6% |
+| Embench ud | 1.845 / 1.845 | 1.913 / 1.913 | −3.5 / −3.5% | −3.9 / −3.9% |
+| tk_bigcode | 0.496 / 0.166 | 0.514 / 0.195 | −3.6 / **−14.9%** | −3.6 / **−14.9%** |
+| Pointer chase, 1 chain, 0.5 MiB | 0.064 / 0.022 | 0.063 / 0.022 | +2.1 / +0.7% | +2.1 / +0.7% |
+| memcpy, 0.5 MiB | 0.499 / 0.215 | 0.686 / 0.267 | **−27.3 / −19.3%** | **−23.9** / −9.9% |
+| Hash lookups, 0.5 MiB | 0.454 / 0.265 | 0.393 / 0.201 | **+15.5 / +32.1%** | **+15.9 / +32.3%** |
+| **Mean error (absolute)** | | | **4.54% / 5.61%** | 5.61% / 6.31% |
+| **Outside 10%** | | | 2 / 3 | 4 / 4 |
+
+*A positive error is the model slower. Revision 10 from the preset gives the cycles of `--set spec_filter=1` exactly (36 of 36). With the switch off, tgsim is identical to 8ad0acc0's (15 runs on tanager_v1, rtl_m2 and step-5 pairs).*
+
+**What it shows:**
+- **Dhrystone rv64gc's 14% gap was the model's cancel cost.**
+  - The filter barely moved the RTL's Dhrystone (−0.2%), but it moves the model's by 12.9%, after which the two match (+0.1%).
+  - The model's shadow cancel kills every integer issue for three cycles, and that overcharged Dhrystone's store-wait loads against the RTL's own cancels. The filter, now in both, stops those cancels.
+- **crc32 crosses over, inside 10%:** from +15.0% to −8.0%.
+- **memcpy moves the wrong way.** The filter makes the RTL's copy 5–6% slower and the model's 4–10% faster, so memcpy at 120 joins 30 outside 10% (−19.3%). It joins §6.15's watch list beside copy at short latency.
+
+**minver's pair-set build: an RTL front-end pathology at a straddling branch.**
+- **The two builds diverge only in the RTL.** On the whole window it runs the pair set's minver (linked at slot 0) at 1.528, against 1.788 for the calibration build of the same code. The model runs both at 1.81–1.88.
+  - At step 5's half window the RTL's run falls to 1.346, against the model's 1.738. The half costs the RTL 12% and the model 6%.
+- **The RTL's commit trace shows 1,236 refills, where the model has 19 mispredicts.** Two branches take 1,120 of them:
+  - **`beq a4, a5` at 0x801003de** is 4 bytes at the last halfword of its 16-byte fetch block, so it straddles into the next. A third of its outcomes are taken, and 559 of those 1,668 refill.
+  - **`c.beqz a1` at 0x801003ea,** in that next block, is the inner loop's exit. Every not-taken outcome refills: 556 of 556.
+  - **In the calibration build** the same branches don't straddle and refill 9 and 2 times.
+- **The likely cause:** the front end's handling of a straddling branch in a block that holds another branch, perhaps the history bit or the slot the straddler trains TAGE-lite with.
+  - The ~1,100 extra refills at about 12.5 cycles each come to ~14K of the build's 45K extra cycles. The rest is not yet explained.
+  - **For core-2** (the front end): the reproducer is the final set's `img/alone-embench_minver-s0.elf` on main's smt2 build, PCs 0x801003de and 0x801003ea.
+
+**The pair set's other alone runs** (30 cycles, IPC, slot 0: main's RTL on the whole window against revision 10 on the merged window):
+
+| Program | RTL | Model | | Program | RTL | Model |
+|---|---|---|---|---|---|---|
+| ms_gather | 0.533 | 0.537 | | coremark_A | 1.478 | 1.503 |
+| ms_stride | 0.529 | 0.508 | | dhrystone | **1.656** | **1.452** |
+| ms_spmv | 0.709 | 0.737 | | embench_nsichneu | 1.313 | 1.307 |
+| ms_hashprobe | 0.414 | 0.352 | | embench_huffbench | 1.203 | 1.256 |
+| ms_chase8 | 0.116 | 0.116 | | embench_minver | **1.528** | **1.878** |
+| ms_stream | 1.290 | 1.599 | | embench_matmult-int | 1.963 | 1.971 |
+| ms_copy | 0.499 | 0.686 | | | | |
+
+- **copy, stream and hashprobe** are §6.15's known items (copy and stream at short latency, hashprobe's wrong-path misses).
+- **minver** is the straddler above.
+- **The pair set's Dhrystone is a separate gap.** Its model runs 12% slow, while the calibration build now matches (+0.1%), so the filter doesn't explain this one.
+  - **Not the replays:** ordering replays cost both sides about the same, the model 25.3K cycles over 4,218 replays and the RTL about 25.5K in commit gaps after ordinary instructions.
+  - **Not the mispredicts:** the model mispredicts one return 254 times in 3,000, which the RTL never does, but that is only about 4K cycles.
+  - **What's left (about 47K cycles):** the model's dispatch waits on an empty decode queue (0.042 cycles an instruction against the calibration build's 0.019) and on issue-queue slot banks (0.086 against 0.065).
+  - The RTL's logs carry no counters for those, so this waits for RTL front-end and dispatch counters (core-2's new ones, or `scripts/rtlprof`'s probes in a scratch build).
+  - **Closed on verif-2's second final set (10-21, smt2_report.md §13.12):** it was the model's response to that build's layout.
+    - In the first set the model met 4,218 memory-ordering violations and 15,000 straddle overrides. In the second it meets 738 and 3, and runs Dhrystone 3.1% over the RTL.
+    - The RTL moved 2%.
+    - In the second set stream's loop branch straddles instead, and the RTL loses three times what the model does there.
+
+**Decisions:** revision 10 is mine (the model as built). The straddler case is core-2's to take or leave, through the coordinator.
+
+**Learned:**
+- **A layout-specific predictor pathology shows only in the binary that has the layout.** The pair set's slot builds were a second layout of the calibration programs, and that is how this one surfaced. Calibration should run more than one layout of a program.
+- **A model mechanism can be wrong and still match once both sides turn it off.** The model's speculative-wakeup cancel overcharged Dhrystone by 13% until the filter removed those cancels in both.
+
 ---
 
 ## 7. The fit (Part 4), from the measured RTL (AR-7)
@@ -2514,6 +2607,7 @@ python3 perfmodel/scripts/area_fit.py --cfg smt2_w3 --uncore-cfg smt2 --core <ru
 | 2 | **Release builds without the latency injectors** (a pass-through instead of `tg_axi_lat_inj` per L2 bank) | uncore (SoC) | **1,293** (measured in the chip), and 556 FFs and 4 BRAM36 | none at native latency: a miss is a few cycles faster without the injector's buffering (so not cycle-identical). Release builds lose latency emulation and its native-latency counts; development builds keep them, as with DR-121's trace | low: a build switch | low | user (function) |
 | 3 | The D$ tags in block RAM (T3), read with the virtual index at AG | LSU (core-2) | ≈1,280 (640 LUTRAM a core) | none, with a bypass for a tag written between AG and M1 | high: three read ports, so copies, ≈15 BRAM36 a chip of the 23 free | medium | coordinator |
 | 4 | Execute's operand ports in URAM (DR-133, revived) | execute (FPU track) | ≈1,190 (−597 a core, measured then), +24 URAM | none | medium: the switch is on `claude/track-fpu-395911-dr133-gate3` | **high:** at 200 MHz its issue → URAM path measured ≈9.8 ns, 7–8 ns of it wire to the single URAM column. At 100 MHz with the 1 ns over-constraint it would still miss | — (not proposed) |
+| 4a | The second return-address stack (M7's step 5b) as one LUTRAM with the tid as an address bit, the two pointer sets kept (tuning phase, DR-155; the coordinator, 10-20) | fetch (core-2) | ≈400 (≈0.2K a core: step 5b's second `tg_ras` measured 309 with hart 1) | none: fetch makes one push or pop a cycle (one block's exit), commit's go to the committing thread | low | low | coordinator |
 | | **2. Function, or small IPC** | | | | | | |
 | 5 | **PMP with 8 entries instead of 16:** entries 8–15 are read-only zero (every PMP CSR field is WARL and may be read-only zero; software probes the count), Spike runs with `--pmpregions=8` | fetch, LSU, CSRs (core-2) | **2,710 now** (3 checkers a core, measured), 1,152 FFs (the descriptor registers), **and ≈1.7K of hart 1's area at M7**: its per-hart descriptor select halves too (≈0.86K a core of [hart1_ram_form.md](hart1_ram_form.md)'s 1.7K) | IPC none. Function: 8 PMP regions. Our boot uses 6: OpenSBI's Domain0 has firmware RW, firmware RX, UART, ACLINT, PLIC and the all-memory region (`Region00`–`05`); Linux uses none | low: a parameter, the CSR's read-only-zero entries, the harness's Spike flag | low | user (function, > 1,200) |
 | 6 | One checker for the LD and STA pipes (DR-139 gave STA's checker to the walker already). The DTLB's cached result (`ph`) covers translated pages, and M-mode with no locked entry needs no check, so on Linux the checker is almost never wanted twice in a cycle | LSU (core-2) | 1,780 (one 891 checker a core), or 900 after #5 | ≈0 on Linux: a wait only for untranslated S/U accesses, pages crossing a PMP boundary and M-mode with locked entries. Not cycle-identical | medium: an arbiter and the bypass | medium | user (> 1,200) or coordinator (after #5) |

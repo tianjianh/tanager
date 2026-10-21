@@ -151,7 +151,9 @@ struct SqEntry {
 #define TG_LEVER_STATS(X)   X(rf_port_conflicts) X(dec_slot_stops) X(alu3_steer_stalls) X(disp_stall_bank) X(disp_stall_wtag)
 // M7's register lists (reported with prf_split or flush_walk): registers taken from the sibling's list, flush walks
 // and the dispatch cycles they stalled.
-#define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved)
+#define TG_M7_STATS(X) X(prf_xfers) X(flush_walks) X(disp_stall_walk) X(prf_xbanks) X(prf_starved) \
+  X(rn_held) X(rn_blocked) X(rn_room_skips) X(rn_held_rob) X(rn_held_lq) X(rn_held_sq) X(rn_held_reg) X(rn_held_iq) \
+  X(rn_held_other)
 
 struct Stats {
 #define TG_SDECL(n) uint64_t n = 0;
@@ -197,6 +199,8 @@ class Core {
     // front end
     uint64_t fetch_seq = 0, fe_resume = 0;
     bool fe_blocked = false;
+    bool wfi_pending = false;      // wfi_sleep: a WFI dispatched and not yet committed; nothing younger dispatches
+    uint64_t wfi_until = 0;        // wfi_sleep: asleep until this cycle
     std::deque<FetchRec> fetchq;
     Ras ras;
     Hist ghr;
@@ -276,6 +280,12 @@ class Core {
   int decode_take(Thread& T, int slots);
   void dispatch();
   void dispatch_thread(Thread& T, int& n, int& row);
+  // smt_rn_one / smt_rn_room: the RTL's one RN stage, and decode's room check on flags a cycle late
+  struct Room { int64_t rob = 0, lq = 0, sq = 0; int64_t regs[6] = {}; int64_t iq[NQ][2] = {}; };
+  void dispatch_rn(const int* o, int& n, int& row);
+  Room room_now(Thread& T);
+  bool group_fits(const Thread& T, const Room& r) const;
+  int64_t window_room(int64_t size, uint64_t own, uint64_t total, int tid) const;
   void issue();
   void commit();
   int commit_thread(Thread& T, int width);
@@ -311,6 +321,10 @@ class Core {
   // multithreading
   void order(int* o, bool fetch_stage) const;  // thread priority this cycle (ICOUNT or round robin)
   uint64_t icount(const Thread& T) const;
+  uint64_t icount_rows(const Thread& T) const;   // smt_fetch 2: the issue-queue rows the thread holds
+  mutable uint64_t icnt_now_[MAX_THREADS] = {}, icnt_late_[MAX_THREADS] = {}, icnt_t_ = ~0ull;  // smt_fetch 2, 3
+  bool parked(int tid) const;                     // wfi_sleep: asleep in WFI with an empty window
+  bool sib_group_needs(const Thread& S, uint8_t q, int k) const;   // smt_iq_cap_bank 4
   int64_t iq_cap(uint8_t q) const;
   int64_t iq_free(uint8_t q, int tid) const;  // entries thread tid may still take in queue q
   int iq_occ(uint8_t q, int tid) const;     // entries of queue q held by thread tid
@@ -330,8 +344,11 @@ class Core {
   std::array<std::array<bool, 2>, 2> steer_flags_{{{true, true}, {true, true}}}, bf_prev_{{{true, true}, {true, true}}};
   void steer(Uop& u) const;
   // dc_row_clash: loads at their AG cycle (the D$ row they read), checked against the store drain's row writes
-  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; };
+  struct AgRec { uint64_t ag, issue, id, blk; bool spec; bool done = false; int ph = -1; };  // ph: spec_filter's
   std::vector<AgRec> ag_recs_;
+  // spec_filter (the RTL's filter C): a 2-bit count per hash of an integer load's PC (bits 15:1, three 5-bit fields)
+  std::array<uint8_t, 32> swfilt_{};
+  static int swf_hash(uint64_t pc) { return (int)(((pc >> 1) ^ (pc >> 6) ^ (pc >> 11)) & 31); }
   void row_clash(Thread& T, uint64_t addr);
   void clash_hit(Thread& T, Uop& u, uint64_t issue, bool spec);
   int bank_need(const Thread& T, const Uop& u) const;
@@ -383,6 +400,9 @@ class Core {
   bool take_register(int bank, int tid);
   // lone_sleep (D2): 0 merged, 1 draining for a split, 2 halves with the sibling awake, 3 halves with it in WFI
   int lone_phase_ = 0;
+  int rn_holder_ = -1;                          // smt_rn_one: the thread whose stalled group holds RN (-1: none)
+  int commit_tid_ = -1;                         // smt_commit_rr: this cycle's commit thread, chosen the cycle before
+  Room room_prev_[MAX_THREADS], room_cur_[MAX_THREADS];   // smt_rn_room: room at the cycle before's rename, this one's
   uint64_t lone_next_ = 0, lone_t0_ = 0;
   uint64_t ctrace_from_ = 0, ctrace_to_ = 0;  // TGSIM_CTRACE=FROM:TO: each retired uop's timing, on stderr
   std::vector<std::pair<uint64_t, int>> bttrace_;  // TGSIM_BTTRACE=BLK:SLOT,...: TAGE reads and updates there

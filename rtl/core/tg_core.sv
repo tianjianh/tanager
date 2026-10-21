@@ -94,10 +94,15 @@ module tg_core
   if (HART1_ON && TID_W == 0) begin : g_bad_hart1
     $error("tg_core: HART1_ON needs an SMT2 configuration (TID_W = 1)");
   end
+  // Hart 1 runs (M7's step 5c): CSR reads by the executing thread, interrupts and the trace's mode by the commit
+  // head's; without it every such select is the running thread's
+  localparam bit MT = HART1_ON && NUM_THREADS > 1;
   localparam int CW  = COMMIT_WIDTH;
   localparam int NCW = idx_w(CW + 1);
 
-  // ---- Reset sequence: zero x0..x31's initial registers (bank 0, indices 0..31) ----
+  // ---- Reset sequence: zero x0..x31's initial registers (bank 0, indices 0..31) and f0..f31's (F0); with hart 1
+  // (M7's step 5c) its homes too in the same 32 cycles: x1-x16 in bank 1 (tg_exec's port 1), x17-x31 in the load
+  // bank and f0-f31 in F1 (the LSU's result register's ports) ----
   logic [5:0] init_q;
   logic       init_done;
   assign init_done = init_q[5];
@@ -126,7 +131,8 @@ module tg_core
   logic [NUM_THREADS-1:0][2:0] frm_h;                 // each hart's (tg_fcsr)
   dec_state_t [NUM_THREADS-1:0] dst_csr;               // each hart's decode state from tg_csr (its frm: frm_h)
   // fcsr (tg_fcsr, EXT_FD; instantiated with P4 below)
-  logic [4:0] fc_fflags;
+  logic [4:0] fc_fflags;                              // the CSR read's thread's flags and mode (tg_csr)
+  logic [2:0] fc_frm;
   logic       fc_wvalid;
   logic [NUM_THREADS-1:0] fs_dirty;   // per hart
   logic [1:0] fc_waddr;
@@ -177,7 +183,7 @@ module tg_core
   logic [NUM_THREADS-1:0][38:1]        ras_top_t;
   logic [NUM_THREADS-1:0][RAS_PW-1:0]  ras_tos_t;
   logic [NUM_THREADS-1:0][RAS_PW:0]    ras_cnt_t;
-  tid_t                    fras_tid;                          // fetch's operation's or repair's thread
+  tid_t                    fras_tid, fras_rtid;               // fetch's operation's thread, its repair's
   logic                    fras_push, fras_pop, fras_rv, fras_rwr;
   logic [38:1]             fras_link, fras_rtop;
   logic [RAS_PW-1:0]       fras_rtos;
@@ -249,6 +255,7 @@ module tg_core
   // (declared ahead of u_fetch, which takes it: a name a port uses before its declaration is a new, undriven
   // implicit net in Vivado, Synth 8-11241, while Verilator resolves it)
   dec_state_t [NUM_THREADS-1:0] de_state_h;
+  logic [NUM_THREADS-1:0]        rn_blk;      // (MT) the threads behind a serial uop at rename (tg_rename's, for fetch)
   always_comb
     for (int t = 0; t < NUM_THREADS; t++) begin
       de_state_h[t]     = dst_csr[t];
@@ -270,11 +277,13 @@ module tg_core
     .c_cbr(cm_cbr), .c_taken(cm_ctaken), .c_pred(cm_cpred), .c_ftq(cm_cftq), .c_slot(cm_cslot),
     .c_hv(cm_hv), .c_hftq(cm_hftq), .c_tid(cm_tid[0]),
     .ras_v_s(ras_v_t), .ras_top_s(ras_top_t), .ras_tos_s(ras_tos_t), .ras_cnt_s(ras_cnt_t), .ras_tid(fras_tid),
+    .ras_rtid(fras_rtid),
     .ras_push(fras_push), .ras_pop(fras_pop), .ras_link(fras_link),
     .ras_rv(fras_rv), .ras_rwr(fras_rwr), .ras_rtos(fras_rtos), .ras_rcnt(fras_rcnt), .ras_rtop(fras_rtop),
     .upd_valid, .upd_way, .upd_pc, .upd_slot, .upd_target, .upd_inval, .upd_tid,
     .iq_valid, .iq_insn, .iq_take,
-    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .tlb_flush, .tlb_flush_tid,
+    .xl_h(xl_f_q), .dst(de_state_h), .priv_h(priv_f_q), .pmp_d_h, .pmp_busy, .rn_block(rn_blk), .tlb_flush,
+    .tlb_flush_tid,
     .it_fill, .it_fill_vpn, .it_fill_lvl, .it_fill_pte, .it_fill_tid,
     .iw_req, .iw_va, .iw_tid, .iw_ack, .iw_done, .iw_ok, .iw_cause,
     .l1i_a_o, .l1i_a_valid_o, .l1i_a_ready_i, .l1i_d_i, .l1i_d_valid_i, .l1i_d_ready_o);
@@ -297,9 +306,10 @@ module tg_core
     logic [RNS-1:0][38:1]        rt;
     logic [RNS-1:0][RAS_PW-1:0]  rtos;
     logic [RNS-1:0][RAS_PW:0]    rcnt;
-    logic de_s, fr_s, cm_s, fl_s;                                 // decode's, fetch's, commit's, the flush's stack
+    logic de_s, fr_s, rr_s, cm_s, fl_s;   // decode's, fetch's operation's and repair's, commit's, the flush's stack
     assign de_s = RMT && (RAS_FE ? iq_insn[0].tid[0] : de_uop[0].tid[0]);
     assign fr_s = RMT && fras_tid[0];
+    assign rr_s = RMT && fras_rtid[0];
     assign cm_s = RMT && cm_tid[0][0];
     assign fl_s = RMT && flush_tid[0];
     logic dr_s;                                                    // decode's operations' stack (RAS_DEC)
@@ -308,7 +318,7 @@ module tg_core
       logic       sf, sp, sq, sr;
       assign sf = flush && fl_s == 1'(s);
       assign sp = RAS_FE ? fr_s == 1'(s) : dr_s == 1'(s);
-      assign sr = RAS_FE && fras_rv && fr_s == 1'(s);
+      assign sr = RAS_FE && fras_rv && rr_s == 1'(s);
       assign sq = cm_s == 1'(s);
       if (s == 0) begin : g_t0
         tg_ras #(.NE(RAS_ENTRIES), .CW(COMMIT_WIDTH), .LATE(RAS_FE)) u_ras (
@@ -344,7 +354,7 @@ module tg_core
     assign ras_cnt_t = '0;
     logic unused_ras;                   // no operation is ever decoded or committed without it
     assign unused_ras = ^{ras_push, ras_pop, ras_link, cm_ras_push, cm_ras_pop, cm_ras_link, fras_push, fras_pop,
-                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid};
+                          fras_link, fras_rv, fras_rwr, fras_rtos, fras_rcnt, fras_rtop, fras_tid, fras_rtid};
   end
 
   // ---- Rename and dispatch ----
@@ -361,7 +371,7 @@ module tg_core
   logic [LLT_ENTRIES-1:0]           llt_rel, llt_done_x, llt_done_l;
   logic [IQ_TAGS-1:0]               tag_free;
   logic                             div_done;
-  tid_t                             div_done_tid;   // M7 step 5: rename's divide count per thread (5c)
+  tid_t                             div_done_tid;   // its thread (rename's per-thread shares, hart 1)
   logic [CW-1:0]                    cm_valid, cm_rd_en;
   logic [CW-1:0][4:0]               cm_rd;
   preg_t [CW-1:0]                   cm_dst, cm_old;
@@ -371,6 +381,7 @@ module tg_core
   logic [1:0]                       fp_we;
   logic [1:0][FPIDX_W-1:0]          fp_widx;
   logic                             fdiv_iss, fpi_iss, fdiv_done, fpi_pop;
+  tid_t                             fp_iss_tid;     // the FP issue's thread (rename's per-thread shares, hart 1)
   logic                             fp_misc_block;
   // FP loads and FP store data between the LSU and P4
   logic                             fld_m2_will, fld_valid, sd_busy;
@@ -417,11 +428,11 @@ module tg_core
   logic                             rn_ready;
   tg_rename u_rn (
     .clk, .rst, .ready(rn_ready), .start(init_done && fe_ready && lsu_ready), .flush, .flush_tid,
-    .de_valid, .de_uop, .de_take,
+    .de_valid, .de_uop, .de_take, .blk_o(rn_blk),
     .rob_head(rob_head_t), .lq_head(lq_head_t), .sq_head(sq_head_t), .sq_cmt(sq_cmt_t), .iq_bank_free,
     .iq_bank_free2, .w_vec, .busy(iq_busy),
-    .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done,
-    .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fdiv_done, .fpi_pop,
+    .rf_we, .rf_widx, .llt_rel, .tag_free, .div_done, .div_done_tid,
+    .fp_we, .fp_widx, .fdiv_iss, .fpi_iss, .fp_iss_tid, .fdiv_done, .fpi_pop,
     .cm_tid(cm_tid[0]), .cm_valid, .cm_rd_en, .cm_rd, .cm_dst, .cm_old, .cm_rd_fp,
     .ds_fire, .ds_valid, .ds_uop, .ds_ren, .iq_we, .iq_dep, .iq_pl, .iq_mdep, .mx_hold,
     .mx_alloc, .wid_alloc,
@@ -507,11 +518,16 @@ module tg_core
   // the ROB holds commit at the replayed load, where the mark would have stopped it: cycle-
   // identical (the load cannot reach the head sooner, as the store that found it completes in the
   // cycle of its search at the earliest).
+  // A flush drops the reports registered in its cycle that are its thread's: with hart 1 the other thread's stay
+  // (as the ROB's own drop, rdrop), or that thread's entry never completes (M7 step 5c).
+  function automatic logic rpt_drop(robid_t e);
+    return flush && (!MT || rob_tid(e) == flush_tid);
+  endfunction
   logic [1:0]       st_cmp_r;
   robid_t [1:0]     st_cmp_rob_r;
   if (ROB_STORE_REPORT_LATE) begin : g_store_late
     always_ff @(posedge clk) begin
-      st_cmp_r     <= (rst || flush) ? '0 : st_cmp;
+      for (int i = 0; i < 2; i++) st_cmp_r[i] <= !rst && st_cmp[i] && !rpt_drop(st_cmp_rob[i]);
       st_cmp_rob_r <= st_cmp_rob;
     end
   end else begin : g_store_now
@@ -533,7 +549,7 @@ module tg_core
   // fault decision leaves the ROB's exception register. A fault is taken only at the head, so the
   // cycle costs about nothing (random +0.03%).
   always_ff @(posedge clk) begin
-    lx_valid_q <= (rst || flush) ? '0 : lx_valid;
+    for (int i = 0; i < 4; i++) lx_valid_q[i] <= !rst && lx_valid[i] && !rpt_drop(lx_rob[i]);
     lx_rob_q   <= lx_rob;
     lx_cause_q <= lx_cause;
   end
@@ -556,7 +572,8 @@ module tg_core
   // does not run, in cycles with no flush: in PCT% of them and in every one in which the running thread's MMIO read
   // is out (tg_lsu's x_out). The LSU and its walker hold nothing of that thread, so the run must be the same but for
   // its cycles (lockstep, tg_vsim's one bus read per MMIO load, tg_lsu's checks): step 4's per-thread kills tested
-  // before a second thread runs (step 5). The counts go to stderr at the end.
+  // before a second thread runs. Not with hart 1 (HART1_ON), which runs from step 5c. The counts go to stderr at
+  // the end.
   logic lsu_flush;
   tid_t lsu_flush_tid;
 `ifdef SYNTHESIS
@@ -577,6 +594,7 @@ module tg_core
   initial begin
     xf_on = $value$plusargs("xflush=%d", xf_pct);
     if (xf_on && !SPLIT) $fatal(1, "tg_core: +xflush needs a split build (SPLIT=1)");
+    if (xf_on && MT) $fatal(1, "tg_core: +xflush flushes the thread that does not run: not with hart 1 (HART1_ON)");
   end
   assign xf_inj        = xf_on && !rst && !flush && (xf_r_q % 100 < xf_pct || u_lsu.x_out);
   assign lsu_flush     = flush || xf_inj;
@@ -596,7 +614,8 @@ module tg_core
             ~RUN_TID, xf_nx);
 `endif
   tg_lsu u_lsu (
-    .clk, .rst, .ready(lsu_ready), .flush(lsu_flush), .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
+    .clk, .rst, .ready(lsu_ready), .init_we(!init_done), .init_idx(init_q[4:0]), .flush(lsu_flush),
+    .flush_tid(lsu_flush_tid), .ds_fire, .ds_valid, .ds_uop,
     .ds_ren,
     .lq_head_o(lq_head_t), .sq_head_o(sq_head_t), .sq_cmt_o(sq_cmt_t),
     .ld_ag_valid, .ld_ag_pl, .ld_ag_addr, .sta_ag_valid, .sta_ag_pl, .sta_ag_addr, .ld_block,
@@ -622,20 +641,25 @@ module tg_core
     .dbg_o(lsu_dbg));
 
   // ---- CSRs ----
-  logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake;
+  logic             cm_csr, tr_valid, mret, sret, irq_take, wfi_wake, csr_cold_busy;
+  logic [NUM_THREADS-1:0] wfi_wake_h;           // each hart's WFI wake (the ROB's turns with hart 1)
+  priv_e            priv_cm;                    // the commit head's thread's mode (the trace's records)
   logic [NCW-1:0]   cm_n;
   logic [5:0]       tr_code, irq_code;
   logic [63:0]      tr_epc, tr_tval, trap_target, irq_target, xepc;
   logic             xret_v, xret_s;
   assign rsv_clr = tr_valid || mret || sret;
+  assign priv_cm = MT ? priv_h[rob_hd_tid] : priv;
   tg_csr #(.CORE_ID(CORE_ID)) u_csr (
     .clk, .rst, .flush, .flush_tid, .ex_valid(csr_ex_valid), .ex_pl(csr_ex_pl), .ex_src(csr_ex_src),
     .ex_rdata(csr_ex_rdata), .ex_ill(csr_ex_ill),
-    .cm_tid0(cm_tid[0]), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .misa_m, .misa_b,
-    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm(frm), .fc_wvalid, .fc_waddr,
+    .cm_tid0(cm_tid[0]), .hd_tid(rob_hd_tid), .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret,
+    .sret,
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc_o(xepc), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
+    .misa_m, .misa_b,
+    .misa_c, .misa_a, .misa_f, .misa_d, .fs, .fc_fflags, .fc_frm, .fc_wvalid, .fc_waddr,
     .fc_wdata, .fs_dirty, .cm_pc(tr_epc), .priv, .tvm, .tw, .tsr, .satp_sv39,
-    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
+    .satp_asid, .satp_wr, .pmp_d, .pmp_wr, .pmp_busy, .cold_busy(csr_cold_busy), .dst_h(dst_csr), .priv_h, .priv_d_h, .sum_h, .mxr_h, .sv39_h, .satp_ppn_h,
     .pmp_d_h, .pmp_al_h, .pmp_p2m_h,
     .irq_mei(irq_mei_i), .irq_mti(irq_mti_i), .irq_msi(irq_msi_i), .irq_sei(irq_sei_i),
     .irq_ssi(irq_ssi_i), .mtime(mtime_i));
@@ -667,8 +691,8 @@ module tg_core
     .cm_nld, .cm_nst, .tr_sq, .tr_st_wr, .tr_st_va,
     .tr_st_data, .tr_st_size, .tr_lq, .tr_ld_va, .tr_ld_size, .tr_tag, .tr_data,
     .cm_csr, .cm_n, .tr_valid, .tr_irq, .tr_code, .tr_epc, .tr_tval, .mret, .sret, .sfence,
-    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv, .irq_take, .irq_code, .wfi_wake,
-    .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
+    .trap_target, .irq_target, .xret_v, .xret_s, .xepc, .priv(priv_cm), .irq_take, .irq_code, .wfi_wake, .wfi_wake_h,
+    .csr_hold(csr_cold_busy), .flush, .flush_tid, .flush_pc, .icinv, .trace_o, .trace_valid_o);
 
   // ---- Unused in M2 ----
   assign merr_o           = '0;
@@ -689,6 +713,7 @@ module tg_core
                      fp_int: iss_pl[Q_FP].fp_int, fp_div: iss_pl[Q_FP].fp_div};
     assign fdiv_iss = iss_valid[Q_FP] && iss_pl[Q_FP].fp_div;
     assign fpi_iss  = iss_valid[Q_FP] && iss_pl[Q_FP].fp_int;
+    assign fp_iss_tid = iss_pl[Q_FP].tid;
     logic f0_we;
     logic [FPIDX_W-1:0] f0_widx;
     tid_t       p4_cmp_tid, p4_er_tid;
@@ -719,21 +744,27 @@ module tg_core
     assign fpi_dst    = p4_fpi.dst;
     assign fpi_data   = p4_fpi.data;
     assign fpi_fflags = p4_fpi.fflags;
-    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec)
+    // An F0 result's wakeup tag returns 2 cycles after its write, as a MUL's (tg_exec). A flush drops its thread's
+    // returns in flight (rename's flush returns that thread's tags); with hart 1 the other thread's go on, else a
+    // sibling's flush lost them and the tags ran out (a hart parked in WFI flushes at each timeout)
     logic [1:0]              ptf_v_q;
     logic [1:0][WTAG_W-1:0]  ptf_id_q;
+    tid_t                    ptf_t_q;          // the first stage's thread (the second's frees this cycle)
     always_ff @(posedge clk) begin
-      if (rst || flush) ptf_v_q <= '0;
-      else              ptf_v_q <= {ptf_v_q[0], p4_cmp && int'(p4_cmp_wid) < IQ_TAGS};
+      if (rst || (flush && !MT)) ptf_v_q <= '0;
+      else ptf_v_q <= {ptf_v_q[0] && !(flush && ptf_t_q == flush_tid),
+                       p4_cmp && int'(p4_cmp_wid) < IQ_TAGS && !(flush && p4_cmp_tid == flush_tid)};
       ptf_id_q <= {ptf_id_q[0], p4_cmp_wid[WTAG_W-1:0]};
+      ptf_t_q  <= p4_cmp_tid;
     end
     always_comb begin
       tag_free_p4 = '0;
       if (ptf_v_q[1]) tag_free_p4[ptf_id_q[1]] = 1'b1;
     end
     // fcsr: per hart (tg_fcsr). The flags of each retiring FP op go to its thread; a CSR instruction
-    // reads at execute and writes at commit, alone at the head (slot 0). Until M7's step 5 one thread
-    // runs (RUN_TID), so frm is that thread's; FS-dirty goes to each hart's mstatus (tg_csr).
+    // reads at execute (the executing thread's with hart 1, else the running thread's) and writes at
+    // commit, alone at the head (slot 0); frm is the running thread's, frm_h each hart's (decode);
+    // FS-dirty goes to each hart's mstatus (tg_csr).
     logic [CW-1:0] cm_fpr;
     for (genvar j = 0; j < CW; j++) begin : g_cf
       assign cm_fpr[j] = cm_valid[j] && cm_rd_en[j] && cm_rd_fp[j];
@@ -741,12 +772,13 @@ module tg_core
     logic [NUM_THREADS-1:0][2:0] frm_t;
     logic [NUM_THREADS-1:0]      fs_dirty_t, er_busy_t;
     tg_fcsr u_fcsr (
-      .clk, .rst, .frm_o(frm_t), .csr_rtid(RUN_TID), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
+      .clk, .rst, .frm_o(frm_t), .csr_rtid(MT ? csr_ex_pl.tid : RUN_TID), .csr_fflags(fc_fflags), .csr_frm(fc_frm_rd),
       .csr_wvalid(fc_wvalid), .csr_wtid(cm_tid[0]), .csr_waddr(fc_waddr), .csr_wdata(fc_wdata),
       .cm_valid, .cm_tid, .cm_fflags, .cm_fpr,
       .er_ret_valid(1'b0), .er_ret_tid('0), .er_valid(1'b0), .er_tid('0), .er_fflags('0),
       .er_busy(er_busy_t), .fs_dirty(fs_dirty_t));
     assign frm      = frm_t[RUN_TID];
+    assign fc_frm   = MT ? fc_frm_rd : frm_t[RUN_TID];   // (tg_fcsr's read: the executing thread's with hart 1)
     assign frm_h    = frm_t;
     assign fs_dirty = fs_dirty_t;
     logic unused;
@@ -755,6 +787,7 @@ module tg_core
   end else begin : g_nop4
     assign fdiv_iss      = 1'b0;
     assign fpi_iss       = 1'b0;
+    assign fp_iss_tid    = '0;
     assign fp_misc_block = 1'b0;
     assign isrc_valid    = 1'b0;
     assign isrc_tag      = '0;
@@ -782,6 +815,7 @@ module tg_core
     assign frm           = '0;
     assign frm_h         = '0;
     assign fc_fflags     = '0;
+    assign fc_frm        = '0;
     assign fs_dirty      = '0;
     logic unused;
     assign unused = ^{fld_m2_will, fld_m2_idx, fld_valid, fld_idx, fld_data, fsd_tag,
@@ -790,8 +824,7 @@ module tg_core
 
   logic unused;
   assign unused = ^{debug_req_i, rob_tail_t,
-                    st_dropped, satp_asid,        // the TLBs flush on satp changes: no ASID tags
-                    div_done_tid};                // (M7 step 5: rename's divide count in 5c)
+                    st_dropped, satp_asid};       // the TLBs flush on satp changes: no ASID tags
   // Board debug (DBG_WORD): the status word, the allocation logs and the select, a register
   if (DBG_WORD) begin : g_dbg
     logic [31:0] dbg_q;

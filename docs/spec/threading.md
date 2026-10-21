@@ -38,28 +38,37 @@ half (half 1 with `SOLO_TID=1`), so the halves' arithmetic is tested under locks
 window is half. The registers are not split by it: the free lists' division and hart 1's homes (D3, D4) come with two
 threads at step 5, after D3's revision (core-pipeline.md §5.4).
 
+**With hart 1 (`HART1_ON`, `make ... HART1=1`, from step 5c)** both threads fetch from reset and lockstep checks both
+harts' records (tg_vsim's Spike has a hart per thread). The tests' entry code parks hart 1: riscv-tests' `-p`
+environment spins it in a `bnez` loop, their `-v` environment runs `coherence_torture` on it (random AMOs and loads
+beside hart 0's test), verif-2's directed tests and benchmarks park it in WFI (`TG_PARK_HARTS`, the `crt0`s), and
+`tg_rand` and `gen_coh` by `mhartid`. `tests/isa/directed/hart1_init.S` checks every integer home starts at zero on
+both harts. A hart parked in WFI costs its sibling nothing measurable (core-pipeline.md §8.4, §5.4, §3.5).
+
 ## What is per thread, by unit
 
 | Unit | Per thread now | M7 step that adds the rest |
 |---|---|---|
-| Fetch | with hart 1 (5b): a stream per thread (F1's next block, parks, stops, straddlers), the stage tids, redirects per stream, the instruction queue per thread, F1's translation, privilege and PMP by its hart, the walk's thread, the round-robin choice (core-pipeline.md §3.5) | 5c: hart 1 fetches from reset; 7: ICOUNT |
+| Fetch | with hart 1 (5b, 5c): a stream per thread (F1's next block, parks, stops, straddlers), the stage tids, redirects per stream, the instruction queue per thread, F1's translation, privilege and PMP by its hart, the walk's thread, the round-robin choice; both streams from reset; a thread waiting at rename behind a serial uop is not fetched and its blocks go; one line's two streams' misses refill it once (core-pipeline.md §3.5) | 7: ICOUNT |
 | Predictors | with hart 1 (5b): the micro-BTB looked up by F1's thread and trained by the trained branch's; TAGE's histories and FTQ per stream, its hashes with the stream; a return-address stack per thread | — |
 | Decode | with hart 1 (5b): its group's hart's state; one thread's group a cycle | — |
-| Rename | maps (a tid address bit) and renamed-since-flush bits; free lists in RAM form (D3); the ROB, LQ and SQ tails and room checks; the serialisation block; the flush of the RN and DS stages; the tags' and LLTs' return; the free lists' division (`SPLIT_L`) and hart 1's homes (`HSPLIT`), built and off (core-pipeline.md §5.4) | 5a (`HART1_ON`): the division and homes on, with D3's transfers; 5c: the FP banks of 96, the divide and FP counts per thread, the homes zeroed |
+| Rename | maps (a tid address bit) and renamed-since-flush bits; free lists in RAM form (D3); the ROB, LQ and SQ tails and room checks; the serialisation block; the flush of the RN and DS stages; the tags' and LLTs' return; with hart 1 the lists' division, hart 1's homes and D3's transfers (5a), the FP banks of 96 (5a), each thread's share of the divide and FP counts, the homes zeroed at reset, a blocked thread's group dropped from RN (5c) (core-pipeline.md §5.4) | 7: the caps |
 | Issue | each row's tid; the kill (`flush_tid`); the cap's room (`room_q`, not yet applied); the speculative wakeup's drop | 7: the caps at dispatch; with fpu-2: the tid in every payload |
-| Exec | — | with fpu-2: the stages' kill |
+| Exec | the stages' kill by thread (fpu-2); with hart 1 bank 1's port writes hart 1's homes' zeros at reset (5c, fpu-2's file) | — |
 | P4 (FPU) | its stages, shadow pipelines, divide table and result queue | — |
 | fcsr | frm, fflags and the early-retire counter (per hart); the flags go to the retiring op's thread | — |
-| CSRs | every hart's architectural state: hot state, cold rows and `pmpaddr` (a tid address bit), PMP descriptors, interrupt lines, timer compare, pending write, counters; writes to the committing thread (`cm_tid[0]`); the flushed thread's pending write dropped; reads and outputs the running thread's (`RUN_TID`), except each hart's privilege, SUM, MXR, satp and PMP state, out to the LSU and the walker (D6) (core-pipeline.md §9.6) | 5: reads by each consumer's thread |
-| LSU, MMU | the LQ's and SQ's pointers; the split mode's halves: the pointers', the drain's next head's and the head mask's wrap, a flush's drop; TLB entries tagged by thread, flushed per hart; each access's translation and PMP by its thread; the walk's thread; the searches inside a thread; the replays' and the drain's turns (D8); the head checks, the MMIO load, `sq_drained` and `mmio_busy` by the ROB's commit thread; an atomic slot per thread and a reservation per hart; each stage's flush by its operation's thread (core-lsu.md, core-mmu.md) | 5: fetch's walks and ITLB lookups by fetch's thread; the split mode on with hart 1 |
-| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`); the head, tail and xRET bits; the split mode's halves; the commit thread choice (one thread a cycle, D7), out to the LSU's head checks (`hd_tid_o`); each thread's exception, mispredict and WFI state (core-pipeline.md §8.4) | 5: interrupts per hart (until then only the running thread's commit takes one) |
+| CSRs | every hart's architectural state: hot state, cold rows and `pmpaddr` (a tid address bit), PMP descriptors, interrupt lines, timer compare, pending write, counters; writes to the committing thread (`cm_tid[0]`); the flushed thread's pending write dropped; each hart's privilege, SUM, MXR, satp and PMP state out to the LSU and the walker (D6) and fetch and decode (5b); with hart 1 (5c) the CSR read by the executing thread, interrupts, WFI's wake and an xRET's xepc by the commit head's, both harts' reset sweep, each hart's counters loaded from its own write (core-pipeline.md §9.6) | — |
+| LSU, MMU | the LQ's and SQ's pointers; the split mode's halves: the pointers', the drain's next head's and the head mask's wrap, a flush's drop; TLB entries tagged by thread, flushed per hart; each access's translation and PMP by its thread; the walk's thread; the searches inside a thread; the replays' and the drain's turns (D8); the head checks, the MMIO load, `sq_drained` and `mmio_busy` by the ROB's commit thread; an atomic slot per thread and a reservation per hart; each stage's flush by its operation's thread; fetch's walks and ITLB lookups by fetch's thread and the split mode on with hart 1 (5b); with hart 1 (5c) the MMIO request's source its hart and the store-data capture waiting for the other thread's atomic's write (core-lsu.md, core-mmu.md) | — |
+| ROB | `flush_tid` (the flushing instruction's tid); the retiring slots' tids (`cm_tid`); the head, tail and xRET bits; the split mode's halves; the commit thread choice (one thread a cycle, D7), out to the LSU's head checks (`hd_tid_o`); each thread's exception, mispredict and WFI state; with hart 1 (5c) interrupts at either thread's head, a flush dropping only its thread's reports, commit held while a trap's CSR writes run, no turns for a thread waiting in WFI (core-pipeline.md §8.4) | 6: SMT-off's merge |
 | Trace | the hart field from each record's tid (tid ^ `SOLO_TID`) | 2: the load address (`mem_ld`, after interfaces.md v1.5) |
 
 ## The thread choice (D7, refined 10-20)
-- **Fetch** picks a thread a cycle: round robin first, then ICOUNT (step 5).
+- **Fetch** picks a thread a cycle: round robin first (5b), then ICOUNT (step 7). A thread waiting at rename behind a
+  serial uop is not picked (5c).
 - **Decode, rename and commit** take one thread's group a cycle: the first-served thread alternates, and an idle thread is
-  skipped. Commit's choice is made a cycle ahead, so the head window is still read from flip-flops (core-pipeline.md
-  §8.4).
+  skipped; so is a thread behind a serial uop at decode and rename, and one whose head is a WFI still waiting at
+  commit (5c). Commit's choice is made a cycle ahead, so the head window is still read from flip-flops
+  (core-pipeline.md §8.4).
 - **Mixed groups** (a thread taking the slots its sibling leaves, D7 as first written) come only if the model shows them
   gaining 1% or more weighted throughput (DR-154's rule): they cost a second head window's reads (the payload and each
   flag table) at commit, and both threads' free-list pops and a tid in the dependency checks at rename. smt2-study prices
