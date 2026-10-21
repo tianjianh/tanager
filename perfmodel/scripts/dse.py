@@ -185,7 +185,9 @@ SUITE_VERSION = 2
 # 5: straddlers decoded with their second block, the micro-BTB trained in the way that predicted (§6.7); 6: ALU ops
 # steered at rename from the queues' flags of the cycle before (§6.8); 7: DR-169's levers (the store address on its
 # base, steering that counts the dispatch stage's group), the store-wait cancel and the drain's cycle (§6.9).
-PRESET_REV = {"rtl_m2": 7}
+# 8: the as-built recheck on main c6676bd5 (§6.15): the store ownership prefetch as the RTL (STORE_PF, DR-171: an entry
+# only while another stays free) and the I$ next-line prefetch with its second refill engine (IPF_ON).
+PRESET_REV = {"rtl_m2": 8}
 
 
 def key(isa, preset, sets):

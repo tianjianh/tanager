@@ -1060,6 +1060,7 @@ module tg_lsu
   // slots, an OR encode beside them, serve the capture's writes and reports
   logic                  cap_v, cap_fp;
   logic [SIW-1:0]        cap_idx, cap_ia, cap_if;
+  logic [SQ_ENTRIES-1:0] sq_dvn;                 // the entries with data by the next cycle: now, or captured now
   logic [SQ_ENTRIES-1:0] cap_ea, cap_ef;
 `ifndef SYNTHESIS
   logic [SQ_ENTRIES-1:0] ca_s, cf_s;      // the candidate sets, for the choices' check
@@ -1087,6 +1088,10 @@ module tg_lsu
     ca_s    = ca;
     cf_s    = cf;
 `endif
+  end
+  always_comb begin                               // (sq_dvn: an L_STQ load's replay may start on the capture)
+    sq_dvn = sq_dv_q;
+    if (cap_v) sq_dvn[cap_idx] = 1'b1;
   end
 
   // ================= STA =================
@@ -1784,8 +1789,13 @@ module tg_lsu
                                        lq_wany_q[i] ? m_wake_any : m_done[lq_we_q[i]]))
             lq_st_q[i] <= L_READY;
           if (lq_st_q[i] == L_STQ) begin
+            // ... also on the store's data capture itself, a cycle before sq_dv_q: the replay then enters AG ahead
+            // of the store's drain (it completes on the capture, commits the next cycle and drains the one after).
+            // With sq_dv_q alone the replay's AG met the drain's D$ write to its row: a clash, O_RETRY and a second
+            // replay (crc32's loop, the store completing as the ROB head: 12 cycles from its data's producer to the
+            // load's dependant instead of 8)
             if (!sq_live(lq_blk_q[i], sq_head_q[lq_tid(i)], sq_tail_q[lq_tid(i)]) ||
-                (!lq_part_q[i] && sq_dv_q[lq_blk_q[i][SIW-1:0]]))
+                (!lq_part_q[i] && sq_dvn[lq_blk_q[i][SIW-1:0]]))
               lq_st_q[i] <= L_READY;
           end
         end

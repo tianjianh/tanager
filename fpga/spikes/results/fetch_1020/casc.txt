@@ -1,0 +1,17 @@
+== tg_prim_casc_top: two 2K x 36 tg_ram_tdp, routed at 10 ns
+u_c0 g_c[0].u_c (CASCADE_HEIGHT 0): 2 RAMB36E2
+    gen_wr_a.gen_word_narrow.mem_reg_bram_0 {A FIRST, 36 bits; B FIRST, 36 bits}
+    gen_wr_a.gen_word_narrow.mem_reg_bram_1 {A LAST, 36 bits; B LAST, 36 bits}
+  port a: read delay 1.790 ns (the slowest bit: Prop_RAMB36E2_RAMB36_CLKBWRCLK_CASDOUTB 1.654, Prop_RAMB36E2_RAMB36_CASDINB[0]_DOUTBDOUT 0.136); worst path slack 7.560, wire 0.703
+  port b: read delay 1.806 ns (the slowest bit: Prop_RAMB36E2_RAMB36_CLKARDCLK_CASDOUTA 1.670, Prop_RAMB36E2_RAMB36_CASDINA[0]_DOUTADOUT 0.136); worst path slack 7.477, wire 0.773
+u_c1 g_c[1].u_c (CASCADE_HEIGHT 1): 2 RAMB36E2
+    gen_wr_a.gen_word_narrow.mem_reg_bram_0 {A NONE, 18 bits; B NONE, 18 bits}
+    gen_wr_a.gen_word_narrow.mem_reg_bram_1 {A NONE, 18 bits; B NONE, 18 bits}
+  port a: read delay 1.388 ns (the slowest bit: Prop_RAMB36E2_RAMB36_CLKBWRCLK_DOUTBDOUT 1.388); worst path slack 7.870, wire 0.730
+  port b: read delay 1.403 ns (the slowest bit: Prop_RAMB36E2_RAMB36_CLKARDCLK_DOUTADOUT 1.403); worst path slack 7.929, wire 0.706
+port a: CASCADE_HEIGHT 1 reads 0.402 ns faster
+port b: CASCADE_HEIGHT 1 reads 0.403 ns faster
+PRIM_OK g_c[0].u_c tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_OK g_c[1].u_c tg_ram_tdp {2^11 x 36, tdp} expected {RAMB36_equiv 2.0} found {RAMB36E2 2}
+PRIM_SUMMARY instances 2 fail 0 warn 0 stray 0
+CASC_PASS

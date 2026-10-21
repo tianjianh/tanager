@@ -80,7 +80,7 @@ endmodule
 
 module xpm_memory_tdpram #(
   parameter ADDR_WIDTH_A = 6, parameter ADDR_WIDTH_B = 6, parameter BYTE_WRITE_WIDTH_A = 32,
-  parameter BYTE_WRITE_WIDTH_B = 32, parameter CLOCKING_MODE = "common_clock",
+  parameter BYTE_WRITE_WIDTH_B = 32, parameter CASCADE_HEIGHT = 0, parameter CLOCKING_MODE = "common_clock",
   parameter MEMORY_INIT_FILE = "none", parameter MEMORY_PRIMITIVE = "auto", parameter MEMORY_SIZE = 2048,
   parameter READ_DATA_WIDTH_A = 32, parameter READ_DATA_WIDTH_B = 32, parameter READ_LATENCY_A = 2,
   parameter READ_LATENCY_B = 2, parameter USE_MEM_INIT = 1, parameter WRITE_DATA_WIDTH_A = 32,
