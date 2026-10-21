@@ -1745,6 +1745,9 @@ module tg_fetch
     if (MT && (!f1v_n || stop_s_q[ft_n] || blk_s[ft_n])) begin
       o = !ft_n;
       if (sv_n[o] && !blk_s[o]) begin
+        if (f1v_n && blk_s[ft_n] && !stop_s_q[ft_n]) begin   // (as above: the blocked stream keeps its PC)
+          sv_n[ft_n] = 1'b1; spc_n[ft_n] = fpc_n;
+        end
         f1v_n = 1'b1; fpc_n = spc_n[o]; ft_n = o; sv_n[o] = 1'b0; pw_n = 1'b0;
       end else if (!f1v_n && sv_n[ft_n] && !blk_s[ft_n]) begin
         f1v_n = 1'b1; fpc_n = spc_n[ft_n]; sv_n[ft_n] = 1'b0; pw_n = 1'b0;
@@ -1757,6 +1760,10 @@ module tg_fetch
     for (int t = 0; t < NS; t++) begin
       if (red_s[t]) begin
         if (!MT || !f1v_n || (!f1r && (ft_n == 1'(t) || stop_s_q[ft_n] || blk_s[ft_n] || red_s[ft_n]))) begin
+          // (step 6) a blocked stream's block keeps its PC: a sleeping thread resumes there when it wakes
+          if (MT && f1v_n && ft_n != 1'(t) && blk_s[ft_n] && !stop_s_q[ft_n] && !red_s[ft_n]) begin
+            sv_n[ft_n] = 1'b1; spc_n[ft_n] = fpc_n;
+          end
           f1v_n = 1'b1; fpc_n = red_pc_s[t]; ft_n = 1'(t); pw_n = 1'b0; f1r = 1'b1;
           sv_n[t] = 1'b0;
         end else begin
