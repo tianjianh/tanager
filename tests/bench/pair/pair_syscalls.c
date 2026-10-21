@@ -57,9 +57,18 @@ static void putu(uint64_t v) {
   while (n) putc_(b[--n]);
 }
 
+/* One hart prints at a time: the first to finish prints PAIR-STOP while the last prints the results, and their
+   characters would interleave (a same-program pair's two regions end within cycles of each other). */
+static void print_lock(void) {
+  while (__atomic_exchange_n(&SH->print_lock, 1, __ATOMIC_ACQUIRE)) {
+  }
+}
+static void print_unlock(void) { __atomic_store_n(&SH->print_lock, 0, __ATOMIC_RELEASE); }
+
 /* The end of the measurement: every slot's first region, then tohost (1: pass, or the failure's code). */
 static void finish(uint64_t code) {
   int s;
+  print_lock();   /* held to the end: nothing prints after */
   for (s = 0; s < 2; s++) {
     volatile struct pair_slot *p = &SH->s[s];
     if (!p->stopped) continue;
@@ -96,9 +105,11 @@ void tg_pair_mark(unsigned v) {
     p->i1 = rd_instret();
     p->stopped = 1;
     if (__atomic_add_fetch(&SH->done, 1, __ATOMIC_SEQ_CST) == SH->active) finish(1);
+    print_lock();
     puts_("PAIR-STOP slot=");   /* the first to finish: names the slot left running if the run then hangs */
     putu((uint64_t)s);
     puts_("\n");
+    print_unlock();
   }
 }
 
