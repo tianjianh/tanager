@@ -1,0 +1,20 @@
+loaded tanager-d4s2 at 13:06:20; fpga0 operating
+fan: pwm1 16/255, AMS temp1 36 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+d4s2 run 1: exit 124, 6 MEMCAL lines, 1 END
+d4s2 run 2: exit 124, 6 MEMCAL lines, 1 END
+loaded tanager-d4r1 at 13:07:06; fpga0 operating
+fan: pwm1 25/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+d4r1 run 1: exit 124, 6 MEMCAL lines, 1 END
+d4r1 run 2: exit 124, 6 MEMCAL lines, 1 END
+loaded tanager-d4r2 at 13:07:51; fpga0 operating
+fan: pwm1 18/255, AMS temp1 35 C, fancontrol active
+pl0_ref (pl_clk0): 99999999 Hz
+d4r2 run 1: exit 124, 6 MEMCAL lines, 1 END
+d4r2 run 2: exit 124, 6 MEMCAL lines, 1 END
+remove from slot 0 returns: 0 (Ok)
+k26-starter-kits: Loaded with slot_handle 0
+k26-starter-kits loaded at 13:08:36
+fan: pwm1 29/255, AMS temp1 36 C, fancontrol active
+memcal runs done at 13:08:36
